@@ -153,7 +153,7 @@ u16 next_hop(u32 clock)
 		d);
 	/* hop selection */
 	next_channel = bank[(perm + e + f + y2) % NUM_BREDR_CHANNELS];
-	if(afh_enabled) {
+	if(afh_enabled && used_channels >= 20) { /* dont divide by 0 */
 		f_dash = base_f % used_channels;
 		next_channel = afh_bank[(perm + e + f_dash + y2) % used_channels];
 	}
