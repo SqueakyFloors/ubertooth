@@ -140,6 +140,8 @@ uint8_t hop_basic(uint32_t clk)
 {
 	uint8_t clk1, sel;
 
+	uint8_t safe_chan_count = (hop_state.chan_count > 0) ? hop_state.chan_count : 79;
+
 	// Same-channel mechanism for AFH (FIXME: is this correct ?)
 	if (hop_state.afh_enabled)
 		clk1 = 0;
@@ -155,9 +157,9 @@ uint8_t hop_basic(uint32_t clk)
 		hop_state.C^(0x1f&(clk>>16)),		// C = A8,6,4,2,0 ^ clk20_16
 		hop_state.a18_10^(0x1ff&(clk>>7)),	// D = a18_10 ^ clk15_7
 		hop_state.E,				// E = A13,11,9,7,5,3,1
-		((clk>>(7-4))&(0x1fffff<<4))%hop_state.chan_count	// F = 16*clk27_7 % 79
+		((clk>>(7-4))&(0x1fffff<<4))% safe_chan_count	// F = 16*clk27_7 % 79
 		);
-	return hop_state.bank[sel%hop_state.chan_count];
+	return hop_state.bank[sel % safe_chan_count];
 }
 
 uint8_t hop_channel(uint32_t clk)
