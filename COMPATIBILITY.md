@@ -41,11 +41,13 @@ This fork targets modern distributions and does **not** support Ubuntu 18.04 or
 older. We will not verify or maintain compatibility with that era's toolchain
 (CMake 3.10, Python 3.6, GCC 7.x).
 
-Users on Ubuntu 18.04 should use the **upstream `2020-12-R1` release**, which
-was built for that era. A maintainer of this fork has run that release on
-Ubuntu 18.04 for years in regular use, so the common workflows are known to work
-there; that is the known-good path for 18.04 — not this fork.
-<https://github.com/greatscottgadgets/ubertooth/releases/tag/2020-12-R1>
+Users on Ubuntu 18.04 should use the **`2020-12-R1` legacy release**, which was
+built for that era. A maintainer of this fork has run that release on Ubuntu
+18.04 for years in regular use, so the common workflows are known to work there;
+that is the known-good path for 18.04 — not this fork's current branch. It is
+mirrored on this fork (unmodified upstream code, provided as-is) for convenience:
+<https://github.com/SqueakyFloors/ubertooth/releases/tag/2020-12-R1>
+(original: <https://github.com/greatscottgadgets/ubertooth/releases/tag/2020-12-R1>)
 
 > Note: this reflects first-hand use of the *upstream* release on 18.04 for a
 > maintainer's typical workflow, not exhaustive feature testing, and not any
