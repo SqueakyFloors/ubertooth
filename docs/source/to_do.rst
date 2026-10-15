@@ -2,6 +2,15 @@
 ToDo List
 =========
 
+.. note::
+
+   This is the historical **upstream** project wishlist, inherited with the
+   fork. It is aspirational and is **not** a commitment or roadmap for this
+   fork. For this fork's actual tracked work, see the GitHub issue tracker,
+   ``COMPATIBILITY.md`` (support matrix), and ``TEST_LAB.md`` (test strategy).
+   Obsolete items (e.g. GR-Bluetooth migration, Windows via libusbx/WICD) have
+   been removed.
+
 PCAP
 ~~~~
 
@@ -18,9 +27,9 @@ PCAP
 Basic rate / libbtbb
 ~~~~~~~~~~~~~~~~~~~~
 
-* Better handling of AFH maps when trying clock values. The code currently makes the assumption that AFH is enabled but all channels are in use.
+* Better handling of AFH maps when trying clock values. The code currently makes the assumption that AFH is enabled but all channels are in use. (See also the AFH ``FIXME`` in ``firmware/btbr/src/btphy/hop.c``.)
 
-* Detect syncword on Ubertooth for known piconets
+* Detect syncword on Ubertooth for known piconets.
 
 * Make logging configurable - possibly combine text based logging, file dumps and pcap writing in to one logging system.
 
@@ -33,27 +42,12 @@ Releases
 
 * More frequent releases - requires better testing of code in git and separation of half-implemented features. This is more about process than an actionable todo item.
 
-* DONE: Add uninstall to Makefile.
-
-* Add WICD headers to support windows users (requires switch to libusbx).
-
-
-
-GR-Bluetooth
-~~~~~~~~~~~~
-
-* Finish migration to libbtbb.
-
-* Add BTLE support.
-
-* General performance improvements (there must be some!).
-
 
 
 Bigger / more vague projects
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-* Transmit basic rate packets - inquiry scan to start with.
+* Transmit basic rate packets - inquiry scan to start with. (Note: ``ubertooth-tx`` is currently non-functional.)
 
 * Implement full BTLE device in firmware.
 

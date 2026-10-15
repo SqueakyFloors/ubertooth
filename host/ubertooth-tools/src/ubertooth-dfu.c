@@ -49,7 +49,10 @@ static int check_suffix(FILE* signedfile, DFU_suffix* suffix) {
 	fseek(signedfile, 0, SEEK_END);
 	data_length = ftell(signedfile) - 4; // Ignore 4 byte CRC
 	fseek(signedfile, -16, SEEK_END); // Start of SFU suffix
-	fread(suffix, 1, 16, signedfile);
+	if (fread(suffix, 1, 16, signedfile) != 16) {
+		fprintf(stderr, "Error: could not read 16-byte DFU suffix (file truncated?)\n");
+		return 1;
+	}
 
 	if(suffix->bLength != 16) {
 		fprintf(stderr, "Unknown DFU suffix length: %d\n", suffix->bLength);

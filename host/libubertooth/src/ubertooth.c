@@ -100,12 +100,12 @@ void ubertooth_set_timeout(ubertooth_t* ut, int seconds) {
 	alarm(seconds);
 }
 
-unsigned ubertooth_count(void) {
+int ubertooth_count(void) {
 	struct libusb_device **usb_list = NULL;
 	struct libusb_context *ctx = NULL;
 	struct libusb_device_descriptor desc;
 	int usb_devs, i, r;
-	unsigned uberteeth = 0;
+	int uberteeth = 0;
 
 	r = libusb_init(NULL);
 	if (r < 0) {
@@ -157,15 +157,17 @@ static struct libusb_device_handle* find_ubertooth_device(int ubertooth_device)
 	}
 	if(uberteeth == 1) {
 		ret = libusb_open(usb_list[ubertooth_devs[0]], &devh);
-		if (ret)
+		if (ret) {
 			show_libusb_error(ret);
+			devh = NULL;
+		}
 	}
 	else if (uberteeth == 0)
 		return NULL;
 	else {
 		if (ubertooth_device < 0) {
 			fprintf(stderr, "multiple Ubertooth devices found! Use '-U' to specify device number\n");
-			uint8_t serial[17], r;
+			uint8_t serial[17], sr;
 			for(i = 0 ; i < uberteeth ; ++i) {
 				libusb_get_device_descriptor(usb_list[ubertooth_devs[i]], &desc);
 				ret = libusb_open(usb_list[ubertooth_devs[i]], &devh);
@@ -174,8 +176,8 @@ static struct libusb_device_handle* find_ubertooth_device(int ubertooth_device)
 					show_libusb_error(ret);
 				}
 				else {
-					r = cmd_get_serial(devh, serial);
-					if(r==0) {
+					sr = cmd_get_serial(devh, serial);
+					if(sr==0) {
 						fprintf(stderr, "  Device %d: ", i);
 						print_serial(serial, stderr);
 					}
@@ -530,8 +532,9 @@ void ubertooth_stop(ubertooth_t* ut)
 	if (ut->devh != NULL) {
 		cmd_stop(ut->devh);
 		libusb_release_interface(ut->devh, 0);
+		libusb_close(ut->devh);
+		ut->devh = NULL;
 	}
-	libusb_close(ut->devh);
 	libusb_exit(NULL);
 
 	if (ut->h_pcap_bredr) {
@@ -609,10 +612,19 @@ int ubertooth_connect(ubertooth_t* ut, int ubertooth_device)
 ubertooth_t* ubertooth_start(int ubertooth_device)
 {
 	ubertooth_t* ut = ubertooth_init();
+	if (ut == NULL)
+		return NULL;
 
 	int r = ubertooth_connect(ut, ubertooth_device);
-	if (r < 0)
+	if (r < 0) {
+		/* ubertooth_connect() already called ubertooth_stop() to close the
+		 * device and any pcap handles; release the memory allocated by
+		 * ubertooth_init() so the failed-connect path does not leak. */
+		if (ut->fifo != NULL)
+			free(ut->fifo);
+		free(ut);
 		return NULL;
+	}
 
 	return ut;
 }

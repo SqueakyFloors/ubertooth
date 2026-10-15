@@ -14,31 +14,48 @@ env:
 jobs:
   host:
     strategy:
-      matrix:
-        os: ['macos-latest', 'ubuntu-latest']
-
-      # Don't cancel all builds when one fails
       fail-fast: false
+      matrix:
+        # Pinned versions are the supported matrix (hard failures).
+        # The *-latest "canary" entries are early-warning only: they soft-fail
+        # on push/PR (see continue-on-error below) and hard-fail on the weekly
+        # schedule so GitHub emails the owner when a future OS/toolchain breaks.
+        include:
+          - os: ubuntu-22.04
+          - os: ubuntu-24.04
+          - os: macos-13   # last Intel (x86_64) macOS runner; macos-14+ are arm64
+          - os: macos-14
+          - os: macos-15
+          - os: macos-26
+          - os: ubuntu-latest
+            canary: true
     runs-on: ${{ matrix.os }}
+    # Soft-fail canaries except on the scheduled run (so weekly drift emails).
+    continue-on-error: ${{ matrix.canary == true && github.event_name != 'schedule' }}
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
 
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
       name: Fetch libbtbb
       with:
         repository: 'greatscottgadgets/libbtbb'
         path: 'libbtbb'
 
     - name: Install dependencies (macOS)
-      run: brew install fftw
-      if: matrix.os == 'macos-latest'
+      # Python 3.12+ no longer bundles setuptools (PEP 632), so specan_ui's
+      # setup.py fails with ModuleNotFoundError; install it explicitly.
+      # --break-system-packages: the runner python is externally managed.
+      run: |
+        brew install fftw
+        python3 -m pip install --break-system-packages setuptools
+      if: runner.os == 'macOS'
 
     - name: Install dependencies (Ubuntu)
       run: |
         sudo apt update
         sudo apt install libfftw3-dev libusb-1.0-0-dev
-      if: matrix.os == 'ubuntu-latest'
+      if: runner.os == 'Linux'
 
     - name: (libbtbb) Create Build Environment
       run: cmake -E make_directory ${{github.workspace}}/libbtbb/build
@@ -46,7 +63,11 @@ jobs:
     - name: (libbtbb) Configure CMake
       shell: bash
       working-directory: ${{github.workspace}}/libbtbb/build
-      run: cmake $GITHUB_WORKSPACE/libbtbb/ -DCMAKE_BUILD_TYPE=$BUILD_TYPE
+      # libbtbb (upstream) still declares cmake_minimum_required < 3.5, which
+      # CMake 4.x rejects outright -> CMAKE_POLICY_VERSION_MINIMUM=3.5.
+      # ENABLE_PYTHON=OFF skips libbtbb's pcaptools, whose setup.py fails on
+      # modern setuptools (InvalidVersion: ''); ubertooth only needs the C lib.
+      run: cmake $GITHUB_WORKSPACE/libbtbb/ -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DENABLE_PYTHON=OFF
 
     - name: (libbtbb) Build
       working-directory: ${{github.workspace}}/libbtbb/build
@@ -64,41 +85,208 @@ jobs:
     - name: Configure CMake
       shell: bash
       working-directory: ${{github.workspace}}/host/build
-      run: cmake $GITHUB_WORKSPACE/host/ -DCMAKE_BUILD_TYPE=$BUILD_TYPE
+      # On macOS, Homebrew puts libusb headers under $(brew --prefix)/include
+      # (/opt/homebrew on Apple Silicon, /usr/local on Intel), which is not on
+      # the compiler's default search path, so `#include <libusb-1.0/libusb.h>`
+      # fails even though cmake finds the library via pkg-config.
+      run: |
+        EXTRA_C_FLAGS=""
+        if [ "${{ runner.os }}" = "macOS" ]; then
+          EXTRA_C_FLAGS="-I$(brew --prefix)/include"
+        fi
+        cmake $GITHUB_WORKSPACE/host/ -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DCMAKE_C_FLAGS="$EXTRA_C_FLAGS"
 
     - name: Build
       working-directory: ${{github.workspace}}/host/build
       shell: bash
       run: cmake --build . --config $BUILD_TYPE
 
+    - name: Smoke test (binaries run)
+      working-directory: ${{github.workspace}}/host/build
+      shell: bash
+      # Not a unit test: just confirm a built binary executes and prints usage
+      # without a device. ubertooth-util -h is device-less and exits 0; most
+      # other tools' -h opens the device first and exits non-zero on a runner.
+      run: ./ubertooth-tools/src/ubertooth-util -h
+
+    - name: Python import check
+      shell: bash
+      # Confirm the Python packages at least import (not a functional test).
+      run: |
+        python3 -c "import sys; sys.path.insert(0, '$GITHUB_WORKSPACE/host/python/specan_ui'); import specan"
+        python3 -c "import sys; sys.path.insert(0, '$GITHUB_WORKSPACE/host/python/ubtbr'); import ubtbr"
+
   firmware:
     strategy:
-      matrix:
-        os: ['macos-latest', 'ubuntu-latest']
-
-      # Don't cancel all builds when one fails
       fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+          - os: ubuntu-24.04
+          - os: macos-14
+          - os: macos-15
+          - os: macos-26
+          - os: ubuntu-latest
+            canary: true
     runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.canary == true && github.event_name != 'schedule' }}
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
       with:
         submodules: true
 
     - name: Install dependencies (macOS)
       run: |
-        brew tap armmbed/formulae
-        brew install arm-none-eabi-gcc dfu-util
+        # Refresh cask definitions first: the gcc-arm-embedded cask pins a
+        # SHA-256 that breaks whenever Arm bumps a point release before the
+        # runner image's Homebrew catches up (checksum mismatch on download).
+        brew update
+        brew install --cask gcc-arm-embedded
+        brew install dfu-util
         pip install PyYAML
-      if: matrix.os == 'macos-latest'
+      if: runner.os == 'macOS'
 
     - name: Install dependencies (Ubuntu)
       run: |
         sudo apt install dfu-util gcc-arm-none-eabi
-      if: matrix.os == 'ubuntu-latest'
+      if: runner.os == 'Linux'
 
     - name: Build
       working-directory: ${{github.workspace}}/firmware
       shell: bash
-      run: make
+      # Build the compile/link targets (elf/bin/sym) per subdirectory. We skip
+      # the default target's final `dfu` step because it shells out to the
+      # `ubertooth-dfu` host tool and is only needed to package firmware for
+      # flashing, not to verify that the firmware compiles and links.
+      run: |
+        set -e
+        for d in blinky bluetooth_rxtx cc2400_test clock_test usb_test assembly_test btbr; do
+          echo "::group::firmware: $d"
+          make -C "$d" bin sym
+          echo "::endgroup::"
+        done
 
+    - name: Upload firmware artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: firmware-${{ matrix.os }}
+        path: |
+          ${{github.workspace}}/firmware/*/*.bin
+          ${{github.workspace}}/firmware/*/*.elf
+        if-no-files-found: error
+
+  # Ubuntu 20.04 is the oldest supported Linux. GitHub retired the hosted
+  # ubuntu-20.04 runner, so run it in a container on a current runner. The
+  # container is root (no sudo) and starts bare, so install git/toolchain.
+  host-ubuntu-20_04:
+    runs-on: ubuntu-latest
+    container: ubuntu:20.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+    - name: Install build prerequisites
+      run: |
+        apt-get update
+        apt-get install -y git cmake build-essential pkg-config \
+                           libfftw3-dev libusb-1.0-0-dev python3 python3-setuptools
+
+    - uses: actions/checkout@v4
+
+    - uses: actions/checkout@v4
+      name: Fetch libbtbb
+      with:
+        repository: 'greatscottgadgets/libbtbb'
+        path: 'libbtbb'
+
+    - name: (libbtbb) Build and install
+      shell: bash
+      run: |
+        cmake -E make_directory libbtbb/build
+        cd libbtbb/build
+        cmake "$GITHUB_WORKSPACE/libbtbb/" -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DENABLE_PYTHON=OFF
+        cmake --build . --config $BUILD_TYPE
+        cmake --install . --config $BUILD_TYPE
+
+    - name: Build host
+      shell: bash
+      run: |
+        cmake -E make_directory host/build
+        cd host/build
+        cmake "$GITHUB_WORKSPACE/host/" -DCMAKE_BUILD_TYPE=$BUILD_TYPE
+        cmake --build . --config $BUILD_TYPE
+
+    - name: Smoke test (binaries run)
+      working-directory: ${{github.workspace}}/host/build
+      shell: bash
+      run: ./ubertooth-tools/src/ubertooth-util -h
+
+  firmware-ubuntu-20_04:
+    runs-on: ubuntu-latest
+    container: ubuntu:20.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+    - name: Install build prerequisites
+      run: |
+        apt-get update
+        apt-get install -y git make dfu-util gcc-arm-none-eabi
+
+    - uses: actions/checkout@v4
+      with:
+        submodules: true
+
+    - name: Build firmware
+      working-directory: ${{github.workspace}}/firmware
+      shell: bash
+      run: |
+        set -e
+        for d in blinky bluetooth_rxtx cc2400_test clock_test usb_test assembly_test btbr; do
+          echo "::group::firmware: $d"
+          make -C "$d" bin sym
+          echo "::endgroup::"
+        done
+
+  # Fedora as an early-warning canary: it ships newer CMake/Python/GCC sooner
+  # than Ubuntu, so breakage shows here first. Soft-fail on push/PR, hard-fail
+  # on the weekly schedule (drift email). Run in a container (no hosted Fedora).
+  host-fedora:
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    continue-on-error: ${{ github.event_name != 'schedule' }}
+    steps:
+    - name: Install build prerequisites
+      run: |
+        dnf -y install git cmake gcc gcc-c++ make pkgconf-pkg-config \
+                       fftw-devel libusb1-devel python3 python3-setuptools
+
+    - uses: actions/checkout@v4
+
+    - uses: actions/checkout@v4
+      name: Fetch libbtbb
+      with:
+        repository: 'greatscottgadgets/libbtbb'
+        path: 'libbtbb'
+
+    - name: (libbtbb) Build and install
+      shell: bash
+      run: |
+        cmake -E make_directory libbtbb/build
+        cd libbtbb/build
+        cmake "$GITHUB_WORKSPACE/libbtbb/" -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DENABLE_PYTHON=OFF
+        cmake --build . --config $BUILD_TYPE
+        cmake --install . --config $BUILD_TYPE
+        ldconfig || true
+
+    - name: Build host
+      shell: bash
+      run: |
+        cmake -E make_directory host/build
+        cd host/build
+        cmake "$GITHUB_WORKSPACE/host/" -DCMAKE_BUILD_TYPE=$BUILD_TYPE
+        cmake --build . --config $BUILD_TYPE
+
+    - name: Smoke test (binaries run)
+      working-directory: ${{github.workspace}}/host/build
+      shell: bash
+      run: ./ubertooth-tools/src/ubertooth-util -h

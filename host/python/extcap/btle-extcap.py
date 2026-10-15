@@ -83,7 +83,7 @@ def main():
             assert False, "unhandled option"
 
     # every operation down here depends on having an interface
-    m = re.match('ubertooth(\d+)', interface)
+    m = re.match(r'ubertooth(\d+)', interface)
     if not m:
         exit(1)
     interface = m.group(1)
@@ -125,7 +125,7 @@ def list_interfaces():
 
 
 def list_dlts():
-    print("dlt {number=256}{name=DLT_BLUETOOTH_LE_LL_WITH_PHDR}{display=Bluetooth LE}\n");
+    print("dlt {number=256}{name=DLT_BLUETOOTH_LE_LL_WITH_PHDR}{display=Bluetooth LE}\n")
 
 
 def config():

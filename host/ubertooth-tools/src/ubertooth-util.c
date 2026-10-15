@@ -209,8 +209,10 @@ int main(int argc, char *argv[])
 	}
 
 	if (do_number) {
-		unsigned count = ubertooth_count();
-		printf("%u\n", count);
+		int count = ubertooth_count();
+		if (count < 0)
+			return 1;
+		printf("%d\n", count);
 		return 0;
 	}
 
