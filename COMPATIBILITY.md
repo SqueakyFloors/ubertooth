@@ -57,6 +57,14 @@ mirrored on this fork (unmodified upstream code, provided as-is) for convenience
 libusb on Windows and the absence of udev rules make this impractical. Run the
 host tools under Linux (native or VM). Documented as a hard non-goal.
 
+### macOS: arm64 verified, Intel (x86_64) not CI-tested
+CI covers Apple-Silicon (arm64) macOS 14/15/26. Intel macOS is not tested in CI:
+GitHub's `macos-13` (last Intel) runners are capacity-constrained and queue
+unreliably, so an Intel CI job stalls rather than giving a timely signal. The
+code should build on Intel (the Homebrew include path uses `$(brew --prefix)`,
+which resolves to `/usr/local` on Intel), but this is unverified. Test locally
+if you build on an Intel Mac.
+
 ### CMake 4.x
 Modern CMake (4.x) removed compatibility with `cmake_minimum_required < 3.5`.
 This fork declares `cmake_minimum_required(VERSION 3.5...3.27)`; the companion
