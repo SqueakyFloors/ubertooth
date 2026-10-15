@@ -1,13 +1,39 @@
 ubertooth (2020-12-R1+modern1) unstable; urgency=low
+
+  Build fixes:
   * Fix build with CMake 4.x: update cmake_minimum_required to VERSION 3.5...3.27
     in host/CMakeLists.txt, host/misc/CMakeLists.txt, host/misc/udev/CMakeLists.txt
+    (upstream issue #551)
   * Fix build with Python 3.12+: replace deprecated distutils.core with setuptools
     in host/python/specan_ui/setup.py and host/python/specan_ui/setup.py.in
     Credit: Arnaud Rebillout <arnaudr@kali.org> (Kali Linux fork)
   * Fix InvalidVersion error in new setuptools versions: set version='1' in
     specan_ui setup.py and add set(PACKAGE_VERSION 1) to specan_ui CMakeLists.txt
     Credit: Rhys Perry <rhysperry111@gmail.com> (upstream PR #524)
-    Also applied by Kali Linux fork: gitlab.com/kalilinux/packages/ubertooth
+
+  Bug fixes (cherry-picked from upstream open PRs):
+  * Fix CRC verify not filtering bad-CRC packets in ubertooth-btle -v1 mode;
+    add on-device CRC verification in LE PHY engine (upstream PR #550)
+    Credit: oliver <icetzsr@gmail.com>
+  * Fix rssi_iir_update() and rssi_get_avg() channel checks in ubertooth_rssi.c
+    (upstream PR #481)
+    Credit: Gabriele Gristina <matrix@users.noreply.github.com>
+  * Fix ubertooth-dfu variable in firmware build (upstream PR #485)
+    Credit: Michael Ossmann <mike@ossmann.com>
+  * Improved Paging process speed and reliability (upstream PR #540)
+    Credit: Hillel Chimowicz <hllhll@users.noreply.github.com>
+
+  Other improvements (cherry-picked from upstream open PRs):
+  * Update scapy usage to PcapReader (deprecated API removal) (upstream PR #519)
+    Credit: stryngs <support@configitnow.com>
+  * Update CI scripts and Docker image for Ubuntu 22.04 (upstream PR #521)
+    Credit: linux4life798
+
+  Known open issues not yet addressed:
+  * ubertooth-btbr hangs after start (upstream issue #520)
+  * Memory leaks in libubertooth and ubertooth-scan (upstream issues #542, #543)
+  * LE packets truncated to 50 bytes (upstream issue #468)
+  * Channel -1 bug when setting channel 1 (upstream issue #448)
 
  -- community fork  Wed, 14 Oct 2026 22:00:00 -0700
 
