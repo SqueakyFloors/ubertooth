@@ -10,7 +10,7 @@ This file is part of project Ubertooth
 Copyright 2012 Dominic Spill
 """
 
-from distutils.core import setup
+from setuptools import setup
 
 setup(
     name        = "specan",
@@ -18,7 +18,7 @@ setup(
     author      = "Jared Boone, Michael Ossmann, Dominic Spill",
     url         = "https://github.com/greatscottgadgets/ubertooth/",
     license     = "GPL",
-    version     = '',
+    version     = '1',
     packages    = ['specan'],
     scripts     = ['ubertooth-specan-ui'],
     classifiers=[
