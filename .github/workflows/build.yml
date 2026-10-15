@@ -150,3 +150,69 @@ jobs:
           make -C "$d" bin sym
           echo "::endgroup::"
         done
+
+  # Ubuntu 20.04 is the oldest supported Linux. GitHub retired the hosted
+  # ubuntu-20.04 runner, so run it in a container on a current runner. The
+  # container is root (no sudo) and starts bare, so install git/toolchain.
+  host-ubuntu-20_04:
+    runs-on: ubuntu-latest
+    container: ubuntu:20.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+    - name: Install build prerequisites
+      run: |
+        apt-get update
+        apt-get install -y git cmake build-essential pkg-config \
+                           libfftw3-dev libusb-1.0-0-dev python3 python3-setuptools
+
+    - uses: actions/checkout@v4
+
+    - uses: actions/checkout@v4
+      name: Fetch libbtbb
+      with:
+        repository: 'greatscottgadgets/libbtbb'
+        path: 'libbtbb'
+
+    - name: (libbtbb) Build and install
+      shell: bash
+      run: |
+        cmake -E make_directory libbtbb/build
+        cd libbtbb/build
+        cmake "$GITHUB_WORKSPACE/libbtbb/" -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DENABLE_PYTHON=OFF
+        cmake --build . --config $BUILD_TYPE
+        cmake --install . --config $BUILD_TYPE
+
+    - name: Build host
+      shell: bash
+      run: |
+        cmake -E make_directory host/build
+        cd host/build
+        cmake "$GITHUB_WORKSPACE/host/" -DCMAKE_BUILD_TYPE=$BUILD_TYPE
+        cmake --build . --config $BUILD_TYPE
+
+  firmware-ubuntu-20_04:
+    runs-on: ubuntu-latest
+    container: ubuntu:20.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+    - name: Install build prerequisites
+      run: |
+        apt-get update
+        apt-get install -y git make dfu-util gcc-arm-none-eabi
+
+    - uses: actions/checkout@v4
+      with:
+        submodules: true
+
+    - name: Build firmware
+      working-directory: ${{github.workspace}}/firmware
+      shell: bash
+      run: |
+        set -e
+        for d in blinky bluetooth_rxtx cc2400_test clock_test usb_test assembly_test btbr; do
+          echo "::group::firmware: $d"
+          make -C "$d" bin sym
+          echo "::endgroup::"
+        done
