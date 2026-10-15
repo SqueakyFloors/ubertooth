@@ -68,7 +68,16 @@ jobs:
     - name: Configure CMake
       shell: bash
       working-directory: ${{github.workspace}}/host/build
-      run: cmake $GITHUB_WORKSPACE/host/ -DCMAKE_BUILD_TYPE=$BUILD_TYPE
+      # On Apple-Silicon macOS, Homebrew puts libusb headers under
+      # /opt/homebrew/include, which is not on the compiler's default search
+      # path, so `#include <libusb-1.0/libusb.h>` fails even though cmake finds
+      # the library via pkg-config. Add the Homebrew include dir on macOS.
+      run: |
+        EXTRA_C_FLAGS=""
+        if [ "${{ matrix.os }}" = "macos-latest" ]; then
+          EXTRA_C_FLAGS="-I$(brew --prefix)/include"
+        fi
+        cmake $GITHUB_WORKSPACE/host/ -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DCMAKE_C_FLAGS="$EXTRA_C_FLAGS"
 
     - name: Build
       working-directory: ${{github.workspace}}/host/build
