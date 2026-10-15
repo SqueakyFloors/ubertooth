@@ -1,3 +1,16 @@
+ubertooth (2020-12-R1+modern1) unstable; urgency=low
+  * Fix build with CMake 4.x: update cmake_minimum_required to VERSION 3.5...3.27
+    in host/CMakeLists.txt, host/misc/CMakeLists.txt, host/misc/udev/CMakeLists.txt
+  * Fix build with Python 3.12+: replace deprecated distutils.core with setuptools
+    in host/python/specan_ui/setup.py and host/python/specan_ui/setup.py.in
+    Credit: Arnaud Rebillout <arnaudr@kali.org> (Kali Linux fork)
+  * Fix InvalidVersion error in new setuptools versions: set version='1' in
+    specan_ui setup.py and add set(PACKAGE_VERSION 1) to specan_ui CMakeLists.txt
+    Credit: Rhys Perry <rhysperry111@gmail.com> (upstream PR #524)
+    Also applied by Kali Linux fork: gitlab.com/kalilinux/packages/ubertooth
+
+ -- community fork  Wed, 14 Oct 2026 22:00:00 -0700
+
 ubertooth (2020-12-R1) unstable; urgency=low
   * Bluetooth classic sniffing and link layer support (see btbr)
   * Upgraded to Python 3
