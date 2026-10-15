@@ -11,6 +11,14 @@ ubertooth (2020-12-R1+modern1) unstable; urgency=low
     specan_ui setup.py and add set(PACKAGE_VERSION 1) to specan_ui CMakeLists.txt
     Credit: Rhys Perry <rhysperry111@gmail.com> (upstream PR #524)
 
+  Bug fixes (cherry-picked from community forks):
+  * Fix divide-by-zero in bluetooth.c AFH hop selection when used_channels < 20
+    Credit: Kielukel <93320945+Kielukel@users.noreply.github.com>
+    Origin: https://github.com/Kielukel/ubertooth
+  * Fix divide-by-zero in btbr/hop.c when chan_count is 0
+    Credit: Piotr Wasylów <piotr@wasylow.com>
+    Origin: https://github.com/Kielukel/ubertooth
+
   Bug fixes (cherry-picked from upstream open PRs):
   * Fix CRC verify not filtering bad-CRC packets in ubertooth-btle -v1 mode;
     add on-device CRC verification in LE PHY engine (upstream PR #550)
