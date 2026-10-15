@@ -64,8 +64,12 @@
 #define SYM_LEN       50
 #define BANK_LEN      (SYM_LEN * 8)
 
+#ifndef MAX
 #define MAX(a,b) ((a)>(b) ? (a) : (b))
+#endif
+#ifndef MIN
 #define MIN(a,b) ((a)<(b) ? (a) : (b))
+#endif
 
 void show_libusb_error(int error_code);
 int ubertooth_cmd_sync(struct libusb_device_handle* devh,
