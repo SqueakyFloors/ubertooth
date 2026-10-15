@@ -14,37 +14,47 @@ env:
 jobs:
   host:
     strategy:
-      matrix:
-        os: ['macos-latest', 'ubuntu-latest']
-
-      # Don't cancel all builds when one fails
       fail-fast: false
+      matrix:
+        # Pinned versions are the supported matrix (hard failures).
+        # The *-latest "canary" entries are early-warning only: they soft-fail
+        # on push/PR (see continue-on-error below) and hard-fail on the weekly
+        # schedule so GitHub emails the owner when a future OS/toolchain breaks.
+        include:
+          - os: ubuntu-22.04
+          - os: ubuntu-24.04
+          - os: macos-14
+          - os: macos-15
+          - os: macos-26
+          - os: ubuntu-latest
+            canary: true
     runs-on: ${{ matrix.os }}
+    # Soft-fail canaries except on the scheduled run (so weekly drift emails).
+    continue-on-error: ${{ matrix.canary == true && github.event_name != 'schedule' }}
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
 
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
       name: Fetch libbtbb
       with:
         repository: 'greatscottgadgets/libbtbb'
         path: 'libbtbb'
 
     - name: Install dependencies (macOS)
-      # Python 3.12+ (3.14 on current runners) no longer bundles setuptools
-      # (PEP 632), so specan_ui's setup.py fails with ModuleNotFoundError.
-      # Install it explicitly. --break-system-packages is needed because the
-      # runner's python is an externally-managed Homebrew install.
+      # Python 3.12+ no longer bundles setuptools (PEP 632), so specan_ui's
+      # setup.py fails with ModuleNotFoundError; install it explicitly.
+      # --break-system-packages: the runner python is externally managed.
       run: |
         brew install fftw
         python3 -m pip install --break-system-packages setuptools
-      if: matrix.os == 'macos-latest'
+      if: runner.os == 'macOS'
 
     - name: Install dependencies (Ubuntu)
       run: |
         sudo apt update
         sudo apt install libfftw3-dev libusb-1.0-0-dev
-      if: matrix.os == 'ubuntu-latest'
+      if: runner.os == 'Linux'
 
     - name: (libbtbb) Create Build Environment
       run: cmake -E make_directory ${{github.workspace}}/libbtbb/build
@@ -74,13 +84,13 @@ jobs:
     - name: Configure CMake
       shell: bash
       working-directory: ${{github.workspace}}/host/build
-      # On Apple-Silicon macOS, Homebrew puts libusb headers under
-      # /opt/homebrew/include, which is not on the compiler's default search
-      # path, so `#include <libusb-1.0/libusb.h>` fails even though cmake finds
-      # the library via pkg-config. Add the Homebrew include dir on macOS.
+      # On macOS, Homebrew puts libusb headers under $(brew --prefix)/include
+      # (/opt/homebrew on Apple Silicon, /usr/local on Intel), which is not on
+      # the compiler's default search path, so `#include <libusb-1.0/libusb.h>`
+      # fails even though cmake finds the library via pkg-config.
       run: |
         EXTRA_C_FLAGS=""
-        if [ "${{ matrix.os }}" = "macos-latest" ]; then
+        if [ "${{ runner.os }}" = "macOS" ]; then
           EXTRA_C_FLAGS="-I$(brew --prefix)/include"
         fi
         cmake $GITHUB_WORKSPACE/host/ -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DCMAKE_C_FLAGS="$EXTRA_C_FLAGS"
@@ -92,44 +102,47 @@ jobs:
 
   firmware:
     strategy:
-      matrix:
-        os: ['macos-latest', 'ubuntu-latest']
-
-      # Don't cancel all builds when one fails
       fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+          - os: ubuntu-24.04
+          - os: macos-14
+          - os: macos-15
+          - os: macos-26
+          - os: ubuntu-latest
+            canary: true
     runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.canary == true && github.event_name != 'schedule' }}
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
       with:
         submodules: true
 
     - name: Install dependencies (macOS)
       run: |
         # Refresh cask definitions first: the gcc-arm-embedded cask pins a
-        # SHA-256 that breaks whenever Arm bumps a point release (e.g.
-        # 15.3.rel1 -> rel2) before the runner image's Homebrew catches up,
-        # which fails the download with a checksum mismatch. `brew update`
-        # pulls the current cask (and matching checksum).
+        # SHA-256 that breaks whenever Arm bumps a point release before the
+        # runner image's Homebrew catches up (checksum mismatch on download).
         brew update
         brew install --cask gcc-arm-embedded
         brew install dfu-util
         pip install PyYAML
-      if: matrix.os == 'macos-latest'
+      if: runner.os == 'macOS'
 
     - name: Install dependencies (Ubuntu)
       run: |
         sudo apt install dfu-util gcc-arm-none-eabi
-      if: matrix.os == 'ubuntu-latest'
+      if: runner.os == 'Linux'
 
     - name: Build
       working-directory: ${{github.workspace}}/firmware
       shell: bash
       # Build the compile/link targets (elf/bin/sym) per subdirectory. We skip
       # the default target's final `dfu` step because it shells out to the
-      # `ubertooth-dfu` host tool (which pulls in libubertooth/libusb/libbtbb)
-      # and is only needed to package firmware for flashing, not to verify that
-      # the firmware compiles and links. CI's job here is the build check.
+      # `ubertooth-dfu` host tool and is only needed to package firmware for
+      # flashing, not to verify that the firmware compiles and links.
       run: |
         set -e
         for d in blinky bluetooth_rxtx cc2400_test clock_test usb_test assembly_test btbr; do
@@ -137,4 +150,3 @@ jobs:
           make -C "$d" bin sym
           echo "::endgroup::"
         done
-
