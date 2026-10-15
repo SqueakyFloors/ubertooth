@@ -279,7 +279,7 @@ class BTCtlEIR:
 			l,t = buf[:2]
 			dat,buf = buf[2:1+l], buf[1+l:]
 			if (1+len(dat) != l):
-				print ("Malformed EIR!");
+				print("Malformed EIR!")
 				break
 			fields.append((t,dat))
 		return BTCtlEIR(fields)
@@ -578,7 +578,7 @@ class BTCtlPageScanCmd(BTCtlCmd):
 
 	def _handle_state(self, state, reason):
 		lt_addr = reason>>5
-		reason &= 0x1f;
+		reason &= 0x1f
 		if state == BTCTL_STATE_PAGE_SCAN:
 			log.info ("Page Scan state Ready")
 		elif state == BTCTL_STATE_CONNECTED:
@@ -623,7 +623,7 @@ class BTCtlPagingCmd(BTCtlCmd):
 
 	def _handle_state(self, state, reason):
 		lt_addr = reason>>5
-		reason &= 0x1f;
+		reason &= 0x1f
 		if state == BTCTL_STATE_PAGE:
 			log.info("Paging started")
 		elif state == BTCTL_STATE_CONNECTED:
@@ -671,7 +671,7 @@ class BTCtlMonitorCmd(BTCtlCmd):
 
 	def _handle_state(self, state, reason):
 		lt_addr = reason>>5
-		reason &= 0x1f;
+		reason &= 0x1f
 		if state == BTCTL_STATE_PAGE_SCAN:
 			log.info("Monitor started")
 			self._ready = True
