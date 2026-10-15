@@ -53,4 +53,13 @@ ID
 *.sublime-project
 *.sublime-workspace
 .vscode
+.idea/
+
+# Local AI assistant context (not published)
+AI_CONTEXT.md
+
+# Build dirs / Python packaging artifacts
+/build/
+*.egg-info/
+__pycache__/
 
