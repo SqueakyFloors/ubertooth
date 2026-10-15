@@ -191,7 +191,8 @@ static struct libusb_device_handle* find_ubertooth_device(int ubertooth_device)
 				}
 		}
 	}
-libusb_free_device_list(usb_list,1);
+	free(ubertooth_devs);
+	libusb_free_device_list(usb_list,1);
 	return devh;
 }
 
