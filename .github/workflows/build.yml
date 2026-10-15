@@ -31,7 +31,13 @@ jobs:
         path: 'libbtbb'
 
     - name: Install dependencies (macOS)
-      run: brew install fftw
+      # Python 3.12+ (3.14 on current runners) no longer bundles setuptools
+      # (PEP 632), so specan_ui's setup.py fails with ModuleNotFoundError.
+      # Install it explicitly. --break-system-packages is needed because the
+      # runner's python is an externally-managed Homebrew install.
+      run: |
+        brew install fftw
+        python3 -m pip install --break-system-packages setuptools
       if: matrix.os == 'macos-latest'
 
     - name: Install dependencies (Ubuntu)
