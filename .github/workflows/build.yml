@@ -100,6 +100,14 @@ jobs:
       shell: bash
       run: cmake --build . --config $BUILD_TYPE
 
+    - name: Smoke test (binaries run)
+      working-directory: ${{github.workspace}}/host/build
+      shell: bash
+      # Not a unit test: just confirm a built binary executes and prints usage
+      # without a device. ubertooth-util -h is device-less and exits 0; most
+      # other tools' -h opens the device first and exits non-zero on a runner.
+      run: ./ubertooth-tools/src/ubertooth-util -h
+
   firmware:
     strategy:
       fail-fast: false
@@ -190,6 +198,11 @@ jobs:
         cd host/build
         cmake "$GITHUB_WORKSPACE/host/" -DCMAKE_BUILD_TYPE=$BUILD_TYPE
         cmake --build . --config $BUILD_TYPE
+
+    - name: Smoke test (binaries run)
+      working-directory: ${{github.workspace}}/host/build
+      shell: bash
+      run: ./ubertooth-tools/src/ubertooth-util -h
 
   firmware-ubuntu-20_04:
     runs-on: ubuntu-latest
