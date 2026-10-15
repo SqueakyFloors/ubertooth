@@ -145,7 +145,7 @@ These branches exist in the repo but are NOT in master yet:
 
 ### PR #488 — Serial number support (`feature/serial-number-support`)
 - Allows selecting a specific Ubertooth by serial number with `-U <serial>`
-- Test: plug in two Uberteeth, confirm each can be addressed independently
+- Test: plug in two Ubertooth devices, confirm each can be addressed independently
 - Risk: large change (68 files), not yet reviewed
 
 ### PR #362 — Capture to stdout (`feature/capture-to-stdout`)

@@ -25,7 +25,7 @@ and performing miscellaneous radio-related actions. Refer to the
 [OPTIONS][] section for full details.
 
 The utility also includes a simple range test tool for use with two
-Uberteeth. Refer to [RANGE TEST][] for full details.
+Ubertooth devices. Refer to [RANGE TEST][] for full details.
 
 ## OPTIONS
 
@@ -87,7 +87,7 @@ Miscellaneous:
 
 ## RANGE TEST
 
-Using two Uberteeth it is possible to perform a range test. One
+Using two Ubertooth devices it is possible to perform a range test. One
 Ubertooth acts as a repeated by running:
 
     ubertooth-util -e

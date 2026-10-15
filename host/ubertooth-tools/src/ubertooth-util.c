@@ -44,7 +44,7 @@ static void usage(FILE *output)
 	fprintf(output, "\t-S stop current operation\n");
 	fprintf(output, "\t-r full reset\n");
 	fprintf(output, "\t-U<0-7> set ubertooth device to use\n");
-	fprintf(output, "\t-N print total number of Uberteeth and exit\n");
+	fprintf(output, "\t-N print total number of Ubertooth devices and exit\n");
 	fprintf(output, "\n");
 	fprintf(output, "Radio options:\n");
 	fprintf(output, "\t-a[0-7] get/set power amplifier level\n");
