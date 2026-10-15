@@ -232,7 +232,12 @@ int main(int argc, char *argv[])
 
 		if (!addr_set) {
 			random = fopen("/dev/urandom", "r");
-			fread(bd_addr, 6, 1, random);
+			if (random == NULL || fread(bd_addr, 6, 1, random) != 1) {
+				fprintf(stderr, "Error: could not read random BD_ADDR from /dev/urandom\n");
+				if (random != NULL)
+					fclose(random);
+				return 1;
+			}
 			fclose(random);
 		}
 
