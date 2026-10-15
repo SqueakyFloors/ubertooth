@@ -91,6 +91,12 @@ jobs:
 
     - name: Install dependencies (macOS)
       run: |
+        # Refresh cask definitions first: the gcc-arm-embedded cask pins a
+        # SHA-256 that breaks whenever Arm bumps a point release (e.g.
+        # 15.3.rel1 -> rel2) before the runner image's Homebrew catches up,
+        # which fails the download with a checksum mismatch. `brew update`
+        # pulls the current cask (and matching checksum).
+        brew update
         brew install --cask gcc-arm-embedded
         brew install dfu-util
         pip install PyYAML
