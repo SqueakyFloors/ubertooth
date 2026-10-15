@@ -22,13 +22,13 @@ Legend:
 
 | Dimension | Minimum (required) | Tested / known-good | Unsupported | Status of minimum |
 |---|---|---|---|---|
-| **Ubuntu** | 20.04 LTS *(tentative)* | 24.04 (CI, host+fw) | ≤ 18.04 (use 2020-12-R1) | 🎯 minimum not yet verified |
-| **macOS** | 13 (Ventura) *(tentative)* | 26 / arm64 (CI, firmware) | — | 🎯 minimum unconfirmed |
+| **Ubuntu** | 20.04 LTS | 20.04, 22.04, 24.04 (CI, host+fw) | ≤ 18.04 (use 2020-12-R1) | ✅ 20.04 verified in CI (container) |
+| **macOS** | 14 (Sonoma) | 14, 15, 26 / arm64 (CI, host+fw) | ≤ 13 | ✅ 14 verified in CI |
 | **Windows** | — | — | all | ❌ Unsupported (libusb + udev; use Linux/VM) |
 | **CMake** | 3.5 | 3.5 … 3.27 (enforced range) | < 3.5 (CMake 4 removed it) | ✅ floor enforced in CMakeLists |
-| **Python (host tools)** | 3.8 *(tentative)* | 3.12 (CI) | 2.x (removed upstream) | 🎯 lower bound not yet verified |
+| **Python (host tools)** | 3.8 | 3.8 (U20 CI) … 3.14 (macOS CI) | 2.x (removed upstream) | ✅ 3.8 verified in CI; see setuptools note |
 | **GCC (host)** | TBD | per-runner (recent) | — | 🎯 not yet characterized |
-| **arm-none-eabi-gcc (firmware)** | TBD | 15.3 (CI + local build) | — | 🎯 old-toolchain floor not yet tested |
+| **arm-none-eabi-gcc (firmware)** | TBD | U20 (~9.x) … 15.3 (CI) | — | 🎯 floor not pinned, but builds on old+new |
 | **libusb** | 1.0.x | 1.0.30 (local) | pre-1.0 | 🎯 exact floor not pinned |
 | **libbtbb** | 2020-12-R1 | current master (C lib) | older than 2020-12-R1 | 🎯 |
 
@@ -65,10 +65,16 @@ configure under CMake 4 (handled in CI).
 
 ### Python 3 only
 Python 2 support was removed upstream in 2020-12-R1. This fork targets modern
-Python 3; the lower bound (tentatively 3.8) is TBD and the upper bound tracks
-the newest tested (3.12). The specan_ui `setup.py` must build cleanly across
-that range (see the open setup.py / setup.py.in divergence issue). Older distros
-(e.g. Ubuntu 18.04 / Python 3.6) are out of scope — see above.
+Python 3; verified from 3.8 (Ubuntu 20.04) through 3.14 (current macOS runner).
+The specan_ui `setup.py` must build cleanly across that range (see the open
+setup.py / setup.py.in divergence issue). Older distros (e.g. Ubuntu 18.04 /
+Python 3.6) are out of scope — see above.
+
+**setuptools required on Python 3.12+.** Python 3.12 removed the bundled
+`setuptools`/`distutils` (PEP 632), so building specan_ui needs setuptools
+installed explicitly (`pip install setuptools`). On distros that still package
+it (e.g. `python3-setuptools` on Debian/Ubuntu) install that; on current macOS
+runners it is pip-installed in CI.
 
 ---
 
@@ -85,10 +91,10 @@ that range (see the open setup.py / setup.py.in divergence issue). Older distros
    capture) is only "tested" when run on a real Ubertooth per `TEST_PLAN.md`.
 
 ## TODO before this matrix can be trusted
-- [ ] Add pinned Ubuntu 20.04 / 22.04 / 24.04 to CI; verify green and confirm
-      the real minimum (18.04 and older are explicitly out of scope).
-- [ ] Add pinned macOS versions; confirm the real minimum.
+- [x] Add pinned Ubuntu 20.04 (container) / 22.04 / 24.04 to CI; verified green.
+- [x] Add pinned macOS versions (14/15/26); verified green.
 - [ ] Characterize GCC (host) and arm-none-eabi-gcc floors (oldest that builds).
+      (Firmware now builds on both U20's old arm-gcc and 15.3; exact floor TBD.)
 - [ ] Pin a libusb minimum and verify.
-- [ ] Add `python_requires` to specan_ui packaging reflecting the chosen floor.
-- [ ] Replace every 🎯 with ✅ (and a CI link) or ❌ as results come in.
+- [ ] Add `python_requires` to specan_ui packaging reflecting the 3.8 floor.
+- [ ] Replace remaining 🎯 with ✅ (and a CI link) or ❌ as results come in.
