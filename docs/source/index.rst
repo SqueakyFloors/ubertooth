@@ -51,7 +51,8 @@ Ubertooth
   Release_2015-10-R1
   Release_2017_03_R2
   Release_2018-08-R1
-  Release_2018-12-R1   
+  Release_2018-12-R1
+  Release_2020-12-R1
 
 
 
