@@ -24,6 +24,7 @@
 #include <getopt.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <string.h>
 
 const char* board_names[] = {
 	"Ubertooth Zero",
@@ -38,6 +39,7 @@ static void usage(FILE *output)
 	fprintf(output, "Common options:\n");
 	fprintf(output, "\t-v get firmware revision number\n");
 	fprintf(output, "\t-V get compile info\n");
+	fprintf(output, "\t-H, --host-version get host tools (libubertooth) version\n");
 	fprintf(output, "\t-I identify ubertooth device by flashing all LEDs\n");
 	fprintf(output, "\t-d[0-1] get/set all LEDs\n");
 	fprintf(output, "\t-l[0-1] get/set USR LED\n");
@@ -97,7 +99,17 @@ int main(int argc, char *argv[])
 	do_something= 0; do_compile_info= -1;
 	do_number= 0; do_xmas= 0;
 
-	while ((opt=getopt(argc,argv,"U:hnmefiIprsStvbl::a::C::c::d::q::z::9VNx")) != EOF) {
+	/* Host-tools version: print and exit before touching the device, so it
+	 * works with no Ubertooth attached. -H or --host-version. Distinct from
+	 * -v (firmware revision) and -V (firmware compile info from the device). */
+	for (int ai = 1; ai < argc; ai++) {
+		if (strcmp(argv[ai], "--host-version") == 0) {
+			print_version();
+			return 0;
+		}
+	}
+
+	while ((opt=getopt(argc,argv,"U:hnmefiIprsStvbl::a::C::c::d::q::z::9VNxH")) != EOF) {
 		switch(opt) {
 		case 'U':
 			ubertooth_device = atoi(optarg);
@@ -193,6 +205,9 @@ int main(int argc, char *argv[])
 		case 'V':
 			do_compile_info = 0;
 			break;
+		case 'H':
+			print_version();
+			return 0;
 		case 'N':
 			do_number = 1;
 			break;
