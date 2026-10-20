@@ -1,8 +1,4 @@
-# UBERTOOTH-DFU 1 "March 2017" "Project Ubertooth" "User Commands"
-
-## NAME
-
-ubertooth-dfu(1) - Device firmware update for Ubertooth
+# ubertooth-dfu(1) -- Device firmware update for Ubertooth
 
 ## SYNOPSIS
 
