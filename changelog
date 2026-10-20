@@ -34,6 +34,8 @@ ubertooth (2020-12-R1+modern1) unstable; urgency=low
     (-Wunused-result); error out on a short read instead of using partial data
 
   Documentation:
+  * Add a command-line tool catalog (grouped by purpose, with per-tool doc
+    links) to README.md and docs/source/software.rst
   * Add COMPATIBILITY.md (supported OS/toolchain/Python matrix) and per-tool
     man pages for ubertooth-follow, ubertooth-tx, and ubertooth-ducky
   * Add docs/source/Release_2020-12-R1.rst; annotate and prune the inherited
