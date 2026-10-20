@@ -34,6 +34,9 @@ ubertooth (2020-12-R1+modern1) unstable; urgency=low
     (-Wunused-result); error out on a short read instead of using partial data
 
   Documentation:
+  * ubertooth-util man page: document that -U selects by USB enumeration
+    index (not serial, not stable) and how to disambiguate devices (serial
+    listing / -I LED flash); add a SELECTING A DEVICE section
   * Man-page accuracy pass across all host tool pages (both host/doc/*.md ronn
     sources and host/doc/man/*.1 roff): convert H1s to ronn `name(1) -- desc`
     form; bump .TH dates to October 2026; fix ubertooth-debug NAME (was wrongly

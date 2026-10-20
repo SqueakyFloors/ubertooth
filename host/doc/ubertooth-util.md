@@ -46,7 +46,8 @@ Common options:
  - `-r` :
    full reset
  - `-U<0-7>` :
-   set ubertooth device to use
+   select which Ubertooth to use, by USB enumeration index (not serial).
+   See SELECTING A DEVICE.
 
 Radio options:
 
@@ -84,6 +85,30 @@ Miscellaneous:
    get microcontroller Part ID
  - `-s` :
    get microcontroller serial number
+
+## SELECTING A DEVICE
+
+With a single Ubertooth attached, the tools find it automatically and `-U`
+is unnecessary.
+
+With **multiple** Ubertooths attached, `-U<n>` selects one by its position in
+the USB device list (`-U0` is the first match, `-U1` the second, and so on).
+This index reflects **USB enumeration order** (bus/port and plug order) — it is
+**not** derived from the serial number and is **not guaranteed stable** across
+reboots or re-plugging.
+
+To tell which index is which physical device:
+
+- Run any tool with no `-U`: when more than one Ubertooth is present the tool
+  refuses to pick and instead lists each device's index with its serial number.
+  Use that to map index to serial.
+- Or flash the LEDs on a given index and watch which board blinks:
+
+        ubertooth-util -U0 -I
+
+For a stable identity across reboots, identify a device by its serial number
+(`ubertooth-util -U<n> -s`) and re-derive the index each session, since the
+index itself may change.
 
 ## RANGE TEST
 

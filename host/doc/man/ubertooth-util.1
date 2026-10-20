@@ -63,7 +63,7 @@ stop current operation
 full reset
 .IP \(bu 2
 \fB\fC\-U<0\-7>\fR :
-set ubertooth device to use
+select which Ubertooth to use, by USB enumeration index (not serial); see SELECTING A DEVICE
 .RE
 .PP
 Radio options:
@@ -119,6 +119,29 @@ get microcontroller Part ID
 \fB\fC\-s\fR :
 get microcontroller serial number
 .RE
+.SH SELECTING A DEVICE
+.PP
+With a single Ubertooth attached, the tools find it automatically and \fB\fC\-U\fR
+is unnecessary.
+.PP
+With multiple Ubertooths attached, \fB\fC\-U<n>\fR selects one by its position in
+the USB device list (\fB\fC\-U0\fR is the first match, and so on). This index
+reflects USB enumeration order (bus/port and plug order) \- it is not derived
+from the serial number and is not guaranteed stable across reboots or
+re\-plugging.
+.PP
+To tell which index is which physical device: run any tool with no \fB\fC\-U\fR
+(with more than one present it lists each index with its serial number), or
+flash the LEDs on a given index and watch which board blinks:
+.PP
+.RS
+.nf
+ubertooth\-util \-U0 \-I
+.fi
+.RE
+.PP
+For a stable identity across reboots, identify a device by serial
+(\fB\fC\-U<n> \-s\fR) and re\-derive the index each session.
 .SH RANGE TEST
 .PP
 Using two Uberteeth it is possible to perform a range test. One
