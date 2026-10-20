@@ -5,7 +5,7 @@
 \- general purpose Ubertooth utility
 .SH SYNOPSIS
 .PP
-ubertooth\-util [\-v] [\-V] [\-H] [\-\-host\-version] [\-I] [\-d[0\-1]] [\-l[0\-1]] [\-S] [\-r] [\-U<0\-7>] [\-a[0\-7]] [\-c[2400\-2483]] [\-C[0\-78]] [\-q[1\-225]] [\-t] [\-z] [\-e] [\-m] [\-n] [\-f] [\-i] [\-b] [\-p] [\-s] [\-N] [\-x] [\-h]
+ubertooth\-util [\-v] [\-V] [\-H] [\-\-host\-version] [\-I] [\-d[0\-1]] [\-l[0\-1]] [\-S] [\-r] [\-U<index|serial>] [\-a[0\-7]] [\-c[2400\-2483]] [\-C[0\-78]] [\-q[1\-225]] [\-t] [\-z] [\-e] [\-m] [\-n] [\-f] [\-i] [\-b] [\-p] [\-s] [\-N] [\-x] [\-h]
 .SH DESCRIPTION
 .PP
 .BR ubertooth-util (1) 
@@ -62,8 +62,8 @@ stop current operation
 \fB\fC\-r\fR :
 full reset
 .IP \(bu 2
-\fB\fC\-U<0\-7>\fR :
-select which Ubertooth to use, by USB enumeration index (not serial); see SELECTING A DEVICE
+\fB\fC\-U<index|serial>\fR :
+select which Ubertooth to use, either by USB enumeration index or by its serial number string; see SELECTING A DEVICE
 .RE
 .PP
 Radio options:
@@ -124,15 +124,18 @@ get microcontroller serial number
 With a single Ubertooth attached, the tools find it automatically and \fB\fC\-U\fR
 is unnecessary.
 .PP
-With multiple Ubertooths attached, \fB\fC\-U<n>\fR selects one by its position in
-the USB device list (\fB\fC\-U0\fR is the first match, and so on). This index
+With multiple Ubertooths attached, \fB\fC\-U\fR selects one either by its
+position in the USB device list or by its serial number. \fB\fC\-U<n>\fR
+selects by index (\fB\fC\-U0\fR is the first match, and so on); this index
 reflects USB enumeration order (bus/port and plug order) \- it is not derived
 from the serial number and is not guaranteed stable across reboots or
-re\-plugging.
+re\-plugging. \fB\fC\-U<serial>\fR selects the device whose serial number
+matches the given string, which is stable across reboots and re\-plugging and
+is the recommended way to pin a specific board.
 .PP
-To tell which index is which physical device: run any tool with no \fB\fC\-U\fR
-(with more than one present it lists each index with its serial number), or
-flash the LEDs on a given index and watch which board blinks:
+To tell which index or serial is which physical device: run any tool with no
+\fB\fC\-U\fR (with more than one present it lists each index with its serial
+number), or flash the LEDs on a given device and watch which board blinks:
 .PP
 .RS
 .nf
@@ -140,8 +143,8 @@ ubertooth\-util \-U0 \-I
 .fi
 .RE
 .PP
-For a stable identity across reboots, identify a device by serial
-(\fB\fC\-U<n> \-s\fR) and re\-derive the index each session.
+For a stable identity across reboots, select a device by its serial number
+(\fB\fC\-U<serial> \-I\fR); unlike the index, the serial does not change.
 .SH RANGE TEST
 .PP
 Using two Uberteeth it is possible to perform a range test. One

@@ -50,7 +50,7 @@ int main(int argc, char *argv[])
 	int opt;
 	int bitstream = 0;
 	int modulation = MOD_BT_BASIC_RATE;
-	int ubertooth_device = -1;
+	char* ubertooth_device = NULL;
 
 	ubertooth_t* ut = NULL;
 	int r;
@@ -67,7 +67,7 @@ int main(int argc, char *argv[])
 			modulation = MOD_BT_LOW_ENERGY;
 			break;
 		case 'U':
-			ubertooth_device = atoi(optarg);
+			ubertooth_device = optarg;
 			break;
 		case 'd':
 			dumpfile = fopen(optarg, "w");
@@ -83,10 +83,9 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	ut = ubertooth_start(ubertooth_device);
+	ut = ubertooth_start_select(ubertooth_device);
 
 	if (ut == NULL) {
-		usage();
 		return 1;
 	}
 

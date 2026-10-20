@@ -60,7 +60,7 @@ int main(int argc, char *argv[])
 	int afh_enabled = 0;
 	uint8_t mode, afh_map[10];
 	char *end;
-        int ubertooth_device = -1;
+        char* ubertooth_device = NULL;
 	char *bt_dev = "hci0";
 	char addr[19] = { 0 };
 	uint32_t clock;
@@ -88,7 +88,7 @@ int main(int argc, char *argv[])
 			}
 			break;
 		case 'U':
-			ubertooth_device = atoi(optarg);
+			ubertooth_device = optarg;
 			break;
 		case 'r':
 			if (!ut->h_pcapng_bredr) {
@@ -208,9 +208,8 @@ int main(int argc, char *argv[])
 	/* Clean up on exit. */
 	register_cleanup_handler(ut, 0);
 
-	ubertooth_connect(ut, ubertooth_device);
+	ubertooth_connect_select(ut, ubertooth_device);
 	if (ut == NULL) {
-		usage();
 		return 1;
 	}
 

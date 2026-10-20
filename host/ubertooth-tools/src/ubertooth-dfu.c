@@ -419,7 +419,8 @@ int main(int argc, char **argv) {
 	char* outfile_name;
 	libusb_device_handle* devh = NULL;
 	uint8_t functions = 0;
-	int opt, ubertooth_device = -1;
+	int opt;
+	char* ubertooth_device = NULL;
 	int r;
 	ubertooth_t* ut = NULL;
 
@@ -464,7 +465,7 @@ int main(int argc, char **argv) {
 			functions |= FUNC_RESET;
 			break;
 		case 'U':
-			ubertooth_device = atoi(optarg);
+			ubertooth_device = optarg;
 			break;
 		default:
 		case 'h':
@@ -484,7 +485,7 @@ int main(int argc, char **argv) {
 		int rv, count= 0;
 		devh = find_ubertooth_dfu_device();
 		if(devh == NULL) {
-			ut = ubertooth_start(ubertooth_device);
+			ut = ubertooth_start_select(ubertooth_device);
 			if(ut == NULL) {
 				fprintf(stderr, "Unable to find Ubertooth\n");
 				return 1;

@@ -149,7 +149,7 @@ int main(int argc, char *argv[])
 	int do_slave_mode;
 	int do_target;
 	enum jam_modes jam_mode = JAM_NONE;
-	int ubertooth_device = -1;
+	char* ubertooth_device = NULL;
 	ubertooth_t* ut = ubertooth_init();
 
 	btle_options cb_opts = { .allowed_access_address_errors = 32 };
@@ -185,7 +185,7 @@ int main(int argc, char *argv[])
 			do_promisc = 1;
 			break;
 		case 'U':
-			ubertooth_device = atoi(optarg);
+			ubertooth_device = optarg;
 			break;
 		case 'r':
 			if (!ut->h_pcapng_le) {
@@ -271,9 +271,8 @@ int main(int argc, char *argv[])
 	}
 
 
-	r = ubertooth_connect(ut, ubertooth_device);
+	r = ubertooth_connect_select(ut, ubertooth_device);
 	if (r < 0) {
-		usage();
 		return 1;
 	}
 

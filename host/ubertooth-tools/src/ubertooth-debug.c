@@ -64,7 +64,7 @@ int main(int argc, char *argv[])
     int verbose = 1;
     ubertooth_t* ut = NULL;
     int do_read_register;
-    int ubertooth_device = -1;
+    char* ubertooth_device = NULL;
     int *regList = NULL;
     int regListN = 0;
     int i;
@@ -79,7 +79,7 @@ int main(int argc, char *argv[])
 	    usage();
 	    return 0;
 	case 'U':
-	    ubertooth_device = atoi(optarg);
+	    ubertooth_device = optarg;
 	    break;
 	case 'v':
 	    verbose = atoi(optarg);
@@ -115,9 +115,8 @@ int main(int argc, char *argv[])
 	    return 1;
 	}
     /* initialise device */
-    ut = ubertooth_start(ubertooth_device);
+    ut = ubertooth_start_select(ubertooth_device);
     if (ut == NULL) {
-	usage();
 	return 1;
     }
 

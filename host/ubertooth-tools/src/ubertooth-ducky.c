@@ -165,7 +165,7 @@ int main(int argc, char *argv[])
 	uint8_t uuid[16] = { 0, };
 	uint8_t bd_addr[6] = { 0, };
 	uint8_t adv_data[16+2] = { 0, };
-	int ubertooth_device = -1;
+	char* ubertooth_device = NULL;
 	ubertooth_t* ut = ubertooth_init();
 
 	int r;
@@ -243,9 +243,8 @@ int main(int argc, char *argv[])
 
 	}
 
-	r = ubertooth_connect(ut, ubertooth_device);
+	r = ubertooth_connect_select(ut, ubertooth_device);
 	if (r < 0) {
-		usage();
 		return 1;
 	}
 
