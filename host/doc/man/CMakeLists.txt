@@ -21,6 +21,41 @@
 
 include(GNUInstallDirs)
 
+# Option A: the per-tool "<tool>.md" files in host/doc are the single source;
+# the roff "<tool>.1" here are generated from them with ronn. ronn is OPTIONAL:
+# if found, regenerate the .1 at build time so man pages track the .md; if not,
+# the committed .1 are installed as-is (so `man` works without ronn).
+find_program(RONN_EXECUTABLE NAMES ronn ronn-ng)
+if(RONN_EXECUTABLE)
+	message(STATUS "ronn found: man pages will be regenerated from host/doc/*.md")
+	set(DOC_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/..")
+	# Regenerate each page from its .md into the source tree so the committed
+	# .1 stay in sync. --date keeps the roff date stable (not build-synced).
+	foreach(pg ubertooth-afh ubertooth-btle ubertooth-dfu ubertooth-dump
+	           ubertooth-ego ubertooth-rx ubertooth-scan ubertooth-specan
+	           ubertooth-util)
+		add_custom_command(
+			OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/${pg}.1"
+			COMMAND ${RONN_EXECUTABLE} --roff --pipe
+			        "${DOC_SRC_DIR}/${pg}.md" > "${CMAKE_CURRENT_SOURCE_DIR}/${pg}.1"
+			DEPENDS "${DOC_SRC_DIR}/${pg}.md"
+			COMMENT "ronn: ${pg}.md -> ${pg}.1")
+	endforeach()
+	add_custom_command(
+		OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/ubertooth.7"
+		COMMAND ${RONN_EXECUTABLE} --roff --pipe
+		        "${DOC_SRC_DIR}/ubertooth.md" > "${CMAKE_CURRENT_SOURCE_DIR}/ubertooth.7"
+		DEPENDS "${DOC_SRC_DIR}/ubertooth.md"
+		COMMENT "ronn: ubertooth.md -> ubertooth.7")
+	add_custom_target(manpages ALL
+		DEPENDS
+			"${CMAKE_CURRENT_SOURCE_DIR}/ubertooth-util.1"
+			"${CMAKE_CURRENT_SOURCE_DIR}/ubertooth.7")
+else()
+	message(STATUS "ronn not found: installing committed man pages as-is "
+	               "(edit host/doc/*.md then regenerate with ronn)")
+endif()
+
 install(FILES
 	"ubertooth-btle.1"
 	"ubertooth-dump.1"

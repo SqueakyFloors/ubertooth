@@ -34,6 +34,10 @@ ubertooth (2020-12-R1+modern1) unstable; urgency=low
     (-Wunused-result); error out on a short read instead of using partial data
 
   Documentation:
+  * ubertooth-util man page: replace placeholder SYNOPSIS with the real flag
+    summary, add -H/--host-version, fix a typo; make host/doc/*.md the single
+    source and optionally regenerate roff .1 via ronn (committed .1 are the
+    fallback when ronn is absent)
   * Add a command-line tool catalog (grouped by purpose, with per-tool doc
     links) to README.md and docs/source/software.rst
   * Add COMPATIBILITY.md (supported OS/toolchain/Python matrix) and per-tool
