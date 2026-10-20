@@ -1,6 +1,8 @@
 ubertooth (2020-12-R1+modern1) unstable; urgency=low
 
   New features:
+  * ubertooth-util -I (identify): blink the LEDs at ~3 Hz instead of 1 Hz for
+    a snappier, easier-to-spot identify
   * ubertooth-util: add -H / --host-version to print the installed host tools
     (libubertooth) version and git revision, without needing a device
     (distinct from -v firmware revision and -V firmware compile info)

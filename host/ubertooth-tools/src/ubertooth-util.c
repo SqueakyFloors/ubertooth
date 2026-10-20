@@ -355,7 +355,7 @@ int main(int argc, char *argv[])
 			cmd_set_usrled(ut->devh, do_identify);
 			cmd_set_rxled(ut->devh, do_identify);
 			cmd_set_txled(ut->devh, do_identify);
-			sleep(1);
+			usleep(166667); /* ~3 Hz blink for a snappier identify */
 		}
 	}
 	if(do_isp == 0) {
