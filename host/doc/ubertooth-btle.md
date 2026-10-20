@@ -1,8 +1,4 @@
-# UBERTOOTH-BTLE 1 "July 2018" "Project Ubertooth" "User Commands"
-
-## NAME
-
-ubertooth-btle -- Bluetooth Low Energy (BLE) sniffing and more
+# ubertooth-btle(1) -- Bluetooth Low Energy (BLE) sniffing and more
 
 ## SYNOPSIS
 
@@ -125,6 +121,10 @@ Interference (pair with `-f` or `-p`):
    Interfere with one connection and return to idle
  - `-I` :
    Interfere continuously with many connections
+ - `-j` :
+   Jam a single connection once, then return to idle
+ - `-J` :
+   Jam connections continuously
 
 Filtering:
 
@@ -176,4 +176,4 @@ crackle(1): https://github.com/mikeryan/crackle
 ## COPYRIGHT
 
 `ubertooth-btle` is Copyright (C) 2012-2018 Mike Ryan. This tool is
-released under the GPLv2. Refer to COPYING for futher details.
+released under the GPLv2. Refer to COPYING for further details.

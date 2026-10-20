@@ -1,8 +1,4 @@
-# UBERTOOTH-TX 1 "Project Ubertooth" "User Commands"
-
-## NAME
-
-ubertooth-tx(1) - retransmit symbols dumped with ubertooth-dump
+# ubertooth-tx(1) -- retransmit symbols dumped with ubertooth-dump
 
 ## SYNOPSIS
 

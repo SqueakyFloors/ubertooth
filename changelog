@@ -34,6 +34,19 @@ ubertooth (2020-12-R1+modern1) unstable; urgency=low
     (-Wunused-result); error out on a short read instead of using partial data
 
   Documentation:
+  * Man-page accuracy pass across all host tool pages (both host/doc/*.md ronn
+    sources and host/doc/man/*.1 roff): convert H1s to ronn `name(1) -- desc`
+    form; bump .TH dates to October 2026; fix ubertooth-debug NAME (was wrongly
+    copied from rx; it reads/writes CC2400 registers); fix ubertooth.7 "IRC
+    channel on Discord" -> "channel on Discord" and add the missing
+    ubertooth-follow/-tx/-ducky catalog entries; fix ubertooth-rx synopsis
+    `-u <uap>` and "piocnets" typo; remove a stray quote in ubertooth-dump;
+    fix ubertooth-specan `##EXAMPLES` heading; relabel ubertooth-afh `-m` as a
+    channel-removal count (not seconds) and note `-a` is non-functional; fix
+    ubertooth-btle "futher" typo. Document previously-undocumented real flags:
+    rx `-s` (deprecated no-op), btle `-j`/`-J` (jamming), follow `-d <file>`,
+    ego `-j`/`-l <1-48>`/`-a <access_code>`, ducky `-s` (sarcasm easter egg).
+    ronn was unavailable; the committed .1 files were hand-synced to match.
   * ubertooth-util man page: replace placeholder SYNOPSIS with the real flag
     summary, add -H/--host-version, fix a typo; make host/doc/*.md the single
     source and optionally regenerate roff .1 via ronn (committed .1 are the

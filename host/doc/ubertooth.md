@@ -1,8 +1,4 @@
-# UBERTOOTH 7 "March 2017" "Project Ubertooth" "Project Ubertooth Overview"
-
-## NAME
-
-ubertooth(7) - Project Ubertooth
+# ubertooth(7) -- Project Ubertooth
 
 ## OVERVIEW
 
@@ -26,11 +22,14 @@ Useful commands:
  - ubertooth-scan(1) : Active scanning of undiscoverable devices
  - ubertooth-afh(1) : Detecting the AFH map of a Classic Bluetooth piconet
  - ubertooth-ego(1) : Yuneec E-Go electric skateboard sniffing
+ - ubertooth-follow(1) : Active (BlueZ) clock discovery and piconet following
 
 Utility commands:
 
  - ubertooth-dfu(1) : Firmware update tool
  - ubertooth-dump(1) : Dumping raw RF symbols to disk
+ - ubertooth-tx(1) : Retransmitting symbols dumped with ubertooth-dump
+ - ubertooth-ducky(1) : Driving an Uberducky as a BLE USB Rubber Ducky
  - ubertooth-util(1) : "Everything else"
 
 Less useful commands:

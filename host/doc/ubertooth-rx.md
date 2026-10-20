@@ -1,12 +1,8 @@
-# UBERTOOTH-RX 1 "March 2017" "Project Ubertooth" "User Commands"
-
-## NAME
-
-ubertooth-rx(1) - Classic Bluetooth discovery, sniffing, and decoding
+# ubertooth-rx(1) -- Classic Bluetooth discovery, sniffing, and decoding
 
 ## SYNOPSIS
 
-    ubertooth-rx [ -l <lap> [ -u <uap ] ]
+    ubertooth-rx [ -l <lap> [ -u <uap> ] ]
     ubertooth-rx -z
 
 ## DESCRIPTION
@@ -102,12 +98,16 @@ Miscellaneous:
  - `-V` :
    Version information
 
+ - `-s` :
+   Deprecated no-op. Sweep mode is now the default; this flag is retained
+   for backward compatibility and has no effect.
+
  - `-U<0-7>` :
    Which Ubertooth device to use
 
 ## DISCOVERING UNDISCOVERABLE DEVICES
 
-Classic Bluetooth piocnets are defined by the Lower Address Part (LAP)
+Classic Bluetooth piconets are defined by the Lower Address Part (LAP)
 and Upper Address Part (UAP) of the master device. These are elements
 of the master device's Bluetooth Address (BD ADDR).
 

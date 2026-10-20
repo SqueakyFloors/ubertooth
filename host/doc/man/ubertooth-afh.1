@@ -1,4 +1,4 @@
-.TH UBERTOOTH\-AFH 1 "March 2017" "Project Ubertooth" "User Commands"
+.TH UBERTOOTH\-AFH 1 "October 2026" "Project Ubertooth" "User Commands"
 .SH NAME
 .PP
 .BR ubertooth-afh (1) 
@@ -7,7 +7,7 @@
 .PP
 .RS
 .nf
-ubertooth\-afh \-u <uap> \-l <lap> [\-r] [\-m <seconds>]
+ubertooth\-afh \-u <uap> \-l <lap> [\-r] [\-m <count>]
 .fi
 .RE
 .SH DESCRIPTION
@@ -24,6 +24,9 @@ method for sniffing these over the air and details on where else to find
 them. By default the tool will only print the AFH map when it is
 updated. By providing the \fB\fC\-r\fR flag, the AFH map will be printed out in
 binary form once per second.
+.PP
+Note: the \fB\fC\-a\fR option (initial AFH map) is currently non\-functional; its
+handler is disabled in the source and the flag has no effect.
 .SH OPTIONS
 .RS
 .IP \(bu 2

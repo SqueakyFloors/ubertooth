@@ -1,8 +1,4 @@
-# UBERTOOTH-DUMP 1 "March 2017" "Project Ubertooth" "User Commands"
-
-## NAME
-
-ubertooth-dump(1) - output a continuous stream of received bits
+# ubertooth-dump(1) -- output a continuous stream of received bits
 
 ## SYNOPSIS
 
@@ -14,7 +10,7 @@ This tool dumps the raw bitstream received from the CC2400 radio to
 STDOUT or a file (if specified with `-d`). It can configure the radio to
 demodulate Classic Bluetooth with `-c` (default), or Bluetooth Low
 Energy (BLE) with `-l`. Optionally it can decode the binary data and
-print ASCII 0 and 1 using `-b`.'
+print ASCII 0 and 1 using `-b`.
 
 ## OPTIONS
 

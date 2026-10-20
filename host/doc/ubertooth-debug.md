@@ -1,8 +1,4 @@
-# ubertooth-debug 1 "March 2017" "Project Ubertooth" "User Commands"
-
-## NAME
-
-ubertooth-debug(1) - Classic Bluetooth discovery, sniffing, and decoding
+# ubertooth-debug(1) -- read and write CC2400 radio registers
 
 ## SYNOPSIS
 

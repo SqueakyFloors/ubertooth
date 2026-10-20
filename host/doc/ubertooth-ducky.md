@@ -1,12 +1,8 @@
-# UBERTOOTH-DUCKY 1 "Project Ubertooth" "User Commands"
-
-## NAME
-
-ubertooth-ducky(1) - drive an Uberducky to act like a USB Rubber Ducky
+# ubertooth-ducky(1) -- drive an Uberducky to act like a USB Rubber Ducky
 
 ## SYNOPSIS
 
-ubertooth-ducky [-q [uuid]] [-b] [-A index] [-a BD_ADDR] [-U 0-7]
+ubertooth-ducky [-q [uuid]] [-b] [-A index] [-a BD_ADDR] [-s] [-U 0-7]
 
 ## DESCRIPTION
 
@@ -29,6 +25,8 @@ If no Bluetooth address is given, a random BD_ADDR is used (read from
    advertising channel index (default: 38).
  - `-a <BD_ADDR>` :
    Bluetooth address to use (default: random).
+ - `-s` :
+   Be sarcastic (easter egg; changes the tool's output tone).
  - `-U <0-7>` :
    which Ubertooth device to use.
  - `-h` :
