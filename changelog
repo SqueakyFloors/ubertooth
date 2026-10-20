@@ -1,6 +1,14 @@
 ubertooth (2020-12-R1+modern1) unstable; urgency=low
 
   New features:
+  * Serial-based device selection: every ubertooth-* tool's -U option now
+    accepts either a USB enumeration index (existing behaviour) or an Ubertooth
+    serial-number string, routed through the shared ubertooth_start_select /
+    ubertooth_connect_select helpers in libubertooth. Selecting by serial is
+    stable across reboots and re-plugging, unlike the index.
+  * On a device-open failure the tools no longer dump the full usage/help page:
+    the library already prints a helpful multi-device message (listing serials
+    and advising -U), so the tools now just exit non-zero to avoid burying it.
   * ubertooth-util -I (identify): blink the LEDs at ~3 Hz instead of 1 Hz for
     a snappier, easier-to-spot identify
   * ubertooth-util: add -H / --host-version to print the installed host tools
@@ -36,9 +44,13 @@ ubertooth (2020-12-R1+modern1) unstable; urgency=low
     (-Wunused-result); error out on a short read instead of using partial data
 
   Documentation:
-  * ubertooth-util man page: document that -U selects by USB enumeration
-    index (not serial, not stable) and how to disambiguate devices (serial
-    listing / -I LED flash); add a SELECTING A DEVICE section
+  * Document -U device selection fully: accepts an index OR a serial, attached
+    or separated (-U0 / -U 0 / -U<serial> / -U <serial>), and there is no 0-7
+    cap on the number of attached Ubertooths (dynamic; limited by USB/power)
+  * ubertooth-util man page: document that -U selects either by USB enumeration
+    index or by serial-number string, that the index is not stable while the
+    serial is, and how to disambiguate devices (serial listing / -I LED flash);
+    SELECTING A DEVICE section updated for index-or-serial selection
   * Man-page accuracy pass across all host tool pages (both host/doc/*.md ronn
     sources and host/doc/man/*.1 roff): convert H1s to ronn `name(1) -- desc`
     form; bump .TH dates to October 2026; fix ubertooth-debug NAME (was wrongly

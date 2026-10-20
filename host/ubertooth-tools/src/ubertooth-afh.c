@@ -54,7 +54,7 @@ int main(int argc, char* argv[])
 	int opt, have_lap = 0, have_uap = 0, timeout = 0;//, have_initial_afh = 0;
 	// uint8_t initial_afh[10];
 	char* end;
-	int ubertooth_device = -1;
+	char* ubertooth_device = NULL;
 	btbb_piconet* pn = NULL;
 	uint32_t lap = 0;
 	uint8_t uap = 0;
@@ -86,7 +86,7 @@ int main(int argc, char* argv[])
 			timeout = atoi(optarg);
 			break;
 		case 'U':
-			ubertooth_device = atoi(optarg);
+			ubertooth_device = optarg;
 			break;
 		case 'e':
 			max_ac_errors = atoi(optarg);
@@ -126,9 +126,8 @@ int main(int argc, char* argv[])
 		return 1;
 	}
 
-	ut = ubertooth_start(ubertooth_device);
+	ut = ubertooth_start_select(ubertooth_device);
 	if (ut->devh == NULL) {
-		usage();
 		return 1;
 	}
 

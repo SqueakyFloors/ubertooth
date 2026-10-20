@@ -44,6 +44,7 @@ static void identify_cleanup(int sig __attribute__((unused)))
 		cmd_set_usrled(identify_ut->devh, 0);
 		cmd_set_rxled(identify_ut->devh, 0);
 		cmd_set_txled(identify_ut->devh, 0);
+		cmd_stop(identify_ut->devh);
 	}
 	exit(0);
 }
@@ -61,7 +62,7 @@ static void usage(FILE *output)
 	fprintf(output, "\t-l[0-1] get/set USR LED\n");
 	fprintf(output, "\t-S stop current operation\n");
 	fprintf(output, "\t-r full reset\n");
-	fprintf(output, "\t-U<0-7> set ubertooth device to use\n");
+	fprintf(output, "\t-U<index|serial> select Ubertooth by index or serial number\n");
 	fprintf(output, "\t-N print total number of Ubertooth devices and exit\n");
 	fprintf(output, "\n");
 	fprintf(output, "Radio options:\n");
@@ -101,7 +102,7 @@ int main(int argc, char *argv[])
 	int do_set_squelch, do_get_squelch, squelch_level;
 	int do_something, do_compile_info;
 	int do_number, do_xmas;
-	int ubertooth_device = -1;
+	char* ubertooth_device = NULL;
 	char version_string[MAX_VERSION_STRING_LEN];
 
 	/* set command states to negative as a starter
@@ -128,7 +129,7 @@ int main(int argc, char *argv[])
 	while ((opt=getopt(argc,argv,"U:hnmefiIprsStvbl::a::C::c::d::q::z::9VNxH")) != EOF) {
 		switch(opt) {
 		case 'U':
-			ubertooth_device = atoi(optarg);
+			ubertooth_device = optarg;
 			break;
 		case 'f':
 			fprintf(stderr, "ubertooth-util -f is no longer required - use ubertooth-dfu instead\n");
@@ -248,19 +249,18 @@ int main(int argc, char *argv[])
 	}
 
 	/* initialise device */
-	ut = ubertooth_start(ubertooth_device);
+	ut = ubertooth_start_select(ubertooth_device);
 	if (ut == NULL) {
-		usage(stderr);
 		return 1;
 	}
 	if(do_reset == 0) {
-		fprintf(stdout, "Resetting ubertooth device number %d\n", (ubertooth_device >= 0) ? ubertooth_device : 0);
+		fprintf(stdout, "Resetting ubertooth device %s\n", ubertooth_device ? ubertooth_device : "0");
 		r = cmd_reset(ut->devh);
 		sleep(2);
-		ut = ubertooth_start(ubertooth_device);
+		ut = ubertooth_start_select(ubertooth_device);
 	}
 	if(do_stop == 0) {
-		fprintf(stdout, "Stopping ubertooth device number %d\n", (ubertooth_device >= 0) ? ubertooth_device : 0);
+		fprintf(stdout, "Stopping ubertooth device %s\n", ubertooth_device ? ubertooth_device : "0");
 		r = cmd_stop(ut->devh);
 	}
 
@@ -347,7 +347,11 @@ int main(int argc, char *argv[])
 		return cmd_flash(ut->devh);
 	}
 	if(do_identify == 0) {
-		fprintf(stdout, "Flashing LEDs on ubertooth device number %d\n", (ubertooth_device >= 0) ? ubertooth_device : 0);
+		fprintf(stdout, "Flashing LEDs on ubertooth device %s\n", ubertooth_device ? ubertooth_device : "0");
+		/* Stop any operation already running on the device (e.g. -x xmas or
+		 * -q LED spectrum analyzer) so it does not fight the identify blink
+		 * and is not left running after identify is interrupted. */
+		cmd_stop(ut->devh);
 		identify_ut = ut;
 		signal(SIGINT, identify_cleanup);
 		while(42) {

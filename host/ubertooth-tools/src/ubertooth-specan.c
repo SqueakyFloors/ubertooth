@@ -96,7 +96,7 @@ int main(int argc, char *argv[])
 {
 	int opt, r = 0, output_mode = SPECAN_STDOUT;
 	int lower= 2402, upper= 2480;
-	int ubertooth_device = -1;
+	char* ubertooth_device = NULL;
 
 	ubertooth_t* ut = NULL;
 
@@ -136,7 +136,7 @@ int main(int argc, char *argv[])
 				printf("upper: %d\n", upper);
 			break;
 		case 'U':
-			ubertooth_device = atoi(optarg);
+			ubertooth_device = optarg;
 			break;
 		case 'h':
 			usage(stdout);
@@ -147,10 +147,9 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	ut = ubertooth_start(ubertooth_device);
+	ut = ubertooth_start_select(ubertooth_device);
 
 	if (ut == NULL) {
-		usage(stderr);
 		return 1;
 	}
 

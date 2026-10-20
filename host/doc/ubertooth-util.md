@@ -3,7 +3,7 @@
 ## SYNOPSIS
 
 `ubertooth-util` [-v] [-V] [-H] [--host-version] [-I] [-d[0-1]] [-l[0-1]]
-[-S] [-r] [-U<0-7>] [-a[0-7]] [-c[2400-2483]] [-C[0-78]] [-q[1-225]] [-t]
+[-S] [-r] [-U<index|serial>] [-a[0-7]] [-c[2400-2483]] [-C[0-78]] [-q[1-225]] [-t]
 [-z] [-e] [-m] [-n] [-f] [-i] [-b] [-p] [-s] [-N] [-x] [-h]
 
 ## DESCRIPTION
@@ -45,9 +45,9 @@ Common options:
    stop current operation
  - `-r` :
    full reset
- - `-U<0-7>` :
-   select which Ubertooth to use, by USB enumeration index (not serial).
-   See SELECTING A DEVICE.
+ - `-U<index|serial>` :
+   select which Ubertooth to use, either by USB enumeration index or by its
+   serial number string. See SELECTING A DEVICE.
 
 Radio options:
 
@@ -91,24 +91,39 @@ Miscellaneous:
 With a single Ubertooth attached, the tools find it automatically and `-U`
 is unnecessary.
 
-With **multiple** Ubertooths attached, `-U<n>` selects one by its position in
-the USB device list (`-U0` is the first match, `-U1` the second, and so on).
-This index reflects **USB enumeration order** (bus/port and plug order) — it is
-**not** derived from the serial number and is **not guaranteed stable** across
-reboots or re-plugging.
+With **multiple** Ubertooths attached, `-U` selects one either by its position
+in the USB device list or by its serial number:
 
-To tell which index is which physical device:
+- `-U<n>` selects by index (`-U0` is the first match, `-U1` the second, and so
+  on). This index reflects **USB enumeration order** (bus/port and plug order) —
+  it is **not** derived from the serial number and is **not guaranteed stable**
+  across reboots or re-plugging.
+- `-U<serial>` selects the device whose serial number matches the given string.
+  This is stable across reboots and re-plugging, so it is the recommended way
+  to pin a specific board.
+
+The argument may be written **attached or separated** — `-U0` and `-U 0` are
+equivalent, as are `-U<serial>` and `-U <serial>`. (Index or serial is
+auto-detected: an all-digits argument is treated as an index, anything else as
+a serial.)
+
+There is **no fixed upper limit** on the number of attached Ubertooths: the
+device list is sized dynamically and the index is not capped (older docs showed
+`-U<0-7>`, which was only a convention). In practice the limit is USB topology,
+hub bandwidth, and power — with many devices, prefer serial selection since
+indices become unwieldy and unstable.
+
+To tell which index or serial is which physical device:
 
 - Run any tool with no `-U`: when more than one Ubertooth is present the tool
   refuses to pick and instead lists each device's index with its serial number.
   Use that to map index to serial.
-- Or flash the LEDs on a given index and watch which board blinks:
+- Or flash the LEDs on a given device and watch which board blinks:
 
         ubertooth-util -U0 -I
 
-For a stable identity across reboots, identify a device by its serial number
-(`ubertooth-util -U<n> -s`) and re-derive the index each session, since the
-index itself may change.
+For a stable identity across reboots, select a device by its serial number
+(`ubertooth-util -U<serial> -I`); unlike the index, the serial does not change.
 
 ## RANGE TEST
 

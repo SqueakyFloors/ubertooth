@@ -198,7 +198,7 @@ int main(int argc, char *argv[])
 	int max_rsp, num_rsp, lap, timeout = 20;
 	uint8_t uap, extended = 0;
 	uint8_t scan = 0;
-	int ubertooth_device = -1;
+	char* ubertooth_device = NULL;
 	char *bt_dev = "hci0";
 	char addr[19] = { 0 };
 	ubertooth_t* ut = NULL;
@@ -208,7 +208,7 @@ int main(int argc, char *argv[])
 	while ((opt=getopt(argc,argv,"hU:t:e:xsb:")) != EOF) {
 		switch(opt) {
 		case 'U':
-			ubertooth_device = atoi(optarg);
+			ubertooth_device = optarg;
 			break;
 		case 'b':
 			bt_dev = optarg;
@@ -248,9 +248,8 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	ut = ubertooth_start(ubertooth_device);
+	ut = ubertooth_start_select(ubertooth_device);
 	if (ut == NULL) {
-		usage();
 		return 1;
 	}
 	rv = ubertooth_check_api(ut);

@@ -77,6 +77,11 @@ ubertooth_t* ubertooth_init();
 int ubertooth_count(void);
 int ubertooth_connect(ubertooth_t* ut, int ubertooth_device);
 ubertooth_t* ubertooth_start(int ubertooth_device);
+int ubertooth_connect_serial(ubertooth_t* ut, char* serial_number);
+ubertooth_t* ubertooth_start_serial(char* serial_number);
+/* Accepts a -U argument that is either a numeric index or a serial string. */
+ubertooth_t* ubertooth_start_select(const char* u_arg);
+int ubertooth_connect_select(ubertooth_t* ut, const char* u_arg);
 void ubertooth_stop(ubertooth_t* ut);
 int ubertooth_get_api(ubertooth_t *ut, uint16_t *version);
 int ubertooth_check_api(ubertooth_t *ut);

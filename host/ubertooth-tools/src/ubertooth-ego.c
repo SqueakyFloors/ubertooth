@@ -59,7 +59,7 @@ int main(int argc, char *argv[])
 	int opt;
 	int do_mode = -1;
 	int do_channel = 2418;
-	int ubertooth_device = -1;
+	char* ubertooth_device = NULL;
 	uint8_t len = 18;
 	char *access_code_str = NULL;
 	uint8_t access_code[4];
@@ -82,7 +82,7 @@ int main(int argc, char *argv[])
 			do_channel = atoi(optarg);
 			break;
 		case 'U':
-			ubertooth_device = atoi(optarg);
+			ubertooth_device = optarg;
 			break;
 		case 'a':
 			access_code_str = strdup(optarg);
@@ -117,9 +117,8 @@ int main(int argc, char *argv[])
 			access_code[i] = ac[i];
 	}
 
-	ut = ubertooth_start(ubertooth_device);
+	ut = ubertooth_start_select(ubertooth_device);
 	if (ut == NULL) {
-		usage();
 		return 1;
 	}
 
