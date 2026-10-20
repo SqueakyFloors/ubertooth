@@ -1,8 +1,4 @@
-# UBERTOOTH-SCAN 1 "March 2017" "Project Ubertooth" "User Commands"
-
-## NAME
-
-ubertooth-scan(1) - active(Bluez) device scan and inquiry supported by Ubertooth
+# ubertooth-scan(1) -- active (BlueZ) device scan and inquiry supported by Ubertooth
 
 ## SYNOPSIS
 

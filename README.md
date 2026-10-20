@@ -15,6 +15,48 @@ Instructions for building libbtbb can be found [on the corresponding readthedocs
 
 --------------------
 
+# Tools
+
+Ubertooth ships a set of host command-line tools. Each links to its manual page.
+"Needs" indicates what a test/use requires beyond the Ubertooth itself.
+
+### Bluetooth Low Energy (BLE)
+| Tool | What it does | Needs |
+|---|---|---|
+| [ubertooth-btle](host/doc/ubertooth-btle.md) | Passive BLE monitoring; follow connections / capture advertising (`-f`) | ambient BLE |
+
+### Classic Bluetooth (BR/EDR)
+| Tool | What it does | Needs |
+|---|---|---|
+| [ubertooth-rx](host/doc/ubertooth-rx.md) | Passive Classic BT discovery/decode (finds piconets, LAP/UAP) | a Classic BT peer |
+| [ubertooth-afh](host/doc/ubertooth-afh.md) | Passively recover a piconet's AFH channel map | an active piconet |
+| [ubertooth-follow](host/doc/ubertooth-follow.md) | Active clock discovery + follow a piconet for a UAP/LAP | BlueZ + target |
+| [ubertooth-scan](host/doc/ubertooth-scan.md) | Active inquiry scan (uses a BlueZ dongle + Ubertooth) | BlueZ dongle |
+
+### Signal / low-level
+| Tool | What it does | Needs |
+|---|---|---|
+| [ubertooth-specan](host/doc/ubertooth-specan.md) | Spectrum analyzer: stream of 2.4GHz signal strengths | — |
+| [ubertooth-dump](host/doc/ubertooth-dump.md) | Raw stream of received bits/symbols | — |
+| [ubertooth-debug](host/doc/ubertooth-debug.md) | Low-level CC2400 radio register/debug access | — |
+
+### Device administration & firmware
+| Tool | What it does | Needs |
+|---|---|---|
+| [ubertooth-util](host/doc/ubertooth-util.md) | Device admin: versions (`-v`/`-V`/`-H`), LEDs, reset, channel, DFU | — |
+| [ubertooth-dfu](host/doc/ubertooth-dfu.md) | Flash/read firmware over DFU | — |
+
+### Special-purpose
+| Tool | What it does | Needs |
+|---|---|---|
+| [ubertooth-ducky](host/doc/ubertooth-ducky.md) | Drive an Uberducky BLE HID-injection gadget | Uberducky hardware |
+| [ubertooth-ego](host/doc/ubertooth-ego.md) | Sniff a Yuneec E-GO skateboard (niche) | Yuneec E-GO |
+| [ubertooth-tx](host/doc/ubertooth-tx.md) | Retransmit dumped symbols — **currently non-functional** | — |
+
+See also the [Ubertooth overview man page](host/doc/ubertooth.md).
+
+--------------------
+
 # Documentation
 
 Documentation for Ubertooth can be viewed on [Read the Docs](https://ubertooth.readthedocs.io/en/latest/). The raw documenation files for Ubertooth are in the [docs folder](https://github.com/greatscottgadgets/ubertooth/tree/master/docs) in this repository. Documentation changes can be submitted through pull request and suggestions can be made as GitHub issues. 

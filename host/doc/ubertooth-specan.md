@@ -1,8 +1,4 @@
-# UBERTOOTH-SPECAN 1 "March 2017" "Project Ubertooth" "User Commands"
-
-## NAME
-
-ubertooth-specan(1) - a spectrum analyzer for Ubertooth
+# ubertooth-specan(1) -- a spectrum analyzer for Ubertooth
 
 ## SYNOPSIS
 
@@ -37,7 +33,7 @@ Options:
  - `-U<0-7>` :
    set ubertooth device to use
 
-##EXAMPLES
+## EXAMPLES
 
 To monitor the 2.4GHz band and produce a file suitable for feedgnuplot:
 

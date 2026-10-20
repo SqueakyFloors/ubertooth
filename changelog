@@ -1,5 +1,10 @@
 ubertooth (2020-12-R1+modern1) unstable; urgency=low
 
+  New features:
+  * ubertooth-util: add -H / --host-version to print the installed host tools
+    (libubertooth) version and git revision, without needing a device
+    (distinct from -v firmware revision and -V firmware compile info)
+
   Build fixes:
   * Fix build with CMake 4.x: update cmake_minimum_required to VERSION 3.5...3.27
     in host/CMakeLists.txt, host/misc/CMakeLists.txt, host/misc/udev/CMakeLists.txt
@@ -10,6 +15,57 @@ ubertooth (2020-12-R1+modern1) unstable; urgency=low
   * Fix InvalidVersion error in new setuptools versions: set version='1' in
     specan_ui setup.py and add set(PACKAGE_VERSION 1) to specan_ui CMakeLists.txt
     Credit: Rhys Perry <rhysperry111@gmail.com> (upstream PR #524)
+  * CMakeLists: use message(FATAL_ERROR ...) instead of message(FATAL ...), and
+    CACHE STRING instead of CACHE INT for the version variables
+  * Guard MAX/MIN macros in ubertooth_control.h with #ifndef to avoid
+    -Wmacro-redefined against the system <sys/param.h>
+  * specan_ui: remove the stale committed setup.py (generated from setup.py.in
+    by CMake); the template is now the single source of truth
+
+  Robustness fixes (host, this fork):
+  * libubertooth: ubertooth_count() now returns int and propagates a negative
+    error from libusb_init instead of wrapping to a large unsigned value
+  * libubertooth: ubertooth_start() frees its allocation on the connect-failure
+    path (was a leak); ubertooth_stop() guards devh before libusb_close and
+    does not call libusb_exit(NULL) on the failed-connect path
+  * libubertooth: find_ubertooth_device() sets devh=NULL on a single-device
+    open failure; removed a shadowed variable
+  * ubertooth-dfu / ubertooth-ducky: check fread() return values
+    (-Wunused-result); error out on a short read instead of using partial data
+
+  Documentation:
+  * Man-page accuracy pass across all host tool pages (both host/doc/*.md ronn
+    sources and host/doc/man/*.1 roff): convert H1s to ronn `name(1) -- desc`
+    form; bump .TH dates to October 2026; fix ubertooth-debug NAME (was wrongly
+    copied from rx; it reads/writes CC2400 registers); fix ubertooth.7 "IRC
+    channel on Discord" -> "channel on Discord" and add the missing
+    ubertooth-follow/-tx/-ducky catalog entries; fix ubertooth-rx synopsis
+    `-u <uap>` and "piocnets" typo; remove a stray quote in ubertooth-dump;
+    fix ubertooth-specan `##EXAMPLES` heading; relabel ubertooth-afh `-m` as a
+    channel-removal count (not seconds) and note `-a` is non-functional; fix
+    ubertooth-btle "futher" typo. Document previously-undocumented real flags:
+    rx `-s` (deprecated no-op), btle `-j`/`-J` (jamming), follow `-d <file>`,
+    ego `-j`/`-l <1-48>`/`-a <access_code>`, ducky `-s` (sarcasm easter egg).
+    ronn was unavailable; the committed .1 files were hand-synced to match.
+  * ubertooth-util man page: replace placeholder SYNOPSIS with the real flag
+    summary, add -H/--host-version, fix a typo; make host/doc/*.md the single
+    source and optionally regenerate roff .1 via ronn (committed .1 are the
+    fallback when ronn is absent)
+  * Add a command-line tool catalog (grouped by purpose, with per-tool doc
+    links) to README.md and docs/source/software.rst
+  * Add COMPATIBILITY.md (supported OS/toolchain/Python matrix) and per-tool
+    man pages for ubertooth-follow, ubertooth-tx, and ubertooth-ducky
+  * Add docs/source/Release_2020-12-R1.rst; annotate and prune the inherited
+    upstream ToDo list; note the ubertooth-btbr hang in firmware/btbr/README.md
+
+  Continuous integration:
+  * Modernize CI: pinned OS matrix (Ubuntu 20.04/22.04/24.04, macOS 14/15/26)
+    with ubuntu-latest and Fedora soft-fail canaries, firmware build in CI,
+    actions/checkout@v4, host CLI + Python import smoke tests, firmware artifacts
+
+  Bug fixes (this fork):
+  * ubertooth-util -I (identify): install a SIGINT handler so Ctrl-C turns
+    the USR/RX/TX LEDs off before exit, instead of leaving them lit
 
   Bug fixes (cherry-picked from community forks):
   * Fix divide-by-zero in bluetooth.c AFH hop selection when used_channels < 20

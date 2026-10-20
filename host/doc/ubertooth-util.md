@@ -1,12 +1,10 @@
-# UBERTOOTH-UTIL 1 "March 2017" "Project Ubertooth" "User Commands"
-
-## NAME
-
-ubertooth-util(1) - general purpose Ubertooth utility
+# ubertooth-util(1) -- general purpose Ubertooth utility
 
 ## SYNOPSIS
 
-ubertooth-util [-abcdefghijk-ellemenop-qrstuvwxyZ]
+`ubertooth-util` [-v] [-V] [-H] [--host-version] [-I] [-d[0-1]] [-l[0-1]]
+[-S] [-r] [-U<0-7>] [-a[0-7]] [-c[2400-2483]] [-C[0-78]] [-q[1-225]] [-t]
+[-z] [-e] [-m] [-n] [-f] [-i] [-b] [-p] [-s] [-N] [-x] [-h]
 
 ## DESCRIPTION
 
@@ -35,8 +33,10 @@ Common options:
    get firmware revision number
  - `-V` :
    get compile info
+ - `-H`, `--host-version` :
+   get host tools (libubertooth) version; works without a device
  - `-I` :
-   identify ubertooth device by flashing all LEDs
+   identify ubertooth device by flashing the USR, RX, and TX LEDs (runs until Ctrl-C; see LEDs doc)
  - `-d[0-1]` :
    get/set all LEDs
  - `-l[0-1]` :
@@ -88,7 +88,7 @@ Miscellaneous:
 ## RANGE TEST
 
 Using two Ubertooth devices it is possible to perform a range test. One
-Ubertooth acts as a repeated by running:
+Ubertooth acts as a repeater by running:
 
     ubertooth-util -e
 

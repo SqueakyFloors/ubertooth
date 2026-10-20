@@ -1,8 +1,4 @@
-# UBERTOOTH-EGO 1 "March 2017" "Project Ubertooth" "User Commands"
-
-## NAME
-
-ubertooth-ego(1) - Yuneec E-Go sniffing
+# ubertooth-ego(1) -- Yuneec E-Go sniffing
 
 ## SYNOPSIS
 
@@ -39,11 +35,17 @@ Major modes:
    Continuously receive packets on a single channel (see `-c`)
  - `-i` :
    Interfere with a connection
+ - `-j` :
+   Interfere with a connection (alias of `-i`)
 
 Options:
 
  - `-c` :
    Channel to use for continuous receive (suggested: 2408, 2418, 2423, 2469)
+ - `-l <1-48>` :
+   Packet length to use (must be in the range 1 to 48)
+ - `-a <access_code>` :
+   Access code to use, given as hex (up to 4 bytes)
  - `-U<0-7>` :
    Which Ubertooth device to use
 

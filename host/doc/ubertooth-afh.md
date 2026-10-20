@@ -1,12 +1,8 @@
-# UBERTOOTH-AFH 1 "March 2017" "Project Ubertooth" "User Commands"
-
-## NAME
-
-ubertooth-afh(1) - passive detection of AFH channel map
+# ubertooth-afh(1) -- passive detection of AFH channel map
 
 ## SYNOPSIS
 
-    ubertooth-afh -u <uap> -l <lap> [-r] [-m <seconds>]
+    ubertooth-afh -u <uap> -l <lap> [-r] [-m <count>]
 
 ## DESCRIPTION
 
@@ -20,6 +16,9 @@ method for sniffing these over the air and details on where else to find
 them. By default the tool will only print the AFH map when it is
 updated. By providing the `-r` flag, the AFH map will be printed out in
 binary form once per second.
+
+Note: the `-a` option (initial AFH map) is currently non-functional; its
+handler is disabled in the source and the flag has no effect.
 
 ## OPTIONS
 

@@ -1,4 +1,4 @@
-.TH UBERTOOTH\-RX 1 "March 2017" "Project Ubertooth" "User Commands"
+.TH UBERTOOTH\-RX 1 "October 2026" "Project Ubertooth" "User Commands"
 .SH NAME
 .PP
 ubertooth\-rx(1) \- Classic Bluetooth discovery, sniffing, and decoding
@@ -8,7 +8,7 @@ ubertooth\-rx(1) \- Classic Bluetooth discovery, sniffing, and decoding
 .RS
 
 .nf
-ubertooth\-rx [ \-l <lap> [ \-u <uap ] ]
+ubertooth\-rx [ \-l <lap> [ \-u <uap> ] ]
 ubertooth\-rx \-z
 
 .fi
@@ -164,12 +164,18 @@ Version information
 .IP \(bu 2
 
 .PP
+\fB\fC\-s\fR :
+Deprecated no\-op. Sweep mode is now the default; this flag is retained
+for backward compatibility and has no effect.
+.IP \(bu 2
+
+.PP
 \fB\fC\-U<0\-7>\fR :
 Which Ubertooth device to use
 
 .SH DISCOVERING UNDISCOVERABLE DEVICES
 .PP
-Classic Bluetooth piocnets are defined by the Lower Address Part (LAP)
+Classic Bluetooth piconets are defined by the Lower Address Part (LAP)
 and Upper Address Part (UAP) of the master device. These are elements
 of the master device's Bluetooth Address (BD ADDR).
 

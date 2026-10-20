@@ -24,12 +24,29 @@
 #include <getopt.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <string.h>
+#include <signal.h>
 
 const char* board_names[] = {
 	"Ubertooth Zero",
 	"Ubertooth One",
 	"ToorCon 13 Badge"
 };
+
+/* For -I (identify): the loop runs until interrupted. Without a handler, Ctrl-C
+ * leaves the USR/RX/TX LEDs in whatever state the last toggle set (often on).
+ * This handler turns them off and exits cleanly so the device returns to the
+ * same LED-off state as after a reset. */
+static ubertooth_t* identify_ut = NULL;
+static void identify_cleanup(int sig __attribute__((unused)))
+{
+	if (identify_ut && identify_ut->devh) {
+		cmd_set_usrled(identify_ut->devh, 0);
+		cmd_set_rxled(identify_ut->devh, 0);
+		cmd_set_txled(identify_ut->devh, 0);
+	}
+	exit(0);
+}
 
 static void usage(FILE *output)
 {
@@ -38,7 +55,8 @@ static void usage(FILE *output)
 	fprintf(output, "Common options:\n");
 	fprintf(output, "\t-v get firmware revision number\n");
 	fprintf(output, "\t-V get compile info\n");
-	fprintf(output, "\t-I identify ubertooth device by flashing all LEDs\n");
+	fprintf(output, "\t-H, --host-version get host tools (libubertooth) version\n");
+	fprintf(output, "\t-I identify ubertooth device by flashing the USR, RX, and TX LEDs\n");
 	fprintf(output, "\t-d[0-1] get/set all LEDs\n");
 	fprintf(output, "\t-l[0-1] get/set USR LED\n");
 	fprintf(output, "\t-S stop current operation\n");
@@ -97,7 +115,17 @@ int main(int argc, char *argv[])
 	do_something= 0; do_compile_info= -1;
 	do_number= 0; do_xmas= 0;
 
-	while ((opt=getopt(argc,argv,"U:hnmefiIprsStvbl::a::C::c::d::q::z::9VNx")) != EOF) {
+	/* Host-tools version: print and exit before touching the device, so it
+	 * works with no Ubertooth attached. -H or --host-version. Distinct from
+	 * -v (firmware revision) and -V (firmware compile info from the device). */
+	for (int ai = 1; ai < argc; ai++) {
+		if (strcmp(argv[ai], "--host-version") == 0) {
+			print_version();
+			return 0;
+		}
+	}
+
+	while ((opt=getopt(argc,argv,"U:hnmefiIprsStvbl::a::C::c::d::q::z::9VNxH")) != EOF) {
 		switch(opt) {
 		case 'U':
 			ubertooth_device = atoi(optarg);
@@ -193,6 +221,9 @@ int main(int argc, char *argv[])
 		case 'V':
 			do_compile_info = 0;
 			break;
+		case 'H':
+			print_version();
+			return 0;
 		case 'N':
 			do_number = 1;
 			break;
@@ -317,6 +348,8 @@ int main(int argc, char *argv[])
 	}
 	if(do_identify == 0) {
 		fprintf(stdout, "Flashing LEDs on ubertooth device number %d\n", (ubertooth_device >= 0) ? ubertooth_device : 0);
+		identify_ut = ut;
+		signal(SIGINT, identify_cleanup);
 		while(42) {
 			do_identify= !do_identify;
 			cmd_set_usrled(ut->devh, do_identify);

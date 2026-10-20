@@ -1,12 +1,8 @@
-# UBERTOOTH-FOLLOW 1 "Project Ubertooth" "User Commands"
-
-## NAME
-
-ubertooth-follow(1) - active (BlueZ) CLK discovery and follow for a particular UAP/LAP
+# ubertooth-follow(1) -- active (BlueZ) CLK discovery and follow for a particular UAP/LAP
 
 ## SYNOPSIS
 
-ubertooth-follow [-l LAP] [-u UAP] [-U 0-7] [-r file] [-q file] [-e errors] [-a] [-b hciN] [-w delay]
+ubertooth-follow [-l LAP] [-u UAP] [-U 0-7] [-r file] [-q file] [-d file] [-e errors] [-a] [-b hciN] [-w delay]
 
 ## DESCRIPTION
 
@@ -32,6 +28,8 @@ Requires BlueZ (Linux only).
    capture packets to a PCAPNG file.
  - `-q <filename>` :
    capture packets to a PCAP file.
+ - `-d <filename>` :
+   dump received symbols to the named file.
  - `-e <max_ac_errors>` :
    maximum access-code errors to tolerate.
  - `-a` :

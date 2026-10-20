@@ -1,4 +1,4 @@
-.TH UBERTOOTH\-EGO 1 "March 2017" "Project Ubertooth" "User Commands"
+.TH UBERTOOTH\-EGO 1 "October 2026" "Project Ubertooth" "User Commands"
 .SH NAME
 .PP
 .BR ubertooth-ego (1) 
@@ -56,6 +56,9 @@ Continuously receive packets on a single channel (see \fB\fC\-c\fR)
 .IP \(bu 2
 \fB\fC\-i\fR :
 Interfere with a connection
+.IP \(bu 2
+\fB\fC\-j\fR :
+Interfere with a connection (alias of \fB\fC\-i\fR)
 .RE
 .PP
 Options:
@@ -63,6 +66,12 @@ Options:
 .IP \(bu 2
 \fB\fC\-c\fR :
 Channel to use for continuous receive (suggested: 2408, 2418, 2423, 2469)
+.IP \(bu 2
+\fB\fC\-l <1\-48>\fR :
+Packet length to use (must be in the range 1 to 48)
+.IP \(bu 2
+\fB\fC\-a <access_code>\fR :
+Access code to use, given as hex (up to 4 bytes)
 .IP \(bu 2
 \fB\fC\-U<0\-7>\fR :
 Which Ubertooth device to use
