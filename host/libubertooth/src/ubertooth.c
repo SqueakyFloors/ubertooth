@@ -198,6 +198,55 @@ static struct libusb_device_handle* find_ubertooth_device(int ubertooth_device)
 	return devh;
 }
 
+/* Find an Ubertooth by serial-number string (hex, as printed by -s). Matches a
+ * device whose serial ends with / equals the given string. Returns an open
+ * handle or NULL. */
+static struct libusb_device_handle* find_ubertooth_device_serial(char* serial_number)
+{
+	struct libusb_device **usb_list = NULL;
+	struct libusb_context *ctx = NULL;
+	struct libusb_device_handle *devh = NULL;
+	struct libusb_device_descriptor desc;
+	int usb_devs, i, r, ret;
+
+	usb_devs = libusb_get_device_list(ctx, &usb_list);
+	for (i = 0; i < usb_devs; ++i) {
+		r = libusb_get_device_descriptor(usb_list[i], &desc);
+		if (r < 0)
+			continue;
+		if ((desc.idVendor == TC13_VENDORID && desc.idProduct == TC13_PRODUCTID)
+		    || (desc.idVendor == U0_VENDORID && desc.idProduct == U0_PRODUCTID)
+		    || (desc.idVendor == U1_VENDORID && desc.idProduct == U1_PRODUCTID))
+		{
+			ret = libusb_open(usb_list[i], &devh);
+			if (ret || devh == NULL) {
+				devh = NULL;
+				continue;
+			}
+			uint8_t serial[17] = {0};
+			char serial_c[34] = {0};
+			uint8_t sr = cmd_get_serial(devh, serial);
+			if (sr == 0) {
+				int j;
+				for (j = 1; j < 17; j++)
+					sprintf(&serial_c[(j - 1) * 2], "%02x", serial[j]);
+				/* match if the requested string equals the tail of the serial */
+				size_t sl = strlen(serial_c), ql = strlen(serial_number);
+				if (ql <= sl && strcmp(serial_number, serial_c + (sl - ql)) == 0) {
+					libusb_free_device_list(usb_list, 1);
+					return devh; /* keep this handle open */
+				}
+			}
+			libusb_close(devh);
+			devh = NULL;
+		}
+	}
+	if (usb_list)
+		libusb_free_device_list(usb_list, 1);
+	fprintf(stderr, "no Ubertooth found with serial matching '%s'\n", serial_number);
+	return NULL;
+}
+
 /*
  * based on http://libusb.sourceforge.net/api-1.0/group__asyncio.html#ga9fcb2aa23d342060ebda1d0cf7478856
  */
@@ -627,6 +676,68 @@ ubertooth_t* ubertooth_start(int ubertooth_device)
 	}
 
 	return ut;
+}
+
+int ubertooth_connect_serial(ubertooth_t* ut, char* serial_number)
+{
+	int r = libusb_init(NULL);
+	if (r < 0) {
+		fprintf(stderr, "libusb_init failed (got 1.0?)\n");
+		return -1;
+	}
+
+	ut->devh = find_ubertooth_device_serial(serial_number);
+	if (ut->devh == NULL) {
+		ubertooth_stop(ut);
+		return -1;
+	}
+
+	r = libusb_claim_interface(ut->devh, 0);
+	if (r < 0) {
+		fprintf(stderr, "usb_claim_interface error %d\n", r);
+		ubertooth_stop(ut);
+		return -1;
+	}
+
+	return 1;
+}
+
+ubertooth_t* ubertooth_start_serial(char* serial_number)
+{
+	ubertooth_t* ut = ubertooth_init();
+	if (ut == NULL)
+		return NULL;
+
+	int r = ubertooth_connect_serial(ut, serial_number);
+	if (r < 0) {
+		if (ut->fifo != NULL)
+			free(ut->fifo);
+		free(ut);
+		return NULL;
+	}
+
+	return ut;
+}
+
+/* Shared -U argument handling for all tools: accepts either a numeric device
+ * index (existing behaviour) or a serial-number string. A NULL or empty arg
+ * means "default device". An all-digits arg is treated as an index; anything
+ * else is matched as a serial number. */
+ubertooth_t* ubertooth_start_select(const char* u_arg)
+{
+	if (u_arg == NULL || u_arg[0] == '\0')
+		return ubertooth_start(-1);
+
+	int all_digits = 1;
+	for (const char* p = u_arg; *p; ++p) {
+		if (*p < '0' || *p > '9') { all_digits = 0; break; }
+	}
+
+	if (all_digits)
+		return ubertooth_start(atoi(u_arg));
+
+	/* cast away const: the serial path does not modify the string */
+	return ubertooth_start_serial((char*)u_arg);
 }
 
 int ubertooth_get_api(ubertooth_t *ut, uint16_t *version) {
