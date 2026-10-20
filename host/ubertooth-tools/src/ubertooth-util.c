@@ -44,6 +44,7 @@ static void identify_cleanup(int sig __attribute__((unused)))
 		cmd_set_usrled(identify_ut->devh, 0);
 		cmd_set_rxled(identify_ut->devh, 0);
 		cmd_set_txled(identify_ut->devh, 0);
+		cmd_stop(identify_ut->devh);
 	}
 	exit(0);
 }
@@ -61,7 +62,7 @@ static void usage(FILE *output)
 	fprintf(output, "\t-l[0-1] get/set USR LED\n");
 	fprintf(output, "\t-S stop current operation\n");
 	fprintf(output, "\t-r full reset\n");
-	fprintf(output, "\t-U<0-7> set ubertooth device to use\n");
+	fprintf(output, "\t-U<index|serial> select Ubertooth by index or serial number\n");
 	fprintf(output, "\t-N print total number of Ubertooth devices and exit\n");
 	fprintf(output, "\n");
 	fprintf(output, "Radio options:\n");
@@ -347,6 +348,10 @@ int main(int argc, char *argv[])
 	}
 	if(do_identify == 0) {
 		fprintf(stdout, "Flashing LEDs on ubertooth device %s\n", ubertooth_device ? ubertooth_device : "0");
+		/* Stop any operation already running on the device (e.g. -x xmas or
+		 * -q LED spectrum analyzer) so it does not fight the identify blink
+		 * and is not left running after identify is interrupted. */
+		cmd_stop(ut->devh);
 		identify_ut = ut;
 		signal(SIGINT, identify_cleanup);
 		while(42) {
