@@ -62,6 +62,9 @@ ubertooth (2020-12-R1+modern1) unstable; urgency=low
     upstream ToDo list; note the ubertooth-btbr hang in firmware/btbr/README.md
 
   Continuous integration:
+  * Drop macos-13 (Intel) from the CI matrix: GitHub's Intel runners queue
+    unreliably and stalled runs; arm64 macOS 14/15/26 remain covered and Intel
+    is documented as expected-to-build but unverified (COMPATIBILITY.md)
   * Modernize CI: pinned OS matrix (Ubuntu 20.04/22.04/24.04, macOS 14/15/26)
     with ubuntu-latest and Fedora soft-fail canaries, firmware build in CI,
     actions/checkout@v4, host CLI + Python import smoke tests, firmware artifacts
