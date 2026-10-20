@@ -23,6 +23,7 @@ Ubertooth
 
   building_from_git
   software
+  hardware_leds
   third_party_software
 
 

@@ -25,12 +25,28 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
 
 const char* board_names[] = {
 	"Ubertooth Zero",
 	"Ubertooth One",
 	"ToorCon 13 Badge"
 };
+
+/* For -I (identify): the loop runs until interrupted. Without a handler, Ctrl-C
+ * leaves the USR/RX/TX LEDs in whatever state the last toggle set (often on).
+ * This handler turns them off and exits cleanly so the device returns to the
+ * same LED-off state as after a reset. */
+static ubertooth_t* identify_ut = NULL;
+static void identify_cleanup(int sig __attribute__((unused)))
+{
+	if (identify_ut && identify_ut->devh) {
+		cmd_set_usrled(identify_ut->devh, 0);
+		cmd_set_rxled(identify_ut->devh, 0);
+		cmd_set_txled(identify_ut->devh, 0);
+	}
+	exit(0);
+}
 
 static void usage(FILE *output)
 {
@@ -40,7 +56,7 @@ static void usage(FILE *output)
 	fprintf(output, "\t-v get firmware revision number\n");
 	fprintf(output, "\t-V get compile info\n");
 	fprintf(output, "\t-H, --host-version get host tools (libubertooth) version\n");
-	fprintf(output, "\t-I identify ubertooth device by flashing all LEDs\n");
+	fprintf(output, "\t-I identify ubertooth device by flashing the USR, RX, and TX LEDs\n");
 	fprintf(output, "\t-d[0-1] get/set all LEDs\n");
 	fprintf(output, "\t-l[0-1] get/set USR LED\n");
 	fprintf(output, "\t-S stop current operation\n");
@@ -332,6 +348,8 @@ int main(int argc, char *argv[])
 	}
 	if(do_identify == 0) {
 		fprintf(stdout, "Flashing LEDs on ubertooth device number %d\n", (ubertooth_device >= 0) ? ubertooth_device : 0);
+		identify_ut = ut;
+		signal(SIGINT, identify_cleanup);
 		while(42) {
 			do_identify= !do_identify;
 			cmd_set_usrled(ut->devh, do_identify);

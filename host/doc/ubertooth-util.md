@@ -36,7 +36,7 @@ Common options:
  - `-H`, `--host-version` :
    get host tools (libubertooth) version; works without a device
  - `-I` :
-   identify ubertooth device by flashing all LEDs
+   identify ubertooth device by flashing the USR, RX, and TX LEDs (runs until Ctrl-C; see LEDs doc)
  - `-d[0-1]` :
    get/set all LEDs
  - `-l[0-1]` :

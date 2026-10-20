@@ -50,6 +50,10 @@ ubertooth (2020-12-R1+modern1) unstable; urgency=low
     with ubuntu-latest and Fedora soft-fail canaries, firmware build in CI,
     actions/checkout@v4, host CLI + Python import smoke tests, firmware artifacts
 
+  Bug fixes (this fork):
+  * ubertooth-util -I (identify): install a SIGINT handler so Ctrl-C turns
+    the USR/RX/TX LEDs off before exit, instead of leaving them lit
+
   Bug fixes (cherry-picked from community forks):
   * Fix divide-by-zero in bluetooth.c AFH hop selection when used_channels < 20
     Credit: Kielukel <93320945+Kielukel@users.noreply.github.com>
