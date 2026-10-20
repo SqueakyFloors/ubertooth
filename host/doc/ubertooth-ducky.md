@@ -25,8 +25,6 @@ If no Bluetooth address is given, a random BD_ADDR is used (read from
    advertising channel index (default: 38).
  - `-a <BD_ADDR>` :
    Bluetooth address to use (default: random).
- - `-s` :
-   Be sarcastic (easter egg; changes the tool's output tone).
  - `-U <0-7>` :
    which Ubertooth device to use.
  - `-h` :
