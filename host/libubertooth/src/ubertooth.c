@@ -740,6 +740,25 @@ ubertooth_t* ubertooth_start_select(const char* u_arg)
 	return ubertooth_start_serial((char*)u_arg);
 }
 
+/* Connect-variant of the shared -U handling, for tools that use the
+ * ubertooth_init() + ubertooth_connect() pattern rather than ubertooth_start().
+ * Returns >=0 on success, <0 on failure (matching ubertooth_connect). */
+int ubertooth_connect_select(ubertooth_t* ut, const char* u_arg)
+{
+	if (u_arg == NULL || u_arg[0] == '\0')
+		return ubertooth_connect(ut, -1);
+
+	int all_digits = 1;
+	for (const char* p = u_arg; *p; ++p) {
+		if (*p < '0' || *p > '9') { all_digits = 0; break; }
+	}
+
+	if (all_digits)
+		return ubertooth_connect(ut, atoi(u_arg));
+
+	return ubertooth_connect_serial(ut, (char*)u_arg);
+}
+
 int ubertooth_get_api(ubertooth_t *ut, uint16_t *version) {
 	int result;
 	libusb_device* dev;
