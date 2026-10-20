@@ -102,6 +102,17 @@ in the USB device list or by its serial number:
   This is stable across reboots and re-plugging, so it is the recommended way
   to pin a specific board.
 
+The argument may be written **attached or separated** — `-U0` and `-U 0` are
+equivalent, as are `-U<serial>` and `-U <serial>`. (Index or serial is
+auto-detected: an all-digits argument is treated as an index, anything else as
+a serial.)
+
+There is **no fixed upper limit** on the number of attached Ubertooths: the
+device list is sized dynamically and the index is not capped (older docs showed
+`-U<0-7>`, which was only a convention). In practice the limit is USB topology,
+hub bandwidth, and power — with many devices, prefer serial selection since
+indices become unwieldy and unstable.
+
 To tell which index or serial is which physical device:
 
 - Run any tool with no `-U`: when more than one Ubertooth is present the tool

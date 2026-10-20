@@ -133,6 +133,12 @@ re\-plugging. \fB\fC\-U<serial>\fR selects the device whose serial number
 matches the given string, which is stable across reboots and re\-plugging and
 is the recommended way to pin a specific board.
 .PP
+The argument may be attached or separated \- \fB\fC\-U0\fR and \fB\fC\-U 0\fR are
+equivalent, as are \fB\fC\-U<serial>\fR and \fB\fC\-U <serial>\fR. An all\-digits
+argument is treated as an index, anything else as a serial. There is no fixed
+upper limit on attached devices (older docs showed \fB\fC\-U<0\-7>\fR, a
+convention only); with many devices prefer serial selection.
+.PP
 To tell which index or serial is which physical device: run any tool with no
 \fB\fC\-U\fR (with more than one present it lists each index with its serial
 number), or flash the LEDs on a given device and watch which board blinks:

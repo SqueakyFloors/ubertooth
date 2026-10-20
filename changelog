@@ -44,6 +44,9 @@ ubertooth (2020-12-R1+modern1) unstable; urgency=low
     (-Wunused-result); error out on a short read instead of using partial data
 
   Documentation:
+  * Document -U device selection fully: accepts an index OR a serial, attached
+    or separated (-U0 / -U 0 / -U<serial> / -U <serial>), and there is no 0-7
+    cap on the number of attached Ubertooths (dynamic; limited by USB/power)
   * ubertooth-util man page: document that -U selects either by USB enumeration
     index or by serial-number string, that the index is not stable while the
     serial is, and how to disambiguate devices (serial listing / -I LED flash);
