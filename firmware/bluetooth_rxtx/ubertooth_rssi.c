@@ -25,6 +25,19 @@
 
 #define RSSI_IIR_ALPHA 3       // 3/256 = .012
 
+/*
+ * Round n/d to the nearest integer (half away from zero). C integer division
+ * truncates toward zero, so the old `(n + d/2) / d` idiom only rounds correctly
+ * for n >= 0. RSSI values are dBm and therefore negative, so without the signed
+ * form every reading was biased upward (reported ~1-2 dB stronger than it was).
+ * Adding d/2 with the sign of n fixes both directions. (#15)
+ */
+static inline int32_t round_div(int32_t n, int32_t d)
+{
+	int32_t half = d / 2;
+	return (n >= 0) ? (n + half) / d : (n - half) / d;
+}
+
 int8_t rssi_max;
 int8_t rssi_min;
 uint8_t rssi_count;
@@ -65,12 +78,12 @@ void rssi_iir_update(uint16_t channel)
 
 	// IIR using scaled int math (x256)
 	if (rssi_count != 0)
-		avg = (rssi_sum  + 128) / rssi_count;
+		avg = round_div(rssi_sum, rssi_count);
 	else
 		avg = 0; // really an error
 	rssi_iir_acc = rssi_iir[i] * (256-RSSI_IIR_ALPHA);
 	rssi_iir_acc += avg * RSSI_IIR_ALPHA;
-	rssi_iir[i] = (int16_t)((rssi_iir_acc + 128) / 256);
+	rssi_iir[i] = (int16_t)round_div(rssi_iir_acc, 256);
 }
 
 int8_t rssi_get_avg(uint16_t channel)
@@ -80,5 +93,5 @@ int8_t rssi_get_avg(uint16_t channel)
 	if ( channel < 2402 || channel > 2480 )
 		channel = 2402;
 
-	return (rssi_iir[channel-2402] + 128) / 256;
+	return round_div(rssi_iir[channel-2402], 256);
 }

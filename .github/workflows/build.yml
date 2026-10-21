@@ -151,6 +151,13 @@ jobs:
         sudo apt install dfu-util gcc-arm-none-eabi
       if: runner.os == 'Linux'
 
+    - name: Unit tests (host)
+      working-directory: ${{github.workspace}}/firmware
+      shell: bash
+      # Pure-C firmware logic compiled and run with the host compiler -- no ARM
+      # toolchain or hardware needed. Fails the job on any assertion failure.
+      run: make test
+
     - name: Build
       working-directory: ${{github.workspace}}/firmware
       shell: bash
