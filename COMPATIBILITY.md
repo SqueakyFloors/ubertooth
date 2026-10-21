@@ -26,9 +26,10 @@ Legend:
 | **macOS** | 14 (Sonoma) | 14, 15, 26 / arm64 (CI, host+fw) | ≤ 13 | ✅ 14 verified in CI |
 | **Windows** | — | — | all | ❌ Unsupported (libusb + udev; use Linux/VM) |
 | **CMake** | 3.5 | 3.5 … 3.27 (enforced range) | < 3.5 (CMake 4 removed it) | ✅ floor enforced in CMakeLists |
+| **GNU make (firmware)** | 3.81 | 3.81 (macOS), 4.3 (Linux) | — | ✅ 3.81 verified; build avoids make ≥ 4.0 features |
 | **Python (host tools)** | 3.8 | 3.8 (U20 CI) … 3.14 (macOS CI) | 2.x (removed upstream) | ✅ 3.8 verified in CI; see setuptools note |
 | **GCC (host)** | TBD | per-runner (recent) | — | 🎯 not yet characterized |
-| **arm-none-eabi-gcc (firmware)** | TBD | U20 (~9.x) … 15.3 (CI) | — | 🎯 floor not pinned, but builds on old+new |
+| **arm-none-eabi-gcc (firmware)** | TBD | U20 (~9.x) … 15.3 (CI); 15.3 on hardware | — | 🎯 floor not pinned; builds + runs on old+new |
 | **libusb** | 1.0.x | 1.0.30 (local) | pre-1.0 | 🎯 exact floor not pinned |
 | **libbtbb** | 2020-12-R1 | current master (C lib) | older than 2020-12-R1 | 🎯 |
 
@@ -71,6 +72,22 @@ This fork declares `cmake_minimum_required(VERSION 3.5...3.27)`; the companion
 `libbtbb` dependency still needs `-DCMAKE_POLICY_VERSION_MINIMUM=3.5` to
 configure under CMake 4 (handled in CI).
 
+### Firmware build: GNU make 3.81 (macOS) and the generated version.h
+The firmware builds with the stock GNU make on macOS (**3.81**) as well as the
+modern make on Linux (4.3). The build intentionally avoids make ≥ 4.0 features
+(e.g. `$(file ...)`) so a Mac with only Xcode Command Line Tools can build
+firmware without installing a newer make.
+
+The firmware version string reported by `ubertooth-util -v` / `-V` is produced
+by a generated `version.h` (git revision + build info), not a `-D` compile
+flag. It is regenerated only when the build identity changes, so `-v` always
+matches the firmware actually built and flashed — verified across incremental
+rebuilds on make 3.81 and 4.3, and end-to-end on real hardware (built revision
+== on-device `-v`) on both macOS and the Linux test bench. A source archive
+with no `.git` (downloaded zip / release tarball) uses a shipped `version.h`
+as-is, or falls back to `git-unknown`; `tools/ubertooth-release.sh` writes the
+release version into the archive.
+
 ### Python 3 only
 Python 2 support was removed upstream in 2020-12-R1. This fork targets modern
 Python 3; verified from 3.8 (Ubuntu 20.04) through 3.14 (current macOS runner).
@@ -102,11 +119,14 @@ runners it is pip-installed in CI.
 - [x] Add pinned Ubuntu 20.04 (container) / 22.04 / 24.04 to CI; verified green.
 - [x] Add pinned macOS versions (14/15/26); verified green.
 - [ ] Characterize GCC (host) and arm-none-eabi-gcc floors (oldest that builds).
-      (Firmware now builds on both U20's old arm-gcc and 15.3; exact floor TBD.)
+      (Firmware builds on both U20's old arm-gcc and 15.3, and 15.3 output runs
+      on real hardware; exact oldest floor still TBD.)
 - [ ] Pin a libusb minimum and verify.
 - [x] Verify the firmware build on GNU make 3.81 (the version shipped with
       macOS). Verified: all three firmware images build, track the git revision
       across incremental rebuilds, no-op cleanly, and regenerate a missing
-      version.h, on make 3.81 and 4.3. The build avoids make >= 4.0 features.
+      version.h, on make 3.81 and 4.3; the build avoids make ≥ 4.0 features.
+      Also verified end-to-end on hardware (build → flash → on-device `-v`
+      matches) on macOS and the Linux bench.
 - [ ] Add `python_requires` to specan_ui packaging reflecting the 3.8 floor.
 - [ ] Replace remaining 🎯 with ✅ (and a CI link) or ❌ as results come in.
