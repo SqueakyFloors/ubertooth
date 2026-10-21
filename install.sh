@@ -17,6 +17,10 @@
 #   --with-firmware   also build the firmware images (needs arm-none-eabi-gcc)
 #   --flash           also flash bluetooth_rxtx to an attached Ubertooth
 #                     (implies --with-firmware; STATE-CHANGING)
+#   --flash-device <index|serial|all>
+#                     flash a specific Ubertooth (implies --flash); use "all"
+#                     to flash every attached device. Recommended when more
+#                     than one device is attached.
 #   --venv <path>     create/use a Python venv at <path> for the Python tools
 #                     and point the build at its interpreter
 #   --libbtbb-ref <r> git ref/tag of libbtbb to build (default: master)
@@ -30,6 +34,7 @@ set -euo pipefail
 
 WITH_FIRMWARE=0
 FLASH=0
+FLASH_DEVICE=""
 VENV=""
 LIBBTBB_REF="master"
 NO_SUDO=0
@@ -50,10 +55,11 @@ while [ $# -gt 0 ]; do
 	case "$1" in
 		--with-firmware) WITH_FIRMWARE=1 ;;
 		--flash) FLASH=1; WITH_FIRMWARE=1 ;;
+		--flash-device) shift; FLASH_DEVICE="${1:-}"; FLASH=1; WITH_FIRMWARE=1; [ -n "$FLASH_DEVICE" ] || die "--flash-device needs an index or serial" ;;
 		--venv) shift; VENV="${1:-}"; [ -n "$VENV" ] || die "--venv needs a path" ;;
 		--libbtbb-ref) shift; LIBBTBB_REF="${1:-}"; [ -n "$LIBBTBB_REF" ] || die "--libbtbb-ref needs a value" ;;
 		--no-sudo) NO_SUDO=1 ;;
-		-h|--help) sed -n '2,38p' "$0"; exit 0 ;;
+		-h|--help) sed -n '3,/^# Copyright/p' "$0" | sed '/^# Copyright/d; s/^#\{1,\} \{0,1\}//; s/^#$//'; exit 0 ;;
 		*) die "unknown option: $1 (use --help)" ;;
 	esac
 	shift
@@ -117,9 +123,27 @@ if [ "$WITH_FIRMWARE" -eq 1 ]; then
 	info "Building firmware (bluetooth_rxtx)"
 	make -C "$REPO_ROOT/firmware/bluetooth_rxtx"
 	if [ "$FLASH" -eq 1 ]; then
-		info "Flashing bluetooth_rxtx to the attached Ubertooth"
-		"$REPO_ROOT/host/build/ubertooth-tools/src/ubertooth-dfu" \
-			-d "$REPO_ROOT/firmware/bluetooth_rxtx/bluetooth_rxtx.dfu" -r
+		DFU="$REPO_ROOT/host/build/ubertooth-tools/src/ubertooth-dfu"
+		UTIL="$REPO_ROOT/host/build/ubertooth-tools/src/ubertooth-util"
+		IMG="$REPO_ROOT/firmware/bluetooth_rxtx/bluetooth_rxtx.dfu"
+		if [ "$FLASH_DEVICE" = "all" ]; then
+			# Enumerate every attached Ubertooth by serial and flash each, so
+			# order/index changes between flashes don't matter.
+			info "Flashing all attached Ubertooths"
+			SERIALS=$("$UTIL" -s 2>&1 | sed -n 's/.*Serial No: \([0-9a-f]*\).*/\1/p')
+			[ -n "$SERIALS" ] || die "no Ubertooth serials found to flash"
+			for s in $SERIALS; do
+				info "  flashing $s"
+				"$DFU" -U "$s" -d "$IMG" -r
+			done
+		elif [ -n "$FLASH_DEVICE" ]; then
+			info "Flashing bluetooth_rxtx to Ubertooth '$FLASH_DEVICE'"
+			"$DFU" -U "$FLASH_DEVICE" -d "$IMG" -r
+		else
+			info "Flashing bluetooth_rxtx to the default Ubertooth"
+			info "  (multiple devices attached? use --flash-device <index|serial|all>)"
+			"$DFU" -d "$IMG" -r
+		fi
 	fi
 fi
 
