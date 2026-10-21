@@ -61,6 +61,20 @@ list_serials() {
 	"$1" -s 2>&1 | sed -n 's/.*Serial No: \([0-9a-f]*\).*/\1/p' || true
 }
 
+# Build a clear "multiple devices" message: an explanatory header, the attached
+# serials labeled and indented, and how to choose one.
+multi_device_msg() {
+	local serials="$1" out
+	out="multiple Ubertooths are attached, so a flash target must be chosen."
+	out="$out"$'\n'"attached device serials:"
+	while IFS= read -r s; do
+		[ -n "$s" ] && out="$out"$'\n'"    $s"
+	done <<< "$serials"
+	out="$out"$'\n'"choose one with:  --flash-device <serial>"
+	out="$out"$'\n'"or flash them all with:  --flash-device all"
+	printf '%s' "$out"
+}
+
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--with-firmware) WITH_FIRMWARE=1 ;;
@@ -121,8 +135,7 @@ flash_firmware() {
 			info "Flashing bluetooth_rxtx to Ubertooth $serials"
 			"$dfu" -U "$serials" -d "$img" -r
 		else
-			die "multiple Ubertooths attached; choose one with --flash-device <serial>, or --flash-device all:
-$serials"
+			die "$(multi_device_msg "$serials")"
 		fi
 	fi
 }
@@ -135,8 +148,7 @@ if [ "$FLASH" -eq 1 ] && command -v ubertooth-util >/dev/null 2>&1; then
 	if [ "$FLASH_DEVICE" != "all" ] && [ -z "$FLASH_DEVICE" ]; then
 		_serials="$(list_serials "$(command -v ubertooth-util)")"
 		_n="$(printf '%s\n' "$_serials" | grep -c . || true)"
-		[ "$_n" -le 1 ] || die "multiple Ubertooths attached; choose one with --flash-device <serial>, or --flash-device all:
-$_serials"
+		[ "$_n" -le 1 ] || die "$(multi_device_msg "$_serials")"
 	fi
 fi
 
