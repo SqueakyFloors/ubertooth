@@ -24,6 +24,7 @@ Ubertooth
   building_from_git
   software
   hardware_leds
+  specan_ui
   third_party_software
 
 
