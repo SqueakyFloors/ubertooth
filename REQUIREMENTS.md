@@ -33,6 +33,7 @@ See `COMPATIBILITY.md` for supported OS / toolchain / Python **versions**.
 
 | Dependency | Purpose | Debian/Ubuntu | macOS |
 |---|---|---|---|
+| GNU make | firmware build | `build-essential` | Xcode CLT (stock `make` 3.81 is fine) |
 | arm-none-eabi-gcc | cross-compile firmware | `gcc-arm-none-eabi` | `brew install --cask gcc-arm-embedded` |
 | dfu-util | flash firmware over DFU | `dfu-util` | `brew install dfu-util` |
 | ubertooth-dfu (host tool) | the `.dfu` packaging step | built with the host tools | same |

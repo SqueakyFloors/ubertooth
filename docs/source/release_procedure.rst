@@ -22,7 +22,14 @@ An Ubertooth release is not as simple as a standard GitHub release, there are a 
 
     * At time of writing, these are only bluetooth_rxtx and bootloader for Ubertooth One.
 
-    * Adjust the GIT_REVISION variable in firmware/common.mk to match the release number
+    * The firmware version string now comes from a generated ``version.h`` (the
+      old ``GIT_REVISION`` ``-D`` flag in ``firmware/common.mk`` was removed).
+      ``tools/ubertooth-release.sh`` writes a ``version.h`` carrying the release
+      number into each firmware image directory of the archive, and the build
+      uses that shipped header as-is when ``.git`` is not present. If you build
+      a release by hand rather than via the script, drop an equivalent
+      ``version.h`` (defining ``GIT_REVISION`` to the release number) into each
+      firmware image directory before building.
 
     * Build the bluetooth_rxtx firmware and rename bluetooth_rxtx.dfu to ubertooth-one-bin-firmware.dfu
 

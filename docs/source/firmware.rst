@@ -63,6 +63,12 @@ In non-DFU mode, you can obtain firmware information with ``ubertooth-util -v``.
 		$ ubertooth-util -V
 		ubertooth 2018-12-R1 (mikeryan@steel) Tue Aug  7 15:33:06 PDT 2018
 
+A firmware built from a git checkout reports its git revision instead, e.g.
+``git-1a2b3c4`` (with a trailing ``*`` if the working tree had uncommitted
+changes); release archives report the release name as above. The version is
+generated into a ``version.h`` at build time and tracks the exact source it was
+built from, so ``-v`` always reflects the firmware actually running.
+
 
 
 Developing Firmware
