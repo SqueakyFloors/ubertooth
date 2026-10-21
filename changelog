@@ -84,6 +84,9 @@ ubertooth (2020-12-R1+modern1) unstable; urgency=low
     actions/checkout@v4, host CLI + Python import smoke tests, firmware artifacts
 
   Bug fixes (this fork):
+  * ubertooth-util -c/-C: validate the channel argument (-c 2402-2480 MHz,
+    -C 0-78) and reject out-of-range values with a clear error, instead of
+    silently sending an invalid channel to the firmware (relates to #5 / upstream #448)
   * ubertooth-util -I (identify): install a SIGINT handler so Ctrl-C turns
     the USR/RX/TX LEDs off before exit, instead of leaving them lit
 

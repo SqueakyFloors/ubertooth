@@ -175,15 +175,25 @@ int main(int argc, char *argv[])
 				do_palevel= 0;
 			break;
 		case 'C':
-			if (optarg)
-				do_channel= atoi(optarg) +2402;
-			else
+			if (optarg) {
+				int ch = atoi(optarg);
+				if (ch < 0 || ch > 78) {
+					fprintf(stderr, "error: channel must be 0-78 (got %s)\n", optarg);
+					return 1;
+				}
+				do_channel= ch + 2402;
+			} else
 				do_channel= 0;
 			break;
 		case 'c':
-			if (optarg)
-				do_channel= atoi(optarg);
-			else
+			if (optarg) {
+				int mhz = atoi(optarg);
+				if (mhz < 2402 || mhz > 2480) {
+					fprintf(stderr, "error: frequency must be 2402-2480 MHz (got %s)\n", optarg);
+					return 1;
+				}
+				do_channel= mhz;
+			} else
 				do_channel= 0;
 			break;
 		case 'q':
