@@ -155,6 +155,12 @@ static struct libusb_device_handle* find_ubertooth_dfu_device() {
 				break;
 		}
 	}
+	/* Free the device list once we are done scanning it. Previously this was
+	 * leaked on every call, and the handle search is called repeatedly while
+	 * polling for DFU mode, so the leaked lists/contexts could accumulate and
+	 * interfere with subsequent device opens. */
+	if (usb_list)
+		libusb_free_device_list(usb_list, 1);
 	return devh;
 }
 
@@ -490,13 +496,20 @@ int main(int argc, char **argv) {
 				fprintf(stderr, "Unable to find Ubertooth\n");
 				return 1;
 			}
-			devh = ut->devh;
-			cmd_flash(devh);
+			cmd_flash(ut->devh);
+			/* Release the application-mode device before it re-enumerates as a
+			 * DFU device; holding the old handle open while it resets can make
+			 * the DFU device fail to open/claim below. */
+			ubertooth_stop(ut);
+			ut = NULL;
+			devh = NULL;
 			fprintf(stdout, "Switching to DFU mode...\n");
-			while(((devh = find_ubertooth_dfu_device()) == NULL) && (count++) < 5)
+			/* DFU enumeration takes ~2s; poll generously (up to ~10s) rather
+			 * than racing it with a short retry count. */
+			while(((devh = find_ubertooth_dfu_device()) == NULL) && (count++) < 10)
 				sleep(1);
 			if(devh==NULL) {
-				fprintf(stderr, "Unable to find Ubertooth\n");
+				fprintf(stderr, "Unable to find Ubertooth in DFU mode\n");
 				return 1;
 			}
 		}
