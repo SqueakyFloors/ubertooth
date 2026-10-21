@@ -100,7 +100,7 @@ trap cleanup EXIT
 # Build the firmware and flash the selected device(s). Uses whichever
 # ubertooth-dfu / ubertooth-util is on PATH (an existing install).
 flash_firmware() {
-	local dfu util img serials n
+	local dfu util img serials n sel_serial
 	dfu="$(command -v ubertooth-dfu || true)"
 	util="$(command -v ubertooth-util || true)"
 	img="$REPO_ROOT/firmware/bluetooth_rxtx/bluetooth_rxtx.dfu"
@@ -122,7 +122,18 @@ flash_firmware() {
 			"$dfu" -U "$s" -d "$img" -r
 		done
 	elif [ -n "$FLASH_DEVICE" ]; then
-		info "Flashing bluetooth_rxtx to Ubertooth $FLASH_DEVICE"
+		# Show the serial even when the user selected by index.
+		if printf '%s' "$FLASH_DEVICE" | grep -qE '^[0-9]+$'; then
+			serials="$(list_serials "$util")"
+			sel_serial="$(printf '%s\n' "$serials" | sed -n "$((FLASH_DEVICE+1))p")"
+			if [ -n "$sel_serial" ]; then
+				info "Flashing bluetooth_rxtx to Ubertooth index $FLASH_DEVICE (serial $sel_serial)"
+			else
+				info "Flashing bluetooth_rxtx to Ubertooth index $FLASH_DEVICE"
+			fi
+		else
+			info "Flashing bluetooth_rxtx to Ubertooth serial $FLASH_DEVICE"
+		fi
 		"$dfu" -U "$FLASH_DEVICE" -d "$img" -r
 	else
 		serials="$(list_serials "$util")"
