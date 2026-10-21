@@ -106,6 +106,15 @@ ubertooth (2020-12-R1+modern1) unstable; urgency=low
     Fixes frequent 'Unable to find Ubertooth' / silent no-op flashes that
     previously needed a physical replug (#29).
   Bug fixes (this fork):
+  * firmware: fix an RSSI rounding bias for negative dBm. The averaging used
+    `(x + 128) / 256` (and `(sum + 128) / count`), which only rounds to nearest
+    for non-negative values -- C integer division truncates toward zero, so for
+    the negative dBm values RSSI always carries, every reading was biased upward
+    (reported ~1-2 dB stronger than actual; e.g. a steady -50 dBm settled to
+    -48, and an exact -40 dBm reported -39). Round half away from zero at all
+    three division sites in ubertooth_rssi.c so -v/specan RSSI is accurate for
+    negative values; positive rounding is unchanged. Covered by new host unit
+    tests (#15).
   * firmware build: the baked-in version string (-v / -V) now always matches
     the git revision it was built from. Previously GIT_REVISION was a -D compile
     flag with no dependency, so an incremental `make` after moving HEAD kept a

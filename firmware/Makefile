@@ -23,7 +23,15 @@ DIRS = blinky bluetooth_rxtx cc2400_test clock_test usb_test assembly_test btbr
 
 all: $(DIRS)
 
-clean: $(DIRS:%=%_clean)
+clean: $(DIRS:%=%_clean) test_clean
+
+# Host-side unit tests for pure-C firmware logic (no ARM toolchain / hardware).
+# Compiled and run with the host compiler; see tests/.
+test:
+	$(MAKE) -C tests test
+
+test_clean:
+	$(MAKE) -C tests clean
 
 ctags: $(DIRS:%=%_ctags)
 
@@ -41,4 +49,4 @@ $(DIRS:%=%_ctags):
 $(DIRS:%=%_ctags_clean):
 	@$(MAKE) -C $(@:%_ctags_clean=%) ctags_clean
 
-.PHONY : clean all $(DIRS)
+.PHONY : clean all test test_clean $(DIRS)
