@@ -95,6 +95,7 @@ void extra_info(int dd, int dev_id, bdaddr_t* bdaddr)
 					htobs(di.pkt_type & ACL_PTYPE_MASK),
 					0, 0x01, &handle, 25000) < 0) {
 			perror("Can't create connection");
+			free(cr);
 			return;
 		}
 		sleep(1);
