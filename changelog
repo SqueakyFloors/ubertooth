@@ -105,6 +105,15 @@ ubertooth (2020-12-R1+modern1) unstable; urgency=low
     before the device re-enumerates, and poll up to ~10s for the DFU device.
     Fixes frequent 'Unable to find Ubertooth' / silent no-op flashes that
     previously needed a physical replug (#29).
+  * firmware: range test (-n) and repeater (-e) no longer wedge the device.
+    They had unbounded busy-waits (and the repeater an unconditional
+    while(1)), ran with USB interrupts disabled, and never started clkn, so a
+    failed/absent RF handshake hung the device until a physical replug. Now:
+    bounded waits with a ~30s anti-wedge timeout, clkn started so the timeout
+    advances, and USB interrupts enabled (after radio setup) so -S stops the
+    mode promptly (~40 ms measured on hardware) instead of waiting out the
+    timeout.
+    Reproduced on a pure 2020-12-R1 stack (pre-existing, not a fork regression).
   Bug fixes (this fork):
   * firmware build: the baked-in version string (-v / -V) now always matches
     the git revision it was built from. Previously GIT_REVISION was a -D compile
