@@ -7,8 +7,8 @@
 # (with -DREQUIRE_ALL=ON so a missing optional dep fails loudly), udev rules,
 # and the Python runtime deps for specan_ui. Firmware build/flash is opt-in.
 #
-# This is the from-source "just works" path (see issue #23). It is NOT a
-# replacement for distro packaging. Idempotent: safe to re-run.
+# This is the from-source "just works" path. It is NOT a replacement for distro
+# packaging (apt/dnf/brew). Idempotent: safe to re-run.
 #
 # Usage:
 #   ./install.sh [options]
