@@ -24,7 +24,7 @@ Debian 10 / Ubuntu 20.04 / Kali
 	.. code-block:: sh
 
 		sudo apt install cmake libusb-1.0-0-dev make gcc g++ libbluetooth-dev wget \
-		pkg-config python3-numpy python3-qtpy python3-distutils python3-setuptools
+		pkg-config python3-numpy python3-qtpy python3-usb1
 
 
 

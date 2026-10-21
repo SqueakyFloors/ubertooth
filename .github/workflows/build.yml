@@ -42,12 +42,7 @@ jobs:
         path: 'libbtbb'
 
     - name: Install dependencies (macOS)
-      # Python 3.12+ no longer bundles setuptools (PEP 632), so specan_ui's
-      # setup.py fails with ModuleNotFoundError; install it explicitly.
-      # --break-system-packages: the runner python is externally managed.
-      run: |
-        brew install fftw
-        python3 -m pip install --break-system-packages setuptools
+      run: brew install fftw
       if: runner.os == 'macOS'
 
     - name: Install dependencies (Ubuntu)
@@ -195,7 +190,7 @@ jobs:
       run: |
         apt-get update
         apt-get install -y git cmake build-essential pkg-config \
-                           libfftw3-dev libusb-1.0-0-dev python3 python3-setuptools
+                           libfftw3-dev libusb-1.0-0-dev python3
 
     - uses: actions/checkout@v4
 
@@ -264,7 +259,7 @@ jobs:
     - name: Install build prerequisites
       run: |
         dnf -y install git cmake gcc gcc-c++ make pkgconf-pkg-config \
-                       fftw-devel libusb1-devel python3 python3-setuptools
+                       fftw-devel libusb1-devel python3
 
     - uses: actions/checkout@v4
 

@@ -182,7 +182,7 @@ info "Installing system dependencies (apt)"
 as_root apt-get update -qq
 as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y \
 	cmake build-essential pkg-config libusb-1.0-0-dev libbluetooth-dev \
-	libfftw3-dev python3 python3-venv python3-setuptools git
+	libfftw3-dev python3 python3-venv python3-usb1 git
 
 # --- 4. Python interpreter / venv ----------------------------------------
 PYTHON="python3"
@@ -191,13 +191,13 @@ if [ -n "$VENV" ]; then
 	[ -d "$VENV" ] || python3 -m venv "$VENV"
 	# shellcheck disable=SC1091
 	PYTHON="$VENV/bin/python"
-	"$PYTHON" -m pip install --quiet --upgrade pip setuptools
+	"$PYTHON" -m pip install --quiet --upgrade pip
 fi
-info "Installing Python runtime deps for specan_ui"
+info "Installing Python runtime deps for specan_ui and ubtbr"
 PIP_DEPS=(numpy qtpy pyside6)
 if [ -n "$VENV" ]; then
-	"$PYTHON" -m pip install --quiet "${PIP_DEPS[@]}" || \
-		info "WARNING: could not pip-install GUI deps into the venv"
+	"$PYTHON" -m pip install --quiet "${PIP_DEPS[@]}" libusb1==3.4.0 || \
+		info "WARNING: could not pip-install Python runtime deps into the venv"
 else
 	if ! "$PYTHON" -m pip install --quiet "${PIP_DEPS[@]}" 2>/dev/null; then
 		"$PYTHON" -m pip install --quiet --break-system-packages "${PIP_DEPS[@]}" 2>/dev/null || \

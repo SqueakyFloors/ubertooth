@@ -26,21 +26,32 @@ ubertooth (2020-12-R1+modern1) unstable; urgency=low
     (distinct from -v firmware revision and -V firmware compile info)
 
   Build fixes:
+  * Python tools: install the pure-Python specan and ubtbr modules natively with
+    CMake under CMAKE_INSTALL_PREFIX instead of running deprecated setup.py
+    install. Configured wrappers locate their modules relative to themselves,
+    so custom prefixes and DESTDIR work without PYTHONPATH; installation no
+    longer writes to the source tree or system Python outside the requested
+    prefix. Verified with the actual installed commands on Ubuntu 24.04 and
+    macOS 26.7.1 (arm64).
+    https://github.com/SqueakyFloors/ubertooth/issues/33
   * Fix build with CMake 4.x: update cmake_minimum_required to VERSION 3.5...3.27
     in host/CMakeLists.txt, host/misc/CMakeLists.txt, host/misc/udev/CMakeLists.txt
-    (upstream issue #551)
+    (upstream issue)
+    https://github.com/greatscottgadgets/ubertooth/issues/551
   * Fix build with Python 3.12+: replace deprecated distutils.core with setuptools
     in host/python/specan_ui/setup.py and host/python/specan_ui/setup.py.in
     Credit: Arnaud Rebillout <arnaudr@kali.org> (Kali Linux fork)
   * Fix InvalidVersion error in new setuptools versions: set version='1' in
     specan_ui setup.py and add set(PACKAGE_VERSION 1) to specan_ui CMakeLists.txt
-    Credit: Rhys Perry <rhysperry111@gmail.com> (upstream PR #524)
+    Credit: Rhys Perry <rhysperry111@gmail.com> (upstream PR)
+    https://github.com/greatscottgadgets/ubertooth/pull/524
   * CMakeLists: use message(FATAL_ERROR ...) instead of message(FATAL ...), and
     CACHE STRING instead of CACHE INT for the version variables
   * Guard MAX/MIN macros in ubertooth_control.h with #ifndef to avoid
     -Wmacro-redefined against the system <sys/param.h>
-  * specan_ui: remove the stale committed setup.py (generated from setup.py.in
-    by CMake); the template is now the single source of truth
+  * specan_ui: remove the stale committed setup.py; setup.py.in remains the
+    standalone Python-packaging template, while CMake installs the pure-Python
+    module directly
 
   Robustness fixes (host, this fork):
   * libubertooth: ubertooth_count() now returns int and propagates a negative
@@ -57,7 +68,8 @@ ubertooth (2020-12-R1+modern1) unstable; urgency=low
   * Add a spectrum-analyzer UI (specan_ui) install/run guide
     (docs/source/specan_ui.rst) covering modern deps and the common
     'ModuleNotFoundError: No module named specan' (install/Python-mismatch);
-    replace the ancient specan_ui README (#11)
+    replace the ancient specan_ui README
+    https://github.com/SqueakyFloors/ubertooth/issues/11
   * Document -U device selection fully: accepts an index OR a serial, attached
     or separated (-U0 / -U 0 / -U<serial> / -U <serial>), and there is no 0-7
     cap on the number of attached Ubertooths (dynamic; limited by USB/power)
@@ -104,7 +116,8 @@ ubertooth (2020-12-R1+modern1) unstable; urgency=low
     find_ubertooth_dfu_device(), release the app-mode handle after cmd_flash
     before the device re-enumerates, and poll up to ~10s for the DFU device.
     Fixes frequent 'Unable to find Ubertooth' / silent no-op flashes that
-    previously needed a physical replug (#29).
+    previously needed a physical replug.
+    https://github.com/SqueakyFloors/ubertooth/issues/29
   Bug fixes (this fork):
   * firmware: fix an RSSI rounding bias for negative dBm. The averaging used
     `(x + 128) / 256` (and `(sum + 128) / count`), which only rounds to nearest
@@ -114,7 +127,8 @@ ubertooth (2020-12-R1+modern1) unstable; urgency=low
     -48, and an exact -40 dBm reported -39). Round half away from zero at all
     three division sites in ubertooth_rssi.c so -v/specan RSSI is accurate for
     negative values; positive rounding is unchanged. Covered by new host unit
-    tests (#15).
+    tests.
+    https://github.com/SqueakyFloors/ubertooth/issues/15
   * firmware build: the baked-in version string (-v / -V) now always matches
     the git revision it was built from. Previously GIT_REVISION was a -D compile
     flag with no dependency, so an incremental `make` after moving HEAD kept a
@@ -135,10 +149,13 @@ ubertooth (2020-12-R1+modern1) unstable; urgency=low
     idle and modes no longer interfere or leak (channel/PA are preserved)
   * ubertooth-scan: free the hci_conn_info request buffer on the
     hci_create_connection failure path (was leaked every failed probe, so
-    long-running scans slowly exhausted memory) (upstream issue #542)
+    long-running scans slowly exhausted memory) (upstream issue)
+    https://github.com/greatscottgadgets/ubertooth/issues/542
   * ubertooth-util -c/-C: validate the channel argument (-c 2402-2480 MHz,
     -C 0-78) and reject out-of-range values with a clear error, instead of
-    silently sending an invalid channel to the firmware (relates to #5 / upstream #448)
+    silently sending an invalid channel to the firmware.
+    https://github.com/SqueakyFloors/ubertooth/issues/5
+    https://github.com/greatscottgadgets/ubertooth/issues/448
   * ubertooth-util -I (identify): install a SIGINT handler so Ctrl-C turns
     the USR/RX/TX LEDs off before exit, instead of leaving them lit
 
@@ -152,27 +169,38 @@ ubertooth (2020-12-R1+modern1) unstable; urgency=low
 
   Bug fixes (cherry-picked from upstream open PRs):
   * Fix CRC verify not filtering bad-CRC packets in ubertooth-btle -v1 mode;
-    add on-device CRC verification in LE PHY engine (upstream PR #550)
+    add on-device CRC verification in LE PHY engine (upstream PR)
+    https://github.com/greatscottgadgets/ubertooth/pull/550
     Credit: oliver <icetzsr@gmail.com>
   * Fix rssi_iir_update() and rssi_get_avg() channel checks in ubertooth_rssi.c
-    (upstream PR #481)
+    (upstream PR)
+    https://github.com/greatscottgadgets/ubertooth/pull/481
     Credit: Gabriele Gristina <matrix@users.noreply.github.com>
-  * Fix ubertooth-dfu variable in firmware build (upstream PR #485)
+  * Fix ubertooth-dfu variable in firmware build (upstream PR)
+    https://github.com/greatscottgadgets/ubertooth/pull/485
     Credit: Michael Ossmann <mike@ossmann.com>
-  * Improved Paging process speed and reliability (upstream PR #540)
+  * Improved Paging process speed and reliability (upstream PR)
+    https://github.com/greatscottgadgets/ubertooth/pull/540
     Credit: Hillel Chimowicz <hllhll@users.noreply.github.com>
 
   Other improvements (cherry-picked from upstream open PRs):
-  * Update scapy usage to PcapReader (deprecated API removal) (upstream PR #519)
+  * Update scapy usage to PcapReader (deprecated API removal) (upstream PR)
+    https://github.com/greatscottgadgets/ubertooth/pull/519
     Credit: stryngs <support@configitnow.com>
-  * Update CI scripts and Docker image for Ubuntu 22.04 (upstream PR #521)
+  * Update CI scripts and Docker image for Ubuntu 22.04 (upstream PR)
+    https://github.com/greatscottgadgets/ubertooth/pull/521
     Credit: linux4life798
 
   Known open issues not yet addressed:
-  * ubertooth-btbr hangs after start (upstream issue #520)
-  * Memory leaks in libubertooth and ubertooth-scan (upstream issues #542, #543)
-  * LE packets truncated to 50 bytes (upstream issue #468)
-  * Channel -1 bug when setting channel 1 (upstream issue #448)
+  * ubertooth-btbr hangs after start (upstream issue)
+    https://github.com/greatscottgadgets/ubertooth/issues/520
+  * Memory leaks in libubertooth and ubertooth-scan (upstream issues)
+    https://github.com/greatscottgadgets/ubertooth/issues/542
+    https://github.com/greatscottgadgets/ubertooth/issues/543
+  * LE packets truncated to 50 bytes (upstream issue)
+    https://github.com/greatscottgadgets/ubertooth/issues/468
+  * Channel -1 bug when setting channel 1 (upstream issue)
+    https://github.com/greatscottgadgets/ubertooth/issues/448
 
  -- community fork  Wed, 14 Oct 2026 22:00:00 -0700
 

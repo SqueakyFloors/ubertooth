@@ -9,17 +9,22 @@ Hardware required: Ubertooth One, Linux machine (Ubuntu 22.04+ preferred), a BLE
 
 ### 1a. Clean build on Ubuntu 22.04
 - [ ] Clone repo fresh on Ubuntu 22.04
-- [ ] Install dependencies: `sudo apt install cmake gcc libusb-1.0-0-dev python3-setuptools`
+- [ ] Install dependencies: `sudo apt install cmake gcc libusb-1.0-0-dev python3 python3-numpy python3-qtpy python3-pyside6 python3-usb1`
 - [ ] Build libbtbb from this repo's companion (or upstream)
 - [ ] Run `cmake .. && make` in `host/build/`
 - [ ] Confirm: no errors, no warnings about CMake version
 - [ ] Confirm: `ubertooth-util` binary exists in build output
+- [ ] Install to a temporary `CMAKE_INSTALL_PREFIX`; with `PYTHONPATH` unset,
+      confirm the installed `ubertooth-specan-ui --help` and
+      `ubertooth-btbr -h` reach their normal usage output (no import error)
 
 ### 1b. Clean build on Ubuntu 24.04
 - [ ] Same steps as 1a on Ubuntu 24.04
-- [ ] Confirm: no `InvalidVersion` setuptools error
-- [ ] Confirm: no `distutils` import error
-- [ ] Confirm: specan_ui builds without errors
+- [ ] Confirm: Python installation does not modify the source tree or system
+      Python outside `CMAKE_INSTALL_PREFIX`
+- [ ] Confirm: a `DESTDIR` install stages modules and launchers under
+      `DESTDIR + CMAKE_INSTALL_PREFIX`, and staged launchers run without
+      `PYTHONPATH`
 
 ### 1c. Clean build on macOS (Homebrew)
 - [ ] `brew install cmake libusb pkg-config`

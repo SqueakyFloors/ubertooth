@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!@Python3_EXECUTABLE@
 #
 # Copyright 2011 Jared Boone
 #
@@ -19,8 +19,22 @@
 # the Free Software Foundation, Inc., 51 Franklin Street,
 # Boston, MA 02110-1301, USA.
 
+import os
 import signal
 import sys
+
+# CMake replaces this placeholder in the installed wrapper. Resolve relative to
+# this executable so custom CMAKE_INSTALL_PREFIX values and DESTDIR staging both
+# work without requiring users to set PYTHONPATH. When run from the source tree,
+# the placeholder path does not exist and Python's normal script-dir import
+# continues to find the adjacent specan package.
+_module_dir = os.path.normpath(os.path.join(
+    os.path.dirname(os.path.realpath(__file__)),
+    "@PYTHON_PURELIB_FROM_BINDIR@",
+))
+if os.path.isdir(_module_dir) and _module_dir not in sys.path:
+    sys.path.insert(0, _module_dir)
+
 import threading
 import numpy
 
