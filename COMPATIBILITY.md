@@ -104,5 +104,9 @@ runners it is pip-installed in CI.
 - [ ] Characterize GCC (host) and arm-none-eabi-gcc floors (oldest that builds).
       (Firmware now builds on both U20's old arm-gcc and 15.3; exact floor TBD.)
 - [ ] Pin a libusb minimum and verify.
+- [x] Verify the firmware build on GNU make 3.81 (the version shipped with
+      macOS). Verified: all three firmware images build, track the git revision
+      across incremental rebuilds, no-op cleanly, and regenerate a missing
+      version.h, on make 3.81 and 4.3. The build avoids make >= 4.0 features.
 - [ ] Add `python_requires` to specan_ui packaging reflecting the 3.8 floor.
 - [ ] Replace remaining 🎯 with ✅ (and a CI link) or ❌ as results come in.

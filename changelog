@@ -106,6 +106,18 @@ ubertooth (2020-12-R1+modern1) unstable; urgency=low
     Fixes frequent 'Unable to find Ubertooth' / silent no-op flashes that
     previously needed a physical replug (#29).
   Bug fixes (this fork):
+  * firmware build: the baked-in version string (-v / -V) now always matches
+    the git revision it was built from. Previously GIT_REVISION was a -D compile
+    flag with no dependency, so an incremental `make` after moving HEAD kept a
+    stale version string in the firmware and a good flash was indistinguishable
+    from a stale one via -v. The firmware build now generates a version.h
+    (revision + compile info) that the version-bearing sources #include; it is
+    regenerated when the build identity (revision incl. a `*` dirty flag,
+    builder, host) changes, so only the affected objects recompile. Also
+    -include the -MMD dependency files so editing a header rebuilds the objects
+    that include it (previously the .d files were generated and ignored, so
+    header edits could silently ship stale firmware). Uses only plain shell, so
+    it works on GNU make 3.81 (macOS).
   * ubertooth-util: mode-starting operations (-q, -x, -t, -n, -e) now stop any
     operation already running on the device first, like -I, so each starts from
     idle and modes no longer interfere or leak (channel/PA are preserved)
