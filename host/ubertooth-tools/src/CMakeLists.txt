@@ -66,6 +66,16 @@ if( USE_BLUEZ AND NOT ${LIBBLUETOOTH_FOUND} )
 		"Cannot find libbluetooth, which is required for USE_BLUEZ")
 endif()
 
+# REQUIRE_ALL: fail configuration if any OPTIONAL dependency is missing, so a
+# build (CI / release) cannot silently ship a reduced tool set. Off by default
+# so a normal build still succeeds with whatever is installed.
+if( REQUIRE_ALL AND NOT ${LIBBLUETOOTH_FOUND} )
+	message( FATAL_ERROR
+		"REQUIRE_ALL is set but libbluetooth was not found; "
+		"ubertooth-scan and ubertooth-follow would be skipped. "
+		"Install libbluetooth-dev (Debian/Ubuntu) / bluez-libs-devel (Fedora).")
+endif()
+
 if ( ${LIBBLUETOOTH_FOUND} )
 	LIST(APPEND TOOLS ubertooth-follow ubertooth-scan)
 	include_directories(${LIBBLUETOOTH_INCLUDE_DIR})
@@ -82,3 +92,18 @@ endforeach(tool)
 add_executable(ubertooth-debug ubertooth-debug.c cc2400.c arglist.c)
 install(TARGETS ubertooth-debug RUNTIME DESTINATION ${INSTALL_DEFAULT_BINDIR})
 target_link_libraries(ubertooth-debug ${TOOLS_LINK_LIBS})
+
+# ---- Build feature summary -------------------------------------------------
+# Print, at the end of configuration, which tools will be built and which are
+# skipped (and why), so a missing optional dependency is obvious rather than
+# silent. See REQUIRE_ALL above to turn a missing optional dep into an error.
+message(STATUS "")
+message(STATUS "Ubertooth host tools — build summary")
+message(STATUS "  always built: ubertooth-rx tx dump util btle dfu specan ego afh ducky debug")
+if ( ${LIBBLUETOOTH_FOUND} )
+	message(STATUS "  bluez tools:  ENABLED  (ubertooth-scan, ubertooth-follow) — libbluetooth ${LIBBLUETOOTH_VERSION}")
+else()
+	message(STATUS "  bluez tools:  DISABLED (ubertooth-scan, ubertooth-follow) — libbluetooth NOT found")
+	message(STATUS "                install libbluetooth-dev / bluez-libs-devel, or set -DREQUIRE_ALL=ON to make this an error")
+endif()
+message(STATUS "")

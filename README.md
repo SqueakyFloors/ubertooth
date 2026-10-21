@@ -13,6 +13,8 @@ This release is paired with [libbtbb 2020-12-R1](https://github.com/greatscottga
 Instructions for flashing the firmware can be found [on the corresponding readthedocs.io firmware page](https://ubertooth.readthedocs.io/en/latest/firmware.html).
 Instructions for building libbtbb can be found [on the corresponding readthedocs.io build_guide page](https://ubertooth.readthedocs.io/en/latest/build_guide.html).
 
+Build dependencies (required vs optional, and what each enables) are listed in [REQUIREMENTS.md](REQUIREMENTS.md).
+
 --------------------
 
 # Tools

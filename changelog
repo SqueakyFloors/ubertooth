@@ -76,6 +76,9 @@ ubertooth (2020-12-R1+modern1) unstable; urgency=low
     upstream ToDo list; note the ubertooth-btbr hang in firmware/btbr/README.md
 
   Continuous integration:
+  * Build: print a feature summary of which host tools are enabled/disabled
+    (e.g. bluez tools), add -DREQUIRE_ALL=ON to fail if an optional dependency
+    is missing, and add REQUIREMENTS.md documenting required vs optional deps
   * Drop macos-13 (Intel) from the CI matrix: GitHub's Intel runners queue
     unreliably and stalled runs; arm64 macOS 14/15/26 remain covered and Intel
     is documented as expected-to-build but unverified (COMPATIBILITY.md)
