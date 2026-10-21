@@ -379,18 +379,22 @@ int main(int argc, char *argv[])
 	if(do_led_specan >= 0) {
 		do_led_specan= do_led_specan ? do_led_specan : 225;
 		fprintf(stdout, "Entering LED specan mode (RSSI %d)\n", do_led_specan);
+		cmd_stop(ut->devh);          /* leave any prior mode before starting */
 		return cmd_led_specan(ut->devh, do_led_specan);
 	}
 	if(do_range_test == 0) {
 		fprintf(stdout, "Starting range test\n");
+		cmd_stop(ut->devh);          /* leave any prior mode before starting */
 		return cmd_range_test(ut->devh);
 	}
 	if(do_repeater == 0) {
 		fprintf(stdout, "Starting repeater\n");
+		cmd_stop(ut->devh);          /* leave any prior mode before starting */
 		return cmd_repeater(ut->devh);
 	}
 	if(do_tx == 0) {
 		fprintf(stdout, "Starting TX test\n");
+		cmd_stop(ut->devh);          /* leave any prior mode before starting */
 		return cmd_tx_test(ut->devh);
 	}
 	if(do_set_squelch > 0) {
@@ -402,6 +406,7 @@ int main(int argc, char *argv[])
 		fprintf(stdout, "Squelch set to %d\n", (int8_t)r);
 	}
 	if(do_xmas) {
+		cmd_stop(ut->devh);          /* leave any prior mode before starting */
 		return cmd_xmas(ut->devh);
 	}
 	if(do_something) {

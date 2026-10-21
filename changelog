@@ -97,6 +97,9 @@ ubertooth (2020-12-R1+modern1) unstable; urgency=low
     actions/checkout@v4, host CLI + Python import smoke tests, firmware artifacts
 
   Bug fixes (this fork):
+  * ubertooth-util: mode-starting operations (-q, -x, -t, -n, -e) now stop any
+    operation already running on the device first, like -I, so each starts from
+    idle and modes no longer interfere or leak (channel/PA are preserved)
   * ubertooth-scan: free the hci_conn_info request buffer on the
     hci_create_connection failure path (was leaked every failed probe, so
     long-running scans slowly exhausted memory) (upstream issue #542)
