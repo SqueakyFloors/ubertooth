@@ -22,6 +22,27 @@
 #include "cc2400_rangetest.h"
 
 /*
+ * Blocking waits in the range test / repeater must not spin forever: if the RF
+ * handshake never completes (no peer, or out of sync) the device would hang
+ * with the USB command handler never regaining the main loop (only a replug
+ * recovers it). WAIT_OR_BAIL spins on a condition but gives up when either the
+ * host requests a different mode (e.g. -S -> MODE_IDLE, set from the USB IRQ)
+ * or a clkn deadline passes, then jumps to the function's bail: cleanup.
+ * clkn ticks at the Bluetooth 3200 Hz rate.
+ */
+extern volatile uint32_t clkn;
+extern volatile uint8_t  mode;
+extern volatile uint8_t  requested_mode;
+#define RANGETEST_TIMEOUT_TICKS (3200u * 30u)  /* ~30 s anti-wedge net; -S is the real stop */
+#define WAIT_OR_BAIL(cond) do {                                   \
+		uint32_t _deadline = clkn + RANGETEST_TIMEOUT_TICKS;      \
+		while (cond) {                                            \
+			if (requested_mode != mode) goto bail;                \
+			if ((int32_t)(clkn - _deadline) > 0) goto bail;       \
+		}                                                         \
+	} while (0)
+
+/*
  * This range test transmits a Bluetooth-like (but not Bluetooth compatible)
  * packet to a repeater and then receives the repeated packet.  It is only
  * useful if another device is running cc2400_repeater() some distance away.
@@ -99,10 +120,18 @@ void cc2400_rangetest(volatile u16 *chan_ptr)
 	cc2400_set(SYNCL,   0x1584);
 	cc2400_set(FREND,   8 | pa);
 	cc2400_set(MDMCTRL, 0x0029);
-	while (!(cc2400_status() & XOSC16M_STABLE));
+	WAIT_OR_BAIL(!(cc2400_status() & XOSC16M_STABLE));
 	cc2400_strobe(SFSON);
-	while (!(cc2400_status() & FS_LOCK));
+	WAIT_OR_BAIL(!(cc2400_status() & FS_LOCK));
 	TXLED_SET;
+	/* Enable USB interrupts HERE, only after the CC2400 is configured and
+	 * frequency-locked above. Do NOT move this to the top of the function.
+	 * REGRESSION HISTORY: enabling ISER0_ISE_USB at function entry (to make -S
+	 * responsive) let a USB IRQ fire during the CC2400 register/strobe sequence
+	 * and corrupted radio bring-up -- the radio never came up, TX/RX never ran,
+	 * and the repeater showed no LEDs. Enabling it after FS_LOCK keeps -S
+	 * serviceable during the busy waits below without disturbing setup. */
+	ISER0 = ISER0_ISE_USB;
 #ifdef UBERTOOTH_ONE
 	PAEN_SET;
 #endif
@@ -111,7 +140,7 @@ void cc2400_rangetest(volatile u16 *chan_ptr)
 		txbuf[18] = pa;
 		for (i = 0; i < 16; i++) {
 			txbuf[19] = i;
-			while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
+			WAIT_OR_BAIL((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
 			// transmit a packet
 			for (j = 0; j < len; j++)
 				cc2400_set8(FIFOREG, txbuf[j]);
@@ -119,19 +148,19 @@ void cc2400_rangetest(volatile u16 *chan_ptr)
 		}
 	}
 	// sent packet, now look for repeated packet
-	while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
+	WAIT_OR_BAIL((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
 	TXLED_CLR;
 	cc2400_strobe(SRFOFF);
-	while ((cc2400_status() & FS_LOCK));
+	WAIT_OR_BAIL((cc2400_status() & FS_LOCK));
 	cc2400_set(FSDIV, *chan_ptr - 1);
-	while (!(cc2400_status() & XOSC16M_STABLE));
+	WAIT_OR_BAIL(!(cc2400_status() & XOSC16M_STABLE));
 	cc2400_strobe(SFSON);
-	while (!(cc2400_status() & FS_LOCK));
+	WAIT_OR_BAIL(!(cc2400_status() & FS_LOCK));
 	RXLED_SET;
 	while (1) {
-		while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
+		WAIT_OR_BAIL((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
 		cc2400_strobe(SRX);
-		while (!(cc2400_status() & SYNC_RECEIVED));
+		WAIT_OR_BAIL(!(cc2400_status() & SYNC_RECEIVED));
 		USRLED_SET;
 		for (j = 0; j < len; j++)
 			rxbuf[j] = cc2400_get8(FIFOREG);
@@ -141,9 +170,9 @@ void cc2400_rangetest(volatile u16 *chan_ptr)
 	}
 
 	// done
-	while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
+	WAIT_OR_BAIL((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
 	cc2400_strobe(SRFOFF);
-	while ((cc2400_status() & FS_LOCK));
+	WAIT_OR_BAIL((cc2400_status() & FS_LOCK));
 #ifdef UBERTOOTH_ONE
 	PAEN_CLR;
 #endif
@@ -163,6 +192,17 @@ void cc2400_rangetest(volatile u16 *chan_ptr)
 			rr.valid = 2 + i;
 
 	USRLED_CLR;
+	return;
+
+bail:
+	/* Timed out or a mode change was requested: shut the radio down and leave
+	 * cleanly so the main loop resumes and USB stays responsive. */
+	cc2400_strobe(SRFOFF);
+#ifdef UBERTOOTH_ONE
+	PAEN_CLR;
+#endif
+	TXLED_CLR; RXLED_CLR; USRLED_CLR;
+	rr.valid = 0;   /* host reads this as "invalid range test result" */
 }
 #endif
 
@@ -177,7 +217,7 @@ void cc2400_repeater(volatile u16 *chan_ptr)
 	u8 buf[len];
 
 	//FIXME allow to be turned off
-	while (1) {
+	while (requested_mode == mode) {
 		cc2400_set(LMTST,   0x2b22);
 		cc2400_set(MDMTST0, 0x134b);
 		cc2400_set(FSDIV,   *chan_ptr - 1);
@@ -185,20 +225,28 @@ void cc2400_repeater(volatile u16 *chan_ptr)
 		cc2400_set(SYNCL,   0x1584);
 		cc2400_set(FREND,   0x0008); // minimum tx power
 		cc2400_set(MDMCTRL, 0x0029); // 160 kHz frequency deviation
-		while (!(cc2400_status() & XOSC16M_STABLE));
+		WAIT_OR_BAIL(!(cc2400_status() & XOSC16M_STABLE));
 		cc2400_strobe(SFSON);
-		while (!(cc2400_status() & FS_LOCK));
+		WAIT_OR_BAIL(!(cc2400_status() & FS_LOCK));
 		RXLED_SET;
 		TXLED_CLR;
 		USRLED_CLR;
 #ifdef UBERTOOTH_ONE
 		PAEN_SET;
 #endif
+		/* Enable USB interrupts HERE, only after the CC2400 is configured and
+		 * frequency-locked above. Do NOT move this to the top of the function.
+		 * REGRESSION HISTORY: enabling ISER0_ISE_USB at function entry (to make
+		 * -S responsive) let a USB IRQ fire during the CC2400 register/strobe
+		 * sequence and corrupted radio bring-up -- the radio never came up and
+		 * the repeater showed no LEDs. Enabling it after FS_LOCK keeps -S
+		 * serviceable during the busy waits below without disturbing setup. */
+		ISER0 = ISER0_ISE_USB;
 		while (1) {
-			while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
+			WAIT_OR_BAIL((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
 			USRLED_CLR;
 			cc2400_strobe(SRX);
-			while (!(cc2400_status() & SYNC_RECEIVED));
+			WAIT_OR_BAIL(!(cc2400_status() & SYNC_RECEIVED));
 			USRLED_SET;
 			for (i = 0; i < len; i++)
 				buf[i] = cc2400_get8(FIFOREG);
@@ -210,20 +258,21 @@ void cc2400_repeater(volatile u16 *chan_ptr)
 		USRLED_CLR;
 		RXLED_CLR;
 		cc2400_strobe(SRFOFF);
-		while ((cc2400_status() & FS_LOCK));
-		while (!(cc2400_status() & XOSC16M_STABLE));
+		WAIT_OR_BAIL((cc2400_status() & FS_LOCK));
+		WAIT_OR_BAIL(!(cc2400_status() & XOSC16M_STABLE));
 		cc2400_set(FSDIV, *chan_ptr);
-		while (!(cc2400_status() & XOSC16M_STABLE));
+		WAIT_OR_BAIL(!(cc2400_status() & XOSC16M_STABLE));
 		cc2400_strobe(SFSON);
 		TXLED_SET;
 		buf[0] = len - 1; // length of data (rest of payload)
 		buf[1] = 1; // reply
 		for (pa = 0; pa < 8; pa++) {
+			if (requested_mode != mode) goto bail;   /* prompt stop on -S */
 			cc2400_set(FREND, 8 | pa);
 			buf[20] = pa;
 			for (i = 0; i < 16; i++) {
 				buf[21] = i;
-				while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
+				WAIT_OR_BAIL((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
 				for (j = 0; j < len; j++)
 					cc2400_set8(FIFOREG, buf[j]);
 				cc2400_strobe(STX);
@@ -231,8 +280,16 @@ void cc2400_repeater(volatile u16 *chan_ptr)
 		}
 		TXLED_CLR;
 		cc2400_strobe(SRFOFF);
-		while ((cc2400_status() & FS_LOCK));
+		WAIT_OR_BAIL((cc2400_status() & FS_LOCK));
 	}
+
+bail:
+	/* mode change requested or timeout: shut down and return cleanly. */
+	cc2400_strobe(SRFOFF);
+#ifdef UBERTOOTH_ONE
+	PAEN_CLR;
+#endif
+	TXLED_CLR; RXLED_CLR; USRLED_CLR;
 }
 #endif
 

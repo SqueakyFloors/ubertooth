@@ -2677,12 +2677,17 @@ int main()
 					break;
 				case MODE_RANGE_TEST:
 					mode = MODE_RANGE_TEST;
+					clkn_start();   /* needed so WAIT_OR_BAIL timeouts advance */
 					cc2400_rangetest(&channel);
+					clkn_stop();
 					requested_mode = MODE_IDLE;
 					break;
 				case MODE_REPEATER:
 					mode = MODE_REPEATER;
+					clkn_start();   /* needed so WAIT_OR_BAIL timeouts advance */
 					cc2400_repeater(&channel);
+					clkn_stop();
+					requested_mode = MODE_IDLE;
 					break;
 #endif
 				case MODE_SPECAN:
