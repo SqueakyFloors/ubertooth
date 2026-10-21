@@ -39,6 +39,15 @@ See `COMPATIBILITY.md` for supported OS / toolchain / Python **versions**.
 
 ## Quick install (Ubuntu 22.04 / 24.04)
 
+The easiest path is the bootstrap script, which installs all of the below and
+builds/installs libbtbb and the host tools for you:
+
+```sh
+./install.sh            # see ./install.sh --help for options (venv, flash, ...)
+```
+
+To do it by hand instead:
+
 ```sh
 sudo apt-get install cmake build-essential pkg-config \
      libusb-1.0-0-dev libbluetooth-dev libfftw3-dev \

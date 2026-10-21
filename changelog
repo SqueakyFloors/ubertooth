@@ -1,6 +1,12 @@
 ubertooth (2020-12-R1+modern1) unstable; urgency=low
 
   New features:
+  * install.sh: one-command from-source setup for Debian/Ubuntu — installs
+    system deps, builds+installs libbtbb and the host tools (-DREQUIRE_ALL=ON),
+    installs specan_ui Python deps (optionally into a --venv), sets up udev, and
+    optionally builds/flashes firmware. When flashing, the target is resolved up
+    front (fail fast on ambiguity) and firmware is built+flashed first.
+    --flash-device <index|serial|all> selects which device(s) to flash.
   * Serial-based device selection: every ubertooth-* tool's -U option now
     accepts either a USB enumeration index (existing behaviour) or an Ubertooth
     serial-number string, routed through the shared ubertooth_start_select /
