@@ -93,8 +93,18 @@ if [ -n "$VENV" ]; then
 	"$PYTHON" -m pip install --quiet --upgrade pip setuptools
 fi
 info "Installing Python runtime deps for specan_ui"
-"$PYTHON" -m pip install --quiet numpy qtpy pyside6 || \
-	info "WARNING: could not pip-install Python GUI deps; install numpy/qtpy/pyside6 manually"
+PIP_DEPS=(numpy qtpy pyside6)
+if [ -n "$VENV" ]; then
+	"$PYTHON" -m pip install --quiet "${PIP_DEPS[@]}" || \
+		info "WARNING: could not pip-install $* GUI deps into the venv"
+else
+	# System Python on modern Debian is externally managed (PEP 668); prefer the
+	# distro packages, fall back to pip --break-system-packages, and never abort.
+	if ! "$PYTHON" -m pip install --quiet "${PIP_DEPS[@]}" 2>/dev/null; then
+		"$PYTHON" -m pip install --quiet --break-system-packages "${PIP_DEPS[@]}" 2>/dev/null || \
+			info "WARNING: could not pip-install GUI deps; install python3-numpy python3-qtpy python3-pyside6 (apt) or use --venv"
+	fi
+fi
 
 # --- 3. libbtbb -----------------------------------------------------------
 info "Building libbtbb ($LIBBTBB_REF)"
