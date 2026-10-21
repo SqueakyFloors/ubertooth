@@ -17,24 +17,20 @@
 # the Free Software Foundation, Inc., 51 Franklin Street,
 # Boston, MA 02110-1301, USA.
 
-set(SETUP_PY_IN ${CMAKE_CURRENT_SOURCE_DIR}/setup.py.in)
-set(SETUP_PY    ${CMAKE_CURRENT_BINARY_DIR}/setup.py)
-set(DEPS        ${CMAKE_CURRENT_SOURCE_DIR}/specan/__init__.py
-                ${CMAKE_CURRENT_SOURCE_DIR}/specan/Ubertooth.py)
-set(OUTPUT      ${CMAKE_CURRENT_BINARY_DIR}/build)
+set(SPECAN_WRAPPER ${CMAKE_CURRENT_BINARY_DIR}/ubertooth-specan-ui)
 
-set(PACKAGE_VERSION 1)
+# Configure only the installed wrapper. The source script remains directly
+# runnable; its placeholder path is ignored when that directory does not exist.
+configure_file(
+	${CMAKE_CURRENT_SOURCE_DIR}/ubertooth-specan-ui.in
+	${SPECAN_WRAPPER}
+	@ONLY)
 
-configure_file(${SETUP_PY_IN} ${SETUP_PY})
-
-add_custom_command(OUTPUT ${OUTPUT}/timestamp
-                   COMMAND ${Python3_EXECUTABLE} setup.py build
-                   COMMAND ${CMAKE_COMMAND} -E touch ${OUTPUT}/timestamp
-                   DEPENDS ${DEPS})
-
-add_custom_target(specan ALL DEPENDS ${OUTPUT}/timestamp)
-install(CODE "execute_process(COMMAND ${Python3_EXECUTABLE} ${SETUP_PY} build -b ${OUTPUT} install)")
-
-add_custom_target(ubertooth-specan-ui ALL DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/ubertooth-specan-ui)
-install(PROGRAMS ubertooth-specan-ui DESTINATION ${INSTALL_DEFAULT_BINDIR})
+# Pure Python: install source files directly. CMake applies CMAKE_INSTALL_PREFIX,
+# --prefix overrides, and DESTDIR without invoking pip or touching system Python.
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/specan
+	DESTINATION ${PYTHON_PURELIB_REL}
+	FILES_MATCHING PATTERN "*.py"
+	PATTERN "__pycache__" EXCLUDE)
+install(PROGRAMS ${SPECAN_WRAPPER} DESTINATION ${INSTALL_DEFAULT_BINDIR})
 

@@ -27,7 +27,7 @@ Legend:
 | **Windows** | — | — | all | ❌ Unsupported (libusb + udev; use Linux/VM) |
 | **CMake** | 3.5 | 3.5 … 3.27 (enforced range) | < 3.5 (CMake 4 removed it) | ✅ floor enforced in CMakeLists |
 | **GNU make (firmware)** | 3.81 | 3.81 (macOS), 4.3 (Linux) | — | ✅ 3.81 verified; build avoids make ≥ 4.0 features |
-| **Python (host tools)** | 3.8 | 3.8 (U20 CI) … 3.14 (macOS CI) | 2.x (removed upstream) | ✅ 3.8 verified in CI; see setuptools note |
+| **Python (host tools)** | 3.8 | 3.8 (U20 CI) … 3.14 (macOS CI) | 2.x (removed upstream) | ✅ 3.8 verified in CI |
 | **GCC (host)** | TBD | per-runner (recent) | — | 🎯 not yet characterized |
 | **arm-none-eabi-gcc (firmware)** | TBD | U20 (~9.x) … 15.3 (CI); 15.3 on hardware | — | 🎯 floor not pinned; builds + runs on old+new |
 | **libusb** | 1.0.x | 1.0.30 (local) | pre-1.0 | 🎯 exact floor not pinned |
@@ -91,15 +91,15 @@ release version into the archive.
 ### Python 3 only
 Python 2 support was removed upstream in 2020-12-R1. This fork targets modern
 Python 3; verified from 3.8 (Ubuntu 20.04) through 3.14 (current macOS runner).
-The specan_ui `setup.py` must build cleanly across that range (see the open
-setup.py / setup.py.in divergence issue). Older distros (e.g. Ubuntu 18.04 /
-Python 3.6) are out of scope — see above.
+Older distros (e.g. Ubuntu 18.04 / Python 3.6) are out of scope — see above.
 
-**setuptools required on Python 3.12+.** Python 3.12 removed the bundled
-`setuptools`/`distutils` (PEP 632), so building specan_ui needs setuptools
-installed explicitly (`pip install setuptools`). On distros that still package
-it (e.g. `python3-setuptools` on Debian/Ubuntu) install that; on current macOS
-runners it is pip-installed in CI.
+**Prefix-safe Python installation.** CMake installs the in-tree pure-Python
+``specan`` and ``ubtbr`` modules directly under ``CMAKE_INSTALL_PREFIX``; it no
+longer invokes the deprecated ``setup.py install`` or requires setuptools for a
+normal CMake build/install. Configured launchers locate those modules relative
+to their own installed path, so custom prefixes and ``DESTDIR`` work without
+``PYTHONPATH`` and without modifying system Python (#33). Runtime dependencies
+remain external: NumPy/QtPy/PySide6 for specan_ui and ``libusb1`` for ubtbr.
 
 ---
 

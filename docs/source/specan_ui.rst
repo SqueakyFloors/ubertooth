@@ -12,9 +12,7 @@ This guide covers installing and running it, and the common
 Requirements
 ~~~~~~~~~~~~
 
-- Python 3 (3.8+). On Python 3.12+ you also need **setuptools** installed to
-  build it (``python3 -m pip install setuptools`` or the distro
-  ``python3-setuptools`` package) — PEP 632 removed the bundled copy.
+- Python 3 (3.8+).
 - Python packages: ``numpy``, ``qtpy``, and a Qt binding such as **PySide6**
   (or PyQt5). On Debian/Ubuntu: ``python3-numpy python3-qtpy python3-pyside6``;
   or with pip: ``pip install numpy qtpy pyside6``.
@@ -34,8 +32,11 @@ imports). **Both** are installed when you install the host tools:
    make
    sudo make install          # installs the launcher AND the specan package
 
-The install step runs the spectrum UI's ``setup.py install``, which places the
-``specan`` package on the Python path.
+The install step uses native CMake file installation for the pure-Python
+``specan`` package; it does not run ``setup.py install`` or modify Python
+outside ``CMAKE_INSTALL_PREFIX``. The installed launcher locates the package
+relative to itself, so custom prefixes and ``DESTDIR`` staging work without
+setting ``PYTHONPATH``.
 
 Run
 ~~~

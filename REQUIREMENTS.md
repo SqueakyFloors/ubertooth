@@ -24,7 +24,7 @@ Missing a **required** dependency fails the build.
 |---|---|---|---|
 | libbluetooth (BlueZ) | `ubertooth-scan`, `ubertooth-follow` | those two tools are **not built** | `libbluetooth-dev` / `bluez-libs-devel` (Linux only; not on macOS) |
 | FFTW3 | specan_ui spectrum GUI deps | GUI may not function | `libfftw3-dev` / `fftw-devel` / `brew install fftw` |
-| Python 3 + setuptools | specan_ui / ubtbr Python tools | Python tools not installed | `python3 python3-setuptools` (3.12+ **needs** setuptools, PEP 632) |
+| Python 3 + runtime modules | specan_ui / ubtbr Python tools | Python tools install, but fail at runtime if deps are missing | `python3`; specan_ui: `numpy qtpy pyside6`; ubtbr: `libusb1` / distro `python3-usb1` |
 | ronn (ronn-ng) | regenerate man pages from `host/doc/*.md` | committed `.1` man pages are installed as-is | `gem install ronn-ng` |
 
 See `COMPATIBILITY.md` for supported OS / toolchain / Python **versions**.
@@ -52,7 +52,8 @@ To do it by hand instead:
 ```sh
 sudo apt-get install cmake build-essential pkg-config \
      libusb-1.0-0-dev libbluetooth-dev libfftw3-dev \
-     python3 python3-setuptools dfu-util gcc-arm-none-eabi
+     python3 python3-numpy python3-qtpy python3-pyside6 python3-usb1 \
+     dfu-util gcc-arm-none-eabi
 # then build libbtbb from source (matching the release), then the host tools
 ```
 
