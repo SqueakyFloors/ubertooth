@@ -25,6 +25,12 @@ and performing miscellaneous radio-related actions. Refer to the
 The utility also includes a simple range test tool for use with two
 Ubertooth devices. Refer to [RANGE TEST][] for full details.
 
+Operations that put the device into a continuous mode — `-I` (identify),
+`-q` (LED spectrum), `-x` (xmas), `-t` (TX test), `-n` (range test), and
+`-e` (repeater) — first stop any operation already running on that device, so
+each starts from a known idle state. (This only resets the operating mode;
+configured channel and power level are preserved.)
+
 ## OPTIONS
 
 Common options:

@@ -33,6 +33,12 @@ and performing miscellaneous radio\-related actions. Refer to the
 .PP
 The utility also includes a simple range test tool for use with two
 Uberteeth. Refer to [RANGE TEST][] for full details.
+.PP
+Operations that put the device into a continuous mode \- \fB\fC\-I\fR, \fB\fC\-q\fR,
+\fB\fC\-x\fR, \fB\fC\-t\fR, \fB\fC\-n\fR, and \fB\fC\-e\fR \- first stop any operation
+already running on that device, so each starts from a known idle state. This
+resets only the operating mode; the configured channel and power level are
+preserved.
 .SH OPTIONS
 .PP
 Common options:
