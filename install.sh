@@ -61,17 +61,15 @@ list_serials() {
 	"$1" -s 2>&1 | sed -n 's/.*Serial No: \([0-9a-f]*\).*/\1/p' || true
 }
 
-# Build a clear "multiple devices" message: an explanatory header, the attached
-# serials labeled and indented, and how to choose one.
+# Build a concise "multiple devices" message listing each device as
+# "<index>: <serial>" (the serial list is already in index order), so the user
+# can choose by index or serial.
 multi_device_msg() {
-	local serials="$1" out
-	out="multiple Ubertooths are attached, so a flash target must be chosen."
-	out="$out"$'\n'"attached device serials:"
+	local serials="$1" out i=0
+	out="multiple Ubertooths attached; pick one with --flash-device <index|serial> (or 'all'):"
 	while IFS= read -r s; do
-		[ -n "$s" ] && out="$out"$'\n'"    $s"
+		[ -n "$s" ] && { out="$out"$'\n'"    $i: $s"; i=$((i+1)); }
 	done <<< "$serials"
-	out="$out"$'\n'"choose one with:  --flash-device <serial>"
-	out="$out"$'\n'"or flash them all with:  --flash-device all"
 	printf '%s' "$out"
 }
 
