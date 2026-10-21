@@ -258,6 +258,60 @@ int main(int argc, char *argv[])
 		return 0;
 	}
 
+	/* -s with no -U and several devices: list every device's serial, in
+	 * enumeration order, instead of erroring. -U <x> -s still targets one. */
+	if (do_serial == 0 && ubertooth_device == NULL) {
+		int count = ubertooth_count();
+		if (count > 1) {
+			int i;
+			for (i = 0; i < count; i++) {
+				ubertooth_t* uti = ubertooth_start(i);
+				if (uti == NULL) {
+					fprintf(stdout, "%d: <unavailable>\n", i);
+					continue;
+				}
+				u8 serial[17];
+				if (cmd_get_serial(uti->devh, serial) == 0) {
+					int j;
+					fprintf(stdout, "%d: ", i);
+					for (j = 1; j < 17; j++)
+						fprintf(stdout, "%02x", serial[j]);
+					fprintf(stdout, "\n");
+				} else {
+					fprintf(stdout, "%d: <serial read failed>\n", i);
+				}
+				ubertooth_stop(uti);
+			}
+			return 0;
+		}
+	}
+
+	/* -v with no -U and several devices: list every device's firmware version,
+	 * in enumeration order, instead of erroring. -U <x> -v still targets one. */
+	if (do_firmware == 0 && ubertooth_device == NULL) {
+		int count = ubertooth_count();
+		if (count > 1) {
+			int i;
+			for (i = 0; i < count; i++) {
+				ubertooth_t* uti = ubertooth_start(i);
+				if (uti == NULL) {
+					fprintf(stdout, "%d: <unavailable>\n", i);
+					continue;
+				}
+				uint16_t usb_version;
+				fprintf(stdout, "%d: ", i);
+				cmd_get_rev_num(uti->devh, version_string, MAX_VERSION_STRING_LEN);
+				fprintf(stdout, "%s", version_string);
+				if (ubertooth_get_api(uti, &usb_version) >= 0)
+					fprintf(stdout, " (API:%x.%02x)\n", (usb_version>>8)&0xFF, usb_version&0xFF);
+				else
+					fprintf(stdout, "\n");
+				ubertooth_stop(uti);
+			}
+			return 0;
+		}
+	}
+
 	/* initialise device */
 	ut = ubertooth_start_select(ubertooth_device);
 	if (ut == NULL) {

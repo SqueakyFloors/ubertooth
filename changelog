@@ -1,6 +1,10 @@
 ubertooth (2020-12-R1+modern1) unstable; urgency=low
 
   New features:
+  * ubertooth-util -s and -v: with multiple devices and no -U, list every
+    device as "<index>: <serial>" / "<index>: <firmware version>" (in
+    enumeration order; the index is usable with -U) instead of erroring;
+    -U <index|serial> still queries a single device
   * install.sh: one-command from-source setup for Debian/Ubuntu — installs
     system deps, builds+installs libbtbb and the host tools (-DREQUIRE_ALL=ON),
     installs specan_ui Python deps (optionally into a --venv), sets up udev, and
