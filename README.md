@@ -15,6 +15,21 @@ Instructions for building libbtbb can be found [on the corresponding readthedocs
 
 Build dependencies (required vs optional, and what each enables) are listed in [REQUIREMENTS.md](REQUIREMENTS.md).
 
+## Quick install (Debian/Ubuntu)
+
+From a checkout of this repository, [`install.sh`](install.sh) does the whole
+from-source setup in one command — system dependencies, libbtbb, the host
+tools, specan_ui Python deps, and udev rules:
+
+```sh
+./install.sh                              # host tools only
+./install.sh --venv ~/ubertooth-venv      # isolate the Python tools in a venv
+./install.sh --flash-device <index|serial|all>   # also build + flash firmware
+```
+
+Run `./install.sh --help` for all options. This is the from-source path; it is
+not a replacement for distro packaging (apt/dnf/brew).
+
 --------------------
 
 # Tools
