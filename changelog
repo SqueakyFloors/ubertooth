@@ -44,6 +44,10 @@ ubertooth (2020-12-R1+modern1) unstable; urgency=low
     (-Wunused-result); error out on a short read instead of using partial data
 
   Documentation:
+  * Add a spectrum-analyzer UI (specan_ui) install/run guide
+    (docs/source/specan_ui.rst) covering modern deps and the common
+    'ModuleNotFoundError: No module named specan' (install/Python-mismatch);
+    replace the ancient specan_ui README (#11)
   * Document -U device selection fully: accepts an index OR a serial, attached
     or separated (-U0 / -U 0 / -U<serial> / -U <serial>), and there is no 0-7
     cap on the number of attached Ubertooths (dynamic; limited by USB/power)
