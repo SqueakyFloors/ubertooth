@@ -22,6 +22,7 @@
 
 #include <string.h>
 
+#include "version.h"
 #include "ubertooth.h"
 #include "ubertooth_usb.h"
 #include "ubertooth_interface.h"

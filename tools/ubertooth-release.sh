@@ -19,7 +19,25 @@ targetdir="${top}/${releasename}"
 mkdir -p ${targetdir}
 git archive --format=tar  HEAD | (cd ${targetdir} && tar xf -)
 
-sed -e "s/GIT_REVISION=\".*\"/GIT_REVISION=\"${version}\"/" -i ${targetdir}/firmware/common.mk
+# The firmware version string now comes from a generated version.h (the -D
+# GIT_REVISION compile flag was removed). The archive has no .git, so write a
+# version.h carrying the release version into each firmware image directory;
+# the build uses a shipped version.h as-is when git is unavailable.
+for imgdir in bluetooth_rxtx btbr assembly_test bootloader; do
+	d="${targetdir}/firmware/${imgdir}"
+	test -d "${d}" || continue
+	cat > "${d}/version.h" <<EOF
+/* Generated for release ${version} by tools/ubertooth-release.sh. */
+#ifndef UBERTOOTH_VERSION_H
+#define UBERTOOTH_VERSION_H
+#define GIT_REVISION "${version}"
+#define COMPILE_BY "release"
+#define COMPILE_HOST "$(hostname -s)"
+#define TIMESTAMP "$(date)"
+#endif
+EOF
+done
+
 sed -e "s/set(RELEASE.*/set(RELEASE \"${version}\")/" -i ${targetdir}/host/libubertooth/src/CMakeLists.txt
 
 ############################

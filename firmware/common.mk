@@ -57,13 +57,10 @@ ifneq ($(DIRTY), )
 	DIRTY_FLAG = *
 endif
 
-# automatic git version when working out of git
-GIT_REVISION ?= -D'GIT_REVISION="git-$(shell git log --pretty=format:'%h' -n 1)$(DIRTY_FLAG)"'
-
-# compile info
-COMPILE_BY ?= -D'COMPILE_BY="$(shell whoami)"'
-COMPILE_HOST ?= -D'COMPILE_HOST="$(shell hostname -s)"'
-TIMESTAMP ?= -D'TIMESTAMP="$(shell date)"'
+# The firmware version and compile info (GIT_REVISION, COMPILE_BY/HOST,
+# TIMESTAMP) are provided by a generated version.h, not -D flags -- see the
+# "Version identity tracking" section below. DIRTY_FLAG (set above) feeds the
+# revision string generated there.
 
 # CPU architecture
 CPU = cortex-m3
@@ -174,10 +171,8 @@ CFLAGS += -mfix-cortex-m3-ldrd
 CFLAGS += -Wa,-alhms=$(<:%.c=$(OBJDIR)/%.lst)
 CFLAGS += $(patsubst %,-I%,$(EXTRAINCDIRS))
 CFLAGS += $(CSTANDARD)
-CFLAGS += $(GIT_REVISION)
-CFLAGS += $(COMPILE_BY)
-CFLAGS += $(COMPILE_HOST)
-CFLAGS += $(TIMESTAMP)
+# GIT_REVISION/COMPILE_*/TIMESTAMP now come from the generated version.h, not
+# -D flags -- see "Version identity tracking" below.
 
 #---------------- Compiler Options C++ ----------------
 #  -g*:          generate debugging information
@@ -300,6 +295,120 @@ ALL_CFLAGS_LINKER = -mcpu=$(CPU) -$(CPU_MODE) $(CPU_FLAGS_ASM)
 
 # Default target.
 all: begin gccversion sizebefore build showtarget sizeafter end
+
+#----------------------------------------------------------------------------
+# Rebuild correctness: header deps and compile-flag deps.
+#
+# These are declared AFTER `all:` so that `all` remains the default goal.
+#
+# 1. Header dependencies. The compile rules pass $(GENDEPFLAGS) (-MMD -MP),
+#    which makes GCC emit a `.d` file of the headers each object depends on.
+#    Those files are only useful if we include them, so do that here. Now
+#    editing a header rebuilds exactly the objects that include it.
+#
+# 2. Compile-flag dependencies. Several compile flags are computed at build
+#    time -- notably GIT_REVISION, COMPILE_BY/COMPILE_HOST and TIMESTAMP, which
+#    bake the firmware version string into the binary. make tracks file
+#    timestamps, not the command line, so when only the git revision changes it
+#    would consider every object up to date and leave a stale version string in
+#    the firmware -- making a good flash indistinguishable from a stale one via
+#    -v / -V. The standard fix is to record the current flags in a file that is
+#    rewritten only when they change, and make every object depend on it. Any
+#    flag change (not just the git hash) then correctly invalidates the objects.
+DEPFILES = $(SRC:%.c=$(OBJDIR)/%.d) $(CPPSRC:%.cpp=$(OBJDIR)/%.d)
+-include $(DEPFILES)
+
+# Version identity tracking.
+#
+# The firmware version string (-v / -V) must match the git revision it was
+# built from. We generate a header, version.h, containing the revision and the
+# compile info, and the version-bearing sources #include it. Because version.h
+# is a real compiler input, make's normal file-dependency tracking (via the
+# -MMD depfiles -include'd above) rebuilds exactly the objects that include it,
+# and only when the header actually changes -- no stale version strings, no
+# full-project rebuilds.
+#
+# The header is regenerated every build but only REWRITTEN when its contents
+# change (write to a temp file, cmp, replace), so its mtime -- and therefore a
+# recompile -- is triggered exactly on a real change. GIT_REVISION carries an
+# optional "*" dirty flag.
+#
+# version.h is generated (listed in .gitignore), not committed; a source
+# distribution that ships it keeps the revision available without a .git dir.
+#
+# Plain shell + cmp only, so this works on GNU make 3.81 (macOS); no $(file ...)
+# (that needs make >= 4.0).
+VERSION_HEADER := $(OBJDIR)/version.h
+VERSION_IDFILE := $(OBJDIR)/version.id
+# Is this a real git checkout? A distribution archive (GitHub "Download ZIP",
+# a release tarball, git-archive output) has no .git, so `git log` returns
+# nothing. In that case we must NOT regenerate version.h -- we rely on the one
+# shipped in the archive (see the `dist` target) -- and if none exists we fall
+# back to a clearly-marked "unknown" rather than blanking the version.
+HAVE_GIT := $(shell git rev-parse --is-inside-work-tree 2>/dev/null)
+ifeq ($(HAVE_GIT),true)
+VERSION_NOW := git-$(shell git log --pretty=format:'%h' -n 1 2>/dev/null)$(DIRTY_FLAG)
+else
+VERSION_NOW := git-unknown
+endif
+VERSION_BY := $(shell whoami)
+VERSION_HOST := $(shell hostname -s)
+# The build identity: revision (incl. the "*" dirty flag) + who/where built it.
+# The header is only regenerated -- and the TIMESTAMP refreshed -- when THIS
+# string changes, so the recorded timestamp reflects the actual build of the
+# flashed firmware. Preserving the timestamp otherwise matters for A->B->A
+# switches: returning to A must keep A's original build time, not re-stamp it.
+# The identity is stored verbatim in a sidecar file (version.id) and compared
+# exactly, rather than parsed back out of the header.
+VERSION_ID := $(VERSION_NOW)|$(VERSION_BY)|$(VERSION_HOST)
+
+.PHONY: force-version-check
+$(VERSION_HEADER): force-version-check
+	@mkdir -p $(OBJDIR)
+	@# With git: regenerate (fresh TIMESTAMP) when the identity changes OR the
+	@# header is missing; otherwise leave it (and its timestamp) untouched so
+	@# dependent objects are not recompiled.
+	@# Without git (distribution archive): keep an existing shipped version.h as
+	@# the authoritative source and never overwrite it; only synthesize a
+	@# git-unknown header if none was shipped.
+	@if [ "$(HAVE_GIT)" = "true" ]; then \
+		if [ "`cat $(VERSION_IDFILE) 2>/dev/null`" != "$(VERSION_ID)" ] || [ ! -f $(VERSION_HEADER) ]; then \
+			printf '%s' "$(VERSION_ID)" > $(VERSION_IDFILE); \
+			{ \
+				echo '/* Generated by common.mk -- do not edit, not committed. */'; \
+				echo '#ifndef UBERTOOTH_VERSION_H'; \
+				echo '#define UBERTOOTH_VERSION_H'; \
+				echo '#define GIT_REVISION "$(VERSION_NOW)"'; \
+				echo '#define COMPILE_BY "$(VERSION_BY)"'; \
+				echo '#define COMPILE_HOST "$(VERSION_HOST)"'; \
+				echo '#define TIMESTAMP "'"`date`"'"'; \
+				echo '#endif'; \
+			} > $(VERSION_HEADER); \
+			echo "  version.h -> $(VERSION_NOW) (built by $(VERSION_BY)@$(VERSION_HOST))"; \
+		fi; \
+	elif [ ! -f $(VERSION_HEADER) ]; then \
+		{ \
+			echo '/* Generated by common.mk (no git, no shipped version.h). */'; \
+			echo '#ifndef UBERTOOTH_VERSION_H'; \
+			echo '#define UBERTOOTH_VERSION_H'; \
+			echo '#define GIT_REVISION "git-unknown"'; \
+			echo '#define COMPILE_BY "$(VERSION_BY)"'; \
+			echo '#define COMPILE_HOST "$(VERSION_HOST)"'; \
+			echo '#define TIMESTAMP "'"`date`"'"'; \
+			echo '#endif'; \
+		} > $(VERSION_HEADER); \
+		echo "  version.h -> git-unknown (no git, no shipped header)"; \
+	else \
+		echo "  version.h: using shipped header (no git)"; \
+	fi
+
+# Make the header available on the include path and ensure it exists before any
+# compile (order-only: its own recipe handles change detection, so it must not
+# force rebuilds by mtime here). Objects that #include it pick up real changes
+# through the -MMD depfiles.
+CFLAGS += -I$(OBJDIR)
+$(OBJ): | $(VERSION_HEADER)
+#----------------------------------------------------------------------------
 
 # Change the build target to build a HEX file or a library.
 build: elf hex bin srec lss sym dfu
@@ -458,6 +567,8 @@ clean_list:
 	$(REMOVE) $(ASRC:%.S=$(OBJDIR)/%.lst)
 	$(REMOVE) $(ASRC:%.S=$(OBJDIR)/%.o)
 	$(REMOVE) $(ASRC:%.S=$(OBJDIR)/%.o.d)
+	$(REMOVE) $(DEPFILES)
+	$(REMOVE) $(VERSION_HEADER) $(VERSION_IDFILE)
 	$(REMOVE) *.o.d
 	$(REMOVE) $(SRC:.c=.s)
 	$(REMOVE) $(SRC:.c=.d)
@@ -485,3 +596,4 @@ gccversion build elf hex eep lss sym program clean \
 clean_list clean_binary doxygen
 
 include ../ctags.mk
+

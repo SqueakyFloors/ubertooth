@@ -48,6 +48,7 @@
 /* For git version strings */
 #include <string.h>
 
+#include "version.h"
 #include "ubertooth.h"
 #include "usbapi.h"
 #include "usbhw_lpc.h"

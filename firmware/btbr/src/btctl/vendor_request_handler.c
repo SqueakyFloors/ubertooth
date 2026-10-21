@@ -20,6 +20,7 @@
  * Boston, MA 02110-1301, USA.
  */
 #include <string.h>
+#include "version.h"
 #include <ubertooth.h>
 #include <ubertooth_interface.h>
 #include <ubtbr/cfg.h>
