@@ -150,9 +150,20 @@ if [ "$WITH_FIRMWARE" -eq 1 ]; then
 			info "Flashing bluetooth_rxtx to Ubertooth '$FLASH_DEVICE'"
 			"$DFU" -U "$FLASH_DEVICE" -d "$IMG" -r
 		else
-			info "Flashing bluetooth_rxtx to the default Ubertooth"
-			info "  (multiple devices attached? use --flash-device <index|serial|all>)"
-			"$DFU" -d "$IMG" -r
+			# No device specified: enumerate. Flash the sole device (by serial,
+			# so we report exactly what we hit); refuse if several are attached
+			# rather than silently picking one.
+			SERIALS=$("$UTIL" -s 2>&1 | sed -n 's/.*Serial No: \([0-9a-f]*\).*/\1/p')
+			N=$(printf '%s\n' "$SERIALS" | grep -c .)
+			if [ "$N" -eq 0 ]; then
+				die "no Ubertooth found to flash"
+			elif [ "$N" -eq 1 ]; then
+				info "Flashing bluetooth_rxtx to Ubertooth $SERIALS"
+				"$DFU" -U "$SERIALS" -d "$IMG" -r
+			else
+				die "multiple Ubertooths attached; choose one with --flash-device <serial>, or --flash-device all:
+$SERIALS"
+			fi
 		fi
 	fi
 fi
