@@ -117,7 +117,10 @@ ubertooth (2020-12-R1+modern1) unstable; urgency=low
     -include the -MMD dependency files so editing a header rebuilds the objects
     that include it (previously the .d files were generated and ignored, so
     header edits could silently ship stale firmware). Uses only plain shell, so
-    it works on GNU make 3.81 (macOS).
+    it works on GNU make 3.81 (macOS). A source archive with no .git (a
+    downloaded zip or release tarball) uses a shipped version.h as-is, or
+    falls back to git-unknown; tools/ubertooth-release.sh writes a version.h
+    carrying the release version into the archive.
   * ubertooth-util: mode-starting operations (-q, -x, -t, -n, -e) now stop any
     operation already running on the device first, like -I, so each starts from
     idle and modes no longer interfere or leak (channel/PA are preserved)
