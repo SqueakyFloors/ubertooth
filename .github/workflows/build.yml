@@ -103,6 +103,28 @@ jobs:
       # other tools' -h opens the device first and exits non-zero on a runner.
       run: ./ubertooth-tools/src/ubertooth-util -h
 
+    - name: Capture-to-stdout smoke test
+      working-directory: ${{github.workspace}}/host/build
+      shell: bash
+      # No device is present: option parsing still emits a complete 24-byte PCAP
+      # global header before device open fails. This verifies binary stdout is
+      # unpolluted on every Linux/macOS runner.
+      run: |
+        set +e
+        ./ubertooth-tools/src/ubertooth-btle -q - > le.pcap 2> le.err
+        ./ubertooth-tools/src/ubertooth-btle -c - > ppi.pcap 2> ppi.err
+        ./ubertooth-tools/src/ubertooth-btle -r - > ng.out 2> ng.err
+        set -e
+        python3 - <<'PY'
+        from pathlib import Path
+        for name in ('le.pcap', 'ppi.pcap'):
+            data = Path(name).read_bytes()
+            assert len(data) == 24, (name, len(data))
+            assert data[:4] == bytes.fromhex('4d3cb2a1'), (name, data[:4])
+        assert Path('ng.out').read_bytes() == b''
+        assert b'not supported' in Path('ng.err').read_bytes()
+        PY
+
     - name: Python import check
       shell: bash
       # Confirm the Python packages at least import (not a functional test).

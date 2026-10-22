@@ -23,6 +23,7 @@
 #include "ubertooth_callback.h"
 #include <ctype.h>
 #include <err.h>
+#include <fcntl.h>
 #include <getopt.h>
 #include <string.h>
 #include <unistd.h>
@@ -102,6 +103,57 @@ int convert_mac_address(char *s, uint8_t *o, uint8_t *mask_out) {
 	}
 
 	return 1;
+}
+
+/* Accept "-" as an alias for binary PCAP on stdout. Save the original
+ * stdout descriptor for libbtbb to open via /dev/fd (portable to macOS and
+ * Linux), then redirect regular printf output to /dev/null so it cannot corrupt
+ * the capture stream. /proc/self/fd is a Linux fallback. */
+static char *handle_special_filename(const char *filename, int *saved_fd)
+{
+	char path[64];
+	int null_fd;
+
+	*saved_fd = -1;
+	if (strcmp(filename, "-") != 0)
+		return strdup(filename);
+
+	if (isatty(STDOUT_FILENO)) {
+		fprintf(stderr, "Error: stdout is a tty, refusing binary capture\n");
+		return NULL;
+	}
+
+	fflush(stdout);
+	*saved_fd = dup(STDOUT_FILENO);
+	if (*saved_fd < 0) {
+		perror("dup(stdout)");
+		return NULL;
+	}
+
+	null_fd = open("/dev/null", O_WRONLY);
+	if (null_fd < 0 || dup2(null_fd, STDOUT_FILENO) < 0) {
+		perror("redirect stdout");
+		if (null_fd >= 0)
+			close(null_fd);
+		close(*saved_fd);
+		*saved_fd = -1;
+		return NULL;
+	}
+	if (null_fd != STDOUT_FILENO)
+		close(null_fd);
+
+	snprintf(path, sizeof(path), "/dev/fd/%d", *saved_fd);
+	if (access(path, W_OK) != 0) {
+		snprintf(path, sizeof(path), "/proc/self/fd/%d", *saved_fd);
+		if (access(path, W_OK) != 0) {
+			fprintf(stderr, "Error: no writable descriptor filesystem for stdout capture\n");
+			close(*saved_fd);
+			*saved_fd = -1;
+			return NULL;
+		}
+	}
+
+	return strdup(path);
 }
 
 static void usage(void)
@@ -188,6 +240,10 @@ int main(int argc, char *argv[])
 			ubertooth_device = optarg;
 			break;
 		case 'r':
+			if (strcmp(optarg, "-") == 0) {
+				fprintf(stderr, "Error: PCAPNG capture to stdout is not supported; use -q - or -c -\n");
+				return 1;
+			}
 			if (!ut->h_pcapng_le) {
 				if (lell_pcapng_create_file(optarg, "Ubertooth", &ut->h_pcapng_le)) {
 					err(1, "lell_pcapng_create_file: ");
@@ -199,9 +255,19 @@ int main(int argc, char *argv[])
 			break;
 		case 'q':
 			if (!ut->h_pcap_le) {
-				if (lell_pcap_create_file(optarg, &ut->h_pcap_le)) {
-					err(1, "lell_pcap_create_file: ");
+				int saved_fd;
+				char *file = handle_special_filename(optarg, &saved_fd);
+				if (!file) {
+					if (saved_fd >= 0)
+						close(saved_fd);
+					return 1;
 				}
+				int create_result = lell_pcap_create_file(file, &ut->h_pcap_le);
+				if (saved_fd >= 0)
+					close(saved_fd);
+				free(file);
+				if (create_result)
+					err(1, "lell_pcap_create_file: ");
 			}
 			else {
 				printf("Ignoring extra capture file: %s\n", optarg);
@@ -209,9 +275,19 @@ int main(int argc, char *argv[])
 			break;
 		case 'c':
 			if (!ut->h_pcap_le) {
-				if (lell_pcap_ppi_create_file(optarg, 0, &ut->h_pcap_le)) {
-					err(1, "lell_pcap_ppi_create_file: ");
+				int saved_fd;
+				char *file = handle_special_filename(optarg, &saved_fd);
+				if (!file) {
+					if (saved_fd >= 0)
+						close(saved_fd);
+					return 1;
 				}
+				int create_result = lell_pcap_ppi_create_file(file, 0, &ut->h_pcap_le);
+				if (saved_fd >= 0)
+					close(saved_fd);
+				free(file);
+				if (create_result)
+					err(1, "lell_pcap_ppi_create_file: ");
 			}
 			else {
 				printf("Ignoring extra capture file: %s\n", optarg);

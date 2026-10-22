@@ -187,14 +187,27 @@ Logging:
 .RS
 .IP \(bu 2
 \fB\fC\-r <output.pcapng>\fR :
-Log to PcapNG (preferred)
+Log to PcapNG (preferred). PcapNG output cannot be streamed to stdout because
+the writer must seek while finalizing the file; \fB\fC\-r \-\fR is rejected.
 .IP \(bu 2
-\fB\fC\-q <output.pcap>\fR :
-Log to PCAP with \fB\fCDLT_BLUETOOTH_LE_LL_WITH_PHDR\fR
+\fB\fC\-q <output.pcap|\->\fR :
+Log to PCAP with \fB\fCDLT_BLUETOOTH_LE_LL_WITH_PHDR\fR. Use \fB\fC\-\fR to stream
+binary PCAP to stdout.
 .IP \(bu 2
-\fB\fC\-c <output.pcap>\fR :
-Log to PCAP with PPI (for compatibility with 
-.BR crackle (1))
+\fB\fC\-c <output.pcap|\->\fR :
+Log to PCAP with PPI (for compatibility with
+.BR crackle (1)).
+Use \fB\fC\-\fR to stream binary PCAP to stdout, for example:
+.PP
+.RS
+.nf
+ubertooth\-btle \-f \-c \- | wireshark \-k \-i \-
+.fi
+.RE
+.PP
+When stdout capture is selected, regular packet/status text is suppressed so
+it cannot corrupt the binary stream; errors remain on stderr. The tool refuses
+to write binary capture data directly to an interactive terminal.
 .RE
 .PP
 Miscellaneous:
