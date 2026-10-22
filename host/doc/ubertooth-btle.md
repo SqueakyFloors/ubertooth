@@ -135,11 +135,20 @@ Filtering:
 Logging:
 
  - `-r <output.pcapng>` :
-   Log to PcapNG (preferred)
- - `-q <output.pcap>` :
-   Log to PCAP with `DLT_BLUETOOTH_LE_LL_WITH_PHDR`
- - `-c <output.pcap>` :
-   Log to PCAP with PPI (for compatibility with crackle(1))
+   Log to PcapNG (preferred). PcapNG output cannot be streamed to stdout because
+   the writer must seek while finalizing the file; `-r -` is rejected.
+ - `-q <output.pcap|->` :
+   Log to PCAP with `DLT_BLUETOOTH_LE_LL_WITH_PHDR`. Use `-` to stream binary
+   PCAP to stdout.
+ - `-c <output.pcap|->` :
+   Log to PCAP with PPI (for compatibility with crackle(1)). Use `-` to stream
+   binary PCAP to stdout, for example:
+
+       ubertooth-btle -f -c - | wireshark -k -i -
+
+   When stdout capture is selected, regular packet/status text is suppressed so
+   it cannot corrupt the binary stream; errors remain on stderr. The tool
+   refuses to write binary capture data directly to an interactive terminal.
 
 Miscellaneous:
 

@@ -1,6 +1,13 @@
 ubertooth (2020-12-R1+modern1) unstable; urgency=low
 
   New features:
+  * ubertooth-btle: `-q -` and `-c -` stream binary PCAP to stdout for piping
+    into Wireshark, sshdump, or harness parsers. Regular text is suppressed from
+    the binary stream, errors stay on stderr, terminal output is refused, and
+    unsupported PCAPNG `-r -` fails without writing to stdout. Works on Linux
+    and macOS via /dev/fd with a Linux procfs fallback.
+    https://github.com/SqueakyFloors/ubertooth/issues/7
+    https://github.com/greatscottgadgets/ubertooth/pull/362
   * ubertooth-util -s and -v: with multiple devices and no -U, list every
     device as "<index>: <serial>" / "<index>: <firmware version>" (in
     enumeration order; the index is usable with -U) instead of erroring;

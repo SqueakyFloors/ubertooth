@@ -40,7 +40,7 @@ Ubertooth ships a set of host command-line tools. Each links to its manual page.
 ### Bluetooth Low Energy (BLE)
 | Tool | What it does | Needs |
 |---|---|---|
-| [ubertooth-btle](host/doc/ubertooth-btle.md) | Passive BLE monitoring; follow connections / capture advertising (`-f`) | ambient BLE |
+| [ubertooth-btle](host/doc/ubertooth-btle.md) | Passive BLE monitoring; follow connections (`-f`), capture advertising (`-n`), or stream PCAP to stdout (`-q -`/`-c -`) | ambient BLE |
 
 ### Classic Bluetooth (BR/EDR)
 | Tool | What it does | Needs |
