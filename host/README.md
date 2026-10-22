@@ -5,13 +5,14 @@ This is host code for use with bluetooth_rxtx firmware.
 
 Required Software
 -----------------
-These tools link to libbtbb (https://github.com/greatscottgadgets/libbtbb).
-The versions tend to be matched, git should always work with git and all
-releases should come in matched pairs (until the interface stabilizes).
-Libbtbb can be retrieved from git and built as follows:
+These tools link to the paired libbtbb fork
+(https://github.com/SqueakyFloors/libbtbb). The versions must be matched: host
+API 1.08 requires libbtbb 1.1's explicit-length LE decoder. Until the companion
+change is merged upstream, build the `fix/le-long-packets` branch:
 ```
-$ git clone https://github.com/greatscottgadgets/libbtbb.git
+$ git clone https://github.com/SqueakyFloors/libbtbb.git
 $ cd libbtbb/
+$ git checkout fix/le-long-packets
 $ mkdir build
 $ cd build
 $ cmake ..

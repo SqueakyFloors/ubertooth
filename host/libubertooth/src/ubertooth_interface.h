@@ -25,9 +25,15 @@
 #include <stdint.h>
 
 // increment on every API change
-#define UBERTOOTH_API_VERSION 0x0107
+#define UBERTOOTH_API_VERSION 0x0108
 
 #define DMA_SIZE 50
+
+/* Maximum bytes forwarded for one LE packet: AA (4) + header (2) +
+ * 8-bit on-air length field (up to 255) + CRC (3). Valid DLE data payloads
+ * currently top out at 251, but the transport preserves the full captured
+ * field for future/extended PDU handling and malformed-packet analysis. */
+#define LE_MAX_USB_PACKET_SIZE 264
 
 #define NUM_BREDR_CHANNELS 79
 
@@ -114,6 +120,7 @@ enum ubertooth_usb_commands {
 	UBERTOOTH_LE_SET_ADV_DATA    = 71,
 	UBERTOOTH_RFCAT_SUBCMD       = 72,
 	UBERTOOTH_XMAS               = 73,
+	UBERTOOTH_SET_LE_FRAG        = 74,
 };
 
 enum rfcat24_subcommands {
@@ -144,8 +151,16 @@ enum usb_pkt_types {
 	KEEP_ALIVE = 3,
 	SPECAN     = 4,
 	LE_PROMISC = 5,
-	EGO_PACKET = 6,
+	EGO_PACKET      = 6,
+	LE_PACKET_START = 7, /* first 50-byte data chunk; reserved[] = length/index */
+	LE_PACKET_CONT  = 8, /* ordered continuation with incrementing index */
 };
+
+/* Fragment metadata in usb_pkt_rx.reserved: reserved[0] is total length bits
+ * 7..0; reserved[1] bit 0 is total length bit 8 and bits 7..1 are the fragment
+ * index (0..5 for the current 264-byte maximum). */
+#define LE_FRAG_TOTAL_HIGH_MASK 0x01
+#define LE_FRAG_INDEX_SHIFT 1
 
 enum hop_mode {
 	HOP_NONE      = 0,

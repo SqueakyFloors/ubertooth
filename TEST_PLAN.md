@@ -40,7 +40,7 @@ Hardware required: Ubertooth One, Linux machine (Ubuntu 22.04+ preferred), a BLE
 
 ### 2a. Firmware version check
 - [ ] Run `ubertooth-util -v`
-- [ ] Confirm: returns `Firmware version: 2020-12-R1 (API:1.07)`
+- [ ] Confirm: returns the intended build/release and `(API:1.08)`
 - [ ] Confirm: no `usb_claim_interface` errors
 - [ ] Confirm: no timeout errors
 
@@ -79,6 +79,18 @@ Hardware required: Ubertooth One, Linux machine (Ubuntu 22.04+ preferred), a BLE
 - [ ] Run `ubertooth-btle -f -c capture.pcap` for 10 seconds
 - [ ] Confirm: `capture.pcap` file is created and non-empty
 - [ ] Open in Wireshark and confirm valid BLE packets visible
+
+### 3d. Data Length Extension packet capture (API 1.08 / issue #4)
+*Requires: a DLE-capable BLE central and peripheral (recommended: two scripted
+nRF52840 DKs) plus one Ubertooth.*
+- [ ] Have the endpoints negotiate DLE and send deterministic 100-byte and
+      251-byte data-channel payloads
+- [ ] Run `ubertooth-btle -f -r long-packets.pcapng` before establishing the
+      connection, so the CONNECT_IND and subsequent data-channel traffic are
+      captured
+- [ ] Confirm: PCAPNG contains complete packets over 50 bytes, including the
+      expected payload pattern and CRC (no truncation)
+- [ ] Confirm: short/legacy advertising packets remain unchanged
 
 ---
 

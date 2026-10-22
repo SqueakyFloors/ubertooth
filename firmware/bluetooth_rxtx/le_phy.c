@@ -54,6 +54,15 @@ extern le_state_t le;
 extern volatile uint16_t le_adv_channel;
 extern volatile int cancel_follow;
 
+/* Long-LE USB fragmentation is opt-in. New host tools enable it after the API
+ * version check; default-off keeps new firmware safe with older hosts. */
+static uint8_t le_usb_frag_enabled = 0;
+
+void le_set_usb_frag(uint8_t enabled)
+{
+	le_usb_frag_enabled = enabled ? 1 : 0;
+}
+
 ////////////////////
 // buffers
 
@@ -744,32 +753,75 @@ static uint8_t dewhiten_length(unsigned channel, uint8_t data) {
 	return out;
 }
 
-// enqueue a packet for USB
-// FIXME this is cribbed from existing code, but does not have enough
-// room for larger LE packets
-static int usb_enqueue_le(le_rx_t *packet) {
-	usb_pkt_rx* f = usb_enqueue();
-
-	// fail if queue is full
-	if (f == NULL) {
-		return 0;
-	}
-
-	f->pkt_type = LE_PACKET;
-
+static void usb_fill_le_metadata(usb_pkt_rx *f, const le_rx_t *packet,
+                                 uint8_t pkt_type)
+{
+	f->pkt_type = pkt_type;
+	f->status = 0;
+	f->channel = (uint8_t)((packet->channel - 2402) & 0xff);
 	f->clkn_high = 0;
 	f->clk100ns = packet->timestamp;
-
-	f->channel = (uint8_t)((packet->channel - 2402) & 0xff);
 	f->rssi_avg = packet->rssi_sum / packet->size;
 	f->rssi_min = packet->rssi_min;
 	f->rssi_max = packet->rssi_max;
 	f->rssi_count = 0;
+}
 
-	memcpy(f->data, &packet->access_address, 4);
-	memcpy(f->data+4, packet->data, DMA_SIZE-4);
+// enqueue a packet for USB
+static int usb_enqueue_le(le_rx_t *packet)
+{
+	uint16_t total = 4 + packet->size; /* access address + PDU/header/CRC */
+	usb_pkt_rx *f;
 
-	f->status = 0;
+	if (total > LE_MAX_USB_PACKET_SIZE)
+		return 0;
+
+	/* Legacy single-record format remains the default and handles every short
+	 * packet. New hosts opt in to fragmentation for packets over 50 bytes. */
+	if (!le_usb_frag_enabled || total <= DMA_SIZE) {
+		unsigned packet_bytes = total > DMA_SIZE ? DMA_SIZE : total;
+		f = usb_enqueue();
+		if (f == NULL)
+			return 0;
+		usb_fill_le_metadata(f, packet, LE_PACKET);
+		f->reserved[0] = 0;
+		f->reserved[1] = 0;
+		memset(f->data, 0, DMA_SIZE);
+		memcpy(f->data, &packet->access_address,
+		       packet_bytes < 4 ? packet_bytes : 4);
+		if (packet_bytes > 4)
+			memcpy(f->data + 4, packet->data, packet_bytes - 4);
+		return 1;
+	}
+
+	/* Each fragment is still one 64-byte USB record carrying a 50-byte data
+	 * chunk. The first and continuation record types identify the chain;
+	 * reserved[0] and bit 0 of reserved[1] carry the 9-bit total length, while
+	 * reserved[1] bits 7..1 carry an incrementing fragment index. */
+	unsigned fragments = (total + DMA_SIZE - 1) / DMA_SIZE;
+	if (usb_queue_space() < fragments)
+		return 0; /* all-or-nothing: never enqueue a partial packet */
+
+	uint8_t full[LE_MAX_USB_PACKET_SIZE];
+	memcpy(full, &packet->access_address, 4);
+	memcpy(full + 4, packet->data, packet->size);
+
+	unsigned offset;
+	for (offset = 0; offset < total; offset += DMA_SIZE) {
+		unsigned chunk = total - offset;
+		if (chunk > DMA_SIZE)
+			chunk = DMA_SIZE;
+		f = usb_enqueue();
+		if (f == NULL)
+			return 0; /* queue-space check above should make this unreachable */
+		usb_fill_le_metadata(f, packet,
+			(offset == 0) ? LE_PACKET_START : LE_PACKET_CONT);
+		f->reserved[0] = total & 0xff;
+		f->reserved[1] = ((total >> 8) & LE_FRAG_TOTAL_HIGH_MASK) |
+			((offset / DMA_SIZE) << LE_FRAG_INDEX_SHIFT);
+		memset(f->data, 0, DMA_SIZE);
+		memcpy(f->data, full + offset, chunk);
+	}
 
 	return 1;
 }
@@ -1020,6 +1072,7 @@ void le_phy_main(void) {
 	timer1_stop();
 
 	// reset state
+	le_usb_frag_enabled = 0;
 	RXLED_CLR;
 	TXLED_CLR;
 	USRLED_CLR;

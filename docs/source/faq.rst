@@ -59,4 +59,8 @@ The following may be possible:
 
 **Question: What is the max capture size of Bluetooth Low Energy (BLE) packets?**
 
-**Answer:** 50 bytes. Longer BLE packets are truncated to 50 bytes by the Ubertooth firmware. 
+**Answer:** With firmware/host API 1.08 and paired libbtbb 1.1, valid BLE
+Data Length Extension packets are captured through the 251-byte data payload
+maximum (260 bytes including access address, header, and CRC). The transport can
+preserve up to 264 captured bytes for malformed/future 8-bit length values.
+Older firmware/host combinations retain the legacy 50-byte limit.

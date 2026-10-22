@@ -31,7 +31,7 @@ Legend:
 | **GCC (host)** | TBD | per-runner (recent) | — | 🎯 not yet characterized |
 | **arm-none-eabi-gcc (firmware)** | TBD | U20 (~9.x) … 15.3 (CI); 15.3 on hardware | — | 🎯 floor not pinned; builds + runs on old+new |
 | **libusb** | 1.0.x | 1.0.30 (local) | pre-1.0 | 🎯 exact floor not pinned |
-| **libbtbb** | 2020-12-R1 | current master (C lib) | older than 2020-12-R1 | 🎯 |
+| **libbtbb** | 1.1 | SqueakyFloors `fix/le-long-packets` (`ee48492`) | ≤ 1.0 lacks long-LE decoder API | ✅ paired macOS + Ubuntu builds/tests |
 
 ---
 

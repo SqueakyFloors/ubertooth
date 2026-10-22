@@ -9,9 +9,10 @@ CC      ?= cc
 CFLAGS  ?= -O2 -Wall -Wextra -std=gnu99 -g
 # Headers under test live in the firmware image dir; tests include by name.
 FW_RXTX := ../bluetooth_rxtx
-CPPFLAGS += -I. -I$(FW_RXTX)
+HOST_LIB := ../../host/libubertooth/src
+CPPFLAGS += -I. -I$(FW_RXTX) -I$(HOST_LIB)
 
-TESTS   := test_rssi
+TESTS   := test_rssi test_le_frag
 BINDIR  := bin
 
 .PHONY: all test clean
@@ -20,6 +21,9 @@ all: test
 # Each test binary links its test driver with the firmware source under test.
 $(BINDIR)/test_rssi: test_rssi.c minunit.h $(FW_RXTX)/ubertooth_rssi.c $(FW_RXTX)/ubertooth_rssi.h | $(BINDIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ test_rssi.c $(FW_RXTX)/ubertooth_rssi.c
+
+$(BINDIR)/test_le_frag: test_le_frag.c minunit.h $(HOST_LIB)/ubertooth_le_frag.c $(HOST_LIB)/ubertooth_le_frag.h $(HOST_LIB)/ubertooth_interface.h | $(BINDIR)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ test_le_frag.c $(HOST_LIB)/ubertooth_le_frag.c
 
 $(BINDIR):
 	mkdir -p $(BINDIR)

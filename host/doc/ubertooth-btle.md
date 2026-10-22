@@ -68,6 +68,12 @@ variety of pseudoheaders. The recommended logging format is PcapNG
 (`-r`) or PCAP with LE Pseudoheader (`-q`). For compatibility with
 crackle (see [USING WITH CRACKLE][]), use PCAP with PPI (`-c`).
 
+With firmware/host API 1.08 and the paired libbtbb 1.1, data-channel
+packets using Bluetooth LE Data Length Extension are preserved through the
+251-byte payload maximum. Long packets are split across fixed-size USB records
+and reassembled before decoding or writing PCAP/PCAPNG. Older API combinations
+retain the legacy 50-byte capture limit.
+
 Interfering with connections is a feature for causing intentional
 interference with newly established or long-lived connections. When this
 attack succeeds, the BLE connection between the central and peripheral

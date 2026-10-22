@@ -624,6 +624,7 @@ ubertooth_t* ubertooth_init()
 	ut->start_clk100ns = 0;
 	ut->last_clk100ns = 0;
 	ut->clk100ns_upper = 0;
+	memset(&ut->le_reassembly, 0, sizeof(ut->le_reassembly));
 
 	ut->h_pcap_bredr = NULL;
 	ut->h_pcap_le = NULL;

@@ -306,6 +306,10 @@ void cb_btle(ubertooth_t* ut, void* args)
 	int i;
 	usb_pkt_rx usb = fifo_pop(ut->fifo);
 	usb_pkt_rx* rx = &usb;
+	const uint8_t *le_data;
+	uint16_t le_data_len;
+	const usb_pkt_rx *le_metadata;
+	int reassembly_result;
 	// u32 access_address = 0; // Build warning
 
 	static u32 prev_ts = 0;
@@ -341,16 +345,11 @@ void cb_btle(ubertooth_t* ut, void* args)
 		return;
 	}
 
-	uint64_t nowns = now_ns_from_clk100ns( ut, rx );
-
-	/* Sanity check */
-	if (rx->channel > (NUM_BREDR_CHANNELS-1))
-		return;
-
 	if (infile == NULL)
 		systime = time(NULL);
 
-	/* Dump to sumpfile if specified */
+	/* Preserve the fixed-record dump format: fragmented packets are stored as
+	 * consecutive 64-byte records and replay through this same reassembler. */
 	if (dumpfile) {
 		uint32_t systime_be = htobe32(systime);
 		fwrite(&systime_be, sizeof(systime_be), 1, dumpfile);
@@ -358,7 +357,21 @@ void cb_btle(ubertooth_t* ut, void* args)
 		fflush(dumpfile);
 	}
 
-	lell_allocate_and_decode(rx->data, rx->channel + 2402, rx->clk100ns, &pkt);
+	reassembly_result = le_usb_reassemble(&ut->le_reassembly, rx,
+	                                      &le_data, &le_data_len,
+	                                      &le_metadata);
+	if (reassembly_result != LE_REASSEMBLY_COMPLETE)
+		return; /* wait for continuations, or discard an invalid chain */
+	rx = (usb_pkt_rx *)le_metadata;
+
+	uint64_t nowns = now_ns_from_clk100ns(ut, rx);
+
+	/* Sanity check */
+	if (rx->channel > (NUM_BREDR_CHANNELS-1))
+		return;
+
+	lell_allocate_and_decode_n(le_data, le_data_len,
+	                           rx->channel + 2402, rx->clk100ns, &pkt);
 
 	/* do nothing further if filtered due to bad AA */
 	if (opts &&
@@ -402,11 +415,12 @@ void cb_btle(ubertooth_t* ut, void* args)
 	       systime, rx->channel + 2402, lell_get_access_address(pkt),
 	       ts_diff / 10000.0, rx->rssi_min - 54);
 
-	int len = (rx->data[5] & 0x3f) + 6 + 3;
-	if (len > 50) len = 50;
+	int len = (int)lell_get_payload_length(pkt) + 4 + 2 + 3;
+	if (len > le_data_len)
+		len = le_data_len;
 
 	for (i = 4; i < len; ++i)
-		printf("%02x ", rx->data[i]);
+		printf("%02x ", le_data[i]);
 	printf("\n");
 
 	lell_print(pkt);

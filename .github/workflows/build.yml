@@ -38,7 +38,8 @@ jobs:
     - uses: actions/checkout@v4
       name: Fetch libbtbb
       with:
-        repository: 'greatscottgadgets/libbtbb'
+        repository: 'SqueakyFloors/libbtbb'
+        ref: 'fix/le-long-packets'
         path: 'libbtbb'
 
     - name: Install dependencies (macOS)
@@ -197,7 +198,8 @@ jobs:
     - uses: actions/checkout@v4
       name: Fetch libbtbb
       with:
-        repository: 'greatscottgadgets/libbtbb'
+        repository: 'SqueakyFloors/libbtbb'
+        ref: 'fix/le-long-packets'
         path: 'libbtbb'
 
     - name: (libbtbb) Build and install
@@ -266,7 +268,8 @@ jobs:
     - uses: actions/checkout@v4
       name: Fetch libbtbb
       with:
-        repository: 'greatscottgadgets/libbtbb'
+        repository: 'SqueakyFloors/libbtbb'
+        ref: 'fix/le-long-packets'
         path: 'libbtbb'
 
     - name: (libbtbb) Build and install

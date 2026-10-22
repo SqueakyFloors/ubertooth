@@ -59,6 +59,7 @@ int ubertooth_usb_init(VendorRequestHandler *vendor_req_handler);
 void usb_queue_init();
 usb_pkt_rx *usb_enqueue();
 usb_pkt_rx *dequeue();
+unsigned usb_queue_space(void);
 void handle_usb(u32 clkn);
 
 #endif /* __UBERTOOTH_USB_H */

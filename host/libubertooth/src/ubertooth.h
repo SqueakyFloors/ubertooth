@@ -24,6 +24,7 @@
 
 #include "ubertooth_control.h"
 #include "ubertooth_fifo.h"
+#include "ubertooth_le_frag.h"
 #include <btbb.h>
 
 /* specan output types
@@ -53,6 +54,8 @@ typedef struct {
 	uint32_t start_clk100ns;
 	uint64_t last_clk100ns;
 	uint64_t clk100ns_upper;
+
+	le_usb_reassembly le_reassembly;
 
 	btbb_pcap_handle* h_pcap_bredr;
 	lell_pcap_handle* h_pcap_le;

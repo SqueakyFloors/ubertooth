@@ -119,6 +119,14 @@ ubertooth (2020-12-R1+modern1) unstable; urgency=low
     previously needed a physical replug.
     https://github.com/SqueakyFloors/ubertooth/issues/29
   Bug fixes (this fork):
+  * firmware/host: remove the 50-byte BLE capture limit. API 1.08 optionally
+    fragments long LE packets across ordered 64-byte USB records and reassembles
+    them per device before decoding; legacy short records and raw dump/replay
+    remain compatible. With paired libbtbb 1.1, Data Length Extension payloads
+    are preserved through 251 bytes in console, PCAP, and PCAPNG output. Covered
+    by unit/integration fixtures and macOS/Ubuntu/ARM builds; over-the-air DLE
+    hardware validation is still pending.
+    https://github.com/SqueakyFloors/ubertooth/issues/4
   * firmware: fix an RSSI rounding bias for negative dBm. The averaging used
     `(x + 128) / 256` (and `(sum + 128) / count`), which only rounds to nearest
     for non-negative values -- C integer division truncates toward zero, so for

@@ -26,7 +26,10 @@
 #                     than one device is attached.
 #   --venv <path>     create/use a Python venv at <path> for the Python tools
 #                     and point the build at its interpreter
-#   --libbtbb-ref <r> git ref/tag of libbtbb to build (default: master)
+#   --libbtbb-repo <url>
+#                     libbtbb repository to build (default: SqueakyFloors fork)
+#   --libbtbb-ref <r> git ref/tag of libbtbb to build
+#                     (default: fix/le-long-packets while #4 is under review)
 #   --no-sudo         print the commands that need root instead of running them
 #                     (dry-run for the privileged steps)
 #   -h, --help        show this help
@@ -39,7 +42,8 @@ WITH_FIRMWARE=0
 FLASH=0
 FLASH_DEVICE=""
 VENV=""
-LIBBTBB_REF="master"
+LIBBTBB_REPO="https://github.com/SqueakyFloors/libbtbb.git"
+LIBBTBB_REF="fix/le-long-packets"
 NO_SUDO=0
 
 die() { echo "error: $*" >&2; exit 1; }
@@ -79,6 +83,7 @@ while [ $# -gt 0 ]; do
 		--flash) FLASH=1; WITH_FIRMWARE=1 ;;
 		--flash-device) shift; FLASH_DEVICE="${1:-}"; FLASH=1; WITH_FIRMWARE=1; [ -n "$FLASH_DEVICE" ] || die "--flash-device needs an index, serial, or 'all'" ;;
 		--venv) shift; VENV="${1:-}"; [ -n "$VENV" ] || die "--venv needs a path" ;;
+		--libbtbb-repo) shift; LIBBTBB_REPO="${1:-}"; [ -n "$LIBBTBB_REPO" ] || die "--libbtbb-repo needs a URL" ;;
 		--libbtbb-ref) shift; LIBBTBB_REF="${1:-}"; [ -n "$LIBBTBB_REF" ] || die "--libbtbb-ref needs a value" ;;
 		--no-sudo) NO_SUDO=1 ;;
 		-h|--help) sed -n '3,/^# Copyright/p' "$0" | sed '/^# Copyright/d; s/^#\{1,\} \{0,1\}//; s/^#$//'; exit 0 ;;
@@ -206,8 +211,8 @@ else
 fi
 
 # --- 5. libbtbb -----------------------------------------------------------
-info "Building libbtbb ($LIBBTBB_REF)"
-git clone --quiet https://github.com/greatscottgadgets/libbtbb.git "$WORK/libbtbb"
+info "Building libbtbb ($LIBBTBB_REPO @ $LIBBTBB_REF)"
+git clone --quiet "$LIBBTBB_REPO" "$WORK/libbtbb"
 git -C "$WORK/libbtbb" checkout --quiet "$LIBBTBB_REF"
 cmake -S "$WORK/libbtbb" -B "$WORK/libbtbb/build" \
 	-DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DENABLE_PYTHON=OFF >/dev/null

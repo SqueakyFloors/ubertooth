@@ -119,6 +119,7 @@ int le_jam_count = 0;
 
 /* set LE access address */
 static void le_set_access_address(u32 aa);
+void le_set_usb_frag(u8 enabled);
 
 typedef int (*data_cb_t)(char *);
 data_cb_t data_cb = NULL;
@@ -729,6 +730,11 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params, uin
 
 	case UBERTOOTH_XMAS:
 		requested_mode = MODE_XMAS;
+		break;
+
+	case UBERTOOTH_SET_LE_FRAG:
+		le_set_usb_frag(request_params[0] != 0);
+		*data_len = 0;
 		break;
 
 	default:

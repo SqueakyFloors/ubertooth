@@ -15,7 +15,7 @@ dependency into a hard error (recommended for CI and release builds).
 | C/C++ compiler | build | `gcc g++` | `gcc gcc-c++` | Xcode CLT |
 | pkg-config | dep discovery | `pkg-config` | `pkgconf-pkg-config` | `pkg-config` |
 | libusb-1.0 | USB device access | `libusb-1.0-0-dev` | `libusb1-devel` | `libusb` |
-| libbtbb | Bluetooth baseband decode | build from source (match release) | source | source |
+| libbtbb ≥ 1.1 | Bluetooth baseband/long-LE decode | build [SqueakyFloors/libbtbb `fix/le-long-packets`](https://github.com/SqueakyFloors/libbtbb/tree/fix/le-long-packets) | same | same |
 
 Missing a **required** dependency fails the build.
 

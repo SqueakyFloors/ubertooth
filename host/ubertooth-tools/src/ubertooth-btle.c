@@ -313,6 +313,14 @@ int main(int argc, char *argv[])
 	if (do_follow || do_no_follow || do_promisc) {
 		usb_pkt_rx rx;
 
+		/* API 1.08+: opt in so long LE packets are split across ordered
+		 * 64-byte records. Firmware defaults this off for old-host safety. */
+		r = cmd_set_le_frag(ut->devh, 1);
+		if (r < 0) {
+			fprintf(stderr, "Unable to enable long LE packet transport\n");
+			return 1;
+		}
+
 		r = cmd_set_jam_mode(ut->devh, jam_mode);
 		if (jam_mode != JAM_NONE && r != 0) {
 			printf("Jamming not supported\n");

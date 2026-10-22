@@ -27,12 +27,14 @@ set(c_sources ${CMAKE_CURRENT_SOURCE_DIR}/ubertooth.c
               ${CMAKE_CURRENT_SOURCE_DIR}/ubertooth_callback.c
               ${CMAKE_CURRENT_SOURCE_DIR}/ubertooth_control.c
               ${CMAKE_CURRENT_SOURCE_DIR}/ubertooth_fifo.c
+              ${CMAKE_CURRENT_SOURCE_DIR}/ubertooth_le_frag.c
 			  CACHE INTERNAL "List of C sources")
 set(c_headers ${CMAKE_CURRENT_SOURCE_DIR}/ubertooth.h
               ${CMAKE_CURRENT_SOURCE_DIR}/ubertooth_callback.h
               ${CMAKE_CURRENT_SOURCE_DIR}/ubertooth_control.h
               ${CMAKE_CURRENT_SOURCE_DIR}/ubertooth_fifo.h
 			  ${CMAKE_CURRENT_SOURCE_DIR}/ubertooth_interface.h
+			  ${CMAKE_CURRENT_SOURCE_DIR}/ubertooth_le_frag.h
 			  CACHE INTERNAL "List of C headers")
 
 # Include and link to libbtbb and libusb-1.0
