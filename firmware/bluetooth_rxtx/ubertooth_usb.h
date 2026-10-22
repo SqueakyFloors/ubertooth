@@ -105,6 +105,7 @@ int ubertooth_usb_init(VendorRequestHandler *vendor_req_handler);
 void usb_queue_init();
 usb_pkt_rx *usb_enqueue();
 usb_pkt_rx *dequeue();
+unsigned usb_queue_space(void);
 void handle_usb(u32 clkn);
 
 /* The control path on its own, for a mode whose host reads packets with

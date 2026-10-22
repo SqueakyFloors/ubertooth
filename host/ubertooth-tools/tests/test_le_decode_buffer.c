@@ -1,19 +1,18 @@
 /*
  * What the low-energy callback hands the decoder, libbtbb's
- * lell_allocate_and_decode().
+ * lell_allocate_and_decode_n().
  *
- * The decoder takes a bare pointer with no length and always copies 64 bytes
- * out of it. A received packet holds only 50. The callback used to hand it
- * the packet's own array, so it copied 14 bytes of whatever followed the
- * packet in memory. The decoder reads those 14 bytes for the tail of the
- * payload and for the CRC, so a PDU whose length field claimed more than was
- * captured showed that leftover memory as packet data.
+ * The decoder is told how many bytes were captured and reads no further than
+ * that. It has to be told the truth. An earlier decoder took a bare pointer
+ * and always copied 64 bytes out of it, while a received record holds only
+ * 50, so a PDU whose length field claimed more than was captured showed 14
+ * bytes of whatever followed the packet in memory as packet data.
  *
  * This test runs the real cb_btle(), by compiling ubertooth_callback.c into
  * itself, with the ring buffer and the decoder replaced by the fakes below.
- * The fake decoder copies the same 64 bytes the real one does, so a caller
- * that hands it a shorter buffer fails here in a plain build as well as under
- * a sanitizer.
+ * The fake decoder copies exactly the number of bytes it is told, so a caller
+ * that overstates the length fails here in a plain build as well as under a
+ * sanitizer.
  */
 #include <fcntl.h>
 #include <stdint.h>
@@ -31,35 +30,44 @@
 
 /* ---- fakes -------------------------------------------------------------- */
 
-/* The one packet the faked capture delivers, and a copy of the bytes the
- * decoder was handed. */
-static usb_pkt_rx next_packet;
-static uint8_t handed[LE_SYM_LEN];
+/* The records the faked capture delivers, in order, and what the decoder was
+ * handed on the last call. */
+static usb_pkt_rx next_packets[8];
+static unsigned next_count;
+static unsigned next_index;
+static uint8_t handed[LE_MAX_USB_PACKET_SIZE];
+static size_t handed_len;
 static int decodes;
 
 fifo_t* fifo_init(void) { return (fifo_t*)malloc(1); }
 void fifo_inc_write_ptr(fifo_t* fifo) { (void)fifo; }
 void fifo_push(fifo_t* fifo, const usb_pkt_rx* packet) { (void)fifo; (void)packet; }
 usb_pkt_rx* fifo_get_write_element(fifo_t* fifo) { (void)fifo; return NULL; }
-uint8_t fifo_empty(fifo_t* fifo) { (void)fifo; return 1; }
+uint8_t fifo_empty(fifo_t* fifo) { (void)fifo; return next_index >= next_count; }
 
 usb_pkt_rx fifo_pop(fifo_t* fifo)
 {
 	(void)fifo;
-	return next_packet;
+	if (next_index < next_count)
+		return next_packets[next_index++];
+	return next_packets[0];
 }
 
-/* Stands in for the decoder. It copies the same 64 bytes the real one copies,
- * which is what makes a short buffer fail here. The packet it hands back is a
- * real but empty libbtbb packet, because the rest of cb_btle() goes on to use
- * it. What the real decoder makes of the bytes is libbtbb's business; this
- * test only checks which bytes it was given. */
-void lell_allocate_and_decode(const uint8_t* stream, uint16_t phys_channel,
-                              uint32_t clk100ns, lell_packet** pkt)
+/* Stands in for the decoder. It copies exactly the bytes it is told were
+ * captured, which is what makes an overstated length fail here. The packet it
+ * hands back is a real but empty libbtbb packet, because the rest of
+ * cb_btle() goes on to use it. What the real decoder makes of the bytes is
+ * libbtbb's business; this test only checks which bytes it was given. */
+void lell_allocate_and_decode_n(const uint8_t* stream, size_t stream_len,
+                                uint16_t phys_channel, uint32_t clk100ns,
+                                lell_packet** pkt)
 {
 	(void)phys_channel;
 	(void)clk100ns;
-	memcpy(handed, stream, LE_SYM_LEN);
+	handed_len = stream_len;
+	if (stream_len > sizeof(handed))
+		stream_len = sizeof(handed);
+	memcpy(handed, stream, stream_len);
 	decodes++;
 	*pkt = lell_packet_new();
 }
@@ -98,9 +106,9 @@ static volatile uint8_t sink;
  *
  * This is best effort. The callback's own locals overwrite most of what is
  * left here, so which bytes survive depends on the stack frame the compiler
- * chose. The guarantees come from elsewhere: the first case checks the buffer
- * directly, and a sanitizer build reports the read as a stack-buffer-overflow
- * whatever the bytes happen to be. */
+ * chose. The guarantees come from elsewhere: the fake decoder copies only the
+ * length it is told, and a sanitizer build reports a longer read as a
+ * buffer overflow whatever the bytes happen to be. */
 static void dirty_the_stack(void)
 {
 	uint8_t scratch[4096];
@@ -109,10 +117,11 @@ static void dirty_the_stack(void)
 	sink = scratch[0];
 }
 
-/* Runs one capture through the real callback. The callback prints the packet,
- * so its output goes to /dev/null to keep it out of the test's own, and the
- * bytes the decoder was given are left in handed[]. */
-static void one_packet(void)
+/* Runs the queued records through the real callback, one call each. The
+ * callback prints the packet, so its output goes to /dev/null to keep it out
+ * of the test's own, and the bytes the decoder was given are left in
+ * handed[]. */
+static void run_capture(void)
 {
 	ubertooth_t ut;
 	int saved;
@@ -123,7 +132,9 @@ static void one_packet(void)
 	ut.clk100ns_period = CLK100NS_TIMER1_PERIOD;
 
 	memset(handed, STACK_PATTERN, sizeof(handed));
+	handed_len = 0;
 	decodes = 0;
+	next_index = 0;
 
 	fflush(stdout);
 	saved = dup(fileno(stdout));
@@ -134,7 +145,8 @@ static void one_packet(void)
 	}
 
 	dirty_the_stack();
-	cb_btle(&ut, NULL);
+	while (next_index < next_count)
+		cb_btle(&ut, NULL);
 
 	fflush(stdout);
 	dup2(saved, fileno(stdout));
@@ -145,50 +157,93 @@ static void one_packet(void)
 
 /* ---- cases -------------------------------------------------------------- */
 
-MU_TEST(the_buffer_holds_the_packet_and_zeros)
+MU_TEST(a_single_record_decodes_only_the_bytes_it_holds)
 {
-	/* The packet with filler laid down immediately behind it. All 64 bytes
-	 * the decoder reads are then accounted for, without depending on what
-	 * a stack frame happens to hold. */
-	struct {
-		usb_pkt_rx rx;
-		uint8_t behind[LE_SYM_LEN];
-	} frame;
-	uint8_t symbols[LE_SYM_LEN];
-	unsigned i;
-
-	fill_packet(&frame.rx);
-	memset(frame.behind, STACK_PATTERN, sizeof(frame.behind));
-
-	memset(symbols, STACK_PATTERN, sizeof(symbols));
-	ubertooth_le_symbols(&frame.rx, &symbols);
-
-	mu_assert(memcmp(symbols, frame.rx.data, DMA_SIZE) == 0,
-	          "the captured bytes are not the packet's");
-	for (i = DMA_SIZE; i < LE_SYM_LEN; i++)
-		mu_assert_int_eq(0, symbols[i]);
-}
-
-MU_TEST(a_capture_decodes_no_byte_from_past_the_packet)
-{
-	unsigned i;
-
-	fill_packet(&next_packet);
-	one_packet();
+	fill_packet(&next_packets[0]);
+	next_count = 1;
+	run_capture();
 
 	mu_assert_int_eq(1, decodes);
-	mu_assert(memcmp(handed, next_packet.data, DMA_SIZE) == 0,
+	/* The 50 bytes the record holds, and not one more: the PDU header
+	 * claims 58, which is the case that used to read past the packet. */
+	mu_assert_int_eq(DMA_SIZE, (int)handed_len);
+	mu_assert(memcmp(handed, next_packets[0].data, DMA_SIZE) == 0,
 	          "the decoder was given something other than the packet");
-	/* The 14 bytes the capture does not reach. The decoder reads them for
-	 * the tail of the payload and for the CRC, so they have to be zero and
-	 * not whatever the callback's stack held. */
-	for (i = DMA_SIZE; i < LE_SYM_LEN; i++)
-		mu_assert_int_eq(0, handed[i]);
+}
+
+MU_TEST(a_long_packet_decodes_once_with_every_byte)
+{
+	const uint16_t total = 120;
+	uint8_t packet[120];
+	unsigned i;
+
+	for (i = 0; i < total; i++)
+		packet[i] = (uint8_t)(i ^ 0x3c);
+	/* An access address that is not the advertising one, so the decoder
+	 * sees a data-channel packet, and a header claiming the whole payload. */
+	packet[0] = 0x11;
+	packet[1] = 0x22;
+	packet[2] = 0x33;
+	packet[3] = 0x44;
+	packet[4] = 0x01;
+	packet[5] = (uint8_t)(total - 9);
+
+	for (i = 0; i * DMA_SIZE < total; i++) {
+		usb_pkt_rx* f = &next_packets[i];
+		uint16_t offset = (uint16_t)(i * DMA_SIZE);
+		uint16_t remaining = (uint16_t)(total - offset);
+		uint16_t chunk = remaining < DMA_SIZE ? remaining : DMA_SIZE;
+
+		memset(f, 0, sizeof(*f));
+		f->pkt_type = offset ? LE_PACKET_CONT : LE_PACKET_START;
+		f->channel = 4;
+		f->clk100ns = htole32(1234);
+		f->reserved[0] = total & 0xff;
+		f->reserved[1] = (uint8_t)(((total >> 8) & LE_FRAG_TOTAL_HIGH_MASK) |
+		                           (i << LE_FRAG_INDEX_SHIFT));
+		memcpy(f->data, packet + offset, chunk);
+	}
+	next_count = i;
+	run_capture();
+
+	/* One packet, so one decode, however many records carried it. */
+	mu_assert_int_eq(1, decodes);
+	mu_assert_int_eq(total, (int)handed_len);
+	mu_assert(memcmp(handed, packet, total) == 0,
+	          "the decoder was given something other than the packet");
+}
+
+MU_TEST(a_chain_with_a_record_missing_decodes_nothing)
+{
+	const uint16_t total = 150;
+	uint8_t packet[150];
+	unsigned i;
+
+	memset(packet, 0x7e, sizeof(packet));
+	for (i = 0; i < 2; i++) {
+		usb_pkt_rx* f = &next_packets[i];
+		/* The first record, then the third: the middle one is lost. */
+		uint16_t offset = (uint16_t)(i ? 100 : 0);
+
+		memset(f, 0, sizeof(*f));
+		f->pkt_type = offset ? LE_PACKET_CONT : LE_PACKET_START;
+		f->channel = 4;
+		f->clk100ns = htole32(1234);
+		f->reserved[0] = total & 0xff;
+		f->reserved[1] = (uint8_t)(((total >> 8) & LE_FRAG_TOTAL_HIGH_MASK) |
+		                           ((offset / DMA_SIZE) << LE_FRAG_INDEX_SHIFT));
+		memcpy(f->data, packet + offset, DMA_SIZE);
+	}
+	next_count = 2;
+	run_capture();
+
+	mu_assert_int_eq(0, decodes);
 }
 
 int main(void)
 {
-	MU_RUN(the_buffer_holds_the_packet_and_zeros);
-	MU_RUN(a_capture_decodes_no_byte_from_past_the_packet);
+	MU_RUN(a_single_record_decodes_only_the_bytes_it_holds);
+	MU_RUN(a_long_packet_decodes_once_with_every_byte);
+	MU_RUN(a_chain_with_a_record_missing_decodes_nothing);
 	return mu_report();
 }

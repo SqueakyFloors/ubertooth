@@ -70,6 +70,18 @@ target_link_libraries(test-specan-options opt-parse-for-tests)
 
 add_test(NAME specan-options COMMAND test-specan-options)
 
+# Putting a long low-energy packet back together from the records it arrives
+# in. Pure logic over the record format, so it needs neither libusb nor
+# libbtbb: only the shared interface header the state is sized from.
+add_executable(test-le-frag
+	test_le_frag.c
+	${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c)
+target_include_directories(test-le-frag PRIVATE ${libubertooth_SOURCE_DIR}/src)
+
+add_test(NAME le-frag COMMAND test-le-frag)
+# Arithmetic and memcpy over a few hundred bytes: milliseconds.
+set_tests_properties(le-frag PROPERTIES TIMEOUT 5)
+
 # What a specan run does when it cannot write its samples, through the
 # callback and through its real main(). cb_specan() is static in
 # ubertooth-specan.c, so that source is compiled in with main() renamed, as
@@ -517,6 +529,7 @@ if(libubertooth_SOURCE_DIR)
 		test_init_failure.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_callback.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
 	target_include_directories(test-init-failure PRIVATE
 		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
@@ -546,6 +559,7 @@ if(libubertooth_SOURCE_DIR)
 		test_device_select.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_callback.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
 	target_include_directories(test-device-select PRIVATE
 		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
@@ -564,6 +578,7 @@ if(libubertooth_SOURCE_DIR)
 		test_select_quiet.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_callback.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
 	target_include_directories(test-select-quiet PRIVATE
 		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
@@ -583,6 +598,7 @@ if(libubertooth_SOURCE_DIR)
 		test_afh_requests.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_callback.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
 	target_include_directories(test-afh-requests PRIVATE
 		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
@@ -601,7 +617,8 @@ if(libubertooth_SOURCE_DIR)
 		test_clk100ns_wrap.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c
-		${libubertooth_SOURCE_DIR}/src/ubertooth_fifo.c)
+		${libubertooth_SOURCE_DIR}/src/ubertooth_fifo.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c)
 	target_include_directories(test-clk100ns-wrap PRIVATE
 		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
 	target_link_libraries(test-clk100ns-wrap ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES}
@@ -615,8 +632,8 @@ if(libubertooth_SOURCE_DIR)
 	# device: a run takes milliseconds.
 	set_tests_properties(clk100ns-wrap PROPERTIES TIMEOUT 5)
 
-	# What the low-energy callback hands libbtbb's decoder. The decoder
-	# always copies 64 bytes, more than the 50 a received packet holds.
+	# What the low-energy callback hands libbtbb's decoder: the captured
+	# bytes and how many of them there are, never more.
 	#
 	# The test includes ubertooth_callback.c itself, so the real cb_btle()
 	# runs. Nothing touches a device or does a real decode: the test defines
@@ -627,13 +644,14 @@ if(libubertooth_SOURCE_DIR)
 	add_executable(test-le-decode-buffer
 		test_le_decode_buffer.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth.c
-		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
+		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c)
 	target_include_directories(test-le-decode-buffer PRIVATE
 		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
 	target_link_libraries(test-le-decode-buffer ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES}
 		Threads::Threads)
 	add_test(NAME le-decode-buffer COMMAND test-le-decode-buffer)
-	# One callback call against a faked ring buffer: milliseconds.
+	# A few callback calls against a faked ring buffer: milliseconds.
 	set_tests_properties(le-decode-buffer PROPERTIES TIMEOUT 5)
 
 	# What the library does when a capture's USB stream fails part-way: the
@@ -645,6 +663,7 @@ if(libubertooth_SOURCE_DIR)
 		test_stream_failure.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_callback.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
 	target_include_directories(test-stream-failure PRIVATE
 		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
@@ -665,6 +684,7 @@ if(libubertooth_SOURCE_DIR)
 		test_keep_alive.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_callback.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
 	target_include_directories(test-keep-alive PRIVATE
 		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
@@ -683,7 +703,8 @@ if(libubertooth_SOURCE_DIR)
 		test_stop_on_signal.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_callback.c
-		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
+		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c)
 	target_include_directories(test-stop-on-signal PRIVATE
 		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
 	target_link_libraries(test-stop-on-signal ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES}

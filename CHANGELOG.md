@@ -125,12 +125,12 @@
   the command returns at once and the board stays reachable; `-S` or any mode
   option stops it and leaves the LEDs off.
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
-- **Reflash required:** the firmware API version is now 1.31, last moved by the
-  deferred reset in the `btbr` image and the cut on an over-long revision
-  reply, and the host tools require firmware of exactly their own API version,
-  older or newer (`ubertooth-util` still reads the version and reflashes any
-  firmware). Host and firmware come from the same tree; `2020-12-R1` firmware
-  is refused.
+- **Reflash required:** the firmware API version is now 1.32, last moved by
+  long low-energy packets travelling in several records, and the host tools
+  require firmware of exactly their own API version, older or newer
+  (`ubertooth-util` still reads the version and reflashes any firmware). Host
+  and firmware come from the same tree; `2020-12-R1` firmware is refused.
+  [#4](https://github.com/SqueakyFloors/ubertooth/issues/4)
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
   [#174](https://github.com/SqueakyFloors/ubertooth/issues/174)
@@ -211,6 +211,16 @@
 
 ### Reliability fixes
 
+- `ubertooth-btle -f` and `-n` capture a Bluetooth low-energy packet longer
+  than 50 bytes whole. The board used to cut every one of them to 50 bytes and
+  the host then showed the first 46 bytes of the packet, so a Bluetooth 4.2
+  Data Length Extension payload came out short on screen and in PCAP and
+  PCAPNG files, with nothing to say it had been cut. A long packet now travels
+  in several records and is put back together before it is decoded, and the
+  paired libbtbb reads the payload length from all eight bits of the field, so
+  a payload up to its 251-byte maximum arrives as it was sent. The promiscuous
+  mode, `-p`, uses a different capture path and still cuts at 50 bytes.
+  [#4](https://github.com/SqueakyFloors/ubertooth/issues/4)
 - A board another program is using says so (`error: Ubertooth <serial> is in
   use by another program (libusb -3)`) instead of reporting a libusb code, and
   no longer has a stop sent to it on the way out; a board that answers nothing

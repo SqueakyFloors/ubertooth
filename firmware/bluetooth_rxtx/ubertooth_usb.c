@@ -338,6 +338,16 @@ usb_pkt_rx *dequeue(void)
 	return &fifo[h];
 }
 
+/* How many more records the ring can take before usb_enqueue() starts
+ * refusing them. A caller with several records to add, such as the fragments
+ * of one long LE packet, asks first so it never adds half of them. */
+unsigned usb_queue_space(void)
+{
+	/* One of the 128 entries is always left empty, which is what tells a
+	 * full ring from an empty one. */
+	return (head - tail - 1) & 0x7F;
+}
+
 int dequeue_send(u32 clkn)
 {
 	usb_pkt_rx *pkt = dequeue();

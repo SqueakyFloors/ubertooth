@@ -21,7 +21,7 @@ FW_DIR := ..
 HOST_DFU := ../../host/ubertooth-tools/src
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_le_phy_order test_grmdm_rx_generic test_tx_generic_bounds test_write_registers_bounds test_btbr_hop test_btbr_rx_deadline test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths
+TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_le_phy_order test_le_frag_shape test_grmdm_rx_generic test_tx_generic_bounds test_write_registers_bounds test_btbr_hop test_btbr_rx_deadline test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths
 BINDIR  := bin
 
 .PHONY: all test clean
@@ -118,6 +118,16 @@ $(BINDIR)/test_le_phy_order: test_le_phy_order.c minunit.h source_scan.h \
 		$(FW_RXTX)/le_phy.c | $(BINDIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
 		-o $@ test_le_phy_order.c
+
+# Splitting a long low-energy packet across records happens inside the capture
+# loop, so this scans le_phy.c as text too. It also includes the host's
+# reassembly header, so the constants both halves pack the metadata with are
+# the shared ones. ../../host/libubertooth/src is already on the include path.
+$(BINDIR)/test_le_frag_shape: test_le_frag_shape.c minunit.h source_scan.h \
+		$(FW_RXTX)/le_phy.c ../../host/libubertooth/src/ubertooth_le_frag.h \
+		| $(BINDIR)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
+		-o $@ test_le_frag_shape.c
 
 # grmdm_packet_mode() is a bit test in cc2400.h, so it runs here; the
 # rx_generic() that uses it is hardware code, so the same test scans

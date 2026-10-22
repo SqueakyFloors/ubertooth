@@ -613,7 +613,11 @@ void cb_btle(ubertooth_t* ut, void* args)
 	btle_options* opts = (btle_options*) args;
 	int i;
 	usb_pkt_rx usb = fifo_pop(ut->fifo);
-	usb_pkt_rx* rx = &usb;
+	const usb_pkt_rx* rx = &usb;
+	/* The whole captured packet and its length, once reassembly has it. */
+	const uint8_t* le_data;
+	uint16_t le_data_len;
+	const usb_pkt_rx* le_metadata;
 	// u32 access_address = 0; // Build warning
 
 	static uint64_t prev_ts = 0;
@@ -629,22 +633,22 @@ void cb_btle(ubertooth_t* ut, void* args)
 	// display LE promiscuous mode state changes
 	if (rx->pkt_type == LE_PROMISC) {
 		u8 state = rx->data[0];
-		void *val = &rx->data[1];
+		const void *val = &rx->data[1];
 
 		printf("--------------------\n");
 		printf("LE Promisc - ");
 		switch (state) {
 			case 0:
-				printf("Access Address: %08x\n", *(uint32_t *)val);
+				printf("Access Address: %08x\n", *(const uint32_t *)val);
 				break;
 			case 1:
-				printf("CRC Init: %06x\n", *(uint32_t *)val);
+				printf("CRC Init: %06x\n", *(const uint32_t *)val);
 				break;
 			case 2:
-				printf("Hop interval: %g ms\n", *(uint16_t *)val * 1.25);
+				printf("Hop interval: %g ms\n", *(const uint16_t *)val * 1.25);
 				break;
 			case 3:
-				printf("Hop increment: %u\n", *(uint8_t *)val);
+				printf("Hop increment: %u\n", *(const uint8_t *)val);
 				break;
 			default:
 				printf("Unknown %u\n", state);
@@ -660,13 +664,14 @@ void cb_btle(ubertooth_t* ut, void* args)
 	if (infile == NULL)
 		systime = time(NULL);
 
-	uint64_t nowns = now_ns_from_clk100ns( ut, rx );
-
 	/* Sanity check */
 	if (rx->channel > (NUM_BREDR_CHANNELS-1))
 		return;
 
-	/* Dump to sumpfile if specified */
+	/* Dump to sumpfile if specified. One record at a time, as received, so a
+	 * dump keeps its fixed-size format: a long packet is several records
+	 * there, and a replay puts them back together below exactly as a live
+	 * capture does. */
 	if (dumpfile) {
 		uint32_t systime_be = htobe32(systime);
 		fwrite(&systime_be, sizeof(systime_be), 1, dumpfile);
@@ -674,11 +679,29 @@ void cb_btle(ubertooth_t* ut, void* args)
 		fflush(dumpfile);
 	}
 
-	/* The decoder always reads 64 bytes from the pointer it is handed, and
-	 * a received packet is only 50, so it cannot be given rx->data. */
-	uint8_t symbols[LE_SYM_LEN];
-	ubertooth_le_symbols(rx, &symbols);
-	lell_allocate_and_decode(symbols, rx->channel + 2402, rx->clk100ns, &pkt);
+	/* A packet too long for one record arrives as several. Nothing below
+	 * runs until the whole packet is here: a chain still arriving returns,
+	 * and so does a broken one, whose records are dropped. */
+	if (le_usb_reassemble(&ut->le_reassembly, rx, &le_data, &le_data_len,
+	                      &le_metadata) != LE_REASSEMBLY_COMPLETE)
+		return;
+	/* The channel, timestamp and signal readings of the packet as a whole,
+	 * which for a chain are the first record's. */
+	rx = le_metadata;
+
+	/* After reassembly, so the clock sees one timestamp per packet rather
+	 * than the same one once per record. */
+	uint64_t nowns = now_ns_from_clk100ns( ut, rx );
+
+	/* The decoder is told how many bytes were captured, so it reads no
+	 * further than that. */
+	lell_allocate_and_decode_n(le_data, le_data_len,
+	                           rx->channel + 2402, rx->clk100ns, &pkt);
+	/* The decoder hands back nothing if it could not allocate the packet. */
+	if (pkt == NULL) {
+		fprintf(stderr, "error: unable to allocate memory\n");
+		return;
+	}
 
 	/* do nothing further if filtered due to bad AA */
 	if (opts &&
@@ -722,11 +745,16 @@ void cb_btle(ubertooth_t* ut, void* args)
 	       systime, rx->channel + 2402, lell_get_access_address(pkt),
 	       ts_diff / 10000.0, rx->rssi_min - 54);
 
-	int len = (rx->data[5] & 0x3f) + 6 + 3;
-	if (len > 50) len = 50;
+	/* The bytes of the packet itself: the PDU header, the payload the
+	 * decoder found and the CRC, after the four-byte access address. Never
+	 * more than was captured, so a header claiming a longer payload than
+	 * arrived prints only what arrived. */
+	unsigned len = lell_get_payload_length(pkt) + 4 + 2 + 3;
+	if (len > le_data_len)
+		len = le_data_len;
 
-	for (i = 4; i < len; ++i)
-		printf("%02x ", rx->data[i]);
+	for (i = 4; i < (int)len; ++i)
+		printf("%02x ", le_data[i]);
 	printf("\n");
 
 	lell_print(pkt);

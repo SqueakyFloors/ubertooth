@@ -54,6 +54,8 @@ When filtering, previous versions of the firmware would still log all advertisin
 .P
 In all sniffing modes, Ubertooth can log data to PCAP or PcapNG with a variety of pseudoheaders\. The recommended logging format is PcapNG (\fB\-r\fR) or PCAP with LE Pseudoheader (\fB\-q\fR)\. For compatibility with crackle (see \fIUSING WITH CRACKLE\fR), use PCAP with PPI (\fB\-c\fR)\.
 .P
+In \fB\-f\fR and \fB\-n\fR, a packet carrying a Bluetooth 4\.2 Data Length Extension payload, up to its 251\-byte maximum, is captured whole: on the screen, in PCAP and in PCAPNG\. The board sends such a packet in several fixed\-size records, which are put back together before anything is decoded or written\. Older firmware cut every packet to 50 bytes, and \fB\-p\fR still does\.
+.P
 Interfering with connections is a feature for causing intentional interference with newly established or long\-lived connections\. When this attack succeeds, the BLE connection between the central and peripheral will be terminated\. Pair the \fB\-i\fR or \fB\-I\fR flag with \fB\-f\fR to interfere with new connections or \fB\-p\fR to interfere with long\-lived connections\. \fB\-i\fR or \fB\-I\fR (or their older spellings \fB\-j\fR and \fB\-J\fR) with neither \fB\-f\fR nor \fB\-p\fR is refused before any device is opened: there is no connection to interfere with\. Note that causing intentional interference may be illegal in your jurisdiction\. Check your local laws before using this feature\.
 .P
 Finally, \fBubertooth\-btle\fR supports transmitting advertising packets with a specified BD ADDR\. This feature, referred to as faux slave mode, is experimental and may not function as intended\. Use at your own risk\.
