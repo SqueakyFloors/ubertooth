@@ -76,11 +76,34 @@ or non-trivial operational documentation changes:
   `gh pr checks <PR>`, which reports the current head commit, not with the id of
   a run you saw earlier. A "cancelled" run for a superseded commit is expected,
   not a failure.
-- Only the run for the head commit that will be merged counts. Wait for it to
-  finish before merging; do not merge on a cancelled, queued, or older run.
 - Runs for `main` and the weekly schedule are never cancelled.
 - Cancelling runs yourself is for runs you made redundant (for example a PR you
   closed as superseded); never cancel another agent's or PR's runs.
+
+### Time budget and the good-enough call
+
+Speed matters. Do not wait for every job.
+
+- **No CI wait** for changes limited to documentation or agent rules
+  (`*.md`, `.kiro/steering/`): merge as soon as the PR is ready.
+- **Gating set**: the host build-and-test jobs (`host (...)`, the Ubuntu 20.04
+  container host job) gate every code change. The firmware jobs gate only
+  changes under `firmware/` or to the CI workflow. Canary, `*-latest`, and
+  soft-fail jobs never gate.
+- **Good enough**: when every gating job has passed and nothing has failed,
+  merge. Do not wait for non-gating jobs to finish; note any still-pending jobs
+  in the PR.
+- **Time budget**: wait at most 10 minutes for the gating set once the run has
+  started. If jobs have not started after 5 minutes, say so and decide with the
+  user instead of polling.
+- **Stuck job**: a job with no progress for 10 minutes while the others are
+  done is infrastructure noise; ignore or cancel it and note it.
+- **A failure in the gating set blocks**; a failure in a non-gating job needs
+  a quick look (is it related?) but does not by itself block.
+- **Do not merge `main` into a PR branch** just to be current. GitHub squashes
+  onto the current `main`. Update the branch only for conflicts or when `main`
+  changed files the PR also touches, since that restarts CI.
+- Run the independent reviews in parallel with CI, not after it.
 
 ## Changelog discipline
 
