@@ -112,7 +112,8 @@ capture tests.
 | Date | Host | Toolchain | Result |
 |---|---|---|---|
 | 2026-10-23 | macOS 26.7.1, arm64 | CMake 4.4.4, Apple clang 21, libusb 1.0.30, Python 3.12.6 | Host tools build with no warnings in the changed files; `ctest` 9/9; `ubertooth-util -b`, `-v`, `-V`, `-p`, `-s`, `-vVspb`, `-c`, `-a`, `-z` exit 0 (#40) |
-| 2026-10-23 | Ubuntu 24.04.4 LTS, x86_64 (two Ubertooth Ones attached; selected with `-U`) | CMake 3.28.3, GCC 13.3.0, libusb 1.0.27, Python 3.12.3 | Host tools build with no warnings in the changed files; `ctest` 9/9; the same queries exit 0 on both devices (#40). Run on the branch before the final squash and a later small refactor of the same change. |
+| 2026-10-23 | Ubuntu 24.04.4 LTS, x86_64 (two Ubertooth Ones attached; selected with `-U`) | CMake 3.28.3, GCC 13.3.0, libusb 1.0.27, Python 3.12.3 | Host tools from `main` (`4ebc7fd`) build with no warnings in the changed files; `ctest` 9/9; the same queries exit 0 on both devices (#40) |
+| 2026-10-23 | Ubuntu 24.04.4 LTS, x86_64 (same two devices) | `arm-none-eabi-gcc` (distribution package), `ubertooth-dfu` from `main` (`2cd3b8b`) | Firmware flash: 20/20 exact-verified flashes on one device, then 40/40 across both devices alternating (about 2.2 s each). Intermittent failures reported in #31 did not reproduce on Linux; they were seen on macOS. |
 
 ---
 
