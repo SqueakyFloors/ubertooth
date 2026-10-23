@@ -116,7 +116,7 @@
   [#12](https://github.com/SqueakyFloors/ubertooth/issues/12)
 - The compatibility matrix records macOS 26 and Ubuntu 24.04 host-tool
   verification on an attached Ubertooth One.
-  [#N]
+  [#69](https://github.com/SqueakyFloors/ubertooth/issues/69)
 
 _community fork, Fri, 23 Oct 2026 01:38:18 -0700_
 
