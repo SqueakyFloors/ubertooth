@@ -14,3 +14,11 @@ add_executable(test-dfu-recovery
 target_include_directories(test-dfu-recovery PRIVATE ../src)
 
 add_test(NAME dfu-recovery COMMAND test-dfu-recovery)
+
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+
+add_test(
+	NAME ducky-options
+	COMMAND ${Python3_EXECUTABLE}
+		${CMAKE_CURRENT_SOURCE_DIR}/test_ducky_options.py
+		$<TARGET_FILE:ubertooth-ducky>)

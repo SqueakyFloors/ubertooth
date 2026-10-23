@@ -2,7 +2,8 @@
 
 ## SYNOPSIS
 
-ubertooth-ducky [-q [uuid]] [-b] [-A index] [-a BD_ADDR] [-s] [-U 0-7]
+ubertooth-ducky [-q [uuid]] [-b] [-A index] [-a BD_ADDR] [-s]
+[-U <index|serial>]
 
 ## DESCRIPTION
 
@@ -25,8 +26,8 @@ If no Bluetooth address is given, a random BD_ADDR is used (read from
    advertising channel index (default: 38).
  - `-a <BD_ADDR>` :
    Bluetooth address to use (default: random).
- - `-U <0-7>` :
-   which Ubertooth device to use.
+ - `-U <index|serial>` :
+   select an Ubertooth by USB enumeration index or stable serial-number string.
  - `-h` :
    show help.
 

@@ -150,6 +150,7 @@ static void usage(void) {
 	printf("\n");
 	printf("\t-A <index> advertising channel index (default: 38)\n");
 	printf("\t-a <BD ADDR> Bluetooth address (default: random)\n");
+	printf("\t-U <index|serial> select Ubertooth by index or serial number\n");
 	printf("\t-h this help\n");
 	printf("\n");
 	printf("For more information on Uberducky, visit:\n");
@@ -175,7 +176,7 @@ int main(int argc, char *argv[])
 	addr_set = 0;
 	be_sarcastic = 0;
 
-	while ((opt=getopt(argc,argv,"q::bA:a:hs")) != EOF) {
+	while ((opt=getopt(argc,argv,"q::bA:a:hsU:")) != EOF) {
 		switch(opt) {
 		case 'q':
 			do_quack = 1;
@@ -204,6 +205,10 @@ int main(int argc, char *argv[])
 				return 1;
 			}
 			addr_set = 1;
+			break;
+
+		case 'U':
+			ubertooth_device = optarg;
 			break;
 
 		case 's':

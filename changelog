@@ -61,6 +61,8 @@ ubertooth (2020-12-R1+modern1) unstable; urgency=low
     module directly
 
   Robustness fixes (host, this fork):
+  * ubertooth-ducky: make the documented -U selector functional for both USB
+    enumeration indices and stable serial-number strings
   * libubertooth: ubertooth_count() now returns int and propagates a negative
     error from libusb_init instead of wrapping to a large unsigned value
   * libubertooth: ubertooth_start() frees its allocation on the connect-failure
