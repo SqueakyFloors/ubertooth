@@ -14,9 +14,11 @@
   without dumping full help text. With several devices and no `-U`,
   `ubertooth-util` read-only queries (`-s`, `-v`, `-V`, `-p`, `-b`, alone or
   combined) report every device and exit non-zero if a device cannot be opened
-  or a query fails.
+  or a query fails; `-U all` requests that listing explicitly, even for one
+  device, and is refused for every other option.
   [#6](https://github.com/SqueakyFloors/ubertooth/issues/6)
   [#27](https://github.com/SqueakyFloors/ubertooth/issues/27)
+  [#28](https://github.com/SqueakyFloors/ubertooth/issues/28)
 - `install.sh` provides one-command source installation on Debian/Ubuntu and on
   macOS with Homebrew, with optional virtual environments, a custom `--prefix`,
   `--skip-deps` for already-installed packages, udev setup on Linux, firmware

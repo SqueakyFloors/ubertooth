@@ -231,6 +231,7 @@ static void usage(FILE *output)
 	fprintf(output, "\t-S stop current operation\n");
 	fprintf(output, "\t-r full reset\n");
 	fprintf(output, "\t-U<index|serial> select Ubertooth by index or serial number\n");
+	fprintf(output, "\t-U all list -b/-v/-V/-p/-s for every Ubertooth (queries only)\n");
 	fprintf(output, "\t-N print total number of Ubertooth devices and exit\n");
 	fprintf(output, "\n");
 	fprintf(output, "Radio options:\n");
@@ -270,6 +271,8 @@ int main(int argc, char *argv[])
 	int do_something, do_compile_info;
 	int do_number, do_xmas;
 	char* ubertooth_device = NULL;
+	int requested[QUERY_COUNT]; /* identity queries, for the per-device listing */
+	int any_query;
 
 	/* set command states to negative as a starter
 	 * setting to 0 means 'do it'
@@ -419,6 +422,37 @@ int main(int argc, char *argv[])
 		}
 	}
 
+	requested[QUERY_BOARD_ID] = (do_board_id == 0);
+	requested[QUERY_FIRMWARE] = (do_firmware == 0);
+	requested[QUERY_COMPILE_INFO] = (do_compile_info == 0);
+	requested[QUERY_PART_ID] = (do_part == 0);
+	requested[QUERY_SERIAL] = (do_serial == 0);
+	any_query = requested[QUERY_BOARD_ID] || requested[QUERY_FIRMWARE] ||
+	            requested[QUERY_COMPILE_INFO] || requested[QUERY_PART_ID] ||
+	            requested[QUERY_SERIAL];
+
+	/* -U all lists the read-only identity queries for every attached device.
+	 * Refuse it, before any device is opened, for anything else: setters,
+	 * modes and other reads act on one device only. */
+	if (ubertooth_device != NULL && strcmp(ubertooth_device, "all") == 0) {
+		int count;
+
+		if (other_operations || !any_query) {
+			fprintf(stderr, "error: -U all only supports the read-only queries "
+			        "-b, -v, -V, -p and -s; select one device with -U<index|serial> "
+			        "for other options\n");
+			return 1;
+		}
+		count = ubertooth_count();
+		if (count < 0)
+			return 1;
+		if (count == 0) {
+			fprintf(stderr, "error: no Ubertooth devices found\n");
+			return 1;
+		}
+		return list_identity_queries(requested, count);
+	}
+
 	if (do_number) {
 		int count = ubertooth_count();
 		if (count < 0)
@@ -430,22 +464,10 @@ int main(int argc, char *argv[])
 	/* Read-only identity queries (-b, -v, -V, -p, -s) with no -U and several
 	 * devices: report every device instead of refusing to pick one. Any other
 	 * operation in the same command still needs -U. */
-	if (ubertooth_device == NULL) {
-		int requested[QUERY_COUNT];
-
-		requested[QUERY_BOARD_ID] = (do_board_id == 0);
-		requested[QUERY_FIRMWARE] = (do_firmware == 0);
-		requested[QUERY_COMPILE_INFO] = (do_compile_info == 0);
-		requested[QUERY_PART_ID] = (do_part == 0);
-		requested[QUERY_SERIAL] = (do_serial == 0);
-		if (!other_operations &&
-		    (requested[QUERY_BOARD_ID] || requested[QUERY_FIRMWARE] ||
-		     requested[QUERY_COMPILE_INFO] || requested[QUERY_PART_ID] ||
-		     requested[QUERY_SERIAL])) {
-			int count = ubertooth_count();
-			if (count > 1)
-				return list_identity_queries(requested, count);
-		}
+	if (ubertooth_device == NULL && !other_operations && any_query) {
+		int count = ubertooth_count();
+		if (count > 1)
+			return list_identity_queries(requested, count);
 	}
 
 	/* initialise device */

@@ -3,7 +3,7 @@
 ## SYNOPSIS
 
 `ubertooth-util` [-v] [-V] [-H] [--host-version] [-I] [-d[0-1]] [-l[0-1]]
-[-S] [-r] [-U<index|serial>] [-a[0-7]] [-c[2400-2483]] [-C[0-78]] [-q[1-225]] [-t]
+[-S] [-r] [-U<index|serial|all>] [-a[0-7]] [-c[2400-2483]] [-C[0-78]] [-q[1-225]] [-t]
 [-z] [-e] [-m] [-n] [-f] [-i] [-b] [-p] [-s] [-N] [-x] [-h]
 
 ## DESCRIPTION
@@ -54,6 +54,9 @@ Common options:
  - `-U<index|serial>` :
    select which Ubertooth to use, either by USB enumeration index or by its
    serial number string. See SELECTING A DEVICE.
+ - `-U all` :
+   report the read-only queries `-b`, `-v`, `-V`, `-p` and `-s` for every
+   attached Ubertooth; refused with any other option. See SELECTING A DEVICE.
 
 Radio options:
 
@@ -136,6 +139,23 @@ ID 7>`). The other devices are still reported, and the command exits non-zero
 if any device failed. A firmware version whose API version cannot be read is
 shown without it; failed `-V` and firmware revision reads are not detected yet. Listing does not stop a mode a device is running. Any other
 option in the same command still needs `-U`.
+
+`-U all` asks for the same listing explicitly. It works with any number of
+attached devices, including one (`0: <value>`), and fails with `error: no
+Ubertooth devices found` when none is attached:
+
+    $ ubertooth-util -U all -s
+    0: 1cc001038088cb956c43ad61c52000f5
+
+`-U all` only applies to the read-only queries `-b`, `-v`, `-V`, `-p` and
+`-s`. Combined with any other option (a setter, a mode such as `-x` or `-q`,
+`-r`, `-S`, `-N`, or another read such as `-c`), or given with no query at
+all, it is refused before any device is opened:
+
+    error: -U all only supports the read-only queries -b, -v, -V, -p and -s; select one device with -U<index|serial> for other options
+
+Only the exact word `all` has this meaning. The other tools do not support
+`-U all`; they treat it as a serial number and report that no device matches.
 
 To tell which index or serial is which physical device:
 
