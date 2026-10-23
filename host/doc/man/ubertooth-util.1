@@ -5,7 +5,7 @@
 \- general purpose Ubertooth utility
 .SH SYNOPSIS
 .PP
-ubertooth\-util [\-v] [\-V] [\-H] [\-\-host\-version] [\-I] [\-d[0\-1]] [\-l[0\-1]] [\-S] [\-r] [\-U<index|serial>] [\-a[0\-7]] [\-c[2400\-2483]] [\-C[0\-78]] [\-q[1\-225]] [\-t] [\-z] [\-e] [\-m] [\-n] [\-f] [\-i] [\-b] [\-p] [\-s] [\-N] [\-x] [\-h]
+ubertooth\-util [\-v] [\-V] [\-H] [\-\-host\-version] [\-I] [\-d[0\-1]] [\-l[0\-1]] [\-S] [\-r] [\-U<index|serial|all>] [\-a[0\-7]] [\-c[2400\-2483]] [\-C[0\-78]] [\-q[1\-225]] [\-t] [\-z] [\-e] [\-m] [\-n] [\-f] [\-i] [\-b] [\-p] [\-s] [\-N] [\-x] [\-h]
 .SH DESCRIPTION
 .PP
 .BR ubertooth-util (1) 
@@ -70,6 +70,9 @@ full reset
 .IP \(bu 2
 \fB\fC\-U<index|serial>\fR :
 select which Ubertooth to use, either by USB enumeration index or by its serial number string; see SELECTING A DEVICE
+.IP \(bu 2
+\fB\fC\-U all\fR :
+report the read\-only queries \fB\fC\-b\fR, \fB\fC\-v\fR, \fB\fC\-V\fR, \fB\fC\-p\fR and \fB\fC\-s\fR for every attached Ubertooth; refused with any other option; see SELECTING A DEVICE
 .RE
 .PP
 Radio options:
@@ -168,6 +171,33 @@ the command exits non\-zero if any device failed. A firmware version whose API
 version cannot be read is shown without it; failed \fB\fC\-V\fR and firmware
 revision reads are not detected yet. Listing does not stop a mode a
 device is running. Any other option in the same command still needs \fB\fC\-U\fR\&.
+.PP
+\fB\fC\-U all\fR asks for the same listing explicitly. It works with any number
+of attached devices, including one (\fB\fC0: <value>\fR), and fails with
+\fB\fCerror: no Ubertooth devices found\fR when none is attached:
+.PP
+.RS
+.nf
+$ ubertooth\-util \-U all \-s
+0: 1cc001038088cb956c43ad61c52000f5
+.fi
+.RE
+.PP
+\fB\fC\-U all\fR only applies to the read\-only queries \fB\fC\-b\fR, \fB\fC\-v\fR,
+\fB\fC\-V\fR, \fB\fC\-p\fR and \fB\fC\-s\fR\&. Combined with any other option (a
+setter, a mode such as \fB\fC\-x\fR or \fB\fC\-q\fR, \fB\fC\-r\fR, \fB\fC\-S\fR,
+\fB\fC\-N\fR, or another read such as \fB\fC\-c\fR), or given with no query at
+all, it is refused before any device is opened:
+.PP
+.RS
+.nf
+error: \-U all only supports the read\-only queries \-b, \-v, \-V, \-p and \-s; select one device with \-U<index|serial> for other options
+.fi
+.RE
+.PP
+Only the exact word \fB\fCall\fR has this meaning. The other tools do not
+support \fB\fC\-U all\fR; they treat it as a serial number and report that no
+device matches.
 .PP
 To tell which index or serial is which physical device: run
 \fB\fCubertooth\-util \-s\fR, or any other tool with no \fB\fC\-U\fR (with more than
