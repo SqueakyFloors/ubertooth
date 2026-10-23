@@ -5,11 +5,23 @@ on:
   # not run everything twice. Every push to main still runs.
   push:
     branches: [main]
+    # Documentation and agent-rule changes do not need a build.
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.kiro/**'
   pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.kiro/**'
 
   # Run automatically every monday
   schedule:
     - cron: 1 12 * * 1
+
+  # Manual full run, including the *-latest canary
+  workflow_dispatch:
 
 # A newer commit on the same pull request cancels that PR's older run. Pushes
 # to main and the weekly schedule get a unique group (the run id), so they are
@@ -27,21 +39,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Pinned versions are the supported matrix (hard failures).
-        # The *-latest "canary" entries are early-warning only: they soft-fail
-        # on push/PR (see continue-on-error below) and hard-fail on the weekly
-        # schedule so GitHub emails the owner when a future OS/toolchain breaks.
-        include:
-          - os: ubuntu-22.04
-          - os: ubuntu-24.04
-          - os: macos-14
-          - os: macos-15
-          - os: macos-26
-          - os: ubuntu-latest
-            canary: true
+        # Pinned versions are the supported matrix. The *-latest canary is
+        # early warning for future OS/toolchain breaks, so it runs only on the
+        # weekly schedule (where a failure emails the owner) or a manual run, not
+        # on every PR.
+        os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["ubuntu-22.04","ubuntu-24.04","macos-14","macos-15","macos-26","ubuntu-latest"]' || '["ubuntu-22.04","ubuntu-24.04","macos-14","macos-15","macos-26"]') }}
     runs-on: ${{ matrix.os }}
-    # Soft-fail canaries except on the scheduled run (so weekly drift emails).
-    continue-on-error: ${{ matrix.canary == true && github.event_name != 'schedule' }}
+    timeout-minutes: 10
 
     steps:
     - uses: actions/checkout@v4
@@ -152,16 +156,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-22.04
-          - os: ubuntu-24.04
-          - os: macos-14
-          - os: macos-15
-          - os: macos-26
-          - os: ubuntu-latest
-            canary: true
+        os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["ubuntu-22.04","ubuntu-24.04","macos-14","macos-15","macos-26","ubuntu-latest"]' || '["ubuntu-22.04","ubuntu-24.04","macos-14","macos-15","macos-26"]') }}
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.canary == true && github.event_name != 'schedule' }}
+    timeout-minutes: 15
 
     steps:
     - uses: actions/checkout@v4
@@ -220,6 +217,7 @@ jobs:
   # container is root (no sudo) and starts bare, so install git/toolchain.
   host-ubuntu-20_04:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     container: ubuntu:20.04
     env:
       DEBIAN_FRONTEND: noninteractive
@@ -267,6 +265,7 @@ jobs:
 
   firmware-ubuntu-20_04:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     container: ubuntu:20.04
     env:
       DEBIAN_FRONTEND: noninteractive
@@ -296,6 +295,7 @@ jobs:
   # on the weekly schedule (drift email). Run in a container (no hosted Fedora).
   host-fedora:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     container: fedora:latest
     continue-on-error: ${{ github.event_name != 'schedule' }}
     steps:
