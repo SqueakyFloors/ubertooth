@@ -4,7 +4,7 @@ This repository is a community fork of
 [Project Ubertooth](https://github.com/greatscottgadgets/ubertooth) by
 [Great Scott Gadgets](https://github.com/greatscottgadgets). All credit for
 the original hardware, firmware, and host software goes to its authors and
-contributors. The software is released under the GPLv2; see `COPYING`.
+contributors. The software is released under the GPLv2; see [COPYING](COPYING).
 
 ## Original authors
 

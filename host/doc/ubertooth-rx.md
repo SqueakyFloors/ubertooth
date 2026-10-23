@@ -153,4 +153,4 @@ This manual page was written by Mike Ryan.
 
 ubertooth-rx(1) is Copyright (c) 2010-2017 Michael Ossmann, Dominic
 Spill, and others. This tool is released under the GPLv2. Refer to
-`COPYING` for further details.
+[COPYING](https://github.com/SqueakyFloors/ubertooth/blob/main/COPYING) for further details.

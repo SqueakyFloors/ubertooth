@@ -53,4 +53,4 @@ This manual page was written by Dominic Spill.
 ## COPYRIGHT
 
 ubertooth-debug(1) is Copyright (c) 2010-2017. This tool is released under the
-GPLv2. Refer to `COPYING` for further details.
+GPLv2. Refer to [COPYING](https://github.com/SqueakyFloors/ubertooth/blob/main/COPYING) for further details.

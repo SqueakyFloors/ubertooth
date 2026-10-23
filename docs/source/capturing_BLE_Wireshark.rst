@@ -133,7 +133,7 @@ set, advertisements from other devices are dropped too. Clear it with:
 
 		ubertooth-btle -t none
 
-See the ``ubertooth-btle`` man page (``host/doc/ubertooth-btle.md``) for all options.
+See the ``ubertooth-btle`` man page (`host/doc/ubertooth-btle.md <https://github.com/SqueakyFloors/ubertooth/blob/main/host/doc/ubertooth-btle.md>`__) for all options.
 
 
 

@@ -32,4 +32,4 @@ ubertooth-dump(1), ubertooth(7)
 
 ## COPYRIGHT
 
-Released under the GPLv2. Refer to `COPYING` for further details.
+Released under the GPLv2. Refer to [COPYING](https://github.com/SqueakyFloors/ubertooth/blob/main/COPYING) for further details.
