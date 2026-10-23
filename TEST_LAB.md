@@ -4,7 +4,7 @@ Planning notes for a permanent hardware test rack that validates the host tools
 and firmware across operating systems and runs continuous (24h+) sniffer soak
 tests with data-stream sampling.
 
-This complements `TEST_PLAN.md` (the manual per-release checklist). This doc is
+This complements [TEST_PLAN.md](TEST_PLAN.md) (the manual per-release checklist). This doc is
 about the *infrastructure* to run that checklist repeatedly and automatically.
 
 > Status: design notes / proposal. Nothing here is built yet. Open items are
@@ -98,7 +98,7 @@ relatively quiet RF area and treat counts as ranges, not exact values.
 
 ## 4. The 24-hour soak + data sampling
 
-Goal (from `TEST_PLAN.md` section 8): run sniffers continuously, watch for
+Goal (from [TEST_PLAN.md](TEST_PLAN.md) section 8): run sniffers continuously, watch for
 memory growth (issues #542/#543), crashes, hangs (issue #520), and USB dropouts.
 
 Design:

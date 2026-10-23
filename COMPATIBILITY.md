@@ -4,8 +4,8 @@ This document states which platforms and tool versions this fork **requires**,
 which it has been **tested against**, and which are **not supported**.
 
 > **Honesty rule for this doc:** a cell is only marked *Verified* if it was
-> actually exercised — by a CI run or on real hardware (see `TEST_PLAN.md` /
-> `TEST_LAB.md`). Requirements we intend to meet but have **not yet verified**
+> actually exercised — by a CI run or on real hardware (see [TEST_PLAN.md](TEST_PLAN.md) /
+> [TEST_LAB.md](TEST_LAB.md)). Requirements we intend to meet but have **not yet verified**
 > are marked *Target (unverified)*. We do not claim support we have not proven;
 > the whole reason this fork exists is that the upstream 2020-12-R1 release
 > *claimed* to work on modern systems and did not.
@@ -123,7 +123,7 @@ firmware flashing), not radio capture.
    explicit versions (not `-latest`) so the record is reproducible, and test the
    **minimum and the newest** of each dimension.
 3. **Hardware-only claims** — anything about radio behaviour (BLE/BR-EDR
-   capture) is only "tested" when run on a real Ubertooth per `TEST_PLAN.md`.
+   capture) is only "tested" when run on a real Ubertooth per [TEST_PLAN.md](TEST_PLAN.md).
 
 ## TODO before this matrix can be trusted
 - [x] Add pinned Ubuntu 20.04 (container) / 22.04 / 24.04 to CI; verified green.

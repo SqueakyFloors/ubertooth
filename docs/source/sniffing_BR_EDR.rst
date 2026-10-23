@@ -118,8 +118,8 @@ Typical workflow
    :doc:`build_guide` for older versions. :doc:`bluetooth_captures_PCAP`
    describes the capture format.
 
-See the man pages in ``host/doc/`` (``ubertooth-rx.md``, ``ubertooth-afh.md``,
-``ubertooth-scan.md``, ``ubertooth-follow.md``) for all options.
+See the man pages in ``host/doc/`` (`ubertooth-rx.md <https://github.com/SqueakyFloors/ubertooth/blob/main/host/doc/ubertooth-rx.md>`__, `ubertooth-afh.md <https://github.com/SqueakyFloors/ubertooth/blob/main/host/doc/ubertooth-afh.md>`__,
+`ubertooth-scan.md <https://github.com/SqueakyFloors/ubertooth/blob/main/host/doc/ubertooth-scan.md>`__, `ubertooth-follow.md <https://github.com/SqueakyFloors/ubertooth/blob/main/host/doc/ubertooth-follow.md>`__) for all options.
 
 
 .. _finding-the-nap:
@@ -183,7 +183,7 @@ Limitations:
 - Packets sent after encryption is enabled are shown as raw data and cannot be decrypted.
 - ``ubertooth-btbr`` may hang shortly after starting (upstream issue
   `#520 <https://github.com/greatscottgadgets/ubertooth/issues/520>`__); see
-  ``firmware/btbr/README.md``.
+  `firmware/btbr/README.md <https://github.com/SqueakyFloors/ubertooth/blob/main/firmware/btbr/README.md>`__.
 
-``host/python/ubtbr/README.md`` lists the other ``ubertooth-btbr`` commands
+`host/python/ubtbr/README.md <https://github.com/SqueakyFloors/ubertooth/blob/main/host/python/ubtbr/README.md>`__ lists the other ``ubertooth-btbr`` commands
 (``inquiry``, ``page``, ``inquiry_scan``, ``page_scan``, ``l2ping``).

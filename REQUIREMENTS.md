@@ -27,7 +27,7 @@ Missing a **required** dependency fails the build.
 | Python 3 + runtime modules | specan_ui / ubtbr Python tools | Python tools install, but fail at runtime if deps are missing | `python3`; specan_ui: `numpy qtpy pyside6`; ubtbr: `libusb1` / distro `python3-usb1` |
 | ronn (ronn-ng) | regenerate man pages from `host/doc/*.md` | committed `.1` man pages are installed as-is | `gem install ronn-ng` |
 
-See `COMPATIBILITY.md` for supported OS / toolchain / Python **versions**.
+See [COMPATIBILITY.md](COMPATIBILITY.md) for supported OS / toolchain / Python **versions**.
 
 ## Firmware
 

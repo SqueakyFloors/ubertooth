@@ -7,7 +7,7 @@ ToDo List
    This is the historical **upstream** project wishlist, inherited with the
    fork. It is aspirational and is **not** a commitment or roadmap for this
    fork. For this fork's actual tracked work, see the GitHub issue tracker,
-   ``COMPATIBILITY.md`` (support matrix), and ``TEST_LAB.md`` (test strategy).
+   `COMPATIBILITY.md <https://github.com/SqueakyFloors/ubertooth/blob/main/COMPATIBILITY.md>`__ (support matrix), and `TEST_LAB.md <https://github.com/SqueakyFloors/ubertooth/blob/main/TEST_LAB.md>`__ (test strategy).
    Obsolete items (e.g. GR-Bluetooth migration, Windows via libusbx/WICD) have
    been removed.
 

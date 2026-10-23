@@ -52,7 +52,7 @@ For interactive support, join the `#ubertooth` channel on Discord:
 ## COPYRIGHT
 
 The code and documentation for Project Ubertooth are Copyright 2010-2017
-and are available under the terms of the GPLv2. Refer to `COPYING` for
+and are available under the terms of the GPLv2. Refer to [COPYING](https://github.com/SqueakyFloors/ubertooth/blob/main/COPYING) for
 details. Ubertooth is a registered trademark of Great Scott Gadgets.
 
 ## AUTHOR

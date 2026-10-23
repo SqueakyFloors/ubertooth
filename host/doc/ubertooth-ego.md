@@ -61,4 +61,4 @@ This manual page was written by Mike Ryan.
 ## COPYRIGHT
 
 ubertooth-ego(1) is Copyright (c) 2015 Mike Ryan. This tool is released
-under the GPLv2. Refer to `COPYING` for further details.
+under the GPLv2. Refer to [COPYING](https://github.com/SqueakyFloors/ubertooth/blob/main/COPYING) for further details.
