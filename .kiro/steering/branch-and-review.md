@@ -68,6 +68,20 @@ or non-trivial operational documentation changes:
 - If any candidate content changes after a blocker is reported, both reviewers
   MUST review the resulting final diff again.
 
+## CI results
+
+- CI runs on pull requests and on pushes to `main` only. A branch with no open
+  PR gets no CI; open a PR (a draft is enough) to get a run.
+- A newer commit on a PR cancels that PR's older run. Read results with
+  `gh pr checks <PR>`, which reports the current head commit, not with the id of
+  a run you saw earlier. A "cancelled" run for a superseded commit is expected,
+  not a failure.
+- Only the run for the head commit that will be merged counts. Wait for it to
+  finish before merging; do not merge on a cancelled, queued, or older run.
+- Runs for `main` and the weekly schedule are never cancelled.
+- Cancelling runs yourself is for runs you made redundant (for example a PR you
+  closed as superseded); never cancel another agent's or PR's runs.
+
 ## Changelog discipline
 
 - MUST describe user-facing impact concisely, normally in one bullet of one to
