@@ -51,7 +51,7 @@ static struct {
 	int current_index;     /* device opened by ubertooth_start(), or -1 */
 	int unavailable_index; /* ubertooth_start() fails for this index */
 	int board_fail_index;  /* the board ID read fails on this device */
-	int indexed_starts, stops, closes, frees;
+	int indexed_starts, closes, frees;
 } fake;
 
 static ubertooth_t fake_ut;
@@ -104,7 +104,6 @@ ubertooth_t *ubertooth_start_select(const char *u_arg)
 void ubertooth_stop(ubertooth_t *ut)
 {
 	(void)ut;
-	fake.stops++;
 	fake.stop_calls++;
 	fake.current_index = -1;
 }
@@ -877,12 +876,12 @@ MU_TEST(listing_is_not_used_with_a_selector_one_device_or_other_operations)
 	mu_assert(strcmp(r.out, BOARD_LINE) == 0, "single device without -U");
 	mu_assert_int_eq(0, fake.indexed_starts);
 
-	/* Another operation in the same command needs a single selected device,
-	 * so it goes through the normal selection (which refuses on real hardware). */
 	/* A device count error falls back to normal selection. */
 	reset_fake();
 	fake.device_count = -1;
 	r = RUN("-b");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, BOARD_LINE) == 0, "single-device report");
 	mu_assert_int_eq(0, fake.indexed_starts);
 	mu_assert_int_eq(1, fake.start_calls);
 
@@ -901,6 +900,8 @@ MU_TEST(listing_is_not_used_with_a_selector_one_device_or_other_operations)
 		}
 	}
 
+	/* Another operation in the same command needs a single selected device,
+	 * so it goes through the normal selection (which refuses on real hardware). */
 	reset_fake();
 	fake.device_count = 2;
 	r = RUN("-s", "-c");

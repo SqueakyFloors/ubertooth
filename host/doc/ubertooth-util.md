@@ -133,8 +133,8 @@ prefixed with the device index. A device that cannot be opened is shown as
 `<index>: <unavailable>`, a failed read as `<index>: <query read failed>`, and a
 query that reports an error as that error (for example `<error: unknown board
 ID 7>`). The other devices are still reported, and the command exits non-zero
-if any device failed; a firmware version whose API version cannot be read is
-shown without it. Listing does not stop a mode a device is running. Any other
+if any device failed. A firmware version whose API version cannot be read is
+shown without it; failed `-V` and firmware revision reads are not detected yet. Listing does not stop a mode a device is running. Any other
 option in the same command still needs `-U`.
 
 To tell which index or serial is which physical device:

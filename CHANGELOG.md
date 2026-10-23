@@ -13,7 +13,8 @@
   index or stable serial number, and multi-device messages make selectors clear
   without dumping full help text. With several devices and no `-U`,
   `ubertooth-util` read-only queries (`-s`, `-v`, `-V`, `-p`, `-b`, alone or
-  combined) report every device and exit non-zero if any cannot be read.
+  combined) report every device and exit non-zero if a device cannot be opened
+  or a query fails.
   [#6](https://github.com/SqueakyFloors/ubertooth/issues/6)
   [#27](https://github.com/SqueakyFloors/ubertooth/issues/27)
 - `install.sh` provides one-command Debian/Ubuntu source installation, with
