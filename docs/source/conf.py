@@ -22,3 +22,6 @@ pygments_style = None
 # -- Options for HTML output -------------------------------------------------
 
 html_theme = 'sphinx_rtd_theme'
+# White mark for the theme's dark sidebar (generated from ../images/ubertooth_logo.png)
+html_logo = '../images/ubertooth_mark_dark.png'
+html_favicon = '../images/ubertooth_mark.png'

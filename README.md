@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/ubertooth_wordmark_dark.png">
+    <img src="docs/images/ubertooth_wordmark.png" alt="Ubertooth" width="320">
+  </picture>
+</p>
+
 # Ubertooth
 
 Project Ubertooth is an open source wireless development platform
