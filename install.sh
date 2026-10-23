@@ -67,34 +67,28 @@ as_root() {
 }
 
 # Print one "<index> <serial>" line per attached Ubertooth, in index order, with
-# "?" as the serial of a device that could not be read. Works without sudo and
-# with every ubertooth-util output form: "<index>: <serial>" lines (several
-# devices), "Device <index>: Serial No: <serial>" (older tools), or a single
-# "Serial No: <serial>". The exit code is ignored on purpose.
+# "?" as the serial of a device that could not be read. The serials come from
+# `ubertooth-util -s` in any of its output forms ("<index>: <serial>" for
+# several devices, "Device <index>: Serial No: <serial>" from older tools, or a
+# single "Serial No: <serial>"); the device count comes from `ubertooth-util -N`,
+# so a board whose serial is missing is reported instead of dropped. Exit codes
+# are ignored on purpose.
 list_devices() {
-	local out
-	out="$("$1" -s 2>&1 || true)"
-	if printf '%s\n' "$out" | grep -qE '^[0-9]+: '; then
-		# Any index line that is not a serial counts as an unreadable device.
-		printf '%s\n' "$out" | sed -n \
-			-e 's/^\([0-9][0-9]*\): \([0-9a-f]\{32\}\)$/\1 \2/p' -e t \
-			-e 's/^\([0-9][0-9]*\): .*/\1 ?/p'
-	elif printf '%s\n' "$out" | grep -qE 'Device [0-9]+: Serial No: '; then
-		printf '%s\n' "$out" | \
-			sed -n 's/.*Device \([0-9][0-9]*\): Serial No: \([0-9a-f]\{32\}\).*/\1 \2/p'
-	elif printf '%s\n' "$out" | grep -q 'Serial No: '; then
-		printf '%s\n' "$out" | sed -n 's/.*Serial No: \([0-9a-f]\{32\}\).*/0 \1/p'
-	else
-		# No serial at all: report each attached device as unreadable, so one
-		# unreadable board is not mistaken for no board.
-		local count i=0
-		count="$("$1" -N 2>/dev/null || echo 0)"
-		case "$count" in ''|*[!0-9]*) count=0 ;; esac
-		while [ "$i" -lt "$count" ]; do
-			echo "$i ?"
-			i=$((i+1))
-		done
-	fi
+	local parsed count i serial
+	parsed="$("$1" -s 2>&1 | sed -n \
+		-e 's/^\([0-9][0-9]*\): \([0-9a-f]\{32\}\)$/\1 \2/p' -e t \
+		-e 's/.*Device \([0-9][0-9]*\): Serial No: \([0-9a-f]\{32\}\).*/\1 \2/p' -e t \
+		-e 's/^Serial No: \([0-9a-f]\{32\}\).*/0 \1/p' || true)"
+	count="$("$1" -N 2>/dev/null || true)"
+	case "$count" in
+		''|*[!0-9]*) count="$(printf '%s\n' "$parsed" | grep -c . || true)" ;;
+	esac
+	i=0
+	while [ "$i" -lt "$count" ]; do
+		serial="$(printf '%s\n' "$parsed" | awk -v i="$i" '$1 == i { print $2; exit }')"
+		echo "$i ${serial:-?}"
+		i=$((i+1))
+	done
 }
 
 # Build a concise "multiple devices" message listing each device as
@@ -186,6 +180,8 @@ case "$(uname -s)" in
 esac
 ORIG_PATH="$PATH"
 mkdir -p "$PREFIX" 2>/dev/null || true
+# Run paths and PATH need an absolute prefix.
+PREFIX="$(cd "$PREFIX" 2>/dev/null && pwd)" || die "cannot use --prefix: $PREFIX"
 # Tools installed by this run (and an existing install in PREFIX) come first.
 export PATH="$PREFIX/bin:$PATH"
 
@@ -271,7 +267,9 @@ if [ "$WITH_FIRMWARE" -eq 1 ] && [ "$SKIP_DEPS" -eq 0 ]; then
 	else
 		info "Installing firmware toolchain (Homebrew)"
 		brew_install dfu-util
-		brew list --cask --versions gcc-arm-embedded >/dev/null 2>&1 || \
+		# Any working arm-none-eabi-gcc will do; installing the cask over an
+		# existing one would conflict.
+		command -v arm-none-eabi-gcc >/dev/null 2>&1 || \
 			brew install --cask gcc-arm-embedded
 	fi
 fi
@@ -310,6 +308,7 @@ if [ -n "$VENV" ]; then
 fi
 info "Installing Python runtime deps for specan_ui and ubtbr"
 PIP_DEPS=(numpy qtpy pyside6)
+PY_DEPS_WARNING=""
 # Debian/Ubuntu gets the ubtbr USB binding from apt (python3-usb1).
 [ "$PLATFORM" = macos ] && PIP_DEPS+=(libusb1==3.4.0)
 if [ "$PLATFORM" = debian ]; then
@@ -320,17 +319,20 @@ fi
 if [ -n "$VENV" ]; then
 	VENV_DEPS=("${PIP_DEPS[@]}")
 	[ "$PLATFORM" = debian ] && VENV_DEPS+=(libusb1==3.4.0)
-	"$PYTHON" -m pip install --quiet "${VENV_DEPS[@]}" || \
-		info "WARNING: could not pip-install Python runtime deps into the venv"
+	if ! "$PYTHON" -m pip install --quiet "${VENV_DEPS[@]}"; then
+		PY_DEPS_WARNING="could not pip-install Python runtime deps into the venv $VENV"
+		info "WARNING: $PY_DEPS_WARNING"
+	fi
 elif ! "$PYTHON" -m pip install --quiet "${PIP_DEPS[@]}" 2>/dev/null; then
 	# Homebrew's Python is externally managed and upgrades replace it, so do not
 	# force packages into it on macOS; a venv is the supported route there.
 	if [ "$PLATFORM" = debian ]; then
 		"$PYTHON" -m pip install --quiet --break-system-packages "${PIP_DEPS[@]}" 2>/dev/null || \
-			info "WARNING: could not pip-install GUI deps; $GUI_DEPS_HINT"
+			PY_DEPS_WARNING="could not pip-install GUI deps; $GUI_DEPS_HINT"
 	else
-		info "WARNING: could not pip-install GUI deps; $GUI_DEPS_HINT"
+		PY_DEPS_WARNING="could not pip-install GUI deps; $GUI_DEPS_HINT"
 	fi
+	[ -z "$PY_DEPS_WARNING" ] || info "WARNING: $PY_DEPS_WARNING"
 fi
 
 # --- 5. libbtbb -----------------------------------------------------------
@@ -377,7 +379,12 @@ if [ "$WITH_FIRMWARE" -eq 1 ] && [ "$FLASHED" -eq 0 ]; then
 	flash_firmware
 fi
 
-info "Done. Try: ubertooth-util -v   (and: ubertooth-specan-ui)"
+if [ -n "$PY_DEPS_WARNING" ]; then
+	info "Done, but the Python tools (ubertooth-specan-ui, ubtbr) will not run: $PY_DEPS_WARNING"
+	info "Try: ubertooth-util -v"
+else
+	info "Done. Try: ubertooth-util -v   (and: ubertooth-specan-ui)"
+fi
 case ":$ORIG_PATH:" in
 	*":$PREFIX/bin:"*) ;;
 	*) info "Add $PREFIX/bin to your PATH to run the installed tools" ;;
