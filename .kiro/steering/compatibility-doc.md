@@ -29,7 +29,8 @@ adjacent commit on the same branch) as whatever alters it.
 - Record what was verified and how (CI job, hardware, date) in the matrix or the
   relevant compatibility note.
 - If a verified claim is no longer true, downgrade it in the same change.
-- Also update the changelog (`CHANGELOG.md`) for user-facing support changes.
+- Updating the matrix or other docs does not need a changelog entry. A change
+  to the code or build that alters support gets its own changelog entry as usual.
 
 ## Check before finishing
 
