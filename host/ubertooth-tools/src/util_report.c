@@ -2,6 +2,8 @@
  * Hardware-independent identity reports and exit-status handling for
  * ubertooth-util. See util_report.h.
  */
+#include <inttypes.h>
+
 #include "util_report.h"
 
 #define UTIL_TEXT_LEN 255
@@ -93,12 +95,12 @@ int util_report_compile_info(const struct util_report_ops *ops, void *context,
 int util_report_part_id(const struct util_report_ops *ops, void *context,
                         FILE *out)
 {
-	int part_id = ops->get_part_id(context);
+	uint32_t part_id = 0;
 
-	/* A negative value is a transfer error already reported by the library. */
-	if (part_id < 0)
+	/* A negative value is an error already reported by the library. */
+	if (ops->get_part_id(context, &part_id) < 0)
 		return 1;
-	fprintf(out, "Part ID: %X\n", part_id);
+	fprintf(out, "Part ID: %" PRIX32 "\n", part_id);
 	return 0;
 }
 

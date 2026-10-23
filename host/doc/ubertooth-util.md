@@ -88,7 +88,8 @@ Miscellaneous:
  - `-b` :
    get hardware board id number
  - `-p` :
-   get microcontroller Part ID
+   get microcontroller Part ID (32-bit, hexadecimal); exits non-zero if the
+   device reports a nonzero status for the read
  - `-s` :
    get microcontroller serial number
 

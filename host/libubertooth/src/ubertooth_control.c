@@ -19,6 +19,7 @@
  * Boston, MA 02110-1301, USA.
  */
 
+#include <limits.h>
 #include <string.h>
 #include <btbb.h>
 #include "ubertooth_control.h"
@@ -276,7 +277,7 @@ int cmd_set_channel(struct libusb_device_handle* devh, u16 channel)
 	return 0;
 }
 
-int cmd_get_partnum(struct libusb_device_handle* devh)
+int cmd_get_part_id(struct libusb_device_handle* devh, u32 *part_id)
 {
 	u8 result[5];
 	int r;
@@ -287,11 +288,35 @@ int cmd_get_partnum(struct libusb_device_handle* devh)
 		show_libusb_error(r);
 		return r;
 	}
-	if (result[0] != 0) {
-		fprintf(stderr, "result not zero: %d\n", result[0]);
-		return 0;
+	if (r != 5) {
+		fprintf(stderr, "part ID: short reply (%d of 5 bytes)\n", r);
+		return LIBUSB_ERROR_IO;
 	}
-	return result[1] | (result[2] << 8) | (result[3] << 16) | (result[4] << 24);
+	/* result[0] is the In-Application Programming (IAP) status code. */
+	if (result[0] != 0) {
+		fprintf(stderr, "part ID: device status not zero: %d\n", result[0]);
+		return LIBUSB_ERROR_OTHER;
+	}
+	*part_id = (u32)result[1] | ((u32)result[2] << 8) |
+	           ((u32)result[3] << 16) | ((u32)result[4] << 24);
+	return 0;
+}
+
+int cmd_get_partnum(struct libusb_device_handle* devh)
+{
+	u32 part_id;
+	int r;
+
+	r = cmd_get_part_id(devh, &part_id);
+	if (r < 0)
+		return r;
+	/* A part ID with bit 31 set cannot be returned as a non-negative int. */
+	if (part_id > (u32)INT_MAX) {
+		fprintf(stderr, "part ID 0x%08X does not fit; use cmd_get_part_id()\n",
+		        (unsigned int)part_id);
+		return LIBUSB_ERROR_OVERFLOW;
+	}
+	return (int)part_id;
 }
 
 void print_serial(u8 *serial, FILE *fileptr)

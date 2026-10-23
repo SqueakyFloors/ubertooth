@@ -88,3 +88,17 @@ if(USE_OWN_GNU_GETOPT)
 endif()
 
 add_test(NAME util-main COMMAND test-util-main)
+
+# Runs the real libubertooth part-ID commands against a fake libusb control
+# transfer (defined in the test, so it wins over libusb's). libbtbb is faked;
+# libusb is linked for the other symbols. Needs the library sources, so only
+# when built from the whole host tree.
+if(libubertooth_SOURCE_DIR)
+	add_executable(test-control-partnum
+		test_control_partnum.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
+	target_include_directories(test-control-partnum PRIVATE
+		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+	target_link_libraries(test-control-partnum ${LIBUSB_LIBRARIES})
+	add_test(NAME control-partnum COMMAND test-control-partnum)
+endif()

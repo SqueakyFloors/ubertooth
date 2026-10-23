@@ -29,8 +29,9 @@ static unsigned fake_sleep(unsigned seconds)
 /* ---- scripted device -------------------------------------------------- */
 
 static struct {
-	int board_id, channel, palevel, squelch, usrled, rxled, txled, partnum;
-	int serial_rc, api_rc;
+	int board_id, channel, palevel, squelch, usrled, rxled, txled;
+	uint32_t partnum;
+	int partnum_rc, serial_rc, api_rc;
 	uint16_t api_version;
 	const char *revision, *compile_info;
 	/* results of commands that set state or start a mode */
@@ -143,7 +144,12 @@ int cmd_get_squelch(struct libusb_device_handle *h) { (void)h; return fake.squel
 int cmd_get_usrled(struct libusb_device_handle *h) { (void)h; return fake.usrled; }
 int cmd_get_rxled(struct libusb_device_handle *h) { (void)h; return fake.rxled; }
 int cmd_get_txled(struct libusb_device_handle *h) { (void)h; return fake.txled; }
-int cmd_get_partnum(struct libusb_device_handle *h) { (void)h; return fake.partnum; }
+int cmd_get_part_id(struct libusb_device_handle *h, u32 *part_id)
+{
+	(void)h;
+	*part_id = fake.partnum;
+	return fake.partnum_rc;
+}
 
 int cmd_get_serial(struct libusb_device_handle *h, u8 *serial)
 {
@@ -422,12 +428,24 @@ MU_TEST(an_earlier_failure_is_not_masked_by_later_successes)
 	mu_assert(strstr(r.out, SERIAL_LINE) != NULL, "serial still reported");
 }
 
+MU_TEST(part_id_with_bit_31_set_is_reported_in_full)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.partnum = 0x8000ABCDu;
+	r = RUN("-p");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "Part ID: 8000ABCD\n") == 0,
+	          "full 32-bit part ID not printed");
+}
+
 MU_TEST(each_failing_report_makes_the_command_fail)
 {
 	struct run_result r;
 
 	reset_fake();
-	fake.partnum = -1;
+	fake.partnum_rc = LIBUSB_ERROR_OTHER; /* nonzero status byte */
 	r = RUN("-p", "-s");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strstr(r.out, "Part ID") == NULL, "no part ID line on error");
@@ -918,6 +936,7 @@ int main(void)
 	MU_RUN(device_access_applies_the_selector_and_fails_cleanly_without_a_device);
 	MU_RUN(composed_queries_print_in_the_documented_order_and_exit_zero);
 	MU_RUN(an_earlier_failure_is_not_masked_by_later_successes);
+	MU_RUN(part_id_with_bit_31_set_is_reported_in_full);
 	MU_RUN(each_failing_report_makes_the_command_fail);
 	MU_RUN(all_leds_query_reports_each_led_and_fails_if_any_read_fails);
 	MU_RUN(range_result_is_reported_and_a_failed_read_fails);
