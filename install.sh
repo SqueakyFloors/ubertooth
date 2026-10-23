@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 #
 # install.sh - one-command from-source setup for the Ubertooth host tools
-#              (and optionally firmware) on Debian/Ubuntu.
+#              (and optionally firmware) on Debian/Ubuntu and on macOS with
+#              Homebrew.
 #
-# Builds and installs: system dependencies, libbtbb, the Ubertooth host tools
-# (with -DREQUIRE_ALL=ON so a missing optional dep fails loudly), udev rules,
-# and the Python runtime deps for specan_ui. Firmware build/flash is opt-in.
+# Builds and installs: system dependencies, libbtbb, the Ubertooth host tools,
+# and the Python runtime deps for specan_ui. On Debian/Ubuntu it also installs
+# udev rules and builds with -DREQUIRE_ALL=ON so a missing optional dep fails
+# loudly. macOS needs no udev rules and has no BlueZ, so ubertooth-scan and
+# ubertooth-follow are not built there. Firmware build/flash is opt-in.
 #
 # When flashing is requested, the flash target is resolved and the firmware is
 # built and flashed FIRST (fail fast), before the longer host/libbtbb build.
@@ -27,9 +30,16 @@
 #   --venv <path>     create/use a Python venv at <path> for the Python tools
 #                     and point the build at its interpreter
 #   --libbtbb-ref <r> git ref/tag of libbtbb to build (default: master)
+#   --prefix <path>   install prefix (default: /usr/local on Debian/Ubuntu,
+#                     the Homebrew prefix on macOS)
+#   --skip-deps       do not install system packages; assume they are present
 #   --no-sudo         print the commands that need root instead of running them
 #                     (dry-run for the privileged steps)
 #   -h, --help        show this help
+#
+# On macOS the install goes into the Homebrew prefix by default, which is owned
+# by your user, so no sudo is needed. Homebrew asks for your password only when
+# it installs the gcc-arm-embedded toolchain package (--with-firmware).
 #
 # Copyright 2026. Released under the GPLv2. Refer to COPYING.
 
@@ -41,6 +51,8 @@ FLASH_DEVICE=""
 VENV=""
 LIBBTBB_REF="master"
 NO_SUDO=0
+PREFIX=""
+SKIP_DEPS=0
 
 die() { echo "error: $*" >&2; exit 1; }
 info() { echo "==> $*"; }
@@ -54,11 +66,35 @@ as_root() {
 	fi
 }
 
-# List attached Ubertooth serials (one per line). Works without sudo; the tool
-# exits non-zero when several devices are present but still lists them, so the
-# exit code is ignored on purpose.
+# List attached Ubertooth serials (one per line), in index order. Works without
+# sudo. With one device `ubertooth-util -s` prints "Serial No: <serial>"; with
+# several it prints "<index>: <serial>" per device. A failed read is ignored, so
+# the exit code is too.
 list_serials() {
-	"$1" -s 2>&1 | sed -n 's/.*Serial No: \([0-9a-f]*\).*/\1/p' || true
+	"$1" -s 2>&1 | sed -n \
+		-e 's/.*Serial No: \([0-9a-f]\{32\}\).*/\1/p' \
+		-e 's/^[0-9][0-9]*: \([0-9a-f]\{32\}\)$/\1/p' || true
+}
+
+# Install the given Homebrew formulae that are not installed yet.
+brew_install() {
+	local formula missing=()
+	for formula in "$@"; do
+		brew list --formula --versions "$formula" >/dev/null 2>&1 || missing+=("$formula")
+	done
+	if [ "${#missing[@]}" -gt 0 ]; then
+		brew install "${missing[@]}"
+	fi
+}
+
+# Run an install step into PREFIX: directly when PREFIX is writable on macOS
+# (the Homebrew prefix or a scratch --prefix), otherwise as root.
+as_installer() {
+	if [ "$PLATFORM" = macos ] && [ -w "$PREFIX" ]; then
+		"$@"
+	else
+		as_root "$@"
+	fi
 }
 
 # Build a concise "multiple devices" message listing each device as
@@ -80,6 +116,8 @@ while [ $# -gt 0 ]; do
 		--flash-device) shift; FLASH_DEVICE="${1:-}"; FLASH=1; WITH_FIRMWARE=1; [ -n "$FLASH_DEVICE" ] || die "--flash-device needs an index, serial, or 'all'" ;;
 		--venv) shift; VENV="${1:-}"; [ -n "$VENV" ] || die "--venv needs a path" ;;
 		--libbtbb-ref) shift; LIBBTBB_REF="${1:-}"; [ -n "$LIBBTBB_REF" ] || die "--libbtbb-ref needs a value" ;;
+		--prefix) shift; PREFIX="${1:-}"; [ -n "$PREFIX" ] || die "--prefix needs a path" ;;
+		--skip-deps) SKIP_DEPS=1 ;;
 		--no-sudo) NO_SUDO=1 ;;
 		-h|--help) sed -n '3,/^# Copyright/p' "$0" | sed '/^# Copyright/d; s/^#\{1,\} \{0,1\}//; s/^#$//'; exit 0 ;;
 		*) die "unknown option: $1 (use --help)" ;;
@@ -88,8 +126,31 @@ while [ $# -gt 0 ]; do
 done
 
 # --- platform check -------------------------------------------------------
-command -v apt-get >/dev/null 2>&1 || \
-	die "this script currently supports Debian/Ubuntu (apt-get) only; see REQUIREMENTS.md for other platforms"
+case "$(uname -s)" in
+	Linux)
+		command -v apt-get >/dev/null 2>&1 || \
+			die "on Linux this script supports Debian/Ubuntu (apt-get) only; see REQUIREMENTS.md for other platforms"
+		PLATFORM=debian
+		PREFIX="${PREFIX:-/usr/local}"
+		JOBS="$(nproc)"
+		;;
+	Darwin)
+		command -v brew >/dev/null 2>&1 || \
+			die "on macOS this script needs Homebrew (https://brew.sh); see REQUIREMENTS.md"
+		PLATFORM=macos
+		BREW_PREFIX="$(brew --prefix)"
+		PREFIX="${PREFIX:-$BREW_PREFIX}"
+		JOBS="$(sysctl -n hw.ncpu)"
+		;;
+	*)
+		die "unsupported platform $(uname -s); this script supports Debian/Ubuntu and macOS (Homebrew); see REQUIREMENTS.md"
+		;;
+esac
+command -v python3 >/dev/null 2>&1 || die "python3 not found; install Python 3.8 or newer"
+ORIG_PATH="$PATH"
+mkdir -p "$PREFIX" 2>/dev/null || true
+# Tools installed by this run (and an existing install in PREFIX) come first.
+export PATH="$PREFIX/bin:$PATH"
 
 REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
 WORK="${TMPDIR:-/tmp}/ubertooth-install.$$"
@@ -162,10 +223,17 @@ if [ "$FLASH" -eq 1 ] && command -v ubertooth-util >/dev/null 2>&1; then
 fi
 
 # --- 1. firmware toolchain deps (only what flashing needs, installed early) -
-if [ "$WITH_FIRMWARE" -eq 1 ]; then
-	info "Installing firmware toolchain (apt)"
-	as_root apt-get update -qq
-	as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y gcc-arm-none-eabi dfu-util make
+if [ "$WITH_FIRMWARE" -eq 1 ] && [ "$SKIP_DEPS" -eq 0 ]; then
+	if [ "$PLATFORM" = debian ]; then
+		info "Installing firmware toolchain (apt)"
+		as_root apt-get update -qq
+		as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y gcc-arm-none-eabi dfu-util make
+	else
+		info "Installing firmware toolchain (Homebrew)"
+		brew_install dfu-util
+		brew list --cask --versions gcc-arm-embedded >/dev/null 2>&1 || \
+			brew install --cask gcc-arm-embedded
+	fi
 fi
 
 # --- 2. firmware build + flash FIRST (fail fast on a bad device) ----------
@@ -178,11 +246,18 @@ if [ "$WITH_FIRMWARE" -eq 1 ] && command -v ubertooth-dfu >/dev/null 2>&1; then
 fi
 
 # --- 3. system dependencies (host build) ----------------------------------
-info "Installing system dependencies (apt)"
-as_root apt-get update -qq
-as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y \
-	cmake build-essential pkg-config libusb-1.0-0-dev libbluetooth-dev \
-	libfftw3-dev python3 python3-venv python3-usb1 git
+if [ "$SKIP_DEPS" -eq 1 ]; then
+	info "Skipping system dependencies (--skip-deps)"
+elif [ "$PLATFORM" = debian ]; then
+	info "Installing system dependencies (apt)"
+	as_root apt-get update -qq
+	as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y \
+		cmake build-essential pkg-config libusb-1.0-0-dev libbluetooth-dev \
+		libfftw3-dev python3 python3-venv python3-usb1 git
+else
+	info "Installing system dependencies (Homebrew)"
+	brew_install cmake pkg-config libusb fftw
+fi
 
 # --- 4. Python interpreter / venv ----------------------------------------
 PYTHON="python3"
@@ -195,13 +270,20 @@ if [ -n "$VENV" ]; then
 fi
 info "Installing Python runtime deps for specan_ui and ubtbr"
 PIP_DEPS=(numpy qtpy pyside6)
+# Debian/Ubuntu gets the ubtbr USB binding from apt (python3-usb1).
+[ "$PLATFORM" = macos ] && PIP_DEPS+=(libusb1==3.4.0)
+if [ "$PLATFORM" = debian ]; then
+	GUI_DEPS_HINT="install python3-numpy python3-qtpy python3-pyside6 (apt) or use --venv"
+else
+	GUI_DEPS_HINT="use --venv, or pip-install ${PIP_DEPS[*]} for $(command -v python3)"
+fi
 if [ -n "$VENV" ]; then
 	"$PYTHON" -m pip install --quiet "${PIP_DEPS[@]}" libusb1==3.4.0 || \
 		info "WARNING: could not pip-install Python runtime deps into the venv"
 else
 	if ! "$PYTHON" -m pip install --quiet "${PIP_DEPS[@]}" 2>/dev/null; then
 		"$PYTHON" -m pip install --quiet --break-system-packages "${PIP_DEPS[@]}" 2>/dev/null || \
-			info "WARNING: could not pip-install GUI deps; install python3-numpy python3-qtpy python3-pyside6 (apt) or use --venv"
+			info "WARNING: could not pip-install GUI deps; $GUI_DEPS_HINT"
 	fi
 fi
 
@@ -210,20 +292,38 @@ info "Building libbtbb ($LIBBTBB_REF)"
 git clone --quiet https://github.com/greatscottgadgets/libbtbb.git "$WORK/libbtbb"
 git -C "$WORK/libbtbb" checkout --quiet "$LIBBTBB_REF"
 cmake -S "$WORK/libbtbb" -B "$WORK/libbtbb/build" \
-	-DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DENABLE_PYTHON=OFF >/dev/null
-cmake --build "$WORK/libbtbb/build" -j"$(nproc)" >/dev/null
-as_root cmake --install "$WORK/libbtbb/build" >/dev/null
-as_root ldconfig
+	-DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DENABLE_PYTHON=OFF \
+	-DCMAKE_INSTALL_PREFIX="$PREFIX" >/dev/null
+cmake --build "$WORK/libbtbb/build" -j"$JOBS" >/dev/null
+as_installer cmake --install "$WORK/libbtbb/build" >/dev/null
+[ "$PLATFORM" = debian ] && as_root ldconfig
 
 # --- 6. host tools --------------------------------------------------------
-info "Building Ubertooth host tools (REQUIRE_ALL=ON)"
-CMAKE_ARGS=(-DREQUIRE_ALL=ON)
+# The installed tools find libubertooth and libbtbb under PREFIX through their
+# run path, so a non-default prefix works without ldconfig or DYLD settings.
+CMAKE_ARGS=(
+	"-DCMAKE_INSTALL_PREFIX=$PREFIX"
+	"-DCMAKE_PREFIX_PATH=$PREFIX"
+	"-DCMAKE_INSTALL_RPATH=$PREFIX/lib"
+)
+if [ "$PLATFORM" = debian ]; then
+	info "Building Ubertooth host tools (REQUIRE_ALL=ON)"
+	CMAKE_ARGS+=(-DREQUIRE_ALL=ON)
+else
+	# No BlueZ on macOS, so REQUIRE_ALL is not used; Homebrew's libusb headers
+	# are not on the compiler's default search path.
+	info "Building Ubertooth host tools"
+	CMAKE_ARGS+=("-DCMAKE_C_FLAGS=-I$BREW_PREFIX/include")
+fi
 [ -n "$VENV" ] && CMAKE_ARGS+=("-DPython3_EXECUTABLE=$PYTHON")
-cmake -S "$REPO_ROOT/host" -B "$REPO_ROOT/host/build" "${CMAKE_ARGS[@]}"
-cmake --build "$REPO_ROOT/host/build" -j"$(nproc)"
-as_root cmake --install "$REPO_ROOT/host/build"
-as_root ldconfig
-info "udev rules installed with the host tools (unplug/replug the Ubertooth)"
+# Forget a libbtbb found by an earlier configure so this run's install is used.
+cmake -S "$REPO_ROOT/host" -B "$REPO_ROOT/host/build" -U 'LIBBTBB_*' "${CMAKE_ARGS[@]}"
+cmake --build "$REPO_ROOT/host/build" -j"$JOBS"
+as_installer cmake --install "$REPO_ROOT/host/build"
+if [ "$PLATFORM" = debian ]; then
+	as_root ldconfig
+	info "udev rules installed with the host tools (unplug/replug the Ubertooth)"
+fi
 
 # --- 7. firmware flash (deferred case: fresh install built tools just now) -
 if [ "$WITH_FIRMWARE" -eq 1 ] && [ "$FLASHED" -eq 0 ]; then
@@ -231,3 +331,7 @@ if [ "$WITH_FIRMWARE" -eq 1 ] && [ "$FLASHED" -eq 0 ]; then
 fi
 
 info "Done. Try: ubertooth-util -v   (and: ubertooth-specan-ui)"
+case ":$ORIG_PATH:" in
+	*":$PREFIX/bin:"*) ;;
+	*) info "Add $PREFIX/bin to your PATH to run the installed tools" ;;
+esac
