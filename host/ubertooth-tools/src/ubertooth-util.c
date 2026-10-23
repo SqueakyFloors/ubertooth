@@ -26,11 +26,52 @@
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
+#include "util_report.h"
 
-const char* board_names[] = {
-	"Ubertooth Zero",
-	"Ubertooth One",
-	"ToorCon 13 Badge"
+/* Adapters from the injected report operations to the libubertooth commands. */
+static int report_get_board_id(void *context)
+{
+	return cmd_get_board_id(((ubertooth_t*)context)->devh);
+}
+
+static void report_get_firmware_revision(void *context, char *revision, size_t size)
+{
+	cmd_get_rev_num(((ubertooth_t*)context)->devh, revision, (u8)size);
+}
+
+static int report_get_api_version(void *context, uint16_t *version)
+{
+	return ubertooth_get_api((ubertooth_t*)context, version);
+}
+
+static void report_get_compile_info(void *context, char *info, size_t size)
+{
+	cmd_get_compile_info(((ubertooth_t*)context)->devh, info, (u8)size);
+}
+
+static int report_get_part_id(void *context)
+{
+	return cmd_get_partnum(((ubertooth_t*)context)->devh);
+}
+
+static int report_get_serial(void *context, uint8_t serial[UTIL_SERIAL_BUFFER_LEN])
+{
+	return cmd_get_serial(((ubertooth_t*)context)->devh, serial);
+}
+
+/* Fold a device command result (negative on error) into the sticky status. */
+static void note_result(int *status, int device_result)
+{
+	*status = util_status_merge(*status, util_value_status(device_result));
+}
+
+static const struct util_report_ops report_ops = {
+	report_get_board_id,
+	report_get_firmware_revision,
+	report_get_api_version,
+	report_get_compile_info,
+	report_get_part_id,
+	report_get_serial,
 };
 
 /* For -I (identify): the loop runs until interrupted. Without a handler, Ctrl-C
@@ -92,7 +133,7 @@ static void usage(FILE *output)
 int main(int argc, char *argv[])
 {
 	int opt;
-	int r = 0;
+	int status = 0; /* 0 on success, 1 if any operation failed; never a device value */
 	ubertooth_t* ut = NULL;
 	rangetest_result rr;
 	int do_stop, do_flash, do_isp, do_leds, do_part, do_reset;
@@ -319,70 +360,76 @@ int main(int argc, char *argv[])
 	}
 	if(do_reset == 0) {
 		fprintf(stdout, "Resetting ubertooth device %s\n", ubertooth_device ? ubertooth_device : "0");
-		r = cmd_reset(ut->devh);
+		status = util_status_merge(status, util_value_status(cmd_reset(ut->devh)));
 		sleep(2);
 		ut = ubertooth_start_select(ubertooth_device);
+		if (ut == NULL)
+			return 1;
 	}
 	if(do_stop == 0) {
 		fprintf(stdout, "Stopping ubertooth device %s\n", ubertooth_device ? ubertooth_device : "0");
-		r = cmd_stop(ut->devh);
+		status = util_status_merge(status, util_value_status(cmd_stop(ut->devh)));
 	}
 
 	/* device configuration actions */
 	if(do_all_leds == 0 || do_all_leds == 1) {
-		cmd_set_usrled(ut->devh, do_all_leds);
-		cmd_set_rxled(ut->devh, do_all_leds);
-		r= cmd_set_txled(ut->devh, do_all_leds);
-		r = (r >= 0) ? 0 : r;
+		note_result(&status, cmd_set_usrled(ut->devh, do_all_leds));
+		note_result(&status, cmd_set_rxled(ut->devh, do_all_leds));
+		note_result(&status, cmd_set_txled(ut->devh, do_all_leds));
 	}
 	if(do_channel > 0)
-		r= cmd_set_channel(ut->devh, do_channel);
+		status = util_status_merge(status,
+		        util_value_status(cmd_set_channel(ut->devh, do_channel)));
 	if(do_leds == 0 || do_leds == 1)
-		r= cmd_set_usrled(ut->devh, do_leds);
+		status = util_status_merge(status,
+		        util_value_status(cmd_set_usrled(ut->devh, do_leds)));
 	if(do_palevel > 0)
-		r= cmd_set_palevel(ut->devh, do_palevel);
+		status = util_status_merge(status,
+		        util_value_status(cmd_set_palevel(ut->devh, do_palevel)));
 
-	/* reporting actions */
+	/* reporting actions, in the order ubertooth-util has always printed them */
 	if(do_all_leds == 2) {
-		fprintf(stdout, "USR LED status: %d\n", cmd_get_usrled(ut->devh));
-		fprintf(stdout, "RX LED status : %d\n", cmd_get_rxled(ut->devh));
-		fprintf(stdout, "TX LED status : %d\n", r= cmd_get_txled(ut->devh));
-		r = (r >= 0) ? 0 : r;
+		int usr = cmd_get_usrled(ut->devh);
+		int rx = cmd_get_rxled(ut->devh);
+		int tx = cmd_get_txled(ut->devh);
+		fprintf(stdout, "USR LED status: %d\n", usr);
+		fprintf(stdout, "RX LED status : %d\n", rx);
+		fprintf(stdout, "TX LED status : %d\n", tx);
+		note_result(&status, usr);
+		note_result(&status, rx);
+		note_result(&status, tx);
 	}
-	if(do_board_id == 0) {
-		r= cmd_get_board_id(ut->devh);
-		fprintf(stdout, "Board ID Number: %d (%s)\n", r, board_names[r]);
-	}
+	if(do_board_id == 0)
+		status = util_status_merge(status,
+		        util_report_board_id(&report_ops, ut, stdout, stderr));
 	if(do_channel == 0) {
-		r= cmd_get_channel(ut->devh);
-		fprintf(stdout, "Current frequency: %d MHz (Bluetooth channel %d)\n", r, r - 2402);
-		}
-	if(do_firmware == 0) {
-		uint16_t usb_version;
-		cmd_get_rev_num(ut->devh, version_string, MAX_VERSION_STRING_LEN);
-		fprintf(stdout, "Firmware version: %s", version_string);
-		r = ubertooth_get_api(ut, &usb_version);
-		if(r >= 0)
-			fprintf(stdout, " (API:%x.%02x)\n", (usb_version>>8)&0xFF, usb_version&0xFF);
-		else
-			fprintf(stdout, "\n");
-
+		int mhz = cmd_get_channel(ut->devh);
+		fprintf(stdout, "Current frequency: %d MHz (Bluetooth channel %d)\n", mhz, mhz - 2402);
+		note_result(&status, mhz);
 	}
-	if(do_compile_info == 0) {
-		cmd_get_compile_info(ut->devh, version_string, MAX_VERSION_STRING_LEN);
-		fprintf(stdout, "%s\n", version_string);
+	if(do_firmware == 0)
+		status = util_status_merge(status,
+		        util_report_firmware(&report_ops, ut, stdout));
+	if(do_compile_info == 0)
+		status = util_status_merge(status,
+		        util_report_compile_info(&report_ops, ut, stdout));
+	if(do_leds == 2) {
+		int led = cmd_get_usrled(ut->devh);
+		fprintf(stdout, "USR LED status: %d\n", led);
+		note_result(&status, led);
 	}
-	if(do_leds == 2)
-		fprintf(stdout, "USR LED status: %d\n", r= cmd_get_usrled(ut->devh));
-	if(do_palevel == 0)
-		fprintf(stdout, "PA Level: %d\n", r= cmd_get_palevel(ut->devh));
-	if(do_part == 0) {
-		fprintf(stdout, "Part ID: %X\n", r = cmd_get_partnum(ut->devh));
-		r = (r >= 0) ? 0 : r;
+	if(do_palevel == 0) {
+		int level = cmd_get_palevel(ut->devh);
+		fprintf(stdout, "PA Level: %d\n", level);
+		note_result(&status, level);
 	}
+	if(do_part == 0)
+		status = util_status_merge(status,
+		        util_report_part_id(&report_ops, ut, stdout));
 	if(do_range_result == 0) {
-		r = cmd_get_rangeresult(ut->devh, &rr);
-		if (r == 0) {
+		int rr_status = cmd_get_rangeresult(ut->devh, &rr);
+		status = util_status_merge(status, rr_status != 0);
+		if (rr_status == 0) {
 			if (rr.valid==1) {
 				fprintf(stdout, "request PA level : %d\n", rr.request_pa);
 				fprintf(stdout, "request number   : %d\n", rr.request_num);
@@ -395,27 +442,22 @@ int main(int argc, char *argv[])
 			}
 		}
 	}
-	if(do_serial == 0) {
-		u8 serial[17];
-		r= cmd_get_serial(ut->devh, serial);
-		if(r==0) {
-			print_serial(serial, NULL);
-		}
-		// FIXME: Why do we do this to non-zero results?
-		r = (r >= 0) ? 0 : r;
-	}
+
+	if(do_serial == 0)
+		status = util_status_merge(status,
+		        util_report_serial(&report_ops, ut, stdout));
 
 	/* final actions */
 	if(do_flash == 0) {
 		fprintf(stdout, "Entering flash programming (DFU) mode\n");
-		return cmd_flash(ut->devh);
+		return util_status_merge(status, util_value_status(cmd_flash(ut->devh)));
 	}
 	if(do_identify == 0) {
 		fprintf(stdout, "Flashing LEDs on ubertooth device %s\n", ubertooth_device ? ubertooth_device : "0");
 		/* Stop any operation already running on the device (e.g. -x xmas or
 		 * -q LED spectrum analyzer) so it does not fight the identify blink
 		 * and is not left running after identify is interrupted. */
-		cmd_stop(ut->devh);
+		note_result(&status, cmd_stop(ut->devh));
 		identify_ut = ut;
 		signal(SIGINT, identify_cleanup);
 		while(42) {
@@ -428,48 +470,50 @@ int main(int argc, char *argv[])
 	}
 	if(do_isp == 0) {
 		fprintf(stdout, "Entering flash programming (ISP) mode\n");
-		return cmd_set_isp(ut->devh);
+		return util_status_merge(status, util_value_status(cmd_set_isp(ut->devh)));
 	}
 	if(do_led_specan >= 0) {
 		do_led_specan= do_led_specan ? do_led_specan : 225;
 		fprintf(stdout, "Entering LED specan mode (RSSI %d)\n", do_led_specan);
-		cmd_stop(ut->devh);          /* leave any prior mode before starting */
-		return cmd_led_specan(ut->devh, do_led_specan);
+		note_result(&status, cmd_stop(ut->devh)); /* leave any prior mode before starting */
+		return util_status_merge(status, util_value_status(cmd_led_specan(ut->devh, do_led_specan)));
 	}
 	if(do_range_test == 0) {
 		fprintf(stdout, "Starting range test\n");
-		cmd_stop(ut->devh);          /* leave any prior mode before starting */
-		return cmd_range_test(ut->devh);
+		note_result(&status, cmd_stop(ut->devh)); /* leave any prior mode before starting */
+		return util_status_merge(status, util_value_status(cmd_range_test(ut->devh)));
 	}
 	if(do_repeater == 0) {
 		fprintf(stdout, "Starting repeater\n");
-		cmd_stop(ut->devh);          /* leave any prior mode before starting */
-		return cmd_repeater(ut->devh);
+		note_result(&status, cmd_stop(ut->devh)); /* leave any prior mode before starting */
+		return util_status_merge(status, util_value_status(cmd_repeater(ut->devh)));
 	}
 	if(do_tx == 0) {
 		fprintf(stdout, "Starting TX test\n");
-		cmd_stop(ut->devh);          /* leave any prior mode before starting */
-		return cmd_tx_test(ut->devh);
+		note_result(&status, cmd_stop(ut->devh)); /* leave any prior mode before starting */
+		return util_status_merge(status, util_value_status(cmd_tx_test(ut->devh)));
 	}
 	if(do_set_squelch > 0) {
 		fprintf(stdout, "Setting squelch to %d\n", squelch_level);
-		cmd_set_squelch(ut->devh, squelch_level);
+		status = util_status_merge(status,
+		        util_value_status(cmd_set_squelch(ut->devh, squelch_level)));
 	}
 	if(do_get_squelch > 0) {
-		r = cmd_get_squelch(ut->devh);
-		fprintf(stdout, "Squelch set to %d\n", (int8_t)r);
+		int squelch = cmd_get_squelch(ut->devh);
+		fprintf(stdout, "Squelch set to %d\n", (int8_t)squelch);
+		status = util_status_merge(status, util_value_status(squelch));
 	}
 	if(do_xmas) {
-		cmd_stop(ut->devh);          /* leave any prior mode before starting */
-		return cmd_xmas(ut->devh);
+		note_result(&status, cmd_stop(ut->devh)); /* leave any prior mode before starting */
+		return util_status_merge(status, util_value_status(cmd_xmas(ut->devh)));
 	}
 	if(do_something) {
 		unsigned char buf[4] = { 0x55, 0x55, 0x55, 0x55 };
 		cmd_do_something(ut->devh, NULL, 0);
 		cmd_do_something_reply(ut->devh, buf, 4);
 		fprintf(stdout, "%02x %02x %02x %02x\n", buf[0], buf[1], buf[2], buf[3]);
-		return 0;
+		return status;
 	}
 
-	return r;
+	return status;
 }
