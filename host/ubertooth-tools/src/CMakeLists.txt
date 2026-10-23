@@ -88,6 +88,10 @@ foreach(tool ${TOOLS})
 	install(TARGETS ${tool} RUNTIME DESTINATION ${INSTALL_DEFAULT_BINDIR})
 endforeach(tool)
 
+target_sources(ubertooth-dfu PRIVATE
+	dfu_transition.c
+	dfu_recovery.c)
+
 # ubertooth-debug is special because of the extra source file
 add_executable(ubertooth-debug ubertooth-debug.c cc2400.c arglist.c)
 install(TARGETS ubertooth-debug RUNTIME DESTINATION ${INSTALL_DEFAULT_BINDIR})

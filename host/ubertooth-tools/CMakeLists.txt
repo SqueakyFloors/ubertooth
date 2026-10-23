@@ -22,6 +22,7 @@
 # Based heavily upon the hackrf cmake setup.
 
 project(ubertooth-tools C)
+include(CTest)
 set(PACKAGE ubertooth-tools)
 
 if(MSVC OR APPLE)
@@ -29,6 +30,10 @@ if(MSVC OR APPLE)
 endif()
 
 add_subdirectory(src)
+
+if(BUILD_TESTING)
+	add_subdirectory(tests)
+endif()
 
 # Create uninstall target
 if(NOT ubertooth_all_SOURCE_DIR)

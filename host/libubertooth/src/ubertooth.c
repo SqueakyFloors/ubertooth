@@ -573,13 +573,14 @@ void rx_dump(ubertooth_t* ut, int bitstream)
 		stream_rx_usb(ut, cb_dump_full, NULL);
 }
 
-void ubertooth_stop(ubertooth_t* ut)
+static void ubertooth_cleanup(ubertooth_t* ut, int send_stop)
 {
 	/* make sure xfers are not active */
 	if(ut->rx_xfer != NULL)
 		libusb_cancel_transfer(ut->rx_xfer);
 	if (ut->devh != NULL) {
-		cmd_stop(ut->devh);
+		if (send_stop)
+			cmd_stop(ut->devh);
 		libusb_release_interface(ut->devh, 0);
 		libusb_close(ut->devh);
 		ut->devh = NULL;
@@ -603,6 +604,24 @@ void ubertooth_stop(ubertooth_t* ut)
 		lell_pcapng_close(ut->h_pcapng_le);
 		ut->h_pcapng_le = NULL;
 	}
+}
+
+void ubertooth_close(ubertooth_t* ut)
+{
+	ubertooth_cleanup(ut, 0);
+}
+
+void ubertooth_stop(ubertooth_t* ut)
+{
+	ubertooth_cleanup(ut, 1);
+}
+
+void ubertooth_free(ubertooth_t* ut)
+{
+	if (ut == NULL)
+		return;
+	free(ut->fifo);
+	free(ut);
 }
 
 ubertooth_t* ubertooth_init()
@@ -669,9 +688,7 @@ ubertooth_t* ubertooth_start(int ubertooth_device)
 		/* ubertooth_connect() already called ubertooth_stop() to close the
 		 * device and any pcap handles; release the memory allocated by
 		 * ubertooth_init() so the failed-connect path does not leak. */
-		if (ut->fifo != NULL)
-			free(ut->fifo);
-		free(ut);
+		ubertooth_free(ut);
 		return NULL;
 	}
 
@@ -710,9 +727,7 @@ ubertooth_t* ubertooth_start_serial(char* serial_number)
 
 	int r = ubertooth_connect_serial(ut, serial_number);
 	if (r < 0) {
-		if (ut->fifo != NULL)
-			free(ut->fifo);
-		free(ut);
+		ubertooth_free(ut);
 		return NULL;
 	}
 

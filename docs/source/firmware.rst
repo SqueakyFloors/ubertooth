@@ -12,15 +12,30 @@ You may then run the ``ubertooth-dfu`` command like so:
 	.. code-block:: Sh
 
 		$ ubertooth-dfu -d bluetooth_rxtx.dfu -r
-		Switching to DFU mode...
+		Switching selected device to DFU mode...
 		Checking firmware signature
 		........................................
 		........................................
 		................
 
-The device will automatically enter DFU mode and flash the firmware.
+The device will automatically enter DFU mode and flash the firmware. During the
+application-to-DFU transition, the tool checks the entry request, follows the
+selected device by its physical USB path, and makes bounded retries if the
+application returns without entering DFU. With multiple devices already in DFU,
+it fails rather than choosing one ambiguously.
 
-If you see ``control message unsupported`` at the end, this means that resetting the device failed. You can handle this by running ``ubertooth-util -r`` or just unplugging the USB cable from the Ubertooth and reconnecting it.
+After flashing with ``-d ... -r``, the tool extracts the expected revision from
+the image, waits for the application to return on the same physical USB path,
+and requires the reported revision to match before returning success. If a
+programming transfer fails while the device remains in DFU, it reopens that same
+path and retries the complete image once from block zero. Project firmware
+images include the compile-information marker used for this verification.
+
+If you see ``control message unsupported`` during reset, the bootloader may have
+disconnected before acknowledging the request. This message alone is not a
+failure: the command returns success only after the expected application
+revision has been verified. If verification fails, use the reported stage and
+error details or the documented manual bootloader recovery path.
 
 Troubleshooting:
 
@@ -31,23 +46,20 @@ If you run into an error such as "libUSB Error: Command Error: (-1)" or the Uber
 		make clean all && make
 		ubertooth-dfu -r -d bluetooth_rxtx/bluetooth_rxtx.dfu
 
-If your Ubertooth Ones has no firmware or broken firmware and doesn't show up when issuing ``lsusb``, you can force the Ubertooth One into DFU mode by connecting pins 1 and 3 on the EXPAND header (P4):
+If your Ubertooth One has no firmware or broken firmware and doesn't show up when issuing ``lsusb``, force it into DFU mode by bridging pins 1 and 3 on the EXPAND header (P4) while the device is unplugged, then plug it in with the bridge still connected:
 
 	.. image:: ../images/u1_roadmap.png
 
-You should see the following appear in dmesg:
+Wait for the distinctive LED sequence or USB ID ``1d50:6003``, then remove the bridge and immediately run ``ubertooth-dfu``. The entry pin is sampled only during reset, so removing the bridge after DFU starts does not exit the bootloader. Remove it before the final reset; otherwise the next boot returns to DFU. If removing the live bridge is inconvenient, finish flashing, unplug the device, remove the bridge, and reconnect it.
+
+On Linux, verify the bootloader USB ID before flashing:
 
 	.. code-block:: sh
 
-		[ 1323.391369] usb 1-10: new full-speed USB device number 7 using xhci_hcd
-		[ 1323.541063] usb 1-10: New USB device found, idVendor=1d50, idProduct=6002, bcdDevice= 1.05
-		[ 1323.541069] usb 1-10: New USB device strings: Mfr=1, Product=2, SerialNumber=3
-		[ 1323.541073] usb 1-10: Product: Ubertooth One
-		[ 1323.541077] usb 1-10: Manufacturer: Great Scott Gadgets
-		[ 1323.541080] usb 1-10: SerialNumber: 07b00004c81435ae82624953861e00f5
-		[ 1341.978766] usb 1-10: USB disconnect, device number 7
+		$ lsusb -d 1d50:6003
+		Bus 001 Device 007: ID 1d50:6003 OpenMoko, Inc. USB Bootloader
 
-The device will only stay in dfu mode for a few seconds, so you have to quickly issue the ubertooth-dfu command to flash.
+Then run the DFU command immediately.
 
 
 

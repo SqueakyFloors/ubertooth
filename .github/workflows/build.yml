@@ -95,6 +95,11 @@ jobs:
       shell: bash
       run: cmake --build . --config $BUILD_TYPE
 
+    - name: Unit tests (host)
+      working-directory: ${{github.workspace}}/host/build
+      shell: bash
+      run: ctest --output-on-failure
+
     - name: Smoke test (binaries run)
       working-directory: ${{github.workspace}}/host/build
       shell: bash
@@ -239,6 +244,11 @@ jobs:
         cmake "$GITHUB_WORKSPACE/host/" -DCMAKE_BUILD_TYPE=$BUILD_TYPE
         cmake --build . --config $BUILD_TYPE
 
+    - name: Unit tests (host)
+      working-directory: ${{github.workspace}}/host/build
+      shell: bash
+      run: ctest --output-on-failure
+
     - name: Smoke test (binaries run)
       working-directory: ${{github.workspace}}/host/build
       shell: bash
@@ -308,6 +318,11 @@ jobs:
         cd host/build
         cmake "$GITHUB_WORKSPACE/host/" -DCMAKE_BUILD_TYPE=$BUILD_TYPE
         cmake --build . --config $BUILD_TYPE
+
+    - name: Unit tests (host)
+      working-directory: ${{github.workspace}}/host/build
+      shell: bash
+      run: ctest --output-on-failure
 
     - name: Smoke test (binaries run)
       working-directory: ${{github.workspace}}/host/build

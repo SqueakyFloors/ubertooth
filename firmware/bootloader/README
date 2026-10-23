@@ -23,14 +23,17 @@ update the firmware via DFU mode using the 'ubertooth-dfu' (located in
 host/ubertooth-tools/src/).  Soft entry only works on Ubertooth One, not
 Ubertooth Zero.
 
-2. hard bootloader entry (aka pin entry): By connecting two pins on the
-expansion header with a jumper during reset (either soft or hard boot), you can
-force the bootloader into DFU mode.  When using pin entry, the bootloader will
-enter DFU mode for only a few seconds and will then execute the application if
-no DFU activity has started during that period.  This allows developers to
-permanently or semi-permanently jumper the pins providing a DFU opportunity on
-every reset.  The permanent jumper method works on Ubertooth One but not
-Ubertooth Zero.
+2. hard bootloader entry (aka pin entry): By connecting the entry pin to ground
+on the expansion header during reset, you can force the bootloader into DFU
+mode. Keep the bridge connected while applying power/reset. Once the distinctive
+LED sequence starts or the DFU USB device enumerates, the pin has been sampled
+and the bridge may be removed without exiting DFU. Start a DFU request promptly
+because an untouched pin-entry session times out after a few seconds.
+
+Remove the bridge before resetting into the application. If it remains
+connected, the next reset samples the asserted entry pin again and re-enters the
+bootloader. A permanently installed bridge is therefore suitable only when
+repeated bootloader entry is intended, not for normal application boot.
 
 The bootloader indicates DFU mode by flashing the LEDs in a distinctive
 pattern.  It also identifies itself as "usb_bootloader" on USB.

@@ -125,6 +125,25 @@ ubertooth (2020-12-R1+modern1) unstable; urgency=low
     Fixes frequent 'Unable to find Ubertooth' / silent no-op flashes that
     previously needed a physical replug.
     https://github.com/SqueakyFloors/ubertooth/issues/29
+  * ubertooth-dfu: make the application-to-DFU transition checked and
+    device-specific. The old post-request cleanup called ubertooth_stop(),
+    whose UBERTOOTH_STOP command could replace the pending MODE_RESET with
+    MODE_IDLE before the firmware acted on it. Close without sending STOP,
+    propagate cmd_flash errors, own one explicit libusb context, match DFU by
+    physical USB path, reject ambiguous bootloaders, and make two bounded
+    five-second entry attempts. An explicit selector never adopts an
+    unidentified device already in DFU mode, preventing parallel or stale DFU
+    sessions from redirecting a selected flash. On a programming transfer
+    failure, close and reopen the same DFU path, restore idle state, and retry
+    the complete image once from block zero. For download-and-reset, extract
+    the expected revision from the image, reopen the same physical application
+    device, and require its reported revision to match before returning
+    success. Emit flushed monotonic stage timing, and avoid the Darwin libusb
+    CFRunLoop teardown hang after reset by leaving final context reclamation to
+    immediate process exit on macOS. Add hardware-independent transition and
+    recovery tests to CTest and the Linux/macOS host CI jobs.
+    https://github.com/SqueakyFloors/ubertooth/issues/31
+    https://github.com/SqueakyFloors/ubertooth/issues/35
   Bug fixes (this fork):
   * firmware: fix an RSSI rounding bias for negative dBm. The averaging used
     `(x + 128) / 256` (and `(sum + 128) / count`), which only rounds to nearest

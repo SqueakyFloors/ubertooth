@@ -16,6 +16,28 @@ into the firmware update bootloader. The USB ID of the Ubertooth will
 change in the bootloader, and this may cause problems when attempting to
 update firmware from inside a VM.
 
+The application-to-DFU transition checks the device command, closes the
+application handle without sending a conflicting stop command, and follows
+the selected device by its physical USB bus/port path. If DFU does not appear,
+the tool makes two bounded five-second entry attempts when the application
+device is available again. Flushed monotonic stage timing identifies time spent
+in entry, programming, reset, and cleanup. It refuses to choose between
+multiple devices already in DFU mode.
+
+If a firmware programming transfer fails, the tool closes the stale handle,
+reopens and claims the DFU device on the same physical path, restores its DFU
+state, and retries the complete image once from block zero. With `-d ... -r`,
+it extracts the expected revision from the image and does not return success
+until the application on that same path reports the exact revision. Images
+used with automatic verification must contain the normal
+`ubertooth <revision> (` compile-information marker.
+
+With multiple Ubertooths, flash them sequentially using `-U <serial>` and
+verify each device before starting the next. DFU mode does not expose a serial
+number, so an explicit selector never adopts an unidentified device that was
+already in DFU when the command started. Simultaneous flashing is not yet
+supported or validated.
+
 In the DFU bootloader, the TX, RX, and USR LEDs will turn on and off in
 sequence. If this does not occur, you can try to manually force the
 device to boot into the bootloader. Refer to [MANUALLY ENTERING
@@ -36,8 +58,8 @@ Miscellaneous:
 
  - `-s <file.bin>` :
    Add DFU suffix to binary firmware file
- - `-U <0-7>` :
-   Which Ubertooth device to use
+ - `-U <index|serial>` :
+   Select the application-mode Ubertooth by enumeration index or serial number
 
 ## MANUALLY ENTERING BOOTLOADER
 
@@ -62,13 +84,17 @@ like this:
 
 PIN #1, marked X, is square.
 
-With Ubertooth unplugged, use a piece of wire, paperclip, staple, etc to
-connect pins 1 and 2 together. When it it plugged in, the Ubertooth
-should enter bootloader mode (LEDs will be turning on and off in
-sequence).
+With Ubertooth unplugged, bridge pins 1 and 3, then plug the device in
+while keeping the bridge in place. Wait for the distinctive LED sequence or
+confirm that USB ID `1d50:6003` is present. The bootloader samples the entry pin
+only during reset, so once DFU is active you may remove the bridge without
+exiting DFU. Run `ubertooth-dfu` promptly because pin-entry DFU times out after
+a few seconds if no DFU request begins.
 
-The bootloader will exit after 5 seconds of no activity and boot into
-the main firmware.
+Remove the bridge before the final reset if you want the application firmware
+to boot. If it remains installed, the next reset will sample the entry pin
+again and return to the bootloader. If removing a live bridge is inconvenient,
+finish the flash, unplug the device, remove the bridge, and reconnect it.
 
 ## SEE ALSO
 

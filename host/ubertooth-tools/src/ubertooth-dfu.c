@@ -20,13 +20,56 @@
  * Boston, MA 02110-1301, USA.
  */
 
+#include <errno.h>
 #include <getopt.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <time.h>
 #include <unistd.h>  // sleep
 #include "ubertooth.h"
 #include "dfu.h"
+#include "dfu_transition.h"
+#include "dfu_recovery.h"
+
+static struct timespec operation_started;
+
+static void start_operation_timer(void)
+{
+	clock_gettime(CLOCK_MONOTONIC, &operation_started);
+}
+
+static double operation_elapsed_seconds(void)
+{
+	struct timespec now;
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	return (double)(now.tv_sec - operation_started.tv_sec) +
+	       (double)(now.tv_nsec - operation_started.tv_nsec) / 1000000000.0;
+}
+
+static void log_dfu_stage(const char *stage)
+{
+	fprintf(stderr, "DFU +%.3fs: %s\n", operation_elapsed_seconds(), stage);
+	fflush(stderr);
+}
+
+static void exit_dfu_context(libusb_context *context, int reset_requested)
+{
+#if defined(__APPLE__)
+	if (reset_requested) {
+		/* The Darwin backend's final libusb_exit() waits for a global
+		 * CFRunLoop thread that can fail to terminate after device reset.
+		 * All handles are already closed and this process exits immediately,
+		 * so process teardown safely reclaims the remaining context. */
+		(void)context;
+		log_dfu_stage("libusb context exit skipped after macOS device reset");
+		return;
+	}
+#endif
+	log_dfu_stage("libusb context exit started");
+	libusb_exit(context);
+	log_dfu_stage("libusb context exit returned");
+}
 
 /*
  * DFU suffix / signature / CRC
@@ -128,49 +171,240 @@ int sign(FILE* infile, FILE* outfile, uint16_t idVendor, uint16_t idProduct) {
 }
 
 /*
- * USB helper function - find devices
+ * USB helpers for binding the application and DFU identities to one physical
+ * bus/port path. DFU mode has no serial descriptor, so path matching prevents
+ * a different attached Ubertooth from being selected after re-enumeration.
  */
-static struct libusb_device_handle* find_ubertooth_dfu_device() {
-	struct libusb_context *ctx = NULL;
-	struct libusb_device **usb_list = NULL;
-	struct libusb_device_handle *devh = NULL;
-	struct libusb_device_descriptor desc;
-	int usb_devs, i, r, ret;
-
-	r = libusb_init(NULL);
-
-	usb_devs = libusb_get_device_list(ctx, &usb_list);
-	for(i = 0 ; i < usb_devs ; ++i) {
-		r = libusb_get_device_descriptor(usb_list[i], &desc);
-		if(r < 0)
-			fprintf(stderr, "couldn't get usb descriptor for dev #%d!\n", i);
-		if ((desc.idVendor == TC13_VENDORID && desc.idProduct == TC13_PRODUCTID) ||
-		    (desc.idVendor == U1_DFU_VENDORID && desc.idProduct == U1_DFU_PRODUCTID))
-		{
-			// FOUND AN UBERTOOTH
-			ret = libusb_open(usb_list[i], &devh);
-			if (ret)
-				show_libusb_error(ret);
-			else
-				break;
-		}
-	}
-	/* Free the device list once we are done scanning it. Previously this was
-	 * leaked on every call, and the handle search is called repeatedly while
-	 * polling for DFU mode, so the leaked lists/contexts could accumulate and
-	 * interfere with subsequent device opens. */
-	if (usb_list)
-		libusb_free_device_list(usb_list, 1);
-	return devh;
-}
-
-void stop_device(struct libusb_device_handle *devh)
+static int get_usb_identity(libusb_device *device,
+                            struct dfu_usb_identity *identity)
 {
-	if (devh != NULL)
-		libusb_release_interface(devh, 0);
-	libusb_close(devh);
-	libusb_exit(NULL);
+	int port_count;
+
+	memset(identity, 0, sizeof(*identity));
+	identity->bus_number = libusb_get_bus_number(device);
+	port_count = libusb_get_port_numbers(device, identity->port_numbers,
+	                                    DFU_USB_PATH_MAX);
+	if (port_count < 0)
+		return port_count;
+	identity->port_count = (uint8_t)port_count;
+	return 0;
 }
+
+/* Return 1 when a matching DFU device is opened, 0 when absent, or a negative
+ * libusb error. With no expected path, fail rather than choosing ambiguously. */
+static int find_ubertooth_dfu_device(
+	libusb_context *ctx,
+	const struct dfu_usb_identity *expected_identity,
+	libusb_device_handle **devh)
+{
+	libusb_device **usb_list = NULL;
+	libusb_device *match = NULL;
+	struct libusb_device_descriptor desc;
+	struct dfu_usb_identity identity;
+	ssize_t usb_devs;
+	int i, result;
+
+	*devh = NULL;
+	usb_devs = libusb_get_device_list(ctx, &usb_list);
+	if (usb_devs < 0)
+		return (int)usb_devs;
+
+	for (i = 0; i < usb_devs; ++i) {
+		result = libusb_get_device_descriptor(usb_list[i], &desc);
+		if (result < 0)
+			continue;
+		if (!((desc.idVendor == TC13_VENDORID &&
+		       desc.idProduct == TC13_PRODUCTID) ||
+		      (desc.idVendor == U1_DFU_VENDORID &&
+		       desc.idProduct == U1_DFU_PRODUCTID)))
+			continue;
+
+		result = get_usb_identity(usb_list[i], &identity);
+		if (result < 0)
+			goto done;
+		if (expected_identity != NULL &&
+		    !dfu_usb_identity_equal(expected_identity, &identity))
+			continue;
+		if (match != NULL) {
+			result = LIBUSB_ERROR_BUSY;
+			goto done;
+		}
+		match = usb_list[i];
+	}
+
+	if (match == NULL) {
+		result = 0;
+		goto done;
+	}
+	result = libusb_open(match, devh);
+	if (result == 0)
+		result = 1;
+
+done:
+	libusb_free_device_list(usb_list, 1);
+	return result;
+}
+
+/* Return 1 when the application device on the expected path is opened, 0 when
+ * absent, or a negative libusb error. */
+static int find_ubertooth_application_device(
+	libusb_context *ctx,
+	const struct dfu_usb_identity *expected_identity,
+	libusb_device_handle **devh)
+{
+	libusb_device **usb_list = NULL;
+	struct libusb_device_descriptor desc;
+	struct dfu_usb_identity identity;
+	ssize_t usb_devs;
+	int i, result;
+
+	*devh = NULL;
+	usb_devs = libusb_get_device_list(ctx, &usb_list);
+	if (usb_devs < 0)
+		return (int)usb_devs;
+
+	result = 0;
+	for (i = 0; i < usb_devs; ++i) {
+		result = libusb_get_device_descriptor(usb_list[i], &desc);
+		if (result < 0)
+			continue;
+		if (!((desc.idVendor == TC13_VENDORID &&
+		       desc.idProduct == TC13_PRODUCTID) ||
+		      (desc.idVendor == U0_VENDORID &&
+		       desc.idProduct == U0_PRODUCTID) ||
+		      (desc.idVendor == U1_VENDORID &&
+		       desc.idProduct == U1_PRODUCTID)))
+			continue;
+		result = get_usb_identity(usb_list[i], &identity);
+		if (result < 0)
+			goto done_app;
+		if (!dfu_usb_identity_equal(expected_identity, &identity))
+			continue;
+		result = libusb_open(usb_list[i], devh);
+		if (result == 0)
+			result = 1;
+		goto done_app;
+	}
+	result = 0;
+
+done_app:
+	libusb_free_device_list(usb_list, 1);
+	return result;
+}
+
+static void close_dfu_device(libusb_device_handle *devh, int claimed)
+{
+	if (devh == NULL)
+		return;
+	if (claimed) {
+		log_dfu_stage("DFU interface release started");
+		libusb_release_interface(devh, 0);
+		log_dfu_stage("DFU interface release returned");
+	}
+	log_dfu_stage("DFU handle close started");
+	libusb_close(devh);
+	log_dfu_stage("DFU handle close returned");
+}
+
+struct dfu_runtime_context {
+	libusb_context *usb_context;
+	FILE *download_file;
+	unsigned app_attempts;
+	unsigned dfu_polls;
+	unsigned transfer_attempts;
+	unsigned verify_polls;
+	const struct dfu_usb_identity *verify_identity;
+};
+
+static int open_application(void *context, const char *selector, void **handle,
+                            struct dfu_usb_identity *identity)
+{
+	struct dfu_runtime_context *runtime = context;
+	char stage[64];
+	ubertooth_t *ut;
+	int result;
+
+	runtime->app_attempts++;
+	snprintf(stage, sizeof(stage), "opening application device (attempt %u)",
+	         runtime->app_attempts);
+	log_dfu_stage(stage);
+	ut = ubertooth_start_select(selector);
+
+	if (ut == NULL)
+		return LIBUSB_ERROR_NO_DEVICE;
+	result = get_usb_identity(libusb_get_device(ut->devh), identity);
+	if (result < 0) {
+		ubertooth_stop(ut);
+		ubertooth_free(ut);
+		return result;
+	}
+	*handle = ut;
+	return 0;
+}
+
+static int request_dfu(void *context __attribute__((unused)), void *handle)
+{
+	ubertooth_t *ut = handle;
+	int result = cmd_flash(ut->devh);
+	if (result == 0) {
+		log_dfu_stage("DFU entry request accepted");
+		fprintf(stdout, "Switching selected device to DFU mode...\n");
+		fflush(stdout);
+	}
+	return result;
+}
+
+static void close_application(void *context __attribute__((unused)),
+                              void *handle)
+{
+	ubertooth_t *ut = handle;
+	/* Do not call ubertooth_stop() here: its UBERTOOTH_STOP request can replace
+	 * the pending MODE_RESET set by cmd_flash() before the firmware main loop
+	 * acts on it. Close the handle without sending another device command. */
+	ubertooth_close(ut);
+	ubertooth_free(ut);
+	log_dfu_stage("application handle closed without STOP");
+}
+
+static int open_matching_dfu(void *context,
+                             const struct dfu_usb_identity *identity,
+                             void **handle)
+{
+	struct dfu_runtime_context *runtime = context;
+	char stage[64];
+	int result;
+
+	runtime->dfu_polls++;
+	result = find_ubertooth_dfu_device(
+		runtime->usb_context, identity, (libusb_device_handle **)handle);
+	if (result == 1) {
+		snprintf(stage, sizeof(stage), "matching DFU device found (poll %u)",
+		         runtime->dfu_polls);
+		log_dfu_stage(stage);
+	}
+	return result;
+}
+
+static void transition_sleep_ms(void *context __attribute__((unused)),
+                                unsigned milliseconds)
+{
+	struct timespec delay = {
+		.tv_sec = milliseconds / 1000U,
+		.tv_nsec = (long)(milliseconds % 1000U) * 1000000L,
+	};
+	struct timespec remaining;
+
+	while (nanosleep(&delay, &remaining) < 0 && errno == EINTR)
+		delay = remaining;
+}
+
+static const struct dfu_transition_ops TRANSITION_OPS = {
+	.open_application = open_application,
+	.request_dfu = request_dfu,
+	.close_application = close_application,
+	.open_matching_dfu = open_matching_dfu,
+	.sleep_ms = transition_sleep_ms,
+};
 
 /*
  * DFU functions
@@ -363,12 +597,13 @@ int download(libusb_device_handle* devh, FILE* downfile) {
 		if (rv < 0) {
 			if (rv == LIBUSB_ERROR_PIPE)
 				fprintf(stderr, "control message unsupported\n");
-			else {
+			else
 				show_libusb_error(rv);
-				return rv;
-			}
+			return rv;
 		}
-		dfu_get_status(devh);
+		rv = dfu_get_status(devh);
+		if (rv < 0)
+			return rv;
 		fprintf(stdout, ".");
 		if(block_count % 40)
 			fflush(stdout);
@@ -380,6 +615,109 @@ int download(libusb_device_handle* devh, FILE* downfile) {
 	fprintf(stdout, "\n");
 	return 0;
 }
+
+static int runtime_download(void *context, void *handle)
+{
+	struct dfu_runtime_context *runtime = context;
+	char stage[64];
+	runtime->transfer_attempts++;
+	snprintf(stage, sizeof(stage), "firmware programming attempt %u started",
+	         runtime->transfer_attempts);
+	log_dfu_stage(stage);
+	return download(handle, runtime->download_file);
+}
+
+static void runtime_close_dfu(void *context __attribute__((unused)),
+                              void *handle, int claimed)
+{
+	close_dfu_device(handle, claimed);
+}
+
+static int runtime_reopen_dfu(void *context,
+                              const struct dfu_usb_identity *identity,
+                              void **handle)
+{
+	struct dfu_runtime_context *runtime = context;
+	int result = find_ubertooth_dfu_device(
+		runtime->usb_context, identity, (libusb_device_handle **)handle);
+	if (result == 1)
+		log_dfu_stage("same-path DFU device reopened after transfer failure");
+	return result;
+}
+
+static int runtime_claim_dfu(void *context __attribute__((unused)), void *handle)
+{
+	int result = libusb_claim_interface(handle, 0);
+	if (result == 0)
+		log_dfu_stage("reopened DFU interface claimed");
+	return result;
+}
+
+static const struct dfu_transfer_ops TRANSFER_OPS = {
+	.download = runtime_download,
+	.close_dfu = runtime_close_dfu,
+	.reopen_matching_dfu = runtime_reopen_dfu,
+	.claim_dfu = runtime_claim_dfu,
+	.sleep_ms = transition_sleep_ms,
+};
+
+static int verify_open_application(void *context,
+                                   const char *selector __attribute__((unused)),
+                                   void **handle,
+                                   struct dfu_usb_identity *identity)
+{
+	struct dfu_runtime_context *runtime = context;
+	libusb_device_handle *devh = NULL;
+	char stage[64];
+	int result;
+
+	runtime->verify_polls++;
+	snprintf(stage, sizeof(stage), "checking returned application (poll %u)",
+	         runtime->verify_polls);
+	log_dfu_stage(stage);
+	result = find_ubertooth_application_device(
+		runtime->usb_context, runtime->verify_identity, &devh);
+	if (result == 0)
+		return LIBUSB_ERROR_NO_DEVICE;
+	if (result < 0)
+		return result;
+	result = libusb_claim_interface(devh, 0);
+	if (result < 0) {
+		libusb_close(devh);
+		return result;
+	}
+	result = get_usb_identity(libusb_get_device(devh), identity);
+	if (result < 0) {
+		close_dfu_device(devh, 1);
+		return result;
+	}
+	*handle = devh;
+	return 0;
+}
+
+static int verify_get_revision(void *context __attribute__((unused)),
+                               void *handle, char *revision,
+                               size_t revision_size)
+{
+	if (revision_size == 0 || revision_size > UINT8_MAX)
+		return -1;
+	cmd_get_rev_num(handle, revision, (u8)revision_size);
+	return strncmp(revision, "error:", 6) == 0 ? -1 : 0;
+}
+
+static void verify_close_application(void *context __attribute__((unused)),
+                                     void *handle)
+{
+	close_dfu_device(handle, 1);
+	log_dfu_stage("verified application handle closed");
+}
+
+static const struct dfu_verify_ops VERIFY_OPS = {
+	.open_application = verify_open_application,
+	.get_revision = verify_get_revision,
+	.close_application = verify_close_application,
+	.sleep_ms = transition_sleep_ms,
+};
 
 static int get_outfile(char *infile, char **outfile) {
 	char *suffix = strrchr(infile, '.');
@@ -409,7 +747,7 @@ static void usage()
 	printf("\n");
 	printf("Miscellaneous:\n");
 	printf("\t-s <filename> add DFU suffix to binary firmware file\n");
-	printf("\t-U <0-7> set ubertooth device to use\n");
+	printf("\t-U <index|serial> select Ubertooth device\n");
 }
 
 #define FUNC_DOWNLOAD (1<<0)
@@ -423,12 +761,17 @@ int main(int argc, char **argv) {
 	FILE* infile = NULL;
 	FILE* outfile = NULL;
 	char* outfile_name;
+	libusb_context* dfu_context = NULL;
 	libusb_device_handle* devh = NULL;
+	struct dfu_usb_identity selected_identity;
+	struct dfu_runtime_context runtime;
+	char expected_revision[64] = {0};
 	uint8_t functions = 0;
+	int interface_claimed = 0;
+	int exit_status = 0;
 	int opt;
 	char* ubertooth_device = NULL;
 	int r;
-	ubertooth_t* ut = NULL;
 
 	while ((opt=getopt(argc,argv,"hd:u:s:rU:")) != EOF) {
 		switch(opt) {
@@ -481,79 +824,189 @@ int main(int argc, char **argv) {
 	}
 
 	if(functions & FUNC_SIGN) {
-		sign(infile, outfile, U1_DFU_VENDORID, U1_DFU_PRODUCTID);
+		exit_status = sign(infile, outfile, U1_DFU_VENDORID,
+		                   U1_DFU_PRODUCTID);
 		fclose(infile);
 		fclose(outfile);
+		if (exit_status != 0)
+			return exit_status;
 	}
 
-	if(functions & (FUNC_UPLOAD|FUNC_DOWNLOAD|FUNC_RESET)) {
-		// Find Ubertooth and switch it to DFU mode
-		int rv, count= 0;
-		devh = find_ubertooth_dfu_device();
-		if(devh == NULL) {
-			ut = ubertooth_start_select(ubertooth_device);
-			if(ut == NULL) {
-				fprintf(stderr, "Unable to find Ubertooth\n");
-				return 1;
-			}
-			cmd_flash(ut->devh);
-			/* Release the application-mode device before it re-enumerates as a
-			 * DFU device; holding the old handle open while it resets can make
-			 * the DFU device fail to open/claim below. */
-			ubertooth_stop(ut);
-			ut = NULL;
-			devh = NULL;
-			fprintf(stdout, "Switching to DFU mode...\n");
-			/* DFU enumeration takes ~2s; poll generously (up to ~10s) rather
-			 * than racing it with a short retry count. */
-			while(((devh = find_ubertooth_dfu_device()) == NULL) && (count++) < 10)
-				sleep(1);
-			if(devh==NULL) {
-				fprintf(stderr, "Unable to find Ubertooth in DFU mode\n");
-				return 1;
-			}
+	if (!(functions & (FUNC_UPLOAD|FUNC_DOWNLOAD|FUNC_RESET)))
+		return 0;
+
+	start_operation_timer();
+	log_dfu_stage("operation started");
+	memset(&selected_identity, 0, sizeof(selected_identity));
+	memset(&runtime, 0, sizeof(runtime));
+	r = libusb_init(&dfu_context);
+	if (r < 0) {
+		fprintf(stderr, "libusb_init failed: %d\n", r);
+		return 1;
+	}
+	runtime.usb_context = dfu_context;
+
+	/* First support a device already waiting in DFU. Otherwise execute the
+	 * selected application-to-DFU transition with path matching. */
+	/* A DFU device has no serial descriptor. Adopt a sole existing DFU device
+	 * only for an unselected/default operation; an explicit -U must first open
+	 * its application device and bind the transition to that physical path. */
+	if (dfu_selector_allows_unidentified_dfu(ubertooth_device))
+		r = find_ubertooth_dfu_device(dfu_context, NULL, &devh);
+	else
+		r = 0;
+	if (r < 0) {
+		if (r == LIBUSB_ERROR_BUSY)
+			fprintf(stderr, "Multiple DFU devices found; leave only the intended device in DFU mode\n");
+		else
+			show_libusb_error(r);
+		exit_status = 1;
+		goto cleanup;
+	}
+	if (r == 0) {
+		const struct dfu_transition_config config = {
+			.max_attempts = DFU_ENTRY_DEFAULT_MAX_ATTEMPTS,
+			.polls_per_attempt = DFU_ENTRY_DEFAULT_POLLS_PER_ATTEMPT,
+			.poll_interval_ms = DFU_ENTRY_DEFAULT_POLL_INTERVAL_MS,
+		};
+		struct dfu_transition_report report;
+		void *transition_handle = NULL;
+		r = dfu_transition_run(&TRANSITION_OPS, &runtime, ubertooth_device,
+		                       &config, &transition_handle, &report);
+		if (r != DFU_TRANSITION_OK) {
+			log_dfu_stage("DFU entry failed");
+			fprintf(stderr, "%s (attempts=%u, polls=%u, usb_error=%d)\n",
+			        dfu_transition_result_string(report.result),
+			        report.attempts, report.polls, report.operation_error);
+			exit_status = 1;
+			goto cleanup;
 		}
-		rv = libusb_claim_interface(devh, 0);
-		if (rv < 0) {
-			fprintf(stderr, "usb_claim_interface error %d\n", rv);
-			fprintf(stderr, "Correct permissions to access Ubertooth?\n");
-			stop_device(devh);
-			return 1;
+		devh = transition_handle;
+		selected_identity = report.identity;
+	} else {
+		r = get_usb_identity(libusb_get_device(devh), &selected_identity);
+		if (r < 0) {
+			show_libusb_error(r);
+			exit_status = 1;
+			goto cleanup;
 		}
 	}
+
+	r = libusb_claim_interface(devh, 0);
+	if (r < 0) {
+		fprintf(stderr, "usb_claim_interface error %d\n", r);
+		fprintf(stderr, "Correct permissions to access Ubertooth?\n");
+		exit_status = 1;
+		goto cleanup;
+	}
+	interface_claimed = 1;
+	log_dfu_stage("DFU interface claimed");
 
 	if(functions & FUNC_UPLOAD) {
-		int rv;
-		rv = upload(devh, upfile);
+		r = upload(devh, upfile);
 		fclose(upfile);
-		if(rv) {
-			fprintf(stderr, "Firmware update failed\n");
-			return rv;
+		upfile = NULL;
+		if(r) {
+			fprintf(stderr, "Firmware upload failed\n");
+			exit_status = r;
+			goto cleanup;
 		}
 	}
 
 	if(functions & FUNC_DOWNLOAD) {
-		int rv;
+		const struct dfu_transfer_config transfer_config = {
+			.max_attempts = 2,
+			.reopen_polls = 50,
+			.poll_interval_ms = 100,
+		};
+		struct dfu_transfer_report transfer_report;
 		DFU_suffix suffix;
-		rv = check_suffix(downfile, &suffix);
-		if(rv) {
-			fprintf(stderr, "Signature check failed, firmware will not be update\n");
-			return rv;
+		void *transfer_handle = devh;
+
+		log_dfu_stage("firmware signature validation started");
+		r = check_suffix(downfile, &suffix);
+		if(r) {
+			fprintf(stderr, "Signature check failed, firmware will not be updated\n");
+			fclose(downfile);
+			downfile = NULL;
+			exit_status = r;
+			goto cleanup;
 		}
-		rv = download(devh, downfile);
+		if ((functions & FUNC_RESET) &&
+		    dfu_extract_firmware_revision(downfile, expected_revision,
+		                                  sizeof(expected_revision)) != 0) {
+			fprintf(stderr, "Unable to determine expected firmware revision from image\n");
+			fclose(downfile);
+			downfile = NULL;
+			exit_status = 1;
+			goto cleanup;
+		}
+		if (functions & FUNC_RESET) {
+			fprintf(stderr, "DFU expected revision: %s\n", expected_revision);
+			fflush(stderr);
+		}
+		runtime.download_file = downfile;
+		r = dfu_transfer_run(&TRANSFER_OPS, &runtime, &selected_identity,
+		                     &transfer_config, &transfer_handle,
+		                     &transfer_report);
+		devh = transfer_handle;
 		fclose(downfile);
-		if(rv) {
-			fprintf(stderr, "Firmware update failed\n");
-			return rv;
+		downfile = NULL;
+		if(r != DFU_TRANSFER_OK) {
+			fprintf(stderr,
+			        "Firmware update failed after %u attempt(s): result=%d transfer_error=%d usb_error=%d\n",
+			        transfer_report.attempts, transfer_report.result,
+			        transfer_report.transfer_error,
+			        transfer_report.operation_error);
+			exit_status = 1;
+			goto cleanup;
 		}
+		log_dfu_stage("firmware programming completed");
 	}
 
 	if(functions & FUNC_RESET) {
+		log_dfu_stage("DFU detach/reset request started");
 		detach(devh);
+		log_dfu_stage("DFU detach/reset request returned");
+		close_dfu_device(devh, interface_claimed);
+		devh = NULL;
+		interface_claimed = 0;
 	}
 
-	if(functions & (FUNC_UPLOAD|FUNC_DOWNLOAD|FUNC_RESET)) {
-		stop_device(devh);
+	if ((functions & FUNC_DOWNLOAD) && (functions & FUNC_RESET)) {
+		const struct dfu_verify_config verify_config = {
+			.polls = 20,
+			.poll_interval_ms = 250,
+		};
+		struct dfu_verify_report verify_report;
+		const char *selector = ubertooth_device != NULL ? ubertooth_device : "";
+
+		log_dfu_stage("post-reset application verification started");
+		runtime.verify_identity = &selected_identity;
+		r = dfu_verify_application(&VERIFY_OPS, &runtime, selector,
+		                           &selected_identity, expected_revision,
+		                           &verify_config, &verify_report);
+		if (r != DFU_VERIFY_OK) {
+			fprintf(stderr,
+			        "Post-reset verification failed: result=%d expected=%s actual=%s usb_error=%d\n",
+			        verify_report.result, expected_revision,
+			        verify_report.actual_revision,
+			        verify_report.operation_error);
+			exit_status = 1;
+			goto cleanup;
+		}
+		fprintf(stderr, "Verified firmware revision: %s\n", expected_revision);
+		log_dfu_stage("post-reset application verification completed");
 	}
-	return 0;
+
+cleanup:
+	log_dfu_stage("cleanup started");
+	if (upfile != NULL)
+		fclose(upfile);
+	if (downfile != NULL)
+		fclose(downfile);
+	close_dfu_device(devh, interface_claimed);
+	exit_dfu_context(dfu_context, (functions & FUNC_RESET) != 0);
+	log_dfu_stage("operation finished");
+	return exit_status;
 }
