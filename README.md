@@ -22,11 +22,11 @@ Instructions for building libbtbb can be found [on the corresponding readthedocs
 
 Build dependencies (required vs optional, and what each enables) are listed in [REQUIREMENTS.md](REQUIREMENTS.md).
 
-## Quick install (Debian/Ubuntu)
+## Quick install (Debian/Ubuntu and macOS)
 
 From a checkout of this repository, [`install.sh`](install.sh) does the whole
 from-source setup in one command — system dependencies, libbtbb, the host
-tools, specan_ui Python deps, and udev rules:
+tools, specan_ui Python deps, and (on Linux) udev rules:
 
 ```sh
 ./install.sh                              # host tools only
@@ -34,8 +34,12 @@ tools, specan_ui Python deps, and udev rules:
 ./install.sh --flash-device <index|serial|all>   # also build + flash firmware
 ```
 
-Run `./install.sh --help` for all options. This is the from-source path; it is
-not a replacement for distro packaging (apt/dnf/brew).
+On Debian/Ubuntu it uses `apt` and installs into `/usr/local` with `sudo`. On
+macOS it needs [Homebrew](https://brew.sh), installs into the Homebrew prefix
+without `sudo`, and skips `ubertooth-scan`/`ubertooth-follow` (no BlueZ on
+macOS). Run `./install.sh --help` for all options, including `--prefix`. This is
+the from-source path; it is not a replacement for distro packaging
+(apt/dnf/brew).
 
 --------------------
 

@@ -66,6 +66,13 @@ code should build on Intel (the Homebrew include path uses `$(brew --prefix)`,
 which resolves to `/usr/local` on Intel), but this is unverified. Test locally
 if you build on an Intel Mac.
 
+### `install.sh` platforms
+`install.sh` supports Debian/Ubuntu (`apt`) and macOS with Homebrew. On macOS it
+installs into the Homebrew prefix without `sudo`, builds without BlueZ (no
+`ubertooth-scan`/`ubertooth-follow`), and installs no udev rules. Verified on
+macOS 26 arm64 (host tools, firmware build, multi-device flash selection); Intel
+Macs are unverified.
+
 ### CMake 4.x
 Modern CMake (4.x) removed compatibility with `cmake_minimum_required < 3.5`.
 This fork declares `cmake_minimum_required(VERSION 3.5...3.27)`; the companion

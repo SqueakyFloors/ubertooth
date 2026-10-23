@@ -17,10 +17,12 @@
   or a query fails.
   [#6](https://github.com/SqueakyFloors/ubertooth/issues/6)
   [#27](https://github.com/SqueakyFloors/ubertooth/issues/27)
-- `install.sh` provides one-command Debian/Ubuntu source installation, with
-  optional virtual environments, udev setup, firmware builds, and explicitly
-  selected flashing through `--flash-device <index|serial|all>`.
+- `install.sh` provides one-command source installation on Debian/Ubuntu and on
+  macOS with Homebrew, with optional virtual environments, a custom `--prefix`,
+  udev setup on Linux, firmware builds, and explicitly selected flashing through
+  `--flash-device <index|serial|all>`.
   [#23](https://github.com/SqueakyFloors/ubertooth/issues/23)
+  [#25](https://github.com/SqueakyFloors/ubertooth/issues/25)
 - `ubertooth-util -H`/`--host-version` reports the installed host-tools
   version without a device.
 - `ubertooth-util -I` blinks light-emitting diodes (LEDs) faster for easier
