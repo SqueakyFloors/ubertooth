@@ -164,24 +164,28 @@ case "$(uname -s)" in
 		BREW_PREFIX="$(brew --prefix)"
 		PREFIX="${PREFIX:-$BREW_PREFIX}"
 		JOBS="$(sysctl -n hw.ncpu)"
-		# Homebrew core has its own ubertooth and libbtbb; installing over them
-		# in the Homebrew prefix would break both.
-		if [ "$PREFIX" = "$BREW_PREFIX" ]; then
-			for formula in ubertooth libbtbb; do
-				if brew list --formula --versions "$formula" >/dev/null 2>&1; then
-					die "Homebrew's $formula is installed in $BREW_PREFIX; run 'brew uninstall ubertooth libbtbb' first, or install elsewhere with --prefix <path>"
-				fi
-			done
-		fi
 		;;
 	*)
 		die "unsupported platform $(uname -s); this script supports Debian/Ubuntu and macOS (Homebrew); see REQUIREMENTS.md"
 		;;
 esac
 ORIG_PATH="$PATH"
-mkdir -p "$PREFIX" 2>/dev/null || true
-# Run paths and PATH need an absolute prefix.
-PREFIX="$(cd "$PREFIX" 2>/dev/null && pwd)" || die "cannot use --prefix: $PREFIX"
+# Resolve python3 from the user's PATH, before PREFIX/bin is put first.
+PYTHON3="$(command -v python3 || true)"
+# Run paths and PATH need an absolute prefix. Create it (as root if needed) and
+# resolve symlinks so it can be compared with the Homebrew prefix.
+case "$PREFIX" in /*) ;; *) PREFIX="$PWD/$PREFIX" ;; esac
+mkdir -p "$PREFIX" 2>/dev/null || as_installer mkdir -p "$PREFIX"
+[ -d "$PREFIX" ] && PREFIX="$(cd "$PREFIX" && pwd -P)"
+if [ "$PLATFORM" = macos ] && [ "$PREFIX" = "$(cd "$BREW_PREFIX" && pwd -P)" ]; then
+	# Homebrew core has its own ubertooth and libbtbb; installing over them in
+	# the Homebrew prefix would break both.
+	for formula in ubertooth libbtbb; do
+		if brew list --formula --versions "$formula" >/dev/null 2>&1; then
+			die "Homebrew's $formula is installed in $BREW_PREFIX; run 'brew uninstall $formula' first, or install elsewhere with --prefix <path>"
+		fi
+	done
+fi
 # Tools installed by this run (and an existing install in PREFIX) come first.
 export PATH="$PREFIX/bin:$PATH"
 
@@ -267,10 +271,14 @@ if [ "$WITH_FIRMWARE" -eq 1 ] && [ "$SKIP_DEPS" -eq 0 ]; then
 	else
 		info "Installing firmware toolchain (Homebrew)"
 		brew_install dfu-util
-		# Any working arm-none-eabi-gcc will do; installing the cask over an
-		# existing one would conflict.
-		command -v arm-none-eabi-gcc >/dev/null 2>&1 || \
+		# Any arm-none-eabi-gcc with a C library will do (Homebrew's formula has
+		# none); installing the cask over an existing one would conflict.
+		if ! printf '#include <string.h>\n' | \
+				arm-none-eabi-gcc -x c -c - -o /dev/null >/dev/null 2>&1; then
+			command -v arm-none-eabi-gcc >/dev/null 2>&1 && \
+				die "arm-none-eabi-gcc cannot compile firmware (no C library?); install the gcc-arm-embedded cask instead"
 			brew install --cask gcc-arm-embedded
+		fi
 	fi
 fi
 
@@ -298,10 +306,11 @@ else
 fi
 
 # --- 4. Python interpreter / venv ----------------------------------------
-PYTHON="python3"
+# On Debian/Ubuntu python3 may only exist after the apt step above.
+PYTHON="${PYTHON3:-$(command -v python3 || echo python3)}"
 if [ -n "$VENV" ]; then
 	info "Creating/using Python venv at $VENV"
-	[ -d "$VENV" ] || python3 -m venv "$VENV"
+	[ -d "$VENV" ] || "$PYTHON" -m venv "$VENV"
 	# shellcheck disable=SC1091
 	PYTHON="$VENV/bin/python"
 	"$PYTHON" -m pip install --quiet --upgrade pip
