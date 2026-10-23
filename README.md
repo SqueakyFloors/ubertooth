@@ -96,3 +96,15 @@ For assistance with Ubertooth general use or development, please look at the [is
 We invite you to join our community discussions on [Discord](https://discord.gg/rsfMw3rsU8). Note that while technical support requests are welcome here, we do not have support staff on duty at all times. Be sure to also submit an issue on GitHub if you’ve found a bug or if you want to ensure that your request will be tracked and not overlooked.
 
 GitHub issues on this repository that are labelled "technical support" by Great Scott Gadgets employees can expect a response time of two weeks. We currently do not have expected response times for other GitHub issues or pull requests for this repository. 
+
+--------------------
+
+# Credits
+
+Ubertooth was created by Great Scott Gadgets, with Michael Ossmann
+([@mossmann](https://github.com/mossmann)), Dominic Spill
+([@dominicgs](https://github.com/dominicgs)), and Mike Ryan
+([@mikeryan](https://github.com/mikeryan)) as its principal authors. This fork
+builds on their work and on contributions from the wider community. See
+[CREDITS.md](CREDITS.md) for the original authors, contributors whose work is
+incorporated here, and every upstream contributor.

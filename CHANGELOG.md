@@ -6,6 +6,7 @@
 
 - ubertooth-btle can stream packet capture (PCAP) data to stdout with `-q -`
   or `-c -`, safely separating diagnostics for Wireshark and other consumers.
+  Credit: Ryan Govostes ([@rgov](https://github.com/rgov)).
   [#7](https://github.com/SqueakyFloors/ubertooth/issues/7)
   [upstream #362](https://github.com/greatscottgadgets/ubertooth/pull/362)
 - Every `-U` option accepts either a Universal Serial Bus (USB) enumeration
@@ -32,14 +33,16 @@
   and protection against system `MAX`/`MIN` macro collisions.
   [upstream #551](https://github.com/greatscottgadgets/ubertooth/issues/551)
 - Python 3.12 and current setuptools releases are supported. Credit: Arnaud
-  Rebillout <arnaudr@kali.org> and Rhys Perry <rhysperry111@gmail.com>.
+  Rebillout ([@elboulangero](https://github.com/elboulangero)) and Rhys Perry
+  ([@rhysperry111](https://github.com/rhysperry111)).
   [upstream #524](https://github.com/greatscottgadgets/ubertooth/pull/524)
 - CMake reports which optional host tools are enabled; `REQUIRE_ALL=ON` makes
   missing optional dependencies fatal, with requirements documented by tool.
-- Correct the firmware-build `ubertooth-dfu` variable. Credit: Michael Ossmann.
+- Correct the firmware-build `ubertooth-dfu` variable. Credit: Michael Ossmann
+  ([@mossmann](https://github.com/mossmann)).
   [upstream #485](https://github.com/greatscottgadgets/ubertooth/pull/485)
 - Replace deprecated Scapy packet-reading usage with `PcapReader`. Credit:
-  stryngs.
+  [@stryngs](https://github.com/stryngs).
   [upstream #519](https://github.com/greatscottgadgets/ubertooth/pull/519)
 
 ### Reliability fixes
@@ -81,16 +84,17 @@
   [#3](https://github.com/SqueakyFloors/ubertooth/issues/3)
   [upstream #542](https://github.com/greatscottgadgets/ubertooth/issues/542)
 - Prevent Adaptive Frequency Hopping (AFH) divide-by-zero failures in both
-  baseband hop implementations. Credit: Kielukel and Piotr Wasylów.
+  baseband hop implementations. Credit: [@Kielukel](https://github.com/Kielukel) and Piotr Wasylów.
   https://github.com/Kielukel/ubertooth
 - Correct Bluetooth Low Energy cyclic redundancy check filtering and perform
-  verification in the physical-layer engine. Credit: oliver.
+  verification in the physical-layer engine. Credit: oliver
+  ([@Oliver0804](https://github.com/Oliver0804)).
   [upstream #550](https://github.com/greatscottgadgets/ubertooth/pull/550)
 - Correct firmware signal-strength channel bounds. Credit: Gabriele
-  Gristina.
+  Gristina ([@matrix](https://github.com/matrix)).
   [upstream #481](https://github.com/greatscottgadgets/ubertooth/pull/481)
 - Improve Classic Bluetooth paging speed and reliability. Credit: Hillel
-  Chimowicz.
+  Chimowicz ([@hllhll](https://github.com/hllhll)).
   [upstream #540](https://github.com/greatscottgadgets/ubertooth/pull/540)
 
 ### Documentation
@@ -180,7 +184,8 @@ _Dominic Spill &lt;dominicgs@gmail.com&gt;, 01 Mar 2017 10:39:00 -0700   _
 - Update ubertooth-scan to provide more consistent output
 - It is now possible to build receive only firmware
 - Host code versioning is more reliable
-- Python tools now support Python 3. Thanks Hannes!
+- Python tools now support Python 3. Thanks Hannes
+  ([@el-han](https://github.com/el-han))!
 
 _Dominic Spill &lt;dominicgs@gmail.com&gt;, 12 Oct 2015 03:10:00 -0700   _
 
@@ -215,12 +220,12 @@ _Dominic Spill &lt;dominicgs@gmail.com&gt;, 05 Sep 2015 05:30:00 -0700   _
   - Promiscuous and follow modes
   - Pcap format packet logging
   - Pairing / encryption support when paired with crackle
-  - Credit for BLE features goes to Mike Ryan
+  - Credit for BLE features goes to Mike Ryan ([@mikeryan](https://github.com/mikeryan))
 - Unified host tool for monitoring Basic Rate
   - ubertooth-rx replaces -lap, -uap, -hop tools
   - Once UAP is discovered, ubertooth-rx automatically tries to find clock
         values and begin hopping
-  - Thanks to Will Code for working on this
+  - Thanks to Will Code ([@willcode](https://github.com/willcode)) for working on this
 - Survey tool - ubertooth-scan
   - Combining both Ubertooth and a standard Bluetooth dongle
   - Ubertooth scans for non-discoverable master devices
