@@ -28,9 +28,9 @@ Legend:
 | **CMake** | 3.5 | 3.5 … 3.27 (enforced range); 3.28.3 (Ubuntu 24.04) and 4.4.4 (macOS 26) build the host tools | < 3.5 (CMake 4 removed it) | ✅ floor enforced in CMakeLists |
 | **GNU make (firmware)** | 3.81 | 3.81 (macOS), 4.3 (Linux) | — | ✅ 3.81 verified; build avoids make ≥ 4.0 features |
 | **Python (host tools)** | 3.8 | 3.8 (U20 CI) … 3.14 (macOS CI) | 2.x (removed upstream) | ✅ 3.8 verified in CI |
-| **GCC (host)** | TBD | per-runner (recent); GCC 13.3.0 (Ubuntu 24.04), Apple clang 21 (macOS 26) build the host tools | — | 🎯 not yet characterized |
-| **arm-none-eabi-gcc (firmware)** | TBD | U20 (~9.x) … 15.3 (CI); 15.3 on hardware | — | 🎯 floor not pinned; builds + runs on old+new |
-| **libusb** | 1.0.x | 1.0.27 (Ubuntu 24.04), 1.0.30 (macOS) | pre-1.0 | 🎯 exact floor not pinned |
+| **GCC (host)** | 9.4 | 9.4 (Ubuntu 20.04 CI), 11.4 (22.04), 13.3 (24.04), 16.2 (Fedora CI); Apple clang 15 (macOS 14), 17 (macOS 15), 21 (macOS 26) | older than 9.4 (not tested) | ✅ 9.4 verified in CI (oldest tested) |
+| **arm-none-eabi-gcc (firmware)** | 9-2019-q4 (GCC 9.2.1) | 9-2019-q4 (Ubuntu 20.04 CI), 10.3-2021.07 (22.04), 13.2.rel1 (24.04), 15.3.1 (macOS 14/15/26 CI); 13.2 (Linux) and 15.3 (macOS) on hardware | older than 9-2019-q4 (not tested) | ✅ 9-2019-q4 verified in CI (oldest tested) |
+| **libusb** | 1.0.23 | 1.0.23 (Ubuntu 20.04 CI), 1.0.25 (22.04), 1.0.27 (24.04), 1.0.30 (macOS) | pre-1.0; older than 1.0.23 (not tested) | ✅ 1.0.23 verified in CI (oldest tested) |
 | **libbtbb** | 2020-12-R1 | current master (C lib) | older than 2020-12-R1 | 🎯 |
 
 ---
@@ -128,15 +128,22 @@ firmware flashing), not radio capture.
 ## TODO before this matrix can be trusted
 - [x] Add pinned Ubuntu 20.04 (container) / 22.04 / 24.04 to CI; verified green.
 - [x] Add pinned macOS versions (14/15/26); verified green.
-- [ ] Characterize GCC (host) and arm-none-eabi-gcc floors (oldest that builds).
-      (Firmware builds on both U20's old arm-gcc and 15.3, and 15.3 output runs
-      on real hardware; exact oldest floor still TBD.)
-- [ ] Pin a libusb minimum and verify.
+- [x] Characterize GCC (host) and arm-none-eabi-gcc floors. The minimum is the
+      oldest version exercised in CI (the Ubuntu 20.04 container: GCC 9.4 and
+      Arm GNU toolchain 9-2019-q4); older toolchains are not claimed. Firmware
+      built by 13.2 (Linux) and 15.3 (macOS) runs on real hardware.
+- [x] Pin a libusb minimum and verify: 1.0.23 (Ubuntu 20.04 CI), the oldest
+      tested; older releases are not claimed.
 - [x] Verify the firmware build on GNU make 3.81 (the version shipped with
       macOS). Verified: all three firmware images build, track the git revision
       across incremental rebuilds, no-op cleanly, and regenerate a missing
       version.h, on make 3.81 and 4.3; the build avoids make ≥ 4.0 features.
       Also verified end-to-end on hardware (build → flash → on-device `-v`
       matches) on macOS and the Linux bench.
-- [ ] Add `python_requires` to specan_ui packaging reflecting the 3.8 floor.
+- [x] Add `python_requires` to specan_ui packaging reflecting the 3.8 floor.
+      Superseded: since #33 CMake installs the modules directly and
+      `specan_ui/setup.py.in` is unused, so there is no packaging metadata to
+      constrain. Enforcing the floor in CMake is tracked in #91.
 - [ ] Replace remaining 🎯 with ✅ (and a CI link) or ❌ as results come in.
+      Only libbtbb remains: its 2020-12-R1 minimum is not exercised (CI builds
+      current master).
