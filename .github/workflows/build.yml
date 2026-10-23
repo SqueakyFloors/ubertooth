@@ -13,9 +13,10 @@ on:
 
 # A newer commit on the same pull request cancels that PR's older run. Pushes
 # to main and the weekly schedule get a unique group (the run id), so they are
-# never cancelled or replaced and each main commit keeps its result.
+# never cancelled or replaced and each main commit keeps its result. The group
+# uses the PR number, so same-named branches from forks cannot collide.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
