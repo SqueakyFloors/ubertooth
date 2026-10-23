@@ -125,6 +125,17 @@ Speed matters. Do not wait for every job.
 - MUST NOT add changelog entries for documentation-only changes, including
   updates to the `COMPATIBILITY.md` matrix and general documentation.
 
+## Issue references
+
+- MUST NOT put issue or PR numbers (for example `(#53)` or `issue #15`) in
+  source, tests, or build files. Upstream and this fork number issues
+  independently, so a bare number is ambiguous. Explain the reason in the
+  comment itself instead.
+- Issue links belong in commit messages, PR descriptions, and `CHANGELOG.md`;
+  there, use full URLs (`https://github.com/SqueakyFloors/ubertooth/issues/N`)
+  or `owner/repo#N`.
+- Leave vendored upstream files as they are.
+
 ## Documentation clarity
 
 - MUST expand each acronym at its first use in a document or independently read

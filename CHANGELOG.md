@@ -14,9 +14,11 @@
   without dumping full help text. With several devices and no `-U`,
   `ubertooth-util` read-only queries (`-s`, `-v`, `-V`, `-p`, `-b`, alone or
   combined) report every device and exit non-zero if a device cannot be opened
-  or a query fails.
+  or a query fails; `-U all` requests that listing explicitly, even for one
+  device, and is refused for every other option.
   [#6](https://github.com/SqueakyFloors/ubertooth/issues/6)
   [#27](https://github.com/SqueakyFloors/ubertooth/issues/27)
+  [#28](https://github.com/SqueakyFloors/ubertooth/issues/28)
 - `install.sh` provides one-command source installation on Debian/Ubuntu and on
   macOS with Homebrew, with optional virtual environments, a custom `--prefix`,
   `--skip-deps` for already-installed packages, udev setup on Linux, firmware
@@ -89,8 +91,9 @@
   firmware-image and ducky operations reject short reads.
   [#2](https://github.com/SqueakyFloors/ubertooth/issues/2)
 - `ubertooth-util -p` exits non-zero when the device reports a failed part ID
-  read instead of printing `Part ID: 0`; libubertooth adds `cmd_get_part_id()`
-  for the full unsigned 32-bit ID.
+  read instead of printing `Part ID: 0`. In libubertooth, `cmd_get_partnum()`
+  now returns a negative error for that case (it returned 0), and the new
+  `cmd_get_part_id()` returns the full unsigned 32-bit ID.
   [#52](https://github.com/SqueakyFloors/ubertooth/issues/52)
 - `ubertooth-scan` no longer leaks connection information after failed probes.
   [#3](https://github.com/SqueakyFloors/ubertooth/issues/3)
