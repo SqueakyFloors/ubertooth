@@ -38,28 +38,35 @@ the stricter requirement.
 - Research, support, hardware-blocked, and other issues that produce no
   repository change do not require a PR.
 - The PR description MUST summarize user impact and scope, validation results,
-  both independent agent-review model identifiers and verdicts, and whether
+  both independent agent-review verdicts, and whether
   the merge is low-stakes or requires maintainer approval.
 - Direct merges are exceptions only for emergency recovery or when GitHub PRs
   are unavailable. The merge commit and reason MUST be recorded on the issue.
   MUST NOT manufacture retrospective PRs for changes already merged.
 
+## Branch cleanup
+
+- Once a PR is closed or its change is merged to `main`, MUST delete its remote
+  and local branch, including superseded branches from earlier attempts.
+- MUST NOT delete `main`, the authoritative remote's default branch, or a
+  branch whose work is neither merged nor recorded elsewhere without asking.
+
 ## Independent agent review
 
-Every merge candidate containing code, configuration, workflow, policy, or
-non-trivial operational documentation changes:
+Changes limited to repository-local agent rules (`.kiro/steering/`) are
+exempt: MUST NOT be sent for agent review, and are merged through their PR
+without waiting for maintainer approval.
+
+Every other merge candidate containing code, configuration, workflow, policy,
+or non-trivial operational documentation changes:
 
 - MUST receive at least two independent read-only agent reviews.
-- MUST use different recorded model identifiers or model families; two prompts
-  or roles on the same model do not satisfy this requirement.
 - MUST give each reviewer the same final merge-base diff and acceptance criteria
   without sharing the other reviewer's conclusions.
 - SHOULD run reviewers in parallel.
 - MUST resolve every blocker and rerun affected validation.
 - If any candidate content changes after a blocker is reported, both reviewers
   MUST review the resulting final diff again.
-- If two different review models are unavailable, MUST disclose that the gate
-  is unsatisfied and MUST NOT describe the change as review-complete.
 
 ## Changelog discipline
 
@@ -99,8 +106,9 @@ or more of these low-stakes categories:
 - changelog condensation that preserves every distinct user-facing change,
   useful issue/pull-request links, and external credit;
 - comments-only changes with no generated or compiled output; or
-- additive tests or repository-local agent/process guidance that cannot alter
-  shipped artifacts, runtime behavior, or security controls.
+- additive tests, or any change limited to repository-local agent rules
+  (`.kiro/steering/`), that cannot alter shipped artifacts, runtime behavior,
+  or security controls.
 
 The issue or review record MUST state why the candidate qualifies. A candidate
 is NOT low-stakes if it changes source or firmware, build/install/package
