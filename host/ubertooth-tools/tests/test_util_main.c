@@ -204,6 +204,8 @@ static void read_back(FILE *file, char *buffer, size_t size)
 	rewind(file);
 	length = fread(buffer, 1, size - 1, file);
 	buffer[length] = '\0';
+	/* A capture that did not fit must fail loudly instead of comparing a prefix. */
+	mu_assert(fgetc(file) == EOF, "captured output was truncated");
 }
 
 static struct run_result run_util(const char *const *args)
@@ -216,6 +218,7 @@ static struct run_result run_util(const char *const *args)
 	FILE *err = tmpfile();
 
 	memset(&result, 0, sizeof(result));
+	result.rc = -1; /* a failed capture must not look like a successful run */
 	mu_assert(out != NULL && err != NULL, "tmpfile failed");
 	if (out == NULL || err == NULL)
 		return result;
@@ -676,6 +679,29 @@ MU_TEST(help_version_and_count_exit_zero_without_a_device)
 	mu_assert_int_eq(0, fake.start_calls);
 }
 
+MU_TEST(firmware_listing_with_several_devices_reports_each_device)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.device_count = 2;
+	r = RUN("-v");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out,
+	                 "0: git-test (API:1.07)\n1: git-test (API:1.07)\n") == 0,
+	          "per-device firmware lines");
+}
+
+MU_TEST(test_command_reads_back_through_the_library_and_exits_zero)
+{
+	struct run_result r;
+
+	reset_fake();
+	r = RUN("-9");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "55 55 55 55\n") == 0, "reply bytes");
+}
+
 MU_TEST(serial_listing_with_several_devices_exits_zero)
 {
 	struct run_result r;
@@ -706,6 +732,8 @@ int main(void)
 	MU_RUN(led_specan_uses_the_default_threshold_and_an_explicit_one);
 	MU_RUN(invalid_arguments_are_rejected_before_opening_the_device);
 	MU_RUN(help_version_and_count_exit_zero_without_a_device);
+	MU_RUN(firmware_listing_with_several_devices_reports_each_device);
+	MU_RUN(test_command_reads_back_through_the_library_and_exits_zero);
 	MU_RUN(serial_listing_with_several_devices_exits_zero);
 	return mu_report();
 }
