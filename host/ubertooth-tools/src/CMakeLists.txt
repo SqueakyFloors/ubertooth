@@ -114,3 +114,4 @@ message(STATUS "")
 
 target_sources(ubertooth-specan PRIVATE specan_options.c)
 target_sources(ubertooth-btle PRIVATE btle_options.c)
+target_sources(ubertooth-ego PRIVATE ego_options.c)

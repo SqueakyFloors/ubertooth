@@ -43,11 +43,12 @@ Options:
  - `-c` :
    Channel to use for continuous receive (suggested: 2408, 2418, 2423, 2469)
  - `-l <1-48>` :
-   Packet length to use (must be in the range 1 to 48)
+   Packet length to use. The value must be a complete decimal integer from 1
+   through 48; invalid values fail before the Ubertooth is opened.
  - `-a <access_code>` :
    Access code to use, given as hex (up to 4 bytes)
- - `-U<0-7>` :
-   Which Ubertooth device to use
+ - `-U <index|serial>` :
+   Select an Ubertooth by enumeration index or stable serial-number string
 
 ## SEE ALSO
 

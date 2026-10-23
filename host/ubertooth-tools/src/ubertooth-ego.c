@@ -21,6 +21,7 @@
 
 #include "ubertooth.h"
 #include "ubertooth_callback.h"
+#include "ego_options.h"
 #include <ctype.h>
 #include <err.h>
 #include <getopt.h>
@@ -50,8 +51,9 @@ static void usage(void)
 	printf("\n");
 	printf("    Options:\n");
 	printf("\t-c <2402-2480> set channel in MHz (for continuous rx)\n");
-	printf("\t-l <1-48> capture length (default: 18)\n");
+	printf("\t-l <1-48> capture length as a decimal integer (default: 18)\n");
 	printf("\t-a <access_code> access code (default: 630f9ffe)\n");
+	printf("\t-U <index|serial> select Ubertooth by index or serial\n");
 }
 
 int main(int argc, char *argv[])
@@ -88,18 +90,17 @@ int main(int argc, char *argv[])
 			access_code_str = strdup(optarg);
 			break;
 		case 'l':
-			len = atoi(optarg);
+			if (ego_parse_packet_length(optarg, &len) < 0) {
+				fprintf(stderr, "Length must be in [1,48]\n");
+				usage();
+				return 1;
+			}
 			break;
 		case 'h':
 		default:
 			usage();
 			return 1;
 		}
-	}
-
-	if (len < 1 || len > 48) {
-		printf("Length must be in [1,48]\n");
-		usage();
 	}
 
 	// access code

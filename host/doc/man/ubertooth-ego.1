@@ -68,13 +68,14 @@ Options:
 Channel to use for continuous receive (suggested: 2408, 2418, 2423, 2469)
 .IP \(bu 2
 \fB\fC\-l <1\-48>\fR :
-Packet length to use (must be in the range 1 to 48)
+Packet length to use. The value must be a complete decimal integer from 1
+through 48; invalid values fail before the Ubertooth is opened.
 .IP \(bu 2
 \fB\fC\-a <access_code>\fR :
 Access code to use, given as hex (up to 4 bytes)
 .IP \(bu 2
-\fB\fC\-U<0\-7>\fR :
-Which Ubertooth device to use
+\fB\fC\-U <index|serial>\fR :
+Select an Ubertooth by enumeration index or stable serial\-number string
 .RE
 .SH SEE ALSO
 .PP

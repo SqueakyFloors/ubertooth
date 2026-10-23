@@ -44,3 +44,17 @@ add_executable(test-btle-options
 target_include_directories(test-btle-options PRIVATE ../src)
 
 add_test(NAME btle-options COMMAND test-btle-options)
+
+add_executable(test-ego-options
+	test_ego_options.c
+	../src/ego_options.c)
+
+target_include_directories(test-ego-options PRIVATE ../src)
+
+add_test(NAME ego-options COMMAND test-ego-options)
+
+add_test(
+	NAME ego-cli
+	COMMAND ${Python3_EXECUTABLE}
+		${CMAKE_CURRENT_SOURCE_DIR}/test_ego_cli.py
+		$<TARGET_FILE:ubertooth-ego>)
