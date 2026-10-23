@@ -36,6 +36,11 @@
   [upstream #524](https://github.com/greatscottgadgets/ubertooth/pull/524)
 - CMake reports which optional host tools are enabled; `REQUIRE_ALL=ON` makes
   missing optional dependencies fatal, with requirements documented by tool.
+- Correct the firmware-build `ubertooth-dfu` variable. Credit: Michael Ossmann.
+  [upstream #485](https://github.com/greatscottgadgets/ubertooth/pull/485)
+- Replace deprecated Scapy packet-reading usage with `PcapReader`. Credit:
+  stryngs.
+  [upstream #519](https://github.com/greatscottgadgets/ubertooth/pull/519)
 
 ### Reliability fixes
 
@@ -75,6 +80,18 @@
 - `ubertooth-scan` no longer leaks connection information after failed probes.
   [#3](https://github.com/SqueakyFloors/ubertooth/issues/3)
   [upstream #542](https://github.com/greatscottgadgets/ubertooth/issues/542)
+- Prevent Adaptive Frequency Hopping (AFH) divide-by-zero failures in both
+  baseband hop implementations. Credit: Kielukel and Piotr Wasylów.
+  https://github.com/Kielukel/ubertooth
+- Correct Bluetooth Low Energy cyclic redundancy check filtering and perform
+  verification in the physical-layer engine. Credit: oliver.
+  [upstream #550](https://github.com/greatscottgadgets/ubertooth/pull/550)
+- Correct firmware signal-strength channel bounds. Credit: Gabriele
+  Gristina.
+  [upstream #481](https://github.com/greatscottgadgets/ubertooth/pull/481)
+- Improve Classic Bluetooth paging speed and reliability. Credit: Hillel
+  Chimowicz.
+  [upstream #540](https://github.com/greatscottgadgets/ubertooth/pull/540)
 
 ### Documentation
 
@@ -97,26 +114,6 @@
 - Added the supported platform/toolchain matrix, missing per-tool pages, and
   an archived 2020-12-R1 release guide.
   [#12](https://github.com/SqueakyFloors/ubertooth/issues/12)
-
-### Community contributions
-
-- Prevent Adaptive Frequency Hopping (AFH) divide-by-zero failures in both
-  baseband hop implementations. Credit: Kielukel and Piotr Wasylów.
-  https://github.com/Kielukel/ubertooth
-- Correct Bluetooth Low Energy cyclic redundancy check filtering and perform
-  verification in the physical-layer engine. Credit: oliver.
-  [upstream #550](https://github.com/greatscottgadgets/ubertooth/pull/550)
-- Correct firmware signal-strength channel bounds. Credit: Gabriele
-  Gristina.
-  [upstream #481](https://github.com/greatscottgadgets/ubertooth/pull/481)
-- Correct the firmware-build `ubertooth-dfu` variable. Credit: Michael Ossmann.
-  [upstream #485](https://github.com/greatscottgadgets/ubertooth/pull/485)
-- Improve Classic Bluetooth paging speed and reliability. Credit: Hillel
-  Chimowicz.
-  [upstream #540](https://github.com/greatscottgadgets/ubertooth/pull/540)
-- Replace deprecated Scapy packet-reading usage with `PcapReader`. Credit:
-  stryngs.
-  [upstream #519](https://github.com/greatscottgadgets/ubertooth/pull/519)
 
 _community fork, Fri, 23 Oct 2026 01:38:18 -0700_
 
