@@ -10,9 +10,13 @@
   [#7](https://github.com/SqueakyFloors/ubertooth/issues/7)
   [upstream #362](https://github.com/greatscottgadgets/ubertooth/pull/362)
 - Every `-U` option accepts either a Universal Serial Bus (USB) enumeration
-  index or stable serial number; multi-device messages and `ubertooth-util
-  -s`/`-v` output make selectors clear without dumping full help text.
+  index or stable serial number, and multi-device messages make selectors clear
+  without dumping full help text. With several devices and no `-U`,
+  `ubertooth-util` read-only queries (`-s`, `-v`, `-V`, `-p`, `-b`, alone or
+  combined) report every device and exit non-zero if a device cannot be opened
+  or a query fails.
   [#6](https://github.com/SqueakyFloors/ubertooth/issues/6)
+  [#27](https://github.com/SqueakyFloors/ubertooth/issues/27)
 - `install.sh` provides one-command Debian/Ubuntu source installation, with
   optional virtual environments, udev setup, firmware builds, and explicitly
   selected flashing through `--flash-device <index|serial|all>`.

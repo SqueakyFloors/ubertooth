@@ -68,6 +68,139 @@ static const struct util_report_ops report_ops = {
 	report_get_serial,
 };
 
+/* Read-only identity queries that can be reported for every attached device. */
+enum identity_query {
+	QUERY_BOARD_ID,
+	QUERY_FIRMWARE,
+	QUERY_COMPILE_INFO,
+	QUERY_PART_ID,
+	QUERY_SERIAL,
+	QUERY_COUNT
+};
+
+static const struct {
+	const char *name;  /* shown as "<name read failed>" */
+	const char *label; /* dropped when a single query is listed */
+} identity_query_text[QUERY_COUNT] = {
+	{ "board ID", "Board ID Number: " },
+	{ "firmware", "Firmware version: " },
+	{ "compile info", "" },
+	{ "part ID", "Part ID: " },
+	{ "serial", "Serial No: " },
+};
+
+/* Runs one identity report into buffers so its lines can be prefixed. */
+static int capture_identity_report(enum identity_query query, ubertooth_t *ut,
+                                   char **text, char **error)
+{
+	size_t size = 0, error_size = 0;
+	int status = 1;
+	FILE *out, *err;
+
+	*text = NULL;
+	*error = NULL;
+	out = open_memstream(text, &size);
+	err = open_memstream(error, &error_size);
+	if (out == NULL || err == NULL) {
+		if (out != NULL)
+			fclose(out);
+		if (err != NULL)
+			fclose(err);
+		return 1;
+	}
+	switch (query) {
+	case QUERY_BOARD_ID:
+		status = util_report_board_id(&report_ops, ut, out, err);
+		break;
+	case QUERY_FIRMWARE:
+		status = util_report_firmware(&report_ops, ut, out);
+		break;
+	case QUERY_COMPILE_INFO:
+		status = util_report_compile_info(&report_ops, ut, out);
+		break;
+	case QUERY_PART_ID:
+		status = util_report_part_id(&report_ops, ut, out);
+		break;
+	case QUERY_SERIAL:
+		status = util_report_serial(&report_ops, ut, out);
+		break;
+	default:
+		break;
+	}
+	fclose(out);
+	fclose(err);
+	return status;
+}
+
+/*
+ * Reports the requested identity queries for every device, in enumeration
+ * order. A single query prints "<index>: <value>"; several queries print each
+ * report line prefixed with "<index>: ". A device that cannot be opened or a
+ * failed read is shown on its own line and makes the result 1, but the other
+ * devices are still reported. Devices are closed without sending STOP, so a
+ * query does not change whatever mode a device is running.
+ */
+static int list_identity_queries(const int requested[QUERY_COUNT], int count)
+{
+	int status = 0;
+	int queries = 0;
+	int i, q;
+
+	for (q = 0; q < QUERY_COUNT; q++)
+		queries += requested[q] ? 1 : 0;
+
+	for (i = 0; i < count; i++) {
+		ubertooth_t *uti = ubertooth_start(i);
+
+		if (uti == NULL) {
+			fprintf(stdout, "%d: <unavailable>\n", i);
+			status = 1;
+			continue;
+		}
+		for (q = 0; q < QUERY_COUNT; q++) {
+			char *text, *error, *line, *next;
+			const char *label = identity_query_text[q].label;
+
+			if (!requested[q])
+				continue;
+			status = util_status_merge(status,
+			        capture_identity_report((enum identity_query)q, uti,
+			                                &text, &error));
+			if (text == NULL || text[0] == '\0') {
+				/* Show the report's own error (for example an unknown board
+				 * ID) when it gave one, otherwise say the read failed. */
+				if (error != NULL && error[0] != '\0') {
+					error[strcspn(error, "\n")] = '\0';
+					fprintf(stdout, "%d: <%s>\n", i, error);
+				} else {
+					fprintf(stdout, "%d: <%s read failed>\n", i,
+					        identity_query_text[q].name);
+				}
+				status = 1;
+				free(text);
+				free(error);
+				continue;
+			}
+			free(error);
+			for (line = text; *line != '\0'; line = next) {
+				next = strchr(line, '\n');
+				if (next != NULL)
+					*next++ = '\0';
+				else
+					next = line + strlen(line);
+				if (queries == 1 && label[0] != '\0' &&
+				    strncmp(line, label, strlen(label)) == 0)
+					line += strlen(label);
+				fprintf(stdout, "%d: %s\n", i, line);
+			}
+			free(text);
+		}
+		ubertooth_close(uti);
+		ubertooth_free(uti);
+	}
+	return status;
+}
+
 /* For -I (identify): the loop runs until interrupted. Without a handler, Ctrl-C
  * leaves the USR/RX/TX LEDs in whatever state the last toggle set (often on).
  * This handler turns them off and exits cleanly so the device returns to the
@@ -122,11 +255,10 @@ static void usage(FILE *output)
 	fprintf(output, "\t-x xmas lights\n");
 }
 
-#define MAX_VERSION_STRING_LEN 255
-
 int main(int argc, char *argv[])
 {
 	int opt;
+	int other_operations = 0; /* an option other than -s -v -V -p -b -U was given */
 	int status = 0; /* 0 on success, 1 if any operation failed; never a device value */
 	ubertooth_t* ut = NULL;
 	rangetest_result rr;
@@ -138,7 +270,6 @@ int main(int argc, char *argv[])
 	int do_something, do_compile_info;
 	int do_number, do_xmas;
 	char* ubertooth_device = NULL;
-	char version_string[MAX_VERSION_STRING_LEN];
 
 	/* set command states to negative as a starter
 	 * setting to 0 means 'do it'
@@ -162,6 +293,9 @@ int main(int argc, char *argv[])
 	}
 
 	while ((opt=getopt(argc,argv,"U:hnmefiIprsStvbl::a::C::c::d::q::z::9VNxH")) != EOF) {
+		/* Anything but an identity query or -U needs a single selected device. */
+		if (strchr("svVpbU", opt) == NULL)
+			other_operations = 1;
 		switch(opt) {
 		case 'U':
 			ubertooth_device = optarg;
@@ -293,57 +427,24 @@ int main(int argc, char *argv[])
 		return 0;
 	}
 
-	/* -s with no -U and several devices: list every device's serial, in
-	 * enumeration order, instead of erroring. -U <x> -s still targets one. */
-	if (do_serial == 0 && ubertooth_device == NULL) {
-		int count = ubertooth_count();
-		if (count > 1) {
-			int i;
-			for (i = 0; i < count; i++) {
-				ubertooth_t* uti = ubertooth_start(i);
-				if (uti == NULL) {
-					fprintf(stdout, "%d: <unavailable>\n", i);
-					continue;
-				}
-				u8 serial[17];
-				if (cmd_get_serial(uti->devh, serial) == 0) {
-					int j;
-					fprintf(stdout, "%d: ", i);
-					for (j = 1; j < 17; j++)
-						fprintf(stdout, "%02x", serial[j]);
-					fprintf(stdout, "\n");
-				} else {
-					fprintf(stdout, "%d: <serial read failed>\n", i);
-				}
-				ubertooth_stop(uti);
-			}
-			return 0;
-		}
-	}
+	/* Read-only identity queries (-b, -v, -V, -p, -s) with no -U and several
+	 * devices: report every device instead of refusing to pick one. Any other
+	 * operation in the same command still needs -U. */
+	if (ubertooth_device == NULL) {
+		int requested[QUERY_COUNT];
 
-	/* -v with no -U and several devices: list every device's firmware version,
-	 * in enumeration order, instead of erroring. -U <x> -v still targets one. */
-	if (do_firmware == 0 && ubertooth_device == NULL) {
-		int count = ubertooth_count();
-		if (count > 1) {
-			int i;
-			for (i = 0; i < count; i++) {
-				ubertooth_t* uti = ubertooth_start(i);
-				if (uti == NULL) {
-					fprintf(stdout, "%d: <unavailable>\n", i);
-					continue;
-				}
-				uint16_t usb_version;
-				fprintf(stdout, "%d: ", i);
-				cmd_get_rev_num(uti->devh, version_string, MAX_VERSION_STRING_LEN);
-				fprintf(stdout, "%s", version_string);
-				if (ubertooth_get_api(uti, &usb_version) >= 0)
-					fprintf(stdout, " (API:%x.%02x)\n", (usb_version>>8)&0xFF, usb_version&0xFF);
-				else
-					fprintf(stdout, "\n");
-				ubertooth_stop(uti);
-			}
-			return 0;
+		requested[QUERY_BOARD_ID] = (do_board_id == 0);
+		requested[QUERY_FIRMWARE] = (do_firmware == 0);
+		requested[QUERY_COMPILE_INFO] = (do_compile_info == 0);
+		requested[QUERY_PART_ID] = (do_part == 0);
+		requested[QUERY_SERIAL] = (do_serial == 0);
+		if (!other_operations &&
+		    (requested[QUERY_BOARD_ID] || requested[QUERY_FIRMWARE] ||
+		     requested[QUERY_COMPILE_INFO] || requested[QUERY_PART_ID] ||
+		     requested[QUERY_SERIAL])) {
+			int count = ubertooth_count();
+			if (count > 1)
+				return list_identity_queries(requested, count);
 		}
 	}
 

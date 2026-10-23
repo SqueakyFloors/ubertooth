@@ -119,11 +119,29 @@ device list is sized dynamically and the index is not capped (older docs showed
 hub bandwidth, and power — with many devices, prefer serial selection since
 indices become unwieldy and unstable.
 
+With several Ubertooths attached and no `-U`, the read-only identity queries
+`-s` (serial), `-v` (firmware version), `-V` (compile info), `-p` (part ID) and
+`-b` (board ID) report every device, in enumeration order, instead of refusing
+to pick one. A single query prints one `<index>: <value>` line per device:
+
+    $ ubertooth-util -s
+    0: 1cc001038088cb956c43ad61c52000f5
+    1: 05f00014e380df95f4436562c32000f5
+
+Several queries together (for example `-vVspb`) print each report line
+prefixed with the device index. A device that cannot be opened is shown as
+`<index>: <unavailable>`, a failed read as `<index>: <query read failed>`, and a
+query that reports an error as that error (for example `<error: unknown board
+ID 7>`). The other devices are still reported, and the command exits non-zero
+if any device failed. A firmware version whose API version cannot be read is
+shown without it; failed `-V` and firmware revision reads are not detected yet. Listing does not stop a mode a device is running. Any other
+option in the same command still needs `-U`.
+
 To tell which index or serial is which physical device:
 
-- Run any tool with no `-U`: when more than one Ubertooth is present the tool
-  refuses to pick and instead lists each device's index with its serial number.
-  Use that to map index to serial.
+- Run `ubertooth-util -s`, or any other tool with no `-U`: with more than one
+  Ubertooth present, the tool lists each device's index with its serial number
+  (other tools refuse to pick one). Use that to map index to serial.
 - Or flash the LEDs on a given device and watch which board blinks:
 
         ubertooth-util -U0 -I

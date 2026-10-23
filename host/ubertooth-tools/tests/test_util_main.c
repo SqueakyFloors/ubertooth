@@ -47,6 +47,11 @@ static struct {
 	int stop_calls, flash_calls, isp_calls, led_specan_calls, range_test_calls;
 	int repeater_calls, tx_test_calls, xmas_calls, reset_calls;
 	int last_channel_set, last_squelch_set, last_led_specan_arg;
+	/* multi-device listing */
+	int current_index;     /* device opened by ubertooth_start(), or -1 */
+	int unavailable_index; /* ubertooth_start() fails for this index */
+	int board_fail_index;  /* the board ID read fails on this device */
+	int indexed_starts, closes, frees;
 } fake;
 
 static ubertooth_t fake_ut;
@@ -68,6 +73,9 @@ static void reset_fake(void)
 	fake.range.request_num = 2;
 	fake.range.reply_pa = 3;
 	fake.range.reply_num = 4;
+	fake.current_index = -1;
+	fake.unavailable_index = -1;
+	fake.board_fail_index = -1;
 	memset(&fake_ut, 0, sizeof(fake_ut));
 	fake_ut.devh = (struct libusb_device_handle *)&fake;
 }
@@ -76,7 +84,10 @@ int ubertooth_count(void) { return fake.device_count; }
 
 ubertooth_t *ubertooth_start(int ubertooth_device)
 {
-	(void)ubertooth_device;
+	fake.indexed_starts++;
+	if (ubertooth_device == fake.unavailable_index)
+		return NULL;
+	fake.current_index = ubertooth_device;
 	return &fake_ut;
 }
 
@@ -89,7 +100,26 @@ ubertooth_t *ubertooth_start_select(const char *u_arg)
 	return &fake_ut;
 }
 
-void ubertooth_stop(ubertooth_t *ut) { (void)ut; }
+/* Like the library, stop also sends STOP to the device. */
+void ubertooth_stop(ubertooth_t *ut)
+{
+	(void)ut;
+	fake.stop_calls++;
+	fake.current_index = -1;
+}
+
+void ubertooth_close(ubertooth_t *ut)
+{
+	(void)ut;
+	fake.closes++;
+	fake.current_index = -1;
+}
+
+void ubertooth_free(ubertooth_t *ut)
+{
+	(void)ut;
+	fake.frees++;
+}
 
 int ubertooth_get_api(ubertooth_t *ut, uint16_t *version)
 {
@@ -100,7 +130,13 @@ int ubertooth_get_api(ubertooth_t *ut, uint16_t *version)
 
 void print_version(void) { printf("libubertooth fake\n"); }
 
-int cmd_get_board_id(struct libusb_device_handle *h) { (void)h; return fake.board_id; }
+int cmd_get_board_id(struct libusb_device_handle *h)
+{
+	(void)h;
+	if (fake.current_index >= 0 && fake.current_index == fake.board_fail_index)
+		return -1;
+	return fake.board_id;
+}
 int cmd_get_channel(struct libusb_device_handle *h) { (void)h; return fake.channel; }
 int cmd_get_palevel(struct libusb_device_handle *h) { (void)h; return fake.palevel; }
 int cmd_get_squelch(struct libusb_device_handle *h) { (void)h; return fake.squelch; }
@@ -714,6 +750,166 @@ MU_TEST(serial_listing_with_several_devices_exits_zero)
 	mu_assert(strstr(r.out, "1: a1a2a3a4a5a6a7a8a9aaabacadaeafb0\n") != NULL, "second serial");
 }
 
+#define SERIAL_VALUE "a1a2a3a4a5a6a7a8a9aaabacadaeafb0"
+
+MU_TEST(each_identity_query_alone_lists_every_device_compactly)
+{
+	struct { const char *option; const char *expected; } cases[] = {
+		{ "-b", "0: 1 (Ubertooth One)\n1: 1 (Ubertooth One)\n" },
+		{ "-v", "0: git-test (API:1.07)\n1: git-test (API:1.07)\n" },
+		{ "-V", "0: compile-test\n1: compile-test\n" },
+		{ "-p", "0: 25011723\n1: 25011723\n" },
+		{ "-s", "0: " SERIAL_VALUE "\n1: " SERIAL_VALUE "\n" },
+	};
+	size_t i;
+
+	for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+		struct run_result r;
+
+		reset_fake();
+		fake.device_count = 2;
+		r = run_util((const char *const[]){ "ubertooth-util", cases[i].option, NULL });
+		mu_assert_int_eq(0, r.rc);
+		mu_assert(strcmp(r.out, cases[i].expected) == 0, cases[i].option);
+		mu_assert_int_eq(2, fake.indexed_starts);
+		mu_assert_int_eq(2, fake.closes); /* every opened device is closed */
+		mu_assert_int_eq(2, fake.frees);
+		mu_assert_int_eq(0, fake.stop_calls); /* a query never sends STOP */
+		mu_assert_int_eq(0, fake.start_calls); /* no single-device selection */
+	}
+}
+
+MU_TEST(combined_identity_queries_list_every_line_for_every_device)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.device_count = 2;
+	r = RUN("-vVspb");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out,
+	                 "0: " BOARD_LINE "0: " FIRMWARE_LINE "0: " COMPILE_LINE
+	                 "0: " PART_LINE "0: " SERIAL_LINE
+	                 "1: " BOARD_LINE "1: " FIRMWARE_LINE "1: " COMPILE_LINE
+	                 "1: " PART_LINE "1: " SERIAL_LINE) == 0,
+	          "per-device report lines in report order");
+}
+
+MU_TEST(an_unavailable_device_is_reported_and_fails_the_listing)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.device_count = 3;
+	fake.unavailable_index = 1;
+	r = RUN("-b");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out,
+	                 "0: 1 (Ubertooth One)\n1: <unavailable>\n2: 1 (Ubertooth One)\n") == 0,
+	          "other devices still listed");
+	mu_assert_int_eq(2, fake.closes);
+	mu_assert_int_eq(0, fake.stop_calls);
+}
+
+MU_TEST(a_failed_read_on_one_device_is_reported_and_fails_the_listing)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.device_count = 2;
+	fake.board_fail_index = 0;
+	r = RUN("-b");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, "0: <board ID read failed>\n1: 1 (Ubertooth One)\n") == 0,
+	          "failed read line");
+
+	reset_fake();
+	fake.device_count = 2;
+	fake.board_fail_index = 1;
+	r = RUN("-b", "-s");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.out, "1: <board ID read failed>\n") != NULL, "failed read line");
+	mu_assert(strstr(r.out, "1: " SERIAL_LINE) != NULL, "later query still reported");
+
+	reset_fake();
+	fake.device_count = 2;
+	fake.serial_rc = 1;
+	r = RUN("-s");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, "0: <serial read failed>\n1: <serial read failed>\n") == 0,
+	          "serial read failure text is unchanged");
+
+	reset_fake();
+	fake.device_count = 2;
+	fake.board_id = 7; /* read succeeds but the ID is not a known board */
+	r = RUN("-b");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out,
+	                 "0: <error: unknown board ID 7>\n1: <error: unknown board ID 7>\n") == 0,
+	          "unknown board ID shown per device");
+	mu_assert_int_eq(0, (long)strlen(r.err));
+
+	reset_fake();
+	fake.device_count = 2;
+	fake.api_rc = -1;
+	r = RUN("-v");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, "0: git-test\n1: git-test\n") == 0, "revision without API");
+}
+
+MU_TEST(listing_is_not_used_with_a_selector_one_device_or_other_operations)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.device_count = 2;
+	r = RUN("-U", "1", "-b");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, BOARD_LINE) == 0, "single device with -U");
+	mu_assert_int_eq(0, fake.indexed_starts);
+	mu_assert(strcmp(fake.selector, "1") == 0, "selector passed");
+
+	reset_fake();
+	fake.device_count = 1;
+	r = RUN("-b");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, BOARD_LINE) == 0, "single device without -U");
+	mu_assert_int_eq(0, fake.indexed_starts);
+
+	/* A device count error falls back to normal selection. */
+	reset_fake();
+	fake.device_count = -1;
+	r = RUN("-b");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, BOARD_LINE) == 0, "single-device report");
+	mu_assert_int_eq(0, fake.indexed_starts);
+	mu_assert_int_eq(1, fake.start_calls);
+
+	/* The listing only needs identity queries; -U-less commands with any other
+	 * option, including the ones listed here, use normal selection. */
+	{
+		const char *const others[] = { "-c", "-a", "-l", "-d", "-z", "-m", "-S", "-9" };
+		size_t i;
+
+		for (i = 0; i < sizeof(others) / sizeof(others[0]); i++) {
+			reset_fake();
+			fake.device_count = 2;
+			r = run_util((const char *const[]){ "ubertooth-util", "-s", others[i], NULL });
+			mu_assert_int_eq(0, fake.indexed_starts);
+			mu_assert_int_eq(1, fake.start_calls);
+		}
+	}
+
+	/* Another operation in the same command needs a single selected device,
+	 * so it goes through the normal selection (which refuses on real hardware). */
+	reset_fake();
+	fake.device_count = 2;
+	r = RUN("-s", "-c");
+	mu_assert_int_eq(0, fake.indexed_starts);
+	mu_assert_int_eq(1, fake.start_calls);
+	mu_assert(strstr(r.out, "Serial No: ") != NULL, "single-device report format");
+}
+
 int main(void)
 {
 	MU_RUN(nonzero_query_values_are_not_exit_statuses);
@@ -735,5 +931,10 @@ int main(void)
 	MU_RUN(firmware_listing_with_several_devices_reports_each_device);
 	MU_RUN(test_command_reads_back_through_the_library_and_exits_zero);
 	MU_RUN(serial_listing_with_several_devices_exits_zero);
+	MU_RUN(each_identity_query_alone_lists_every_device_compactly);
+	MU_RUN(combined_identity_queries_list_every_line_for_every_device);
+	MU_RUN(an_unavailable_device_is_reported_and_fails_the_listing);
+	MU_RUN(a_failed_read_on_one_device_is_reported_and_fails_the_listing);
+	MU_RUN(listing_is_not_used_with_a_selector_one_device_or_other_operations);
 	return mu_report();
 }
