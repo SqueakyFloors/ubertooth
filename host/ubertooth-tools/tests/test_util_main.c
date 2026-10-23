@@ -15,7 +15,12 @@
 #include "../../../firmware/tests/minunit.h"
 
 /* ubertooth-util waits two seconds after a reset; the fake device does not need it. */
-#define sleep(seconds) ((void)(seconds), 0u)
+static unsigned fake_sleep(unsigned seconds)
+{
+	(void)seconds;
+	return 0;
+}
+#define sleep(seconds) fake_sleep(seconds)
 #define main ubertooth_util_main
 #include "ubertooth-util.c"
 #undef sleep
