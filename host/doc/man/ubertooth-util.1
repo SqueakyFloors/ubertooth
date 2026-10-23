@@ -193,6 +193,12 @@ ubertooth\-util \-m
 Note that the range test transmits the Cortex M3 microcontroller's
 serial number. If you do not wish to broadcast that information
 wirelessly, do not use the range test functionality.
+.SH EXIT STATUS
+.PP
+\fB\fCubertooth\-util\fR exits with 0 when every requested operation succeeds, including
+queries that report a nonzero value such as \fB\fC\-b\fR (board ID), \fB\fC\-c\fR (channel), or
+\fB\fC\-a\fR (power amplifier level). It exits with a nonzero status if any requested
+operation fails, even when a later operation in the same command succeeds.
 .SH SEE ALSO
 .PP
 .BR ubertooth (7): 

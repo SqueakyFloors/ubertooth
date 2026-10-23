@@ -58,3 +58,11 @@ add_test(
 	COMMAND ${Python3_EXECUTABLE}
 		${CMAKE_CURRENT_SOURCE_DIR}/test_ego_cli.py
 		$<TARGET_FILE:ubertooth-ego>)
+
+add_executable(test-util-report
+	test_util_report.c
+	../src/util_report.c)
+
+target_include_directories(test-util-report PRIVATE ../src)
+
+add_test(NAME util-report COMMAND test-util-report)

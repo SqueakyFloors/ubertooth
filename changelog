@@ -61,6 +61,9 @@ ubertooth (2020-12-R1+modern1) unstable; urgency=low
     https://github.com/SqueakyFloors/ubertooth/issues/22
     https://github.com/SqueakyFloors/ubertooth/issues/5
     https://github.com/greatscottgadgets/ubertooth/issues/448
+  * `ubertooth-util` exits 0 after a successful query such as `-b`, `-c`, `-a`,
+    or `-z`, and an earlier failure is no longer hidden by a later success.
+    https://github.com/SqueakyFloors/ubertooth/issues/40
   * Host-library failures now propagate correctly and release device resources;
     firmware-image and ducky operations reject short reads.
     https://github.com/SqueakyFloors/ubertooth/issues/2
