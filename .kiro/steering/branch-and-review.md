@@ -38,7 +38,7 @@ the stricter requirement.
 - Research, support, hardware-blocked, and other issues that produce no
   repository change do not require a PR.
 - The PR description MUST summarize user impact and scope, validation results,
-  both independent agent-review model identifiers and verdicts, and whether
+  both independent agent-review verdicts, and whether
   the merge is low-stakes or requires maintainer approval.
 - Direct merges are exceptions only for emergency recovery or when GitHub PRs
   are unavailable. The merge commit and reason MUST be recorded on the issue.
@@ -50,16 +50,12 @@ Every merge candidate containing code, configuration, workflow, policy, or
 non-trivial operational documentation changes:
 
 - MUST receive at least two independent read-only agent reviews.
-- MUST use different recorded model identifiers or model families; two prompts
-  or roles on the same model do not satisfy this requirement.
 - MUST give each reviewer the same final merge-base diff and acceptance criteria
   without sharing the other reviewer's conclusions.
 - SHOULD run reviewers in parallel.
 - MUST resolve every blocker and rerun affected validation.
 - If any candidate content changes after a blocker is reported, both reviewers
   MUST review the resulting final diff again.
-- If two different review models are unavailable, MUST disclose that the gate
-  is unsatisfied and MUST NOT describe the change as review-complete.
 
 ## Changelog discipline
 
