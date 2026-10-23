@@ -130,15 +130,18 @@ to pick one. A single query prints one `<index>: <value>` line per device:
 
 Several queries together (for example `-vVspb`) print each report line
 prefixed with the device index. A device that cannot be opened is shown as
-`<index>: <unavailable>` and a failed read as `<index>: <query read failed>`;
-the other devices are still reported, and the command exits non-zero. Any other
+`<index>: <unavailable>`, a failed read as `<index>: <query read failed>`, and a
+query that reports an error as that error (for example `<error: unknown board
+ID 7>`). The other devices are still reported, and the command exits non-zero
+if any device failed; a firmware version whose API version cannot be read is
+shown without it. Listing does not stop a mode a device is running. Any other
 option in the same command still needs `-U`.
 
 To tell which index or serial is which physical device:
 
-- Run any tool with no `-U`: when more than one Ubertooth is present the tool
-  refuses to pick and instead lists each device's index with its serial number.
-  Use that to map index to serial.
+- Run `ubertooth-util -s`, or any other tool with no `-U`: with more than one
+  Ubertooth present, the tool lists each device's index with its serial number
+  (other tools refuse to pick one). Use that to map index to serial.
 - Or flash the LEDs on a given device and watch which board blinks:
 
         ubertooth-util -U0 -I

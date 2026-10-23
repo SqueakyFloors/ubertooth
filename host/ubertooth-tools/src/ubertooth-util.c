@@ -89,21 +89,28 @@ static const struct {
 	{ "serial", "Serial No: " },
 };
 
-/* Runs one identity report into a buffer so its lines can be prefixed. */
+/* Runs one identity report into buffers so its lines can be prefixed. */
 static int capture_identity_report(enum identity_query query, ubertooth_t *ut,
-                                   char **text)
+                                   char **text, char **error)
 {
-	size_t size = 0;
+	size_t size = 0, error_size = 0;
 	int status = 1;
-	FILE *out;
+	FILE *out, *err;
 
 	*text = NULL;
+	*error = NULL;
 	out = open_memstream(text, &size);
-	if (out == NULL)
+	err = open_memstream(error, &error_size);
+	if (out == NULL || err == NULL) {
+		if (out != NULL)
+			fclose(out);
+		if (err != NULL)
+			fclose(err);
 		return 1;
+	}
 	switch (query) {
 	case QUERY_BOARD_ID:
-		status = util_report_board_id(&report_ops, ut, out, stderr);
+		status = util_report_board_id(&report_ops, ut, out, err);
 		break;
 	case QUERY_FIRMWARE:
 		status = util_report_firmware(&report_ops, ut, out);
@@ -121,6 +128,7 @@ static int capture_identity_report(enum identity_query query, ubertooth_t *ut,
 		break;
 	}
 	fclose(out);
+	fclose(err);
 	return status;
 }
 
@@ -129,7 +137,8 @@ static int capture_identity_report(enum identity_query query, ubertooth_t *ut,
  * order. A single query prints "<index>: <value>"; several queries print each
  * report line prefixed with "<index>: ". A device that cannot be opened or a
  * failed read is shown on its own line and makes the result 1, but the other
- * devices are still reported.
+ * devices are still reported. Devices are closed without sending STOP, so a
+ * query does not change whatever mode a device is running.
  */
 static int list_identity_queries(const int requested[QUERY_COUNT], int count)
 {
@@ -149,20 +158,30 @@ static int list_identity_queries(const int requested[QUERY_COUNT], int count)
 			continue;
 		}
 		for (q = 0; q < QUERY_COUNT; q++) {
-			char *text, *line, *next;
+			char *text, *error, *line, *next;
 			const char *label = identity_query_text[q].label;
 
 			if (!requested[q])
 				continue;
 			status = util_status_merge(status,
-			        capture_identity_report((enum identity_query)q, uti, &text));
+			        capture_identity_report((enum identity_query)q, uti,
+			                                &text, &error));
 			if (text == NULL || text[0] == '\0') {
-				fprintf(stdout, "%d: <%s read failed>\n", i,
-				        identity_query_text[q].name);
+				/* Show the report's own error (for example an unknown board
+				 * ID) when it gave one, otherwise say the read failed. */
+				if (error != NULL && error[0] != '\0') {
+					error[strcspn(error, "\n")] = '\0';
+					fprintf(stdout, "%d: <%s>\n", i, error);
+				} else {
+					fprintf(stdout, "%d: <%s read failed>\n", i,
+					        identity_query_text[q].name);
+				}
 				status = 1;
 				free(text);
+				free(error);
 				continue;
 			}
+			free(error);
 			for (line = text; *line != '\0'; line = next) {
 				next = strchr(line, '\n');
 				if (next != NULL)
@@ -176,7 +195,8 @@ static int list_identity_queries(const int requested[QUERY_COUNT], int count)
 			}
 			free(text);
 		}
-		ubertooth_stop(uti);
+		ubertooth_close(uti);
+		ubertooth_free(uti);
 	}
 	return status;
 }
@@ -238,6 +258,7 @@ static void usage(FILE *output)
 int main(int argc, char *argv[])
 {
 	int opt;
+	int other_operations = 0; /* an option other than -s -v -V -p -b -U was given */
 	int status = 0; /* 0 on success, 1 if any operation failed; never a device value */
 	ubertooth_t* ut = NULL;
 	rangetest_result rr;
@@ -272,6 +293,9 @@ int main(int argc, char *argv[])
 	}
 
 	while ((opt=getopt(argc,argv,"U:hnmefiIprsStvbl::a::C::c::d::q::z::9VNxH")) != EOF) {
+		/* Anything but an identity query or -U needs a single selected device. */
+		if (strchr("svVpbU", opt) == NULL)
+			other_operations = 1;
 		switch(opt) {
 		case 'U':
 			ubertooth_device = optarg;
@@ -408,13 +432,6 @@ int main(int argc, char *argv[])
 	 * operation in the same command still needs -U. */
 	if (ubertooth_device == NULL) {
 		int requested[QUERY_COUNT];
-		int other_operations =
-			do_stop == 0 || do_flash == 0 || do_isp == 0 || do_reset == 0 ||
-			do_tx == 0 || do_identify == 0 || do_range_test == 0 ||
-			do_repeater == 0 || do_range_result == 0 || do_leds != -1 ||
-			do_all_leds != -1 || do_palevel != -1 || do_channel != -1 ||
-			do_led_specan >= 0 || do_set_squelch > 0 || do_get_squelch > 0 ||
-			do_something || do_xmas;
 
 		requested[QUERY_BOARD_ID] = (do_board_id == 0);
 		requested[QUERY_FIRMWARE] = (do_firmware == 0);

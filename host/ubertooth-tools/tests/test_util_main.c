@@ -51,7 +51,7 @@ static struct {
 	int current_index;     /* device opened by ubertooth_start(), or -1 */
 	int unavailable_index; /* ubertooth_start() fails for this index */
 	int board_fail_index;  /* the board ID read fails on this device */
-	int indexed_starts, stops;
+	int indexed_starts, stops, closes, frees;
 } fake;
 
 static ubertooth_t fake_ut;
@@ -100,11 +100,26 @@ ubertooth_t *ubertooth_start_select(const char *u_arg)
 	return &fake_ut;
 }
 
+/* Like the library, stop also sends STOP to the device. */
 void ubertooth_stop(ubertooth_t *ut)
 {
 	(void)ut;
 	fake.stops++;
+	fake.stop_calls++;
 	fake.current_index = -1;
+}
+
+void ubertooth_close(ubertooth_t *ut)
+{
+	(void)ut;
+	fake.closes++;
+	fake.current_index = -1;
+}
+
+void ubertooth_free(ubertooth_t *ut)
+{
+	(void)ut;
+	fake.frees++;
 }
 
 int ubertooth_get_api(ubertooth_t *ut, uint16_t *version)
@@ -758,7 +773,9 @@ MU_TEST(each_identity_query_alone_lists_every_device_compactly)
 		mu_assert_int_eq(0, r.rc);
 		mu_assert(strcmp(r.out, cases[i].expected) == 0, cases[i].option);
 		mu_assert_int_eq(2, fake.indexed_starts);
-		mu_assert_int_eq(2, fake.stops); /* every opened device is closed */
+		mu_assert_int_eq(2, fake.closes); /* every opened device is closed */
+		mu_assert_int_eq(2, fake.frees);
+		mu_assert_int_eq(0, fake.stop_calls); /* a query never sends STOP */
 		mu_assert_int_eq(0, fake.start_calls); /* no single-device selection */
 	}
 }
@@ -791,7 +808,8 @@ MU_TEST(an_unavailable_device_is_reported_and_fails_the_listing)
 	mu_assert(strcmp(r.out,
 	                 "0: 1 (Ubertooth One)\n1: <unavailable>\n2: 1 (Ubertooth One)\n") == 0,
 	          "other devices still listed");
-	mu_assert_int_eq(2, fake.stops);
+	mu_assert_int_eq(2, fake.closes);
+	mu_assert_int_eq(0, fake.stop_calls);
 }
 
 MU_TEST(a_failed_read_on_one_device_is_reported_and_fails_the_listing)
@@ -824,6 +842,16 @@ MU_TEST(a_failed_read_on_one_device_is_reported_and_fails_the_listing)
 
 	reset_fake();
 	fake.device_count = 2;
+	fake.board_id = 7; /* read succeeds but the ID is not a known board */
+	r = RUN("-b");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out,
+	                 "0: <error: unknown board ID 7>\n1: <error: unknown board ID 7>\n") == 0,
+	          "unknown board ID shown per device");
+	mu_assert_int_eq(0, (long)strlen(r.err));
+
+	reset_fake();
+	fake.device_count = 2;
 	fake.api_rc = -1;
 	r = RUN("-v");
 	mu_assert_int_eq(1, r.rc);
@@ -851,6 +879,28 @@ MU_TEST(listing_is_not_used_with_a_selector_one_device_or_other_operations)
 
 	/* Another operation in the same command needs a single selected device,
 	 * so it goes through the normal selection (which refuses on real hardware). */
+	/* A device count error falls back to normal selection. */
+	reset_fake();
+	fake.device_count = -1;
+	r = RUN("-b");
+	mu_assert_int_eq(0, fake.indexed_starts);
+	mu_assert_int_eq(1, fake.start_calls);
+
+	/* The listing only needs identity queries; -U-less commands with any other
+	 * option, including the ones listed here, use normal selection. */
+	{
+		const char *const others[] = { "-c", "-a", "-l", "-d", "-z", "-m", "-S", "-9" };
+		size_t i;
+
+		for (i = 0; i < sizeof(others) / sizeof(others[0]); i++) {
+			reset_fake();
+			fake.device_count = 2;
+			r = run_util((const char *const[]){ "ubertooth-util", "-s", others[i], NULL });
+			mu_assert_int_eq(0, fake.indexed_starts);
+			mu_assert_int_eq(1, fake.start_calls);
+		}
+	}
+
 	reset_fake();
 	fake.device_count = 2;
 	r = RUN("-s", "-c");
