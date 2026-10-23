@@ -22,15 +22,15 @@ Legend:
 
 | Dimension | Minimum (required) | Tested / known-good | Unsupported | Status of minimum |
 |---|---|---|---|---|
-| **Ubuntu** | 20.04 LTS | 20.04, 22.04, 24.04 (CI, host+fw) | ≤ 18.04 (use 2020-12-R1) | ✅ 20.04 verified in CI (container) |
-| **macOS** | 14 (Sonoma) | 14, 15, 26 / arm64 (CI, host+fw) | ≤ 13 | ✅ 14 verified in CI |
+| **Ubuntu** | 20.04 LTS | 20.04, 22.04, 24.04 (CI, host+fw); 24.04.4 x86_64 on hardware (host tools) | ≤ 18.04 (use 2020-12-R1) | ✅ 20.04 verified in CI (container) |
+| **macOS** | 14 (Sonoma) | 14, 15, 26 / arm64 (CI, host+fw); 26.7.1 arm64 on hardware (host tools) | ≤ 13 | ✅ 14 verified in CI |
 | **Windows** | — | — | all | ❌ Unsupported (libusb + udev; use Linux/VM) |
-| **CMake** | 3.5 | 3.5 … 3.27 (enforced range) | < 3.5 (CMake 4 removed it) | ✅ floor enforced in CMakeLists |
+| **CMake** | 3.5 | 3.5 … 3.27 (enforced range); 3.28.3 (Ubuntu 24.04) and 4.4.4 (macOS 26) build the host tools | < 3.5 (CMake 4 removed it) | ✅ floor enforced in CMakeLists |
 | **GNU make (firmware)** | 3.81 | 3.81 (macOS), 4.3 (Linux) | — | ✅ 3.81 verified; build avoids make ≥ 4.0 features |
 | **Python (host tools)** | 3.8 | 3.8 (U20 CI) … 3.14 (macOS CI) | 2.x (removed upstream) | ✅ 3.8 verified in CI |
-| **GCC (host)** | TBD | per-runner (recent) | — | 🎯 not yet characterized |
+| **GCC (host)** | TBD | per-runner (recent); GCC 13.3.0 (Ubuntu 24.04), Apple clang 21 (macOS 26) build the host tools | — | 🎯 not yet characterized |
 | **arm-none-eabi-gcc (firmware)** | TBD | U20 (~9.x) … 15.3 (CI); 15.3 on hardware | — | 🎯 floor not pinned; builds + runs on old+new |
-| **libusb** | 1.0.x | 1.0.30 (local) | pre-1.0 | 🎯 exact floor not pinned |
+| **libusb** | 1.0.x | 1.0.27 (Ubuntu 24.04), 1.0.30 (macOS) | pre-1.0 | 🎯 exact floor not pinned |
 | **libbtbb** | 2020-12-R1 | current master (C lib) | older than 2020-12-R1 | 🎯 |
 
 ---
@@ -100,6 +100,19 @@ normal CMake build/install. Configured launchers locate those modules relative
 to their own installed path, so custom prefixes and ``DESTDIR`` work without
 ``PYTHONPATH`` and without modifying system Python (#33). Runtime dependencies
 remain external: NumPy/QtPy/PySide6 for specan_ui and ``libusb1`` for ubtbr.
+
+---
+
+## Hardware verification log
+
+Runs on real hardware (an attached Ubertooth One). These cover the host tools
+only: build, unit tests, and read-only device queries. They are not radio
+capture tests.
+
+| Date | Host | Toolchain | Result |
+|---|---|---|---|
+| 2026-10-23 | macOS 26.7.1, arm64 | CMake 4.4.4, Apple clang 21, libusb 1.0.30, Python 3.12.6 | Host tools build with no warnings in the changed files; `ctest` 9/9; `ubertooth-util -b`, `-v`, `-V`, `-p`, `-s`, `-vVspb`, `-c`, `-a`, `-z` exit 0 (#40) |
+| 2026-10-23 | Ubuntu 24.04.4 LTS, x86_64 (two Ubertooth Ones attached; selected with `-U`) | CMake 3.28.3, GCC 13.3.0, libusb 1.0.27, Python 3.12.3 | Host tools build with no warnings in the changed files; `ctest` 9/9; the same queries exit 0 on both devices (#40). Run on the branch before the final squash and a later small refactor of the same change. |
 
 ---
 
