@@ -52,9 +52,26 @@ static struct {
 	int unavailable_index; /* ubertooth_start() fails for this index */
 	int board_fail_index;  /* the board ID read fails on this device */
 	int indexed_starts, closes, frees;
+	/* -r: the handle opened before the reset (the first select) */
+	int first_closes, first_frees, first_stops; /* STOP sent to that handle */
+	int first_used_after_release; /* any command on it after it was released */
+	int first_closed_before_reselect;
+	int first_released;
 } fake;
 
-static ubertooth_t fake_ut;
+/* Every select returns fake_ut, except that the select after a reset returns
+ * fake_ut_reset, so the pre-reset handle can be told apart from the new one. */
+static ubertooth_t fake_ut, fake_ut_reset;
+static int fake_devh_reset; /* distinct address for fake_ut_reset.devh */
+
+#define FIRST_DEVH ((struct libusb_device_handle *)&fake)
+
+/* Record a command sent to the device handle h. */
+static void fake_use(struct libusb_device_handle *h)
+{
+	if (h == FIRST_DEVH && fake.first_released)
+		fake.first_used_after_release++;
+}
 
 static void reset_fake(void)
 {
@@ -77,7 +94,9 @@ static void reset_fake(void)
 	fake.unavailable_index = -1;
 	fake.board_fail_index = -1;
 	memset(&fake_ut, 0, sizeof(fake_ut));
-	fake_ut.devh = (struct libusb_device_handle *)&fake;
+	fake_ut.devh = FIRST_DEVH;
+	memset(&fake_ut_reset, 0, sizeof(fake_ut_reset));
+	fake_ut_reset.devh = (struct libusb_device_handle *)&fake_devh_reset;
 }
 
 int ubertooth_count(void) { return fake.device_count; }
@@ -95,35 +114,48 @@ ubertooth_t *ubertooth_start_select(const char *u_arg)
 {
 	fake.start_calls++;
 	snprintf(fake.selector, sizeof(fake.selector), "%s", u_arg ? u_arg : "");
+	if (fake.reset_calls > 0)
+		fake.first_closed_before_reselect = fake.first_released;
 	if (fake.fail_start_from && fake.start_calls >= fake.fail_start_from)
 		return NULL;
+	if (fake.reset_calls > 0)
+		return &fake_ut_reset;
 	return &fake_ut;
 }
 
 /* Like the library, stop also sends STOP to the device. */
 void ubertooth_stop(ubertooth_t *ut)
 {
-	(void)ut;
+	if (ut == &fake_ut) {
+		fake_use(ut->devh);
+		fake.first_stops++;
+	}
 	fake.stop_calls++;
 	fake.current_index = -1;
 }
 
 void ubertooth_close(ubertooth_t *ut)
 {
-	(void)ut;
+	if (ut == &fake_ut) {
+		fake.first_closes++;
+		fake.first_released = 1;
+	}
 	fake.closes++;
 	fake.current_index = -1;
 }
 
 void ubertooth_free(ubertooth_t *ut)
 {
-	(void)ut;
+	if (ut == &fake_ut) {
+		fake.first_frees++;
+		fake.first_released = 1;
+	}
 	fake.frees++;
 }
 
 int ubertooth_get_api(ubertooth_t *ut, uint16_t *version)
 {
-	(void)ut;
+	fake_use(ut->devh);
 	*version = fake.api_version;
 	return fake.api_rc;
 }
@@ -132,24 +164,24 @@ void print_version(void) { printf("libubertooth fake\n"); }
 
 int cmd_get_board_id(struct libusb_device_handle *h)
 {
-	(void)h;
+	fake_use(h);
 	if (fake.current_index >= 0 && fake.current_index == fake.board_fail_index)
 		return -1;
 	return fake.board_id;
 }
-int cmd_get_channel(struct libusb_device_handle *h) { (void)h; return fake.channel; }
-int cmd_get_palevel(struct libusb_device_handle *h) { (void)h; return fake.palevel; }
-int cmd_get_squelch(struct libusb_device_handle *h) { (void)h; return fake.squelch; }
-int cmd_get_usrled(struct libusb_device_handle *h) { (void)h; return fake.usrled; }
-int cmd_get_rxled(struct libusb_device_handle *h) { (void)h; return fake.rxled; }
-int cmd_get_txled(struct libusb_device_handle *h) { (void)h; return fake.txled; }
-int cmd_get_partnum(struct libusb_device_handle *h) { (void)h; return fake.partnum; }
+int cmd_get_channel(struct libusb_device_handle *h) { fake_use(h); return fake.channel; }
+int cmd_get_palevel(struct libusb_device_handle *h) { fake_use(h); return fake.palevel; }
+int cmd_get_squelch(struct libusb_device_handle *h) { fake_use(h); return fake.squelch; }
+int cmd_get_usrled(struct libusb_device_handle *h) { fake_use(h); return fake.usrled; }
+int cmd_get_rxled(struct libusb_device_handle *h) { fake_use(h); return fake.rxled; }
+int cmd_get_txled(struct libusb_device_handle *h) { fake_use(h); return fake.txled; }
+int cmd_get_partnum(struct libusb_device_handle *h) { fake_use(h); return fake.partnum; }
 
 int cmd_get_serial(struct libusb_device_handle *h, u8 *serial)
 {
 	int i;
 
-	(void)h;
+	fake_use(h);
 	serial[0] = 0;
 	for (i = 1; i < 17; i++)
 		serial[i] = (u8)(0xa0 + i);
@@ -158,55 +190,62 @@ int cmd_get_serial(struct libusb_device_handle *h, u8 *serial)
 
 void cmd_get_rev_num(struct libusb_device_handle *h, char *version, u8 len)
 {
-	(void)h;
+	fake_use(h);
 	snprintf(version, len, "%s", fake.revision);
 }
 
 void cmd_get_compile_info(struct libusb_device_handle *h, char *info, u8 len)
 {
-	(void)h;
+	fake_use(h);
 	snprintf(info, len, "%s", fake.compile_info);
 }
 
 int cmd_get_rangeresult(struct libusb_device_handle *h, rangetest_result *rr)
 {
-	(void)h;
+	fake_use(h);
 	*rr = fake.range;
 	return fake.rangeresult_rc;
 }
 
-int cmd_reset(struct libusb_device_handle *h) { (void)h; fake.reset_calls++; return fake.reset_rc; }
-int cmd_stop(struct libusb_device_handle *h) { (void)h; fake.stop_calls++; return fake.stop_rc; }
+int cmd_reset(struct libusb_device_handle *h) { fake_use(h); fake.reset_calls++; return fake.reset_rc; }
+int cmd_stop(struct libusb_device_handle *h)
+{
+	fake_use(h);
+	if (h == FIRST_DEVH)
+		fake.first_stops++;
+	fake.stop_calls++;
+	return fake.stop_rc;
+}
 
 int cmd_set_channel(struct libusb_device_handle *h, u16 channel)
 {
-	(void)h;
+	fake_use(h);
 	fake.last_channel_set = channel;
 	return fake.set_channel_rc;
 }
 
-int cmd_set_usrled(struct libusb_device_handle *h, u16 s) { (void)h; (void)s; return fake.set_usrled_rc; }
-int cmd_set_rxled(struct libusb_device_handle *h, u16 s) { (void)h; (void)s; return fake.set_rxled_rc; }
-int cmd_set_txled(struct libusb_device_handle *h, u16 s) { (void)h; (void)s; return fake.set_txled_rc; }
-int cmd_set_palevel(struct libusb_device_handle *h, u16 l) { (void)h; (void)l; return fake.set_palevel_rc; }
+int cmd_set_usrled(struct libusb_device_handle *h, u16 s) { fake_use(h); (void)s; return fake.set_usrled_rc; }
+int cmd_set_rxled(struct libusb_device_handle *h, u16 s) { fake_use(h); (void)s; return fake.set_rxled_rc; }
+int cmd_set_txled(struct libusb_device_handle *h, u16 s) { fake_use(h); (void)s; return fake.set_txled_rc; }
+int cmd_set_palevel(struct libusb_device_handle *h, u16 l) { fake_use(h); (void)l; return fake.set_palevel_rc; }
 
 int cmd_set_squelch(struct libusb_device_handle *h, u16 level)
 {
-	(void)h;
+	fake_use(h);
 	fake.last_squelch_set = level;
 	return fake.set_squelch_rc;
 }
 
-int cmd_flash(struct libusb_device_handle *h) { (void)h; fake.flash_calls++; return fake.flash_rc; }
-int cmd_set_isp(struct libusb_device_handle *h) { (void)h; fake.isp_calls++; return fake.isp_rc; }
-int cmd_range_test(struct libusb_device_handle *h) { (void)h; fake.range_test_calls++; return fake.range_test_rc; }
-int cmd_repeater(struct libusb_device_handle *h) { (void)h; fake.repeater_calls++; return fake.repeater_rc; }
-int cmd_tx_test(struct libusb_device_handle *h) { (void)h; fake.tx_test_calls++; return fake.tx_test_rc; }
-int cmd_xmas(struct libusb_device_handle *h) { (void)h; fake.xmas_calls++; return fake.xmas_rc; }
+int cmd_flash(struct libusb_device_handle *h) { fake_use(h); fake.flash_calls++; return fake.flash_rc; }
+int cmd_set_isp(struct libusb_device_handle *h) { fake_use(h); fake.isp_calls++; return fake.isp_rc; }
+int cmd_range_test(struct libusb_device_handle *h) { fake_use(h); fake.range_test_calls++; return fake.range_test_rc; }
+int cmd_repeater(struct libusb_device_handle *h) { fake_use(h); fake.repeater_calls++; return fake.repeater_rc; }
+int cmd_tx_test(struct libusb_device_handle *h) { fake_use(h); fake.tx_test_calls++; return fake.tx_test_rc; }
+int cmd_xmas(struct libusb_device_handle *h) { fake_use(h); fake.xmas_calls++; return fake.xmas_rc; }
 
 int cmd_led_specan(struct libusb_device_handle *h, u16 rssi)
 {
-	(void)h;
+	fake_use(h);
 	fake.led_specan_calls++;
 	fake.last_led_specan_arg = rssi;
 	return fake.led_specan_rc;
@@ -214,13 +253,13 @@ int cmd_led_specan(struct libusb_device_handle *h, u16 rssi)
 
 int cmd_do_something(struct libusb_device_handle *h, unsigned char *d, int n)
 {
-	(void)h; (void)d; (void)n;
+	fake_use(h); (void)d; (void)n;
 	return 0;
 }
 
 int cmd_do_something_reply(struct libusb_device_handle *h, unsigned char *d, int n)
 {
-	(void)h; (void)d; (void)n;
+	fake_use(h); (void)d; (void)n;
 	return 0;
 }
 
@@ -576,17 +615,45 @@ MU_TEST(stop_and_reset_report_failures)
 	mu_assert_int_eq(0, r.rc);
 	mu_assert_int_eq(1, fake.reset_calls);
 	mu_assert_int_eq(2, fake.start_calls); /* reconnects after the reset */
+	/* the pre-reset handle is dead: released once, before the reselect,
+	 * without STOP, and never used again */
+	mu_assert_int_eq(1, fake.first_closes);
+	mu_assert_int_eq(1, fake.first_frees);
+	mu_assert_int_eq(0, fake.first_stops);
+	mu_assert_int_eq(1, fake.first_closed_before_reselect);
+	mu_assert_int_eq(0, fake.first_used_after_release);
+
+	/* later commands go to the new handle, not the released one */
+	reset_fake();
+	r = RUN("-r", "-S", "-b");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.out, BOARD_LINE) != NULL, "board read after reset");
+	mu_assert_int_eq(1, fake.stop_calls); /* -S, on the new handle */
+	mu_assert_int_eq(0, fake.first_stops);
+	mu_assert_int_eq(1, fake.first_closes);
+	mu_assert_int_eq(1, fake.first_frees);
+	mu_assert_int_eq(0, fake.first_used_after_release);
 
 	reset_fake();
 	fake.reset_rc = -1;
 	r = RUN("-r");
 	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, fake.first_closes); /* released even if the reset failed */
+	mu_assert_int_eq(1, fake.first_frees);
+	mu_assert_int_eq(0, fake.first_stops);
+	mu_assert_int_eq(1, fake.first_closed_before_reselect);
+	mu_assert_int_eq(0, fake.first_used_after_release);
 
 	/* the device cannot be reselected after the reset: fail, do not crash */
 	reset_fake();
 	fake.fail_start_from = 2;
 	r = RUN("-r");
 	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, fake.first_closes);
+	mu_assert_int_eq(1, fake.first_frees);
+	mu_assert_int_eq(0, fake.first_stops);
+	mu_assert_int_eq(1, fake.first_closed_before_reselect);
+	mu_assert_int_eq(0, fake.first_used_after_release);
 }
 
 /* ---- mode commands: success and failure ------------------------------- */
