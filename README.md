@@ -37,7 +37,8 @@ tools, specan_ui Python deps, and (on Linux) udev rules:
 On Debian/Ubuntu it uses `apt` and installs into `/usr/local` with `sudo`. On
 macOS it needs [Homebrew](https://brew.sh), installs into the Homebrew prefix
 without `sudo`, and skips `ubertooth-scan`/`ubertooth-follow` (no BlueZ on
-macOS). Run `./install.sh --help` for all options, including `--prefix` and
+macOS); use `--venv` there so the Python packages stay out of the system
+Python. Run `./install.sh --help` for all options, including `--prefix` and
 `--skip-deps` (use already-installed system packages). This is
 the from-source path; it is not a replacement for distro packaging
 (apt/dnf/brew).

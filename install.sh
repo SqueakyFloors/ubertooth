@@ -75,14 +75,25 @@ list_devices() {
 	local out
 	out="$("$1" -s 2>&1 || true)"
 	if printf '%s\n' "$out" | grep -qE '^[0-9]+: '; then
+		# Any index line that is not a serial counts as an unreadable device.
 		printf '%s\n' "$out" | sed -n \
-			-e 's/^\([0-9][0-9]*\): \([0-9a-f]\{32\}\)$/\1 \2/p' \
-			-e 's/^\([0-9][0-9]*\): <.*>$/\1 ?/p'
+			-e 's/^\([0-9][0-9]*\): \([0-9a-f]\{32\}\)$/\1 \2/p' -e t \
+			-e 's/^\([0-9][0-9]*\): .*/\1 ?/p'
 	elif printf '%s\n' "$out" | grep -qE 'Device [0-9]+: Serial No: '; then
 		printf '%s\n' "$out" | \
 			sed -n 's/.*Device \([0-9][0-9]*\): Serial No: \([0-9a-f]\{32\}\).*/\1 \2/p'
-	else
+	elif printf '%s\n' "$out" | grep -q 'Serial No: '; then
 		printf '%s\n' "$out" | sed -n 's/.*Serial No: \([0-9a-f]\{32\}\).*/0 \1/p'
+	else
+		# No serial at all: report each attached device as unreadable, so one
+		# unreadable board is not mistaken for no board.
+		local count i=0
+		count="$("$1" -N 2>/dev/null || echo 0)"
+		case "$count" in ''|*[!0-9]*) count=0 ;; esac
+		while [ "$i" -lt "$count" ]; do
+			echo "$i ?"
+			i=$((i+1))
+		done
 	fi
 }
 
@@ -113,7 +124,11 @@ brew_install() {
 # Run an install step into PREFIX: directly when PREFIX is writable on macOS
 # (the Homebrew prefix or a scratch --prefix), otherwise as root.
 as_installer() {
-	if [ "$PLATFORM" = macos ] && [ -w "$PREFIX" ]; then
+	# Probe lib/ when it exists: Intel Homebrew owns /usr/local/lib but not
+	# /usr/local itself.
+	local probe="$PREFIX/lib"
+	[ -d "$probe" ] || probe="$PREFIX"
+	if [ "$PLATFORM" = macos ] && [ -w "$probe" ]; then
 		"$@"
 	else
 		as_root "$@"
@@ -155,6 +170,15 @@ case "$(uname -s)" in
 		BREW_PREFIX="$(brew --prefix)"
 		PREFIX="${PREFIX:-$BREW_PREFIX}"
 		JOBS="$(sysctl -n hw.ncpu)"
+		# Homebrew core has its own ubertooth and libbtbb; installing over them
+		# in the Homebrew prefix would break both.
+		if [ "$PREFIX" = "$BREW_PREFIX" ]; then
+			for formula in ubertooth libbtbb; do
+				if brew list --formula --versions "$formula" >/dev/null 2>&1; then
+					die "Homebrew's $formula is installed in $BREW_PREFIX; run 'brew uninstall ubertooth libbtbb' first, or install elsewhere with --prefix <path>"
+				fi
+			done
+		fi
 		;;
 	*)
 		die "unsupported platform $(uname -s); this script supports Debian/Ubuntu and macOS (Homebrew); see REQUIREMENTS.md"
@@ -198,7 +222,7 @@ flash_firmware() {
 		info "Flashing all $n attached Ubertooths"
 		while read -r index serial; do
 			info "  flashing $index: $serial"
-			"$dfu" -U "$serial" -d "$img" -r
+			"$dfu" -U "$serial" -d "$img" -r </dev/null
 		done <<< "$devices"
 	elif [ -n "$FLASH_DEVICE" ]; then
 		# Show the serial even when the user selected by index.
@@ -315,7 +339,7 @@ git clone --quiet https://github.com/greatscottgadgets/libbtbb.git "$WORK/libbtb
 git -C "$WORK/libbtbb" checkout --quiet "$LIBBTBB_REF"
 cmake -S "$WORK/libbtbb" -B "$WORK/libbtbb/build" \
 	-DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DENABLE_PYTHON=OFF \
-	-DCMAKE_INSTALL_PREFIX="$PREFIX" >/dev/null
+	-DCMAKE_INSTALL_PREFIX="$PREFIX" -Wno-deprecated >/dev/null
 cmake --build "$WORK/libbtbb/build" -j"$JOBS" >/dev/null
 as_installer cmake --install "$WORK/libbtbb/build" >/dev/null
 [ "$PLATFORM" = debian ] && as_root ldconfig
