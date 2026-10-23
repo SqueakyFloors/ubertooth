@@ -11,7 +11,8 @@ struct fake_device {
 	int api_result;
 	uint16_t api_version;
 	const char *compile_info;
-	int part_id;
+	uint32_t part_id;
+	int part_id_result;
 	int serial_result;
 	uint8_t serial[UTIL_SERIAL_BUFFER_LEN];
 };
@@ -55,9 +56,12 @@ static void fake_compile_info(void *context, char *info, size_t size)
 	snprintf(info, size, "%s", ((struct fake_device *)context)->compile_info);
 }
 
-static int fake_part_id(void *context)
+static int fake_part_id(void *context, uint32_t *part_id)
 {
-	return ((struct fake_device *)context)->part_id;
+	struct fake_device *fake = context;
+
+	*part_id = fake->part_id;
+	return fake->part_id_result;
 }
 
 static int fake_serial(void *context, uint8_t serial[UTIL_SERIAL_BUFFER_LEN])
@@ -296,13 +300,28 @@ MU_TEST(serial_with_nonzero_result_fails_and_is_not_printed)
 	          "serial printed despite failure");
 }
 
+MU_TEST(part_id_with_bit_31_set_prints_unsigned)
+{
+	struct fake_device fake = make_fake();
+	struct util_report_request request;
+	struct captured captured;
+
+	memset(&request, 0, sizeof(request));
+	request.part_id = 1;
+	fake.part_id = 0x8000ABCDu;
+	captured = run(&request, &fake);
+	mu_assert_int_eq(0, captured.status);
+	mu_assert(strcmp(captured.out, "Part ID: 8000ABCD\n") == 0,
+	          "part ID with bit 31 set not printed as unsigned hex");
+}
+
 MU_TEST(part_id_error_fails_and_firmware_api_error_fails)
 {
 	struct fake_device fake = make_fake();
 	struct util_report_request request = all_reports();
 	struct captured captured;
 
-	fake.part_id = -3;
+	fake.part_id_result = -3;
 	captured = run(&request, &fake);
 	mu_assert_int_eq(1, captured.status);
 	mu_assert(strstr(captured.out, "Part ID") == NULL, "part ID printed on error");
@@ -355,6 +374,7 @@ int main(void)
 	MU_RUN(each_report_composes_with_board_id_individually);
 	MU_RUN(early_failure_is_not_masked_by_later_success);
 	MU_RUN(serial_with_nonzero_result_fails_and_is_not_printed);
+	MU_RUN(part_id_with_bit_31_set_prints_unsigned);
 	MU_RUN(part_id_error_fails_and_firmware_api_error_fails);
 	MU_RUN(nonzero_successful_values_do_not_become_status);
 	MU_RUN(status_helpers);

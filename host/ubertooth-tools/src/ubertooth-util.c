@@ -49,9 +49,9 @@ static void report_get_compile_info(void *context, char *info, size_t size)
 	cmd_get_compile_info(((ubertooth_t*)context)->devh, info, (u8)size);
 }
 
-static int report_get_part_id(void *context)
+static int report_get_part_id(void *context, uint32_t *part_id)
 {
-	return cmd_get_partnum(((ubertooth_t*)context)->devh);
+	return cmd_get_part_id(((ubertooth_t*)context)->devh, part_id);
 }
 
 static int report_get_serial(void *context, uint8_t serial[UTIL_SERIAL_BUFFER_LEN])

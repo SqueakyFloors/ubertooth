@@ -90,6 +90,11 @@
 - Host-library failures now propagate correctly and release device resources;
   firmware-image and ducky operations reject short reads.
   [#2](https://github.com/SqueakyFloors/ubertooth/issues/2)
+- `ubertooth-util -p` exits non-zero when the device reports a failed part ID
+  read instead of printing `Part ID: 0`. In libubertooth, `cmd_get_partnum()`
+  now returns a negative error for that case (it returned 0), and the new
+  `cmd_get_part_id()` returns the full unsigned 32-bit ID.
+  [#52](https://github.com/SqueakyFloors/ubertooth/issues/52)
 - `ubertooth-scan` no longer leaks connection information after failed probes.
   [#3](https://github.com/SqueakyFloors/ubertooth/issues/3)
   [upstream #542](https://github.com/greatscottgadgets/ubertooth/issues/542)

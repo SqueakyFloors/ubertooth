@@ -23,8 +23,8 @@ struct util_report_ops {
 	/* Returns 0 on success, a negative value on error. */
 	int (*get_api_version)(void *context, uint16_t *version);
 	void (*get_compile_info)(void *context, char *info, size_t size);
-	/* Part ID (0 or greater), or a negative value on a transfer error. */
-	int (*get_part_id)(void *context);
+	/* Returns 0 and fills *part_id on success, a negative value on error. */
+	int (*get_part_id)(void *context, uint32_t *part_id);
 	/* Returns 0 on success; fills serial[1..16] (serial[0] is a status byte). */
 	int (*get_serial)(void *context, uint8_t serial[UTIL_SERIAL_BUFFER_LEN]);
 };

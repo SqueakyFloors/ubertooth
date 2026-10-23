@@ -96,6 +96,13 @@ int cmd_set_rxled(struct libusb_device_handle* devh, u16 state);
 int cmd_get_rxled(struct libusb_device_handle* devh);
 int cmd_set_txled(struct libusb_device_handle* devh, u16 state);
 int cmd_get_txled(struct libusb_device_handle* devh);
+/* Reads the 32-bit microcontroller part ID into *part_id. Returns 0 on
+ * success or a negative libusb error code: the transfer error, LIBUSB_ERROR_IO
+ * for a short reply, or LIBUSB_ERROR_OTHER for a nonzero device status. */
+int cmd_get_part_id(struct libusb_device_handle* devh, u32 *part_id);
+/* Returns the part ID (0 or greater) or a negative libusb error code, as for
+ * cmd_get_part_id(). A part ID with bit 31 set cannot be represented and
+ * returns LIBUSB_ERROR_OVERFLOW; use cmd_get_part_id() for the full range. */
 int cmd_get_partnum(struct libusb_device_handle* devh);
 void print_serial(u8 *serial, FILE *fileptr);
 int cmd_get_serial(struct libusb_device_handle* devh, u8 *serial);
