@@ -104,6 +104,11 @@ Speed matters. Do not wait for every job.
   onto the current `main`. Update the branch only for conflicts or when `main`
   changed files the PR also touches, since that restarts CI.
 - Run the independent reviews in parallel with CI, not after it.
+- **Wait in the background.** Start one bounded wait, for example
+  `timeout 600 gh pr checks <PR> --watch --fail-fast`, as a background command
+  and continue other work (reviews, the next issue, docs) while it runs. Check
+  its result when that work is done. Never block on chained `sleep` polling
+  loops.
 
 ## Changelog discipline
 
