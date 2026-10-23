@@ -38,7 +38,7 @@ See [COMPATIBILITY.md](COMPATIBILITY.md) for supported OS / toolchain / Python *
 | dfu-util | flash firmware over DFU | `dfu-util` | `brew install dfu-util` |
 | ubertooth-dfu (host tool) | the `.dfu` packaging step | built with the host tools | same |
 
-## Quick install (Ubuntu 22.04 / 24.04)
+## Quick install (Ubuntu 22.04 / 24.04, macOS with Homebrew)
 
 The easiest path is the bootstrap script, which installs all of the below and
 builds/installs libbtbb and the host tools for you:
@@ -46,6 +46,10 @@ builds/installs libbtbb and the host tools for you:
 ```sh
 ./install.sh            # see ./install.sh --help for options (venv, flash, ...)
 ```
+
+On macOS it installs `cmake pkg-config libusb fftw` (and, with
+`--with-firmware`, `dfu-util` and the `gcc-arm-embedded` cask) through Homebrew,
+then installs into the Homebrew prefix without `sudo`.
 
 To do it by hand instead:
 
