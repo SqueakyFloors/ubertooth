@@ -1,243 +1,114 @@
 ubertooth (2020-12-R1+modern1) unstable; urgency=low
 
   New features:
-  * ubertooth-btle: `-q -` and `-c -` stream binary PCAP to stdout for piping
-    into Wireshark, sshdump, or harness parsers. Regular text is suppressed from
-    the binary stream, errors stay on stderr, terminal output is refused, and
-    unsupported PCAPNG `-r -` fails without writing to stdout. Works on Linux
-    and macOS via /dev/fd with a Linux procfs fallback.
+  * ubertooth-btle can stream packet capture (PCAP) data to stdout with `-q -`
+    or `-c -`, safely separating diagnostics for Wireshark and other consumers.
     https://github.com/SqueakyFloors/ubertooth/issues/7
     https://github.com/greatscottgadgets/ubertooth/pull/362
-  * ubertooth-util -s and -v: with multiple devices and no -U, list every
-    device as "<index>: <serial>" / "<index>: <firmware version>" (in
-    enumeration order; the index is usable with -U) instead of erroring;
-    -U <index|serial> still queries a single device
-  * install.sh: one-command from-source setup for Debian/Ubuntu — installs
-    system deps, builds+installs libbtbb and the host tools (-DREQUIRE_ALL=ON),
-    installs specan_ui Python deps (optionally into a --venv), sets up udev, and
-    optionally builds/flashes firmware. When flashing, the target is resolved up
-    front (fail fast on ambiguity) and firmware is built+flashed first.
-    --flash-device <index|serial|all> selects which device(s) to flash.
-  * Serial-based device selection: every ubertooth-* tool's -U option now
-    accepts either a USB enumeration index (existing behaviour) or an Ubertooth
-    serial-number string, routed through the shared ubertooth_start_select /
-    ubertooth_connect_select helpers in libubertooth. Selecting by serial is
-    stable across reboots and re-plugging, unlike the index.
-  * On a device-open failure the tools no longer dump the full usage/help page:
-    the library already prints a helpful multi-device message (listing serials
-    and advising -U), so the tools now just exit non-zero to avoid burying it.
-  * ubertooth-util -I (identify): blink the LEDs at ~3 Hz instead of 1 Hz for
-    a snappier, easier-to-spot identify
-  * ubertooth-util: add -H / --host-version to print the installed host tools
-    (libubertooth) version and git revision, without needing a device
-    (distinct from -v firmware revision and -V firmware compile info)
+  * Every `-U` option accepts either a Universal Serial Bus (USB) enumeration
+    index or stable serial number; multi-device messages and `ubertooth-util
+    -s`/`-v` output make selectors clear without dumping full help text.
+    https://github.com/SqueakyFloors/ubertooth/issues/6
+  * `install.sh` provides one-command Debian/Ubuntu source installation, with
+    optional virtual environments, udev setup, firmware builds, and explicitly
+    selected flashing through `--flash-device <index|serial|all>`.
+    https://github.com/SqueakyFloors/ubertooth/issues/23
+  * `ubertooth-util -H`/`--host-version` reports the installed host-tools
+    version without a device.
+  * `ubertooth-util -I` blinks light-emitting diodes (LEDs) faster for easier
+    identification and turns them off when interrupted with Ctrl-C.
 
-  Build fixes:
-  * Python tools: install the pure-Python specan and ubtbr modules natively with
-    CMake under CMAKE_INSTALL_PREFIX instead of running deprecated setup.py
-    install. Configured wrappers locate their modules relative to themselves,
-    so custom prefixes and DESTDIR work without PYTHONPATH; installation no
-    longer writes to the source tree or system Python outside the requested
-    prefix. Verified with the actual installed commands on Ubuntu 24.04 and
-    macOS 26.7.1 (arm64).
+  Build and compatibility:
+  * Python tools are installed natively under the chosen CMake prefix, so
+    custom prefixes and staged installs work without modifying the source tree
+    or requiring `PYTHONPATH`.
     https://github.com/SqueakyFloors/ubertooth/issues/33
-  * Fix build with CMake 4.x: update cmake_minimum_required to VERSION 3.5...3.27
-    in host/CMakeLists.txt, host/misc/CMakeLists.txt, host/misc/udev/CMakeLists.txt
-    (upstream issue)
+  * Modern CMake and macOS builds are supported, including CMake 4 policy
+    compatibility, Homebrew libusb headers, corrected cache/error declarations,
+    and protection against system `MAX`/`MIN` macro collisions.
     https://github.com/greatscottgadgets/ubertooth/issues/551
-  * Fix build with Python 3.12+: replace deprecated distutils.core with setuptools
-    in host/python/specan_ui/setup.py and host/python/specan_ui/setup.py.in
-    Credit: Arnaud Rebillout <arnaudr@kali.org> (Kali Linux fork)
-  * Fix InvalidVersion error in new setuptools versions: set version='1' in
-    specan_ui setup.py and add set(PACKAGE_VERSION 1) to specan_ui CMakeLists.txt
-    Credit: Rhys Perry <rhysperry111@gmail.com> (upstream PR)
+  * Python 3.12 and current setuptools releases are supported. Credit: Arnaud
+    Rebillout <arnaudr@kali.org> and Rhys Perry <rhysperry111@gmail.com>.
     https://github.com/greatscottgadgets/ubertooth/pull/524
-  * CMakeLists: use message(FATAL_ERROR ...) instead of message(FATAL ...), and
-    CACHE STRING instead of CACHE INT for the version variables
-  * Guard MAX/MIN macros in ubertooth_control.h with #ifndef to avoid
-    -Wmacro-redefined against the system <sys/param.h>
-  * specan_ui: remove the stale committed setup.py; setup.py.in remains the
-    standalone Python-packaging template, while CMake installs the pure-Python
-    module directly
+  * CMake reports which optional host tools are enabled; `REQUIRE_ALL=ON` makes
+    missing optional dependencies fatal, with requirements documented by tool.
 
-  Robustness fixes (host, this fork):
-  * ubertooth-ducky: make the documented -U selector functional for both USB
-    enumeration indices and stable serial-number strings
-  * ubertooth-specan: make documented separated -l/-u frequency arguments
-    reliable, require values when flags are present, and reject malformed,
-    out-of-band, or reversed ranges before opening USB
-  * ubertooth-btle: make `-t none` explicitly clear the caller's target mask;
-    add direct coverage for cleared, full-address, and masked targets
-  * ubertooth-ego: parse packet length before narrowing to uint8_t and reject
-    malformed, negative, zero, or out-of-range values before opening USB
-  * libubertooth: ubertooth_count() now returns int and propagates a negative
-    error from libusb_init instead of wrapping to a large unsigned value
-  * libubertooth: ubertooth_start() frees its allocation on the connect-failure
-    path (was a leak); ubertooth_stop() guards devh before libusb_close and
-    does not call libusb_exit(NULL) on the failed-connect path
-  * libubertooth: find_ubertooth_device() sets devh=NULL on a single-device
-    open failure; removed a shadowed variable
-  * ubertooth-dfu / ubertooth-ducky: check fread() return values
-    (-Wunused-result); error out on a short read instead of using partial data
-
-  Documentation:
-  * Add a spectrum-analyzer UI (specan_ui) install/run guide
-    (docs/source/specan_ui.rst) covering modern deps and the common
-    'ModuleNotFoundError: No module named specan' (install/Python-mismatch);
-    replace the ancient specan_ui README
-    https://github.com/SqueakyFloors/ubertooth/issues/11
-  * Document -U device selection fully: accepts an index OR a serial, attached
-    or separated (-U0 / -U 0 / -U<serial> / -U <serial>), and there is no 0-7
-    cap on the number of attached Ubertooths (dynamic; limited by USB/power)
-  * ubertooth-util man page: document that -U selects either by USB enumeration
-    index or by serial-number string, that the index is not stable while the
-    serial is, and how to disambiguate devices (serial listing / -I LED flash);
-    SELECTING A DEVICE section updated for index-or-serial selection
-  * Man-page accuracy pass across all host tool pages (both host/doc/*.md ronn
-    sources and host/doc/man/*.1 roff): convert H1s to ronn `name(1) -- desc`
-    form; bump .TH dates to October 2026; fix ubertooth-debug NAME (was wrongly
-    copied from rx; it reads/writes CC2400 registers); fix ubertooth.7 "IRC
-    channel on Discord" -> "channel on Discord" and add the missing
-    ubertooth-follow/-tx/-ducky catalog entries; fix ubertooth-rx synopsis
-    `-u <uap>` and "piocnets" typo; remove a stray quote in ubertooth-dump;
-    fix ubertooth-specan `##EXAMPLES` heading; relabel ubertooth-afh `-m` as a
-    channel-removal count (not seconds) and note `-a` is non-functional; fix
-    ubertooth-btle "futher" typo. Document previously-undocumented real flags:
-    rx `-s` (deprecated no-op), btle `-j`/`-J` (jamming), follow `-d <file>`,
-    ego `-j`/`-l <1-48>`/`-a <access_code>`, ducky `-s` (sarcasm easter egg).
-    ronn was unavailable; the committed .1 files were hand-synced to match.
-  * ubertooth-util man page: replace placeholder SYNOPSIS with the real flag
-    summary, add -H/--host-version, fix a typo; make host/doc/*.md the single
-    source and optionally regenerate roff .1 via ronn (committed .1 are the
-    fallback when ronn is absent)
-  * Add a command-line tool catalog (grouped by purpose, with per-tool doc
-    links) to README.md and docs/source/software.rst
-  * Add COMPATIBILITY.md (supported OS/toolchain/Python matrix) and per-tool
-    man pages for ubertooth-follow, ubertooth-tx, and ubertooth-ducky
-  * Add docs/source/Release_2020-12-R1.rst; annotate and prune the inherited
-    upstream ToDo list; note the ubertooth-btbr hang in firmware/btbr/README.md
-
-  Continuous integration:
-  * Build: print a feature summary of which host tools are enabled/disabled
-    (e.g. bluez tools), add -DREQUIRE_ALL=ON to fail if an optional dependency
-    is missing, and add REQUIREMENTS.md documenting required vs optional deps
-  * Drop macos-13 (Intel) from the CI matrix: GitHub's Intel runners queue
-    unreliably and stalled runs; arm64 macOS 14/15/26 remain covered and Intel
-    is documented as expected-to-build but unverified (COMPATIBILITY.md)
-  * Modernize CI: pinned OS matrix (Ubuntu 20.04/22.04/24.04, macOS 14/15/26)
-    with ubuntu-latest and Fedora soft-fail canaries, firmware build in CI,
-    actions/checkout@v4, host CLI + Python import smoke tests, firmware artifacts
-
-  * ubertooth-dfu: reliable DFU entry. Free the leaked libusb device list in
-    find_ubertooth_dfu_device(), release the app-mode handle after cmd_flash
-    before the device re-enumerates, and poll up to ~10s for the DFU device.
-    Fixes frequent 'Unable to find Ubertooth' / silent no-op flashes that
-    previously needed a physical replug.
+  Reliability fixes:
+  * `ubertooth-dfu` now performs bounded, device-specific Device Firmware
+    Upgrade (DFU) entry and recovery, retries interrupted transfers, and verifies
+    that the selected device returns with the expected firmware revision.
     https://github.com/SqueakyFloors/ubertooth/issues/29
-  * ubertooth-dfu: make the application-to-DFU transition checked and
-    device-specific. The old post-request cleanup called ubertooth_stop(),
-    whose UBERTOOTH_STOP command could replace the pending MODE_RESET with
-    MODE_IDLE before the firmware acted on it. Close without sending STOP,
-    propagate cmd_flash errors, own one explicit libusb context, match DFU by
-    physical USB path, reject ambiguous bootloaders, and make two bounded
-    five-second entry attempts. An explicit selector never adopts an
-    unidentified device already in DFU mode, preventing parallel or stale DFU
-    sessions from redirecting a selected flash. On a programming transfer
-    failure, close and reopen the same DFU path, restore idle state, and retry
-    the complete image once from block zero. For download-and-reset, extract
-    the expected revision from the image, reopen the same physical application
-    device, and require its reported revision to match before returning
-    success. Emit flushed monotonic stage timing, and avoid the Darwin libusb
-    CFRunLoop teardown hang after reset by leaving final context reclamation to
-    immediate process exit on macOS. Add hardware-independent transition and
-    recovery tests to CTest and the Linux/macOS host CI jobs.
     https://github.com/SqueakyFloors/ubertooth/issues/31
     https://github.com/SqueakyFloors/ubertooth/issues/35
-  Bug fixes (this fork):
-  * firmware: fix an RSSI rounding bias for negative dBm. The averaging used
-    `(x + 128) / 256` (and `(sum + 128) / count`), which only rounds to nearest
-    for non-negative values -- C integer division truncates toward zero, so for
-    the negative dBm values RSSI always carries, every reading was biased upward
-    (reported ~1-2 dB stronger than actual; e.g. a steady -50 dBm settled to
-    -48, and an exact -40 dBm reported -39). Round half away from zero at all
-    three division sites in ubertooth_rssi.c so -v/specan RSSI is accurate for
-    negative values; positive rounding is unchanged. Covered by new host unit
-    tests.
+  * `ubertooth-ducky -U` now selects devices by index or serial number.
+    https://github.com/SqueakyFloors/ubertooth/issues/36
+  * `ubertooth-specan -l`/`-u` now require valid, ordered in-band frequencies
+    before opening the device.
+    https://github.com/SqueakyFloors/ubertooth/issues/37
+  * `ubertooth-btle -t none` now reliably clears the persistent target filter.
+    https://github.com/SqueakyFloors/ubertooth/issues/38
+  * `ubertooth-ego` rejects malformed and out-of-range packet lengths before
+    opening the device.
+    https://github.com/SqueakyFloors/ubertooth/issues/39
+  * Firmware received signal strength indicator (RSSI) averaging now rounds
+    negative decibels relative to one milliwatt (dBm) correctly.
     https://github.com/SqueakyFloors/ubertooth/issues/15
-  * firmware build: the baked-in version string (-v / -V) now always matches
-    the git revision it was built from. Previously GIT_REVISION was a -D compile
-    flag with no dependency, so an incremental `make` after moving HEAD kept a
-    stale version string in the firmware and a good flash was indistinguishable
-    from a stale one via -v. The firmware build now generates a version.h
-    (revision + compile info) that the version-bearing sources #include; it is
-    regenerated when the build identity (revision incl. a `*` dirty flag,
-    builder, host) changes, so only the affected objects recompile. Also
-    -include the -MMD dependency files so editing a header rebuilds the objects
-    that include it (previously the .d files were generated and ignored, so
-    header edits could silently ship stale firmware). Uses only plain shell, so
-    it works on GNU make 3.81 (macOS). A source archive with no .git (a
-    downloaded zip or release tarball) uses a shipped version.h as-is, or
-    falls back to git-unknown; tools/ubertooth-release.sh writes a version.h
-    carrying the release version into the archive.
-  * ubertooth-util: mode-starting operations (-q, -x, -t, -n, -e) now stop any
-    operation already running on the device first, like -I, so each starts from
-    idle and modes no longer interfere or leak (channel/PA are preserved)
-  * ubertooth-scan: free the hci_conn_info request buffer on the
-    hci_create_connection failure path (was leaked every failed probe, so
-    long-running scans slowly exhausted memory) (upstream issue)
-    https://github.com/greatscottgadgets/ubertooth/issues/542
-  * ubertooth-util -c/-C: validate the channel argument (-c 2402-2480 MHz,
-    -C 0-78) and reject out-of-range values with a clear error, instead of
-    silently sending an invalid channel to the firmware.
+  * Firmware version strings and header dependencies now update reliably after
+    source or revision changes, including GNU Make 3.81 and source archives.
+    https://github.com/SqueakyFloors/ubertooth/issues/30
+  * `ubertooth-util` stops a previous operation before starting a new mode and
+    validates both frequency and channel-number arguments.
+    https://github.com/SqueakyFloors/ubertooth/issues/22
     https://github.com/SqueakyFloors/ubertooth/issues/5
     https://github.com/greatscottgadgets/ubertooth/issues/448
-  * ubertooth-util -I (identify): install a SIGINT handler so Ctrl-C turns
-    the USR/RX/TX LEDs off before exit, instead of leaving them lit
-
-  Bug fixes (cherry-picked from community forks):
-  * Fix divide-by-zero in bluetooth.c AFH hop selection when used_channels < 20
-    Credit: Kielukel <93320945+Kielukel@users.noreply.github.com>
-    Origin: https://github.com/Kielukel/ubertooth
-  * Fix divide-by-zero in btbr/hop.c when chan_count is 0
-    Credit: Piotr Wasylów <piotr@wasylow.com>
-    Origin: https://github.com/Kielukel/ubertooth
-
-  Bug fixes (cherry-picked from upstream open PRs):
-  * Fix CRC verify not filtering bad-CRC packets in ubertooth-btle -v1 mode;
-    add on-device CRC verification in LE PHY engine (upstream PR)
-    https://github.com/greatscottgadgets/ubertooth/pull/550
-    Credit: oliver <icetzsr@gmail.com>
-  * Fix rssi_iir_update() and rssi_get_avg() channel checks in ubertooth_rssi.c
-    (upstream PR)
-    https://github.com/greatscottgadgets/ubertooth/pull/481
-    Credit: Gabriele Gristina <matrix@users.noreply.github.com>
-  * Fix ubertooth-dfu variable in firmware build (upstream PR)
-    https://github.com/greatscottgadgets/ubertooth/pull/485
-    Credit: Michael Ossmann <mike@ossmann.com>
-  * Improved Paging process speed and reliability (upstream PR)
-    https://github.com/greatscottgadgets/ubertooth/pull/540
-    Credit: Hillel Chimowicz <hllhll@users.noreply.github.com>
-
-  Other improvements (cherry-picked from upstream open PRs):
-  * Update scapy usage to PcapReader (deprecated API removal) (upstream PR)
-    https://github.com/greatscottgadgets/ubertooth/pull/519
-    Credit: stryngs <support@configitnow.com>
-  * Update CI scripts and Docker image for Ubuntu 22.04 (upstream PR)
-    https://github.com/greatscottgadgets/ubertooth/pull/521
-    Credit: linux4life798
-
-  Known open issues not yet addressed:
-  * ubertooth-btbr hangs after start (upstream issue)
-    https://github.com/greatscottgadgets/ubertooth/issues/520
-  * Memory leaks in libubertooth and ubertooth-scan (upstream issues)
+  * Host-library failures now propagate correctly and release device resources;
+    firmware-image and ducky operations reject short reads.
+    https://github.com/SqueakyFloors/ubertooth/issues/2
+  * `ubertooth-scan` no longer leaks connection information after failed probes.
+    https://github.com/SqueakyFloors/ubertooth/issues/3
     https://github.com/greatscottgadgets/ubertooth/issues/542
-    https://github.com/greatscottgadgets/ubertooth/issues/543
-  * LE packets truncated to 50 bytes (upstream issue)
-    https://github.com/greatscottgadgets/ubertooth/issues/468
-  * Channel -1 bug when setting channel 1 (upstream issue)
-    https://github.com/greatscottgadgets/ubertooth/issues/448
 
- -- community fork  Wed, 14 Oct 2026 22:00:00 -0700
+  Documentation:
+  * Added practical Classic Bluetooth Basic Rate/Enhanced Data Rate (BR/EDR)
+    sniffing and Non-significant Address Part (NAP) / Frequency Hop
+    Synchronization (FHS) recovery guidance.
+    https://github.com/SqueakyFloors/ubertooth/issues/9
+    https://github.com/SqueakyFloors/ubertooth/issues/42
+  * Expanded Bluetooth Low Energy (BLE) connection-capture modes, targeting,
+    and limitations.
+    https://github.com/SqueakyFloors/ubertooth/issues/8
+  * Updated macOS/Homebrew dependencies and CMake 4 build flags.
+    https://github.com/SqueakyFloors/ubertooth/issues/10
+  * Added spectrum-analyzer user interface installation and import-error
+    troubleshooting, replacing its obsolete README.
+    https://github.com/SqueakyFloors/ubertooth/issues/11
+  * Expanded the tool catalog, device-selection guidance, and man pages,
+    including previously undocumented flags and corrected command descriptions.
+    https://github.com/SqueakyFloors/ubertooth/issues/21
+  * Added the supported platform/toolchain matrix, missing per-tool pages, and
+    an archived 2020-12-R1 release guide.
+    https://github.com/SqueakyFloors/ubertooth/issues/12
+
+  Community contributions:
+  * Prevent Adaptive Frequency Hopping (AFH) divide-by-zero failures in both
+    baseband hop implementations. Credit: Kielukel and Piotr Wasylów.
+    https://github.com/Kielukel/ubertooth
+  * Correct Bluetooth Low Energy cyclic redundancy check filtering and perform
+    verification in the physical-layer engine. Credit: oliver.
+    https://github.com/greatscottgadgets/ubertooth/pull/550
+  * Correct firmware signal-strength channel bounds. Credit: Gabriele
+    Gristina.
+    https://github.com/greatscottgadgets/ubertooth/pull/481
+  * Correct the firmware-build `ubertooth-dfu` variable. Credit: Michael Ossmann.
+    https://github.com/greatscottgadgets/ubertooth/pull/485
+  * Improve Classic Bluetooth paging speed and reliability. Credit: Hillel
+    Chimowicz.
+    https://github.com/greatscottgadgets/ubertooth/pull/540
+  * Replace deprecated Scapy packet-reading usage with `PcapReader`. Credit:
+    stryngs.
+    https://github.com/greatscottgadgets/ubertooth/pull/519
+
+ -- community fork  Fri, 23 Oct 2026 01:38:18 -0700
 
 ubertooth (2020-12-R1) unstable; urgency=low
   * Bluetooth classic sniffing and link layer support (see btbr)

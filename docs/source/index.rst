@@ -11,6 +11,7 @@ Ubertooth
   getting_started
   getting_help
   capturing_BLE_Wireshark
+  sniffing_BR_EDR
   bluetooth_captures_PCAP
   history
   ubertooth_projects_mentions

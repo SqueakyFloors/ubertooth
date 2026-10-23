@@ -62,14 +62,32 @@ CentOS 8
 
 
 
-Mac OS X users can use either MacPorts or Homebrew to install the required packages:
-++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+macOS (Homebrew)
+++++++++++++++++
+
+macOS 14 (Sonoma) or newer is supported; see ``COMPATIBILITY.md`` for the
+tested versions and ``REQUIREMENTS.md`` for what each dependency enables.
+Install the Xcode command line tools (``xcode-select --install``) and
+`Homebrew <https://brew.sh>`__, then:
 
 	.. code-block:: sh
 
-		brew install libusb wget cmake pkg-config
-		or
-		sudo port install libusb wget cmake python38 py38-numpy py38-qtpy
+		brew install cmake pkg-config libusb wget fftw
+		# firmware build and flashing (optional):
+		brew install --cask gcc-arm-embedded
+		brew install dfu-util
+
+For the spectrum analyzer user interface's (UI) Python dependencies
+(installed in a venv because Homebrew's Python rejects system-wide
+``pip install``), see
+:doc:`specan_ui`.
+
+``ubertooth-scan`` and ``ubertooth-follow`` need BlueZ (Linux only), so they are
+not built on macOS. Under CMake 4 (which current Homebrew installs), both
+libbtbb and the archived host source below need
+``-DCMAKE_POLICY_VERSION_MINIMUM=3.5``. The host tools also need
+``-DCMAKE_C_FLAGS="-I$(brew --prefix)/include"``, because
+Homebrew's libusb headers are not on the default include path.
 
 
 
@@ -94,10 +112,12 @@ Next the Bluetooth baseband library (libbtbb) needs to be built for the Ubertoot
 		cd libbtbb-2020-12-R1
 		mkdir build
 		cd build
-		cmake ..
+		cmake ..          # CMake before 4
+		# CMake 4 (including current Homebrew) — use instead:
+		cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 ..
 		make
 		sudo make install
-		sudo ldconfig
+		sudo ldconfig     # Linux only
 
 
 
@@ -113,10 +133,13 @@ The Ubertooth repository contains host code for sniffing Bluetooth packets, conf
 		cd ubertooth-2020-12-R1/host
 		mkdir build
 		cd build
-		cmake ..
+		cmake ..          # Linux / CMake before 4
+		# macOS with CMake 4 (use instead of the command above):
+		cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+		  -DCMAKE_C_FLAGS="-I$(brew --prefix)/include" ..
 		make
 		sudo make install
-		sudo ldconfig	
+		sudo ldconfig     # Linux only
 
 
 
@@ -125,9 +148,16 @@ Wireshark plugins
 
 Users of Wireshark version 2.2+ do not need to build any plugins at all and may skip this section (see `this comment <https://github.com/greatscottgadgets/libbtbb/issues/50#issuecomment-284128258>`__). This includes users of Debian 10+, Ubuntu 20.04+, Fedora 33+, RHEL 8.3+, and most other Linux distributions. You can check your version by clicking on Help --> About Wireshark.
 
-Wireshark version 1.12 and newer includes the Ubertooth BLE plugin by default. It is also possible to `capture BLE from Ubertooth directly into Wireshark <https://ubertooth.readthedocs.io/en/latest/capturing_BLE_Wireshark.html>`__ with a little work.
+Wireshark version 1.12 and newer includes the Ubertooth Bluetooth Low Energy
+(BLE) plugin by default. It is also possible to `capture BLE from Ubertooth
+directly into Wireshark
+<https://ubertooth.readthedocs.io/en/latest/capturing_BLE_Wireshark.html>`__
+with a little work.
 
-The Wireshark BTBB and BR/EDR plugins allow Bluetooth baseband traffic that has been captured using Kismet to be analysed and disected within the Wireshark GUI. They are built separately from the rest of the Ubertooth and libbtbb software.
+The Wireshark Bluetooth Baseband (BTBB) and Basic Rate/Enhanced Data Rate
+(BR/EDR) plugins allow Bluetooth baseband traffic captured with Kismet to be
+analyzed and dissected in the Wireshark graphical user interface (GUI). They
+are built separately from the rest of the Ubertooth and libbtbb software.
 
 The directory passed to cmake as ``MAKE_INSTALL_LIBDIR`` varies from system to system, but it should be the location of existing Wireshark plugins, such as ``asn1.so`` and ``ethercat.so``. On macOS this is likely ``/Applications/Wireshark.app/Contents/PlugIns/wireshark/``.
 
