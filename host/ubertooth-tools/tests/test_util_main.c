@@ -616,7 +616,7 @@ MU_TEST(stop_and_reset_report_failures)
 	mu_assert_int_eq(1, fake.reset_calls);
 	mu_assert_int_eq(2, fake.start_calls); /* reconnects after the reset */
 	/* the pre-reset handle is dead: released once, before the reselect,
-	 * without STOP, and never used again (#53) */
+	 * without STOP, and never used again */
 	mu_assert_int_eq(1, fake.first_closes);
 	mu_assert_int_eq(1, fake.first_frees);
 	mu_assert_int_eq(0, fake.first_stops);
