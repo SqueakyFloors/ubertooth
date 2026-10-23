@@ -70,8 +70,9 @@ if you build on an Intel Mac.
 `install.sh` supports Debian/Ubuntu (`apt`) and macOS with Homebrew. On macOS it
 installs into the Homebrew prefix without `sudo`, builds without BlueZ (no
 `ubertooth-scan`/`ubertooth-follow`), and installs no udev rules. Verified on
-macOS 26 arm64 (host tools, firmware build, multi-device flash selection); Intel
-Macs are unverified.
+macOS 26 arm64 with the Homebrew packages already present (`--skip-deps`): host
+tools, firmware build, and multi-device flash selection. The Homebrew install
+step and Intel Macs are unverified.
 
 ### CMake 4.x
 Modern CMake (4.x) removed compatibility with `cmake_minimum_required < 3.5`.

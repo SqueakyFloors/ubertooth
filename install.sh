@@ -66,14 +66,37 @@ as_root() {
 	fi
 }
 
-# List attached Ubertooth serials (one per line), in index order. Works without
-# sudo. With one device `ubertooth-util -s` prints "Serial No: <serial>"; with
-# several it prints "<index>: <serial>" per device. A failed read is ignored, so
-# the exit code is too.
-list_serials() {
-	"$1" -s 2>&1 | sed -n \
-		-e 's/.*Serial No: \([0-9a-f]\{32\}\).*/\1/p' \
-		-e 's/^[0-9][0-9]*: \([0-9a-f]\{32\}\)$/\1/p' || true
+# Print one "<index> <serial>" line per attached Ubertooth, in index order, with
+# "?" as the serial of a device that could not be read. Works without sudo and
+# with every ubertooth-util output form: "<index>: <serial>" lines (several
+# devices), "Device <index>: Serial No: <serial>" (older tools), or a single
+# "Serial No: <serial>". The exit code is ignored on purpose.
+list_devices() {
+	local out
+	out="$("$1" -s 2>&1 || true)"
+	if printf '%s\n' "$out" | grep -qE '^[0-9]+: '; then
+		printf '%s\n' "$out" | sed -n \
+			-e 's/^\([0-9][0-9]*\): \([0-9a-f]\{32\}\)$/\1 \2/p' \
+			-e 's/^\([0-9][0-9]*\): <.*>$/\1 ?/p'
+	elif printf '%s\n' "$out" | grep -qE 'Device [0-9]+: Serial No: '; then
+		printf '%s\n' "$out" | \
+			sed -n 's/.*Device \([0-9][0-9]*\): Serial No: \([0-9a-f]\{32\}\).*/\1 \2/p'
+	else
+		printf '%s\n' "$out" | sed -n 's/.*Serial No: \([0-9a-f]\{32\}\).*/0 \1/p'
+	fi
+}
+
+# Build a concise "multiple devices" message listing each device as
+# "<index>: <serial>", so the user can choose by index or serial.
+multi_device_msg() {
+	local devices="$1" out index serial
+	out="multiple Ubertooths attached; pick one with --flash-device <index|serial> (or 'all'):"
+	while read -r index serial; do
+		[ -n "$index" ] || continue
+		[ "$serial" = "?" ] && serial="<could not be read>"
+		out="$out"$'\n'"    $index: $serial"
+	done <<< "$devices"
+	printf '%s' "$out"
 }
 
 # Install the given Homebrew formulae that are not installed yet.
@@ -95,18 +118,6 @@ as_installer() {
 	else
 		as_root "$@"
 	fi
-}
-
-# Build a concise "multiple devices" message listing each device as
-# "<index>: <serial>" (the serial list is already in index order), so the user
-# can choose by index or serial.
-multi_device_msg() {
-	local serials="$1" out i=0
-	out="multiple Ubertooths attached; pick one with --flash-device <index|serial> (or 'all'):"
-	while IFS= read -r s; do
-		[ -n "$s" ] && { out="$out"$'\n'"    $i: $s"; i=$((i+1)); }
-	done <<< "$serials"
-	printf '%s' "$out"
 }
 
 while [ $# -gt 0 ]; do
@@ -137,6 +148,9 @@ case "$(uname -s)" in
 	Darwin)
 		command -v brew >/dev/null 2>&1 || \
 			die "on macOS this script needs Homebrew (https://brew.sh); see REQUIREMENTS.md"
+		# Homebrew does not install Python here; apt does on Debian/Ubuntu.
+		command -v python3 >/dev/null 2>&1 || \
+			die "python3 not found; install Python 3.8 or newer (for example: brew install python)"
 		PLATFORM=macos
 		BREW_PREFIX="$(brew --prefix)"
 		PREFIX="${PREFIX:-$BREW_PREFIX}"
@@ -146,7 +160,6 @@ case "$(uname -s)" in
 		die "unsupported platform $(uname -s); this script supports Debian/Ubuntu and macOS (Homebrew); see REQUIREMENTS.md"
 		;;
 esac
-command -v python3 >/dev/null 2>&1 || die "python3 not found; install Python 3.8 or newer"
 ORIG_PATH="$PATH"
 mkdir -p "$PREFIX" 2>/dev/null || true
 # Tools installed by this run (and an existing install in PREFIX) come first.
@@ -161,7 +174,7 @@ trap cleanup EXIT
 # Build the firmware and flash the selected device(s). Uses whichever
 # ubertooth-dfu / ubertooth-util is on PATH (an existing install).
 flash_firmware() {
-	local dfu util img serials n sel_serial
+	local dfu util img devices n sel_serial index serial
 	dfu="$(command -v ubertooth-dfu || true)"
 	util="$(command -v ubertooth-util || true)"
 	img="$REPO_ROOT/firmware/bluetooth_rxtx/bluetooth_rxtx.dfu"
@@ -174,20 +187,24 @@ flash_firmware() {
 		return 0
 	fi
 
+	devices="$(list_devices "$util")"
+	n="$(printf '%s\n' "$devices" | grep -c . || true)"
 	if [ "$FLASH_DEVICE" = "all" ]; then
-		info "Flashing all attached Ubertooths"
-		serials="$(list_serials "$util")"
-		[ -n "$serials" ] || die "no Ubertooth serials found to flash"
-		for s in $serials; do
-			info "  flashing $s"
-			"$dfu" -U "$s" -d "$img" -r
-		done
+		[ "$n" -gt 0 ] || die "no Ubertooth found to flash"
+		# Never skip a board silently: refuse if any device cannot be read.
+		if printf '%s\n' "$devices" | grep -q ' ?$'; then
+			die "$(multi_device_msg "$devices")"$'\n'"a device could not be read; flash each readable one with --flash-device <index|serial>"
+		fi
+		info "Flashing all $n attached Ubertooths"
+		while read -r index serial; do
+			info "  flashing $index: $serial"
+			"$dfu" -U "$serial" -d "$img" -r
+		done <<< "$devices"
 	elif [ -n "$FLASH_DEVICE" ]; then
 		# Show the serial even when the user selected by index.
 		if printf '%s' "$FLASH_DEVICE" | grep -qE '^[0-9]+$'; then
-			serials="$(list_serials "$util")"
-			sel_serial="$(printf '%s\n' "$serials" | sed -n "$((FLASH_DEVICE+1))p")"
-			if [ -n "$sel_serial" ]; then
+			sel_serial="$(printf '%s\n' "$devices" | awk -v i="$FLASH_DEVICE" '$1 == i { print $2 }')"
+			if [ -n "$sel_serial" ] && [ "$sel_serial" != "?" ]; then
 				info "Flashing bluetooth_rxtx to Ubertooth index $FLASH_DEVICE (serial $sel_serial)"
 			else
 				info "Flashing bluetooth_rxtx to Ubertooth index $FLASH_DEVICE"
@@ -197,16 +214,15 @@ flash_firmware() {
 		fi
 		"$dfu" -U "$FLASH_DEVICE" -d "$img" -r
 	else
-		serials="$(list_serials "$util")"
-		n="$(printf '%s\n' "$serials" | grep -c . || true)"
 		if [ "$n" -eq 0 ]; then
 			die "no Ubertooth found to flash"
-		elif [ "$n" -eq 1 ]; then
-			info "Flashing bluetooth_rxtx to Ubertooth $serials"
-			"$dfu" -U "$serials" -d "$img" -r
-		else
-			die "$(multi_device_msg "$serials")"
+		elif [ "$n" -gt 1 ]; then
+			die "$(multi_device_msg "$devices")"
 		fi
+		read -r index serial <<< "$devices"
+		[ "$serial" != "?" ] || die "the attached Ubertooth could not be read; check it with ubertooth-util -s"
+		info "Flashing bluetooth_rxtx to Ubertooth $serial"
+		"$dfu" -U "$serial" -d "$img" -r
 	fi
 }
 
@@ -216,9 +232,9 @@ flash_firmware() {
 # build. Only possible if ubertooth-util is already installed.
 if [ "$FLASH" -eq 1 ] && command -v ubertooth-util >/dev/null 2>&1; then
 	if [ "$FLASH_DEVICE" != "all" ] && [ -z "$FLASH_DEVICE" ]; then
-		_serials="$(list_serials "$(command -v ubertooth-util)")"
-		_n="$(printf '%s\n' "$_serials" | grep -c . || true)"
-		[ "$_n" -le 1 ] || die "$(multi_device_msg "$_serials")"
+		_devices="$(list_devices "$(command -v ubertooth-util)")"
+		_n="$(printf '%s\n' "$_devices" | grep -c . || true)"
+		[ "$_n" -le 1 ] || die "$(multi_device_msg "$_devices")"
 	fi
 fi
 
@@ -275,15 +291,21 @@ PIP_DEPS=(numpy qtpy pyside6)
 if [ "$PLATFORM" = debian ]; then
 	GUI_DEPS_HINT="install python3-numpy python3-qtpy python3-pyside6 (apt) or use --venv"
 else
-	GUI_DEPS_HINT="use --venv, or pip-install ${PIP_DEPS[*]} for $(command -v python3)"
+	GUI_DEPS_HINT="re-run with --venv <path> (recommended on macOS)"
 fi
 if [ -n "$VENV" ]; then
-	"$PYTHON" -m pip install --quiet "${PIP_DEPS[@]}" libusb1==3.4.0 || \
+	VENV_DEPS=("${PIP_DEPS[@]}")
+	[ "$PLATFORM" = debian ] && VENV_DEPS+=(libusb1==3.4.0)
+	"$PYTHON" -m pip install --quiet "${VENV_DEPS[@]}" || \
 		info "WARNING: could not pip-install Python runtime deps into the venv"
-else
-	if ! "$PYTHON" -m pip install --quiet "${PIP_DEPS[@]}" 2>/dev/null; then
+elif ! "$PYTHON" -m pip install --quiet "${PIP_DEPS[@]}" 2>/dev/null; then
+	# Homebrew's Python is externally managed and upgrades replace it, so do not
+	# force packages into it on macOS; a venv is the supported route there.
+	if [ "$PLATFORM" = debian ]; then
 		"$PYTHON" -m pip install --quiet --break-system-packages "${PIP_DEPS[@]}" 2>/dev/null || \
 			info "WARNING: could not pip-install GUI deps; $GUI_DEPS_HINT"
+	else
+		info "WARNING: could not pip-install GUI deps; $GUI_DEPS_HINT"
 	fi
 fi
 
@@ -313,9 +335,10 @@ else
 	# No BlueZ on macOS, so REQUIRE_ALL is not used; Homebrew's libusb headers
 	# are not on the compiler's default search path.
 	info "Building Ubertooth host tools"
-	CMAKE_ARGS+=("-DCMAKE_C_FLAGS=-I$BREW_PREFIX/include")
+	CMAKE_ARGS+=("-DCMAKE_C_FLAGS=${CFLAGS:+$CFLAGS }-I$BREW_PREFIX/include")
 fi
-[ -n "$VENV" ] && CMAKE_ARGS+=("-DPython3_EXECUTABLE=$PYTHON")
+# Build the Python tools for the interpreter that got the runtime deps.
+CMAKE_ARGS+=("-DPython3_EXECUTABLE=$(command -v "$PYTHON")")
 # Forget a libbtbb found by an earlier configure so this run's install is used.
 cmake -S "$REPO_ROOT/host" -B "$REPO_ROOT/host/build" -U 'LIBBTBB_*' "${CMAKE_ARGS[@]}"
 cmake --build "$REPO_ROOT/host/build" -j"$JOBS"
