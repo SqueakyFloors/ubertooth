@@ -94,8 +94,9 @@ or non-trivial operational documentation changes:
 
 Agent reviews supplement rather than replace maintainer review where it is
 required. Before merging into `main`, every final branch MUST satisfy all
-existing clean-tree, latest-main, one-commit, test, and independent-review
-gates. Determine the authoritative main remote from `branch.main.remote` or
+existing clean-tree, latest-main, test, and independent-review gates, and MUST
+land as one squashed commit by squash-merging its PR. The PR branch needs no
+squashing beforehand; never open a new branch or PR only to squash. Determine the authoritative main remote from `branch.main.remote` or
 repository documentation/configuration; if missing or ambiguous, stop and ask
 rather than guessing.
 
