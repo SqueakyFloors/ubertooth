@@ -21,6 +21,29 @@ the stricter requirement.
   unavailable issue tracking, and emergency recovery are exceptions; record
   why the issue-first prefix was impractical.
 
+## Pull-request traceability
+
+- Every merge candidate MUST be submitted through a GitHub pull request (PR)
+  targeting `main`, including candidates classified as low-stakes. A low-stakes
+  classification can remove the maintainer-review stop, not the PR record.
+- Each PR SHOULD have exactly one primary issue. Its description MUST identify
+  that issue and use `Closes #<number>` when merging the PR completes the
+  issue's acceptance criteria.
+- A single atomic PR MAY address tightly coupled secondary issues. Use
+  `Also closes #<number>` only when it fully completes them; otherwise use
+  `Related to #<number>` so they remain open.
+- One issue MAY require multiple independently useful PRs. Each PR MUST state
+  its slice of the work; intermediate PRs use `Part of #<number>`, and only the
+  completing PR uses `Closes #<number>`.
+- Research, support, hardware-blocked, and other issues that produce no
+  repository change do not require a PR.
+- The PR description MUST summarize user impact and scope, validation results,
+  both independent agent-review model identifiers and verdicts, and whether
+  the merge is low-stakes or requires maintainer approval.
+- Direct merges are exceptions only for emergency recovery or when GitHub PRs
+  are unavailable. The merge commit and reason MUST be recorded on the issue.
+  MUST NOT manufacture retrospective PRs for changes already merged.
+
 ## Independent agent review
 
 Every merge candidate containing code, configuration, workflow, policy, or
