@@ -156,6 +156,13 @@ Note that the range test transmits the Cortex M3 microcontroller's
 serial number. If you do not wish to broadcast that information
 wirelessly, do not use the range test functionality.
 
+## EXIT STATUS
+
+`ubertooth-util` exits with 0 when every requested operation succeeds, including
+queries that report a nonzero value such as `-b` (board ID), `-c` (channel), or
+`-a` (power amplifier level). It exits with a nonzero status if any requested
+operation fails, even when a later operation in the same command succeeds.
+
 ## SEE ALSO
 
 ubertooth(7): overview of Project Ubertooth

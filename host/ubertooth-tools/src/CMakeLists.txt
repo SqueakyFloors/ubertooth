@@ -88,6 +88,9 @@ foreach(tool ${TOOLS})
 	install(TARGETS ${tool} RUNTIME DESTINATION ${INSTALL_DEFAULT_BINDIR})
 endforeach(tool)
 
+target_sources(ubertooth-util PRIVATE
+	util_report.c)
+
 target_sources(ubertooth-dfu PRIVATE
 	dfu_transition.c
 	dfu_recovery.c)
