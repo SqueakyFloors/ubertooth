@@ -66,3 +66,25 @@ add_executable(test-util-report
 target_include_directories(test-util-report PRIVATE ../src)
 
 add_test(NAME util-report COMMAND test-util-report)
+
+# Runs ubertooth-util's real main() against a scripted fake device. The source
+# is included directly (main renamed) so it needs the library headers, and the
+# bundled getopt on platforms that use it.
+add_executable(test-util-main
+	test_util_main.c
+	../src/util_report.c)
+
+# The library headers of this source tree must win over any installed copy.
+if(libubertooth_SOURCE_DIR)
+	target_include_directories(test-util-main PRIVATE ${libubertooth_SOURCE_DIR}/src)
+else()
+	target_include_directories(test-util-main PRIVATE ${LIBUBERTOOTH_INCLUDE_DIR})
+endif()
+target_include_directories(test-util-main PRIVATE ../src
+	${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+if(USE_OWN_GNU_GETOPT)
+	target_include_directories(test-util-main BEFORE PRIVATE ../getopt)
+	target_link_libraries(test-util-main libgetopt_static)
+endif()
+
+add_test(NAME util-main COMMAND test-util-main)
