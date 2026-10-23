@@ -111,3 +111,5 @@ else()
 	message(STATUS "                install libbluetooth-dev / bluez-libs-devel, or set -DREQUIRE_ALL=ON to make this an error")
 endif()
 message(STATUS "")
+
+target_sources(ubertooth-specan PRIVATE specan_options.c)

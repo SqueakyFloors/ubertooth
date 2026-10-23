@@ -22,3 +22,17 @@ add_test(
 	COMMAND ${Python3_EXECUTABLE}
 		${CMAKE_CURRENT_SOURCE_DIR}/test_ducky_options.py
 		$<TARGET_FILE:ubertooth-ducky>)
+
+add_executable(test-specan-options
+	test_specan_options.c
+	../src/specan_options.c)
+
+target_include_directories(test-specan-options PRIVATE ../src)
+
+add_test(NAME specan-options COMMAND test-specan-options)
+
+add_test(
+	NAME specan-cli
+	COMMAND ${Python3_EXECUTABLE}
+		${CMAKE_CURRENT_SOURCE_DIR}/test_specan_cli.py
+		$<TARGET_FILE:ubertooth-specan>)

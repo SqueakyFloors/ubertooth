@@ -22,11 +22,12 @@ monitored. Refer to the [OPTIONS][] section for full details.
 .PP
 Options:
 .IP \(bu 2
-\fB\fC\-l\fR :
-lower frequency (default 2402)
+\fB\fC\-l <2402\-2480>\fR :
+lower frequency in MHz (default 2402); the value is required when \fB\fC\-l\fR is used
 .IP \(bu 2
-\fB\fC\-u\fR :
-upper frequency (default 2480)
+\fB\fC\-u <2402\-2480>\fR :
+upper frequency in MHz (default 2480); the value is required when \fB\fC\-u\fR is used
+and must not be lower than the selected lower frequency
 .IP \(bu 2
 \fB\fC\-g\fR :
 format output for feedgnuplot
@@ -40,8 +41,8 @@ output to file <filename>
 \fB\fC\-v\fR :
 print verbose output to stderr
 .IP \(bu 2
-\fB\fC\-U<0\-7>\fR :
-set ubertooth device to use
+\fB\fC\-U <index|serial>\fR :
+select an Ubertooth by enumeration index or stable serial\-number string
 
 .PP
 .SH EXAMPLES

@@ -18,10 +18,11 @@ monitored. Refer to the [OPTIONS][] section for full details.
 
 Options:
 
- - `-l` :
-   lower frequency (default 2402)
- - `-u` :
-   upper frequency (default 2480)
+ - `-l <2402-2480>` :
+   lower frequency in MHz (default 2402); the value is required when `-l` is used
+ - `-u <2402-2480>` :
+   upper frequency in MHz (default 2480); the value is required when `-u` is used
+   and must not be lower than the selected lower frequency
  - `-g` :
    format output for feedgnuplot
  - `-G` :
@@ -30,8 +31,8 @@ Options:
    output to file <filename>
  - `-v` :
    print verbose output to stderr
- - `-U<0-7>` :
-   set ubertooth device to use
+ - `-U <index|serial>` :
+   select an Ubertooth by enumeration index or stable serial-number string
 
 ## EXAMPLES
 

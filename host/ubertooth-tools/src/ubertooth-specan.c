@@ -22,6 +22,7 @@
 #include <getopt.h>
 #include <stdlib.h>
 #include "ubertooth.h"
+#include "specan_options.h"
 
 uint8_t debug;
 
@@ -87,9 +88,9 @@ static void usage(FILE *file)
 	fprintf(file, "\t-g output suitable for feedgnuplot\n");
 	fprintf(file, "\t-G output suitable for 3D feedgnuplot\n");
 	fprintf(file, "\t-d <filename> output to file\n");
-	fprintf(file, "\t-l lower frequency (default 2402)\n");
-	fprintf(file, "\t-u upper frequency (default 2480)\n");
-	fprintf(file, "\t-U<0-7> set ubertooth device to use\n");
+	fprintf(file, "\t-l <2402-2480> lower frequency in MHz (default 2402)\n");
+	fprintf(file, "\t-u <2402-2480> upper frequency in MHz (default 2480)\n");
+	fprintf(file, "\t-U <index|serial> select Ubertooth by index or serial\n");
 }
 
 int main(int argc, char *argv[])
@@ -100,7 +101,7 @@ int main(int argc, char *argv[])
 
 	ubertooth_t* ut = NULL;
 
-	while ((opt=getopt(argc,argv,"vhgGd:l::u::U:")) != EOF) {
+	while ((opt=getopt(argc,argv,"vhgGd:l:u:U:")) != EOF) {
 		switch(opt) {
 		case 'v':
 			debug++;
@@ -124,16 +125,16 @@ int main(int argc, char *argv[])
 			}
 			break;
 		case 'l':
-			if (optarg)
-				lower= atoi(optarg);
-			else
-				printf("lower: %d\n", lower);
+			if (specan_parse_frequency(optarg, &lower) < 0) {
+				fprintf(stderr, "error: lower frequency must be 2402-2480 MHz\n");
+				return 1;
+			}
 			break;
 		case 'u':
-			if (optarg)
-				upper= atoi(optarg);
-			else
-				printf("upper: %d\n", upper);
+			if (specan_parse_frequency(optarg, &upper) < 0) {
+				fprintf(stderr, "error: upper frequency must be 2402-2480 MHz\n");
+				return 1;
+			}
 			break;
 		case 'U':
 			ubertooth_device = optarg;
@@ -145,6 +146,12 @@ int main(int argc, char *argv[])
 			usage(stderr);
 			return 1;
 		}
+	}
+
+	if (specan_validate_frequency_range(lower, upper) < 0) {
+		fprintf(stderr,
+		        "error: lower frequency must not exceed upper frequency\n");
+		return 1;
 	}
 
 	ut = ubertooth_start_select(ubertooth_device);
