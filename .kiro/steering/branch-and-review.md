@@ -79,6 +79,8 @@ or non-trivial operational documentation changes:
 - MUST NOT add product changelog entries for agent policy, process-only or
   tests-only changes, comments, or internal refactors without user-visible
   behavior.
+- MUST NOT add changelog entries for documentation-only changes, including
+  updates to the `COMPATIBILITY.md` matrix and general documentation.
 
 ## Documentation clarity
 
