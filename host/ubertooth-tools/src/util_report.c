@@ -34,6 +34,11 @@ int util_value_status(int value)
 	return value < 0 ? 1 : 0;
 }
 
+int util_status_after(int status, int device_result)
+{
+	return util_status_merge(status, util_value_status(device_result));
+}
+
 int util_report_board_id(const struct util_report_ops *ops, void *context,
                          FILE *out, FILE *err)
 {

@@ -41,6 +41,9 @@ int util_status_merge(int current, int next);
 /* Converts a value-or-negative-error from the device into 0 or 1. */
 int util_value_status(int value);
 
+/* Folds a device command result (negative on error) into a sticky status. */
+int util_status_after(int status, int device_result);
+
 int util_report_board_id(const struct util_report_ops *ops, void *context,
                          FILE *out, FILE *err);
 int util_report_firmware(const struct util_report_ops *ops, void *context,

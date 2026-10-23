@@ -340,6 +340,9 @@ MU_TEST(status_helpers)
 	mu_assert_int_eq(0, util_value_status(0));
 	mu_assert_int_eq(0, util_value_status(2437));
 	mu_assert_int_eq(1, util_value_status(-1));
+	mu_assert_int_eq(0, util_status_after(0, 2437));
+	mu_assert_int_eq(1, util_status_after(0, -1));
+	mu_assert_int_eq(1, util_status_after(1, 0));
 }
 
 int main(void)
