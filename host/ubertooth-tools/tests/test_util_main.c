@@ -114,12 +114,12 @@ ubertooth_t *ubertooth_start_select(const char *u_arg)
 {
 	fake.start_calls++;
 	snprintf(fake.selector, sizeof(fake.selector), "%s", u_arg ? u_arg : "");
+	if (fake.reset_calls > 0)
+		fake.first_closed_before_reselect = fake.first_released;
 	if (fake.fail_start_from && fake.start_calls >= fake.fail_start_from)
 		return NULL;
-	if (fake.reset_calls > 0) {
-		fake.first_closed_before_reselect = fake.first_released;
+	if (fake.reset_calls > 0)
 		return &fake_ut_reset;
-	}
 	return &fake_ut;
 }
 
@@ -641,6 +641,8 @@ MU_TEST(stop_and_reset_report_failures)
 	mu_assert_int_eq(1, fake.first_closes); /* released even if the reset failed */
 	mu_assert_int_eq(1, fake.first_frees);
 	mu_assert_int_eq(0, fake.first_stops);
+	mu_assert_int_eq(1, fake.first_closed_before_reselect);
+	mu_assert_int_eq(0, fake.first_used_after_release);
 
 	/* the device cannot be reselected after the reset: fail, do not crash */
 	reset_fake();
@@ -650,6 +652,7 @@ MU_TEST(stop_and_reset_report_failures)
 	mu_assert_int_eq(1, fake.first_closes);
 	mu_assert_int_eq(1, fake.first_frees);
 	mu_assert_int_eq(0, fake.first_stops);
+	mu_assert_int_eq(1, fake.first_closed_before_reselect);
 	mu_assert_int_eq(0, fake.first_used_after_release);
 }
 
