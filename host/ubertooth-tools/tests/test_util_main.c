@@ -910,6 +910,146 @@ MU_TEST(listing_is_not_used_with_a_selector_one_device_or_other_operations)
 	mu_assert(strstr(r.out, "Serial No: ") != NULL, "single-device report format");
 }
 
+MU_TEST(u_all_lists_every_device_even_when_only_one_is_attached)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.device_count = 1;
+	r = RUN("-U", "all", "-s");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "0: " SERIAL_VALUE "\n") == 0, "single device listed");
+	mu_assert_int_eq(1, fake.indexed_starts);
+	mu_assert_int_eq(1, fake.closes);
+	mu_assert_int_eq(0, fake.start_calls); /* no single-device selection */
+	mu_assert_int_eq(0, fake.stop_calls);
+
+	reset_fake();
+	fake.device_count = 2;
+	r = RUN("-Uall", "-vVspb");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out,
+	                 "0: " BOARD_LINE "0: " FIRMWARE_LINE "0: " COMPILE_LINE
+	                 "0: " PART_LINE "0: " SERIAL_LINE
+	                 "1: " BOARD_LINE "1: " FIRMWARE_LINE "1: " COMPILE_LINE
+	                 "1: " PART_LINE "1: " SERIAL_LINE) == 0,
+	          "same listing as the implicit multi-device form");
+	mu_assert_int_eq(0, fake.start_calls);
+	mu_assert_int_eq(0, fake.stop_calls);
+
+	/* the option may follow the queries */
+	reset_fake();
+	fake.device_count = 2;
+	r = RUN("-b", "-U", "all");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "0: 1 (Ubertooth One)\n1: 1 (Ubertooth One)\n") == 0,
+	          "listing with -U all last");
+
+	/* a failure on one device still fails the command */
+	reset_fake();
+	fake.device_count = 2;
+	fake.unavailable_index = 0;
+	r = RUN("-U", "all", "-b");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, "0: <unavailable>\n1: 1 (Ubertooth One)\n") == 0,
+	          "unavailable device line");
+}
+
+MU_TEST(u_all_fails_cleanly_with_no_devices_or_a_count_error)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.device_count = 0;
+	r = RUN("-U", "all", "-s");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, (long)strlen(r.out));
+	mu_assert(strstr(r.err, "no Ubertooth devices found") != NULL, "no-device diagnostic");
+	mu_assert_int_eq(0, fake.indexed_starts);
+	mu_assert_int_eq(0, fake.start_calls);
+
+	reset_fake();
+	fake.device_count = -1;
+	r = RUN("-U", "all", "-s");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, (long)strlen(r.out));
+	mu_assert_int_eq(0, fake.indexed_starts);
+	mu_assert_int_eq(0, fake.start_calls);
+}
+
+MU_TEST(u_all_is_rejected_before_opening_a_device_for_any_other_option)
+{
+	static const char *const others[] = {
+		"-c", "-c2450", "-C39", "-a", "-a3", "-l", "-l1", "-d", "-d1",
+		"-z", "-z5", "-m", "-S", "-r", "-I", "-9", "-N",
+		"-f", "-i", "-q", "-n", "-e", "-t", "-x",
+	};
+	size_t i;
+
+	for (i = 0; i < sizeof(others) / sizeof(others[0]); i++) {
+		struct run_result r;
+
+		/* alone, and combined with a valid query */
+		reset_fake();
+		fake.device_count = 2;
+		r = run_util((const char *const[]){ "ubertooth-util", "-U", "all", others[i], NULL });
+		mu_assert_int_eq(1, r.rc);
+		mu_assert(strstr(r.err, "-U all only supports the read-only queries") != NULL,
+		          others[i]);
+		mu_assert_int_eq(0, (long)strlen(r.out));
+
+		r = run_util((const char *const[]){ "ubertooth-util", "-s", others[i], "-U", "all", NULL });
+		mu_assert_int_eq(1, r.rc);
+		mu_assert(strstr(r.err, "-U all only supports the read-only queries") != NULL,
+		          others[i]);
+		mu_assert_int_eq(0, (long)strlen(r.out));
+
+		/* nothing was opened, counted, sent or started */
+		mu_assert_int_eq(0, fake.start_calls);
+		mu_assert_int_eq(0, fake.indexed_starts);
+		mu_assert_int_eq(0, fake.stop_calls);
+		mu_assert_int_eq(0, fake.reset_calls);
+		mu_assert_int_eq(0, fake.flash_calls + fake.isp_calls + fake.led_specan_calls +
+		                    fake.range_test_calls + fake.repeater_calls +
+		                    fake.tx_test_calls + fake.xmas_calls);
+	}
+
+	/* -U all with no query at all is rejected the same way */
+	{
+		struct run_result r;
+
+		reset_fake();
+		fake.device_count = 2;
+		r = RUN("-U", "all");
+		mu_assert_int_eq(1, r.rc);
+		mu_assert(strstr(r.err, "-U all only supports the read-only queries") != NULL,
+		          "no query");
+		mu_assert_int_eq(0, fake.start_calls);
+		mu_assert_int_eq(0, fake.indexed_starts);
+	}
+}
+
+MU_TEST(only_the_exact_word_all_selects_every_device)
+{
+	struct run_result r;
+
+	/* anything else is still passed to the library as an index or serial */
+	reset_fake();
+	fake.device_count = 2;
+	r = RUN("-U", "ALL", "-b");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, BOARD_LINE) == 0, "single-device report");
+	mu_assert(strcmp(fake.selector, "ALL") == 0, "selector passed to the library");
+	mu_assert_int_eq(0, fake.indexed_starts);
+
+	/* the last -U wins, as before */
+	reset_fake();
+	fake.device_count = 2;
+	r = RUN("-U", "all", "-U", "1", "-c");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(fake.selector, "1") == 0, "later selector used");
+}
+
 int main(void)
 {
 	MU_RUN(nonzero_query_values_are_not_exit_statuses);
@@ -936,5 +1076,9 @@ int main(void)
 	MU_RUN(an_unavailable_device_is_reported_and_fails_the_listing);
 	MU_RUN(a_failed_read_on_one_device_is_reported_and_fails_the_listing);
 	MU_RUN(listing_is_not_used_with_a_selector_one_device_or_other_operations);
+	MU_RUN(u_all_lists_every_device_even_when_only_one_is_attached);
+	MU_RUN(u_all_fails_cleanly_with_no_devices_or_a_count_error);
+	MU_RUN(u_all_is_rejected_before_opening_a_device_for_any_other_option);
+	MU_RUN(only_the_exact_word_all_selects_every_device);
 	return mu_report();
 }
