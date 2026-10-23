@@ -60,7 +60,7 @@ info() { echo "==> $*"; }
 # Run a privileged command, or print it under --no-sudo.
 as_root() {
 	if [ "$NO_SUDO" -eq 1 ]; then
-		echo "    [would run as root] $*"
+		echo "    [would run as root] $*" >&2 # visible even when output is silenced
 	else
 		sudo "$@"
 	fi
