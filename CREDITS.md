@@ -33,8 +33,7 @@ Details are in [CHANGELOG.md](CHANGELOG.md).
 
 ## Upstream contributors
 
-Everyone who contributed to Project Ubertooth upstream, as listed by GitHub
-([full list and contribution counts](https://github.com/greatscottgadgets/ubertooth/graphs/contributors)):
+Everyone who contributed to Project Ubertooth upstream, as listed by GitHub:
 
 [@AdamLaurie](https://github.com/AdamLaurie) (Adam Laurie),
 [@aholler](https://github.com/aholler) (Alexander Holler),
