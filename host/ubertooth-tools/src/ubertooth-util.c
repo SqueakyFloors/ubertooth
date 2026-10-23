@@ -456,6 +456,11 @@ int main(int argc, char *argv[])
 	if(do_reset == 0) {
 		fprintf(stdout, "Resetting ubertooth device %s\n", ubertooth_device ? ubertooth_device : "0");
 		status = util_status_after(status, cmd_reset(ut->devh));
+		/* The device re-enumerates after a reset, so this handle is dead:
+		 * release it without sending STOP before opening the new one. */
+		ubertooth_close(ut);
+		ubertooth_free(ut);
+		ut = NULL;
 		sleep(2);
 		ut = ubertooth_start_select(ubertooth_device);
 		if (ut == NULL)
