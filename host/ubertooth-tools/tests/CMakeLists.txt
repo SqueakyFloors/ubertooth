@@ -36,3 +36,11 @@ add_test(
 	COMMAND ${Python3_EXECUTABLE}
 		${CMAKE_CURRENT_SOURCE_DIR}/test_specan_cli.py
 		$<TARGET_FILE:ubertooth-specan>)
+
+add_executable(test-btle-options
+	test_btle_options.c
+	../src/btle_options.c)
+
+target_include_directories(test-btle-options PRIVATE ../src)
+
+add_test(NAME btle-options COMMAND test-btle-options)

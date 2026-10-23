@@ -66,6 +66,8 @@ ubertooth (2020-12-R1+modern1) unstable; urgency=low
   * ubertooth-specan: make documented separated -l/-u frequency arguments
     reliable, require values when flags are present, and reject malformed,
     out-of-band, or reversed ranges before opening USB
+  * ubertooth-btle: make `-t none` explicitly clear the caller's target mask;
+    add direct coverage for cleared, full-address, and masked targets
   * libubertooth: ubertooth_count() now returns int and propagates a negative
     error from libusb_init instead of wrapping to a large unsigned value
   * libubertooth: ubertooth_start() frees its allocation on the connect-failure

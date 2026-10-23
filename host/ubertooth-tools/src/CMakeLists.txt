@@ -113,3 +113,4 @@ endif()
 message(STATUS "")
 
 target_sources(ubertooth-specan PRIVATE specan_options.c)
+target_sources(ubertooth-btle PRIVATE btle_options.c)

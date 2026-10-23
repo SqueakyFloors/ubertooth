@@ -21,7 +21,7 @@
 
 #include "ubertooth.h"
 #include "ubertooth_callback.h"
-#include <ctype.h>
+#include "btle_options.h"
 #include <err.h>
 #include <fcntl.h>
 #include <getopt.h>
@@ -50,59 +50,6 @@ void print_mac(uint8_t *mac_address, int mask) {
 	printf("%02x", mac_address[5]);
 	if (mask >= 0)
 		printf("/%u", mask);
-}
-
-int convert_mac_address(char *s, uint8_t *o, uint8_t *mask_out) {
-	int i;
-	char *mask_p;
-	unsigned mask = 48; // default mask is entire BD ADDR
-
-	if (strcmp(s, "none") == 0) {
-		memset(o, 0, 6);
-		mask_out = 0;
-		return 1;
-	}
-
-	// if there is a mask included, parse it
-	mask_p = strchr(s, '/');
-	if (mask_p != NULL) {
-		*mask_p = '\0';
-		++mask_p;
-		mask = strtoul(mask_p, NULL, 10);
-		if (mask > 48) {
-			printf("Error: MAC mask must be between 0 and 48\n");
-			return 0;
-		}
-	}
-	*mask_out = mask; // see above, default 48, otherwise user-supplied
-
-	// validate length
-	if (strlen(s) != 6 * 2 + 5) {
-		printf("Error: MAC address is wrong length\n");
-		return 0;
-	}
-
-	// validate hex chars and : separators
-	for (i = 0; i < 6*3; i += 3) {
-		if (!isxdigit(s[i]) ||
-			!isxdigit(s[i+1])) {
-			printf("Error: MAC address contains invalid character(s)\n");
-			return 0;
-		}
-		if (i < 5*3 && s[i+2] != ':') {
-			printf("Error: MAC address contains invalid character(s)\n");
-			return 0;
-		}
-	}
-
-	// sanity: checked; convert
-	for (i = 0; i < 6; ++i) {
-		unsigned byte;
-		sscanf(&s[i*3], "%02x",&byte);
-		o[i] = byte;
-	}
-
-	return 1;
 }
 
 /* Accept "-" as an alias for binary PCAP on stdout. Save the original
