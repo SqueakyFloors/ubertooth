@@ -211,12 +211,16 @@ observed otherwise, but it's within spec to use fewer.
 AUTHOR
 ======
 
-This code was mostly written by Mike Ryan <mikeryan@lacklustre.net> over
+This code was mostly written by Mike Ryan
+([@mikeryan](https://github.com/mikeryan)) <mikeryan@lacklustre.net> over
 the course of many sleepless nights.
 
 This could not have been done without the tremendous moral and technical
-support of Dominic Spill and Mike Ossmann. Thanks also to Will Code,
-Jared Boone, Mike Kershaw (dragorn), and the rest of the Ubertooth team.
+support of Dominic Spill ([@dominicgs](https://github.com/dominicgs)) and
+Mike Ossmann ([@mossmann](https://github.com/mossmann)). Thanks also to Will
+Code ([@willcode](https://github.com/willcode)), Jared Boone
+([@jboone](https://github.com/jboone)), Mike Kershaw
+([@dragorn](https://github.com/dragorn)), and the rest of the Ubertooth team.
 
 A major tip o' the hat is due to the Bluetooth SIG. The Bluetooth Core
 Spec 4.0 is an amazingly clear and readable technical reference.
