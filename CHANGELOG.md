@@ -147,8 +147,10 @@
 - `-U<serial>` now matches a leading part of a serial number as well as a
   trailing part, compares case-insensitively, and refuses a string that matches
   more than one attached board (`error: '2000f5' matches 2 Ubertooth devices:
-  ...`) instead of opening whichever enumerated first. The rules are documented
-  in ubertooth-util(1), SELECTING A DEVICE, and ubertooth(7).
+  ...`) instead of opening whichever enumerated first. An attached board that
+  could not be opened or did not answer is reported with the result, instead of
+  leaving a non-match looking like a serial that is not attached. The rules are
+  documented in ubertooth-util(1), SELECTING A DEVICE, and ubertooth(7).
   [#210](https://github.com/SqueakyFloors/ubertooth/issues/210)
 - `ubertooth-util -q <N>` (LED spectrum analyzer, threshold -N dBm) takes
   20-120, the radio's RSSI range, and bare `-q` uses -85 dBm. The old default

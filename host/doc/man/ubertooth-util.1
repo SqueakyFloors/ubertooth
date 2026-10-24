@@ -268,10 +268,22 @@ If the matching boards report the \fIsame\fP serial, no longer string can tell
 them apart, and the message says so and points at \fB\fC\-U<index>\fR instead.
 .PP
 A string that matches no attached board also exits non\-zero, with
-\fB\fCno Ubertooth found with serial matching '<string>'\fR\&. A board that
-does not answer the serial read is skipped silently while another board is
-being selected; when nothing matched, the message says how many attached
-boards did not answer.
+\fB\fCno Ubertooth found with serial matching '<string>'\fR\&.
+.PP
+A board that cannot be opened, or that does not answer the serial read, is
+skipped quietly while another board is being selected. It is reported with the
+result, because the string may well be that board's serial:
+.PP
+.RS
+.nf
+$ ubertooth\-util \-U 1cc0 \-s
+no Ubertooth found with serial matching '1cc0'
+2 attached Ubertooth devices could not be opened
+libUSB Error: Access denied (insufficient permissions)
+.fi
+.RE
+.PP
+(On Linux, that usually means the udev rules are not installed.)
 .PP
 An all\-digits string is always an index, never a serial, even when it would
 match a serial: \fB\fC\-U 05\fR asks for index 5, not for the board whose
