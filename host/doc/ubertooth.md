@@ -55,6 +55,17 @@ selects neither. An all-digits string is read as an index, so include a
 non-digit (`-U 05f` rather than `-U 05`). See ubertooth-util(1), SELECTING A
 DEVICE, for the full description and for listing the attached devices.
 
+## ENVIRONMENT
+
+`UBERTOOTH_TEST_NO_DEVICES=1` makes every tool behave as if no Ubertooth were
+attached: nothing is listed or opened on the USB bus, and the tool reports that
+it found no device. It exists for the project's own test suite, which runs the
+tools while boards may be in use elsewhere, and it is the only setting that
+changes device selection. Only the exact value `1` turns it on; unset, empty or
+any other value leaves device selection alone. A tool that finds no board
+because of it says so:
+`note: UBERTOOTH_TEST_NO_DEVICES is set, so no board is selected`.
+
 ## SUPPORT
 
 Ubertooth is an open source project maintained primarily by volunteers.

@@ -7,8 +7,9 @@ Every run uses a serial number no board has, so the tool would fail at device
 selection if it got that far. A rejected image must be refused with exit 1 and
 its own message, without that device-selection line: nothing was opened, so
 nothing was switched into the DFU bootloader. An acceptable image must get
-past the check and reach device selection instead. Works with or without
-Ubertooths attached, and changes no board.
+past the check and reach device selection instead. The tool runs with
+UBERTOOTH_TEST_NO_DEVICES=1, so selection opens nothing whatever is attached
+(#219).
 """
 
 import os
@@ -20,6 +21,10 @@ import zlib
 BINARY = sys.argv[1]
 NO_SUCH_SERIAL = "ffffffffffffffffffffffffffffffff"
 NOT_FOUND = f"no ubertooth found with serial matching '{NO_SUCH_SERIAL}'"
+# Hide attached boards from the tool: matching a serial otherwise opens every
+# one of them to read its serial, which stalls on a board another process is
+# using (#219).
+ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1")
 
 U1_DFU_VENDORID = 0x1D50
 U1_DFU_PRODUCTID = 0x6003
@@ -77,7 +82,7 @@ with tempfile.TemporaryDirectory() as directory:
             handle.write(contents)
         command = [BINARY, "-U", NO_SUCH_SERIAL, "-d", path, "-r"]
         result = subprocess.run(command, capture_output=True, text=True,
-                                timeout=20, check=False)
+                                timeout=20, check=False, env=ENVIRONMENT)
         output = result.stdout + result.stderr
         print("$", " ".join(command))
         print(output, end="" if output.endswith("\n") else "\n")

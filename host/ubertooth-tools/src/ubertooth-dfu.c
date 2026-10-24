@@ -203,6 +203,10 @@ static int find_ubertooth_dfu_device(
 	int i, result;
 
 	*devh = NULL;
+	/* This search is the tool's own, so it honours the test switch itself:
+	 * hidden devices mean none is found, and the bus is not listed. */
+	if (ubertooth_devices_hidden())
+		return 0;
 	usb_devs = libusb_get_device_list(ctx, &usb_list);
 	if (usb_devs < 0)
 		return (int)usb_devs;
@@ -257,6 +261,10 @@ static int find_ubertooth_application_device(
 	int i, result;
 
 	*devh = NULL;
+	/* As in find_ubertooth_dfu_device(): the switch hides the bus from this
+	 * search too. */
+	if (ubertooth_devices_hidden())
+		return 0;
 	usb_devs = libusb_get_device_list(ctx, &usb_list);
 	if (usb_devs < 0)
 		return (int)usb_devs;
