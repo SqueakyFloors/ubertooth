@@ -120,12 +120,13 @@ static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx )
 }
 
 /* The capture clock of a packet, as 100 ns ticks since the board started
- * counting: each wrap seen adds the clock's real period (CLK100NS_PERIOD),
- * not 2^32, which would add 101.8 s to every later packet. */
+ * counting: each wrap seen adds the period of the clock this mode stamps with
+ * (ut->clk100ns_period). Adding 2^32 instead, as if every clock were a 32-bit
+ * counter, put 101.8 s into every packet after a wrap of the CLKN-derived
+ * clock, which wraps at 3125 * 2^20. */
 static uint64_t clk100ns_extended( const ubertooth_t* ut, const usb_pkt_rx* rx )
 {
-	return ut->clk100ns_upper * (uint64_t)CLK100NS_PERIOD
-	       + le32toh( rx->clk100ns );
+	return ut->clk100ns_upper * ut->clk100ns_period + le32toh( rx->clk100ns );
 }
 
 static uint64_t now_ns_from_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx )
@@ -337,7 +338,7 @@ void cb_btle(ubertooth_t* ut, void* args)
 	usb_pkt_rx* rx = &usb;
 	// u32 access_address = 0; // Build warning
 
-	static u32 prev_ts = 0;
+	static uint64_t prev_ts = 0;
 	uint32_t refAA;
 	int8_t sig, noise;
 
@@ -424,11 +425,11 @@ void cb_btle(ubertooth_t* ut, void* args)
 	}
 
 	// rollover
-	u32 rx_ts = rx->clk100ns;
+	uint64_t rx_ts = le32toh( rx->clk100ns );
 	if (rx_ts < prev_ts)
-		rx_ts += CLK100NS_PERIOD;
-	u32 ts_diff = rx_ts - prev_ts;
-	prev_ts = rx->clk100ns;
+		rx_ts += ut->clk100ns_period;
+	uint64_t ts_diff = rx_ts - prev_ts;
+	prev_ts = le32toh( rx->clk100ns );
 	printf("systime=%u freq=%d addr=%08x delta_t=%.03f ms rssi=%d\n",
 	       systime, rx->channel + 2402, lell_get_access_address(pkt),
 	       ts_diff / 10000.0, rx->rssi_min - 54);

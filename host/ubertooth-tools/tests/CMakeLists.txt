@@ -281,6 +281,10 @@ if(libubertooth_SOURCE_DIR)
 	target_include_directories(test-clk100ns-wrap PRIVATE
 		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
 	target_link_libraries(test-clk100ns-wrap ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES})
+	# One case reads ubertooth-btle's source, which starts the mode whose
+	# packets come from the other clock (like test_mode_dispatch does).
+	target_compile_definitions(test-clk100ns-wrap PRIVATE
+		BTLE_SOURCE="${CMAKE_CURRENT_SOURCE_DIR}/../src/ubertooth-btle.c")
 	add_test(NAME clk100ns-wrap COMMAND test-clk100ns-wrap)
 	# Arithmetic only: a run takes milliseconds.
 	set_tests_properties(clk100ns-wrap PROPERTIES TIMEOUT 5)
