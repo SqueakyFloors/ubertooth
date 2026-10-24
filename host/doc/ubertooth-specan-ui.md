@@ -11,7 +11,7 @@ ubertooth-specan-ui(1) shows the 2.4 GHz band as a live spectrum plot in a
 window. It runs ubertooth-specan(1) in the background and draws what it
 reports, so it needs an attached Ubertooth running the `bluetooth_rxtx`
 firmware, Python 3.8 or newer, and the Python packages `numpy`, `qtpy` and a
-Qt binding: `PySide6` (6.7 and later need Python 3.9 or newer) or `PyQt5`.
+Qt binding (`PySide6` or `PyQt5`).
 
 To show the whole band on the only attached Ubertooth, run:
 

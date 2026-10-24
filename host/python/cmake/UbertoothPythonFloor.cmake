@@ -1,8 +1,8 @@
 # Minimum Python for the in-tree Python tools (ubertooth-specan-ui, ubtbr).
 #
-# 3.8 is the oldest version verified in CI (Ubuntu 20.04). specan-ui runs on
-# 3.8 with PyQt5 (or PySide6 6.6); PySide6 6.7+ needs 3.9+, which is a runtime
-# dependency choice and is documented rather than checked here.
+# 3.8 is the oldest version verified in CI (Ubuntu 20.04), and every feature
+# of both tools works on it. Which Qt binding release can be installed depends
+# on the Python version; that is documented rather than checked here.
 set(UBERTOOTH_PYTHON_MIN 3.8)
 
 # ubertooth_python_floor(<found> <version> <require_all> <result_var> <message_var>)
