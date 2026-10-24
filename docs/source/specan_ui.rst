@@ -118,36 +118,24 @@ What the display shows
 Troubleshooting ``ModuleNotFoundError: No module named 'specan'``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-This means the launcher ran but the ``specan`` package is not importable by the
-Python interpreter running it. Common causes and fixes:
+The launcher ran but its Python cannot import the ``specan`` package. If you
+installed with ``install.sh`` this should not happen: it installs both parts
+for the same Python (including with ``--venv``). Otherwise:
 
-1. **You ran it without installing.** Running ``ubertooth-specan-ui`` straight
-   from the build tree skips the package install. Run ``sudo make install``
-   from ``host/build`` first (that installs the ``specan`` package), or add the
-   source dir to ``PYTHONPATH`` for a quick test:
+1. **Not installed.** Run ``sudo make install`` from ``host/build``, or for a
+   quick test from the source tree:
 
    .. code-block:: sh
 
       PYTHONPATH=host/python/specan_ui ubertooth-specan-ui
 
-2. **The package installed to a different Python than the launcher uses.** If
-   the build selected one Python (e.g. ``/usr/local/bin/python3``) but the
-   launcher runs under another (e.g. ``/usr/bin/python3``), ``specan`` is
-   installed where the launcher can't see it. Point the build at the Python you
-   will run, and ensure that interpreter has setuptools:
+2. **An old launcher runs first.** A launcher left by an earlier install (for
+   example in ``/usr/local/bin``) may come earlier on ``PATH``. List them all
+   and remove the stale one:
 
    .. code-block:: sh
 
-      python3 -m pip install setuptools
-      cmake .. -DPython3_EXECUTABLE=$(command -v python3)
-      make && sudo make install
-
-   Check which Python a build selected in the CMake output:
-   ``-- Found Python3: /path/to/python3``.
-
-3. **Using a virtualenv.** Build and install with the venv active (and its
-   ``python`` passed as ``-DPython3_EXECUTABLE``) so the launcher and the
-   ``specan`` package share one interpreter.
+      which -a ubertooth-specan-ui
 
 If the UI starts but cannot reach the device, that is a permissions/udev issue,
 not this error — see the getting-started / udev documentation.
