@@ -160,6 +160,20 @@ int cmd_set_usrled(struct libusb_device_handle* devh, u16 state)
 	return 0;
 }
 
+/* A fixed-size control read must return exactly the bytes asked for. A
+ * short or empty reply (seen with stalled control transfers in follow mode)
+ * would otherwise hand back whatever the result buffer held, as if it were a
+ * real value. Returns r unchanged unless it is a short reply. */
+static int check_reply_length(int r, int want, const char *what)
+{
+	if (r >= 0 && r != want) {
+		fprintf(stderr, "error: short reply to %s request (%d of %d bytes)\n",
+		        what, r, want);
+		return LIBUSB_ERROR_IO;
+	}
+	return r;
+}
+
 int cmd_get_usrled(struct libusb_device_handle* devh)
 {
 	u8 state;
@@ -171,6 +185,9 @@ int cmd_get_usrled(struct libusb_device_handle* devh)
 		show_libusb_error(r);
 		return r;
 	}
+	r = check_reply_length(r, 1, "USR LED");
+	if (r < 0)
+		return r;
 	return state;
 }
 
@@ -198,6 +215,9 @@ int cmd_get_rxled(struct libusb_device_handle* devh)
 		show_libusb_error(r);
 		return r;
 	}
+	r = check_reply_length(r, 1, "RX LED");
+	if (r < 0)
+		return r;
 	return state;
 }
 
@@ -225,6 +245,9 @@ int cmd_get_txled(struct libusb_device_handle* devh)
 		show_libusb_error(r);
 		return r;
 	}
+	r = check_reply_length(r, 1, "TX LED");
+	if (r < 0)
+		return r;
 	return state;
 }
 
@@ -239,6 +262,9 @@ int cmd_get_modulation(struct libusb_device_handle* devh)
 		show_libusb_error(r);
 		return r;
 	}
+	r = check_reply_length(r, 1, "modulation");
+	if (r < 0)
+		return r;
 
 	return modulation;
 }
@@ -256,6 +282,9 @@ int cmd_get_channel(struct libusb_device_handle* devh)
 		show_libusb_error(r);
 		return r;
 	}
+	r = check_reply_length(r, 2, "channel");
+	if (r < 0)
+		return r;
 
 	return result[0] | (result[1] << 8);
 }
@@ -340,6 +369,9 @@ int cmd_get_serial(struct libusb_device_handle* devh, u8 *serial)
 		show_libusb_error(r);
 		return r;
 	}
+	r = check_reply_length(r, 17, "serial");
+	if (r < 0)
+		return r;
 	if (serial[0] != 0) {
 		fprintf(stderr, "result not zero: %d\n", serial[0]);
 		return 1;
@@ -481,6 +513,9 @@ int cmd_get_palevel(struct libusb_device_handle* devh)
 		show_libusb_error(r);
 		return r;
 	}
+	r = check_reply_length(r, 1, "PA level");
+	if (r < 0)
+		return r;
 	return level;
 }
 
@@ -517,6 +552,9 @@ int cmd_get_rangeresult(struct libusb_device_handle* devh,
 		}
 		return r;
 	}
+	r = check_reply_length(r, 5, "range test result");
+	if (r < 0)
+		return r;
 
 	rr->valid       = result[0];
 	rr->request_pa  = result[1];
@@ -671,6 +709,9 @@ int cmd_get_board_id(struct libusb_device_handle* devh)
 		show_libusb_error(r);
 		return r;
 	}
+	r = check_reply_length(r, 1, "board ID");
+	if (r < 0)
+		return r;
 
 	return board_id;
 }
@@ -702,6 +743,9 @@ int cmd_get_squelch(struct libusb_device_handle* devh)
 		show_libusb_error(r);
 		return r;
 	}
+	r = check_reply_length(r, 1, "squelch");
+	if (r < 0)
+		return r;
 	return level;
 }
 
@@ -917,6 +961,9 @@ int cmd_get_crc_verify(struct libusb_device_handle* devh)
 		show_libusb_error(r);
 		return r;
 	}
+	r = check_reply_length(r, 1, "CRC verify");
+	if (r < 0)
+		return r;
 	return verify;
 }
 
