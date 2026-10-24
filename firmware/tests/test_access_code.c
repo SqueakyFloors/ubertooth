@@ -42,7 +42,26 @@ static void reset_target(u64 ac)
 {
 	memset(&target, 0, sizeof(target));
 	target.syncword = ac;
-	syncword = 0;  /* what precalc() leaves behind after SET_BDADDR */
+}
+
+/*
+ * Literal byte vectors, independent of place_ac(): AC_A shifted right by one
+ * nibble, so it starts 4 bits into the byte. Placed at byte 0 it ends at bit
+ * 68; placed at byte 8 (the first byte after the 64-bit seed) it ends at 132.
+ */
+MU_TEST(test_literal_nibble_offset_vectors)
+{
+	static const u8 nibble_ac[9] = {
+		0x00, 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0};
+	u8 buf[DMA_SIZE] = {0};
+	reset_target(AC_A);
+
+	memcpy(buf, nibble_ac, sizeof(nibble_ac));
+	mu_assert_int_eq(68, find_access_code(buf));
+
+	memset(buf, 0, sizeof(buf));
+	memcpy(buf + 8, nibble_ac, sizeof(nibble_ac));
+	mu_assert_int_eq(132, find_access_code(buf));
 }
 
 /* A match in the first 64 bits is reported at offset 64 (end of window). */
@@ -108,11 +127,19 @@ MU_TEST(test_finds_every_start_offset)
 	}
 }
 
-/* Matches ending in the last 64 bits are not searched (header must follow). */
+/*
+ * Matches ending in the last 64 bits are not searched (header must follow).
+ * The last searched window ends at BUF_BITS - 65 (covered by the sweep above);
+ * one ending exactly at BUF_BITS - 64 must be rejected.
+ */
 MU_TEST(test_tail_not_searched)
 {
 	u8 buf[DMA_SIZE] = {0};
 	reset_target(AC_B);
+	place_ac(buf, BUF_BITS - 128, AC_B);
+	mu_assert_int_eq(-1, find_access_code(buf));
+
+	memset(buf, 0, sizeof(buf));
 	place_ac(buf, BUF_BITS - 64, AC_B);
 	mu_assert_int_eq(-1, find_access_code(buf));
 }
@@ -131,6 +158,7 @@ int main(void)
 {
 	printf("find_access_code tests\n");
 	MU_RUN(test_finds_initial_window);
+	MU_RUN(test_literal_nibble_offset_vectors);
 	MU_RUN(test_second_call_ignores_previous_buffer);
 	MU_RUN(test_result_independent_of_call_history);
 	MU_RUN(test_finds_every_start_offset);
