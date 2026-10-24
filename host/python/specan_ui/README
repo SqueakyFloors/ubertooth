@@ -1,7 +1,7 @@
 specan_ui — graphical real-time spectrum analyzer for the Ubertooth.
 
 Requirements:
-  * Python 3.8+ (3.12+ also needs setuptools installed to build — PEP 632)
+  * Python 3.8+
   * Python packages: numpy, qtpy, and a Qt binding (PySide6 or PyQt5)
   * The built Ubertooth host tools (provides ubertooth-specan)
 
@@ -11,10 +11,9 @@ Install (installs the launcher AND the specan Python package):
 Run:
   $ ubertooth-specan-ui          # or: sudo ubertooth-specan-ui  (device access)
 
-Getting "ModuleNotFoundError: No module named 'specan'"? The specan package
-was not installed for the Python running the launcher — usually because you
-ran it without `make install`, or the build used a different Python than the
-launcher. See the full install/run and troubleshooting guide:
+Getting "ModuleNotFoundError: No module named 'specan'"? Install with
+install.sh or `make install`, and check `which -a ubertooth-specan-ui` for a
+stale launcher earlier on PATH. See the full guide:
 
   docs/source/specan_ui.rst
   (https://ubertooth.readthedocs.io/en/latest/specan_ui.html)
