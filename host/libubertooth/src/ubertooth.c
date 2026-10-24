@@ -57,16 +57,27 @@ int max_ac_errors = 2;
  * The tool tests set it for the tools they run, so a default `ctest` run can
  * neither depend on an attached board nor open one that another process is
  * using (#219). Nothing in the tools or the library sets it, so a normal run
- * is unaffected; a note names it once, so a variable left in the environment
- * does not look like a missing board. */
-static int devices_hidden(void)
+ * is unaffected. Exactly "1" turns it on, so a variable that happens to hold
+ * anything else cannot hide a user's board. A tool that enumerates the bus
+ * itself, such as ubertooth-dfu, calls this too. */
+int ubertooth_devices_hidden(void)
 {
-	static int announced = 0;
 	const char* value = getenv("UBERTOOTH_TEST_NO_DEVICES");
 
-	if (value == NULL || value[0] == '\0' || strcmp(value, "0") == 0)
+	return value != NULL && strcmp(value, "1") == 0;
+}
+
+/* ubertooth_devices_hidden() for the paths that report what they found: the
+ * first of them to hide a device names the switch, so a variable left in an
+ * environment does not look like a missing board. The quiet paths pass
+ * announce = 0 and stay silent, as their callers require. */
+static int devices_hidden(int announce)
+{
+	static int announced = 0;
+
+	if (!ubertooth_devices_hidden())
 		return 0;
-	if (!announced) {
+	if (announce && !announced) {
 		fprintf(stderr, "note: UBERTOOTH_TEST_NO_DEVICES is set, so no board "
 		        "is selected\n");
 		announced = 1;
@@ -145,7 +156,7 @@ int ubertooth_count(void) {
 	int usb_devs, i, r;
 	int ubertooth_device_count = 0;
 
-	if (devices_hidden())
+	if (devices_hidden(1))
 		return 0;
 
 	r = libusb_init(NULL);
@@ -208,7 +219,7 @@ static struct libusb_device_handle* find_ubertooth_device_opt(int ubertooth_devi
 
 	/* Hidden devices: the same outcome as nothing attached, which this
 	 * function reports by returning NULL without a message. */
-	if (devices_hidden())
+	if (devices_hidden(!quiet))
 		return NULL;
 
 	usb_devs = libusb_get_device_list(ctx, &usb_list);
@@ -310,7 +321,7 @@ static struct libusb_device_handle* find_ubertooth_device_serial_opt(
 
 	/* Hidden devices: nothing to match, so no board is opened and no serial
 	 * is read; the "no Ubertooth found" report below is unchanged. */
-	usb_devs = devices_hidden() ? 0 : libusb_get_device_list(ctx, &usb_list);
+	usb_devs = devices_hidden(!quiet) ? 0 : libusb_get_device_list(ctx, &usb_list);
 	for (i = 0; i < usb_devs; ++i) {
 		r = libusb_get_device_descriptor(usb_list[i], &desc);
 		if (r < 0)
