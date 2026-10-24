@@ -54,7 +54,8 @@ static void usage()
 	printf("The tool keeps monitoring the map for changes until it is\n");
 	printf("interrupted (Ctrl-C), both with and without -t. With -t, it stops\n");
 	printf("with exit status 2 if no packet from the piconet was received\n");
-	printf("during those seconds. -t has no effect with -r.\n");
+	printf("during those seconds. To wait for a piconet that is not in range\n");
+	printf("yet, run without -t. -t has no effect with -r.\n");
 }
 
 int main(int argc, char* argv[])
