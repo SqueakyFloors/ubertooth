@@ -989,6 +989,12 @@ int main(void)
 	snprintf(dump_path, sizeof(dump_path), "%s/readback.bin", directory);
 	snprintf(image_path, sizeof(image_path), "%s/firmware.dfu", directory);
 	write_image(IMAGE_REVISION);
+	/* A detach that fails waits for the DFU device to go away, and the cases
+	 * here that keep it there wait out that whole budget, twice each. What
+	 * they check is where the wait ends up, not how long the tool is willing
+	 * to wait, so they do it in a few milliseconds. */
+	detach_gone_polls = 3;
+	detach_gone_interval_ms = 1;
 
 	MU_RUN(a_read_back_with_reset_writes_the_dump_and_detaches);
 	MU_RUN(a_bootloader_that_never_reports_its_state_ends_the_read_back);

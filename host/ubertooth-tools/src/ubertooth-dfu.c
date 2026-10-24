@@ -380,6 +380,13 @@ static void close_dfu_device(libusb_device_handle *devh, int claimed)
 #define DETACH_GONE_POLLS 20
 #define DETACH_GONE_INTERVAL_MS 50
 
+/* Held as values rather than used as constants so the hardware-independent
+ * tests can shorten the wait: the cases where a detach fails would otherwise
+ * sleep out the whole budget four times over, which is most of the time that
+ * suite takes. Nothing in the tool changes them. */
+static unsigned detach_gone_polls = DETACH_GONE_POLLS;
+static unsigned detach_gone_interval_ms = DETACH_GONE_INTERVAL_MS;
+
 struct dfu_runtime_context {
 	libusb_context *usb_context;
 	FILE *download_file;
@@ -612,7 +619,7 @@ static int dfu_device_presence(struct dfu_runtime_context *runtime,
 	 * so this is defence. */
 	if (identity == NULL || identity->port_count == 0)
 		return LIBUSB_ERROR_INVALID_PARAM;
-	for (poll = 0; poll < DETACH_GONE_POLLS; poll++) {
+	for (poll = 0; poll < detach_gone_polls; poll++) {
 		int result = find_ubertooth_dfu_device(runtime->usb_context, identity,
 		                                       NULL);
 		if (result == 0)
@@ -621,8 +628,8 @@ static int dfu_device_presence(struct dfu_runtime_context *runtime,
 			seen = 1;
 		else
 			last_error = result;
-		if (poll + 1 < DETACH_GONE_POLLS)
-			transition_sleep_ms(runtime, DETACH_GONE_INTERVAL_MS);
+		if (poll + 1 < detach_gone_polls)
+			transition_sleep_ms(runtime, detach_gone_interval_ms);
 	}
 	return seen ? 1 : last_error;
 }
