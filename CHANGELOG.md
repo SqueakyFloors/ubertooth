@@ -202,6 +202,13 @@
 - Improve Classic Bluetooth paging speed and reliability. Credit: Hillel
   Chimowicz ([@hllhll](https://github.com/hllhll)).
   [upstream #540](https://github.com/greatscottgadgets/ubertooth/pull/540)
+- Bluetooth and Bluetooth Low Energy (BLE) transmit and jamming
+  (`ubertooth-tx`, `ubertooth-btle -s` and its interference modes,
+  `ubertooth-ducky`, `ubertooth-ego -j`) now transmit at the power amplifier
+  level set with `ubertooth-util -a`, instead of forcing a level of their own
+  and leaving it changed afterwards. Without `-a` they transmit at the
+  power-on level 7, as before.
+  [#165](https://github.com/SqueakyFloors/ubertooth/issues/165)
 
 ### Documentation
 
