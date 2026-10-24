@@ -28,9 +28,8 @@ Options:
  - `-G` :
    format output for 3D feedgnuplot
  - `-d<filename>` :
-   write the binary samples to <filename>. A bare `-` (`-d -`) writes them to
-   standard output instead; every other value is a file name, including one
-   that starts with `-`, so `-d -x` writes the file named `-x`
+   write the binary samples to <filename>; `-d -` writes them to standard
+   output. See ARGUMENTS
  - `-v` :
    print verbose output to stderr
  - `-U <index|serial>` :
@@ -61,10 +60,10 @@ An option value must be a whole value in its range, or it is refused the same
 way instead of being read as 0, for example
 `error: lower frequency must be 2402-2480 MHz (got bad)`.
 
-`-` means standard output only as the whole value of `-d`. A value that merely
-starts with `-` is a file name, so a forgotten file name such as `-d -v` writes
-a file called `-v` rather than streaming samples to the terminal and dropping
-the `-v`.
+`-` means standard output only as the whole value of `-d`. Any other value is a
+file name, including one that starts with `-`: `-d -x` writes the file `-x`, and
+a forgotten file name such as `-d -v` writes a file called `-v` rather than
+streaming samples to the terminal and dropping the `-v`.
 
 ## SEE ALSO
 

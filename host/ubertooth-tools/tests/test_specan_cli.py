@@ -49,20 +49,18 @@ reject(("-l", "2441", "-u", "2440"), "must not exceed")
 # -d: only a bare "-" means stdout; every other value is a file name, even one
 # starting with "-" (#231). Each run stops at device selection, after the -d
 # value has been handled, so what it did with the value is visible on disk.
-with tempfile.TemporaryDirectory() as directory:
-    for name in ("-x", "./-x", "-v", "plain.dat"):
-        result = run(("-U", NO_SUCH_SERIAL, "-d", name), directory)
-        assert result.returncode == 1, (name, result)
+# Each case gets an empty directory of its own, so the file it is expected to
+# create cannot be one an earlier case left behind.
+for value, written in (("-x", "-x"), ("./-x", "-x"), ("-v", "-v"),
+                       ("plain.dat", "plain.dat"), ("-", None)):
+    with tempfile.TemporaryDirectory() as directory:
+        result = run(("-U", NO_SUCH_SERIAL, "-d", value), directory)
+        assert result.returncode == 1, (value, result)
         assert "no ubertooth found" in (result.stdout + result.stderr).lower(), \
-            (name, result)
-        written = os.path.join(directory, os.path.basename(name))
-        assert os.path.exists(written), (name, os.listdir(directory), result)
-
-    # A bare "-" is stdout, so it writes no file of its own.
-    before = set(os.listdir(directory))
-    result = run(("-U", NO_SUCH_SERIAL, "-d", "-"), directory)
-    assert result.returncode == 1, result
-    assert "no ubertooth found" in (result.stdout + result.stderr).lower(), result
-    assert set(os.listdir(directory)) == before, os.listdir(directory)
+            (value, result)
+        listing = os.listdir(directory)
+        # None: a bare "-" is stdout, so it writes no file of its own
+        assert listing == ([] if written is None else [written]), \
+            (value, listing, result)
 
 print("ubertooth-specan: ranges refused, -d takes '-' as stdout and the rest as files")
