@@ -322,6 +322,7 @@ struct dfu_runtime_context {
 	FILE *download_file;
 	FILE *upload_file;
 	uint32_t upload_length;  /* bytes the read-back asks the bootloader for */
+	int want_part_id;        /* only a read-back needs the part ID */
 	uint32_t part_id;        /* the part ID read from the application */
 	int part_id_read;        /* ...and whether it was read at all */
 	unsigned app_attempts;
@@ -353,11 +354,15 @@ static int open_application(void *context, const char *selector, void **handle,
 		ubertooth_free(ut);
 		return result;
 	}
-	/* Read the part ID while the application is still answering: it says how
-	 * much flash a read-back may ask for, and the bootloader has no request
-	 * that reports it (#233). A board that will not say keeps the assumed
-	 * size, so this failing does not fail the command. */
-	if (cmd_get_part_id(ut->devh, &runtime->part_id) == 0) {
+	/* A read-back needs the part ID, which says how much flash it may ask
+	 * for: the bootloader has no request that reports it, so it has to be
+	 * read here, while the application is still answering. Nothing else
+	 * wants it, and the read has its own error output and timeout, so it is
+	 * not sent for a command that would ignore the answer. A board that will
+	 * not say keeps the assumed size rather than failing the command. */
+	if (!runtime->want_part_id) {
+		runtime->part_id_read = 0;
+	} else if (cmd_get_part_id(ut->devh, &runtime->part_id) == 0) {
 		runtime->part_id_read = 1;
 		snprintf(stage, sizeof(stage), "part ID read: 0x%08x",
 		         runtime->part_id);
@@ -548,8 +553,8 @@ int detach(libusb_device_handle* devh) {
 
 /* Read length bytes of the application flash region into upfile. The caller
  * settles length from the part's flash size: the bootloader faults on a read
- * with no flash behind it instead of refusing it (#233), so this must never
- * be asked for more than the part has. */
+ * with no flash behind it instead of refusing it, so this must never be asked
+ * for more than the part has. */
 int upload(libusb_device_handle* devh, FILE* upfile, uint32_t length) {
 	int address, block, rv;
 	uint8_t buffer[BLOCK_SIZE];
@@ -963,9 +968,10 @@ static int plan_upload(struct dfu_runtime_context *runtime)
 	length = dfu_upload_length(part != NULL ? part->flash_size : 0);
 	runtime->upload_length = length;
 	if (length == 0) {
-		fprintf(stderr, "Upload failed: part 0x%08x (%s) has no flash above "
-		        "the bootloader\n", runtime->part_id,
-		        part != NULL ? part->name : "unknown");
+		/* No part in the table is this small, and the assumed size always
+		 * leaves a region, so this is defence rather than a path taken. */
+		fprintf(stderr, "Upload failed: %s has no flash above the "
+		        "bootloader\n", part != NULL ? part->name : "this part");
 		return 1;
 	}
 	printf("Reading back %u bytes, 0x%x-0x%x: ", length, address,
@@ -974,12 +980,12 @@ static int plan_upload(struct dfu_runtime_context *runtime)
 		printf("part 0x%08x (%s) has %u KiB of flash\n", runtime->part_id,
 		       part->name, part->flash_size / 1024);
 	else if (runtime->part_id_read)
-		printf("part 0x%08x is not known here, so assuming the %u KiB of "
-		       "flash this firmware is linked for\n", runtime->part_id,
+		printf("part 0x%08x is not known here, so assuming the %u KiB part "
+		       "this firmware is linked for\n", runtime->part_id,
 		       DFU_ASSUMED_FLASH_SIZE / 1024);
 	else
-		printf("the part could not be read, so assuming the %u KiB of flash "
-		       "this firmware is linked for\n", DFU_ASSUMED_FLASH_SIZE / 1024);
+		printf("the part could not be read, so assuming the %u KiB part this "
+		       "firmware is linked for\n", DFU_ASSUMED_FLASH_SIZE / 1024);
 	fflush(stdout);
 	return 0;
 }
@@ -1138,6 +1144,9 @@ int main(int argc, char **argv) {
 	log_dfu_stage("operation started");
 	memset(&selected_identity, 0, sizeof(selected_identity));
 	memset(&runtime, 0, sizeof(runtime));
+	/* Only a read-back needs the part's flash size, so only a read-back asks
+	 * the application for its part ID. */
+	runtime.want_part_id = (functions & FUNC_UPLOAD) != 0;
 	r = libusb_init(&dfu_context);
 	if (r < 0) {
 		fprintf(stderr, "libusb_init failed: %d\n", r);

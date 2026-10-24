@@ -25,7 +25,7 @@
 
 /* The flash region -u reads back. Its length follows the part: these runs
  * reach the bootloader without an application to ask, so they get the size
- * the host assumes (#233). */
+ * the host assumes. */
 #define DUMP_ADDRESS (BOOTLOADER_OFFSET + BOOTLOADER_SIZE)
 #define DUMP_LENGTH_FOR(flash_size) ((flash_size) - DUMP_ADDRESS)
 #define DUMP_LENGTH DUMP_LENGTH_FOR(DFU_ASSUMED_FLASH_SIZE)
@@ -208,7 +208,7 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle *devh,
 	mu_assert(index == 0, "control transfer named another interface");
 	mu_assert(timeout > 0, "control transfer without a timeout");
 	/* Once the bootloader has faulted it answers nothing at all, state reads
-	 * included, until the board is power-cycled (#233). */
+	 * included, until the board is power-cycled. */
 	if (fake.wedged)
 		return LIBUSB_ERROR_TIMEOUT;
 	switch (request) {
@@ -228,7 +228,7 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle *devh,
 		/* The bootloader checks the address against 512 KiB whatever part it
 		 * runs on, so a read past the end of this part's flash is a bus
 		 * fault that it never returns from: it stops answering for good
-		 * instead of refusing the request (#233). */
+		 * instead of refusing the request. */
 		if (address + BLOCK_SIZE > fake.flash_size) {
 			fake.wedged = 1;
 			return LIBUSB_ERROR_TIMEOUT;
@@ -612,7 +612,7 @@ MU_TEST(a_refused_detach_fails_the_command)
 	remove_dump();
 }
 
-/* ---- #233: reading only the flash the part has ------------------------- */
+/* ---- reading only the flash the part has ------------------------------- */
 
 /* The failure itself, with the length the host used to ask for: 240 KiB from
  * a 128 KiB part faults the bootloader, and nothing answers afterwards. No
@@ -663,7 +663,8 @@ MU_TEST(a_board_already_in_dfu_reads_the_assumed_flash_only)
 }
 
 /* With -U the application is opened first, so the part ID settles the size.
- * On the 128 KiB part of #233 that is the same region, without the fault. */
+ * On a 128 KiB part that is the same region as the old fixed length asked
+ * for, without the fault. */
 MU_TEST(a_128_kib_part_is_read_to_the_end_of_its_flash)
 {
 	struct run_result r;
@@ -745,6 +746,24 @@ MU_TEST(a_part_id_that_cannot_be_read_falls_back_to_the_assumed_flash)
 	remove_dump();
 }
 
+/* The part ID is only wanted for a read-back, and reading it has its own
+ * error output and timeout, so a command that would ignore the answer does
+ * not ask. A bare reset through the application is that case; a download
+ * takes the same gate. */
+MU_TEST(a_command_that_is_not_a_read_back_does_not_ask_for_the_part_id)
+{
+	struct run_result r;
+
+	board_in_application(PART_ID_256K, 256 * 1024);
+	r = RUN("-U", "0", "-r");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, fake.flash_calls);
+	mu_assert_int_eq(1, fake.detach_calls);
+	mu_assert_int_eq(0, fake.part_id_calls);
+	mu_assert(strstr(r.err, "part ID") == NULL,
+	          "a reset reported something about the part ID");
+}
+
 int main(void)
 {
 	char directory[] = "/tmp/ubertooth-dfu-test.XXXXXX";
@@ -771,6 +790,7 @@ int main(void)
 	MU_RUN(a_256_kib_part_is_read_in_full);
 	MU_RUN(an_unknown_part_id_falls_back_to_the_assumed_flash);
 	MU_RUN(a_part_id_that_cannot_be_read_falls_back_to_the_assumed_flash);
+	MU_RUN(a_command_that_is_not_a_read_back_does_not_ask_for_the_part_id);
 
 	remove_dump();
 	rmdir(directory);

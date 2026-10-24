@@ -839,8 +839,8 @@ MU_TEST(test_extract_revision_from_existing_compile_info_marker)
 	fclose(image);
 }
 
-/* #233: the read-back length follows the part's flash, so the bootloader is
- * never asked for an address with no flash behind it. */
+/* The read-back length follows the part's flash, so the bootloader is never
+ * asked for an address with no flash behind it. */
 MU_TEST(test_part_lookup_knows_the_lpc17xx_flash_sizes)
 {
 	const struct dfu_part *part;
