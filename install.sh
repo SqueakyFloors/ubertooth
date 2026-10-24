@@ -56,6 +56,14 @@ SKIP_DEPS=0
 
 die() { echo "error: $*" >&2; exit 1; }
 info() { echo "==> $*"; }
+# The Python tools need Python 3.8 or newer (host/python/cmake/UbertoothPythonFloor.cmake).
+require_python() {
+	local version
+	"$1" -c 'import sys; sys.exit(sys.version_info < (3, 8))' 2>/dev/null && return 0
+	# Python before 3.4 prints -V on stderr.
+	version="$("$1" -V 2>&1)" || version="not runnable"
+	die "Python 3.8 or newer is required for the Python tools (found $1: $version)${2:+; $2}"
+}
 
 # Run a privileged command, or print it under --no-sudo.
 as_root() {
@@ -150,6 +158,11 @@ case "$(uname -s)" in
 	Linux)
 		command -v apt-get >/dev/null 2>&1 || \
 			die "on Linux this script supports Debian/Ubuntu (apt-get) only; see REQUIREMENTS.md for other platforms"
+		# python3 comes from apt below if it is missing; check it here if not,
+		# so an old one stops the script before anything is installed or built.
+		if command -v python3 >/dev/null 2>&1; then
+			require_python python3
+		fi
 		PLATFORM=debian
 		PREFIX="${PREFIX:-/usr/local}"
 		JOBS="$(nproc)"
@@ -160,6 +173,7 @@ case "$(uname -s)" in
 		# Homebrew does not install Python here; apt does on Debian/Ubuntu.
 		command -v python3 >/dev/null 2>&1 || \
 			die "python3 not found; install Python 3.8 or newer (for example: brew install python)"
+		require_python python3 "install a newer one (for example: brew install python)"
 		PLATFORM=macos
 		BREW_PREFIX="$(brew --prefix)"
 		PREFIX="${PREFIX:-$BREW_PREFIX}"
@@ -269,7 +283,7 @@ if [ "$WITH_FIRMWARE" -eq 1 ] && [ "$SKIP_DEPS" -eq 0 ]; then
 	if [ "$PLATFORM" = debian ]; then
 		info "Installing firmware toolchain (apt)"
 		as_root apt-get update -qq
-		as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y gcc-arm-none-eabi dfu-util make
+		as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi dfu-util make
 	else
 		info "Installing firmware toolchain (Homebrew)"
 		brew_install dfu-util
@@ -310,6 +324,7 @@ fi
 # --- 4. Python interpreter / venv ----------------------------------------
 # On Debian/Ubuntu python3 may only exist after the apt step above.
 PYTHON="${PYTHON3:-$(command -v python3 || echo python3)}"
+require_python "$PYTHON"
 if [ -n "$VENV" ]; then
 	info "Creating/using Python venv at $VENV"
 	[ -d "$VENV" ] || "$PYTHON" -m venv "$VENV"
@@ -323,7 +338,7 @@ PY_DEPS_WARNING=""
 # Debian/Ubuntu gets the ubtbr USB binding from apt (python3-usb1).
 [ "$PLATFORM" = macos ] && PIP_DEPS+=(libusb1==3.4.0)
 if [ "$PLATFORM" = debian ]; then
-	GUI_DEPS_HINT="install python3-numpy python3-qtpy python3-pyside6 (apt) or use --venv"
+	GUI_DEPS_HINT="install python3-numpy python3-qtpy python3-pyqt5 (apt) or use --venv"
 else
 	GUI_DEPS_HINT="re-run with --venv <path> (recommended on macOS)"
 fi
