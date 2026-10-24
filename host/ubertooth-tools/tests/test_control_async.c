@@ -8,8 +8,14 @@
  * and its buffer, and completes it the way libusb does, so what the library
  * hands over is checkable: the buffer must be heap memory that outlives the
  * submit (it was a stack array), the free flags must be in flags and not in
- * status (they were in status, so nothing was ever freed), and a submit that
- * fails must release both.
+ * status, and a submit that fails must release both.
+ *
+ * On the flags: libusb reads transfer->flags and then overwrites
+ * transfer->status with the completion status before it runs the callback, so
+ * the flags the old code wrote to status were discarded and the callback had
+ * to free the transfer itself. That left a failed submit, where the callback
+ * never runs, leaking its transfer; and had the flags reached flags,
+ * LIBUSB_TRANSFER_FREE_BUFFER would have called free() on a stack address.
  */
 #include <stdint.h>
 #include <stdio.h>
@@ -206,8 +212,8 @@ MU_TEST(the_submitted_buffer_outlives_the_call)
 	mu_assert_int_eq(1, fake.freed);
 }
 
-/* The free flags were written to xfer->status, where they do nothing: every
- * transfer leaked. */
+/* The free flags were written to xfer->status, where libusb overwrites them
+ * with the completion status before it reads flags, so they did nothing. */
 MU_TEST(the_free_flags_go_in_flags_not_in_status)
 {
 	reset(0);
@@ -349,6 +355,10 @@ MU_TEST(the_async_commands_pass_a_submit_failure_back)
 
 int main(void)
 {
+	/* A regression that puts the buffer back on the stack can die in free()
+	 * part-way through; report the assertions that ran up to then. */
+	setbuf(stdout, NULL);
+
 	MU_RUN(the_submitted_buffer_outlives_the_call);
 	MU_RUN(the_free_flags_go_in_flags_not_in_status);
 	MU_RUN(a_failed_submit_frees_the_transfer_and_the_buffer);
