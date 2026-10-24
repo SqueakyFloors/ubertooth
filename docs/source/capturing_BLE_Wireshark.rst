@@ -1,5 +1,5 @@
-Capturing Bluetooth Low Energy (BLE) in Wireshark
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Capturing BLE in Wireshark
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 You can capture BLE in Wireshark with standard Wireshark builds. This guide assumes Linux.
 
@@ -36,8 +36,8 @@ follow these steps:
 
 
 
-Capturing Bluetooth Low Energy (BLE) in Scapy
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Capturing BLE in Scapy
+^^^^^^^^^^^^^^^^^^^^^^
 #. Run ubertooth-btle to capture data
 
   .. code-block:: sh
@@ -65,7 +65,7 @@ Sniffing connection data
 What Ubertooth can capture
 """"""""""""""""""""""""""
 
-Bluetooth Low Energy (BLE) uses 3 advertising channels (37, 38, 39) and
+BLE uses 3 advertising channels (37, 38, 39) and
 37 data channels. Devices
 advertise on the advertising channels; once a central connects, the two devices
 hop across the data channels using parameters agreed in the connection request
@@ -92,7 +92,7 @@ Why you only see advertisements
 
 Follow mode can only follow a connection whose setup it observes. To follow
 a connection, Ubertooth must receive the ``CONNECT_IND`` packet, which holds
-the access address, hop increment, timing, and Cyclic Redundancy Check (CRC)
+the access address, hop increment, timing, and CRC
 seed for that connection.
 Common reasons for seeing only advertising traffic:
 

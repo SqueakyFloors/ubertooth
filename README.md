@@ -55,7 +55,7 @@ the from-source path; it is not a replacement for distro packaging
 Ubertooth ships a set of host command-line tools. Each links to its manual page.
 "Needs" indicates what a test/use requires beyond the Ubertooth itself.
 
-### Bluetooth Low Energy (BLE)
+### BLE
 | Tool | What it does | Needs |
 |---|---|---|
 | [ubertooth-btle](host/doc/ubertooth-btle.md) | Passive BLE monitoring; follow connections (`-f`), capture advertising (`-n`), or stream PCAP to stdout (`-q -`/`-c -`) | ambient BLE |
