@@ -118,21 +118,15 @@
   index too large to be a device index (`-U4294967296`) is refused as given
   instead of being wrapped into a different index.
   [#188](https://github.com/SqueakyFloors/ubertooth/issues/188)
-- `ubertooth-util -q<N>` sets the light-emitting diode (LED) spectrum analyzer
-  threshold to -N decibels relative to one milliwatt (dBm), and every value the
-  tool accepts now works: `-q183` to `-q225`, and the default bare `-q`, light
-  the LEDs for the weakest reading instead of lighting nothing. The firmware
-  also refuses a threshold outside 1-225.
 - `ubertooth-util -q <N>` (LED spectrum analyzer, threshold -N dBm) takes
   20-120, the radio's RSSI range, and bare `-q` uses -85 dBm. The old default
   (225) and `-q183` to `-q225` lit no LED at all; the firmware refuses values
   outside 20-120.
   [#189](https://github.com/SqueakyFloors/ubertooth/issues/189)
 - Stopping the LED spectrum analyzer (`ubertooth-util -q`), `ubertooth-specan`
-  or Bluetooth Low Energy (BLE) faux slave mode (`ubertooth-btle -s<address>`)
-  now resets the board the way the other modes do: LEDs off, amplifier off,
-  channel 2441 MHz and squelch -120 dBm. Stopping `-q` used to leave the LEDs lit and the channel
-  and squelch as they were.
+  or BLE faux slave mode (`ubertooth-btle -s <address>`) now resets the board
+  like the other modes: LEDs off, amplifier off, channel 2441 MHz and squelch
+  -120 dBm. Stopping `-q` used to leave the LEDs lit.
   [#191](https://github.com/SqueakyFloors/ubertooth/issues/191)
 
 - `ubertooth-dfu` now performs bounded, device-specific Device Firmware
