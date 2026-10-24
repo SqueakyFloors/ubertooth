@@ -295,6 +295,10 @@ An option combination the tool cannot carry out is refused there too, before
 any device is opened, so the message never depends on which boards are
 attached: \fB\fC\-u\fR without \fB\fC\-l\fR gives
 \fB\fCerror: \-u <UAP> requires \-l <LAP>\fR\&.
+.PP
+A refused command line creates and truncates nothing: \fB\fC\-r\fR, \fB\fC\-q\fR
+and \fB\fC\-d\fR name their file while the command line is read, and it is
+opened only once every check has passed.
 .SH SEE ALSO
 .PP
 ubertooth\-scan(1): active device scanning and inquiry using Ubertooth

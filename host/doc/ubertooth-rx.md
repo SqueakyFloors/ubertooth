@@ -194,6 +194,10 @@ An option combination the tool cannot carry out is refused there too, before
 any device is opened, so the message never depends on which boards are
 attached: `-u` without `-l` gives `error: -u <UAP> requires -l <LAP>`.
 
+A refused command line creates and truncates nothing: `-r`, `-q` and `-d`
+name their file while the command line is read, and it is opened only once
+every check has passed.
+
 ## SEE ALSO
 
 ubertooth-scan(1): active device scanning and inquiry using Ubertooth

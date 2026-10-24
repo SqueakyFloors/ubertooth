@@ -203,6 +203,12 @@ a bare \fB\fC\-\fR, is refused before any device is opened and named:
 \fB\fC\-h\fR ends the command only once the whole command line has
 parsed, so a stray word or a bad option value is reported even
 alongside it.
+.PP
+A refused command line creates and truncates nothing, and leaves no temporary
+file: \fB\fC\-s\fR, \fB\fC\-u\fR and \fB\fC\-d\fR name their file while the
+command line is read, and the files are opened only once every check has
+passed. Whether \fB\fC\-s\fR was given a \fB\fC\&.bin\fR is a check on the
+name, so it is still reported alongside \fB\fC\-h\fR\&.
 .SH SEE ALSO
 .PP
 .BR ubertooth (7): 

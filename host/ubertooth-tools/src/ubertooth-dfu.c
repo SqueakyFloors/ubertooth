@@ -1001,6 +1001,9 @@ int main(int argc, char **argv) {
 	FILE* infile = NULL;
 	FILE* outfile = NULL;
 	char* outfile_name = NULL;
+	/* Values of -s, -d and -u, acted on after every check has passed. */
+	char* sign_name = NULL;
+	const char* downfile_name = NULL;
 	const char* upfile_name = NULL;
 	char* upfile_temp = NULL;
 	libusb_context* dfu_context = NULL;
@@ -1019,63 +1022,32 @@ int main(int argc, char **argv) {
 
 	while ((opt=getopt(argc,argv,"hd:u:s:rU:")) != EOF) {
 		switch(opt) {
+		/* -d, -u and -s are named here and acted on once the whole
+		 * command line has been accepted: the signed file used to be
+		 * created, and the temporary upload file opened, inside this
+		 * loop, so a stray word later on left one behind or reported
+		 * a missing file instead of the stray word. A repeated option
+		 * takes the last name. */
 		case 'd':
-			/* Read-only: the image is never written to. */
-			downfile = fopen(optarg, "rb");
-			if (downfile == NULL) {
-				perror(optarg);
-				exit_status = 1;
-				goto end_without_device;
-			}
+			downfile_name = optarg;
 			functions |= FUNC_DOWNLOAD;
 			break;
 		case 'u':
-			/* A repeated -u takes the last file, and the one opened for the
-			 * earlier name goes away with it. */
-			discard_upload_temp(&upfile, &upfile_temp);
 			upfile_name = optarg;
-			upfile = open_upload_temp(upfile_name, &upfile_temp);
-			if (upfile == NULL) {
-				perror(optarg);
-				exit_status = 1;
-				goto end_without_device;
-			}
 			functions |= FUNC_UPLOAD;
 			break;
 		case 's':
-			infile = fopen(optarg, "rb");
-			if (infile == NULL) {
-				perror(optarg);
-				exit_status = 1;
-				goto end_without_device;
-			}
-			r = get_outfile(optarg, &outfile_name);
-			if (r == 0) {
+			sign_name = optarg;
+			/* Whether the name ends in .bin is a string check that
+			 * creates nothing, so it stays here with the other value
+			 * checks and is still reported alongside -h. */
+			free(outfile_name);
+			outfile_name = NULL;
+			if (get_outfile(sign_name, &outfile_name) == 0) {
 				printf("Error: -s requires a .bin\n");
 				exit_status = 1;
 				goto end_without_device;
 			}
-			/* Signing an already-signed file would bury the first suffix in
-			 * the firmware payload, so refuse before creating anything. */
-			if (ends_with_dfu_suffix(infile)) {
-				fprintf(stderr,
-				        "error: %s already has a DFU suffix, so %s was not written\n",
-				        optarg, outfile_name);
-				free(outfile_name);
-				outfile_name = NULL;
-				exit_status = 1;
-				goto end_without_device;
-			}
-			outfile = fopen(outfile_name, "w+b");
-			if (outfile == NULL) {
-				perror(outfile_name);
-				free(outfile_name);
-				outfile_name = NULL;
-				exit_status = 1;
-				goto end_without_device;
-			}
-			free(outfile_name);
-			outfile_name = NULL;
 			functions |= FUNC_SIGN;
 			break;
 		case 'r':
@@ -1109,6 +1081,51 @@ int main(int argc, char **argv) {
 		usage();
 		exit_status = 1;
 		goto end_without_device;
+	}
+
+	/* Every check has passed, so the files can be opened: a refused command
+	 * line creates and truncates nothing, and leaves no temporary file. */
+	if (downfile_name != NULL) {
+		/* Read-only: the image is never written to. */
+		downfile = fopen(downfile_name, "rb");
+		if (downfile == NULL) {
+			perror(downfile_name);
+			exit_status = 1;
+			goto end_without_device;
+		}
+	}
+	if (upfile_name != NULL) {
+		upfile = open_upload_temp(upfile_name, &upfile_temp);
+		if (upfile == NULL) {
+			perror(upfile_name);
+			exit_status = 1;
+			goto end_without_device;
+		}
+	}
+	if (sign_name != NULL) {
+		infile = fopen(sign_name, "rb");
+		if (infile == NULL) {
+			perror(sign_name);
+			exit_status = 1;
+			goto end_without_device;
+		}
+		/* Signing an already-signed file would bury the first suffix in
+		 * the firmware payload, so refuse before creating anything. */
+		if (ends_with_dfu_suffix(infile)) {
+			fprintf(stderr,
+			        "error: %s already has a DFU suffix, so %s was not written\n",
+			        sign_name, outfile_name);
+			exit_status = 1;
+			goto end_without_device;
+		}
+		outfile = fopen(outfile_name, "w+b");
+		if (outfile == NULL) {
+			perror(outfile_name);
+			exit_status = 1;
+			goto end_without_device;
+		}
+		free(outfile_name);
+		outfile_name = NULL;
 	}
 
 	if(functions & FUNC_SIGN) {

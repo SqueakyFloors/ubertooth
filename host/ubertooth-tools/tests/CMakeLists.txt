@@ -87,6 +87,16 @@ foreach(tool ${UBERTOOTH_TOOLS})
 			${CMAKE_CURRENT_SOURCE_DIR}/test_board_not_found.py
 			$<TARGET_FILE:${tool}>)
 	set_tests_properties(board-not-found-${tool} PROPERTIES TIMEOUT 30)
+	# A refused command line must create and truncate nothing: every file
+	# option is opened only after the whole command line is accepted. One
+	# entry per built tool so a failure names the tool; the tools with no
+	# file option say so and pass.
+	add_test(
+		NAME no-file-on-refusal-${tool}
+		COMMAND ${Python3_EXECUTABLE}
+			${CMAKE_CURRENT_SOURCE_DIR}/test_no_file_on_refusal.py
+			$<TARGET_FILE:${tool}>)
+	set_tests_properties(no-file-on-refusal-${tool} PROPERTIES TIMEOUT 30)
 endforeach()
 
 add_test(

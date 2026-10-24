@@ -36,6 +36,9 @@ bare `-`, is refused before any device is opened and named:
 parsed, so a stray word or a bad option value is reported even
 alongside it.
 
+A refused command line creates and truncates nothing: `-d` names its file while
+the command line is read, and it is opened only once every check has passed.
+
 ## SEE ALSO
 
 ubertooth(7): overview of Project Ubertooth

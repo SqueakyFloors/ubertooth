@@ -62,6 +62,10 @@ An option value must be a whole value in its range, or it is refused the same
 way instead of being read as 0, for example
 `error: LAP must be 6 hex digits (got 4466)`.
 
+A refused command line creates and truncates nothing: `-r`, `-q` and `-d` name
+their file while the command line is read, and it is opened only once every
+check has passed.
+
 ## SEE ALSO
 
 ubertooth-rx(1), ubertooth-afh(1), ubertooth(7)

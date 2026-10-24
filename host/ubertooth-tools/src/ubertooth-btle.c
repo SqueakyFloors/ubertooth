@@ -161,6 +161,10 @@ int main(int argc, char *argv[])
 	int do_target;
 	enum jam_modes jam_mode = JAM_NONE;
 	char* ubertooth_device = NULL;
+	/* Capture files named on the command line, opened after every check. */
+	const char* pcapng_name = NULL;
+	const char* pcap_name = NULL;
+	int pcap_ppi = 0; /* the -c format rather than the -q one */
 	ubertooth_t* ut = ubertooth_init();
 
 	btle_options cb_opts = { .allowed_access_address_errors = 32 };
@@ -207,58 +211,27 @@ int main(int argc, char *argv[])
 		case 'U':
 			ubertooth_device = optarg;
 			break;
+		/* The capture files are named here and opened once the whole
+		 * command line has been accepted, so a refused command leaves
+		 * the filesystem alone. -q and -c share one PCAP handle, so the
+		 * first of the two given wins, as before. */
 		case 'r':
 			if (strcmp(optarg, "-") == 0) {
 				fprintf(stderr, "Error: PCAPNG capture to stdout is not supported; use -q - or -c -\n");
 				return 1;
 			}
-			if (!ut->h_pcapng_le) {
-				if (lell_pcapng_create_file(optarg, "Ubertooth", &ut->h_pcapng_le)) {
-					err(1, "lell_pcapng_create_file: ");
-				}
-			}
-			else {
-				printf("Ignoring extra capture file: %s\n", optarg);
-			}
+			if (pcapng_name == NULL)
+				pcapng_name = optarg;
+			else
+				fprintf(stderr, "Ignoring extra capture file: %s\n", optarg);
 			break;
 		case 'q':
-			if (!ut->h_pcap_le) {
-				int saved_fd;
-				char *file = handle_special_filename(optarg, &saved_fd);
-				if (!file) {
-					if (saved_fd >= 0)
-						close(saved_fd);
-					return 1;
-				}
-				int create_result = lell_pcap_create_file(file, &ut->h_pcap_le);
-				if (saved_fd >= 0)
-					close(saved_fd);
-				free(file);
-				if (create_result)
-					err(1, "lell_pcap_create_file: ");
-			}
-			else {
-				printf("Ignoring extra capture file: %s\n", optarg);
-			}
-			break;
 		case 'c':
-			if (!ut->h_pcap_le) {
-				int saved_fd;
-				char *file = handle_special_filename(optarg, &saved_fd);
-				if (!file) {
-					if (saved_fd >= 0)
-						close(saved_fd);
-					return 1;
-				}
-				int create_result = lell_pcap_ppi_create_file(file, 0, &ut->h_pcap_le);
-				if (saved_fd >= 0)
-					close(saved_fd);
-				free(file);
-				if (create_result)
-					err(1, "lell_pcap_ppi_create_file: ");
-			}
-			else {
-				printf("Ignoring extra capture file: %s\n", optarg);
+			if (pcap_name == NULL) {
+				pcap_name = optarg;
+				pcap_ppi = (opt == 'c');
+			} else {
+				fprintf(stderr, "Ignoring extra capture file: %s\n", optarg);
 			}
 			break;
 		case 'v':
@@ -349,6 +322,37 @@ int main(int argc, char *argv[])
 	if (do_follow + do_no_follow + do_promisc > 1) {
 		fprintf(stderr, "error: choose one of -f, -n or -p, pick one pal\n");
 		return 1;
+	}
+
+	/* Every check has passed, so the capture files can be opened: a refused
+	 * command line creates and truncates nothing. A bare "-" redirects this
+	 * process's stdout, which is why nothing may be printed to stdout after
+	 * this point except the capture itself. */
+	if (pcapng_name != NULL) {
+		if (lell_pcapng_create_file(pcapng_name, "Ubertooth", &ut->h_pcapng_le))
+			err(1, "lell_pcapng_create_file: ");
+	}
+	if (pcap_name != NULL) {
+		int saved_fd;
+		char *file = handle_special_filename(pcap_name, &saved_fd);
+		int create_result;
+
+		if (!file) {
+			if (saved_fd >= 0)
+				close(saved_fd);
+			return 1;
+		}
+		create_result = pcap_ppi
+		        ? lell_pcap_ppi_create_file(file, 0, &ut->h_pcap_le)
+		        : lell_pcap_create_file(file, &ut->h_pcap_le);
+		if (saved_fd >= 0)
+			close(saved_fd);
+		free(file);
+		if (create_result) {
+			if (pcap_ppi)
+				err(1, "lell_pcap_ppi_create_file: ");
+			err(1, "lell_pcap_create_file: ");
+		}
 	}
 
 	r = ubertooth_connect_select(ut, ubertooth_device);
