@@ -387,7 +387,13 @@ int main(int argc, char *argv[])
 	}
 
 	if (do_get_aa) {
-		access_address = cmd_get_access_address(ut->devh);
+		int r = cmd_read_access_address(ut->devh, &access_address);
+		if (r < 0) {
+			/* a short reply's whole error line is already printed */
+			if (r != UBERTOOTH_ERROR_SHORT_REPLY)
+				fprintf(stderr, "error: access address read failed\n");
+			return 1;
+		}
 		printf("Access address: %08x\n", access_address);
 		return 0;
 	}
@@ -402,6 +408,12 @@ int main(int argc, char *argv[])
 		int r;
 		if (do_crc == 2) {
 			r = cmd_get_crc_verify(ut->devh);
+			if (r < 0) {
+				/* a short reply's whole error line is already printed */
+				if (r != UBERTOOTH_ERROR_SHORT_REPLY)
+					fprintf(stderr, "error: CRC verify read failed\n");
+				return 1;
+			}
 		} else {
 			cmd_set_crc_verify(ut->devh, do_crc);
 			r = do_crc;

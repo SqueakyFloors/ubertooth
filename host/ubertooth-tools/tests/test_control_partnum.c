@@ -106,9 +106,9 @@ MU_TEST(short_reply_is_an_error)
 	uint32_t id = 0;
 
 	script(3, 0, 0x25011723u);
-	mu_assert_int_eq(LIBUSB_ERROR_IO, cmd_get_part_id(NULL, &id));
+	mu_assert_int_eq(UBERTOOTH_ERROR_SHORT_REPLY, cmd_get_part_id(NULL, &id));
 	script(0, 0, 0);
-	mu_assert_int_eq(LIBUSB_ERROR_IO, cmd_get_partnum(NULL));
+	mu_assert_int_eq(UBERTOOTH_ERROR_SHORT_REPLY, cmd_get_partnum(NULL));
 }
 
 MU_TEST(bit_31_is_kept_unsigned_and_rejected_by_the_int_api)

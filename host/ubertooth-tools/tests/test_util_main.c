@@ -45,6 +45,7 @@ static struct {
 	int current_index;     /* device opened by ubertooth_start(), or -1 */
 	int unavailable_index; /* ubertooth_start() fails for this index */
 	int board_fail_index;  /* the board ID read fails on this device */
+	int board_fail_rc;     /* ...with this code (0: -1) */
 	int revision_fail_index;     /* the firmware revision read fails here */
 	int compile_info_fail_index; /* the compile info read fails here */
 	int indexed_starts, closes, frees;
@@ -238,7 +239,7 @@ int cmd_get_board_id(struct libusb_device_handle *h)
 {
 	fake_use(h);
 	if (fake.current_index >= 0 && fake.current_index == fake.board_fail_index)
-		return -1;
+		return fake.board_fail_rc ? fake.board_fail_rc : -1;
 	return fake.board_id;
 }
 int cmd_get_channel(struct libusb_device_handle *h) { fake_use(h); return fake.channel; }
@@ -1076,6 +1077,37 @@ MU_TEST(squelch_with_a_mode_option_is_refused)
 
 /* An optional value may be the next word as well as attached: -c 2440 is
  * -c2440. Only a number is taken, and only -z takes a negative one. */
+/* A short reply's whole error line comes from libubertooth (not in this fake),
+ * so ubertooth-util adds no "read failed" line of its own, still exits 1, and
+ * the multi-device listing still says the read failed. */
+MU_TEST(short_reply_gets_one_error_line_from_the_library_only)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.channel = UBERTOOTH_ERROR_SHORT_REPLY;
+	r = RUN("-c");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, (long)strlen(r.out));
+	mu_assert(strstr(r.err, "read failed") == NULL, "no second line");
+
+	/* any other error still gets ubertooth-util's own line */
+	reset_fake();
+	fake.channel = -7;
+	r = RUN("-c");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: channel read failed\n") != NULL, "own line");
+
+	reset_fake();
+	fake.device_count = 2;
+	fake.board_fail_index = 0;
+	fake.board_fail_rc = UBERTOOTH_ERROR_SHORT_REPLY;
+	r = RUN("-b");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, "0: <board ID read failed>\n1: 1 (Ubertooth One)\n") == 0,
+	          "listing still names the failed read");
+}
+
 MU_TEST(optional_values_may_be_the_next_word)
 {
 	struct run_result r;
@@ -1960,6 +1992,7 @@ int main(void)
 	MU_RUN(led_specan_uses_the_default_threshold_and_an_explicit_one);
 	MU_RUN(two_or_more_mode_options_are_rejected_before_opening_the_device);
 	MU_RUN(stray_arguments_are_rejected_before_any_device_action);
+	MU_RUN(short_reply_gets_one_error_line_from_the_library_only);
 	MU_RUN(optional_values_may_be_the_next_word);
 	MU_RUN(pa_level_zero_is_set_and_bad_levels_are_refused);
 	MU_RUN(squelch_with_a_mode_option_is_refused);

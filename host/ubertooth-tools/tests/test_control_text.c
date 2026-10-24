@@ -143,7 +143,7 @@ MU_TEST(short_or_malformed_revision_reply_is_an_error)
 	for (rc = 0; rc <= 1; rc++) {
 		script_rc(rc);
 		strcpy(text, "stale");
-		mu_assert_int_eq(LIBUSB_ERROR_IO,
+		mu_assert_int_eq(UBERTOOTH_ERROR_SHORT_REPLY,
 		                 cmd_get_firmware_revision(NULL, text, sizeof(text)));
 		mu_assert_int_eq(0, (long)strlen(text));
 	}
@@ -151,13 +151,13 @@ MU_TEST(short_or_malformed_revision_reply_is_an_error)
 	/* The length byte claims more bytes than were sent. */
 	script_revision("git-1234abcd", -4);
 	strcpy(text, "stale");
-	mu_assert_int_eq(LIBUSB_ERROR_IO,
+	mu_assert_int_eq(UBERTOOTH_ERROR_SHORT_REPLY,
 	                 cmd_get_firmware_revision(NULL, text, sizeof(text)));
 	mu_assert_int_eq(0, (long)strlen(text));
 
 	/* Header only, with a nonzero length. */
 	script_revision("abc", -3);
-	mu_assert_int_eq(LIBUSB_ERROR_IO,
+	mu_assert_int_eq(UBERTOOTH_ERROR_SHORT_REPLY,
 	                 cmd_get_firmware_revision(NULL, text, sizeof(text)));
 }
 
@@ -234,18 +234,18 @@ MU_TEST(short_or_malformed_compile_info_reply_is_an_error)
 	char text[64] = "stale";
 
 	script_rc(0);
-	mu_assert_int_eq(LIBUSB_ERROR_IO,
+	mu_assert_int_eq(UBERTOOTH_ERROR_SHORT_REPLY,
 	                 cmd_get_firmware_compile_info(NULL, text, sizeof(text)));
 	mu_assert_int_eq(0, (long)strlen(text));
 
 	script_compile_info("ubertooth git-1", -1);
-	mu_assert_int_eq(LIBUSB_ERROR_IO,
+	mu_assert_int_eq(UBERTOOTH_ERROR_SHORT_REPLY,
 	                 cmd_get_firmware_compile_info(NULL, text, sizeof(text)));
 
 	/* Length byte 255 with only the length byte sent. */
 	script_rc(1);
 	fake.reply[0] = 255;
-	mu_assert_int_eq(LIBUSB_ERROR_IO,
+	mu_assert_int_eq(UBERTOOTH_ERROR_SHORT_REPLY,
 	                 cmd_get_firmware_compile_info(NULL, text, sizeof(text)));
 }
 

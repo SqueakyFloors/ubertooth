@@ -160,6 +160,27 @@ int cmd_set_usrled(struct libusb_device_handle* devh, u16 state)
 	return 0;
 }
 
+/* Report a reply shorter (or, as a fallback, longer) than the read needs, as
+ * the one complete error line, and return UBERTOOTH_ERROR_SHORT_REPLY so the
+ * caller does not print a second line. */
+static int short_reply(const char *what, int got, int want, const char *unit)
+{
+	fprintf(stderr, "error: %s read failed: board returned %d of %d %s\n",
+	        what, got, want, unit);
+	return UBERTOOTH_ERROR_SHORT_REPLY;
+}
+
+/* A fixed-size control read must return exactly the bytes asked for. A short
+ * or empty reply (seen with stalled control transfers in follow mode) would
+ * otherwise hand back whatever the result buffer held, as if it were a real
+ * value. Returns r unchanged unless the length is wrong. */
+static int check_reply_length(int r, int want, const char *what)
+{
+	if (r >= 0 && r != want)
+		return short_reply(what, r, want, "bytes");
+	return r;
+}
+
 int cmd_get_usrled(struct libusb_device_handle* devh)
 {
 	u8 state;
@@ -171,6 +192,9 @@ int cmd_get_usrled(struct libusb_device_handle* devh)
 		show_libusb_error(r);
 		return r;
 	}
+	r = check_reply_length(r, 1, "USR LED");
+	if (r < 0)
+		return r;
 	return state;
 }
 
@@ -198,6 +222,9 @@ int cmd_get_rxled(struct libusb_device_handle* devh)
 		show_libusb_error(r);
 		return r;
 	}
+	r = check_reply_length(r, 1, "RX LED");
+	if (r < 0)
+		return r;
 	return state;
 }
 
@@ -225,6 +252,9 @@ int cmd_get_txled(struct libusb_device_handle* devh)
 		show_libusb_error(r);
 		return r;
 	}
+	r = check_reply_length(r, 1, "TX LED");
+	if (r < 0)
+		return r;
 	return state;
 }
 
@@ -239,6 +269,9 @@ int cmd_get_modulation(struct libusb_device_handle* devh)
 		show_libusb_error(r);
 		return r;
 	}
+	r = check_reply_length(r, 1, "modulation");
+	if (r < 0)
+		return r;
 
 	return modulation;
 }
@@ -256,6 +289,9 @@ int cmd_get_channel(struct libusb_device_handle* devh)
 		show_libusb_error(r);
 		return r;
 	}
+	r = check_reply_length(r, 2, "channel");
+	if (r < 0)
+		return r;
 
 	return result[0] | (result[1] << 8);
 }
@@ -288,10 +324,9 @@ int cmd_get_part_id(struct libusb_device_handle* devh, u32 *part_id)
 		show_libusb_error(r);
 		return r;
 	}
-	if (r != 5) {
-		fprintf(stderr, "part ID: short reply (%d of 5 bytes)\n", r);
-		return LIBUSB_ERROR_IO;
-	}
+	r = check_reply_length(r, 5, "part ID");
+	if (r < 0)
+		return r;
 	/* result[0] is the In-Application Programming (IAP) status code. */
 	if (result[0] != 0) {
 		fprintf(stderr, "part ID: device status not zero: %d\n", result[0]);
@@ -340,6 +375,9 @@ int cmd_get_serial(struct libusb_device_handle* devh, u8 *serial)
 		show_libusb_error(r);
 		return r;
 	}
+	r = check_reply_length(r, 17, "serial");
+	if (r < 0)
+		return r;
 	if (serial[0] != 0) {
 		fprintf(stderr, "result not zero: %d\n", serial[0]);
 		return 1;
@@ -481,6 +519,9 @@ int cmd_get_palevel(struct libusb_device_handle* devh)
 		show_libusb_error(r);
 		return r;
 	}
+	r = check_reply_length(r, 1, "PA level");
+	if (r < 0)
+		return r;
 	return level;
 }
 
@@ -517,6 +558,9 @@ int cmd_get_rangeresult(struct libusb_device_handle* devh,
 		}
 		return r;
 	}
+	r = check_reply_length(r, 5, "range test result");
+	if (r < 0)
+		return r;
 
 	rr->valid       = result[0];
 	rr->request_pa  = result[1];
@@ -569,11 +613,8 @@ static int copy_reply_string(const char *what, const u8 *data, int data_len,
 {
 	size_t n = declared;
 
-	if (data_len < (int)declared) {
-		fprintf(stderr, "%s: short reply (%d of %u string bytes)\n",
-		        what, data_len, (unsigned int)declared);
-		return LIBUSB_ERROR_IO;
-	}
+	if (data_len < (int)declared)
+		return short_reply(what, data_len, declared, "string bytes");
 	/* A buffer smaller than the string keeps its leading part, as before. */
 	if (n > size - 1)
 		n = size - 1;
@@ -605,10 +646,8 @@ int cmd_get_firmware_revision(struct libusb_device_handle* devh, char *revision,
 		snprintf(revision, size, "%u", (unsigned int)(result[0] | (result[1] << 8)));
 		return 0;
 	}
-	if (r < 3) {
-		fprintf(stderr, "firmware revision: short reply (%d bytes)\n", r);
-		return LIBUSB_ERROR_IO;
-	}
+	if (r < 3) /* 2 is the old SVN form above; the string form needs 3+ */
+		return short_reply("firmware revision", r, 3, "bytes");
 	return copy_reply_string("firmware revision", &result[3], r - 3, result[2],
 	                         revision, size);
 }
@@ -632,22 +671,26 @@ int cmd_get_firmware_compile_info(struct libusb_device_handle* devh,
 		return r;
 	}
 
-	if (r < 1) {
-		fprintf(stderr, "compile info: short reply (%d bytes)\n", r);
-		return LIBUSB_ERROR_IO;
-	}
+	if (r < 1)
+		return short_reply("compile info", r, 1, "bytes");
 	return copy_reply_string("compile info", &result[1], r - 1, result[0],
 	                         compile_info, size);
 }
 
 /* The void forms keep their old contract: on failure the buffer holds
- * "error: <code>" instead of the text. */
+ * "error: <code>" instead of the text, with a short reply reported as
+ * LIBUSB_ERROR_IO (-1) as before. */
+static int old_error_code(int r)
+{
+	return r == UBERTOOTH_ERROR_SHORT_REPLY ? LIBUSB_ERROR_IO : r;
+}
+
 void cmd_get_rev_num(struct libusb_device_handle* devh, char *version, u8 len)
 {
 	int r = cmd_get_firmware_revision(devh, version, len);
 
 	if (r < 0 && version != NULL && len > 0)
-		snprintf(version, len, "error: %d", r);
+		snprintf(version, len, "error: %d", old_error_code(r));
 }
 
 void cmd_get_compile_info(struct libusb_device_handle* devh, char *compile_info, u8 len)
@@ -655,7 +698,7 @@ void cmd_get_compile_info(struct libusb_device_handle* devh, char *compile_info,
 	int r = cmd_get_firmware_compile_info(devh, compile_info, len);
 
 	if (r < 0 && compile_info != NULL && len > 0)
-		snprintf(compile_info, len, "error: %d", r);
+		snprintf(compile_info, len, "error: %d", old_error_code(r));
 }
 
 int cmd_get_board_id(struct libusb_device_handle* devh)
@@ -671,6 +714,9 @@ int cmd_get_board_id(struct libusb_device_handle* devh)
 		show_libusb_error(r);
 		return r;
 	}
+	r = check_reply_length(r, 1, "board ID");
+	if (r < 0)
+		return r;
 
 	return board_id;
 }
@@ -702,6 +748,9 @@ int cmd_get_squelch(struct libusb_device_handle* devh)
 		show_libusb_error(r);
 		return r;
 	}
+	r = check_reply_length(r, 1, "squelch");
+	if (r < 0)
+		return r;
 	return level;
 }
 
@@ -789,6 +838,9 @@ uint32_t cmd_get_clock(struct libusb_device_handle* devh)
 		show_libusb_error(r);
 		return r;
 	}
+	r = check_reply_length(r, 4, "clock");
+	if (r < 0)
+		return r;
 	clock = data[0] | data[1] << 8 | data[2] << 16 | data[3] << 24;
 	printf("Read clock = 0x%x\n", clock);
 	return clock;
@@ -840,9 +892,11 @@ int cmd_clear_afh_map(struct libusb_device_handle* devh)
 	return 0;
 }
 
-u32 cmd_get_access_address(struct libusb_device_handle* devh)
+/* Read the access address into *access_address. Returns 0, or a negative
+ * error (libusb, or UBERTOOTH_ERROR_SHORT_REPLY); *access_address is only
+ * written on success. */
+int cmd_read_access_address(struct libusb_device_handle* devh, u32 *access_address)
 {
-	u32 access_address = 0;
 	unsigned char data[4];
 	int r;
 
@@ -852,8 +906,21 @@ u32 cmd_get_access_address(struct libusb_device_handle* devh)
 		show_libusb_error(r);
 		return r;
 	}
-	access_address = data[0] | data[1] << 8 | data[2] << 16 | data[3] << 24;
-	return access_address;
+	r = check_reply_length(r, 4, "access address");
+	if (r < 0)
+		return r;
+	*access_address = data[0] | data[1] << 8 | data[2] << 16 | data[3] << 24;
+	return 0;
+}
+
+/* Kept for API compatibility: an error comes back as the negative libusb
+ * code cast to u32, which cannot be told apart from an address. Use
+ * cmd_read_access_address() instead. */
+u32 cmd_get_access_address(struct libusb_device_handle* devh)
+{
+	u32 access_address = 0;
+	int r = cmd_read_access_address(devh, &access_address);
+	return r < 0 ? (u32)r : access_address;
 }
 
 int cmd_set_access_address(struct libusb_device_handle* devh, u32 access_address)
@@ -917,6 +984,9 @@ int cmd_get_crc_verify(struct libusb_device_handle* devh)
 		show_libusb_error(r);
 		return r;
 	}
+	r = check_reply_length(r, 1, "CRC verify");
+	if (r < 0)
+		return r;
 	return verify;
 }
 
@@ -983,6 +1053,9 @@ int cmd_read_register(struct libusb_device_handle* devh, u8 reg)
 		}
 		return r;
 	}
+	r = check_reply_length(r, 2, "register");
+	if (r < 0)
+		return r;
 
 	return (data[0] << 8) | data[1];
 }

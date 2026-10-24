@@ -213,9 +213,14 @@ static int list_identity_queries(const int requested[QUERY_COUNT], int count)
  * never shown as a value. libubertooth has already printed the transfer
  * error; this names the query that failed. Returns the failing status.
  */
-static int report_read_failed(const char *what)
+_Static_assert(UTIL_ERROR_SHORT_REPLY == UBERTOOTH_ERROR_SHORT_REPLY,
+               "util_report.h must match libubertooth's short-reply code");
+
+/* "error: <what> read failed" for a failed read, unless code is a short
+ * reply, whose whole line libubertooth already printed. Returns 1. */
+static int report_read_failed(const char *what, int code)
 {
-	return util_report_read_failed(stderr, what);
+	return util_report_read_error(stderr, what, code);
 }
 
 /* Adapters from the injected reset-wait operations to the clock and
@@ -685,15 +690,15 @@ int main(int argc, char *argv[])
 		int rx = cmd_get_rxled(ut->devh);
 		int tx = cmd_get_txled(ut->devh);
 		if (usr < 0)
-			status = util_status_merge(status, report_read_failed("USR LED"));
+			status = util_status_merge(status, report_read_failed("USR LED", usr));
 		else
 			fprintf(stdout, "USR LED status: %d\n", usr);
 		if (rx < 0)
-			status = util_status_merge(status, report_read_failed("RX LED"));
+			status = util_status_merge(status, report_read_failed("RX LED", rx));
 		else
 			fprintf(stdout, "RX LED status : %d\n", rx);
 		if (tx < 0)
-			status = util_status_merge(status, report_read_failed("TX LED"));
+			status = util_status_merge(status, report_read_failed("TX LED", tx));
 		else
 			fprintf(stdout, "TX LED status : %d\n", tx);
 	}
@@ -703,7 +708,7 @@ int main(int argc, char *argv[])
 	if(do_channel == 0) {
 		int mhz = cmd_get_channel(ut->devh);
 		if (mhz < 0)
-			status = util_status_merge(status, report_read_failed("channel"));
+			status = util_status_merge(status, report_read_failed("channel", mhz));
 		else
 			fprintf(stdout, "Current frequency: %d MHz (Bluetooth channel %d)\n", mhz, mhz - 2402);
 	}
@@ -716,14 +721,14 @@ int main(int argc, char *argv[])
 	if(do_leds == 2) {
 		int led = cmd_get_usrled(ut->devh);
 		if (led < 0)
-			status = util_status_merge(status, report_read_failed("USR LED"));
+			status = util_status_merge(status, report_read_failed("USR LED", led));
 		else
 			fprintf(stdout, "USR LED status: %d\n", led);
 	}
 	if(do_palevel == PA_QUERY) {
 		int level = cmd_get_palevel(ut->devh);
 		if (level < 0)
-			status = util_status_merge(status, report_read_failed("PA level"));
+			status = util_status_merge(status, report_read_failed("PA level", level));
 		else
 			fprintf(stdout, "PA Level: %d\n", level);
 	}
@@ -733,7 +738,7 @@ int main(int argc, char *argv[])
 	if(do_range_result == 0) {
 		int rr_status = cmd_get_rangeresult(ut->devh, &rr);
 		if (rr_status != 0) {
-			status = util_status_merge(status, report_read_failed("range test result"));
+			status = util_status_merge(status, report_read_failed("range test result", rr_status));
 		} else {
 			if (rr.valid==1) {
 				fprintf(stdout, "request PA level : %d\n", rr.request_pa);
@@ -811,7 +816,7 @@ int main(int argc, char *argv[])
 	if(do_get_squelch > 0) {
 		int squelch = cmd_get_squelch(ut->devh);
 		if (squelch < 0)
-			status = util_status_merge(status, report_read_failed("squelch"));
+			status = util_status_merge(status, report_read_failed("squelch", squelch));
 		else
 			fprintf(stdout, "Squelch set to %d\n", (int8_t)squelch);
 	}
@@ -827,8 +832,9 @@ int main(int argc, char *argv[])
 			fprintf(stderr, "error: test command send failed\n");
 			status = 1;
 		}
-		if (cmd_do_something_reply(ut->devh, buf, 4) < 0)
-			status = util_status_merge(status, report_read_failed("test command reply"));
+		int reply = cmd_do_something_reply(ut->devh, buf, 4);
+		if (reply < 0)
+			status = util_status_merge(status, report_read_failed("test command reply", reply));
 		else
 			fprintf(stdout, "%02x %02x %02x %02x\n", buf[0], buf[1], buf[2], buf[3]);
 	}
