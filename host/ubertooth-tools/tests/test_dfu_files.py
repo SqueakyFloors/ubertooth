@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ubertooth-dfu file handling: -s, and the files -d and -u touch (#200).
+"""ubertooth-dfu file handling: -s, and the files -d and -u touch (#200, #241).
 
 Run as: test_dfu_files.py <path to ubertooth-dfu>
 
@@ -162,15 +162,29 @@ with tempfile.TemporaryDirectory() as directory:
     check(code == 1, f"-u with no board exited {code}")
     keep_survived("a failed -u")
 
+    # The refused -d image is checked after -u has already made its temporary
+    # file, so that exit has to clean up like the rest (#241).
+    refused = os.path.join(directory, "not-a-dfu-file")
+    write(refused, b"this is not firmware, it is a note to self\n")
+
     for label, arguments in (
         ("-u with -h", ("-u", keep, "-h")),
         ("-u with a stray word", ("-u", keep, "extra")),
         ("-u with an unknown option", ("-u", keep, "-Z")),
         ("-u twice", ("-u", keep, "-u", keep, "-U", NO_SUCH_SERIAL, "-r")),
+        ("-u with a refused -d image",
+         ("-u", keep, "-d", refused, "-U", NO_SUCH_SERIAL, "-r")),
+        ("-u with a refused -d image, -d first",
+         ("-d", refused, "-u", keep, "-U", NO_SUCH_SERIAL, "-r")),
     ):
-        code, _ = run(*arguments)
+        code, output = run(*arguments)
         check(code == 1, f"{label} exited {code}")
         keep_survived(label)
+        if "refused -d" in label:
+            check("firmware will not be updated" in output,
+                  f"{label} did not refuse the image")
+            check(NOT_FOUND not in output.lower(),
+                  f"{label} went looking for a board anyway")
 
 for note in skipped:
     print("SKIP", note)
