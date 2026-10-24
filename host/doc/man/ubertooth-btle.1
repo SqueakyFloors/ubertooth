@@ -218,7 +218,8 @@ Which advertising channel to use in follow mode (default: 37)
 .IP \(bu 2
 \fB\fC\-a[address]\fR :
 Get (\fB\fC\-a\fR) or set (\fB\fC\-a<address>\fR) the access address used in promiscuous
-mode\. The address is 1 to 8 hex digits; fewer than 8 means leading zeros
+mode\. The address is 1 to 8 hex digits, attached or as the next word
+(\fB\fC\-a8e89bed6\fR or \fB\fC\-a 8e89bed6\fR); fewer than 8 means leading zeros
 (\fB\fC\-a12345\fR sets \fB\fC00012345\fR)\. Anything else is refused before the device is
 opened\. Getting and setting in one command is refused; other options such
 as \fB\fC\-v\fR still run after a get\.

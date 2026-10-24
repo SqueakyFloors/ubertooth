@@ -156,7 +156,8 @@ Miscellaneous:
    Which advertising channel to use in follow mode (default: 37)
  - `-a[address]` :
    Get (`-a`) or set (`-a<address>`) the access address used in promiscuous
-   mode. The address is 1 to 8 hex digits; fewer than 8 means leading zeros
+   mode. The address is 1 to 8 hex digits, attached or as the next word
+   (`-a8e89bed6` or `-a 8e89bed6`); fewer than 8 means leading zeros
    (`-a12345` sets `00012345`). Anything else is refused before the device is
    opened. Getting and setting in one command is refused; other options such
    as `-v` still run after a get.

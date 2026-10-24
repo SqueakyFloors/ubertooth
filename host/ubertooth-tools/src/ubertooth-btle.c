@@ -114,7 +114,7 @@ static void usage(void)
 	printf("\t-n don't follow, only print advertisements\n");
 	printf("\t-p promiscuous: sniff active connections\n");
 	printf("\n");
-	printf("\t-a[address] get/set access address (example: -a8e89bed6)\n");
+	printf("\t-a[address] get/set access address, 1-8 hex digits (example: -a8e89bed6)\n");
 	printf("\t-s<address> faux slave mode, using MAC addr (example: -s22:44:66:88:aa:cc)\n");
 	printf("\t-t<address> set connection following target (example: -t22:44:66:88:aa:cc/48)\n");
 	printf("\t-tnone unset connection following target\n");
@@ -154,7 +154,7 @@ int main(int argc, char *argv[])
 	btle_options cb_opts = { .allowed_access_address_errors = 32 };
 
 	int r;
-	u32 access_address;
+	u32 access_address = 0;
 	uint8_t mac_address[6] = { 0, };
 	uint8_t mac_mask = 0;
 
@@ -167,6 +167,12 @@ int main(int argc, char *argv[])
 	while ((opt=getopt(argc,argv,"a::r:hfnpU:v::A:s:t:x:c:q:jJiI")) != EOF) {
 		switch(opt) {
 		case 'a':
+			/* getopt only attaches an optional value (-a8e89bed6); take
+			 * a following word that is not an option as the value too,
+			 * so "-a 8e89bed6" sets and "-a zzzz" is refused rather than
+			 * silently reading. ubertooth-btle takes no other operands. */
+			if (optarg == NULL && optind < argc && argv[optind][0] != '-')
+				optarg = argv[optind++];
 			if (optarg == NULL) {
 				do_get_aa = 1;
 			} else {
