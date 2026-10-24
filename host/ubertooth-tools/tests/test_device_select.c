@@ -36,6 +36,7 @@ static struct {
 	int opens;              /* libusb_open() calls */
 	int closes;             /* libusb_close() calls */
 	int lists;              /* outstanding libusb_get_device_list() lists */
+	int list_calls;         /* libusb_get_device_list() calls, not freed again */
 } fake;
 
 /* Put n Ubertooth One devices on the bus, preceded by one non-Ubertooth device
@@ -76,6 +77,7 @@ ssize_t LIBUSB_CALL libusb_get_device_list(libusb_context *ctx,
 	int i;
 
 	(void)ctx;
+	fake.list_calls++;
 	if (fake.list_rc < 0) {
 		*list = NULL;
 		return fake.list_rc;
@@ -166,8 +168,10 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle *devh,
 
 /* ---- helpers ------------------------------------------------------------ */
 
-/* Run ubertooth_start_select(u_arg) with stderr captured into msg. */
-static ubertooth_t *select_capturing(const char *u_arg, char *msg, size_t len)
+/* Run the loud or the quiet selection of u_arg with stderr captured into
+ * msg. */
+static ubertooth_t *select_capturing_opt(const char *u_arg, int quiet,
+                                         char *msg, size_t len)
 {
 	ubertooth_t *ut;
 	FILE *capture = tmpfile();
@@ -181,7 +185,8 @@ static ubertooth_t *select_capturing(const char *u_arg, char *msg, size_t len)
 	}
 	fflush(stderr);
 	dup2(fileno(capture), fileno(stderr));
-	ut = ubertooth_start_select(u_arg);
+	ut = quiet ? ubertooth_start_select_quiet(u_arg)
+	           : ubertooth_start_select(u_arg);
 	fflush(stderr);
 	dup2(saved, fileno(stderr));
 	close(saved);
@@ -190,6 +195,12 @@ static ubertooth_t *select_capturing(const char *u_arg, char *msg, size_t len)
 	msg[n] = '\0';
 	fclose(capture);
 	return ut;
+}
+
+/* Run ubertooth_start_select(u_arg) with stderr captured into msg. */
+static ubertooth_t *select_capturing(const char *u_arg, char *msg, size_t len)
+{
+	return select_capturing_opt(u_arg, 0, msg, len);
 }
 
 /* ---- tests -------------------------------------------------------------- */
@@ -445,6 +456,79 @@ MU_TEST(the_quiet_selection_refuses_the_same_indices)
 	ubertooth_free(ut);
 }
 
+/* UBERTOOTH_TEST_NO_DEVICES, the switch the tool tests set, makes selection
+ * behave as if nothing were attached without listing or opening anything, so a
+ * test run cannot open a board another process is using (#219). Unset, every
+ * selection works as before. */
+MU_TEST(the_test_switch_hides_every_device)
+{
+	/* Values that are not exactly "1" leave selection alone. */
+	static const char *const off[] = { "0", "", "2", "true", "yes" };
+	char msg[256];
+	ubertooth_t *ut;
+	size_t i;
+
+	setenv("UBERTOOTH_TEST_NO_DEVICES", "1", 1);
+
+	/* The quiet selection stays silent, as its callers require. The note is
+	 * printed once per process, so this has to come before the loud case
+	 * below, and this case before any other that sets the switch. */
+	bus_with_ubertooths(1);
+	mu_assert(select_capturing_opt("0", 1, msg, sizeof(msg)) == NULL,
+	          "quiet -U0");
+	mu_assert_int_eq(0, fake.opens);
+	mu_assert_int_eq(0, fake.list_calls);
+	mu_assert(msg[0] == '\0', msg);
+
+	/* The first loud selection to hide a device names the switch. */
+	bus_with_ubertooths(1);
+	mu_assert(select_capturing(NULL, msg, sizeof(msg)) == NULL, "no -U");
+	mu_assert_int_eq(0, fake.opens);
+	mu_assert_int_eq(0, fake.list_calls);
+	mu_assert(strstr(msg, "UBERTOOTH_TEST_NO_DEVICES is set") != NULL, msg);
+	mu_assert(strstr(msg, "could not open Ubertooth device") != NULL, msg);
+
+	bus_with_ubertooths(2);
+	mu_assert_int_eq(0, ubertooth_count());
+	mu_assert_int_eq(0, fake.list_calls);
+
+	bus_with_ubertooths(2);
+	mu_assert(select_capturing("1", msg, sizeof(msg)) == NULL, "-U1");
+	mu_assert_int_eq(0, fake.opens);
+	mu_assert_int_eq(0, fake.list_calls);
+	mu_assert(strstr(msg, "could not open Ubertooth device") != NULL, msg);
+
+	/* A serial is matched by opening each board and reading its serial; with
+	 * the switch set, none is opened and the report is unchanged. */
+	bus_with_ubertooths(2);
+	mu_assert(select_capturing("c52000f5", msg, sizeof(msg)) == NULL, "-U serial");
+	mu_assert_int_eq(0, fake.opens);
+	mu_assert_int_eq(0, fake.list_calls);
+	mu_assert(strstr(msg, "no Ubertooth found with serial matching 'c52000f5'")
+	          != NULL, msg);
+
+	/* Only "1" turns it on: a user whose environment holds the name for some
+	 * other reason still gets their board. */
+	for (i = 0; i < sizeof(off) / sizeof(off[0]); i++) {
+		setenv("UBERTOOTH_TEST_NO_DEVICES", off[i], 1);
+		bus_with_ubertooths(1);
+		ut = select_capturing("0", msg, sizeof(msg));
+		mu_assert(ut != NULL, off[i]);
+		ubertooth_stop(ut);
+		ubertooth_free(ut);
+	}
+
+	unsetenv("UBERTOOTH_TEST_NO_DEVICES");
+	bus_with_ubertooths(1);
+	mu_assert_int_eq(1, ubertooth_count());
+	ut = select_capturing("0", msg, sizeof(msg));
+	mu_assert(ut != NULL, "-U0 without the switch opens the device");
+	mu_assert(fake.opened == &fake.devs[1], "and it is the Ubertooth");
+	mu_assert(fake.list_calls > 0, "and the bus was listed");
+	ubertooth_stop(ut);
+	ubertooth_free(ut);
+}
+
 int main(void)
 {
 	MU_RUN(an_index_in_range_opens_that_device);
@@ -459,5 +543,6 @@ int main(void)
 	MU_RUN(an_empty_or_failing_bus_is_refused);
 	MU_RUN(a_device_without_a_descriptor_is_skipped);
 	MU_RUN(the_quiet_selection_refuses_the_same_indices);
+	MU_RUN(the_test_switch_hides_every_device);
 	return mu_report();
 }

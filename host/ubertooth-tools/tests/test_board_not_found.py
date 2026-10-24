@@ -5,10 +5,13 @@ Run as: test_board_not_found.py <path to one ubertooth-* binary>
 
 Each tool is started with a serial number no board has, plus whatever options
 it needs to get past argument checking, so it reaches device selection and
-finds nothing. That works with or without Ubertooths attached. Matching by
-serial briefly opens each attached board to read its serial, but none is
-claimed or left changed. ubertooth-afh used to dereference the NULL handle here
-and die with SIGSEGV (#185).
+finds nothing. ubertooth-afh used to dereference the NULL handle here and die
+with SIGSEGV (#185).
+
+The tools run with UBERTOOTH_TEST_NO_DEVICES=1, so selection finds nothing
+whatever is attached. Matching a serial otherwise opens every attached board to
+read its serial, which stalls on, and reports an error for, a board another
+process is using, making this case depend on what the machine is doing (#219).
 """
 
 import os
@@ -19,6 +22,8 @@ import sys
 BINARY = sys.argv[1]
 TOOL = os.path.basename(BINARY)
 NO_SUCH_SERIAL = "ffffffffffffffffffffffffffffffff"
+# Hide attached boards from the tool: see the module docstring.
+ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1")
 
 # Options each tool needs before it looks for a device. None means the tool
 # cannot reach device selection here, with the reason.
@@ -49,7 +54,7 @@ if ARGUMENTS[TOOL] is None:
 
 command = [BINARY, "-U", NO_SUCH_SERIAL, *ARGUMENTS[TOOL]]
 result = subprocess.run(command, capture_output=True, text=True, timeout=10,
-                        check=False)
+                        check=False, env=ENVIRONMENT)
 output = result.stdout + result.stderr
 print("$", " ".join(command))
 print(output, end="")
@@ -58,3 +63,6 @@ print(f"[exit {result.returncode}]")
 # A negative return code is a signal (-11 is SIGSEGV).
 assert result.returncode == 1, result
 assert f"no ubertooth found with serial matching '{NO_SUCH_SERIAL}'" in output.lower(), result
+# No board was opened, so nothing can report a transfer error: a libusb
+# complaint here means the switch stopped working and a board was touched.
+assert "libusb error" not in output.lower(), result

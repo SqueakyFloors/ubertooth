@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
-"""Verify invalid ubertooth-ego lengths fail before device access."""
+"""Verify invalid ubertooth-ego lengths fail before device access.
 
+UBERTOOTH_TEST_NO_DEVICES=1 hides attached boards from the tool, so a case
+that reached device selection reports no device instead of opening a board
+this machine is using (#219).
+"""
+
+import os
 import subprocess
 import sys
 
 
 BINARY = sys.argv[1]
+ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1")
 
 
 def reject(value):
@@ -15,6 +22,7 @@ def reject(value):
         text=True,
         timeout=5,
         check=False,
+        env=ENVIRONMENT,
     )
     output = result.stdout + result.stderr
     assert result.returncode != 0, result
@@ -31,6 +39,7 @@ missing = subprocess.run(
     text=True,
     timeout=5,
     check=False,
+    env=ENVIRONMENT,
 )
 assert missing.returncode != 0, missing
 assert "requires an argument" in missing.stderr.lower(), missing

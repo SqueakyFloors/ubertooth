@@ -19,9 +19,9 @@ find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
 # ubertooth-dfu checks the image before it opens a device, so the whole
 # accept/refuse decision runs against the real binary with no board. Eleven
-# short runs: 0.6 s on macOS with two boards attached, 0.3 s on Linux with
-# one, so the timeout only catches a tool that waits for a device it should
-# never have looked for.
+# short runs, well under a second in total now that the test hides attached
+# boards from the tool, so the timeout only catches a tool that waits for a
+# device it should never have looked for.
 add_test(
 	NAME dfu-images
 	COMMAND ${Python3_EXECUTABLE}
@@ -30,10 +30,10 @@ add_test(
 set_tests_properties(dfu-images PROPERTIES TIMEOUT 15)
 
 # ubertooth-dfu's file handling against the real binary: -s, and which files
-# -d and -u open or replace. Needs no board; the cases that would reach one
-# use a serial no board has. Six short runs: 0.6 s on macOS with two boards
-# attached, 0.1 s on Linux with one, so the timeout only catches a tool that
-# waits for a device.
+# -d and -u open or replace. Needs no board, and opens none: the cases that
+# would reach one use a serial no board has, with attached boards hidden from
+# the tool. Six short runs, so the timeout only catches a tool that waits for
+# a device.
 add_test(
 	NAME dfu-files
 	COMMAND ${Python3_EXECUTABLE}

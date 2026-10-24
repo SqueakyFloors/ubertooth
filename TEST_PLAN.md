@@ -194,6 +194,11 @@ These branches exist in the repo but are NOT in master yet:
 
 ## Notes
 
+- The host `ctest` suite needs no Ubertooth, and the tests that run the tools
+  do not open one, so the suite can run while boards are in use. Those tests
+  set `UBERTOOTH_TEST_NO_DEVICES=1`, which makes device selection behave as if
+  nothing were attached; nothing else sets it, so normal use is unaffected.
+  Everything below still needs real hardware.
 - Tests 3b, 5b, 6 directly exercise the cherry-picked fixes — these are the most important to run
 - If ubertooth-btbr still hangs (test 5b), open an issue — issue #520 is not yet fixed
 - Memory leak tests (8a) require extended time but are important for production use
