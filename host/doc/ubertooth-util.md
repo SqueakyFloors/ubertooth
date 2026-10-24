@@ -3,8 +3,8 @@
 ## SYNOPSIS
 
 `ubertooth-util` [-v] [-V] [-H] [--host-version] [-I] [-d[0-1]] [-l[0-1]]
-[-S] [-r] [-U<index|serial|all>] [-a[0-7]] [-c[2400-2483]] [-C[0-78]] [-q[1-225]] [-t]
-[-z[level]] [-e] [-m] [-n] [-f] [-i] [-b] [-p] [-s] [-N] [-x] [-h]
+[-S] [-r] [-U<index|serial|all>] [-a[0-7]] [-c[2402-2480]] [-C[0-78]] [-q[1-225]] [-t]
+[-z[-128-127]] [-e] [-m] [-n] [-f] [-i] [-b] [-p] [-s] [-N] [-x] [-h]
 
 ## DESCRIPTION
 
@@ -86,7 +86,7 @@ Radio options:
    level. Some transmit modes set their own level, which stays afterwards:
    Bluetooth and BLE transmit and BLE jamming use 3 (-7 dBm), and the range
    test and repeater (`-n`, `-e`) step through levels.
- - `-c[2400-2483]` :
+ - `-c[2402-2480]` :
    get/set channel in MHz
  - `-C[0-78]` :
    get/set channel
@@ -94,8 +94,9 @@ Radio options:
    start LED spectrum analyzer
  - `-t` :
    intitiate continuous transmit test
- - `-z[level]` :
-   get/set squelch level (a signed RSSI threshold) for a later RX capture.
+ - `-z[-128-127]` :
+   get/set squelch level (a signed RSSI threshold; values above 0 are relative
+   to the average RSSI) for a later RX capture.
    Stopping a running mode resets it to the default, so `-z` cannot be
    combined with a mode option (`-q`, `-n`, `-e`, `-t`, `-x`, `-I`, `-i`,
    `-f`).
@@ -233,7 +234,10 @@ operation fails, even when a later operation in the same command succeeds.
 It exits with 1, without opening a device, when two or more mode options are
 given (see DESCRIPTION), when `-z` is combined with a mode option, or when an
 `-a` level is not a single digit 0-7
-(`error: PA level must be a single digit 0-7 (got <value>)`).
+(`error: PA level must be a single digit 0-7 (got <value>)`). The same holds
+for any other option value that is not a whole decimal number in its range
+(`-c`, `-C`, `-d`, `-l`, `-q`, `-z`), for example
+`error: channel must be 0-78 (got abc)`.
 It also exits with 1, without opening a device, when the command line contains
 a word that is not an option, and names it: `error: unexpected argument '<word>'`.
 `ubertooth-util` takes no other arguments.

@@ -5,7 +5,7 @@
 \- general purpose Ubertooth utility
 .SH SYNOPSIS
 .PP
-ubertooth\-util [\-v] [\-V] [\-H] [\-\-host\-version] [\-I] [\-d[0\-1]] [\-l[0\-1]] [\-S] [\-r] [\-U<index|serial|all>] [\-a[0\-7]] [\-c[2400\-2483]] [\-C[0\-78]] [\-q[1\-225]] [\-t] [\-z[level]] [\-e] [\-m] [\-n] [\-f] [\-i] [\-b] [\-p] [\-s] [\-N] [\-x] [\-h]
+ubertooth\-util [\-v] [\-V] [\-H] [\-\-host\-version] [\-I] [\-d[0\-1]] [\-l[0\-1]] [\-S] [\-r] [\-U<index|serial|all>] [\-a[0\-7]] [\-c[2402\-2480]] [\-C[0\-78]] [\-q[1\-225]] [\-t] [\-z[\-128\-127]] [\-e] [\-m] [\-n] [\-f] [\-i] [\-b] [\-p] [\-s] [\-N] [\-x] [\-h]
 .SH DESCRIPTION
 .PP
 .BR ubertooth-util (1) 
@@ -105,7 +105,7 @@ level\. Some transmit modes set their own level, which stays afterwards:
 Bluetooth and BLE transmit and BLE jamming use 3 (\-7 dBm), and the range
 test and repeater (\fB\fC\-n\fR, \fB\fC\-e\fR) step through levels\.
 .IP \(bu 2
-\fB\fC\-c[2400\-2483]\fR :
+\fB\fC\-c[2402\-2480]\fR :
 get/set channel in MHz
 .IP \(bu 2
 \fB\fC\-C[0\-78]\fR :
@@ -117,8 +117,9 @@ start LED spectrum analyzer
 \fB\fC\-t\fR :
 intitiate continuous transmit test
 .IP \(bu 2
-\fB\fC\-z[level]\fR :
-get/set squelch level (a signed RSSI threshold) for a later RX capture\.
+\fB\fC\-z[\-128\-127]\fR :
+get/set squelch level (a signed RSSI threshold; values above 0 are relative
+to the average RSSI) for a later RX capture\.
 Stopping a running mode resets it to the default, so \fB\fC\-z\fR cannot be
 combined with a mode option (\fB\fC\-q\fR, \fB\fC\-n\fR, \fB\fC\-e\fR, \fB\fC\-t\fR, \fB\fC\-x\fR, \fB\fC\-I\fR, \fB\fC\-i\fR,
 \fB\fC\-f\fR)\.
@@ -287,6 +288,10 @@ It exits with 1, without opening a device, when two or more mode options are
 given (see DESCRIPTION), when \fB\fC\-z\fR is combined with a mode option, or when an
 \fB\fC\-a\fR level is not a single digit 0\-7
 (\fB\fCerror: PA level must be a single digit 0\-7 (got <value>)\fR)\.
+The same holds
+for any other option value that is not a whole decimal number in its range
+(\fB\fC\-c\fR, \fB\fC\-C\fR, \fB\fC\-d\fR, \fB\fC\-l\fR, \fB\fC\-q\fR, \fB\fC\-z\fR), for example
+\fB\fCerror: channel must be 0\-78 (got abc)\fR\.
 It also exits with 1, without opening a device, when the command line contains
 a word that is not an option, and names it: \fB\fCerror: unexpected argument '<word>'\fR\&.
 \fB\fCubertooth\-util\fR takes no other arguments.
