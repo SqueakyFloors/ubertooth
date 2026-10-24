@@ -140,6 +140,10 @@
   (`-l`, `-d`, `-c`, `-C`, `-q`, `-z`); `-Cabc` used to set 2402 MHz, and
   `-q0` (once "the default") is now an error: use bare `-q`.
   [#172](https://github.com/SqueakyFloors/ubertooth/issues/172)
+- `ubertooth-btle -a` refuses a value that is not 1-8 hex digits (`-azzzz` used
+  to set an uninitialized address), refuses get and set together, no longer
+  skips `-v` after a get, and reports a failed set.
+  [#171](https://github.com/SqueakyFloors/ubertooth/issues/171)
 - `ubertooth-util -a0` sets PA level 0 instead of reading the level, and a
   level outside 0-7 is refused before opening the device.
   [#161](https://github.com/SqueakyFloors/ubertooth/issues/161)

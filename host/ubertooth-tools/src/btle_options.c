@@ -56,3 +56,24 @@ int convert_mac_address(char *text, uint8_t *address, uint8_t *mask_out)
 
 	return 1;
 }
+
+int parse_access_address(const char *text, uint32_t *address)
+{
+	uint32_t value = 0;
+	size_t i, n;
+
+	if (text == NULL || address == NULL)
+		return 0;
+	n = strlen(text);
+	if (n == 0 || n > 8)
+		return 0;
+	for (i = 0; i < n; i++) {
+		int c = (unsigned char)text[i];
+		if (!isxdigit(c))
+			return 0;
+		value = (value << 4) |
+		        (uint32_t)(isdigit(c) ? c - '0' : tolower(c) - 'a' + 10);
+	}
+	*address = value;
+	return 1;
+}

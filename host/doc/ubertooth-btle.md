@@ -155,7 +155,11 @@ Miscellaneous:
  - `-A <37|38|39>` :
    Which advertising channel to use in follow mode (default: 37)
  - `-a[address]` :
-   Get or set access address in promiscuous mode
+   Get (`-a`) or set (`-a<address>`) the access address used in promiscuous
+   mode. The address is 1 to 8 hex digits; fewer than 8 means leading zeros
+   (`-a12345` sets `00012345`). Anything else is refused before the device is
+   opened. Getting and setting in one command is refused; other options such
+   as `-v` still run after a get.
  - `-v[01]` :
    Get or set CRC verification (default: 0)
  - `-x<0-32>` :

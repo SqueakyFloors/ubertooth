@@ -170,8 +170,11 @@ int main(int argc, char *argv[])
 			if (optarg == NULL) {
 				do_get_aa = 1;
 			} else {
+				if (!parse_access_address(optarg, &access_address)) {
+					fprintf(stderr, "error: access address must be 1-8 hex digits (got %s)\n", optarg);
+					return 1;
+				}
 				do_set_aa = 1;
-				sscanf(optarg, "%08x", &access_address);
 			}
 			break;
 		case 'f':
@@ -294,6 +297,13 @@ int main(int argc, char *argv[])
 	}
 
 
+	/* -a reads and -a<address> sets; one command cannot do both (the read
+	 * used to win and the set was dropped). */
+	if (do_get_aa && do_set_aa) {
+		fprintf(stderr, "error: -a cannot both read and set the access address\n");
+		return 1;
+	}
+
 	r = ubertooth_connect_select(ut, ubertooth_device);
 	if (r < 0) {
 		return 1;
@@ -395,11 +405,14 @@ int main(int argc, char *argv[])
 			return 1;
 		}
 		printf("Access address: %08x\n", access_address);
-		return 0;
+		/* carry on, so a -v in the same command still runs */
 	}
 
 	if (do_set_aa) {
-		cmd_set_access_address(ut->devh, access_address);
+		if (cmd_set_access_address(ut->devh, access_address) < 0) {
+			fprintf(stderr, "error: access address set failed\n");
+			return 1;
+		}
 		printf("access address set to: %08x\n", access_address);
 	}
 
