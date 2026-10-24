@@ -41,7 +41,7 @@ static void usage()
 	printf("Main options:\n");
 	printf("\t-l <LAP> LAP of target piconet (3 bytes / 6 hex digits)\n");
 	printf("\t-u <UAP> UAP of target piconet (1 byte / 2 hex digits)\n");
-	printf("\t-m <int> threshold for channel removal (default: 5)\n");
+	printf("\t-m <packets> mark a channel unused after this many packets without it (default: 5)\n");
 	printf("\t-r print AFH channel map once every second (default: print on update)\n");
 	printf("\n");
 	printf("Other options\n");
@@ -90,8 +90,8 @@ int main(int argc, char* argv[])
 			// have_initial_afh = 1;
 			break;
 		case 't':
-			if (opt_require_int(optarg, 0, INT_MAX, "timeout", " seconds",
-			                    &timeout) < 0)
+			if (opt_require_count(optarg, 0, "timeout", "seconds",
+			                      "0 for none", &timeout) < 0)
 				return 1;
 			break;
 		case 'U':
@@ -104,9 +104,9 @@ int main(int argc, char* argv[])
 				return 1;
 			break;
 		case 'm':
-			if (opt_require_int(optarg, 1, INT_MAX,
-			                    "channel removal threshold", "",
-			                    &threshold) < 0)
+			if (opt_require_count(optarg, 1,
+			                      "channel removal threshold", "packets",
+			                      "1 or more", &threshold) < 0)
 				return 1;
 			packet_counter_max = (unsigned int)threshold;
 			break;

@@ -63,6 +63,29 @@ static void test_decimal_diagnostic(void)
 	CHECK(value == 2440);
 }
 
+/* opt_require_count(): no upper limit of its own beyond INT_MAX, result
+ * written only on success. */
+static void test_count(void)
+{
+	int value = 42;
+
+	CHECK(opt_require_count("0", 0, "timeout", "seconds", "0 for none",
+	                        &value) == 0 && value == 0);
+	CHECK(opt_require_count("86400", 0, "timeout", "seconds", "0 for none",
+	                        &value) == 0 && value == 86400);
+	CHECK(opt_require_count("2147483647", 1, "threshold", "packets",
+	                        "1 or more", &value) == 0 && value == 2147483647);
+	value = 42;
+	fprintf(stderr, "(three expected diagnostics follow)\n");
+	CHECK(opt_require_count("0", 1, "threshold", "packets", "1 or more",
+	                        &value) < 0);
+	CHECK(opt_require_count("abc", 0, "timeout", "seconds", "0 for none",
+	                        &value) < 0);
+	CHECK(opt_require_count("2147483648", 0, "timeout", "seconds",
+	                        "0 for none", &value) < 0);
+	CHECK(value == 42);
+}
+
 static void test_hex(void)
 {
 	static const char *const not_hex[] = {
@@ -231,6 +254,7 @@ int main(void)
 {
 	test_decimal();
 	test_decimal_diagnostic();
+	test_count();
 	test_hex();
 	test_lap_and_uap();
 	test_access_address();

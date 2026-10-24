@@ -56,8 +56,8 @@ AC_ERRORS = (
 )
 
 TIMEOUT_SECONDS = (
-    (("-t", "abc"), "error: timeout must be 0-"),
-    (("-t", "-1"), "error: timeout must be 0-"),
+    (("-t", "abc"), "error: timeout must be a whole number of seconds, 0 for none (got abc)"),
+    (("-t", "-1"), "error: timeout must be a whole number of seconds, 0 for none (got -1)"),
 )
 
 ADV_INDEX = (
@@ -67,8 +67,8 @@ ADV_INDEX = (
 
 CASES = {
     "ubertooth-afh": STRAY + VERSION_STRAY + LAP_UAP + AC_ERRORS + TIMEOUT_SECONDS + (
-        (("-m", "0"), "error: channel removal threshold must be 1-"),
-        (("-m", "5x"), "error: channel removal threshold must be 1-"),
+        (("-m", "0"), "error: channel removal threshold must be a whole number of packets, 1 or more (got 0)"),
+        (("-m", "5x"), "error: channel removal threshold must be a whole number of packets, 1 or more (got 5x)"),
         # a valid piconet address still reports the stray word
         (("-l", "446688", "-u", "22", "extra"),
          "error: unexpected argument 'extra'"),
@@ -115,7 +115,7 @@ CASES = {
         (("-l", "49"), "error: capture length must be 1-48 (got 49)"),
     ),
     "ubertooth-follow": STRAY + LAP_UAP + AC_ERRORS + (
-        (("-w", "abc"), "error: usb delay must be 0-"),
+        (("-w", "abc"), "error: usb delay must be a whole number of timeslots, 0 or more (got abc)"),
     ),
     "ubertooth-rx": STRAY + VERSION_STRAY + LAP_UAP + AC_ERRORS + TIMEOUT_SECONDS + (
         (("-c", "79"), "error: channel must be 0-78 (got 79)"),

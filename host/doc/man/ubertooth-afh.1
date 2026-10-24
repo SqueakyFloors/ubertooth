@@ -37,7 +37,8 @@ LAP of target piconet (3 bytes / 6 hex digits)
 UAP of target piconet (1 byte / 2 hex digits)
 .IP \(bu 2
 \fB\fC\-m <int>\fR :
-threshold for channel removal, 1 or more (default: 5)
+threshold for channel removal: a channel is marked unused once this many packets
+arrive without it being seen; 1 or more (default: 5)
 .IP \(bu 2
 \fB\fC\-r\fR :
 print AFH channel map once every second (default: print on update)
@@ -70,7 +71,7 @@ alongside them.
 .PP
 An option value must be a whole value in its range, or it is refused the same
 way instead of being read as 0, for example
-\fB\fCerror: timeout must be 0\-2147483647 seconds (got abc)\fR\&.
+\fB\fCerror: timeout must be a whole number of seconds, 0 for none (got abc)\fR\&.
 .SH SEE ALSO
 .PP
 .BR ubertooth-rx (1): 

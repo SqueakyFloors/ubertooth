@@ -224,8 +224,8 @@ int main(int argc, char *argv[])
 			}
 			break;
 		case 't':
-			if (opt_require_int(optarg, 0, INT_MAX, "timeout", " seconds",
-			                    &timeout) < 0)
+			if (opt_require_count(optarg, 0, "timeout", "seconds",
+			                      "0 for none", &timeout) < 0)
 				return 1;
 			break;
 		case 'e':

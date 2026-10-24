@@ -27,7 +27,8 @@ handler is disabled in the source and the flag has no effect.
  - `-u <UAP>` :
    UAP of target piconet (1 byte / 2 hex digits)
  - `-m <int>` :
-   threshold for channel removal, 1 or more (default: 5)
+   threshold for channel removal: a channel is marked unused once this many packets
+   arrive without it being seen; 1 or more (default: 5)
  - `-r` :
    print AFH channel map once every second (default: print on update)
 
@@ -54,7 +55,7 @@ alongside them.
 
 An option value must be a whole value in its range, or it is refused the same
 way instead of being read as 0, for example
-`error: timeout must be 0-2147483647 seconds (got abc)`.
+`error: timeout must be a whole number of seconds, 0 for none (got abc)`.
 
 ## SEE ALSO
 

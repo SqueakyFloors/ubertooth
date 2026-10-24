@@ -25,6 +25,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <getopt.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -59,6 +60,17 @@ int opt_require_int(const char *text, long min, long max,
 		fprintf(stderr, "error: %s must be %ld%s%ld%s (got %s)\n",
 		        what, min, min < 0 ? " to " : "-", max, unit,
 		        text == NULL ? "" : text);
+		return -1;
+	}
+	return 0;
+}
+
+int opt_require_count(const char *text, long min, const char *what,
+                      const char *unit, const char *hint, int *value)
+{
+	if (opt_parse_int(text, min, INT_MAX, value) < 0) {
+		fprintf(stderr, "error: %s must be a whole number of %s, %s (got %s)\n",
+		        what, unit, hint, text == NULL ? "" : text);
 		return -1;
 	}
 	return 0;

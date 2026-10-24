@@ -43,6 +43,13 @@ int opt_parse_int(const char *text, long min, long max, int *value);
 int opt_require_int(const char *text, long min, long max,
                     const char *what, const char *unit, int *value);
 
+/* A whole decimal count of at least <min> with no upper limit of its own (up
+ * to INT_MAX), such as a timeout. On failure it prints
+ * "error: <what> must be a whole number of <unit>, <hint> (got <text>)",
+ * for example hint "0 for none" or "1 or more". */
+int opt_require_count(const char *text, long min, const char *what,
+                      const char *unit, const char *hint, int *value);
+
 /* Hex digits only, between min_digits and max_digits of them, no 0x prefix,
  * no sign and no spaces. Fewer digits than max_digits means leading zeros. */
 int opt_parse_hex(const char *text, size_t min_digits, size_t max_digits,

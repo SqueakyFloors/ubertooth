@@ -142,8 +142,8 @@ int main(int argc, char *argv[])
 			}
 			break;
 		case 'w': //wait
-			if (opt_require_int(optarg, 0, INT_MAX, "USB delay",
-			                    " timeslots", &delay) < 0)
+			if (opt_require_count(optarg, 0, "USB delay",
+			                      "timeslots", "0 or more", &delay) < 0)
 				return 1;
 			break;
 		case 'h':
