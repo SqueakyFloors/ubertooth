@@ -25,8 +25,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <sys/stat.h>  // fchmod, umask
 #include <time.h>
-#include <unistd.h>  // sleep
+#include <unistd.h>  // sleep, unlink, close
 #include "ubertooth.h"
 #include "dfu.h"
 #include "dfu_transition.h"
@@ -753,6 +754,64 @@ static void reopen_dfu_for_detach(struct dfu_runtime_context *runtime,
 	log_dfu_stage("DFU device reopened for detach");
 }
 
+/* Does this file already end in a DFU suffix? A .bin from the build does not,
+ * a signed .dfu does, and -s only needs to tell them apart: the suffix length
+ * and the UFD signature are enough, and a file whose suffix CRC is wrong is
+ * still a file that must not be signed a second time. Leaves the position. */
+static int ends_with_dfu_suffix(FILE* file) {
+	uint8_t suffix[DFU_SUFFIX_LENGTH];
+	long position = ftell(file);
+	int found = 0;
+
+	if (fseek(file, 0, SEEK_END) != 0)
+		return 0;
+	if (ftell(file) >= DFU_SUFFIX_LENGTH &&
+	    fseek(file, -DFU_SUFFIX_LENGTH, SEEK_END) == 0 &&
+	    fread(suffix, 1, sizeof(suffix), file) == sizeof(suffix))
+		found = suffix[DFU_SUFFIX_OFF_BLENGTH] == DFU_SUFFIX_LENGTH &&
+		        suffix[DFU_SUFFIX_OFF_UCDFUSIG + 0] == 0x55 &&
+		        suffix[DFU_SUFFIX_OFF_UCDFUSIG + 1] == 0x46 &&
+		        suffix[DFU_SUFFIX_OFF_UCDFUSIG + 2] == 0x44;
+	if (position >= 0)
+		fseek(file, position, SEEK_SET);
+	return found;
+}
+
+/* Open a temporary file beside target to upload into, so a failed read-back
+ * leaves any earlier file alone; it is renamed over target only once the whole
+ * upload has arrived. The name is stored in *temp_name for the caller to free
+ * and, on failure, unlink. */
+static FILE* open_upload_temp(const char* target, char** temp_name) {
+	size_t length = strlen(target) + sizeof(".XXXXXX");
+	char* name = malloc(length);
+	mode_t mask;
+	FILE* file;
+	int fd;
+
+	if (name == NULL)
+		return NULL;
+	snprintf(name, length, "%s.XXXXXX", target);
+	fd = mkstemp(name);
+	if (fd < 0) {
+		free(name);
+		return NULL;
+	}
+	/* mkstemp() creates the file private to this user; give the finished
+	 * upload the permissions a plain fopen() would have given it. */
+	mask = umask(0);
+	umask(mask);
+	(void)fchmod(fd, (mode_t)(0666 & ~mask));
+	file = fdopen(fd, "w+b");
+	if (file == NULL) {
+		close(fd);
+		unlink(name);
+		free(name);
+		return NULL;
+	}
+	*temp_name = name;
+	return file;
+}
+
 static int get_outfile(char *infile, char **outfile) {
 	char *suffix = strrchr(infile, '.');
 	if (suffix != NULL && strcmp(suffix, ".bin") == 0) {
@@ -775,7 +834,9 @@ static void usage()
 	printf("\tubertooth-dfu -d bluetooth_rxtx.dfu -r\n");
 	printf("\n");
 	printf("Usage:\n");
-	printf("\t-u <filename> upload - read firmware from device\n");
+	printf("\t-u <filename> upload - read the application flash region to a\n");
+	printf("\t              raw file (0x4000-0x3ffff, 245760 bytes, no DFU\n");
+	printf("\t              suffix: it is not a file -d can write back)\n");
 	printf("\t-d <filename> download - write DFU file to device\n");
 	printf("\t-r reset Ubertooth after other operations complete\n");
 	printf("\n");
@@ -795,6 +856,8 @@ int main(int argc, char **argv) {
 	FILE* infile = NULL;
 	FILE* outfile = NULL;
 	char* outfile_name;
+	const char* upfile_name = NULL;
+	char* upfile_temp = NULL;
 	libusb_context* dfu_context = NULL;
 	libusb_device_handle* devh = NULL;
 	struct dfu_usb_identity selected_identity;
@@ -812,7 +875,8 @@ int main(int argc, char **argv) {
 	while ((opt=getopt(argc,argv,"hd:u:s:rU:")) != EOF) {
 		switch(opt) {
 		case 'd':
-			downfile = fopen(optarg, "r+b");
+			/* Read-only: the image is never written to. */
+			downfile = fopen(optarg, "rb");
 			if (downfile == NULL) {
 				perror(optarg);
 				return 1;
@@ -820,7 +884,8 @@ int main(int argc, char **argv) {
 			functions |= FUNC_DOWNLOAD;
 			break;
 		case 'u':
-			upfile = fopen(optarg, "w+b");
+			upfile_name = optarg;
+			upfile = open_upload_temp(upfile_name, &upfile_temp);
 			if (upfile == NULL) {
 				perror(optarg);
 				return 1;
@@ -828,7 +893,7 @@ int main(int argc, char **argv) {
 			functions |= FUNC_UPLOAD;
 			break;
 		case 's':
-			infile = fopen(optarg, "r+b");
+			infile = fopen(optarg, "rb");
 			if (infile == NULL) {
 				perror(optarg);
 				return 1;
@@ -836,11 +901,24 @@ int main(int argc, char **argv) {
 			r = get_outfile(optarg, &outfile_name);
 			if (r == 0) {
 				printf("Error: -s requires a .bin\n");
+				fclose(infile);
+				return 1;
+			}
+			/* Signing an already-signed file would bury the first suffix in
+			 * the firmware payload, so refuse before creating anything. */
+			if (ends_with_dfu_suffix(infile)) {
+				fprintf(stderr,
+				        "error: %s already has a DFU suffix, so %s was not written\n",
+				        optarg, outfile_name);
+				free(outfile_name);
+				fclose(infile);
 				return 1;
 			}
 			outfile = fopen(outfile_name, "w+b");
 			if (outfile == NULL) {
-				perror(optarg);
+				perror(outfile_name);
+				free(outfile_name);
+				fclose(infile);
 				return 1;
 			}
 			free(outfile_name);
@@ -983,9 +1061,18 @@ int main(int argc, char **argv) {
 		upfile = NULL;
 		if(r) {
 			fprintf(stderr, "Firmware upload failed\n");
+			/* cleanup removes the temporary file, so an earlier read-back
+			 * of the same name survives. */
 			exit_status = r;
 			goto cleanup;
 		}
+		if (rename(upfile_temp, upfile_name) != 0) {
+			perror(upfile_name);
+			exit_status = 1;
+			goto cleanup;
+		}
+		free(upfile_temp);
+		upfile_temp = NULL;
 	}
 
 	if(functions & FUNC_DOWNLOAD) {
@@ -1059,6 +1146,11 @@ cleanup:
 	log_dfu_stage("cleanup started");
 	if (upfile != NULL)
 		fclose(upfile);
+	if (upfile_temp != NULL) {
+		unlink(upfile_temp);
+		free(upfile_temp);
+		upfile_temp = NULL;
+	}
 	if (downfile != NULL)
 		fclose(downfile);
 	/* A failure once the board is in DFU must not leave it there: -r asked

@@ -29,6 +29,16 @@ add_test(
 		$<TARGET_FILE:ubertooth-dfu>)
 set_tests_properties(dfu-images PROPERTIES TIMEOUT 15)
 
+# ubertooth-dfu's file handling against the real binary: -s, and which files
+# -d and -u open or replace. Needs no board; the cases that would reach one
+# use a serial no board has. The timeout only catches a tool that waits.
+add_test(
+	NAME dfu-files
+	COMMAND ${Python3_EXECUTABLE}
+		${CMAKE_CURRENT_SOURCE_DIR}/test_dfu_files.py
+		$<TARGET_FILE:ubertooth-dfu>)
+set_tests_properties(dfu-files PROPERTIES TIMEOUT 60)
+
 add_test(
 	NAME ducky-options
 	COMMAND ${Python3_EXECUTABLE}

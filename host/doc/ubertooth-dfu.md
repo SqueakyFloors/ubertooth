@@ -51,6 +51,12 @@ number, so an explicit selector never adopts an unidentified device that was
 already in DFU when the command started. Simultaneous flashing is not yet
 supported or validated.
 
+`-s` and `-d` only read the file they are given, so a firmware image in a
+read-only location can be signed or flashed. `-s <file.bin>` writes
+`<file>.dfu`, and refuses an input that already ends in a DFU suffix: signing
+it again would bury the first suffix in the firmware payload. Nothing is
+written in that case.
+
 In the DFU bootloader, the TX, RX, and USR LEDs will turn on and off in
 sequence. If this does not occur, you can try to manually force the
 device to boot into the bootloader. Refer to [MANUALLY ENTERING
@@ -62,8 +68,9 @@ Major modes:
 
  - `-d <firmware.dfu>` :
    Download - write DFU file to device
- - `-u <output.dfu>` :
-   Upload - read DFU file from device
+ - `-u <output.bin>` :
+   Upload - read the application flash region into a raw file (see [READING
+   FLASH BACK][])
  - `-r` :
    Reset device after performing operation
 
@@ -73,6 +80,24 @@ Miscellaneous:
    Add DFU suffix to binary firmware file
  - `-U <index|serial>` :
    Select the application-mode Ubertooth by enumeration index or serial number
+
+## READING FLASH BACK
+
+`-u <output.bin>` is not the inverse of `-d`: it writes a raw 245760-byte
+(240 KiB) dump of the application flash region, 0x4000 to 0x3ffff, with no DFU
+suffix, so `-d` refuses the result. The dump holds the image that was written
+(its own suffix included, padded with 0xff to the next 256-byte block),
+followed by whatever the rest of the region contains, normally 0xff.
+
+To compare a dump with the image it came from, compare the first bytes and
+check that the rest is padding, for example:
+
+    ubertooth-dfu -U <serial> -u readback.bin -r
+    cmp -n $(stat -f%z bluetooth_rxtx.dfu) bluetooth_rxtx.dfu readback.bin
+
+On Linux use `stat -c%s`. The output file is only replaced once a complete dump
+has arrived: a read-back that fails part-way leaves an earlier file of the same
+name untouched.
 
 ## MANUALLY ENTERING BOOTLOADER
 
