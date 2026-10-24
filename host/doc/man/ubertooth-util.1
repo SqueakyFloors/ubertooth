@@ -208,9 +208,14 @@ device is opened, and the tool exits non\-zero:
 .nf
 $ ubertooth\-util \-U2 \-s
 error: no Ubertooth at index 2 (2 attached)
+indexes change when boards are added or removed; select a board by serial with \-U<serial>
 could not open Ubertooth device
 .fi
 .RE
+.PP
+Indexes are positions in the list of boards attached when the command runs:
+unplugging \fB\fC\-U0\fR makes the old \fB\fC\-U1\fR the new \fB\fC\-U0\fR\&. To keep targeting the same
+board, select it by serial number (or a unique part of it).
 .PP
 This includes a nonzero index with a single Ubertooth attached (\fB\fC\-U1\fR
 of one device is refused; use \fB\fC\-U0\fR, or no \fB\fC\-U\fR at all). With no

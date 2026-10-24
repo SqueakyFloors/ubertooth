@@ -169,7 +169,12 @@ exits non-zero:
 
     $ ubertooth-util -U2 -s
     error: no Ubertooth at index 2 (2 attached)
+    indexes change when boards are added or removed; select a board by serial with -U<serial>
     could not open Ubertooth device
+
+Indexes are positions in the list of boards attached when the command runs:
+unplugging `-U0` makes the old `-U1` the new `-U0`. To keep targeting the same
+board, select it by serial number (or a unique part of it).
 
 This includes a nonzero index with a single Ubertooth attached (`-U1` of one
 device is refused; use `-U0`, or no `-U` at all). With no Ubertooth attached,

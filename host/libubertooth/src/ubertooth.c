@@ -44,6 +44,12 @@
 uint32_t systime;
 FILE* infile = NULL;
 FILE* dumpfile = NULL;
+/* Printed after "no Ubertooth at index": indexes are positions in the current
+ * device list, so they shift when boards are added or removed. */
+#define INDEX_SHIFT_HINT \
+	"indexes change when boards are added or removed; select a board by " \
+	"serial with -U<serial>\n"
+
 int max_ac_errors = 2;
 
 int do_exit = 1;
@@ -246,8 +252,8 @@ static struct libusb_device_handle* find_ubertooth_device_opt(int ubertooth_devi
 		devh = NULL;
 	}
 	else {
-		fprintf(stderr, "error: no Ubertooth at index %d (%d attached)\n",
-		        ubertooth_device, uberteeth);
+		fprintf(stderr, "error: no Ubertooth at index %d (%d attached)\n"
+		        INDEX_SHIFT_HINT, ubertooth_device, uberteeth);
 	}
 	free(ubertooth_devs);
 	libusb_free_device_list(usb_list,1);
@@ -852,8 +858,8 @@ static void report_no_index(const char* u_arg)
 {
 	int attached = ubertooth_count();
 
-	fprintf(stderr, "error: no Ubertooth at index %s (%d attached)\n",
-	        u_arg, attached < 0 ? 0 : attached);
+	fprintf(stderr, "error: no Ubertooth at index %s (%d attached)\n"
+	        INDEX_SHIFT_HINT, u_arg, attached < 0 ? 0 : attached);
 }
 
 /* Shared -U argument handling for all tools: accepts either a numeric device

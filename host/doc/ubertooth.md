@@ -44,7 +44,9 @@ than one attached, every tool takes `-U <index|serial>` to choose one: an
 index is a position in the list of attached Ubertooths (`-U0` is the first),
 and a serial-number string selects that board whatever the enumeration order.
 An index that is not attached is refused (`error: no Ubertooth at index 2 (2
-attached)`) and the tool exits non-zero. See ubertooth-util(1), SELECTING A
+attached)`) and the tool exits non-zero. Indexes are positions in the list of
+boards attached when the command runs, so they shift when a board is added or
+removed; to keep targeting the same board, select it by serial. See ubertooth-util(1), SELECTING A
 DEVICE, for the full description and for listing the attached devices.
 
 ## SUPPORT

@@ -46,7 +46,7 @@ static void bus_with_uberteeth(int n)
 
 	memset(&fake, 0, sizeof(fake));
 	fake.descriptor_fails = -1;
-	fake.devs[0].vid = 0x1d6b; /* a root hub: the kind of device issue #188 opened */
+	fake.devs[0].vid = 0x1d6b; /* a root hub: the kind of device an unchecked index opened */
 	fake.devs[0].pid = 0x0001;
 	for (i = 0; i < n; i++) {
 		fake.devs[1 + i].vid = U1_VENDORID;
@@ -215,8 +215,8 @@ MU_TEST(an_index_in_range_opens_that_device)
 	ubertooth_free(ut);
 }
 
-/* Issue #188: with several devices attached, -U2 opened usb_list[0] (whatever
- * USB device enumerated first) and the tool exited 0. */
+/* With several devices attached, -U2 used to open usb_list[0] (whatever USB
+ * device enumerated first) and the tool exited 0. */
 MU_TEST(an_index_past_several_devices_opens_nothing)
 {
 	static const int past_end[] = { 2, 3, 5, 20, 99 };
@@ -282,6 +282,7 @@ MU_TEST(the_largest_representable_index_is_an_ordinary_refusal)
 	mu_assert(select_capturing("2147483647", msg, sizeof(msg)) == NULL, msg);
 	mu_assert(strcmp(msg,
 	    "error: no Ubertooth at index 2147483647 (2 attached)\n"
+	    "indexes change when boards are added or removed; select a board by serial with -U<serial>\n"
 	    "could not open Ubertooth device\n") == 0, msg);
 
 	/* Leading zeros are still just digits. */
@@ -337,6 +338,7 @@ MU_TEST(the_error_names_the_index_and_the_count)
 	mu_assert(select_capturing("7", msg, sizeof(msg)) == NULL, "-U7 of two");
 	mu_assert(strcmp(msg,
 	    "error: no Ubertooth at index 7 (2 attached)\n"
+	    "indexes change when boards are added or removed; select a board by serial with -U<serial>\n"
 	    "could not open Ubertooth device\n") == 0, msg);
 }
 
