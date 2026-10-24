@@ -59,7 +59,7 @@ static void usage()
 	printf("\n");
 	printf("Miscellaneous:\n");
 	printf("\t-V print version information\n");
-	printf("\t-U <0-7> set ubertooth device to use\n");
+	fputs(OPT_USAGE_SELECT_DEVICE, stdout);
 }
 
 int main(int argc, char* argv[])

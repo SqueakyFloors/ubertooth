@@ -32,7 +32,8 @@ Options:
  - `-v` :
    print verbose output to stderr
  - `-U <index|serial>` :
-   select an Ubertooth by enumeration index or stable serial-number string
+   select an Ubertooth by enumeration index or serial number; see
+   ubertooth(7), SELECTING A DEVICE
 
 ## EXAMPLES
 

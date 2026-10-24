@@ -165,6 +165,9 @@ help_output = (help_result.stdout + help_result.stderr).lower()
 assert help_result.returncode in (0, 1), help_result
 assert TOOL in help_output, help_result
 assert "unexpected argument" not in help_output, help_result
+# every tool prints the same -U line (OPT_USAGE_SELECT_DEVICE in opt_parse.h)
+assert ("\t-u <index|serial> select ubertooth by index or serial; see ubertooth(7)\n"
+        in help_output), help_result
 for message in DEVICE_ACCESS:
     assert message not in help_output, (message, help_result)
 

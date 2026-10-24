@@ -79,7 +79,8 @@ Miscellaneous:
  - `-s <file.bin>` :
    Add DFU suffix to binary firmware file
  - `-U <index|serial>` :
-   Select the application-mode Ubertooth by enumeration index or serial number
+   select the application-mode Ubertooth by enumeration index or serial
+   number; see ubertooth(7), SELECTING A DEVICE
 
 ## READING FLASH BACK
 

@@ -107,8 +107,9 @@ Miscellaneous:
    Deprecated no-op. Sweep mode is now the default; this flag is retained
    for backward compatibility and has no effect.
 
- - `-U<0-7>` :
-   Which Ubertooth device to use
+ - `-U <index|serial>` :
+   select an Ubertooth by enumeration index or serial number; see
+   ubertooth(7), SELECTING A DEVICE
 
 ## DISCOVERING UNDISCOVERABLE DEVICES
 

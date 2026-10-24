@@ -32,7 +32,7 @@ static void usage(void)
 	printf("\t-b only dump received bitstream (GnuRadio style)\n");
 	printf("\t-c classic modulation\n");
 	printf("\t-l LE modulation\n");
-	printf("\t-U<0-7> set ubertooth device to use\n");
+	fputs(OPT_USAGE_SELECT_DEVICE, stdout);
 	printf("\t-d filename\n");
 	printf("\nThis program sends binary data to stdout.  You probably don't want to\n");
 	printf("run it from a terminal without redirecting the output.\n");

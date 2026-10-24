@@ -24,8 +24,8 @@ To pick one of several Ubertooths, run:
 ## OPTIONS
 
  - `-U <index|serial>` :
-   select the Ubertooth by USB enumeration index or by serial number (see
-   ubertooth-util(1), SELECTING A DEVICE)
+   select an Ubertooth by enumeration index or serial number; see
+   ubertooth(7), SELECTING A DEVICE
  - `-l <2402-2480>` :
    lower frequency in MHz (default 2402)
  - `-u <2402-2480>` :

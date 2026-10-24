@@ -21,8 +21,9 @@ as a placeholder/experimental entry point. Do not rely on it.
    target UAP (1 byte / 2 hex digits).
  - `-t <seconds>` :
    timeout; 0 means no timeout (default: 0).
- - `-U <0-7>` :
-   which Ubertooth device to use.
+ - `-U <index|serial>` :
+   select an Ubertooth by enumeration index or serial number; see
+   ubertooth(7), SELECTING A DEVICE
  - `-V` :
    print version information.
 

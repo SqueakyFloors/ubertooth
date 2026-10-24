@@ -132,7 +132,7 @@ static void usage(void)
 	printf("\t-I interfere continuously\n");
 	printf("\n");
 	printf("    Data source:\n");
-	printf("\t-U<0-7> set ubertooth device to use\n");
+	fputs(OPT_USAGE_SELECT_DEVICE, stdout);
 	printf("\n");
 	printf("    Misc:\n");
 	printf("\t-r<filename> capture packets to PCAPNG file\n");

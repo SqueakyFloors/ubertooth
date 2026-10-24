@@ -102,7 +102,7 @@ static void usage(FILE *file)
 	        SPECAN_FREQ_MIN, SPECAN_FREQ_MAX, SPECAN_FREQ_MIN);
 	fprintf(file, "\t-u <%d-%d> upper frequency in MHz (default %d)\n",
 	        SPECAN_FREQ_MIN, SPECAN_FREQ_MAX, SPECAN_FREQ_MAX);
-	fprintf(file, "\t-U <index|serial> select Ubertooth by index or serial\n");
+	fputs(OPT_USAGE_SELECT_DEVICE, file);
 }
 
 int main(int argc, char *argv[])

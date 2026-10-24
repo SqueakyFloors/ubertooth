@@ -56,7 +56,7 @@ static void usage(void)
 	printf("\t-l <%d-%d> capture length as a decimal integer (default: 18)\n",
 	       EGO_PACKET_LENGTH_MIN, EGO_PACKET_LENGTH_MAX);
 	printf("\t-a <access_code> access code, 2, 4, 6 or 8 hex digits (default: 630f9ffe)\n");
-	printf("\t-U <index|serial> select Ubertooth by index or serial\n");
+	fputs(OPT_USAGE_SELECT_DEVICE, stdout);
 }
 
 int main(int argc, char *argv[])
