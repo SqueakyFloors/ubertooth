@@ -146,10 +146,7 @@
   [#188](https://github.com/SqueakyFloors/ubertooth/issues/188)
 - `-U<serial>` takes the full serial or its first few characters, in either
   case, and refuses characters that start more than one attached board's serial
-  (`error: '1c' matches 2 Ubertooth devices: ...`). It no longer matches the
-  *end* of a serial, which was undocumented and ambiguous: Ubertooth serials
-  share their last characters, so a short tail matched several boards and one
-  of them was opened. An attached board that
+  (`error: '1c' matches 2 Ubertooth devices: ...`). An attached board that
   could not be opened or did not answer is reported with the result, instead of
   leaving a non-match looking like a serial that is not attached. The rules are
   documented in ubertooth-util(1), SELECTING A DEVICE, and ubertooth(7).
