@@ -148,8 +148,8 @@ Wireshark plugins
 
 Users of Wireshark version 2.2+ do not need to build any plugins at all and may skip this section (see `this comment <https://github.com/greatscottgadgets/libbtbb/issues/50#issuecomment-284128258>`__). This includes users of Debian 10+, Ubuntu 20.04+, Fedora 33+, RHEL 8.3+, and most other Linux distributions. You can check your version by clicking on Help --> About Wireshark.
 
-Wireshark version 1.12 and newer includes the Ubertooth Bluetooth Low Energy
-(BLE) plugin by default. It is also possible to `capture BLE from Ubertooth
+Wireshark version 1.12 and newer includes the Ubertooth BLE plugin by
+default. It is also possible to `capture BLE from Ubertooth
 directly into Wireshark
 <https://ubertooth.readthedocs.io/en/latest/capturing_BLE_Wireshark.html>`__
 with a little work.

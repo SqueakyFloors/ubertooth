@@ -15,7 +15,7 @@ USB bootloader
 
 This is the recommended method of loading code onto an Ubertooth Zero or Ubertooth One provided that the USB bootloader is already installed (at the time of manufacture, for example). If you need to install the bootloader itself, you will have to use either ISP or JTAG.
 
-The bootloader executes every time the device starts up from reset or power cycle. Normally it just gets out of the way and passes control to the application firmware very quickly. Alternatively it can enter Device Firmware Upgrade (DFU) mode which permits firmware upload and download over USB. There are two ways to tell the bootloader that you want it to enter DFU mode:
+The bootloader executes every time the device starts up from reset or power cycle. Normally it just gets out of the way and passes control to the application firmware very quickly. Alternatively it can enter DFU mode which permits firmware upload and download over USB. There are two ways to tell the bootloader that you want it to enter DFU mode:
 
     #. soft bootloader entry: By setting a flag in RAM, the application firmware can instruct the bootloader to enter DFU mode following a reset (without loss of power). For example, with the bluetooth_rxtx firmware running you can trigger a reset into DFU mode using 'ubertooth-util -f' (located in host/bluetooth_rxtx/). Soft entry only works on Ubertooth One, not Ubertooth Zero.
 

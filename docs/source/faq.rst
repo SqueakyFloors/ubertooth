@@ -57,6 +57,6 @@ The following may be possible:
 
 ----------
 
-**Question: What is the max capture size of Bluetooth Low Energy (BLE) packets?**
+**Question: What is the max capture size of BLE packets?**
 
 **Answer:** 50 bytes. Longer BLE packets are truncated to 50 bytes by the Ubertooth firmware. 

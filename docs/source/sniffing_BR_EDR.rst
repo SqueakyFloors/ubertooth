@@ -2,7 +2,7 @@ Sniffing Classic Bluetooth
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Classic Bluetooth Basic Rate/Enhanced Data Rate (BR/EDR) sniffing works
-differently from Bluetooth Low Energy (BLE). There is no
+differently from BLE. There is no
 advertising channel to watch: a piconet hops across 79 channels, 1600 times a
 second, in a sequence derived from the central's address and clock. Ubertooth
 recovers those parameters from the air before it can follow a piconet.
@@ -33,7 +33,7 @@ parts:
   * - Upper Address Part (UAP)
     - next 8
     - ``66``
-    - Calculated from captured packets (header error check / Cyclic Redundancy Check (CRC))
+    - Calculated from captured packets (header error check / CRC)
   * - Lower Address Part (LAP)
     - low 24
     - ``88:AA:BB``

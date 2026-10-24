@@ -4,7 +4,7 @@
 
 ### New features
 
-- ubertooth-btle can stream packet capture (PCAP) data to stdout with `-q -`
+- ubertooth-btle can stream PCAP data to stdout with `-q -`
   or `-c -`, safely separating diagnostics for Wireshark and other consumers.
   Credit: Ryan Govostes ([@rgov](https://github.com/rgov)).
   [#7](https://github.com/SqueakyFloors/ubertooth/issues/7)
@@ -148,11 +148,11 @@
   their value as the next word.
   [#155](https://github.com/SqueakyFloors/ubertooth/issues/155)
 - Firmware no longer stops answering USB control
-  requests after a Bluetooth Low Energy (BLE) sniffing mode is stopped, so the
+  requests after a BLE sniffing mode is stopped, so the
   board no longer needs a re-plug to be usable again.
   [#158](https://github.com/SqueakyFloors/ubertooth/issues/158)
-- `ubertooth-dfu -s` refuses a binary that already carries a Device Firmware
-  Upgrade (DFU) suffix instead of adding a second one, and names the output
+- `ubertooth-dfu -s` refuses a binary that already carries a DFU suffix
+  instead of adding a second one, and names the output
   file when it cannot create it. `-s` and `-d` now only read their input, so a
   firmware image in a read-only location can be signed or flashed. A `-u`
   read-back that fails part-way no longer empties an earlier file of the same
@@ -188,7 +188,7 @@
 - `ubertooth-dfu -d` checks the whole image before the board leaves its
   application, so a corrupt, truncated, unsigned or empty file is refused with
   exit 1 and leaves the board running its firmware instead of stranded in the
-  Device Firmware Upgrade (DFU) bootloader. A failure once the board is already
+  DFU bootloader. A failure once the board is already
   in DFU now detaches it anyway when `-r` was given, finding the DFU device
   again if the failure closed the handle. The image's DFU suffix must also name
   this device (`1d50:6003`, or the `0xffff` wildcard): firmware for another
@@ -230,8 +230,8 @@
   many bytes it is reading and where that figure came from.
   [#233](https://github.com/SqueakyFloors/ubertooth/issues/233)
 
-- `ubertooth-dfu` now performs bounded, device-specific Device Firmware
-  Upgrade (DFU) entry and recovery, retries interrupted transfers, and verifies
+- `ubertooth-dfu` now performs bounded, device-specific DFU entry and
+  recovery, retries interrupted transfers, and verifies
   that the selected device returns with the expected firmware revision.
   [#29](https://github.com/SqueakyFloors/ubertooth/issues/29)
   [#31](https://github.com/SqueakyFloors/ubertooth/issues/31)
@@ -246,8 +246,7 @@
 - `ubertooth-ego` rejects malformed and out-of-range packet lengths before
   opening the device.
   [#39](https://github.com/SqueakyFloors/ubertooth/issues/39)
-- Firmware received signal strength indicator (RSSI) averaging now rounds
-  negative decibels relative to one milliwatt (dBm) correctly.
+- Firmware RSSI averaging now rounds negative dBm correctly.
   [#15](https://github.com/SqueakyFloors/ubertooth/issues/15)
 - Firmware version strings and header dependencies now update reliably after
   source or revision changes, including GNU Make 3.81 and source archives.
@@ -347,7 +346,7 @@
 - Improve Classic Bluetooth paging speed and reliability. Credit: Hillel
   Chimowicz ([@hllhll](https://github.com/hllhll)).
   [upstream #540](https://github.com/greatscottgadgets/ubertooth/pull/540)
-- Bluetooth and Bluetooth Low Energy (BLE) transmit and jamming
+- Bluetooth and BLE transmit and jamming
   (`ubertooth-tx`, `ubertooth-btle -s` and its interference modes,
   `ubertooth-ducky`, `ubertooth-ego -j`) now transmit at the power amplifier
   level set with `ubertooth-util -a`, instead of forcing a level of their own
@@ -374,7 +373,7 @@
   Synchronization (FHS) recovery guidance.
   [#9](https://github.com/SqueakyFloors/ubertooth/issues/9)
   [#42](https://github.com/SqueakyFloors/ubertooth/issues/42)
-- Expanded Bluetooth Low Energy (BLE) connection-capture modes, targeting,
+- Expanded BLE connection-capture modes, targeting,
   and limitations.
   [#8](https://github.com/SqueakyFloors/ubertooth/issues/8)
 - Updated macOS/Homebrew dependencies and CMake 4 build flags.

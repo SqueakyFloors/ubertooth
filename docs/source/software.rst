@@ -17,7 +17,7 @@ Command-line tools
 The host tools, grouped by purpose. "Needs" lists what is required beyond the
 Ubertooth itself. Each tool also has a manual page under ``host/doc/``.
 
-**Bluetooth Low Energy (BLE)**
+**BLE**
 
 - ``ubertooth-btle`` — Passive BLE monitoring; follow connections / capture
   advertising with ``-f``. (Needs: ambient BLE traffic.) The most commonly used
