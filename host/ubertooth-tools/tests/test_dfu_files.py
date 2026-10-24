@@ -4,8 +4,9 @@
 Run as: test_dfu_files.py <path to ubertooth-dfu>
 
 No board is needed. The cases that would otherwise reach a device use a serial
-number no board has, so the tool stops at device selection; nothing is opened,
-claimed or changed. The read-only cases are skipped when running as root,
+number no board has, and the tool runs with UBERTOOTH_TEST_NO_DEVICES=1, so
+device selection finds nothing without opening anything whatever is attached
+(#219). The read-only cases are skipped when running as root,
 because root ignores the permissions they rely on.
 """
 
@@ -19,6 +20,10 @@ import tempfile
 BINARY = sys.argv[1]
 NO_SUCH_SERIAL = "ffffffffffffffffffffffffffffffff"
 NOT_FOUND = f"no ubertooth found with serial matching '{NO_SUCH_SERIAL}'"
+# Hide attached boards from the tool: matching a serial otherwise opens every
+# one of them to read its serial, which stalls on a board another process is
+# using (#219).
+ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1")
 SUFFIX_LENGTH = 16
 AS_ROOT = hasattr(os, "geteuid") and os.geteuid() == 0
 
@@ -34,7 +39,7 @@ def check(condition, message):
 def run(*arguments):
     command = [BINARY, *arguments]
     result = subprocess.run(command, capture_output=True, text=True,
-                            timeout=20, check=False)
+                            timeout=20, check=False, env=ENVIRONMENT)
     output = result.stdout + result.stderr
     print("$", " ".join(command))
     if output:
