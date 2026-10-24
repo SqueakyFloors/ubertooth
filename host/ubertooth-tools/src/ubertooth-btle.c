@@ -402,6 +402,10 @@ int main(int argc, char *argv[])
 		int r;
 		if (do_crc == 2) {
 			r = cmd_get_crc_verify(ut->devh);
+			if (r < 0) {
+				fprintf(stderr, "error: CRC verify read failed\n");
+				return 1;
+			}
 		} else {
 			cmd_set_crc_verify(ut->devh, do_crc);
 			r = do_crc;

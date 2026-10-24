@@ -163,12 +163,13 @@ int cmd_set_usrled(struct libusb_device_handle* devh, u16 state)
 /* A fixed-size control read must return exactly the bytes asked for. A
  * short or empty reply (seen with stalled control transfers in follow mode)
  * would otherwise hand back whatever the result buffer held, as if it were a
- * real value. Returns r unchanged unless it is a short reply. */
+ * real value. Returns r unchanged unless the length is wrong, and then
+ * LIBUSB_ERROR_IO. The message matches the other "<what>: short reply" ones. */
 static int check_reply_length(int r, int want, const char *what)
 {
 	if (r >= 0 && r != want) {
-		fprintf(stderr, "error: short reply to %s request (%d of %d bytes)\n",
-		        what, r, want);
+		fprintf(stderr, "%s: %s reply (%d of %d bytes)\n",
+		        what, r < want ? "short" : "long", r, want);
 		return LIBUSB_ERROR_IO;
 	}
 	return r;
@@ -317,10 +318,9 @@ int cmd_get_part_id(struct libusb_device_handle* devh, u32 *part_id)
 		show_libusb_error(r);
 		return r;
 	}
-	if (r != 5) {
-		fprintf(stderr, "part ID: short reply (%d of 5 bytes)\n", r);
-		return LIBUSB_ERROR_IO;
-	}
+	r = check_reply_length(r, 5, "part ID");
+	if (r < 0)
+		return r;
 	/* result[0] is the In-Application Programming (IAP) status code. */
 	if (result[0] != 0) {
 		fprintf(stderr, "part ID: device status not zero: %d\n", result[0]);
@@ -833,6 +833,9 @@ uint32_t cmd_get_clock(struct libusb_device_handle* devh)
 		show_libusb_error(r);
 		return r;
 	}
+	r = check_reply_length(r, 4, "clock");
+	if (r < 0)
+		return r;
 	clock = data[0] | data[1] << 8 | data[2] << 16 | data[3] << 24;
 	printf("Read clock = 0x%x\n", clock);
 	return clock;
@@ -896,6 +899,9 @@ u32 cmd_get_access_address(struct libusb_device_handle* devh)
 		show_libusb_error(r);
 		return r;
 	}
+	r = check_reply_length(r, 4, "access address");
+	if (r < 0)
+		return r;
 	access_address = data[0] | data[1] << 8 | data[2] << 16 | data[3] << 24;
 	return access_address;
 }
@@ -1030,6 +1036,9 @@ int cmd_read_register(struct libusb_device_handle* devh, u8 reg)
 		}
 		return r;
 	}
+	r = check_reply_length(r, 2, "register");
+	if (r < 0)
+		return r;
 
 	return (data[0] << 8) | data[1];
 }

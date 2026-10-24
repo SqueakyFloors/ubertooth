@@ -40,8 +40,15 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle *dev_handle,
 	(void)timeout;
 	fake.last_request = bRequest;
 	fake.last_length = wLength;
-	if (fake.rc > 0)
-		memcpy(data, fake.reply, (size_t)fake.rc);
+	/* never copy more than the caller's buffer or the scripted reply */
+	if (fake.rc > 0) {
+		size_t n = (size_t)fake.rc;
+		if (n > wLength)
+			n = wLength;
+		if (n > sizeof(fake.reply))
+			n = sizeof(fake.reply);
+		memcpy(data, fake.reply, n);
+	}
 	return fake.rc;
 }
 
@@ -146,6 +153,23 @@ MU_TEST(serial_needs_all_17_bytes)
 	mu_assert_int_eq(LIBUSB_ERROR_IO, cmd_get_serial(NULL, serial));
 }
 
+MU_TEST(four_and_two_byte_reads_need_their_full_length)
+{
+	script(4, 0);
+	fake.reply[0] = 0x78; fake.reply[1] = 0x56; fake.reply[2] = 0x34; fake.reply[3] = 0x12;
+	mu_assert(cmd_get_clock(NULL) == 0x12345678u, "clock");
+	mu_assert(cmd_get_access_address(NULL) == 0x12345678u, "access address");
+	script(3, 0x11);
+	mu_assert(cmd_get_clock(NULL) == (uint32_t)LIBUSB_ERROR_IO, "short clock");
+	mu_assert(cmd_get_access_address(NULL) == (uint32_t)LIBUSB_ERROR_IO, "short access address");
+
+	script(2, 0);
+	fake.reply[0] = 0x12; fake.reply[1] = 0x34;
+	mu_assert_int_eq(0x1234, cmd_read_register(NULL, 0x05));
+	script(1, 0x12);
+	mu_assert_int_eq(LIBUSB_ERROR_IO, cmd_read_register(NULL, 0x05));
+}
+
 MU_TEST(range_result_needs_all_5_bytes)
 {
 	rangetest_result rr;
@@ -173,5 +197,6 @@ int main(void)
 	MU_RUN(channel_needs_both_bytes);
 	MU_RUN(serial_needs_all_17_bytes);
 	MU_RUN(range_result_needs_all_5_bytes);
+	MU_RUN(four_and_two_byte_reads_need_their_full_length);
 	return mu_report();
 }

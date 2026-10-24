@@ -143,6 +143,10 @@
   serial, range result and others) report a short reply as an error instead of
   returning a value made from stale bytes, such as channel 0 right after
   hopping starts. [#149](https://github.com/SqueakyFloors/ubertooth/issues/149)
+- Every fixed-size libubertooth read (channel, clock, LEDs, PA level, squelch,
+  board ID, serial, part ID, access address, register, modulation, CRC verify,
+  range result) reports a short reply as an error instead of returning a value
+  made from stale bytes, such as channel 0 right after hopping starts. [#149](https://github.com/SqueakyFloors/ubertooth/issues/149)
 - `ubertooth-util` refuses a word that is not an option, such as `- V`, with an
   error and exit 1 before opening the device, instead of ignoring it and
   running the rest of the command. Option values may now be the next word:
