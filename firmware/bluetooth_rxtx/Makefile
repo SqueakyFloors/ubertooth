@@ -20,6 +20,8 @@ SRC = $(TARGET).c \
 	tinyprintf.c \
 	fault.c \
 	xmas.c \
+	identify.c \
+	identify_blink.c \
 	$(LIBS_PATH)/usb_serial.c \
 	$(LIBS_PATH)/serial_fifo.c \
 	$(LIBS_PATH)/LPC17xx_Startup.c \

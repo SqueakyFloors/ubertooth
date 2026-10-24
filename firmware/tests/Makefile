@@ -11,7 +11,7 @@ CFLAGS  ?= -O2 -Wall -Wextra -std=gnu99 -g
 FW_RXTX := ../bluetooth_rxtx
 CPPFLAGS += -I. -I$(FW_RXTX)
 
-TESTS   := test_rssi test_bluetooth_hop test_access_code
+TESTS   := test_rssi test_bluetooth_hop test_access_code test_identify_blink
 BINDIR  := bin
 
 .PHONY: all test clean
@@ -31,6 +31,11 @@ $(BINDIR)/test_bluetooth_hop: test_bluetooth_hop.c minunit.h stubs/ubertooth.h \
 $(BINDIR)/test_access_code: test_access_code.c minunit.h ubertooth.h \
 		$(FW_RXTX)/bluetooth.c $(FW_RXTX)/bluetooth.h | $(BINDIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ test_access_code.c
+
+# The identify blink pattern has no hardware dependency, so it compiles as is.
+$(BINDIR)/test_identify_blink: test_identify_blink.c minunit.h \
+		$(FW_RXTX)/identify_blink.c $(FW_RXTX)/identify_blink.h | $(BINDIR)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ test_identify_blink.c $(FW_RXTX)/identify_blink.c
 
 $(BINDIR):
 	mkdir -p $(BINDIR)

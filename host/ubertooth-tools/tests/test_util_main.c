@@ -30,6 +30,7 @@ static struct {
 	int stop_rc, reset_rc, set_channel_rc, set_usrled_rc, set_rxled_rc;
 	int set_txled_rc, set_palevel_rc, set_squelch_rc, flash_rc, isp_rc;
 	int led_specan_rc, range_test_rc, repeater_rc, tx_test_rc, xmas_rc;
+	int identify_rc;
 	int rangeresult_rc, do_something_rc, do_something_reply_rc;
 	rangetest_result range;
 	/* bookkeeping */
@@ -39,8 +40,12 @@ static struct {
 	char selector[64];
 	int stop_calls, flash_calls, isp_calls, led_specan_calls, range_test_calls;
 	int repeater_calls, tx_test_calls, xmas_calls, reset_calls;
+	int identify_calls;
 	int last_channel_set, last_squelch_set, last_led_specan_arg;
 	int last_palevel_set, last_usrled_set;
+	/* LED writes, for the host-side identify blink */
+	int usrled_writes, rxled_writes, txled_writes;
+	int last_usrled_level, last_rxled_level, last_txled_level;
 	/* multi-device listing */
 	int current_index;     /* device opened by ubertooth_start(), or -1 */
 	int unavailable_index; /* ubertooth_start() fails for this index */
@@ -91,7 +96,7 @@ static void reset_fake(void)
 	fake.palevel = 7;
 	fake.squelch = 136; /* unsigned byte 0x88, printed as -120 */
 	fake.partnum = 0x25011723;
-	fake.api_version = 0x0107;
+	fake.api_version = 0x0108; /* firmware that runs identify on the board */
 	fake.revision = "git-test";
 	fake.compile_info = "compile-test";
 	fake.device_count = 1;
@@ -321,9 +326,31 @@ int cmd_set_channel(struct libusb_device_handle *h, u16 channel)
 	return fake.set_channel_rc;
 }
 
-int cmd_set_usrled(struct libusb_device_handle *h, u16 s) { fake_use(h); fake.last_usrled_set = s + 1; return fake.set_usrled_rc; }
-int cmd_set_rxled(struct libusb_device_handle *h, u16 s) { fake_use(h); (void)s; return fake.set_rxled_rc; }
-int cmd_set_txled(struct libusb_device_handle *h, u16 s) { fake_use(h); (void)s; return fake.set_txled_rc; }
+int cmd_set_usrled(struct libusb_device_handle *h, u16 s)
+{
+	fake_use(h);
+	fake.last_usrled_set = s + 1;
+	fake.usrled_writes++;
+	fake.last_usrled_level = s;
+	return fake.set_usrled_rc;
+}
+
+int cmd_set_rxled(struct libusb_device_handle *h, u16 s)
+{
+	fake_use(h);
+	fake.rxled_writes++;
+	fake.last_rxled_level = s;
+	return fake.set_rxled_rc;
+}
+
+int cmd_set_txled(struct libusb_device_handle *h, u16 s)
+{
+	fake_use(h);
+	fake.txled_writes++;
+	fake.last_txled_level = s;
+	return fake.set_txled_rc;
+}
+
 int cmd_set_palevel(struct libusb_device_handle *h, u16 l) { fake_use(h); fake.last_palevel_set = l; return fake.set_palevel_rc; }
 
 int cmd_set_squelch(struct libusb_device_handle *h, u16 level)
@@ -339,6 +366,7 @@ int cmd_range_test(struct libusb_device_handle *h) { fake_use(h); fake.range_tes
 int cmd_repeater(struct libusb_device_handle *h) { fake_use(h); fake.repeater_calls++; return fake.repeater_rc; }
 int cmd_tx_test(struct libusb_device_handle *h) { fake_use(h); fake.tx_test_calls++; return fake.tx_test_rc; }
 int cmd_xmas(struct libusb_device_handle *h) { fake_use(h); fake.xmas_calls++; return fake.xmas_rc; }
+int cmd_identify(struct libusb_device_handle *h) { fake_use(h); fake.identify_calls++; return fake.identify_rc; }
 
 int cmd_led_specan(struct libusb_device_handle *h, u16 rssi)
 {
@@ -427,7 +455,7 @@ static struct run_result run_util(const char *const *args)
 /* Exact expected report lines, in the order ubertooth-util prints them. */
 #define BOARD_LINE "Board ID Number: 1 (Ubertooth One)\n"
 #define CHANNEL_LINE "Current frequency: 2441 MHz (Bluetooth channel 39)\n"
-#define FIRMWARE_LINE "Firmware version: git-test (API:1.07)\n"
+#define FIRMWARE_LINE "Firmware version: git-test (API:1.08)\n"
 #define COMPILE_LINE "compile-test\n"
 #define USRLED_LINE "USR LED status: 0\n"
 #define PALEVEL_LINE "PA Level: 7\n"
@@ -799,7 +827,7 @@ MU_TEST(stop_and_reset_report_failures)
 
 /* ---- mode commands: success and failure ------------------------------- */
 
-static const char *const mode_options[] = { "-f", "-i", "-q", "-n", "-e", "-t", "-x" };
+static const char *const mode_options[] = { "-f", "-i", "-q", "-n", "-e", "-t", "-x", "-I" };
 #define MODE_COUNT (sizeof(mode_options) / sizeof(mode_options[0]))
 
 /* The scripted result and call counter for the i-th mode command. */
@@ -807,7 +835,7 @@ static int *mode_result(size_t i)
 {
 	int *results[] = {
 		&fake.flash_rc, &fake.isp_rc, &fake.led_specan_rc, &fake.range_test_rc,
-		&fake.repeater_rc, &fake.tx_test_rc, &fake.xmas_rc,
+		&fake.repeater_rc, &fake.tx_test_rc, &fake.xmas_rc, &fake.identify_rc,
 	};
 	return results[i];
 }
@@ -817,7 +845,7 @@ static int mode_calls(size_t i)
 	int calls[] = {
 		fake.flash_calls, fake.isp_calls, fake.led_specan_calls,
 		fake.range_test_calls, fake.repeater_calls, fake.tx_test_calls,
-		fake.xmas_calls,
+		fake.xmas_calls, fake.identify_calls,
 	};
 	return calls[i];
 }
@@ -858,6 +886,110 @@ MU_TEST(a_failed_stop_before_a_mode_command_fails_the_command)
 		mu_assert_int_eq(1, r.rc);
 		mu_assert_int_eq(1, mode_calls(i)); /* the mode still ran */
 	}
+}
+
+/*
+ * -I starts the blink on the board and returns, like every other mode: no host
+ * loop, no LED writes over USB, and nothing to interrupt. The CTest timeout on
+ * this test is the backstop if that ever regresses.
+ */
+MU_TEST(identify_starts_the_blink_on_the_board_and_returns)
+{
+	struct run_result r;
+
+	reset_fake();
+	r = RUN("-I");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, fake.identify_calls);
+	mu_assert_int_eq(1, fake.stop_calls); /* leaves any prior mode first */
+	mu_assert_int_eq(0, fake.usrled_writes); /* the board does the blinking */
+	mu_assert_int_eq(0, fake.rxled_writes);
+	mu_assert_int_eq(0, fake.txled_writes);
+	mu_assert_int_eq(0, fake.sleeps);
+	mu_assert(strstr(r.out, "Flashing LEDs on ubertooth device 0\n") != NULL,
+	          "names what it did");
+	mu_assert(strstr(r.out, "-S") != NULL, "says how to stop it");
+
+	/* -U is reported in the same line as before */
+	reset_fake();
+	r = RUN("-U", "abc123", "-I");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.out, "Flashing LEDs on ubertooth device abc123\n") != NULL,
+	          "names the selected device");
+
+	/* a request that fails for any reason other than a stall fails the
+	 * command, and does not fall back to blinking from the host */
+	reset_fake();
+	fake.identify_rc = LIBUSB_ERROR_IO;
+	r = RUN("-I");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, fake.identify_calls);
+	mu_assert_int_eq(0, fake.usrled_writes);
+	mu_assert_int_eq(0, fake.sleeps);
+}
+
+/*
+ * Firmware with no identify mode: the LEDs are blinked from the host instead,
+ * for a bounded time (the clock and the sleep are faked here, so this runs
+ * instantly), and are left off afterwards.
+ */
+MU_TEST(identify_falls_back_to_a_bounded_host_blink_on_old_firmware)
+{
+	/* toggles that fit in the window, plus the final write that turns the
+	 * LEDs off */
+	const int toggles = (int)(UTIL_IDENTIFY_FALLBACK_MS + UBERTOOTH_IDENTIFY_BLINK_MS - 1) /
+	                    UBERTOOTH_IDENTIFY_BLINK_MS;
+	const int writes = toggles + 1;
+	struct run_result r;
+
+	/* an API version from before the board-side mode */
+	reset_fake();
+	fake.api_version = UBERTOOTH_API_IDENTIFY - 1;
+	r = RUN("-I");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0, fake.identify_calls); /* not even attempted */
+	mu_assert_int_eq(writes, fake.usrled_writes);
+	mu_assert_int_eq(writes, fake.rxled_writes);
+	mu_assert_int_eq(writes, fake.txled_writes);
+	mu_assert_int_eq(0, fake.last_usrled_level); /* all three left off */
+	mu_assert_int_eq(0, fake.last_rxled_level);
+	mu_assert_int_eq(0, fake.last_txled_level);
+	mu_assert_int_eq(toggles, fake.sleeps);
+	mu_assert(strstr(r.out, "blinking from the host for 10 s") != NULL,
+	          "says where the blink runs");
+	/* bounded: it stopped within one interval of the deadline */
+	mu_assert((int)fake.now_ms - 1000 >= (int)UTIL_IDENTIFY_FALLBACK_MS &&
+	          (int)fake.now_ms - 1000 <
+	              (int)(UTIL_IDENTIFY_FALLBACK_MS + UBERTOOTH_IDENTIFY_BLINK_MS),
+	          "blinked for the whole window and no longer");
+
+	/* current firmware whose API version cannot be read falls back too */
+	reset_fake();
+	fake.api_rc = -1;
+	r = RUN("-I");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0, fake.identify_calls);
+	mu_assert_int_eq(writes, fake.usrled_writes);
+	mu_assert_int_eq(0, fake.last_usrled_level);
+
+	/* as does firmware that reports a new API version but stalls the request */
+	reset_fake();
+	fake.identify_rc = LIBUSB_ERROR_PIPE;
+	r = RUN("-I");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, fake.identify_calls);
+	mu_assert_int_eq(writes, fake.usrled_writes);
+	mu_assert_int_eq(0, fake.last_usrled_level);
+
+	/* a failed LED write ends the blink and fails the command, instead of
+	 * writing to a dead device for ten seconds */
+	reset_fake();
+	fake.api_version = UBERTOOTH_API_IDENTIFY - 1;
+	fake.set_usrled_rc = LIBUSB_ERROR_NO_DEVICE;
+	r = RUN("-I");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(2, fake.usrled_writes); /* the first toggle, then off */
+	mu_assert_int_eq(0, fake.sleeps);
 }
 
 MU_TEST(led_specan_uses_the_default_threshold_and_an_explicit_one)
@@ -1361,7 +1493,7 @@ MU_TEST(firmware_listing_with_several_devices_reports_each_device)
 	r = RUN("-v");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(r.out,
-	                 "0: git-test (API:1.07)\n1: git-test (API:1.07)\n") == 0,
+	                 "0: git-test (API:1.08)\n1: git-test (API:1.08)\n") == 0,
 	          "per-device firmware lines");
 }
 
@@ -1393,7 +1525,7 @@ MU_TEST(each_identity_query_alone_lists_every_device_compactly)
 {
 	struct { const char *option; const char *expected; } cases[] = {
 		{ "-b", "0: 1 (Ubertooth One)\n1: 1 (Ubertooth One)\n" },
-		{ "-v", "0: git-test (API:1.07)\n1: git-test (API:1.07)\n" },
+		{ "-v", "0: git-test (API:1.08)\n1: git-test (API:1.08)\n" },
 		{ "-V", "0: compile-test\n1: compile-test\n" },
 		{ "-p", "0: 25011723\n1: 25011723\n" },
 		{ "-s", "0: " SERIAL_VALUE "\n1: " SERIAL_VALUE "\n" },
@@ -1523,7 +1655,7 @@ MU_TEST(a_failed_read_on_one_device_is_reported_and_fails_the_listing)
 	r = RUN("-v");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.out,
-	                 "0: <firmware read failed>\n1: git-test (API:1.07)\n") == 0,
+	                 "0: <firmware read failed>\n1: git-test (API:1.08)\n") == 0,
 	          "failed revision read shown per device");
 
 	reset_fake();
@@ -1700,7 +1832,7 @@ MU_TEST(u_all_is_rejected_before_opening_a_device_for_any_other_option)
 		mu_assert_int_eq(0, fake.reset_calls);
 		mu_assert_int_eq(0, fake.flash_calls + fake.isp_calls + fake.led_specan_calls +
 		                    fake.range_test_calls + fake.repeater_calls +
-		                    fake.tx_test_calls + fake.xmas_calls);
+		                    fake.tx_test_calls + fake.xmas_calls + fake.identify_calls);
 	}
 
 	/* -U all with no query at all is rejected the same way */
@@ -2063,6 +2195,8 @@ int main(void)
 	MU_RUN(stop_and_reset_report_failures);
 	MU_RUN(mode_commands_exit_zero_on_success_and_one_on_failure);
 	MU_RUN(a_failed_stop_before_a_mode_command_fails_the_command);
+	MU_RUN(identify_starts_the_blink_on_the_board_and_returns);
+	MU_RUN(identify_falls_back_to_a_bounded_host_blink_on_old_firmware);
 	MU_RUN(led_specan_uses_the_default_threshold_and_an_explicit_one);
 	MU_RUN(two_or_more_mode_options_are_rejected_before_opening_the_device);
 	MU_RUN(stray_arguments_are_rejected_before_any_device_action);

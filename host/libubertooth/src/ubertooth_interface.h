@@ -25,7 +25,17 @@
 #include <stdint.h>
 
 // increment on every API change
-#define UBERTOOTH_API_VERSION 0x0107
+#define UBERTOOTH_API_VERSION 0x0108
+
+/* Firmware from this API version on runs identify (UBERTOOTH_IDENTIFY) as a
+ * board-side mode. Older firmware stalls the request, and the host blinks the
+ * LEDs itself instead. */
+#define UBERTOOTH_API_IDENTIFY 0x0108
+
+/* How often the identify blink toggles the USR/RX/TX LEDs, in milliseconds
+ * (about three toggles a second). The board-side mode uses it, and the host
+ * fallback matches it so both blink at the same rate. */
+#define UBERTOOTH_IDENTIFY_BLINK_MS 167
 
 #define DMA_SIZE 50
 
@@ -118,6 +128,7 @@ enum ubertooth_usb_commands {
 	UBERTOOTH_LE_SET_ADV_DATA    = 71,
 	UBERTOOTH_RFCAT_SUBCMD       = 72,
 	UBERTOOTH_XMAS               = 73,
+	UBERTOOTH_IDENTIFY           = 74,
 };
 
 enum rfcat24_subcommands {

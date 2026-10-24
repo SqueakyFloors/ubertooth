@@ -181,5 +181,10 @@ int cmd_hop(struct libusb_device_handle* devh);
 int cmd_cancel_follow(struct libusb_device_handle* devh);
 int cmd_rfcat_subcmd(struct libusb_device_handle* devh, int cmd, uint8_t *body, size_t body_len);
 int cmd_xmas(struct libusb_device_handle* devh);
+/* Starts the board-side identify blink (firmware API UBERTOOTH_API_IDENTIFY
+ * and later). Returns 0, or a negative libusb error; LIBUSB_ERROR_PIPE means
+ * the firmware does not know the request and is reported by the caller, not
+ * here. */
+int cmd_identify(struct libusb_device_handle* devh);
 
 #endif /* __UBERTOOTH_CONTROL_H__ */

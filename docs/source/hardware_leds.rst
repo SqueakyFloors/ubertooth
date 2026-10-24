@@ -26,16 +26,21 @@ TX                P1.8      Lit while the radio is transmitting
                             (``TXLED_SET`` / ``TXLED_CLR``).
 ================  ========  ====================================================
 
-``ubertooth-util -I`` ("identify") continuously toggles all three together so
-you can pick a specific device out of several; it runs until interrupted
-(Ctrl-C). On a typical Ubertooth One these three appear as adjacent
+``ubertooth-util -I`` ("identify") toggles all three together, about three
+toggles a second, so you can pick a specific device out of several. The blink
+runs on the board as its own mode, so the command returns at once; it keeps
+blinking until ``ubertooth-util -S`` stops it or another mode replaces it, and
+the LEDs end off. (Firmware older than API version 1.08 has no identify mode;
+with it the host blinks the LEDs over USB for 10 seconds or until Ctrl-C
+instead.) On a typical Ubertooth One these three appear as adjacent
 yellow/orange/red LEDs.
 
 Host control:
 
 - ``ubertooth-util -l0`` / ``-l1`` — turn the USR LED off / on.
 - ``ubertooth-util -d0`` / ``-d1`` — turn all three off / on.
-- ``ubertooth-util -I`` — flash all three to identify the device.
+- ``ubertooth-util -I`` — flash all three to identify the device;
+  ``ubertooth-util -S`` stops it.
 
 Power / status LEDs (not software-controllable)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
