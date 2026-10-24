@@ -320,6 +320,7 @@ static void close_dfu_device(libusb_device_handle *devh, int claimed)
 struct dfu_runtime_context {
 	libusb_context *usb_context;
 	FILE *download_file;
+	FILE *upload_file;
 	unsigned app_attempts;
 	unsigned dfu_polls;
 	unsigned transfer_attempts;
@@ -463,64 +464,69 @@ int dfu_abort(libusb_device_handle* devh) {
 	return 0;
 }
 
+/* The state machine of enter_dfu_mode() runs in dfu_reach_idle(); these are
+ * its operations over libusb. */
+static int idle_get_state(void *context __attribute__((unused)), void *handle)
+{
+	return dfu_get_state(handle);
+}
+
+static int idle_abort(void *context __attribute__((unused)), void *handle)
+{
+	return dfu_abort(handle);
+}
+
+static int idle_clear_status(void *context __attribute__((unused)),
+                             void *handle)
+{
+	return dfu_clear_status(handle);
+}
+
+static const struct dfu_idle_ops IDLE_OPS = {
+	.get_state = idle_get_state,
+	.abort = idle_abort,
+	.clear_status = idle_clear_status,
+	.sleep_ms = transition_sleep_ms,
+};
+
+/* Wait, bounded, for the bootloader to be idle, so a board that answers
+ * nothing ends the command with a message instead of spinning. Returns 0, or
+ * a negative enum dfu_idle_result. */
 int enter_dfu_mode(libusb_device_handle* devh) {
-	uint8_t state;
+	const struct dfu_idle_config config = {
+		.max_polls = DFU_IDLE_DEFAULT_MAX_POLLS,
+		.poll_interval_ms = DFU_IDLE_DEFAULT_POLL_INTERVAL_MS,
+	};
+	struct dfu_idle_report report;
 	int rv;
-	while(1) {
-		state = dfu_get_state(devh);
-		if(state == STATE_DFU_IDLE)
-			break;
-		switch(state) {
-			case STATE_DFU_DNLOAD_SYNC:
-			case STATE_DFU_DNLOAD_IDLE:
-			case STATE_DFU_MANIFEST_SYNC:
-			case STATE_DFU_UPLOAD_IDLE:
-			case STATE_DFU_MANIFEST:
-				rv = dfu_abort(devh);
-				if(rv < 0) {
-					fprintf(stderr, "Unable to abort transaction from state:%d\n", state);
-					return rv;
-				}
-				break;
-			case STATE_APP_DETACH:
-			case STATE_DFU_DNBUSY:
-			case STATE_DFU_MANIFEST_WAIT_RESET:
-				sleep(1);
-				break;
-			case STATE_APP_IDLE:
-				// We don't support this state in the application
-				//detach(devh);
-				break;
-			case STATE_DFU_ERROR:
-				dfu_clear_status(devh);
-				break;
-		}
+
+	rv = dfu_reach_idle(&IDLE_OPS, NULL, devh, &config, &report);
+	if (rv != DFU_IDLE_OK) {
+		fprintf(stderr, "DFU gave up: %s (polls=%u, state=%d, usb_error=%d)\n",
+		        dfu_idle_result_string(report.result), report.polls,
+		        report.last_state, report.operation_error);
+		return rv;
 	}
 	return 0;
 }
 
 int detach(libusb_device_handle* devh) {
-	int state, rv;
+	int rv;
 	rv = enter_dfu_mode(devh);
 	if(rv < 0) {
 		fprintf(stderr, "Detach failed: could not enter DFU mode\n");
 		return rv;
 	}
-	state = dfu_get_state(devh);
-	if(state == STATE_DFU_IDLE) {
-		rv = libusb_control_transfer(devh, DFU_OUT, REQ_DETACH, 0, 0, NULL, 0, 1000);
-		if (rv != LIBUSB_SUCCESS) {
-			if (rv == LIBUSB_ERROR_PIPE) {
-				fprintf(stderr, "control message unsupported\n");
-			} else
-				show_libusb_error(rv);
-			return rv;
-		} else
-			printf("Detached\n");
-	} else {
-		fprintf(stderr, "In unexpected state: %d", state);
-		return 1;
+	rv = libusb_control_transfer(devh, DFU_OUT, REQ_DETACH, 0, 0, NULL, 0, 1000);
+	if (rv != LIBUSB_SUCCESS) {
+		if (rv == LIBUSB_ERROR_PIPE)
+			fprintf(stderr, "control message unsupported\n");
+		else
+			show_libusb_error(rv);
+		fprintf(stderr, "Detach failed: the board is still in DFU\n");
+		return rv;
 	}
+	printf("Detached\n");
 	return 0;
 }
 
@@ -548,17 +554,24 @@ int upload(libusb_device_handle* devh, FILE* upfile) {
 		if (rv < 0) {
 			if (rv == LIBUSB_ERROR_PIPE)
 				fprintf(stderr, "control message unsupported\n");
-			else {
+			else
 				show_libusb_error(rv);
-				return rv;
-			}
+			fprintf(stdout, "\n");
+			fprintf(stderr, "Upload failed: block %d was not read\n",
+			        block);
+			return rv;
 		}
-		fprintf(stdout, ".");
-		if(rv == BLOCK_SIZE)
-			fwrite(buffer, 1, BLOCK_SIZE, upfile);
-		else {
+		if(rv != BLOCK_SIZE) {
 			fprintf(stdout, "\n");
 			fprintf(stderr, "Upload failed: did not read full block\n");
+			return -1;
+		}
+		fprintf(stdout, ".");
+		/* A short write would be renamed over the target as a truncated
+		 * dump, so it ends the read-back too. */
+		if(fwrite(buffer, 1, BLOCK_SIZE, upfile) != BLOCK_SIZE) {
+			fprintf(stdout, "\n");
+			fprintf(stderr, "Upload failed: could not write the dump\n");
 			return -1;
 		}
 		block++;
@@ -575,10 +588,11 @@ int dfu_get_status(libusb_device_handle* devh) {
 	if (rv < 0) {
 		if (rv == LIBUSB_ERROR_PIPE)
 			fprintf(stderr, "control message unsupported\n");
-		else {
+		else
 			show_libusb_error(rv);
-			return rv;
-		}
+		/* The reply carries the state the next block depends on, so a
+		 * read that failed cannot be treated as status OK. */
+		return rv;
 	}
 	return 0;
 }
@@ -664,13 +678,48 @@ static int runtime_claim_dfu(void *context __attribute__((unused)), void *handle
 	return result;
 }
 
-static const struct dfu_transfer_ops TRANSFER_OPS = {
-	.download = runtime_download,
+/* The read-back gets the same one bounded retry as programming: #208 saw a
+ * single REQ_UPLOAD fail a second after the board came back from the
+ * bootloader, and the dump is read again from its first block. */
+static int runtime_upload(void *context, void *handle)
+{
+	struct dfu_runtime_context *runtime = context;
+	char stage[64];
+
+	runtime->transfer_attempts++;
+	snprintf(stage, sizeof(stage), "firmware read-back attempt %u started",
+	         runtime->transfer_attempts);
+	log_dfu_stage(stage);
+	/* The retry starts at block zero, so what the failed attempt wrote must
+	 * not stay in front of it. */
+	if (fseek(runtime->upload_file, 0, SEEK_SET) != 0 ||
+	    ftruncate(fileno(runtime->upload_file), 0) != 0) {
+		perror("upload file");
+		return -1;
+	}
+	return upload(handle, runtime->upload_file);
+}
+
+static const struct dfu_transfer_ops DOWNLOAD_TRANSFER_OPS = {
+	.transfer = runtime_download,
 	.close_dfu = runtime_close_dfu,
 	.reopen_matching_dfu = runtime_reopen_dfu,
 	.claim_dfu = runtime_claim_dfu,
 	.sleep_ms = transition_sleep_ms,
 };
+
+static const struct dfu_transfer_ops UPLOAD_TRANSFER_OPS = {
+	.transfer = runtime_upload,
+	.close_dfu = runtime_close_dfu,
+	.reopen_matching_dfu = runtime_reopen_dfu,
+	.claim_dfu = runtime_claim_dfu,
+	.sleep_ms = transition_sleep_ms,
+};
+
+/* One failed transfer, then the same device on the same path again. */
+#define TRANSFER_MAX_ATTEMPTS 2
+#define TRANSFER_REOPEN_POLLS 50
+#define TRANSFER_REOPEN_INTERVAL_MS 100
 
 static int verify_open_application(void *context,
                                    const char *selector __attribute__((unused)),
@@ -1100,14 +1149,35 @@ int main(int argc, char **argv) {
 	log_dfu_stage("DFU interface claimed");
 
 	if(functions & FUNC_UPLOAD) {
-		r = upload(devh, upfile);
+		const struct dfu_transfer_config transfer_config = {
+			.max_attempts = TRANSFER_MAX_ATTEMPTS,
+			.reopen_polls = TRANSFER_REOPEN_POLLS,
+			.poll_interval_ms = TRANSFER_REOPEN_INTERVAL_MS,
+		};
+		struct dfu_transfer_report transfer_report;
+		void *transfer_handle = devh;
+
+		runtime.upload_file = upfile;
+		r = dfu_transfer_run(&UPLOAD_TRANSFER_OPS, &runtime,
+		                     &selected_identity, &transfer_config,
+		                     &transfer_handle, &transfer_report);
+		/* The transfer owns the handle while it runs: it closes and
+		 * reopens the device around a retry, and clears the handle when
+		 * it gives up. */
+		devh = transfer_handle;
+		interface_claimed = devh != NULL;
 		fclose(upfile);
 		upfile = NULL;
-		if(r) {
-			fprintf(stderr, "Firmware upload failed\n");
+		if(r != DFU_TRANSFER_OK) {
+			fprintf(stderr,
+			        "Firmware upload failed after %u attempt(s): result=%d transfer_error=%d usb_error=%d\n",
+			        transfer_report.attempts, transfer_report.result,
+			        transfer_report.transfer_error,
+			        transfer_report.operation_error);
 			/* cleanup removes the temporary file, so an earlier read-back
-			 * of the same name survives. */
-			exit_status = r;
+			 * of the same name survives, and returns the board to its
+			 * application when -r was given. */
+			exit_status = 1;
 			goto cleanup;
 		}
 		if (rename(upfile_temp, upfile_name) != 0) {
@@ -1121,17 +1191,17 @@ int main(int argc, char **argv) {
 
 	if(functions & FUNC_DOWNLOAD) {
 		const struct dfu_transfer_config transfer_config = {
-			.max_attempts = 2,
-			.reopen_polls = 50,
-			.poll_interval_ms = 100,
+			.max_attempts = TRANSFER_MAX_ATTEMPTS,
+			.reopen_polls = TRANSFER_REOPEN_POLLS,
+			.poll_interval_ms = TRANSFER_REOPEN_INTERVAL_MS,
 		};
 		struct dfu_transfer_report transfer_report;
 		void *transfer_handle = devh;
 
 		runtime.download_file = downfile;
-		r = dfu_transfer_run(&TRANSFER_OPS, &runtime, &selected_identity,
-		                     &transfer_config, &transfer_handle,
-		                     &transfer_report);
+		r = dfu_transfer_run(&DOWNLOAD_TRANSFER_OPS, &runtime,
+		                     &selected_identity, &transfer_config,
+		                     &transfer_handle, &transfer_report);
 		/* The transfer owns the handle while it runs: it closes and reopens
 		 * the device around a retry, and clears the handle when it gives up.
 		 * Take the claim state from what it hands back. */
@@ -1153,8 +1223,14 @@ int main(int argc, char **argv) {
 
 	if(functions & FUNC_RESET) {
 		log_dfu_stage("DFU detach/reset request started");
-		detach(devh);
+		r = detach(devh);
 		log_dfu_stage("DFU detach/reset request returned");
+		if (r != 0) {
+			/* The board is still in the bootloader, so keep the handle
+			 * for cleanup to try the detach once more, and fail. */
+			exit_status = 1;
+			goto cleanup;
+		}
 		close_dfu_device(devh, interface_claimed);
 		devh = NULL;
 		interface_claimed = 0;

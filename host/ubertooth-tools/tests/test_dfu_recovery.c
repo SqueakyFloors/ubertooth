@@ -100,7 +100,7 @@ static void fake_sleep(void *context, unsigned milliseconds)
 }
 
 static const struct dfu_transfer_ops TRANSFER_OPS = {
-	.download = fake_download,
+	.transfer = fake_download,
 	.close_dfu = fake_close_dfu,
 	.reopen_matching_dfu = fake_reopen_dfu,
 	.claim_dfu = fake_claim_dfu,
@@ -280,6 +280,220 @@ MU_TEST(test_verify_rejects_wrong_revision)
 	mu_assert(strcmp(report.actual_revision, "git-old") == 0,
 	          "actual revision not reported");
 	mu_assert_int_eq(1, fake.app_close_calls);
+}
+
+/*
+ * Reaching DFU idle: a faked DFU transport, no device. The states are
+ * scripted in turn and the last one is reported for as long as it is asked
+ * for, so "it never answers" and "it never settles" are both expressible.
+ */
+#define IDLE_STATES_MAX 8
+
+struct fake_idle {
+	int states[IDLE_STATES_MAX];
+	unsigned state_count;
+	unsigned state_index;
+	unsigned get_state_calls;
+	int abort_result;
+	int clear_result;
+	unsigned abort_calls;
+	unsigned clear_calls;
+	unsigned sleep_calls;
+	void *handle;
+};
+
+static struct fake_idle make_idle_fake(void)
+{
+	struct fake_idle fake;
+	memset(&fake, 0, sizeof(fake));
+	fake.handle = (void *)(uintptr_t)0x11;
+	return fake;
+}
+
+static int fake_get_state(void *context, void *handle)
+{
+	struct fake_idle *fake = context;
+	unsigned index;
+
+	mu_assert(handle == fake->handle, "get_state received unknown handle");
+	fake->get_state_calls++;
+	mu_assert(fake->state_count > 0, "no state scripted");
+	index = fake->state_index;
+	if (fake->state_index + 1 < fake->state_count)
+		fake->state_index++;
+	return fake->states[index];
+}
+
+static int fake_abort(void *context, void *handle)
+{
+	struct fake_idle *fake = context;
+	mu_assert(handle == fake->handle, "abort received unknown handle");
+	fake->abort_calls++;
+	return fake->abort_result;
+}
+
+static int fake_clear_status(void *context, void *handle)
+{
+	struct fake_idle *fake = context;
+	mu_assert(handle == fake->handle, "clear received unknown handle");
+	fake->clear_calls++;
+	return fake->clear_result;
+}
+
+static void fake_idle_sleep(void *context, unsigned milliseconds)
+{
+	struct fake_idle *fake = context;
+	mu_assert(milliseconds > 0, "sleep interval must be positive");
+	fake->sleep_calls++;
+}
+
+static const struct dfu_idle_ops IDLE_OPS = {
+	.get_state = fake_get_state,
+	.abort = fake_abort,
+	.clear_status = fake_clear_status,
+	.sleep_ms = fake_idle_sleep,
+};
+
+/* Set one state, reported for every read. */
+static void idle_always(struct fake_idle *fake, int state)
+{
+	fake->states[0] = state;
+	fake->state_count = 1;
+}
+
+/* #216: a bootloader that will not say where it is used to be asked forever,
+ * one error line per attempt. The first failed read now ends the wait. */
+MU_TEST(test_idle_stops_on_the_first_failed_state_read)
+{
+	struct fake_idle fake = make_idle_fake();
+	struct dfu_idle_config config = {40, 250};
+	struct dfu_idle_report report;
+
+	idle_always(&fake, -7); /* LIBUSB_ERROR_TIMEOUT */
+	mu_assert_int_eq(DFU_IDLE_QUERY_FAILED,
+	                 dfu_reach_idle(&IDLE_OPS, &fake, fake.handle, &config,
+	                                &report));
+	mu_assert_int_eq(-7, report.operation_error);
+	mu_assert_int_eq(1, report.polls);
+	mu_assert_int_eq(1, fake.get_state_calls);
+	mu_assert_int_eq(0, fake.sleep_calls);
+	mu_assert_int_eq(-1, report.last_state);
+}
+
+/* A state that only time resolves is polled a fixed number of times. */
+MU_TEST(test_idle_is_bounded_when_the_state_never_settles)
+{
+	struct fake_idle fake = make_idle_fake();
+	struct dfu_idle_config config = {5, 10};
+	struct dfu_idle_report report;
+
+	idle_always(&fake, STATE_DFU_DNBUSY);
+	mu_assert_int_eq(DFU_IDLE_NOT_REACHED,
+	                 dfu_reach_idle(&IDLE_OPS, &fake, fake.handle, &config,
+	                                &report));
+	mu_assert_int_eq(5, report.polls);
+	mu_assert_int_eq(5, fake.get_state_calls);
+	mu_assert_int_eq(5, fake.sleep_calls);
+	mu_assert_int_eq(STATE_DFU_DNBUSY, report.last_state);
+}
+
+MU_TEST(test_idle_aborts_a_half_finished_transfer_then_succeeds)
+{
+	struct fake_idle fake = make_idle_fake();
+	struct dfu_idle_config config = {40, 250};
+	struct dfu_idle_report report;
+	int states[] = {STATE_DFU_DNLOAD_IDLE, STATE_DFU_IDLE};
+
+	memcpy(fake.states, states, sizeof(states));
+	fake.state_count = ARRAY_LEN(states);
+	mu_assert_int_eq(DFU_IDLE_OK,
+	                 dfu_reach_idle(&IDLE_OPS, &fake, fake.handle, &config,
+	                                &report));
+	mu_assert_int_eq(1, fake.abort_calls);
+	mu_assert_int_eq(0, fake.sleep_calls);
+	mu_assert_int_eq(2, report.polls);
+	mu_assert_int_eq(STATE_DFU_IDLE, report.last_state);
+}
+
+MU_TEST(test_idle_clears_an_error_state_then_succeeds)
+{
+	struct fake_idle fake = make_idle_fake();
+	struct dfu_idle_config config = {40, 250};
+	struct dfu_idle_report report;
+	int states[] = {STATE_DFU_ERROR, STATE_DFU_IDLE};
+
+	memcpy(fake.states, states, sizeof(states));
+	fake.state_count = ARRAY_LEN(states);
+	mu_assert_int_eq(DFU_IDLE_OK,
+	                 dfu_reach_idle(&IDLE_OPS, &fake, fake.handle, &config,
+	                                &report));
+	mu_assert_int_eq(1, fake.clear_calls);
+	mu_assert_int_eq(2, report.polls);
+}
+
+MU_TEST(test_idle_reports_a_failed_abort_or_clear)
+{
+	struct fake_idle fake = make_idle_fake();
+	struct dfu_idle_config config = {40, 250};
+	struct dfu_idle_report report;
+
+	idle_always(&fake, STATE_DFU_UPLOAD_IDLE);
+	fake.abort_result = -9;
+	mu_assert_int_eq(DFU_IDLE_ABORT_FAILED,
+	                 dfu_reach_idle(&IDLE_OPS, &fake, fake.handle, &config,
+	                                &report));
+	mu_assert_int_eq(-9, report.operation_error);
+	mu_assert_int_eq(1, fake.abort_calls);
+
+	fake = make_idle_fake();
+	idle_always(&fake, STATE_DFU_ERROR);
+	fake.clear_result = -7;
+	mu_assert_int_eq(DFU_IDLE_CLEAR_FAILED,
+	                 dfu_reach_idle(&IDLE_OPS, &fake, fake.handle, &config,
+	                                &report));
+	mu_assert_int_eq(-7, report.operation_error);
+	mu_assert_int_eq(1, fake.clear_calls);
+}
+
+/* The application state and anything outside the DFU 1.1 set used to be
+ * polled forever; there is nothing this host can do with either. */
+MU_TEST(test_idle_refuses_a_state_it_cannot_drive)
+{
+	struct fake_idle fake = make_idle_fake();
+	struct dfu_idle_config config = {40, 250};
+	struct dfu_idle_report report;
+
+	idle_always(&fake, STATE_APP_IDLE);
+	mu_assert_int_eq(DFU_IDLE_UNEXPECTED_STATE,
+	                 dfu_reach_idle(&IDLE_OPS, &fake, fake.handle, &config,
+	                                &report));
+	mu_assert_int_eq(1, report.polls);
+	mu_assert_int_eq(STATE_APP_IDLE, report.last_state);
+
+	fake = make_idle_fake();
+	idle_always(&fake, 0x7f);
+	mu_assert_int_eq(DFU_IDLE_UNEXPECTED_STATE,
+	                 dfu_reach_idle(&IDLE_OPS, &fake, fake.handle, &config,
+	                                &report));
+	mu_assert_int_eq(1, report.polls);
+	mu_assert_int_eq(0x7f, report.last_state);
+	mu_assert_int_eq(0, fake.sleep_calls);
+}
+
+MU_TEST(test_idle_refuses_an_unbounded_configuration)
+{
+	struct fake_idle fake = make_idle_fake();
+	struct dfu_idle_config config = {0, 250};
+	struct dfu_idle_report report;
+
+	idle_always(&fake, STATE_DFU_IDLE);
+	mu_assert_int_eq(DFU_IDLE_INVALID_ARGUMENT,
+	                 dfu_reach_idle(&IDLE_OPS, &fake, fake.handle, &config,
+	                                &report));
+	mu_assert_int_eq(0, fake.get_state_calls);
+	mu_assert(strstr(dfu_idle_result_string(DFU_IDLE_QUERY_FAILED),
+	                 "did not report its state") != NULL,
+	          "the query failure has no message");
 }
 
 /*
@@ -635,6 +849,13 @@ int main(void)
 	MU_RUN(test_verify_waits_for_same_app_and_exact_revision);
 	MU_RUN(test_verify_rejects_wrong_physical_path);
 	MU_RUN(test_verify_rejects_wrong_revision);
+	MU_RUN(test_idle_stops_on_the_first_failed_state_read);
+	MU_RUN(test_idle_is_bounded_when_the_state_never_settles);
+	MU_RUN(test_idle_aborts_a_half_finished_transfer_then_succeeds);
+	MU_RUN(test_idle_clears_an_error_state_then_succeeds);
+	MU_RUN(test_idle_reports_a_failed_abort_or_clear);
+	MU_RUN(test_idle_refuses_a_state_it_cannot_drive);
+	MU_RUN(test_idle_refuses_an_unbounded_configuration);
 	MU_RUN(test_image_accepts_a_signed_ubertooth_image);
 	MU_RUN(test_crc32_matches_the_standard_check_value);
 	MU_RUN(test_image_rejects_a_wrong_crc);

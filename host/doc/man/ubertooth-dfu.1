@@ -31,6 +31,13 @@ device is available again. Flushed monotonic stage timing identifies time spent
 in entry, programming, reset, and cleanup. It refuses to choose between
 multiple devices already in DFU mode.
 .PP
+Every wait for the bootloader is bounded. Before each operation the tool asks
+the bootloader for its DFU state and drives it to the idle state, aborting a
+half\-finished transfer or clearing an error state as needed. A bootloader that
+does not answer that question, or that never becomes idle, ends the command
+with a line naming what it last reported and exit status 1; a board that
+answers nothing at all usually needs a USB power cycle.
+.PP
 \fB\fC\-d\fR checks the whole image before the board is asked to leave its
 application: the 16\-byte DFU suffix and its length, the DFU version, the
 \fB\fCUFD\fR signature, a non\-empty payload, the suffix CRC, and the suffix
@@ -38,13 +45,18 @@ application: the 16\-byte DFU suffix and its length, the DFU version, the
 the \fB\fC0xffff\fR wildcard. With \fB\fC\-r\fR the expected firmware revision is read from
 the image at the same time. A file that fails any of these is reported and the
 command ends with exit status 1 without opening a device, so the board keeps
-running its firmware. If something fails after the board has entered DFU and
-\fB\fC\-r\fR was given, the tool still detaches so the board returns to its
-application.
+running its firmware. If a later step fails once the board is already in DFU
+and \fB\fC\-r\fR was given, the tool detaches it anyway, reopening the DFU device on
+the same physical path when the failure closed the handle, so the board returns
+to its application. A board that never answered in DFU at all cannot be
+detached, and then needs another \fB\fCubertooth\-dfu\fR run or a power cycle. A reset
+the bootloader refuses is reported and fails the command, so \fB\fC\-r\fR never exits
+0 with the board left in DFU.
 .PP
-If a firmware programming transfer fails, the tool closes the stale handle,
+If a transfer fails, in either direction, the tool closes the stale handle,
 reopens and claims the DFU device on the same physical path, restores its DFU
-state, and retries the complete image once from block zero. With \fB\fC\-d ... \-r\fR,
+state, and retries the whole transfer once from its first block. A transfer
+that fails twice ends the command with exit status 1. With \fB\fC\-d ... \-r\fR,
 it extracts the expected revision from the image and does not return success
 until the application on that same path reports the exact revision. Images
 used with automatic verification must contain the normal
@@ -114,7 +126,8 @@ cmp \-n $(stat \-f%z bluetooth_rxtx.dfu) bluetooth_rxtx.dfu readback.bin
 .PP
 On Linux use \fB\fCstat \-c%s\fR\&. The output file is only replaced once a complete dump
 has arrived: a read\-back that fails part\-way leaves an earlier file of the same
-name untouched.
+name untouched, names the block that would not read, and exits 1. Like
+\fB\fC\-d\fR, it is retried once from the first block before the command gives up.
 .SH MANUALLY ENTERING BOOTLOADER
 .PP
 If the device does not enter the bootloader when running the upload or
