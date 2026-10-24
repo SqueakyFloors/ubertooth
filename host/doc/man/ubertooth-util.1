@@ -97,7 +97,9 @@ Radio options:
 .RS
 .IP \(bu 2
 \fB\fC\-a[0\-7]\fR :
-get/set power amplifier level
+get/set power amplifier level, 0 (lowest) to 7 (maximum)\. The board powers
+on and resets (\fB\fC\-r\fR) at level 7\. Leaving a mode (\fB\fC\-S\fR) keeps the current
+level; only \fB\fC\-a\fR and entering an RX or TX mode change it\.
 .IP \(bu 2
 \fB\fC\-c[2400\-2483]\fR :
 get/set channel in MHz
@@ -112,7 +114,9 @@ start LED spectrum analyzer
 intitiate continuous transmit test
 .IP \(bu 2
 \fB\fC\-z[level]\fR :
-get/set squelch level
+get/set squelch level (a signed RSSI threshold) for a later RX capture\.
+Stopping a running mode resets it to the default, so \fB\fC\-z\fR cannot be
+combined with a mode option\.
 .RE
 .PP
 Range test:
@@ -275,7 +279,8 @@ queries that report a nonzero value such as \fB\fC\-b\fR (board ID), \fB\fC\-c\f
 \fB\fC\-a\fR (power amplifier level). It exits with a nonzero status if any requested
 operation fails, even when a later operation in the same command succeeds.
 It exits with 1, without opening a device, when two or more mode options are
-given (see DESCRIPTION).
+given (see DESCRIPTION), when \fB\fC\-z\fR is combined with a mode option, or when an
+\fB\fC\-a\fR level is not 0\-7 (\fB\fCerror: PA level must be 0\-7 (got <value>)\fR)\.
 It also exits with 1, without opening a device, when the command line contains
 a word that is not an option, and names it: \fB\fCerror: unexpected argument '<word>'\fR\&.
 \fB\fCubertooth\-util\fR takes no other arguments.

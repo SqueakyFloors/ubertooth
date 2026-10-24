@@ -79,7 +79,9 @@ Common options:
 Radio options:
 
  - `-a[0-7]` :
-   get/set power amplifier level
+   get/set power amplifier level, 0 (lowest) to 7 (maximum). The board powers
+   on and resets (`-r`) at level 7. Leaving a mode (`-S`) keeps the current
+   level; only `-a` and entering an RX or TX mode change it.
  - `-c[2400-2483]` :
    get/set channel in MHz
  - `-C[0-78]` :
@@ -89,7 +91,10 @@ Radio options:
  - `-t` :
    intitiate continuous transmit test
  - `-z[level]` :
-   get/set squelch level
+   get/set squelch level (a signed RSSI threshold) for a later RX capture.
+   Stopping a running mode resets it to the default, so `-z` cannot be
+   combined with a mode option (`-q`, `-n`, `-e`, `-t`, `-x`, `-I`, `-i`,
+   `-f`).
 
 Range test:
 
@@ -222,7 +227,8 @@ queries that report a nonzero value such as `-b` (board ID), `-c` (channel), or
 `-a` (power amplifier level). It exits with a nonzero status if any requested
 operation fails, even when a later operation in the same command succeeds.
 It exits with 1, without opening a device, when two or more mode options are
-given (see DESCRIPTION).
+given (see DESCRIPTION), when `-z` is combined with a mode option, or when an
+`-a` level is not 0-7 (`error: PA level must be 0-7 (got <value>)`).
 It also exits with 1, without opening a device, when the command line contains
 a word that is not an option, and names it: `error: unexpected argument '<word>'`.
 `ubertooth-util` takes no other arguments.

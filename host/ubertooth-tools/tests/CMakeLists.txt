@@ -108,6 +108,9 @@ if(USE_OWN_GNU_GETOPT)
 endif()
 
 add_test(NAME util-main COMMAND test-util-main)
+# A regression that lets a mode such as -I (identify, blinks until
+# interrupted) run inside main() would hang; fail it instead.
+set_tests_properties(util-main PROPERTIES TIMEOUT 60)
 
 # Runs the real libubertooth part-ID commands against a fake libusb control
 # transfer (defined in the test, so it wins over libusb's). libbtbb is faked;
