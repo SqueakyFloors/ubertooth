@@ -86,15 +86,15 @@ Speed matters. Do not wait for every job.
 
 - **No CI wait** for changes limited to documentation or agent rules
   (`*.md`, `.kiro/steering/`): merge as soon as the PR is ready.
-- **Gating set**: the host build-and-test jobs (`host (...)`, the Ubuntu 20.04
-  container host job) gate every code change. The firmware jobs gate only
-  changes under `firmware/` or to the CI workflow. Canary, `*-latest`, and
-  soft-fail jobs never gate.
-- **Good enough**: when every gating job has passed and nothing has failed,
-  merge. Do not wait for non-gating jobs to finish; note any still-pending jobs
-  in the PR.
+- **Gating set: one Linux and one Mac.** A code change is good to merge once
+  one Linux host job (for example `host (ubuntu-24.04)`) and one macOS host job
+  (for example `host (macos-15)`) have passed and nothing has failed. Changes
+  under `firmware/` also need one Linux and one macOS firmware job; changes to
+  `install.sh` need both `install-sh` jobs. Do not wait for the rest of the
+  matrix; a later failure there is followed up on `main`.
 - **Time budget**: wait at most 10 minutes for the gating set once the run has
-  started. If jobs have not started after 5 minutes, say so and decide with the
+  started. Poll every 30 seconds (`gh pr checks <PR>`) rather than one long
+  `--watch`, and merge as soon as the gating set is green. If jobs have not started after 5 minutes, say so and decide with the
   user instead of polling.
 - **Stuck job**: a job with no progress for 10 minutes while the others are
   done is infrastructure noise; ignore or cancel it and note it.
