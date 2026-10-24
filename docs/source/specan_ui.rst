@@ -6,8 +6,12 @@ Spectrum analyzer UI (specan_ui)
 Ubertooth. It is a Python/Qt application that reads spectrum data from the
 device (via ``ubertooth-specan``) and plots it.
 
-This guide covers installing and running it, and the common
-``ModuleNotFoundError: No module named 'specan'`` error.
+.. image:: ../images/specan_ui.png
+   :alt: ubertooth-specan-ui showing Wi-Fi and Bluetooth activity across 2.4 GHz
+
+This guide covers installing and running it, its options, keys and display,
+and the common ``ModuleNotFoundError: No module named 'specan'`` error. The
+same reference is in the ``ubertooth-specan-ui(1)`` man page.
 
 Requirements
 ~~~~~~~~~~~~
@@ -51,6 +55,44 @@ On Linux you may need ``sudo`` (or udev rules) for device access:
 
    sudo ubertooth-specan-ui
 
+With ``install.sh --venv``, the Python packages are in that venv; the installed
+launcher already uses it.
+
+Options
+~~~~~~~
+
+- ``-U <index|serial>`` — select one of several Ubertooths, by USB enumeration
+  index or serial number (``ubertooth-util -s`` lists them).
+- ``-l <MHz>`` / ``-u <MHz>`` — lower and upper frequency, 2402-2480 MHz
+  (default: the whole band).
+- ``--wifi[=<channel(s)>]`` — show the band around one Wi-Fi channel
+  (``--wifi=6``) or a range (``--wifi=1-11``).
+- ``--padding <MHz>`` — extra band on each side with ``--wifi`` (default 10).
+
+For example, to watch Wi-Fi channels 1 to 6 on the second Ubertooth:
+
+.. code-block:: sh
+
+   ubertooth-specan-ui -U 1 --wifi=1-6
+
+Keys and mouse
+~~~~~~~~~~~~~~
+
+Press ``H`` in the window to show this list on screen (a small ``H: keys``
+hint is always shown in the corner).
+
+==========================  ==================================================
+Key / button                Action
+==========================  ==================================================
+Left mouse                  Mark a frequency and level (yellow)
+Right mouse                 Mark a second frequency and level (magenta)
+Middle mouse or ``M``       Show or hide the peak and average markers, and
+                            clear the mouse markers
+``C``                       Clear the graph (also restarts the average)
+``H``                       Show or hide the key help
+``Q``                       Quit
+==========================  ==================================================
+
 What the display shows
 ~~~~~~~~~~~~~~~~~~~~~~
 
@@ -62,11 +104,7 @@ What the display shows
 - **Yellow dotted horizontal line, labelled "Avg: N dBm":** the average of the
   green max-hold trace across the band, smoothed so it moves slowly.
 - **Yellow and magenta markers:** points marked with the left and right mouse
-  buttons.
-
-The middle mouse button or ``M`` shows or hides the red and average markers and
-clears the mouse markers. Clearing the display (``C``) also restarts the
-average. Press ``H`` in the window for the full key list.
+  buttons, with the frequency differences to the peak and to each other.
 
 Troubleshooting ``ModuleNotFoundError: No module named 'specan'``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

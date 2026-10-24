@@ -36,6 +36,9 @@
   Credit: Sirio Balmelli ([@siriobalmelli](https://github.com/siriobalmelli)).
   [#75](https://github.com/SqueakyFloors/ubertooth/issues/75)
   https://github.com/siriobalmelli-foss/ubertooth/commit/01c3bf9e
+- `ubertooth-specan-ui` shows its keys on screen (press `H`; a hint is always
+  visible), labels frequencies in whole MHz, and has a man page and usage guide.
+  [#125](https://github.com/SqueakyFloors/ubertooth/issues/125)
 
 ### Build and compatibility
 
@@ -101,8 +104,10 @@
   `cmd_get_part_id()` returns the full unsigned 32-bit ID.
   [#52](https://github.com/SqueakyFloors/ubertooth/issues/52)
 - `ubertooth-specan-ui` plots again: it passed `-U 0` to `ubertooth-specan` as a
-  single argument, which was read as a serial. Its `-U` now takes an index or a
-  serial like the other tools.
+  single argument, which was read as a serial, and asked for 2400-2483 MHz,
+  which `ubertooth-specan` rejects. Its `-U` now takes an index or a serial like
+  the other tools, and it no longer crashes when `C` is pressed before data
+  arrives.
   [#124](https://github.com/SqueakyFloors/ubertooth/issues/124)
 - `ubertooth-scan` no longer leaks connection information after failed probes.
   [#3](https://github.com/SqueakyFloors/ubertooth/issues/3)

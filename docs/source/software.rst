@@ -38,6 +38,9 @@ Ubertooth itself. Each tool also has a manual page under ``host/doc/``.
 
 - ``ubertooth-specan`` — Spectrum analyzer: a stream of signal strengths across
   2.4 GHz. (Needs: nothing — reads ambient RF.)
+- ``ubertooth-specan-ui`` — Graphical live spectrum plot of 2.4 GHz, built on
+  ``ubertooth-specan``; see :doc:`specan_ui`. (Needs: Python with numpy, qtpy
+  and PySide6.)
 - ``ubertooth-dump`` — Raw stream of received bits/symbols off the radio.
 - ``ubertooth-debug`` — Low-level register/debug access to the CC2400 radio.
 

@@ -8,7 +8,7 @@ ubertooth-specan [-l <freq>] [-u <freq>] [-g|G]
 
 ubertooth-specan(1) is a tool for using Ubertooth as a spectrum analyzer
 in the 2.4GHz band. It is often used as a helper for GUI tools, such as
-ubertooth-specan-ui or Spectools. It can also produce output suitable for
+ubertooth-specan-ui(1) or Spectools. It can also produce output suitable for
 user with the feedgnuplot tool.
 
 Other options allow upper and lower bounds to be set on the frequencies
