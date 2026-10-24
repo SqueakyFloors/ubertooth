@@ -202,10 +202,6 @@ serial selection since indices become unwieldy and unstable.
 A serial number need not be given in full: its **first few characters** are
 enough, upper or lower case. For a board whose serial is
 `1cc001038088cb956c43ad61c52000f5`, `-U 1cc0` and `-U 1CC0` both select it.
-Only the start of the serial is matched. Earlier releases also accepted the
-**end** of one, undocumented; that is gone, because Ubertooth serials share
-their last characters, so a short tail matched several boards and one of them
-was opened.
 
 If those characters start the serial of **more than one** attached board, the
 tool selects neither: it lists the matching serials and exits non-zero, and a
