@@ -497,10 +497,7 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params, uin
 		break;
 
 	case UBERTOOTH_SET_AFHMAP:
-		for(int i=0; i < 10; i++) {
-			afh_map[i] = data[i];
-		}
-		afh_enabled = 1;
+		bluetooth_set_afh_map(data);
 		*data_len = 10;
 		break;
 
