@@ -15,7 +15,8 @@ may be of interest to curious hackers.
 Options:
 
  - `-r <reg>[,<reg> [,[...]]]` :
-   Read one or more registers from the CC2400 on Ubertooth
+   Read one or more registers from the CC2400 on Ubertooth; each address is
+   `0x00`-`0xff`
  - `-r <start>-<end>` :
    Read a consecutive set of registers from the CC2400 on Ubertooth
  - `-v <0-2>` :
@@ -65,6 +66,13 @@ alongside it.
 An option value must be a whole value in its range, or it is refused the same
 way instead of being read as 0, for example
 `error: verbosity must be 0-2 (got 3)`.
+
+`-r` takes register addresses `0x00` to `0xff`, both ends included: `0x00` is
+MAIN and `0xff` is the last readable address. An address outside that is
+refused with `error: register address must be 0x00-0xff (got 0x100)`, and a
+list that cannot be read at all (an unknown `%name`, a stray character) with
+`error: register list must be names or addresses, single or as a range (got
+<value>)` after the line naming what could not be read.
 
 ## SEE ALSO
 

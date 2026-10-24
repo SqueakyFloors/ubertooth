@@ -83,7 +83,7 @@ int *listOfInts(char *arg, int *n,
 	    if (first_char && *p == '%' && token_parser != NULL) {
 		value = token_parser(p, &size);
 		if (size == -1) {
-		    fprintf(stderr, "failed to parse token");
+		    fprintf(stderr, "failed to parse token (%s)\n", p);
 		    goto fail;
 		}
                 value_valid = 1;

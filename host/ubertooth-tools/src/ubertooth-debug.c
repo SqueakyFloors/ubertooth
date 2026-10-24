@@ -34,6 +34,10 @@
 #include "arglist.h"
 #include "opt_parse.h"
 
+/* The firmware takes a one-byte CC2400 register address, so every address
+ * from 0x00 (MAIN) to 0xff can be read. */
+#define CC2400_REG_ADDRESS_MAX 0xff
+
 static void usage()
 {
     printf
@@ -98,18 +102,26 @@ int main(int argc, char *argv[])
 	    break;
 	case 'r':
 	    regList = listOfInts(optarg, &regListN, token_to_int);
-	    if (regListN > 0) {
-			do_read_register = 0;
-			for (i = 0; i < regListN; i++)
-			    if (regList[i] < 0 || regList[i] > 0xff)
-			do_read_register = -1;
-	    }
-	    if (do_read_register < 0 || do_read_register > 0xff
-			|| regListN == -1) {
+	    if (regListN < 0) {
+			/* listOfInts() has already said what it could not read. */
 			fprintf(stderr,
-				"ERROR: register address must be > 0x00 and < 0xff\n");
+				"error: register list must be names or addresses,"
+				" single or as a range (got %s)\n", optarg);
 			return 1;
 	    }
+	    for (i = 0; i < regListN; i++) {
+			if (regList[i] < 0 || regList[i] > CC2400_REG_ADDRESS_MAX) {
+			    /* The accepted range, not one short of it at each end:
+			     * 0x00 (MAIN) and 0xff are both readable. */
+			    fprintf(stderr,
+				    "error: register address must be 0x00-0x%02x"
+				    " (got 0x%02x)\n",
+				    CC2400_REG_ADDRESS_MAX, regList[i]);
+			    return 1;
+			}
+	    }
+	    if (regListN > 0)
+			do_read_register = 0;
 	    break;
 	default:
 	    usage();
