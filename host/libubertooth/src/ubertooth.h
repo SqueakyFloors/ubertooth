@@ -115,9 +115,14 @@ void rx_btle_file(FILE* fp);
 
 /* Detect the piconet's AFH map, then monitor it for changes until stopped.
  * With a nonzero timeout, the detection phase runs for that many seconds and
- * the map is printed before monitoring starts. Returns 0, or
- * UBERTOOTH_AFH_NO_PACKETS when that phase saw no packet (nothing is printed
- * and monitoring is not started), or -1 if libbtbb could not be initialised. */
+ * the map is printed before monitoring starts. pn must be a piconet whose map
+ * is still empty, as btbb_piconet_new() leaves it: "no packet was received" is
+ * read from the map after the detection phase.
+ *
+ * Returns 0 when the monitor was stopped normally, UBERTOOTH_AFH_NO_PACKETS
+ * when the detection phase saw no packet (nothing is printed and monitoring is
+ * not started), or a negative error: -1 if libbtbb could not be initialised,
+ * or the receive error, already reported, if a phase could not run. */
 int rx_afh(ubertooth_t* ut, btbb_piconet* pn, int timeout);
 void rx_afh_r(ubertooth_t* ut, btbb_piconet* pn, int timeout);
 

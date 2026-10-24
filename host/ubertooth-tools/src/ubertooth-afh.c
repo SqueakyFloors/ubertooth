@@ -45,7 +45,7 @@ static void usage()
 	printf("\t-r print AFH channel map once every second (default: print on update)\n");
 	printf("\n");
 	printf("Other options\n");
-	printf("\t-t <seconds> timeout for initial AFH map detection (not required)\n");
+	printf("\t-t <seconds> timeout for initial AFH map detection (not required; see below)\n");
 	printf("\t-e maximum access code errors (default: %d, range: 0-%d)\n",
 	       max_ac_errors, MAX_AC_ERRORS);
 	printf("\t-V print version information\n");
@@ -189,6 +189,11 @@ int main(int argc, char* argv[])
 			        timeout);
 			ubertooth_stop(ut);
 			return 2;
+		}
+		if (r < 0) {
+			/* libubertooth has already said what failed. */
+			ubertooth_stop(ut);
+			return 1;
 		}
 	}
 

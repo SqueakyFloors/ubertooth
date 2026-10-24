@@ -510,8 +510,10 @@ int stream_rx_file(ubertooth_t* ut, FILE* fp, rx_callback cb, void* cb_args)
 }
 
 /* 1 when not one channel has been seen, which is what the initial detection
- * phase leaves when no packet from the piconet was received. An all-zero map
- * is not a map: printing it claims a piconet that uses no channel at all. */
+ * phase leaves when no packet from the piconet was received: the map starts
+ * empty (btbb_piconet_new() zeroes it) and cb_afh_initial() sets a channel
+ * seen for every packet it matches. An all-zero map is not a map: printing it
+ * claims a piconet that uses no channel at all. */
 static int afh_map_empty(btbb_piconet* pn)
 {
 	uint8_t* afh_map = btbb_piconet_get_afh_map(pn);
@@ -535,10 +537,15 @@ int rx_afh(ubertooth_t* ut, btbb_piconet* pn, int timeout)
 		ubertooth_set_timeout(ut, timeout);
 
 		cmd_afh(ut->devh);
-		stream_rx_usb(ut, cb_afh_initial, pn);
+		r = stream_rx_usb(ut, cb_afh_initial, pn);
 
 		cmd_stop(ut->devh);
 		ut->stop_ubertooth = 0;
+
+		/* A phase that could not even receive has not shown that the piconet
+		 * is quiet; stream_rx_usb() has already reported why. */
+		if (r < 0)
+			return r;
 
 		/* Nothing was received: there is no map to print, and monitoring
 		 * changes to a map we never found would report nothing either. Let
@@ -554,8 +561,8 @@ int rx_afh(ubertooth_t* ut, btbb_piconet* pn, int timeout)
 	 */
 	cmd_clear_afh_map(ut->devh);
 	cmd_afh(ut->devh);
-	stream_rx_usb(ut, cb_afh_monitor, pn);
-	return 0;
+	r = stream_rx_usb(ut, cb_afh_monitor, pn);
+	return r < 0 ? r : 0;
 }
 
 void rx_afh_r(ubertooth_t* ut, btbb_piconet* pn, int timeout __attribute__((unused)))

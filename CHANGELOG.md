@@ -87,8 +87,7 @@
 
 - `ubertooth-afh -t` now says when the initial detection phase received no
   packet from the piconet and exits with status 2, instead of printing an
-  all-zero map and carrying on monitoring. The usage text and the man page say
-  that the tool keeps monitoring until it is interrupted.
+  all-zero map and carrying on monitoring until interrupted.
   [#187](https://github.com/SqueakyFloors/ubertooth/issues/187)
 - `ubertooth-afh` exits 1 when the selected board is not found, instead of
   crashing with a segmentation fault; `ubertooth-follow` now stops there too.

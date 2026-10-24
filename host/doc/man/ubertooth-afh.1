@@ -101,6 +101,20 @@ alongside them.
 An option value must be a whole value in its range, or it is refused the same
 way instead of being read as 0, for example
 \fB\fCerror: timeout must be a whole number of seconds, 0 for none (got abc)\fR\&.
+.SH EXIT STATUS
+.PP
+\fB\fCubertooth\-afh\fR does not stop on its own, so it normally exits 0 after
+being interrupted (Ctrl\-C).
+.PP
+It exits 2 when the \fB\fC\-t\fR detection phase received no packet from the
+piconet (see DETECTION AND MONITORING). The number of seconds in that message
+is the \fB\fC\-t\fR value, not the time actually spent listening, which is
+shorter if the tool was interrupted during the phase.
+.PP
+It exits 1 without opening a device for a bad command line (a missing UAP or
+LAP, an option value out of range, or a word that is not an option), when the
+selected Ubertooth is not found, and when the board could not be told to
+receive.
 .SH SEE ALSO
 .PP
 .BR ubertooth-rx (1): 

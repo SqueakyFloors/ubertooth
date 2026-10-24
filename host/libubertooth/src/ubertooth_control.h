@@ -64,6 +64,11 @@
 #define SYM_LEN       50
 #define BANK_LEN      (SYM_LEN * 8)
 
+/* Length of an AFH channel map in bytes: one bit per Basic Rate channel, 79
+ * channels in 10 bytes (the last bit is unused). The firmware uses the same
+ * length (firmware/bluetooth_rxtx/bluetooth.h). */
+#define AFH_MAP_BYTES 10
+
 #ifndef MAX
 #define MAX(a,b) ((a)>(b) ? (a) : (b))
 #endif
@@ -156,9 +161,6 @@ int cmd_next_hop(struct libusb_device_handle* devh, u16 clk);
 int cmd_start_hopping(struct libusb_device_handle* devh, int clkn_offset, int clk100ns_offset);
 int cmd_set_clock(struct libusb_device_handle* devh, u32 clkn);
 uint32_t cmd_get_clock(struct libusb_device_handle* devh);
-/* Length of an AFH channel map in bytes: one bit per Basic Rate channel, 79
- * channels in 10 bytes (the last bit is unused). */
-#define AFH_MAP_BYTES 10
 int cmd_set_afh_map(struct libusb_device_handle* devh, u8* afh_map);
 int cmd_clear_afh_map(struct libusb_device_handle* devh);
 int cmd_btle_sniffing(struct libusb_device_handle* devh, uint8_t do_follow);

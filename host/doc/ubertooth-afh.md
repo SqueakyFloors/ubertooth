@@ -81,6 +81,21 @@ An option value must be a whole value in its range, or it is refused the same
 way instead of being read as 0, for example
 `error: timeout must be a whole number of seconds, 0 for none (got abc)`.
 
+## EXIT STATUS
+
+`ubertooth-afh` does not stop on its own, so it normally exits 0 after being
+interrupted (Ctrl-C).
+
+It exits 2 when the `-t` detection phase received no packet from the piconet
+(see DETECTION AND MONITORING). The number of seconds in that message is the
+`-t` value, not the time actually spent listening, which is shorter if the
+tool was interrupted during the phase.
+
+It exits 1 without opening a device for a bad command line (a missing UAP or
+LAP, an option value out of range, or a word that is not an option), when the
+selected Ubertooth is not found, and when the board could not be told to
+receive.
+
 ## SEE ALSO
 
 ubertooth-rx(1): a tool for finding UAP and LAP

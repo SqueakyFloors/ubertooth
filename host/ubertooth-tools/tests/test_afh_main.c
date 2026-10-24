@@ -224,16 +224,23 @@ MU_TEST(the_r_format_is_unchanged)
 	mu_assert(r.err[0] == '\0', r.err);
 }
 
-/* A libbtbb failure inside the library is not reported as "no packets". */
+/* A library error - libbtbb, or a receive that could not be started - is not
+ * reported as "no packets", and it is not reported as success either. The
+ * library has already said what failed. */
 MU_TEST(a_library_error_is_not_mistaken_for_no_packets)
 {
+	static const int errors[] = { -1, -4 /* LIBUSB_ERROR_NO_DEVICE */ };
 	struct run_result r;
+	size_t i;
 
-	reset_fake();
-	fake.rx_afh_rc = -1;
-	r = RUN("-l", "446688", "-u", "22", "-t", "3");
-	mu_assert_int_eq(0, r.rc);
-	mu_assert(r.err[0] == '\0', r.err);
+	for (i = 0; i < sizeof(errors) / sizeof(errors[0]); i++) {
+		reset_fake();
+		fake.rx_afh_rc = errors[i];
+		r = RUN("-l", "446688", "-u", "22", "-t", "3");
+		mu_assert_int_eq(1, r.rc);
+		mu_assert(r.err[0] == '\0', r.err);
+		mu_assert_int_eq(1, fake.stops);
+	}
 }
 
 /* The usage text says that the tool keeps monitoring until it is interrupted
