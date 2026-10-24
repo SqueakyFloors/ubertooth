@@ -30,9 +30,10 @@
  * (ubertooth_check_api()), so host and firmware are released together.
  * Increment it on every firmware change the host relies on: a new or changed
  * request, or a changed behaviour of an existing one. bcdDevice is binary-coded
- * decimal, so 0x0109 is followed by 0x0110 (shown as 1.10), then 0x0111 (1.11).
+ * decimal, so 0x0109 is followed by 0x0110 (shown as 1.10), then 0x0111
+ * (1.11), then 0x0112 (1.12).
  */
-#define UBERTOOTH_API_VERSION 0x0111
+#define UBERTOOTH_API_VERSION 0x0112
 
 /*
  * LED spectrum analyzer (ubertooth-util -q N): the threshold is -N dBm. The

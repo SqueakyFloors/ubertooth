@@ -40,7 +40,7 @@
   the command returns at once and the board stays reachable; `-S` or any mode
   option stops it and leaves the LEDs off.
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
-- **Reflash required:** the firmware API version is now 1.11, and the host
+- **Reflash required:** the firmware API version is now 1.12, and the host
   tools require firmware of exactly their own API version, older or newer
   (`ubertooth-util` still reads the version and reflashes any firmware). Host
   and firmware come from the same tree; `2020-12-R1` firmware is refused.
@@ -164,6 +164,17 @@
   vendor or product used to be written.
   [#198](https://github.com/SqueakyFloors/ubertooth/issues/198)
   [#199](https://github.com/SqueakyFloors/ubertooth/issues/199)
+- Control requests now answer reliably while the LED spectrum analyzer
+  (`ubertooth-util -q`) runs: reads such as `-d`, `-C` and `-z` no longer fail
+  every few samples with a stalled transfer, and `-S` stops the mode even if
+  the radio stops reporting a synthesizer lock.
+  [#213](https://github.com/SqueakyFloors/ubertooth/issues/213)
+- Stopping a mode always resets the board before the next one starts, so two
+  requests sent close together no longer carry one mode's LEDs, amplifier,
+  channel and squelch into the next; and a mode request that arrives while a
+  BLE mode shuts down is no longer dropped, which used to leave the board idle
+  after the host had been told the mode started.
+  [#209](https://github.com/SqueakyFloors/ubertooth/issues/209)
 
 - `ubertooth-dfu` now performs bounded, device-specific Device Firmware
   Upgrade (DFU) entry and recovery, retries interrupted transfers, and verifies
