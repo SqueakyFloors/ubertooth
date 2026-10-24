@@ -986,7 +986,7 @@ MU_TEST(stray_arguments_are_rejected_before_any_device_action)
 MU_TEST(pa_level_zero_is_set_and_bad_levels_are_refused)
 {
 	struct run_result r;
-	static const char *const bad[] = { "-a8", "-a9", "-afoo", "-a-1", "-a07", "-a10" };
+	static const char *const bad[] = { "-a8", "-a9", "-afoo", "-a-1", "-a+3", "-a 3", "-a3x", "-a10" };
 	size_t i;
 
 	reset_fake();
@@ -1005,6 +1005,13 @@ MU_TEST(pa_level_zero_is_set_and_bad_levels_are_refused)
 	reset_fake();
 	fake.last_palevel_set = 99;
 	r = RUN("-a7");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(7, fake.last_palevel_set);
+
+	/* a leading zero is still a level 0-7 */
+	reset_fake();
+	fake.last_palevel_set = 99;
+	r = RUN("-a07");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert_int_eq(7, fake.last_palevel_set);
 

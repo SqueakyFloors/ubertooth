@@ -430,12 +430,14 @@ int main(int argc, char *argv[])
 			/* -a reads the PA level; -a<0-7> sets it, including 0 (-1:
 			 * not requested, PA_QUERY: read). */
 			if (optarg) {
-				if (optarg[0] == '\0' || optarg[1] != '\0' ||
-				    optarg[0] < '0' || optarg[0] > '7') {
+				char *end;
+				long level = strtol(optarg, &end, 10);
+				if (optarg[0] < '0' || optarg[0] > '9' || *end != '\0' ||
+				    level < 0 || level > 7) {
 					fprintf(stderr, "error: PA level must be 0-7 (got %s)\n", optarg);
 					return 1;
 				}
-				do_palevel= optarg[0] - '0';
+				do_palevel= (int)level;
 			} else {
 				do_palevel= PA_QUERY;
 			}
