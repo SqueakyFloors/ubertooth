@@ -201,6 +201,17 @@ static int list_identity_queries(const int requested[QUERY_COUNT], int count)
 	return status;
 }
 
+/*
+ * A failed device read prints no value line, so a negative error code is
+ * never shown as a value. libubertooth has already printed the transfer
+ * error; this names the query that failed. Returns the failing status.
+ */
+static int report_read_failed(const char *what)
+{
+	fprintf(stderr, "error: %s read failed\n", what);
+	return 1;
+}
+
 /* For -I (identify): the loop runs until interrupted. Without a handler, Ctrl-C
  * leaves the USR/RX/TX LEDs in whatever state the last toggle set (often on).
  * This handler turns them off and exits cleanly so the device returns to the
@@ -513,20 +524,28 @@ int main(int argc, char *argv[])
 		int usr = cmd_get_usrled(ut->devh);
 		int rx = cmd_get_rxled(ut->devh);
 		int tx = cmd_get_txled(ut->devh);
-		fprintf(stdout, "USR LED status: %d\n", usr);
-		fprintf(stdout, "RX LED status : %d\n", rx);
-		fprintf(stdout, "TX LED status : %d\n", tx);
-		status = util_status_after(status, usr);
-		status = util_status_after(status, rx);
-		status = util_status_after(status, tx);
+		if (usr < 0)
+			status = util_status_merge(status, report_read_failed("USR LED"));
+		else
+			fprintf(stdout, "USR LED status: %d\n", usr);
+		if (rx < 0)
+			status = util_status_merge(status, report_read_failed("RX LED"));
+		else
+			fprintf(stdout, "RX LED status : %d\n", rx);
+		if (tx < 0)
+			status = util_status_merge(status, report_read_failed("TX LED"));
+		else
+			fprintf(stdout, "TX LED status : %d\n", tx);
 	}
 	if(do_board_id == 0)
 		status = util_status_merge(status,
 		        util_report_board_id(&report_ops, ut, stdout, stderr));
 	if(do_channel == 0) {
 		int mhz = cmd_get_channel(ut->devh);
-		fprintf(stdout, "Current frequency: %d MHz (Bluetooth channel %d)\n", mhz, mhz - 2402);
-		status = util_status_after(status, mhz);
+		if (mhz < 0)
+			status = util_status_merge(status, report_read_failed("channel"));
+		else
+			fprintf(stdout, "Current frequency: %d MHz (Bluetooth channel %d)\n", mhz, mhz - 2402);
 	}
 	if(do_firmware == 0)
 		status = util_status_merge(status,
@@ -536,21 +555,26 @@ int main(int argc, char *argv[])
 		        util_report_compile_info(&report_ops, ut, stdout));
 	if(do_leds == 2) {
 		int led = cmd_get_usrled(ut->devh);
-		fprintf(stdout, "USR LED status: %d\n", led);
-		status = util_status_after(status, led);
+		if (led < 0)
+			status = util_status_merge(status, report_read_failed("USR LED"));
+		else
+			fprintf(stdout, "USR LED status: %d\n", led);
 	}
 	if(do_palevel == 0) {
 		int level = cmd_get_palevel(ut->devh);
-		fprintf(stdout, "PA Level: %d\n", level);
-		status = util_status_after(status, level);
+		if (level < 0)
+			status = util_status_merge(status, report_read_failed("PA level"));
+		else
+			fprintf(stdout, "PA Level: %d\n", level);
 	}
 	if(do_part == 0)
 		status = util_status_merge(status,
 		        util_report_part_id(&report_ops, ut, stdout));
 	if(do_range_result == 0) {
 		int rr_status = cmd_get_rangeresult(ut->devh, &rr);
-		status = util_status_merge(status, rr_status != 0);
-		if (rr_status == 0) {
+		if (rr_status != 0) {
+			status = util_status_merge(status, report_read_failed("range test result"));
+		} else {
 			if (rr.valid==1) {
 				fprintf(stdout, "request PA level : %d\n", rr.request_pa);
 				fprintf(stdout, "request number   : %d\n", rr.request_num);
@@ -620,8 +644,10 @@ int main(int argc, char *argv[])
 	}
 	if(do_get_squelch > 0) {
 		int squelch = cmd_get_squelch(ut->devh);
-		fprintf(stdout, "Squelch set to %d\n", (int8_t)squelch);
-		status = util_status_after(status, squelch);
+		if (squelch < 0)
+			status = util_status_merge(status, report_read_failed("squelch"));
+		else
+			fprintf(stdout, "Squelch set to %d\n", (int8_t)squelch);
 	}
 	if(do_xmas) {
 		status = util_status_after(status, cmd_stop(ut->devh)); /* leave any prior mode before starting */
@@ -629,9 +655,15 @@ int main(int argc, char *argv[])
 	}
 	if(do_something) {
 		unsigned char buf[4] = { 0x55, 0x55, 0x55, 0x55 };
-		cmd_do_something(ut->devh, NULL, 0);
-		cmd_do_something_reply(ut->devh, buf, 4);
-		fprintf(stdout, "%02x %02x %02x %02x\n", buf[0], buf[1], buf[2], buf[3]);
+		/* Bytes the firmware does not fill keep the 0x55 marker. */
+		if (cmd_do_something(ut->devh, NULL, 0) < 0) {
+			fprintf(stderr, "error: test command send failed\n");
+			status = 1;
+		}
+		if (cmd_do_something_reply(ut->devh, buf, 4) < 0)
+			status = util_status_merge(status, report_read_failed("test command reply"));
+		else
+			fprintf(stdout, "%02x %02x %02x %02x\n", buf[0], buf[1], buf[2], buf[3]);
 		return status;
 	}
 

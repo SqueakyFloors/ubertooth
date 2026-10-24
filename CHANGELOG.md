@@ -31,6 +31,17 @@
   version without a device.
 - `ubertooth-util -I` blinks light-emitting diodes (LEDs) faster for easier
   identification and turns them off when interrupted with Ctrl-C.
+- `ubertooth-specan-ui` draws a slowly smoothed average of the max-hold trace
+  as a cyan dotted line labelled "Avg: N dBm", shown with the other markers.
+  Credit: Sirio Balmelli ([@siriobalmelli](https://github.com/siriobalmelli)).
+  [#75](https://github.com/SqueakyFloors/ubertooth/issues/75)
+  https://github.com/siriobalmelli-foss/ubertooth/commit/01c3bf9e
+- `ubertooth-specan-ui` shows its keys on screen (press `h`; a hint is always
+  visible), labels frequencies in whole MHz, no longer leaves ghost marker
+  labels behind, draws the plot slightly wider than the scanned range, and has
+  a man page and usage guide.
+  [#125](https://github.com/SqueakyFloors/ubertooth/issues/125)
+  [#126](https://github.com/SqueakyFloors/ubertooth/issues/126)
 
 ### Build and compatibility
 
@@ -87,6 +98,10 @@
 - `ubertooth-util` exits 0 after a successful query such as `-b`, `-c`, `-a`,
   or `-z`, and an earlier failure is no longer hidden by a later success.
   [#40](https://github.com/SqueakyFloors/ubertooth/issues/40)
+- `ubertooth-util` no longer prints error codes as values when a query read
+  fails (`-c`, `-a`, `-z`, `-l`, `-d`, `-m`, `-9`); it names the failed read on
+  standard error instead. A failed `-9` test command now exits non-zero.
+  [#59](https://github.com/SqueakyFloors/ubertooth/issues/59)
 - Host-library failures now propagate correctly and release device resources;
   firmware-image and ducky operations reject short reads.
   [#2](https://github.com/SqueakyFloors/ubertooth/issues/2)
@@ -98,6 +113,12 @@
 - `ubertooth-util -v` and `-V` now exit with an error when the firmware
   version can't be read, instead of printing `error: <n>`.
   [#51](https://github.com/SqueakyFloors/ubertooth/issues/51)
+- `ubertooth-specan-ui` plots again: it passed `-U 0` to `ubertooth-specan` as a
+  single argument, which was read as a serial, and asked for 2400-2483 MHz,
+  which `ubertooth-specan` rejects. Its `-U` now takes an index or a serial like
+  the other tools, and it no longer crashes when `C` is pressed before data
+  arrives.
+  [#124](https://github.com/SqueakyFloors/ubertooth/issues/124)
 - `ubertooth-scan` no longer leaks connection information after failed probes.
   [#3](https://github.com/SqueakyFloors/ubertooth/issues/3)
   [upstream #542](https://github.com/greatscottgadgets/ubertooth/issues/542)

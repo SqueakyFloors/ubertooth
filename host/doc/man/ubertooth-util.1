@@ -256,6 +256,12 @@ wirelessly, do not use the range test functionality.
 queries that report a nonzero value such as \fB\fC\-b\fR (board ID), \fB\fC\-c\fR (channel), or
 \fB\fC\-a\fR (power amplifier level). It exits with a nonzero status if any requested
 operation fails, even when a later operation in the same command succeeds.
+.PP
+When a \fB\fC\-b\fR, \fB\fC\-c\fR, \fB\fC\-a\fR, \fB\fC\-z\fR, \fB\fC\-l\fR, \fB\fC\-d\fR, \fB\fC\-p\fR, \fB\fC\-s\fR, \fB\fC\-m\fR or \fB\fC\-9\fR read fails,
+no value line is printed on standard output, so an error code is never shown as
+a value; the other requested queries are still reported. A failed \fB\fC\-c\fR, \fB\fC\-a\fR, \fB\fC\-z\fR, \fB\fC\-l\fR, \fB\fC\-d\fR, \fB\fC\-m\fR or \fB\fC\-9\fR read also prints
+\fB\fCerror: <query> read failed\fR (for example \fB\fCerror: channel read failed\fR) on
+standard error, after any message from libubertooth.
 .SH SEE ALSO
 .PP
 .BR ubertooth (7): 

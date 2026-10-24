@@ -45,13 +45,29 @@ from qtpy.QtCore import Qt, QPointF, QLineF
 
 from specan import Ubertooth
 
-DEFAULT_LOWER_FREQ = 2400
-DEFAULT_UPPER_FREQ = 2483
+# Shown on screen with h and printed to the terminal. Keys work in either case.
+KEY_HELP = (
+    ('left click', 'set marker 1 (yellow) at the pointer'),
+    ('right click', 'set marker 2 (magenta); shows the difference'),
+    ('middle click or m', 'show / hide peak and average markers, clear mouse markers'),
+    ('c', 'clear the graph'),
+    ('h', 'show / hide this help'),
+    ('q', 'quit'),
+)
+
+# The plot is drawn a little wider than the scanned range, within the 2.4 GHz
+# ISM band, so the edge channels can be marked without clicking on the border.
+PLOT_MARGIN = 2
+ISM_LOW_FREQ = 2400
+ISM_HIGH_FREQ = 2483
+
+DEFAULT_LOWER_FREQ = 2402
+DEFAULT_UPPER_FREQ = 2480
 
 # going much further causes the Ubertooth to stop responding :(
 
-MIN_FREQ = 2300
-MAX_FREQ = 2600
+MIN_FREQ = 2402  # range ubertooth-specan accepts
+MAX_FREQ = 2480
 
 class SpecanThread(threading.Thread):
     def __init__(self, device, low_frequency, high_frequency, new_frame_callback, ubertooth_device=-1):
@@ -92,13 +108,18 @@ class RenderArea(QtWidgets.QWidget):
         self._persisted_frames_depth = 350
         self._path_max = None
 
-        self._low_frequency = lower_freq * 1e6
-        self._high_frequency = upper_freq * 1e6
+        # Plot range (axis, grid, markers); the scan range is lower/upper_freq.
+        self._low_frequency = max(ISM_LOW_FREQ, lower_freq - PLOT_MARGIN) * 1e6
+        self._high_frequency = min(ISM_HIGH_FREQ, upper_freq + PLOT_MARGIN) * 1e6
         self._frequency_step = 1e6
         self._high_dbm = 0.0
         self._low_dbm = -100.0
+        self._average_dbm = None  # set from the first real sweep
 
         self._hide_markers = False
+        self._show_help = False
+        self._peak = None  # (x, y) of the strongest max-hold bin
+        self._frame_is_new = False
         self._mouse_x = None
         self._mouse_y = None
         self._mouse_x2 = None
@@ -107,8 +128,8 @@ class RenderArea(QtWidgets.QWidget):
         self._clear_scheduled = False
 
         self._thread = SpecanThread(self._device,
-                                    self._low_frequency,
-                                    self._high_frequency,
+                                    lower_freq * 1e6,
+                                    upper_freq * 1e6,
                                     self._new_frame,
                                     ubertooth_device=ubertooth_device)
         self._thread.start()
@@ -144,14 +165,17 @@ class RenderArea(QtWidgets.QWidget):
             self._new_persisted_frames(len(frequency_axis))
         self._persisted_frames[self._persisted_frames_next_index] = rssi_values
         self._persisted_frames_next_index = (self._persisted_frames_next_index + 1) % self._persisted_frames.shape[0]
+        self._frame_is_new = True
         self.update()
 
     def _draw_graph(self):
-        if self._clear_scheduled:
+        # A clear needs the frequency axis, so wait for the first frame.
+        if self._clear_scheduled and self._frame is not None:
             frequency_axis, _ = self._frame
             self._clear_scheduled = False
             self._new_graph()
             self._new_persisted_frames(len(frequency_axis))
+            self._average_dbm = None
 
         if self._graph is None:
             self._new_graph()
@@ -172,7 +196,19 @@ class RenderArea(QtWidgets.QWidget):
                 bins = range(len(frequency_axis))
                 x_axis = self._hz_to_x(frequency_axis)
                 y_now = self._dbm_to_y(rssi_values)
-                y_max = self._dbm_to_y(numpy.amax(self._persisted_frames, axis=0))
+                amax = numpy.amax(self._persisted_frames, axis=0)
+                y_max = self._dbm_to_y(amax)
+                # Moving average to slow down the average line. Ignore the empty
+                # frames left by a clear, and start from the first real sweep
+                # instead of 0 dBm. Keep full precision; round only the label.
+                # Advance once per sweep, not per repaint (help, resize).
+                if self._frame_is_new and amax.max() > self._low_dbm:
+                    self._frame_is_new = False
+                    level = float(numpy.average(amax))
+                    if self._average_dbm is None:
+                        self._average_dbm = level
+                    else:
+                        self._average_dbm = (2 * self._average_dbm + level) / 3
 
                 path_now.moveTo(float(x_axis[0]), float(y_now[0]))
                 for i in bins:
@@ -192,36 +228,12 @@ class RenderArea(QtWidgets.QWidget):
                 painter.setPen(pen)
                 painter.drawPath(path_now)
                 self._path_max = path_max
-                if max_max is not None and not self._hide_markers:
-                    pen.setBrush(Qt.red)
-                    pen.setStyle(Qt.DotLine)
-                    painter.setPen(pen)
-                    painter.drawText(QPointF(x_axis[max_max] + 4, 30), '%.06f' % (self._x_to_hz(x_axis[max_max]) / 1e6))
-                    painter.drawText(QPointF(30, y_max[max_max] - 4), '%d' % (self._y_to_dbm(y_max[max_max])))
-                    painter.drawLine(QPointF(x_axis[max_max], 0), QPointF(x_axis[max_max], self.height()))
-                    painter.drawLine(QPointF(0, y_max[max_max]), QPointF(self.width(), y_max[max_max]))
-                    if self._mouse_x:
-                        painter.drawText(QPointF(self._hz_to_x(self._mouse_x) + 4, 58), '(%.06f)' % ((self._x_to_hz(x_axis[max_max]) / 1e6) - (self._mouse_x / 1e6)))
-                        pen.setBrush(Qt.yellow)
-                        painter.setPen(pen)
-                        painter.drawText(QPointF(self._hz_to_x(self._mouse_x) + 4, 44), '%.06f' % (self._mouse_x / 1e6))
-                        painter.drawText(QPointF(54, self._dbm_to_y(self._mouse_y) - 4), '%d' % (self._mouse_y))
-                        painter.drawLine(QPointF(self._hz_to_x(self._mouse_x), 0), QPointF(self._hz_to_x(self._mouse_x), self.height()))
-                        painter.drawLine(QPointF(0, self._dbm_to_y(self._mouse_y)), QPointF(self.width(), self._dbm_to_y(self._mouse_y)))
-                        if self._mouse_x2:
-                            painter.drawText(QPointF(self._hz_to_x(self._mouse_x2) + 4, 118), '(%.06f)' % ((self._mouse_x / 1e6) - (self._mouse_x2 / 1e6)))
-                    if self._mouse_x2:
-                        pen.setBrush(Qt.red)
-                        painter.setPen(pen)
-                        painter.drawText(QPointF(self._hz_to_x(self._mouse_x2) + 4, 102), '(%.06f)' % ((self._x_to_hz(x_axis[max_max]) / 1e6) - (self._mouse_x2 / 1e6)))
-                        pen.setBrush(Qt.magenta)
-                        painter.setPen(pen)
-                        painter.drawText(QPointF(self._hz_to_x(self._mouse_x2) + 4, 88), '%.06f' % (self._mouse_x2 / 1e6))
-                        painter.drawText(QPointF(78, self._dbm_to_y(self._mouse_y2) - 4), '%d' % (self._mouse_y2))
-                        painter.drawLine(QPointF(self._hz_to_x(self._mouse_x2), 0), QPointF(self._hz_to_x(self._mouse_x2), self.height()))
-                        painter.drawLine(QPointF(0, self._dbm_to_y(self._mouse_y2)), QPointF(self.width(), self._dbm_to_y(self._mouse_y2)))
-                        if self._mouse_x:
-                            painter.drawText(QPointF(self._hz_to_x(self._mouse_x) + 4, 74), '(%.06f)' % ((self._mouse_x2 / 1e6) - (self._mouse_x / 1e6)))
+                # Markers are drawn on top in paintEvent, not into this fading
+                # pixmap, so old labels do not leave ghosts.
+                if max_max is not None:
+                    self._peak = (float(x_axis[max_max]), float(y_max[max_max]))
+                else:
+                    self._peak = None
         finally:
             painter.end()
 
@@ -283,6 +295,10 @@ class RenderArea(QtWidgets.QWidget):
             painter.setOpacity(0.5)
             if self._reticle:
                 painter.drawPixmap(0, 0, self._reticle)
+
+            painter.setOpacity(1.0)
+            self._draw_markers(painter)
+            self._draw_help(painter)
         finally:
             painter.end()
 
@@ -309,6 +325,85 @@ class RenderArea(QtWidgets.QWidget):
         tmp = y / self.height()
         delta = tmp * range
         return self._high_dbm - delta
+
+
+    def _draw_markers(self, painter):
+        if self._peak is None or self._hide_markers:
+            return
+        peak_x, peak_y = self._peak
+        peak_mhz = self._x_to_hz(peak_x) / 1e6
+        pen = QtGui.QPen()
+        pen.setStyle(Qt.DotLine)
+
+        pen.setBrush(Qt.red)
+        painter.setPen(pen)
+        painter.drawText(QPointF(peak_x + 4, 30), '%.0f MHz' % peak_mhz)
+        painter.drawText(QPointF(30, peak_y - 4), '%d' % self._y_to_dbm(peak_y))
+        painter.drawLine(QPointF(peak_x, 0), QPointF(peak_x, self.height()))
+        painter.drawLine(QPointF(0, peak_y), QPointF(self.width(), peak_y))
+
+        if self._average_dbm is not None:
+            pen.setBrush(Qt.cyan)
+            painter.setPen(pen)
+            average_y = self._dbm_to_y(self._average_dbm)
+            painter.drawText(QPointF(30, average_y - 4), 'Avg: %d dBm' % round(self._average_dbm))
+            painter.drawLine(QPointF(0, average_y), QPointF(self.width(), average_y))
+
+        if self._mouse_x:
+            x1 = self._hz_to_x(self._mouse_x)
+            pen.setBrush(Qt.red)
+            painter.setPen(pen)
+            painter.drawText(QPointF(x1 + 4, 58), '(%+.0f)' % (peak_mhz - self._mouse_x / 1e6))
+            pen.setBrush(Qt.yellow)
+            painter.setPen(pen)
+            painter.drawText(QPointF(x1 + 4, 44), '%.0f MHz' % (self._mouse_x / 1e6))
+            painter.drawText(QPointF(54, self._dbm_to_y(self._mouse_y) - 4), '%d' % self._mouse_y)
+            painter.drawLine(QPointF(x1, 0), QPointF(x1, self.height()))
+            painter.drawLine(QPointF(0, self._dbm_to_y(self._mouse_y)), QPointF(self.width(), self._dbm_to_y(self._mouse_y)))
+            if self._mouse_x2:
+                painter.drawText(QPointF(self._hz_to_x(self._mouse_x2) + 4, 118), '(%+.0f)' % ((self._mouse_x - self._mouse_x2) / 1e6))
+        if self._mouse_x2:
+            x2 = self._hz_to_x(self._mouse_x2)
+            pen.setBrush(Qt.red)
+            painter.setPen(pen)
+            painter.drawText(QPointF(x2 + 4, 102), '(%+.0f)' % (peak_mhz - self._mouse_x2 / 1e6))
+            pen.setBrush(Qt.magenta)
+            painter.setPen(pen)
+            painter.drawText(QPointF(x2 + 4, 88), '%.0f MHz' % (self._mouse_x2 / 1e6))
+            painter.drawText(QPointF(78, self._dbm_to_y(self._mouse_y2) - 4), '%d' % self._mouse_y2)
+            painter.drawLine(QPointF(x2, 0), QPointF(x2, self.height()))
+            painter.drawLine(QPointF(0, self._dbm_to_y(self._mouse_y2)), QPointF(self.width(), self._dbm_to_y(self._mouse_y2)))
+            if self._mouse_x:
+                painter.drawText(QPointF(self._hz_to_x(self._mouse_x) + 4, 74), '(%+.0f)' % ((self._mouse_x2 - self._mouse_x) / 1e6))
+
+    def _draw_help(self, painter):
+        # Drawn on the widget each repaint, not into the fading graph, so it
+        # does not smear.
+        metrics = painter.fontMetrics()
+        line_height = metrics.height() + 2
+        if not self._show_help:
+            # On a dark box so it stays readable over the traces.
+            hint = 'h: keys'
+            hint_width = metrics.horizontalAdvance(hint) + 12
+            left = self.width() - hint_width - 6
+            top = self.height() - line_height - 8
+            painter.fillRect(int(left), int(top), int(hint_width), int(line_height + 2),
+                             QtGui.QColor(30, 30, 30, 220))
+            painter.setPen(QtGui.QColor(200, 200, 200))
+            painter.drawText(QPointF(left + 6, top + 1 + metrics.ascent()), hint)
+            return
+        key_width = max(metrics.horizontalAdvance(key) for key, _ in KEY_HELP)
+        text_width = max(metrics.horizontalAdvance(text) for _, text in KEY_HELP)
+        width = key_width + text_width + 36
+        height = line_height * len(KEY_HELP) + 16
+        left = max(0, self.width() - width - 10)
+        top = max(0, self.height() - height - 10)
+        painter.fillRect(int(left), int(top), int(width), int(height), QtGui.QColor(30, 30, 30, 220))
+        painter.setPen(Qt.white)
+        for row, (key, text) in enumerate(KEY_HELP):
+            y = top + 8 + metrics.ascent() + row * line_height
+            painter.drawText(QPointF(left + 12, y), key)
+            painter.drawText(QPointF(left + 24 + key_width, y), text)
 
 
 class Window(QtWidgets.QWidget):
@@ -366,14 +461,11 @@ class Window(QtWidgets.QWidget):
             event.ignore()
             return
         if key == 'H':
-            print('Key                  Action\n')
-            print(' <LEFT MOUSE>        Mark LEFT frequency / signal strength at pointer')
-            print(' <RIGHT MOUSE>       Mark RIGHT frequency / signal strength at pointer')
-            print(' <MIDDLE MOUSE>      Toggle visibility of frequency / signal strength markers')
-            print(' C                   Clear graph')
-            print(' H                   Print this HELP text')
-            print(' M                   Simulate MIDDLE MOUSE click (for those with trackpads)')
-            print(' Q                   Quit')
+            self.render_area._show_help = not self.render_area._show_help
+            if self.render_area._show_help:
+                for name, text in KEY_HELP:
+                    print('%-20s %s' % (name, text))
+            self.render_area.update()
             return
         if key == 'M':
             self.render_area._mouse_x = None
@@ -428,8 +520,8 @@ if __name__ == '__main__':
     signal.signal(signal.SIGINT, sigint_handler)
 
     parser = ArgumentParser()
-    parser.add_argument("-U", type=int, dest="device",
-                      help="set ubertooth device to use")
+    parser.add_argument("-U", type=str, dest="device", metavar="index|serial",
+                      help="select the Ubertooth by index or serial number")
     parser.add_argument("-l", type=int, dest="lower_freq", help="lower bound for scan, in MHz (no less than " + str(MIN_FREQ) + ")")
     parser.add_argument("-u", type=int, dest="upper_freq", help="upper bound for scan, in MHz (no more than " + str(MAX_FREQ) + ")")
     parser.add_argument("--wifi", type=str, nargs='?', dest="wifi", metavar="channel(s)", help="display the spectrum for the wifi channels provided, either as a single number for one channel, or a range (e.g. 1-11) for two channels", const="1", default=False)
@@ -464,8 +556,9 @@ if __name__ == '__main__':
             sys.exit(1)
 
         try:
-            lower_freq = convert_wifi(lower_channel) - options.padding
-            upper_freq = convert_wifi(upper_channel) + options.padding
+            # Padding may not reach past what the Ubertooth can tune.
+            lower_freq = max(MIN_FREQ, convert_wifi(lower_channel) - options.padding)
+            upper_freq = min(MAX_FREQ, convert_wifi(upper_channel) + options.padding)
         except ValueError:
             sys.exit(1)
     else:
