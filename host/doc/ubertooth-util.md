@@ -204,9 +204,10 @@ operation fails, even when a later operation in the same command succeeds.
 
 When a `-b`, `-c`, `-a`, `-z`, `-l`, `-d`, `-p`, `-s`, `-m` or `-9` read fails,
 no value line is printed on standard output, so an error code is never shown as
-a value; the other requested queries are still reported. A failed `-c`, `-a`, `-z`, `-l`, `-d`, `-m` or `-9` read also prints
-`error: <query> read failed` (for example `error: channel read failed`) on
-standard error, after any message from libubertooth.
+a value; the other requested queries are still reported. A failed `-c`, `-a`,
+`-z`, `-l`, `-d`, `-m` or `-9` read also prints `error: <query> read failed`
+(for example `error: channel read failed`) on standard error, after any message
+from libubertooth.
 
 ## SEE ALSO
 

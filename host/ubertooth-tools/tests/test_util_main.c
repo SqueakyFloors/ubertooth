@@ -1215,6 +1215,7 @@ MU_TEST(a_failed_test_command_send_fails_the_command)
 	r = RUN("-9");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.out, "55 55 55 55\n") == 0, "reply still read and printed");
+	mu_assert(strcmp(r.err, "error: test command send failed\n") == 0, "send failure named");
 }
 
 int main(void)

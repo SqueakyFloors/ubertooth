@@ -656,7 +656,10 @@ int main(int argc, char *argv[])
 	if(do_something) {
 		unsigned char buf[4] = { 0x55, 0x55, 0x55, 0x55 };
 		/* Bytes the firmware does not fill keep the 0x55 marker. */
-		status = util_status_after(status, cmd_do_something(ut->devh, NULL, 0));
+		if (cmd_do_something(ut->devh, NULL, 0) < 0) {
+			fprintf(stderr, "error: test command send failed\n");
+			status = 1;
+		}
 		if (cmd_do_something_reply(ut->devh, buf, 4) < 0)
 			status = util_status_merge(status, report_read_failed("test command reply"));
 		else
