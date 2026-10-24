@@ -14,6 +14,7 @@ order libbtbb decodes. Only the times relative to the first packet are checked,
 since where a capture is anchored is a separate question.
 """
 
+import os
 import struct
 import subprocess
 import sys
@@ -142,7 +143,10 @@ with tempfile.TemporaryDirectory() as workdir:
 
     result = subprocess.run(
         [BINARY, "-i", "wrap.bin", "-q", "wrap.pcap", "-r", "wrap.pcapng"],
-        capture_output=True, text=True, timeout=30, check=False, cwd=work)
+        capture_output=True, text=True, timeout=30, check=False, cwd=work,
+        # A replay opens no device; the switch keeps it that way if this run
+        # ever reaches device selection (#219).
+        env=dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1"))
     assert result.returncode == 0, result
 
     pcap = pcap_times(work / "wrap.pcap")
