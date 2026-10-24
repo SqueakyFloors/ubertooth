@@ -21,6 +21,7 @@
 
 #include <getopt.h>
 #include <stdlib.h>
+#include <string.h>
 #include "ubertooth.h"
 #include "opt_parse.h"
 #include "specan_options.h"
@@ -97,7 +98,7 @@ static void usage(FILE *file)
 	fprintf(file, "\t-v verbose (print debug information to stderr)\n");
 	fprintf(file, "\t-g output suitable for feedgnuplot\n");
 	fprintf(file, "\t-G output suitable for 3D feedgnuplot\n");
-	fprintf(file, "\t-d <filename> output to file\n");
+	fprintf(file, "\t-d <filename> output to file; -d - writes to stdout\n");
 	fprintf(file, "\t-l <%d-%d> lower frequency in MHz (default %d)\n",
 	        SPECAN_FREQ_MIN, SPECAN_FREQ_MAX, SPECAN_FREQ_MIN);
 	fprintf(file, "\t-u <%d-%d> upper frequency in MHz (default %d)\n",
@@ -127,7 +128,12 @@ int main(int argc, char *argv[])
 			break;
 		case 'd':
 			output_mode = SPECAN_FILE;
-			if(*optarg == '-') {
+			/* Only a bare "-" means stdout (the one argument rule, as
+			 * ubertooth-btle -r already checks). Any other value is a
+			 * file name, including one starting with "-", so "-d -x"
+			 * writes the file "-x" rather than silently streaming
+			 * samples to stdout and dropping a mistyped option. */
+			if (strcmp(optarg, "-") == 0) {
 				dumpfile = stdout;
 			} else {
 				dumpfile = fopen(optarg, "w");
