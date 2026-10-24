@@ -104,12 +104,10 @@ Speed matters. Do not wait for every job.
   onto the current `main`. Update the branch only for conflicts or when `main`
   changed files the PR also touches, since that restarts CI.
 - Run the independent reviews in parallel with CI, not after it.
-- **Wait in the background.** Start one bounded wait, for example
-  `perl -e 'alarm shift; exec @ARGV' 600 gh pr checks <PR> --watch --fail-fast`
-  (portable; macOS has no `timeout`), as a background command
-  and continue other work (reviews, the next issue, docs) while it runs. Check
-  its result when that work is done. Never block on chained `sleep` polling
-  loops.
+- **Poll, do not block.** Never run one long `gh pr checks --watch` or chained
+  `sleep` loops in the foreground. Check `gh pr checks <PR>` every 30 seconds
+  between other work (reviews, the next issue) and merge the moment the gating
+  set is green.
 
 ## Changelog discipline
 
