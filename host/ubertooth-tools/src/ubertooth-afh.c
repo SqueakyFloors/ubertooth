@@ -157,8 +157,10 @@ int main(int argc, char* argv[])
 		return 1;
 	}
 
+	/* NULL when no board matches -U or it cannot be opened; the library
+	 * has already said why. */
 	ut = ubertooth_start_select(ubertooth_device);
-	if (ut->devh == NULL) {
+	if (ut == NULL) {
 		return 1;
 	}
 

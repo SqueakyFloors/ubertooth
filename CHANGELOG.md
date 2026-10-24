@@ -85,6 +85,9 @@
 
 ### Reliability fixes
 
+- `ubertooth-afh` exits 1 when the selected board is not found, instead of
+  crashing with a segmentation fault; `ubertooth-follow` now stops there too.
+  [#185](https://github.com/SqueakyFloors/ubertooth/issues/185)
 - Every `ubertooth-*` tool now refuses a word that is not an option, including
   a bare `-`, before opening a device (`error: unexpected argument '<word>'`),
   so a typo such as `- v` is no longer dropped while the rest of the command

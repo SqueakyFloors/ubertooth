@@ -57,6 +57,12 @@ foreach(tool ${UBERTOOTH_TOOLS})
 			${CMAKE_CURRENT_SOURCE_DIR}/test_cli_arguments.py
 			$<TARGET_FILE:${tool}>)
 	set_tests_properties(cli-arguments-${tool} PROPERTIES TIMEOUT 60)
+	add_test(
+		NAME board-not-found-${tool}
+		COMMAND ${Python3_EXECUTABLE}
+			${CMAKE_CURRENT_SOURCE_DIR}/test_board_not_found.py
+			$<TARGET_FILE:${tool}>)
+	set_tests_properties(board-not-found-${tool} PROPERTIES TIMEOUT 30)
 endforeach()
 
 add_test(
