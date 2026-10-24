@@ -624,7 +624,15 @@ int ubertooth_bulk_receive(ubertooth_t* ut, rx_callback cb, void* cb_args)
 	}
 }
 
-static int stream_rx_usb(ubertooth_t* ut, rx_callback cb, void* cb_args)
+/*
+ * `start` is the request that puts the board in the mode whose packets the
+ * caller wants: cmd_rx_syms() for plain symbol capture, cmd_afh() for AFH
+ * detection. It is sent once the transfers are in place, and it is the last
+ * mode request the board gets -- sending cmd_rx_syms() on top of cmd_afh()
+ * left AFH detection receiving under MODE_RX_SYMBOLS instead.
+ */
+static int stream_rx_usb(ubertooth_t* ut, rx_callback cb, void* cb_args,
+                         int (*start)(struct libusb_device_handle*))
 {
 	// init USB transfer
 	int r = ubertooth_bulk_init(ut);
@@ -636,7 +644,7 @@ static int stream_rx_usb(ubertooth_t* ut, rx_callback cb, void* cb_args)
 		return r;
 
 	// tell ubertooth to send packets
-	r = cmd_rx_syms(ut->devh);
+	r = start(ut->devh);
 	if (r < 0)
 		return r;
 
@@ -727,8 +735,10 @@ int rx_afh(ubertooth_t* ut, btbb_piconet* pn, int timeout)
 	if (timeout) {
 		ubertooth_set_timeout(ut, timeout);
 
-		cmd_afh(ut->devh);
-		r = stream_rx_usb(ut, cb_afh_initial, pn);
+		/* cmd_afh() both starts the stream and is the mode it streams in:
+		 * it clears the board's map, turns on AFH hopping and asks for
+		 * MODE_AFH. */
+		r = stream_rx_usb(ut, cb_afh_initial, pn, cmd_afh);
 
 		cmd_stop(ut->devh);
 		ut->stop_ubertooth = 0;
@@ -751,8 +761,7 @@ int rx_afh(ubertooth_t* ut, btbb_piconet* pn, int timeout)
 	 * Monitor changes in AFH channel map
 	 */
 	cmd_clear_afh_map(ut->devh);
-	cmd_afh(ut->devh);
-	r = stream_rx_usb(ut, cb_afh_monitor, pn);
+	r = stream_rx_usb(ut, cb_afh_monitor, pn, cmd_afh);
 	return r < 0 ? r : 0;
 }
 
@@ -767,8 +776,6 @@ void rx_afh_r(ubertooth_t* ut, btbb_piconet* pn, int timeout __attribute__((unus
 
 	cmd_set_channel(ut->devh, 9999);
 
-	cmd_afh(ut->devh);
-
 	// init USB transfer
 	r = ubertooth_bulk_init(ut);
 	if (r < 0)
@@ -778,8 +785,8 @@ void rx_afh_r(ubertooth_t* ut, btbb_piconet* pn, int timeout __attribute__((unus
 	if (r < 0)
 		return;
 
-	// tell ubertooth to send packets
-	r = cmd_rx_syms(ut->devh);
+	// tell ubertooth to send packets, in the AFH detection mode (see rx_afh)
+	r = cmd_afh(ut->devh);
 	if (r < 0)
 		return;
 
@@ -876,9 +883,9 @@ static void cb_dump_full(ubertooth_t* ut, void* args __attribute__((unused)))
 void rx_dump(ubertooth_t* ut, int bitstream)
 {
 	if (bitstream)
-		stream_rx_usb(ut, cb_dump_bitstream, NULL);
+		stream_rx_usb(ut, cb_dump_bitstream, NULL, cmd_rx_syms);
 	else
-		stream_rx_usb(ut, cb_dump_full, NULL);
+		stream_rx_usb(ut, cb_dump_full, NULL, cmd_rx_syms);
 }
 
 static void ubertooth_cleanup(ubertooth_t* ut, int send_stop)

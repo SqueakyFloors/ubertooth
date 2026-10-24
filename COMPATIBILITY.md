@@ -32,7 +32,7 @@ Legend:
 | **arm-none-eabi-gcc (firmware)** | 9-2019-q4 (GCC 9.2.1) | 9-2019-q4 (Ubuntu 20.04 CI), 10.3-2021.07 (22.04), 13.2.rel1 (24.04), 15.3.1 (macOS 14/15/26 CI); 13.2 (Linux) and 15.3 (macOS) on hardware | older than 9-2019-q4 (not tested) | ✅ 9-2019-q4 verified in CI (oldest tested) |
 | **libusb** | 1.0.23 | 1.0.23 (Ubuntu 20.04 CI), 1.0.25 (22.04), 1.0.27 (24.04), 1.0.30 (macOS) | pre-1.0; older than 1.0.23 (not tested) | ✅ 1.0.23 verified in CI (oldest tested) |
 | **libbtbb** | 2020-12-R1 | current master (C lib) | older than 2020-12-R1 | 🎯 minimum not exercised: CI builds current master |
-| **Ubertooth firmware (API)** | 1.12 (this tree), exactly | 1.12 on hardware | any other API version, including 1.07 (`2020-12-R1`): refused by the tools, except `ubertooth-util` reading the version or reflashing | ✅ verified on an Ubertooth One |
+| **Ubertooth firmware (API)** | 1.13 (this tree), exactly | 1.12 on hardware; 1.13 not yet run on a board ([#251](https://github.com/SqueakyFloors/ubertooth/issues/251)) | any other API version, including 1.07 (`2020-12-R1`): refused by the tools, except `ubertooth-util` reading the version or reflashing | ✅ exact-version refusal verified on an Ubertooth One |
 
 ---
 
