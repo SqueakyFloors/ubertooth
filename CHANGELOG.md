@@ -113,6 +113,9 @@
 - `ubertooth-util -v` and `-V` now exit with an error when the firmware
   version can't be read, instead of printing `error: <n>`.
   [#51](https://github.com/SqueakyFloors/ubertooth/issues/51)
+- `ubertooth-util` now releases the device when it finishes a command,
+  without stopping a running mode.
+  [#117](https://github.com/SqueakyFloors/ubertooth/issues/117)
 - `ubertooth-specan-ui` plots again: it passed `-U 0` to `ubertooth-specan` as a
   single argument, which was read as a serial, and asked for 2400-2483 MHz,
   which `ubertooth-specan` rejects. Its `-U` now takes an index or a serial like

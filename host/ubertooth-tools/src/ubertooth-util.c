@@ -595,7 +595,8 @@ int main(int argc, char *argv[])
 	/* final actions */
 	if(do_flash == 0) {
 		fprintf(stdout, "Entering flash programming (DFU) mode\n");
-		return util_status_after(status, cmd_flash(ut->devh));
+		status = util_status_after(status, cmd_flash(ut->devh));
+		goto out;
 	}
 	if(do_identify == 0) {
 		fprintf(stdout, "Flashing LEDs on ubertooth device %s\n", ubertooth_device ? ubertooth_device : "0");
@@ -615,28 +616,33 @@ int main(int argc, char *argv[])
 	}
 	if(do_isp == 0) {
 		fprintf(stdout, "Entering flash programming (ISP) mode\n");
-		return util_status_after(status, cmd_set_isp(ut->devh));
+		status = util_status_after(status, cmd_set_isp(ut->devh));
+		goto out;
 	}
 	if(do_led_specan >= 0) {
 		do_led_specan= do_led_specan ? do_led_specan : 225;
 		fprintf(stdout, "Entering LED specan mode (RSSI %d)\n", do_led_specan);
 		status = util_status_after(status, cmd_stop(ut->devh)); /* leave any prior mode before starting */
-		return util_status_after(status, cmd_led_specan(ut->devh, do_led_specan));
+		status = util_status_after(status, cmd_led_specan(ut->devh, do_led_specan));
+		goto out;
 	}
 	if(do_range_test == 0) {
 		fprintf(stdout, "Starting range test\n");
 		status = util_status_after(status, cmd_stop(ut->devh)); /* leave any prior mode before starting */
-		return util_status_after(status, cmd_range_test(ut->devh));
+		status = util_status_after(status, cmd_range_test(ut->devh));
+		goto out;
 	}
 	if(do_repeater == 0) {
 		fprintf(stdout, "Starting repeater\n");
 		status = util_status_after(status, cmd_stop(ut->devh)); /* leave any prior mode before starting */
-		return util_status_after(status, cmd_repeater(ut->devh));
+		status = util_status_after(status, cmd_repeater(ut->devh));
+		goto out;
 	}
 	if(do_tx == 0) {
 		fprintf(stdout, "Starting TX test\n");
 		status = util_status_after(status, cmd_stop(ut->devh)); /* leave any prior mode before starting */
-		return util_status_after(status, cmd_tx_test(ut->devh));
+		status = util_status_after(status, cmd_tx_test(ut->devh));
+		goto out;
 	}
 	if(do_set_squelch > 0) {
 		fprintf(stdout, "Setting squelch to %d\n", squelch_level);
@@ -651,7 +657,8 @@ int main(int argc, char *argv[])
 	}
 	if(do_xmas) {
 		status = util_status_after(status, cmd_stop(ut->devh)); /* leave any prior mode before starting */
-		return util_status_after(status, cmd_xmas(ut->devh));
+		status = util_status_after(status, cmd_xmas(ut->devh));
+		goto out;
 	}
 	if(do_something) {
 		unsigned char buf[4] = { 0x55, 0x55, 0x55, 0x55 };
@@ -664,8 +671,12 @@ int main(int argc, char *argv[])
 			status = util_status_merge(status, report_read_failed("test command reply"));
 		else
 			fprintf(stdout, "%02x %02x %02x %02x\n", buf[0], buf[1], buf[2], buf[3]);
-		return status;
 	}
 
+out:
+	/* Release the handle without sending STOP, so a query or a mode just
+	 * started is left running on the device. */
+	ubertooth_close(ut);
+	ubertooth_free(ut);
 	return status;
 }
