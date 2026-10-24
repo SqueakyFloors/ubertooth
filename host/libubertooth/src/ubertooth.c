@@ -121,7 +121,7 @@ int ubertooth_count(void) {
 	struct libusb_context *ctx = NULL;
 	struct libusb_device_descriptor desc;
 	int usb_devs, i, r;
-	int uberteeth = 0;
+	int ubertooth_device_count = 0;
 
 	r = libusb_init(NULL);
 	if (r < 0) {
@@ -141,7 +141,7 @@ int ubertooth_count(void) {
 		    || (desc.idVendor == U0_VENDORID && desc.idProduct == U0_PRODUCTID)
 		    || (desc.idVendor == U1_VENDORID && desc.idProduct == U1_PRODUCTID))
 		{
-			uberteeth++;
+			ubertooth_device_count++;
 		}
 	}
 
@@ -149,20 +149,21 @@ int ubertooth_count(void) {
 		libusb_free_device_list(usb_list,1);
 	/* Balance the libusb_init() above: the count may be polled many times. */
 	libusb_exit(NULL);
-	return uberteeth;
+	return ubertooth_device_count;
 }
 
-/* Which entry of the found-Ubertooth list a -U index selects, or -1 for none.
- * A negative index means "no -U given": it selects the only device, or nothing
- * when several are attached. An index must be present in the list, so an index
- * past the end selects nothing, with one device attached as with several.
+/* Which entry of the found-Ubertooth list a -U index selects, or -1 for none;
+ * ut_ct is how many Ubertooth devices that list holds. A negative index means
+ * "no -U given": it selects the only device, or nothing when several are
+ * attached. An index must be present in the list, so an index past the end
+ * selects nothing, with one device attached as with several.
  * Shared by the loud and the quiet path of find_ubertooth_device_opt() so both
  * accept and refuse exactly the same selections. */
-static int pick_ubertooth_device(int ubertooth_device, int uberteeth)
+static int pick_ubertooth_device(int ubertooth_device, int ut_ct)
 {
 	if (ubertooth_device < 0)
-		return (uberteeth == 1) ? 0 : -1;
-	return (ubertooth_device < uberteeth) ? ubertooth_device : -1;
+		return (ut_ct == 1) ? 0 : -1;
+	return (ubertooth_device < ut_ct) ? ubertooth_device : -1;
 }
 
 /* Opens the Ubertooth at enumeration index ubertooth_device, or the only one
@@ -177,7 +178,7 @@ static struct libusb_device_handle* find_ubertooth_device_opt(int ubertooth_devi
 	struct libusb_context *ctx = NULL;
 	struct libusb_device_handle *devh = NULL;
 	struct libusb_device_descriptor desc;
-	int usb_devs, i, r, ret, pick, uberteeth = 0;
+	int usb_devs, i, r, ret, pick, ut_ct = 0;
 	int *ubertooth_devs = NULL;
 
 	usb_devs = libusb_get_device_list(ctx, &usb_list);
@@ -205,13 +206,13 @@ static struct libusb_device_handle* find_ubertooth_device_opt(int ubertooth_devi
 		    || (desc.idVendor == U0_VENDORID && desc.idProduct == U0_PRODUCTID)
 		    || (desc.idVendor == U1_VENDORID && desc.idProduct == U1_PRODUCTID))
 		{
-			ubertooth_devs[uberteeth] = i;
-			uberteeth++;
+			ubertooth_devs[ut_ct] = i;
+			ut_ct++;
 		}
 	}
 	/* Only a selected entry of ubertooth_devs[] is ever used as an index into
 	 * usb_list[]; an index that is not in the list selects nothing. */
-	pick = pick_ubertooth_device(ubertooth_device, uberteeth);
+	pick = pick_ubertooth_device(ubertooth_device, ut_ct);
 
 	if (quiet) {
 		if (pick >= 0 && libusb_open(usb_list[ubertooth_devs[pick]], &devh) != 0)
@@ -227,13 +228,13 @@ static struct libusb_device_handle* find_ubertooth_device_opt(int ubertooth_devi
 			devh = NULL;
 		}
 	}
-	else if (uberteeth == 0) {
+	else if (ut_ct == 0) {
 		/* nothing attached: the caller reports that it found no device */
 	}
 	else if (ubertooth_device < 0) {
 		fprintf(stderr, "multiple Ubertooth devices found! Use '-U' to specify device number\n");
 		uint8_t serial[17], sr;
-		for(i = 0 ; i < uberteeth ; ++i) {
+		for(i = 0 ; i < ut_ct ; ++i) {
 			libusb_get_device_descriptor(usb_list[ubertooth_devs[i]], &desc);
 			ret = libusb_open(usb_list[ubertooth_devs[i]], &devh);
 			if (ret) {
@@ -253,7 +254,7 @@ static struct libusb_device_handle* find_ubertooth_device_opt(int ubertooth_devi
 	}
 	else {
 		fprintf(stderr, "error: no Ubertooth at index %d (%d attached)\n"
-		        INDEX_SHIFT_HINT, ubertooth_device, uberteeth);
+		        INDEX_SHIFT_HINT, ubertooth_device, ut_ct);
 	}
 	free(ubertooth_devs);
 	libusb_free_device_list(usb_list,1);
