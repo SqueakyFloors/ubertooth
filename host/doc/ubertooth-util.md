@@ -79,9 +79,13 @@ Common options:
 Radio options:
 
  - `-a[0-7]` :
-   get/set power amplifier level, 0 (lowest) to 7 (maximum). The board powers
-   on and resets (`-r`) at level 7. Leaving a mode (`-S`) keeps the current
-   level; only `-a` and entering an RX or TX mode change it.
+   get/set power amplifier level, 0 (lowest, -25 dBm) to 7 (maximum, 0 dBm) at
+   the CC2400 radio. The board powers on and resets (`-r`) at level 7, the
+   CC2400's own reset value (the firmware does not set it at start-up).
+   Receiving does not change it, and `-t` (TX test) transmits at the current
+   level. Some transmit modes set their own level, which stays afterwards:
+   Bluetooth and BLE transmit and BLE jamming use 3 (-7 dBm), and the range
+   test and repeater (`-n`, `-e`) step through levels.
  - `-c[2400-2483]` :
    get/set channel in MHz
  - `-C[0-78]` :

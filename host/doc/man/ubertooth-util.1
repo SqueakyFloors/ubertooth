@@ -97,9 +97,13 @@ Radio options:
 .RS
 .IP \(bu 2
 \fB\fC\-a[0\-7]\fR :
-get/set power amplifier level, 0 (lowest) to 7 (maximum)\. The board powers
-on and resets (\fB\fC\-r\fR) at level 7\. Leaving a mode (\fB\fC\-S\fR) keeps the current
-level; only \fB\fC\-a\fR and entering an RX or TX mode change it\.
+get/set power amplifier level, 0 (lowest, \-25 dBm) to 7 (maximum, 0 dBm) at
+the CC2400 radio\. The board powers on and resets (\fB\fC\-r\fR) at level 7, the
+CC2400's own reset value (the firmware does not set it at start\-up)\.
+Receiving does not change it, and \fB\fC\-t\fR (TX test) transmits at the current
+level\. Some transmit modes set their own level, which stays afterwards:
+Bluetooth and BLE transmit and BLE jamming use 3 (\-7 dBm), and the range
+test and repeater (\fB\fC\-n\fR, \fB\fC\-e\fR) step through levels\.
 .IP \(bu 2
 \fB\fC\-c[2400\-2483]\fR :
 get/set channel in MHz
