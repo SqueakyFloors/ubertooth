@@ -78,10 +78,10 @@ int main(int argc, char *argv[])
 	struct hci_dev_info di;
 	int cc = 0;
 
-	pn = btbb_piconet_new();
 	ubertooth_t* ut = ubertooth_init();
 	if (ut == NULL)
 		return 1;
+	pn = btbb_piconet_new();
 
 	while ((opt=getopt(argc,argv,"hl:u:U:e:d:ab:w:r:q:")) != EOF) {
 		switch(opt) {

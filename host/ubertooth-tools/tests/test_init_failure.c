@@ -143,6 +143,10 @@ MU_TEST(the_start_functions_fail_with_the_ring_buffer)
 
 	mu_assert_int_eq(3, fake.fifo_inits);
 	mu_assert_int_eq(0, fake.usb_inits);
+	/* each of the three reports the failure, once */
+	mu_assert(strcmp(text, "Unable to initialize ringbuffer\n"
+	                       "Unable to initialize ringbuffer\n"
+	                       "Unable to initialize ringbuffer\n") == 0, text);
 }
 
 int main(void)
