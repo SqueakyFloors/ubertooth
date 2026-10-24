@@ -141,6 +141,7 @@ static int check_download_image(FILE* downfile, int want_revision,
 	char message[160];
 
 	printf("Checking firmware signature\n");
+	fflush(stdout);  /* so it stays ahead of the failure on a pipe */
 	if (dfu_image_check(downfile, U1_DFU_VENDORID, U1_DFU_PRODUCTID,
 	                    &image_report) != DFU_IMAGE_OK) {
 		dfu_image_describe_failure(&image_report, message, sizeof(message));
