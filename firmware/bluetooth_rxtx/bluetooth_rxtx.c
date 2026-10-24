@@ -914,9 +914,14 @@ void legacy_DMA_IRQHandler()
  * Put the radio and the board back to a known state.
  *
  * This decides nothing about what runs next: the main loop's dispatch owns
- * `mode` and `requested_mode`, and runs this whenever a mode is left. Keeping
- * the two apart is what stops the teardown from dropping a mode request that
- * arrives while it runs (issue #209).
+ * `mode` and `requested_mode`, and runs this whenever a mode is left.
+ *
+ * Keeping the two apart is what stops the teardown from dropping a mode
+ * request that arrives while it runs. This used to end with
+ * `requested_mode = MODE_IDLE`, and the LE paths call it from inside
+ * bt_generic_le() and bt_le_sync() with USB interrupts enabled, so a request
+ * serviced during the teardown was overwritten: the board stayed idle while
+ * the host, whose vendor request had succeeded, believed the mode had started.
  */
 static void cc2400_idle()
 {
@@ -2371,6 +2376,15 @@ void bt_promisc_le() {
 		if (requested_mode != MODE_BT_PROMISC_LE)
 			break;
 
+		// bt_generic_le()'s teardown put the channel back to 2441 MHz, which
+		// is not a BLE channel; the correction at the top of this loop does
+		// not run between the two halves. Until this fork's dispatch rework
+		// that teardown also cleared requested_mode, so the break above
+		// always fired and the follow half below never ran at all -- the
+		// mode ended silently as soon as it had an access address.
+		if ((channel & 1) == 1)
+			channel = 2440;
+
 		le_promisc_state(0, &le.access_address, 4);
 		packet_cb = promisc_follow_cb;
 		le.crc_verify = 0;
@@ -2574,6 +2588,34 @@ void specan()
 	RXLED_CLR;
 }
 
+/*
+ * What led_specan() does between radio polls instead of spinning.
+ *
+ * Its loop blocks on the radio either side of every sample -- waiting for the
+ * synthesizer to lock, the crude delay while the CC2400 acquires RSSI, then
+ * waiting for the synthesizer to unlock -- and endpoint 0 is single-buffered.
+ * Servicing USB once per sample left the firmware a whole sample behind the
+ * host, so a SETUP packet arriving while the previous transfer's status packet
+ * was still in the endpoint was read back short, decoded to a request this
+ * firmware does not know, and lpcusb halted the endpoint: the host saw a
+ * stalled control transfer every few samples. Polling here instead keeps
+ * endpoint 0 within a few microseconds of the host.
+ *
+ * The other mode loops with radio busy waits answer this by enabling the USB
+ * interrupt for the duration of the mode. That would do here too, but it also
+ * lets a control request that drives the radio -- a register read or write,
+ * the squelch, the channel -- run inside one of this loop's bit-banged CC2400
+ * transfers, which holds CSN low and does not mask interrupts. Polling keeps
+ * the servicing between transfers, where it has always been.
+ *
+ * clkn is stopped in this mode, so the keep-alive timestamp handle_usb() wants
+ * does not advance; nothing reads the bulk endpoint while this mode runs.
+ */
+static void led_specan_service_usb(void)
+{
+	handle_usb(clkn);
+}
+
 /* LED based spectrum analysis */
 void led_specan()
 {
@@ -2582,36 +2624,6 @@ void led_specan()
 	u16 channels[3] = {2412, 2437, 2462};
 	//void (*set[3]) = {TXLED_SET, RXLED_SET, USRLED_SET};
 	//void (*clr[3]) = {TXLED_CLR, RXLED_CLR, USRLED_CLR};
-
-	/*
-	 * Let the USB interrupt service endpoint 0 for as long as this mode runs,
-	 * and stop polling handle_usb() from the loop below.
-	 *
-	 * The loop blocks on the radio either side of every sample: waiting for
-	 * the synthesizer to lock, the crude delay while the CC2400 acquires
-	 * RSSI, then waiting for the synthesizer to unlock again. Servicing
-	 * endpoint 0 from one point in that loop left it a whole sample behind
-	 * the host, and endpoint 0 is single-buffered: a SETUP packet that
-	 * arrives while the firmware is still draining the previous transfer's
-	 * status packet is read back short, decodes to a request this firmware
-	 * does not know, and lpcusb halts the endpoint. That is the host's
-	 * occasional -9 in issue #213. Served from the interrupt, each packet is
-	 * taken out of the endpoint within microseconds of arriving.
-	 *
-	 * Every other mode loop that busy-waits on the radio already does this --
-	 * see bt_slave_le(), "enable USB interrupts due to busy waits". Leaving
-	 * handle_usb() in the loop as well would be worse than either on its own:
-	 * both paths drive the same endpoint 0 state machine and the same pair of
-	 * USB command registers, and nothing makes them mutually exclusive. This
-	 * mode enqueues nothing, so the loop has no other reason to call it.
-	 *
-	 * The known cost, shared with every mode that does this: a control
-	 * request that drives the radio itself (register reads and writes, the
-	 * squelch, the channel) now runs from the interrupt and can land in the
-	 * middle of one of this loop's bit-banged CC2400 transfers. See issue
-	 * #224.
-	 */
-	ISER0 = ISER0_ISE_USB;
 
 #ifdef UBERTOOTH_ONE
 	PAEN_SET;
@@ -2629,14 +2641,14 @@ void led_specan()
 	while (requested_mode == MODE_LED_SPECAN) {
 		cc2400_set(FSDIV, channels[i] - 1);
 		cc2400_strobe(SFSON);
-		/* Bounded, so a synthesizer that never reports locked cannot hold
-		 * this loop for good: ubertooth-util -S has to be able to stop the
-		 * mode. A timeout only costs this one sample its accuracy. */
-		cc2400_wait_fs_lock();
+		cc2400_wait_fs(1, led_specan_service_usb);
 		cc2400_strobe(SRX);
 
 		/* give the CC2400 time to acquire RSSI reading */
+		led_specan_service_usb();
 		volatile u32 j = 500; while (--j); //FIXME crude delay
+		led_specan_service_usb();
+
 		lvl = (int8_t)((cc2400_get(RSSI) >> 8) & 0xff);
 		if (rssi_above_threshold(lvl, rssi_threshold)) {
 			switch (i) {
@@ -2668,11 +2680,8 @@ void led_specan()
 		i = (i+1) % 3;
 
 		cc2400_strobe(SRFOFF);
-		cc2400_wait_fs_unlock();
+		cc2400_wait_fs(0, led_specan_service_usb);
 	}
-
-	// disable USB interrupts
-	ICER0 = ICER0_ICE_USB;
 }
 
 int main()
@@ -2717,7 +2726,7 @@ int main()
 		 * request by the time the dispatch was reached. A mode loop that
 		 * returned for its own reason, or a second request arriving in the
 		 * handle_usb() above, carried the old mode's LEDs, amplifier,
-		 * channel and squelch straight into the new mode (issue #209).
+		 * channel and squelch straight into the new mode.
 		 */
 		if (prev_mode != MODE_IDLE)
 			cc2400_idle();
@@ -2727,8 +2736,7 @@ int main()
 		 * did it, a case that left it out kept `mode` at the previous mode,
 		 * so stopping the mode it was running found requested_mode == mode
 		 * and no reset ran at all; and an unknown request kept `mode`
-		 * unchanged for good, spinning this loop at full rate (both issue
-		 * #209).
+		 * unchanged for good, spinning this loop at full rate.
 		 */
 		mode = next_mode;
 
@@ -2797,9 +2805,12 @@ int main()
 				/* nothing left to do: the reset above is the whole job */
 				break;
 			default:
-				/* An unknown request. `mode` is already set to it, so this
-				 * settles as idle instead of spinning; the board stays
-				 * reset until the host asks for something known. */
+				/* An unknown request. The reset above has already run, so
+				 * ask for idle: the next turn records MODE_IDLE, which is
+				 * the state the board is actually in, and the loop goes
+				 * quiet. Leaving `mode` naming a mode that does not exist
+				 * would make re-sending the same unknown request a no-op. */
+				requested_mode = MODE_IDLE;
 				break;
 		}
 	}

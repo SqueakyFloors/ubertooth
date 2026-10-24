@@ -12,7 +12,7 @@
  *     switch (next_mode) { case MODE_...: <run it>; }
  *
  * Three things went wrong when the reset and the bookkeeping were spread
- * across the cases instead (issue #209):
+ * across the cases instead:
  *
  *   - cc2400_idle() -- which clears the LEDs and the Ubertooth One amplifier
  *     and puts the channel back to 2441 MHz and the squelch back to -120 --
@@ -101,6 +101,8 @@ struct scan {
 	int mode_assigns;     /* how many */
 	int first_case;       /* first `case MODE_...:` in the dispatch */
 	int cases;            /* how many */
+	int idle_fn;          /* where cc2400_idle() is defined */
+	int idle_fn_lines;    /* how many lines of it the scan read */
 	int idle_fn_mode;     /* `mode = ...` inside cc2400_idle() */
 	int idle_fn_request;  /* `requested_mode = ...` inside cc2400_idle() */
 };
@@ -121,14 +123,18 @@ static int scan_source(const char *path, struct scan *s)
 		strip_comments(line, &in_block);
 
 		if (!in_main && !in_idle_fn) {
-			if (strstr(line, "void cc2400_idle(") != NULL)
+			if (strstr(line, "cc2400_idle(") != NULL &&
+			    strstr(line, ";") == NULL) {
 				in_idle_fn = 1;
-			else if (strstr(line, "int main(") != NULL)
+				s->idle_fn = lineno;
+			} else if (strstr(line, "int main(") != NULL) {
 				in_main = 1;
+			}
 			continue;
 		}
 
 		if (in_idle_fn) {
+			s->idle_fn_lines++;
 			if (is_assignment_to(line, "mode") && s->idle_fn_mode == 0)
 				s->idle_fn_mode = lineno;
 			if (is_assignment_to(line, "requested_mode") &&
@@ -180,8 +186,15 @@ MU_TEST(test_source_was_scanned)
 	snprintf(msg, sizeof(msg), "cannot open %s to scan", path);
 	mu_assert(scan_source(path, &s), msg);
 
-	/* The counts below are what makes a scan that matched nothing fail. */
+	/* These counts are what makes a scan that matched nothing fail, rather
+	 * than passing because it never found what it was looking for. */
 	mu_assert_int_eq(DISPATCH_CASES, s.cases);
+	mu_assert(s.idle_fn > 0, "the scan did not find cc2400_idle()'s "
+	                         "definition, so the checks on its body below "
+	                         "would pass without reading anything");
+	mu_assert(s.idle_fn_lines > 20, "cc2400_idle()'s body scanned as fewer "
+	                                "than 20 lines, so the scan lost track "
+	                                "of where the function ends");
 }
 
 /* `mode` is recorded in exactly one place, so no case can forget it. */
@@ -192,7 +205,7 @@ MU_TEST(test_mode_is_recorded_once)
 	snprintf(msg, sizeof(msg),
 	         "%s: main() assigns `mode` %d times; the dispatch records it "
 	         "once, before the switch, so that a case cannot forget it and "
-	         "an unknown request cannot spin the loop (issue #209)",
+	         "an unknown request cannot spin the loop",
 	         path, s.mode_assigns);
 	mu_assert(s.mode_assigns == 1, msg);
 }
@@ -218,7 +231,7 @@ MU_TEST(test_leaving_a_mode_idles_once_first)
 
 	snprintf(msg, sizeof(msg),
 	         "%s: main() calls cc2400_idle() %d times; the dispatch calls it "
-	         "once, on the way out of whatever mode was running (issue #209)",
+	         "once, on the way out of whatever mode was running",
 	         path, s.idle_calls);
 	mu_assert(s.idle_calls == 1, msg);
 
@@ -242,14 +255,14 @@ MU_TEST(test_cc2400_idle_does_not_choose_the_mode)
 	char msg[512];
 
 	snprintf(msg, sizeof(msg),
-	         "%s:%d: cc2400_idle() assigns `mode`; the dispatch owns it "
-	         "(issue #209)", path, s.idle_fn_mode);
+	         "%s:%d: cc2400_idle() assigns `mode`; the dispatch owns it",
+	         path, s.idle_fn_mode);
 	mu_assert(s.idle_fn_mode == 0, msg);
 
 	snprintf(msg, sizeof(msg),
 	         "%s:%d: cc2400_idle() assigns `requested_mode`, so a request "
 	         "that arrives while the teardown runs is dropped and the board "
-	         "silently stays idle (issue #209)", path, s.idle_fn_request);
+	         "silently stays idle", path, s.idle_fn_request);
 	mu_assert(s.idle_fn_request == 0, msg);
 }
 
