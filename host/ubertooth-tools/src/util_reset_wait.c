@@ -49,7 +49,10 @@ void *util_reset_wait(const struct util_reset_wait_ops *ops, void *context,
 	for (;;) {
 		void *device = NULL;
 
-		if (!gate || ops->count(context) >= params->count_before)
+		int count = gate ? ops->count(context) : 0;
+
+		/* An unknown count (an error) does not block the selection. */
+		if (!gate || count < 0 || count >= params->count_before)
 			device = ops->try_select(context);
 		if (device != NULL)
 			return device;

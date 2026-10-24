@@ -144,6 +144,12 @@ ubertooth_t *ubertooth_start_select_quiet(const char *u_arg)
 		fake.quiet_while_absent++;
 		return NULL;
 	}
+	/* Like the library: one device is opened whatever the index; with
+	 * several, an index past the end opens nothing. */
+	if (u_arg != NULL && u_arg[0] != '\0' &&
+	    u_arg[strspn(u_arg, "0123456789")] == '\0' &&
+	    fake.device_count != 1 && atoi(u_arg) >= fake.device_count)
+		return NULL;
 	return &fake_ut_reset;
 }
 
@@ -1461,16 +1467,32 @@ MU_TEST(reset_by_index_waits_for_every_board_before_reselecting)
 	mu_assert_int_eq(0, fake.stop_calls);
 }
 
-MU_TEST(a_failed_reset_reselects_without_waiting_for_the_device_to_leave)
+MU_TEST(a_failed_reset_still_reselects_once_the_leave_window_passes)
 {
 	struct run_result r;
 
+	/* The device may have reset despite the error, so the wait for it to
+	 * leave is kept; it never leaves here, so it is reopened after that. */
 	reset_fake();
 	fake.reset_rc = -1;
 	r = RUN("-r", "-b");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strstr(r.out, BOARD_LINE) != NULL, "later report still printed");
-	mu_assert_int_eq(1000 + (int)UTIL_RESET_WAIT_INITIAL_DELAY_MS, (int)fake.now_ms);
+	mu_assert_int_eq(1000 + (int)UTIL_RESET_WAIT_LEAVE_MS, (int)fake.now_ms);
+	mu_assert_int_eq(0, fake.stop_calls);
+}
+
+MU_TEST(reset_by_index_with_one_board_reopens_it)
+{
+	struct run_result r;
+
+	/* With one board any index selects it, before and after the reset. */
+	reset_fake();
+	r = RUN("-U", "1", "-r", "-b");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.out, BOARD_LINE) != NULL, "board read after the reset");
+	mu_assert(fake.now_ms < fake.returns_at_ms + UTIL_RESET_WAIT_POLL_MS,
+	          "selected once back, without waiting for the deadline");
 	mu_assert_int_eq(0, fake.stop_calls);
 }
 
@@ -1532,7 +1554,8 @@ int main(void)
 	MU_RUN(reset_waits_for_a_slow_reenumeration_then_runs_later_actions);
 	MU_RUN(reset_by_serial_polls_for_the_same_serial);
 	MU_RUN(reset_by_index_waits_for_every_board_before_reselecting);
-	MU_RUN(a_failed_reset_reselects_without_waiting_for_the_device_to_leave);
+	MU_RUN(a_failed_reset_still_reselects_once_the_leave_window_passes);
+	MU_RUN(reset_by_index_with_one_board_reopens_it);
 	MU_RUN(the_handle_reopened_after_a_reset_is_released);
 	return mu_report();
 }

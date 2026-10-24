@@ -32,11 +32,11 @@ struct util_reset_wait_params {
 	unsigned deadline_ms;      /* give up this long after the wait started */
 	/* Devices attached before the reset. A positive value enables looking for
 	 * the reset device leaving (the count drops below it); zero or less (the
-	 * count was unknown, or the reset command failed) skips that. */
+	 * count was unknown) skips that. */
 	int count_before;
-	/* Only try to select once count_before devices are attached again. Used
-	 * for selection by index, where opening while the reset device is still
-	 * missing could pick another board. */
+	/* Only try to select once count_before devices are attached again (or the
+	 * count fails). Used for selection by index, where opening while the reset
+	 * device is still missing could pick another board. */
 	int select_needs_count;
 };
 

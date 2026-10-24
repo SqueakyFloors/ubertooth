@@ -201,6 +201,16 @@ MU_TEST(a_count_error_is_not_taken_as_the_device_leaving)
 	mu_assert_int_eq((int)(5000 + UTIL_RESET_WAIT_LEAVE_MS), (int)bus.first_select_at);
 }
 
+MU_TEST(a_count_error_does_not_block_selection_by_index)
+{
+	struct fake_bus bus = make_bus(0, 0);
+	struct util_reset_wait_params params = defaults(1, 1);
+
+	bus.count_error = 1;
+	mu_assert(util_reset_wait(&ops, &bus, &params) == &bus.device, "selected");
+	mu_assert_int_eq((int)(5000 + UTIL_RESET_WAIT_LEAVE_MS), (int)bus.first_select_at);
+}
+
 MU_TEST(a_device_that_never_returns_times_out_at_the_deadline)
 {
 	struct fake_bus bus = make_bus(100, 0);
@@ -246,6 +256,7 @@ int main(void)
 	MU_RUN(selection_by_index_waits_for_every_board_to_be_back);
 	MU_RUN(selection_by_serial_polls_without_waiting_for_the_count);
 	MU_RUN(a_count_error_is_not_taken_as_the_device_leaving);
+	MU_RUN(a_count_error_does_not_block_selection_by_index);
 	MU_RUN(a_device_that_never_returns_times_out_at_the_deadline);
 	MU_RUN(a_device_that_returns_but_cannot_be_opened_times_out);
 	MU_RUN(polls_never_sleep_past_an_uneven_deadline);

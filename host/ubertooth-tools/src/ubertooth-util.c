@@ -533,18 +533,15 @@ int main(int argc, char *argv[])
 			UTIL_RESET_WAIT_INITIAL_DELAY_MS, UTIL_RESET_WAIT_POLL_MS,
 			UTIL_RESET_WAIT_LEAVE_MS, UTIL_RESET_WAIT_DEADLINE_MS, 0, 0
 		};
-		int reset_rc;
 
 		/* Counted before the reset, so the wait can see the device leave and
-		 * (for an index) not open another board while it is gone. */
+		 * (for an index) not open another board while it is gone. The leave
+		 * wait is kept even if the reset command reports an error, since the
+		 * device may have reset anyway. */
 		wait.count_before = ubertooth_count();
 		wait.select_needs_count = !selects_by_serial(ubertooth_device);
 		fprintf(stdout, "Resetting ubertooth device %s\n", ubertooth_device ? ubertooth_device : "0");
-		reset_rc = cmd_reset(ut->devh);
-		status = util_status_after(status, reset_rc);
-		/* A device that did not take the reset will not leave the bus. */
-		if (reset_rc < 0)
-			wait.count_before = 0;
+		status = util_status_after(status, cmd_reset(ut->devh));
 		/* The device re-enumerates after a reset, so this handle is about
 		 * to go dead: release it without sending STOP (if the reset failed
 		 * the device is still there, but a STOP is not wanted either), then

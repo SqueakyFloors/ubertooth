@@ -117,8 +117,10 @@ int ubertooth_count(void) {
 
 	for(i = 0 ; i < usb_devs ; ++i) {
 		r = libusb_get_device_descriptor(usb_list[i], &desc);
-		if(r < 0)
+		if(r < 0) {
 			fprintf(stderr, "couldn't get usb descriptor for dev #%d!\n", i);
+			continue; /* desc was not filled in */
+		}
 		if ((desc.idVendor == TC13_VENDORID && desc.idProduct == TC13_PRODUCTID)
 		    || (desc.idVendor == U0_VENDORID && desc.idProduct == U0_PRODUCTID)
 		    || (desc.idVendor == U1_VENDORID && desc.idProduct == U1_PRODUCTID))
@@ -127,7 +129,10 @@ int ubertooth_count(void) {
 		}
 	}
 
-	libusb_free_device_list(usb_list,1);
+	if (usb_devs >= 0)
+		libusb_free_device_list(usb_list,1);
+	/* Balance the libusb_init() above: the count may be polled many times. */
+	libusb_exit(NULL);
 	return uberteeth;
 }
 
@@ -174,10 +179,11 @@ static struct libusb_device_handle* find_ubertooth_device_opt(int ubertooth_devi
 		}
 	}
 	if (quiet) {
-		/* Strict, unlike the loud path below: the index must exist, so a
-		 * device that has not come back is not mistaken for another one. */
+		/* The same choice as the loud path below (the only device, whatever
+		 * the index), but an index past the end of several devices opens
+		 * nothing instead of an arbitrary USB device. */
 		int pick = -1;
-		if (ubertooth_device < 0 && uberteeth == 1)
+		if (uberteeth == 1)
 			pick = 0;
 		else if (ubertooth_device >= 0 && ubertooth_device < uberteeth)
 			pick = ubertooth_device;
@@ -266,10 +272,11 @@ static struct libusb_device_handle* find_ubertooth_device_serial_opt(
 			int sr;
 			if (quiet) {
 				/* The same read as cmd_get_serial(), without its error
-				 * messages: a device that is still starting may not answer. */
+				 * messages: a device that is still starting may not answer.
+				 * A short timeout keeps a silent board from stalling a poll. */
 				sr = libusb_control_transfer(devh,
 				        LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_ENDPOINT_IN,
-				        UBERTOOTH_GET_SERIAL, 0, 0, serial, 17, 1000);
+				        UBERTOOTH_GET_SERIAL, 0, 0, serial, 17, 200);
 				sr = (sr == 17 && serial[0] == 0) ? 0 : -1;
 			} else {
 				sr = cmd_get_serial(devh, serial);
