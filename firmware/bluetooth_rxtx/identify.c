@@ -6,9 +6,10 @@
  */
 
 /*
- * Identify: blinks the USR, RX and TX LEDs together so a board can be picked
- * out of several. Modelled on xmas mode (xmas.c), but on TIMER3 and with all
- * three LEDs in step, at the rate ubertooth-util used to drive over USB.
+ * Identify: blinks the USR, RX and TX LEDs together, about three on-off blinks
+ * a second, so a board can be picked out of several. Modelled on xmas mode
+ * (xmas.c), but on TIMER3 and with all three LEDs in step, at the rate
+ * ubertooth-util used to drive over USB.
  *
  * Like xmas, this runs on the board: USB is serviced from its interrupt while
  * the mode runs, so a STOP or another mode request from the host still gets
@@ -24,13 +25,17 @@ extern volatile uint8_t requested_mode;
 #define NOW T3TC
 
 /*
- * TIMER3's peripheral clock is cclk/4 (25 MHz): ubertooth_init() raises only
- * TIMER0-2 in PCLKSEL0/PCLKSEL1 and leaves TIMER3 at the reset divider. This
- * prescaler makes one timer tick 1 ms, so the blink interval is in
- * milliseconds.
+ * TIMER3 runs at cclk/4: clock_start() raises TIMER0-2 in PCLKSEL0/PCLKSEL1
+ * and leaves TIMER3 at the reset divider. The prescaler below makes one timer
+ * tick 1 ms, so the blink interval is in milliseconds.
  */
-#define IDENTIFY_PRESCALE (25000 - 1)
-#define IDENTIFY_INTERVAL UBERTOOTH_IDENTIFY_BLINK_MS
+#ifdef TC13BADGE
+#define IDENTIFY_PCLK_HZ (30000000 / 4)
+#else
+#define IDENTIFY_PCLK_HZ (100000000 / 4)
+#endif
+#define IDENTIFY_PRESCALE ((IDENTIFY_PCLK_HZ / 1000) - 1)
+#define IDENTIFY_INTERVAL UBERTOOTH_IDENTIFY_TOGGLE_MS
 
 /* Written by identify_main() before the match interrupt is enabled, and only
  * by TIMER3_IRQHandler() after that. */
@@ -54,6 +59,9 @@ static void timer3_start(void)
 	PCONP |= PCONP_PCTIM3;
 	T3TCR = TCR_Counter_Reset;
 	T3PR = IDENTIFY_PRESCALE;
+	/* A match left pending by an earlier run would otherwise fire a toggle
+	 * before the first one is scheduled. */
+	T3IR = TIR_MR0_Interrupt;
 	T3TCR = TCR_Counter_Enable;
 
 	// set up interrupt handler
@@ -101,7 +109,7 @@ void TIMER3_IRQHandler(void)
 {
 	if (T3IR & TIR_MR0_Interrupt) {
 		T3IR = TIR_MR0_Interrupt;
-		identify_blink_toggle(&blink, IDENTIFY_INTERVAL);
+		identify_blink_toggle(&blink, NOW, IDENTIFY_INTERVAL);
 		identify_leds(blink.level);
 		T3MR0 = blink.next;
 	}

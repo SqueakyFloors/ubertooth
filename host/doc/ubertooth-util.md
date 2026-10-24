@@ -39,8 +39,8 @@ board and `ubertooth-util` returns immediately; the mode keeps running until
 `-S` stops it or another mode replaces it, so the same board stays usable from
 other commands meanwhile.
 
-`-I` (identify) blinks the USR, RX and TX LEDs together, about three toggles a
-second, until it is stopped:
+`-I` (identify) blinks the USR, RX and TX LEDs together, about three on-off
+blinks a second, until it is stopped:
 
     ubertooth-util -U<serial> -I      # start blinking
     ubertooth-util -U<serial> -S      # stop; the LEDs end off

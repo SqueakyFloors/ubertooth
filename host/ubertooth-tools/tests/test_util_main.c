@@ -937,8 +937,8 @@ MU_TEST(identify_falls_back_to_a_bounded_host_blink_on_old_firmware)
 {
 	/* toggles that fit in the window, plus the final write that turns the
 	 * LEDs off */
-	const int toggles = (int)(UTIL_IDENTIFY_FALLBACK_MS + UBERTOOTH_IDENTIFY_BLINK_MS - 1) /
-	                    UBERTOOTH_IDENTIFY_BLINK_MS;
+	const int toggles = (int)(UTIL_IDENTIFY_FALLBACK_MS + UBERTOOTH_IDENTIFY_TOGGLE_MS - 1) /
+	                    UBERTOOTH_IDENTIFY_TOGGLE_MS;
 	const int writes = toggles + 1;
 	struct run_result r;
 
@@ -960,7 +960,7 @@ MU_TEST(identify_falls_back_to_a_bounded_host_blink_on_old_firmware)
 	/* bounded: it stopped within one interval of the deadline */
 	mu_assert((int)fake.now_ms - 1000 >= (int)UTIL_IDENTIFY_FALLBACK_MS &&
 	          (int)fake.now_ms - 1000 <
-	              (int)(UTIL_IDENTIFY_FALLBACK_MS + UBERTOOTH_IDENTIFY_BLINK_MS),
+	              (int)(UTIL_IDENTIFY_FALLBACK_MS + UBERTOOTH_IDENTIFY_TOGGLE_MS),
 	          "blinked for the whole window and no longer");
 
 	/* current firmware whose API version cannot be read falls back too */

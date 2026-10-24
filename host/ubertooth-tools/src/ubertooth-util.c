@@ -324,7 +324,7 @@ static int identify_from_host(ubertooth_t* ut)
 		result = identify_set_leds(ut, level);
 		if (result < 0)
 			break;
-		util_clock_sleep_ms(UBERTOOTH_IDENTIFY_BLINK_MS);
+		util_clock_sleep_ms(UBERTOOTH_IDENTIFY_TOGGLE_MS);
 	}
 	/* Off again however the blink ended, as after a reset. */
 	if (identify_set_leds(ut, 0) < 0 && result >= 0)

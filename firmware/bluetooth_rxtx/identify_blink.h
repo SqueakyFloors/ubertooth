@@ -27,10 +27,12 @@ typedef struct {
 void identify_blink_start(identify_blink_t* blink, uint32_t now, uint32_t interval);
 
 /*
- * One toggle: flips the level and schedules the next toggle one interval after
- * the one just due, so a late interrupt does not stretch the blink. The tick
- * counter is 32 bits and wraps; so does the schedule.
+ * One toggle, handled at tick now: flips the level and schedules the next
+ * toggle one interval after the one just due, so a slightly late interrupt
+ * does not stretch the blink. If now has already passed that point, the next
+ * toggle is scheduled from now instead, so the schedule never falls behind the
+ * counter. The tick counter is 32 bits and wraps; so does the schedule.
  */
-void identify_blink_toggle(identify_blink_t* blink, uint32_t interval);
+void identify_blink_toggle(identify_blink_t* blink, uint32_t now, uint32_t interval);
 
 #endif /* __IDENTIFY_BLINK_H */

@@ -32,10 +32,10 @@
  * LEDs itself instead. */
 #define UBERTOOTH_API_IDENTIFY 0x0108
 
-/* How often the identify blink toggles the USR/RX/TX LEDs, in milliseconds
- * (about three toggles a second). The board-side mode uses it, and the host
- * fallback matches it so both blink at the same rate. */
-#define UBERTOOTH_IDENTIFY_BLINK_MS 167
+/* How often the identify blink toggles the USR/RX/TX LEDs, in milliseconds:
+ * about three on-off blinks a second. The board-side mode uses it, and the
+ * host fallback matches it so both blink at the same rate. */
+#define UBERTOOTH_IDENTIFY_TOGGLE_MS 167
 
 #define DMA_SIZE 50
 
