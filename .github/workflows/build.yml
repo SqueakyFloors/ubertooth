@@ -35,7 +35,9 @@ concurrency:
 # - Minimal (pull requests, pushes to main): host and firmware on one Linux
 #   and one macOS runner.
 # - Full (weekly schedule, published release, manual run): the whole supported
-#   matrix, the *-latest canary, the Ubuntu 20.04 containers and Fedora.
+#   matrix, the *-latest canary, the Ubuntu 20.04 containers and Fedora. The
+#   release run is a record after publishing, not a gate: run the full tier
+#   manually (this workflow and install-sh.yml) before cutting a release.
 # install.sh has its own workflow (install-sh.yml) that runs on PRs only when
 # install.sh changes. A tier-dependent matrix must use the github context
 # (env is not available in strategy), so the full-tier test is repeated below.

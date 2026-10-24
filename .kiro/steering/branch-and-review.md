@@ -71,11 +71,14 @@ or non-trivial operational documentation changes:
 ## CI results
 
 - CI has two tiers. Pull requests and pushes to `main` run the minimal tier:
-  host and firmware on `ubuntu-24.04` and `macos-26`, plus the `install-sh`
-  jobs only when `install.sh` changes. The weekly schedule, a published
-  release, and a manual run (`gh workflow run build.yml`) run the full matrix.
+  host and firmware on `ubuntu-24.04` and `macos-26`. The `install-sh` jobs run
+  on every push to `main` but on a PR only when `install.sh` changes. The
+  weekly schedule, a published release, and a manual run run the full matrix.
   A branch with no open PR gets no CI; open a PR (a draft is enough) to get a
-  run. Run the full tier manually before cutting a release.
+  run.
+- Before cutting a release, run the full tier manually and wait for it:
+  `gh workflow run build.yml` and `gh workflow run install-sh.yml`. The run on
+  a published release is a record, not a gate.
 - A newer commit on a PR cancels that PR's older run. Read results with
   `gh pr checks <PR>`, which reports the current head commit, not with the id of
   a run you saw earlier. A "cancelled" run for a superseded commit is expected,

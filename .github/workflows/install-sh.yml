@@ -1,16 +1,18 @@
 name: install.sh
 
 # Lint install.sh and smoke-run it into a scratch prefix, so its platform
-# branches cannot regress silently. Pull requests and pushes to main run it only
-# when install.sh (or this workflow) changes; the weekly schedule, a published
-# release and a manual run always run it. Firmware is opt-in (--with-firmware /
-# --flash), so it is neither built nor flashed here.
+# branches cannot regress silently. Pull requests run it only when install.sh
+# (or this workflow) changes, to keep them fast; every push to main runs it, so
+# a host build change that breaks install.sh is caught on the merge. The weekly
+# schedule, a published release and a manual run also run it. Firmware is
+# opt-in (--with-firmware / --flash), so it is neither built nor flashed here.
 on:
   push:
     branches: [main]
-    paths:
-      - 'install.sh'
-      - '.github/workflows/install-sh.yml'
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.kiro/**'
   pull_request:
     paths:
       - 'install.sh'
@@ -80,4 +82,3 @@ jobs:
       run: |
         test -x "$RUNNER_TEMP/prefix/bin/ubertooth-util"
         "$RUNNER_TEMP/prefix/bin/ubertooth-util" -h
-
