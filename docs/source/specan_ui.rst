@@ -65,7 +65,8 @@ Options
 - ``-U <index|serial>`` — select one of several Ubertooths, by USB enumeration
   index or serial number (``ubertooth-util -s`` lists them).
 - ``-l <MHz>`` / ``-u <MHz>`` — lower and upper frequency, 2402-2480 MHz
-  (default: the whole band).
+  (default: the whole band). The plot is drawn slightly wider than the scanned
+  range (2400-2483 MHz by default).
 - ``--wifi[=<channel(s)>]`` — show the band around one Wi-Fi channel
   (``--wifi=6``) or a range (``--wifi=1-11``).
 - ``--padding <MHz>`` — extra band on each side with ``--wifi`` (default 10).

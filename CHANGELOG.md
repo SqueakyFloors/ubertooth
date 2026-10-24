@@ -38,8 +38,10 @@
   https://github.com/siriobalmelli-foss/ubertooth/commit/01c3bf9e
 - `ubertooth-specan-ui` shows its keys on screen (press `h`; a hint is always
   visible), labels frequencies in whole MHz, no longer leaves ghost marker
-  labels behind, and has a man page and usage guide.
+  labels behind, draws the plot slightly wider than the scanned range, and has
+  a man page and usage guide.
   [#125](https://github.com/SqueakyFloors/ubertooth/issues/125)
+  [#126](https://github.com/SqueakyFloors/ubertooth/issues/126)
 
 ### Build and compatibility
 
