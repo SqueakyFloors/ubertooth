@@ -25,6 +25,8 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
+#include <ctype.h>
 #include <signal.h>
 #include "util_clock.h"
 #include "util_report.h"
@@ -300,6 +302,28 @@ static char *separate_option_value(int argc, char *argv[], int allow_negative)
 /* do_palevel value for a bare -a: read the PA level. */
 #define PA_QUERY (-2)
 
+/* Parse an option value as a whole decimal integer in [min, max]. Returns 0
+ * and sets *value, or prints "error: <what> must be <min>-<max> (got <text>)"
+ * and returns 1. Unlike atoi(), "abc", "5x" and "" are errors, not 0. */
+static int parse_option_value(const char *text, long min, long max,
+                              const char *what, const char *unit, int *value)
+{
+	char *end;
+	long v;
+
+	errno = 0;
+	v = strtol(text, &end, 10);
+	if (text[0] == '\0' || isspace((unsigned char)text[0]) || text[0] == '+' ||
+	    *end != '\0' || errno == ERANGE || v < min || v > max) {
+		/* "-128 to 127" reads better than "-128-127" */
+		fprintf(stderr, "error: %s must be %ld%s%ld%s (got %s)\n",
+		        what, min, min < 0 ? " to " : "-", max, unit, text);
+		return 1;
+	}
+	*value = (int)v;
+	return 0;
+}
+
 static void usage(FILE *output)
 {
 	fprintf(output, "ubertooth-util - command line utility for Ubertooth Zero and Ubertooth One\n");
@@ -319,11 +343,11 @@ static void usage(FILE *output)
 	fprintf(output, "\n");
 	fprintf(output, "Radio options:\n");
 	fprintf(output, "\t-a[0-7] get/set power amplifier level\n");
-	fprintf(output, "\t-c[2400-2483] get/set channel in MHz\n");
-	fprintf(output, "\t-C[0-78] get/set channel\n");
+	fprintf(output, "\t-c[%d-%d] get/set channel in MHz\n", BT_FREQ_MIN, BT_FREQ_MAX);
+	fprintf(output, "\t-C[0-%d] get/set channel\n", NUM_BREDR_CHANNELS - 1);
 	fprintf(output, "\t-q[1-225 (RSSI threshold)] start LED spectrum analyzer\n");
 	fprintf(output, "\t-t intitiate continuous transmit test\n");
-	fprintf(output, "\t-z[level] get/set squelch level\n");
+	fprintf(output, "\t-z[-128..127] get/set squelch level\n");
 	fprintf(output, "\n");
 	fprintf(output, "Range test:\n");
 	fprintf(output, "\t-e start repeater mode\n");
@@ -405,15 +429,17 @@ int main(int argc, char *argv[])
 			do_identify= 0;
 			break;
 		case 'l':
-			if (optarg)
-				do_leds= atoi(optarg);
-			else
+			if (optarg) {
+				if (parse_option_value(optarg, 0, 1, "USR LED state", "", &do_leds))
+					return 1;
+			} else
 				do_leds= 2; /* can't use 0 as it's a valid option */
 			break;
 		case 'd':
-			if (optarg)
-				do_all_leds= atoi(optarg);
-			else
+			if (optarg) {
+				if (parse_option_value(optarg, 0, 1, "all-LED state", "", &do_all_leds))
+					return 1;
+			} else
 				do_all_leds= 2; /* can't use 0 as it's a valid option */
 			break;
 		case 'p':
@@ -446,31 +472,26 @@ int main(int argc, char *argv[])
 			break;
 		case 'C':
 			if (optarg) {
-				int ch = atoi(optarg);
-				if (ch < 0 || ch > 78) {
-					fprintf(stderr, "error: channel must be 0-78 (got %s)\n", optarg);
+				int ch;
+				if (parse_option_value(optarg, 0, NUM_BREDR_CHANNELS - 1, "channel", "", &ch))
 					return 1;
-				}
-				do_channel= ch + 2402;
+				do_channel= ch + BT_FREQ_MIN;
 			} else
 				do_channel= 0;
 			break;
 		case 'c':
 			if (optarg) {
-				int mhz = atoi(optarg);
-				if (mhz < 2402 || mhz > 2480) {
-					fprintf(stderr, "error: frequency must be 2402-2480 MHz (got %s)\n", optarg);
+				if (parse_option_value(optarg, BT_FREQ_MIN, BT_FREQ_MAX, "frequency", " MHz", &do_channel))
 					return 1;
-				}
-				do_channel= mhz;
 			} else
 				do_channel= 0;
 			break;
 		case 'q':
-			if (optarg)
-				do_led_specan= atoi(optarg);
-			else
-				do_led_specan= 0;
+			if (optarg) {
+				if (parse_option_value(optarg, 1, 225, "RSSI threshold", "", &do_led_specan))
+					return 1;
+			} else
+				do_led_specan= 0; /* the default threshold, 225 */
 			break;
 		case 'n':
 			do_range_test= 0;
@@ -489,7 +510,10 @@ int main(int argc, char *argv[])
 			break;
 		case 'z':
 			if (optarg) {
-				squelch_level = atoi(optarg);
+				/* a signed 8-bit RSSI threshold; values above 0 are
+				 * relative to the average RSSI */
+				if (parse_option_value(optarg, -128, 127, "squelch level", "", &squelch_level))
+					return 1;
 				do_set_squelch = 1;
 			}
 			else {
@@ -710,7 +734,7 @@ int main(int argc, char *argv[])
 		if (mhz < 0)
 			status = util_status_merge(status, report_read_failed("channel", mhz));
 		else
-			fprintf(stdout, "Current frequency: %d MHz (Bluetooth channel %d)\n", mhz, mhz - 2402);
+			fprintf(stdout, "Current frequency: %d MHz (Bluetooth channel %d)\n", mhz, mhz - BT_FREQ_MIN);
 	}
 	if(do_firmware == 0)
 		status = util_status_merge(status,

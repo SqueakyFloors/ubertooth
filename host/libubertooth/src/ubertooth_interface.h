@@ -31,6 +31,10 @@
 
 #define NUM_BREDR_CHANNELS 79
 
+/* The Bluetooth band: channel 0 is 2402 MHz, channel 78 is 2480 MHz. */
+#define BT_FREQ_MIN 2402
+#define BT_FREQ_MAX (BT_FREQ_MIN + NUM_BREDR_CHANNELS - 1)
+
 /*
  * CLK_TUNE_TIME is the duration in units of 100 ns that we reserve for tuning
  * the radio while frequency hopping.  We start the tuning process

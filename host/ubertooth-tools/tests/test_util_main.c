@@ -982,6 +982,80 @@ MU_TEST(stray_arguments_are_rejected_before_any_device_action)
 	mu_assert_int_eq(2440, fake.last_channel_set);
 }
 
+/* Every numeric option value is parsed strictly (the whole string, in range)
+ * and a bad one is refused before the device is opened. atoi() used to turn
+ * "abc" into 0, so -Cabc set 2402 MHz and -zabc set squelch 0; -l2 read the
+ * LED instead of setting it and -d5 did nothing; -q300 reached the firmware;
+ * -z-200 wrapped to 56. */
+MU_TEST(numeric_option_values_are_parsed_strictly)
+{
+	static const struct { const char *arg, *diag; } bad[] = {
+		{ "-zabc", "error: squelch level must be -128 to 127 (got abc)\n" },
+		{ "-z-200", "error: squelch level must be -128 to 127 (got -200)\n" },
+		{ "-z128", "error: squelch level must be -128 to 127 (got 128)\n" },
+		{ "-q\t5", "error: RSSI threshold must be 1-225 (got \t5)\n" },
+		{ "-c\n2440", "error: frequency must be 2402-2480 MHz (got \n2440)\n" },
+		{ "-l2", "error: USR LED state must be 0-1 (got 2)\n" },
+		{ "-lx", "error: USR LED state must be 0-1 (got x)\n" },
+		{ "-d5", "error: all-LED state must be 0-1 (got 5)\n" },
+		{ "-Cabc", "error: channel must be 0-78 (got abc)\n" },
+		{ "-C79", "error: channel must be 0-78 (got 79)\n" },
+		{ "-C3x", "error: channel must be 0-78 (got 3x)\n" },
+		{ "-cabc", "error: frequency must be 2402-2480 MHz (got abc)\n" },
+		{ "-c2441.5", "error: frequency must be 2402-2480 MHz (got 2441.5)\n" },
+		{ "-q300", "error: RSSI threshold must be 1-225 (got 300)\n" },
+		{ "-q0", "error: RSSI threshold must be 1-225 (got 0)\n" },
+		{ "-q+5", "error: RSSI threshold must be 1-225 (got +5)\n" },
+	};
+	size_t i;
+	struct run_result r;
+
+	for (i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+		reset_fake();
+		r = run_util((const char *const[]){ "ubertooth-util", bad[i].arg, NULL });
+		mu_assert_int_eq(1, r.rc);
+		mu_assert(strcmp(r.err, bad[i].diag) == 0, bad[i].arg);
+		mu_assert_int_eq(0, (long)strlen(r.out));
+		mu_assert_int_eq(0, fake.start_calls);
+		mu_assert_int_eq(0, fake.last_channel_set);
+		mu_assert_int_eq(0, fake.last_squelch_set);
+	}
+
+	/* the edges and the next-word form are still accepted */
+	reset_fake();
+	r = RUN("-z-128");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq((u16)-128, fake.last_squelch_set);
+	reset_fake();
+	r = RUN("-z", "127");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(127, fake.last_squelch_set);
+	reset_fake();
+	r = RUN("-C0");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(2402, fake.last_channel_set);
+	reset_fake();
+	r = RUN("-C", "78");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(2480, fake.last_channel_set);
+	reset_fake();
+	r = RUN("-c2480");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(2480, fake.last_channel_set);
+	reset_fake();
+	r = RUN("-l1");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(2, fake.last_usrled_set); /* recorded as value + 1 */
+	reset_fake();
+	r = RUN("-q225");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(225, fake.last_led_specan_arg);
+	reset_fake();
+	r = RUN("-q", "1");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, fake.last_led_specan_arg);
+}
+
 /* -a0 sets PA level 0 (it used to read the level, because 0 was the "read"
  * marker), and a value outside 0-7 is refused before the device is opened. */
 MU_TEST(pa_level_zero_is_set_and_bad_levels_are_refused)
@@ -1995,6 +2069,7 @@ int main(void)
 	MU_RUN(short_reply_gets_one_error_line_from_the_library_only);
 	MU_RUN(optional_values_may_be_the_next_word);
 	MU_RUN(pa_level_zero_is_set_and_bad_levels_are_refused);
+	MU_RUN(numeric_option_values_are_parsed_strictly);
 	MU_RUN(squelch_with_a_mode_option_is_refused);
 	MU_RUN(invalid_arguments_are_rejected_before_opening_the_device);
 	MU_RUN(help_version_and_count_exit_zero_without_a_device);
