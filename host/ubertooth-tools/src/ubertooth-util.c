@@ -292,9 +292,6 @@ static int identify_check_api(ubertooth_t* ut)
 	return 0;
 }
 
-/* do_palevel value for a bare -a: read the PA level. */
-#define PA_QUERY (-2)
-
 static void usage(FILE *output)
 {
 	fprintf(output, "ubertooth-util - command line utility for Ubertooth Zero and Ubertooth One\n");
@@ -348,6 +345,11 @@ int main(int argc, char *argv[])
 	int do_serial, do_tx, do_palevel, do_channel, do_led_specan;
 	int do_range_test, do_repeater, do_firmware, do_board_id;
 	int do_range_result, do_all_leds, do_identify;
+	/* A set and a read of the same value have their own flags, as the
+	 * squelch always has, so one command can do both: the set runs first
+	 * and the read then reports the new value. Sharing a variable made the
+	 * later option overwrite the earlier one and drop it silently. */
+	int do_get_leds, do_get_all_leds, do_get_channel, do_get_palevel;
 	int do_set_squelch, do_get_squelch, squelch_level;
 	int do_something, do_compile_info;
 	int first_exit_option, long_host_version; /* -h / -H / --host-version */
@@ -364,6 +366,7 @@ int main(int argc, char *argv[])
 	do_serial= do_tx= do_palevel= do_channel= do_led_specan= -1;
 	do_range_test= do_repeater= do_firmware= do_board_id= -1;
 	do_range_result= do_all_leds= do_identify= -1;
+	do_get_leds= do_get_all_leds= do_get_channel= do_get_palevel= 0;
 	do_set_squelch= -1, do_get_squelch= -1; squelch_level= 0;
 	do_something= 0; do_compile_info= -1;
 	do_number= 0; do_xmas= 0;
@@ -409,14 +412,14 @@ int main(int argc, char *argv[])
 				if (opt_require_int(optarg, 0, 1, "USR LED state", "", &do_leds) < 0)
 					return 1;
 			} else
-				do_leds= 2; /* can't use 0 as it's a valid option */
+				do_get_leds= 1;
 			break;
 		case 'd':
 			if (optarg) {
 				if (opt_require_int(optarg, 0, 1, "all-LED state", "", &do_all_leds) < 0)
 					return 1;
 			} else
-				do_all_leds= 2; /* can't use 0 as it's a valid option */
+				do_get_all_leds= 1;
 			break;
 		case 'p':
 			do_part= 0;
@@ -434,8 +437,8 @@ int main(int argc, char *argv[])
 			do_tx= 0;
 			break;
 		case 'a':
-			/* -a reads the PA level; -a<0-7> sets it, including 0 (-1:
-			 * not requested, PA_QUERY: read). */
+			/* -a reads the PA level; -a<0-7> sets it, including 0
+			 * (-1: not requested). */
 			if (optarg) {
 				if (optarg[0] < '0' || optarg[0] > '7' || optarg[1] != '\0') {
 					fprintf(stderr, "error: PA level must be a single digit 0-7 (got %s)\n", optarg);
@@ -443,7 +446,7 @@ int main(int argc, char *argv[])
 				}
 				do_palevel= optarg[0] - '0';
 			} else {
-				do_palevel= PA_QUERY;
+				do_get_palevel= 1;
 			}
 			break;
 		case 'C':
@@ -453,14 +456,14 @@ int main(int argc, char *argv[])
 					return 1;
 				do_channel= ch + BT_FREQ_MIN;
 			} else
-				do_channel= 0;
+				do_get_channel= 1;
 			break;
 		case 'c':
 			if (optarg) {
 				if (opt_require_int(optarg, BT_FREQ_MIN, BT_FREQ_MAX, "frequency", " MHz", &do_channel) < 0)
 					return 1;
 			} else
-				do_channel= 0;
+				do_get_channel= 1;
 			break;
 		case 'q':
 			if (optarg) {
@@ -685,7 +688,7 @@ int main(int argc, char *argv[])
 		status = util_status_after(status, cmd_set_palevel(ut->devh, do_palevel));
 
 	/* reporting actions, in the order ubertooth-util has always printed them */
-	if(do_all_leds == 2) {
+	if(do_get_all_leds) {
 		int usr = cmd_get_usrled(ut->devh);
 		int rx = cmd_get_rxled(ut->devh);
 		int tx = cmd_get_txled(ut->devh);
@@ -705,7 +708,7 @@ int main(int argc, char *argv[])
 	if(do_board_id == 0)
 		status = util_status_merge(status,
 		        util_report_board_id(&report_ops, ut, stdout, stderr));
-	if(do_channel == 0) {
+	if(do_get_channel) {
 		int mhz = cmd_get_channel(ut->devh);
 		if (mhz < 0)
 			status = util_status_merge(status, report_read_failed("channel", mhz));
@@ -718,14 +721,14 @@ int main(int argc, char *argv[])
 	if(do_compile_info == 0)
 		status = util_status_merge(status,
 		        util_report_compile_info(&report_ops, ut, stdout));
-	if(do_leds == 2) {
+	if(do_get_leds) {
 		int led = cmd_get_usrled(ut->devh);
 		if (led < 0)
 			status = util_status_merge(status, report_read_failed("USR LED", led));
 		else
 			fprintf(stdout, "USR LED status: %d\n", led);
 	}
-	if(do_palevel == PA_QUERY) {
+	if(do_get_palevel) {
 		int level = cmd_get_palevel(ut->devh);
 		if (level < 0)
 			status = util_status_merge(status, report_read_failed("PA level", level));

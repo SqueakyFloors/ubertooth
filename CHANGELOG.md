@@ -85,6 +85,10 @@
 
 ### Reliability fixes
 
+- A set and a read of the same `ubertooth-util` value in one command both run,
+  the set first, so `-c2426 -c`, `-a5 -a`, `-l1 -l` and `-d1 -d` report the new
+  value instead of dropping the set.
+  [#228](https://github.com/SqueakyFloors/ubertooth/issues/228)
 - `ubertooth-rx -u` without `-l`, `ubertooth-tx` without both, and more than
   one of `ubertooth-btle`'s `-f`, `-n` and `-p` are refused while the command
   line is read, before a device is opened, whatever boards are attached.

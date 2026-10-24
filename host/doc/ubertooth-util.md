@@ -27,6 +27,15 @@ An option value can be attached or given as the next word: `-c2440` and
 Without a number after it, `-c` (and `-a`, `-C`, `-d`, `-l`, `-z`) reads the
 current value instead.
 
+A set and a read of the same value in one command both run, the set first, so
+the read reports the new value. The order they are written in does not matter:
+
+    $ ubertooth-util -c2426 -c
+    Current frequency: 2426 MHz (Bluetooth channel 24)
+
+The same holds for `-a`, `-C`, `-d`, `-l` and `-z`. Two sets of the same value
+in one command keep the last one.
+
 The utility also includes a simple range test tool for use with two
 Ubertooth devices. Refer to [RANGE TEST][] for full details.
 

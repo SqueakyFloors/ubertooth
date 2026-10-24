@@ -319,10 +319,14 @@ int cmd_stop(struct libusb_device_handle *h)
 	return fake.stop_rc;
 }
 
+/* The setters below also change what the matching read returns, so a command
+ * that sets and reads the same value shows whether the read saw the set. */
 int cmd_set_channel(struct libusb_device_handle *h, u16 channel)
 {
 	fake_use(h);
 	fake.last_channel_set = channel;
+	if (fake.set_channel_rc >= 0)
+		fake.channel = channel;
 	return fake.set_channel_rc;
 }
 
@@ -332,6 +336,8 @@ int cmd_set_usrled(struct libusb_device_handle *h, u16 s)
 	fake.last_usrled_set = s + 1;
 	fake.usrled_writes++;
 	fake.last_usrled_level = s;
+	if (fake.set_usrled_rc >= 0)
+		fake.usrled = s;
 	return fake.set_usrled_rc;
 }
 
@@ -340,6 +346,8 @@ int cmd_set_rxled(struct libusb_device_handle *h, u16 s)
 	fake_use(h);
 	fake.rxled_writes++;
 	fake.last_rxled_level = s;
+	if (fake.set_rxled_rc >= 0)
+		fake.rxled = s;
 	return fake.set_rxled_rc;
 }
 
@@ -348,15 +356,26 @@ int cmd_set_txled(struct libusb_device_handle *h, u16 s)
 	fake_use(h);
 	fake.txled_writes++;
 	fake.last_txled_level = s;
+	if (fake.set_txled_rc >= 0)
+		fake.txled = s;
 	return fake.set_txled_rc;
 }
 
-int cmd_set_palevel(struct libusb_device_handle *h, u16 l) { fake_use(h); fake.last_palevel_set = l; return fake.set_palevel_rc; }
+int cmd_set_palevel(struct libusb_device_handle *h, u16 l)
+{
+	fake_use(h);
+	fake.last_palevel_set = l;
+	if (fake.set_palevel_rc >= 0)
+		fake.palevel = l;
+	return fake.set_palevel_rc;
+}
 
 int cmd_set_squelch(struct libusb_device_handle *h, u16 level)
 {
 	fake_use(h);
 	fake.last_squelch_set = level;
+	if (fake.set_squelch_rc >= 0)
+		fake.squelch = level & 0xff;
 	return fake.set_squelch_rc;
 }
 
@@ -771,6 +790,97 @@ MU_TEST(setters_pass_their_arguments_and_report_failures)
 	reset_fake();
 	r = RUN("-d1", "-l1", "-a3");
 	mu_assert_int_eq(0, r.rc);
+}
+
+/* A set and a read of the same value in one command both happen, the set
+ * first, so the read reports the new value. The set used to be dropped
+ * silently with exit 0 because the two shared one variable. */
+MU_TEST(a_set_and_a_read_of_the_same_value_both_run_set_first)
+{
+	struct run_result r;
+
+	reset_fake();
+	r = RUN("-c2426", "-c");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(2426, fake.last_channel_set);
+	mu_assert(strcmp(r.out, "Current frequency: 2426 MHz (Bluetooth channel 24)\n") == 0,
+	          "-c2426 -c sets then reports the new frequency");
+
+	/* the read written first is the same command */
+	reset_fake();
+	r = RUN("-c", "-c2426");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(2426, fake.last_channel_set);
+	mu_assert(strcmp(r.out, "Current frequency: 2426 MHz (Bluetooth channel 24)\n") == 0,
+	          "-c -c2426 sets then reports the new frequency");
+
+	/* separate-word values too: -c 2426 -c */
+	reset_fake();
+	r = RUN("-c", "2426", "-c");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(2426, fake.last_channel_set);
+	mu_assert(strcmp(r.out, "Current frequency: 2426 MHz (Bluetooth channel 24)\n") == 0,
+	          "-c 2426 -c sets then reports the new frequency");
+
+	/* -C sets by channel number and -c reads, and -C both ways */
+	reset_fake();
+	r = RUN("-C24", "-c");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(2426, fake.last_channel_set);
+	mu_assert(strcmp(r.out, "Current frequency: 2426 MHz (Bluetooth channel 24)\n") == 0,
+	          "-C24 -c sets then reports the new frequency");
+
+	reset_fake();
+	r = RUN("-C24", "-C");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(2426, fake.last_channel_set);
+	mu_assert(strcmp(r.out, "Current frequency: 2426 MHz (Bluetooth channel 24)\n") == 0,
+	          "-C24 -C sets then reports the new frequency");
+
+	reset_fake();
+	r = RUN("-a5", "-a");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(5, fake.last_palevel_set);
+	mu_assert(strcmp(r.out, "PA Level: 5\n") == 0, "-a5 -a reports the new level");
+
+	/* level 0 is a set, not a missing value */
+	reset_fake();
+	r = RUN("-a0", "-a");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0, fake.last_palevel_set);
+	mu_assert(strcmp(r.out, "PA Level: 0\n") == 0, "-a0 -a reports the new level");
+
+	reset_fake();
+	r = RUN("-l1", "-l");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(2, fake.last_usrled_set); /* recorded as value + 1 */
+	mu_assert(strcmp(r.out, "USR LED status: 1\n") == 0, "-l1 -l reports the new state");
+
+	reset_fake();
+	fake.usrled = fake.rxled = fake.txled = 1;
+	r = RUN("-d0", "-d");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "USR LED status: 0\nRX LED status : 0\n"
+	                        "TX LED status : 0\n") == 0,
+	          "-d0 -d reports every new LED state");
+
+	/* the issue's own command line: the squelch set, the LED set and the
+	 * LED read all happen */
+	reset_fake();
+	r = RUN("-z-120", "-l1", "-l");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq((u16)-120, fake.last_squelch_set);
+	mu_assert_int_eq(2, fake.last_usrled_set);
+	mu_assert(strcmp(r.out, "USR LED status: 1\nSetting squelch to -120\n") == 0,
+	          "-z-120 -l1 -l does all three");
+
+	/* a failed set is reported, and the read still runs */
+	reset_fake();
+	fake.set_channel_rc = -1;
+	r = RUN("-c2426", "-c");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, CHANNEL_LINE) == 0,
+	          "the read reports the unchanged frequency after a failed set");
 }
 
 MU_TEST(stop_and_reset_report_failures)
@@ -2183,6 +2293,7 @@ int main(void)
 	MU_RUN(all_leds_query_reports_each_led_and_fails_if_any_read_fails);
 	MU_RUN(range_result_is_reported_and_a_failed_read_fails);
 	MU_RUN(setters_pass_their_arguments_and_report_failures);
+	MU_RUN(a_set_and_a_read_of_the_same_value_both_run_set_first);
 	MU_RUN(stop_and_reset_report_failures);
 	MU_RUN(mode_commands_exit_zero_on_success_and_one_on_failure);
 	MU_RUN(a_failed_stop_before_a_mode_command_fails_the_command);
