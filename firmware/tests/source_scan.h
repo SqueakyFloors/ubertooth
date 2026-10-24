@@ -9,11 +9,12 @@
  * whole identifiers, calls and assignments rather than substrings.
  *
  * They read C the way a careful `grep` would, not the way a compiler does:
- * string literals are not understood, so a "/*" or "//" inside one would be
- * taken for a comment, and an assignment is matched with one space each side
- * of the '='. Neither scanned file has such a literal today. A reformat of a
- * scanned file therefore fails the scan, which is the right direction: the
- * test says what it could not find rather than passing on nothing.
+ * string literals are not understood, so a comment opener inside one would be
+ * taken for the start of a comment, and an assignment is matched with one
+ * space each side of the '='. No scanned file has such a literal today. A
+ * reformat of a scanned file therefore fails the scan, which is the right
+ * direction: the test says what it could not find rather than passing on
+ * nothing.
  *
  * Defined inline in the header so each test stays a single translation unit
  * that links nothing from the firmware.
