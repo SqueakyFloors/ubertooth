@@ -48,7 +48,8 @@ Other options:
 .RS
 .IP \(bu 2
 \fB\fC\-t <seconds>\fR :
-timeout for initial AFH map detection (not required)
+timeout for initial AFH map detection (not required); see DETECTION AND
+MONITORING\&. No effect with \fB\fC\-r\fR\&.
 .IP \(bu 2
 \fB\fC\-e <0\-5>\fR :
 maximum access code errors (default: 2, range: 0\-5)
@@ -56,9 +57,37 @@ maximum access code errors (default: 2, range: 0\-5)
 \fB\fC\-V\fR :
 print version information
 .IP \(bu 2
-\fB\fC\-U <0\-7>\fR :
-set ubertooth device to use
+\fB\fC\-U <index|serial>\fR :
+select an Ubertooth by USB enumeration index or stable serial\-number string;
+see
+.BR ubertooth-util (1),
+SELECTING A DEVICE
 .RE
+.SH DETECTION AND MONITORING
+.PP
+\fB\fCubertooth\-afh\fR does not stop on its own. It keeps monitoring the
+piconet and reporting changes to the map until it is interrupted (Ctrl\-C),
+both with and without \fB\fC\-t\fR\&.
+.PP
+\fB\fC\-t <seconds>\fR only adds an initial detection phase: the tool listens
+for that many seconds, prints the map it found, and then starts monitoring. If
+that phase received no packet from the piconet there is no map to print, so the
+tool says so and exits with status 2 instead of printing an all\-zero map
+(which reads as a detected map whose piconet uses no channel at all):
+.PP
+.RS
+.nf
+$ ubertooth\-afh \-l 446688 \-u 22 \-t 3
+error: no packets from ??:??:22:44:66:88 within 3 s; AFH map unknown
+.fi
+.RE
+.PP
+Nothing is wrong with the board in that case: the piconet is out of range, it
+is not transmitting, or the UAP/LAP is not the one in use. A longer
+\fB\fC\-t\fR, or no \fB\fC\-t\fR at all, keeps listening.
+.PP
+\fB\fC\-r\fR has its own loop, which prints the map once a second from the
+start and ignores \fB\fC\-t\fR\&.
 .SH ARGUMENTS
 .PP
 \fB\fCubertooth\-afh\fR takes options only. A word that is not an option, including

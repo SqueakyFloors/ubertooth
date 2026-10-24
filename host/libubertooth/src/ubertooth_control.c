@@ -869,7 +869,7 @@ int cmd_set_afh_map(struct libusb_device_handle* devh, uint8_t* afh_map)
 	struct libusb_transfer *xfer = libusb_alloc_transfer(0);
 
 	libusb_fill_control_setup(buffer, CTRL_OUT, UBERTOOTH_SET_AFHMAP, 0, 0, 10);
-	memcpy ( &buffer[LIBUSB_CONTROL_SETUP_SIZE], afh_map, 10 );
+	memcpy ( &buffer[LIBUSB_CONTROL_SETUP_SIZE], afh_map, AFH_MAP_BYTES );
 	libusb_fill_control_transfer(xfer, devh, buffer, callback, NULL, 1000);
 	libusb_submit_transfer(xfer);
 

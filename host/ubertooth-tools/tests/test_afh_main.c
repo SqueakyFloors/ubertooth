@@ -1,0 +1,264 @@
+/*
+ * Hardware-independent tests of ubertooth-afh's main(): what it reports and
+ * what it exits with after the initial AFH detection phase.
+ *
+ * ubertooth-afh.c is compiled into this test with main() renamed, and the
+ * libubertooth functions it calls are replaced by the fakes below, so the real
+ * command-line handling and reporting run against a scripted detection phase.
+ */
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#include "../../../firmware/tests/minunit.h"
+
+#define main ubertooth_afh_main
+#include "ubertooth-afh.c"
+#undef main
+
+/* ---- scripted library --------------------------------------------------- */
+
+static struct {
+	int rx_afh_rc;    /* returned by rx_afh() */
+	int rx_afh_calls;
+	int rx_afh_r_calls;
+	int last_timeout; /* timeout passed to the detection phase */
+	int stops;
+} fake;
+
+static ubertooth_t fake_ut;
+static int fake_devh;
+
+static void reset_fake(void)
+{
+	memset(&fake, 0, sizeof(fake));
+	memset(&fake_ut, 0, sizeof(fake_ut));
+	fake_ut.devh = (struct libusb_device_handle *)&fake_devh;
+}
+
+/* libubertooth defines these; the tool reads and sets them. */
+int max_ac_errors = 2;
+unsigned int packet_counter_max = 5;
+
+ubertooth_t *ubertooth_start_select(const char *u_arg)
+{
+	(void)u_arg;
+	return &fake_ut;
+}
+
+int ubertooth_check_api(ubertooth_t *ut)
+{
+	(void)ut;
+	return 0;
+}
+
+void register_cleanup_handler(ubertooth_t *ut, int do_exit)
+{
+	(void)ut;
+	(void)do_exit;
+}
+
+int rx_afh(ubertooth_t *ut, btbb_piconet *pn, int timeout)
+{
+	(void)ut;
+	(void)pn;
+	fake.rx_afh_calls++;
+	fake.last_timeout = timeout;
+	return fake.rx_afh_rc;
+}
+
+void rx_afh_r(ubertooth_t *ut, btbb_piconet *pn, int timeout)
+{
+	(void)ut;
+	(void)pn;
+	fake.rx_afh_r_calls++;
+	fake.last_timeout = timeout;
+}
+
+void ubertooth_stop(ubertooth_t *ut)
+{
+	(void)ut;
+	fake.stops++;
+}
+
+void print_version(void) { printf("test\n"); }
+
+/* ---- running the tool --------------------------------------------------- */
+
+struct run_result {
+	int rc;
+	char out[4096];
+	char err[1024];
+};
+
+static void read_back(FILE *file, char *buffer, size_t size)
+{
+	size_t length;
+
+	fflush(file);
+	rewind(file);
+	length = fread(buffer, 1, size - 1, file);
+	buffer[length] = '\0';
+	/* A capture that did not fit must fail loudly instead of comparing a
+	 * prefix. */
+	mu_assert(fgetc(file) == EOF, "captured output was truncated");
+}
+
+static struct run_result run_afh(const char *const *args)
+{
+	struct run_result result;
+	char *argv[16];
+	int argc = 0;
+	int saved_out, saved_err;
+	FILE *out = tmpfile();
+	FILE *err = tmpfile();
+
+	memset(&result, 0, sizeof(result));
+	result.rc = -1; /* a failed capture must not look like a successful run */
+	mu_assert(out != NULL && err != NULL, "tmpfile failed");
+	if (out == NULL || err == NULL)
+		return result;
+	while (args[argc] != NULL && argc < 15) {
+		argv[argc] = (char *)args[argc];
+		argc++;
+	}
+	argv[argc] = NULL;
+
+	fflush(stdout);
+	fflush(stderr);
+	saved_out = dup(STDOUT_FILENO);
+	saved_err = dup(STDERR_FILENO);
+	dup2(fileno(out), STDOUT_FILENO);
+	dup2(fileno(err), STDERR_FILENO);
+	optind = 0; /* restart option parsing for each run */
+	result.rc = ubertooth_afh_main(argc, argv);
+	fflush(stdout);
+	fflush(stderr);
+	dup2(saved_out, STDOUT_FILENO);
+	dup2(saved_err, STDERR_FILENO);
+	close(saved_out);
+	close(saved_err);
+
+	read_back(out, result.out, sizeof(result.out));
+	read_back(err, result.err, sizeof(result.err));
+	fclose(out);
+	fclose(err);
+	return result;
+}
+
+#define RUN(...) run_afh((const char *const[]){ "ubertooth-afh", __VA_ARGS__, NULL })
+
+/* ---- tests -------------------------------------------------------------- */
+
+/* Issue #187: an all-zero map was printed and the tool kept running. */
+MU_TEST(no_packets_in_the_detection_phase_is_reported_and_exits_2)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.rx_afh_rc = UBERTOOTH_AFH_NO_PACKETS;
+	r = RUN("-l", "446688", "-u", "22", "-t", "3");
+	mu_assert_int_eq(2, r.rc);
+	mu_assert(strcmp(r.err,
+	    "error: no packets from ??:??:22:44:66:88 within 3 s;"
+	    " AFH map unknown\n") == 0, r.err);
+	mu_assert_int_eq(1, fake.rx_afh_calls);
+	mu_assert_int_eq(1, fake.stops); /* the device is still released */
+}
+
+/* The address and the number of seconds in the message are the ones that were
+ * asked for, not hard-coded. */
+MU_TEST(the_message_names_the_piconet_and_the_timeout)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.rx_afh_rc = UBERTOOTH_AFH_NO_PACKETS;
+	r = RUN("-l", "0a0b0c", "-u", "ff", "-t", "30");
+	mu_assert_int_eq(2, r.rc);
+	mu_assert(strcmp(r.err,
+	    "error: no packets from ??:??:ff:0a:0b:0c within 30 s;"
+	    " AFH map unknown\n") == 0, r.err);
+	mu_assert_int_eq(30, fake.last_timeout);
+}
+
+/* With packets received, nothing changes: the map is printed by the library
+ * and the tool exits 0 once monitoring is interrupted. */
+MU_TEST(a_detected_map_still_exits_0_with_no_message)
+{
+	struct run_result r;
+
+	reset_fake();
+	r = RUN("-l", "446688", "-u", "22", "-t", "3");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(r.err[0] == '\0', r.err);
+	mu_assert_int_eq(3, fake.last_timeout);
+	mu_assert_int_eq(1, fake.stops);
+}
+
+/* Without -t there is no detection phase to fail. */
+MU_TEST(no_timeout_runs_the_monitor_as_before)
+{
+	struct run_result r;
+
+	reset_fake();
+	r = RUN("-l", "446688", "-u", "22");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, fake.rx_afh_calls);
+	mu_assert_int_eq(0, fake.last_timeout);
+	mu_assert(r.err[0] == '\0', r.err);
+}
+
+/* -r keeps its own loop, which ignores the timeout. */
+MU_TEST(the_r_format_is_unchanged)
+{
+	struct run_result r;
+
+	reset_fake();
+	r = RUN("-r", "-l", "446688", "-u", "22", "-t", "3");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0, fake.rx_afh_calls);
+	mu_assert_int_eq(1, fake.rx_afh_r_calls);
+	mu_assert(r.err[0] == '\0', r.err);
+}
+
+/* A libbtbb failure inside the library is not reported as "no packets". */
+MU_TEST(a_library_error_is_not_mistaken_for_no_packets)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.rx_afh_rc = -1;
+	r = RUN("-l", "446688", "-u", "22", "-t", "3");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(r.err[0] == '\0', r.err);
+}
+
+/* The usage text says that the tool keeps monitoring until it is interrupted
+ * and what -t does at the end of its phase. */
+MU_TEST(the_usage_text_documents_the_monitoring_and_the_exit_status)
+{
+	struct run_result r;
+
+	reset_fake();
+	r = RUN("-h");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.out, "keeps monitoring") != NULL, r.out);
+	mu_assert(strstr(r.out, "exit status 2") != NULL, r.out);
+	mu_assert(strstr(r.out, "-U <index|serial>") != NULL, r.out);
+	mu_assert_int_eq(0, fake.rx_afh_calls);
+}
+
+int main(void)
+{
+	MU_RUN(no_packets_in_the_detection_phase_is_reported_and_exits_2);
+	MU_RUN(the_message_names_the_piconet_and_the_timeout);
+	MU_RUN(a_detected_map_still_exits_0_with_no_message);
+	MU_RUN(no_timeout_runs_the_monitor_as_before);
+	MU_RUN(the_r_format_is_unchanged);
+	MU_RUN(a_library_error_is_not_mistaken_for_no_packets);
+	MU_RUN(the_usage_text_documents_the_monitoring_and_the_exit_status);
+	return mu_report();
+}
