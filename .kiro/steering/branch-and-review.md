@@ -142,8 +142,12 @@ Speed matters. Do not wait for every job.
 
 ## Documentation clarity
 
-- MUST expand each acronym at its first use in a document or independently read
-  section, except universally understood command names and file extensions.
+- Do NOT spell out common acronyms: assume the reader knows them. Examples:
+  LED, USB, Wi-Fi, BLE, RF, RSSI, dBm, MHz, API, CLI, GPIO, CPU, PCAP, DFU,
+  CRC, UUID, MAC. Write "LED", never "light-emitting diode (LED)".
+- Expand an acronym at its first use in a document only when it is specific to
+  Bluetooth internals or this project and a reader may not know it (for
+  example LAP, UAP, AFH, CLKN), and only once per document.
 - MUST preserve exact error strings that users are likely to search for, such
   as `ModuleNotFoundError: No module named 'specan'`, in the relevant
   troubleshooting documentation even when changelog prose is condensed.
