@@ -38,7 +38,7 @@ static struct {
 	int stop_rc, reset_rc, set_channel_rc, set_usrled_rc, set_rxled_rc;
 	int set_txled_rc, set_palevel_rc, set_squelch_rc, flash_rc, isp_rc;
 	int led_specan_rc, range_test_rc, repeater_rc, tx_test_rc, xmas_rc;
-	int rangeresult_rc;
+	int rangeresult_rc, do_something_rc, do_something_reply_rc;
 	rangetest_result range;
 	/* bookkeeping */
 	int device_count;
@@ -260,13 +260,13 @@ int cmd_led_specan(struct libusb_device_handle *h, u16 rssi)
 int cmd_do_something(struct libusb_device_handle *h, unsigned char *d, int n)
 {
 	fake_use(h); (void)d; (void)n;
-	return 0;
+	return fake.do_something_rc;
 }
 
 int cmd_do_something_reply(struct libusb_device_handle *h, unsigned char *d, int n)
 {
 	fake_use(h); (void)d; (void)n;
-	return 0;
+	return fake.do_something_reply_rc;
 }
 
 /* ---- running main() and capturing what it prints ---------------------- */
@@ -1135,6 +1135,88 @@ MU_TEST(only_the_exact_word_all_selects_every_device)
 	mu_assert(strcmp(fake.selector, "1") == 0, "later selector used");
 }
 
+/* ---- a failed read prints no value line ------------------------------- */
+
+MU_TEST(a_failed_read_prints_no_value_line_and_names_the_query_on_stderr)
+{
+	struct {
+		const char *option;
+		int *value;      /* scripted result that is made to fail */
+		const char *error;
+	} cases[] = {
+		{ "-c", &fake.channel, "error: channel read failed\n" },
+		{ "-a", &fake.palevel, "error: PA level read failed\n" },
+		{ "-z", &fake.squelch, "error: squelch read failed\n" },
+		{ "-l", &fake.usrled, "error: USR LED read failed\n" },
+		{ "-m", &fake.rangeresult_rc, "error: range test result read failed\n" },
+		{ "-9", &fake.do_something_reply_rc, "error: test command reply read failed\n" },
+	};
+	size_t i;
+
+	for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+		struct run_result r;
+
+		reset_fake();
+		*cases[i].value = LIBUSB_ERROR_TIMEOUT;
+		r = run_util((const char *const[]){ "ubertooth-util", cases[i].option, NULL });
+		mu_assert_int_eq(1, r.rc);
+		mu_assert(strcmp(r.out, "") == 0, cases[i].option);
+		mu_assert(strcmp(r.err, cases[i].error) == 0, cases[i].option);
+	}
+}
+
+MU_TEST(a_failed_led_read_drops_only_that_line)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.usrled = -1;
+	r = RUN("-d");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, "RX LED status : 0\nTX LED status : 0\n") == 0, "USR failed");
+	mu_assert(strcmp(r.err, "error: USR LED read failed\n") == 0, "USR message");
+
+	reset_fake();
+	fake.rxled = -1;
+	r = RUN("-d");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, "USR LED status: 0\nTX LED status : 0\n") == 0, "RX failed");
+	mu_assert(strcmp(r.err, "error: RX LED read failed\n") == 0, "RX message");
+
+	reset_fake();
+	fake.txled = -1;
+	r = RUN("-d");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, "USR LED status: 0\nRX LED status : 0\n") == 0, "TX failed");
+	mu_assert(strcmp(r.err, "error: TX LED read failed\n") == 0, "TX message");
+}
+
+MU_TEST(a_failed_read_keeps_the_other_lines_of_a_composed_command)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.channel = -1;
+	fake.squelch = -1;
+	r = RUN("-b", "-c", "-a", "-z");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, BOARD_LINE PALEVEL_LINE) == 0, "remaining lines in order");
+	mu_assert(strcmp(r.err,
+	                 "error: channel read failed\nerror: squelch read failed\n") == 0,
+	          "one message per failed read");
+}
+
+MU_TEST(a_failed_test_command_send_fails_the_command)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.do_something_rc = -1;
+	r = RUN("-9");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, "55 55 55 55\n") == 0, "reply still read and printed");
+}
+
 int main(void)
 {
 	MU_RUN(nonzero_query_values_are_not_exit_statuses);
@@ -1166,5 +1248,9 @@ int main(void)
 	MU_RUN(u_all_fails_cleanly_with_no_devices_or_a_count_error);
 	MU_RUN(u_all_is_rejected_before_opening_a_device_for_any_other_option);
 	MU_RUN(only_the_exact_word_all_selects_every_device);
+	MU_RUN(a_failed_read_prints_no_value_line_and_names_the_query_on_stderr);
+	MU_RUN(a_failed_led_read_drops_only_that_line);
+	MU_RUN(a_failed_read_keeps_the_other_lines_of_a_composed_command);
+	MU_RUN(a_failed_test_command_send_fails_the_command);
 	return mu_report();
 }
