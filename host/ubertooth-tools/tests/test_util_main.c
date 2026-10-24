@@ -1294,6 +1294,85 @@ MU_TEST(a_failed_test_command_send_fails_the_command)
 	mu_assert(strcmp(r.err, "error: test command send failed\n") == 0, "send failure named");
 }
 
+/* ---- the opened handle is released on every exit ---------------------- */
+
+MU_TEST(read_only_queries_release_the_handle_without_sending_stop)
+{
+	static const char *const queries[] = {
+		"-b", "-v", "-V", "-p", "-s", "-c", "-a", "-z", "-l", "-d", "-m"
+	};
+	size_t i;
+
+	for (i = 0; i < sizeof(queries) / sizeof(queries[0]); i++) {
+		reset_fake();
+		run_util((const char *const[]){ "ubertooth-util", queries[i], NULL });
+		mu_assert(fake.first_closes == 1, queries[i]);
+		mu_assert(fake.first_frees == 1, queries[i]);
+		mu_assert(fake.first_used_after_release == 0, queries[i]);
+		mu_assert(fake.stop_calls == 0, queries[i]); /* a query never sends STOP */
+	}
+
+	/* a failed read is an error exit, and still releases the handle */
+	reset_fake();
+	fake.channel = -1;
+	mu_assert_int_eq(1, RUN("-b", "-c").rc);
+	mu_assert_int_eq(1, fake.first_closes);
+	mu_assert_int_eq(1, fake.first_frees);
+	mu_assert_int_eq(0, fake.stop_calls);
+}
+
+MU_TEST(setters_and_modes_release_the_handle_on_success_and_failure)
+{
+	size_t i;
+	int fail;
+
+	for (fail = 0; fail <= 1; fail++) {
+		reset_fake();
+		fake.set_channel_rc = fail ? -1 : 0;
+		mu_assert_int_eq(fail, RUN("-C39").rc);
+		mu_assert_int_eq(1, fake.first_closes);
+		mu_assert_int_eq(1, fake.first_frees);
+		mu_assert_int_eq(0, fake.stop_calls);
+
+		reset_fake();
+		fake.do_something_rc = fail ? -1 : 0;
+		mu_assert_int_eq(fail, RUN("-9").rc);
+		mu_assert_int_eq(1, fake.first_closes);
+		mu_assert_int_eq(1, fake.first_frees);
+
+		for (i = 0; i < MODE_COUNT; i++) {
+			reset_fake();
+			*mode_result(i) = fail ? -1 : 0;
+			mu_assert(run_util((const char *const[]){ "ubertooth-util",
+			                   mode_options[i], NULL }).rc == fail, mode_options[i]);
+			mu_assert(fake.first_closes == 1, mode_options[i]);
+			mu_assert(fake.first_frees == 1, mode_options[i]);
+			mu_assert(fake.first_used_after_release == 0, mode_options[i]);
+			/* only the STOP that leaves a prior mode (-f and -i send none);
+			 * releasing the handle sends no STOP of its own */
+			mu_assert(fake.stop_calls == (i >= 2), mode_options[i]);
+		}
+	}
+}
+
+MU_TEST(the_handle_reopened_after_a_reset_is_released)
+{
+	reset_fake();
+	mu_assert_int_eq(0, RUN("-r", "-b").rc);
+	mu_assert_int_eq(1, fake.first_closes);
+	mu_assert_int_eq(1, fake.first_frees);
+	mu_assert_int_eq(2, fake.closes); /* pre-reset handle and the new one */
+	mu_assert_int_eq(2, fake.frees);
+	mu_assert_int_eq(0, fake.stop_calls);
+
+	reset_fake();
+	fake.board_id = -1;
+	mu_assert_int_eq(1, RUN("-r", "-b").rc);
+	mu_assert_int_eq(2, fake.closes);
+	mu_assert_int_eq(2, fake.frees);
+	mu_assert_int_eq(0, fake.stop_calls);
+}
+
 int main(void)
 {
 	MU_RUN(nonzero_query_values_are_not_exit_statuses);
@@ -1329,5 +1408,8 @@ int main(void)
 	MU_RUN(a_failed_led_read_drops_only_that_line);
 	MU_RUN(a_failed_read_keeps_the_other_lines_of_a_composed_command);
 	MU_RUN(a_failed_test_command_send_fails_the_command);
+	MU_RUN(read_only_queries_release_the_handle_without_sending_stop);
+	MU_RUN(setters_and_modes_release_the_handle_on_success_and_failure);
+	MU_RUN(the_handle_reopened_after_a_reset_is_released);
 	return mu_report();
 }
