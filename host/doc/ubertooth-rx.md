@@ -190,6 +190,10 @@ An option value must be a whole value in its range, or it is refused the same
 way instead of being read as 0, for example
 `error: channel must be 0-78 (got 79)`.
 
+An option combination the tool cannot carry out is refused there too, before
+any device is opened, so the message never depends on which boards are
+attached: `-u` without `-l` gives `error: -u <UAP> requires -l <LAP>`.
+
 ## SEE ALSO
 
 ubertooth-scan(1): active device scanning and inquiry using Ubertooth

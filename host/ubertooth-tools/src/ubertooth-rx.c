@@ -192,6 +192,16 @@ int main(int argc, char* argv[])
 		return 1;
 	}
 
+	/* A UAP is only usable with the LAP it belongs to. This is an argument
+	 * error like the survey check above, so it is refused here rather than
+	 * after a device has been opened, where it used to depend on whether a
+	 * board happened to be free. (Survey mode has already returned for any
+	 * address, so it cannot reach this.) */
+	if (have_uap && !have_lap) {
+		fprintf(stderr, "error: -u <UAP> requires -l <LAP>\n");
+		return 1;
+	}
+
 	if (infile == NULL) {
 		r = ubertooth_connect_select(ut, ubertooth_device);
 		if (r < 0) {
@@ -225,10 +235,6 @@ int main(int argc, char* argv[])
 							  (((uint32_t)uap)<<24)|lap,
 							  have_uap ? 0xff : 0x00, 0);
 			}
-		} else if (have_uap) {
-			fprintf(stderr, "Error: UAP but no LAP specified\n");
-			usage();
-			return 1;
 		}
 	}
 

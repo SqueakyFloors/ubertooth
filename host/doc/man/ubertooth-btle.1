@@ -280,6 +280,13 @@ way instead of being read as 0, for example
 The optional values of \-a and \-v may be attached or given as the next word
 (\-a 8e89bed6, \-v 1); a following option is never taken as a value. A bare \-
 is still the stdin/stdout value of \-q, \-c and \-r.
+.PP
+An option combination the tool cannot carry out is refused there too, before
+any device is opened, so the message never depends on which boards are
+attached: more than one of \fB\fC\-f\fR, \fB\fC\-n\fR and \fB\fC\-p\fR gives
+\fB\fCerror: choose one of \-f, \-n or \-p, pick one pal\fR, and a read and a set
+of the access address in one command gives
+\fB\fCerror: \-a cannot both read and set the access address\fR\&.
 .SH SEE ALSO
 .PP
 .BR crackle (1): 
