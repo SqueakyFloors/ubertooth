@@ -188,8 +188,9 @@ jobs:
 
     - name: Install dependencies (Ubuntu)
       run: |
-        # gcc-arm-none-eabi recommends a large C++ runtime the C firmware does
-        # not use; skip recommends and install newlib explicitly.
+        # gcc-arm-none-eabi recommends a large C++ runtime that none of the
+        # firmware built here uses (only firmware/bootloader, which CI does not
+        # build, links libstdc++); skip recommends and install newlib explicitly.
         sudo apt-get install -y --no-install-recommends \
           dfu-util gcc-arm-none-eabi libnewlib-arm-none-eabi
       if: runner.os == 'Linux'

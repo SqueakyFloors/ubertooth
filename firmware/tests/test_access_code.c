@@ -154,8 +154,10 @@ MU_TEST(test_error_threshold_is_strict)
 	mu_assert_int_eq(-1, find_access_code(buf));
 }
 
-/* count_bits() sets the error count against MAX_SYNCWORD_ERRS, so check it
- * over the full 64-bit width, not only through find_access_code(). */
+/*
+ * count_bits() computes the bit-error count that find_access_code() compares
+ * with MAX_SYNCWORD_ERRS, so check it over the full 64-bit width directly.
+ */
 MU_TEST(test_count_bits_full_width)
 {
 	mu_assert_int_eq(0, count_bits(UINT64_C(0)));
