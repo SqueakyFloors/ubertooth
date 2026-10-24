@@ -1082,7 +1082,9 @@ int main(int argc, char **argv) {
 		fprintf(stderr, "libusb_init failed: %d\n", r);
 		/* No context to unwind, and nothing has been opened on the bus, so
 		 * this ends like the option failures: through the one path that also
-		 * removes the temporary upload file. */
+		 * removes the temporary upload file. Not cleanup, which would call
+		 * libusb_exit() on a context that was never created. */
+		log_dfu_stage("operation finished");
 		exit_status = 1;
 		goto end_without_device;
 	}

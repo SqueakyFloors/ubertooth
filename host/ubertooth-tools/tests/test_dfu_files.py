@@ -157,6 +157,10 @@ with tempfile.TemporaryDirectory() as directory:
               f"{label} changed the earlier file's permissions")
         leftovers = sorted(set(os.listdir(upload_dir)) - {"keep.bin"})
         check(not leftovers, f"{label} left files behind: {leftovers}")
+        # Remove them, so one failing case does not report the next one's
+        # leftovers as well.
+        for leftover in leftovers:
+            os.unlink(os.path.join(upload_dir, leftover))
 
     code, _ = run("-U", NO_SUCH_SERIAL, "-u", keep, "-r")
     check(code == 1, f"-u with no board exited {code}")
