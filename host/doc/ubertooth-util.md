@@ -182,9 +182,15 @@ board, select it by serial number (or a unique part of it).
 
 This includes a nonzero index with a single Ubertooth attached (`-U1` of one
 device is refused; use `-U0`, or no `-U` at all). With no Ubertooth attached,
-any `-U<n>` reports that no device could be opened. A digit string too large
-to be a device index at all is refused the same way, naming it as given:
-`error: no Ubertooth at index 4294967296 (2 attached)`.
+any `-U<n>` reports that no device could be opened.
+
+A digit string too large to be a device index at all is refused before the
+device list is read, naming it as given. That is the whole message, without the
+`could not open Ubertooth device` line, because no device was looked for:
+
+    $ ubertooth-util -U4294967296 -s
+    error: no Ubertooth at index 4294967296 (2 attached)
+    indexes change when boards are added or removed; select a board by serial with -U<serial>
 
 There is **no fixed upper limit** on the number of attached Ubertooths: the
 device list is sized dynamically and the index is not capped at any particular

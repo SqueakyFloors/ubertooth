@@ -225,9 +225,19 @@ board, select it by serial number (or a unique part of it).
 This includes a nonzero index with a single Ubertooth attached (\fB\fC\-U1\fR
 of one device is refused; use \fB\fC\-U0\fR, or no \fB\fC\-U\fR at all). With no
 Ubertooth attached, any \fB\fC\-U<n>\fR reports that no device could be opened.
-A digit string too large to be a device index at all is refused the same way,
-naming it as given:
-\fB\fCerror: no Ubertooth at index 4294967296 (2 attached)\fR\&.
+.PP
+A digit string too large to be a device index at all is refused before the
+device list is read, naming it as given. That is the whole message, without the
+\fB\fCcould not open Ubertooth device\fR line, because no device was looked
+for:
+.PP
+.RS
+.nf
+$ ubertooth\-util \-U4294967296 \-s
+error: no Ubertooth at index 4294967296 (2 attached)
+indexes change when boards are added or removed; select a board by serial with \-U<serial>
+.fi
+.RE
 .PP
 With several Ubertooths attached and no \fB\fC\-U\fR, the read\-only identity
 queries \fB\fC\-s\fR (serial), \fB\fC\-v\fR (firmware version), \fB\fC\-V\fR (compile

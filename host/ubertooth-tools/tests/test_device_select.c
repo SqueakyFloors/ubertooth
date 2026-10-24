@@ -246,7 +246,7 @@ MU_TEST(an_index_too_large_for_an_int_opens_nothing)
 		"9223372036854775808",  /* LONG_MAX + 1 on 64-bit */
 		"99999999999999999999999999"
 	};
-	char msg[256];
+	char msg[512], expected[512];
 	size_t i;
 
 	for (i = 0; i < sizeof(too_large) / sizeof(too_large[0]); i++) {
@@ -255,8 +255,14 @@ MU_TEST(an_index_too_large_for_an_int_opens_nothing)
 		          too_large[i]);
 		mu_assert(fake.opened == NULL, too_large[i]);
 		mu_assert_int_eq(0, fake.opens);
-		mu_assert(strstr(msg, "no Ubertooth at index") != NULL, msg);
-		mu_assert(strstr(msg, too_large[i]) != NULL, msg);
+		/* The whole message: the index as given, the count and the hint, and
+		 * not the "could not open" line, since no device was looked for. */
+		snprintf(expected, sizeof(expected),
+		         "error: no Ubertooth at index %s (1 attached)\n"
+		         "indexes change when boards are added or removed;"
+		         " select a board by serial with -U<serial>\n",
+		         too_large[i]);
+		mu_assert(strcmp(msg, expected) == 0, msg);
 
 		bus_with_uberteeth(2);
 		mu_assert(select_capturing(too_large[i], msg, sizeof(msg)) == NULL,
