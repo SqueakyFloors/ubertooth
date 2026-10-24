@@ -29,7 +29,7 @@ Options:
    format output for 3D feedgnuplot
  - `-d<filename>` :
    write the binary samples to <filename>; `-d -` writes them to standard
-   output. See ARGUMENTS
+   output, which must not be a terminal. See ARGUMENTS
  - `-v` :
    print verbose output to stderr
  - `-U <index|serial>` :
@@ -64,6 +64,13 @@ way instead of being read as 0, for example
 file name, including one that starts with `-`: `-d -x` writes the file `-x`, and
 a forgotten file name such as `-d -v` writes a file called `-v` rather than
 streaming samples to the terminal and dropping the `-v`.
+
+`-d -` is for a pipe or a redirect. The samples are raw 3-byte records, which
+fill a terminal with control characters and can leave it in a strange state, so
+a terminal is refused before any device is opened:
+`error: stdout is a tty, refusing to write binary samples to it`, with exit
+status 1. ubertooth-btle(1) refuses its binary capture to a terminal the same
+way.
 
 A refused command line creates and truncates nothing: `-d` names its file while
 the command line is read, and it is opened only once every check has passed.

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Verify ubertooth-specan rejects invalid ranges before USB access, and that
-only a bare "-" means stdout for -d.
+"""Verify ubertooth-specan rejects invalid ranges before USB access, that only
+a bare "-" means stdout for -d, and that "-d -" refuses a terminal.
 
 UBERTOOTH_TEST_NO_DEVICES=1 hides attached boards from the tool, so a case
 that reached device selection reports no device instead of opening a board
@@ -11,6 +11,11 @@ import os
 import subprocess
 import sys
 import tempfile
+
+try:
+    import pty
+except ImportError:  # no pty module on this platform
+    pty = None
 
 
 BINARY = sys.argv[1]
@@ -62,5 +67,33 @@ for value, written in (("-x", "-x"), ("./-x", "-x"), ("-v", "-v"),
         # None: a bare "-" is stdout, so it writes no file of its own
         assert listing == ([] if written is None else [written]), \
             (value, listing, result)
+
+# "-d -" on a terminal would fill it with raw sample records, so it is refused
+# before any device is opened. The accepted case is the "-" run above, whose
+# stdout is a pipe and which gets as far as device selection.
+if pty is None:
+    print("ubertooth-specan: skipping the tty case, no pty on this platform")
+else:
+    master_fd, slave_fd = pty.openpty()
+    try:
+        result = subprocess.run(
+            [BINARY, "-d", "-"],
+            stdin=subprocess.DEVNULL,
+            stdout=slave_fd,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=5,
+            check=False,
+            env=ENVIRONMENT,
+        )
+    finally:
+        os.close(slave_fd)
+        os.close(master_fd)
+    assert result.returncode == 1, result
+    assert "stdout is a tty, refusing to write binary samples" in result.stderr, \
+        result
+    # refused before any device lookup
+    assert "no ubertooth found" not in result.stderr.lower(), result
+    print("ubertooth-specan: -d - refuses a tty")
 
 print("ubertooth-specan: ranges refused, -d takes '-' as stdout and the rest as files")

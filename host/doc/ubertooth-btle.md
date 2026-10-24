@@ -148,7 +148,9 @@ Logging:
 
    When stdout capture is selected, regular packet/status text is suppressed so
    it cannot corrupt the binary stream; errors remain on stderr. The tool
-   refuses to write binary capture data directly to an interactive terminal.
+   refuses to write binary capture data directly to an interactive terminal:
+   `error: stdout is a tty, refusing to write binary capture data to it`, with
+   exit status 1 and before any device is opened.
 
 Miscellaneous:
 

@@ -29,6 +29,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 /* Length of a BD_ADDR in bytes, and of its printed form "xx:xx:...:xx". */
 #define BD_ADDR_BYTES 6
@@ -161,6 +162,17 @@ int opt_parse_bd_addr(const char *text, uint8_t *address)
 		bytes[i] = (uint8_t)byte;
 	}
 	memcpy(address, bytes, sizeof(bytes));
+	return 0;
+}
+
+int opt_check_stdout_not_tty(const char *what)
+{
+	if (isatty(STDOUT_FILENO)) {
+		fprintf(stderr,
+		        "error: stdout is a tty, refusing to write binary %s to it\n",
+		        what == NULL ? "output" : what);
+		return -1;
+	}
 	return 0;
 }
 
