@@ -95,7 +95,7 @@ int dfu_extract_firmware_revision(FILE *image, char *revision,
 enum dfu_image_result {
 	DFU_IMAGE_OK = 0,
 	DFU_IMAGE_INVALID_ARGUMENT = -1,
-	DFU_IMAGE_UNREADABLE = -2,      /* too short to hold a suffix, or no read */
+	DFU_IMAGE_TOO_SHORT = -2,       /* too short to hold a suffix at all */
 	DFU_IMAGE_SUFFIX_LENGTH = -3,   /* bLength is not 16: no DFU suffix here */
 	DFU_IMAGE_DFU_VERSION = -4,
 	DFU_IMAGE_SIGNATURE = -5,
@@ -103,6 +103,8 @@ enum dfu_image_result {
 	DFU_IMAGE_CRC = -7,
 	DFU_IMAGE_VENDOR = -8,
 	DFU_IMAGE_PRODUCT = -9,
+	DFU_IMAGE_UNREADABLE = -10,     /* the file would not read */
+	DFU_IMAGE_OUT_OF_MEMORY = -11,
 };
 
 struct dfu_image_report {

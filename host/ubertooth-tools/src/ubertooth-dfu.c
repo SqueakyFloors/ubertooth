@@ -112,6 +112,12 @@ int sign(FILE* infile, FILE* outfile, uint16_t idVendor, uint16_t idProduct) {
 
 	fseek(infile, 0, SEEK_SET);
 	data_length = fread(buffer, 1, (size_t)file_length, infile);
+	if (data_length != (size_t)file_length) {
+		fprintf(stderr, "error: read %zu of %ld byte(s) from the input file\n",
+		        data_length, file_length);
+		free(buffer);
+		return 1;
+	}
 	buffer_length = data_length + DFU_SUFFIX_LENGTH;
 
 	suffix = buffer + data_length;
@@ -126,7 +132,11 @@ int sign(FILE* infile, FILE* outfile, uint16_t idVendor, uint16_t idProduct) {
 	write_le32(suffix + DFU_SUFFIX_OFF_DWCRC,
 	           dfu_image_crc32(buffer, buffer_length - 4));
 
-	fwrite(buffer, 1, buffer_length, outfile);
+	if (fwrite(buffer, 1, buffer_length, outfile) != buffer_length) {
+		fprintf(stderr, "error: could not write the whole signed file\n");
+		free(buffer);
+		return 1;
+	}
 	free(buffer);
 	return 0;
 }
@@ -292,6 +302,11 @@ static void close_dfu_device(libusb_device_handle *devh, int claimed)
 	libusb_close(devh);
 	log_dfu_stage("DFU handle close returned");
 }
+
+/* How long cleanup looks for the DFU device again before giving up on
+ * returning the board to its application. */
+#define DETACH_REOPEN_POLLS 20
+#define DETACH_REOPEN_INTERVAL_MS 100
 
 struct dfu_runtime_context {
 	libusb_context *usb_context;
@@ -703,6 +718,32 @@ static const struct dfu_verify_ops VERIFY_OPS = {
 	.sleep_ms = transition_sleep_ms,
 };
 
+/* Find and claim the DFU device on the same physical path again, so a failure
+ * that closed the handle can still be followed by the detach -r promised.
+ * Leaves *devh NULL when the device does not come back. */
+static void reopen_dfu_for_detach(struct dfu_runtime_context *runtime,
+                                  const struct dfu_usb_identity *identity,
+                                  libusb_device_handle **devh,
+                                  int *claimed)
+{
+	unsigned poll;
+
+	log_dfu_stage("looking for the DFU device again to detach it");
+	for (poll = 0; poll < DETACH_REOPEN_POLLS; poll++) {
+		if (find_ubertooth_dfu_device(runtime->usb_context, identity, devh) == 1)
+			break;
+		*devh = NULL;
+		transition_sleep_ms(runtime, DETACH_REOPEN_INTERVAL_MS);
+	}
+	if (*devh == NULL) {
+		log_dfu_stage("DFU device did not come back; cannot detach it");
+		return;
+	}
+	if (libusb_claim_interface(*devh, 0) == 0)
+		*claimed = 1;
+	log_dfu_stage("DFU device reopened for detach");
+}
+
 static int get_outfile(char *infile, char **outfile) {
 	char *suffix = strrchr(infile, '.');
 	if (suffix != NULL && strcmp(suffix, ".bin") == 0) {
@@ -897,6 +938,12 @@ int main(int argc, char **argv) {
 			fprintf(stderr, "%s (attempts=%u, polls=%u, usb_error=%d)\n",
 			        dfu_transition_result_string(report.result),
 			        report.attempts, report.polls, report.operation_error);
+			/* These two failures happen after the board was asked to enter
+			 * DFU, so it may be sitting in the bootloader with no handle of
+			 * ours: keep the path for cleanup to look again. */
+			if (report.result == DFU_TRANSITION_DFU_TIMEOUT ||
+			    report.result == DFU_TRANSITION_DISCOVERY_FAILED)
+				selected_identity = report.identity;
 			exit_status = 1;
 			goto cleanup;
 		}
@@ -1003,11 +1050,19 @@ cleanup:
 		fclose(downfile);
 	/* A failure once the board is in DFU must not leave it there: -r asked
 	 * for a reset, so detach before closing the handle. The success path has
-	 * already detached and cleared devh. */
-	if (exit_status != 0 && (functions & FUNC_RESET) && devh != NULL) {
-		log_dfu_stage("returning the board to its application after a failure");
-		detach(devh);
-		log_dfu_stage("detach after failure returned");
+	 * already detached and cleared devh. A failed programming transfer closes
+	 * the DFU handle on its way out, so reopen the device on the same path
+	 * first; if DFU never answered at all there is nothing to detach. */
+	if (exit_status != 0 && (functions & FUNC_RESET) &&
+	    selected_identity.port_count != 0) {
+		if (devh == NULL)
+			reopen_dfu_for_detach(&runtime, &selected_identity, &devh,
+			                      &interface_claimed);
+		if (devh != NULL) {
+			log_dfu_stage("returning the board to its application after a failure");
+			detach(devh);
+			log_dfu_stage("detach after failure returned");
+		}
 	}
 	close_dfu_device(devh, interface_claimed);
 	exit_dfu_context(dfu_context, (functions & FUNC_RESET) != 0);

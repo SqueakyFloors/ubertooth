@@ -258,8 +258,8 @@ static uint32_t read_le32(const uint8_t *bytes)
 	       ((uint32_t)bytes[2] << 16) | ((uint32_t)bytes[3] << 24);
 }
 
-static int image_fail(struct dfu_image_report *report,
-                      enum dfu_image_result result)
+static int image_result(struct dfu_image_report *report,
+                        enum dfu_image_result result)
 {
 	report->result = result;
 	return result;
@@ -285,21 +285,32 @@ int dfu_image_check(FILE *image, uint16_t id_vendor, uint16_t id_product,
 	report->expected_vendor = id_vendor;
 	report->expected_product = id_product;
 	if (image == NULL)
-		return image_fail(report, DFU_IMAGE_INVALID_ARGUMENT);
+		return image_result(report, DFU_IMAGE_INVALID_ARGUMENT);
 
 	original_position = ftell(image);
 	if (original_position < 0 || fseek(image, 0, SEEK_END) != 0)
-		return image_fail(report, DFU_IMAGE_UNREADABLE);
+		return image_result(report, DFU_IMAGE_UNREADABLE);
 	image_size = ftell(image);
 	report->image_size = image_size;
-	if (image_size < DFU_SUFFIX_LENGTH || fseek(image, 0, SEEK_SET) != 0) {
-		result = image_fail(report, DFU_IMAGE_UNREADABLE);
+	if (image_size < 0) {
+		result = image_result(report, DFU_IMAGE_UNREADABLE);
+		goto done;
+	}
+	if (image_size < DFU_SUFFIX_LENGTH) {
+		result = image_result(report, DFU_IMAGE_TOO_SHORT);
+		goto done;
+	}
+	if (fseek(image, 0, SEEK_SET) != 0) {
+		result = image_result(report, DFU_IMAGE_UNREADABLE);
 		goto done;
 	}
 	data = malloc((size_t)image_size);
-	if (data == NULL ||
-	    fread(data, 1, (size_t)image_size, image) != (size_t)image_size) {
-		result = image_fail(report, DFU_IMAGE_UNREADABLE);
+	if (data == NULL) {
+		result = image_result(report, DFU_IMAGE_OUT_OF_MEMORY);
+		goto done;
+	}
+	if (fread(data, 1, (size_t)image_size, image) != (size_t)image_size) {
+		result = image_result(report, DFU_IMAGE_UNREADABLE);
 		goto done;
 	}
 
@@ -313,24 +324,24 @@ int dfu_image_check(FILE *image, uint16_t id_vendor, uint16_t id_product,
 	report->crc_calculated = dfu_image_crc32(data, (size_t)image_size - 4);
 
 	if (report->suffix_length != DFU_SUFFIX_LENGTH)
-		result = image_fail(report, DFU_IMAGE_SUFFIX_LENGTH);
+		result = image_result(report, DFU_IMAGE_SUFFIX_LENGTH);
 	else if (report->bcd_dfu != DFU_VERSION_1_0 &&
 	         report->bcd_dfu != DFU_VERSION_1_1)
-		result = image_fail(report, DFU_IMAGE_DFU_VERSION);
+		result = image_result(report, DFU_IMAGE_DFU_VERSION);
 	else if (!(suffix[DFU_SUFFIX_OFF_UCDFUSIG + 0] == 0x55 &&
 	           suffix[DFU_SUFFIX_OFF_UCDFUSIG + 1] == 0x46 &&
 	           suffix[DFU_SUFFIX_OFF_UCDFUSIG + 2] == 0x44))
-		result = image_fail(report, DFU_IMAGE_SIGNATURE);
+		result = image_result(report, DFU_IMAGE_SIGNATURE);
 	else if (image_size == DFU_SUFFIX_LENGTH)
-		result = image_fail(report, DFU_IMAGE_NO_FIRMWARE);
+		result = image_result(report, DFU_IMAGE_NO_FIRMWARE);
 	else if (report->crc_calculated != report->crc_found)
-		result = image_fail(report, DFU_IMAGE_CRC);
+		result = image_result(report, DFU_IMAGE_CRC);
 	else if (!id_accepted(report->id_vendor, id_vendor))
-		result = image_fail(report, DFU_IMAGE_VENDOR);
+		result = image_result(report, DFU_IMAGE_VENDOR);
 	else if (!id_accepted(report->id_product, id_product))
-		result = image_fail(report, DFU_IMAGE_PRODUCT);
+		result = image_result(report, DFU_IMAGE_PRODUCT);
 	else
-		result = image_fail(report, DFU_IMAGE_OK);
+		result = image_result(report, DFU_IMAGE_OK);
 
 done:
 	free(data);
@@ -348,6 +359,8 @@ void dfu_image_describe_failure(const struct dfu_image_report *report,
 		snprintf(message, message_size, "DFU image check did not run");
 		return;
 	}
+	/* The switch covers every enumerator; this only catches a value that is
+	 * not one of them. */
 	snprintf(message, message_size, "DFU image rejected (result %d)",
 	         (int)report->result);
 	switch (report->result) {
@@ -357,10 +370,18 @@ void dfu_image_describe_failure(const struct dfu_image_report *report,
 	case DFU_IMAGE_INVALID_ARGUMENT:
 		snprintf(message, message_size, "DFU image check did not run");
 		break;
-	case DFU_IMAGE_UNREADABLE:
+	case DFU_IMAGE_TOO_SHORT:
 		snprintf(message, message_size,
-		         "Could not read a %d-byte DFU suffix: the file is %ld byte(s)",
+		         "Too short for a %d-byte DFU suffix: the file is %ld byte(s)",
 		         DFU_SUFFIX_LENGTH, report->image_size);
+		break;
+	case DFU_IMAGE_UNREADABLE:
+		snprintf(message, message_size, "Could not read the whole file");
+		break;
+	case DFU_IMAGE_OUT_OF_MEMORY:
+		snprintf(message, message_size,
+		         "Cannot allocate %ld byte(s) to check the image",
+		         report->image_size);
 		break;
 	case DFU_IMAGE_SUFFIX_LENGTH:
 		snprintf(message, message_size, "Unknown DFU suffix length: %u",

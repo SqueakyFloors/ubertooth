@@ -65,9 +65,10 @@
 #define DFU_ID_WILDCARD 0xffff
 
 /* The suffix as it sits in the file: 16 little-endian bytes at the end, in
- * this order, with the signature reading 0x55 0x46 0x44 ("UFD" reversed):
+ * this order:
  *   bcdDevice, idProduct, idVendor, bcdDFU, ucDfuSig[3], bLength, dwCRC.
- * dwCRC covers every byte of the file before it. */
+ * ucDfuSig holds "DFU" stored backwards, so those three bytes read
+ * 0x55 0x46 0x44 ('U', 'F', 'D'). dwCRC covers every byte before it. */
 #define DFU_SUFFIX_LENGTH 16
 #define DFU_SUFFIX_OFF_BCDDEVICE 0
 #define DFU_SUFFIX_OFF_IDPRODUCT 2

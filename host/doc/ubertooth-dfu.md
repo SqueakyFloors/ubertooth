@@ -31,8 +31,11 @@ signature, a non-empty payload, the suffix CRC, and the suffix `idVendor` and
 wildcard. With `-r` the expected firmware revision is read from the image at
 the same time. A file that fails any of these is reported and the command ends
 with exit status 1 without opening a device, so the board keeps running its
-firmware. If something fails after the board has entered DFU and `-r` was
-given, the tool still detaches so the board returns to its application.
+firmware. If a later step fails once the board is already in DFU and `-r` was
+given, the tool detaches it anyway, reopening the DFU device on the same
+physical path when the failure closed the handle, so the board returns to its
+application. A board that never answered in DFU at all cannot be detached, and
+then needs another `ubertooth-dfu` run or a power cycle.
 
 If a firmware programming transfer fails, the tool closes the stale handle,
 reopens and claims the DFU device on the same physical path, restores its DFU

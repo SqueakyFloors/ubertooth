@@ -441,7 +441,7 @@ MU_TEST(test_image_rejects_a_file_shorter_than_a_suffix)
 	char message[160];
 
 	memset(image, 0x5a, sizeof(image));
-	mu_assert_int_eq(DFU_IMAGE_UNREADABLE,
+	mu_assert_int_eq(DFU_IMAGE_TOO_SHORT,
 	                 check_image_bytes(image, sizeof(image), &report, message,
 	                                   sizeof(message)));
 	mu_assert_int_eq(8, report.image_size);
@@ -586,8 +586,9 @@ MU_TEST(test_image_accepts_a_doubly_suffixed_file)
 	size_t length = build_image(&spec, PAYLOAD_LENGTH, image, sizeof(image));
 
 	/* A suffix appended to an already-suffixed file is a valid DFU file whose
-	 * firmware happens to end in a suffix: this check cannot tell, so -s has
-	 * to refuse an input that already carries one. */
+	 * firmware happens to end in a suffix, and this check cannot tell the
+	 * difference. Stopping -s from signing a signed file therefore needs its
+	 * own check in -s, which is issue #200, not this one. */
 	length = append_suffix(&spec, image, length, sizeof(image));
 	mu_assert_int_eq(PAYLOAD_LENGTH + 2 * DFU_SUFFIX_LENGTH, length);
 	mu_assert_int_eq(DFU_IMAGE_OK,
