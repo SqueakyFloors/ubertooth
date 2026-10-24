@@ -58,6 +58,8 @@ int main(int argc, char* argv[])
 	uint8_t uap = 0;
 
 	ubertooth_t* ut = ubertooth_init();
+	if (ut == NULL)
+		return 1;
 
 	while ((opt=getopt(argc,argv,"hVl:u:U:t:")) != EOF) {
 		switch(opt) {

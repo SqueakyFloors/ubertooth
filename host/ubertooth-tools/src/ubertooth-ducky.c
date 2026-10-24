@@ -144,6 +144,8 @@ int main(int argc, char *argv[])
 	uint8_t adv_data[16+2] = { 0, };
 	char* ubertooth_device = NULL;
 	ubertooth_t* ut = ubertooth_init();
+	if (ut == NULL)
+		return 1;
 
 	int r;
 

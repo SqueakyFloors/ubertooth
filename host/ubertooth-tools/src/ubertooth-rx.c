@@ -83,6 +83,8 @@ int main(int argc, char* argv[])
 	uint16_t channel = 9999;
 
 	ubertooth_t* ut = ubertooth_init();
+	if (ut == NULL)
+		return 1;
 
 	while ((opt=getopt(argc,argv,"hVi:l:u:U:d:e:r:sq:t:zc:")) != EOF) {
 		switch(opt) {

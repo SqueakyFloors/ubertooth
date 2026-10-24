@@ -303,6 +303,21 @@ if(libubertooth_SOURCE_DIR)
 	add_test(NAME control-async COMMAND test-control-async)
 	# Every transfer is faked: a run takes milliseconds.
 	set_tests_properties(control-async PROPERTIES TIMEOUT 5)
+	# What ubertooth_init() does when the ring buffer cannot be allocated.
+	# ubertooth_fifo.c is left out so the test can define the fifo calls and
+	# fail the allocation on demand.
+	add_executable(test-init-failure
+		test_init_failure.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_callback.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
+	target_include_directories(test-init-failure PRIVATE
+		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+	target_link_libraries(test-init-failure ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES})
+	add_test(NAME init-failure COMMAND test-init-failure)
+	# Nothing here waits on a device; a regression that reaches USB should
+	# fail instead of hanging the suite.
+	set_tests_properties(init-failure PROPERTIES TIMEOUT 10)
 
 	# The same approach for the firmware revision and compile info commands.
 	add_executable(test-control-text

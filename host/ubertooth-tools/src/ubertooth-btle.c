@@ -164,6 +164,8 @@ int main(int argc, char *argv[])
 	const char* pcap_name = NULL;
 	int pcap_ppi = 0; /* the -c format rather than the -q one */
 	ubertooth_t* ut = ubertooth_init();
+	if (ut == NULL)
+		return 1;
 
 	btle_options cb_opts = { .allowed_access_address_errors = 32 };
 

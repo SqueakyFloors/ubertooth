@@ -80,6 +80,8 @@ int main(int argc, char *argv[])
 
 	pn = btbb_piconet_new();
 	ubertooth_t* ut = ubertooth_init();
+	if (ut == NULL)
+		return 1;
 
 	while ((opt=getopt(argc,argv,"hl:u:U:e:d:ab:w:r:q:")) != EOF) {
 		switch(opt) {
