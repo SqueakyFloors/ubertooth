@@ -1,0 +1,140 @@
+#!/usr/bin/env python3
+"""Verify a capture written by ubertooth-rx keeps time across the clock wrap.
+
+The board's 100 ns capture clock wraps every 3125 * 2^20 ticks (327.68 s), so
+any capture longer than that crosses a wrap. Extending the clock as a 32-bit
+counter put a 101.8 s step into every PCAP and PcapNG timestamp after the first
+wrap (issue #218).
+
+The fixture is built here, so no board and no saved capture is needed: a replay
+reads the record format ``ubertooth-rx -d`` writes (a big-endian 32-bit host
+time, then one 64-byte usb_pkt_rx), and the access code of each record is
+computed from the Bluetooth Core specification (Vol 2, Part B 6.3.3) in the bit
+order libbtbb decodes. Only the times relative to the first packet are checked,
+since where a capture is anchored is a separate question.
+"""
+
+import struct
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+BINARY = sys.argv[1]
+
+SYMBOLS = 400                       # the 50 data bytes, most significant bit first
+PREAMBLE_AT = 16                    # where the access code starts in those symbols
+BR_PACKET = 0
+LAP = 0x5A3C96                      # the LAP every record carries
+CLK100NS_PERIOD = 3125 * 2 ** 20    # the clock's period, in 100 ns ticks
+STEP_TICKS = 1_000_000_000          # 100 s of device clock between records
+FIRST_TICKS = 100_000_000           # the first record's clock, away from the wrap
+RECORDS = 8                         # 700 s of clock: two wraps
+AGE_S = 3600                        # the records were written this long ago
+
+# The 64-bit scrambling sequence applied to the sync word, the (64,30)
+# expurgated BCH generator (octal 260534236651), and the Barker sequence
+# appended to the LAP, chosen by the LAP's top bit.
+PN = 0x83848D96BBCC54FC
+BCH_GENERATOR = 0o260534236651
+BARKER = {0: 0b101100, 1: 0b010011}
+
+
+def sync_word(lap):
+    """The 64-bit sync word of a LAP; bit i is the i-th symbol on air."""
+    lap &= 0xFFFFFF
+    info = lap | (BARKER[lap >> 23] << 24)
+    scrambled = info ^ (PN >> 34)
+    remainder = scrambled << 34
+    for bit in range(63, 33, -1):
+        if remainder >> bit & 1:
+            remainder ^= BCH_GENERATOR << (bit - 34)
+    return ((scrambled << 34) | remainder) ^ PN
+
+
+def record(host_time, clk100ns, channel):
+    """One replay record of a decodable packet at this clock value."""
+    bits = [(sync_word(LAP) >> i) & 1 for i in range(64)]
+    symbols = [0] * PREAMBLE_AT
+    symbols += [1, 0, 1, 0] if bits[0] else [0, 1, 0, 1]
+    symbols += bits
+    symbols += [0] * (SYMBOLS - len(symbols))
+    data = bytes(
+        sum(bit << (7 - j) for j, bit in enumerate(symbols[i:i + 8]))
+        for i in range(0, SYMBOLS, 8)
+    )
+    header = struct.pack("<BBBBIbbbB2x", BR_PACKET, 0, channel, 0, clk100ns,
+                         -40, -90, -70, 1)
+    return struct.pack(">I", host_time) + header + data
+
+
+# Records 100 s of device clock apart, so the sequence crosses the wrap twice.
+BASE_TIME = int(time.time()) - AGE_S
+TICKS = [FIRST_TICKS + i * STEP_TICKS for i in range(RECORDS)]
+FIXTURE = b"".join(
+    record(BASE_TIME + 100 * i, ticks % CLK100NS_PERIOD, 3 + 7 * i)
+    for i, ticks in enumerate(TICKS)
+)
+assert max(TICKS) // CLK100NS_PERIOD == 2, "the fixture must cross two wraps"
+# Every packet sits 100 s of clock after the one before it, wrap or no wrap.
+EXPECTED_OFFSETS_NS = [100 * (ticks - TICKS[0]) for ticks in TICKS]
+
+
+def pcap_times(path):
+    """Nanoseconds of each record in a libbtbb nanosecond pcap."""
+    data = path.read_bytes()
+    assert len(data) > 24, f"pcap is only {len(data)} bytes"
+    order = "<" if data[:4] == bytes.fromhex("4d3cb2a1") else ">"
+    out = []
+    offset = 24
+    while offset + 16 <= len(data):
+        seconds, nanoseconds, length, _ = struct.unpack_from(order + "4I", data, offset)
+        out.append(seconds * 1_000_000_000 + nanoseconds)
+        offset += 16 + length
+    return out
+
+
+def pcapng_times(path):
+    """Nanoseconds of each enhanced packet block in a pcapng."""
+    data = path.read_bytes()
+    order = "<" if data[8:12] == bytes.fromhex("4d3c2b1a") else ">"
+    out = []
+    offset = 0
+    while offset + 12 <= len(data):
+        block_type, length = struct.unpack_from(order + "2I", data, offset)
+        if length < 12 or offset + length > len(data):
+            break
+        if block_type == 6:
+            high, low = struct.unpack_from(order + "2I", data, offset + 12)
+            out.append((high << 32) | low)
+        offset += length
+    return out
+
+
+def offsets(times):
+    """The times relative to the first one."""
+    return [t - times[0] for t in times]
+
+
+with tempfile.TemporaryDirectory() as workdir:
+    work = Path(workdir)
+    (work / "wrap.bin").write_bytes(FIXTURE)
+
+    result = subprocess.run(
+        [BINARY, "-i", "wrap.bin", "-q", "wrap.pcap", "-r", "wrap.pcapng"],
+        capture_output=True, text=True, timeout=30, check=False, cwd=work)
+    assert result.returncode == 0, result
+
+    pcap = pcap_times(work / "wrap.pcap")
+    pcapng = pcapng_times(work / "wrap.pcapng")
+    assert len(pcap) == RECORDS, (pcap, result)
+    assert len(pcapng) == RECORDS, (pcapng, result)
+    assert offsets(pcap) == EXPECTED_OFFSETS_NS, (pcap, result)
+    assert offsets(pcapng) == EXPECTED_OFFSETS_NS, (pcapng, result)
+
+    # Said plainly: no packet is further from the one before it than the step
+    # between the records, so no wrap adds 101.8 s of its own.
+    for times, name in ((pcap, "pcap"), (pcapng, "pcapng")):
+        steps = [later - earlier for earlier, later in zip(times, times[1:])]
+        assert steps == [100 * STEP_TICKS] * (RECORDS - 1), (name, steps, result)

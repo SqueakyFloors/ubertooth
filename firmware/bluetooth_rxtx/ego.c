@@ -32,7 +32,7 @@
  */
 
 int enqueue_with_ts(u8 type, u8 *buf, u32 ts);
-#define CLK100NS (3125*(clkn & 0xfffff) + T0TC)
+/* CLK100NS comes from ubertooth_clock.h, included above. */
 extern volatile u32 clkn; // TODO: replace with timer1
 extern volatile u8 requested_mode;
 extern volatile u16 channel;

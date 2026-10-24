@@ -24,9 +24,14 @@
 
 #include "inttypes.h"
 
+/* CLK100NS_PER_CLKN and CLK100NS_PERIOD: the host reconstructs capture times
+ * from the same numbers, so they live in the shared interface header. */
+#include "ubertooth_interface.h"
+
 /*
  * CLK100NS is a free-running clock with a period of 100 ns.  It resets every
- * 2^15 * 10^5 cycles (about 5.5 minutes) - computed from clkn and timer0 (T0TC)
+ * CLK100NS_PERIOD = 2^15 * 10^5 cycles (about 5.5 minutes) - computed from
+ * clkn and timer0 (T0TC)
  *
  * clkn is the native (local) clock as defined in the Bluetooth specification.
  * It advances 3200 times per second.  Two clkn periods make a Bluetooth time
@@ -45,7 +50,7 @@ extern volatile uint16_t clk_drift_correction;
 extern volatile uint32_t clkn_last_drift_fix;
 extern volatile uint32_t clkn_next_drift_fix;
 
-#define CLK100NS (3125*(clkn & 0xfffff) + T0TC)
+#define CLK100NS (CLK100NS_PER_CLKN*(clkn & 0xfffff) + T0TC)
 #define LE_BASECLK (12500)                    // 1.25 ms in units of 100ns
 
 void clkn_stop();

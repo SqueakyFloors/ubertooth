@@ -192,6 +192,15 @@ enum usb_pkt_status {
 };
 
 /*
+ * CLK100NS, the 100 ns capture clock reported in usb_pkt_rx below, is
+ * 3125 ticks per CLKN tick over the low 20 bits of CLKN (see CLK100NS in
+ * firmware/bluetooth_rxtx/ubertooth_clock.h), so it wraps every
+ * 3125 * 2^20 = 3276800000 ticks, about 327.68 s - not at 2^32.
+ */
+#define CLK100NS_PER_CLKN 3125
+#define CLK100NS_PERIOD   ((uint32_t)CLK100NS_PER_CLKN << 20)
+
+/*
  * USB packet for Bluetooth RX (64 total bytes)
  */
 typedef struct {

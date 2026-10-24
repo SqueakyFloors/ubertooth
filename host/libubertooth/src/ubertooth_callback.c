@@ -117,13 +117,21 @@ static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx )
 	ut->last_clk100ns = rx->clk100ns;
 }
 
+/* The capture clock of a packet, as 100 ns ticks since the board started
+ * counting: each wrap seen adds the clock's real period (CLK100NS_PERIOD),
+ * not 2^32, which would add 101.8 s to every later packet. */
+static uint64_t clk100ns_extended( const ubertooth_t* ut, const usb_pkt_rx* rx )
+{
+	return ut->clk100ns_upper * (uint64_t)CLK100NS_PERIOD + rx->clk100ns;
+}
+
 static uint64_t now_ns_from_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx )
 {
 	track_clk100ns( ut, rx );
 	/* The 100 ns ticks since the first packet, as nanoseconds: the whole
 	 * difference is scaled, not just the current tick count. */
 	return ut->abs_start_ns + 100ull *
-	       ((uint64_t)((ut->clk100ns_upper<<32)|rx->clk100ns) - ut->start_clk100ns);
+	       (clk100ns_extended( ut, rx ) - ut->start_clk100ns);
 }
 
 /* Sniff for LAPs. If a piconet is provided, use the given LAP to
@@ -415,7 +423,7 @@ void cb_btle(ubertooth_t* ut, void* args)
 	// rollover
 	u32 rx_ts = rx->clk100ns;
 	if (rx_ts < prev_ts)
-		rx_ts += 3276800000;
+		rx_ts += CLK100NS_PERIOD;
 	u32 ts_diff = rx_ts - prev_ts;
 	prev_ts = rx->clk100ns;
 	printf("systime=%u freq=%d addr=%08x delta_t=%.03f ms rssi=%d\n",
@@ -449,7 +457,7 @@ void cb_ego(ubertooth_t* ut, void* args)
 
 	u32 rx_time = rx->clk100ns;
 	if (rx_time < prev_ts)
-		rx_time += 3276800000; // rollover
+		rx_time += CLK100NS_PERIOD; // rollover
 	u32 ts_diff = rx_time - prev_ts;
 	prev_ts = rx->clk100ns;
 	printf("time=%u delta_t=%.06f ms freq=%d \n",

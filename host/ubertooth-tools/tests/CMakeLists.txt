@@ -269,4 +269,28 @@ if(libubertooth_SOURCE_DIR)
 	# Nothing here waits on hardware; a regression that blocks on a real USB
 	# call should fail instead of hanging the suite.
 	set_tests_properties(device-select PROPERTIES TIMEOUT 10)
+
+	# The capture clock across its wrap. The time reconstruction is static in
+	# ubertooth_callback.c, so the test includes that source itself; the rest
+	# of the library is linked for the symbols the callbacks reference.
+	add_executable(test-clk100ns-wrap
+		test_clk100ns_wrap.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_fifo.c)
+	target_include_directories(test-clk100ns-wrap PRIVATE
+		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+	target_link_libraries(test-clk100ns-wrap ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES})
+	add_test(NAME clk100ns-wrap COMMAND test-clk100ns-wrap)
+	# Arithmetic only: a run takes milliseconds.
+	set_tests_properties(clk100ns-wrap PROPERTIES TIMEOUT 5)
 endif()
+
+# The same clock wrap through a replay, so the times a capture file carries are
+# checked end to end with the real ubertooth-rx.
+add_test(
+	NAME rx-clock-wrap
+	COMMAND ${Python3_EXECUTABLE}
+		${CMAKE_CURRENT_SOURCE_DIR}/test_rx_clock_wrap.py
+		$<TARGET_FILE:ubertooth-rx>)
+set_tests_properties(rx-clock-wrap PROPERTIES TIMEOUT 30)
