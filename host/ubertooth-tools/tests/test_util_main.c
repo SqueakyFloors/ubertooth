@@ -926,6 +926,32 @@ MU_TEST(stray_arguments_are_rejected_before_any_device_action)
 	r = RUN("-N", "oops");
 	assert_refused_untouched(r, "error: unexpected argument 'oops'\n");
 
+	/* -h, -H and --host-version are checked too, not exempted by returning
+	 * early */
+	reset_fake();
+	r = RUN("-H", "stray");
+	assert_refused_untouched(r, "error: unexpected argument 'stray'\n");
+	reset_fake();
+	r = RUN("--host-version", "stray");
+	assert_refused_untouched(r, "error: unexpected argument 'stray'\n");
+	reset_fake();
+	r = RUN("-h", "stray");
+	assert_refused_untouched(r, "error: unexpected argument 'stray'\n");
+	mu_assert(strstr(r.out, "command line utility") == NULL, "no usage printed");
+
+	/* -h still wins over other options, and -H still needs no device */
+	reset_fake();
+	r = RUN("-x", "-h");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.out, "command line utility") != NULL, "usage");
+	mu_assert_int_eq(0, fake.start_calls);
+	mu_assert_int_eq(0, fake.xmas_calls);
+	reset_fake();
+	r = RUN("-b", "--host-version");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "libubertooth fake\n") == 0, "version only");
+	mu_assert_int_eq(0, fake.start_calls);
+
 	/* -U takes its value as the next word; that is not a stray argument */
 	reset_fake();
 	r = RUN("-U", "0", "-b");
