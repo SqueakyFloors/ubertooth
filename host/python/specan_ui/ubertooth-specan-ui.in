@@ -47,9 +47,9 @@ from specan import Ubertooth
 
 # Shown on screen with h and printed to the terminal. Keys work in either case.
 KEY_HELP = (
-    ('Left click', 'set marker 1 (yellow) at the pointer'),
-    ('Right click', 'set marker 2 (magenta); shows the difference'),
-    ('Middle click or m', 'show / hide peak and average markers, clear mouse markers'),
+    ('left click', 'set marker 1 (yellow) at the pointer'),
+    ('right click', 'set marker 2 (magenta); shows the difference'),
+    ('middle click or m', 'show / hide peak and average markers, clear mouse markers'),
     ('c', 'clear the graph'),
     ('h', 'show / hide this help'),
     ('q', 'quit'),

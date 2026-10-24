@@ -53,12 +53,12 @@ lower case. There are two mouse markers, one per button: clicking again moves
 that marker. On a Mac trackpad, right click is a two-finger click or
 Control-click.
 
- - `Left click` :
+ - `left click` :
    set marker 1 (yellow) at the pointer's frequency and level
- - `Right click` :
+ - `right click` :
    set marker 2 (magenta); the frequency differences to marker 1 and to the
    peak are shown
- - `Middle click` or `m` :
+ - `middle click` or `m` :
    show or hide the peak and average markers, and clear the mouse markers
  - `c` :
    clear the graph

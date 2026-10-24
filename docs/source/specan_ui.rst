@@ -89,9 +89,9 @@ shown. On a Mac trackpad, right click is a two-finger click or Control-click.
 ==========================  ==================================================
 Key / button                Action
 ==========================  ==================================================
-Left click                  Set marker 1 (yellow) at the pointer
-Right click                 Set marker 2 (magenta)
-Middle click or ``m``       Show or hide the peak and average markers, and
+left click                  Set marker 1 (yellow) at the pointer
+right click                 Set marker 2 (magenta)
+middle click or ``m``       Show or hide the peak and average markers, and
                             clear the mouse markers
 ``c``                       Clear the graph (also restarts the average)
 ``h``                       Show or hide the key help
