@@ -82,6 +82,9 @@ Keys and mouse
 Press ``h`` in the window to show this list on screen (a small ``h: keys``
 hint is always shown in the corner). Keys work in upper or lower case.
 
+.. image:: ../images/specan_ui_help.png
+   :alt: ubertooth-specan-ui with the key help shown in the lower right
+
 There are two mouse markers, one per button; clicking again moves that marker.
 With both set, the frequency differences between them and to the peak are
 shown. On a Mac trackpad, right click is a two-finger click or Control-click.
