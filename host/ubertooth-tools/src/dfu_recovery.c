@@ -6,6 +6,107 @@
 
 #include "dfu.h"
 
+static int idle_fail(struct dfu_idle_report *report,
+                     enum dfu_idle_result result,
+                     int operation_error)
+{
+	report->result = result;
+	report->operation_error = operation_error;
+	return result;
+}
+
+int dfu_reach_idle(const struct dfu_idle_ops *ops,
+                   void *context,
+                   void *handle,
+                   const struct dfu_idle_config *config,
+                   struct dfu_idle_report *report)
+{
+	unsigned poll;
+
+	if (report != NULL) {
+		memset(report, 0, sizeof(*report));
+		report->last_state = -1;
+	}
+	if (ops == NULL || handle == NULL || config == NULL || report == NULL ||
+	    config->max_polls == 0 || ops->get_state == NULL ||
+	    ops->abort == NULL || ops->clear_status == NULL ||
+	    ops->sleep_ms == NULL)
+		return report == NULL ? DFU_IDLE_INVALID_ARGUMENT :
+		       idle_fail(report, DFU_IDLE_INVALID_ARGUMENT, 0);
+
+	for (poll = 0; poll < config->max_polls; poll++) {
+		int state, result;
+
+		report->polls++;
+		state = ops->get_state(context, handle);
+		/* A bootloader that will not say where it is cannot be driven
+		 * anywhere: stop on the first failed read rather than asking
+		 * again forever. */
+		if (state < 0)
+			return idle_fail(report, DFU_IDLE_QUERY_FAILED, state);
+		report->last_state = state;
+		if (state == STATE_DFU_IDLE) {
+			report->result = DFU_IDLE_OK;
+			return DFU_IDLE_OK;
+		}
+
+		switch (state) {
+		case STATE_DFU_DNLOAD_SYNC:
+		case STATE_DFU_DNLOAD_IDLE:
+		case STATE_DFU_MANIFEST_SYNC:
+		case STATE_DFU_UPLOAD_IDLE:
+		case STATE_DFU_MANIFEST:
+			/* A transfer left mid-way: end it and look again. */
+			result = ops->abort(context, handle);
+			if (result < 0)
+				return idle_fail(report, DFU_IDLE_ABORT_FAILED,
+				                 result);
+			break;
+		case STATE_APP_DETACH:
+		case STATE_DFU_DNBUSY:
+		case STATE_DFU_MANIFEST_WAIT_RESET:
+			/* These pass with time, so wait and look again. */
+			ops->sleep_ms(context, config->poll_interval_ms);
+			break;
+		case STATE_DFU_ERROR:
+			result = ops->clear_status(context, handle);
+			if (result < 0)
+				return idle_fail(report, DFU_IDLE_CLEAR_FAILED,
+				                 result);
+			break;
+		default:
+			/* STATE_APP_IDLE and anything outside the DFU 1.1 state
+			 * set: the application has no DFU interface for this
+			 * host to drive, and polling would never change that. */
+			return idle_fail(report, DFU_IDLE_UNEXPECTED_STATE, 0);
+		}
+	}
+
+	return idle_fail(report, DFU_IDLE_NOT_REACHED, 0);
+}
+
+const char *dfu_idle_result_string(enum dfu_idle_result result)
+{
+	switch (result) {
+	case DFU_IDLE_OK:
+		return "the bootloader is idle";
+	case DFU_IDLE_INVALID_ARGUMENT:
+		return "invalid DFU idle configuration";
+	case DFU_IDLE_QUERY_FAILED:
+		return "the bootloader did not report its state";
+	case DFU_IDLE_ABORT_FAILED:
+		return "the bootloader would not abort its last transfer";
+	case DFU_IDLE_CLEAR_FAILED:
+		return "the bootloader would not clear its error state";
+	case DFU_IDLE_NOT_REACHED:
+		return "the bootloader did not become idle in time";
+	case DFU_IDLE_UNEXPECTED_STATE:
+		return "the device is not in a state this host can drive";
+	default:
+		return "unknown DFU idle result";
+	}
+}
+
 static int transfer_fail(struct dfu_transfer_report *report,
                          enum dfu_transfer_result result,
                          int operation_error)
@@ -28,7 +129,7 @@ int dfu_transfer_run(const struct dfu_transfer_ops *ops,
 		memset(report, 0, sizeof(*report));
 	if (ops == NULL || identity == NULL || config == NULL || handle == NULL ||
 	    *handle == NULL || report == NULL || config->max_attempts == 0 ||
-	    config->reopen_polls == 0 || ops->download == NULL ||
+	    config->reopen_polls == 0 || ops->transfer == NULL ||
 	    ops->close_dfu == NULL || ops->reopen_matching_dfu == NULL ||
 	    ops->claim_dfu == NULL || ops->sleep_ms == NULL)
 		return report == NULL ? DFU_TRANSFER_INVALID_ARGUMENT :
@@ -39,7 +140,7 @@ int dfu_transfer_run(const struct dfu_transfer_ops *ops,
 		int result;
 
 		report->attempts = attempt;
-		result = ops->download(context, *handle);
+		result = ops->transfer(context, *handle);
 		if (result == 0) {
 			report->result = DFU_TRANSFER_OK;
 			return DFU_TRANSFER_OK;
