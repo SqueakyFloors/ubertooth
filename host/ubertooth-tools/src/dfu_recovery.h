@@ -2,6 +2,7 @@
 #define UBERTOOTH_DFU_RECOVERY_H
 
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 
 #include "dfu_transition.h"
@@ -88,5 +89,49 @@ int dfu_verify_application(const struct dfu_verify_ops *ops,
 
 int dfu_extract_firmware_revision(FILE *image, char *revision,
                                   size_t revision_size);
+
+/* Why an image is not firmware this device can be given. Checked in the order
+ * listed, so the first thing wrong with a file is the thing reported. */
+enum dfu_image_result {
+	DFU_IMAGE_OK = 0,
+	DFU_IMAGE_INVALID_ARGUMENT = -1,
+	DFU_IMAGE_UNREADABLE = -2,      /* too short to hold a suffix, or no read */
+	DFU_IMAGE_SUFFIX_LENGTH = -3,   /* bLength is not 16: no DFU suffix here */
+	DFU_IMAGE_DFU_VERSION = -4,
+	DFU_IMAGE_SIGNATURE = -5,
+	DFU_IMAGE_NO_FIRMWARE = -6,     /* a suffix and nothing to write */
+	DFU_IMAGE_CRC = -7,
+	DFU_IMAGE_VENDOR = -8,
+	DFU_IMAGE_PRODUCT = -9,
+};
+
+struct dfu_image_report {
+	enum dfu_image_result result;
+	long image_size;
+	uint8_t suffix_length;
+	uint16_t bcd_dfu;
+	uint16_t id_vendor;
+	uint16_t id_product;
+	uint16_t expected_vendor;
+	uint16_t expected_product;
+	uint32_t crc_calculated;
+	uint32_t crc_found;
+};
+
+/* The DFU suffix CRC32, over length bytes of data. */
+uint32_t dfu_image_crc32(const uint8_t *data, size_t length);
+
+/* Check that image is a DFU file for this device: suffix length, DFU version,
+ * signature, a non-empty payload, the suffix CRC, and idVendor/idProduct
+ * (id_vendor/id_product, or the 0xffff wildcard). Reads the whole file and
+ * restores its position. Returns DFU_IMAGE_OK or a negative
+ * enum dfu_image_result, also left in report->result. */
+int dfu_image_check(FILE *image, uint16_t id_vendor, uint16_t id_product,
+                    struct dfu_image_report *report);
+
+/* One line saying what is wrong with the image described by report, for a
+ * result other than DFU_IMAGE_OK. */
+void dfu_image_describe_failure(const struct dfu_image_report *report,
+                                char *message, size_t message_size);
 
 #endif /* UBERTOOTH_DFU_RECOVERY_H */

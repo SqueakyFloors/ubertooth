@@ -17,6 +17,17 @@ add_test(NAME dfu-recovery COMMAND test-dfu-recovery)
 
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
+# ubertooth-dfu checks the image before it opens a device, so the whole
+# accept/refuse decision runs against the real binary with no board. Each case
+# is one short run; the timeout only catches a tool that waits for a device it
+# should never have looked for.
+add_test(
+	NAME dfu-images
+	COMMAND ${Python3_EXECUTABLE}
+		${CMAKE_CURRENT_SOURCE_DIR}/test_dfu_images.py
+		$<TARGET_FILE:ubertooth-dfu>)
+set_tests_properties(dfu-images PROPERTIES TIMEOUT 60)
+
 add_test(
 	NAME ducky-options
 	COMMAND ${Python3_EXECUTABLE}

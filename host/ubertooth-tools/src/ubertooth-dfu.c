@@ -76,76 +76,34 @@ static void exit_dfu_context(libusb_context *context, int reset_requested)
  * DFU suffix / signature / CRC
  */
 
-/* CRC32 implementation for DFU suffix */
-static uint32_t crc32(uint8_t *data, uint32_t data_len) {
-	uint32_t crc = 0xffffffff;
-	uint32_t i;
-	for(i=0; i<data_len; i++)
-		crc = (crc >> 8) ^ crc_table[(crc ^ data[i]) & 0xff];
-	return crc;
+static void write_le16(uint8_t *bytes, uint16_t value)
+{
+	bytes[0] = (uint8_t)(value & 0xff);
+	bytes[1] = (uint8_t)(value >> 8);
 }
 
-static int check_suffix(FILE* signedfile, DFU_suffix* suffix) {
-	uint8_t *data;
-	uint32_t crc, data_length;
-
-	printf("Checking firmware signature\n");
-	fseek(signedfile, 0, SEEK_END);
-	data_length = ftell(signedfile) - 4; // Ignore 4 byte CRC
-	fseek(signedfile, -16, SEEK_END); // Start of SFU suffix
-	if (fread(suffix, 1, 16, signedfile) != 16) {
-		fprintf(stderr, "Error: could not read 16-byte DFU suffix (file truncated?)\n");
-		return 1;
-	}
-
-	if(suffix->bLength != 16) {
-		fprintf(stderr, "Unknown DFU suffix length: %d\n", suffix->bLength);
-		return 1;
-	}
-
-	// We only know about dfu version 1.0/1.1
-	// This needs to be smarter to support other versions if/when they exist
-	if((suffix->bcdDFU != 0x0100) && (suffix->bcdDFU != 0x0101)) {
-		fprintf(stderr, "Unknown DFU version: %04x\n", suffix->bcdDFU);
-		return 1;
-	}
-
-	// Suffix bytes are reversed
-	if(!((suffix->ucDfuSig[0]==0x55) &&
-	     (suffix->ucDfuSig[1]==0x46) &&
-	     (suffix->ucDfuSig[2]==0x44))) {
-		fprintf(stderr, "DFU Signature mismatch: not a DFU file\n");
-		return 1;
-	}
-
-	fseek(signedfile, 0, SEEK_SET);
-	data = malloc(data_length);
-	if(data == NULL) {
-		fprintf(stderr, "Cannot allocate buffer for CRC check\n");
-		return 1;
-	}
-
-	data_length = fread(data, 1, data_length, signedfile);
-	crc = crc32(data, data_length);
-	free(data);
-	if(crc != suffix->dwCRC) {
-		fprintf(stderr, "CRC mismatch: calculated: 0x%x, found: 0x%x\n", crc, suffix->dwCRC);
-		return 1;
-	}
-	return 0;
+static void write_le32(uint8_t *bytes, uint32_t value)
+{
+	bytes[0] = (uint8_t)(value & 0xff);
+	bytes[1] = (uint8_t)((value >> 8) & 0xff);
+	bytes[2] = (uint8_t)((value >> 16) & 0xff);
+	bytes[3] = (uint8_t)(value >> 24);
 }
 
-/* Add a DFU suffix to infile and write to outfile
- * suffix must already contain VID/PID
- */
+/* Add a DFU suffix naming idVendor/idProduct to infile and write to outfile */
 int sign(FILE* infile, FILE* outfile, uint16_t idVendor, uint16_t idProduct) {
-	DFU_suffix* suffix;
-	uint32_t data_length, buffer_length;
+	uint8_t* suffix;
+	long file_length;
+	size_t data_length, buffer_length;
 	uint8_t* buffer;
 
 	fseek(infile, 0, SEEK_END);
-	data_length = ftell(infile);
-	buffer_length = data_length + sizeof(DFU_suffix); // Add suffix
+	file_length = ftell(infile);
+	if (file_length < 0) {
+		fprintf(stderr, "Cannot determine the size of the input file\n");
+		return 1;
+	}
+	buffer_length = (size_t)file_length + DFU_SUFFIX_LENGTH;
 	buffer = malloc(buffer_length);
 	if(buffer == NULL) {
 		fprintf(stderr, "Cannot allocate buffer to calculate CRC\n");
@@ -153,21 +111,48 @@ int sign(FILE* infile, FILE* outfile, uint16_t idVendor, uint16_t idProduct) {
 	}
 
 	fseek(infile, 0, SEEK_SET);
-	data_length = fread(buffer, 1, data_length, infile);
+	data_length = fread(buffer, 1, (size_t)file_length, infile);
+	buffer_length = data_length + DFU_SUFFIX_LENGTH;
 
-	suffix = (DFU_suffix *) (buffer + data_length);
-	suffix->idVendor    = idVendor;
-	suffix->idProduct   = idProduct;
-	suffix->bcdDevice   = 0;
-	suffix->bcdDFU      = 0x0100;
-	suffix->ucDfuSig[0] = 0x55;
-	suffix->ucDfuSig[1] = 0x46;
-	suffix->ucDfuSig[2] = 0x44;
-	suffix->bLength     = 16;
-	suffix->dwCRC = crc32(buffer, data_length + 12);
+	suffix = buffer + data_length;
+	write_le16(suffix + DFU_SUFFIX_OFF_BCDDEVICE, 0);
+	write_le16(suffix + DFU_SUFFIX_OFF_IDPRODUCT, idProduct);
+	write_le16(suffix + DFU_SUFFIX_OFF_IDVENDOR, idVendor);
+	write_le16(suffix + DFU_SUFFIX_OFF_BCDDFU, DFU_VERSION_1_0);
+	suffix[DFU_SUFFIX_OFF_UCDFUSIG + 0] = 0x55;
+	suffix[DFU_SUFFIX_OFF_UCDFUSIG + 1] = 0x46;
+	suffix[DFU_SUFFIX_OFF_UCDFUSIG + 2] = 0x44;
+	suffix[DFU_SUFFIX_OFF_BLENGTH] = DFU_SUFFIX_LENGTH;
+	write_le32(suffix + DFU_SUFFIX_OFF_DWCRC,
+	           dfu_image_crc32(buffer, buffer_length - 4));
 
 	fwrite(buffer, 1, buffer_length, outfile);
 	free(buffer);
+	return 0;
+}
+
+/* Check the image before the board is asked to leave its application, so a
+ * file this tool will not write costs the user nothing. Prints what is wrong
+ * and returns 1, or 0 when the image can be written to this device. */
+static int check_download_image(FILE* downfile, int want_revision,
+                                char* revision, size_t revision_size)
+{
+	struct dfu_image_report image_report;
+	char message[160];
+
+	printf("Checking firmware signature\n");
+	if (dfu_image_check(downfile, U1_DFU_VENDORID, U1_DFU_PRODUCTID,
+	                    &image_report) != DFU_IMAGE_OK) {
+		dfu_image_describe_failure(&image_report, message, sizeof(message));
+		fprintf(stderr, "%s\n", message);
+		fprintf(stderr, "Signature check failed, firmware will not be updated\n");
+		return 1;
+	}
+	if (want_revision &&
+	    dfu_extract_firmware_revision(downfile, revision, revision_size) != 0) {
+		fprintf(stderr, "Unable to determine expected firmware revision from image\n");
+		return 1;
+	}
 	return 0;
 }
 
@@ -851,6 +836,23 @@ int main(int argc, char **argv) {
 	if (!(functions & (FUNC_UPLOAD|FUNC_DOWNLOAD|FUNC_RESET)))
 		return 0;
 
+	/* The whole image is checked here, with no device touched yet: a bad
+	 * file leaves the board running its application. */
+	if (functions & FUNC_DOWNLOAD) {
+		if (check_download_image(downfile, (functions & FUNC_RESET) != 0,
+		                         expected_revision,
+		                         sizeof(expected_revision)) != 0) {
+			fclose(downfile);
+			if (upfile != NULL)
+				fclose(upfile);
+			return 1;
+		}
+		if (functions & FUNC_RESET) {
+			fprintf(stderr, "DFU expected revision: %s\n", expected_revision);
+			fflush(stderr);
+		}
+	}
+
 	start_operation_timer();
 	log_dfu_stage("operation started");
 	memset(&selected_identity, 0, sizeof(selected_identity));
@@ -936,31 +938,8 @@ int main(int argc, char **argv) {
 			.poll_interval_ms = 100,
 		};
 		struct dfu_transfer_report transfer_report;
-		DFU_suffix suffix;
 		void *transfer_handle = devh;
 
-		log_dfu_stage("firmware signature validation started");
-		r = check_suffix(downfile, &suffix);
-		if(r) {
-			fprintf(stderr, "Signature check failed, firmware will not be updated\n");
-			fclose(downfile);
-			downfile = NULL;
-			exit_status = r;
-			goto cleanup;
-		}
-		if ((functions & FUNC_RESET) &&
-		    dfu_extract_firmware_revision(downfile, expected_revision,
-		                                  sizeof(expected_revision)) != 0) {
-			fprintf(stderr, "Unable to determine expected firmware revision from image\n");
-			fclose(downfile);
-			downfile = NULL;
-			exit_status = 1;
-			goto cleanup;
-		}
-		if (functions & FUNC_RESET) {
-			fprintf(stderr, "DFU expected revision: %s\n", expected_revision);
-			fflush(stderr);
-		}
 		runtime.download_file = downfile;
 		r = dfu_transfer_run(&TRANSFER_OPS, &runtime, &selected_identity,
 		                     &transfer_config, &transfer_handle,
@@ -1021,6 +1000,14 @@ cleanup:
 		fclose(upfile);
 	if (downfile != NULL)
 		fclose(downfile);
+	/* A failure once the board is in DFU must not leave it there: -r asked
+	 * for a reset, so detach before closing the handle. The success path has
+	 * already detached and cleared devh. */
+	if (exit_status != 0 && (functions & FUNC_RESET) && devh != NULL) {
+		log_dfu_stage("returning the board to its application after a failure");
+		detach(devh);
+		log_dfu_stage("detach after failure returned");
+	}
 	close_dfu_device(devh, interface_claimed);
 	exit_dfu_context(dfu_context, (functions & FUNC_RESET) != 0);
 	log_dfu_stage("operation finished");

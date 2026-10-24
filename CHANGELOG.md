@@ -145,6 +145,15 @@
   like the other modes: LEDs off, amplifier off, channel 2441 MHz and squelch
   -120 dBm. Stopping `-q` used to leave the LEDs lit.
   [#191](https://github.com/SqueakyFloors/ubertooth/issues/191)
+- `ubertooth-dfu -d` checks the whole image before the board leaves its
+  application, so a corrupt, truncated, unsigned or empty file is refused with
+  exit 1 and leaves the board running its firmware instead of stranded in the
+  Device Firmware Upgrade (DFU) bootloader. A failure after the board has
+  entered DFU now still detaches when `-r` was given. The image's DFU suffix
+  must also name this device (`1d50:6003`, or the `0xffff` wildcard): firmware
+  for another vendor or product used to be written.
+  [#198](https://github.com/SqueakyFloors/ubertooth/issues/198)
+  [#199](https://github.com/SqueakyFloors/ubertooth/issues/199)
 
 - `ubertooth-dfu` now performs bounded, device-specific Device Firmware
   Upgrade (DFU) entry and recovery, retries interrupted transfers, and verifies

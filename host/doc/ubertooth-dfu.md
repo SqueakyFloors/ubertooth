@@ -24,6 +24,16 @@ device is available again. Flushed monotonic stage timing identifies time spent
 in entry, programming, reset, and cleanup. It refuses to choose between
 multiple devices already in DFU mode.
 
+`-d` checks the whole image before the board is asked to leave its
+application: the 16-byte DFU suffix and its length, the DFU version, the `UFD`
+signature, a non-empty payload, the suffix CRC, and the suffix `idVendor` and
+`idProduct`, which must name this device (`1d50:6003`) or be the `0xffff`
+wildcard. With `-r` the expected firmware revision is read from the image at
+the same time. A file that fails any of these is reported and the command ends
+with exit status 1 without opening a device, so the board keeps running its
+firmware. If something fails after the board has entered DFU and `-r` was
+given, the tool still detaches so the board returns to its application.
+
 If a firmware programming transfer fails, the tool closes the stale handle,
 reopens and claims the DFU device on the same physical path, restores its DFU
 state, and retries the complete image once from block zero. With `-d ... -r`,
