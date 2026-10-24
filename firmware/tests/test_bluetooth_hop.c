@@ -124,10 +124,37 @@ MU_TEST(test_afh_hops_match_reference)
 		mu_assert_int_eq(HOP_VECTORS[i].afh, next_hop(HOP_VECTORS[i].clock));
 }
 
+MU_TEST(test_map_before_address_gives_same_hops)
+{
+	size_t i;
+	reset_state();
+	bluetooth_set_afh_map(AFH_MAP);
+	precalc();	/* address set after the map */
+	for (i = 0; i < NUM_VECTORS; i++)
+		mu_assert_int_eq(HOP_VECTORS[i].afh, next_hop(HOP_VECTORS[i].clock));
+}
+
+MU_TEST(test_map_update_while_hopping_takes_effect)
+{
+	/* All 79 channels used: the adapted sequence equals the basic one
+	 * except that each peripheral slot repeats its central slot. */
+	static const u8 full_map[10] = {
+		0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f
+	};
+	size_t i;
+	follow_setup(full_map);
+	mu_assert_int_eq(79, used_channels);
+	mu_assert_int_eq(HOP_VECTORS[0].basic, next_hop(0x2));
+	/* A new map from the host replaces it without resetting the address. */
+	bluetooth_set_afh_map(AFH_MAP);
+	for (i = 0; i < NUM_VECTORS; i++)
+		mu_assert_int_eq(HOP_VECTORS[i].afh, next_hop(HOP_VECTORS[i].clock));
+}
+
 MU_TEST(test_afh_hops_stay_on_used_channels)
 {
 	u32 clock;
-	int off_map = 0, kept = 0, mismatched_kept = 0;
+	int off_map = 0, slot_mismatch = 0, kept = 0, mismatched_kept = 0;
 	follow_setup(AFH_MAP);
 	/* Every central slot across 2^20 slots, plus its peripheral slot. */
 	for (clock = 0; clock < (UINT32_C(1) << 22); clock += 4) {
@@ -137,7 +164,7 @@ MU_TEST(test_afh_hops_stay_on_used_channels)
 		if (!map_marks_used(AFH_MAP, afh))
 			off_map++;
 		if (peripheral != afh)
-			off_map++;
+			slot_mismatch++;
 		/* Compare with the basic sequence for the same slot. */
 		afh_enabled = 0;
 		basic = next_hop(clock);
@@ -149,6 +176,7 @@ MU_TEST(test_afh_hops_stay_on_used_channels)
 		}
 	}
 	mu_assert_int_eq(0, off_map);
+	mu_assert_int_eq(0, slot_mismatch);
 	mu_assert(kept > 0, "no used basic channels exercised");
 	mu_assert_int_eq(0, mismatched_kept);
 }
@@ -190,6 +218,8 @@ int main(void)
 	MU_RUN(test_basic_hops_match_reference);
 	MU_RUN(test_afh_mapping_table_is_used_channels_even_then_odd);
 	MU_RUN(test_afh_hops_match_reference);
+	MU_RUN(test_map_before_address_gives_same_hops);
+	MU_RUN(test_map_update_while_hopping_takes_effect);
 	MU_RUN(test_afh_hops_stay_on_used_channels);
 	MU_RUN(test_clearing_afh_restores_basic_hopping);
 	MU_RUN(test_too_few_used_channels_falls_back_to_basic);

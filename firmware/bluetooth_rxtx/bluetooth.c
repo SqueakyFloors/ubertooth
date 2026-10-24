@@ -159,9 +159,12 @@ u16 next_hop(u32 clock)
 	u8 a, c, x, y1, perm, next_channel;
 	u16 d, y2;
 	u32 base_f, f, f_dash;
+	/* Read once: a map update from the USB interrupt must not change N
+	 * between the check and the divisions below. */
+	u8 n_used = used_channels;
 	/* Fewer than the spec minimum of 20 used channels (or an unset map)
 	 * falls back to basic hopping, which also avoids dividing by zero. */
-	u8 afh_active = afh_enabled && used_channels >= 20;
+	u8 afh_active = afh_enabled && n_used >= 20;
 
 	clock &= 0xffffffff;
 	/* AFH same channel mechanism (2.6.1): the peripheral-to-central slot
@@ -190,8 +193,8 @@ u16 next_hop(u32 clock)
 	 * unused one is replaced by entry k' = (PERM5 + E + F' + Y2) mod N of the
 	 * AFH mapping table, where F' = 16 * CLK27-7 mod N. */
 	if (afh_active && !channel_used(next_channel)) {
-		f_dash = base_f % used_channels;
-		next_channel = afh_bank[(perm + e + f_dash + y2) % used_channels];
+		f_dash = base_f % n_used;
+		next_channel = afh_bank[(perm + e + f_dash + y2) % n_used];
 	}
 	return (2402 + next_channel);
 
