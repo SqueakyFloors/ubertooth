@@ -30,7 +30,7 @@
  * truncates toward zero, so the old `(n + d/2) / d` idiom only rounds correctly
  * for n >= 0. RSSI values are dBm and therefore negative, so without the signed
  * form every reading was biased upward (reported ~1-2 dB stronger than it was).
- * Adding d/2 with the sign of n fixes both directions. (#15)
+ * Adding d/2 with the sign of n fixes both directions.
  */
 static inline int32_t round_div(int32_t n, int32_t d)
 {

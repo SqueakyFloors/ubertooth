@@ -7,7 +7,7 @@
  * negative. The old code used `(x + 128) / 256` (and `(sum + 128) / count`),
  * which only rounds to nearest for non-negative x: C integer division
  * truncates toward zero, so for negative x it rounds the wrong way, reporting
- * RSSI as slightly stronger (less negative) than it should be (issue #15).
+ * RSSI as slightly stronger (less negative) than it should be.
  */
 #include "minunit.h"
 #include "ubertooth_rssi.h"
