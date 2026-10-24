@@ -137,7 +137,8 @@
   exit with the last register's value) and names each register that fails.
   [#164](https://github.com/SqueakyFloors/ubertooth/issues/164)
 - `ubertooth-util` refuses option values that are not a whole number in range
-  (`-l`, `-d`, `-c`, `-C`, `-q`, `-z`); `-Cabc` used to set 2402 MHz.
+  (`-l`, `-d`, `-c`, `-C`, `-q`, `-z`); `-Cabc` used to set 2402 MHz, and
+  `-q0` (once "the default") is now an error: use bare `-q`.
   [#172](https://github.com/SqueakyFloors/ubertooth/issues/172)
 - `ubertooth-util -a0` sets PA level 0 instead of reading the level, and a
   level outside 0-7 is refused before opening the device.

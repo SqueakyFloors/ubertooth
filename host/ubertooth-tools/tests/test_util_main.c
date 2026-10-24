@@ -982,21 +982,22 @@ MU_TEST(stray_arguments_are_rejected_before_any_device_action)
 	mu_assert_int_eq(2440, fake.last_channel_set);
 }
 
-/* -a0 sets PA level 0 (it used to read the level, because 0 was the "read"
- * marker), and a value outside 0-7 is refused before the device is opened. */
 /* Every numeric option value is parsed strictly (the whole string, in range)
  * and a bad one is refused before the device is opened. atoi() used to turn
- * "abc" into 0, so -Cabc set 2402 MHz and -zabc set squelch 0; -l2 and -d5
- * did nothing; -q300 reached the firmware; -z-200 wrapped to 56. */
+ * "abc" into 0, so -Cabc set 2402 MHz and -zabc set squelch 0; -l2 read the
+ * LED instead of setting it and -d5 did nothing; -q300 reached the firmware;
+ * -z-200 wrapped to 56. */
 MU_TEST(numeric_option_values_are_parsed_strictly)
 {
 	static const struct { const char *arg, *diag; } bad[] = {
-		{ "-zabc", "error: squelch level must be -128-127 (got abc)\n" },
-		{ "-z-200", "error: squelch level must be -128-127 (got -200)\n" },
-		{ "-z128", "error: squelch level must be -128-127 (got 128)\n" },
+		{ "-zabc", "error: squelch level must be -128 to 127 (got abc)\n" },
+		{ "-z-200", "error: squelch level must be -128 to 127 (got -200)\n" },
+		{ "-z128", "error: squelch level must be -128 to 127 (got 128)\n" },
+		{ "-q\t5", "error: RSSI threshold must be 1-225 (got \t5)\n" },
+		{ "-c\n2440", "error: frequency must be 2402-2480 MHz (got \n2440)\n" },
 		{ "-l2", "error: USR LED state must be 0-1 (got 2)\n" },
 		{ "-lx", "error: USR LED state must be 0-1 (got x)\n" },
-		{ "-d5", "error: LED state must be 0-1 (got 5)\n" },
+		{ "-d5", "error: all-LED state must be 0-1 (got 5)\n" },
 		{ "-Cabc", "error: channel must be 0-78 (got abc)\n" },
 		{ "-C79", "error: channel must be 0-78 (got 79)\n" },
 		{ "-C3x", "error: channel must be 0-78 (got 3x)\n" },
@@ -1055,6 +1056,8 @@ MU_TEST(numeric_option_values_are_parsed_strictly)
 	mu_assert_int_eq(1, fake.last_led_specan_arg);
 }
 
+/* -a0 sets PA level 0 (it used to read the level, because 0 was the "read"
+ * marker), and a value outside 0-7 is refused before the device is opened. */
 MU_TEST(pa_level_zero_is_set_and_bad_levels_are_refused)
 {
 	struct run_result r;

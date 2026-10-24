@@ -4,7 +4,7 @@
 
 `ubertooth-util` [-v] [-V] [-H] [--host-version] [-I] [-d[0-1]] [-l[0-1]]
 [-S] [-r] [-U<index|serial|all>] [-a[0-7]] [-c[2402-2480]] [-C[0-78]] [-q[1-225]] [-t]
-[-z[-128-127]] [-e] [-m] [-n] [-f] [-i] [-b] [-p] [-s] [-N] [-x] [-h]
+[-z[-128..127]] [-e] [-m] [-n] [-f] [-i] [-b] [-p] [-s] [-N] [-x] [-h]
 
 ## DESCRIPTION
 
@@ -94,7 +94,7 @@ Radio options:
    start LED spectrum analyzer
  - `-t` :
    intitiate continuous transmit test
- - `-z[-128-127]` :
+ - `-z[-128..127]` :
    get/set squelch level (a signed RSSI threshold; values above 0 are relative
    to the average RSSI) for a later RX capture.
    Stopping a running mode resets it to the default, so `-z` cannot be

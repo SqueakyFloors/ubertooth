@@ -26,6 +26,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <ctype.h>
 #include <signal.h>
 #include "util_clock.h"
 #include "util_report.h"
@@ -312,10 +313,11 @@ static int parse_option_value(const char *text, long min, long max,
 
 	errno = 0;
 	v = strtol(text, &end, 10);
-	if (text[0] == '\0' || text[0] == ' ' || text[0] == '+' || *end != '\0' ||
-	    errno == ERANGE || v < min || v > max) {
-		fprintf(stderr, "error: %s must be %ld-%ld%s (got %s)\n",
-		        what, min, max, unit, text);
+	if (text[0] == '\0' || isspace((unsigned char)text[0]) || text[0] == '+' ||
+	    *end != '\0' || errno == ERANGE || v < min || v > max) {
+		/* "-128 to 127" reads better than "-128-127" */
+		fprintf(stderr, "error: %s must be %ld%s%ld%s (got %s)\n",
+		        what, min, min < 0 ? " to " : "-", max, unit, text);
 		return 1;
 	}
 	*value = (int)v;
@@ -345,7 +347,7 @@ static void usage(FILE *output)
 	fprintf(output, "\t-C[0-78] get/set channel\n");
 	fprintf(output, "\t-q[1-225 (RSSI threshold)] start LED spectrum analyzer\n");
 	fprintf(output, "\t-t intitiate continuous transmit test\n");
-	fprintf(output, "\t-z[-128-127] get/set squelch level\n");
+	fprintf(output, "\t-z[-128..127] get/set squelch level\n");
 	fprintf(output, "\n");
 	fprintf(output, "Range test:\n");
 	fprintf(output, "\t-e start repeater mode\n");
@@ -435,7 +437,7 @@ int main(int argc, char *argv[])
 			break;
 		case 'd':
 			if (optarg) {
-				if (parse_option_value(optarg, 0, 1, "LED state", "", &do_all_leds))
+				if (parse_option_value(optarg, 0, 1, "all-LED state", "", &do_all_leds))
 					return 1;
 			} else
 				do_all_leds= 2; /* can't use 0 as it's a valid option */
