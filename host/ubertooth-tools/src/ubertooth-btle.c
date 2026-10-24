@@ -387,7 +387,10 @@ int main(int argc, char *argv[])
 	}
 
 	if (do_get_aa) {
-		access_address = cmd_get_access_address(ut->devh);
+		if (cmd_read_access_address(ut->devh, &access_address) < 0) {
+			fprintf(stderr, "error: access address read failed\n");
+			return 1;
+		}
 		printf("Access address: %08x\n", access_address);
 		return 0;
 	}

@@ -887,9 +887,11 @@ int cmd_clear_afh_map(struct libusb_device_handle* devh)
 	return 0;
 }
 
-u32 cmd_get_access_address(struct libusb_device_handle* devh)
+/* Read the access address into *access_address. Returns 0, or a negative
+ * libusb error (LIBUSB_ERROR_IO for a short reply); *access_address is only
+ * written on success. */
+int cmd_read_access_address(struct libusb_device_handle* devh, u32 *access_address)
 {
-	u32 access_address = 0;
 	unsigned char data[4];
 	int r;
 
@@ -902,8 +904,18 @@ u32 cmd_get_access_address(struct libusb_device_handle* devh)
 	r = check_reply_length(r, 4, "access address");
 	if (r < 0)
 		return r;
-	access_address = data[0] | data[1] << 8 | data[2] << 16 | data[3] << 24;
-	return access_address;
+	*access_address = data[0] | data[1] << 8 | data[2] << 16 | data[3] << 24;
+	return 0;
+}
+
+/* Kept for API compatibility: an error comes back as the negative libusb
+ * code cast to u32, which cannot be told apart from an address. Use
+ * cmd_read_access_address() instead. */
+u32 cmd_get_access_address(struct libusb_device_handle* devh)
+{
+	u32 access_address = 0;
+	int r = cmd_read_access_address(devh, &access_address);
+	return r < 0 ? (u32)r : access_address;
 }
 
 int cmd_set_access_address(struct libusb_device_handle* devh, u32 access_address)

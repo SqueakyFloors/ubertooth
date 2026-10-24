@@ -170,6 +170,28 @@ MU_TEST(four_and_two_byte_reads_need_their_full_length)
 	mu_assert_int_eq(LIBUSB_ERROR_IO, cmd_read_register(NULL, 0x05));
 }
 
+/* cmd_read_access_address() reports an error separately from the address,
+ * which the u32-returning cmd_get_access_address() cannot. */
+MU_TEST(read_access_address_returns_errors_separately)
+{
+	uint32_t aa = 0xdeadbeef;
+
+	script(4, 0);
+	fake.reply[0] = 0xd6; fake.reply[1] = 0xbe; fake.reply[2] = 0x89; fake.reply[3] = 0x8e;
+	mu_assert_int_eq(0, cmd_read_access_address(NULL, &aa));
+	mu_assert(aa == 0x8e89bed6u, "advertising access address");
+	mu_assert_int_eq(UBERTOOTH_GET_ACCESS_ADDRESS, fake.last_request);
+
+	aa = 0xdeadbeef;
+	script(3, 0x11);
+	mu_assert_int_eq(LIBUSB_ERROR_IO, cmd_read_access_address(NULL, &aa));
+	mu_assert(aa == 0xdeadbeefu, "left untouched on a short reply");
+
+	script(LIBUSB_ERROR_PIPE, 0);
+	mu_assert_int_eq(LIBUSB_ERROR_PIPE, cmd_read_access_address(NULL, &aa));
+	mu_assert(aa == 0xdeadbeefu, "left untouched on an error");
+}
+
 MU_TEST(range_result_needs_all_5_bytes)
 {
 	rangetest_result rr;
@@ -198,5 +220,6 @@ int main(void)
 	MU_RUN(serial_needs_all_17_bytes);
 	MU_RUN(range_result_needs_all_5_bytes);
 	MU_RUN(four_and_two_byte_reads_need_their_full_length);
+	MU_RUN(read_access_address_returns_errors_separately);
 	return mu_report();
 }
