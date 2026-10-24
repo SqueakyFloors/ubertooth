@@ -27,6 +27,16 @@
 // increment on every API change
 #define UBERTOOTH_API_VERSION 0x0108
 
+/*
+ * The oldest firmware API version the host tools work with, checked by
+ * ubertooth_check_api(). It is deliberately below UBERTOOTH_API_VERSION:
+ * adding a request bumps the version, but must not stop every tool from
+ * talking to firmware that predates it. A tool that needs a newer request
+ * checks for that request itself, as ubertooth-util -I does with
+ * UBERTOOTH_API_IDENTIFY below. Raise this only to drop support on purpose.
+ */
+#define UBERTOOTH_API_MINIMUM 0x0107
+
 /* Firmware from this API version on runs identify (UBERTOOTH_IDENTIFY) as a
  * board-side mode. Older firmware stalls the request, and the host blinks the
  * LEDs itself instead. */

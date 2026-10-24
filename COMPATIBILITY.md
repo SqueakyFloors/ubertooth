@@ -32,6 +32,7 @@ Legend:
 | **arm-none-eabi-gcc (firmware)** | 9-2019-q4 (GCC 9.2.1) | 9-2019-q4 (Ubuntu 20.04 CI), 10.3-2021.07 (22.04), 13.2.rel1 (24.04), 15.3.1 (macOS 14/15/26 CI); 13.2 (Linux) and 15.3 (macOS) on hardware | older than 9-2019-q4 (not tested) | ✅ 9-2019-q4 verified in CI (oldest tested) |
 | **libusb** | 1.0.23 | 1.0.23 (Ubuntu 20.04 CI), 1.0.25 (22.04), 1.0.27 (24.04), 1.0.30 (macOS) | pre-1.0; older than 1.0.23 (not tested) | ✅ 1.0.23 verified in CI (oldest tested) |
 | **libbtbb** | 2020-12-R1 | current master (C lib) | older than 2020-12-R1 | 🎯 minimum not exercised: CI builds current master |
+| **Ubertooth firmware (API)** | 1.07 (`2020-12-R1`) | 1.07 and 1.08 (this tree) on hardware | older than 1.07 | ✅ both verified on an Ubertooth One; `ubertooth-util -I` blinks on the board from 1.08 and falls back to a host blink on 1.07 |
 
 ---
 

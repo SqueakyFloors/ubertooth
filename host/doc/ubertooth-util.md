@@ -35,9 +35,10 @@ Operations that put the device into a continuous mode — `-I` (identify),
 `-e` (repeater) — first stop any operation already running on that device, so
 each starts from a known idle state. (This only resets the operating mode;
 configured channel and power level are preserved.) Each of them runs on the
-board and `ubertooth-util` returns immediately; the mode keeps running until
-`-S` stops it or another mode replaces it, so the same board stays usable from
-other commands meanwhile.
+board and `ubertooth-util` returns immediately, so the same board stays usable
+from other commands meanwhile. `-I`, `-q`, `-x`, `-t` and `-e` keep running
+until `-S` stops them or another mode replaces them; `-n` (range test) ends by
+itself when the test finishes.
 
 `-I` (identify) blinks the USR, RX and TX LEDs together, about three on-off
 blinks a second, until it is stopped:

@@ -40,9 +40,8 @@
   the command returns at once and the board stays reachable; `-S` or any mode
   option stops it and leaves the LEDs off. With firmware that has no identify
   mode it blinks from the host for 10 seconds, or until Ctrl-C, instead of
-  forever. This raises the firmware API version to 1.08: as with every API
-  bump, reflash the firmware built from this tree, or the other tools will ask
-  you to upgrade it.
+  forever. The firmware API version is now 1.08; the other tools still work
+  with 1.07 firmware, so only on-board identify needs a reflash.
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
 - `ubertooth-specan-ui` draws a slowly smoothed average of the max-hold trace
   as a cyan dotted line labelled "Avg: N dBm", shown with the other markers.

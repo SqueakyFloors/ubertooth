@@ -329,6 +329,10 @@ static int identify_from_host(ubertooth_t* ut)
 	/* Off again however the blink ended, as after a reset. */
 	if (identify_set_leds(ut, 0) < 0 && result >= 0)
 		result = -1;
+	/* The handler is for the blink only: main() releases this handle on its
+	 * way out, so a Ctrl-C after this point must not reach it. */
+	signal(SIGINT, SIG_DFL);
+	identify_ut = NULL;
 	return result;
 }
 
@@ -357,7 +361,8 @@ static int identify_start(ubertooth_t* ut)
 		if (result != LIBUSB_ERROR_PIPE)
 			return result;
 	}
-	fprintf(stdout, "Firmware has no identify mode; blinking from the host "
+	/* On stderr: this is the degraded path, like the -f deprecation notice. */
+	fprintf(stderr, "Firmware has no identify mode; blinking from the host "
 	        "for %u s (Ctrl-C to stop)\n", UTIL_IDENTIFY_FALLBACK_MS / 1000u);
 	return identify_from_host(ut);
 }
@@ -413,7 +418,7 @@ static void usage(FILE *output)
 	fprintf(output, "\t-v get firmware revision number\n");
 	fprintf(output, "\t-V get compile info\n");
 	fprintf(output, "\t-H, --host-version get host tools (libubertooth) version\n");
-	fprintf(output, "\t-I identify ubertooth device by flashing the USR, RX, and TX LEDs on the board (end it with -S)\n");
+	fprintf(output, "\t-I identify ubertooth device by flashing the USR, RX, and TX LEDs (on the board, until -S; from the host for 10 s with firmware older than API 1.08)\n");
 	fprintf(output, "\t-d[0-1] get/set all LEDs\n");
 	fprintf(output, "\t-l[0-1] get/set USR LED\n");
 	fprintf(output, "\t-S stop current operation\n");

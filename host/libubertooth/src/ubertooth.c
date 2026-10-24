@@ -918,12 +918,15 @@ int ubertooth_check_api(ubertooth_t *ut) {
 		return result;
 	}
 
-	if (version < UBERTOOTH_API_VERSION) {
-		fprintf(stderr, "Ubertooth API version %x.%02x found, libubertooth %s requires %x.%02x.\n",
+	/* The floor is UBERTOOTH_API_MINIMUM, not UBERTOOTH_API_VERSION: adding a
+	 * request must not stop every tool from talking to firmware that predates
+	 * it. A tool that needs a newer request checks for that request itself. */
+	if (version < UBERTOOTH_API_MINIMUM) {
+		fprintf(stderr, "Ubertooth API version %x.%02x found, libubertooth %s requires %x.%02x or later.\n",
 				(version>>8)&0xFF, version&0xFF, VERSION,
-				(UBERTOOTH_API_VERSION>>8)&0xFF, UBERTOOTH_API_VERSION&0xFF);
-		fprintf(stderr, "Please upgrade to latest released firmware.\n");
-		fprintf(stderr, "See: https://github.com/greatscottgadgets/ubertooth/wiki/Firmware\n");
+				(UBERTOOTH_API_MINIMUM>>8)&0xFF, UBERTOOTH_API_MINIMUM&0xFF);
+		fprintf(stderr, "Please build and flash the firmware from this source tree.\n");
+		fprintf(stderr, "See: https://github.com/SqueakyFloors/ubertooth#firmware\n");
 		ubertooth_stop(ut);
 		return -1;
 	}

@@ -25,9 +25,10 @@ extern volatile uint8_t requested_mode;
 #define NOW T3TC
 
 /*
- * TIMER3 runs at cclk/4: clock_start() raises TIMER0-2 in PCLKSEL0/PCLKSEL1
- * and leaves TIMER3 at the reset divider. The prescaler below makes one timer
- * tick 1 ms, so the blink interval is in milliseconds.
+ * TIMER3 runs at cclk/4: clock_start() raises some of TIMER0-2 in
+ * PCLKSEL0/PCLKSEL1 and always leaves TIMER3 at the reset divider. The
+ * prescaler below makes one timer tick 1 ms on either board clock, so the
+ * blink interval is in milliseconds.
  */
 #ifdef TC13BADGE
 #define IDENTIFY_PCLK_HZ (30000000 / 4)

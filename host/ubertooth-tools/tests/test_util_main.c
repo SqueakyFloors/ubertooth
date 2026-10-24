@@ -955,8 +955,10 @@ MU_TEST(identify_falls_back_to_a_bounded_host_blink_on_old_firmware)
 	mu_assert_int_eq(0, fake.last_rxled_level);
 	mu_assert_int_eq(0, fake.last_txled_level);
 	mu_assert_int_eq(toggles, fake.sleeps);
-	mu_assert(strstr(r.out, "blinking from the host for 10 s") != NULL,
+	mu_assert(strstr(r.err, "blinking from the host for 10 s") != NULL,
 	          "says where the blink runs");
+	mu_assert(strstr(r.out, "Flashing LEDs on ubertooth device 0\n") != NULL,
+	          "still names what it did on stdout");
 	/* bounded: it stopped within one interval of the deadline */
 	mu_assert((int)fake.now_ms - 1000 >= (int)UTIL_IDENTIFY_FALLBACK_MS &&
 	          (int)fake.now_ms - 1000 <
