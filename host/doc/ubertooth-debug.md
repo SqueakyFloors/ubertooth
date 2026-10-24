@@ -15,10 +15,11 @@ may be of interest to curious hackers.
 Options:
 
  - `-r <reg>[,<reg> [,[...]]]` :
-   Read one or more registers from the CC2400 on Ubertooth; each address is
-   `0x00`-`0xff`
+   Read one or more registers from the CC2400 on Ubertooth. Each item is an
+   address `0x00`-`0xff` or a `%name`, in any mixture and in any position
  - `-r <start>-<end>` :
-   Read a consecutive set of registers from the CC2400 on Ubertooth
+   Read a consecutive set of registers from the CC2400 on Ubertooth. Either
+   end may be a `%name` (`-r %main-%fsdiv`)
  - `-v <0-2>` :
    Sets the level of verbosity, default is 1.
  - `-U <index|serial>` :
@@ -35,6 +36,11 @@ Registers can also be specified by name, the following will
 also read the MANOR register:
 
     ubertooth-debug -r %manor
+
+Names and addresses mix freely, in a list or as the ends of a range:
+
+    ubertooth-debug -r %main,%fsdiv,0x1b
+    ubertooth-debug -r %main-%fsdiv
 
 Read a range of registers:
 
@@ -68,11 +74,15 @@ way instead of being read as 0, for example
 `error: verbosity must be 0-2 (got 3)`.
 
 `-r` takes register addresses `0x00` to `0xff`, both ends included: `0x00` is
-MAIN and `0xff` is the last readable address. An address outside that is
-refused with `error: register address must be 0x00-0xff (got 0x100)`, and a
-list that cannot be read at all (an unknown `%name`, a stray character) with
-`error: register list must be names or addresses, single or as a range (got
-<value>)` after the line naming what could not be read.
+MAIN and `0xff` is the highest address the tool accepts. An address outside
+that is refused, naming it in hex whatever base it was written in:
+`error: register address must be 0x00-0xff (got 0x100)`.
+
+A value that cannot be read as a list at all gets one line too, with the
+reason: `error: register list must be names or addresses, single or as a
+range: unknown name (got %nosuchregister)`. The other reasons are
+`empty value`, `range with no start`, `not an octal digit` and
+`not a name, address or range`.
 
 ## SEE ALSO
 

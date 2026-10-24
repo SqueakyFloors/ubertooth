@@ -58,6 +58,7 @@ endif()
 
 install(FILES
 	"ubertooth-btle.1"
+	"ubertooth-debug.1"
 	"ubertooth-dump.1"
 	"ubertooth-rx.1"
 	"ubertooth-specan.1"

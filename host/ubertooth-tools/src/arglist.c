@@ -19,7 +19,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
 
@@ -54,17 +53,24 @@ int isodigit(int c)
  *
  * A user supplied token parser can be invoked to covert tokens
  * to integer values.  The token parser returns the integer value,
- * and the number of characters consumed. (See sample at end of file)
- * 
+ * and the number of characters consumed.
+ *
+ * Nothing is printed here: on failure *reason (when given) names what could
+ * not be read, so the caller reports the whole thing in one line, in the form
+ * the rest of the tools use.
  */
 
 int *listOfInts(char *arg, int *n,
-		int (*token_parser) (char *p, int *nchars))
+		int (*token_parser) (char *p, int *nchars),
+		const char **reason)
 {
     int *r = NULL;
     int done = 0;
+    const char *why = "not a list of registers";
 
     *n = 0;
+    if (reason != NULL)
+	*reason = why;
 
     // loop runs twice, first to count, second to populate allocated memory
     while (arg != NULL && !done) {
@@ -83,7 +89,7 @@ int *listOfInts(char *arg, int *n,
 	    if (first_char && *p == '%' && token_parser != NULL) {
 		value = token_parser(p, &size);
 		if (size == -1) {
-		    fprintf(stderr, "failed to parse token (%s)\n", p);
+		    why = "unknown name";
 		    goto fail;
 		}
                 value_valid = 1;
@@ -93,7 +99,7 @@ int *listOfInts(char *arg, int *n,
 	    } else if (*p == ',' || *p == 0) {
 		// end-of-value or end-of-string
 		if (!value_valid) {
-		    fprintf(stderr, "value omitted\n");
+		    why = "empty value";
 		    goto fail;
 		}
 		if (first_value >= 0) {
@@ -130,7 +136,7 @@ int *listOfInts(char *arg, int *n,
 	    } else if (*p == '-') {
 		// range
 		if (!value_valid) {
-		    fprintf(stderr, "invalid range description\n");
+		    why = "range with no start";
 		    goto fail;
 		}
 		first_value = value;
@@ -154,7 +160,7 @@ int *listOfInts(char *arg, int *n,
 		    first_char = 0;
 		} else {
 		    if (base == OCTAL && !isodigit(*p)) {
-			fprintf(stderr, "invalid octal digit (%c)\n", *p);
+			why = "not an octal digit";
 			goto fail;
 		    }
 		}
@@ -166,7 +172,7 @@ int *listOfInts(char *arg, int *n,
 		else if (isxdigit(*p))
 		    value += (tolower(*p) - 'a') + BASE10;
 	    } else {
-		fprintf(stderr, "invalid character (%c)\n", *p);
+		why = "not a name, address or range";
 		goto fail;
 	    }
 
@@ -177,7 +183,7 @@ int *listOfInts(char *arg, int *n,
 	    done = 1;
 	else {
 	    if ((r = (int *) malloc(*n * sizeof(int))) == 0) {
-		fprintf(stderr, "could not allocate memory\n");
+		why = "out of memory";
 		goto fail;
 	    }
 	    *n = 0;
@@ -187,6 +193,9 @@ int *listOfInts(char *arg, int *n,
     return r;
 
   fail:			// make sure that we have a consistent error state
+    if (reason != NULL)
+	*reason = why;
+    free(r);
     *n = -1;
     return NULL;
 }

@@ -99,6 +99,11 @@
 - `ubertooth-debug -r` now states the register range it accepts,
   `error: register address must be 0x00-0xff (got 0x100)`, and says so once
   for a list it cannot read at all.
+- `ubertooth-debug -r` states the register range it accepts,
+  `error: register address must be 0x00-0xff (got 0x100)`, and gives one line
+  with the reason for a value it cannot read as a list at all. A `%name` now
+  works anywhere in a list or range, not only as the last item, and
+  `man ubertooth-debug` is installed.
   [#235](https://github.com/SqueakyFloors/ubertooth/issues/235)
 - `ubertooth-rx -u` without `-l`, `ubertooth-tx` without both, and more than
   one of `ubertooth-btle`'s `-f`, `-n` and `-p` are refused while the command

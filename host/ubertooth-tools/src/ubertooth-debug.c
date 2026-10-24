@@ -34,9 +34,14 @@
 #include "arglist.h"
 #include "opt_parse.h"
 
-/* The firmware takes a one-byte CC2400 register address, so every address
- * from 0x00 (MAIN) to 0xff can be read. */
+/* The firmware takes a one-byte CC2400 register address, so the tool accepts
+ * every address from 0x00 (MAIN) to 0xff. */
 #define CC2400_REG_ADDRESS_MAX 0xff
+
+/* Longest "%name" in the cc2400 register table is 10 characters
+ * ("%PKTSTATUS"); 15 leaves room for a longer one. A word longer than this
+ * cannot be a register name, so it is refused without a lookup. */
+#define CC2400_REG_NAME_MAX 15
 
 static void usage()
 {
@@ -44,21 +49,32 @@ static void usage()
 	("ubertooth-debug - command line utility for debugging Ubertooth One\n");
     printf("Usage:\n");
     printf("\t-h this message\n");
-    printf("\t-r <reg>[,<reg>[,...]] read the contents of CC2400 register(s)\n");
+    printf("\t-r <reg>[,<reg>[,...]] read the contents of CC2400 register(s),\n");
+    printf("\t   each 0x00-0x%02x or a %%name (example: -r 0x02,%%main)\n",
+	   CC2400_REG_ADDRESS_MAX);
     printf("\t-r <start>-<end> read a consecutive set of CC2400 register(s)\n");
     fputs(OPT_USAGE_SELECT_DEVICE, stdout);
     printf("\t-v<0-2> verbosity (default=1)\n");
 }
 
+/* Looks up one "%name" at the start of t, which runs to the next list
+ * separator. Matching the whole of t instead meant a name only worked as the
+ * last item: "-r %MAIN,%FSDIV" was looked up as "%MAIN,%FSDIV" and refused. */
 int token_to_int(char *t, int *size)
 {
-    int r = 0;
+    char name[CC2400_REG_NAME_MAX + 1];
+    size_t length = strcspn(t, ",-");
+    int r;
 
-    r = cc2400_name2reg(t);
-    if (r >= 0)
-	*size = strlen(cc2400_reg2name(r));
-    else
-	*size = -1;
+    *size = -1;
+    if (length == 0 || length > CC2400_REG_NAME_MAX)
+	return -1;
+    memcpy(name, t, length);
+    name[length] = '\0';
+    r = cc2400_name2reg(name);
+    if (r < 0)
+	return -1;
+    *size = (int)length;
 
     return r;
 }
@@ -100,29 +116,35 @@ int main(int argc, char *argv[])
 	    if (opt_require_int(optarg, 0, 2, "verbosity", "", &verbose) < 0)
 		return 1;
 	    break;
-	case 'r':
-	    regList = listOfInts(optarg, &regListN, token_to_int);
+	case 'r': {
+	    const char *reason;
+
+	    regList = listOfInts(optarg, &regListN, token_to_int, &reason);
 	    if (regListN < 0) {
-			/* listOfInts() has already said what it could not read. */
-			fprintf(stderr,
-				"error: register list must be names or addresses,"
-				" single or as a range (got %s)\n", optarg);
-			return 1;
+		/* One line, like every other refused option value: what -r
+		 * takes, what went wrong, and what was given. */
+		fprintf(stderr, "error: register list must be names or"
+			" addresses, single or as a range: %s (got %s)\n",
+			reason, optarg);
+		return 1;
 	    }
 	    for (i = 0; i < regListN; i++) {
-			if (regList[i] < 0 || regList[i] > CC2400_REG_ADDRESS_MAX) {
-			    /* The accepted range, not one short of it at each end:
-			     * 0x00 (MAIN) and 0xff are both readable. */
-			    fprintf(stderr,
-				    "error: register address must be 0x00-0x%02x"
-				    " (got 0x%02x)\n",
-				    CC2400_REG_ADDRESS_MAX, regList[i]);
-			    return 1;
-			}
+		if (regList[i] < 0 || regList[i] > CC2400_REG_ADDRESS_MAX) {
+		    /* The accepted range, not one short of it at each end:
+		     * 0x00 (MAIN) and 0xff are both accepted. The address is
+		     * printed in hex whatever base it was written in, since
+		     * that is how the registers are named everywhere else. */
+		    fprintf(stderr,
+			    "error: register address must be 0x00-0x%02x"
+			    " (got 0x%02x)\n",
+			    CC2400_REG_ADDRESS_MAX, (unsigned)regList[i]);
+		    return 1;
+		}
 	    }
 	    if (regListN > 0)
-			do_read_register = 0;
+		do_read_register = 0;
 	    break;
+	}
 	default:
 	    usage();
 	    return 1;
