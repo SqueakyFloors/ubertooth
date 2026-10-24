@@ -152,6 +152,21 @@ Speed matters. Do not wait for every job.
   as `ModuleNotFoundError: No module named 'specan'`, in the relevant
   troubleshooting documentation even when changelog prose is condensed.
 
+## Public text: no lab or company details
+
+This repository is public. In code, tests, docs, commit messages, branch
+names, issues, PRs and comments:
+
+- MUST NOT name lab machines: no host names, SSH aliases, IP addresses,
+  user@host strings or lab home-directory paths. Write "the lab", "the lab
+  host", "the Linux lab host" or "the jump host". Scripts take the host from
+  configuration or an argument, never a built-in host name.
+- MUST NOT name other systems or services that run in the lab, or the
+  maintainer's employer's internal tools, repositories or services. Describe
+  such workloads generically ("a MAC polling workload", "other software on
+  the lab host").
+- Board serial numbers of lab Ubertooths are fine.
+
 ## Public merge gate
 
 Agent reviews supplement rather than replace maintainer review where it is
