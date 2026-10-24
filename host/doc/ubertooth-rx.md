@@ -155,14 +155,16 @@ record replayed and follows the Ubertooth clock from there, and `-d`
 writes the records back out with their original times.
 
 A replay that reaches the end of the file exits 0, including for an empty
-file. Anything else is reported on standard error and exits 1, after
-whatever was decoded:
+file. These two are reported on standard error and exit 1, after whatever
+was decoded:
 
  - a file that cannot be read, for example a directory:
    `error: reading <file> failed: Is a directory`
  - a last record cut short:
    `error: <file> ends in a partial record: 58 of 68 bytes, ignored`
- - a file that cannot be opened at all: `Could not open file <file>`
+
+A file that cannot be opened at all is reported on standard output with
+the usage text, as before: `Could not open file <file>`, exit 1.
 
 ## ARGUMENTS
 

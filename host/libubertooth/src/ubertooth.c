@@ -506,11 +506,13 @@ int stream_rx_file(ubertooth_t* ut, FILE* fp, rx_callback cb, void* cb_args)
 
 	while(1) {
 		uint32_t systime_be;
+		errno = 0;
 		nbytes = fread(&systime_be, 1, sizeof(systime_be), fp);
 		if (nbytes != sizeof(systime_be))
 			return stream_rx_file_end(fp, nbytes);
 		systime = (time_t)be32toh(systime_be);
 
+		errno = 0;
 		nbytes = fread(buf, 1, PKT_LEN, fp);
 		if (nbytes != PKT_LEN)
 			return stream_rx_file_end(fp, sizeof(systime_be) + nbytes);
@@ -786,6 +788,7 @@ ubertooth_t* ubertooth_init()
 	ut->start_clk100ns = 0;
 	ut->last_clk100ns = 0;
 	ut->clk100ns_upper = 0;
+	ut->clk100ns_started = 0;
 
 	ut->h_pcap_bredr = NULL;
 	ut->h_pcap_le = NULL;

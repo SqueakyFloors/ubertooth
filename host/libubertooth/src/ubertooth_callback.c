@@ -105,7 +105,8 @@ static uint64_t capture_start_ns( void )
 static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx )
 {
 	/* track clk100ns */
-	if (!ut->start_clk100ns) {
+	if (!ut->clk100ns_started) {
+		ut->clk100ns_started = 1;
 		ut->last_clk100ns = ut->start_clk100ns = rx->clk100ns;
 		ut->abs_start_ns = capture_start_ns( );
 	}

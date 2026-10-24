@@ -71,14 +71,31 @@ def record(host_time, clk100ns, channel, with_packet=True):
 BASE_TIME = int(time.time()) - AGE_S
 CHANNELS = (3, 17, 40, 30, 62)
 HAS_PACKET = (True, True, True, False, True)
+CLOCKS = tuple(CLK100NS_STEP * (i + 1) for i in range(len(CHANNELS)))
 RECORDS = [
-    record(BASE_TIME + i, CLK100NS_STEP * (i + 1), channel, has_packet)
-    for i, (channel, has_packet) in enumerate(zip(CHANNELS, HAS_PACKET))
+    record(BASE_TIME + i, clock, channel, has_packet)
+    for i, (clock, channel, has_packet) in enumerate(zip(CLOCKS, CHANNELS, HAS_PACKET))
 ]
 FIXTURE = b"".join(RECORDS)
 # The host times of the records that decode into a packet line, in order.
 PACKET_TIMES = [BASE_TIME + i for i, has in enumerate(HAS_PACKET) if has]
 PACKET_RECORDS = [r for r, has in zip(RECORDS, HAS_PACKET) if has]
+# A capture written while replaying starts at the host time of the first
+# record and advances with the Ubertooth clock (100 ns per tick) from there.
+EXPECTED_NS = [
+    BASE_TIME * 1_000_000_000 + 100 * (clock - CLOCKS[0])
+    for clock, has in zip(CLOCKS, HAS_PACKET) if has
+]
+
+# The same, with the first record at clock 0: a valid start, not a missing one.
+ZERO_CLOCKS = tuple(CLK100NS_STEP * i for i in range(3))
+ZERO_FIXTURE = b"".join(
+    record(BASE_TIME + i, clock, CHANNELS[i])
+    for i, clock in enumerate(ZERO_CLOCKS)
+)
+ZERO_EXPECTED_NS = [
+    BASE_TIME * 1_000_000_000 + 100 * clock for clock in ZERO_CLOCKS
+]
 
 
 def run(*arguments, directory):
@@ -150,14 +167,16 @@ with tempfile.TemporaryDirectory() as workdir:
     result = run("-i", "full.bin", "-q", "cap.pcap", "-r", "cap.pcapng",
                  directory=work)
     assert result.returncode == 0, result
-    stamps = pcap_times(work / "cap.pcap")
-    assert len(stamps) == len(PACKET_TIMES), stamps
-    assert stamps[0] == (PACKET_TIMES[0], 0), stamps
-    span = len(RECORDS) * CLK100NS_STEP // 10_000_000
-    assert all(PACKET_TIMES[0] <= s <= PACKET_TIMES[0] + span for s, _ in stamps), stamps
-    nanoseconds = pcapng_times(work / "cap.pcapng")
-    assert len(nanoseconds) == len(PACKET_TIMES), nanoseconds
-    assert nanoseconds[0] == PACKET_TIMES[0] * 1_000_000_000, nanoseconds
+    expected = [(ns // 1_000_000_000, ns % 1_000_000_000) for ns in EXPECTED_NS]
+    assert pcap_times(work / "cap.pcap") == expected, result
+    assert pcapng_times(work / "cap.pcapng") == EXPECTED_NS, result
+
+    # The same for a capture whose first record sits at clock 0.
+    (work / "zero.bin").write_bytes(ZERO_FIXTURE)
+    result = run("-i", "zero.bin", "-q", "zero.pcap", directory=work)
+    assert result.returncode == 0, result
+    expected = [(ns // 1_000_000_000, ns % 1_000_000_000) for ns in ZERO_EXPECTED_NS]
+    assert pcap_times(work / "zero.pcap") == expected, result
 
     # A file that cannot be read: reported, and exit 1 rather than looking
     # like an empty capture. fopen() succeeds on a directory, the first read
