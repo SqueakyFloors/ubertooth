@@ -64,8 +64,9 @@ What the display shows
 - **Yellow and magenta markers:** points marked with the left and right mouse
   buttons.
 
-The red, average, and mouse markers are hidden or shown with the middle mouse
-button or ``M``. Press ``H`` in the window for the full key list.
+The middle mouse button or ``M`` shows or hides the red and average markers and
+clears the mouse markers. Clearing the display (``C``) also restarts the
+average. Press ``H`` in the window for the full key list.
 
 Troubleshooting ``ModuleNotFoundError: No module named 'specan'``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

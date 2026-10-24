@@ -97,7 +97,7 @@ class RenderArea(QtWidgets.QWidget):
         self._frequency_step = 1e6
         self._high_dbm = 0.0
         self._low_dbm = -100.0
-        self._average_dbm = 0.0
+        self._average_dbm = None  # set from the first real sweep
 
         self._hide_markers = False
         self._mouse_x = None
@@ -153,6 +153,7 @@ class RenderArea(QtWidgets.QWidget):
             self._clear_scheduled = False
             self._new_graph()
             self._new_persisted_frames(len(frequency_axis))
+            self._average_dbm = None
 
         if self._graph is None:
             self._new_graph()
@@ -175,9 +176,15 @@ class RenderArea(QtWidgets.QWidget):
                 y_now = self._dbm_to_y(rssi_values)
                 amax = numpy.amax(self._persisted_frames, axis=0)
                 y_max = self._dbm_to_y(amax)
-                # mavg to slow down movement of the average line
-                self._average_dbm = round(numpy.average([
-                    self._average_dbm, self._average_dbm, numpy.average(amax)]))
+                # Moving average to slow down the average line. Ignore the empty
+                # frames left by a clear, and start from the first real sweep
+                # instead of 0 dBm. Keep full precision; round only the label.
+                if amax.max() > self._low_dbm:
+                    level = float(numpy.average(amax))
+                    if self._average_dbm is None:
+                        self._average_dbm = level
+                    else:
+                        self._average_dbm = (2 * self._average_dbm + level) / 3
 
                 path_now.moveTo(float(x_axis[0]), float(y_now[0]))
                 for i in bins:
@@ -206,12 +213,14 @@ class RenderArea(QtWidgets.QWidget):
                     painter.drawLine(QPointF(x_axis[max_max], 0), QPointF(x_axis[max_max], self.height()))
                     painter.drawLine(QPointF(0, y_max[max_max]), QPointF(self.width(), y_max[max_max]))
 
-                    pen.setBrush(Qt.yellow)
-                    pen.setStyle(Qt.DotLine)
-                    painter.setPen(pen)
-                    average_y = self._dbm_to_y(self._average_dbm)
-                    painter.drawText(QPointF(30, average_y - 4), 'Avg: %d dBm' % self._average_dbm)
-                    painter.drawLine(QPointF(0, average_y), QPointF(self.width(), average_y))
+                    if self._average_dbm is not None:
+                        pen.setBrush(Qt.yellow)
+                        pen.setStyle(Qt.DotLine)
+                        painter.setPen(pen)
+                        average_y = self._dbm_to_y(self._average_dbm)
+                        painter.drawText(QPointF(30, average_y - 4),
+                                         'Avg: %d dBm' % round(self._average_dbm))
+                        painter.drawLine(QPointF(0, average_y), QPointF(self.width(), average_y))
 
                     if self._mouse_x:
                         painter.drawText(QPointF(self._hz_to_x(self._mouse_x) + 4, 58), '(%.06f)' % ((self._x_to_hz(x_axis[max_max]) / 1e6) - (self._mouse_x / 1e6)))
