@@ -26,7 +26,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
+#include "util_clock.h"
 #include "util_report.h"
+#include "util_reset_wait.h"
 
 /* Adapters from the injected report operations to the libubertooth commands. */
 static int report_get_board_id(void *context)
@@ -210,6 +212,46 @@ static int report_read_failed(const char *what)
 {
 	fprintf(stderr, "error: %s read failed\n", what);
 	return 1;
+}
+
+/* Adapters from the injected reset-wait operations to the clock and
+ * libubertooth. The context is the -U argument (NULL for the default device). */
+static uint64_t reset_wait_now_ms(void *context)
+{
+	(void)context;
+	return util_clock_now_ms();
+}
+
+static void reset_wait_sleep_ms(void *context, unsigned ms)
+{
+	(void)context;
+	util_clock_sleep_ms(ms);
+}
+
+static int reset_wait_count(void *context)
+{
+	(void)context;
+	return ubertooth_count();
+}
+
+static void *reset_wait_try_select(void *context)
+{
+	return ubertooth_start_select_quiet((const char *)context);
+}
+
+static const struct util_reset_wait_ops reset_wait_ops = {
+	reset_wait_now_ms,
+	reset_wait_sleep_ms,
+	reset_wait_count,
+	reset_wait_try_select,
+};
+
+/* True if the -U argument selects by serial number rather than by index. */
+static int selects_by_serial(const char *u_arg)
+{
+	if (u_arg == NULL || u_arg[0] == '\0')
+		return 0;
+	return u_arg[strspn(u_arg, "0123456789")] != '\0';
 }
 
 /* For -I (identify): the loop runs until interrupted. Without a handler, Ctrl-C
@@ -487,19 +529,37 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 	if(do_reset == 0) {
+		struct util_reset_wait_params wait = {
+			UTIL_RESET_WAIT_INITIAL_DELAY_MS, UTIL_RESET_WAIT_POLL_MS,
+			UTIL_RESET_WAIT_LEAVE_MS, UTIL_RESET_WAIT_DEADLINE_MS, 0, 0
+		};
+		int reset_rc;
+
+		/* Counted before the reset, so the wait can see the device leave and
+		 * (for an index) not open another board while it is gone. */
+		wait.count_before = ubertooth_count();
+		wait.select_needs_count = !selects_by_serial(ubertooth_device);
 		fprintf(stdout, "Resetting ubertooth device %s\n", ubertooth_device ? ubertooth_device : "0");
-		status = util_status_after(status, cmd_reset(ut->devh));
+		reset_rc = cmd_reset(ut->devh);
+		status = util_status_after(status, reset_rc);
+		/* A device that did not take the reset will not leave the bus. */
+		if (reset_rc < 0)
+			wait.count_before = 0;
 		/* The device re-enumerates after a reset, so this handle is about
 		 * to go dead: release it without sending STOP (if the reset failed
 		 * the device is still there, but a STOP is not wanted either), then
-		 * open the device again. */
+		 * wait for the same selection to open again. The polls are quiet
+		 * and never send STOP. */
 		ubertooth_close(ut);
 		ubertooth_free(ut);
-		ut = NULL;
-		sleep(2);
-		ut = ubertooth_start_select(ubertooth_device);
-		if (ut == NULL)
+		ut = util_reset_wait(&reset_wait_ops, ubertooth_device, &wait);
+		if (ut == NULL) {
+			fprintf(stderr, "error: Ubertooth device %s did not come back within "
+			        "%u s after the reset\n",
+			        ubertooth_device ? ubertooth_device : "0",
+			        UTIL_RESET_WAIT_DEADLINE_MS / 1000u);
 			return 1;
+		}
 	}
 	if(do_stop == 0) {
 		fprintf(stdout, "Stopping ubertooth device %s\n", ubertooth_device ? ubertooth_device : "0");

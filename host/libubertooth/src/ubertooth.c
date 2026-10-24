@@ -131,7 +131,13 @@ int ubertooth_count(void) {
 	return uberteeth;
 }
 
-static struct libusb_device_handle* find_ubertooth_device(int ubertooth_device)
+/* Opens the Ubertooth at enumeration index ubertooth_device, or the only one
+ * when ubertooth_device is negative. When quiet, nothing is printed and no
+ * command is sent: an index that is not present, or several devices with no
+ * index, simply return NULL (without listing serials, which would mean sending
+ * a command to every device). */
+static struct libusb_device_handle* find_ubertooth_device_opt(int ubertooth_device,
+                                                              int quiet)
 {
 	struct libusb_device **usb_list = NULL;
 	struct libusb_context *ctx = NULL;
@@ -141,12 +147,24 @@ static struct libusb_device_handle* find_ubertooth_device(int ubertooth_device)
 	int *ubertooth_devs = NULL;
 
 	usb_devs = libusb_get_device_list(ctx, &usb_list);
+	if (quiet && usb_devs <= 0) {
+		if (usb_devs == 0)
+			libusb_free_device_list(usb_list, 1);
+		return NULL;
+	}
 	ubertooth_devs = calloc(usb_devs, sizeof(int));
+	if (quiet && ubertooth_devs == NULL) {
+		libusb_free_device_list(usb_list, 1);
+		return NULL;
+	}
 
 	for(i = 0 ; i < usb_devs ; ++i) {
 		r = libusb_get_device_descriptor(usb_list[i], &desc);
-		if(r < 0)
+		if(r < 0) {
+			if (quiet)
+				continue;
 			fprintf(stderr, "couldn't get usb descriptor for dev #%d!\n", i);
+		}
 		if ((desc.idVendor == TC13_VENDORID && desc.idProduct == TC13_PRODUCTID)
 		    || (desc.idVendor == U0_VENDORID && desc.idProduct == U0_PRODUCTID)
 		    || (desc.idVendor == U1_VENDORID && desc.idProduct == U1_PRODUCTID))
@@ -154,6 +172,20 @@ static struct libusb_device_handle* find_ubertooth_device(int ubertooth_device)
 			ubertooth_devs[uberteeth] = i;
 			uberteeth++;
 		}
+	}
+	if (quiet) {
+		/* Strict, unlike the loud path below: the index must exist, so a
+		 * device that has not come back is not mistaken for another one. */
+		int pick = -1;
+		if (ubertooth_device < 0 && uberteeth == 1)
+			pick = 0;
+		else if (ubertooth_device >= 0 && ubertooth_device < uberteeth)
+			pick = ubertooth_device;
+		if (pick >= 0 && libusb_open(usb_list[ubertooth_devs[pick]], &devh) != 0)
+			devh = NULL;
+		free(ubertooth_devs);
+		libusb_free_device_list(usb_list, 1);
+		return devh;
 	}
 	if(uberteeth == 1) {
 		ret = libusb_open(usb_list[ubertooth_devs[0]], &devh);
@@ -198,10 +230,16 @@ static struct libusb_device_handle* find_ubertooth_device(int ubertooth_device)
 	return devh;
 }
 
+static struct libusb_device_handle* find_ubertooth_device(int ubertooth_device)
+{
+	return find_ubertooth_device_opt(ubertooth_device, 0);
+}
+
 /* Find an Ubertooth by serial-number string (hex, as printed by -s). Matches a
  * device whose serial ends with / equals the given string. Returns an open
  * handle or NULL. */
-static struct libusb_device_handle* find_ubertooth_device_serial(char* serial_number)
+static struct libusb_device_handle* find_ubertooth_device_serial_opt(
+		const char* serial_number, int quiet)
 {
 	struct libusb_device **usb_list = NULL;
 	struct libusb_context *ctx = NULL;
@@ -225,7 +263,17 @@ static struct libusb_device_handle* find_ubertooth_device_serial(char* serial_nu
 			}
 			uint8_t serial[17] = {0};
 			char serial_c[34] = {0};
-			uint8_t sr = cmd_get_serial(devh, serial);
+			int sr;
+			if (quiet) {
+				/* The same read as cmd_get_serial(), without its error
+				 * messages: a device that is still starting may not answer. */
+				sr = libusb_control_transfer(devh,
+				        LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_ENDPOINT_IN,
+				        UBERTOOTH_GET_SERIAL, 0, 0, serial, 17, 1000);
+				sr = (sr == 17 && serial[0] == 0) ? 0 : -1;
+			} else {
+				sr = cmd_get_serial(devh, serial);
+			}
 			if (sr == 0) {
 				int j;
 				for (j = 1; j < 17; j++)
@@ -243,8 +291,14 @@ static struct libusb_device_handle* find_ubertooth_device_serial(char* serial_nu
 	}
 	if (usb_list)
 		libusb_free_device_list(usb_list, 1);
-	fprintf(stderr, "no Ubertooth found with serial matching '%s'\n", serial_number);
+	if (!quiet)
+		fprintf(stderr, "no Ubertooth found with serial matching '%s'\n", serial_number);
 	return NULL;
+}
+
+static struct libusb_device_handle* find_ubertooth_device_serial(char* serial_number)
+{
+	return find_ubertooth_device_serial_opt(serial_number, 0);
 }
 
 /*
@@ -753,6 +807,53 @@ ubertooth_t* ubertooth_start_select(const char* u_arg)
 
 	/* cast away const: the serial path does not modify the string */
 	return ubertooth_start_serial((char*)u_arg);
+}
+
+/* Quiet variant of ubertooth_start_select(), for polling a device that may be
+ * absent, for example while it re-enumerates after a reset. Prints nothing and
+ * sends no command other than the serial-number read needed to match a serial.
+ * If the device is not found or cannot be claimed it is closed WITHOUT sending
+ * STOP, so a failed attempt leaves the device state unchanged. An index must
+ * exist (it is never taken to mean the only device present). */
+ubertooth_t* ubertooth_start_select_quiet(const char* u_arg)
+{
+	struct libusb_device_handle* devh;
+	ubertooth_t* ut;
+	int all_digits = 1;
+
+	if (u_arg != NULL) {
+		for (const char* p = u_arg; *p; ++p) {
+			if (*p < '0' || *p > '9') { all_digits = 0; break; }
+		}
+	}
+
+	if (libusb_init(NULL) < 0)
+		return NULL;
+	if (u_arg == NULL || u_arg[0] == '\0')
+		devh = find_ubertooth_device_opt(-1, 1);
+	else if (all_digits)
+		devh = find_ubertooth_device_opt(atoi(u_arg), 1);
+	else
+		devh = find_ubertooth_device_serial_opt(u_arg, 1);
+	if (devh == NULL || libusb_claim_interface(devh, 0) < 0) {
+		if (devh != NULL)
+			libusb_close(devh);
+		libusb_exit(NULL);
+		return NULL;
+	}
+
+	ut = (ubertooth_t*)calloc(1, sizeof(ubertooth_t));
+	if (ut != NULL)
+		ut->fifo = fifo_init();
+	if (ut == NULL || ut->fifo == NULL) {
+		free(ut);
+		libusb_release_interface(devh, 0);
+		libusb_close(devh);
+		libusb_exit(NULL);
+		return NULL;
+	}
+	ut->devh = devh;
+	return ut;
 }
 
 /* Connect-variant of the shared -U handling, for tools that use the
