@@ -7,6 +7,59 @@
 
 #include "dfu_transition.h"
 
+/*
+ * Waiting for the bootloader to reach DFU idle. Every wait is bounded: a
+ * failed state query ends it at once, and the states that only resolve with
+ * time are polled a fixed number of times, so a bootloader that stops
+ * answering ends the command instead of spinning.
+ */
+enum dfu_idle_result {
+	DFU_IDLE_OK = 0,
+	DFU_IDLE_INVALID_ARGUMENT = -1,
+	DFU_IDLE_QUERY_FAILED = -2,      /* the state could not be read */
+	DFU_IDLE_ABORT_FAILED = -3,
+	DFU_IDLE_CLEAR_FAILED = -4,
+	DFU_IDLE_NOT_REACHED = -5,       /* still not idle after every poll */
+	DFU_IDLE_UNEXPECTED_STATE = -6,  /* a state this host cannot act on */
+};
+
+/* max_polls * poll_interval_ms bounds the wait; 40 * 250 ms is ten seconds,
+ * far longer than the bootloader's own 20 ms poll timeout. */
+#define DFU_IDLE_DEFAULT_MAX_POLLS 40
+#define DFU_IDLE_DEFAULT_POLL_INTERVAL_MS 250
+
+struct dfu_idle_config {
+	unsigned max_polls;
+	unsigned poll_interval_ms;
+};
+
+struct dfu_idle_report {
+	enum dfu_idle_result result;
+	unsigned polls;
+	int operation_error;  /* the transport error, when there was one */
+	int last_state;       /* the last state read, or -1 if none was */
+};
+
+struct dfu_idle_ops {
+	/* Return the DFU state (>= 0) or a negative transport error. */
+	int (*get_state)(void *context, void *handle);
+	int (*abort)(void *context, void *handle);
+	int (*clear_status)(void *context, void *handle);
+	void (*sleep_ms)(void *context, unsigned milliseconds);
+};
+
+/* Drive the bootloader to STATE_DFU_IDLE, or say why that did not happen.
+ * Returns DFU_IDLE_OK or a negative enum dfu_idle_result, also in
+ * report->result. */
+int dfu_reach_idle(const struct dfu_idle_ops *ops,
+                   void *context,
+                   void *handle,
+                   const struct dfu_idle_config *config,
+                   struct dfu_idle_report *report);
+
+/* One phrase naming the outcome, for the message a caller prints. */
+const char *dfu_idle_result_string(enum dfu_idle_result result);
+
 enum dfu_transfer_result {
 	DFU_TRANSFER_OK = 0,
 	DFU_TRANSFER_INVALID_ARGUMENT = -1,
@@ -31,7 +84,8 @@ struct dfu_transfer_report {
 };
 
 struct dfu_transfer_ops {
-	int (*download)(void *context, void *handle);
+	/* One complete transfer in either direction, from its first block. */
+	int (*transfer)(void *context, void *handle);
 	void (*close_dfu)(void *context, void *handle, int claimed);
 	/* Return 1 when found, 0 when absent, and a negative value on error. */
 	int (*reopen_matching_dfu)(void *context,

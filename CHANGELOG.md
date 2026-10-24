@@ -164,6 +164,15 @@
   vendor or product used to be written.
   [#198](https://github.com/SqueakyFloors/ubertooth/issues/198)
   [#199](https://github.com/SqueakyFloors/ubertooth/issues/199)
+- `ubertooth-dfu` no longer waits forever for a bootloader that stops
+  answering: every DFU state wait is bounded and ends with a message and exit
+  1. A read-back (`-u`) that fails part-way is retried once like a download,
+  names the block that would not read, exits 1 rather than a truncated libusb
+  code, and still detaches the board when `-r` was given. A reset the
+  bootloader refuses now fails the command instead of exiting 0 with the board
+  left in DFU.
+  [#208](https://github.com/SqueakyFloors/ubertooth/issues/208)
+  [#216](https://github.com/SqueakyFloors/ubertooth/issues/216)
 
 - `ubertooth-dfu` now performs bounded, device-specific Device Firmware
   Upgrade (DFU) entry and recovery, retries interrupted transfers, and verifies
