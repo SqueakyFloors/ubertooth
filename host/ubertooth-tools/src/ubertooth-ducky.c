@@ -124,7 +124,7 @@ static void usage(void) {
 	printf("\t-A <%d-%d> advertising channel index (default: 38)\n",
 	       ADV_INDEX_MIN, ADV_INDEX_MAX);
 	printf("\t-a <BD ADDR> Bluetooth address, xx:xx:xx:xx:xx:xx (default: random)\n");
-	printf("\t-U <index|serial> select Ubertooth by index or serial; see ubertooth(7)\n");
+	fputs(OPT_USAGE_SELECT_DEVICE, stdout);
 	printf("\t-h this help\n");
 	printf("\n");
 	printf("For more information on Uberducky, visit:\n");

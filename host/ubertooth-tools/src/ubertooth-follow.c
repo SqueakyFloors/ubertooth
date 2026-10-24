@@ -42,7 +42,7 @@ static void usage()
 	printf("\t-h this help\n");
 	printf("\t-l<LAP> (3 bytes / 6 hex digits)\n");
 	printf("\t-u<UAP> (1 byte / 2 hex digits)\n");
-	printf("\t-U <index|serial> select Ubertooth by index or serial; see ubertooth(7)\n");
+	fputs(OPT_USAGE_SELECT_DEVICE, stdout);
 	printf("\t-r<filename> capture packets to PCAPNG file\n");
 	printf("\t-q<filename> capture packets to PCAP file\n");
 	printf("\t-e max_ac_errors (default: %d, range: 0-%d)\n",

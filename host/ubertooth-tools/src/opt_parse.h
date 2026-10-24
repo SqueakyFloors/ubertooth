@@ -26,6 +26,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* The -U line every tool's usage text prints, so the tools cannot drift
+ * apart. The man pages repeat it in words and point at ubertooth(7). */
+#define OPT_USAGE_SELECT_DEVICE \
+	"\t-U <index|serial> select Ubertooth by index or serial; see ubertooth(7)\n"
+
 /*
  * Every parser here returns 0 on success and -1 on failure, and writes its
  * result only on success. Each one refuses an empty string, a sign, leading

@@ -49,7 +49,7 @@ static void usage()
 	printf("\t-e maximum access code errors (default: %d, range: 0-%d)\n",
 	       max_ac_errors, MAX_AC_ERRORS);
 	printf("\t-V print version information\n");
-	printf("\t-U <index|serial> select Ubertooth by index or serial; see ubertooth(7)\n");
+	fputs(OPT_USAGE_SELECT_DEVICE, stdout);
 	printf("\n");
 	printf("The tool keeps monitoring the map for changes until it is\n");
 	printf("interrupted (Ctrl-C), both with and without -t. With -t, it stops\n");

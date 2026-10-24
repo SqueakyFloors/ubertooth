@@ -62,7 +62,7 @@ static void usage()
 	printf("\t-e max_ac_errors (default: %d, range: 0-%d)\n",
 	       max_ac_errors, MAX_AC_ERRORS);
 	printf("\t-b Bluetooth device (hci0)\n");
-	printf("\t-U <index|serial> select Ubertooth by index or serial; see ubertooth(7)\n");
+	fputs(OPT_USAGE_SELECT_DEVICE, stdout);
 }
 
 

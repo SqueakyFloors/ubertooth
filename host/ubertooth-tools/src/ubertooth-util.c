@@ -308,7 +308,7 @@ static void usage(FILE *output)
 	fprintf(output, "\t-l[0-1] get/set USR LED\n");
 	fprintf(output, "\t-S stop current operation\n");
 	fprintf(output, "\t-r full reset\n");
-	fprintf(output, "\t-U <index|serial> select Ubertooth by index or serial; see ubertooth(7)\n");
+	fputs(OPT_USAGE_SELECT_DEVICE, output);
 	fprintf(output, "\t-U all list -b/-v/-V/-p/-s for every Ubertooth (queries only)\n");
 	fprintf(output, "\t-N print total number of Ubertooth devices and exit\n");
 	fprintf(output, "\n");

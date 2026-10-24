@@ -59,7 +59,7 @@ static void usage()
 	printf("\n");
 	printf("Miscellaneous:\n");
 	printf("\t-V print version information\n");
-	printf("\t-U <index|serial> select Ubertooth by index or serial; see ubertooth(7)\n");
+	fputs(OPT_USAGE_SELECT_DEVICE, stdout);
 }
 
 int main(int argc, char* argv[])
