@@ -133,6 +133,12 @@
   `ubertooth_start_select_quiet()` for this silent, STOP-free polling, and
   `ubertooth_count()` no longer leaves libusb initialised.
   [#94](https://github.com/SqueakyFloors/ubertooth/issues/94)
+- `ubertooth-util -a0` sets PA level 0 instead of reading the level, and a
+  level outside 0-7 is refused before opening the device.
+  [#161](https://github.com/SqueakyFloors/ubertooth/issues/161)
+- `ubertooth-util` refuses `-z` combined with a mode option, where it silently
+  had no effect: a mode stops the device, which resets the squelch.
+  [#159](https://github.com/SqueakyFloors/ubertooth/issues/159)
 - `ubertooth-util` refuses a word that is not an option, such as `- V`, with an
   error and exit 1 before opening the device, instead of ignoring it and
   running the rest of the command. Option values may now be the next word:

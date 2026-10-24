@@ -292,6 +292,9 @@ static char *separate_option_value(int argc, char *argv[], int allow_negative)
 	return argv[optind - 1];
 }
 
+/* do_palevel value for a bare -a: read the PA level. */
+#define PA_QUERY (-2)
+
 static void usage(FILE *output)
 {
 	fprintf(output, "ubertooth-util - command line utility for Ubertooth Zero and Ubertooth One\n");
@@ -424,10 +427,17 @@ int main(int argc, char *argv[])
 			do_tx= 0;
 			break;
 		case 'a':
-			if (optarg)
-				do_palevel= atoi(optarg);
-			else
-				do_palevel= 0;
+			/* -a reads the PA level; -a<0-7> sets it, including 0 (-1:
+			 * not requested, PA_QUERY: read). */
+			if (optarg) {
+				if (optarg[0] < '0' || optarg[0] > '7' || optarg[1] != '\0') {
+					fprintf(stderr, "error: PA level must be a single digit 0-7 (got %s)\n", optarg);
+					return 1;
+				}
+				do_palevel= optarg[0] - '0';
+			} else {
+				do_palevel= PA_QUERY;
+			}
 			break;
 		case 'C':
 			if (optarg) {
@@ -541,6 +551,19 @@ int main(int argc, char *argv[])
 	modes[UTIL_MODE_FLASH] = (do_flash == 0);
 	if (util_check_modes(modes, stderr) != 0)
 		return 1;
+	/* The squelch is a firmware setting for later RX capture. A mode cannot
+	 * use it: each mode first stops the device, and stopping a running mode
+	 * resets the squelch to its default, and none of these modes reads it.
+	 * Refuse the combination instead of silently dropping -z. */
+	if (do_set_squelch > 0 || do_get_squelch > 0) {
+		for (int m = 0; m < UTIL_MODE_COUNT; m++) {
+			if (modes[m]) {
+				fprintf(stderr, "error: -z cannot be combined with %s\n",
+				        util_mode_option((enum util_mode)m));
+				return 1;
+			}
+		}
+	}
 	if (do_flash == 0)
 		fprintf(stderr, "ubertooth-util -f is no longer required - use ubertooth-dfu instead\n");
 
@@ -653,7 +676,7 @@ int main(int argc, char *argv[])
 		status = util_status_after(status, cmd_set_channel(ut->devh, do_channel));
 	if(do_leds == 0 || do_leds == 1)
 		status = util_status_after(status, cmd_set_usrled(ut->devh, do_leds));
-	if(do_palevel > 0)
+	if(do_palevel >= 0)
 		status = util_status_after(status, cmd_set_palevel(ut->devh, do_palevel));
 
 	/* reporting actions, in the order ubertooth-util has always printed them */
@@ -697,7 +720,7 @@ int main(int argc, char *argv[])
 		else
 			fprintf(stdout, "USR LED status: %d\n", led);
 	}
-	if(do_palevel == 0) {
+	if(do_palevel == PA_QUERY) {
 		int level = cmd_get_palevel(ut->devh);
 		if (level < 0)
 			status = util_status_merge(status, report_read_failed("PA level"));

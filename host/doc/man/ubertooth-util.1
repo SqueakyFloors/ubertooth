@@ -97,7 +97,13 @@ Radio options:
 .RS
 .IP \(bu 2
 \fB\fC\-a[0\-7]\fR :
-get/set power amplifier level
+get/set power amplifier level, 0 (lowest, \-25 dBm) to 7 (maximum, 0 dBm) at
+the CC2400 radio\. The board powers on and resets (\fB\fC\-r\fR) at level 7, the
+CC2400's own reset value (the firmware does not set it at start\-up)\.
+Receiving does not change it, and \fB\fC\-t\fR (TX test) transmits at the current
+level\. Some transmit modes set their own level, which stays afterwards:
+Bluetooth and BLE transmit and BLE jamming use 3 (\-7 dBm), and the range
+test and repeater (\fB\fC\-n\fR, \fB\fC\-e\fR) step through levels\.
 .IP \(bu 2
 \fB\fC\-c[2400\-2483]\fR :
 get/set channel in MHz
@@ -112,7 +118,10 @@ start LED spectrum analyzer
 intitiate continuous transmit test
 .IP \(bu 2
 \fB\fC\-z[level]\fR :
-get/set squelch level
+get/set squelch level (a signed RSSI threshold) for a later RX capture\.
+Stopping a running mode resets it to the default, so \fB\fC\-z\fR cannot be
+combined with a mode option (\fB\fC\-q\fR, \fB\fC\-n\fR, \fB\fC\-e\fR, \fB\fC\-t\fR, \fB\fC\-x\fR, \fB\fC\-I\fR, \fB\fC\-i\fR,
+\fB\fC\-f\fR)\.
 .RE
 .PP
 Range test:
@@ -275,7 +284,9 @@ queries that report a nonzero value such as \fB\fC\-b\fR (board ID), \fB\fC\-c\f
 \fB\fC\-a\fR (power amplifier level). It exits with a nonzero status if any requested
 operation fails, even when a later operation in the same command succeeds.
 It exits with 1, without opening a device, when two or more mode options are
-given (see DESCRIPTION).
+given (see DESCRIPTION), when \fB\fC\-z\fR is combined with a mode option, or when an
+\fB\fC\-a\fR level is not a single digit 0\-7
+(\fB\fCerror: PA level must be a single digit 0\-7 (got <value>)\fR)\.
 It also exits with 1, without opening a device, when the command line contains
 a word that is not an option, and names it: \fB\fCerror: unexpected argument '<word>'\fR\&.
 \fB\fCubertooth\-util\fR takes no other arguments.

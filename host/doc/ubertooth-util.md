@@ -79,7 +79,13 @@ Common options:
 Radio options:
 
  - `-a[0-7]` :
-   get/set power amplifier level
+   get/set power amplifier level, 0 (lowest, -25 dBm) to 7 (maximum, 0 dBm) at
+   the CC2400 radio. The board powers on and resets (`-r`) at level 7, the
+   CC2400's own reset value (the firmware does not set it at start-up).
+   Receiving does not change it, and `-t` (TX test) transmits at the current
+   level. Some transmit modes set their own level, which stays afterwards:
+   Bluetooth and BLE transmit and BLE jamming use 3 (-7 dBm), and the range
+   test and repeater (`-n`, `-e`) step through levels.
  - `-c[2400-2483]` :
    get/set channel in MHz
  - `-C[0-78]` :
@@ -89,7 +95,10 @@ Radio options:
  - `-t` :
    intitiate continuous transmit test
  - `-z[level]` :
-   get/set squelch level
+   get/set squelch level (a signed RSSI threshold) for a later RX capture.
+   Stopping a running mode resets it to the default, so `-z` cannot be
+   combined with a mode option (`-q`, `-n`, `-e`, `-t`, `-x`, `-I`, `-i`,
+   `-f`).
 
 Range test:
 
@@ -222,7 +231,9 @@ queries that report a nonzero value such as `-b` (board ID), `-c` (channel), or
 `-a` (power amplifier level). It exits with a nonzero status if any requested
 operation fails, even when a later operation in the same command succeeds.
 It exits with 1, without opening a device, when two or more mode options are
-given (see DESCRIPTION).
+given (see DESCRIPTION), when `-z` is combined with a mode option, or when an
+`-a` level is not a single digit 0-7
+(`error: PA level must be a single digit 0-7 (got <value>)`).
 It also exits with 1, without opening a device, when the command line contains
 a word that is not an option, and names it: `error: unexpected argument '<word>'`.
 `ubertooth-util` takes no other arguments.

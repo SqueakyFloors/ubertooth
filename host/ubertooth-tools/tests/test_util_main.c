@@ -981,6 +981,99 @@ MU_TEST(stray_arguments_are_rejected_before_any_device_action)
 	mu_assert_int_eq(2440, fake.last_channel_set);
 }
 
+/* -a0 sets PA level 0 (it used to read the level, because 0 was the "read"
+ * marker), and a value outside 0-7 is refused before the device is opened. */
+MU_TEST(pa_level_zero_is_set_and_bad_levels_are_refused)
+{
+	struct run_result r;
+	static const char *const bad[] = { "-a8", "-a9", "-afoo", "-a-1", "-a+3", "-a 3", "-a3x", "-a10", "-a07", "-a00" };
+	size_t i;
+
+	reset_fake();
+	fake.last_palevel_set = 99;
+	r = RUN("-a0");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0, fake.last_palevel_set);
+	mu_assert(strstr(r.out, "PA Level") == NULL, "-a0 sets, does not read");
+
+	reset_fake();
+	fake.last_palevel_set = 99;
+	r = RUN("-a", "0");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0, fake.last_palevel_set);
+
+	reset_fake();
+	fake.last_palevel_set = 99;
+	r = RUN("-a7");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(7, fake.last_palevel_set);
+
+	/* a bare -a still reads, and sets nothing */
+	reset_fake();
+	fake.last_palevel_set = 99;
+	r = RUN("-a");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "PA Level: 7\n") == 0, "-a reads");
+	mu_assert_int_eq(99, fake.last_palevel_set);
+
+	for (i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+		reset_fake();
+		fake.last_palevel_set = 99;
+		r = run_util((const char *const[]){ "ubertooth-util", bad[i], NULL });
+		mu_assert_int_eq(1, r.rc);
+		mu_assert(strstr(r.err, "error: PA level must be a single digit 0-7 (got ") != NULL, bad[i]);
+		mu_assert_int_eq(0, (long)strlen(r.out));
+		mu_assert_int_eq(0, fake.start_calls);
+		mu_assert_int_eq(99, fake.last_palevel_set);
+	}
+
+	/* the next-word form is validated the same way */
+	reset_fake();
+	r = RUN("-a", "9");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: PA level must be a single digit 0-7 (got 9)") != NULL, "-a 9");
+	mu_assert_int_eq(0, fake.start_calls);
+}
+
+/* -z cannot take effect with a mode (the mode's STOP resets it, or the mode
+ * does not use it), so the combination is refused before the device is
+ * opened instead of -z being dropped silently. */
+MU_TEST(squelch_with_a_mode_option_is_refused)
+{
+	static const char *const modes[] = {
+		"-q", "-n", "-e", "-t", "-x", "-I", "-i", "-f",
+	};
+	size_t i;
+	struct run_result r;
+
+	for (i = 0; i < sizeof(modes) / sizeof(modes[0]); i++) {
+		char want[64];
+		snprintf(want, sizeof(want), "error: -z cannot be combined with %s\n", modes[i]);
+
+		reset_fake();
+		r = run_util((const char *const[]){ "ubertooth-util", "-z-60", modes[i], NULL });
+		mu_assert_int_eq(1, r.rc);
+		mu_assert(strstr(r.err, want) != NULL, want);
+		mu_assert_int_eq(0, (long)strlen(r.out));
+		mu_assert_int_eq(0, fake.start_calls);
+		mu_assert_int_eq(0, fake.last_squelch_set);
+
+		/* a squelch read is refused the same way */
+		reset_fake();
+		r = run_util((const char *const[]){ "ubertooth-util", modes[i], "-z", NULL });
+		mu_assert_int_eq(1, r.rc);
+		mu_assert(strstr(r.err, want) != NULL, want);
+		mu_assert_int_eq(0, fake.start_calls);
+	}
+
+	/* -z on its own, or with settings and queries, still works */
+	reset_fake();
+	r = RUN("-z-60", "-c2440", "-a5");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq((u16)-60, fake.last_squelch_set);
+	mu_assert_int_eq(2440, fake.last_channel_set);
+}
+
 /* An optional value may be the next word as well as attached: -c 2440 is
  * -c2440. Only a number is taken, and only -z takes a negative one. */
 MU_TEST(optional_values_may_be_the_next_word)
@@ -1868,6 +1961,8 @@ int main(void)
 	MU_RUN(two_or_more_mode_options_are_rejected_before_opening_the_device);
 	MU_RUN(stray_arguments_are_rejected_before_any_device_action);
 	MU_RUN(optional_values_may_be_the_next_word);
+	MU_RUN(pa_level_zero_is_set_and_bad_levels_are_refused);
+	MU_RUN(squelch_with_a_mode_option_is_refused);
 	MU_RUN(invalid_arguments_are_rejected_before_opening_the_device);
 	MU_RUN(help_version_and_count_exit_zero_without_a_device);
 	MU_RUN(firmware_listing_with_several_devices_reports_each_device);
