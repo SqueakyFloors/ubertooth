@@ -334,9 +334,12 @@ void le_DMA_IRQHandler(void) {
 			// fault.c LED loop, which also stops USB being serviced, so the
 			// board would answer nothing until it was re-plugged (#158).
 			if (current_rxbuf == NULL) {
-				cc2400_strobe(SRFOFF);
+				// SFSON, not SRFOFF: stop receiving but leave the
+				// synthesizer running, because the buffer wait below
+				// hands over to the FS_LOCK path, which only arms RX
+				// once the synthesizer reports locked.
+				cc2400_strobe(SFSON);
 				DMACC0Config = 0;
-				DMACIntTCClear = (1 << 0);
 				DIO_SSP_DMACR &= ~SSPDMACR_RXDMAE;
 				ICER0 = ICER0_ICE_DMA;
 				timer1_wait_buffer();
@@ -551,14 +554,16 @@ static void change_channel(void) {
 
 	// current_rxbuf can be NULL when the buffer pool was exhausted at the end
 	// of a connection event. buffer_clear(NULL) faulted the CPU, so take a
-	// buffer if one has since been freed and otherwise leave the pointer NULL:
-	// the timer1 paths below wait for a buffer before arming RX.
+	// buffer if one has since been freed; without one, leave DMA and the SSP
+	// alone as well. le_cc2400_init_rf() below hands over to the timer1
+	// FS_LOCK path, which waits for a buffer before arming either.
 	if (current_rxbuf == NULL)
 		current_rxbuf = buffer_get();
-	if (current_rxbuf != NULL)
+	if (current_rxbuf != NULL) {
 		buffer_clear(current_rxbuf);
-	le_dma_init();
-	dio_ssp_start();
+		le_dma_init();
+		dio_ssp_start();
+	}
 
 	if (conn.access_address == ADVERTISING_AA) {
 		// FIXME
@@ -753,6 +758,10 @@ void TIMER1_IRQHandler(void) {
 		if (current_rxbuf == NULL) {
 			timer1_wait_buffer();
 		} else {
+			// the wait is over: disarm the match, or it fires again after the
+			// counter wraps and overwrites current_rxbuf, leaking a buffer
+			timer1_cancel_wait_buffer();
+
 			if (cc2400_status() & FS_LOCK) {
 				// restart DMA and SSP
 				le_dma_init();
@@ -1088,18 +1097,26 @@ void le_phy_main(void) {
 	// later control request timed out (-7) or stalled (-9) until the board was
 	// physically re-plugged. See issue #158.
 	//
-	// Order matters: mask the interrupt first, then stop what feeds it, then
-	// quiet the radio.
+	// Order matters. Clearing le_phy_active first is what makes this safe: a
+	// write to NVIC ICER0 is not self-synchronising on Cortex-M3, so an
+	// already-pending interrupt can still be taken after the mask, and the
+	// flag is what neuters it. Then stop what feeds the interrupt, then quiet
+	// the radio.
 	le_phy_active = 0;
 
 	ICER0 = ICER0_ICE_DMA;
 	dio_ssp_stop();
 
-	// drop every armed match before stopping the timer, so nothing is left
-	// pending for the next entry into this mode
-	timer1_clear_match();
-	timer1_cancel_fs_lock();
-	timer1_cancel_wait_buffer();
+	// dio_ssp_stop() has disabled DMA channel 0 and cleared its flags, so
+	// nothing can raise the interrupt now. Put the NVIC line back the way
+	// dma_poweron() left it at boot: it is global, and the modes that run
+	// after this one (bt_stream_rx(), bt_generic_le(), bt_le_sync()) all wait
+	// on rx_tc from legacy_DMA_IRQHandler().
+	ISER0 = ISER0_ISE_DMA;
+
+	// drop every armed match, including MR1 (the LED blink), before stopping
+	// the timer, so nothing is left pending for the next entry into this mode
+	T1MCR = 0;
 	timer1_stop();
 
 	// kill the CC2400: synthesizer off, and the Ubertooth One amplifier with it
@@ -1109,8 +1126,10 @@ void le_phy_main(void) {
 	HGM_CLR;
 #endif
 
-	// release the buffers this mode owned
+	// release the buffers this mode owned, and drop the queue that pointed
+	// into them, so the pool and the queue stay consistent
 	current_rxbuf = NULL;
+	queue_init(&packet_queue);
 	buffers_init();
 
 	// reset state

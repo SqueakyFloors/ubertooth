@@ -20,6 +20,7 @@
  */
 
 #include "cc2400_rangetest.h"
+#include "cc2400_wait.h"
 
 /*
  * This range test transmits a Bluetooth-like (but not Bluetooth compatible)
@@ -122,7 +123,7 @@ void cc2400_rangetest(volatile u16 *chan_ptr)
 	while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
 	TXLED_CLR;
 	cc2400_strobe(SRFOFF);
-	while ((cc2400_status() & FS_LOCK));
+	cc2400_wait_fs_unlock();
 	cc2400_set(FSDIV, *chan_ptr - 1);
 	while (!(cc2400_status() & XOSC16M_STABLE));
 	cc2400_strobe(SFSON);
@@ -143,7 +144,7 @@ void cc2400_rangetest(volatile u16 *chan_ptr)
 	// done
 	while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
 	cc2400_strobe(SRFOFF);
-	while ((cc2400_status() & FS_LOCK));
+	cc2400_wait_fs_unlock();
 #ifdef UBERTOOTH_ONE
 	PAEN_CLR;
 #endif
@@ -210,7 +211,7 @@ void cc2400_repeater(volatile u16 *chan_ptr)
 		USRLED_CLR;
 		RXLED_CLR;
 		cc2400_strobe(SRFOFF);
-		while ((cc2400_status() & FS_LOCK));
+		cc2400_wait_fs_unlock();
 		while (!(cc2400_status() & XOSC16M_STABLE));
 		cc2400_set(FSDIV, *chan_ptr);
 		while (!(cc2400_status() & XOSC16M_STABLE));
@@ -231,7 +232,7 @@ void cc2400_repeater(volatile u16 *chan_ptr)
 		}
 		TXLED_CLR;
 		cc2400_strobe(SRFOFF);
-		while ((cc2400_status() & FS_LOCK));
+		cc2400_wait_fs_unlock();
 	}
 }
 #endif

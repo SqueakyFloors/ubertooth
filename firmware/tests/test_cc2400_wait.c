@@ -5,13 +5,17 @@
  * flow over two radio primitives, so the test supplies fake cc2400_status()
  * and cc2400_strobe() implementations and checks the loop's contract.
  *
- * The regression under test is issue #158: the firmware waited for the
- * synthesizer to unlock with `while ((cc2400_status() & FS_LOCK));`. Because
- * the CC2400 SPI bus is bit-banged and shared with interrupt handlers that
- * also strobe the radio, that status read can stay stuck with FS_LOCK set --
- * and USB in this firmware is polled, not interrupt-driven, so a main loop
- * stuck in that wait makes the board answer no control request at all until it
- * is re-plugged. The wait must therefore always terminate.
+ * Scope: the bounded wait only. The rest of the issue #158 fix -- the LE PHY
+ * teardown and the NULL-buffer guards in le_phy.c -- is register and interrupt
+ * sequencing against real hardware, verified on a board rather than here.
+ *
+ * What the wait has to guarantee: the firmware used to spin on
+ * `while ((cc2400_status() & FS_LOCK));`. Because the CC2400 SPI bus is
+ * bit-banged and shared with interrupt handlers that also strobe the radio,
+ * that status read can stay stuck with FS_LOCK set -- and USB in this firmware
+ * is polled, not interrupt-driven, so a main loop stuck in that wait makes the
+ * board answer no control request at all until it is re-plugged. The wait must
+ * therefore always terminate.
  */
 #include "minunit.h"
 #include "cc2400_wait.h"
@@ -19,11 +23,16 @@
 /* ---- fake radio ---- */
 
 /* Status bytes handed out in order; the last one repeats forever. */
-static u8 fake_status_seq[8];
+#define FAKE_STATUS_MAX 8
+static u8 fake_status_seq[FAKE_STATUS_MAX];
 static unsigned fake_status_len;
 static unsigned status_reads;
 static unsigned srfoff_strobes;
 static unsigned other_strobes;
+
+/* When non-zero, report FS_LOCK clear on this poll number (1-based) and
+ * locked on every poll before it, overriding the status sequence. */
+static unsigned unlock_poll;
 
 static void fake_radio_reset(void)
 {
@@ -31,19 +40,32 @@ static void fake_radio_reset(void)
 	status_reads = 0;
 	srfoff_strobes = 0;
 	other_strobes = 0;
+	unlock_poll = 0;
 }
 
 static void fake_radio_status_sequence(const u8 *seq, unsigned len)
 {
 	unsigned i;
-	for (i = 0; i < len && i < 8; ++i)
+	if (len > FAKE_STATUS_MAX) {
+		printf("  FAIL test bug: status sequence longer than %d\n",
+		       FAKE_STATUS_MAX);
+		len = FAKE_STATUS_MAX;
+	}
+	for (i = 0; i < len; ++i)
 		fake_status_seq[i] = seq[i];
-	fake_status_len = (len < 8) ? len : 8;
+	fake_status_len = len;
+}
+
+static void fake_radio_unlock_at_poll(unsigned n)
+{
+	unlock_poll = n;
 }
 
 u8 cc2400_status(void)
 {
 	unsigned i = status_reads++;
+	if (unlock_poll != 0)
+		return (status_reads == unlock_poll) ? 0 : FS_LOCK;
 	if (fake_status_len == 0)
 		return 0;
 	if (i >= fake_status_len)
@@ -117,6 +139,27 @@ MU_TEST(test_restrobes_srfoff_while_waiting)
 	mu_assert_int_eq(0, (int)other_strobes);
 }
 
+/* Boundary: unlock reported on the very last permitted poll still counts as
+ * success, so the bound is not off by one. */
+MU_TEST(test_unlock_on_last_poll_succeeds)
+{
+	fake_radio_reset();
+	fake_radio_unlock_at_poll(FS_UNLOCK_POLLS);
+
+	mu_assert_int_eq(1, cc2400_wait_fs_unlock());
+	mu_assert_int_eq(FS_UNLOCK_POLLS, (int)status_reads);
+}
+
+/* One poll later is a timeout: the loop does not take an extra poll. */
+MU_TEST(test_unlock_one_poll_too_late_times_out)
+{
+	fake_radio_reset();
+	fake_radio_unlock_at_poll(FS_UNLOCK_POLLS + 1);
+
+	mu_assert_int_eq(0, cc2400_wait_fs_unlock());
+	mu_assert_int_eq(FS_UNLOCK_POLLS, (int)status_reads);
+}
+
 /* A short wait that succeeds before the first re-strobe interval must not
  * strobe at all -- the fast path stays as cheap as it was. */
 MU_TEST(test_no_strobe_on_short_wait)
@@ -137,6 +180,8 @@ int main(void)
 	MU_RUN(test_returns_success_once_unlocked);
 	MU_RUN(test_gives_up_when_lock_never_clears);
 	MU_RUN(test_restrobes_srfoff_while_waiting);
+	MU_RUN(test_unlock_on_last_poll_succeeds);
+	MU_RUN(test_unlock_one_poll_too_late_times_out);
 	MU_RUN(test_no_strobe_on_short_wait);
 	return mu_report();
 }
