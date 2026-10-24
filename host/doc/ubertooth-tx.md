@@ -26,6 +26,14 @@ as a placeholder/experimental entry point. Do not rely on it.
  - `-V` :
    print version information.
 
+## TRANSMIT POWER
+
+When it transmits, the firmware sets the CC2400 power level to 3 (-7 dBm)
+regardless of the level set with `ubertooth-util -a`, and the level stays at 3
+afterwards. These levels are at the CC2400 radio; the Ubertooth One's RF amplifier changes
+the actual output after that. See
+[#165](https://github.com/SqueakyFloors/ubertooth/issues/165).
+
 ## SEE ALSO
 
 ubertooth-dump(1), ubertooth(7)
