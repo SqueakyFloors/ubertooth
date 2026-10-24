@@ -195,8 +195,9 @@ int main(int argc, char* argv[])
 	/* A UAP is only usable with the LAP it belongs to. This is an argument
 	 * error like the survey check above, so it is refused here rather than
 	 * after a device has been opened, where it used to depend on whether a
-	 * board happened to be free. */
-	if (have_uap && !have_lap && !survey_mode) {
+	 * board happened to be free. (Survey mode has already returned for any
+	 * address, so it cannot reach this.) */
+	if (have_uap && !have_lap) {
 		fprintf(stderr, "error: -u <UAP> requires -l <LAP>\n");
 		return 1;
 	}
@@ -235,7 +236,6 @@ int main(int argc, char* argv[])
 							  have_uap ? 0xff : 0x00, 0);
 			}
 		}
-		/* -u without -l was refused before the device was opened. */
 	}
 
 	if (infile == NULL) {

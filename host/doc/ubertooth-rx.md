@@ -192,8 +192,7 @@ way instead of being read as 0, for example
 
 An option combination the tool cannot carry out is refused there too, before
 any device is opened, so the message never depends on which boards are
-attached: `-u` without `-l` gives `error: -u <UAP> requires -l <LAP>`, and an
-address alongside `-z` gives `No address should be specified for survey mode`.
+attached: `-u` without `-l` gives `error: -u <UAP> requires -l <LAP>`.
 
 ## SEE ALSO
 
