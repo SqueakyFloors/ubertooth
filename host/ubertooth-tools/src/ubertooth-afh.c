@@ -45,11 +45,17 @@ static void usage()
 	printf("\t-r print AFH channel map once every second (default: print on update)\n");
 	printf("\n");
 	printf("Other options\n");
-	printf("\t-t <seconds> timeout for initial AFH map detection (not required)\n");
+	printf("\t-t <seconds> timeout for initial AFH map detection (not required; see below)\n");
 	printf("\t-e maximum access code errors (default: %d, range: 0-%d)\n",
 	       max_ac_errors, MAX_AC_ERRORS);
 	printf("\t-V print version information\n");
-	printf("\t-U <0-7> set ubertooth device to use\n");
+	printf("\t-U <index|serial> set ubertooth device to use\n");
+	printf("\n");
+	printf("The tool keeps monitoring the map for changes until it is\n");
+	printf("interrupted (Ctrl-C), both with and without -t. With -t, it stops\n");
+	printf("with exit status 2 if no packet from the piconet was received\n");
+	printf("during those seconds. To wait for a piconet that is not in range\n");
+	printf("yet, run without -t. -t has no effect with -r.\n");
 }
 
 int main(int argc, char* argv[])
@@ -171,10 +177,26 @@ int main(int argc, char* argv[])
 	/* Clean up on exit. */
 	register_cleanup_handler(ut, 0);
 
-	if (use_r_format)
+	if (use_r_format) {
 		rx_afh_r(ut, pn, timeout);
-	else
-		rx_afh(ut, pn, timeout);
+	} else {
+		r = rx_afh(ut, pn, timeout);
+		if (r == UBERTOOTH_AFH_NO_PACKETS) {
+			/* An all-zero map used to be printed here, which reads as a
+			 * detected map whose piconet uses no channel at all. */
+			fprintf(stderr, "error: no packets from ??:??:%02x:%02x:%02x:%02x"
+			        " within %d s; AFH map unknown, not monitoring\n",
+			        uap, (lap >> 16) & 0xff, (lap >> 8) & 0xff, lap & 0xff,
+			        timeout);
+			ubertooth_stop(ut);
+			return 2;
+		}
+		if (r < 0) {
+			/* libubertooth has already said what failed. */
+			ubertooth_stop(ut);
+			return 1;
+		}
+	}
 
 	ubertooth_stop(ut);
 

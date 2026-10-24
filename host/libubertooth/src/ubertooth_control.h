@@ -64,6 +64,11 @@
 #define SYM_LEN       50
 #define BANK_LEN      (SYM_LEN * 8)
 
+/* Length of an AFH channel map in bytes: one bit per Basic Rate channel, 79
+ * channels in 10 bytes (the last bit is unused). The firmware uses the same
+ * length (firmware/bluetooth_rxtx/bluetooth.h). */
+#define AFH_MAP_BYTES 10
+
 #ifndef MAX
 #define MAX(a,b) ((a)>(b) ? (a) : (b))
 #endif

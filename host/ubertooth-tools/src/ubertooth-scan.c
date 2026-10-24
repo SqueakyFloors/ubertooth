@@ -72,7 +72,7 @@ void extra_info(int dd, int dev_id, bdaddr_t* bdaddr)
 	uint8_t features[8], max_page = 0;
 	char name[249], *tmp;
 	char addr[19] = { 0 };
-	uint8_t mode, afh_map[10];
+	uint8_t mode, afh_map[AFH_MAP_BYTES];
 	struct hci_version version;
 	struct hci_dev_info di;
 	struct hci_conn_info_req *cr;

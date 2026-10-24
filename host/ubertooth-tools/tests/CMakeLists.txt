@@ -165,6 +165,28 @@ add_test(NAME util-main COMMAND test-util-main)
 # takes well under a second (0.02-0.5 s locally and in CI).
 set_tests_properties(util-main PROPERTIES TIMEOUT 5)
 
+# The same approach for ubertooth-afh: its real main() against a scripted
+# detection phase, so what it reports and exits with is checked without a
+# board or a piconet. libbtbb is the real one (no device is touched).
+add_executable(test-afh-main test_afh_main.c)
+target_link_libraries(test-afh-main opt-parse-for-tests ${LIBBTBB_LIBRARIES})
+if(libubertooth_SOURCE_DIR)
+	target_include_directories(test-afh-main PRIVATE ${libubertooth_SOURCE_DIR}/src)
+else()
+	target_include_directories(test-afh-main PRIVATE ${LIBUBERTOOTH_INCLUDE_DIR})
+endif()
+target_include_directories(test-afh-main PRIVATE ../src
+	${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+if(USE_OWN_GNU_GETOPT)
+	target_include_directories(test-afh-main BEFORE PRIVATE ../getopt)
+	target_link_libraries(test-afh-main libgetopt_static)
+endif()
+
+add_test(NAME afh-main COMMAND test-afh-main)
+# Nothing here waits on a device; a regression that reaches a real receive
+# loop should fail instead of hanging the suite.
+set_tests_properties(afh-main PROPERTIES TIMEOUT 10)
+
 # Runs the real libubertooth part-ID commands against a fake libusb control
 # transfer (defined in the test, so it wins over libusb's). libbtbb is faked;
 # libusb is linked for the other symbols. Needs the library sources, so only

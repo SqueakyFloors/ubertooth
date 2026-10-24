@@ -35,13 +35,44 @@ handler is disabled in the source and the flag has no effect.
 Other options:
 
  - `-t <seconds>` :
-   timeout for initial AFH map detection (not required)
+   timeout for initial AFH map detection (not required); see DETECTION AND
+   MONITORING. No effect with `-r`.
  - `-e <0-5>` :
    maximum access code errors (default: 2, range: 0-5)
  - `-V` :
    print version information
- - `-U <0-7>` :
-   set ubertooth device to use
+ - `-U <index|serial>` :
+   select an Ubertooth by USB enumeration index or stable serial-number
+   string; see ubertooth-util(1), SELECTING A DEVICE
+
+## DETECTION AND MONITORING
+
+`ubertooth-afh` does not stop on its own. It keeps monitoring the piconet and
+reporting changes to the map until it is interrupted (Ctrl-C), both with and
+without `-t`.
+
+`-t <seconds>` only adds an initial detection phase: the tool listens for that
+many seconds, prints the map it found, and then starts monitoring. If that
+phase received no packet from the piconet there is no map to print, so the tool
+says so, does not start monitoring, and exits with status 2 instead of
+printing an all-zero map (which reads as a detected map whose piconet uses no
+channel at all):
+
+    $ ubertooth-afh -l 446688 -u 22 -t 3
+    error: no packets from ??:??:22:44:66:88 within 3 s; AFH map unknown, not monitoring
+
+Nothing is wrong with the board in that case: the piconet is out of range, it
+is not transmitting, or the UAP/LAP is not the one in use. A longer `-t`, or no
+`-t` at all, keeps listening.
+
+To wait for a piconet that is not in range yet (start the tool, then bring the
+devices close or start the connection), run without `-t`: monitoring starts at
+once, waits as long as it takes, and prints `+ channel N is used now` as the
+piconet's packets arrive. `-t` is for a bounded check that gives up when
+nothing is heard in time.
+
+`-r` has its own loop, which prints the map once a second from the start and
+ignores `-t`.
 
 ## ARGUMENTS
 
@@ -56,6 +87,22 @@ alongside them.
 An option value must be a whole value in its range, or it is refused the same
 way instead of being read as 0, for example
 `error: timeout must be a whole number of seconds, 0 for none (got abc)`.
+
+## EXIT STATUS
+
+`ubertooth-afh` does not stop on its own, so it normally exits 0 after being
+interrupted (Ctrl-C).
+
+It exits 2 when the `-t` detection phase received no packet from the piconet
+(see DETECTION AND MONITORING). The number of seconds in that message is the
+`-t` value, not the time actually spent listening, which is shorter if the
+tool was interrupted during the phase.
+
+It exits 1 without opening a device for a bad command line (a missing UAP or
+LAP, an option value out of range, or a word that is not an option), and when
+the selected Ubertooth is not found. Without `-r`, it also exits 1 when the
+receive could not be started at all; `-r` does not report that and still
+exits 0.
 
 ## SEE ALSO
 

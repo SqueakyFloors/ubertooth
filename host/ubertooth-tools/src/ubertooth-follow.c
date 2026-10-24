@@ -63,7 +63,7 @@ int main(int argc, char *argv[])
 	int first_exit_option = 0;
 	int have_uap = 0;
 	int afh_enabled = 0;
-	uint8_t mode, afh_map[10];
+	uint8_t mode, afh_map[AFH_MAP_BYTES];
         char* ubertooth_device = NULL;
 	char *bt_dev = "hci0";
 	char addr[19] = { 0 };
