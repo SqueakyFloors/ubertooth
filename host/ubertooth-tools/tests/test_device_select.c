@@ -40,7 +40,7 @@ static struct {
 
 /* Put n Ubertooth One devices on the bus, preceded by one non-Ubertooth device
  * so that a bus index and an Ubertooth index are never the same number. */
-static void bus_with_uberteeth(int n)
+static void bus_with_ubertooths(int n)
 {
 	int i;
 
@@ -199,7 +199,7 @@ MU_TEST(an_index_in_range_opens_that_device)
 	char msg[256];
 	ubertooth_t *ut;
 
-	bus_with_uberteeth(3);
+	bus_with_ubertooths(3);
 	ut = select_capturing("1", msg, sizeof(msg));
 	mu_assert(ut != NULL, "-U1 of three devices opens one");
 	mu_assert(fake.opened == &fake.devs[2], "-U1 opens the second Ubertooth");
@@ -207,7 +207,7 @@ MU_TEST(an_index_in_range_opens_that_device)
 	ubertooth_stop(ut);
 	ubertooth_free(ut);
 
-	bus_with_uberteeth(3);
+	bus_with_ubertooths(3);
 	ut = select_capturing("2", msg, sizeof(msg));
 	mu_assert(ut != NULL, "-U2 of three devices opens one");
 	mu_assert(fake.opened == &fake.devs[3], "-U2 opens the third Ubertooth");
@@ -226,7 +226,7 @@ MU_TEST(an_index_past_several_devices_opens_nothing)
 	for (i = 0; i < sizeof(past_end) / sizeof(past_end[0]); i++) {
 		char arg[8];
 
-		bus_with_uberteeth(2);
+		bus_with_ubertooths(2);
 		snprintf(arg, sizeof(arg), "%d", past_end[i]);
 		mu_assert(select_capturing(arg, msg, sizeof(msg)) == NULL, arg);
 		mu_assert(fake.opened == NULL, "no device opened");
@@ -250,7 +250,7 @@ MU_TEST(an_index_too_large_for_an_int_opens_nothing)
 	size_t i;
 
 	for (i = 0; i < sizeof(too_large) / sizeof(too_large[0]); i++) {
-		bus_with_uberteeth(1);
+		bus_with_ubertooths(1);
 		mu_assert(select_capturing(too_large[i], msg, sizeof(msg)) == NULL,
 		          too_large[i]);
 		mu_assert(fake.opened == NULL, too_large[i]);
@@ -264,14 +264,14 @@ MU_TEST(an_index_too_large_for_an_int_opens_nothing)
 		         too_large[i]);
 		mu_assert(strcmp(msg, expected) == 0, msg);
 
-		bus_with_uberteeth(2);
+		bus_with_ubertooths(2);
 		mu_assert(select_capturing(too_large[i], msg, sizeof(msg)) == NULL,
 		          too_large[i]);
 		mu_assert_int_eq(0, fake.opens);
 		mu_assert_int_eq(0, fake.lists);
 
 		/* and the quiet path refuses it without a message */
-		bus_with_uberteeth(1);
+		bus_with_ubertooths(1);
 		mu_assert(ubertooth_start_select_quiet(too_large[i]) == NULL,
 		          too_large[i]);
 		mu_assert_int_eq(0, fake.opens);
@@ -284,7 +284,7 @@ MU_TEST(the_largest_representable_index_is_an_ordinary_refusal)
 {
 	char msg[256];
 
-	bus_with_uberteeth(2);
+	bus_with_ubertooths(2);
 	mu_assert(select_capturing("2147483647", msg, sizeof(msg)) == NULL, msg);
 	mu_assert(strcmp(msg,
 	    "error: no Ubertooth at index 2147483647 (2 attached)\n"
@@ -292,7 +292,7 @@ MU_TEST(the_largest_representable_index_is_an_ordinary_refusal)
 	    "could not open Ubertooth device\n") == 0, msg);
 
 	/* Leading zeros are still just digits. */
-	bus_with_uberteeth(2);
+	bus_with_ubertooths(2);
 	mu_assert(select_capturing("01", msg, sizeof(msg)) != NULL, msg);
 	mu_assert(fake.opened == &fake.devs[2], "-U01 is index 1");
 }
@@ -305,12 +305,12 @@ MU_TEST(a_nonzero_index_with_one_device_opens_nothing)
 {
 	char msg[256];
 
-	bus_with_uberteeth(1);
+	bus_with_ubertooths(1);
 	mu_assert(select_capturing("1", msg, sizeof(msg)) == NULL, "-U1 of one");
 	mu_assert_int_eq(0, fake.opens);
 	mu_assert(strstr(msg, "no Ubertooth at index 1 (1 attached)") != NULL, msg);
 
-	bus_with_uberteeth(1);
+	bus_with_ubertooths(1);
 	mu_assert(select_capturing("5", msg, sizeof(msg)) == NULL, "-U5 of one");
 	mu_assert(strstr(msg, "no Ubertooth at index 5 (1 attached)") != NULL, msg);
 }
@@ -320,7 +320,7 @@ MU_TEST(index_zero_and_no_index_open_the_only_device)
 	char msg[256];
 	ubertooth_t *ut;
 
-	bus_with_uberteeth(1);
+	bus_with_ubertooths(1);
 	ut = select_capturing("0", msg, sizeof(msg));
 	mu_assert(ut != NULL, "-U0 opens the only device");
 	mu_assert(fake.opened == &fake.devs[1], "and it is the Ubertooth");
@@ -328,7 +328,7 @@ MU_TEST(index_zero_and_no_index_open_the_only_device)
 	ubertooth_stop(ut);
 	ubertooth_free(ut);
 
-	bus_with_uberteeth(1);
+	bus_with_ubertooths(1);
 	ut = select_capturing(NULL, msg, sizeof(msg));
 	mu_assert(ut != NULL, "no -U opens the only device");
 	mu_assert(fake.opened == &fake.devs[1], "and it is the Ubertooth");
@@ -340,7 +340,7 @@ MU_TEST(the_error_names_the_index_and_the_count)
 {
 	char msg[256];
 
-	bus_with_uberteeth(2);
+	bus_with_ubertooths(2);
 	mu_assert(select_capturing("7", msg, sizeof(msg)) == NULL, "-U7 of two");
 	mu_assert(strcmp(msg,
 	    "error: no Ubertooth at index 7 (2 attached)\n"
@@ -352,7 +352,7 @@ MU_TEST(several_devices_with_no_index_still_list_them)
 {
 	char msg[512];
 
-	bus_with_uberteeth(2);
+	bus_with_ubertooths(2);
 	mu_assert(select_capturing(NULL, msg, sizeof(msg)) == NULL, "no -U of two");
 	mu_assert(strstr(msg, "multiple Ubertooth devices found") != NULL, msg);
 }
@@ -361,12 +361,12 @@ MU_TEST(no_device_attached_opens_nothing)
 {
 	char msg[256];
 
-	bus_with_uberteeth(0); /* the hub only */
+	bus_with_ubertooths(0); /* the hub only */
 	mu_assert(select_capturing("0", msg, sizeof(msg)) == NULL, "-U0 of none");
 	mu_assert_int_eq(0, fake.opens);
 	mu_assert(strstr(msg, "could not open Ubertooth device") != NULL, msg);
 
-	bus_with_uberteeth(0);
+	bus_with_ubertooths(0);
 	mu_assert(select_capturing(NULL, msg, sizeof(msg)) == NULL, "no -U of none");
 	mu_assert_int_eq(0, fake.opens);
 }
@@ -377,18 +377,18 @@ MU_TEST(an_empty_or_failing_bus_is_refused)
 {
 	char msg[256];
 
-	bus_with_uberteeth(0);
+	bus_with_ubertooths(0);
 	fake.n = 0;
 	fake.list_rc = 0;
 	mu_assert(select_capturing("0", msg, sizeof(msg)) == NULL, "empty bus");
 	mu_assert_int_eq(0, fake.lists);
 
-	bus_with_uberteeth(0);
+	bus_with_ubertooths(0);
 	fake.list_rc = LIBUSB_ERROR_IO;
 	mu_assert(select_capturing("0", msg, sizeof(msg)) == NULL, "failed list");
 	mu_assert_int_eq(0, fake.lists);
 
-	bus_with_uberteeth(2);
+	bus_with_ubertooths(2);
 	mu_assert(select_capturing("9", msg, sizeof(msg)) == NULL, "past the end");
 	mu_assert_int_eq(0, fake.lists);
 }
@@ -400,7 +400,7 @@ MU_TEST(a_device_without_a_descriptor_is_skipped)
 	char msg[256];
 	ubertooth_t *ut;
 
-	bus_with_uberteeth(2);
+	bus_with_ubertooths(2);
 	fake.descriptor_fails = 1; /* the first Ubertooth on the bus */
 	ut = select_capturing("0", msg, sizeof(msg));
 	mu_assert(ut != NULL, "-U0 opens the Ubertooth that answered");
@@ -410,7 +410,7 @@ MU_TEST(a_device_without_a_descriptor_is_skipped)
 	ubertooth_stop(ut);
 	ubertooth_free(ut);
 
-	bus_with_uberteeth(2);
+	bus_with_ubertooths(2);
 	fake.descriptor_fails = 1;
 	mu_assert(select_capturing("1", msg, sizeof(msg)) == NULL, "-U1 of one left");
 	mu_assert(strstr(msg, "no Ubertooth at index 1 (1 attached)") != NULL, msg);
@@ -422,23 +422,23 @@ MU_TEST(the_quiet_selection_refuses_the_same_indices)
 {
 	ubertooth_t *ut;
 
-	bus_with_uberteeth(2);
+	bus_with_ubertooths(2);
 	ut = ubertooth_start_select_quiet("1");
 	mu_assert(ut != NULL, "quiet -U1 of two opens one");
 	mu_assert(fake.opened == &fake.devs[2], "the second Ubertooth");
 	ubertooth_stop(ut);
 	ubertooth_free(ut);
 
-	bus_with_uberteeth(2);
+	bus_with_ubertooths(2);
 	mu_assert(ubertooth_start_select_quiet("2") == NULL, "quiet -U2 of two");
 	mu_assert_int_eq(0, fake.opens);
 	mu_assert_int_eq(0, fake.lists);
 
-	bus_with_uberteeth(1);
+	bus_with_ubertooths(1);
 	mu_assert(ubertooth_start_select_quiet("1") == NULL, "quiet -U1 of one");
 	mu_assert_int_eq(0, fake.opens);
 
-	bus_with_uberteeth(1);
+	bus_with_ubertooths(1);
 	ut = ubertooth_start_select_quiet("0");
 	mu_assert(ut != NULL, "quiet -U0 of one opens it");
 	ubertooth_stop(ut);
