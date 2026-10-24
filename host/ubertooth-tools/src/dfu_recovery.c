@@ -502,8 +502,10 @@ void dfu_image_describe_failure(const struct dfu_image_report *report,
 
 /* The LPC175x/176x parts and the flash each one has, from the part
  * identification numbers in the NXP LPC176x/5x user manual (UM10360, "Part
- * identification numbers"). The Ubertooth One carries an LPC175x, and the
- * fleet is mixed, so the table covers the family rather than one part.
+ * identification numbers"). The Ubertooth One schematic specifies an LPC1754
+ * (128 KiB), other Ubertooth designs use other LPC175x parts, and boards in
+ * the field differ (one reports an LPC1754; others read back more than
+ * 128 KiB), so the table covers the family rather than one part.
  *
  * An entry that claims more flash than the part has is what wedges a board,
  * so these figures are the load-bearing part of this file. The largest here,

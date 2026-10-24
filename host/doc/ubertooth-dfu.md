@@ -101,7 +101,7 @@ DFU suffix, so `-d` refuses the result. The dump holds the image that was
 written (its own suffix included, padded with 0xff to the next 256-byte
 block), followed by whatever the rest of the region contains, normally 0xff.
 
-How long that is depends on the part, and the fleet is mixed, so the command
+How long that is depends on the part, which differs between boards, so the command
 says what it is about to read:
 
     Reading back 114688 bytes, 0x4000-0x1ffff: part 0x25011722 (LPC1754) has 128 KiB of flash
