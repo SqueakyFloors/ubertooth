@@ -974,12 +974,12 @@ static int plan_upload(struct dfu_runtime_context *runtime)
 		printf("part 0x%08x (%s) has %u KiB of flash\n", runtime->part_id,
 		       part->name, part->flash_size / 1024);
 	else if (runtime->part_id_read)
-		printf("part 0x%08x is not known here, so only the %u KiB this "
-		       "firmware is linked for\n", runtime->part_id,
+		printf("part 0x%08x is not known here, so assuming the %u KiB of "
+		       "flash this firmware is linked for\n", runtime->part_id,
 		       DFU_ASSUMED_FLASH_SIZE / 1024);
 	else
-		printf("the part could not be read, so only the %u KiB this "
-		       "firmware is linked for\n", DFU_ASSUMED_FLASH_SIZE / 1024);
+		printf("the part could not be read, so assuming the %u KiB of flash "
+		       "this firmware is linked for\n", DFU_ASSUMED_FLASH_SIZE / 1024);
 	fflush(stdout);
 	return 0;
 }
