@@ -270,8 +270,8 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle *devh,
 		/* A bootloader that acts on the request resets into the
 		 * application: the same device comes back on the same path under
 		 * the application's USB ID, so the DFU device is gone. The reset
-		 * happens whatever the request itself returns, which is the whole
-		 * point of #267: it is answered by a device that is going away. */
+		 * happens whatever the request itself returns, because it is
+		 * answered by a device that is already going away. */
 		if (fake.detach_resets) {
 			fake.vid = U1_VENDORID;
 			fake.pid = U1_PRODUCTID;
@@ -681,7 +681,7 @@ MU_TEST(a_refused_detach_fails_the_command)
 	remove_dump();
 }
 
-/* ---- #267: a detach whose request fails because the board reset -------- */
+/* ---- a detach whose request fails because the board reset -------------- */
 
 /* Flash the image and reset, with the detach request failing the way it does
  * on a board that resets while it is in flight. The board comes back on the
@@ -735,8 +735,8 @@ MU_TEST(a_detach_that_fails_with_io_as_the_board_resets_passes)
 
 /* No status is read as a verdict, so a code the host has no name for is no
  * different: the macOS backend returns LIBUSB_ERROR_OTHER for the IOKit
- * results it does not map, and the issue's own output has a -99 from a board
- * that had already gone. */
+ * results it does not map, and a board that had already gone has been seen
+ * reported that way. */
 MU_TEST(a_detach_that_fails_with_an_unnamed_error_as_the_board_resets_passes)
 {
 	struct run_result r = flash_with_detach_error(LIBUSB_ERROR_OTHER);

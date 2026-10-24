@@ -594,14 +594,16 @@ int enter_dfu_mode(libusb_device_handle* devh) {
 	return 0;
 }
 
-/* Is the DFU device still on the path it was asked to leave? Returns 1 while
- * it is there after every poll, 0 once it has gone, or a negative libusb
- * error when that could not be established. A reset takes a moment to reach
- * the bus, so this waits for the device to disappear rather than reading one
- * list. */
+/* Is the DFU device still on the path it was asked to leave? Returns 0 once
+ * it has gone, 1 when it was there for the whole wait, or a negative libusb
+ * error when no poll could tell. A reset takes a moment to reach the bus, so
+ * this waits for the device to disappear rather than reading one list, and a
+ * listing that fails costs that poll rather than the answer. */
 static int dfu_device_presence(struct dfu_runtime_context *runtime,
                                const struct dfu_usb_identity *identity)
 {
+	int last_error = LIBUSB_ERROR_OTHER;
+	int seen = 0;
 	unsigned poll;
 
 	/* Without a path there is nothing to look for, and no device matches an
@@ -613,12 +615,16 @@ static int dfu_device_presence(struct dfu_runtime_context *runtime,
 	for (poll = 0; poll < DETACH_GONE_POLLS; poll++) {
 		int result = find_ubertooth_dfu_device(runtime->usb_context, identity,
 		                                       NULL);
-		if (result != 1)
-			return result;
+		if (result == 0)
+			return 0;
+		if (result == 1)
+			seen = 1;
+		else
+			last_error = result;
 		if (poll + 1 < DETACH_GONE_POLLS)
 			transition_sleep_ms(runtime, DETACH_GONE_INTERVAL_MS);
 	}
-	return 1;
+	return seen ? 1 : last_error;
 }
 
 /* Ask the board to leave the bootloader and run its application again.
@@ -629,8 +635,12 @@ static int dfu_device_presence(struct dfu_runtime_context *runtime,
  * worked, and the backends have their own codes for the same race, so no
  * status is read as a verdict. What settles it is whether the DFU device is
  * still on its path afterwards: a bootloader that refused the request is
- * still there, and one that acted on it is not. Returns 0 when the board has
- * left the bootloader, or a negative error when it has not. */
+ * still there, and one that acted on it is not.
+ *
+ * Returns 0 when the request was accepted or the DFU device has gone, and a
+ * negative error when the board is still in the bootloader or that could not
+ * be established. A request the bootloader accepts and then does not act on
+ * is not looked into here; it is caught by the -d ... -r verification. */
 int detach(struct dfu_runtime_context* runtime, libusb_device_handle* devh,
            const struct dfu_usb_identity* identity) {
 	int rv, presence;
