@@ -12,7 +12,7 @@ FW_RXTX := ../bluetooth_rxtx
 FW_COMMON := ../common
 CPPFLAGS += -I. -I$(FW_RXTX)
 
-TESTS   := test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend
+TESTS   := test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait
 BINDIR  := bin
 
 .PHONY: all test clean
@@ -45,6 +45,14 @@ $(BINDIR)/test_frend: test_frend.c minunit.h $(FW_COMMON)/cc2400.h \
 		$(FW_RXTX)/bluetooth_rxtx.c $(FW_RXTX)/ego.c | $(BINDIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -I$(FW_COMMON) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
 		-o $@ test_frend.c
+
+# cc2400_wait.c reaches the radio only through cc2400_status()/cc2400_strobe();
+# stubs-radio/ubertooth.h declares them and the test supplies fake
+# implementations. -Istubs-radio comes before -I. so it wins over ubertooth.h
+# in this directory.
+$(BINDIR)/test_cc2400_wait: test_cc2400_wait.c minunit.h stubs-radio/ubertooth.h \
+		stubs/ubertooth.h $(FW_RXTX)/cc2400_wait.c $(FW_RXTX)/cc2400_wait.h | $(BINDIR)
+	$(CC) $(CFLAGS) -Istubs-radio $(CPPFLAGS) -o $@ test_cc2400_wait.c $(FW_RXTX)/cc2400_wait.c
 
 $(BINDIR):
 	mkdir -p $(BINDIR)

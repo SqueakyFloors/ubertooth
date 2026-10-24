@@ -40,7 +40,7 @@
   the command returns at once and the board stays reachable; `-S` or any mode
   option stops it and leaves the LEDs off.
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
-- **Reflash required:** the firmware API version is now 1.09, and the host
+- **Reflash required:** the firmware API version is now 1.10, and the host
   tools require firmware of exactly their own API version, older or newer
   (`ubertooth-util` still reads the version and reflashes any firmware). Host
   and firmware come from the same tree; `2020-12-R1` firmware is refused.
@@ -84,6 +84,11 @@
   [upstream #519](https://github.com/greatscottgadgets/ubertooth/pull/519)
 
 ### Reliability fixes
+
+- Firmware no longer stops answering Universal Serial Bus (USB) control
+  requests after a Bluetooth Low Energy (BLE) sniffing mode is stopped, so the
+  board no longer needs a re-plug to be usable again.
+  [#158](https://github.com/SqueakyFloors/ubertooth/issues/158)
 
 - `ubertooth-dfu` now performs bounded, device-specific Device Firmware
   Upgrade (DFU) entry and recovery, retries interrupted transfers, and verifies

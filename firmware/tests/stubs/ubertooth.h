@@ -5,6 +5,9 @@
  * the host.  Pure-logic firmware files such as bluetooth.c only need the
  * integer types and the shared USB interface definitions, so this header
  * provides exactly those, from the same sources the firmware uses.
+ *
+ * Tests whose file under test reaches the radio use stubs-radio/ubertooth.h,
+ * which is this header plus the CC2400 definitions.
  */
 #ifndef __UBERTOOTH_H
 #define __UBERTOOTH_H

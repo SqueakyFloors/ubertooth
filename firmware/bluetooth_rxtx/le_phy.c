@@ -86,6 +86,15 @@ static le_rx_t *current_rxbuf = NULL;
 // received packets, waiting to be processed
 queue_t packet_queue;
 
+// 1 while le_phy_main() owns the radio, DMA, and timer1.
+//
+// The interrupt handlers in this file drive the LE state machine, strobe the
+// CC2400, and dereference current_rxbuf.  Once le_phy_main() has torn the PHY
+// down, none of that is valid any more, so an interrupt that was already
+// latched (or a match left armed in timer1) must do nothing.  See the teardown
+// comment in le_phy_main() for why a stray interrupt here wedged the board.
+static volatile int le_phy_active = 0;
+
 
 /////////////////////
 // connections
@@ -157,7 +166,7 @@ static void timer1_clear_match(void);
 static void timer1_wait_fs_lock(void);
 static void timer1_cancel_fs_lock(void);
 static void timer1_wait_buffer(void);
-static void timer1_cancel_buffer(void);
+static void timer1_cancel_wait_buffer(void);
 static void blink(int tx, int rx, int usr);
 static void le_dma_init(void);
 static void le_cc2400_strobe_rx(void);
@@ -306,11 +315,47 @@ void le_DMA_IRQHandler(void) {
 	int8_t rssi;
 	uint32_t timestamp = NOW; // sampled early for most accurate measurement
 
+	// Nothing to do once the PHY has been torn down: the radio is off, the
+	// buffers are no longer owned by this module, and touching the CC2400 here
+	// would collide with the main loop's own bit-banged SPI access.
+	if (!le_phy_active) {
+		dma_clear_interrupts(0);
+		return;
+	}
+
 	// channel 0
 	if (DMACIntStat & (1 << 0)) {
 		// terminal count - byte received
 		if (DMACIntTCStat & (1 << 0)) {
 			DMACIntTCClear = (1 << 0);
+
+			// RX must never be armed without a buffer, but if it ever is,
+			// stop rather than dereference NULL: a fault here lands in the
+			// fault.c LED loop, which also stops USB being serviced, so the
+			// board would answer nothing until it was re-plugged (#158).
+			if (current_rxbuf == NULL) {
+				// SFSON, not SRFOFF: stop receiving but leave the
+				// synthesizer running, because the buffer wait below
+				// hands over to the FS_LOCK path, which only arms RX
+				// once the synthesizer reports locked.
+				cc2400_strobe(SFSON);
+
+				// same DMA teardown as the end-of-packet path below,
+				// including draining the SSP: the receiver keeps clocking
+				// bytes into the FIFO until SFSON takes effect, and they
+				// would otherwise be re-armed as the head of the next packet
+				DMACC0Config = 0;
+				DMACIntTCClear = (1 << 0);
+				DIO_SSP_DMACR &= ~SSPDMACR_RXDMAE;
+				while (SSP1SR & SSPSR_RNE) {
+					uint8_t tmp = (uint8_t)DIO_SSP_DR;
+					(void)tmp;
+				}
+				ICER0 = ICER0_ICE_DMA;
+
+				timer1_wait_buffer();
+				return;
+			}
 
 			// poll RSSI
 			rssi = (int8_t)(cc2400_get(RSSI) >> 8);
@@ -375,8 +420,11 @@ void le_DMA_IRQHandler(void) {
 					// second packet: close connection event, and set hop timer
 					else if (conn_event.num_packets == 2) {
 						cc2400_strobe(SRFOFF);
+						// may be NULL if the pool is exhausted; the
+						// change_channel() and timer1 paths below check
+						// for that and wait for a buffer instead of
+						// arming RX without one
 						current_rxbuf = buffer_get();
-						// TODO handle NULL
 						finish_conn_event();
 						return;
 					}
@@ -515,9 +563,18 @@ static void change_channel(void) {
 		uint8_t tmp = (uint8_t)DIO_SSP_DR;
 	}
 
-	buffer_clear(current_rxbuf);
-	le_dma_init();
-	dio_ssp_start();
+	// current_rxbuf can be NULL when the buffer pool was exhausted at the end
+	// of a connection event. buffer_clear(NULL) faulted the CPU, so take a
+	// buffer if one has since been freed; without one, do not re-arm DMA or
+	// the SSP either. le_cc2400_init_rf() below hands over to the timer1
+	// FS_LOCK path, which waits for a buffer before arming them.
+	if (current_rxbuf == NULL)
+		current_rxbuf = buffer_get();
+	if (current_rxbuf != NULL) {
+		buffer_clear(current_rxbuf);
+		le_dma_init();
+		dio_ssp_start();
+	}
 
 	if (conn.access_address == ADVERTISING_AA) {
 		// FIXME
@@ -583,6 +640,14 @@ static void timer1_cancel_wait_buffer(void) {
 }
 
 void TIMER1_IRQHandler(void) {
+	// timer1 belongs to this PHY; after teardown just acknowledge whatever is
+	// pending so a stale match cannot restart the radio or the DMA channel.
+	if (!le_phy_active) {
+		T1MCR = 0;
+		T1IR = 0xff; // write-1-to-clear: every match and capture flag
+		return;
+	}
+
 	// MR0: connection events
 	if (T1IR & TIR_MR0_Interrupt) {
 		// ack the interrupt
@@ -674,13 +739,20 @@ void TIMER1_IRQHandler(void) {
 
 		// if FS is locked, strobe RX and clear interrupt
 		if (cc2400_status() & FS_LOCK) {
-			// restart DMA and SSP
-			le_dma_init();
-			dio_ssp_start();
-			ISER0 = ISER0_ISE_DMA;
-
-			le_cc2400_strobe_rx();
 			T1MCR &= ~TMCR_MR2I;
+
+			// Never arm RX without a packet buffer: le_DMA_IRQHandler()
+			// would have nowhere to put the bytes. Wait for one instead.
+			if (current_rxbuf == NULL) {
+				timer1_wait_buffer();
+			} else {
+				// restart DMA and SSP
+				le_dma_init();
+				dio_ssp_start();
+				ISER0 = ISER0_ISE_DMA;
+
+				le_cc2400_strobe_rx();
+			}
 		}
 
 		// if FS is not locked, check again in 3 us
@@ -693,10 +765,19 @@ void TIMER1_IRQHandler(void) {
 	if (T1IR & TIR_MR3_Interrupt) {
 		T1IR = TIR_MR3_Interrupt;
 
-		current_rxbuf = buffer_get();
+		// only take a buffer if we do not already hold one: change_channel()
+		// can also acquire one while this wait is armed, and overwriting the
+		// pointer would leak that buffer for the rest of the mode
+		if (current_rxbuf == NULL)
+			current_rxbuf = buffer_get();
+
 		if (current_rxbuf == NULL) {
 			timer1_wait_buffer();
 		} else {
+			// the wait is over: disarm the match, or it fires again after the
+			// counter wraps and overwrites current_rxbuf, leaking a buffer
+			timer1_cancel_wait_buffer();
+
 			if (cc2400_status() & FS_LOCK) {
 				// restart DMA and SSP
 				le_dma_init();
@@ -964,6 +1045,7 @@ void le_phy_main(void) {
 
 	buffers_init();
 	queue_init(&packet_queue);
+	le_phy_active = 1;
 	timer1_start();
 
 	current_rxbuf = buffer_get();
@@ -1017,13 +1099,58 @@ void le_phy_main(void) {
 		// XXX maybe LED light show?
 	}
 
+	// Tear the PHY down before handing control back to the main loop.
+	//
+	// This used to stop timer1 and clear the LEDs only, leaving the DMA
+	// interrupt enabled, DMA channel 0 and the SSP running, and the CC2400 in
+	// RX. mode was still MODE_BT_FOLLOW_LE, so DMA_IRQHandler() kept
+	// dispatching arriving bytes into le_DMA_IRQHandler(), which strobes the
+	// synthesizer back on (SFSON) and reads RSSI over the CC2400's bit-banged
+	// SPI bus. cc2400_spi() holds CSN low across a transfer and does not mask
+	// interrupts, so those accesses corrupted -- and were corrupted by -- the
+	// cc2400_idle() the main loop runs next. Its FS_LOCK wait was unbounded,
+	// so the board could sit there forever with USB unserviced, and every
+	// later control request timed out (-7) or stalled (-9) until the board was
+	// physically re-plugged. See issue #158.
+	//
+	// Order matters. Clearing le_phy_active first is what makes this safe: a
+	// write to NVIC ICER0 is not self-synchronising on Cortex-M3, so an
+	// already-pending interrupt can still be taken after the mask, and the
+	// flag is what neuters it. Then stop what feeds the interrupt, then quiet
+	// the radio.
+	le_phy_active = 0;
+
+	ICER0 = ICER0_ICE_DMA;
+	dio_ssp_stop();
+
+	// dio_ssp_stop() has disabled DMA channel 0 and cleared its flags, so
+	// nothing can raise the interrupt now. Put the NVIC line back the way
+	// dma_poweron() left it at boot: it is global, and the modes that run
+	// after this one (bt_stream_rx(), bt_generic_le(), bt_le_sync()) all wait
+	// on rx_tc from legacy_DMA_IRQHandler().
+	ISER0 = ISER0_ISE_DMA;
+
+	// drop every armed match, including MR1 (the LED blink), before stopping
+	// the timer, so nothing is left pending for the next entry into this mode
+	T1MCR = 0;
 	timer1_stop();
+
+	// kill the CC2400: synthesizer off, and the Ubertooth One amplifier with it
+	cc2400_strobe(SRFOFF);
+#ifdef UBERTOOTH_ONE
+	PAEN_CLR;
+	HGM_CLR;
+#endif
+
+	// release the buffers this mode owned, and drop the queue that pointed
+	// into them, so the pool and the queue stay consistent
+	current_rxbuf = NULL;
+	queue_init(&packet_queue);
+	buffers_init();
 
 	// reset state
 	RXLED_CLR;
 	TXLED_CLR;
 	USRLED_CLR;
 	clkn_init();
-
-	// TODO kill CC2400
 }

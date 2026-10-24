@@ -41,6 +41,7 @@ extern volatile uint32_t rx_err;
 
 void dma_poweron();
 void dma_poweroff();
+void dma_clear_interrupts(unsigned channel);
 void dma_init_rx_symbols();
 void dma_init_le();
 void dio_ssp_start();
