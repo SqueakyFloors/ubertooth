@@ -164,7 +164,8 @@ int cmd_set_usrled(struct libusb_device_handle* devh, u16 state)
  * short or empty reply (seen with stalled control transfers in follow mode)
  * would otherwise hand back whatever the result buffer held, as if it were a
  * real value. Returns r unchanged unless the length is wrong, and then
- * LIBUSB_ERROR_IO. The message matches the other "<what>: short reply" ones. */
+ * LIBUSB_ERROR_IO. A reply longer than asked cannot come from libusb (it is
+ * capped at wLength); "long" is only a fallback. */
 static int check_reply_length(int r, int want, const char *what)
 {
 	if (r >= 0 && r != want) {

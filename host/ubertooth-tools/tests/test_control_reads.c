@@ -168,6 +168,12 @@ MU_TEST(four_and_two_byte_reads_need_their_full_length)
 	mu_assert_int_eq(0x1234, cmd_read_register(NULL, 0x05));
 	script(1, 0x12);
 	mu_assert_int_eq(LIBUSB_ERROR_IO, cmd_read_register(NULL, 0x05));
+
+	/* an empty reply, as seen in follow mode */
+	script(0, 0);
+	mu_assert(cmd_get_clock(NULL) == (uint32_t)LIBUSB_ERROR_IO, "empty clock");
+	mu_assert(cmd_get_access_address(NULL) == (uint32_t)LIBUSB_ERROR_IO, "empty access address");
+	mu_assert_int_eq(LIBUSB_ERROR_IO, cmd_read_register(NULL, 0x05));
 }
 
 /* cmd_read_access_address() reports an error separately from the address,
@@ -186,6 +192,9 @@ MU_TEST(read_access_address_returns_errors_separately)
 	script(3, 0x11);
 	mu_assert_int_eq(LIBUSB_ERROR_IO, cmd_read_access_address(NULL, &aa));
 	mu_assert(aa == 0xdeadbeefu, "left untouched on a short reply");
+	script(0, 0);
+	mu_assert_int_eq(LIBUSB_ERROR_IO, cmd_read_access_address(NULL, &aa));
+	mu_assert(aa == 0xdeadbeefu, "left untouched on an empty reply");
 
 	script(LIBUSB_ERROR_PIPE, 0);
 	mu_assert_int_eq(LIBUSB_ERROR_PIPE, cmd_read_access_address(NULL, &aa));

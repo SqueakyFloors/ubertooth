@@ -91,6 +91,11 @@ int cmd_tx_syms(struct libusb_device_handle* devh);
 int cmd_specan(struct libusb_device_handle* devh, u16 low_freq, u16 high_freq);
 int cmd_led_specan(struct libusb_device_handle* devh, u16 rssi_threshold);
 int cmd_set_usrled(struct libusb_device_handle* devh, u16 state);
+/* The fixed-size reads below return their value (>= 0), or a negative libusb
+ * error. A reply shorter than expected is LIBUSB_ERROR_IO, never a value
+ * made from stale bytes. cmd_get_clock() and cmd_get_access_address() return
+ * an unsigned value, so an error comes back as that negative code cast to
+ * u32; cmd_read_access_address() reports errors separately. */
 int cmd_get_usrled(struct libusb_device_handle* devh);
 int cmd_set_rxled(struct libusb_device_handle* devh, u16 state);
 int cmd_get_rxled(struct libusb_device_handle* devh);
@@ -148,8 +153,10 @@ uint32_t cmd_get_clock(struct libusb_device_handle* devh);
 int cmd_set_afh_map(struct libusb_device_handle* devh, u8* afh_map);
 int cmd_clear_afh_map(struct libusb_device_handle* devh);
 int cmd_btle_sniffing(struct libusb_device_handle* devh, uint8_t do_follow);
-u32 cmd_get_access_address(struct libusb_device_handle* devh);
+/* Returns 0 and writes *access_address, or a negative libusb error. */
 int cmd_read_access_address(struct libusb_device_handle* devh, u32 *access_address);
+/* Deprecated: an error is indistinguishable from an address. */
+u32 cmd_get_access_address(struct libusb_device_handle* devh);
 int cmd_set_access_address(struct libusb_device_handle* devh, u32 access_address);
 int cmd_do_something(struct libusb_device_handle *devh, unsigned char *data, int len);
 int cmd_do_something_reply(struct libusb_device_handle* devh, unsigned char *data, int len);
