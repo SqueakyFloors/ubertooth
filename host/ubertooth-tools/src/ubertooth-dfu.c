@@ -784,7 +784,8 @@ static int ends_with_dfu_suffix(FILE* file) {
 static FILE* open_upload_temp(const char* target, char** temp_name) {
 	size_t length = strlen(target) + sizeof(".XXXXXX");
 	char* name = malloc(length);
-	mode_t mask;
+	struct stat target_state;
+	mode_t mode, mask;
 	FILE* file;
 	int fd;
 
@@ -796,11 +797,17 @@ static FILE* open_upload_temp(const char* target, char** temp_name) {
 		free(name);
 		return NULL;
 	}
-	/* mkstemp() creates the file private to this user; give the finished
-	 * upload the permissions a plain fopen() would have given it. */
-	mask = umask(0);
-	umask(mask);
-	(void)fchmod(fd, (mode_t)(0666 & ~mask));
+	/* mkstemp() creates the file private to this user. Overwriting a file
+	 * used to keep its permissions and creating one used to take the umask,
+	 * so do the same here before it is renamed into place. */
+	if (stat(target, &target_state) == 0) {
+		mode = target_state.st_mode & 07777;
+	} else {
+		mask = umask(0);
+		umask(mask);
+		mode = (mode_t)(0666 & ~mask);
+	}
+	(void)fchmod(fd, mode);
 	file = fdopen(fd, "w+b");
 	if (file == NULL) {
 		close(fd);
@@ -810,6 +817,20 @@ static FILE* open_upload_temp(const char* target, char** temp_name) {
 	}
 	*temp_name = name;
 	return file;
+}
+
+/* Close and remove the temporary upload file, so no command that ends before
+ * a complete upload leaves one behind. */
+static void discard_upload_temp(FILE** file, char** name) {
+	if (*file != NULL) {
+		fclose(*file);
+		*file = NULL;
+	}
+	if (*name != NULL) {
+		unlink(*name);
+		free(*name);
+		*name = NULL;
+	}
 }
 
 static int get_outfile(char *infile, char **outfile) {
@@ -855,7 +876,7 @@ int main(int argc, char **argv) {
 	FILE* upfile = NULL;
 	FILE* infile = NULL;
 	FILE* outfile = NULL;
-	char* outfile_name;
+	char* outfile_name = NULL;
 	const char* upfile_name = NULL;
 	char* upfile_temp = NULL;
 	libusb_context* dfu_context = NULL;
@@ -879,16 +900,21 @@ int main(int argc, char **argv) {
 			downfile = fopen(optarg, "rb");
 			if (downfile == NULL) {
 				perror(optarg);
-				return 1;
+				exit_status = 1;
+				goto end_without_device;
 			}
 			functions |= FUNC_DOWNLOAD;
 			break;
 		case 'u':
+			/* A repeated -u takes the last file, and the one opened for the
+			 * earlier name goes away with it. */
+			discard_upload_temp(&upfile, &upfile_temp);
 			upfile_name = optarg;
 			upfile = open_upload_temp(upfile_name, &upfile_temp);
 			if (upfile == NULL) {
 				perror(optarg);
-				return 1;
+				exit_status = 1;
+				goto end_without_device;
 			}
 			functions |= FUNC_UPLOAD;
 			break;
@@ -896,13 +922,14 @@ int main(int argc, char **argv) {
 			infile = fopen(optarg, "rb");
 			if (infile == NULL) {
 				perror(optarg);
-				return 1;
+				exit_status = 1;
+				goto end_without_device;
 			}
 			r = get_outfile(optarg, &outfile_name);
 			if (r == 0) {
 				printf("Error: -s requires a .bin\n");
-				fclose(infile);
-				return 1;
+				exit_status = 1;
+				goto end_without_device;
 			}
 			/* Signing an already-signed file would bury the first suffix in
 			 * the firmware payload, so refuse before creating anything. */
@@ -911,17 +938,20 @@ int main(int argc, char **argv) {
 				        "error: %s already has a DFU suffix, so %s was not written\n",
 				        optarg, outfile_name);
 				free(outfile_name);
-				fclose(infile);
-				return 1;
+				outfile_name = NULL;
+				exit_status = 1;
+				goto end_without_device;
 			}
 			outfile = fopen(outfile_name, "w+b");
 			if (outfile == NULL) {
 				perror(outfile_name);
 				free(outfile_name);
-				fclose(infile);
-				return 1;
+				outfile_name = NULL;
+				exit_status = 1;
+				goto end_without_device;
 			}
 			free(outfile_name);
+			outfile_name = NULL;
 			functions |= FUNC_SIGN;
 			break;
 		case 'r':
@@ -936,34 +966,40 @@ int main(int argc, char **argv) {
 			break;
 		default:
 			usage();
-			return 1;
+			exit_status = 1;
+			goto end_without_device;
 		}
 	}
 
 	/* ubertooth-dfu takes no operands: refuse a leftover word before any
 	 * device is opened, rather than running the rest of the command. */
-	if (opt_check_no_operands(argc, argv) < 0)
-		return 1;
+	if (opt_check_no_operands(argc, argv) < 0) {
+		exit_status = 1;
+		goto end_without_device;
+	}
 
 	/* -h ends the command, but only once the whole command line has
 	 * parsed: a bad option value or a stray word is reported even
 	 * alongside it. */
 	if (first_exit_option == 'h') {
 		usage();
-		return 1;
+		exit_status = 1;
+		goto end_without_device;
 	}
 
 	if(functions & FUNC_SIGN) {
 		exit_status = sign(infile, outfile, U1_DFU_VENDORID,
 		                   U1_DFU_PRODUCTID);
 		fclose(infile);
+		infile = NULL;
 		fclose(outfile);
+		outfile = NULL;
 		if (exit_status != 0)
-			return exit_status;
+			goto end_without_device;
 	}
 
 	if (!(functions & (FUNC_UPLOAD|FUNC_DOWNLOAD|FUNC_RESET)))
-		return 0;
+		goto end_without_device;
 
 	/* The whole image is checked here, with no device touched yet: a bad
 	 * file leaves the board running its application. */
@@ -1144,13 +1180,7 @@ int main(int argc, char **argv) {
 
 cleanup:
 	log_dfu_stage("cleanup started");
-	if (upfile != NULL)
-		fclose(upfile);
-	if (upfile_temp != NULL) {
-		unlink(upfile_temp);
-		free(upfile_temp);
-		upfile_temp = NULL;
-	}
+	discard_upload_temp(&upfile, &upfile_temp);
 	if (downfile != NULL)
 		fclose(downfile);
 	/* A failure once the board is in DFU must not leave it there: -r asked
@@ -1172,5 +1202,18 @@ cleanup:
 	close_dfu_device(devh, interface_claimed);
 	exit_dfu_context(dfu_context, (functions & FUNC_RESET) != 0);
 	log_dfu_stage("operation finished");
+	return exit_status;
+
+	/* Ends before any device was opened, so nothing USB to unwind: just the
+	 * files, including the temporary upload file that never filled. */
+end_without_device:
+	if (downfile != NULL)
+		fclose(downfile);
+	if (infile != NULL)
+		fclose(infile);
+	if (outfile != NULL)
+		fclose(outfile);
+	free(outfile_name);
+	discard_upload_temp(&upfile, &upfile_temp);
 	return exit_status;
 }

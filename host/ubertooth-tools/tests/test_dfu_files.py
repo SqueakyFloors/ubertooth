@@ -133,19 +133,39 @@ with tempfile.TemporaryDirectory() as directory:
         check(NOT_FOUND in output.lower(),
               "-d did not get as far as looking for the board")
 
-    # 6. A failed -u leaves an earlier read-back of the same name alone, and no
-    #    temporary file behind.
+    # 6. A failed -u leaves an earlier read-back of the same name alone, with
+    #    its permissions, and no temporary file behind. The same must hold for
+    #    every way the command can end before the upload: -u creates its
+    #    temporary file while the options are still being read.
     print("\n### a failed -u keeps the earlier file")
     upload_dir = os.path.join(directory, "upload")
     os.mkdir(upload_dir)
     keep = os.path.join(upload_dir, "keep.bin")
     write(keep, b"an earlier read-back\n" * 100)
+    os.chmod(keep, stat.S_IRUSR | stat.S_IWUSR)
     before = read(keep)
-    code, output = run("-U", NO_SUCH_SERIAL, "-u", keep, "-r")
+    before_mode = stat.S_IMODE(os.stat(keep).st_mode)
+
+    def keep_survived(label):
+        check(read(keep) == before, f"{label} destroyed the earlier file")
+        check(stat.S_IMODE(os.stat(keep).st_mode) == before_mode,
+              f"{label} changed the earlier file's permissions")
+        leftovers = sorted(set(os.listdir(upload_dir)) - {"keep.bin"})
+        check(not leftovers, f"{label} left files behind: {leftovers}")
+
+    code, _ = run("-U", NO_SUCH_SERIAL, "-u", keep, "-r")
     check(code == 1, f"-u with no board exited {code}")
-    check(read(keep) == before, "a failed -u destroyed the earlier file")
-    leftovers = sorted(set(os.listdir(upload_dir)) - {"keep.bin"})
-    check(not leftovers, f"-u left files behind: {leftovers}")
+    keep_survived("a failed -u")
+
+    for label, arguments in (
+        ("-u with -h", ("-u", keep, "-h")),
+        ("-u with a stray word", ("-u", keep, "extra")),
+        ("-u with an unknown option", ("-u", keep, "-Z")),
+        ("-u twice", ("-u", keep, "-u", keep, "-U", NO_SUCH_SERIAL, "-r")),
+    ):
+        code, _ = run(*arguments)
+        check(code == 1, f"{label} exited {code}")
+        keep_survived(label)
 
 for note in skipped:
     print("SKIP", note)
