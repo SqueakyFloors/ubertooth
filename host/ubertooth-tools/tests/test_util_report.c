@@ -138,10 +138,10 @@ static struct captured run(const struct util_report_request *request,
 		        util_report_compile_info(&ops, fake, out));
 	if (request->part_id)
 		captured.status = util_status_merge(captured.status,
-		        util_report_part_id(&ops, fake, out));
+		        util_report_part_id(&ops, fake, out, err));
 	if (request->serial)
 		captured.status = util_status_merge(captured.status,
-		        util_report_serial(&ops, fake, out));
+		        util_report_serial(&ops, fake, out, err));
 	read_back(out, captured.out, sizeof(captured.out));
 	read_back(err, captured.err, sizeof(captured.err));
 	fclose(out);
@@ -240,6 +240,95 @@ MU_TEST(transfer_error_fails_without_printing_a_board_line)
 	captured = run(&request, &fake);
 	mu_assert_int_eq(1, captured.status);
 	mu_assert_int_eq(0, (long)strlen(captured.out));
+	mu_assert(strcmp(captured.err, "error: board ID read failed\n") == 0,
+	          "failed board ID read not named");
+}
+
+MU_TEST(failed_identity_reads_name_the_query_once_each)
+{
+	struct fake_device fake = make_fake();
+	struct util_report_request request;
+	struct captured captured;
+
+	memset(&request, 0, sizeof(request));
+	request.part_id = 1;
+	fake.part_id_result = -7;
+	captured = run(&request, &fake);
+	mu_assert_int_eq(1, captured.status);
+	mu_assert_int_eq(0, (long)strlen(captured.out));
+	mu_assert(strcmp(captured.err, "error: part ID read failed\n") == 0,
+	          "failed part ID read not named");
+
+	memset(&request, 0, sizeof(request));
+	request.serial = 1;
+	fake = make_fake();
+	fake.serial_result = 1; /* nonzero status, not only negative values */
+	captured = run(&request, &fake);
+	mu_assert_int_eq(1, captured.status);
+	mu_assert_int_eq(0, (long)strlen(captured.out));
+	mu_assert(strcmp(captured.err, "error: serial read failed\n") == 0,
+	          "failed serial read not named");
+
+	/* All three failing in one command: one line each, in report order, and
+	 * the reports in between are still printed. */
+	request = all_reports();
+	fake = make_fake();
+	fake.board_id = -1;
+	fake.part_id_result = -1;
+	fake.serial_result = -1;
+	captured = run(&request, &fake);
+	mu_assert_int_eq(1, captured.status);
+	mu_assert(strcmp(captured.out,
+	                 "Firmware version: git-test (API:1.07)\ncompile-test\n") == 0,
+	          "other reports not printed");
+	mu_assert(strcmp(captured.err,
+	                 "error: board ID read failed\n"
+	                 "error: part ID read failed\n"
+	                 "error: serial read failed\n") == 0,
+	          "one message per failed read");
+
+	/* Successful reads print nothing on err. */
+	fake = make_fake();
+	captured = run(&request, &fake);
+	mu_assert_int_eq(0, captured.status);
+	mu_assert_int_eq(0, (long)strlen(captured.err));
+}
+
+MU_TEST(an_unknown_board_id_is_not_reported_as_a_read_failure)
+{
+	struct fake_device fake = make_fake();
+	struct util_report_request request = only_board_id();
+	struct captured captured;
+
+	fake.board_id = 7;
+	captured = run(&request, &fake);
+	mu_assert_int_eq(1, captured.status);
+	mu_assert(strcmp(captured.err, "error: unknown board ID 7\n") == 0,
+	          "unknown board ID diagnostic changed");
+}
+
+MU_TEST(read_failed_message_matches_only_the_exact_line_for_that_query)
+{
+	FILE *err = tmpfile();
+	char line[128];
+
+	mu_assert(err != NULL, "tmpfile failed");
+	if (err == NULL)
+		return;
+	mu_assert_int_eq(1, util_report_read_failed(err, UTIL_QUERY_PART_ID));
+	read_back(err, line, sizeof(line));
+	fclose(err);
+	mu_assert(strcmp(line, "error: part ID read failed\n") == 0, "line format");
+	mu_assert(util_is_read_failed_message(line, UTIL_QUERY_PART_ID), "own line");
+	mu_assert(!util_is_read_failed_message(line, UTIL_QUERY_BOARD_ID),
+	          "other query");
+	mu_assert(!util_is_read_failed_message("error: part ID read failed",
+	                                       UTIL_QUERY_PART_ID), "no newline");
+	mu_assert(!util_is_read_failed_message("error: part ID read failed\nx\n",
+	                                       UTIL_QUERY_PART_ID), "trailing text");
+	mu_assert(!util_is_read_failed_message("error: unknown board ID 7\n",
+	                                       UTIL_QUERY_BOARD_ID), "other error");
+	mu_assert(!util_is_read_failed_message("", UTIL_QUERY_SERIAL), "empty");
 }
 
 MU_TEST(board_id_composes_with_firmware_compile_part_and_serial)
@@ -426,6 +515,9 @@ int main(void)
 	MU_RUN(every_known_board_id_succeeds_with_its_name);
 	MU_RUN(unknown_board_id_is_rejected_without_indexing_the_name_table);
 	MU_RUN(transfer_error_fails_without_printing_a_board_line);
+	MU_RUN(failed_identity_reads_name_the_query_once_each);
+	MU_RUN(an_unknown_board_id_is_not_reported_as_a_read_failure);
+	MU_RUN(read_failed_message_matches_only_the_exact_line_for_that_query);
 	MU_RUN(board_id_composes_with_firmware_compile_part_and_serial);
 	MU_RUN(each_report_composes_with_board_id_individually);
 	MU_RUN(early_failure_is_not_masked_by_later_success);

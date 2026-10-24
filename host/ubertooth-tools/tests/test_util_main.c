@@ -1028,6 +1028,8 @@ MU_TEST(a_failed_read_on_one_device_is_reported_and_fails_the_listing)
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.out, "0: <board ID read failed>\n1: 1 (Ubertooth One)\n") == 0,
 	          "failed read line");
+	/* The report's stderr line is captured into the listing, not repeated. */
+	mu_assert_int_eq(0, (long)strlen(r.err));
 
 	reset_fake();
 	fake.device_count = 2;
@@ -1044,6 +1046,28 @@ MU_TEST(a_failed_read_on_one_device_is_reported_and_fails_the_listing)
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.out, "0: <serial read failed>\n1: <serial read failed>\n") == 0,
 	          "serial read failure text is unchanged");
+	mu_assert_int_eq(0, (long)strlen(r.err));
+
+	reset_fake();
+	fake.device_count = 2;
+	fake.partnum_rc = -1;
+	r = RUN("-p");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, "0: <part ID read failed>\n1: <part ID read failed>\n") == 0,
+	          "part ID read failure shown per device");
+	mu_assert_int_eq(0, (long)strlen(r.err));
+
+	reset_fake();
+	fake.device_count = 2;
+	fake.board_fail_index = 0;
+	fake.partnum_rc = -1;
+	r = RUN("-b", "-p", "-s");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out,
+	                 "0: <board ID read failed>\n0: <part ID read failed>\n0: " SERIAL_LINE
+	                 "1: " BOARD_LINE "1: <part ID read failed>\n1: " SERIAL_LINE) == 0,
+	          "combined listing with failed reads");
+	mu_assert_int_eq(0, (long)strlen(r.err));
 
 	reset_fake();
 	fake.device_count = 2;
@@ -1314,6 +1338,52 @@ MU_TEST(a_failed_read_prints_no_value_line_and_names_the_query_on_stderr)
 	}
 }
 
+MU_TEST(a_failed_identity_read_names_the_query_on_stderr)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.board_id = LIBUSB_ERROR_TIMEOUT;
+	r = RUN("-b");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, "") == 0, "-b stdout");
+	mu_assert(strcmp(r.err, "error: board ID read failed\n") == 0, "-b stderr");
+
+	reset_fake();
+	fake.partnum_rc = LIBUSB_ERROR_TIMEOUT;
+	r = RUN("-p");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, "") == 0, "-p stdout");
+	mu_assert(strcmp(r.err, "error: part ID read failed\n") == 0, "-p stderr");
+
+	reset_fake();
+	fake.serial_rc = 1; /* nonzero status byte */
+	r = RUN("-s");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, "") == 0, "-s stdout");
+	mu_assert(strcmp(r.err, "error: serial read failed\n") == 0, "-s stderr");
+
+	/* Composed with the other reads, in output order. */
+	reset_fake();
+	fake.board_id = -1;
+	fake.channel = -1;
+	fake.serial_rc = -1;
+	r = RUN("-b", "-c", "-a", "-p", "-s");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, PALEVEL_LINE PART_LINE) == 0, "remaining lines in order");
+	mu_assert(strcmp(r.err,
+	                 "error: board ID read failed\nerror: channel read failed\n"
+	                 "error: serial read failed\n") == 0,
+	          "one message per failed read");
+
+	/* An unknown board ID keeps its own message and is not a read failure. */
+	reset_fake();
+	fake.board_id = 7;
+	r = RUN("-b");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, "error: unknown board ID 7\n") == 0, "unknown board ID");
+}
+
 MU_TEST(a_failed_led_read_drops_only_that_line)
 {
 	struct run_result r;
@@ -1578,6 +1648,7 @@ int main(void)
 	MU_RUN(u_all_is_rejected_before_opening_a_device_for_any_other_option);
 	MU_RUN(only_the_exact_word_all_selects_every_device);
 	MU_RUN(a_failed_read_prints_no_value_line_and_names_the_query_on_stderr);
+	MU_RUN(a_failed_identity_read_names_the_query_on_stderr);
 	MU_RUN(a_failed_led_read_drops_only_that_line);
 	MU_RUN(a_failed_read_keeps_the_other_lines_of_a_composed_command);
 	MU_RUN(a_failed_test_command_send_fails_the_command);

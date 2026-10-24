@@ -100,8 +100,10 @@
   [#40](https://github.com/SqueakyFloors/ubertooth/issues/40)
 - `ubertooth-util` no longer prints error codes as values when a query read
   fails (`-c`, `-a`, `-z`, `-l`, `-d`, `-m`, `-9`); it names the failed read on
-  standard error instead. A failed `-9` test command now exits non-zero.
+  standard error instead, as `-b`, `-p` and `-s` now also do. A failed `-9`
+  test command now exits non-zero.
   [#59](https://github.com/SqueakyFloors/ubertooth/issues/59)
+  [#123](https://github.com/SqueakyFloors/ubertooth/issues/123)
 - Host-library failures now propagate correctly and release device resources;
   firmware-image and ducky operations reject short reads.
   [#2](https://github.com/SqueakyFloors/ubertooth/issues/2)
