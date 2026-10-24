@@ -237,8 +237,9 @@ int main(int argc, char *argv[])
 	/* Clean up on exit. */
 	register_cleanup_handler(ut, 0);
 
-	ubertooth_connect_select(ut, ubertooth_device);
-	if (ut == NULL) {
+	/* Fails when no board matches -U or it cannot be opened; the library
+	 * has already said why. */
+	if (ubertooth_connect_select(ut, ubertooth_device) < 0) {
 		return 1;
 	}
 
