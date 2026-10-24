@@ -8,6 +8,7 @@ needed: the access code of each record is computed from the Bluetooth Core
 specification (Vol 2, Part B 6.3.3) in the bit order libbtbb decodes.
 """
 
+import os
 import struct
 import subprocess
 import sys
@@ -106,6 +107,9 @@ def run(*arguments, directory):
         timeout=30,
         check=False,
         cwd=directory,
+        # A replay opens no device; the switch keeps it that way if one of
+        # these runs ever reaches device selection (#219).
+        env=dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1"),
     )
 
 
