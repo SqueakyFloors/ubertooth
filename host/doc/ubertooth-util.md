@@ -228,7 +228,8 @@ queries that report a nonzero value such as `-b` (board ID), `-c` (channel), or
 operation fails, even when a later operation in the same command succeeds.
 It exits with 1, without opening a device, when two or more mode options are
 given (see DESCRIPTION), when `-z` is combined with a mode option, or when an
-`-a` level is not 0-7 (`error: PA level must be 0-7 (got <value>)`).
+`-a` level is not a single digit 0-7
+(`error: PA level must be a single digit 0-7 (got <value>)`).
 It also exits with 1, without opening a device, when the command line contains
 a word that is not an option, and names it: `error: unexpected argument '<word>'`.
 `ubertooth-util` takes no other arguments.

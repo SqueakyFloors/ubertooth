@@ -986,7 +986,7 @@ MU_TEST(stray_arguments_are_rejected_before_any_device_action)
 MU_TEST(pa_level_zero_is_set_and_bad_levels_are_refused)
 {
 	struct run_result r;
-	static const char *const bad[] = { "-a8", "-a9", "-afoo", "-a-1", "-a+3", "-a 3", "-a3x", "-a10" };
+	static const char *const bad[] = { "-a8", "-a9", "-afoo", "-a-1", "-a+3", "-a 3", "-a3x", "-a10", "-a07", "-a00" };
 	size_t i;
 
 	reset_fake();
@@ -1008,13 +1008,6 @@ MU_TEST(pa_level_zero_is_set_and_bad_levels_are_refused)
 	mu_assert_int_eq(0, r.rc);
 	mu_assert_int_eq(7, fake.last_palevel_set);
 
-	/* a leading zero is still a level 0-7 */
-	reset_fake();
-	fake.last_palevel_set = 99;
-	r = RUN("-a07");
-	mu_assert_int_eq(0, r.rc);
-	mu_assert_int_eq(7, fake.last_palevel_set);
-
 	/* a bare -a still reads, and sets nothing */
 	reset_fake();
 	fake.last_palevel_set = 99;
@@ -1028,7 +1021,7 @@ MU_TEST(pa_level_zero_is_set_and_bad_levels_are_refused)
 		fake.last_palevel_set = 99;
 		r = run_util((const char *const[]){ "ubertooth-util", bad[i], NULL });
 		mu_assert_int_eq(1, r.rc);
-		mu_assert(strstr(r.err, "error: PA level must be 0-7 (got ") != NULL, bad[i]);
+		mu_assert(strstr(r.err, "error: PA level must be a single digit 0-7 (got ") != NULL, bad[i]);
 		mu_assert_int_eq(0, (long)strlen(r.out));
 		mu_assert_int_eq(0, fake.start_calls);
 		mu_assert_int_eq(99, fake.last_palevel_set);
@@ -1038,7 +1031,7 @@ MU_TEST(pa_level_zero_is_set_and_bad_levels_are_refused)
 	reset_fake();
 	r = RUN("-a", "9");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strstr(r.err, "error: PA level must be 0-7 (got 9)") != NULL, "-a 9");
+	mu_assert(strstr(r.err, "error: PA level must be a single digit 0-7 (got 9)") != NULL, "-a 9");
 	mu_assert_int_eq(0, fake.start_calls);
 }
 
