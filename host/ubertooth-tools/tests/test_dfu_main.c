@@ -357,7 +357,12 @@ static void begin_capture(void)
 {
 	capture.out = tmpfile();
 	capture.err = tmpfile();
-	mu_assert(capture.out != NULL && capture.err != NULL, "tmpfile failed");
+	/* mu_assert() counts a failure and carries on, which here would mean
+	 * dup2(fileno(NULL), ...): stop instead. */
+	if (capture.out == NULL || capture.err == NULL) {
+		fprintf(stderr, "tmpfile failed\n");
+		exit(1);
+	}
 	fflush(stdout);
 	fflush(stderr);
 	capture.saved_out = dup(STDOUT_FILENO);
@@ -623,7 +628,10 @@ MU_TEST(asking_past_the_end_of_flash_takes_the_bootloader_down)
 	FILE *dump = tmpfile();
 
 	board_in_dfu();
-	mu_assert(dump != NULL, "tmpfile failed");
+	if (dump == NULL) {
+		fprintf(stderr, "tmpfile failed\n");
+		exit(1);
+	}
 	memset(&r, 0, sizeof(r));
 	begin_capture();
 	r.rc = upload(FAKE_HANDLE, dump, (256 * 1024) - DUMP_ADDRESS);

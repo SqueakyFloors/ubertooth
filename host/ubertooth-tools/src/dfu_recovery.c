@@ -528,15 +528,22 @@ static const struct dfu_part DFU_PARTS[] = {
 	{ 0x26113F37, "LPC1769", 512 * 1024 },
 };
 
+#define DFU_PART_COUNT (sizeof(DFU_PARTS) / sizeof(DFU_PARTS[0]))
+
 const struct dfu_part *dfu_part_lookup(uint32_t part_id)
 {
 	size_t i;
 
-	for (i = 0; i < sizeof(DFU_PARTS) / sizeof(DFU_PARTS[0]); i++) {
+	for (i = 0; i < DFU_PART_COUNT; i++) {
 		if (DFU_PARTS[i].part_id == part_id)
 			return &DFU_PARTS[i];
 	}
 	return NULL;
+}
+
+const struct dfu_part *dfu_part_at(size_t index)
+{
+	return index < DFU_PART_COUNT ? &DFU_PARTS[index] : NULL;
 }
 
 uint32_t dfu_upload_length(uint32_t flash_size)

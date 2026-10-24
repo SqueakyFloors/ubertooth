@@ -131,7 +131,10 @@ already in the bootloader, or will not report it, the dump covers the 114688
 bytes above the bootloader that the firmware is linked for, and the line says
 so in place of a part. There is no option for a longer dump, so on a larger
 part that was already in the bootloader the shorter dump is all there is; let
-the tool enter DFU itself to get the whole region. Asking for more than the
+the tool enter DFU itself to get the whole region. The assumption has a limit
+the other way too: a board with a smaller part than that, already in the
+bootloader so its part cannot be read, would still be asked for more flash
+than it has. Asking for more than the
 part has is what the bootloader cannot survive: it answers a read from any
 address below 512 KiB, and a read with no flash behind it faults it until the
 board is power\-cycled.

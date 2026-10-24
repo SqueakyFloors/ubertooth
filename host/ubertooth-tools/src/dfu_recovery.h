@@ -213,18 +213,22 @@ struct dfu_part {
 /* The part behind part_id, or NULL for one this host has no entry for. */
 const struct dfu_part *dfu_part_lookup(uint32_t part_id);
 
+/* The table entry at index, or NULL past the last one, so the table itself
+ * can be walked and checked. */
+const struct dfu_part *dfu_part_at(size_t index);
+
 /* The part the application is linked for
  * (firmware/common/LPC17xx_Linker_Script_with_bootloader.ld gives the
  * application 128K - 16384 bytes), and so the size assumed for a part that
  * cannot be identified.
  *
  * This is the one remaining way to ask past the end of flash, and it is the
- * common path: a board already in the bootloader always takes it. It is safe
- * for the boards this firmware can run on, because an image linked for that
- * region does not fit a smaller part, so a board answering as an Ubertooth
- * has at least this much. The family table below does list smaller parts, and
- * on one of those with an unreadable part ID the read would still run past
- * the end. */
+ * common path: a board already in the bootloader always takes it. It holds
+ * for the parts the Ubertooth One is built from, which have at least this
+ * much, but it is an assumption and not a floor: the family table does list
+ * smaller parts, a 31 KiB image would fit one of them, and such a board in
+ * the bootloader would still be read past the end of its flash. The lasting
+ * answer to that is the bootloader refusing the request, which is firmware. */
 #define DFU_ASSUMED_FLASH_SIZE (128u * 1024u)
 
 /* How many bytes above the bootloader a read-back covers on a part with

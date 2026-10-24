@@ -863,6 +863,37 @@ MU_TEST(test_part_lookup_knows_the_lpc17xx_flash_sizes)
 	mu_assert(dfu_part_lookup(0) == NULL, "a zero part ID was matched");
 }
 
+/* The table is the load-bearing data of the read-back: an entry claiming more
+ * flash than its part has is what takes a bootloader down, so check the shape
+ * of every entry rather than the three looked up above. */
+MU_TEST(test_every_part_entry_is_usable_and_within_the_bootloader_limit)
+{
+	const uint32_t application = BOOTLOADER_OFFSET + BOOTLOADER_SIZE;
+	const struct dfu_part *part;
+	size_t i, j;
+
+	mu_assert(dfu_part_at(0) != NULL, "the part table is empty");
+	for (i = 0; (part = dfu_part_at(i)) != NULL; i++) {
+		mu_assert(part->part_id != 0, "a part entry has no ID");
+		mu_assert(part->name != NULL && part->name[0] != '\0',
+		          "a part entry has no name");
+		mu_assert(part->flash_size > application,
+		          "a part entry has no flash above the bootloader");
+		mu_assert_int_eq(0, (int)(part->flash_size % BLOCK_SIZE));
+		/* The bootloader's own address check stops at 512 KiB, so an entry
+		 * above it would ask for an address it refuses. */
+		mu_assert(part->flash_size <= 512 * 1024,
+		          "a part entry claims more flash than the bootloader allows");
+		mu_assert(dfu_part_lookup(part->part_id) != NULL,
+		          "a part in the table cannot be looked up");
+		for (j = 0; j < i; j++) {
+			mu_assert(dfu_part_at(j)->part_id != part->part_id ||
+			          dfu_part_at(j)->flash_size == part->flash_size,
+			          "one part ID is listed with two flash sizes");
+		}
+	}
+}
+
 MU_TEST(test_upload_length_covers_the_flash_above_the_bootloader)
 {
 	const uint32_t application = BOOTLOADER_OFFSET + BOOTLOADER_SIZE;
@@ -889,6 +920,7 @@ int main(void)
 {
 	printf("DFU recovery tests\n");
 	MU_RUN(test_part_lookup_knows_the_lpc17xx_flash_sizes);
+	MU_RUN(test_every_part_entry_is_usable_and_within_the_bootloader_limit);
 	MU_RUN(test_upload_length_covers_the_flash_above_the_bootloader);
 	MU_RUN(test_transfer_reopens_same_path_and_retries_from_start);
 	MU_RUN(test_transfer_reopen_timeout_is_distinct);
