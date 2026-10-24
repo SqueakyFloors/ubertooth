@@ -30,8 +30,8 @@
 
 /*
  * CLK100NS is a free-running clock with a period of 100 ns.  It resets every
- * CLK100NS_PERIOD = 2^15 * 10^5 cycles (about 5.5 minutes) - computed from
- * clkn and timer0 (T0TC)
+ * CLK100NS_PERIOD cycles (about 5.5 minutes) - computed from clkn and
+ * timer0 (T0TC)
  *
  * clkn is the native (local) clock as defined in the Bluetooth specification.
  * It advances 3200 times per second.  Two clkn periods make a Bluetooth time

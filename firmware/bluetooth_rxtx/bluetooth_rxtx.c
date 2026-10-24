@@ -837,7 +837,7 @@ void EINT3_IRQHandler()
 static void msleep(uint32_t millis)
 {
 	uint32_t now = (clkn & 0xffffff);
-	uint32_t stop_at = now + millis * 10000 / 3125; // millis -> clkn ticks
+	uint32_t stop_at = now + millis * 10000 / CLK100NS_PER_CLKN; // millis -> clkn ticks
 
 	// handle clkn overflow
 	if (stop_at >= ((uint32_t)1<<28)) {
@@ -1863,7 +1863,7 @@ void bt_le_sync(u8 active_mode)
 		// timeout - FIXME this is an ugly hack
 		u32 now = CLK100NS;
 		if (now < le.last_packet)
-			now += 3276800000; // handle rollover
+			now += CLK100NS_PERIOD; // handle rollover
 		if  ( // timeout
 			((le.link_state == LINK_CONNECTED || le.link_state == LINK_CONN_PENDING)
 			&& (now - le.last_packet > 50000000))
@@ -2138,7 +2138,7 @@ void promisc_recover_hop_increment(u8 *packet) {
 	} else if (channel == 2406) {
 		u32 second_ts = CLK100NS;
 		if (second_ts < first_ts)
-			second_ts += 3276800000; // handle rollover
+			second_ts += CLK100NS_PERIOD; // handle rollover
 		// Number of channels hopped between previous and current timestamp.
 		u32 channels_hopped = DIVIDE_ROUND(second_ts - first_ts,
 										   le.conn_interval * LE_BASECLK);

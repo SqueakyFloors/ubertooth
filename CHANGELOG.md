@@ -293,8 +293,7 @@
   [#165](https://github.com/SqueakyFloors/ubertooth/issues/165)
 - PCAP and PcapNG timestamps no longer jump 101.8 s every time the board's
   capture clock rolls over, which it does every 327.68 s, so packet times in a
-  capture longer than that are continuous again. Affected live capture and
-  `ubertooth-rx -i` replay alike.
+  long capture are continuous again, live and on `ubertooth-rx -i` replay.
   [#218](https://github.com/SqueakyFloors/ubertooth/issues/218)
 
 ### Documentation

@@ -5,9 +5,9 @@
  * now_ns_from_clk100ns() extends clk100ns, which wraps every
  * CLK100NS_PERIOD ticks (327.68 s), into a 64-bit tick count. Extending it as
  * if it wrapped at 2^32 added 101.8 s to every packet after a wrap, so every
- * capture longer than the clock's period was wrong from the first wrap on
- * (issue #218). The reconstruction is static in ubertooth_callback.c, so that
- * source is compiled into this test.
+ * capture longer than the clock's period was wrong from the first wrap on.
+ * The reconstruction is static in ubertooth_callback.c, so that source is
+ * compiled into this test.
  *
  * Only differences between reconstructed times are checked. Where a capture
  * starts is a separate matter (the anchor and the start offset), so these
@@ -89,9 +89,6 @@ MU_TEST(a_wrap_adds_the_clocks_period_not_2_32)
 
 	mu_assert_int_eq(1, ut.clk100ns_upper);
 	mu_assert_int_eq(100 * STEP_TICKS, after - before);
-	/* What the 2^32 extension added on top of the step. */
-	mu_assert(after - before < 100 * STEP_TICKS + 1000000000ull,
-	          "the wrap added a step of its own");
 }
 
 MU_TEST(several_wraps_stay_continuous)

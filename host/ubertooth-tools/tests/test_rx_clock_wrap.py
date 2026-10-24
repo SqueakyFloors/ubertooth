@@ -4,7 +4,7 @@
 The board's 100 ns capture clock wraps every 3125 * 2^20 ticks (327.68 s), so
 any capture longer than that crosses a wrap. Extending the clock as a 32-bit
 counter put a 101.8 s step into every PCAP and PcapNG timestamp after the first
-wrap (issue #218).
+wrap.
 
 The fixture is built here, so no board and no saved capture is needed: a replay
 reads the record format ``ubertooth-rx -d`` writes (a big-endian 32-bit host
@@ -54,7 +54,10 @@ def sync_word(lap):
 
 
 def record(host_time, clk100ns, channel):
-    """One replay record of a decodable packet at this clock value."""
+    """One replay record of a decodable packet at this clock value.
+
+    The clock is packed little-endian, which is how the host reads it.
+    """
     bits = [(sync_word(LAP) >> i) & 1 for i in range(64)]
     symbols = [0] * PREAMBLE_AT
     symbols += [1, 0, 1, 0] if bits[0] else [0, 1, 0, 1]
@@ -82,10 +85,12 @@ EXPECTED_OFFSETS_NS = [100 * (ticks - TICKS[0]) for ticks in TICKS]
 
 
 def pcap_times(path):
-    """Nanoseconds of each record in a libbtbb nanosecond pcap."""
+    """Nanoseconds of each record in a nanosecond-resolution pcap."""
     data = path.read_bytes()
     assert len(data) > 24, f"pcap is only {len(data)} bytes"
-    order = "<" if data[:4] == bytes.fromhex("4d3cb2a1") else ">"
+    magic = {bytes.fromhex("4d3cb2a1"): "<", bytes.fromhex("a1b23c4d"): ">"}
+    order = magic.get(data[:4])
+    assert order, f"not a nanosecond pcap: magic {data[:4].hex()}"
     out = []
     offset = 24
     while offset + 16 <= len(data):
@@ -96,7 +101,11 @@ def pcap_times(path):
 
 
 def pcapng_times(path):
-    """Nanoseconds of each enhanced packet block in a pcapng."""
+    """Nanoseconds of each enhanced packet block in a pcapng.
+
+    The interface block states the resolution, so a file written with another
+    one fails as a resolution mismatch rather than as odd times.
+    """
     data = path.read_bytes()
     order = "<" if data[8:12] == bytes.fromhex("4d3c2b1a") else ">"
     out = []
@@ -105,7 +114,17 @@ def pcapng_times(path):
         block_type, length = struct.unpack_from(order + "2I", data, offset)
         if length < 12 or offset + length > len(data):
             break
-        if block_type == 6:
+        if block_type == 1:                     # interface description
+            options = offset + 12 + 8
+            while options + 4 <= offset + length - 4:
+                code, size = struct.unpack_from(order + "2H", data, options)
+                if code == 0:
+                    break
+                if code == 9:                   # if_tsresol
+                    assert data[options + 4] == 9, \
+                        f"timestamps are 10^-{data[options + 4]} s, not ns"
+                options += 4 + (size + 3) // 4 * 4
+        if block_type == 6:                     # enhanced packet
             high, low = struct.unpack_from(order + "2I", data, offset + 12)
             out.append((high << 32) | low)
         offset += length

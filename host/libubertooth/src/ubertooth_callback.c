@@ -104,17 +104,19 @@ static uint64_t capture_start_ns( void )
 
 static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx )
 {
+	uint32_t clk100ns = le32toh( rx->clk100ns );
+
 	/* track clk100ns */
 	if (!ut->clk100ns_started) {
 		ut->clk100ns_started = 1;
-		ut->last_clk100ns = ut->start_clk100ns = rx->clk100ns;
+		ut->last_clk100ns = ut->start_clk100ns = clk100ns;
 		ut->abs_start_ns = capture_start_ns( );
 	}
 	/* detect clk100ns roll-over */
-	if (rx->clk100ns < ut->last_clk100ns) {
+	if (clk100ns < ut->last_clk100ns) {
 		ut->clk100ns_upper += 1;
 	}
-	ut->last_clk100ns = rx->clk100ns;
+	ut->last_clk100ns = clk100ns;
 }
 
 /* The capture clock of a packet, as 100 ns ticks since the board started
@@ -122,7 +124,8 @@ static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx )
  * not 2^32, which would add 101.8 s to every later packet. */
 static uint64_t clk100ns_extended( const ubertooth_t* ut, const usb_pkt_rx* rx )
 {
-	return ut->clk100ns_upper * (uint64_t)CLK100NS_PERIOD + rx->clk100ns;
+	return ut->clk100ns_upper * (uint64_t)CLK100NS_PERIOD
+	       + le32toh( rx->clk100ns );
 }
 
 static uint64_t now_ns_from_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx )
@@ -167,7 +170,7 @@ void cb_scan(ubertooth_t* ut, void* args __attribute__((unused)))
 	/* Once offset is known for a valid packet, copy in symbols
 	 * and other rx data. CLKN here is the 312.5us CLK27-0. The
 	 * btbb library can shift it be CLK1 if needed. */
-	clkn = (rx->clkn_high << 20) + (le32toh(rx->clk100ns) + offset*10) / 3125;
+	clkn = (rx->clkn_high << 20) + (le32toh(rx->clk100ns) + offset*10) / CLK100NS_PER_CLKN;
 	btbb_packet_set_data(pkt, syms + offset, BANK_LEN - offset,
 	                     rx->channel, clkn);
 
@@ -540,7 +543,7 @@ void cb_rx(ubertooth_t* ut, void* args)
 	/* Once offset is known for a valid packet, copy in symbols
 	 * and other rx data. CLKN here is the 312.5us CLK27-0. The
 	 * btbb library can shift it be CLK1 if needed. */
-	clkn = (le32toh(rx->clkn_high) << 20) + (le32toh(rx->clk100ns) + offset*10 - 4000) / 3125;
+	clkn = (le32toh(rx->clkn_high) << 20) + (le32toh(rx->clk100ns) + offset*10 - 4000) / CLK100NS_PER_CLKN;
 	btbb_packet_set_data(pkt, syms + offset, BANK_LEN*10 - offset,
 	                     rx->channel, clkn);
 
