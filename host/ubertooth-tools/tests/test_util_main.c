@@ -455,7 +455,7 @@ static struct run_result run_util(const char *const *args)
 /* Exact expected report lines, in the order ubertooth-util prints them. */
 #define BOARD_LINE "Board ID Number: 1 (Ubertooth One)\n"
 #define CHANNEL_LINE "Current frequency: 2441 MHz (Bluetooth channel 39)\n"
-#define FIRMWARE_LINE "Firmware version: git-test (API:1.10)\n"
+#define FIRMWARE_LINE "Firmware version: git-test (API:1.11)\n"
 #define COMPILE_LINE "compile-test\n"
 #define USRLED_LINE "USR LED status: 0\n"
 #define PALEVEL_LINE "PA Level: 7\n"
@@ -985,7 +985,9 @@ MU_TEST(led_specan_uses_the_default_threshold_and_an_explicit_one)
 	reset_fake();
 	r = RUN("-q");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert_int_eq(225, fake.last_led_specan_arg);
+	mu_assert_int_eq(UBERTOOTH_LED_SPECAN_N_DEFAULT, fake.last_led_specan_arg);
+	mu_assert(strstr(r.out, "Entering LED specan mode (threshold -85 dBm)\n") != NULL,
+	          "names the threshold");
 
 	reset_fake();
 	r = RUN("-q100");
@@ -1111,7 +1113,7 @@ MU_TEST(numeric_option_values_are_parsed_strictly)
 		{ "-zabc", "error: squelch level must be -128 to 127 (got abc)\n" },
 		{ "-z-200", "error: squelch level must be -128 to 127 (got -200)\n" },
 		{ "-z128", "error: squelch level must be -128 to 127 (got 128)\n" },
-		{ "-q\t5", "error: RSSI threshold must be 1-225 (got \t5)\n" },
+		{ "-q\t5", "error: RSSI threshold must be 20-120 (got \t5)\n" },
 		{ "-c\n2440", "error: frequency must be 2402-2480 MHz (got \n2440)\n" },
 		{ "-l2", "error: USR LED state must be 0-1 (got 2)\n" },
 		{ "-lx", "error: USR LED state must be 0-1 (got x)\n" },
@@ -1121,9 +1123,12 @@ MU_TEST(numeric_option_values_are_parsed_strictly)
 		{ "-C3x", "error: channel must be 0-78 (got 3x)\n" },
 		{ "-cabc", "error: frequency must be 2402-2480 MHz (got abc)\n" },
 		{ "-c2441.5", "error: frequency must be 2402-2480 MHz (got 2441.5)\n" },
-		{ "-q300", "error: RSSI threshold must be 1-225 (got 300)\n" },
-		{ "-q0", "error: RSSI threshold must be 1-225 (got 0)\n" },
-		{ "-q+5", "error: RSSI threshold must be 1-225 (got +5)\n" },
+		{ "-q300", "error: RSSI threshold must be 20-120 (got 300)\n" },
+		{ "-q0", "error: RSSI threshold must be 20-120 (got 0)\n" },
+		{ "-q+5", "error: RSSI threshold must be 20-120 (got +5)\n" },
+		{ "-q19", "error: RSSI threshold must be 20-120 (got 19)\n" },
+		{ "-q121", "error: RSSI threshold must be 20-120 (got 121)\n" },
+		{ "-q225", "error: RSSI threshold must be 20-120 (got 225)\n" },
 	};
 	size_t i;
 	struct run_result r;
@@ -1165,13 +1170,13 @@ MU_TEST(numeric_option_values_are_parsed_strictly)
 	mu_assert_int_eq(0, r.rc);
 	mu_assert_int_eq(2, fake.last_usrled_set); /* recorded as value + 1 */
 	reset_fake();
-	r = RUN("-q225");
+	r = RUN("-q120");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert_int_eq(225, fake.last_led_specan_arg);
+	mu_assert_int_eq(120, fake.last_led_specan_arg);
 	reset_fake();
-	r = RUN("-q", "1");
+	r = RUN("-q", "20");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert_int_eq(1, fake.last_led_specan_arg);
+	mu_assert_int_eq(20, fake.last_led_specan_arg);
 }
 
 /* -a0 sets PA level 0 (it used to read the level, because 0 was the "read"
@@ -1479,7 +1484,7 @@ MU_TEST(firmware_listing_with_several_devices_reports_each_device)
 	r = RUN("-v");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(r.out,
-	                 "0: git-test (API:1.10)\n1: git-test (API:1.10)\n") == 0,
+	                 "0: git-test (API:1.11)\n1: git-test (API:1.11)\n") == 0,
 	          "per-device firmware lines");
 }
 
@@ -1511,7 +1516,7 @@ MU_TEST(each_identity_query_alone_lists_every_device_compactly)
 {
 	struct { const char *option; const char *expected; } cases[] = {
 		{ "-b", "0: 1 (Ubertooth One)\n1: 1 (Ubertooth One)\n" },
-		{ "-v", "0: git-test (API:1.10)\n1: git-test (API:1.10)\n" },
+		{ "-v", "0: git-test (API:1.11)\n1: git-test (API:1.11)\n" },
 		{ "-V", "0: compile-test\n1: compile-test\n" },
 		{ "-p", "0: 25011723\n1: 25011723\n" },
 		{ "-s", "0: " SERIAL_VALUE "\n1: " SERIAL_VALUE "\n" },
@@ -1641,7 +1646,7 @@ MU_TEST(a_failed_read_on_one_device_is_reported_and_fails_the_listing)
 	r = RUN("-v");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.out,
-	                 "0: <firmware read failed>\n1: git-test (API:1.10)\n") == 0,
+	                 "0: <firmware read failed>\n1: git-test (API:1.11)\n") == 0,
 	          "failed revision read shown per device");
 
 	reset_fake();

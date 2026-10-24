@@ -61,7 +61,7 @@ void cs_threshold_calc_and_set(uint16_t channel)
 	 * value for it. */
 	if (cs_threshold_req > 0) {
 		int8_t rssi = rssi_get_avg(channel);
-		level = rssi - 54 + cs_threshold_req;
+		level = rssi - RSSI_DBM_OFFSET + cs_threshold_req;
 	} else {
 		level = cs_threshold_req;
 	}

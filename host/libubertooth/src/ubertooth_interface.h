@@ -30,9 +30,19 @@
  * (ubertooth_check_api()), so host and firmware are released together.
  * Increment it on every firmware change the host relies on: a new or changed
  * request, or a changed behaviour of an existing one. bcdDevice is binary-coded
- * decimal, so 0x0109 is followed by 0x0110 (shown as 1.10).
+ * decimal, so 0x0109 is followed by 0x0110 (shown as 1.10), then 0x0111 (1.11).
  */
-#define UBERTOOTH_API_VERSION 0x0110
+#define UBERTOOTH_API_VERSION 0x0111
+
+/*
+ * LED spectrum analyzer (ubertooth-util -q N): the threshold is -N dBm. The
+ * CC2400 measures RSSI from about -120 to -20 dBm, so N outside 20-120 is
+ * either never or always reached. The default, -85 dBm, shows Wi-Fi activity
+ * without lighting on noise (the original 2011 default, raw 225 = -85 dBm).
+ */
+#define UBERTOOTH_LED_SPECAN_N_MIN 20
+#define UBERTOOTH_LED_SPECAN_N_MAX 120
+#define UBERTOOTH_LED_SPECAN_N_DEFAULT 85
 
 /* How often the identify blink toggles the USR/RX/TX LEDs, in milliseconds:
  * about three on-off blinks a second. */

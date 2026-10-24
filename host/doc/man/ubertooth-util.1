@@ -5,7 +5,7 @@
 \- general purpose Ubertooth utility
 .SH SYNOPSIS
 .PP
-ubertooth\-util [\-v] [\-V] [\-H] [\-\-host\-version] [\-I] [\-d[0\-1]] [\-l[0\-1]] [\-S] [\-r] [\-U<index|serial|all>] [\-a[0\-7]] [\-c[2402\-2480]] [\-C[0\-78]] [\-q[1\-225]] [\-t] [\-z[\-128..127]] [\-e] [\-m] [\-n] [\-f] [\-i] [\-b] [\-p] [\-s] [\-N] [\-x] [\-h]
+ubertooth\-util [\-v] [\-V] [\-H] [\-\-host\-version] [\-I] [\-d[0\-1]] [\-l[0\-1]] [\-S] [\-r] [\-U<index|serial|all>] [\-a[0\-7]] [\-c[2402\-2480]] [\-C[0\-78]] [\-q[20\-120]] [\-t] [\-z[\-128..127]] [\-e] [\-m] [\-n] [\-f] [\-i] [\-b] [\-p] [\-s] [\-N] [\-x] [\-h]
 .SH DESCRIPTION
 .PP
 .BR ubertooth-util (1) 
@@ -41,9 +41,11 @@ Uberteeth. Refer to [RANGE TEST][] for full details.
 .PP
 Operations that put the device into a continuous mode \- \fB\fC\-I\fR, \fB\fC\-q\fR,
 \fB\fC\-x\fR, \fB\fC\-t\fR, \fB\fC\-n\fR, and \fB\fC\-e\fR \- first stop any operation
-already running on that device, so each starts from a known idle state. This
-resets only the operating mode; the configured channel and power level are
-preserved. Each of them runs on the board and \fB\fCubertooth\-util\fR returns
+already running on that device, so each starts from a known idle state.
+Stopping a mode, with \fB\fC\-S\fR or normally by starting another, puts the
+board back to idle: LEDs off, channel 2441 MHz and squelch \-120 dBm. The
+power amplifier level set with \fB\fC\-a\fR is kept.
+Each of them runs on the board and \fB\fCubertooth\-util\fR returns
 immediately, so the same board stays usable from other commands meanwhile.
 \fB\fC\-I\fR, \fB\fC\-q\fR, \fB\fC\-x\fR, \fB\fC\-t\fR and \fB\fC\-e\fR keep
 running until \fB\fC\-S\fR stops them or another mode replaces them;
@@ -132,8 +134,11 @@ get/set channel in MHz
 \fB\fC\-C[0\-78]\fR :
 get/set channel
 .IP \(bu 2
-\fB\fC\-q[1\-225 (RSSI threshold)]\fR :
-start LED spectrum analyzer
+\fB\fC\-q[20\-120]\fR :
+start LED spectrum analyzer\. The threshold is \-N dBm, so a larger N lights
+the LEDs for weaker signals; 20\-120 is the radio's RSSI range, and bare
+\fB\fC\-q\fR uses \-85 dBm, which shows Wi\-Fi traffic without lighting on noise\. The TX, RX and USR LEDs stand for 2412,
+2437 and 2462 MHz\. \fB\fC\-S\fR stops it and leaves the LEDs off\.
 .IP \(bu 2
 \fB\fC\-t\fR :
 intitiate continuous transmit test

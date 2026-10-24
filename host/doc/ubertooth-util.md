@@ -3,7 +3,7 @@
 ## SYNOPSIS
 
 `ubertooth-util` [-v] [-V] [-H] [--host-version] [-I] [-d[0-1]] [-l[0-1]]
-[-S] [-r] [-U<index|serial|all>] [-a[0-7]] [-c[2402-2480]] [-C[0-78]] [-q[1-225]] [-t]
+[-S] [-r] [-U<index|serial|all>] [-a[0-7]] [-c[2402-2480]] [-C[0-78]] [-q[20-120]] [-t]
 [-z[-128..127]] [-e] [-m] [-n] [-f] [-i] [-b] [-p] [-s] [-N] [-x] [-h]
 
 ## DESCRIPTION
@@ -33,12 +33,13 @@ Ubertooth devices. Refer to [RANGE TEST][] for full details.
 Operations that put the device into a continuous mode — `-I` (identify),
 `-q` (LED spectrum), `-x` (xmas), `-t` (TX test), `-n` (range test), and
 `-e` (repeater) — first stop any operation already running on that device, so
-each starts from a known idle state. (This only resets the operating mode;
-configured channel and power level are preserved.) Each of them runs on the
-board and `ubertooth-util` returns immediately, so the same board stays usable
-from other commands meanwhile. `-I`, `-q`, `-x`, `-t` and `-e` keep running
-until `-S` stops them or another mode replaces them; `-n` (range test) ends by
-itself when the test finishes.
+each starts from a known idle state. Stopping a mode, with `-S` or normally by
+starting another, puts the board back to idle: LEDs off, channel 2441 MHz and
+squelch -120 dBm. The power amplifier level set with `-a` is kept. Each of
+them runs on the board and `ubertooth-util` returns immediately, so the board
+stays usable from other commands meanwhile. `-I`, `-q`, `-x`, `-t` and `-e` keep
+running until `-S` stops them or another mode replaces them; `-n` (range test)
+ends by itself when the test finishes.
 
 `-I` (identify) blinks the USR, RX and TX LEDs together, about three on-off
 blinks a second, until it is stopped:
@@ -107,8 +108,11 @@ Radio options:
    get/set channel in MHz
  - `-C[0-78]` :
    get/set channel
- - `-q[1-225 (RSSI threshold)]` :
-   start LED spectrum analyzer
+ - `-q[20-120]` :
+   start LED spectrum analyzer. The threshold is -N dBm, so a larger N lights
+   the LEDs for weaker signals; 20-120 is the radio's RSSI range, and bare `-q`
+   uses -85 dBm, which shows Wi-Fi traffic without lighting on noise. The TX, RX and USR LEDs stand for 2412, 2437
+   and 2462 MHz. `-S` stops it and leaves the LEDs off.
  - `-t` :
    intitiate continuous transmit test
  - `-z[-128..127]` :

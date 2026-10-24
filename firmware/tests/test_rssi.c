@@ -8,6 +8,9 @@
  * which only rounds to nearest for non-negative x: C integer division
  * truncates toward zero, so for negative x it rounds the wrong way, reporting
  * RSSI as slightly stronger (less negative) than it should be.
+ *
+ * The second group covers the LED spectrum analyzer threshold helpers, which
+ * are pure integer math for the same reason.
  */
 #include "minunit.h"
 #include "ubertooth_rssi.h"
@@ -111,12 +114,115 @@ MU_TEST(test_sum_count_rounding_negative)
 	}
 }
 
+/*
+ * LED spectrum analyzer threshold.
+ *
+ * `ubertooth-util -q<N>` asks for a threshold of -N dBm; the firmware stores it
+ * raw, where dBm = raw - 54. The threshold used to be an int8_t, so every N
+ * from 183 up -- including the 225 that bare `-q` sends -- wrapped to a large
+ * positive raw value (183 -> 127, 225 -> 85) that no reading could exceed, and
+ * the most sensitive settings lit no LED at all.
+ */
+
+/* What the firmware does with a reading: light an LED above the threshold. */
+static int lights_led(int lvl, int n)
+{
+	return rssi_above_threshold((int8_t)lvl, rssi_threshold_from_n(n));
+}
+
+MU_TEST(test_threshold_from_n_does_not_wrap)
+{
+	/* The raw threshold is 54 - N over the whole accepted range. */
+	mu_assert_int_eq(34, rssi_threshold_from_n(20));
+	mu_assert_int_eq(-31, rssi_threshold_from_n(85));
+	mu_assert_int_eq(-66, rssi_threshold_from_n(120));
+	/* Values outside the range are refused, but would not wrap either: these
+	 * used to wrap to +127 and +85 in an int8_t. */
+	mu_assert_int_eq(-129, rssi_threshold_from_n(183));
+	mu_assert_int_eq(-171, rssi_threshold_from_n(225));
+}
+
+/* A larger N must never be less sensitive: the threshold falls monotonically. */
+MU_TEST(test_threshold_is_monotonic_over_the_whole_range)
+{
+	int n;
+
+	for (n = RSSI_THRESHOLD_N_MIN + 1; n <= RSSI_THRESHOLD_N_MAX; n++)
+		mu_assert(rssi_threshold_from_n(n) < rssi_threshold_from_n(n - 1),
+		          "a larger N must give a lower raw threshold");
+}
+
+/* The default, -85 dBm (raw -31), lights for Wi-Fi traffic but not for the
+ * noise floor; -120 dBm (raw -66) lights for nearly every reading. */
+MU_TEST(test_default_and_most_sensitive_thresholds)
+{
+	mu_assert_int_eq(85, UBERTOOTH_LED_SPECAN_N_DEFAULT);
+	mu_assert(rssi_threshold_n_valid(UBERTOOTH_LED_SPECAN_N_DEFAULT),
+	          "the default must be in range");
+	mu_assert(lights_led(-20, 85), "-74 dBm traffic must light at -85 dBm");
+	mu_assert(!lights_led(-40, 85), "-94 dBm noise must not light at -85 dBm");
+	mu_assert(!lights_led(-31, 85), "a reading at the threshold must not light");
+	mu_assert(lights_led(-30, 85), "a reading just above it must");
+	mu_assert(lights_led(-60, 120), "-114 dBm must light at -120 dBm");
+}
+
+/* The insensitive end still discriminates: -q20 is -20 dBm, raw 34. */
+MU_TEST(test_insensitive_thresholds_still_discriminate)
+{
+	mu_assert(!lights_led(34, 20), "a reading at the threshold must not light");
+	mu_assert(lights_led(35, 20), "a reading above the threshold must light");
+	mu_assert(!lights_led(-40, 20), "ambient noise is well below -20 dBm");
+
+	/* -q100 is -100 dBm, raw -46; ambient noise sits above that. */
+	mu_assert(lights_led(-40, 100), "-100 dBm must light on ambient noise");
+	mu_assert(!lights_led(-50, 100), "a weaker reading must not");
+}
+
+/* Sensitivity must not jump anywhere: once a reading lights, it stays lit as N
+ * grows. This is what "monotonic" means to someone turning the knob. */
+MU_TEST(test_a_lit_reading_stays_lit_as_n_grows)
+{
+	int lvl, n;
+
+	for (lvl = INT8_MIN; lvl <= INT8_MAX; lvl += 7) {
+		int lit = 0;
+		for (n = RSSI_THRESHOLD_N_MIN; n <= RSSI_THRESHOLD_N_MAX; n++) {
+			if (lights_led(lvl, n))
+				lit = 1;
+			else
+				mu_assert(!lit, "an LED must not go dark again as N grows");
+		}
+	}
+}
+
+/* The firmware's accepted range is the host's -q range, 20-120, from the
+ * shared header: the old `> 256` check let anything below 257 through. */
+MU_TEST(test_accepted_range_matches_the_host)
+{
+	mu_assert_int_eq(20, RSSI_THRESHOLD_N_MIN);
+	mu_assert_int_eq(120, RSSI_THRESHOLD_N_MAX);
+
+	mu_assert(!rssi_threshold_n_valid(0), "0 must be refused");
+	mu_assert(!rssi_threshold_n_valid(19), "19 must be refused");
+	mu_assert(rssi_threshold_n_valid(20), "20 must be accepted");
+	mu_assert(rssi_threshold_n_valid(120), "120 must be accepted");
+	mu_assert(!rssi_threshold_n_valid(121), "121 must be refused");
+	mu_assert(!rssi_threshold_n_valid(225), "225 must be refused");
+	mu_assert(!rssi_threshold_n_valid(65535), "a 16-bit maximum must be refused");
+}
+
 int main(void)
 {
-	printf("RSSI rounding tests\n");
+	printf("RSSI rounding and LED specan threshold tests\n");
 	MU_RUN(test_get_avg_negative_rounding);
 	MU_RUN(test_get_avg_positive_unchanged);
 	MU_RUN(test_iir_converges_to_negative_average);
 	MU_RUN(test_sum_count_rounding_negative);
+	MU_RUN(test_threshold_from_n_does_not_wrap);
+	MU_RUN(test_threshold_is_monotonic_over_the_whole_range);
+	MU_RUN(test_default_and_most_sensitive_thresholds);
+	MU_RUN(test_insensitive_thresholds_still_discriminate);
+	MU_RUN(test_a_lit_reading_stays_lit_as_n_grows);
+	MU_RUN(test_accepted_range_matches_the_host);
 	return mu_report();
 }
