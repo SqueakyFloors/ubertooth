@@ -188,7 +188,10 @@ jobs:
 
     - name: Install dependencies (Ubuntu)
       run: |
-        sudo apt install dfu-util gcc-arm-none-eabi
+        # gcc-arm-none-eabi recommends a large C++ runtime the C firmware does
+        # not use; skip recommends and install newlib explicitly.
+        sudo apt-get install -y --no-install-recommends \
+          dfu-util gcc-arm-none-eabi libnewlib-arm-none-eabi
       if: runner.os == 'Linux'
 
     - name: Unit tests (host)
@@ -287,7 +290,10 @@ jobs:
     - name: Install build prerequisites
       run: |
         apt-get update
-        apt-get install -y git make dfu-util gcc-arm-none-eabi
+        # Skip recommends as in the firmware job; ca-certificates is then
+        # needed explicitly for the HTTPS checkout of the submodules.
+        apt-get install -y --no-install-recommends \
+          ca-certificates git make dfu-util gcc-arm-none-eabi libnewlib-arm-none-eabi
 
     - uses: actions/checkout@v4
       with:

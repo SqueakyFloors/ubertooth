@@ -154,6 +154,19 @@ MU_TEST(test_error_threshold_is_strict)
 	mu_assert_int_eq(-1, find_access_code(buf));
 }
 
+/* count_bits() sets the error count against MAX_SYNCWORD_ERRS, so check it
+ * over the full 64-bit width, not only through find_access_code(). */
+MU_TEST(test_count_bits_full_width)
+{
+	mu_assert_int_eq(0, count_bits(UINT64_C(0)));
+	mu_assert_int_eq(1, count_bits(UINT64_C(1)));
+	mu_assert_int_eq(1, count_bits(UINT64_C(1) << 63));
+	mu_assert_int_eq(32, count_bits(UINT64_C(0xaaaaaaaaaaaaaaaa)));
+	mu_assert_int_eq(32, count_bits(UINT64_C(0x5555555555555555)));
+	mu_assert_int_eq(32, count_bits(UINT64_C(0xffffffff00000000)));
+	mu_assert_int_eq(64, count_bits(UINT64_MAX));
+}
+
 int main(void)
 {
 	printf("find_access_code tests\n");
@@ -164,5 +177,6 @@ int main(void)
 	MU_RUN(test_finds_every_start_offset);
 	MU_RUN(test_tail_not_searched);
 	MU_RUN(test_error_threshold_is_strict);
+	MU_RUN(test_count_bits_full_width);
 	return mu_report();
 }
