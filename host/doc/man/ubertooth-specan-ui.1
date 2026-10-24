@@ -30,7 +30,7 @@ select the Ubertooth by USB enumeration index or by serial number (see ubertooth
 lower frequency in MHz (default 2402)
 .TP
 \fB\-u <2402\-2480>\fR
-upper frequency in MHz (default 2480); must not be lower than \fB\-l\fR\. The plot is drawn 2 MHz below and 3 MHz above the scanned range, within 2400\-2483 MHz, so the edge channels are not on the window border
+upper frequency in MHz (default 2480); must not be lower than \fB\-l\fR\. The plot is drawn 2 MHz wider than the scanned range on each side, within 2400\-2483 MHz, so the edge channels can be marked
 .TP
 \fB\-\-wifi[=<channel(s)>]\fR
 show the band around one Wi\-Fi channel (for example \fB\-\-wifi=6\fR) or a range of channels (\fB\-\-wifi=1\-11\fR); \fB\-\-wifi\fR alone shows channel 1

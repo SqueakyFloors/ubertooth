@@ -29,8 +29,8 @@ To pick one of several Ubertooths, run:
    lower frequency in MHz (default 2402)
  - `-u <2402-2480>` :
    upper frequency in MHz (default 2480); must not be lower than `-l`. The
-   plot is drawn 2 MHz below and 3 MHz above the scanned range, within
-   2400-2483 MHz, so the edge channels are not on the window border
+   plot is drawn 2 MHz wider than the scanned range on each side, within
+   2400-2483 MHz, so the edge channels can be marked
  - `--wifi[=<channel(s)>]` :
    show the band around one Wi-Fi channel (for example `--wifi=6`) or a range
    of channels (`--wifi=1-11`); `--wifi` alone shows channel 1

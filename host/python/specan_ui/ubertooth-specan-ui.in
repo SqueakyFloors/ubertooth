@@ -56,9 +56,8 @@ KEY_HELP = (
 )
 
 # The plot is drawn a little wider than the scanned range, within the 2.4 GHz
-# ISM band, so the edge channels are not on the window border.
-PLOT_MARGIN_LOW = 2
-PLOT_MARGIN_HIGH = 3
+# ISM band, so the edge channels can be marked without clicking on the border.
+PLOT_MARGIN = 2
 ISM_LOW_FREQ = 2400
 ISM_HIGH_FREQ = 2483
 
@@ -110,8 +109,8 @@ class RenderArea(QtWidgets.QWidget):
         self._path_max = None
 
         # Plot range (axis, grid, markers); the scan range is lower/upper_freq.
-        self._low_frequency = max(ISM_LOW_FREQ, lower_freq - PLOT_MARGIN_LOW) * 1e6
-        self._high_frequency = min(ISM_HIGH_FREQ, upper_freq + PLOT_MARGIN_HIGH) * 1e6
+        self._low_frequency = max(ISM_LOW_FREQ, lower_freq - PLOT_MARGIN) * 1e6
+        self._high_frequency = min(ISM_HIGH_FREQ, upper_freq + PLOT_MARGIN) * 1e6
         self._frequency_step = 1e6
         self._high_dbm = 0.0
         self._low_dbm = -100.0
