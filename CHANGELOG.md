@@ -134,6 +134,11 @@
 - Prevent Adaptive Frequency Hopping (AFH) divide-by-zero failures in both
   baseband hop implementations. Credit: [@Kielukel](https://github.com/Kielukel) and Piotr Wasylów.
   https://github.com/Kielukel/ubertooth
+- Firmware AFH hopping (`ubertooth-follow` with an AFH map) now follows the
+  piconet's used channels instead of sitting on 2402 MHz, matching the
+  Bluetooth spec's re-mapping and same-channel rules. A new AFH map now takes
+  effect at once, including in sweep and `ubertooth-afh` modes.
+  [#34](https://github.com/SqueakyFloors/ubertooth/issues/34)
 - Correct Bluetooth Low Energy cyclic redundancy check filtering and perform
   verification in the physical-layer engine. Credit: oliver
   ([@Oliver0804](https://github.com/Oliver0804)).
