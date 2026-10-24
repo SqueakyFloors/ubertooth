@@ -58,6 +58,11 @@ typedef struct {
 	lell_pcap_handle* h_pcap_le;
 	btbb_pcapng_handle* h_pcapng_bredr;
 	lell_pcapng_handle* h_pcapng_le;
+
+	/* Whether abs_start_ns and start_clk100ns hold the first packet of a
+	 * capture yet: a first packet at clk100ns 0 is a valid start, not a
+	 * missing one. Last, so the offsets above do not move. */
+	uint8_t clk100ns_started;
 } ubertooth_t;
 
 typedef void (*rx_callback)(ubertooth_t* ut, void* args);
@@ -104,11 +109,21 @@ int ubertooth_bulk_receive(ubertooth_t* ut, rx_callback cb, void* cb_args);
 int ubertooth_bulk_thread_start();
 void ubertooth_bulk_thread_stop();
 
+/* One record of a saved capture (ubertooth-rx -d, ubertooth-dump -f): the
+ * host time the packet was received, big-endian, then one usb_pkt_rx. */
+#define RX_FILE_RECORD_LEN ((int)(sizeof(uint32_t) + PKT_LEN))
+
+/* Replays a saved capture, calling cb for each whole record. Returns 0 at a
+ * clean end of file, minus an errno on a read error, and the number of bytes
+ * of a last record that was cut short. */
 int stream_rx_file(ubertooth_t* ut,FILE* fp, rx_callback cb, void* cb_args);
+/* Reports a stream_rx_file() result on stderr, naming the file, and returns
+ * the exit status the tool should use: 1 for anything but a clean end. */
+int rx_file_report(int result, const char* filename);
 
 void rx_dump(ubertooth_t* ut, int full);
 void rx_btle(ubertooth_t* ut);
-void rx_btle_file(FILE* fp);
+int rx_btle_file(FILE* fp);
 /* Returned by rx_afh() when the initial detection phase (-t) ended without a
  * single packet from the piconet, so there is no map to report. */
 #define UBERTOOTH_AFH_NO_PACKETS (-2000)
