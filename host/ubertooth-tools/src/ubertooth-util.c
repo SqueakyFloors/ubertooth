@@ -326,7 +326,7 @@ int main(int argc, char *argv[])
 	int do_range_result, do_all_leds, do_identify;
 	int do_set_squelch, do_get_squelch, squelch_level;
 	int do_something, do_compile_info;
-	int do_help, do_host_version;
+	int first_exit_option, long_host_version; /* -h / -H / --host-version */
 	int do_number, do_xmas;
 	char* ubertooth_device = NULL;
 	int requested[QUERY_COUNT]; /* identity queries, for the per-device listing */
@@ -343,15 +343,17 @@ int main(int argc, char *argv[])
 	do_set_squelch= -1, do_get_squelch= -1; squelch_level= 0;
 	do_something= 0; do_compile_info= -1;
 	do_number= 0; do_xmas= 0;
-	do_help= 0; do_host_version= 0;
+	first_exit_option= 0; long_host_version= 0;
 
 	/* Host-tools version: printed before touching the device, so it works
 	 * with no Ubertooth attached. -H or --host-version. Distinct from -v
 	 * (firmware revision) and -V (firmware compile info from the device).
 	 * getopt only knows the short form, so treat the long one as -H. */
 	for (int ai = 1; ai < argc; ai++) {
-		if (strcmp(argv[ai], "--host-version") == 0)
+		if (strcmp(argv[ai], "--host-version") == 0) {
 			argv[ai] = (char *)"-H";
+			long_host_version = 1;
+		}
 	}
 
 	while ((opt=getopt(argc,argv,"U:hnmefiIprsStvbl::a::C::c::d::q::z::9VNxH")) != EOF) {
@@ -463,7 +465,8 @@ int main(int argc, char *argv[])
 			do_compile_info = 0;
 			break;
 		case 'H':
-			do_host_version = 1;
+			if (!first_exit_option)
+				first_exit_option = 'H';
 			break;
 		case 'N':
 			do_number = 1;
@@ -472,7 +475,8 @@ int main(int argc, char *argv[])
 			do_xmas = 1;
 			break;
 		case 'h':
-			do_help = 1;
+			if (!first_exit_option)
+				first_exit_option = 'h';
 			break;
 		default:
 			usage(stderr);
@@ -494,13 +498,14 @@ int main(int argc, char *argv[])
 	}
 
 	/* -h and -H end the command before anything else, as they always have,
-	 * but only once the command line is known to be valid. */
-	if (do_help) {
-		usage(stdout);
+	 * but only once the command line is known to be valid. As before,
+	 * --host-version wins, and otherwise the first of -h and -H does. */
+	if (long_host_version || first_exit_option == 'H') {
+		print_version();
 		return 0;
 	}
-	if (do_host_version) {
-		print_version();
+	if (first_exit_option == 'h') {
+		usage(stdout);
 		return 0;
 	}
 

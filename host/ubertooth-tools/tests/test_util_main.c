@@ -952,6 +952,21 @@ MU_TEST(stray_arguments_are_rejected_before_any_device_action)
 	mu_assert(strcmp(r.out, "libubertooth fake\n") == 0, "version only");
 	mu_assert_int_eq(0, fake.start_calls);
 
+	/* the first of -h and -H wins, and --host-version wins anywhere, as
+	 * before */
+	reset_fake();
+	r = RUN("-H", "-h");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "libubertooth fake\n") == 0, "-H first: version");
+	reset_fake();
+	r = RUN("-h", "-H");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.out, "command line utility") != NULL, "-h first: usage");
+	reset_fake();
+	r = RUN("-h", "--host-version");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "libubertooth fake\n") == 0, "--host-version wins");
+
 	/* -U takes its value as the next word; that is not a stray argument */
 	reset_fake();
 	r = RUN("-U", "0", "-b");
