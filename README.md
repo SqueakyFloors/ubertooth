@@ -67,7 +67,7 @@ Ubertooth ships a set of host command-line tools. Each links to its manual page.
 | Tool | What it does | Needs |
 |---|---|---|
 | [ubertooth-specan](host/doc/ubertooth-specan.md) | Spectrum analyzer: stream of 2.4GHz signal strengths | — |
-| [ubertooth-specan-ui](host/doc/ubertooth-specan-ui.md) | Graphical live spectrum plot of 2.4GHz ([guide](docs/source/specan_ui.rst)) | Python: numpy, qtpy, PySide6 |
+| [ubertooth-specan-ui](host/doc/ubertooth-specan-ui.md) | Graphical live spectrum plot of 2.4GHz ([guide](docs/source/specan_ui.rst)) | Python 3.8+: numpy, qtpy, PySide6 or PyQt5 |
 | [ubertooth-dump](host/doc/ubertooth-dump.md) | Raw stream of received bits/symbols | — |
 | [ubertooth-debug](host/doc/ubertooth-debug.md) | Low-level CC2400 radio register/debug access | — |
 

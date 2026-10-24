@@ -125,7 +125,9 @@ firmware flashing), not radio capture.
 
 1. **Enforced floors** — minimums are asserted in the build where possible
    (`cmake_minimum_required(... )`) so the floor can't silently drift from the
-   docs. The Python 3.8 floor is not yet enforced (#91).
+   docs. The Python 3.8 floor is checked in `host/python/cmake/UbertoothPythonFloor.cmake`:
+   an older interpreter skips the Python tools with a warning, or fails the
+   configure with `-DREQUIRE_ALL=ON`.
 2. **CI matrix = the "tested" column** — the "Tested / known-good" entries above
    must mirror the pinned full-tier CI matrix in `.github/workflows/build.yml`,
    which runs weekly, on a published release, or manually. Pull requests run
