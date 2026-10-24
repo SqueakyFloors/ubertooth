@@ -58,9 +58,11 @@ die() { echo "error: $*" >&2; exit 1; }
 info() { echo "==> $*"; }
 # The Python tools need Python 3.8 or newer (host/python/cmake/UbertoothPythonFloor.cmake).
 require_python() {
+	local version
 	"$1" -c 'import sys; sys.exit(sys.version_info < (3, 8))' 2>/dev/null && return 0
-	_pyver="$("$1" -V 2>/dev/null)" || _pyver="not runnable"
-	die "Python 3.8 or newer is required for the Python tools (found $1: $_pyver)${2:+; $2}"
+	# Python before 3.4 prints -V on stderr.
+	version="$("$1" -V 2>&1)" || version="not runnable"
+	die "Python 3.8 or newer is required for the Python tools (found $1: $version)${2:+; $2}"
 }
 
 # Run a privileged command, or print it under --no-sudo.
@@ -156,6 +158,11 @@ case "$(uname -s)" in
 	Linux)
 		command -v apt-get >/dev/null 2>&1 || \
 			die "on Linux this script supports Debian/Ubuntu (apt-get) only; see REQUIREMENTS.md for other platforms"
+		# python3 comes from apt below if it is missing; check it here if not,
+		# so an old one stops the script before anything is installed or built.
+		if command -v python3 >/dev/null 2>&1; then
+			require_python python3
+		fi
 		PLATFORM=debian
 		PREFIX="${PREFIX:-/usr/local}"
 		JOBS="$(nproc)"
