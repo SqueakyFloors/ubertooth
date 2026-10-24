@@ -150,9 +150,9 @@
   exit 1 and leaves the board running its firmware instead of stranded in the
   Device Firmware Upgrade (DFU) bootloader. A failure once the board is already
   in DFU now detaches it anyway when `-r` was given, finding the DFU device
-  again if the failure closed the handle. The image's DFU suffix
-  must also name this device (`1d50:6003`, or the `0xffff` wildcard): firmware
-  for another vendor or product used to be written.
+  again if the failure closed the handle. The image's DFU suffix must also name
+  this device (`1d50:6003`, or the `0xffff` wildcard): firmware for another
+  vendor or product used to be written.
   [#198](https://github.com/SqueakyFloors/ubertooth/issues/198)
   [#199](https://github.com/SqueakyFloors/ubertooth/issues/199)
 
