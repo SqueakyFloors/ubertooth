@@ -139,14 +139,6 @@
 - `ubertooth-util` refuses `-z` combined with a mode option, where it silently
   had no effect: a mode stops the device, which resets the squelch.
   [#159](https://github.com/SqueakyFloors/ubertooth/issues/159)
-- libubertooth's fixed-size reads (channel, LEDs, PA level, squelch, board ID,
-  serial, range result and others) report a short reply as an error instead of
-  returning a value made from stale bytes, such as channel 0 right after
-  hopping starts. [#149](https://github.com/SqueakyFloors/ubertooth/issues/149)
-- Every fixed-size libubertooth read (channel, clock, LEDs, PA level, squelch,
-  board ID, serial, part ID, access address, register, modulation, CRC verify,
-  range result) reports a short reply as an error instead of returning a value
-  made from stale bytes, such as channel 0 right after hopping starts. [#149](https://github.com/SqueakyFloors/ubertooth/issues/149)
 - libubertooth reports a short reply to any fixed-size read as an error instead
   of a value made from stale bytes (such as channel 0 right after hopping).
   [#149](https://github.com/SqueakyFloors/ubertooth/issues/149)
