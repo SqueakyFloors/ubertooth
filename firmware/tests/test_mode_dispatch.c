@@ -50,10 +50,12 @@
  * removed. */
 #define DISPATCH_CASES 19
 
-/* How many modes the dispatch runs through bt_stream_rx(), directly or
- * through rx_generic(). Same purpose: update it when one is added or
- * removed. */
-#define STREAM_RX_MODES 4
+/* How many modes the dispatch runs by calling bt_stream_rx() itself. Same
+ * purpose: update it when one is added or removed. A mode the dispatch sends
+ * to a function that calls bt_stream_rx() in turn -- MODE_RX_GENERIC, through
+ * rx_generic() -- is not one of these: that function sets its mode up and the
+ * loop is not asked to recognise it. */
+#define STREAM_RX_MODES 3
 
 /*
  * Strip C comments from a line, in place, carrying block-comment state across
@@ -168,9 +170,10 @@ struct scan {
 	int idle_fn_mode;     /* `mode = ...` inside cc2400_idle() */
 	int idle_fn_request;  /* `requested_mode = ...` inside cc2400_idle() */
 
-	/* The modes the dispatch runs through bt_stream_rx(), and the condition
-	 * of the loop that is meant to run them. Room for more modes than there
-	 * are today, so an added one is counted rather than dropped. */
+	/* The modes the dispatch runs by calling bt_stream_rx(), and the
+	 * condition of the loop that is meant to run them. Room for more modes
+	 * than there are today, so an added one is counted rather than
+	 * dropped. */
 	char stream_modes[STREAM_RX_MODES + 4][32];
 	int stream_mode_count;
 	char stream_cond[512];
@@ -235,9 +238,6 @@ static void capture_while_condition(const char *line, int lineno,
 	s->stream_cond[len] = '\0';
 }
 
-/* The functions that reach bt_stream_rx() for a dispatch case, so a case that
- * calls one of them counts as running that loop. */
-#define MAX_INDIRECT 4
 /* Case labels seen since the last `break;`: a fall-through group runs one
  * loop for all of them. */
 #define MAX_PENDING 8
@@ -247,8 +247,6 @@ static int scan_source(const char *path, struct scan *s)
 	char line[512];
 	int lineno = 0, in_block = 0, in_main = 0, in_loop = 0, in_idle_fn = 0;
 	char fn[64] = "", name[64];
-	char indirect[MAX_INDIRECT][64];
-	int indirect_count = 0;
 	char pending[MAX_PENDING][32];
 	int pending_count = 0, i;
 	FILE *f = fopen(path, "r");
@@ -284,10 +282,6 @@ static int scan_source(const char *path, struct scan *s)
 
 			if (strcmp(fn, "bt_stream_rx") == 0)
 				capture_while_condition(line, lineno, s);
-			else if (strstr(line, "bt_stream_rx(") != NULL &&
-			         fn[0] != '\0' && indirect_count < MAX_INDIRECT)
-				snprintf(indirect[indirect_count++], sizeof(indirect[0]),
-				         "%s", fn);
 			continue;
 		}
 
@@ -343,15 +337,10 @@ static int scan_source(const char *path, struct scan *s)
 
 		/* What a case group runs. The group is every label since the last
 		 * `break;`, so a fall-through counts for all of its modes. */
-		if (call_name(line, name, sizeof(name))) {
-			int runs_stream = strcmp(name, "bt_stream_rx") == 0;
-
-			for (i = 0; i < indirect_count && !runs_stream; i++)
-				runs_stream = strcmp(name, indirect[i]) == 0;
-			if (runs_stream)
-				for (i = 0; i < pending_count; i++)
-					add_stream_mode(s, pending[i]);
-		}
+		if (call_name(line, name, sizeof(name)) &&
+		    strcmp(name, "bt_stream_rx") == 0)
+			for (i = 0; i < pending_count; i++)
+				add_stream_mode(s, pending[i]);
 		if (strstr(line, "break;") != NULL)
 			pending_count = 0;
 	}

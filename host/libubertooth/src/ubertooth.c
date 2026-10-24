@@ -645,8 +645,12 @@ static int stream_rx_usb(ubertooth_t* ut, rx_callback cb, void* cb_args,
 
 	// tell ubertooth to send packets
 	r = start(ut->devh);
-	if (r < 0)
+	if (r < 0) {
+		/* The poll thread is running by now and nothing else joins it:
+		 * ubertooth_stop() frees the libusb context the thread is polling. */
+		ubertooth_bulk_thread_stop();
 		return r;
+	}
 
 	// receive and process each packet
 	while(!ut->stop_ubertooth) {
@@ -758,9 +762,10 @@ int rx_afh(ubertooth_t* ut, btbb_piconet* pn, int timeout)
 	}
 
 	/*
-	 * Monitor changes in AFH channel map
+	 * Monitor changes in AFH channel map. cmd_afh() clears the board's map
+	 * as it starts the stream, so the monitor begins from an empty one
+	 * whether or not the detection phase above ran.
 	 */
-	cmd_clear_afh_map(ut->devh);
 	r = stream_rx_usb(ut, cb_afh_monitor, pn, cmd_afh);
 	return r < 0 ? r : 0;
 }
@@ -787,8 +792,11 @@ void rx_afh_r(ubertooth_t* ut, btbb_piconet* pn, int timeout __attribute__((unus
 
 	// tell ubertooth to send packets, in the AFH detection mode (see rx_afh)
 	r = cmd_afh(ut->devh);
-	if (r < 0)
+	if (r < 0) {
+		/* as in stream_rx_usb(): the poll thread has to be joined here */
+		ubertooth_bulk_thread_stop();
 		return;
+	}
 
 	// receive and process each packet
 	while(!ut->stop_ubertooth) {

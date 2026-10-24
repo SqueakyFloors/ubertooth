@@ -167,8 +167,11 @@ streaming, so the piconet is transmitting throughout*
       `- channel N is not used any more` lines naming several different
       channels — the board is hopping, not parked on one channel (parked, only
       one channel number can ever appear, and the map holds one bit)
-- [ ] Run `ubertooth-afh -l <lap> -u <uap> -r` and confirm the once-a-second
-      binary map has bits spread across it, not a single 1
+- [ ] Run `ubertooth-afh -l <lap> -u <uap> -r -m 30` and confirm the
+      once-a-second binary map has bits in different places over successive
+      lines, not a single 1 in the same place every time (individual bits
+      coming and going is expected, see #194; `-m 30` makes a channel take
+      longer to be dropped than the default 5)
 - [ ] Interrupt each run with Ctrl-C, confirm exit status 0, then confirm
       `ubertooth-util -d -C -z` reports LEDs 0 0 0, channel 2441 MHz,
       squelch -120

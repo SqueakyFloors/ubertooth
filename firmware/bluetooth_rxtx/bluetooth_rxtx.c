@@ -1383,23 +1383,25 @@ void bt_stream_rx()
 
 	/*
 	 * Every mode the dispatch runs through this loop has to be listed here,
-	 * directly or through rx_generic(), or the mode returns at once and the
-	 * board streams nothing while the dispatch sits in it. That is what
-	 * MODE_AFH did: it is neither MODE_RX_SYMBOLS nor MODE_BT_FOLLOW, so the
-	 * body never ran and ubertooth-afh's hopping mode was never what
-	 * received. test_mode_dispatch.c checks the list against the dispatch.
+	 * or the mode returns at once and the board streams nothing while the
+	 * dispatch sits in it. That is what MODE_AFH did: it is neither
+	 * MODE_RX_SYMBOLS nor MODE_BT_FOLLOW, so the body never ran and
+	 * ubertooth-afh's hopping mode was never what received.
+	 * test_mode_dispatch.c checks the list against the dispatch.
 	 *
-	 * One of these modes can still be swapped for another from under the
-	 * loop -- ubertooth-follow starts a stream and then asks for
-	 * MODE_BT_FOLLOW -- which is why this is a list rather than
-	 * `requested_mode == mode`: that would end the stream and re-enter it
-	 * through the dispatch's teardown, losing the hop state the new mode was
-	 * just given.
+	 * Asking for one of these modes while another is streaming is absorbed
+	 * here rather than going through the dispatch, so a mode in this list
+	 * must be one whose own vendor request sets up everything it needs:
+	 * MODE_AFH's does (hop mode, empty map, afh_enabled), as does
+	 * MODE_BT_FOLLOW's. What such a request still inherits from the mode it
+	 * replaces is #261. MODE_RX_GENERIC is dispatched to rx_generic(), which
+	 * sets up the mode itself and then calls this function, so it is
+	 * deliberately not listed -- its unsynchronized path returns at once as
+	 * MODE_AFH used to, which is part of #252.
 	 */
 	while ( requested_mode == MODE_RX_SYMBOLS
 	     || requested_mode == MODE_BT_FOLLOW
-	     || requested_mode == MODE_AFH
-	     || requested_mode == MODE_RX_GENERIC )
+	     || requested_mode == MODE_AFH )
 	{
 
 		RXLED_CLR;

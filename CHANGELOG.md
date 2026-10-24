@@ -209,9 +209,10 @@
   [#241](https://github.com/SqueakyFloors/ubertooth/issues/241)
 - `ubertooth-afh` now detects the channel map from the board's AFH hopping
   mode, which had never run: the firmware's AFH mode returned as soon as it was
-  entered, so the tool received on one fixed channel instead of hopping across
-  the ones the piconet was not yet known to use. The generic receive mode, which
-  no tool in this tree sends, had the same gap in its unsynchronized path.
+  entered, and the capture that followed hopped only by leftover state, so the
+  tool could end up parked on one channel and report only that one as used.
+  Hopping across the channels the piconet is not yet known to use is now what
+  the board is actually asked to do.
   [#238](https://github.com/SqueakyFloors/ubertooth/issues/238)
 
 - `ubertooth-dfu` now performs bounded, device-specific Device Firmware
