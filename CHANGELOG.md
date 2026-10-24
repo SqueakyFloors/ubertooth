@@ -95,11 +95,8 @@
   now returns a negative error for that case (it returned 0), and the new
   `cmd_get_part_id()` returns the full unsigned 32-bit ID.
   [#52](https://github.com/SqueakyFloors/ubertooth/issues/52)
-- `ubertooth-util -v` and `-V` exit non-zero on a failed or malformed read
-  instead of printing `error: <n>`, including in multi-device listings. New
-  libubertooth calls `cmd_get_firmware_revision()` and
-  `cmd_get_firmware_compile_info()` return the error; the void forms remain and
-  now also report short replies as `error: <n>`, as does `ubertooth-dfu` verify.
+- `ubertooth-util -v` and `-V` now exit with an error when the firmware
+  version can't be read, instead of printing `error: <n>`.
   [#51](https://github.com/SqueakyFloors/ubertooth/issues/51)
 - `ubertooth-scan` no longer leaks connection information after failed probes.
   [#3](https://github.com/SqueakyFloors/ubertooth/issues/3)
