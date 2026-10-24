@@ -822,6 +822,7 @@ MU_TEST(two_or_more_mode_options_are_rejected_before_opening_the_device)
 			                                    modes[a], modes[b], NULL });
 			mu_assert_int_eq(1, r.rc);
 			mu_assert(strstr(r.err, "cannot be combined") != NULL, "conflict diagnostic");
+			mu_assert(strstr(r.err, "no longer required") == NULL, "only the conflict is reported");
 			mu_assert_int_eq(0, (long)strlen(r.out));
 			mu_assert_int_eq(0, fake.start_calls);
 			mu_assert_int_eq(0, fake.stop_calls);

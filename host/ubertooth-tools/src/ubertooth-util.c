@@ -317,7 +317,6 @@ int main(int argc, char *argv[])
 			ubertooth_device = optarg;
 			break;
 		case 'f':
-			fprintf(stderr, "ubertooth-util -f is no longer required - use ubertooth-dfu instead\n");
 			do_flash= 0;
 			break;
 		case 'i':
@@ -448,6 +447,8 @@ int main(int argc, char *argv[])
 	modes[UTIL_MODE_FLASH] = (do_flash == 0);
 	if (util_check_modes(modes, stderr) != 0)
 		return 1;
+	if (do_flash == 0)
+		fprintf(stderr, "ubertooth-util -f is no longer required - use ubertooth-dfu instead\n");
 
 	requested[QUERY_BOARD_ID] = (do_board_id == 0);
 	requested[QUERY_FIRMWARE] = (do_firmware == 0);
