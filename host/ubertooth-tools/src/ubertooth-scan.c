@@ -202,7 +202,7 @@ int main(int argc, char *argv[])
 	int max_rsp, num_rsp, lap, timeout = 20;
 	uint8_t uap, extended = 0;
 	uint8_t scan = 0;
-	/* -h / -V: the first one given ends the command (see below). */
+	/* -h ends the command once the whole command line has parsed (see below). */
 	int first_exit_option = 0;
 	char* ubertooth_device = NULL;
 	char *bt_dev = "hci0";

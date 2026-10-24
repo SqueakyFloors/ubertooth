@@ -403,14 +403,14 @@ int main(int argc, char *argv[])
 			break;
 		case 'l':
 			if (optarg) {
-				if (opt_require_int(optarg, 0, 1, "USR LED state", "", &do_leds))
+				if (opt_require_int(optarg, 0, 1, "USR LED state", "", &do_leds) < 0)
 					return 1;
 			} else
 				do_leds= 2; /* can't use 0 as it's a valid option */
 			break;
 		case 'd':
 			if (optarg) {
-				if (opt_require_int(optarg, 0, 1, "all-LED state", "", &do_all_leds))
+				if (opt_require_int(optarg, 0, 1, "all-LED state", "", &do_all_leds) < 0)
 					return 1;
 			} else
 				do_all_leds= 2; /* can't use 0 as it's a valid option */
@@ -446,7 +446,7 @@ int main(int argc, char *argv[])
 		case 'C':
 			if (optarg) {
 				int ch;
-				if (opt_require_int(optarg, 0, NUM_BREDR_CHANNELS - 1, "channel", "", &ch))
+				if (opt_require_int(optarg, 0, NUM_BREDR_CHANNELS - 1, "channel", "", &ch) < 0)
 					return 1;
 				do_channel= ch + BT_FREQ_MIN;
 			} else
@@ -454,14 +454,14 @@ int main(int argc, char *argv[])
 			break;
 		case 'c':
 			if (optarg) {
-				if (opt_require_int(optarg, BT_FREQ_MIN, BT_FREQ_MAX, "frequency", " MHz", &do_channel))
+				if (opt_require_int(optarg, BT_FREQ_MIN, BT_FREQ_MAX, "frequency", " MHz", &do_channel) < 0)
 					return 1;
 			} else
 				do_channel= 0;
 			break;
 		case 'q':
 			if (optarg) {
-				if (opt_require_int(optarg, 1, 225, "RSSI threshold", "", &do_led_specan))
+				if (opt_require_int(optarg, 1, 225, "RSSI threshold", "", &do_led_specan) < 0)
 					return 1;
 			} else
 				do_led_specan= 0; /* the default threshold, 225 */
@@ -485,7 +485,7 @@ int main(int argc, char *argv[])
 			if (optarg) {
 				/* a signed 8-bit RSSI threshold; values above 0 are
 				 * relative to the average RSSI */
-				if (opt_require_int(optarg, -128, 127, "squelch level", "", &squelch_level))
+				if (opt_require_int(optarg, -128, 127, "squelch level", "", &squelch_level) < 0)
 					return 1;
 				do_set_squelch = 1;
 			}

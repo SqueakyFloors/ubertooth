@@ -112,7 +112,7 @@ CASES = {
         (("-a", "zzzzzzzz"), "error: access code must be 2, 4, 6 or 8 hex digits"),
         (("-a", "630f9ff"), "error: access code must be 2, 4, 6 or 8 hex digits"),
         (("-a", "630f9ffe9"), "error: access code must be 2, 4, 6 or 8 hex digits"),
-        (("-l", "49"), "length must be in [1,48]"),
+        (("-l", "49"), "error: capture length must be 1-48 (got 49)"),
     ),
     "ubertooth-follow": STRAY + LAP_UAP + AC_ERRORS + (
         (("-w", "abc"), "error: usb delay must be 0-"),

@@ -18,7 +18,7 @@ def reject(value):
     )
     output = result.stdout + result.stderr
     assert result.returncode != 0, result
-    assert "length must be in [1,48]" in output.lower(), result
+    assert f"error: capture length must be 1-48 (got {value})" in output, result
     assert "could not open" not in output.lower(), result
 
 

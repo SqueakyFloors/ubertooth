@@ -134,7 +134,7 @@ static void usage(void) {
 int main(int argc, char *argv[])
 {
 	int opt;
-	/* -h / -V: the first one given ends the command (see below). */
+	/* -h ends the command once the whole command line has parsed (see below). */
 	int first_exit_option = 0;
 	int do_quack, do_adv_index;
 	int addr_set, be_sarcastic;

@@ -59,7 +59,7 @@ int main(int argc, char *argv[])
 {
 	int opt, sock, dev_id, lap = 0, uap = 0, delay = 5;
 	int have_lap = 0;
-	/* -h / -V: the first one given ends the command (see below). */
+	/* -h ends the command once the whole command line has parsed (see below). */
 	int first_exit_option = 0;
 	int have_uap = 0;
 	int afh_enabled = 0;
