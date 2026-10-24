@@ -481,6 +481,13 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params, uin
 		requested_mode = MODE_BT_FOLLOW;
 		break;
 
+	/*
+	 * Start AFH detection: hop to the channels the piconet is not known to
+	 * use and stream what arrives there, from an empty map that the host
+	 * fills in with UBERTOOTH_SET_AFHMAP as packets come in. This is the
+	 * whole request the host needs; it used to send UBERTOOTH_RX_SYMBOLS on
+	 * top, which took the board straight back out of this mode.
+	 */
 	case UBERTOOTH_AFH:
 		hop_mode = HOP_AFH;
 		requested_mode = MODE_AFH;
@@ -873,10 +880,17 @@ void DMA_IRQHandler(void) {
 	}
 }
 
+/*
+ * Every mode that receives through the symbol DMA has to be listed here: the
+ * buffer swap below is what makes a transfer complete for the mode loop
+ * (rx_tc), so a mode left out of the list waits for a buffer that is never
+ * handed over. MODE_AFH was missing while nothing ran under it.
+ */
 void legacy_DMA_IRQHandler()
 {
 	if ( mode == MODE_RX_SYMBOLS
 	   || mode == MODE_BT_FOLLOW
+	   || mode == MODE_AFH
 	   || mode == MODE_SPECAN
 	   || mode == MODE_BT_FOLLOW_LE
 	   || mode == MODE_BT_PROMISC_LE
@@ -1367,7 +1381,27 @@ void bt_stream_rx()
 
 	cs_trigger_enable();
 
-	while ( requested_mode == MODE_RX_SYMBOLS || requested_mode == MODE_BT_FOLLOW )
+	/*
+	 * Every mode the dispatch runs through this loop has to be listed here,
+	 * or the mode returns at once and the board streams nothing while the
+	 * dispatch sits in it. That is what MODE_AFH did: it is neither
+	 * MODE_RX_SYMBOLS nor MODE_BT_FOLLOW, so the body never ran and
+	 * ubertooth-afh's hopping mode was never what received.
+	 * test_mode_dispatch.c checks the list against the dispatch.
+	 *
+	 * Asking for one of these modes while another is streaming is absorbed
+	 * here rather than going through the dispatch, so a mode in this list
+	 * must be one whose own vendor request sets up everything it needs:
+	 * MODE_AFH's does (hop mode, empty map, afh_enabled), as does
+	 * MODE_BT_FOLLOW's. What such a request still inherits from the mode it
+	 * replaces is #261. MODE_RX_GENERIC is dispatched to rx_generic(), which
+	 * sets up the mode itself and then calls this function, so it is
+	 * deliberately not listed -- its unsynchronized path returns at once as
+	 * MODE_AFH used to, which is part of #252.
+	 */
+	while ( requested_mode == MODE_RX_SYMBOLS
+	     || requested_mode == MODE_BT_FOLLOW
+	     || requested_mode == MODE_AFH )
 	{
 
 		RXLED_CLR;
@@ -2747,6 +2781,17 @@ int main()
 				reset();
 				break;
 			case MODE_AFH:
+				/*
+				 * AFH detection hops to the channels the piconet has not
+				 * been seen on, and the host narrows that down as packets
+				 * arrive. UBERTOOTH_AFH asks for the hop mode as well, which
+				 * covers a switch into AFH hopping while a stream is already
+				 * running; setting it here is what survives the teardown
+				 * above, which puts hop_mode back to HOP_NONE on the way out
+				 * of whatever ran before.
+				 */
+				hop_mode = HOP_AFH;
+				/* fall through */
 			case MODE_RX_SYMBOLS:
 			case MODE_BT_FOLLOW:
 				bt_stream_rx();

@@ -40,7 +40,7 @@ Hardware required: Ubertooth One, Linux machine (Ubuntu 22.04+ preferred), a BLE
 
 ### 2a. Firmware version check
 - [ ] Run `ubertooth-util -v`
-- [ ] Confirm: returns `Firmware version: <revision> (API:1.12)` (firmware
+- [ ] Confirm: returns `Firmware version: <revision> (API:1.13)` (firmware
       built from this tree; the host tools refuse any other API version)
 - [ ] Confirm: no `usb_claim_interface` errors
 - [ ] Confirm: no timeout errors
@@ -156,6 +156,25 @@ Hardware required: Ubertooth One, Linux machine (Ubuntu 22.04+ preferred), a BLE
 - [ ] Run `ubertooth-btbr` targeting a known classic BT device BD_ADDR
 - [ ] Confirm: starts without hanging (tests issue #520 — if it still hangs, note it)
 - [ ] Confirm: packets captured after paging completes
+
+### 5c. AFH channel map detection (issue #238)
+*Requires: two classic BT devices with an active connection, for example audio
+streaming, so the piconet is transmitting throughout*
+- [ ] Find the piconet's LAP and UAP with `ubertooth-rx`
+- [ ] Run `ubertooth-afh -l <lap> -u <uap> -t 30`
+- [ ] Confirm: the detection phase prints a map with many channels set, and the
+      monitor phase that follows prints `+ channel N is used now` /
+      `- channel N is not used any more` lines naming several different
+      channels — the board is hopping, not parked on one channel (parked, only
+      one channel number can ever appear, and the map holds one bit)
+- [ ] Run `ubertooth-afh -l <lap> -u <uap> -r -m 30` and confirm the
+      once-a-second binary map has bits in different places over successive
+      lines, not a single 1 in the same place every time (individual bits
+      coming and going is expected, see #194; `-m 30` makes a channel take
+      longer to be dropped than the default 5)
+- [ ] Interrupt each run with Ctrl-C, confirm exit status 0, then confirm
+      `ubertooth-util -d -C -z` reports LEDs 0 0 0, channel 2441 MHz,
+      squelch -120
 
 ---
 

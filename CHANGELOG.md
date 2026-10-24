@@ -40,7 +40,7 @@
   the command returns at once and the board stays reachable; `-S` or any mode
   option stops it and leaves the LEDs off.
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
-- **Reflash required:** the firmware API version is now 1.12, and the host
+- **Reflash required:** the firmware API version is now 1.13, and the host
   tools require firmware of exactly their own API version, older or newer
   (`ubertooth-util` still reads the version and reflashes any firmware). Host
   and firmware come from the same tree; `2020-12-R1` firmware is refused.
@@ -207,6 +207,13 @@
 - `ubertooth-dfu -u <dump> -d <image>` no longer leaves a temporary dump file
   beside the target when the image is refused.
   [#241](https://github.com/SqueakyFloors/ubertooth/issues/241)
+- `ubertooth-afh` now detects the channel map from the board's AFH hopping
+  mode, which had never run: the firmware's AFH mode returned as soon as it was
+  entered, and the capture that followed hopped only by leftover state, so the
+  tool could end up parked on one channel and report only that one as used.
+  Hopping across the channels the piconet is not yet known to use is now what
+  the board is actually asked to do.
+  [#238](https://github.com/SqueakyFloors/ubertooth/issues/238)
 
 - `ubertooth-dfu` now performs bounded, device-specific Device Firmware
   Upgrade (DFU) entry and recovery, retries interrupted transfers, and verifies

@@ -51,6 +51,11 @@ Other options:
 reporting changes to the map until it is interrupted (Ctrl-C), both with and
 without `-t`.
 
+While it listens, the board hops across the channels the piconet has not been
+seen on, and the tool tells the board to stop visiting a channel once a packet
+from the piconet has arrived there. That is how the map fills in: a channel is
+reported used only when a packet is received on it.
+
 `-t <seconds>` only adds an initial detection phase: the tool listens for that
 many seconds, prints the map it found, and then starts monitoring. If that
 phase received no packet from the piconet there is no map to print, so the tool
