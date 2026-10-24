@@ -11,7 +11,7 @@ CFLAGS  ?= -O2 -Wall -Wextra -std=gnu99 -g
 FW_RXTX := ../bluetooth_rxtx
 CPPFLAGS += -I. -I$(FW_RXTX)
 
-TESTS   := test_rssi test_bluetooth_hop
+TESTS   := test_rssi test_bluetooth_hop test_access_code
 BINDIR  := bin
 
 .PHONY: all test clean
@@ -25,6 +25,12 @@ $(BINDIR)/test_rssi: test_rssi.c minunit.h $(FW_RXTX)/ubertooth_rssi.c $(FW_RXTX
 $(BINDIR)/test_bluetooth_hop: test_bluetooth_hop.c minunit.h stubs/ubertooth.h \
 		$(FW_RXTX)/bluetooth.c $(FW_RXTX)/bluetooth.h | $(BINDIR)
 	$(CC) $(CFLAGS) -Istubs $(CPPFLAGS) -o $@ test_bluetooth_hop.c $(FW_RXTX)/bluetooth.c
+
+# bluetooth.c is included into the test translation unit (see the test's
+# header comment); ubertooth.h here stands in for the hardware headers.
+$(BINDIR)/test_access_code: test_access_code.c minunit.h ubertooth.h \
+		$(FW_RXTX)/bluetooth.c $(FW_RXTX)/bluetooth.h | $(BINDIR)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ test_access_code.c
 
 $(BINDIR):
 	mkdir -p $(BINDIR)

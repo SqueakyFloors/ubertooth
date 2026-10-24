@@ -89,7 +89,9 @@ foreach(tool ${TOOLS})
 endforeach(tool)
 
 target_sources(ubertooth-util PRIVATE
-	util_report.c)
+	util_clock.c
+	util_report.c
+	util_reset_wait.c)
 
 target_sources(ubertooth-dfu PRIVATE
 	dfu_transition.c
