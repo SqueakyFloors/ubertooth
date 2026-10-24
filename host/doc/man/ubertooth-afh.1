@@ -37,7 +37,8 @@ LAP of target piconet (3 bytes / 6 hex digits)
 UAP of target piconet (1 byte / 2 hex digits)
 .IP \(bu 2
 \fB\fC\-m <int>\fR :
-threshold for channel removal (default: 5)
+threshold for channel removal: a channel is marked unused once this many packets
+arrive without it being seen; 1 or more (default: 5)
 .IP \(bu 2
 \fB\fC\-r\fR :
 print AFH channel map once every second (default: print on update)
@@ -49,8 +50,8 @@ Other options:
 \fB\fC\-t <seconds>\fR :
 timeout for initial AFH map detection (not required)
 .IP \(bu 2
-\fB\fC\-e <0\-4>\fR :
-maximum access code errors (default: 2, range: 0\-4)
+\fB\fC\-e <0\-5>\fR :
+maximum access code errors (default: 2, range: 0\-5)
 .IP \(bu 2
 \fB\fC\-V\fR :
 print version information
@@ -58,6 +59,19 @@ print version information
 \fB\fC\-U <0\-7>\fR :
 set ubertooth device to use
 .RE
+.SH ARGUMENTS
+.PP
+\fB\fCubertooth\-afh\fR takes options only. A word that is not an option, including
+a bare \fB\fC\-\fR, is refused before any device is opened and named:
+\fB\fCerror: unexpected argument '<word>'\fR, with exit status 1.
+.PP
+\fB\fC\-h\fR and \fB\fC\-V\fR end the command only once the whole command line has
+parsed, so a stray word or a bad option value is reported even
+alongside them.
+.PP
+An option value must be a whole value in its range, or it is refused the same
+way instead of being read as 0, for example
+\fB\fCerror: timeout must be a whole number of seconds, 0 for none (got abc)\fR\&.
 .SH SEE ALSO
 .PP
 .BR ubertooth-rx (1): 

@@ -58,35 +58,13 @@ static void test_invalid_targets(void)
 	CHECK(convert_mac_address(invalid_mask, address, &mask) == 0);
 }
 
-static void test_access_address_parsing(void)
-{
-	uint32_t aa = 0xdeadbeef;
-
-	CHECK(parse_access_address("8e89bed6", &aa) == 1 && aa == 0x8e89bed6u);
-	CHECK(parse_access_address("8E89BED6", &aa) == 1 && aa == 0x8e89bed6u);
-	/* fewer than 8 digits means leading zeros */
-	CHECK(parse_access_address("12345", &aa) == 1 && aa == 0x00012345u);
-	CHECK(parse_access_address("0", &aa) == 1 && aa == 0);
-
-	/* refused, and *address is left alone */
-	aa = 0xdeadbeef;
-	CHECK(parse_access_address("zzzz", &aa) == 0);
-	CHECK(parse_access_address("", &aa) == 0);
-	CHECK(parse_access_address("123456789", &aa) == 0);
-	CHECK(parse_access_address("8e89bed6x", &aa) == 0);
-	CHECK(parse_access_address("0x8e89bed6", &aa) == 0);
-	CHECK(parse_access_address("-1", &aa) == 0);
-	CHECK(parse_access_address(" 1", &aa) == 0);
-	CHECK(parse_access_address(NULL, &aa) == 0);
-	CHECK(aa == 0xdeadbeefu);
-}
-
 int main(void)
 {
+	/* The access address parser moved to opt_parse.c; its cases live in
+	 * test_opt_parse.c. */
 	test_clear_target();
 	test_full_and_masked_targets();
 	test_invalid_targets();
-	test_access_address_parsing();
 	printf("btle options: %d checks, %d failures\n", checks, failures);
 	return failures ? 1 : 0;
 }

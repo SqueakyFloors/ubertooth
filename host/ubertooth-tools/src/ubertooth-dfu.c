@@ -31,6 +31,7 @@
 #include "dfu.h"
 #include "dfu_transition.h"
 #include "dfu_recovery.h"
+#include "opt_parse.h"
 
 static struct timespec operation_started;
 
@@ -767,6 +768,8 @@ int main(int argc, char **argv) {
 	int interface_claimed = 0;
 	int exit_status = 0;
 	int opt;
+	/* -h ends the command once the whole command line has parsed (see below). */
+	int first_exit_option = 0;
 	char* ubertooth_device = NULL;
 	int r;
 
@@ -813,11 +816,27 @@ int main(int argc, char **argv) {
 		case 'U':
 			ubertooth_device = optarg;
 			break;
-		default:
 		case 'h':
+			if (!first_exit_option)
+				first_exit_option = 'h';
+			break;
+		default:
 			usage();
 			return 1;
 		}
+	}
+
+	/* ubertooth-dfu takes no operands: refuse a leftover word before any
+	 * device is opened, rather than running the rest of the command. */
+	if (opt_check_no_operands(argc, argv) < 0)
+		return 1;
+
+	/* -h ends the command, but only once the whole command line has
+	 * parsed: a bad option value or a stray word is reported even
+	 * alongside it. */
+	if (first_exit_option == 'h') {
+		usage();
+		return 1;
 	}
 
 	if(functions & FUNC_SIGN) {

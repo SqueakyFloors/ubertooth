@@ -82,8 +82,10 @@ if ( ${LIBBLUETOOTH_FOUND} )
 	LIST(APPEND TOOLS_LINK_LIBS ${LIBBLUETOOTH_LIBRARIES})
 endif()
 
+# opt_parse.c holds the one argument rule and the shared option-value parsers,
+# so every tool links it.
 foreach(tool ${TOOLS})
-	add_executable(${tool} ${tool}.c)
+	add_executable(${tool} ${tool}.c opt_parse.c)
 	target_link_libraries(${tool} ${TOOLS_LINK_LIBS})
 	install(TARGETS ${tool} RUNTIME DESTINATION ${INSTALL_DEFAULT_BINDIR})
 endforeach(tool)
@@ -99,7 +101,10 @@ target_sources(ubertooth-dfu PRIVATE
 	dfu_recovery.c)
 
 # ubertooth-debug is special because of the extra source file
-add_executable(ubertooth-debug ubertooth-debug.c cc2400.c arglist.c debug_registers.c)
+add_executable(ubertooth-debug ubertooth-debug.c cc2400.c arglist.c debug_registers.c opt_parse.c)
+LIST(APPEND TOOLS ubertooth-debug)
+# The built tool list, for the per-tool CLI tests in ../tests.
+set(UBERTOOTH_TOOLS ${TOOLS} PARENT_SCOPE)
 install(TARGETS ubertooth-debug RUNTIME DESTINATION ${INSTALL_DEFAULT_BINDIR})
 target_link_libraries(ubertooth-debug ${TOOLS_LINK_LIBS})
 

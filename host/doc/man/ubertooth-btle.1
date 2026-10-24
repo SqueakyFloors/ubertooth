@@ -225,7 +225,8 @@ opened\. Getting and setting in one command is refused; other options such
 as \fB\fC\-v\fR still run after a get\.
 .IP \(bu 2
 \fB\fC\-v[01]\fR :
-Get or set CRC verification (default: 0)
+Get (\fB\fC\-v\fR) or set (\fB\fC\-v0\fR, \fB\fC\-v1\fR, or
+\fB\fC\-v 1\fR) CRC verification (default: 0). Any other value is refused.
 .IP \(bu 2
 \fB\fC\-x<0\-32>\fR :
 Allow n access address violations (default: 32). Filtering occurs on
@@ -260,6 +261,23 @@ unchanged\. A board that has not been given a level transmits at 7 (0 dBm), the
 CC2400's reset value\. Sniffing does not transmit and does not change the level\.
 These levels are at the CC2400 radio; the Ubertooth One's RF amplifier changes
 the actual output after that\.
+.SH ARGUMENTS
+.PP
+\fB\fCubertooth\-btle\fR takes options only. A word that is not an option, including
+a bare \fB\fC\-\fR, is refused before any device is opened and named:
+\fB\fCerror: unexpected argument '<word>'\fR, with exit status 1.
+.PP
+\fB\fC\-h\fR ends the command only once the whole command line has
+parsed, so a stray word or a bad option value is reported even
+alongside it.
+.PP
+An option value must be a whole value in its range, or it is refused the same
+way instead of being read as 0, for example
+\fB\fCerror: advertising channel index must be 37\-39 (got 40)\fR\&.
+.PP
+The optional values of \-a and \-v may be attached or given as the next word
+(\-a 8e89bed6, \-v 1); a following option is never taken as a value. A bare \-
+is still the stdin/stdout value of \-q, \-c and \-r.
 .SH SEE ALSO
 .PP
 .BR crackle (1): 

@@ -20,8 +20,10 @@
  */
 
 #include "ubertooth.h"
+#include "opt_parse.h"
 #include <err.h>
 #include <getopt.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
@@ -39,12 +41,13 @@ static void usage()
 	printf("Main options:\n");
 	printf("\t-l <LAP> LAP of target piconet (3 bytes / 6 hex digits)\n");
 	printf("\t-u <UAP> UAP of target piconet (1 byte / 2 hex digits)\n");
-	printf("\t-m <int> threshold for channel removal (default: 5)\n");
+	printf("\t-m <packets> mark a channel unused after this many packets without it (default: 5)\n");
 	printf("\t-r print AFH channel map once every second (default: print on update)\n");
 	printf("\n");
 	printf("Other options\n");
 	printf("\t-t <seconds> timeout for initial AFH map detection (not required)\n");
-	printf("\t-e maximum access code errors (default: %d, range: 0-4)\n", max_ac_errors);
+	printf("\t-e maximum access code errors (default: %d, range: 0-%d)\n",
+	       max_ac_errors, MAX_AC_ERRORS);
 	printf("\t-V print version information\n");
 	printf("\t-U <0-7> set ubertooth device to use\n");
 }
@@ -53,7 +56,9 @@ int main(int argc, char* argv[])
 {
 	int opt, have_lap = 0, have_uap = 0, timeout = 0;//, have_initial_afh = 0;
 	// uint8_t initial_afh[10];
-	char* end;
+	int threshold;
+	/* -h / -V: the first one given ends the command (see below). */
+	int first_exit_option = 0;
 	char* ubertooth_device = NULL;
 	btbb_piconet* pn = NULL;
 	uint32_t lap = 0;
@@ -69,11 +74,13 @@ int main(int argc, char* argv[])
 	while ((opt=getopt(argc,argv,"rhVl:u:U:e:a:t:m:")) != EOF) {
 		switch(opt) {
 		case 'l':
-			lap = strtol(optarg, &end, 16);
+			if (opt_require_lap(optarg, &lap) < 0)
+				return 1;
 			have_lap = 1;
 			break;
 		case 'u':
-			uap = strtol(optarg, &end, 16);
+			if (opt_require_uap(optarg, &uap) < 0)
+				return 1;
 			have_uap = 1;
 			break;
 		case 'a':
@@ -83,28 +90,58 @@ int main(int argc, char* argv[])
 			// have_initial_afh = 1;
 			break;
 		case 't':
-			timeout = atoi(optarg);
+			if (opt_require_count(optarg, 0, "timeout", "seconds",
+			                      "0 for none", &timeout) < 0)
+				return 1;
 			break;
 		case 'U':
 			ubertooth_device = optarg;
 			break;
 		case 'e':
-			max_ac_errors = atoi(optarg);
+			if (opt_require_int(optarg, 0, MAX_AC_ERRORS,
+			                    "maximum access code errors", "",
+			                    &max_ac_errors) < 0)
+				return 1;
 			break;
 		case 'm':
-			packet_counter_max = atoi(optarg);
+			if (opt_require_count(optarg, 1,
+			                      "channel removal threshold", "packets",
+			                      "1 or more", &threshold) < 0)
+				return 1;
+			packet_counter_max = (unsigned int)threshold;
 			break;
 		case 'V':
-			print_version();
-			return 0;
+			if (!first_exit_option)
+				first_exit_option = 'V';
+			break;
 		case 'r':
 			use_r_format = 1;
 			break;
 		case 'h':
+			if (!first_exit_option)
+				first_exit_option = 'h';
+			break;
 		default:
 			usage();
 			return 1;
 		}
+	}
+
+	/* ubertooth-afh takes no operands: refuse a leftover word before any
+	 * device is opened, rather than running the rest of the command. */
+	if (opt_check_no_operands(argc, argv) < 0)
+		return 1;
+
+	/* -h and -V end the command, but only once the whole command line
+	 * has parsed: a bad option value or a stray word is reported even
+	 * alongside them. The first of the two given wins, as before. */
+	if (first_exit_option == 'V') {
+		print_version();
+		return 0;
+	}
+	if (first_exit_option == 'h') {
+		usage();
+		return 1;
 	}
 
 	if (have_lap && have_uap) {
@@ -116,12 +153,6 @@ int main(int argc, char* argv[])
 		btbb_init_survey();
 	} else {
 		printf("Error: UAP or LAP not specified\n");
-		usage();
-		return 1;
-	}
-
-	if (packet_counter_max == 0) {
-		printf("Error: Threshold for unused channels not specified\n");
 		usage();
 		return 1;
 	}

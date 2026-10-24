@@ -21,6 +21,7 @@
 
 #include "ubertooth.h"
 #include "ubertooth_callback.h"
+#include "opt_parse.h"
 #include <ctype.h>
 #include <getopt.h>
 #include <signal.h>
@@ -30,6 +31,10 @@
 
 #define DEFAULT_UUID "fd123ff9-9e30-45b2-af0d-b85b7d2dc80c"
 #define BOOTLOADER_UUID "344bc7f2-5619-4953-9be8-9888fe29d996"
+
+/* The BLE advertising channel indexes (Bluetooth Core spec: 37, 38, 39). */
+#define ADV_INDEX_MIN 37
+#define ADV_INDEX_MAX 39
 
 int running = 1;
 
@@ -42,38 +47,6 @@ void print_mac(uint8_t *mac_address) {
 	for (i = 0; i < 5; ++i)
 		printf("%02x:", mac_address[i]);
 	printf("%02x", mac_address[5]);
-}
-
-int convert_mac_address(char *s, uint8_t *o) {
-	int i;
-
-	// validate length
-	if (strlen(s) != 6 * 2 + 5) {
-		printf("Error: MAC address is wrong length\n");
-		return 0;
-	}
-
-	// validate hex chars and : separators
-	for (i = 0; i < 6*3; i += 3) {
-		if (!isxdigit(s[i]) ||
-			!isxdigit(s[i+1])) {
-			printf("Error: BD address contains invalid character(s)\n");
-			return 0;
-		}
-		if (i < 5*3 && s[i+2] != ':') {
-			printf("Error: BD address contains invalid character(s)\n");
-			return 0;
-		}
-	}
-
-	// sanity: checked; convert
-	for (i = 0; i < 6; ++i) {
-		unsigned byte;
-		sscanf(&s[i*3], "%02x",&byte);
-		o[i] = byte;
-	}
-
-	return 1;
 }
 
 int parse_uuid(char *s, uint8_t *uuid_out) {
@@ -148,8 +121,9 @@ static void usage(void) {
 	printf("\t-q [uuid] quack!\n");
 	printf("\t-b signal Uberducky to enter bootloader\n");
 	printf("\n");
-	printf("\t-A <index> advertising channel index (default: 38)\n");
-	printf("\t-a <BD ADDR> Bluetooth address (default: random)\n");
+	printf("\t-A <%d-%d> advertising channel index (default: 38)\n",
+	       ADV_INDEX_MIN, ADV_INDEX_MAX);
+	printf("\t-a <BD ADDR> Bluetooth address, xx:xx:xx:xx:xx:xx (default: random)\n");
 	printf("\t-U <index|serial> select Ubertooth by index or serial number\n");
 	printf("\t-h this help\n");
 	printf("\n");
@@ -160,6 +134,8 @@ static void usage(void) {
 int main(int argc, char *argv[])
 {
 	int opt;
+	/* -h ends the command once the whole command line has parsed (see below). */
+	int first_exit_option = 0;
 	int do_quack, do_adv_index;
 	int addr_set, be_sarcastic;
 	char *uuid_str = NULL;
@@ -179,29 +155,42 @@ int main(int argc, char *argv[])
 	while ((opt=getopt(argc,argv,"q::bA:a:hsU:")) != EOF) {
 		switch(opt) {
 		case 'q':
+			/* getopt only attaches an optional value (-q<uuid>); take a
+			 * following word that is not an option as the value too, so
+			 * "-q <uuid>" quacks that UUID rather than the default and
+			 * leaving the UUID as a stray word. */
+			if (optarg == NULL)
+				optarg = opt_separate_value(argc, argv, opt_value_not_option);
 			do_quack = 1;
+			free(uuid_str);
 			uuid_str = strdup(optarg ? optarg : DEFAULT_UUID);
-			break;
-
-		case 'b':
-			do_quack = 1;
-			uuid_str = strdup(BOOTLOADER_UUID);
-			break;
-
-		case 'A':
-			do_adv_index = atoi(optarg);
-			if (do_adv_index < 37 || do_adv_index > 39) {
-				printf("Error: advertising index must be 37, 38, or 39\n");
-				usage();
+			if (uuid_str == NULL) {
+				fprintf(stderr, "error: out of memory\n");
 				return 1;
 			}
 			break;
 
+		case 'b':
+			do_quack = 1;
+			free(uuid_str);
+			uuid_str = strdup(BOOTLOADER_UUID);
+			if (uuid_str == NULL) {
+				fprintf(stderr, "error: out of memory\n");
+				return 1;
+			}
+			break;
+
+		case 'A':
+			if (opt_require_int(optarg, ADV_INDEX_MIN, ADV_INDEX_MAX,
+			                    "advertising channel index", "",
+			                    &do_adv_index) < 0)
+				return 1;
+			break;
+
 		case 'a':
-			r = convert_mac_address(optarg, bd_addr);
-			if (!r) {
-				printf("Error parsing BD ADDR '%s'\n", optarg);
-				usage();
+			if (opt_parse_bd_addr(optarg, bd_addr) < 0) {
+				fprintf(stderr, "error: Bluetooth address must be "
+				        "xx:xx:xx:xx:xx:xx (got %s)\n", optarg);
 				return 1;
 			}
 			addr_set = 1;
@@ -216,10 +205,26 @@ int main(int argc, char *argv[])
 			break;
 
 		case 'h':
+			if (!first_exit_option)
+				first_exit_option = 'h';
+			break;
 		default:
 			usage();
 			return 1;
 		}
+	}
+
+	/* ubertooth-ducky takes no operands: refuse a leftover word before any
+	 * device is opened, rather than running the rest of the command. */
+	if (opt_check_no_operands(argc, argv) < 0)
+		return 1;
+
+	/* -h ends the command, but only once the whole command line has
+	 * parsed: a bad option value or a stray word is reported even
+	 * alongside it. */
+	if (first_exit_option == 'h') {
+		usage();
+		return 1;
 	}
 
 	if (do_quack) {
@@ -228,7 +233,7 @@ int main(int argc, char *argv[])
 		r = parse_uuid(uuid_str, uuid);
 		if (!r) {
 			if (!be_sarcastic)
-				printf("Error parsing UUID '%s'\n", optarg);
+				printf("Error parsing UUID '%s'\n", uuid_str);
 			else
 				printf("UUID's fucked mate. Did an upright duck tell you to type that?\n");
 			return 1;

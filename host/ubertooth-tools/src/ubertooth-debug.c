@@ -32,6 +32,7 @@
 
 #include "cc2400.h"
 #include "arglist.h"
+#include "opt_parse.h"
 
 static void usage()
 {
@@ -70,6 +71,7 @@ int main(int argc, char *argv[])
 {
     int opt;
     int r = 0;
+    int do_help = 0;
     int verbose = 1;
     ubertooth_t* ut = NULL;
     int do_read_register;
@@ -85,17 +87,14 @@ int main(int argc, char *argv[])
     while ((opt = getopt(argc, argv, "hU:r:v:")) != EOF) {
 	switch (opt) {
 	case 'h':
-	    usage();
-	    return 0;
+	    do_help = 1;
+	    break;
 	case 'U':
 	    ubertooth_device = optarg;
 	    break;
 	case 'v':
-	    verbose = atoi(optarg);
-	    if (verbose < 0 || verbose > 2) {
-		fprintf(stderr, "ERROR: verbosity out of range\n");
+	    if (opt_require_int(optarg, 0, 2, "verbosity", "", &verbose) < 0)
 		return 1;
-	    }
 	    break;
 	case 'r':
 	    regList = listOfInts(optarg, &regListN, token_to_int);
@@ -116,6 +115,18 @@ int main(int argc, char *argv[])
 	    usage();
 	    return 1;
 	}
+    }
+
+    /* ubertooth-debug takes no operands: refuse a leftover word before any
+     * device is opened, rather than running the rest of the command. */
+    if (opt_check_no_operands(argc, argv) < 0)
+	return 1;
+
+    /* -h ends the command, but only once the whole command line has parsed:
+     * a bad option value or a stray word is reported even alongside it. */
+    if (do_help) {
+	usage();
+	return 0;
     }
 
 	if(regListN == 0) {

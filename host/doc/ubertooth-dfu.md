@@ -96,6 +96,16 @@ to boot. If it remains installed, the next reset will sample the entry pin
 again and return to the bootloader. If removing a live bridge is inconvenient,
 finish the flash, unplug the device, remove the bridge, and reconnect it.
 
+## ARGUMENTS
+
+`ubertooth-dfu` takes options only. A word that is not an option, including a
+bare `-`, is refused before any device is opened and named:
+`error: unexpected argument '<word>'`, with exit status 1.
+
+`-h` ends the command only once the whole command line has
+parsed, so a stray word or a bad option value is reported even
+alongside it.
+
 ## SEE ALSO
 
 ubertooth(7): overview of Project Ubertooth

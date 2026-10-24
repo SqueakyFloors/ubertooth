@@ -111,6 +111,15 @@ Remove the bridge before the final reset if you want the application firmware
 to boot. If it remains installed, the next reset will sample the entry pin
 again and return to the bootloader. If removing a live bridge is inconvenient,
 finish the flash, unplug the device, remove the bridge, and reconnect it.
+.SH ARGUMENTS
+.PP
+\fB\fCubertooth\-dfu\fR takes options only. A word that is not an option, including
+a bare \fB\fC\-\fR, is refused before any device is opened and named:
+\fB\fCerror: unexpected argument '<word>'\fR, with exit status 1.
+.PP
+\fB\fC\-h\fR ends the command only once the whole command line has
+parsed, so a stray word or a bad option value is reported even
+alongside it.
 .SH SEE ALSO
 .PP
 .BR ubertooth (7): 

@@ -40,13 +40,15 @@ Major modes:
 
 Options:
 
- - `-c` :
-   Channel to use for continuous receive (suggested: 2408, 2418, 2423, 2469)
+ - `-c <2402-2480>` :
+   Channel in MHz to use for continuous receive (suggested: 2408, 2418,
+   2423, 2469)
  - `-l <1-48>` :
    Packet length to use. The value must be a complete decimal integer from 1
    through 48; invalid values fail before the Ubertooth is opened.
  - `-a <access_code>` :
-   Access code to use, given as hex (up to 4 bytes)
+   Access code to use, given as 2, 4, 6 or 8 hex digits (1 to 4 whole
+   bytes, default: 630f9ffe)
  - `-U <index|serial>` :
    Select an Ubertooth by enumeration index or stable serial-number string
 
@@ -58,6 +60,20 @@ level jams at 7 (0 dBm, the maximum), the CC2400's reset value and the level
 jamming always used before. Sniffing does not transmit and does not change the
 level. These levels are at the CC2400 radio; the Ubertooth One's RF amplifier
 changes the actual output after that.
+
+## ARGUMENTS
+
+`ubertooth-ego` takes options only. A word that is not an option, including a
+bare `-`, is refused before any device is opened and named:
+`error: unexpected argument '<word>'`, with exit status 1.
+
+`-h` ends the command only once the whole command line has
+parsed, so a stray word or a bad option value is reported even
+alongside it.
+
+An option value must be a whole value in its range, or it is refused the same
+way instead of being read as 0, for example
+`error: channel must be 2402-2480 MHz (got 2481)`.
 
 ## SEE ALSO
 

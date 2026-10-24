@@ -22,7 +22,11 @@
 #include <getopt.h>
 #include <stdlib.h>
 #include "ubertooth.h"
+#include "opt_parse.h"
 #include "specan_options.h"
+
+_Static_assert(SPECAN_FREQ_MIN == BT_FREQ_MIN && SPECAN_FREQ_MAX == BT_FREQ_MAX,
+               "specan_options.h must match the library's band limits");
 
 uint8_t debug;
 
@@ -94,15 +98,18 @@ static void usage(FILE *file)
 	fprintf(file, "\t-g output suitable for feedgnuplot\n");
 	fprintf(file, "\t-G output suitable for 3D feedgnuplot\n");
 	fprintf(file, "\t-d <filename> output to file\n");
-	fprintf(file, "\t-l <2402-2480> lower frequency in MHz (default 2402)\n");
-	fprintf(file, "\t-u <2402-2480> upper frequency in MHz (default 2480)\n");
+	fprintf(file, "\t-l <%d-%d> lower frequency in MHz (default %d)\n",
+	        SPECAN_FREQ_MIN, SPECAN_FREQ_MAX, SPECAN_FREQ_MIN);
+	fprintf(file, "\t-u <%d-%d> upper frequency in MHz (default %d)\n",
+	        SPECAN_FREQ_MIN, SPECAN_FREQ_MAX, SPECAN_FREQ_MAX);
 	fprintf(file, "\t-U <index|serial> select Ubertooth by index or serial\n");
 }
 
 int main(int argc, char *argv[])
 {
 	int opt, r = 0, output_mode = SPECAN_STDOUT;
-	int lower= 2402, upper= 2480;
+	int do_help = 0;
+	int lower= SPECAN_FREQ_MIN, upper= SPECAN_FREQ_MAX;
 	char* ubertooth_device = NULL;
 
 	ubertooth_t* ut = NULL;
@@ -132,13 +139,15 @@ int main(int argc, char *argv[])
 			break;
 		case 'l':
 			if (specan_parse_frequency(optarg, &lower) < 0) {
-				fprintf(stderr, "error: lower frequency must be 2402-2480 MHz\n");
+				fprintf(stderr, "error: lower frequency must be %d-%d MHz "
+				        "(got %s)\n", SPECAN_FREQ_MIN, SPECAN_FREQ_MAX, optarg);
 				return 1;
 			}
 			break;
 		case 'u':
 			if (specan_parse_frequency(optarg, &upper) < 0) {
-				fprintf(stderr, "error: upper frequency must be 2402-2480 MHz\n");
+				fprintf(stderr, "error: upper frequency must be %d-%d MHz "
+				        "(got %s)\n", SPECAN_FREQ_MIN, SPECAN_FREQ_MAX, optarg);
 				return 1;
 			}
 			break;
@@ -146,12 +155,24 @@ int main(int argc, char *argv[])
 			ubertooth_device = optarg;
 			break;
 		case 'h':
-			usage(stdout);
-			return 0;
+			do_help = 1;
+			break;
 		default:
 			usage(stderr);
 			return 1;
 		}
+	}
+
+	/* ubertooth-specan takes no operands: refuse a leftover word before any
+	 * device is opened, rather than running the rest of the command. */
+	if (opt_check_no_operands(argc, argv) < 0)
+		return 1;
+
+	/* -h ends the command, but only once the whole command line has parsed:
+	 * a bad option value or a stray word is reported even alongside it. */
+	if (do_help) {
+		usage(stdout);
+		return 0;
 	}
 
 	if (specan_validate_frequency_range(lower, upper) < 0) {

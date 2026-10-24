@@ -94,6 +94,19 @@ timeout\. A short reply prints the single line \fB\fCerror: register 0x<reg> rea
 failed: board returned <n> of 2 bytes\fR\. The remaining registers are still read
 and decoded\.
 
+.SH ARGUMENTS
+.PP
+\fB\fCubertooth\-debug\fR takes options only. A word that is not an option, including
+a bare \fB\fC\-\fR, is refused before any device is opened and named:
+\fB\fCerror: unexpected argument '<word>'\fR, with exit status 1.
+.PP
+\fB\fC\-h\fR ends the command only once the whole command line has
+parsed, so a stray word or a bad option value is reported even
+alongside it.
+.PP
+An option value must be a whole value in its range, or it is refused the same
+way instead of being read as 0, for example
+\fB\fCerror: verbosity must be 0\-2 (got 3)\fR\&.
 .SH SEE ALSO
 .PP
 ubertooth(7): overview of Project Ubertooth

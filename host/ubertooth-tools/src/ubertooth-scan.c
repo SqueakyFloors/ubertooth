@@ -33,8 +33,10 @@
 
 #include "ubertooth.h"
 #include "ubertooth_callback.h"
+#include "opt_parse.h"
 #include <btbb.h>
 #include <getopt.h>
+#include <limits.h>
 
 static void usage()
 {
@@ -57,7 +59,8 @@ static void usage()
 	printf("\t-s hci Scan - use BlueZ to scan for discoverable devices\n");
 	printf("\t-x eXtended scan - retrieve additional information about target devices\n");
 	printf("\t-t scan Time (seconds) - length of time to sniff packets. [Default: 20s]\n");
-	printf("\t-e max_ac_errors (default: %d, range: 0-4)\n", max_ac_errors);
+	printf("\t-e max_ac_errors (default: %d, range: 0-%d)\n",
+	       max_ac_errors, MAX_AC_ERRORS);
 	printf("\t-b Bluetooth device (hci0)\n");
 	printf("\t-U<0-7> set Ubertooth device to use\n");
 }
@@ -199,6 +202,8 @@ int main(int argc, char *argv[])
 	int max_rsp, num_rsp, lap, timeout = 20;
 	uint8_t uap, extended = 0;
 	uint8_t scan = 0;
+	/* -h ends the command once the whole command line has parsed (see below). */
+	int first_exit_option = 0;
 	char* ubertooth_device = NULL;
 	char *bt_dev = "hci0";
 	char addr[19] = { 0 };
@@ -219,10 +224,15 @@ int main(int argc, char *argv[])
 			}
 			break;
 		case 't':
-			timeout = atoi(optarg);
+			if (opt_require_count(optarg, 0, "timeout", "seconds",
+			                      "0 for none", &timeout) < 0)
+				return 1;
 			break;
 		case 'e':
-			max_ac_errors = atoi(optarg);
+			if (opt_require_int(optarg, 0, MAX_AC_ERRORS,
+			                    "maximum access code errors", "",
+			                    &max_ac_errors) < 0)
+				return 1;
 			break;
 		case 'x':
 			extended = 1;
@@ -231,10 +241,26 @@ int main(int argc, char *argv[])
 			scan = 1;
 			break;
 		case 'h':
+			if (!first_exit_option)
+				first_exit_option = 'h';
+			break;
 		default:
 			usage();
 			return 1;
 		}
+	}
+
+	/* ubertooth-scan takes no operands: refuse a leftover word before any
+	 * device is opened, rather than running the rest of the command. */
+	if (opt_check_no_operands(argc, argv) < 0)
+		return 1;
+
+	/* -h ends the command, but only once the whole command line has
+	 * parsed: a bad option value or a stray word is reported even
+	 * alongside it. */
+	if (first_exit_option == 'h') {
+		usage();
+		return 1;
 	}
 
 	dev_id = hci_devid(bt_dev);

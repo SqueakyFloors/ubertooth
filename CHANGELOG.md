@@ -85,6 +85,21 @@
 
 ### Reliability fixes
 
+- Every `ubertooth-*` tool now refuses a word that is not an option, including
+  a bare `-`, before opening a device (`error: unexpected argument '<word>'`),
+  so a typo such as `- v` is no longer dropped while the rest of the command
+  runs. `-h` and `-V` now end the command only after the whole command line
+  has parsed, so a mistake written alongside them is still reported.
+  `ubertooth-btle -q -`, `-c -` and `-r -` still mean stdin/stdout.
+  [#155](https://github.com/SqueakyFloors/ubertooth/issues/155)
+- Option values are now parsed the same way by every tool: a whole decimal
+  number in range, a lower address part (LAP) of exactly 6 hex digits, an
+  upper address part (UAP) of 2, an access address of 1 to 8, and a Bluetooth
+  address as `xx:xx:xx:xx:xx:xx`. Values that used to be read as 0 or
+  truncated, such as `ubertooth-rx -c abc` or `-l zz3344`, are refused before
+  the device is opened. `ubertooth-btle -v` and `ubertooth-ducky -q` also take
+  their value as the next word.
+  [#155](https://github.com/SqueakyFloors/ubertooth/issues/155)
 - Firmware no longer stops answering Universal Serial Bus (USB) control
   requests after a Bluetooth Low Energy (BLE) sniffing mode is stopped, so the
   board no longer needs a re-plug to be usable again.

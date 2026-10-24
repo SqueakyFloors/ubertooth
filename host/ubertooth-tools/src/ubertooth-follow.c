@@ -30,20 +30,23 @@
 
 #include "ubertooth.h"
 #include "ubertooth_callback.h"
+#include "opt_parse.h"
 #include <btbb.h>
 #include <getopt.h>
+#include <limits.h>
 
 static void usage()
 {
 	printf("ubertooth-follow - active(bluez) CLK discovery and follow for a particular UAP/LAP\n");
 	printf("Usage:\n");
 	printf("\t-h this help\n");
-	printf("\t-l<LAP> (in hexadecimal)\n");
-	printf("\t-u<UAP> (in hexadecimal)\n");
+	printf("\t-l<LAP> (3 bytes / 6 hex digits)\n");
+	printf("\t-u<UAP> (1 byte / 2 hex digits)\n");
 	printf("\t-U<0-7> set ubertooth device to use\n");
 	printf("\t-r<filename> capture packets to PCAPNG file\n");
 	printf("\t-q<filename> capture packets to PCAP file\n");
-	printf("\t-e max_ac_errors\n");
+	printf("\t-e max_ac_errors (default: %d, range: 0-%d)\n",
+	       max_ac_errors, MAX_AC_ERRORS);
 	printf("\t-d filename\n");
 	printf("\t-a Enable AFH\n");
 	printf("\t-b Bluetooth device (hci0)\n");
@@ -56,10 +59,11 @@ int main(int argc, char *argv[])
 {
 	int opt, sock, dev_id, lap = 0, uap = 0, delay = 5;
 	int have_lap = 0;
+	/* -h ends the command once the whole command line has parsed (see below). */
+	int first_exit_option = 0;
 	int have_uap = 0;
 	int afh_enabled = 0;
 	uint8_t mode, afh_map[10];
-	char *end;
         char* ubertooth_device = NULL;
 	char *bt_dev = "hci0";
 	char addr[19] = { 0 };
@@ -75,18 +79,22 @@ int main(int argc, char *argv[])
 
 	while ((opt=getopt(argc,argv,"hl:u:U:e:d:ab:w:r:q:")) != EOF) {
 		switch(opt) {
-		case 'l':
-			lap = strtol(optarg, &end, 16);
-			if (end != optarg) {
-				++have_lap;
-			}
+		case 'l': {
+			uint32_t value;
+			if (opt_require_lap(optarg, &value) < 0)
+				return 1;
+			lap = (int)value;
+			++have_lap;
 			break;
-		case 'u':
-			uap = strtol(optarg, &end, 16);
-			if (end != optarg) {
-				++have_uap;
-			}
+		}
+		case 'u': {
+			uint8_t value;
+			if (opt_require_uap(optarg, &value) < 0)
+				return 1;
+			uap = value;
+			++have_uap;
 			break;
+		}
 		case 'U':
 			ubertooth_device = optarg;
 			break;
@@ -111,7 +119,10 @@ int main(int argc, char *argv[])
 			}
 			break;
 		case 'e':
-			max_ac_errors = atoi(optarg);
+			if (opt_require_int(optarg, 0, MAX_AC_ERRORS,
+			                    "maximum access code errors", "",
+			                    &max_ac_errors) < 0)
+				return 1;
 			break;
 		case 'd':
 			dumpfile = fopen(optarg, "w");
@@ -131,13 +142,31 @@ int main(int argc, char *argv[])
 			}
 			break;
 		case 'w': //wait
-			delay = atoi(optarg);
+			if (opt_require_count(optarg, 0, "USB delay",
+			                      "timeslots", "0 or more", &delay) < 0)
+				return 1;
 			break;
 		case 'h':
+			if (!first_exit_option)
+				first_exit_option = 'h';
+			break;
 		default:
 			usage();
 			return 1;
 		}
+	}
+
+	/* ubertooth-follow takes no operands: refuse a leftover word before any
+	 * device is opened, rather than running the rest of the command. */
+	if (opt_check_no_operands(argc, argv) < 0)
+		return 1;
+
+	/* -h ends the command, but only once the whole command line has
+	 * parsed: a bad option value or a stray word is reported even
+	 * alongside it. */
+	if (first_exit_option == 'h') {
+		usage();
+		return 1;
 	}
 
 	dev_id = hci_devid(bt_dev);

@@ -23,13 +23,41 @@ add_test(
 		${CMAKE_CURRENT_SOURCE_DIR}/test_ducky_options.py
 		$<TARGET_FILE:ubertooth-ducky>)
 
+# The shared option parsing, built once for the tests that need it, with the
+# same getopt the tools use (opt_parse.c reads getopt's optind).
+add_library(opt-parse-for-tests STATIC ../src/opt_parse.c)
+target_include_directories(opt-parse-for-tests PUBLIC ../src)
+if(USE_OWN_GNU_GETOPT)
+	target_include_directories(opt-parse-for-tests BEFORE PUBLIC ../getopt)
+	target_link_libraries(opt-parse-for-tests PUBLIC libgetopt_static)
+endif()
+
+add_executable(test-opt-parse test_opt_parse.c)
+target_link_libraries(test-opt-parse opt-parse-for-tests)
+
+add_test(NAME opt-parse COMMAND test-opt-parse)
+
 add_executable(test-specan-options
 	test_specan_options.c
 	../src/specan_options.c)
 
 target_include_directories(test-specan-options PRIVATE ../src)
+target_link_libraries(test-specan-options opt-parse-for-tests)
 
 add_test(NAME specan-options COMMAND test-specan-options)
+
+# The one argument rule, per tool, run against the real binaries with no
+# device: one CTest entry per built tool so a failure names the tool. Each
+# case is a single short run; the timeout only catches a tool that hangs
+# instead of refusing (a whole tool's cases take well under a second).
+foreach(tool ${UBERTOOTH_TOOLS})
+	add_test(
+		NAME cli-arguments-${tool}
+		COMMAND ${Python3_EXECUTABLE}
+			${CMAKE_CURRENT_SOURCE_DIR}/test_cli_arguments.py
+			$<TARGET_FILE:${tool}>)
+	set_tests_properties(cli-arguments-${tool} PROPERTIES TIMEOUT 60)
+endforeach()
 
 add_test(
 	NAME specan-cli
@@ -48,6 +76,7 @@ add_executable(test-btle-options
 	../src/btle_options.c)
 
 target_include_directories(test-btle-options PRIVATE ../src)
+target_link_libraries(test-btle-options opt-parse-for-tests)
 
 add_test(NAME btle-options COMMAND test-btle-options)
 
@@ -56,6 +85,7 @@ add_executable(test-ego-options
 	../src/ego_options.c)
 
 target_include_directories(test-ego-options PRIVATE ../src)
+target_link_libraries(test-ego-options opt-parse-for-tests)
 
 add_test(NAME ego-options COMMAND test-ego-options)
 
@@ -108,6 +138,7 @@ add_executable(test-util-main
 	../src/util_report.c
 	../src/util_modes.c
 	../src/util_reset_wait.c)
+target_link_libraries(test-util-main opt-parse-for-tests)
 
 # The library headers of this source tree must win over any installed copy.
 if(libubertooth_SOURCE_DIR)

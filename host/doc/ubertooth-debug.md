@@ -51,6 +51,20 @@ timeout. A short reply prints the single line `error: register 0x<reg> read
 failed: board returned <n> of 2 bytes`. The remaining registers are still read
 and decoded.
 
+## ARGUMENTS
+
+`ubertooth-debug` takes options only. A word that is not an option, including a
+bare `-`, is refused before any device is opened and named:
+`error: unexpected argument '<word>'`, with exit status 1.
+
+`-h` ends the command only once the whole command line has
+parsed, so a stray word or a bad option value is reported even
+alongside it.
+
+An option value must be a whole value in its range, or it is refused the same
+way instead of being read as 0, for example
+`error: verbosity must be 0-2 (got 3)`.
+
 ## SEE ALSO
 
 ubertooth(7): overview of Project Ubertooth

@@ -162,7 +162,8 @@ Miscellaneous:
    opened. Getting and setting in one command is refused; other options such
    as `-v` still run after a get.
  - `-v[01]` :
-   Get or set CRC verification (default: 0)
+   Get (`-v`) or set (`-v0`, `-v1`, or `-v 1`) CRC verification
+   (default: 0). Any other value is refused.
  - `-x<0-32>` :
    Allow n access address violations (default: 32). Filtering occurs on
    host.
@@ -191,6 +192,24 @@ unchanged. A board that has not been given a level transmits at 7 (0 dBm), the
 CC2400's reset value. Sniffing does not transmit and does not change the level.
 These levels are at the CC2400 radio; the Ubertooth One's RF amplifier changes
 the actual output after that.
+
+## ARGUMENTS
+
+`ubertooth-btle` takes options only. A word that is not an option, including a
+bare `-`, is refused before any device is opened and named:
+`error: unexpected argument '<word>'`, with exit status 1.
+
+`-h` ends the command only once the whole command line has
+parsed, so a stray word or a bad option value is reported even
+alongside it.
+
+An option value must be a whole value in its range, or it is refused the same
+way instead of being read as 0, for example
+`error: advertising channel index must be 37-39 (got 40)`.
+
+The optional values of `-a` and `-v` may be attached or given as the next
+word (`-a 8e89bed6`, `-v 1`); a following option is never taken as a value.
+A bare `-` is still the stdin/stdout value of `-q`, `-c` and `-r`.
 
 ## SEE ALSO
 
