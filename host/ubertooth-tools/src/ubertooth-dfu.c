@@ -699,10 +699,7 @@ static int verify_get_revision(void *context __attribute__((unused)),
                                void *handle, char *revision,
                                size_t revision_size)
 {
-	if (revision_size == 0 || revision_size > UINT8_MAX)
-		return -1;
-	cmd_get_rev_num(handle, revision, (u8)revision_size);
-	return strncmp(revision, "error:", 6) == 0 ? -1 : 0;
+	return cmd_get_firmware_revision(handle, revision, revision_size) < 0 ? -1 : 0;
 }
 
 static void verify_close_application(void *context __attribute__((unused)),

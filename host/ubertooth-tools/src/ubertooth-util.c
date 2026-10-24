@@ -34,9 +34,9 @@ static int report_get_board_id(void *context)
 	return cmd_get_board_id(((ubertooth_t*)context)->devh);
 }
 
-static void report_get_firmware_revision(void *context, char *revision, size_t size)
+static int report_get_firmware_revision(void *context, char *revision, size_t size)
 {
-	cmd_get_rev_num(((ubertooth_t*)context)->devh, revision, (u8)size);
+	return cmd_get_firmware_revision(((ubertooth_t*)context)->devh, revision, size);
 }
 
 static int report_get_api_version(void *context, uint16_t *version)
@@ -44,9 +44,9 @@ static int report_get_api_version(void *context, uint16_t *version)
 	return ubertooth_get_api((ubertooth_t*)context, version);
 }
 
-static void report_get_compile_info(void *context, char *info, size_t size)
+static int report_get_compile_info(void *context, char *info, size_t size)
 {
-	cmd_get_compile_info(((ubertooth_t*)context)->devh, info, (u8)size);
+	return cmd_get_firmware_compile_info(((ubertooth_t*)context)->devh, info, size);
 }
 
 static int report_get_part_id(void *context, uint32_t *part_id)

@@ -45,10 +45,10 @@ Common options:
 .RS
 .IP \(bu 2
 \fB\fC\-v\fR :
-get firmware revision number
+get firmware revision number; exits non\-zero if the read fails
 .IP \(bu 2
 \fB\fC\-V\fR :
-get compile info
+get compile info; exits non\-zero if the read fails
 .IP \(bu 2
 \fB\fC\-H\fR, \fB\fC\-\-host\-version\fR :
 get host tools (libubertooth) version; works without a device
@@ -168,10 +168,12 @@ prefixed with the device index. A device that cannot be opened is shown as
 \fB\fC<index>: <unavailable>\fR, a failed read as \fB\fC<index>: <query read
 failed>\fR, and a query that reports an error as that error (for example
 \fB\fC<error: unknown board ID 7>\fR). The other devices are still reported, and
-the command exits non\-zero if any device failed. A firmware version whose API
-version cannot be read is shown without it; failed \fB\fC\-V\fR and firmware
-revision reads are not detected yet. Listing does not stop a mode a
-device is running. Any other option in the same command still needs \fB\fC\-U\fR\&.
+the command exits non\-zero if any device failed. A failed \fB\fC\-v\fR or
+\fB\fC\-V\fR read is shown as \fB\fC<index>: <firmware read failed>\fR or
+\fB\fC<index>: <compile info read failed>\fR; a firmware version whose API
+version cannot be read is shown without it and also makes the command fail.
+Listing does not stop a mode a device is running. Any other option in the
+same command still needs \fB\fC\-U\fR\&.
 .PP
 \fB\fC\-U all\fR asks for the same listing explicitly. It works with any number
 of attached devices, including one (\fB\fC0: <value>\fR), and fails with

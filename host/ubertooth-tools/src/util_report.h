@@ -19,10 +19,14 @@
 struct util_report_ops {
 	/* Board ID (0 or greater), or a negative value on a transfer error. */
 	int (*get_board_id)(void *context);
-	void (*get_firmware_revision)(void *context, char *revision, size_t size);
+	/* Returns 0 and fills revision (terminated) on success, a negative value
+	 * on error. */
+	int (*get_firmware_revision)(void *context, char *revision, size_t size);
 	/* Returns 0 on success, a negative value on error. */
 	int (*get_api_version)(void *context, uint16_t *version);
-	void (*get_compile_info)(void *context, char *info, size_t size);
+	/* Returns 0 and fills info (terminated) on success, a negative value on
+	 * error. */
+	int (*get_compile_info)(void *context, char *info, size_t size);
 	/* Returns 0 and fills *part_id on success, a negative value on error. */
 	int (*get_part_id)(void *context, uint32_t *part_id);
 	/* Returns 0 on success; fills serial[1..16] (serial[0] is a status byte). */

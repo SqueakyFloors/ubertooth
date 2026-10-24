@@ -36,9 +36,9 @@ configured channel and power level are preserved.)
 Common options:
 
  - `-v` :
-   get firmware revision number
+   get firmware revision number; exits non-zero if the read fails
  - `-V` :
-   get compile info
+   get compile info; exits non-zero if the read fails
  - `-H`, `--host-version` :
    get host tools (libubertooth) version; works without a device
  - `-I` :
@@ -137,8 +137,10 @@ prefixed with the device index. A device that cannot be opened is shown as
 `<index>: <unavailable>`, a failed read as `<index>: <query read failed>`, and a
 query that reports an error as that error (for example `<error: unknown board
 ID 7>`). The other devices are still reported, and the command exits non-zero
-if any device failed. A firmware version whose API version cannot be read is
-shown without it; failed `-V` and firmware revision reads are not detected yet. Listing does not stop a mode a device is running. Any other
+if any device failed. A failed `-v` or `-V` read is shown as
+`<index>: <firmware read failed>` or `<index>: <compile info read failed>`; a
+firmware version whose API version cannot be read is shown without it and also
+makes the command fail. Listing does not stop a mode a device is running. Any other
 option in the same command still needs `-U`.
 
 `-U all` asks for the same listing explicitly. It works with any number of

@@ -67,7 +67,9 @@ int util_report_firmware(const struct util_report_ops *ops, void *context,
 	int status = 0;
 
 	revision[0] = '\0';
-	ops->get_firmware_revision(context, revision, sizeof(revision));
+	/* A failed read prints no line; the library already reported the error. */
+	if (ops->get_firmware_revision(context, revision, sizeof(revision)) < 0)
+		return 1;
 	revision[sizeof(revision) - 1] = '\0';
 	fprintf(out, "Firmware version: %s", revision);
 	if (ops->get_api_version(context, &api_version) >= 0)
@@ -86,7 +88,9 @@ int util_report_compile_info(const struct util_report_ops *ops, void *context,
 	char info[UTIL_TEXT_LEN];
 
 	info[0] = '\0';
-	ops->get_compile_info(context, info, sizeof(info));
+	/* A failed read prints no line; the library already reported the error. */
+	if (ops->get_compile_info(context, info, sizeof(info)) < 0)
+		return 1;
 	info[sizeof(info) - 1] = '\0';
 	fprintf(out, "%s\n", info);
 	return 0;

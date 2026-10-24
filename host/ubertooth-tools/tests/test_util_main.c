@@ -31,7 +31,7 @@ static unsigned fake_sleep(unsigned seconds)
 static struct {
 	int board_id, channel, palevel, squelch, usrled, rxled, txled;
 	uint32_t partnum;
-	int partnum_rc, serial_rc, api_rc;
+	int partnum_rc, serial_rc, api_rc, revision_rc, compile_info_rc;
 	uint16_t api_version;
 	const char *revision, *compile_info;
 	/* results of commands that set state or start a mode */
@@ -52,6 +52,8 @@ static struct {
 	int current_index;     /* device opened by ubertooth_start(), or -1 */
 	int unavailable_index; /* ubertooth_start() fails for this index */
 	int board_fail_index;  /* the board ID read fails on this device */
+	int revision_fail_index;     /* the firmware revision read fails here */
+	int compile_info_fail_index; /* the compile info read fails here */
 	int indexed_starts, closes, frees;
 	/* -r: the handle opened before the reset (the first select) */
 	int first_closes, first_frees, first_stops; /* STOP sent to that handle */
@@ -94,6 +96,8 @@ static void reset_fake(void)
 	fake.current_index = -1;
 	fake.unavailable_index = -1;
 	fake.board_fail_index = -1;
+	fake.revision_fail_index = -1;
+	fake.compile_info_fail_index = -1;
 	memset(&fake_ut, 0, sizeof(fake_ut));
 	fake_ut.devh = FIRST_DEVH;
 	memset(&fake_ut_reset, 0, sizeof(fake_ut_reset));
@@ -194,16 +198,35 @@ int cmd_get_serial(struct libusb_device_handle *h, u8 *serial)
 	return fake.serial_rc;
 }
 
-void cmd_get_rev_num(struct libusb_device_handle *h, char *version, u8 len)
+/* Like the library: on failure the buffer is left empty. The void
+ * cmd_get_rev_num()/cmd_get_compile_info() are deliberately not faked, so the
+ * test fails to link if ubertooth-util goes back to them. */
+static int fake_text_read(struct libusb_device_handle *h, char *text,
+                          size_t size, const char *value, int rc,
+                          int fail_index)
 {
 	fake_use(h);
-	snprintf(version, len, "%s", fake.revision);
+	text[0] = '\0';
+	if (fake.current_index >= 0 && fake.current_index == fail_index)
+		return LIBUSB_ERROR_TIMEOUT;
+	if (rc < 0)
+		return rc;
+	snprintf(text, size, "%s", value);
+	return 0;
 }
 
-void cmd_get_compile_info(struct libusb_device_handle *h, char *info, u8 len)
+int cmd_get_firmware_revision(struct libusb_device_handle *h, char *revision,
+                              size_t size)
 {
-	fake_use(h);
-	snprintf(info, len, "%s", fake.compile_info);
+	return fake_text_read(h, revision, size, fake.revision, fake.revision_rc,
+	                      fake.revision_fail_index);
+}
+
+int cmd_get_firmware_compile_info(struct libusb_device_handle *h, char *info,
+                                  size_t size)
+{
+	return fake_text_read(h, info, size, fake.compile_info,
+	                      fake.compile_info_rc, fake.compile_info_fail_index);
 }
 
 int cmd_get_rangeresult(struct libusb_device_handle *h, rangetest_result *rr)
@@ -501,6 +524,31 @@ MU_TEST(each_failing_report_makes_the_command_fail)
 	r = RUN("-v");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.out, "Firmware version: git-test\n") == 0, "firmware line without API");
+
+	reset_fake();
+	fake.revision_rc = LIBUSB_ERROR_TIMEOUT;
+	r = RUN("-v");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, (long)strlen(r.out)); /* no "Firmware version: error" */
+
+	reset_fake();
+	fake.revision_rc = LIBUSB_ERROR_IO; /* short reply */
+	r = RUN("-v", "-p");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, PART_LINE) == 0, "part ID still reported");
+
+	reset_fake();
+	fake.compile_info_rc = LIBUSB_ERROR_PIPE;
+	r = RUN("-V");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, (long)strlen(r.out));
+
+	reset_fake();
+	fake.compile_info_rc = LIBUSB_ERROR_IO;
+	r = RUN("-v", "-V", "-s");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, FIRMWARE_LINE SERIAL_LINE) == 0,
+	          "other reports still printed around a failed compile info");
 
 	reset_fake();
 	fake.palevel = -1;
@@ -940,6 +988,34 @@ MU_TEST(a_failed_read_on_one_device_is_reported_and_fails_the_listing)
 	r = RUN("-v");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.out, "0: git-test\n1: git-test\n") == 0, "revision without API");
+
+	reset_fake();
+	fake.device_count = 2;
+	fake.revision_fail_index = 0;
+	r = RUN("-v");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out,
+	                 "0: <firmware read failed>\n1: git-test (API:1.07)\n") == 0,
+	          "failed revision read shown per device");
+
+	reset_fake();
+	fake.device_count = 2;
+	fake.compile_info_fail_index = 1;
+	r = RUN("-V");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, "0: compile-test\n1: <compile info read failed>\n") == 0,
+	          "failed compile info read shown per device");
+
+	reset_fake();
+	fake.device_count = 2;
+	fake.revision_fail_index = 1;
+	fake.compile_info_fail_index = 1;
+	r = RUN("-U", "all", "-vV");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out,
+	                 "0: " FIRMWARE_LINE "0: " COMPILE_LINE
+	                 "1: <firmware read failed>\n1: <compile info read failed>\n") == 0,
+	          "-U all shows both failed reads and keeps the good device");
 }
 
 MU_TEST(listing_is_not_used_with_a_selector_one_device_or_other_operations)

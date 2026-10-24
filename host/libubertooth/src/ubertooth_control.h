@@ -122,6 +122,18 @@ int cmd_set_channel(struct libusb_device_handle* devh, u16 channel);
 int cmd_get_rangeresult(struct libusb_device_handle* devh, rangetest_result *rr);
 int cmd_range_test(struct libusb_device_handle* devh);
 int cmd_repeater(struct libusb_device_handle* devh);
+/* Read the firmware revision string / compile info string into a buffer of
+ * size bytes (always terminated; a longer string keeps its leading part).
+ * Return 0 on success or a negative libusb error code: the transfer error,
+ * LIBUSB_ERROR_IO for a short or malformed reply, or
+ * LIBUSB_ERROR_INVALID_PARAM for a NULL or zero-size buffer. On error the
+ * buffer holds an empty string. */
+int cmd_get_firmware_revision(struct libusb_device_handle* devh, char *revision,
+                              size_t size);
+int cmd_get_firmware_compile_info(struct libusb_device_handle* devh,
+                                  char *compile_info, size_t size);
+/* As above, but report a failure only as the text "error: <code>" in the
+ * buffer; prefer the int-returning forms. */
 void cmd_get_rev_num(struct libusb_device_handle* devh, char *version, u8 len);
 void cmd_get_compile_info(struct libusb_device_handle* devh, char *compile_info, u8 len);
 int cmd_get_board_id(struct libusb_device_handle* devh);
