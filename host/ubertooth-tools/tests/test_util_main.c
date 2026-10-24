@@ -802,6 +802,64 @@ MU_TEST(led_specan_uses_the_default_threshold_and_an_explicit_one)
 
 /* ---- argument handling that must not touch the device ----------------- */
 
+MU_TEST(two_or_more_mode_options_are_rejected_before_opening_the_device)
+{
+	/* -I is included: alone it blinks until interrupted, but combined it
+	 * must be refused before the loop is ever reached. */
+	static const char *const modes[] = {
+		"-q", "-n", "-e", "-t", "-x", "-I", "-i", "-f",
+	};
+	size_t count = sizeof(modes) / sizeof(modes[0]);
+	size_t a, b, i;
+	struct run_result r;
+
+	for (a = 0; a < count; a++) {
+		for (b = 0; b < count; b++) {
+			if (a == b)
+				continue;
+			reset_fake();
+			r = run_util((const char *const[]){ "ubertooth-util", "-U", "abc123",
+			                                    modes[a], modes[b], NULL });
+			mu_assert_int_eq(1, r.rc);
+			mu_assert(strstr(r.err, "cannot be combined") != NULL, "conflict diagnostic");
+			mu_assert_int_eq(0, (long)strlen(r.out));
+			mu_assert_int_eq(0, fake.start_calls);
+			mu_assert_int_eq(0, fake.stop_calls);
+			for (i = 0; i < MODE_COUNT; i++)
+				mu_assert_int_eq(0, mode_calls(i));
+		}
+	}
+
+	/* an argument to -q and other options in the command do not matter */
+	reset_fake();
+	r = RUN("-q100", "-n");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: options -q -n cannot be combined") != NULL,
+	          "names the given options");
+	mu_assert_int_eq(0, fake.start_calls);
+
+	reset_fake();
+	r = RUN("-r", "-C39", "-t", "-x", "-I");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: options -t -x -I cannot be combined") != NULL,
+	          "names every given mode");
+	mu_assert_int_eq(0, fake.start_calls);
+	mu_assert_int_eq(0, fake.reset_calls);
+	mu_assert_int_eq(0, fake.last_channel_set);
+
+	/* refused even where the command would otherwise not open a device */
+	reset_fake();
+	r = RUN("-N", "-q", "-x");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, (long)strlen(r.out));
+
+	/* the same option twice is still one mode */
+	reset_fake();
+	r = RUN("-x", "-x");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, fake.xmas_calls);
+}
+
 MU_TEST(invalid_arguments_are_rejected_before_opening_the_device)
 {
 	struct run_result r;
@@ -1390,6 +1448,7 @@ int main(void)
 	MU_RUN(mode_commands_exit_zero_on_success_and_one_on_failure);
 	MU_RUN(a_failed_stop_before_a_mode_command_fails_the_command);
 	MU_RUN(led_specan_uses_the_default_threshold_and_an_explicit_one);
+	MU_RUN(two_or_more_mode_options_are_rejected_before_opening_the_device);
 	MU_RUN(invalid_arguments_are_rejected_before_opening_the_device);
 	MU_RUN(help_version_and_count_exit_zero_without_a_device);
 	MU_RUN(firmware_listing_with_several_devices_reports_each_device);

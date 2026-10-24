@@ -116,6 +116,10 @@
 - `ubertooth-util` now releases the device when it finishes a command,
   without stopping a running mode.
   [#117](https://github.com/SqueakyFloors/ubertooth/issues/117)
+- `ubertooth-util` refuses two or more mode options (`-q`, `-n`, `-e`, `-t`,
+  `-x`, `-I`, `-i`, `-f`) with an error and exit 1 before opening the device,
+  instead of running only the first and exiting 0.
+  [#82](https://github.com/SqueakyFloors/ubertooth/issues/82)
 - `ubertooth-specan-ui` plots again: it passed `-U 0` to `ubertooth-specan` as a
   single argument, which was read as a serial, and asked for 2400-2483 MHz,
   which `ubertooth-specan` rejects. Its `-U` now takes an index or a serial like

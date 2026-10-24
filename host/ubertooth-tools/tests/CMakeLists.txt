@@ -67,12 +67,21 @@ target_include_directories(test-util-report PRIVATE ../src)
 
 add_test(NAME util-report COMMAND test-util-report)
 
+add_executable(test-util-modes
+	test_util_modes.c
+	../src/util_modes.c)
+
+target_include_directories(test-util-modes PRIVATE ../src)
+
+add_test(NAME util-modes COMMAND test-util-modes)
+
 # Runs ubertooth-util's real main() against a scripted fake device. The source
 # is included directly (main renamed) so it needs the library headers, and the
 # bundled getopt on platforms that use it.
 add_executable(test-util-main
 	test_util_main.c
-	../src/util_report.c)
+	../src/util_report.c
+	../src/util_modes.c)
 
 # The library headers of this source tree must win over any installed copy.
 if(libubertooth_SOURCE_DIR)
