@@ -67,6 +67,15 @@ target_include_directories(test-util-report PRIVATE ../src)
 
 add_test(NAME util-report COMMAND test-util-report)
 
+add_executable(test-debug-registers
+	test_debug_registers.c
+	../src/debug_registers.c
+	../src/cc2400.c)
+
+target_include_directories(test-debug-registers PRIVATE ../src)
+
+add_test(NAME debug-registers COMMAND test-debug-registers)
+
 add_executable(test-util-modes
 	test_util_modes.c
 	../src/util_modes.c)

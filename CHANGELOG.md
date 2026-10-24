@@ -133,6 +133,9 @@
   `ubertooth_start_select_quiet()` for this silent, STOP-free polling, and
   `ubertooth_count()` no longer leaves libusb initialised.
   [#94](https://github.com/SqueakyFloors/ubertooth/issues/94)
+- `ubertooth-debug` exits 0 only when every register read succeeds (it used to
+  exit with the last register's value) and names each register that fails.
+  [#164](https://github.com/SqueakyFloors/ubertooth/issues/164)
 - `ubertooth-util -a0` sets PA level 0 instead of reading the level, and a
   level outside 0-7 is refused before opening the device.
   [#161](https://github.com/SqueakyFloors/ubertooth/issues/161)
