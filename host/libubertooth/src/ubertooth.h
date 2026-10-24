@@ -53,14 +53,16 @@ typedef struct {
 	uint32_t start_clk100ns;
 	uint64_t last_clk100ns;
 	uint64_t clk100ns_upper;
-	/* Whether the fields above hold the first packet of a capture yet: a
-	 * first packet at clk100ns 0 is a valid start, not a missing one. */
-	uint8_t clk100ns_started;
 
 	btbb_pcap_handle* h_pcap_bredr;
 	lell_pcap_handle* h_pcap_le;
 	btbb_pcapng_handle* h_pcapng_bredr;
 	lell_pcapng_handle* h_pcapng_le;
+
+	/* Whether abs_start_ns and start_clk100ns hold the first packet of a
+	 * capture yet: a first packet at clk100ns 0 is a valid start, not a
+	 * missing one. Last, so the offsets above do not move. */
+	uint8_t clk100ns_started;
 } ubertooth_t;
 
 typedef void (*rx_callback)(ubertooth_t* ut, void* args);

@@ -194,8 +194,8 @@ with tempfile.TemporaryDirectory() as workdir:
     result = run("-i", "cut.bin", directory=work)
     assert result.returncode == 1, result
     assert systimes(result.stdout) == PACKET_TIMES[:-1], result
-    assert ("error: cut.bin ends in a partial record: 58 of 68 bytes, ignored"
-            in result.stderr), result
+    assert (f"error: cut.bin ends in a partial record: {RECORD_LEN - 10} of "
+            f"{RECORD_LEN} bytes, ignored" in result.stderr), result
 
     # An empty file is a clean end of file, not an error.
     (work / "empty.bin").write_bytes(b"")

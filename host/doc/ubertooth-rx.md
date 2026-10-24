@@ -151,7 +151,7 @@ on live data. `-c` and `-t` have no effect on a replay.
 The times reported are the recorded ones, not the time of the replay. The
 `systime` of each packet line is the host time stored with that record, a
 capture written with `-q` or `-r` starts from the host time of the first
-record replayed and follows the Ubertooth clock from there, and `-d`
+record it decodes and follows the Ubertooth clock from there, and `-d`
 writes the records back out with their original times.
 
 A replay that reaches the end of the file exits 0, including for an empty
