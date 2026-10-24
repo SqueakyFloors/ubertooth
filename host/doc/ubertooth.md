@@ -49,6 +49,16 @@ boards attached when the command runs, so they shift when a board is added or
 removed; to keep targeting the same board, select it by serial. See ubertooth-util(1), SELECTING A
 DEVICE, for the full description and for listing the attached devices.
 
+## ENVIRONMENT
+
+`UBERTOOTH_TEST_NO_DEVICES=1` makes every tool behave as if no Ubertooth were
+attached: nothing is listed or opened on the USB bus, and the tool reports that
+it found no device. It exists for the project's own test suite, which runs the
+tools while boards may be in use elsewhere, and it is the only setting that
+changes device selection. Any other value, including `0` and an empty value,
+means "not set". A tool that finds no board because of it says so:
+`note: UBERTOOTH_TEST_NO_DEVICES is set, so no board is selected`.
+
 ## SUPPORT
 
 Ubertooth is an open source project maintained primarily by volunteers.

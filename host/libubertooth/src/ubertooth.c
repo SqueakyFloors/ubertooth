@@ -57,12 +57,21 @@ int max_ac_errors = 2;
  * The tool tests set it for the tools they run, so a default `ctest` run can
  * neither depend on an attached board nor open one that another process is
  * using (#219). Nothing in the tools or the library sets it, so a normal run
- * is unaffected. */
+ * is unaffected; a note names it once, so a variable left in the environment
+ * does not look like a missing board. */
 static int devices_hidden(void)
 {
+	static int announced = 0;
 	const char* value = getenv("UBERTOOTH_TEST_NO_DEVICES");
 
-	return value != NULL && value[0] != '\0' && strcmp(value, "0") != 0;
+	if (value == NULL || value[0] == '\0' || strcmp(value, "0") == 0)
+		return 0;
+	if (!announced) {
+		fprintf(stderr, "note: UBERTOOTH_TEST_NO_DEVICES is set, so no board "
+		        "is selected\n");
+		announced = 1;
+	}
+	return 1;
 }
 
 int do_exit = 1;

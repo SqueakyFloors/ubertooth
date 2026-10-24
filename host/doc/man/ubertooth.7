@@ -81,6 +81,15 @@ targeting the same board, select it by serial. See
 .BR ubertooth-util (1),
 SELECTING A DEVICE, for the full description and for listing the attached
 devices.
+.SH ENVIRONMENT
+.PP
+\fB\fCUBERTOOTH_TEST_NO_DEVICES=1\fR makes every tool behave as if no Ubertooth
+were attached: nothing is listed or opened on the USB bus, and the tool reports
+that it found no device. It exists for the project's own test suite, which runs
+the tools while boards may be in use elsewhere, and it is the only setting that
+changes device selection. Any other value, including \fB\fC0\fR and an empty
+value, means "not set". A tool that finds no board because of it says so:
+\fB\fCnote: UBERTOOTH_TEST_NO_DEVICES is set, so no board is selected\fR.
 .SH SUPPORT
 .PP
 Ubertooth is an open source project maintained primarily by volunteers.
