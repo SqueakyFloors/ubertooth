@@ -1,13 +1,15 @@
 /*
  * Unit tests for firmware/bluetooth_rxtx/cc2400_wait.c
  *
- * These run on the host (plain gcc). cc2400_wait_fs_unlock() is pure control
- * flow over two radio primitives, so the test supplies fake cc2400_status()
- * and cc2400_strobe() implementations and checks the loop's contract.
+ * These run on the host (plain gcc). cc2400_wait_fs() is pure control flow
+ * over two radio primitives and an optional callback, so the test supplies
+ * fake cc2400_status() and cc2400_strobe() implementations and checks the
+ * loop's contract.
  *
- * Scope: the bounded wait only. The rest of the issue #158 fix -- the LE PHY
- * teardown and the NULL-buffer guards in le_phy.c -- is register and interrupt
- * sequencing against real hardware, verified on a board rather than here.
+ * Scope: the bounded wait only. The rest of the LE PHY wedge fix -- that
+ * mode's teardown and the NULL-buffer guards in le_phy.c -- is register and
+ * interrupt sequencing against real hardware, verified on a board rather than
+ * here.
  *
  * What the wait has to guarantee: the firmware used to spin on
  * `while ((cc2400_status() & FS_LOCK));`. Because the CC2400 SPI bus is
@@ -213,7 +215,7 @@ MU_TEST(test_lock_returns_immediately_when_locked)
 	fake_radio_reset();
 	fake_radio_status_sequence(seq, 1);
 
-	mu_assert_int_eq(1, cc2400_wait_fs_lock());
+	mu_assert_int_eq(1, cc2400_wait_fs(1, NULL));
 	mu_assert_int_eq(1, (int)status_reads);
 	mu_assert_int_eq(0, (int)sfson_strobes);
 }
@@ -227,13 +229,13 @@ MU_TEST(test_lock_returns_success_once_locked)
 	fake_radio_reset();
 	fake_radio_status_sequence(seq, 3);
 
-	mu_assert_int_eq(1, cc2400_wait_fs_lock());
+	mu_assert_int_eq(1, cc2400_wait_fs(1, NULL));
 	mu_assert_int_eq(3, (int)status_reads);
 }
 
 /* The regression this wait exists for: a synthesizer that never reports
  * locked must not keep led_specan() from looking at requested_mode again,
- * which is what stops ubertooth-util -S from working (issue #213). */
+ * which is what stops ubertooth-util -S from working. */
 MU_TEST(test_lock_gives_up_when_lock_never_arrives)
 {
 	const u8 seq[] = { 0x00 };
@@ -241,7 +243,7 @@ MU_TEST(test_lock_gives_up_when_lock_never_arrives)
 	fake_radio_reset();
 	fake_radio_status_sequence(seq, 1);
 
-	mu_assert_int_eq(0, cc2400_wait_fs_lock());
+	mu_assert_int_eq(0, cc2400_wait_fs(1, NULL));
 	mu_assert_int_eq(FS_LOCK_POLLS, (int)status_reads);
 }
 
@@ -255,7 +257,7 @@ MU_TEST(test_lock_restrobes_sfson_while_waiting)
 	fake_radio_reset();
 	fake_radio_status_sequence(seq, 1);
 
-	mu_assert_int_eq(0, cc2400_wait_fs_lock());
+	mu_assert_int_eq(0, cc2400_wait_fs(1, NULL));
 	mu_assert_int_eq(FS_LOCK_POLLS / FS_LOCK_RESTROBE_INTERVAL,
 	                 (int)sfson_strobes);
 	mu_assert_int_eq(0, (int)srfoff_strobes);
@@ -268,7 +270,7 @@ MU_TEST(test_lock_succeeds_after_one_restrobe)
 	fake_radio_reset();
 	fake_radio_lock_at_poll(FS_LOCK_RESTROBE_INTERVAL + 8);
 
-	mu_assert_int_eq(1, cc2400_wait_fs_lock());
+	mu_assert_int_eq(1, cc2400_wait_fs(1, NULL));
 	mu_assert_int_eq(FS_LOCK_RESTROBE_INTERVAL + 8, (int)status_reads);
 	mu_assert_int_eq(1, (int)sfson_strobes);
 	mu_assert_int_eq(0, (int)other_strobes);
@@ -281,7 +283,7 @@ MU_TEST(test_lock_on_last_poll_succeeds)
 	fake_radio_reset();
 	fake_radio_lock_at_poll(FS_LOCK_POLLS);
 
-	mu_assert_int_eq(1, cc2400_wait_fs_lock());
+	mu_assert_int_eq(1, cc2400_wait_fs(1, NULL));
 	mu_assert_int_eq(FS_LOCK_POLLS, (int)status_reads);
 }
 
@@ -290,7 +292,7 @@ MU_TEST(test_lock_one_poll_too_late_times_out)
 	fake_radio_reset();
 	fake_radio_lock_at_poll(FS_LOCK_POLLS + 1);
 
-	mu_assert_int_eq(0, cc2400_wait_fs_lock());
+	mu_assert_int_eq(0, cc2400_wait_fs(1, NULL));
 	mu_assert_int_eq(FS_LOCK_POLLS, (int)status_reads);
 }
 
@@ -304,8 +306,70 @@ MU_TEST(test_lock_no_strobe_on_short_wait)
 	fake_radio_reset();
 	fake_radio_status_sequence(seq, 3);
 
-	mu_assert_int_eq(1, cc2400_wait_fs_lock());
+	mu_assert_int_eq(1, cc2400_wait_fs(1, NULL));
 	mu_assert_int_eq(0, (int)sfson_strobes);
+}
+
+/* ---- the service callback ---- */
+
+static unsigned service_calls;
+
+static void count_service(void) { ++service_calls; }
+
+/*
+ * The point of the callback: led_specan() passes handle_usb(), and it has to
+ * run between every pair of status polls. One call per status read that did
+ * not finish the wait -- not per sample, which is what left endpoint 0 a whole
+ * sample behind the host.
+ */
+MU_TEST(test_service_runs_between_every_poll)
+{
+	fake_radio_reset();
+	service_calls = 0;
+	fake_radio_lock_at_poll(5);
+
+	mu_assert_int_eq(1, cc2400_wait_fs(1, count_service));
+	mu_assert_int_eq(5, (int)status_reads);
+	mu_assert_int_eq(4, (int)service_calls);
+}
+
+/* It runs on the unlock side too: both of led_specan()'s waits use it. */
+MU_TEST(test_service_runs_on_the_unlock_side)
+{
+	fake_radio_reset();
+	service_calls = 0;
+	fake_radio_unlock_at_poll(3);
+
+	mu_assert_int_eq(1, cc2400_wait_fs(0, count_service));
+	mu_assert_int_eq(3, (int)status_reads);
+	mu_assert_int_eq(2, (int)service_calls);
+}
+
+/* A wait satisfied by its first read does no work at all, service included. */
+MU_TEST(test_service_not_run_when_wait_is_satisfied_at_once)
+{
+	const u8 seq[] = { FS_LOCK };
+
+	fake_radio_reset();
+	service_calls = 0;
+	fake_radio_status_sequence(seq, 1);
+
+	mu_assert_int_eq(1, cc2400_wait_fs(1, count_service));
+	mu_assert_int_eq(0, (int)service_calls);
+}
+
+/* A wait that times out still serviced on every poll, so a mode loop stuck on
+ * a dead radio keeps answering the host long enough to be stopped. */
+MU_TEST(test_service_runs_on_every_poll_of_a_timeout)
+{
+	const u8 seq[] = { 0x00 };
+
+	fake_radio_reset();
+	service_calls = 0;
+	fake_radio_status_sequence(seq, 1);
+
+	mu_assert_int_eq(0, cc2400_wait_fs(1, count_service));
+	mu_assert_int_eq(FS_LOCK_POLLS, (int)service_calls);
 }
 
 int main(void)
@@ -327,5 +391,9 @@ int main(void)
 	MU_RUN(test_lock_on_last_poll_succeeds);
 	MU_RUN(test_lock_one_poll_too_late_times_out);
 	MU_RUN(test_lock_no_strobe_on_short_wait);
+	MU_RUN(test_service_runs_between_every_poll);
+	MU_RUN(test_service_runs_on_the_unlock_side);
+	MU_RUN(test_service_not_run_when_wait_is_satisfied_at_once);
+	MU_RUN(test_service_runs_on_every_poll_of_a_timeout);
 	return mu_report();
 }
