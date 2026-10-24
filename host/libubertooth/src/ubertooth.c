@@ -896,7 +896,6 @@ enum selector_kind {
 static enum selector_kind classify_selector(const char* u_arg, int* index)
 {
 	const char* p;
-	char* end;
 	long value;
 
 	if (u_arg == NULL || u_arg[0] == '\0')
@@ -905,22 +904,30 @@ static enum selector_kind classify_selector(const char* u_arg, int* index)
 		if (*p < '0' || *p > '9')
 			return SELECTOR_SERIAL;
 
+	/* The scan above leaves only digits, so strtol() stops at the end of the
+	 * string and cannot return a negative value; only the range can fail. */
 	errno = 0;
-	value = strtol(u_arg, &end, 10);
-	if (errno != 0 || *end != '\0' || value < 0 || value > INT_MAX)
+	value = strtol(u_arg, NULL, 10);
+	if (errno != 0 || value > INT_MAX)
 		return SELECTOR_NO_INDEX;
 	*index = (int)value;
 	return SELECTOR_INDEX;
 }
 
 /* The same message as the loud selection path, for an index that could not
- * even be a device index. */
+ * even be a device index. The count comes from a separate enumeration, so a
+ * libusb that cannot be used at all (ubertooth_count() < 0, which reports
+ * itself) is left out rather than reported as "0 attached". */
 static void report_no_index(const char* u_arg)
 {
 	int attached = ubertooth_count();
 
-	fprintf(stderr, "error: no Ubertooth at index %s (%d attached)\n"
-	        INDEX_SHIFT_HINT, u_arg, attached < 0 ? 0 : attached);
+	if (attached < 0)
+		fprintf(stderr, "error: no Ubertooth at index %s\n"
+		        INDEX_SHIFT_HINT, u_arg);
+	else
+		fprintf(stderr, "error: no Ubertooth at index %s (%d attached)\n"
+		        INDEX_SHIFT_HINT, u_arg, attached);
 }
 
 /* Shared -U argument handling for all tools: accepts either a numeric device
