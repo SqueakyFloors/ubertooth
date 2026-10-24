@@ -90,6 +90,7 @@ endforeach(tool)
 
 target_sources(ubertooth-util PRIVATE
 	util_clock.c
+	util_modes.c
 	util_report.c
 	util_reset_wait.c)
 

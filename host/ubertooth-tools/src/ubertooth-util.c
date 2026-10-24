@@ -28,6 +28,7 @@
 #include <signal.h>
 #include "util_clock.h"
 #include "util_report.h"
+#include "util_modes.h"
 #include "util_reset_wait.h"
 
 /* Adapters from the injected report operations to the libubertooth commands. */
@@ -329,6 +330,7 @@ int main(int argc, char *argv[])
 	char* ubertooth_device = NULL;
 	int requested[QUERY_COUNT]; /* identity queries, for the per-device listing */
 	int any_query;
+	int modes[UTIL_MODE_COUNT]; /* exclusive mode options that were given */
 
 	/* set command states to negative as a starter
 	 * setting to 0 means 'do it'
@@ -360,7 +362,6 @@ int main(int argc, char *argv[])
 			ubertooth_device = optarg;
 			break;
 		case 'f':
-			fprintf(stderr, "ubertooth-util -f is no longer required - use ubertooth-dfu instead\n");
 			do_flash= 0;
 			break;
 		case 'i':
@@ -477,6 +478,22 @@ int main(int argc, char *argv[])
 			return 1;
 		}
 	}
+
+	/* Only one mode can run: each one ends the command. Refuse a combination
+	 * before any device is opened, instead of running whichever mode comes
+	 * first below and silently ignoring the others. */
+	modes[UTIL_MODE_LED_SPECAN] = (do_led_specan >= 0);
+	modes[UTIL_MODE_RANGE_TEST] = (do_range_test == 0);
+	modes[UTIL_MODE_REPEATER] = (do_repeater == 0);
+	modes[UTIL_MODE_TX_TEST] = (do_tx == 0);
+	modes[UTIL_MODE_XMAS] = do_xmas;
+	modes[UTIL_MODE_IDENTIFY] = (do_identify == 0);
+	modes[UTIL_MODE_ISP] = (do_isp == 0);
+	modes[UTIL_MODE_FLASH] = (do_flash == 0);
+	if (util_check_modes(modes, stderr) != 0)
+		return 1;
+	if (do_flash == 0)
+		fprintf(stderr, "ubertooth-util -f is no longer required - use ubertooth-dfu instead\n");
 
 	requested[QUERY_BOARD_ID] = (do_board_id == 0);
 	requested[QUERY_FIRMWARE] = (do_firmware == 0);

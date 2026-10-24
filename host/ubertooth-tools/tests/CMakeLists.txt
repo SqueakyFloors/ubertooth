@@ -67,6 +67,14 @@ target_include_directories(test-util-report PRIVATE ../src)
 
 add_test(NAME util-report COMMAND test-util-report)
 
+add_executable(test-util-modes
+	test_util_modes.c
+	../src/util_modes.c)
+
+target_include_directories(test-util-modes PRIVATE ../src)
+
+add_test(NAME util-modes COMMAND test-util-modes)
+
 add_executable(test-util-reset-wait
 	test_util_reset_wait.c
 	../src/util_reset_wait.c)
@@ -83,6 +91,7 @@ add_test(NAME util-reset-wait COMMAND test-util-reset-wait)
 add_executable(test-util-main
 	test_util_main.c
 	../src/util_report.c
+	../src/util_modes.c
 	../src/util_reset_wait.c)
 
 # The library headers of this source tree must win over any installed copy.

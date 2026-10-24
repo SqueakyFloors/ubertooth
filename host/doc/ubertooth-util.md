@@ -31,6 +31,15 @@ Operations that put the device into a continuous mode — `-I` (identify),
 each starts from a known idle state. (This only resets the operating mode;
 configured channel and power level are preserved.)
 
+Only one mode option can be given per command: `-q`, `-n`, `-e`, `-t`, `-x`,
+`-I`, `-i` (In-System Programming, ISP) and `-f` (Device Firmware Upgrade,
+DFU) each end the command, so a command with two or more of them is refused
+before any device is opened, nothing is sent to the device, and the exit
+status is 1:
+
+    $ ubertooth-util -q -n
+    error: options -q -n cannot be combined; give only one of -q -n -e -t -x -I -i -f
+
 ## OPTIONS
 
 Common options:
@@ -207,6 +216,8 @@ wirelessly, do not use the range test functionality.
 queries that report a nonzero value such as `-b` (board ID), `-c` (channel), or
 `-a` (power amplifier level). It exits with a nonzero status if any requested
 operation fails, even when a later operation in the same command succeeds.
+It exits with 1, without opening a device, when two or more mode options are
+given (see DESCRIPTION).
 
 When a `-b`, `-c`, `-a`, `-z`, `-l`, `-d`, `-p`, `-s`, `-m` or `-9` read fails,
 no value line is printed on standard output, so an error code is never shown as
