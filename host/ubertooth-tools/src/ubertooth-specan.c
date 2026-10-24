@@ -186,8 +186,10 @@ int main(int argc, char *argv[])
 	 * the other tools do; otherwise the new range is applied to a sweep
 	 * already in progress. */
 	r = cmd_stop(ut->devh);
-	if (r < 0)
+	if (r < 0) {
+		ubertooth_stop(ut);
 		return 1;
+	}
 
 	// init USB transfer
 	r = ubertooth_bulk_init(ut);
