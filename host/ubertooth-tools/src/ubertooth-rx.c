@@ -42,7 +42,8 @@ static void usage()
 	printf("\t-l <LAP> to decode (6 hex) - if not specified sniff all LAPs\n");
 	printf("\t-u <UAP> to decode (2 hex) - if not specified calculate UAP (requires LAP)\n");
 	printf("\t-z Survey mode - discover and list piconets (implies -s, interrupt with ctrl-C)\n");
-	printf("\t-i <filename> input file - if not specified use Ubertooth for live capture\n");
+	printf("\t-i <filename> replay a capture saved with -d, with its recorded times\n");
+	printf("\t              - if not specified use Ubertooth for live capture\n");
 	printf("\n");
 	printf("Configuration:\n");
 	printf("\t-c <0-%d> set a fixed bluetooth channel [Default: sweep]\n",
@@ -65,6 +66,8 @@ int main(int argc, char* argv[])
 {
 	int opt, have_lap = 0, have_uap = 0;
 	int survey_mode = 0;
+	int exit_status = 0;
+	const char* infile_name = NULL;
 	/* -h / -V: the first one given ends the command (see below). */
 	int first_exit_option = 0;
 	int r;
@@ -86,6 +89,7 @@ int main(int argc, char* argv[])
 				usage();
 				return 1;
 			}
+			infile_name = optarg;
 			break;
 		case 'l':
 			if (opt_require_lap(optarg, &lap) < 0)
@@ -260,8 +264,11 @@ int main(int argc, char* argv[])
 
 		ubertooth_stop(ut);
 	} else {
-		stream_rx_file(ut, infile, cb_rx, pn);
+		/* A read error or a last record cut short is reported and ends
+		 * the command with an error, after whatever was decoded. */
+		r = stream_rx_file(ut, infile, cb_rx, pn);
 		fclose(infile);
+		exit_status = rx_file_report(r, infile_name);
 	}
 
 	if(survey_mode) {
@@ -282,5 +289,5 @@ int main(int argc, char* argv[])
 	if(dumpfile != NULL)
 		fclose(dumpfile);
 
-	return 0;
+	return exit_status;
 }

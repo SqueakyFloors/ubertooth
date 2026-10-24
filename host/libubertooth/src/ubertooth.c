@@ -488,26 +488,52 @@ static int stream_rx_usb(ubertooth_t* ut, rx_callback cb, void* cb_args)
 	return 1;
 }
 
+/* Why a replay stopped short of a whole record: a read error (minus its
+ * errno), a last record cut short (the bytes of it that were there), or a
+ * clean end of file (0). */
+static int stream_rx_file_end(FILE* fp, size_t partial)
+{
+	if (ferror(fp))
+		return -(errno ? errno : EIO);
+	return (int)partial;
+}
+
 /* file should be in full USB packet format (ubertooth-dump -f) */
 int stream_rx_file(ubertooth_t* ut, FILE* fp, rx_callback cb, void* cb_args)
 {
 	uint8_t buf[PKT_LEN];
-	size_t nitems;
+	size_t nbytes;
 
 	while(1) {
 		uint32_t systime_be;
-		nitems = fread(&systime_be, sizeof(systime_be), 1, fp);
-		if (nitems != 1)
-			return 0;
+		nbytes = fread(&systime_be, 1, sizeof(systime_be), fp);
+		if (nbytes != sizeof(systime_be))
+			return stream_rx_file_end(fp, nbytes);
 		systime = (time_t)be32toh(systime_be);
 
-		nitems = fread(buf, sizeof(buf[0]), PKT_LEN, fp);
-		if (nitems != PKT_LEN)
-			return 0;
+		nbytes = fread(buf, 1, PKT_LEN, fp);
+		if (nbytes != PKT_LEN)
+			return stream_rx_file_end(fp, sizeof(systime_be) + nbytes);
 		fifo_push(ut->fifo, (usb_pkt_rx*)buf);
 		(*cb)(ut, cb_args);
 	}
 }
+
+int rx_file_report(int result, const char* filename)
+{
+	if (result < 0) {
+		fprintf(stderr, "error: reading %s failed: %s\n",
+		        filename, strerror(-result));
+		return 1;
+	}
+	if (result > 0) {
+		fprintf(stderr, "error: %s ends in a partial record: %d of %d "
+		        "bytes, ignored\n", filename, result, RX_FILE_RECORD_LEN);
+		return 1;
+	}
+	return 0;
+}
+
 
 /* 1 when not one channel has been seen, which is what the initial detection
  * phase leaves when no packet from the piconet was received: the map starts
@@ -614,13 +640,13 @@ void rx_afh_r(ubertooth_t* ut, btbb_piconet* pn, int timeout __attribute__((unus
 	ubertooth_bulk_thread_stop();
 }
 
-void rx_btle_file(FILE* fp)
+int rx_btle_file(FILE* fp)
 {
 	ubertooth_t* ut = ubertooth_init();
 	if (ut == NULL)
-		return;
+		return -ENOMEM;
 
-	stream_rx_file(ut, fp, cb_btle, NULL);
+	return stream_rx_file(ut, fp, cb_btle, NULL);
 }
 
 void ubertooth_unpack_symbols(const uint8_t* buf, char* unpacked)
@@ -666,7 +692,11 @@ static void cb_dump_full(ubertooth_t* ut, void* args __attribute__((unused)))
 	usb_pkt_rx* rx = &usb;
 
 	fprintf(stderr, "rx block timestamp %u * 100 nanoseconds\n", rx->clk100ns);
-	uint32_t time_be = htobe32((uint32_t)time(NULL));
+	/* A replayed record keeps the host time it was recorded with, which
+	 * stream_rx_file() left in systime; a live one is stamped now. */
+	if (infile == NULL)
+		systime = time(NULL);
+	uint32_t time_be = htobe32(systime);
 	if (dumpfile == NULL) {
 		fwrite(&time_be, 1, sizeof(time_be), stdout);
 		fwrite((uint8_t*)rx, sizeof(uint8_t), PKT_LEN, stdout);

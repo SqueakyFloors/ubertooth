@@ -51,6 +51,10 @@ observed piconets:
 
     ubertooth-rx -z -t 20
 
+Decode a capture saved earlier, writing a PCAP of it:
+
+    ubertooth-rx -i capture.bin -q capture.pcap
+
 ## OPTIONS
 
 Major modes:
@@ -70,8 +74,9 @@ Major modes:
 Options:
 
  - `-i <input>` :
-   Input file. If not specified will perform live capture using
-   Ubertooth.
+   Replay a capture saved earlier with `-d` (or with `ubertooth-dump -f`)
+   instead of capturing live with an Ubertooth. See [REPLAYING A SAVED
+   CAPTURE][].
 
  - `-c <0-78>` :
    Fixed channel for all major modes. If not specified will sweep
@@ -134,6 +139,30 @@ still work. For example, `hcitool name 00:00:98:36:A2:B4` will establish
 a connection to the device and return its name.
 
 This attack works against discoverable and undiscoverable devices alike.
+
+## REPLAYING A SAVED CAPTURE
+
+With `-i <file>`, ubertooth-rx(1) decodes the records of a saved capture
+instead of opening a device: each record holds the host time the packet
+was received and the packet as the Ubertooth delivered it. No device is
+needed, and the decoding options (`-l`, `-u`, `-z`, `-e`) work as they do
+on live data. `-c` and `-t` have no effect on a replay.
+
+The times reported are the recorded ones, not the time of the replay. The
+`systime` of each packet line is the host time stored with that record, a
+capture written with `-q` or `-r` starts from the host time of the first
+record replayed and follows the Ubertooth clock from there, and `-d`
+writes the records back out with their original times.
+
+A replay that reaches the end of the file exits 0, including for an empty
+file. Anything else is reported on standard error and exits 1, after
+whatever was decoded:
+
+ - a file that cannot be read, for example a directory:
+   `error: reading <file> failed: Is a directory`
+ - a last record cut short:
+   `error: <file> ends in a partial record: 58 of 68 bytes, ignored`
+ - a file that cannot be opened at all: `Could not open file <file>`
 
 ## ARGUMENTS
 

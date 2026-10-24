@@ -90,6 +90,18 @@
   instead of printing an all-zero map and carrying on monitoring until
   interrupted.
   [#187](https://github.com/SqueakyFloors/ubertooth/issues/187)
+- `ubertooth-rx -i` now reports the host time stored with each record instead
+  of the time of the replay: the `systime` of every packet line, and the
+  timestamps of a PCAP or PcapNG written while replaying, come from the
+  capture. [#202](https://github.com/SqueakyFloors/ubertooth/issues/202)
+- PCAP and PcapNG timestamps now start at the time the capture started. They
+  were offset by a fixed amount, up to a few minutes, that depended on the
+  board's clock when the first packet arrived.
+  [#202](https://github.com/SqueakyFloors/ubertooth/issues/202)
+- `ubertooth-rx -i` reports a file it cannot read, such as a directory
+  (`error: reading <file> failed: Is a directory`), and a last record cut
+  short, and exits 1. Both used to end the replay silently with exit 0.
+  [#203](https://github.com/SqueakyFloors/ubertooth/issues/203)
 - `ubertooth-afh` exits 1 when the selected board is not found, instead of
   crashing with a segmentation fault; `ubertooth-follow` now stops there too.
   [#185](https://github.com/SqueakyFloors/ubertooth/issues/185)

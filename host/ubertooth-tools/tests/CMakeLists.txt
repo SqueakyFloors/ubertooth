@@ -77,6 +77,17 @@ add_test(
 		${CMAKE_CURRENT_SOURCE_DIR}/test_btle_cli.py
 		$<TARGET_FILE:ubertooth-btle>)
 
+# The file replay path of ubertooth-rx (-i), on fixtures the test builds
+# itself: the recorded times in the packet lines and in a capture written
+# during the replay, and the exit status for an unreadable or truncated file.
+# No device is involved; the handful of runs take well under a second.
+add_test(
+	NAME rx-replay
+	COMMAND ${Python3_EXECUTABLE}
+		${CMAKE_CURRENT_SOURCE_DIR}/test_rx_replay.py
+		$<TARGET_FILE:ubertooth-rx>)
+set_tests_properties(rx-replay PROPERTIES TIMEOUT 30)
+
 add_executable(test-btle-options
 	test_btle_options.c
 	../src/btle_options.c)

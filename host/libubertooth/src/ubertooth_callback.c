@@ -92,12 +92,22 @@ static uint64_t now_ns( void )
 	return (1000000000ull*(uint64_t) ts.tv_sec) + (uint64_t) ts.tv_nsec;
 }
 
+/* Where a capture's timestamps start: the current time for a live capture,
+ * and the host time stored with the first replayed record for a replay, so a
+ * capture written with -q/-r while replaying keeps the recorded times. */
+static uint64_t capture_start_ns( void )
+{
+	if (infile != NULL)
+		return 1000000000ull * (uint64_t) systime;
+	return now_ns( );
+}
+
 static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx )
 {
 	/* track clk100ns */
 	if (!ut->start_clk100ns) {
 		ut->last_clk100ns = ut->start_clk100ns = rx->clk100ns;
-		ut->abs_start_ns = now_ns( );
+		ut->abs_start_ns = capture_start_ns( );
 	}
 	/* detect clk100ns roll-over */
 	if (rx->clk100ns < ut->last_clk100ns) {
@@ -109,8 +119,10 @@ static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx )
 static uint64_t now_ns_from_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx )
 {
 	track_clk100ns( ut, rx );
+	/* The 100 ns ticks since the first packet, as nanoseconds: the whole
+	 * difference is scaled, not just the current tick count. */
 	return ut->abs_start_ns + 100ull *
-	       (uint64_t)((ut->clk100ns_upper<<32)|rx->clk100ns) - ut->start_clk100ns;
+	       ((uint64_t)((ut->clk100ns_upper<<32)|rx->clk100ns) - ut->start_clk100ns);
 }
 
 /* Sniff for LAPs. If a piconet is provided, use the given LAP to
@@ -150,8 +162,13 @@ void cb_scan(ubertooth_t* ut, void* args __attribute__((unused)))
 	btbb_packet_set_data(pkt, syms + offset, BANK_LEN - offset,
 	                     rx->channel, clkn);
 
+	/* A replayed record carries the host time it was recorded with (read
+	 * into systime by the caller); a live one is stamped now. */
+	if (infile == NULL)
+		systime = time(NULL);
+
 	printf("systime=%u ch=%2d LAP=%06x err=%u clk100ns=%u clk1=%u s=%d n=%d snr=%d\n",
-	       (int)time(NULL),
+	       systime,
 	       btbb_packet_get_channel(pkt),
 	       btbb_packet_get_lap(pkt),
 	       btbb_packet_get_ac_errors(pkt),
@@ -341,14 +358,16 @@ void cb_btle(ubertooth_t* ut, void* args)
 		return;
 	}
 
+	/* When reading from file, the caller read the record's host time into
+	 * systime before calling this routine, so do not overwrite it. */
+	if (infile == NULL)
+		systime = time(NULL);
+
 	uint64_t nowns = now_ns_from_clk100ns( ut, rx );
 
 	/* Sanity check */
 	if (rx->channel > (NUM_BREDR_CHANNELS-1))
 		return;
-
-	if (infile == NULL)
-		systime = time(NULL);
 
 	/* Dump to sumpfile if specified */
 	if (dumpfile) {
@@ -477,6 +496,12 @@ void cb_rx(ubertooth_t* ut, void* args)
 	if (rx->channel > (NUM_BREDR_CHANNELS-1))
 		goto out;
 
+	/* When reading from file, caller will read
+	 * systime before calling this routine, so do
+	 * not overwrite. Otherwise, get current time. */
+	if (infile == NULL)
+		systime = time(NULL);
+
 	uint64_t nowns = now_ns_from_clk100ns( ut, rx );
 
 	int8_t signal_level = rx->rssi_max;
@@ -510,14 +535,8 @@ void cb_rx(ubertooth_t* ut, void* args)
 	btbb_packet_set_data(pkt, syms + offset, BANK_LEN*10 - offset,
 	                     rx->channel, clkn);
 
-	/* When reading from file, caller will read
-	 * systime before calling this routine, so do
-	 * not overwrite. Otherwise, get current time. */
-	if (infile == NULL)
-		systime = time(NULL);
-
 	printf("systime=%u ch=%2d LAP=%06x err=%u clkn=%u clk_offset=%u s=%d n=%d snr=%d\n",
-	       (uint32_t)time(NULL),
+	       systime,
 	       btbb_packet_get_channel(pkt),
 	       btbb_packet_get_lap(pkt),
 	       btbb_packet_get_ac_errors(pkt),
