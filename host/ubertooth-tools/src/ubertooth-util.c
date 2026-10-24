@@ -343,8 +343,8 @@ static void usage(FILE *output)
 	fprintf(output, "\n");
 	fprintf(output, "Radio options:\n");
 	fprintf(output, "\t-a[0-7] get/set power amplifier level\n");
-	fprintf(output, "\t-c[2402-2480] get/set channel in MHz\n");
-	fprintf(output, "\t-C[0-78] get/set channel\n");
+	fprintf(output, "\t-c[%d-%d] get/set channel in MHz\n", BT_FREQ_MIN, BT_FREQ_MAX);
+	fprintf(output, "\t-C[0-%d] get/set channel\n", NUM_BREDR_CHANNELS - 1);
 	fprintf(output, "\t-q[1-225 (RSSI threshold)] start LED spectrum analyzer\n");
 	fprintf(output, "\t-t intitiate continuous transmit test\n");
 	fprintf(output, "\t-z[-128..127] get/set squelch level\n");
@@ -473,15 +473,15 @@ int main(int argc, char *argv[])
 		case 'C':
 			if (optarg) {
 				int ch;
-				if (parse_option_value(optarg, 0, 78, "channel", "", &ch))
+				if (parse_option_value(optarg, 0, NUM_BREDR_CHANNELS - 1, "channel", "", &ch))
 					return 1;
-				do_channel= ch + 2402;
+				do_channel= ch + BT_FREQ_MIN;
 			} else
 				do_channel= 0;
 			break;
 		case 'c':
 			if (optarg) {
-				if (parse_option_value(optarg, 2402, 2480, "frequency", " MHz", &do_channel))
+				if (parse_option_value(optarg, BT_FREQ_MIN, BT_FREQ_MAX, "frequency", " MHz", &do_channel))
 					return 1;
 			} else
 				do_channel= 0;
@@ -734,7 +734,7 @@ int main(int argc, char *argv[])
 		if (mhz < 0)
 			status = util_status_merge(status, report_read_failed("channel", mhz));
 		else
-			fprintf(stdout, "Current frequency: %d MHz (Bluetooth channel %d)\n", mhz, mhz - 2402);
+			fprintf(stdout, "Current frequency: %d MHz (Bluetooth channel %d)\n", mhz, mhz - BT_FREQ_MIN);
 	}
 	if(do_firmware == 0)
 		status = util_status_merge(status,
