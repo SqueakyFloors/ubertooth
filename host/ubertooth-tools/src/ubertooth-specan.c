@@ -183,8 +183,9 @@ int main(int argc, char *argv[])
 
 	/* Leave any mode still running on the device (for example a specan
 	 * whose process was killed without stopping it) before starting, as
-	 * the other tools do; otherwise the new range is applied to a sweep
-	 * already in progress. */
+	 * the other tools do. STOP is not acknowledged, so this narrows the
+	 * window in which the new range lands in a sweep already running; the
+	 * range filter in cb_specan() is what keeps the output correct. */
 	r = cmd_stop(ut->devh);
 	if (r < 0) {
 		ubertooth_stop(ut);
