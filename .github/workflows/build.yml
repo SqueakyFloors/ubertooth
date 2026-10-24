@@ -16,11 +16,11 @@ on:
       - 'docs/**'
       - '.kiro/**'
 
-  # Run automatically every monday
+  # Full tier: weekly, on a published release, or on demand.
   schedule:
     - cron: 1 12 * * 1
-
-  # Manual full run, including the *-latest canary
+  release:
+    types: [published]
   workflow_dispatch:
 
 # A newer commit on the same pull request cancels that PR's older run. Pushes
@@ -31,6 +31,14 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Two tiers, to keep pull requests fast and cheap:
+# - Minimal (pull requests, pushes to main): host and firmware on one Linux
+#   and one macOS runner.
+# - Full (weekly schedule, published release, manual run): the whole supported
+#   matrix, the *-latest canary, the Ubuntu 20.04 containers and Fedora.
+# install.sh has its own workflow (install-sh.yml) that runs on PRs only when
+# install.sh changes. A tier-dependent matrix must use the github context
+# (env is not available in strategy), so the full-tier test is repeated below.
 env:
   BUILD_TYPE: Release
 
@@ -39,11 +47,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Pinned versions are the supported matrix. The *-latest canary is
-        # early warning for future OS/toolchain breaks, so it runs only on the
-        # weekly schedule (where a failure emails the owner) or a manual run, not
-        # on every PR.
-        os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["ubuntu-22.04","ubuntu-24.04","macos-14","macos-15","macos-26","ubuntu-latest"]' || '["ubuntu-22.04","ubuntu-24.04","macos-14","macos-15","macos-26"]') }}
+        # Full tier: the pinned supported matrix plus the ubuntu-latest canary
+        # (early warning for OS/toolchain breaks). Minimal tier: one Linux and
+        # one macOS runner.
+        os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'release' || github.event_name == 'workflow_dispatch') && '["ubuntu-22.04","ubuntu-24.04","macos-14","macos-15","macos-26","ubuntu-latest"]' || '["ubuntu-24.04","macos-26"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
 
@@ -156,7 +163,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["ubuntu-22.04","ubuntu-24.04","macos-14","macos-15","macos-26","ubuntu-latest"]' || '["ubuntu-22.04","ubuntu-24.04","macos-14","macos-15","macos-26"]') }}
+        # Same tiers as the host job.
+        os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'release' || github.event_name == 'workflow_dispatch') && '["ubuntu-22.04","ubuntu-24.04","macos-14","macos-15","macos-26","ubuntu-latest"]' || '["ubuntu-24.04","macos-26"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
 
@@ -212,66 +220,12 @@ jobs:
           ${{github.workspace}}/firmware/*/*.elf
         if-no-files-found: error
 
-  # Lint install.sh and smoke-run it into a scratch prefix, so its platform
-  # branches cannot regress silently. Firmware is opt-in (--with-firmware /
-  # --flash), so it is neither built nor flashed here.
-  install-sh:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-24.04, macos-15]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Install dependencies (macOS)
-      # The host build deps install.sh would install itself (--skip-deps is
-      # used below), plus shellcheck.
-      run: brew install cmake pkg-config libusb fftw shellcheck
-      if: runner.os == 'macOS'
-
-    - name: Install dependencies (Ubuntu)
-      # Same list as install.sh's apt step; shellcheck is preinstalled on
-      # GitHub's Ubuntu images but is installed here if it is ever dropped.
-      run: |
-        sudo apt update
-        sudo apt install -y cmake build-essential pkg-config libusb-1.0-0-dev \
-          libbluetooth-dev libfftw3-dev python3 python3-venv python3-usb1 git
-        command -v shellcheck >/dev/null || sudo apt install -y shellcheck
-      if: runner.os == 'Linux'
-
-    - name: Syntax check
-      shell: bash
-      run: bash -n install.sh
-
-    - name: shellcheck
-      shell: bash
-      run: shellcheck install.sh
-
-    - name: Smoke run
-      shell: bash
-      # On macOS a writable --prefix is installed without root, so --no-sudo
-      # still installs. On Debian/Ubuntu every install step runs as root and
-      # --no-sudo only prints them, so the runner's passwordless sudo is used.
-      run: |
-        NO_SUDO=""
-        if [ "${{ runner.os }}" = "macOS" ]; then
-          NO_SUDO="--no-sudo"
-        fi
-        ./install.sh --skip-deps $NO_SUDO --prefix "$RUNNER_TEMP/prefix" --venv "$RUNNER_TEMP/venv"
-
-    - name: Verify install
-      shell: bash
-      run: |
-        test -x "$RUNNER_TEMP/prefix/bin/ubertooth-util"
-        "$RUNNER_TEMP/prefix/bin/ubertooth-util" -h
-
   # Ubuntu 20.04 is the oldest supported Linux. GitHub retired the hosted
   # ubuntu-20.04 runner, so run it in a container on a current runner. The
   # container is root (no sudo) and starts bare, so install git/toolchain.
   host-ubuntu-20_04:
+    # Full tier only.
+    if: (github.event_name == 'schedule' || github.event_name == 'release' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     container: ubuntu:20.04
@@ -320,6 +274,8 @@ jobs:
       run: ./ubertooth-tools/src/ubertooth-util -h
 
   firmware-ubuntu-20_04:
+    # Full tier only.
+    if: (github.event_name == 'schedule' || github.event_name == 'release' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     container: ubuntu:20.04
@@ -347,9 +303,12 @@ jobs:
         done
 
   # Fedora as an early-warning canary: it ships newer CMake/Python/GCC sooner
-  # than Ubuntu, so breakage shows here first. Soft-fail on push/PR, hard-fail
-  # on the weekly schedule (drift email). Run in a container (no hosted Fedora).
+  # than Ubuntu, so breakage shows here first. Hard-fails on the weekly
+  # schedule (drift email), soft-fails on release and manual runs. Run in a
+  # container (no hosted Fedora).
   host-fedora:
+    # Full tier only.
+    if: (github.event_name == 'schedule' || github.event_name == 'release' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     container: fedora:latest

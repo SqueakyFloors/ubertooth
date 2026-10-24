@@ -1,0 +1,83 @@
+name: install.sh
+
+# Lint install.sh and smoke-run it into a scratch prefix, so its platform
+# branches cannot regress silently. Pull requests and pushes to main run it only
+# when install.sh (or this workflow) changes; the weekly schedule, a published
+# release and a manual run always run it. Firmware is opt-in (--with-firmware /
+# --flash), so it is neither built nor flashed here.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'install.sh'
+      - '.github/workflows/install-sh.yml'
+  pull_request:
+    paths:
+      - 'install.sh'
+      - '.github/workflows/install-sh.yml'
+  schedule:
+    - cron: 1 12 * * 1
+  release:
+    types: [published]
+  workflow_dispatch:
+
+# Same cancellation rule as build.yml: only an older run of the same PR is
+# cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  install-sh:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install dependencies (macOS)
+      # The host build deps install.sh would install itself (--skip-deps is
+      # used below), plus shellcheck.
+      run: brew install cmake pkg-config libusb fftw shellcheck
+      if: runner.os == 'macOS'
+
+    - name: Install dependencies (Ubuntu)
+      # Same list as install.sh's apt step; shellcheck is preinstalled on
+      # GitHub's Ubuntu images but is installed here if it is ever dropped.
+      run: |
+        sudo apt update
+        sudo apt install -y cmake build-essential pkg-config libusb-1.0-0-dev \
+          libbluetooth-dev libfftw3-dev python3 python3-venv python3-usb1 git
+        command -v shellcheck >/dev/null || sudo apt install -y shellcheck
+      if: runner.os == 'Linux'
+
+    - name: Syntax check
+      shell: bash
+      run: bash -n install.sh
+
+    - name: shellcheck
+      shell: bash
+      run: shellcheck install.sh
+
+    - name: Smoke run
+      shell: bash
+      # On macOS a writable --prefix is installed without root, so --no-sudo
+      # still installs. On Debian/Ubuntu every install step runs as root and
+      # --no-sudo only prints them, so the runner's passwordless sudo is used.
+      run: |
+        NO_SUDO=""
+        if [ "${{ runner.os }}" = "macOS" ]; then
+          NO_SUDO="--no-sudo"
+        fi
+        ./install.sh --skip-deps $NO_SUDO --prefix "$RUNNER_TEMP/prefix" --venv "$RUNNER_TEMP/venv"
+
+    - name: Verify install
+      shell: bash
+      run: |
+        test -x "$RUNNER_TEMP/prefix/bin/ubertooth-util"
+        "$RUNNER_TEMP/prefix/bin/ubertooth-util" -h
+

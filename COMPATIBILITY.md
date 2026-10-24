@@ -127,7 +127,9 @@ firmware flashing), not radio capture.
    (`cmake_minimum_required(... )`) so the floor can't silently drift from the
    docs. The Python 3.8 floor is not yet enforced (#91).
 2. **CI matrix = the "tested" column** — the "Tested / known-good" entries above
-   must mirror the pinned CI matrix in `.github/workflows/build.yml`. Pin
+   must mirror the pinned full-tier CI matrix in `.github/workflows/build.yml`
+   (run weekly, on a published release, or manually; pull requests run only
+   Ubuntu 24.04 and macOS 26). Pin
    explicit versions (not `-latest`) so the record is reproducible, and test the
    **minimum and the newest** of each dimension.
 3. **Hardware-only claims** — anything about radio behaviour (BLE/BR-EDR
