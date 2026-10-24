@@ -98,7 +98,8 @@
 - `ubertooth-util -v` and `-V` exit non-zero on a failed or malformed read
   instead of printing `error: <n>`, including in multi-device listings. New
   libubertooth calls `cmd_get_firmware_revision()` and
-  `cmd_get_firmware_compile_info()` return the error; the void forms remain.
+  `cmd_get_firmware_compile_info()` return the error; the void forms remain and
+  now also report short replies as `error: <n>`, as does `ubertooth-dfu` verify.
   [#51](https://github.com/SqueakyFloors/ubertooth/issues/51)
 - `ubertooth-scan` no longer leaks connection information after failed probes.
   [#3](https://github.com/SqueakyFloors/ubertooth/issues/3)
