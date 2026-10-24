@@ -264,8 +264,14 @@ select one of them by a longer part of its serial number
 .fi
 .RE
 .PP
+If the matching boards report the \fIsame\fP serial, no longer string can tell
+them apart, and the message says so and points at \fB\fC\-U<index>\fR instead.
+.PP
 A string that matches no attached board also exits non\-zero, with
-\fB\fCno Ubertooth found with serial matching '<string>'\fR\&.
+\fB\fCno Ubertooth found with serial matching '<string>'\fR\&. A board that
+does not answer the serial read is skipped silently while another board is
+being selected; when nothing matched, the message says how many attached
+boards did not answer.
 .PP
 An all\-digits string is always an index, never a serial, even when it would
 match a serial: \fB\fC\-U 05\fR asks for index 5, not for the board whose

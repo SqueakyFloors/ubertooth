@@ -218,8 +218,14 @@ exits non-zero:
     error: '2000f5' matches 2 Ubertooth devices: 1cc001038088cb956c43ad61c52000f5, 05f00014e380df95f4436562c32000f5
     select one of them by a longer part of its serial number
 
+If the matching boards report the *same* serial, no longer string can tell them
+apart, and the message says so and points at `-U<index>` instead.
+
 A string that matches no attached board also exits non-zero, with
-`no Ubertooth found with serial matching '<string>'`.
+`no Ubertooth found with serial matching '<string>'`. A board that does not
+answer the serial read is skipped silently while another board is being
+selected; when nothing matched, the message says how many attached boards did
+not answer.
 
 An all-digits string is always an index, never a serial, even when it would
 match a serial: `-U 05` asks for index 5, not for the board whose serial starts
