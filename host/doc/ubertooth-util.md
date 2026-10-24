@@ -162,11 +162,31 @@ equivalent, as are `-U<serial>` and `-U <serial>`. (Index or serial is
 auto-detected: an all-digits argument is treated as an index, anything else as
 a serial.)
 
+An index must be one that is actually attached: it is a position in the list of
+attached Ubertooths, so with *n* attached only `-U0` to `-U<n-1>` select a
+device. Any other index is refused before any device is opened, and the tool
+exits non-zero:
+
+    $ ubertooth-util -U2 -s
+    error: no Ubertooth at index 2 (2 attached)
+    indexes change when boards are added or removed; select a board by serial with -U<serial>
+    could not open Ubertooth device
+
+Indexes are positions in the list of boards attached when the command runs:
+unplugging `-U0` makes the old `-U1` the new `-U0`. To keep targeting the same
+board, select it by serial number (or a unique part of it).
+
+This includes a nonzero index with a single Ubertooth attached (`-U1` of one
+device is refused; use `-U0`, or no `-U` at all). With no Ubertooth attached,
+any `-U<n>` reports that no device could be opened. A digit string too large
+to be a device index at all is refused the same way, naming it as given:
+`error: no Ubertooth at index 4294967296 (2 attached)`.
+
 There is **no fixed upper limit** on the number of attached Ubertooths: the
-device list is sized dynamically and the index is not capped (older docs showed
-`-U<0-7>`, which was only a convention). In practice the limit is USB topology,
-hub bandwidth, and power — with many devices, prefer serial selection since
-indices become unwieldy and unstable.
+device list is sized dynamically and the index is not capped at any particular
+number (older docs showed `-U<0-7>`, which was only a convention). In practice
+the limit is USB topology, hub bandwidth, and power — with many devices, prefer
+serial selection since indices become unwieldy and unstable.
 
 With several Ubertooths attached and no `-U`, the read-only identity queries
 `-s` (serial), `-v` (firmware version), `-V` (compile info), `-p` (part ID) and

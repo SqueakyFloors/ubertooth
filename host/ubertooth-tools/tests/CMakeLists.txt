@@ -195,4 +195,21 @@ if(libubertooth_SOURCE_DIR)
 		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
 	target_link_libraries(test-control-text ${LIBUSB_LIBRARIES})
 	add_test(NAME control-text COMMAND test-control-text)
+
+	# Runs the real libubertooth device selection against a faked USB device
+	# list (the libusb device calls are defined in the test), so the
+	# multi-device -U cases are covered without attaching several boards.
+	add_executable(test-device-select
+		test_device_select.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_callback.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_fifo.c)
+	target_include_directories(test-device-select PRIVATE
+		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+	target_link_libraries(test-device-select ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES})
+	add_test(NAME device-select COMMAND test-device-select)
+	# Nothing here waits on hardware; a regression that blocks on a real USB
+	# call should fail instead of hanging the suite.
+	set_tests_properties(device-select PROPERTIES TIMEOUT 10)
 endif()
