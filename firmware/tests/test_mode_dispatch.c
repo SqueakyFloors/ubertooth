@@ -22,10 +22,6 @@
 
 #include "minunit.h"
 
-#ifndef FW_RXTX_DIR
-#define FW_RXTX_DIR ".."
-#endif
-
 /*
  * Cases that legitimately do not assign `mode` in the case body. Each one is
  * either not a mode loop at all or sets `mode` inside the function it calls;
@@ -97,9 +93,12 @@ MU_TEST(test_every_mode_case_sets_mode)
 		c = strstr(line, "case MODE_");
 		if (c == NULL && strstr(line, "default:") == NULL) {
 			/* still inside the case opened last, if any */
-			if (open_mode[0] != '\0' &&
-			    strlen(body) + strlen(line) + 1 < sizeof(body))
+			if (open_mode[0] != '\0') {
+				mu_assert(strlen(body) + strlen(line) + 1 < sizeof(body),
+				          "case body is larger than this test's buffer; "
+				          "grow body[] rather than trusting the result");
 				strcat(body, line);
+			}
 			continue;
 		}
 

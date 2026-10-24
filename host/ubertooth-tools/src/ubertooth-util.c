@@ -316,7 +316,8 @@ static void usage(FILE *output)
 	fprintf(output, "\t-a[0-7] get/set power amplifier level\n");
 	fprintf(output, "\t-c[%d-%d] get/set channel in MHz\n", BT_FREQ_MIN, BT_FREQ_MAX);
 	fprintf(output, "\t-C[0-%d] get/set channel\n", NUM_BREDR_CHANNELS - 1);
-	fprintf(output, "\t-q[1-225 (RSSI threshold, -N dBm; a larger N lights the LEDs for weaker signals)] start LED spectrum analyzer\n");
+	fprintf(output, "\t-q[1-225 (RSSI threshold)] start LED spectrum analyzer\n");
+	fprintf(output, "\t   the threshold is -N dBm; a larger N lights the LEDs for weaker signals\n");
 	fprintf(output, "\t-t intitiate continuous transmit test\n");
 	fprintf(output, "\t-z[-128..127] get/set squelch level\n");
 	fprintf(output, "\n");
