@@ -728,6 +728,8 @@ static void reopen_dfu_for_detach(struct dfu_runtime_context *runtime,
 {
 	unsigned poll;
 
+	*devh = NULL;
+	*claimed = 0;
 	log_dfu_stage("looking for the DFU device again to detach it");
 	for (poll = 0; poll < DETACH_REOPEN_POLLS; poll++) {
 		if (find_ubertooth_dfu_device(runtime->usb_context, identity, devh) == 1)
@@ -739,8 +741,15 @@ static void reopen_dfu_for_detach(struct dfu_runtime_context *runtime,
 		log_dfu_stage("DFU device did not come back; cannot detach it");
 		return;
 	}
-	if (libusb_claim_interface(*devh, 0) == 0)
-		*claimed = 1;
+	/* Detaching means control transfers on interface 0, so without the claim
+	 * there is nothing useful to send: let it go rather than guess. */
+	if (libusb_claim_interface(*devh, 0) != 0) {
+		log_dfu_stage("reopened DFU interface could not be claimed; cannot detach");
+		libusb_close(*devh);
+		*devh = NULL;
+		return;
+	}
+	*claimed = 1;
 	log_dfu_stage("DFU device reopened for detach");
 }
 
@@ -992,7 +1001,11 @@ int main(int argc, char **argv) {
 		r = dfu_transfer_run(&TRANSFER_OPS, &runtime, &selected_identity,
 		                     &transfer_config, &transfer_handle,
 		                     &transfer_report);
+		/* The transfer owns the handle while it runs: it closes and reopens
+		 * the device around a retry, and clears the handle when it gives up.
+		 * Take the claim state from what it hands back. */
 		devh = transfer_handle;
+		interface_claimed = devh != NULL;
 		fclose(downfile);
 		downfile = NULL;
 		if(r != DFU_TRANSFER_OK) {
