@@ -109,8 +109,9 @@ endif()
 
 add_test(NAME util-main COMMAND test-util-main)
 # A regression that lets a mode such as -I (identify, blinks until
-# interrupted) run inside main() would hang; fail it instead.
-set_tests_properties(util-main PROPERTIES TIMEOUT 60)
+# interrupted) run inside main() would hang; fail it instead. A normal run
+# takes well under a second (0.02-0.5 s locally and in CI).
+set_tests_properties(util-main PROPERTIES TIMEOUT 5)
 
 # Runs the real libubertooth part-ID commands against a fake libusb control
 # transfer (defined in the test, so it wins over libusb's). libbtbb is faked;
