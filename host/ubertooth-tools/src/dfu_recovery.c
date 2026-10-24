@@ -7,11 +7,6 @@
 
 #include "dfu.h"
 
-/* MinGW defines the bits but not always the test. */
-#ifndef S_ISREG
-#define S_ISREG(mode) (((mode) & S_IFMT) == S_IFREG)
-#endif
-
 static int idle_fail(struct dfu_idle_report *report,
                      enum dfu_idle_result result,
                      int operation_error)

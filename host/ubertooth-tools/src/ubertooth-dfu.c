@@ -100,8 +100,9 @@ static unsigned long max_unsigned_image_size(void)
 
 /* Refuse a file this tool would read into memory whole, before it allocates
  * anything from the size: a file past maximum bytes, or one with no size a
- * read can be sized from at all (#246). what names what the limit is on, for
- * the message. Returns 1 when the file is refused, naming it. */
+ * read can be sized from at all (#246). The message names the file and says
+ * what the limit applies to, which `what` supplies. Returns 1 when the file
+ * is refused. */
 static int image_file_refused(const char* name, FILE* file,
                               unsigned long maximum, const char* what)
 {

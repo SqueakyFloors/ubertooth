@@ -2,11 +2,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifndef _WIN32
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#endif
 
 #include "../../../firmware/tests/minunit.h"
 #include "dfu.h"
@@ -932,9 +930,6 @@ MU_TEST(test_image_accepts_a_file_at_the_size_cap)
 
 MU_TEST(test_image_rejects_a_file_that_is_not_a_regular_file)
 {
-#ifdef _WIN32
-	printf("  (skipped: no FIFOs)\n");
-#else
 	struct dfu_image_report report;
 	char message[160];
 	const char *directory_name = getenv("TMPDIR");
@@ -981,7 +976,6 @@ MU_TEST(test_image_rejects_a_file_that_is_not_a_regular_file)
 		close(descriptor);
 	}
 	unlink(path);
-#endif
 }
 
 /* The cap is the caller's, so -s can hold a .bin to the suffix less than a

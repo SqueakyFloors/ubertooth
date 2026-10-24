@@ -157,7 +157,7 @@ enum dfu_file_size_result {
 	DFU_FILE_SIZE_INVALID_ARGUMENT = -1,
 	DFU_FILE_SIZE_UNKNOWN = -2,      /* the size could not be measured */
 	DFU_FILE_SIZE_NOT_REGULAR = -3,  /* a directory, FIFO, device, socket */
-	DFU_FILE_SIZE_TOO_LARGE = -4,    /* past dfu_max_image_size() */
+	DFU_FILE_SIZE_TOO_LARGE = -4,    /* past the maximum the caller gave */
 };
 
 /* Measure file against maximum bytes. The size is left in *size when it could
