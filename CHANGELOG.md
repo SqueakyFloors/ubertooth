@@ -61,7 +61,6 @@
 
 - `man ubertooth-debug` is installed; its page was built but never installed.
   [#235](https://github.com/SqueakyFloors/ubertooth/issues/235)
-
 - Python tools are installed natively under the chosen CMake prefix, so
   custom prefixes and staged installs work without modifying the source tree
   or requiring `PYTHONPATH`.
@@ -99,14 +98,6 @@
   been accepted, and `Ignoring extra capture file` goes to standard error so it
   cannot land in a capture written to stdout.
   [#193](https://github.com/SqueakyFloors/ubertooth/issues/193)
-- `ubertooth-debug -r` now states the register range it accepts,
-  `error: register address must be 0x00-0xff (got 0x100)`, and says so once
-  for a list it cannot read at all.
-- `ubertooth-debug -r` states the register range it accepts,
-  `error: register address must be 0x00-0xff (got 0x100)`, and gives one line
-  with the reason for a value it cannot read as a list at all. A `%name` now
-  works anywhere in a list or range, not only as the last item, and
-  `man ubertooth-debug` is installed.
 - `ubertooth-debug -r` states the register range it accepts and quotes the
   item it refused, `error: register address must be 0x00-0xff (got 300 in
   0x02,300)`. A `%name` works anywhere in a list or range, not only last.
