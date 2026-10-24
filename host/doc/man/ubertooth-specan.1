@@ -5,7 +5,7 @@ ubertooth\-specan(1) \- a spectrum analyzer for Ubertooth
 
 .SH SYNOPSIS
 .PP
-ubertooth\-specan [\-l <freq>] [\-u <freq>] [\-g|G]
+ubertooth\-specan [\-l <freq>] [\-u <freq>] [\-g|G] [\-d <filename>|\-]
 
 .SH DESCRIPTION
 .PP
@@ -36,7 +36,10 @@ format output for feedgnuplot
 format output for 3D feedgnuplot
 .IP \(bu 2
 \fB\fC\-d<filename>\fR :
-output to file <filename>
+write the binary samples to <filename>. A bare \fB\fC\-\fR (\fB\fC\-d \-\fR) writes
+them to standard output instead; every other value is a file name, including
+one that starts with \fB\fC\-\fR, so \fB\fC\-d \-x\fR writes the file named
+\fB\fC\-x\fR
 .IP \(bu 2
 \fB\fC\-v\fR :
 print verbose output to stderr
@@ -74,6 +77,11 @@ alongside it.
 An option value must be a whole value in its range, or it is refused the same
 way instead of being read as 0, for example
 \fB\fCerror: lower frequency must be 2402\-2480 MHz (got bad)\fR\&.
+.PP
+\fB\fC\-\fR means standard output only as the whole value of \fB\fC\-d\fR\&. A
+value that merely starts with \fB\fC\-\fR is a file name, so a forgotten file
+name such as \fB\fC\-d \-v\fR writes a file called \fB\fC\-v\fR rather than
+streaming samples to the terminal and dropping the \fB\fC\-v\fR\&.
 .SH SEE ALSO
 .PP
 ubertooth(7): overview of Project Ubertooth

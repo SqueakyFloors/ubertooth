@@ -89,6 +89,11 @@
   one of `ubertooth-btle`'s `-f`, `-n` and `-p` are refused while the command
   line is read, before a device is opened, whatever boards are attached.
   [#236](https://github.com/SqueakyFloors/ubertooth/issues/236)
+- `ubertooth-specan -d` takes a bare `-` as standard output and every other
+  value as a file name, including one starting with `-`, so `-d -x` writes the
+  file `-x` instead of streaming binary samples to the terminal.
+  [#231](https://github.com/SqueakyFloors/ubertooth/issues/231)
+
 - A `ctest` run no longer opens an attached Ubertooth, so it cannot disturb a
   board another process is using. The tests set `UBERTOOTH_TEST_NO_DEVICES=1`,
   which makes a tool behave as if no board were attached, and say so; only that
