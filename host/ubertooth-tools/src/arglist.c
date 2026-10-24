@@ -21,6 +21,7 @@
 
 #include <stdlib.h>
 #include <ctype.h>
+#include <string.h>
 
 #include "arglist.h"
 
@@ -55,22 +56,23 @@ int isodigit(int c)
  * to integer values.  The token parser returns the integer value,
  * and the number of characters consumed.
  *
- * Nothing is printed here: on failure *reason (when given) names what could
- * not be read, so the caller reports the whole thing in one line, in the form
- * the rest of the tools use.
+ * Every value must be in [min, max]. Nothing is printed here: on failure
+ * *error (when given) says what went wrong and which item did it, so the
+ * caller reports the whole thing in one line naming the item as the user
+ * wrote it, in the form the rest of the tools use.
  */
 
 int *listOfInts(char *arg, int *n,
 		int (*token_parser) (char *p, int *nchars),
-		const char **reason)
+		long min, long max, struct int_list_error *error)
 {
     int *r = NULL;
     int done = 0;
-    const char *why = "not a list of registers";
+    enum int_list_failure kind = INT_LIST_SYNTAX;
+    const char *why = "not a list of values";
+    char *item = arg;		// start of the item being read, for the report
 
     *n = 0;
-    if (reason != NULL)
-	*reason = why;
 
     // loop runs twice, first to count, second to populate allocated memory
     while (arg != NULL && !done) {
@@ -84,6 +86,7 @@ int *listOfInts(char *arg, int *n,
 	int size;
 
 	p = arg;
+	item = arg;
 
 	while (1) {
 	    if (first_char && *p == '%' && token_parser != NULL) {
@@ -100,6 +103,14 @@ int *listOfInts(char *arg, int *n,
 		// end-of-value or end-of-string
 		if (!value_valid) {
 		    why = "empty value";
+		    goto fail;
+		}
+		// Both ends of a range are checked, so everything the range
+		// fills in is in bounds too. Checked before the range is
+		// expanded, so a huge one costs nothing.
+		if (value < min || value > max ||
+		    (first_value >= 0 && (first_value < min || first_value > max))) {
+		    kind = INT_LIST_RANGE;
 		    goto fail;
 		}
 		if (first_value >= 0) {
@@ -133,6 +144,7 @@ int *listOfInts(char *arg, int *n,
 
 		if (*p == 0)
 		    break;	// end-of-string
+		item = p + 1;	// the next item starts after the comma
 	    } else if (*p == '-') {
 		// range
 		if (!value_valid) {
@@ -165,7 +177,15 @@ int *listOfInts(char *arg, int *n,
 		    }
 		}
 
-		// update the value, digit by digit
+		// update the value, digit by digit. A value only grows, so
+		// stop as soon as it is past max rather than wrapping round
+		// and reporting a number the user never wrote.
+		if (value > (max - (isdigit(*p) ? *p - '0'
+		                                : (tolower(*p) - 'a') + BASE10))
+		            / base) {
+		    kind = INT_LIST_RANGE;
+		    goto fail;
+		}
 		value *= base;
 		if (isdigit(*p))
 		    value += (*p - '0');
@@ -193,8 +213,13 @@ int *listOfInts(char *arg, int *n,
     return r;
 
   fail:			// make sure that we have a consistent error state
-    if (reason != NULL)
-	*reason = why;
+    if (error != NULL) {
+	error->kind = kind;
+	error->reason = why;
+	// the whole item, however far into it the reading got
+	error->item = item;
+	error->item_length = strcspn(item, ",");
+    }
     free(r);
     *n = -1;
     return NULL;

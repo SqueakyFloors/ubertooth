@@ -59,6 +59,9 @@
 
 ### Build and compatibility
 
+- `man ubertooth-debug` is installed; its page was built but never installed.
+  [#235](https://github.com/SqueakyFloors/ubertooth/issues/235)
+
 - Python tools are installed natively under the chosen CMake prefix, so
   custom prefixes and staged installs work without modifying the source tree
   or requiring `PYTHONPATH`.
@@ -104,6 +107,9 @@
   with the reason for a value it cannot read as a list at all. A `%name` now
   works anywhere in a list or range, not only as the last item, and
   `man ubertooth-debug` is installed.
+- `ubertooth-debug -r` states the register range it accepts and quotes the
+  item it refused, `error: register address must be 0x00-0xff (got 300 in
+  0x02,300)`. A `%name` works anywhere in a list or range, not only last.
   [#235](https://github.com/SqueakyFloors/ubertooth/issues/235)
 - `ubertooth-rx -u` without `-l`, `ubertooth-tx` without both, and more than
   one of `ubertooth-btle`'s `-f`, `-n` and `-p` are refused while the command

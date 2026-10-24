@@ -6,7 +6,8 @@ Run as: test_debug_cli.py <path to ubertooth-debug>
 The whole -r value is read before a device is looked for, so both halves can
 be checked without a board:
 
-  * a refused value gets exactly one "error: ..." line and exit 1;
+  * a refused value gets exactly one "error: ..." line and exit 1, quoting
+    the offending item as the user wrote it;
   * an accepted value gets no diagnostic of its own and reaches device
     selection, which with no device found is itself the proof that the value
     parsed. 0x00 (MAIN) and 0xff are both accepted, which is what the old
@@ -25,27 +26,39 @@ BINARY = sys.argv[1]
 ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1")
 NO_DEVICE = "could not open ubertooth device"
 
+SYNTAX = ("error: register list must be names or addresses, single or as a "
+          "range: ")
+
 REFUSED = (
+    # the refused item is quoted as the user wrote it, never re-rendered, and
+    # the whole value comes with it when the item is only part of it
     ("0x100", "error: register address must be 0x00-0xff (got 0x100)"),
-    ("0x00-0x100", "error: register address must be 0x00-0xff (got 0x100)"),
-    ("300", "error: register address must be 0x00-0xff (got 0x12c)"),
-    ("%nosuchregister",
-     "error: register list must be names or addresses, single or as a range: "
-     "unknown name (got %nosuchregister)"),
-    ("0x02,",
-     "error: register list must be names or addresses, single or as a range: "
-     "empty value (got 0x02,)"),
-    ("-5",
-     "error: register list must be names or addresses, single or as a range: "
-     "range with no start (got -5)"),
-    ("09",
-     "error: register list must be names or addresses, single or as a range: "
-     "not an octal digit (got 09)"),
+    ("300", "error: register address must be 0x00-0xff (got 300)"),
+    ("0x02,300",
+     "error: register address must be 0x00-0xff (got 300 in 0x02,300)"),
+    ("0x00-0x100",
+     "error: register address must be 0x00-0xff (got 0x00-0x100)"),
+    # too large for an int: refused as the digits are read, so the message
+    # cannot name a wrapped-round value the user never typed
+    ("99999999999",
+     "error: register address must be 0x00-0xff (got 99999999999)"),
+    ("0xffffffff",
+     "error: register address must be 0x00-0xff (got 0xffffffff)"),
+    # a range is refused before it is expanded, so a huge one costs nothing
+    ("0-0xffffff",
+     "error: register address must be 0x00-0xff (got 0-0xffffff)"),
+    ("%nosuchregister", SYNTAX + "unknown name (got %nosuchregister)"),
+    ("0x02,%nosuch,0x03",
+     SYNTAX + "unknown name (got %nosuch in 0x02,%nosuch,0x03)"),
+    ("0x02,", SYNTAX + "empty value (got 0x02,)"),
+    ("-5", SYNTAX + "range with no start (got -5)"),
+    ("09", SYNTAX + "not an octal digit (got 09)"),
 )
 
 ACCEPTED = (
     "0x00",          # MAIN, the low end of the range
     "0xff",          # the high end
+    "255",           # the same, in decimal
     "0x02,0x01,0x00",
     "0x00-0xff",
     "%main",

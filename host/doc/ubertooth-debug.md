@@ -75,14 +75,22 @@ way instead of being read as 0, for example
 
 `-r` takes register addresses `0x00` to `0xff`, both ends included: `0x00` is
 MAIN and `0xff` is the highest address the tool accepts. An address outside
-that is refused, naming it in hex whatever base it was written in:
-`error: register address must be 0x00-0xff (got 0x100)`.
+that is refused, quoted as it was written, and with the whole value when it is
+one item of several:
 
-A value that cannot be read as a list at all gets one line too, with the
-reason: `error: register list must be names or addresses, single or as a
-range: unknown name (got %nosuchregister)`. The other reasons are
+    $ ubertooth-debug -r 300
+    error: register address must be 0x00-0xff (got 300)
+    $ ubertooth-debug -r 0x02,300
+    error: register address must be 0x00-0xff (got 300 in 0x02,300)
+
+A value that cannot be read as a list at all gets one line in the same shape,
+with the reason: `error: register list must be names or addresses, single or as
+a range: unknown name (got %nosuchregister)`. The other reasons are
 `empty value`, `range with no start`, `not an octal digit` and
 `not a name, address or range`.
+
+`-r` is required: without it the command is refused with
+`error: -r <reg>[,<reg>[,...]] is required: at least one register to read`.
 
 ## SEE ALSO
 

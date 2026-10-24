@@ -38,10 +38,20 @@
  * every address from 0x00 (MAIN) to 0xff. */
 #define CC2400_REG_ADDRESS_MAX 0xff
 
-/* Longest "%name" in the cc2400 register table is 10 characters
- * ("%PKTSTATUS"); 15 leaves room for a longer one. A word longer than this
- * cannot be a register name, so it is refused without a lookup. */
-#define CC2400_REG_NAME_MAX 15
+/*
+ * "<item> in <whole value>" for the refused item, or just the value when the
+ * item is the whole of it or is empty (a missing value between commas).
+ */
+static void describe_item(char *out, size_t size,
+                          const struct int_list_error *failure,
+                          const char *value)
+{
+    if (failure->item_length == 0 || failure->item_length == strlen(value))
+	snprintf(out, size, "%s", value);
+    else
+	snprintf(out, size, "%.*s in %s", (int)failure->item_length,
+		 failure->item, value);
+}
 
 static void usage()
 {
@@ -59,19 +69,22 @@ static void usage()
 
 /* Looks up one "%name" at the start of t, which runs to the next list
  * separator. Matching the whole of t instead meant a name only worked as the
- * last item: "-r %MAIN,%FSDIV" was looked up as "%MAIN,%FSDIV" and refused. */
+ * last item: "-r %MAIN,%FSDIV" was looked up as "%MAIN,%FSDIV" and refused.
+ * t points into argv, so the separator is borrowed and put back rather than
+ * copying the name into a buffer of some guessed size. */
 int token_to_int(char *t, int *size)
 {
-    char name[CC2400_REG_NAME_MAX + 1];
     size_t length = strcspn(t, ",-");
+    char separator;
     int r;
 
     *size = -1;
-    if (length == 0 || length > CC2400_REG_NAME_MAX)
+    if (length == 0)
 	return -1;
-    memcpy(name, t, length);
-    name[length] = '\0';
-    r = cc2400_name2reg(name);
+    separator = t[length];
+    t[length] = '\0';
+    r = cc2400_name2reg(t);
+    t[length] = separator;
     if (r < 0)
 	return -1;
     *size = (int)length;
@@ -117,29 +130,29 @@ int main(int argc, char *argv[])
 		return 1;
 	    break;
 	case 'r': {
-	    const char *reason;
+	    struct int_list_error failure;
 
-	    regList = listOfInts(optarg, &regListN, token_to_int, &reason);
+	    /* A repeated -r replaces the earlier list. */
+	    free(regList);
+	    regList = listOfInts(optarg, &regListN, token_to_int, 0,
+				 CC2400_REG_ADDRESS_MAX, &failure);
 	    if (regListN < 0) {
-		/* One line, like every other refused option value: what -r
-		 * takes, what went wrong, and what was given. */
-		fprintf(stderr, "error: register list must be names or"
-			" addresses, single or as a range: %s (got %s)\n",
-			reason, optarg);
+		/* One line, like every other refused option value, naming the
+		 * item as the user wrote it. The accepted range is the whole
+		 * of it, not one short at each end: 0x00 (MAIN) and 0xff are
+		 * both accepted. */
+		char item[64];
+
+		describe_item(item, sizeof(item), &failure, optarg);
+		if (failure.kind == INT_LIST_RANGE)
+		    fprintf(stderr, "error: register address must be"
+			    " 0x00-0x%02x (got %s)\n",
+			    CC2400_REG_ADDRESS_MAX, item);
+		else
+		    fprintf(stderr, "error: register list must be names or"
+			    " addresses, single or as a range: %s (got %s)\n",
+			    failure.reason, item);
 		return 1;
-	    }
-	    for (i = 0; i < regListN; i++) {
-		if (regList[i] < 0 || regList[i] > CC2400_REG_ADDRESS_MAX) {
-		    /* The accepted range, not one short of it at each end:
-		     * 0x00 (MAIN) and 0xff are both accepted. The address is
-		     * printed in hex whatever base it was written in, since
-		     * that is how the registers are named everywhere else. */
-		    fprintf(stderr,
-			    "error: register address must be 0x00-0x%02x"
-			    " (got 0x%02x)\n",
-			    CC2400_REG_ADDRESS_MAX, (unsigned)regList[i]);
-		    return 1;
-		}
 	    }
 	    if (regListN > 0)
 		do_read_register = 0;
@@ -163,11 +176,11 @@ int main(int argc, char *argv[])
 	return 0;
     }
 
-	if(regListN == 0) {
-		fprintf(stderr, "At least one register must be provided\n");
-	    usage();
-	    return 1;
-	}
+    if (regListN == 0) {
+	fprintf(stderr, "error: -r <reg>[,<reg>[,...]] is required:"
+		" at least one register to read\n");
+	return 1;
+    }
     /* initialise device */
     ut = ubertooth_start_select(ubertooth_device);
     if (ut == NULL) {
