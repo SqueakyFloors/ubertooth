@@ -8,6 +8,13 @@
  * that read the comments would find whatever it was looking for), then match
  * whole identifiers, calls and assignments rather than substrings.
  *
+ * They read C the way a careful `grep` would, not the way a compiler does:
+ * string literals are not understood, so a "/*" or "//" inside one would be
+ * taken for a comment, and an assignment is matched with one space each side
+ * of the '='. Neither scanned file has such a literal today. A reformat of a
+ * scanned file therefore fails the scan, which is the right direction: the
+ * test says what it could not find rather than passing on nothing.
+ *
  * Defined inline in the header so each test stays a single translation unit
  * that links nothing from the firmware.
  */
@@ -117,14 +124,27 @@ static inline int is_assignment_to(const char *text, const char *name)
 	return 0;
 }
 
-/* The same, for an assignment of one particular value: "name = value". */
+/*
+ * The same, for an assignment of one particular value: "name = value", with
+ * both ends whole, so `le_phy_active = 1` matches neither
+ * `foo_le_phy_active = 1` nor `le_phy_active = 10`.
+ */
 static inline int is_assignment_of(const char *text, const char *name,
                                    const char *value)
 {
 	char needle[96];
+	size_t len;
+	const char *p = text;
 
-	snprintf(needle, sizeof(needle), "%s = %s", name, value);
-	return strstr(text, needle) != NULL;
+	len = (size_t)snprintf(needle, sizeof(needle), "%s = %s", name, value);
+	while ((p = strstr(p, needle)) != NULL) {
+		char prev = (p == text) ? ' ' : p[-1];
+
+		if (!is_ident_char(prev) && !is_ident_char(p[len]))
+			return 1;
+		p += len;
+	}
+	return 0;
 }
 
 #endif

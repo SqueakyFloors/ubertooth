@@ -20,10 +20,17 @@
  * radio and read RSSI over the bit-banged SPI bus while the main loop used it
  * -- which wedged the board until it was re-plugged.
  *
+ * Coming up also starts from nothing pending: a match flag in T1IR or a
+ * pending bit in the NVIC, left by the run before, would otherwise be the
+ * first interrupt of this run and be taken as a live event.
+ *
  * Neither path can run here: it is hardware code. So this test scans the
- * source, the way test_mode_dispatch.c scans the mode dispatch.
+ * source, the way test_mode_dispatch.c scans the mode dispatch. Being a scan,
+ * it pins the shape and not only the invariant: it looks for the calls by
+ * name, so writing `ISER0 = ISER0_ISE_TIMER1;` inline at the right place
+ * would still fail it. Keeping the two steps as named functions is part of
+ * what is being checked.
  */
-#include <ctype.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -46,6 +53,11 @@ struct le_phy_scan {
 	int active_cleared;    /* le_phy_active = 0 */
 	int mask_dma;          /* ICER0 = ICER0_ICE_DMA */
 	int timer1_stop;       /* timer1_stop() */
+	/* in timer1_start(), which runs before the radio is set up */
+	int clear_matches;     /* T1MCR = 0 */
+	int clear_flags;       /* T1IR = 0xff */
+	int clear_pending;     /* ICPR0 = ICPR0_ICP_TIMER1 */
+	int counter_enable;    /* T1TCR = TCR_Counter_Enable */
 	/* anywhere in the file */
 	int unmask_writes;     /* writes of ISER0_ISE_TIMER1 to ISER0 */
 	int main_lines;        /* lines of le_phy_main() the scan read */
@@ -54,7 +66,7 @@ struct le_phy_scan {
 static int scan_le_phy(const char *path, struct le_phy_scan *s)
 {
 	char line[512];
-	int lineno = 0, in_block = 0, in_main = 0;
+	int lineno = 0, in_block = 0, in_main = 0, in_timer1_start = 0;
 	char name[64];
 	FILE *f = fopen(path, "r");
 
@@ -72,7 +84,28 @@ static int scan_le_phy(const char *path, struct le_phy_scan *s)
 		    contains_identifier(line, "ISER0_ISE_TIMER1"))
 			s->unmask_writes++;
 
+		if (in_timer1_start) {
+			if (is_assignment_of(line, "T1MCR", "0") &&
+			    s->clear_matches == 0)
+				s->clear_matches = lineno;
+			if (is_assignment_of(line, "T1IR", "0xff") &&
+			    s->clear_flags == 0)
+				s->clear_flags = lineno;
+			if (is_assignment_of(line, "ICPR0", "ICPR0_ICP_TIMER1") &&
+			    s->clear_pending == 0)
+				s->clear_pending = lineno;
+			if (is_assignment_of(line, "T1TCR", "TCR_Counter_Enable") &&
+			    s->counter_enable == 0)
+				s->counter_enable = lineno;
+			if (line[0] == '}')
+				in_timer1_start = 0;
+			continue;
+		}
+
 		if (!in_main) {
+			if (strstr(line, "void timer1_start(") != NULL &&
+			    strchr(line, ';') == NULL)
+				in_timer1_start = 1;
 			if (strstr(line, "void le_phy_main(") != NULL &&
 			    strchr(line, ';') == NULL)
 				in_main = 1;
@@ -144,6 +177,34 @@ MU_TEST(test_source_was_scanned)
 	         path, s.active_cleared, s.mask_dma, s.timer1_stop);
 	mu_assert(s.active_cleared > 0 && s.mask_dma > 0 && s.timer1_stop > 0,
 	          msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the scan did not read timer1_start(): T1MCR = 0 at %d, "
+	         "T1IR = 0xff at %d, ICPR0_ICP_TIMER1 at %d, counter enabled "
+	         "at %d", path, s.clear_matches, s.clear_flags, s.clear_pending,
+	         s.counter_enable);
+	mu_assert(s.clear_matches > 0 && s.clear_flags > 0 &&
+	          s.clear_pending > 0 && s.counter_enable > 0, msg);
+}
+
+/*
+ * The run starts with nothing left pending from the last one, and the clearing
+ * happens before the counter runs -- which is before le_cc2400_init_rf() arms
+ * the match this run does want, so it cannot be cleared away.
+ */
+MU_TEST(test_the_run_starts_with_nothing_pending)
+{
+	char msg[512];
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: timer1_start() enables the counter before it clears the "
+	         "armed matches (T1MCR, line %d), the match flags (T1IR, line "
+	         "%d) and the NVIC pending bit (line %d), so a match can latch "
+	         "again in between", path, s.counter_enable, s.clear_matches,
+	         s.clear_flags, s.clear_pending);
+	mu_assert(s.counter_enable > s.clear_matches &&
+	          s.counter_enable > s.clear_flags &&
+	          s.counter_enable > s.clear_pending, msg);
 }
 
 /*
@@ -224,6 +285,7 @@ int main(void)
 {
 	printf("le_phy bring-up and teardown order tests\n");
 	MU_RUN(test_source_was_scanned);
+	MU_RUN(test_the_run_starts_with_nothing_pending);
 	MU_RUN(test_active_is_set_after_the_setup);
 	MU_RUN(test_the_interrupt_is_unmasked_last);
 	MU_RUN(test_active_is_cleared_before_the_teardown);

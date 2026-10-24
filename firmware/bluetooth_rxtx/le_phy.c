@@ -603,6 +603,17 @@ static void change_channel(void) {
 static void timer1_start(void) {
 	T1TCR = TCR_Counter_Reset;
 	T1PR = 4; // 100 ns
+
+	// Start from nothing pending. The teardown masks the line, but a match
+	// taken just before the mask stays pending in the NVIC, and a match flag
+	// can be left in T1IR; either would be delivered as the first interrupt
+	// of this run, after le_phy_active is set, and the handler would act on
+	// it as a live event. Clearing it here, before the counter runs, is also
+	// before le_cc2400_init_rf() arms the FS_LOCK match this run does want.
+	T1MCR = 0;
+	T1IR = 0xff; // write-1-to-clear: every match and capture flag
+	ICPR0 = ICPR0_ICP_TIMER1;
+
 	T1TCR = TCR_Counter_Enable;
 }
 
@@ -1066,13 +1077,21 @@ void le_phy_main(void) {
 
 	// Everything the interrupt handlers read is set up now: the buffer pool
 	// and the packet queue, the first receive buffer, the DMA channel and the
-	// SSP, and the radio with its FS_LOCK match armed. None of the setup above
-	// reads le_phy_active, so the flag can wait until here, and the interrupt
+	// SSP, and the radio with its FS_LOCK match armed. Nothing above needs
+	// le_phy_active set, so the flag can wait until here, and the interrupt
 	// that checks it is unmasked only after it is set. That closes the window
 	// in which a timer1 match left over from an earlier run could be taken
 	// with current_rxbuf still the NULL the teardown left behind; the NULL
 	// guards in le_DMA_IRQHandler() and TIMER1_IRQHandler() stay as the
 	// backstop for the buffer pool running dry while the mode runs.
+	//
+	// One interrupt can be taken in the window: dio_ssp_start() inside
+	// le_sys_init() arms DMA channel 0, and the DMA line is live on entry
+	// (the teardown leaves it enabled for the modes that follow). With the
+	// flag clear, le_DMA_IRQHandler() acknowledges and returns instead of
+	// writing bytes into a buffer whose RX has not been armed yet, which is
+	// the behaviour wanted here: nothing should arrive until the FS_LOCK path
+	// strobes RX.
 	le_phy_active = 1;
 	timer1_enable_interrupt();
 
