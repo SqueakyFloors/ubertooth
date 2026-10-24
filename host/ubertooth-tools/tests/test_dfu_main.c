@@ -247,6 +247,10 @@ void ubertooth_stop(ubertooth_t *ut) { (void)ut; }
 
 void ubertooth_free(ubertooth_t *ut) { (void)ut; }
 
+/* The real one reads UBERTOOTH_TEST_NO_DEVICES; these tests drive a faked bus
+ * instead, so devices are never hidden here. */
+int ubertooth_devices_hidden(void) { return 0; }
+
 int cmd_flash(struct libusb_device_handle *devh)
 {
 	(void)devh;
