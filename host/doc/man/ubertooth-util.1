@@ -271,6 +271,11 @@ queries that report a nonzero value such as \fB\fC\-b\fR (board ID), \fB\fC\-c\f
 operation fails, even when a later operation in the same command succeeds.
 It exits with 1, without opening a device, when two or more mode options are
 given (see DESCRIPTION).
+It also exits with 1, without opening a device, when the command line contains
+a word that is not an option, and names it: \fB\fCerror: unexpected argument '<word>'\fR\&.
+\fB\fCubertooth\-util\fR takes no other arguments. An optional value must be attached
+to its option (\fB\fC\-c2440\fR, \fB\fC\-a7\fR, \fB\fC\-C39\fR): in \fB\fC\-c 2440\fR the \fB\fC2440\fR is an
+unexpected argument, not the channel.
 .PP
 When a \fB\fC\-b\fR, \fB\fC\-c\fR, \fB\fC\-a\fR, \fB\fC\-z\fR, \fB\fC\-l\fR, \fB\fC\-d\fR, \fB\fC\-p\fR, \fB\fC\-s\fR, \fB\fC\-m\fR or \fB\fC\-9\fR read fails,
 no value line is printed on standard output, so an error code is never shown as

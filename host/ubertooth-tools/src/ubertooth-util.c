@@ -479,6 +479,19 @@ int main(int argc, char *argv[])
 		}
 	}
 
+	/* ubertooth-util takes no operands. Refuse a leftover word before any
+	 * device is opened: otherwise a typo such as "- V" (for -V) or "-c 2440"
+	 * (an optional value must be attached: -c2440) is dropped silently while
+	 * the rest of the command still runs. */
+	if (optind < argc) {
+		const char *arg = argv[optind];
+		fprintf(stderr, "error: unexpected argument '%s'\n", arg);
+		if (arg[0] != '\0' && strspn(arg, "0123456789") == strlen(arg))
+			fprintf(stderr, "option values must be attached to the option, "
+			        "for example -c2440 or -a7\n");
+		return 1;
+	}
+
 	/* Only one mode can run: each one ends the command. Refuse a combination
 	 * before any device is opened, instead of running whichever mode comes
 	 * first below and silently ignoring the others. */

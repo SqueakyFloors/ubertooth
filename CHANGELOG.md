@@ -127,6 +127,10 @@
   `ubertooth_start_select_quiet()` for this silent, STOP-free polling, and
   `ubertooth_count()` no longer leaves libusb initialised.
   [#94](https://github.com/SqueakyFloors/ubertooth/issues/94)
+- `ubertooth-util` refuses a word that is not an option, such as `- V` or the
+  `2440` in `-c 2440`, with an error and exit 1 before opening the device,
+  instead of ignoring it and running the rest of the command.
+  [#146](https://github.com/SqueakyFloors/ubertooth/issues/146)
 - `ubertooth-util` refuses two or more mode options (`-q`, `-n`, `-e`, `-t`,
   `-x`, `-I`, `-i`, `-f`) with an error and exit 1 before opening the device,
   instead of running only one of them and exiting 0.

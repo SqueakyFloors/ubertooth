@@ -218,6 +218,11 @@ queries that report a nonzero value such as `-b` (board ID), `-c` (channel), or
 operation fails, even when a later operation in the same command succeeds.
 It exits with 1, without opening a device, when two or more mode options are
 given (see DESCRIPTION).
+It also exits with 1, without opening a device, when the command line contains
+a word that is not an option, and names it: `error: unexpected argument '<word>'`.
+`ubertooth-util` takes no other arguments. An optional value must be attached
+to its option (`-c2440`, `-a7`, `-C39`): in `-c 2440` the `2440` is an
+unexpected argument, not the channel.
 
 When a `-b`, `-c`, `-a`, `-z`, `-l`, `-d`, `-p`, `-s`, `-m` or `-9` read fails,
 no value line is printed on standard output, so an error code is never shown as

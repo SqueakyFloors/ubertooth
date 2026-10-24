@@ -875,6 +875,70 @@ MU_TEST(led_specan_uses_the_default_threshold_and_an_explicit_one)
 
 /* ---- argument handling that must not touch the device ----------------- */
 
+/* A word that is not an option is refused before any device action, so a
+ * typo cannot drop part of the command while the rest runs. */
+static void assert_refused_untouched(struct run_result r, const char *diagnostic)
+{
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, diagnostic) != NULL, diagnostic);
+	mu_assert_int_eq(0, (long)strlen(r.out));
+	mu_assert_int_eq(0, fake.start_calls);
+	mu_assert_int_eq(0, fake.reset_calls);
+	mu_assert_int_eq(0, fake.stop_calls);
+	mu_assert_int_eq(0, fake.last_channel_set);
+}
+
+MU_TEST(stray_arguments_are_rejected_before_any_device_action)
+{
+	struct run_result r;
+
+	/* "-V" typed with a space: the reset must not run either */
+	reset_fake();
+	r = RUN("-", "V", "-r", "-U1");
+	assert_refused_untouched(r, "error: unexpected argument '-'\n");
+	mu_assert(strstr(r.err, "attached") == NULL, "no value hint for a non-number");
+
+	reset_fake();
+	r = RUN("-v", "extra");
+	assert_refused_untouched(r, "error: unexpected argument 'extra'\n");
+
+	reset_fake();
+	r = RUN("extra", "-b");
+	assert_refused_untouched(r, "error: unexpected argument 'extra'\n");
+
+	/* an optional value given as a separate word is not used as the value */
+	reset_fake();
+	r = RUN("-c", "2440");
+	assert_refused_untouched(r, "error: unexpected argument '2440'\n");
+	mu_assert(strstr(r.err, "must be attached") != NULL, "value hint");
+
+	reset_fake();
+	r = RUN("-C", "39", "-U0");
+	assert_refused_untouched(r, "error: unexpected argument '39'\n");
+
+	/* checked before the mode conflict, -U all and -N */
+	reset_fake();
+	r = RUN("-x", "-t", "oops");
+	assert_refused_untouched(r, "error: unexpected argument 'oops'\n");
+	mu_assert(strstr(r.err, "cannot be combined") == NULL, "only the stray word is reported");
+
+	reset_fake();
+	r = RUN("-N", "oops");
+	assert_refused_untouched(r, "error: unexpected argument 'oops'\n");
+
+	/* -U takes its value as the next word; that is not a stray argument */
+	reset_fake();
+	r = RUN("-U", "0", "-b");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.err, "unexpected") == NULL, "-U <value> accepted");
+
+	/* an attached optional value still works */
+	reset_fake();
+	r = RUN("-c2440");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(2440, fake.last_channel_set);
+}
+
 MU_TEST(two_or_more_mode_options_are_rejected_before_opening_the_device)
 {
 	/* -I is included: alone it blinks until interrupted, but combined it
@@ -1693,6 +1757,7 @@ int main(void)
 	MU_RUN(a_failed_stop_before_a_mode_command_fails_the_command);
 	MU_RUN(led_specan_uses_the_default_threshold_and_an_explicit_one);
 	MU_RUN(two_or_more_mode_options_are_rejected_before_opening_the_device);
+	MU_RUN(stray_arguments_are_rejected_before_any_device_action);
 	MU_RUN(invalid_arguments_are_rejected_before_opening_the_device);
 	MU_RUN(help_version_and_count_exit_zero_without_a_device);
 	MU_RUN(firmware_listing_with_several_devices_reports_each_device);
