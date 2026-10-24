@@ -163,7 +163,7 @@ MU_TEST(no_packets_in_the_detection_phase_is_reported_and_exits_2)
 	mu_assert_int_eq(2, r.rc);
 	mu_assert(strcmp(r.err,
 	    "error: no packets from ??:??:22:44:66:88 within 3 s;"
-	    " AFH map unknown\n") == 0, r.err);
+	    " AFH map unknown, not monitoring\n") == 0, r.err);
 	mu_assert_int_eq(1, fake.rx_afh_calls);
 	mu_assert_int_eq(1, fake.stops); /* the device is still released */
 }
@@ -180,7 +180,7 @@ MU_TEST(the_message_names_the_piconet_and_the_timeout)
 	mu_assert_int_eq(2, r.rc);
 	mu_assert(strcmp(r.err,
 	    "error: no packets from ??:??:ff:0a:0b:0c within 30 s;"
-	    " AFH map unknown\n") == 0, r.err);
+	    " AFH map unknown, not monitoring\n") == 0, r.err);
 	mu_assert_int_eq(30, fake.last_timeout);
 }
 

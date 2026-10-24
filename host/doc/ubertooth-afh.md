@@ -54,11 +54,11 @@ without `-t`.
 `-t <seconds>` only adds an initial detection phase: the tool listens for that
 many seconds, prints the map it found, and then starts monitoring. If that
 phase received no packet from the piconet there is no map to print, so the tool
-says so and exits with status 2 instead of printing an all-zero map (which
+says so, does not start monitoring, and exits with status 2 instead of printing an all-zero map (which
 reads as a detected map whose piconet uses no channel at all):
 
     $ ubertooth-afh -l 446688 -u 22 -t 3
-    error: no packets from ??:??:22:44:66:88 within 3 s; AFH map unknown
+    error: no packets from ??:??:22:44:66:88 within 3 s; AFH map unknown, not monitoring
 
 Nothing is wrong with the board in that case: the piconet is out of range, it
 is not transmitting, or the UAP/LAP is not the one in use. A longer `-t`, or no

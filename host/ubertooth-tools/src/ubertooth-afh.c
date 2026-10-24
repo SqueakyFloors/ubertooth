@@ -184,7 +184,7 @@ int main(int argc, char* argv[])
 			/* An all-zero map used to be printed here, which reads as a
 			 * detected map whose piconet uses no channel at all. */
 			fprintf(stderr, "error: no packets from ??:??:%02x:%02x:%02x:%02x"
-			        " within %d s; AFH map unknown\n",
+			        " within %d s; AFH map unknown, not monitoring\n",
 			        uap, (lap >> 16) & 0xff, (lap >> 8) & 0xff, lap & 0xff,
 			        timeout);
 			ubertooth_stop(ut);
