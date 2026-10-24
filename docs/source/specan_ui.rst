@@ -51,6 +51,22 @@ On Linux you may need ``sudo`` (or udev rules) for device access:
 
    sudo ubertooth-specan-ui
 
+What the display shows
+~~~~~~~~~~~~~~~~~~~~~~
+
+- **White trace:** the current sweep; earlier sweeps fade out behind it.
+- **Green trace:** the peak (max-hold) level per frequency over the most
+  recent sweeps.
+- **Red dotted lines:** the strongest peak, labelled with its frequency (MHz)
+  and level (dBm).
+- **Yellow dotted horizontal line, labelled "Avg: N dBm":** the average of the
+  green max-hold trace across the band, smoothed so it moves slowly.
+- **Yellow and magenta markers:** points marked with the left and right mouse
+  buttons.
+
+The red, average, and mouse markers are hidden or shown with the middle mouse
+button or ``M``. Press ``H`` in the window for the full key list.
+
 Troubleshooting ``ModuleNotFoundError: No module named 'specan'``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

@@ -31,6 +31,11 @@
   version without a device.
 - `ubertooth-util -I` blinks light-emitting diodes (LEDs) faster for easier
   identification and turns them off when interrupted with Ctrl-C.
+- `ubertooth-specan-ui` draws a slowly smoothed average of the max-hold trace
+  as a yellow dotted line labelled "Avg: N dBm", shown with the other markers.
+  Credit: Sirio Balmelli ([@siriobalmelli](https://github.com/siriobalmelli)).
+  [#75](https://github.com/SqueakyFloors/ubertooth/issues/75)
+  https://github.com/siriobalmelli-foss/ubertooth/commit/01c3bf9e
 
 ### Build and compatibility
 
