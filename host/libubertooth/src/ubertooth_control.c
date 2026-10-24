@@ -20,6 +20,7 @@
  */
 
 #include <limits.h>
+#include <stdlib.h>
 #include <string.h>
 #include <btbb.h>
 #include "ubertooth_control.h"
@@ -62,12 +63,15 @@ void show_libusb_error(int error_code)
 	fprintf(stderr,"libUSB Error: %s: %s (%d)\n", error_name, error_hint, error_code);
 }
 
+/* Completion of a transfer submitted by ubertooth_cmd_async(). That sets
+ * LIBUSB_TRANSFER_FREE_BUFFER | LIBUSB_TRANSFER_FREE_TRANSFER, so libusb
+ * frees the buffer and the transfer once this returns: freeing the transfer
+ * here would be a double free. */
 static void callback(struct libusb_transfer* transfer)
 {
 	if(transfer->status != 0) {
 		show_libusb_error(transfer->status);
 	}
-	libusb_free_transfer(transfer);
 }
 
 void cmd_trim_clock(struct libusb_device_handle* devh, uint16_t offset)
@@ -786,24 +790,17 @@ int cmd_set_bdaddr(struct libusb_device_handle* devh, u64 address)
 
 int cmd_start_hopping(struct libusb_device_handle* devh, int clkn_offset, int clk100ns_offset)
 {
-	int r;
+	int i;
 	uint8_t data[6];
-	for(r=0; r < 4; r++)
-		data[r] = (clkn_offset >> (8*(3-r))) & 0xff;
+	for(i=0; i < 4; i++)
+		data[i] = (clkn_offset >> (8*(3-i))) & 0xff;
 
 	data[4] = (clk100ns_offset >> 8) & 0xff;
 	data[5] = (clk100ns_offset >> 0) & 0xff;
 
-	r = ubertooth_cmd_async(devh, CTRL_OUT, UBERTOOTH_START_HOPPING, data, 6);
-	if (r < 0) {
-		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "control message unsupported\n");
-		} else {
-			show_libusb_error(r);
-		}
-		return r;
-	}
-	return 0;
+	/* ubertooth_cmd_async() has already reported any failure. */
+	return ubertooth_cmd_async(devh, CTRL_OUT, UBERTOOTH_START_HOPPING,
+	                           data, 6);
 }
 
 int cmd_set_clock(struct libusb_device_handle* devh, u32 clkn)
@@ -865,16 +862,8 @@ int cmd_btle_sniffing(struct libusb_device_handle* devh, uint8_t do_follow)
 
 int cmd_set_afh_map(struct libusb_device_handle* devh, uint8_t* afh_map)
 {
-	uint8_t buffer[LIBUSB_CONTROL_SETUP_SIZE+AFH_MAP_BYTES];
-	struct libusb_transfer *xfer = libusb_alloc_transfer(0);
-
-	libusb_fill_control_setup(buffer, CTRL_OUT, UBERTOOTH_SET_AFHMAP, 0, 0,
-		AFH_MAP_BYTES);
-	memcpy ( &buffer[LIBUSB_CONTROL_SETUP_SIZE], afh_map, AFH_MAP_BYTES );
-	libusb_fill_control_transfer(xfer, devh, buffer, callback, NULL, 1000);
-	libusb_submit_transfer(xfer);
-
-	return 0;
+	return ubertooth_cmd_async(devh, CTRL_OUT, UBERTOOTH_SET_AFHMAP,
+	                           afh_map, AFH_MAP_BYTES);
 }
 
 int cmd_clear_afh_map(struct libusb_device_handle* devh)
@@ -1179,26 +1168,13 @@ int cmd_afh(struct libusb_device_handle* devh)
 
 int cmd_hop(struct libusb_device_handle* devh)
 {
-	uint8_t buffer[LIBUSB_CONTROL_SETUP_SIZE];
-	struct libusb_transfer *xfer = libusb_alloc_transfer(0);
-
-	libusb_fill_control_setup(buffer, CTRL_OUT, UBERTOOTH_HOP, 0, 0, 0);
-	libusb_fill_control_transfer(xfer, devh, buffer, callback, NULL, 1000);
-	libusb_submit_transfer(xfer);
-
-	return 0;
+	return ubertooth_cmd_async(devh, CTRL_OUT, UBERTOOTH_HOP, NULL, 0);
 }
 
 int cmd_cancel_follow(struct libusb_device_handle* devh)
 {
-	uint8_t buffer[LIBUSB_CONTROL_SETUP_SIZE];
-	struct libusb_transfer *xfer = libusb_alloc_transfer(0);
-
-	libusb_fill_control_setup(buffer, CTRL_OUT, UBERTOOTH_CANCEL_FOLLOW, 0, 0, 0);
-	libusb_fill_control_transfer(xfer, devh, buffer, callback, NULL, 1000);
-	libusb_submit_transfer(xfer);
-
-	return 0;
+	return ubertooth_cmd_async(devh, CTRL_OUT, UBERTOOTH_CANCEL_FOLLOW,
+	                           NULL, 0);
 }
 
 int cmd_rfcat_subcmd(struct libusb_device_handle* devh, int cmd, uint8_t *body, size_t body_len) {
@@ -1280,20 +1256,46 @@ int ubertooth_cmd_async(struct libusb_device_handle* devh,
                         uint8_t* data,
                         uint16_t size)
 {
-	int r = 0;
+	int r;
+	uint8_t* buffer;
+	struct libusb_transfer* xfer;
 
-	uint8_t buffer[LIBUSB_CONTROL_SETUP_SIZE + size];
-	struct libusb_transfer* xfer = libusb_alloc_transfer(0);
+	if (size > UBERTOOTH_CMD_MAX_DATA) {
+		fprintf(stderr, "error: control message too long: %u bytes "
+		        "(maximum %u)\n", size, UBERTOOTH_CMD_MAX_DATA);
+		return LIBUSB_ERROR_INVALID_PARAM;
+	}
+
+	/* libusb reads the setup packet and the data after the submit returns,
+	 * so the buffer must outlive this function: it belongs to the transfer,
+	 * which frees it on completion. */
+	buffer = malloc(LIBUSB_CONTROL_SETUP_SIZE + size);
+	if (buffer == NULL) {
+		fprintf(stderr, "error: could not allocate a control transfer buffer\n");
+		return LIBUSB_ERROR_NO_MEM;
+	}
+
+	xfer = libusb_alloc_transfer(0);
+	if (xfer == NULL) {
+		fprintf(stderr, "error: could not allocate a control transfer\n");
+		free(buffer);
+		return LIBUSB_ERROR_NO_MEM;
+	}
 
 	libusb_fill_control_setup(buffer, type, command, 0, 0, size);
 	if(size > 0)
 		memcpy ( &buffer[LIBUSB_CONTROL_SETUP_SIZE], data, size );
 	libusb_fill_control_transfer(xfer, devh, buffer, callback, NULL, 1000);
-	xfer->status = LIBUSB_TRANSFER_FREE_BUFFER | LIBUSB_TRANSFER_FREE_TRANSFER;
+	xfer->flags = LIBUSB_TRANSFER_FREE_BUFFER | LIBUSB_TRANSFER_FREE_TRANSFER;
+
 	r = libusb_submit_transfer(xfer);
-
-	if (r < 0)
+	if (r < 0) {
 		show_libusb_error(r);
+		/* Nothing will complete this transfer, so release it here;
+		 * LIBUSB_TRANSFER_FREE_BUFFER frees the buffer with it. */
+		libusb_free_transfer(xfer);
+		return r;
+	}
 
-	return r;
+	return 0;
 }

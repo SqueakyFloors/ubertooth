@@ -87,6 +87,12 @@
 
 ### Reliability fixes
 
+- Follow mode's asynchronous control commands (hop, AFH map, clock trim, start
+  hopping) now give libusb a buffer that outlives the submit, and the transfer
+  is freed when it completes. They passed a buffer on a stack frame that had
+  already returned, and leaked a transfer per command, so memory grew for as
+  long as a follow ran.
+  [#245](https://github.com/SqueakyFloors/ubertooth/issues/245)
 - A set and a read of the same `ubertooth-util` value in one command both run,
   the set first, so `-c2426 -c`, `-a5 -a`, `-l1 -l` and `-d1 -d` report the new
   value instead of dropping the set.
