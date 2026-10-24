@@ -83,7 +83,7 @@ static void set_serial(int n, const char *hex)
 
 static void bus_with_two_serials(void)
 {
-	bus_with_uberteeth(2);
+	bus_with_ubertooths(2);
 	set_serial(0, SERIAL_A);
 	set_serial(1, SERIAL_B);
 }
@@ -93,7 +93,7 @@ static void bus_with_two_serials(void)
 
 static void bus_with_shared_prefix(void)
 {
-	bus_with_uberteeth(2);
+	bus_with_ubertooths(2);
 	set_serial(0, SERIAL_A);
 	set_serial(1, SERIAL_C);
 }
@@ -637,13 +637,13 @@ MU_TEST(a_serial_that_matches_nothing_is_refused)
 	mu_assert(select_capturing(SERIAL_A "00", msg, sizeof(msg)) == NULL,
 	          "longer than a serial");
 
-	bus_with_uberteeth(0);
+	bus_with_ubertooths(0);
 	mu_assert(select_capturing("1cc", msg, sizeof(msg)) == NULL,
 	          "no board attached");
 	mu_assert_int_eq(0, fake.lists);
 
 	/* and an empty bus, which is not enumerated at all */
-	bus_with_uberteeth(0);
+	bus_with_ubertooths(0);
 	fake.n = 0;
 	fake.list_rc = 0;
 	mu_assert(select_capturing("1cc", msg, sizeof(msg)) == NULL, "empty bus");
@@ -675,7 +675,7 @@ MU_TEST(an_all_digits_string_is_still_an_index)
 	ubertooth_free(ut);
 
 	/* An all-digits start is an index too: 12 is not attached. */
-	bus_with_uberteeth(2);
+	bus_with_ubertooths(2);
 	set_serial(0, "12c001038088cb956c43ad61c52000f5");
 	set_serial(1, "05f00014e380df95f4436562c32000f5");
 	mu_assert(select_capturing("12", msg, sizeof(msg)) == NULL, "-U12");
@@ -723,7 +723,7 @@ MU_TEST(two_boards_with_one_serial_are_refused_without_bad_advice)
 {
 	char msg[256];
 
-	bus_with_uberteeth(2);
+	bus_with_ubertooths(2);
 	set_serial(0, SERIAL_A);
 	set_serial(1, SERIAL_A);
 	mu_assert(select_capturing(SERIAL_A, msg, sizeof(msg)) == NULL,
@@ -736,7 +736,7 @@ MU_TEST(two_boards_with_one_serial_are_refused_without_bad_advice)
 
 	/* The advice follows the serials, not the length of what was typed: a
 	 * short string that matches those two boards is just as impossible. */
-	bus_with_uberteeth(2);
+	bus_with_ubertooths(2);
 	set_serial(0, SERIAL_A);
 	set_serial(1, SERIAL_A);
 	mu_assert(select_capturing("1cc", msg, sizeof(msg)) == NULL,
