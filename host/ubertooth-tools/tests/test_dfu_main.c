@@ -60,8 +60,12 @@ static struct {
 	int upload_fail_block;  /* this block fails to read, or -1 */
 	int upload_fail_rc;
 	int upload_fail_once;   /* ...and then reads normally */
+	int dnload_calls;
 	int detach_calls;
 	int detach_rc;
+	int detach_resets;      /* the bootloader acts on REQ_DETACH and resets */
+	char revision[64];      /* what the returned application reports, if any */
+	int revision_calls;
 	int abort_calls, clrstatus_calls, getstatus_calls;
 	int opens, closes, claims, releases, claim_rc;
 	int lists;              /* outstanding device lists */
@@ -86,6 +90,7 @@ static void board_in_dfu(void)
 	fake.flash_size = DFU_ASSUMED_FLASH_SIZE;
 	fake.state = STATE_DFU_IDLE;
 	fake.upload_fail_block = -1;
+	fake.detach_resets = 1;
 }
 
 /* A board running its application, which -U opens and switches into DFU: the
@@ -242,6 +247,12 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle *devh,
 			data[i] = flash_byte(address + i);
 		fake.state = STATE_DFU_IDLE;
 		return length;
+	case REQ_DNLOAD:
+		mu_assert(length == BLOCK_SIZE, "DNLOAD sent the wrong length");
+		mu_assert(value >= FIRST_BLOCK,
+		          "DNLOAD wrote a block inside the bootloader");
+		fake.dnload_calls++;
+		return length;
 	case REQ_GETSTATUS:
 		fake.getstatus_calls++;
 		memset(data, 0, length);
@@ -256,6 +267,15 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle *devh,
 		return 0;
 	case REQ_DETACH:
 		fake.detach_calls++;
+		/* A bootloader that acts on the request resets into the
+		 * application: the same device comes back on the same path under
+		 * the application's USB ID, so the DFU device is gone. The reset
+		 * happens whatever the request itself returns, which is the whole
+		 * point of #267: it is answered by a device that is going away. */
+		if (fake.detach_resets) {
+			fake.vid = U1_VENDORID;
+			fake.pid = U1_PRODUCTID;
+		}
 		return fake.detach_rc;
 	default:
 		return LIBUSB_ERROR_PIPE;
@@ -313,13 +333,18 @@ int cmd_get_part_id(struct libusb_device_handle *devh, u32 *part_id)
 	return 0;
 }
 
+/* What the application reports after the reset, for the -d ... -r
+ * verification. A case that sets no revision has nothing to report, as a
+ * board whose firmware will not answer. */
 int cmd_get_firmware_revision(struct libusb_device_handle *devh, char *revision,
                               size_t revision_size)
 {
 	(void)devh;
-	(void)revision;
-	(void)revision_size;
-	return -1;
+	fake.revision_calls++;
+	if (fake.revision[0] == '\0')
+		return -1;
+	snprintf(revision, revision_size, "%s", fake.revision);
+	return (int)strlen(revision);
 }
 
 /* ---- running main() and capturing what it prints ------------------------ */
@@ -331,6 +356,7 @@ struct run_result {
 };
 
 static char dump_path[512];
+static char image_path[512];
 
 static void read_back(FILE *file, char *buffer, size_t size)
 {
@@ -439,6 +465,41 @@ static long dump_length_and_content(int *content_ok)
 static void remove_dump(void)
 {
 	unlink(dump_path);
+}
+
+/* ---- an image for -d to write ------------------------------------------ */
+
+#define IMAGE_REVISION "git-2671234"
+/* Three blocks of payload, so a download sends several blocks and the suffix
+ * falls into a fourth. */
+#define IMAGE_PAYLOAD (3 * BLOCK_SIZE)
+#define IMAGE_BLOCKS 4
+
+/* A signed DFU file for this device whose compile-information marker names
+ * revision. -d checks the whole image and -r reads the revision it expects
+ * out of it, so these runs need a real one; sign() is the tool's own. */
+static void write_image(const char *revision)
+{
+	FILE *payload = tmpfile();
+	FILE *image = fopen(image_path, "w+b");
+	char marker[128];
+	int length, i;
+
+	if (payload == NULL || image == NULL) {
+		fprintf(stderr, "cannot create the test image\n");
+		exit(1);
+	}
+	length = snprintf(marker, sizeof(marker), "ubertooth %s (tests) now",
+	                  revision);
+	fwrite(marker, 1, (size_t)length + 1, payload);
+	for (i = length + 1; i < IMAGE_PAYLOAD; i++)
+		fputc(0xff, payload);
+	if (sign(payload, image, U1_DFU_VENDORID, U1_DFU_PRODUCTID) != 0) {
+		fprintf(stderr, "cannot sign the test image\n");
+		exit(1);
+	}
+	fclose(payload);
+	fclose(image);
 }
 
 /* ---- a read-back that works, as the baseline --------------------------- */
@@ -605,6 +666,9 @@ MU_TEST(a_refused_detach_fails_the_command)
 	board_in_dfu();
 	remove_dump();
 	fake.detach_rc = LIBUSB_ERROR_TIMEOUT;
+	/* The request never reached a bootloader that would act on it, so the
+	 * board stays where it is. */
+	fake.detach_resets = 0;
 	r = RUN("-u", dump_path, "-r");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strstr(r.err, "Detach failed: the board is still in DFU") != NULL,
@@ -615,6 +679,111 @@ MU_TEST(a_refused_detach_fails_the_command)
 	/* Cleanup tries the detach once more with the handle it still has. */
 	mu_assert_int_eq(2, fake.detach_calls);
 	remove_dump();
+}
+
+/* ---- #267: a detach whose request fails because the board reset -------- */
+
+/* Flash the image and reset, with the detach request failing the way it does
+ * on a board that resets while it is in flight. The board comes back on the
+ * new firmware, as it does on every macOS flash. */
+static struct run_result flash_with_detach_error(int detach_rc)
+{
+	board_in_dfu();
+	fake.detach_rc = detach_rc;
+	snprintf(fake.revision, sizeof(fake.revision), "%s", IMAGE_REVISION);
+	return RUN("-d", image_path, "-r");
+}
+
+static void assert_flash_passed(struct run_result *r)
+{
+	mu_assert_int_eq(0, r->rc);
+	mu_assert_int_eq(IMAGE_BLOCKS, fake.dnload_calls);
+	mu_assert(strstr(r->out, "Detached\n") != NULL,
+	          "the detach was not reported");
+	mu_assert(strstr(r->err, "Verified firmware revision: " IMAGE_REVISION)
+	          != NULL, "the flashed revision was not verified");
+	mu_assert(strstr(r->err, "still in DFU") == NULL,
+	          "a board that left DFU was reported as still in it");
+	/* The board is out of the bootloader, so cleanup does not detach it a
+	 * second time: that second attempt is the -99 of the issue. */
+	mu_assert_int_eq(1, fake.detach_calls);
+}
+
+/* The macOS case of the issue: LIBUSB_ERROR_PIPE on every flash that worked. */
+MU_TEST(a_detach_that_fails_with_pipe_as_the_board_resets_passes)
+{
+	struct run_result r = flash_with_detach_error(LIBUSB_ERROR_PIPE);
+
+	assert_flash_passed(&r);
+}
+
+/* The same race seen as the device disappearing. */
+MU_TEST(a_detach_that_fails_with_no_device_as_the_board_resets_passes)
+{
+	struct run_result r = flash_with_detach_error(LIBUSB_ERROR_NO_DEVICE);
+
+	assert_flash_passed(&r);
+}
+
+/* And as a transfer that was cut short. */
+MU_TEST(a_detach_that_fails_with_io_as_the_board_resets_passes)
+{
+	struct run_result r = flash_with_detach_error(LIBUSB_ERROR_IO);
+
+	assert_flash_passed(&r);
+}
+
+/* The same failed request with the DFU device still on its path afterwards is
+ * a real failure: the board never left the bootloader, so nothing is verified
+ * and the run fails. This is the case the message belongs to. */
+MU_TEST(a_failed_detach_with_the_dfu_device_still_there_fails_the_command)
+{
+	struct run_result r;
+
+	board_in_dfu();
+	fake.detach_rc = LIBUSB_ERROR_PIPE;
+	fake.detach_resets = 0;
+	snprintf(fake.revision, sizeof(fake.revision), "%s", IMAGE_REVISION);
+	r = RUN("-d", image_path, "-r");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "Detach failed: the board is still in DFU") != NULL,
+	          "a board left in DFU was not reported");
+	mu_assert(strstr(r.err, "Verified firmware revision") == NULL,
+	          "a board still in DFU was reported as verified");
+	mu_assert_int_eq(0, fake.revision_calls);
+	/* Cleanup still tries once more to get it out of the bootloader. */
+	mu_assert_int_eq(2, fake.detach_calls);
+}
+
+/* With no -d there is no verification to fall back on, so the DFU device
+ * being gone is the whole answer. */
+MU_TEST(a_bare_reset_whose_detach_races_the_reset_passes)
+{
+	struct run_result r;
+
+	board_in_dfu();
+	fake.detach_rc = LIBUSB_ERROR_PIPE;
+	r = RUN("-r");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, fake.detach_calls);
+	mu_assert(strstr(r.out, "Detached\n") != NULL,
+	          "the detach was not reported");
+}
+
+/* The verification still decides: a board that comes back on the firmware it
+ * already had fails the run, failed detach request or not. */
+MU_TEST(a_detach_race_followed_by_the_old_firmware_fails_the_command)
+{
+	struct run_result r;
+
+	board_in_dfu();
+	fake.detach_rc = LIBUSB_ERROR_PIPE;
+	snprintf(fake.revision, sizeof(fake.revision), "git-0000000");
+	r = RUN("-d", image_path, "-r");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "Post-reset verification failed") != NULL,
+	          "the unchanged revision was not reported");
+	mu_assert_int_eq(1, fake.revision_calls);
 }
 
 /* ---- reading only the flash the part has ------------------------------- */
@@ -782,6 +951,8 @@ int main(void)
 		return 1;
 	}
 	snprintf(dump_path, sizeof(dump_path), "%s/readback.bin", directory);
+	snprintf(image_path, sizeof(image_path), "%s/firmware.dfu", directory);
+	write_image(IMAGE_REVISION);
 
 	MU_RUN(a_read_back_with_reset_writes_the_dump_and_detaches);
 	MU_RUN(a_bootloader_that_never_reports_its_state_ends_the_read_back);
@@ -792,6 +963,12 @@ int main(void)
 	MU_RUN(a_read_back_failing_without_reset_leaves_the_board_in_dfu);
 	MU_RUN(a_transient_read_back_failure_is_retried_once_and_succeeds);
 	MU_RUN(a_refused_detach_fails_the_command);
+	MU_RUN(a_detach_that_fails_with_pipe_as_the_board_resets_passes);
+	MU_RUN(a_detach_that_fails_with_no_device_as_the_board_resets_passes);
+	MU_RUN(a_detach_that_fails_with_io_as_the_board_resets_passes);
+	MU_RUN(a_failed_detach_with_the_dfu_device_still_there_fails_the_command);
+	MU_RUN(a_bare_reset_whose_detach_races_the_reset_passes);
+	MU_RUN(a_detach_race_followed_by_the_old_firmware_fails_the_command);
 	MU_RUN(asking_past_the_end_of_flash_takes_the_bootloader_down);
 	MU_RUN(a_board_already_in_dfu_reads_the_assumed_flash_only);
 	MU_RUN(a_128_kib_part_is_read_to_the_end_of_its_flash);
@@ -801,6 +978,7 @@ int main(void)
 	MU_RUN(a_command_that_is_not_a_read_back_does_not_ask_for_the_part_id);
 
 	remove_dump();
+	unlink(image_path);
 	rmdir(directory);
 	return mu_report();
 }
