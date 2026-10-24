@@ -160,15 +160,19 @@ enum dfu_file_size_result {
 	DFU_FILE_SIZE_TOO_LARGE = -4,    /* past dfu_max_image_size() */
 };
 
-/* Measure file. The size is left in *size when it could be measured and 0
- * otherwise, so a caller can name it in its message; size may be NULL. Reads
- * nothing and leaves the file position alone. */
-enum dfu_file_size_result dfu_image_size_check(FILE *file, long long *size);
+/* Measure file against maximum bytes. The size is left in *size when it could
+ * be measured and 0 otherwise, so a caller can name it in its message; size
+ * may be NULL. Reads nothing and leaves the file position alone. */
+enum dfu_file_size_result dfu_image_size_check(FILE *file,
+                                               unsigned long maximum,
+                                               long long *size);
 
 /* The largest image this host will read: the flash above the bootloader on
  * the largest part the table holds, plus the DFU suffix the file carries.
  * Taken from the part table and the bootloader's own address limit rather
- * than stated, so a part added to the table moves it. */
+ * than stated, so a part added to the table moves it. An unsigned .bin is
+ * capped at this less the suffix that signing adds, so what -s writes is a
+ * file -d still accepts. */
 unsigned long dfu_max_image_size(void);
 
 int dfu_extract_firmware_revision(FILE *image, char *revision,

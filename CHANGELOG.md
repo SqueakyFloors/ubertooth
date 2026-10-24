@@ -94,9 +94,9 @@
   failed submit left its transfer allocated.
   [#245](https://github.com/SqueakyFloors/ubertooth/issues/245)
 - `ubertooth-dfu -d` and `-s` check the file before they read it into memory:
-  a directory, a FIFO or a device node is refused, and so is anything larger
-  than the largest image there is to write (507920 bytes), instead of
-  allocating from a size nothing had checked.
+  a directory, a FIFO or a device node is refused, and so is a file too large
+  to be an image (507920 bytes for `-d`, 16 fewer for `-s`, which adds the
+  suffix), instead of allocating from a size nothing had checked.
   [#246](https://github.com/SqueakyFloors/ubertooth/issues/246)
 - A set and a read of the same `ubertooth-util` value in one command both run,
   the set first, so `-c2426 -c`, `-a5 -a`, `-l1 -l` and `-d1 -d` report the new

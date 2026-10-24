@@ -25,6 +25,10 @@ NOT_FOUND = f"no ubertooth found with serial matching '{NO_SUCH_SERIAL}'"
 # using (#219).
 ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1")
 SUFFIX_LENGTH = 16
+# The largest image the tool reads: the flash above the 16 KiB bootloader on
+# the largest part it knows (512 KiB), plus the suffix. The tool derives this
+# from its part table; the cases below only need the same number.
+MAX_IMAGE = 512 * 1024 - 16 * 1024 + SUFFIX_LENGTH
 AS_ROOT = hasattr(os, "geteuid") and os.geteuid() == 0
 
 failures = []
@@ -214,12 +218,43 @@ with tempfile.TemporaryDirectory() as directory:
     check(not os.path.exists(os.path.join(directory, "oversized-input.dfu")),
           "-s wrote a .dfu for an oversized input")
 
+    # The -s limit is the image limit less the suffix signing adds, so what
+    # -s writes at the limit is a file -d still accepts.
+    print("\n### -s stops one byte before a .dfu that -d would refuse")
+    at_limit = os.path.join(directory, "at-limit.bin")
+    with open(at_limit, "wb") as handle:
+        handle.write(FIRMWARE)  # the revision marker -r needs
+        handle.truncate(MAX_IMAGE - SUFFIX_LENGTH)  # the rest is sparse
+    code, output = run("-s", at_limit)
+    check(code == 0, f"-s on a .bin at the limit exited {code}: {output.strip()}")
+    at_limit_dfu = os.path.join(directory, "at-limit.dfu")
+    if os.path.exists(at_limit_dfu):
+        check(os.path.getsize(at_limit_dfu) == MAX_IMAGE,
+              "-s at the limit wrote an unexpected size")
+        code, output = run("-U", NO_SUCH_SERIAL, "-d", at_limit_dfu, "-r")
+        check(NOT_FOUND in output.lower(),
+              "-d refused the image -s wrote at the limit")
+    else:
+        check(False, "-s wrote no .dfu for a .bin at the limit")
+
+    over_limit = os.path.join(directory, "over-limit.bin")
+    with open(over_limit, "wb") as handle:
+        handle.truncate(MAX_IMAGE - SUFFIX_LENGTH + 1)
+    code, output = run("-s", over_limit)
+    check(code == 1, f"-s one byte over the limit exited {code}")
+    check(not os.path.exists(os.path.join(directory, "over-limit.dfu")),
+          "-s wrote a .dfu one byte over the limit")
+
     # A directory, and a FIFO: neither has a length that says what a read
     # would return. The FIFO is opened read-write here so it has a reader of
-    # its own and the tool's open does not block.
+    # its own and the tool's open does not block. -s gets a FIFO named .bin,
+    # so it has to pass the extension check before the guard sees it.
     fifo = os.path.join(directory, "image.fifo")
+    fifo_bin = os.path.join(directory, "image-fifo.bin")
     os.mkfifo(fifo)
+    os.mkfifo(fifo_bin)
     fifo_end = os.open(fifo, os.O_RDWR)
+    fifo_bin_end = os.open(fifo_bin, os.O_RDWR)
     try:
         for label, path in (("a directory", directory), ("a FIFO", fifo)):
             code, output = run("-U", NO_SUCH_SERIAL, "-d", path, "-r")
@@ -228,9 +263,18 @@ with tempfile.TemporaryDirectory() as directory:
                   f"-d did not name {label} it refused")
             check(NOT_FOUND not in output.lower(),
                   f"-d opened a device for {label}")
+
+        code, output = run("-s", fifo_bin)
+        check(code == 1, f"-s on a FIFO exited {code}")
+        check("not a regular file" in output,
+              "-s did not say its input is not a regular file")
+        check(not os.path.exists(os.path.join(directory, "image-fifo.dfu")),
+              "-s wrote a .dfu for a FIFO")
     finally:
         os.close(fifo_end)
+        os.close(fifo_bin_end)
         os.unlink(fifo)
+        os.unlink(fifo_bin)
 
     # A normal image of the same shape still gets through to the board.
     code, output = run("-U", NO_SUCH_SERIAL, "-d", signed, "-r")

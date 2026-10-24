@@ -843,10 +843,15 @@ static FILE *sparse_file(long long length)
 	mu_assert(file != NULL, "tmpfile failed");
 	if (file == NULL)
 		return NULL;
-	mu_assert(fseek(file, (long)(length - 1), SEEK_SET) == 0, "seek failed");
-	mu_assert(fputc(0, file) != EOF, "write failed");
-	mu_assert(fflush(file) == 0, "flush failed");
-	mu_assert(fseek(file, 0, SEEK_SET) == 0, "rewind failed");
+	/* Each step is checked, and the file is dropped rather than returned
+	 * half-made, so a failure here cannot look like a passing case. */
+	if (fseek(file, (long)(length - 1), SEEK_SET) != 0 ||
+	    fputc(0, file) == EOF || fflush(file) != 0 ||
+	    fseek(file, 0, SEEK_SET) != 0) {
+		mu_assert(0, "could not make the sparse file");
+		fclose(file);
+		return NULL;
+	}
 	return file;
 }
 
@@ -932,7 +937,8 @@ MU_TEST(test_image_rejects_a_file_that_is_not_a_regular_file)
 #else
 	struct dfu_image_report report;
 	char message[160];
-	char path[] = "/tmp/ubertooth-dfu-test-fifo-XXXXXX";
+	const char *directory_name = getenv("TMPDIR");
+	char path[256];
 	FILE *directory;
 	FILE *fifo;
 	int descriptor;
@@ -954,10 +960,11 @@ MU_TEST(test_image_rejects_a_file_that_is_not_a_regular_file)
 	/* A FIFO: ftell() says nothing about what a read would return, and the
 	 * writer could keep sending for as long as it likes. Opened read-write
 	 * so this test is its own reader and the open does not block. */
-	descriptor = mkstemp(path);
-	mu_assert(descriptor >= 0, "mkstemp failed");
-	close(descriptor);
-	mu_assert(unlink(path) == 0, "unlink failed");
+	if (directory_name == NULL || directory_name[0] == '\0')
+		directory_name = "/tmp";
+	snprintf(path, sizeof(path), "%s/ubertooth-dfu-test-fifo-%ld",
+	         directory_name, (long)getpid());
+	unlink(path);  /* a FIFO an earlier run left behind */
 	mu_assert(mkfifo(path, 0600) == 0, "mkfifo failed");
 	descriptor = open(path, O_RDWR);
 	mu_assert(descriptor >= 0, "the FIFO would not open");
@@ -975,6 +982,29 @@ MU_TEST(test_image_rejects_a_file_that_is_not_a_regular_file)
 	}
 	unlink(path);
 #endif
+}
+
+/* The cap is the caller's, so -s can hold a .bin to the suffix less than a
+ * whole image and the message can name the right limit. */
+MU_TEST(test_size_check_measures_against_the_cap_it_is_given)
+{
+	unsigned long image_cap = dfu_max_image_size();
+	unsigned long bin_cap = image_cap - DFU_SUFFIX_LENGTH;
+	FILE *file = sparse_file((long long)bin_cap + 1);
+	long long size = 0;
+
+	if (file == NULL)
+		return;
+	mu_assert_int_eq(DFU_FILE_SIZE_OK,
+	                 dfu_image_size_check(file, image_cap, &size));
+	mu_assert(size == (long long)bin_cap + 1, "wrong size measured");
+	mu_assert_int_eq(DFU_FILE_SIZE_TOO_LARGE,
+	                 dfu_image_size_check(file, bin_cap, &size));
+	mu_assert(size == (long long)bin_cap + 1,
+	          "the size is not reported for a refused file");
+	/* The guard reads nothing, so the position is still the start. */
+	mu_assert_int_eq(0, (int)ftell(file));
+	fclose(file);
 }
 
 MU_TEST(test_extract_revision_refuses_a_file_past_the_size_cap)
@@ -1119,6 +1149,7 @@ int main(void)
 	MU_RUN(test_image_accepts_the_wildcard_vendor_and_product);
 	MU_RUN(test_image_accepts_a_doubly_suffixed_file);
 	MU_RUN(test_max_image_size_comes_from_the_part_table);
+	MU_RUN(test_size_check_measures_against_the_cap_it_is_given);
 	MU_RUN(test_image_rejects_a_file_past_the_size_cap);
 	MU_RUN(test_image_accepts_a_file_at_the_size_cap);
 	MU_RUN(test_image_rejects_a_file_that_is_not_a_regular_file);

@@ -265,7 +265,9 @@ unsigned long dfu_max_image_size(void)
 	return (unsigned long)dfu_upload_length(largest) + DFU_SUFFIX_LENGTH;
 }
 
-enum dfu_file_size_result dfu_image_size_check(FILE *file, long long *size)
+enum dfu_file_size_result dfu_image_size_check(FILE *file,
+                                               unsigned long maximum,
+                                               long long *size)
 {
 	struct stat state;
 	int descriptor;
@@ -286,7 +288,7 @@ enum dfu_file_size_result dfu_image_size_check(FILE *file, long long *size)
 		return DFU_FILE_SIZE_UNKNOWN;
 	if (size != NULL)
 		*size = (long long)state.st_size;
-	if ((unsigned long long)state.st_size > dfu_max_image_size())
+	if ((unsigned long long)state.st_size > maximum)
 		return DFU_FILE_SIZE_TOO_LARGE;
 	return DFU_FILE_SIZE_OK;
 }
@@ -305,13 +307,19 @@ int dfu_extract_firmware_revision(FILE *image, char *revision,
 		return -1;
 	/* The whole file is read below, so it has to be a file with a bounded
 	 * size first. */
-	if (dfu_image_size_check(image, NULL) != DFU_FILE_SIZE_OK)
+	if (dfu_image_size_check(image, dfu_max_image_size(), NULL) !=
+	    DFU_FILE_SIZE_OK)
 		return -1;
 	original_position = ftell(image);
 	if (original_position < 0 || fseek(image, 0, SEEK_END) != 0)
 		return -1;
 	image_size = ftell(image);
-	if (image_size <= 0 || fseek(image, 0, SEEK_SET) != 0)
+	/* The allocation below is sized from this read, not from the check
+	 * above, so the cap is applied to it as well: a file a writer is still
+	 * growing cannot slip past. */
+	if (image_size <= 0 ||
+	    (unsigned long)image_size > dfu_max_image_size() ||
+	    fseek(image, 0, SEEK_SET) != 0)
 		goto done;
 	data = malloc((size_t)image_size);
 	if (data == NULL)
@@ -426,7 +434,8 @@ int dfu_image_check(FILE *image, uint16_t id_vendor, uint16_t id_product,
 
 	/* The whole file is read into one allocation below, so what it is and
 	 * how big it is are settled before anything is allocated. */
-	switch (dfu_image_size_check(image, &measured_size)) {
+	switch (dfu_image_size_check(image, dfu_max_image_size(),
+	                             &measured_size)) {
 	case DFU_FILE_SIZE_OK:
 		break;
 	case DFU_FILE_SIZE_NOT_REGULAR:
@@ -445,6 +454,13 @@ int dfu_image_check(FILE *image, uint16_t id_vendor, uint16_t id_product,
 	report->image_size = image_size;
 	if (image_size < 0) {
 		result = image_result(report, DFU_IMAGE_UNREADABLE);
+		goto done;
+	}
+	/* The allocation is sized from this read rather than from the check
+	 * above, so it gets the cap too: a file a writer is still growing
+	 * cannot slip past between the two. */
+	if ((unsigned long)image_size > dfu_max_image_size()) {
+		result = image_result(report, DFU_IMAGE_TOO_LARGE);
 		goto done;
 	}
 	if (image_size < DFU_SUFFIX_LENGTH) {

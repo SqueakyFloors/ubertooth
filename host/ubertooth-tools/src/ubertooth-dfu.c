@@ -91,21 +91,28 @@ static void write_le32(uint8_t *bytes, uint32_t value)
 	bytes[3] = (uint8_t)(value >> 24);
 }
 
+/* The largest unsigned .bin -s will read: signing adds the suffix, so an
+ * input capped here produces an image -d still accepts. */
+static unsigned long max_unsigned_image_size(void)
+{
+	return dfu_max_image_size() - DFU_SUFFIX_LENGTH;
+}
+
 /* Refuse a file this tool would read into memory whole, before it allocates
- * anything from the size: a huge or sparse file, or one with no size a read
- * can be sized from at all (#246). Returns 1 when the file is refused,
- * naming it. */
-static int image_file_refused(const char* name, FILE* file)
+ * anything from the size: a file past maximum bytes, or one with no size a
+ * read can be sized from at all (#246). what names what the limit is on, for
+ * the message. Returns 1 when the file is refused, naming it. */
+static int image_file_refused(const char* name, FILE* file,
+                              unsigned long maximum, const char* what)
 {
 	long long size = 0;
 
-	switch (dfu_image_size_check(file, &size)) {
+	switch (dfu_image_size_check(file, maximum, &size)) {
 	case DFU_FILE_SIZE_OK:
 		return 0;
 	case DFU_FILE_SIZE_TOO_LARGE:
-		fprintf(stderr,
-		        "error: %s is %lld bytes; an Ubertooth image is at most %lu\n",
-		        name, size, dfu_max_image_size());
+		fprintf(stderr, "error: %s is %lld bytes; %s is at most %lu\n",
+		        name, size, what, maximum);
 		return 1;
 	case DFU_FILE_SIZE_NOT_REGULAR:
 		fprintf(stderr, "error: %s is not a regular file\n", name);
@@ -130,6 +137,16 @@ int sign(FILE* infile, FILE* outfile, uint16_t idVendor, uint16_t idProduct) {
 	file_length = ftell(infile);
 	if (file_length < 0) {
 		fprintf(stderr, "Cannot determine the size of the input file\n");
+		return 1;
+	}
+	/* The buffer is sized from this read rather than from the guard in
+	 * main(), so the cap is applied to it as well: a file a writer is still
+	 * growing cannot slip past between the two. */
+	if ((unsigned long)file_length > max_unsigned_image_size()) {
+		fprintf(stderr,
+		        "error: the input file is %ld bytes; the firmware in an "
+		        "Ubertooth image is at most %lu\n",
+		        file_length, max_unsigned_image_size());
 		return 1;
 	}
 	buffer_length = (size_t)file_length + DFU_SUFFIX_LENGTH;
@@ -1121,7 +1138,9 @@ int main(int argc, char **argv) {
 			exit_status = 1;
 			goto end_without_device;
 		}
-		if (image_file_refused(downfile_name, downfile)) {
+		if (image_file_refused(downfile_name, downfile,
+		                       dfu_max_image_size(),
+		                       "an Ubertooth image")) {
 			exit_status = 1;
 			goto end_without_device;
 		}
@@ -1144,7 +1163,9 @@ int main(int argc, char **argv) {
 		/* The whole input is read to sign it, and the output is created
 		 * below, so the size guard comes first: a refused input writes
 		 * nothing. */
-		if (image_file_refused(sign_name, infile)) {
+		if (image_file_refused(sign_name, infile,
+		                       max_unsigned_image_size(),
+		                       "the firmware in an Ubertooth image")) {
 			exit_status = 1;
 			goto end_without_device;
 		}

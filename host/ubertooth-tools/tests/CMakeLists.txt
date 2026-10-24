@@ -32,7 +32,7 @@ set_tests_properties(dfu-images PROPERTIES TIMEOUT 15)
 # ubertooth-dfu's file handling against the real binary: -s, which files -d
 # and -u open or replace, and the files -d and -s refuse to read whole. Needs
 # no board, and opens none: the cases that would reach one use a serial no
-# board has, with attached boards hidden from the tool. Eighteen short runs,
+# board has, with attached boards hidden from the tool. Twenty-one short runs,
 # so the timeout only catches a tool that waits for a device.
 add_test(
 	NAME dfu-files
