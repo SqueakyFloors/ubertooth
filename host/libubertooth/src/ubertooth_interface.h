@@ -192,6 +192,25 @@ enum usb_pkt_status {
 };
 
 /*
+ * The 100 ns clock a packet is stamped with (usb_pkt_rx.clk100ns below) comes
+ * from one of two counters, so it has one of two periods:
+ *
+ * CLK100NS is 3125 ticks per CLKN tick over the low 20 bits of CLKN (see
+ * CLK100NS in firmware/bluetooth_rxtx/ubertooth_clock.h), so it wraps every
+ * 3125 * 2^20 = 3276800000 ticks, about 327.68 s. Classic packets, the LE
+ * promiscuous mode and E-GO packets carry it.
+ *
+ * The low-energy physical-layer engine (firmware/bluetooth_rxtx/le_phy.c, the
+ * mode behind ubertooth-btle -f and -n) stamps packets with timer1 instead,
+ * which runs free at 100 ns a tick and so wraps every 2^32 ticks, about
+ * 429.5 s. Nothing in the packet says which counter stamped it: the host knows
+ * from the mode it asked for (ubertooth_t.clk100ns_period).
+ */
+#define CLK100NS_PER_CLKN 3125
+#define CLK100NS_PERIOD   ((uint32_t)CLK100NS_PER_CLKN << 20)
+#define CLK100NS_TIMER1_PERIOD (1ull << 32)
+
+/*
  * USB packet for Bluetooth RX (64 total bytes)
  */
 typedef struct {

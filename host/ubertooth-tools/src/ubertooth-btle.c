@@ -403,6 +403,11 @@ int main(int argc, char *argv[])
 				channel = 2480;
 			cmd_set_channel(ut->devh, channel);
 			cmd_btle_sniffing(ut->devh, do_follow);
+			/* This mode runs the low-energy physical-layer engine,
+			 * which stamps packets from timer1, so its clock starts
+			 * over at 2^32 ticks rather than the CLKN-derived
+			 * 3125 * 2^20. */
+			ut->clk100ns_period = CLK100NS_TIMER1_PERIOD;
 		} else {
 			cmd_btle_promisc(ut->devh);
 		}

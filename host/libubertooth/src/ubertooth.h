@@ -63,6 +63,13 @@ typedef struct {
 	 * capture yet: a first packet at clk100ns 0 is a valid start, not a
 	 * missing one. Last, so the offsets above do not move. */
 	uint8_t clk100ns_started;
+
+	/* After how many ticks the clock stamping these packets starts over:
+	 * CLK100NS_PERIOD for the CLKN-derived clock, which is what a mode
+	 * stamps with unless it says otherwise, and CLK100NS_TIMER1_PERIOD for
+	 * the low-energy physical-layer modes, which stamp from timer1. A mode
+	 * that uses the latter sets this before streaming. */
+	uint64_t clk100ns_period;
 } ubertooth_t;
 
 typedef void (*rx_callback)(ubertooth_t* ut, void* args);

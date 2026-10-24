@@ -789,6 +789,7 @@ ubertooth_t* ubertooth_init()
 	ut->last_clk100ns = 0;
 	ut->clk100ns_upper = 0;
 	ut->clk100ns_started = 0;
+	ut->clk100ns_period = CLK100NS_PERIOD;
 
 	ut->h_pcap_bredr = NULL;
 	ut->h_pcap_le = NULL;

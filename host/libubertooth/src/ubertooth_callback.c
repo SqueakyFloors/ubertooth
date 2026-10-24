@@ -104,17 +104,29 @@ static uint64_t capture_start_ns( void )
 
 static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx )
 {
+	uint32_t clk100ns = le32toh( rx->clk100ns );
+
 	/* track clk100ns */
 	if (!ut->clk100ns_started) {
 		ut->clk100ns_started = 1;
-		ut->last_clk100ns = ut->start_clk100ns = rx->clk100ns;
+		ut->last_clk100ns = ut->start_clk100ns = clk100ns;
 		ut->abs_start_ns = capture_start_ns( );
 	}
 	/* detect clk100ns roll-over */
-	if (rx->clk100ns < ut->last_clk100ns) {
+	if (clk100ns < ut->last_clk100ns) {
 		ut->clk100ns_upper += 1;
 	}
-	ut->last_clk100ns = rx->clk100ns;
+	ut->last_clk100ns = clk100ns;
+}
+
+/* The capture clock of a packet, as 100 ns ticks since the board started
+ * counting: each wrap seen adds the period of the clock this mode stamps with
+ * (ut->clk100ns_period). Adding 2^32 instead, as if every clock were a 32-bit
+ * counter, put 101.8 s into every packet after a wrap of the CLKN-derived
+ * clock, which wraps at 3125 * 2^20. */
+static uint64_t clk100ns_extended( const ubertooth_t* ut, const usb_pkt_rx* rx )
+{
+	return ut->clk100ns_upper * ut->clk100ns_period + le32toh( rx->clk100ns );
 }
 
 static uint64_t now_ns_from_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx )
@@ -123,7 +135,7 @@ static uint64_t now_ns_from_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx )
 	/* The 100 ns ticks since the first packet, as nanoseconds: the whole
 	 * difference is scaled, not just the current tick count. */
 	return ut->abs_start_ns + 100ull *
-	       ((uint64_t)((ut->clk100ns_upper<<32)|rx->clk100ns) - ut->start_clk100ns);
+	       (clk100ns_extended( ut, rx ) - ut->start_clk100ns);
 }
 
 /* Sniff for LAPs. If a piconet is provided, use the given LAP to
@@ -159,7 +171,7 @@ void cb_scan(ubertooth_t* ut, void* args __attribute__((unused)))
 	/* Once offset is known for a valid packet, copy in symbols
 	 * and other rx data. CLKN here is the 312.5us CLK27-0. The
 	 * btbb library can shift it be CLK1 if needed. */
-	clkn = (rx->clkn_high << 20) + (le32toh(rx->clk100ns) + offset*10) / 3125;
+	clkn = (rx->clkn_high << 20) + (le32toh(rx->clk100ns) + offset*10) / CLK100NS_PER_CLKN;
 	btbb_packet_set_data(pkt, syms + offset, BANK_LEN - offset,
 	                     rx->channel, clkn);
 
@@ -326,7 +338,7 @@ void cb_btle(ubertooth_t* ut, void* args)
 	usb_pkt_rx* rx = &usb;
 	// u32 access_address = 0; // Build warning
 
-	static u32 prev_ts = 0;
+	static uint64_t prev_ts = 0;
 	uint32_t refAA;
 	int8_t sig, noise;
 
@@ -413,11 +425,11 @@ void cb_btle(ubertooth_t* ut, void* args)
 	}
 
 	// rollover
-	u32 rx_ts = rx->clk100ns;
+	uint64_t rx_ts = le32toh( rx->clk100ns );
 	if (rx_ts < prev_ts)
-		rx_ts += 3276800000;
-	u32 ts_diff = rx_ts - prev_ts;
-	prev_ts = rx->clk100ns;
+		rx_ts += ut->clk100ns_period;
+	uint64_t ts_diff = rx_ts - prev_ts;
+	prev_ts = le32toh( rx->clk100ns );
 	printf("systime=%u freq=%d addr=%08x delta_t=%.03f ms rssi=%d\n",
 	       systime, rx->channel + 2402, lell_get_access_address(pkt),
 	       ts_diff / 10000.0, rx->rssi_min - 54);
@@ -449,7 +461,7 @@ void cb_ego(ubertooth_t* ut, void* args)
 
 	u32 rx_time = rx->clk100ns;
 	if (rx_time < prev_ts)
-		rx_time += 3276800000; // rollover
+		rx_time += CLK100NS_PERIOD; // rollover
 	u32 ts_diff = rx_time - prev_ts;
 	prev_ts = rx->clk100ns;
 	printf("time=%u delta_t=%.06f ms freq=%d \n",
@@ -532,7 +544,7 @@ void cb_rx(ubertooth_t* ut, void* args)
 	/* Once offset is known for a valid packet, copy in symbols
 	 * and other rx data. CLKN here is the 312.5us CLK27-0. The
 	 * btbb library can shift it be CLK1 if needed. */
-	clkn = (le32toh(rx->clkn_high) << 20) + (le32toh(rx->clk100ns) + offset*10 - 4000) / 3125;
+	clkn = (le32toh(rx->clkn_high) << 20) + (le32toh(rx->clk100ns) + offset*10 - 4000) / CLK100NS_PER_CLKN;
 	btbb_packet_set_data(pkt, syms + offset, BANK_LEN*10 - offset,
 	                     rx->channel, clkn);
 
