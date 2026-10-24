@@ -14,7 +14,7 @@ setup(
 	scripts=["ubertooth-btbr"],
 	url="https://github.com/greatscottgadgets/ubertooth/",
 	author="Etienne Helluy-Lafont, Univ. Lille, CNRS",
-	python_requires='>=3',
+	python_requires='>=3.8',
 	classifiers=[
 		'Development Status :: 5 - Beta',
 		'Intended Audience :: Developers',
