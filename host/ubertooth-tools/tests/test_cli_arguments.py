@@ -7,6 +7,12 @@ Every case here must be refused while the command line is being read, before
 the tool looks for a device, so each run is checked for the library's
 device-access messages as well as for its own diagnostic.
 
+The tools run with UBERTOOTH_TEST_NO_DEVICES=1, which hides attached boards
+from device selection. A case that slipped past argument checking then reports
+that it found no device, on any machine, instead of opening whatever happens to
+be attached (possibly a board another process is using) and printing whichever
+message that produced (#219).
+
 Three kinds of case:
   * a stray word, including a bare "-": "error: unexpected argument '<word>'";
   * a bad option value: the option's own "error: ... must be ..." line;
@@ -21,6 +27,8 @@ import sys
 
 BINARY = sys.argv[1]
 TOOL = os.path.basename(BINARY)
+# Hide attached boards from the tool: see the module docstring.
+ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1")
 
 # Anything libubertooth prints once a tool starts looking for a device.
 DEVICE_ACCESS = (
@@ -146,6 +154,7 @@ def run(arguments):
         errors="replace",
         timeout=10,
         check=False,
+        env=ENVIRONMENT,
     )
 
 

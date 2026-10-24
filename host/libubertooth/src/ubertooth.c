@@ -52,6 +52,19 @@ FILE* dumpfile = NULL;
 
 int max_ac_errors = 2;
 
+/* UBERTOOTH_TEST_NO_DEVICES=1 makes every selection path behave as if no
+ * Ubertooth were attached, without listing or opening anything on the bus.
+ * The tool tests set it for the tools they run, so a default `ctest` run can
+ * neither depend on an attached board nor open one that another process is
+ * using (#219). Nothing in the tools or the library sets it, so a normal run
+ * is unaffected. */
+static int devices_hidden(void)
+{
+	const char* value = getenv("UBERTOOTH_TEST_NO_DEVICES");
+
+	return value != NULL && value[0] != '\0' && strcmp(value, "0") != 0;
+}
+
 int do_exit = 1;
 pthread_t poll_thread;
 
@@ -123,6 +136,9 @@ int ubertooth_count(void) {
 	int usb_devs, i, r;
 	int ubertooth_device_count = 0;
 
+	if (devices_hidden())
+		return 0;
+
 	r = libusb_init(NULL);
 	if (r < 0) {
 		fprintf(stderr, "libusb_init failed (got 1.0?)\n");
@@ -180,6 +196,11 @@ static struct libusb_device_handle* find_ubertooth_device_opt(int ubertooth_devi
 	struct libusb_device_descriptor desc;
 	int usb_devs, i, r, ret, pick, ut_ct = 0;
 	int *ubertooth_devs = NULL;
+
+	/* Hidden devices: the same outcome as nothing attached, which this
+	 * function reports by returning NULL without a message. */
+	if (devices_hidden())
+		return NULL;
 
 	usb_devs = libusb_get_device_list(ctx, &usb_list);
 	if (usb_devs <= 0) {
@@ -278,7 +299,9 @@ static struct libusb_device_handle* find_ubertooth_device_serial_opt(
 	struct libusb_device_descriptor desc;
 	int usb_devs, i, r, ret;
 
-	usb_devs = libusb_get_device_list(ctx, &usb_list);
+	/* Hidden devices: nothing to match, so no board is opened and no serial
+	 * is read; the "no Ubertooth found" report below is unchanged. */
+	usb_devs = devices_hidden() ? 0 : libusb_get_device_list(ctx, &usb_list);
 	for (i = 0; i < usb_devs; ++i) {
 		r = libusb_get_device_descriptor(usb_list[i], &desc);
 		if (r < 0)

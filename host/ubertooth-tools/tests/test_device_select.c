@@ -445,6 +445,64 @@ MU_TEST(the_quiet_selection_refuses_the_same_indices)
 	ubertooth_free(ut);
 }
 
+/* UBERTOOTH_TEST_NO_DEVICES, the switch the tool tests set, makes selection
+ * behave as if nothing were attached without listing or opening anything, so a
+ * test run cannot open a board another process is using (#219). Unset, every
+ * selection works as before. */
+MU_TEST(the_test_switch_hides_every_device)
+{
+	char msg[256];
+	ubertooth_t *ut;
+
+	setenv("UBERTOOTH_TEST_NO_DEVICES", "1", 1);
+
+	bus_with_uberteeth(2);
+	mu_assert_int_eq(0, ubertooth_count());
+	mu_assert_int_eq(0, fake.lists);
+
+	bus_with_uberteeth(1);
+	mu_assert(select_capturing(NULL, msg, sizeof(msg)) == NULL, "no -U");
+	mu_assert_int_eq(0, fake.opens);
+	mu_assert_int_eq(0, fake.lists);
+	mu_assert(strstr(msg, "could not open Ubertooth device") != NULL, msg);
+
+	bus_with_uberteeth(2);
+	mu_assert(select_capturing("1", msg, sizeof(msg)) == NULL, "-U1");
+	mu_assert_int_eq(0, fake.opens);
+	mu_assert(strstr(msg, "could not open Ubertooth device") != NULL, msg);
+
+	/* A serial is matched by opening each board and reading its serial; with
+	 * the switch set, none is opened and the report is unchanged. */
+	bus_with_uberteeth(2);
+	mu_assert(select_capturing("c52000f5", msg, sizeof(msg)) == NULL, "-U serial");
+	mu_assert_int_eq(0, fake.opens);
+	mu_assert_int_eq(0, fake.lists);
+	mu_assert(strstr(msg, "no Ubertooth found with serial matching 'c52000f5'")
+	          != NULL, msg);
+
+	bus_with_uberteeth(1);
+	mu_assert(ubertooth_start_select_quiet("0") == NULL, "quiet -U0");
+	mu_assert_int_eq(0, fake.opens);
+
+	/* "0" and an empty value mean "not set": a user who has the variable in
+	 * the environment for some other reason still gets their board. */
+	setenv("UBERTOOTH_TEST_NO_DEVICES", "0", 1);
+	bus_with_uberteeth(1);
+	ut = select_capturing("0", msg, sizeof(msg));
+	mu_assert(ut != NULL, "-U0 with the switch off opens the device");
+	ubertooth_stop(ut);
+	ubertooth_free(ut);
+
+	unsetenv("UBERTOOTH_TEST_NO_DEVICES");
+	bus_with_uberteeth(1);
+	mu_assert_int_eq(1, ubertooth_count());
+	ut = select_capturing("0", msg, sizeof(msg));
+	mu_assert(ut != NULL, "-U0 without the switch opens the device");
+	mu_assert(fake.opened == &fake.devs[1], "and it is the Ubertooth");
+	ubertooth_stop(ut);
+	ubertooth_free(ut);
+}
+
 int main(void)
 {
 	MU_RUN(an_index_in_range_opens_that_device);
@@ -459,5 +517,6 @@ int main(void)
 	MU_RUN(an_empty_or_failing_bus_is_refused);
 	MU_RUN(a_device_without_a_descriptor_is_skipped);
 	MU_RUN(the_quiet_selection_refuses_the_same_indices);
+	MU_RUN(the_test_switch_hides_every_device);
 	return mu_report();
 }
