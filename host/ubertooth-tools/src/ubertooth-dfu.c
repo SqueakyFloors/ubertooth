@@ -1064,10 +1064,8 @@ int main(int argc, char **argv) {
 		if (check_download_image(downfile, (functions & FUNC_RESET) != 0,
 		                         expected_revision,
 		                         sizeof(expected_revision)) != 0) {
-			fclose(downfile);
-			if (upfile != NULL)
-				fclose(upfile);
-			return 1;
+			exit_status = 1;
+			goto end_without_device;
 		}
 		if (functions & FUNC_RESET) {
 			fprintf(stderr, "DFU expected revision: %s\n", expected_revision);
@@ -1082,7 +1080,13 @@ int main(int argc, char **argv) {
 	r = libusb_init(&dfu_context);
 	if (r < 0) {
 		fprintf(stderr, "libusb_init failed: %d\n", r);
-		return 1;
+		/* No context to unwind, and nothing has been opened on the bus, so
+		 * this ends like the option failures: through the one path that also
+		 * removes the temporary upload file. Not cleanup, which would call
+		 * libusb_exit() on a context that was never created. */
+		log_dfu_stage("operation finished");
+		exit_status = 1;
+		goto end_without_device;
 	}
 	runtime.usb_context = dfu_context;
 

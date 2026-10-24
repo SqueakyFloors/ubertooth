@@ -196,6 +196,9 @@
   left in DFU.
   [#208](https://github.com/SqueakyFloors/ubertooth/issues/208)
   [#216](https://github.com/SqueakyFloors/ubertooth/issues/216)
+- `ubertooth-dfu -u <dump> -d <image>` no longer leaves a temporary dump file
+  beside the target when the image is refused.
+  [#241](https://github.com/SqueakyFloors/ubertooth/issues/241)
 
 - `ubertooth-dfu` now performs bounded, device-specific Device Firmware
   Upgrade (DFU) entry and recovery, retries interrupted transfers, and verifies

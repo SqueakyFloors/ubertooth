@@ -129,6 +129,9 @@ On Linux use \fB\fCstat \-c%s\fR\&. The output file is only replaced once a comp
 has arrived: a read\-back that fails part\-way leaves an earlier file of the same
 name untouched, names the block that would not read, and exits 1. Like
 \fB\fC\-d\fR, it is retried once from the first block before the command gives up.
+Whichever way the command ends on its own, including a \fB\fC\-d\fR image it
+refuses, it leaves no temporary file beside the output; only a signal that kills
+it can.
 .SH MANUALLY ENTERING BOOTLOADER
 .PP
 If the device does not enter the bootloader when running the upload or

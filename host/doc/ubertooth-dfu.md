@@ -110,7 +110,9 @@ check that the rest is padding, for example:
 On Linux use `stat -c%s`. The output file is only replaced once a complete dump
 has arrived: a read-back that fails part-way leaves an earlier file of the same
 name untouched, names the block that would not read, and exits 1. Like `-d`, it
-is retried once from the first block before the command gives up.
+is retried once from the first block before the command gives up. Whichever way
+the command ends on its own, including a `-d` image it refuses, it leaves no
+temporary file beside the output; only a signal that kills it can.
 
 ## MANUALLY ENTERING BOOTLOADER
 
