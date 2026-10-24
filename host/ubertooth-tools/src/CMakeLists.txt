@@ -99,7 +99,7 @@ target_sources(ubertooth-dfu PRIVATE
 	dfu_recovery.c)
 
 # ubertooth-debug is special because of the extra source file
-add_executable(ubertooth-debug ubertooth-debug.c cc2400.c arglist.c)
+add_executable(ubertooth-debug ubertooth-debug.c cc2400.c arglist.c debug_registers.c)
 install(TARGETS ubertooth-debug RUNTIME DESTINATION ${INSTALL_DEFAULT_BINDIR})
 target_link_libraries(ubertooth-debug ${TOOLS_LINK_LIBS})
 

@@ -85,6 +85,12 @@ ubertooth\-debug \-r 0x00\-0x70
 .fi
 .RE
 
+.SH EXIT STATUS
+.PP
+\fB\fCubertooth\-debug\fR exits with 0 when every requested register was read, and 1
+otherwise\. A failed read prints \fB\fCerror: register 0x<reg> read failed\fR on
+standard error (for a short reply, \fB\fCerror: register 0x<reg> read failed: board
+returned <n> of 2 bytes\fR)\. The remaining registers are still read and decoded\.
 .SH SEE ALSO
 .PP
 ubertooth(7): overview of Project Ubertooth

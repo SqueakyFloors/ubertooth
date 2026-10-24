@@ -1053,7 +1053,11 @@ int cmd_read_register(struct libusb_device_handle* devh, u8 reg)
 		}
 		return r;
 	}
-	r = check_reply_length(r, 2, "register");
+	if (r >= 0 && r != 2) {
+		char what[16];
+		snprintf(what, sizeof(what), "register 0x%02x", reg);
+		return check_reply_length(r, 2, what);
+	}
 	if (r < 0)
 		return r;
 

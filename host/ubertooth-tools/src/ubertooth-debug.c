@@ -22,6 +22,7 @@
 /* formated with: indent -kr */
 
 #include "ubertooth.h"
+#include "debug_registers.h"
 #include <stdio.h>
 #include <getopt.h>
 #include <unistd.h>
@@ -55,6 +56,14 @@ int token_to_int(char *t, int *size)
 	*size = -1;
 
     return r;
+}
+
+_Static_assert(DEBUG_ERROR_SHORT_REPLY == UBERTOOTH_ERROR_SHORT_REPLY,
+               "debug_registers.h must match libubertooth's short-reply code");
+
+static int read_register(void *context, uint8_t reg)
+{
+	return cmd_read_register((struct libusb_device_handle *)context, reg);
 }
 
 int main(int argc, char *argv[])
@@ -120,13 +129,11 @@ int main(int argc, char *argv[])
 	return 1;
     }
 
-    if (do_read_register >= 0) {
-	for (i = 0; i < regListN; i++) {
-	    r = cmd_read_register(ut->devh, regList[i]);
-	    if (r >= 0)
-		cc2400_decode(stdout, regList[i], r, verbose);
-	}
-    }
+    /* Exit 0 only if every read succeeded; this used to return the last
+     * register's value (or error) as the exit status. */
+    if (do_read_register >= 0)
+	r = debug_read_registers(read_register, ut->devh, regList, regListN,
+	                         verbose, stdout, stderr);
 
     return r;
 }
