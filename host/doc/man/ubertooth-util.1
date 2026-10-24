@@ -194,8 +194,9 @@ selects by index (\fB\fC\-U0\fR is the first match, and so on); this index
 reflects USB enumeration order (bus/port and plug order) \- it is not derived
 from the serial number and is not guaranteed stable across reboots or
 re\-plugging. \fB\fC\-U<serial>\fR selects the device whose serial number
-matches the given string, which is stable across reboots and re\-plugging and
-is the recommended way to pin a specific board.
+matches the given string (\fB\fC\-s\fR prints the serials), which is stable
+across reboots and re\-plugging and is the recommended way to pin a specific
+board.
 .PP
 The argument may be attached or separated \- \fB\fC\-U0\fR and \fB\fC\-U 0\fR are
 equivalent, as are \fB\fC\-U<serial>\fR and \fB\fC\-U <serial>\fR. An all\-digits
@@ -220,7 +221,8 @@ could not open Ubertooth device
 .PP
 Indexes are positions in the list of boards attached when the command runs:
 unplugging \fB\fC\-U0\fR makes the old \fB\fC\-U1\fR the new \fB\fC\-U0\fR\&. To keep targeting the same
-board, select it by serial number (or a unique part of it).
+board, select it by serial number, in full or by a leading or trailing part of
+it that no other attached board shares.
 .PP
 This includes a nonzero index with a single Ubertooth attached (\fB\fC\-U1\fR
 of one device is refused; use \fB\fC\-U0\fR, or no \fB\fC\-U\fR at all). With no
@@ -238,6 +240,37 @@ error: no Ubertooth at index 4294967296 (2 attached)
 indexes change when boards are added or removed; select a board by serial with \-U<serial>
 .fi
 .RE
+.PP
+A serial number need not be given in full. The string is compared
+case\-insensitively against each attached board's serial, and it matches the
+whole serial, a leading part of it, or a trailing part of it \- never its
+middle. For a board whose serial is
+\fB\fC1cc001038088cb956c43ad61c52000f5\fR, \fB\fC\-U 1cc0\fR and
+\fB\fC\-U 1CC0\fR both select it, \fB\fC\-U c52000f5\fR selects it by the end
+of its serial, and \fB\fC\-U 8088cb95\fR selects nothing because that is the
+middle of it.
+.PP
+Serials of boards from the same batch differ in their first digits and share
+their last ones, so a short leading part usually identifies one board while a
+short trailing part often does not. A string that matches more than one
+attached board selects neither: the matching serials are listed and the tool
+exits non\-zero:
+.PP
+.RS
+.nf
+$ ubertooth\-util \-U 2000f5 \-s
+error: '2000f5' matches 2 Ubertooth devices: 1cc001038088cb956c43ad61c52000f5, 05f00014e380df95f4436562c32000f5
+select one of them by a longer part of its serial number
+.fi
+.RE
+.PP
+A string that matches no attached board also exits non\-zero, with
+\fB\fCno Ubertooth found with serial matching '<string>'\fR\&.
+.PP
+An all\-digits string is always an index, never a serial, even when it would
+match a serial: \fB\fC\-U 05\fR asks for index 5, not for the board whose
+serial starts \fB\fC05f0\fR\&. Select that board by a longer part of its serial
+that includes a non\-digit, or by its full serial.
 .PP
 With several Ubertooths attached and no \fB\fC\-U\fR, the read\-only identity
 queries \fB\fC\-s\fR (serial), \fB\fC\-v\fR (firmware version), \fB\fC\-V\fR (compile
