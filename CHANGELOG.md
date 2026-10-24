@@ -85,6 +85,11 @@
 
 ### Reliability fixes
 
+- Firmware no longer stops answering Universal Serial Bus (USB) control
+  requests after a Bluetooth Low Energy (BLE) sniffing mode is stopped, so the
+  board no longer needs a re-plug to be usable again.
+  [#158](https://github.com/SqueakyFloors/ubertooth/issues/158)
+
 - `ubertooth-dfu` now performs bounded, device-specific Device Firmware
   Upgrade (DFU) entry and recovery, retries interrupted transfers, and verifies
   that the selected device returns with the expected firmware revision.

@@ -12,6 +12,7 @@ SRC = $(TARGET).c \
 	ubertooth_cs.c \
 	ubertooth_clock.c \
 	ubertooth_dma.c \
+	cc2400_wait.c \
 	le_phy.c \
 	queue.c \
 	cc2400_rangetest.c \

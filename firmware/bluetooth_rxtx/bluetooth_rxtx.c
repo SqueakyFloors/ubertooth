@@ -33,6 +33,7 @@
 #include "bluetooth.h"
 #include "bluetooth_le.h"
 #include "cc2400_rangetest.h"
+#include "cc2400_wait.h"
 #include "ego.h"
 #include "debug_uart.h"
 #include "xmas.h"
@@ -908,7 +909,7 @@ void legacy_DMA_IRQHandler()
 static void cc2400_idle()
 {
 	cc2400_strobe(SRFOFF);
-	while ((cc2400_status() & FS_LOCK)); // need to wait for unlock?
+	cc2400_wait_fs_unlock();
 
 #ifdef UBERTOOTH_ONE
 	PAEN_CLR;
@@ -1218,7 +1219,7 @@ void le_transmit(u32 aa, u8 len, u8 *data)
 	TXLED_CLR;
 
 	cc2400_strobe(SRFOFF);
-	while ((cc2400_status() & FS_LOCK));
+	cc2400_wait_fs_unlock();
 
 #ifdef UBERTOOTH_ONE
 	PAEN_CLR;
@@ -1306,7 +1307,7 @@ void hop(void)
 	}
 	/* IDLE mode, but leave amp on, so don't call cc2400_idle(). */
 	cc2400_strobe(SRFOFF);
-	while ((cc2400_status() & FS_LOCK)); // need to wait for unlock?
+	cc2400_wait_fs_unlock();
 
 	/* Retune */
 	if(mode == MODE_TX_SYMBOLS)
@@ -1516,7 +1517,7 @@ void br_transmit()
 		TXLED_CLR;
 
 		cc2400_strobe(SRFOFF);
-		while ((cc2400_status() & FS_LOCK));
+		cc2400_wait_fs_unlock();
 
 		while (!(cc2400_status() & XOSC16M_STABLE));
 		cc2400_strobe(SFSON);
@@ -1614,7 +1615,7 @@ void bt_generic_le(u8 active_mode)
 	while (requested_mode == active_mode) {
 		if (requested_channel != 0) {
 			cc2400_strobe(SRFOFF);
-			while ((cc2400_status() & FS_LOCK)); // need to wait for unlock?
+			cc2400_wait_fs_unlock();
 
 			/* Retune */
 			cc2400_set(FSDIV, channel - 1);
@@ -1741,7 +1742,7 @@ void bt_le_sync(u8 active_mode)
 	while (requested_mode == active_mode) {
 		if (requested_channel != 0) {
 			cc2400_strobe(SRFOFF);
-			while ((cc2400_status() & FS_LOCK)); // need to wait for unlock?
+			cc2400_wait_fs_unlock();
 
 			/* Retune */
 			cc2400_set(FSDIV, channel - 1);
@@ -1883,7 +1884,7 @@ void bt_le_sync(u8 active_mode)
 			le.link_state = LINK_LISTENING;
 
 			cc2400_strobe(SRFOFF);
-			while ((cc2400_status() & FS_LOCK));
+			cc2400_wait_fs_unlock();
 
 			/* Retune */
 			channel = le_adv_channel != 0 ? le_adv_channel : 2402;
@@ -2493,7 +2494,7 @@ void tx_generic(void) {
 	TXLED_CLR;
 
 	cc2400_strobe(SRFOFF);
-	while ((cc2400_status() & FS_LOCK));
+	cc2400_wait_fs_unlock();
 
 #ifdef UBERTOOTH_ONE
 	PAEN_CLR;
@@ -2528,7 +2529,7 @@ void specan()
 	cc2400_set(MDMCTRL, 0x0029); // 160 kHz frequency deviation
 	//FIXME maybe set RSSI.RSSI_FILT
 	while (!(cc2400_status() & XOSC16M_STABLE));
-	while ((cc2400_status() & FS_LOCK));
+	cc2400_wait_fs_unlock();
 
 	while (requested_mode == MODE_SPECAN) {
 		for (f = low_freq; f < high_freq + 1; f++) {
@@ -2551,7 +2552,7 @@ void specan()
 			}
 
 			cc2400_strobe(SRFOFF);
-			while ((cc2400_status() & FS_LOCK));
+			cc2400_wait_fs_unlock();
 		}
 	}
 	RXLED_CLR;
@@ -2577,7 +2578,7 @@ void led_specan()
 	cc2400_set(RSSI,    0x00F1); // RSSI Sample over 2 symbols
 
 	while (!(cc2400_status() & XOSC16M_STABLE));
-	while ((cc2400_status() & FS_LOCK));
+	cc2400_wait_fs_unlock();
 
 	while (requested_mode == MODE_LED_SPECAN) {
 		cc2400_set(FSDIV, channels[i] - 1);
@@ -2620,7 +2621,7 @@ void led_specan()
 		handle_usb(clkn);
 
 		cc2400_strobe(SRFOFF);
-		while ((cc2400_status() & FS_LOCK));
+		cc2400_wait_fs_unlock();
 	}
 }
 
