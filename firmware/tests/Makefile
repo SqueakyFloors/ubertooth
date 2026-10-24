@@ -9,9 +9,10 @@ CC      ?= cc
 CFLAGS  ?= -O2 -Wall -Wextra -std=gnu99 -g
 # Headers under test live in the firmware image dir; tests include by name.
 FW_RXTX := ../bluetooth_rxtx
+FW_COMMON := ../common
 CPPFLAGS += -I. -I$(FW_RXTX)
 
-TESTS   := test_rssi test_bluetooth_hop test_access_code test_identify_blink
+TESTS   := test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend
 BINDIR  := bin
 
 .PHONY: all test clean
@@ -36,6 +37,14 @@ $(BINDIR)/test_access_code: test_access_code.c minunit.h ubertooth.h \
 $(BINDIR)/test_identify_blink: test_identify_blink.c minunit.h \
 		$(FW_RXTX)/identify_blink.c $(FW_RXTX)/identify_blink.h | $(BINDIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ test_identify_blink.c $(FW_RXTX)/identify_blink.c
+
+# cc2400.h is register definitions plus frend_tx(); it needs no stubs, so it is
+# included straight from firmware/common. FW_RXTX_DIR lets the last test scan
+# the transmit sources for hard-coded PA levels (run from this directory).
+$(BINDIR)/test_frend: test_frend.c minunit.h $(FW_COMMON)/cc2400.h \
+		$(FW_RXTX)/bluetooth_rxtx.c $(FW_RXTX)/ego.c | $(BINDIR)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -I$(FW_COMMON) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
+		-o $@ test_frend.c
 
 $(BINDIR):
 	mkdir -p $(BINDIR)

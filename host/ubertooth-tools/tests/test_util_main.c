@@ -96,7 +96,7 @@ static void reset_fake(void)
 	fake.palevel = 7;
 	fake.squelch = 136; /* unsigned byte 0x88, printed as -120 */
 	fake.partnum = 0x25011723;
-	fake.api_version = 0x0108; /* firmware that runs identify on the board */
+	fake.api_version = UBERTOOTH_API_VERSION; /* firmware from this tree */
 	fake.revision = "git-test";
 	fake.compile_info = "compile-test";
 	fake.device_count = 1;
@@ -455,7 +455,7 @@ static struct run_result run_util(const char *const *args)
 /* Exact expected report lines, in the order ubertooth-util prints them. */
 #define BOARD_LINE "Board ID Number: 1 (Ubertooth One)\n"
 #define CHANNEL_LINE "Current frequency: 2441 MHz (Bluetooth channel 39)\n"
-#define FIRMWARE_LINE "Firmware version: git-test (API:1.08)\n"
+#define FIRMWARE_LINE "Firmware version: git-test (API:1.09)\n"
 #define COMPILE_LINE "compile-test\n"
 #define USRLED_LINE "USR LED status: 0\n"
 #define PALEVEL_LINE "PA Level: 7\n"
@@ -1463,7 +1463,7 @@ MU_TEST(firmware_listing_with_several_devices_reports_each_device)
 	r = RUN("-v");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(r.out,
-	                 "0: git-test (API:1.08)\n1: git-test (API:1.08)\n") == 0,
+	                 "0: git-test (API:1.09)\n1: git-test (API:1.09)\n") == 0,
 	          "per-device firmware lines");
 }
 
@@ -1495,7 +1495,7 @@ MU_TEST(each_identity_query_alone_lists_every_device_compactly)
 {
 	struct { const char *option; const char *expected; } cases[] = {
 		{ "-b", "0: 1 (Ubertooth One)\n1: 1 (Ubertooth One)\n" },
-		{ "-v", "0: git-test (API:1.08)\n1: git-test (API:1.08)\n" },
+		{ "-v", "0: git-test (API:1.09)\n1: git-test (API:1.09)\n" },
 		{ "-V", "0: compile-test\n1: compile-test\n" },
 		{ "-p", "0: 25011723\n1: 25011723\n" },
 		{ "-s", "0: " SERIAL_VALUE "\n1: " SERIAL_VALUE "\n" },
@@ -1625,7 +1625,7 @@ MU_TEST(a_failed_read_on_one_device_is_reported_and_fails_the_listing)
 	r = RUN("-v");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.out,
-	                 "0: <firmware read failed>\n1: git-test (API:1.08)\n") == 0,
+	                 "0: <firmware read failed>\n1: git-test (API:1.09)\n") == 0,
 	          "failed revision read shown per device");
 
 	reset_fake();

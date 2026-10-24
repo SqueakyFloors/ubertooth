@@ -31,7 +31,7 @@
  * Increment it on every firmware change the host relies on: a new or changed
  * request, or a changed behaviour of an existing one.
  */
-#define UBERTOOTH_API_VERSION 0x0108
+#define UBERTOOTH_API_VERSION 0x0109
 
 /* How often the identify blink toggles the USR/RX/TX LEDs, in milliseconds:
  * about three on-off blinks a second. */

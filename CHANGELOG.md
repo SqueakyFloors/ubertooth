@@ -40,7 +40,7 @@
   the command returns at once and the board stays reachable; `-S` or any mode
   option stops it and leaves the LEDs off.
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
-- **Reflash required:** the firmware API version is now 1.08, and the host
+- **Reflash required:** the firmware API version is now 1.09, and the host
   tools require firmware of exactly their own API version, older or newer
   (`ubertooth-util` still reads the version and reflashes any firmware). Host
   and firmware come from the same tree; `2020-12-R1` firmware is refused.
@@ -202,6 +202,15 @@
 - Improve Classic Bluetooth paging speed and reliability. Credit: Hillel
   Chimowicz ([@hllhll](https://github.com/hllhll)).
   [upstream #540](https://github.com/greatscottgadgets/ubertooth/pull/540)
+- Bluetooth and Bluetooth Low Energy (BLE) transmit and jamming
+  (`ubertooth-tx`, `ubertooth-btle -s` and its interference modes,
+  `ubertooth-ducky`, `ubertooth-ego -j`) now transmit at the power amplifier
+  level set with `ubertooth-util -a`, instead of forcing a level of their own
+  and leaving it changed afterwards. Note that this raises the default: without
+  `-a` these modes now transmit at the power-on level 7 (0 dBm at the CC2400)
+  rather than the level 3 (-7 dBm) they used to force. E-GO jamming already
+  used 7, so it is unchanged.
+  [#165](https://github.com/SqueakyFloors/ubertooth/issues/165)
 
 ### Documentation
 

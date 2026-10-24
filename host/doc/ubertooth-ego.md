@@ -52,12 +52,12 @@ Options:
 
 ## TRANSMIT POWER
 
-Interference (`-i`, `-j`) transmits at CC2400 power level 7 (0 dBm, the
-maximum), regardless of the level set with `ubertooth-util -a`, and leaves the
-level at 7 afterwards. Sniffing does not transmit and does not change the
-level. These levels are at the CC2400 radio; the Ubertooth One's RF amplifier changes
-the actual output after that. See
-[#165](https://github.com/SqueakyFloors/ubertooth/issues/165).
+Interference (`-i`, `-j`) transmits at the CC2400 power level set with
+`ubertooth-util -a` and leaves it unchanged. A board that has not been given a
+level jams at 7 (0 dBm, the maximum), the CC2400's reset value and the level
+jamming always used before. Sniffing does not transmit and does not change the
+level. These levels are at the CC2400 radio; the Ubertooth One's RF amplifier
+changes the actual output after that.
 
 ## SEE ALSO
 
