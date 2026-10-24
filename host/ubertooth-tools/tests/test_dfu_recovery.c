@@ -365,7 +365,7 @@ static void idle_always(struct fake_idle *fake, int state)
 	fake->state_count = 1;
 }
 
-/* A bootloader that will not say where it is used to be asked forever, one
+/* A bootloader that will not report its state used to be asked forever, one
  * error line per attempt. The first failed read now ends the wait. */
 MU_TEST(test_idle_stops_on_the_first_failed_state_read)
 {
@@ -644,7 +644,7 @@ MU_TEST(test_image_rejects_a_wrong_crc)
 	                                   sizeof(message)));
 	mu_assert(report.crc_calculated != report.crc_found,
 	          "report did not record both CRCs");
-	/* The harness and the issue reports match on this wording. */
+	/* The harness and the reported output match on this wording. */
 	mu_assert(strstr(message, "CRC mismatch") != NULL,
 	          "CRC failure not named in the message");
 }

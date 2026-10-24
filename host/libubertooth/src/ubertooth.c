@@ -57,8 +57,8 @@ int max_ac_errors = 2;
  * Ubertooth were attached, without listing or opening anything on the bus.
  * The tool tests set it for the tools they run, so a default `ctest` run can
  * neither depend on an attached board nor open one that another process is
- * using. Nothing in the tools or the library sets it, so a normal run
- * is unaffected. Exactly "1" turns it on, so a variable that happens to hold
+ * using. Nothing in the tools or the library sets it, so a normal run is
+ * unaffected. Exactly "1" turns it on, so a variable that happens to hold
  * anything else cannot hide a user's board. A tool that enumerates the bus
  * itself, such as ubertooth-dfu, calls this too. */
 int ubertooth_devices_hidden(void)
