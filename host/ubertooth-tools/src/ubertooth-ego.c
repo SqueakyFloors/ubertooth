@@ -62,6 +62,8 @@ static void usage(void)
 int main(int argc, char *argv[])
 {
 	int opt;
+	/* -h / -V: the first one given ends the command (see below). */
+	int first_exit_option = 0;
 	int do_mode = -1;
 	int do_channel = 2418;
 	char* ubertooth_device = NULL;
@@ -109,6 +111,9 @@ int main(int argc, char *argv[])
 			}
 			break;
 		case 'h':
+			if (!first_exit_option)
+				first_exit_option = 'h';
+			break;
 		default:
 			usage();
 			return 1;
@@ -119,6 +124,14 @@ int main(int argc, char *argv[])
 	 * device is opened, rather than running the rest of the command. */
 	if (opt_check_no_operands(argc, argv) < 0)
 		return 1;
+
+	/* -h ends the command, but only once the whole command line has
+	 * parsed: a bad option value or a stray word is reported even
+	 * alongside it. */
+	if (first_exit_option == 'h') {
+		usage();
+		return 1;
+	}
 
 	ut = ubertooth_start_select(ubertooth_device);
 	if (ut == NULL) {

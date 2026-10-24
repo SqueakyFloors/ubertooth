@@ -39,6 +39,10 @@ One's RF amplifier changes the actual output after that.
 bare `-`, is refused before any device is opened and named:
 `error: unexpected argument '<word>'`, with exit status 1.
 
+`-h` and `-V` end the command only once the whole command line has
+parsed, so a stray word or a bad option value is reported even
+alongside them.
+
 An option value must be a whole value in its range, or it is refused the same
 way instead of being read as 0, for example
 `error: LAP must be 6 hex digits (got 4466)`.

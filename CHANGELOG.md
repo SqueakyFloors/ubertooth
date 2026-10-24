@@ -88,7 +88,9 @@
 - Every `ubertooth-*` tool now refuses a word that is not an option, including
   a bare `-`, before opening a device (`error: unexpected argument '<word>'`),
   so a typo such as `- v` is no longer dropped while the rest of the command
-  runs. `ubertooth-btle -q -`, `-c -` and `-r -` still mean stdin/stdout.
+  runs. `-h` and `-V` now end the command only after the whole command line
+  has parsed, so a mistake written alongside them is still reported.
+  `ubertooth-btle -q -`, `-c -` and `-r -` still mean stdin/stdout.
   [#155](https://github.com/SqueakyFloors/ubertooth/issues/155)
 - Option values are now parsed the same way by every tool: a whole decimal
   number in range, a lower address part (LAP) of exactly 6 hex digits, an

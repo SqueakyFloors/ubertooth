@@ -108,6 +108,7 @@ static void usage(FILE *file)
 int main(int argc, char *argv[])
 {
 	int opt, r = 0, output_mode = SPECAN_STDOUT;
+	int do_help = 0;
 	int lower= SPECAN_FREQ_MIN, upper= SPECAN_FREQ_MAX;
 	char* ubertooth_device = NULL;
 
@@ -154,8 +155,8 @@ int main(int argc, char *argv[])
 			ubertooth_device = optarg;
 			break;
 		case 'h':
-			usage(stdout);
-			return 0;
+			do_help = 1;
+			break;
 		default:
 			usage(stderr);
 			return 1;
@@ -166,6 +167,13 @@ int main(int argc, char *argv[])
 	 * device is opened, rather than running the rest of the command. */
 	if (opt_check_no_operands(argc, argv) < 0)
 		return 1;
+
+	/* -h ends the command, but only once the whole command line has parsed:
+	 * a bad option value or a stray word is reported even alongside it. */
+	if (do_help) {
+		usage(stdout);
+		return 0;
+	}
 
 	if (specan_validate_frequency_range(lower, upper) < 0) {
 		fprintf(stderr,

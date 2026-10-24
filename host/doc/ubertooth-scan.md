@@ -31,7 +31,7 @@ Extended Inquiry Scan:
    eXtended scan - retrieve additional information about target devices
  - `-t <seconds>` :
    scan Time - length of time to sniff packets. [Default: 20s]
- - `-e <0-5>` : 
+ - `-e <0-5>` :
     Maximum Access Code Errors (default: 2)
  - `-b hciN` :
     Bluetooth device (default: hci0)
@@ -43,6 +43,10 @@ Extended Inquiry Scan:
 `ubertooth-scan` takes options only. A word that is not an option, including a
 bare `-`, is refused before any device is opened and named:
 `error: unexpected argument '<word>'`, with exit status 1.
+
+`-h` ends the command only once the whole command line has
+parsed, so a stray word or a bad option value is reported even
+alongside it.
 
 An option value must be a whole value in its range, or it is refused the same
 way instead of being read as 0, for example

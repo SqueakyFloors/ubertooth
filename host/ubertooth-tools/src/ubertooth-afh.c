@@ -57,6 +57,8 @@ int main(int argc, char* argv[])
 	int opt, have_lap = 0, have_uap = 0, timeout = 0;//, have_initial_afh = 0;
 	// uint8_t initial_afh[10];
 	int threshold;
+	/* -h / -V: the first one given ends the command (see below). */
+	int first_exit_option = 0;
 	char* ubertooth_device = NULL;
 	btbb_piconet* pn = NULL;
 	uint32_t lap = 0;
@@ -109,12 +111,16 @@ int main(int argc, char* argv[])
 			packet_counter_max = (unsigned int)threshold;
 			break;
 		case 'V':
-			print_version();
-			return 0;
+			if (!first_exit_option)
+				first_exit_option = 'V';
+			break;
 		case 'r':
 			use_r_format = 1;
 			break;
 		case 'h':
+			if (!first_exit_option)
+				first_exit_option = 'h';
+			break;
 		default:
 			usage();
 			return 1;
@@ -125,6 +131,18 @@ int main(int argc, char* argv[])
 	 * device is opened, rather than running the rest of the command. */
 	if (opt_check_no_operands(argc, argv) < 0)
 		return 1;
+
+	/* -h and -V end the command, but only once the whole command line
+	 * has parsed: a bad option value or a stray word is reported even
+	 * alongside them. The first of the two given wins, as before. */
+	if (first_exit_option == 'V') {
+		print_version();
+		return 0;
+	}
+	if (first_exit_option == 'h') {
+		usage();
+		return 1;
+	}
 
 	if (have_lap && have_uap) {
 		pn = btbb_piconet_new();

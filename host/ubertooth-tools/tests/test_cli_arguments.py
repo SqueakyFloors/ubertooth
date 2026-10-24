@@ -33,6 +33,13 @@ DEVICE_ACCESS = (
 STRAY = (
     (("extra",), "error: unexpected argument 'extra'"),
     (("-",), "error: unexpected argument '-'"),
+    # -h does not excuse a stray word either: it ends the command only after
+    # the whole command line has parsed
+    (("-h", "extra"), "error: unexpected argument 'extra'"),
+)
+
+VERSION_STRAY = (
+    (("-V", "extra"), "error: unexpected argument 'extra'"),
 )
 
 LAP_UAP = (
@@ -59,7 +66,7 @@ ADV_INDEX = (
 )
 
 CASES = {
-    "ubertooth-afh": STRAY + LAP_UAP + AC_ERRORS + TIMEOUT_SECONDS + (
+    "ubertooth-afh": STRAY + VERSION_STRAY + LAP_UAP + AC_ERRORS + TIMEOUT_SECONDS + (
         (("-m", "0"), "error: channel removal threshold must be 1-"),
         (("-m", "5x"), "error: channel removal threshold must be 1-"),
         # a valid piconet address still reports the stray word
@@ -110,7 +117,7 @@ CASES = {
     "ubertooth-follow": STRAY + LAP_UAP + AC_ERRORS + (
         (("-w", "abc"), "error: usb delay must be 0-"),
     ),
-    "ubertooth-rx": STRAY + LAP_UAP + AC_ERRORS + TIMEOUT_SECONDS + (
+    "ubertooth-rx": STRAY + VERSION_STRAY + LAP_UAP + AC_ERRORS + TIMEOUT_SECONDS + (
         (("-c", "79"), "error: channel must be 0-78 (got 79)"),
         (("-c", "abc"), "error: channel must be 0-78 (got abc)"),
     ),
@@ -119,7 +126,7 @@ CASES = {
         (("-l", "bad"), "error: lower frequency must be 2402-2480 mhz (got bad)"),
         (("-u", "2481"), "error: upper frequency must be 2402-2480 mhz (got 2481)"),
     ),
-    "ubertooth-tx": STRAY + LAP_UAP + TIMEOUT_SECONDS,
+    "ubertooth-tx": STRAY + VERSION_STRAY + LAP_UAP + TIMEOUT_SECONDS,
     "ubertooth-util": STRAY + (
         (("-c", "2500"), "error: frequency must be 2402-2480 mhz (got 2500)"),
         (("-c", "24x"), "error: unexpected argument '24x'"),
@@ -129,8 +136,9 @@ CASES = {
 if TOOL not in CASES:
     sys.exit("no argument cases for %s" % TOOL)
 
-for arguments, expected in CASES[TOOL]:
-    result = subprocess.run(
+
+def run(arguments):
+    return subprocess.run(
         [BINARY, *arguments],
         capture_output=True,
         text=True,
@@ -139,10 +147,25 @@ for arguments, expected in CASES[TOOL]:
         timeout=10,
         check=False,
     )
+
+
+for arguments, expected in CASES[TOOL]:
+    result = run(arguments)
     output = (result.stdout + result.stderr).lower()
     assert result.returncode == 1, (arguments, result)
     assert expected in output, (arguments, expected, result)
     for message in DEVICE_ACCESS:
         assert message not in output, (arguments, message, result)
+
+# -h on its own still prints the tool's help and reaches no device. The exit
+# status is the tool's own (0 for ubertooth-debug and ubertooth-specan, 1 for
+# the rest); only the refusal is new.
+help_result = run(("-h",))
+help_output = (help_result.stdout + help_result.stderr).lower()
+assert help_result.returncode in (0, 1), help_result
+assert TOOL in help_output, help_result
+assert "unexpected argument" not in help_output, help_result
+for message in DEVICE_ACCESS:
+    assert message not in help_output, (message, help_result)
 
 print("%s: %d argument cases" % (TOOL, len(CASES[TOOL])))

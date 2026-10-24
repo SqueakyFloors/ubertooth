@@ -59,6 +59,8 @@ int main(int argc, char *argv[])
 {
 	int opt, sock, dev_id, lap = 0, uap = 0, delay = 5;
 	int have_lap = 0;
+	/* -h / -V: the first one given ends the command (see below). */
+	int first_exit_option = 0;
 	int have_uap = 0;
 	int afh_enabled = 0;
 	uint8_t mode, afh_map[10];
@@ -145,6 +147,9 @@ int main(int argc, char *argv[])
 				return 1;
 			break;
 		case 'h':
+			if (!first_exit_option)
+				first_exit_option = 'h';
+			break;
 		default:
 			usage();
 			return 1;
@@ -155,6 +160,14 @@ int main(int argc, char *argv[])
 	 * device is opened, rather than running the rest of the command. */
 	if (opt_check_no_operands(argc, argv) < 0)
 		return 1;
+
+	/* -h ends the command, but only once the whole command line has
+	 * parsed: a bad option value or a stray word is reported even
+	 * alongside it. */
+	if (first_exit_option == 'h') {
+		usage();
+		return 1;
+	}
 
 	dev_id = hci_devid(bt_dev);
 	sock = hci_open_dev(dev_id);

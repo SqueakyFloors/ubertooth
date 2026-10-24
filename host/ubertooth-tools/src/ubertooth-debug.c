@@ -71,6 +71,7 @@ int main(int argc, char *argv[])
 {
     int opt;
     int r = 0;
+    int do_help = 0;
     int verbose = 1;
     ubertooth_t* ut = NULL;
     int do_read_register;
@@ -86,8 +87,8 @@ int main(int argc, char *argv[])
     while ((opt = getopt(argc, argv, "hU:r:v:")) != EOF) {
 	switch (opt) {
 	case 'h':
-	    usage();
-	    return 0;
+	    do_help = 1;
+	    break;
 	case 'U':
 	    ubertooth_device = optarg;
 	    break;
@@ -120,6 +121,13 @@ int main(int argc, char *argv[])
      * device is opened, rather than running the rest of the command. */
     if (opt_check_no_operands(argc, argv) < 0)
 	return 1;
+
+    /* -h ends the command, but only once the whole command line has parsed:
+     * a bad option value or a stray word is reported even alongside it. */
+    if (do_help) {
+	usage();
+	return 0;
+    }
 
 	if(regListN == 0) {
 		fprintf(stderr, "At least one register must be provided\n");

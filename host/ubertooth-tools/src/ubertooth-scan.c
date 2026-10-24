@@ -202,6 +202,8 @@ int main(int argc, char *argv[])
 	int max_rsp, num_rsp, lap, timeout = 20;
 	uint8_t uap, extended = 0;
 	uint8_t scan = 0;
+	/* -h / -V: the first one given ends the command (see below). */
+	int first_exit_option = 0;
 	char* ubertooth_device = NULL;
 	char *bt_dev = "hci0";
 	char addr[19] = { 0 };
@@ -239,6 +241,9 @@ int main(int argc, char *argv[])
 			scan = 1;
 			break;
 		case 'h':
+			if (!first_exit_option)
+				first_exit_option = 'h';
+			break;
 		default:
 			usage();
 			return 1;
@@ -249,6 +254,14 @@ int main(int argc, char *argv[])
 	 * device is opened, rather than running the rest of the command. */
 	if (opt_check_no_operands(argc, argv) < 0)
 		return 1;
+
+	/* -h ends the command, but only once the whole command line has
+	 * parsed: a bad option value or a stray word is reported even
+	 * alongside it. */
+	if (first_exit_option == 'h') {
+		usage();
+		return 1;
+	}
 
 	dev_id = hci_devid(bt_dev);
 	if (dev_id < 0) {

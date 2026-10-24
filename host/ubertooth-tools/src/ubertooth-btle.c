@@ -151,6 +151,8 @@ static void usage(void)
 int main(int argc, char *argv[])
 {
 	int opt;
+	/* -h / -V: the first one given ends the command (see below). */
+	int first_exit_option = 0;
 	int do_follow, do_no_follow, do_promisc;
 	int do_get_aa, do_set_aa;
 	int do_crc;
@@ -311,6 +313,9 @@ int main(int argc, char *argv[])
 			jam_mode = JAM_CONTINUOUS;
 			break;
 		case 'h':
+			if (!first_exit_option)
+				first_exit_option = 'h';
+			break;
 		default:
 			usage();
 			return 1;
@@ -323,6 +328,14 @@ int main(int argc, char *argv[])
 	 * is only a value of -q/-c/-r, which getopt has already taken. */
 	if (opt_check_no_operands(argc, argv) < 0)
 		return 1;
+
+	/* -h ends the command, but only once the whole command line has
+	 * parsed: a bad option value or a stray word is reported even
+	 * alongside it. */
+	if (first_exit_option == 'h') {
+		usage();
+		return 1;
+	}
 
 	/* -a reads and -a<address> sets; one command cannot do both (the read
 	 * used to win and the set was dropped). */
