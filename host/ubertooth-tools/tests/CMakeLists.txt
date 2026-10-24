@@ -96,7 +96,7 @@ foreach(tool ${UBERTOOTH_TOOLS})
 		COMMAND ${Python3_EXECUTABLE}
 			${CMAKE_CURRENT_SOURCE_DIR}/test_no_file_on_refusal.py
 			$<TARGET_FILE:${tool}>)
-	set_tests_properties(no-file-on-refusal-${tool} PROPERTIES TIMEOUT 60)
+	set_tests_properties(no-file-on-refusal-${tool} PROPERTIES TIMEOUT 30)
 endforeach()
 
 add_test(

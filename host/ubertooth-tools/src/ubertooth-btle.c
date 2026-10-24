@@ -348,9 +348,11 @@ int main(int argc, char *argv[])
 		if (saved_fd >= 0)
 			close(saved_fd);
 		free(file);
-		if (create_result)
-			err(1, pcap_ppi ? "lell_pcap_ppi_create_file: "
-			                : "lell_pcap_create_file: ");
+		if (create_result) {
+			if (pcap_ppi)
+				err(1, "lell_pcap_ppi_create_file: ");
+			err(1, "lell_pcap_create_file: ");
+		}
 	}
 
 	r = ubertooth_connect_select(ut, ubertooth_device);

@@ -35,12 +35,15 @@ KEEP = "do not touch this\n"
 
 # Per tool: the file options, and the name each one writes. None as the written
 # name means "the value given", which is all but ubertooth-dfu -s: that takes a
-# .bin to sign and writes the .dfu beside it.
+# .bin to sign and writes the .dfu beside it. ubertooth-dfu -u writes the name
+# it is given, through a temporary file beside it that must not be left behind
+# either.
 FILE_OPTIONS = {
     "ubertooth-btle": (("-r", "out.pcapng", None),
                        ("-q", "out.pcap", None),
                        ("-c", "out.pcap", None)),
-    "ubertooth-dfu": (("-s", "firmware.bin", "firmware.dfu"),),
+    "ubertooth-dfu": (("-s", "firmware.bin", "firmware.dfu"),
+                      ("-u", "out.bin", None)),
     "ubertooth-dump": (("-d", "out.bin", None),),
     "ubertooth-follow": (("-r", "out.pcapng", None),
                          ("-q", "out.pcap", None),
@@ -67,7 +70,7 @@ if TOOL not in FILE_OPTIONS:
     sys.exit(0)
 
 
-def refused(arguments):
+def refused(arguments, directory):
     result = subprocess.run(
         [BINARY, *arguments],
         capture_output=True,
@@ -76,6 +79,7 @@ def refused(arguments):
         timeout=10,
         check=False,
         env=ENVIRONMENT,
+        cwd=directory,
     )
     output = (result.stdout + result.stderr).lower()
     # -h ends the command with the tool's own status (0 for ubertooth-specan
@@ -95,29 +99,31 @@ for option, value, written in FILE_OPTIONS[TOOL]:
         refusals.append((option, value, *BAD_VALUE[TOOL]))
 
     for arguments in refusals:
-        # nothing there yet: the file must not appear
+        # nothing there yet: the file must not appear, and neither must any
+        # temporary file beside it
         with tempfile.TemporaryDirectory() as directory:
-            os.chdir(directory)
-            if TOOL == "ubertooth-dfu":
-                with open(value, "wb") as image:
+            if TOOL == "ubertooth-dfu" and option == "-s":
+                with open(os.path.join(directory, value), "wb") as image:
                     image.write(b"\x00" * 2048)
             before = sorted(os.listdir(directory))
-            refused(arguments)
+            refused(arguments, directory)
             assert sorted(os.listdir(directory)) == before, \
                 (arguments, os.listdir(directory))
 
         # already there: the contents must survive
         with tempfile.TemporaryDirectory() as directory:
-            os.chdir(directory)
-            if TOOL == "ubertooth-dfu":
-                with open(value, "wb") as image:
+            if TOOL == "ubertooth-dfu" and option == "-s":
+                with open(os.path.join(directory, value), "wb") as image:
                     image.write(b"\x00" * 2048)
-            with open(written, "w") as existing:
+            target = os.path.join(directory, written)
+            with open(target, "w") as existing:
                 existing.write(KEEP)
-            refused(arguments)
-            with open(written) as existing:
+            before = sorted(os.listdir(directory))
+            refused(arguments, directory)
+            with open(target) as existing:
                 assert existing.read() == KEEP, (arguments, written)
+            assert sorted(os.listdir(directory)) == before, \
+                (arguments, os.listdir(directory))
         cases += 1
 
-os.chdir("/")
 print("%s: %d refused command lines left the filesystem alone" % (TOOL, cases))
