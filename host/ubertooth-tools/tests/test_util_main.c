@@ -967,6 +967,11 @@ MU_TEST(stray_arguments_are_rejected_before_any_device_action)
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(r.out, "libubertooth fake\n") == 0, "--host-version wins");
 
+	/* after "--", --host-version is an operand, reported as typed */
+	reset_fake();
+	r = RUN("--", "--host-version");
+	assert_refused_untouched(r, "error: unexpected argument '--host-version'\n");
+
 	/* -U takes its value as the next word; that is not a stray argument */
 	reset_fake();
 	r = RUN("-U", "0", "-b");

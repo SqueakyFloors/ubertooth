@@ -348,8 +348,9 @@ int main(int argc, char *argv[])
 	/* Host-tools version: printed before touching the device, so it works
 	 * with no Ubertooth attached. -H or --host-version. Distinct from -v
 	 * (firmware revision) and -V (firmware compile info from the device).
-	 * getopt only knows the short form, so treat the long one as -H. */
-	for (int ai = 1; ai < argc; ai++) {
+	 * getopt only knows the short form, so treat the long one as -H (but
+	 * not after "--", where it is an operand and is reported as typed). */
+	for (int ai = 1; ai < argc && strcmp(argv[ai], "--") != 0; ai++) {
 		if (strcmp(argv[ai], "--host-version") == 0) {
 			argv[ai] = (char *)"-H";
 			long_host_version = 1;
@@ -497,9 +498,10 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	/* -h and -H end the command before anything else, as they always have,
-	 * but only once the command line is known to be valid. As before,
-	 * --host-version wins, and otherwise the first of -h and -H does. */
+	/* -h and -H end the command before anything else, but only once the
+	 * whole command line has parsed: an invalid option value or a stray
+	 * word is reported even alongside them. As before, --host-version
+	 * wins, and otherwise the first of -h and -H does. */
 	if (long_host_version || first_exit_option == 'H') {
 		print_version();
 		return 0;
