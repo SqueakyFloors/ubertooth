@@ -244,7 +244,10 @@ indexes change when boards are added or removed; select a board by serial with \
 A serial number need not be given in full: its first few characters are
 enough, upper or lower case. For a board whose serial is
 \fB\fC1cc001038088cb956c43ad61c52000f5\fR, \fB\fC\-U 1cc0\fR and
-\fB\fC\-U 1CC0\fR both select it.
+\fB\fC\-U 1CC0\fR both select it. Only the start of the serial is matched;
+earlier releases also accepted the end of one, undocumented, and that is gone,
+because Ubertooth serials share their last characters, so a short tail matched
+several boards and one of them was opened.
 .PP
 If those characters start the serial of more than one attached board, the
 tool selects neither: it lists the matching serials and exits non\-zero, and a
