@@ -269,30 +269,27 @@ static struct libusb_device_handle* find_ubertooth_device(int ubertooth_device)
 /* A serial number as printed by -s: 16 bytes as lowercase hex, plus the NUL. */
 #define SERIAL_STR_LEN 33
 
-/* Reads one device's serial number into a SERIAL_STR_LEN buffer as lowercase
- * hex, the form -s prints. Returns 0 on success. */
-static int read_serial_string(struct libusb_device_handle* devh, char* out,
-                              int quiet)
+/* Reads one device's serial number as lowercase hex, the form -s prints.
+ * Returns 0 on success.
+ *
+ * This is the same read as cmd_get_serial() without its error messages,
+ * because matching a serial means reading every attached device: a board that
+ * is still starting, or wedged, must not print an error of its own while
+ * another board is being selected. timeout_ms keeps a silent board from
+ * stalling the caller. */
+static int read_serial_string(struct libusb_device_handle* devh,
+                              char out[SERIAL_STR_LEN], unsigned timeout_ms)
 {
 	uint8_t serial[17] = {0};
 	int sr, j;
 
-	if (quiet) {
-		/* The same read as cmd_get_serial(), without its error messages: a
-		 * device that is still starting may not answer. A short timeout keeps
-		 * a silent board from stalling a poll. */
-		sr = libusb_control_transfer(devh,
-		        LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_ENDPOINT_IN,
-		        UBERTOOTH_GET_SERIAL, 0, 0, serial, 17, 200);
-		sr = (sr == 17 && serial[0] == 0) ? 0 : -1;
-	} else {
-		sr = cmd_get_serial(devh, serial);
-	}
-	if (sr != 0)
+	sr = libusb_control_transfer(devh,
+	        LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_ENDPOINT_IN,
+	        UBERTOOTH_GET_SERIAL, 0, 0, serial, 17, timeout_ms);
+	if (sr != 17 || serial[0] != 0)
 		return -1;
 	for (j = 1; j < 17; j++)
 		sprintf(&out[(j - 1) * 2], "%02x", serial[j]);
-	out[SERIAL_STR_LEN - 1] = '\0';
 	return 0;
 }
 
@@ -331,12 +328,20 @@ static struct libusb_device_handle* find_ubertooth_device_serial_opt(
 	struct libusb_device_descriptor desc;
 	char (*matched_serials)[SERIAL_STR_LEN] = NULL;
 	int *matched_devs = NULL;
-	int usb_devs, i, r, ret, matches = 0;
+	int usb_devs, i, r, ret, matches = 0, unread = 0;
 
 	usb_devs = libusb_get_device_list(ctx, &usb_list);
-	if (usb_devs <= 0) {
-		if (usb_devs == 0)
-			libusb_free_device_list(usb_list, 1);
+	if (usb_devs < 0) {
+		/* A bus that could not be listed is not the same as a serial that is
+		 * not attached, so do not report it as one. */
+		if (!quiet) {
+			fprintf(stderr, "error: could not list USB devices: ");
+			show_libusb_error(usb_devs);
+		}
+		return NULL;
+	}
+	if (usb_devs == 0) {
+		libusb_free_device_list(usb_list, 1);
 		if (!quiet)
 			fprintf(stderr, "no Ubertooth found with serial matching '%s'\n",
 			        serial_number);
@@ -366,13 +371,17 @@ static struct libusb_device_handle* find_ubertooth_device_serial_opt(
 			devh = NULL;
 			continue;
 		}
-		r = read_serial_string(devh, serial_c, quiet);
+		/* The quiet caller polls a device that may be re-enumerating, so it
+		 * waits briefly; the loud path keeps cmd_get_serial()'s timeout. */
+		r = read_serial_string(devh, serial_c, quiet ? 200 : 1000);
 		/* Closed again whether it matched or not: the chosen device is
 		 * reopened below, once it is known to be the only match. */
 		libusb_close(devh);
 		devh = NULL;
-		if (r != 0)
+		if (r != 0) {
+			unread++; /* reported below, if nothing matched */
 			continue;
+		}
 		if (serial_matches(serial_number, serial_c)) {
 			matched_devs[matches] = i;
 			memcpy(matched_serials[matches], serial_c, sizeof(serial_c));
@@ -393,12 +402,21 @@ static struct libusb_device_handle* find_ubertooth_device_serial_opt(
 		        serial_number, matches);
 		for (i = 0; i < matches; ++i)
 			fprintf(stderr, "%s %s", i ? "," : "", matched_serials[i]);
-		fprintf(stderr, "\nselect one of them by a longer part of its serial "
-		        "number\n");
+		/* A longer string can only help while one exists: two boards
+		 * reporting the same serial cannot be told apart by this selector. */
+		if (strlen(serial_number) < SERIAL_STR_LEN - 1)
+			fprintf(stderr, "\nselect one of them by a longer part of its "
+			        "serial number\n");
+		else
+			fprintf(stderr, "\nthese Ubertooth devices report the same serial "
+			        "number; select one by index with -U<index>\n");
 	}
 	else if (!quiet) {
 		fprintf(stderr, "no Ubertooth found with serial matching '%s'\n",
 		        serial_number);
+		if (unread)
+			fprintf(stderr, "%d attached Ubertooth device%s did not answer the "
+			        "serial read\n", unread, unread == 1 ? "" : "s");
 	}
 	free(matched_devs);
 	free(matched_serials);
