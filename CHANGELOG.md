@@ -9,7 +9,7 @@
   Credit: Ryan Govostes ([@rgov](https://github.com/rgov)).
   [#7](https://github.com/SqueakyFloors/ubertooth/issues/7)
   [upstream #362](https://github.com/greatscottgadgets/ubertooth/pull/362)
-- Every `-U` option accepts either a Universal Serial Bus (USB) enumeration
+- Every `-U` option accepts either a USB enumeration
   index or stable serial number, and multi-device messages make selectors clear
   without dumping full help text. With several devices and no `-U`,
   `ubertooth-util` read-only queries (`-s`, `-v`, `-V`, `-p`, `-b`, alone or
@@ -35,7 +35,7 @@
   [#154](https://github.com/SqueakyFloors/ubertooth/issues/154)
 - `ubertooth-util -H`/`--host-version` reports the installed host-tools
   version without a device.
-- `ubertooth-util -I` blinks the light-emitting diodes (LEDs) faster for easier
+- `ubertooth-util -I` blinks the LEDs faster for easier
   identification, and now runs the blink on the board like every other mode, so
   the command returns at once and the board stays reachable; `-S` or any mode
   option stops it and leaves the LEDs off.
@@ -123,7 +123,7 @@
   the device is opened. `ubertooth-btle -v` and `ubertooth-ducky -q` also take
   their value as the next word.
   [#155](https://github.com/SqueakyFloors/ubertooth/issues/155)
-- Firmware no longer stops answering Universal Serial Bus (USB) control
+- Firmware no longer stops answering USB control
   requests after a Bluetooth Low Energy (BLE) sniffing mode is stopped, so the
   board no longer needs a re-plug to be usable again.
   [#158](https://github.com/SqueakyFloors/ubertooth/issues/158)
