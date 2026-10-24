@@ -82,11 +82,11 @@ static const struct {
 	const char *name;  /* shown as "<name read failed>" */
 	const char *label; /* dropped when a single query is listed */
 } identity_query_text[QUERY_COUNT] = {
-	{ "board ID", "Board ID Number: " },
+	{ UTIL_QUERY_BOARD_ID, "Board ID Number: " },
 	{ "firmware", "Firmware version: " },
 	{ "compile info", "" },
-	{ "part ID", "Part ID: " },
-	{ "serial", "Serial No: " },
+	{ UTIL_QUERY_PART_ID, "Part ID: " },
+	{ UTIL_QUERY_SERIAL, "Serial No: " },
 };
 
 /* Runs one identity report into buffers so its lines can be prefixed. */
@@ -119,10 +119,10 @@ static int capture_identity_report(enum identity_query query, ubertooth_t *ut,
 		status = util_report_compile_info(&report_ops, ut, out);
 		break;
 	case QUERY_PART_ID:
-		status = util_report_part_id(&report_ops, ut, out);
+		status = util_report_part_id(&report_ops, ut, out, err);
 		break;
 	case QUERY_SERIAL:
-		status = util_report_serial(&report_ops, ut, out);
+		status = util_report_serial(&report_ops, ut, out, err);
 		break;
 	default:
 		break;
@@ -168,8 +168,12 @@ static int list_identity_queries(const int requested[QUERY_COUNT], int count)
 			                                &text, &error));
 			if (text == NULL || text[0] == '\0') {
 				/* Show the report's own error (for example an unknown board
-				 * ID) when it gave one, otherwise say the read failed. */
-				if (error != NULL && error[0] != '\0') {
+				 * ID) when it gave one, otherwise say the read failed. The
+				 * report's "error: <query> read failed" line is shown in the
+				 * listing's shorter "<query read failed>" form. */
+				if (error != NULL && error[0] != '\0' &&
+				    !util_is_read_failed_message(error,
+				            identity_query_text[q].name)) {
 					error[strcspn(error, "\n")] = '\0';
 					fprintf(stdout, "%d: <%s>\n", i, error);
 				} else {
@@ -208,8 +212,7 @@ static int list_identity_queries(const int requested[QUERY_COUNT], int count)
  */
 static int report_read_failed(const char *what)
 {
-	fprintf(stderr, "error: %s read failed\n", what);
-	return 1;
+	return util_report_read_failed(stderr, what);
 }
 
 /* For -I (identify): the loop runs until interrupted. Without a handler, Ctrl-C
@@ -569,7 +572,7 @@ int main(int argc, char *argv[])
 	}
 	if(do_part == 0)
 		status = util_status_merge(status,
-		        util_report_part_id(&report_ops, ut, stdout));
+		        util_report_part_id(&report_ops, ut, stdout, stderr));
 	if(do_range_result == 0) {
 		int rr_status = cmd_get_rangeresult(ut->devh, &rr);
 		if (rr_status != 0) {
@@ -590,7 +593,7 @@ int main(int argc, char *argv[])
 
 	if(do_serial == 0)
 		status = util_status_merge(status,
-		        util_report_serial(&report_ops, ut, stdout));
+		        util_report_serial(&report_ops, ut, stdout, stderr));
 
 	/* final actions */
 	if(do_flash == 0) {

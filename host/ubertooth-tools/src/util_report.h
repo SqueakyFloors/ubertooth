@@ -16,6 +16,11 @@
 
 #define UTIL_SERIAL_BUFFER_LEN 17
 
+/* Query names used in "error: <query> read failed" and the device listing. */
+#define UTIL_QUERY_BOARD_ID "board ID"
+#define UTIL_QUERY_PART_ID "part ID"
+#define UTIL_QUERY_SERIAL "serial"
+
 struct util_report_ops {
 	/* Board ID (0 or greater), or a negative value on a transfer error. */
 	int (*get_board_id)(void *context);
@@ -48,6 +53,15 @@ int util_value_status(int value);
 /* Folds a device command result (negative on error) into a sticky status. */
 int util_status_after(int status, int device_result);
 
+/* Prints "error: <what> read failed" on err and returns the failing status 1.
+ * libubertooth has usually printed its transfer error first; this names the
+ * query whose read failed, so a failed read never shows a value line. */
+int util_report_read_failed(FILE *err, const char *what);
+
+/* Nonzero if message is exactly the line util_report_read_failed() prints for
+ * what (so a caller that captured it can show its own read-failed text). */
+int util_is_read_failed_message(const char *message, const char *what);
+
 int util_report_board_id(const struct util_report_ops *ops, void *context,
                          FILE *out, FILE *err);
 int util_report_firmware(const struct util_report_ops *ops, void *context,
@@ -55,8 +69,8 @@ int util_report_firmware(const struct util_report_ops *ops, void *context,
 int util_report_compile_info(const struct util_report_ops *ops, void *context,
                              FILE *out);
 int util_report_part_id(const struct util_report_ops *ops, void *context,
-                        FILE *out);
+                        FILE *out, FILE *err);
 int util_report_serial(const struct util_report_ops *ops, void *context,
-                       FILE *out);
+                       FILE *out, FILE *err);
 
 #endif /* UBERTOOTH_UTIL_REPORT_H */
