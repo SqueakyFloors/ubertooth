@@ -160,6 +160,10 @@ if(USE_OWN_GNU_GETOPT)
 endif()
 
 add_test(NAME util-main COMMAND test-util-main)
+# A regression that lets a mode such as -I (identify, blinks until
+# interrupted) run inside main() would hang; fail it instead. A normal run
+# takes well under a second (0.02-0.5 s locally and in CI).
+set_tests_properties(util-main PROPERTIES TIMEOUT 5)
 
 # The same approach for ubertooth-afh: its real main() against a scripted
 # detection phase, so what it reports and exits with is checked without a
@@ -182,10 +186,6 @@ add_test(NAME afh-main COMMAND test-afh-main)
 # Nothing here waits on a device; a regression that reaches a real receive
 # loop should fail instead of hanging the suite.
 set_tests_properties(afh-main PROPERTIES TIMEOUT 10)
-# A regression that lets a mode such as -I (identify, blinks until
-# interrupted) run inside main() would hang; fail it instead. A normal run
-# takes well under a second (0.02-0.5 s locally and in CI).
-set_tests_properties(util-main PROPERTIES TIMEOUT 5)
 
 # Runs the real libubertooth part-ID commands against a fake libusb control
 # transfer (defined in the test, so it wins over libusb's). libbtbb is faked;

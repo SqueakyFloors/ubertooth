@@ -92,9 +92,10 @@ It exits 2 when the `-t` detection phase received no packet from the piconet
 tool was interrupted during the phase.
 
 It exits 1 without opening a device for a bad command line (a missing UAP or
-LAP, an option value out of range, or a word that is not an option), when the
-selected Ubertooth is not found, and when the board could not be told to
-receive.
+LAP, an option value out of range, or a word that is not an option), and when
+the selected Ubertooth is not found. Without `-r`, it also exits 1 when the
+receive could not be started at all; `-r` does not report that and still
+exits 0.
 
 ## SEE ALSO
 
