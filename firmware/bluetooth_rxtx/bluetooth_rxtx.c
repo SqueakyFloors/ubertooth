@@ -74,7 +74,9 @@ volatile uint8_t modulation = MOD_BT_BASIC_RATE;
 /* specan stuff */
 volatile uint16_t low_freq = 2400;
 volatile uint16_t high_freq = 2483;
-volatile int8_t rssi_threshold = -30;  // -54dBm - 30 = -84dBm
+/* raw-scale LED specan threshold; 16-bit so the host's whole -q range fits
+ * (see ubertooth_rssi.h) */
+volatile int16_t rssi_threshold = -30;  // -54dBm - 30 = -84dBm
 
 /* Generic TX stuff */
 generic_tx_packet tx_pkt;
@@ -411,9 +413,11 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params, uin
 		break;
 
 	case UBERTOOTH_LED_SPECAN:
-		if (request_params[0] > 256)
+		/* the threshold is -N dBm, N as ubertooth-util accepts it; refuse
+		 * anything else, as the other range-checked requests do */
+		if (!rssi_threshold_n_valid(request_params[0]))
 			return 0;
-		rssi_threshold = 54 - request_params[0];
+		rssi_threshold = rssi_threshold_from_n(request_params[0]);
 		requested_mode = MODE_LED_SPECAN;
 		*data_len = 0;
 		break;
@@ -2589,7 +2593,7 @@ void led_specan()
 		/* give the CC2400 time to acquire RSSI reading */
 		volatile u32 j = 500; while (--j); //FIXME crude delay
 		lvl = (int8_t)((cc2400_get(RSSI) >> 8) & 0xff);
-		if (lvl > rssi_threshold) {
+		if (rssi_above_threshold(lvl, rssi_threshold)) {
 			switch (i) {
 				case 0:
 					TXLED_SET;
@@ -2641,6 +2645,15 @@ int main()
 
 	while (1) {
 		handle_usb(clkn);
+		/*
+		 * Every case that runs a mode loop must leave `mode` equal to the
+		 * mode it is running, either by setting it here or inside the
+		 * function it calls. That is what makes the next request a mode
+		 * change: without it, stopping the mode leaves requested_mode ==
+		 * mode, the MODE_IDLE case never runs, and cc2400_idle() never
+		 * resets the LEDs, the amplifier, the channel and the squelch.
+		 * See issue #191.
+		 */
 		if(requested_mode != mode) {
 			switch (requested_mode) {
 				case MODE_RESET:
@@ -2671,10 +2684,12 @@ int main()
 					bt_follow_le();
 					break;
 				case MODE_BT_PROMISC_LE:
+					mode = MODE_BT_PROMISC_LE;
 					bt_promisc_le();
 					break;
 #ifdef TX_ENABLE
 				case MODE_BT_SLAVE_LE:
+					mode = MODE_BT_SLAVE_LE;
 					bt_slave_le();
 					break;
 				case MODE_TX_TEST:
@@ -2692,9 +2707,11 @@ int main()
 					break;
 #endif
 				case MODE_SPECAN:
+					mode = MODE_SPECAN;
 					specan();
 					break;
 				case MODE_LED_SPECAN:
+					mode = MODE_LED_SPECAN;
 					led_specan();
 					break;
 				case MODE_EGO:

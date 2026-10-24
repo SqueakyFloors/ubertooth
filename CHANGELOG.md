@@ -40,7 +40,7 @@
   the command returns at once and the board stays reachable; `-S` or any mode
   option stops it and leaves the LEDs off.
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
-- **Reflash required:** the firmware API version is now 1.10, and the host
+- **Reflash required:** the firmware API version is now 1.11, and the host
   tools require firmware of exactly their own API version, older or newer
   (`ubertooth-util` still reads the version and reflashes any firmware). Host
   and firmware come from the same tree; `2020-12-R1` firmware is refused.
@@ -118,6 +118,16 @@
   index too large to be a device index (`-U4294967296`) is refused as given
   instead of being wrapped into a different index.
   [#188](https://github.com/SqueakyFloors/ubertooth/issues/188)
+- `ubertooth-util -q<N>` sets the light-emitting diode (LED) spectrum analyzer
+  threshold to -N decibels relative to one milliwatt (dBm), and every value the
+  tool accepts now works: `-q183` to `-q225`, and the default bare `-q`, light
+  the LEDs for the weakest reading instead of lighting nothing. The firmware
+  also refuses a threshold outside 1-225.
+  [#189](https://github.com/SqueakyFloors/ubertooth/issues/189)
+- Stopping the LED spectrum analyzer (`ubertooth-util -q`), `ubertooth-specan`
+  or `ubertooth-btle -p` now resets the board like every other mode does: LEDs
+  off, amplifier off, channel 2441 MHz and squelch -120 dBm.
+  [#191](https://github.com/SqueakyFloors/ubertooth/issues/191)
 
 - `ubertooth-dfu` now performs bounded, device-specific Device Firmware
   Upgrade (DFU) entry and recovery, retries interrupted transfers, and verifies

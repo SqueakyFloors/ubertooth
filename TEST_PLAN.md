@@ -40,7 +40,7 @@ Hardware required: Ubertooth One, Linux machine (Ubuntu 22.04+ preferred), a BLE
 
 ### 2a. Firmware version check
 - [ ] Run `ubertooth-util -v`
-- [ ] Confirm: returns `Firmware version: <revision> (API:1.10)` (firmware
+- [ ] Confirm: returns `Firmware version: <revision> (API:1.11)` (firmware
       built from this tree; the host tools refuse any other API version)
 - [ ] Confirm: no `usb_claim_interface` errors
 - [ ] Confirm: no timeout errors
@@ -103,6 +103,23 @@ Hardware required: Ubertooth One, Linux machine (Ubuntu 22.04+ preferred), a BLE
 - [ ] Run `ubertooth-specan-ui`
 - [ ] Confirm: GUI launches without `ModuleNotFoundError: No module named 'specan'`
 - [ ] Confirm: spectrum data displayed
+
+### 4c. LED spectrum analyzer threshold
+- [ ] Run `ubertooth-util -q182`, then `ubertooth-util -d` a few times
+- [ ] Confirm: LEDs light (ambient noise is above -182 dBm)
+- [ ] Repeat with `-q183`, `-q225` and bare `-q`
+- [ ] Confirm: each lights the LEDs too; a larger N is never less sensitive
+- [ ] Run `ubertooth-util -q1`
+- [ ] Confirm: LEDs stay off (-1 dBm is far above ambient noise)
+- [ ] Run `ubertooth-util -S`
+
+### 4d. Stopping a mode resets the board
+- [ ] Run `ubertooth-util -c2470 -z-60`, then `-q182`, then `-S`
+- [ ] Run `ubertooth-util -d -C -z -a`
+- [ ] Confirm: LEDs 0 0 0, channel 2441 MHz, squelch -120, PA level unchanged
+- [ ] Repeat with `ubertooth-specan` stopped by Ctrl+C, then `-d -C -z`
+- [ ] Repeat with `ubertooth-btle -p` stopped by Ctrl+C, then `-d -C -z`
+- [ ] Confirm: the same idle state each time
 
 ---
 

@@ -12,7 +12,7 @@ FW_RXTX := ../bluetooth_rxtx
 FW_COMMON := ../common
 CPPFLAGS += -I. -I$(FW_RXTX)
 
-TESTS   := test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait
+TESTS   := test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_mode_dispatch
 BINDIR  := bin
 
 .PHONY: all test clean
@@ -53,6 +53,14 @@ $(BINDIR)/test_frend: test_frend.c minunit.h $(FW_COMMON)/cc2400.h \
 $(BINDIR)/test_cc2400_wait: test_cc2400_wait.c minunit.h stubs-radio/ubertooth.h \
 		stubs/ubertooth.h $(FW_RXTX)/cc2400_wait.c $(FW_RXTX)/cc2400_wait.h | $(BINDIR)
 	$(CC) $(CFLAGS) -Istubs-radio $(CPPFLAGS) -o $@ test_cc2400_wait.c $(FW_RXTX)/cc2400_wait.c
+
+# The mode dispatch lives in main(), which cannot run here, so this test scans
+# bluetooth_rxtx.c as text (like test_frend's last case). FW_RXTX_DIR points it
+# at the source; it links nothing from the firmware.
+$(BINDIR)/test_mode_dispatch: test_mode_dispatch.c minunit.h \
+		$(FW_RXTX)/bluetooth_rxtx.c | $(BINDIR)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
+		-o $@ test_mode_dispatch.c
 
 $(BINDIR):
 	mkdir -p $(BINDIR)

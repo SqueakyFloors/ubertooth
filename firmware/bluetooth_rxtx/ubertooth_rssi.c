@@ -95,3 +95,18 @@ int8_t rssi_get_avg(uint16_t channel)
 
 	return round_div(rssi_iir[channel-2402], 256);
 }
+
+int rssi_threshold_n_valid(uint16_t n)
+{
+	return (n >= RSSI_THRESHOLD_N_MIN) && (n <= RSSI_THRESHOLD_N_MAX);
+}
+
+int16_t rssi_threshold_from_n(uint16_t n)
+{
+	return (int16_t)RSSI_DBM_OFFSET - (int16_t)n;
+}
+
+int rssi_above_threshold(int8_t lvl, int16_t threshold)
+{
+	return (int16_t)lvl > threshold;
+}

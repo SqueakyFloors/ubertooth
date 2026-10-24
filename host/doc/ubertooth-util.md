@@ -33,9 +33,10 @@ Ubertooth devices. Refer to [RANGE TEST][] for full details.
 Operations that put the device into a continuous mode — `-I` (identify),
 `-q` (LED spectrum), `-x` (xmas), `-t` (TX test), `-n` (range test), and
 `-e` (repeater) — first stop any operation already running on that device, so
-each starts from a known idle state. (This only resets the operating mode;
-configured channel and power level are preserved.) Each of them runs on the
-board and `ubertooth-util` returns immediately, so the same board stays usable
+each starts from a known idle state. Stopping a mode, with `-S` or by starting
+another, puts the board back to idle: LEDs off, channel 2441 MHz and squelch
+-120 dBm. The power amplifier level set with `-a` is kept. Each of them runs
+on the board and `ubertooth-util` returns immediately, so the same board stays usable
 from other commands meanwhile. `-I`, `-q`, `-x`, `-t` and `-e` keep running
 until `-S` stops them or another mode replaces them; `-n` (range test) ends by
 itself when the test finishes.
@@ -108,7 +109,10 @@ Radio options:
  - `-C[0-78]` :
    get/set channel
  - `-q[1-225 (RSSI threshold)]` :
-   start LED spectrum analyzer
+   start LED spectrum analyzer. The threshold is -N dBm, so a larger N lights
+   the LEDs for weaker signals; the default, bare `-q`, is 225 and lights them
+   for anything the radio reads. The TX, RX and USR LEDs stand for 2412, 2437
+   and 2462 MHz. `-S` stops it and leaves the LEDs off.
  - `-t` :
    intitiate continuous transmit test
  - `-z[-128..127]` :
