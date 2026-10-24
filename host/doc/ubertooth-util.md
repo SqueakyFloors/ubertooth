@@ -244,7 +244,9 @@ a value; the other requested queries are still reported. A failed `-b`, `-c`,
 `-a`, `-z`, `-l`, `-d`, `-p`, `-s`, `-m` or `-9` read also prints
 `error: <query> read failed` (for example `error: channel read failed` or
 `error: board ID read failed`) on standard error, after any message from
-libubertooth.
+libubertooth. When the board returns fewer bytes than the read needs, that is
+the only line, with the counts added, for example
+`error: channel read failed: board returned 0 of 2 bytes`.
 
 ## SEE ALSO
 

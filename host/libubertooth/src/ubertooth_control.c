@@ -160,19 +160,24 @@ int cmd_set_usrled(struct libusb_device_handle* devh, u16 state)
 	return 0;
 }
 
-/* A fixed-size control read must return exactly the bytes asked for. A
- * short or empty reply (seen with stalled control transfers in follow mode)
- * would otherwise hand back whatever the result buffer held, as if it were a
- * real value. Returns r unchanged unless the length is wrong, and then
- * LIBUSB_ERROR_IO. A reply longer than asked cannot come from libusb (it is
- * capped at wLength); "long" is only a fallback. */
+/* Report a reply shorter (or, as a fallback, longer) than the read needs, as
+ * the one complete error line, and return UBERTOOTH_ERROR_SHORT_REPLY so the
+ * caller does not print a second line. */
+static int short_reply(const char *what, int got, int want, const char *unit)
+{
+	fprintf(stderr, "error: %s read failed: board returned %d of %d %s\n",
+	        what, got, want, unit);
+	return UBERTOOTH_ERROR_SHORT_REPLY;
+}
+
+/* A fixed-size control read must return exactly the bytes asked for. A short
+ * or empty reply (seen with stalled control transfers in follow mode) would
+ * otherwise hand back whatever the result buffer held, as if it were a real
+ * value. Returns r unchanged unless the length is wrong. */
 static int check_reply_length(int r, int want, const char *what)
 {
-	if (r >= 0 && r != want) {
-		fprintf(stderr, "%s: %s reply (%d of %d bytes)\n",
-		        what, r < want ? "short" : "long", r, want);
-		return LIBUSB_ERROR_IO;
-	}
+	if (r >= 0 && r != want)
+		return short_reply(what, r, want, "bytes");
 	return r;
 }
 
@@ -608,11 +613,8 @@ static int copy_reply_string(const char *what, const u8 *data, int data_len,
 {
 	size_t n = declared;
 
-	if (data_len < (int)declared) {
-		fprintf(stderr, "%s: short reply (%d of %u string bytes)\n",
-		        what, data_len, (unsigned int)declared);
-		return LIBUSB_ERROR_IO;
-	}
+	if (data_len < (int)declared)
+		return short_reply(what, data_len, declared, "string bytes");
 	/* A buffer smaller than the string keeps its leading part, as before. */
 	if (n > size - 1)
 		n = size - 1;
@@ -644,10 +646,8 @@ int cmd_get_firmware_revision(struct libusb_device_handle* devh, char *revision,
 		snprintf(revision, size, "%u", (unsigned int)(result[0] | (result[1] << 8)));
 		return 0;
 	}
-	if (r < 3) {
-		fprintf(stderr, "firmware revision: short reply (%d bytes)\n", r);
-		return LIBUSB_ERROR_IO;
-	}
+	if (r < 3) /* 2 is the old SVN form above; the string form needs 3+ */
+		return short_reply("firmware revision", r, 3, "bytes");
 	return copy_reply_string("firmware revision", &result[3], r - 3, result[2],
 	                         revision, size);
 }
@@ -671,22 +671,26 @@ int cmd_get_firmware_compile_info(struct libusb_device_handle* devh,
 		return r;
 	}
 
-	if (r < 1) {
-		fprintf(stderr, "compile info: short reply (%d bytes)\n", r);
-		return LIBUSB_ERROR_IO;
-	}
+	if (r < 1)
+		return short_reply("compile info", r, 1, "bytes");
 	return copy_reply_string("compile info", &result[1], r - 1, result[0],
 	                         compile_info, size);
 }
 
 /* The void forms keep their old contract: on failure the buffer holds
- * "error: <code>" instead of the text. */
+ * "error: <code>" instead of the text, with a short reply reported as
+ * LIBUSB_ERROR_IO (-1) as before. */
+static int old_error_code(int r)
+{
+	return r == UBERTOOTH_ERROR_SHORT_REPLY ? LIBUSB_ERROR_IO : r;
+}
+
 void cmd_get_rev_num(struct libusb_device_handle* devh, char *version, u8 len)
 {
 	int r = cmd_get_firmware_revision(devh, version, len);
 
 	if (r < 0 && version != NULL && len > 0)
-		snprintf(version, len, "error: %d", r);
+		snprintf(version, len, "error: %d", old_error_code(r));
 }
 
 void cmd_get_compile_info(struct libusb_device_handle* devh, char *compile_info, u8 len)
@@ -694,7 +698,7 @@ void cmd_get_compile_info(struct libusb_device_handle* devh, char *compile_info,
 	int r = cmd_get_firmware_compile_info(devh, compile_info, len);
 
 	if (r < 0 && compile_info != NULL && len > 0)
-		snprintf(compile_info, len, "error: %d", r);
+		snprintf(compile_info, len, "error: %d", old_error_code(r));
 }
 
 int cmd_get_board_id(struct libusb_device_handle* devh)
@@ -889,7 +893,7 @@ int cmd_clear_afh_map(struct libusb_device_handle* devh)
 }
 
 /* Read the access address into *access_address. Returns 0, or a negative
- * libusb error (LIBUSB_ERROR_IO for a short reply); *access_address is only
+ * error (libusb, or UBERTOOTH_ERROR_SHORT_REPLY); *access_address is only
  * written on success. */
 int cmd_read_access_address(struct libusb_device_handle* devh, u32 *access_address)
 {

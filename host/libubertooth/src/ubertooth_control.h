@@ -91,11 +91,17 @@ int cmd_tx_syms(struct libusb_device_handle* devh);
 int cmd_specan(struct libusb_device_handle* devh, u16 low_freq, u16 high_freq);
 int cmd_led_specan(struct libusb_device_handle* devh, u16 rssi_threshold);
 int cmd_set_usrled(struct libusb_device_handle* devh, u16 state);
-/* The fixed-size reads below return their value (>= 0), or a negative libusb
- * error. A reply shorter than expected is LIBUSB_ERROR_IO, never a value
- * made from stale bytes. cmd_get_clock() and cmd_get_access_address() return
- * an unsigned value, so an error comes back as that negative code cast to
- * u32; cmd_read_access_address() reports errors separately. */
+/* A read whose reply is shorter than expected. libubertooth has already
+ * printed the whole error, "error: <what> read failed: board returned <n> of
+ * <want> bytes", so a caller should not add its own "read failed" line. The
+ * value is outside libusb's error range. */
+#define UBERTOOTH_ERROR_SHORT_REPLY (-1000)
+
+/* The fixed-size reads below return their value (>= 0), or a negative error:
+ * a libusb error, or UBERTOOTH_ERROR_SHORT_REPLY, never a value made from
+ * stale bytes. cmd_get_clock() and cmd_get_access_address() return an
+ * unsigned value, so an error comes back as that negative code cast to u32;
+ * cmd_read_access_address() reports errors separately. */
 int cmd_get_usrled(struct libusb_device_handle* devh);
 int cmd_set_rxled(struct libusb_device_handle* devh, u16 state);
 int cmd_get_rxled(struct libusb_device_handle* devh);

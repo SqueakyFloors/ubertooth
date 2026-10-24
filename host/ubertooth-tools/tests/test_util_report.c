@@ -244,6 +244,24 @@ MU_TEST(transfer_error_fails_without_printing_a_board_line)
 	          "failed board ID read not named");
 }
 
+/* A short reply's whole "error: <query> read failed: board returned ..." line
+ * comes from libubertooth, so the report adds none; a libusb error still gets
+ * the report's own line. */
+MU_TEST(short_reply_adds_no_second_error_line)
+{
+	struct fake_device fake = make_fake();
+	struct util_report_request request = only_board_id();
+	struct captured captured;
+
+	fake.board_id = UTIL_ERROR_SHORT_REPLY;
+	captured = run(&request, &fake);
+	mu_assert_int_eq(1, captured.status);
+	mu_assert_int_eq(0, (long)strlen(captured.out));
+	mu_assert_int_eq(0, (long)strlen(captured.err));
+
+	mu_assert_int_eq(1, util_report_read_error(stderr, "channel", UTIL_ERROR_SHORT_REPLY));
+}
+
 MU_TEST(failed_identity_reads_name_the_query_once_each)
 {
 	struct fake_device fake = make_fake();
@@ -515,6 +533,7 @@ int main(void)
 	MU_RUN(every_known_board_id_succeeds_with_its_name);
 	MU_RUN(unknown_board_id_is_rejected_without_indexing_the_name_table);
 	MU_RUN(transfer_error_fails_without_printing_a_board_line);
+	MU_RUN(short_reply_adds_no_second_error_line);
 	MU_RUN(failed_identity_reads_name_the_query_once_each);
 	MU_RUN(an_unknown_board_id_is_not_reported_as_a_read_failure);
 	MU_RUN(read_failed_message_matches_only_the_exact_line_for_that_query);

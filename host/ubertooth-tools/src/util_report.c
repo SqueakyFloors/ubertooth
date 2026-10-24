@@ -51,6 +51,14 @@ int util_report_read_failed(FILE *err, const char *what)
 	return 1;
 }
 
+int util_report_read_error(FILE *err, const char *what, int code)
+{
+	/* libubertooth already printed the whole line for a short reply */
+	if (code == UTIL_ERROR_SHORT_REPLY)
+		return 1;
+	return util_report_read_failed(err, what);
+}
+
 int util_is_read_failed_message(const char *message, const char *what)
 {
 	size_t prefix = strlen(READ_FAILED_PREFIX), length = strlen(what);
@@ -68,7 +76,7 @@ int util_report_board_id(const struct util_report_ops *ops, void *context,
 
 	/* A negative value is a transfer error; the library reported it. */
 	if (board_id < 0)
-		return util_report_read_failed(err, UTIL_QUERY_BOARD_ID);
+		return util_report_read_error(err, UTIL_QUERY_BOARD_ID, board_id);
 	name = util_board_name(board_id);
 	if (name == NULL) {
 		fprintf(err, "error: unknown board ID %d\n", board_id);
@@ -119,10 +127,12 @@ int util_report_part_id(const struct util_report_ops *ops, void *context,
                         FILE *out, FILE *err)
 {
 	uint32_t part_id = 0;
+	int r;
 
 	/* A negative value is an error; the library reported it. */
-	if (ops->get_part_id(context, &part_id) < 0)
-		return util_report_read_failed(err, UTIL_QUERY_PART_ID);
+	r = ops->get_part_id(context, &part_id);
+	if (r < 0)
+		return util_report_read_error(err, UTIL_QUERY_PART_ID, r);
 	fprintf(out, "Part ID: %" PRIX32 "\n", part_id);
 	return 0;
 }
@@ -131,10 +141,11 @@ int util_report_serial(const struct util_report_ops *ops, void *context,
                        FILE *out, FILE *err)
 {
 	uint8_t serial[UTIL_SERIAL_BUFFER_LEN] = { 0 };
-	int i;
+	int i, r;
 
-	if (ops->get_serial(context, serial) != 0)
-		return util_report_read_failed(err, UTIL_QUERY_SERIAL);
+	r = ops->get_serial(context, serial);
+	if (r != 0)
+		return util_report_read_error(err, UTIL_QUERY_SERIAL, r);
 	fprintf(out, "Serial No: ");
 	for (i = 1; i < UTIL_SERIAL_BUFFER_LEN; i++)
 		fprintf(out, "%02x", serial[i]);

@@ -11,6 +11,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include <btbb.h>
 
@@ -104,7 +105,7 @@ MU_TEST(one_byte_reads_reject_an_empty_reply)
 	size_t i;
 	for (i = 0; i < BYTE_READS; i++) {
 		script(0, 0x05);
-		mu_assert_int_eq(LIBUSB_ERROR_IO, byte_reads[i].read(NULL));
+		mu_assert_int_eq(UBERTOOTH_ERROR_SHORT_REPLY, byte_reads[i].read(NULL));
 	}
 }
 
@@ -130,9 +131,9 @@ MU_TEST(channel_needs_both_bytes)
 	/* one or no byte back: an error, not a channel built from stale bytes
 	 * (the "channel 0" seen right after START_HOPPING) */
 	script(1, 0x89);
-	mu_assert_int_eq(LIBUSB_ERROR_IO, cmd_get_channel(NULL));
+	mu_assert_int_eq(UBERTOOTH_ERROR_SHORT_REPLY, cmd_get_channel(NULL));
 	script(0, 0);
-	mu_assert_int_eq(LIBUSB_ERROR_IO, cmd_get_channel(NULL));
+	mu_assert_int_eq(UBERTOOTH_ERROR_SHORT_REPLY, cmd_get_channel(NULL));
 	script(LIBUSB_ERROR_PIPE, 0);
 	mu_assert_int_eq(LIBUSB_ERROR_PIPE, cmd_get_channel(NULL));
 }
@@ -148,9 +149,9 @@ MU_TEST(serial_needs_all_17_bytes)
 
 	script(16, 0xab);
 	fake.reply[0] = 0;
-	mu_assert_int_eq(LIBUSB_ERROR_IO, cmd_get_serial(NULL, serial));
+	mu_assert_int_eq(UBERTOOTH_ERROR_SHORT_REPLY, cmd_get_serial(NULL, serial));
 	script(0, 0);
-	mu_assert_int_eq(LIBUSB_ERROR_IO, cmd_get_serial(NULL, serial));
+	mu_assert_int_eq(UBERTOOTH_ERROR_SHORT_REPLY, cmd_get_serial(NULL, serial));
 }
 
 MU_TEST(four_and_two_byte_reads_need_their_full_length)
@@ -160,20 +161,20 @@ MU_TEST(four_and_two_byte_reads_need_their_full_length)
 	mu_assert(cmd_get_clock(NULL) == 0x12345678u, "clock");
 	mu_assert(cmd_get_access_address(NULL) == 0x12345678u, "access address");
 	script(3, 0x11);
-	mu_assert(cmd_get_clock(NULL) == (uint32_t)LIBUSB_ERROR_IO, "short clock");
-	mu_assert(cmd_get_access_address(NULL) == (uint32_t)LIBUSB_ERROR_IO, "short access address");
+	mu_assert(cmd_get_clock(NULL) == (uint32_t)UBERTOOTH_ERROR_SHORT_REPLY, "short clock");
+	mu_assert(cmd_get_access_address(NULL) == (uint32_t)UBERTOOTH_ERROR_SHORT_REPLY, "short access address");
 
 	script(2, 0);
 	fake.reply[0] = 0x12; fake.reply[1] = 0x34;
 	mu_assert_int_eq(0x1234, cmd_read_register(NULL, 0x05));
 	script(1, 0x12);
-	mu_assert_int_eq(LIBUSB_ERROR_IO, cmd_read_register(NULL, 0x05));
+	mu_assert_int_eq(UBERTOOTH_ERROR_SHORT_REPLY, cmd_read_register(NULL, 0x05));
 
 	/* an empty reply, as seen in follow mode */
 	script(0, 0);
-	mu_assert(cmd_get_clock(NULL) == (uint32_t)LIBUSB_ERROR_IO, "empty clock");
-	mu_assert(cmd_get_access_address(NULL) == (uint32_t)LIBUSB_ERROR_IO, "empty access address");
-	mu_assert_int_eq(LIBUSB_ERROR_IO, cmd_read_register(NULL, 0x05));
+	mu_assert(cmd_get_clock(NULL) == (uint32_t)UBERTOOTH_ERROR_SHORT_REPLY, "empty clock");
+	mu_assert(cmd_get_access_address(NULL) == (uint32_t)UBERTOOTH_ERROR_SHORT_REPLY, "empty access address");
+	mu_assert_int_eq(UBERTOOTH_ERROR_SHORT_REPLY, cmd_read_register(NULL, 0x05));
 }
 
 /* cmd_read_access_address() reports an error separately from the address,
@@ -190,15 +191,42 @@ MU_TEST(read_access_address_returns_errors_separately)
 
 	aa = 0xdeadbeef;
 	script(3, 0x11);
-	mu_assert_int_eq(LIBUSB_ERROR_IO, cmd_read_access_address(NULL, &aa));
+	mu_assert_int_eq(UBERTOOTH_ERROR_SHORT_REPLY, cmd_read_access_address(NULL, &aa));
 	mu_assert(aa == 0xdeadbeefu, "left untouched on a short reply");
 	script(0, 0);
-	mu_assert_int_eq(LIBUSB_ERROR_IO, cmd_read_access_address(NULL, &aa));
+	mu_assert_int_eq(UBERTOOTH_ERROR_SHORT_REPLY, cmd_read_access_address(NULL, &aa));
 	mu_assert(aa == 0xdeadbeefu, "left untouched on an empty reply");
 
 	script(LIBUSB_ERROR_PIPE, 0);
 	mu_assert_int_eq(LIBUSB_ERROR_PIPE, cmd_read_access_address(NULL, &aa));
 	mu_assert(aa == 0xdeadbeefu, "left untouched on an error");
+}
+
+/* The library prints the one complete line for a short reply. */
+MU_TEST(short_reply_message_names_the_read_and_the_counts)
+{
+	char text[256] = "";
+	FILE *capture = tmpfile();
+	int saved = dup(fileno(stderr));
+	size_t n;
+
+	mu_assert(capture != NULL && saved >= 0, "capture stderr");
+	fflush(stderr);
+	dup2(fileno(capture), fileno(stderr));
+	script(0, 0);
+	cmd_read_access_address(NULL, &(uint32_t){0});
+	script(1, 0x89);
+	cmd_get_channel(NULL);
+	fflush(stderr);
+	dup2(saved, fileno(stderr));
+	close(saved);
+	rewind(capture);
+	n = fread(text, 1, sizeof(text) - 1, capture);
+	text[n] = '\0';
+	fclose(capture);
+	mu_assert(strcmp(text,
+	    "error: access address read failed: board returned 0 of 4 bytes\n"
+	    "error: channel read failed: board returned 1 of 2 bytes\n") == 0, text);
 }
 
 MU_TEST(range_result_needs_all_5_bytes)
@@ -216,7 +244,7 @@ MU_TEST(range_result_needs_all_5_bytes)
 
 	memset(&rr, 0x5a, sizeof(rr));
 	script(4, 0x11);
-	mu_assert_int_eq(LIBUSB_ERROR_IO, cmd_get_rangeresult(NULL, &rr));
+	mu_assert_int_eq(UBERTOOTH_ERROR_SHORT_REPLY, cmd_get_rangeresult(NULL, &rr));
 	mu_assert_int_eq(0x5a, rr.valid); /* left untouched */
 }
 
@@ -228,6 +256,7 @@ int main(void)
 	MU_RUN(channel_needs_both_bytes);
 	MU_RUN(serial_needs_all_17_bytes);
 	MU_RUN(range_result_needs_all_5_bytes);
+	MU_RUN(short_reply_message_names_the_read_and_the_counts);
 	MU_RUN(four_and_two_byte_reads_need_their_full_length);
 	MU_RUN(read_access_address_returns_errors_separately);
 	return mu_report();

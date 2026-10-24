@@ -296,7 +296,9 @@ no value line is printed on standard output, so an error code is never shown as
 a value; the other requested queries are still reported. A failed \fB\fC\-b\fR, \fB\fC\-c\fR, \fB\fC\-a\fR, \fB\fC\-z\fR, \fB\fC\-l\fR, \fB\fC\-d\fR, \fB\fC\-p\fR, \fB\fC\-s\fR, \fB\fC\-m\fR or \fB\fC\-9\fR read also prints
 \fB\fCerror: <query> read failed\fR (for example \fB\fCerror: channel read failed\fR or
 \fB\fCerror: board ID read failed\fR) on standard error, after any message from
-libubertooth.
+libubertooth. When the board returns fewer bytes than the read needs, that is
+the only line, with the counts added, for example
+\fB\fCerror: channel read failed: board returned 0 of 2 bytes\fR\.
 .SH SEE ALSO
 .PP
 .BR ubertooth (7): 

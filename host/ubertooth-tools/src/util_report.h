@@ -58,6 +58,15 @@ int util_status_after(int status, int device_result);
  * query whose read failed, so a failed read never shows a value line. */
 int util_report_read_failed(FILE *err, const char *what);
 
+/* libubertooth's UBERTOOTH_ERROR_SHORT_REPLY, repeated here so this module
+ * stays free of libusb headers; ubertooth-util.c checks they match. */
+#define UTIL_ERROR_SHORT_REPLY (-1000)
+
+/* Like util_report_read_failed() for a read that failed with code, but prints
+ * nothing for a short reply (UTIL_ERROR_SHORT_REPLY), whose whole line
+ * libubertooth already printed. Returns 1. */
+int util_report_read_error(FILE *err, const char *what, int code);
+
 /* Nonzero if message is exactly the line util_report_read_failed() prints for
  * what (so a caller that captured it can show its own read-failed text). */
 int util_is_read_failed_message(const char *message, const char *what);
