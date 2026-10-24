@@ -202,7 +202,9 @@ flash_firmware() {
 	dfu="$(command -v ubertooth-dfu || true)"
 	util="$(command -v ubertooth-util || true)"
 	img="$REPO_ROOT/firmware/bluetooth_rxtx/bluetooth_rxtx.dfu"
-	[ -n "$dfu" ] && [ -n "$util" ] || die "ubertooth-dfu/ubertooth-util not found on PATH; build the host tools first"
+	if [ -z "$dfu" ] || [ -z "$util" ]; then
+		die "ubertooth-dfu/ubertooth-util not found on PATH; build the host tools first"
+	fi
 
 	info "Building firmware (bluetooth_rxtx)"
 	PATH="$(dirname "$dfu"):$PATH" make -C "$REPO_ROOT/firmware/bluetooth_rxtx"
