@@ -206,8 +206,10 @@
   (`ubertooth-tx`, `ubertooth-btle -s` and its interference modes,
   `ubertooth-ducky`, `ubertooth-ego -j`) now transmit at the power amplifier
   level set with `ubertooth-util -a`, instead of forcing a level of their own
-  and leaving it changed afterwards. Without `-a` they transmit at the
-  power-on level 7, as before.
+  and leaving it changed afterwards. Note that this raises the default: without
+  `-a` these modes now transmit at the power-on level 7 (0 dBm at the CC2400)
+  rather than the level 3 (-7 dBm) they used to force. E-GO jamming already
+  used 7, so it is unchanged.
   [#165](https://github.com/SqueakyFloors/ubertooth/issues/165)
 
 ### Documentation

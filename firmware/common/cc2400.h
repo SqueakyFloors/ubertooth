@@ -83,19 +83,19 @@
 /* FREND: analog front-end control */
 /* PA_LEVEL[2:0]: transmit power. 7 (0 dBm at the CC2400) after a chip reset,
  * and set with `ubertooth-util -a`. */
-#define FREND_PA_LEVEL 0x0007
-/* select the transmit path */
-#define FREND_TX       0x0008
+#define FREND_PA_LEVEL     0x0007
+/* bit 3 is reserved and must be written as 1; it also resets to 1 */
+#define FREND_RESERVED_ONE 0x0008
 
 /*
- * FREND value that selects the transmit path and keeps the PA level that is
- * already in `frend` (read it with cc2400_get(FREND)). Transmit modes use
- * this so that they emit at the level the user asked for with
- * `ubertooth-util -a` instead of forcing a level of their own.
+ * FREND value that keeps the PA level already in `frend` (read it with
+ * cc2400_get(FREND)) and writes the reserved bits as the datasheet requires.
+ * Transmit modes use this so that they emit at the level the user asked for
+ * with `ubertooth-util -a` instead of forcing a level of their own.
  */
-static inline uint16_t frend_tx(uint16_t frend)
+static inline uint16_t frend_keep_pa_level(uint16_t frend)
 {
-	return FREND_TX | (frend & FREND_PA_LEVEL);
+	return FREND_RESERVED_ONE | (frend & FREND_PA_LEVEL);
 }
 
 /* GIO signals */

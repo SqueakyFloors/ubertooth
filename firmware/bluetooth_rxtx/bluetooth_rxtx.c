@@ -314,8 +314,8 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params, uin
 		break;
 
 	case UBERTOOTH_SET_PALEVEL:
-		if( request_params[0] <= FREND_PA_LEVEL ) {
-			cc2400_set(FREND, FREND_TX | request_params[0]);
+		if( request_params[0] < 8 ) {
+			cc2400_set(FREND, FREND_RESERVED_ONE | request_params[0]);
 		} else {
 			return 0;
 		}
@@ -1091,7 +1091,7 @@ static void cc2400_tx_sync(uint32_t sync)
 
 	cc2400_set(FSDIV,   channel);
 	// keep the amplifier level set with `ubertooth-util -a` (7 at power-on)
-	cc2400_set(FREND,   frend_tx(cc2400_get(FREND)));
+	cc2400_set(FREND,   frend_keep_pa_level(cc2400_get(FREND)));
 
 	if (modulation == MOD_BT_BASIC_RATE) {
 		cc2400_set(MDMCTRL, 0x0029);    // 160 kHz frequency deviation
@@ -1165,7 +1165,7 @@ void le_transmit(u32 aa, u8 len, u8 *data)
 
 	cc2400_set(FSDIV,   channel);
 	// keep the amplifier level set with `ubertooth-util -a` (7 at power-on)
-	cc2400_set(FREND,   frend_tx(cc2400_get(FREND)));
+	cc2400_set(FREND,   frend_keep_pa_level(cc2400_get(FREND)));
 	cc2400_set(MDMCTRL, 0x0040);    // 250 kHz frequency deviation
 	cc2400_set(INT,     0x0010);    // FIFO_THRESHOLD: 16 bytes
 
@@ -1244,7 +1244,7 @@ void le_jam(void) {
 
 	// cc2400_set(FSDIV,   channel);
 	// jam at the amplifier level set with `ubertooth-util -a` (7 at power-on)
-	cc2400_set(FREND,   frend_tx(cc2400_get(FREND)));
+	cc2400_set(FREND,   frend_keep_pa_level(cc2400_get(FREND)));
 	cc2400_set(MDMCTRL, 0x0040);    // 250 kHz frequency deviation
 
 	while (!(cc2400_status() & XOSC16M_STABLE));

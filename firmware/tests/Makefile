@@ -39,9 +39,12 @@ $(BINDIR)/test_identify_blink: test_identify_blink.c minunit.h \
 	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ test_identify_blink.c $(FW_RXTX)/identify_blink.c
 
 # cc2400.h is register definitions plus frend_tx(); it needs no stubs, so it is
-# included straight from firmware/common.
-$(BINDIR)/test_frend: test_frend.c minunit.h $(FW_COMMON)/cc2400.h | $(BINDIR)
-	$(CC) $(CFLAGS) $(CPPFLAGS) -I$(FW_COMMON) -o $@ test_frend.c
+# included straight from firmware/common. FW_RXTX_DIR lets the last test scan
+# the transmit sources for hard-coded PA levels (run from this directory).
+$(BINDIR)/test_frend: test_frend.c minunit.h $(FW_COMMON)/cc2400.h \
+		$(FW_RXTX)/bluetooth_rxtx.c $(FW_RXTX)/ego.c | $(BINDIR)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -I$(FW_COMMON) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
+		-o $@ test_frend.c
 
 $(BINDIR):
 	mkdir -p $(BINDIR)

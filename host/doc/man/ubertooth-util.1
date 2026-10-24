@@ -123,7 +123,8 @@ CC2400's own reset value (the firmware does not set it at start\-up)\.
 Receiving does not change it\. Transmit modes use the level set here and
 leave it unchanged: \fB\fC\-t\fR (TX test), Bluetooth and BLE transmit, and BLE and
 E\-GO jamming\. The range test and repeater (\fB\fC\-n\fR, \fB\fC\-e\fR) step through levels
-by design\.
+by design and leave the level wherever their sweep ended, so set it again
+after using them\.
 .IP \(bu 2
 \fB\fC\-c[2402\-2480]\fR :
 get/set channel in MHz

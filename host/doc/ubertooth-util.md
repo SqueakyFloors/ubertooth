@@ -101,7 +101,8 @@ Radio options:
    Receiving does not change it. Transmit modes use the level set here and
    leave it unchanged: `-t` (TX test), Bluetooth and BLE transmit, and BLE and
    E-GO jamming. The range test and repeater (`-n`, `-e`) step through levels
-   by design.
+   by design and leave the level wherever their sweep ended, so set it again
+   after using them.
  - `-c[2402-2480]` :
    get/set channel in MHz
  - `-C[0-78]` :
