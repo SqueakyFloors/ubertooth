@@ -19,9 +19,9 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <string.h>
 
 #include "arglist.h"
 
@@ -54,15 +54,23 @@ int isodigit(int c)
  *
  * A user supplied token parser can be invoked to covert tokens
  * to integer values.  The token parser returns the integer value,
- * and the number of characters consumed. (See sample at end of file)
- * 
+ * and the number of characters consumed.
+ *
+ * Every value must be in [min, max]. Nothing is printed here: on failure
+ * *error (when given) says what went wrong and which item did it, so the
+ * caller reports the whole thing in one line naming the item as the user
+ * wrote it, in the form the rest of the tools use.
  */
 
 int *listOfInts(char *arg, int *n,
-		int (*token_parser) (char *p, int *nchars))
+		int (*token_parser) (char *p, int *nchars),
+		long min, long max, struct int_list_error *error)
 {
     int *r = NULL;
     int done = 0;
+    enum int_list_failure kind = INT_LIST_SYNTAX;
+    const char *why = "not a list of values";
+    char *item = arg;		// start of the item being read, for the report
 
     *n = 0;
 
@@ -78,12 +86,13 @@ int *listOfInts(char *arg, int *n,
 	int size;
 
 	p = arg;
+	item = arg;
 
 	while (1) {
 	    if (first_char && *p == '%' && token_parser != NULL) {
 		value = token_parser(p, &size);
 		if (size == -1) {
-		    fprintf(stderr, "failed to parse token");
+		    why = "unknown name";
 		    goto fail;
 		}
                 value_valid = 1;
@@ -93,7 +102,15 @@ int *listOfInts(char *arg, int *n,
 	    } else if (*p == ',' || *p == 0) {
 		// end-of-value or end-of-string
 		if (!value_valid) {
-		    fprintf(stderr, "value omitted\n");
+		    why = "empty value";
+		    goto fail;
+		}
+		// Both ends of a range are checked, so everything the range
+		// fills in is in bounds too. Checked before the range is
+		// expanded, so a huge one costs nothing.
+		if (value < min || value > max ||
+		    (first_value >= 0 && (first_value < min || first_value > max))) {
+		    kind = INT_LIST_RANGE;
 		    goto fail;
 		}
 		if (first_value >= 0) {
@@ -127,10 +144,11 @@ int *listOfInts(char *arg, int *n,
 
 		if (*p == 0)
 		    break;	// end-of-string
+		item = p + 1;	// the next item starts after the comma
 	    } else if (*p == '-') {
 		// range
 		if (!value_valid) {
-		    fprintf(stderr, "invalid range description\n");
+		    why = "range with no start";
 		    goto fail;
 		}
 		first_value = value;
@@ -154,19 +172,27 @@ int *listOfInts(char *arg, int *n,
 		    first_char = 0;
 		} else {
 		    if (base == OCTAL && !isodigit(*p)) {
-			fprintf(stderr, "invalid octal digit (%c)\n", *p);
+			why = "not an octal digit";
 			goto fail;
 		    }
 		}
 
-		// update the value, digit by digit
+		// update the value, digit by digit. A value only grows, so
+		// stop as soon as it is past max rather than wrapping round
+		// and reporting a number the user never wrote.
+		if (value > (max - (isdigit(*p) ? *p - '0'
+		                                : (tolower(*p) - 'a') + BASE10))
+		            / base) {
+		    kind = INT_LIST_RANGE;
+		    goto fail;
+		}
 		value *= base;
 		if (isdigit(*p))
 		    value += (*p - '0');
 		else if (isxdigit(*p))
 		    value += (tolower(*p) - 'a') + BASE10;
 	    } else {
-		fprintf(stderr, "invalid character (%c)\n", *p);
+		why = "not a name, address or range";
 		goto fail;
 	    }
 
@@ -177,7 +203,7 @@ int *listOfInts(char *arg, int *n,
 	    done = 1;
 	else {
 	    if ((r = (int *) malloc(*n * sizeof(int))) == 0) {
-		fprintf(stderr, "could not allocate memory\n");
+		why = "out of memory";
 		goto fail;
 	    }
 	    *n = 0;
@@ -187,6 +213,14 @@ int *listOfInts(char *arg, int *n,
     return r;
 
   fail:			// make sure that we have a consistent error state
+    if (error != NULL) {
+	error->kind = kind;
+	error->reason = why;
+	// the whole item, however far into it the reading got
+	error->item = item;
+	error->item_length = strcspn(item, ",");
+    }
+    free(r);
     *n = -1;
     return NULL;
 }

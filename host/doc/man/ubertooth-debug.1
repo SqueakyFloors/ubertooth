@@ -24,10 +24,13 @@ may be of interest to curious hackers.
 Options:
 .IP \(bu 2
 \fB\fC\-r <reg>[,<reg> [,[...]]]\fR :
-Read one or more registers from the CC2400 on Ubertooth
+Read one or more registers from the CC2400 on Ubertooth\&. Each item is an
+address \fB\fC0x00\fR\-\fB\fC0xff\fR or a \fB\fC%name\fR, in any mixture and in
+any position
 .IP \(bu 2
 \fB\fC\-r <start>\-<end>\fR :
-Read a consecutive set of registers from the CC2400 on Ubertooth
+Read a consecutive set of registers from the CC2400 on Ubertooth\&. Either end
+may be a \fB\fC%name\fR (\fB\fC\-r %main\-%fsdiv\fR)
 .IP \(bu 2
 \fB\fC\-v <0\-2>\fR :
 Sets the level of verbosity, default is 1.
@@ -59,6 +62,19 @@ also read the MANOR register:
 
 .nf
 ubertooth\-debug \-r %manor
+
+.fi
+.RE
+
+.PP
+Names and addresses mix freely, in a list or as the ends of a range:
+
+.PP
+.RS
+
+.nf
+ubertooth\-debug \-r %main,%fsdiv,0x1b
+ubertooth\-debug \-r %main\-%fsdiv
 
 .fi
 .RE
@@ -109,6 +125,33 @@ alongside it.
 An option value must be a whole value in its range, or it is refused the same
 way instead of being read as 0, for example
 \fB\fCerror: verbosity must be 0\-2 (got 3)\fR\&.
+.PP
+\fB\fC\-r\fR takes register addresses \fB\fC0x00\fR to \fB\fC0xff\fR, both ends
+included: \fB\fC0x00\fR is MAIN and \fB\fC0xff\fR is the highest address the
+tool accepts. An address outside that is refused, quoted as it was written, and
+with the whole value when it is one item of several:
+.PP
+.RS
+
+.nf
+$ ubertooth\-debug \-r 300
+error: register address must be 0x00\-0xff (got 300)
+$ ubertooth\-debug \-r 0x02,300
+error: register address must be 0x00\-0xff (got 300 in 0x02,300)
+
+.fi
+.RE
+
+.PP
+A value that cannot be read as a list at all gets one line in the same shape,
+with the reason: \fB\fCerror: register list must be names or addresses, single
+or as a range: unknown name (got %nosuchregister)\fR\&. The other reasons are
+\fB\fCempty value\fR, \fB\fCrange with no start\fR,
+\fB\fCnot an octal digit\fR and \fB\fCnot a name, address or range\fR\&.
+.PP
+\fB\fC\-r\fR is required: without it the command is refused with
+\fB\fCerror: \-r <reg>[,<reg>[,...]] is required: at least one register to
+read\fR\&.
 .SH SEE ALSO
 .PP
 ubertooth(7): overview of Project Ubertooth

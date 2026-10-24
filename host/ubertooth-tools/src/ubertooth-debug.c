@@ -34,27 +34,60 @@
 #include "arglist.h"
 #include "opt_parse.h"
 
+/* The firmware takes a one-byte CC2400 register address, so the tool accepts
+ * every address from 0x00 (MAIN) to 0xff. */
+#define CC2400_REG_ADDRESS_MAX 0xff
+
+/*
+ * "<item> in <whole value>" for the refused item, or just the value when the
+ * item is the whole of it or is empty (a missing value between commas).
+ */
+static void describe_item(char *out, size_t size,
+                          const struct int_list_error *failure,
+                          const char *value)
+{
+    if (failure->item_length == 0 || failure->item_length == strlen(value))
+	snprintf(out, size, "%s", value);
+    else
+	snprintf(out, size, "%.*s in %s", (int)failure->item_length,
+		 failure->item, value);
+}
+
 static void usage()
 {
     printf
 	("ubertooth-debug - command line utility for debugging Ubertooth One\n");
     printf("Usage:\n");
     printf("\t-h this message\n");
-    printf("\t-r <reg>[,<reg>[,...]] read the contents of CC2400 register(s)\n");
+    printf("\t-r <reg>[,<reg>[,...]] read the contents of CC2400 register(s),\n");
+    printf("\t   each 0x00-0x%02x or a %%name (example: -r 0x02,%%main)\n",
+	   CC2400_REG_ADDRESS_MAX);
     printf("\t-r <start>-<end> read a consecutive set of CC2400 register(s)\n");
     fputs(OPT_USAGE_SELECT_DEVICE, stdout);
     printf("\t-v<0-2> verbosity (default=1)\n");
 }
 
+/* Looks up one "%name" at the start of t, which runs to the next list
+ * separator. Matching the whole of t instead meant a name only worked as the
+ * last item: "-r %MAIN,%FSDIV" was looked up as "%MAIN,%FSDIV" and refused.
+ * t points into argv, so the separator is borrowed and put back rather than
+ * copying the name into a buffer of some guessed size. */
 int token_to_int(char *t, int *size)
 {
-    int r = 0;
+    size_t length = strcspn(t, ",-");
+    char separator;
+    int r;
 
+    *size = -1;
+    if (length == 0)
+	return -1;
+    separator = t[length];
+    t[length] = '\0';
     r = cc2400_name2reg(t);
-    if (r >= 0)
-	*size = strlen(cc2400_reg2name(r));
-    else
-	*size = -1;
+    t[length] = separator;
+    if (r < 0)
+	return -1;
+    *size = (int)length;
 
     return r;
 }
@@ -96,21 +129,35 @@ int main(int argc, char *argv[])
 	    if (opt_require_int(optarg, 0, 2, "verbosity", "", &verbose) < 0)
 		return 1;
 	    break;
-	case 'r':
-	    regList = listOfInts(optarg, &regListN, token_to_int);
-	    if (regListN > 0) {
-			do_read_register = 0;
-			for (i = 0; i < regListN; i++)
-			    if (regList[i] < 0 || regList[i] > 0xff)
-			do_read_register = -1;
+	case 'r': {
+	    struct int_list_error failure;
+
+	    /* A repeated -r replaces the earlier list. */
+	    free(regList);
+	    regList = listOfInts(optarg, &regListN, token_to_int, 0,
+				 CC2400_REG_ADDRESS_MAX, &failure);
+	    if (regListN < 0) {
+		/* One line, like every other refused option value, naming the
+		 * item as the user wrote it. The accepted range is the whole
+		 * of it, not one short at each end: 0x00 (MAIN) and 0xff are
+		 * both accepted. */
+		char item[64];
+
+		describe_item(item, sizeof(item), &failure, optarg);
+		if (failure.kind == INT_LIST_RANGE)
+		    fprintf(stderr, "error: register address must be"
+			    " 0x00-0x%02x (got %s)\n",
+			    CC2400_REG_ADDRESS_MAX, item);
+		else
+		    fprintf(stderr, "error: register list must be names or"
+			    " addresses, single or as a range: %s (got %s)\n",
+			    failure.reason, item);
+		return 1;
 	    }
-	    if (do_read_register < 0 || do_read_register > 0xff
-			|| regListN == -1) {
-			fprintf(stderr,
-				"ERROR: register address must be > 0x00 and < 0xff\n");
-			return 1;
-	    }
+	    if (regListN > 0)
+		do_read_register = 0;
 	    break;
+	}
 	default:
 	    usage();
 	    return 1;
@@ -129,11 +176,11 @@ int main(int argc, char *argv[])
 	return 0;
     }
 
-	if(regListN == 0) {
-		fprintf(stderr, "At least one register must be provided\n");
-	    usage();
-	    return 1;
-	}
+    if (regListN == 0) {
+	fprintf(stderr, "error: -r <reg>[,<reg>[,...]] is required:"
+		" at least one register to read\n");
+	return 1;
+    }
     /* initialise device */
     ut = ubertooth_start_select(ubertooth_device);
     if (ut == NULL) {

@@ -113,6 +113,9 @@ CASES = {
     "ubertooth-debug": STRAY + (
         (("-v", "3"), "error: verbosity must be 0-2 (got 3)"),
         (("-v", "abc"), "error: verbosity must be 0-2 (got abc)"),
+        # the message states the range -r accepts: 0x00 and 0xff are both in
+        # what -r accepts and refuses is covered in full by test_debug_cli.py
+        (("-r", "0x100"), "error: register address must be 0x00-0xff (got 0x100)"),
     ),
     "ubertooth-dfu": STRAY,
     "ubertooth-ducky": STRAY + ADV_INDEX + (

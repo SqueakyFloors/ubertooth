@@ -25,6 +25,11 @@ include(GNUInstallDirs)
 # the roff "<tool>.1" here are generated from them with ronn. ronn is OPTIONAL:
 # if found, regenerate the .1 at build time so man pages track the .md; if not,
 # the committed .1 are installed as-is (so `man` works without ronn).
+#
+# The committed pages were produced by go-md2man rather than ronn, so ronn
+# rewrites a page wholesale the first time it regenerates it. Only the pages in
+# the foreach below are regenerated; the rest, including ubertooth-debug.1, are
+# kept in step with their .md by hand in the same change.
 find_program(RONN_EXECUTABLE NAMES ronn ronn-ng)
 if(RONN_EXECUTABLE)
 	message(STATUS "ronn found: man pages will be regenerated from host/doc/*.md")
@@ -58,6 +63,7 @@ endif()
 
 install(FILES
 	"ubertooth-btle.1"
+	"ubertooth-debug.1"
 	"ubertooth-dump.1"
 	"ubertooth-rx.1"
 	"ubertooth-specan.1"

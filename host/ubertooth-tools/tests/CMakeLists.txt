@@ -111,6 +111,16 @@ add_test(
 		${CMAKE_CURRENT_SOURCE_DIR}/test_btle_cli.py
 		$<TARGET_FILE:ubertooth-btle>)
 
+# What ubertooth-debug -r accepts and refuses: the whole value is read before
+# a device is looked for, so both halves run against the real binary with no
+# board, with attached boards hidden from the tool. Fifteen short runs.
+add_test(
+	NAME debug-cli
+	COMMAND ${Python3_EXECUTABLE}
+		${CMAKE_CURRENT_SOURCE_DIR}/test_debug_cli.py
+		$<TARGET_FILE:ubertooth-debug>)
+set_tests_properties(debug-cli PROPERTIES TIMEOUT 20)
+
 # The file replay path of ubertooth-rx (-i), on fixtures the test builds
 # itself: the recorded times in the packet lines and in a capture written
 # during the replay, and the exit status for an unreadable or truncated file.
