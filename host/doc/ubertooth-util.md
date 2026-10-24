@@ -222,10 +222,18 @@ If the matching boards report the *same* serial, no longer string can tell them
 apart, and the message says so and points at `-U<index>` instead.
 
 A string that matches no attached board also exits non-zero, with
-`no Ubertooth found with serial matching '<string>'`. A board that does not
-answer the serial read is skipped silently while another board is being
-selected; when nothing matched, the message says how many attached boards did
-not answer.
+`no Ubertooth found with serial matching '<string>'`.
+
+A board that cannot be opened, or that does not answer the serial read, is
+skipped quietly while another board is being selected. It is reported with the
+result, because the string may well be that board's serial:
+
+    $ ubertooth-util -U 1cc0 -s
+    no Ubertooth found with serial matching '1cc0'
+    2 attached Ubertooth devices could not be opened
+    libUSB Error: Access denied (insufficient permissions)
+
+(On Linux, that usually means the udev rules are not installed.)
 
 An all-digits string is always an index, never a serial, even when it would
 match a serial: `-U 05` asks for index 5, not for the board whose serial starts

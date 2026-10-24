@@ -731,6 +731,51 @@ MU_TEST(two_boards_with_one_serial_are_refused_without_bad_advice)
 	    SERIAL_A ", " SERIAL_A "\n"
 	    "these Ubertooth devices report the same serial number; select one by "
 	    "index with -U<index>\n") == 0, msg);
+
+	/* The advice follows the serials, not the length of what was typed: a
+	 * short string that matches those two boards is just as impossible. */
+	bus_with_uberteeth(2);
+	set_serial(0, SERIAL_A);
+	set_serial(1, SERIAL_A);
+	mu_assert(select_capturing("1cc", msg, sizeof(msg)) == NULL,
+	          "a short string matching both");
+	mu_assert(strstr(msg, "report the same serial number") != NULL, msg);
+	mu_assert(strstr(msg, "longer part") == NULL, msg);
+
+	/* Two different serials still get the advice that can be followed. */
+	bus_with_two_serials();
+	mu_assert(select_capturing("2000f5", msg, sizeof(msg)) == NULL,
+	          "a tail two different serials share");
+	mu_assert(strstr(msg, "longer part") != NULL, msg);
+}
+
+/* A board that cannot be opened at all -- the usual Linux symptom of missing
+ * udev rules -- is counted and reported, so a non-match is not mistaken for
+ * "that serial is not attached". */
+MU_TEST(boards_that_cannot_be_opened_are_reported)
+{
+	char msg[256];
+
+	bus_with_two_serials();
+	fake.open_rc = LIBUSB_ERROR_ACCESS;
+	mu_assert(select_capturing("1cc", msg, sizeof(msg)) == NULL, "no access");
+	mu_assert(strstr(msg,
+	    "no Ubertooth found with serial matching '1cc'\n"
+	    "2 attached Ubertooth devices could not be opened\n") != NULL, msg);
+	mu_assert(strstr(msg, "Access denied") != NULL, msg); /* the libusb error */
+	mu_assert_int_eq(0, fake.lists);
+
+	/* One board unreadable and one unopenable: both are reported. */
+	bus_with_two_serials();
+	fake.devs[1].serial_fails = 1;
+	mu_assert(select_capturing("deadbeef", msg, sizeof(msg)) == NULL, "mixed");
+	mu_assert(strstr(msg, "1 attached Ubertooth device did not answer") != NULL,
+	          msg);
+
+	/* Quiet selection says nothing about either. */
+	bus_with_two_serials();
+	fake.open_rc = LIBUSB_ERROR_ACCESS;
+	mu_assert(ubertooth_start_select_quiet("1cc") == NULL, "quiet no access");
 }
 
 /* A bus that cannot be listed is not a serial that is not attached. */
@@ -806,6 +851,7 @@ int main(void)
 	MU_RUN(an_all_digits_string_is_still_an_index);
 	MU_RUN(a_board_that_does_not_answer_is_skipped_quietly);
 	MU_RUN(two_boards_with_one_serial_are_refused_without_bad_advice);
+	MU_RUN(boards_that_cannot_be_opened_are_reported);
 	MU_RUN(a_bus_that_cannot_be_listed_is_not_reported_as_no_match);
 	MU_RUN(the_quiet_selection_matches_the_same_serials);
 	return mu_report();
