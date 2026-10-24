@@ -80,8 +80,8 @@ Major modes:
  - `-d <firmware.dfu>` :
    Download - write DFU file to device
  - `-u <output.bin>` :
-   Upload - read the application flash region into a raw file (see [READING
-   FLASH BACK][])
+   Upload - read the application flash region, as much of it as the part has,
+   into a raw file (see [READING FLASH BACK][])
  - `-r` :
    Reset device after performing operation
 
@@ -95,11 +95,31 @@ Miscellaneous:
 
 ## READING FLASH BACK
 
-`-u <output.bin>` is not the inverse of `-d`: it writes a raw 245760-byte
-(240 KiB) dump of the application flash region, 0x4000 to 0x3ffff, with no DFU
-suffix, so `-d` refuses the result. The dump holds the image that was written
-(its own suffix included, padded with 0xff to the next 256-byte block),
-followed by whatever the rest of the region contains, normally 0xff.
+`-u <output.bin>` is not the inverse of `-d`: it writes a raw dump of the
+application flash region, from 0x4000 to the end of the part's flash, with no
+DFU suffix, so `-d` refuses the result. The dump holds the image that was
+written (its own suffix included, padded with 0xff to the next 256-byte
+block), followed by whatever the rest of the region contains, normally 0xff.
+
+How long that is depends on the part, which differs between boards, so the command
+says what it is about to read:
+
+    Reading back 114688 bytes, 0x4000-0x1ffff: part 0x25011722 (LPC1754) has 128 KiB of flash
+
+A part with 128 KiB of flash gives 114688 bytes, one with 256 KiB gives
+245760. The size comes from the part identification number, which is only
+readable while the board is still running its application: when the board is
+already in the bootloader, or will not report it, the dump covers the 114688
+bytes above the bootloader that the firmware is linked for, and the line says
+so in place of a part. There is no option for a longer dump, so on a larger
+part that was already in the bootloader the shorter dump is all there is; let
+the tool enter DFU itself to get the whole region. The assumption has a limit
+the other way too: a board with a smaller part than that, already in the
+bootloader so its part cannot be read, would still be asked for more flash
+than it has. Asking for more than the
+part has is what the bootloader cannot survive: it answers a read from any
+address below 512 KiB, and a read with no flash behind it faults it until the
+board is power-cycled.
 
 To compare a dump with the image it came from, compare the first bytes and
 check that the rest is padding, for example:
