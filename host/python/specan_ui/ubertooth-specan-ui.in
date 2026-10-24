@@ -450,8 +450,8 @@ if __name__ == '__main__':
     signal.signal(signal.SIGINT, sigint_handler)
 
     parser = ArgumentParser()
-    parser.add_argument("-U", type=int, dest="device",
-                      help="set ubertooth device to use")
+    parser.add_argument("-U", type=str, dest="device", metavar="index|serial",
+                      help="select the Ubertooth by index or serial number")
     parser.add_argument("-l", type=int, dest="lower_freq", help="lower bound for scan, in MHz (no less than " + str(MIN_FREQ) + ")")
     parser.add_argument("-u", type=int, dest="upper_freq", help="upper bound for scan, in MHz (no more than " + str(MAX_FREQ) + ")")
     parser.add_argument("--wifi", type=str, nargs='?', dest="wifi", metavar="channel(s)", help="display the spectrum for the wifi channels provided, either as a single number for one channel, or a range (e.g. 1-11) for two channels", const="1", default=False)

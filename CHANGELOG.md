@@ -100,6 +100,10 @@
   now returns a negative error for that case (it returned 0), and the new
   `cmd_get_part_id()` returns the full unsigned 32-bit ID.
   [#52](https://github.com/SqueakyFloors/ubertooth/issues/52)
+- `ubertooth-specan-ui` plots again: it passed `-U 0` to `ubertooth-specan` as a
+  single argument, which was read as a serial. Its `-U` now takes an index or a
+  serial like the other tools.
+  [#124](https://github.com/SqueakyFloors/ubertooth/issues/124)
 - `ubertooth-scan` no longer leaks connection information after failed probes.
   [#3](https://github.com/SqueakyFloors/ubertooth/issues/3)
   [upstream #542](https://github.com/greatscottgadgets/ubertooth/issues/542)

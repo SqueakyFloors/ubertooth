@@ -42,7 +42,11 @@ class Ubertooth(object):
 
         low = int(round(low_frequency / 1e6))
         high = int(round(high_frequency / 1e6))
-        args = ["ubertooth-specan", "-d", "-", "-l %d" % low, "-u %d" % high, "-U %d" % ubertooth_device]
+        # Each option and its value must be separate arguments: "-U 0" as one
+        # argument reaches ubertooth-specan as the serial " 0".
+        args = ["ubertooth-specan", "-d", "-", "-l", str(low), "-u", str(high)]
+        if ubertooth_device is not None and str(ubertooth_device) != "-1":
+            args += ["-U", str(ubertooth_device)]
         self.proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
         default_raw_rssi = -128
