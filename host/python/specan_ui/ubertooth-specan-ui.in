@@ -112,6 +112,7 @@ class RenderArea(QtWidgets.QWidget):
         self._hide_markers = False
         self._show_help = False
         self._peak = None  # (x, y) of the strongest max-hold bin
+        self._frame_is_new = False
         self._mouse_x = None
         self._mouse_y = None
         self._mouse_x2 = None
@@ -157,6 +158,7 @@ class RenderArea(QtWidgets.QWidget):
             self._new_persisted_frames(len(frequency_axis))
         self._persisted_frames[self._persisted_frames_next_index] = rssi_values
         self._persisted_frames_next_index = (self._persisted_frames_next_index + 1) % self._persisted_frames.shape[0]
+        self._frame_is_new = True
         self.update()
 
     def _draw_graph(self):
@@ -192,7 +194,9 @@ class RenderArea(QtWidgets.QWidget):
                 # Moving average to slow down the average line. Ignore the empty
                 # frames left by a clear, and start from the first real sweep
                 # instead of 0 dBm. Keep full precision; round only the label.
-                if amax.max() > self._low_dbm:
+                # Advance once per sweep, not per repaint (help, resize).
+                if self._frame_is_new and amax.max() > self._low_dbm:
+                    self._frame_is_new = False
                     level = float(numpy.average(amax))
                     if self._average_dbm is None:
                         self._average_dbm = level
