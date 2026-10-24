@@ -733,6 +733,17 @@ MU_TEST(a_detach_that_fails_with_io_as_the_board_resets_passes)
 	assert_flash_passed(&r);
 }
 
+/* No status is read as a verdict, so a code the host has no name for is no
+ * different: the macOS backend returns LIBUSB_ERROR_OTHER for the IOKit
+ * results it does not map, and the issue's own output has a -99 from a board
+ * that had already gone. */
+MU_TEST(a_detach_that_fails_with_an_unnamed_error_as_the_board_resets_passes)
+{
+	struct run_result r = flash_with_detach_error(LIBUSB_ERROR_OTHER);
+
+	assert_flash_passed(&r);
+}
+
 /* The same failed request with the DFU device still on its path afterwards is
  * a real failure: the board never left the bootloader, so nothing is verified
  * and the run fails. This is the case the message belongs to. */
@@ -768,6 +779,31 @@ MU_TEST(a_bare_reset_whose_detach_races_the_reset_passes)
 	mu_assert_int_eq(1, fake.detach_calls);
 	mu_assert(strstr(r.out, "Detached\n") != NULL,
 	          "the detach was not reported");
+}
+
+/* A detach with no path to look at cannot answer the question either way, so
+ * it says that rather than calling the board detached. Driven directly: both
+ * callers pass the path the command bound itself to, so no run gets here. */
+MU_TEST(a_detach_with_no_usb_path_says_it_could_not_tell)
+{
+	struct dfu_runtime_context runtime;
+	struct dfu_usb_identity nowhere;
+	struct run_result r;
+
+	board_in_dfu();
+	fake.detach_rc = LIBUSB_ERROR_PIPE;
+	memset(&runtime, 0, sizeof(runtime));
+	memset(&nowhere, 0, sizeof(nowhere));
+	memset(&r, 0, sizeof(r));
+	begin_capture();
+	r.rc = detach(&runtime, FAKE_HANDLE, &nowhere);
+	end_capture(&r);
+	mu_assert_int_eq(LIBUSB_ERROR_PIPE, r.rc);
+	mu_assert(strstr(r.err, "could not tell whether the board left DFU")
+	          != NULL, "the unanswerable detach was not reported");
+	mu_assert(strstr(r.out, "Detached\n") == NULL,
+	          "a board that was not looked for was called detached");
+	mu_assert_int_eq(1, fake.detach_calls);
 }
 
 /* The verification still decides: a board that comes back on the firmware it
@@ -966,8 +1002,10 @@ int main(void)
 	MU_RUN(a_detach_that_fails_with_pipe_as_the_board_resets_passes);
 	MU_RUN(a_detach_that_fails_with_no_device_as_the_board_resets_passes);
 	MU_RUN(a_detach_that_fails_with_io_as_the_board_resets_passes);
+	MU_RUN(a_detach_that_fails_with_an_unnamed_error_as_the_board_resets_passes);
 	MU_RUN(a_failed_detach_with_the_dfu_device_still_there_fails_the_command);
 	MU_RUN(a_bare_reset_whose_detach_races_the_reset_passes);
+	MU_RUN(a_detach_with_no_usb_path_says_it_could_not_tell);
 	MU_RUN(a_detach_race_followed_by_the_old_firmware_fails_the_command);
 	MU_RUN(asking_past_the_end_of_flash_takes_the_bootloader_down);
 	MU_RUN(a_board_already_in_dfu_reads_the_assumed_flash_only);

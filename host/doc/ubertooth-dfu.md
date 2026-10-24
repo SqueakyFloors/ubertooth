@@ -48,10 +48,10 @@ still in DFU; a reset it accepts but does not act on is caught only by the
 `-d ... -r` verification below.
 
 The detach request can fail because the bootloader resets while it is still in
-flight, which on macOS is what every reset that worked looks like. That status
-is therefore not the verdict: the tool looks for the DFU device on the same
-physical path again, and reports the board as still in DFU only when it is
-still there. Once it has gone, the run carries on to the `-d ... -r`
+flight, which on macOS is what every reset that worked looks like. No status
+from that request is read as a verdict: the tool looks for the DFU device on
+the same physical path again, and reports the board as still in DFU only when
+it is still there. Once it has gone, the run carries on to the `-d ... -r`
 verification, which decides whether the flash succeeded.
 
 If a transfer fails, in either direction, the tool closes the stale handle,

@@ -31,11 +31,13 @@ programming transfer fails while the device remains in DFU, it reopens that same
 path and retries the complete image once from block zero. Project firmware
 images include the compile-information marker used for this verification.
 
-If you see ``control message unsupported`` during reset, the bootloader may have
-disconnected before acknowledging the request. This message alone is not a
-failure: the command returns success only after the expected application
-revision has been verified. If verification fails, use the reported stage and
-error details or the documented manual bootloader recovery path.
+The reset request itself often fails, because the bootloader disconnects as it
+resets rather than acknowledging the request first. That is not a failure: the
+tool looks for the DFU device on the same physical USB path again, carries on
+when it has gone, and reports the board as still in DFU only when it is still
+there. The command returns success only after the expected application revision
+has been verified. If verification fails, use the reported stage and error
+details or the documented manual bootloader recovery path.
 
 Troubleshooting:
 
