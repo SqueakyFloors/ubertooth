@@ -127,8 +127,11 @@ firmware flashing), not radio capture.
    (`cmake_minimum_required(... )`) so the floor can't silently drift from the
    docs. The Python 3.8 floor is not yet enforced (#91).
 2. **CI matrix = the "tested" column** — the "Tested / known-good" entries above
-   must mirror the pinned CI matrix in `.github/workflows/build.yml`. Pin
-   explicit versions (not `-latest`) so the record is reproducible, and test the
-   **minimum and the newest** of each dimension.
+   must mirror the pinned full-tier CI matrix in `.github/workflows/build.yml`,
+   which runs weekly, on a published release, or manually. Pull requests run
+   only Ubuntu 24.04 and macOS 26, so the minimum versions are exercised by the
+   weekly run, not on every PR. Pin explicit versions (not `-latest`) so the
+   record is reproducible, and test the **minimum and the newest** of each
+   dimension.
 3. **Hardware-only claims** — anything about radio behaviour (BLE/BR-EDR
    capture) is only "tested" when run on a real Ubertooth per [TEST_PLAN.md](TEST_PLAN.md).

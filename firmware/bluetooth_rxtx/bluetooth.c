@@ -30,8 +30,16 @@ u8 used_channels;
 /* these values for hop() can be precalculated (at leastin part) */
 u8 a1, b, c1, e;
 u16 d1;
-/* frequency register bank */
+/*
+ * Basic mapping table (Core spec Vol 2 Part B 2.6.2): even channels in
+ * ascending order followed by odd channels.  The frequency is 2402 + entry MHz.
+ */
 u8 bank[NUM_BREDR_CHANNELS];
+/*
+ * AFH mapping table (2.6.3.1): the basic table with every unused channel
+ * removed, holding used_channels entries.  It is kept separate so that bank[]
+ * always describes the full basic sequence, which AFH still consults first.
+ */
 u8 afh_bank[NUM_BREDR_CHANNELS];
 
 /* count the number of 1 bits in a uint64_t */
@@ -41,6 +49,12 @@ static uint8_t count_bits(uint64_t n)
 	for (i = 0; n != 0; i++)
 		n &= n - 1;
 	return i;
+}
+
+/* nonzero if the AFH channel map marks this channel (0-78) as used */
+static u8 channel_used(u8 chan)
+{
+	return (afh_map[chan / 8] >> (chan % 8)) & 0x1;
 }
 
 /* do all of the one time precalculation */
@@ -75,16 +89,28 @@ void precalc(void)
 		((address >> 1) & 0x01);
 
 	if(afh_enabled) {
-		used_channels = 0;
-		for(i = 0; i < 10; i++)
-			used_channels += count_bits((uint64_t) afh_map[i]);
+		/* Count only entries actually placed in the table, so a stray
+		 * reserved bit 79 in the map cannot index past the used channels. */
 		j = 0;
 		for (i = 0; i < NUM_BREDR_CHANNELS; i++) {
-			chan = (i * 2) % NUM_BREDR_CHANNELS;
-			if(afh_map[chan/8] & (0x1 << (chan % 8)))
-				bank[j++] = chan;
+			chan = bank[i];
+			if (channel_used(chan))
+				afh_bank[j++] = chan;
 		}
+		used_channels = j;
 	}
+}
+
+/* Apply an AFH channel map and rebuild the AFH mapping table.  Hosts send the
+ * map after the address, so the table must be rebuilt here rather than only
+ * when the address is set. */
+void bluetooth_set_afh_map(const u8 *map)
+{
+	u8 i;
+	for (i = 0; i < 10; i++)
+		afh_map[i] = map[i];
+	afh_enabled = 1;
+	precalc();
 }
 
 /* 5 bit permutation */
@@ -133,8 +159,18 @@ u16 next_hop(u32 clock)
 	u8 a, c, x, y1, perm, next_channel;
 	u16 d, y2;
 	u32 base_f, f, f_dash;
+	/* Read once: a map update from the USB interrupt must not change N
+	 * between the check and the divisions below. */
+	u8 n_used = used_channels;
+	/* Fewer than the spec minimum of 20 used channels (or an unset map)
+	 * falls back to basic hopping, which also avoids dividing by zero. */
+	u8 afh_active = afh_enabled && n_used >= 20;
 
 	clock &= 0xffffffff;
+	/* AFH same channel mechanism (2.6.1): the peripheral-to-central slot
+	 * reuses the preceding central-to-peripheral channel, i.e. CLK1 = 0. */
+	if (afh_active)
+		clock &= ~(u32)0x2;
 	/* Variable names used in Vol 2, Part B, Section 2.6 of the spec */
 	x = (clock >> 2) & 0x1f;
 	y1 = (clock >> 1) & 0x01;
@@ -153,43 +189,51 @@ u16 next_hop(u32 clock)
 		d);
 	/* hop selection */
 	next_channel = bank[(perm + e + f + y2) % NUM_BREDR_CHANNELS];
-	if(afh_enabled && used_channels >= 20) { /* dont divide by 0 */
-		f_dash = base_f % used_channels;
-		next_channel = afh_bank[(perm + e + f_dash + y2) % used_channels];
+	/* AFH re-mapping (2.6.3.1): a used basic channel is kept unchanged; an
+	 * unused one is replaced by entry k' = (PERM5 + E + F' + Y2) mod N of the
+	 * AFH mapping table, where F' = 16 * CLK27-7 mod N. */
+	if (afh_active && !channel_used(next_channel)) {
+		f_dash = base_f % n_used;
+		next_channel = afh_bank[(perm + e + f_dash + y2) % n_used];
 	}
 	return (2402 + next_channel);
 
 }
 
+/*
+ * Software access-code (AC) search over one demodulated symbol buffer of
+ * DMA_SIZE bytes, most significant bit of each byte first. Slides a 64-bit
+ * window one symbol at a time and returns the bit offset just past the first
+ * window within MAX_SYNCWORD_ERRS of target.syncword, or -1. Windows ending in
+ * the last 64 symbols are not tested, leaving room for the packet header.
+ *
+ * Nothing currently calls this: live capture lets the CC2400 detect the sync
+ * word in hardware. It is kept as a reference correlator.
+ *
+ * Each call searches only the buffer it is given, using a local window seeded
+ * from that buffer's first 64 bits; it no longer reads or writes the
+ * file-scope `syncword`. An earlier version kept the window in that global
+ * and reseeded it only when it was zero, so later calls compared bits left
+ * over from an earlier buffer. That carry was not a working streaming
+ * design: the window stopped 64 bits short of the previous buffer's end, the
+ * buffers it was used on were not contiguous (the radio hops between them),
+ * and the returned offset had no consistent origin. That version also
+ * skipped the ninth byte of each buffer.
+ */
 int find_access_code(u8 *idle_rxbuf)
 {
-	/* Looks for an AC in the stream */
-	u8 bit_errors, curr_buf;
-	int i = 0, count = 0;
+	u64 window = 0;
+	int count;
 
-	if (syncword == 0) {
-		for (; i<8; i++) {
-			syncword <<= 8;
-			syncword = (syncword & 0xffffffffffffff00) | idle_rxbuf[i];
-		}
-		count = 64;
-	}
-	curr_buf = idle_rxbuf[i];
+	for (count = 0; count < 8; count++)
+		window = (window << 8) | idle_rxbuf[count];
 
-	// Search until we're 64 symbols from the end of the buffer
-	for(; count < ((8 * DMA_SIZE) - 64); count++)
-	{
-		bit_errors = count_bits(syncword ^ target.syncword);
-
-		if (bit_errors < MAX_SYNCWORD_ERRS)
+	for (count = 64; count < ((8 * DMA_SIZE) - 64); count++) {
+		if (count_bits(window ^ target.syncword) < MAX_SYNCWORD_ERRS)
 			return count;
 
-		if (count%8 == 0)
-			curr_buf = idle_rxbuf[++i];
-
-		syncword <<= 1;
-		syncword = (syncword & 0xfffffffffffffffe) | ((curr_buf & 0x80) >> 7);
-		curr_buf <<= 1;
+		window = (window << 1) |
+			((idle_rxbuf[count / 8] >> (7 - (count % 8))) & 1);
 	}
 	return -1;
 }

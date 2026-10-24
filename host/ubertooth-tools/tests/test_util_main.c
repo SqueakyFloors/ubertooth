@@ -14,16 +14,8 @@
 
 #include "../../../firmware/tests/minunit.h"
 
-/* ubertooth-util waits two seconds after a reset; the fake device does not need it. */
-static unsigned fake_sleep(unsigned seconds)
-{
-	(void)seconds;
-	return 0;
-}
-#define sleep(seconds) fake_sleep(seconds)
 #define main ubertooth_util_main
 #include "ubertooth-util.c"
-#undef sleep
 #undef main
 
 /* ---- scripted device -------------------------------------------------- */
@@ -60,6 +52,19 @@ static struct {
 	int first_used_after_release; /* any command on it after it was released */
 	int first_closed_before_reselect;
 	int first_released;
+	/* the wait after a reset: a fake clock, and the device leaving and
+	 * coming back on it */
+	uint64_t now_ms;
+	uint64_t leaves_at_ms;  /* the reset device drops off the bus... */
+	uint64_t returns_at_ms; /* ...and is back from here (UINT64_MAX: never) */
+	int sleeps;
+	int quiet_starts;        /* ubertooth_start_select_quiet() calls */
+	int quiet_while_absent;  /* of which while the device was gone */
+	char quiet_selector[64];
+	int quiet_null_selector; /* it was called with NULL (no -U) */
+	int loud_starts_after_reset;
+	/* libusb default-context references taken by ubertooth-util itself */
+	int libusb_refs, libusb_refs_min_during_wait, libusb_init_rc;
 } fake;
 
 /* Every select returns fake_ut, except that the select after a reset returns
@@ -98,13 +103,76 @@ static void reset_fake(void)
 	fake.board_fail_index = -1;
 	fake.revision_fail_index = -1;
 	fake.compile_info_fail_index = -1;
+	fake.now_ms = 1000;
+	fake.leaves_at_ms = 1050;  /* soon after the reset... */
+	fake.returns_at_ms = 1600; /* ...and back after about half a second */
 	memset(&fake_ut, 0, sizeof(fake_ut));
 	fake_ut.devh = FIRST_DEVH;
 	memset(&fake_ut_reset, 0, sizeof(fake_ut_reset));
 	fake_ut_reset.devh = (struct libusb_device_handle *)&fake_devh_reset;
 }
 
-int ubertooth_count(void) { return fake.device_count; }
+/* The reset device is missing from the count while it re-enumerates. */
+static int fake_reset_device_absent(void)
+{
+	return fake.reset_calls > 0 && fake.reset_rc >= 0 &&
+	       fake.now_ms >= fake.leaves_at_ms && fake.now_ms < fake.returns_at_ms;
+}
+
+int ubertooth_count(void)
+{
+	if (fake.device_count > 0 && fake_reset_device_absent())
+		return fake.device_count - 1;
+	return fake.device_count;
+}
+
+/* ubertooth-util holds a libusb reference across the wait after a reset. The
+ * fake library functions do not take references, so only that one is counted. */
+int libusb_init(libusb_context **context)
+{
+	(void)context;
+	if (fake.libusb_init_rc < 0)
+		return fake.libusb_init_rc;
+	fake.libusb_refs++;
+	return 0;
+}
+
+void libusb_exit(libusb_context *context)
+{
+	(void)context;
+	fake.libusb_refs--;
+}
+
+uint64_t util_clock_now_ms(void) { return fake.now_ms; }
+
+void util_clock_sleep_ms(unsigned ms)
+{
+	fake.sleeps++;
+	if (fake.sleeps == 1 || fake.libusb_refs < fake.libusb_refs_min_during_wait)
+		fake.libusb_refs_min_during_wait = fake.libusb_refs;
+	fake.now_ms += ms;
+}
+
+/* Used only for the wait after a reset: no output, no STOP. */
+ubertooth_t *ubertooth_start_select_quiet(const char *u_arg)
+{
+	fake.quiet_starts++;
+	fake.quiet_null_selector = (u_arg == NULL);
+	snprintf(fake.quiet_selector, sizeof(fake.quiet_selector), "%s",
+	         u_arg ? u_arg : "");
+	fake.first_closed_before_reselect = fake.first_released;
+	if (fake_reset_device_absent()) {
+		fake.quiet_while_absent++;
+		return NULL;
+	}
+	/* Like the library: one device is opened whatever the index; with
+	 * several, an index past the end opens nothing. */
+	if (u_arg != NULL && u_arg[0] != '\0' &&
+	    u_arg[strspn(u_arg, "0123456789")] == '\0' &&
+	    fake.device_count != 1 && atoi(u_arg) >= fake.device_count)
+		return NULL;
+	return &fake_ut_reset;
+}
 
 ubertooth_t *ubertooth_start(int ubertooth_device)
 {
@@ -120,11 +188,9 @@ ubertooth_t *ubertooth_start_select(const char *u_arg)
 	fake.start_calls++;
 	snprintf(fake.selector, sizeof(fake.selector), "%s", u_arg ? u_arg : "");
 	if (fake.reset_calls > 0)
-		fake.first_closed_before_reselect = fake.first_released;
+		fake.loud_starts_after_reset++; /* would print errors and send STOP */
 	if (fake.fail_start_from && fake.start_calls >= fake.fail_start_from)
 		return NULL;
-	if (fake.reset_calls > 0)
-		return &fake_ut_reset;
 	return &fake_ut;
 }
 
@@ -680,7 +746,9 @@ MU_TEST(stop_and_reset_report_failures)
 	r = RUN("-r");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert_int_eq(1, fake.reset_calls);
-	mu_assert_int_eq(2, fake.start_calls); /* reconnects after the reset */
+	mu_assert_int_eq(1, fake.start_calls);
+	mu_assert(fake.quiet_starts >= 1, "reconnects quietly after the reset");
+	mu_assert_int_eq(0, fake.loud_starts_after_reset);
 	/* the pre-reset handle is dead: released once, before the reselect,
 	 * without STOP, and never used again */
 	mu_assert_int_eq(1, fake.first_closes);
@@ -710,16 +778,21 @@ MU_TEST(stop_and_reset_report_failures)
 	mu_assert_int_eq(1, fake.first_closed_before_reselect);
 	mu_assert_int_eq(0, fake.first_used_after_release);
 
-	/* the device cannot be reselected after the reset: fail, do not crash */
+	/* the device does not come back after the reset: fail, do not crash */
 	reset_fake();
-	fake.fail_start_from = 2;
+	fake.returns_at_ms = UINT64_MAX;
 	r = RUN("-r");
 	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, "error: Ubertooth device 0 did not come back "
+	                 "within 10 s after the reset\n") == 0, "timeout message");
+	mu_assert_int_eq(0, fake.stop_calls);
 	mu_assert_int_eq(1, fake.first_closes);
 	mu_assert_int_eq(1, fake.first_frees);
 	mu_assert_int_eq(0, fake.first_stops);
-	mu_assert_int_eq(1, fake.first_closed_before_reselect);
+	/* the count never recovers, so an index is never opened */
+	mu_assert_int_eq(0, fake.quiet_starts);
 	mu_assert_int_eq(0, fake.first_used_after_release);
+	mu_assert_int_eq(1000 + (int)UTIL_RESET_WAIT_DEADLINE_MS, (int)fake.now_ms);
 }
 
 /* ---- mode commands: success and failure ------------------------------- */
@@ -1014,6 +1087,8 @@ MU_TEST(a_failed_read_on_one_device_is_reported_and_fails_the_listing)
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.out, "0: <board ID read failed>\n1: 1 (Ubertooth One)\n") == 0,
 	          "failed read line");
+	/* The report's stderr line is captured into the listing, not repeated. */
+	mu_assert_int_eq(0, (long)strlen(r.err));
 
 	reset_fake();
 	fake.device_count = 2;
@@ -1030,6 +1105,28 @@ MU_TEST(a_failed_read_on_one_device_is_reported_and_fails_the_listing)
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.out, "0: <serial read failed>\n1: <serial read failed>\n") == 0,
 	          "serial read failure text is unchanged");
+	mu_assert_int_eq(0, (long)strlen(r.err));
+
+	reset_fake();
+	fake.device_count = 2;
+	fake.partnum_rc = -1;
+	r = RUN("-p");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, "0: <part ID read failed>\n1: <part ID read failed>\n") == 0,
+	          "part ID read failure shown per device");
+	mu_assert_int_eq(0, (long)strlen(r.err));
+
+	reset_fake();
+	fake.device_count = 2;
+	fake.board_fail_index = 0;
+	fake.partnum_rc = -1;
+	r = RUN("-b", "-p", "-s");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out,
+	                 "0: <board ID read failed>\n0: <part ID read failed>\n0: " SERIAL_LINE
+	                 "1: " BOARD_LINE "1: <part ID read failed>\n1: " SERIAL_LINE) == 0,
+	          "combined listing with failed reads");
+	mu_assert_int_eq(0, (long)strlen(r.err));
 
 	reset_fake();
 	fake.device_count = 2;
@@ -1300,6 +1397,52 @@ MU_TEST(a_failed_read_prints_no_value_line_and_names_the_query_on_stderr)
 	}
 }
 
+MU_TEST(a_failed_identity_read_names_the_query_on_stderr)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.board_id = LIBUSB_ERROR_TIMEOUT;
+	r = RUN("-b");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, "") == 0, "-b stdout");
+	mu_assert(strcmp(r.err, "error: board ID read failed\n") == 0, "-b stderr");
+
+	reset_fake();
+	fake.partnum_rc = LIBUSB_ERROR_TIMEOUT;
+	r = RUN("-p");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, "") == 0, "-p stdout");
+	mu_assert(strcmp(r.err, "error: part ID read failed\n") == 0, "-p stderr");
+
+	reset_fake();
+	fake.serial_rc = 1; /* nonzero status byte */
+	r = RUN("-s");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, "") == 0, "-s stdout");
+	mu_assert(strcmp(r.err, "error: serial read failed\n") == 0, "-s stderr");
+
+	/* Composed with the other reads, in output order. */
+	reset_fake();
+	fake.board_id = -1;
+	fake.channel = -1;
+	fake.serial_rc = -1;
+	r = RUN("-b", "-c", "-a", "-p", "-s");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, PALEVEL_LINE PART_LINE) == 0, "remaining lines in order");
+	mu_assert(strcmp(r.err,
+	                 "error: board ID read failed\nerror: channel read failed\n"
+	                 "error: serial read failed\n") == 0,
+	          "one message per failed read");
+
+	/* An unknown board ID keeps its own message and is not a read failure. */
+	reset_fake();
+	fake.board_id = 7;
+	r = RUN("-b");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, "error: unknown board ID 7\n") == 0, "unknown board ID");
+}
+
 MU_TEST(a_failed_led_read_drops_only_that_line)
 {
 	struct run_result r;
@@ -1414,6 +1557,106 @@ MU_TEST(setters_and_modes_release_the_handle_on_success_and_failure)
 	}
 }
 
+MU_TEST(reset_waits_for_a_slow_reenumeration_then_runs_later_actions)
+{
+	struct run_result r;
+
+	/* Slower than the fixed two-second sleep this replaced. */
+	reset_fake();
+	fake.leaves_at_ms = 1000 + 800;
+	fake.returns_at_ms = 1000 + 6000;
+	r = RUN("-r", "-b");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "Resetting ubertooth device 0\n" BOARD_LINE) == 0,
+	          "board read after the reset");
+	mu_assert(strcmp(r.err, "") == 0, "polls print nothing");
+	mu_assert_int_eq(0, fake.quiet_while_absent); /* index: waits for the count */
+	mu_assert(fake.now_ms >= fake.returns_at_ms &&
+	          fake.now_ms < fake.returns_at_ms + UTIL_RESET_WAIT_POLL_MS,
+	          "selected within one poll of returning");
+	mu_assert(fake.quiet_null_selector, "the default selection is kept");
+	mu_assert_int_eq(0, fake.stop_calls);
+	mu_assert_int_eq(0, fake.first_used_after_release);
+	/* a libusb reference is held through every poll and released after */
+	mu_assert_int_eq(1, fake.libusb_refs_min_during_wait);
+	mu_assert_int_eq(0, fake.libusb_refs);
+}
+
+MU_TEST(the_wait_still_works_if_libusb_cannot_be_held)
+{
+	reset_fake();
+	fake.libusb_init_rc = -1;
+	mu_assert_int_eq(0, RUN("-r", "-b").rc);
+	mu_assert_int_eq(0, fake.libusb_refs); /* nothing to release */
+}
+
+MU_TEST(reset_by_serial_polls_for_the_same_serial)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.device_count = 2;
+	fake.returns_at_ms = 1000 + 4000;
+	r = RUN("-U", "a9aaabacadaeafb0", "-r", "-s");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "Resetting ubertooth device a9aaabacadaeafb0\n"
+	                 SERIAL_LINE) == 0, "serial read after the reset");
+	mu_assert(strcmp(r.err, "") == 0, "polls print nothing");
+	mu_assert(strcmp(fake.quiet_selector, "a9aaabacadaeafb0") == 0,
+	          "same serial selector");
+	/* a serial cannot match another board, so it is polled while gone */
+	mu_assert(fake.quiet_while_absent > 0, "polled while gone");
+	mu_assert(fake.now_ms >= fake.returns_at_ms, "selected once back");
+	mu_assert_int_eq(0, fake.stop_calls);
+	mu_assert_int_eq(0, fake.loud_starts_after_reset);
+}
+
+MU_TEST(reset_by_index_waits_for_every_board_before_reselecting)
+{
+	struct run_result r;
+
+	/* With two boards, opening index 1 while the reset board is gone could
+	 * open the other one. */
+	reset_fake();
+	fake.device_count = 2;
+	fake.returns_at_ms = 1000 + 3000;
+	r = RUN("-U", "1", "-r", "-b");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(fake.quiet_selector, "1") == 0, "same index selector");
+	mu_assert_int_eq(0, fake.quiet_while_absent);
+	mu_assert(fake.now_ms >= fake.returns_at_ms, "selected once back");
+	mu_assert_int_eq(0, fake.stop_calls);
+}
+
+MU_TEST(a_failed_reset_still_reselects_once_the_leave_window_passes)
+{
+	struct run_result r;
+
+	/* The device may have reset despite the error, so the wait for it to
+	 * leave is kept; it never leaves here, so it is reopened after that. */
+	reset_fake();
+	fake.reset_rc = -1;
+	r = RUN("-r", "-b");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.out, BOARD_LINE) != NULL, "later report still printed");
+	mu_assert_int_eq(1000 + (int)UTIL_RESET_WAIT_LEAVE_MS, (int)fake.now_ms);
+	mu_assert_int_eq(0, fake.stop_calls);
+}
+
+MU_TEST(reset_by_index_with_one_board_reopens_it)
+{
+	struct run_result r;
+
+	/* With one board any index selects it, before and after the reset. */
+	reset_fake();
+	r = RUN("-U", "1", "-r", "-b");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.out, BOARD_LINE) != NULL, "board read after the reset");
+	mu_assert(fake.now_ms < fake.returns_at_ms + UTIL_RESET_WAIT_POLL_MS,
+	          "selected once back, without waiting for the deadline");
+	mu_assert_int_eq(0, fake.stop_calls);
+}
+
 MU_TEST(the_handle_reopened_after_a_reset_is_released)
 {
 	reset_fake();
@@ -1465,11 +1708,18 @@ int main(void)
 	MU_RUN(u_all_is_rejected_before_opening_a_device_for_any_other_option);
 	MU_RUN(only_the_exact_word_all_selects_every_device);
 	MU_RUN(a_failed_read_prints_no_value_line_and_names_the_query_on_stderr);
+	MU_RUN(a_failed_identity_read_names_the_query_on_stderr);
 	MU_RUN(a_failed_led_read_drops_only_that_line);
 	MU_RUN(a_failed_read_keeps_the_other_lines_of_a_composed_command);
 	MU_RUN(a_failed_test_command_send_fails_the_command);
 	MU_RUN(read_only_queries_release_the_handle_without_sending_stop);
 	MU_RUN(setters_and_modes_release_the_handle_on_success_and_failure);
+	MU_RUN(reset_waits_for_a_slow_reenumeration_then_runs_later_actions);
+	MU_RUN(the_wait_still_works_if_libusb_cannot_be_held);
+	MU_RUN(reset_by_serial_polls_for_the_same_serial);
+	MU_RUN(reset_by_index_waits_for_every_board_before_reselecting);
+	MU_RUN(a_failed_reset_still_reselects_once_the_leave_window_passes);
+	MU_RUN(reset_by_index_with_one_board_reopens_it);
 	MU_RUN(the_handle_reopened_after_a_reset_is_released);
 	return mu_report();
 }

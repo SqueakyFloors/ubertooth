@@ -100,8 +100,10 @@
   [#40](https://github.com/SqueakyFloors/ubertooth/issues/40)
 - `ubertooth-util` no longer prints error codes as values when a query read
   fails (`-c`, `-a`, `-z`, `-l`, `-d`, `-m`, `-9`); it names the failed read on
-  standard error instead. A failed `-9` test command now exits non-zero.
+  standard error instead, as `-b`, `-p` and `-s` now also do. A failed `-9`
+  test command now exits non-zero.
   [#59](https://github.com/SqueakyFloors/ubertooth/issues/59)
+  [#123](https://github.com/SqueakyFloors/ubertooth/issues/123)
 - Host-library failures now propagate correctly and release device resources;
   firmware-image and ducky operations reject short reads.
   [#2](https://github.com/SqueakyFloors/ubertooth/issues/2)
@@ -116,6 +118,12 @@
 - `ubertooth-util` now releases the device when it finishes a command,
   without stopping a running mode.
   [#117](https://github.com/SqueakyFloors/ubertooth/issues/117)
+- `ubertooth-util -r` waits up to 10 seconds for the device to re-enumerate
+  (by serial with `-U <serial>`) instead of a fixed 2 seconds, so a slow macOS
+  re-enumeration no longer fails a successful reset. libubertooth adds
+  `ubertooth_start_select_quiet()` for this silent, STOP-free polling, and
+  `ubertooth_count()` no longer leaves libusb initialised.
+  [#94](https://github.com/SqueakyFloors/ubertooth/issues/94)
 - `ubertooth-util` refuses two or more mode options (`-q`, `-n`, `-e`, `-t`,
   `-x`, `-I`, `-i`, `-f`) with an error and exit 1 before opening the device,
   instead of running only one of them and exiting 0.
@@ -132,6 +140,11 @@
 - Prevent Adaptive Frequency Hopping (AFH) divide-by-zero failures in both
   baseband hop implementations. Credit: [@Kielukel](https://github.com/Kielukel) and Piotr Wasylów.
   https://github.com/Kielukel/ubertooth
+- Firmware AFH hopping (`ubertooth-follow` with an AFH map) now follows the
+  piconet's used channels instead of sitting on 2402 MHz, matching the
+  Bluetooth spec's re-mapping and same-channel rules. A new AFH map now takes
+  effect at once, including in sweep and `ubertooth-afh` modes.
+  [#34](https://github.com/SqueakyFloors/ubertooth/issues/34)
 - Correct Bluetooth Low Energy cyclic redundancy check filtering and perform
   verification in the physical-layer engine. Credit: oliver
   ([@Oliver0804](https://github.com/Oliver0804)).

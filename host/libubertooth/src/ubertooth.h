@@ -82,6 +82,10 @@ ubertooth_t* ubertooth_start_serial(char* serial_number);
 /* Accepts a -U argument that is either a numeric index or a serial string. */
 ubertooth_t* ubertooth_start_select(const char* u_arg);
 int ubertooth_connect_select(ubertooth_t* ut, const char* u_arg);
+/* Like ubertooth_start_select(), but prints nothing and never sends STOP: for
+ * polling a device that may be absent (for example while it re-enumerates
+ * after a reset). Returns NULL if the selected device is not available. */
+ubertooth_t* ubertooth_start_select_quiet(const char* u_arg);
 void ubertooth_close(ubertooth_t* ut);
 void ubertooth_stop(ubertooth_t* ut);
 void ubertooth_free(ubertooth_t* ut);

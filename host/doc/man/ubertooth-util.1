@@ -79,7 +79,7 @@ get/set USR LED
 stop current operation
 .IP \(bu 2
 \fB\fC\-r\fR :
-full reset
+full reset; then waits up to 10 seconds for the same device (by serial with \fB\fC\-U<serial>\fR) to come back on USB before any later option runs, and exits non\-zero with \fB\fCerror: Ubertooth device <selector> did not come back within 10 s after the reset\fR if it does not. With several boards attached, select by serial: the index order can change across a reset
 .IP \(bu 2
 \fB\fC\-U<index|serial>\fR :
 select which Ubertooth to use, either by USB enumeration index or by its serial number string; see SELECTING A DEVICE
@@ -274,9 +274,10 @@ given (see DESCRIPTION).
 .PP
 When a \fB\fC\-b\fR, \fB\fC\-c\fR, \fB\fC\-a\fR, \fB\fC\-z\fR, \fB\fC\-l\fR, \fB\fC\-d\fR, \fB\fC\-p\fR, \fB\fC\-s\fR, \fB\fC\-m\fR or \fB\fC\-9\fR read fails,
 no value line is printed on standard output, so an error code is never shown as
-a value; the other requested queries are still reported. A failed \fB\fC\-c\fR, \fB\fC\-a\fR, \fB\fC\-z\fR, \fB\fC\-l\fR, \fB\fC\-d\fR, \fB\fC\-m\fR or \fB\fC\-9\fR read also prints
-\fB\fCerror: <query> read failed\fR (for example \fB\fCerror: channel read failed\fR) on
-standard error, after any message from libubertooth.
+a value; the other requested queries are still reported. A failed \fB\fC\-b\fR, \fB\fC\-c\fR, \fB\fC\-a\fR, \fB\fC\-z\fR, \fB\fC\-l\fR, \fB\fC\-d\fR, \fB\fC\-p\fR, \fB\fC\-s\fR, \fB\fC\-m\fR or \fB\fC\-9\fR read also prints
+\fB\fCerror: <query> read failed\fR (for example \fB\fCerror: channel read failed\fR or
+\fB\fCerror: board ID read failed\fR) on standard error, after any message from
+libubertooth.
 .SH SEE ALSO
 .PP
 .BR ubertooth (7): 

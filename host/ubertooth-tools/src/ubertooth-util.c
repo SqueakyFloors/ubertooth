@@ -26,8 +26,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
+#include "util_clock.h"
 #include "util_report.h"
 #include "util_modes.h"
+#include "util_reset_wait.h"
 
 /* Adapters from the injected report operations to the libubertooth commands. */
 static int report_get_board_id(void *context)
@@ -83,11 +85,11 @@ static const struct {
 	const char *name;  /* shown as "<name read failed>" */
 	const char *label; /* dropped when a single query is listed */
 } identity_query_text[QUERY_COUNT] = {
-	{ "board ID", "Board ID Number: " },
+	{ UTIL_QUERY_BOARD_ID, "Board ID Number: " },
 	{ "firmware", "Firmware version: " },
 	{ "compile info", "" },
-	{ "part ID", "Part ID: " },
-	{ "serial", "Serial No: " },
+	{ UTIL_QUERY_PART_ID, "Part ID: " },
+	{ UTIL_QUERY_SERIAL, "Serial No: " },
 };
 
 /* Runs one identity report into buffers so its lines can be prefixed. */
@@ -120,10 +122,10 @@ static int capture_identity_report(enum identity_query query, ubertooth_t *ut,
 		status = util_report_compile_info(&report_ops, ut, out);
 		break;
 	case QUERY_PART_ID:
-		status = util_report_part_id(&report_ops, ut, out);
+		status = util_report_part_id(&report_ops, ut, out, err);
 		break;
 	case QUERY_SERIAL:
-		status = util_report_serial(&report_ops, ut, out);
+		status = util_report_serial(&report_ops, ut, out, err);
 		break;
 	default:
 		break;
@@ -169,8 +171,12 @@ static int list_identity_queries(const int requested[QUERY_COUNT], int count)
 			                                &text, &error));
 			if (text == NULL || text[0] == '\0') {
 				/* Show the report's own error (for example an unknown board
-				 * ID) when it gave one, otherwise say the read failed. */
-				if (error != NULL && error[0] != '\0') {
+				 * ID) when it gave one, otherwise say the read failed. The
+				 * report's "error: <query> read failed" line is shown in the
+				 * listing's shorter "<query read failed>" form. */
+				if (error != NULL && error[0] != '\0' &&
+				    !util_is_read_failed_message(error,
+				            identity_query_text[q].name)) {
 					error[strcspn(error, "\n")] = '\0';
 					fprintf(stdout, "%d: <%s>\n", i, error);
 				} else {
@@ -209,8 +215,47 @@ static int list_identity_queries(const int requested[QUERY_COUNT], int count)
  */
 static int report_read_failed(const char *what)
 {
-	fprintf(stderr, "error: %s read failed\n", what);
-	return 1;
+	return util_report_read_failed(stderr, what);
+}
+
+/* Adapters from the injected reset-wait operations to the clock and
+ * libubertooth. The context is the -U argument (NULL for the default device). */
+static uint64_t reset_wait_now_ms(void *context)
+{
+	(void)context;
+	return util_clock_now_ms();
+}
+
+static void reset_wait_sleep_ms(void *context, unsigned ms)
+{
+	(void)context;
+	util_clock_sleep_ms(ms);
+}
+
+static int reset_wait_count(void *context)
+{
+	(void)context;
+	return ubertooth_count();
+}
+
+static void *reset_wait_try_select(void *context)
+{
+	return ubertooth_start_select_quiet((const char *)context);
+}
+
+static const struct util_reset_wait_ops reset_wait_ops = {
+	reset_wait_now_ms,
+	reset_wait_sleep_ms,
+	reset_wait_count,
+	reset_wait_try_select,
+};
+
+/* True if the -U argument selects by serial number rather than by index. */
+static int selects_by_serial(const char *u_arg)
+{
+	if (u_arg == NULL || u_arg[0] == '\0')
+		return 0;
+	return u_arg[strspn(u_arg, "0123456789")] != '\0';
 }
 
 /* For -I (identify): the loop runs until interrupted. Without a handler, Ctrl-C
@@ -504,19 +549,45 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 	if(do_reset == 0) {
+		struct util_reset_wait_params wait = {
+			UTIL_RESET_WAIT_INITIAL_DELAY_MS, UTIL_RESET_WAIT_POLL_MS,
+			UTIL_RESET_WAIT_LEAVE_MS, UTIL_RESET_WAIT_DEADLINE_MS, 0, 0
+		};
+		int libusb_held;
+
+		/* Counted before the reset, so the wait can see the device leave and
+		 * (for an index) not open another board while it is gone. The leave
+		 * wait is kept even if the reset command reports an error, since the
+		 * device may have reset anyway. */
+		wait.count_before = ubertooth_count();
+		wait.select_needs_count = !selects_by_serial(ubertooth_device);
 		fprintf(stdout, "Resetting ubertooth device %s\n", ubertooth_device ? ubertooth_device : "0");
 		status = util_status_after(status, cmd_reset(ut->devh));
 		/* The device re-enumerates after a reset, so this handle is about
 		 * to go dead: release it without sending STOP (if the reset failed
 		 * the device is still there, but a STOP is not wanted either), then
-		 * open the device again. */
+		 * wait for the same selection to open again. The polls are quiet
+		 * and never send STOP.
+		 *
+		 * One libusb reference is held for the whole wait, so the polls never
+		 * tear down the libusb context while the device re-enumerates (on
+		 * macOS the final libusb_exit() after a device reset can hang). */
+		libusb_held = libusb_init(NULL) >= 0;
 		ubertooth_close(ut);
 		ubertooth_free(ut);
-		ut = NULL;
-		sleep(2);
-		ut = ubertooth_start_select(ubertooth_device);
-		if (ut == NULL)
+		ut = util_reset_wait(&reset_wait_ops, ubertooth_device, &wait);
+		if (ut == NULL) {
+			/* The held reference is left to process exit, for the same
+			 * reason. */
+			fprintf(stderr, "error: Ubertooth device %s did not come back within "
+			        "%u s after the reset\n",
+			        ubertooth_device ? ubertooth_device : "0",
+			        UTIL_RESET_WAIT_DEADLINE_MS / 1000u);
 			return 1;
+		}
+		/* Not the last reference: the reopened device holds its own. */
+		if (libusb_held)
+			libusb_exit(NULL);
 	}
 	if(do_stop == 0) {
 		fprintf(stdout, "Stopping ubertooth device %s\n", ubertooth_device ? ubertooth_device : "0");
@@ -586,7 +657,7 @@ int main(int argc, char *argv[])
 	}
 	if(do_part == 0)
 		status = util_status_merge(status,
-		        util_report_part_id(&report_ops, ut, stdout));
+		        util_report_part_id(&report_ops, ut, stdout, stderr));
 	if(do_range_result == 0) {
 		int rr_status = cmd_get_rangeresult(ut->devh, &rr);
 		if (rr_status != 0) {
@@ -607,7 +678,7 @@ int main(int argc, char *argv[])
 
 	if(do_serial == 0)
 		status = util_status_merge(status,
-		        util_report_serial(&report_ops, ut, stdout));
+		        util_report_serial(&report_ops, ut, stdout, stderr));
 
 	/* final actions */
 	if(do_flash == 0) {

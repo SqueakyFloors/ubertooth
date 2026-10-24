@@ -55,7 +55,8 @@ static const u8 ao_barker_correct[] = {
 	0x72, 0x72, 0x72, 0x72, 0x0d, 0x72, 0x72};
 */
 
-void precalc();
+void precalc(void);
+void bluetooth_set_afh_map(const u8 *map);
 u16 next_hop(u32 clkn);
 int find_access_code(u8 *idle_rxbuf);
 
