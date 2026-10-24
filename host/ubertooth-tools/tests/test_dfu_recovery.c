@@ -397,6 +397,20 @@ MU_TEST(test_image_accepts_a_signed_ubertooth_image)
 	mu_assert_int_eq(U1_DFU_PRODUCTID, report.id_product);
 }
 
+/* The generated table gives the standard CRC-32 (the check value of
+ * "123456789" is 0xcbf43926 after the final XOR, which the DFU suffix does not
+ * apply), so images signed by this tool and by other DFU tools agree. */
+MU_TEST(test_crc32_matches_the_standard_check_value)
+{
+	static const uint8_t check[] = "123456789";
+	static const uint8_t zero[1] = { 0 };
+
+	mu_assert_int_eq(0x340bc6d9u, dfu_image_crc32(check, 9));
+	mu_assert_int_eq(0xffffffffu, dfu_image_crc32(check, 0));
+	/* one byte: the table's entry 0xff, the first one a byte reaches */
+	mu_assert_int_eq(0x2dfd1072u, dfu_image_crc32(zero, 1));
+}
+
 MU_TEST(test_image_rejects_a_wrong_crc)
 {
 	struct image_spec spec = good_spec();
@@ -622,6 +636,7 @@ int main(void)
 	MU_RUN(test_verify_rejects_wrong_physical_path);
 	MU_RUN(test_verify_rejects_wrong_revision);
 	MU_RUN(test_image_accepts_a_signed_ubertooth_image);
+	MU_RUN(test_crc32_matches_the_standard_check_value);
 	MU_RUN(test_image_rejects_a_wrong_crc);
 	MU_RUN(test_image_rejects_a_truncated_image);
 	MU_RUN(test_image_rejects_a_file_shorter_than_a_suffix);

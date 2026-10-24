@@ -90,8 +90,9 @@ int dfu_verify_application(const struct dfu_verify_ops *ops,
 int dfu_extract_firmware_revision(FILE *image, char *revision,
                                   size_t revision_size);
 
-/* Why an image is not firmware this device can be given. Checked in the order
- * listed, so the first thing wrong with a file is the thing reported. */
+/* The result of checking a firmware image before it is flashed: OK, or the
+ * reason the image is refused. The checks run in the order listed, so the
+ * first problem found is the one reported. */
 enum dfu_image_result {
 	DFU_IMAGE_OK = 0,
 	DFU_IMAGE_INVALID_ARGUMENT = -1,
