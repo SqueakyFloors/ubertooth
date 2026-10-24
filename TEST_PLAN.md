@@ -194,9 +194,9 @@ These branches exist in the repo but are NOT in master yet:
 
 ## Notes
 
-- The host `ctest` suite needs no Ubertooth and never opens one, so it can run
-  while boards are in use. The tests that run the tools set
-  `UBERTOOTH_TEST_NO_DEVICES=1`, which makes device selection behave as if
+- The host `ctest` suite needs no Ubertooth, and the tests that run the tools
+  do not open one, so the suite can run while boards are in use. Those tests
+  set `UBERTOOTH_TEST_NO_DEVICES=1`, which makes device selection behave as if
   nothing were attached; nothing else sets it, so normal use is unaffected.
   Everything below still needs real hardware.
 - Tests 3b, 5b, 6 directly exercise the cherry-picked fixes — these are the most important to run
