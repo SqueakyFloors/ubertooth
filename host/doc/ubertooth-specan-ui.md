@@ -48,19 +48,23 @@ To pick one of several Ubertooths, run:
 
 ## KEYS AND MOUSE
 
-Press `H` in the window to show this list on screen.
+Press `h` in the window to show this list on screen. Keys work in upper or
+lower case. There are two mouse markers, one per button: clicking again moves
+that marker. On a Mac trackpad, right click is a two-finger click or
+Control-click.
 
- - `Left mouse` :
-   mark a frequency and level (yellow)
- - `Right mouse` :
-   mark a second frequency and level (magenta)
- - `Middle mouse` or `M` :
+ - `Left click` :
+   set marker 1 (yellow) at the pointer's frequency and level
+ - `Right click` :
+   set marker 2 (magenta); the frequency differences to marker 1 and to the
+   peak are shown
+ - `Middle click` or `m` :
    show or hide the peak and average markers, and clear the mouse markers
- - `C` :
+ - `c` :
    clear the graph
- - `H` :
+ - `h` :
    show or hide the key help
- - `Q` :
+ - `q` :
    quit
 
 ## SEE ALSO

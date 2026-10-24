@@ -78,19 +78,23 @@ For example, to watch Wi-Fi channels 1 to 6 on the second Ubertooth:
 Keys and mouse
 ~~~~~~~~~~~~~~
 
-Press ``H`` in the window to show this list on screen (a small ``H: keys``
-hint is always shown in the corner).
+Press ``h`` in the window to show this list on screen (a small ``h: keys``
+hint is always shown in the corner). Keys work in upper or lower case.
+
+There are two mouse markers, one per button; clicking again moves that marker.
+With both set, the frequency differences between them and to the peak are
+shown. On a Mac trackpad, right click is a two-finger click or Control-click.
 
 ==========================  ==================================================
 Key / button                Action
 ==========================  ==================================================
-Left mouse                  Mark a frequency and level (yellow)
-Right mouse                 Mark a second frequency and level (magenta)
-Middle mouse or ``M``       Show or hide the peak and average markers, and
+Left click                  Set marker 1 (yellow) at the pointer
+Right click                 Set marker 2 (magenta)
+Middle click or ``m``       Show or hide the peak and average markers, and
                             clear the mouse markers
-``C``                       Clear the graph (also restarts the average)
-``H``                       Show or hide the key help
-``Q``                       Quit
+``c``                       Clear the graph (also restarts the average)
+``h``                       Show or hide the key help
+``q``                       Quit
 ==========================  ==================================================
 
 What the display shows

@@ -36,7 +36,7 @@
   Credit: Sirio Balmelli ([@siriobalmelli](https://github.com/siriobalmelli)).
   [#75](https://github.com/SqueakyFloors/ubertooth/issues/75)
   https://github.com/siriobalmelli-foss/ubertooth/commit/01c3bf9e
-- `ubertooth-specan-ui` shows its keys on screen (press `H`; a hint is always
+- `ubertooth-specan-ui` shows its keys on screen (press `h`; a hint is always
   visible), labels frequencies in whole MHz, and has a man page and usage guide.
   [#125](https://github.com/SqueakyFloors/ubertooth/issues/125)
 

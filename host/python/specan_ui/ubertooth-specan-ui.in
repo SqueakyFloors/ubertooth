@@ -45,14 +45,14 @@ from qtpy.QtCore import Qt, QPointF, QLineF
 
 from specan import Ubertooth
 
-# Shown on screen with H and printed to the terminal.
+# Shown on screen with h and printed to the terminal. Keys work in either case.
 KEY_HELP = (
-    ('Left mouse', 'mark a frequency / level (yellow)'),
-    ('Right mouse', 'mark a second frequency / level (magenta)'),
-    ('Middle mouse or M', 'show / hide peak and average markers, clear mouse markers'),
-    ('C', 'clear the graph'),
-    ('H', 'show / hide this help'),
-    ('Q', 'quit'),
+    ('Left click', 'set marker 1 (yellow) at the pointer'),
+    ('Right click', 'set marker 2 (magenta); shows the difference'),
+    ('Middle click or m', 'show / hide peak and average markers, clear mouse markers'),
+    ('c', 'clear the graph'),
+    ('h', 'show / hide this help'),
+    ('q', 'quit'),
 )
 
 DEFAULT_LOWER_FREQ = 2402
@@ -352,7 +352,7 @@ class RenderArea(QtWidgets.QWidget):
         metrics = painter.fontMetrics()
         line_height = metrics.height() + 2
         if not self._show_help:
-            hint = 'H: keys'
+            hint = 'h: keys'
             painter.setPen(QtGui.QColor(160, 160, 160))
             painter.drawText(QPointF(self.width() - metrics.horizontalAdvance(hint) - 8,
                                      self.height() - 8), hint)
