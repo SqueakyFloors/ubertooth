@@ -27,6 +27,13 @@
   boards and refuses to skip one it cannot read.
   [#23](https://github.com/SqueakyFloors/ubertooth/issues/23)
   [#25](https://github.com/SqueakyFloors/ubertooth/issues/25)
+- `install.sh` stops early with a clear error when Python is older than 3.8,
+  installs `libnewlib-arm-none-eabi` explicitly for firmware builds, and its
+  apt hint for missing GUI packages names `python3-pyqt5`, which Ubuntu
+  packages, instead of `python3-pyside6`, which Ubuntu does not package before
+  24.10.
+  [#152](https://github.com/SqueakyFloors/ubertooth/issues/152)
+  [#154](https://github.com/SqueakyFloors/ubertooth/issues/154)
 - `ubertooth-util -H`/`--host-version` reports the installed host-tools
   version without a device.
 - `ubertooth-util -I` blinks light-emitting diodes (LEDs) faster for easier

@@ -57,7 +57,7 @@ To do it by hand instead:
 sudo apt-get install cmake build-essential pkg-config \
      libusb-1.0-0-dev libbluetooth-dev libfftw3-dev \
      python3 python3-numpy python3-qtpy python3-pyqt5 python3-usb1 \
-     dfu-util gcc-arm-none-eabi
+     dfu-util gcc-arm-none-eabi libnewlib-arm-none-eabi
 # then build libbtbb from source (matching the release), then the host tools
 ```
 
