@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ubertooth-dfu -d checks the image before it goes near a device (#198, #199).
+"""ubertooth-dfu -d checks the image before it goes near a device.
 
 Run as: test_dfu_images.py <path to ubertooth-dfu>
 
@@ -8,8 +8,7 @@ selection if it got that far. A rejected image must be refused with exit 1 and
 its own message, without that device-selection line: nothing was opened, so
 nothing was switched into the DFU bootloader. An acceptable image must get
 past the check and reach device selection instead. The tool runs with
-UBERTOOTH_TEST_NO_DEVICES=1, so selection opens nothing whatever is attached
-(#219).
+UBERTOOTH_TEST_NO_DEVICES=1, so selection opens nothing whatever is attached.
 """
 
 import os
@@ -23,7 +22,7 @@ NO_SUCH_SERIAL = "ffffffffffffffffffffffffffffffff"
 NOT_FOUND = f"no ubertooth found with serial matching '{NO_SUCH_SERIAL}'"
 # Hide attached boards from the tool: matching a serial otherwise opens every
 # one of them to read its serial, which stalls on a board another process is
-# using (#219).
+# using.
 ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1")
 
 U1_DFU_VENDORID = 0x1D50

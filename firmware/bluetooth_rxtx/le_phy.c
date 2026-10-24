@@ -332,7 +332,7 @@ void le_DMA_IRQHandler(void) {
 			// RX must never be armed without a buffer, but if it ever is,
 			// stop rather than dereference NULL: a fault here lands in the
 			// fault.c LED loop, which also stops USB being serviced, so the
-			// board would answer nothing until it was re-plugged (#158).
+			// board would answer nothing until it was re-plugged.
 			if (current_rxbuf == NULL) {
 				// SFSON, not SRFOFF: stop receiving but leave the
 				// synthesizer running, because the buffer wait below
@@ -1111,7 +1111,7 @@ void le_phy_main(void) {
 	// cc2400_idle() the main loop runs next. Its FS_LOCK wait was unbounded,
 	// so the board could sit there forever with USB unserviced, and every
 	// later control request timed out (-7) or stalled (-9) until the board was
-	// physically re-plugged. See issue #158.
+	// physically re-plugged.
 	//
 	// Order matters. Clearing le_phy_active first is what makes this safe: a
 	// write to NVIC ICER0 is not self-synchronising on Cortex-M3, so an

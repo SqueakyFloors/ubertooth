@@ -152,7 +152,7 @@ static struct run_result run_afh(const char *const *args)
 
 /* ---- tests -------------------------------------------------------------- */
 
-/* Issue #187: an all-zero map was printed and the tool kept running. */
+/* An all-zero map used to be printed, and the tool kept running. */
 MU_TEST(no_packets_in_the_detection_phase_is_reported_and_exits_2)
 {
 	struct run_result r;

@@ -753,8 +753,8 @@ static int runtime_claim_dfu(void *context __attribute__((unused)), void *handle
 	return result;
 }
 
-/* The read-back gets the same one bounded retry as programming: #208 saw a
- * single REQ_UPLOAD fail a second after the board came back from the
+/* The read-back gets the same one bounded retry as programming: a single
+ * REQ_UPLOAD was seen to fail a second after the board came back from the
  * bootloader, and the dump is read again from its first block. */
 static int runtime_upload(void *context, void *handle)
 {

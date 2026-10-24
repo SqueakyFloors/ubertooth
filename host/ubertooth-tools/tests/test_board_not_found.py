@@ -6,12 +6,12 @@ Run as: test_board_not_found.py <path to one ubertooth-* binary>
 Each tool is started with a serial number no board has, plus whatever options
 it needs to get past argument checking, so it reaches device selection and
 finds nothing. ubertooth-afh used to dereference the NULL handle here and die
-with SIGSEGV (#185).
+with SIGSEGV.
 
 The tools run with UBERTOOTH_TEST_NO_DEVICES=1, so selection finds nothing
 whatever is attached. Matching a serial otherwise opens every attached board to
 read its serial, which stalls on, and reports an error for, a board another
-process is using, making this case depend on what the machine is doing (#219).
+process is using, making this case depend on what the machine is doing.
 """
 
 import os

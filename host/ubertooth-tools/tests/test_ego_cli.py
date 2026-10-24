@@ -3,7 +3,7 @@
 
 UBERTOOTH_TEST_NO_DEVICES=1 hides attached boards from the tool, so a case
 that reached device selection reports no device instead of opening a board
-this machine is using (#219).
+this machine is using.
 """
 
 import os

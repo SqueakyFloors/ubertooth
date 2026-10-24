@@ -143,7 +143,7 @@ static void test_lap_and_uap(void)
 	CHECK(uap == 0x5a);
 }
 
-/* These cases came from ubertooth-btle's own -a tests (#171). */
+/* These cases came from ubertooth-btle's own -a tests. */
 static void test_access_address(void)
 {
 	uint32_t aa = 0xdeadbeef;

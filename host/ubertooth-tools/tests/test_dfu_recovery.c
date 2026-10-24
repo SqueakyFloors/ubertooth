@@ -365,8 +365,8 @@ static void idle_always(struct fake_idle *fake, int state)
 	fake->state_count = 1;
 }
 
-/* #216: a bootloader that will not say where it is used to be asked forever,
- * one error line per attempt. The first failed read now ends the wait. */
+/* A bootloader that will not say where it is used to be asked forever, one
+ * error line per attempt. The first failed read now ends the wait. */
 MU_TEST(test_idle_stops_on_the_first_failed_state_read)
 {
 	struct fake_idle fake = make_idle_fake();
@@ -820,7 +820,7 @@ MU_TEST(test_image_accepts_a_doubly_suffixed_file)
 	/* A suffix appended to an already-suffixed file is a valid DFU file whose
 	 * firmware happens to end in a suffix, and this check cannot tell the
 	 * difference. Stopping -s from signing a signed file therefore needs its
-	 * own check in -s, which is issue #200, not this one. */
+	 * own check in -s, which this one is not. */
 	length = append_suffix(&spec, image, length, sizeof(image));
 	mu_assert_int_eq(PAYLOAD_LENGTH + 2 * DFU_SUFFIX_LENGTH, length);
 	mu_assert_int_eq(DFU_IMAGE_OK,

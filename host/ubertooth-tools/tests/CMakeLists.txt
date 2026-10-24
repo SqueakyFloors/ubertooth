@@ -264,8 +264,9 @@ if(USE_OWN_GNU_GETOPT)
 endif()
 
 add_test(NAME dfu-main COMMAND test-dfu-main)
-# The unbounded state loop of #216 would hang here; fail it instead. A normal
-# run is a few hundred milliseconds (every transfer is faked).
+# The unbounded bootloader state loop this test covers would hang here; fail
+# it instead. A normal run is a few hundred milliseconds (every transfer is
+# faked).
 set_tests_properties(dfu-main PROPERTIES TIMEOUT 10)
 
 # Runs the real libubertooth part-ID commands against a fake libusb control
