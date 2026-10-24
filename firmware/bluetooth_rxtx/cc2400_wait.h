@@ -21,6 +21,32 @@
  * contention is retried quickly rather than after most of the budget. */
 #define FS_UNLOCK_RESTROBE_INTERVAL 32
 
+/* Polls before cc2400_wait_fs_lock() gives up. Locking takes the synthesizer
+ * a few hundred microseconds, so this is sized to be out of reach of a radio
+ * that is working at all: at roughly a microsecond per poll it is around ten
+ * milliseconds, an order of magnitude more than the lock needs. */
+#define FS_LOCK_POLLS 10000
+
+/* Re-strobe SFSON every this many polls, for the same reason the unlock wait
+ * re-strobes SRFOFF. */
+#define FS_LOCK_RESTROBE_INTERVAL 1024
+
+/* Wait for the CC2400 synthesizer to report locked, with a bound.
+ *
+ * The counterpart of cc2400_wait_fs_unlock(), after a SFSON strobe, and
+ * bounded for the same reason: `while (!(cc2400_status() & FS_LOCK));` inside
+ * a mode loop means a radio that never locks keeps the loop from ever looking
+ * at requested_mode again, so ubertooth-util -S cannot stop the mode and the
+ * board has to be re-plugged.
+ *
+ * A caller that times out has an unlocked synthesizer, so whatever it reads
+ * from the radio next is not a measurement. Callers that only sample, like
+ * led_specan(), can carry on and lose that one sample.
+ *
+ * Returns 1 if the synthesizer reported locked, 0 if the wait timed out.
+ */
+int cc2400_wait_fs_lock(void);
+
 /* Wait for the CC2400 synthesizer to report unlocked, with a bound.
  *
  * Every poll is a bit-banged SPI transaction on the shared CC2400 bus:

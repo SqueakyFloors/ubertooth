@@ -910,6 +910,14 @@ void legacy_DMA_IRQHandler()
 	}
 }
 
+/*
+ * Put the radio and the board back to a known state.
+ *
+ * This decides nothing about what runs next: the main loop's dispatch owns
+ * `mode` and `requested_mode`, and runs this whenever a mode is left. Keeping
+ * the two apart is what stops the teardown from dropping a mode request that
+ * arrives while it runs (issue #209).
+ */
 static void cc2400_idle()
 {
 	cc2400_strobe(SRFOFF);
@@ -947,8 +955,6 @@ static void cc2400_idle()
 	status = 0;
 
 	/* operation mode */
-	mode = MODE_IDLE;
-	requested_mode = MODE_IDLE;
 	jam_mode = JAM_NONE;
 	ego_mode = EGO_FOLLOW;
 
@@ -1713,7 +1719,10 @@ void bt_generic_le(u8 active_mode)
 	// disable USB interrupts
 	ICER0 = ICER0_ICE_USB;
 
-	// reset the radio completely
+	// reset the radio completely. bt_promisc_le() runs this mode and
+	// bt_le_sync() in turn and starts each half from the state this leaves,
+	// so it is not only a teardown; the dispatch idles again on the way out
+	// of the mode, which is cheap and idempotent.
 	cc2400_idle();
 	dio_ssp_stop();
 	cs_trigger_disable();
@@ -1931,7 +1940,8 @@ cleanup:
 	// disable USB interrupts
 	ICER0 = ICER0_ICE_USB;
 
-	// reset the radio completely
+	// reset the radio completely (as in bt_generic_le(): bt_promisc_le()
+	// starts its next pass from this state)
 	cc2400_idle();
 	dio_ssp_stop();
 	cs_trigger_disable();
@@ -2464,11 +2474,13 @@ void rx_generic(void) {
 }
 
 #ifdef TX_ENABLE
-void tx_generic(void) {
+/*
+ * Transmit one packet and ask for the mode that was running before, which the
+ * dispatch passes in: `mode` is already MODE_TX_GENERIC by the time this runs,
+ * because the dispatch records the mode it is entering for every mode alike.
+ */
+void tx_generic(u8 prev_mode) {
 	u16 synch, syncl;
-	u8 prev_mode = mode;
-
-	mode = MODE_TX_GENERIC;
 
 	// Save existing syncword
 	synch = cc2400_get(SYNCH);
@@ -2571,6 +2583,36 @@ void led_specan()
 	//void (*set[3]) = {TXLED_SET, RXLED_SET, USRLED_SET};
 	//void (*clr[3]) = {TXLED_CLR, RXLED_CLR, USRLED_CLR};
 
+	/*
+	 * Let the USB interrupt service endpoint 0 for as long as this mode runs,
+	 * and stop polling handle_usb() from the loop below.
+	 *
+	 * The loop blocks on the radio either side of every sample: waiting for
+	 * the synthesizer to lock, the crude delay while the CC2400 acquires
+	 * RSSI, then waiting for the synthesizer to unlock again. Servicing
+	 * endpoint 0 from one point in that loop left it a whole sample behind
+	 * the host, and endpoint 0 is single-buffered: a SETUP packet that
+	 * arrives while the firmware is still draining the previous transfer's
+	 * status packet is read back short, decodes to a request this firmware
+	 * does not know, and lpcusb halts the endpoint. That is the host's
+	 * occasional -9 in issue #213. Served from the interrupt, each packet is
+	 * taken out of the endpoint within microseconds of arriving.
+	 *
+	 * Every other mode loop that busy-waits on the radio already does this --
+	 * see bt_slave_le(), "enable USB interrupts due to busy waits". Leaving
+	 * handle_usb() in the loop as well would be worse than either on its own:
+	 * both paths drive the same endpoint 0 state machine and the same pair of
+	 * USB command registers, and nothing makes them mutually exclusive. This
+	 * mode enqueues nothing, so the loop has no other reason to call it.
+	 *
+	 * The known cost, shared with every mode that does this: a control
+	 * request that drives the radio itself (register reads and writes, the
+	 * squelch, the channel) now runs from the interrupt and can land in the
+	 * middle of one of this loop's bit-banged CC2400 transfers. See issue
+	 * #224.
+	 */
+	ISER0 = ISER0_ISE_USB;
+
 #ifdef UBERTOOTH_ONE
 	PAEN_SET;
 	//HGM_SET;
@@ -2587,7 +2629,10 @@ void led_specan()
 	while (requested_mode == MODE_LED_SPECAN) {
 		cc2400_set(FSDIV, channels[i] - 1);
 		cc2400_strobe(SFSON);
-		while (!(cc2400_status() & FS_LOCK));
+		/* Bounded, so a synthesizer that never reports locked cannot hold
+		 * this loop for good: ubertooth-util -S has to be able to stop the
+		 * mode. A timeout only costs this one sample its accuracy. */
+		cc2400_wait_fs_lock();
 		cc2400_strobe(SRX);
 
 		/* give the CC2400 time to acquire RSSI reading */
@@ -2622,11 +2667,12 @@ void led_specan()
 
 		i = (i+1) % 3;
 
-		handle_usb(clkn);
-
 		cc2400_strobe(SRFOFF);
 		cc2400_wait_fs_unlock();
 	}
+
+	// disable USB interrupts
+	ICER0 = ICER0_ICE_USB;
 }
 
 int main()
@@ -2644,103 +2690,117 @@ int main()
 	debug_printf("\n\n****UBERTOOTH BOOT****\n%s\n", compile_info);
 
 	while (1) {
+		u8 next_mode, prev_mode;
+
 		handle_usb(clkn);
+
 		/*
-		 * Every case that runs a mode loop must leave `mode` equal to the
-		 * mode it is running, either by setting it here or inside the
-		 * function it calls. That is what makes the next request a mode
-		 * change: without it, stopping the mode leaves requested_mode ==
-		 * mode, the MODE_IDLE case never runs, and cc2400_idle() never
-		 * resets the LEDs, the amplifier, the channel and the squelch.
+		 * Read the request once. It is written by the control request
+		 * handler, which runs from the USB interrupt while the
+		 * interrupt-driven modes are active, so reading it twice could
+		 * dispatch one mode and record another.
 		 */
-		if(requested_mode != mode) {
-			switch (requested_mode) {
-				case MODE_RESET:
-					/* Allow time for the USB command to return correctly */
-					wait(1);
-					reset();
-					break;
-				case MODE_AFH:
-					mode = MODE_AFH;
-					bt_stream_rx();
-					break;
-				case MODE_RX_SYMBOLS:
-					mode = MODE_RX_SYMBOLS;
-					bt_stream_rx();
-					break;
+		next_mode = requested_mode;
+		if (next_mode == mode)
+			continue;
+
+		prev_mode = mode;
+
+		/*
+		 * A mode change, and the only place one happens. Leaving a mode
+		 * always runs the idle reset, before the next mode starts: LEDs and
+		 * the Ubertooth One amplifier off, the radio quiet, the channel back
+		 * to 2441 MHz and the squelch back to -120.
+		 *
+		 * This used to be a dispatch case of its own (`case MODE_IDLE`),
+		 * which meant the reset ran only when MODE_IDLE was still the
+		 * request by the time the dispatch was reached. A mode loop that
+		 * returned for its own reason, or a second request arriving in the
+		 * handle_usb() above, carried the old mode's LEDs, amplifier,
+		 * channel and squelch straight into the new mode (issue #209).
+		 */
+		if (prev_mode != MODE_IDLE)
+			cc2400_idle();
+
+		/*
+		 * Record the new mode here rather than in each case. When each case
+		 * did it, a case that left it out kept `mode` at the previous mode,
+		 * so stopping the mode it was running found requested_mode == mode
+		 * and no reset ran at all; and an unknown request kept `mode`
+		 * unchanged for good, spinning this loop at full rate (both issue
+		 * #209).
+		 */
+		mode = next_mode;
+
+		switch (next_mode) {
+			case MODE_RESET:
+				/* Allow time for the USB command to return correctly */
+				wait(1);
+				reset();
+				break;
+			case MODE_AFH:
+			case MODE_RX_SYMBOLS:
+			case MODE_BT_FOLLOW:
+				bt_stream_rx();
+				break;
 #ifdef TX_ENABLE
-				case MODE_TX_SYMBOLS:
-					mode = MODE_TX_SYMBOLS;
-					br_transmit();
-					break;
+			case MODE_TX_SYMBOLS:
+				br_transmit();
+				break;
 #endif
-				case MODE_BT_FOLLOW:
-					mode = MODE_BT_FOLLOW;
-					bt_stream_rx();
-					break;
-				case MODE_BT_FOLLOW_LE:
-					mode = MODE_BT_FOLLOW_LE;
-					bt_follow_le();
-					break;
-				case MODE_BT_PROMISC_LE:
-					mode = MODE_BT_PROMISC_LE;
-					bt_promisc_le();
-					break;
+			case MODE_BT_FOLLOW_LE:
+				bt_follow_le();
+				break;
+			case MODE_BT_PROMISC_LE:
+				bt_promisc_le();
+				break;
 #ifdef TX_ENABLE
-				case MODE_BT_SLAVE_LE:
-					mode = MODE_BT_SLAVE_LE;
-					bt_slave_le();
-					break;
-				case MODE_TX_TEST:
-					mode = MODE_TX_TEST;
-					cc2400_txtest(&modulation, &channel);
-					break;
-				case MODE_RANGE_TEST:
-					mode = MODE_RANGE_TEST;
-					cc2400_rangetest(&channel);
-					requested_mode = MODE_IDLE;
-					break;
-				case MODE_REPEATER:
-					mode = MODE_REPEATER;
-					cc2400_repeater(&channel);
-					break;
+			case MODE_BT_SLAVE_LE:
+				bt_slave_le();
+				break;
+			case MODE_TX_TEST:
+				cc2400_txtest(&modulation, &channel);
+				break;
+			case MODE_RANGE_TEST:
+				cc2400_rangetest(&channel);
+				requested_mode = MODE_IDLE;
+				break;
+			case MODE_REPEATER:
+				cc2400_repeater(&channel);
+				break;
 #endif
-				case MODE_SPECAN:
-					mode = MODE_SPECAN;
-					specan();
-					break;
-				case MODE_LED_SPECAN:
-					mode = MODE_LED_SPECAN;
-					led_specan();
-					break;
-				case MODE_EGO:
-					mode = MODE_EGO;
-					ego_main(ego_mode);
-					break;
-				case MODE_RX_GENERIC:
-					mode = MODE_RX_GENERIC;
-					rx_generic();
-					break;
+			case MODE_SPECAN:
+				specan();
+				break;
+			case MODE_LED_SPECAN:
+				led_specan();
+				break;
+			case MODE_EGO:
+				ego_main(ego_mode);
+				break;
+			case MODE_RX_GENERIC:
+				rx_generic();
+				break;
 #ifdef TX_ENABLE
-				case MODE_TX_GENERIC:
-					tx_generic();
-					break;
+			case MODE_TX_GENERIC:
+				/* one packet, then back to whatever was running */
+				tx_generic(prev_mode);
+				break;
 #endif
-				case MODE_XMAS:
-					mode = MODE_XMAS;
-					xmas_main();
-					break;
-				case MODE_IDENTIFY:
-					mode = MODE_IDENTIFY;
-					identify_main();
-					break;
-				case MODE_IDLE:
-					cc2400_idle();
-					break;
-				default:
-					/* This is really an error state, but what can you do? */
-					break;
-			}
+			case MODE_XMAS:
+				xmas_main();
+				break;
+			case MODE_IDENTIFY:
+				identify_main();
+				break;
+			case MODE_IDLE:
+				/* nothing left to do: the reset above is the whole job */
+				break;
+			default:
+				/* An unknown request. `mode` is already set to it, so this
+				 * settles as idle instead of spinning; the board stays
+				 * reset until the host asks for something known. */
+				break;
 		}
 	}
 }

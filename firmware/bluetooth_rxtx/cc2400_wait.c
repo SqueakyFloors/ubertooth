@@ -24,3 +24,21 @@ int cc2400_wait_fs_unlock(void)
 
 	return 0;
 }
+
+int cc2400_wait_fs_lock(void)
+{
+	unsigned i;
+
+	for (i = 0; i < FS_LOCK_POLLS; ++i) {
+		if (cc2400_status() & FS_LOCK)
+			return 1;
+
+		/* Re-assert SFSON now and then, in case the original strobe was lost
+		 * to SPI bus contention with an interrupt handler, or an interrupt
+		 * handler turned the synthesizer back off. */
+		if ((i % FS_LOCK_RESTROBE_INTERVAL) == FS_LOCK_RESTROBE_INTERVAL - 1)
+			cc2400_strobe(SFSON);
+	}
+
+	return 0;
+}

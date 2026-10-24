@@ -40,7 +40,7 @@ Hardware required: Ubertooth One, Linux machine (Ubuntu 22.04+ preferred), a BLE
 
 ### 2a. Firmware version check
 - [ ] Run `ubertooth-util -v`
-- [ ] Confirm: returns `Firmware version: <revision> (API:1.11)` (firmware
+- [ ] Confirm: returns `Firmware version: <revision> (API:1.12)` (firmware
       built from this tree; the host tools refuse any other API version)
 - [ ] Confirm: no `usb_claim_interface` errors
 - [ ] Confirm: no timeout errors
@@ -125,6 +125,22 @@ Hardware required: Ubertooth One, Linux machine (Ubuntu 22.04+ preferred), a BLE
 - [ ] Repeat with `ubertooth-btle -p` stopped by Ctrl+C, then `-d -C -z`
       (this one already reset before the fix; it must still do so)
 - [ ] Confirm: the same idle state each time
+
+### 4e. Control requests while a mode runs
+- [ ] Run `ubertooth-util -q 120`, then `ubertooth-util -d`, `-C` and `-z`
+      300 times each, 0.1 s apart, recording the exit status of each
+- [ ] Confirm: every read succeeds; no stalled transfer (`-9`), no timeout
+      (`-7`), and every `-d` reports all three LEDs
+- [ ] Run `ubertooth-util -S`
+
+### 4f. Two mode requests in a row
+- [ ] Run `ubertooth-util -c2470 -z-60`, then `-q 120` and `-x` with no `-S`
+      between them, then `ubertooth-util -d -C -z`
+- [ ] Confirm: channel 2441 MHz and squelch -120, so leaving `-q` reset the
+      board before xmas started
+- [ ] Repeat the other way round (`-x` then `-q 120`), then `-S`, then
+      `-d -C -z`
+- [ ] Confirm: LEDs 0 0 0, channel 2441 MHz, squelch -120
 
 ---
 
