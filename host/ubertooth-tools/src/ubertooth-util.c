@@ -274,6 +274,24 @@ static void identify_cleanup(int sig __attribute__((unused)))
 	exit(0);
 }
 
+/* getopt reads an optional option value only when it is attached (-c2440).
+ * ubertooth-util takes no other arguments, so a number in the next word can
+ * only be that value: take it, so -c 2440 works like -c2440. A word that is
+ * not a number is left alone (-c -b reads the channel, then -b runs). */
+static char *separate_option_value(int argc, char *argv[], int allow_negative)
+{
+	const char *word, *digits;
+
+	if (optind >= argc)
+		return NULL;
+	word = argv[optind];
+	digits = (allow_negative && word[0] == '-') ? word + 1 : word;
+	if (digits[0] == '\0' || strspn(digits, "0123456789") != strlen(digits))
+		return NULL;
+	optind++;
+	return argv[optind - 1];
+}
+
 static void usage(FILE *output)
 {
 	fprintf(output, "ubertooth-util - command line utility for Ubertooth Zero and Ubertooth One\n");
@@ -358,6 +376,10 @@ int main(int argc, char *argv[])
 	}
 
 	while ((opt=getopt(argc,argv,"U:hnmefiIprsStvbl::a::C::c::d::q::z::9VNxH")) != EOF) {
+		/* An optional value may also be the next word: -c 2440, -z -90. Only
+		 * -z takes a negative value (a signed RSSI threshold). */
+		if (optarg == NULL && strchr("lacCdqz", opt) != NULL)
+			optarg = separate_option_value(argc, argv, opt == 'z');
 		/* Anything but an identity query or -U needs a single selected device. */
 		if (strchr("svVpbU", opt) == NULL)
 			other_operations = 1;
@@ -486,15 +508,10 @@ int main(int argc, char *argv[])
 	}
 
 	/* ubertooth-util takes no operands. Refuse a leftover word before any
-	 * device is opened: otherwise a typo such as "- V" (for -V) or "-c 2440"
-	 * (an optional value must be attached: -c2440) is dropped silently while
-	 * the rest of the command still runs. */
+	 * device is opened: otherwise a typo such as "- V" (for -V) is dropped
+	 * silently while the rest of the command still runs. */
 	if (optind < argc) {
-		const char *arg = argv[optind];
-		fprintf(stderr, "error: unexpected argument '%s'\n", arg);
-		if (arg[0] != '\0' && strspn(arg, "0123456789") == strlen(arg))
-			fprintf(stderr, "option values must be attached to the option, "
-			        "for example -c2440, -C39 or -a7\n");
+		fprintf(stderr, "error: unexpected argument '%s'\n", argv[optind]);
 		return 1;
 	}
 
