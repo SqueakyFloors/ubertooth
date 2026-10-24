@@ -50,6 +50,15 @@ Options:
  - `-U <index|serial>` :
    Select an Ubertooth by enumeration index or stable serial-number string
 
+## TRANSMIT POWER
+
+Interference (`-i`, `-j`) transmits at CC2400 power level 7 (0 dBm, the
+maximum), regardless of the level set with `ubertooth-util -a`, and leaves the
+level at 7 afterwards. Sniffing does not transmit and does not change the
+level. These levels are at the CC2400 radio; the Ubertooth One's RF amplifier changes
+the actual output after that. See
+[#165](https://github.com/SqueakyFloors/ubertooth/issues/165).
+
 ## SEE ALSO
 
 ubertooth(7): overview of Project Ubertooth

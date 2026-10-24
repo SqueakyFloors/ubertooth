@@ -178,6 +178,15 @@ connections in follow mode using `-f` and log data to PCAP/PPI using
 
 Refer to `crackle` documentation for further details.
 
+## TRANSMIT POWER
+
+Injecting advertising packets (`-s`) and interference (`-i`, `-I`, `-j`, `-J`)
+transmit at CC2400 power level 3 (-7 dBm), regardless of the level set with
+`ubertooth-util -a`, and leave the level at 3 afterwards. Sniffing does not
+transmit and does not change the level. These levels are at the CC2400 radio; the Ubertooth One's RF amplifier changes
+the actual output after that. See
+[#165](https://github.com/SqueakyFloors/ubertooth/issues/165).
+
 ## SEE ALSO
 
 crackle(1): https://github.com/mikeryan/crackle

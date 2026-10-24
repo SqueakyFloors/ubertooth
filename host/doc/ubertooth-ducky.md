@@ -31,6 +31,14 @@ If no Bluetooth address is given, a random BD_ADDR is used (read from
  - `-h` :
    show help.
 
+## TRANSMIT POWER
+
+Injection advertises at CC2400 power level 3 (-7 dBm), regardless of the level
+set with `ubertooth-util -a`, and leaves the level at 3 afterwards.
+These levels are at the CC2400 radio; the Ubertooth One's RF amplifier changes
+the actual output after that. See
+[#165](https://github.com/SqueakyFloors/ubertooth/issues/165).
+
 ## SEE ALSO
 
 ubertooth-btle(1), ubertooth(7)

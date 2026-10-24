@@ -247,6 +247,14 @@ ubertooth\-btle \-f \-c crack.pcap
 .RE
 .PP
 Refer to \fB\fCcrackle\fR documentation for further details.
+.SH TRANSMIT POWER
+.PP
+Injecting advertising packets (\fB\fC\-s\fR) and interference (\fB\fC\-i\fR, \fB\fC\-I\fR, \fB\fC\-j\fR, \fB\fC\-J\fR)
+transmit at CC2400 power level 3 (\-7 dBm), regardless of the level set with
+\fB\fCubertooth\-util \-a\fR, and leave the level at 3 afterwards\. Sniffing does not
+transmit and does not change the level\. These levels are at the CC2400 radio; the Ubertooth One's RF amplifier changes
+the actual output after that\. See
+#165 (https://github.com/SqueakyFloors/ubertooth/issues/165)\.
 .SH SEE ALSO
 .PP
 .BR crackle (1): 
