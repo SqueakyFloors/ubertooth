@@ -89,6 +89,7 @@
   crashing with a segmentation fault; `ubertooth-follow` now stops there too.
   [#185](https://github.com/SqueakyFloors/ubertooth/issues/185)
 - `ubertooth-util -m` says `no range test result` when no range test has
+- `ubertooth-util -m` says `no range test result yet` when no range test has
   completed since the board started, instead of `invalid range test result`.
   [#190](https://github.com/SqueakyFloors/ubertooth/issues/190)
 - Every `ubertooth-*` tool now refuses a word that is not an option, including

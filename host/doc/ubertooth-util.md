@@ -241,8 +241,7 @@ by running:
     ubertooth-util -m
 
 Before a range test has completed since the board started, `-m` prints
-`no range test result (no range test has completed since the board started)`
-and exits 0. A test whose packets did not match prints
+`no range test result yet` and exits 0. A test whose packets did not match prints
 `Invalid range test: mismatch on byte <n>`.
 
 Note that the range test transmits the Cortex M3 microcontroller's
@@ -253,7 +252,7 @@ wirelessly, do not use the range test functionality.
 
 `ubertooth-util` exits with 0 when every requested operation succeeds, including
 queries that report a nonzero value such as `-b` (board ID), `-c` (channel), or
-`-a` (power amplifier level), and `-m` when there is no range test result yet
+`-a` (power amplifier level). `-m` with no range test result yet also exits 0
 (see [RANGE TEST][]). It exits with a nonzero status if any requested
 operation fails, even when a later operation in the same command succeeds.
 It exits with 1, without opening a device, when two or more mode options are

@@ -695,8 +695,8 @@ MU_TEST(range_result_is_reported_and_a_failed_read_fails)
 	fake.range.valid = 0;
 	r = RUN("-m");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(r.out, "no range test result (no range test has completed "
-	                 "since the board started)\n") == 0, "no-result output");
+	mu_assert(strcmp(r.out, "no range test result yet\n") == 0,
+	          "no-result output");
 
 	/* a test that ran but whose data did not match */
 	reset_fake();

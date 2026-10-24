@@ -745,8 +745,7 @@ int main(int argc, char *argv[])
 			} else {
 				/* valid is 0 until a range test completes once: there is
 				 * no result yet, which is not an error. */
-				fprintf(stdout, "no range test result (no range test has "
-				        "completed since the board started)\n");
+				fprintf(stdout, "no range test result yet\n");
 			}
 		}
 	}
