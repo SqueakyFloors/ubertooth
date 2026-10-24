@@ -24,3 +24,8 @@ int specan_validate_frequency_range(int lower, int upper)
 {
 	return lower <= upper ? 0 : -1;
 }
+
+int specan_sample_in_range(int frequency, int lower, int upper)
+{
+	return frequency >= lower && frequency <= upper;
+}

@@ -73,14 +73,22 @@ void register_cleanup_handler(ubertooth_t* ut, int do_exit) {
 	cleanup_devh = ut;
 
 	/* Clean up on ctrl-C. */
+	/* SIGHUP (terminal closed) and SIGALRM (a timeout wrapper such as
+	 * `perl -e 'alarm N; exec ...'`) also stop the device cleanly; killed
+	 * by them, a tool left its mode running on the board. A tool that calls
+	 * ubertooth_set_timeout() later installs its own SIGALRM handler. */
 	if (do_exit) {
 		signal(SIGINT, cleanup_exit);
 		signal(SIGQUIT, cleanup_exit);
 		signal(SIGTERM, cleanup_exit);
+		signal(SIGHUP, cleanup_exit);
+		signal(SIGALRM, cleanup_exit);
 	} else {
 		signal(SIGINT, cleanup);
 		signal(SIGQUIT, cleanup);
 		signal(SIGTERM, cleanup);
+		signal(SIGHUP, cleanup);
+		signal(SIGALRM, cleanup);
 	}
 }
 
