@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
-"""Exercise ubertooth-ducky device-selector parsing before hardware access."""
+"""Exercise ubertooth-ducky device-selector parsing before hardware access.
 
+UBERTOOTH_TEST_NO_DEVICES=1 hides attached boards from the tool, so a case
+that reached device selection reports no device instead of opening a board
+this machine is using (#219).
+"""
+
+import os
 import subprocess
 import sys
 
 
 BINARY = sys.argv[1]
+ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1")
 
 
 def run(*arguments):
@@ -15,6 +22,7 @@ def run(*arguments):
         text=True,
         timeout=5,
         check=False,
+        env=ENVIRONMENT,
     )
 
 

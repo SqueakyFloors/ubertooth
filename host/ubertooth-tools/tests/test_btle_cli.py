@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
-"""Verify ubertooth-btle refuses bad -a values and get+set before USB access."""
+"""Verify ubertooth-btle refuses bad -a values and get+set before USB access.
 
+UBERTOOTH_TEST_NO_DEVICES=1 hides attached boards from the tool, so a case
+that reached device selection reports no device instead of opening a board
+this machine is using (#219).
+"""
+
+import os
 import subprocess
 import sys
 
 
 BINARY = sys.argv[1]
+ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1")
 
 
 def reject(arguments, expected):
@@ -15,6 +22,7 @@ def reject(arguments, expected):
         text=True,
         timeout=5,
         check=False,
+        env=ENVIRONMENT,
     )
     output = result.stdout + result.stderr
     assert result.returncode == 1, result
