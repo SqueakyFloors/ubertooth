@@ -297,7 +297,7 @@ static void usage(FILE *output)
 	fprintf(output, "\t-C[0-78] get/set channel\n");
 	fprintf(output, "\t-q[1-225 (RSSI threshold)] start LED spectrum analyzer\n");
 	fprintf(output, "\t-t intitiate continuous transmit test\n");
-	fprintf(output, "\t-z set squelch level\n");
+	fprintf(output, "\t-z[level] get/set squelch level\n");
 	fprintf(output, "\n");
 	fprintf(output, "Range test:\n");
 	fprintf(output, "\t-e start repeater mode\n");
@@ -489,7 +489,7 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "error: unexpected argument '%s'\n", arg);
 		if (arg[0] != '\0' && strspn(arg, "0123456789") == strlen(arg))
 			fprintf(stderr, "option values must be attached to the option, "
-			        "for example -c2440 or -a7\n");
+			        "for example -c2440, -C39 or -a7\n");
 		return 1;
 	}
 

@@ -4,7 +4,7 @@
 
 `ubertooth-util` [-v] [-V] [-H] [--host-version] [-I] [-d[0-1]] [-l[0-1]]
 [-S] [-r] [-U<index|serial|all>] [-a[0-7]] [-c[2400-2483]] [-C[0-78]] [-q[1-225]] [-t]
-[-z] [-e] [-m] [-n] [-f] [-i] [-b] [-p] [-s] [-N] [-x] [-h]
+[-z[level]] [-e] [-m] [-n] [-f] [-i] [-b] [-p] [-s] [-N] [-x] [-h]
 
 ## DESCRIPTION
 
@@ -83,8 +83,8 @@ Radio options:
    start LED spectrum analyzer
  - `-t` :
    intitiate continuous transmit test
- - `-z` :
-   set squelch level
+ - `-z[level]` :
+   get/set squelch level
 
 Range test:
 
