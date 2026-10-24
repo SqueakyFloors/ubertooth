@@ -292,7 +292,8 @@ MU_TEST(the_largest_representable_index_is_an_ordinary_refusal)
 
 /* The same refusal with exactly one device attached: the index is a position
  * in the list of found Ubertooths, and only 0 is a position in a list of one.
- * See "Decisions for the maintainer" in the pull request. */
+ * This used to open that device whatever the index, which meant -U1 targeted
+ * the second board with two attached and the only board with one. */
 MU_TEST(a_nonzero_index_with_one_device_opens_nothing)
 {
 	char msg[256];
