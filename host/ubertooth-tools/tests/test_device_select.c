@@ -235,6 +235,61 @@ MU_TEST(an_index_past_several_devices_opens_nothing)
 	}
 }
 
+/* An all-digits index too large for an int must not be converted into one
+ * that selects a device: atoi() read 4294967296 as index 0 and 2147483648 as
+ * a negative index, which means "the only device". */
+MU_TEST(an_index_too_large_for_an_int_opens_nothing)
+{
+	static const char *const too_large[] = {
+		"2147483648",           /* INT_MAX + 1 */
+		"4294967296",           /* 2^32 */
+		"9223372036854775808",  /* LONG_MAX + 1 on 64-bit */
+		"99999999999999999999999999"
+	};
+	char msg[256];
+	size_t i;
+
+	for (i = 0; i < sizeof(too_large) / sizeof(too_large[0]); i++) {
+		bus_with_uberteeth(1);
+		mu_assert(select_capturing(too_large[i], msg, sizeof(msg)) == NULL,
+		          too_large[i]);
+		mu_assert(fake.opened == NULL, too_large[i]);
+		mu_assert_int_eq(0, fake.opens);
+		mu_assert(strstr(msg, "no Ubertooth at index") != NULL, msg);
+		mu_assert(strstr(msg, too_large[i]) != NULL, msg);
+
+		bus_with_uberteeth(2);
+		mu_assert(select_capturing(too_large[i], msg, sizeof(msg)) == NULL,
+		          too_large[i]);
+		mu_assert_int_eq(0, fake.opens);
+		mu_assert_int_eq(0, fake.lists);
+
+		/* and the quiet path refuses it without a message */
+		bus_with_uberteeth(1);
+		mu_assert(ubertooth_start_select_quiet(too_large[i]) == NULL,
+		          too_large[i]);
+		mu_assert_int_eq(0, fake.opens);
+	}
+}
+
+/* The largest index that does fit is still refused, but as an ordinary index
+ * that is not attached. */
+MU_TEST(the_largest_representable_index_is_an_ordinary_refusal)
+{
+	char msg[256];
+
+	bus_with_uberteeth(2);
+	mu_assert(select_capturing("2147483647", msg, sizeof(msg)) == NULL, msg);
+	mu_assert(strcmp(msg,
+	    "error: no Ubertooth at index 2147483647 (2 attached)\n"
+	    "could not open Ubertooth device\n") == 0, msg);
+
+	/* Leading zeros are still just digits. */
+	bus_with_uberteeth(2);
+	mu_assert(select_capturing("01", msg, sizeof(msg)) != NULL, msg);
+	mu_assert(fake.opened == &fake.devs[2], "-U01 is index 1");
+}
+
 /* The same refusal with exactly one device attached: the index is a position
  * in the list of found Ubertooths, and only 0 is a position in a list of one.
  * See "Decisions for the maintainer" in the pull request. */
@@ -341,6 +396,8 @@ MU_TEST(a_device_without_a_descriptor_is_skipped)
 	ut = select_capturing("0", msg, sizeof(msg));
 	mu_assert(ut != NULL, "-U0 opens the Ubertooth that answered");
 	mu_assert(fake.opened == &fake.devs[2], "and it is the second one");
+	mu_assert(strcmp(msg,
+	    "couldn't get usb descriptor for dev #1!\n") == 0, msg);
 	ubertooth_stop(ut);
 	ubertooth_free(ut);
 
@@ -383,6 +440,8 @@ int main(void)
 {
 	MU_RUN(an_index_in_range_opens_that_device);
 	MU_RUN(an_index_past_several_devices_opens_nothing);
+	MU_RUN(an_index_too_large_for_an_int_opens_nothing);
+	MU_RUN(the_largest_representable_index_is_an_ordinary_refusal);
 	MU_RUN(a_nonzero_index_with_one_device_opens_nothing);
 	MU_RUN(index_zero_and_no_index_open_the_only_device);
 	MU_RUN(the_error_names_the_index_and_the_count);

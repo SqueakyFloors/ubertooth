@@ -19,6 +19,8 @@
  * Boston, MA 02110-1301, USA.
  */
 
+#include <errno.h>
+#include <limits.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
@@ -811,25 +813,70 @@ ubertooth_t* ubertooth_start_serial(char* serial_number)
 	return ut;
 }
 
+/* What a -U argument asks for. */
+enum selector_kind {
+	SELECTOR_DEFAULT,  /* no -U given: the only attached device */
+	SELECTOR_INDEX,    /* an enumeration index */
+	SELECTOR_SERIAL,   /* a serial-number string */
+	SELECTOR_NO_INDEX  /* all digits, but no device can have that index */
+};
+
+/* Classify a -U argument, writing the index for SELECTOR_INDEX. An all-digits
+ * argument is an index, anything else is matched as a serial number. A number
+ * that does not fit in an int cannot be an attached device's index, and must
+ * not be converted into one that is: atoi() would read 4294967296 as index 0
+ * and 2147483648 as a negative index, which means "the only device". */
+static enum selector_kind classify_selector(const char* u_arg, int* index)
+{
+	const char* p;
+	char* end;
+	long value;
+
+	if (u_arg == NULL || u_arg[0] == '\0')
+		return SELECTOR_DEFAULT;
+	for (p = u_arg; *p != '\0'; ++p)
+		if (*p < '0' || *p > '9')
+			return SELECTOR_SERIAL;
+
+	errno = 0;
+	value = strtol(u_arg, &end, 10);
+	if (errno != 0 || *end != '\0' || value < 0 || value > INT_MAX)
+		return SELECTOR_NO_INDEX;
+	*index = (int)value;
+	return SELECTOR_INDEX;
+}
+
+/* The same message as the loud selection path, for an index that could not
+ * even be a device index. */
+static void report_no_index(const char* u_arg)
+{
+	int attached = ubertooth_count();
+
+	fprintf(stderr, "error: no Ubertooth at index %s (%d attached)\n",
+	        u_arg, attached < 0 ? 0 : attached);
+}
+
 /* Shared -U argument handling for all tools: accepts either a numeric device
  * index (existing behaviour) or a serial-number string. A NULL or empty arg
  * means "default device". An all-digits arg is treated as an index; anything
  * else is matched as a serial number. */
 ubertooth_t* ubertooth_start_select(const char* u_arg)
 {
-	if (u_arg == NULL || u_arg[0] == '\0')
+	int index = -1;
+
+	switch (classify_selector(u_arg, &index)) {
+	case SELECTOR_DEFAULT:
 		return ubertooth_start(-1);
-
-	int all_digits = 1;
-	for (const char* p = u_arg; *p; ++p) {
-		if (*p < '0' || *p > '9') { all_digits = 0; break; }
+	case SELECTOR_INDEX:
+		return ubertooth_start(index);
+	case SELECTOR_NO_INDEX:
+		report_no_index(u_arg);
+		return NULL;
+	case SELECTOR_SERIAL:
+	default:
+		/* cast away const: the serial path does not modify the string */
+		return ubertooth_start_serial((char*)u_arg);
 	}
-
-	if (all_digits)
-		return ubertooth_start(atoi(u_arg));
-
-	/* cast away const: the serial path does not modify the string */
-	return ubertooth_start_serial((char*)u_arg);
 }
 
 /* Quiet variant of ubertooth_start_select(), for polling a device that may be
@@ -843,20 +890,19 @@ ubertooth_t* ubertooth_start_select_quiet(const char* u_arg)
 {
 	struct libusb_device_handle* devh;
 	ubertooth_t* ut;
-	int all_digits = 1;
+	enum selector_kind kind;
+	int index = -1;
 
-	if (u_arg != NULL) {
-		for (const char* p = u_arg; *p; ++p) {
-			if (*p < '0' || *p > '9') { all_digits = 0; break; }
-		}
-	}
+	kind = classify_selector(u_arg, &index);
+	if (kind == SELECTOR_NO_INDEX)
+		return NULL; /* quiet: no message, and nothing to open */
 
 	if (libusb_init(NULL) < 0)
 		return NULL;
-	if (u_arg == NULL || u_arg[0] == '\0')
+	if (kind == SELECTOR_DEFAULT)
 		devh = find_ubertooth_device_opt(-1, 1);
-	else if (all_digits)
-		devh = find_ubertooth_device_opt(atoi(u_arg), 1);
+	else if (kind == SELECTOR_INDEX)
+		devh = find_ubertooth_device_opt(index, 1);
 	else
 		devh = find_ubertooth_device_serial_opt(u_arg, 1);
 	if (devh == NULL || libusb_claim_interface(devh, 0) < 0) {
@@ -885,18 +931,20 @@ ubertooth_t* ubertooth_start_select_quiet(const char* u_arg)
  * Returns >=0 on success, <0 on failure (matching ubertooth_connect). */
 int ubertooth_connect_select(ubertooth_t* ut, const char* u_arg)
 {
-	if (u_arg == NULL || u_arg[0] == '\0')
+	int index = -1;
+
+	switch (classify_selector(u_arg, &index)) {
+	case SELECTOR_DEFAULT:
 		return ubertooth_connect(ut, -1);
-
-	int all_digits = 1;
-	for (const char* p = u_arg; *p; ++p) {
-		if (*p < '0' || *p > '9') { all_digits = 0; break; }
+	case SELECTOR_INDEX:
+		return ubertooth_connect(ut, index);
+	case SELECTOR_NO_INDEX:
+		report_no_index(u_arg);
+		return -1;
+	case SELECTOR_SERIAL:
+	default:
+		return ubertooth_connect_serial(ut, (char*)u_arg);
 	}
-
-	if (all_digits)
-		return ubertooth_connect(ut, atoi(u_arg));
-
-	return ubertooth_connect_serial(ut, (char*)u_arg);
 }
 
 int ubertooth_get_api(ubertooth_t *ut, uint16_t *version) {

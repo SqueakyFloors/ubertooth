@@ -195,8 +195,9 @@ is the recommended way to pin a specific board.
 The argument may be attached or separated \- \fB\fC\-U0\fR and \fB\fC\-U 0\fR are
 equivalent, as are \fB\fC\-U<serial>\fR and \fB\fC\-U <serial>\fR. An all\-digits
 argument is treated as an index, anything else as a serial. There is no fixed
-upper limit on attached devices (older docs showed \fB\fC\-U<0\-7>\fR, a
-convention only); with many devices prefer serial selection.
+upper limit on attached devices and the index is not capped at any particular
+number (older docs showed \fB\fC\-U<0\-7>\fR, a convention only); with many
+devices prefer serial selection.
 .PP
 An index must be one that is actually attached: it is a position in the list
 of attached Ubertooths, so with \fIn\fR attached only \fB\fC\-U0\fR to
@@ -214,6 +215,9 @@ could not open Ubertooth device
 This includes a nonzero index with a single Ubertooth attached (\fB\fC\-U1\fR
 of one device is refused; use \fB\fC\-U0\fR, or no \fB\fC\-U\fR at all). With no
 Ubertooth attached, any \fB\fC\-U<n>\fR reports that no device could be opened.
+A digit string too large to be a device index at all is refused the same way,
+naming it as given:
+\fB\fCerror: no Ubertooth at index 4294967296 (2 attached)\fR\&.
 .PP
 With several Ubertooths attached and no \fB\fC\-U\fR, the read\-only identity
 queries \fB\fC\-s\fR (serial), \fB\fC\-v\fR (firmware version), \fB\fC\-V\fR (compile

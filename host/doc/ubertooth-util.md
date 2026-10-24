@@ -173,14 +173,15 @@ exits non-zero:
 
 This includes a nonzero index with a single Ubertooth attached (`-U1` of one
 device is refused; use `-U0`, or no `-U` at all). With no Ubertooth attached,
-any `-U<n>` reports that no device could be opened.
+any `-U<n>` reports that no device could be opened. A digit string too large
+to be a device index at all is refused the same way, naming it as given:
+`error: no Ubertooth at index 4294967296 (2 attached)`.
 
 There is **no fixed upper limit** on the number of attached Ubertooths: the
-device list is sized dynamically and no index is rejected for being large as
-such, only for not being attached (older docs showed `-U<0-7>`, which was only
-a convention). In practice the limit is USB topology, hub bandwidth, and
-power — with many devices, prefer serial selection since indices become
-unwieldy and unstable.
+device list is sized dynamically and the index is not capped at any particular
+number (older docs showed `-U<0-7>`, which was only a convention). In practice
+the limit is USB topology, hub bandwidth, and power — with many devices, prefer
+serial selection since indices become unwieldy and unstable.
 
 With several Ubertooths attached and no `-U`, the read-only identity queries
 `-s` (serial), `-v` (firmware version), `-V` (compile info), `-p` (part ID) and
