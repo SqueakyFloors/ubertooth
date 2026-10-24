@@ -88,8 +88,8 @@ Major modes:
 Download \- write DFU file to device
 .IP \(bu 2
 \fB\fC\-u <output.bin>\fR :
-Upload \- read the application flash region into a raw file (see [READING
-FLASH BACK][])
+Upload \- read the application flash region, as much of it as the part has,
+into a raw file (see [READING FLASH BACK][])
 .IP \(bu 2
 \fB\fC\-r\fR :
 Reset device after performing operation
@@ -109,11 +109,29 @@ SELECTING A DEVICE
 .RE
 .SH READING FLASH BACK
 .PP
-\fB\fC\-u <output.bin>\fR is not the inverse of \fB\fC\-d\fR: it writes a raw 245760\-byte
-(240 KiB) dump of the application flash region, 0x4000 to 0x3ffff, with no DFU
-suffix, so \fB\fC\-d\fR refuses the result. The dump holds the image that was written
-(its own suffix included, padded with 0xff to the next 256\-byte block),
-followed by whatever the rest of the region contains, normally 0xff.
+\fB\fC\-u <output.bin>\fR is not the inverse of \fB\fC\-d\fR: it writes a raw dump of the
+application flash region, from 0x4000 to the end of the part's flash, with no
+DFU suffix, so \fB\fC\-d\fR refuses the result. The dump holds the image that was
+written (its own suffix included, padded with 0xff to the next 256\-byte
+block), followed by whatever the rest of the region contains, normally 0xff.
+.PP
+How long that is depends on the part, and the fleet is mixed, so the command
+says what it is about to read:
+.PP
+.RS
+.nf
+Reading back 114688 bytes, 0x4000\-0x1ffff: part 0x25011722 (LPC1754) has 128 KiB of flash
+.fi
+.RE
+.PP
+A part with 128 KiB of flash gives 114688 bytes, one with 256 KiB gives
+245760. The size comes from the part identification number, which is only
+readable while the board is still running its application: when the board is
+already in the bootloader, or will not report it, the dump covers the 114688
+bytes above the bootloader that the firmware is linked for, and the line says
+so in place of a part. Asking for more than the part has is what the
+bootloader cannot survive: it answers a read from any address below 512 KiB,
+and a read with no flash behind it faults it until the board is power\-cycled.
 .PP
 To compare a dump with the image it came from, compare the first bytes and
 check that the rest is padding, for example:

@@ -839,9 +839,57 @@ MU_TEST(test_extract_revision_from_existing_compile_info_marker)
 	fclose(image);
 }
 
+/* #233: the read-back length follows the part's flash, so the bootloader is
+ * never asked for an address with no flash behind it. */
+MU_TEST(test_part_lookup_knows_the_lpc17xx_flash_sizes)
+{
+	const struct dfu_part *part;
+
+	part = dfu_part_lookup(0x25011722);
+	mu_assert(part != NULL, "LPC1754 is not in the table");
+	mu_assert(strcmp(part->name, "LPC1754") == 0, "wrong part name");
+	mu_assert_int_eq(128 * 1024, (int)part->flash_size);
+
+	part = dfu_part_lookup(0x25011723);
+	mu_assert(part != NULL, "LPC1756 is not in the table");
+	mu_assert_int_eq(256 * 1024, (int)part->flash_size);
+
+	part = dfu_part_lookup(0x26113F37);
+	mu_assert(part != NULL, "LPC1769 is not in the table");
+	mu_assert_int_eq(512 * 1024, (int)part->flash_size);
+
+	mu_assert(dfu_part_lookup(0x12345678) == NULL,
+	          "an unknown part ID was matched");
+	mu_assert(dfu_part_lookup(0) == NULL, "a zero part ID was matched");
+}
+
+MU_TEST(test_upload_length_covers_the_flash_above_the_bootloader)
+{
+	const uint32_t application = BOOTLOADER_OFFSET + BOOTLOADER_SIZE;
+
+	mu_assert_int_eq((int)(128 * 1024 - application),
+	                 (int)dfu_upload_length(128 * 1024));
+	mu_assert_int_eq((int)(256 * 1024 - application),
+	                 (int)dfu_upload_length(256 * 1024));
+	mu_assert_int_eq((int)(512 * 1024 - application),
+	                 (int)dfu_upload_length(512 * 1024));
+	/* An unknown part gets the size the application is linked for. */
+	mu_assert_int_eq((int)(DFU_ASSUMED_FLASH_SIZE - application),
+	                 (int)dfu_upload_length(0));
+	/* A part with no flash past the bootloader has nothing to read. */
+	mu_assert_int_eq(0, (int)dfu_upload_length(application));
+	mu_assert_int_eq(0, (int)dfu_upload_length(application / 2));
+	/* Every length is a whole number of blocks, so no read straddles the
+	 * end of flash. */
+	mu_assert_int_eq(0, (int)(dfu_upload_length(0) % BLOCK_SIZE));
+	mu_assert_int_eq(0, (int)(dfu_upload_length(32 * 1024) % BLOCK_SIZE));
+}
+
 int main(void)
 {
 	printf("DFU recovery tests\n");
+	MU_RUN(test_part_lookup_knows_the_lpc17xx_flash_sizes);
+	MU_RUN(test_upload_length_covers_the_flash_above_the_bootloader);
 	MU_RUN(test_transfer_reopens_same_path_and_retries_from_start);
 	MU_RUN(test_transfer_reopen_timeout_is_distinct);
 	MU_RUN(test_transfer_claim_failure_closes_unclaimed_handle);

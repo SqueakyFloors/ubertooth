@@ -193,4 +193,36 @@ int dfu_image_check(FILE *image, uint16_t id_vendor, uint16_t id_product,
 void dfu_image_describe_failure(const struct dfu_image_report *report,
                                 char *message, size_t message_size);
 
+/*
+ * How much flash there is to read back.
+ *
+ * The bootloader answers REQ_UPLOAD from any address below 512 KiB whatever
+ * part it runs on, and a read with no flash behind it is a bus fault that
+ * takes the bootloader down for good, so the host must not ask for more than
+ * the part has (#233). The part identification number says how much that is.
+ * It is an In-Application Programming value the application reports
+ * (UBERTOOTH_GET_PARTNUM); the bootloader has no such request, so a board
+ * already sitting in DFU cannot be asked.
+ */
+struct dfu_part {
+	uint32_t part_id;
+	const char *name;      /* "LPC1754" */
+	uint32_t flash_size;   /* total flash on the part, in bytes */
+};
+
+/* The part behind part_id, or NULL for one this host has no entry for. */
+const struct dfu_part *dfu_part_lookup(uint32_t part_id);
+
+/* The flash the application is linked for
+ * (firmware/common/LPC17xx_Linker_Script_with_bootloader.ld), and so the size
+ * assumed for a part that cannot be identified: every image this tree builds
+ * fits in it, and no Ubertooth part has less. */
+#define DFU_ASSUMED_FLASH_SIZE (128u * 1024u)
+
+/* How many bytes above the bootloader a read-back covers on a part with
+ * flash_size bytes of flash, or with DFU_ASSUMED_FLASH_SIZE when flash_size
+ * is 0 (the part is unknown). Returns 0 when there is no application region
+ * at all. */
+uint32_t dfu_upload_length(uint32_t flash_size);
+
 #endif /* UBERTOOTH_DFU_RECOVERY_H */

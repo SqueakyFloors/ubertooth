@@ -499,3 +499,48 @@ void dfu_image_describe_failure(const struct dfu_image_report *report,
 		break;
 	}
 }
+
+/* The LPC175x/176x parts and the flash each one has, from the part
+ * identification numbers in the NXP LPC176x/5x user manual (UM10360, "Part
+ * identification numbers"). The Ubertooth One carries an LPC175x, and the
+ * fleet is mixed, so the table covers the family rather than one part. */
+static const struct dfu_part DFU_PARTS[] = {
+	{ 0x25001110, "LPC1751",  32 * 1024 },
+	{ 0x25001118, "LPC1751",  32 * 1024 },
+	{ 0x25001121, "LPC1752",  64 * 1024 },
+	{ 0x25011722, "LPC1754", 128 * 1024 },
+	{ 0x25011723, "LPC1756", 256 * 1024 },
+	{ 0x25013F37, "LPC1758", 512 * 1024 },
+	{ 0x25113737, "LPC1759", 512 * 1024 },
+	{ 0x26012033, "LPC1763", 256 * 1024 },
+	{ 0x26011922, "LPC1764", 128 * 1024 },
+	{ 0x26013733, "LPC1765", 256 * 1024 },
+	{ 0x26013F33, "LPC1766", 256 * 1024 },
+	{ 0x26012837, "LPC1767", 512 * 1024 },
+	{ 0x26013F37, "LPC1768", 512 * 1024 },
+	{ 0x26113F37, "LPC1769", 512 * 1024 },
+};
+
+const struct dfu_part *dfu_part_lookup(uint32_t part_id)
+{
+	size_t i;
+
+	for (i = 0; i < sizeof(DFU_PARTS) / sizeof(DFU_PARTS[0]); i++) {
+		if (DFU_PARTS[i].part_id == part_id)
+			return &DFU_PARTS[i];
+	}
+	return NULL;
+}
+
+uint32_t dfu_upload_length(uint32_t flash_size)
+{
+	const uint32_t application = BOOTLOADER_OFFSET + BOOTLOADER_SIZE;
+
+	if (flash_size == 0)
+		flash_size = DFU_ASSUMED_FLASH_SIZE;
+	/* A part whose flash ends at or before the application region has
+	 * nothing to read back: say so rather than asking for one block of it. */
+	if (flash_size <= application)
+		return 0;
+	return flash_size - application;
+}

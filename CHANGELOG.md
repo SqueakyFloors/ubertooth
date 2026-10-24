@@ -146,8 +146,8 @@
   firmware image in a read-only location can be signed or flashed. A `-u`
   read-back that fails part-way no longer empties an earlier file of the same
   name: it is written to a temporary file and renamed once complete. The
-  documentation now says what `-u` writes (a raw 240 KiB dump of the
-  application flash region, not a DFU file).
+  documentation now says what `-u` writes (a raw dump of the application flash
+  region, not a DFU file).
   [#200](https://github.com/SqueakyFloors/ubertooth/issues/200)
 - `-U<index>` with an index that is not attached now opens nothing, instead of
   opening whichever USB device enumerated first and exiting 0: the tool prints
@@ -214,6 +214,10 @@
   Hopping across the channels the piconet is not yet known to use is now what
   the board is actually asked to do.
   [#238](https://github.com/SqueakyFloors/ubertooth/issues/238)
+- `ubertooth-dfu -u` reads back only the flash the part has, instead of a
+  fixed 240 KiB that faulted the bootloader on a 128 KiB part, and says how
+  many bytes it is reading and where that figure came from.
+  [#233](https://github.com/SqueakyFloors/ubertooth/issues/233)
 
 - `ubertooth-dfu` now performs bounded, device-specific Device Firmware
   Upgrade (DFU) entry and recovery, retries interrupted transfers, and verifies

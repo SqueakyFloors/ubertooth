@@ -23,11 +23,17 @@
 #include "ubertooth-dfu.c"
 #undef main
 
-/* The flash region -u reads back, and its length in the dump. */
+/* The flash region -u reads back. Its length follows the part: these runs
+ * reach the bootloader without an application to ask, so they get the size
+ * the host assumes (#233). */
 #define DUMP_ADDRESS (BOOTLOADER_OFFSET + BOOTLOADER_SIZE)
-#define DUMP_LENGTH ((256 * 1024) - DUMP_ADDRESS)
+#define DUMP_LENGTH_FOR(flash_size) ((flash_size) - DUMP_ADDRESS)
+#define DUMP_LENGTH DUMP_LENGTH_FOR(DFU_ASSUMED_FLASH_SIZE)
 #define FIRST_BLOCK (DUMP_ADDRESS / BLOCK_SIZE)
-#define LAST_BLOCK (FIRST_BLOCK + (DUMP_LENGTH / BLOCK_SIZE) - 1)
+/* The part IDs of two parts the fleet holds, and one no table has. */
+#define PART_ID_128K 0x25011722u  /* LPC1754 */
+#define PART_ID_256K 0x25011723u  /* LPC1756 */
+#define PART_ID_UNKNOWN 0x12345678u
 
 /* What the faked flash holds at an address, so a dump can be checked byte for
  * byte against the region it claims to be. */
@@ -41,6 +47,12 @@ static uint8_t flash_byte(uint32_t address)
 static struct {
 	int present;            /* the DFU device is on the bus */
 	uint16_t vid, pid;
+	uint32_t flash_size;    /* the flash the part really has */
+	int wedged;             /* it was read past: it answers nothing now */
+	int app_present;        /* an application device -U can open */
+	uint32_t part_id;       /* ...and the part ID it reports */
+	int part_id_rc;         /* < 0: the part ID read fails with this */
+	int part_id_calls;
 	int state;              /* the state GETSTATE reports */
 	int get_state_rc;       /* < 0: GETSTATE fails with this instead */
 	int get_state_calls;
@@ -62,15 +74,28 @@ static int fake_handle_body;
 #define FAKE_DEVICE ((libusb_device *)&fake_device_body)
 #define FAKE_HANDLE ((libusb_device_handle *)&fake_handle_body)
 
-/* A board sitting in the bootloader, answering everything. */
+/* A board sitting in the bootloader, answering everything, on a part with the
+ * 128 KiB of flash the application is linked for. There is no application to
+ * ask for the part ID, as on a board entered through the expansion header. */
 static void board_in_dfu(void)
 {
 	memset(&fake, 0, sizeof(fake));
 	fake.present = 1;
 	fake.vid = U1_DFU_VENDORID;
 	fake.pid = U1_DFU_PRODUCTID;
+	fake.flash_size = DFU_ASSUMED_FLASH_SIZE;
 	fake.state = STATE_DFU_IDLE;
 	fake.upload_fail_block = -1;
+}
+
+/* A board running its application, which -U opens and switches into DFU: the
+ * part ID is readable there, so the read-back can follow the part. */
+static void board_in_application(uint32_t part_id, uint32_t flash_size)
+{
+	board_in_dfu();
+	fake.app_present = 1;
+	fake.part_id = part_id;
+	fake.flash_size = flash_size;
 }
 
 /* ---- libusb fakes ------------------------------------------------------- */
@@ -182,6 +207,10 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle *devh,
 	mu_assert(devh == FAKE_HANDLE, "control transfer on an unknown handle");
 	mu_assert(index == 0, "control transfer named another interface");
 	mu_assert(timeout > 0, "control transfer without a timeout");
+	/* Once the bootloader has faulted it answers nothing at all, state reads
+	 * included, until the board is power-cycled (#233). */
+	if (fake.wedged)
+		return LIBUSB_ERROR_TIMEOUT;
 	switch (request) {
 	case REQ_GETSTATE:
 		mu_assert(length == 1, "GETSTATE asked for the wrong length");
@@ -192,15 +221,23 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle *devh,
 		return 1;
 	case REQ_UPLOAD:
 		mu_assert(length == BLOCK_SIZE, "UPLOAD asked for the wrong length");
-		mu_assert(value >= FIRST_BLOCK && value <= LAST_BLOCK,
-		          "UPLOAD asked for a block outside the application region");
+		mu_assert(value >= FIRST_BLOCK,
+		          "UPLOAD asked for a block inside the bootloader");
 		fake.upload_calls++;
+		address = (uint32_t)value * BLOCK_SIZE;
+		/* The bootloader checks the address against 512 KiB whatever part it
+		 * runs on, so a read past the end of this part's flash is a bus
+		 * fault that it never returns from: it stops answering for good
+		 * instead of refusing the request (#233). */
+		if (address + BLOCK_SIZE > fake.flash_size) {
+			fake.wedged = 1;
+			return LIBUSB_ERROR_TIMEOUT;
+		}
 		if (fake.upload_fail_block >= 0 && value == fake.upload_fail_block) {
 			if (fake.upload_fail_once)
 				fake.upload_fail_block = -1;
 			return fake.upload_fail_rc;
 		}
-		address = (uint32_t)value * BLOCK_SIZE;
 		for (i = 0; i < length; i++)
 			data[i] = flash_byte(address + i);
 		fake.state = STATE_DFU_IDLE;
@@ -233,12 +270,19 @@ void show_libusb_error(int error_code)
 	fprintf(stderr, "libUSB Error: fake: (%d)\n", error_code);
 }
 
-/* No test here uses -U, so no application device is ever opened: these exist
- * for the link, and fail the way a missing board does. */
+/* The application device -U opens, when the case has one. The handle is the
+ * same faked one the bootloader answers on, which is what the real board does
+ * from the host's point of view: one device that changes identity. */
+static ubertooth_t fake_ut;
+
 ubertooth_t *ubertooth_start_select(const char *u_arg)
 {
 	(void)u_arg;
-	return NULL;
+	if (!fake.app_present)
+		return NULL;
+	memset(&fake_ut, 0, sizeof(fake_ut));
+	fake_ut.devh = FAKE_HANDLE;
+	return &fake_ut;
 }
 
 void ubertooth_close(ubertooth_t *ut) { (void)ut; }
@@ -255,6 +299,17 @@ int cmd_flash(struct libusb_device_handle *devh)
 {
 	(void)devh;
 	fake.flash_calls++;
+	return 0;
+}
+
+/* The part ID, read from the application before it leaves for DFU. */
+int cmd_get_part_id(struct libusb_device_handle *devh, u32 *part_id)
+{
+	(void)devh;
+	fake.part_id_calls++;
+	if (fake.part_id_rc < 0)
+		return fake.part_id_rc;
+	*part_id = fake.part_id;
 	return 0;
 }
 
@@ -290,45 +345,59 @@ static void read_back(FILE *file, char *buffer, size_t size)
 	mu_assert(fgetc(file) == EOF, "captured output was truncated");
 }
 
+/* The two streams of one run, held aside while it prints into temporary
+ * files. A read-back prints a dot per block, so nothing here is left on the
+ * test's own output. */
+static struct {
+	FILE *out, *err;
+	int saved_out, saved_err;
+} capture;
+
+static void begin_capture(void)
+{
+	capture.out = tmpfile();
+	capture.err = tmpfile();
+	mu_assert(capture.out != NULL && capture.err != NULL, "tmpfile failed");
+	fflush(stdout);
+	fflush(stderr);
+	capture.saved_out = dup(STDOUT_FILENO);
+	capture.saved_err = dup(STDERR_FILENO);
+	dup2(fileno(capture.out), STDOUT_FILENO);
+	dup2(fileno(capture.err), STDERR_FILENO);
+}
+
+static void end_capture(struct run_result *result)
+{
+	fflush(stdout);
+	fflush(stderr);
+	dup2(capture.saved_out, STDOUT_FILENO);
+	dup2(capture.saved_err, STDERR_FILENO);
+	close(capture.saved_out);
+	close(capture.saved_err);
+	read_back(capture.out, result->out, sizeof(result->out));
+	read_back(capture.err, result->err, sizeof(result->err));
+	fclose(capture.out);
+	fclose(capture.err);
+}
+
 static struct run_result run_dfu(const char *const *args)
 {
 	struct run_result result;
 	char *argv[16];
 	int argc = 0;
-	int saved_out, saved_err;
-	FILE *out = tmpfile();
-	FILE *err = tmpfile();
 
 	memset(&result, 0, sizeof(result));
 	result.rc = -1; /* a failed capture must not look like a successful run */
-	mu_assert(out != NULL && err != NULL, "tmpfile failed");
-	if (out == NULL || err == NULL)
-		return result;
 	while (args[argc] != NULL && argc < 15) {
 		argv[argc] = (char *)args[argc];
 		argc++;
 	}
 	argv[argc] = NULL;
 
-	fflush(stdout);
-	fflush(stderr);
-	saved_out = dup(STDOUT_FILENO);
-	saved_err = dup(STDERR_FILENO);
-	dup2(fileno(out), STDOUT_FILENO);
-	dup2(fileno(err), STDERR_FILENO);
+	begin_capture();
 	optind = 0; /* restart option parsing for each run */
 	result.rc = ubertooth_dfu_main(argc, argv);
-	fflush(stdout);
-	fflush(stderr);
-	dup2(saved_out, STDOUT_FILENO);
-	dup2(saved_err, STDERR_FILENO);
-	close(saved_out);
-	close(saved_err);
-
-	read_back(out, result.out, sizeof(result.out));
-	read_back(err, result.err, sizeof(result.err));
-	fclose(out);
-	fclose(err);
+	end_capture(&result);
 	/* Every handle opened must have been closed, and every list freed. */
 	mu_assert_int_eq(fake.opens, fake.closes);
 	mu_assert_int_eq(0, fake.lists);
@@ -543,6 +612,139 @@ MU_TEST(a_refused_detach_fails_the_command)
 	remove_dump();
 }
 
+/* ---- #233: reading only the flash the part has ------------------------- */
+
+/* The failure itself, with the length the host used to ask for: 240 KiB from
+ * a 128 KiB part faults the bootloader, and nothing answers afterwards. No
+ * run of the command can produce this any more, so it is driven directly. */
+MU_TEST(asking_past_the_end_of_flash_takes_the_bootloader_down)
+{
+	struct run_result r;
+	FILE *dump = tmpfile();
+
+	board_in_dfu();
+	mu_assert(dump != NULL, "tmpfile failed");
+	memset(&r, 0, sizeof(r));
+	begin_capture();
+	r.rc = upload(FAKE_HANDLE, dump, (256 * 1024) - DUMP_ADDRESS);
+	end_capture(&r);
+	mu_assert_int_eq(LIBUSB_ERROR_TIMEOUT, r.rc);
+	mu_assert(fake.wedged, "the bootloader was read past without faulting");
+	mu_assert(strstr(r.err, "block 512 was not read") != NULL,
+	          "the block at 0x20000 was not named");
+	/* As in the issue: the state read stops answering too. */
+	begin_capture();
+	mu_assert_int_eq(LIBUSB_ERROR_TIMEOUT, dfu_get_state(FAKE_HANDLE));
+	end_capture(&r);
+	fclose(dump);
+}
+
+/* A board already in DFU cannot be asked for its part, so the read-back
+ * covers only the flash the application is linked for, and says so. */
+MU_TEST(a_board_already_in_dfu_reads_the_assumed_flash_only)
+{
+	struct run_result r;
+	int content_ok;
+
+	board_in_dfu();
+	remove_dump();
+	r = RUN("-u", dump_path, "-r");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(!fake.wedged, "the bootloader was read past the end of flash");
+	mu_assert_int_eq(DUMP_LENGTH, dump_length_and_content(&content_ok));
+	mu_assert(content_ok, "the dump is not the region it read");
+	mu_assert_int_eq(DUMP_LENGTH / BLOCK_SIZE, fake.upload_calls);
+	mu_assert(strstr(r.out, "Reading back 114688 bytes, 0x4000-0x1ffff: ")
+	          != NULL, "the read-back did not say what it reads");
+	mu_assert(strstr(r.out, "the part could not be read") != NULL,
+	          "the read-back did not say why it assumed a size");
+	mu_assert_int_eq(0, fake.part_id_calls);
+	remove_dump();
+}
+
+/* With -U the application is opened first, so the part ID settles the size.
+ * On the 128 KiB part of #233 that is the same region, without the fault. */
+MU_TEST(a_128_kib_part_is_read_to_the_end_of_its_flash)
+{
+	struct run_result r;
+	int content_ok;
+
+	board_in_application(PART_ID_128K, 128 * 1024);
+	remove_dump();
+	r = RUN("-U", "0", "-u", dump_path, "-r");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(!fake.wedged, "the bootloader was read past the end of flash");
+	mu_assert_int_eq(1, fake.part_id_calls);
+	mu_assert_int_eq(DUMP_LENGTH_FOR(128 * 1024),
+	                 dump_length_and_content(&content_ok));
+	mu_assert(content_ok, "the dump is not the region it read");
+	mu_assert(strstr(r.out,
+	                 "Reading back 114688 bytes, 0x4000-0x1ffff: part "
+	                 "0x25011722 (LPC1754) has 128 KiB of flash") != NULL,
+	          "the part and its flash were not reported");
+	remove_dump();
+}
+
+/* And a part with more flash gives the longer dump the tool used to assume
+ * for every board. */
+MU_TEST(a_256_kib_part_is_read_in_full)
+{
+	struct run_result r;
+	int content_ok;
+
+	board_in_application(PART_ID_256K, 256 * 1024);
+	remove_dump();
+	r = RUN("-U", "0", "-u", dump_path, "-r");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(!fake.wedged, "the bootloader was read past the end of flash");
+	mu_assert_int_eq(DUMP_LENGTH_FOR(256 * 1024),
+	                 dump_length_and_content(&content_ok));
+	mu_assert(content_ok, "the dump is not the region it read");
+	mu_assert_int_eq(DUMP_LENGTH_FOR(256 * 1024) / BLOCK_SIZE,
+	                 fake.upload_calls);
+	mu_assert(strstr(r.out,
+	                 "Reading back 245760 bytes, 0x4000-0x3ffff: part "
+	                 "0x25011723 (LPC1756) has 256 KiB of flash") != NULL,
+	          "the part and its flash were not reported");
+	remove_dump();
+}
+
+/* A part ID this host has no entry for falls back to the assumed size, even
+ * on a part with more flash: a figure that is not known is not guessed. */
+MU_TEST(an_unknown_part_id_falls_back_to_the_assumed_flash)
+{
+	struct run_result r;
+	int content_ok;
+
+	board_in_application(PART_ID_UNKNOWN, 256 * 1024);
+	remove_dump();
+	r = RUN("-U", "0", "-u", dump_path, "-r");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(DUMP_LENGTH, dump_length_and_content(&content_ok));
+	mu_assert(content_ok, "the dump is not the region it read");
+	mu_assert(strstr(r.out, "part 0x12345678 is not known here") != NULL,
+	          "the unknown part ID was not reported");
+	remove_dump();
+}
+
+/* A part ID that will not read does not fail the command either. */
+MU_TEST(a_part_id_that_cannot_be_read_falls_back_to_the_assumed_flash)
+{
+	struct run_result r;
+	int content_ok;
+
+	board_in_application(PART_ID_256K, 256 * 1024);
+	fake.part_id_rc = LIBUSB_ERROR_TIMEOUT;
+	remove_dump();
+	r = RUN("-U", "0", "-u", dump_path, "-r");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(DUMP_LENGTH, dump_length_and_content(&content_ok));
+	mu_assert(content_ok, "the dump is not the region it read");
+	mu_assert(strstr(r.out, "the part could not be read") != NULL,
+	          "the unreadable part ID was not reported");
+	remove_dump();
+}
+
 int main(void)
 {
 	char directory[] = "/tmp/ubertooth-dfu-test.XXXXXX";
@@ -563,6 +765,12 @@ int main(void)
 	MU_RUN(a_read_back_failing_without_reset_leaves_the_board_in_dfu);
 	MU_RUN(a_transient_read_back_failure_is_retried_once_and_succeeds);
 	MU_RUN(a_refused_detach_fails_the_command);
+	MU_RUN(asking_past_the_end_of_flash_takes_the_bootloader_down);
+	MU_RUN(a_board_already_in_dfu_reads_the_assumed_flash_only);
+	MU_RUN(a_128_kib_part_is_read_to_the_end_of_its_flash);
+	MU_RUN(a_256_kib_part_is_read_in_full);
+	MU_RUN(an_unknown_part_id_falls_back_to_the_assumed_flash);
+	MU_RUN(a_part_id_that_cannot_be_read_falls_back_to_the_assumed_flash);
 
 	remove_dump();
 	rmdir(directory);

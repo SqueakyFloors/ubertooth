@@ -321,6 +321,9 @@ struct dfu_runtime_context {
 	libusb_context *usb_context;
 	FILE *download_file;
 	FILE *upload_file;
+	uint32_t upload_length;  /* bytes the read-back asks the bootloader for */
+	uint32_t part_id;        /* the part ID read from the application */
+	int part_id_read;        /* ...and whether it was read at all */
 	unsigned app_attempts;
 	unsigned dfu_polls;
 	unsigned transfer_attempts;
@@ -349,6 +352,19 @@ static int open_application(void *context, const char *selector, void **handle,
 		ubertooth_stop(ut);
 		ubertooth_free(ut);
 		return result;
+	}
+	/* Read the part ID while the application is still answering: it says how
+	 * much flash a read-back may ask for, and the bootloader has no request
+	 * that reports it (#233). A board that will not say keeps the assumed
+	 * size, so this failing does not fail the command. */
+	if (cmd_get_part_id(ut->devh, &runtime->part_id) == 0) {
+		runtime->part_id_read = 1;
+		snprintf(stage, sizeof(stage), "part ID read: 0x%08x",
+		         runtime->part_id);
+		log_dfu_stage(stage);
+	} else {
+		runtime->part_id_read = 0;
+		log_dfu_stage("part ID could not be read");
 	}
 	*handle = ut;
 	return 0;
@@ -530,15 +546,23 @@ int detach(libusb_device_handle* devh) {
 	return 0;
 }
 
-int upload(libusb_device_handle* devh, FILE* upfile) {
-	int address, length, block, rv;
+/* Read length bytes of the application flash region into upfile. The caller
+ * settles length from the part's flash size: the bootloader faults on a read
+ * with no flash behind it instead of refusing it (#233), so this must never
+ * be asked for more than the part has. */
+int upload(libusb_device_handle* devh, FILE* upfile, uint32_t length) {
+	int address, block, rv;
 	uint8_t buffer[BLOCK_SIZE];
 	address = BOOTLOADER_OFFSET + BOOTLOADER_SIZE;
-	length = (256 * 1024) - address;
 	block = address / BLOCK_SIZE;
 
 	if ((address & (BLOCK_SIZE - 1)) != 0) {
 		fprintf(stderr, "Upload failed: must start at block boundary\n");
+		return -1;
+	}
+	if (length == 0 || (length & (BLOCK_SIZE - 1)) != 0) {
+		fprintf(stderr, "Upload failed: %u bytes is not a whole number of "
+		        "%d-byte blocks\n", length, BLOCK_SIZE);
 		return -1;
 	}
 
@@ -575,7 +599,7 @@ int upload(libusb_device_handle* devh, FILE* upfile) {
 			return -1;
 		}
 		block++;
-		length -= rv;
+		length -= BLOCK_SIZE;
 	}
 	fprintf(stdout, "\n");
 	return 0;
@@ -697,7 +721,7 @@ static int runtime_upload(void *context, void *handle)
 		perror("upload file");
 		return -1;
 	}
-	return upload(handle, runtime->upload_file);
+	return upload(handle, runtime->upload_file, runtime->upload_length);
 }
 
 static const struct dfu_transfer_ops DOWNLOAD_TRANSFER_OPS = {
@@ -913,14 +937,51 @@ static void usage()
 	printf("\n");
 	printf("Usage:\n");
 	printf("\t-u <filename> upload - read the application flash region to a\n");
-	printf("\t              raw file (0x4000-0x3ffff, 245760 bytes, no DFU\n");
-	printf("\t              suffix: it is not a file -d can write back)\n");
+	printf("\t              raw file (from 0x4000 to the end of the part's\n");
+	printf("\t              flash, no DFU suffix: it is not a file -d can\n");
+	printf("\t              write back)\n");
 	printf("\t-d <filename> download - write DFU file to device\n");
 	printf("\t-r reset Ubertooth after other operations complete\n");
 	printf("\n");
 	printf("Miscellaneous:\n");
 	printf("\t-s <filename> add DFU suffix to binary firmware file\n");
 	fputs(OPT_USAGE_SELECT_DEVICE, stdout);
+}
+
+/* Settle how much flash the read-back asks the bootloader for, and say what
+ * it is about to read and where that figure came from. The part's own size is
+ * used when its ID was readable in the application; otherwise the size the
+ * application is linked for, which no Ubertooth part has less of. Returns 0,
+ * or 1 when there is no application region to read. */
+static int plan_upload(struct dfu_runtime_context *runtime)
+{
+	const struct dfu_part *part = runtime->part_id_read ?
+		dfu_part_lookup(runtime->part_id) : NULL;
+	uint32_t address = BOOTLOADER_OFFSET + BOOTLOADER_SIZE;
+	uint32_t length;
+
+	length = dfu_upload_length(part != NULL ? part->flash_size : 0);
+	runtime->upload_length = length;
+	if (length == 0) {
+		fprintf(stderr, "Upload failed: part 0x%08x (%s) has no flash above "
+		        "the bootloader\n", runtime->part_id,
+		        part != NULL ? part->name : "unknown");
+		return 1;
+	}
+	printf("Reading back %u bytes, 0x%x-0x%x: ", length, address,
+	       address + length - 1);
+	if (part != NULL)
+		printf("part 0x%08x (%s) has %u KiB of flash\n", runtime->part_id,
+		       part->name, part->flash_size / 1024);
+	else if (runtime->part_id_read)
+		printf("part 0x%08x is not known here, so only the %u KiB this "
+		       "firmware is linked for\n", runtime->part_id,
+		       DFU_ASSUMED_FLASH_SIZE / 1024);
+	else
+		printf("the part could not be read, so only the %u KiB this "
+		       "firmware is linked for\n", DFU_ASSUMED_FLASH_SIZE / 1024);
+	fflush(stdout);
+	return 0;
 }
 
 #define FUNC_DOWNLOAD (1<<0)
@@ -1161,6 +1222,10 @@ int main(int argc, char **argv) {
 		struct dfu_transfer_report transfer_report;
 		void *transfer_handle = devh;
 
+		if (plan_upload(&runtime) != 0) {
+			exit_status = 1;
+			goto cleanup;
+		}
 		runtime.upload_file = upfile;
 		runtime.transfer_attempts = 0;
 		r = dfu_transfer_run(&UPLOAD_TRANSFER_OPS, &runtime,
