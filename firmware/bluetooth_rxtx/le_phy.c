@@ -597,9 +597,9 @@ static void change_channel(void) {
 ///////
 // timer stuff
 
-// Start the counter. The matches NOW is measured against need it running
-// before the radio is set up, which is why unmasking the interrupt is a
-// separate step: see le_phy_main().
+// Start the counter. It has to be running before the radio is set up, because
+// the matches are armed against NOW, which reads it. That is why unmasking the
+// interrupt is a separate step: see le_phy_main().
 static void timer1_start(void) {
 	T1TCR = TCR_Counter_Reset;
 	T1PR = 4; // 100 ns
@@ -610,6 +610,11 @@ static void timer1_start(void) {
 	// of this run, after le_phy_active is set, and the handler would act on
 	// it as a live event. Clearing it here, before the counter runs, is also
 	// before le_cc2400_init_rf() arms the FS_LOCK match this run does want.
+	//
+	// Best-effort on the last line: if the T1IR write has not reached the
+	// timer when the pending bit is cleared, the still-asserted line latches
+	// it again. Harmless, because the handler then finds no T1IR bit set and
+	// falls through every branch.
 	T1MCR = 0;
 	T1IR = 0xff; // write-1-to-clear: every match and capture flag
 	ICPR0 = ICPR0_ICP_TIMER1;
@@ -1171,9 +1176,12 @@ void le_phy_main(void) {
 	// on rx_tc from legacy_DMA_IRQHandler().
 	ISER0 = ISER0_ISE_DMA;
 
-	// drop every armed match, including MR1 (the LED blink), before stopping
-	// the timer, so nothing is left pending for the next entry into this mode
+	// drop every armed match, including MR1 (the LED blink), and any flag one
+	// of them has already latched, before stopping the timer, so the hardware
+	// is left quiet. The next entry clears all of this again rather than
+	// trusting it.
 	T1MCR = 0;
+	T1IR = 0xff; // write-1-to-clear: every match and capture flag
 	timer1_stop();
 
 	// kill the CC2400: synthesizer off, and the Ubertooth One amplifier with it

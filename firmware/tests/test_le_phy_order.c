@@ -146,14 +146,19 @@ static int scan_le_phy(const char *path, struct le_phy_scan *s)
 }
 
 static struct le_phy_scan s;
+static int scanned;
 static const char *path = FW_RXTX_DIR "/le_phy.c";
 
+/*
+ * The scan runs once, in main(), and every test below reads its result. It
+ * does not run from a test, so no test depends on another having run first.
+ */
 MU_TEST(test_source_was_scanned)
 {
 	char msg[512];
 
 	snprintf(msg, sizeof(msg), "cannot open %s to scan", path);
-	mu_assert(scan_le_phy(path, &s), msg);
+	mu_assert(scanned, msg);
 
 	/* Without these, a scan that matched nothing would pass every check
 	 * below for want of anything to compare. */
@@ -195,6 +200,13 @@ MU_TEST(test_source_was_scanned)
 MU_TEST(test_the_run_starts_with_nothing_pending)
 {
 	char msg[512];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: timer1_start() does not clear all three: armed matches "
+	         "(T1MCR) at %d, match flags (T1IR) at %d, NVIC pending bit at "
+	         "%d", path, s.clear_matches, s.clear_flags, s.clear_pending);
+	mu_assert(s.clear_matches > 0 && s.clear_flags > 0 &&
+	          s.clear_pending > 0, msg);
 
 	snprintf(msg, sizeof(msg),
 	         "%s:%d: timer1_start() enables the counter before it clears the "
@@ -284,6 +296,7 @@ MU_TEST(test_active_is_cleared_before_the_teardown)
 int main(void)
 {
 	printf("le_phy bring-up and teardown order tests\n");
+	scanned = scan_le_phy(path, &s);
 	MU_RUN(test_source_was_scanned);
 	MU_RUN(test_the_run_starts_with_nothing_pending);
 	MU_RUN(test_active_is_set_after_the_setup);

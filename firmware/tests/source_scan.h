@@ -137,7 +137,13 @@ static inline int is_assignment_of(const char *text, const char *name,
 	size_t len;
 	const char *p = text;
 
-	len = (size_t)snprintf(needle, sizeof(needle), "%s = %s", name, value);
+	/* snprintf() returns what it would have written, so a name and value too
+	 * long for the buffer would leave a truncated needle and an index past
+	 * the match. */
+	if ((size_t)snprintf(needle, sizeof(needle), "%s = %s", name, value) >=
+	    sizeof(needle))
+		return 0;
+	len = strlen(needle);
 	while ((p = strstr(p, needle)) != NULL) {
 		char prev = (p == text) ? ' ' : p[-1];
 
