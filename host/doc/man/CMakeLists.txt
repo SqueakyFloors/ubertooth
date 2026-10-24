@@ -33,7 +33,7 @@ if(RONN_EXECUTABLE)
 	# .1 stay in sync. --date keeps the roff date stable (not build-synced).
 	foreach(pg ubertooth-afh ubertooth-btle ubertooth-dfu ubertooth-dump
 	           ubertooth-ego ubertooth-rx ubertooth-scan ubertooth-specan
-	           ubertooth-util)
+	           ubertooth-specan-ui ubertooth-util)
 		add_custom_command(
 			OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/${pg}.1"
 			COMMAND ${RONN_EXECUTABLE} --roff --pipe
@@ -61,6 +61,7 @@ install(FILES
 	"ubertooth-dump.1"
 	"ubertooth-rx.1"
 	"ubertooth-specan.1"
+	"ubertooth-specan-ui.1"
 	"ubertooth-afh.1"
 	"ubertooth-dfu.1"
 	"ubertooth-ego.1"

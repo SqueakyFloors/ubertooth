@@ -31,6 +31,15 @@
   version without a device.
 - `ubertooth-util -I` blinks light-emitting diodes (LEDs) faster for easier
   identification and turns them off when interrupted with Ctrl-C.
+- `ubertooth-specan-ui` draws a slowly smoothed average of the max-hold trace
+  as a cyan dotted line labelled "Avg: N dBm", shown with the other markers.
+  Credit: Sirio Balmelli ([@siriobalmelli](https://github.com/siriobalmelli)).
+  [#75](https://github.com/SqueakyFloors/ubertooth/issues/75)
+  https://github.com/siriobalmelli-foss/ubertooth/commit/01c3bf9e
+- `ubertooth-specan-ui` shows its keys on screen (press `h`; a hint is always
+  visible), labels frequencies in whole MHz, no longer leaves ghost marker
+  labels behind, and has a man page and usage guide.
+  [#125](https://github.com/SqueakyFloors/ubertooth/issues/125)
 
 ### Build and compatibility
 
@@ -99,6 +108,12 @@
   now returns a negative error for that case (it returned 0), and the new
   `cmd_get_part_id()` returns the full unsigned 32-bit ID.
   [#52](https://github.com/SqueakyFloors/ubertooth/issues/52)
+- `ubertooth-specan-ui` plots again: it passed `-U 0` to `ubertooth-specan` as a
+  single argument, which was read as a serial, and asked for 2400-2483 MHz,
+  which `ubertooth-specan` rejects. Its `-U` now takes an index or a serial like
+  the other tools, and it no longer crashes when `C` is pressed before data
+  arrives.
+  [#124](https://github.com/SqueakyFloors/ubertooth/issues/124)
 - `ubertooth-scan` no longer leaks connection information after failed probes.
   [#3](https://github.com/SqueakyFloors/ubertooth/issues/3)
   [upstream #542](https://github.com/greatscottgadgets/ubertooth/issues/542)
