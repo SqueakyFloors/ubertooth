@@ -27,6 +27,24 @@ An option value can be attached or given as the next word: `-c2440` and
 Without a number after it, `-c` (and `-a`, `-C`, `-d`, `-l`, `-z`) reads the
 current value instead.
 
+A set and a read of the same value in one command both run, the set first, so
+the read reports the new value. The order they are written in does not matter:
+
+    $ ubertooth-util -c2426 -c
+    Current frequency: 2426 MHz (Bluetooth channel 24)
+
+The same holds for `-a`, `-C`, `-d`, `-l` and `-z`. Two sets of the same value
+in one command keep the last one.
+
+Setting and reading are separate device operations here, which is why one
+command can do both; `ubertooth-btle -a` refuses the combination instead,
+because there the access address parameterises the capture that command is
+about to start. One exception to the read reporting the new value: a board
+already running a connection-following BLE mode keeps a requested channel
+aside until that mode ends, so `-c2426 -c` against such a board reports the
+frequency still in use. `ubertooth-util` cannot enter that mode itself, so this
+only arises alongside another program.
+
 The utility also includes a simple range test tool for use with two
 Ubertooth devices. Refer to [RANGE TEST][] for full details.
 

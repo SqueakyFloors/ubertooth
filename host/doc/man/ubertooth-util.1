@@ -36,6 +36,28 @@ An option value can be attached or given as the next word: \fB\fC\-c2440\fR and
 Without a number after it, \fB\fC\-c\fR (and \fB\fC\-a\fR, \fB\fC\-C\fR, \fB\fC\-d\fR, \fB\fC\-l\fR, \fB\fC\-z\fR) reads the
 current value instead.
 .PP
+A set and a read of the same value in one command both run, the set first, so
+the read reports the new value. The order they are written in does not matter:
+.PP
+.RS
+.nf
+$ ubertooth\-util \-c2426 \-c
+Current frequency: 2426 MHz (Bluetooth channel 24)
+.fi
+.RE
+.PP
+The same holds for \fB\fC\-a\fR, \fB\fC\-C\fR, \fB\fC\-d\fR, \fB\fC\-l\fR and
+\fB\fC\-z\fR\&. Two sets of the same value in one command keep the last one.
+.PP
+Setting and reading are separate device operations here, which is why one
+command can do both; \fB\fCubertooth\-btle \-a\fR refuses the combination
+instead, because there the access address parameterises the capture that
+command is about to start. One exception to the read reporting the new value: a
+board already running a connection\-following BLE mode keeps a requested
+channel aside until that mode ends, so \fB\fC\-c2426 \-c\fR against such a
+board reports the frequency still in use. \fB\fCubertooth\-util\fR cannot enter
+that mode itself, so this only arises alongside another program.
+.PP
 The utility also includes a simple range test tool for use with two
 Ubertooth devices. Refer to [RANGE TEST][] for full details.
 .PP
