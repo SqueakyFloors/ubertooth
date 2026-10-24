@@ -8,9 +8,11 @@
 struct fake_device {
 	int board_id;
 	const char *firmware;
+	int firmware_result;
 	int api_result;
 	uint16_t api_version;
 	const char *compile_info;
+	int compile_info_result;
 	uint32_t part_id;
 	int part_id_result;
 	int serial_result;
@@ -38,9 +40,13 @@ static int fake_board_id(void *context)
 	return ((struct fake_device *)context)->board_id;
 }
 
-static void fake_firmware(void *context, char *revision, size_t size)
+static int fake_firmware(void *context, char *revision, size_t size)
 {
-	snprintf(revision, size, "%s", ((struct fake_device *)context)->firmware);
+	struct fake_device *fake = context;
+
+	/* On failure, leave text behind to check that it is not printed. */
+	snprintf(revision, size, "%s", fake->firmware);
+	return fake->firmware_result;
 }
 
 static int fake_api(void *context, uint16_t *version)
@@ -51,9 +57,12 @@ static int fake_api(void *context, uint16_t *version)
 	return fake->api_result;
 }
 
-static void fake_compile_info(void *context, char *info, size_t size)
+static int fake_compile_info(void *context, char *info, size_t size)
 {
-	snprintf(info, size, "%s", ((struct fake_device *)context)->compile_info);
+	struct fake_device *fake = context;
+
+	snprintf(info, size, "%s", fake->compile_info);
+	return fake->compile_info_result;
 }
 
 static int fake_part_id(void *context, uint32_t *part_id)
@@ -334,6 +343,53 @@ MU_TEST(part_id_error_fails_and_firmware_api_error_fails)
 	          "firmware line missing without API");
 }
 
+MU_TEST(firmware_revision_error_fails_without_printing_a_line)
+{
+	struct fake_device fake = make_fake();
+	struct util_report_request request;
+	struct captured captured;
+
+	memset(&request, 0, sizeof(request));
+	request.firmware = 1;
+	fake.firmware_result = -7;
+	captured = run(&request, &fake);
+	mu_assert_int_eq(1, captured.status);
+	mu_assert_int_eq(0, (long)strlen(captured.out));
+
+	/* Later reports still run, and the failure is not masked. */
+	request = all_reports();
+	captured = run(&request, &fake);
+	mu_assert_int_eq(1, captured.status);
+	mu_assert(strstr(captured.out, "Firmware version") == NULL,
+	          "firmware line printed on error");
+	mu_assert(strstr(captured.out, "compile-test\n") != NULL,
+	          "compile info skipped after firmware failure");
+}
+
+MU_TEST(compile_info_error_fails_without_printing_a_line)
+{
+	struct fake_device fake = make_fake();
+	struct util_report_request request;
+	struct captured captured;
+
+	memset(&request, 0, sizeof(request));
+	request.compile_info = 1;
+	fake.compile_info_result = -1;
+	captured = run(&request, &fake);
+	mu_assert_int_eq(1, captured.status);
+	mu_assert_int_eq(0, (long)strlen(captured.out));
+
+	request = all_reports();
+	captured = run(&request, &fake);
+	mu_assert_int_eq(1, captured.status);
+	mu_assert(strstr(captured.out, "compile-test") == NULL,
+	          "compile info printed on error");
+	mu_assert(strstr(captured.out, "Firmware version: git-test (API:1.07)\n") != NULL,
+	          "firmware line missing");
+	mu_assert(strstr(captured.out, "Serial No: ") != NULL,
+	          "serial skipped after compile info failure");
+}
+
 MU_TEST(nonzero_successful_values_do_not_become_status)
 {
 	struct fake_device fake = make_fake();
@@ -376,6 +432,8 @@ int main(void)
 	MU_RUN(serial_with_nonzero_result_fails_and_is_not_printed);
 	MU_RUN(part_id_with_bit_31_set_prints_unsigned);
 	MU_RUN(part_id_error_fails_and_firmware_api_error_fails);
+	MU_RUN(firmware_revision_error_fails_without_printing_a_line);
+	MU_RUN(compile_info_error_fails_without_printing_a_line);
 	MU_RUN(nonzero_successful_values_do_not_become_status);
 	MU_RUN(status_helpers);
 	return mu_report();

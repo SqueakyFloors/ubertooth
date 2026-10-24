@@ -101,4 +101,13 @@ if(libubertooth_SOURCE_DIR)
 		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
 	target_link_libraries(test-control-partnum ${LIBUSB_LIBRARIES})
 	add_test(NAME control-partnum COMMAND test-control-partnum)
+
+	# The same approach for the firmware revision and compile info commands.
+	add_executable(test-control-text
+		test_control_text.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
+	target_include_directories(test-control-text PRIVATE
+		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+	target_link_libraries(test-control-text ${LIBUSB_LIBRARIES})
+	add_test(NAME control-text COMMAND test-control-text)
 endif()

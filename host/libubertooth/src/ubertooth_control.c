@@ -561,56 +561,101 @@ int cmd_repeater(struct libusb_device_handle* devh)
 	return 0;
 }
 
-void cmd_get_rev_num(struct libusb_device_handle* devh, char *version, u8 len)
+/* Copies a length-prefixed string from a device reply into text (size bytes,
+ * always terminated). data_len is the number of reply bytes after the length
+ * byte; a declared length longer than that is a short reply. */
+static int copy_reply_string(const char *what, const u8 *data, int data_len,
+                             u8 declared, char *text, size_t size)
+{
+	size_t n = declared;
+
+	if (data_len < (int)declared) {
+		fprintf(stderr, "%s: short reply (%d of %u string bytes)\n",
+		        what, data_len, (unsigned int)declared);
+		return LIBUSB_ERROR_IO;
+	}
+	/* A buffer smaller than the string keeps its leading part, as before. */
+	if (n > size - 1)
+		n = size - 1;
+	memcpy(text, data, n);
+	text[n] = '\0';
+	return 0;
+}
+
+int cmd_get_firmware_revision(struct libusb_device_handle* devh, char *revision,
+                              size_t size)
 {
 	u8 result[2 + 1 + 255];
-	u16 result_ver;
 	int r;
+
+	if (revision == NULL || size == 0)
+		return LIBUSB_ERROR_INVALID_PARAM;
+	revision[0] = '\0';
 	r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_GET_REV_NUM, 0, 0,
 			result, sizeof(result), 1000);
 	if (r == LIBUSB_ERROR_PIPE) {
 		fprintf(stderr, "control message unsupported\n");
-		snprintf(version, len - 1, "error: %d", r);
-		version[len-1] = '\0';
-		return;
+		return r;
 	} else if (r < 0) {
 		show_libusb_error(r);
-		snprintf(version, len - 1, "error: %d", r);
-		version[len-1] = '\0';
-		return;
+		return r;
 	}
 
-	result_ver = result[0] | (result[1] << 8);
-	if (r == 2) { // old-style SVN rev
-		sprintf(version, "%u", result_ver);
-	} else {
-		len = MIN(r - 3, MIN(len - 1, result[2]));
-		memcpy(version, &result[3], len);
-		version[len] = '\0';
+	if (r == 2) { /* old-style SVN revision number */
+		snprintf(revision, size, "%u", (unsigned int)(result[0] | (result[1] << 8)));
+		return 0;
 	}
+	if (r < 3) {
+		fprintf(stderr, "firmware revision: short reply (%d bytes)\n", r);
+		return LIBUSB_ERROR_IO;
+	}
+	return copy_reply_string("firmware revision", &result[3], r - 3, result[2],
+	                         revision, size);
 }
 
-void cmd_get_compile_info(struct libusb_device_handle* devh, char *compile_info, u8 len)
+int cmd_get_firmware_compile_info(struct libusb_device_handle* devh,
+                                  char *compile_info, size_t size)
 {
 	u8 result[1 + 255];
 	int r;
+
+	if (compile_info == NULL || size == 0)
+		return LIBUSB_ERROR_INVALID_PARAM;
+	compile_info[0] = '\0';
 	r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_GET_COMPILE_INFO, 0, 0,
 			result, sizeof(result), 1000);
 	if (r == LIBUSB_ERROR_PIPE) {
 		fprintf(stderr, "control message unsupported\n");
-		snprintf(compile_info, len - 1, "error: %d", r);
-		compile_info[len-1] = '\0';
-		return;
+		return r;
 	} else if (r < 0) {
 		show_libusb_error(r);
-		snprintf(compile_info, len - 1, "error: %d", r);
-		compile_info[len-1] = '\0';
-		return;
+		return r;
 	}
 
-	len = MIN(r - 1, MIN(len - 1, result[0]));
-	memcpy(compile_info, &result[1], len);
-	compile_info[len] = '\0';
+	if (r < 1) {
+		fprintf(stderr, "compile info: short reply (%d bytes)\n", r);
+		return LIBUSB_ERROR_IO;
+	}
+	return copy_reply_string("compile info", &result[1], r - 1, result[0],
+	                         compile_info, size);
+}
+
+/* The void forms keep their old contract: on failure the buffer holds
+ * "error: <code>" instead of the text. */
+void cmd_get_rev_num(struct libusb_device_handle* devh, char *version, u8 len)
+{
+	int r = cmd_get_firmware_revision(devh, version, len);
+
+	if (r < 0 && version != NULL && len > 0)
+		snprintf(version, len, "error: %d", r);
+}
+
+void cmd_get_compile_info(struct libusb_device_handle* devh, char *compile_info, u8 len)
+{
+	int r = cmd_get_firmware_compile_info(devh, compile_info, len);
+
+	if (r < 0 && compile_info != NULL && len > 0)
+		snprintf(compile_info, len, "error: %d", r);
 }
 
 int cmd_get_board_id(struct libusb_device_handle* devh)
