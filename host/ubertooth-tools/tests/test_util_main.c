@@ -985,7 +985,9 @@ MU_TEST(led_specan_uses_the_default_threshold_and_an_explicit_one)
 	reset_fake();
 	r = RUN("-q");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert_int_eq(225, fake.last_led_specan_arg);
+	mu_assert_int_eq(UBERTOOTH_LED_SPECAN_N_DEFAULT, fake.last_led_specan_arg);
+	mu_assert(strstr(r.out, "Entering LED specan mode (threshold -85 dBm)\n") != NULL,
+	          "names the threshold");
 
 	reset_fake();
 	r = RUN("-q100");
@@ -1111,7 +1113,7 @@ MU_TEST(numeric_option_values_are_parsed_strictly)
 		{ "-zabc", "error: squelch level must be -128 to 127 (got abc)\n" },
 		{ "-z-200", "error: squelch level must be -128 to 127 (got -200)\n" },
 		{ "-z128", "error: squelch level must be -128 to 127 (got 128)\n" },
-		{ "-q\t5", "error: RSSI threshold must be 1-225 (got \t5)\n" },
+		{ "-q\t5", "error: RSSI threshold must be 20-120 (got \t5)\n" },
 		{ "-c\n2440", "error: frequency must be 2402-2480 MHz (got \n2440)\n" },
 		{ "-l2", "error: USR LED state must be 0-1 (got 2)\n" },
 		{ "-lx", "error: USR LED state must be 0-1 (got x)\n" },
@@ -1121,9 +1123,12 @@ MU_TEST(numeric_option_values_are_parsed_strictly)
 		{ "-C3x", "error: channel must be 0-78 (got 3x)\n" },
 		{ "-cabc", "error: frequency must be 2402-2480 MHz (got abc)\n" },
 		{ "-c2441.5", "error: frequency must be 2402-2480 MHz (got 2441.5)\n" },
-		{ "-q300", "error: RSSI threshold must be 1-225 (got 300)\n" },
-		{ "-q0", "error: RSSI threshold must be 1-225 (got 0)\n" },
-		{ "-q+5", "error: RSSI threshold must be 1-225 (got +5)\n" },
+		{ "-q300", "error: RSSI threshold must be 20-120 (got 300)\n" },
+		{ "-q0", "error: RSSI threshold must be 20-120 (got 0)\n" },
+		{ "-q+5", "error: RSSI threshold must be 20-120 (got +5)\n" },
+		{ "-q19", "error: RSSI threshold must be 20-120 (got 19)\n" },
+		{ "-q121", "error: RSSI threshold must be 20-120 (got 121)\n" },
+		{ "-q225", "error: RSSI threshold must be 20-120 (got 225)\n" },
 	};
 	size_t i;
 	struct run_result r;
@@ -1165,13 +1170,13 @@ MU_TEST(numeric_option_values_are_parsed_strictly)
 	mu_assert_int_eq(0, r.rc);
 	mu_assert_int_eq(2, fake.last_usrled_set); /* recorded as value + 1 */
 	reset_fake();
-	r = RUN("-q225");
+	r = RUN("-q120");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert_int_eq(225, fake.last_led_specan_arg);
+	mu_assert_int_eq(120, fake.last_led_specan_arg);
 	reset_fake();
-	r = RUN("-q", "1");
+	r = RUN("-q", "20");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert_int_eq(1, fake.last_led_specan_arg);
+	mu_assert_int_eq(20, fake.last_led_specan_arg);
 }
 
 /* -a0 sets PA level 0 (it used to read the level, because 0 was the "read"

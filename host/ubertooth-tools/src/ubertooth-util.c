@@ -316,7 +316,9 @@ static void usage(FILE *output)
 	fprintf(output, "\t-a[0-7] get/set power amplifier level\n");
 	fprintf(output, "\t-c[%d-%d] get/set channel in MHz\n", BT_FREQ_MIN, BT_FREQ_MAX);
 	fprintf(output, "\t-C[0-%d] get/set channel\n", NUM_BREDR_CHANNELS - 1);
-	fprintf(output, "\t-q[1-225 (RSSI threshold)] start LED spectrum analyzer\n");
+	fprintf(output, "\t-q[%d-%d] start LED spectrum analyzer, threshold -N dBm (default: %d)\n",
+	        UBERTOOTH_LED_SPECAN_N_MIN, UBERTOOTH_LED_SPECAN_N_MAX,
+	        UBERTOOTH_LED_SPECAN_N_DEFAULT);
 	fprintf(output, "\t   the threshold is -N dBm; a larger N lights the LEDs for weaker signals\n");
 	fprintf(output, "\t-t intitiate continuous transmit test\n");
 	fprintf(output, "\t-z[-128..127] get/set squelch level\n");
@@ -462,10 +464,12 @@ int main(int argc, char *argv[])
 			break;
 		case 'q':
 			if (optarg) {
-				if (opt_require_int(optarg, 1, 225, "RSSI threshold", "", &do_led_specan) < 0)
+				if (opt_require_int(optarg, UBERTOOTH_LED_SPECAN_N_MIN,
+				                    UBERTOOTH_LED_SPECAN_N_MAX, "RSSI threshold",
+				                    "", &do_led_specan) < 0)
 					return 1;
 			} else
-				do_led_specan= 0; /* the default threshold, 225 */
+				do_led_specan= 0; /* the default threshold */
 			break;
 		case 'n':
 			do_range_test= 0;
@@ -787,8 +791,8 @@ int main(int argc, char *argv[])
 		goto out;
 	}
 	if(do_led_specan >= 0) {
-		do_led_specan= do_led_specan ? do_led_specan : 225;
-		fprintf(stdout, "Entering LED specan mode (RSSI %d)\n", do_led_specan);
+		do_led_specan= do_led_specan ? do_led_specan : UBERTOOTH_LED_SPECAN_N_DEFAULT;
+		fprintf(stdout, "Entering LED specan mode (threshold -%d dBm)\n", do_led_specan);
 		status = util_status_after(status, cmd_stop(ut->devh)); /* leave any prior mode before starting */
 		status = util_status_after(status, cmd_led_specan(ut->devh, do_led_specan));
 		goto out;

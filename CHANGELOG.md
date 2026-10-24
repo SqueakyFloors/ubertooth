@@ -123,12 +123,15 @@
   tool accepts now works: `-q183` to `-q225`, and the default bare `-q`, light
   the LEDs for the weakest reading instead of lighting nothing. The firmware
   also refuses a threshold outside 1-225.
+- `ubertooth-util -q <N>` (LED spectrum analyzer, threshold -N dBm) takes
+  20-120, the radio's RSSI range, and bare `-q` uses -85 dBm. The old default
+  (225) and `-q183` to `-q225` lit no LED at all; the firmware refuses values
+  outside 20-120.
   [#189](https://github.com/SqueakyFloors/ubertooth/issues/189)
 - Stopping the LED spectrum analyzer (`ubertooth-util -q`), `ubertooth-specan`
   or Bluetooth Low Energy (BLE) faux slave mode (`ubertooth-btle -s<address>`)
-  now resets the board the way the other modes do: light-emitting diodes (LEDs)
-  off, amplifier off, channel 2441 MHz and squelch -120 decibels relative to
-  one milliwatt (dBm). Stopping `-q` used to leave the LEDs lit and the channel
+  now resets the board the way the other modes do: LEDs off, amplifier off,
+  channel 2441 MHz and squelch -120 dBm. Stopping `-q` used to leave the LEDs lit and the channel
   and squelch as they were.
   [#191](https://github.com/SqueakyFloors/ubertooth/issues/191)
 

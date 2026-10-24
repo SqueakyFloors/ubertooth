@@ -105,16 +105,18 @@ Hardware required: Ubertooth One, Linux machine (Ubuntu 22.04+ preferred), a BLE
 - [ ] Confirm: spectrum data displayed
 
 ### 4c. LED spectrum analyzer threshold
-- [ ] Run `ubertooth-util -q182`, then `ubertooth-util -d` a few times
-- [ ] Confirm: LEDs light (ambient noise is above -182 dBm)
-- [ ] Repeat with `-q183`, `-q225` and bare `-q`
-- [ ] Confirm: each lights the LEDs too; a larger N is never less sensitive
-- [ ] Run `ubertooth-util -q1`
-- [ ] Confirm: LEDs stay off (-1 dBm is far above ambient noise)
+- [ ] Run `ubertooth-util -q 120`, then `ubertooth-util -d` a few times
+- [ ] Confirm: LEDs light (ambient noise is above -120 dBm)
+- [ ] Run bare `ubertooth-util -q` (-85 dBm)
+- [ ] Confirm: an LED lights only with Wi-Fi traffic on its channel (TX: 1, RX: 6, USR: 11)
+- [ ] Run `ubertooth-util -q 20`
+- [ ] Confirm: LEDs stay off (-20 dBm is far above ambient signals)
+- [ ] Run `ubertooth-util -q 19` and `-q 121`
+- [ ] Confirm: each is refused (exit 1)
 - [ ] Run `ubertooth-util -S`
 
 ### 4d. Stopping a mode resets the board
-- [ ] Run `ubertooth-util -c2470 -z-60`, then `-q182`, then `-S`
+- [ ] Run `ubertooth-util -c2470 -z-60`, then `-q 120`, then `-S`
 - [ ] Run `ubertooth-util -d -C -z -a`
 - [ ] Confirm: LEDs 0 0 0, channel 2441 MHz, squelch -120, PA level unchanged
 - [ ] Repeat with `ubertooth-specan` stopped by Ctrl+C, then `-d -C -z`

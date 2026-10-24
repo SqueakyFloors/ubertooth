@@ -23,6 +23,7 @@
 #define __UBERTOOTH_RSSI_H
 
 #include "inttypes.h"
+#include "ubertooth_interface.h"
 
 extern int8_t rssi_max;
 extern int8_t rssi_min;
@@ -37,17 +38,16 @@ int8_t rssi_get_avg(uint16_t channel);
  * LED spectrum analyzer threshold.
  *
  * The CC2400 reports RSSI as a raw signed value; dBm = raw - RSSI_DBM_OFFSET.
- * The host sends the threshold as N, meaning -N dBm, and ubertooth-util
- * accepts 1-225 (bare -q sends 225), so the raw thresholds the firmware has to
- * hold run from 54 - 1 = 53 down to 54 - 225 = -171. That range does not fit
- * in an int8_t, which is why the stored threshold and the comparison are 16-bit:
- * every N stays distinct, and a larger N is always more sensitive. Clamping to
- * INT8_MIN instead would collapse N = 182-225 into one setting and still leave a
- * raw reading of -128 unlit at the most sensitive one.
+ * The host sends the threshold as N, meaning -N dBm, within
+ * UBERTOOTH_LED_SPECAN_N_MIN-MAX (20-120, ubertooth_interface.h), so the raw
+ * threshold runs from 54 - 20 = 34 down to 54 - 120 = -66. The stored threshold
+ * and the comparison are 16-bit so that no N, from this or any other caller,
+ * can wrap: the old int8_t wrapped N >= 183 to a positive value no reading
+ * reached.
  */
 #define RSSI_DBM_OFFSET 54
-#define RSSI_THRESHOLD_N_MIN 1
-#define RSSI_THRESHOLD_N_MAX 225
+#define RSSI_THRESHOLD_N_MIN UBERTOOTH_LED_SPECAN_N_MIN
+#define RSSI_THRESHOLD_N_MAX UBERTOOTH_LED_SPECAN_N_MAX
 
 /* Is N a threshold the firmware accepts? Matches the host's -q range. */
 int rssi_threshold_n_valid(uint16_t n);

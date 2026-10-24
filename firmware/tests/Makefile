@@ -10,7 +10,7 @@ CFLAGS  ?= -O2 -Wall -Wextra -std=gnu99 -g
 # Headers under test live in the firmware image dir; tests include by name.
 FW_RXTX := ../bluetooth_rxtx
 FW_COMMON := ../common
-CPPFLAGS += -I. -I$(FW_RXTX)
+CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
 TESTS   := test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_mode_dispatch
 BINDIR  := bin

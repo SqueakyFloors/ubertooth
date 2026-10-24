@@ -3,7 +3,7 @@
 ## SYNOPSIS
 
 `ubertooth-util` [-v] [-V] [-H] [--host-version] [-I] [-d[0-1]] [-l[0-1]]
-[-S] [-r] [-U<index|serial|all>] [-a[0-7]] [-c[2402-2480]] [-C[0-78]] [-q[1-225]] [-t]
+[-S] [-r] [-U<index|serial|all>] [-a[0-7]] [-c[2402-2480]] [-C[0-78]] [-q[20-120]] [-t]
 [-z[-128..127]] [-e] [-m] [-n] [-f] [-i] [-b] [-p] [-s] [-N] [-x] [-h]
 
 ## DESCRIPTION
@@ -108,10 +108,10 @@ Radio options:
    get/set channel in MHz
  - `-C[0-78]` :
    get/set channel
- - `-q[1-225 (RSSI threshold)]` :
+ - `-q[20-120]` :
    start LED spectrum analyzer. The threshold is -N dBm, so a larger N lights
-   the LEDs for weaker signals; the default, bare `-q`, is 225 and lights them
-   for anything the radio reads. The TX, RX and USR LEDs stand for 2412, 2437
+   the LEDs for weaker signals; 20-120 is the radio's RSSI range, and bare `-q`
+   uses -85 dBm, which shows Wi-Fi traffic without lighting on noise. The TX, RX and USR LEDs stand for 2412, 2437
    and 2462 MHz. `-S` stops it and leaves the LEDs off.
  - `-t` :
    intitiate continuous transmit test

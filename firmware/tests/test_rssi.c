@@ -133,10 +133,11 @@ static int lights_led(int lvl, int n)
 MU_TEST(test_threshold_from_n_does_not_wrap)
 {
 	/* The raw threshold is 54 - N over the whole accepted range. */
-	mu_assert_int_eq(53, rssi_threshold_from_n(1));
-	mu_assert_int_eq(-46, rssi_threshold_from_n(100));
-	mu_assert_int_eq(-128, rssi_threshold_from_n(182));
-	/* These used to wrap to +127 and +85. */
+	mu_assert_int_eq(34, rssi_threshold_from_n(20));
+	mu_assert_int_eq(-31, rssi_threshold_from_n(85));
+	mu_assert_int_eq(-66, rssi_threshold_from_n(120));
+	/* Values outside the range are refused, but would not wrap either: these
+	 * used to wrap to +127 and +85 in an int8_t. */
 	mu_assert_int_eq(-129, rssi_threshold_from_n(183));
 	mu_assert_int_eq(-171, rssi_threshold_from_n(225));
 }
@@ -151,30 +152,26 @@ MU_TEST(test_threshold_is_monotonic_over_the_whole_range)
 		          "a larger N must give a lower raw threshold");
 }
 
-/*
- * N >= 183 puts the threshold below every value an int8_t reading can hold, so
- * the LED lights for any reading at all -- including the weakest, INT8_MIN.
- * That is the behaviour the default `-q` is meant to have.
- */
-MU_TEST(test_sensitive_thresholds_light_every_reading)
+/* The default, -85 dBm (raw -31), lights for Wi-Fi traffic but not for the
+ * noise floor; -120 dBm (raw -66) lights for nearly every reading. */
+MU_TEST(test_default_and_most_sensitive_thresholds)
 {
-	int lvl;
-
-	for (lvl = INT8_MIN; lvl <= INT8_MAX; lvl++) {
-		mu_assert(lights_led(lvl, 183), "-q183 must light every reading");
-		mu_assert(lights_led(lvl, 225), "-q225 (bare -q) must light every reading");
-	}
-
-	/* Regression: with the int8_t threshold these were all dark. */
-	mu_assert(lights_led(-40, 225), "the default threshold used to light nothing");
+	mu_assert_int_eq(85, UBERTOOTH_LED_SPECAN_N_DEFAULT);
+	mu_assert(rssi_threshold_n_valid(UBERTOOTH_LED_SPECAN_N_DEFAULT),
+	          "the default must be in range");
+	mu_assert(lights_led(-20, 85), "-74 dBm traffic must light at -85 dBm");
+	mu_assert(!lights_led(-40, 85), "-94 dBm noise must not light at -85 dBm");
+	mu_assert(!lights_led(-31, 85), "a reading at the threshold must not light");
+	mu_assert(lights_led(-30, 85), "a reading just above it must");
+	mu_assert(lights_led(-60, 120), "-114 dBm must light at -120 dBm");
 }
 
-/* The insensitive end still discriminates: -q1 is -1 dBm, raw 53. */
+/* The insensitive end still discriminates: -q20 is -20 dBm, raw 34. */
 MU_TEST(test_insensitive_thresholds_still_discriminate)
 {
-	mu_assert(!lights_led(53, 1), "a reading at the threshold must not light");
-	mu_assert(lights_led(54, 1), "a reading above the threshold must light");
-	mu_assert(!lights_led(-40, 1), "ambient noise is well below -1 dBm");
+	mu_assert(!lights_led(34, 20), "a reading at the threshold must not light");
+	mu_assert(lights_led(35, 20), "a reading above the threshold must light");
+	mu_assert(!lights_led(-40, 20), "ambient noise is well below -20 dBm");
 
 	/* -q100 is -100 dBm, raw -46; ambient noise sits above that. */
 	mu_assert(lights_led(-40, 100), "-100 dBm must light on ambient noise");
@@ -198,18 +195,19 @@ MU_TEST(test_a_lit_reading_stays_lit_as_n_grows)
 	}
 }
 
-/* The firmware's accepted range must match the host's -q range, 1-225: the old
- * `> 256` check let 226-256 through from any other caller. */
+/* The firmware's accepted range is the host's -q range, 20-120, from the
+ * shared header: the old `> 256` check let anything below 257 through. */
 MU_TEST(test_accepted_range_matches_the_host)
 {
-	mu_assert_int_eq(1, RSSI_THRESHOLD_N_MIN);
-	mu_assert_int_eq(225, RSSI_THRESHOLD_N_MAX);
+	mu_assert_int_eq(20, RSSI_THRESHOLD_N_MIN);
+	mu_assert_int_eq(120, RSSI_THRESHOLD_N_MAX);
 
 	mu_assert(!rssi_threshold_n_valid(0), "0 must be refused");
-	mu_assert(rssi_threshold_n_valid(1), "1 must be accepted");
-	mu_assert(rssi_threshold_n_valid(225), "225 must be accepted");
-	mu_assert(!rssi_threshold_n_valid(226), "226 must be refused");
-	mu_assert(!rssi_threshold_n_valid(256), "256 must be refused");
+	mu_assert(!rssi_threshold_n_valid(19), "19 must be refused");
+	mu_assert(rssi_threshold_n_valid(20), "20 must be accepted");
+	mu_assert(rssi_threshold_n_valid(120), "120 must be accepted");
+	mu_assert(!rssi_threshold_n_valid(121), "121 must be refused");
+	mu_assert(!rssi_threshold_n_valid(225), "225 must be refused");
 	mu_assert(!rssi_threshold_n_valid(65535), "a 16-bit maximum must be refused");
 }
 
@@ -222,7 +220,7 @@ int main(void)
 	MU_RUN(test_sum_count_rounding_negative);
 	MU_RUN(test_threshold_from_n_does_not_wrap);
 	MU_RUN(test_threshold_is_monotonic_over_the_whole_range);
-	MU_RUN(test_sensitive_thresholds_light_every_reading);
+	MU_RUN(test_default_and_most_sensitive_thresholds);
 	MU_RUN(test_insensitive_thresholds_still_discriminate);
 	MU_RUN(test_a_lit_reading_stays_lit_as_n_grows);
 	MU_RUN(test_accepted_range_matches_the_host);
