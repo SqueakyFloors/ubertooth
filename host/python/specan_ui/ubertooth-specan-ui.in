@@ -111,6 +111,7 @@ class RenderArea(QtWidgets.QWidget):
 
         self._hide_markers = False
         self._show_help = False
+        self._peak = None  # (x, y) of the strongest max-hold bin
         self._mouse_x = None
         self._mouse_y = None
         self._mouse_x2 = None
@@ -216,46 +217,12 @@ class RenderArea(QtWidgets.QWidget):
                 painter.setPen(pen)
                 painter.drawPath(path_now)
                 self._path_max = path_max
-                if max_max is not None and not self._hide_markers:
-                    pen.setBrush(Qt.red)
-                    pen.setStyle(Qt.DotLine)
-                    painter.setPen(pen)
-                    painter.drawText(QPointF(x_axis[max_max] + 4, 30), '%.0f MHz' % (self._x_to_hz(x_axis[max_max]) / 1e6))
-                    painter.drawText(QPointF(30, y_max[max_max] - 4), '%d' % (self._y_to_dbm(y_max[max_max])))
-                    painter.drawLine(QPointF(x_axis[max_max], 0), QPointF(x_axis[max_max], self.height()))
-                    painter.drawLine(QPointF(0, y_max[max_max]), QPointF(self.width(), y_max[max_max]))
-
-                    if self._average_dbm is not None:
-                        pen.setBrush(Qt.yellow)
-                        pen.setStyle(Qt.DotLine)
-                        painter.setPen(pen)
-                        average_y = self._dbm_to_y(self._average_dbm)
-                        painter.drawText(QPointF(30, average_y - 4),
-                                         'Avg: %d dBm' % round(self._average_dbm))
-                        painter.drawLine(QPointF(0, average_y), QPointF(self.width(), average_y))
-
-                    if self._mouse_x:
-                        painter.drawText(QPointF(self._hz_to_x(self._mouse_x) + 4, 58), '(%+.0f)' % ((self._x_to_hz(x_axis[max_max]) / 1e6) - (self._mouse_x / 1e6)))
-                        pen.setBrush(Qt.yellow)
-                        painter.setPen(pen)
-                        painter.drawText(QPointF(self._hz_to_x(self._mouse_x) + 4, 44), '%.0f MHz' % (self._mouse_x / 1e6))
-                        painter.drawText(QPointF(54, self._dbm_to_y(self._mouse_y) - 4), '%d' % (self._mouse_y))
-                        painter.drawLine(QPointF(self._hz_to_x(self._mouse_x), 0), QPointF(self._hz_to_x(self._mouse_x), self.height()))
-                        painter.drawLine(QPointF(0, self._dbm_to_y(self._mouse_y)), QPointF(self.width(), self._dbm_to_y(self._mouse_y)))
-                        if self._mouse_x2:
-                            painter.drawText(QPointF(self._hz_to_x(self._mouse_x2) + 4, 118), '(%+.0f)' % ((self._mouse_x / 1e6) - (self._mouse_x2 / 1e6)))
-                    if self._mouse_x2:
-                        pen.setBrush(Qt.red)
-                        painter.setPen(pen)
-                        painter.drawText(QPointF(self._hz_to_x(self._mouse_x2) + 4, 102), '(%+.0f)' % ((self._x_to_hz(x_axis[max_max]) / 1e6) - (self._mouse_x2 / 1e6)))
-                        pen.setBrush(Qt.magenta)
-                        painter.setPen(pen)
-                        painter.drawText(QPointF(self._hz_to_x(self._mouse_x2) + 4, 88), '%.0f MHz' % (self._mouse_x2 / 1e6))
-                        painter.drawText(QPointF(78, self._dbm_to_y(self._mouse_y2) - 4), '%d' % (self._mouse_y2))
-                        painter.drawLine(QPointF(self._hz_to_x(self._mouse_x2), 0), QPointF(self._hz_to_x(self._mouse_x2), self.height()))
-                        painter.drawLine(QPointF(0, self._dbm_to_y(self._mouse_y2)), QPointF(self.width(), self._dbm_to_y(self._mouse_y2)))
-                        if self._mouse_x:
-                            painter.drawText(QPointF(self._hz_to_x(self._mouse_x) + 4, 74), '(%+.0f)' % ((self._mouse_x2 / 1e6) - (self._mouse_x / 1e6)))
+                # Markers are drawn on top in paintEvent, not into this fading
+                # pixmap, so old labels do not leave ghosts.
+                if max_max is not None:
+                    self._peak = (float(x_axis[max_max]), float(y_max[max_max]))
+                else:
+                    self._peak = None
         finally:
             painter.end()
 
@@ -309,7 +276,6 @@ class RenderArea(QtWidgets.QWidget):
 
             if self._graph:
                 painter.drawPixmap(0, 0, self._graph)
-            self._draw_help(painter)
 
             if self._path_max:
                 painter.setPen(Qt.green)
@@ -318,6 +284,10 @@ class RenderArea(QtWidgets.QWidget):
             painter.setOpacity(0.5)
             if self._reticle:
                 painter.drawPixmap(0, 0, self._reticle)
+
+            painter.setOpacity(1.0)
+            self._draw_markers(painter)
+            self._draw_help(painter)
         finally:
             painter.end()
 
@@ -346,16 +316,70 @@ class RenderArea(QtWidgets.QWidget):
         return self._high_dbm - delta
 
 
+    def _draw_markers(self, painter):
+        if self._peak is None or self._hide_markers:
+            return
+        peak_x, peak_y = self._peak
+        peak_mhz = self._x_to_hz(peak_x) / 1e6
+        pen = QtGui.QPen()
+        pen.setStyle(Qt.DotLine)
+
+        pen.setBrush(Qt.red)
+        painter.setPen(pen)
+        painter.drawText(QPointF(peak_x + 4, 30), '%.0f MHz' % peak_mhz)
+        painter.drawText(QPointF(30, peak_y - 4), '%d' % self._y_to_dbm(peak_y))
+        painter.drawLine(QPointF(peak_x, 0), QPointF(peak_x, self.height()))
+        painter.drawLine(QPointF(0, peak_y), QPointF(self.width(), peak_y))
+
+        if self._average_dbm is not None:
+            pen.setBrush(Qt.cyan)
+            painter.setPen(pen)
+            average_y = self._dbm_to_y(self._average_dbm)
+            painter.drawText(QPointF(30, average_y - 4), 'Avg: %d dBm' % round(self._average_dbm))
+            painter.drawLine(QPointF(0, average_y), QPointF(self.width(), average_y))
+
+        if self._mouse_x:
+            x1 = self._hz_to_x(self._mouse_x)
+            pen.setBrush(Qt.red)
+            painter.setPen(pen)
+            painter.drawText(QPointF(x1 + 4, 58), '(%+.0f)' % (peak_mhz - self._mouse_x / 1e6))
+            pen.setBrush(Qt.yellow)
+            painter.setPen(pen)
+            painter.drawText(QPointF(x1 + 4, 44), '%.0f MHz' % (self._mouse_x / 1e6))
+            painter.drawText(QPointF(54, self._dbm_to_y(self._mouse_y) - 4), '%d' % self._mouse_y)
+            painter.drawLine(QPointF(x1, 0), QPointF(x1, self.height()))
+            painter.drawLine(QPointF(0, self._dbm_to_y(self._mouse_y)), QPointF(self.width(), self._dbm_to_y(self._mouse_y)))
+            if self._mouse_x2:
+                painter.drawText(QPointF(self._hz_to_x(self._mouse_x2) + 4, 118), '(%+.0f)' % ((self._mouse_x - self._mouse_x2) / 1e6))
+        if self._mouse_x2:
+            x2 = self._hz_to_x(self._mouse_x2)
+            pen.setBrush(Qt.red)
+            painter.setPen(pen)
+            painter.drawText(QPointF(x2 + 4, 102), '(%+.0f)' % (peak_mhz - self._mouse_x2 / 1e6))
+            pen.setBrush(Qt.magenta)
+            painter.setPen(pen)
+            painter.drawText(QPointF(x2 + 4, 88), '%.0f MHz' % (self._mouse_x2 / 1e6))
+            painter.drawText(QPointF(78, self._dbm_to_y(self._mouse_y2) - 4), '%d' % self._mouse_y2)
+            painter.drawLine(QPointF(x2, 0), QPointF(x2, self.height()))
+            painter.drawLine(QPointF(0, self._dbm_to_y(self._mouse_y2)), QPointF(self.width(), self._dbm_to_y(self._mouse_y2)))
+            if self._mouse_x:
+                painter.drawText(QPointF(self._hz_to_x(self._mouse_x) + 4, 74), '(%+.0f)' % ((self._mouse_x2 - self._mouse_x) / 1e6))
+
     def _draw_help(self, painter):
         # Drawn on the widget each repaint, not into the fading graph, so it
         # does not smear.
         metrics = painter.fontMetrics()
         line_height = metrics.height() + 2
         if not self._show_help:
+            # On a dark box so it stays readable over the traces.
             hint = 'h: keys'
-            painter.setPen(QtGui.QColor(160, 160, 160))
-            painter.drawText(QPointF(self.width() - metrics.horizontalAdvance(hint) - 8,
-                                     self.height() - 8), hint)
+            hint_width = metrics.horizontalAdvance(hint) + 12
+            left = self.width() - hint_width - 6
+            top = self.height() - line_height - 8
+            painter.fillRect(int(left), int(top), int(hint_width), int(line_height + 2),
+                             QtGui.QColor(30, 30, 30, 220))
+            painter.setPen(QtGui.QColor(200, 200, 200))
+            painter.drawText(QPointF(left + 6, top + 1 + metrics.ascent()), hint)
             return
         key_width = max(metrics.horizontalAdvance(key) for key, _ in KEY_HELP)
         text_width = max(metrics.horizontalAdvance(text) for _, text in KEY_HELP)

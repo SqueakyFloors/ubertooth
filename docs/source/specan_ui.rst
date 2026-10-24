@@ -106,7 +106,7 @@ What the display shows
   recent sweeps.
 - **Red dotted lines:** the strongest peak, labelled with its frequency (MHz)
   and level (dBm).
-- **Yellow dotted horizontal line, labelled "Avg: N dBm":** the average of the
+- **Cyan dotted horizontal line, labelled "Avg: N dBm":** the average of the
   green max-hold trace across the band, smoothed so it moves slowly.
 - **Yellow and magenta markers:** points marked with the left and right mouse
   buttons, with the frequency differences to the peak and to each other.

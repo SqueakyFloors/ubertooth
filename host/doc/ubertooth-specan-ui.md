@@ -41,7 +41,7 @@ To pick one of several Ubertooths, run:
  - White trace: the current sweep.
  - Green trace: the highest level seen recently (max hold).
  - Red dotted lines: the strongest peak, labelled with its frequency and level.
- - Yellow dotted line, labelled "Avg: N dBm": the average of the green trace
+ - Cyan dotted line, labelled "Avg: N dBm": the average of the green trace
    across the band, smoothed so it moves slowly.
  - Yellow and magenta lines: points marked with the left and right mouse
    buttons, with the frequency differences to the peak and to each other.
