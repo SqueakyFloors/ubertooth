@@ -56,6 +56,12 @@ number, so an explicit selector never adopts an unidentified device that was
 already in DFU when the command started. Simultaneous flashing is not yet
 supported or validated.
 .PP
+\fB\fC\-s\fR and \fB\fC\-d\fR only read the file they are given, so a firmware image in a
+read\-only location can be signed or flashed. \fB\fC\-s <file.bin>\fR writes
+\fB\fC<file>.dfu\fR, and refuses an input that already ends in a DFU suffix: signing
+it again would bury the first suffix in the firmware payload. Nothing is
+written in that case.
+.PP
 In the DFU bootloader, the TX, RX, and USR LEDs will turn on and off in
 sequence. If this does not occur, you can try to manually force the
 device to boot into the bootloader. Refer to [MANUALLY ENTERING
@@ -68,8 +74,9 @@ Major modes:
 \fB\fC\-d <firmware.dfu>\fR :
 Download \- write DFU file to device
 .IP \(bu 2
-\fB\fC\-u <output.dfu>\fR :
-Upload \- read DFU file from device
+\fB\fC\-u <output.bin>\fR :
+Upload \- read the application flash region into a raw file (see [READING
+FLASH BACK][])
 .IP \(bu 2
 \fB\fC\-r\fR :
 Reset device after performing operation
@@ -84,6 +91,27 @@ Add DFU suffix to binary firmware file
 \fB\fC\-U <index|serial>\fR :
 Select the application\-mode Ubertooth by enumeration index or serial number
 .RE
+.SH READING FLASH BACK
+.PP
+\fB\fC\-u <output.bin>\fR is not the inverse of \fB\fC\-d\fR: it writes a raw 245760\-byte
+(240 KiB) dump of the application flash region, 0x4000 to 0x3ffff, with no DFU
+suffix, so \fB\fC\-d\fR refuses the result. The dump holds the image that was written
+(its own suffix included, padded with 0xff to the next 256\-byte block),
+followed by whatever the rest of the region contains, normally 0xff.
+.PP
+To compare a dump with the image it came from, compare the first bytes and
+check that the rest is padding, for example:
+.PP
+.RS
+.nf
+ubertooth\-dfu \-U <serial> \-u readback.bin \-r
+cmp \-n $(stat \-f%z bluetooth_rxtx.dfu) bluetooth_rxtx.dfu readback.bin
+.fi
+.RE
+.PP
+On Linux use \fB\fCstat \-c%s\fR\&. The output file is only replaced once a complete dump
+has arrived: a read\-back that fails part\-way leaves an earlier file of the same
+name untouched.
 .SH MANUALLY ENTERING BOOTLOADER
 .PP
 If the device does not enter the bootloader when running the upload or

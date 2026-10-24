@@ -127,6 +127,15 @@
   requests after a Bluetooth Low Energy (BLE) sniffing mode is stopped, so the
   board no longer needs a re-plug to be usable again.
   [#158](https://github.com/SqueakyFloors/ubertooth/issues/158)
+- `ubertooth-dfu -s` refuses a binary that already carries a Device Firmware
+  Upgrade (DFU) suffix instead of adding a second one, and names the output
+  file when it cannot create it. `-s` and `-d` now only read their input, so a
+  firmware image in a read-only location can be signed or flashed. A `-u`
+  read-back that fails part-way no longer empties an earlier file of the same
+  name: it is written to a temporary file and renamed once complete. The
+  documentation now says what `-u` writes (a raw 240 KiB dump of the
+  application flash region, not a DFU file).
+  [#200](https://github.com/SqueakyFloors/ubertooth/issues/200)
 - `-U<index>` with an index that is not attached now opens nothing, instead of
   opening whichever USB device enumerated first and exiting 0: the tool prints
   `error: no Ubertooth at index 2 (2 attached)`, suggests selecting by serial
