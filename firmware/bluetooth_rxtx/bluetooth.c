@@ -161,35 +161,39 @@ u16 next_hop(u32 clock)
 
 }
 
+/*
+ * Software access-code (AC) search over one demodulated symbol buffer of
+ * DMA_SIZE bytes, most significant bit of each byte first. Slides a 64-bit
+ * window one symbol at a time and returns the bit offset just past the first
+ * window within MAX_SYNCWORD_ERRS of target.syncword, or -1. Windows ending in
+ * the last 64 symbols are not tested, leaving room for the packet header.
+ *
+ * Nothing currently calls this: live capture lets the CC2400 detect the sync
+ * word in hardware. It is kept as a reference correlator.
+ *
+ * Each call searches only the buffer it is given, using a local window seeded
+ * from that buffer's first 64 bits. An earlier version kept the window in the
+ * file-scope `syncword` and reseeded it only when it was zero, so later calls
+ * compared bits left over from an earlier buffer. That carry was not a working
+ * streaming design: the window stopped 64 bits short of the previous buffer's
+ * end, the buffers it was used on were not contiguous (the radio hops between
+ * them), and the returned offset had no consistent origin. That version also
+ * skipped the ninth byte of each buffer.
+ */
 int find_access_code(u8 *idle_rxbuf)
 {
-	/* Looks for an AC in the stream */
-	u8 bit_errors, curr_buf;
-	int i = 0, count = 0;
+	u64 window = 0;
+	int count;
 
-	if (syncword == 0) {
-		for (; i<8; i++) {
-			syncword <<= 8;
-			syncword = (syncword & 0xffffffffffffff00) | idle_rxbuf[i];
-		}
-		count = 64;
-	}
-	curr_buf = idle_rxbuf[i];
+	for (count = 0; count < 8; count++)
+		window = (window << 8) | idle_rxbuf[count];
 
-	// Search until we're 64 symbols from the end of the buffer
-	for(; count < ((8 * DMA_SIZE) - 64); count++)
-	{
-		bit_errors = count_bits(syncword ^ target.syncword);
-
-		if (bit_errors < MAX_SYNCWORD_ERRS)
+	for (count = 64; count < ((8 * DMA_SIZE) - 64); count++) {
+		if (count_bits(window ^ target.syncword) < MAX_SYNCWORD_ERRS)
 			return count;
 
-		if (count%8 == 0)
-			curr_buf = idle_rxbuf[++i];
-
-		syncword <<= 1;
-		syncword = (syncword & 0xfffffffffffffffe) | ((curr_buf & 0x80) >> 7);
-		curr_buf <<= 1;
+		window = (window << 1) |
+			((idle_rxbuf[count / 8] >> (7 - (count % 8))) & 1);
 	}
 	return -1;
 }
