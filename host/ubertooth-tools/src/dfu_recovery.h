@@ -143,12 +143,42 @@ int dfu_verify_application(const struct dfu_verify_ops *ops,
                            const struct dfu_verify_config *config,
                            struct dfu_verify_report *report);
 
+/*
+ * Is this a file that can be read into memory whole?
+ *
+ * ubertooth-dfu reads a .dfu, and a .bin it is asked to sign, in one
+ * allocation sized from the file itself. So the file is measured first: a
+ * huge or sparse one would otherwise be allocated before anything looked at
+ * it, and a directory, a FIFO or a device node has no length that says what a
+ * read would return at all. One guard for every whole-file read in the tool.
+ */
+enum dfu_file_size_result {
+	DFU_FILE_SIZE_OK = 0,
+	DFU_FILE_SIZE_INVALID_ARGUMENT = -1,
+	DFU_FILE_SIZE_UNKNOWN = -2,      /* the size could not be measured */
+	DFU_FILE_SIZE_NOT_REGULAR = -3,  /* a directory, FIFO, device, socket */
+	DFU_FILE_SIZE_TOO_LARGE = -4,    /* past dfu_max_image_size() */
+};
+
+/* Measure file. The size is left in *size when it could be measured and 0
+ * otherwise, so a caller can name it in its message; size may be NULL. Reads
+ * nothing and leaves the file position alone. */
+enum dfu_file_size_result dfu_image_size_check(FILE *file, long long *size);
+
+/* The largest image this host will read: the flash above the bootloader on
+ * the largest part the table holds, plus the DFU suffix the file carries.
+ * Taken from the part table and the bootloader's own address limit rather
+ * than stated, so a part added to the table moves it. */
+unsigned long dfu_max_image_size(void);
+
 int dfu_extract_firmware_revision(FILE *image, char *revision,
                                   size_t revision_size);
 
 /* The result of checking a firmware image before it is flashed: OK, or the
  * reason the image is refused. The checks run in the order listed, so the
- * first problem found is the one reported. */
+ * first problem found is the one reported, except that what the file is and
+ * how big it is (DFU_IMAGE_NOT_REGULAR, DFU_IMAGE_TOO_LARGE, the last two
+ * here) is settled first of all: the rest needs the file in memory. */
 enum dfu_image_result {
 	DFU_IMAGE_OK = 0,
 	DFU_IMAGE_INVALID_ARGUMENT = -1,
@@ -162,11 +192,13 @@ enum dfu_image_result {
 	DFU_IMAGE_PRODUCT = -9,
 	DFU_IMAGE_UNREADABLE = -10,     /* the file would not read */
 	DFU_IMAGE_OUT_OF_MEMORY = -11,
+	DFU_IMAGE_TOO_LARGE = -12,      /* past dfu_max_image_size() */
+	DFU_IMAGE_NOT_REGULAR = -13,    /* a directory, FIFO, device or socket */
 };
 
 struct dfu_image_report {
 	enum dfu_image_result result;
-	long image_size;
+	long long image_size;
 	uint8_t suffix_length;
 	uint16_t bcd_dfu;
 	uint16_t id_vendor;
@@ -180,7 +212,9 @@ struct dfu_image_report {
 /* The DFU suffix CRC32, over length bytes of data. */
 uint32_t dfu_image_crc32(const uint8_t *data, size_t length);
 
-/* Check that image is a DFU file for this device: suffix length, DFU version,
+/* Check that image is a DFU file for this device: a regular file no larger
+ * than dfu_max_image_size() (checked before anything is allocated), then the
+ * suffix length, DFU version,
  * signature, a non-empty payload, the suffix CRC, and idVendor/idProduct
  * (id_vendor/id_product, or the 0xffff wildcard). Reads the whole file and
  * restores its position. Returns DFU_IMAGE_OK or a negative

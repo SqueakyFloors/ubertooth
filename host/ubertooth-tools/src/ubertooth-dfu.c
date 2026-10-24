@@ -91,7 +91,35 @@ static void write_le32(uint8_t *bytes, uint32_t value)
 	bytes[3] = (uint8_t)(value >> 24);
 }
 
-/* Add a DFU suffix naming idVendor/idProduct to infile and write to outfile */
+/* Refuse a file this tool would read into memory whole, before it allocates
+ * anything from the size: a huge or sparse file, or one with no size a read
+ * can be sized from at all (#246). Returns 1 when the file is refused,
+ * naming it. */
+static int image_file_refused(const char* name, FILE* file)
+{
+	long long size = 0;
+
+	switch (dfu_image_size_check(file, &size)) {
+	case DFU_FILE_SIZE_OK:
+		return 0;
+	case DFU_FILE_SIZE_TOO_LARGE:
+		fprintf(stderr,
+		        "error: %s is %lld bytes; an Ubertooth image is at most %lu\n",
+		        name, size, dfu_max_image_size());
+		return 1;
+	case DFU_FILE_SIZE_NOT_REGULAR:
+		fprintf(stderr, "error: %s is not a regular file\n", name);
+		return 1;
+	default:
+		fprintf(stderr, "error: cannot determine the size of %s\n", name);
+		return 1;
+	}
+}
+
+/* Add a DFU suffix naming idVendor/idProduct to infile and write to outfile.
+ * The whole input is read into memory, so it has already been through
+ * image_file_refused(): that runs before the output file is created, so a
+ * refused input leaves nothing behind. */
 int sign(FILE* infile, FILE* outfile, uint16_t idVendor, uint16_t idProduct) {
 	uint8_t* suffix;
 	long file_length;
@@ -1093,6 +1121,10 @@ int main(int argc, char **argv) {
 			exit_status = 1;
 			goto end_without_device;
 		}
+		if (image_file_refused(downfile_name, downfile)) {
+			exit_status = 1;
+			goto end_without_device;
+		}
 	}
 	if (upfile_name != NULL) {
 		upfile = open_upload_temp(upfile_name, &upfile_temp);
@@ -1106,6 +1138,13 @@ int main(int argc, char **argv) {
 		infile = fopen(sign_name, "rb");
 		if (infile == NULL) {
 			perror(sign_name);
+			exit_status = 1;
+			goto end_without_device;
+		}
+		/* The whole input is read to sign it, and the output is created
+		 * below, so the size guard comes first: a refused input writes
+		 * nothing. */
+		if (image_file_refused(sign_name, infile)) {
 			exit_status = 1;
 			goto end_without_device;
 		}

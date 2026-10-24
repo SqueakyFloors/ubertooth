@@ -3,8 +3,14 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include "dfu.h"
+
+/* MinGW defines the bits but not always the test. */
+#ifndef S_ISREG
+#define S_ISREG(mode) (((mode) & S_IFMT) == S_IFREG)
+#endif
 
 static int idle_fail(struct dfu_idle_report *report,
                      enum dfu_idle_result result,
@@ -240,6 +246,51 @@ int dfu_verify_application(const struct dfu_verify_ops *ops,
 	                   report->operation_error);
 }
 
+unsigned long dfu_max_image_size(void)
+{
+	const struct dfu_part *part;
+	uint32_t largest = DFU_ASSUMED_FLASH_SIZE;
+	size_t i;
+
+	for (i = 0; (part = dfu_part_at(i)) != NULL; i++) {
+		if (part->flash_size > largest)
+			largest = part->flash_size;
+	}
+	/* The bootloader refuses an address at or above its own limit, so flash
+	 * past it cannot be written however much a part has. */
+	if (largest > BOOTLOADER_FLASH_LIMIT)
+		largest = BOOTLOADER_FLASH_LIMIT;
+	/* The image is the application region plus the DFU suffix the file
+	 * carries and the bootloader never sees. */
+	return (unsigned long)dfu_upload_length(largest) + DFU_SUFFIX_LENGTH;
+}
+
+enum dfu_file_size_result dfu_image_size_check(FILE *file, long long *size)
+{
+	struct stat state;
+	int descriptor;
+
+	if (size != NULL)
+		*size = 0;
+	if (file == NULL)
+		return DFU_FILE_SIZE_INVALID_ARGUMENT;
+	descriptor = fileno(file);
+	if (descriptor < 0 || fstat(descriptor, &state) != 0)
+		return DFU_FILE_SIZE_UNKNOWN;
+	/* A directory, a FIFO, a device node or a socket: its length says
+	 * nothing about how much a read would return, so there is no size to
+	 * allocate from. */
+	if (!S_ISREG(state.st_mode))
+		return DFU_FILE_SIZE_NOT_REGULAR;
+	if (state.st_size < 0)
+		return DFU_FILE_SIZE_UNKNOWN;
+	if (size != NULL)
+		*size = (long long)state.st_size;
+	if ((unsigned long long)state.st_size > dfu_max_image_size())
+		return DFU_FILE_SIZE_TOO_LARGE;
+	return DFU_FILE_SIZE_OK;
+}
+
 int dfu_extract_firmware_revision(FILE *image, char *revision,
                                   size_t revision_size)
 {
@@ -251,6 +302,10 @@ int dfu_extract_firmware_revision(FILE *image, char *revision,
 	long i;
 
 	if (image == NULL || revision == NULL || revision_size < 2)
+		return -1;
+	/* The whole file is read below, so it has to be a file with a bounded
+	 * size first. */
+	if (dfu_image_size_check(image, NULL) != DFU_FILE_SIZE_OK)
 		return -1;
 	original_position = ftell(image);
 	if (original_position < 0 || fseek(image, 0, SEEK_END) != 0)
@@ -358,6 +413,7 @@ int dfu_image_check(FILE *image, uint16_t id_vendor, uint16_t id_product,
 	uint8_t *data = NULL;
 	const uint8_t *suffix;
 	long original_position = -1, image_size;
+	long long measured_size;
 	int result;
 
 	if (report == NULL)
@@ -367,6 +423,20 @@ int dfu_image_check(FILE *image, uint16_t id_vendor, uint16_t id_product,
 	report->expected_product = id_product;
 	if (image == NULL)
 		return image_result(report, DFU_IMAGE_INVALID_ARGUMENT);
+
+	/* The whole file is read into one allocation below, so what it is and
+	 * how big it is are settled before anything is allocated. */
+	switch (dfu_image_size_check(image, &measured_size)) {
+	case DFU_FILE_SIZE_OK:
+		break;
+	case DFU_FILE_SIZE_NOT_REGULAR:
+		return image_result(report, DFU_IMAGE_NOT_REGULAR);
+	case DFU_FILE_SIZE_TOO_LARGE:
+		report->image_size = measured_size;
+		return image_result(report, DFU_IMAGE_TOO_LARGE);
+	default:
+		return image_result(report, DFU_IMAGE_UNREADABLE);
+	}
 
 	original_position = ftell(image);
 	if (original_position < 0 || fseek(image, 0, SEEK_END) != 0)
@@ -453,15 +523,23 @@ void dfu_image_describe_failure(const struct dfu_image_report *report,
 		break;
 	case DFU_IMAGE_TOO_SHORT:
 		snprintf(message, message_size,
-		         "Too short for a %d-byte DFU suffix: the file is %ld byte(s)",
+		         "Too short for a %d-byte DFU suffix: the file is %lld byte(s)",
 		         DFU_SUFFIX_LENGTH, report->image_size);
+		break;
+	case DFU_IMAGE_TOO_LARGE:
+		snprintf(message, message_size,
+		         "The file is %lld bytes; an Ubertooth image is at most %lu",
+		         report->image_size, dfu_max_image_size());
+		break;
+	case DFU_IMAGE_NOT_REGULAR:
+		snprintf(message, message_size, "Not a regular file");
 		break;
 	case DFU_IMAGE_UNREADABLE:
 		snprintf(message, message_size, "Could not read the whole file");
 		break;
 	case DFU_IMAGE_OUT_OF_MEMORY:
 		snprintf(message, message_size,
-		         "Cannot allocate %ld byte(s) to check the image",
+		         "Cannot allocate %lld byte(s) to check the image",
 		         report->image_size);
 		break;
 	case DFU_IMAGE_SUFFIX_LENGTH:

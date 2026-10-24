@@ -190,6 +190,54 @@ with tempfile.TemporaryDirectory() as directory:
             check(NOT_FOUND not in output.lower(),
                   f"{label} went looking for a board anyway")
 
+    # 7. A file the tool would read into memory whole is measured first: a
+    #    huge or sparse file, or one that is not a regular file at all, is
+    #    refused before any allocation and before any device is opened (#246).
+    print("\n### -d and -s refuse a file they cannot read whole")
+    oversized = os.path.join(directory, "oversized.dfu")
+    with open(oversized, "wb") as handle:
+        handle.truncate(4 * 1024 * 1024)  # sparse: no disk used
+    code, output = run("-U", NO_SUCH_SERIAL, "-d", oversized, "-r")
+    check(code == 1, f"-d on an oversized image exited {code}")
+    check("an Ubertooth image is at most" in output,
+          "-d did not say how large an image may be")
+    check(NOT_FOUND not in output.lower(),
+          "-d opened a device for an oversized image")
+
+    oversized_bin = os.path.join(directory, "oversized-input.bin")
+    with open(oversized_bin, "wb") as handle:
+        handle.truncate(4 * 1024 * 1024)
+    code, output = run("-s", oversized_bin)
+    check(code == 1, f"-s on an oversized .bin exited {code}")
+    check("an Ubertooth image is at most" in output,
+          "-s did not say how large an image may be")
+    check(not os.path.exists(os.path.join(directory, "oversized-input.dfu")),
+          "-s wrote a .dfu for an oversized input")
+
+    # A directory, and a FIFO: neither has a length that says what a read
+    # would return. The FIFO is opened read-write here so it has a reader of
+    # its own and the tool's open does not block.
+    fifo = os.path.join(directory, "image.fifo")
+    os.mkfifo(fifo)
+    fifo_end = os.open(fifo, os.O_RDWR)
+    try:
+        for label, path in (("a directory", directory), ("a FIFO", fifo)):
+            code, output = run("-U", NO_SUCH_SERIAL, "-d", path, "-r")
+            check(code == 1, f"-d on {label} exited {code}")
+            check(os.path.basename(path) in output or path in output,
+                  f"-d did not name {label} it refused")
+            check(NOT_FOUND not in output.lower(),
+                  f"-d opened a device for {label}")
+    finally:
+        os.close(fifo_end)
+        os.unlink(fifo)
+
+    # A normal image of the same shape still gets through to the board.
+    code, output = run("-U", NO_SUCH_SERIAL, "-d", signed, "-r")
+    check(code == 1, f"-d on a normal image exited {code}")
+    check(NOT_FOUND in output.lower(),
+          "-d refused a normal image after the size check")
+
 for note in skipped:
     print("SKIP", note)
 if failures:
