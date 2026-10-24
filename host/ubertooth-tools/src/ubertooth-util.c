@@ -743,7 +743,9 @@ int main(int argc, char *argv[])
 			} else if (rr.valid>1) {
 				fprintf(stdout, "Invalid range test: mismatch on byte %d\n", rr.valid-2);
 			} else {
-				fprintf(stdout, "invalid range test result\n");
+				/* valid is 0 until a range test completes once: there is
+				 * no result yet, which is not an error. */
+				fprintf(stdout, "no range test result yet\n");
 			}
 		}
 	}

@@ -690,6 +690,22 @@ MU_TEST(range_result_is_reported_and_a_failed_read_fails)
 	mu_assert(strstr(r.out, "request PA level : 1\n") != NULL, "range output");
 	mu_assert(strstr(r.out, "reply number     : 4\n") != NULL, "range output");
 
+	/* no range test since the board started: a plain "no result", exit 0 */
+	reset_fake();
+	fake.range.valid = 0;
+	r = RUN("-m");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "no range test result yet\n") == 0,
+	          "no-result output");
+
+	/* a test that ran but whose data did not match */
+	reset_fake();
+	fake.range.valid = 2 + 5;
+	r = RUN("-m");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "Invalid range test: mismatch on byte 5\n") == 0,
+	          "mismatch output");
+
 	reset_fake();
 	fake.rangeresult_rc = -1;
 	r = RUN("-m");
