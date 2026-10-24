@@ -4,7 +4,7 @@
 
 `ubertooth-util` [-v] [-V] [-H] [--host-version] [-I] [-d[0-1]] [-l[0-1]]
 [-S] [-r] [-U<index|serial|all>] [-a[0-7]] [-c[2400-2483]] [-C[0-78]] [-q[1-225]] [-t]
-[-z] [-e] [-m] [-n] [-f] [-i] [-b] [-p] [-s] [-N] [-x] [-h]
+[-z[level]] [-e] [-m] [-n] [-f] [-i] [-b] [-p] [-s] [-N] [-x] [-h]
 
 ## DESCRIPTION
 
@@ -21,6 +21,11 @@ To fully reset Ubertooth, run:
 Other options are available for modifying LED states, setting channel,
 and performing miscellaneous radio-related actions. Refer to the
 [OPTIONS][] section for full details.
+
+An option value can be attached or given as the next word: `-c2440` and
+`-c 2440` both set the channel, and `-z-90` and `-z -90` both set the squelch.
+Without a number after it, `-c` (and `-a`, `-C`, `-d`, `-l`, `-z`) reads the
+current value instead.
 
 The utility also includes a simple range test tool for use with two
 Ubertooth devices. Refer to [RANGE TEST][] for full details.
@@ -83,8 +88,8 @@ Radio options:
    start LED spectrum analyzer
  - `-t` :
    intitiate continuous transmit test
- - `-z` :
-   set squelch level
+ - `-z[level]` :
+   get/set squelch level
 
 Range test:
 
@@ -218,6 +223,9 @@ queries that report a nonzero value such as `-b` (board ID), `-c` (channel), or
 operation fails, even when a later operation in the same command succeeds.
 It exits with 1, without opening a device, when two or more mode options are
 given (see DESCRIPTION).
+It also exits with 1, without opening a device, when the command line contains
+a word that is not an option, and names it: `error: unexpected argument '<word>'`.
+`ubertooth-util` takes no other arguments.
 
 When a `-b`, `-c`, `-a`, `-z`, `-l`, `-d`, `-p`, `-s`, `-m` or `-9` read fails,
 no value line is printed on standard output, so an error code is never shown as

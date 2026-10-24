@@ -274,6 +274,24 @@ static void identify_cleanup(int sig __attribute__((unused)))
 	exit(0);
 }
 
+/* getopt reads an optional option value only when it is attached (-c2440).
+ * ubertooth-util takes no other arguments, so a number in the next word can
+ * only be that value: take it, so -c 2440 works like -c2440. A word that is
+ * not a number is left alone (-c -b reads the channel, then -b runs). */
+static char *separate_option_value(int argc, char *argv[], int allow_negative)
+{
+	const char *word, *digits;
+
+	if (optind >= argc)
+		return NULL;
+	word = argv[optind];
+	digits = (allow_negative && word[0] == '-') ? word + 1 : word;
+	if (digits[0] == '\0' || strspn(digits, "0123456789") != strlen(digits))
+		return NULL;
+	optind++;
+	return argv[optind - 1];
+}
+
 static void usage(FILE *output)
 {
 	fprintf(output, "ubertooth-util - command line utility for Ubertooth Zero and Ubertooth One\n");
@@ -297,7 +315,7 @@ static void usage(FILE *output)
 	fprintf(output, "\t-C[0-78] get/set channel\n");
 	fprintf(output, "\t-q[1-225 (RSSI threshold)] start LED spectrum analyzer\n");
 	fprintf(output, "\t-t intitiate continuous transmit test\n");
-	fprintf(output, "\t-z set squelch level\n");
+	fprintf(output, "\t-z[level] get/set squelch level\n");
 	fprintf(output, "\n");
 	fprintf(output, "Range test:\n");
 	fprintf(output, "\t-e start repeater mode\n");
@@ -326,6 +344,7 @@ int main(int argc, char *argv[])
 	int do_range_result, do_all_leds, do_identify;
 	int do_set_squelch, do_get_squelch, squelch_level;
 	int do_something, do_compile_info;
+	int first_exit_option, long_host_version; /* -h / -H / --host-version */
 	int do_number, do_xmas;
 	char* ubertooth_device = NULL;
 	int requested[QUERY_COUNT]; /* identity queries, for the per-device listing */
@@ -342,18 +361,25 @@ int main(int argc, char *argv[])
 	do_set_squelch= -1, do_get_squelch= -1; squelch_level= 0;
 	do_something= 0; do_compile_info= -1;
 	do_number= 0; do_xmas= 0;
+	first_exit_option= 0; long_host_version= 0;
 
-	/* Host-tools version: print and exit before touching the device, so it
-	 * works with no Ubertooth attached. -H or --host-version. Distinct from
-	 * -v (firmware revision) and -V (firmware compile info from the device). */
-	for (int ai = 1; ai < argc; ai++) {
+	/* Host-tools version: printed before touching the device, so it works
+	 * with no Ubertooth attached. -H or --host-version. Distinct from -v
+	 * (firmware revision) and -V (firmware compile info from the device).
+	 * getopt only knows the short form, so treat the long one as -H (but
+	 * not after "--", where it is an operand and is reported as typed). */
+	for (int ai = 1; ai < argc && strcmp(argv[ai], "--") != 0; ai++) {
 		if (strcmp(argv[ai], "--host-version") == 0) {
-			print_version();
-			return 0;
+			argv[ai] = (char *)"-H";
+			long_host_version = 1;
 		}
 	}
 
 	while ((opt=getopt(argc,argv,"U:hnmefiIprsStvbl::a::C::c::d::q::z::9VNxH")) != EOF) {
+		/* An optional value may also be the next word: -c 2440, -z -90. Only
+		 * -z takes a negative value (a signed RSSI threshold). */
+		if (optarg == NULL && strchr("lacCdqz", opt) != NULL)
+			optarg = separate_option_value(argc, argv, opt == 'z');
 		/* Anything but an identity query or -U needs a single selected device. */
 		if (strchr("svVpbU", opt) == NULL)
 			other_operations = 1;
@@ -462,8 +488,9 @@ int main(int argc, char *argv[])
 			do_compile_info = 0;
 			break;
 		case 'H':
-			print_version();
-			return 0;
+			if (!first_exit_option)
+				first_exit_option = 'H';
+			break;
 		case 'N':
 			do_number = 1;
 			break;
@@ -471,12 +498,34 @@ int main(int argc, char *argv[])
 			do_xmas = 1;
 			break;
 		case 'h':
-			usage(stdout);
-			return 0;
+			if (!first_exit_option)
+				first_exit_option = 'h';
+			break;
 		default:
 			usage(stderr);
 			return 1;
 		}
+	}
+
+	/* ubertooth-util takes no operands. Refuse a leftover word before any
+	 * device is opened: otherwise a typo such as "- V" (for -V) is dropped
+	 * silently while the rest of the command still runs. */
+	if (optind < argc) {
+		fprintf(stderr, "error: unexpected argument '%s'\n", argv[optind]);
+		return 1;
+	}
+
+	/* -h and -H end the command before anything else, but only once the
+	 * whole command line has parsed: an invalid option value or a stray
+	 * word is reported even alongside them. As before, --host-version
+	 * wins, and otherwise the first of -h and -H does. */
+	if (long_host_version || first_exit_option == 'H') {
+		print_version();
+		return 0;
+	}
+	if (first_exit_option == 'h') {
+		usage(stdout);
+		return 0;
 	}
 
 	/* Only one mode can run: each one ends the command. Refuse a combination

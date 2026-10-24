@@ -40,6 +40,7 @@ static struct {
 	int stop_calls, flash_calls, isp_calls, led_specan_calls, range_test_calls;
 	int repeater_calls, tx_test_calls, xmas_calls, reset_calls;
 	int last_channel_set, last_squelch_set, last_led_specan_arg;
+	int last_palevel_set, last_usrled_set;
 	/* multi-device listing */
 	int current_index;     /* device opened by ubertooth_start(), or -1 */
 	int unavailable_index; /* ubertooth_start() fails for this index */
@@ -319,10 +320,10 @@ int cmd_set_channel(struct libusb_device_handle *h, u16 channel)
 	return fake.set_channel_rc;
 }
 
-int cmd_set_usrled(struct libusb_device_handle *h, u16 s) { fake_use(h); (void)s; return fake.set_usrled_rc; }
+int cmd_set_usrled(struct libusb_device_handle *h, u16 s) { fake_use(h); fake.last_usrled_set = s + 1; return fake.set_usrled_rc; }
 int cmd_set_rxled(struct libusb_device_handle *h, u16 s) { fake_use(h); (void)s; return fake.set_rxled_rc; }
 int cmd_set_txled(struct libusb_device_handle *h, u16 s) { fake_use(h); (void)s; return fake.set_txled_rc; }
-int cmd_set_palevel(struct libusb_device_handle *h, u16 l) { fake_use(h); (void)l; return fake.set_palevel_rc; }
+int cmd_set_palevel(struct libusb_device_handle *h, u16 l) { fake_use(h); fake.last_palevel_set = l; return fake.set_palevel_rc; }
 
 int cmd_set_squelch(struct libusb_device_handle *h, u16 level)
 {
@@ -874,6 +875,178 @@ MU_TEST(led_specan_uses_the_default_threshold_and_an_explicit_one)
 }
 
 /* ---- argument handling that must not touch the device ----------------- */
+
+/* A word that is not an option is refused before any device action, so a
+ * typo cannot drop part of the command while the rest runs. */
+static void assert_refused_untouched(struct run_result r, const char *diagnostic)
+{
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, diagnostic) != NULL, diagnostic);
+	mu_assert_int_eq(0, (long)strlen(r.out));
+	mu_assert_int_eq(0, fake.start_calls);
+	mu_assert_int_eq(0, fake.reset_calls);
+	mu_assert_int_eq(0, fake.stop_calls);
+	mu_assert_int_eq(0, fake.last_channel_set);
+}
+
+MU_TEST(stray_arguments_are_rejected_before_any_device_action)
+{
+	struct run_result r;
+
+	/* "-V" typed with a space: the reset must not run either */
+	reset_fake();
+	r = RUN("-", "V", "-r", "-U1");
+	assert_refused_untouched(r, "error: unexpected argument '-'\n");
+
+	reset_fake();
+	r = RUN("-v", "extra");
+	assert_refused_untouched(r, "error: unexpected argument 'extra'\n");
+
+	reset_fake();
+	r = RUN("extra", "-b");
+	assert_refused_untouched(r, "error: unexpected argument 'extra'\n");
+
+	/* a word after an optional-value option that is not a number is not
+	 * taken as its value */
+	reset_fake();
+	r = RUN("-c", "24x");
+	assert_refused_untouched(r, "error: unexpected argument '24x'\n");
+
+	/* checked before the mode conflict, -U all and -N */
+	reset_fake();
+	r = RUN("-x", "-t", "oops");
+	assert_refused_untouched(r, "error: unexpected argument 'oops'\n");
+	mu_assert(strstr(r.err, "cannot be combined") == NULL, "only the stray word is reported");
+
+	reset_fake();
+	r = RUN("-N", "oops");
+	assert_refused_untouched(r, "error: unexpected argument 'oops'\n");
+
+	/* -h, -H and --host-version are checked too, not exempted by returning
+	 * early */
+	reset_fake();
+	r = RUN("-H", "stray");
+	assert_refused_untouched(r, "error: unexpected argument 'stray'\n");
+	reset_fake();
+	r = RUN("--host-version", "stray");
+	assert_refused_untouched(r, "error: unexpected argument 'stray'\n");
+	reset_fake();
+	r = RUN("-h", "stray");
+	assert_refused_untouched(r, "error: unexpected argument 'stray'\n");
+	mu_assert(strstr(r.out, "command line utility") == NULL, "no usage printed");
+
+	/* -h still wins over other options, and -H still needs no device */
+	reset_fake();
+	r = RUN("-x", "-h");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.out, "command line utility") != NULL, "usage");
+	mu_assert_int_eq(0, fake.start_calls);
+	mu_assert_int_eq(0, fake.xmas_calls);
+	reset_fake();
+	r = RUN("-b", "--host-version");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "libubertooth fake\n") == 0, "version only");
+	mu_assert_int_eq(0, fake.start_calls);
+
+	/* the first of -h and -H wins, and --host-version wins anywhere, as
+	 * before */
+	reset_fake();
+	r = RUN("-H", "-h");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "libubertooth fake\n") == 0, "-H first: version");
+	reset_fake();
+	r = RUN("-h", "-H");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.out, "command line utility") != NULL, "-h first: usage");
+	reset_fake();
+	r = RUN("-h", "--host-version");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "libubertooth fake\n") == 0, "--host-version wins");
+
+	/* after "--", --host-version is an operand, reported as typed */
+	reset_fake();
+	r = RUN("--", "--host-version");
+	assert_refused_untouched(r, "error: unexpected argument '--host-version'\n");
+
+	/* -U takes its value as the next word; that is not a stray argument */
+	reset_fake();
+	r = RUN("-U", "0", "-b");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.err, "unexpected") == NULL, "-U <value> accepted");
+
+	/* an attached optional value still works */
+	reset_fake();
+	r = RUN("-c2440");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(2440, fake.last_channel_set);
+}
+
+/* An optional value may be the next word as well as attached: -c 2440 is
+ * -c2440. Only a number is taken, and only -z takes a negative one. */
+MU_TEST(optional_values_may_be_the_next_word)
+{
+	struct run_result r;
+
+	reset_fake();
+	r = RUN("-c", "2440");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(2440, fake.last_channel_set);
+	mu_assert(strstr(r.out, "Current frequency") == NULL, "set, not read");
+
+	reset_fake();
+	r = RUN("-C", "39", "-U0");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(2441, fake.last_channel_set);
+	mu_assert(strcmp(fake.selector, "0") == 0, "-U still applies");
+
+	reset_fake();
+	r = RUN("-a", "5");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(5, fake.last_palevel_set);
+
+	reset_fake();
+	r = RUN("-l", "1");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(2, fake.last_usrled_set); /* recorded as value + 1 */
+
+	reset_fake();
+	r = RUN("-z", "-90");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq((u16)-90, fake.last_squelch_set);
+
+	reset_fake();
+	r = RUN("-q", "100");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(100, fake.last_led_specan_arg);
+
+	/* attached and separate give the same result */
+	reset_fake();
+	r = RUN("-z-90");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq((u16)-90, fake.last_squelch_set);
+
+	/* a following option is not a value: -c reads, then -b runs */
+	reset_fake();
+	r = RUN("-c", "-b");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.out, "Current frequency") != NULL, "-c read the channel");
+	mu_assert(strstr(r.out, "Board ID Number") != NULL, "-b ran");
+	mu_assert_int_eq(0, fake.last_channel_set);
+
+	/* only -z takes a negative value: -a -9 is -a (read) then -9 */
+	reset_fake();
+	r = RUN("-a", "-9");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0, fake.last_palevel_set);
+	/* the fake leaves the reply's 0x55 marker bytes untouched */
+	mu_assert(strstr(r.out, "55 55 55 55\n") != NULL, "-9 ran as its own option");
+
+	/* a value at the end of a longer command */
+	reset_fake();
+	r = RUN("-U", "0", "-b", "-c", "2450");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(2450, fake.last_channel_set);
+}
 
 MU_TEST(two_or_more_mode_options_are_rejected_before_opening_the_device)
 {
@@ -1693,6 +1866,8 @@ int main(void)
 	MU_RUN(a_failed_stop_before_a_mode_command_fails_the_command);
 	MU_RUN(led_specan_uses_the_default_threshold_and_an_explicit_one);
 	MU_RUN(two_or_more_mode_options_are_rejected_before_opening_the_device);
+	MU_RUN(stray_arguments_are_rejected_before_any_device_action);
+	MU_RUN(optional_values_may_be_the_next_word);
 	MU_RUN(invalid_arguments_are_rejected_before_opening_the_device);
 	MU_RUN(help_version_and_count_exit_zero_without_a_device);
 	MU_RUN(firmware_listing_with_several_devices_reports_each_device);
