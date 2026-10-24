@@ -173,6 +173,11 @@
   requests after a BLE sniffing mode is stopped, so the
   board no longer needs a re-plug to be usable again.
   [#158](https://github.com/SqueakyFloors/ubertooth/issues/158)
+- A BLE sniffing mode now counts as running only once its first receive buffer
+  and the radio are ready, and timer1's interrupt is unmasked after that, so a
+  match left over from the previous run cannot be taken while the mode is half
+  set up.
+  [#248](https://github.com/SqueakyFloors/ubertooth/issues/248)
 - `ubertooth-dfu -s` refuses a binary that already carries a DFU suffix
   instead of adding a second one, and names the output
   file when it cannot create it. `-s` and `-d` now only read their input, so a

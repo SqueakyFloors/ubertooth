@@ -160,6 +160,7 @@ static void reset_conn(void) {
 
 // pre-declarations for utility stuff
 static void timer1_start(void);
+static void timer1_enable_interrupt(void);
 static void timer1_stop(void);
 static void timer1_set_match(uint32_t match);
 static void timer1_clear_match(void);
@@ -596,12 +597,18 @@ static void change_channel(void) {
 ///////
 // timer stuff
 
+// Start the counter. The matches NOW is measured against need it running
+// before the radio is set up, which is why unmasking the interrupt is a
+// separate step: see le_phy_main().
 static void timer1_start(void) {
 	T1TCR = TCR_Counter_Reset;
 	T1PR = 4; // 100 ns
 	T1TCR = TCR_Counter_Enable;
+}
 
-	// set up interrupt handler
+// Let timer1's matches reach TIMER1_IRQHandler(). The handler drives the LE
+// state machine, so this comes after le_phy_active says that state is set up.
+static void timer1_enable_interrupt(void) {
 	ISER0 = ISER0_ISE_TIMER1;
 }
 
@@ -1045,7 +1052,10 @@ void le_phy_main(void) {
 
 	buffers_init();
 	queue_init(&packet_queue);
-	le_phy_active = 1;
+
+	// The counter runs from here because NOW, and the FS_LOCK match
+	// le_cc2400_init_rf() arms through it, are measured against it. Its
+	// interrupt stays masked until the setup below is done.
 	timer1_start();
 
 	current_rxbuf = buffer_get();
@@ -1053,6 +1063,18 @@ void le_phy_main(void) {
 	conn.access_address = ADVERTISING_AA;
 	le_sys_init();
 	le_cc2400_init_rf();
+
+	// Everything the interrupt handlers read is set up now: the buffer pool
+	// and the packet queue, the first receive buffer, the DMA channel and the
+	// SSP, and the radio with its FS_LOCK match armed. None of the setup above
+	// reads le_phy_active, so the flag can wait until here, and the interrupt
+	// that checks it is unmasked only after it is set. That closes the window
+	// in which a timer1 match left over from an earlier run could be taken
+	// with current_rxbuf still the NULL the teardown left behind; the NULL
+	// guards in le_DMA_IRQHandler() and TIMER1_IRQHandler() stay as the
+	// backstop for the buffer pool running dry while the mode runs.
+	le_phy_active = 1;
+	timer1_enable_interrupt();
 
 	cancel_follow = 0;
 
