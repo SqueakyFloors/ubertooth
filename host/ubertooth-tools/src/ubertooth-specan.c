@@ -112,6 +112,7 @@ int main(int argc, char *argv[])
 	int do_help = 0;
 	int lower= SPECAN_FREQ_MIN, upper= SPECAN_FREQ_MAX;
 	char* ubertooth_device = NULL;
+	const char* dump_name = NULL; /* -d value, opened after every check */
 
 	ubertooth_t* ut = NULL;
 
@@ -127,21 +128,11 @@ int main(int argc, char *argv[])
 			output_mode = SPECAN_GNUPLOT_3D;
 			break;
 		case 'd':
+			/* Named here and opened once the whole command line has
+			 * been accepted, so a refused command creates and
+			 * truncates nothing. */
 			output_mode = SPECAN_FILE;
-			/* Only a bare "-" means stdout (the one argument rule, as
-			 * ubertooth-btle -r already checks). Any other value is a
-			 * file name, including one starting with "-", so "-d -x"
-			 * writes the file "-x" rather than silently streaming
-			 * samples to stdout and dropping a mistyped option. */
-			if (strcmp(optarg, "-") == 0) {
-				dumpfile = stdout;
-			} else {
-				dumpfile = fopen(optarg, "w");
-				if (dumpfile == NULL) {
-					perror(optarg);
-					return 1;
-				}
-			}
+			dump_name = optarg;
 			break;
 		case 'l':
 			if (specan_parse_frequency(optarg, &lower) < 0) {
@@ -185,6 +176,23 @@ int main(int argc, char *argv[])
 		fprintf(stderr,
 		        "error: lower frequency must not exceed upper frequency\n");
 		return 1;
+	}
+
+	/* Every check has passed, so -d can be opened. Only a bare "-" means
+	 * stdout (the one argument rule, as ubertooth-btle -r already checks).
+	 * Any other value is a file name, including one starting with "-", so
+	 * "-d -x" writes the file "-x" rather than silently streaming samples
+	 * to stdout and dropping a mistyped option. */
+	if (dump_name != NULL) {
+		if (strcmp(dump_name, "-") == 0) {
+			dumpfile = stdout;
+		} else {
+			dumpfile = fopen(dump_name, "w");
+			if (dumpfile == NULL) {
+				perror(dump_name);
+				return 1;
+			}
+		}
 	}
 
 	ut = ubertooth_start_select(ubertooth_device);

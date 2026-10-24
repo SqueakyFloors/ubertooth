@@ -65,6 +65,9 @@ file name, including one that starts with `-`: `-d -x` writes the file `-x`, and
 a forgotten file name such as `-d -v` writes a file called `-v` rather than
 streaming samples to the terminal and dropping the `-v`.
 
+A refused command line creates and truncates nothing: `-d` names its file while
+the command line is read, and it is opened only once every check has passed.
+
 ## SEE ALSO
 
 ubertooth(7): overview of Project Ubertooth

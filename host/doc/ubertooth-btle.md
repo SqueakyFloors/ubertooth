@@ -219,6 +219,10 @@ attached: more than one of `-f`, `-n` and `-p` gives
 access address in one command gives
 `error: -a cannot both read and set the access address`.
 
+A refused command line creates and truncates nothing: `-r`, `-q` and `-c` name
+their file while the command line is read, and it is opened only once every
+check has passed.
+
 ## SEE ALSO
 
 crackle(1): https://github.com/mikeryan/crackle

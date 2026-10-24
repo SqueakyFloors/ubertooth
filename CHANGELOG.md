@@ -89,6 +89,11 @@
   the set first, so `-c2426 -c`, `-a5 -a`, `-l1 -l` and `-d1 -d` report the new
   value instead of dropping the set.
   [#228](https://github.com/SqueakyFloors/ubertooth/issues/228)
+- A refused command line no longer creates or truncates an output file. Every
+  file option (`ubertooth-btle -r`/`-q`/`-c`, `ubertooth-follow` and
+  `ubertooth-rx -r`/`-q`/`-d`, `ubertooth-dump -d`, `ubertooth-specan -d`,
+  `ubertooth-dfu -s`) opens its file only once the whole command line has been
+  accepted. [#193](https://github.com/SqueakyFloors/ubertooth/issues/193)
 - `ubertooth-rx -u` without `-l`, `ubertooth-tx` without both, and more than
   one of `ubertooth-btle`'s `-f`, `-n` and `-p` are refused while the command
   line is read, before a device is opened, whatever boards are attached.

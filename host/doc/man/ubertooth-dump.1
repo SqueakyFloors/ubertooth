@@ -46,6 +46,10 @@ a bare \fB\fC\-\fR, is refused before any device is opened and named:
 \fB\fC\-h\fR ends the command only once the whole command line has
 parsed, so a stray word or a bad option value is reported even
 alongside it.
+.PP
+A refused command line creates and truncates nothing: \fB\fC\-d\fR names its file
+while the command line is read, and it is opened only once every check has
+passed.
 .SH SEE ALSO
 .PP
 .BR ubertooth (7): 

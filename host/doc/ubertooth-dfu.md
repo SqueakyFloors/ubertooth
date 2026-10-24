@@ -179,6 +179,10 @@ bare `-`, is refused before any device is opened and named:
 parsed, so a stray word or a bad option value is reported even
 alongside it.
 
+A refused command line creates and truncates nothing: `-s` names the binary to
+sign while the command line is read, and the signed file beside it is created
+only once every check has passed.
+
 ## SEE ALSO
 
 ubertooth(7): overview of Project Ubertooth

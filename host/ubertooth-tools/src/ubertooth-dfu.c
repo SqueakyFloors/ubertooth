@@ -1001,6 +1001,7 @@ int main(int argc, char **argv) {
 	FILE* infile = NULL;
 	FILE* outfile = NULL;
 	char* outfile_name = NULL;
+	char* sign_name = NULL; /* -s value, acted on after every check */
 	const char* upfile_name = NULL;
 	char* upfile_temp = NULL;
 	libusb_context* dfu_context = NULL;
@@ -1043,39 +1044,11 @@ int main(int argc, char **argv) {
 			functions |= FUNC_UPLOAD;
 			break;
 		case 's':
-			infile = fopen(optarg, "rb");
-			if (infile == NULL) {
-				perror(optarg);
-				exit_status = 1;
-				goto end_without_device;
-			}
-			r = get_outfile(optarg, &outfile_name);
-			if (r == 0) {
-				printf("Error: -s requires a .bin\n");
-				exit_status = 1;
-				goto end_without_device;
-			}
-			/* Signing an already-signed file would bury the first suffix in
-			 * the firmware payload, so refuse before creating anything. */
-			if (ends_with_dfu_suffix(infile)) {
-				fprintf(stderr,
-				        "error: %s already has a DFU suffix, so %s was not written\n",
-				        optarg, outfile_name);
-				free(outfile_name);
-				outfile_name = NULL;
-				exit_status = 1;
-				goto end_without_device;
-			}
-			outfile = fopen(outfile_name, "w+b");
-			if (outfile == NULL) {
-				perror(outfile_name);
-				free(outfile_name);
-				outfile_name = NULL;
-				exit_status = 1;
-				goto end_without_device;
-			}
-			free(outfile_name);
-			outfile_name = NULL;
+			/* Named here and acted on once the whole command line has
+			 * been accepted: the signed file used to be created inside
+			 * this loop, so a stray word later on left an empty one
+			 * behind. A repeated -s takes the last name. */
+			sign_name = optarg;
 			functions |= FUNC_SIGN;
 			break;
 		case 'r':
@@ -1109,6 +1082,39 @@ int main(int argc, char **argv) {
 		usage();
 		exit_status = 1;
 		goto end_without_device;
+	}
+
+	/* Every check has passed, so -s can read its input and create the
+	 * signed file. */
+	if (sign_name != NULL) {
+		infile = fopen(sign_name, "rb");
+		if (infile == NULL) {
+			perror(sign_name);
+			exit_status = 1;
+			goto end_without_device;
+		}
+		if (get_outfile(sign_name, &outfile_name) == 0) {
+			printf("Error: -s requires a .bin\n");
+			exit_status = 1;
+			goto end_without_device;
+		}
+		/* Signing an already-signed file would bury the first suffix in
+		 * the firmware payload, so refuse before creating anything. */
+		if (ends_with_dfu_suffix(infile)) {
+			fprintf(stderr,
+			        "error: %s already has a DFU suffix, so %s was not written\n",
+			        sign_name, outfile_name);
+			exit_status = 1;
+			goto end_without_device;
+		}
+		outfile = fopen(outfile_name, "w+b");
+		if (outfile == NULL) {
+			perror(outfile_name);
+			exit_status = 1;
+			goto end_without_device;
+		}
+		free(outfile_name);
+		outfile_name = NULL;
 	}
 
 	if(functions & FUNC_SIGN) {

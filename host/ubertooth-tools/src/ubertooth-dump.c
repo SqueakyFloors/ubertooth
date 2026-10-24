@@ -54,6 +54,7 @@ int main(int argc, char *argv[])
 	int bitstream = 0;
 	int modulation = MOD_BT_BASIC_RATE;
 	char* ubertooth_device = NULL;
+	const char* dump_name = NULL; /* -d value, opened after every check */
 
 	ubertooth_t* ut = NULL;
 	int r;
@@ -73,11 +74,10 @@ int main(int argc, char *argv[])
 			ubertooth_device = optarg;
 			break;
 		case 'd':
-			dumpfile = fopen(optarg, "w");
-			if (dumpfile == NULL) {
-				perror(optarg);
-				return 1;
-			}
+			/* Named here and opened once the whole command line has
+			 * been accepted, so a refused command creates and
+			 * truncates nothing. */
+			dump_name = optarg;
 			break;
 		case 'h':
 			if (!first_exit_option)
@@ -100,6 +100,15 @@ int main(int argc, char *argv[])
 	if (first_exit_option == 'h') {
 		usage();
 		return 1;
+	}
+
+	/* Every check has passed, so the dump file can be opened. */
+	if (dump_name != NULL) {
+		dumpfile = fopen(dump_name, "w");
+		if (dumpfile == NULL) {
+			perror(dump_name);
+			return 1;
+		}
 	}
 
 	ut = ubertooth_start_select(ubertooth_device);

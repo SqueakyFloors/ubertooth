@@ -287,6 +287,10 @@ attached: more than one of \fB\fC\-f\fR, \fB\fC\-n\fR and \fB\fC\-p\fR gives
 \fB\fCerror: choose one of \-f, \-n or \-p, pick one pal\fR, and a read and a set
 of the access address in one command gives
 \fB\fCerror: \-a cannot both read and set the access address\fR\&.
+.PP
+A refused command line creates and truncates nothing: \fB\fC\-r\fR, \fB\fC\-q\fR
+and \fB\fC\-c\fR name their file while the command line is read, and it is
+opened only once every check has passed.
 .SH SEE ALSO
 .PP
 .BR crackle (1): 

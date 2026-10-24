@@ -67,6 +67,10 @@ int main(int argc, char *argv[])
         char* ubertooth_device = NULL;
 	char *bt_dev = "hci0";
 	char addr[19] = { 0 };
+	/* Files named on the command line, opened after every check passes. */
+	const char* pcapng_name = NULL;
+	const char* pcap_name = NULL;
+	const char* dump_name = NULL;
 	uint32_t clock;
 	uint16_t accuracy, handle, offset;
 	bdaddr_t bdaddr;
@@ -98,25 +102,20 @@ int main(int argc, char *argv[])
 		case 'U':
 			ubertooth_device = optarg;
 			break;
+		/* The capture and dump files are named here and opened once the
+		 * whole command line has been accepted, so a refused command
+		 * leaves the filesystem alone. */
 		case 'r':
-			if (!ut->h_pcapng_bredr) {
-				if (btbb_pcapng_create_file( optarg, "Ubertooth", &ut->h_pcapng_bredr )) {
-					err(1, "create_bredr_capture_file: ");
-				}
-			}
-			else {
-				printf("Ignoring extra capture file: %s\n", optarg);
-			}
+			if (pcapng_name == NULL)
+				pcapng_name = optarg;
+			else
+				fprintf(stderr, "Ignoring extra capture file: %s\n", optarg);
 			break;
 		case 'q':
-			if (!ut->h_pcap_bredr) {
-				if (btbb_pcap_create_file(optarg, &ut->h_pcap_bredr)) {
-					err(1, "btbb_pcap_create_file: ");
-				}
-			}
-			else {
-				printf("Ignoring extra capture file: %s\n", optarg);
-			}
+			if (pcap_name == NULL)
+				pcap_name = optarg;
+			else
+				fprintf(stderr, "Ignoring extra capture file: %s\n", optarg);
 			break;
 		case 'e':
 			if (opt_require_int(optarg, 0, MAX_AC_ERRORS,
@@ -125,11 +124,7 @@ int main(int argc, char *argv[])
 				return 1;
 			break;
 		case 'd':
-			dumpfile = fopen(optarg, "w");
-			if (dumpfile == NULL) {
-				perror(optarg);
-				return 1;
-			}
+			dump_name = optarg;
 			break;
 		case 'a':
 			afh_enabled = 1;
@@ -167,6 +162,24 @@ int main(int argc, char *argv[])
 	if (first_exit_option == 'h') {
 		usage();
 		return 1;
+	}
+
+	/* Every check has passed, so the files can be opened: a refused command
+	 * line creates and truncates nothing. */
+	if (pcapng_name != NULL &&
+	    btbb_pcapng_create_file(pcapng_name, "Ubertooth", &ut->h_pcapng_bredr)) {
+		err(1, "create_bredr_capture_file: ");
+	}
+	if (pcap_name != NULL &&
+	    btbb_pcap_create_file(pcap_name, &ut->h_pcap_bredr)) {
+		err(1, "btbb_pcap_create_file: ");
+	}
+	if (dump_name != NULL) {
+		dumpfile = fopen(dump_name, "w");
+		if (dumpfile == NULL) {
+			perror(dump_name);
+			return 1;
+		}
 	}
 
 	dev_id = hci_devid(bt_dev);

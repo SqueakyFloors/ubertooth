@@ -68,6 +68,10 @@ int main(int argc, char* argv[])
 	int survey_mode = 0;
 	int exit_status = 0;
 	const char* infile_name = NULL;
+	/* Files named on the command line, opened after every check passes. */
+	const char* pcapng_name = NULL;
+	const char* pcap_name = NULL;
+	const char* dump_name = NULL;
 	/* -h / -V: the first one given ends the command (see below). */
 	int first_exit_option = 0;
 	int r;
@@ -83,12 +87,6 @@ int main(int argc, char* argv[])
 	while ((opt=getopt(argc,argv,"hVi:l:u:U:d:e:r:sq:t:zc:")) != EOF) {
 		switch(opt) {
 		case 'i':
-			infile = fopen(optarg, "r");
-			if (infile == NULL) {
-				printf("Could not open file %s\n", optarg);
-				usage();
-				return 1;
-			}
 			infile_name = optarg;
 			break;
 		case 'l':
@@ -104,32 +102,23 @@ int main(int argc, char* argv[])
 		case 'U':
 			ubertooth_device = optarg;
 			break;
+		/* The capture and dump files are named here and opened once the
+		 * whole command line has been accepted, so a refused command
+		 * leaves the filesystem alone. */
 		case 'r':
-			if (!ut->h_pcapng_bredr) {
-				if (btbb_pcapng_create_file( optarg, "Ubertooth", &ut->h_pcapng_bredr )) {
-					err(1, "create_bredr_capture_file: ");
-				}
-			}
-			else {
-				printf("Ignoring extra capture file: %s\n", optarg);
-			}
+			if (pcapng_name == NULL)
+				pcapng_name = optarg;
+			else
+				fprintf(stderr, "Ignoring extra capture file: %s\n", optarg);
 			break;
 		case 'q':
-			if (!ut->h_pcap_bredr) {
-				if (btbb_pcap_create_file(optarg, &ut->h_pcap_bredr)) {
-					err(1, "btbb_pcap_create_file: ");
-				}
-			}
-			else {
-				printf("Ignoring extra capture file: %s\n", optarg);
-			}
+			if (pcap_name == NULL)
+				pcap_name = optarg;
+			else
+				fprintf(stderr, "Ignoring extra capture file: %s\n", optarg);
 			break;
 		case 'd':
-			dumpfile = fopen(optarg, "w");
-			if (dumpfile == NULL) {
-				perror(optarg);
-				return 1;
-			}
+			dump_name = optarg;
 			break;
 		case 'e':
 			if (opt_require_int(optarg, 0, MAX_AC_ERRORS,
@@ -200,6 +189,32 @@ int main(int argc, char* argv[])
 	if (have_uap && !have_lap) {
 		fprintf(stderr, "error: -u <UAP> requires -l <LAP>\n");
 		return 1;
+	}
+
+	/* Every check has passed, so the files can be opened: a refused command
+	 * line creates and truncates nothing. */
+	if (infile_name != NULL) {
+		infile = fopen(infile_name, "r");
+		if (infile == NULL) {
+			printf("Could not open file %s\n", infile_name);
+			usage();
+			return 1;
+		}
+	}
+	if (pcapng_name != NULL &&
+	    btbb_pcapng_create_file(pcapng_name, "Ubertooth", &ut->h_pcapng_bredr)) {
+		err(1, "create_bredr_capture_file: ");
+	}
+	if (pcap_name != NULL &&
+	    btbb_pcap_create_file(pcap_name, &ut->h_pcap_bredr)) {
+		err(1, "btbb_pcap_create_file: ");
+	}
+	if (dump_name != NULL) {
+		dumpfile = fopen(dump_name, "w");
+		if (dumpfile == NULL) {
+			perror(dump_name);
+			return 1;
+		}
 	}
 
 	if (infile == NULL) {
