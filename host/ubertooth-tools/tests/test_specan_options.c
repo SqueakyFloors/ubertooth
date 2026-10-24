@@ -28,8 +28,20 @@ static void expect_invalid(const char *text)
 	CHECK(value == 99);
 }
 
+static void test_sample_range(void)
+{
+	CHECK(specan_sample_in_range(2402, 2402, 2410));
+	CHECK(specan_sample_in_range(2410, 2402, 2410));
+	CHECK(specan_sample_in_range(2440, 2440, 2440));
+	/* leftovers from an earlier, different range */
+	CHECK(!specan_sample_in_range(2411, 2402, 2410));
+	CHECK(!specan_sample_in_range(2401, 2402, 2410));
+	CHECK(!specan_sample_in_range(2480, 2440, 2440));
+}
+
 int main(void)
 {
+	test_sample_range();
 	expect_valid("2402", 2402);
 	expect_valid("2440", 2440);
 	expect_valid("2480", 2480);

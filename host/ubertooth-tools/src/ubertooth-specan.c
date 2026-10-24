@@ -31,6 +31,8 @@ void cb_specan(ubertooth_t* ut __attribute__((unused)), void* args)
 	uint16_t high_freq = (((uint8_t*)args)[0]) |
 	                     (((uint8_t*)args)[1] << 8);
 	uint8_t output_mode = ((uint8_t*)args)[2];
+	uint16_t low_freq = (((uint8_t*)args)[3]) |
+	                    (((uint8_t*)args)[4] << 8);
 
 	usb_pkt_rx rx = fifo_pop(ut->fifo);
 	int r, j;
@@ -41,6 +43,10 @@ void cb_specan(ubertooth_t* ut __attribute__((unused)), void* args)
 	for (j = 0; j < DMA_SIZE-2; j += 3) {
 		frequency = (rx.data[j] << 8) | rx.data[j + 1];
 		rssi = (int8_t)rx.data[j + 2];
+		/* Drop samples outside the requested range: they are left over
+		 * from an earlier run, still queued on the device. */
+		if (!specan_sample_in_range(frequency, low_freq, high_freq))
+			continue;
 		switch(output_mode) {
 			case SPECAN_FILE:
 				r = fwrite(&rx.data[j], 1, 3, dumpfile);
@@ -170,22 +176,42 @@ int main(int argc, char *argv[])
 	uint8_t specan_args[] = {
 		(uint8_t)(upper & 0xff),
 		(uint8_t)(upper >> 8),
-		output_mode
+		output_mode,
+		(uint8_t)(lower & 0xff),
+		(uint8_t)(lower >> 8)
 	};
+
+	/* Leave any mode still running on the device (for example a specan
+	 * whose process was killed without stopping it) before starting, as
+	 * the other tools do. STOP is not acknowledged, so this narrows the
+	 * window in which the new range lands in a sweep already running; the
+	 * range filter in cb_specan() is what keeps the output correct. */
+	r = cmd_stop(ut->devh);
+	if (r < 0) {
+		ubertooth_stop(ut);
+		return 1;
+	}
 
 	// init USB transfer
 	r = ubertooth_bulk_init(ut);
-	if (r < 0)
-		return r;
+	if (r < 0) {
+		ubertooth_stop(ut);
+		return 1;
+	}
 
 	r = ubertooth_bulk_thread_start();
-	if (r < 0)
-		return r;
+	if (r < 0) {
+		ubertooth_stop(ut);
+		return 1;
+	}
 
 	// tell ubertooth to start specan and send packets
 	r = cmd_specan(ut->devh, lower, upper);
-	if (r < 0)
-		return r;
+	if (r < 0) {
+		ubertooth_bulk_thread_stop();
+		ubertooth_stop(ut);
+		return 1;
+	}
 
 	// receive and process each packet
 	while(!ut->stop_ubertooth) {
