@@ -77,7 +77,13 @@ order. An index that is not attached is refused
 (\fB\fCerror: no Ubertooth at index 2 (2 attached)\fR) and the tool exits
 non\-zero. Indexes are positions in the list of boards attached when the
 command runs, so they shift when a board is added or removed; to keep
-targeting the same board, select it by serial. See
+targeting the same board, select it by serial.
+.PP
+A serial may be shortened to its first few characters, in either case, so
+\fB\fC\-U 1cc0\fR and \fB\fC\-U 1CC0\fR select the same board. If those
+characters start more than one attached board's serial, the tool lists the
+matching serials and selects neither. An all\-digits string is read as an
+index, so include a non\-digit (\fB\fC\-U 05f\fR rather than \fB\fC\-U 05\fR). See
 .BR ubertooth-util (1),
 SELECTING A DEVICE, for the full description and for listing the attached
 devices.
