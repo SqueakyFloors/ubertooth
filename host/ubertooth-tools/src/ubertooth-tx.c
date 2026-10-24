@@ -43,7 +43,7 @@ static void usage()
 	printf("\t-u <UAP> to transmit to (1 byte / 2 hex digits)\n");
 	printf("\t-t <SECONDS> timeout - 0 means no timeout [Default: 0]\n");
 	printf("\t-V print version information\n");
-	printf("\t-U <0-7> set ubertooth device to use\n");
+	printf("\t-U <index|serial> select Ubertooth by index or serial; see ubertooth(7)\n");
 }
 
 int main(int argc, char* argv[])

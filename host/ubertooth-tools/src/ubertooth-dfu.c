@@ -863,7 +863,7 @@ static void usage()
 	printf("\n");
 	printf("Miscellaneous:\n");
 	printf("\t-s <filename> add DFU suffix to binary firmware file\n");
-	printf("\t-U <index|serial> select Ubertooth device\n");
+	printf("\t-U <index|serial> select Ubertooth by index or serial; see ubertooth(7)\n");
 }
 
 #define FUNC_DOWNLOAD (1<<0)

@@ -35,8 +35,9 @@ Extended Inquiry Scan:
     Maximum Access Code Errors (default: 2)
  - `-b hciN` :
     Bluetooth device (default: hci0)
- - `-U<0-7>` :
-    which Ubertooth device to use
+ - `-U <index|serial>` :
+   select an Ubertooth by enumeration index or serial number; see
+   ubertooth(7), SELECTING A DEVICE
 
 ## ARGUMENTS
 

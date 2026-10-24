@@ -27,7 +27,8 @@ If no Bluetooth address is given, a random BD_ADDR is used (read from
  - `-a <BD_ADDR>` :
    Bluetooth address to use, `xx:xx:xx:xx:xx:xx` (default: random).
  - `-U <index|serial>` :
-   select an Ubertooth by USB enumeration index or stable serial-number string.
+   select an Ubertooth by enumeration index or serial number; see
+   ubertooth(7), SELECTING A DEVICE
  - `-h` :
    show help.
 

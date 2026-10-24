@@ -50,7 +50,8 @@ Options:
    Access code to use, given as 2, 4, 6 or 8 hex digits (1 to 4 whole
    bytes, default: 630f9ffe)
  - `-U <index|serial>` :
-   Select an Ubertooth by enumeration index or stable serial-number string
+   select an Ubertooth by enumeration index or serial number; see
+   ubertooth(7), SELECTING A DEVICE
 
 ## TRANSMIT POWER
 

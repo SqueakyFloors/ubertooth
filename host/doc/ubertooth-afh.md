@@ -42,8 +42,8 @@ Other options:
  - `-V` :
    print version information
  - `-U <index|serial>` :
-   select an Ubertooth by USB enumeration index or stable serial-number
-   string; see ubertooth-util(1), SELECTING A DEVICE
+   select an Ubertooth by enumeration index or serial number; see
+   ubertooth(7), SELECTING A DEVICE
 
 ## DETECTION AND MONITORING
 

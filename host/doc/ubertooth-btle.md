@@ -170,8 +170,9 @@ Miscellaneous:
 
 Data source:
 
- - `-U<0-7>` :
-   Which Ubertooth to use
+ - `-U <index|serial>` :
+   select an Ubertooth by enumeration index or serial number; see
+   ubertooth(7), SELECTING A DEVICE
 
 ## USING WITH CRACKLE
 

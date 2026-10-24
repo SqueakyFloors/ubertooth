@@ -22,8 +22,9 @@ Requires BlueZ (Linux only).
    target LAP (3 bytes / 6 hex digits).
  - `-u <UAP>` :
    target UAP (1 byte / 2 hex digits).
- - `-U <0-7>` :
-   which Ubertooth device to use.
+ - `-U <index|serial>` :
+   select an Ubertooth by enumeration index or serial number; see
+   ubertooth(7), SELECTING A DEVICE
  - `-r <filename>` :
    capture packets to a PCAPNG file.
  - `-q <filename>` :

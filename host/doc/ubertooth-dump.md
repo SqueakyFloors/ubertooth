@@ -22,8 +22,9 @@ print ASCII 0 and 1 using `-b`.
    Bluetooth Low Energy (BLE) modulation
  - `-d <filename.bin>` :
    Dump to file instead of stdout
- - `-U <0-7>` :
-   which Ubertooth device to use
+ - `-U <index|serial>` :
+   select an Ubertooth by enumeration index or serial number; see
+   ubertooth(7), SELECTING A DEVICE
 
 ## ARGUMENTS
 

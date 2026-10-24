@@ -298,6 +298,12 @@
 
 ### Documentation
 
+- Every tool now describes its device selector as `-U <index|serial>`, in its
+  help text and its man page, and points at ubertooth(7), SELECTING A DEVICE,
+  for the rules. The old `-U<0-7>` was wrong twice over: the index is a
+  position in the list of attached boards and is not capped at 7, and `-U`
+  also takes a serial number.
+  [#206](https://github.com/SqueakyFloors/ubertooth/issues/206)
 - Added practical Classic Bluetooth Basic Rate/Enhanced Data Rate (BR/EDR)
   sniffing and Non-significant Address Part (NAP) / Frequency Hop
   Synchronization (FHS) recovery guidance.

@@ -42,7 +42,7 @@ static void usage()
     printf("\t-h this message\n");
     printf("\t-r <reg>[,<reg>[,...]] read the contents of CC2400 register(s)\n");
     printf("\t-r <start>-<end> read a consecutive set of CC2400 register(s)\n");
-    printf("\t-U<0-7> set ubertooth device to use\n");
+    printf("\t-U <index|serial> select Ubertooth by index or serial; see ubertooth(7)\n");
     printf("\t-v<0-2> verbosity (default=1)\n");
 }
 

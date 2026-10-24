@@ -20,8 +20,9 @@ Options:
    Read a consecutive set of registers from the CC2400 on Ubertooth
  - `-v <0-2>` :
    Sets the level of verbosity, default is 1.
- - `-U<0-7>` :
-   Which Ubertooth device to use
+ - `-U <index|serial>` :
+   select an Ubertooth by enumeration index or serial number; see
+   ubertooth(7), SELECTING A DEVICE
 
 ## EXAMPLES
 

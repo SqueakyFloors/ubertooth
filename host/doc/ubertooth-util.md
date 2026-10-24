@@ -86,7 +86,7 @@ Common options:
    exits non-zero with `error: Ubertooth device <selector> did not come back
    within 10 s after the reset` if it does not. With several boards attached,
    select by serial: the index order can change across a reset
- - `-U<index|serial>` :
+ - `-U <index|serial>` :
    select which Ubertooth to use, either by USB enumeration index or by its
    serial number string. See SELECTING A DEVICE.
  - `-U all` :
