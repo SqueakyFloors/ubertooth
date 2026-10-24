@@ -2,7 +2,7 @@
 
 ## SYNOPSIS
 
-ubertooth-tx [-l LAP] [-u UAP] [-t SECONDS] [-U 0-7] [-V]
+ubertooth-tx -l LAP -u UAP [-t SECONDS] [-U index|serial] [-V]
 
 ## DESCRIPTION
 
@@ -16,9 +16,9 @@ as a placeholder/experimental entry point. Do not rely on it.
 ## OPTIONS
 
  - `-l <LAP>` :
-   target LAP (3 bytes / 6 hex digits).
+   target LAP (3 bytes / 6 hex digits); required.
  - `-u <UAP>` :
-   target UAP (1 byte / 2 hex digits).
+   target UAP (1 byte / 2 hex digits); required.
  - `-t <seconds>` :
    timeout; 0 means no timeout (default: 0).
  - `-U <index|serial>` :
@@ -47,6 +47,11 @@ alongside them.
 An option value must be a whole value in its range, or it is refused the same
 way instead of being read as 0, for example
 `error: LAP must be 6 hex digits (got 4466)`.
+
+Both halves of the target address are required, and a command line missing
+either is refused there too, before any device is opened, so the message never
+depends on which boards are attached:
+`error: -l <LAP> and -u <UAP> are both required`.
 
 ## SEE ALSO
 

@@ -344,6 +344,13 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	/* One major mode per command. Another argument error, so it is refused
+	 * here rather than after a device has been opened. */
+	if (do_follow + do_no_follow + do_promisc > 1) {
+		fprintf(stderr, "error: choose one of -f, -n or -p, pick one pal\n");
+		return 1;
+	}
+
 	r = ubertooth_connect_select(ut, ubertooth_device);
 	if (r < 0) {
 		return 1;
@@ -360,11 +367,6 @@ int main(int argc, char *argv[])
 
 	// cancel following on USR1
 	signal(SIGUSR1, cancel_follow_handler);
-
-	if (do_follow + do_no_follow + do_promisc > 1) {
-		printf("Error: must choose one -f, -n, or -p, pick one pal\n");
-		return 1;
-	}
 
 	// allow user to set target before following
 	if (do_target) {

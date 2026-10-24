@@ -13,11 +13,14 @@ that it found no device, on any machine, instead of opening whatever happens to
 be attached (possibly a board another process is using) and printing whichever
 message that produced (#219).
 
-Three kinds of case:
+Four kinds of case:
   * a stray word, including a bare "-": "error: unexpected argument '<word>'";
   * a bad option value: the option's own "error: ... must be ..." line;
   * an optional value written as the next word: the value is consumed, which
-    a trailing "extra" proves by being the word the tool complains about.
+    a trailing "extra" proves by being the word the tool complains about;
+  * an option combination the tool cannot carry out (a missing companion
+    option, or two major modes at once): refused here too, so the diagnostic
+    does not depend on which boards are attached (#236).
 """
 
 import os
@@ -27,6 +30,9 @@ import sys
 
 BINARY = sys.argv[1]
 TOOL = os.path.basename(BINARY)
+# A serial no board has, for the cases that prove an argument error does not
+# depend on which boards are attached.
+NO_SUCH_SERIAL = "ffffffffffffffffffffffffffffffff"
 # Hide attached boards from the tool: see the module docstring.
 ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1")
 
@@ -82,6 +88,10 @@ CASES = {
          "error: unexpected argument 'extra'"),
     ),
     "ubertooth-btle": STRAY + ADV_INDEX + (
+        # one major mode per command, refused before a device is opened
+        (("-f", "-n"), "error: choose one of -f, -n or -p"),
+        (("-n", "-p"), "error: choose one of -f, -n or -p"),
+        (("-f", "-n", "-p"), "error: choose one of -f, -n or -p"),
         (("-v", "2"), "error: crc verify mode must be 0-1 (got 2)"),
         (("-vabc",), "error: crc verify mode must be 0-1 (got abc)"),
         # a word that is not a value for -v is not taken as one
@@ -128,13 +138,23 @@ CASES = {
     "ubertooth-rx": STRAY + VERSION_STRAY + LAP_UAP + AC_ERRORS + TIMEOUT_SECONDS + (
         (("-c", "79"), "error: channel must be 0-78 (got 79)"),
         (("-c", "abc"), "error: channel must be 0-78 (got abc)"),
+        # a UAP needs the LAP it belongs to, refused before a device is opened
+        (("-u", "22"), "error: -u <uap> requires -l <lap>"),
+        (("-u", "22", "-U", NO_SUCH_SERIAL), "error: -u <uap> requires -l <lap>"),
     ),
     "ubertooth-scan": STRAY + AC_ERRORS + TIMEOUT_SECONDS,
     "ubertooth-specan": STRAY + (
         (("-l", "bad"), "error: lower frequency must be 2402-2480 mhz (got bad)"),
         (("-u", "2481"), "error: upper frequency must be 2402-2480 mhz (got 2481)"),
     ),
-    "ubertooth-tx": STRAY + VERSION_STRAY + LAP_UAP + TIMEOUT_SECONDS,
+    "ubertooth-tx": STRAY + VERSION_STRAY + LAP_UAP + TIMEOUT_SECONDS + (
+        # both halves of the address are needed, before a device is opened
+        ((), "error: -l <lap> and -u <uap> are both required"),
+        (("-l", "446688"), "error: -l <lap> and -u <uap> are both required"),
+        (("-u", "22"), "error: -l <lap> and -u <uap> are both required"),
+        (("-u", "22", "-U", NO_SUCH_SERIAL),
+         "error: -l <lap> and -u <uap> are both required"),
+    ),
     "ubertooth-util": STRAY + (
         (("-c", "2500"), "error: frequency must be 2402-2480 mhz (got 2500)"),
         (("-c", "24x"), "error: unexpected argument '24x'"),

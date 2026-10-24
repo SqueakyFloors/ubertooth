@@ -39,8 +39,8 @@ static void usage()
 	printf("!!!!\n");
 	printf("\n");
 	printf("Usage:\n");
-	printf("\t-l <LAP> to transmit to (3 bytes / 6 hex digits)\n");
-	printf("\t-u <UAP> to transmit to (1 byte / 2 hex digits)\n");
+	printf("\t-l <LAP> to transmit to (3 bytes / 6 hex digits) - required\n");
+	printf("\t-u <UAP> to transmit to (1 byte / 2 hex digits) - required\n");
 	printf("\t-t <SECONDS> timeout - 0 means no timeout [Default: 0]\n");
 	printf("\t-V print version information\n");
 	fputs(OPT_USAGE_SELECT_DEVICE, stdout);
@@ -110,6 +110,15 @@ int main(int argc, char* argv[])
 		return 1;
 	}
 
+	/* ubertooth-tx transmits the access code of one piconet, so it needs
+	 * both halves of the address. That is an argument error, so it is
+	 * refused here rather than after a device has been opened, where it
+	 * used to depend on whether a board happened to be free. */
+	if (!have_lap || !have_uap) {
+		fprintf(stderr, "error: -l <LAP> and -u <UAP> are both required\n");
+		return 1;
+	}
+
 	r = ubertooth_connect_select(ut, ubertooth_device);
 	if (r < 0) {
 		return 1;
@@ -119,19 +128,11 @@ int main(int argc, char* argv[])
 	if (r < 0)
 		return 1;
 
-	if (have_lap && have_uap) {
-		// set bt address
-		r = cmd_set_bdaddr(ut->devh, (((uint32_t)uap)<<24)|lap);
-		if (r < 0)
-			return r;
-		uint64_t syncword = btbb_gen_syncword(lap);
-		//printf("Syncword: 0x%016lx\n", syncword);
-		printf("Syncword: 0x%" PRIx64 "\n", syncword);
-	} else {
-		fprintf(stderr, "Error: LAP or UAP not specified\n");
-		usage();
-		return 1;
-	}
+	// set bt address
+	r = cmd_set_bdaddr(ut->devh, (((uint32_t)uap)<<24)|lap);
+	if (r < 0)
+		return r;
+	printf("Syncword: 0x%" PRIx64 "\n", btbb_gen_syncword(lap));
 
 	/* Clean up on exit. */
 	register_cleanup_handler(ut, 0);

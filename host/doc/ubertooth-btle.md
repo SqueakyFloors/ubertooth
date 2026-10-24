@@ -212,6 +212,13 @@ The optional values of `-a` and `-v` may be attached or given as the next
 word (`-a 8e89bed6`, `-v 1`); a following option is never taken as a value.
 A bare `-` is still the stdin/stdout value of `-q`, `-c` and `-r`.
 
+An option combination the tool cannot carry out is refused there too, before
+any device is opened, so the message never depends on which boards are
+attached: more than one of `-f`, `-n` and `-p` gives
+`error: choose one of -f, -n or -p, pick one pal`, and a read and a set of the
+access address in one command gives
+`error: -a cannot both read and set the access address`.
+
 ## SEE ALSO
 
 crackle(1): https://github.com/mikeryan/crackle
