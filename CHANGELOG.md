@@ -147,7 +147,7 @@
   [#171](https://github.com/SqueakyFloors/ubertooth/issues/171)
 - `ubertooth-specan` stops any mode left running before it starts and drops
   samples outside `-l`/`-u` left over from an earlier run; tools also stop the
-  board cleanly on SIGHUP and SIGALRM.
+  board cleanly on SIGHUP and SIGALRM (and exit 0, as for SIGINT/SIGTERM).
   [#173](https://github.com/SqueakyFloors/ubertooth/issues/173)
 - `ubertooth-util -a0` sets PA level 0 instead of reading the level, and a
   level outside 0-7 is refused before opening the device.

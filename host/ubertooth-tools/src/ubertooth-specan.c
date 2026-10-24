@@ -194,17 +194,24 @@ int main(int argc, char *argv[])
 
 	// init USB transfer
 	r = ubertooth_bulk_init(ut);
-	if (r < 0)
-		return r;
+	if (r < 0) {
+		ubertooth_stop(ut);
+		return 1;
+	}
 
 	r = ubertooth_bulk_thread_start();
-	if (r < 0)
-		return r;
+	if (r < 0) {
+		ubertooth_stop(ut);
+		return 1;
+	}
 
 	// tell ubertooth to start specan and send packets
 	r = cmd_specan(ut->devh, lower, upper);
-	if (r < 0)
-		return r;
+	if (r < 0) {
+		ubertooth_bulk_thread_stop();
+		ubertooth_stop(ut);
+		return 1;
+	}
 
 	// receive and process each packet
 	while(!ut->stop_ubertooth) {
