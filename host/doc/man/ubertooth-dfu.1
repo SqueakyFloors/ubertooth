@@ -50,8 +50,9 @@ and \fB\fC\-r\fR was given, the tool detaches it anyway, reopening the DFU devic
 the same physical path when the failure closed the handle, so the board returns
 to its application. A board that never answered in DFU at all cannot be
 detached, and then needs another \fB\fCubertooth\-dfu\fR run or a power cycle. A reset
-the bootloader refuses is reported and fails the command, so \fB\fC\-r\fR never exits
-0 with the board left in DFU.
+the bootloader refuses is reported and fails the command instead of exiting 0
+with the board still in DFU; a reset it accepts but does not act on is caught
+only by the \fB\fC\-d ... \-r\fR verification below.
 .PP
 If a transfer fails, in either direction, the tool closes the stale handle,
 reopens and claims the DFU device on the same physical path, restores its DFU

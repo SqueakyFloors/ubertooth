@@ -43,8 +43,9 @@ given, the tool detaches it anyway, reopening the DFU device on the same
 physical path when the failure closed the handle, so the board returns to its
 application. A board that never answered in DFU at all cannot be detached, and
 then needs another `ubertooth-dfu` run or a power cycle. A reset the bootloader
-refuses is reported and fails the command, so `-r` never exits 0 with the board
-left in DFU.
+refuses is reported and fails the command instead of exiting 0 with the board
+still in DFU; a reset it accepts but does not act on is caught only by the
+`-d ... -r` verification below.
 
 If a transfer fails, in either direction, the tool closes the stale handle,
 reopens and claims the DFU device on the same physical path, restores its DFU

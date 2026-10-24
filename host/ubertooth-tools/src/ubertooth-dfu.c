@@ -1158,6 +1158,7 @@ int main(int argc, char **argv) {
 		void *transfer_handle = devh;
 
 		runtime.upload_file = upfile;
+		runtime.transfer_attempts = 0;
 		r = dfu_transfer_run(&UPLOAD_TRANSFER_OPS, &runtime,
 		                     &selected_identity, &transfer_config,
 		                     &transfer_handle, &transfer_report);
@@ -1168,6 +1169,7 @@ int main(int argc, char **argv) {
 		interface_claimed = devh != NULL;
 		fclose(upfile);
 		upfile = NULL;
+		runtime.upload_file = NULL;
 		if(r != DFU_TRANSFER_OK) {
 			fprintf(stderr,
 			        "Firmware upload failed after %u attempt(s): result=%d transfer_error=%d usb_error=%d\n",
@@ -1199,6 +1201,9 @@ int main(int argc, char **argv) {
 		void *transfer_handle = devh;
 
 		runtime.download_file = downfile;
+		/* So the stage log counts this transfer's own attempts, not the
+		 * read-back's before it. */
+		runtime.transfer_attempts = 0;
 		r = dfu_transfer_run(&DOWNLOAD_TRANSFER_OPS, &runtime,
 		                     &selected_identity, &transfer_config,
 		                     &transfer_handle, &transfer_report);

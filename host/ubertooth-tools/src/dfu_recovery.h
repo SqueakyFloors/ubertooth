@@ -23,8 +23,10 @@ enum dfu_idle_result {
 	DFU_IDLE_UNEXPECTED_STATE = -6,  /* a state this host cannot act on */
 };
 
-/* max_polls * poll_interval_ms bounds the wait; 40 * 250 ms is ten seconds,
- * far longer than the bootloader's own 20 ms poll timeout. */
+/* The wait is bounded by max_polls iterations. Only the states that pass with
+ * time are slept on, so poll_interval_ms sets the ceiling rather than the
+ * duration: at most ten seconds of waiting, far longer than the bootloader's
+ * own 20 ms poll timeout, and no wait at all for the states that are acted on. */
 #define DFU_IDLE_DEFAULT_MAX_POLLS 40
 #define DFU_IDLE_DEFAULT_POLL_INTERVAL_MS 250
 
