@@ -115,7 +115,7 @@ MU_TEST(test_sum_count_rounding_negative)
 }
 
 /*
- * LED spectrum analyzer threshold (issue #189).
+ * LED spectrum analyzer threshold.
  *
  * `ubertooth-util -q<N>` asks for a threshold of -N dBm; the firmware stores it
  * raw, where dBm = raw - 54. The threshold used to be an int8_t, so every N

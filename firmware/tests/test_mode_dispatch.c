@@ -1,15 +1,17 @@
 /*
  * Guard for the mode dispatch in firmware/bluetooth_rxtx/bluetooth_rxtx.c
- * main() (issue #191).
+ * main().
  *
  * The main loop only reacts when `requested_mode != mode`, and cc2400_idle()
  * -- which clears the LEDs and the Ubertooth One amplifier, and puts the
  * channel back to 2441 MHz and the squelch back to -120 -- runs only from the
  * MODE_IDLE case. So a case that starts a mode loop without leaving `mode`
- * equal to that mode never gets an idle reset when the mode stops: `-S` sets
- * requested_mode = MODE_IDLE, the loop returns, requested_mode == mode, and
- * nothing happens. MODE_LED_SPECAN, MODE_SPECAN, MODE_BT_PROMISC_LE and
- * MODE_BT_SLAVE_LE were all like that.
+ * equal to that mode never gets an idle reset when the mode stops:
+ * ubertooth-util -S sets requested_mode = MODE_IDLE, the mode loop returns,
+ * requested_mode == mode, and nothing happens. The LED spectrum analyzer,
+ * spectrum analyzer, BLE promiscuous and BLE faux slave cases were all like
+ * that, so stopping them left the LEDs lit and the channel and squelch at
+ * their pre-mode values.
  *
  * The dispatch is hardware code that cannot be run here, so this test scans
  * the source, the way test_frend.c scans the transmit paths for hard-coded PA
@@ -81,7 +83,7 @@ MU_TEST(test_every_mode_case_sets_mode)
 	}
 
 	while (fgets(line, sizeof(line), f) != NULL) {
-		char *c;
+		char *c, *rest;
 
 		lineno++;
 		if (!in_main) {
@@ -94,9 +96,12 @@ MU_TEST(test_every_mode_case_sets_mode)
 		if (c == NULL && strstr(line, "default:") == NULL) {
 			/* still inside the case opened last, if any */
 			if (open_mode[0] != '\0') {
-				mu_assert(strlen(body) + strlen(line) + 1 < sizeof(body),
-				          "case body is larger than this test's buffer; "
-				          "grow body[] rather than trusting the result");
+				if (strlen(body) + strlen(line) + 1 >= sizeof(body)) {
+					mu_assert(0, "a case body is larger than this test's "
+					             "buffer; grow body[] rather than trusting "
+					             "the result");
+					break;
+				}
 				strcat(body, line);
 			}
 			continue;
@@ -111,8 +116,9 @@ MU_TEST(test_every_mode_case_sets_mode)
 			if (why == NULL) {
 				snprintf(msg, sizeof(msg),
 				         "%s:%d case %s: runs a mode loop without "
-				         "\"mode = %s;\", so stopping it skips the "
-				         "cc2400_idle() reset (issue #191)",
+				         "\"mode = %s;\", so stopping the mode leaves "
+				         "requested_mode == mode and the cc2400_idle() "
+				         "reset never runs",
 				         path, open_line, open_mode, open_mode);
 				mu_assert(contains_assignment(body, needle), msg);
 			} else {
@@ -128,9 +134,16 @@ MU_TEST(test_every_mode_case_sets_mode)
 		}
 
 		if (c != NULL) {
-			if (sscanf(c, "case %63[A-Z_0-9]:", open_mode) != 1)
+			if (sscanf(c, "case %63[A-Z_0-9]:", open_mode) != 1) {
 				open_mode[0] = '\0';
+				continue;
+			}
 			open_line = lineno;
+			/* Keep whatever follows the label on the same line, so a case
+			 * written on one line is read like any other. */
+			rest = strchr(c, ':');
+			if (rest != NULL && strlen(rest + 1) + 1 < sizeof(body))
+				strcpy(body, rest + 1);
 		}
 	}
 

@@ -33,11 +33,11 @@ Ubertooth devices. Refer to [RANGE TEST][] for full details.
 Operations that put the device into a continuous mode — `-I` (identify),
 `-q` (LED spectrum), `-x` (xmas), `-t` (TX test), `-n` (range test), and
 `-e` (repeater) — first stop any operation already running on that device, so
-each starts from a known idle state. Stopping a mode, with `-S` or by starting
-another, puts the board back to idle: LEDs off, channel 2441 MHz and squelch
--120 dBm. The power amplifier level set with `-a` is kept. Each of them runs
-on the board and `ubertooth-util` returns immediately, so the same board stays
-usable from other commands meanwhile. `-I`, `-q`, `-x`, `-t` and `-e` keep
+each starts from a known idle state. Stopping a mode, with `-S` or normally by
+starting another, puts the board back to idle: LEDs off, channel 2441 MHz and
+squelch -120 dBm. The power amplifier level set with `-a` is kept. Each of
+them runs on the board and `ubertooth-util` returns immediately, so the board
+stays usable from other commands meanwhile. `-I`, `-q`, `-x`, `-t` and `-e` keep
 running until `-S` stops them or another mode replaces them; `-n` (range test)
 ends by itself when the test finishes.
 

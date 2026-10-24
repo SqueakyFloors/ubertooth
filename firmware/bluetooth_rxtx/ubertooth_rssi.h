@@ -52,7 +52,8 @@ int8_t rssi_get_avg(uint16_t channel);
 /* Is N a threshold the firmware accepts? Matches the host's -q range. */
 int rssi_threshold_n_valid(uint16_t n);
 
-/* Raw-scale threshold for -N dBm. */
+/* Raw-scale threshold for -N dBm. Check N with rssi_threshold_n_valid()
+ * first: outside that range the result need not fit in an int16_t. */
 int16_t rssi_threshold_from_n(uint16_t n);
 
 /* Should a raw reading of lvl light an LED at this raw threshold? */

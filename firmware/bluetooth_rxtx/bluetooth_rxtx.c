@@ -2652,7 +2652,6 @@ int main()
 		 * change: without it, stopping the mode leaves requested_mode ==
 		 * mode, the MODE_IDLE case never runs, and cc2400_idle() never
 		 * resets the LEDs, the amplifier, the channel and the squelch.
-		 * See issue #191.
 		 */
 		if(requested_mode != mode) {
 			switch (requested_mode) {

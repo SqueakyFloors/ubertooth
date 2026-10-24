@@ -125,8 +125,8 @@
   also refuses a threshold outside 1-225.
   [#189](https://github.com/SqueakyFloors/ubertooth/issues/189)
 - Stopping the LED spectrum analyzer (`ubertooth-util -q`), `ubertooth-specan`
-  or the Bluetooth Low Energy (BLE) advertising mode (`ubertooth-btle -A`) now
-  resets the board the way the other modes do: light-emitting diodes (LEDs)
+  or Bluetooth Low Energy (BLE) faux slave mode (`ubertooth-btle -s<address>`)
+  now resets the board the way the other modes do: light-emitting diodes (LEDs)
   off, amplifier off, channel 2441 MHz and squelch -120 decibels relative to
   one milliwatt (dBm). Stopping `-q` used to leave the LEDs lit and the channel
   and squelch as they were.
