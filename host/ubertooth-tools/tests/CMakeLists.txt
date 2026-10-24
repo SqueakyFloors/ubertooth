@@ -222,6 +222,32 @@ add_test(NAME afh-main COMMAND test-afh-main)
 # loop should fail instead of hanging the suite.
 set_tests_properties(afh-main PROPERTIES TIMEOUT 10)
 
+# The same approach for ubertooth-dfu: its real main() against a faked DFU
+# transport, so a bootloader that stops answering and a read-back that fails
+# part-way are testable without a board.
+add_executable(test-dfu-main
+	test_dfu_main.c
+	../src/dfu_recovery.c
+	../src/dfu_transition.c)
+target_link_libraries(test-dfu-main opt-parse-for-tests)
+if(libubertooth_SOURCE_DIR)
+	target_include_directories(test-dfu-main PRIVATE ${libubertooth_SOURCE_DIR}/src)
+else()
+	target_include_directories(test-dfu-main PRIVATE ${LIBUBERTOOTH_INCLUDE_DIR})
+endif()
+target_include_directories(test-dfu-main PRIVATE ../src
+	${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+target_link_libraries(test-dfu-main ${LIBUSB_LIBRARIES})
+if(USE_OWN_GNU_GETOPT)
+	target_include_directories(test-dfu-main BEFORE PRIVATE ../getopt)
+	target_link_libraries(test-dfu-main libgetopt_static)
+endif()
+
+add_test(NAME dfu-main COMMAND test-dfu-main)
+# The unbounded state loop of #216 would hang here; fail it instead. A normal
+# run is a few hundred milliseconds (every transfer is faked).
+set_tests_properties(dfu-main PROPERTIES TIMEOUT 10)
+
 # Runs the real libubertooth part-ID commands against a fake libusb control
 # transfer (defined in the test, so it wins over libusb's). libbtbb is faked;
 # libusb is linked for the other symbols. Needs the library sources, so only
