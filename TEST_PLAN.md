@@ -40,8 +40,8 @@ Hardware required: Ubertooth One, Linux machine (Ubuntu 22.04+ preferred), a BLE
 
 ### 2a. Firmware version check
 - [ ] Run `ubertooth-util -v`
-- [ ] Confirm: returns `Firmware version: <revision> (API:1.08)` for firmware
-      built from this tree (released 2020-12-R1 firmware reports `API:1.07`)
+- [ ] Confirm: returns `Firmware version: <revision> (API:1.08)` (firmware
+      built from this tree; the host tools refuse any other API version)
 - [ ] Confirm: no `usb_claim_interface` errors
 - [ ] Confirm: no timeout errors
 
@@ -58,9 +58,9 @@ Hardware required: Ubertooth One, Linux machine (Ubuntu 22.04+ preferred), a BLE
 - [ ] Confirm: the blink stops and all three LEDs end off (`-d` reads 0 0 0)
 - [ ] Run `ubertooth-util -I` then `ubertooth-util -x`
 - [ ] Confirm: identify gives way to the xmas pattern; `-S` ends that too
-- [ ] With firmware older than API 1.08: run `ubertooth-util -I`
-- [ ] Confirm: it says it is blinking from the host, blinks for 10 s, then
-      exits 0 with the LEDs off
+- [ ] With firmware of another API version (for example 2020-12-R1): run
+      `ubertooth-util -I` and `ubertooth-specan`
+- [ ] Confirm: each prints an API version error and exits 1; nothing blinks
 
 ### 2d. Hardware info
 - [ ] Run `ubertooth-util -b` (board ID)

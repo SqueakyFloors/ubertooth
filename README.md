@@ -18,6 +18,11 @@ The latest firmware build can be found on the release page.
 This release is paired with [libbtbb 2020-12-R1](https://github.com/greatscottgadgets/libbtbb/releases/tag/2020-12-R1).
 
 Instructions for flashing the firmware can be found [on the corresponding readthedocs.io firmware page](https://ubertooth.readthedocs.io/en/latest/firmware.html).
+
+The host tools require firmware built from the same source tree (the same
+firmware API version), so flash the firmware whenever you update the tools:
+`./install.sh --flash-device <index|serial|all>`.
+
 Instructions for building libbtbb can be found [on the corresponding readthedocs.io build_guide page](https://ubertooth.readthedocs.io/en/latest/build_guide.html).
 
 Build dependencies (required vs optional, and what each enables) are listed in [REQUIREMENTS.md](REQUIREMENTS.md).

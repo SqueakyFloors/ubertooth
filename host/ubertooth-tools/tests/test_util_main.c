@@ -43,7 +43,7 @@ static struct {
 	int identify_calls;
 	int last_channel_set, last_squelch_set, last_led_specan_arg;
 	int last_palevel_set, last_usrled_set;
-	/* LED writes, for the host-side identify blink */
+	/* LED writes: -I must not blink from the host */
 	int usrled_writes, rxled_writes, txled_writes;
 	int last_usrled_level, last_rxled_level, last_txled_level;
 	/* multi-device listing */
@@ -917,10 +917,9 @@ MU_TEST(identify_starts_the_blink_on_the_board_and_returns)
 	mu_assert(strstr(r.out, "Flashing LEDs on ubertooth device abc123\n") != NULL,
 	          "names the selected device");
 
-	/* a request that fails for any reason other than a stall fails the
-	 * command, and does not fall back to blinking from the host */
+	/* a failed request fails the command */
 	reset_fake();
-	fake.identify_rc = LIBUSB_ERROR_IO;
+	fake.identify_rc = LIBUSB_ERROR_PIPE;
 	r = RUN("-I");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert_int_eq(1, fake.identify_calls);
@@ -929,69 +928,36 @@ MU_TEST(identify_starts_the_blink_on_the_board_and_returns)
 }
 
 /*
- * Firmware with no identify mode: the LEDs are blinked from the host instead,
- * for a bounded time (the clock and the sleep are faked here, so this runs
- * instantly), and are left off afterwards.
+ * Firmware that is not this tree's API version, older or newer, is refused:
+ * no request is sent and nothing is blinked from the host. So is firmware
+ * whose version cannot be read.
  */
-MU_TEST(identify_falls_back_to_a_bounded_host_blink_on_old_firmware)
+MU_TEST(identify_refuses_firmware_of_another_api_version)
 {
-	/* toggles that fit in the window, plus the final write that turns the
-	 * LEDs off */
-	const int toggles = (int)(UTIL_IDENTIFY_FALLBACK_MS + UBERTOOTH_IDENTIFY_TOGGLE_MS - 1) /
-	                    UBERTOOTH_IDENTIFY_TOGGLE_MS;
-	const int writes = toggles + 1;
+	const uint16_t versions[] = { UBERTOOTH_API_VERSION - 1, UBERTOOTH_API_VERSION + 1 };
 	struct run_result r;
+	size_t i;
 
-	/* an API version from before the board-side mode */
-	reset_fake();
-	fake.api_version = UBERTOOTH_API_IDENTIFY - 1;
-	r = RUN("-I");
-	mu_assert_int_eq(0, r.rc);
-	mu_assert_int_eq(0, fake.identify_calls); /* not even attempted */
-	mu_assert_int_eq(writes, fake.usrled_writes);
-	mu_assert_int_eq(writes, fake.rxled_writes);
-	mu_assert_int_eq(writes, fake.txled_writes);
-	mu_assert_int_eq(0, fake.last_usrled_level); /* all three left off */
-	mu_assert_int_eq(0, fake.last_rxled_level);
-	mu_assert_int_eq(0, fake.last_txled_level);
-	mu_assert_int_eq(toggles, fake.sleeps);
-	mu_assert(strstr(r.err, "blinking from the host for 10 s") != NULL,
-	          "says where the blink runs");
-	mu_assert(strstr(r.out, "Flashing LEDs on ubertooth device 0\n") != NULL,
-	          "still names what it did on stdout");
-	/* bounded: it stopped within one interval of the deadline */
-	mu_assert((int)fake.now_ms - 1000 >= (int)UTIL_IDENTIFY_FALLBACK_MS &&
-	          (int)fake.now_ms - 1000 <
-	              (int)(UTIL_IDENTIFY_FALLBACK_MS + UBERTOOTH_IDENTIFY_TOGGLE_MS),
-	          "blinked for the whole window and no longer");
+	for (i = 0; i < sizeof(versions) / sizeof(versions[0]); i++) {
+		reset_fake();
+		fake.api_version = versions[i];
+		r = RUN("-I");
+		mu_assert_int_eq(1, r.rc);
+		mu_assert_int_eq(0, fake.identify_calls);
+		mu_assert_int_eq(0, fake.usrled_writes);
+		mu_assert_int_eq(0, fake.sleeps);
+		mu_assert(strstr(r.err, "error: -I needs firmware API version") != NULL,
+		          "says why");
+		mu_assert(strstr(r.err, "Flash the firmware built from the same source tree") != NULL,
+		          "says what to do");
+	}
 
-	/* current firmware whose API version cannot be read falls back too */
 	reset_fake();
 	fake.api_rc = -1;
 	r = RUN("-I");
-	mu_assert_int_eq(0, r.rc);
-	mu_assert_int_eq(0, fake.identify_calls);
-	mu_assert_int_eq(writes, fake.usrled_writes);
-	mu_assert_int_eq(0, fake.last_usrled_level);
-
-	/* as does firmware that reports a new API version but stalls the request */
-	reset_fake();
-	fake.identify_rc = LIBUSB_ERROR_PIPE;
-	r = RUN("-I");
-	mu_assert_int_eq(0, r.rc);
-	mu_assert_int_eq(1, fake.identify_calls);
-	mu_assert_int_eq(writes, fake.usrled_writes);
-	mu_assert_int_eq(0, fake.last_usrled_level);
-
-	/* a failed LED write ends the blink and fails the command, instead of
-	 * writing to a dead device for ten seconds */
-	reset_fake();
-	fake.api_version = UBERTOOTH_API_IDENTIFY - 1;
-	fake.set_usrled_rc = LIBUSB_ERROR_NO_DEVICE;
-	r = RUN("-I");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert_int_eq(2, fake.usrled_writes); /* the first toggle, then off */
-	mu_assert_int_eq(0, fake.sleeps);
+	mu_assert_int_eq(0, fake.identify_calls);
+	mu_assert_int_eq(0, fake.usrled_writes);
 }
 
 MU_TEST(led_specan_uses_the_default_threshold_and_an_explicit_one)
@@ -2198,7 +2164,7 @@ int main(void)
 	MU_RUN(mode_commands_exit_zero_on_success_and_one_on_failure);
 	MU_RUN(a_failed_stop_before_a_mode_command_fails_the_command);
 	MU_RUN(identify_starts_the_blink_on_the_board_and_returns);
-	MU_RUN(identify_falls_back_to_a_bounded_host_blink_on_old_firmware);
+	MU_RUN(identify_refuses_firmware_of_another_api_version);
 	MU_RUN(led_specan_uses_the_default_threshold_and_an_explicit_one);
 	MU_RUN(two_or_more_mode_options_are_rejected_before_opening_the_device);
 	MU_RUN(stray_arguments_are_rejected_before_any_device_action);

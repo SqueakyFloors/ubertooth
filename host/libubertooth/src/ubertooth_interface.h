@@ -24,27 +24,17 @@
 
 #include <stdint.h>
 
-// increment on every API change
+/*
+ * The firmware API version, reported by the firmware as the USB bcdDevice.
+ * The host tools require firmware with exactly this version
+ * (ubertooth_check_api()), so host and firmware are released together.
+ * Increment it on every firmware change the host relies on: a new or changed
+ * request, or a changed behaviour of an existing one.
+ */
 #define UBERTOOTH_API_VERSION 0x0108
 
-/*
- * The oldest firmware API version the host tools work with, checked by
- * ubertooth_check_api(). It is deliberately below UBERTOOTH_API_VERSION:
- * adding a request bumps the version, but must not stop every tool from
- * talking to firmware that predates it. A tool that needs a newer request
- * checks for that request itself, as ubertooth-util -I does with
- * UBERTOOTH_API_IDENTIFY below. Raise this only to drop support on purpose.
- */
-#define UBERTOOTH_API_MINIMUM 0x0107
-
-/* Firmware from this API version on runs identify (UBERTOOTH_IDENTIFY) as a
- * board-side mode. Older firmware stalls the request, and the host blinks the
- * LEDs itself instead. */
-#define UBERTOOTH_API_IDENTIFY 0x0108
-
 /* How often the identify blink toggles the USR/RX/TX LEDs, in milliseconds:
- * about three on-off blinks a second. The board-side mode uses it, and the
- * host fallback matches it so both blink at the same rate. */
+ * about three on-off blinks a second. */
 #define UBERTOOTH_IDENTIFY_TOGGLE_MS 167
 
 #define DMA_SIZE 50

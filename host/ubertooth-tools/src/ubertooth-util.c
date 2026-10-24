@@ -265,106 +265,37 @@ static int selects_by_serial(const char *u_arg)
 	return u_arg[strspn(u_arg, "0123456789")] != '\0';
 }
 
-/* How long the host-side identify fallback blinks before giving up on its own,
- * for firmware with no board-side identify mode. */
-#define UTIL_IDENTIFY_FALLBACK_MS 10000u
-
-/* For the -I (identify) fallback, which blinks from the host. Without a
- * handler, Ctrl-C leaves the USR/RX/TX LEDs in whatever state the last toggle
- * set (often on). This handler turns them off and exits cleanly so the device
- * returns to the same LED-off state as after a reset. */
-static ubertooth_t* identify_ut = NULL;
-static void identify_cleanup(int sig __attribute__((unused)))
-{
-	if (identify_ut && identify_ut->devh) {
-		cmd_set_usrled(identify_ut->devh, 0);
-		cmd_set_rxled(identify_ut->devh, 0);
-		cmd_set_txled(identify_ut->devh, 0);
-		cmd_stop(identify_ut->devh);
-	}
-	exit(0);
-}
-
-/* Drives all three identify LEDs to the same level. Returns 0, or the first
- * negative error; every LED is written either way, so one failure does not
- * leave the others out of step. */
-static int identify_set_leds(ubertooth_t* ut, int level)
-{
-	int usr = cmd_set_usrled(ut->devh, level);
-	int rx = cmd_set_rxled(ut->devh, level);
-	int tx = cmd_set_txled(ut->devh, level);
-
-	if (usr < 0)
-		return usr;
-	if (rx < 0)
-		return rx;
-	return tx;
-}
-
 /*
- * The identify blink for firmware with no board-side mode: toggles the LEDs
- * over USB at the same rate the board would, for UTIL_IDENTIFY_FALLBACK_MS or
- * until Ctrl-C (identify_cleanup), then leaves all three off. Bounded on
- * purpose - the old code looped forever, so the command could not be scripted
- * and a test that reached it never finished.
+ * -I: starts the identify blink, which runs on the board as its own mode, so
+ * the command returns at once; -S or any mode-starting command ends it.
+ * ubertooth-util does not call ubertooth_check_api() (it must still read the
+ * version of, and reflash, any firmware), so -I checks the version itself:
+ * firmware that is not this tree's API version is refused with a message,
+ * not blinked from the host.
  *
- * Returns 0 once the blink has run its course, or a negative error if a LED
- * write failed, which also ends the blink.
- */
-static int identify_from_host(ubertooth_t* ut)
-{
-	uint64_t start = util_clock_now_ms();
-	int level = 0;
-	int result = 0;
-
-	identify_ut = ut;
-	signal(SIGINT, identify_cleanup);
-	while (util_clock_now_ms() - start < UTIL_IDENTIFY_FALLBACK_MS) {
-		level = !level;
-		result = identify_set_leds(ut, level);
-		if (result < 0)
-			break;
-		util_clock_sleep_ms(UBERTOOTH_IDENTIFY_TOGGLE_MS);
-	}
-	/* Off again however the blink ended, as after a reset. */
-	if (identify_set_leds(ut, 0) < 0 && result >= 0)
-		result = -1;
-	/* The handler is for the blink only: main() releases this handle on its
-	 * way out, so a Ctrl-C after this point must not reach it. */
-	signal(SIGINT, SIG_DFL);
-	identify_ut = NULL;
-	return result;
-}
-
-/*
- * -I: starts the identify blink and says where it runs. Firmware with the
- * board-side mode blinks on its own, so the command returns at once and the
- * blink is ended by -S or by any mode-starting command. Older firmware (an API
- * version below UBERTOOTH_API_IDENTIFY, one that cannot be read, or a request
- * the board stalls) gets the bounded host-side blink instead.
- *
- * Returns 0 on success, or a negative device error.
+ * Returns 0 on success, or a negative error.
  */
 static int identify_start(ubertooth_t* ut)
 {
 	uint16_t version = 0;
+	int result = ubertooth_get_api(ut, &version);
 
-	if (ubertooth_get_api(ut, &version) == 0 && version >= UBERTOOTH_API_IDENTIFY) {
-		int result = cmd_identify(ut->devh);
-
-		if (result >= 0) {
-			fprintf(stdout, "The board is blinking; stop it with "
-			        "ubertooth-util -S or any mode option\n");
-			return 0;
-		}
-		/* Only a stall means the firmware does not know the request. */
-		if (result != LIBUSB_ERROR_PIPE)
-			return result;
+	if (result < 0)
+		return result;
+	if (version != UBERTOOTH_API_VERSION) {
+		fprintf(stderr, "error: -I needs firmware API version %x.%02x; the "
+		        "board reports %x.%02x. Flash the firmware built from the "
+		        "same source tree (./install.sh --flash-device).\n",
+		        (UBERTOOTH_API_VERSION >> 8) & 0xFF, UBERTOOTH_API_VERSION & 0xFF,
+		        (version >> 8) & 0xFF, version & 0xFF);
+		return -1;
 	}
-	/* On stderr: this is the degraded path, like the -f deprecation notice. */
-	fprintf(stderr, "Firmware has no identify mode; blinking from the host "
-	        "for %u s (Ctrl-C to stop)\n", UTIL_IDENTIFY_FALLBACK_MS / 1000u);
-	return identify_from_host(ut);
+	result = cmd_identify(ut->devh);
+	if (result < 0)
+		return result;
+	fprintf(stdout, "The board is blinking; stop it with "
+	        "ubertooth-util -S or any mode option\n");
+	return 0;
 }
 
 /* getopt reads an optional option value only when it is attached (-c2440).
@@ -418,7 +349,7 @@ static void usage(FILE *output)
 	fprintf(output, "\t-v get firmware revision number\n");
 	fprintf(output, "\t-V get compile info\n");
 	fprintf(output, "\t-H, --host-version get host tools (libubertooth) version\n");
-	fprintf(output, "\t-I identify ubertooth device by flashing the USR, RX, and TX LEDs (on the board, until -S; from the host for 10 s with firmware older than API 1.08)\n");
+	fprintf(output, "\t-I identify ubertooth device by flashing the USR, RX, and TX LEDs on the board, until -S or any mode option\n");
 	fprintf(output, "\t-d[0-1] get/set all LEDs\n");
 	fprintf(output, "\t-l[0-1] get/set USR LED\n");
 	fprintf(output, "\t-S stop current operation\n");

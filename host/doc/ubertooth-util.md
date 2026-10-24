@@ -46,10 +46,9 @@ blinks a second, until it is stopped:
     ubertooth-util -U<serial> -I      # start blinking
     ubertooth-util -U<serial> -S      # stop; the LEDs end off
 
-Firmware older than API version 1.08 has no identify mode. With such firmware
-`ubertooth-util` says so and blinks the LEDs over USB itself instead, for 10
-seconds or until Ctrl-C, then turns them off; the command holds the device open
-for as long as that takes.
+`-I` needs firmware of this tree's API version and refuses any other, saying
+so. The other options work with any firmware, so `-v` can still read the
+version and `-f` can reflash it.
 
 Only one mode option can be given per command: `-q`, `-n`, `-e`, `-t`, `-x`,
 `-I`, `-i` (In-System Programming, ISP) and `-f` (Device Firmware Upgrade,
@@ -73,8 +72,7 @@ Common options:
  - `-I` :
    identify ubertooth device by flashing the USR, RX, and TX LEDs on the board;
    the command returns at once and the blink runs until `-S` or any mode option
-   ends it, leaving the LEDs off (see LEDs doc). With firmware older than API
-   1.08 it falls back to blinking from the host for 10 seconds or until Ctrl-C
+   ends it, leaving the LEDs off (see LEDs doc)
  - `-d[0-1]` :
    get/set all LEDs
  - `-l[0-1]` :

@@ -59,10 +59,9 @@ ubertooth\-util \-U<serial> \-S      # stop; the LEDs end off
 .fi
 .RE
 .PP
-Firmware older than API version 1.08 has no identify mode. With such firmware
-\fB\fCubertooth\-util\fR says so and blinks the LEDs over USB itself instead, for
-10 seconds or until Ctrl\-C, then turns them off; the command holds the device
-open for as long as that takes.
+\fB\fC\-I\fR needs firmware of this tree's API version and refuses any other,
+saying so. The other options work with any firmware, so \fB\fC\-v\fR can still
+read the version and \fB\fC\-f\fR can reflash it.
 .PP
 Only one mode option can be given per command: \fB\fC\-q\fR, \fB\fC\-n\fR, \fB\fC\-e\fR, \fB\fC\-t\fR, \fB\fC\-x\fR,
 \fB\fC\-I\fR, \fB\fC\-i\fR (In\-System Programming, ISP) and \fB\fC\-f\fR (Device Firmware Upgrade,
@@ -93,9 +92,7 @@ get host tools (libubertooth) version; works without a device
 \fB\fC\-I\fR :
 identify ubertooth device by flashing the USR, RX, and TX LEDs on the board;
 the command returns at once and the blink runs until \fB\fC\-S\fR or any mode
-option ends it, leaving the LEDs off (see LEDs doc). With firmware older than
-API 1.08 it falls back to blinking from the host for 10 seconds or until
-Ctrl\-C
+option ends it, leaving the LEDs off (see LEDs doc)
 .IP \(bu 2
 \fB\fC\-d[0\-1]\fR :
 get/set all LEDs
