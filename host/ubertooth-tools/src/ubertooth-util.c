@@ -266,16 +266,14 @@ static int selects_by_serial(const char *u_arg)
 }
 
 /*
- * -I: starts the identify blink, which runs on the board as its own mode, so
- * the command returns at once; -S or any mode-starting command ends it.
- * ubertooth-util does not call ubertooth_check_api() (it must still read the
- * version of, and reflash, any firmware), so -I checks the version itself:
- * firmware that is not this tree's API version is refused with a message,
- * not blinked from the host.
+ * -I needs this tree's firmware. ubertooth-util does not call
+ * ubertooth_check_api() (it must still read the version of, and reflash, any
+ * firmware), so -I checks the version itself, before it prints or sends
+ * anything: firmware of another API version is refused with a message.
  *
- * Returns 0 on success, or a negative error.
+ * Returns 0 if the firmware matches, or a negative error.
  */
-static int identify_start(ubertooth_t* ut)
+static int identify_check_api(ubertooth_t* ut)
 {
 	uint16_t version = 0;
 	int result = ubertooth_get_api(ut, &version);
@@ -290,11 +288,6 @@ static int identify_start(ubertooth_t* ut)
 		        (version >> 8) & 0xFF, version & 0xFF);
 		return -1;
 	}
-	result = cmd_identify(ut->devh);
-	if (result < 0)
-		return result;
-	fprintf(stdout, "The board is blinking; stop it with "
-	        "ubertooth-util -S or any mode option\n");
 	return 0;
 }
 
@@ -805,12 +798,23 @@ int main(int argc, char *argv[])
 		goto out;
 	}
 	if(do_identify == 0) {
+		/* The blink runs on the board as its own mode, so the command returns
+		 * at once; -S or any mode-starting command ends it. */
+		int r = identify_check_api(ut);
+
+		if (r < 0) {
+			status = util_status_after(status, r);
+			goto out;
+		}
 		fprintf(stdout, "Flashing LEDs on ubertooth device %s\n", ubertooth_device ? ubertooth_device : "0");
 		/* Stop any operation already running on the device (e.g. -x xmas or
-		 * -q LED spectrum analyzer) so it does not fight the identify blink
-		 * and is not left running once identify ends. */
+		 * -q LED spectrum analyzer) so it does not fight the identify blink. */
 		status = util_status_after(status, cmd_stop(ut->devh));
-		status = util_status_after(status, identify_start(ut));
+		r = cmd_identify(ut->devh);
+		status = util_status_after(status, r);
+		if (r >= 0)
+			fprintf(stdout, "The board is blinking; stop it with "
+			        "ubertooth-util -S or any mode option\n");
 		goto out;
 	}
 	if(do_isp == 0) {

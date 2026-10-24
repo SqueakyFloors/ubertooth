@@ -944,6 +944,8 @@ MU_TEST(identify_refuses_firmware_of_another_api_version)
 		r = RUN("-I");
 		mu_assert_int_eq(1, r.rc);
 		mu_assert_int_eq(0, fake.identify_calls);
+		mu_assert_int_eq(0, fake.stop_calls); /* refused before anything is sent */
+		mu_assert(strstr(r.out, "Flashing LEDs") == NULL, "prints nothing on stdout");
 		mu_assert_int_eq(0, fake.usrled_writes);
 		mu_assert_int_eq(0, fake.sleeps);
 		mu_assert(strstr(r.err, "error: -I needs firmware API version") != NULL,
