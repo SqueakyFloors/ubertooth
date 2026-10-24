@@ -221,8 +221,8 @@ could not open Ubertooth device
 .PP
 Indexes are positions in the list of boards attached when the command runs:
 unplugging \fB\fC\-U0\fR makes the old \fB\fC\-U1\fR the new \fB\fC\-U0\fR\&. To keep targeting the same
-board, select it by serial number, in full or by a leading or trailing part of
-it that no other attached board shares.
+board, select it by serial number, in full or by its first few characters (as
+long as no other attached board's serial starts the same way).
 .PP
 This includes a nonzero index with a single Ubertooth attached (\fB\fC\-U1\fR
 of one device is refused; use \fB\fC\-U0\fR, or no \fB\fC\-U\fR at all). With no
@@ -241,26 +241,20 @@ indexes change when boards are added or removed; select a board by serial with \
 .fi
 .RE
 .PP
-A serial number need not be given in full. The string is compared
-case\-insensitively against each attached board's serial, and it matches the
-whole serial, a leading part of it, or a trailing part of it \- never its
-middle. For a board whose serial is
+A serial number need not be given in full: its first few characters are
+enough, upper or lower case. For a board whose serial is
 \fB\fC1cc001038088cb956c43ad61c52000f5\fR, \fB\fC\-U 1cc0\fR and
-\fB\fC\-U 1CC0\fR both select it, \fB\fC\-U c52000f5\fR selects it by the end
-of its serial, and \fB\fC\-U 8088cb95\fR selects nothing because that is the
-middle of it.
+\fB\fC\-U 1CC0\fR both select it.
 .PP
-Serials of boards from the same batch differ in their first digits and share
-their last ones, so a short leading part usually identifies one board while a
-short trailing part often does not. A string that matches more than one
-attached board selects neither: the matching serials are listed and the tool
-exits non\-zero:
+If those characters start the serial of more than one attached board, the
+tool selects neither: it lists the matching serials and exits non\-zero, and a
+few more characters pick one:
 .PP
 .RS
 .nf
-$ ubertooth\-util \-U 2000f5 \-s
-error: '2000f5' matches 2 Ubertooth devices: 1cc001038088cb956c43ad61c52000f5, 05f00014e380df95f4436562c32000f5
-select one of them by a longer part of its serial number
+$ ubertooth\-util \-U 1c \-s
+error: '1c' matches 2 Ubertooth devices: 1cc001038088cb956c43ad61c52000f5, 1cd3f0a9b4e26c1d8a7f30b5c42000f5
+select one of them by a longer prefix of its serial number
 .fi
 .RE
 .PP
@@ -287,8 +281,8 @@ libUSB Error: Access denied (insufficient permissions)
 .PP
 An all\-digits string is always an index, never a serial, even when it would
 match a serial: \fB\fC\-U 05\fR asks for index 5, not for the board whose
-serial starts \fB\fC05f0\fR\&. Select that board by a longer part of its serial
-that includes a non\-digit, or by its full serial.
+serial starts \fB\fC05f0\fR\&. Select that board by a longer prefix that includes
+a non\-digit (\fB\fC\-U 05f\fR), or by its full serial.
 .PP
 With several Ubertooths attached and no \fB\fC\-U\fR, the read\-only identity
 queries \fB\fC\-s\fR (serial), \fB\fC\-v\fR (firmware version), \fB\fC\-V\fR (compile
