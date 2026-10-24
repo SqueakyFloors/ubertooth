@@ -11,9 +11,10 @@
 #include "ubertooth.h"
 
 /* Polls before cc2400_wait_fs_unlock() gives up. Each poll is one bit-banged
- * 8-bit SPI transaction, on the order of a few microseconds, so the bound is a
- * few milliseconds. It is kept short deliberately: hop() calls this from
- * bt_stream_rx()'s streaming loop, where a long stall costs symbols. */
+ * 8-bit SPI transaction with no delay loops (cc2400_spi()), so well under a
+ * microsecond, putting the bound around a millisecond. It is kept short
+ * deliberately: hop() calls this from bt_stream_rx()'s streaming loop, where a
+ * long stall costs symbols. */
 #define FS_UNLOCK_POLLS 1000
 
 /* Re-strobe SRFOFF every this many polls. Short, so a strobe lost to bus

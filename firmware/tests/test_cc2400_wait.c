@@ -139,6 +139,19 @@ MU_TEST(test_restrobes_srfoff_while_waiting)
 	mu_assert_int_eq(0, (int)other_strobes);
 }
 
+/* The case the re-strobe exists for: one corrective SRFOFF, then the
+ * synthesizer reports unlocked. Success, exactly one strobe, nothing else. */
+MU_TEST(test_succeeds_after_one_restrobe)
+{
+	fake_radio_reset();
+	fake_radio_unlock_at_poll(FS_UNLOCK_RESTROBE_INTERVAL + 8);
+
+	mu_assert_int_eq(1, cc2400_wait_fs_unlock());
+	mu_assert_int_eq(FS_UNLOCK_RESTROBE_INTERVAL + 8, (int)status_reads);
+	mu_assert_int_eq(1, (int)srfoff_strobes);
+	mu_assert_int_eq(0, (int)other_strobes);
+}
+
 /* Boundary: unlock reported on the very last permitted poll still counts as
  * success, so the bound is not off by one. */
 MU_TEST(test_unlock_on_last_poll_succeeds)
@@ -180,6 +193,7 @@ int main(void)
 	MU_RUN(test_returns_success_once_unlocked);
 	MU_RUN(test_gives_up_when_lock_never_clears);
 	MU_RUN(test_restrobes_srfoff_while_waiting);
+	MU_RUN(test_succeeds_after_one_restrobe);
 	MU_RUN(test_unlock_on_last_poll_succeeds);
 	MU_RUN(test_unlock_one_poll_too_late_times_out);
 	MU_RUN(test_no_strobe_on_short_wait);

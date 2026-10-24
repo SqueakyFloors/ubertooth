@@ -339,9 +339,20 @@ void le_DMA_IRQHandler(void) {
 				// hands over to the FS_LOCK path, which only arms RX
 				// once the synthesizer reports locked.
 				cc2400_strobe(SFSON);
+
+				// same DMA teardown as the end-of-packet path below,
+				// including draining the SSP: the receiver keeps clocking
+				// bytes into the FIFO until SFSON takes effect, and they
+				// would otherwise be re-armed as the head of the next packet
 				DMACC0Config = 0;
+				DMACIntTCClear = (1 << 0);
 				DIO_SSP_DMACR &= ~SSPDMACR_RXDMAE;
+				while (SSP1SR & SSPSR_RNE) {
+					uint8_t tmp = (uint8_t)DIO_SSP_DR;
+					(void)tmp;
+				}
 				ICER0 = ICER0_ICE_DMA;
+
 				timer1_wait_buffer();
 				return;
 			}
@@ -554,9 +565,9 @@ static void change_channel(void) {
 
 	// current_rxbuf can be NULL when the buffer pool was exhausted at the end
 	// of a connection event. buffer_clear(NULL) faulted the CPU, so take a
-	// buffer if one has since been freed; without one, leave DMA and the SSP
-	// alone as well. le_cc2400_init_rf() below hands over to the timer1
-	// FS_LOCK path, which waits for a buffer before arming either.
+	// buffer if one has since been freed; without one, do not re-arm DMA or
+	// the SSP either. le_cc2400_init_rf() below hands over to the timer1
+	// FS_LOCK path, which waits for a buffer before arming them.
 	if (current_rxbuf == NULL)
 		current_rxbuf = buffer_get();
 	if (current_rxbuf != NULL) {
@@ -754,7 +765,12 @@ void TIMER1_IRQHandler(void) {
 	if (T1IR & TIR_MR3_Interrupt) {
 		T1IR = TIR_MR3_Interrupt;
 
-		current_rxbuf = buffer_get();
+		// only take a buffer if we do not already hold one: change_channel()
+		// can also acquire one while this wait is armed, and overwriting the
+		// pointer would leak that buffer for the rest of the mode
+		if (current_rxbuf == NULL)
+			current_rxbuf = buffer_get();
+
 		if (current_rxbuf == NULL) {
 			timer1_wait_buffer();
 		} else {

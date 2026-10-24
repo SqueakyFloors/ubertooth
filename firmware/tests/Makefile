@@ -47,10 +47,12 @@ $(BINDIR)/test_frend: test_frend.c minunit.h $(FW_COMMON)/cc2400.h \
 		-o $@ test_frend.c
 
 # cc2400_wait.c reaches the radio only through cc2400_status()/cc2400_strobe();
-# stubs/ubertooth.h declares them and the test supplies fake implementations.
-$(BINDIR)/test_cc2400_wait: test_cc2400_wait.c minunit.h stubs/ubertooth.h \
-		$(FW_RXTX)/cc2400_wait.c $(FW_RXTX)/cc2400_wait.h | $(BINDIR)
-	$(CC) $(CFLAGS) -Istubs $(CPPFLAGS) -o $@ test_cc2400_wait.c $(FW_RXTX)/cc2400_wait.c
+# stubs-radio/ubertooth.h declares them and the test supplies fake
+# implementations. -Istubs-radio comes before -I. so it wins over ubertooth.h
+# in this directory.
+$(BINDIR)/test_cc2400_wait: test_cc2400_wait.c minunit.h stubs-radio/ubertooth.h \
+		stubs/ubertooth.h $(FW_RXTX)/cc2400_wait.c $(FW_RXTX)/cc2400_wait.h | $(BINDIR)
+	$(CC) $(CFLAGS) -Istubs-radio $(CPPFLAGS) -o $@ test_cc2400_wait.c $(FW_RXTX)/cc2400_wait.c
 
 $(BINDIR):
 	mkdir -p $(BINDIR)
