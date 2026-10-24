@@ -7,8 +7,8 @@ Ubertooth. It is a Python/Qt application that reads spectrum data from the
 device (via ``ubertooth-specan``) and plots it.
 
 .. image:: ../images/specan_ui.png
-   :alt: ubertooth-specan-ui showing 2.4 GHz activity with the peak, average and
-         a left-click marker
+   :alt: ubertooth-specan-ui showing 2.4 GHz activity with the peak, the average
+         line, and both mouse markers with their frequency differences
 
 This guide covers installing and running it, its options, keys and display,
 and the common ``ModuleNotFoundError: No module named 'specan'`` error. The
