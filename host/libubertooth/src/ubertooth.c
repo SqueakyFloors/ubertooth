@@ -295,25 +295,18 @@ static int read_serial_string(struct libusb_device_handle* devh,
 }
 
 /* Does a -U serial string select this board? The string matches the whole
- * serial, a prefix of it, or a suffix of it, compared case-insensitively
- * because -s prints lowercase hex while a serial copied from elsewhere may be
- * upper case.
- *
- * Both ends are matched because neither alone is enough: Ubertooth serials
- * tend to share their trailing digits and to differ in their leading ones, so
- * a prefix is usually the shortest string that distinguishes two boards, while
- * a suffix is what earlier releases accepted and is what distinguishes boards
- * whose serials start alike. Matching both ends makes a short string more
- * likely to hit two boards, so the caller refuses a string that matches more
- * than one instead of opening whichever enumerated first. */
+ * serial or its start (a prefix), compared case-insensitively because -s
+ * prints lowercase hex while a serial copied from elsewhere may be upper case.
+ * Ubertooth serials differ in their leading digits and share their trailing
+ * ones, so only the start is matched; the caller refuses a string that matches
+ * more than one board instead of opening whichever enumerated first. */
 static int serial_matches(const char* query, const char* serial)
 {
 	size_t ql = strlen(query), sl = strlen(serial);
 
 	if (ql == 0 || ql > sl)
 		return 0;
-	return strncasecmp(query, serial, ql) == 0
-	    || strncasecmp(query, serial + (sl - ql), ql) == 0;
+	return strncasecmp(query, serial, ql) == 0;
 }
 
 /* Reports the attached Ubertooth devices a serial scan could not read, which
@@ -439,7 +432,7 @@ static struct libusb_device_handle* find_ubertooth_device_serial_opt(
 			fprintf(stderr, "\nthese Ubertooth devices report the same serial "
 			        "number; select one by index with -U<index>\n");
 		else
-			fprintf(stderr, "\nselect one of them by a longer part of its "
+			fprintf(stderr, "\nselect one of them by a longer prefix of its "
 			        "serial number\n");
 		report_unscanned(unopened, open_err, unread);
 	}

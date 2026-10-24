@@ -48,12 +48,11 @@ attached)`) and the tool exits non-zero. Indexes are positions in the list of
 boards attached when the command runs, so they shift when a board is added or
 removed; to keep targeting the same board, select it by serial.
 
-A serial may be shortened to a leading or a trailing part of itself (not its
-middle) and is compared case-insensitively, so `-U 1cc0` and `-U 1CC0` select
-the same board. A string that matches more than one attached board is refused,
-listing the matching serials, instead of opening one of them. An all-digits
-string is read as an index, so select a board by a part of its serial that
-includes a non-digit. See ubertooth-util(1), SELECTING A
+A serial may be shortened to its first few characters, in either case, so
+`-U 1cc0` and `-U 1CC0` select the same board. If those characters start more
+than one attached board's serial, the tool lists the matching serials and
+selects neither. An all-digits string is read as an index, so include a
+non-digit (`-U 05f` rather than `-U 05`). See ubertooth-util(1), SELECTING A
 DEVICE, for the full description and for listing the attached devices.
 
 ## SUPPORT

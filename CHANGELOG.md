@@ -144,10 +144,9 @@
   index too large to be a device index (`-U4294967296`) is refused as given
   instead of being wrapped into a different index.
   [#188](https://github.com/SqueakyFloors/ubertooth/issues/188)
-- `-U<serial>` now matches a leading part of a serial number as well as a
-  trailing part, compares case-insensitively, and refuses a string that matches
-  more than one attached board (`error: '2000f5' matches 2 Ubertooth devices:
-  ...`) instead of opening whichever enumerated first. An attached board that
+- `-U<serial>` takes the full serial or its first few characters, in either
+  case, and refuses characters that start more than one attached board's serial
+  (`error: '1c' matches 2 Ubertooth devices: ...`). An attached board that
   could not be opened or did not answer is reported with the result, instead of
   leaving a non-match looking like a serial that is not attached. The rules are
   documented in ubertooth-util(1), SELECTING A DEVICE, and ubertooth(7).
