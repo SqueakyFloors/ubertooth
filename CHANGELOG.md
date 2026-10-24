@@ -35,8 +35,16 @@
   [#154](https://github.com/SqueakyFloors/ubertooth/issues/154)
 - `ubertooth-util -H`/`--host-version` reports the installed host-tools
   version without a device.
-- `ubertooth-util -I` blinks light-emitting diodes (LEDs) faster for easier
-  identification and turns them off when interrupted with Ctrl-C.
+- `ubertooth-util -I` blinks the light-emitting diodes (LEDs) faster for easier
+  identification, and now runs the blink on the board like every other mode, so
+  the command returns at once and the board stays reachable; `-S` or any mode
+  option stops it and leaves the LEDs off.
+  [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
+- **Reflash required:** the firmware API version is now 1.08, and the host
+  tools require firmware of exactly their own API version, older or newer
+  (`ubertooth-util` still reads the version and reflashes any firmware). Host
+  and firmware come from the same tree; `2020-12-R1` firmware is refused.
+  [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
 - `ubertooth-specan-ui` draws a slowly smoothed average of the max-hold trace
   as a cyan dotted line labelled "Avg: N dBm", shown with the other markers.
   Credit: Sirio Balmelli ([@siriobalmelli](https://github.com/siriobalmelli)).

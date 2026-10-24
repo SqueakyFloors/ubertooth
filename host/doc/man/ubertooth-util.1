@@ -43,7 +43,25 @@ Operations that put the device into a continuous mode \- \fB\fC\-I\fR, \fB\fC\-q
 \fB\fC\-x\fR, \fB\fC\-t\fR, \fB\fC\-n\fR, and \fB\fC\-e\fR \- first stop any operation
 already running on that device, so each starts from a known idle state. This
 resets only the operating mode; the configured channel and power level are
-preserved.
+preserved. Each of them runs on the board and \fB\fCubertooth\-util\fR returns
+immediately, so the same board stays usable from other commands meanwhile.
+\fB\fC\-I\fR, \fB\fC\-q\fR, \fB\fC\-x\fR, \fB\fC\-t\fR and \fB\fC\-e\fR keep
+running until \fB\fC\-S\fR stops them or another mode replaces them;
+\fB\fC\-n\fR (range test) ends by itself when the test finishes.
+.PP
+\fB\fC\-I\fR (identify) blinks the USR, RX and TX LEDs together, about three
+on\-off blinks a second, until it is stopped:
+.PP
+.RS
+.nf
+ubertooth\-util \-U<serial> \-I      # start blinking
+ubertooth\-util \-U<serial> \-S      # stop; the LEDs end off
+.fi
+.RE
+.PP
+\fB\fC\-I\fR needs firmware of this tree's API version and refuses any other,
+saying so. The other options work with any firmware, so \fB\fC\-v\fR can still
+read the version and \fB\fC\-f\fR can reflash it.
 .PP
 Only one mode option can be given per command: \fB\fC\-q\fR, \fB\fC\-n\fR, \fB\fC\-e\fR, \fB\fC\-t\fR, \fB\fC\-x\fR,
 \fB\fC\-I\fR, \fB\fC\-i\fR (In\-System Programming, ISP) and \fB\fC\-f\fR (Device Firmware Upgrade,
@@ -72,7 +90,9 @@ get compile info; exits non\-zero if the read fails
 get host tools (libubertooth) version; works without a device
 .IP \(bu 2
 \fB\fC\-I\fR :
-identify ubertooth device by flashing the USR, RX, and TX LEDs (runs until Ctrl-C)
+identify ubertooth device by flashing the USR, RX, and TX LEDs on the board;
+the command returns at once and the blink runs until \fB\fC\-S\fR or any mode
+option ends it, leaving the LEDs off (see LEDs doc)
 .IP \(bu 2
 \fB\fC\-d[0\-1]\fR :
 get/set all LEDs
@@ -232,11 +252,12 @@ device matches.
 .PP
 To tell which index or serial is which physical device: run
 \fB\fCubertooth\-util \-s\fR, or any other tool with no \fB\fC\-U\fR (with more than
-one present it lists each index with its serial number), or flash the LEDs on a given device and watch which board blinks:
+one present it lists each index with its serial number), or flash the LEDs on a given device and watch which board blinks, then stop it:
 .PP
 .RS
 .nf
 ubertooth\-util \-U0 \-I
+ubertooth\-util \-U0 \-S
 .fi
 .RE
 .PP

@@ -918,20 +918,19 @@ int ubertooth_check_api(ubertooth_t *ut) {
 		return result;
 	}
 
-	if (version < UBERTOOTH_API_VERSION) {
-		fprintf(stderr, "Ubertooth API version %x.%02x found, libubertooth %s requires %x.%02x.\n",
+	/* Host and firmware are released together: any other version, older or
+	 * newer, is refused rather than run with behaviour the host does not
+	 * expect. */
+	if (version != UBERTOOTH_API_VERSION) {
+		fprintf(stderr, "error: Ubertooth firmware API version %x.%02x found, libubertooth %s requires %x.%02x.\n",
 				(version>>8)&0xFF, version&0xFF, VERSION,
 				(UBERTOOTH_API_VERSION>>8)&0xFF, UBERTOOTH_API_VERSION&0xFF);
-		fprintf(stderr, "Please upgrade to latest released firmware.\n");
-		fprintf(stderr, "See: https://github.com/greatscottgadgets/ubertooth/wiki/Firmware\n");
+		if (version < UBERTOOTH_API_VERSION)
+			fprintf(stderr, "Flash the firmware built from the same source tree, for example: ./install.sh --flash-device all\n");
+		else
+			fprintf(stderr, "Install the host tools built from the same source tree as the firmware.\n");
 		ubertooth_stop(ut);
 		return -1;
-	}
-	else if (version > UBERTOOTH_API_VERSION) {
-		fprintf(stderr, "Ubertooth API version %x.%02x found, newer than that supported by libubertooth (%x.%02x).\n",
-				(version>>8)&0xFF, version&0xFF,
-				(UBERTOOTH_API_VERSION>>8)&0xFF, UBERTOOTH_API_VERSION&0xFF);
-		fprintf(stderr, "Things will still work, but you might want to update your host tools.\n");
 	}
 	return 0;
 }

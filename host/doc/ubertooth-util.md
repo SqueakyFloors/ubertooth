@@ -34,7 +34,21 @@ Operations that put the device into a continuous mode — `-I` (identify),
 `-q` (LED spectrum), `-x` (xmas), `-t` (TX test), `-n` (range test), and
 `-e` (repeater) — first stop any operation already running on that device, so
 each starts from a known idle state. (This only resets the operating mode;
-configured channel and power level are preserved.)
+configured channel and power level are preserved.) Each of them runs on the
+board and `ubertooth-util` returns immediately, so the same board stays usable
+from other commands meanwhile. `-I`, `-q`, `-x`, `-t` and `-e` keep running
+until `-S` stops them or another mode replaces them; `-n` (range test) ends by
+itself when the test finishes.
+
+`-I` (identify) blinks the USR, RX and TX LEDs together, about three on-off
+blinks a second, until it is stopped:
+
+    ubertooth-util -U<serial> -I      # start blinking
+    ubertooth-util -U<serial> -S      # stop; the LEDs end off
+
+`-I` needs firmware of this tree's API version and refuses any other, saying
+so. The other options work with any firmware, so `-v` can still read the
+version and `-f` can reflash it.
 
 Only one mode option can be given per command: `-q`, `-n`, `-e`, `-t`, `-x`,
 `-I`, `-i` (In-System Programming, ISP) and `-f` (Device Firmware Upgrade,
@@ -56,7 +70,9 @@ Common options:
  - `-H`, `--host-version` :
    get host tools (libubertooth) version; works without a device
  - `-I` :
-   identify ubertooth device by flashing the USR, RX, and TX LEDs (runs until Ctrl-C; see LEDs doc)
+   identify ubertooth device by flashing the USR, RX, and TX LEDs on the board;
+   the command returns at once and the blink runs until `-S` or any mode option
+   ends it, leaving the LEDs off (see LEDs doc)
  - `-d[0-1]` :
    get/set all LEDs
  - `-l[0-1]` :
@@ -193,9 +209,11 @@ To tell which index or serial is which physical device:
 - Run `ubertooth-util -s`, or any other tool with no `-U`: with more than one
   Ubertooth present, the tool lists each device's index with its serial number
   (other tools refuse to pick one). Use that to map index to serial.
-- Or flash the LEDs on a given device and watch which board blinks:
+- Or flash the LEDs on a given device and watch which board blinks, then stop
+  it:
 
         ubertooth-util -U0 -I
+        ubertooth-util -U0 -S
 
 For a stable identity across reboots, select a device by its serial number
 (`ubertooth-util -U<serial> -I`); unlike the index, the serial does not change.

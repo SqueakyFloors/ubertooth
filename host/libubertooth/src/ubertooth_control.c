@@ -1234,6 +1234,23 @@ int cmd_xmas(struct libusb_device_handle* devh) {
 	return 0;
 }
 
+int cmd_identify(struct libusb_device_handle* devh) {
+	int r;
+
+	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_IDENTIFY, 0, 0,
+			NULL, 0, 1000);
+	if (r < 0) {
+		/* Firmware that predates the board-side identify mode stalls the
+		 * request. That is not an error to report: the caller blinks the LEDs
+		 * from the host instead, and says so. */
+		if (r != LIBUSB_ERROR_PIPE)
+			show_libusb_error(r);
+		return r;
+	}
+
+	return 0;
+}
+
 int ubertooth_cmd_sync(struct libusb_device_handle* devh,
                        uint8_t type,
                        uint8_t command,

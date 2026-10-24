@@ -24,8 +24,18 @@
 
 #include <stdint.h>
 
-// increment on every API change
-#define UBERTOOTH_API_VERSION 0x0107
+/*
+ * The firmware API version, reported by the firmware as the USB bcdDevice.
+ * The host tools require firmware with exactly this version
+ * (ubertooth_check_api()), so host and firmware are released together.
+ * Increment it on every firmware change the host relies on: a new or changed
+ * request, or a changed behaviour of an existing one.
+ */
+#define UBERTOOTH_API_VERSION 0x0108
+
+/* How often the identify blink toggles the USR/RX/TX LEDs, in milliseconds:
+ * about three on-off blinks a second. */
+#define UBERTOOTH_IDENTIFY_TOGGLE_MS 167
 
 #define DMA_SIZE 50
 
@@ -118,6 +128,7 @@ enum ubertooth_usb_commands {
 	UBERTOOTH_LE_SET_ADV_DATA    = 71,
 	UBERTOOTH_RFCAT_SUBCMD       = 72,
 	UBERTOOTH_XMAS               = 73,
+	UBERTOOTH_IDENTIFY           = 74,
 };
 
 enum rfcat24_subcommands {

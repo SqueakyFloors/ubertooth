@@ -50,6 +50,7 @@ enum operating_modes {
 	MODE_RX_GENERIC    = 15,
 	MODE_TX_GENERIC    = 16,
 	MODE_XMAS          = 17,
+	MODE_IDENTIFY      = 18,
 };
 
 /* hardware identification number */

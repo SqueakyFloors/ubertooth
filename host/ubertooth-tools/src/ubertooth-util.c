@@ -265,20 +265,30 @@ static int selects_by_serial(const char *u_arg)
 	return u_arg[strspn(u_arg, "0123456789")] != '\0';
 }
 
-/* For -I (identify): the loop runs until interrupted. Without a handler, Ctrl-C
- * leaves the USR/RX/TX LEDs in whatever state the last toggle set (often on).
- * This handler turns them off and exits cleanly so the device returns to the
- * same LED-off state as after a reset. */
-static ubertooth_t* identify_ut = NULL;
-static void identify_cleanup(int sig __attribute__((unused)))
+/*
+ * -I needs this tree's firmware. ubertooth-util does not call
+ * ubertooth_check_api() (it must still read the version of, and reflash, any
+ * firmware), so -I checks the version itself, before it prints or sends
+ * anything: firmware of another API version is refused with a message.
+ *
+ * Returns 0 if the firmware matches, or a negative error.
+ */
+static int identify_check_api(ubertooth_t* ut)
 {
-	if (identify_ut && identify_ut->devh) {
-		cmd_set_usrled(identify_ut->devh, 0);
-		cmd_set_rxled(identify_ut->devh, 0);
-		cmd_set_txled(identify_ut->devh, 0);
-		cmd_stop(identify_ut->devh);
+	uint16_t version = 0;
+	int result = ubertooth_get_api(ut, &version);
+
+	if (result < 0)
+		return result;
+	if (version != UBERTOOTH_API_VERSION) {
+		fprintf(stderr, "error: -I needs firmware API version %x.%02x; the "
+		        "board reports %x.%02x. Flash the firmware built from the "
+		        "same source tree (./install.sh --flash-device).\n",
+		        (UBERTOOTH_API_VERSION >> 8) & 0xFF, UBERTOOTH_API_VERSION & 0xFF,
+		        (version >> 8) & 0xFF, version & 0xFF);
+		return -1;
 	}
-	exit(0);
+	return 0;
 }
 
 /* getopt reads an optional option value only when it is attached (-c2440).
@@ -332,7 +342,7 @@ static void usage(FILE *output)
 	fprintf(output, "\t-v get firmware revision number\n");
 	fprintf(output, "\t-V get compile info\n");
 	fprintf(output, "\t-H, --host-version get host tools (libubertooth) version\n");
-	fprintf(output, "\t-I identify ubertooth device by flashing the USR, RX, and TX LEDs\n");
+	fprintf(output, "\t-I identify ubertooth device by flashing the USR, RX, and TX LEDs on the board, until -S or any mode option\n");
 	fprintf(output, "\t-d[0-1] get/set all LEDs\n");
 	fprintf(output, "\t-l[0-1] get/set USR LED\n");
 	fprintf(output, "\t-S stop current operation\n");
@@ -788,20 +798,24 @@ int main(int argc, char *argv[])
 		goto out;
 	}
 	if(do_identify == 0) {
+		/* The blink runs on the board as its own mode, so the command returns
+		 * at once; -S or any mode-starting command ends it. */
+		int r = identify_check_api(ut);
+
+		if (r < 0) {
+			status = util_status_after(status, r);
+			goto out;
+		}
 		fprintf(stdout, "Flashing LEDs on ubertooth device %s\n", ubertooth_device ? ubertooth_device : "0");
 		/* Stop any operation already running on the device (e.g. -x xmas or
-		 * -q LED spectrum analyzer) so it does not fight the identify blink
-		 * and is not left running after identify is interrupted. */
+		 * -q LED spectrum analyzer) so it does not fight the identify blink. */
 		status = util_status_after(status, cmd_stop(ut->devh));
-		identify_ut = ut;
-		signal(SIGINT, identify_cleanup);
-		while(42) {
-			do_identify= !do_identify;
-			cmd_set_usrled(ut->devh, do_identify);
-			cmd_set_rxled(ut->devh, do_identify);
-			cmd_set_txled(ut->devh, do_identify);
-			usleep(166667); /* ~3 Hz blink for a snappier identify */
-		}
+		r = cmd_identify(ut->devh);
+		status = util_status_after(status, r);
+		if (r >= 0)
+			fprintf(stdout, "The board is blinking; stop it with "
+			        "ubertooth-util -S or any mode option\n");
+		goto out;
 	}
 	if(do_isp == 0) {
 		fprintf(stdout, "Entering flash programming (ISP) mode\n");

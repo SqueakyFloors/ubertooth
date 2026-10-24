@@ -36,6 +36,7 @@
 #include "ego.h"
 #include "debug_uart.h"
 #include "xmas.h"
+#include "identify.h"
 
 #define MIN(x,y)	((x)<(y)?(x):(y))
 #define MAX(x,y)	((x)>(y)?(x):(y))
@@ -726,6 +727,10 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params, uin
 
 	case UBERTOOTH_XMAS:
 		requested_mode = MODE_XMAS;
+		break;
+
+	case UBERTOOTH_IDENTIFY:
+		requested_mode = MODE_IDENTIFY;
 		break;
 
 	default:
@@ -2704,6 +2709,10 @@ int main()
 				case MODE_XMAS:
 					mode = MODE_XMAS;
 					xmas_main();
+					break;
+				case MODE_IDENTIFY:
+					mode = MODE_IDENTIFY;
+					identify_main();
 					break;
 				case MODE_IDLE:
 					cc2400_idle();
