@@ -19,11 +19,25 @@
 
 project(ubertooth-python)
 
-# Check for a Python interpreter.
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/UbertoothPythonFloor.cmake)
+
+# The floor decision is unit-tested without an interpreter.
+add_test(NAME python-floor
+	COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/test_python_floor.cmake)
+
+# Check for a Python interpreter. No version is passed to find_package: that
+# would make CMake skip an older interpreter and pick a different one than
+# before. Check the one it found instead, and name it so the choice is visible.
 find_package(Python3 COMPONENTS Interpreter)
-if(NOT Python3_FOUND)
+ubertooth_python_floor("${Python3_FOUND}" "${Python3_VERSION}" "${REQUIRE_ALL}"
+	PYTHON_FLOOR_RESULT PYTHON_FLOOR_MESSAGE)
+if(PYTHON_FLOOR_RESULT STREQUAL "FATAL")
+	message(FATAL_ERROR "${PYTHON_FLOOR_MESSAGE}")
+elseif(PYTHON_FLOOR_RESULT STREQUAL "SKIPPED")
+	message(WARNING "${PYTHON_FLOOR_MESSAGE}")
 	return()
 endif()
+message(STATUS "${PYTHON_FLOOR_MESSAGE}: ${Python3_EXECUTABLE}")
 
 # Pure-Python modules are installed by CMake, not setup.py/pip. Ask the selected
 # interpreter for the standard posix_prefix purelib directory under the

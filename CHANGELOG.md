@@ -49,6 +49,9 @@
   custom prefixes and staged installs work without modifying the source tree
   or requiring `PYTHONPATH`.
   [#33](https://github.com/SqueakyFloors/ubertooth/issues/33)
+- CMake skips the Python tools with a warning when Python is older than 3.8
+  (an error with `-DREQUIRE_ALL=ON`) and names the interpreter it uses.
+  [#91](https://github.com/SqueakyFloors/ubertooth/issues/91)
 - Modern CMake and macOS builds are supported, including CMake 4 policy
   compatibility, Homebrew libusb headers, corrected cache/error declarations,
   and protection against system `MAX`/`MIN` macro collisions.

@@ -1,8 +1,9 @@
 specan_ui — graphical real-time spectrum analyzer for the Ubertooth.
 
 Requirements:
-  * Python 3.8+
-  * Python packages: numpy, qtpy, and a Qt binding (PySide6 or PyQt5)
+  * Python 3.8+ (the build skips the Python tools on an older interpreter)
+  * Python packages: numpy, qtpy, and a Qt binding: PySide6 (needs Python
+    3.9+; current releases need 3.10+) or PyQt5 (works on Python 3.8)
   * The built Ubertooth host tools (provides ubertooth-specan)
 
 Install (installs the launcher AND the specan Python package):

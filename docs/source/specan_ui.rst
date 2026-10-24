@@ -17,10 +17,13 @@ same reference is in the ``ubertooth-specan-ui(1)`` man page.
 Requirements
 ~~~~~~~~~~~~
 
-- Python 3 (3.8+).
+- Python 3.8 or newer. On an older interpreter the build skips the Python
+  tools with a warning (or fails with ``-DREQUIRE_ALL=ON``).
 - Python packages: ``numpy``, ``qtpy``, and a Qt binding such as **PySide6**
-  (or PyQt5). On Debian/Ubuntu: ``python3-numpy python3-qtpy python3-pyside6``;
-  or with pip: ``pip install numpy qtpy pyside6``.
+  (or PyQt5). PySide6 needs Python 3.9+ (current releases need 3.10+); on
+  Python 3.8 use PyQt5. On Debian/Ubuntu:
+  ``python3-numpy python3-qtpy python3-pyside6``; or with pip:
+  ``pip install numpy qtpy pyside6``.
 - The built Ubertooth host tools (so ``ubertooth-specan`` is available).
 
 Install
