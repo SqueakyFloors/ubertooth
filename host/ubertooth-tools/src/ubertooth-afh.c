@@ -20,8 +20,10 @@
  */
 
 #include "ubertooth.h"
+#include "opt_parse.h"
 #include <err.h>
 #include <getopt.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
@@ -44,7 +46,8 @@ static void usage()
 	printf("\n");
 	printf("Other options\n");
 	printf("\t-t <seconds> timeout for initial AFH map detection (not required)\n");
-	printf("\t-e maximum access code errors (default: %d, range: 0-4)\n", max_ac_errors);
+	printf("\t-e maximum access code errors (default: %d, range: 0-%d)\n",
+	       max_ac_errors, MAX_AC_ERRORS);
 	printf("\t-V print version information\n");
 	printf("\t-U <0-7> set ubertooth device to use\n");
 }
@@ -53,7 +56,7 @@ int main(int argc, char* argv[])
 {
 	int opt, have_lap = 0, have_uap = 0, timeout = 0;//, have_initial_afh = 0;
 	// uint8_t initial_afh[10];
-	char* end;
+	int threshold;
 	char* ubertooth_device = NULL;
 	btbb_piconet* pn = NULL;
 	uint32_t lap = 0;
@@ -69,11 +72,13 @@ int main(int argc, char* argv[])
 	while ((opt=getopt(argc,argv,"rhVl:u:U:e:a:t:m:")) != EOF) {
 		switch(opt) {
 		case 'l':
-			lap = strtol(optarg, &end, 16);
+			if (opt_require_lap(optarg, &lap) < 0)
+				return 1;
 			have_lap = 1;
 			break;
 		case 'u':
-			uap = strtol(optarg, &end, 16);
+			if (opt_require_uap(optarg, &uap) < 0)
+				return 1;
 			have_uap = 1;
 			break;
 		case 'a':
@@ -83,16 +88,25 @@ int main(int argc, char* argv[])
 			// have_initial_afh = 1;
 			break;
 		case 't':
-			timeout = atoi(optarg);
+			if (opt_require_int(optarg, 0, INT_MAX, "timeout", " seconds",
+			                    &timeout) < 0)
+				return 1;
 			break;
 		case 'U':
 			ubertooth_device = optarg;
 			break;
 		case 'e':
-			max_ac_errors = atoi(optarg);
+			if (opt_require_int(optarg, 0, MAX_AC_ERRORS,
+			                    "maximum access code errors", "",
+			                    &max_ac_errors) < 0)
+				return 1;
 			break;
 		case 'm':
-			packet_counter_max = atoi(optarg);
+			if (opt_require_int(optarg, 1, INT_MAX,
+			                    "channel removal threshold", "",
+			                    &threshold) < 0)
+				return 1;
+			packet_counter_max = (unsigned int)threshold;
 			break;
 		case 'V':
 			print_version();
@@ -107,6 +121,11 @@ int main(int argc, char* argv[])
 		}
 	}
 
+	/* ubertooth-afh takes no operands: refuse a leftover word before any
+	 * device is opened, rather than running the rest of the command. */
+	if (opt_check_no_operands(argc, argv) < 0)
+		return 1;
+
 	if (have_lap && have_uap) {
 		pn = btbb_piconet_new();
 		btbb_init_piconet(pn, lap);
@@ -116,12 +135,6 @@ int main(int argc, char* argv[])
 		btbb_init_survey();
 	} else {
 		printf("Error: UAP or LAP not specified\n");
-		usage();
-		return 1;
-	}
-
-	if (packet_counter_max == 0) {
-		printf("Error: Threshold for unused channels not specified\n");
 		usage();
 		return 1;
 	}

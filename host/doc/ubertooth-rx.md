@@ -73,11 +73,11 @@ Options:
    Input file. If not specified will perform live capture using
    Ubertooth.
 
- - `-c <0-79>` :
+ - `-c <0-78>` :
    Fixed channel for all major modes. If not specified will sweep
    through all channels.
 
- - `-e <0-4>` :
+ - `-e <0-5>` :
    Maximum access code bit errors. [Default: 2]
 
  - `-t <seconds>` :
@@ -134,6 +134,16 @@ still work. For example, `hcitool name 00:00:98:36:A2:B4` will establish
 a connection to the device and return its name.
 
 This attack works against discoverable and undiscoverable devices alike.
+
+## ARGUMENTS
+
+`ubertooth-rx` takes options only. A word that is not an option, including a
+bare `-`, is refused before any device is opened and named:
+`error: unexpected argument '<word>'`, with exit status 1.
+
+An option value must be a whole value in its range, or it is refused the same
+way instead of being read as 0, for example
+`error: channel must be 0-78 (got 79)`.
 
 ## SEE ALSO
 

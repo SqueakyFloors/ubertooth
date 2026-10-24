@@ -21,8 +21,10 @@
 
 #include "ubertooth.h"
 #include "ubertooth_callback.h"
+#include "opt_parse.h"
 #include <err.h>
 #include <getopt.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <unistd.h>  // sleep
 #include <string.h>
@@ -49,7 +51,6 @@ int main(int argc, char* argv[])
 	int opt, have_lap = 0, have_uap = 0;
 	int r;
 	int timeout = 0;
-	char* end;
 	char* ubertooth_device = NULL;
 	uint32_t lap = 0;
 	uint8_t uap = 0;
@@ -59,18 +60,22 @@ int main(int argc, char* argv[])
 	while ((opt=getopt(argc,argv,"hVl:u:U:t:")) != EOF) {
 		switch(opt) {
 		case 'l':
-			lap = strtol(optarg, &end, 16);
+			if (opt_require_lap(optarg, &lap) < 0)
+				return 1;
 			have_lap++;
 			break;
 		case 'u':
-			uap = strtol(optarg, &end, 16);
+			if (opt_require_uap(optarg, &uap) < 0)
+				return 1;
 			have_uap++;
 			break;
 		case 'U':
 			ubertooth_device = optarg;
 			break;
 		case 't':
-			timeout = atoi(optarg);
+			if (opt_require_int(optarg, 0, INT_MAX, "timeout", " seconds",
+			                    &timeout) < 0)
+				return 1;
 			break;
 		case 'V':
 			print_version();
@@ -81,6 +86,11 @@ int main(int argc, char* argv[])
 			return 1;
 		}
 	}
+
+	/* ubertooth-tx takes no operands: refuse a leftover word before any
+	 * device is opened, rather than running the rest of the command. */
+	if (opt_check_no_operands(argc, argv) < 0)
+		return 1;
 
 	r = ubertooth_connect_select(ut, ubertooth_device);
 	if (r < 0) {

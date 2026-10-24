@@ -127,13 +127,13 @@ Ubertooth.
 .IP \(bu 2
 
 .PP
-\fB\fC\-c <0\-79>\fR :
+\fB\fC\-c <0\-78>\fR :
 Fixed channel for all major modes. If not specified will sweep
 through all channels.
 .IP \(bu 2
 
 .PP
-\fB\fC\-e <0\-4>\fR :
+\fB\fC\-e <0\-5>\fR :
 Maximum access code bit errors. [Default: 2]
 .IP \(bu 2
 
@@ -215,6 +215,15 @@ a connection to the device and return its name.
 .PP
 This attack works against discoverable and undiscoverable devices alike.
 
+.SH ARGUMENTS
+.PP
+\fB\fCubertooth\-rx\fR takes options only. A word that is not an option, including
+a bare \fB\fC\-\fR, is refused before any device is opened and named:
+\fB\fCerror: unexpected argument '<word>'\fR, with exit status 1.
+.PP
+An option value must be a whole value in its range, or it is refused the same
+way instead of being read as 0, for example
+\fB\fCerror: channel must be 0\-78 (got 79)\fR\&.
 .SH SEE ALSO
 .PP
 ubertooth\-scan(1): active device scanning and inquiry using Ubertooth

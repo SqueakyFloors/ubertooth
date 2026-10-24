@@ -25,6 +25,12 @@ print ASCII 0 and 1 using `-b`.
  - `-U <0-7>` :
    which Ubertooth device to use
 
+## ARGUMENTS
+
+`ubertooth-dump` takes options only. A word that is not an option, including a
+bare `-`, is refused before any device is opened and named:
+`error: unexpected argument '<word>'`, with exit status 1.
+
 ## SEE ALSO
 
 ubertooth(7): overview of Project Ubertooth

@@ -33,6 +33,16 @@ it unchanged. A board that has not been given a level transmits at 7 (0 dBm),
 the CC2400's reset value. These levels are at the CC2400 radio; the Ubertooth
 One's RF amplifier changes the actual output after that.
 
+## ARGUMENTS
+
+`ubertooth-tx` takes options only. A word that is not an option, including a
+bare `-`, is refused before any device is opened and named:
+`error: unexpected argument '<word>'`, with exit status 1.
+
+An option value must be a whole value in its range, or it is refused the same
+way instead of being read as 0, for example
+`error: LAP must be 6 hex digits (got 4466)`.
+
 ## SEE ALSO
 
 ubertooth-dump(1), ubertooth(7)

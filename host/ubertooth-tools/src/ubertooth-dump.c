@@ -20,6 +20,7 @@
  */
 
 #include "ubertooth.h"
+#include "opt_parse.h"
 #include <getopt.h>
 #include <stdlib.h>
 
@@ -82,6 +83,11 @@ int main(int argc, char *argv[])
 			return 1;
 		}
 	}
+
+	/* ubertooth-dump takes no operands: refuse a leftover word before any
+	 * device is opened, rather than running the rest of the command. */
+	if (opt_check_no_operands(argc, argv) < 0)
+		return 1;
 
 	ut = ubertooth_start_select(ubertooth_device);
 

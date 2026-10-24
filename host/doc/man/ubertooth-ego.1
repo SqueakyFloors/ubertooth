@@ -64,15 +64,17 @@ Interfere with a connection (alias of \fB\fC\-i\fR)
 Options:
 .RS
 .IP \(bu 2
-\fB\fC\-c\fR :
-Channel to use for continuous receive (suggested: 2408, 2418, 2423, 2469)
+\fB\fC\-c <2402\-2480>\fR :
+Channel in MHz to use for continuous receive (suggested: 2408, 2418,
+2423, 2469)
 .IP \(bu 2
 \fB\fC\-l <1\-48>\fR :
 Packet length to use. The value must be a complete decimal integer from 1
 through 48; invalid values fail before the Ubertooth is opened.
 .IP \(bu 2
 \fB\fC\-a <access_code>\fR :
-Access code to use, given as hex (up to 4 bytes)
+Access code to use, given as 2, 4, 6 or 8 hex digits (1 to 4 whole
+bytes, default: 630f9ffe)
 .IP \(bu 2
 \fB\fC\-U <index|serial>\fR :
 Select an Ubertooth by enumeration index or stable serial\-number string
@@ -85,6 +87,15 @@ level jams at 7 (0 dBm, the maximum), the CC2400's reset value and the level
 jamming always used before\. Sniffing does not transmit and does not change the
 level\. These levels are at the CC2400 radio; the Ubertooth One's RF amplifier
 changes the actual output after that\.
+.SH ARGUMENTS
+.PP
+\fB\fCubertooth\-ego\fR takes options only. A word that is not an option, including
+a bare \fB\fC\-\fR, is refused before any device is opened and named:
+\fB\fCerror: unexpected argument '<word>'\fR, with exit status 1.
+.PP
+An option value must be a whole value in its range, or it is refused the same
+way instead of being read as 0, for example
+\fB\fCerror: channel must be 2402\-2480 MHz (got 2481)\fR\&.
 .SH SEE ALSO
 .PP
 .BR ubertooth (7): 

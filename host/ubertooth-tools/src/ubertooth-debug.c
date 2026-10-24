@@ -32,6 +32,7 @@
 
 #include "cc2400.h"
 #include "arglist.h"
+#include "opt_parse.h"
 
 static void usage()
 {
@@ -91,11 +92,8 @@ int main(int argc, char *argv[])
 	    ubertooth_device = optarg;
 	    break;
 	case 'v':
-	    verbose = atoi(optarg);
-	    if (verbose < 0 || verbose > 2) {
-		fprintf(stderr, "ERROR: verbosity out of range\n");
+	    if (opt_require_int(optarg, 0, 2, "verbosity", "", &verbose) < 0)
 		return 1;
-	    }
 	    break;
 	case 'r':
 	    regList = listOfInts(optarg, &regListN, token_to_int);
@@ -117,6 +115,11 @@ int main(int argc, char *argv[])
 	    return 1;
 	}
     }
+
+    /* ubertooth-debug takes no operands: refuse a leftover word before any
+     * device is opened, rather than running the rest of the command. */
+    if (opt_check_no_operands(argc, argv) < 0)
+	return 1;
 
 	if(regListN == 0) {
 		fprintf(stderr, "At least one register must be provided\n");

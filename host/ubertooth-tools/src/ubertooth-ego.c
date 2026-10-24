@@ -22,6 +22,7 @@
 #include "ubertooth.h"
 #include "ubertooth_callback.h"
 #include "ego_options.h"
+#include "opt_parse.h"
 #include <ctype.h>
 #include <err.h>
 #include <getopt.h>
@@ -50,9 +51,11 @@ static void usage(void)
 	printf("\t-i interfere\n");
 	printf("\n");
 	printf("    Options:\n");
-	printf("\t-c <2402-2480> set channel in MHz (for continuous rx)\n");
-	printf("\t-l <1-48> capture length as a decimal integer (default: 18)\n");
-	printf("\t-a <access_code> access code (default: 630f9ffe)\n");
+	printf("\t-c <%d-%d> set channel in MHz (for continuous rx)\n",
+	       BT_FREQ_MIN, BT_FREQ_MAX);
+	printf("\t-l <%d-%d> capture length as a decimal integer (default: 18)\n",
+	       EGO_PACKET_LENGTH_MIN, EGO_PACKET_LENGTH_MAX);
+	printf("\t-a <access_code> access code, 2-8 hex digits (default: 630f9ffe)\n");
 	printf("\t-U <index|serial> select Ubertooth by index or serial\n");
 }
 
@@ -63,9 +66,9 @@ int main(int argc, char *argv[])
 	int do_channel = 2418;
 	char* ubertooth_device = NULL;
 	uint8_t len = 18;
-	char *access_code_str = NULL;
-	uint8_t access_code[4];
-	int access_code_len;
+	int have_access_code = 0;
+	uint8_t access_code[EGO_ACCESS_CODE_BYTES];
+	int access_code_len = 0;
 	int r;
 
 	while ((opt=getopt(argc,argv,"frijc:U:a:l:h")) != EOF) {
@@ -81,17 +84,26 @@ int main(int argc, char *argv[])
 			do_mode = 2; // TODO take care of these magic numbers
 			break;
 		case 'c':
-			do_channel = atoi(optarg);
+			if (opt_require_int(optarg, BT_FREQ_MIN, BT_FREQ_MAX,
+			                    "channel", " MHz", &do_channel) < 0)
+				return 1;
 			break;
 		case 'U':
 			ubertooth_device = optarg;
 			break;
 		case 'a':
-			access_code_str = strdup(optarg);
+			if (ego_parse_access_code(optarg, access_code,
+			                          &access_code_len) < 0) {
+				fprintf(stderr, "error: access code must be 2, 4, 6 or 8 "
+				        "hex digits (got %s)\n", optarg);
+				return 1;
+			}
+			have_access_code = 1;
 			break;
 		case 'l':
 			if (ego_parse_packet_length(optarg, &len) < 0) {
-				fprintf(stderr, "Length must be in [1,48]\n");
+				fprintf(stderr, "Length must be in [%d,%d]\n",
+				        EGO_PACKET_LENGTH_MIN, EGO_PACKET_LENGTH_MAX);
 				usage();
 				return 1;
 			}
@@ -103,20 +115,10 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	// access code
-	if (access_code_str != NULL) {
-		int i;
-		uint32_t ac[4];
-		access_code_len = sscanf(access_code_str, "%02x%02x%02x%02x",
-				&ac[0], &ac[1], &ac[2], &ac[3]);
-		if (access_code_len < 1) {
-			printf("Invalid access code\n");
-			usage();
-			return 1;
-		}
-		for (i = 0; i < access_code_len; ++i)
-			access_code[i] = ac[i];
-	}
+	/* ubertooth-ego takes no operands: refuse a leftover word before any
+	 * device is opened, rather than running the rest of the command. */
+	if (opt_check_no_operands(argc, argv) < 0)
+		return 1;
 
 	ut = ubertooth_start_select(ubertooth_device);
 	if (ut == NULL) {
@@ -138,7 +140,7 @@ int main(int argc, char *argv[])
 		if (do_mode == 1) // FIXME magic number!
 			cmd_set_channel(ut->devh, do_channel);
 
-		if (access_code_str != NULL)
+		if (have_access_code)
 			cmd_rfcat_subcmd(ut->devh, RFCAT_SET_AA, access_code, access_code_len);
 
 		cmd_rfcat_subcmd(ut->devh, RFCAT_CAP_LEN, &len, sizeof(len));

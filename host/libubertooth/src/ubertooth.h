@@ -71,6 +71,11 @@ extern FILE* infile;
 extern FILE* dumpfile;
 extern int max_ac_errors;
 
+/* The largest value btbb_init() accepts for max_ac_errors: libbtbb refuses
+ * anything above AC_ERROR_LIMIT (lib/src/bluetooth_packet.c), which btbb.h
+ * documents as 5. Anything larger needs a syndrome table of several GB. */
+#define MAX_AC_ERRORS 5
+
 void print_version();
 void register_cleanup_handler(ubertooth_t* ut, int do_exit);
 ubertooth_t* ubertooth_init();

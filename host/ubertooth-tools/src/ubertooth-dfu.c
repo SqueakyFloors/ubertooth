@@ -31,6 +31,7 @@
 #include "dfu.h"
 #include "dfu_transition.h"
 #include "dfu_recovery.h"
+#include "opt_parse.h"
 
 static struct timespec operation_started;
 
@@ -819,6 +820,11 @@ int main(int argc, char **argv) {
 			return 1;
 		}
 	}
+
+	/* ubertooth-dfu takes no operands: refuse a leftover word before any
+	 * device is opened, rather than running the rest of the command. */
+	if (opt_check_no_operands(argc, argv) < 0)
+		return 1;
 
 	if(functions & FUNC_SIGN) {
 		exit_status = sign(infile, outfile, U1_DFU_VENDORID,

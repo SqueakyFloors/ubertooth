@@ -28,6 +28,7 @@
 #include <errno.h>
 #include <ctype.h>
 #include <signal.h>
+#include "opt_parse.h"
 #include "util_clock.h"
 #include "util_report.h"
 #include "util_modes.h"
@@ -291,48 +292,8 @@ static int identify_check_api(ubertooth_t* ut)
 	return 0;
 }
 
-/* getopt reads an optional option value only when it is attached (-c2440).
- * ubertooth-util takes no other arguments, so a number in the next word can
- * only be that value: take it, so -c 2440 works like -c2440. A word that is
- * not a number is left alone (-c -b reads the channel, then -b runs). */
-static char *separate_option_value(int argc, char *argv[], int allow_negative)
-{
-	const char *word, *digits;
-
-	if (optind >= argc)
-		return NULL;
-	word = argv[optind];
-	digits = (allow_negative && word[0] == '-') ? word + 1 : word;
-	if (digits[0] == '\0' || strspn(digits, "0123456789") != strlen(digits))
-		return NULL;
-	optind++;
-	return argv[optind - 1];
-}
-
 /* do_palevel value for a bare -a: read the PA level. */
 #define PA_QUERY (-2)
-
-/* Parse an option value as a whole decimal integer in [min, max]. Returns 0
- * and sets *value, or prints "error: <what> must be <min>-<max> (got <text>)"
- * and returns 1. Unlike atoi(), "abc", "5x" and "" are errors, not 0. */
-static int parse_option_value(const char *text, long min, long max,
-                              const char *what, const char *unit, int *value)
-{
-	char *end;
-	long v;
-
-	errno = 0;
-	v = strtol(text, &end, 10);
-	if (text[0] == '\0' || isspace((unsigned char)text[0]) || text[0] == '+' ||
-	    *end != '\0' || errno == ERANGE || v < min || v > max) {
-		/* "-128 to 127" reads better than "-128-127" */
-		fprintf(stderr, "error: %s must be %ld%s%ld%s (got %s)\n",
-		        what, min, min < 0 ? " to " : "-", max, unit, text);
-		return 1;
-	}
-	*value = (int)v;
-	return 0;
-}
 
 static void usage(FILE *output)
 {
@@ -421,7 +382,9 @@ int main(int argc, char *argv[])
 		/* An optional value may also be the next word: -c 2440, -z -90. Only
 		 * -z takes a negative value (a signed RSSI threshold). */
 		if (optarg == NULL && strchr("lacCdqz", opt) != NULL)
-			optarg = separate_option_value(argc, argv, opt == 'z');
+			optarg = opt_separate_value(argc, argv,
+			                            opt == 'z' ? opt_value_signed_decimal
+			                                       : opt_value_decimal);
 		/* Anything but an identity query or -U needs a single selected device. */
 		if (strchr("svVpbU", opt) == NULL)
 			other_operations = 1;
@@ -440,14 +403,14 @@ int main(int argc, char *argv[])
 			break;
 		case 'l':
 			if (optarg) {
-				if (parse_option_value(optarg, 0, 1, "USR LED state", "", &do_leds))
+				if (opt_require_int(optarg, 0, 1, "USR LED state", "", &do_leds))
 					return 1;
 			} else
 				do_leds= 2; /* can't use 0 as it's a valid option */
 			break;
 		case 'd':
 			if (optarg) {
-				if (parse_option_value(optarg, 0, 1, "all-LED state", "", &do_all_leds))
+				if (opt_require_int(optarg, 0, 1, "all-LED state", "", &do_all_leds))
 					return 1;
 			} else
 				do_all_leds= 2; /* can't use 0 as it's a valid option */
@@ -483,7 +446,7 @@ int main(int argc, char *argv[])
 		case 'C':
 			if (optarg) {
 				int ch;
-				if (parse_option_value(optarg, 0, NUM_BREDR_CHANNELS - 1, "channel", "", &ch))
+				if (opt_require_int(optarg, 0, NUM_BREDR_CHANNELS - 1, "channel", "", &ch))
 					return 1;
 				do_channel= ch + BT_FREQ_MIN;
 			} else
@@ -491,14 +454,14 @@ int main(int argc, char *argv[])
 			break;
 		case 'c':
 			if (optarg) {
-				if (parse_option_value(optarg, BT_FREQ_MIN, BT_FREQ_MAX, "frequency", " MHz", &do_channel))
+				if (opt_require_int(optarg, BT_FREQ_MIN, BT_FREQ_MAX, "frequency", " MHz", &do_channel))
 					return 1;
 			} else
 				do_channel= 0;
 			break;
 		case 'q':
 			if (optarg) {
-				if (parse_option_value(optarg, 1, 225, "RSSI threshold", "", &do_led_specan))
+				if (opt_require_int(optarg, 1, 225, "RSSI threshold", "", &do_led_specan))
 					return 1;
 			} else
 				do_led_specan= 0; /* the default threshold, 225 */
@@ -522,7 +485,7 @@ int main(int argc, char *argv[])
 			if (optarg) {
 				/* a signed 8-bit RSSI threshold; values above 0 are
 				 * relative to the average RSSI */
-				if (parse_option_value(optarg, -128, 127, "squelch level", "", &squelch_level))
+				if (opt_require_int(optarg, -128, 127, "squelch level", "", &squelch_level))
 					return 1;
 				do_set_squelch = 1;
 			}
@@ -559,10 +522,8 @@ int main(int argc, char *argv[])
 	/* ubertooth-util takes no operands. Refuse a leftover word before any
 	 * device is opened: otherwise a typo such as "- V" (for -V) is dropped
 	 * silently while the rest of the command still runs. */
-	if (optind < argc) {
-		fprintf(stderr, "error: unexpected argument '%s'\n", argv[optind]);
+	if (opt_check_no_operands(argc, argv) < 0)
 		return 1;
-	}
 
 	/* -h and -H end the command before anything else, but only once the
 	 * whole command line has parsed: an invalid option value or a stray

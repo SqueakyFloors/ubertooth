@@ -35,6 +35,11 @@ Dump to file instead of stdout
 \fB\fC\-U <0\-7>\fR :
 which Ubertooth device to use
 .RE
+.SH ARGUMENTS
+.PP
+\fB\fCubertooth\-dump\fR takes options only. A word that is not an option, including
+a bare \fB\fC\-\fR, is refused before any device is opened and named:
+\fB\fCerror: unexpected argument '<word>'\fR, with exit status 1.
 .SH SEE ALSO
 .PP
 .BR ubertooth (7): 

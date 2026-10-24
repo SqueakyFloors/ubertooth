@@ -22,6 +22,7 @@
 #include "ubertooth.h"
 #include "ubertooth_callback.h"
 #include "btle_options.h"
+#include "opt_parse.h"
 #include <err.h>
 #include <fcntl.h>
 #include <getopt.h>
@@ -29,6 +30,13 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <signal.h>
+
+/* The BLE advertising channel indexes (Bluetooth Core spec: 37, 38, 39). */
+#define ADV_INDEX_MIN 37
+#define ADV_INDEX_MAX 39
+
+/* An access address is 32 bits, so at most 32 of its bits can be wrong. */
+#define AA_ERRORS_MAX 32
 
 int cancel_follow = 0;
 
@@ -130,9 +138,11 @@ static void usage(void)
 	printf("\t-r<filename> capture packets to PCAPNG file\n");
 	printf("\t-q<filename> capture packets to PCAP file (DLT_BLUETOOTH_LE_LL_WITH_PHDR)\n");
 	printf("\t-c<filename> capture packets to PCAP file (DLT_PPI + DLT_BLUETOOTH_LE_LL)\n");
-	printf("\t-A<index> advertising channel index (default 37)\n");
-	printf("\t-v[01] verify CRC mode, get status or enable/disable\n");
-	printf("\t-x<n> allow n access address offenses (default 32)\n");
+	printf("\t-A<%d-%d> advertising channel index (default %d)\n",
+	       ADV_INDEX_MIN, ADV_INDEX_MAX, ADV_INDEX_MIN);
+	printf("\t-v[01] verify CRC mode, get status (-v) or enable/disable (-v1, -v 0)\n");
+	printf("\t-x<0-%d> allow n access address offenses (default %d)\n",
+	       AA_ERRORS_MAX, AA_ERRORS_MAX);
 
 	printf("\nIf an input file is not specified, an Ubertooth device is used for live capture.\n");
 	printf("In get/set mode no capture occurs.\n");
@@ -171,12 +181,12 @@ int main(int argc, char *argv[])
 			 * a following word that is not an option as the value too,
 			 * so "-a 8e89bed6" sets and "-a zzzz" is refused rather than
 			 * silently reading. ubertooth-btle takes no other operands. */
-			if (optarg == NULL && optind < argc && argv[optind][0] != '-')
-				optarg = argv[optind++];
+			if (optarg == NULL)
+				optarg = opt_separate_value(argc, argv, opt_value_not_option);
 			if (optarg == NULL) {
 				do_get_aa = 1;
 			} else {
-				if (!parse_access_address(optarg, &access_address)) {
+				if (opt_parse_access_address(optarg, &access_address) < 0) {
 					fprintf(stderr, "error: access address must be 1-8 hex digits (got %s)\n", optarg);
 					return 1;
 				}
@@ -250,18 +260,22 @@ int main(int argc, char *argv[])
 			}
 			break;
 		case 'v':
-			if (optarg)
-				do_crc = atoi(optarg) ? 1 : 0;
-			else
+			/* -v reads the CRC verify setting; -v0 / -v1 sets it, written
+			 * attached or as the next word. */
+			if (optarg == NULL)
+				optarg = opt_separate_value(argc, argv, opt_value_decimal);
+			if (optarg) {
+				if (opt_require_int(optarg, 0, 1, "CRC verify mode", "",
+				                    &do_crc) < 0)
+					return 1;
+			} else
 				do_crc = 2; // get
 			break;
 		case 'A':
-			do_adv_index = atoi(optarg);
-			if (do_adv_index < 37 || do_adv_index > 39) {
-				printf("Error: advertising index must be 37, 38, or 39\n");
-				usage();
+			if (opt_require_int(optarg, ADV_INDEX_MIN, ADV_INDEX_MAX,
+			                    "advertising channel index", "",
+			                    &do_adv_index) < 0)
 				return 1;
-			}
 			break;
 		case 's':
 			do_slave_mode = 1;
@@ -279,14 +293,15 @@ int main(int argc, char *argv[])
 				return 1;
 			}
 			break;
-		case 'x':
-			cb_opts.allowed_access_address_errors = (unsigned) atoi(optarg);
-			if (cb_opts.allowed_access_address_errors > 32) {
-				printf("Error: can tolerate 0-32 access address bit errors\n");
-				usage();
+		case 'x': {
+			int offenses;
+			if (opt_require_int(optarg, 0, AA_ERRORS_MAX,
+			                    "access address offenses", "",
+			                    &offenses) < 0)
 				return 1;
-			}
+			cb_opts.allowed_access_address_errors = (unsigned)offenses;
 			break;
+		}
 		case 'i':
 		case 'j':
 			jam_mode = JAM_ONCE;
@@ -302,6 +317,12 @@ int main(int argc, char *argv[])
 		}
 	}
 
+
+	/* ubertooth-btle takes no operands: refuse a leftover word before any
+	 * device is opened, rather than running the rest of the command. "-"
+	 * is only a value of -q/-c/-r, which getopt has already taken. */
+	if (opt_check_no_operands(argc, argv) < 0)
+		return 1;
 
 	/* -a reads and -a<address> sets; one command cannot do both (the read
 	 * used to win and the set was dropped). */

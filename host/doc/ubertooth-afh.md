@@ -27,7 +27,7 @@ handler is disabled in the source and the flag has no effect.
  - `-u <UAP>` :
    UAP of target piconet (1 byte / 2 hex digits)
  - `-m <int>` :
-   threshold for channel removal (default: 5)
+   threshold for channel removal, 1 or more (default: 5)
  - `-r` :
    print AFH channel map once every second (default: print on update)
 
@@ -35,12 +35,22 @@ Other options:
 
  - `-t <seconds>` :
    timeout for initial AFH map detection (not required)
- - `-e <0-4>` :
-   maximum access code errors (default: 2, range: 0-4)
+ - `-e <0-5>` :
+   maximum access code errors (default: 2, range: 0-5)
  - `-V` :
    print version information
  - `-U <0-7>` :
    set ubertooth device to use
+
+## ARGUMENTS
+
+`ubertooth-afh` takes options only. A word that is not an option, including a
+bare `-`, is refused before any device is opened and named:
+`error: unexpected argument '<word>'`, with exit status 1.
+
+An option value must be a whole value in its range, or it is refused the same
+way instead of being read as 0, for example
+`error: timeout must be 0-2147483647 seconds (got abc)`.
 
 ## SEE ALSO
 

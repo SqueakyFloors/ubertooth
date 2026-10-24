@@ -19,9 +19,9 @@ Requires BlueZ (Linux only).
 ## OPTIONS
 
  - `-l <LAP>` :
-   target LAP, in hexadecimal.
+   target LAP (3 bytes / 6 hex digits).
  - `-u <UAP>` :
-   target UAP, in hexadecimal.
+   target UAP (1 byte / 2 hex digits).
  - `-U <0-7>` :
    which Ubertooth device to use.
  - `-r <filename>` :
@@ -30,8 +30,8 @@ Requires BlueZ (Linux only).
    capture packets to a PCAP file.
  - `-d <filename>` :
    dump received symbols to the named file.
- - `-e <max_ac_errors>` :
-   maximum access-code errors to tolerate.
+ - `-e <0-5>` :
+   maximum access-code errors to tolerate (default: 2).
  - `-a` :
    enable AFH (adaptive frequency hopping).
  - `-b <hciN>` :
@@ -46,6 +46,16 @@ Requires BlueZ (Linux only).
 Follow a target with a known LAP/UAP, writing a PCAP:
 
     ubertooth-follow -l 0x123456 -u 0x78 -q capture.pcap
+
+## ARGUMENTS
+
+`ubertooth-follow` takes options only. A word that is not an option, including a
+bare `-`, is refused before any device is opened and named:
+`error: unexpected argument '<word>'`, with exit status 1.
+
+An option value must be a whole value in its range, or it is refused the same
+way instead of being read as 0, for example
+`error: LAP must be 6 hex digits (got 4466)`.
 
 ## SEE ALSO
 

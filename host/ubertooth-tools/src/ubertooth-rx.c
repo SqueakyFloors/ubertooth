@@ -21,8 +21,10 @@
 
 #include "ubertooth.h"
 #include "ubertooth_callback.h"
+#include "opt_parse.h"
 #include <err.h>
 #include <getopt.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -43,8 +45,10 @@ static void usage()
 	printf("\t-i <filename> input file - if not specified use Ubertooth for live capture\n");
 	printf("\n");
 	printf("Configuration:\n");
-	printf("\t-c <BT Channel> set a fixed bluetooth channel [Default: 39]\n");
-	printf("\t-e max_ac_errors (default: %d, range: 0-4)\n", max_ac_errors);
+	printf("\t-c <0-%d> set a fixed bluetooth channel [Default: sweep]\n",
+	       NUM_BREDR_CHANNELS - 1);
+	printf("\t-e max_ac_errors (default: %d, range: 0-%d)\n",
+	       max_ac_errors, MAX_AC_ERRORS);
 	printf("\t-t <SECONDS> sniff timeout - 0 means no timeout [Default: 0]\n");
 	printf("\n");
 	printf("Output options:\n");
@@ -63,7 +67,6 @@ int main(int argc, char* argv[])
 	int survey_mode = 0;
 	int r;
 	int timeout = 0;
-	char* end;
 	char* ubertooth_device = NULL;
 	btbb_piconet* pn = NULL;
 	uint32_t lap = 0;
@@ -83,11 +86,13 @@ int main(int argc, char* argv[])
 			}
 			break;
 		case 'l':
-			lap = strtol(optarg, &end, 16);
+			if (opt_require_lap(optarg, &lap) < 0)
+				return 1;
 			have_lap++;
 			break;
 		case 'u':
-			uap = strtol(optarg, &end, 16);
+			if (opt_require_uap(optarg, &uap) < 0)
+				return 1;
 			have_uap++;
 			break;
 		case 'U':
@@ -121,21 +126,30 @@ int main(int argc, char* argv[])
 			}
 			break;
 		case 'e':
-			max_ac_errors = atoi(optarg);
+			if (opt_require_int(optarg, 0, MAX_AC_ERRORS,
+			                    "maximum access code errors", "",
+			                    &max_ac_errors) < 0)
+				return 1;
 			break;
 		case 's':
 			fprintf(stderr, "sweep mode is now the default and the -s argument is deprecated\n");
 			break;
 		case 't':
-			timeout = atoi(optarg);
+			if (opt_require_int(optarg, 0, INT_MAX, "timeout", " seconds",
+			                    &timeout) < 0)
+				return 1;
 			break;
 		case 'z':
 			++survey_mode;
 			break;
-		case 'c':
-			channel = atoi(optarg);
-			channel = channel + 2402;
+		case 'c': {
+			int bt_channel;
+			if (opt_require_int(optarg, 0, NUM_BREDR_CHANNELS - 1,
+			                    "channel", "", &bt_channel) < 0)
+				return 1;
+			channel = (uint16_t)(bt_channel + BT_FREQ_MIN);
 			break;
+		}
 		case 'V':
 			print_version();
 			return 0;
@@ -145,6 +159,11 @@ int main(int argc, char* argv[])
 			return 1;
 		}
 	}
+
+	/* ubertooth-rx takes no operands: refuse a leftover word before any
+	 * device is opened, rather than running the rest of the command. */
+	if (opt_check_no_operands(argc, argv) < 0)
+		return 1;
 
 	if(survey_mode && (have_lap || have_uap)) {
 		fprintf(stderr, "No address should be specified for survey mode\n");

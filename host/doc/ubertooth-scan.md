@@ -31,12 +31,22 @@ Extended Inquiry Scan:
    eXtended scan - retrieve additional information about target devices
  - `-t <seconds>` :
    scan Time - length of time to sniff packets. [Default: 20s]
- - `-e <0-4>` : 
+ - `-e <0-5>` : 
     Maximum Access Code Errors (default: 2)
  - `-b hciN` :
     Bluetooth device (default: hci0)
  - `-U<0-7>` :
     which Ubertooth device to use
+
+## ARGUMENTS
+
+`ubertooth-scan` takes options only. A word that is not an option, including a
+bare `-`, is refused before any device is opened and named:
+`error: unexpected argument '<word>'`, with exit status 1.
+
+An option value must be a whole value in its range, or it is refused the same
+way instead of being read as 0, for example
+`error: maximum access code errors must be 0-5 (got 6)`.
 
 ## SEE ALSO
 
