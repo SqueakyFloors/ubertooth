@@ -153,7 +153,7 @@ MU_TEST(a_device_never_seen_leaving_is_selected_after_the_leave_window)
 	mu_assert_int_eq((int)(5000 + UTIL_RESET_WAIT_LEAVE_MS), (int)bus.first_select_at);
 }
 
-MU_TEST(no_leave_wait_when_the_count_before_is_unknown_or_the_reset_failed)
+MU_TEST(no_leave_wait_when_the_count_before_is_unknown)
 {
 	struct fake_bus bus = make_bus(0, 0);
 	struct util_reset_wait_params params = defaults(0, 1);
@@ -252,7 +252,7 @@ int main(void)
 	MU_RUN(a_slow_reenumeration_is_waited_for_beyond_the_old_two_seconds);
 	MU_RUN(the_old_device_is_not_opened_before_it_leaves);
 	MU_RUN(a_device_never_seen_leaving_is_selected_after_the_leave_window);
-	MU_RUN(no_leave_wait_when_the_count_before_is_unknown_or_the_reset_failed);
+	MU_RUN(no_leave_wait_when_the_count_before_is_unknown);
 	MU_RUN(selection_by_index_waits_for_every_board_to_be_back);
 	MU_RUN(selection_by_serial_polls_without_waiting_for_the_count);
 	MU_RUN(a_count_error_is_not_taken_as_the_device_leaving);

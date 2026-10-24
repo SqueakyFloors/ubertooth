@@ -820,8 +820,10 @@ ubertooth_t* ubertooth_start_select(const char* u_arg)
  * absent, for example while it re-enumerates after a reset. Prints nothing and
  * sends no command other than the serial-number read needed to match a serial.
  * If the device is not found or cannot be claimed it is closed WITHOUT sending
- * STOP, so a failed attempt leaves the device state unchanged. An index must
- * exist (it is never taken to mean the only device present). */
+ * STOP, so a failed attempt leaves the device state unchanged. An index is
+ * chosen as in ubertooth_start_select() (with one device attached, any index
+ * opens it), except that an index past the end of several devices opens
+ * nothing. */
 ubertooth_t* ubertooth_start_select_quiet(const char* u_arg)
 {
 	struct libusb_device_handle* devh;

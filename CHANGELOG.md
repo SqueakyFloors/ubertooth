@@ -119,7 +119,8 @@
 - `ubertooth-util -r` waits up to 10 seconds for the device to re-enumerate
   (by serial with `-U <serial>`) instead of a fixed 2 seconds, so a slow macOS
   re-enumeration no longer fails a successful reset. libubertooth adds
-  `ubertooth_start_select_quiet()` for this silent, STOP-free polling.
+  `ubertooth_start_select_quiet()` for this silent, STOP-free polling, and
+  `ubertooth_count()` no longer leaves libusb initialised.
   [#94](https://github.com/SqueakyFloors/ubertooth/issues/94)
 - `ubertooth-specan-ui` plots again: it passed `-U 0` to `ubertooth-specan` as a
   single argument, which was read as a serial, and asked for 2400-2483 MHz,

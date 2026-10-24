@@ -63,6 +63,8 @@ static struct {
 	char quiet_selector[64];
 	int quiet_null_selector; /* it was called with NULL (no -U) */
 	int loud_starts_after_reset;
+	/* libusb default-context references taken by ubertooth-util itself */
+	int libusb_refs, libusb_refs_min_during_wait, libusb_init_rc;
 } fake;
 
 /* Every select returns fake_ut, except that the select after a reset returns
@@ -124,11 +126,30 @@ int ubertooth_count(void)
 	return fake.device_count;
 }
 
+/* ubertooth-util holds a libusb reference across the wait after a reset. The
+ * fake library functions do not take references, so only that one is counted. */
+int libusb_init(libusb_context **context)
+{
+	(void)context;
+	if (fake.libusb_init_rc < 0)
+		return fake.libusb_init_rc;
+	fake.libusb_refs++;
+	return 0;
+}
+
+void libusb_exit(libusb_context *context)
+{
+	(void)context;
+	fake.libusb_refs--;
+}
+
 uint64_t util_clock_now_ms(void) { return fake.now_ms; }
 
 void util_clock_sleep_ms(unsigned ms)
 {
 	fake.sleeps++;
+	if (fake.sleeps == 1 || fake.libusb_refs < fake.libusb_refs_min_during_wait)
+		fake.libusb_refs_min_during_wait = fake.libusb_refs;
 	fake.now_ms += ms;
 }
 
@@ -1427,6 +1448,17 @@ MU_TEST(reset_waits_for_a_slow_reenumeration_then_runs_later_actions)
 	mu_assert(fake.quiet_null_selector, "the default selection is kept");
 	mu_assert_int_eq(0, fake.stop_calls);
 	mu_assert_int_eq(0, fake.first_used_after_release);
+	/* a libusb reference is held through every poll and released after */
+	mu_assert_int_eq(1, fake.libusb_refs_min_during_wait);
+	mu_assert_int_eq(0, fake.libusb_refs);
+}
+
+MU_TEST(the_wait_still_works_if_libusb_cannot_be_held)
+{
+	reset_fake();
+	fake.libusb_init_rc = -1;
+	mu_assert_int_eq(0, RUN("-r", "-b").rc);
+	mu_assert_int_eq(0, fake.libusb_refs); /* nothing to release */
 }
 
 MU_TEST(reset_by_serial_polls_for_the_same_serial)
@@ -1552,6 +1584,7 @@ int main(void)
 	MU_RUN(read_only_queries_release_the_handle_without_sending_stop);
 	MU_RUN(setters_and_modes_release_the_handle_on_success_and_failure);
 	MU_RUN(reset_waits_for_a_slow_reenumeration_then_runs_later_actions);
+	MU_RUN(the_wait_still_works_if_libusb_cannot_be_held);
 	MU_RUN(reset_by_serial_polls_for_the_same_serial);
 	MU_RUN(reset_by_index_waits_for_every_board_before_reselecting);
 	MU_RUN(a_failed_reset_still_reselects_once_the_leave_window_passes);

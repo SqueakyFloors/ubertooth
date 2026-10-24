@@ -533,6 +533,7 @@ int main(int argc, char *argv[])
 			UTIL_RESET_WAIT_INITIAL_DELAY_MS, UTIL_RESET_WAIT_POLL_MS,
 			UTIL_RESET_WAIT_LEAVE_MS, UTIL_RESET_WAIT_DEADLINE_MS, 0, 0
 		};
+		int libusb_held;
 
 		/* Counted before the reset, so the wait can see the device leave and
 		 * (for an index) not open another board while it is gone. The leave
@@ -546,17 +547,27 @@ int main(int argc, char *argv[])
 		 * to go dead: release it without sending STOP (if the reset failed
 		 * the device is still there, but a STOP is not wanted either), then
 		 * wait for the same selection to open again. The polls are quiet
-		 * and never send STOP. */
+		 * and never send STOP.
+		 *
+		 * One libusb reference is held for the whole wait, so the polls never
+		 * tear down the libusb context while the device re-enumerates (on
+		 * macOS the final libusb_exit() after a device reset can hang). */
+		libusb_held = libusb_init(NULL) >= 0;
 		ubertooth_close(ut);
 		ubertooth_free(ut);
 		ut = util_reset_wait(&reset_wait_ops, ubertooth_device, &wait);
 		if (ut == NULL) {
+			/* The held reference is left to process exit, for the same
+			 * reason. */
 			fprintf(stderr, "error: Ubertooth device %s did not come back within "
 			        "%u s after the reset\n",
 			        ubertooth_device ? ubertooth_device : "0",
 			        UTIL_RESET_WAIT_DEADLINE_MS / 1000u);
 			return 1;
 		}
+		/* Not the last reference: the reopened device holds its own. */
+		if (libusb_held)
+			libusb_exit(NULL);
 	}
 	if(do_stop == 0) {
 		fprintf(stdout, "Stopping ubertooth device %s\n", ubertooth_device ? ubertooth_device : "0");
