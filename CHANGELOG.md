@@ -117,9 +117,9 @@
   file `-x` instead of streaming binary samples to the terminal.
   [#231](https://github.com/SqueakyFloors/ubertooth/issues/231)
 - `ubertooth-specan -d -` refuses a terminal, as `ubertooth-btle -q -` already
-  did, with `error: stdout is a tty, refusing to write binary samples to it`
-  and exit status 1; a pipe or a redirect works as before. Both tools share one
-  check now, so btle's wording matches ("binary capture data").
+  did: `error: stdout is a tty, refusing to write binary samples to it`, exit
+  status 1. A pipe or a redirect is unaffected, and btle's own refusal now
+  reads the same way.
   [#259](https://github.com/SqueakyFloors/ubertooth/issues/259)
 - A `ctest` run no longer opens an attached Ubertooth, so it cannot disturb a
   board another process is using. The tests set `UBERTOOTH_TEST_NO_DEVICES=1`,

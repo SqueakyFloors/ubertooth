@@ -68,16 +68,18 @@ for value, written in (("-x", "-x"), ("./-x", "-x"), ("-v", "-v"),
         assert listing == ([] if written is None else [written]), \
             (value, listing, result)
 
-# "-d -" on a terminal would fill it with raw sample records, so it is refused
-# before any device is opened. The accepted case is the "-" run above, whose
-# stdout is a pipe and which gets as far as device selection.
-if pty is None:
-    print("ubertooth-specan: skipping the tty case, no pty on this platform")
-else:
-    master_fd, slave_fd = pty.openpty()
+def run_with_tty_stdout(arguments):
+    """The tool with standard output on a pty. None if there is no pty to be
+    had: the module is missing, or the sandbox allocates none."""
+    if pty is None:
+        return None
     try:
-        result = subprocess.run(
-            [BINARY, "-d", "-"],
+        master_fd, slave_fd = pty.openpty()
+    except OSError:
+        return None
+    try:
+        return subprocess.run(
+            [BINARY, *arguments],
             stdin=subprocess.DEVNULL,
             stdout=slave_fd,
             stderr=subprocess.PIPE,
@@ -89,11 +91,28 @@ else:
     finally:
         os.close(slave_fd)
         os.close(master_fd)
+
+
+# "-d -" on a terminal would fill it with raw sample records, so it is refused
+# before any device is opened. The accepted cases are the "-" run above, whose
+# stdout is a pipe, and "-d - -g" below, where the output is text again.
+result = run_with_tty_stdout(("-d", "-"))
+if result is None:
+    print("ubertooth-specan: skipping the tty cases, no pty available")
+else:
     assert result.returncode == 1, result
     assert "stdout is a tty, refusing to write binary samples" in result.stderr, \
         result
-    # refused before any device lookup
-    assert "no ubertooth found" not in result.stderr.lower(), result
-    print("ubertooth-specan: -d - refuses a tty")
+    # refused before the device was opened, which is where this message
+    # would come from
+    assert "could not open" not in result.stderr.lower(), result
+
+    # -g means text output, which a terminal is welcome to, so this run gets
+    # as far as device selection instead
+    result = run_with_tty_stdout(("-d", "-", "-g"))
+    assert result.returncode == 1, result
+    assert "tty" not in result.stderr.lower(), result
+    assert "could not open" in result.stderr.lower(), result
+    print("ubertooth-specan: -d - refuses a tty, -d - -g writes text to one")
 
 print("ubertooth-specan: ranges refused, -d takes '-' as stdout and the rest as files")

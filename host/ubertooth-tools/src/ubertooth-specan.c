@@ -186,8 +186,12 @@ int main(int argc, char *argv[])
 	if (dump_name != NULL) {
 		if (strcmp(dump_name, "-") == 0) {
 			/* The samples are raw 3-byte records, so a terminal is
-			 * refused the way ubertooth-btle refuses its capture. */
-			if (opt_check_stdout_not_tty("samples") < 0)
+			 * refused the way ubertooth-btle refuses its capture.
+			 * Only when they are what the run writes: a later -g or
+			 * -G takes the output mode back to text, which a
+			 * terminal is welcome to. */
+			if (output_mode == SPECAN_FILE &&
+			    opt_check_stdout_not_tty("samples") < 0)
 				return 1;
 			dumpfile = stdout;
 		} else {

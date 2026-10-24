@@ -50,9 +50,16 @@ reject(("-a", "11223344", "-a"), BOTH)
 # "-q -" streams binary PCAP, so a terminal is refused with the same message
 # ubertooth-specan prints for "-d -", from the shared check.
 if pty is None:
-    print("ubertooth-btle: skipping the tty case, no pty on this platform")
+    master_fd = None
 else:
-    master_fd, slave_fd = pty.openpty()
+    try:
+        master_fd, slave_fd = pty.openpty()
+    except OSError:  # a sandbox with no pty to allocate
+        master_fd = None
+
+if master_fd is None:
+    print("ubertooth-btle: skipping the tty case, no pty available")
+else:
     try:
         result = subprocess.run(
             [BINARY, "-q", "-"],
@@ -70,6 +77,7 @@ else:
     assert result.returncode == 1, result
     assert "stdout is a tty, refusing to write binary capture data" \
         in result.stderr, result
-    # refused before any device lookup
-    assert "no ubertooth found" not in result.stderr.lower(), result
+    # refused before the device was opened, which is where this message would
+    # come from
+    assert "could not open" not in result.stderr.lower(), result
     print("ubertooth-btle: -q - refuses a tty")

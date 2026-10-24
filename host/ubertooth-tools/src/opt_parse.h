@@ -85,7 +85,7 @@ int opt_parse_bd_addr(const char *text, uint8_t *address);
  * binary to stdout. Returns 0 when stdout is not a terminal, or prints
  * "error: stdout is a tty, refusing to write binary <what> to it" and returns
  * -1, so the caller only has to exit. <what> names what would be written,
- * for example "samples".
+ * for example "samples"; NULL reads "output".
  */
 int opt_check_stdout_not_tty(const char *what);
 
