@@ -81,6 +81,9 @@ MU_TEST(an_early_failure_is_not_masked_by_a_later_success)
 	mu_assert_int_eq(1, c.status);
 	mu_assert_int_eq(3, fake.reads);
 	mu_assert(strcmp(c.err, "error: register 0x05 read failed\n") == 0, c.err);
+	/* the registers after the failure were decoded, not just read */
+	mu_assert(strstr(c.out, "RSSI") != NULL, "0x06 (RSSI) decoded");
+	mu_assert(strstr(c.out, "0x05") == NULL && strstr(c.out, "FREND") == NULL, "failed 0x05 not decoded");
 }
 
 MU_TEST(a_short_reply_adds_no_second_line)

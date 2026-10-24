@@ -1042,6 +1042,7 @@ int cmd_read_register(struct libusb_device_handle* devh, u8 reg)
 {
 	int r;
 	u8 data[2];
+	char what[16];
 
 	r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_READ_REGISTER, reg, 0,
 			data, 2, 1000);
@@ -1053,11 +1054,8 @@ int cmd_read_register(struct libusb_device_handle* devh, u8 reg)
 		}
 		return r;
 	}
-	if (r >= 0 && r != 2) {
-		char what[16];
-		snprintf(what, sizeof(what), "register 0x%02x", reg);
-		return check_reply_length(r, 2, what);
-	}
+	snprintf(what, sizeof(what), "register 0x%02x", reg);
+	r = check_reply_length(r, 2, what);
 	if (r < 0)
 		return r;
 

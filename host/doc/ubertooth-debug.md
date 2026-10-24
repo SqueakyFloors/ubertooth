@@ -46,8 +46,10 @@ Dump all registers with:
 
 `ubertooth-debug` exits with 0 when every requested register was read, and 1
 otherwise. A failed read prints `error: register 0x<reg> read failed` on
-standard error (for a short reply, `error: register 0x<reg> read failed: board
-returned <n> of 2 bytes`). The remaining registers are still read and decoded.
+standard error, after libubertooth's own line for a USB error such as a
+timeout. A short reply prints the single line `error: register 0x<reg> read
+failed: board returned <n> of 2 bytes`. The remaining registers are still read
+and decoded.
 
 ## SEE ALSO
 
