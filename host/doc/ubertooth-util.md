@@ -36,6 +36,15 @@ the read reports the new value. The order they are written in does not matter:
 The same holds for `-a`, `-C`, `-d`, `-l` and `-z`. Two sets of the same value
 in one command keep the last one.
 
+Setting and reading are separate device operations here, which is why one
+command can do both; `ubertooth-btle -a` refuses the combination instead,
+because there the access address parameterises the capture that command is
+about to start. One exception to the read reporting the new value: a board
+already running a connection-following BLE mode keeps a requested channel
+aside until that mode ends, so `-c2426 -c` against such a board reports the
+frequency still in use. `ubertooth-util` cannot enter that mode itself, so this
+only arises alongside another program.
+
 The utility also includes a simple range test tool for use with two
 Ubertooth devices. Refer to [RANGE TEST][] for full details.
 

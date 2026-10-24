@@ -874,6 +874,28 @@ MU_TEST(a_set_and_a_read_of_the_same_value_both_run_set_first)
 	mu_assert(strcmp(r.out, "USR LED status: 1\nSetting squelch to -120\n") == 0,
 	          "-z-120 -l1 -l does all three");
 
+	/* the squelch pair, which always worked this way */
+	reset_fake();
+	r = RUN("-z-60", "-z");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq((u16)-60, fake.last_squelch_set);
+	mu_assert(strcmp(r.out, "Setting squelch to -60\nSquelch set to -60\n") == 0,
+	          "-z-60 -z sets then reports the new squelch");
+
+	/* two sets of the same value keep the last one */
+	reset_fake();
+	r = RUN("-c2426", "-c2440", "-c");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(2440, fake.last_channel_set);
+	mu_assert(strcmp(r.out, "Current frequency: 2440 MHz (Bluetooth channel 38)\n") == 0,
+	          "the last channel set wins");
+
+	reset_fake();
+	r = RUN("-a3", "-a5", "-a");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(5, fake.last_palevel_set);
+	mu_assert(strcmp(r.out, "PA Level: 5\n") == 0, "the last PA level set wins");
+
 	/* a failed set is reported, and the read still runs */
 	reset_fake();
 	fake.set_channel_rc = -1;

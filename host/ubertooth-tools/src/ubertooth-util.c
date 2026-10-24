@@ -346,9 +346,10 @@ int main(int argc, char *argv[])
 	int do_range_test, do_repeater, do_firmware, do_board_id;
 	int do_range_result, do_all_leds, do_identify;
 	/* A set and a read of the same value have their own flags, as the
-	 * squelch always has, so one command can do both: the set runs first
-	 * and the read then reports the new value. Sharing a variable made the
-	 * later option overwrite the earlier one and drop it silently. */
+	 * squelch pair below does, so one command can do both: the set runs
+	 * first and the read then reports the new value. Sharing a variable
+	 * made the later option overwrite the earlier one and drop it
+	 * silently. */
 	int do_get_leds, do_get_all_leds, do_get_channel, do_get_palevel;
 	int do_set_squelch, do_get_squelch, squelch_level;
 	int do_something, do_compile_info;
@@ -359,9 +360,11 @@ int main(int argc, char *argv[])
 	int any_query;
 	int modes[UTIL_MODE_COUNT]; /* exclusive mode options that were given */
 
-	/* set command states to negative as a starter
-	 * setting to 0 means 'do it'
-	 * setting to positive is value of specified argument */
+	/* The do_<thing> states below start negative: -1 means not asked for,
+	 * 0 means 'do it' and a positive value is the argument given. The
+	 * do_get_<thing> flags beside them are plain 0/1 booleans, since a read
+	 * takes no value; do_set_squelch and do_get_squelch are the older pair,
+	 * -1 or 1 and tested with > 0. */
 	do_stop= do_flash= do_isp= do_leds= do_part= do_reset= -1;
 	do_serial= do_tx= do_palevel= do_channel= do_led_specan= -1;
 	do_range_test= do_repeater= do_firmware= do_board_id= -1;
