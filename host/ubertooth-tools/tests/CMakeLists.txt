@@ -67,12 +67,23 @@ target_include_directories(test-util-report PRIVATE ../src)
 
 add_test(NAME util-report COMMAND test-util-report)
 
+add_executable(test-util-reset-wait
+	test_util_reset_wait.c
+	../src/util_reset_wait.c)
+
+target_include_directories(test-util-reset-wait PRIVATE ../src)
+
+add_test(NAME util-reset-wait COMMAND test-util-reset-wait)
+
 # Runs ubertooth-util's real main() against a scripted fake device. The source
 # is included directly (main renamed) so it needs the library headers, and the
 # bundled getopt on platforms that use it.
+# The clock is faked in the test (util_clock.c is not linked), so a reset wait
+# runs instantly.
 add_executable(test-util-main
 	test_util_main.c
-	../src/util_report.c)
+	../src/util_report.c
+	../src/util_reset_wait.c)
 
 # The library headers of this source tree must win over any installed copy.
 if(libubertooth_SOURCE_DIR)

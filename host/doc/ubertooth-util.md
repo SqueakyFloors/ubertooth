@@ -50,7 +50,11 @@ Common options:
  - `-S` :
    stop current operation
  - `-r` :
-   full reset
+   full reset; then waits up to 10 seconds for the same device (by serial
+   with `-U<serial>`) to come back on USB before any later option runs, and
+   exits non-zero with `error: Ubertooth device <selector> did not come back
+   within 10 s after the reset` if it does not. With several boards attached,
+   select by serial: the index order can change across a reset
  - `-U<index|serial>` :
    select which Ubertooth to use, either by USB enumeration index or by its
    serial number string. See SELECTING A DEVICE.
