@@ -67,6 +67,18 @@ Less useful commands:
 .BR ubertooth-specan (1) 
 : Raw RSSI values used by graphical specan
 .RE
+.SH SELECTING A DEVICE
+.PP
+With a single Ubertooth attached, the tools find it automatically. With more
+than one attached, every tool takes \fB\fC\-U <index|serial>\fR to choose one:
+an index is a position in the list of attached Ubertooths (\fB\fC\-U0\fR is the
+first), and a serial\-number string selects that board whatever the enumeration
+order. An index that is not attached is refused
+(\fB\fCerror: no Ubertooth at index 2 (2 attached)\fR) and the tool exits
+non\-zero. See
+.BR ubertooth-util (1),
+SELECTING A DEVICE, for the full description and for listing the attached
+devices.
 .SH SUPPORT
 .PP
 Ubertooth is an open source project maintained primarily by volunteers.

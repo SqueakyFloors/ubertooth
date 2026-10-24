@@ -110,6 +110,11 @@
   requests after a Bluetooth Low Energy (BLE) sniffing mode is stopped, so the
   board no longer needs a re-plug to be usable again.
   [#158](https://github.com/SqueakyFloors/ubertooth/issues/158)
+- `-U<index>` with an index that is not attached now opens nothing, instead of
+  opening whichever USB device enumerated first and exiting 0: the tool prints
+  `error: no Ubertooth at index 2 (2 attached)` and exits non-zero. A nonzero
+  index with a single board attached is refused the same way; use `-U0`.
+  [#188](https://github.com/SqueakyFloors/ubertooth/issues/188)
 
 - `ubertooth-dfu` now performs bounded, device-specific Device Firmware
   Upgrade (DFU) entry and recovery, retries interrupted transfers, and verifies

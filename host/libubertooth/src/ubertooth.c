@@ -144,6 +144,19 @@ int ubertooth_count(void) {
 	return uberteeth;
 }
 
+/* Which entry of the found-Ubertooth list a -U index selects, or -1 for none.
+ * A negative index means "no -U given": it selects the only device, or nothing
+ * when several are attached. An index must be present in the list, so an index
+ * past the end selects nothing, with one device attached as with several.
+ * Shared by the loud and the quiet path of find_ubertooth_device_opt() so both
+ * accept and refuse exactly the same selections. */
+static int pick_ubertooth_device(int ubertooth_device, int uberteeth)
+{
+	if (ubertooth_device < 0)
+		return (uberteeth == 1) ? 0 : -1;
+	return (ubertooth_device < uberteeth) ? ubertooth_device : -1;
+}
+
 /* Opens the Ubertooth at enumeration index ubertooth_device, or the only one
  * when ubertooth_device is negative. When quiet, nothing is printed and no
  * command is sent: an index that is not present, or several devices with no
@@ -156,17 +169,17 @@ static struct libusb_device_handle* find_ubertooth_device_opt(int ubertooth_devi
 	struct libusb_context *ctx = NULL;
 	struct libusb_device_handle *devh = NULL;
 	struct libusb_device_descriptor desc;
-	int usb_devs, i, r, ret, uberteeth = 0;
+	int usb_devs, i, r, ret, pick, uberteeth = 0;
 	int *ubertooth_devs = NULL;
 
 	usb_devs = libusb_get_device_list(ctx, &usb_list);
-	if (quiet && usb_devs <= 0) {
+	if (usb_devs <= 0) {
 		if (usb_devs == 0)
 			libusb_free_device_list(usb_list, 1);
 		return NULL;
 	}
 	ubertooth_devs = calloc(usb_devs, sizeof(int));
-	if (quiet && ubertooth_devs == NULL) {
+	if (ubertooth_devs == NULL) {
 		libusb_free_device_list(usb_list, 1);
 		return NULL;
 	}
@@ -174,9 +187,11 @@ static struct libusb_device_handle* find_ubertooth_device_opt(int ubertooth_devi
 	for(i = 0 ; i < usb_devs ; ++i) {
 		r = libusb_get_device_descriptor(usb_list[i], &desc);
 		if(r < 0) {
-			if (quiet)
-				continue;
-			fprintf(stderr, "couldn't get usb descriptor for dev #%d!\n", i);
+			/* desc was not filled in: skip this device rather than test
+			 * whatever the previous iteration left in it. */
+			if (!quiet)
+				fprintf(stderr, "couldn't get usb descriptor for dev #%d!\n", i);
+			continue;
 		}
 		if ((desc.idVendor == TC13_VENDORID && desc.idProduct == TC13_PRODUCTID)
 		    || (desc.idVendor == U0_VENDORID && desc.idProduct == U0_PRODUCTID)
@@ -186,58 +201,51 @@ static struct libusb_device_handle* find_ubertooth_device_opt(int ubertooth_devi
 			uberteeth++;
 		}
 	}
+	/* Only a selected entry of ubertooth_devs[] is ever used as an index into
+	 * usb_list[]; an index that is not in the list selects nothing. */
+	pick = pick_ubertooth_device(ubertooth_device, uberteeth);
+
 	if (quiet) {
-		/* The same choice as the loud path below (the only device, whatever
-		 * the index), but an index past the end of several devices opens
-		 * nothing instead of an arbitrary USB device. */
-		int pick = -1;
-		if (uberteeth == 1)
-			pick = 0;
-		else if (ubertooth_device >= 0 && ubertooth_device < uberteeth)
-			pick = ubertooth_device;
 		if (pick >= 0 && libusb_open(usb_list[ubertooth_devs[pick]], &devh) != 0)
 			devh = NULL;
 		free(ubertooth_devs);
 		libusb_free_device_list(usb_list, 1);
 		return devh;
 	}
-	if(uberteeth == 1) {
-		ret = libusb_open(usb_list[ubertooth_devs[0]], &devh);
+	if (pick >= 0) {
+		ret = libusb_open(usb_list[ubertooth_devs[pick]], &devh);
 		if (ret) {
 			show_libusb_error(ret);
 			devh = NULL;
 		}
 	}
-	else if (uberteeth == 0)
-		return NULL;
-	else {
-		if (ubertooth_device < 0) {
-			fprintf(stderr, "multiple Ubertooth devices found! Use '-U' to specify device number\n");
-			uint8_t serial[17], sr;
-			for(i = 0 ; i < uberteeth ; ++i) {
-				libusb_get_device_descriptor(usb_list[ubertooth_devs[i]], &desc);
-				ret = libusb_open(usb_list[ubertooth_devs[i]], &devh);
-				if (ret) {
-					fprintf(stderr, "  Device %d: ", i);
-					show_libusb_error(ret);
-				}
-				else {
-					sr = cmd_get_serial(devh, serial);
-					if(sr==0) {
-						fprintf(stderr, "  Device %d: ", i);
-						print_serial(serial, stderr);
-					}
-					libusb_close(devh);
-				}
-			}
-			devh = NULL;
-		} else {
-			ret = libusb_open(usb_list[ubertooth_devs[ubertooth_device]], &devh);
+	else if (uberteeth == 0) {
+		/* nothing attached: the caller reports that it found no device */
+	}
+	else if (ubertooth_device < 0) {
+		fprintf(stderr, "multiple Ubertooth devices found! Use '-U' to specify device number\n");
+		uint8_t serial[17], sr;
+		for(i = 0 ; i < uberteeth ; ++i) {
+			libusb_get_device_descriptor(usb_list[ubertooth_devs[i]], &desc);
+			ret = libusb_open(usb_list[ubertooth_devs[i]], &devh);
 			if (ret) {
-					show_libusb_error(ret);
-					devh = NULL;
+				fprintf(stderr, "  Device %d: ", i);
+				show_libusb_error(ret);
+			}
+			else {
+				sr = cmd_get_serial(devh, serial);
+				if(sr==0) {
+					fprintf(stderr, "  Device %d: ", i);
+					print_serial(serial, stderr);
 				}
+				libusb_close(devh);
+			}
 		}
+		devh = NULL;
+	}
+	else {
+		fprintf(stderr, "error: no Ubertooth at index %d (%d attached)\n",
+		        ubertooth_device, uberteeth);
 	}
 	free(ubertooth_devs);
 	libusb_free_device_list(usb_list,1);
@@ -829,8 +837,7 @@ ubertooth_t* ubertooth_start_select(const char* u_arg)
  * sends no command other than the serial-number read needed to match a serial.
  * If the device is not found or cannot be claimed it is closed WITHOUT sending
  * STOP, so a failed attempt leaves the device state unchanged. An index is
- * chosen as in ubertooth_start_select() (with one device attached, any index
- * opens it), except that an index past the end of several devices opens
+ * chosen as in ubertooth_start_select(): an index that is not present opens
  * nothing. */
 ubertooth_t* ubertooth_start_select_quiet(const char* u_arg)
 {

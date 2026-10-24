@@ -37,6 +37,16 @@ Less useful commands:
  - ubertooth-debug(1) : Peeking and poking registers on the CC2400
  - ubertooth-specan(1) : Raw RSSI values used by graphical specan
 
+## SELECTING A DEVICE
+
+With a single Ubertooth attached, the tools find it automatically. With more
+than one attached, every tool takes `-U <index|serial>` to choose one: an
+index is a position in the list of attached Ubertooths (`-U0` is the first),
+and a serial-number string selects that board whatever the enumeration order.
+An index that is not attached is refused (`error: no Ubertooth at index 2 (2
+attached)`) and the tool exits non-zero. See ubertooth-util(1), SELECTING A
+DEVICE, for the full description and for listing the attached devices.
+
 ## SUPPORT
 
 Ubertooth is an open source project maintained primarily by volunteers.
