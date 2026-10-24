@@ -61,8 +61,9 @@ DEVICE, for the full description and for listing the attached devices.
 attached: nothing is listed or opened on the USB bus, and the tool reports that
 it found no device. It exists for the project's own test suite, which runs the
 tools while boards may be in use elsewhere, and it is the only setting that
-changes device selection. Any other value, including `0` and an empty value,
-means "not set". A tool that finds no board because of it says so:
+changes device selection. Only the exact value `1` turns it on; unset, empty or
+any other value leaves device selection alone. A tool that finds no board
+because of it says so:
 `note: UBERTOOTH_TEST_NO_DEVICES is set, so no board is selected`.
 
 ## SUPPORT

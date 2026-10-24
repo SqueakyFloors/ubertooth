@@ -87,7 +87,8 @@
 
 - A `ctest` run no longer opens an attached Ubertooth, so it cannot disturb a
   board another process is using. The tests set `UBERTOOTH_TEST_NO_DEVICES=1`,
-  which makes a tool behave as if no board were attached; nothing else sets it.
+  which makes a tool behave as if no board were attached, and say so; only that
+  exact value turns it on, and nothing else sets it.
   [#219](https://github.com/SqueakyFloors/ubertooth/issues/219)
 - `ubertooth-afh -t` now says when the initial detection phase received no
   packet from the piconet, does not start monitoring, and exits with status 2,

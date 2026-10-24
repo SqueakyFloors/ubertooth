@@ -227,8 +227,10 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle *devh,
 
 /* ---- helpers ------------------------------------------------------------ */
 
-/* Run ubertooth_start_select(u_arg) with stderr captured into msg. */
-static ubertooth_t *select_capturing(const char *u_arg, char *msg, size_t len)
+/* Run the loud or the quiet selection of u_arg with stderr captured into
+ * msg. */
+static ubertooth_t *select_capturing_opt(const char *u_arg, int quiet,
+                                         char *msg, size_t len)
 {
 	ubertooth_t *ut;
 	FILE *capture = tmpfile();
@@ -242,7 +244,8 @@ static ubertooth_t *select_capturing(const char *u_arg, char *msg, size_t len)
 	}
 	fflush(stderr);
 	dup2(fileno(capture), fileno(stderr));
-	ut = ubertooth_start_select(u_arg);
+	ut = quiet ? ubertooth_start_select_quiet(u_arg)
+	           : ubertooth_start_select(u_arg);
 	fflush(stderr);
 	dup2(saved, fileno(stderr));
 	close(saved);
@@ -251,6 +254,12 @@ static ubertooth_t *select_capturing(const char *u_arg, char *msg, size_t len)
 	msg[n] = '\0';
 	fclose(capture);
 	return ut;
+}
+
+/* Run ubertooth_start_select(u_arg) with stderr captured into msg. */
+static ubertooth_t *select_capturing(const char *u_arg, char *msg, size_t len)
+{
+	return select_capturing_opt(u_arg, 0, msg, len);
 }
 
 /* ---- tests -------------------------------------------------------------- */
@@ -512,13 +521,25 @@ MU_TEST(the_quiet_selection_refuses_the_same_indices)
  * selection works as before. */
 MU_TEST(the_test_switch_hides_every_device)
 {
+	/* Values that are not exactly "1" leave selection alone. */
+	static const char *const off[] = { "0", "", "2", "true", "yes" };
 	char msg[256];
 	ubertooth_t *ut;
+	size_t i;
 
 	setenv("UBERTOOTH_TEST_NO_DEVICES", "1", 1);
 
-	/* The first selection of the process names the switch, so a variable
-	 * left in the environment does not look like a missing board. */
+	/* The quiet selection stays silent, as its callers require. The note is
+	 * printed once per process, so this has to come before the loud case
+	 * below, and this case before any other that sets the switch. */
+	bus_with_ubertooths(1);
+	mu_assert(select_capturing_opt("0", 1, msg, sizeof(msg)) == NULL,
+	          "quiet -U0");
+	mu_assert_int_eq(0, fake.opens);
+	mu_assert_int_eq(0, fake.list_calls);
+	mu_assert(msg[0] == '\0', msg);
+
+	/* The first loud selection to hide a device names the switch. */
 	bus_with_ubertooths(1);
 	mu_assert(select_capturing(NULL, msg, sizeof(msg)) == NULL, "no -U");
 	mu_assert_int_eq(0, fake.opens);
@@ -545,26 +566,16 @@ MU_TEST(the_test_switch_hides_every_device)
 	mu_assert(strstr(msg, "no Ubertooth found with serial matching 'c52000f5'")
 	          != NULL, msg);
 
-	bus_with_ubertooths(1);
-	mu_assert(ubertooth_start_select_quiet("0") == NULL, "quiet -U0");
-	mu_assert_int_eq(0, fake.opens);
-	mu_assert_int_eq(0, fake.list_calls);
-
-	/* "0" and an empty value mean "not set": a user who has the variable in
-	 * the environment for some other reason still gets their board. */
-	setenv("UBERTOOTH_TEST_NO_DEVICES", "0", 1);
-	bus_with_ubertooths(1);
-	ut = select_capturing("0", msg, sizeof(msg));
-	mu_assert(ut != NULL, "-U0 with the switch off opens the device");
-	ubertooth_stop(ut);
-	ubertooth_free(ut);
-
-	setenv("UBERTOOTH_TEST_NO_DEVICES", "", 1);
-	bus_with_ubertooths(1);
-	ut = select_capturing("0", msg, sizeof(msg));
-	mu_assert(ut != NULL, "-U0 with an empty value opens the device");
-	ubertooth_stop(ut);
-	ubertooth_free(ut);
+	/* Only "1" turns it on: a user whose environment holds the name for some
+	 * other reason still gets their board. */
+	for (i = 0; i < sizeof(off) / sizeof(off[0]); i++) {
+		setenv("UBERTOOTH_TEST_NO_DEVICES", off[i], 1);
+		bus_with_ubertooths(1);
+		ut = select_capturing("0", msg, sizeof(msg));
+		mu_assert(ut != NULL, off[i]);
+		ubertooth_stop(ut);
+		ubertooth_free(ut);
+	}
 
 	unsetenv("UBERTOOTH_TEST_NO_DEVICES");
 	bus_with_ubertooths(1);

@@ -91,6 +91,12 @@ extern int max_ac_errors;
 void print_version();
 void register_cleanup_handler(ubertooth_t* ut, int do_exit);
 ubertooth_t* ubertooth_init();
+/* True when UBERTOOTH_TEST_NO_DEVICES is "1", which makes every selection
+ * below behave as if no Ubertooth were attached, without listing or opening
+ * anything on the bus: the project's tests set it so a test run cannot open a
+ * board another process is using. A tool that enumerates the bus itself must
+ * check this too. */
+int ubertooth_devices_hidden(void);
 int ubertooth_count(void);
 int ubertooth_connect(ubertooth_t* ut, int ubertooth_device);
 ubertooth_t* ubertooth_start(int ubertooth_device);
