@@ -148,7 +148,8 @@ class RenderArea(QtWidgets.QWidget):
         self.update()
 
     def _draw_graph(self):
-        if self._clear_scheduled:
+        # A clear needs the frequency axis, so wait for the first frame.
+        if self._clear_scheduled and self._frame is not None:
             frequency_axis, _ = self._frame
             self._clear_scheduled = False
             self._new_graph()
