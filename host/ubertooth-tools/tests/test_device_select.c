@@ -20,9 +20,11 @@
 
 #define FAKE_MAX 8
 
-/* One faked USB device: its descriptor and a handle the library may open. */
+/* One faked USB device: its descriptor, the serial number it reports, and a
+ * handle the library may open. */
 struct fake_dev {
 	uint16_t vid, pid;
+	uint8_t serial[16]; /* the 16 bytes -s prints as 32 hex digits */
 	int handle; /* opaque body for the handle the fake libusb_open() hands out */
 };
 
@@ -54,6 +56,33 @@ static void bus_with_ubertooths(int n)
 	}
 	fake.n = n + 1;
 	fake.list_rc = fake.n;
+}
+
+/* Give the nth Ubertooth on the faked bus the serial number hex (32 lowercase
+ * hex digits, as -s prints it), which its serial read then reports. */
+static void set_serial(int n, const char *hex)
+{
+	int i;
+
+	mu_assert(strlen(hex) == 32, hex);
+	for (i = 0; i < 16; i++) {
+		unsigned byte;
+
+		sscanf(hex + i * 2, "%2x", &byte);
+		fake.devs[1 + n].serial[i] = (uint8_t)byte;
+	}
+}
+
+/* The faked bus used by the serial tests: two boards whose serials differ in
+ * their leading digits and share their trailing ones, as real ones do. */
+#define SERIAL_A "1cc001038088cb956c43ad61c52000f5"
+#define SERIAL_B "05f00014e380df95f4436562c32000f5"
+
+static void bus_with_two_serials(void)
+{
+	bus_with_uberteeth(2);
+	set_serial(0, SERIAL_A);
+	set_serial(1, SERIAL_B);
 }
 
 /* ---- libusb fakes ------------------------------------------------------- */
@@ -148,19 +177,33 @@ int LIBUSB_CALL libusb_release_interface(libusb_device_handle *devh,
 	return 0;
 }
 
-/* No command may reach a device during selection; fail any that is attempted
- * except the serial read the multi-device listing does. */
+/* Which faked device a handle belongs to, so a read answers with that
+ * device's own data. */
+static struct fake_dev *dev_of_handle(libusb_device_handle *devh)
+{
+	int i;
+
+	for (i = 0; i < FAKE_MAX; i++)
+		if (devh == (libusb_device_handle *)&fake.devs[i].handle)
+			return &fake.devs[i];
+	return NULL;
+}
+
+/* Answers the serial-number read with the selected device's serial; every
+ * other request succeeds with a zeroed reply, which is all selection needs. */
 int LIBUSB_CALL libusb_control_transfer(libusb_device_handle *devh,
 	uint8_t request_type, uint8_t bRequest, uint16_t wValue, uint16_t wIndex,
 	unsigned char *data, uint16_t wLength, unsigned int timeout)
 {
-	(void)devh;
+	struct fake_dev *fd = dev_of_handle(devh);
+
 	(void)request_type;
-	(void)bRequest;
 	(void)wValue;
 	(void)wIndex;
 	(void)timeout;
 	memset(data, 0, wLength);
+	if (bRequest == UBERTOOTH_GET_SERIAL && wLength == 17 && fd != NULL)
+		memcpy(data + 1, fd->serial, sizeof(fd->serial)); /* data[0] is the status */
 	return wLength;
 }
 
@@ -445,6 +488,215 @@ MU_TEST(the_quiet_selection_refuses_the_same_indices)
 	ubertooth_free(ut);
 }
 
+/* ---- selecting by serial number ----------------------------------------- */
+
+MU_TEST(a_full_serial_opens_that_board)
+{
+	char msg[256];
+	ubertooth_t *ut;
+
+	bus_with_two_serials();
+	ut = select_capturing(SERIAL_A, msg, sizeof(msg));
+	mu_assert(ut != NULL, "the full serial of the first board");
+	mu_assert(fake.opened == &fake.devs[1], "and it is that board");
+	mu_assert(msg[0] == '\0', msg);
+	ubertooth_stop(ut);
+	ubertooth_free(ut);
+
+	bus_with_two_serials();
+	ut = select_capturing(SERIAL_B, msg, sizeof(msg));
+	mu_assert(ut != NULL, "the full serial of the second board");
+	mu_assert(fake.opened == &fake.devs[2], "and it is that board");
+	ubertooth_stop(ut);
+	ubertooth_free(ut);
+	mu_assert_int_eq(0, fake.lists);
+}
+
+/* The serials differ at the start and share their ending, so a short prefix
+ * picks a board while the distinctive part of the tail is longer. */
+MU_TEST(a_prefix_or_a_suffix_of_a_serial_opens_that_board)
+{
+	char msg[256];
+	ubertooth_t *ut;
+
+	bus_with_two_serials();
+	ut = select_capturing("1cc", msg, sizeof(msg));
+	mu_assert(ut != NULL, "a prefix of the first serial");
+	mu_assert(fake.opened == &fake.devs[1], "opens the first board");
+	mu_assert(msg[0] == '\0', msg);
+	ubertooth_stop(ut);
+	ubertooth_free(ut);
+
+	bus_with_two_serials();
+	ut = select_capturing("05f", msg, sizeof(msg));
+	mu_assert(ut != NULL, "a prefix of the second serial");
+	mu_assert(fake.opened == &fake.devs[2], "opens the second board");
+	ubertooth_stop(ut);
+	ubertooth_free(ut);
+
+	bus_with_two_serials();
+	ut = select_capturing("c52000f5", msg, sizeof(msg));
+	mu_assert(ut != NULL, "the distinctive tail of the first serial");
+	mu_assert(fake.opened == &fake.devs[1], "opens the first board");
+	ubertooth_stop(ut);
+	ubertooth_free(ut);
+
+	bus_with_two_serials();
+	ut = select_capturing("c32000f5", msg, sizeof(msg));
+	mu_assert(ut != NULL, "the distinctive tail of the second serial");
+	mu_assert(fake.opened == &fake.devs[2], "opens the second board");
+	ubertooth_stop(ut);
+	ubertooth_free(ut);
+}
+
+MU_TEST(a_serial_matches_in_upper_case)
+{
+	char msg[256];
+	ubertooth_t *ut;
+
+	bus_with_two_serials();
+	ut = select_capturing("1CC001038088CB956C43AD61C52000F5", msg, sizeof(msg));
+	mu_assert(ut != NULL, "an upper-case full serial");
+	mu_assert(fake.opened == &fake.devs[1], "opens the first board");
+	mu_assert(msg[0] == '\0', msg);
+	ubertooth_stop(ut);
+	ubertooth_free(ut);
+
+	bus_with_two_serials();
+	ut = select_capturing("05F", msg, sizeof(msg));
+	mu_assert(ut != NULL, "an upper-case prefix");
+	mu_assert(fake.opened == &fake.devs[2], "opens the second board");
+	ubertooth_stop(ut);
+	ubertooth_free(ut);
+}
+
+/* A string that matches two attached boards opens neither: it used to open
+ * whichever enumerated first, so a shared tail silently targeted one board or
+ * the other. */
+MU_TEST(a_string_matching_two_boards_is_refused)
+{
+	char msg[256];
+
+	bus_with_two_serials();
+	mu_assert(select_capturing("2000f5", msg, sizeof(msg)) == NULL,
+	          "a tail both serials share");
+	mu_assert(strcmp(msg,
+	    "error: '2000f5' matches 2 Ubertooth devices: "
+	    SERIAL_A ", " SERIAL_B "\n"
+	    "select one of them by a longer part of its serial number\n") == 0, msg);
+	mu_assert_int_eq(fake.opens, fake.closes); /* no handle left open */
+	mu_assert_int_eq(0, fake.lists);
+
+	/* Matching both ends means a string can match one board's start and
+	 * another's end; that is ambiguous too. These serials are made up to put
+	 * the same digits at opposite ends. */
+	bus_with_uberteeth(2);
+	set_serial(0, "1cc001038088cb956c43ad61c52000f5");
+	set_serial(1, "f5c001038088cb956c43ad61c5200012");
+	mu_assert(select_capturing("f5", msg, sizeof(msg)) == NULL,
+	          "one board's tail and another's head");
+	mu_assert(strstr(msg, "matches 2 Ubertooth devices") != NULL, msg);
+	mu_assert_int_eq(fake.opens, fake.closes);
+
+	/* The upper-case form is refused the same way. */
+	bus_with_two_serials();
+	mu_assert(select_capturing("2000F5", msg, sizeof(msg)) == NULL,
+	          "an upper-case shared tail");
+	mu_assert(strstr(msg, "matches 2 Ubertooth devices") != NULL, msg);
+}
+
+MU_TEST(a_serial_that_matches_nothing_is_refused)
+{
+	char msg[256];
+
+	bus_with_two_serials();
+	mu_assert(select_capturing("deadbeef", msg, sizeof(msg)) == NULL,
+	          "a serial no board has");
+	mu_assert(strcmp(msg,
+	    "no Ubertooth found with serial matching 'deadbeef'\n") == 0, msg);
+	mu_assert_int_eq(fake.opens, fake.closes);
+	mu_assert_int_eq(0, fake.lists);
+
+	/* The middle of a serial is not matched: only a prefix or a suffix is. */
+	bus_with_two_serials();
+	mu_assert(select_capturing("8088cb95", msg, sizeof(msg)) == NULL,
+	          "the middle of a serial");
+	mu_assert(strstr(msg, "no Ubertooth found with serial matching") != NULL,
+	          msg);
+
+	/* A string longer than a serial cannot match one. */
+	bus_with_two_serials();
+	mu_assert(select_capturing(SERIAL_A "00", msg, sizeof(msg)) == NULL,
+	          "longer than a serial");
+
+	bus_with_uberteeth(0);
+	mu_assert(select_capturing("1cc", msg, sizeof(msg)) == NULL,
+	          "no board attached");
+	mu_assert_int_eq(0, fake.lists);
+}
+
+/* An all-digits argument is an index, even when it would match a serial as a
+ * prefix or a suffix: the two cannot both be auto-detected, and an index is
+ * what -U has always meant for digits. Use a longer string, or one that
+ * includes a non-digit, to mean a serial. */
+MU_TEST(an_all_digits_string_is_still_an_index)
+{
+	char msg[256];
+	ubertooth_t *ut;
+
+	/* "05" is the start of the second board's serial, but index 5. */
+	bus_with_two_serials();
+	mu_assert(select_capturing("05", msg, sizeof(msg)) == NULL, "-U05");
+	mu_assert(strstr(msg, "no Ubertooth at index 5 (2 attached)") != NULL, msg);
+
+	/* "1" is the start of the first board's serial, but index 1. */
+	bus_with_two_serials();
+	ut = select_capturing("1", msg, sizeof(msg));
+	mu_assert(ut != NULL, "-U1 of two boards");
+	mu_assert(fake.opened == &fake.devs[2], "is the second board, not the first");
+	ubertooth_stop(ut);
+	ubertooth_free(ut);
+
+	/* An all-digits tail is an index too: 12 is not attached. */
+	bus_with_uberteeth(2);
+	set_serial(0, "1cc001038088cb956c43ad61c5200012");
+	set_serial(1, "05f00014e380df95f4436562c3200034");
+	mu_assert(select_capturing("12", msg, sizeof(msg)) == NULL, "-U12");
+	mu_assert(strstr(msg, "no Ubertooth at index 12 (2 attached)") != NULL, msg);
+}
+
+/* The quiet selection used by the reset wait matches serials the same way,
+ * without printing anything. */
+MU_TEST(the_quiet_selection_matches_the_same_serials)
+{
+	ubertooth_t *ut;
+
+	bus_with_two_serials();
+	ut = ubertooth_start_select_quiet("05f");
+	mu_assert(ut != NULL, "quiet prefix match");
+	mu_assert(fake.opened == &fake.devs[2], "the second board");
+	ubertooth_stop(ut);
+	ubertooth_free(ut);
+
+	bus_with_two_serials();
+	ut = ubertooth_start_select_quiet(SERIAL_A);
+	mu_assert(ut != NULL, "quiet full serial");
+	mu_assert(fake.opened == &fake.devs[1], "the first board");
+	ubertooth_stop(ut);
+	ubertooth_free(ut);
+
+	bus_with_two_serials();
+	mu_assert(ubertooth_start_select_quiet("2000f5") == NULL,
+	          "quiet ambiguous match");
+	mu_assert_int_eq(fake.opens, fake.closes);
+	mu_assert_int_eq(0, fake.lists);
+
+	bus_with_two_serials();
+	mu_assert(ubertooth_start_select_quiet("deadbeef") == NULL,
+	          "quiet no match");
+	mu_assert_int_eq(0, fake.lists);
+}
+
 int main(void)
 {
 	MU_RUN(an_index_in_range_opens_that_device);
@@ -459,5 +711,12 @@ int main(void)
 	MU_RUN(an_empty_or_failing_bus_is_refused);
 	MU_RUN(a_device_without_a_descriptor_is_skipped);
 	MU_RUN(the_quiet_selection_refuses_the_same_indices);
+	MU_RUN(a_full_serial_opens_that_board);
+	MU_RUN(a_prefix_or_a_suffix_of_a_serial_opens_that_board);
+	MU_RUN(a_serial_matches_in_upper_case);
+	MU_RUN(a_string_matching_two_boards_is_refused);
+	MU_RUN(a_serial_that_matches_nothing_is_refused);
+	MU_RUN(an_all_digits_string_is_still_an_index);
+	MU_RUN(the_quiet_selection_matches_the_same_serials);
 	return mu_report();
 }

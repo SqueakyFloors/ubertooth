@@ -157,9 +157,9 @@ in the USB device list or by its serial number:
   on). This index reflects **USB enumeration order** (bus/port and plug order) —
   it is **not** derived from the serial number and is **not guaranteed stable**
   across reboots or re-plugging.
-- `-U<serial>` selects the device whose serial number matches the given string.
-  This is stable across reboots and re-plugging, so it is the recommended way
-  to pin a specific board.
+- `-U<serial>` selects the device whose serial number matches the given string
+  (`-s` prints the serials). This is stable across reboots and re-plugging, so
+  it is the recommended way to pin a specific board.
 
 The argument may be written **attached or separated** — `-U0` and `-U 0` are
 equivalent, as are `-U<serial>` and `-U <serial>`. (Index or serial is
@@ -178,7 +178,8 @@ exits non-zero:
 
 Indexes are positions in the list of boards attached when the command runs:
 unplugging `-U0` makes the old `-U1` the new `-U0`. To keep targeting the same
-board, select it by serial number (or a unique part of it).
+board, select it by serial number, in full or by a leading or trailing part of
+it that no other attached board shares.
 
 This includes a nonzero index with a single Ubertooth attached (`-U1` of one
 device is refused; use `-U0`, or no `-U` at all). With no Ubertooth attached,
@@ -197,6 +198,33 @@ device list is sized dynamically and the index is not capped at any particular
 number (older docs showed `-U<0-7>`, which was only a convention). In practice
 the limit is USB topology, hub bandwidth, and power — with many devices, prefer
 serial selection since indices become unwieldy and unstable.
+
+A serial number need not be given in full. The string is compared
+**case-insensitively** against each attached board's serial, and it matches the
+whole serial, a **leading** part of it, or a **trailing** part of it — never its
+middle. For a board whose serial is `1cc001038088cb956c43ad61c52000f5`:
+
+- `-U 1cc0` and `-U 1CC0` both select it (a leading part).
+- `-U c52000f5` selects it as well (a trailing part).
+- `-U 8088cb95` selects nothing: that is the middle of the serial.
+
+Serials of boards from the same batch differ in their first digits and share
+their last ones, so a short leading part usually identifies one board while a
+short trailing part often does not. A string that matches **more than one**
+attached board selects neither: the matching serials are listed and the tool
+exits non-zero:
+
+    $ ubertooth-util -U 2000f5 -s
+    error: '2000f5' matches 2 Ubertooth devices: 1cc001038088cb956c43ad61c52000f5, 05f00014e380df95f4436562c32000f5
+    select one of them by a longer part of its serial number
+
+A string that matches no attached board also exits non-zero, with
+`no Ubertooth found with serial matching '<string>'`.
+
+An all-digits string is always an index, never a serial, even when it would
+match a serial: `-U 05` asks for index 5, not for the board whose serial starts
+`05f0`. Select that board by a longer part of its serial that includes a
+non-digit, or by its full serial.
 
 With several Ubertooths attached and no `-U`, the read-only identity queries
 `-s` (serial), `-v` (firmware version), `-V` (compile info), `-p` (part ID) and

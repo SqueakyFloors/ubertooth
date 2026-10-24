@@ -144,6 +144,12 @@
   index too large to be a device index (`-U4294967296`) is refused as given
   instead of being wrapped into a different index.
   [#188](https://github.com/SqueakyFloors/ubertooth/issues/188)
+- `-U<serial>` now matches a leading part of a serial number as well as a
+  trailing part, compares case-insensitively, and refuses a string that matches
+  more than one attached board (`error: '2000f5' matches 2 Ubertooth devices:
+  ...`) instead of opening whichever enumerated first. The rules are documented
+  in ubertooth-util(1), SELECTING A DEVICE, and ubertooth(7).
+  [#210](https://github.com/SqueakyFloors/ubertooth/issues/210)
 - `ubertooth-util -q <N>` (LED spectrum analyzer, threshold -N dBm) takes
   20-120, the radio's RSSI range, and bare `-q` uses -85 dBm. The old default
   (225) and `-q183` to `-q225` lit no LED at all; the firmware refuses values
