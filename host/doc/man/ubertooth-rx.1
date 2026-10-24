@@ -230,6 +230,19 @@ This attack works against discoverable and undiscoverable devices alike.
 
 .SH REPLAYING A SAVED CAPTURE
 .PP
+Record the raw packets once with \fB\fC\-d <file.bin>\fR, then decode them as often
+as you like with \fB\fC\-i <file.bin>\fR, without the Ubertooth or the piconet. Use it
+to decode again with other options (the \fB\fC\-l\fR/\fB\fC\-u\fR you have since learned, or a
+different \fB\fC\-e\fR), to analyse on another machine, to attach a capture to a bug
+report, or as fixed input for tests:
+.PP
+.RS
+.nf
+ubertooth\-rx \-d capture.bin                    # live, saving raw packets
+ubertooth\-rx \-i capture.bin \-l 446688 \-u 22    # later, no device needed
+.fi
+.RE
+.PP
 With \fB\fC\-i <file>\fR, ubertooth\-rx(1) decodes the records of a saved capture
 instead of opening a device: each record holds the host time the packet
 was received and the packet as the Ubertooth delivered it. No device is
