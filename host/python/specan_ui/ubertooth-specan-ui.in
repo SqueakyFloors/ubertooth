@@ -45,13 +45,13 @@ from qtpy.QtCore import Qt, QPointF, QLineF
 
 from specan import Ubertooth
 
-DEFAULT_LOWER_FREQ = 2400
-DEFAULT_UPPER_FREQ = 2483
+DEFAULT_LOWER_FREQ = 2402
+DEFAULT_UPPER_FREQ = 2480
 
 # going much further causes the Ubertooth to stop responding :(
 
-MIN_FREQ = 2300
-MAX_FREQ = 2600
+MIN_FREQ = 2402  # range ubertooth-specan accepts
+MAX_FREQ = 2480
 
 class SpecanThread(threading.Thread):
     def __init__(self, device, low_frequency, high_frequency, new_frame_callback, ubertooth_device=-1):
@@ -487,8 +487,9 @@ if __name__ == '__main__':
             sys.exit(1)
 
         try:
-            lower_freq = convert_wifi(lower_channel) - options.padding
-            upper_freq = convert_wifi(upper_channel) + options.padding
+            # Padding may not reach past what the Ubertooth can tune.
+            lower_freq = max(MIN_FREQ, convert_wifi(lower_channel) - options.padding)
+            upper_freq = min(MAX_FREQ, convert_wifi(upper_channel) + options.padding)
         except ValueError:
             sys.exit(1)
     else:

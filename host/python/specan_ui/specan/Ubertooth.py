@@ -59,6 +59,9 @@ class Ubertooth(object):
         if self.proc.poll() is not None:
             print("Could not open Ubertooth device")
             print("Failed to run: ", ' '.join(args))
+            error = self.proc.stderr.read().decode(errors="replace").strip()
+            if error:
+                print(error)
             return
         while self.proc.poll() is None:
             data = self.proc.stdout.read(buffer_size)
