@@ -75,8 +75,9 @@ and are refused like any other unknown option.
 
  - `0` :
    the call did what was asked. For `--capture` that includes a capture
-   Wireshark stopped: the script passes the signal on to `ubertooth-btle`,
-   which dies of it, and the capture ended as it was asked to
+   Wireshark ended, either way it ends one: the script passes the signal on
+   to `ubertooth-btle`, which dies of it, or `ubertooth-btle` dies of SIGPIPE
+   because nothing is reading the fifo any more
  - `1` :
    a usage error, a board that could not be opened, or any other failure
  - anything else :

@@ -222,11 +222,14 @@ def capture(interface, fifo, channel):
     ])
     status = child.wait()
     if status < 0:
-        # Killed by a signal, reported as -N. If it was the signal this
-        # script passed on, the capture stopped because Wireshark asked it
-        # to, which is not a failure; any other signal is one, reported the
-        # way a shell reports it.
-        return 0 if forwarded_signal is not None else 128 - status
+        # Killed by a signal, reported as -N. Two of those mean the capture
+        # ended rather than failed, and Wireshark ends a capture with both:
+        # the signal this script passed on, and SIGPIPE, which the child
+        # gets when whoever was reading the fifo stopped reading it. Any
+        # other signal is a failure, reported the way a shell reports it.
+        if forwarded_signal is not None or -status == signal.SIGPIPE:
+            return 0
+        return 128 - status
     return status
 
 if __name__ == "__main__":

@@ -85,7 +85,13 @@ with open(os.environ["FAKE_UTIL_OUTPUT"]) as listing:
 sys.stdout.flush()
 time.sleep(float(os.environ.get("FAKE_UTIL_SLEEP", "0")))
 if os.environ.get("FAKE_UTIL_SIGNAL"):
-    os.kill(os.getpid(), int(os.environ["FAKE_UTIL_SIGNAL"]))
+    number = int(os.environ["FAKE_UTIL_SIGNAL"])
+    try:
+        # Python ignores SIGPIPE, and a signal that is ignored kills nothing
+        signal.signal(number, signal.SIG_DFL)
+    except (OSError, ValueError):
+        pass
+    os.kill(os.getpid(), number)
 sys.exit(int(os.environ.get("FAKE_UTIL_STATUS", "0")))
 """
 
@@ -331,6 +337,14 @@ for status in (1, 2, 42):
 result = run(("--capture", "--extcap-interface=ubertooth" + SERIALS[0],
               "--fifo=" + fifo), kill_with=signal.SIGKILL)
 assert result.returncode == 128 + int(signal.SIGKILL), result
+
+# except SIGPIPE: the child gets that when whoever was reading the fifo
+# stopped reading, which is one of the ways Wireshark ends a capture. Seen on
+# a real board: ubertooth-btle died of SIGPIPE the moment the reader closed
+# the fifo, and reporting 141 for it would put an error on every such stop.
+result = run(("--capture", "--extcap-interface=ubertooth" + SERIALS[0],
+              "--fifo=" + fifo), kill_with=signal.SIGPIPE)
+assert result.returncode == 0, result
 
 # but a capture Wireshark stopped ended as it was asked to: the script passes
 # the SIGTERM on to ubertooth-btle, which dies of it, and the script still
