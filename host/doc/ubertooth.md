@@ -76,34 +76,39 @@ DEVICE, for the full description and for listing the attached devices.
 
 A board can be attached and still be unavailable, because only one program at
 a time can use it and because a mode keeps running on the board until it is
-stopped. The tools report these two cases in words, with the libusb code in
-parentheses for a bug report:
+stopped. Both cases are reported in words, with the libusb code in parentheses
+for a bug report.
 
-    error: Ubertooth 05f is in use by another program (libusb -3)
+The board opened, and then something else turned out to be holding it:
 
-Something else has the board: another tool from this package, a graphical
-specan, or anything else holding its USB interface. Stop that program and run
-the command again. The libusb code differs by system (macOS reports it as -3,
-Linux as -6), which is why the message does not depend on it.
+    error: Ubertooth 05f00014e380df95f4436562c32000f5 is in use by another program (libusb -3)
 
-    error: the Ubertooth did not answer in time: it may be in use by another
-    program, or busy in a mode (libusb -7)
+That is another tool from this package, a graphical specan, or anything else
+holding its USB interface; on Linux it may be a kernel driver. Stop that
+program and run the command again. Which libusb code says so depends on the
+system, which is why the message does not depend on it. Nothing is sent to the
+board on this path, so the command does not disturb whatever is using it.
 
-The board took the request but sent nothing back. A board left in a mode does
-this: `ubertooth-util -q` (LED spectrum analyser) keeps running on the board
-after the command returns, and so do the other display modes. Stop it with
-`ubertooth-util [-U <selector>] -S`; `ubertooth-util -r` resets the board if a
-stop is not enough. The same message appears when another program is using the
-board on a system where that shows up as a silent board rather than a refused
-claim.
+The board took the request and sent nothing back:
 
-A serial-number selector reports the boards it could not read for the same
-reason, because one of them may be the board asked for:
+    error: the Ubertooth did not answer in time (libusb -7)
+
+A board left in a mode does this: `ubertooth-util -q` (LED spectrum analyser)
+keeps running on the board after the command returns, and so do the other
+display modes. Stop it with `ubertooth-util [-U <selector>] -S`;
+`ubertooth-util -r` resets the board if a stop is not enough. The same line
+appears when a board is wedged, or busy with something else, so the command
+that printed it says what it was doing rather than guessing a cause here.
+
+A serial-number selector names the reason, because a board it could not read
+may be the board asked for:
 
     no Ubertooth found with serial matching '1cc'
     1 attached Ubertooth device did not answer the serial read
-    note: a board that does not answer may be in use by another program, or
-    busy in a mode; stop a mode with ubertooth-util [-U <selector>] -S
+    note: a board that does not answer may be in use by another program, or busy in a mode; stop a mode with ubertooth-util -U <index> -S
+
+The remedy is by index there because a board whose serial could not be read
+cannot be selected by serial.
 
 A board that cannot be *opened* at all is a different problem, usually file
 permissions: on Linux, install the udev rules shipped with this package (see

@@ -1571,8 +1571,9 @@ int main(int argc, char **argv) {
 
 	r = libusb_claim_interface(devh, 0);
 	if (r < 0) {
-		fprintf(stderr, "usb_claim_interface error %d\n", r);
-		fprintf(stderr, "Correct permissions to access Ubertooth?\n");
+		/* The board opened, so this is not the permissions problem this used
+		 * to blame: something else holds the interface. */
+		ubertooth_report_claim_failed(NULL, r);
 		exit_status = 1;
 		goto cleanup;
 	}

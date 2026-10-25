@@ -395,13 +395,13 @@ MU_TEST(a_board_that_cannot_be_claimed_gets_no_stop)
 	mu_assert_int_eq(0, fake.lists);
 	mu_assert(text[0] == '\0', text);
 
-	/* The same board claimed by something else on the loud path does get a
-	 * STOP, from the ubertooth_stop() its failure path calls: that is what
-	 * the quiet selection exists to avoid. */
+	/* The loud path reports it and names the board, and it sends no STOP
+	 * either: the interface was never claimed, so there is no mode of ours
+	 * to end -- and a STOP would interrupt whatever has the board. */
 	bus_with_ubertooths(1);
 	fake.claim_rc = LIBUSB_ERROR_BUSY;
 	mu_assert(select_capturing("0", 0, text, sizeof(text)) == NULL, text);
-	mu_assert_int_eq(1, sent(UBERTOOTH_STOP));
+	mu_assert_int_eq(0, sent(UBERTOOTH_STOP));
 	mu_assert(strstr(text, "Ubertooth at index 0 is in use by another "
 	          "program (libusb -6)") != NULL, text);
 }

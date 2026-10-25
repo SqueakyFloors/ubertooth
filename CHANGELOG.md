@@ -176,12 +176,10 @@
 
 ### Reliability fixes
 
-- A board another program is using, or one that answers nothing because it is
-  still running a mode, now says so: `error: Ubertooth 05f is in use by
-  another program (libusb -3)` and `error: the Ubertooth did not answer in
-  time: it may be in use by another program, or busy in a mode (libusb -7)`.
-  They used to be reported as a libusb code, or as a board that could not be
-  found. See ubertooth(7), WHEN A BOARD CANNOT BE USED.
+- A board another program is using says so (`error: Ubertooth <serial> is in
+  use by another program (libusb -3)`) instead of reporting a libusb code, and
+  no longer has a stop sent to it on the way out; a board that answers nothing
+  says that plainly too. See ubertooth(7), WHEN A BOARD CANNOT BE USED.
   [#232](https://github.com/SqueakyFloors/ubertooth/issues/232)
 - A control request sent to a board that is receiving, transmitting or scanning
   no longer stalls. `ubertooth-util`, `ubertooth-debug` and anything else that

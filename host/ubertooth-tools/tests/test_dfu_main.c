@@ -292,6 +292,21 @@ void show_libusb_error(int error_code)
 	fprintf(stderr, "libUSB Error: fake: (%d)\n", error_code);
 }
 
+/* The real one, which the library shares with the other tools, prints the two
+ * wordings tested below; this stands in for it so no case depends on
+ * libubertooth being linked here. */
+void ubertooth_report_claim_failed(const char* board, int err)
+{
+	if (board == NULL)
+		board = "the Ubertooth";
+	if (err == LIBUSB_ERROR_BUSY || err == LIBUSB_ERROR_ACCESS)
+		fprintf(stderr, "error: %s is in use by another program "
+		        "(libusb %d)\n", board, err);
+	else
+		fprintf(stderr, "error: claiming the USB interface of %s failed "
+		        "(libusb %d)\n", board, err);
+}
+
 /* The application device -U opens, when the case has one. The handle is the
  * same faked one the bootloader answers on, which is what the real board does
  * from the host's point of view: one device that changes identity. */
@@ -514,6 +529,38 @@ static void write_image(const char *revision)
 }
 
 /* ---- a read-back that works, as the baseline --------------------------- */
+
+/* A bootloader something else is already talking to opens and then refuses the
+ * claim, which it reported as "usb_claim_interface error -3" followed by advice
+ * about permissions -- the one thing it cannot be, since the board opened. It
+ * now gets the same plain wording as every other tool. */
+MU_TEST(a_dfu_board_in_use_says_so_rather_than_blaming_permissions)
+{
+	static const int in_use[] = { LIBUSB_ERROR_ACCESS, LIBUSB_ERROR_BUSY };
+	struct run_result r;
+	size_t i;
+
+	for (i = 0; i < sizeof(in_use) / sizeof(in_use[0]); i++) {
+		board_in_dfu();
+		remove_dump();
+		fake.claim_rc = in_use[i];
+		r = RUN("-u", dump_path);
+		mu_assert_int_eq(1, r.rc);
+		mu_assert(strstr(r.err, "the Ubertooth is in use by another program")
+		          != NULL, r.err);
+		mu_assert(strstr(r.err, "permissions") == NULL, r.err);
+	}
+
+	/* and any other claim failure is still reported as itself */
+	board_in_dfu();
+	remove_dump();
+	fake.claim_rc = LIBUSB_ERROR_NO_DEVICE;
+	r = RUN("-u", dump_path);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "claiming the USB interface of the Ubertooth "
+	          "failed (libusb -4)") != NULL, r.err);
+	remove_dump();
+}
 
 MU_TEST(a_read_back_with_reset_writes_the_dump_and_detaches)
 {
@@ -1251,6 +1298,7 @@ int main(void)
 	detach_gone_polls = 3;
 	detach_gone_interval_ms = 1;
 
+	MU_RUN(a_dfu_board_in_use_says_so_rather_than_blaming_permissions);
 	MU_RUN(a_read_back_with_reset_writes_the_dump_and_detaches);
 	MU_RUN(a_bootloader_that_never_reports_its_state_ends_the_read_back);
 	MU_RUN(a_bootloader_that_never_reports_its_state_ends_a_bare_reset);

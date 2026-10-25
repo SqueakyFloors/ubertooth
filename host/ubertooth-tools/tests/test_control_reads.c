@@ -420,11 +420,12 @@ MU_TEST(no_read_writes_to_standard_output)
 	mu_assert(strstr(err, "error: serial read failed") != NULL, err);
 }
 
-/* A read that times out is a board that did not answer, which on these boards
- * means something else is using it or it is still running a mode. Say that,
- * in one line, instead of "libUSB Error: Operation timed out:  (-7)", and keep
- * the code for bug reports. A board libusb itself calls busy gets the same
- * treatment. Both are on standard error, and neither says anything on
+/* A read that times out is a board that did not answer. Say that, in one
+ * line, instead of "libUSB Error: Operation timed out:  (-7)", and keep the
+ * code for bug reports. What a silent board means depends on the caller, so
+ * this does not guess; the paths that know add it. A board libusb itself calls
+ * busy -- which it returns from an open rather than from a request -- gets the
+ * same treatment. Both are on standard error, and neither says anything on
  * standard output. */
 MU_TEST(a_board_that_does_not_answer_is_reported_in_words)
 {
@@ -442,8 +443,7 @@ MU_TEST(a_board_that_does_not_answer_is_reported_in_words)
 
 	mu_assert(out[0] == '\0', out);
 	mu_assert(strcmp(err,
-	    "error: the Ubertooth did not answer in time: it may be in use by "
-	    "another program, or busy in a mode (libusb -7)\n"
+	    "error: the Ubertooth did not answer in time (libusb -7)\n"
 	    "error: the Ubertooth is in use by another program (libusb -6)\n")
 	    == 0, err);
 }

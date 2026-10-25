@@ -833,7 +833,7 @@ MU_TEST(a_board_that_does_not_answer_is_skipped_quietly)
 	    "1 attached Ubertooth device did not answer the serial read\n"
 	    "note: a board that does not answer may be in use by another "
 	    "program, or busy in a mode; stop a mode with "
-	    "ubertooth-util [-U <selector>] -S\n") == 0,
+	    "ubertooth-util -U <index> -S\n") == 0,
 	    msg);
 
 	bus_with_two_serials();
@@ -975,8 +975,10 @@ MU_TEST(a_board_another_program_is_using_says_so)
 		bus_with_two_serials();
 		fake.claim_rc = in_use[i];
 		mu_assert(select_capturing("05f", msg, sizeof(msg)) == NULL, msg);
+		/* the whole serial of the board that matched, not the few characters
+		 * of it the user typed */
 		snprintf(expected, sizeof(expected),
-		         "error: Ubertooth 05f is in use by another program "
+		         "error: Ubertooth " SERIAL_B " is in use by another program "
 		         "(libusb %d)\n", in_use[i]);
 		mu_assert(strcmp(msg, expected) == 0, msg);
 

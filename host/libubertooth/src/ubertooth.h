@@ -170,6 +170,14 @@ int ubertooth_connect_select(ubertooth_t* ut, const char* u_arg);
  * after a reset). Returns NULL if the selected device is not available. */
 ubertooth_t* ubertooth_start_select_quiet(const char* u_arg);
 void ubertooth_close(ubertooth_t* ut);
+/* Reports a board that opened but could not be claimed, naming it as board
+ * when the caller knows which one (NULL for "the Ubertooth"). On this path the
+ * device opened, so the failure is not a permissions problem: both
+ * LIBUSB_ERROR_BUSY and LIBUSB_ERROR_ACCESS mean something else is holding the
+ * interface -- another program, or a kernel driver -- and which of the two
+ * libusb returns depends on the system, so neither is reported on its own. The
+ * code is kept in parentheses for bug reports. */
+void ubertooth_report_claim_failed(const char* board, int err);
 void ubertooth_stop(ubertooth_t* ut);
 /* Releases a handle ubertooth_stop() or ubertooth_close() has finished with.
  * A handle whose receive transfer libusb never gave back is left allocated
