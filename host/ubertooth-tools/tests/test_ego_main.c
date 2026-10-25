@@ -24,6 +24,12 @@
 /* ---- scripted device ---------------------------------------------------- */
 
 static struct {
+	int select_fails;    /* no board answers the -U selection */
+	int api_rc;          /* returned by ubertooth_check_api() */
+	/* Whether that failure is a version mismatch, which the library
+	 * reports by releasing the board itself, or a version it could not read
+	 * at all, which leaves the board open for the caller to close. */
+	int api_mismatch;
 	int channel_rc;      /* returned by cmd_set_channel() */
 	int set_aa_rc;       /* returned by cmd_rfcat_subcmd(RFCAT_SET_AA) */
 	int cap_len_rc;      /* returned by cmd_rfcat_subcmd(RFCAT_CAP_LEN) */
@@ -35,8 +41,13 @@ static struct {
 	uint8_t last_cap_len;
 	int last_ego_mode;
 	int stops;
+	int closes;          /* ubertooth_close(): released without a STOP */
+	int inits;           /* ubertooth_t allocations handed to the tool */
+	int frees;           /* and how many of them it gave back */
+	ubertooth_t *last_freed;
 	/* Every device call in order, one letter each: c set channel, a set
-	 * access code, l set capture length, e start the E-GO mode. */
+	 * access code, l set capture length, e start the E-GO mode, ? a
+	 * subcommand this fake does not know. */
 	char calls[16];
 } fake;
 
@@ -63,19 +74,37 @@ static void reset_fake(void)
 ubertooth_t *ubertooth_start_select(const char *u_arg)
 {
 	(void)u_arg;
+	if (fake.select_fails)
+		return NULL; /* the library has reported it already */
+	fake.inits++;
 	return &fake_ut;
+}
+
+/* Asserting here would print to the standard output a run has redirected, so
+ * the pointer is recorded and checked in the test body instead. */
+void ubertooth_free(ubertooth_t *ut)
+{
+	fake.frees++;
+	fake.last_freed = ut;
 }
 
 int ubertooth_check_api(ubertooth_t *ut)
 {
-	(void)ut;
-	return 0;
+	if (fake.api_rc < 0 && fake.api_mismatch)
+		ubertooth_stop(ut);
+	return fake.api_rc;
 }
 
 void ubertooth_stop(ubertooth_t *ut)
 {
-	(void)ut;
+	ut->devh = NULL; /* as the library's cleanup leaves it */
 	fake.stops++;
+}
+
+void ubertooth_close(ubertooth_t *ut)
+{
+	ut->devh = NULL;
+	fake.closes++;
 }
 
 int cmd_set_channel(struct libusb_device_handle *devh, u16 channel)
@@ -96,6 +125,12 @@ int cmd_rfcat_subcmd(struct libusb_device_handle *devh, int cmd, uint8_t *body,
 			memcpy(fake.last_access_code, body, body_len);
 		fake.last_access_code_len = (int)body_len;
 		return fake.set_aa_rc;
+	}
+	if (cmd != RFCAT_CAP_LEN) {
+		/* A subcommand added later must not be read as a capture length
+		 * and quietly pass; the cases below compare the call letters. */
+		record('?');
+		return 0;
 	}
 	record('l');
 	fake.last_cap_len = body[0];
@@ -193,6 +228,12 @@ static struct run_result run_ego(const char *const *args)
 	read_back(err, result.err, sizeof(result.err));
 	fclose(out);
 	fclose(err);
+	/* Checked for every case in this file, not just the cases that name an
+	 * exit path: a run must give back whatever it was handed, and nothing
+	 * else. The tool used to keep it on every path. */
+	mu_assert(fake.frees == fake.inits, "the run did not free its device");
+	mu_assert(fake.inits == 0 || fake.last_freed == &fake_ut,
+	          "the run freed something other than its device");
 	return result;
 }
 
@@ -215,13 +256,14 @@ MU_TEST(a_capture_the_board_took_sends_the_setup_requests_and_exits_0)
 	mu_assert_int_eq(0x11, fake.last_access_code[0]);
 	mu_assert_int_eq(0x44, fake.last_access_code[3]);
 	mu_assert_int_eq(24, fake.last_cap_len);
+	mu_assert_int_eq(1, fake.last_ego_mode); /* continuous receive */
 	mu_assert_int_eq(1, fake.stops);
 	mu_assert(strstr(r.err, "error: ") == NULL, r.err);
 }
 
-/* Following connections hops on the board, so no channel is set, and without
- * -a the firmware keeps its default access code: the capture length is the
- * only setup request. */
+/* Following connections hops on the board, so no channel is set, and the tool
+ * sends no access code of its own: the board keeps whichever one it was last
+ * set to. The capture length is the only setup request. */
 MU_TEST(following_sets_only_the_capture_length)
 {
 	struct run_result r;
@@ -231,6 +273,43 @@ MU_TEST(following_sets_only_the_capture_length)
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(fake.calls, "le") == 0, fake.calls);
 	mu_assert_int_eq(18, fake.last_cap_len); /* the default */
+	mu_assert_int_eq(0, fake.last_ego_mode); /* follow */
+}
+
+/* A board that cannot be opened, and a firmware the host will not drive, each
+ * end the command before any setup request. */
+MU_TEST(a_board_or_firmware_the_tool_cannot_use_exits_1)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.select_fails = 1;
+	r = RUN("-f");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, fake.inits);
+	mu_assert(fake.calls[0] == '\0', fake.calls);
+
+	/* A version mismatch: the library has released the board and ended the
+	 * libusb context, so the tool gives back the memory and nothing else. */
+	reset_fake();
+	fake.api_rc = -1;
+	fake.api_mismatch = 1;
+	r = RUN("-f");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, fake.frees);
+	mu_assert_int_eq(0, fake.closes);
+	mu_assert(fake.calls[0] == '\0', fake.calls);
+
+	/* A version it could not read at all leaves the board open, so the tool
+	 * closes it rather than freeing the memory around a claimed board. No
+	 * STOP: this firmware is not one the host will drive. */
+	reset_fake();
+	fake.api_rc = -1;
+	r = RUN("-f");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, fake.frees);
+	mu_assert_int_eq(1, fake.closes);
+	mu_assert_int_eq(0, fake.stops);
 }
 
 /* Each refused setup request is named, in one line on standard error, and ends
@@ -240,12 +319,13 @@ MU_TEST(following_sets_only_the_capture_length)
 MU_TEST(a_refused_setup_request_is_named_and_exits_1)
 {
 	static const struct {
+		int *result;         /* the request to have the board refuse */
 		const char *calls;   /* the requests made before the refusal */
 		const char *message;
 	} cases[] = {
-		{ "c",   "error: could not set the channel\n" },
-		{ "ca",  "error: could not set the access code\n" },
-		{ "cal", "error: could not set the capture length\n" },
+		{ &fake.channel_rc, "c",   "error: could not set the channel\n" },
+		{ &fake.set_aa_rc,  "ca",  "error: could not set the access code\n" },
+		{ &fake.cap_len_rc, "cal", "error: could not set the capture length\n" },
 	};
 	struct run_result r;
 	size_t i;
@@ -253,13 +333,9 @@ MU_TEST(a_refused_setup_request_is_named_and_exits_1)
 	for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
 		reset_fake();
 		/* LIBUSB_ERROR_PIPE, how a board refuses a request it does not
-		 * implement. */
-		if (i == 0)
-			fake.channel_rc = -9;
-		else if (i == 1)
-			fake.set_aa_rc = -9;
-		else
-			fake.cap_len_rc = -9;
+		 * implement. reset_fake() zeroes the struct rather than moving
+		 * it, so these pointers stay good. */
+		*cases[i].result = -9;
 
 		r = RUN("-r", "-c", "2408", "-a", "11223344");
 		mu_assert_int_eq(1, r.rc);
@@ -345,6 +421,7 @@ int main(void)
 {
 	MU_RUN(a_capture_the_board_took_sends_the_setup_requests_and_exits_0);
 	MU_RUN(following_sets_only_the_capture_length);
+	MU_RUN(a_board_or_firmware_the_tool_cannot_use_exits_1);
 	MU_RUN(a_refused_setup_request_is_named_and_exits_1);
 	MU_RUN(the_access_code_request_is_only_sent_for_a);
 	MU_RUN(a_firmware_without_ego_is_still_reported);

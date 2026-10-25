@@ -48,6 +48,7 @@ static int request_failed(const char *what)
 {
 	fprintf(stderr, "error: could not %s\n", what);
 	ubertooth_stop(ut);
+	ubertooth_free(ut);
 	return 1;
 }
 
@@ -165,8 +166,17 @@ int main(int argc, char *argv[])
 	}
 
 	r = ubertooth_check_api(ut);
-	if (r < 0)
+	if (r < 0) {
+		/* ubertooth_check_api() releases the board itself on a version
+		 * mismatch, and ends the libusb context with it, which must not
+		 * happen twice; a version it could not read at all leaves the
+		 * board open, so it is closed here, without a STOP for a
+		 * firmware this host will not drive. */
+		if (ut->devh != NULL)
+			ubertooth_close(ut);
+		ubertooth_free(ut);
 		return 1;
+	}
 
 	// quit on ctrl-C
 	signal(SIGINT, quit);
@@ -200,6 +210,7 @@ int main(int argc, char *argv[])
 			/* Released like any other refused request, rather than left
 			 * claimed because this one has its own message. */
 			ubertooth_stop(ut);
+			ubertooth_free(ut);
 			return 1;
 		}
 
@@ -221,6 +232,7 @@ int main(int argc, char *argv[])
 		}
 		ubertooth_stop(ut);
 	}
+	ubertooth_free(ut);
 
 	return status;
 }
