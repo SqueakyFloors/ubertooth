@@ -31,9 +31,11 @@
  *
  * During development it is bumped in every pull request that changes firmware
  * behaviour the host relies on: a new, removed or changed request, or a
- * changed behaviour of an existing one. Host-only changes leave it alone.
- * A board carrying firmware from an earlier commit is then refused rather
- * than used with behaviour the tools no longer expect. A bump also updates
+ * changed behaviour of an existing one. Host-only changes leave it alone, so
+ * a board carrying firmware from an earlier commit is normally, but not
+ * always, refused: commits that leave the firmware interface alone share the
+ * number before them, which is why it is the revision ubertooth-util -v shows
+ * beside the version that identifies a build. A bump also updates
  * CHANGELOG.md, COMPATIBILITY.md, TEST_PLAN.md and the pinned strings in the
  * tests.
  *

@@ -132,10 +132,11 @@ the firmware reports as the USB `bcdDevice`) is bumped **once per firmware
 change the host relies on**, in the PR that makes it.
 
 - A PR that adds, removes or changes a request, or changes the behaviour of an
-  existing one, MUST bump the minor version (BCD: `0x0114` → `0x0115`; after
-  `0x0119` comes `0x0120`) and update `CHANGELOG.md`, `COMPATIBILITY.md`,
-  `TEST_PLAN.md` and the pinned strings in the tests. Host-only PRs MUST NOT
-  touch it. If `main` already carries the value you picked, take the next one.
+  existing one, MUST bump the minor version and update `CHANGELOG.md`,
+  `COMPATIBILITY.md`, `TEST_PLAN.md` and the pinned strings in the tests. The
+  number is BCD, so after `0x0119` comes `0x0120`, not `0x011a`. Host-only PRs
+  MUST NOT touch it. Take the value after whatever `main` carries, re-checking
+  after a rebase.
 - A release moves it to the next major version to mark the break in
   host/firmware pairing; the first fork release takes `0x0200` (2.00). That is
   a release step, not a per-PR one (see `docs/source/release_procedure.rst`).

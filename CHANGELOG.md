@@ -59,10 +59,12 @@
   the command returns at once and the board stays reachable; `-S` or any mode
   option stops it and leaves the LEDs off.
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
-- **Reflash required:** the firmware API version is now 1.15, and the host
-  tools require firmware of exactly their own API version, older or newer
-  (`ubertooth-util` still reads the version and reflashes any firmware). Host
-  and firmware come from the same tree; `2020-12-R1` firmware is refused.
+- **Reflash required:** the firmware API version is now 1.15, last moved by
+  the removal of requests 45 and 46, and the host tools require firmware of
+  exactly their own API version, older or newer (`ubertooth-util` still reads
+  the version and reflashes any firmware). Host and firmware come from the
+  same tree; `2020-12-R1` firmware is refused.
+  [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
   [#240](https://github.com/SqueakyFloors/ubertooth/issues/240)
 - `ubertooth-specan-ui` draws a slowly smoothed average of the max-hold trace
