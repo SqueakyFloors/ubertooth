@@ -86,6 +86,12 @@ CASES = {
         # a valid piconet address still reports the stray word
         (("-l", "446688", "-u", "22", "extra"),
          "error: unexpected argument 'extra'"),
+        # both halves of the address are needed, before a device is opened
+        ((), "error: -l <lap> and -u <uap> are both required"),
+        (("-l", "446688"), "error: -l <lap> and -u <uap> are both required"),
+        (("-u", "22"), "error: -l <lap> and -u <uap> are both required"),
+        (("-u", "22", "-U", NO_SUCH_SERIAL),
+         "error: -l <lap> and -u <uap> are both required"),
     ),
     "ubertooth-btle": STRAY + ADV_INDEX + (
         # one major mode per command, refused before a device is opened
@@ -129,7 +135,7 @@ CASES = {
         (("-a", "11:22:33:44:55"),
          "error: bluetooth address must be xx:xx:xx:xx:xx:xx (got 11:22:33:44:55)"),
         (("-a", "11:22:33:44:55:GG"), "error: bluetooth address must be"),
-        (("-q", "nonsense"), "error parsing uuid 'nonsense'"),
+        (("-q", "nonsense"), "error: cannot read the uuid 'nonsense'"),
         (("-q", "fd123ff9-9e30-45b2-af0d-b85b7d2dc80c", "extra"),
          "error: unexpected argument 'extra'"),
     ),
@@ -196,9 +202,9 @@ for arguments, expected in CASES[TOOL]:
     for message in DEVICE_ACCESS:
         assert message not in output, (arguments, message, result)
 
-# -h on its own still prints the tool's help and reaches no device. The exit
-# status is the tool's own (0 for ubertooth-debug and ubertooth-specan, 1 for
-# the rest); only the refusal is new.
+# -h on its own still prints the tool's help and reaches no device. Which
+# stream it lands on and the exit status are pinned by test_output_streams.py,
+# tool by tool, so both of the statuses still in the tree are accepted here.
 help_result = run(("-h",))
 help_output = (help_result.stdout + help_result.stderr).lower()
 assert help_result.returncode in (0, 1), help_result

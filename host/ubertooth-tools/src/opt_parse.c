@@ -185,6 +185,37 @@ int opt_check_no_operands(int argc, char *argv[])
 	return 0;
 }
 
+void opt_report_bad_option(int opt, int argc, char *argv[])
+{
+	if (opt == ':' && optopt != 0 && isprint((unsigned char)optopt)) {
+		fprintf(stderr, "error: option '-%c' requires a value\n", optopt);
+		return;
+	}
+	if (opt == ':') {
+		fputs("error: an option is missing its value\n", stderr);
+		return;
+	}
+	/* getopt reads one letter at a time, so for "--bogus" it rejects the
+	 * second '-' and leaves the rest of the word unread, which is how the
+	 * whole word can be quoted back. No tool takes long options. */
+	if (optopt == '-' && optind < argc && argv[optind] != NULL &&
+	    argv[optind][0] == '-') {
+		if (strncmp(argv[optind], "--", 2) == 0 && argv[optind][2] != '\0')
+			fprintf(stderr, "error: unrecognized option '%s': the tools take "
+			        "single-letter options\n", argv[optind]);
+		else
+			/* A '-' inside a cluster, as in "-r-x": quoting "--" would name
+			 * an option the user never typed. */
+			fprintf(stderr, "error: unrecognized option '-' in '%s'\n",
+			        argv[optind]);
+		return;
+	}
+	if (optopt != 0 && isprint((unsigned char)optopt))
+		fprintf(stderr, "error: unrecognized option '-%c'\n", optopt);
+	else
+		fputs("error: unrecognized option\n", stderr);
+}
+
 char *opt_separate_value(int argc, char *argv[], opt_value_check valid)
 {
 	if (optind >= argc || valid == NULL || !valid(argv[optind]))

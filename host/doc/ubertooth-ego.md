@@ -76,6 +76,33 @@ An option value must be a whole value in its range, or it is refused the same
 way instead of being read as 0, for example
 `error: channel must be 2402-2480 MHz (got 2481)`.
 
+A major mode is the work, so a command line without `-f`, `-r` or `-i` is
+refused before any device is opened: `error: nothing to do: choose a major
+mode (-f, -r or -i)`. It used to open the selected board, check its firmware,
+do nothing and exit 0.
+
+## DIAGNOSTICS
+
+Standard output carries only the captured packets. Errors, warnings and
+progress go to standard error, each error as one line starting `error: `, for
+example `error: E-GO not supported by this firmware`.
+
+A command line the tool will not take is reported as that one `error: ` line
+followed by the usage text, both on standard error. An option the tool does
+not know reads `error: unrecognized option '-Z'`; one whose value is missing
+reads `error: option '-c' requires a value`.
+
+`-h` is what the user asked for, so the usage text goes to standard output and
+nothing goes to standard error.
+
+## EXIT STATUS
+
+0 when the command did what was asked, including `-h`, and after a capture is
+interrupted (Ctrl-C). 1 for a command line the tool will not take or with
+nothing to do, when the selected Ubertooth is not found or cannot be opened,
+when the firmware does not support the requested mode, and when the capture
+stops short because a poll failed.
+
 ## SEE ALSO
 
 ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how

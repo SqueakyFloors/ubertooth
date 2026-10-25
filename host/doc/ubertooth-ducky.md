@@ -57,6 +57,33 @@ way instead of being read as 0, for example
 The optional value of `-q` may be attached or given as the next word
 (`-q <uuid>`); a following option is never taken as a value.
 
+`-q` or `-b` is the work, so a command line with neither is refused before
+any device is opened: `error: nothing to do: give -q to quack, or -b to
+signal the bootloader`. It used to open the selected board, check its
+firmware, quack nothing and exit 0.
+
+## DIAGNOSTICS
+
+What `ubertooth-ducky` does happens over the air, so it writes no result:
+everything it prints, including the duck and the "Quacking ... as ..." line,
+goes to standard error, and standard output stays empty. Each error is one
+line starting `error: `, for example
+`error: cannot read the UUID 'nonsense'`.
+
+A command line the tool will not take is reported as that one `error: ` line
+followed by the usage text, both on standard error. An option the tool does
+not know reads `error: unrecognized option '-Z'`; one whose value is missing
+reads `error: option '-U' requires a value`.
+
+`-h` is what the user asked for, so the usage text goes to standard output and
+nothing goes to standard error.
+
+## EXIT STATUS
+
+0 when the command did what was asked, including `-h`. 1 for a command line
+the tool will not take or with nothing to do, for a UUID it cannot read, and
+when the selected Ubertooth is not found or cannot be opened.
+
 ## SEE ALSO
 
 ubertooth-btle(1)

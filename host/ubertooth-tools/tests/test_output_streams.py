@@ -1,0 +1,139 @@
+#!/usr/bin/env python3
+"""Which stream the usage text and a bad option land on, and the exit status.
+
+Run as: test_output_streams.py <path to one ubertooth-* binary>
+
+The rule:
+
+  * -h is what the user asked for: the usage text goes to standard output,
+    nothing goes to standard error, and the status is 0;
+  * a command line the tool will not take, including one with nothing to do,
+    gets one "error: " line and then the usage text, both on standard error,
+    nothing on standard output, and the status is 1.
+
+No device is opened in any of those cases, so nothing here depends on what is
+attached; UBERTOOTH_TEST_NO_DEVICES=1 hides any board that is, and a run that
+reached device selection is caught by the message that reports it.
+
+Tools are converted one at a time, so a tool not yet in FOLLOWS_THE_RULE is
+reported as pending and nothing is asserted for it: adding a tool to that set
+is what turns these checks on for it.
+"""
+
+import os
+import subprocess
+import sys
+
+
+BINARY = sys.argv[1]
+TOOL = os.path.basename(BINARY)
+ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1")
+
+# The tools whose output streams have been brought in line with the rule.
+FOLLOWS_THE_RULE = {
+    "ubertooth-afh",
+    "ubertooth-ducky",
+    "ubertooth-dump",
+    "ubertooth-ego",
+    "ubertooth-tx",
+}
+
+# One option per tool that takes a required value, for the missing-value case.
+# ubertooth-ducky is left out because test_ducky_options.py already covers its
+# missing -U value, in the middle of the rest of its selector parsing.
+OPTION_NEEDING_A_VALUE = {
+    "ubertooth-afh": "l",
+    "ubertooth-dump": "d",
+    "ubertooth-ego": "c",
+    "ubertooth-tx": "l",
+}
+
+# The tools whose empty command line has nothing to do, and the "error: " line
+# each one refuses it with. The rest have work to do with no options at all
+# (ubertooth-dump captures, for example), so they are left out of that check.
+NOTHING_TO_DO = {
+    "ubertooth-afh": "error: -l <LAP> and -u <UAP> are both required: "
+                     "the map is detected for one piconet",
+    "ubertooth-ducky": "error: nothing to do: give -q to quack, or -b to "
+                       "signal the bootloader",
+    "ubertooth-ego": "error: nothing to do: choose a major mode (-f, -r or -i)",
+    "ubertooth-tx": "error: -l <LAP> and -u <UAP> are both required",
+}
+
+# Anything libubertooth prints once a tool starts looking for a device: a
+# command with nothing to do must be refused before that happens.
+DEVICE_ACCESS = (
+    "could not open ubertooth",
+    "no ubertooth found",
+    "no board is selected",
+    "usb descriptor",
+)
+
+
+def run(arguments):
+    return subprocess.run([BINARY] + list(arguments), env=ENVIRONMENT,
+                          stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                          universal_newlines=True, timeout=20)
+
+
+def usage_text(text):
+    """The usage text names the tool and lists at least the -U line."""
+    return TOOL in text and "-U <index|serial>" in text
+
+
+if TOOL not in FOLLOWS_THE_RULE:
+    print("%s: output streams not converted yet, nothing asserted" % TOOL)
+    sys.exit(0)
+
+# ---- -h: the usage text on stdout, nothing on stderr, status 0 -------------
+
+result = run(["-h"])
+assert result.returncode == 0, result
+assert usage_text(result.stdout), result
+assert result.stderr == "", result
+
+# ---- an option the tool does not know --------------------------------------
+
+result = run(["-Z"])
+assert result.returncode == 1, result
+# Nothing on stdout: a script reading the tool's output sees no usage text.
+assert result.stdout == "", result
+# The "error: " line comes first, then the usage text, both on stderr.
+first, _, rest = result.stderr.partition("\n")
+assert first == "error: unrecognized option '-Z'", result
+assert usage_text(rest), result
+
+# A word starting with -- is quoted as the user wrote it: getopt rejects its
+# second '-', which would otherwise be reported as the option "--".
+result = run(["--bogus"])
+assert result.returncode == 1, result
+assert result.stdout == "", result
+assert result.stderr.startswith("error: unrecognized option '--bogus':"), result
+assert usage_text(result.stderr), result
+
+# ---- an option whose value is missing --------------------------------------
+
+option = OPTION_NEEDING_A_VALUE.get(TOOL)
+if option is not None:
+    result = run(["-" + option])
+    assert result.returncode == 1, result
+    assert result.stdout == "", result
+    first, _, rest = result.stderr.partition("\n")
+    assert first == "error: option '-%s' requires a value" % option, result
+    assert usage_text(rest), result
+
+# ---- a command line with nothing to do -------------------------------------
+
+refusal = NOTHING_TO_DO.get(TOOL)
+if refusal is not None:
+    result = run([])
+    assert result.returncode == 1, result
+    assert result.stdout == "", result
+    first, _, rest = result.stderr.partition("\n")
+    assert first == refusal, result
+    assert usage_text(rest), result
+    # refused before any device was looked for
+    for message in DEVICE_ACCESS:
+        assert message not in result.stderr.lower(), (message, result)
+
+print("%s: output streams and exit status follow the rule" % TOOL)

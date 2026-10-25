@@ -90,7 +90,8 @@ void print_version(void) { printf("test\n"); }
 struct run_result {
 	int rc;
 	char out[4096];
-	char err[1024];
+	/* A refused command line prints the whole usage text here. */
+	char err[4096];
 };
 
 static void read_back(FILE *file, char *buffer, size_t size)
@@ -244,17 +245,37 @@ MU_TEST(a_library_error_is_not_mistaken_for_no_packets)
 }
 
 /* The usage text says that the tool keeps monitoring until it is interrupted
- * and what -t does at the end of its phase. */
+ * and what -t does at the end of its phase. -h is what the user asked for, so
+ * it goes to standard output, leaves standard error empty and exits 0. */
 MU_TEST(the_usage_text_documents_the_monitoring_and_the_exit_status)
 {
 	struct run_result r;
 
 	reset_fake();
 	r = RUN("-h");
-	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, r.rc);
 	mu_assert(strstr(r.out, "keeps monitoring") != NULL, r.out);
 	mu_assert(strstr(r.out, "exit status 2") != NULL, r.out);
 	mu_assert(strstr(r.out, "-U <index|serial>") != NULL, r.out);
+	mu_assert(r.err[0] == '\0', r.err);
+	mu_assert_int_eq(0, fake.rx_afh_calls);
+}
+
+/* A command line with no piconet address does nothing, so it is refused: the
+ * error line and the usage text on standard error, nothing on standard
+ * output, exit 1, and no device opened. */
+MU_TEST(a_missing_piconet_address_is_refused_on_standard_error)
+{
+	static const char REFUSAL[] =
+		"error: -l <LAP> and -u <UAP> are both required";
+	struct run_result r;
+
+	reset_fake();
+	r = RUN("-u", "22");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strncmp(r.err, REFUSAL, strlen(REFUSAL)) == 0, r.err);
+	mu_assert(strstr(r.err, "keeps monitoring") != NULL, r.err);
 	mu_assert_int_eq(0, fake.rx_afh_calls);
 }
 
@@ -267,5 +288,6 @@ int main(void)
 	MU_RUN(the_r_format_is_unchanged);
 	MU_RUN(a_library_error_is_not_mistaken_for_no_packets);
 	MU_RUN(the_usage_text_documents_the_monitoring_and_the_exit_status);
+	MU_RUN(a_missing_piconet_address_is_refused_on_standard_error);
 	return mu_report();
 }

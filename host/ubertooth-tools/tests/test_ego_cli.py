@@ -42,4 +42,5 @@ missing = subprocess.run(
     env=ENVIRONMENT,
 )
 assert missing.returncode != 0, missing
-assert "requires an argument" in missing.stderr.lower(), missing
+assert missing.stdout == "", missing
+assert missing.stderr.startswith("error: option '-l' requires a value"), missing

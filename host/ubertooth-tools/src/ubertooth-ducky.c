@@ -42,11 +42,13 @@ static void quit(int sig __attribute__((unused))) {
 	running = 0;
 }
 
-void print_mac(uint8_t *mac_address) {
+/* ubertooth-ducky's result is the advertisement it sends over the air, so
+ * everything it prints is progress and goes to standard error. */
+void print_mac(FILE *file, uint8_t *mac_address) {
 	unsigned i;
 	for (i = 0; i < 5; ++i)
-		printf("%02x:", mac_address[i]);
-	printf("%02x", mac_address[5]);
+		fprintf(file, "%02x:", mac_address[i]);
+	fprintf(file, "%02x", mac_address[5]);
 }
 
 int parse_uuid(char *s, uint8_t *uuid_out) {
@@ -79,17 +81,17 @@ int parse_uuid(char *s, uint8_t *uuid_out) {
 	return n == 32;
 }
 
-void print_uuid(uint8_t *uuid) {
+void print_uuid(FILE *file, uint8_t *uuid) {
 	unsigned i;
-	for (i =  0; i <  4; ++i) printf("%02x", uuid[i]);
-	printf("-");
-	for (i =  4; i <  6; ++i) printf("%02x", uuid[i]);
-	printf("-");
-	for (i =  6; i <  8; ++i) printf("%02x", uuid[i]);
-	printf("-");
-	for (i =  8; i < 10; ++i) printf("%02x", uuid[i]);
-	printf("-");
-	for (i = 10; i < 16; ++i) printf("%02x", uuid[i]);
+	for (i =  0; i <  4; ++i) fprintf(file, "%02x", uuid[i]);
+	fprintf(file, "-");
+	for (i =  4; i <  6; ++i) fprintf(file, "%02x", uuid[i]);
+	fprintf(file, "-");
+	for (i =  6; i <  8; ++i) fprintf(file, "%02x", uuid[i]);
+	fprintf(file, "-");
+	for (i =  8; i < 10; ++i) fprintf(file, "%02x", uuid[i]);
+	fprintf(file, "-");
+	for (i = 10; i < 16; ++i) fprintf(file, "%02x", uuid[i]);
 }
 
 #define DUCKLEN 7
@@ -103,32 +105,32 @@ char *duck[DUCKLEN] = {
 	"     ~ - ~ ~- ~ - ~ -\n",
 };
 
-void print_duck(int s) {
+void print_duck(FILE *file, int s) {
 	unsigned i;
 	for (i = 0; i < DUCKLEN; ++i) {
 		if (i != 1) {
-			printf("%s", duck[i]);
+			fprintf(file, "%s", duck[i]);
 		} else {
-			printf(duck[i], s ? "FLAT" : "UBERDUCKY");
+			fprintf(file, duck[i], s ? "FLAT" : "UBERDUCKY");
 		}
 	}
 }
 
 
-static void usage(void) {
-	printf("ubertooth-ducky - make an Uberducky quack like a USB Rubber Ducky\n");
-	printf("Usage:\n");
-	printf("\t-q [uuid] quack!\n");
-	printf("\t-b signal Uberducky to enter bootloader\n");
-	printf("\n");
-	printf("\t-A <%d-%d> advertising channel index (default: 38)\n",
-	       ADV_INDEX_MIN, ADV_INDEX_MAX);
-	printf("\t-a <BD ADDR> Bluetooth address, xx:xx:xx:xx:xx:xx (default: random)\n");
-	fputs(OPT_USAGE_SELECT_DEVICE, stdout);
-	printf("\t-h this help\n");
-	printf("\n");
-	printf("For more information on Uberducky, visit:\n");
-	printf("https://github.com/mikeryan/uberducky\n");
+static void usage(FILE *file) {
+	fprintf(file, "ubertooth-ducky - make an Uberducky quack like a USB Rubber Ducky\n");
+	fprintf(file, "Usage:\n");
+	fprintf(file, "\t-q [uuid] quack!\n");
+	fprintf(file, "\t-b signal Uberducky to enter bootloader\n");
+	fprintf(file, "\n");
+	fprintf(file, "\t-A <%d-%d> advertising channel index (default: 38)\n",
+	        ADV_INDEX_MIN, ADV_INDEX_MAX);
+	fprintf(file, "\t-a <BD ADDR> Bluetooth address, xx:xx:xx:xx:xx:xx (default: random)\n");
+	fputs(OPT_USAGE_SELECT_DEVICE, file);
+	fprintf(file, "\t-h this help\n");
+	fprintf(file, "\n");
+	fprintf(file, "For more information on Uberducky, visit:\n");
+	fprintf(file, "https://github.com/mikeryan/uberducky\n");
 }
 
 int main(int argc, char *argv[])
@@ -154,7 +156,11 @@ int main(int argc, char *argv[])
 	addr_set = 0;
 	be_sarcastic = 0;
 
-	while ((opt=getopt(argc,argv,"q::bA:a:hsU:")) != EOF) {
+	/* The tool reports a bad option itself, in the usual one-line form:
+	 * see opt_report_bad_option(). The leading ':' makes a missing option
+	 * value distinguishable from an option getopt does not know. */
+	opterr = 0;
+	while ((opt=getopt(argc,argv,":q::bA:a:hsU:")) != EOF) {
 		switch(opt) {
 		case 'q':
 			/* getopt only attaches an optional value (-q<uuid>); take a
@@ -211,7 +217,8 @@ int main(int argc, char *argv[])
 				first_exit_option = 'h';
 			break;
 		default:
-			usage();
+			opt_report_bad_option(opt, argc, argv);
+			usage(stderr);
 			return 1;
 		}
 	}
@@ -225,7 +232,16 @@ int main(int argc, char *argv[])
 	 * parsed: a bad option value or a stray word is reported even
 	 * alongside it. */
 	if (first_exit_option == 'h') {
-		usage();
+		usage(stdout);
+		return 0;
+	}
+
+	/* -q or -b is the work. Without either the tool used to open the
+	 * selected board, check its firmware, quack nothing and exit 0. */
+	if (!do_quack) {
+		fputs("error: nothing to do: give -q to quack, or -b to signal the "
+		      "bootloader\n", stderr);
+		usage(stderr);
 		return 1;
 	}
 
@@ -235,9 +251,10 @@ int main(int argc, char *argv[])
 		r = parse_uuid(uuid_str, uuid);
 		if (!r) {
 			if (!be_sarcastic)
-				printf("Error parsing UUID '%s'\n", uuid_str);
+				fprintf(stderr, "error: cannot read the UUID '%s'\n", uuid_str);
 			else
-				printf("UUID's fucked mate. Did an upright duck tell you to type that?\n");
+				fputs("error: UUID's fucked mate. Did an upright duck "
+				      "tell you to type that?\n", stderr);
 			return 1;
 		}
 		free(uuid_str);
@@ -245,7 +262,8 @@ int main(int argc, char *argv[])
 		if (!addr_set) {
 			random = fopen("/dev/urandom", "r");
 			if (random == NULL || fread(bd_addr, 6, 1, random) != 1) {
-				fprintf(stderr, "Error: could not read random BD_ADDR from /dev/urandom\n");
+				fputs("error: could not read a random BD_ADDR from "
+				      "/dev/urandom\n", stderr);
 				if (random != NULL)
 					fclose(random);
 				return 1;
@@ -273,13 +291,13 @@ int main(int argc, char *argv[])
 		uint16_t channel;
 		unsigned i;
 
-		print_duck(be_sarcastic);
-		printf("\n");
-		printf("Quacking ");
-		print_uuid(uuid);
-		printf(" as ");
-		print_mac(bd_addr);
-		printf("\n");
+		print_duck(stderr, be_sarcastic);
+		fprintf(stderr, "\n");
+		fprintf(stderr, "Quacking ");
+		print_uuid(stderr, uuid);
+		fprintf(stderr, " as ");
+		print_mac(stderr, bd_addr);
+		fprintf(stderr, "\n");
 
 		adv_data[0] = 0x11; // 17 bytes
 		adv_data[1] = 0x07; // 128 bit UUIDs
