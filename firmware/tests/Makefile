@@ -12,7 +12,7 @@ FW_RXTX := ../bluetooth_rxtx
 FW_COMMON := ../common
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_mode_dispatch test_le_phy_order
+TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_mode_dispatch test_le_phy_order test_grmdm_rx_generic
 BINDIR  := bin
 
 .PHONY: all test clean
@@ -74,6 +74,15 @@ $(BINDIR)/test_le_phy_order: test_le_phy_order.c minunit.h source_scan.h \
 		$(FW_RXTX)/le_phy.c | $(BINDIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
 		-o $@ test_le_phy_order.c
+
+# grmdm_packet_mode() is a bit test in cc2400.h, so it runs here; the
+# rx_generic() that uses it is hardware code, so the same test scans
+# bluetooth_rxtx.c for the shape.
+$(BINDIR)/test_grmdm_rx_generic: test_grmdm_rx_generic.c minunit.h \
+		source_scan.h $(FW_COMMON)/cc2400.h $(FW_RXTX)/bluetooth_rxtx.c \
+		| $(BINDIR)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -I$(FW_COMMON) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
+		-o $@ test_grmdm_rx_generic.c
 
 $(BINDIR):
 	mkdir -p $(BINDIR)

@@ -1394,15 +1394,35 @@ void bt_stream_rx()
 	 * must be one whose own vendor request sets up everything it needs:
 	 * MODE_AFH's does (hop mode, empty map, afh_enabled), as does
 	 * MODE_BT_FOLLOW's. What such a request still inherits from the mode it
-	 * replaces is a separate open question. MODE_RX_GENERIC is dispatched to
-	 * rx_generic(), which sets up the mode itself and then calls this
-	 * function, so it is deliberately not listed -- its unsynchronized path
-	 * returns at once as MODE_AFH used to, which is another open problem of
-	 * its own.
+	 * replaces is a separate open question.
+	 *
+	 * MODE_RX_GENERIC reaches this loop through rx_generic(), which is where
+	 * its two receives are told apart and the symbol stream is set up, so it
+	 * is listed only while it is the mode the dispatch recorded. A
+	 * UBERTOOTH_RX_GENERIC request arriving while another mode streams
+	 * therefore ends this loop and goes through the dispatch, instead of
+	 * being absorbed here and streaming the running mode's symbols under the
+	 * new mode's name.
+	 *
+	 * The three above are kept out of the generic receive for the same
+	 * reason, and it matters more in that direction: this loop was entered
+	 * with modulation = MOD_NONE, so a request for one of them absorbed here
+	 * would stream unmodulated symbols under its name, with none of the
+	 * setup its own request is trusted to have done and no idle reset in
+	 * between.
+	 *
+	 * Re-sending the mode that is already running is absorbed, as it is for
+	 * the other three among themselves: a host that reconfigures GRMDM and
+	 * asks for MODE_RX_GENERIC again keeps the receive it has, because the
+	 * choice is made on the way in and getting back to it means leaving the
+	 * mode first.
 	 */
-	while ( requested_mode == MODE_RX_SYMBOLS
-	     || requested_mode == MODE_BT_FOLLOW
-	     || requested_mode == MODE_AFH )
+	while ( ( requested_mode == MODE_RX_GENERIC
+	          && mode == MODE_RX_GENERIC )
+	     || ( mode != MODE_RX_GENERIC
+	          && ( requested_mode == MODE_RX_SYMBOLS
+	            || requested_mode == MODE_BT_FOLLOW
+	            || requested_mode == MODE_AFH ) ) )
 	{
 
 		RXLED_CLR;
@@ -2513,8 +2533,14 @@ void rx_generic_sync(void) {
 }
 
 void rx_generic(void) {
-	// Check for packet mode
-	if(cc2400_get(GRMDM) && 0x0400) {
+	/*
+	 * Which receive the mode runs follows GRMDM's packet-mode bit, which
+	 * whatever set the radio up left there. The test used to be `&& 0x0400`,
+	 * so it asked whether GRMDM read non-zero at all: every configured
+	 * radio took the packet-mode path and the symbol stream below was dead
+	 * code. grmdm_packet_mode() is the bit test it was meant to be.
+	 */
+	if (grmdm_packet_mode(cc2400_get(GRMDM))) {
 		rx_generic_sync();
 	} else {
 		modulation = MOD_NONE;
