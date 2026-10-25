@@ -29,15 +29,11 @@
 #                     than one device is attached.
 #   --venv <path>     create/use a Python venv at <path> for the Python tools
 #                     and point the build at its interpreter
-#   --libbtbb-url <u> git URL to clone libbtbb from; the default is this
-#                     project's fork
-#   --libbtbb-ref <r> git commit, tag or branch of libbtbb to build; the default
-#                     is a commit, pinned so that a push to the fork cannot
-#                     change what this script builds. Use these two options to
-#                     build a different libbtbb (a newer fork commit, or
-#                     another repository); an older libbtbb, upstream's
-#                     included, may need CMake options this script does not
-#                     pass. Both defaults are printed below.
+#   --libbtbb-url <u> git URL to clone libbtbb from
+#   --libbtbb-ref <r> git commit, tag or branch of libbtbb to build. These two
+#                     default to a pinned commit of this project's fork (both
+#                     defaults are printed below); an older libbtbb may need
+#                     CMake options this script does not pass.
 #   --prefix <path>   install prefix (default: /usr/local on Debian/Ubuntu,
 #                     the Homebrew prefix on macOS)
 #   --skip-deps       do not install system packages; assume they are present

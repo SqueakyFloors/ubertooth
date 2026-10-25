@@ -46,8 +46,7 @@ env:
   # libbtbb comes from this project's fork, pinned to a commit so a push there
   # cannot change an ubertooth build. This is the place to bump it: every job
   # below fetches that commit, and the "Check the libbtbb pin" step names the
-  # other files that write it out (install.sh, the Dockerfile, the build
-  # guide) and fails until they agree.
+  # other files that write it out and fails until they agree.
   LIBBTBB_REPO: SqueakyFloors/libbtbb
   LIBBTBB_REF: 84ab41fc99d172e812438bc9188f30a67216f748
 
@@ -68,14 +67,19 @@ jobs:
 
     - name: Check the libbtbb pin
       shell: bash
-      # The pinned commit above is also written out in the three places a user
-      # or an image builds libbtbb from. Fail here, naming the file, rather
-      # than let one of them drift to an older libbtbb.
+      # The pin above is written out again in every file that builds libbtbb
+      # or states which one this fork uses. Fail here, naming the file, rather
+      # than let one of them drift to another libbtbb.
       run: |
         status=0
-        for f in install.sh Dockerfile docs/source/build_guide.rst; do
+        for f in install.sh Dockerfile COMPATIBILITY.md \
+                 docs/source/build_guide.rst docs/source/building_from_git.rst; do
           grep -q "$LIBBTBB_REF" "$f" || {
             echo "$f does not name the pinned libbtbb commit $LIBBTBB_REF"
+            status=1
+          }
+          grep -q "$LIBBTBB_REPO" "$f" || {
+            echo "$f does not name the pinned libbtbb repository $LIBBTBB_REPO"
             status=1
           }
         done

@@ -50,7 +50,7 @@ Bluetooth packets start with a code that is based on the Lower Address Part (LAP
 
 The most important passive Bluetooth monitoring function is simply capturing the LAP from each packet transmitted on a channel. LAP sniffing allows you to identify Bluetooth devices operating in your vicinity.
 
-In order to sniff LAPs, you'll have to compile the tools in ``host/ubertooth-tools``. These are command line programs intended to work with the bluetooth_rxtx firmware installed on your Ubertooth One. Follow the `build guide <https://github.com/SqueakyFloors/ubertooth/blob/main/docs/source/build_guide.rst>`__ to install the prerequisite libbtbb, a library for Bluetooth baseband functions; these tools are built against `this project's fork of it <https://github.com/SqueakyFloors/libbtbb>`__ at the commit that guide names.
+In order to sniff LAPs, you'll have to compile the tools in ``host/ubertooth-tools``. These are command line programs intended to work with the bluetooth_rxtx firmware installed on your Ubertooth One. Follow the :doc:`build guide <build_guide>` to install the prerequisite libbtbb, a library for Bluetooth baseband functions; these tools are built against `this project's fork of it <https://github.com/SqueakyFloors/libbtbb>`__ at the commit that guide names.
 
 Once libbtbb is installed, just type:
 

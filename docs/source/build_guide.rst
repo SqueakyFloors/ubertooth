@@ -83,9 +83,9 @@ For the spectrum analyzer user interface's (UI) Python dependencies
 :doc:`specan_ui`.
 
 ``ubertooth-scan`` and ``ubertooth-follow`` need BlueZ (Linux only), so they are
-not built on macOS. Under CMake 4 (which current Homebrew installs), both
-libbtbb and the archived host source below need
-``-DCMAKE_POLICY_VERSION_MINIMUM=3.5``. The host tools also need
+not built on macOS. Under CMake 4 (which current Homebrew installs), the
+archived host source below needs ``-DCMAKE_POLICY_VERSION_MINIMUM=3.5``; the
+pinned libbtbb does not. The host tools also need
 ``-DCMAKE_C_FLAGS="-I$(brew --prefix)/include"``, because
 Homebrew's libusb headers are not on the default include path.
 
@@ -164,7 +164,7 @@ The directory passed to cmake as ``MAKE_INSTALL_LIBDIR`` varies from system to s
 	.. code-block:: sh
 
 		sudo apt-get install wireshark wireshark-dev libwireshark-dev cmake
-		cd libbtbb-2020-12-R1/wireshark/plugins/btbb
+		cd libbtbb/wireshark/plugins/btbb
 		mkdir build
 		cd build
 		cmake -DCMAKE_INSTALL_LIBDIR=/usr/lib/x86_64-linux-gnu/wireshark/libwireshark3/plugins ..
@@ -176,7 +176,7 @@ Then repeat for the BT BR/EDR plugin:
 	.. code-block:: sh
 
 		sudo apt-get install wireshark wireshark-dev libwireshark-dev cmake
-		cd libbtbb-2020-12-R1/wireshark/plugins/btbredr
+		cd libbtbb/wireshark/plugins/btbredr
 		mkdir build
 		cd build
 		cmake -DCMAKE_INSTALL_LIBDIR=/usr/lib/x86_64-linux-gnu/wireshark/libwireshark3/plugins ..

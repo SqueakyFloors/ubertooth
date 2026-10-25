@@ -88,7 +88,8 @@ the pin (`install.sh --libbtbb-url`/`--libbtbb-ref`) is on you.
 CI, `install.sh`, the `Dockerfile` and the build guide all build the same
 `SqueakyFloors/libbtbb` commit, so a push to libbtbb cannot change an
 Ubertooth build. The pin lives in `.github/workflows/build.yml`; a CI step
-fails if the other three fall behind it. Only the C library is built
+fails if any other file naming it, this one included, falls behind. Only the
+C library is built
 (`-DENABLE_PYTHON=OFF`): the Ubertooth tools link nothing else from libbtbb.
 
 The pin changes no part of `btbb.h`, so the interface these tools compile and
