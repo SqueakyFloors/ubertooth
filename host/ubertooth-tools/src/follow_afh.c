@@ -178,9 +178,9 @@ const char* follow_afh_handle_refusal(int have_remote_address, int have_handle)
 	 * address: there is no remote device, so no ACL link and no map to
 	 * read. The old code called the read with an uninitialised handle. */
 	if (!have_remote_address)
-		return "-a reads the AFH map from the target over a Bluetooth "
-		       "connection, so it needs the target address: give both "
-		       "-l and -u";
+		return "-a reads the AFH map over a Bluetooth connection to the "
+		       "target, so it needs the target address: give -l once and "
+		       "-u once";
 	if (!have_handle)
 		return "-a needs a Bluetooth connection to the target, and none "
 		       "was established";

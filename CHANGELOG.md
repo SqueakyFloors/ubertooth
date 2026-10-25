@@ -128,16 +128,20 @@
   not support this command (stalled)`. It used to read the completion status
   as a libusb error code and print `libUSB Error: Other error:  (4)`.
   [#275](https://github.com/SqueakyFloors/ubertooth/issues/275)
-- `ubertooth-follow -a` needs the target address (`-l` and `-u`) and uses only
-  a map the target can be hopping on: a failed read, an unknown AFH mode, or
-  fewer than the 20 channels AFH requires (re-read up to three times in case it
-  has not settled) stops the command instead of following an undefined map. It
-  also reports a BlueZ device, address, connection or clock read that fails,
-  rather than carrying on with uninitialised values.
+- `ubertooth-follow -a` needs the target address (one `-l` and one `-u`) and
+  checks the AFH map before it applies it: a failed read, a mode that is
+  neither off nor on, and a map with fewer than the 20 channels AFH requires
+  (re-read three times in total in case it has not settled) all stop the
+  command instead of following an undefined map. A BlueZ device, address,
+  connection or clock read that fails is reported rather than carried on from,
+  and a failure drops the connection the tool made to the target.
   [#44](https://github.com/SqueakyFloors/ubertooth/issues/44)
-- `ubertooth-scan` and `ubertooth-follow` are built and tested on Linux CI:
-  the workflow did not install `libbluetooth-dev`, so cmake silently skipped
-  both tools.
+- `ubertooth-follow` without a map clears the board's AFH map, so it no longer
+  hops adaptively on a map an earlier run left behind.
+  [#44](https://github.com/SqueakyFloors/ubertooth/issues/44)
+- `ubertooth-scan` and `ubertooth-follow` are compiled and their CLI tests run
+  on Linux CI; the workflow was missing `libbluetooth-dev`, so both tools had
+  gone untested everywhere.
   [#44](https://github.com/SqueakyFloors/ubertooth/issues/44)
 - Follow mode's asynchronous control commands (hop, AFH map, clock trim, start
   hopping) now give libusb a buffer that outlives the submit, and release the

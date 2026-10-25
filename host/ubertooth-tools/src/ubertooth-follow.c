@@ -44,22 +44,50 @@
 #error "FOLLOW_AFH_MAP_BYTES disagrees with libubertooth's AFH_MAP_BYTES"
 #endif
 
-/* One attempt at the remote device's AFH map, for follow_afh_read_map(). */
+/* One attempt at the AFH map of the link to the target, for
+ * follow_afh_read_map(). */
 struct afh_hci {
 	int sock;
 	uint16_t handle;
+	/* errno of the read that failed. Kept here because a later successful
+	 * read, or the usleep between attempts, can overwrite errno before the
+	 * message is built. */
+	int error;
 };
 
 static int afh_hci_read(void* ctx, uint8_t* mode, uint8_t* map)
 {
 	struct afh_hci* hci = ctx;
+	int r;
 
-	return hci_read_afh_map(hci->sock, hci->handle, mode, map, 1000);
+	errno = 0;
+	r = hci_read_afh_map(hci->sock, hci->handle, mode, map, 1000);
+	if (r < 0)
+		hci->error = errno;
+	return r;
 }
 
 static void afh_hci_wait(void* ctx __attribute__((unused)))
 {
 	usleep(FOLLOW_AFH_RETRY_DELAY_US);
+}
+
+/* Drops the link this command made to the target, so a failure does not leave
+ * the target connected until its controller times the link out. cc says
+ * whether there is a link to drop. */
+static void follow_disconnect(int sock, uint16_t handle, int cc)
+{
+	if (cc)
+		hci_disconnect(sock, handle, HCI_OE_USER_ENDED_CONNECTION, 10000);
+}
+
+/* The same, for a failure once the receive thread is running: stop the thread
+ * and put the board back first. */
+static void follow_cleanup(ubertooth_t* ut, int sock, uint16_t handle, int cc)
+{
+	ubertooth_bulk_thread_stop();
+	ubertooth_stop(ut);
+	follow_disconnect(sock, handle, cc);
 }
 
 static void usage()
@@ -300,8 +328,12 @@ int main(int argc, char *argv[])
 		char line[256];
 		const char* refusal;
 
-		/* The map is read over the ACL link, so there has to be one. */
-		refusal = follow_afh_handle_refusal(1, cc);
+		/* The branch above is the only one that fills in handle, and it
+		 * either sets cc or returns, so this cannot fire today. It is
+		 * here so that a future path which reaches the read without a
+		 * handle says so instead of reading on handle 0. */
+		refusal = follow_afh_handle_refusal(have_lap == 1 && have_uap == 1,
+		                                    cc);
 		if (refusal != NULL) {
 			fprintf(stderr, "error: %s\n", refusal);
 			return 1;
@@ -309,6 +341,7 @@ int main(int argc, char *argv[])
 
 		hci.sock = sock;
 		hci.handle = handle;
+		hci.error = 0;
 		reader.read = afh_hci_read;
 		reader.wait = afh_hci_wait;
 		reader.ctx = &hci;
@@ -317,9 +350,9 @@ int main(int argc, char *argv[])
 		 * it is read again, a bounded number of times. A read that fails
 		 * is not retried and leaves read_out.map zero, so nothing
 		 * undefined can reach libbtbb or the board. */
-		errno = 0;
 		follow_afh_read_map(&reader, FOLLOW_AFH_READ_ATTEMPTS, &read_out);
-		follow_afh_message(&read_out, errno != 0 ? strerror(errno) : NULL,
+		follow_afh_message(&read_out,
+		                   hci.error != 0 ? strerror(hci.error) : NULL,
 		                   line, sizeof(line));
 
 		switch (follow_afh_action_for(read_out.result)) {
@@ -334,10 +367,10 @@ int main(int argc, char *argv[])
 			afh_enabled = 0;
 			break;
 		case FOLLOW_AFH_ACTION_FAIL:
+			/* No board has been opened yet, so only the link to the
+			 * target has to be dropped. */
 			fprintf(stderr, "error: %s\n", line);
-			if (cc)
-				hci_disconnect(sock, handle,
-				               HCI_OE_USER_ENDED_CONNECTION, 10000);
+			follow_disconnect(sock, handle, cc);
 			return 1;
 		}
 	} else {
@@ -348,47 +381,67 @@ int main(int argc, char *argv[])
 	register_cleanup_handler(ut, 0);
 
 	/* Fails when no board matches -U or it cannot be opened; the library
-	 * has already said why. */
+	 * has already said why. Every failure from here to the receive loop
+	 * drops the link to the target on the way out; the receive thread is
+	 * not running yet, so there is nothing else to undo. */
 	if (ubertooth_connect_select(ut, ubertooth_device) < 0) {
+		follow_disconnect(sock, handle, cc);
 		return 1;
 	}
 
 	int r = ubertooth_check_api(ut);
-	if (r < 0)
+	if (r < 0) {
+		follow_disconnect(sock, handle, cc);
 		return 1;
+	}
 
 	r = btbb_init(max_ac_errors);
-	if (r < 0)
+	if (r < 0) {
+		follow_disconnect(sock, handle, cc);
 		return 1;
+	}
 
 	// init USB transfer
 	r = ubertooth_bulk_init(ut);
-	if (r < 0)
+	if (r < 0) {
+		follow_disconnect(sock, handle, cc);
 		return r;
+	}
 
 	r = ubertooth_bulk_thread_start();
-	if (r < 0)
+	if (r < 0) {
+		follow_disconnect(sock, handle, cc);
 		return r;
+	}
 
 	cmd_set_bdaddr(ut->devh, btbb_piconet_get_bdaddr(pn));
 	cmd_set_clock(ut->devh, 0);
+	/* The board keeps the AFH map and the enable flag an earlier run left,
+	 * and start-hopping does not reset them, so a follow with no map has to
+	 * clear them: otherwise it would hop adaptively on a stale map while
+	 * reporting that it is not using AFH. */
 	if(afh_enabled)
 		cmd_set_afh_map(ut->devh, afh_map);
-    
+	else
+		cmd_clear_afh_map(ut->devh);
+
+
 	/* Read clocks here to ensure clock is closest to real value. Without a
 	 * clock there is nothing to follow, so a failed read stops the command
-	 * rather than hopping from an uninitialised one. */
+	 * rather than hopping from an uninitialised one. The receive thread is
+	 * already running and the link to the target is up by now, so both
+	 * failures leave through follow_cleanup(). */
 	if (hci_read_clock(sock, 0, 0, &clock, &accuracy, 0) < 0) {
 		fprintf(stderr, "error: reading the clock of %s failed: %s\n",
 		        bt_dev, strerror(errno));
+		follow_cleanup(ut, sock, handle, cc);
 		return 1;
 	}
 	if (cc) {
 		if (hci_read_clock_offset(sock, handle, &offset, 1000) < 0) {
 			fprintf(stderr, "error: reading the clock offset of the "
 			        "target failed: %s\n", strerror(errno));
-			hci_disconnect(sock, handle, HCI_OE_USER_ENDED_CONNECTION,
-			               10000);
+			follow_cleanup(ut, sock, handle, cc);
 			return 1;
 		}
 		clock += (offset<<2);   // Correct offset
@@ -399,8 +452,10 @@ int main(int argc, char *argv[])
 
 	// tell ubertooth to start hopping and send packets
 	r = cmd_start_hopping(ut->devh, btbb_piconet_get_clk_offset(pn), 0);
-	if (r < 0)
+	if (r < 0) {
+		follow_cleanup(ut, sock, handle, cc);
 		return r;
+	}
 
     if (cc) {
 		hci_disconnect(sock, handle, HCI_OE_USER_ENDED_CONNECTION, 10000);

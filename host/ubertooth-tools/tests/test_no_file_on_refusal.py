@@ -57,15 +57,17 @@ FILE_OPTIONS = {
     "ubertooth-specan": (("-d", "out.bin", None),),
 }
 
-# A value every one of these tools refuses, so the file option is followed by a
-# check that fails. None where the tool has no such option of its own.
+# Further arguments every one of these tools refuses, so the file option is
+# followed by a check that fails. Empty where the tool has none of its own.
 BAD_VALUE = {
-    "ubertooth-btle": ("-A", "40"),
-    "ubertooth-dfu": None,
-    "ubertooth-dump": None,
-    "ubertooth-follow": ("-e", "6"),
-    "ubertooth-rx": ("-e", "6"),
-    "ubertooth-specan": ("-l", "bad"),
+    "ubertooth-btle": (("-A", "40"),),
+    "ubertooth-dfu": (),
+    "ubertooth-dump": (),
+    # -e 6 is out of range; -a without -l and -u cannot be carried out. Both
+    # are refused while the command line is read, so neither reaches the file.
+    "ubertooth-follow": (("-e", "6"), ("-a",)),
+    "ubertooth-rx": (("-e", "6"),),
+    "ubertooth-specan": (("-l", "bad"),),
 }
 
 if TOOL not in FILE_OPTIONS:
@@ -98,8 +100,8 @@ cases = 0
 for option, value, written in FILE_OPTIONS[TOOL]:
     written = written or value
     refusals = [(option, value, "extra"), (option, value, "-h")]
-    if BAD_VALUE[TOOL] is not None:
-        refusals.append((option, value, *BAD_VALUE[TOOL]))
+    for bad in BAD_VALUE[TOOL]:
+        refusals.append((option, value, *bad))
     if TOOL == "ubertooth-btle":
         # a capture file with no mode to capture in is a fourth refusal, and
         # the file it names must not be created either

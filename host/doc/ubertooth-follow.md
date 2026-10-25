@@ -40,8 +40,8 @@ Requires BlueZ (Linux only).
  - `-e <0-5>` :
    maximum access-code errors to tolerate (default: 2).
  - `-a` :
-   enable AFH (adaptive frequency hopping); needs both `-l` and `-u`, see AFH
-   below.
+   enable AFH (adaptive frequency hopping); experimental, and needs both `-l`
+   and `-u`. See AFH below.
  - `-b <hciN>` :
    local Bluetooth device to use (default: hci0).
  - `-w <timeslots>` :
@@ -51,24 +51,35 @@ Requires BlueZ (Linux only).
 
 ## AFH
 
-`-a` reads the target's AFH channel map from the target itself, over a
-Bluetooth connection the local BlueZ device makes to it. It therefore needs the
-target address: `-a` without both `-l` and `-u` is refused before any device is
-opened, with
-`error: -a reads the AFH map from the target over a Bluetooth connection, so it needs the target address: give both -l and -u`.
+`-a` is experimental. It makes the local BlueZ device connect to the target and
+asks the local controller for the AFH channel map of *that* link, then follows
+the piconet keyed on the target's LAP/UAP. The two are the same hop sequence
+only when the target is master of the piconet you want to follow, which
+`ubertooth-follow` cannot check. Treat a capture made with `-a` accordingly.
 
-A map is used only when it is one the target can be hopping on:
+Because the map is read over a connection to the target, `-a` needs the target
+address. `-a` without exactly one `-l` and one `-u` is refused before any file
+is created or device opened, with
+`error: -a reads the AFH map over a Bluetooth connection to the target, so it needs the target address: give -l once and -u once`.
+
+The map that comes back is used only when it could be a hop sequence at all:
 
  - a failed read stops the command (`error: AFH map read failed: ...`), rather
-   than following with whatever the map happened to contain;
- - a target that reports AFH off is followed without it:
-   `the remote device is not using AFH; following without it`;
- - a map that reports fewer than the 20 channels AFH requires, or none at all,
-   is read again (up to three times, 200ms apart) in case it has not settled.
-   If it still reports too few, the command stops and says so.
+   than following with whatever the map happened to contain. `-a` therefore
+   does not work on a controller that does not implement
+   HCI_Read_AFH_Channel_Map; run without `-a` on one of those;
+ - a reply of AFH off is followed without it:
+   `the remote device is not using AFH; following without it`. The board's AFH
+   map is cleared in that case, and whenever `-a` is not given, so a map left
+   by an earlier run cannot make it hop adaptively anyway;
+ - a map with fewer than the 20 channels AFH requires, or none at all, is read
+   again — three reads in total, 200ms apart — in case it has not settled. If
+   it still reports too few, the command stops and says so;
+ - a mode byte that is neither off nor on is refused and printed.
 
-Either way nothing is set on the Ubertooth until the map has been accepted, so
-a refused `-a` leaves the board alone.
+Nothing is set on the Ubertooth until the map has been accepted, so a refused
+`-a` leaves the board alone, and the connection the tool made to the target is
+dropped on the way out.
 
 ## EXAMPLES
 
@@ -76,7 +87,7 @@ Follow a target with a known LAP/UAP, writing a PCAP:
 
     ubertooth-follow -l 123456 -u 78 -q capture.pcap
 
-Follow the same target on its AFH hop sequence:
+Follow the same target with an AFH map (see AFH above):
 
     ubertooth-follow -l 123456 -u 78 -a
 

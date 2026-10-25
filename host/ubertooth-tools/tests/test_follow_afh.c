@@ -39,7 +39,11 @@ static int script_read(void *ctx, uint8_t *mode, uint8_t *map)
 	struct script *s = ctx;
 	const struct scripted_read *r;
 
+	/* mu_assert records and carries on, so this returns rather than reading
+	 * past the script. */
 	mu_assert(s->calls < s->count, "read called more times than scripted");
+	if (s->calls >= s->count)
+		return -1;
 	r = &s->reads[s->calls++];
 	if (r->result < 0)
 		return r->result;
@@ -445,8 +449,10 @@ MU_TEST(dash_a_needs_a_target_address_and_a_connection)
 	/* No -l/-u: the old code read the map with an uninitialised handle. */
 	refusal = follow_afh_handle_refusal(0, 0);
 	mu_assert(refusal != NULL, "no address must refuse");
-	mu_assert(strstr(refusal, "-l") != NULL && strstr(refusal, "-u") != NULL,
-	          refusal);
+	/* "once each", so a doubled -l or -u is not told to supply what it
+	 * already supplied. */
+	mu_assert(strstr(refusal, "-l once") != NULL &&
+	          strstr(refusal, "-u once") != NULL, refusal);
 	/* An address with no handle is still no link to read over. */
 	mu_assert(follow_afh_handle_refusal(0, 1) != NULL, "no address refuses");
 	refusal = follow_afh_handle_refusal(1, 0);
