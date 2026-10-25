@@ -43,11 +43,20 @@ message(STATUS "${PYTHON_FLOOR_MESSAGE}: ${Python3_EXECUTABLE}")
 # ubertooth-util on PATH: no board is involved. Several dozen runs of a few
 # milliseconds each, plus one case that stops a running capture from outside
 # and so waits on a child, take a few seconds in all.
+#
+# The built ubertooth-util is passed as well, for the one case that needs the
+# real thing: the script matches ubertooth-util's "no Ubertooth devices found"
+# to tell an empty listing from a failed one, and that case checks the tool
+# still prints it. It is run with UBERTOOTH_TEST_NO_DEVICES set, so no board
+# is opened.
 add_test(NAME btle-extcap
 	COMMAND ${Python3_EXECUTABLE}
 		${CMAKE_CURRENT_SOURCE_DIR}/extcap/tests/test_btle_extcap.py
-		${CMAKE_CURRENT_SOURCE_DIR}/extcap/btle-extcap.py)
-set_tests_properties(btle-extcap PROPERTIES TIMEOUT 30)
+		${CMAKE_CURRENT_SOURCE_DIR}/extcap/btle-extcap.py
+		$<TARGET_FILE:ubertooth-util>)
+# Around ten seconds on an idle machine, dominated by interpreter start-up
+# for each of some eighty runs, and seen at twice that on a loaded one.
+set_tests_properties(btle-extcap PROPERTIES TIMEOUT 60)
 
 # Pure-Python modules are installed by CMake, not setup.py/pip. Ask the selected
 # interpreter for the standard posix_prefix purelib directory under the

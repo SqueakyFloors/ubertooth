@@ -228,17 +228,18 @@ INTERFACE_LINE = re.compile(r'(\d+): ([0-9a-fA-F]+)$')
 # for that as it does for a real failure, so this line is the only thing that
 # tells the two apart, and an empty listing is the right answer to one of
 # them. The host tools and this script are installed together, so the wording
-# is pinned here rather than guessed at.
+# is pinned here rather than guessed at, and the test checks it against the
+# built ubertooth-util.
 NO_DEVICES = "error: no Ubertooth devices found"
 
 
 def list_interfaces():
     """List one interface per attached board, and report a failed listing.
 
-    Returns the exit status: 0 for a listing, empty or not, and 1 when
-    ubertooth-util failed for any reason other than finding no board. An
-    empty listing used to be the answer to a failure too, which to Wireshark
-    looks exactly like "no Ubertooth attached".
+    Returns the exit status: 1 when ubertooth-util failed and there is
+    nothing to list, 0 otherwise. An empty listing used to be the answer to
+    a failure too, which to Wireshark looks exactly like "no Ubertooth
+    attached".
     """
     # -U all asks for the indexed listing explicitly, so one output form
     # covers one board and several. Each interface is named by the board's
@@ -257,8 +258,10 @@ def list_interfaces():
 
     # Nothing failed if the only thing ubertooth-util reported is that there
     # is no board: the empty listing says that already, so its error line is
-    # not passed on. Everything else it wrote is, since Wireshark has nothing
-    # else to show for the interface.
+    # not passed on. Everything else it wrote is, which is the only place the
+    # reason can appear: Wireshark reads this call's standard output and
+    # leaves its standard error to its own, and someone running the call by
+    # hand sees it there too.
     reported = [line for line in errors.splitlines()
                 if line.startswith("error: ")]
     no_devices = not serials and reported == [NO_DEVICES]
@@ -268,15 +271,19 @@ def list_interfaces():
 
     # The boards that could be named are listed even when another one could
     # not be, which is what ubertooth-util itself does with a partial
-    # listing: a board Wireshark can capture on should not be hidden by one
-    # it cannot.
+    # listing.
     for serial in serials:
         print("interface {value=ubertooth%s}{display=Ubertooth One %s}"
               % (serial, serial))
 
-    if no_devices:
-        return 0
-    return 1 if proc.returncode != 0 else 0
+    # Wireshark throws away everything this call printed when it exits
+    # non-zero, so a board that could not be opened must not take the boards
+    # that could with it: a listing that named a board is a listing, whatever
+    # else went wrong. An empty one is a failure, unless ubertooth-util's only
+    # complaint was that there is no board.
+    if not serials and not no_devices and proc.returncode != 0:
+        return 1
+    return 0
 
 
 def list_dlts():

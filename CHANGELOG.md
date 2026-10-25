@@ -185,9 +185,8 @@
   [#297](https://github.com/SqueakyFloors/ubertooth/issues/297)
   [#334](https://github.com/SqueakyFloors/ubertooth/issues/334)
 - `btle-extcap.py --extcap-interfaces` no longer hides a failing
-  `ubertooth-util`: what it wrote to standard error is passed on and the
-  status is 1, so a failure is told apart from an empty listing. A tool that
-  is not on `PATH` is reported instead of ending in a Python traceback.
+  `ubertooth-util` as an empty interface list: what it wrote is passed on, and
+  a tool missing from `PATH` is reported rather than ending in a traceback.
   [#362](https://github.com/SqueakyFloors/ubertooth/issues/362)
 - `btle-extcap.py -h` names the options the script accepts, not
   `--list-interfaces`, `--list-dlts` and `--config`, which it rejects.
