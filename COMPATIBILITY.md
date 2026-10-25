@@ -127,6 +127,19 @@ to their own installed path, so custom prefixes and ``DESTDIR`` work without
 ``PYTHONPATH`` and without modifying system Python (#33). Runtime dependencies
 remain external: NumPy/QtPy/PySide6 for specan_ui and ``libusb1`` for ubtbr.
 
+### Wireshark extcap: interfaces are named by serial
+`btle-extcap.py` names each capture interface `ubertooth<serial>` rather than
+`ubertooth<index>` (#269), so a board keeps its interface across a replug. The
+name changed with it: an interface saved by an earlier Wireshark session is
+gone from the list and the Ubertooth has to be picked once more, after which
+Wireshark remembers it. An `ubertooth<index>` from such a profile is still
+accepted on the command line.
+
+The script tolerates `--extcap-version` and `--extcap-capture-filter`, the
+options Wireshark adds to its own calls, and refuses the ones Wireshark sends
+only to an extcap program that advertised the feature behind them. A capture
+filter is not applied; see `host/python/extcap/README.md`.
+
 ---
 
 ## Hardware validation

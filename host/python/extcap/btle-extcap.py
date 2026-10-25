@@ -26,9 +26,39 @@ import sys
 from subprocess import Popen, PIPE
 
 child = None
+# The signal this script passed on to the child, if any: a capture that was
+# asked to stop ended as asked, however the child reports it.
+forwarded_signal = None
+
+# The advertising channels ubertooth-btle will tune to, as the Bluetooth core
+# specification numbers them. The first is the default.
+ADVERTISING_CHANNELS = ("37", "38", "39")
+
+# Options Wireshark adds to the calls it makes, which this script accepts and
+# ignores. Only the ones Wireshark passes to every extcap program are here:
+# --extcap-version carries the calling Wireshark's version, added to the
+# --extcap-interfaces call by Wireshark 2.9 and later, and
+# --extcap-capture-filter carries a capture filter the user typed, which
+# ubertooth-btle cannot apply.
+#
+# The rest of what Wireshark can pass (--extcap-reload-option,
+# --extcap-control-in, --extcap-control-out, --extcap-config-option-name and
+# --extcap-config-option-value) it passes only to a program whose listing
+# advertises the feature behind it: a reloadable argument, a toolbar control,
+# a configurable table value. This one advertises none of them, so those stay
+# unrecognized and are refused like any other unknown option.
+IGNORED_OPTIONS = ("extcap-version=", "extcap-capture-filter=")
+
+# --extcap-version is documented as carrying a value and is seen without one,
+# and getopt has no long option whose value is optional. Giving the bare form
+# an empty value lets one entry above accept both.
+OPTIONAL_VALUE = ("--extcap-version",)
+
 
 def sig_handler(sig, frame):
+    global forwarded_signal
     if child is not None:
+        forwarded_signal = sig
         child.terminate()
 
 def main():
@@ -36,7 +66,8 @@ def main():
 
     try:
         opts, args = getopt.getopt(
-            sys.argv[1:], "h",
+            ["%s=" % a if a in OPTIONAL_VALUE else a for a in sys.argv[1:]],
+            "h",
             [
                 "help",
                 "extcap-interfaces",
@@ -46,6 +77,7 @@ def main():
                 "extcap-interface=",
                 "fifo=",
                 "channel=",
+                *IGNORED_OPTIONS,
             ])
     except getopt.GetoptError as err:
         # A usage error: the message and the usage line go to standard error
@@ -56,7 +88,8 @@ def main():
 
     interface = ''
     fifo = None
-    channel = "37"
+    channel = ADVERTISING_CHANNELS[0]
+    capture_filter = ''
     do_list_dlts = False
     do_config = False
     do_capture = False
@@ -80,6 +113,11 @@ def main():
             fifo = a
         elif o == "--channel":
             channel = a
+        elif o == "--extcap-version":
+            # the calling Wireshark's version: nothing here depends on it
+            pass
+        elif o == "--extcap-capture-filter":
+            capture_filter = a
         else:
             assert False, "unhandled option"
 
@@ -102,7 +140,19 @@ def main():
         if fifo is None:
             print("error: --capture needs --fifo=PATH", file=sys.stderr)
             exit(1)
-        capture(interface, fifo, channel)
+        # Checked here rather than left to ubertooth-btle, so a refused
+        # command line starts no child and writes nothing to the fifo. The
+        # wording is ubertooth-btle's, so one message covers both.
+        if channel not in ADVERTISING_CHANNELS:
+            print("error: advertising channel index must be %s-%s (got %s)"
+                  % (ADVERTISING_CHANNELS[0], ADVERTISING_CHANNELS[-1],
+                     channel), file=sys.stderr)
+            exit(1)
+        if capture_filter:
+            print("warning: this interface applies no capture filter; "
+                  "filter the packets in Wireshark instead (got %s)"
+                  % capture_filter, file=sys.stderr)
+        sys.exit(capture(interface, fifo, channel))
 
 
 def usage(out=sys.stdout):
@@ -145,10 +195,10 @@ def config():
     args = []
     args.append((0, '--channel', 'Advertising Channel', 'selector'))
 
-    values = []
-    values.append((0, "37", "37", "true"))
-    values.append((0, "38", "38", "false"))
-    values.append((0, "39", "39", "false"))
+    # The first channel is the one --capture uses without --channel, so it is
+    # the one Wireshark's selector offers first.
+    values = [(0, ch, ch, "true" if ch == ADVERTISING_CHANNELS[0] else "false")
+              for ch in ADVERTISING_CHANNELS]
 
     for arg in args:
         print("arg {number=%d}{call=%s}{display=%s}{type=%s}" % arg)
@@ -158,15 +208,26 @@ def config():
 
 
 def capture(interface, fifo, channel):
+    """Capture on one board, and report how ubertooth-btle ended.
+
+    Wireshark reads a non-zero exit of the capture call as a failed capture
+    and shows the error for it, so the child's failure has to reach it.
+    """
     global child
-    p = Popen([
+    child = Popen([
         "ubertooth-btle", "-f",
         "-U", interface,
         "-q", fifo,
         "-A", channel,
     ])
-    child = p
-    p.wait()
+    status = child.wait()
+    if status < 0:
+        # Killed by a signal, reported as -N. If it was the signal this
+        # script passed on, the capture stopped because Wireshark asked it
+        # to, which is not a failure; any other signal is one, reported the
+        # way a shell reports it.
+        return 0 if forwarded_signal is not None else 128 - status
+    return status
 
 if __name__ == "__main__":
     main()

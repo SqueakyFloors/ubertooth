@@ -148,9 +148,17 @@
 - `btle-extcap.py --extcap-interfaces` shows each board's serial with any
   number of boards attached, instead of `Ubertooth One 0:` with two or more,
   and a Wireshark capture now selects its board by that serial, so re-plugging
-  boards cannot move it to another board. A usage error goes to standard error
-  with exit status 1.
+  boards cannot move it to another board. The interface's name changed with
+  it, so an Ubertooth saved in a Wireshark profile has to be picked once more.
+  A usage error goes to standard error with exit status 1.
   [#269](https://github.com/SqueakyFloors/ubertooth/issues/269)
+- `btle-extcap.py` accepts the options Wireshark adds to its own calls, so an
+  Ubertooth appears in Wireshark's capture list again instead of the listing
+  being refused, and `--capture` exits with `ubertooth-btle`'s status rather
+  than 0, so Wireshark reports a failed capture; a `--channel` outside 37-39
+  is refused before the capture starts.
+  [#297](https://github.com/SqueakyFloors/ubertooth/issues/297)
+  [#334](https://github.com/SqueakyFloors/ubertooth/issues/334)
 - `btle-extcap.py -h` names the options the script accepts, not
   `--list-interfaces`, `--list-dlts` and `--config`, which it rejects.
   [#268](https://github.com/SqueakyFloors/ubertooth/issues/268)
