@@ -1,6 +1,10 @@
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include "../../../firmware/tests/minunit.h"
 #include "dfu.h"
@@ -823,6 +827,194 @@ MU_TEST(test_image_accepts_a_doubly_suffixed_file)
 	                 check_image_bytes(image, length, &report, NULL, 0));
 }
 
+/*
+ * The size cap: every whole-file read is sized from the file, so the file is
+ * measured before anything is allocated (#246).
+ */
+
+/* A sparse file of exactly length bytes: one byte written past the end, so a
+ * half-megabyte case costs nothing. */
+static FILE *sparse_file(long long length)
+{
+	FILE *file = tmpfile();
+
+	mu_assert(file != NULL, "tmpfile failed");
+	if (file == NULL)
+		return NULL;
+	/* Each step is checked, and the file is dropped rather than returned
+	 * half-made, so a failure here cannot look like a passing case. */
+	if (fseek(file, (long)(length - 1), SEEK_SET) != 0 ||
+	    fputc(0, file) == EOF || fflush(file) != 0 ||
+	    fseek(file, 0, SEEK_SET) != 0) {
+		mu_assert(0, "could not make the sparse file");
+		fclose(file);
+		return NULL;
+	}
+	return file;
+}
+
+MU_TEST(test_max_image_size_comes_from_the_part_table)
+{
+	const uint32_t application = BOOTLOADER_OFFSET + BOOTLOADER_SIZE;
+	const struct dfu_part *part;
+	uint32_t largest = 0;
+	size_t i;
+
+	for (i = 0; (part = dfu_part_at(i)) != NULL; i++) {
+		if (part->flash_size > largest)
+			largest = part->flash_size;
+	}
+	/* The application region of the largest part, plus the DFU suffix the
+	 * file carries and the bootloader never sees. */
+	mu_assert_int_eq((int)(largest - application + DFU_SUFFIX_LENGTH),
+	                 (int)dfu_max_image_size());
+	/* Nothing above the bootloader's address limit can be written, so the
+	 * cap cannot exceed that region either. */
+	mu_assert(dfu_max_image_size() <=
+	          BOOTLOADER_FLASH_LIMIT - application + DFU_SUFFIX_LENGTH,
+	          "the cap is past what the bootloader can write");
+	/* A real image still fits: the firmware is a few tens of KiB. */
+	mu_assert(dfu_max_image_size() > 64u * 1024u, "the cap is too small");
+}
+
+MU_TEST(test_image_rejects_a_file_past_the_size_cap)
+{
+	long long over = (long long)dfu_max_image_size() + 1;
+	FILE *image = sparse_file(over);
+	struct dfu_image_report report;
+	char message[160];
+
+	if (image == NULL)
+		return;
+	mu_assert_int_eq(DFU_IMAGE_TOO_LARGE,
+	                 dfu_image_check(image, U1_DFU_VENDORID,
+	                                 U1_DFU_PRODUCTID, &report));
+	mu_assert(report.image_size == over,
+	          "the report does not say how big the file is");
+	dfu_image_describe_failure(&report, message, sizeof(message));
+	mu_assert(strstr(message, "an Ubertooth image is at most") != NULL,
+	          "message does not name the limit");
+	fclose(image);
+}
+
+/* A file of exactly the cap is accepted, so with the case above the cap is
+ * the size of the largest image and not a byte either side of it. */
+MU_TEST(test_image_accepts_a_file_at_the_size_cap)
+{
+	size_t length = dfu_max_image_size();
+	struct image_spec spec = good_spec();
+	struct dfu_image_report report;
+	uint8_t *buffer = malloc(length);
+	FILE *image = tmpfile();
+
+	mu_assert(buffer != NULL && image != NULL, "allocation failed");
+	if (buffer == NULL || image == NULL) {
+		free(buffer);
+		if (image != NULL)
+			fclose(image);
+		return;
+	}
+	mu_assert_int_eq((int)length,
+	                 (int)build_image(&spec, length - DFU_SUFFIX_LENGTH,
+	                                  buffer, length));
+	mu_assert(fwrite(buffer, 1, length, image) == length, "short write");
+	mu_assert(fflush(image) == 0, "flush failed");
+	mu_assert_int_eq(DFU_IMAGE_OK,
+	                 dfu_image_check(image, U1_DFU_VENDORID,
+	                                 U1_DFU_PRODUCTID, &report));
+	mu_assert(report.image_size == (long long)length,
+	          "wrong image size reported");
+	fclose(image);
+	free(buffer);
+}
+
+MU_TEST(test_image_rejects_a_file_that_is_not_a_regular_file)
+{
+	struct dfu_image_report report;
+	char message[160];
+	const char *directory_name = getenv("TMPDIR");
+	char path[256];
+	FILE *directory;
+	FILE *fifo;
+	int descriptor;
+
+	/* A directory: the tool is handed one by a careless -d. */
+	directory = fopen(".", "rb");
+	if (directory != NULL) {
+		mu_assert_int_eq(DFU_IMAGE_NOT_REGULAR,
+		                 dfu_image_check(directory, U1_DFU_VENDORID,
+		                                 U1_DFU_PRODUCTID, &report));
+		dfu_image_describe_failure(&report, message, sizeof(message));
+		mu_assert(strstr(message, "regular file") != NULL,
+		          "message does not say the file is not a regular one");
+		fclose(directory);
+	} else {
+		printf("  (a directory could not be opened here)\n");
+	}
+
+	/* A FIFO: ftell() says nothing about what a read would return, and the
+	 * writer could keep sending for as long as it likes. Opened read-write
+	 * so this test is its own reader and the open does not block. */
+	if (directory_name == NULL || directory_name[0] == '\0')
+		directory_name = "/tmp";
+	snprintf(path, sizeof(path), "%s/ubertooth-dfu-test-fifo-%ld",
+	         directory_name, (long)getpid());
+	unlink(path);  /* a FIFO an earlier run left behind */
+	mu_assert(mkfifo(path, 0600) == 0, "mkfifo failed");
+	descriptor = open(path, O_RDWR);
+	mu_assert(descriptor >= 0, "the FIFO would not open");
+	fifo = fdopen(descriptor, "rb");
+	mu_assert(fifo != NULL, "fdopen failed");
+	if (fifo != NULL) {
+		mu_assert_int_eq(DFU_IMAGE_NOT_REGULAR,
+		                 dfu_image_check(fifo, U1_DFU_VENDORID,
+		                                 U1_DFU_PRODUCTID, &report));
+		mu_assert_int_eq(-1, dfu_extract_firmware_revision(fifo, message,
+		                                                   sizeof(message)));
+		fclose(fifo);
+	} else if (descriptor >= 0) {
+		close(descriptor);
+	}
+	unlink(path);
+}
+
+/* The cap is the caller's, so -s can hold a .bin to the suffix less than a
+ * whole image and the message can name the right limit. */
+MU_TEST(test_size_check_measures_against_the_cap_it_is_given)
+{
+	unsigned long image_cap = dfu_max_image_size();
+	unsigned long bin_cap = image_cap - DFU_SUFFIX_LENGTH;
+	FILE *file = sparse_file((long long)bin_cap + 1);
+	long long size = 0;
+
+	if (file == NULL)
+		return;
+	mu_assert_int_eq(DFU_FILE_SIZE_OK,
+	                 dfu_image_size_check(file, image_cap, &size));
+	mu_assert(size == (long long)bin_cap + 1, "wrong size measured");
+	mu_assert_int_eq(DFU_FILE_SIZE_TOO_LARGE,
+	                 dfu_image_size_check(file, bin_cap, &size));
+	mu_assert(size == (long long)bin_cap + 1,
+	          "the size is not reported for a refused file");
+	/* The guard reads nothing, so the position is still the start. */
+	mu_assert_int_eq(0, (int)ftell(file));
+	fclose(file);
+}
+
+MU_TEST(test_extract_revision_refuses_a_file_past_the_size_cap)
+{
+	FILE *image = sparse_file((long long)dfu_max_image_size() + 1);
+	char revision[64];
+
+	if (image == NULL)
+		return;
+	/* The marker search reads the whole file too, so it is bounded by the
+	 * same guard rather than its own. */
+	mu_assert_int_eq(-1, dfu_extract_firmware_revision(image, revision,
+	                                                   sizeof(revision)));
+	fclose(image);
+}
+
 MU_TEST(test_extract_revision_from_existing_compile_info_marker)
 {
 	FILE *image = tmpfile();
@@ -882,7 +1074,7 @@ MU_TEST(test_every_part_entry_is_usable_and_within_the_bootloader_limit)
 		mu_assert_int_eq(0, (int)(part->flash_size % BLOCK_SIZE));
 		/* The bootloader's own address check stops at 512 KiB, so an entry
 		 * above it would ask for an address it refuses. */
-		mu_assert(part->flash_size <= 512 * 1024,
+		mu_assert(part->flash_size <= BOOTLOADER_FLASH_LIMIT,
 		          "a part entry claims more flash than the bootloader allows");
 		mu_assert(dfu_part_lookup(part->part_id) != NULL,
 		          "a part in the table cannot be looked up");
@@ -950,6 +1142,12 @@ int main(void)
 	MU_RUN(test_image_rejects_another_product);
 	MU_RUN(test_image_accepts_the_wildcard_vendor_and_product);
 	MU_RUN(test_image_accepts_a_doubly_suffixed_file);
+	MU_RUN(test_max_image_size_comes_from_the_part_table);
+	MU_RUN(test_size_check_measures_against_the_cap_it_is_given);
+	MU_RUN(test_image_rejects_a_file_past_the_size_cap);
+	MU_RUN(test_image_accepts_a_file_at_the_size_cap);
+	MU_RUN(test_image_rejects_a_file_that_is_not_a_regular_file);
+	MU_RUN(test_extract_revision_refuses_a_file_past_the_size_cap);
 	MU_RUN(test_extract_revision_from_existing_compile_info_marker);
 	return mu_report();
 }

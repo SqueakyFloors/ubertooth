@@ -68,6 +68,16 @@ read-only location can be signed or flashed. `-s <file.bin>` writes
 it again would bury the first suffix in the firmware payload. Nothing is
 written in that case.
 
+Both read their whole file into memory, so what the file is comes first. A
+directory, a FIFO or a device node is refused (`error: <file> is not a regular
+file`): its length says nothing about what a read would return. So is a file
+too large to be an image (`error: <file> is <n> bytes; an Ubertooth image is
+at most 507920`). `-d` takes at most 507920 bytes, which is the flash above
+the bootloader on the largest part this host knows plus the 16-byte suffix,
+and `-s` takes 507904, the same less the suffix it adds, so the file it writes
+is one `-d` still accepts. Either refusal ends the command with exit status 1
+before any device is opened, and with `-s` before the output file is created.
+
 In the DFU bootloader, the TX, RX, and USR LEDs will turn on and off in
 sequence. If this does not occur, you can try to manually force the
 device to boot into the bootloader. Refer to [MANUALLY ENTERING
