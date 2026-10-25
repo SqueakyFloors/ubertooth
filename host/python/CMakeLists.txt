@@ -39,6 +39,15 @@ elseif(PYTHON_FLOOR_RESULT STREQUAL "SKIPPED")
 endif()
 message(STATUS "${PYTHON_FLOOR_MESSAGE}: ${Python3_EXECUTABLE}")
 
+# btle-extcap.py's command line and its interface listing, against a fake
+# ubertooth-util on PATH: no board is involved, and a handful of short runs
+# take well under a second.
+add_test(NAME btle-extcap
+	COMMAND ${Python3_EXECUTABLE}
+		${CMAKE_CURRENT_SOURCE_DIR}/extcap/tests/test_btle_extcap.py
+		${CMAKE_CURRENT_SOURCE_DIR}/extcap/btle-extcap.py)
+set_tests_properties(btle-extcap PROPERTIES TIMEOUT 30)
+
 # Pure-Python modules are installed by CMake, not setup.py/pip. Ask the selected
 # interpreter for the standard posix_prefix purelib directory under the
 # configured prefix, then keep it RELATIVE so `cmake --install --prefix` and
