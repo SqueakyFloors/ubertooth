@@ -246,6 +246,11 @@
   left in DFU.
   [#208](https://github.com/SqueakyFloors/ubertooth/issues/208)
   [#216](https://github.com/SqueakyFloors/ubertooth/issues/216)
+- `ubertooth-dfu -d <image> -r` no longer exits 1 after a flash that worked:
+  the bootloader resets while the detach request is in flight, so the request
+  fails on every macOS flash. The board is reported as still in DFU only when
+  its DFU device really is still there.
+  [#267](https://github.com/SqueakyFloors/ubertooth/issues/267)
 - `ubertooth-dfu -u <dump> -d <image>` no longer leaves a temporary dump file
   beside the target when the image is refused.
   [#241](https://github.com/SqueakyFloors/ubertooth/issues/241)

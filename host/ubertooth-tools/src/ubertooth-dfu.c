@@ -235,7 +235,10 @@ static int get_usb_identity(libusb_device *device,
 }
 
 /* Return 1 when a matching DFU device is opened, 0 when absent, or a negative
- * libusb error. With no expected path, fail rather than choosing ambiguously. */
+ * libusb error. With no expected path, fail rather than choosing ambiguously.
+ * A NULL devh asks only whether such a device is there, which is how the
+ * detach tells a board that reset from one still in the bootloader: the
+ * matching rules are the ones above, not a second copy of them. */
 static int find_ubertooth_dfu_device(
 	libusb_context *ctx,
 	const struct dfu_usb_identity *expected_identity,
@@ -248,7 +251,8 @@ static int find_ubertooth_dfu_device(
 	ssize_t usb_devs;
 	int i, result;
 
-	*devh = NULL;
+	if (devh != NULL)
+		*devh = NULL;
 	/* This search is the tool's own, so it honours the test switch itself:
 	 * hidden devices mean none is found, and the bus is not listed. */
 	if (ubertooth_devices_hidden())
@@ -282,6 +286,10 @@ static int find_ubertooth_dfu_device(
 
 	if (match == NULL) {
 		result = 0;
+		goto done;
+	}
+	if (devh == NULL) {
+		result = 1;
 		goto done;
 	}
 	result = libusb_open(match, devh);
@@ -362,6 +370,22 @@ static void close_dfu_device(libusb_device_handle *devh, int claimed)
  * returning the board to its application. */
 #define DETACH_REOPEN_POLLS 20
 #define DETACH_REOPEN_INTERVAL_MS 100
+
+/* How long the detach waits for the DFU device to go away before it calls the
+ * board still stuck in the bootloader. A board that reset left the bus within
+ * 180 ms of the request failing on the macOS host this was measured on, so
+ * this budget is about five times what it takes; the wait is only ever spent
+ * in full when the detach really did fail. Too short a budget would bring
+ * back the failure this is here to fix, so it is generous on purpose. */
+#define DETACH_GONE_POLLS 20
+#define DETACH_GONE_INTERVAL_MS 50
+
+/* Held as values rather than used as constants so the hardware-independent
+ * tests can shorten the wait: the cases where a detach fails would otherwise
+ * sleep out the whole budget four times over, which is most of the time that
+ * suite takes. Nothing in the tool changes them. */
+static unsigned detach_gone_polls = DETACH_GONE_POLLS;
+static unsigned detach_gone_interval_ms = DETACH_GONE_INTERVAL_MS;
 
 struct dfu_runtime_context {
 	libusb_context *usb_context;
@@ -577,8 +601,56 @@ int enter_dfu_mode(libusb_device_handle* devh) {
 	return 0;
 }
 
-int detach(libusb_device_handle* devh) {
-	int rv;
+/* Is the DFU device still on the path it was asked to leave? Returns 0 once
+ * it has gone, 1 when it was there for the whole wait, or a negative libusb
+ * error when no poll could tell. A reset takes a moment to reach the bus, so
+ * this waits for the device to disappear rather than reading one list, and a
+ * listing that fails costs that poll rather than the answer. */
+static int dfu_device_presence(struct dfu_runtime_context *runtime,
+                               const struct dfu_usb_identity *identity)
+{
+	int last_error = LIBUSB_ERROR_OTHER;
+	int seen = 0;
+	unsigned poll;
+
+	/* Without a path there is nothing to look for, and no device matches an
+	 * empty one: say so rather than reporting a board that was never looked
+	 * for as gone. Both callers pass the path the command bound itself to,
+	 * so this is defence. */
+	if (identity == NULL || identity->port_count == 0)
+		return LIBUSB_ERROR_INVALID_PARAM;
+	for (poll = 0; poll < detach_gone_polls; poll++) {
+		int result = find_ubertooth_dfu_device(runtime->usb_context, identity,
+		                                       NULL);
+		if (result == 0)
+			return 0;
+		if (result == 1)
+			seen = 1;
+		else
+			last_error = result;
+		if (poll + 1 < detach_gone_polls)
+			transition_sleep_ms(runtime, detach_gone_interval_ms);
+	}
+	return seen ? 1 : last_error;
+}
+
+/* Ask the board to leave the bootloader and run its application again.
+ *
+ * The request failing is not the same as the board staying in DFU: the
+ * bootloader acts on REQ_DETACH by resetting, so the transfer is answered by
+ * a device that is going away. On macOS it ends in PIPE on every flash that
+ * worked, and the backends have their own codes for the same race, so no
+ * status is read as a verdict. What settles it is whether the DFU device is
+ * still on its path afterwards: a bootloader that refused the request is
+ * still there, and one that acted on it is not.
+ *
+ * Returns 0 when the request was accepted or the DFU device has gone, and a
+ * negative error when the board is still in the bootloader or that could not
+ * be established. A request the bootloader accepts and then does not act on
+ * is not looked into here; it is caught by the -d ... -r verification. */
+int detach(struct dfu_runtime_context* runtime, libusb_device_handle* devh,
+           const struct dfu_usb_identity* identity) {
+	int rv, presence;
 	rv = enter_dfu_mode(devh);
 	if(rv < 0) {
 		fprintf(stderr, "Detach failed: could not enter DFU mode\n");
@@ -586,12 +658,21 @@ int detach(libusb_device_handle* devh) {
 	}
 	rv = libusb_control_transfer(devh, DFU_OUT, REQ_DETACH, 0, 0, NULL, 0, 1000);
 	if (rv != LIBUSB_SUCCESS) {
-		if (rv == LIBUSB_ERROR_PIPE)
-			fprintf(stderr, "control message unsupported\n");
-		else
+		log_dfu_stage("detach request did not complete: looking for the DFU "
+		              "device to see whether the board reset");
+		presence = dfu_device_presence(runtime, identity);
+		if (presence != 0) {
+			/* The board did not leave, so the status of the request is
+			 * diagnostic after all. */
 			show_libusb_error(rv);
-		fprintf(stderr, "Detach failed: the board is still in DFU\n");
-		return rv;
+			if (presence < 0)
+				fprintf(stderr, "Detach failed: could not tell whether the "
+				        "board left DFU (usb_error=%d)\n", presence);
+			else
+				fprintf(stderr, "Detach failed: the board is still in DFU\n");
+			return rv;
+		}
+		log_dfu_stage("the DFU device has gone: the board left the bootloader");
 	}
 	printf("Detached\n");
 	return 0;
@@ -1384,7 +1465,7 @@ int main(int argc, char **argv) {
 
 	if(functions & FUNC_RESET) {
 		log_dfu_stage("DFU detach/reset request started");
-		r = detach(devh);
+		r = detach(&runtime, devh, &selected_identity);
 		log_dfu_stage("DFU detach/reset request returned");
 		if (r != 0) {
 			/* The board is still in the bootloader, so keep the handle
@@ -1440,7 +1521,7 @@ cleanup:
 			                      &interface_claimed);
 		if (devh != NULL) {
 			log_dfu_stage("returning the board to its application after a failure");
-			detach(devh);
+			detach(&runtime, devh, &selected_identity);
 			log_dfu_stage("detach after failure returned");
 		}
 	}
