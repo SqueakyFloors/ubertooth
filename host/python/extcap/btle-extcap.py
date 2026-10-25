@@ -48,10 +48,11 @@ def main():
                 "channel=",
             ])
     except getopt.GetoptError as err:
-        # print help information and exit:
-        print(str(err))  # will print something like "option -a not recognized"
-        usage()
-        sys.exit(2)
+        # A usage error: the message and the usage line go to standard error
+        # and the exit status is 1 (.kiro/steering/cli-output.md).
+        print("error: %s" % err, file=sys.stderr)
+        usage(sys.stderr)
+        sys.exit(1)
 
     interface = ''
     fifo = None
@@ -82,9 +83,14 @@ def main():
         else:
             assert False, "unhandled option"
 
-    # every operation down here depends on having an interface
-    m = re.match(r'ubertooth(\d+)', interface)
+    # every operation down here depends on having an interface. Its value is
+    # "ubertooth<serial>", as --extcap-interfaces lists it; an older
+    # "ubertooth<index>" still works, because ubertooth-btle -U reads an
+    # all-digit value as an index.
+    m = re.match(r'ubertooth([0-9a-fA-F]+)$', interface)
     if not m:
+        print("error: --extcap-interface must be ubertooth<serial>, as "
+              "--extcap-interfaces lists it", file=sys.stderr)
         exit(1)
     interface = m.group(1)
 
@@ -94,34 +100,41 @@ def main():
         config()
     elif do_capture:
         if fifo is None:
-            print("Must specify fifo!")
+            print("error: --capture needs --fifo=PATH", file=sys.stderr)
             exit(1)
         capture(interface, fifo, channel)
 
 
-def usage():
-    print("Usage: %s <--list-interfaces | --list-dlts | --config | --capture>" % sys.argv[0])
+def usage(out=sys.stdout):
+    print("Usage: %s --extcap-interfaces |"
+          " --extcap-interface=ubertooth<serial>"
+          " (--extcap-dlts | --extcap-config |"
+          " --capture --fifo=PATH [--channel=37|38|39])" % sys.argv[0],
+          file=out)
+
+
+# One "<index>: <serial>" line per attached board, which is what
+# "ubertooth-util -U all -s" prints for any number of boards.
+INTERFACE_LINE = re.compile(r'(\d+): ([0-9a-fA-F]+)$')
 
 
 def list_interfaces():
-    proc = Popen(['ubertooth-util', '-s'], stdout=PIPE, stderr=PIPE, universal_newlines=True)
+    # -U all asks for the indexed listing explicitly, so one output form
+    # covers one board and several. Each interface is named by the board's
+    # serial, which --capture passes to "ubertooth-btle -U <serial>": an index
+    # can change when boards are re-plugged between listing and capture, a
+    # serial cannot. A board whose serial could not be read is shown by
+    # ubertooth-util as "<index>: <unavailable>" and has no serial to offer,
+    # so it is left out.
+    proc = Popen(['ubertooth-util', '-U', 'all', '-s'],
+                 stdout=PIPE, stderr=PIPE, universal_newlines=True)
     out = proc.communicate()[0]
-    lines = out.split('\n')
 
-    interfaces = []
-
-    for line in lines:
-        p = line.split()
-        if len(p) == 0 or p[0] == 'ubertooth-util':
-            break
-
-        if p[0] == 'Serial':
-            interfaces.append(p[2])
-        elif re.match('[0-9a-f]+', p[0]):
-            interfaces.append(p[0])
-
-    for i in range(len(interfaces)):
-        print("interface {value=ubertooth%d}{display=Ubertooth One %s}" % (i, interfaces[i]))
+    for line in out.split('\n'):
+        m = INTERFACE_LINE.match(line.strip())
+        if m:
+            print("interface {value=ubertooth%s}{display=Ubertooth One %s}"
+                  % (m.group(2), m.group(2)))
 
 
 def list_dlts():
@@ -148,7 +161,7 @@ def capture(interface, fifo, channel):
     global child
     p = Popen([
         "ubertooth-btle", "-f",
-        "-U%s" % interface,
+        "-U", interface,
         "-q", fifo,
         "-A", channel,
     ])

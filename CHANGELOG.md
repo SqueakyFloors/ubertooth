@@ -108,6 +108,15 @@
   of the two. A read works alongside `-f`, `-n` and `-p` as well, and a set the
   board does not answer exits 1 instead of being ignored.
   [#265](https://github.com/SqueakyFloors/ubertooth/issues/265)
+- `btle-extcap.py --extcap-interfaces` shows each board's serial with any
+  number of boards attached, instead of `Ubertooth One 0:` with two or more,
+  and a Wireshark capture now selects its board by that serial, so re-plugging
+  boards cannot move it to another board. A usage error goes to standard error
+  with exit status 1.
+  [#269](https://github.com/SqueakyFloors/ubertooth/issues/269)
+- `btle-extcap.py -h` names the options the script accepts, not
+  `--list-interfaces`, `--list-dlts` and `--config`, which it rejects.
+  [#268](https://github.com/SqueakyFloors/ubertooth/issues/268)
 - A set and a read of the same `ubertooth-util` value in one command both run,
   the set first, so `-c2426 -c`, `-a5 -a`, `-l1 -l` and `-d1 -d` report the new
   value instead of dropping the set.
