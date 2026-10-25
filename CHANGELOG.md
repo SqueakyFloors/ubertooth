@@ -4,6 +4,8 @@
 
 ### New features
 
+- `ubertooth-btle` and `ubertooth-ego` list their `-j`/`-J` jam aliases in `-h`.
+  [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
 - **Script-visible change:** every tool now keeps standard output for its
   results and capture data; errors, warnings and progress go to standard
   error, `-h` exits 0, and a command line with nothing to do is refused.

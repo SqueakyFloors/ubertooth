@@ -157,8 +157,8 @@ static void usage(FILE *out)
 	fprintf(out, "\t-t none unset connection following target\n");
 	fprintf(out, "\n");
 	fprintf(out, "    Interference (use with -f or -p):\n");
-	fprintf(out, "\t-i interfere with one connection and return to idle\n");
-	fprintf(out, "\t-I interfere continuously\n");
+	fprintf(out, "\t-i, -j  interfere with (jam) one connection and return to idle\n");
+	fprintf(out, "\t-I, -J  interfere continuously\n");
 	fprintf(out, "\n");
 	fprintf(out, "    Data source:\n");
 	fputs(OPT_USAGE_SELECT_DEVICE, out);

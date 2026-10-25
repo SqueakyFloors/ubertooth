@@ -129,9 +129,9 @@ Interference (pair with `-f` or `-p`):
  - `-I` :
    Interfere continuously with many connections
  - `-j` :
-   Jam a single connection once, then return to idle
+   Original "jam" spelling of `-i`; does exactly what `-i` does
  - `-J` :
-   Jam connections continuously
+   Original "jam" spelling of `-I`; does exactly what `-I` does
 
 Filtering:
 

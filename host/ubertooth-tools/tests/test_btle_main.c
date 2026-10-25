@@ -33,6 +33,8 @@ static struct {
 	int sniffing_calls;
 	int promisc_calls;
 	int follow_requested;
+	int jam_mode_sets;
+	int last_jam_mode;
 	u32 access_address;
 	int aa_reads;
 	int aa_writes;
@@ -64,6 +66,7 @@ static void reset_fake(void)
 	fake_ut.devh = (struct libusb_device_handle *)&fake_devh;
 	fake_ut.fifo = &fake_fifo;
 	fake.get_crc_rc = -2; /* -2: report what the board holds */
+	fake.last_jam_mode = -1; /* -1: cmd_set_jam_mode was not called */
 	fake.access_address = 0x8e89bed6;
 	/* main() leaves these globals where a previous run put them. */
 	running = 1;
@@ -184,7 +187,8 @@ int cmd_set_modulation(struct libusb_device_handle *devh, u16 mod)
 int cmd_set_jam_mode(struct libusb_device_handle *devh, int mode)
 {
 	(void)devh;
-	(void)mode;
+	fake.jam_mode_sets++;
+	fake.last_jam_mode = mode;
 	return 0;
 }
 
@@ -506,6 +510,45 @@ MU_TEST(the_usage_text_documents_the_set_and_the_read)
 	mu_assert_int_eq(0, fake.crc_gets);
 }
 
+/* The usage text names the -j/-J jam aliases alongside -i/-I. */
+MU_TEST(the_usage_text_names_the_jam_aliases)
+{
+	struct run_result r;
+
+	reset_fake();
+	r = RUN("-h");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.out, "-i, -j") != NULL, r.out);
+	mu_assert(strstr(r.out, "-I, -J") != NULL, r.out);
+}
+
+/* -j and -J are the original jam spellings of -i and -I: each selects the same
+ * jam mode its interfere spelling does. */
+MU_TEST(the_jam_aliases_select_the_same_mode_as_interfere)
+{
+	struct run_result r;
+
+	reset_fake();
+	r = RUN("-f", "-i");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(JAM_ONCE, fake.last_jam_mode);
+
+	reset_fake();
+	r = RUN("-f", "-j");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(JAM_ONCE, fake.last_jam_mode);
+
+	reset_fake();
+	r = RUN("-f", "-I");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(JAM_CONTINUOUS, fake.last_jam_mode);
+
+	reset_fake();
+	r = RUN("-f", "-J");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(JAM_CONTINUOUS, fake.last_jam_mode);
+}
+
 int main(void)
 {
 	MU_RUN(a_set_and_a_read_of_crc_verify_both_run_set_first);
@@ -516,5 +559,7 @@ int main(void)
 	MU_RUN(a_failure_in_a_sniffing_mode_still_stops_the_board);
 	MU_RUN(an_access_address_read_and_the_crc_options_all_run);
 	MU_RUN(the_usage_text_documents_the_set_and_the_read);
+	MU_RUN(the_usage_text_names_the_jam_aliases);
+	MU_RUN(the_jam_aliases_select_the_same_mode_as_interfere);
 	return mu_report();
 }
