@@ -16,6 +16,10 @@
  * to free the transfer itself. That left a failed submit, where the callback
  * never runs, leaking its transfer; and had the flags reached flags,
  * LIBUSB_TRANSFER_FREE_BUFFER would have called free() on a stack address.
+ *
+ * The fake also completes a transfer with a failure status, which is the only
+ * place a refused asynchronous command is ever reported: the submit returns
+ * before the board has seen the request.
  */
 #include <stdint.h>
 #include <stdio.h>
@@ -109,7 +113,7 @@ static void reset(int submit_rc)
 /* Complete the transfer libusb was last given, as libusb's event handling
  * does: run the callback, then free the transfer because the library asked
  * for LIBUSB_TRANSFER_FREE_TRANSFER. */
-static void complete_last(void)
+static void complete_last_with(int status)
 {
 	struct libusb_transfer* xfer = fake.xfer;
 	int freed_before = fake.freed;
@@ -117,8 +121,8 @@ static void complete_last(void)
 	mu_assert(xfer != NULL, "a transfer was submitted");
 	if (xfer == NULL)
 		return;
-	xfer->actual_length = xfer->length;
-	xfer->status = LIBUSB_TRANSFER_COMPLETED;
+	xfer->actual_length = status == LIBUSB_TRANSFER_COMPLETED ? xfer->length : 0;
+	xfer->status = status;
 	fake.callback(xfer);
 	/* the callback must leave the transfer to libusb: freeing it there and
 	 * asking for LIBUSB_TRANSFER_FREE_TRANSFER is a double free */
@@ -126,6 +130,11 @@ static void complete_last(void)
 	if (xfer->flags & LIBUSB_TRANSFER_FREE_TRANSFER)
 		libusb_free_transfer(xfer);
 	fake.xfer = NULL;
+}
+
+static void complete_last(void)
+{
+	complete_last_with(LIBUSB_TRANSFER_COMPLETED);
 }
 
 /* Overwrite the stack a returned-from callee used, so a buffer left on a dead
@@ -353,6 +362,123 @@ MU_TEST(the_async_commands_pass_a_submit_failure_back)
 	mu_assert_int_eq(4, count_lines(text));
 }
 
+/* ---- what a failed completion reports ----------------------------------- */
+
+/* Submit one command and complete it with status, returning what the
+ * completion printed in text. */
+static void submit_and_fail(uint8_t request, int status, char* text, size_t len)
+{
+	reset(0);
+	mu_assert_int_eq(0, ubertooth_cmd_async(NULL, CTRL_OUT, request, NULL, 0));
+	capture_stderr();
+	complete_last_with(status);
+	release_stderr(text, len);
+	mu_assert_int_eq(fake.allocated, fake.freed);
+}
+
+/* A stall is how the board refuses a request it does not implement, and it
+ * arrives here, at completion, not as a submit failure. The message used to
+ * be show_libusb_error(LIBUSB_TRANSFER_STALL), which read the status as a
+ * libusb_error code and printed "libUSB Error: Unknown error: (4)" -- naming
+ * neither the command nor what happened. */
+MU_TEST(a_stalled_command_is_named_and_reported_as_unsupported)
+{
+	char text[256] = "";
+
+	submit_and_fail(UBERTOOTH_START_HOPPING, LIBUSB_TRANSFER_STALL,
+	                text, sizeof(text));
+	mu_assert(strcmp(text, "error: start hopping failed: the board does not "
+	                       "support this command (stalled)\n") == 0, text);
+
+	submit_and_fail(UBERTOOTH_HOP, LIBUSB_TRANSFER_STALL, text, sizeof(text));
+	mu_assert(strcmp(text, "error: hop failed: the board does not support "
+	                       "this command (stalled)\n") == 0, text);
+
+	/* nothing is left of the old, meaningless line */
+	mu_assert(strstr(text, "libUSB Error") == NULL, text);
+	mu_assert(strstr(text, "Unknown error") == NULL, text);
+}
+
+/* Every command that submits asynchronously names itself. */
+MU_TEST(each_async_command_names_itself)
+{
+	static const struct {
+		uint8_t request;
+		const char* name;
+	} commands[] = {
+		{ UBERTOOTH_HOP,                "hop" },
+		{ UBERTOOTH_TRIM_CLOCK,         "clock trim" },
+		{ UBERTOOTH_FIX_CLOCK_DRIFT,    "clock drift correction" },
+		{ UBERTOOTH_CANCEL_FOLLOW,      "cancel follow" },
+		{ UBERTOOTH_SET_AFHMAP,         "AFH map" },
+		{ UBERTOOTH_START_HOPPING,      "start hopping" },
+	};
+	char text[256], expected[256];
+	size_t i;
+
+	for (i = 0; i < sizeof(commands) / sizeof(commands[0]); i++) {
+		submit_and_fail(commands[i].request, LIBUSB_TRANSFER_STALL,
+		                text, sizeof(text));
+		snprintf(expected, sizeof(expected),
+		         "error: %s failed: the board does not support this command "
+		         "(stalled)\n", commands[i].name);
+		mu_assert(strcmp(text, expected) == 0, text);
+	}
+}
+
+/* The other completion statuses say what happened, in their own words: a
+ * stall is the only one that means "unsupported". */
+MU_TEST(each_completion_status_says_what_happened)
+{
+	static const struct {
+		int status;
+		const char* why;
+	} statuses[] = {
+		{ LIBUSB_TRANSFER_ERROR,     "the transfer failed" },
+		{ LIBUSB_TRANSFER_TIMED_OUT, "the board did not answer in time" },
+		{ LIBUSB_TRANSFER_CANCELLED, "the transfer was cancelled" },
+		{ LIBUSB_TRANSFER_NO_DEVICE, "the board is no longer attached" },
+		{ LIBUSB_TRANSFER_OVERFLOW,
+		  "the board sent more data than the request allows" },
+	};
+	char text[256], expected[256];
+	size_t i;
+
+	for (i = 0; i < sizeof(statuses) / sizeof(statuses[0]); i++) {
+		submit_and_fail(UBERTOOTH_HOP, statuses[i].status, text, sizeof(text));
+		snprintf(expected, sizeof(expected), "error: hop failed: %s\n",
+		         statuses[i].why);
+		mu_assert(strcmp(text, expected) == 0, text);
+	}
+}
+
+/* A status this libusb version has added, and a request that is not one of
+ * the asynchronous commands, are still reported as numbers rather than
+ * silently. */
+MU_TEST(an_unknown_status_or_request_is_reported_as_a_number)
+{
+	char text[256] = "";
+
+	submit_and_fail(UBERTOOTH_HOP, 99, text, sizeof(text));
+	mu_assert(strcmp(text, "error: hop failed: transfer status 99\n") == 0,
+	          text);
+
+	submit_and_fail(200, LIBUSB_TRANSFER_STALL, text, sizeof(text));
+	mu_assert(strcmp(text, "error: control request 200 failed: the board does "
+	                       "not support this command (stalled)\n") == 0, text);
+}
+
+/* The completion that libusb reports for a transfer that worked says
+ * nothing. */
+MU_TEST(a_successful_completion_is_silent)
+{
+	char text[256] = "";
+
+	submit_and_fail(UBERTOOTH_HOP, LIBUSB_TRANSFER_COMPLETED,
+	                text, sizeof(text));
+	mu_assert(text[0] == '\0', text);
+}
+
 int main(void)
 {
 	/* A regression that puts the buffer back on the stack can die in free()
@@ -366,5 +492,10 @@ int main(void)
 	MU_RUN(an_allocation_failure_is_reported_and_submits_nothing);
 	MU_RUN(every_async_command_frees_what_it_submits);
 	MU_RUN(the_async_commands_pass_a_submit_failure_back);
+	MU_RUN(a_stalled_command_is_named_and_reported_as_unsupported);
+	MU_RUN(each_async_command_names_itself);
+	MU_RUN(each_completion_status_says_what_happened);
+	MU_RUN(an_unknown_status_or_request_is_reported_as_a_number);
+	MU_RUN(a_successful_completion_is_silent);
 	return mu_report();
 }
