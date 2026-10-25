@@ -355,6 +355,30 @@ add_test(NAME ducky-main COMMAND test-ducky-main)
 # out a real quack should fail instead of hanging the suite.
 set_tests_properties(ducky-main PROPERTIES TIMEOUT 10)
 
+# The same approach for ubertooth-ego: its real main() against a scripted
+# device, so which requests set a capture up, and what a refused one reports
+# and exits with, are checked without a board and without transmitting.
+add_executable(test-ego-main
+	test_ego_main.c
+	../src/ego_options.c)
+target_link_libraries(test-ego-main opt-parse-for-tests)
+if(libubertooth_SOURCE_DIR)
+	target_include_directories(test-ego-main PRIVATE ${libubertooth_SOURCE_DIR}/src)
+else()
+	target_include_directories(test-ego-main PRIVATE ${LIBUBERTOOTH_INCLUDE_DIR})
+endif()
+target_include_directories(test-ego-main PRIVATE ../src
+	${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+if(USE_OWN_GNU_GETOPT)
+	target_include_directories(test-ego-main BEFORE PRIVATE ../getopt)
+	target_link_libraries(test-ego-main libgetopt_static)
+endif()
+
+add_test(NAME ego-main COMMAND test-ego-main)
+# The faked poll ends the capture loop at once; a regression that waits on a
+# real board should fail instead of hanging the suite.
+set_tests_properties(ego-main PROPERTIES TIMEOUT 10)
+
 # The same approach for ubertooth-dfu: its real main() against a faked DFU
 # transport, so a bootloader that stops answering and a read-back that fails
 # part-way are testable without a board.

@@ -87,6 +87,12 @@ Standard output carries only the captured packets. Errors, warnings and
 progress go to standard error, each error as one line starting `error: `, for
 example `error: E-GO not supported by this firmware`.
 
+A request that sets the capture up and is refused by the board ends the
+command there, named in one line, for example
+`error: could not set the channel`; libubertooth has already said why. A
+refused request is not proof that the board never got it, so the message does
+not claim one way or the other.
+
 A command line the tool will not take is reported as that one `error: ` line
 followed by the usage text, both on standard error. An option the tool does
 not know reads `error: unrecognized option '-Z'`; one whose value is missing
@@ -100,8 +106,9 @@ nothing goes to standard error.
 0 when the command did what was asked, including `-h`, and after a capture is
 interrupted (Ctrl-C). 1 for a command line the tool will not take or with
 nothing to do, when the selected Ubertooth is not found or cannot be opened,
-when the firmware does not support the requested mode, and when the capture
-stops short because a poll failed.
+when the board refuses one of the requests that set the capture up, when the
+firmware does not support the requested mode, and when the capture stops short
+because a poll failed.
 
 ## SEE ALSO
 

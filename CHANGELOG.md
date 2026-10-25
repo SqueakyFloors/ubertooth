@@ -176,6 +176,10 @@
   instead of waiting their two seconds and exiting 0 on a request the board
   refused.
   [#328](https://github.com/SqueakyFloors/ubertooth/issues/328)
+- `ubertooth-ego` names a request the board refused while setting a capture up
+  (channel, access code, capture length) and exits 1, instead of capturing with
+  whatever settings the board was left on.
+  [#379](https://github.com/SqueakyFloors/ubertooth/issues/379)
 - `ubertooth-afh` gives its piconet back before it exits, so a run no longer
   ends with one unfreed allocation.
   [#366](https://github.com/SqueakyFloors/ubertooth/issues/366)
