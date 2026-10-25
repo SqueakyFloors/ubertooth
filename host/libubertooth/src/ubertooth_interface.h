@@ -37,11 +37,13 @@
  * CHANGELOG.md, COMPATIBILITY.md, TEST_PLAN.md and the pinned strings in the
  * tests.
  *
- * The release itself takes 0x0200 (2.00), to mark that its host tools and
- * firmware only work with each other; see docs/source/release_procedure.rst.
+ * A release moves it to the next major version, to mark that its host tools
+ * and firmware only work with each other; the first fork release takes 0x0200
+ * (2.00). See docs/source/release_procedure.rst.
  *
  * bcdDevice is binary-coded decimal, so 0x0109 is followed by 0x0110 (shown
- * as 1.10), then 0x0111 (1.11), and so on to 0x0114 (1.14).
+ * as 1.10), then 0x0111 (1.11), and so on to 0x0114 (1.14); after 0x0119
+ * comes 0x0120, not 0x011a.
  */
 #define UBERTOOTH_API_VERSION 0x0114
 

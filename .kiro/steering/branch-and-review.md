@@ -136,9 +136,9 @@ change the host relies on**, in the PR that makes it.
   `0x0119` comes `0x0120`) and update `CHANGELOG.md`, `COMPATIBILITY.md`,
   `TEST_PLAN.md` and the pinned strings in the tests. Host-only PRs MUST NOT
   touch it. If `main` already carries the value you picked, take the next one.
-- The release takes `0x0200` (2.00) to mark the break in host/firmware
-  pairing. That is a release step, not a per-PR one (see
-  `docs/source/release_procedure.rst`).
+- A release moves it to the next major version to mark the break in
+  host/firmware pairing; the first fork release takes `0x0200` (2.00). That is
+  a release step, not a per-PR one (see `docs/source/release_procedure.rst`).
 - Host tools and firmware built from the same commit always match, so after
   pulling, rebuild and reflash both from the same commit
   (`./install.sh --flash`).

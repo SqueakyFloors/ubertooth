@@ -23,10 +23,11 @@ An Ubertooth release is not as simple as a standard GitHub release, there are a 
       ``host/libubertooth/src/ubertooth_interface.h`` already moves in every
       development pull request that changes firmware behaviour the host relies
       on; the release moves it to the next major version to mark that its host
-      tools and firmware only work with each other. It is binary-coded decimal
-      (``0x0200`` reads as 2.00), and the host tools require firmware of
-      exactly this version, so every board has to be reflashed after the
-      release. Update the firmware row of ``COMPATIBILITY.md``, the expected
+      tools and firmware only work with each other, whether or not this cycle
+      changed the firmware. The first fork release takes ``0x0200``. It is
+      binary-coded decimal (``0x0200`` reads as 2.00), and the host tools
+      require firmware of exactly this version, so the move means every board
+      has to be reflashed after the release. Update the firmware row of ``COMPATIBILITY.md``, the expected
       ``API:`` string in ``TEST_PLAN.md``, the pinned strings in the host
       tests, and note the reflash in ``CHANGELOG.md``.
 

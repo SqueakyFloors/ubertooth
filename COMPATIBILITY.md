@@ -105,13 +105,14 @@ reported as the USB `bcdDevice`) is exactly their own, and refuse any other —
 only `ubertooth-util` reading the version and reflashing still work. During
 development the minor version is bumped in every pull request that changes
 firmware behaviour the host relies on, so a board carrying firmware from an
-earlier commit is refused rather than used with behaviour the tools no longer
-expect. The release itself takes 2.00, to mark that its host tools and
-firmware only work with each other.
+earlier commit is normally refused rather than used with behaviour the tools
+no longer expect. The first fork release takes 2.00, to mark that its host
+tools and firmware only work with each other.
 
-The number still does not pin down a commit on its own, since several commits
-share one number: the firmware revision shown by `ubertooth-util -v` beside it
-is what identifies a build. Host tools and firmware built from the same commit
+The number still does not pin down a commit, since every commit that does not
+touch the firmware interface shares the number before it: that is why "normally"
+above, and why the firmware revision shown by `ubertooth-util -v` beside the
+API version is what identifies a build. Host tools and firmware built from the same commit
 always match, so after pulling, rebuild and reflash both from the same commit
 (`./install.sh --flash`).
 
