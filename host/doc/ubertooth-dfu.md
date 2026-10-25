@@ -116,6 +116,14 @@ read-only location can be signed or flashed. `-s <file.bin>` writes
 it again would bury the first suffix in the firmware payload. Nothing is
 written in that case.
 
+`-s` replaces `<file>.dfu` only once the whole signed image is ready, writing
+it through a temporary file beside the target as `-u` does for its dump (see
+[READING FLASH BACK][]). A signing run that fails for any reason, including a
+`-d` image refused in the same command, leaves an earlier `<file>.dfu`
+untouched, creates none, and leaves no temporary file behind. The image it
+writes on success is the one it always wrote: the input, unchanged, with the
+16-byte suffix appended.
+
 Both read their whole file into memory, so what the file is comes first. A
 directory, a FIFO or a device node is refused (`error: <file> is not a regular
 file`): its length says nothing about what a read would return. So is a file
@@ -125,6 +133,16 @@ the bootloader on the largest part this host knows plus the 16-byte suffix,
 and `-s` takes 507904, the same less the suffix it adds, so the file it writes
 is one `-d` still accepts. Either refusal ends the command with exit status 1
 before any device is opened, and with `-s` before the output file is created.
+
+A command that gives both `-s` and `-d` checks the `-d` image first, so an
+image it refuses costs the signed file nothing:
+
+    $ ubertooth-dfu -s firmware.bin -d not-an-image.dfu
+    Checking firmware signature
+    Unknown DFU suffix length: 115
+    Signature check failed, firmware will not be updated
+
+`firmware.dfu` is neither created nor replaced.
 
 In the DFU bootloader, the TX, RX, and USR LEDs will turn on and off in
 sequence. If this does not occur, you can try to manually force the
@@ -239,8 +257,10 @@ alongside it.
 
 A refused command line creates and truncates nothing, and leaves no temporary
 file: `-s`, `-u` and `-d` name their file while the command line is read, and
-the files are opened only once every check has passed. Whether `-s` was given a
-`.bin` is a check on the name, so it is still reported alongside `-h`.
+the files are opened only once every check has passed. The `-d` image is read
+and checked before either output file is created, since it is the last thing
+that can refuse the command. Whether `-s` was given a `.bin` is a check on the
+name, so it is still reported alongside `-h`.
 
 ## SEE ALSO
 

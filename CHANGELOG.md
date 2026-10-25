@@ -312,6 +312,11 @@
   board is reported as detached only once its DFU device has left the bus,
   whatever the request returned.
   [#283](https://github.com/SqueakyFloors/ubertooth/issues/283)
+- `ubertooth-dfu -s` writes `<file>.dfu` only once the whole signed image is
+  ready, and checks a `-d` image given in the same command first, so a signing
+  run that fails leaves an earlier `<file>.dfu` untouched and creates none.
+  [#305](https://github.com/SqueakyFloors/ubertooth/issues/305)
+  [#286](https://github.com/SqueakyFloors/ubertooth/issues/286)
 - `ubertooth-dfu -u <dump> -d <image>` no longer leaves a temporary dump file
   beside the target when the image is refused.
   [#241](https://github.com/SqueakyFloors/ubertooth/issues/241)
