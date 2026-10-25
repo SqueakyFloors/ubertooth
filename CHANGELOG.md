@@ -4,17 +4,9 @@
 
 ### New features
 
-- **Script-visible change:** `ubertooth-afh`, `-ducky`, `-dump`, `-ego`, `-tx`,
-  `-util`, `-specan`, `-specan-ui` and `install.sh` keep only what was asked
-  for on stdout; errors (one line, starting `error: `), warnings, notes and
-  progress go to stderr. `-h` exits 0, and `-afh`, `-ducky`, `-ego` and `-tx`
-  refuse a command line with nothing to do instead of opening a board.
-  `ubertooth-util` also says each thing once: `-z <n>` sets the squelch
-  silently, and `-I` reports the blink in the one line naming what stops it.
-  `ubertooth-specan` exits 1, instead of 0, when it cannot write its samples.
-  [#323](https://github.com/SqueakyFloors/ubertooth/issues/323)
-- **Script-visible change:** libubertooth no longer prints to standard output;
-  its notes and errors go to standard error with `note: `/`error: ` prefixes.
+- **Script-visible change:** every tool now keeps standard output for its
+  results and capture data; errors, warnings and progress go to standard
+  error, `-h` exits 0, and a command line with nothing to do is refused.
   [#323](https://github.com/SqueakyFloors/ubertooth/issues/323)
 - ubertooth-btle can stream PCAP data to stdout with `-q -`
   or `-c -`, safely separating diagnostics for Wireshark and other consumers.
@@ -152,8 +144,7 @@
 - `btle-extcap.py` names each Wireshark interface by its board's serial, so
   re-plugging boards cannot move a capture to another board and two or more
   boards no longer list as `Ubertooth One 0:` repeated. The name changed with
-  it, so an Ubertooth saved in a Wireshark profile has to be picked once more;
-  a usage error goes to standard error with exit status 1.
+  it, so an Ubertooth saved in a Wireshark profile has to be picked once more.
   [#269](https://github.com/SqueakyFloors/ubertooth/issues/269)
 - `btle-extcap.py` takes the options Wireshark adds to its own calls, so an
   Ubertooth reaches Wireshark's capture list instead of the listing being
@@ -184,9 +175,8 @@
   [#236](https://github.com/SqueakyFloors/ubertooth/issues/236)
 - A `ubertooth-btle` command line with no work in it (a bare run, or only `-A`,
   `-x`, `-i`/`-I` or a capture option) is refused with `error: nothing to do:
-  ...` and the usage text on standard error, exit 1, instead of opening a board
-  and exiting 0. After a bad option the usage text also goes to standard error;
-  `-h` still prints it on standard output. [#258](https://github.com/SqueakyFloors/ubertooth/issues/258)
+  ...` and exit 1, instead of opening a board and exiting 0.
+  [#258](https://github.com/SqueakyFloors/ubertooth/issues/258)
 - `ubertooth-specan -d` takes a bare `-` as standard output and every other
   value as a file name, including one starting with `-`, so `-d -x` writes the
   file `-x` instead of streaming binary samples to the terminal.
