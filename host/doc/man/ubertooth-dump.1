@@ -31,6 +31,14 @@ select an Ubertooth by enumeration index or serial number; see ubertooth(7), SEL
 \fB\-h\fR ends the command only once the whole command line has parsed, so a stray word or a bad option value is reported even alongside it\.
 .P
 A refused command line creates and truncates nothing: \fB\-d\fR names its file while the command line is read, and it is opened only once every check has passed\.
+.SH "DIAGNOSTICS"
+Without \fB\-d\fR, standard output carries the binary symbol stream and nothing else\. Errors, warnings and the per\-block timestamp go to standard error, each error as one line starting \fBerror:\fR, for example \fBerror: /no/such/dir/capture\.bin: No such file or directory\fR\.
+.P
+A command line the tool will not take is reported as that one \fBerror:\fR line followed by the usage text, both on standard error\. An option the tool does not know reads \fBerror: unrecognized option '\-Z'\fR; one whose value is missing reads \fBerror: option '\-d' requires a value\fR\.
+.P
+\fB\-h\fR is what the user asked for, so the usage text goes to standard output and nothing goes to standard error\.
+.SH "EXIT STATUS"
+0 when the command did what was asked, including \fB\-h\fR, and after the dump is interrupted (Ctrl\-C)\. 1 for a command line the tool will not take, for a \fB\-d\fR file that cannot be opened, and when the selected Ubertooth is not found or cannot be opened\.
 .SH "SEE ALSO"
 ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how option values are written
 .SH "AUTHOR"

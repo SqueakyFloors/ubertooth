@@ -64,8 +64,16 @@ To wait for a piconet that is not in range yet (start the tool, then bring the d
 \fB\-h\fR and \fB\-V\fR end the command only once the whole command line has parsed, so a stray word or a bad option value is reported even alongside them\.
 .P
 An option value must be a whole value in its range, or it is refused the same way instead of being read as 0, for example \fBerror: timeout must be a whole number of seconds, 0 for none (got abc)\fR\.
+.P
+Both halves of the piconet address are required, and a command line missing either is refused before any device is opened: \fBerror: \-l <LAP> and \-u <UAP> are both required: the map is detected for one piconet\fR\.
+.SH "DIAGNOSTICS"
+Standard output carries the detected channel maps\. Errors, warnings and the tool's own progress go to standard error, each error as one line starting \fBerror:\fR\. The channel\-change lines that libubertooth prints alongside each map are still on standard output; see ubertooth(7), OUTPUT AND DIAGNOSTICS\.
+.P
+A command line the tool will not take is reported as that one \fBerror:\fR line followed by the usage text, both on standard error\. An option the tool does not know reads \fBerror: unrecognized option '\-Z'\fR; one whose value is missing reads \fBerror: option '\-l' requires a value\fR\.
+.P
+\fB\-h\fR is what the user asked for, so the usage text goes to standard output and nothing goes to standard error\.
 .SH "EXIT STATUS"
-\fBubertooth\-afh\fR does not stop on its own, so it normally exits 0 after being interrupted (Ctrl\-C)\.
+\fBubertooth\-afh\fR does not stop on its own, so it normally exits 0 after being interrupted (Ctrl\-C)\. \fB\-h\fR also exits 0\.
 .P
 It exits 2 when the \fB\-t\fR detection phase received no packet from the piconet (see DETECTION AND MONITORING)\. The number of seconds in that message is the \fB\-t\fR value, not the time actually spent listening, which is shorter if the tool was interrupted during the phase\.
 .P
