@@ -135,7 +135,7 @@ Remove the bridge before the final reset if you want the application firmware to
 .P
 \fB\-h\fR ends the command only once the whole command line has parsed, so a stray word or a bad option value is reported even alongside it\.
 .P
-A refused command line creates and truncates nothing, and leaves no temporary file: \fB\-s\fR, \fB\-u\fR and \fB\-d\fR name their file while the command line is read, and the files are opened only once every check has passed\. The \fB\-d\fR image is read and checked before either output file is created, since it is the last thing that can refuse the command\. Whether \fB\-s\fR was given a \fB\.bin\fR is a check on the name, so it is still reported alongside \fB\-h\fR\.
+A refused command line creates and truncates nothing, and leaves no temporary file: \fB\-s\fR, \fB\-u\fR and \fB\-d\fR name their file while the command line is read, and the files are opened only once every check has passed\. The files that are only read, the \fB\-d\fR image and the \fB\-s\fR input, are opened and checked first, since they are the last things that can refuse the command; neither output file is created until they have passed\. Whether \fB\-s\fR was given a \fB\.bin\fR is a check on the name, so it is still reported alongside \fB\-h\fR\.
 .SH "SEE ALSO"
 ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how option values are written
 .SH "AUTHOR"

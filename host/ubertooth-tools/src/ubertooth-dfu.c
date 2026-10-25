@@ -1376,18 +1376,10 @@ int main(int argc, char **argv) {
 		}
 	}
 
-	/* Nothing is left that can refuse the command, so the output files can
-	 * be created. Both go through a temporary file renamed over the target
-	 * once what belongs in it is all there, so a failure from here on leaves
-	 * an earlier file of the same name untouched and creates none. */
-	if (upfile_name != NULL) {
-		upfile = open_output_temp(upfile_name, &upfile_temp);
-		if (upfile == NULL) {
-			perror(upfile_name);
-			exit_status = 1;
-			goto end_without_device;
-		}
-	}
+	/* The -s input is read-only too, and it is the other thing that can
+	 * refuse the command, so its checks also come before any output: with -u
+	 * and -s together, an input -s will not take must not have cost the
+	 * read-back's temporary file. */
 	if (sign_name != NULL) {
 		infile = fopen(sign_name, "rb");
 		if (infile == NULL) {
@@ -1413,6 +1405,21 @@ int main(int argc, char **argv) {
 			exit_status = 1;
 			goto end_without_device;
 		}
+	}
+
+	/* Nothing is left that can refuse the command, so the output files can
+	 * be created. Both go through a temporary file renamed over the target
+	 * once what belongs in it is all there, so a failure from here on leaves
+	 * an earlier file of the same name untouched and creates none. */
+	if (upfile_name != NULL) {
+		upfile = open_output_temp(upfile_name, &upfile_temp);
+		if (upfile == NULL) {
+			perror(upfile_name);
+			exit_status = 1;
+			goto end_without_device;
+		}
+	}
+	if (sign_name != NULL) {
 		outfile = open_output_temp(outfile_name, &outfile_temp);
 		if (outfile == NULL) {
 			perror(outfile_name);

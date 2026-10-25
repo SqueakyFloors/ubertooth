@@ -364,6 +364,34 @@ with tempfile.TemporaryDirectory() as directory:
     check("unreadable.bin" in output,
           "-s did not name the input it could not read")
 
+    # With -u in the same command, that input is still what is refused, and
+    # the read-back's temporary file is never created: the -s checks come
+    # before either output, not just before its own.
+    readback = os.path.join(sign_dir, "readback.bin")
+    write(readback, EARLIER)
+    before = sorted(os.listdir(sign_dir))
+    code, output = run("-u", readback, "-s", unreadable_bin,
+                       "-U", NO_SUCH_SERIAL, "-r")
+    check(code == 1, f"-u with a refused -s input exited {code}")
+    check("unreadable.bin" in output and "not a regular file" in output,
+          "-u with a refused -s input did not report the input")
+    check(read(readback) == EARLIER,
+          "-u with a refused -s input destroyed the earlier read-back")
+    check(sorted(os.listdir(sign_dir)) == before,
+          f"-u with a refused -s input changed the directory: "
+          f"{sorted(os.listdir(sign_dir))}")
+    check(NOT_FOUND not in output.lower(),
+          "-u with a refused -s input went looking for a board anyway")
+    os.unlink(readback)
+
+    # Which of the two is reported says which came first: a -u output that
+    # cannot be created at all does not get in front of a refused -s input.
+    code, output = run("-u", os.path.join(sign_dir, "no-such-dir", "out.bin"),
+                       "-s", unreadable_bin, "-U", NO_SUCH_SERIAL, "-r")
+    check(code == 1, f"-u with nowhere to write and a refused -s input exited {code}")
+    check("not a regular file" in output,
+          "the -s input was not checked before the -u output was created")
+
     # An output that cannot be replaced: the rename over the target fails, so
     # the temporary file beside it has to go too.
     blocked_bin = os.path.join(sign_dir, "blocked.bin")

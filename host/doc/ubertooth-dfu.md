@@ -257,10 +257,11 @@ alongside it.
 
 A refused command line creates and truncates nothing, and leaves no temporary
 file: `-s`, `-u` and `-d` name their file while the command line is read, and
-the files are opened only once every check has passed. The `-d` image is read
-and checked before either output file is created, since it is the last thing
-that can refuse the command. Whether `-s` was given a `.bin` is a check on the
-name, so it is still reported alongside `-h`.
+the files are opened only once every check has passed. The files that are only
+read, the `-d` image and the `-s` input, are opened and checked first, since
+they are the last things that can refuse the command; neither output file is
+created until they have passed. Whether `-s` was given a `.bin` is a check on
+the name, so it is still reported alongside `-h`.
 
 ## SEE ALSO
 
