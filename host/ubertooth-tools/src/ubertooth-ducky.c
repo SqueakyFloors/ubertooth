@@ -119,9 +119,11 @@ void print_duck(FILE *file, int s) {
 
 /* The library has already said why a request was refused; this names the
  * request, and leaves the board released rather than part-way into a
- * low-energy mode. */
+ * low-energy mode. A refused request is not proof that the board never got
+ * it -- a transfer can time out after it arrived -- so the message says only
+ * what the tool knows. */
 static int request_failed(ubertooth_t *ut, const char *what) {
-	fprintf(stderr, "error: could not %s; nothing was sent\n", what);
+	fprintf(stderr, "error: could not %s\n", what);
 	ubertooth_stop(ut);
 	return 1;
 }

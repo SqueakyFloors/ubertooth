@@ -143,10 +143,9 @@
   (`UBERTOOTH_TX_GENERIC_PACKET`) whose payload does not fit the packet, and no
   longer drops the last byte of one that does. No shipped tool sends it.
   [#384](https://github.com/SqueakyFloors/ubertooth/issues/384)
-- `ubertooth-ducky -q` and `-b` now check every request a quack needs. A board
-  that refuses one is reported as one `error: ` line naming it, with exit
-  status 1; the tool used to wait its two seconds and exit 0, so a script
-  could not tell a quack that went out from one that never did.
+- `ubertooth-ducky -q` and `-b` name a request the board refused and exit 1,
+  instead of waiting their two seconds and exiting 0 on a quack that never
+  went out.
   [#328](https://github.com/SqueakyFloors/ubertooth/issues/328)
 - `ubertooth-afh` gives its piconet back before it exits, so a run no longer
   ends with one unfreed allocation.

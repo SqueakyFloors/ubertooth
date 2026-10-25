@@ -223,11 +223,9 @@ MU_TEST(a_refused_request_is_named_and_exits_1)
 		const char *calls;   /* the requests made before the refusal */
 		const char *message;
 	} cases[] = {
-		{ "c",   "error: could not set the advertising channel;"
-		         " nothing was sent\n" },
-		{ "ca",  "error: could not set the advertising data;"
-		         " nothing was sent\n" },
-		{ "cas", "error: could not start advertising; nothing was sent\n" },
+		{ "c",   "error: could not set the advertising channel\n" },
+		{ "ca",  "error: could not set the advertising data\n" },
+		{ "cas", "error: could not start advertising\n" },
 	};
 	struct run_result r;
 	size_t i;
@@ -251,8 +249,9 @@ MU_TEST(a_refused_request_is_named_and_exits_1)
 		mu_assert_int_eq(0, fake.sleeps);
 		mu_assert_int_eq(1, fake.stops); /* the board is still released */
 		mu_assert(r.out[0] == '\0', r.out);
-		/* The duck and the "Quacking ..." line come first; the error is the
-		 * last line and the only one of its kind. */
+		/* The duck and the "Quacking ..." line come first, and the real
+		 * library would have printed why it refused the request; the tool's
+		 * line is the last one. */
 		tail = r.err + strlen(r.err) - strlen(cases[i].message);
 		mu_assert(strlen(r.err) > strlen(cases[i].message) &&
 		          strcmp(tail, cases[i].message) == 0, r.err);
@@ -272,8 +271,8 @@ MU_TEST(the_bootloader_signal_is_checked_too)
 	mu_assert(strcmp(fake.calls, "cas") == 0, fake.calls);
 	mu_assert_int_eq(0, fake.sleeps);
 	mu_assert(r.out[0] == '\0', r.out);
-	mu_assert(strstr(r.err, "error: could not start advertising;"
-	                 " nothing was sent\n") != NULL, r.err);
+	mu_assert(strstr(r.err, "error: could not start advertising\n") != NULL,
+	          r.err);
 }
 
 /* Without -a the address is read from /dev/urandom, which is the default way

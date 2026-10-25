@@ -30,6 +30,7 @@ static struct {
 	int stops;
 	int no_device;    /* no board matches -U */
 	int check_api_rc; /* returned by ubertooth_check_api() */
+	int no_memory;    /* btbb_piconet_new() cannot allocate */
 	int piconet_news; /* btbb_piconet_new() calls */
 	int piconet_frees;/* btbb_piconet_unref() calls */
 } fake;
@@ -65,15 +66,22 @@ int ubertooth_check_api(ubertooth_t *ut)
  * still reports an unfreed piconet if the tool stops giving it back. */
 btbb_piconet *btbb_piconet_new(void)
 {
+	if (fake.no_memory)
+		return NULL;
 	fake.piconet_news++;
 	return (btbb_piconet *)calloc(1, sizeof(int));
 }
 
 void btbb_piconet_unref(btbb_piconet *pn)
 {
-	if (pn != NULL)
-		fake.piconet_frees++;
-	free(pn);
+	/* The real one dereferences its argument at once, to drop a reference, so
+	 * an unref of NULL must fail here rather than pass and crash in a real
+	 * build. */
+	int *allocation = (int *)pn;
+
+	*allocation = 0;
+	fake.piconet_frees++;
+	free(allocation);
 }
 
 void btbb_init_piconet(btbb_piconet *pn, uint32_t lap)
@@ -318,6 +326,21 @@ MU_TEST(a_run_that_never_reaches_the_receive_phase_frees_the_piconet)
 	mu_assert_int_eq(0, fake.rx_afh_calls);
 }
 
+/* A piconet that cannot be allocated is reported rather than used: the tool
+ * sets its fields straight after, so a NULL would be dereferenced. */
+MU_TEST(a_piconet_that_cannot_be_allocated_is_refused)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.no_memory = 1;
+	r = RUN("-l", "446688", "-u", "22");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strcmp(r.err, "error: out of memory\n") == 0, r.err);
+	mu_assert_int_eq(0, fake.rx_afh_calls);
+}
+
 /* The usage text says that the tool keeps monitoring until it is interrupted
  * and what -t does at the end of its phase. -h is what the user asked for, so
  * it goes to standard output, leaves standard error empty and exits 0. */
@@ -362,6 +385,7 @@ int main(void)
 	MU_RUN(the_r_format_is_unchanged);
 	MU_RUN(a_library_error_is_not_mistaken_for_no_packets);
 	MU_RUN(a_run_that_never_reaches_the_receive_phase_frees_the_piconet);
+	MU_RUN(a_piconet_that_cannot_be_allocated_is_refused);
 	MU_RUN(the_usage_text_documents_the_monitoring_and_the_exit_status);
 	MU_RUN(a_missing_piconet_address_is_refused_on_standard_error);
 	return mu_report();
