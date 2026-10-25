@@ -19,7 +19,8 @@ except ImportError:  # no pty module on this platform
 
 
 BINARY = sys.argv[1]
-ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1")
+# LC_ALL=C so the strerror() text in a file error is the one asserted below.
+ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1", LC_ALL="C")
 # A serial no board has, so a run gets past the -d value and stops at device
 # selection without touching a board.
 NO_SUCH_SERIAL = "ffffffffffffffffffffffffffffffff"
@@ -116,3 +117,16 @@ else:
     print("ubertooth-specan: -d - refuses a tty, -d - -g writes text to one")
 
 print("ubertooth-specan: ranges refused, -d takes '-' as stdout and the rest as files")
+
+# A -d file that cannot be opened is reported like every other error: one
+# line starting "error: ", on standard error, with nothing on standard output
+# and exit 1. It used to be perror's unprefixed "<file>: <reason>".
+result = run(("-d", "/no/such/dir/samples.bin"))
+assert result.returncode == 1, result
+assert result.stdout == "", result
+assert result.stderr == \
+    "error: /no/such/dir/samples.bin: No such file or directory\n", result
+# refused before the device was opened
+assert "could not open ubertooth" not in result.stderr.lower(), result
+
+print("ubertooth-specan: a -d file that cannot be opened says error: on stderr")

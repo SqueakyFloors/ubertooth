@@ -54,6 +54,24 @@ An option value must be a whole value in its range, or it is refused the same wa
 \fB\-d \-\fR is for a pipe or a redirect\. The samples are raw 3\-byte records, which fill a terminal with control characters and can leave it in a strange state, so a terminal is refused before any device is opened: \fBerror: stdout is a tty, refusing to write binary samples to it\fR, with exit status 1\. ubertooth\-btle(1) refuses its binary capture to a terminal the same way\.
 .P
 A refused command line creates and truncates nothing: \fB\-d\fR names its file while the command line is read, and it is opened only once every check has passed\.
+.SH "DIAGNOSTICS"
+Standard output carries only the samples \(em the text lines in the default, \fB\-g\fR and \fB\-G\fR modes, or the raw records with \fB\-d \-\fR \(em and the usage text for \fB\-h\fR\. Errors, warnings and progress, including \fBUbertooth stopped\fR, go to standard error\. The errors this tool prints itself are one line starting \fBerror:\fR, for example \fBerror: /no/such/dir/samples\.bin: No such file or directory\fR for a \fB\-d\fR file that cannot be opened\. The unknown\-option line from the option parser and libubertooth's own messages, such as \fBcould not open Ubertooth device\fR, do not follow that yet\.
+.P
+If the samples cannot be written, \fBubertooth\-specan\fR says so once and exits 1, rather than reporting every failed write and then exiting 0\. A write that fails while the sweep is running ends it there, since a full disk does not come back:
+.IP "" 4
+.nf
+error: writing samples failed: wrote 0 of 3 bytes (<reason>)
+.fi
+.IP "" 0
+.P
+A write accepted into a buffer can still fail when that buffer is flushed, so the output is flushed and checked after the sweep as well, whether it went to a \fB\-d\fR file, to standard output with \fB\-d \-\fR, or to standard output as text:
+.IP "" 4
+.nf
+error: writing samples failed: could not flush the samples (<reason>)
+.fi
+.IP "" 0
+.P
+One case does not reach either line: when \fB\-d \-\fR writes into a pipe whose reader has gone, the process is killed by \fBSIGPIPE\fR before the failed write returns, so the shell reports status 141\.
 .SH "SEE ALSO"
 ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how option values are written
 .SH "AUTHOR"

@@ -603,7 +603,8 @@ int main(int argc, char *argv[])
 		}
 	}
 	if (do_flash == 0)
-		fprintf(stderr, "ubertooth-util -f is no longer required - use ubertooth-dfu instead\n");
+		fprintf(stderr, "warning: ubertooth-util -f is no longer required "
+		        "- use ubertooth-dfu instead\n");
 
 	requested[QUERY_BOARD_ID] = (do_board_id == 0);
 	requested[QUERY_FIRMWARE] = (do_firmware == 0);
@@ -677,7 +678,7 @@ int main(int argc, char *argv[])
 		util_reset_follow_init(&follow, &follow_ops, ut, ubertooth_device,
 		                       wait.count_before);
 		wait.select_needs_count = follow.select_needs_count;
-		fprintf(stdout, "Resetting ubertooth device %s\n", ubertooth_device ? ubertooth_device : "0");
+		fprintf(stderr, "Resetting ubertooth device %s\n", ubertooth_device ? ubertooth_device : "0");
 		status = util_status_after(status, cmd_reset(ut->devh));
 		/* The device re-enumerates after a reset, so this handle is about
 		 * to go dead: release it without sending STOP (if the reset failed
@@ -707,7 +708,7 @@ int main(int argc, char *argv[])
 			libusb_exit(NULL);
 	}
 	if(do_stop == 0) {
-		fprintf(stdout, "Stopping ubertooth device %s\n", ubertooth_device ? ubertooth_device : "0");
+		fprintf(stderr, "Stopping ubertooth device %s\n", ubertooth_device ? ubertooth_device : "0");
 		status = util_status_after(status, cmd_stop(ut->devh));
 	}
 
@@ -801,7 +802,7 @@ int main(int argc, char *argv[])
 
 	/* final actions */
 	if(do_flash == 0) {
-		fprintf(stdout, "Entering flash programming (DFU) mode\n");
+		fprintf(stderr, "Entering flash programming (DFU) mode\n");
 		status = util_status_after(status, cmd_flash(ut->devh));
 		goto out;
 	}
@@ -814,49 +815,55 @@ int main(int argc, char *argv[])
 			status = util_status_after(status, r);
 			goto out;
 		}
-		fprintf(stdout, "Flashing LEDs on ubertooth device %s\n", ubertooth_device ? ubertooth_device : "0");
 		/* Stop any operation already running on the device (e.g. -x xmas or
 		 * -q LED spectrum analyzer) so it does not fight the identify blink. */
 		status = util_status_after(status, cmd_stop(ut->devh));
 		r = cmd_identify(ut->devh);
 		status = util_status_after(status, r);
+		/* One line, not a "flashing the LEDs" line followed by this one
+		 * saying the same thing: the blink is reported once, as the command
+		 * that ends it, repeating the device selector so it can be pasted. */
 		if (r >= 0)
-			fprintf(stdout, "The board is blinking; stop it with "
-			        "ubertooth-util -S or any mode option\n");
+			fprintf(stderr, "note: the board is blinking; stop it with "
+			        "ubertooth-util%s%s -S or any mode option\n",
+			        ubertooth_device ? " -U " : "",
+			        ubertooth_device ? ubertooth_device : "");
 		goto out;
 	}
 	if(do_isp == 0) {
-		fprintf(stdout, "Entering flash programming (ISP) mode\n");
+		fprintf(stderr, "Entering flash programming (ISP) mode\n");
 		status = util_status_after(status, cmd_set_isp(ut->devh));
 		goto out;
 	}
 	if(do_led_specan >= 0) {
 		do_led_specan= do_led_specan ? do_led_specan : UBERTOOTH_LED_SPECAN_N_DEFAULT;
-		fprintf(stdout, "Entering LED specan mode (threshold -%d dBm)\n", do_led_specan);
+		fprintf(stderr, "Entering LED specan mode (threshold -%d dBm)\n", do_led_specan);
 		status = util_status_after(status, cmd_stop(ut->devh)); /* leave any prior mode before starting */
 		status = util_status_after(status, cmd_led_specan(ut->devh, do_led_specan));
 		goto out;
 	}
 	if(do_range_test == 0) {
-		fprintf(stdout, "Starting range test\n");
+		fprintf(stderr, "Starting range test\n");
 		status = util_status_after(status, cmd_stop(ut->devh)); /* leave any prior mode before starting */
 		status = util_status_after(status, cmd_range_test(ut->devh));
 		goto out;
 	}
 	if(do_repeater == 0) {
-		fprintf(stdout, "Starting repeater\n");
+		fprintf(stderr, "Starting repeater\n");
 		status = util_status_after(status, cmd_stop(ut->devh)); /* leave any prior mode before starting */
 		status = util_status_after(status, cmd_repeater(ut->devh));
 		goto out;
 	}
 	if(do_tx == 0) {
-		fprintf(stdout, "Starting TX test\n");
+		fprintf(stderr, "Starting TX test\n");
 		status = util_status_after(status, cmd_stop(ut->devh)); /* leave any prior mode before starting */
 		status = util_status_after(status, cmd_tx_test(ut->devh));
 		goto out;
 	}
 	if(do_set_squelch > 0) {
-		fprintf(stdout, "Setting squelch to %d\n", squelch_level);
+		/* Silent, like every other setter here (-a, -c, -C, -d, -l): a
+		 * "setting squelch" line only repeats what the -z read-back prints
+		 * as the result, and a failed set reports itself. */
 		status = util_status_after(status, cmd_set_squelch(ut->devh, squelch_level));
 	}
 	if(do_get_squelch > 0) {

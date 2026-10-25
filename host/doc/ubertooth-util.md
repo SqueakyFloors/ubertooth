@@ -404,6 +404,35 @@ libubertooth. When the board returns fewer bytes than the read needs, that is
 the only line, with the counts added, for example
 `error: channel read failed: board returned 0 of 2 bytes`.
 
+## DIAGNOSTICS
+
+Standard output carries only what was asked for: the values the queries read,
+the device listing, and the usage text for `-h`. Everything else goes to
+standard error, so a script reading a value is not fed anything else.
+
+That includes the progress lines for the operations that do something rather
+than report something: `Resetting ubertooth device <selector>`,
+`Stopping ubertooth device <selector>`,
+`Entering flash programming (DFU) mode`,
+`Entering flash programming (ISP) mode`,
+`Entering LED specan mode (threshold -<n> dBm)`, `Starting range test`,
+`Starting repeater` and `Starting TX test`. They were written to standard
+output before.
+
+Each operation says what it did once. `-I` reports the blink only through
+`note: the board is blinking; stop it with ubertooth-util [-U <selector>] -S
+or any mode option`, naming the selector so the command can be pasted; there
+is no separate line announcing the LEDs. Setting the squelch with `-z <n>`
+prints nothing, as `-a`, `-c`, `-C`, `-d` and `-l` do not: the value `-z`
+reads back afterwards (`Squelch set to <n>`) is the result and goes to
+standard output. A set that fails is still reported, on standard error, and
+the command exits 1. `-x` has never had a line of its own.
+
+The errors this tool prints itself are one line starting `error: `; its
+warnings and notes start `warning: ` and `note: `. Two kinds of line do not
+follow that yet: the unknown-option line from the option parser, and
+libubertooth's own messages, such as `could not open Ubertooth device`.
+
 ## SEE ALSO
 
 ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how

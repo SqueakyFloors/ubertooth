@@ -19,6 +19,7 @@
  * Boston, MA 02110-1301, USA.
  */
 
+#include <errno.h>
 #include <getopt.h>
 #include <stdlib.h>
 #include <string.h>
@@ -31,7 +32,43 @@ _Static_assert(SPECAN_FREQ_MIN == BT_FREQ_MIN && SPECAN_FREQ_MAX == BT_FREQ_MAX,
 
 uint8_t debug;
 
-void cb_specan(ubertooth_t* ut __attribute__((unused)), void* args)
+/* Set when the run cannot write a sample. The callback has no way to return a
+ * status, so it records the failure here and stops the receive loop; main()
+ * then exits 1 rather than the status of the command that started the sweep. */
+static int output_failed;
+
+static int write_failure_said;
+
+/* Said once per run: a sweep that already reported a failed write does not
+ * report it again for every later block, nor again at the closing flush. */
+static void report_write_failed(const char *detail)
+{
+	if (write_failure_said)
+		return;
+	write_failure_said = 1;
+	fprintf(stderr, "error: writing samples failed: %s\n", detail);
+}
+
+/* Whether everything written to this stream reached it. A stream can accept a
+ * write into its buffer and only fail later, so the error flag and the flush
+ * are both checked; -1 means some samples were lost, and it is reported here
+ * so every write failure reads the same. */
+static int specan_output_flushed(FILE *stream)
+{
+	char detail[128];
+
+	if (stream == NULL)
+		return 0;
+	errno = 0;
+	if (fflush(stream) == 0 && !ferror(stream))
+		return 0;
+	snprintf(detail, sizeof(detail), "could not flush the samples (%s)",
+	         errno != 0 ? strerror(errno) : "write error");
+	report_write_failed(detail);
+	return -1;
+}
+
+void cb_specan(ubertooth_t* ut, void* args)
 {
 	uint16_t high_freq = (((uint8_t*)args)[0]) |
 	                     (((uint8_t*)args)[1] << 8);
@@ -43,6 +80,7 @@ void cb_specan(ubertooth_t* ut __attribute__((unused)), void* args)
 	int r, j;
 	uint16_t frequency;
 	int8_t rssi;
+	char detail[128];
 
 	/* process each received block */
 	for (j = 0; j < DMA_SIZE-2; j += 3) {
@@ -54,9 +92,21 @@ void cb_specan(ubertooth_t* ut __attribute__((unused)), void* args)
 			continue;
 		switch(output_mode) {
 			case SPECAN_FILE:
+				/* fwrite() is not required to set errno, so a stale one
+				 * from an unrelated call cannot be mistaken for this. */
+				errno = 0;
 				r = fwrite(&rx.data[j], 1, 3, dumpfile);
 				if(r != 3) {
-					fprintf(stderr, "Error writing to file (%d)\n", r);
+					/* Said once, then the run ends: a full disk or a
+					 * stream that has gone away does not come back, so
+					 * carrying on would repeat this for every block of a
+					 * live sweep and still exit 0. */
+					snprintf(detail, sizeof(detail),
+					         "wrote %d of 3 bytes (%s)", r,
+					         errno != 0 ? strerror(errno) : "write error");
+					report_write_failed(detail);
+					output_failed = 1;
+					ut->stop_ubertooth = 1;
 					return;
 				}
 				break;
@@ -76,10 +126,11 @@ void cb_specan(ubertooth_t* ut __attribute__((unused)), void* args)
 					printf("\n");
 				break;
 			default:
-				fprintf(stderr, "Unrecognised output mode (%d)\n",
+				fprintf(stderr, "error: unrecognized output mode (%d)\n",
 				        output_mode);
+				output_failed = 1;
+				ut->stop_ubertooth = 1;
 				return;
-				break;
 		}
 	}
 	fflush(stderr);
@@ -197,7 +248,8 @@ int main(int argc, char *argv[])
 		} else {
 			dumpfile = fopen(dump_name, "w");
 			if (dumpfile == NULL) {
-				perror(dump_name);
+				fprintf(stderr, "error: %s: %s\n", dump_name,
+				        strerror(errno));
 				return 1;
 			}
 		}
@@ -265,5 +317,17 @@ int main(int argc, char *argv[])
 
 	ubertooth_stop(ut);
 	fprintf(stderr, "Ubertooth stopped\n");
+	/* The samples a write accepted may still be sitting in a stdio buffer, so
+	 * the last of them can fail after the sweep has ended: the run is not
+	 * done until the output is flushed. The text modes write with printf()
+	 * and are only checked here. */
+	if (specan_output_flushed(dumpfile) < 0)
+		output_failed = 1;
+	if (output_mode != SPECAN_FILE && specan_output_flushed(stdout) < 0)
+		output_failed = 1;
+	/* A sweep that could not be written out did not do what was asked, even
+	 * though the command that started it succeeded. */
+	if (output_failed)
+		return 1;
 	return r;
 }

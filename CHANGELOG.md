@@ -4,12 +4,14 @@
 
 ### New features
 
-- **Script-visible change:** `ubertooth-specan-ui` and `install.sh` print
-  errors and progress on standard error, not standard output.
-  [#323](https://github.com/SqueakyFloors/ubertooth/issues/323)
-- **Script-visible change:** `ubertooth-afh`, `-ducky`, `-dump`, `-ego` and
-  `-tx` keep only what was asked for on stdout, exit 0 for `-h`, and refuse a
-  command line with nothing to do instead of opening a board and exiting 0.
+- **Script-visible change:** `ubertooth-afh`, `-ducky`, `-dump`, `-ego`, `-tx`,
+  `-util`, `-specan`, `-specan-ui` and `install.sh` keep only what was asked
+  for on stdout; errors (one line, starting `error: `), warnings, notes and
+  progress go to stderr. `-h` exits 0, and `-afh`, `-ducky`, `-ego` and `-tx`
+  refuse a command line with nothing to do instead of opening a board.
+  `ubertooth-util` also says each thing once: `-z <n>` sets the squelch
+  silently, and `-I` reports the blink in the one line naming what stops it.
+  `ubertooth-specan` exits 1, instead of 0, when it cannot write its samples.
   [#323](https://github.com/SqueakyFloors/ubertooth/issues/323)
 - **Script-visible change:** libubertooth no longer prints to standard output;
   its notes and errors go to standard error with `note: `/`error: ` prefixes.
