@@ -1,0 +1,71 @@
+.\" generated with Ronn-NG/v0.10.1
+.\" http://github.com/apjanke/ronn-ng/tree/0.10.1
+.TH "UBERTOOTH\-FOLLOW" "1" "October 2026" "Project Ubertooth" "User Commands"
+.SH "NAME"
+\fBubertooth\-follow\fR \- active (BlueZ) CLK discovery and follow for a particular UAP/LAP
+.SH "SYNOPSIS"
+.nf
+ubertooth\-follow [\-l LAP] [\-u UAP] [\-U <index|serial>] [\-r file]
+[\-q file] [\-d file] [\-e errors] [\-a] [\-b hciN] [\-w delay]
+.fi
+.SH "DESCRIPTION"
+Follows a classic Bluetooth (BR/EDR) piconet for a given target address\. It uses a local BlueZ Bluetooth device to assist with clock discovery and an Ubertooth to follow the piconet's frequency hopping\.
+.P
+Both LAP and UAP identify the target\. If they are not supplied, they are read from the local Bluetooth device \(em note this may yield the wrong address in some cases, so supplying the target LAP/UAP explicitly is recommended\.
+.P
+Requires BlueZ (Linux only)\.
+.SH "OPTIONS"
+.TP
+\fB\-l <LAP>\fR
+target LAP (3 bytes / 6 hex digits)\.
+.TP
+\fB\-u <UAP>\fR
+target UAP (1 byte / 2 hex digits)\.
+.TP
+\fB\-U <index|serial>\fR
+select an Ubertooth by enumeration index or serial number; see ubertooth(7), SELECTING A DEVICE
+.TP
+\fB\-r <filename>\fR
+capture packets to a PCAPNG file\.
+.TP
+\fB\-q <filename>\fR
+capture packets to a PCAP file\.
+.TP
+\fB\-d <filename>\fR
+dump received symbols to the named file\.
+.TP
+\fB\-e <0\-5>\fR
+maximum access\-code errors to tolerate (default: 2)\.
+.TP
+\fB\-a\fR
+enable AFH (adaptive frequency hopping)\.
+.TP
+\fB\-b <hciN>\fR
+local Bluetooth device to use (default: hci0)\.
+.TP
+\fB\-w <timeslots>\fR
+USB delay in 625us timeslots (default: 5)\.
+.TP
+\fB\-h\fR
+show help\.
+.SH "EXAMPLES"
+Follow a target with a known LAP/UAP, writing a PCAP:
+.IP "" 4
+.nf
+ubertooth\-follow \-l 123456 \-u 78 \-q capture\.pcap
+.fi
+.IP "" 0
+.SH "ARGUMENTS"
+\fBubertooth\-follow\fR takes options only\. A word that is not an option, including a bare \fB\-\fR, is refused before any device is opened and named: \fBerror: unexpected argument '<word>'\fR, with exit status 1\.
+.P
+\fB\-h\fR ends the command only once the whole command line has parsed, so a stray word or a bad option value is reported even alongside it\.
+.P
+An option value must be a whole value in its range, or it is refused the same way instead of being read as 0, for example \fBerror: LAP must be 6 hex digits (got 4466)\fR\.
+.P
+A refused command line creates and truncates nothing: \fB\-r\fR, \fB\-q\fR and \fB\-d\fR name their file while the command line is read, and it is opened only once every check has passed\.
+.SH "SEE ALSO"
+ubertooth\-rx(1), ubertooth\-afh(1)
+.P
+ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how option values are written
+.SH "COPYRIGHT"
+Released under the GPLv2\. Refer to COPYING \fIhttps://github\.com/SqueakyFloors/ubertooth/blob/main/COPYING\fR for further details\.

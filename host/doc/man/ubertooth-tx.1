@@ -1,0 +1,53 @@
+.\" generated with Ronn-NG/v0.10.1
+.\" http://github.com/apjanke/ronn-ng/tree/0.10.1
+.TH "UBERTOOTH\-TX" "1" "October 2026" "Project Ubertooth" "User Commands"
+.SH "NAME"
+\fBubertooth\-tx\fR \- retransmit symbols dumped with ubertooth\-dump
+.SH "SYNOPSIS"
+.nf
+ubertooth\-tx \-l LAP \-u UAP [\-t SECONDS] [\-U <index|serial>] [\-V]
+.fi
+.SH "DESCRIPTION"
+Intended to retransmit symbols captured with ubertooth\-dump toward a target piconet identified by LAP/UAP\.
+.P
+\fBStatus: non\-functional\.\fR The tool currently performs no useful transmission (its own usage output warns "This tool currently does nothing")\. It is retained as a placeholder/experimental entry point\. Do not rely on it\.
+.SH "OPTIONS"
+.TP
+\fB\-l <LAP>\fR
+target LAP (3 bytes / 6 hex digits); required\.
+.TP
+\fB\-u <UAP>\fR
+target UAP (1 byte / 2 hex digits); required\.
+.TP
+\fB\-t <seconds>\fR
+timeout; 0 means no timeout (default: 0)\.
+.TP
+\fB\-U <index|serial>\fR
+select an Ubertooth by enumeration index or serial number; see ubertooth(7), SELECTING A DEVICE
+.TP
+\fB\-V\fR
+print version information\.
+.SH "TRANSMIT POWER"
+Transmitting uses the CC2400 power level set with \fBubertooth\-util \-a\fR and leaves it unchanged\. A board that has not been given a level transmits at 7 (0 dBm), the CC2400's reset value\. These levels are at the CC2400 radio; the Ubertooth One's RF amplifier changes the actual output after that\.
+.SH "ARGUMENTS"
+\fBubertooth\-tx\fR takes options only\. A word that is not an option, including a bare \fB\-\fR, is refused before any device is opened and named: \fBerror: unexpected argument '<word>'\fR, with exit status 1\.
+.P
+\fB\-h\fR and \fB\-V\fR end the command only once the whole command line has parsed, so a stray word or a bad option value is reported even alongside them\.
+.P
+An option value must be a whole value in its range, or it is refused the same way instead of being read as 0, for example \fBerror: LAP must be 6 hex digits (got 4466)\fR\.
+.P
+Both halves of the target address are required, and a command line missing either is refused there too, before any device is opened, so the message never depends on which boards are attached: \fBerror: \-l <LAP> and \-u <UAP> are both required\fR\.
+.SH "DIAGNOSTICS"
+What \fBubertooth\-tx\fR does happens over the air, so it writes no result: everything it prints, including the \fBSyncword: 0x\|\.\|\.\|\.\fR line, goes to standard error, and standard output stays empty\. Each error is one line starting \fBerror:\fR\.
+.P
+A command line the tool will not take is reported as that one \fBerror:\fR line followed by the usage text, both on standard error\. An option the tool does not know reads \fBerror: unrecognized option '\-Z'\fR; one whose value is missing reads \fBerror: option '\-l' requires a value\fR\.
+.P
+\fB\-h\fR is what the user asked for, so the usage text goes to standard output and nothing goes to standard error\.
+.SH "EXIT STATUS"
+0 when the command did what was asked, including \fB\-h\fR, and after the run is interrupted (Ctrl\-C) or its \fB\-t\fR timeout passes\. 1 for a command line the tool will not take and when the selected Ubertooth is not found or cannot be opened\.
+.SH "SEE ALSO"
+ubertooth\-dump(1)
+.P
+ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how option values are written
+.SH "COPYRIGHT"
+Released under the GPLv2\. Refer to COPYING \fIhttps://github\.com/SqueakyFloors/ubertooth/blob/main/COPYING\fR for further details\.

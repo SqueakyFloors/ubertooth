@@ -462,7 +462,7 @@ add_test(
 		${CMAKE_CURRENT_SOURCE_DIR}/test_manpages.py
 		${CMAKE_COMMAND}
 		${CMAKE_CURRENT_SOURCE_DIR}/../..)
-# One ronn pass over eleven pages: about 5 s warm and 17 s cold here. Without
+# One ronn pass over fourteen pages: about 5 s warm and 17 s cold here. Without
 # ronn the test skips in well under a second, and reports as skipped rather
 # than passed, so a green run cannot hide an absent check.
 set_tests_properties(manpages PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 77)

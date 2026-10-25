@@ -78,6 +78,11 @@
   [#311](https://github.com/SqueakyFloors/ubertooth/issues/311)
 - `man ubertooth-debug` is installed; its page was built but never installed.
   [#235](https://github.com/SqueakyFloors/ubertooth/issues/235)
+- `man ubertooth-ducky`, `man ubertooth-follow` and `man ubertooth-tx` now
+  work: those three pages are generated from their `host/doc/*.md` and
+  installed with the rest, instead of shipping only as Markdown.
+  [#313](https://github.com/SqueakyFloors/ubertooth/issues/313)
+  [#327](https://github.com/SqueakyFloors/ubertooth/issues/327)
 - Python tools are installed natively under the chosen CMake prefix, so
   custom prefixes and staged installs work without modifying the source tree
   or requiring `PYTHONPATH`.
