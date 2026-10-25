@@ -232,7 +232,7 @@ static struct run_result run_ego(const char *const *args)
 	 * exit path: a run must give back whatever it was handed, and nothing
 	 * else. The tool used to keep it on every path. */
 	mu_assert(fake.frees == fake.inits, "the run did not free its device");
-	mu_assert(fake.inits == 0 || fake.last_freed == &fake_ut,
+	mu_assert(fake.frees == 0 || fake.last_freed == &fake_ut,
 	          "the run freed something other than its device");
 	return result;
 }
