@@ -32,7 +32,12 @@ _Static_assert(SPECAN_FREQ_MIN == BT_FREQ_MIN && SPECAN_FREQ_MAX == BT_FREQ_MAX,
 
 uint8_t debug;
 
-void cb_specan(ubertooth_t* ut __attribute__((unused)), void* args)
+/* Set when the run cannot write a sample. The callback has no way to return a
+ * status, so it records the failure here and stops the receive loop; main()
+ * then exits 1 rather than the status of the command that started the sweep. */
+static int output_failed;
+
+void cb_specan(ubertooth_t* ut, void* args)
 {
 	uint16_t high_freq = (((uint8_t*)args)[0]) |
 	                     (((uint8_t*)args)[1] << 8);
@@ -57,8 +62,14 @@ void cb_specan(ubertooth_t* ut __attribute__((unused)), void* args)
 			case SPECAN_FILE:
 				r = fwrite(&rx.data[j], 1, 3, dumpfile);
 				if(r != 3) {
+					/* Said once, then the run ends: a closed pipe or a
+					 * full disk does not come back, so carrying on would
+					 * repeat this for every block of a live sweep and
+					 * still exit 0. */
 					fprintf(stderr, "error: writing samples failed: wrote %d "
-					        "of 3 bytes\n", r);
+					        "of 3 bytes (%s)\n", r, strerror(errno));
+					output_failed = 1;
+					ut->stop_ubertooth = 1;
 					return;
 				}
 				break;
@@ -78,10 +89,11 @@ void cb_specan(ubertooth_t* ut __attribute__((unused)), void* args)
 					printf("\n");
 				break;
 			default:
-				fprintf(stderr, "error: unrecognised output mode (%d)\n",
+				fprintf(stderr, "error: unrecognized output mode (%d)\n",
 				        output_mode);
+				output_failed = 1;
+				ut->stop_ubertooth = 1;
 				return;
-				break;
 		}
 	}
 	fflush(stderr);
@@ -268,5 +280,9 @@ int main(int argc, char *argv[])
 
 	ubertooth_stop(ut);
 	fprintf(stderr, "Ubertooth stopped\n");
+	/* A sweep that could not be written out did not do what was asked, even
+	 * though the command that started it succeeded. */
+	if (output_failed)
+		return 1;
 	return r;
 }

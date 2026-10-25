@@ -55,7 +55,9 @@ An option value must be a whole value in its range, or it is refused the same wa
 .P
 A refused command line creates and truncates nothing: \fB\-d\fR names its file while the command line is read, and it is opened only once every check has passed\.
 .SH "DIAGNOSTICS"
-Standard output carries only the samples \(em the text lines in the default, \fB\-g\fR and \fB\-G\fR modes, or the raw records with \fB\-d \-\fR \(em and the usage text for \fB\-h\fR\. Errors, warnings and progress, including \fBUbertooth stopped\fR, go to standard error, each error as one line starting \fBerror:\fR, for example \fBerror: /no/such/dir/samples\.bin: No such file or directory\fR for a \fB\-d\fR file that cannot be opened, or \fBerror: writing samples failed: wrote 0 of 3 bytes\fR once the capture is running\.
+Standard output carries only the samples \(em the text lines in the default, \fB\-g\fR and \fB\-G\fR modes, or the raw records with \fB\-d \-\fR \(em and the usage text for \fB\-h\fR\. Errors, warnings and progress, including \fBUbertooth stopped\fR, go to standard error\. The errors this tool prints itself are one line starting \fBerror:\fR, for example \fBerror: /no/such/dir/samples\.bin: No such file or directory\fR for a \fB\-d\fR file that cannot be opened, or \fBerror: writing samples failed: wrote 0 of 3 bytes (<reason>)\fR once the capture is running\. The unknown\-option line from the option parser and libubertooth's own messages, such as \fBcould not open Ubertooth device\fR, do not follow that yet\.
+.P
+A run that cannot write a sample stops there and exits 1, rather than repeating the error for every block of the sweep: a closed pipe or a full disk does not come back\.
 .SH "SEE ALSO"
 ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how option values are written
 .SH "AUTHOR"

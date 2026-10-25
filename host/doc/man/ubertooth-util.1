@@ -309,9 +309,9 @@ Standard output carries only what was asked for: the values the queries read, th
 .P
 That includes the progress lines for the operations that do something rather than report something: \fBResetting ubertooth device <selector>\fR, \fBStopping ubertooth device <selector>\fR, \fBEntering flash programming (DFU) mode\fR, \fBEntering flash programming (ISP) mode\fR, \fBEntering LED specan mode (threshold \-<n> dBm)\fR, \fBStarting range test\fR, \fBStarting repeater\fR and \fBStarting TX test\fR\. They were written to standard output before\.
 .P
-Each operation says what it did once\. \fB\-I\fR reports the blink only through \fBnote: the board is blinking; stop it with ubertooth\-util [\-U <selector>] \-S or any mode option\fR, naming the selector so the command can be pasted; there is no separate line announcing the LEDs\. Setting the squelch with \fB\-z <n>\fR prints nothing, as \fB\-a\fR, \fB\-c\fR, \fB\-C\fR, \fB\-d\fR and \fB\-l\fR do not: the value \fB\-z\fR reads back afterwards (\fBSquelch set to <n>\fR) is the result and goes to standard output\. \fB\-x\fR announces nothing either, because the lights it starts are the announcement\.
+Each operation says what it did once\. \fB\-I\fR reports the blink only through \fBnote: the board is blinking; stop it with ubertooth\-util [\-U <selector>] \-S or any mode option\fR, naming the selector so the command can be pasted; there is no separate line announcing the LEDs\. Setting the squelch with \fB\-z <n>\fR prints nothing, as \fB\-a\fR, \fB\-c\fR, \fB\-C\fR, \fB\-d\fR and \fB\-l\fR do not: the value \fB\-z\fR reads back afterwards (\fBSquelch set to <n>\fR) is the result and goes to standard output\. \fB\-x\fR has never had a line of its own\.
 .P
-Errors are one line starting \fBerror:\fR; warnings and notes start \fBwarning:\fR and \fBnote:\fR\.
+The errors this tool prints itself are one line starting \fBerror:\fR; its warnings and notes start \fBwarning:\fR and \fBnote:\fR\. Two kinds of line do not follow that yet: the unknown\-option line from the option parser, and libubertooth's own messages, such as \fBcould not open Ubertooth device\fR\.
 .SH "SEE ALSO"
 ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how option values are written
 .SH "AUTHOR"

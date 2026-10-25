@@ -80,11 +80,17 @@ the command line is read, and it is opened only once every check has passed.
 Standard output carries only the samples — the text lines in the default, `-g`
 and `-G` modes, or the raw records with `-d -` — and the usage text for `-h`.
 Errors, warnings and progress, including `Ubertooth stopped`, go to standard
-error, each error as one line starting `error: `, for example
-`error: /no/such/dir/samples.bin: No such file or directory` for a `-d` file
-that cannot be opened, or
-`error: writing samples failed: wrote 0 of 3 bytes` once the capture is
-running.
+error. The errors this tool prints itself are one line starting `error: `, for
+example `error: /no/such/dir/samples.bin: No such file or directory` for a
+`-d` file that cannot be opened, or
+`error: writing samples failed: wrote 0 of 3 bytes (<reason>)` once the
+capture is running. The unknown-option line from the option parser and
+libubertooth's own messages, such as `could not open Ubertooth device`, do not
+follow that yet.
+
+A run that cannot write a sample stops there and exits 1, rather than
+repeating the error for every block of the sweep: a closed pipe or a full disk
+does not come back.
 
 ## SEE ALSO
 

@@ -995,6 +995,29 @@ MU_TEST(stop_and_reset_report_failures)
 static const char *const mode_options[] = { "-f", "-i", "-q", "-n", "-e", "-t", "-x", "-I" };
 #define MODE_COUNT (sizeof(mode_options) / sizeof(mode_options[0]))
 
+/* The LED specan default is a number in a header, so it is spelled into the
+ * expected line rather than repeated here. */
+#define MODE_STR_(x) #x
+#define MODE_STR(x) MODE_STR_(x)
+
+/* Everything each mode writes to standard error, in order, for a run with no
+ * -U that succeeds. Pinned by text, not just by "stdout is empty", so a line
+ * cannot be dropped or reworded without a test saying so. */
+static const char *const mode_progress[MODE_COUNT] = {
+	/* -f */ "warning: ubertooth-util -f is no longer required "
+	         "- use ubertooth-dfu instead\n"
+	         "Entering flash programming (DFU) mode\n",
+	/* -i */ "Entering flash programming (ISP) mode\n",
+	/* -q */ "Entering LED specan mode (threshold -"
+	         MODE_STR(UBERTOOTH_LED_SPECAN_N_DEFAULT) " dBm)\n",
+	/* -n */ "Starting range test\n",
+	/* -e */ "Starting repeater\n",
+	/* -t */ "Starting TX test\n",
+	/* -x */ "",
+	/* -I */ "note: the board is blinking; stop it with ubertooth-util -S "
+	         "or any mode option\n",
+};
+
 /* The scripted result and call counter for the i-th mode command. */
 static int *mode_result(size_t i)
 {
@@ -1031,6 +1054,10 @@ MU_TEST(mode_commands_exit_zero_on_success_and_one_on_failure)
 		mu_assert_int_eq(stops_first, fake.stop_calls);
 		/* starting a mode reports nothing: its progress line is on stderr */
 		mu_assert(strcmp(r.out, "") == 0, r.out);
+		/* and that line is pinned, so dropping one would be noticed. -f
+		 * prints its deprecation warning before the progress line; -x has
+		 * never had one. */
+		mu_assert(strcmp(r.err, mode_progress[i]) == 0, r.err);
 
 		reset_fake();
 		*mode_result(i) = -1;

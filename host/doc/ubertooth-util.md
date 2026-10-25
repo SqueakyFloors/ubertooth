@@ -425,11 +425,12 @@ or any mode option`, naming the selector so the command can be pasted; there
 is no separate line announcing the LEDs. Setting the squelch with `-z <n>`
 prints nothing, as `-a`, `-c`, `-C`, `-d` and `-l` do not: the value `-z`
 reads back afterwards (`Squelch set to <n>`) is the result and goes to
-standard output. `-x` announces nothing either, because the lights it starts
-are the announcement.
+standard output. `-x` has never had a line of its own.
 
-Errors are one line starting `error: `; warnings and notes start `warning: `
-and `note: `.
+The errors this tool prints itself are one line starting `error: `; its
+warnings and notes start `warning: ` and `note: `. Two kinds of line do not
+follow that yet: the unknown-option line from the option parser, and
+libubertooth's own messages, such as `could not open Ubertooth device`.
 
 ## SEE ALSO
 
