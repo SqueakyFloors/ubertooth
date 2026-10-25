@@ -7,8 +7,9 @@
 - **Script-visible change:** `ubertooth-afh -a` is gone. It never sent
   anything, and it silently swallowed the word after it.
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
-- **Script-visible change:** `ubertooth-rx -s` is gone. Sweep is the default,
-  so the flag had no effect; the `-z` line no longer claims to imply it.
+- `ubertooth-rx -s` asks for the channel sweep that is already the default,
+  listed in `-h` and no longer warned about; the `-z` line no longer claims to
+  imply it.
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
 - **Script-visible change:** `ubertooth-util -9` is gone, with the two
   developer scratch requests it sent. Firmware answers requests 45 and 46 no

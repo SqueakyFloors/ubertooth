@@ -106,7 +106,6 @@ def usage_text(text):
 # something else.
 REMOVED_OPTIONS = {
     "ubertooth-afh": ["-a"],
-    "ubertooth-rx": ["-s"],
     "ubertooth-util": ["-9"],
 }
 

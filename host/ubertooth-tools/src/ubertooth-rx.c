@@ -49,6 +49,7 @@ static void usage(FILE *file)
 	fprintf(file, "Configuration:\n");
 	fprintf(file, "\t-c <0-%d> set a fixed bluetooth channel [Default: sweep]\n",
 	        NUM_BREDR_CHANNELS - 1);
+	fprintf(file, "\t-s sweep all channels - the default; a -c channel wins over it\n");
 	fprintf(file, "\t-e max_ac_errors (default: %d, range: 0-%d)\n",
 	        max_ac_errors, MAX_AC_ERRORS);
 	fprintf(file, "\t-t <SECONDS> sniff timeout - 0 means no timeout [Default: 0]\n");
@@ -91,7 +92,7 @@ int main(int argc, char* argv[])
 	 * see opt_report_bad_option(). The leading ':' makes a missing option
 	 * value distinguishable from an option getopt does not know. */
 	opterr = 0;
-	while ((opt=getopt(argc,argv,":hVi:l:u:U:d:e:r:q:t:zc:")) != EOF) {
+	while ((opt=getopt(argc,argv,":hVi:l:u:U:d:e:r:sq:t:zc:")) != EOF) {
 		switch(opt) {
 		case 'i':
 			infile_name = optarg;
@@ -132,6 +133,12 @@ int main(int argc, char* argv[])
 			                    "maximum access code errors", "",
 			                    &max_ac_errors) < 0)
 				return 1;
+			break;
+		case 's':
+			/* The channel sweep is what the tool does when no -c
+			 * names a fixed channel, so there is nothing for -s to
+			 * select. It is accepted, without a warning, so that a
+			 * command line can state the default explicitly. */
 			break;
 		case 't':
 			if (opt_require_count(optarg, 0, "timeout", "seconds",
