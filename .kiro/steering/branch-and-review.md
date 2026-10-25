@@ -165,6 +165,10 @@ once per change**.
   there, use full URLs (`https://github.com/SqueakyFloors/ubertooth/issues/N`)
   or `owner/repo#N`.
 - Leave vendored upstream files as they are.
+- The `issue-references` CI job runs `tools/check-issue-references.sh`, which
+  scans the files this rule covers. Run it before pushing; a match that is not
+  an issue reference (an assembly immediate, a message a test asserts on) goes
+  in the allowlist in that script, with the reason.
 
 ## Documentation clarity
 
