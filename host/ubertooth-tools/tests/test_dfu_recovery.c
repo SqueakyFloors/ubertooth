@@ -829,7 +829,7 @@ MU_TEST(test_image_accepts_a_doubly_suffixed_file)
 
 /*
  * The size cap: every whole-file read is sized from the file, so the file is
- * measured before anything is allocated (#246).
+ * measured before anything is allocated.
  */
 
 /* A sparse file of exactly length bytes: one byte written past the end, so a
