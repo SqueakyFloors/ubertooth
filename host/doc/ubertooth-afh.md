@@ -72,9 +72,9 @@ is not transmitting, or the UAP/LAP is not the one in use. A longer `-t`, or no
 
 To wait for a piconet that is not in range yet (start the tool, then bring the
 devices close or start the connection), run without `-t`: monitoring starts at
-once, waits as long as it takes, and prints `+ channel N is used now` as the
-piconet's packets arrive. `-t` is for a bounded check that gives up when
-nothing is heard in time.
+once, waits as long as it takes, and notes `+ channel N is used now` on
+standard error as the piconet's packets arrive. `-t` is for a bounded check
+that gives up when nothing is heard in time.
 
 `-r` has its own loop, which prints the map once a second from the start and
 ignores `-t`.
@@ -102,8 +102,8 @@ piconet`.
 
 Standard output carries the detected channel maps. Errors, warnings and the
 tool's own progress go to standard error, each error as one line starting
-`error: `. The channel-change lines that libubertooth prints alongside each map
-are still on standard output; see ubertooth(7), OUTPUT AND DIAGNOSTICS.
+`error: `. The channel-change lines that libubertooth raises alongside each map
+are `note: ` lines on standard error; see ubertooth(7), OUTPUT AND DIAGNOSTICS.
 
 A command line the tool will not take is reported as that one `error: ` line
 followed by the usage text, both on standard error. An option the tool does

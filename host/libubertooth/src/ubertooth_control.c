@@ -365,7 +365,7 @@ int cmd_get_channel(struct libusb_device_handle* devh)
 	r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_GET_CHANNEL, 0, 0,
 			result, 2, 1000);
 	if (r == LIBUSB_ERROR_PIPE) {
-		fprintf(stderr, "control message unsupported\n");
+		fprintf(stderr, "error: control message unsupported\n");
 		return r;
 	} else if (r < 0) {
 		show_libusb_error(r);
@@ -386,7 +386,7 @@ int cmd_set_channel(struct libusb_device_handle* devh, u16 channel)
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_SET_CHANNEL, channel, 0,
 			NULL, 0, 1000);
 	if (r == LIBUSB_ERROR_PIPE) {
-		fprintf(stderr, "control message unsupported\n");
+		fprintf(stderr, "error: control message unsupported\n");
 		return r;
 	} else if (r < 0) {
 		show_libusb_error(r);
@@ -476,7 +476,7 @@ int cmd_set_modulation(struct libusb_device_handle* devh, u16 mod)
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_SET_MOD, mod, 0,
 			NULL, 0, 1000);
 	if (r == LIBUSB_ERROR_PIPE) {
-		fprintf(stderr, "control message unsupported\n");
+		fprintf(stderr, "error: control message unsupported\n");
 		return r;
 	} else if (r < 0) {
 		show_libusb_error(r);
@@ -522,7 +522,7 @@ int cmd_stop(struct libusb_device_handle* devh)
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_STOP, 0, 0,
 			NULL, 0, 1000);
 	if (r == LIBUSB_ERROR_PIPE) {
-		fprintf(stderr, "control message unsupported\n");
+		fprintf(stderr, "error: control message unsupported\n");
 		return r;
 	} else if (r < 0) {
 		show_libusb_error(r);
@@ -538,7 +538,7 @@ int cmd_set_paen(struct libusb_device_handle* devh, u16 state)
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_SET_PAEN, state, 0,
 			NULL, 0, 1000);
 	if (r == LIBUSB_ERROR_PIPE) {
-		fprintf(stderr, "control message unsupported\n");
+		fprintf(stderr, "error: control message unsupported\n");
 		return r;
 	} else if (r < 0) {
 		show_libusb_error(r);
@@ -554,7 +554,7 @@ int cmd_set_hgm(struct libusb_device_handle* devh, u16 state)
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_SET_HGM, state, 0,
 			NULL, 0, 1000);
 	if (r == LIBUSB_ERROR_PIPE) {
-		fprintf(stderr, "control message unsupported\n");
+		fprintf(stderr, "error: control message unsupported\n");
 		return r;
 	} else if (r < 0) {
 		show_libusb_error(r);
@@ -570,7 +570,7 @@ int cmd_tx_test(struct libusb_device_handle* devh)
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_TX_TEST, 0, 0,
 			NULL, 0, 1000);
 	if (r == LIBUSB_ERROR_PIPE) {
-		fprintf(stderr, "control message unsupported\n");
+		fprintf(stderr, "error: control message unsupported\n");
 		return r;
 	} else if (r < 0) {
 		show_libusb_error(r);
@@ -617,7 +617,7 @@ int cmd_set_palevel(struct libusb_device_handle* devh, u16 level)
 			NULL, 0, 3000);
 	if (r != LIBUSB_SUCCESS) {
 		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "control message unsupported\n");
+			fprintf(stderr, "error: control message unsupported\n");
 		} else {
 			show_libusb_error(r);
 		}
@@ -636,7 +636,7 @@ int cmd_get_rangeresult(struct libusb_device_handle* devh,
 			result, sizeof(result), 3000);
 	if (r < LIBUSB_SUCCESS) {
 		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "control message unsupported\n");
+			fprintf(stderr, "error: control message unsupported\n");
 		} else {
 			show_libusb_error(r);
 		}
@@ -663,7 +663,7 @@ int cmd_range_test(struct libusb_device_handle* devh)
 			NULL, 0, 1000);
 	if (r != LIBUSB_SUCCESS) {
 		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "control message unsupported\n");
+			fprintf(stderr, "error: control message unsupported\n");
 		} else {
 			show_libusb_error(r);
 		}
@@ -680,7 +680,7 @@ int cmd_repeater(struct libusb_device_handle* devh)
 			NULL, 0, 1000);
 	if (r != LIBUSB_SUCCESS) {
 		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "control message unsupported\n");
+			fprintf(stderr, "error: control message unsupported\n");
 		} else {
 			show_libusb_error(r);
 		}
@@ -719,7 +719,7 @@ int cmd_get_firmware_revision(struct libusb_device_handle* devh, char *revision,
 	r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_GET_REV_NUM, 0, 0,
 			result, sizeof(result), 1000);
 	if (r == LIBUSB_ERROR_PIPE) {
-		fprintf(stderr, "control message unsupported\n");
+		fprintf(stderr, "error: control message unsupported\n");
 		return r;
 	} else if (r < 0) {
 		show_libusb_error(r);
@@ -748,7 +748,7 @@ int cmd_get_firmware_compile_info(struct libusb_device_handle* devh,
 	r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_GET_COMPILE_INFO, 0, 0,
 			result, sizeof(result), 1000);
 	if (r == LIBUSB_ERROR_PIPE) {
-		fprintf(stderr, "control message unsupported\n");
+		fprintf(stderr, "error: control message unsupported\n");
 		return r;
 	} else if (r < 0) {
 		show_libusb_error(r);
@@ -792,7 +792,7 @@ int cmd_get_board_id(struct libusb_device_handle* devh)
 	r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_GET_BOARD_ID, 0, 0,
 			&board_id, 1, 1000);
 	if (r == LIBUSB_ERROR_PIPE) {
-		fprintf(stderr, "control message unsupported\n");
+		fprintf(stderr, "error: control message unsupported\n");
 		return r;
 	} else if (r < 0) {
 		show_libusb_error(r);
@@ -812,7 +812,7 @@ int cmd_set_squelch(struct libusb_device_handle* devh, u16 level)
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_SET_SQUELCH, level, 0, NULL, 0, 3000);
 	if (r != LIBUSB_SUCCESS) {
 		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "control message unsupported\n");
+			fprintf(stderr, "error: control message unsupported\n");
 		} else {
 			show_libusb_error(r);
 		}
@@ -856,7 +856,7 @@ int cmd_set_bdaddr(struct libusb_device_handle* devh, u64 address)
 		data, data_len, 1000);
 	if (r < 0) {
 		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "control message unsupported\n");
+			fprintf(stderr, "error: control message unsupported\n");
 		} else {
 			show_libusb_error(r);
 		}
@@ -894,7 +894,7 @@ int cmd_set_clock(struct libusb_device_handle* devh, u32 clkn)
 		data, 4, 1000);
 	if (r < 0) {
 		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "control message unsupported\n");
+			fprintf(stderr, "error: control message unsupported\n");
 		} else {
 			show_libusb_error(r);
 		}
@@ -930,7 +930,7 @@ int cmd_btle_sniffing(struct libusb_device_handle* devh, uint8_t do_follow)
 			NULL, 0, 1000);
 	if (r < 0) {
 		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "control message unsupported\n");
+			fprintf(stderr, "error: control message unsupported\n");
 		} else {
 			show_libusb_error(r);
 		}
@@ -952,7 +952,7 @@ int cmd_clear_afh_map(struct libusb_device_handle* devh)
 		NULL, 0, 1000);
 	if (r < 0) {
 		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "control message unsupported\n");
+			fprintf(stderr, "error: control message unsupported\n");
 		} else {
 			show_libusb_error(r);
 		}
@@ -1003,7 +1003,7 @@ int cmd_set_access_address(struct libusb_device_handle* devh, u32 access_address
 		data, 4, 1000);
 	if (r < 0) {
 		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "control message unsupported\n");
+			fprintf(stderr, "error: control message unsupported\n");
 		} else {
 			show_libusb_error(r);
 		}
@@ -1018,7 +1018,7 @@ int cmd_do_something(struct libusb_device_handle *devh, unsigned char *data, int
 				data, len, 1000);
 	if (r < 0) {
 		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "control message unsupported\n");
+			fprintf(stderr, "error: control message unsupported\n");
 		} else {
 			show_libusb_error(r);
 		}
@@ -1033,7 +1033,7 @@ int cmd_do_something_reply(struct libusb_device_handle* devh, unsigned char *dat
 				data, len, 3000);
 	if (r < 0) {
 		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "control message unsupported\n");
+			fprintf(stderr, "error: control message unsupported\n");
 		} else {
 			show_libusb_error(r);
 		}
@@ -1098,7 +1098,7 @@ int cmd_btle_promisc(struct libusb_device_handle* devh)
 			NULL, 0, 1000);
 	if (r < 0) {
 		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "control message unsupported\n");
+			fprintf(stderr, "error: control message unsupported\n");
 		} else {
 			show_libusb_error(r);
 		}
@@ -1117,7 +1117,7 @@ int cmd_read_register(struct libusb_device_handle* devh, u8 reg)
 			data, 2, 1000);
 	if (r < 0) {
 		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "control message unsupported\n");
+			fprintf(stderr, "error: control message unsupported\n");
 		} else {
 			show_libusb_error(r);
 		}
@@ -1139,7 +1139,7 @@ int cmd_btle_slave(struct libusb_device_handle* devh, u8 *mac_address)
 			mac_address, 6, 1000);
 	if (r < 0) {
 		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "control message unsupported\n");
+			fprintf(stderr, "error: control message unsupported\n");
 		} else {
 			show_libusb_error(r);
 		}
@@ -1162,7 +1162,7 @@ int cmd_le_set_adv_data(struct libusb_device_handle* devh, uint8_t *data, unsign
 			data, data_len, 1000);
 	if (r < 0) {
 		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "control message unsupported\n");
+			fprintf(stderr, "error: control message unsupported\n");
 		} else {
 			show_libusb_error(r);
 		}
@@ -1184,7 +1184,7 @@ int cmd_btle_set_target(struct libusb_device_handle* devh, uint8_t *mac_address,
 			cmd_buf, 7, 1000);
 	if (r < 0) {
 		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "control message unsupported\n");
+			fprintf(stderr, "error: control message unsupported\n");
 		} else {
 			show_libusb_error(r);
 		}
@@ -1201,7 +1201,7 @@ int cmd_set_jam_mode(struct libusb_device_handle* devh, int mode) {
 			NULL, 0, 1000);
 	if (r < 0) {
 		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "control message unsupported\n");
+			fprintf(stderr, "error: control message unsupported\n");
 		} else {
 			show_libusb_error(r);
 		}
@@ -1219,7 +1219,7 @@ int cmd_ego(struct libusb_device_handle* devh, int mode)
 			NULL, 0, 1000);
 	if (r < 0) {
 		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "control message unsupported\n");
+			fprintf(stderr, "error: control message unsupported\n");
 		} else {
 			show_libusb_error(r);
 		}
@@ -1236,7 +1236,7 @@ int cmd_afh(struct libusb_device_handle* devh)
 			NULL, 0, 1000);
 	if (r < 0) {
 		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "control message unsupported\n");
+			fprintf(stderr, "error: control message unsupported\n");
 		} else {
 			show_libusb_error(r);
 		}
@@ -1264,7 +1264,7 @@ int cmd_rfcat_subcmd(struct libusb_device_handle* devh, int cmd, uint8_t *body, 
 			body, body_len, 1000);
 	if (r < 0) {
 		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "control message unsupported\n");
+			fprintf(stderr, "error: control message unsupported\n");
 		} else {
 			show_libusb_error(r);
 		}
@@ -1281,7 +1281,7 @@ int cmd_xmas(struct libusb_device_handle* devh) {
 			NULL, 0, 1000);
 	if (r < 0) {
 		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "control message unsupported\n");
+			fprintf(stderr, "error: control message unsupported\n");
 		} else {
 			show_libusb_error(r);
 		}
@@ -1320,7 +1320,7 @@ int ubertooth_cmd_sync(struct libusb_device_handle* devh,
 			data, size, 1000);
 	if (r < 0) {
 		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "control message unsupported\n");
+			fprintf(stderr, "error: control message unsupported\n");
 		} else {
 			show_libusb_error(r);
 		}

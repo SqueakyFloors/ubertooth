@@ -574,7 +574,8 @@ void cb_rx(ubertooth_t* ut, void* args)
 			cmd_trim_clock(ut->devh, 6250 + clk_offset - CLK_TUNE_TIME);
 			trim_counter = 0;
 			if (calibrated) {
-				fprintf(stderr, "note: clock drifted %d in %f s, %d PPM too slow\n",
+				fprintf(stderr, "note: clock drifted %d in %f s, "
+				        "%d PPM too slow\n",
 				       (clk_offset-CLK_TUNE_TIME),
 				       (double)(clkn-clkn_trim)/3200,
 				       (clk_offset-CLK_TUNE_TIME) * 320 / (int32_t)(clkn-clkn_trim));
@@ -591,7 +592,8 @@ void cb_rx(ubertooth_t* ut, void* args)
 			cmd_trim_clock(ut->devh, clk_offset - CLK_TUNE_TIME);
 			trim_counter = 0;
 			if (calibrated) {
-				fprintf(stderr, "note: clock drifted %d in %f s, %d PPM too fast\n",
+				fprintf(stderr, "note: clock drifted %d in %f s, "
+				        "%d PPM too fast\n",
 				       (clk_offset-CLK_TUNE_TIME),
 				       (double)(clkn-clkn_trim)/3200,
 				       (clk_offset-CLK_TUNE_TIME) * 320 / (clkn-clkn_trim));

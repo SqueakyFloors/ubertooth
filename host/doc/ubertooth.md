@@ -92,7 +92,7 @@ had nothing to do.
 
 Exit status is 0 only when the command did what was asked, including `-h`, and
 1 otherwise: a usage error, a command line with nothing to do, a device that
-is missing or failed, a partial failure. `ubertooth-afh` also uses 2, for a
+is missing or failed, a partial failure. ubertooth-afh(1) also uses 2, for a
 detection phase that received no packet.
 
 libubertooth follows the split already: it returns what it reads to the tool

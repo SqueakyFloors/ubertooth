@@ -39,7 +39,7 @@ void fifo_inc_write_ptr(fifo_t* fifo)
 	if (fifo->read_ptr != (fifo->write_ptr+1) % FIFO_SIZE) {
 		fifo->write_ptr = (fifo->write_ptr+1) % FIFO_SIZE;
 	} else {
-		fprintf(stderr, "FIFO overflow, packet discarded\n");
+		fprintf(stderr, "warning: FIFO overflow, packet discarded\n");
 	}
 }
 
