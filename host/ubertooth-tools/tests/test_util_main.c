@@ -766,8 +766,7 @@ MU_TEST(setters_pass_their_arguments_and_report_failures)
 	mu_assert_int_eq(0, r.rc);
 	mu_assert_int_eq(5, fake.last_squelch_set);
 	mu_assert(strcmp(r.out, "") == 0, "a set writes no result");
-	mu_assert(strcmp(r.err, "Setting squelch to 5\n") == 0,
-	          "the squelch message is progress, on stderr");
+	mu_assert(strcmp(r.err, "") == 0, "and says nothing: a set is silent");
 
 	reset_fake();
 	fake.set_squelch_rc = -1;
@@ -883,8 +882,7 @@ MU_TEST(a_set_and_a_read_of_the_same_value_both_run_set_first)
 	mu_assert_int_eq(2, fake.last_usrled_set);
 	mu_assert(strcmp(r.out, "USR LED status: 1\n") == 0,
 	          "-z-120 -l1 -l reports the LED read on stdout");
-	mu_assert(strcmp(r.err, "Setting squelch to -120\n") == 0,
-	          "the squelch set is progress, on stderr");
+	mu_assert(strcmp(r.err, "") == 0, "and nothing on stderr: both sets are silent");
 
 	/* the squelch pair, which always worked this way */
 	reset_fake();
@@ -893,8 +891,8 @@ MU_TEST(a_set_and_a_read_of_the_same_value_both_run_set_first)
 	mu_assert_int_eq((u16)-60, fake.last_squelch_set);
 	mu_assert(strcmp(r.out, "Squelch set to -60\n") == 0,
 	          "-z-60 -z reports the new squelch on stdout");
-	mu_assert(strcmp(r.err, "Setting squelch to -60\n") == 0,
-	          "the set itself is progress, on stderr");
+	mu_assert(strcmp(r.err, "") == 0,
+	          "once: the read-back is the result, the set says nothing");
 
 	/* two sets of the same value keep the last one */
 	reset_fake();
@@ -1076,17 +1074,20 @@ MU_TEST(identify_starts_the_blink_on_the_board_and_returns)
 	mu_assert_int_eq(0, fake.txled_writes);
 	mu_assert_int_eq(0, fake.sleeps);
 	mu_assert(strcmp(r.out, "") == 0, "the blink writes no result");
-	mu_assert(strstr(r.err, "Flashing LEDs on ubertooth device 0\n") != NULL,
-	          "names what it did, on stderr");
-	mu_assert(strstr(r.err, "-S") != NULL, "says how to stop it");
+	/* one line, not a "flashing the LEDs" line and then this one */
+	mu_assert(strcmp(r.err, "note: the board is blinking; stop it with "
+	                 "ubertooth-util -S or any mode option\n") == 0,
+	          "the blink is reported once, on stderr, with how to stop it");
 
-	/* -U is reported in the same line as before */
+	/* the selector goes into the command the note tells the user to run,
+	 * since a bare -S would reach whichever board is index 0 */
 	reset_fake();
 	r = RUN("-U", "abc123", "-I");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(r.out, "") == 0, "the blink writes no result");
-	mu_assert(strstr(r.err, "Flashing LEDs on ubertooth device abc123\n") != NULL,
-	          "names the selected device, on stderr");
+	mu_assert(strcmp(r.err, "note: the board is blinking; stop it with "
+	                 "ubertooth-util -U abc123 -S or any mode option\n") == 0,
+	          "the stop command names the selected device");
 
 	/* a failed request fails the command */
 	reset_fake();
@@ -1117,7 +1118,7 @@ MU_TEST(identify_refuses_firmware_of_another_api_version)
 		mu_assert_int_eq(0, fake.identify_calls);
 		mu_assert_int_eq(0, fake.stop_calls); /* refused before anything is sent */
 		mu_assert(strcmp(r.out, "") == 0, "prints nothing on stdout");
-		mu_assert(strstr(r.err, "Flashing LEDs") == NULL, "no progress either");
+		mu_assert(strstr(r.err, "is blinking") == NULL, "and claims no blink");
 		mu_assert_int_eq(0, fake.usrled_writes);
 		mu_assert_int_eq(0, fake.sleeps);
 		mu_assert(strstr(r.err, "error: -I needs firmware API version") != NULL,
@@ -2282,10 +2283,11 @@ MU_TEST(reset_by_index_follows_the_board_by_serial)
 	/* read before the reset was sent, while the device was still there */
 	mu_assert_int_eq(1, fake.serial_reads);
 	mu_assert_int_eq(0, fake.resets_at_first_serial_read);
-	mu_assert(strcmp(r.err, "") == 0, "nothing printed about the serial");
-	/* the "Resetting" line keeps the selector the user gave */
-	mu_assert(strncmp(r.out, "Resetting ubertooth device 1\n", 29) == 0,
-	          "the user's selector is reported");
+	/* the "Resetting" line is progress, on stderr, and keeps the selector
+	 * the user gave; nothing else is printed about the serial */
+	mu_assert(strcmp(r.err, "Resetting ubertooth device 1\n") == 0,
+	          "the user's selector is reported, and nothing about the serial");
+	mu_assert(strcmp(r.out, BOARD_LINE) == 0, "only the board read on stdout");
 	mu_assert(fake.now_ms >= fake.returns_at_ms, "selected once back");
 	mu_assert_int_eq(0, fake.stop_calls);
 }
@@ -2305,8 +2307,9 @@ MU_TEST(a_serial_that_cannot_be_read_keeps_the_selector_with_a_warning)
 	mu_assert(strcmp(fake.quiet_selector, "1") == 0, "the index is kept");
 	mu_assert(strcmp(r.err, "warning: serial read failed on Ubertooth device 1 "
 	                 "before the reset; later options may reach a different "
-	                 "board if the enumeration order changes\n") == 0,
-	          "one warning line");
+	                 "board if the enumeration order changes\n"
+	                 "Resetting ubertooth device 1\n") == 0,
+	          "one warning line, then the reset progress");
 	mu_assert_int_eq(0, fake.quiet_while_absent); /* index: waits for the count */
 	mu_assert(strstr(r.out, BOARD_LINE) != NULL, "board read after the reset");
 
@@ -2319,7 +2322,8 @@ MU_TEST(a_serial_that_cannot_be_read_keeps_the_selector_with_a_warning)
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(fake.quiet_selector, "a9aaabacadaeafb0") == 0,
 	          "the serial selector is kept");
-	mu_assert(strcmp(r.err, "") == 0, "no warning for a serial selector");
+	mu_assert(strcmp(r.err, "Resetting ubertooth device a9aaabacadaeafb0\n") == 0,
+	          "the reset progress only: no warning for a serial selector");
 }
 
 MU_TEST(a_failed_reset_still_reselects_once_the_leave_window_passes)

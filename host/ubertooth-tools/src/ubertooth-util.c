@@ -815,15 +815,19 @@ int main(int argc, char *argv[])
 			status = util_status_after(status, r);
 			goto out;
 		}
-		fprintf(stderr, "Flashing LEDs on ubertooth device %s\n", ubertooth_device ? ubertooth_device : "0");
 		/* Stop any operation already running on the device (e.g. -x xmas or
 		 * -q LED spectrum analyzer) so it does not fight the identify blink. */
 		status = util_status_after(status, cmd_stop(ut->devh));
 		r = cmd_identify(ut->devh);
 		status = util_status_after(status, r);
+		/* One line, not a "flashing the LEDs" line followed by this one
+		 * saying the same thing: the blink is reported once, as the command
+		 * that ends it, repeating the device selector so it can be pasted. */
 		if (r >= 0)
 			fprintf(stderr, "note: the board is blinking; stop it with "
-			        "ubertooth-util -S or any mode option\n");
+			        "ubertooth-util%s%s -S or any mode option\n",
+			        ubertooth_device ? " -U " : "",
+			        ubertooth_device ? ubertooth_device : "");
 		goto out;
 	}
 	if(do_isp == 0) {
@@ -857,7 +861,9 @@ int main(int argc, char *argv[])
 		goto out;
 	}
 	if(do_set_squelch > 0) {
-		fprintf(stderr, "Setting squelch to %d\n", squelch_level);
+		/* Silent, like every other setter here (-a, -c, -C, -d, -l): a
+		 * "setting squelch" line only repeats what the -z read-back prints
+		 * as the result, and a failed set reports itself. */
 		status = util_status_after(status, cmd_set_squelch(ut->devh, squelch_level));
 	}
 	if(do_get_squelch > 0) {

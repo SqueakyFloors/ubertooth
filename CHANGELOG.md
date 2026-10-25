@@ -8,7 +8,9 @@
   `-util`, `-specan`, `-specan-ui` and `install.sh` keep only what was asked
   for on stdout; errors (one line, starting `error: `), warnings, notes and
   progress go to stderr. Among the tools, `-h` exits 0 and a command line with
-  nothing to do is refused instead of opening a board.
+  nothing to do is refused instead of opening a board. `ubertooth-util` also
+  says each thing once: `-z <n>` sets the squelch silently, and `-I` reports
+  the blink in the one line naming what stops it.
   [#323](https://github.com/SqueakyFloors/ubertooth/issues/323)
 - **Script-visible change:** libubertooth no longer prints to standard output;
   its notes and errors go to standard error with `note: `/`error: ` prefixes.

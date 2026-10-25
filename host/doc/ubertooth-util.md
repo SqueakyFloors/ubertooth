@@ -413,15 +413,20 @@ standard error, so a script reading a value is not fed anything else.
 That includes the progress lines for the operations that do something rather
 than report something: `Resetting ubertooth device <selector>`,
 `Stopping ubertooth device <selector>`,
-`Flashing LEDs on ubertooth device <selector>` and the
-`note: the board is blinking; ...` after it,
 `Entering flash programming (DFU) mode`,
 `Entering flash programming (ISP) mode`,
 `Entering LED specan mode (threshold -<n> dBm)`, `Starting range test`,
-`Starting repeater`, `Starting TX test` and `Setting squelch to <n>`. They
-were written to standard output before. The value `-z` reads back
-(`Squelch set to <n>`) is a result and stays on standard output. `-x`
-announces nothing, because the lights it starts are the announcement.
+`Starting repeater` and `Starting TX test`. They were written to standard
+output before.
+
+Each operation says what it did once. `-I` reports the blink only through
+`note: the board is blinking; stop it with ubertooth-util [-U <selector>] -S
+or any mode option`, naming the selector so the command can be pasted; there
+is no separate line announcing the LEDs. Setting the squelch with `-z <n>`
+prints nothing, as `-a`, `-c`, `-C`, `-d` and `-l` do not: the value `-z`
+reads back afterwards (`Squelch set to <n>`) is the result and goes to
+standard output. `-x` announces nothing either, because the lights it starts
+are the announcement.
 
 Errors are one line starting `error: `; warnings and notes start `warning: `
 and `note: `.
