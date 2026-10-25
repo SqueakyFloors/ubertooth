@@ -256,6 +256,7 @@ MU_TEST(test_tx_generic_never_writes_more_than_dma_size)
 struct scan {
 	int case_line;        /* the handler's `case UBERTOOTH_TX_...:` */
 	int header_check;     /* the request is long enough for the header */
+	int length_read;      /* the length byte is read at its own offset */
 	int length_check;     /* the length byte is at most DMA_SIZE */
 	int carried_check;    /* the request carries the payload it declares */
 	int copy;             /* the memcpy into tx_pkt */
@@ -310,6 +311,9 @@ static int scan_source(const char *path, struct scan *s)
 
 		if (strstr(flat, "data_in_len < TX_GENERIC_HEADER_LEN") != NULL)
 			s->header_check = lineno;
+		if (strstr(flat, "i = data[offsetof(generic_tx_packet, length)]") !=
+		    NULL)
+			s->length_read = lineno;
 		if (strstr(flat, "i > DMA_SIZE") != NULL)
 			s->length_check = lineno;
 		if (strstr(flat, "data_in_len - TX_GENERIC_HEADER_LEN < i") != NULL)
@@ -357,6 +361,13 @@ MU_TEST(test_the_handler_refuses_before_it_copies)
 	mu_assert(s.header_check > 0, msg);
 
 	snprintf(msg, sizeof(msg),
+	         "%s:%d: the generic transmit request does not read its length "
+	         "byte into `i` at the offset the struct puts it, so what the "
+	         "checks below bound is not the length the copy uses",
+	         path, s.case_line);
+	mu_assert(s.length_read > 0, msg);
+
+	snprintf(msg, sizeof(msg),
 	         "%s:%d: the generic transmit request does not check its length "
 	         "byte against DMA_SIZE, so a longer one would be copied past "
 	         "tx_pkt", path, s.case_line);
@@ -375,12 +386,14 @@ MU_TEST(test_the_handler_refuses_before_it_copies)
 	mu_assert(s.copies == 1 && s.copy > 0, msg);
 
 	snprintf(msg, sizeof(msg),
-	         "%s:%d: the copy into tx_pkt comes before the checks at lines "
-	         "%d/%d/%d, or a refusal follows it, so a request is copied "
-	         "before it is refused", path, s.copy, s.header_check,
+	         "%s:%d: the copy into tx_pkt comes before the length read at "
+	         "line %d or the checks at lines %d/%d/%d, or a refusal follows "
+	         "it, so a request is copied before it is refused",
+	         path, s.copy, s.length_read, s.header_check,
 	         s.length_check, s.carried_check);
-	mu_assert(s.header_check < s.copy && s.length_check < s.copy &&
-	          s.carried_check < s.copy && s.last_return < s.copy, msg);
+	mu_assert(s.header_check < s.copy && s.length_read < s.copy &&
+	          s.length_check < s.copy && s.carried_check < s.copy &&
+	          s.last_return < s.copy, msg);
 }
 
 MU_TEST(test_the_fifo_write_is_clamped)
