@@ -394,6 +394,21 @@ void ubertooth_stop(ubertooth_t* ut)
 	device.device_stops++;
 }
 
+/* A fresh empty temp file for a -d value, with its name in path. mkstemp()
+ * replaces the template in place, so each call needs the template written
+ * back rather than the name the last one produced. */
+static int make_temp_file(char* path, size_t size)
+{
+	int fd;
+
+	snprintf(path, size, "/tmp/specan-main-XXXXXX");
+	fd = mkstemp(path);
+	if (fd < 0)
+		return -1;
+	close(fd);
+	return 0;
+}
+
 /* The real main(), with standard error captured. The -d file is left open by
  * main(), so it is closed here once the run is over. */
 static int run_specan(const char* const* args, char* err, size_t err_size)
@@ -433,18 +448,16 @@ static int run_specan(const char* const* args, char* err, size_t err_size)
 
 MU_TEST(a_sweep_that_could_not_be_written_exits_one)
 {
-	char path[] = "/tmp/specan-main-XXXXXX";
+	char path[64];
 	char err[512];
-	int fd;
 	struct stat info;
 
 	/* Every write fails as it is made, so the sweep ends at the first block. */
 	reset_device();
 	device.break_output = OUTPUT_FAILS_AT_THE_WRITE;
 	device.blocks_to_sweep = 10;
-	fd = mkstemp(path);
-	mu_assert_fatal(fd >= 0, "temp file created");
-	close(fd);
+	mu_assert_fatal(make_temp_file(path, sizeof(path)) == 0,
+	                "temp file created");
 
 	mu_assert_int_eq(1, RUN_SPECAN(err, "-d", path));
 	mu_assert(strstr(err, "error: writing samples failed: wrote 0 of 3 bytes")
@@ -460,9 +473,8 @@ MU_TEST(a_sweep_that_could_not_be_written_exits_one)
 	 * sweep fails, which main() has to check too. */
 	reset_device();
 	device.break_output = OUTPUT_FAILS_AT_THE_FLUSH;
-	fd = mkstemp(path);
-	mu_assert_fatal(fd >= 0, "temp file created");
-	close(fd);
+	mu_assert_fatal(make_temp_file(path, sizeof(path)) == 0,
+	                "temp file created");
 
 	mu_assert_int_eq(1, RUN_SPECAN(err, "-d", path));
 	mu_assert(strstr(err, "error: writing samples failed: could not flush")
@@ -473,16 +485,14 @@ MU_TEST(a_sweep_that_could_not_be_written_exits_one)
 
 MU_TEST(a_sweep_that_was_written_exits_zero)
 {
-	char path[] = "/tmp/specan-main-XXXXXX";
+	char path[64];
 	char err[512];
-	int fd;
 	struct stat info;
 
 	reset_device();
 	device.blocks_to_sweep = 3;
-	fd = mkstemp(path);
-	mu_assert_fatal(fd >= 0, "temp file created");
-	close(fd);
+	mu_assert_fatal(make_temp_file(path, sizeof(path)) == 0,
+	                "temp file created");
 
 	mu_assert_int_eq(0, RUN_SPECAN(err, "-U", "0", "-d", path));
 	mu_assert(strcmp(err, "Ubertooth stopped\n") == 0, err);
@@ -510,9 +520,8 @@ MU_TEST(a_sweep_that_was_written_exits_zero)
 	 * block is below 2470, so this run writes none of them and still
 	 * succeeds. */
 	reset_device();
-	fd = mkstemp(path);
-	mu_assert_fatal(fd >= 0, "temp file created");
-	close(fd);
+	mu_assert_fatal(make_temp_file(path, sizeof(path)) == 0,
+	                "temp file created");
 
 	mu_assert_int_eq(0, RUN_SPECAN(err, "-l", "2470", "-u", "2480",
 	                               "-d", path));
