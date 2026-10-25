@@ -249,12 +249,13 @@ MU_TEST(a_refused_request_is_named_and_exits_1)
 		mu_assert_int_eq(0, fake.sleeps);
 		mu_assert_int_eq(1, fake.stops); /* the board is still released */
 		mu_assert(r.out[0] == '\0', r.out);
-		/* The duck and the "Quacking ..." line come first, and the real
-		 * library would have printed why it refused the request; the tool's
-		 * line is the last one. */
+		/* The duck and the "Quacking ..." line come first. These fakes print
+		 * nothing else, so the tool's line is the tail here; on a board the
+		 * library prints why it refused the request before it, and the stop
+		 * that follows may print too. */
+		mu_assert_fatal(strlen(r.err) > strlen(cases[i].message), r.err);
 		tail = r.err + strlen(r.err) - strlen(cases[i].message);
-		mu_assert(strlen(r.err) > strlen(cases[i].message) &&
-		          strcmp(tail, cases[i].message) == 0, r.err);
+		mu_assert(strcmp(tail, cases[i].message) == 0, r.err);
 	}
 }
 

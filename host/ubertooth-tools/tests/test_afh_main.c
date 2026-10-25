@@ -75,13 +75,13 @@ btbb_piconet *btbb_piconet_new(void)
 void btbb_piconet_unref(btbb_piconet *pn)
 {
 	/* The real one dereferences its argument at once, to drop a reference, so
-	 * an unref of NULL must fail here rather than pass and crash in a real
-	 * build. */
-	int *allocation = (int *)pn;
-
-	*allocation = 0;
+	 * an unref of NULL must be reported here rather than pass and crash in a
+	 * real build. */
+	mu_assert(pn != NULL, "the piconet given back was NULL");
+	if (pn == NULL)
+		return;
 	fake.piconet_frees++;
-	free(allocation);
+	free(pn);
 }
 
 void btbb_init_piconet(btbb_piconet *pn, uint32_t lap)

@@ -204,7 +204,7 @@ int main(int argc, char* argv[])
 
 	ubertooth_stop(ut);
 	/* The piconet outlives the receive phases, so it is given back here
-	 * rather than in them; a run then ends with nothing outstanding. */
+	 * rather than in them. */
 	btbb_piconet_unref(pn);
 
 	return status;
