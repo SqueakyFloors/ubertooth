@@ -20,6 +20,7 @@
  * Boston, MA 02110-1301, USA.
  */
 
+#include <stddef.h>
 #include <string.h>
 
 #include "version.h"
@@ -80,6 +81,10 @@ volatile int16_t rssi_threshold = -30;  // -54dBm - 30 = -84dBm
 
 /* Generic TX stuff */
 generic_tx_packet tx_pkt;
+
+/* The registers, length and level a UBERTOOTH_TX_GENERIC_PACKET request
+ * carries in front of its payload. */
+#define TX_GENERIC_HEADER_LEN offsetof(generic_tx_packet, data)
 
 /* le slave stuff */
 uint8_t slave_mac_address[6] = { 0, };
@@ -640,9 +645,20 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params, uin
 
 #ifdef TX_ENABLE
 	case UBERTOOTH_TX_GENERIC_PACKET:
-		i = 7 + data[6];
-		memcpy(&tx_pkt, data, i);
-		//tx_pkt.channel = data[4] << 8 | data[5];
+		/*
+		 * The payload length is a byte of the request, so it is checked
+		 * before anything is copied: tx_pkt has room for DMA_SIZE
+		 * payload bytes and other globals sit behind it, and the length
+		 * reaches the radio's FIFO in tx_generic(). The request also has
+		 * to be as long as it says it is, so a short one cannot leave
+		 * the tail of the previous packet in place.
+		 */
+		if (data_in_len < TX_GENERIC_HEADER_LEN)
+			return 0;
+		i = data[offsetof(generic_tx_packet, length)];
+		if (i > DMA_SIZE || data_in_len - TX_GENERIC_HEADER_LEN < i)
+			return 0;
+		memcpy(&tx_pkt, data, TX_GENERIC_HEADER_LEN + i);
 		requested_mode = MODE_TX_GENERIC;
 		*data_len = 0;
 		break;
@@ -2573,7 +2589,12 @@ void tx_generic(u8 prev_mode) {
 #endif
 	while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
 
-	cc2400_fifo_write(tx_pkt.length, tx_pkt.data);
+	/*
+	 * The vendor request already refuses a longer packet; clamped again
+	 * here because this is where a length reaches the radio, and the FIFO
+	 * write would read past tx_pkt.data.
+	 */
+	cc2400_fifo_write(MIN(tx_pkt.length, DMA_SIZE), tx_pkt.data);
 	cc2400_strobe(STX);
 
 	while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);

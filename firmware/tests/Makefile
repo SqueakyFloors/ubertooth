@@ -13,7 +13,7 @@ FW_BTBR := ../btbr
 FW_COMMON := ../common
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_mode_dispatch test_le_phy_order test_grmdm_rx_generic
+TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_mode_dispatch test_le_phy_order test_grmdm_rx_generic test_tx_generic_bounds
 BINDIR  := bin
 
 .PHONY: all test clean
@@ -86,6 +86,15 @@ $(BINDIR)/test_grmdm_rx_generic: test_grmdm_rx_generic.c minunit.h \
 		| $(BINDIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -I$(FW_COMMON) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
 		-o $@ test_grmdm_rx_generic.c
+
+# The generic transmit request's handler and tx_generic() are hardware code, so
+# the bounds on a transmit packet are exercised through fakes and the firmware's
+# own shape is scanned, as test_frend does. generic_tx_packet and DMA_SIZE come
+# from the shared interface header, already on the include path.
+$(BINDIR)/test_tx_generic_bounds: test_tx_generic_bounds.c minunit.h \
+		source_scan.h $(FW_RXTX)/bluetooth_rxtx.c | $(BINDIR)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
+		-o $@ test_tx_generic_bounds.c
 
 $(BINDIR):
 	mkdir -p $(BINDIR)

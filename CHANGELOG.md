@@ -65,8 +65,8 @@
   the command returns at once and the board stays reachable; `-S` or any mode
   option stops it and leaves the LEDs off.
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
-- **Reflash required:** the firmware API version is now 1.16, last moved by the
-  amplifier level of the generic transmit request, and the host tools require
+- **Reflash required:** the firmware API version is now 1.17, last moved by the
+  bounds on a generic transmit packet, and the host tools require
   firmware of exactly their own API version, older or newer (`ubertooth-util`
   still reads
   the version and reflashes any firmware). Host and firmware come from the
@@ -140,6 +140,13 @@
 
 ### Reliability fixes
 
+- The firmware refuses a generic transmit request
+  (`UBERTOOTH_TX_GENERIC_PACKET`) whose payload does not fit the packet,
+  instead of copying it into the globals behind the packet and handing the
+  length to the radio; the last payload byte of a packet that does fit is no
+  longer dropped. No shipped tool sends this request, but any program on the
+  bus can.
+  [#384](https://github.com/SqueakyFloors/ubertooth/issues/384)
 - A capture gives its receive transfer back when it ends, so a run with more
   than one phase (`ubertooth-afh` detects a map, then monitors it) no longer
   leaks one transfer per extra phase.
