@@ -72,28 +72,12 @@ show or hide the key help
 .TP
 \fBq\fR
 quit
-.SH DIAGNOSTICS
-.PP
-A range \fB\fCubertooth\-specan\-ui\fR will not take is refused before the
-window opens, with one line starting \fB\fCerror: \fR on standard error and
-exit status 1: \fB\fCerror: invalid channel range: <value>\fR,
-\fB\fCerror: channel <n> is not a valid wifi channel\fR,
-\fB\fCerror: frequency of <n> MHz is below minimum frequency of <min>\fR,
-\fB\fCerror: frequency of <n> MHz is above maximum frequency of <max>\fR and
-\fB\fCerror: lower frequency of <n> MHz is above upper frequency of <n> MHz\fR\&.
-They used to be \fB\fCERROR: ...\fR on standard output.
-.PP
-A failure to start
-.BR ubertooth-specan (1)
-is reported the same way, as \fB\fCerror: could not open an Ubertooth
-device\fR followed by a \fB\fCnote: \fR naming the command, and whatever
-.BR ubertooth-specan (1)
-itself said on standard error.
-.PP
-The key help \fB\fCh\fR shows goes to standard output, as what the user asked
-for. The notes about an unknown or unsupported key are \fB\fCnote: \fR lines
-on standard error. \fB\fC\-\-help\fR comes from the argument parser: standard
-output, exit 0.
+.SH "DIAGNOSTICS"
+A range \fBubertooth\-specan\-ui\fR will not take is refused before the window opens, with one line starting \fBerror:\fR on standard error and exit status 1: \fBerror: invalid channel range: <value>\fR, \fBerror: channel <n> is not a valid wifi channel\fR, \fBerror: frequency of <n> MHz is below minimum frequency of <min>\fR, \fBerror: frequency of <n> MHz is above maximum frequency of <max>\fR and \fBerror: lower frequency of <n> MHz is above upper frequency of <n> MHz\fR\. They used to be \fBERROR: \|\.\|\.\|\.\fR on standard output\.
+.P
+A failure to start \fBubertooth\-specan\fR is reported the same way, as \fBerror: could not open an Ubertooth device\fR followed by a \fBnote:\fR naming the command, and whatever \fBubertooth\-specan\fR itself said on standard error\.
+.P
+The key help \fBh\fR shows goes to standard output, as what the user asked for\. The notes about an unknown or unsupported key are \fBnote:\fR lines on standard error\. \fB\-\-help\fR comes from the argument parser: standard output, exit 0\.
 .SH "SEE ALSO"
 ubertooth\-specan(1), ubertooth\-util(1)
 .P
