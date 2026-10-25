@@ -143,6 +143,14 @@
   (`UBERTOOTH_TX_GENERIC_PACKET`) whose payload does not fit the packet, and no
   longer drops the last byte of one that does. No shipped tool sends it.
   [#384](https://github.com/SqueakyFloors/ubertooth/issues/384)
+- `ubertooth-ducky -q` and `-b` now check every request a quack needs. A board
+  that refuses one is reported as one `error: ` line naming it, with exit
+  status 1; the tool used to wait its two seconds and exit 0, so a script
+  could not tell a quack that went out from one that never did.
+  [#328](https://github.com/SqueakyFloors/ubertooth/issues/328)
+- `ubertooth-afh` gives its piconet back before it exits, so a run no longer
+  ends with one unfreed allocation.
+  [#366](https://github.com/SqueakyFloors/ubertooth/issues/366)
 - A capture gives its receive transfer back when it ends, so a run with more
   than one phase (`ubertooth-afh` detects a map, then monitors it) no longer
   leaks one transfer per extra phase.

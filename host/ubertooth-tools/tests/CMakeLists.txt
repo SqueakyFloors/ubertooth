@@ -285,9 +285,11 @@ set_tests_properties(util-main PROPERTIES TIMEOUT 5)
 
 # The same approach for ubertooth-afh: its real main() against a scripted
 # detection phase, so what it reports and exits with is checked without a
-# board or a piconet. libbtbb is the real one (no device is touched).
+# board or a piconet. libbtbb is not linked: the test defines the piconet
+# calls itself, so a run's allocations can be counted and every path can be
+# required to give the piconet back.
 add_executable(test-afh-main test_afh_main.c)
-target_link_libraries(test-afh-main opt-parse-for-tests ${LIBBTBB_LIBRARIES})
+target_link_libraries(test-afh-main opt-parse-for-tests)
 if(libubertooth_SOURCE_DIR)
 	target_include_directories(test-afh-main PRIVATE ${libubertooth_SOURCE_DIR}/src)
 else()
@@ -329,6 +331,29 @@ add_test(NAME btle-main COMMAND test-btle-main)
 # The fake poll ends the capture loop at once; a regression that waits on a
 # real device should fail instead of hanging the suite.
 set_tests_properties(btle-main PROPERTIES TIMEOUT 10)
+
+# The same approach for ubertooth-ducky: its real main() against a scripted
+# device, so what a quack sends, and what a refused request reports and exits
+# with, are checked without a board and without transmitting. The two-second
+# advertising wait is faked in the test, so a quack runs instantly.
+add_executable(test-ducky-main test_ducky_main.c)
+target_link_libraries(test-ducky-main opt-parse-for-tests)
+if(libubertooth_SOURCE_DIR)
+	target_include_directories(test-ducky-main PRIVATE ${libubertooth_SOURCE_DIR}/src)
+else()
+	target_include_directories(test-ducky-main PRIVATE ${LIBUBERTOOTH_INCLUDE_DIR})
+endif()
+target_include_directories(test-ducky-main PRIVATE ../src
+	${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+if(USE_OWN_GNU_GETOPT)
+	target_include_directories(test-ducky-main BEFORE PRIVATE ../getopt)
+	target_link_libraries(test-ducky-main libgetopt_static)
+endif()
+
+add_test(NAME ducky-main COMMAND test-ducky-main)
+# Every device call is faked; a regression that reaches a real board or waits
+# out a real quack should fail instead of hanging the suite.
+set_tests_properties(ducky-main PROPERTIES TIMEOUT 10)
 
 # The same approach for ubertooth-dfu: its real main() against a faked DFU
 # transport, so a bootloader that stops answering and a read-back that fails

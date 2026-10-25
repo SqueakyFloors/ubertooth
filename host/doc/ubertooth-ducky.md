@@ -70,6 +70,11 @@ goes to standard error, and standard output stays empty. Each error is one
 line starting `error: `, for example
 `error: cannot read the UUID 'nonsense'`.
 
+A request the board refuses ends the command there, named in one line, for
+example `error: could not set the advertising channel; nothing was sent`;
+libubertooth has already said why the board refused it. Nothing was
+transmitted in that case.
+
 A command line the tool will not take is reported as that one `error: ` line
 followed by the usage text, both on standard error. An option the tool does
 not know reads `error: unrecognized option '-Z'`; one whose value is missing
@@ -80,9 +85,11 @@ nothing goes to standard error.
 
 ## EXIT STATUS
 
-0 when the command did what was asked, including `-h`. 1 for a command line
-the tool will not take or with nothing to do, for a UUID it cannot read, and
-when the selected Ubertooth is not found or cannot be opened.
+0 when the command did what was asked, including `-h`: for `-q` and `-b`, when
+the advertisement went out. 1 for a command line the tool will not take or
+with nothing to do, for a UUID it cannot read, when the selected Ubertooth is
+not found or cannot be opened, and when the board refuses one of the requests
+a quack needs.
 
 ## SEE ALSO
 
