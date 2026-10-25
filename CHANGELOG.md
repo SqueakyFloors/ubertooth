@@ -20,11 +20,11 @@
   [#332](https://github.com/SqueakyFloors/ubertooth/issues/332)
 - `ubertooth-btle` and `ubertooth-ego` list their `-j`/`-J` jam aliases in `-h`.
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
-- The Classic Bluetooth (`btbr`) firmware and the generic transmit request no
-  longer write a power amplifier level of their own, so the level set with
-  `ubertooth-util -a` holds for them as it already does for the other transmit
-  modes. As there, this raises the `btbr` default from level 3 (-7 dBm at the
-  CC2400) to the power-on level 7 (0 dBm).
+- The Classic Bluetooth (`btbr`) firmware keeps the power amplifier level set
+  with `ubertooth-util -a` instead of forcing level 3 when it brings the radio
+  up, so its default rises to the power-on level 7 (0 dBm at the CC2400), the
+  same rise the other transmit modes took. A generic transmit still sends at
+  the level in its own request, but leaves the board's level as it found it.
   [#181](https://github.com/SqueakyFloors/ubertooth/issues/181)
 - `ubertooth-rx` lists `-s` in `-h` as the explicit form of its default channel
   sweep, and no longer calls it deprecated; the `-z` line no longer claims to
