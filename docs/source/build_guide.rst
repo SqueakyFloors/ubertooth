@@ -103,21 +103,21 @@ FreeBSD users can install the host tools and library directly from the ports and
 libbtbb
 ^^^^^^^
 
-Next the Bluetooth baseband library (libbtbb) needs to be built for the Ubertooth tools to decode Bluetooth packets:
+Next the Bluetooth baseband library (libbtbb) needs to be built for the Ubertooth tools to decode Bluetooth packets. These tools build against `this project's libbtbb fork <https://github.com/SqueakyFloors/libbtbb>`__, pinned to one commit so that a push to libbtbb cannot change an Ubertooth build. ``ENABLE_PYTHON=OFF`` skips libbtbb's own Python tools, which the Ubertooth tools do not use:
 
 	.. code-block:: sh
 
-		wget https://github.com/greatscottgadgets/libbtbb/archive/2020-12-R1.tar.gz -O libbtbb-2020-12-R1.tar.gz
-		tar -xf libbtbb-2020-12-R1.tar.gz
-		cd libbtbb-2020-12-R1
+		git clone https://github.com/SqueakyFloors/libbtbb.git
+		cd libbtbb
+		git checkout 84ab41fc99d172e812438bc9188f30a67216f748
 		mkdir build
 		cd build
-		cmake ..          # CMake before 4
-		# CMake 4 (including current Homebrew) — use instead:
-		cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 ..
+		cmake -DENABLE_PYTHON=OFF ..
 		make
 		sudo make install
 		sudo ldconfig     # Linux only
+
+That is the commit CI tests against and `install.sh <https://github.com/SqueakyFloors/ubertooth/blob/main/install.sh>`__ builds, and a CI step fails if this page falls behind it. ``./install.sh`` does all of the above for you, and ``./install.sh --libbtbb-url``/``--libbtbb-ref`` build a different libbtbb; an older libbtbb, upstream's included, may need CMake options this guide does not pass.
 
 
 

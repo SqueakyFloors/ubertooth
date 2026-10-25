@@ -15,7 +15,12 @@ BLE (Bluetooth Smart) sniffer and can sniff some data from Basic Rate
 The latest release is [2020-12-R1](https://github.com/greatscottgadgets/ubertooth/releases/tag/2020-12-R1).
 The latest firmware build can be found on the release page.
 
-This release is paired with [libbtbb 2020-12-R1](https://github.com/greatscottgadgets/libbtbb/releases/tag/2020-12-R1).
+That release is paired with [libbtbb 2020-12-R1](https://github.com/greatscottgadgets/libbtbb/releases/tag/2020-12-R1).
+The current tree instead builds against this project's
+[libbtbb fork](https://github.com/SqueakyFloors/libbtbb), pinned to one commit
+that `install.sh`, CI and the build guide all use, so a push to libbtbb cannot
+change an Ubertooth build. The fork builds on current CMake and Python tooling
+without the workarounds upstream needs.
 
 Instructions for flashing the firmware can be found [on the corresponding readthedocs.io firmware page](https://ubertooth.readthedocs.io/en/latest/firmware.html).
 
@@ -23,7 +28,10 @@ The host tools require firmware built from the same source tree (the same
 firmware API version), so flash the firmware whenever you update the tools:
 `./install.sh --flash-device <index|serial|all>`.
 
-Instructions for building libbtbb can be found [on the corresponding readthedocs.io build_guide page](https://ubertooth.readthedocs.io/en/latest/build_guide.html).
+Instructions for building libbtbb by hand, with the pin, are in this tree's
+[build guide](docs/source/build_guide.rst); the published
+[readthedocs.io build_guide page](https://ubertooth.readthedocs.io/en/latest/build_guide.html)
+documents upstream, not this fork.
 
 Build dependencies (required vs optional, and what each enables) are listed in [REQUIREMENTS.md](REQUIREMENTS.md).
 
@@ -43,10 +51,11 @@ On Debian/Ubuntu it uses `apt` and installs into `/usr/local` with `sudo`. On
 macOS it needs [Homebrew](https://brew.sh), installs into the Homebrew prefix
 without `sudo`, and skips `ubertooth-scan`/`ubertooth-follow` (no BlueZ on
 macOS); use `--venv` there so the Python packages stay out of the system
-Python. Run `./install.sh --help` for all options, including `--prefix` and
-`--skip-deps` (use already-installed system packages). This is
-the from-source path; it is not a replacement for distro packaging
-(apt/dnf/brew).
+Python. Run `./install.sh --help` for all options, including `--prefix`,
+`--skip-deps` (use already-installed system packages), and
+`--libbtbb-url`/`--libbtbb-ref`, which build a libbtbb other than the pinned
+fork commit (`--help` prints the pin). This is the from-source path; it is not
+a replacement for distro packaging (apt/dnf/brew).
 
 --------------------
 

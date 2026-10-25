@@ -91,6 +91,13 @@
 - Replace deprecated Scapy packet-reading usage with `PcapReader`. Credit:
   [@stryngs](https://github.com/stryngs).
   [upstream #519](https://github.com/greatscottgadgets/ubertooth/pull/519)
+- libbtbb is built from this project's
+  [fork](https://github.com/SqueakyFloors/libbtbb) at a pinned commit, by CI,
+  `install.sh`, the `Dockerfile` and the build guide alike, so a push to
+  libbtbb cannot change an Ubertooth build. The fork configures on current
+  CMake without the `-DCMAKE_POLICY_VERSION_MINIMUM=3.5` workaround upstream
+  needs, and `install.sh --libbtbb-url`/`--libbtbb-ref` build a different
+  libbtbb. [#320](https://github.com/SqueakyFloors/ubertooth/issues/320)
 
 ### Reliability fixes
 

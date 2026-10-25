@@ -29,7 +29,15 @@
 #                     than one device is attached.
 #   --venv <path>     create/use a Python venv at <path> for the Python tools
 #                     and point the build at its interpreter
-#   --libbtbb-ref <r> git ref/tag of libbtbb to build (default: master)
+#   --libbtbb-url <u> git URL to clone libbtbb from; the default is this
+#                     project's fork
+#   --libbtbb-ref <r> git commit, tag or branch of libbtbb to build; the default
+#                     is a commit, pinned so that a push to the fork cannot
+#                     change what this script builds. Use these two options to
+#                     build a different libbtbb (a newer fork commit, or
+#                     another repository); an older libbtbb, upstream's
+#                     included, may need CMake options this script does not
+#                     pass. Both defaults are printed below.
 #   --prefix <path>   install prefix (default: /usr/local on Debian/Ubuntu,
 #                     the Homebrew prefix on macOS)
 #   --skip-deps       do not install system packages; assume they are present
@@ -49,7 +57,12 @@ WITH_FIRMWARE=0
 FLASH=0
 FLASH_DEVICE=""
 VENV=""
-LIBBTBB_REF="master"
+# libbtbb comes from this project's fork, pinned to a commit so a push there
+# cannot change what this script builds. The pin is bumped in
+# .github/workflows/build.yml, which checks that this copy agrees with it.
+# --libbtbb-url / --libbtbb-ref override these for one run.
+LIBBTBB_URL="https://github.com/SqueakyFloors/libbtbb.git"
+LIBBTBB_REF="84ab41fc99d172e812438bc9188f30a67216f748"
 NO_SUDO=0
 PREFIX=""
 SKIP_DEPS=0
@@ -143,11 +156,18 @@ while [ $# -gt 0 ]; do
 		--flash) FLASH=1; WITH_FIRMWARE=1 ;;
 		--flash-device) shift; FLASH_DEVICE="${1:-}"; FLASH=1; WITH_FIRMWARE=1; [ -n "$FLASH_DEVICE" ] || die "--flash-device needs an index, serial, or 'all'" ;;
 		--venv) shift; VENV="${1:-}"; [ -n "$VENV" ] || die "--venv needs a path" ;;
+		--libbtbb-url) shift; LIBBTBB_URL="${1:-}"; [ -n "$LIBBTBB_URL" ] || die "--libbtbb-url needs a git URL" ;;
 		--libbtbb-ref) shift; LIBBTBB_REF="${1:-}"; [ -n "$LIBBTBB_REF" ] || die "--libbtbb-ref needs a value" ;;
 		--prefix) shift; PREFIX="${1:-}"; [ -n "$PREFIX" ] || die "--prefix needs a path" ;;
 		--skip-deps) SKIP_DEPS=1 ;;
 		--no-sudo) NO_SUDO=1 ;;
-		-h|--help) sed -n '3,/^# Copyright/p' "$0" | sed '/^# Copyright/d; s/^#\{1,\} \{0,1\}//; s/^#$//'; exit 0 ;;
+		-h|--help)
+			sed -n '3,/^# Copyright/p' "$0" | sed '/^# Copyright/d; s/^#\{1,\} \{0,1\}//; s/^#$//'
+			# Printed rather than written in the comment above, so the pin
+			# itself lives in exactly one place in this script.
+			printf 'libbtbb defaults:\n  --libbtbb-url %s\n  --libbtbb-ref %s\n' \
+				"$LIBBTBB_URL" "$LIBBTBB_REF"
+			exit 0 ;;
 		*) die "unknown option: $1 (use --help)" ;;
 	esac
 	shift
@@ -362,12 +382,14 @@ elif ! "$PYTHON" -m pip install --quiet "${PIP_DEPS[@]}" 2>/dev/null; then
 fi
 
 # --- 5. libbtbb -----------------------------------------------------------
-info "Building libbtbb ($LIBBTBB_REF)"
-git clone --quiet https://github.com/greatscottgadgets/libbtbb.git "$WORK/libbtbb"
+info "Building libbtbb ($LIBBTBB_REF from $LIBBTBB_URL)"
+git clone --quiet "$LIBBTBB_URL" "$WORK/libbtbb"
 git -C "$WORK/libbtbb" checkout --quiet "$LIBBTBB_REF"
-cmake -S "$WORK/libbtbb" -B "$WORK/libbtbb/build" \
-	-DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DENABLE_PYTHON=OFF \
-	-DCMAKE_INSTALL_PREFIX="$PREFIX" -Wno-deprecated >/dev/null
+# ENABLE_PYTHON=OFF skips libbtbb's pcaptools: the Ubertooth tools link only
+# the C library, and the Python tools would pip-install a package into PREFIX
+# that nothing here uses.
+cmake -S "$WORK/libbtbb" -B "$WORK/libbtbb/build" -DENABLE_PYTHON=OFF \
+	-DCMAKE_INSTALL_PREFIX="$PREFIX" >/dev/null
 cmake --build "$WORK/libbtbb/build" -j"$JOBS" >/dev/null
 as_installer cmake --install "$WORK/libbtbb/build" >/dev/null
 [ "$PLATFORM" = debian ] && as_root ldconfig

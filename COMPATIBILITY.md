@@ -31,7 +31,7 @@ Legend:
 | **GCC (host)** | 9.4 | 9.4 (Ubuntu 20.04 CI), 11.4 (22.04), 13.3 (24.04), 16.2 (Fedora CI); Apple clang 15 (macOS 14), 17 (macOS 15), 21 (macOS 26) | older than 9.4 (not tested) | ✅ 9.4 verified in CI (oldest tested) |
 | **arm-none-eabi-gcc (firmware)** | 9-2019-q4 (GCC 9.2.1) | 9-2019-q4 (Ubuntu 20.04 CI), 10.3-2021.07 (22.04), 13.2.rel1 (24.04), 15.3.1 (macOS 14/15/26 CI); 13.2 (Linux) and 15.3 (macOS) on hardware | older than 9-2019-q4 (not tested) | ✅ 9-2019-q4 verified in CI (oldest tested) |
 | **libusb** | 1.0.23 | 1.0.23 (Ubuntu 20.04 CI), 1.0.25 (22.04), 1.0.27 (24.04), 1.0.30 (macOS) | pre-1.0; older than 1.0.23 (not tested) | ✅ 1.0.23 verified in CI (oldest tested) |
-| **libbtbb** | 2020-12-R1 | current master (C lib) | older than 2020-12-R1 | 🎯 minimum not exercised: CI builds current master |
+| **libbtbb** | the pinned fork commit ([`84ab41f`](https://github.com/SqueakyFloors/libbtbb/commit/84ab41fc99d172e812438bc9188f30a67216f748), C lib) | that commit (CI, `install.sh`, Dockerfile); upstream master was CI's dependency until the switch to the pin | any other libbtbb, upstream's included: untested here | ✅ the pin is what CI builds |
 | **ronn-ng (man pages)** | 0.10.1, exactly | 0.10.1 (`Man pages` CI job on Ubuntu 24.04; macOS 26 via Homebrew) | any other version: it renders the same Markdown differently, so the committed pages would stop matching a refresh | ✅ 0.10.1 verified in CI. Optional: only `refresh-manpages` needs it, and a build neither needs it nor runs it |
 | **Ubertooth firmware (API)** | 1.14 (this tree), exactly | 1.14 flashed on an Ubertooth One and read back, with a symbol-stream capture; the mode checks of [#251](https://github.com/SqueakyFloors/ubertooth/issues/251) have not been run on it | any other API version, including 1.07 (`2020-12-R1`): refused by the tools, except `ubertooth-util` reading the version or reflashing | 🎯 1.14 runs on hardware, but only `ubertooth-dfu`, `ubertooth-util -v` and a receive have been exercised there ([#251](https://github.com/SqueakyFloors/ubertooth/issues/251)); the exact-version refusal was verified on an Ubertooth One with 1.12 |
 
@@ -78,9 +78,24 @@ and flash of both boards with `--flash-device all`. Intel Macs are unverified.
 
 ### CMake 4.x
 Modern CMake (4.x) removed compatibility with `cmake_minimum_required < 3.5`.
-This fork declares `cmake_minimum_required(VERSION 3.5...3.27)`; the companion
-`libbtbb` dependency still needs `-DCMAKE_POLICY_VERSION_MINIMUM=3.5` to
-configure under CMake 4 (handled in CI).
+This fork declares `cmake_minimum_required(VERSION 3.5...3.27)`, and the
+pinned `libbtbb` fork commit declares a range too, so neither needs
+`-DCMAKE_POLICY_VERSION_MINIMUM=3.5` any more. Upstream `libbtbb` still
+declares `VERSION 2.8` and does need it; building against upstream instead of
+the pin (`install.sh --libbtbb-url`/`--libbtbb-ref`) is on you.
+
+### libbtbb comes from this project's fork, at a pinned commit
+CI, `install.sh`, the `Dockerfile` and the build guide all build the same
+`SqueakyFloors/libbtbb` commit, so a push to libbtbb cannot change an
+Ubertooth build. The pin lives in `.github/workflows/build.yml`; a CI step
+fails if the other three fall behind it. Only the C library is built
+(`-DENABLE_PYTHON=OFF`): the Ubertooth tools link nothing else from libbtbb.
+
+The pin changes no part of `btbb.h`, so the interface these tools compile and
+link against is the same as upstream's, and upstream master — which CI built
+until this change — should keep working. It is simply no longer what gets
+tested. Older upstream releases, `2020-12-R1` included, have never been
+exercised here.
 
 ### Firmware build: GNU make 3.81 (macOS) and the generated version.h
 The firmware builds with the stock GNU make on macOS (**3.81**) as well as the

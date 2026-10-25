@@ -24,12 +24,19 @@ RUN apt-get update && apt-get install -y \
     wget \
     && rm -rf /var/lib/apt/lists/*
 RUN pip3 install git+https://github.com/CapableRobot/CapableRobot_USBHub_Driver --upgrade
-RUN wget https://github.com/greatscottgadgets/libbtbb/archive/2020-12-R1.tar.gz -O libbtbb-2020-12-R1.tar.gz &&\
-    tar -xf libbtbb-2020-12-R1.tar.gz &&\
-    cd libbtbb-2020-12-R1 &&\
+
+# libbtbb comes from this project's fork, pinned to a commit so a push there
+# cannot change this image. The pin is bumped in .github/workflows/build.yml,
+# which checks that this copy agrees with it. ENABLE_PYTHON=OFF skips
+# libbtbb's pcaptools: the Ubertooth tools link only the C library.
+ARG LIBBTBB_URL=https://github.com/SqueakyFloors/libbtbb.git
+ARG LIBBTBB_REF=84ab41fc99d172e812438bc9188f30a67216f748
+RUN git clone "$LIBBTBB_URL" libbtbb &&\
+    cd libbtbb &&\
+    git checkout "$LIBBTBB_REF" &&\
     mkdir build &&\
     cd build &&\
-    cmake .. &&\
+    cmake -DENABLE_PYTHON=OFF .. &&\
     make &&\
     make install &&\
     ldconfig

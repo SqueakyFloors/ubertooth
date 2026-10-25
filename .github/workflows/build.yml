@@ -43,6 +43,13 @@ concurrency:
 # (env is not available in strategy), so the full-tier test is repeated below.
 env:
   BUILD_TYPE: Release
+  # libbtbb comes from this project's fork, pinned to a commit so a push there
+  # cannot change an ubertooth build. This is the place to bump it: every job
+  # below fetches that commit, and the "Check the libbtbb pin" step names the
+  # other files that write it out (install.sh, the Dockerfile, the build
+  # guide) and fails until they agree.
+  LIBBTBB_REPO: SqueakyFloors/libbtbb
+  LIBBTBB_REF: 84ab41fc99d172e812438bc9188f30a67216f748
 
 jobs:
   host:
@@ -59,10 +66,26 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Check the libbtbb pin
+      shell: bash
+      # The pinned commit above is also written out in the three places a user
+      # or an image builds libbtbb from. Fail here, naming the file, rather
+      # than let one of them drift to an older libbtbb.
+      run: |
+        status=0
+        for f in install.sh Dockerfile docs/source/build_guide.rst; do
+          grep -q "$LIBBTBB_REF" "$f" || {
+            echo "$f does not name the pinned libbtbb commit $LIBBTBB_REF"
+            status=1
+          }
+        done
+        exit $status
+
     - uses: actions/checkout@v4
       name: Fetch libbtbb
       with:
-        repository: 'greatscottgadgets/libbtbb'
+        repository: ${{ env.LIBBTBB_REPO }}
+        ref: ${{ env.LIBBTBB_REF }}
         path: 'libbtbb'
 
     - name: Install dependencies (macOS)
@@ -81,11 +104,10 @@ jobs:
     - name: (libbtbb) Configure CMake
       shell: bash
       working-directory: ${{github.workspace}}/libbtbb/build
-      # libbtbb (upstream) still declares cmake_minimum_required < 3.5, which
-      # CMake 4.x rejects outright -> CMAKE_POLICY_VERSION_MINIMUM=3.5.
-      # ENABLE_PYTHON=OFF skips libbtbb's pcaptools, whose setup.py fails on
-      # modern setuptools (InvalidVersion: ''); ubertooth only needs the C lib.
-      run: cmake $GITHUB_WORKSPACE/libbtbb/ -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DENABLE_PYTHON=OFF
+      # ENABLE_PYTHON=OFF skips libbtbb's pcaptools: ubertooth links only the C
+      # library, and building the Python tools adds a pip wheel build and a
+      # pip install into the CI prefix that nothing here uses.
+      run: cmake $GITHUB_WORKSPACE/libbtbb/ -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DENABLE_PYTHON=OFF
 
     - name: (libbtbb) Build
       working-directory: ${{github.workspace}}/libbtbb/build
@@ -252,7 +274,8 @@ jobs:
     - uses: actions/checkout@v4
       name: Fetch libbtbb
       with:
-        repository: 'greatscottgadgets/libbtbb'
+        repository: ${{ env.LIBBTBB_REPO }}
+        ref: ${{ env.LIBBTBB_REF }}
         path: 'libbtbb'
 
     - name: (libbtbb) Build and install
@@ -260,7 +283,7 @@ jobs:
       run: |
         cmake -E make_directory libbtbb/build
         cd libbtbb/build
-        cmake "$GITHUB_WORKSPACE/libbtbb/" -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DENABLE_PYTHON=OFF
+        cmake "$GITHUB_WORKSPACE/libbtbb/" -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DENABLE_PYTHON=OFF
         cmake --build . --config $BUILD_TYPE
         cmake --install . --config $BUILD_TYPE
 
@@ -336,7 +359,8 @@ jobs:
     - uses: actions/checkout@v4
       name: Fetch libbtbb
       with:
-        repository: 'greatscottgadgets/libbtbb'
+        repository: ${{ env.LIBBTBB_REPO }}
+        ref: ${{ env.LIBBTBB_REF }}
         path: 'libbtbb'
 
     - name: (libbtbb) Build and install
@@ -344,7 +368,7 @@ jobs:
       run: |
         cmake -E make_directory libbtbb/build
         cd libbtbb/build
-        cmake "$GITHUB_WORKSPACE/libbtbb/" -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DENABLE_PYTHON=OFF
+        cmake "$GITHUB_WORKSPACE/libbtbb/" -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DENABLE_PYTHON=OFF
         cmake --build . --config $BUILD_TYPE
         cmake --install . --config $BUILD_TYPE
         ldconfig || true

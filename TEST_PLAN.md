@@ -10,7 +10,7 @@ Hardware required: Ubertooth One, Linux machine (Ubuntu 22.04+ preferred), a BLE
 ### 1a. Clean build on Ubuntu 22.04
 - [ ] Clone repo fresh on Ubuntu 22.04
 - [ ] Install dependencies: `sudo apt install cmake gcc libusb-1.0-0-dev python3 python3-numpy python3-qtpy python3-pyqt5 python3-usb1`
-- [ ] Build libbtbb from this repo's companion (or upstream)
+- [ ] Build libbtbb from the pinned fork commit (see [the build guide](docs/source/build_guide.rst))
 - [ ] Run `cmake .. && make` in `host/build/`
 - [ ] Confirm: no errors, no warnings about CMake version
 - [ ] Confirm: `ubertooth-util` binary exists in build output

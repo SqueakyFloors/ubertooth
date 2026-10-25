@@ -44,13 +44,15 @@ Next the Bluetooth baseband library (libbtbb) needs to be built for the Ubertoot
 
 	.. code-block:: sh
 
-		git clone https://github.com/greatscottgadgets/libbtbb.git
+		git clone https://github.com/SqueakyFloors/libbtbb.git
 		cd libbtbb
 		mkdir build
 		cd build
-		cmake ..
+		cmake -DENABLE_PYTHON=OFF ..
 		make
 		sudo make install
+
+This clones this project's libbtbb fork at its current ``master``. The `build guide <https://github.com/SqueakyFloors/ubertooth/blob/main/docs/source/build_guide.rst>`__ has the commit the Ubertooth tools are built and tested against.
 
 **Linux users**: if you are installing for the first time, or you receive errors about finding the library, you should run:
 

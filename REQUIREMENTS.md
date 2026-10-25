@@ -15,7 +15,7 @@ dependency into a hard error (recommended for CI and release builds).
 | C/C++ compiler | build | `gcc g++` | `gcc gcc-c++` | Xcode CLT |
 | pkg-config | dep discovery | `pkg-config` | `pkgconf-pkg-config` | `pkg-config` |
 | libusb-1.0 | USB device access | `libusb-1.0-0-dev` | `libusb1-devel` | `libusb` |
-| libbtbb | Bluetooth baseband decode | build from source (match release) | source | source |
+| libbtbb | Bluetooth baseband decode | build from source (the pinned fork commit, see [the build guide](docs/source/build_guide.rst)) | source | source |
 
 Missing a **required** dependency fails the build.
 
@@ -64,7 +64,7 @@ sudo apt-get install cmake build-essential pkg-config \
      libusb-1.0-0-dev libbluetooth-dev libfftw3-dev \
      python3 python3-numpy python3-qtpy python3-pyqt5 python3-usb1 \
      dfu-util gcc-arm-none-eabi libnewlib-arm-none-eabi
-# then build libbtbb from source (matching the release), then the host tools
+# then build libbtbb from source (the pinned fork commit), then the host tools
 ```
 
 ## Verifying what got built
