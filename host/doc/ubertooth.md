@@ -39,11 +39,13 @@ Less useful commands:
 
 ## OPTION VALUES
 
-These pages write an option's value as a separate word, which is the POSIX
-convention: `ubertooth-util -c 2440`, `ubertooth-btle -a 8e89bed6`,
-`ubertooth-rx -l 446688 -u 22`. The value placeholders are written the same way
-(`-c <2402-2480>`). A one-letter option also takes its value attached, so
-`-c 2440` and `-c2440` are the same. Where the value is optional, the next word
+These pages write an option's value as a separate word: `ubertooth-util -c
+2440`, `ubertooth-btle -a 8e89bed6`, `ubertooth-rx -l 446688 -u 22`. This
+follows a standard, the POSIX Utility Syntax Guidelines (guideline 6: an option
+and its value are separate arguments). The value placeholders are written the
+same way (`-c <2402-2480>`). The older attached form is still accepted for
+backward compatibility with existing scripts, so `-c 2440` and `-c2440` are the
+same. Where the value is optional, the next word
 is taken as the value only when it is a valid value, so an option never
 swallows the option after it: `-c -b` reads the channel and then the board ID,
 while `-z -90` sets the squelch to -90 dBm. A long option takes `--name value` or
