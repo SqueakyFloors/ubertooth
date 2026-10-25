@@ -77,10 +77,10 @@ the command line is read, and it is opened only once every check has passed.
 
 ## DIAGNOSTICS
 
-Standard output carries only the samples: the text lines in the default, `-g`
-and `-G` modes, or the raw records with `-d -`. Errors, warnings and progress,
-including `Ubertooth stopped`, go to standard error, each error as one line
-starting `error: `, for example
+Standard output carries only the samples — the text lines in the default, `-g`
+and `-G` modes, or the raw records with `-d -` — and the usage text for `-h`.
+Errors, warnings and progress, including `Ubertooth stopped`, go to standard
+error, each error as one line starting `error: `, for example
 `error: /no/such/dir/samples.bin: No such file or directory` for a `-d` file
 that cannot be opened, or
 `error: writing samples failed: wrote 0 of 3 bytes` once the capture is

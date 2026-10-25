@@ -420,7 +420,8 @@ than report something: `Resetting ubertooth device <selector>`,
 `Entering LED specan mode (threshold -<n> dBm)`, `Starting range test`,
 `Starting repeater`, `Starting TX test` and `Setting squelch to <n>`. They
 were written to standard output before. The value `-z` reads back
-(`Squelch set to <n>`) is a result and stays on standard output.
+(`Squelch set to <n>`) is a result and stays on standard output. `-x`
+announces nothing, because the lights it starts are the announcement.
 
 Errors are one line starting `error: `; warnings and notes start `warning: `
 and `note: `.

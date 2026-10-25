@@ -19,7 +19,8 @@ except ImportError:  # no pty module on this platform
 
 
 BINARY = sys.argv[1]
-ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1")
+# LC_ALL=C so the strerror() text in a file error is the one asserted below.
+ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1", LC_ALL="C")
 # A serial no board has, so a run gets past the -d value and stops at device
 # selection without touching a board.
 NO_SUCH_SERIAL = "ffffffffffffffffffffffffffffffff"

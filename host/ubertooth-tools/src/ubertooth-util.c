@@ -603,7 +603,8 @@ int main(int argc, char *argv[])
 		}
 	}
 	if (do_flash == 0)
-		fprintf(stderr, "ubertooth-util -f is no longer required - use ubertooth-dfu instead\n");
+		fprintf(stderr, "warning: ubertooth-util -f is no longer required "
+		        "- use ubertooth-dfu instead\n");
 
 	requested[QUERY_BOARD_ID] = (do_board_id == 0);
 	requested[QUERY_FIRMWARE] = (do_firmware == 0);

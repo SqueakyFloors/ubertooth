@@ -927,6 +927,8 @@ MU_TEST(stop_and_reset_report_failures)
 	r = RUN("-S");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert_int_eq(1, fake.stop_calls);
+	mu_assert(strcmp(r.out, "") == 0, r.out);
+	mu_assert(strcmp(r.err, "Stopping ubertooth device 0\n") == 0, r.err);
 
 	reset_fake();
 	fake.stop_rc = -1;
@@ -1029,6 +1031,8 @@ MU_TEST(mode_commands_exit_zero_on_success_and_one_on_failure)
 		mu_assert_int_eq(0, r.rc);
 		mu_assert_int_eq(1, mode_calls(i));
 		mu_assert_int_eq(stops_first, fake.stop_calls);
+		/* starting a mode reports nothing: its progress line is on stderr */
+		mu_assert(strcmp(r.out, "") == 0, r.out);
 
 		reset_fake();
 		*mode_result(i) = -1;
