@@ -326,13 +326,22 @@ int main(int argc, char *argv[])
 		return r;
 
 	r = ubertooth_bulk_thread_start();
-	if (r < 0)
+	if (r < 0) {
+		/* The receive transfer is in flight and the board is about to be
+		 * left in its mode: give both back before returning. */
+		ubertooth_stop(ut);
 		return r;
+	}
 
 	// tell ubertooth to send packets
 	r = cmd_rx_syms(ut->devh);
-	if (r < 0)
+	if (r < 0) {
+		/* The poll thread is running by now and nothing else joins it:
+		 * ubertooth_stop() frees the libusb context it polls. */
+		ubertooth_bulk_thread_stop();
+		ubertooth_stop(ut);
 		return r;
+	}
 
 	// receive and process each packet
 	while(!ut->stop_ubertooth) {
