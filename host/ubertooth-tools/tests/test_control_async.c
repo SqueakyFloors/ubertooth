@@ -379,8 +379,9 @@ static void submit_and_fail(uint8_t request, int status, char* text, size_t len)
 /* A stall is how the board refuses a request it does not implement, and it
  * arrives here, at completion, not as a submit failure. The message used to
  * be show_libusb_error(LIBUSB_TRANSFER_STALL), which read the status as a
- * libusb_error code and printed "libUSB Error: Unknown error: (4)" -- naming
- * neither the command nor what happened. */
+ * libusb_error code and printed "libUSB Error: Other error:  (4)" --
+ * libusb_strerror()'s answer for any positive code, naming neither the
+ * command nor what happened. */
 MU_TEST(a_stalled_command_is_named_and_reported_as_unsupported)
 {
 	char text[256] = "";
@@ -396,7 +397,7 @@ MU_TEST(a_stalled_command_is_named_and_reported_as_unsupported)
 
 	/* nothing is left of the old, meaningless line */
 	mu_assert(strstr(text, "libUSB Error") == NULL, text);
-	mu_assert(strstr(text, "Unknown error") == NULL, text);
+	mu_assert(strstr(text, "Other error") == NULL, text);
 }
 
 /* Every command that submits asynchronously names itself. */

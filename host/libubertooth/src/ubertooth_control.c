@@ -81,8 +81,10 @@ static const char* async_request_name(uint8_t request)
 
 /* A libusb_transfer_status in plain words. These are not libusb_error codes
  * -- they are a separate, positive enumeration -- so passing one to
- * show_libusb_error() printed a stall (2) as "Unknown error: (2)". NULL for a
- * status this libusb version has added, which is then printed as a number. */
+ * show_libusb_error() printed a stall (status 4) as
+ * "libUSB Error: Other error:  (4)", which is what libusb_strerror() returns
+ * for any positive code. NULL for a status this libusb version has added,
+ * which is then printed as a number. */
 static const char* transfer_status_text(int status)
 {
 	switch (status) {
@@ -94,6 +96,9 @@ static const char* transfer_status_text(int status)
 		case LIBUSB_TRANSFER_NO_DEVICE:
 			return "the board is no longer attached";
 		case LIBUSB_TRANSFER_CANCELLED:
+			/* Reported, where the bulk callback stays quiet about a
+			 * cancellation: nothing cancels a control transfer, so one that
+			 * comes back cancelled is a surprise, not a teardown. */
 			return "the transfer was cancelled";
 		case LIBUSB_TRANSFER_OVERFLOW:
 			return "the board sent more data than the request allows";
@@ -124,7 +129,7 @@ static void callback(struct libusb_transfer* transfer)
 
 	/* The setup packet this transfer carries: buffer[1] is bRequest. */
 	if (transfer->buffer != NULL
-	    && transfer->length >= LIBUSB_CONTROL_SETUP_SIZE) {
+	    && transfer->length >= (int)LIBUSB_CONTROL_SETUP_SIZE) {
 		uint8_t request = transfer->buffer[1];
 
 		name = async_request_name(request);

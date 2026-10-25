@@ -90,7 +90,7 @@
 - A follow-mode control command the board refuses now names itself and says
   what went wrong, for example `error: start hopping failed: the board does
   not support this command (stalled)`. It used to read the completion status
-  as a libusb error code and print `libUSB Error: Unknown error: (4)`.
+  as a libusb error code and print `libUSB Error: Other error:  (4)`.
   [#275](https://github.com/SqueakyFloors/ubertooth/issues/275)
 - Follow mode's asynchronous control commands (hop, AFH map, clock trim, start
   hopping) now give libusb a buffer that outlives the submit, and release the
