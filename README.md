@@ -68,6 +68,7 @@ Ubertooth ships a set of host command-line tools. Each links to its manual page.
 | Tool | What it does | Needs |
 |---|---|---|
 | [ubertooth-btle](host/doc/ubertooth-btle.md) | Passive BLE monitoring; follow connections (`-f`), capture advertising (`-n`), or stream PCAP to stdout (`-q -`/`-c -`) | ambient BLE |
+| [btle-extcap.py](host/python/extcap/README.md) | Lets Wireshark capture BLE advertising from an Ubertooth directly, by running `ubertooth-btle` for it | Wireshark |
 
 ### Classic Bluetooth (BR/EDR)
 | Tool | What it does | Needs |

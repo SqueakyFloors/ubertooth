@@ -15,13 +15,16 @@ Command-line tools
 ~~~~~~~~~~~~~~~~~~
 
 The host tools, grouped by purpose. "Needs" lists what is required beyond the
-Ubertooth itself. Each tool also has a manual page under ``host/doc/``.
+Ubertooth itself. Most tools also have a manual page under ``host/doc/``.
 
 **BLE**
 
 - ``ubertooth-btle`` — Passive BLE monitoring; follow connections / capture
   advertising with ``-f``. (Needs: ambient BLE traffic.) The most commonly used
   tool.
+- ``btle-extcap.py`` — An external capture program that lets Wireshark capture
+  BLE advertising from an Ubertooth directly, by running ``ubertooth-btle`` for
+  it; see ``host/python/extcap/README.md``. (Needs: Wireshark.)
 
 **Classic Bluetooth (BR/EDR)**
 
