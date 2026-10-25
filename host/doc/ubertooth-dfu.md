@@ -43,16 +43,27 @@ given, the tool detaches it anyway, reopening the DFU device on the same
 physical path when the failure closed the handle, so the board returns to its
 application. A board that never answered in DFU at all cannot be detached, and
 then needs another `ubertooth-dfu` run or a power cycle. A reset the bootloader
-refuses is reported and fails the command instead of exiting 0 with the board
-still in DFU; a reset it accepts but does not act on is caught only by the
-`-d ... -r` verification below.
+refuses, and one it accepts and then does not act on, are both reported and
+fail the command instead of exiting 0 with the board still in DFU.
 
-The detach request can fail because the bootloader resets while it is still in
-flight, which on macOS is what every reset that worked looks like. No status
-from that request is read as a verdict: the tool looks for the DFU device on
-the same physical path again, and reports the board as still in DFU only when
-it is still there. Once it has gone, the run carries on to the `-d ... -r`
-verification, which decides whether the flash succeeded.
+What the detach request returns says nothing about where the board ended up,
+in either direction. It can fail because the bootloader resets while the
+request is still in flight, which on macOS is what every reset that worked
+looks like, and it can complete on a bootloader that acknowledges it and stays
+where it is. So no status from that request is read as a verdict: the tool
+looks for the DFU device on the same physical path again, and reports the
+board as detached only once it has gone. The run then carries on to the
+`-d ... -r` verification, which decides whether the flash succeeded.
+
+The question that check asks is whether the device left its path, not where it
+ended up, so it has a blind spot.
+
+A board that resets straight back into the bootloader, with the
+expansion-header bridge described under MANUALLY ENTERING BOOTLOADER still in
+place, may be reported as detached: whether the gap in which it is absent falls
+inside one of the 50 ms polls decides the answer. With `-d ... -r` the
+verification that follows catches it, because no application comes back on the
+expected revision; a bare `-r` or `-u ... -r` has only this check.
 
 If a transfer fails, in either direction, the tool closes the stale handle,
 reopens and claims the DFU device on the same physical path, restores its DFU
