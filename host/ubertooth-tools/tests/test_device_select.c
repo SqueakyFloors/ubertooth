@@ -387,6 +387,7 @@ MU_TEST(an_index_too_large_for_an_int_opens_nothing)
 MU_TEST(the_largest_representable_index_is_an_ordinary_refusal)
 {
 	char msg[256];
+	ubertooth_t *ut;
 
 	bus_with_ubertooths(2);
 	mu_assert(select_capturing("2147483647", msg, sizeof(msg)) == NULL, msg);
@@ -397,8 +398,11 @@ MU_TEST(the_largest_representable_index_is_an_ordinary_refusal)
 
 	/* Leading zeros are still just digits. */
 	bus_with_ubertooths(2);
-	mu_assert(select_capturing("01", msg, sizeof(msg)) != NULL, msg);
+	ut = select_capturing("01", msg, sizeof(msg));
+	mu_assert_fatal(ut != NULL, msg);
 	mu_assert(fake.opened == &fake.devs[2], "-U01 is index 1");
+	ubertooth_stop(ut);
+	ubertooth_free(ut);
 }
 
 /* The same refusal with exactly one device attached: the index is a position
@@ -601,8 +605,9 @@ MU_TEST(the_test_switch_hides_every_device)
 	          != NULL, msg);
 
 	/* Only "1" turns it on: a user whose environment holds the name for some
-	 * other reason still gets their board. A fatal assertion in this loop
-	 * returns with the switch still set, which is why this case runs last. */
+	 * other reason still gets their board. The switch is restored before each
+	 * selection below, so a fatal assertion in this loop cannot leave a value
+	 * that hides devices from a later case. */
 	for (i = 0; i < sizeof(off) / sizeof(off[0]); i++) {
 		setenv("UBERTOOTH_TEST_NO_DEVICES", off[i], 1);
 		bus_with_ubertooths(1);
