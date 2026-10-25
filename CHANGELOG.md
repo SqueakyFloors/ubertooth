@@ -352,6 +352,15 @@
   BLE mode shuts down is no longer dropped, which used to leave the board idle
   after the host had been told the mode started.
   [#209](https://github.com/SqueakyFloors/ubertooth/issues/209)
+- Fewer ways for the board to stop answering until it is re-plugged. USB is
+  serviced from whatever the firmware is doing at the time, so any wait that
+  never finishes stops the board answering anything: it still enumerates and
+  every control request times out. The waits on the USB controller are now
+  bounded, as are the radio waits in the spectrum analyzer and on the BLE
+  follow hop, which ran from an interrupt handler. A control request that
+  cannot be read is refused rather than run as whatever the previous request
+  was.
+  [#239](https://github.com/SqueakyFloors/ubertooth/issues/239)
 - `ubertooth-dfu` no longer waits forever for a bootloader that stops
   answering: every DFU state wait is bounded and ends with a message and exit
   1. A read-back (`-u`) that fails part-way is retried once like a download,

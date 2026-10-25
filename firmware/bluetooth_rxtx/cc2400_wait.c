@@ -36,3 +36,15 @@ int cc2400_wait_fs_unlock(void)
 {
 	return cc2400_wait_fs(0, NULL);
 }
+
+int cc2400_wait_xosc_stable(void)
+{
+	unsigned i;
+
+	for (i = 0; i < XOSC_STABLE_POLLS; ++i) {
+		if (cc2400_status() & XOSC16M_STABLE)
+			return 1;
+	}
+
+	return 0;
+}

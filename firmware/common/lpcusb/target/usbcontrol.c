@@ -48,6 +48,8 @@
 	control transfer data. The data is then packetised and sent to the host.
 */
 
+#include <string.h>
+
 #include "type.h"
 #include "debug.h"
 
@@ -144,7 +146,14 @@ static void DataIn(void)
 	int iChunk;
 
 	iChunk = MIN(MAX_PACKET_SIZE0, iResidue);
-	USBHwEPWrite(0x80, pbData, iChunk);
+	/*
+	 * Only move the transfer on for a packet the controller actually took.
+	 * A write that came up short has not been validated, so the host will
+	 * ask for this packet again; advancing here would answer that with the
+	 * next one and hand the host a reply assembled out of order.
+	 */
+	if (USBHwEPWrite(0x80, pbData, iChunk) != iChunk)
+		return;
 	pbData += iChunk;
 	iResidue -= iChunk;
 }
@@ -164,7 +173,26 @@ void USBHandleControlTransfer(U8 bEP, U8 bEPStat)
 		// OUT transfer
 		if (bEPStat & EP_STATUS_SETUP) {
 			// setup packet, reset request message state machine
-			USBHwEPRead(0x00, (U8 *)&Setup, sizeof(Setup));
+			/*
+			 * A setup packet is eight bytes, always. Anything else is not a
+			 * request: the read can come back short, or report no packet at
+			 * all if the endpoint stopped answering or was no longer the
+			 * selected one. The return value used to be ignored, which left
+			 * `Setup` holding the *previous* request and ran it again --
+			 * whatever it was, including a mode change or a reset -- or
+			 * decoded whatever partial bytes had landed in it. Clear the
+			 * state machine and stall instead; a stalled control transfer is
+			 * something the host retries.
+			 */
+			if (USBHwEPRead(0x00, (U8 *)&Setup, sizeof(Setup)) != (int)sizeof(Setup)) {
+				memset(&Setup, 0, sizeof(Setup));
+				pbData = NULL;
+				iResidue = 0;
+				iLen = 0;
+				DBG("short or failed SETUP read\n");
+				StallControlPipe(bEPStat);
+				return;
+			}
 			DBG("S%x", Setup.bRequest);
 
 			// defaults for data pointer and residue

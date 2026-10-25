@@ -323,17 +323,44 @@ int dequeue_send(u32 clkn)
 		return 1;
 	} else {
 		if (clkn - last_usb_pkt > USB_KEEP_ALIVE) {
-			u8 pkt_type = KEEP_ALIVE;
+			/* USBHwEPWrite() moves whole words, so the source has to be
+			 * word-sized even when only the first byte is sent. */
+			u8 pkt_type[4] = { KEEP_ALIVE, 0, 0, 0 };
 			last_usb_pkt = clkn;
-			USBHwEPWrite(BULK_IN_EP, &pkt_type, 1);
+			USBHwEPWrite(BULK_IN_EP, pkt_type, 1);
 		}
 		return 0;
 	}
 }
 
+/*
+ * Service USB from the loop that is running, with the USB interrupt held off.
+ *
+ * Everything in here drives the USB controller through registers there is only
+ * one of: USBCtrl selects which endpoint reads and writes apply to, USBTxPLen
+ * and USBRxPLen belong to that selection, and the protocol engine is driven by
+ * a command-code handshake reported through the device interrupt bits. The
+ * control transfer handler in usbcontrol.c also keeps one set of state for the
+ * transfer it is part way through. None of it can take a second caller.
+ *
+ * There are two callers in the firmware. Six modes service USB from the USB
+ * interrupt (bt_generic_le(), bt_le_sync(), bt_slave_le(), ego, xmas,
+ * identify); every other mode, and the main loop, call this instead. What
+ * keeps them apart today is only that no mode does both: each of those six
+ * enables the interrupt on the way in and disables it on the way out, and
+ * nothing calls this function in between. That is a property of fifteen mode
+ * functions, not of this code, and nothing used to state it or check it.
+ *
+ * Holding the interrupt off here makes it a property of this code: whatever a
+ * mode does, this is the only context driving USB while it runs. The interrupt
+ * is not lost -- the NVIC keeps it pending and takes it as soon as the mask is
+ * lifted -- and nothing is delayed that was not USB work anyway. On the modes
+ * that exist, the hold costs one register read.
+ */
 void handle_usb(u32 clkn)
 {
 	u8 epstat;
+	u32 usb_irq = usb_irq_hold();
 
 	/* write queued packets to USB if possible */
 	epstat = USBHwEPGetStatus(BULK_IN_EP);
@@ -346,4 +373,6 @@ void handle_usb(u32 clkn)
 
 	/* polled "interrupt" */
 	USBHwISR();
+
+	usb_irq_release(usb_irq);
 }

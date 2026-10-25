@@ -77,6 +77,9 @@ static TFnDevIntHandler *_pfnDevIntHandler = NULL;
 static TFnEPIntHandler  *_apfnEPIntHandlers[16];
 /** Installed frame interrupt handlers */
 static TFnFrameHandler  *_pfnFrameHandler = NULL;
+/** Whether a device status read has already been given a second chance; see
+    USBHwISR(). */
+static BOOL dev_stat_retried = FALSE;
 
 /** convert from endpoint address to endpoint index */
 #define EP2IDX(bEP) ((((bEP)&0xF)<<1)|(((bEP)&0x80)>>7))
@@ -84,18 +87,67 @@ static TFnFrameHandler  *_pfnFrameHandler = NULL;
 #define IDX2EP(idx) ((((idx)<<7)&0x80)|(((idx)>>1)&0xF))
 
 
+/** Number of hardware handshakes that gave up. Non-zero means the USB
+    controller stopped answering at least once; see the comment on
+    USBHW_POLLS. */
+volatile U32 usbhw_timeouts = 0;
+
 
 /**
     Local function to wait for a device interrupt (and clear it)
-        
-    @param [in] dwIntr      Bitmask of interrupts to wait for   
+
+    Bounded. This used to be `while ((USBDevIntSt & dwIntr) != dwIntr);`, and
+    it is reached from every control request and every bulk packet: the
+    protocol engine is driven by command codes whose completion is reported
+    only here. If that completion never arrives, the caller never returns, and
+    because USB in this firmware is serviced from whatever loop is running
+    (handle_usb()), a board whose firmware is stuck in here answers no further
+    USB request at all. That is the state issue #239 is about: the board still
+    enumerates, every control request times out, and only a power cycle brings
+    it back. A bound turns it into one transfer the host retries.
+
+    This handshake is also one set of registers -- USBCmdCode, USBCmdData and
+    these interrupt bits -- so it cannot take a second caller: two contexts
+    running a command at once would each clear the other's CCEMTY/CDFULL, and
+    whichever was left waiting would be waiting for a flag no outstanding
+    command will set. handle_usb() holds the USB interrupt off for that
+    reason.
+
+    @param [in] dwIntr      Bitmask of interrupts to wait for
+
+    @return TRUE if the interrupt bits arrived, FALSE if the wait gave up
  */
-static void Wait4DevInt(U32 dwIntr)
+static BOOL Wait4DevIntBounded(U32 dwIntr, U32 dwPolls)
 {
+    U32 i;
+
     // wait for specific interrupt
-    while ((USBDevIntSt & dwIntr) != dwIntr);
-    // clear the interrupt bits
+    for (i = 0; i < dwPolls; ++i) {
+        if ((USBDevIntSt & dwIntr) == dwIntr) {
+            // clear the interrupt bits
+            USBDevIntClr = dwIntr;
+            return TRUE;
+        }
+    }
+
+    /*
+     * Clear the bits on the way out too, so this wait is self-contained. The
+     * answer may still be coming: if it lands after we have given up and the
+     * bits are left set, the *next* wait for them returns at once and reads
+     * whatever the previous command left in USBCmdData -- a status byte
+     * belonging to another endpoint, or an endpoint realization that never
+     * happened. A bound that moved the failure to the next caller would not
+     * be worth much.
+     */
     USBDevIntClr = dwIntr;
+    ++usbhw_timeouts;
+    return FALSE;
+}
+
+
+static BOOL Wait4DevInt(U32 dwIntr)
+{
+    return Wait4DevIntBounded(dwIntr, USBHW_POLLS);
 }
 
 
@@ -104,13 +156,13 @@ static void Wait4DevInt(U32 dwIntr)
         
     @param [in] bCmd        Command to send
  */
-static void USBHwCmd(U8 bCmd)
+static BOOL USBHwCmd(U8 bCmd)
 {
     // clear CDFULL/CCEMTY
     USBDevIntClr = CDFULL | CCEMTY;
     // write command code
     USBCmdCode = 0x00000500 | (bCmd << 16);
-    Wait4DevInt(CCEMTY);
+    return Wait4DevInt(CCEMTY);
 }
 
 
@@ -123,7 +175,8 @@ static void USBHwCmd(U8 bCmd)
 static void USBHwCmdWrite(U8 bCmd, U16 bData)
 {
     // write command code
-    USBHwCmd(bCmd);
+    if (!USBHwCmd(bCmd))
+        return;
 
     // write command data
     USBCmdCode = 0x00000100 | (bData << 16);
@@ -138,15 +191,41 @@ static void USBHwCmdWrite(U8 bCmd, U16 bData)
 
     @return the data
  */
-static U8 USBHwCmdRead(U8 bCmd)
+static BOOL USBHwCmdReadChecked(U8 bCmd, U8 *pbData)
 {
     // write command code
-    USBHwCmd(bCmd);
-    
+    if (!USBHwCmd(bCmd))
+        return FALSE;
+
     // get data
     USBCmdCode = 0x00000200 | (bCmd << 16);
-    Wait4DevInt(CDFULL);
-    return USBCmdData;
+    if (!Wait4DevInt(CDFULL))
+        return FALSE;
+    *pbData = USBCmdData;
+    return TRUE;
+}
+
+
+/**
+    Local function to send a command to the USB protocol engine and read data
+
+    @param [in] bCmd        Command to send
+
+    @return the data, or zero if the handshake gave up
+
+    A caller that cannot act sensibly on a wrong answer should use
+    USBHwCmdReadChecked() instead. Zero is a safe answer for
+    USBHwEPGetStatus(), the hot caller: an endpoint that reads as neither full
+    nor stalled makes handle_usb() offer it another packet, which is what it
+    would have done anyway. It is not safe for a device status read, which is
+    why USBHwISR() uses the checked form there.
+ */
+static U8 USBHwCmdRead(U8 bCmd)
+{
+    U8 bData = 0;
+
+    (void)USBHwCmdReadChecked(bCmd, &bData);
+    return bData;
 }
 
 
@@ -170,7 +249,13 @@ static void USBHwEPRealize(int idx, U16 wMaxPSize)
     USBEpInd = idx;
 #endif
     USBMaxPSize = wMaxPSize;
-    Wait4DevInt(EP_RLZED);
+    /* Realizing an endpoint is the one wait here that is not a register
+     * handshake -- the controller reorganises its buffer space -- so it gets
+     * a bound of its own, well clear of the others. A false timeout would
+     * leave an endpoint unrealized, which is a board that enumerates and does
+     * nothing, so this bound exists only to stop a dead controller hanging
+     * the firmware, not to catch a slow one. */
+    Wait4DevIntBounded(EP_RLZED, USBHW_REALIZE_POLLS);
 }
 
 
@@ -357,6 +442,7 @@ void USBHwEPStall(U8 bEP, BOOL fStall)
 int USBHwEPWrite(U8 bEP, U8 *pbBuf, U32 iLen)
 {
     U32 idx;
+    U32 written;
     
     idx = EP2IDX(bEP);
     
@@ -366,13 +452,40 @@ int USBHwEPWrite(U8 bEP, U8 *pbBuf, U32 iLen)
     // set packet length
     USBTxPLen = iLen;
     
-    // write data
-    while (USBCtrl & WR_EN) {
+    /* Write data, a word at a time, until the packet is written or the
+     * hardware says it has had enough.
+     *
+     * The loop used to be `while (USBCtrl & WR_EN)` alone, trusting the
+     * controller to clear WR_EN once it had USBTxPLen bytes. A controller that
+     * does not clear it -- for whatever reason it stopped answering -- walks
+     * pbBuf through the whole of RAM and off the end of it: either forever, or
+     * into a bus fault and the LED loop in fault.c, which stops USB just as
+     * effectively. Counting the bytes we were asked to write bounds it, which
+     * is what NXP's own driver for this part does; WR_EN still ends the loop
+     * early as it always did. */
+    for (written = 0; written < iLen; written += 4) {
+        if (!(USBCtrl & WR_EN))
+            break;
         USBTxData = (pbBuf[3] << 24) | (pbBuf[2] << 16) | (pbBuf[1] << 8) | pbBuf[0];
         pbBuf += 4;
     }
 
     USBCtrl = 0;
+
+    /*
+     * A packet the controller would not take whole is not a packet. Validating
+     * the buffer anyway would send a short one, and for a control transfer a
+     * short packet is how the host is told the data has ended -- so a reply
+     * cut off part way would read as complete, and the rest of it would arrive
+     * at the wrong offset. Leave the buffer unvalidated instead: the host gets
+     * no answer for this packet and retries the transfer. The caller is told
+     * how much was taken, and DataIn() uses that to leave its transfer where
+     * it was.
+     */
+    if (written < iLen) {
+        ++usbhw_timeouts;
+        return (int)written;
+    }
 
     // select endpoint and validate buffer
     USBHwCmd(CMD_EP_SELECT | idx);
@@ -402,13 +515,39 @@ int USBHwEPRead(U8 bEP, U8 *pbBuf, U32 iMaxLen)
     // set read enable bit for specific endpoint
     USBCtrl = RD_EN | ((bEP & 0xF) << 2);
     
-    // wait for PKT_RDY
-    do {
+    /* Wait for PKT_RDY, with a bound.
+     *
+     * This is on the path of every control request: USBHandleControlTransfer()
+     * reads the SETUP packet through here. The wait used to have no bound, and
+     * the length it polls comes from USBRxPLen, which only answers while this
+     * endpoint is the one selected in the global USBCtrl register -- so a
+     * controller that stops answering, or a selection that is no longer this
+     * endpoint, left this polling forever and the firmware servicing USB never
+     * again (issue #239). Callers have to check the result: a read that gave
+     * up has not filled the buffer, and acting on what was already in it is
+     * how a stale request gets run (see USBHandleControlTransfer()). */
+    for (i = 0; i < USBHW_POLLS; ++i) {
         dwLen = USBRxPLen;
-    } while ((dwLen & PKT_RDY) == 0);
+        if (dwLen & PKT_RDY)
+            break;
+    }
+    if (i == USBHW_POLLS) {
+        /* No CMD_EP_CLEAR_BUFFER here: there is no packet to release, and
+         * claiming one that has not arrived would throw away the next. For
+         * endpoint 0 that is enough -- a SETUP token resets the control
+         * endpoint in hardware, and the caller stalls, so the host's next
+         * setup packet starts clean. For a bulk OUT endpoint it means the
+         * buffer stays unclaimed until the controller answers again, which
+         * is an endpoint that NAKs rather than a firmware that hangs. Worth
+         * a look in the hardware soak. */
+        ++usbhw_timeouts;
+        USBCtrl = 0;
+        return -1;
+    }
     
     // packet valid?
     if ((dwLen & DV) == 0) {
+        USBCtrl = 0;
         return -1;
     }
     
@@ -544,8 +683,13 @@ DEBUG_LED_ON(9);
         USBDevIntClr = FRAME;
         // call handler
         if (_pfnFrameHandler != NULL) {
-            wFrame = USBHwCmdRead(CMD_DEV_READ_CUR_FRAME_NR);
-            _pfnFrameHandler(wFrame);
+            U8 bFrame = 0;
+            /* A frame number that could not be read is not a frame number;
+             * skip this one rather than report frame zero. */
+            if (USBHwCmdReadChecked(CMD_DEV_READ_CUR_FRAME_NR, &bFrame)) {
+                wFrame = bFrame;
+                _pfnFrameHandler(wFrame);
+            }
         }
     }
     
@@ -556,7 +700,28 @@ DEBUG_LED_ON(9);
             LPC2148 User manual revision 2, 25 july 2006.
         */
         USBDevIntClr = DEV_STAT;
-        bDevStat = USBHwCmdRead(CMD_DEV_STATUS);
+        /*
+         * The interrupt is cleared before the read, so a read that gave up
+         * would lose the event -- and a lost bus reset means the stack keeps
+         * an address and configuration the host has just taken away, which is
+         * a board that answers nothing. Put the interrupt back instead and
+         * read it on the next pass.
+         *
+         * Once, though. The device interrupt stays asserted while the bit is
+         * set, so against an engine that has stopped answering for good this
+         * would re-enter the handler for ever in the modes that service USB
+         * from the interrupt. One retry recovers the transient case; after
+         * that the event is dropped, and the endpoint work below still runs.
+         */
+        if (!USBHwCmdReadChecked(CMD_DEV_STATUS, &bDevStat)) {
+            if (!dev_stat_retried) {
+                dev_stat_retried = TRUE;
+                USBDevIntSet = DEV_STAT;
+            }
+            bDevStat = 0;
+        } else {
+            dev_stat_retried = FALSE;
+        }
         if (bDevStat & (CON_CH | SUS_CH | RST)) {
             // convert device status into something HW independent
             bStat = ((bDevStat & CON) ? DEV_STATUS_CONNECT : 0) |
@@ -579,9 +744,21 @@ DEBUG_LED_OFF(8);
         for (i = 0; i < 32; i++) {
             dwIntBit = (1 << i);
             if (USBEpIntSt & dwIntBit) {
+                /* Clear CDFULL first, the way USBHwCmd() does before a
+                 * command: this is the one place an answer is asked for
+                 * without going through it, so a flag left over from
+                 * anywhere else would make the read below return the wrong
+                 * endpoint's status. */
+                USBDevIntClr = CDFULL;
                 // clear int (and retrieve status)
                 USBEpIntClr = dwIntBit;
-                Wait4DevInt(CDFULL);
+                /* A handshake that gave up leaves USBCmdData holding some
+                 * earlier command's answer. Acting on that could call the
+                 * endpoint handler with, say, the setup bit of a transfer
+                 * that is long over, so skip the endpoint instead: the
+                 * interrupt bit is cleared, and the host retries. */
+                if (!Wait4DevInt(CDFULL))
+                    continue;
                 bEPStat = USBCmdData;
                 // convert EP pipe stat into something HW independent
                 bStat = ((bEPStat & EPSTAT_FE) ? EP_STATUS_DATA : 0) |

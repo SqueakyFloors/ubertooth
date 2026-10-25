@@ -55,6 +55,47 @@
 
 typedef int (VendorRequestHandler)(u8 request, u16 *request_params, u8 *data, int *data_len);
 
+/*
+ * Hold off the USB interrupt across a section that must not be re-entered,
+ * and put it back the way it was.
+ *
+ * Six modes service USB from the USB interrupt rather than from their loop
+ * (bt_generic_le(), bt_le_sync(), bt_slave_le(), ego, xmas, identify), so
+ * while those run, USBHwISR() -- and the vendor request handler with it --
+ * can land anywhere. Code that drives the USB controller or touches the
+ * packet queue has to keep it out for the duration. Where that code also
+ * runs inside one of those modes, as the queue does, this is what makes it
+ * safe; where it does not, as in handle_usb(), this is what keeps it safe if
+ * a mode ever does both.
+ *
+ * usb_irq_hold() reports whether the interrupt was enabled; pass that to
+ * usb_irq_release(), which re-enables it only if it was. Nesting is therefore
+ * safe, and a mode that services USB from its own loop pays only a register
+ * read. The interrupt is not lost while held off: the NVIC keeps it pending.
+ */
+static inline u32 usb_irq_hold(void)
+{
+	u32 was_enabled = ISER0 & ISER0_ISE_USB;
+
+	if (was_enabled) {
+		ICER0 = ICER0_ICE_USB;
+		/* A write to NVIC ICER0 is not self-synchronising on Cortex-M3, so
+		 * without these an interrupt already pending can still be taken
+		 * after the mask -- inside the section being protected. le_phy.c
+		 * works around the same thing for the DMA line with a flag. */
+		__asm__ volatile ("dsb" ::: "memory");
+		__asm__ volatile ("isb" ::: "memory");
+	}
+
+	return was_enabled;
+}
+
+static inline void usb_irq_release(u32 was_enabled)
+{
+	if (was_enabled)
+		ISER0 = ISER0_ISE_USB;
+}
+
 int ubertooth_usb_init(VendorRequestHandler *vendor_req_handler);
 void usb_queue_init();
 usb_pkt_rx *usb_enqueue();
