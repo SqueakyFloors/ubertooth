@@ -5,16 +5,18 @@ This is host code for use with bluetooth_rxtx firmware.
 
 Required Software
 -----------------
-These tools link to libbtbb (https://github.com/greatscottgadgets/libbtbb).
-The versions tend to be matched, git should always work with git and all
-releases should come in matched pairs (until the interface stabilizes).
-Libbtbb can be retrieved from git and built as follows:
+These tools link to libbtbb, and are built and tested against this project's
+fork of it (https://github.com/SqueakyFloors/libbtbb) at one pinned commit.
+The [build guide](../docs/source/build_guide.rst) names that commit; the
+simplest way to get it is [install.sh](../install.sh), which clones and builds
+it for you. By hand:
 ```
-$ git clone https://github.com/greatscottgadgets/libbtbb.git
+$ git clone https://github.com/SqueakyFloors/libbtbb.git
 $ cd libbtbb/
+$ git checkout <the commit named in the build guide>
 $ mkdir build
 $ cd build
-$ cmake ..
+$ cmake -DENABLE_PYTHON=OFF ..
 $ make
 $ sudo make install
 ```
