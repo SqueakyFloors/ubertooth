@@ -55,9 +55,23 @@ An option value must be a whole value in its range, or it is refused the same wa
 .P
 A refused command line creates and truncates nothing: \fB\-d\fR names its file while the command line is read, and it is opened only once every check has passed\.
 .SH "DIAGNOSTICS"
-Standard output carries only the samples \(em the text lines in the default, \fB\-g\fR and \fB\-G\fR modes, or the raw records with \fB\-d \-\fR \(em and the usage text for \fB\-h\fR\. Errors, warnings and progress, including \fBUbertooth stopped\fR, go to standard error\. The errors this tool prints itself are one line starting \fBerror:\fR, for example \fBerror: /no/such/dir/samples\.bin: No such file or directory\fR for a \fB\-d\fR file that cannot be opened, or \fBerror: writing samples failed: wrote 0 of 3 bytes (<reason>)\fR once the capture is running\. The unknown\-option line from the option parser and libubertooth's own messages, such as \fBcould not open Ubertooth device\fR, do not follow that yet\.
+Standard output carries only the samples \(em the text lines in the default, \fB\-g\fR and \fB\-G\fR modes, or the raw records with \fB\-d \-\fR \(em and the usage text for \fB\-h\fR\. Errors, warnings and progress, including \fBUbertooth stopped\fR, go to standard error\. The errors this tool prints itself are one line starting \fBerror:\fR, for example \fBerror: /no/such/dir/samples\.bin: No such file or directory\fR for a \fB\-d\fR file that cannot be opened\. The unknown\-option line from the option parser and libubertooth's own messages, such as \fBcould not open Ubertooth device\fR, do not follow that yet\.
 .P
-A run that cannot write a sample stops there and exits 1, rather than repeating the error for every block of the sweep: a closed pipe or a full disk does not come back\.
+If the samples cannot be written, \fBubertooth\-specan\fR says so once and exits 1, rather than reporting every failed write and then exiting 0\. A write that fails while the sweep is running ends it there, since a full disk does not come back:
+.IP "" 4
+.nf
+error: writing samples failed: wrote 0 of 3 bytes (<reason>)
+.fi
+.IP "" 0
+.P
+A write accepted into a buffer can still fail when that buffer is flushed, so the output is flushed and checked after the sweep as well, whether it went to a \fB\-d\fR file, to standard output with \fB\-d \-\fR, or to standard output as text:
+.IP "" 4
+.nf
+error: writing samples failed: could not flush the samples (<reason>)
+.fi
+.IP "" 0
+.P
+One case does not reach either line: when \fB\-d \-\fR writes into a pipe whose reader has gone, the process is killed by \fBSIGPIPE\fR before the failed write returns, so the shell reports status 141\.
 .SH "SEE ALSO"
 ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how option values are written
 .SH "AUTHOR"

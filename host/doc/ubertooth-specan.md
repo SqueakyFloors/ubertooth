@@ -82,15 +82,26 @@ and `-G` modes, or the raw records with `-d -` — and the usage text for `-h`.
 Errors, warnings and progress, including `Ubertooth stopped`, go to standard
 error. The errors this tool prints itself are one line starting `error: `, for
 example `error: /no/such/dir/samples.bin: No such file or directory` for a
-`-d` file that cannot be opened, or
-`error: writing samples failed: wrote 0 of 3 bytes (<reason>)` once the
-capture is running. The unknown-option line from the option parser and
-libubertooth's own messages, such as `could not open Ubertooth device`, do not
-follow that yet.
+`-d` file that cannot be opened. The unknown-option line from the option
+parser and libubertooth's own messages, such as
+`could not open Ubertooth device`, do not follow that yet.
 
-A run that cannot write a sample stops there and exits 1, rather than
-repeating the error for every block of the sweep: a closed pipe or a full disk
-does not come back.
+If the samples cannot be written, `ubertooth-specan` says so once and exits 1,
+rather than reporting every failed write and then exiting 0. A write that
+fails while the sweep is running ends it there, since a full disk does not
+come back:
+
+    error: writing samples failed: wrote 0 of 3 bytes (<reason>)
+
+A write accepted into a buffer can still fail when that buffer is flushed, so
+the output is flushed and checked after the sweep as well, whether it went to
+a `-d` file, to standard output with `-d -`, or to standard output as text:
+
+    error: writing samples failed: could not flush the samples (<reason>)
+
+One case does not reach either line: when `-d -` writes into a pipe whose
+reader has gone, the process is killed by `SIGPIPE` before the failed write
+returns, so the shell reports status 141.
 
 ## SEE ALSO
 

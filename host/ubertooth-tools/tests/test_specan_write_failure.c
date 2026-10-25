@@ -11,6 +11,7 @@
  * here with main() renamed, as test_util_main.c does. No device is opened:
  * the callback is handed a fifo this test filled itself.
  */
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -48,6 +49,73 @@ static void specan_args(uint8_t args[5], uint8_t mode)
 	args[4] = (uint8_t)(BT_FREQ_MIN >> 8);
 }
 
+/*
+ * A stream whose writes cannot reach anywhere: a real file opened for
+ * writing, whose descriptor is then replaced by a read-only one, so a write
+ * to it fails with EBADF. The descriptor stays open, so its number cannot be
+ * handed to something else while the stream still holds it. Buffered, the
+ * 3-byte writes are accepted and only the flush fails; unbuffered, each write
+ * fails as it is made.
+ */
+static FILE* broken_stream(int buffered)
+{
+	char path[] = "/tmp/specan-broken-XXXXXX";
+	int fd = mkstemp(path);
+	int readonly;
+	FILE* f;
+
+	if (fd < 0)
+		return NULL;
+	f = fdopen(fd, "w");
+	if (f == NULL) {
+		close(fd);
+		return NULL;
+	}
+	unlink(path);
+	if (!buffered)
+		setvbuf(f, NULL, _IONBF, 0);
+	readonly = open("/dev/null", O_RDONLY);
+	if (readonly < 0) {
+		fclose(f);
+		return NULL;
+	}
+	dup2(readonly, fileno(f));
+	close(readonly);
+	return f;
+}
+
+/* Standard error, redirected to a temp file and read back. */
+static char capture_path[] = "/tmp/specan-err-XXXXXX";
+static int capture_fd = -1;
+static int capture_saved = -1;
+
+static void capture_stderr_begin(void)
+{
+	char template[] = "/tmp/specan-err-XXXXXX";
+
+	memcpy(capture_path, template, sizeof(template));
+	capture_fd = mkstemp(capture_path);
+	fflush(stderr);
+	capture_saved = dup(fileno(stderr));
+	dup2(capture_fd, fileno(stderr));
+}
+
+static void capture_stderr_end(char* err, size_t err_size)
+{
+	FILE* captured;
+	long n;
+
+	fflush(stderr);
+	dup2(capture_saved, fileno(stderr));
+	close(capture_saved);
+	captured = fopen(capture_path, "r");
+	n = (long)fread(err, 1, err_size - 1, captured);
+	err[n] = '\0';
+	fclose(captured);
+	close(capture_fd);
+	unlink(capture_path);
+}
+
 /* One capture, with dumpfile set to the stream given, and whatever the
  * callback wrote to standard error returned in err. */
 static void one_block(ubertooth_t* ut, FILE* out, uint8_t mode,
@@ -55,10 +123,6 @@ static void one_block(ubertooth_t* ut, FILE* out, uint8_t mode,
 {
 	usb_pkt_rx rx;
 	uint8_t args[5];
-	char path[] = "/tmp/specan-err-XXXXXX";
-	int fd, saved;
-	FILE* captured;
-	long n;
 
 	memset(ut, 0, sizeof(*ut));
 	ut->fifo = fifo_init();
@@ -67,23 +131,12 @@ static void one_block(ubertooth_t* ut, FILE* out, uint8_t mode,
 	specan_args(args, mode);
 
 	output_failed = 0;
+	write_failure_said = 0;
 	dumpfile = out;
 
-	fd = mkstemp(path);
-	fflush(stderr);
-	saved = dup(fileno(stderr));
-	dup2(fd, fileno(stderr));
+	capture_stderr_begin();
 	cb_specan(ut, args);
-	fflush(stderr);
-	dup2(saved, fileno(stderr));
-	close(saved);
-
-	captured = fopen(path, "r");
-	n = (long)fread(err, 1, err_size - 1, captured);
-	err[n] = '\0';
-	fclose(captured);
-	close(fd);
-	unlink(path);
+	capture_stderr_end(err, err_size);
 	free(ut->fifo);
 }
 
@@ -93,11 +146,11 @@ MU_TEST(a_failed_sample_write_ends_the_run)
 	FILE* unwritable;
 	char err[512];
 
-	/* A stream whose file descriptor is open for reading only, and
-	 * unbuffered so the write reaches it rather than sitting in stdio. */
-	unwritable = fopen("/dev/null", "r");
-	mu_assert(unwritable != NULL, "/dev/null opened");
-	setvbuf(unwritable, NULL, _IONBF, 0);
+	/* Unbuffered, so the write goes straight to a descriptor that is gone:
+	 * it fails in fwrite() rather than at the flush, which is the full-disk
+	 * case the sweep has to notice while it is running. */
+	unwritable = broken_stream(0);
+	mu_assert_fatal(unwritable != NULL, "the unbuffered stream opened");
 
 	one_block(&ut, unwritable, SPECAN_FILE, err, sizeof(err));
 	fclose(unwritable);
@@ -111,6 +164,51 @@ MU_TEST(a_failed_sample_write_ends_the_run)
 	mu_assert(strchr(err, '(') != NULL, "and the reason the write failed");
 	/* Said once per run, not once per sample in the block. */
 	mu_assert(strchr(err, '\n') == strrchr(err, '\n'), "said once");
+}
+
+/*
+ * A stream can take a write into its buffer and only fail when that buffer is
+ * flushed, so every write can look fine and the samples still never arrive.
+ * The run is not finished until the output has been flushed, which is what
+ * main() checks after the sweep ends.
+ */
+MU_TEST(samples_lost_in_a_buffer_end_the_run_too)
+{
+	ubertooth_t ut;
+	FILE* buffered;
+	char err[512];
+	char out[512];
+
+	/* Buffered: the 3-byte writes land in stdio's buffer and are accepted,
+	 * and nothing reaches the descriptor until the flush, which fails. */
+	buffered = broken_stream(1);
+	mu_assert_fatal(buffered != NULL, "the buffered stream opened");
+
+	one_block(&ut, buffered, SPECAN_FILE, err, sizeof(err));
+	/* Every write succeeded, so the sweep ran to the end as normal. */
+	mu_assert_int_eq(0, output_failed);
+	mu_assert_int_eq(0, ut.stop_ubertooth);
+	mu_assert(strcmp(err, "") == 0, "nothing said while the writes worked");
+
+	/* What main() does once the sweep has ended. */
+	write_failure_said = 0;
+	capture_stderr_begin();
+	mu_assert_int_eq(-1, specan_output_flushed(buffered));
+	capture_stderr_end(out, sizeof(out));
+	fclose(buffered);
+
+	mu_assert(strncmp(out, "error: writing samples failed: could not flush",
+	                  45) == 0, "one error: line, naming the flush");
+	mu_assert(strchr(out, '\n') == strrchr(out, '\n'), "said once");
+
+	/* A stream that is fine reports nothing and does not fail the run. */
+	write_failure_said = 0;
+	capture_stderr_begin();
+	mu_assert_int_eq(0, specan_output_flushed(stderr));
+	/* No output stream at all (the text modes leave dumpfile NULL). */
+	mu_assert_int_eq(0, specan_output_flushed(NULL));
+	capture_stderr_end(out, sizeof(out));
+	mu_assert(strcmp(out, "") == 0, "a working stream says nothing");
 }
 
 MU_TEST(a_write_that_works_leaves_the_run_alone)
@@ -157,6 +255,7 @@ MU_TEST(an_output_mode_that_is_not_one_of_ours_ends_the_run)
 int main(void)
 {
 	MU_RUN(a_failed_sample_write_ends_the_run);
+	MU_RUN(samples_lost_in_a_buffer_end_the_run_too);
 	MU_RUN(a_write_that_works_leaves_the_run_alone);
 	MU_RUN(an_output_mode_that_is_not_one_of_ours_ends_the_run);
 	return mu_report();
