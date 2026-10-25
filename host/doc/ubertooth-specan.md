@@ -27,7 +27,7 @@ Options:
    format output for feedgnuplot
  - `-G` :
    format output for 3D feedgnuplot
- - `-d<filename>` :
+ - `-d <filename>` :
    write the binary samples to <filename>; `-d -` writes them to standard
    output, which must not be a terminal. See ARGUMENTS
  - `-v` :
@@ -77,7 +77,8 @@ the command line is read, and it is opened only once every check has passed.
 
 ## SEE ALSO
 
-ubertooth(7): overview of Project Ubertooth
+ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how
+option values are written
 
 ## AUTHOR
 

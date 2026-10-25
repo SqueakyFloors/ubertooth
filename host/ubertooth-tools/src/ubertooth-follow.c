@@ -40,11 +40,11 @@ static void usage()
 	printf("ubertooth-follow - active(bluez) CLK discovery and follow for a particular UAP/LAP\n");
 	printf("Usage:\n");
 	printf("\t-h this help\n");
-	printf("\t-l<LAP> (3 bytes / 6 hex digits)\n");
-	printf("\t-u<UAP> (1 byte / 2 hex digits)\n");
+	printf("\t-l <LAP> (3 bytes / 6 hex digits)\n");
+	printf("\t-u <UAP> (1 byte / 2 hex digits)\n");
 	fputs(OPT_USAGE_SELECT_DEVICE, stdout);
-	printf("\t-r<filename> capture packets to PCAPNG file\n");
-	printf("\t-q<filename> capture packets to PCAP file\n");
+	printf("\t-r <filename> capture packets to PCAPNG file\n");
+	printf("\t-q <filename> capture packets to PCAP file\n");
 	printf("\t-e max_ac_errors (default: %d, range: 0-%d)\n",
 	       max_ac_errors, MAX_AC_ERRORS);
 	printf("\t-d filename\n");

@@ -67,12 +67,30 @@ Less useful commands:
 .BR ubertooth-specan (1) 
 : Raw RSSI values used by graphical specan
 .RE
+.SH OPTION VALUES
+.PP
+These pages write an option's value as a separate word: \fB\fCubertooth\-util
+\-c 2440\fR, \fB\fCubertooth\-btle \-a 8e89bed6\fR, \fB\fCubertooth\-rx \-l
+446688 \-u 22\fR\&. This follows a standard, the POSIX Utility Syntax
+Guidelines (guideline 6: an option and its value are separate arguments). The
+value placeholders are written the same way (\fB\fC\-c <2402\-2480>\fR). The
+older attached form is still accepted for backward compatibility with existing
+scripts, so \fB\fC\-c 2440\fR and
+\fB\fC\-c2440\fR are the same. Where the value is optional, the next word is
+taken as the value only when it is a valid value, so an option never swallows
+the option after it: \fB\fC\-c \-b\fR reads the channel and then the board ID,
+while \fB\fC\-z \-90\fR sets the squelch to \-90 dBm. A long option takes
+\fB\fC\-\-name value\fR or \fB\fC\-\-name=value\fR, never attached without the
+\fB\fC=\fR (no long option takes a value today; this is for consistency with
+\fB\fCgetopt_long\fR). A lone \fB\fC\-\fR as the value of a file option means
+standard input or standard output, so \fB\fCubertooth\-btle \-q \-\fR writes
+the capture to stdout.
 .SH SELECTING A DEVICE
 .PP
 With a single Ubertooth attached, the tools find it automatically. With more
 than one attached, every tool takes \fB\fC\-U <index|serial>\fR to choose one:
-an index is a position in the list of attached Ubertooths (\fB\fC\-U0\fR is the
-first), and a serial\-number string selects that board whatever the enumeration
+an index is a position in the list of attached Ubertooths (\fB\fC\-U 0\fR is
+the first), and a serial\-number string selects that board whatever the enumeration
 order. An index that is not attached is refused
 (\fB\fCerror: no Ubertooth at index 2 (2 attached)\fR) and the tool exits
 non\-zero. Indexes are positions in the list of boards attached when the

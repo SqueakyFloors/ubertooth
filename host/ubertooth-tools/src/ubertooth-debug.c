@@ -64,7 +64,7 @@ static void usage()
 	   CC2400_REG_ADDRESS_MAX);
     printf("\t-r <start>-<end> read a consecutive set of CC2400 register(s)\n");
     fputs(OPT_USAGE_SELECT_DEVICE, stdout);
-    printf("\t-v<0-2> verbosity (default=1)\n");
+    printf("\t-v <0-2> verbosity (default=1)\n");
 }
 
 /* Looks up one "%name" at the start of t, which runs to the next list

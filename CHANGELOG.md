@@ -403,6 +403,10 @@
 
 ### Documentation
 
+- Help text, man pages and examples write option values as separate words
+  (`-c 2440`), following the POSIX Utility Syntax Guidelines; the attached form
+  (`-c2440`) still works. ubertooth(7), OPTION VALUES, explains the forms once.
+  [#195](https://github.com/SqueakyFloors/ubertooth/issues/195)
 - Every tool now describes its device selector as `-U <index|serial>`, in its
   help text and its man page, and points at ubertooth(7), SELECTING A DEVICE,
   for the rules. The old `-U<0-7>` was wrong twice over: the index is a

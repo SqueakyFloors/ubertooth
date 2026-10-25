@@ -301,8 +301,8 @@ static void usage(FILE *output)
 	fprintf(output, "\t-V get compile info\n");
 	fprintf(output, "\t-H, --host-version get host tools (libubertooth) version\n");
 	fprintf(output, "\t-I identify ubertooth device by flashing the USR, RX, and TX LEDs on the board, until -S or any mode option\n");
-	fprintf(output, "\t-d[0-1] get/set all LEDs\n");
-	fprintf(output, "\t-l[0-1] get/set USR LED\n");
+	fprintf(output, "\t-d [0-1] get/set all LEDs\n");
+	fprintf(output, "\t-l [0-1] get/set USR LED\n");
 	fprintf(output, "\t-S stop current operation\n");
 	fprintf(output, "\t-r full reset\n");
 	fputs(OPT_USAGE_SELECT_DEVICE, output);
@@ -310,15 +310,15 @@ static void usage(FILE *output)
 	fprintf(output, "\t-N print total number of Ubertooth devices and exit\n");
 	fprintf(output, "\n");
 	fprintf(output, "Radio options:\n");
-	fprintf(output, "\t-a[0-7] get/set power amplifier level\n");
-	fprintf(output, "\t-c[%d-%d] get/set channel in MHz\n", BT_FREQ_MIN, BT_FREQ_MAX);
-	fprintf(output, "\t-C[0-%d] get/set channel\n", NUM_BREDR_CHANNELS - 1);
-	fprintf(output, "\t-q[%d-%d] start LED spectrum analyzer, threshold -N dBm (default: %d)\n",
+	fprintf(output, "\t-a [0-7] get/set power amplifier level\n");
+	fprintf(output, "\t-c [%d-%d] get/set channel in MHz\n", BT_FREQ_MIN, BT_FREQ_MAX);
+	fprintf(output, "\t-C [0-%d] get/set channel\n", NUM_BREDR_CHANNELS - 1);
+	fprintf(output, "\t-q [%d-%d] start LED spectrum analyzer, threshold -N dBm (default: %d)\n",
 	        UBERTOOTH_LED_SPECAN_N_MIN, UBERTOOTH_LED_SPECAN_N_MAX,
 	        UBERTOOTH_LED_SPECAN_N_DEFAULT);
 	fprintf(output, "\t   the threshold is -N dBm; a larger N lights the LEDs for weaker signals\n");
 	fprintf(output, "\t-t intitiate continuous transmit test\n");
-	fprintf(output, "\t-z[-128..127] get/set squelch level\n");
+	fprintf(output, "\t-z [-128..127] get/set squelch level\n");
 	fprintf(output, "\n");
 	fprintf(output, "Range test:\n");
 	fprintf(output, "\t-e start repeater mode\n");

@@ -68,7 +68,10 @@ check has passed.
 
 ## SEE ALSO
 
-ubertooth-rx(1), ubertooth-afh(1), ubertooth(7)
+ubertooth-rx(1), ubertooth-afh(1)
+
+ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how
+option values are written
 
 ## COPYRIGHT
 
