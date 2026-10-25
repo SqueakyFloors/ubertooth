@@ -4,7 +4,7 @@
 #include "util_modes.h"
 
 static const char *const mode_options[UTIL_MODE_COUNT] = {
-	"-q", "-n", "-e", "-t", "-x", "-I", "-i", "-f",
+	"-q", "-n", "-e", "-t", "-x", "-I", "-i",
 };
 
 const char *util_mode_option(enum util_mode mode)

@@ -7,7 +7,7 @@
 .nf
 ubertooth\-util [\-v] [\-V] [\-H] [\-\-host\-version] [\-I] [\-d [0\-1]] [\-l [0\-1]]
 [\-S] [\-r] [\-U <index|serial|all>] [\-a [0\-7]] [\-c [2402\-2480]] [\-C [0\-78]]
-[\-q [20\-120]] [\-t] [\-z [\-128\.\.127]] [\-e] [\-m] [\-n] [\-f] [\-i] [\-b] [\-p] [\-s]
+[\-q [20\-120]] [\-t] [\-z [\-128\.\.127]] [\-e] [\-m] [\-n] [\-i] [\-b] [\-p] [\-s]
 [\-N] [\-x] [\-h]
 .fi
 .SH "DESCRIPTION"
@@ -53,17 +53,19 @@ ubertooth\-util \-U <serial> \-S      # stop; the LEDs end off
 .fi
 .IP "" 0
 .P
-\fB\-I\fR needs firmware of this tree's API version and refuses any other, saying so\. The other options work with any firmware, so \fB\-v\fR can still read the version and \fB\-f\fR can reflash it\.
+\fB\-I\fR needs firmware of this tree's API version and refuses any other, saying so\. The other options work with any firmware, so \fB\-v\fR can still read the version, and ubertooth\-dfu(1) can reflash it\.
 .P
 The API version is bumped whenever a firmware change affects the host, so a board flashed from an earlier commit is normally refused rather than used\. It still does not pin down a commit, since several commits share one number: the firmware revision shown by \fB\-v\fR beside the API version is what identifies the build\. Flash the firmware from the commit the tools were built from (\fB\./install\.sh \-\-flash\fR)\.
 .P
-Only one mode option can be given per command: \fB\-q\fR, \fB\-n\fR, \fB\-e\fR, \fB\-t\fR, \fB\-x\fR, \fB\-I\fR, \fB\-i\fR (In\-System Programming, ISP) and \fB\-f\fR (Device Firmware Upgrade, DFU) each end the command, so a command with two or more of them is refused before any device is opened, nothing is sent to the device, and the exit status is 1:
+Only one mode option can be given per command: \fB\-q\fR, \fB\-n\fR, \fB\-e\fR, \fB\-t\fR, \fB\-x\fR, \fB\-I\fR and \fB\-i\fR (In\-System Programming, ISP) each end the command, so a command with two or more of them is refused before any device is opened, nothing is sent to the device, and the exit status is 1:
 .IP "" 4
 .nf
 $ ubertooth\-util \-q \-n
-error: options \-q \-n cannot be combined; give only one of \-q \-n \-e \-t \-x \-I \-i \-f
+error: options \-q \-n cannot be combined; give only one of \-q \-n \-e \-t \-x \-I \-i
 .fi
 .IP "" 0
+.P
+To put a board into the DFU bootloader and reflash it, use ubertooth\-dfu(1), which enters the bootloader itself as part of a write (\fB\-d\fR), a read (\fB\-u\fR) or \fB\-r\fR\. \fBubertooth\-util \-f\fR entered it too, but warned for years that it was no longer required and pointed at ubertooth\-dfu(1); it has been removed, so \fB\-f\fR is now an option the tool does not know (\fBerror: unrecognized option '\-f'\fR, exit 1)\. Nothing enters the bootloader and leaves the board there any more; to park a board in it, jumper the expansion header (ubertooth\-dfu(1), MANUALLY ENTERING BOOTLOADER)\.
 .SH "OPTIONS"
 Common options:
 .TP
@@ -95,7 +97,10 @@ full reset; then waits up to 10 seconds for the same board to come back on USB b
 select which Ubertooth to use, either by USB enumeration index or by its serial number string\. See SELECTING A DEVICE\.
 .TP
 \fB\-U all\fR
-report the read\-only queries \fB\-b\fR, \fB\-v\fR, \fB\-V\fR, \fB\-p\fR and \fB\-s\fR for every attached Ubertooth; refused with any other option\. See SELECTING A DEVICE\.
+report the read\-only queries \fB\-b\fR, \fB\-v\fR, \fB\-V\fR, \fB\-p\fR and \fB\-s\fR for every attached Ubertooth; refused with any other option, \fB\-N\fR excepted\. See SELECTING A DEVICE\.
+.TP
+\fB\-N\fR
+print the number of attached Ubertooths, as a single decimal number on standard output, then run the rest of the command\. The number comes from the USB device list, so it needs no board and opens none, and it is taken before any device is opened: it is printed first, ahead of anything the other options report\. \fB\-N\fR is neither a selector nor a per\-device query, so it combines with everything else, in either order \(em reads, setters, modes, \fB\-r\fR, \fB\-S\fR, \fB\-U <index|serial>\fR and the \fB\-U all\fR listing \(em and a count that succeeds leaves the exit status to the rest of the command\. On its own it prints the count, opens no device and exits 0, unless the count itself fails\. A command line refused before anything runs (two modes, \fB\-z\fR with a mode, \fB\-U all\fR with an option it does not support, a bad option value, an unknown option or a stray word) prints no count, and \fB\-h\fR, \fB\-H\fR and \fB\-\-host\-version\fR end the command before it, as they do before every other option\.
 .P
 Radio options:
 .TP
@@ -115,7 +120,7 @@ start LED spectrum analyzer\. The threshold is \-N dBm, so a larger N lights the
 intitiate continuous transmit test
 .TP
 \fB\-z [\-128\.\.127]\fR
-get/set squelch level (a signed RSSI threshold; values above 0 are relative to the average RSSI) for an RX capture\. The firmware puts it back to the default \-120 dBm on every mode change, so set it in the same step as the capture it is meant for, or once that capture is running; it does not carry into the next mode\. See \fISQUELCH\fR\. \fB\-z\fR cannot be combined with a mode option (\fB\-q\fR, \fB\-n\fR, \fB\-e\fR, \fB\-t\fR, \fB\-x\fR, \fB\-I\fR, \fB\-i\fR, \fB\-f\fR), which would reset it before the mode started\.
+get/set squelch level (a signed RSSI threshold; values above 0 are relative to the average RSSI) for an RX capture\. The firmware puts it back to the default \-120 dBm on every mode change, so set it in the same step as the capture it is meant for, or once that capture is running; it does not carry into the next mode\. See \fISQUELCH\fR\. \fB\-z\fR cannot be combined with a mode option (\fB\-q\fR, \fB\-n\fR, \fB\-e\fR, \fB\-t\fR, \fB\-x\fR, \fB\-I\fR, \fB\-i\fR), which would reset it before the mode started\.
 .P
 Range test:
 .TP
@@ -129,9 +134,6 @@ display range test result
 initiate range test
 .P
 Miscellaneous:
-.TP
-\fB\-f\fR
-activate flash programming (DFU) mode
 .TP
 \fB\-i\fR
 activate In\-System Programming (ISP) mode
@@ -229,9 +231,27 @@ $ ubertooth\-util \-U all \-s
 .fi
 .IP "" 0
 .P
-\fB\-U all\fR only applies to the read\-only queries \fB\-b\fR, \fB\-v\fR, \fB\-V\fR, \fB\-p\fR and \fB\-s\fR\. Combined with any other option (a setter, a mode such as \fB\-x\fR or \fB\-q\fR, \fB\-r\fR, \fB\-S\fR, \fB\-N\fR, or another read such as \fB\-c\fR), or given with no query at all, it is refused before any device is opened:
+\fB\-U all\fR only applies to the read\-only queries \fB\-b\fR, \fB\-v\fR, \fB\-V\fR, \fB\-p\fR and \fB\-s\fR\. Combined with any other option (a setter, a mode such as \fB\-x\fR or \fB\-q\fR, \fB\-r\fR, \fB\-S\fR, or another read such as \fB\-c\fR), or given with no query at all, it is refused before any device is opened:
 .IP "" 4
 .nf
+error: \-U all only supports the read\-only queries \-b, \-v, \-V, \-p and \-s; select one device with \-U<index|serial> for other options
+.fi
+.IP "" 0
+.P
+\fB\-N\fR is the one option that is not refused: it asks about the USB bus rather than about a device, so it prints the count and the listing follows it, from the same enumeration:
+.IP "" 4
+.nf
+$ ubertooth\-util \-U all \-N \-s
+2
+0: 1cc001038088cb956c43ad61c52000f5
+1: 05f00014e380df95f4436562c32000f5
+.fi
+.IP "" 0
+.P
+\fB\-U all \-N\fR with no query is still refused, because \fB\-U all\fR has nothing to list\. That refusal comes before the count, so no number is printed:
+.IP "" 4
+.nf
+$ ubertooth\-util \-U all \-N
 error: \-U all only supports the read\-only queries \-b, \-v, \-V, \-p and \-s; select one device with \-U<index|serial> for other options
 .fi
 .IP "" 0
@@ -301,13 +321,15 @@ Set it again for each capture\. After a capture ends, or as soon as one mode rep
 .P
 \fB\-z\fR together with one of \fBubertooth\-util\fR's own mode options is refused rather than quietly dropped, because each of those modes leaves whatever was running first and the reset would discard the value before the mode started\.
 .SH "EXIT STATUS"
-\fBubertooth\-util\fR exits with 0 when every requested operation succeeds, including queries that report a nonzero value such as \fB\-b\fR (board ID), \fB\-c\fR (channel), or \fB\-a\fR (power amplifier level)\. \fB\-m\fR with no range test result yet also exits 0 (see \fIRANGE TEST\fR)\. It exits with a nonzero status if any requested operation fails, even when a later operation in the same command succeeds\. It exits with 1, without opening a device, when two or more mode options are given (see DESCRIPTION), when \fB\-z\fR is combined with a mode option, or when an \fB\-a\fR level is not a single digit 0\-7 (\fBerror: PA level must be a single digit 0\-7 (got <value>)\fR)\. The same holds for any other option value that is not a whole decimal number in its range (\fB\-c\fR, \fB\-C\fR, \fB\-d\fR, \fB\-l\fR, \fB\-q\fR, \fB\-z\fR), for example \fBerror: channel must be 0\-78 (got abc)\fR\. It also exits with 1, without opening a device, when the command line contains a word that is not an option, and names it: \fBerror: unexpected argument '<word>'\fR\. \fBubertooth\-util\fR takes no other arguments\. An option the tool does not know is refused the same way, with the usage text after it on standard error: \fBerror: unrecognized option '\-Z'\fR; an option whose value is missing reads \fBerror: option '\-U' requires a value\fR\.
+\fBubertooth\-util\fR exits with 0 when every requested operation succeeds, including queries that report a nonzero value such as \fB\-b\fR (board ID), \fB\-c\fR (channel), or \fB\-a\fR (power amplifier level)\. \fB\-m\fR with no range test result yet also exits 0 (see \fIRANGE TEST\fR)\. It exits with a nonzero status if any requested operation fails, even when a later operation in the same command succeeds\. It exits with 1, without opening a device, when two or more mode options are given (see DESCRIPTION), when \fB\-z\fR is combined with a mode option, or when an \fB\-a\fR level is not a single digit 0\-7 (\fBerror: PA level must be a single digit 0\-7 (got <value>)\fR)\. The same holds for any other option value that is not a whole decimal number in its range (\fB\-c\fR, \fB\-C\fR, \fB\-d\fR, \fB\-l\fR, \fB\-q\fR, \fB\-z\fR), for example \fBerror: channel must be 0\-78 (got abc)\fR\. It also exits with 1, without opening a device, when the command line contains a word that is not an option, and names it: \fBerror: unexpected argument '<word>'\fR\. \fBubertooth\-util\fR takes no other arguments\. An option the tool does not know is refused the same way, with the usage text after it on standard error: \fBerror: unrecognized option '\-Z'\fR; an option whose value is missing reads \fBerror: option '\-U' requires a value\fR\. The removed \fB\-f\fR is one of those options now: use ubertooth\-dfu(1) instead\.
+.P
+A \fB\-N\fR count that succeeds does not affect the exit status: the number is printed and the rest of the command decides it\. A count that cannot be read is a failed operation like any other: it prints no number and makes the command exit 1, and the rest of it still runs\.
 .P
 When a \fB\-b\fR, \fB\-c\fR, \fB\-a\fR, \fB\-z\fR, \fB\-l\fR, \fB\-d\fR, \fB\-p\fR, \fB\-s\fR or \fB\-m\fR read fails, no value line is printed on standard output, so an error code is never shown as a value; the other requested queries are still reported\. A failed \fB\-b\fR, \fB\-c\fR, \fB\-a\fR, \fB\-z\fR, \fB\-l\fR, \fB\-d\fR, \fB\-p\fR, \fB\-s\fR or \fB\-m\fR read also prints \fBerror: <query> read failed\fR (for example \fBerror: channel read failed\fR or \fBerror: board ID read failed\fR) on standard error, after any message from libubertooth\. When the board returns fewer bytes than the read needs, that is the only line, with the counts added, for example \fBerror: channel read failed: board returned 0 of 2 bytes\fR\.
 .SH "DIAGNOSTICS"
 Standard output carries only what was asked for: the values the queries read, the device listing, and the usage text for \fB\-h\fR\. Everything else goes to standard error, so a script reading a value is not fed anything else\.
 .P
-That includes the progress lines for the operations that do something rather than report something: \fBResetting ubertooth device <selector>\fR, \fBStopping ubertooth device <selector>\fR, \fBEntering flash programming (DFU) mode\fR, \fBEntering flash programming (ISP) mode\fR, \fBEntering LED specan mode (threshold \-<n> dBm)\fR, \fBStarting range test\fR, \fBStarting repeater\fR and \fBStarting TX test\fR\. They were written to standard output before\.
+That includes the progress lines for the operations that do something rather than report something: \fBResetting ubertooth device <selector>\fR, \fBStopping ubertooth device <selector>\fR, \fBEntering flash programming (ISP) mode\fR, \fBEntering LED specan mode (threshold \-<n> dBm)\fR, \fBStarting range test\fR, \fBStarting repeater\fR and \fBStarting TX test\fR\. They were written to standard output before\.
 .P
 Each operation says what it did once\. \fB\-I\fR reports the blink only through \fBnote: the board is blinking; stop it with ubertooth\-util [\-U <selector>] \-S or any mode option\fR, naming the selector so the command can be pasted; there is no separate line announcing the LEDs\. Setting the squelch with \fB\-z <n>\fR prints nothing, as \fB\-a\fR, \fB\-c\fR, \fB\-C\fR, \fB\-d\fR and \fB\-l\fR do not: the value \fB\-z\fR reads back afterwards (\fBSquelch set to <n>\fR) is the result and goes to standard output\. A set that fails is still reported, on standard error, and the command exits 1\. \fB\-x\fR has never had a line of its own\.
 .P

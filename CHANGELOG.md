@@ -12,6 +12,13 @@
   longer, and libubertooth no longer exports `cmd_do_something()` or
   `cmd_do_something_reply()`.
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
+- **Script-visible change:** `ubertooth-util -f` is gone. It entered the DFU
+  bootloader, but warned first that it was no longer required; use
+  `ubertooth-dfu` to reflash a board.
+  [#333](https://github.com/SqueakyFloors/ubertooth/issues/333)
+- **Script-visible change:** `ubertooth-util -N` prints the device count and
+  then runs the rest of the command, instead of dropping it.
+  [#332](https://github.com/SqueakyFloors/ubertooth/issues/332)
 - `ubertooth-btle` and `ubertooth-ego` list their `-j`/`-J` jam aliases in `-h`.
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
 - `ubertooth-rx` lists `-s` in `-h` as the explicit form of its default channel
@@ -34,7 +41,7 @@
   `ubertooth-util` read-only queries (`-s`, `-v`, `-V`, `-p`, `-b`, alone or
   combined) report every device and exit non-zero if a device cannot be opened
   or a query fails; `-U all` requests that listing explicitly, even for one
-  device, and is refused for every other option.
+  device, and is refused for every other option but `-N`.
   [#6](https://github.com/SqueakyFloors/ubertooth/issues/6)
   [#27](https://github.com/SqueakyFloors/ubertooth/issues/27)
   [#28](https://github.com/SqueakyFloors/ubertooth/issues/28)

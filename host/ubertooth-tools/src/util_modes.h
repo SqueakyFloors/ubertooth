@@ -19,7 +19,6 @@ enum util_mode {
 	UTIL_MODE_XMAS,       /* -x */
 	UTIL_MODE_IDENTIFY,   /* -I */
 	UTIL_MODE_ISP,        /* -i */
-	UTIL_MODE_FLASH,      /* -f */
 	UTIL_MODE_COUNT
 };
 

@@ -102,7 +102,8 @@ exercised here.
 ### Firmware API version: exact match, bumped per firmware change
 The host tools require firmware whose API version (`UBERTOOTH_API_VERSION`,
 reported as the USB `bcdDevice`) is exactly their own, and refuse any other —
-only `ubertooth-util` reading the version and reflashing still work. During
+only `ubertooth-util` reading the version and `ubertooth-dfu` reflashing still
+work. During
 development the minor version is bumped in every pull request that changes
 firmware behaviour the host relies on, so a board carrying firmware from an
 earlier commit is normally refused rather than used with behaviour the tools

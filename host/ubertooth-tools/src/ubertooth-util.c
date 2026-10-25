@@ -334,7 +334,7 @@ static void usage(FILE *output)
 	fprintf(output, "\t-r full reset\n");
 	fputs(OPT_USAGE_SELECT_DEVICE, output);
 	fprintf(output, "\t-U all list -b/-v/-V/-p/-s for every Ubertooth (queries only)\n");
-	fprintf(output, "\t-N print total number of Ubertooth devices and exit\n");
+	fprintf(output, "\t-N print the number of attached Ubertooths, then run the rest of the command\n");
 	fprintf(output, "\n");
 	fprintf(output, "Radio options:\n");
 	fprintf(output, "\t-a [0-7] get/set power amplifier level\n");
@@ -353,7 +353,6 @@ static void usage(FILE *output)
 	fprintf(output, "\t-n initiate range test\n");
 	fprintf(output, "\n");
 	fprintf(output, "Miscellaneous:\n");
-	fprintf(output, "\t-f activate flash programming (DFU) mode\n");
 	fprintf(output, "\t-i activate In-System Programming (ISP) mode\n");
 	fprintf(output, "\t-b get hardware board id number\n");
 	fprintf(output, "\t-p get microcontroller Part ID\n");
@@ -364,11 +363,12 @@ static void usage(FILE *output)
 int main(int argc, char *argv[])
 {
 	int opt;
-	int other_operations = 0; /* an option other than -s -v -V -p -b -U was given */
+	int other_operations = 0;   /* an option other than -s -v -V -p -b -U -N was given */
+	int non_count_options = 0;  /* an option other than -N was given */
 	int status = 0; /* 0 on success, 1 if any operation failed; never a device value */
 	ubertooth_t* ut = NULL;
 	rangetest_result rr;
-	int do_stop, do_flash, do_isp, do_leds, do_part, do_reset;
+	int do_stop, do_isp, do_leds, do_part, do_reset;
 	int do_serial, do_tx, do_palevel, do_channel, do_led_specan;
 	int do_range_test, do_repeater, do_firmware, do_board_id;
 	int do_range_result, do_all_leds, do_identify;
@@ -384,7 +384,8 @@ int main(int argc, char *argv[])
 	int do_number, do_xmas;
 	char* ubertooth_device = NULL;
 	int requested[QUERY_COUNT]; /* identity queries, for the per-device listing */
-	int any_query;
+	int any_query, list_all;
+	int device_count = -1;      /* a successful ubertooth_count(), to reuse */
 	int modes[UTIL_MODE_COUNT]; /* exclusive mode options that were given */
 
 	/* The do_<thing> states below start negative: -1 means not asked for,
@@ -392,7 +393,7 @@ int main(int argc, char *argv[])
 	 * do_get_<thing> flags beside them are plain 0/1 booleans, since a read
 	 * takes no value; do_set_squelch and do_get_squelch are the older pair,
 	 * -1 or 1 and tested with > 0. */
-	do_stop= do_flash= do_isp= do_leds= do_part= do_reset= -1;
+	do_stop= do_isp= do_leds= do_part= do_reset= -1;
 	do_serial= do_tx= do_palevel= do_channel= do_led_specan= -1;
 	do_range_test= do_repeater= do_firmware= do_board_id= -1;
 	do_range_result= do_all_leds= do_identify= -1;
@@ -418,22 +419,24 @@ int main(int argc, char *argv[])
 	 * see opt_report_bad_option(). The leading ':' makes a missing option
 	 * value distinguishable from an option getopt does not know. */
 	opterr = 0;
-	while ((opt=getopt(argc,argv,":U:hnmefiIprsStvbl::a::C::c::d::q::z::VNxH")) != EOF) {
+	while ((opt=getopt(argc,argv,":U:hnmeiIprsStvbl::a::C::c::d::q::z::VNxH")) != EOF) {
 		/* An optional value may also be the next word: -c 2440, -z -90. Only
 		 * -z takes a negative value (a signed RSSI threshold). */
 		if (optarg == NULL && strchr("lacCdqz", opt) != NULL)
 			optarg = opt_separate_value(argc, argv,
 			                            opt == 'z' ? opt_value_signed_decimal
 			                                       : opt_value_decimal);
-		/* Anything but an identity query or -U needs a single selected device. */
-		if (strchr("svVpbU", opt) == NULL)
+		/* Anything but an identity query, -U or -N needs a single selected
+		 * device. -N opens none: it counts boards on the USB bus. */
+		if (strchr("svVpbUN", opt) == NULL)
 			other_operations = 1;
+		/* Whether -N has the command line to itself, which is the only case
+		 * in which nothing but the count is done. */
+		if (opt != 'N')
+			non_count_options = 1;
 		switch(opt) {
 		case 'U':
 			ubertooth_device = optarg;
-			break;
-		case 'f':
-			do_flash= 0;
 			break;
 		case 'i':
 			do_isp= 0;
@@ -588,7 +591,6 @@ int main(int argc, char *argv[])
 	modes[UTIL_MODE_XMAS] = do_xmas;
 	modes[UTIL_MODE_IDENTIFY] = (do_identify == 0);
 	modes[UTIL_MODE_ISP] = (do_isp == 0);
-	modes[UTIL_MODE_FLASH] = (do_flash == 0);
 	if (util_check_modes(modes, stderr) != 0)
 		return 1;
 	/* The squelch is a firmware setting for later RX capture. A mode cannot
@@ -604,9 +606,6 @@ int main(int argc, char *argv[])
 			}
 		}
 	}
-	if (do_flash == 0)
-		fprintf(stderr, "warning: ubertooth-util -f is no longer required "
-		        "- use ubertooth-dfu instead\n");
 
 	requested[QUERY_BOARD_ID] = (do_board_id == 0);
 	requested[QUERY_FIRMWARE] = (do_firmware == 0);
@@ -617,43 +616,60 @@ int main(int argc, char *argv[])
 	            requested[QUERY_COMPILE_INFO] || requested[QUERY_PART_ID] ||
 	            requested[QUERY_SERIAL];
 
-	/* -U all lists the read-only identity queries for every attached device.
-	 * Refuse it, before any device is opened, for anything else: setters,
-	 * modes and other reads act on one device only. */
-	if (ubertooth_device != NULL && strcmp(ubertooth_device, "all") == 0) {
-		int count;
-
-		if (other_operations || !any_query) {
-			fprintf(stderr, "error: -U all only supports the read-only queries "
-			        "-b, -v, -V, -p and -s; select one device with -U<index|serial> "
-			        "for other options\n");
-			return 1;
-		}
-		count = ubertooth_count();
-		if (count < 0)
-			return 1;
-		if (count == 0) {
-			fprintf(stderr, "error: no Ubertooth devices found\n");
-			return 1;
-		}
-		return list_identity_queries(requested, count);
+	/* -U all lists the read-only identity queries for every attached device,
+	 * so it is refused for anything that acts on one device: setters, modes
+	 * and other reads. -N asks about the bus rather than a device, so it is
+	 * allowed alongside the listing. Refused before -N prints anything, so a
+	 * refused command line writes nothing to standard output. */
+	list_all = (ubertooth_device != NULL && strcmp(ubertooth_device, "all") == 0);
+	if (list_all && (other_operations || !any_query)) {
+		fprintf(stderr, "error: -U all only supports the read-only queries "
+		        "-b, -v, -V, -p and -s; select one device with -U<index|serial> "
+		        "for other options\n");
+		return 1;
 	}
 
+	/* -N counts the Ubertooths on the USB bus and opens none of them, so it
+	 * has nothing to drop: the count goes first and the rest of the command
+	 * line still runs. Flushed so it really is first when standard output
+	 * and standard error share a file. */
 	if (do_number) {
-		int count = ubertooth_count();
+		device_count = ubertooth_count();
+		if (device_count < 0)
+			status = util_status_merge(status, 1);
+		else
+			printf("%d\n", device_count);
+		fflush(stdout);
+		/* -N on its own asks for nothing that needs a device. */
+		if (!non_count_options)
+			return status;
+	}
+
+	/* The listings take the count -N already has rather than enumerate
+	 * again: a board unplugged between the two would make the printed
+	 * number disagree with the listing under it. */
+	if (list_all) {
+		int count = device_count >= 0 ? device_count : ubertooth_count();
+
 		if (count < 0)
-			return 1;
-		printf("%d\n", count);
-		return 0;
+			return util_status_merge(status, 1);
+		if (count == 0) {
+			fprintf(stderr, "error: no Ubertooth devices found\n");
+			return util_status_merge(status, 1);
+		}
+		return util_status_merge(status,
+		        list_identity_queries(requested, count));
 	}
 
 	/* Read-only identity queries (-b, -v, -V, -p, -s) with no -U and several
 	 * devices: report every device instead of refusing to pick one. Any other
 	 * operation in the same command still needs -U. */
 	if (ubertooth_device == NULL && !other_operations && any_query) {
-		int count = ubertooth_count();
+		int count = device_count >= 0 ? device_count : ubertooth_count();
+
 		if (count > 1)
-			return list_identity_queries(requested, count);
+			return util_status_merge(status,
+			        list_identity_queries(requested, count));
 	}
 
 	/* initialise device */
@@ -803,11 +819,6 @@ int main(int argc, char *argv[])
 		        util_report_serial(&report_ops, ut, stdout, stderr));
 
 	/* final actions */
-	if(do_flash == 0) {
-		fprintf(stderr, "Entering flash programming (DFU) mode\n");
-		status = util_status_after(status, cmd_flash(ut->devh));
-		goto out;
-	}
 	if(do_identify == 0) {
 		/* The blink runs on the board as its own mode, so the command returns
 		 * at once; -S or any mode-starting command ends it. */
