@@ -122,7 +122,8 @@ int main(int argc, char* argv[])
 	 * refused here rather than after a device has been opened, where it
 	 * used to depend on whether a board happened to be free. */
 	if (!have_lap || !have_uap) {
-		fprintf(stderr, "error: -l <LAP> and -u <UAP> are both required\n");
+		fputs("error: -l <LAP> and -u <UAP> are both required\n", stderr);
+		usage(stderr);
 		return 1;
 	}
 

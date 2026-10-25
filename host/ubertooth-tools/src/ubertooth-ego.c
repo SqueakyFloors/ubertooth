@@ -65,6 +65,7 @@ int main(int argc, char *argv[])
 	/* -h ends the command once the whole command line has parsed (see below). */
 	int first_exit_option = 0;
 	int do_mode = -1;
+	int status = 0;
 	int do_channel = 2418;
 	char* ubertooth_device = NULL;
 	uint8_t len = 18;
@@ -137,6 +138,15 @@ int main(int argc, char *argv[])
 		return 0;
 	}
 
+	/* A major mode is the work. Without one the tool used to open the
+	 * selected board, check its firmware, do nothing and exit 0. */
+	if (do_mode < 0) {
+		fputs("error: nothing to do: choose a major mode (-f, -r or -i)\n",
+		      stderr);
+		usage(stderr);
+		return 1;
+	}
+
 	ut = ubertooth_start_select(ubertooth_device);
 	if (ut == NULL) {
 		return 1;
@@ -176,7 +186,10 @@ int main(int argc, char *argv[])
 		while (running) {
 			int r = cmd_poll(ut->devh, &rx);
 			if (r < 0) {
+				/* The capture stopped short, so the command did not do
+				 * what was asked: say so in the exit status too. */
 				fputs("error: USB poll failed\n", stderr);
+				status = 1;
 				break;
 			}
 			if (r == sizeof(usb_pkt_rx)) {
@@ -188,5 +201,5 @@ int main(int argc, char *argv[])
 		ubertooth_stop(ut);
 	}
 
-	return 0;
+	return status;
 }

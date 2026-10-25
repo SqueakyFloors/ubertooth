@@ -236,6 +236,15 @@ int main(int argc, char *argv[])
 		return 0;
 	}
 
+	/* -q or -b is the work. Without either the tool used to open the
+	 * selected board, check its firmware, quack nothing and exit 0. */
+	if (!do_quack) {
+		fputs("error: nothing to do: give -q to quack, or -b to signal the "
+		      "bootloader\n", stderr);
+		usage(stderr);
+		return 1;
+	}
+
 	if (do_quack) {
 		FILE *random;
 

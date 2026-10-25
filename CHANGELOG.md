@@ -4,18 +4,11 @@
 
 ### New features
 
-- One rule for every tool's output: standard output carries only what was
-  asked for (results, dumps, capture data on `-`, the usage text for `-h`),
-  and errors, warnings, notes and progress go to standard error, each error as
-  one line starting `error: `. `-h` now exits 0. A command line a tool will
-  not take prints that one `error: ` line and then the usage text, both on
-  standard error, and exits 1; an option the tool does not know reads
-  `error: unrecognized option '-Z'` and one whose value is missing reads
-  `error: option '-l' requires a value`, in place of getopt's own message.
-  A script reading a tool's standard output therefore sees less than before.
-  So far: `ubertooth-afh`, `ubertooth-ducky`, `ubertooth-dump`,
-  `ubertooth-ego` and `ubertooth-tx`; `ubertooth-afh` with no `-l`/`-u` and
-  `ubertooth-tx` progress lines moved with them.
+- **Script-visible change:** in `ubertooth-afh`, `-ducky`, `-dump`, `-ego` and
+  `-tx`, standard output now carries only what was asked for, so diagnostics,
+  progress and the usage text after a bad command line move to standard error,
+  `-h` exits 0, and a command line with nothing to do is refused with
+  `error: ...` and exit 1 instead of opening a board and exiting 0.
   [#323](https://github.com/SqueakyFloors/ubertooth/issues/323)
 - ubertooth-btle can stream PCAP data to stdout with `-q -`
   or `-c -`, safely separating diagnostics for Wireshark and other consumers.

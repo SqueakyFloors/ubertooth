@@ -266,14 +266,15 @@ MU_TEST(the_usage_text_documents_the_monitoring_and_the_exit_status)
  * output, exit 1, and no device opened. */
 MU_TEST(a_missing_piconet_address_is_refused_on_standard_error)
 {
+	static const char REFUSAL[] =
+		"error: -l <LAP> and -u <UAP> are both required";
 	struct run_result r;
 
 	reset_fake();
 	r = RUN("-u", "22");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(r.out[0] == '\0', r.out);
-	mu_assert(strncmp(r.err, "error: -l <LAP> and -u <UAP> are both required",
-	                  45) == 0, r.err);
+	mu_assert(strncmp(r.err, REFUSAL, strlen(REFUSAL)) == 0, r.err);
 	mu_assert(strstr(r.err, "keeps monitoring") != NULL, r.err);
 	mu_assert_int_eq(0, fake.rx_afh_calls);
 }

@@ -187,8 +187,12 @@ int opt_check_no_operands(int argc, char *argv[])
 
 void opt_report_bad_option(int opt, int argc, char *argv[])
 {
-	if (opt == ':') {
+	if (opt == ':' && optopt != 0 && isprint((unsigned char)optopt)) {
 		fprintf(stderr, "error: option '-%c' requires a value\n", optopt);
+		return;
+	}
+	if (opt == ':') {
+		fputs("error: an option is missing its value\n", stderr);
 		return;
 	}
 	/* getopt reads one letter at a time, so for "--bogus" it rejects the
