@@ -56,6 +56,29 @@ help_run = subprocess.run(
 )
 assert help_run.returncode == 0, help_run
 assert "-i, -j" in help_run.stdout, help_run
+# -c is only used by continuous receive, and -a is not a default the tool
+# sends: the board keeps the last code it was given.
+assert "continuous rx only" in help_run.stdout, help_run
+assert "keeps the last code it was given" in help_run.stdout, help_run
+assert "default: 630f9ffe" not in help_run.stdout, help_run
+
+# A channel the chosen mode never sends is refused before device selection, so
+# nothing reports a missing board.
+for mode in ("-f", "-i", "-j"):
+    result = subprocess.run(
+        [BINARY, mode, "-c", "2408"],
+        capture_output=True,
+        text=True,
+        timeout=5,
+        check=False,
+        env=ENVIRONMENT,
+    )
+    assert result.returncode == 1, (mode, result)
+    assert result.stdout == "", (mode, result)
+    assert result.stderr == (
+        f"error: -c cannot be combined with {mode}; "
+        "only continuous receive (-r) uses a channel\n"
+    ), (mode, result)
 
 # -j is the original jam spelling of -i: it is a major mode, so it gets past
 # the "nothing to do" check and on to device selection, where no board is

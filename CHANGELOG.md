@@ -184,6 +184,13 @@
   (channel, access code, capture length) and exits 1, instead of capturing with
   whatever settings the board was left on.
   [#379](https://github.com/SqueakyFloors/ubertooth/issues/379)
+- `ubertooth-ego` refuses `-c` combined with `-f`, `-i` or `-j`, where it
+  silently had no effect: those modes hop across the E-Go's own channel list.
+  [#394](https://github.com/SqueakyFloors/ubertooth/issues/394)
+- `ubertooth-ego -h` no longer calls `630f9ffe` the default access code. A run
+  without `-a` sends none, so it uses whichever one the board was last given;
+  `630f9ffe` is only the firmware's value after a reset.
+  [#397](https://github.com/SqueakyFloors/ubertooth/issues/397)
 - `ubertooth-afh` gives its piconet back before it exits, so a run no longer
   ends with one unfreed allocation.
   [#366](https://github.com/SqueakyFloors/ubertooth/issues/366)

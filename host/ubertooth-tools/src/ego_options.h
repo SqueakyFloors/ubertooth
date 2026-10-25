@@ -11,6 +11,16 @@
 /* RFCAT_SET_AA takes a 1 to 4 byte access code (firmware rfcat_subcommand()). */
 #define EGO_ACCESS_CODE_BYTES 4
 
+/* The modes cmd_ego() asks the firmware for, numbered as its state machine
+ * expects (firmware/bluetooth_rxtx/ego.h). Only continuous receive stays on
+ * one channel: following and jamming hop across the E-GO's own channel list
+ * and overwrite whatever channel the board was set to. */
+enum ego_mode {
+	EGO_MODE_FOLLOW = 0,
+	EGO_MODE_CONTINUOUS_RX = 1,
+	EGO_MODE_JAM = 2,
+};
+
 /* A decimal capture length in [EGO_PACKET_LENGTH_MIN, EGO_PACKET_LENGTH_MAX].
  * Returns 0 and sets *length, or -1 and leaves it alone. */
 int ego_parse_packet_length(const char *text, uint8_t *length);

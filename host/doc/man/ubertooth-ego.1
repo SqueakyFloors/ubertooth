@@ -48,16 +48,26 @@ Original "jam" spelling of \fB\-i\fR; does exactly what \fB\-i\fR does
 Options:
 .TP
 \fB\-c <2402\-2480>\fR
-Channel in MHz to use for continuous receive (suggested: 2408, 2418, 2423, 2469)
+Channel in MHz to use for continuous receive (suggested: 2408, 2418, 2423, 2469)\. Only \fB\-r\fR uses it: \fB\-f\fR, \fB\-i\fR and \fB\-j\fR hop across the E\-Go's own channel list, so \fB\-c\fR with one of those is refused rather than ignored\.
 .TP
 \fB\-l <1\-48>\fR
 Packet length to use\. The value must be a complete decimal integer from 1 through 48; invalid values fail before the Ubertooth is opened\.
 .TP
 \fB\-a <access_code>\fR
-Access code to use, given as 2, 4, 6 or 8 hex digits (1 to 4 whole bytes, default: 630f9ffe)
+Access code to use, given as 2, 4, 6 or 8 hex digits (1 to 4 whole bytes)\. See ACCESS CODE below for what a run without \fB\-a\fR uses\.
 .TP
 \fB\-U <index|serial>\fR
 select an Ubertooth by enumeration index or serial number; see ubertooth(7), SELECTING A DEVICE
+.SH "ACCESS CODE"
+\fB\-a\fR sets the access code on the board, which keeps it until the board is reset or reflashed\. A run without \fB\-a\fR sends no access code at all, so it uses whichever one the board was last given, not a default of its own:
+.IP "" 4
+.nf
+ubertooth\-ego \-r \-c 2418 \-a 11223344   # sets the board's access code
+ubertooth\-ego \-r \-c 2418               # still receives with 11223344
+.fi
+.IP "" 0
+.P
+\fB630f9ffe\fR is the firmware's value after a reset, so it is what a run without \fB\-a\fR uses only on a board that has not been given another\. Pass \fB\-a\fR when a run has to be reproducible, or reset the board (\fBubertooth\-util \-r\fR) first\. All three modes use the access code\.
 .SH "TRANSMIT POWER"
 Interference (\fB\-i\fR, \fB\-j\fR) transmits at the CC2400 power level set with \fBubertooth\-util \-a\fR and leaves it unchanged\. A board that has not been given a level jams at 7 (0 dBm, the maximum), the CC2400's reset value and the level jamming always used before\. Sniffing does not transmit and does not change the level\. These levels are at the CC2400 radio; the Ubertooth One's RF amplifier changes the actual output after that\.
 .SH "ARGUMENTS"
@@ -68,6 +78,8 @@ Interference (\fB\-i\fR, \fB\-j\fR) transmits at the CC2400 power level set with
 An option value must be a whole value in its range, or it is refused the same way instead of being read as 0, for example \fBerror: channel must be 2402\-2480 MHz (got 2481)\fR\.
 .P
 A major mode is the work, so a command line without \fB\-f\fR, \fB\-r\fR or \fB\-i\fR is refused before any device is opened: \fBerror: nothing to do: choose a major mode (\-f, \-r or \-i)\fR\. It used to open the selected board, check its firmware, do nothing and exit 0\.
+.P
+An option the chosen mode cannot use is refused the same way, naming the mode as it was spelled: \fBerror: \-c cannot be combined with \-f; only continuous receive (\-r) uses a channel\fR\. \fB\-c\fR used to be accepted and then dropped silently in those modes\.
 .SH "DIAGNOSTICS"
 Standard output carries only the captured packets\. Errors, warnings and progress go to standard error, each error as one line starting \fBerror:\fR, for example \fBerror: E\-GO not supported by this firmware\fR\.
 .P

@@ -64,11 +64,13 @@ static void usage(FILE *file)
 	fprintf(file, "\t-i, -j  interfere\n");
 	fprintf(file, "\n");
 	fprintf(file, "    Options:\n");
-	fprintf(file, "\t-c <%d-%d> set channel in MHz (for continuous rx)\n",
+	fprintf(file, "\t-c <%d-%d> set channel in MHz (continuous rx only)\n",
 	        BT_FREQ_MIN, BT_FREQ_MAX);
 	fprintf(file, "\t-l <%d-%d> capture length as a decimal integer (default: 18)\n",
 	        EGO_PACKET_LENGTH_MIN, EGO_PACKET_LENGTH_MAX);
-	fprintf(file, "\t-a <access_code> access code, 2, 4, 6 or 8 hex digits (default: 630f9ffe)\n");
+	fprintf(file, "\t-a <access_code> access code, 2, 4, 6 or 8 hex digits\n");
+	fprintf(file, "\t       (the board keeps the last code it was given; 630f9ffe\n");
+	fprintf(file, "\t       after a reset)\n");
 	fputs(OPT_USAGE_SELECT_DEVICE, file);
 }
 
@@ -78,8 +80,12 @@ int main(int argc, char *argv[])
 	/* -h ends the command once the whole command line has parsed (see below). */
 	int first_exit_option = 0;
 	int do_mode = -1;
+	/* The option letter that chose the mode, so a refused combination names
+	 * it as the user spelled it: -i and -j are the same mode. */
+	int mode_option = 0;
 	int status = 0;
 	int do_channel = 2418;
+	int have_channel = 0;
 	char* ubertooth_device = NULL;
 	uint8_t len = 18;
 	int have_access_code = 0;
@@ -94,19 +100,23 @@ int main(int argc, char *argv[])
 	while ((opt=getopt(argc,argv,":frijc:U:a:l:h")) != EOF) {
 		switch(opt) {
 		case 'f':
-			do_mode = 0;
+			do_mode = EGO_MODE_FOLLOW;
+			mode_option = opt;
 			break;
 		case 'r':
-			do_mode = 1;
+			do_mode = EGO_MODE_CONTINUOUS_RX;
+			mode_option = opt;
 			break;
 		case 'i':
 		case 'j':
-			do_mode = 2; // TODO take care of these magic numbers
+			do_mode = EGO_MODE_JAM;
+			mode_option = opt;
 			break;
 		case 'c':
 			if (opt_require_int(optarg, BT_FREQ_MIN, BT_FREQ_MAX,
 			                    "channel", " MHz", &do_channel) < 0)
 				return 1;
+			have_channel = 1;
 			break;
 		case 'U':
 			ubertooth_device = optarg;
@@ -160,6 +170,16 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	/* Only continuous receive sends a channel, so -c in any other mode used
+	 * to be parsed, range-checked and then dropped without a word. Refused
+	 * before any device is opened, like the other combinations that cannot
+	 * work. */
+	if (have_channel && do_mode != EGO_MODE_CONTINUOUS_RX) {
+		fprintf(stderr, "error: -c cannot be combined with -%c; only "
+		        "continuous receive (-r) uses a channel\n", mode_option);
+		return 1;
+	}
+
 	ut = ubertooth_start_select(ubertooth_device);
 	if (ut == NULL) {
 		return 1;
@@ -186,7 +206,7 @@ int main(int argc, char *argv[])
 	if (do_mode >= 0) {
 		usb_pkt_rx rx;
 
-		if (do_mode == 1) { // FIXME magic number!
+		if (do_mode == EGO_MODE_CONTINUOUS_RX) {
 			if (cmd_set_channel(ut->devh, do_channel) < 0)
 				return request_failed("set the channel");
 		}
@@ -202,7 +222,7 @@ int main(int argc, char *argv[])
 
 		r = cmd_ego(ut->devh, do_mode);
 		if (r < 0) {
-			if (do_mode == 0 || do_mode == 1)
+			if (do_mode != EGO_MODE_JAM)
 				fputs("error: E-GO not supported by this firmware\n", stderr);
 			else
 				fputs("error: E-GO not supported by this firmware "

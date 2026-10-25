@@ -42,16 +42,32 @@ Options:
 
  - `-c <2402-2480>` :
    Channel in MHz to use for continuous receive (suggested: 2408, 2418,
-   2423, 2469)
+   2423, 2469). Only `-r` uses it: `-f`, `-i` and `-j` hop across the E-Go's
+   own channel list, so `-c` with one of those is refused rather than
+   ignored.
  - `-l <1-48>` :
    Packet length to use. The value must be a complete decimal integer from 1
    through 48; invalid values fail before the Ubertooth is opened.
  - `-a <access_code>` :
    Access code to use, given as 2, 4, 6 or 8 hex digits (1 to 4 whole
-   bytes, default: 630f9ffe)
+   bytes). See ACCESS CODE below for what a run without `-a` uses.
  - `-U <index|serial>` :
    select an Ubertooth by enumeration index or serial number; see
    ubertooth(7), SELECTING A DEVICE
+
+## ACCESS CODE
+
+`-a` sets the access code on the board, which keeps it until the board is
+reset or reflashed. A run without `-a` sends no access code at all, so it uses
+whichever one the board was last given, not a default of its own:
+
+    ubertooth-ego -r -c 2418 -a 11223344   # sets the board's access code
+    ubertooth-ego -r -c 2418               # still receives with 11223344
+
+`630f9ffe` is the firmware's value after a reset, so it is what a run without
+`-a` uses only on a board that has not been given another. Pass `-a` when a
+run has to be reproducible, or reset the board (`ubertooth-util -r`) first.
+All three modes use the access code.
 
 ## TRANSMIT POWER
 
@@ -80,6 +96,11 @@ A major mode is the work, so a command line without `-f`, `-r` or `-i` is
 refused before any device is opened: `error: nothing to do: choose a major
 mode (-f, -r or -i)`. It used to open the selected board, check its firmware,
 do nothing and exit 0.
+
+An option the chosen mode cannot use is refused the same way, naming the mode
+as it was spelled: `error: -c cannot be combined with -f; only continuous
+receive (-r) uses a channel`. `-c` used to be accepted and then dropped
+silently in those modes.
 
 ## DIAGNOSTICS
 
