@@ -34,7 +34,7 @@ Legend:
 | **libbtbb** | the pinned fork commit ([`84ab41f`](https://github.com/SqueakyFloors/libbtbb/commit/84ab41fc99d172e812438bc9188f30a67216f748), C lib) | that commit (CI, `install.sh`); upstream master was CI's dependency until the switch to the pin | any other libbtbb, upstream's included: untested here | ✅ the pin is what CI builds |
 | **libbluetooth (BlueZ)** — optional, for `ubertooth-scan` and `ubertooth-follow` | 5.53 | 5.53 (Ubuntu 20.04 CI), 5.64 (22.04), 5.72 (24.04), 5.87 (Fedora CI) | macOS (no BlueZ: both tools are skipped there) | 🎯 5.53 verified in CI as the oldest that compiles both tools and passes their CLI tests; neither tool has ever been run against a BlueZ adapter and a real piconet ([#44](https://github.com/SqueakyFloors/ubertooth/issues/44)) |
 | **ronn-ng (man pages)** | 0.10.1, exactly | 0.10.1 (`Man pages` CI job on Ubuntu 24.04; macOS 26 via Homebrew) | any other version: it renders the same Markdown differently, so the committed pages would stop matching a refresh | ✅ 0.10.1 verified in CI. Optional: only `refresh-manpages` needs it, and a build neither needs it nor runs it |
-| **Ubertooth firmware (API)** | 1.14 (this tree), exactly | 1.14 flashed on an Ubertooth One and read back, with a symbol-stream capture; the mode checks of [#251](https://github.com/SqueakyFloors/ubertooth/issues/251) have not been run on it | any other API version, including 1.07 (`2020-12-R1`): refused by the tools, except `ubertooth-util` reading the version or reflashing | 🎯 1.14 runs on hardware, but only `ubertooth-dfu`, `ubertooth-util -v` and a receive have been exercised there ([#251](https://github.com/SqueakyFloors/ubertooth/issues/251)); the exact-version refusal was verified on an Ubertooth One with 1.12 |
+| **Ubertooth firmware (API)** | 1.15 (this tree), exactly | 1.14 flashed on an Ubertooth One and read back, with a symbol-stream capture; 1.15 only differs by two removed developer requests ([#350](https://github.com/SqueakyFloors/ubertooth/pull/350)) and has not been on hardware yet; the mode checks of [#251](https://github.com/SqueakyFloors/ubertooth/issues/251) have not been run on either | any other API version, including 1.07 (`2020-12-R1`): refused by the tools, except `ubertooth-util` reading the version or reflashing | 🎯 1.14 runs on hardware, but only `ubertooth-dfu`, `ubertooth-util -v` and a receive have been exercised there ([#251](https://github.com/SqueakyFloors/ubertooth/issues/251)); the exact-version refusal was verified on an Ubertooth One with 1.12 |
 
 ---
 
@@ -110,11 +110,11 @@ no longer expect. The first fork release takes 2.00, to mark that its host
 tools and firmware only work with each other.
 
 The number still does not pin down a commit, since every commit that does not
-touch the firmware interface shares the number before it: that is why "normally"
-above, and why the firmware revision shown by `ubertooth-util -v` beside the
-API version is what identifies a build. Host tools and firmware built from the same commit
-always match, so after pulling, rebuild and reflash both from the same commit
-(`./install.sh --flash`).
+touch the firmware interface shares the number before it: hence "normally"
+above, and hence the firmware revision shown by `ubertooth-util -v` beside the
+API version is what identifies a build. Host tools and firmware built from the
+same commit always match, so after pulling, rebuild and reflash both from the
+same commit (`./install.sh --flash`).
 
 ### Firmware build: GNU make 3.81 (macOS) and the generated version.h
 The firmware builds with the stock GNU make on macOS (**3.81**) as well as the
