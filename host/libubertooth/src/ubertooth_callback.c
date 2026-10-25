@@ -152,7 +152,13 @@ static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx )
 		 * - is ignored rather than read as nearly 23 hours forwards. A
 		 * longer gap cannot be counted at all; the host clock is what
 		 * reports the loss. A rejected count is not kept either, or the
-		 * climb back from it would be counted as time of its own. */
+		 * climb back from it would be counted as time of its own. The
+		 * cost of that is a capture past the covered range: its counts
+		 * stay rejected until they come back around to the one last
+		 * believed, so its times slide further behind rather than
+		 * settling a fixed amount behind. An out-of-order record is
+		 * much the likelier of the two inputs, and the host clock
+		 * reports the other. */
 		advance = (uint8_t) (periods - ut->last_clkn_high);
 		if (advance < 128) {
 			ut->clk100ns_upper += advance;
@@ -220,7 +226,8 @@ static uint64_t now_ns_from_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx )
 	 * because a packet can read a little before the one a capture started
 	 * on: the firmware latches clk100ns and the period count with separate
 	 * reads of CLKN, so a packet caught as the count ticks over carries one
-	 * a period ahead of its own clock reading. */
+	 * that disagrees with its own clock reading by a period, in whichever
+	 * direction that mode's two reads happen to be ordered. */
 	packet_ns = (uint64_t) ((int64_t) ut->abs_start_ns + 100 *
 	            ((int64_t) clk100ns_extended( ut, rx ) -
 	             (int64_t) ut->start_clk100ns));
