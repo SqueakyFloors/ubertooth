@@ -62,6 +62,33 @@ static inline int is_ident_char(char c)
 }
 
 /*
+ * Copy text into out with every run of whitespace turned into one space, and
+ * no space at either end. A condition captured across several lines carries
+ * the source's tabs and newlines, so a scan looking for a phrase in it has to
+ * flatten the spacing first or depend on where the author wrapped.
+ */
+static inline void collapse_spaces(const char *text, char *out, size_t size)
+{
+	size_t length = 0;
+	int space = 0;
+
+	if (size == 0)
+		return;
+	for (; *text != '\0'; text++) {
+		if (isspace((unsigned char)*text)) {
+			space = length > 0;
+			continue;
+		}
+		if (space && length + 1 < size)
+			out[length++] = ' ';
+		space = 0;
+		if (length + 1 < size)
+			out[length++] = *text;
+	}
+	out[length] = '\0';
+}
+
+/*
  * Does `text` contain `name` as a whole identifier? A plain substring search
  * would find MODE_BT_FOLLOW inside MODE_BT_FOLLOW_LE.
  */

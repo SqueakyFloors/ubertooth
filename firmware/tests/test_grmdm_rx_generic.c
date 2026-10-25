@@ -84,8 +84,12 @@ struct scan {
  * (`llid == 0x03 &&`), and this file has two of those, so matching that side
  * as well would fail on correct code. The same goes for the forms this cannot
  * see at all: `0x0400 && x` with the mask written first, or a named mask
- * (`&& GRMDM_PACKET_MODE`). This is a guard against the shape that was here,
- * not a proof that no truth test can come back. */
+ * (`&& GRMDM_PACKET_MODE`). And it can be wrong the other way: `x && 0xNN ==
+ * y` is a comparison and would be flagged. This is a guard against the shape
+ * that was here, not a proof that no truth test can come back, and it covers
+ * the whole file rather than rx_generic() alone -- a legitimate `&& 0x...`
+ * added anywhere in it would have to be written another way or exempted
+ * here. */
 static int tests_a_mask_with_and_and(const char *line)
 {
 	const char *p;

@@ -1404,20 +1404,25 @@ void bt_stream_rx()
 	 * being absorbed here and streaming the running mode's symbols under the
 	 * new mode's name.
 	 *
-	 * That is the cross-mode case only. Re-sending the mode that is already
-	 * running is absorbed here as it is for the other three, so a host that
-	 * reconfigures GRMDM and asks for MODE_RX_GENERIC again keeps the receive
-	 * it has: the choice is made on the way in, and getting back to it means
-	 * leaving the mode first. Equally, asking for one of the three above
-	 * while this one streams keeps the loop running under `mode ==
-	 * MODE_RX_GENERIC`, which is the same absorption they have always had
-	 * among themselves.
+	 * The three above are kept out of the generic receive for the same
+	 * reason, and it matters more in that direction: this loop was entered
+	 * with modulation = MOD_NONE, so a request for one of them absorbed here
+	 * would stream unmodulated symbols under its name, with none of the
+	 * setup its own request is trusted to have done and no idle reset in
+	 * between.
+	 *
+	 * Re-sending the mode that is already running is absorbed, as it is for
+	 * the other three among themselves: a host that reconfigures GRMDM and
+	 * asks for MODE_RX_GENERIC again keeps the receive it has, because the
+	 * choice is made on the way in and getting back to it means leaving the
+	 * mode first.
 	 */
-	while ( requested_mode == MODE_RX_SYMBOLS
-	     || requested_mode == MODE_BT_FOLLOW
-	     || requested_mode == MODE_AFH
-	     || ( requested_mode == MODE_RX_GENERIC
-	          && mode == MODE_RX_GENERIC ) )
+	while ( ( requested_mode == MODE_RX_GENERIC
+	          && mode == MODE_RX_GENERIC )
+	     || ( mode != MODE_RX_GENERIC
+	          && ( requested_mode == MODE_RX_SYMBOLS
+	            || requested_mode == MODE_BT_FOLLOW
+	            || requested_mode == MODE_AFH ) ) )
 	{
 
 		RXLED_CLR;

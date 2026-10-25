@@ -388,6 +388,50 @@ MU_TEST(test_the_stream_loop_runs_every_mode_dispatched_to_it)
 	mu_assert(contains_identifier(s.stream_cond, INDIRECT_STREAM_MODE), msg);
 }
 
+/*
+ * A mode that reaches the loop through a function of its own, and sets the
+ * radio up there, must be kept apart from the modes the dispatch sends
+ * straight in -- in both directions. Absorbing a request for one into a loop
+ * entered for the other skips the dispatch, so no idle reset runs and the
+ * running mode's radio setup streams under the new mode's name:
+ * MODE_RX_GENERIC enters with modulation = MOD_NONE, which none of the three
+ * direct modes wants.
+ *
+ * So the condition has to name the mode it is running, not only the mode
+ * being asked for. The scan checks the pairing rather than the logic, which
+ * is the most a text scan of a hardware loop can do.
+ */
+MU_TEST(test_the_stream_loop_keeps_the_indirect_mode_apart)
+{
+	char condition[sizeof(s.stream_cond)];
+	char needle[64];
+	char msg[1024];
+
+	collapse_spaces(s.stream_cond, condition, sizeof(condition));
+
+	snprintf(needle, sizeof(needle), "mode == %s", INDIRECT_STREAM_MODE);
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: bt_stream_rx()'s loop condition (`%s`) does not say "
+	         "`%s`, so it runs %s whatever mode entered it: a request for it "
+	         "arriving while another mode streams is absorbed here, the "
+	         "dispatch never runs, and rx_generic() never chooses between "
+	         "its two receives",
+	         path, s.stream_cond_line, condition, needle,
+	         INDIRECT_STREAM_MODE);
+	mu_assert(contains_identifier(condition, needle), msg);
+
+	snprintf(needle, sizeof(needle), "mode != %s", INDIRECT_STREAM_MODE);
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: bt_stream_rx()'s loop condition (`%s`) does not say "
+	         "`%s`, so the modes the dispatch sends straight in keep it "
+	         "running when %s entered it: their request is absorbed here, no "
+	         "idle reset runs, and the generic receive's radio setup streams "
+	         "under their name",
+	         path, s.stream_cond_line, condition, needle,
+	         INDIRECT_STREAM_MODE);
+	mu_assert(contains_identifier(condition, needle), msg);
+}
+
 int main(void)
 {
 	printf("mode dispatch tests\n");
@@ -397,5 +441,6 @@ int main(void)
 	MU_RUN(test_leaving_a_mode_idles_once_first);
 	MU_RUN(test_cc2400_idle_does_not_choose_the_mode);
 	MU_RUN(test_the_stream_loop_runs_every_mode_dispatched_to_it);
+	MU_RUN(test_the_stream_loop_keeps_the_indirect_mode_apart);
 	return mu_report();
 }
