@@ -18,16 +18,17 @@ An Ubertooth release is not as simple as a standard GitHub release, there are a 
 
     	* libbtbb/lib/src/CMakeLists.txt
 
-    * Bump the firmware API version if any firmware change in this cycle
-      touched something the host relies on. ``UBERTOOTH_API_VERSION`` in
-      ``host/libubertooth/src/ubertooth_interface.h`` is bumped once per
-      release, not once per change, so this is the only place it moves:
-      individual pull requests leave it alone. It is binary-coded decimal
-      (``0x0114`` reads as 1.14), and the host tools require firmware of
+    * Bump the firmware API version to the release's own number.
+      ``UBERTOOTH_API_VERSION`` in
+      ``host/libubertooth/src/ubertooth_interface.h`` already moves in every
+      development pull request that changes firmware behaviour the host relies
+      on; the release moves it to the next major version to mark that its host
+      tools and firmware only work with each other. It is binary-coded decimal
+      (``0x0200`` reads as 2.00), and the host tools require firmware of
       exactly this version, so every board has to be reflashed after the
       release. Update the firmware row of ``COMPATIBILITY.md``, the expected
-      ``API:`` string in ``TEST_PLAN.md``, and note the reflash in
-      ``CHANGELOG.md``.
+      ``API:`` string in ``TEST_PLAN.md``, the pinned strings in the host
+      tests, and note the reflash in ``CHANGELOG.md``.
 
     * Build binary firmware images for all board revs and all common firmware images.
 
