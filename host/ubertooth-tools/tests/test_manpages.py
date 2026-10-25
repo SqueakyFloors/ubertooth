@@ -15,10 +15,13 @@ repository:
   * `manpages` renders every page into the build directory, still changing
     nothing;
   * `refresh-manpages` copies them over the committed ones, and leaves the
-    pages that have no generated counterpart alone.
+    pages that have no generated counterpart alone;
+  * every rendered page keeps the `.TH` organization and manual fields, which
+    ronn leaves empty unless it is told them.
 
-Skipped when ronn is not installed, which is also the state in which a build
-must work: without ronn neither target exists.
+Exits 77 (CTest's skip code here) when ronn is not installed, which is also
+the state in which a build must work: without ronn neither target renders
+anything.
 
 Usage: test_manpages.py <cmake> <host source dir>
 """
@@ -34,10 +37,27 @@ import tempfile
 # must leave them as they are.
 HAND_MAINTAINED = "ubertooth-debug.1"
 
+# The .TH fields the committed pages carry. ronn writes an empty organization
+# and manual unless it is given them, so a refresh that dropped these would
+# quietly degrade every page.
+ORGANIZATION = "Project Ubertooth"
+MANUALS = {"1": "User Commands", "7": "Project Ubertooth Overview"}
+
+SKIP = 77
+
 
 def fail(message):
     print("FAIL: %s" % message)
     sys.exit(1)
+
+
+def title_line(path):
+    """The page's .TH line, which carries its name, section and headings."""
+    with open(path, encoding="utf-8", errors="replace") as handle:
+        for line in handle:
+            if line.startswith(".TH"):
+                return line.rstrip("\n")
+    fail("%s has no .TH line" % path)
 
 
 def digests(directory):
@@ -67,7 +87,7 @@ def main():
     ronn = shutil.which("ronn") or shutil.which("ronn-ng")
     if ronn is None:
         print("SKIP: ronn is not installed, so nothing generates man pages")
-        return
+        sys.exit(SKIP)
 
     with tempfile.TemporaryDirectory() as work:
         # The doc project reads ../cmake/cmake_uninstall.cmake.in, so the copy
@@ -119,6 +139,16 @@ def main():
                  % (len(generated), len(committed) - 1, sorted(generated)))
         if HAND_MAINTAINED in generated:
             fail("%s was generated; it is maintained by hand" % HAND_MAINTAINED)
+
+        # A refresh must not strip the page headings: without --organization
+        # and --manual, ronn writes `.TH "NAME" "1" "<date>" ""`.
+        for name in sorted(generated):
+            title = title_line(os.path.join(rendered, name))
+            manual = MANUALS[name.rsplit(".", 1)[1]]
+            for field in ('"%s"' % ORGANIZATION, '"%s"' % manual):
+                if field not in title:
+                    fail("%s lost %s from its .TH line: %s"
+                         % (name, field, title))
 
         # Make one committed page stale, so the refresh has something to do
         # whatever ronn renders: a copy that did nothing would otherwise pass
