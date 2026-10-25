@@ -135,10 +135,9 @@ int main(int argc, char* argv[])
 				return 1;
 			break;
 		case 's':
-			/* The channel sweep is what the tool does when no -c
-			 * names a fixed channel, so there is nothing for -s to
-			 * select. It is accepted, without a warning, so that a
-			 * command line can state the default explicitly. */
+			/* The sweep is what the tool does when no -c names a
+			 * fixed channel, so -s has nothing to select: it is
+			 * accepted so a command line can state the default. */
 			break;
 		case 't':
 			if (opt_require_count(optarg, 0, "timeout", "seconds",
