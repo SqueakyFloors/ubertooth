@@ -3,8 +3,8 @@ inclusion: always
 ---
 # PR Descriptions and Code Comments: Short and Current
 
-The code should speak for itself. PR text and code comments explain what the
-code cannot, briefly.
+The code is well commented, so a PR description does not need to repeat it:
+keep the description short and let the code and its comments carry the detail.
 
 ## PR description (the PR body)
 
@@ -35,9 +35,7 @@ yours, delete or shorten the earlier one.
 
 ## Code comments
 
-- Comment why, not what: a constraint, a hardware quirk, a non-obvious reason.
-  If the code says it, do not repeat it.
-- One or two lines is normal; a paragraph needs a reason.
+- Comments say why, not what: a constraint, a hardware quirk, a non-obvious
+  reason. The code already says what it does.
 - No change history, review history or issue narratives in comments (the
   commits and PRs hold those), and no issue numbers (see "Issue references").
-- When you change code, trim or delete comments it made stale.
