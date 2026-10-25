@@ -21,7 +21,11 @@ cd "$(git rev-parse --show-toplevel)" || exit 1
 
 # In scope: the files the rule names. An inclusion list rather than an
 # exclusion one, so a new kind of documentation cannot quietly join the check
-# and a new source file cannot quietly leave it.
+# and a new source file cannot quietly leave it. The cost of that choice is
+# that a kind of source file nobody thought of is not scanned, so the list
+# covers the spellings a C, C++, Python, shell, CMake, make or packaging file
+# can arrive under, and the *.in templates those are generated from, not only
+# the ones the tree happens to use today.
 #
 # Assembly (*.S, *.s) is left out, because an immediate operand is spelt the
 # same way as a reference and every line of one would need excusing. Inline
@@ -29,9 +33,11 @@ cd "$(git rev-parse --show-toplevel)" || exit 1
 #
 # Vendored trees are left out because the rule says to leave them as they are.
 files=$(git ls-files -- \
-            '*.c' '*.h' '*.cpp' '*.hpp' '*.py' '*.sh' \
-            'CMakeLists.txt' '*.cmake' 'Makefile' '*.mk' \
-            '.github/workflows/*.yml' 'Dockerfile' 'Jenkinsfile' |
+            '*.c' '*.h' '*.cc' '*.cpp' '*.cxx' '*.hh' '*.hpp' \
+            '*.py' '*.sh' '*.rb' '*.bat' \
+            'CMakeLists.txt' '*.cmake' 'Makefile' '*.mk' '*.ld' '*.in' \
+            '.github/workflows/*.yml' '.github/workflows/*.yaml' \
+            'Dockerfile' 'Jenkinsfile' |
         grep -v -E '^(host/cmake/modules/|firmware/common/lpcusb/)')
 
 if [ -z "$files" ]; then
@@ -66,8 +72,14 @@ grep -v '^#' "$allowlist" > "$allowlist.patterns" && mv "$allowlist.patterns" "$
 matches=$(mktemp) || exit 1
 reported=$(mktemp) || exit 1
 
+# Both spellings the rule reserves for commit messages, pull request
+# descriptions and CHANGELOG.md: the bare number, and the full URL that is the
+# correct form *there*. A URL in a source comment is the same reference wearing
+# a hat, and nothing in the tree uses one, so there is no cost to refusing it.
+reference='#[0-9]+|github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(issues|pull)/[0-9]+'
+
 printf '%s\n' "$files" | tr '\n' '\0' |
-    xargs -0 grep -n -H -E -- '#[0-9]+' > "$matches" 2>/dev/null
+    xargs -0 grep -n -H -E -- "$reference" > "$matches" 2>/dev/null
 
 grep -v -E -f "$allowlist" "$matches" > "$reported"
 
