@@ -125,6 +125,7 @@ void print_duck(FILE *file, int s) {
 static int request_failed(ubertooth_t *ut, const char *what) {
 	fprintf(stderr, "error: could not %s\n", what);
 	ubertooth_stop(ut);
+	ubertooth_free(ut);
 	return 1;
 }
 
@@ -156,9 +157,7 @@ int main(int argc, char *argv[])
 	uint8_t bd_addr[6] = { 0, };
 	uint8_t adv_data[16+2] = { 0, };
 	char* ubertooth_device = NULL;
-	ubertooth_t* ut = ubertooth_init();
-	if (ut == NULL)
-		return 1;
+	ubertooth_t* ut = NULL;
 
 	int r;
 
@@ -284,14 +283,26 @@ int main(int argc, char *argv[])
 
 	}
 
+	/* Nothing above this point touches a board, so the bookkeeping for one is
+	 * allocated only once the command line has been accepted: a refused
+	 * command line then has nothing to give back. */
+	ut = ubertooth_init();
+	if (ut == NULL)
+		return 1;
+
 	r = ubertooth_connect_select(ut, ubertooth_device);
 	if (r < 0) {
+		ubertooth_free(ut);
 		return 1;
 	}
 
 	r = ubertooth_check_api(ut);
-	if (r < 0)
+	if (r < 0) {
+		/* No ubertooth_stop() here: ubertooth_check_api() releases the
+		 * board itself on a version mismatch. */
+		ubertooth_free(ut);
 		return 1;
+	}
 
 	// quit on ctrl-C
 	signal(SIGINT, quit);
@@ -331,6 +342,7 @@ int main(int argc, char *argv[])
 
 		sleep(2);
 		ubertooth_stop(ut);
-	} 
+	}
+	ubertooth_free(ut);
 	return 0;
 }
