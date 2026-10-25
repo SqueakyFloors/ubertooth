@@ -16,6 +16,9 @@ target_include_directories(test-dfu-recovery PRIVATE ../src)
 add_test(NAME dfu-recovery COMMAND test-dfu-recovery)
 
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
+# The AFH request test runs the library's receive loop, which starts its poll
+# thread; the other tests that compile ubertooth.c never reach it.
+find_package(Threads REQUIRED)
 
 # ubertooth-dfu checks the image before it opens a device, so the whole
 # accept/refuse decision runs against the real binary with no board. Eleven
@@ -384,9 +387,8 @@ if(libubertooth_SOURCE_DIR)
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
 	target_include_directories(test-afh-requests PRIVATE
 		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
-	target_link_libraries(test-afh-requests ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES})
-	find_package(Threads REQUIRED)
-	target_link_libraries(test-afh-requests Threads::Threads)
+	target_link_libraries(test-afh-requests ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES}
+		Threads::Threads)
 	add_test(NAME afh-requests COMMAND test-afh-requests)
 	# The loops are stopped from the faked fifo after a few turns and every
 	# transfer is faked, so a run takes milliseconds. A regression that leaves

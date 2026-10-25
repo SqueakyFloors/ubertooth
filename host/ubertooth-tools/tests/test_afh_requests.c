@@ -33,16 +33,19 @@
 #include "ubertooth_fifo.h"
 
 #define MAX_REQUESTS 16
+#define ARRAY_LEN(a) (sizeof(a) / sizeof((a)[0]))
+
+/* The channel the AFH paths set: not a real channel, it is how the firmware
+ * is told to take its channel from the AFH hopping it is about to do. */
+#define AFH_DETECTION_CHANNEL 9999
 
 static struct {
 	uint8_t requests[MAX_REQUESTS]; /* bRequest of each control transfer */
+	uint16_t values[MAX_REQUESTS];  /* its wValue */
 	int bulk_at[MAX_REQUESTS];      /* bulk transfers submitted by then */
 	int n;
 	int overflow;                   /* more requests than this records */
 	int bulk_submits;
-	int cancels;
-	int allocated;
-	int freed;
 } fake;
 
 /* The handle the receive loop under test is using, so the faked fifo can stop
@@ -104,11 +107,11 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle* devh,
 {
 	(void)devh;
 	(void)request_type;
-	(void)wValue;
 	(void)wIndex;
 	(void)timeout;
 	if (fake.n < MAX_REQUESTS) {
 		fake.requests[fake.n] = bRequest;
+		fake.values[fake.n] = wValue;
 		fake.bulk_at[fake.n] = fake.bulk_submits;
 		fake.n++;
 	} else {
@@ -121,22 +124,17 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle* devh,
 
 struct libusb_transfer* LIBUSB_CALL libusb_alloc_transfer(int iso_packets)
 {
-	struct libusb_transfer* xfer = calloc(1, sizeof(*xfer)
+	return calloc(1, sizeof(struct libusb_transfer)
 		+ (size_t)iso_packets * sizeof(struct libusb_iso_packet_descriptor));
-
-	if (xfer != NULL)
-		fake.allocated++;
-	return xfer;
 }
 
 void LIBUSB_CALL libusb_free_transfer(struct libusb_transfer* xfer)
 {
-	if (xfer == NULL)
-		return;
-	fake.freed++;
 	free(xfer);
 }
 
+/* Only the bulk receive transfer is submitted this way; the control requests
+ * above are counted as they are made. */
 int LIBUSB_CALL libusb_submit_transfer(struct libusb_transfer* xfer)
 {
 	(void)xfer;
@@ -147,7 +145,6 @@ int LIBUSB_CALL libusb_submit_transfer(struct libusb_transfer* xfer)
 int LIBUSB_CALL libusb_cancel_transfer(struct libusb_transfer* xfer)
 {
 	(void)xfer;
-	fake.cancels++;
 	return 0;
 }
 
@@ -223,10 +220,12 @@ static void capture_output(void)
 {
 	capture_out = tmpfile();
 	capture_err = tmpfile();
-	saved_stdout = dup(fileno(stdout));
-	saved_stderr = dup(fileno(stderr));
+	saved_stdout = capture_out != NULL ? dup(fileno(stdout)) : -1;
+	saved_stderr = capture_err != NULL ? dup(fileno(stderr)) : -1;
 	mu_assert(capture_out != NULL && capture_err != NULL
 	          && saved_stdout >= 0 && saved_stderr >= 0, "capture output");
+	if (saved_stdout < 0 || saved_stderr < 0)
+		return; /* nothing is redirected, so nothing is restored below */
 	fflush(stdout);
 	fflush(stderr);
 	dup2(fileno(capture_out), fileno(stdout));
@@ -237,6 +236,14 @@ static void release_output(char* err_text, size_t len)
 {
 	size_t n;
 
+	err_text[0] = '\0';
+	if (saved_stdout < 0 || saved_stderr < 0) {
+		if (capture_out != NULL)
+			fclose(capture_out);
+		if (capture_err != NULL)
+			fclose(capture_err);
+		return;
+	}
 	fflush(stdout);
 	fflush(stderr);
 	dup2(saved_stdout, fileno(stdout));
@@ -265,24 +272,34 @@ static int sent(uint8_t request)
 static const char* requests_text(void)
 {
 	static char text[128];
-	int i, used = 0;
+	size_t used = 0;
+	int i;
 
 	text[0] = '\0';
-	for (i = 0; i < fake.n; i++)
-		used += snprintf(text + used, sizeof(text) - used, "%s%u",
-		                 i == 0 ? "" : ",", (unsigned int)fake.requests[i]);
-	if (fake.overflow)
+	for (i = 0; i < fake.n && used + 1 < sizeof(text); i++) {
+		int wrote = snprintf(text + used, sizeof(text) - used, "%s%u",
+		                     i == 0 ? "" : ",",
+		                     (unsigned int)fake.requests[i]);
+
+		if (wrote < 0)
+			break;
+		/* snprintf returns what it would have written, not what it did */
+		used += (size_t)wrote;
+		if (used >= sizeof(text))
+			used = sizeof(text) - 1;
+	}
+	if (fake.overflow && used + 1 < sizeof(text))
 		snprintf(text + used, sizeof(text) - used, ",...");
 	return text;
 }
 
-static void assert_requests(const uint8_t* expected, int n)
+static void assert_requests(const uint8_t* expected, size_t n)
 {
-	int i;
+	size_t i;
 
 	mu_assert(!fake.overflow, requests_text());
 	mu_assert_int_eq(n, fake.n);
-	for (i = 0; i < n && i < fake.n; i++) {
+	for (i = 0; i < n && i < (size_t)fake.n; i++) {
 		mu_assert(fake.requests[i] == expected[i], requests_text());
 	}
 	/* The one that must never be there: it is what took the board out of
@@ -318,7 +335,8 @@ MU_TEST(the_detection_phase_starts_the_stream_with_afh)
 	release_output(err, sizeof(err));
 
 	mu_assert_int_eq(UBERTOOTH_AFH_NO_PACKETS, r);
-	assert_requests(expected, 3);
+	assert_requests(expected, ARRAY_LEN(expected));
+	mu_assert_int_eq(AFH_DETECTION_CHANNEL, fake.values[0]);
 	mu_assert(err[0] == '\0', err);
 
 	/* The mode request goes out once the bulk transfer is in place, and the
@@ -356,7 +374,7 @@ MU_TEST(the_monitor_phase_after_a_detected_map_asks_for_afh_again)
 	release_output(err, sizeof(err));
 
 	mu_assert_int_eq(0, r);
-	assert_requests(expected, 4);
+	assert_requests(expected, ARRAY_LEN(expected));
 	mu_assert(err[0] == '\0', err);
 
 	release_handle(ut);
@@ -387,7 +405,7 @@ MU_TEST(the_monitor_alone_asks_for_afh)
 	release_output(err, sizeof(err));
 
 	mu_assert_int_eq(0, r);
-	assert_requests(expected, 2);
+	assert_requests(expected, ARRAY_LEN(expected));
 	mu_assert(err[0] == '\0', err);
 
 	release_handle(ut);
@@ -415,7 +433,8 @@ MU_TEST(the_r_format_loop_asks_for_afh)
 	rx_afh_r(ut, pn, 0);
 	release_output(err, sizeof(err));
 
-	assert_requests(expected, 2);
+	assert_requests(expected, ARRAY_LEN(expected));
+	mu_assert_int_eq(AFH_DETECTION_CHANNEL, fake.values[0]);
 	mu_assert(err[0] == '\0', err);
 
 	release_handle(ut);
