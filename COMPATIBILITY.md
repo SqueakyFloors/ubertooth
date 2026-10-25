@@ -98,6 +98,22 @@ until this change — should keep working. It is simply no longer what gets
 tested. Older upstream releases, `2020-12-R1` included, have never been
 exercised here.
 
+### Firmware API version: exact match, bumped once per release
+The host tools require firmware whose API version (`UBERTOOTH_API_VERSION`,
+reported as the USB `bcdDevice`) is exactly their own, and refuse any other —
+only `ubertooth-util` reading the version and reflashing still work. The
+number is bumped once per release, not once per change: the first firmware
+change after a release moves `main` to the next release's version, later
+firmware changes in the same cycle leave it alone, and cutting the release is
+what bumps it.
+
+Between releases the number therefore does not identify a commit. Host tools
+and firmware built from the same commit always match, and firmware from an
+earlier development commit with the same number is accepted even though its
+behaviour may differ. Build and flash both from the same commit
+(`./install.sh --flash`) rather than relying on the check to catch a stale
+board.
+
 ### Firmware build: GNU make 3.81 (macOS) and the generated version.h
 The firmware builds with the stock GNU make on macOS (**3.81**) as well as the
 modern make on Linux (4.3). The build intentionally avoids make ≥ 4.0 features

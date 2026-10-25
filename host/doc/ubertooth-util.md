@@ -69,6 +69,13 @@ blinks a second, until it is stopped:
 so. The other options work with any firmware, so `-v` can still read the
 version and `-f` can reflash it.
 
+The API version is bumped once per release, not once per change, so between
+releases it says nothing about which commit a board carries: firmware from an
+earlier development commit reports the same number and is accepted even though
+its behaviour may differ. Flash the firmware from the commit the tools were
+built from (`./install.sh --flash`); the revision shown by `-v` alongside the
+API version is what identifies the build.
+
 Only one mode option can be given per command: `-q`, `-n`, `-e`, `-t`, `-x`,
 `-I`, `-i` (In-System Programming, ISP) and `-f` (Device Firmware Upgrade,
 DFU) each end the command, so a command with two or more of them is refused
@@ -140,10 +147,12 @@ Radio options:
    intitiate continuous transmit test
  - `-z [-128..127]` :
    get/set squelch level (a signed RSSI threshold; values above 0 are relative
-   to the average RSSI) for a later RX capture.
-   Stopping a running mode resets it to the default, so `-z` cannot be
-   combined with a mode option (`-q`, `-n`, `-e`, `-t`, `-x`, `-I`, `-i`,
-   `-f`).
+   to the average RSSI) for an RX capture. The firmware puts it back to the
+   default -120 dBm on every mode change, so set it in the same step as the
+   capture it is meant for, or once that capture is running; it does not carry
+   into the next mode. See [SQUELCH][]. `-z` cannot be combined with a mode
+   option (`-q`, `-n`, `-e`, `-t`, `-x`, `-I`, `-i`, `-f`), which would reset
+   it before the mode started.
 
 Range test:
 
@@ -334,6 +343,38 @@ Before a range test has completed since the board started, `-m` prints
 Note that the range test transmits the Cortex M3 microcontroller's
 serial number. If you do not wish to broadcast that information
 wirelessly, do not use the range test functionality.
+
+## SQUELCH
+
+`-z` writes the squelch to the board. It gates the carrier-sense trigger of
+the Classic Bluetooth symbol capture (`ubertooth-rx`, `ubertooth-dump`,
+`ubertooth-scan`, `ubertooth-follow`, `ubertooth-afh`) and of the BLE
+promiscuous mode of `ubertooth-btle`; at the default -120 dBm nothing is
+squelched. No other tool sets or reports it.
+
+It lasts for one mode, not until the board is reset: the firmware runs its
+idle reset whenever it leaves a mode, before the next one starts, and that
+puts the squelch back to -120 dBm along with the LEDs and the channel. So a
+value set for one capture never reaches a later one. That is deliberate — a
+squelch left behind would quietly change every capture that followed — and it
+is the behaviour to work with:
+
+- Set it while the board is idle, then start the capture. A mode entered from
+  idle keeps the value, because no mode is being left:
+
+        ubertooth-util -U <serial> -z -70
+        ubertooth-rx -U <serial>
+
+- Or set it once the capture is running: `-z` works on a board that is in a
+  mode and takes effect immediately. Bare `-z` reads back what the running
+  capture is using.
+
+- Set it again for each capture. After a capture ends, or as soon as one mode
+  replaces another, `-z` reads -120 dBm again.
+
+`-z` together with one of `ubertooth-util`'s own mode options is refused
+rather than quietly dropped, because each of those modes leaves whatever was
+running first and the reset would discard the value before the mode started.
 
 ## EXIT STATUS
 

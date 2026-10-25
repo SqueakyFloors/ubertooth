@@ -13,6 +13,8 @@ Follows a classic Bluetooth (BR/EDR) piconet for a given target address\. It use
 .P
 Both LAP and UAP identify the target\. If they are not supplied, they are read from the local Bluetooth device \(em note this may yield the wrong address in some cases, so supplying the target LAP/UAP explicitly is recommended\.
 .P
+The capture is gated by the board's squelch, which this tool does not set: it is the default \-120 dBm unless \fBubertooth\-util \-z\fR set another value while the board was idle, and the firmware resets it on every mode change, so it never carries over from an earlier capture\. See ubertooth\-util(1), SQUELCH\.
+.P
 Requires BlueZ (Linux only)\.
 .SH "OPTIONS"
 .TP
@@ -64,6 +66,8 @@ An option value must be a whole value in its range, or it is refused the same wa
 .P
 A refused command line creates and truncates nothing: \fB\-r\fR, \fB\-q\fR and \fB\-d\fR name their file while the command line is read, and it is opened only once every check has passed\.
 .SH "SEE ALSO"
+ubertooth\-util(1): sets the receive squelch (\fB\-z\fR); SQUELCH describes how long it lasts
+.P
 ubertooth\-rx(1), ubertooth\-afh(1)
 .P
 ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how option values are written

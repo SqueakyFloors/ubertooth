@@ -28,10 +28,22 @@
  * The firmware API version, reported by the firmware as the USB bcdDevice.
  * The host tools require firmware with exactly this version
  * (ubertooth_check_api()), so host and firmware are released together.
- * Increment it on every firmware change the host relies on: a new or changed
- * request, or a changed behaviour of an existing one. bcdDevice is binary-coded
- * decimal, so 0x0109 is followed by 0x0110 (shown as 1.10), then 0x0111
- * (1.11), then 0x0112 (1.12), then 0x0113 (1.13), then 0x0114 (1.14).
+ *
+ * It is bumped once per release, not once per change. The first firmware
+ * change after a release moves main to the next version, and every later
+ * firmware change in the same cycle leaves it alone: cutting the release
+ * bumps it, a pull request does not, not even one that changes firmware
+ * behaviour. Record such a change in CHANGELOG.md instead.
+ *
+ * So between releases the number says nothing about which commit a board
+ * carries. Host tools and firmware built from the same commit always match,
+ * and firmware from an earlier development commit with the same number is
+ * accepted even though its behaviour may differ. Build and flash both from
+ * the same commit (./install.sh --flash) rather than relying on the check to
+ * catch a stale board.
+ *
+ * bcdDevice is binary-coded decimal, so 0x0109 is followed by 0x0110 (shown
+ * as 1.10), then 0x0111 (1.11), and so on to 0x0114 (1.14).
  */
 #define UBERTOOTH_API_VERSION 0x0114
 

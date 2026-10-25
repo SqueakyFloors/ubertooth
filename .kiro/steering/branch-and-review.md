@@ -123,6 +123,24 @@ Speed matters. Do not wait for every job.
   between other work (reviews, the next issue) and merge the moment the gating
   set is green.
 
+## Firmware API version
+
+`UBERTOOTH_API_VERSION` (`host/libubertooth/src/ubertooth_interface.h`, which
+the firmware reports as the USB `bcdDevice`) is bumped **once per release, not
+once per change**.
+
+- A PR MUST NOT change the number, even when it changes firmware behaviour or
+  a vendor request. Describe the change in `CHANGELOG.md` instead.
+- The first firmware change after a release moves `main` to the next release's
+  version; every later firmware change in that cycle leaves it alone. Cutting
+  the release is what bumps it (see `docs/source/release_procedure.rst`).
+- In practice, between releases: host tools and firmware built from the same
+  commit always match, and a board running older development firmware with the
+  same number is **not** refused, though its behaviour may differ. So after
+  pulling or switching commits, rebuild and reflash both from the same commit
+  (`./install.sh --flash`) rather than relying on the version check to catch a
+  stale board.
+
 ## Changelog discipline
 
 - MUST describe user-facing impact concisely, normally in one bullet of one to

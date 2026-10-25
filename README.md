@@ -26,7 +26,10 @@ Instructions for flashing the firmware can be found [on the corresponding readth
 
 The host tools require firmware built from the same source tree (the same
 firmware API version), so flash the firmware whenever you update the tools:
-`./install.sh --flash-device <index|serial|all>`.
+`./install.sh --flash-device <index|serial|all>`. The API version is bumped
+once per release, so between releases it cannot tell a board with older
+development firmware apart from a current one: reflash from the commit you
+built the tools from instead of waiting for a version error.
 
 Instructions for building libbtbb by hand, with the pin, are in this tree's
 [build guide](docs/source/build_guide.rst); the published

@@ -9,6 +9,8 @@ ubertooth\-dump [\-b] [\-c | \-l] [\-d <filename\.bin>]
 .fi
 .SH "DESCRIPTION"
 This tool dumps the raw bitstream received from the CC2400 radio to STDOUT or a file (if specified with \fB\-d\fR)\. It can configure the radio to demodulate Classic Bluetooth with \fB\-c\fR (default), or Bluetooth Low Energy (BLE) with \fB\-l\fR\. Optionally it can decode the binary data and print ASCII 0 and 1 using \fB\-b\fR\.
+.P
+The capture is gated by the board's squelch, which this tool does not set: it is the default \-120 dBm unless \fBubertooth\-util \-z\fR set another value while the board was idle, and the firmware resets it on every mode change, so it never carries over from an earlier capture\. See ubertooth\-util(1), SQUELCH\.
 .SH "OPTIONS"
 .TP
 \fB\-b\fR
@@ -40,6 +42,8 @@ A command line the tool will not take is reported as that one \fBerror:\fR line 
 .SH "EXIT STATUS"
 0 when the command did what was asked, including \fB\-h\fR, and after the dump is interrupted (Ctrl\-C)\. 1 for a command line the tool will not take, for a \fB\-d\fR file that cannot be opened, and when the selected Ubertooth is not found or cannot be opened\.
 .SH "SEE ALSO"
+ubertooth\-util(1): sets the receive squelch (\fB\-z\fR); SQUELCH describes how long it lasts
+.P
 ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how option values are written
 .SH "AUTHOR"
 This manual page was written by Mike Ryan\.

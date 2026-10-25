@@ -15,6 +15,11 @@ Both LAP and UAP identify the target. If they are not supplied, they are read
 from the local Bluetooth device — note this may yield the wrong address in some
 cases, so supplying the target LAP/UAP explicitly is recommended.
 
+The capture is gated by the board's squelch, which this tool does not set: it
+is the default -120 dBm unless `ubertooth-util -z` set another value while the
+board was idle, and the firmware resets it on every mode change, so it never
+carries over from an earlier capture. See ubertooth-util(1), SQUELCH.
+
 Requires BlueZ (Linux only).
 
 ## OPTIONS
@@ -68,6 +73,9 @@ their file while the command line is read, and it is opened only once every
 check has passed.
 
 ## SEE ALSO
+
+ubertooth-util(1): sets the receive squelch (`-z`); SQUELCH describes how
+long it lasts
 
 ubertooth-rx(1), ubertooth-afh(1)
 

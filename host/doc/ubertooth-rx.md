@@ -31,6 +31,13 @@ calculate the UAPs for any observed LAPs. This mode can be combined with
 a timeout using `-t`, and it can be interrupted at any time using
 `ctrl-C`.
 
+This tool's `-z` is survey mode, not a squelch: only `ubertooth-util -z` sets
+the receive squelch. The capture runs at whatever squelch the board holds when
+the mode starts, the default -120 dBm unless `ubertooth-util -z` set another
+value while the board was idle. The firmware resets the squelch on every mode
+change, so a value set for an earlier capture is already gone; set it again
+before this command, or while it is running. See ubertooth-util(1), SQUELCH.
+
 ## EXAMPLES
 
 Follow the first piconet whose LAP, UAP, and clock are recovered from
@@ -199,6 +206,9 @@ name their file while the command line is read, and it is opened only once
 every check has passed.
 
 ## SEE ALSO
+
+ubertooth-util(1): sets the receive squelch (`-z`); SQUELCH describes how
+long it lasts
 
 ubertooth-scan(1): active device scanning and inquiry using Ubertooth
 and BlueZ

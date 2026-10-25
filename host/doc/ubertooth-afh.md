@@ -20,6 +20,11 @@ binary form once per second.
 Note: the `-a` option (initial AFH map) is currently non-functional; its
 handler is disabled in the source and the flag has no effect.
 
+The capture is gated by the board's squelch, which this tool does not set: it
+is the default -120 dBm unless `ubertooth-util -z` set another value while the
+board was idle, and the firmware resets it on every mode change, so it never
+carries over from an earlier capture. See ubertooth-util(1), SQUELCH.
+
 ## OPTIONS
 
  - `-l <LAP>` :
@@ -130,6 +135,9 @@ receive could not be started at all; `-r` does not report that and still
 exits 0.
 
 ## SEE ALSO
+
+ubertooth-util(1): sets the receive squelch (`-z`); SQUELCH describes how
+long it lasts
 
 ubertooth-rx(1): a tool for finding UAP and LAP
 
