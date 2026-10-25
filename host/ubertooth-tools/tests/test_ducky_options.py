@@ -27,11 +27,11 @@ def run(*arguments):
 
 
 def require_parsed(arguments):
+    """The selector parsed, so -h ends the command: usage on stdout, status 0."""
     result = run(*arguments, "-h")
-    assert result.returncode == 1, result
+    assert result.returncode == 0, result
     assert "ubertooth-ducky" in result.stdout, result
-    assert "invalid option" not in result.stderr.lower(), result
-    assert "requires an argument" not in result.stderr.lower(), result
+    assert result.stderr == "", result
 
 
 require_parsed(("-U0",))
@@ -41,4 +41,5 @@ require_parsed(("-U", "1ff0ff1967102caf8334fa5ac52000f5"))
 
 missing = run("-U")
 assert missing.returncode == 1, missing
-assert "requires an argument" in missing.stderr.lower(), missing
+assert missing.stdout == "", missing
+assert missing.stderr.startswith("error: option '-U' requires a value"), missing

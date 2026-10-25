@@ -31,31 +31,31 @@
 extern int max_ac_errors;
 extern unsigned int packet_counter_max;
 
-static void usage()
+static void usage(FILE *file)
 {
-	printf("ubertooth-afh - passive detection of the AFH channel map\n");
-	printf("\n");
-	printf("Determine the AFH map for piconet ??:??:22:44:66:88:\n");
-	printf("    ubertooth-afh -u 22 -l 446688\n");
-	printf("\n");
-	printf("Main options:\n");
-	printf("\t-l <LAP> LAP of target piconet (3 bytes / 6 hex digits)\n");
-	printf("\t-u <UAP> UAP of target piconet (1 byte / 2 hex digits)\n");
-	printf("\t-m <packets> mark a channel unused after this many packets without it (default: 5)\n");
-	printf("\t-r print AFH channel map once every second (default: print on update)\n");
-	printf("\n");
-	printf("Other options\n");
-	printf("\t-t <seconds> timeout for initial AFH map detection (not required; see below)\n");
-	printf("\t-e maximum access code errors (default: %d, range: 0-%d)\n",
-	       max_ac_errors, MAX_AC_ERRORS);
-	printf("\t-V print version information\n");
-	fputs(OPT_USAGE_SELECT_DEVICE, stdout);
-	printf("\n");
-	printf("The tool keeps monitoring the map for changes until it is\n");
-	printf("interrupted (Ctrl-C), both with and without -t. With -t, it stops\n");
-	printf("with exit status 2 if no packet from the piconet was received\n");
-	printf("during those seconds. To wait for a piconet that is not in range\n");
-	printf("yet, run without -t. -t has no effect with -r.\n");
+	fprintf(file, "ubertooth-afh - passive detection of the AFH channel map\n");
+	fprintf(file, "\n");
+	fprintf(file, "Determine the AFH map for piconet ??:??:22:44:66:88:\n");
+	fprintf(file, "    ubertooth-afh -u 22 -l 446688\n");
+	fprintf(file, "\n");
+	fprintf(file, "Main options:\n");
+	fprintf(file, "\t-l <LAP> LAP of target piconet (3 bytes / 6 hex digits)\n");
+	fprintf(file, "\t-u <UAP> UAP of target piconet (1 byte / 2 hex digits)\n");
+	fprintf(file, "\t-m <packets> mark a channel unused after this many packets without it (default: 5)\n");
+	fprintf(file, "\t-r print AFH channel map once every second (default: print on update)\n");
+	fprintf(file, "\n");
+	fprintf(file, "Other options\n");
+	fprintf(file, "\t-t <seconds> timeout for initial AFH map detection (not required; see below)\n");
+	fprintf(file, "\t-e maximum access code errors (default: %d, range: 0-%d)\n",
+	        max_ac_errors, MAX_AC_ERRORS);
+	fprintf(file, "\t-V print version information\n");
+	fputs(OPT_USAGE_SELECT_DEVICE, file);
+	fprintf(file, "\n");
+	fprintf(file, "The tool keeps monitoring the map for changes until it is\n");
+	fprintf(file, "interrupted (Ctrl-C), both with and without -t. With -t, it stops\n");
+	fprintf(file, "with exit status 2 if no packet from the piconet was received\n");
+	fprintf(file, "during those seconds. To wait for a piconet that is not in range\n");
+	fprintf(file, "yet, run without -t. -t has no effect with -r.\n");
 }
 
 int main(int argc, char* argv[])
@@ -77,7 +77,11 @@ int main(int argc, char* argv[])
 	// default value for '-m' channel timeout
 	packet_counter_max = 5;
 
-	while ((opt=getopt(argc,argv,"rhVl:u:U:e:a:t:m:")) != EOF) {
+	/* The tool reports a bad option itself, in the usual one-line form:
+	 * see opt_report_bad_option(). The leading ':' makes a missing option
+	 * value distinguishable from an option getopt does not know. */
+	opterr = 0;
+	while ((opt=getopt(argc,argv,":rhVl:u:U:e:a:t:m:")) != EOF) {
 		switch(opt) {
 		case 'l':
 			if (opt_require_lap(optarg, &lap) < 0)
@@ -128,7 +132,8 @@ int main(int argc, char* argv[])
 				first_exit_option = 'h';
 			break;
 		default:
-			usage();
+			opt_report_bad_option(opt, argc, argv);
+			usage(stderr);
 			return 1;
 		}
 	}
@@ -146,8 +151,8 @@ int main(int argc, char* argv[])
 		return 0;
 	}
 	if (first_exit_option == 'h') {
-		usage();
-		return 1;
+		usage(stdout);
+		return 0;
 	}
 
 	if (have_lap && have_uap) {
@@ -158,8 +163,9 @@ int main(int argc, char* argv[])
 		btbb_piconet_set_flag(pn, BTBB_LOOKS_LIKE_AFH, 1);
 		btbb_init_survey();
 	} else {
-		printf("Error: UAP or LAP not specified\n");
-		usage();
+		fputs("error: -l <LAP> and -u <UAP> are both required: "
+		      "the map is detected for one piconet\n", stderr);
+		usage(stderr);
 		return 1;
 	}
 

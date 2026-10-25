@@ -102,6 +102,20 @@ int opt_check_stdout_not_tty(const char *what);
  */
 int opt_check_no_operands(int argc, char *argv[]);
 
+/*
+ * The diagnostic for an option getopt would not take.
+ *
+ * getopt's own message names the whole argv[0] path and carries no prefix, so
+ * a tool sets opterr = 0 and calls this instead. Start the option string with
+ * ':' so a missing option value comes back as ':' rather than '?', then call
+ * this from the getopt loop's default case and print the usage text on
+ * standard error after it.
+ *
+ * <opt> is what getopt returned: ':' for an option whose value is missing,
+ * anything else for an option it does not know.
+ */
+void opt_report_bad_option(int opt, int argc, char *argv[]);
+
 /* True if <text> could be the value of the option being parsed. */
 typedef int (*opt_value_check)(const char *text);
 

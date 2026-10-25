@@ -39,6 +39,28 @@ alongside it.
 A refused command line creates and truncates nothing: `-d` names its file while
 the command line is read, and it is opened only once every check has passed.
 
+## DIAGNOSTICS
+
+Without `-d`, standard output carries the binary symbol stream and nothing
+else. Errors, warnings and the per-block timestamp go to standard error, each
+error as one line starting `error: `, for example
+`error: /no/such/dir/capture.bin: No such file or directory`.
+
+A command line the tool will not take is reported as that one `error: ` line
+followed by the usage text, both on standard error. An option the tool does
+not know reads `error: unrecognized option '-Z'`; one whose value is missing
+reads `error: option '-d' requires a value`.
+
+`-h` is what the user asked for, so the usage text goes to standard output and
+nothing goes to standard error.
+
+## EXIT STATUS
+
+0 when the command did what was asked, including `-h`, and after the dump is
+interrupted (Ctrl-C). 1 for a command line the tool will not take, for a `-d`
+file that cannot be opened, and when the selected Ubertooth is not found or
+cannot be opened.
+
 ## SEE ALSO
 
 ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how

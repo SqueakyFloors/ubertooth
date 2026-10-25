@@ -39,24 +39,24 @@ void quit(int signo __attribute__((unused)))
 	running = 0;
 }
 
-static void usage(void)
+static void usage(FILE *file)
 {
-	printf("ubertooth-ego - Yuneec E-GO skateboard sniffing\n");
-	printf("Usage:\n");
-	printf("\t-h this help\n");
-	printf("\n");
-	printf("    Major modes:\n");
-	printf("\t-f follow connections\n");
-	printf("\t-r continuous rx on a single channel\n");
-	printf("\t-i interfere\n");
-	printf("\n");
-	printf("    Options:\n");
-	printf("\t-c <%d-%d> set channel in MHz (for continuous rx)\n",
-	       BT_FREQ_MIN, BT_FREQ_MAX);
-	printf("\t-l <%d-%d> capture length as a decimal integer (default: 18)\n",
-	       EGO_PACKET_LENGTH_MIN, EGO_PACKET_LENGTH_MAX);
-	printf("\t-a <access_code> access code, 2, 4, 6 or 8 hex digits (default: 630f9ffe)\n");
-	fputs(OPT_USAGE_SELECT_DEVICE, stdout);
+	fprintf(file, "ubertooth-ego - Yuneec E-GO skateboard sniffing\n");
+	fprintf(file, "Usage:\n");
+	fprintf(file, "\t-h this help\n");
+	fprintf(file, "\n");
+	fprintf(file, "    Major modes:\n");
+	fprintf(file, "\t-f follow connections\n");
+	fprintf(file, "\t-r continuous rx on a single channel\n");
+	fprintf(file, "\t-i interfere\n");
+	fprintf(file, "\n");
+	fprintf(file, "    Options:\n");
+	fprintf(file, "\t-c <%d-%d> set channel in MHz (for continuous rx)\n",
+	        BT_FREQ_MIN, BT_FREQ_MAX);
+	fprintf(file, "\t-l <%d-%d> capture length as a decimal integer (default: 18)\n",
+	        EGO_PACKET_LENGTH_MIN, EGO_PACKET_LENGTH_MAX);
+	fprintf(file, "\t-a <access_code> access code, 2, 4, 6 or 8 hex digits (default: 630f9ffe)\n");
+	fputs(OPT_USAGE_SELECT_DEVICE, file);
 }
 
 int main(int argc, char *argv[])
@@ -73,7 +73,11 @@ int main(int argc, char *argv[])
 	int access_code_len = 0;
 	int r;
 
-	while ((opt=getopt(argc,argv,"frijc:U:a:l:h")) != EOF) {
+	/* The tool reports a bad option itself, in the usual one-line form:
+	 * see opt_report_bad_option(). The leading ':' makes a missing option
+	 * value distinguishable from an option getopt does not know. */
+	opterr = 0;
+	while ((opt=getopt(argc,argv,":frijc:U:a:l:h")) != EOF) {
 		switch(opt) {
 		case 'f':
 			do_mode = 0;
@@ -114,7 +118,8 @@ int main(int argc, char *argv[])
 				first_exit_option = 'h';
 			break;
 		default:
-			usage();
+			opt_report_bad_option(opt, argc, argv);
+			usage(stderr);
 			return 1;
 		}
 	}
@@ -128,8 +133,8 @@ int main(int argc, char *argv[])
 	 * parsed: a bad option value or a stray word is reported even
 	 * alongside it. */
 	if (first_exit_option == 'h') {
-		usage();
-		return 1;
+		usage(stdout);
+		return 0;
 	}
 
 	ut = ubertooth_start_select(ubertooth_device);
@@ -160,9 +165,10 @@ int main(int argc, char *argv[])
 		r = cmd_ego(ut->devh, do_mode);
 		if (r < 0) {
 			if (do_mode == 0 || do_mode == 1)
-				printf("Error: E-GO not supported by this firmware\n");
+				fputs("error: E-GO not supported by this firmware\n", stderr);
 			else
-				printf("Error: E-GO not supported by this firmware (or TX not enabled)\n");
+				fputs("error: E-GO not supported by this firmware "
+				      "(or TX not enabled)\n", stderr);
 			return 1;
 		}
 
@@ -170,7 +176,7 @@ int main(int argc, char *argv[])
 		while (running) {
 			int r = cmd_poll(ut->devh, &rx);
 			if (r < 0) {
-				printf("USB error\n");
+				fputs("error: USB poll failed\n", stderr);
 				break;
 			}
 			if (r == sizeof(usb_pkt_rx)) {

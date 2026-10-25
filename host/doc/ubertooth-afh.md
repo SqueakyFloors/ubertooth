@@ -93,10 +93,29 @@ An option value must be a whole value in its range, or it is refused the same
 way instead of being read as 0, for example
 `error: timeout must be a whole number of seconds, 0 for none (got abc)`.
 
+Both halves of the piconet address are required, and a command line missing
+either is refused before any device is opened:
+`error: -l <LAP> and -u <UAP> are both required: the map is detected for one
+piconet`.
+
+## DIAGNOSTICS
+
+Standard output carries only the detected channel maps. Errors, warnings and
+progress go to standard error, each error as one line starting `error: `, so a
+script reading the maps sees nothing else.
+
+A command line the tool will not take is reported as that one `error: ` line
+followed by the usage text, both on standard error. An option the tool does
+not know reads `error: unrecognized option '-Z'`; one whose value is missing
+reads `error: option '-l' requires a value`.
+
+`-h` is what the user asked for, so the usage text goes to standard output and
+nothing goes to standard error.
+
 ## EXIT STATUS
 
 `ubertooth-afh` does not stop on its own, so it normally exits 0 after being
-interrupted (Ctrl-C).
+interrupted (Ctrl-C). `-h` also exits 0.
 
 It exits 2 when the `-t` detection phase received no packet from the piconet
 (see DETECTION AND MONITORING). The number of seconds in that message is the

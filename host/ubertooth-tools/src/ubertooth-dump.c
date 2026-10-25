@@ -21,21 +21,23 @@
 
 #include "ubertooth.h"
 #include "opt_parse.h"
+#include <errno.h>
 #include <getopt.h>
 #include <stdlib.h>
+#include <string.h>
 
-static void usage(void)
+static void usage(FILE *file)
 {
-	printf("ubertooth-dump - output a continuous stream of received bits\n");
-	printf("Usage:\n");
-	printf("\t-h this help\n");
-	printf("\t-b only dump received bitstream (GnuRadio style)\n");
-	printf("\t-c classic modulation\n");
-	printf("\t-l LE modulation\n");
-	fputs(OPT_USAGE_SELECT_DEVICE, stdout);
-	printf("\t-d filename\n");
-	printf("\nThis program sends binary data to stdout.  You probably don't want to\n");
-	printf("run it from a terminal without redirecting the output.\n");
+	fprintf(file, "ubertooth-dump - output a continuous stream of received bits\n");
+	fprintf(file, "Usage:\n");
+	fprintf(file, "\t-h this help\n");
+	fprintf(file, "\t-b only dump received bitstream (GnuRadio style)\n");
+	fprintf(file, "\t-c classic modulation\n");
+	fprintf(file, "\t-l LE modulation\n");
+	fputs(OPT_USAGE_SELECT_DEVICE, file);
+	fprintf(file, "\t-d filename\n");
+	fprintf(file, "\nThis program sends binary data to stdout.  You probably don't want to\n");
+	fprintf(file, "run it from a terminal without redirecting the output.\n");
 }
 
 /*
@@ -59,7 +61,11 @@ int main(int argc, char *argv[])
 	ubertooth_t* ut = NULL;
 	int r;
 
-	while ((opt=getopt(argc,argv,"bhclU:d:")) != EOF) {
+	/* The tool reports a bad option itself, in the usual one-line form:
+	 * see opt_report_bad_option(). The leading ':' makes a missing option
+	 * value distinguishable from an option getopt does not know. */
+	opterr = 0;
+	while ((opt=getopt(argc,argv,":bhclU:d:")) != EOF) {
 		switch(opt) {
 		case 'b':
 			bitstream = 1;
@@ -84,7 +90,8 @@ int main(int argc, char *argv[])
 				first_exit_option = 'h';
 			break;
 		default:
-			usage();
+			opt_report_bad_option(opt, argc, argv);
+			usage(stderr);
 			return 1;
 		}
 	}
@@ -98,15 +105,15 @@ int main(int argc, char *argv[])
 	 * parsed: a bad option value or a stray word is reported even
 	 * alongside it. */
 	if (first_exit_option == 'h') {
-		usage();
-		return 1;
+		usage(stdout);
+		return 0;
 	}
 
 	/* Every check has passed, so the dump file can be opened. */
 	if (dump_name != NULL) {
 		dumpfile = fopen(dump_name, "w");
 		if (dumpfile == NULL) {
-			perror(dump_name);
+			fprintf(stderr, "error: %s: %s\n", dump_name, strerror(errno));
 			return 1;
 		}
 	}

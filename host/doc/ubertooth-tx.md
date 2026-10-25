@@ -53,6 +53,28 @@ either is refused there too, before any device is opened, so the message never
 depends on which boards are attached:
 `error: -l <LAP> and -u <UAP> are both required`.
 
+## DIAGNOSTICS
+
+What `ubertooth-tx` does happens over the air, so it writes no result:
+everything it prints, including the `Syncword: 0x...` line, goes to standard
+error, and standard output stays empty. Each error is one line starting
+`error: `.
+
+A command line the tool will not take is reported as that one `error: ` line
+followed by the usage text, both on standard error. An option the tool does
+not know reads `error: unrecognized option '-Z'`; one whose value is missing
+reads `error: option '-l' requires a value`.
+
+`-h` is what the user asked for, so the usage text goes to standard output and
+nothing goes to standard error.
+
+## EXIT STATUS
+
+0 when the command did what was asked, including `-h`, and after the run is
+interrupted (Ctrl-C) or its `-t` timeout passes. 1 for a command line the tool
+will not take and when the selected Ubertooth is not found or cannot be
+opened.
+
 ## SEE ALSO
 
 ubertooth-dump(1)

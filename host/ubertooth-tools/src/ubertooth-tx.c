@@ -30,20 +30,20 @@
 #include <string.h>
 #include <inttypes.h> // PRIx64
 
-static void usage()
+static void usage(FILE *file)
 {
-	printf("ubertooth-tx - retransmit symbols dumped with ubertooth-dump\n");
-	printf("\n");
-	printf("!!!!\n");
-	printf("WARNING: This tool currently does nothing!\n");
-	printf("!!!!\n");
-	printf("\n");
-	printf("Usage:\n");
-	printf("\t-l <LAP> to transmit to (3 bytes / 6 hex digits) - required\n");
-	printf("\t-u <UAP> to transmit to (1 byte / 2 hex digits) - required\n");
-	printf("\t-t <SECONDS> timeout - 0 means no timeout [Default: 0]\n");
-	printf("\t-V print version information\n");
-	fputs(OPT_USAGE_SELECT_DEVICE, stdout);
+	fprintf(file, "ubertooth-tx - retransmit symbols dumped with ubertooth-dump\n");
+	fprintf(file, "\n");
+	fprintf(file, "!!!!\n");
+	fprintf(file, "WARNING: This tool currently does nothing!\n");
+	fprintf(file, "!!!!\n");
+	fprintf(file, "\n");
+	fprintf(file, "Usage:\n");
+	fprintf(file, "\t-l <LAP> to transmit to (3 bytes / 6 hex digits) - required\n");
+	fprintf(file, "\t-u <UAP> to transmit to (1 byte / 2 hex digits) - required\n");
+	fprintf(file, "\t-t <SECONDS> timeout - 0 means no timeout [Default: 0]\n");
+	fprintf(file, "\t-V print version information\n");
+	fputs(OPT_USAGE_SELECT_DEVICE, file);
 }
 
 int main(int argc, char* argv[])
@@ -61,7 +61,11 @@ int main(int argc, char* argv[])
 	if (ut == NULL)
 		return 1;
 
-	while ((opt=getopt(argc,argv,"hVl:u:U:t:")) != EOF) {
+	/* The tool reports a bad option itself, in the usual one-line form:
+	 * see opt_report_bad_option(). The leading ':' makes a missing option
+	 * value distinguishable from an option getopt does not know. */
+	opterr = 0;
+	while ((opt=getopt(argc,argv,":hVl:u:U:t:")) != EOF) {
 		switch(opt) {
 		case 'l':
 			if (opt_require_lap(optarg, &lap) < 0)
@@ -90,7 +94,8 @@ int main(int argc, char* argv[])
 				first_exit_option = 'h';
 			break;
 		default:
-			usage();
+			opt_report_bad_option(opt, argc, argv);
+			usage(stderr);
 			return 1;
 		}
 	}
@@ -108,8 +113,8 @@ int main(int argc, char* argv[])
 		return 0;
 	}
 	if (first_exit_option == 'h') {
-		usage();
-		return 1;
+		usage(stdout);
+		return 0;
 	}
 
 	/* ubertooth-tx transmits the access code of one piconet, so it needs
@@ -134,7 +139,9 @@ int main(int argc, char* argv[])
 	r = cmd_set_bdaddr(ut->devh, (((uint32_t)uap)<<24)|lap);
 	if (r < 0)
 		return r;
-	printf("Syncword: 0x%" PRIx64 "\n", btbb_gen_syncword(lap));
+	/* The tool transmits; the syncword it derived is progress, not the
+	 * result the user asked for. */
+	fprintf(stderr, "Syncword: 0x%" PRIx64 "\n", btbb_gen_syncword(lap));
 
 	/* Clean up on exit. */
 	register_cleanup_handler(ut, 0);

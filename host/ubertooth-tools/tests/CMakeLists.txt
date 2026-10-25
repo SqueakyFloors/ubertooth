@@ -97,6 +97,15 @@ foreach(tool ${UBERTOOTH_TOOLS})
 			${CMAKE_CURRENT_SOURCE_DIR}/test_no_file_on_refusal.py
 			$<TARGET_FILE:${tool}>)
 	set_tests_properties(no-file-on-refusal-${tool} PROPERTIES TIMEOUT 30)
+	# Which stream the usage text lands on, and the exit status, for -h and
+	# for a command line the tool will not take. One entry per built tool;
+	# a tool whose streams have not been converted yet says so and passes.
+	add_test(
+		NAME output-streams-${tool}
+		COMMAND ${Python3_EXECUTABLE}
+			${CMAKE_CURRENT_SOURCE_DIR}/test_output_streams.py
+			$<TARGET_FILE:${tool}>)
+	set_tests_properties(output-streams-${tool} PROPERTIES TIMEOUT 30)
 endforeach()
 
 add_test(
