@@ -20,6 +20,12 @@
   [#332](https://github.com/SqueakyFloors/ubertooth/issues/332)
 - `ubertooth-btle` and `ubertooth-ego` list their `-j`/`-J` jam aliases in `-h`.
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
+- The Classic Bluetooth (`btbr`) firmware and the generic transmit request no
+  longer write a power amplifier level of their own, so the level set with
+  `ubertooth-util -a` holds for them as it already does for the other transmit
+  modes. As there, this raises the `btbr` default from level 3 (-7 dBm at the
+  CC2400) to the power-on level 7 (0 dBm).
+  [#181](https://github.com/SqueakyFloors/ubertooth/issues/181)
 - `ubertooth-rx` lists `-s` in `-h` as the explicit form of its default channel
   sweep, and no longer calls it deprecated; the `-z` line no longer claims to
   imply it.
@@ -65,8 +71,9 @@
   the command returns at once and the board stays reachable; `-S` or any mode
   option stops it and leaves the LEDs off.
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
-- **Reflash required:** the firmware API version is now 1.15, last moved by
-  the removal of requests 45 and 46, and the host tools require firmware of
+- **Reflash required:** the firmware API version is now 1.16, last moved by the
+  amplifier level of the generic transmit request, and the host tools require
+  firmware of
   exactly their own API version, older or newer (`ubertooth-util` still reads
   the version and reflashes any firmware). Host and firmware come from the
   same tree; `2020-12-R1` firmware is refused.

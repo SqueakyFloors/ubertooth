@@ -135,13 +135,13 @@ int vendor_request_handler(uint8_t request, uint16_t* request_params, uint8_t* d
 		break;
 
 	case UBERTOOTH_GET_PALEVEL:
-		data[0] = cc2400_get(FREND) & 0x7;
+		data[0] = cc2400_get(FREND) & FREND_PA_LEVEL;
 		*data_len = 1;
 		break;
 
 	case UBERTOOTH_SET_PALEVEL:
 		if( request_params[0] < 8 ) {
-			cc2400_set(FREND, 8 | request_params[0]);
+			cc2400_set(FREND, FREND_RESERVED_ONE | request_params[0]);
 		} else {
 			return 0;
 		}

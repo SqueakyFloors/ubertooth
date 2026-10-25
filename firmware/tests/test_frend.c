@@ -63,6 +63,22 @@ static void tx_mode_start(void)
 	cc2400_set(FREND, frend_keep_pa_level(cc2400_get(FREND)));
 }
 
+/*
+ * What tx_generic() (UBERTOOTH_TX_GENERIC_PACKET) now does: the level comes
+ * from the request, for that packet only, and the level the board had is put
+ * back afterwards along with the syncword registers.
+ */
+static uint16_t frend_while_transmitting;
+
+static void generic_tx_packet(uint8_t host_level)
+{
+	uint16_t saved = cc2400_get(FREND);
+
+	cc2400_set(FREND, FREND_RESERVED_ONE | (host_level & FREND_PA_LEVEL));
+	frend_while_transmitting = cc2400_get(FREND);
+	cc2400_set(FREND, frend_keep_pa_level(saved));
+}
+
 /* Every level set with -a must survive starting a transmit mode. */
 MU_TEST(test_tx_keeps_level_set_with_a)
 {
@@ -121,19 +137,54 @@ MU_TEST(test_tx_no_longer_forces_level_3)
 }
 
 /*
+ * A level given in the request is honoured, but only its three level bits,
+ * and the reserved bit goes out as 1. Level 0 is the case the old code got
+ * wrong in a way a read of the register would not show: it wrote 0x0000.
+ */
+MU_TEST(test_generic_tx_uses_the_requested_level)
+{
+	uint8_t level;
+
+	for (level = 0; level <= 7; level++) {
+		chip_reset();
+		generic_tx_packet(level);
+		mu_assert_int_eq(FREND_RESERVED_ONE | level,
+		                 frend_while_transmitting);
+	}
+
+	/* A byte with more than the level bits set does not reach the radio. */
+	chip_reset();
+	generic_tx_packet(0xff);
+	mu_assert_int_eq(FREND_RESERVED_ONE | 0x7, frend_while_transmitting);
+}
+
+/* A level set with -a survives a generic transmit that asked for its own. */
+MU_TEST(test_generic_tx_restores_the_level_set_with_a)
+{
+	chip_reset();
+	set_palevel(5);
+	generic_tx_packet(2);
+	mu_assert_int_eq(5, get_palevel());
+	mu_assert_int_eq(FREND_RESERVED_ONE | 0x5, cc2400_get(FREND));
+}
+
+/*
  * The tests above exercise the read-modify-write itself. This one guards the
  * call sites, which are hardware code that cannot be run here: every FREND
  * write in the transmit firmware must take its PA level from somewhere, not
  * hard-code one. The allowed forms are frend_keep_pa_level() (the transmit
- * modes), the level the user asked for in the UBERTOOTH_SET_PALEVEL vendor
- * request, and the level in a tx_generic() packet. cc2400_rangetest.c is
- * deliberately not covered: the range test and repeater step through levels
- * by design.
+ * modes and the btbr radio set-up) and the reserved bit with a level the host
+ * asked for, either in the UBERTOOTH_SET_PALEVEL vendor request or in a
+ * tx_generic() packet. cc2400_rangetest.c is deliberately not covered: the
+ * range test and repeater step through levels by design.
  */
 static int frend_write_is_allowed(const char *line)
 {
-	return strstr(line, "frend_keep_pa_level(") != NULL
-	    || strstr(line, "FREND_RESERVED_ONE | request_params[0]") != NULL
+	if (strstr(line, "frend_keep_pa_level(") != NULL)
+		return 1;
+	if (strstr(line, "FREND_RESERVED_ONE") == NULL)
+		return 0;
+	return strstr(line, "request_params[0]") != NULL
 	    || strstr(line, "tx_pkt.pa_level") != NULL;
 }
 
@@ -167,9 +218,14 @@ static int check_frend_writes(const char *path)
 MU_TEST(test_transmit_paths_do_not_hard_code_a_level)
 {
 	/* bluetooth_rxtx.c: the vendor request setter, cc2400_tx_sync(),
-	 * le_transmit(), le_jam() and tx_generic(). ego.c: jamming. */
-	mu_assert_int_eq(5, check_frend_writes(FW_RXTX_DIR "/bluetooth_rxtx.c"));
+	 * le_transmit(), le_jam(), and tx_generic()'s two writes. ego.c:
+	 * jamming. The btbr image has its own radio set-up and its own copy of
+	 * the vendor request. */
+	mu_assert_int_eq(6, check_frend_writes(FW_RXTX_DIR "/bluetooth_rxtx.c"));
 	mu_assert_int_eq(1, check_frend_writes(FW_RXTX_DIR "/ego.c"));
+	mu_assert_int_eq(1, check_frend_writes(FW_BTBR_DIR "/src/btphy/rf.c"));
+	mu_assert_int_eq(1, check_frend_writes(FW_BTBR_DIR
+	                                       "/src/btctl/vendor_request_handler.c"));
 }
 
 int main(void)
@@ -180,6 +236,8 @@ int main(void)
 	MU_RUN(test_write_sets_the_reserved_bit);
 	MU_RUN(test_write_touches_only_bit_3_and_the_level);
 	MU_RUN(test_tx_no_longer_forces_level_3);
+	MU_RUN(test_generic_tx_uses_the_requested_level);
+	MU_RUN(test_generic_tx_restores_the_level_set_with_a);
 	MU_RUN(test_transmit_paths_do_not_hard_code_a_level);
 	return mu_report();
 }
