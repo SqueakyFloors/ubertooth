@@ -137,11 +137,14 @@ jobs:
       shell: bash
       # No device is present: option parsing still emits a complete 24-byte PCAP
       # global header before device open fails. This verifies binary stdout is
-      # unpolluted on every Linux/macOS runner.
+      # unpolluted on every Linux/macOS runner. The capture needs a mode to run
+      # in, since a command line with no work in it is refused before any
+      # capture file is opened; -r - is refused while the options are read, so
+      # it needs none.
       run: |
         set +e
-        ./ubertooth-tools/src/ubertooth-btle -q - > le.pcap 2> le.err
-        ./ubertooth-tools/src/ubertooth-btle -c - > ppi.pcap 2> ppi.err
+        ./ubertooth-tools/src/ubertooth-btle -n -q - > le.pcap 2> le.err
+        ./ubertooth-tools/src/ubertooth-btle -n -c - > ppi.pcap 2> ppi.err
         ./ubertooth-tools/src/ubertooth-btle -r - > ng.out 2> ng.err
         set -e
         python3 - <<'PY'

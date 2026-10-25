@@ -17,6 +17,9 @@ Three ways to be refused, all of which used to come too late:
   * a bad value for a later option;
   * -h, which ends the command only once the command line has parsed.
 
+For ubertooth-btle there is a fourth: a capture file with no mode to capture
+in, which is a command line with no work in it.
+
 The tools run with UBERTOOTH_TEST_NO_DEVICES=1, so a case that got past
 argument checking reports that it found no device rather than opening whatever
 is attached. No case should reach that point.
@@ -97,6 +100,10 @@ for option, value, written in FILE_OPTIONS[TOOL]:
     refusals = [(option, value, "extra"), (option, value, "-h")]
     if BAD_VALUE[TOOL] is not None:
         refusals.append((option, value, *BAD_VALUE[TOOL]))
+    if TOOL == "ubertooth-btle":
+        # a capture file with no mode to capture in is a fourth refusal, and
+        # the file it names must not be created either
+        refusals.append((option, value))
 
     for arguments in refusals:
         # nothing there yet: the file must not appear, and neither must any

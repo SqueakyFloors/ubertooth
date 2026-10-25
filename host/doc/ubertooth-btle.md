@@ -226,6 +226,15 @@ attached: more than one of `-f`, `-n` and `-p` gives
 access address in one command gives
 `error: -a cannot both read and set the access address`.
 
+A command line with no work in it is refused the same way. `-U`, `-A`, `-x`,
+`-i`/`-I` (and their older spellings `-j`/`-J`) and the capture options only
+shape work another option asks for, so a command made up of those alone, or a
+bare `ubertooth-btle`, gives
+`error: nothing to do: choose a major mode (-f, -n or -p), or -a, -v, -s or -t`,
+followed by the usage text, with exit status 1 and before any device is
+opened. Both go to standard error, with nothing on standard output, as after
+any bad command line; `-h` prints the usage text on standard output.
+
 A refused command line creates and truncates nothing: `-r`, `-q` and `-c` name
 their file while the command line is read, and it is opened only once every
 check has passed.

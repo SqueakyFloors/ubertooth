@@ -109,6 +109,13 @@ CASES = {
         # "-" is still the stdout value of the capture options
         (("-q", "-", "extra"), "error: unexpected argument 'extra'"),
         (("-c", "-", "extra"), "error: unexpected argument 'extra'"),
+        # a command line with no work in it, refused before a device is
+        # opened: on its own, and with only the options that shape work
+        ((), "error: nothing to do"),
+        (("-A", "38"), "error: nothing to do"),
+        (("-x", "4"), "error: nothing to do"),
+        (("-i",), "error: nothing to do"),
+        (("-U", NO_SUCH_SERIAL), "error: nothing to do"),
     ),
     "ubertooth-debug": STRAY + (
         (("-v", "3"), "error: verbosity must be 0-2 (got 3)"),
