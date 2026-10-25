@@ -143,7 +143,8 @@ void stop_transfers(int sig __attribute__((unused))) {
 void ubertooth_set_timeout(ubertooth_t* ut, int seconds) {
 	/* Upon SIGALRM, call stop_transfers() */
 	if (signal(SIGALRM, stop_transfers) == SIG_ERR) {
-		perror("Unable to catch SIGALRM");
+		fprintf(stderr, "error: cannot catch SIGALRM: %s\n",
+		        strerror(errno));
 		exit(1);
 	}
 	timeout_dev = ut;
@@ -161,7 +162,7 @@ int ubertooth_count(void) {
 
 	r = libusb_init(NULL);
 	if (r < 0) {
-		fprintf(stderr, "libusb_init failed (got 1.0?)\n");
+		fprintf(stderr, "error: libusb_init failed (got 1.0?)\n");
 		return -1;
 	}
 
@@ -519,7 +520,8 @@ static void rx_xfer_status(int status)
 			error_name="Device sent more data than requested.";
 			break;
 	}
-	fprintf(stderr,"rx_xfer status: %s (%d)\n",error_name,status);
+	fprintf(stderr, "error: receive transfer failed: %s (%d)\n",
+	        error_name, status);
 }
 
 static void cb_xfer(struct libusb_transfer *xfer)
@@ -531,7 +533,8 @@ static void cb_xfer(struct libusb_transfer *xfer)
 		if(xfer->status == LIBUSB_TRANSFER_TIMED_OUT) {
 			r = libusb_submit_transfer(ut->rx_xfer);
 			if (r < 0)
-				fprintf(stderr, "Failed to submit USB transfer (%d)\n", r);
+				fprintf(stderr, "error: resubmitting the receive transfer "
+				        "failed (%d)\n", r);
 			return;
 		}
 		if(xfer->status != LIBUSB_TRANSFER_CANCELLED)
@@ -549,7 +552,8 @@ static void cb_xfer(struct libusb_transfer *xfer)
 
 	r = libusb_submit_transfer(ut->rx_xfer);
 	if (r < 0)
-		fprintf(stderr, "Failed to submit USB transfer (%d)\n", r);
+		fprintf(stderr, "error: resubmitting the receive transfer failed "
+		        "(%d)\n", r);
 }
 
 static void* poll_thread_main(void* arg __attribute__((unused)))
@@ -592,7 +596,8 @@ int ubertooth_bulk_init(ubertooth_t* ut)
 
 	r = libusb_submit_transfer(ut->rx_xfer);
 	if (r < 0) {
-		fprintf(stderr, "rx_xfer submission: %d\n", r);
+		fprintf(stderr, "error: submitting the receive transfer failed "
+		        "(%d)\n", r);
 		return -1;
 	}
 	return 0;
@@ -948,14 +953,14 @@ ubertooth_t* ubertooth_init()
 {
 	ubertooth_t* ut = (ubertooth_t*)malloc(sizeof(ubertooth_t));
 	if(ut == NULL) {
-		fprintf(stderr, "Unable to allocate memory\n");
+		fprintf(stderr, "error: unable to allocate memory\n");
 		return NULL;
 	}
 
 	ut->fifo = fifo_init();
 	if(ut->fifo == NULL) {
 		/* every later fifo_* call would dereference NULL */
-		fprintf(stderr, "Unable to initialize ringbuffer\n");
+		fprintf(stderr, "error: unable to initialize ringbuffer\n");
 		free(ut);
 		return NULL;
 	}
@@ -982,7 +987,7 @@ int ubertooth_connect(ubertooth_t* ut, int ubertooth_device)
 {
 	int r = libusb_init(NULL);
 	if (r < 0) {
-		fprintf(stderr, "libusb_init failed (got 1.0?)\n");
+		fprintf(stderr, "error: libusb_init failed (got 1.0?)\n");
 		return -1;
 	}
 
@@ -995,7 +1000,7 @@ int ubertooth_connect(ubertooth_t* ut, int ubertooth_device)
 
 	r = libusb_claim_interface(ut->devh, 0);
 	if (r < 0) {
-		fprintf(stderr, "usb_claim_interface error %d\n", r);
+		fprintf(stderr, "error: claiming the USB interface failed (%d)\n", r);
 		ubertooth_stop(ut);
 		return -1;
 	}
@@ -1025,7 +1030,7 @@ int ubertooth_connect_serial(ubertooth_t* ut, char* serial_number)
 {
 	int r = libusb_init(NULL);
 	if (r < 0) {
-		fprintf(stderr, "libusb_init failed (got 1.0?)\n");
+		fprintf(stderr, "error: libusb_init failed (got 1.0?)\n");
 		return -1;
 	}
 
@@ -1037,7 +1042,7 @@ int ubertooth_connect_serial(ubertooth_t* ut, char* serial_number)
 
 	r = libusb_claim_interface(ut->devh, 0);
 	if (r < 0) {
-		fprintf(stderr, "usb_claim_interface error %d\n", r);
+		fprintf(stderr, "error: claiming the USB interface failed (%d)\n", r);
 		ubertooth_stop(ut);
 		return -1;
 	}
@@ -1209,7 +1214,7 @@ int ubertooth_get_api(ubertooth_t *ut, uint16_t *version) {
 	result = libusb_get_device_descriptor(dev, &desc);
 	if (result < 0) {
 		if (result == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "control message unsupported\n");
+			fprintf(stderr, "error: control message unsupported\n");
 		} else {
 			show_libusb_error(result);
 		}
@@ -1235,9 +1240,12 @@ int ubertooth_check_api(ubertooth_t *ut) {
 				(version>>8)&0xFF, version&0xFF, VERSION,
 				(UBERTOOTH_API_VERSION>>8)&0xFF, UBERTOOTH_API_VERSION&0xFF);
 		if (version < UBERTOOTH_API_VERSION)
-			fprintf(stderr, "Flash the firmware built from the same source tree, for example: ./install.sh --flash-device all\n");
+			fprintf(stderr, "note: flash the firmware built from the same "
+			        "source tree, for example: ./install.sh "
+			        "--flash-device all\n");
 		else
-			fprintf(stderr, "Install the host tools built from the same source tree as the firmware.\n");
+			fprintf(stderr, "note: install the host tools built from the "
+			        "same source tree as the firmware\n");
 		ubertooth_stop(ut);
 		return -1;
 	}

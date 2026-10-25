@@ -106,7 +106,7 @@ MU_TEST(init_fails_when_the_ring_buffer_cannot_be_allocated)
 
 	mu_assert(ut == NULL, "no handle without a ring buffer");
 	mu_assert_int_eq(1, fake.fifo_inits);
-	mu_assert(strcmp(text, "Unable to initialize ringbuffer\n") == 0, text);
+	mu_assert(strcmp(text, "error: unable to initialize ringbuffer\n") == 0, text);
 }
 
 MU_TEST(init_returns_a_usable_handle_when_the_ring_buffer_is_allocated)
@@ -144,9 +144,9 @@ MU_TEST(the_start_functions_fail_with_the_ring_buffer)
 	mu_assert_int_eq(3, fake.fifo_inits);
 	mu_assert_int_eq(0, fake.usb_inits);
 	/* each of the three reports the failure, once */
-	mu_assert(strcmp(text, "Unable to initialize ringbuffer\n"
-	                       "Unable to initialize ringbuffer\n"
-	                       "Unable to initialize ringbuffer\n") == 0, text);
+	mu_assert(strcmp(text, "error: unable to initialize ringbuffer\n"
+	                       "error: unable to initialize ringbuffer\n"
+	                       "error: unable to initialize ringbuffer\n") == 0, text);
 }
 
 int main(void)

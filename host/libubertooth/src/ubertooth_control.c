@@ -411,7 +411,8 @@ int cmd_get_part_id(struct libusb_device_handle* devh, u32 *part_id)
 		return r;
 	/* result[0] is the In-Application Programming (IAP) status code. */
 	if (result[0] != 0) {
-		fprintf(stderr, "part ID: device status not zero: %d\n", result[0]);
+		fprintf(stderr, "error: part ID read failed: device status %d\n",
+		        result[0]);
 		return LIBUSB_ERROR_OTHER;
 	}
 	*part_id = (u32)result[1] | ((u32)result[2] << 8) |
@@ -429,8 +430,8 @@ int cmd_get_partnum(struct libusb_device_handle* devh)
 		return r;
 	/* A part ID with bit 31 set cannot be returned as a non-negative int. */
 	if (part_id > (u32)INT_MAX) {
-		fprintf(stderr, "part ID 0x%08X does not fit; use cmd_get_part_id()\n",
-		        (unsigned int)part_id);
+		fprintf(stderr, "error: part ID 0x%08X does not fit; use "
+		        "cmd_get_part_id()\n", (unsigned int)part_id);
 		return LIBUSB_ERROR_OVERFLOW;
 	}
 	return (int)part_id;
@@ -461,7 +462,8 @@ int cmd_get_serial(struct libusb_device_handle* devh, u8 *serial)
 	if (r < 0)
 		return r;
 	if (serial[0] != 0) {
-		fprintf(stderr, "result not zero: %d\n", serial[0]);
+		fprintf(stderr, "error: serial read failed: device status %d\n",
+		        serial[0]);
 		return 1;
 	}
 	return 0;
@@ -860,7 +862,7 @@ int cmd_set_bdaddr(struct libusb_device_handle* devh, u64 address)
 		}
 		return r;
 	} else if (r < data_len) {
-		fprintf(stderr, "Only %d of %d bytes transferred\n", r, data_len);
+		fprintf(stderr, "error: only %d of %d bytes transferred\n", r, data_len);
 		return 1;
 	}
 	return 0;
@@ -917,7 +919,6 @@ uint32_t cmd_get_clock(struct libusb_device_handle* devh)
 	if (r < 0)
 		return r;
 	clock = data[0] | data[1] << 8 | data[2] << 16 | data[3] << 24;
-	printf("Read clock = 0x%x\n", clock);
 	return clock;
 }
 
@@ -1152,7 +1153,8 @@ int cmd_le_set_adv_data(struct libusb_device_handle* devh, uint8_t *data, unsign
 	int r;
 
 	if (data_len > LE_ADV_MAX_LEN) {
-		fprintf(stderr, "Ubertooth USB error: LE advertising data too long (%u > %u)\n", data_len, LE_ADV_MAX_LEN);
+		fprintf(stderr, "error: LE advertising data too long (%u > %u)\n",
+		        data_len, LE_ADV_MAX_LEN);
 		return -1;
 	}
 

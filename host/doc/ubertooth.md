@@ -72,6 +72,32 @@ selects neither. An all-digits string is read as an index, so include a
 non-digit (`-U 05f` rather than `-U 05`). See ubertooth-util(1), SELECTING A
 DEVICE, for the full description and for listing the attached devices.
 
+## OUTPUT AND DIAGNOSTICS
+
+Every tool splits its output the same way. Standard output carries only what
+was asked for: the report a query returns, the packets or samples a capture
+decodes, the capture data itself when the file argument is `-`, and the usage
+text for `-h`. Everything else goes to standard error, so a script reading a
+tool's standard output is never fed a diagnostic or a progress line.
+
+Errors are one line starting `error: `; warnings start `warning: ` and notes
+start `note: `. Progress and status ("Resetting ...", "Ubertooth stopped", DFU
+progress) carry no prefix. The usage text goes to standard output for `-h` and
+to standard error, after the `error: ` line, when the command line was wrong or
+had nothing to do.
+
+libubertooth follows the same split: it returns what it reads to the tool that
+called it and reports its own problems on standard error, so a library message
+never lands in the middle of a capture. The clock trim and AFH channel notes
+raised while following a piconet are `note: ` lines on standard error; the
+packet and map reports they accompany are the tool's result and stay on
+standard output.
+
+Exit status is 0 only when the command did what was asked, including `-h`, and
+1 otherwise: a usage error, a command line with nothing to do, a device that
+is missing or failed, a partial failure. `ubertooth-afh` also uses 2, for a
+detection phase that received no packet.
+
 ## ENVIRONMENT
 
 `UBERTOOTH_TEST_NO_DEVICES=1` makes every tool behave as if no Ubertooth were

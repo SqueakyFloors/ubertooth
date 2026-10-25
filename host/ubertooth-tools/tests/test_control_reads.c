@@ -248,6 +248,72 @@ MU_TEST(range_result_needs_all_5_bytes)
 	mu_assert_int_eq(0x5a, rr.valid); /* left untouched */
 }
 
+/* ---- the library writes nothing to standard output --------------------- */
+
+/*
+ * libubertooth returns its reads to the caller and reports its problems on
+ * standard error; standard output belongs to the tool, which may be writing
+ * capture data to it. cmd_get_clock() used to print "Read clock = 0x..."
+ * there as well as returning the value.
+ */
+static FILE* stdout_capture;
+static int saved_stdout;
+
+static void capture_stdout(void)
+{
+	stdout_capture = tmpfile();
+	saved_stdout = dup(fileno(stdout));
+	mu_assert(stdout_capture != NULL && saved_stdout >= 0, "capture stdout");
+	fflush(stdout);
+	dup2(fileno(stdout_capture), fileno(stdout));
+}
+
+static void release_stdout(char* text, size_t len)
+{
+	size_t n;
+
+	fflush(stdout);
+	dup2(saved_stdout, fileno(stdout));
+	close(saved_stdout);
+	rewind(stdout_capture);
+	n = fread(text, 1, len - 1, stdout_capture);
+	text[n] = '\0';
+	fclose(stdout_capture);
+}
+
+MU_TEST(no_read_writes_to_standard_output)
+{
+	uint8_t serial[17];
+	rangetest_result rr;
+	char text[512];
+
+	capture_stdout();
+	script(4, 0);
+	fake.reply[0] = 0x78; fake.reply[1] = 0x56;
+	fake.reply[2] = 0x34; fake.reply[3] = 0x12;
+	(void)cmd_get_clock(NULL);
+	(void)cmd_get_access_address(NULL);
+	script(2, 0);
+	(void)cmd_get_channel(NULL);
+	(void)cmd_read_register(NULL, 0x05);
+	script(1, 0);
+	(void)cmd_get_usrled(NULL);
+	(void)cmd_get_palevel(NULL);
+	(void)cmd_get_squelch(NULL);
+	script(17, 0);
+	(void)cmd_get_serial(NULL, serial);
+	script(5, 0);
+	(void)cmd_get_rangeresult(NULL, &rr);
+	/* and the same reads when the reply is too short to use */
+	script(0, 0);
+	(void)cmd_get_clock(NULL);
+	(void)cmd_get_channel(NULL);
+	(void)cmd_get_serial(NULL, serial);
+	release_stdout(text, sizeof(text));
+
+	mu_assert(text[0] == '\0', text);
+}
+
 int main(void)
 {
 	MU_RUN(one_byte_reads_return_the_byte_for_a_full_reply);
@@ -259,5 +325,6 @@ int main(void)
 	MU_RUN(short_reply_message_names_the_read_and_the_counts);
 	MU_RUN(four_and_two_byte_reads_need_their_full_length);
 	MU_RUN(read_access_address_returns_errors_separately);
+	MU_RUN(no_read_writes_to_standard_output);
 	return mu_report();
 }

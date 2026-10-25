@@ -8,6 +8,9 @@
   `-tx` keep only what was asked for on stdout, exit 0 for `-h`, and refuse a
   command line with nothing to do instead of opening a board and exiting 0.
   [#323](https://github.com/SqueakyFloors/ubertooth/issues/323)
+- **Script-visible change:** libubertooth no longer prints to standard output;
+  its notes and errors go to standard error with `note: `/`error: ` prefixes.
+  [#323](https://github.com/SqueakyFloors/ubertooth/issues/323)
 - ubertooth-btle can stream PCAP data to stdout with `-q -`
   or `-c -`, safely separating diagnostics for Wireshark and other consumers.
   Credit: Ryan Govostes ([@rgov](https://github.com/rgov)).
