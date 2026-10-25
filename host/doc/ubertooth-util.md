@@ -435,7 +435,7 @@ exiting 0:
     error: nothing to do: give an option that reads or sets something, or -N to count the attached boards
 
     $ ubertooth-util -U 0
-    error: nothing to do: -U 0 selects a device but no option asks anything of it
+    error: nothing to do: -U '0' selects a device but no option asks anything of it
 
 `-U` only says which board the rest of the command line acts on, so it is not
 an operation of its own; `-N`, `-h`, `-H` and `--host-version` are, and each

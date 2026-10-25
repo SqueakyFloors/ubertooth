@@ -364,8 +364,9 @@ int main(int argc, char *argv[])
 {
 	int opt;
 	int other_operations = 0;   /* an option other than -s -v -V -p -b -U -N was given */
-	/* An option other than -N and the -U selector was given, so something in
-	 * the command needs a device opened. */
+	/* An option other than -N and the -U selector was given. Where it is
+	 * read, -h and -H have already ended the command, so what is left needs
+	 * a device. */
 	int operations_besides_count = 0;
 	int status = 0; /* 0 on success, 1 if any operation failed; never a device value */
 	ubertooth_t* ut = NULL;
@@ -638,9 +639,11 @@ int main(int argc, char *argv[])
 	 * exit 0. -N is an operation in its own right, and -h, -H and
 	 * --host-version have already ended the command above. */
 	if (!do_number && !operations_besides_count) {
+		/* The selector is quoted, as every other message quoting the user's
+		 * input is: an empty -U value would otherwise read as no value. */
 		if (ubertooth_device != NULL)
-			fprintf(stderr, "error: nothing to do: -U %s selects a device but "
-			        "no option asks anything of it\n", ubertooth_device);
+			fprintf(stderr, "error: nothing to do: -U '%s' selects a device "
+			        "but no option asks anything of it\n", ubertooth_device);
 		else
 			fprintf(stderr, "error: nothing to do: give an option that reads "
 			        "or sets something, or -N to count the attached boards\n");

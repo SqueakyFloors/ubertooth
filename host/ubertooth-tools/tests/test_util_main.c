@@ -1938,8 +1938,8 @@ MU_TEST(a_command_line_with_nothing_to_do_is_refused)
 	r = RUN("-U", "0");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert_int_eq(0, (long)strlen(r.out));
-	mu_assert(strstr(r.err, "error: nothing to do: -U 0 selects a device but "
-	          "no option asks anything of it\n") == r.err, r.err);
+	mu_assert(strstr(r.err, "error: nothing to do: -U '0' selects a device "
+	          "but no option asks anything of it\n") == r.err, r.err);
 	mu_assert(strstr(r.err, "ubertooth-util - command line utility") != NULL,
 	          r.err);
 	mu_assert_int_eq(0, fake.start_calls);
@@ -1948,7 +1948,16 @@ MU_TEST(a_command_line_with_nothing_to_do_is_refused)
 	fake.device_count = 2;
 	r = RUN("-U", "a9aa");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strstr(r.err, "error: nothing to do: -U a9aa selects a device")
+	mu_assert(strstr(r.err, "error: nothing to do: -U 'a9aa' selects a device")
+	          == r.err, r.err);
+	mu_assert_int_eq(0, fake.start_calls);
+
+	/* An empty selector is quoted too, so the line does not read as though
+	 * -U had been given no value at all. */
+	reset_fake();
+	r = RUN("-U", "");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: nothing to do: -U '' selects a device")
 	          == r.err, r.err);
 	mu_assert_int_eq(0, fake.start_calls);
 

@@ -336,14 +336,19 @@ int cmd_stop(struct libusb_device_handle* devh)
  * Called once the -d file is open and before any sample is written, which is
  * the only moment at which this test can get at that stream: main() opens it
  * itself. Standing its descriptor on a read-only one makes every write to it
- * fail the way a full disk does, without touching this process's own output.
- * Nothing has been written yet, so setvbuf() is still allowed here.
+ * fail the way a full disk does. Nothing has been written yet, so setvbuf()
+ * is still allowed here.
+ *
+ * Only a stream of its own is broken: with "-d -" dumpfile is this process's
+ * own standard output, and pointing that at /dev/null would break the test
+ * run itself rather than the run under test.
  */
 int ubertooth_bulk_init(ubertooth_t* ut)
 {
 	(void)ut;
 	device.bulk_inits++;
-	if (device.break_output != OUTPUT_WORKS && dumpfile != NULL) {
+	if (device.break_output != OUTPUT_WORKS && dumpfile != NULL &&
+	    dumpfile != stdout) {
 		int readonly = open("/dev/null", O_RDONLY);
 
 		if (readonly >= 0) {
