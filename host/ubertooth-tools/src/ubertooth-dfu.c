@@ -190,9 +190,13 @@ int sign(FILE* infile, FILE* outfile, uint16_t idVendor, uint16_t idProduct) {
 
 /* Check the image before the board is asked to leave its application, so a
  * file this tool will not write costs the user nothing. Prints what is wrong
- * and returns 1, or 0 when the image can be written to this device. */
+ * and returns 1, or 0 when the image can be written to this device. On that
+ * path *image_size is the length the check measured, which is what the flash
+ * a write covers is worked out from; it is left alone when the image is
+ * refused. */
 static int check_download_image(FILE* downfile, int want_revision,
-                                char* revision, size_t revision_size)
+                                char* revision, size_t revision_size,
+                                unsigned long* image_size)
 {
 	struct dfu_image_report image_report;
 	char message[160];
@@ -206,6 +210,9 @@ static int check_download_image(FILE* downfile, int want_revision,
 		fprintf(stderr, "Signature check failed, firmware will not be updated\n");
 		return 1;
 	}
+	/* The check has read the whole file, so its length is settled here and
+	 * the flash a write covers can be worked out from it. */
+	*image_size = (unsigned long)image_report.image_size;
 	if (want_revision &&
 	    dfu_extract_firmware_revision(downfile, revision, revision_size) != 0) {
 		fprintf(stderr, "Unable to determine expected firmware revision from image\n");
@@ -399,7 +406,11 @@ struct dfu_runtime_context {
 	FILE *download_file;
 	FILE *upload_file;
 	uint32_t upload_length;  /* bytes the read-back asks the bootloader for */
-	int want_part_id;        /* only a read-back needs the part ID */
+	const char *download_name;     /* the image -d was given */
+	unsigned long download_length; /* ...and the flash writing it covers */
+	int download_checked;    /* the image has been put against the part */
+	int download_refused;    /* ...and does not fit the flash it has */
+	int want_part_id;        /* a transfer needs the part ID; a reset does not */
 	uint32_t part_id;        /* the part ID read from the application */
 	int part_id_read;        /* ...and whether it was read at all */
 	unsigned app_attempts;
@@ -408,6 +419,81 @@ struct dfu_runtime_context {
 	unsigned verify_polls;
 	const struct dfu_usb_identity *verify_identity;
 };
+
+/* Does the image -d was given fit the flash the attached part has?
+ *
+ * The write goes to the application region from 0x4000 upwards, and the
+ * bootloader's write path checks nothing but that: REQ_DNLOAD refuses an
+ * address below 0x4000 and has no upper bound at all
+ * (firmware/bootloader/dfu.cpp, memory_policy::write_permitted; the 512 KiB
+ * Flash::valid_address check is on the read-back path only). So on a part
+ * smaller than the image, the blocks past the end of flash are sent, and each
+ * one asks IAP to erase and program a sector the part does not have. IAP
+ * fails, the bootloader answers ERRPROG, and the host sees the stall as
+ * "control message unsupported" and gives up -- with the blocks before that
+ * already written. The board is left with an application missing its tail and
+ * a message that says nothing about flash sizes, which is why this is worth
+ * refusing rather than reporting.
+ *
+ * It is the same cause as the read-back bound: asking for flash the part has
+ * not got. The consequence differs, because the two bootloader paths do. A
+ * read past the end is a bus fault that takes the bootloader down until the
+ * board is power-cycled; a write past the end stops, loudly but unhelpfully,
+ * part-way through the application.
+ *
+ * The part identification number says how much flash there is; it is readable
+ * only while the board still runs its application, which is where this is
+ * called from, so a refusal costs the user nothing.
+ *
+ * Returns 1 when the image is refused, having said why. A part this host
+ * cannot identify gives no figure to check against, so that warns and lets
+ * the download go ahead: the assumed size is not a floor, and refusing a
+ * valid image for a part nobody knows would be worse. Says its piece once,
+ * however many entry attempts the transition makes. */
+static int download_refused_for_part(struct dfu_runtime_context *runtime)
+{
+	const struct dfu_part *part = runtime->part_id_read ?
+		dfu_part_lookup(runtime->part_id) : NULL;
+	uint32_t address = BOOTLOADER_OFFSET + BOOTLOADER_SIZE;
+	uint32_t region;
+
+	if (runtime->download_checked)
+		return runtime->download_refused;
+	runtime->download_checked = 1;
+	if (part == NULL) {
+		if (runtime->part_id_read)
+			fprintf(stderr, "warning: part 0x%08x is not known here, so %s "
+			        "is not checked against this board's flash\n",
+			        runtime->part_id, runtime->download_name);
+		else
+			fprintf(stderr, "warning: the part could not be read, so %s is "
+			        "not checked against this board's flash\n",
+			        runtime->download_name);
+		fflush(stderr);
+		return 0;
+	}
+	region = dfu_upload_length(part->flash_size);
+	if (runtime->download_length > region) {
+		fprintf(stderr, "error: %s needs %lu bytes of flash; part 0x%08x "
+		        "(%s) has %u above the bootloader\n", runtime->download_name,
+		        runtime->download_length, runtime->part_id, part->name,
+		        region);
+		fprintf(stderr, "Image too large for the attached part, firmware "
+		        "will not be updated\n");
+		runtime->download_refused = 1;
+		return 1;
+	}
+	/* Said in the future tense: this runs before the board has been asked for
+	 * DFU, so an entry that then fails must not have claimed a write had
+	 * started. The read-back's line comes from plan_upload(), which runs
+	 * once the bootloader has answered. */
+	printf("The image needs %lu bytes, 0x%x-0x%lx: part 0x%08x (%s) has %u "
+	       "KiB of flash\n", runtime->download_length, address,
+	       (unsigned long)address + runtime->download_length - 1,
+	       runtime->part_id, part->name, part->flash_size / 1024);
+	fflush(stdout);
+	return 0;
+}
 
 static int open_application(void *context, const char *selector, void **handle,
                             struct dfu_usb_identity *identity)
@@ -431,12 +517,13 @@ static int open_application(void *context, const char *selector, void **handle,
 		ubertooth_free(ut);
 		return result;
 	}
-	/* A read-back needs the part ID, which says how much flash it may ask
-	 * for: the bootloader has no request that reports it, so it has to be
-	 * read here, while the application is still answering. Nothing else
-	 * wants it, and the read has its own error output and timeout, so it is
-	 * not sent for a command that would ignore the answer. A board that will
-	 * not say keeps the assumed size rather than failing the command. */
+	/* Both transfers need the part ID, which says how much flash there is:
+	 * what a read-back may ask the bootloader for, and what a download may
+	 * write. The bootloader has no request that reports it, so it has to be
+	 * read here, while the application is still answering. The read has its
+	 * own error output and timeout, so it is not sent for a command that
+	 * would ignore the answer, and a board that will not say keeps the
+	 * assumed size rather than failing the command. */
 	if (!runtime->want_part_id) {
 		runtime->part_id_read = 0;
 	} else if (cmd_get_part_id(ut->devh, &runtime->part_id) == 0) {
@@ -447,6 +534,16 @@ static int open_application(void *context, const char *selector, void **handle,
 	} else {
 		runtime->part_id_read = 0;
 		log_dfu_stage("part ID could not be read");
+	}
+	/* An image too long for this part is refused here rather than between
+	 * the erase and the write: the transition stops before it asks the board
+	 * for DFU, so the board keeps running its firmware. */
+	if (runtime->download_name != NULL &&
+	    download_refused_for_part(runtime) != 0) {
+		log_dfu_stage("image refused: the board keeps its application");
+		ubertooth_stop(ut);
+		ubertooth_free(ut);
+		return LIBUSB_ERROR_INVALID_PARAM;
 	}
 	*handle = ut;
 	return 0;
@@ -1165,6 +1262,7 @@ int main(int argc, char **argv) {
 	struct dfu_usb_identity selected_identity;
 	struct dfu_runtime_context runtime;
 	char expected_revision[64] = {0};
+	unsigned long download_image_size = 0;
 	uint8_t functions = 0;
 	int interface_claimed = 0;
 	int exit_status = 0;
@@ -1316,7 +1414,8 @@ int main(int argc, char **argv) {
 	if (functions & FUNC_DOWNLOAD) {
 		if (check_download_image(downfile, (functions & FUNC_RESET) != 0,
 		                         expected_revision,
-		                         sizeof(expected_revision)) != 0) {
+		                         sizeof(expected_revision),
+		                         &download_image_size) != 0) {
 			exit_status = 1;
 			goto end_without_device;
 		}
@@ -1330,9 +1429,13 @@ int main(int argc, char **argv) {
 	log_dfu_stage("operation started");
 	memset(&selected_identity, 0, sizeof(selected_identity));
 	memset(&runtime, 0, sizeof(runtime));
-	/* Only a read-back needs the part's flash size, so only a read-back asks
-	 * the application for its part ID. */
-	runtime.want_part_id = (functions & FUNC_UPLOAD) != 0;
+	/* Both transfers are bounded by the part's flash size, so both ask the
+	 * application for its part ID; a bare reset has nothing to bound. */
+	runtime.want_part_id = (functions & (FUNC_UPLOAD|FUNC_DOWNLOAD)) != 0;
+	if (functions & FUNC_DOWNLOAD) {
+		runtime.download_name = downfile_name;
+		runtime.download_length = dfu_download_length(download_image_size);
+	}
 	r = libusb_init(&dfu_context);
 	if (r < 0) {
 		fprintf(stderr, "libusb_init failed: %d\n", r);
@@ -1374,16 +1477,22 @@ int main(int argc, char **argv) {
 		r = dfu_transition_run(&TRANSITION_OPS, &runtime, ubertooth_device,
 		                       &config, &transition_handle, &report);
 		if (r != DFU_TRANSITION_OK) {
-			log_dfu_stage("DFU entry failed");
-			fprintf(stderr, "%s (attempts=%u, polls=%u, usb_error=%d)\n",
-			        dfu_transition_result_string(report.result),
-			        report.attempts, report.polls, report.operation_error);
-			/* These two failures happen after the board was asked to enter
-			 * DFU, so it may be sitting in the bootloader with no handle of
-			 * ours: keep the path for cleanup to look again. */
-			if (report.result == DFU_TRANSITION_DFU_TIMEOUT ||
-			    report.result == DFU_TRANSITION_DISCOVERY_FAILED)
-				selected_identity = report.identity;
+			/* An image refused for the attached part has already said so,
+			 * and the board never left its application, so the transition's
+			 * own line would only report a device that would not open. */
+			if (!runtime.download_refused) {
+				log_dfu_stage("DFU entry failed");
+				fprintf(stderr, "%s (attempts=%u, polls=%u, usb_error=%d)\n",
+				        dfu_transition_result_string(report.result),
+				        report.attempts, report.polls,
+				        report.operation_error);
+				/* These two failures happen after the board was asked to
+				 * enter DFU, so it may be sitting in the bootloader with no
+				 * handle of ours: keep the path for cleanup to look again. */
+				if (report.result == DFU_TRANSITION_DFU_TIMEOUT ||
+				    report.result == DFU_TRANSITION_DISCOVERY_FAILED)
+					selected_identity = report.identity;
+			}
 			exit_status = 1;
 			goto cleanup;
 		}
@@ -1393,6 +1502,17 @@ int main(int argc, char **argv) {
 		r = get_usb_identity(libusb_get_device(devh), &selected_identity);
 		if (r < 0) {
 			show_libusb_error(r);
+			exit_status = 1;
+			goto cleanup;
+		}
+		/* A board adopted in the bootloader has no application to ask for
+		 * its part, so there is nothing to check the image against: this
+		 * says so rather than checking it silently. It cannot refuse
+		 * anything today, for want of a part to refuse it against; the
+		 * result is taken anyway so that a figure found for a bootloader
+		 * later on would not be quietly ignored. */
+		if ((functions & FUNC_DOWNLOAD) &&
+		    download_refused_for_part(&runtime) != 0) {
 			exit_status = 1;
 			goto cleanup;
 		}

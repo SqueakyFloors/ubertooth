@@ -275,4 +275,11 @@ const struct dfu_part *dfu_part_at(size_t index);
  * at all. */
 uint32_t dfu_upload_length(uint32_t flash_size);
 
+/* How much flash a download of an image_size-byte .dfu covers: the whole
+ * file, the DFU suffix included, rounded up to a whole block. The tool sends
+ * every byte of the file from 0x4000 upwards and pads the last block, so this
+ * is what the write really reaches, and the figure to compare with
+ * dfu_upload_length() for the attached part. */
+unsigned long dfu_download_length(unsigned long image_size);
+
 #endif /* UBERTOOTH_DFU_RECOVERY_H */

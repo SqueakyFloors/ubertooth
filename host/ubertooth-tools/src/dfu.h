@@ -84,11 +84,13 @@
 
 #define BOOTLOADER_OFFSET 0x0
 #define BOOTLOADER_SIZE 0x4000
-/* The highest flash address the bootloader acts on: its own address check
+/* The highest flash address the bootloader reads back: its address check
  * accepts anything below 0x80000 and refuses the rest, whatever part it runs
  * on (firmware/bootloader/flash.h, Flash::valid_address). Nothing above this
- * can be written or read back, so it also bounds the largest image there is
- * to write. */
+ * can be read, so it also bounds the largest image there is any point
+ * writing. The write path does not share the check -- it refuses an address
+ * below 0x4000 and nothing else -- so this is a ceiling on what is useful,
+ * not one the bootloader enforces on a download. */
 #define BOOTLOADER_FLASH_LIMIT 0x80000u
 #define BLOCK_SIZE (1<<8)
 #define SECTOR_SIZE (1<<12)

@@ -1108,12 +1108,33 @@ MU_TEST(test_upload_length_covers_the_flash_above_the_bootloader)
 	mu_assert_int_eq(0, (int)(dfu_upload_length(32 * 1024) % BLOCK_SIZE));
 }
 
+MU_TEST(test_download_length_rounds_the_whole_file_up_to_a_block)
+{
+	/* A file that fills whole blocks costs exactly those. */
+	mu_assert_int_eq(0, (int)dfu_download_length(0));
+	mu_assert_int_eq(BLOCK_SIZE, (int)dfu_download_length(BLOCK_SIZE));
+	mu_assert_int_eq(4 * BLOCK_SIZE, (int)dfu_download_length(4 * BLOCK_SIZE));
+	/* One that does not is still written as whole blocks, padded. */
+	mu_assert_int_eq(BLOCK_SIZE, (int)dfu_download_length(1));
+	mu_assert_int_eq(BLOCK_SIZE, (int)dfu_download_length(BLOCK_SIZE - 1));
+	mu_assert_int_eq(2 * BLOCK_SIZE, (int)dfu_download_length(BLOCK_SIZE + 1));
+	/* The DFU suffix is part of the file, so an image that exactly fills the
+	 * application region of a part needs one more block than the region once
+	 * the suffix is added. */
+	mu_assert_int_eq((int)dfu_upload_length(128 * 1024),
+	                 (int)dfu_download_length(dfu_upload_length(128 * 1024)));
+	mu_assert_int_eq((int)dfu_upload_length(128 * 1024) + BLOCK_SIZE,
+	                 (int)dfu_download_length(
+		                 dfu_upload_length(128 * 1024) + DFU_SUFFIX_LENGTH));
+}
+
 int main(void)
 {
 	printf("DFU recovery tests\n");
 	MU_RUN(test_part_lookup_knows_the_lpc17xx_flash_sizes);
 	MU_RUN(test_every_part_entry_is_usable_and_within_the_bootloader_limit);
 	MU_RUN(test_upload_length_covers_the_flash_above_the_bootloader);
+	MU_RUN(test_download_length_rounds_the_whole_file_up_to_a_block);
 	MU_RUN(test_transfer_reopens_same_path_and_retries_from_start);
 	MU_RUN(test_transfer_reopen_timeout_is_distinct);
 	MU_RUN(test_transfer_claim_failure_closes_unclaimed_handle);

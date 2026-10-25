@@ -46,6 +46,36 @@ then needs another `ubertooth-dfu` run or a power cycle. A reset the bootloader
 refuses, and one it accepts and then does not act on, are both reported and
 fail the command instead of exiting 0 with the board still in DFU.
 
+`-d` is bounded by the flash the board has as well. The part identification
+number is read while the board is still running its application, as it is for
+`-u`, and an image whose blocks would not all fit above the bootloader is
+refused there, before the board is asked for DFU:
+
+    error: too-big.dfu needs 114944 bytes of flash; part 0x25011722 (LPC1754) has 114688 above the bootloader
+    Image too large for the attached part, firmware will not be updated
+
+An image that fits says so, in the same terms as the read-back:
+
+    The image needs 31488 bytes, 0x4000-0xbaff: part 0x25011722 (LPC1754) has 128 KiB of flash
+
+The whole file is written, the 16-byte DFU suffix included, and the last block
+is padded out, so the figure compared with the part's flash is the file rounded
+up to a whole 256-byte block. A part this host has no entry for, and one that
+will not report itself at all, which includes every board already in the
+bootloader, leave nothing to check against: both say so and write the image as
+before.
+
+Without that check nothing stops the write. The bootloader refuses a write
+below 0x4000, to protect itself, and applies no upper bound: the blocks past
+the end of a smaller part's flash are sent, each asks the microcontroller's
+programming interface to erase and program a sector the part does not have,
+and the first failure ends the update as `control message unsupported`, with
+everything before it already written. The board is then running an application
+missing its tail, after a message that says nothing about flash sizes. It is
+the same cause as the read-back bound described under READING FLASH BACK below,
+with a different ending: a read past the end faults the bootloader until the
+board is power-cycled, a write past the end stops part-way.
+
 What the detach request returns says nothing about where the board ended up,
 in either direction. It can fail because the bootloader resets while the
 request is still in flight, which on macOS is what every reset that worked

@@ -649,3 +649,18 @@ uint32_t dfu_upload_length(uint32_t flash_size)
 		return 0;
 	return flash_size - application;
 }
+
+unsigned long dfu_download_length(unsigned long image_size)
+{
+	/* The last block is padded with 0xff and written in full, so a file that
+	 * ends part-way through a block still costs the whole block of flash.
+	 *
+	 * This is a block larger than dfu_max_image_size() assumes: that cap is
+	 * the largest part's application region plus the suffix, as if the suffix
+	 * cost nothing, so an image at the cap needs one block more flash than
+	 * even the largest part has and is refused on every part this host can
+	 * identify. Refusing is the right answer -- the block really would not
+	 * fit -- so the cap is left as the bound on what is read into memory,
+	 * which is all it is for. */
+	return (image_size + BLOCK_SIZE - 1) / BLOCK_SIZE * BLOCK_SIZE;
+}
