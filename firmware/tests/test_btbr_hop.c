@@ -21,7 +21,9 @@
  *
  * hop.c reaches PERM5 through a lookup table that the firmware image builds
  * once; the test fills that table from the specification's butterfly network
- * instead, so no part of the expected values comes from firmware code.
+ * instead, so the expected values do not come from firmware code.  The one
+ * thing the test shares with the firmware is the order the butterfly stages
+ * run in, which only the specification's figure shows; see PERM5 below.
  */
 #include <stdlib.h>
 #include <string.h>
@@ -46,9 +48,16 @@ void __attribute__((noreturn)) die(char *fmt, ...)
 }
 
 /*
- * PERM5 (Figure 2.17): butterfly i swaps the two bits of Z named below when
- * control signal P[i] is set, applied from P13 down to P0.  P0-P8 come from
- * input D, P9-P13 from Y1 xor C.
+ * PERM5 (2.6.2.3): butterfly i swaps the two bits of Z named below when
+ * control signal P[i] is set.  The pairs are Table 2.1; P0-P8 come from input
+ * D and P9-P13 from Y1 xor C.
+ *
+ * The spec arranges the 14 butterflies as the 7 stages of Figure 2.18, which
+ * is where their order comes from: this applies P13 down to P0 one at a time,
+ * equivalent because the two butterflies of a stage act on disjoint bits of Z.
+ * Only the figure shows which stage comes first, so that one convention is
+ * shared with the firmware's table rather than taken from the spec text; it is
+ * corroborated by the vectors already pinned for the other firmware image.
  */
 static const uint8_t BUTTERFLY[14][2] = {
 	{0, 1}, {2, 3}, {1, 2}, {3, 4}, {0, 4}, {1, 3}, {0, 2},
@@ -296,7 +305,7 @@ MU_TEST(test_afh_hops_keep_used_channels_and_repeat_the_central_slot)
 	int off_map = 0, slot_mismatch = 0, kept = 0, mismatched_kept = 0;
 
 	follow_setup(TEST_ADDRESS, REDUCED_MAP);
-	/* Every central slot across 2^20 slots, plus its peripheral slot. */
+	/* Every central slot across 2^20 frames, plus its peripheral slot. */
 	for (clk = 0; clk < (UINT32_C(1) << 22); clk += 4) {
 		uint8_t afh = hop_basic(clk);
 		uint8_t peripheral = hop_basic(clk | 2);
@@ -355,7 +364,7 @@ MU_TEST(test_reserved_map_bit_is_not_counted)
 	mu_assert_int_eq(34, hop_state.afh_chan_count);
 }
 
-MU_TEST(test_connection_modes_use_basic_hopping)
+MU_TEST(test_connection_modes_hop_through_hop_basic)
 {
 	size_t i;
 
@@ -386,6 +395,6 @@ int main(void)
 	MU_RUN(test_clearing_afh_restores_basic_hopping);
 	MU_RUN(test_map_update_while_hopping_takes_effect);
 	MU_RUN(test_reserved_map_bit_is_not_counted);
-	MU_RUN(test_connection_modes_use_basic_hopping);
+	MU_RUN(test_connection_modes_hop_through_hop_basic);
 	return mu_report();
 }

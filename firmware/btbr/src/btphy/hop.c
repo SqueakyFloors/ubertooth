@@ -27,6 +27,9 @@
 
 hop_state_t hop_state;
 
+/* Nmin, the fewest used channels AFH is defined for (Core spec 2.3.1). */
+#define AFH_MIN_USED_CHANNELS	20
+
 /* do all of the one time precalculation */
 void hop_init(uint32_t address)
 {
@@ -111,7 +114,7 @@ static uint8_t afh_channel_used(uint8_t chan)
 	return (hop_state.afh_map[chan/8] >> (chan%8)) & 0x1;
 }
 
-static void hop_set_afh_map(uint8_t *map)
+static void hop_set_afh_map(const uint8_t *map)
 {
 	uint8_t chan;
 	unsigned i,count;
@@ -135,13 +138,14 @@ void hop_cfg_afh(uint8_t* buf)
 	uint8_t enabled = buf[0] & 1;
 	uint8_t *map = buf+1;
 
-	/* Hop basic while the tables are rebuilt: hop_basic() may run from an
-	 * interrupt and must not see a new count with a half-built table. */
-	hop_state.afh_enabled = 0;
 	if (enabled)
 	{
 		cprintf("(+afh)");
 		hop_set_afh_map(map);
+		/* Say so rather than leave the board looking as if it ignored
+		 * the map: below Nmin hop_basic() hops over all 79 channels. */
+		if (hop_state.afh_chan_count < AFH_MIN_USED_CHANNELS)
+			cprintf("(afh<%d)", AFH_MIN_USED_CHANNELS);
 	}
 	else
 	{
@@ -154,12 +158,15 @@ uint8_t hop_basic(uint32_t clk)
 {
 	uint8_t clk1, sel, chan;
 	uint32_t base_f;
-	/* Read once: an AFH map update from the timer callback must not change
-	 * N between the check and the divisions below. */
+	/* The AFH state is written only by hop_cfg_afh(), which runs from
+	 * btphy_timers_execute() earlier in the same TIMER0 handler as the
+	 * scheduler callback that hops, so the count, map and table read here
+	 * are always one consistent set. */
 	uint8_t n_used = hop_state.afh_chan_count;
-	/* Fewer than the spec minimum of 20 used channels (or an unset map)
+	/* Fewer used channels than the spec defines AFH for (or an unset map)
 	 * falls back to basic hopping, which also avoids dividing by zero. */
-	uint8_t afh_active = hop_state.afh_enabled && n_used >= 20;
+	uint8_t afh_active = hop_state.afh_enabled &&
+				n_used >= AFH_MIN_USED_CHANNELS;
 
 	/* AFH same channel mechanism (2.6.1): the peripheral-to-central slot
 	 * reuses the preceding central-to-peripheral channel, i.e. CLK1 = 0. */
