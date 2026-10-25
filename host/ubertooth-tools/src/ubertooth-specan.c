@@ -19,6 +19,7 @@
  * Boston, MA 02110-1301, USA.
  */
 
+#include <errno.h>
 #include <getopt.h>
 #include <stdlib.h>
 #include <string.h>
@@ -56,7 +57,8 @@ void cb_specan(ubertooth_t* ut __attribute__((unused)), void* args)
 			case SPECAN_FILE:
 				r = fwrite(&rx.data[j], 1, 3, dumpfile);
 				if(r != 3) {
-					fprintf(stderr, "Error writing to file (%d)\n", r);
+					fprintf(stderr, "error: writing samples failed: wrote %d "
+					        "of 3 bytes\n", r);
 					return;
 				}
 				break;
@@ -76,7 +78,7 @@ void cb_specan(ubertooth_t* ut __attribute__((unused)), void* args)
 					printf("\n");
 				break;
 			default:
-				fprintf(stderr, "Unrecognised output mode (%d)\n",
+				fprintf(stderr, "error: unrecognised output mode (%d)\n",
 				        output_mode);
 				return;
 				break;
@@ -197,7 +199,8 @@ int main(int argc, char *argv[])
 		} else {
 			dumpfile = fopen(dump_name, "w");
 			if (dumpfile == NULL) {
-				perror(dump_name);
+				fprintf(stderr, "error: %s: %s\n", dump_name,
+				        strerror(errno));
 				return 1;
 			}
 		}

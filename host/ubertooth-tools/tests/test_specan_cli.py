@@ -116,3 +116,16 @@ else:
     print("ubertooth-specan: -d - refuses a tty, -d - -g writes text to one")
 
 print("ubertooth-specan: ranges refused, -d takes '-' as stdout and the rest as files")
+
+# A -d file that cannot be opened is reported like every other error: one
+# line starting "error: ", on standard error, with nothing on standard output
+# and exit 1. It used to be perror's unprefixed "<file>: <reason>".
+result = run(("-d", "/no/such/dir/samples.bin"))
+assert result.returncode == 1, result
+assert result.stdout == "", result
+assert result.stderr == \
+    "error: /no/such/dir/samples.bin: No such file or directory\n", result
+# refused before the device was opened
+assert "could not open ubertooth" not in result.stderr.lower(), result
+
+print("ubertooth-specan: a -d file that cannot be opened says error: on stderr")

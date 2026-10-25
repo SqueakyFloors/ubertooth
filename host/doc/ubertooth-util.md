@@ -404,6 +404,27 @@ libubertooth. When the board returns fewer bytes than the read needs, that is
 the only line, with the counts added, for example
 `error: channel read failed: board returned 0 of 2 bytes`.
 
+## DIAGNOSTICS
+
+Standard output carries only what was asked for: the values the queries read,
+the device listing, and the usage text for `-h`. Everything else goes to
+standard error, so a script reading a value is not fed anything else.
+
+That includes the progress lines for the operations that do something rather
+than report something: `Resetting ubertooth device <selector>`,
+`Stopping ubertooth device <selector>`,
+`Flashing LEDs on ubertooth device <selector>` and the
+`note: the board is blinking; ...` after it,
+`Entering flash programming (DFU) mode`,
+`Entering flash programming (ISP) mode`,
+`Entering LED specan mode (threshold -<n> dBm)`, `Starting range test`,
+`Starting repeater`, `Starting TX test` and `Setting squelch to <n>`. They
+were written to standard output before. The value `-z` reads back
+(`Squelch set to <n>`) is a result and stays on standard output.
+
+Errors are one line starting `error: `; warnings and notes start `warning: `
+and `note: `.
+
 ## SEE ALSO
 
 ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how
