@@ -231,6 +231,19 @@ target_include_directories(test-util-modes PRIVATE ../src)
 
 add_test(NAME util-modes COMMAND test-util-modes)
 
+# What ubertooth-follow -a makes of a map read from a remote device. The
+# module is free of BlueZ, so this builds and runs everywhere, including on
+# macOS where ubertooth-follow itself is not built at all.
+add_executable(test-follow-afh
+	test_follow_afh.c
+	../src/follow_afh.c)
+
+target_include_directories(test-follow-afh PRIVATE ../src)
+
+add_test(NAME follow-afh COMMAND test-follow-afh)
+# Arithmetic and string building only; the retry waits are faked.
+set_tests_properties(follow-afh PROPERTIES TIMEOUT 5)
+
 add_executable(test-util-reset-wait
 	test_util_reset_wait.c
 	../src/util_reset_wait.c)

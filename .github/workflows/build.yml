@@ -97,9 +97,13 @@ jobs:
       if: runner.os == 'macOS'
 
     - name: Install dependencies (Ubuntu)
+      # libbluetooth-dev is what ubertooth-scan and ubertooth-follow need:
+      # without it cmake skips both tools, so nothing on Linux CI compiled
+      # them or ran their CLI tests. macOS has no BlueZ, so there they stay
+      # skipped by design.
       run: |
         sudo apt update
-        sudo apt install libfftw3-dev libusb-1.0-0-dev
+        sudo apt install libfftw3-dev libusb-1.0-0-dev libbluetooth-dev
       if: runner.os == 'Linux'
 
     - name: (libbtbb) Create Build Environment
@@ -271,7 +275,7 @@ jobs:
       run: |
         apt-get update
         apt-get install -y git cmake build-essential pkg-config \
-                           libfftw3-dev libusb-1.0-0-dev python3
+                           libfftw3-dev libusb-1.0-0-dev libbluetooth-dev python3
 
     - uses: actions/checkout@v4
 
@@ -356,7 +360,7 @@ jobs:
     - name: Install build prerequisites
       run: |
         dnf -y install git cmake gcc gcc-c++ make pkgconf-pkg-config \
-                       fftw-devel libusb1-devel python3
+                       fftw-devel libusb1-devel bluez-libs-devel python3
 
     - uses: actions/checkout@v4
 

@@ -150,6 +150,11 @@ CASES = {
     ),
     "ubertooth-follow": STRAY + LAP_UAP + AC_ERRORS + (
         (("-w", "abc"), "error: usb delay must be a whole number of timeslots, 0 or more (got abc)"),
+        # -a reads the map from the target over a connection to it, so it
+        # needs the target address; refused before any device is opened
+        (("-a",), "error: -a reads the afh map from the target"),
+        (("-a", "-l", "446688"), "error: -a reads the afh map from the target"),
+        (("-a", "-u", "22"), "error: -a reads the afh map from the target"),
     ),
     "ubertooth-rx": STRAY + VERSION_STRAY + LAP_UAP + AC_ERRORS + TIMEOUT_SECONDS + (
         (("-c", "79"), "error: channel must be 0-78 (got 79)"),

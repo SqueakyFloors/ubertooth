@@ -123,6 +123,13 @@ else()
 endif()
 message(STATUS "")
 
+if ( ${LIBBLUETOOTH_FOUND} )
+	# The AFH map validation and state decisions of -a. Free of BlueZ, so
+	# the tests in ../tests build it everywhere, including where
+	# ubertooth-follow itself is skipped.
+	target_sources(ubertooth-follow PRIVATE follow_afh.c)
+endif()
+
 target_sources(ubertooth-specan PRIVATE specan_options.c)
 target_sources(ubertooth-btle PRIVATE btle_options.c)
 target_sources(ubertooth-ego PRIVATE ego_options.c)

@@ -128,6 +128,17 @@
   not support this command (stalled)`. It used to read the completion status
   as a libusb error code and print `libUSB Error: Other error:  (4)`.
   [#275](https://github.com/SqueakyFloors/ubertooth/issues/275)
+- `ubertooth-follow -a` needs the target address (`-l` and `-u`) and uses only
+  a map the target can be hopping on: a failed read, an unknown AFH mode, or
+  fewer than the 20 channels AFH requires (re-read up to three times in case it
+  has not settled) stops the command instead of following an undefined map. It
+  also reports a BlueZ device, address, connection or clock read that fails,
+  rather than carrying on with uninitialised values.
+  [#44](https://github.com/SqueakyFloors/ubertooth/issues/44)
+- `ubertooth-scan` and `ubertooth-follow` are built and tested on Linux CI:
+  the workflow did not install `libbluetooth-dev`, so cmake silently skipped
+  both tools.
+  [#44](https://github.com/SqueakyFloors/ubertooth/issues/44)
 - Follow mode's asynchronous control commands (hop, AFH map, clock trim, start
   hopping) now give libusb a buffer that outlives the submit, and release the
   transfer when a submit fails. They built the setup packet and the data on a

@@ -40,7 +40,8 @@ Requires BlueZ (Linux only).
  - `-e <0-5>` :
    maximum access-code errors to tolerate (default: 2).
  - `-a` :
-   enable AFH (adaptive frequency hopping).
+   enable AFH (adaptive frequency hopping); needs both `-l` and `-u`, see AFH
+   below.
  - `-b <hciN>` :
    local Bluetooth device to use (default: hci0).
  - `-w <timeslots>` :
@@ -48,11 +49,36 @@ Requires BlueZ (Linux only).
  - `-h` :
    show help.
 
+## AFH
+
+`-a` reads the target's AFH channel map from the target itself, over a
+Bluetooth connection the local BlueZ device makes to it. It therefore needs the
+target address: `-a` without both `-l` and `-u` is refused before any device is
+opened, with
+`error: -a reads the AFH map from the target over a Bluetooth connection, so it needs the target address: give both -l and -u`.
+
+A map is used only when it is one the target can be hopping on:
+
+ - a failed read stops the command (`error: AFH map read failed: ...`), rather
+   than following with whatever the map happened to contain;
+ - a target that reports AFH off is followed without it:
+   `the remote device is not using AFH; following without it`;
+ - a map that reports fewer than the 20 channels AFH requires, or none at all,
+   is read again (up to three times, 200ms apart) in case it has not settled.
+   If it still reports too few, the command stops and says so.
+
+Either way nothing is set on the Ubertooth until the map has been accepted, so
+a refused `-a` leaves the board alone.
+
 ## EXAMPLES
 
 Follow a target with a known LAP/UAP, writing a PCAP:
 
     ubertooth-follow -l 123456 -u 78 -q capture.pcap
+
+Follow the same target on its AFH hop sequence:
+
+    ubertooth-follow -l 123456 -u 78 -a
 
 ## ARGUMENTS
 

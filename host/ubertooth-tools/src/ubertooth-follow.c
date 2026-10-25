@@ -27,13 +27,40 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <err.h>
+#include <errno.h>
+#include <string.h>
 
 #include "ubertooth.h"
 #include "ubertooth_callback.h"
 #include "opt_parse.h"
+#include "follow_afh.h"
 #include <btbb.h>
 #include <getopt.h>
 #include <limits.h>
+
+/* follow_afh.h repeats the map length so it needs neither libusb nor BlueZ;
+ * a mismatch with the library's would hand the board a short map. */
+#if FOLLOW_AFH_MAP_BYTES != AFH_MAP_BYTES
+#error "FOLLOW_AFH_MAP_BYTES disagrees with libubertooth's AFH_MAP_BYTES"
+#endif
+
+/* One attempt at the remote device's AFH map, for follow_afh_read_map(). */
+struct afh_hci {
+	int sock;
+	uint16_t handle;
+};
+
+static int afh_hci_read(void* ctx, uint8_t* mode, uint8_t* map)
+{
+	struct afh_hci* hci = ctx;
+
+	return hci_read_afh_map(hci->sock, hci->handle, mode, map, 1000);
+}
+
+static void afh_hci_wait(void* ctx __attribute__((unused)))
+{
+	usleep(FOLLOW_AFH_RETRY_DELAY_US);
+}
 
 static void usage()
 {
@@ -48,7 +75,7 @@ static void usage()
 	printf("\t-e max_ac_errors (default: %d, range: 0-%d)\n",
 	       max_ac_errors, MAX_AC_ERRORS);
 	printf("\t-d filename\n");
-	printf("\t-a Enable AFH\n");
+	printf("\t-a Enable AFH (needs the target address: -l and -u)\n");
 	printf("\t-b Bluetooth device (hci0)\n");
 	printf("\t-w USB delay in 625us timeslots (default:5)\n");
 	printf("\nLAP and UAP are both required, if not given they are read from the local device, in some cases this may give the incorrect address.\n");
@@ -63,7 +90,7 @@ int main(int argc, char *argv[])
 	int first_exit_option = 0;
 	int have_uap = 0;
 	int afh_enabled = 0;
-	uint8_t mode, afh_map[AFH_MAP_BYTES];
+	uint8_t afh_map[AFH_MAP_BYTES] = { 0 };
         char* ubertooth_device = NULL;
 	char *bt_dev = "hci0";
 	char addr[19] = { 0 };
@@ -71,11 +98,12 @@ int main(int argc, char *argv[])
 	const char* pcapng_name = NULL;
 	const char* pcap_name = NULL;
 	const char* dump_name = NULL;
-	uint32_t clock;
-	uint16_t accuracy, handle, offset;
-	bdaddr_t bdaddr;
+	uint32_t clock = 0;
+	uint16_t accuracy = 0, handle = 0, offset = 0;
+	bdaddr_t bdaddr = { { 0 } };
 	btbb_piconet *pn;
 	struct hci_dev_info di;
+	/* 1 once hci_create_connection() has given us a remote ACL handle. */
 	int cc = 0;
 
 	ubertooth_t* ut = ubertooth_init();
@@ -166,6 +194,18 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	/* -a reads the map from the target over an ACL link, which only exists
+	 * when the target address was given. Refused here, with the rest of the
+	 * command line, so no file is created and no device opened. */
+	if (afh_enabled) {
+		const char* refusal =
+			follow_afh_handle_refusal(have_lap == 1 && have_uap == 1, 1);
+		if (refusal != NULL) {
+			fprintf(stderr, "error: %s\n", refusal);
+			return 1;
+		}
+	}
+
 	/* Every check has passed, so the files can be opened: a refused command
 	 * line creates and truncates nothing. */
 	if (pcapng_name != NULL &&
@@ -184,12 +224,28 @@ int main(int argc, char *argv[])
 		}
 	}
 
+	/* A named adapter that does not exist, or one that cannot be opened,
+	 * used to go unnoticed until a later HCI call worked on fd -1. */
 	dev_id = hci_devid(bt_dev);
+	if (dev_id < 0) {
+		fprintf(stderr, "error: Bluetooth device %s not found: %s\n",
+		        bt_dev, strerror(errno));
+		return 1;
+	}
 	sock = hci_open_dev(dev_id);
+	if (sock < 0) {
+		fprintf(stderr, "error: cannot open Bluetooth device %s: %s\n",
+		        bt_dev, strerror(errno));
+		return 1;
+	}
 
 	if ((have_lap != 1) || (have_uap != 1)) {
 		printf("No address given, reading address from device\n");
-		hci_read_bd_addr(sock, &bdaddr, 0);
+		if (hci_read_bd_addr(sock, &bdaddr, 0) < 0) {
+			fprintf(stderr, "error: reading the address of %s failed: %s\n",
+			        bt_dev, strerror(errno));
+			return 1;
+		}
 		lap = bdaddr.b[0] | bdaddr.b[1] << 8 | bdaddr.b[2] << 16;
 		btbb_init_piconet(pn, lap);
 		uap = bdaddr.b[3];
@@ -209,14 +265,18 @@ int main(int argc, char *argv[])
 		printf("Address: %s\n", addr);
 
 		if (hci_devinfo(dev_id, &di) < 0) {
-			perror("Can't get device info");
+			fprintf(stderr, "error: reading the settings of %s failed: %s\n",
+			        bt_dev, strerror(errno));
 			return 1;
 		}
 
+		/* The handle this fills in is the only remote ACL handle the tool
+		 * ever has, so cc below is what says it is usable. */
 		if (hci_create_connection(sock, &bdaddr,
 					htobs(di.pkt_type & ACL_PTYPE_MASK),
 					0, 0x01, &handle, 25000) < 0) {
-			perror("Can't create connection");
+			fprintf(stderr, "error: connecting to %s failed: %s\n",
+			        addr, strerror(errno));
 			return 1;
 		}
 		cc = 1;
@@ -234,16 +294,51 @@ int main(int argc, char *argv[])
 
 	//Experimental AFH map reading from remote device
 	if(afh_enabled) {
-		if(hci_read_afh_map(sock, handle, &mode, afh_map, 1000) < 0) {
-			perror("HCI read AFH map request failed");
-			//exit(1);
+		struct afh_hci hci;
+		follow_afh_reader reader;
+		follow_afh_read read_out;
+		char line[256];
+		const char* refusal;
+
+		/* The map is read over the ACL link, so there has to be one. */
+		refusal = follow_afh_handle_refusal(1, cc);
+		if (refusal != NULL) {
+			fprintf(stderr, "error: %s\n", refusal);
+			return 1;
 		}
-		if(mode == 0x01) {
+
+		hci.sock = sock;
+		hci.handle = handle;
+		reader.read = afh_hci_read;
+		reader.wait = afh_hci_wait;
+		reader.ctx = &hci;
+
+		/* A map that is empty or too small may not have settled yet, so
+		 * it is read again, a bounded number of times. A read that fails
+		 * is not retried and leaves read_out.map zero, so nothing
+		 * undefined can reach libbtbb or the board. */
+		errno = 0;
+		follow_afh_read_map(&reader, FOLLOW_AFH_READ_ATTEMPTS, &read_out);
+		follow_afh_message(&read_out, errno != 0 ? strerror(errno) : NULL,
+		                   line, sizeof(line));
+
+		switch (follow_afh_action_for(read_out.result)) {
+		case FOLLOW_AFH_ACTION_APPLY:
+			memcpy(afh_map, read_out.map, sizeof(afh_map));
+			printf("%s\n", line);
 			btbb_piconet_set_afh_map(pn, afh_map);
 			btbb_print_afh_map(pn);
-		} else {
-			printf("AFH disabled.\n");
+			break;
+		case FOLLOW_AFH_ACTION_DISABLE:
+			printf("%s\n", line);
 			afh_enabled = 0;
+			break;
+		case FOLLOW_AFH_ACTION_FAIL:
+			fprintf(stderr, "error: %s\n", line);
+			if (cc)
+				hci_disconnect(sock, handle,
+				               HCI_OE_USER_ENDED_CONNECTION, 10000);
+			return 1;
 		}
 	} else {
 		printf("Not use AFH\n");
@@ -280,14 +375,24 @@ int main(int argc, char *argv[])
 	if(afh_enabled)
 		cmd_set_afh_map(ut->devh, afh_map);
     
-    // Read clocks here to ensure clock is closest to real value
-    hci_read_clock(sock, 0, 0, &clock, &accuracy, 0);
-    if (cc) {
-        if (hci_read_clock_offset(sock, handle, &offset, 1000) < 0) {
-            perror("Reading clock offset failed\n");
-        }
-        clock += (offset<<2);   // Correct offset
-    }
+	/* Read clocks here to ensure clock is closest to real value. Without a
+	 * clock there is nothing to follow, so a failed read stops the command
+	 * rather than hopping from an uninitialised one. */
+	if (hci_read_clock(sock, 0, 0, &clock, &accuracy, 0) < 0) {
+		fprintf(stderr, "error: reading the clock of %s failed: %s\n",
+		        bt_dev, strerror(errno));
+		return 1;
+	}
+	if (cc) {
+		if (hci_read_clock_offset(sock, handle, &offset, 1000) < 0) {
+			fprintf(stderr, "error: reading the clock offset of the "
+			        "target failed: %s\n", strerror(errno));
+			hci_disconnect(sock, handle, HCI_OE_USER_ENDED_CONNECTION,
+			               10000);
+			return 1;
+		}
+		clock += (offset<<2);   // Correct offset
+	}
 	btbb_piconet_set_clk_offset(pn, clock+delay);
 	btbb_piconet_set_flag(pn, BTBB_FOLLOWING, 1);
 	btbb_piconet_set_flag(pn, BTBB_CLK27_VALID, 1);
