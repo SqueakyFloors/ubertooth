@@ -133,12 +133,16 @@ int cmd_set_access_address(struct libusb_device_handle *devh, u32 access_address
 	return 0;
 }
 
+/* Entering a mode runs reset_le() on the board, which clears crc_verify.
+ * That is the whole reason the -v options run after this call, so the fake
+ * clears it too and a read before the mode would report the wrong thing. */
 int cmd_btle_sniffing(struct libusb_device_handle *devh, uint8_t do_follow)
 {
 	(void)devh;
 	record('m');
 	fake.sniffing_calls++;
 	fake.follow_requested = do_follow;
+	fake.crc = 0;
 	return 0;
 }
 
@@ -147,6 +151,7 @@ int cmd_btle_promisc(struct libusb_device_handle *devh)
 	(void)devh;
 	record('m');
 	fake.promisc_calls++;
+	fake.crc = 0;
 	return 0;
 }
 
@@ -430,14 +435,16 @@ MU_TEST(a_sniffing_mode_sets_and_reads_after_the_mode_starts)
 	mu_assert(strcmp(r.out, "CRC: verify\n") == 0, r.out);
 	mu_assert_int_eq(1, fake.stops);
 
-	/* a read on its own in a sniffing mode used to be dropped silently */
+	/* A read on its own in a sniffing mode used to be dropped silently. It
+	 * reports what mode entry left, not what the board held before: the
+	 * board starts at 1 here and the read says it is off. */
 	reset_fake();
 	fake.crc = 1;
 	r = RUN("-f", "-v");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(fake.calls, "mgp") == 0, fake.calls);
 	mu_assert_int_eq(1, fake.follow_requested);
-	mu_assert(strcmp(r.out, "CRC: verify\n") == 0, r.out);
+	mu_assert(strcmp(r.out, "CRC: DO NOT verify\n") == 0, r.out);
 
 	reset_fake();
 	r = RUN("-p", "-v1");
