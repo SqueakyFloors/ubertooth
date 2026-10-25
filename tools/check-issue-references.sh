@@ -3,7 +3,7 @@
 # files.
 #
 # The rule is in .kiro/steering/branch-and-review.md, "Issue references": this
-# fork and upstream number issues independently, so a bare "#53" in the tree
+# fork and upstream number issues independently, so a bare number in the tree
 # does not say which tracker it belongs to. The reason for a line of code
 # belongs in the comment itself; the link belongs in the commit message, the
 # pull request description or CHANGELOG.md, where a full URL is used.
@@ -23,9 +23,9 @@ cd "$(git rev-parse --show-toplevel)" || exit 1
 # exclusion one, so a new kind of documentation cannot quietly join the check
 # and a new source file cannot quietly leave it.
 #
-# Assembly (*.S, *.s) is left out, because there "#16384" is an immediate
-# operand and every line of it would need excusing. Inline assembly inside a C
-# or C++ file is handled by the allowlist below.
+# Assembly (*.S, *.s) is left out, because an immediate operand is spelt the
+# same way as a reference and every line of one would need excusing. Inline
+# assembly inside a C or C++ file is handled by the allowlist below.
 #
 # Vendored trees are left out because the rule says to leave them as they are.
 files=$(git ls-files -- \
@@ -43,7 +43,14 @@ fi
 # the whole "path:line:text" of a hit, so it names both the file and the shape
 # of the line: an issue number added elsewhere in an allowlisted file is still
 # caught. Lines beginning with # are the reasons. Keep it narrow.
+#
+# This script is in scope itself, as any shell script is, and an entry has to
+# be able to quote the shape it excuses. So the last entry excuses the entries:
+# a line here that begins with the anchor. Anything else in this file is
+# caught like anywhere else.
 allowlist=$(mktemp) || exit 1
+matches=$(mktemp) || exit 1
+reported=$(mktemp) || exit 1
 trap 'rm -f "$allowlist" "$matches" "$reported"' EXIT HUP INT TERM
 cat > "$allowlist" <<'EOF'
 # ARM immediates in the reset-vector assembly, which is written as quoted asm
@@ -51,6 +58,8 @@ cat > "$allowlist" <<'EOF'
 ^firmware/bootloader/bootloader\.cpp:[0-9]+:[[:space:]]*"
 # The libusb descriptor message, which this test asserts on word for word.
 ^host/ubertooth-tools/tests/test_device_select\.c:[0-9]+:.*dev #1!
+# The allowlist entries above, as they appear in this file.
+^tools/check-issue-references\.sh:[0-9]+:\^
 EOF
 grep -v '^#' "$allowlist" > "$allowlist.patterns" && mv "$allowlist.patterns" "$allowlist"
 
