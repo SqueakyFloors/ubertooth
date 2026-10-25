@@ -120,6 +120,10 @@
   not support this command (stalled)`. It used to read the completion status
   as a libusb error code and print `libUSB Error: Other error:  (4)`.
   [#275](https://github.com/SqueakyFloors/ubertooth/issues/275)
+- `ubertooth-follow -a` needs `-l` and `-u`, and stops with an error instead of
+  following an AFH map it could not read or that has fewer than 20 channels. A
+  follow without a map clears any map an earlier run left on the board.
+  [#44](https://github.com/SqueakyFloors/ubertooth/issues/44)
 - Follow mode's asynchronous control commands (hop, AFH map, clock trim, start
   hopping) now give libusb a buffer that outlives the submit, and release the
   transfer when a submit fails. They built the setup packet and the data on a

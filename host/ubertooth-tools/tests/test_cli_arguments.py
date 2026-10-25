@@ -150,6 +150,17 @@ CASES = {
     ),
     "ubertooth-follow": STRAY + LAP_UAP + AC_ERRORS + (
         (("-w", "abc"), "error: usb delay must be a whole number of timeslots, 0 or more (got abc)"),
+        # -a reads the map from the target over a connection to it, so it
+        # needs the target address; refused before any device is opened
+        (("-a",), "error: -a reads the afh map over a bluetooth connection"),
+        (("-a", "-l", "446688"),
+         "error: -a reads the afh map over a bluetooth connection"),
+        (("-a", "-u", "22"),
+         "error: -a reads the afh map over a bluetooth connection"),
+        # a doubled -l leaves no single target either, and the message says
+        # "once" rather than asking for what was already given
+        (("-a", "-l", "446688", "-l", "446688", "-u", "22"),
+         "give -l once and -u once"),
     ),
     "ubertooth-rx": STRAY + VERSION_STRAY + LAP_UAP + AC_ERRORS + TIMEOUT_SECONDS + (
         (("-c", "79"), "error: channel must be 0-78 (got 79)"),
