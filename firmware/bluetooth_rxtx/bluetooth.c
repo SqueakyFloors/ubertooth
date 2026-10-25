@@ -22,7 +22,6 @@
 #include "bluetooth.h"
 
 bdaddr target;
-u64 syncword;
 u8 afh_enabled;
 u8 afh_map[10];
 u8 used_channels;
@@ -63,7 +62,6 @@ void precalc(void)
 	u8 i, j, chan;
 	u32 address;
 	address = target.address & 0xffffffff;
-	syncword = 0;
 
 	/* populate frequency register bank*/
 	for (i = 0; i < NUM_BREDR_CHANNELS; i++)
