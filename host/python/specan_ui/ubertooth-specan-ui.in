@@ -44,6 +44,8 @@ from qtpy import QtCore, QtGui, QtWidgets
 from qtpy.QtCore import Qt, QPointF, QLineF
 
 from specan import Ubertooth
+from specan.limits import (MIN_FREQ, MAX_FREQ, check_freq_pair, convert_wifi,
+                           parse_wifi_range)
 
 # Shown on screen with h and printed to the terminal. Keys work in either case.
 KEY_HELP = (
@@ -66,8 +68,6 @@ DEFAULT_UPPER_FREQ = 2480
 
 # going much further causes the Ubertooth to stop responding :(
 
-MIN_FREQ = 2402  # range ubertooth-specan accepts
-MAX_FREQ = 2480
 
 class SpecanThread(threading.Thread):
     def __init__(self, device, low_frequency, high_frequency, new_frame_callback, ubertooth_device=-1):
@@ -479,7 +479,6 @@ class Window(QtWidgets.QWidget):
             self.render_area.schedule_clear()
             return
         if key == 'Q':
-            print('note: quitting', file=sys.stderr)
             self.close()
             return
         print('note: unsupported key pressed:', key, file=sys.stderr)
@@ -489,37 +488,6 @@ def sigint_handler(*args):
     """Handler for the SIGINT signal."""
     QtWidgets.QApplication.quit()
 
-
-def convert_wifi(channel):
-    if channel < 1 or channel > 14:
-        print("error: channel " + str(channel) + " is not a valid wifi channel",
-              file=sys.stderr)
-        raise ValueError()
-
-    if channel == 14:
-        return 2482
-    else:
-        return channel * 5 + 2407
-
-def check_freq(freq):
-    if freq < MIN_FREQ:
-        print("error: frequency of " + str(freq) + " MHz is below minimum "
-              "frequency of " + str(MIN_FREQ), file=sys.stderr)
-        raise ValueError()
-    if freq > MAX_FREQ:
-        print("error: frequency of " + str(freq) + " MHz is above maximum "
-              "frequency of " + str(MAX_FREQ), file=sys.stderr)
-        raise ValueError()
-
-
-def check_freq_pair(freq1, freq2):
-    check_freq(freq1)
-    check_freq(freq2)
-
-    if freq1 > freq2:
-        print("error: lower frequency of " + str(freq1) + " MHz is above "
-              "upper frequency of " + str(freq2) + " MHz", file=sys.stderr)
-        raise ValueError()
 
 if __name__ == '__main__':
     signal.signal(signal.SIGINT, sigint_handler)
@@ -544,21 +512,9 @@ if __name__ == '__main__':
 
     if options.wifi:
 
-        lower_channel = upper_channel = None
-
-        parts = options.wifi.split("-")
-
         try:
-            if len(parts) == 1:
-                lower_channel = upper_channel = int(parts[0])
-            elif len(parts) == 2:
-                lower_channel = int(parts[0])
-                upper_channel = int(parts[1])
-            else:
-                raise ValueError()
+            lower_channel, upper_channel = parse_wifi_range(options.wifi)
         except ValueError:
-            print("error: invalid channel range: " + options.wifi,
-                  file=sys.stderr)
             sys.exit(1)
 
         try:

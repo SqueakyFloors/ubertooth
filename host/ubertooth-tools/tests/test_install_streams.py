@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """install.sh keeps its progress off standard output.
 
-Run as: test_install_sh_streams.py <path to install.sh>
+Run as: test_install_streams.py <path to install.sh>
 
 The script installs nothing here: every run below is refused or answered
 while the command line is being read.
@@ -24,11 +24,13 @@ import sys
 
 
 SCRIPT = sys.argv[1]
-ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1")
 
 
 def run(arguments):
-    return subprocess.run(["sh", SCRIPT] + list(arguments), env=ENVIRONMENT,
+    # The script is bash (its shebang, "set -o pipefail", $'\n'), so it is run
+    # as bash rather than through /bin/sh, which is dash on Debian and Ubuntu
+    # and stops at the "set" line before reading any argument.
+    return subprocess.run(["bash", SCRIPT] + list(arguments),
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                           universal_newlines=True, timeout=60,
                           cwd=os.path.dirname(os.path.abspath(SCRIPT)))
