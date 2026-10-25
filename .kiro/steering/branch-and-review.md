@@ -109,9 +109,14 @@ Speed matters. Do not wait for every job.
   done is infrastructure noise; ignore or cancel it and note it.
 - **A failure in the gating set blocks**; a failure in a non-gating job needs
   a quick look (is it related?) but does not by itself block.
-- **Do not merge `main` into a PR branch** just to be current. GitHub squashes
-  onto the current `main`. Update the branch only for conflicts or when `main`
-  changed files the PR also touches, since that restarts CI.
+- **Test on current main.** Rebase the branch onto the latest `squeaky/main`
+  before running the tests and before any hardware test, so the results cover
+  the code that will actually land and a problem from another merge shows up
+  here, not after the squash. If `main` moves after testing, rebase again and
+  re-run the automated tests before merging. Repeat the hardware test only
+  when `main` changed something that test exercises: firmware, libubertooth,
+  the same tool, or the build and install path. Record in the PR which `main`
+  commit the hardware test ran on.
 - Run the independent reviews in parallel with CI, not after it.
 - **Poll, do not block.** Never run one long `gh pr checks --watch` or chained
   `sleep` loops in the foreground. Check `gh pr checks <PR>` every 30 seconds
