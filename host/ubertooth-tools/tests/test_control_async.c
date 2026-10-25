@@ -169,8 +169,14 @@ static int saved_stderr;
 static void capture_stderr(void)
 {
 	capture = tmpfile();
-	saved_stderr = dup(fileno(stderr));
+	saved_stderr = capture != NULL ? dup(fileno(stderr)) : -1;
 	mu_assert(capture != NULL && saved_stderr >= 0, "capture stderr");
+	/* A plain mu_assert records the failure and carries on, and the lines
+	 * below would then redirect to a NULL stream. This is a helper, not a
+	 * test body, so it cannot use mu_assert_fatal: it leaves stderr alone
+	 * instead, and release_stderr() below restores nothing. */
+	if (saved_stderr < 0)
+		return;
 	fflush(stderr);
 	dup2(fileno(capture), fileno(stderr));
 }
@@ -179,6 +185,15 @@ static void release_stderr(char* text, size_t len)
 {
 	size_t n;
 
+	text[0] = '\0';
+	if (saved_stderr < 0) {
+		/* nothing was redirected; close whatever the failed capture got */
+		if (capture != NULL) {
+			fclose(capture);
+			capture = NULL;
+		}
+		return;
+	}
 	fflush(stderr);
 	dup2(saved_stderr, fileno(stderr));
 	close(saved_stderr);
