@@ -72,6 +72,38 @@ selects neither. An all-digits string is read as an index, so include a
 non-digit (`-U 05f` rather than `-U 05`). See ubertooth-util(1), SELECTING A
 DEVICE, for the full description and for listing the attached devices.
 
+## OUTPUT AND DIAGNOSTICS
+
+This is the split the tools are being brought to, tool by tool. Each tool's
+own page says what it does today, under DIAGNOSTICS and EXIT STATUS; where a
+page has neither section yet, that tool has not been converted.
+
+Standard output carries only what was asked for: the report a query returns,
+the packets or samples a capture decodes, the capture data itself when the
+file argument is `-`, and the usage text for `-h`. Everything else goes to
+standard error, so a script reading a tool's standard output is not fed a
+diagnostic or a progress line.
+
+Errors are one line starting `error: `; warnings start `warning: ` and notes
+start `note: `. Progress and status ("Resetting ...", "Ubertooth stopped", DFU
+progress) carry no prefix. The usage text goes to standard output for `-h` and
+to standard error, after the `error: ` line, when the command line was wrong or
+had nothing to do.
+
+Exit status is 0 only when the command did what was asked, including `-h`, and
+1 otherwise: a usage error, a command line with nothing to do, a device that
+is missing or failed, a partial failure. ubertooth-afh(1) also uses 2, for a
+detection phase that received no packet.
+
+libubertooth follows the split already: it returns what it reads to the tool
+that called it and reports its own problems on standard error, so a library
+message does not land in the middle of a capture. The clock trim and AFH
+channel notes raised while following a piconet are `note: ` lines on standard
+error. What the library still writes to standard output is the calling tool's
+result — the decoded packet reports, the AFH map, the version line — which is
+the right stream for them, whichever layer prints them. Its device-selection
+messages are on standard error but do not all carry a prefix yet.
+
 ## ENVIRONMENT
 
 `UBERTOOTH_TEST_NO_DEVICES=1` makes every tool behave as if no Ubertooth were

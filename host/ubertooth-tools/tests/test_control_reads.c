@@ -248,6 +248,111 @@ MU_TEST(range_result_needs_all_5_bytes)
 	mu_assert_int_eq(0x5a, rr.valid); /* left untouched */
 }
 
+/* ---- the library writes nothing to standard output --------------------- */
+
+/*
+ * libubertooth returns its reads to the caller and reports its problems on
+ * standard error; standard output belongs to the tool, which may be writing
+ * capture data to it. cmd_get_clock() used to print "Read clock = 0x..."
+ * there as well as returning the value.
+ */
+static FILE* out_capture;
+static FILE* err_capture;
+static int saved_stdout = -1;
+static int saved_stderr = -1;
+
+/* Both streams, so the short-reply half of the test does not spray its
+ * diagnostics over the suite's own output, and so the test can show they
+ * went to standard error rather than nowhere. Returns 0 if either stream
+ * could not be captured, which leaves both of them alone. */
+static int capture_both(void)
+{
+	out_capture = tmpfile();
+	err_capture = tmpfile();
+	saved_stdout = out_capture != NULL ? dup(fileno(stdout)) : -1;
+	saved_stderr = err_capture != NULL ? dup(fileno(stderr)) : -1;
+	if (saved_stdout < 0 || saved_stderr < 0) {
+		if (saved_stdout >= 0)
+			close(saved_stdout);
+		if (saved_stderr >= 0)
+			close(saved_stderr);
+		if (out_capture != NULL)
+			fclose(out_capture);
+		if (err_capture != NULL)
+			fclose(err_capture);
+		saved_stdout = saved_stderr = -1;
+		return 0;
+	}
+	fflush(stdout);
+	fflush(stderr);
+	dup2(fileno(out_capture), fileno(stdout));
+	dup2(fileno(err_capture), fileno(stderr));
+	return 1;
+}
+
+static void read_back(FILE* capture, char* text, size_t len)
+{
+	size_t n;
+
+	rewind(capture);
+	n = fread(text, 1, len - 1, capture);
+	text[n] = '\0';
+	fclose(capture);
+}
+
+static void release_both(char* out, size_t out_len, char* err, size_t err_len)
+{
+	fflush(stdout);
+	fflush(stderr);
+	dup2(saved_stdout, fileno(stdout));
+	dup2(saved_stderr, fileno(stderr));
+	close(saved_stdout);
+	close(saved_stderr);
+	saved_stdout = saved_stderr = -1;
+	read_back(out_capture, out, out_len);
+	read_back(err_capture, err, err_len);
+}
+
+MU_TEST(no_read_writes_to_standard_output)
+{
+	uint8_t serial[17];
+	rangetest_result rr;
+	char out[512], err[1024];
+
+	if (!capture_both()) {
+		mu_assert(0, "could not capture both streams");
+		return;
+	}
+	script(4, 0);
+	fake.reply[0] = 0x78; fake.reply[1] = 0x56;
+	fake.reply[2] = 0x34; fake.reply[3] = 0x12;
+	(void)cmd_get_clock(NULL);
+	(void)cmd_get_access_address(NULL);
+	script(2, 0);
+	(void)cmd_get_channel(NULL);
+	(void)cmd_read_register(NULL, 0x05);
+	script(1, 0);
+	(void)cmd_get_usrled(NULL);
+	(void)cmd_get_palevel(NULL);
+	(void)cmd_get_squelch(NULL);
+	script(17, 0);
+	(void)cmd_get_serial(NULL, serial);
+	script(5, 0);
+	(void)cmd_get_rangeresult(NULL, &rr);
+	/* and the same reads when the reply is too short to use */
+	script(0, 0);
+	(void)cmd_get_clock(NULL);
+	(void)cmd_get_channel(NULL);
+	(void)cmd_get_serial(NULL, serial);
+	release_both(out, sizeof(out), err, sizeof(err));
+
+	mu_assert(out[0] == '\0', out);
+	/* the short replies did report themselves, on standard error */
+	mu_assert(strstr(err, "error: clock read failed") != NULL, err);
+	mu_assert(strstr(err, "error: channel read failed") != NULL, err);
+	mu_assert(strstr(err, "error: serial read failed") != NULL, err);
+}
+
 int main(void)
 {
 	MU_RUN(one_byte_reads_return_the_byte_for_a_full_reply);
@@ -259,5 +364,6 @@ int main(void)
 	MU_RUN(short_reply_message_names_the_read_and_the_counts);
 	MU_RUN(four_and_two_byte_reads_need_their_full_length);
 	MU_RUN(read_access_address_returns_errors_separately);
+	MU_RUN(no_read_writes_to_standard_output);
 	return mu_report();
 }

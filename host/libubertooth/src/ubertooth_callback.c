@@ -223,13 +223,15 @@ void cb_afh_initial(ubertooth_t* ut, void* args)
 		if (!btbb_piconet_get_channel_seen(pn, channel+1) &&
 		    btbb_piconet_get_channel_seen(pn, channel+2))
 		{
-			printf("activating additional channel %d\n", channel+1);
+			fprintf(stderr, "note: activating additional channel %d\n",
+			        channel+1);
 		    btbb_piconet_set_channel_seen(pn, channel+1);
 		}
 		if (!btbb_piconet_get_channel_seen(pn, channel-1) &&
 		    btbb_piconet_get_channel_seen(pn, channel-2))
 		{
-			printf("activating additional channel %d\n", channel-1);
+			fprintf(stderr, "note: activating additional channel %d\n",
+			        channel-1);
 			btbb_piconet_set_channel_seen(pn, channel-1);
 		}
 
@@ -267,7 +269,7 @@ void cb_afh_monitor(ubertooth_t* ut, void* args)
 	last_seen[channel]=counter;
 
 	if(btbb_piconet_set_channel_seen(pn, channel)) {
-		printf("+ channel %2d is used now\n", channel);
+		fprintf(stderr, "note: + channel %2d is used now\n", channel);
 		btbb_print_afh_map(pn);
 	// } else {
 	// 	printf("channel %d is already used\n", channel);
@@ -276,7 +278,8 @@ void cb_afh_monitor(ubertooth_t* ut, void* args)
 	for(i=0; i<79; i++) {
 		if((counter - last_seen[i] >= packet_counter_max)) {
 			if(btbb_piconet_clear_channel_seen(pn, i)) {
-				printf("- channel %2d is not used any more\n", i);
+				fprintf(stderr, "note: - channel %2d is not used any more\n",
+				        i);
 				btbb_print_afh_map(pn);
 			}
 		}
@@ -565,12 +568,14 @@ void cb_rx(ubertooth_t* ut, void* args)
 	if (pn != NULL && infile == NULL) {
 		if (trim_counter < -CLOCK_TRIM_THRESHOLD
 		    || ((clk_offset < CLK_TUNE_TIME) && !calibrated)) {
-			printf("offset < CLK_TUNE_TIME\n");
-			printf("CLK100ns Trim: %d\n", 6250 + clk_offset - CLK_TUNE_TIME);
+			fprintf(stderr, "note: offset < CLK_TUNE_TIME\n");
+			fprintf(stderr, "note: CLK100ns trim: %d\n",
+			        6250 + clk_offset - CLK_TUNE_TIME);
 			cmd_trim_clock(ut->devh, 6250 + clk_offset - CLK_TUNE_TIME);
 			trim_counter = 0;
 			if (calibrated) {
-				printf("Clock drifted %d in %f s. %d PPM too slow.\n",
+				fprintf(stderr, "note: clock drifted %d in %f s, "
+				        "%d PPM too slow\n",
 				       (clk_offset-CLK_TUNE_TIME),
 				       (double)(clkn-clkn_trim)/3200,
 				       (clk_offset-CLK_TUNE_TIME) * 320 / (int32_t)(clkn-clkn_trim));
@@ -581,12 +586,14 @@ void cb_rx(ubertooth_t* ut, void* args)
 			goto out;
 		} else if (trim_counter > CLOCK_TRIM_THRESHOLD
 		           || ((clk_offset > CLK_TUNE_TIME) && !calibrated)) {
-			printf("offset > CLK_TUNE_TIME\n");
-			printf("CLK100ns Trim: %d\n", clk_offset - CLK_TUNE_TIME);
+			fprintf(stderr, "note: offset > CLK_TUNE_TIME\n");
+			fprintf(stderr, "note: CLK100ns trim: %d\n",
+			        clk_offset - CLK_TUNE_TIME);
 			cmd_trim_clock(ut->devh, clk_offset - CLK_TUNE_TIME);
 			trim_counter = 0;
 			if (calibrated) {
-				printf("Clock drifted %d in %f s. %d PPM too fast.\n",
+				fprintf(stderr, "note: clock drifted %d in %f s, "
+				        "%d PPM too fast\n",
 				       (clk_offset-CLK_TUNE_TIME),
 				       (double)(clkn-clkn_trim)/3200,
 				       (clk_offset-CLK_TUNE_TIME) * 320 / (clkn-clkn_trim));

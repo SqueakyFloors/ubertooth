@@ -55,7 +55,7 @@ error: no packets from ??:??:22:44:66:88 within 3 s; AFH map unknown, not monito
 .P
 Nothing is wrong with the board in that case: the piconet is out of range, it is not transmitting, or the UAP/LAP is not the one in use\. A longer \fB\-t\fR, or no \fB\-t\fR at all, keeps listening\.
 .P
-To wait for a piconet that is not in range yet (start the tool, then bring the devices close or start the connection), run without \fB\-t\fR: monitoring starts at once, waits as long as it takes, and prints \fB+ channel N is used now\fR as the piconet's packets arrive\. \fB\-t\fR is for a bounded check that gives up when nothing is heard in time\.
+To wait for a piconet that is not in range yet (start the tool, then bring the devices close or start the connection), run without \fB\-t\fR: monitoring starts at once, waits as long as it takes, and notes \fB+ channel N is used now\fR on standard error as the piconet's packets arrive\. \fB\-t\fR is for a bounded check that gives up when nothing is heard in time\.
 .P
 \fB\-r\fR has its own loop, which prints the map once a second from the start and ignores \fB\-t\fR\.
 .SH "ARGUMENTS"
@@ -67,7 +67,7 @@ An option value must be a whole value in its range, or it is refused the same wa
 .P
 Both halves of the piconet address are required, and a command line missing either is refused before any device is opened: \fBerror: \-l <LAP> and \-u <UAP> are both required: the map is detected for one piconet\fR\.
 .SH "DIAGNOSTICS"
-Standard output carries the detected channel maps\. Errors, warnings and the tool's own progress go to standard error, each error as one line starting \fBerror:\fR\. The channel\-change lines that libubertooth prints alongside each map are still on standard output; see ubertooth(7), OUTPUT AND DIAGNOSTICS\.
+Standard output carries the detected channel maps\. Errors, warnings and the tool's own progress go to standard error, each error as one line starting \fBerror:\fR\. The channel\-change lines that libubertooth raises alongside each map are \fBnote:\fR lines on standard error; see ubertooth(7), OUTPUT AND DIAGNOSTICS\.
 .P
 A command line the tool will not take is reported as that one \fBerror:\fR line followed by the usage text, both on standard error\. An option the tool does not know reads \fBerror: unrecognized option '\-Z'\fR; one whose value is missing reads \fBerror: option '\-l' requires a value\fR\.
 .P
