@@ -363,12 +363,30 @@ assert result.stderr == "note: UBERTOOTH_TEST_NO_DEVICES is set\n", result
 # passed through. This used to be an empty listing and exit 0,
 # indistinguishable from no board being attached
 for reason in ("error: libusb_init failed\n",
-               NO_DEVICES + "\nerror: libusb_init failed\n",
-               ""):
+               NO_DEVICES + "\nerror: libusb_init failed\n"):
     result = run(("--extcap-interfaces",), errors=reason, status=1)
     assert result.returncode == 1, (reason, result)
     assert interfaces(result) == [], (reason, result)
     assert result.stderr == reason, (reason, result)
+
+# one that failed without saying why still has to name the failure, otherwise
+# the reason never reaches the user, which is the whole complaint
+result = run(("--extcap-interfaces",), status=3)
+assert result.returncode == 1, result
+assert result.stdout == "", result
+assert result.stderr == "error: ubertooth-util failed (exit status 3)\n", \
+    result
+result = run(("--extcap-interfaces",), kill_with=signal.SIGABRT)
+assert result.returncode == 1, result
+assert result.stderr == "error: ubertooth-util failed (killed by signal %d)\n" \
+    % int(signal.SIGABRT), result
+
+# a silent failure that still listed a board is not reported as a failure: the
+# listing is the answer, and Wireshark keeps it
+result = run(("--extcap-interfaces",), listing="0: %s\n" % SERIALS[0],
+             status=3)
+assert result.returncode == 0, result
+assert len(interfaces(result)) == 1 and result.stderr == "", result
 
 # a failure that still listed a board keeps the board and the reason, and is
 # not reported as a failed call, since that is what loses the board

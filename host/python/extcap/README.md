@@ -129,9 +129,12 @@ found`, and only when it is the sole complaint about an empty listing, since
 the empty listing says the same thing. Alongside any other error it is passed
 on with the rest.
 
-A tool that is not on the `PATH` Wireshark started the script with, or that
-cannot be executed, is reported as
-`error: could not run ubertooth-util: No such file or directory`.
+A tool that is not on the `PATH` Wireshark started the script with is
+reported as `error: could not run ubertooth-util: No such file or directory`,
+and one that is there but cannot be executed names that reason instead
+(`Permission denied`). A `ubertooth-util` that failed without saying why is
+reported as `error: ubertooth-util failed (exit status 3)`, since a failure
+the user is told about has to name itself.
 
 ## See also
 

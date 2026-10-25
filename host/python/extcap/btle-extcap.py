@@ -256,18 +256,22 @@ def list_interfaces():
                (INTERFACE_LINE.match(line.strip()) for line in out.split('\n'))
                if m]
 
-    # Nothing failed if the only thing ubertooth-util reported is that there
-    # is no board: the empty listing says that already, so its error line is
-    # not passed on. Everything else it wrote is, which is the only place the
-    # reason can appear: Wireshark reads this call's standard output and
-    # leaves its standard error to its own, and someone running the call by
-    # hand sees it there too.
+    # Nothing failed if the only error ubertooth-util reported is that there
+    # is no board: the empty listing says that already, so that line is not
+    # passed on. Only the "error: " lines are weighed, because libubertooth
+    # writes some of its failures without a prefix, and such a line arriving
+    # beside this one would still mean no board was found. Everything it wrote
+    # is passed on, which is the only place the reason can appear: Wireshark
+    # reads this call's standard output and leaves its standard error to its
+    # own, and someone running the call by hand sees it there too.
     reported = [line for line in errors.splitlines()
                 if line.startswith("error: ")]
     no_devices = not serials and reported == [NO_DEVICES]
+    passed_on = False
     for line in errors.splitlines():
         if not (no_devices and line == NO_DEVICES):
             print(line, file=sys.stderr)
+            passed_on = True
 
     # The boards that could be named are listed even when another one could
     # not be, which is what ubertooth-util itself does with a partial
@@ -281,9 +285,15 @@ def list_interfaces():
     # that could with it: a listing that named a board is a listing, whatever
     # else went wrong. An empty one is a failure, unless ubertooth-util's only
     # complaint was that there is no board.
-    if not serials and not no_devices and proc.returncode != 0:
-        return 1
-    return 0
+    if serials or no_devices or proc.returncode == 0:
+        return 0
+    if not passed_on:
+        # It failed without saying why, so its status is all there is to
+        # report, and a failure the user is told about has to name itself.
+        print("error: ubertooth-util failed (%s)" % (
+            "killed by signal %d" % -proc.returncode if proc.returncode < 0
+            else "exit status %d" % proc.returncode), file=sys.stderr)
+    return 1
 
 
 def list_dlts():
