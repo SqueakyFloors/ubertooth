@@ -87,8 +87,9 @@ def refused(arguments, directory):
         cwd=directory,
     )
     output = (result.stdout + result.stderr).lower()
-    # -h ends the command with the tool's own status (0 for ubertooth-specan
-    # and ubertooth-debug, 1 for the rest); the other cases are errors.
+    # -h ends the command with the tool's own status, which is 0 for every
+    # tool converted to the output-stream rule so far and still 1 for
+    # ubertooth-dfu and ubertooth-follow; the other cases are errors.
     expected = (0, 1) if "-h" in arguments else (1,)
     assert result.returncode in expected, (arguments, result)
     assert "no ubertooth" not in output, (arguments, result)

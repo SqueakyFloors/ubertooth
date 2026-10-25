@@ -25,18 +25,22 @@ int convert_mac_address(char *text, uint8_t *address, uint8_t *mask_out)
 		*mask_text = '\0';
 		++mask_text;
 		if (opt_parse_int(mask_text, 0, MAC_MASK_MAX, &mask) < 0) {
-			printf("Error: MAC mask must be between 0 and %d\n",
-			       MAC_MASK_MAX);
+			fprintf(stderr, "error: MAC mask must be 0-%d (got %s)\n",
+			        MAC_MASK_MAX, mask_text);
 			return 0;
 		}
 	}
 
+	/* The mask has been split off by now, so these quote the address part
+	 * of what the user wrote rather than the whole word. */
 	if (strlen(text) != 6 * 2 + 5) {
-		printf("Error: MAC address is wrong length\n");
+		fprintf(stderr, "error: MAC address must be"
+		        " xx:xx:xx:xx:xx:xx (got %s)\n", text);
 		return 0;
 	}
 	if (opt_parse_bd_addr(text, address) < 0) {
-		printf("Error: MAC address contains invalid character(s)\n");
+		fprintf(stderr, "error: MAC address must be hex digits and"
+		        " colons (got %s)\n", text);
 		return 0;
 	}
 

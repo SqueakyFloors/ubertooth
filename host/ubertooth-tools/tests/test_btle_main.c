@@ -1,7 +1,7 @@
 /*
  * Hardware-independent tests of ubertooth-btle's main(): which device
- * commands the -v options run, in which order, and what the tool prints and
- * exits with.
+ * commands the options run, in which order, which stream each line it prints
+ * lands on, and what it exits with.
  *
  * ubertooth-btle.c is compiled into this test with main() renamed, and the
  * libubertooth functions it calls are replaced by the fakes below, so the real
@@ -28,19 +28,25 @@ static struct {
 	int crc_sets;
 	int crc_gets;
 	int last_crc_set;
+	int poll_rc;         /* returned by cmd_poll(): < 0 fails the capture */
 	int polls;
 	int stops;
+	int connects;        /* a refused command line must open no device */
 	int sniffing_calls;
 	int promisc_calls;
 	int follow_requested;
+	int target_rc;       /* returned by cmd_btle_set_target() */
+	int jam_rc;          /* returned by cmd_set_jam_mode() */
 	int jam_mode_sets;
 	int last_jam_mode;
+	int slave_calls;
 	u32 access_address;
 	int aa_reads;
 	int aa_writes;
+	char capture_file[64]; /* the name the capture was created under */
 	/* Every device call in order, one letter each: s set CRC, g get CRC,
 	 * r read access address, w write access address, t set target,
-	 * m mode started, p poll. */
+	 * m mode started, p poll, S faux slave mode started. */
 	char calls[64];
 } fake;
 
@@ -82,6 +88,34 @@ int ubertooth_connect_select(ubertooth_t *ut, const char *u_arg)
 {
 	(void)ut;
 	(void)u_arg;
+	fake.connects++;
+	return 0;
+}
+
+/* The capture files, so a "-q -" run does not write a PCAP header into the
+ * test's captured stdout and no file is created anywhere. */
+int lell_pcap_create_file(const char *filename, lell_pcap_handle **ph)
+{
+	snprintf(fake.capture_file, sizeof(fake.capture_file), "%s", filename);
+	*ph = NULL;
+	return 0;
+}
+
+int lell_pcap_ppi_create_file(const char *filename, int btle_ppi_version,
+                              lell_pcap_handle **ph)
+{
+	(void)btle_ppi_version;
+	snprintf(fake.capture_file, sizeof(fake.capture_file), "%s", filename);
+	*ph = NULL;
+	return 0;
+}
+
+int lell_pcapng_create_file(const char *filename, const char *interface_desc,
+                            lell_pcapng_handle **ph)
+{
+	(void)interface_desc;
+	snprintf(fake.capture_file, sizeof(fake.capture_file), "%s", filename);
+	*ph = NULL;
 	return 0;
 }
 
@@ -167,7 +201,7 @@ int cmd_poll(struct libusb_device_handle *devh, usb_pkt_rx *p)
 	record('p');
 	fake.polls++;
 	running = 0;
-	return 0;
+	return fake.poll_rc;
 }
 
 int cmd_set_channel(struct libusb_device_handle *devh, u16 channel)
@@ -187,9 +221,11 @@ int cmd_set_modulation(struct libusb_device_handle *devh, u16 mod)
 int cmd_set_jam_mode(struct libusb_device_handle *devh, int mode)
 {
 	(void)devh;
+	/* Not in fake.calls: every sniffing mode sends this, so recording it
+	 * would say nothing and would re-letter every expected call string. */
 	fake.jam_mode_sets++;
 	fake.last_jam_mode = mode;
-	return 0;
+	return fake.jam_rc;
 }
 
 int cmd_cancel_follow(struct libusb_device_handle *devh)
@@ -205,13 +241,15 @@ int cmd_btle_set_target(struct libusb_device_handle *devh, uint8_t *mac_address,
 	(void)mac_address;
 	(void)mac_mask;
 	record('t');
-	return 0;
+	return fake.target_rc;
 }
 
 int cmd_btle_slave(struct libusb_device_handle *devh, u8 *mac_address)
 {
 	(void)devh;
 	(void)mac_address;
+	record('S');
+	fake.slave_calls++;
 	return 0;
 }
 
@@ -240,8 +278,10 @@ void cb_btle(ubertooth_t *ut, void *args)
 
 struct run_result {
 	int rc;
+	/* Both hold the whole usage text, which a refusal prints on stderr
+	 * and -h on stdout; read_back() fails a run that did not fit. */
 	char out[4096];
-	char err[1024];
+	char err[4096];
 };
 
 static void read_back(FILE *file, char *buffer, size_t size)
@@ -496,6 +536,199 @@ MU_TEST(an_access_address_read_and_the_crc_options_all_run)
 	          r.out);
 }
 
+/* The target report is a result, so it is on standard output. */
+MU_TEST(the_target_report_is_on_standard_output)
+{
+	struct run_result r;
+
+	reset_fake();
+	r = RUN("-tnone");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(fake.calls, "t") == 0, fake.calls);
+	mu_assert(strcmp(r.out, "target cleared\n") == 0, r.out);
+	mu_assert(r.err[0] == '\0', r.err);
+
+	reset_fake();
+	r = RUN("-t22:44:66:88:aa:cc");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "target set to: 22:44:66:88:aa:cc/48\n") == 0,
+	          r.out);
+	mu_assert(r.err[0] == '\0', r.err);
+}
+
+/* A capture on standard output ("-q -", "-c -") redirects this process's
+ * stdout to /dev/null for the whole run, so the lines that answer an option
+ * were done on the board and then thrown away, with exit 0. They go to
+ * standard error instead. */
+MU_TEST(the_reports_move_to_stderr_when_the_capture_takes_stdout)
+{
+	struct run_result r;
+
+	reset_fake();
+	r = RUN("-q", "-", "-a", "-v1", "-v");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(fake.calls, "rsg") == 0, fake.calls);
+	/* the capture was created on the saved stdout, not on a file */
+	mu_assert(strstr(fake.capture_file, "/fd/") != NULL, fake.capture_file);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strcmp(r.err, "Access address: 8e89bed6\nCRC: verify\n") == 0,
+	          r.err);
+
+	/* the -c format, and the target line, which the tool sends before a
+	 * sniffing mode starts */
+	reset_fake();
+	r = RUN("-c", "-", "-f", "-t22:44:66:88:aa:cc");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(fake.calls, "tmp") == 0, fake.calls);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strcmp(r.err, "target set to: 22:44:66:88:aa:cc/48\n") == 0,
+	          r.err);
+
+	/* a capture to a named file leaves the reports on standard output */
+	reset_fake();
+	r = RUN("-q", "/dev/null", "-a");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(fake.capture_file, "/dev/null") == 0, fake.capture_file);
+	mu_assert(strcmp(r.out, "Access address: 8e89bed6\n") == 0, r.out);
+	mu_assert(r.err[0] == '\0', r.err);
+}
+
+/* A poll that fails ends the capture short, so it is an error on standard
+ * error and exit 1, not "USB error" on standard output and exit 0. */
+MU_TEST(a_failed_poll_is_reported_on_stderr_and_exits_1)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.poll_rc = -1;
+	r = RUN("-f");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(fake.calls, "mp") == 0, fake.calls);
+	mu_assert_int_eq(1, fake.stops);
+	mu_assert(strcmp(r.err, "error: USB poll failed\n") == 0, r.err);
+	mu_assert(r.out[0] == '\0', r.out);
+}
+
+/* The other two diagnostics this tool used to put on standard output. */
+MU_TEST(a_failed_target_set_and_jamming_are_reported_on_stderr)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.target_rc = -1;
+	r = RUN("-t22:44:66:88:aa:cc");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, "error: target set failed\n") == 0, r.err);
+	mu_assert(r.out[0] == '\0', r.out);
+
+	reset_fake();
+	fake.jam_rc = -1;
+	r = RUN("-f", "-i");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(JAM_ONCE, fake.last_jam_mode);
+	mu_assert_int_eq(0, fake.polls); /* no capture was started */
+	mu_assert(strcmp(r.err,
+	                 "error: jamming not supported by this firmware\n") == 0,
+	          r.err);
+	mu_assert(r.out[0] == '\0', r.out);
+
+	/* a jam mode the board takes goes on to the capture */
+	reset_fake();
+	r = RUN("-p", "-I");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(JAM_CONTINUOUS, fake.last_jam_mode);
+	mu_assert_int_eq(1, fake.promisc_calls);
+	mu_assert_int_eq(1, fake.polls);
+}
+
+/* Interference acts on a connection, so it needs -f or -p. It was accepted
+ * with -n, which only logs advertising packets, and the jam mode was set on
+ * the board all the same. */
+MU_TEST(the_interference_options_are_refused_without_f_or_p)
+{
+	struct run_result r;
+	const char *const spellings[] = { "-i", "-I", "-j", "-J" };
+	char expected[128];
+	unsigned i;
+
+	for (i = 0; i < sizeof(spellings) / sizeof(spellings[0]); i++) {
+		reset_fake();
+		r = RUN("-n", spellings[i]);
+		mu_assert_int_eq(1, r.rc);
+		snprintf(expected, sizeof(expected),
+		         "error: -%c needs -f or -p: there is no connection to"
+		         " interfere with otherwise\n", spellings[i][1]);
+		mu_assert(strcmp(r.err, expected) == 0, r.err);
+		mu_assert(r.out[0] == '\0', r.out);
+		/* refused while the command line was read: no device opened,
+		 * and the jam mode never reached a board */
+		mu_assert_int_eq(0, fake.connects);
+		mu_assert_int_eq(-1, fake.last_jam_mode);
+		mu_assert(fake.calls[0] == '\0', fake.calls);
+	}
+
+	/* not only with -n: any command without -f or -p */
+	reset_fake();
+	r = RUN("-a", "-i");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: -i needs -f or -p") == r.err, r.err);
+	mu_assert_int_eq(0, fake.connects);
+
+	/* -f and -p take it */
+	reset_fake();
+	r = RUN("-f", "-i");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(JAM_ONCE, fake.last_jam_mode);
+	reset_fake();
+	r = RUN("-p", "-J");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(JAM_CONTINUOUS, fake.last_jam_mode);
+}
+
+/* A sniffing mode runs until it is interrupted, so the blocks after it used
+ * to send their control requests on the handle ubertooth_stop() had closed
+ * and nulled. The combination is refused while the command line is read. */
+MU_TEST(a_sniffing_mode_refuses_the_access_address_and_slave_options)
+{
+	struct run_result r;
+	const char *const modes[] = { "-f", "-n", "-p" };
+	const char *const after[] = { "-a", "-a8e89bed6", "-s22:44:66:88:aa:cc" };
+	const char *expected = "error: -a and -s do not go with -f, -n or -p:"
+	        " a sniffing mode runs until it is interrupted\n";
+	unsigned mode, option;
+
+	for (mode = 0; mode < sizeof(modes) / sizeof(modes[0]); mode++) {
+		for (option = 0; option < sizeof(after) / sizeof(after[0]);
+		     option++) {
+			reset_fake();
+			r = RUN(modes[mode], after[option]);
+			mu_assert_int_eq(1, r.rc);
+			mu_assert(strcmp(r.err, expected) == 0, r.err);
+			mu_assert(r.out[0] == '\0', r.out);
+			/* refused before a device was opened, so no request
+			 * went out on a closed handle */
+			mu_assert_int_eq(0, fake.connects);
+			mu_assert(fake.calls[0] == '\0', fake.calls);
+			mu_assert_int_eq(0, fake.aa_reads);
+			mu_assert_int_eq(0, fake.aa_writes);
+			mu_assert_int_eq(0, fake.slave_calls);
+		}
+	}
+
+	/* -t and -v are not in that list: -t is sent before the mode starts,
+	 * and the -v options run once it has started */
+	reset_fake();
+	r = RUN("-f", "-t22:44:66:88:aa:cc", "-v");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(fake.calls, "tmgp") == 0, fake.calls);
+
+	/* and on their own, -a and -s still run */
+	reset_fake();
+	r = RUN("-a", "-s22:44:66:88:aa:cc");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(fake.calls, "rS") == 0, fake.calls);
+}
+
 /* The usage text says what a set and a read in one command do. */
 MU_TEST(the_usage_text_documents_the_set_and_the_read)
 {
@@ -503,7 +736,7 @@ MU_TEST(the_usage_text_documents_the_set_and_the_read)
 
 	reset_fake();
 	r = RUN("-h");
-	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, r.rc);
 	mu_assert(strstr(r.out, "-v [01]") != NULL, r.out);
 	mu_assert(strstr(r.out, "reports the new value") != NULL, r.out);
 	mu_assert_int_eq(0, fake.crc_sets);
@@ -517,9 +750,75 @@ MU_TEST(the_usage_text_names_the_jam_aliases)
 
 	reset_fake();
 	r = RUN("-h");
-	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, r.rc);
 	mu_assert(strstr(r.out, "-i, -j") != NULL, r.out);
 	mu_assert(strstr(r.out, "-I, -J") != NULL, r.out);
+}
+
+/* -h is what the user asked for, so the usage text is the command's output
+ * and the status says it worked. It used to exit 1, so a script checking
+ * "ubertooth-btle -h" saw a failure. */
+MU_TEST(the_help_option_exits_0_with_the_usage_text_on_stdout)
+{
+	struct run_result r;
+
+	reset_fake();
+	r = RUN("-h");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.out, "Usage:") != NULL, r.out);
+	mu_assert(r.err[0] == '\0', r.err);
+	mu_assert_int_eq(0, fake.connects);
+
+	/* a bad command line alongside it is still reported, and wins */
+	reset_fake();
+	r = RUN("-h", "stray");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strcmp(r.err, "error: unexpected argument 'stray'\n") == 0,
+	          r.err);
+}
+
+/* A bad option line comes from the shared helper, so this tool reports one
+ * the way every other does: an "error: " line and the usage text, both on
+ * standard error, with standard output left empty. */
+MU_TEST(a_bad_command_line_is_reported_on_stderr)
+{
+	struct run_result r;
+
+	reset_fake();
+	r = RUN("-Z");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strstr(r.err, "error: unrecognized option '-Z'\n") == r.err,
+	          r.err);
+	mu_assert(strstr(r.err, "Usage:") != NULL, r.err);
+	mu_assert_int_eq(0, fake.connects);
+
+	/* an option whose value is missing, which the leading ':' in the
+	 * option string tells apart from an unknown option */
+	reset_fake();
+	r = RUN("-A");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strstr(r.err, "error: option '-A' requires a value\n") == r.err,
+	          r.err);
+
+	/* a bad -t value is reported by the shared MAC parser, on stderr */
+	reset_fake();
+	r = RUN("-t", "22:44:66:88:aa");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strstr(r.err, "error: MAC address must be xx:xx:xx:xx:xx:xx"
+	                 " (got 22:44:66:88:aa)\n") == r.err, r.err);
+
+	/* a second capture file is a warning, not an error: the first one wins
+	 * and the run carries on */
+	reset_fake();
+	r = RUN("-f", "-q", "/dev/null", "-q", "/dev/zero");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(fake.capture_file, "/dev/null") == 0, fake.capture_file);
+	mu_assert(strcmp(r.err, "warning: ignoring extra capture file:"
+	                 " /dev/zero\n") == 0, r.err);
 }
 
 /* -j and -J are the original jam spellings of -i and -I: each selects the same
@@ -558,8 +857,16 @@ int main(void)
 	MU_RUN(a_sniffing_mode_sets_and_reads_after_the_mode_starts);
 	MU_RUN(a_failure_in_a_sniffing_mode_still_stops_the_board);
 	MU_RUN(an_access_address_read_and_the_crc_options_all_run);
+	MU_RUN(the_target_report_is_on_standard_output);
+	MU_RUN(the_reports_move_to_stderr_when_the_capture_takes_stdout);
+	MU_RUN(a_failed_poll_is_reported_on_stderr_and_exits_1);
+	MU_RUN(a_failed_target_set_and_jamming_are_reported_on_stderr);
+	MU_RUN(the_interference_options_are_refused_without_f_or_p);
+	MU_RUN(a_sniffing_mode_refuses_the_access_address_and_slave_options);
 	MU_RUN(the_usage_text_documents_the_set_and_the_read);
 	MU_RUN(the_usage_text_names_the_jam_aliases);
+	MU_RUN(the_help_option_exits_0_with_the_usage_text_on_stdout);
+	MU_RUN(a_bad_command_line_is_reported_on_stderr);
 	MU_RUN(the_jam_aliases_select_the_same_mode_as_interfere);
 	return mu_report();
 }

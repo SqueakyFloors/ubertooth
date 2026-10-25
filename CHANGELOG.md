@@ -4,6 +4,19 @@
 
 ### New features
 
+- **Script-visible change:** `ubertooth-btle` refuses `-i`/`-I` without `-f` or
+  `-p`, and `-a`/`-s` alongside `-f`, `-n` or `-p`, before it opens a device.
+  [#299](https://github.com/SqueakyFloors/ubertooth/issues/299)
+  [#309](https://github.com/SqueakyFloors/ubertooth/issues/309)
+- **Script-visible change:** `ubertooth-btle` exits 0 for `-h` and 1 when a
+  capture stops because the board stopped answering; it answers `-a`, `-v` and
+  `-t` on standard error when `-q -` or `-c -` has taken standard output, and
+  reports a bad command line, a failed poll, jam mode or target the way every
+  other tool does.
+  [#308](https://github.com/SqueakyFloors/ubertooth/issues/308)
+  [#330](https://github.com/SqueakyFloors/ubertooth/issues/330)
+  [#346](https://github.com/SqueakyFloors/ubertooth/issues/346)
+  [#347](https://github.com/SqueakyFloors/ubertooth/issues/347)
 - **Script-visible change:** `ubertooth-afh -a` is gone. It never sent
   anything, and it silently swallowed the word after it.
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)

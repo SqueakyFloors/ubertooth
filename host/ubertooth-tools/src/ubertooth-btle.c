@@ -24,6 +24,7 @@
 #include "btle_options.h"
 #include "opt_parse.h"
 #include <err.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <getopt.h>
 #include <string.h>
@@ -51,13 +52,21 @@ static void quit(int sig __attribute__((unused))) {
 	running = 0;
 }
 
-void print_mac(uint8_t *mac_address, int mask) {
+/* Where the lines that answer an option go: the access address, the CRC verify
+ * setting and the target. They are what the user asked for, so standard
+ * output, unless a capture has taken it ("-q -", "-c -"), which redirects this
+ * process's stdout to /dev/null for the whole run; writing them there would do
+ * the work on the board and throw the answer away, so they go to standard
+ * error instead. main() sets this; nothing here prints before that. */
+static FILE *report_stream = NULL;
+
+static void print_mac(FILE *out, uint8_t *mac_address, int mask) {
 	unsigned i;
 	for (i = 0; i < 5; ++i)
-		printf("%02x:", mac_address[i]);
-	printf("%02x", mac_address[5]);
+		fprintf(out, "%02x:", mac_address[i]);
+	fprintf(out, "%02x", mac_address[5]);
 	if (mask >= 0)
-		printf("/%u", mask);
+		fprintf(out, "/%u", mask);
 }
 
 /* Accept "-" as an alias for binary PCAP on stdout. Save the original
@@ -79,13 +88,15 @@ static char *handle_special_filename(const char *filename, int *saved_fd)
 	fflush(stdout);
 	*saved_fd = dup(STDOUT_FILENO);
 	if (*saved_fd < 0) {
-		perror("dup(stdout)");
+		fprintf(stderr, "error: cannot save stdout for the capture: %s\n",
+		        strerror(errno));
 		return NULL;
 	}
 
 	null_fd = open("/dev/null", O_WRONLY);
 	if (null_fd < 0 || dup2(null_fd, STDOUT_FILENO) < 0) {
-		perror("redirect stdout");
+		fprintf(stderr, "error: cannot redirect stdout to /dev/null: %s\n",
+		        strerror(errno));
 		if (null_fd >= 0)
 			close(null_fd);
 		close(*saved_fd);
@@ -99,7 +110,7 @@ static char *handle_special_filename(const char *filename, int *saved_fd)
 	if (access(path, W_OK) != 0) {
 		snprintf(path, sizeof(path), "/proc/self/fd/%d", *saved_fd);
 		if (access(path, W_OK) != 0) {
-			fprintf(stderr, "Error: no writable descriptor filesystem for stdout capture\n");
+			fprintf(stderr, "error: no writable descriptor filesystem for stdout capture\n");
 			close(*saved_fd);
 			*saved_fd = -1;
 			return NULL;
@@ -123,7 +134,8 @@ static int apply_crc_options(struct libusb_device_handle* devh, int do_set_crc,
 			return -1;
 		}
 		if (!do_get_crc)
-			printf("CRC: %sverify\n", do_set_crc ? "" : "DO NOT ");
+			fprintf(report_stream, "CRC: %sverify\n",
+			        do_set_crc ? "" : "DO NOT ");
 	}
 	if (do_get_crc) {
 		int r = cmd_get_crc_verify(devh);
@@ -133,7 +145,7 @@ static int apply_crc_options(struct libusb_device_handle* devh, int do_set_crc,
 				fprintf(stderr, "error: CRC verify read failed\n");
 			return -1;
 		}
-		printf("CRC: %sverify\n", r ? "" : "DO NOT ");
+		fprintf(report_stream, "CRC: %sverify\n", r ? "" : "DO NOT ");
 	}
 	return 0;
 }
@@ -153,10 +165,11 @@ static void usage(FILE *out)
 	fprintf(out, "\n");
 	fprintf(out, "\t-a [address] get/set access address, 1-8 hex digits (example: -a 8e89bed6)\n");
 	fprintf(out, "\t-s <address> faux slave mode, using MAC addr (example: -s 22:44:66:88:aa:cc)\n");
+	fprintf(out, "\t       -a and -s do not go with -f, -n or -p, which run until interrupted\n");
 	fprintf(out, "\t-t <address> set connection following target (example: -t 22:44:66:88:aa:cc/48)\n");
 	fprintf(out, "\t-t none unset connection following target\n");
 	fprintf(out, "\n");
-	fprintf(out, "    Interference (use with -f or -p):\n");
+	fprintf(out, "    Interference (only with -f or -p):\n");
 	fprintf(out, "\t-i, -j  interfere with (jam) one connection and return to idle\n");
 	fprintf(out, "\t-I, -J  interfere continuously\n");
 	fprintf(out, "\n");
@@ -194,6 +207,12 @@ int main(int argc, char *argv[])
 	int do_slave_mode;
 	int do_target;
 	enum jam_modes jam_mode = JAM_NONE;
+	/* The interference option as the user wrote it, so the refusal below
+	 * names that spelling rather than a canonical one. */
+	int jam_option = 0;
+	/* 1 once the capture stopped short, so the exit status says the command
+	 * did not do what was asked. */
+	int status = 0;
 	char* ubertooth_device = NULL;
 	/* Capture files named on the command line, opened after every check. */
 	const char* pcapng_name = NULL;
@@ -210,6 +229,8 @@ int main(int argc, char *argv[])
 	uint8_t mac_address[6] = { 0, };
 	uint8_t mac_mask = 0;
 
+	/* Standard output until a capture takes it; see report_stream. */
+	report_stream = stdout;
 	do_follow = do_no_follow = do_promisc = 0;
 	do_get_aa = do_set_aa = 0;
 	do_set_crc = -1;
@@ -217,7 +238,11 @@ int main(int argc, char *argv[])
 	do_adv_index = 37;
 	do_slave_mode = do_target = 0;
 
-	while ((opt=getopt(argc,argv,"a::r:hfnpU:v::A:s:t:x:c:q:jJiI")) != EOF) {
+	/* The tool reports a bad option itself, in the usual one-line form:
+	 * see opt_report_bad_option(). The leading ':' makes a missing option
+	 * value distinguishable from an option getopt does not know. */
+	opterr = 0;
+	while ((opt=getopt(argc,argv,":a::r:hfnpU:v::A:s:t:x:c:q:jJiI")) != EOF) {
 		switch(opt) {
 		case 'a':
 			/* getopt only attaches an optional value (-a8e89bed6); take
@@ -254,13 +279,13 @@ int main(int argc, char *argv[])
 		 * first of the two given wins, as before. */
 		case 'r':
 			if (strcmp(optarg, "-") == 0) {
-				fprintf(stderr, "Error: PCAPNG capture to stdout is not supported; use -q - or -c -\n");
+				fprintf(stderr, "error: PCAPNG capture to stdout is not supported; use -q - or -c -\n");
 				return 1;
 			}
 			if (pcapng_name == NULL)
 				pcapng_name = optarg;
 			else
-				fprintf(stderr, "Ignoring extra capture file: %s\n", optarg);
+				fprintf(stderr, "warning: ignoring extra capture file: %s\n", optarg);
 			break;
 		case 'q':
 		case 'c':
@@ -268,7 +293,7 @@ int main(int argc, char *argv[])
 				pcap_name = optarg;
 				pcap_ppi = (opt == 'c');
 			} else {
-				fprintf(stderr, "Ignoring extra capture file: %s\n", optarg);
+				fprintf(stderr, "warning: ignoring extra capture file: %s\n", optarg);
 			}
 			break;
 		case 'v':
@@ -317,16 +342,19 @@ int main(int argc, char *argv[])
 		case 'i':
 		case 'j':
 			jam_mode = JAM_ONCE;
+			jam_option = opt;
 			break;
 		case 'I':
 		case 'J':
 			jam_mode = JAM_CONTINUOUS;
+			jam_option = opt;
 			break;
 		case 'h':
 			if (!first_exit_option)
 				first_exit_option = 'h';
 			break;
 		default:
+			opt_report_bad_option(opt, argc, argv);
 			usage(stderr);
 			return 1;
 		}
@@ -344,7 +372,7 @@ int main(int argc, char *argv[])
 	 * alongside it. */
 	if (first_exit_option == 'h') {
 		usage(stdout);
-		return 1;
+		return 0;
 	}
 
 	/* -a reads and -a<address> sets; one command cannot do both (the read
@@ -358,6 +386,18 @@ int main(int argc, char *argv[])
 	 * here rather than after a device has been opened. */
 	if (do_follow + do_no_follow + do_promisc > 1) {
 		fprintf(stderr, "error: choose one of -f, -n or -p, pick one pal\n");
+		return 1;
+	}
+
+	/* A sniffing mode runs until it is interrupted and ends in
+	 * ubertooth_stop(), which closes the device handle and nulls it, so
+	 * the access address and faux slave mode blocks below have no handle
+	 * left to send on. -t is not in this list: it is sent before the mode
+	 * starts, which is what it is for. */
+	if ((do_follow || do_no_follow || do_promisc) &&
+	    (do_get_aa || do_set_aa || do_slave_mode)) {
+		fprintf(stderr, "error: -a and -s do not go with -f, -n or -p:"
+		        " a sniffing mode runs until it is interrupted\n");
 		return 1;
 	}
 
@@ -376,10 +416,21 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	/* Interference acts on a connection, so it needs the mode that has one:
+	 * -n only logs advertising packets. Refused here, before a device is
+	 * opened, like the other combination checks above; -i on its own is the
+	 * "nothing to do" case, which is why that check comes first. */
+	if (jam_mode != JAM_NONE && !(do_follow || do_promisc)) {
+		fprintf(stderr, "error: -%c needs -f or -p: there is no"
+		        " connection to interfere with otherwise\n", jam_option);
+		return 1;
+	}
+
 	/* Every check has passed, so the capture files can be opened: a refused
 	 * command line creates and truncates nothing. A bare "-" redirects this
 	 * process's stdout, which is why nothing may be printed to stdout after
-	 * this point except the capture itself. */
+	 * this point except the capture itself, and why the lines that answer an
+	 * option go to report_stream rather than straight to stdout. */
 	if (pcapng_name != NULL) {
 		if (lell_pcapng_create_file(pcapng_name, "Ubertooth", &ut->h_pcapng_le))
 			err(1, "lell_pcapng_create_file: ");
@@ -397,8 +448,12 @@ int main(int argc, char *argv[])
 		create_result = pcap_ppi
 		        ? lell_pcap_ppi_create_file(file, 0, &ut->h_pcap_le)
 		        : lell_pcap_create_file(file, &ut->h_pcap_le);
-		if (saved_fd >= 0)
+		if (saved_fd >= 0) {
+			/* The capture has taken stdout, which is now /dev/null
+			 * for the rest of this run. */
+			report_stream = stderr;
 			close(saved_fd);
+		}
 		free(file);
 		if (create_result) {
 			if (pcap_ppi)
@@ -429,14 +484,14 @@ int main(int argc, char *argv[])
 		r = cmd_btle_set_target(ut->devh, mac_address, mac_mask);
 		if (r == 0) {
 			if (mac_mask == 0) {
-				printf("target cleared\n");
+				fprintf(report_stream, "target cleared\n");
 			} else {
-				printf("target set to: ");
-				print_mac(mac_address, mac_mask);
-				printf("\n");
+				fprintf(report_stream, "target set to: ");
+				print_mac(report_stream, mac_address, mac_mask);
+				fprintf(report_stream, "\n");
 			}
 		} else {
-			printf("Unable to set target\n");
+			fprintf(stderr, "error: target set failed\n");
 			return 1;
 		}
 	}
@@ -446,7 +501,7 @@ int main(int argc, char *argv[])
 
 		r = cmd_set_jam_mode(ut->devh, jam_mode);
 		if (jam_mode != JAM_NONE && r != 0) {
-			printf("Jamming not supported\n");
+			fprintf(stderr, "error: jamming not supported by this firmware\n");
 			return 1;
 		}
 		cmd_set_modulation(ut->devh, MOD_BT_LOW_ENERGY);
@@ -492,7 +547,12 @@ int main(int argc, char *argv[])
 			}
 			int r = cmd_poll(ut->devh, &rx);
 			if (r < 0) {
-				printf("USB error\n");
+				/* The capture stopped short, so the command did
+				 * not do what was asked: the exit status has
+				 * to say so, or a caller cannot tell this from
+				 * a clean Ctrl-C. */
+				fprintf(stderr, "error: USB poll failed\n");
+				status = 1;
 				break;
 			}
 			if (r == sizeof(usb_pkt_rx)) {
@@ -512,7 +572,7 @@ int main(int argc, char *argv[])
 				fprintf(stderr, "error: access address read failed\n");
 			return 1;
 		}
-		printf("Access address: %08x\n", access_address);
+		fprintf(report_stream, "Access address: %08x\n", access_address);
 		/* carry on, so a -v in the same command still runs */
 	}
 
@@ -521,7 +581,7 @@ int main(int argc, char *argv[])
 			fprintf(stderr, "error: access address set failed\n");
 			return 1;
 		}
-		printf("access address set to: %08x\n", access_address);
+		fprintf(report_stream, "access address set to: %08x\n", access_address);
 	}
 
 	// For sniffing modes this was already handled before the capture loop.
@@ -547,5 +607,5 @@ int main(int argc, char *argv[])
 		cmd_btle_slave(ut->devh, mac_address);
 	}
 
-	return 0;
+	return status;
 }

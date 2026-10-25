@@ -307,9 +307,10 @@ add_test(NAME afh-main COMMAND test-afh-main)
 set_tests_properties(afh-main PROPERTIES TIMEOUT 10)
 
 # The same approach for ubertooth-btle: its real main() against a scripted
-# device, so which commands the -v options run, in which order, is checked
-# without a board. libbtbb is the real one (the capture options are not used,
-# and no device is touched).
+# device, so which commands the options run, in which order, which stream each
+# line lands on and what the tool exits with are all checked without a board.
+# The capture creation is faked here too, so a "-q -" run writes no PCAP header
+# into the captured stdout and no file is created anywhere.
 add_executable(test-btle-main
 	test_btle_main.c
 	../src/btle_options.c)
