@@ -44,3 +44,31 @@ missing = subprocess.run(
 assert missing.returncode != 0, missing
 assert missing.stdout == "", missing
 assert missing.stderr.startswith("error: option '-l' requires a value"), missing
+
+# The usage text names -j, the original "jam" spelling, alongside -i.
+help_run = subprocess.run(
+    [BINARY, "-h"],
+    capture_output=True,
+    text=True,
+    timeout=5,
+    check=False,
+    env=ENVIRONMENT,
+)
+assert help_run.returncode == 0, help_run
+assert "-i, -j" in help_run.stdout, help_run
+
+# -j is the original jam spelling of -i: it is a major mode, so it gets past
+# the "nothing to do" check and on to device selection, where no board is
+# found (hidden by UBERTOOTH_TEST_NO_DEVICES), exactly as -i does.
+for mode in ("-i", "-j"):
+    result = subprocess.run(
+        [BINARY, "-U", "no-such-board", mode],
+        capture_output=True,
+        text=True,
+        timeout=5,
+        check=False,
+        env=ENVIRONMENT,
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode != 0, (mode, result)
+    assert "nothing to do" not in output, (mode, result)

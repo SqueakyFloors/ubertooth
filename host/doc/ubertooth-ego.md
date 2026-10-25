@@ -36,7 +36,7 @@ Major modes:
  - `-i` :
    Interfere with a connection
  - `-j` :
-   Interfere with a connection (alias of `-i`)
+   Original "jam" spelling of `-i`; does exactly what `-i` does
 
 Options:
 

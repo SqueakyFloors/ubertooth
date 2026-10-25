@@ -48,7 +48,7 @@ static void usage(FILE *file)
 	fprintf(file, "    Major modes:\n");
 	fprintf(file, "\t-f follow connections\n");
 	fprintf(file, "\t-r continuous rx on a single channel\n");
-	fprintf(file, "\t-i interfere\n");
+	fprintf(file, "\t-i, -j  interfere\n");
 	fprintf(file, "\n");
 	fprintf(file, "    Options:\n");
 	fprintf(file, "\t-c <%d-%d> set channel in MHz (for continuous rx)\n",
