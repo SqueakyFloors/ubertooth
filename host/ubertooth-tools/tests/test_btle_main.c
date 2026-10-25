@@ -7,6 +7,7 @@
  * libubertooth functions it calls are replaced by the fakes below, so the real
  * command-line handling and reporting run against a scripted device.
  */
+#include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -40,10 +41,15 @@ static struct {
 	int jam_mode_sets;
 	int last_jam_mode;
 	int slave_calls;
+	/* Returned by the requests that start a mode: a board that refuses one
+	 * must not be followed by a run that reports success. */
+	int mode_start_rc;
+	u16 last_channel;
 	u32 access_address;
 	int aa_reads;
 	int aa_writes;
 	char capture_file[64]; /* the name the capture was created under */
+	int capture_create_rc; /* non-zero: libbtbb could not create the file */
 	/* Every device call in order, one letter each: s set CRC, g get CRC,
 	 * r read access address, w write access address, t set target,
 	 * m mode started, p poll, S faux slave mode started. */
@@ -98,7 +104,9 @@ int lell_pcap_create_file(const char *filename, lell_pcap_handle **ph)
 {
 	snprintf(fake.capture_file, sizeof(fake.capture_file), "%s", filename);
 	*ph = NULL;
-	return 0;
+	if (fake.capture_create_rc)
+		errno = ENOENT; /* the tool prints strerror(errno) */
+	return fake.capture_create_rc;
 }
 
 int lell_pcap_ppi_create_file(const char *filename, int btle_ppi_version,
@@ -107,7 +115,9 @@ int lell_pcap_ppi_create_file(const char *filename, int btle_ppi_version,
 	(void)btle_ppi_version;
 	snprintf(fake.capture_file, sizeof(fake.capture_file), "%s", filename);
 	*ph = NULL;
-	return 0;
+	if (fake.capture_create_rc)
+		errno = ENOENT; /* the tool prints strerror(errno) */
+	return fake.capture_create_rc;
 }
 
 int lell_pcapng_create_file(const char *filename, const char *interface_desc,
@@ -116,7 +126,9 @@ int lell_pcapng_create_file(const char *filename, const char *interface_desc,
 	(void)interface_desc;
 	snprintf(fake.capture_file, sizeof(fake.capture_file), "%s", filename);
 	*ph = NULL;
-	return 0;
+	if (fake.capture_create_rc)
+		errno = ENOENT; /* the tool prints strerror(errno) */
+	return fake.capture_create_rc;
 }
 
 int ubertooth_check_api(ubertooth_t *ut)
@@ -180,7 +192,7 @@ int cmd_btle_sniffing(struct libusb_device_handle *devh, uint8_t do_follow)
 	fake.sniffing_calls++;
 	fake.follow_requested = do_follow;
 	fake.crc = 0;
-	return 0;
+	return fake.mode_start_rc;
 }
 
 int cmd_btle_promisc(struct libusb_device_handle *devh)
@@ -189,7 +201,7 @@ int cmd_btle_promisc(struct libusb_device_handle *devh)
 	record('m');
 	fake.promisc_calls++;
 	fake.crc = 0;
-	return 0;
+	return fake.mode_start_rc;
 }
 
 /* One packetless poll, then the loop is asked to end, so a sniffing mode runs
@@ -207,7 +219,7 @@ int cmd_poll(struct libusb_device_handle *devh, usb_pkt_rx *p)
 int cmd_set_channel(struct libusb_device_handle *devh, u16 channel)
 {
 	(void)devh;
-	(void)channel;
+	fake.last_channel = channel;
 	return 0;
 }
 
@@ -250,7 +262,7 @@ int cmd_btle_slave(struct libusb_device_handle *devh, u8 *mac_address)
 	(void)mac_address;
 	record('S');
 	fake.slave_calls++;
-	return 0;
+	return fake.mode_start_rc;
 }
 
 int cmd_le_set_adv_data(struct libusb_device_handle *devh, uint8_t *data,
@@ -311,8 +323,11 @@ static struct run_result run_btle(const char *const *args)
 	mu_assert(out != NULL && err != NULL, "tmpfile failed");
 	if (out == NULL || err == NULL)
 		return result;
+	/* Copies, because a real argv is writable and the shared MAC parser
+	 * splits "<address>/<mask>" in place; the literals here are not. */
 	while (args[argc] != NULL && argc < 15) {
-		argv[argc] = (char *)args[argc];
+		argv[argc] = strdup(args[argc]);
+		mu_assert(argv[argc] != NULL, "strdup failed");
 		argc++;
 	}
 	argv[argc] = NULL;
@@ -336,6 +351,8 @@ static struct run_result run_btle(const char *const *args)
 	read_back(err, result.err, sizeof(result.err));
 	fclose(out);
 	fclose(err);
+	while (argc > 0)
+		free(argv[--argc]);
 	return result;
 }
 
@@ -729,6 +746,81 @@ MU_TEST(a_sniffing_mode_refuses_the_access_address_and_slave_options)
 	mu_assert(strcmp(fake.calls, "rS") == 0, fake.calls);
 }
 
+/* A mode the board will not enter must not be followed by a capture loop and
+ * an exit status that reports a clean run. */
+MU_TEST(a_mode_the_board_refuses_stops_the_run)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.mode_start_rc = -1;
+	r = RUN("-f");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, fake.polls); /* no capture was started */
+	mu_assert_int_eq(1, fake.stops); /* the board was stopped all the same */
+	mu_assert(strcmp(r.err, "error: could not start follow mode\n") == 0,
+	          r.err);
+	mu_assert(r.out[0] == '\0', r.out);
+
+	reset_fake();
+	fake.mode_start_rc = -1;
+	r = RUN("-n");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, "error: could not start no-follow mode\n") == 0,
+	          r.err);
+
+	reset_fake();
+	fake.mode_start_rc = -1;
+	r = RUN("-p");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, fake.polls);
+	mu_assert(strcmp(r.err, "error: could not start promiscuous mode\n") == 0,
+	          r.err);
+
+	reset_fake();
+	fake.mode_start_rc = -1;
+	r = RUN("-s22:44:66:88:aa:cc");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, "error: could not start faux slave mode\n") == 0,
+	          r.err);
+	mu_assert(r.out[0] == '\0', r.out);
+
+	/* the -A channel index reaches the board in both modes */
+	reset_fake();
+	r = RUN("-A39", "-s22:44:66:88:aa:cc");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(2480, fake.last_channel);
+	reset_fake();
+	r = RUN("-A38", "-f");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(2426, fake.last_channel);
+}
+
+/* A capture file the tool cannot create names the file the user gave and the
+ * reason, and no device is opened for it. */
+MU_TEST(a_capture_file_that_cannot_be_created_is_named)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.capture_create_rc = -1;
+	r = RUN("-f", "-q", "/no/such/dir/out.pcap");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strstr(r.err, "error: /no/such/dir/out.pcap: ") == r.err,
+	          r.err);
+	mu_assert_int_eq(0, fake.connects);
+
+	reset_fake();
+	fake.capture_create_rc = -1;
+	r = RUN("-f", "-r", "/no/such/dir/out.pcapng");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strstr(r.err, "error: /no/such/dir/out.pcapng: ") == r.err,
+	          r.err);
+	mu_assert_int_eq(0, fake.connects);
+}
+
 /* The usage text says what a set and a read in one command do. */
 MU_TEST(the_usage_text_documents_the_set_and_the_read)
 {
@@ -803,13 +895,28 @@ MU_TEST(a_bad_command_line_is_reported_on_stderr)
 	mu_assert(strstr(r.err, "error: option '-A' requires a value\n") == r.err,
 	          r.err);
 
-	/* a bad -t value is reported by the shared MAC parser, on stderr */
+	/* the three MAC value refusals, all from the shared parser, all on
+	 * stderr with nothing on stdout */
 	reset_fake();
 	r = RUN("-t", "22:44:66:88:aa");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(r.out[0] == '\0', r.out);
 	mu_assert(strstr(r.err, "error: MAC address must be xx:xx:xx:xx:xx:xx"
 	                 " (got 22:44:66:88:aa)\n") == r.err, r.err);
+
+	reset_fake();
+	r = RUN("-s", "22:44:66:88:aa:zz");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strstr(r.err, "error: MAC address must be hex digits and"
+	                 " colons (got 22:44:66:88:aa:zz)\n") == r.err, r.err);
+
+	reset_fake();
+	r = RUN("-t", "22:44:66:88:aa:cc/49");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strstr(r.err, "error: MAC mask must be 0-48 (got 49)\n")
+	          == r.err, r.err);
 
 	/* a second capture file is a warning, not an error: the first one wins
 	 * and the run carries on */
@@ -867,6 +974,8 @@ int main(void)
 	MU_RUN(the_usage_text_names_the_jam_aliases);
 	MU_RUN(the_help_option_exits_0_with_the_usage_text_on_stdout);
 	MU_RUN(a_bad_command_line_is_reported_on_stderr);
+	MU_RUN(a_mode_the_board_refuses_stops_the_run);
+	MU_RUN(a_capture_file_that_cannot_be_created_is_named);
 	MU_RUN(the_jam_aliases_select_the_same_mode_as_interfere);
 	return mu_report();
 }

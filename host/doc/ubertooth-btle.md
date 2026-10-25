@@ -274,9 +274,12 @@ Errors, warnings and progress go to standard error, each error as one line
 starting `error: `, for example `error: USB poll failed` when the board stops
 answering during a capture, `error: jamming not supported by this firmware`,
 `error: target set failed`, or
-`error: MAC address must be xx:xx:xx:xx:xx:xx (got 11:22:33:44:55)`. A second
-capture file in one of `-q`, `-c` or `-r` is ignored with
-`warning: ignoring extra capture file: <name>`; the first one given is used.
+`error: MAC address must be xx:xx:xx:xx:xx:xx (got 11:22:33:44:55)`. A capture
+file that cannot be created is reported as `error: <file>: <reason>`.
+
+`-q` and `-c` share one capture handle, so a second file between them is
+ignored with `warning: ignoring extra capture file: <name>` and the first one
+given is used; `-r` has its own handle, so `-q a.pcap -r b.pcapng` writes both.
 
 A command line the tool will not take is reported as that one `error: ` line
 followed by the usage text, both on standard error. An option the tool does
@@ -291,11 +294,12 @@ nothing goes to standard error.
 0 when the command did what was asked, including `-h`, and after a capture is
 interrupted (Ctrl-C) having polled cleanly to that point.
 
-1 for a command line the tool will not take or with nothing to do, when the
-selected Ubertooth is not found or cannot be opened, when the board refuses
-the jam mode or a `-t` target, when an access address or CRC verify request
-fails, and when a capture stops short because a poll failed. No device is
-opened for a refused command line.
+1 for a command line the tool will not take or with nothing to do, for a
+capture file that cannot be created, when the selected Ubertooth is not found
+or cannot be opened, when the board refuses the jam mode, a `-t` target, a
+sniffing or faux slave mode, or an access address or CRC verify request, and
+when a capture stops short because a poll failed. No device is opened for a
+refused command line.
 
 ## SEE ALSO
 

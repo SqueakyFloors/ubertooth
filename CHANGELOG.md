@@ -11,8 +11,8 @@
 - **Script-visible change:** `ubertooth-btle` exits 0 for `-h` and 1 when a
   capture stops because the board stopped answering; it answers `-a`, `-v` and
   `-t` on standard error when `-q -` or `-c -` has taken standard output, and
-  reports a bad command line, a failed poll, jam mode or target the way every
-  other tool does.
+  reports a bad command line, a capture file it cannot create, and a failed
+  request the way the converted tools do.
   [#308](https://github.com/SqueakyFloors/ubertooth/issues/308)
   [#330](https://github.com/SqueakyFloors/ubertooth/issues/330)
   [#346](https://github.com/SqueakyFloors/ubertooth/issues/346)

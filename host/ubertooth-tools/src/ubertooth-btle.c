@@ -23,7 +23,6 @@
 #include "ubertooth_callback.h"
 #include "btle_options.h"
 #include "opt_parse.h"
-#include <err.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <getopt.h>
@@ -59,6 +58,17 @@ static void quit(int sig __attribute__((unused))) {
  * the work on the board and throw the answer away, so they go to standard
  * error instead. main() sets this; nothing here prints before that. */
 static FILE *report_stream = NULL;
+
+/* The centre frequency of a BLE advertising channel index (Bluetooth Core
+ * spec), which both the sniffing and the faux slave mode tune to. */
+static u16 adv_channel(int index)
+{
+	if (index == ADV_INDEX_MIN)
+		return 2402;
+	if (index == ADV_INDEX_MIN + 1)
+		return 2426;
+	return 2480;
+}
 
 static void print_mac(FILE *out, uint8_t *mac_address, int mask) {
 	unsigned i;
@@ -432,8 +442,12 @@ int main(int argc, char *argv[])
 	 * this point except the capture itself, and why the lines that answer an
 	 * option go to report_stream rather than straight to stdout. */
 	if (pcapng_name != NULL) {
-		if (lell_pcapng_create_file(pcapng_name, "Ubertooth", &ut->h_pcapng_le))
-			err(1, "lell_pcapng_create_file: ");
+		if (lell_pcapng_create_file(pcapng_name, "Ubertooth",
+		                            &ut->h_pcapng_le)) {
+			fprintf(stderr, "error: %s: %s\n", pcapng_name,
+			        strerror(errno));
+			return 1;
+		}
 	}
 	if (pcap_name != NULL) {
 		int saved_fd;
@@ -456,9 +470,11 @@ int main(int argc, char *argv[])
 		}
 		free(file);
 		if (create_result) {
-			if (pcap_ppi)
-				err(1, "lell_pcap_ppi_create_file: ");
-			err(1, "lell_pcap_create_file: ");
+			/* The name the user gave, not the /dev/fd path a bare
+			 * "-" is opened through. */
+			fprintf(stderr, "error: %s: %s\n", pcap_name,
+			        strerror(errno));
+			return 1;
 		}
 	}
 
@@ -504,25 +520,37 @@ int main(int argc, char *argv[])
 			fprintf(stderr, "error: jamming not supported by this firmware\n");
 			return 1;
 		}
-		cmd_set_modulation(ut->devh, MOD_BT_LOW_ENERGY);
+		/* A mode the board would not enter must not be followed by a
+		 * capture loop that reports a clean run: each request is
+		 * checked, and the board is stopped before giving up because
+		 * one of them may have left it part-way into the mode. */
+		if (cmd_set_modulation(ut->devh, MOD_BT_LOW_ENERGY) < 0) {
+			fprintf(stderr, "error: modulation set failed\n");
+			ubertooth_stop(ut);
+			return 1;
+		}
 
 		if (do_follow || do_no_follow) {
-			u16 channel;
-			if (do_adv_index == 37)
-				channel = 2402;
-			else if (do_adv_index == 38)
-				channel = 2426;
-			else
-				channel = 2480;
-			cmd_set_channel(ut->devh, channel);
-			cmd_btle_sniffing(ut->devh, do_follow);
+			if (cmd_set_channel(ut->devh,
+			                    adv_channel(do_adv_index)) < 0 ||
+			    cmd_btle_sniffing(ut->devh, do_follow) < 0) {
+				fprintf(stderr, "error: could not start %sfollow"
+				        " mode\n", do_follow ? "" : "no-");
+				ubertooth_stop(ut);
+				return 1;
+			}
 			/* This mode runs the low-energy physical-layer engine,
 			 * which stamps packets from timer1, so its clock starts
 			 * over at 2^32 ticks rather than the CLKN-derived
 			 * 3125 * 2^20. */
 			ut->clk100ns_period = CLK100NS_TIMER1_PERIOD;
 		} else {
-			cmd_btle_promisc(ut->devh);
+			if (cmd_btle_promisc(ut->devh) < 0) {
+				fprintf(stderr, "error: could not start"
+				        " promiscuous mode\n");
+				ubertooth_stop(ut);
+				return 1;
+			}
 		}
 
 		// The -v options run *after* the mode has started (mode entry runs
@@ -591,20 +619,17 @@ int main(int argc, char *argv[])
 	}
 
 	if (do_slave_mode) {
-		u16 channel;
-		if (do_adv_index == 37)
-			channel = 2402;
-		else if (do_adv_index == 38)
-			channel = 2426;
-		else
-			channel = 2480;
-		cmd_set_channel(ut->devh, channel);
-
-		// flags: LE Limited Discovery
+		/* flags: LE Limited Discovery */
 		uint8_t adv_data[] = { 0x02, 0x01, 0x05 };
-		cmd_le_set_adv_data(ut->devh, adv_data, sizeof(adv_data));
 
-		cmd_btle_slave(ut->devh, mac_address);
+		if (cmd_set_channel(ut->devh, adv_channel(do_adv_index)) < 0 ||
+		    cmd_le_set_adv_data(ut->devh, adv_data,
+		                        sizeof(adv_data)) < 0 ||
+		    cmd_btle_slave(ut->devh, mac_address) < 0) {
+			fprintf(stderr, "error: could not start faux slave"
+			        " mode\n");
+			return 1;
+		}
 	}
 
 	return status;
