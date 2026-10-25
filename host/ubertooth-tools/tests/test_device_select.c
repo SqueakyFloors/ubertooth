@@ -6,6 +6,12 @@
  * instead of the real one. That makes the multi-device cases testable without
  * two boards: an index that is not present must open nothing, and no index may
  * ever be used to read past the end of the device list.
+ *
+ * The ring buffer is faked too (see fifo_init() below), so a selection does
+ * not depend on 64 MB being free. An assertion about a handle the case then
+ * uses is fatal: a plain one would record the failure, return, and let the
+ * case segfault on the NULL handle, which reports a crash instead of the
+ * assertion that failed.
  */
 #include <stdint.h>
 #include <stdio.h>
@@ -17,6 +23,7 @@
 
 #include "../../../firmware/tests/minunit.h"
 #include "ubertooth.h"
+#include "ubertooth_fifo.h"
 
 #define FAKE_MAX 8
 
@@ -98,6 +105,33 @@ static void bus_with_shared_prefix(void)
 	set_serial(0, SERIAL_A);
 	set_serial(1, SERIAL_C);
 }
+
+/* ---- fifo fake ---------------------------------------------------------- */
+/* ubertooth_fifo.c is not linked, so these are the fifo calls the library
+ * gets. A real ring buffer is 64 MB (FIFO_SIZE packets) and every successful
+ * selection allocates one; the cases below make several selections each, and
+ * on a loaded machine one of those allocations can fail even though the faked
+ * bus is fine. Nothing here reads a packet, so a one-byte stand-in does, and
+ * selection no longer depends on 64 MB being available.
+ *
+ * Counted, not reset between cases, so one case can check that selection
+ * allocated through this fake at all. (Linking ubertooth_fifo.c again would
+ * not reach that check: it fails the link with duplicate symbols.) */
+static int fifo_inits;
+
+fifo_t* fifo_init()
+{
+	fifo_inits++;
+	return (fifo_t*)malloc(1);
+}
+
+/* The rest of the interface, for the library's other references. None of it
+ * runs here: no capture is started. */
+void fifo_inc_write_ptr(fifo_t* fifo) { (void)fifo; }
+void fifo_push(fifo_t* fifo, const usb_pkt_rx* packet) { (void)fifo; (void)packet; }
+usb_pkt_rx fifo_pop(fifo_t* fifo) { usb_pkt_rx p; (void)fifo; memset(&p, 0, sizeof(p)); return p; }
+usb_pkt_rx* fifo_get_write_element(fifo_t* fifo) { (void)fifo; return NULL; }
+uint8_t fifo_empty(fifo_t* fifo) { (void)fifo; return 1; }
 
 /* ---- libusb fakes ------------------------------------------------------- */
 /* Defined here, so they take precedence over the libusb library symbols. */
@@ -271,7 +305,7 @@ MU_TEST(an_index_in_range_opens_that_device)
 
 	bus_with_ubertooths(3);
 	ut = select_capturing("1", msg, sizeof(msg));
-	mu_assert(ut != NULL, "-U1 of three devices opens one");
+	mu_assert_fatal(ut != NULL, "-U1 of three devices opens one");
 	mu_assert(fake.opened == &fake.devs[2], "-U1 opens the second Ubertooth");
 	mu_assert(msg[0] == '\0', msg);
 	ubertooth_stop(ut);
@@ -279,7 +313,7 @@ MU_TEST(an_index_in_range_opens_that_device)
 
 	bus_with_ubertooths(3);
 	ut = select_capturing("2", msg, sizeof(msg));
-	mu_assert(ut != NULL, "-U2 of three devices opens one");
+	mu_assert_fatal(ut != NULL, "-U2 of three devices opens one");
 	mu_assert(fake.opened == &fake.devs[3], "-U2 opens the third Ubertooth");
 	ubertooth_stop(ut);
 	ubertooth_free(ut);
@@ -353,6 +387,7 @@ MU_TEST(an_index_too_large_for_an_int_opens_nothing)
 MU_TEST(the_largest_representable_index_is_an_ordinary_refusal)
 {
 	char msg[256];
+	ubertooth_t *ut;
 
 	bus_with_ubertooths(2);
 	mu_assert(select_capturing("2147483647", msg, sizeof(msg)) == NULL, msg);
@@ -363,8 +398,11 @@ MU_TEST(the_largest_representable_index_is_an_ordinary_refusal)
 
 	/* Leading zeros are still just digits. */
 	bus_with_ubertooths(2);
-	mu_assert(select_capturing("01", msg, sizeof(msg)) != NULL, msg);
+	ut = select_capturing("01", msg, sizeof(msg));
+	mu_assert_fatal(ut != NULL, msg);
 	mu_assert(fake.opened == &fake.devs[2], "-U01 is index 1");
+	ubertooth_stop(ut);
+	ubertooth_free(ut);
 }
 
 /* The same refusal with exactly one device attached: the index is a position
@@ -392,7 +430,7 @@ MU_TEST(index_zero_and_no_index_open_the_only_device)
 
 	bus_with_ubertooths(1);
 	ut = select_capturing("0", msg, sizeof(msg));
-	mu_assert(ut != NULL, "-U0 opens the only device");
+	mu_assert_fatal(ut != NULL, "-U0 opens the only device");
 	mu_assert(fake.opened == &fake.devs[1], "and it is the Ubertooth");
 	mu_assert(msg[0] == '\0', msg);
 	ubertooth_stop(ut);
@@ -400,7 +438,7 @@ MU_TEST(index_zero_and_no_index_open_the_only_device)
 
 	bus_with_ubertooths(1);
 	ut = select_capturing(NULL, msg, sizeof(msg));
-	mu_assert(ut != NULL, "no -U opens the only device");
+	mu_assert_fatal(ut != NULL, "no -U opens the only device");
 	mu_assert(fake.opened == &fake.devs[1], "and it is the Ubertooth");
 	ubertooth_stop(ut);
 	ubertooth_free(ut);
@@ -473,7 +511,7 @@ MU_TEST(a_device_without_a_descriptor_is_skipped)
 	bus_with_ubertooths(2);
 	fake.descriptor_fails = 1; /* the first Ubertooth on the bus */
 	ut = select_capturing("0", msg, sizeof(msg));
-	mu_assert(ut != NULL, "-U0 opens the Ubertooth that answered");
+	mu_assert_fatal(ut != NULL, "-U0 opens the Ubertooth that answered");
 	mu_assert(fake.opened == &fake.devs[2], "and it is the second one");
 	mu_assert(strcmp(msg,
 	    "couldn't get usb descriptor for dev #1!\n") == 0, msg);
@@ -494,7 +532,7 @@ MU_TEST(the_quiet_selection_refuses_the_same_indices)
 
 	bus_with_ubertooths(2);
 	ut = ubertooth_start_select_quiet("1");
-	mu_assert(ut != NULL, "quiet -U1 of two opens one");
+	mu_assert_fatal(ut != NULL, "quiet -U1 of two opens one");
 	mu_assert(fake.opened == &fake.devs[2], "the second Ubertooth");
 	ubertooth_stop(ut);
 	ubertooth_free(ut);
@@ -510,7 +548,7 @@ MU_TEST(the_quiet_selection_refuses_the_same_indices)
 
 	bus_with_ubertooths(1);
 	ut = ubertooth_start_select_quiet("0");
-	mu_assert(ut != NULL, "quiet -U0 of one opens it");
+	mu_assert_fatal(ut != NULL, "quiet -U0 of one opens it");
 	ubertooth_stop(ut);
 	ubertooth_free(ut);
 }
@@ -567,12 +605,14 @@ MU_TEST(the_test_switch_hides_every_device)
 	          != NULL, msg);
 
 	/* Only "1" turns it on: a user whose environment holds the name for some
-	 * other reason still gets their board. */
+	 * other reason still gets their board. The switch is restored before each
+	 * selection below, so a fatal assertion in this loop cannot leave a value
+	 * that hides devices from a later case. */
 	for (i = 0; i < sizeof(off) / sizeof(off[0]); i++) {
 		setenv("UBERTOOTH_TEST_NO_DEVICES", off[i], 1);
 		bus_with_ubertooths(1);
 		ut = select_capturing("0", msg, sizeof(msg));
-		mu_assert(ut != NULL, off[i]);
+		mu_assert_fatal(ut != NULL, off[i]);
 		ubertooth_stop(ut);
 		ubertooth_free(ut);
 	}
@@ -581,7 +621,7 @@ MU_TEST(the_test_switch_hides_every_device)
 	bus_with_ubertooths(1);
 	mu_assert_int_eq(1, ubertooth_count());
 	ut = select_capturing("0", msg, sizeof(msg));
-	mu_assert(ut != NULL, "-U0 without the switch opens the device");
+	mu_assert_fatal(ut != NULL, "-U0 without the switch opens the device");
 	mu_assert(fake.opened == &fake.devs[1], "and it is the Ubertooth");
 	mu_assert(fake.list_calls > 0, "and the bus was listed");
 	ubertooth_stop(ut);
@@ -597,7 +637,7 @@ MU_TEST(a_full_serial_opens_that_board)
 
 	bus_with_two_serials();
 	ut = select_capturing(SERIAL_A, msg, sizeof(msg));
-	mu_assert(ut != NULL, "the full serial of the first board");
+	mu_assert_fatal(ut != NULL, "the full serial of the first board");
 	mu_assert(fake.opened == &fake.devs[1], "and it is that board");
 	mu_assert(msg[0] == '\0', msg);
 	ubertooth_stop(ut);
@@ -605,7 +645,7 @@ MU_TEST(a_full_serial_opens_that_board)
 
 	bus_with_two_serials();
 	ut = select_capturing(SERIAL_B, msg, sizeof(msg));
-	mu_assert(ut != NULL, "the full serial of the second board");
+	mu_assert_fatal(ut != NULL, "the full serial of the second board");
 	mu_assert(fake.opened == &fake.devs[2], "and it is that board");
 	ubertooth_stop(ut);
 	ubertooth_free(ut);
@@ -621,7 +661,7 @@ MU_TEST(a_prefix_of_a_serial_opens_that_board)
 
 	bus_with_two_serials();
 	ut = select_capturing("1cc", msg, sizeof(msg));
-	mu_assert(ut != NULL, "a prefix of the first serial");
+	mu_assert_fatal(ut != NULL, "a prefix of the first serial");
 	mu_assert(fake.opened == &fake.devs[1], "opens the first board");
 	mu_assert(msg[0] == '\0', msg);
 	ubertooth_stop(ut);
@@ -629,7 +669,7 @@ MU_TEST(a_prefix_of_a_serial_opens_that_board)
 
 	bus_with_two_serials();
 	ut = select_capturing("05f", msg, sizeof(msg));
-	mu_assert(ut != NULL, "a prefix of the second serial");
+	mu_assert_fatal(ut != NULL, "a prefix of the second serial");
 	mu_assert(fake.opened == &fake.devs[2], "opens the second board");
 	ubertooth_stop(ut);
 	ubertooth_free(ut);
@@ -649,7 +689,7 @@ MU_TEST(a_serial_matches_in_upper_case)
 
 	bus_with_two_serials();
 	ut = select_capturing("1CC001038088CB956C43AD61C52000F5", msg, sizeof(msg));
-	mu_assert(ut != NULL, "an upper-case full serial");
+	mu_assert_fatal(ut != NULL, "an upper-case full serial");
 	mu_assert(fake.opened == &fake.devs[1], "opens the first board");
 	mu_assert(msg[0] == '\0', msg);
 	ubertooth_stop(ut);
@@ -657,7 +697,7 @@ MU_TEST(a_serial_matches_in_upper_case)
 
 	bus_with_two_serials();
 	ut = select_capturing("05F", msg, sizeof(msg));
-	mu_assert(ut != NULL, "an upper-case prefix");
+	mu_assert_fatal(ut != NULL, "an upper-case prefix");
 	mu_assert(fake.opened == &fake.devs[2], "opens the second board");
 	ubertooth_stop(ut);
 	ubertooth_free(ut);
@@ -690,7 +730,7 @@ MU_TEST(a_string_matching_two_boards_is_refused)
 	bus_with_shared_prefix();
 	{
 		ubertooth_t *ut = select_capturing("1cd", msg, sizeof(msg));
-		mu_assert(ut != NULL, "a longer start");
+		mu_assert_fatal(ut != NULL, "a longer start");
 		mu_assert(fake.opened == &fake.devs[2], "opens the second board");
 		ubertooth_stop(ut);
 		ubertooth_free(ut);
@@ -753,7 +793,7 @@ MU_TEST(an_all_digits_string_is_still_an_index)
 	/* "1" is the start of the first board's serial, but index 1. */
 	bus_with_two_serials();
 	ut = select_capturing("1", msg, sizeof(msg));
-	mu_assert(ut != NULL, "-U1 of two boards");
+	mu_assert_fatal(ut != NULL, "-U1 of two boards");
 	mu_assert(fake.opened == &fake.devs[2], "is the second board, not the first");
 	ubertooth_stop(ut);
 	ubertooth_free(ut);
@@ -777,7 +817,7 @@ MU_TEST(a_board_that_does_not_answer_is_skipped_quietly)
 	bus_with_two_serials();
 	fake.devs[1].serial_fails = 1;
 	ut = select_capturing("05f", msg, sizeof(msg));
-	mu_assert(ut != NULL, "the board that answered is still selected");
+	mu_assert_fatal(ut != NULL, "the board that answered is still selected");
 	mu_assert(fake.opened == &fake.devs[2], "and it is that board");
 	mu_assert(msg[0] == '\0', msg); /* nothing about the silent board */
 	ubertooth_stop(ut);
@@ -891,14 +931,14 @@ MU_TEST(the_quiet_selection_matches_the_same_serials)
 
 	bus_with_two_serials();
 	ut = ubertooth_start_select_quiet("05f");
-	mu_assert(ut != NULL, "quiet prefix match");
+	mu_assert_fatal(ut != NULL, "quiet prefix match");
 	mu_assert(fake.opened == &fake.devs[2], "the second board");
 	ubertooth_stop(ut);
 	ubertooth_free(ut);
 
 	bus_with_two_serials();
 	ut = ubertooth_start_select_quiet(SERIAL_A);
-	mu_assert(ut != NULL, "quiet full serial");
+	mu_assert_fatal(ut != NULL, "quiet full serial");
 	mu_assert(fake.opened == &fake.devs[1], "the first board");
 	ubertooth_stop(ut);
 	ubertooth_free(ut);
@@ -913,6 +953,13 @@ MU_TEST(the_quiet_selection_matches_the_same_serials)
 	mu_assert(ubertooth_start_select_quiet("deadbeef") == NULL,
 	          "quiet no match");
 	mu_assert_int_eq(0, fake.lists);
+}
+
+/* Selection still allocates a ring buffer, and it came from this fake rather
+ * than from the library's 64 MB one. */
+MU_TEST(the_selections_used_the_faked_ring_buffer)
+{
+	mu_assert(fifo_inits > 0, "fifo_init() came from this test");
 }
 
 int main(void)
@@ -941,5 +988,6 @@ int main(void)
 	MU_RUN(a_bus_that_cannot_be_listed_is_not_reported_as_no_match);
 	MU_RUN(the_quiet_selection_matches_the_same_serials);
 	MU_RUN(the_test_switch_hides_every_device);
+	MU_RUN(the_selections_used_the_faked_ring_buffer);
 	return mu_report();
 }

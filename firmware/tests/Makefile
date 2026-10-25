@@ -12,11 +12,16 @@ FW_RXTX := ../bluetooth_rxtx
 FW_COMMON := ../common
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS   := test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_mode_dispatch test_le_phy_order
+TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_mode_dispatch test_le_phy_order
 BINDIR  := bin
 
 .PHONY: all test clean
 all: test
+
+# The harness itself: what a failed assertion does. Nothing under test but
+# minunit.h, so it links no firmware source.
+$(BINDIR)/test_minunit: test_minunit.c minunit.h | $(BINDIR)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ test_minunit.c
 
 # Each test binary links its test driver with the firmware source under test.
 $(BINDIR)/test_rssi: test_rssi.c minunit.h $(FW_RXTX)/ubertooth_rssi.c $(FW_RXTX)/ubertooth_rssi.h | $(BINDIR)
