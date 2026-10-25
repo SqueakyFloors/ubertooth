@@ -89,6 +89,10 @@ Options:
    Fixed channel for all major modes. If not specified will sweep
    through all channels.
 
+ - `-s` :
+   Sweep through all channels. This is the default, so `-s` only states it
+   explicitly; a `-c` channel wins over it.
+
  - `-e <0-5>` :
    Maximum access code bit errors. [Default: 2]
 

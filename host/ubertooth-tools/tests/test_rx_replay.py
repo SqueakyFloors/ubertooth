@@ -165,6 +165,17 @@ with tempfile.TemporaryDirectory() as workdir:
     # -d during a replay rewrites the records it decoded, times and all.
     assert (work / "dump.bin").read_bytes() == b"".join(PACKET_RECORDS), result
 
+    # -s asks for the channel sweep that is already the default, so the same
+    # command with it decodes the same records the same way, says nothing
+    # extra, and is listed in the usage text as the default it states.
+    plain = run("-i", "full.bin", directory=work)
+    swept = run("-i", "full.bin", "-s", directory=work)
+    assert swept.returncode == plain.returncode == 0, (plain, swept)
+    assert swept.stdout == plain.stdout, (plain, swept)
+    assert swept.stderr == plain.stderr == "", (plain, swept)
+    listed = run("-h", directory=work)
+    assert "-s sweep all channels" in listed.stdout, listed
+
     # A capture written during the replay is stamped from the first record's
     # host time, not the wall clock: the first packet, which is that record,
     # lands on it exactly, and the rest follow the device clock from there.
