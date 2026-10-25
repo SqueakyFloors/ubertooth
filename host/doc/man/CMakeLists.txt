@@ -73,7 +73,8 @@ if(RONN_EXECUTABLE)
 		set(generated "${CMAKE_CURRENT_BINARY_DIR}/${pg}.${section}")
 		# The committed pages were produced by go-md2man rather than ronn, so
 		# the first refresh of a page rewrites its body wholesale in ronn's
-		# style. The .TH fields stay as they are.
+		# style. The .TH fields stay as they are, except the date, which ronn
+		# takes from the .md's modification time: a refresh moves it.
 		add_custom_command(
 			OUTPUT "${generated}"
 			COMMAND ${RONN_EXECUTABLE} --roff --pipe
@@ -97,12 +98,14 @@ else()
 	               "they are (needed only to refresh them after editing "
 	               "host/doc/*.md)")
 	# Both targets still exist, so the documented command explains itself
-	# instead of failing with "No rule to make target".
+	# instead of failing with "No rule to make target". VERBATIM, so the
+	# message reaches the shell as one argument whatever it contains: without
+	# it the Makefile generator escapes spaces but not parentheses or quotes.
 	foreach(target manpages refresh-manpages)
 		add_custom_target(${target}
 			COMMAND ${CMAKE_COMMAND} -E echo
-			        "ronn is not installed, so nothing was rendered: install it"
-			        "(gem install ronn-ng) and run this again")
+			        "ronn is not installed, so nothing was rendered: install it (gem install ronn-ng) and run this again"
+			VERBATIM)
 	endforeach()
 endif()
 
@@ -113,6 +116,12 @@ foreach(spec ${MAN_PAGES_FROM_MARKDOWN} ${MAN_PAGES_BY_HAND})
 	string(REPLACE "|" ";" parts "${spec}")
 	list(GET parts 0 pg)
 	list(GET parts 1 section)
+	# A page in a section with no install() below would configure cleanly and
+	# never be installed, which is how ubertooth-debug.1 went missing.
+	if(NOT section STREQUAL "1" AND NOT section STREQUAL "7")
+		message(FATAL_ERROR "man page ${pg} is in section ${section}, which "
+		                    "nothing installs: add an install() for it")
+	endif()
 	list(APPEND MAN${section}_PAGE_FILES "${pg}.${section}")
 endforeach()
 

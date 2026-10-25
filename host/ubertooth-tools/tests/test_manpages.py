@@ -19,8 +19,8 @@ repository:
   * every rendered page keeps the `.TH` organization and manual fields, which
     ronn leaves empty unless it is told them.
 
-Exits 77 (CTest's skip code here) when ronn is not installed, which is also
-the state in which a build must work: without ronn neither target renders
+Exits 77 (CTest's skip code here) when CMake finds no ronn, which is also the
+state in which a build must work: without ronn neither target renders
 anything.
 
 Usage: test_manpages.py <cmake> <host source dir>
@@ -34,8 +34,8 @@ import sys
 import tempfile
 
 # Pages with no .md counterpart to render from: edited by hand, so a refresh
-# must leave them as they are.
-HAND_MAINTAINED = "ubertooth-debug.1"
+# must leave them as they are. Mirrors MAN_PAGES_BY_HAND in the CMake file.
+HAND_MAINTAINED = {"ubertooth-debug.1"}
 
 # The .TH fields the committed pages carry. ronn writes an empty organization
 # and manual unless it is given them, so a refresh that dropped these would
@@ -84,11 +84,6 @@ def main():
         fail("usage: test_manpages.py <cmake> <host source dir>")
     cmake, host_src = sys.argv[1], sys.argv[2]
 
-    ronn = shutil.which("ronn") or shutil.which("ronn-ng")
-    if ronn is None:
-        print("SKIP: ronn is not installed, so nothing generates man pages")
-        sys.exit(SKIP)
-
     with tempfile.TemporaryDirectory() as work:
         # The doc project reads ../cmake/cmake_uninstall.cmake.in, so the copy
         # needs both directories.
@@ -118,12 +113,19 @@ def main():
         committed = digests(man)
         if not committed:
             fail("no committed man pages in %s" % man)
-        if HAND_MAINTAINED not in committed:
-            fail("%s is not committed; update this test" % HAND_MAINTAINED)
+        missing = HAND_MAINTAINED - set(committed)
+        if missing:
+            fail("%s not committed; update this test" % sorted(missing))
 
+        # Whether ronn is there is CMake's answer, not this script's: it
+        # searches more than PATH, so asking separately can skip the test
+        # while the behaviour under test is live.
         configure = run([cmake, "-S", work, "-B", build], "configure")
+        if "ronn not found" in configure:
+            print("SKIP: CMake found no ronn, so nothing renders man pages")
+            sys.exit(SKIP)
         if "ronn found" not in configure:
-            fail("the configure step did not find ronn:\n%s" % configure)
+            fail("the configure step said nothing about ronn:\n%s" % configure)
 
         run([cmake, "--build", build], "the default build")
         if digests(man) != committed:
@@ -133,12 +135,14 @@ def main():
         if digests(man) != committed:
             fail("the manpages target wrote to the source tree")
         generated = digests(rendered)
-        if len(generated) != len(committed) - 1:
+        expected = len(committed) - len(HAND_MAINTAINED)
+        if len(generated) != expected:
             fail("manpages rendered %d pages into the build directory, "
                  "expected %d: %s"
-                 % (len(generated), len(committed) - 1, sorted(generated)))
-        if HAND_MAINTAINED in generated:
-            fail("%s was generated; it is maintained by hand" % HAND_MAINTAINED)
+                 % (len(generated), expected, sorted(generated)))
+        if HAND_MAINTAINED & set(generated):
+            fail("%s was generated; it is maintained by hand"
+                 % sorted(HAND_MAINTAINED & set(generated)))
 
         # A refresh must not strip the page headings: without --organization
         # and --manual, ronn writes `.TH "NAME" "1" "<date>" ""`.
@@ -164,8 +168,9 @@ def main():
             if refreshed.get(name) != digest:
                 fail("refresh-manpages did not copy %s into the source tree"
                      % name)
-        if refreshed[HAND_MAINTAINED] != committed[HAND_MAINTAINED]:
-            fail("refresh-manpages rewrote %s" % HAND_MAINTAINED)
+        for name in sorted(HAND_MAINTAINED):
+            if refreshed[name] != committed[name]:
+                fail("refresh-manpages rewrote %s" % name)
         if set(refreshed) != set(committed):
             fail("refresh-manpages added or removed a page: %s"
                  % sorted(set(refreshed) ^ set(committed)))
