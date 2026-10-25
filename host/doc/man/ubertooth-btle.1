@@ -296,6 +296,16 @@ attached: more than one of \fB\fC\-f\fR, \fB\fC\-n\fR and \fB\fC\-p\fR gives
 of the access address in one command gives
 \fB\fCerror: \-a cannot both read and set the access address\fR\&.
 .PP
+A command line with no work in it is refused the same way. \fB\fC\-U\fR,
+\fB\fC\-A\fR, \fB\fC\-x\fR, \fB\fC\-i\fR/\fB\fC\-I\fR (and their older
+spellings \fB\fC\-j\fR/\fB\fC\-J\fR) and the capture options only shape work
+another option asks for, so a command made up of those alone, or a bare
+\fB\fCubertooth\-btle\fR, gives
+\fB\fCerror: nothing to do: choose a major mode (\-f, \-n or \-p), or \-a, \-v, \-s or \-t\fR,
+followed by the usage text, with exit status 1 and before any device is
+opened. Both go to standard error, with nothing on standard output, as after
+any bad command line; \fB\fC\-h\fR prints the usage text on standard output.
+.PP
 A refused command line creates and truncates nothing: \fB\fC\-r\fR, \fB\fC\-q\fR
 and \fB\fC\-c\fR name their file while the command line is read, and it is
 opened only once every check has passed.

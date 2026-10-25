@@ -138,42 +138,44 @@ static int apply_crc_options(struct libusb_device_handle* devh, int do_set_crc,
 	return 0;
 }
 
-static void usage(void)
+/* The usage text: on standard output for -h, on standard error after a bad
+ * or empty command line. */
+static void usage(FILE *out)
 {
-	printf("ubertooth-btle - passive Bluetooth Low Energy monitoring\n");
-	printf("Usage:\n");
-	printf("\t-h this help\n");
-	printf("\n");
-	printf("    Major modes:\n");
-	printf("\t-f follow connections\n");
-	printf("\t-n don't follow, only print advertisements\n");
-	printf("\t-p promiscuous: sniff active connections\n");
-	printf("\n");
-	printf("\t-a [address] get/set access address, 1-8 hex digits (example: -a 8e89bed6)\n");
-	printf("\t-s <address> faux slave mode, using MAC addr (example: -s 22:44:66:88:aa:cc)\n");
-	printf("\t-t <address> set connection following target (example: -t 22:44:66:88:aa:cc/48)\n");
-	printf("\t-t none unset connection following target\n");
-	printf("\n");
-	printf("    Interference (use with -f or -p):\n");
-	printf("\t-i interfere with one connection and return to idle\n");
-	printf("\t-I interfere continuously\n");
-	printf("\n");
-	printf("    Data source:\n");
-	fputs(OPT_USAGE_SELECT_DEVICE, stdout);
-	printf("\n");
-	printf("    Misc:\n");
-	printf("\t-r <filename> capture packets to PCAPNG file\n");
-	printf("\t-q <filename> capture packets to PCAP file (DLT_BLUETOOTH_LE_LL_WITH_PHDR)\n");
-	printf("\t-c <filename> capture packets to PCAP file (DLT_PPI + DLT_BLUETOOTH_LE_LL)\n");
-	printf("\t-A <%d-%d> advertising channel index (default %d)\n",
+	fprintf(out, "ubertooth-btle - passive Bluetooth Low Energy monitoring\n");
+	fprintf(out, "Usage:\n");
+	fprintf(out, "\t-h this help\n");
+	fprintf(out, "\n");
+	fprintf(out, "    Major modes:\n");
+	fprintf(out, "\t-f follow connections\n");
+	fprintf(out, "\t-n don't follow, only print advertisements\n");
+	fprintf(out, "\t-p promiscuous: sniff active connections\n");
+	fprintf(out, "\n");
+	fprintf(out, "\t-a [address] get/set access address, 1-8 hex digits (example: -a 8e89bed6)\n");
+	fprintf(out, "\t-s <address> faux slave mode, using MAC addr (example: -s 22:44:66:88:aa:cc)\n");
+	fprintf(out, "\t-t <address> set connection following target (example: -t 22:44:66:88:aa:cc/48)\n");
+	fprintf(out, "\t-t none unset connection following target\n");
+	fprintf(out, "\n");
+	fprintf(out, "    Interference (use with -f or -p):\n");
+	fprintf(out, "\t-i interfere with one connection and return to idle\n");
+	fprintf(out, "\t-I interfere continuously\n");
+	fprintf(out, "\n");
+	fprintf(out, "    Data source:\n");
+	fputs(OPT_USAGE_SELECT_DEVICE, out);
+	fprintf(out, "\n");
+	fprintf(out, "    Misc:\n");
+	fprintf(out, "\t-r <filename> capture packets to PCAPNG file\n");
+	fprintf(out, "\t-q <filename> capture packets to PCAP file (DLT_BLUETOOTH_LE_LL_WITH_PHDR)\n");
+	fprintf(out, "\t-c <filename> capture packets to PCAP file (DLT_PPI + DLT_BLUETOOTH_LE_LL)\n");
+	fprintf(out, "\t-A <%d-%d> advertising channel index (default %d)\n",
 	       ADV_INDEX_MIN, ADV_INDEX_MAX, ADV_INDEX_MIN);
-	printf("\t-v [01] verify CRC mode, read status (-v) or enable/disable (-v 1, -v 0);\n");
-	printf("\t       both in one command sets first, then reports the new value\n");
-	printf("\t-x <0-%d> allow n access address offenses (default %d)\n",
+	fprintf(out, "\t-v [01] verify CRC mode, read status (-v) or enable/disable (-v 1, -v 0);\n");
+	fprintf(out, "\t       both in one command sets first, then reports the new value\n");
+	fprintf(out, "\t-x <0-%d> allow n access address offenses (default %d)\n",
 	       AA_ERRORS_MAX, AA_ERRORS_MAX);
 
-	printf("\nIf an input file is not specified, an Ubertooth device is used for live capture.\n");
-	printf("In get/set mode no capture occurs.\n");
+	fprintf(out, "\nIf an input file is not specified, an Ubertooth device is used for live capture.\n");
+	fprintf(out, "In get/set mode no capture occurs.\n");
 }
 
 int main(int argc, char *argv[])
@@ -291,7 +293,7 @@ int main(int argc, char *argv[])
 			do_slave_mode = 1;
 			r = convert_mac_address(optarg, mac_address, &mac_mask);
 			if (!r) {
-				usage();
+				usage(stderr);
 				return 1;
 			}
 			break;
@@ -299,7 +301,7 @@ int main(int argc, char *argv[])
 			do_target = 1;
 			r = convert_mac_address(optarg, mac_address, &mac_mask);
 			if (!r) {
-				usage();
+				usage(stderr);
 				return 1;
 			}
 			break;
@@ -325,7 +327,7 @@ int main(int argc, char *argv[])
 				first_exit_option = 'h';
 			break;
 		default:
-			usage();
+			usage(stderr);
 			return 1;
 		}
 	}
@@ -341,7 +343,7 @@ int main(int argc, char *argv[])
 	 * parsed: a bad option value or a stray word is reported even
 	 * alongside it. */
 	if (first_exit_option == 'h') {
-		usage();
+		usage(stdout);
 		return 1;
 	}
 
@@ -356,6 +358,21 @@ int main(int argc, char *argv[])
 	 * here rather than after a device has been opened. */
 	if (do_follow + do_no_follow + do_promisc > 1) {
 		fprintf(stderr, "error: choose one of -f, -n or -p, pick one pal\n");
+		return 1;
+	}
+
+	/* A command line with no work in it: refused here, before a device is
+	 * opened and before any capture file is created. It used to open the
+	 * selected board, check its API version, send nothing, print the usage
+	 * text on stdout and exit 0, so a command that did nothing needed a
+	 * board and looked like one that had worked. -A, -x, -i/-I and the
+	 * capture options only shape the work the options below ask for, as do
+	 * -j/-J, the older spellings of -i/-I. */
+	if (!(do_follow || do_no_follow || do_promisc || do_get_aa || do_set_aa ||
+	      do_set_crc >= 0 || do_get_crc || do_slave_mode || do_target)) {
+		fprintf(stderr, "error: nothing to do: choose a major mode"
+		        " (-f, -n or -p), or -a, -v, -s or -t\n\n");
+		usage(stderr);
 		return 1;
 	}
 
@@ -529,10 +546,6 @@ int main(int argc, char *argv[])
 
 		cmd_btle_slave(ut->devh, mac_address);
 	}
-
-	if (!(do_follow || do_no_follow || do_promisc || do_get_aa || do_set_aa ||
-				do_set_crc >= 0 || do_get_crc || do_slave_mode || do_target))
-		usage();
 
 	return 0;
 }

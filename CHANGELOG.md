@@ -127,6 +127,11 @@
   one of `ubertooth-btle`'s `-f`, `-n` and `-p` are refused while the command
   line is read, before a device is opened, whatever boards are attached.
   [#236](https://github.com/SqueakyFloors/ubertooth/issues/236)
+- A `ubertooth-btle` command line with no work in it (a bare run, or only `-A`,
+  `-x`, `-i`/`-I` or a capture option) is refused with `error: nothing to do:
+  ...` and the usage text on standard error, exit 1, instead of opening a board
+  and exiting 0. After a bad option the usage text also goes to standard error;
+  `-h` still prints it on standard output. [#258](https://github.com/SqueakyFloors/ubertooth/issues/258)
 - `ubertooth-specan -d` takes a bare `-` as standard output and every other
   value as a file name, including one starting with `-`, so `-d -x` writes the
   file `-x` instead of streaming binary samples to the terminal.
