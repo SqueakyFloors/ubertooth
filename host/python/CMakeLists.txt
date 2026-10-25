@@ -40,8 +40,9 @@ endif()
 message(STATUS "${PYTHON_FLOOR_MESSAGE}: ${Python3_EXECUTABLE}")
 
 # btle-extcap.py's command line and its interface listing, against a fake
-# ubertooth-util on PATH: no board is involved, and a handful of short runs
-# take well under a second.
+# ubertooth-util on PATH: no board is involved. Several dozen runs of a few
+# milliseconds each, plus one case that stops a running capture from outside
+# and so waits on a child, take a few seconds in all.
 add_test(NAME btle-extcap
 	COMMAND ${Python3_EXECUTABLE}
 		${CMAKE_CURRENT_SOURCE_DIR}/extcap/tests/test_btle_extcap.py

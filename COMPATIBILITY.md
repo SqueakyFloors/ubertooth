@@ -137,8 +137,9 @@ accepted on the command line.
 
 The script tolerates `--extcap-version` and `--extcap-capture-filter`, the
 options Wireshark adds to its own calls, and refuses the ones Wireshark sends
-only to an extcap program that advertised the feature behind them. A capture
-filter is not applied; see `host/python/extcap/README.md`.
+only to an extcap program that advertised the feature behind them. A word that
+is not an option or the value of one is refused, as the other host tools refuse
+one. A capture filter is not applied; see `host/python/extcap/README.md`.
 
 ---
 

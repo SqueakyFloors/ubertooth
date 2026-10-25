@@ -56,12 +56,16 @@ ignores the two it adds whatever an interface advertises:
    the calling Wireshark's version, appended to the `--extcap-interfaces`
    call by Wireshark 2.9 and later. Nothing here behaves differently for
    different versions. Rejecting it used to leave Wireshark with an empty
-   interface list, since the whole listing was refused
+   interface list, since the whole listing was refused. The version can be
+   written `--extcap-version=5.0`, `--extcap-version 5.0` or left off
+   altogether
  - `--extcap-capture-filter=<filter>` :
    a capture filter the user typed. `ubertooth-btle` captures every
    advertising packet it sees and cannot apply one, so a capture starts
-   anyway and a `warning: ` line says the filter was not applied. Filter the
-   packets in Wireshark instead
+   anyway and a `warning: ` line says the filter was not applied. Wireshark
+   shows what the capture call wrote to standard error only when that call
+   fails, so a filter can look accepted; filter the packets in Wireshark
+   instead
 
 Everything else Wireshark can pass, it passes only to a program whose listing
 advertised the feature behind it: `--extcap-reload-option` to one with a
@@ -94,10 +98,13 @@ to the fifo instead. Standard output is empty when a call fails.
 A command line the script will not take is refused before `ubertooth-btle`
 runs, so nothing is written to the fifo:
 `error: option --list-dlts not recognized` followed by the usage line,
+`error: unexpected argument 'extra'` for a word that is not an option or the
+value of one, since no call here takes an operand,
 `error: --extcap-interface must be ubertooth<serial>, as --extcap-interfaces
 lists it`, `error: --capture needs --fifo=PATH` and
 `error: advertising channel index must be 37-39 (got 40)`, which is
-`ubertooth-btle`'s own wording for the same mistake.
+`ubertooth-btle`'s own wording for the same mistake. `-h` reports a stray
+word too, rather than ending the command before the rest has parsed.
 
 Whatever `ubertooth-util` and `ubertooth-btle` write to standard error,
 Wireshark shows for the interface, including

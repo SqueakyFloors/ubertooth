@@ -26,15 +26,20 @@ Two things are checked:
   * the options Wireshark adds to its own calls. --extcap-version comes with
     the --extcap-interfaces call Wireshark makes at start-up, and used to end
     the script with "option --extcap-version not recognized" before anything
-    was listed, so Wireshark saw no interface at all. The options Wireshark
-    sends only to a program that advertised the feature behind them are still
-    refused.
+    was listed, so Wireshark saw no interface at all. All three ways of
+    writing it are checked ahead of another option, because the bare form was
+    made to parse by appending "=" to it, which turned the value of the
+    next-word form into a stray word and dropped every option after it. The
+    options Wireshark sends only to a program that advertised the feature
+    behind them are still refused, and so is a leftover word.
 
 UBERTOOTH_TEST_NO_DEVICES=1 goes to the script as well, so a case that somehow
 reached a real ubertooth-util would find no board rather than opening one this
 machine is using.
 """
 
+import importlib.machinery
+import importlib.util
 import os
 import re
 import signal
@@ -183,9 +188,15 @@ assert "Usage:" in unknown.stderr, unknown
 # ---- the options Wireshark adds to its own calls ---------------------------
 
 # the start-up call: Wireshark 2.9 and later append their version to it, with
-# a value and, elsewhere, without one. Either way the interfaces are listed.
-for version in ("--extcap-version=5.0", "--extcap-version"):
-    result = run(("--extcap-interfaces", version),
+# the value attached and, elsewhere, with no value at all; a long option's
+# value can also be the next word. All three forms must leave the rest of the
+# command line standing, so the version option comes first here: giving the
+# next-word form an empty value as well left "5.0" behind as a stray word,
+# which stopped getopt and dropped --extcap-interfaces with it.
+for version in (("--extcap-version=5.0",),
+                ("--extcap-version", "5.0"),
+                ("--extcap-version",)):
+    result = run((*version, "--extcap-interfaces"),
                  listing="0: %s\n" % SERIALS[0])
     assert result.returncode == 0, (version, result)
     assert "not recognized" not in result.stderr, (version, result)
@@ -198,6 +209,24 @@ result = run(("--extcap-version=4.2", "--extcap-dlts",
               "--extcap-interface", "ubertooth" + SERIALS[0]))
 assert result.returncode == 0, result
 assert result.stdout.startswith("dlt "), result
+
+# a word that is not an option and not the value of one is a mistake: no call
+# here takes an operand, so it is refused rather than silently ignored, the
+# same way the other tools refuse one. A bare "-" is a stray word too: it
+# names standard output only as the value of a file option, which this script
+# has none of.
+for stray, word in ((("--extcap-interfaces", "extra"), "extra"),
+                    (("--extcap-version", "-", "--extcap-interfaces"), "-"),
+                    # -h does not excuse a stray word: it ends the command
+                    # only once the whole command line has parsed
+                    (("-h", "extra"), "extra")):
+    result = run(stray, listing="0: %s\n" % SERIALS[0])
+    assert result.returncode == 1, (stray, result)
+    assert result.stdout == "", (stray, result)
+    assert result.stderr == "error: unexpected argument '%s'\n" % word, \
+        (stray, result)
+    assert not os.path.exists(ARGS_FILE), \
+        ("a stray word must start nothing", stray, result)
 
 # a capture filter is accepted, so a capture still starts, and is reported as
 # not applied rather than quietly dropped
@@ -221,7 +250,8 @@ assert result.returncode == 0 and result.stderr == "", result
 for option in ("--extcap-reload-option=channel",
                "--extcap-control-in=" + os.devnull,
                "--extcap-control-out=" + os.devnull,
-               "--extcap-config-option-name=channel"):
+               "--extcap-config-option-name=channel",
+               "--extcap-config-option-value=38"):
     result = run(("--extcap-config",
                   "--extcap-interface=ubertooth" + SERIALS[0], option))
     assert result.returncode == 1, (option, result)
@@ -364,11 +394,32 @@ stopped = subprocess.Popen(
 deadline = time.monotonic() + 10
 while not os.path.exists(ARGS_FILE) and time.monotonic() < deadline:
     time.sleep(0.05)
-assert os.path.exists(ARGS_FILE), "the fake ubertooth-btle never started"
+if not os.path.exists(ARGS_FILE):
+    # nothing to stop, and the long-sleeping fake must not be left behind
+    stopped.kill()
+    stopped.wait(timeout=10)
+    raise AssertionError("the fake ubertooth-btle never started")
 stopped.terminate()
 output, errors = stopped.communicate(timeout=10)
 assert stopped.returncode == 0, (stopped.returncode, output, errors)
 assert output == "", output
+
+# a stop that arrives before ubertooth-btle does, while the command line is
+# still being read: the handler has no child to pass the signal on to, and
+# the capture must not go on to start one afterwards. Driven in-process,
+# because that window is microseconds wide from outside.
+os.environ.update(ENVIRONMENT)
+if os.path.exists(ARGS_FILE):
+    os.remove(ARGS_FILE)
+loader = importlib.machinery.SourceFileLoader("btle_extcap", SCRIPT)
+script = importlib.util.module_from_spec(
+    importlib.util.spec_from_loader(loader.name, loader))
+loader.exec_module(script)
+script.sig_handler(signal.SIGTERM, None)
+assert script.capture(SERIALS[0], fifo, ADVERTISING_CHANNELS[0]) == 0
+assert script.child is None, "a capture already stopped must start no child"
+assert not os.path.exists(ARGS_FILE), \
+    "a capture already stopped must start no child"
 
 print("btle-extcap: --capture reports how ubertooth-btle ended")
 

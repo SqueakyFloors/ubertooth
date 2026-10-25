@@ -26,9 +26,10 @@ import sys
 from subprocess import Popen, PIPE
 
 child = None
-# The signal this script passed on to the child, if any: a capture that was
-# asked to stop ended as asked, however the child reports it.
-forwarded_signal = None
+# The signal that asked this script to stop, if one arrived. A capture that
+# was asked to stop ended as asked, however the child reports it, and a
+# capture asked to stop before the child started must not start one.
+stop_signal = None
 
 # The advertising channels ubertooth-btle will tune to, as the Bluetooth core
 # specification numbers them. The first is the default.
@@ -50,15 +51,39 @@ ADVERTISING_CHANNELS = ("37", "38", "39")
 IGNORED_OPTIONS = ("extcap-version=", "extcap-capture-filter=")
 
 # --extcap-version is documented as carrying a value and is seen without one,
-# and getopt has no long option whose value is optional. Giving the bare form
-# an empty value lets one entry above accept both.
+# and getopt has no long option whose value is optional. with_optional_values
+# below lets one entry above accept both forms.
 OPTIONAL_VALUE = ("--extcap-version",)
 
 
+def with_optional_values(argv):
+    """Give the bare form of an optional-value option an empty value.
+
+    getopt has no long option whose value is optional, so the entry for one
+    asks for a value and the bare form is given an empty one here. The form
+    whose value is the next word is left alone, for getopt to read it the
+    usual way: appending "=" to that one left the value behind as a stray
+    word, which stopped getopt and dropped every option after it. A next
+    word starting with "-" is the next option, never a value, as in every
+    other tool here.
+    """
+    rewritten = []
+    for position, word in enumerate(argv):
+        if word in OPTIONAL_VALUE:
+            following = argv[position + 1] if position + 1 < len(argv) else None
+            if following is None or following.startswith("-"):
+                word += "="
+        rewritten.append(word)
+    return rewritten
+
+
 def sig_handler(sig, frame):
-    global forwarded_signal
+    global stop_signal
+    stop_signal = sig
+    # The signal can arrive before there is a child to pass it on to, while
+    # the command line is still being read. capture() looks at stop_signal
+    # for that, so a capture that was stopped starts nothing.
     if child is not None:
-        forwarded_signal = sig
         child.terminate()
 
 def main():
@@ -66,7 +91,7 @@ def main():
 
     try:
         opts, args = getopt.getopt(
-            ["%s=" % a if a in OPTIONAL_VALUE else a for a in sys.argv[1:]],
+            with_optional_values(sys.argv[1:]),
             "h",
             [
                 "help",
@@ -86,6 +111,13 @@ def main():
         usage(sys.stderr)
         sys.exit(1)
 
+    # No call here takes an operand, so a leftover word is a mistake, refused
+    # before anything runs and before -h ends the command, the way the other
+    # tools here refuse one (opt_check_no_operands in opt_parse.c).
+    if args:
+        print("error: unexpected argument '%s'" % args[0], file=sys.stderr)
+        sys.exit(1)
+
     interface = ''
     fifo = None
     channel = ADVERTISING_CHANNELS[0]
@@ -97,10 +129,10 @@ def main():
     for o, a in opts:
         if o in ("-h", "--help"):
             usage()
-            sys.exit()
+            sys.exit(0)
         elif o == "--extcap-interfaces":
             list_interfaces()
-            exit(0)
+            sys.exit(0)
         elif o == "--extcap-dlts":
             do_list_dlts = True
         elif o == "--extcap-config":
@@ -129,7 +161,7 @@ def main():
     if not m:
         print("error: --extcap-interface must be ubertooth<serial>, as "
               "--extcap-interfaces lists it", file=sys.stderr)
-        exit(1)
+        sys.exit(1)
     interface = m.group(1)
 
     if do_list_dlts:
@@ -139,7 +171,7 @@ def main():
     elif do_capture:
         if fifo is None:
             print("error: --capture needs --fifo=PATH", file=sys.stderr)
-            exit(1)
+            sys.exit(1)
         # Checked here rather than left to ubertooth-btle, so a refused
         # command line starts no child and writes nothing to the fifo. The
         # wording is ubertooth-btle's, so one message covers both.
@@ -147,7 +179,7 @@ def main():
             print("error: advertising channel index must be %s-%s (got %s)"
                   % (ADVERTISING_CHANNELS[0], ADVERTISING_CHANNELS[-1],
                      channel), file=sys.stderr)
-            exit(1)
+            sys.exit(1)
         if capture_filter:
             print("warning: this interface applies no capture filter; "
                   "filter the packets in Wireshark instead (got %s)"
@@ -214,20 +246,30 @@ def capture(interface, fifo, channel):
     and shows the error for it, so the child's failure has to reach it.
     """
     global child
+    if stop_signal is not None:
+        # stopped before the capture began: there is nothing to start, and
+        # nothing failed
+        return 0
     child = Popen([
         "ubertooth-btle", "-f",
         "-U", interface,
         "-q", fifo,
         "-A", channel,
     ])
+    if stop_signal is not None:
+        # the signal arrived while the child was starting, so the handler
+        # may have run before this name held the child: pass it on here
+        child.terminate()
     status = child.wait()
     if status < 0:
-        # Killed by a signal, reported as -N. Two of those mean the capture
+        # Killed by a signal, reported as -N. Two cases mean the capture
         # ended rather than failed, and Wireshark ends a capture with both:
-        # the signal this script passed on, and SIGPIPE, which the child
-        # gets when whoever was reading the fifo stopped reading it. Any
-        # other signal is a failure, reported the way a shell reports it.
-        if forwarded_signal is not None or -status == signal.SIGPIPE:
+        # this script was asked to stop and passed the signal on, so the
+        # child's death is that stop whichever signal finished it off; or
+        # the child got SIGPIPE because whoever was reading the fifo stopped
+        # reading it. Any other signal is a failure, reported the way a
+        # shell reports it.
+        if stop_signal is not None or -status == signal.SIGPIPE:
             return 0
         return 128 - status
     return status
