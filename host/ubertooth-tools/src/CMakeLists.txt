@@ -100,6 +100,13 @@ target_sources(ubertooth-dfu PRIVATE
 	dfu_transition.c
 	dfu_recovery.c)
 
+if ( ${LIBBLUETOOTH_FOUND} )
+	# The AFH map validation and state decisions of -a. Free of BlueZ, so
+	# the tests in ../tests build it everywhere, including where
+	# ubertooth-follow itself is skipped.
+	target_sources(ubertooth-follow PRIVATE follow_afh.c)
+endif()
+
 # ubertooth-debug is special because of the extra source file
 add_executable(ubertooth-debug ubertooth-debug.c cc2400.c arglist.c debug_registers.c opt_parse.c)
 LIST(APPEND TOOLS ubertooth-debug)
@@ -122,13 +129,6 @@ else()
 	message(STATUS "                install libbluetooth-dev / bluez-libs-devel, or set -DREQUIRE_ALL=ON to make this an error")
 endif()
 message(STATUS "")
-
-if ( ${LIBBLUETOOTH_FOUND} )
-	# The AFH map validation and state decisions of -a. Free of BlueZ, so
-	# the tests in ../tests build it everywhere, including where
-	# ubertooth-follow itself is skipped.
-	target_sources(ubertooth-follow PRIVATE follow_afh.c)
-endif()
 
 target_sources(ubertooth-specan PRIVATE specan_options.c)
 target_sources(ubertooth-btle PRIVATE btle_options.c)

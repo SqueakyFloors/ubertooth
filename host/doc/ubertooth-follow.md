@@ -58,9 +58,15 @@ only when the target is master of the piconet you want to follow, which
 `ubertooth-follow` cannot check. Treat a capture made with `-a` accordingly.
 
 Because the map is read over a connection to the target, `-a` needs the target
-address. `-a` without exactly one `-l` and one `-u` is refused before any file
-is created or device opened, with
+named. `-a` without exactly one `-l` and one `-u` is refused before any file is
+created or device opened, with
 `error: -a reads the AFH map over a Bluetooth connection to the target, so it needs the target address: give -l once and -u once`.
+
+`-l` and `-u` are not a whole Bluetooth address: the tool connects to
+`00:00:<UAP>:<LAP>`, with the two most significant bytes zero, because a
+sniffer cannot see them. So `-a` reaches only a target whose address begins
+`00:00`. For any other target the connection fails and the command stops with
+`error: connecting to 00:00:...: failed`.
 
 The map that comes back is used only when it could be a hop sequence at all:
 

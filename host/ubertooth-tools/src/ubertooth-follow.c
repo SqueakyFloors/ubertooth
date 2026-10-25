@@ -44,6 +44,12 @@
 #error "FOLLOW_AFH_MAP_BYTES disagrees with libubertooth's AFH_MAP_BYTES"
 #endif
 
+/* Milliseconds to wait for the local controller to answer an HCI command. With
+ * a zero timeout BlueZ blocks in read() with nothing to interrupt it, so a
+ * controller that never answers hangs instead of failing; every read here is
+ * bounded. */
+#define HCI_TIMEOUT_MS 1000
+
 /* One attempt at the AFH map of the link to the target, for
  * follow_afh_read_map(). */
 struct afh_hci {
@@ -61,7 +67,7 @@ static int afh_hci_read(void* ctx, uint8_t* mode, uint8_t* map)
 	int r;
 
 	errno = 0;
-	r = hci_read_afh_map(hci->sock, hci->handle, mode, map, 1000);
+	r = hci_read_afh_map(hci->sock, hci->handle, mode, map, HCI_TIMEOUT_MS);
 	if (r < 0)
 		hci->error = errno;
 	return r;
@@ -69,6 +75,9 @@ static int afh_hci_read(void* ctx, uint8_t* mode, uint8_t* map)
 
 static void afh_hci_wait(void* ctx __attribute__((unused)))
 {
+	/* Each read waits up to a second for the controller, so say what the
+	 * pause is for rather than looking like a hang. */
+	printf("AFH map not usable yet, reading it again\n");
 	usleep(FOLLOW_AFH_RETRY_DELAY_US);
 }
 
@@ -133,6 +142,8 @@ int main(int argc, char *argv[])
 	struct hci_dev_info di;
 	/* 1 once hci_create_connection() has given us a remote ACL handle. */
 	int cc = 0;
+	/* 1 when exactly one -l and one -u named a target to connect to. */
+	int have_target = 0;
 
 	ubertooth_t* ut = ubertooth_init();
 	if (ut == NULL)
@@ -222,12 +233,16 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	/* One -l and one -u: the same condition the address handling below uses,
+	 * so the two cannot drift. */
+	have_target = (have_lap == 1) && (have_uap == 1);
+
 	/* -a reads the map from the target over an ACL link, which only exists
 	 * when the target address was given. Refused here, with the rest of the
-	 * command line, so no file is created and no device opened. */
+	 * command line, so no file is created and no device opened. No link has
+	 * been attempted yet, so the handle is not what is in question. */
 	if (afh_enabled) {
-		const char* refusal =
-			follow_afh_handle_refusal(have_lap == 1 && have_uap == 1, 1);
+		const char* refusal = follow_afh_handle_refusal(have_target, 1);
 		if (refusal != NULL) {
 			fprintf(stderr, "error: %s\n", refusal);
 			return 1;
@@ -267,9 +282,13 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	if ((have_lap != 1) || (have_uap != 1)) {
+	if (!have_target) {
 		printf("No address given, reading address from device\n");
-		if (hci_read_bd_addr(sock, &bdaddr, 0) < 0) {
+		/* With a zero timeout BlueZ blocks in read() with nothing to
+		 * interrupt it, so a controller that never answers hangs instead
+		 * of failing. Every read here gives it a second, as the clock
+		 * offset read already did. */
+		if (hci_read_bd_addr(sock, &bdaddr, HCI_TIMEOUT_MS) < 0) {
 			fprintf(stderr, "error: reading the address of %s failed: %s\n",
 			        bt_dev, strerror(errno));
 			return 1;
@@ -279,7 +298,7 @@ int main(int argc, char *argv[])
 		uap = bdaddr.b[3];
 		btbb_piconet_set_uap(pn, uap);
 		printf("LAP=%06x UAP=%02x\n", lap, uap);
-	} else if (have_lap && have_uap) {
+	} else {
 		btbb_init_piconet(pn, lap);
 		btbb_piconet_set_uap(pn, uap);
 		printf("Address given, assuming address is remote\n");
@@ -308,10 +327,6 @@ int main(int argc, char *argv[])
 			return 1;
 		}
 		cc = 1;
-
-	} else {
-			usage();
-			return 1;
 	}
 
 	if (ut->h_pcapng_bredr) {
@@ -332,8 +347,7 @@ int main(int argc, char *argv[])
 		 * either sets cc or returns, so this cannot fire today. It is
 		 * here so that a future path which reaches the read without a
 		 * handle says so instead of reading on handle 0. */
-		refusal = follow_afh_handle_refusal(have_lap == 1 && have_uap == 1,
-		                                    cc);
+		refusal = follow_afh_handle_refusal(have_target, cc);
 		if (refusal != NULL) {
 			fprintf(stderr, "error: %s\n", refusal);
 			return 1;
@@ -419,26 +433,35 @@ int main(int argc, char *argv[])
 	/* The board keeps the AFH map and the enable flag an earlier run left,
 	 * and start-hopping does not reset them, so a follow with no map has to
 	 * clear them: otherwise it would hop adaptively on a stale map while
-	 * reporting that it is not using AFH. */
-	if(afh_enabled)
-		cmd_set_afh_map(ut->devh, afh_map);
+	 * reporting that it is not using AFH (#312). Both are checked, because
+	 * carrying on would hop on the wrong channel set either way. The set is
+	 * asynchronous, so this catches a submission that fails, not a transfer
+	 * that fails later. */
+	if (afh_enabled)
+		r = cmd_set_afh_map(ut->devh, afh_map);
 	else
-		cmd_clear_afh_map(ut->devh);
-
+		r = cmd_clear_afh_map(ut->devh);
+	if (r < 0) {
+		fprintf(stderr, "error: %s the board's AFH map failed\n",
+		        afh_enabled ? "setting" : "clearing");
+		follow_cleanup(ut, sock, handle, cc);
+		return 1;
+	}
 
 	/* Read clocks here to ensure clock is closest to real value. Without a
 	 * clock there is nothing to follow, so a failed read stops the command
 	 * rather than hopping from an uninitialised one. The receive thread is
 	 * already running and the link to the target is up by now, so both
 	 * failures leave through follow_cleanup(). */
-	if (hci_read_clock(sock, 0, 0, &clock, &accuracy, 0) < 0) {
+	if (hci_read_clock(sock, 0, 0, &clock, &accuracy, HCI_TIMEOUT_MS) < 0) {
 		fprintf(stderr, "error: reading the clock of %s failed: %s\n",
 		        bt_dev, strerror(errno));
 		follow_cleanup(ut, sock, handle, cc);
 		return 1;
 	}
 	if (cc) {
-		if (hci_read_clock_offset(sock, handle, &offset, 1000) < 0) {
+		if (hci_read_clock_offset(sock, handle, &offset,
+		                         HCI_TIMEOUT_MS) < 0) {
 			fprintf(stderr, "error: reading the clock offset of the "
 			        "target failed: %s\n", strerror(errno));
 			follow_cleanup(ut, sock, handle, cc);
