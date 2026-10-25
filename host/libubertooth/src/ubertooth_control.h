@@ -174,8 +174,6 @@ int cmd_read_access_address(struct libusb_device_handle* devh, u32 *access_addre
 /* Deprecated: an error is indistinguishable from an address. */
 u32 cmd_get_access_address(struct libusb_device_handle* devh);
 int cmd_set_access_address(struct libusb_device_handle* devh, u32 access_address);
-int cmd_do_something(struct libusb_device_handle *devh, unsigned char *data, int len);
-int cmd_do_something_reply(struct libusb_device_handle* devh, unsigned char *data, int len);
 int cmd_get_crc_verify(struct libusb_device_handle* devh);
 int cmd_set_crc_verify(struct libusb_device_handle* devh, int verify);
 int cmd_poll(struct libusb_device_handle* devh, usb_pkt_rx *p);

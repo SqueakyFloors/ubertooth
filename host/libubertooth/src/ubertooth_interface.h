@@ -123,8 +123,11 @@ enum ubertooth_usb_commands {
 	UBERTOOTH_BTLE_SNIFFING      = 42,
 	UBERTOOTH_GET_ACCESS_ADDRESS = 43,
 	UBERTOOTH_SET_ACCESS_ADDRESS = 44,
-	UBERTOOTH_DO_SOMETHING       = 45,
-	UBERTOOTH_DO_SOMETHING_REPLY = 46,
+	/* UBERTOOTH_DO_SOMETHING = 45 and UBERTOOTH_DO_SOMETHING_REPLY = 46 were
+	 * a pair of developer scratch requests that the firmware answered with a
+	 * fixed two bytes. They are gone; the numbers are left unused so that a
+	 * request number still means the same thing in any capture or log from an
+	 * older build. */
 	UBERTOOTH_GET_CRC_VERIFY     = 47,
 	UBERTOOTH_SET_CRC_VERIFY     = 48,
 	UBERTOOTH_POLL               = 49,

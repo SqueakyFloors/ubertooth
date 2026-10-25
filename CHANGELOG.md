@@ -4,11 +4,24 @@
 
 ### New features
 
+- **Script-visible change:** `ubertooth-afh -a` is gone. It never sent
+  anything, and it silently swallowed the word after it.
+  [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
+- **Script-visible change:** `ubertooth-rx -s` is gone. Sweep is the default,
+  so the flag had no effect; the `-z` line no longer claims to imply it.
+  [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
+- **Script-visible change:** `ubertooth-util -9` is gone, with the two
+  developer scratch requests it sent. Firmware answers requests 45 and 46 no
+  longer, and libubertooth no longer exports `cmd_do_something()` or
+  `cmd_do_something_reply()`.
+  [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
 - `ubertooth-btle` and `ubertooth-ego` list their `-j`/`-J` jam aliases in `-h`.
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
 - **Script-visible change:** every tool now keeps standard output for its
   results and capture data; errors, warnings and progress go to standard
-  error, `-h` exits 0, and a command line with nothing to do is refused.
+  error, `-h` exits 0, and a command line with nothing to do is refused. In
+  `ubertooth-rx` that also covers an unknown option, `-h`, and a `-i` or `-d`
+  file it cannot open, now `error: <file>: <reason>` on standard error.
   [#323](https://github.com/SqueakyFloors/ubertooth/issues/323)
 - ubertooth-btle can stream PCAP data to stdout with `-q -`
   or `-c -`, safely separating diagnostics for Wireshark and other consumers.
@@ -377,9 +390,8 @@
   or `-z`, and an earlier failure is no longer hidden by a later success.
   [#40](https://github.com/SqueakyFloors/ubertooth/issues/40)
 - `ubertooth-util` no longer prints error codes as values when a query read
-  fails (`-c`, `-a`, `-z`, `-l`, `-d`, `-m`, `-9`); it names the failed read on
-  standard error instead, as `-b`, `-p` and `-s` now also do. A failed `-9`
-  test command now exits non-zero.
+  fails (`-c`, `-a`, `-z`, `-l`, `-d`, `-m`); it names the failed read on
+  standard error instead, as `-b`, `-p` and `-s` now also do.
   [#59](https://github.com/SqueakyFloors/ubertooth/issues/59)
   [#123](https://github.com/SqueakyFloors/ubertooth/issues/123)
 - Host-library failures now propagate correctly and release device resources;

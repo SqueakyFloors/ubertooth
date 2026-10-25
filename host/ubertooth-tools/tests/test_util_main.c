@@ -31,7 +31,7 @@ static struct {
 	int set_txled_rc, set_palevel_rc, set_squelch_rc, flash_rc, isp_rc;
 	int led_specan_rc, range_test_rc, repeater_rc, tx_test_rc, xmas_rc;
 	int identify_rc;
-	int rangeresult_rc, do_something_rc, do_something_reply_rc;
+	int rangeresult_rc;
 	rangetest_result range;
 	/* bookkeeping */
 	int device_count;
@@ -398,18 +398,6 @@ int cmd_led_specan(struct libusb_device_handle *h, u16 rssi)
 	fake.led_specan_calls++;
 	fake.last_led_specan_arg = rssi;
 	return fake.led_specan_rc;
-}
-
-int cmd_do_something(struct libusb_device_handle *h, unsigned char *d, int n)
-{
-	fake_use(h); (void)d; (void)n;
-	return fake.do_something_rc;
-}
-
-int cmd_do_something_reply(struct libusb_device_handle *h, unsigned char *d, int n)
-{
-	fake_use(h); (void)d; (void)n;
-	return fake.do_something_reply_rc;
 }
 
 /* ---- running main() and capturing what it prints ---------------------- */
@@ -1543,13 +1531,14 @@ MU_TEST(optional_values_may_be_the_next_word)
 	mu_assert(strstr(r.out, "Board ID Number") != NULL, "-b ran");
 	mu_assert_int_eq(0, fake.last_channel_set);
 
-	/* only -z takes a negative value: -a -9 is -a (read) then -9 */
+	/* only -z takes a negative value, so -a does not take -9 as its value:
+	 * it is read as an option, which the tool does not have */
 	reset_fake();
 	r = RUN("-a", "-9");
-	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, r.rc);
 	mu_assert_int_eq(0, fake.last_palevel_set);
-	/* the fake leaves the reply's 0x55 marker bytes untouched */
-	mu_assert(strstr(r.out, "55 55 55 55\n") != NULL, "-9 ran as its own option");
+	mu_assert(strstr(r.err, "error: unrecognized option '-9'") != NULL,
+	          "-9 was not taken as the value of -a");
 
 	/* a value at the end of a longer command */
 	reset_fake();
@@ -1674,16 +1663,6 @@ MU_TEST(firmware_listing_with_several_devices_reports_each_device)
 	mu_assert(strcmp(r.out,
 	                 "0: git-test (API:1.14)\n1: git-test (API:1.14)\n") == 0,
 	          "per-device firmware lines");
-}
-
-MU_TEST(test_command_reads_back_through_the_library_and_exits_zero)
-{
-	struct run_result r;
-
-	reset_fake();
-	r = RUN("-9");
-	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(r.out, "55 55 55 55\n") == 0, "reply bytes");
 }
 
 MU_TEST(serial_listing_with_several_devices_exits_zero)
@@ -1888,7 +1867,7 @@ MU_TEST(listing_is_not_used_with_a_selector_one_device_or_other_operations)
 	/* The listing only needs identity queries; -U-less commands with any other
 	 * option, including the ones listed here, use normal selection. */
 	{
-		const char *const others[] = { "-c", "-a", "-l", "-d", "-z", "-m", "-S", "-9" };
+		const char *const others[] = { "-c", "-a", "-l", "-d", "-z", "-m", "-S" };
 		size_t i;
 
 		for (i = 0; i < sizeof(others) / sizeof(others[0]); i++) {
@@ -1981,7 +1960,7 @@ MU_TEST(u_all_is_rejected_before_opening_a_device_for_any_other_option)
 {
 	static const char *const others[] = {
 		"-c", "-c2450", "-C39", "-a", "-a3", "-l", "-l1", "-d", "-d1",
-		"-z", "-z5", "-m", "-S", "-r", "-I", "-9", "-N",
+		"-z", "-z5", "-m", "-S", "-r", "-I", "-N",
 		"-f", "-i", "-q", "-n", "-e", "-t", "-x",
 	};
 	size_t i;
@@ -2064,7 +2043,6 @@ MU_TEST(a_failed_read_prints_no_value_line_and_names_the_query_on_stderr)
 		{ "-z", &fake.squelch, "error: squelch read failed\n" },
 		{ "-l", &fake.usrled, "error: USR LED read failed\n" },
 		{ "-m", &fake.rangeresult_rc, "error: range test result read failed\n" },
-		{ "-9", &fake.do_something_reply_rc, "error: test command reply read failed\n" },
 	};
 	size_t i;
 
@@ -2167,18 +2145,6 @@ MU_TEST(a_failed_read_keeps_the_other_lines_of_a_composed_command)
 	          "one message per failed read");
 }
 
-MU_TEST(a_failed_test_command_send_fails_the_command)
-{
-	struct run_result r;
-
-	reset_fake();
-	fake.do_something_rc = -1;
-	r = RUN("-9");
-	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(r.out, "55 55 55 55\n") == 0, "reply still read and printed");
-	mu_assert(strcmp(r.err, "error: test command send failed\n") == 0, "send failure named");
-}
-
 /* ---- the opened handle is released on every exit ---------------------- */
 
 MU_TEST(read_only_queries_release_the_handle_without_sending_stop)
@@ -2218,12 +2184,6 @@ MU_TEST(setters_and_modes_release_the_handle_on_success_and_failure)
 		mu_assert_int_eq(1, fake.first_closes);
 		mu_assert_int_eq(1, fake.first_frees);
 		mu_assert_int_eq(0, fake.stop_calls);
-
-		reset_fake();
-		fake.do_something_rc = fail ? -1 : 0;
-		mu_assert_int_eq(fail, RUN("-9").rc);
-		mu_assert_int_eq(1, fake.first_closes);
-		mu_assert_int_eq(1, fake.first_frees);
 
 		for (i = 0; i < MODE_COUNT; i++) {
 			reset_fake();
@@ -2433,7 +2393,6 @@ int main(void)
 	MU_RUN(invalid_arguments_are_rejected_before_opening_the_device);
 	MU_RUN(help_version_and_count_exit_zero_without_a_device);
 	MU_RUN(firmware_listing_with_several_devices_reports_each_device);
-	MU_RUN(test_command_reads_back_through_the_library_and_exits_zero);
 	MU_RUN(serial_listing_with_several_devices_exits_zero);
 	MU_RUN(each_identity_query_alone_lists_every_device_compactly);
 	MU_RUN(combined_identity_queries_list_every_line_for_every_device);
@@ -2448,7 +2407,6 @@ int main(void)
 	MU_RUN(a_failed_identity_read_names_the_query_on_stderr);
 	MU_RUN(a_failed_led_read_drops_only_that_line);
 	MU_RUN(a_failed_read_keeps_the_other_lines_of_a_composed_command);
-	MU_RUN(a_failed_test_command_send_fails_the_command);
 	MU_RUN(read_only_queries_release_the_handle_without_sending_stop);
 	MU_RUN(setters_and_modes_release_the_handle_on_success_and_failure);
 	MU_RUN(reset_waits_for_a_slow_reenumeration_then_runs_later_actions);

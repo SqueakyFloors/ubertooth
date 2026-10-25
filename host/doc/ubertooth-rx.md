@@ -110,10 +110,6 @@ Miscellaneous:
  - `-V` :
    Version information
 
- - `-s` :
-   Deprecated no-op. Sweep mode is now the default; this flag is retained
-   for backward compatibility and has no effect.
-
  - `-U <index|serial>` :
    select an Ubertooth by enumeration index or serial number; see
    ubertooth(7), SELECTING A DEVICE
@@ -180,8 +176,9 @@ was decoded:
  - a last record cut short:
    `error: <file> ends in a partial record: 58 of 68 bytes, ignored`
 
-A file that cannot be opened at all is reported on standard output with
-the usage text, as before: `Could not open file <file>`, exit 1.
+A file that cannot be opened at all is reported the same way, before anything
+is decoded: `error: <file>: No such file or directory`, exit 1. So is a `-d`
+dump file that cannot be created.
 
 ## ARGUMENTS
 
@@ -192,6 +189,13 @@ bare `-`, is refused before any device is opened and named:
 `-h` and `-V` end the command only once the whole command line has
 parsed, so a stray word or a bad option value is reported even
 alongside them.
+
+An option the tool does not know is refused the same way, with the usage text
+after it on standard error: `error: unrecognized option '-Z'`. An option whose
+value is missing reads `error: option '-l' requires a value`.
+
+`-h` is what the user asked for, so its usage text goes to standard output,
+nothing goes to standard error, and it exits 0.
 
 An option value must be a whole value in its range, or it is refused the same
 way instead of being read as 0, for example

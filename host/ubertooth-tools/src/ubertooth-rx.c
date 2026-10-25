@@ -23,43 +23,44 @@
 #include "ubertooth_callback.h"
 #include "opt_parse.h"
 #include <err.h>
+#include <errno.h>
 #include <getopt.h>
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
-static void usage()
+static void usage(FILE *file)
 {
-	printf("ubertooth-rx - passive Classic Bluetooth discovery/decode\n");
-	printf("\n");
-	printf("Example usage:\n");
-	printf("\tubertooth-rx -- sniff for all LAPs\n");
-	printf("\tubertooth-rx -l <lap> -- calculate UAP for a given LAP\n");
-	printf("\tubertooth-rx -l <lap> -u <uap> -- calculate clock and follow piconet\n");
-	printf("\tubertooth-rx -z -t 20 -- survey mode: discover all LAPs+UAPs for 20 seconds\n");
-	printf("\n");
-	printf("Major modes:\n");
-	printf("\t-l <LAP> to decode (6 hex) - if not specified sniff all LAPs\n");
-	printf("\t-u <UAP> to decode (2 hex) - if not specified calculate UAP (requires LAP)\n");
-	printf("\t-z Survey mode - discover and list piconets (implies -s, interrupt with ctrl-C)\n");
-	printf("\t-i <filename> replay a capture saved with -d, with its recorded times\n");
-	printf("\t              - if not specified use Ubertooth for live capture\n");
-	printf("\n");
-	printf("Configuration:\n");
-	printf("\t-c <0-%d> set a fixed bluetooth channel [Default: sweep]\n",
-	       NUM_BREDR_CHANNELS - 1);
-	printf("\t-e max_ac_errors (default: %d, range: 0-%d)\n",
-	       max_ac_errors, MAX_AC_ERRORS);
-	printf("\t-t <SECONDS> sniff timeout - 0 means no timeout [Default: 0]\n");
-	printf("\n");
-	printf("Output options:\n");
-	printf("\t-r <filename> capture packets to PcapNG file\n");
-	printf("\t-q <filename> capture packets to PCAP file\n");
-	printf("\t-d <filename> dump packets to binary file\n");
-	printf("\n");
-	printf("Miscellaneous:\n");
-	printf("\t-V print version information\n");
-	fputs(OPT_USAGE_SELECT_DEVICE, stdout);
+	fprintf(file, "ubertooth-rx - passive Classic Bluetooth discovery/decode\n");
+	fprintf(file, "\n");
+	fprintf(file, "Example usage:\n");
+	fprintf(file, "\tubertooth-rx -- sniff for all LAPs\n");
+	fprintf(file, "\tubertooth-rx -l <lap> -- calculate UAP for a given LAP\n");
+	fprintf(file, "\tubertooth-rx -l <lap> -u <uap> -- calculate clock and follow piconet\n");
+	fprintf(file, "\tubertooth-rx -z -t 20 -- survey mode: discover all LAPs+UAPs for 20 seconds\n");
+	fprintf(file, "\n");
+	fprintf(file, "Major modes:\n");
+	fprintf(file, "\t-l <LAP> to decode (6 hex) - if not specified sniff all LAPs\n");
+	fprintf(file, "\t-u <UAP> to decode (2 hex) - if not specified calculate UAP (requires LAP)\n");
+	fprintf(file, "\t-z Survey mode - discover and list piconets (interrupt with ctrl-C)\n");
+	fprintf(file, "\t-i <filename> replay a capture saved with -d, with its recorded times\n");
+	fprintf(file, "\t              - if not specified use Ubertooth for live capture\n");
+	fprintf(file, "\n");
+	fprintf(file, "Configuration:\n");
+	fprintf(file, "\t-c <0-%d> set a fixed bluetooth channel [Default: sweep]\n",
+	        NUM_BREDR_CHANNELS - 1);
+	fprintf(file, "\t-e max_ac_errors (default: %d, range: 0-%d)\n",
+	        max_ac_errors, MAX_AC_ERRORS);
+	fprintf(file, "\t-t <SECONDS> sniff timeout - 0 means no timeout [Default: 0]\n");
+	fprintf(file, "\n");
+	fprintf(file, "Output options:\n");
+	fprintf(file, "\t-r <filename> capture packets to PcapNG file\n");
+	fprintf(file, "\t-q <filename> capture packets to PCAP file\n");
+	fprintf(file, "\t-d <filename> dump packets to binary file\n");
+	fprintf(file, "\n");
+	fprintf(file, "Miscellaneous:\n");
+	fprintf(file, "\t-V print version information\n");
+	fputs(OPT_USAGE_SELECT_DEVICE, file);
 }
 
 int main(int argc, char* argv[])
@@ -86,7 +87,11 @@ int main(int argc, char* argv[])
 	if (ut == NULL)
 		return 1;
 
-	while ((opt=getopt(argc,argv,"hVi:l:u:U:d:e:r:sq:t:zc:")) != EOF) {
+	/* The tool reports a bad option itself, in the usual one-line form:
+	 * see opt_report_bad_option(). The leading ':' makes a missing option
+	 * value distinguishable from an option getopt does not know. */
+	opterr = 0;
+	while ((opt=getopt(argc,argv,":hVi:l:u:U:d:e:r:q:t:zc:")) != EOF) {
 		switch(opt) {
 		case 'i':
 			infile_name = optarg;
@@ -128,9 +133,6 @@ int main(int argc, char* argv[])
 			                    &max_ac_errors) < 0)
 				return 1;
 			break;
-		case 's':
-			fprintf(stderr, "sweep mode is now the default and the -s argument is deprecated\n");
-			break;
 		case 't':
 			if (opt_require_count(optarg, 0, "timeout", "seconds",
 			                      "0 for none", &timeout) < 0)
@@ -156,7 +158,12 @@ int main(int argc, char* argv[])
 				first_exit_option = 'h';
 			break;
 		default:
-			usage();
+			/* A command line the tool will not take: the one-line
+			 * reason and the usage text both go to standard error,
+			 * and standard output stays empty. The tool's other
+			 * output lines are converted separately. */
+			opt_report_bad_option(opt, argc, argv);
+			usage(stderr);
 			return 1;
 		}
 	}
@@ -174,8 +181,8 @@ int main(int argc, char* argv[])
 		return 0;
 	}
 	if (first_exit_option == 'h') {
-		usage();
-		return 1;
+		usage(stdout);
+		return 0;
 	}
 
 	if(survey_mode && (have_lap || have_uap)) {
@@ -198,8 +205,11 @@ int main(int argc, char* argv[])
 	if (infile_name != NULL) {
 		infile = fopen(infile_name, "r");
 		if (infile == NULL) {
-			printf("Could not open file %s\n", infile_name);
-			usage();
+			/* A file that is not there is a runtime failure, not a
+			 * bad command line, so it gets no usage text; same
+			 * shape as the other file-open failures. */
+			fprintf(stderr, "error: %s: %s\n",
+			        infile_name, strerror(errno));
 			return 1;
 		}
 	}
@@ -214,7 +224,8 @@ int main(int argc, char* argv[])
 	if (dump_name != NULL) {
 		dumpfile = fopen(dump_name, "w");
 		if (dumpfile == NULL) {
-			perror(dump_name);
+			fprintf(stderr, "error: %s: %s\n",
+			        dump_name, strerror(errno));
 			return 1;
 		}
 	}

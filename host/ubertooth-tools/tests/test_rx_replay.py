@@ -189,7 +189,7 @@ with tempfile.TemporaryDirectory() as workdir:
     result = run("-i", "adir", directory=work)
     assert result.returncode == 1, result
     assert ("error: reading adir failed:" in result.stderr
-            or "Could not open file adir" in result.stdout), result
+            or "error: adir: " in result.stderr), result
     assert systimes(result.stdout) == [], result
 
     # A last record cut short: the whole records before it are decoded, the
@@ -207,7 +207,9 @@ with tempfile.TemporaryDirectory() as workdir:
     assert result.returncode == 0, result
     assert result.stdout == "" and result.stderr == "", result
 
-    # A missing file was already reported; it still is.
+    # A missing file is reported on standard error, with standard output
+    # left empty for whatever is reading the replay.
     result = run("-i", "missing.bin", directory=work)
     assert result.returncode == 1, result
-    assert "Could not open file missing.bin" in result.stdout, result
+    assert result.stdout == "", result
+    assert result.stderr.startswith("error: missing.bin: "), result

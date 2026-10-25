@@ -60,8 +60,7 @@ static void usage(FILE *file)
 
 int main(int argc, char* argv[])
 {
-	int opt, have_lap = 0, have_uap = 0, timeout = 0;//, have_initial_afh = 0;
-	// uint8_t initial_afh[10];
+	int opt, have_lap = 0, have_uap = 0, timeout = 0;
 	int threshold;
 	/* -h / -V: the first one given ends the command (see below). */
 	int first_exit_option = 0;
@@ -81,7 +80,7 @@ int main(int argc, char* argv[])
 	 * see opt_report_bad_option(). The leading ':' makes a missing option
 	 * value distinguishable from an option getopt does not know. */
 	opterr = 0;
-	while ((opt=getopt(argc,argv,":rhVl:u:U:e:a:t:m:")) != EOF) {
+	while ((opt=getopt(argc,argv,":rhVl:u:U:e:t:m:")) != EOF) {
 		switch(opt) {
 		case 'l':
 			if (opt_require_lap(optarg, &lap) < 0)
@@ -92,12 +91,6 @@ int main(int argc, char* argv[])
 			if (opt_require_uap(optarg, &uap) < 0)
 				return 1;
 			have_uap = 1;
-			break;
-		case 'a':
-			// for(int i=0; i<10; i++) {
-			// 	sscanf(2+optarg+2*i, "%2hhx", &initial_afh[i]);
-			// }
-			// have_initial_afh = 1;
 			break;
 		case 't':
 			if (opt_require_count(optarg, 0, "timeout", "seconds",

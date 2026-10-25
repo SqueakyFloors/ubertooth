@@ -392,12 +392,15 @@ for any other option value that is not a whole decimal number in its range
 `error: channel must be 0-78 (got abc)`.
 It also exits with 1, without opening a device, when the command line contains
 a word that is not an option, and names it: `error: unexpected argument '<word>'`.
-`ubertooth-util` takes no other arguments.
+`ubertooth-util` takes no other arguments. An option the tool does not know is
+refused the same way, with the usage text after it on standard error:
+`error: unrecognized option '-Z'`; an option whose value is missing reads
+`error: option '-U' requires a value`.
 
-When a `-b`, `-c`, `-a`, `-z`, `-l`, `-d`, `-p`, `-s`, `-m` or `-9` read fails,
+When a `-b`, `-c`, `-a`, `-z`, `-l`, `-d`, `-p`, `-s` or `-m` read fails,
 no value line is printed on standard output, so an error code is never shown as
 a value; the other requested queries are still reported. A failed `-b`, `-c`,
-`-a`, `-z`, `-l`, `-d`, `-p`, `-s`, `-m` or `-9` read also prints
+`-a`, `-z`, `-l`, `-d`, `-p`, `-s` or `-m` read also prints
 `error: <query> read failed` (for example `error: channel read failed` or
 `error: board ID read failed`) on standard error, after any message from
 libubertooth. When the board returns fewer bytes than the read needs, that is
