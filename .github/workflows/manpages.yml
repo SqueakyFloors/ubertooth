@@ -1,0 +1,98 @@
+name: Man pages
+
+# The roff pages in host/doc/man are generated from host/doc/*.md and
+# committed, because they are what `make install` installs. Nothing in a build
+# regenerates them, so a .md edit that lands without a refresh ships a page
+# that no longer matches its source. This job runs the refresh and fails if it
+# changes anything.
+#
+# Pull requests run it only when the documentation or this workflow changes,
+# to keep them fast; every push to main runs it, so a refresh missed on a
+# branch is caught on the merge. A manual run is for checking a ronn upgrade.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'host/doc/**'
+      - '.github/workflows/manpages.yml'
+  pull_request:
+    paths:
+      - 'host/doc/**'
+      - '.github/workflows/manpages.yml'
+  workflow_dispatch:
+
+# Same cancellation rule as build.yml: only an older run of the same PR is
+# cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  refresh:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: actions/checkout@v4
+      name: Fetch libbtbb
+      with:
+        repository: 'greatscottgadgets/libbtbb'
+        path: 'libbtbb'
+
+    - name: Install dependencies
+      # Configuring the host tree needs its required dependencies even though
+      # only the documentation subproject is built here.
+      run: |
+        sudo apt update
+        sudo apt install -y libusb-1.0-0-dev
+
+    - name: Install ronn-ng
+      # The pinned version, kept in step with RONN_VERSION in
+      # host/doc/man/CMakeLists.txt: two versions of ronn render the same .md
+      # differently, so the check is only meaningful against one of them. The
+      # version is printed so a run's log says what rendered the pages.
+      run: |
+        sudo gem install ronn-ng -v 0.10.1
+        ronn --version
+
+    - name: Build and install libbtbb
+      # Same steps as build.yml: libbtbb is a required dependency of the host
+      # tree, and upstream declares a cmake_minimum_required that CMake 4.x
+      # rejects, so the policy minimum is forced. Its Python bindings are not
+      # needed and fail on modern setuptools.
+      run: |
+        cmake -S libbtbb -B libbtbb/build -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DENABLE_PYTHON=OFF
+        cmake --build libbtbb/build
+        sudo cmake --install libbtbb/build
+        sudo ldconfig
+
+    - name: Configure
+      run: cmake -S host -B build
+
+    - name: Refresh the man pages
+      run: cmake --build build --target refresh-manpages
+
+    - name: Check the committed pages match their Markdown
+      run: |
+        if git diff --exit-code host/doc/man; then
+          echo "The committed man pages match host/doc/*.md."
+          exit 0
+        fi
+        cat >&2 <<'EOF'
+
+        The committed man pages in host/doc/man no longer match host/doc/*.md
+        (the diff above is what a refresh writes). To fix it, run:
+
+            cmake -S host -B build
+            cmake --build build --target refresh-manpages
+
+        then commit the regenerated .1 files together with the .md you edited.
+        Install the pinned generator first if you do not have it:
+
+            gem install ronn-ng -v 0.10.1
+
+        EOF
+        exit 1

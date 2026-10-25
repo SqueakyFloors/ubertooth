@@ -151,6 +151,9 @@ Speed matters. Do not wait for every job.
 - MUST preserve exact error strings that users are likely to search for, such
   as `ModuleNotFoundError: No module named 'specan'`, in the relevant
   troubleshooting documentation even when changelog prose is condensed.
+- After editing a man page source in `host/doc/`, MUST regenerate its
+  committed roff page with `cmake --build build --target refresh-manpages` and
+  commit the `.1` with the `.md`.
 
 ## Public text: no lab or company details
 

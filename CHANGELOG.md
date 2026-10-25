@@ -61,8 +61,11 @@
 
 - A build no longer rewrites the committed man pages in `host/doc/man`, and
   installs the same pages with or without ronn. Refresh them after editing a
-  `host/doc/*.md`: `cmake --build <build dir> --target refresh-manpages`.
+  `host/doc/*.md`: `cmake --build <build dir> --target refresh-manpages`; CI
+  checks that the committed pages match. The installed pages now carry the
+  text of their Markdown, which a few had drifted from.
   [#254](https://github.com/SqueakyFloors/ubertooth/issues/254)
+  [#311](https://github.com/SqueakyFloors/ubertooth/issues/311)
 - `man ubertooth-debug` is installed; its page was built but never installed.
   [#235](https://github.com/SqueakyFloors/ubertooth/issues/235)
 - Python tools are installed natively under the chosen CMake prefix, so
