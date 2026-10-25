@@ -1694,6 +1694,8 @@ cleanup:
 	 * is normally nothing here; it stays so that moving the signing step
 	 * cannot leave a temporary file behind. */
 	discard_output_temp(&outfile, &outfile_temp);
+	free(outfile_name);
+	outfile_name = NULL;
 	if (downfile != NULL)
 		fclose(downfile);
 	/* A failure once the board is in DFU must not leave it there: -r asked

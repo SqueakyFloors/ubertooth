@@ -92,6 +92,7 @@ with tempfile.TemporaryDirectory() as directory:
     binary = os.path.join(directory, "image.bin")
     signed = os.path.join(directory, "image.dfu")
     write(binary, FIRMWARE)
+    before_sign = sorted(os.listdir(directory))
     code, _ = run("-s", binary)
     check(code == 0, f"-s on a .bin exited {code}")
     if os.path.exists(signed):
@@ -110,7 +111,8 @@ with tempfile.TemporaryDirectory() as directory:
         check(data == expected_signed(FIRMWARE),
               "-s wrote a different signed image than expected")
         # ...and nothing beside it: the temporary file is renamed, never left.
-        leftovers = sorted(set(os.listdir(directory)) - {"image.bin", "image.dfu"})
+        leftovers = sorted(set(os.listdir(directory)) - set(before_sign) -
+                           {"image.dfu"})
         check(not leftovers, f"-s left files beside its output: {leftovers}")
     else:
         check(False, "-s created no .dfu")
@@ -316,16 +318,26 @@ with tempfile.TemporaryDirectory() as directory:
     #    same name, or left a new one behind. The signed file is now written
     #    through a temporary file renamed over the target once the whole image
     #    is there, and every failure removes that temporary file.
+    #
+    #    What is left of the truncate-before-read window cannot be reproduced
+    #    from a test: the input is measured and refused before it is read, so
+    #    the remaining ways signing can fail after the output exists are a
+    #    short read of a file something else is shrinking, an allocation
+    #    failure, and a write that does not fit. None of those can be asked
+    #    for portably. The cases below pin what can be: the refusals that come
+    #    before the output, and the cleanup of the temporary file.
     print("\n### a failed -s keeps the earlier .dfu and creates none")
     sign_dir = os.path.join(directory, "sign")
     os.mkdir(sign_dir)
     good_bin = os.path.join(sign_dir, "fw.bin")
     good_dfu = os.path.join(sign_dir, "fw.dfu")
     write(good_bin, FIRMWARE)
-    # An input -s can open but cannot read: its .dfu name has no input of its
-    # own, so each case below says which .bin it signs.
-    unreadable_bin = os.path.join(sign_dir, "unreadable.bin")
-    os.mkdir(unreadable_bin)
+    # A directory as the input: the shape the issue reported, now refused by
+    # the regular-file guard before anything is opened for writing. Its .dfu
+    # name has no input of its own, so each case below says which .bin it
+    # signs.
+    refused_input = os.path.join(sign_dir, "unreadable.bin")
+    os.mkdir(refused_input)
     bad_image = os.path.join(sign_dir, "not-an-image.dfu")
     write(bad_image, b"this is not firmware, it is a note to self\n")
     EARLIER = b"an earlier signed image\n" * 10
@@ -357,9 +369,9 @@ with tempfile.TemporaryDirectory() as directory:
             os.unlink(written)
         return output
 
-    # An input that opens but cannot be read whole.
-    output = sign_failed("-s on an unreadable input",
-                         ("-s", unreadable_bin),
+    # An input the tool will not read whole.
+    output = sign_failed("-s on a refused input",
+                         ("-s", refused_input),
                          os.path.join(sign_dir, "unreadable.dfu"))
     check("unreadable.bin" in output,
           "-s did not name the input it could not read")
@@ -370,7 +382,7 @@ with tempfile.TemporaryDirectory() as directory:
     readback = os.path.join(sign_dir, "readback.bin")
     write(readback, EARLIER)
     before = sorted(os.listdir(sign_dir))
-    code, output = run("-u", readback, "-s", unreadable_bin,
+    code, output = run("-u", readback, "-s", refused_input,
                        "-U", NO_SUCH_SERIAL, "-r")
     check(code == 1, f"-u with a refused -s input exited {code}")
     check("unreadable.bin" in output and "not a regular file" in output,
@@ -387,7 +399,7 @@ with tempfile.TemporaryDirectory() as directory:
     # Which of the two is reported says which came first: a -u output that
     # cannot be created at all does not get in front of a refused -s input.
     code, output = run("-u", os.path.join(sign_dir, "no-such-dir", "out.bin"),
-                       "-s", unreadable_bin, "-U", NO_SUCH_SERIAL, "-r")
+                       "-s", refused_input, "-U", NO_SUCH_SERIAL, "-r")
     check(code == 1, f"-u with nowhere to write and a refused -s input exited {code}")
     check("not a regular file" in output,
           "the -s input was not checked before the -u output was created")
@@ -410,6 +422,31 @@ with tempfile.TemporaryDirectory() as directory:
     check(not leftovers, f"-s left a temporary file behind: {leftovers}")
     shutil.rmtree(blocked_dfu)
     os.unlink(blocked_bin)
+
+    # Renaming a file into place needs write access to the directory, which
+    # overwriting one in place did not: -s in a read-only directory now fails
+    # even when the .dfu it would replace is writable. It is what -u has
+    # always done, and the man page says so.
+    print("\n### -s needs to be able to write in the output's directory")
+    if AS_ROOT:
+        skipped.append("read-only output directory with a target (running as root)")
+    else:
+        fixed_dir = os.path.join(directory, "fixed")
+        os.mkdir(fixed_dir)
+        fixed_bin = os.path.join(fixed_dir, "fw.bin")
+        fixed_dfu = os.path.join(fixed_dir, "fw.dfu")
+        write(fixed_bin, FIRMWARE)
+        write(fixed_dfu, EARLIER)
+        os.chmod(fixed_dir, stat.S_IRUSR | stat.S_IXUSR)
+        code, output = run("-s", fixed_bin)
+        check(code == 1, f"-s in a read-only directory exited {code}")
+        check("fw.dfu" in output,
+              "-s did not name the output it could not replace")
+        os.chmod(fixed_dir, stat.S_IRWXU)
+        check(read(fixed_dfu) == EARLIER,
+              "-s in a read-only directory changed the earlier .dfu")
+        check(sorted(os.listdir(fixed_dir)) == ["fw.bin", "fw.dfu"],
+              f"-s left files behind: {sorted(os.listdir(fixed_dir))}")
 
     # A -d image the tool refuses, with -s in the same command: the refusal
     # comes before the signed file exists, in either option order.

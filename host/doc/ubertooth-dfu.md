@@ -120,9 +120,18 @@ written in that case.
 it through a temporary file beside the target as `-u` does for its dump (see
 [READING FLASH BACK][]). A signing run that fails for any reason, including a
 `-d` image refused in the same command, leaves an earlier `<file>.dfu`
-untouched, creates none, and leaves no temporary file behind. The image it
-writes on success is the one it always wrote: the input, unchanged, with the
-16-byte suffix appended.
+untouched and creates none; whichever way it ends on its own it leaves no
+temporary file behind, and only a signal that kills it can. The image it writes
+on success is the one it always wrote: the input, unchanged, with the 16-byte
+suffix appended, keeping the permissions of the file it replaced.
+
+Writing it that way means `-s`, like `-u`, needs to be able to create a file in
+the output's directory, not just write the output itself: signing into a
+read-only directory fails even where the `<file>.dfu` it would replace is
+writable. The new file is put in the target's place rather than written through
+it, so a `<file>.dfu` that is a symlink, or one with other hard links to it, is
+replaced by the signed image instead of having the image written into what it
+points at.
 
 Both read their whole file into memory, so what the file is comes first. A
 directory, a FIFO or a device node is refused (`error: <file> is not a regular
@@ -134,8 +143,8 @@ and `-s` takes 507904, the same less the suffix it adds, so the file it writes
 is one `-d` still accepts. Either refusal ends the command with exit status 1
 before any device is opened, and with `-s` before the output file is created.
 
-A command that gives both `-s` and `-d` checks the `-d` image first, so an
-image it refuses costs the signed file nothing:
+A command that gives both `-s` and `-d` checks both files it only reads before
+it creates anything, so an image it refuses costs the signed file nothing:
 
     $ ubertooth-dfu -s firmware.bin -d not-an-image.dfu
     Checking firmware signature

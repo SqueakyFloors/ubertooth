@@ -314,7 +314,9 @@
   [#283](https://github.com/SqueakyFloors/ubertooth/issues/283)
 - `ubertooth-dfu -s` writes `<file>.dfu` only once the whole signed image is
   ready, and checks a `-d` image given in the same command first, so a signing
-  run that fails leaves an earlier `<file>.dfu` untouched and creates none.
+  run that fails leaves an earlier `<file>.dfu` untouched and creates none. It
+  now needs to be able to create a file in the output's directory, as `-u`
+  does.
   [#305](https://github.com/SqueakyFloors/ubertooth/issues/305)
   [#286](https://github.com/SqueakyFloors/ubertooth/issues/286)
 - `ubertooth-dfu -u <dump> -d <image>` no longer leaves a temporary dump file
