@@ -118,12 +118,18 @@ written in that case.
 
 `-s` replaces `<file>.dfu` only once the whole signed image is ready, writing
 it through a temporary file beside the target as `-u` does for its dump (see
-[READING FLASH BACK][]). A signing run that fails for any reason, including a
-`-d` image refused in the same command, leaves an earlier `<file>.dfu`
-untouched and creates none; whichever way it ends on its own it leaves no
-temporary file behind, and only a signal that kills it can. The image it writes
-on success is the one it always wrote: the input, unchanged, with the 16-byte
-suffix appended, keeping the permissions of the file it replaced.
+[READING FLASH BACK][]). If the signing does not get that far, for any reason
+(an input it refuses, a `-d` image refused in the same command, a read or a
+write that fails), an earlier `<file>.dfu` is left untouched and none is
+created; whichever way the command ends on its own it leaves no temporary file
+behind, and only a signal that kills it can. The image it writes is the one it
+always wrote: the input, unchanged, with the 16-byte suffix appended, keeping
+the permissions of the file it replaced.
+
+What happens after the signed file is in place is a separate matter. `-s`
+alongside `-d`, `-u` or `-r` signs first and then goes to the board, so a
+command that fails there, with a device it cannot open or a flash that does
+not take, exits 1 with `<file>.dfu` already written.
 
 Writing it that way means `-s`, like `-u`, needs to be able to create a file in
 the output's directory, not just write the output itself: signing into a

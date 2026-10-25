@@ -1339,9 +1339,10 @@ int main(int argc, char **argv) {
 		goto end_without_device;
 	}
 
-	/* Every check on the command line has passed, so the -d image can be
-	 * opened and read: it is the last thing that can refuse the command, and
-	 * reading it creates nothing. */
+	/* Every check on the command line has passed, so the files this command
+	 * only reads can be opened and checked: the -d image here and the -s
+	 * input below. Reading them creates nothing, and either can still end the
+	 * command, so both come before any output exists. */
 	if (downfile_name != NULL) {
 		/* Read-only: the image is never written to. */
 		downfile = fopen(downfile_name, "rb");
@@ -1376,10 +1377,10 @@ int main(int argc, char **argv) {
 		}
 	}
 
-	/* The -s input is read-only too, and it is the other thing that can
-	 * refuse the command, so its checks also come before any output: with -u
-	 * and -s together, an input -s will not take must not have cost the
-	 * read-back's temporary file. */
+	/* The -s input, for the same reason: with -u and -s together, an input
+	 * that -s will not take must not cost the read-back a temporary file,
+	 * and must be what the command reports rather than an output the
+	 * read-back could not have created either. */
 	if (sign_name != NULL) {
 		infile = fopen(sign_name, "rb");
 		if (infile == NULL) {
@@ -1407,10 +1408,13 @@ int main(int argc, char **argv) {
 		}
 	}
 
-	/* Nothing is left that can refuse the command, so the output files can
-	 * be created. Both go through a temporary file renamed over the target
-	 * once what belongs in it is all there, so a failure from here on leaves
-	 * an earlier file of the same name untouched and creates none. */
+	/* Everything that can be settled by reading has been, so the output
+	 * files can be created. What is left is the work itself, which can still
+	 * fail: signing can hit a short read or a write that does not fit, and
+	 * the read-back depends on the board. So both go through a temporary file
+	 * renamed over the target once what belongs in it is all there, and a
+	 * failure from here on leaves an earlier file of the same name untouched
+	 * and creates none. */
 	if (upfile_name != NULL) {
 		upfile = open_output_temp(upfile_name, &upfile_temp);
 		if (upfile == NULL) {

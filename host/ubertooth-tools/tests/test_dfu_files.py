@@ -448,6 +448,31 @@ with tempfile.TemporaryDirectory() as directory:
         check(sorted(os.listdir(fixed_dir)) == ["fw.bin", "fw.dfu"],
               f"-s left files behind: {sorted(os.listdir(fixed_dir))}")
 
+    # The signed image is put in the target's place rather than written
+    # through it, so a .dfu that is a symlink, or one with another hard link
+    # to it, is replaced instead of having the image land in what it shares.
+    # The man page says so; this pins it.
+    print("\n### -s replaces its output rather than writing through a link")
+    link_dir = os.path.join(directory, "links")
+    os.mkdir(link_dir)
+    for kind in ("symlink", "hardlink"):
+        source = os.path.join(link_dir, f"{kind}.bin")
+        target = os.path.join(link_dir, f"{kind}.dfu")
+        other = os.path.join(link_dir, f"{kind}.other")
+        write(source, FIRMWARE)
+        write(other, EARLIER)
+        if kind == "symlink":
+            os.symlink(other, target)
+        else:
+            os.link(other, target)
+        code, output = run("-s", source)
+        check(code == 0, f"-s on a {kind} output exited {code}: {output.strip()}")
+        check(read(target) == expected_signed(FIRMWARE),
+              f"-s did not write the signed image over the {kind}")
+        check(not os.path.islink(target), f"-s kept the {kind} in place")
+        check(read(other) == EARLIER,
+              f"-s wrote through the {kind} into the file it shared")
+
     # A -d image the tool refuses, with -s in the same command: the refusal
     # comes before the signed file exists, in either option order.
     for label, arguments in (
