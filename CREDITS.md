@@ -28,7 +28,7 @@ Details are in [CHANGELOG.md](CHANGELOG.md).
 | [@stryngs](https://github.com/stryngs) | Scapy `PcapReader` update | [upstream #519](https://github.com/greatscottgadgets/ubertooth/pull/519) |
 | oliver ([@Oliver0804](https://github.com/Oliver0804)) | BLE CRC filtering and verification | [upstream #550](https://github.com/greatscottgadgets/ubertooth/pull/550) |
 | Gabriele Gristina ([@matrix](https://github.com/matrix)) | Firmware signal-strength channel bounds | [upstream #481](https://github.com/greatscottgadgets/ubertooth/pull/481) |
-| Hillel Chimowicz ([@hllhll](https://github.com/hllhll)) | Faster, more reliable Classic Bluetooth paging | [upstream #540](https://github.com/greatscottgadgets/ubertooth/pull/540) |
+| Hillel Chimowicz ([@hllhll](https://github.com/hllhll)) and [@shapaz](https://github.com/shapaz) | Faster, more reliable Classic Bluetooth paging | [upstream #540](https://github.com/greatscottgadgets/ubertooth/pull/540) |
 | [@Kielukel](https://github.com/Kielukel) and Piotr Wasylów | Adaptive Frequency Hopping (AFH) divide-by-zero fixes | [Kielukel/ubertooth](https://github.com/Kielukel/ubertooth) |
 
 ## Upstream contributors
