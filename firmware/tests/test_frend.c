@@ -3,11 +3,11 @@
  * firmware/common/cc2400.h.
  *
  * `ubertooth-util -a<0-7>` sets FREND's PA_LEVEL[2:0]. The transmit paths in
- * bluetooth_rxtx.c and ego.c used to write a whole FREND value of their own
- * (0b1011, level 3, "picked from hat"; ego used 0xf), which silently replaced
- * the level the user asked for and left it changed afterwards.
- * They now go through frend_keep_pa_level(), which writes the reserved bits
- * and keeps PA_LEVEL as it is.
+ * bluetooth_rxtx.c, ego.c and the btbr image's rf.c used to write a whole
+ * FREND value of their own (0b1011, level 3, "picked from hat"; ego used
+ * 0xf), which silently replaced the level the user asked for and left it
+ * changed afterwards. They now go through frend_keep_pa_level(), which writes
+ * the reserved bits and keeps PA_LEVEL as it is.
  *
  * These run on the host: cc2400.h is pure register definitions plus one small
  * function, and the fakes below stand in for the SPI register file, so the
@@ -184,8 +184,12 @@ static int frend_write_is_allowed(const char *line)
 		return 1;
 	if (strstr(line, "FREND_RESERVED_ONE") == NULL)
 		return 0;
-	return strstr(line, "request_params[0]") != NULL
-	    || strstr(line, "tx_pkt.pa_level") != NULL;
+	/* The vendor request already refused anything above 7; the packet field
+	 * is unchecked, so it has to be masked here. */
+	if (strstr(line, "request_params[0]") != NULL)
+		return 1;
+	return strstr(line, "tx_pkt.pa_level") != NULL
+	    && strstr(line, "FREND_PA_LEVEL") != NULL;
 }
 
 static int check_frend_writes(const char *path)

@@ -263,6 +263,8 @@ typedef struct {
 	uint16_t syncl;
 	uint16_t channel;
 	uint8_t  length;
+	/* Only the low three bits reach FREND's PA_LEVEL; unlike
+	 * UBERTOOTH_SET_PALEVEL, a larger value is masked rather than refused. */
 	uint8_t  pa_level;
 	uint8_t  data[DMA_SIZE];
 } generic_tx_packet;

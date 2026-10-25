@@ -20,12 +20,6 @@
   [#332](https://github.com/SqueakyFloors/ubertooth/issues/332)
 - `ubertooth-btle` and `ubertooth-ego` list their `-j`/`-J` jam aliases in `-h`.
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
-- The Classic Bluetooth (`btbr`) firmware keeps the power amplifier level set
-  with `ubertooth-util -a` instead of forcing level 3 when it brings the radio
-  up, so its default rises to the power-on level 7 (0 dBm at the CC2400), the
-  same rise the other transmit modes took. A generic transmit still sends at
-  the level in its own request, but leaves the board's level as it found it.
-  [#181](https://github.com/SqueakyFloors/ubertooth/issues/181)
 - `ubertooth-rx` lists `-s` in `-h` as the explicit form of its default channel
   sweep, and no longer calls it deprecated; the `-z` line no longer claims to
   imply it.
@@ -73,8 +67,8 @@
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
 - **Reflash required:** the firmware API version is now 1.16, last moved by the
   amplifier level of the generic transmit request, and the host tools require
-  firmware of
-  exactly their own API version, older or newer (`ubertooth-util` still reads
+  firmware of exactly their own API version, older or newer (`ubertooth-util`
+  still reads
   the version and reflashes any firmware). Host and firmware come from the
   same tree; `2020-12-R1` firmware is refused.
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
@@ -509,6 +503,12 @@
   rather than the level 3 (-7 dBm) they used to force. E-GO jamming already
   used 7, so it is unchanged.
   [#165](https://github.com/SqueakyFloors/ubertooth/issues/165)
+- The Classic Bluetooth (`btbr`) firmware keeps the power amplifier level set
+  with `ubertooth-util -a` instead of forcing level 3 when it brings the radio
+  up, so its default rises to the power-on level 7 the same way. A generic
+  transmit still sends at the level in its own request, but leaves the board's
+  level as it found it.
+  [#181](https://github.com/SqueakyFloors/ubertooth/issues/181)
 - PCAP and PcapNG timestamps no longer jump 101.8 s every time the board's
   capture clock rolls over, which it does every 327.68 s, so packet times in a
   long capture are continuous again, live and on `ubertooth-rx -i` replay.

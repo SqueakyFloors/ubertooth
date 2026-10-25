@@ -127,8 +127,10 @@ void btphy_rf_init(void)
 	// ref: CC2400 datasheet page 67
 	// AFC settling explained page 41/42
 	cc2400_set(MDMTST0, mdmtst0);
-	// Keep whatever amplifier level is already set (level 7 on a fresh
-	// board) instead of forcing one, so `ubertooth-util -a` holds here too.
+	// Don't pick an amplifier level: keep the one in the register, which at
+	// this point in the boot is the chip's reset value 7, writing the
+	// reserved bits as the datasheet requires. Nothing else here writes
+	// FREND, so `ubertooth-util -a` is what sets the transmit power.
 	cc2400_set(FREND,   frend_keep_pa_level(cc2400_get(FREND)));
 	cc2400_set(MDMCTRL, 0x0029|(rf_state.freq_off_reg<<7)); // 160 kHz frequency deviation
 	cc2400_set(INT,     PHY_FIFO_THRESHOLD);	// FIFO_THRESHOLD

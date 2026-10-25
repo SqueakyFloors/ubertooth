@@ -209,10 +209,10 @@ u16 next_hop(u32 clock)
  * word in hardware. It is kept as a reference correlator.
  *
  * Each call searches only the buffer it is given, using a local window seeded
- * from that buffer's first 64 bits; it no longer reads or writes the
- * file-scope `syncword`. An earlier version kept the window in that global
- * and reseeded it only when it was zero, so later calls compared bits left
- * over from an earlier buffer. That carry was not a working streaming
+ * from that buffer's first 64 bits. An earlier version kept the window in a
+ * file-scope variable and reseeded it only when it was zero, so later calls
+ * compared bits left over from an earlier buffer. That carry was not a
+ * working streaming
  * design: the window stopped 64 bits short of the previous buffer's end, the
  * buffers it was used on were not contiguous (the radio hops between them),
  * and the returned offset had no consistent origin. That version also
