@@ -139,9 +139,11 @@ Common options:
    other options report. `-N` is neither a selector nor a per-device query, so
    it combines with everything else, in either order — reads, setters, modes,
    `-r`, `-S`, `-U <index|serial>` and the `-U all` listing — and a count that
-   succeeds leaves the exit status to the rest of the command. On its own it
-   prints the count, opens no device and exits 0, unless the count itself
-   fails. A command line refused before anything runs (two modes, `-z` with a
+   succeeds leaves the exit status to the rest of the command. On its own, or
+   with nothing but a `-U <index|serial>` selector beside it, it prints the
+   count, opens no device and exits 0, unless the count itself fails: a
+   selector alone asks nothing of the board it names. A command line refused
+   before anything runs (two modes, `-z` with a
    mode, `-U all` with an option it does not support, a bad option value, an
    unknown option or a stray word) prints no count, and `-h`, `-H` and
    `--host-version` end the command before it, as they do before every other
@@ -374,8 +376,11 @@ by running:
     ubertooth-util -m
 
 Before a range test has completed since the board started, `-m` prints
-`no range test result yet` and exits 0. A test whose packets did not match prints
-`Invalid range test: mismatch on byte <n>`.
+`no range test result yet` on standard output and exits 0: there is no result
+yet, which is not a failure. A test that ran but whose packets came back
+corrupted has no result to report either, so it is a diagnostic rather than a
+value: `error: invalid range test: mismatch on byte <n>` on standard error,
+with exit status 1 and nothing on standard output.
 
 Note that the range test transmits the Cortex M3 microcontroller's
 serial number. If you do not wish to broadcast that information
@@ -418,8 +423,25 @@ running first and the reset would discard the value before the mode started.
 `ubertooth-util` exits with 0 when every requested operation succeeds, including
 queries that report a nonzero value such as `-b` (board ID), `-c` (channel), or
 `-a` (power amplifier level). `-m` with no range test result yet also exits 0
-(see [RANGE TEST][]). It exits with a nonzero status if any requested
-operation fails, even when a later operation in the same command succeeds.
+(see [RANGE TEST][]); `-m` on a result whose packets came back corrupted
+exits 1. It exits with a nonzero status if any requested operation fails, even
+when a later operation in the same command succeeds.
+
+A command line that asks for no operation at all is refused before any device
+is opened, rather than opening the selected board, doing nothing with it and
+exiting 0:
+
+    $ ubertooth-util
+    error: nothing to do: give an option that reads or sets something, or -N to count the attached boards
+
+    $ ubertooth-util -U 0
+    error: nothing to do: -U 0 selects a device but no option asks anything of it
+
+`-U` only says which board the rest of the command line acts on, so it is not
+an operation of its own; `-N`, `-h`, `-H` and `--host-version` are, and each
+works on its own. The usage text follows the `error: ` line on standard error,
+and the exit status is 1.
+
 It exits with 1, without opening a device, when two or more mode options are
 given (see DESCRIPTION), when `-z` is combined with a mode option, or when an
 `-a` level is not a single digit 0-7
@@ -474,9 +496,9 @@ standard output. A set that fails is still reported, on standard error, and
 the command exits 1. `-x` has never had a line of its own.
 
 The errors this tool prints itself are one line starting `error: `; its
-warnings and notes start `warning: ` and `note: `. Two kinds of line do not
-follow that yet: the unknown-option line from the option parser, and
-libubertooth's own messages, such as `could not open Ubertooth device`.
+warnings and notes start `warning: ` and `note: `. One kind of line does not
+follow that yet: libubertooth's own messages, such as
+`could not open Ubertooth device`.
 
 ## SEE ALSO
 

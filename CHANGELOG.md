@@ -27,8 +27,18 @@
 - **Script-visible change:** every tool now keeps standard output for its
   results and capture data; errors, warnings and progress go to standard
   error, `-h` exits 0, and a command line with nothing to do is refused. A
-  file a tool cannot open is reported as `error: <file>: <reason>`.
+  file a tool cannot open is reported as `error: <file>: <reason>`, and an
+  option a tool does not know as `error: unrecognized option '-Z'`.
+  `ubertooth-util -U 0` with no other option is one of the command lines now
+  refused: it used to open the board, do nothing and exit 0.
   [#323](https://github.com/SqueakyFloors/ubertooth/issues/323)
+  [#338](https://github.com/SqueakyFloors/ubertooth/issues/338)
+  [#367](https://github.com/SqueakyFloors/ubertooth/issues/367)
+- **Script-visible change:** `ubertooth-util -m` reports a range test whose
+  packets came back corrupted as `error: invalid range test: mismatch on byte
+  <n>` on standard error and exits 1; it was a line on standard output with
+  exit 0.
+  [#338](https://github.com/SqueakyFloors/ubertooth/issues/338)
 - ubertooth-btle can stream PCAP data to stdout with `-q -`
   or `-c -`, safely separating diagnostics for Wireshark and other consumers.
   Credit: Ryan Govostes ([@rgov](https://github.com/rgov)).

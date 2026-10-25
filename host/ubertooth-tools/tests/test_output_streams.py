@@ -41,7 +41,9 @@ FOLLOWS_THE_RULE = {
     "ubertooth-ducky",
     "ubertooth-dump",
     "ubertooth-ego",
+    "ubertooth-specan",
     "ubertooth-tx",
+    "ubertooth-util",
 }
 
 # The tools that report a bad command line the shared way: opterr = 0, an
@@ -50,7 +52,6 @@ FOLLOWS_THE_RULE = {
 # FOLLOWS_THE_RULE, and the bad-option checks below run for it either way.
 REPORTS_BAD_OPTIONS = FOLLOWS_THE_RULE | {
     "ubertooth-rx",
-    "ubertooth-util",
 }
 
 # One option per tool that takes a required value, for the missing-value case.
@@ -61,6 +62,7 @@ OPTION_NEEDING_A_VALUE = {
     "ubertooth-dump": "d",
     "ubertooth-ego": "c",
     "ubertooth-rx": "l",
+    "ubertooth-specan": "d",
     "ubertooth-tx": "l",
     "ubertooth-util": "U",
 }
@@ -75,6 +77,8 @@ NOTHING_TO_DO = {
                        "signal the bootloader",
     "ubertooth-ego": "error: nothing to do: choose a major mode (-f, -r or -i)",
     "ubertooth-tx": "error: -l <LAP> and -u <UAP> are both required",
+    "ubertooth-util": "error: nothing to do: give an option that reads or sets "
+                      "something, or -N to count the attached boards",
 }
 
 # Anything libubertooth prints once a tool starts looking for a device: a

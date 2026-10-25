@@ -364,7 +364,9 @@ int main(int argc, char *argv[])
 {
 	int opt;
 	int other_operations = 0;   /* an option other than -s -v -V -p -b -U -N was given */
-	int non_count_options = 0;  /* an option other than -N was given */
+	/* An option other than -N and the -U selector was given, so something in
+	 * the command needs a device opened. */
+	int operations_besides_count = 0;
 	int status = 0; /* 0 on success, 1 if any operation failed; never a device value */
 	ubertooth_t* ut = NULL;
 	rangetest_result rr;
@@ -430,10 +432,12 @@ int main(int argc, char *argv[])
 		 * device. -N opens none: it counts boards on the USB bus. */
 		if (strchr("svVpbUN", opt) == NULL)
 			other_operations = 1;
-		/* Whether -N has the command line to itself, which is the only case
-		 * in which nothing but the count is done. */
-		if (opt != 'N')
-			non_count_options = 1;
+		/* Whether anything beyond the count was asked for. -N counts the
+		 * boards on the USB bus and -U only says which board the rest of the
+		 * command line acts on, so a command line of those two alone needs
+		 * no device: -U on its own asks nothing of the board it selects. */
+		if (opt != 'N' && opt != 'U')
+			operations_besides_count = 1;
 		switch(opt) {
 		case 'U':
 			ubertooth_device = optarg;
@@ -629,6 +633,21 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	/* A command line that asks for nothing is a mistake, not a no-op:
+	 * without this it would open the selected device, do nothing with it and
+	 * exit 0. -N is an operation in its own right, and -h, -H and
+	 * --host-version have already ended the command above. */
+	if (!do_number && !operations_besides_count) {
+		if (ubertooth_device != NULL)
+			fprintf(stderr, "error: nothing to do: -U %s selects a device but "
+			        "no option asks anything of it\n", ubertooth_device);
+		else
+			fprintf(stderr, "error: nothing to do: give an option that reads "
+			        "or sets something, or -N to count the attached boards\n");
+		usage(stderr);
+		return 1;
+	}
+
 	/* -N counts the Ubertooths on the USB bus and opens none of them, so it
 	 * has nothing to drop: the count goes first and the rest of the command
 	 * line still runs. Flushed so it really is first when standard output
@@ -640,8 +659,9 @@ int main(int argc, char *argv[])
 		else
 			printf("%d\n", device_count);
 		fflush(stdout);
-		/* -N on its own asks for nothing that needs a device. */
-		if (!non_count_options)
+		/* -N, with at most a selector beside it, asks for nothing that needs
+		 * a device. */
+		if (!operations_besides_count)
 			return status;
 	}
 
@@ -805,7 +825,13 @@ int main(int argc, char *argv[])
 				fprintf(stdout, "reply PA level   : %d\n", rr.reply_pa);
 				fprintf(stdout, "reply number     : %d\n", rr.reply_num);
 			} else if (rr.valid>1) {
-				fprintf(stdout, "Invalid range test: mismatch on byte %d\n", rr.valid-2);
+				/* The test ran but the data came back corrupted: a
+				 * diagnostic rather than a result, so it is not a value a
+				 * script can read off standard output, and the command
+				 * failed. */
+				fprintf(stderr, "error: invalid range test: mismatch on byte %d\n",
+				        rr.valid-2);
+				status = util_status_merge(status, 1);
 			} else {
 				/* valid is 0 until a range test completes once: there is
 				 * no result yet, which is not an error. */

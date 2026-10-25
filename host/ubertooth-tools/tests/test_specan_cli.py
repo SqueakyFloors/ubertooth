@@ -46,8 +46,8 @@ def reject(arguments, expected):
     assert "could not open" not in output.lower(), result
 
 
-reject(("-l",), "requires an argument")
-reject(("-u",), "requires an argument")
+reject(("-l",), "error: option '-l' requires a value")
+reject(("-u",), "error: option '-u' requires a value")
 reject(("-l", "bad"), "lower frequency")
 reject(("-u", "2481"), "upper frequency")
 reject(("-l", "2441", "-u", "2440"), "must not exceed")

@@ -70,30 +70,29 @@ target_link_libraries(test-specan-options opt-parse-for-tests)
 
 add_test(NAME specan-options COMMAND test-specan-options)
 
-# What a specan run does when it cannot write its samples. cb_specan() is
-# static in ubertooth-specan.c, so that source is compiled in with main()
-# renamed; the library is linked for the symbols its main() references, as
-# test-clk100ns-wrap does. main() is never called and no device is opened.
+# What a specan run does when it cannot write its samples, through the
+# callback and through its real main(). cb_specan() is static in
+# ubertooth-specan.c, so that source is compiled in with main() renamed, as
+# test_util_main.c does. The library's device functions are the fakes in the
+# test; only its fifo is the real one, so no device is opened.
 if(libubertooth_SOURCE_DIR)
 	add_executable(test-specan-write-failure
 		test_specan_write_failure.c
 		../src/specan_options.c
-		${libubertooth_SOURCE_DIR}/src/ubertooth.c
-		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c
-		${libubertooth_SOURCE_DIR}/src/ubertooth_callback.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_fifo.c)
 	target_include_directories(test-specan-write-failure PRIVATE
 		../src ${libubertooth_SOURCE_DIR}/src
 		${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
-	target_link_libraries(test-specan-write-failure opt-parse-for-tests
-		${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES})
+	target_link_libraries(test-specan-write-failure opt-parse-for-tests)
 	if(USE_OWN_GNU_GETOPT)
 		target_include_directories(test-specan-write-failure BEFORE PRIVATE ../getopt)
 		target_link_libraries(test-specan-write-failure libgetopt_static)
 	endif()
 
 	add_test(NAME specan-write-failure COMMAND test-specan-write-failure)
-	# Three calls into a callback with a fifo this test filled: milliseconds.
+	# A handful of callback calls and short main() runs against a scripted
+	# device: milliseconds. A regression that reached a real receive loop
+	# should fail here rather than hang the suite.
 	set_tests_properties(specan-write-failure PROPERTIES TIMEOUT 5)
 endif()
 
