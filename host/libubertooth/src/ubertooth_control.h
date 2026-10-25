@@ -69,6 +69,11 @@
  * length (firmware/bluetooth_rxtx/bluetooth.h). */
 #define AFH_MAP_BYTES 10
 
+/* Most data bytes a vendor control request carries, and so the most
+ * ubertooth_cmd_async() accepts. The longest request in use is the AFH map;
+ * 64 matches the control endpoint's packet size. */
+#define UBERTOOTH_CMD_MAX_DATA 64
+
 #ifndef MAX
 #define MAX(a,b) ((a)>(b) ? (a) : (b))
 #endif

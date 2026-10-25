@@ -290,6 +290,19 @@ if(libubertooth_SOURCE_DIR)
 	target_link_libraries(test-control-reads ${LIBUSB_LIBRARIES})
 	add_test(NAME control-reads COMMAND test-control-reads)
 
+	# The same approach for the asynchronous commands (follow mode), with the
+	# three libusb transfer calls faked in the test: what the library hands
+	# libusb, and what it frees, without a board.
+	add_executable(test-control-async
+		test_control_async.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
+	target_include_directories(test-control-async PRIVATE
+		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+	target_link_libraries(test-control-async ${LIBUSB_LIBRARIES})
+	add_test(NAME control-async COMMAND test-control-async)
+	# Every transfer is faked: a run takes milliseconds.
+	set_tests_properties(control-async PROPERTIES TIMEOUT 5)
+
 	# The same approach for the firmware revision and compile info commands.
 	add_executable(test-control-text
 		test_control_text.c
