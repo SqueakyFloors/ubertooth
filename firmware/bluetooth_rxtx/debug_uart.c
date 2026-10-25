@@ -51,18 +51,6 @@ void debug_uart_init(int flow_control) {
 	}
 }
 
-// synchronously write a string to debug UART
-// does not start any DMA
-void debug_write(const char *str) {
-	unsigned i;
-
-	for (i = 0; str[i]; ++i) {
-		while ((U1LSR & U1LSR_THRE) == 0)
-			;
-		U1THR = str[i];
-	}
-}
-
 static void debug_send_dma(size_t size) {
 	DMACC7SrcAddr = (uint32_t)debug_buffer;
 	DMACC7DestAddr = (uint32_t)&U1THR;
