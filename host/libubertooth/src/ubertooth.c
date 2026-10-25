@@ -152,7 +152,6 @@ void ubertooth_set_timeout(ubertooth_t* ut, int seconds) {
 
 int ubertooth_count(void) {
 	struct libusb_device **usb_list = NULL;
-	struct libusb_context *ctx = NULL;
 	struct libusb_device_descriptor desc;
 	int usb_devs, i, r;
 	int ubertooth_device_count = 0;
@@ -166,7 +165,7 @@ int ubertooth_count(void) {
 		return -1;
 	}
 
-	usb_devs = libusb_get_device_list(ctx, &usb_list);
+	usb_devs = libusb_get_device_list(NULL, &usb_list);
 
 	for(i = 0 ; i < usb_devs ; ++i) {
 		r = libusb_get_device_descriptor(usb_list[i], &desc);
@@ -212,7 +211,6 @@ static struct libusb_device_handle* find_ubertooth_device_opt(int ubertooth_devi
                                                               int quiet)
 {
 	struct libusb_device **usb_list = NULL;
-	struct libusb_context *ctx = NULL;
 	struct libusb_device_handle *devh = NULL;
 	struct libusb_device_descriptor desc;
 	int usb_devs, i, r, ret, pick, ut_ct = 0;
@@ -223,7 +221,7 @@ static struct libusb_device_handle* find_ubertooth_device_opt(int ubertooth_devi
 	if (devices_hidden(!quiet))
 		return NULL;
 
-	usb_devs = libusb_get_device_list(ctx, &usb_list);
+	usb_devs = libusb_get_device_list(NULL, &usb_list);
 	if (usb_devs <= 0) {
 		if (usb_devs == 0)
 			libusb_free_device_list(usb_list, 1);
@@ -376,7 +374,6 @@ static struct libusb_device_handle* find_ubertooth_device_serial_opt(
 		const char* serial_number, int quiet)
 {
 	struct libusb_device **usb_list = NULL;
-	struct libusb_context *ctx = NULL;
 	struct libusb_device_handle *devh = NULL;
 	struct libusb_device_descriptor desc;
 	char (*matched_serials)[SERIAL_STR_LEN] = NULL;
@@ -385,7 +382,7 @@ static struct libusb_device_handle* find_ubertooth_device_serial_opt(
 
 	/* Hidden devices: nothing to match, so no board is opened and no serial
 	 * is read; the "no Ubertooth found" report below is unchanged. */
-	usb_devs = devices_hidden(!quiet) ? 0 : libusb_get_device_list(ctx, &usb_list);
+	usb_devs = devices_hidden(!quiet) ? 0 : libusb_get_device_list(NULL, &usb_list);
 	if (usb_devs < 0) {
 		/* A bus that could not be listed is not the same as a serial that is
 		 * not attached, so do not report it as one. */
@@ -956,8 +953,12 @@ ubertooth_t* ubertooth_init()
 	}
 
 	ut->fifo = fifo_init();
-	if(ut->fifo == NULL)
+	if(ut->fifo == NULL) {
+		/* every later fifo_* call would dereference NULL */
 		fprintf(stderr, "Unable to initialize ringbuffer\n");
+		free(ut);
+		return NULL;
+	}
 
 	ut->devh = NULL;
 	ut->rx_xfer = NULL;

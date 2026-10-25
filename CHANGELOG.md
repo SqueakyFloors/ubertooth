@@ -98,6 +98,11 @@
   to be an image (507920 bytes for `-d`, 16 fewer for `-s`, which adds the
   suffix), instead of allocating from a size nothing had checked.
   [#246](https://github.com/SqueakyFloors/ubertooth/issues/246)
+- A tool that cannot allocate its capture ring buffer now says so and exits
+  instead of crashing: `ubertooth_init()` no longer returns a handle without
+  one, and `ubertooth-btle`, `ubertooth-ducky`, `ubertooth-follow`,
+  `ubertooth-rx` and `ubertooth-tx` stop when it fails.
+  [#247](https://github.com/SqueakyFloors/ubertooth/issues/247)
 - A set and a read of the same `ubertooth-util` value in one command both run,
   the set first, so `-c2426 -c`, `-a5 -a`, `-l1 -l` and `-d1 -d` report the new
   value instead of dropping the set.
