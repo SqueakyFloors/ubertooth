@@ -18,6 +18,11 @@
  * rx_dump() is here as the opposite case: it is a plain symbol capture, so it
  * must send UBERTOOTH_RX_SYMBOLS. Without it, "never UBERTOOTH_RX_SYMBOLS"
  * would also hold if the recorder saw nothing at all.
+ *
+ * The faked transfer calls also count what a run allocates and frees, and the
+ * faked event handling delivers a cancellation to the transfer's callback the
+ * way libusb does, so the cases can require that a stream gives its receive
+ * transfer back when it ends.
  */
 #include <stdint.h>
 #include <stdio.h>
@@ -52,6 +57,11 @@ static struct {
 	int overflow;                   /* more requests than this records */
 	int bulk_submits;
 	uint8_t refuse_request;         /* fail this request, as a stall does */
+	int xfer_allocs;                /* libusb_alloc_transfer() calls */
+	int xfer_frees;                 /* libusb_free_transfer() calls */
+	struct libusb_transfer* in_flight; /* the submitted transfer, or NULL */
+	int cancelled;                  /* a cancellation waiting to complete */
+	int refuse_submit;              /* fail libusb_submit_transfer() */
 } fake;
 
 /* The handle the receive loop under test is using, so the faked fifo can stop
@@ -132,12 +142,15 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle* devh,
 
 struct libusb_transfer* LIBUSB_CALL libusb_alloc_transfer(int iso_packets)
 {
+	fake.xfer_allocs++;
 	return calloc(1, sizeof(struct libusb_transfer)
 		+ (size_t)iso_packets * sizeof(struct libusb_iso_packet_descriptor));
 }
 
 void LIBUSB_CALL libusb_free_transfer(struct libusb_transfer* xfer)
 {
+	if (xfer != NULL)
+		fake.xfer_frees++;
 	free(xfer);
 }
 
@@ -145,23 +158,42 @@ void LIBUSB_CALL libusb_free_transfer(struct libusb_transfer* xfer)
  * above are counted as they are made. */
 int LIBUSB_CALL libusb_submit_transfer(struct libusb_transfer* xfer)
 {
-	(void)xfer;
 	fake.bulk_submits++;
+	if (fake.refuse_submit)
+		return LIBUSB_ERROR_IO;
+	fake.in_flight = xfer;
 	return 0;
 }
 
+/* As libusb does: a submitted transfer is cancelled and completes later, and
+ * a transfer that is not in flight cannot be cancelled. The caller is allowed
+ * to free that one itself, so telling the two apart is what the teardown
+ * under test depends on. */
 int LIBUSB_CALL libusb_cancel_transfer(struct libusb_transfer* xfer)
 {
-	(void)xfer;
+	if (xfer == NULL || xfer != fake.in_flight)
+		return LIBUSB_ERROR_NOT_FOUND;
+	fake.cancelled = 1;
 	return 0;
 }
 
-/* The poll thread calls this; nothing completes, so it just waits its turn. */
+/* Delivers a pending cancellation to the transfer's callback, which is how a
+ * real teardown gets its transfer back; with nothing pending this just waits
+ * its turn, as it does on the poll thread. */
 int LIBUSB_CALL libusb_handle_events_timeout(libusb_context* ctx,
                                              struct timeval* tv)
 {
+	struct libusb_transfer* xfer = fake.in_flight;
+
 	(void)ctx;
 	(void)tv;
+	if (fake.cancelled && xfer != NULL) {
+		fake.cancelled = 0;
+		fake.in_flight = NULL;
+		xfer->status = LIBUSB_TRANSFER_CANCELLED;
+		xfer->callback(xfer);
+		return 0;
+	}
 	usleep(1000);
 	return 0;
 }
@@ -535,6 +567,105 @@ MU_TEST(a_refused_mode_request_joins_the_poll_thread)
 	btbb_piconet_unref(pn);
 }
 
+/* Every receive transfer a run allocates is freed again. ubertooth_bulk_init()
+ * used to assign ut->rx_xfer whatever was already there, so the two-phase AFH
+ * run -- detect a map, then monitor it -- dropped the first phase's transfer:
+ * the allocation leaks reported 80 bytes at, once per extra phase. Whether
+ * the first phase's cancellation was ever handled depended on timing, so the
+ * teardown is now done where the phase ends. */
+MU_TEST(a_two_phase_run_frees_every_receive_transfer)
+{
+	char err[256] = "";
+	ubertooth_t* ut;
+	btbb_piconet* pn;
+	int r;
+
+	reset();
+	ut = new_handle();
+	pn = new_piconet();
+	mu_assert(ut != NULL && pn != NULL, "a handle and a piconet");
+	if (ut == NULL || pn == NULL)
+		return;
+	mark_a_channel_seen(pn); /* so the monitor phase follows the detection */
+
+	capture_output();
+	r = rx_afh(ut, pn, 30);
+	alarm(0); /* rx_afh() set one for the detection phase */
+	release_output(err, sizeof(err));
+
+	mu_assert_int_eq(0, r);
+	mu_assert_int_eq(2, fake.bulk_submits); /* one transfer per phase */
+	mu_assert_int_eq(2, fake.xfer_allocs);
+	mu_assert_int_eq(2, fake.xfer_frees);
+	mu_assert(ut->rx_xfer == NULL, "no transfer left on the handle");
+	mu_assert(err[0] == '\0', err);
+
+	release_handle(ut);
+	btbb_piconet_unref(pn);
+}
+
+/* A stream with one phase ends the same way. Its transfer used to stay
+ * allocated for the rest of the process: ubertooth_stop() cancelled it and
+ * closed the device without waiting for the cancellation. */
+MU_TEST(a_single_phase_stream_frees_its_receive_transfer)
+{
+	char err[256] = "";
+	ubertooth_t* ut;
+
+	reset();
+	ut = new_handle();
+	mu_assert(ut != NULL, "a handle");
+	if (ut == NULL)
+		return;
+
+	capture_output();
+	rx_dump(ut, 1);
+	release_output(err, sizeof(err));
+
+	mu_assert_int_eq(1, fake.bulk_submits);
+	mu_assert_int_eq(1, fake.xfer_allocs);
+	mu_assert_int_eq(1, fake.xfer_frees);
+	mu_assert(ut->rx_xfer == NULL, "no transfer left on the handle");
+	mu_assert(err[0] == '\0', err);
+
+	release_handle(ut);
+}
+
+/* A transfer libusb refused to submit was never in flight: it is freed rather
+ * than left to refuse the next phase of the same run. */
+MU_TEST(a_refused_submit_leaves_no_transfer_behind)
+{
+	char err[256] = "";
+	ubertooth_t* ut;
+
+	reset();
+	fake.refuse_submit = 1;
+	ut = new_handle();
+	mu_assert(ut != NULL, "a handle");
+	if (ut == NULL)
+		return;
+
+	capture_output();
+	mu_assert_int_eq(-1, ubertooth_bulk_init(ut));
+	release_output(err, sizeof(err));
+
+	mu_assert_int_eq(1, fake.xfer_allocs);
+	mu_assert_int_eq(1, fake.xfer_frees);
+	mu_assert(ut->rx_xfer == NULL, "no transfer left on the handle");
+	mu_assert(strstr(err, "submitting the receive transfer failed") != NULL,
+	          err);
+
+	/* and the next one on the same handle is accepted */
+	fake.refuse_submit = 0;
+	capture_output();
+	mu_assert_int_eq(0, ubertooth_bulk_init(ut));
+	release_output(err, sizeof(err));
+	mu_assert(err[0] == '\0', err);
+	mu_assert(ut->rx_xfer != NULL, "a transfer in place");
+
+	release_handle(ut);
+}
+
 int main(void)
 {
 	/* Nothing here should look for a board; make sure of it. */
@@ -546,5 +677,8 @@ int main(void)
 	MU_RUN(the_r_format_loop_asks_for_afh);
 	MU_RUN(a_symbol_capture_still_asks_for_symbols);
 	MU_RUN(a_refused_mode_request_joins_the_poll_thread);
+	MU_RUN(a_two_phase_run_frees_every_receive_transfer);
+	MU_RUN(a_single_phase_stream_frees_its_receive_transfer);
+	MU_RUN(a_refused_submit_leaves_no_transfer_behind);
 	return mu_report();
 }

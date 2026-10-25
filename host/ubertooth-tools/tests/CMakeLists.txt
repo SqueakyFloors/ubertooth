@@ -447,6 +447,24 @@ if(libubertooth_SOURCE_DIR)
 	# call should fail instead of hanging the suite.
 	set_tests_properties(device-select PROPERTIES TIMEOUT 10)
 
+	# The quiet selection the reset wait polls with, against its own faked
+	# USB bus: it must print nothing on either stream and must not send STOP
+	# to a board it cannot claim. ubertooth_fifo.c is left out for the same
+	# reason as above.
+	add_executable(test-select-quiet
+		test_select_quiet.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_callback.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
+	target_include_directories(test-select-quiet PRIVATE
+		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+	target_link_libraries(test-select-quiet ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES}
+		Threads::Threads)
+	add_test(NAME select-quiet COMMAND test-select-quiet)
+	# Every USB call is faked; a regression that reaches a real bus should
+	# fail instead of hanging the suite.
+	set_tests_properties(select-quiet PROPERTIES TIMEOUT 10)
+
 	# The control requests the AFH paths send, in order, against the same
 	# faked libusb: AFH detection has to run in the board's AFH mode, so
 	# UBERTOOTH_RX_SYMBOLS must never be sent on top of it. The fifo calls

@@ -130,6 +130,10 @@
 
 ### Reliability fixes
 
+- A capture gives its receive transfer back when it ends, so a run with more
+  than one phase (`ubertooth-afh` detects a map, then monitors it) no longer
+  leaks one transfer per extra phase.
+  [#307](https://github.com/SqueakyFloors/ubertooth/issues/307)
 - A follow-mode control command the board refuses now names itself and says
   what went wrong, for example `error: start hopping failed: the board does
   not support this command (stalled)`. It used to read the completion status

@@ -587,17 +587,80 @@ void ubertooth_bulk_thread_stop()
 	pthread_join(poll_thread, NULL);
 }
 
+/* How long ubertooth_bulk_stop() waits for a cancelled receive transfer to
+ * come back, as a number of short waits. libusb completes a cancellation as
+ * soon as the kernel reports it, so this is a bound on a device that never
+ * does rather than a wait anything normally reaches. */
+#define XFER_CANCEL_WAITS 50
+#define XFER_CANCEL_WAIT_US 10000
+
+/* Finishes the receive transfer ubertooth_bulk_init() started, so it is gone
+ * before the next phase of the same run allocates one (ubertooth-afh detects
+ * a map, then monitors it) and before the device is closed.
+ *
+ * A submitted transfer must not be freed, so it is cancelled first and the
+ * completion is handled here: by the time a stream tears down its poll thread
+ * has been joined, so nothing else would handle it, and the earlier code left
+ * the transfer to a cancellation that might never arrive. cb_xfer() frees the
+ * transfer and clears rx_xfer when the cancellation does arrive. A cancel
+ * libusb refuses means the transfer is no longer in flight, so it is freed
+ * here instead. The wait is bounded, and a transfer that never comes back is
+ * left allocated rather than freed while libusb may still write to it. */
+static void ubertooth_bulk_stop(ubertooth_t* ut)
+{
+	struct libusb_transfer* xfer;
+	int i;
+
+	if (ut->rx_xfer == NULL)
+		return;
+
+	if (libusb_cancel_transfer(ut->rx_xfer) == 0) {
+		for (i = 0; i < XFER_CANCEL_WAITS && ut->rx_xfer != NULL; i++) {
+			struct timeval tv = { 0, XFER_CANCEL_WAIT_US };
+
+			if (libusb_handle_events_timeout(NULL, &tv) < 0)
+				break;
+		}
+		return;
+	}
+
+	/* Cleared before the free, so a transfer is never freed twice however
+	 * this is reached. */
+	xfer = ut->rx_xfer;
+	ut->rx_xfer = NULL;
+	libusb_free_transfer(xfer);
+}
+
 int ubertooth_bulk_init(ubertooth_t* ut)
 {
 	int r;
 
+	/* A second phase of the same run calls this again on the same handle.
+	 * The transfer the previous phase left is finished here rather than
+	 * dropped: overwriting the pointer leaked the transfer, and one that is
+	 * still in flight must not be replaced while libusb writes to it. */
+	ubertooth_bulk_stop(ut);
+	if (ut->rx_xfer != NULL) {
+		fprintf(stderr, "error: the previous receive transfer did not "
+		        "finish\n");
+		return -1;
+	}
+
 	ut->rx_xfer = libusb_alloc_transfer(0);
+	if (ut->rx_xfer == NULL) {
+		fprintf(stderr, "error: allocating the receive transfer failed\n");
+		return -1;
+	}
 	libusb_fill_bulk_transfer(ut->rx_xfer, ut->devh, DATA_IN, (uint8_t*)fifo_get_write_element(ut->fifo), PKT_LEN, cb_xfer, ut, TIMEOUT);
 
 	r = libusb_submit_transfer(ut->rx_xfer);
 	if (r < 0) {
 		fprintf(stderr, "error: submitting the receive transfer failed "
 		        "(%d)\n", r);
+		/* It was never in flight, so it is freed here; leaving it in place
+		 * would refuse the next ubertooth_bulk_init() on this handle. */
+		libusb_free_transfer(ut->rx_xfer);
+		ut->rx_xfer = NULL;
 		return -1;
 	}
 	return 0;
@@ -642,8 +705,10 @@ static int stream_rx_usb(ubertooth_t* ut, rx_callback cb, void* cb_args,
 		return r;
 
 	r = ubertooth_bulk_thread_start();
-	if (r < 0)
+	if (r < 0) {
+		ubertooth_bulk_stop(ut);
 		return r;
+	}
 
 	// tell ubertooth to send packets
 	r = start(ut->devh);
@@ -651,6 +716,7 @@ static int stream_rx_usb(ubertooth_t* ut, rx_callback cb, void* cb_args,
 		/* The poll thread is running by now and nothing else joins it:
 		 * ubertooth_stop() frees the libusb context the thread is polling. */
 		ubertooth_bulk_thread_stop();
+		ubertooth_bulk_stop(ut);
 		return r;
 	}
 
@@ -661,6 +727,10 @@ static int stream_rx_usb(ubertooth_t* ut, rx_callback cb, void* cb_args,
 	}
 
 	ubertooth_bulk_thread_stop();
+	/* The transfer goes with the stream, so a caller that starts another one
+	 * (rx_afh() monitors after it has detected) does not leave this one
+	 * behind. */
+	ubertooth_bulk_stop(ut);
 
 	return 1;
 }
@@ -789,14 +859,17 @@ void rx_afh_r(ubertooth_t* ut, btbb_piconet* pn, int timeout __attribute__((unus
 		return;
 
 	r = ubertooth_bulk_thread_start();
-	if (r < 0)
+	if (r < 0) {
+		ubertooth_bulk_stop(ut);
 		return;
+	}
 
 	// tell ubertooth to send packets, in the AFH detection mode (see rx_afh)
 	r = cmd_afh(ut->devh);
 	if (r < 0) {
 		/* as in stream_rx_usb(): the poll thread has to be joined here */
 		ubertooth_bulk_thread_stop();
+		ubertooth_bulk_stop(ut);
 		return;
 	}
 
@@ -820,6 +893,7 @@ void rx_afh_r(ubertooth_t* ut, btbb_piconet* pn, int timeout __attribute__((unus
 	}
 
 	ubertooth_bulk_thread_stop();
+	ubertooth_bulk_stop(ut);
 }
 
 int rx_btle_file(FILE* fp)
@@ -900,9 +974,10 @@ void rx_dump(ubertooth_t* ut, int bitstream)
 
 static void ubertooth_cleanup(ubertooth_t* ut, int send_stop)
 {
-	/* make sure xfers are not active */
-	if(ut->rx_xfer != NULL)
-		libusb_cancel_transfer(ut->rx_xfer);
+	/* Finish the receive transfer before the device it reads from is closed.
+	 * Cancelling it and closing anyway, as this did, left the transfer
+	 * allocated for the rest of the process. */
+	ubertooth_bulk_stop(ut);
 	if (ut->devh != NULL) {
 		if (send_stop)
 			cmd_stop(ut->devh);
