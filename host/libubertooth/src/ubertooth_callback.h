@@ -26,6 +26,11 @@
 #include "ubertooth_control.h"
 #include "ubertooth.h"
 
+/* Returns the capture clock tracking to the state a capture starts from. A
+ * handle used for a second capture must not inherit the first one's wrap
+ * count, or every time it reconstructs would be a period or more too high. */
+void ubertooth_capture_clock_reset(ubertooth_t* ut);
+
 void cb_afh_initial(ubertooth_t* ut, void* args);
 void cb_afh_monitor(ubertooth_t* ut, void* args);
 void cb_afh_r(ubertooth_t* ut, void* args);

@@ -166,6 +166,14 @@ Logging:
    `error: stdout is a tty, refusing to write binary capture data to it`, with
    exit status 1 and before any device is opened.
 
+The times in a logged capture follow the board's capture clock, which starts
+over every 429.50 s in the `-f` and `-n` modes and every 327.68 s in
+promiscuous mode. The packets of those two modes carry no count of how often
+it has, so a gap longer than one period leaves every later time short by a
+period. That cannot be recovered, but it is reported, on standard error:
+`warning: packet times are more than the capture clock's 429.50 s period
+behind the host clock`.
+
 Miscellaneous:
 
  - `-A <37|38|39>` :

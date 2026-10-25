@@ -171,6 +171,10 @@ capture written with `-q` or `-r` starts from the host time of the first
 record it decodes and follows the Ubertooth clock from there, and `-d`
 writes the records back out with their original times.
 
+That clock starts over every 327.68 s, and each Classic packet carries the
+number of times it has, so the times hold across a gap of any length: a quiet
+band, an `-s` that drops everything, or a capture left idle for minutes.
+
 A replay that reaches the end of the file exits 0, including for an empty
 file. These two are reported on standard error and exit 1, after whatever
 was decoded:

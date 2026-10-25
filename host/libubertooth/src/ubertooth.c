@@ -1004,6 +1004,11 @@ static void ubertooth_cleanup(ubertooth_t* ut, int send_stop)
 		lell_pcapng_close(ut->h_pcapng_le);
 		ut->h_pcapng_le = NULL;
 	}
+
+	/* The capture has stopped here, so the clock tracking goes back to
+	 * where a capture starts: a handle used again would otherwise carry the
+	 * wrap count of the capture that just ended into the next one. */
+	ubertooth_capture_clock_reset(ut);
 }
 
 void ubertooth_close(ubertooth_t* ut)
@@ -1043,12 +1048,7 @@ ubertooth_t* ubertooth_init()
 	ut->devh = NULL;
 	ut->rx_xfer = NULL;
 	ut->stop_ubertooth = 0;
-	ut->abs_start_ns = 0;
-	ut->start_clk100ns = 0;
-	ut->last_clk100ns = 0;
-	ut->clk100ns_upper = 0;
-	ut->clk100ns_started = 0;
-	ut->clk100ns_period = CLK100NS_PERIOD;
+	ubertooth_capture_clock_reset(ut);
 
 	ut->h_pcap_bredr = NULL;
 	ut->h_pcap_le = NULL;

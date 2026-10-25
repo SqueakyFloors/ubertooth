@@ -70,6 +70,14 @@ typedef struct {
 	 * the low-energy physical-layer modes, which stamp from timer1. A mode
 	 * that uses the latter sets this before streaming. */
 	uint64_t clk100ns_period;
+
+	/* The period count the last packet carried (usb_pkt_rx.clkn_high), zero
+	 * for a capture whose packets do not carry one. */
+	uint8_t last_clkn_high;
+
+	/* Whether the host clock running ahead of the reconstructed times has
+	 * already been reported, so it is said once per capture. */
+	uint8_t clk100ns_gap_warned;
 } ubertooth_t;
 
 typedef void (*rx_callback)(ubertooth_t* ut, void* args);

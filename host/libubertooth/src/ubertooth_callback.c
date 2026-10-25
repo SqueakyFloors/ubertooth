@@ -92,31 +92,89 @@ static uint64_t now_ns( void )
 	return (1000000000ull*(uint64_t) ts.tv_sec) + (uint64_t) ts.tv_nsec;
 }
 
-/* Where a capture's timestamps start: the current time for a live capture,
- * and the host time stored with the first replayed record for a replay, so a
- * capture written with -q/-r while replaying keeps the recorded times. */
-static uint64_t capture_start_ns( void )
+/* The host time a packet arrived: the current time for a live capture, and
+ * the host time stored with the replayed record for a replay, so a capture
+ * written with -q/-r while replaying keeps the recorded times. The first
+ * packet's is where a capture's timestamps start. */
+static uint64_t packet_host_ns( void )
 {
 	if (infile != NULL)
 		return 1000000000ull * (uint64_t) systime;
 	return now_ns( );
 }
 
+void ubertooth_capture_clock_reset( ubertooth_t* ut )
+{
+	ut->abs_start_ns = 0;
+	ut->start_clk100ns = 0;
+	ut->last_clk100ns = 0;
+	ut->last_clkn_high = 0;
+	ut->clk100ns_upper = 0;
+	ut->clk100ns_started = 0;
+	ut->clk100ns_gap_warned = 0;
+	/* The CLKN-derived clock is what a mode stamps with unless the tool says
+	 * otherwise, which it does before it starts such a mode. */
+	ut->clk100ns_period = CLK100NS_PERIOD;
+}
+
 static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx )
 {
 	uint32_t clk100ns = le32toh( rx->clk100ns );
+	/* How many times the clock stamping this packet has started over, as
+	 * the packet itself reports it: clkn_high is the byte of CLKN directly
+	 * above the 20 bits CLK100NS counts through, so it is that clock's
+	 * period count. It is only read for a capture stamped with that clock:
+	 * the low-energy physical-layer modes stamp from timer1, whose periods
+	 * CLKN does not count, and they send a zero in the field. */
+	uint8_t periods = (ut->clk100ns_period == CLK100NS_PERIOD) ?
+	                  rx->clkn_high : 0;
+	uint8_t advance;
 
-	/* track clk100ns */
 	if (!ut->clk100ns_started) {
 		ut->clk100ns_started = 1;
 		ut->last_clk100ns = ut->start_clk100ns = clk100ns;
-		ut->abs_start_ns = capture_start_ns( );
+		ut->last_clkn_high = periods;
+		ut->abs_start_ns = packet_host_ns( );
+		return;
 	}
-	/* detect clk100ns roll-over */
-	if (clk100ns < ut->last_clk100ns) {
+
+	/* The count is one byte, so it is taken as a difference from the last
+	 * packet's and so covers a gap of up to 256 periods, about 23 hours.
+	 * Where the packets carry no count, a wrap can only be inferred from
+	 * the clock going backwards, which misses one that falls in a gap
+	 * longer than a single period. */
+	advance = (uint8_t) (periods - ut->last_clkn_high);
+	if (advance != 0)
+		ut->clk100ns_upper += advance;
+	else if (clk100ns < ut->last_clk100ns)
 		ut->clk100ns_upper += 1;
-	}
+
 	ut->last_clk100ns = clk100ns;
+	ut->last_clkn_high = periods;
+}
+
+/* A wrap inferred from the clock going backwards is lost when it falls in a
+ * gap longer than one period, and nothing in the capture shows it: the times
+ * simply come out a period short from then on. The host clock does show it,
+ * because it kept running, so it ends up more than a period ahead of the
+ * reconstructed times. Said once, and not used to correct them: it says that
+ * time was lost, not where, and a host clock that is stepped during a capture
+ * must not move packet times. */
+static void warn_if_a_wrap_was_lost( ubertooth_t* ut, uint64_t packet_ns )
+{
+	uint64_t host_ns;
+	uint64_t period_ns = 100ull * ut->clk100ns_period;
+
+	if (ut->clk100ns_gap_warned)
+		return;
+	host_ns = packet_host_ns( );
+	if (host_ns < packet_ns || host_ns - packet_ns <= period_ns)
+		return;
+
+	ut->clk100ns_gap_warned = 1;
+	fprintf(stderr, "warning: packet times are more than the capture clock's "
+	        "%.2f s period behind the host clock: a quiet gap lost a clock "
+	        "wrap, so times after it are short\n", period_ns / 1e9);
 }
 
 /* The capture clock of a packet, as 100 ns ticks since the board started
@@ -131,11 +189,15 @@ static uint64_t clk100ns_extended( const ubertooth_t* ut, const usb_pkt_rx* rx )
 
 static uint64_t now_ns_from_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx )
 {
+	uint64_t packet_ns;
+
 	track_clk100ns( ut, rx );
 	/* The 100 ns ticks since the first packet, as nanoseconds: the whole
 	 * difference is scaled, not just the current tick count. */
-	return ut->abs_start_ns + 100ull *
-	       (clk100ns_extended( ut, rx ) - ut->start_clk100ns);
+	packet_ns = ut->abs_start_ns + 100ull *
+	            (clk100ns_extended( ut, rx ) - ut->start_clk100ns);
+	warn_if_a_wrap_was_lost( ut, packet_ns );
+	return packet_ns;
 }
 
 /* Sniff for LAPs. If a piconet is provided, use the given LAP to
