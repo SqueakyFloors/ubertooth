@@ -21,6 +21,25 @@ Every wait for the bootloader is bounded\. Before each operation the tool asks t
 .P
 \fB\-d\fR checks the whole image before the board is asked to leave its application: the 16\-byte DFU suffix and its length, the DFU version, the \fBUFD\fR signature, a non\-empty payload, the suffix CRC, and the suffix \fBidVendor\fR and \fBidProduct\fR, which must name this device (\fB1d50:6003\fR) or be the \fB0xffff\fR wildcard\. With \fB\-r\fR the expected firmware revision is read from the image at the same time\. A file that fails any of these is reported and the command ends with exit status 1 without opening a device, so the board keeps running its firmware\. If a later step fails once the board is already in DFU and \fB\-r\fR was given, the tool detaches it anyway, reopening the DFU device on the same physical path when the failure closed the handle, so the board returns to its application\. A board that never answered in DFU at all cannot be detached, and then needs another \fBubertooth\-dfu\fR run or a power cycle\. A reset the bootloader refuses, and one it accepts and then does not act on, are both reported and fail the command instead of exiting 0 with the board still in DFU\.
 .P
+\fB\-d\fR is bounded by the flash the board has as well\. The part identification number is read while the board is still running its application, as it is for \fB\-u\fR, and an image whose blocks would not all fit above the bootloader is refused there, before the board is asked for DFU:
+.IP "" 4
+.nf
+error: too\-big\.dfu needs 114944 bytes of flash; part 0x25011722 (LPC1754) has 114688 above the bootloader
+Image too large for the attached part, firmware will not be updated
+.fi
+.IP "" 0
+.P
+An image that fits says so, in the same terms as the read\-back:
+.IP "" 4
+.nf
+The image needs 31488 bytes, 0x4000\-0xbaff: part 0x25011722 (LPC1754) has 128 KiB of flash
+.fi
+.IP "" 0
+.P
+The whole file is written, the 16\-byte DFU suffix included, and the last block is padded out, so the figure compared with the part's flash is the file rounded up to a whole 256\-byte block\. A part this host has no entry for, and one that will not report itself at all, which includes every board already in the bootloader, leave nothing to check against: both say so and write the image as before\.
+.P
+Without that check nothing stops the write\. The bootloader refuses a write below 0x4000, to protect itself, and applies no upper bound: the blocks past the end of a smaller part's flash are sent, each asks the microcontroller's programming interface to erase and program a sector the part does not have, and the first failure ends the update as \fBcontrol message unsupported\fR, with everything before it already written\. The board is then running an application missing its tail, after a message that says nothing about flash sizes\. It is the same cause as the read\-back bound described under READING FLASH BACK below, with a different ending: a read past the end faults the bootloader until the board is power\-cycled, a write past the end stops part\-way\.
+.P
 What the detach request returns says nothing about where the board ended up, in either direction\. It can fail because the bootloader resets while the request is still in flight, which on macOS is what every reset that worked looks like, and it can complete on a bootloader that acknowledges it and stays where it is\. So no status from that request is read as a verdict: the tool looks for the DFU device on the same physical path again, and reports the board as detached only once it has gone\. The run then carries on to the \fB\-d \|\.\|\.\|\. \-r\fR verification, which decides whether the flash succeeded\.
 .P
 The question that check asks is whether the device left its path, not where it ended up, so it has a blind spot\.

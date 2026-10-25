@@ -301,6 +301,10 @@
   fixed 240 KiB that faulted the bootloader on a 128 KiB part, and says how
   many bytes it is reading and where that figure came from.
   [#233](https://github.com/SqueakyFloors/ubertooth/issues/233)
+- `ubertooth-dfu -d` refuses an image too large for the attached part, naming
+  the part and the flash it has, while the board is still running its
+  application; a part it cannot identify is reported as unchecked.
+  [#281](https://github.com/SqueakyFloors/ubertooth/issues/281)
 
 - `ubertooth-dfu` now performs bounded, device-specific DFU entry and
   recovery, retries interrupted transfers, and verifies

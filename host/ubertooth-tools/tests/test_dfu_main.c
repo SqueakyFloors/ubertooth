@@ -357,6 +357,8 @@ struct run_result {
 
 static char dump_path[512];
 static char image_path[512];
+/* A second image, written per case, for the sizes the flash bound is about. */
+static char sized_image_path[512];
 
 static void read_back(FILE *file, char *buffer, size_t size)
 {
@@ -476,30 +478,37 @@ static void remove_dump(void)
 #define IMAGE_BLOCKS 4
 
 /* A signed DFU file for this device whose compile-information marker names
- * revision. -d checks the whole image and -r reads the revision it expects
- * out of it, so these runs need a real one; sign() is the tool's own. */
-static void write_image(const char *revision)
+ * revision, with payload bytes of firmware before the 16-byte suffix. -d
+ * checks the whole image and -r reads the revision it expects out of it, so
+ * these runs need a real one; sign() is the tool's own. */
+static void write_image_of(const char *path, const char *revision, long payload)
 {
-	FILE *payload = tmpfile();
-	FILE *image = fopen(image_path, "w+b");
+	FILE *payload_file = tmpfile();
+	FILE *image = fopen(path, "w+b");
 	char marker[128];
-	int length, i;
+	long i;
+	int length;
 
-	if (payload == NULL || image == NULL) {
+	if (payload_file == NULL || image == NULL) {
 		fprintf(stderr, "cannot create the test image\n");
 		exit(1);
 	}
 	length = snprintf(marker, sizeof(marker), "ubertooth %s (tests) now",
 	                  revision);
-	fwrite(marker, 1, (size_t)length + 1, payload);
-	for (i = length + 1; i < IMAGE_PAYLOAD; i++)
-		fputc(0xff, payload);
-	if (sign(payload, image, U1_DFU_VENDORID, U1_DFU_PRODUCTID) != 0) {
+	fwrite(marker, 1, (size_t)length + 1, payload_file);
+	for (i = length + 1; i < payload; i++)
+		fputc(0xff, payload_file);
+	if (sign(payload_file, image, U1_DFU_VENDORID, U1_DFU_PRODUCTID) != 0) {
 		fprintf(stderr, "cannot sign the test image\n");
 		exit(1);
 	}
-	fclose(payload);
+	fclose(payload_file);
 	fclose(image);
+}
+
+static void write_image(const char *revision)
+{
+	write_image_of(image_path, revision, IMAGE_PAYLOAD);
 }
 
 /* ---- a read-back that works, as the baseline --------------------------- */
@@ -1049,11 +1058,163 @@ MU_TEST(a_part_id_that_cannot_be_read_falls_back_to_the_assumed_flash)
 	remove_dump();
 }
 
-/* The part ID is only wanted for a read-back, and reading it has its own
- * error output and timeout, so a command that would ignore the answer does
- * not ask. A bare reset through the application is that case; a download
- * takes the same gate. */
-MU_TEST(a_command_that_is_not_a_read_back_does_not_ask_for_the_part_id)
+/* ---- writing only into the flash the part has -------------------------- */
+
+/* The application region of a 128 KiB part: all the flash a -d write has to
+ * go into there, and a whole number of blocks. */
+#define REGION_128K DUMP_LENGTH_FOR(128 * 1024)
+
+/* The whole file is written, suffix included, so an image of exactly the
+ * region fits it exactly. */
+MU_TEST(an_image_that_fills_the_part_is_written)
+{
+	struct run_result r;
+
+	board_in_application(PART_ID_128K, 128 * 1024);
+	write_image_of(sized_image_path, IMAGE_REVISION,
+	               REGION_128K - DFU_SUFFIX_LENGTH);
+	snprintf(fake.revision, sizeof(fake.revision), "%s", IMAGE_REVISION);
+	r = RUN("-U", "0", "-d", sized_image_path, "-r");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(REGION_128K / BLOCK_SIZE, fake.dnload_calls);
+	mu_assert_int_eq(1, fake.part_id_calls);
+	mu_assert(strstr(r.out,
+	                 "The image needs 114688 bytes, 0x4000-0x1ffff: part "
+	                 "0x25011722 (LPC1754) has 128 KiB of flash") != NULL,
+	          "the download did not say what flash it covers");
+	mu_assert(strstr(r.err, "Verified firmware revision: " IMAGE_REVISION)
+	          != NULL, "the flashed revision was not verified");
+}
+
+/* One byte more needs a further block, which the part has no flash for: the
+ * bootloader would send it to IAP, fail, and leave the application missing
+ * its tail. So the image is refused while the board is still running that
+ * application. */
+MU_TEST(an_image_one_byte_past_the_part_is_refused)
+{
+	struct run_result r;
+
+	board_in_application(PART_ID_128K, 128 * 1024);
+	write_image_of(sized_image_path, IMAGE_REVISION,
+	               REGION_128K - DFU_SUFFIX_LENGTH + 1);
+	snprintf(fake.revision, sizeof(fake.revision), "%s", IMAGE_REVISION);
+	r = RUN("-U", "0", "-d", sized_image_path, "-r");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "needs 114944 bytes of flash; part 0x25011722 "
+	                 "(LPC1754) has 114688 above the bootloader") != NULL,
+	          "the refusal did not name the image and the part");
+	mu_assert(strstr(r.err, "firmware will not be updated") != NULL,
+	          "the refusal did not say the firmware was left alone");
+	/* The part is read, and then nothing else happens: the board is never
+	 * asked for DFU, so nothing is erased and nothing needs detaching. */
+	mu_assert_int_eq(1, fake.part_id_calls);
+	mu_assert_int_eq(0, fake.flash_calls);
+	mu_assert_int_eq(0, fake.dnload_calls);
+	mu_assert_int_eq(0, fake.detach_calls);
+	/* And the entry failure the refusal is carried out through is not
+	 * reported on top of it. */
+	mu_assert(strstr(r.err, "unable to open selected application device")
+	          == NULL, "the refusal was reported as a device that would not open");
+}
+
+/* A part this host has no entry for has no flash size to check against, so
+ * the image is written as it always was, with a line saying it was not
+ * checked: the assumed size is not a floor, and refusing a valid image for a
+ * part nobody knows would be worse. */
+MU_TEST(an_unknown_part_warns_and_writes_the_image)
+{
+	struct run_result r;
+
+	board_in_application(PART_ID_UNKNOWN, 128 * 1024);
+	write_image_of(sized_image_path, IMAGE_REVISION,
+	               REGION_128K - DFU_SUFFIX_LENGTH + 1);
+	snprintf(fake.revision, sizeof(fake.revision), "%s", IMAGE_REVISION);
+	r = RUN("-U", "0", "-d", sized_image_path, "-r");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.err, "warning: part 0x12345678 is not known here, so ")
+	          != NULL, "the unknown part was not reported");
+	mu_assert(strstr(r.err, "is not checked against this board's flash")
+	          != NULL, "the unchecked image was not reported");
+	mu_assert_int_eq((REGION_128K / BLOCK_SIZE) + 1, fake.dnload_calls);
+}
+
+/* The bound follows the part, not a figure: the image the 128 KiB part has no
+ * room for is written to a 256 KiB one. */
+MU_TEST(an_image_too_large_for_one_part_fits_a_bigger_one)
+{
+	struct run_result r;
+
+	board_in_application(PART_ID_256K, 256 * 1024);
+	write_image_of(sized_image_path, IMAGE_REVISION,
+	               REGION_128K - DFU_SUFFIX_LENGTH + 1);
+	snprintf(fake.revision, sizeof(fake.revision), "%s", IMAGE_REVISION);
+	r = RUN("-U", "0", "-d", sized_image_path, "-r");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq((REGION_128K / BLOCK_SIZE) + 1, fake.dnload_calls);
+	mu_assert(strstr(r.out,
+	                 "The image needs 114944 bytes, 0x4000-0x200ff: part "
+	                 "0x25011723 (LPC1756) has 256 KiB of flash") != NULL,
+	          "the download did not say what flash it covers");
+	mu_assert(strstr(r.err, "too large") == NULL,
+	          "an image that fits this part was refused");
+}
+
+/* And one that is too large for a 256 KiB part as well. */
+MU_TEST(an_image_past_a_256_kib_part_is_refused_too)
+{
+	struct run_result r;
+
+	board_in_application(PART_ID_256K, 256 * 1024);
+	write_image_of(sized_image_path, IMAGE_REVISION,
+	               DUMP_LENGTH_FOR(256 * 1024) - DFU_SUFFIX_LENGTH + 1);
+	snprintf(fake.revision, sizeof(fake.revision), "%s", IMAGE_REVISION);
+	r = RUN("-U", "0", "-d", sized_image_path, "-r");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "needs 246016 bytes of flash; part 0x25011723 "
+	                 "(LPC1756) has 245760 above the bootloader") != NULL,
+	          "the refusal did not name the image and the part");
+	mu_assert_int_eq(0, fake.flash_calls);
+	mu_assert_int_eq(0, fake.dnload_calls);
+}
+
+/* And a part that will not report itself at all reads the same way. */
+MU_TEST(a_part_that_cannot_be_read_warns_and_writes_the_image)
+{
+	struct run_result r;
+
+	board_in_application(PART_ID_128K, 128 * 1024);
+	fake.part_id_rc = LIBUSB_ERROR_TIMEOUT;
+	write_image_of(sized_image_path, IMAGE_REVISION,
+	               REGION_128K - DFU_SUFFIX_LENGTH + 1);
+	snprintf(fake.revision, sizeof(fake.revision), "%s", IMAGE_REVISION);
+	r = RUN("-U", "0", "-d", sized_image_path, "-r");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.err, "warning: the part could not be read, so ")
+	          != NULL, "the unreadable part was not reported");
+	mu_assert_int_eq((REGION_128K / BLOCK_SIZE) + 1, fake.dnload_calls);
+}
+
+/* A board adopted in the bootloader has no application to ask, so it takes
+ * the same unchecked path. */
+MU_TEST(a_board_already_in_dfu_warns_that_the_image_is_not_checked)
+{
+	struct run_result r;
+
+	board_in_dfu();
+	snprintf(fake.revision, sizeof(fake.revision), "%s", IMAGE_REVISION);
+	r = RUN("-d", image_path, "-r");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0, fake.part_id_calls);
+	mu_assert(strstr(r.err, "warning: the part could not be read, so ")
+	          != NULL, "the unchecked image was not reported");
+	mu_assert_int_eq(IMAGE_BLOCKS, fake.dnload_calls);
+}
+
+/* The part ID is wanted for the transfers, which are both bounded by the
+ * part's flash, and reading it has its own error output and timeout, so a
+ * command that would ignore the answer does not ask. A bare reset through the
+ * application is that case. */
+MU_TEST(a_bare_reset_does_not_ask_for_the_part_id)
 {
 	struct run_result r;
 
@@ -1078,6 +1239,8 @@ int main(void)
 	}
 	snprintf(dump_path, sizeof(dump_path), "%s/readback.bin", directory);
 	snprintf(image_path, sizeof(image_path), "%s/firmware.dfu", directory);
+	snprintf(sized_image_path, sizeof(sized_image_path), "%s/sized.dfu",
+	         directory);
 	write_image(IMAGE_REVISION);
 	/* A detach that fails waits for the DFU device to go away, and the cases
 	 * here that keep it there wait out that whole budget, twice each. What
@@ -1113,10 +1276,18 @@ int main(void)
 	MU_RUN(a_256_kib_part_is_read_in_full);
 	MU_RUN(an_unknown_part_id_falls_back_to_the_assumed_flash);
 	MU_RUN(a_part_id_that_cannot_be_read_falls_back_to_the_assumed_flash);
-	MU_RUN(a_command_that_is_not_a_read_back_does_not_ask_for_the_part_id);
+	MU_RUN(an_image_that_fills_the_part_is_written);
+	MU_RUN(an_image_one_byte_past_the_part_is_refused);
+	MU_RUN(an_unknown_part_warns_and_writes_the_image);
+	MU_RUN(an_image_too_large_for_one_part_fits_a_bigger_one);
+	MU_RUN(an_image_past_a_256_kib_part_is_refused_too);
+	MU_RUN(a_part_that_cannot_be_read_warns_and_writes_the_image);
+	MU_RUN(a_board_already_in_dfu_warns_that_the_image_is_not_checked);
+	MU_RUN(a_bare_reset_does_not_ask_for_the_part_id);
 
 	remove_dump();
 	unlink(image_path);
+	unlink(sized_image_path);
 	rmdir(directory);
 	return mu_report();
 }
