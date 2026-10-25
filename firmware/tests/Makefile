@@ -20,7 +20,7 @@ FW_BOOT := ../bootloader
 HOST_DFU := ../../host/ubertooth-tools/src
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_mode_dispatch test_le_phy_order test_grmdm_rx_generic test_tx_generic_bounds test_btbr_hop test_usbhw_wait test_bootloader_flash_bounds
+TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_mode_dispatch test_le_phy_order test_grmdm_rx_generic test_tx_generic_bounds test_btbr_hop test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds
 BINDIR  := bin
 
 .PHONY: all test clean
@@ -146,6 +146,17 @@ $(BINDIR)/test_bootloader_flash_bounds: test_bootloader_flash_bounds.cpp \
 	$(CXX) $(CXXFLAGS) -I$(FW_BOOT) $(CPPFLAGS) \
 		-DFW_BOOTLOADER_DIR='"$(FW_BOOT)"' -DHOST_DFU_DIR='"$(HOST_DFU)"' \
 		-o $@ test_bootloader_flash_bounds.cpp
+# The request handler and the USB stack are both hardware code, so the bounds
+# on a request's data are exercised through fakes and the firmware's own shape
+# is scanned: the handler and the access code loop, both images' USB shims, and
+# the direction bit in the vendored lpcusb header the shims read.
+$(BINDIR)/test_vendor_request_bounds: test_vendor_request_bounds.c minunit.h \
+		source_scan.h $(FW_RXTX)/bluetooth_rxtx.c $(FW_RXTX)/ego.c \
+		$(FW_RXTX)/ubertooth_usb.c $(FW_BTBR)/src/drivers/ubertooth_usb.c \
+		$(FW_COMMON)/lpcusb/target/usbstruct.h | $(BINDIR)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
+		-DFW_BTBR_DIR='"$(FW_BTBR)"' -DFW_COMMON_DIR='"$(FW_COMMON)"' \
+		-o $@ test_vendor_request_bounds.c
 
 $(BINDIR):
 	mkdir -p $(BINDIR)

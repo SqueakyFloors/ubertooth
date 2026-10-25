@@ -101,8 +101,8 @@
   the command returns at once and the board stays reachable; `-S` or any mode
   option stops it and leaves the LEDs off.
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
-- **Reflash required:** the firmware API version is now 1.20, last moved by the
-  bootloader's read-back bound, and the host tools require firmware of exactly
+- **Reflash required:** the firmware API version is now 1.21, last moved by the
+  bounds on a vendor request's data, and the host tools require firmware of exactly
   their own API version, older or newer (`ubertooth-util` still reads
   the version and reflashes any firmware). Host and firmware come from the
   same tree; `2020-12-R1` firmware is refused.
@@ -209,6 +209,16 @@
   buffer outstanding.
   [#381](https://github.com/SqueakyFloors/ubertooth/issues/381)
   [#388](https://github.com/SqueakyFloors/ubertooth/issues/388)
+- `ubertooth-ego -a` with an access code shorter than four bytes sets the code
+  the user asked for, zero-filled, instead of padding it with leftovers of the
+  previous request.
+  [#402](https://github.com/SqueakyFloors/ubertooth/issues/402)
+- The firmware stalls a vendor request that carries fewer bytes than it reads,
+  including a read-direction request of a number that expects data, which the
+  USB stack hands to the handler before any data arrives. Such a request used
+  to act on whatever the previous one left in the buffer, write stale bytes to
+  radio registers or start a transmit.
+  [#393](https://github.com/SqueakyFloors/ubertooth/issues/393)
 - A capture gives its receive transfer back when it ends, so a run with more
   than one phase (`ubertooth-afh` detects a map, then monitors it) no longer
   leaks one transfer per extra phase.

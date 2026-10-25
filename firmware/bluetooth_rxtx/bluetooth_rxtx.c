@@ -197,14 +197,24 @@ int enqueue_with_ts(uint8_t type, uint8_t* buf, uint32_t ts)
 	return 1;
 }
 
-static int vendor_request_handler(uint8_t request, uint16_t* request_params, uint8_t* data, int* data_len)
+/*
+ * Returning 0 stalls the request. `data` is the buffer the USB stack filled
+ * from the request's data stage and `data_in_len` how many bytes the host
+ * actually sent with it, so a case that reads `data` refuses a request
+ * carrying less than it reads: that keeps a short request out, and it is also
+ * what keeps a device-to-host request of the same number out, since that one
+ * reaches the handler with no data stage behind it and a buffer still holding
+ * the previous request's bytes.
+ */
+static int vendor_request_handler(uint8_t request, uint16_t* request_params,
+                                  uint8_t* data, unsigned data_in_len,
+                                  int* data_len)
 {
 	uint32_t clock;
 	size_t length; // string length
 	usb_pkt_rx* p = NULL;
 	uint16_t reg_val;
 	uint8_t i;
-	unsigned data_in_len = request_params[2];
 
 	switch (request) {
 
@@ -462,6 +472,8 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params, uin
 		break;
 
 	case UBERTOOTH_SET_BDADDR:
+		if (data_in_len < 16) /* an 8-byte address and an 8-byte syncword */
+			return 0;
 		target.address = 0;
 		target.syncword = 0;
 		for(int i=0; i < 8; i++) {
@@ -474,6 +486,8 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params, uin
 		break;
 
 	case UBERTOOTH_START_HOPPING:
+		if (data_in_len < 6) /* a 4-byte CLKN offset and a 2-byte 100 ns one */
+			return 0;
 		clkn_offset = 0;
 		for(int i=0; i < 4; i++) {
 			clkn_offset <<= 8;
@@ -509,12 +523,16 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params, uin
 		break;
 
 	case UBERTOOTH_SET_CLOCK:
+		if (data_in_len < 4)
+			return 0;
 		clock = data[0] | data[1] << 8 | data[2] << 16 | data[3] << 24;
 		clkn = clock;
 		cs_threshold_calc_and_set(channel);
 		break;
 
 	case UBERTOOTH_SET_AFHMAP:
+		if (data_in_len < sizeof(afh_map))
+			return 0;
 		bluetooth_set_afh_map(data);
 		*data_len = 10;
 		break;
@@ -536,10 +554,14 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params, uin
 		break;
 
 	case UBERTOOTH_TRIM_CLOCK:
+		if (data_in_len < 2)
+			return 0;
 		clk100ns_offset = (data[0] << 8) | (data[1] << 0);
 		break;
 
 	case UBERTOOTH_FIX_CLOCK_DRIFT:
+		if (data_in_len < 2)
+			return 0;
 		clk_drift_ppm += (int16_t)(data[0] << 8) | (data[1] << 0);
 
 		// Too slow
@@ -580,6 +602,8 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params, uin
 		break;
 
 	case UBERTOOTH_SET_ACCESS_ADDRESS:
+		if (data_in_len < 4)
+			return 0;
 		le_set_access_address(data[0] | data[1] << 8 | data[2] << 16 | data[3] << 24);
 		le.target_set = 1;
 		break;
@@ -626,6 +650,9 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params, uin
 		break;
 
 	case UBERTOOTH_WRITE_REGISTERS:
+		/* a register number and a 16-bit value per register */
+		if (data_in_len < request_params[0] * 3u)
+			return 0;
 		for(i=0; i<request_params[0]; i++) {
 			reg_val = (data[(i*3)+1] << 8) | data[(i*3)+2];
 			cc2400_set(data[i*3], reg_val);
@@ -666,6 +693,8 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params, uin
 		break;
 
 	case UBERTOOTH_BTLE_SLAVE:
+		if (data_in_len < 6)
+			return 0;
 		memcpy(slave_mac_address, data, 6);
 		requested_mode = MODE_BT_SLAVE_LE;
 		break;
@@ -673,13 +702,15 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params, uin
 
 	case UBERTOOTH_LE_SET_ADV_DATA:
 		// make sure the data fits in our buffer
-		if (data_in_len > LE_ADV_MAX_LEN)
+		if (data_in_len < 1 || data_in_len > LE_ADV_MAX_LEN)
 			return 0;
 		le_adv_len = data_in_len;
 		memcpy(le_adv_data, data, le_adv_len);
 		break;
 
 	case UBERTOOTH_BTLE_SET_TARGET:
+		if (data_in_len < 7) /* six address bytes and a mask length */
+			return 0;
 		// Addresses appear in packets in reverse-octet order.
 		// Store the target address in reverse order so that we can do a simple memcmp later
 		if (data[6] > 48) {
@@ -740,7 +771,7 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params, uin
 		break;
 
 	case UBERTOOTH_RFCAT_SUBCMD:
-		return rfcat_subcommand(request_params[0], data, *data_len);
+		return rfcat_subcommand(request_params[0], data, data_in_len);
 		break;
 
 	case UBERTOOTH_XMAS:

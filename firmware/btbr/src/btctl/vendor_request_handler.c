@@ -34,14 +34,16 @@ static void request_reset(void)
 	btctl_rx_enqueue(btctl_msg_alloc(BTCTL_RESET_REQ));
 }
 
-int vendor_request_handler(uint8_t request, uint16_t* request_params, uint8_t* data, int* data_len)
+int vendor_request_handler(uint8_t request, uint16_t* request_params,
+                           uint8_t* data, unsigned data_in_len, int* data_len)
 {
 	uint32_t clock;
 	size_t length; // string length
 	usb_pkt_rx* p = NULL;
 	uint16_t reg_val;
 	uint8_t i;
-	unsigned data_in_len = request_params[2];
+
+	(void)data_in_len; /* no request here reads its data stage */
 
 	switch (request) {
 

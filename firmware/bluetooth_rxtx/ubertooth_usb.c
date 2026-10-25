@@ -215,7 +215,18 @@ BOOL usb_vendor_request_handler(TSetupPacket *pSetup, int *piLen, u8 **ppbData)
 {
 	int rv;
 	u16 params[3] = {pSetup->wValue, pSetup->wIndex, pSetup->wLength};
-	rv = v_req_handler(pSetup->bRequest, params, *ppbData, piLen);
+	/*
+	 * Bit 7 of bmRequestType is the data stage direction (USB 2.0 9.3.1).
+	 * Only a host-to-device request brings the handler input, and the
+	 * stack waits for all of it before calling; a device-to-host request
+	 * is handled at SETUP time, with nothing of the host's in the buffer.
+	 */
+	unsigned data_in_len =
+		(REQTYPE_GET_DIR(pSetup->bmRequestType) == REQTYPE_DIR_TO_DEVICE)
+			? pSetup->wLength : 0;
+
+	rv = v_req_handler(pSetup->bRequest, params, *ppbData, data_in_len,
+	                   piLen);
 	return (BOOL) (rv==1);
 }
 
