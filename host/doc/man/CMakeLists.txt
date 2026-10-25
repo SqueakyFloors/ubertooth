@@ -21,44 +21,69 @@
 
 include(GNUInstallDirs)
 
-# Option A: the per-tool "<tool>.md" files in host/doc are the single source;
-# the roff "<tool>.1" here are generated from them with ronn. ronn is OPTIONAL:
-# if found, regenerate the .1 at build time so man pages track the .md; if not,
-# the committed .1 are installed as-is (so `man` works without ronn).
+# The per-tool "<tool>.md" files in host/doc are the single source; the roff
+# "<tool>.1" here are generated from them with ronn and committed, so that
+# `man` and `make install` work on a machine without ronn.
 #
-# The committed pages were produced by go-md2man rather than ronn, so ronn
-# rewrites a page wholesale the first time it regenerates it. Only the pages in
-# the foreach below are regenerated; the rest, including ubertooth-debug.1, are
-# kept in step with their .md by hand in the same change.
+# A build never writes to the source tree, and never needs ronn: the committed
+# pages are the ones installed. Refreshing them is a separate, deliberate step
+# after editing a .md:
+#
+#     cmake --build <build dir> --target refresh-manpages
+#
+# which renders the pages into the build directory and copies them over the
+# committed ones; review the diff and commit the .1 with the .md. The
+# `manpages` target renders them into the build directory only, for a look at
+# what a refresh would write. Neither target is part of `all`.
+#
+# Only the pages listed below are generated. The rest, including
+# ubertooth-debug.1, are kept in step with their .md by hand in the same
+# change. The committed pages were produced by go-md2man rather than ronn, so
+# the first refresh of a page rewrites it wholesale in ronn's style.
+set(MAN_PAGES_FROM_MARKDOWN
+	ubertooth-afh:1
+	ubertooth-btle:1
+	ubertooth-dfu:1
+	ubertooth-dump:1
+	ubertooth-ego:1
+	ubertooth-rx:1
+	ubertooth-scan:1
+	ubertooth-specan:1
+	ubertooth-specan-ui:1
+	ubertooth-util:1
+	ubertooth:7)
+
 find_program(RONN_EXECUTABLE NAMES ronn ronn-ng)
 if(RONN_EXECUTABLE)
-	message(STATUS "ronn found: man pages will be regenerated from host/doc/*.md")
+	message(STATUS "ronn found: refresh-manpages can regenerate the committed "
+	               "man pages from host/doc/*.md")
 	set(DOC_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/..")
-	# Regenerate each page from its .md into the source tree so the committed
-	# .1 stay in sync. --date keeps the roff date stable (not build-synced).
-	foreach(pg ubertooth-afh ubertooth-btle ubertooth-dfu ubertooth-dump
-	           ubertooth-ego ubertooth-rx ubertooth-scan ubertooth-specan
-	           ubertooth-specan-ui ubertooth-util)
+	set(GENERATED_MAN_PAGES "")
+	foreach(spec ${MAN_PAGES_FROM_MARKDOWN})
+		string(REPLACE ":" ";" parts "${spec}")
+		list(GET parts 0 pg)
+		list(GET parts 1 section)
+		set(generated "${CMAKE_CURRENT_BINARY_DIR}/${pg}.${section}")
 		add_custom_command(
-			OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/${pg}.1"
+			OUTPUT "${generated}"
 			COMMAND ${RONN_EXECUTABLE} --roff --pipe
-			        "${DOC_SRC_DIR}/${pg}.md" > "${CMAKE_CURRENT_SOURCE_DIR}/${pg}.1"
+			        "${DOC_SRC_DIR}/${pg}.md" > "${generated}"
 			DEPENDS "${DOC_SRC_DIR}/${pg}.md"
-			COMMENT "ronn: ${pg}.md -> ${pg}.1")
+			COMMENT "ronn: ${pg}.md -> ${pg}.${section}")
+		list(APPEND GENERATED_MAN_PAGES "${generated}")
 	endforeach()
-	add_custom_command(
-		OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/ubertooth.7"
-		COMMAND ${RONN_EXECUTABLE} --roff --pipe
-		        "${DOC_SRC_DIR}/ubertooth.md" > "${CMAKE_CURRENT_SOURCE_DIR}/ubertooth.7"
-		DEPENDS "${DOC_SRC_DIR}/ubertooth.md"
-		COMMENT "ronn: ubertooth.md -> ubertooth.7")
-	add_custom_target(manpages ALL
-		DEPENDS
-			"${CMAKE_CURRENT_SOURCE_DIR}/ubertooth-util.1"
-			"${CMAKE_CURRENT_SOURCE_DIR}/ubertooth.7")
+
+	add_custom_target(manpages DEPENDS ${GENERATED_MAN_PAGES})
+
+	add_custom_target(refresh-manpages
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different ${GENERATED_MAN_PAGES}
+		        "${CMAKE_CURRENT_SOURCE_DIR}"
+		DEPENDS ${GENERATED_MAN_PAGES}
+		COMMENT "refreshing the committed man pages in host/doc/man")
 else()
-	message(STATUS "ronn not found: installing committed man pages as-is "
-	               "(edit host/doc/*.md then regenerate with ronn)")
+	message(STATUS "ronn not found: the committed man pages are installed as "
+	               "they are (needed only to refresh them after editing "
+	               "host/doc/*.md)")
 endif()
 
 install(FILES

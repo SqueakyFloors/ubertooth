@@ -422,6 +422,19 @@ endif()
 
 # The same clock wrap through a replay, so the times a capture file carries are
 # checked end to end with the real ubertooth-rx.
+# host/doc/man: a build must leave the committed man pages alone, and the
+# refresh-manpages target must rewrite them. Builds the real host/doc project
+# against a copy of the source tree; skipped where ronn is not installed.
+add_test(
+	NAME manpages
+	COMMAND ${Python3_EXECUTABLE}
+		${CMAKE_CURRENT_SOURCE_DIR}/test_manpages.py
+		${CMAKE_COMMAND}
+		${CMAKE_CURRENT_SOURCE_DIR}/../..)
+# Two CMake configures and one ronn pass over eleven pages; a few seconds
+# locally, and it skips in seconds without ronn.
+set_tests_properties(manpages PROPERTIES TIMEOUT 300)
+
 add_test(
 	NAME rx-clock-wrap
 	COMMAND ${Python3_EXECUTABLE}

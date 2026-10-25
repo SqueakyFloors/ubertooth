@@ -59,6 +59,11 @@
 
 ### Build and compatibility
 
+- A build no longer rewrites the committed man pages in `host/doc/man` when
+  ronn is installed, and installs the same pages whether it is or not.
+  Refresh them on purpose after editing a `host/doc/*.md` with
+  `cmake --build <build dir> --target refresh-manpages`.
+  [#254](https://github.com/SqueakyFloors/ubertooth/issues/254)
 - `man ubertooth-debug` is installed; its page was built but never installed.
   [#235](https://github.com/SqueakyFloors/ubertooth/issues/235)
 - Python tools are installed natively under the chosen CMake prefix, so
