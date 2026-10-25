@@ -120,7 +120,7 @@ cannot be selected by serial.
 
 A board that cannot be *opened* at all is a different problem, usually file
 permissions: on Linux, install the udev rules shipped with this package (see
-ubertooth-util(1), DIAGNOSTICS).
+ubertooth-util(1), SELECTING A DEVICE).
 
 ## OUTPUT AND DIAGNOSTICS
 

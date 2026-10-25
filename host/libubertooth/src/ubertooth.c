@@ -432,8 +432,8 @@ static struct libusb_device_handle* find_ubertooth_device_serial_opt(
 		/* A bus that could not be listed is not the same as a serial that is
 		 * not attached, so do not report it as one. */
 		if (!quiet) {
-			fprintf(stderr, "error: could not list USB devices "
-			        "(libusb %d)\n", usb_devs);
+			fprintf(stderr, "error: could not list USB devices: %s "
+			        "(libusb %d)\n", libusb_strerror(usb_devs), usb_devs);
 		}
 		return NULL;
 	}

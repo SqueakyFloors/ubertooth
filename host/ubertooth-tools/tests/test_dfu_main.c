@@ -559,6 +559,10 @@ MU_TEST(a_dfu_board_in_use_goes_through_the_shared_report_and_is_left_alone)
 		mu_assert_int_eq(refusals[i], fake.claim_report_err);
 		mu_assert(strstr(r.err, "permissions") == NULL, r.err);
 		mu_assert_int_eq(0, fake.detach_calls);
+		/* These runs give no -U, so there is no board to name. With one, the
+		 * board is named by that string; reaching the claim with a selector
+		 * needs the application device this case does not put on the bus. */
+		mu_assert(fake.claim_report_board == NULL, "unnamed");
 	}
 	remove_dump();
 }

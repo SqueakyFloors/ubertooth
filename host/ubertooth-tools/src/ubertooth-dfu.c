@@ -1250,6 +1250,20 @@ static int plan_upload(struct dfu_runtime_context *runtime)
 #define FUNC_SIGN     (1<<2)
 #define FUNC_RESET    (1<<3)
 
+/* How a claim failure names the board: by the -U string, which is all this
+ * tool knows about it. NULL without one, which the reporter reads as "the
+ * Ubertooth". The result lives in a static buffer, so it is printed straight
+ * away. */
+static const char* dfu_board_label(const char* selector)
+{
+	static char label[64];
+
+	if (selector == NULL || selector[0] == '\0')
+		return NULL;
+	snprintf(label, sizeof(label), "Ubertooth %s", selector);
+	return label;
+}
+
 int main(int argc, char **argv) {
 	FILE* downfile = NULL;
 	FILE* upfile = NULL;
@@ -1572,8 +1586,9 @@ int main(int argc, char **argv) {
 	r = libusb_claim_interface(devh, 0);
 	if (r < 0) {
 		/* The board opened, so this is not the permissions problem this used
-		 * to blame: something else holds the interface. */
-		ubertooth_report_claim_failed(NULL, r);
+		 * to blame: something else holds the interface. Named by the -U
+		 * string when there was one, as the library's own paths do. */
+		ubertooth_report_claim_failed(dfu_board_label(ubertooth_device), r);
 		exit_status = 1;
 		goto cleanup;
 	}
