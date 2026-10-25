@@ -29,8 +29,9 @@
 /* The part of the request in front of the payload, as the firmware names it. */
 #define TX_GENERIC_HEADER_LEN offsetof(generic_tx_packet, data)
 
-/* abVendorReqData in firmware/bluetooth_rxtx/ubertooth_usb.c: what the USB
- * stack hands the handler, and so the most a bad request can copy from. */
+/* abVendorReqData in firmware/bluetooth_rxtx/ubertooth_usb.c: the buffer the
+ * USB stack hands the handler. The stack's data stage does not bound itself to
+ * it, so it is the size of the buffer rather than a ceiling on the request. */
 #define VENDOR_REQ_BUF 258
 
 /*
@@ -173,9 +174,11 @@ MU_TEST(test_the_longest_possible_length_is_refused)
 }
 
 /*
- * A request that declares more payload than it carries is refused too, so
- * neither the tail of the last packet nor whatever the USB stack left in its
- * buffer can be transmitted as this one.
+ * A request that declares more payload than it carries is refused too, so the
+ * copy cannot run past the bytes the host sent. What the buffer holds is
+ * another matter: a device-to-host request of the same number reaches the
+ * handler before any data stage, and these checks bound the copy without being
+ * able to tell the previous request's bytes apart from this one's.
  */
 MU_TEST(test_a_request_shorter_than_it_claims_is_refused)
 {
@@ -322,6 +325,7 @@ static int scan_source(const char *path, struct scan *s)
 }
 
 static struct scan s;
+static int scanned;
 static const char *path = FW_RXTX_DIR "/bluetooth_rxtx.c";
 
 MU_TEST(test_source_was_scanned)
@@ -329,7 +333,7 @@ MU_TEST(test_source_was_scanned)
 	char msg[512];
 
 	snprintf(msg, sizeof(msg), "cannot open %s to scan", path);
-	mu_assert(scan_source(path, &s), msg);
+	mu_assert(scanned, msg);
 
 	snprintf(msg, sizeof(msg),
 	         "%s: the scan did not find the generic transmit request, so the "
@@ -406,6 +410,10 @@ int main(void)
 	MU_RUN(test_a_request_shorter_than_the_header_is_refused);
 	MU_RUN(test_the_old_unchecked_copy_ran_past_the_packet);
 	MU_RUN(test_tx_generic_never_writes_more_than_dma_size);
+
+	/* Scanned once here rather than from the first of the three tests
+	 * below, which would leave them depending on the order they run in. */
+	scanned = scan_source(path, &s);
 	MU_RUN(test_source_was_scanned);
 	MU_RUN(test_the_handler_refuses_before_it_copies);
 	MU_RUN(test_the_fifo_write_is_clamped);

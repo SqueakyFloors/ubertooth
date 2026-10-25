@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "ubertooth.h"
+#include "debug_uart.h"
 #include "tinyprintf.h"
 
 int debug_dma_active = 0;

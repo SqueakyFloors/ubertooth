@@ -649,9 +649,11 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params, uin
 		 * The payload length is a byte of the request, so it is checked
 		 * before anything is copied: tx_pkt has room for DMA_SIZE
 		 * payload bytes and other globals sit behind it, and the length
-		 * reaches the radio's FIFO in tx_generic(). The request also has
-		 * to be as long as it says it is, so a short one cannot leave
-		 * the tail of the previous packet in place.
+		 * reaches the radio's FIFO in tx_generic(). The length the host
+		 * declared bounds the copy too, so it cannot run past what was
+		 * sent -- which is not the same as the bytes being the host's: a
+		 * device-to-host request reaches this handler before any data
+		 * stage, with whatever the last request left in the buffer.
 		 */
 		if (data_in_len < TX_GENERIC_HEADER_LEN)
 			return 0;
