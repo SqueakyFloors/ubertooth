@@ -364,12 +364,14 @@ if(libubertooth_SOURCE_DIR)
 	# Runs the real libubertooth device selection against a faked USB device
 	# list (the libusb device calls are defined in the test), so the
 	# multi-device -U cases are covered without attaching several boards.
+	# ubertooth_fifo.c is left out so the test can define the fifo calls: a
+	# real ring buffer is 64 MB per selection, which is memory this test does
+	# not need and, on a loaded machine, memory a selection may not get.
 	add_executable(test-device-select
 		test_device_select.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_callback.c
-		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c
-		${libubertooth_SOURCE_DIR}/src/ubertooth_fifo.c)
+		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
 	target_include_directories(test-device-select PRIVATE
 		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
 	target_link_libraries(test-device-select ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES})

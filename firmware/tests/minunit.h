@@ -38,6 +38,23 @@ static const char *mu_current = "";
 		}                                                                \
 	} while (0)
 
+/* Like mu_assert, but gives up on the rest of the test function.
+ *
+ * Use it for anything the test goes on to use: a plain mu_assert records the
+ * failure and carries on, so a test that asserts a pointer is not NULL and
+ * then dereferences it turns its own failure into a crash, and a crash
+ * reports no assertion at all.
+ *
+ * It returns from the function it appears in, so it belongs in a test body
+ * (MU_TEST), not in a helper the test calls. The condition is evaluated once.
+ */
+#define mu_assert_fatal(cond, msg) do {                                  \
+		int _mu_ok = (cond) ? 1 : 0;                                    \
+		mu_assert(_mu_ok, msg);                                          \
+		if (!_mu_ok)                                                     \
+			return;                                                      \
+	} while (0)
+
 /* Integer equality with a helpful diff on failure. */
 #define mu_assert_int_eq(expected, actual) do {                          \
 		long _e = (long)(expected);                                     \
