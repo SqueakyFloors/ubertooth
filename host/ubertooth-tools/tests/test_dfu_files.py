@@ -225,7 +225,7 @@ with tempfile.TemporaryDirectory() as directory:
 
     # 7. A file the tool would read into memory whole is measured first: a
     #    huge or sparse file, or one that is not a regular file at all, is
-    #    refused before any allocation and before any device is opened (#246).
+    #    refused before any allocation and before any device is opened.
     print("\n### -d and -s refuse a file they cannot read whole")
     oversized = os.path.join(directory, "oversized.dfu")
     with open(oversized, "wb") as handle:

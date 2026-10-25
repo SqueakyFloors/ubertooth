@@ -259,6 +259,50 @@ jobs:
           ${{github.workspace}}/firmware/*/*.elf
         if-no-files-found: error
 
+  # Issue and pull request numbers must not appear in source, tests or build
+  # files (.kiro/steering/branch-and-review.md). A reviewer who happens to know
+  # the rule is the only thing that caught the last ones, and only after they
+  # had merged. Runs on both tiers: it takes seconds and needs nothing built.
+  issue-references:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Check for issue numbers in source, tests and build files
+      run: tools/check-issue-references.sh
+
+    - name: Check that the check still catches one
+      # So the step above cannot pass because the scan stopped reaching the
+      # files. One plant per kind of file the rule names: a source file, a
+      # CMake build file and a Makefile, since the per-directory build files
+      # are reached by a different pathspec from the sources and were missed
+      # once already. The plants are thrown away with the runner.
+      #
+      # The number is held in a variable because this workflow is itself a
+      # build file the scan reads, and a literal would be a reference of
+      # exactly the kind it refuses.
+      run: |
+        planted=4242
+        for file in host/libubertooth/src/ubertooth.c \
+                    host/CMakeLists.txt \
+                    firmware/bluetooth_rxtx/Makefile; do
+          printf '# see #%s\n' "$planted" >> "$file"
+          if tools/check-issue-references.sh > planted.out 2>&1; then
+            echo "the check passed with a reference planted in $file" >&2
+            exit 1
+          fi
+          grep -q "$file:.*#$planted" planted.out || {
+            echo "the check failed, but not on the line planted in $file:" >&2
+            cat planted.out >&2
+            exit 1
+          }
+          git checkout -- "$file"
+          echo "caught in $file"
+        done
+        rm -f planted.out
+        echo "The check catches a planted reference in source and build files."
+
   # Ubuntu 20.04 is the oldest supported Linux. GitHub retired the hosted
   # ubuntu-20.04 runner, so run it in a container on a current runner. The
   # container is root (no sudo) and starts bare, so install git/toolchain.

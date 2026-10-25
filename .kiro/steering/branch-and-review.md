@@ -100,7 +100,9 @@ Speed matters. Do not wait for every job.
   `host (ubuntu-24.04)` and `host (macos-26)` have passed and nothing has
   failed. Changes under `firmware/` also need both firmware jobs; changes to
   `install.sh` need both `install-sh` jobs; changes under `host/doc` need
-  `Man pages`. A full-tier failure is followed up on `main`.
+  `Man pages`. `issue-references` gates every change it runs on, whatever the
+  change touches: it takes seconds, and a red one means the change itself
+  broke the rule. A full-tier failure is followed up on `main`.
 - **Time budget**: wait at most 10 minutes for the gating set once the run has
   started. Poll every 30 seconds (`gh pr checks <PR>`) rather than one long
   `--watch`, and merge as soon as the gating set is green. If jobs have not started after 5 minutes, say so and decide with the
@@ -165,6 +167,10 @@ once per change**.
   there, use full URLs (`https://github.com/SqueakyFloors/ubertooth/issues/N`)
   or `owner/repo#N`.
 - Leave vendored upstream files as they are.
+- The `issue-references` CI job runs `tools/check-issue-references.sh`, which
+  scans the files this rule covers. Run it before pushing; a match that is not
+  an issue reference (an assembly immediate, a message a test asserts on) goes
+  in the allowlist in that script, with the reason.
 
 ## Documentation clarity
 
