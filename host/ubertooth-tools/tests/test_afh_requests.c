@@ -39,6 +39,11 @@
  * is told to take its channel from the AFH hopping it is about to do. */
 #define AFH_DETECTION_CHANNEL 9999
 
+/* libubertooth's poll-thread flag: ubertooth_bulk_thread_start() clears it
+ * and ubertooth_bulk_thread_stop() sets it, so it says whether the thread the
+ * stream started was joined again. */
+extern int do_exit;
+
 static struct {
 	uint8_t requests[MAX_REQUESTS]; /* bRequest of each control transfer */
 	uint16_t values[MAX_REQUESTS];  /* its wValue */
@@ -46,6 +51,7 @@ static struct {
 	int n;
 	int overflow;                   /* more requests than this records */
 	int bulk_submits;
+	uint8_t refuse_request;         /* fail this request, as a stall does */
 } fake;
 
 /* The handle the receive loop under test is using, so the faked fifo can stop
@@ -117,6 +123,8 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle* devh,
 	} else {
 		fake.overflow = 1;
 	}
+	if (bRequest == fake.refuse_request)
+		return LIBUSB_ERROR_PIPE; /* the board stalled it */
 	if (data != NULL && wLength > 0)
 		memset(data, 0, wLength);
 	return wLength;
@@ -238,6 +246,11 @@ static void release_output(char* err_text, size_t len)
 
 	err_text[0] = '\0';
 	if (saved_stdout < 0 || saved_stderr < 0) {
+		/* nothing was redirected; close whatever the failed capture did get */
+		if (saved_stdout >= 0)
+			close(saved_stdout);
+		if (saved_stderr >= 0)
+			close(saved_stderr);
 		if (capture_out != NULL)
 			fclose(capture_out);
 		if (capture_err != NULL)
@@ -467,6 +480,61 @@ MU_TEST(a_symbol_capture_still_asks_for_symbols)
 	release_handle(ut);
 }
 
+/* A board that refuses the mode request leaves a poll thread running and a
+ * libusb context about to be freed under it, so both paths have to join the
+ * thread before they return. Nothing else here reaches those branches: every
+ * faked transfer succeeds. */
+MU_TEST(a_refused_mode_request_joins_the_poll_thread)
+{
+	static const uint8_t expected[] = {
+		UBERTOOTH_SET_CHANNEL, UBERTOOTH_AFH
+	};
+	char err[256] = "";
+	ubertooth_t* ut;
+	btbb_piconet* pn;
+	int r;
+
+	reset();
+	fake.refuse_request = UBERTOOTH_AFH;
+	ut = new_handle();
+	pn = new_piconet();
+	mu_assert(ut != NULL && pn != NULL, "a handle and a piconet");
+	if (ut == NULL || pn == NULL)
+		return;
+
+	capture_output();
+	r = rx_afh(ut, pn, 0);
+	release_output(err, sizeof(err));
+
+	mu_assert_int_eq(LIBUSB_ERROR_PIPE, r);
+	assert_requests(expected, ARRAY_LEN(expected));
+	mu_assert_int_eq(1, do_exit); /* the poll thread was stopped */
+	/* the library reports the refusal; the caller adds nothing */
+	mu_assert(strstr(err, "control message unsupported") != NULL, err);
+
+	release_handle(ut);
+
+	/* and the -r loop, which joins the thread itself */
+	reset();
+	fake.refuse_request = UBERTOOTH_AFH;
+	ut = new_handle();
+	mu_assert(ut != NULL, "a handle");
+	if (ut == NULL) {
+		btbb_piconet_unref(pn);
+		return;
+	}
+
+	capture_output();
+	rx_afh_r(ut, pn, 0);
+	release_output(err, sizeof(err));
+
+	assert_requests(expected, ARRAY_LEN(expected));
+	mu_assert_int_eq(1, do_exit);
+
+	release_handle(ut);
+	btbb_piconet_unref(pn);
+}
+
 int main(void)
 {
 	/* Nothing here should look for a board; make sure of it. */
@@ -477,5 +545,6 @@ int main(void)
 	MU_RUN(the_monitor_alone_asks_for_afh);
 	MU_RUN(the_r_format_loop_asks_for_afh);
 	MU_RUN(a_symbol_capture_still_asks_for_symbols);
+	MU_RUN(a_refused_mode_request_joins_the_poll_thread);
 	return mu_report();
 }

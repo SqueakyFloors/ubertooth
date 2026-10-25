@@ -16,9 +16,6 @@ target_include_directories(test-dfu-recovery PRIVATE ../src)
 add_test(NAME dfu-recovery COMMAND test-dfu-recovery)
 
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
-# The AFH request test runs the library's receive loop, which starts its poll
-# thread; the other tests that compile ubertooth.c never reach it.
-find_package(Threads REQUIRED)
 
 # ubertooth-dfu checks the image before it opens a device, so the whole
 # accept/refuse decision runs against the real binary with no board. Eleven
@@ -304,6 +301,12 @@ set_tests_properties(dfu-main PROPERTIES TIMEOUT 10)
 # libusb is linked for the other symbols. Needs the library sources, so only
 # when built from the whole host tree.
 if(libubertooth_SOURCE_DIR)
+	# The AFH request test runs the library's receive loop, which starts its
+	# poll thread; the other tests that compile ubertooth.c never reach it.
+	# Inside this guard, so a standalone ubertooth-tools configure, which
+	# builds none of these, does not require it.
+	find_package(Threads REQUIRED)
+
 	add_executable(test-control-partnum
 		test_control_partnum.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
