@@ -69,12 +69,12 @@ blinks a second, until it is stopped:
 so. The other options work with any firmware, so `-v` can still read the
 version and `-f` can reflash it.
 
-The API version is bumped once per release, not once per change, so between
-releases it says nothing about which commit a board carries: firmware from an
-earlier development commit reports the same number and is accepted even though
-its behaviour may differ. Flash the firmware from the commit the tools were
-built from (`./install.sh --flash`); the revision shown by `-v` alongside the
-API version is what identifies the build.
+The API version is bumped whenever a firmware change affects the host, so a
+board flashed from an earlier commit is normally refused rather than used. It
+still does not pin down a commit, since several commits share one number: the
+firmware revision shown by `-v` beside the API version is what identifies the
+build. Flash the firmware from the commit the tools were built from
+(`./install.sh --flash`).
 
 Only one mode option can be given per command: `-q`, `-n`, `-e`, `-t`, `-x`,
 `-I`, `-i` (In-System Programming, ISP) and `-f` (Device Firmware Upgrade,

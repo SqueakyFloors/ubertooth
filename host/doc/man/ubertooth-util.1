@@ -55,7 +55,7 @@ ubertooth\-util \-U <serial> \-S      # stop; the LEDs end off
 .P
 \fB\-I\fR needs firmware of this tree's API version and refuses any other, saying so\. The other options work with any firmware, so \fB\-v\fR can still read the version and \fB\-f\fR can reflash it\.
 .P
-The API version is bumped once per release, not once per change, so between releases it says nothing about which commit a board carries: firmware from an earlier development commit reports the same number and is accepted even though its behaviour may differ\. Flash the firmware from the commit the tools were built from (\fB\./install\.sh \-\-flash\fR); the revision shown by \fB\-v\fR alongside the API version is what identifies the build\.
+The API version is bumped whenever a firmware change affects the host, so a board flashed from an earlier commit is normally refused rather than used\. It still does not pin down a commit, since several commits share one number: the firmware revision shown by \fB\-v\fR beside the API version is what identifies the build\. Flash the firmware from the commit the tools were built from (\fB\./install\.sh \-\-flash\fR)\.
 .P
 Only one mode option can be given per command: \fB\-q\fR, \fB\-n\fR, \fB\-e\fR, \fB\-t\fR, \fB\-x\fR, \fB\-I\fR, \fB\-i\fR (In\-System Programming, ISP) and \fB\-f\fR (Device Firmware Upgrade, DFU) each end the command, so a command with two or more of them is refused before any device is opened, nothing is sent to the device, and the exit status is 1:
 .IP "" 4

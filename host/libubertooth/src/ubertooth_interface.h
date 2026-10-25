@@ -29,23 +29,23 @@
  * The host tools require firmware with exactly this version
  * (ubertooth_check_api()), so host and firmware are released together.
  *
- * It is bumped once per release, not once per change. The first firmware
- * change after a release moves main to the next version, and every later
- * firmware change in the same cycle leaves it alone: cutting the release
- * bumps it, a pull request does not, not even one that changes firmware
- * behaviour. Record such a change in CHANGELOG.md instead.
+ * During development it is bumped in every pull request that changes firmware
+ * behaviour the host relies on: a new, removed or changed request, or a
+ * changed behaviour of an existing one. Host-only changes leave it alone.
+ * A board carrying firmware from an earlier commit is then refused rather
+ * than used with behaviour the tools no longer expect. A bump also updates
+ * CHANGELOG.md, COMPATIBILITY.md, TEST_PLAN.md and the pinned strings in the
+ * tests.
  *
- * So between releases the number says nothing about which commit a board
- * carries. Host tools and firmware built from the same commit always match,
- * and firmware from an earlier development commit with the same number is
- * accepted even though its behaviour may differ. Build and flash both from
- * the same commit (./install.sh --flash) rather than relying on the check to
- * catch a stale board.
+ * A release moves it to the next major version, to mark that its host tools
+ * and firmware only work with each other; the first fork release takes 0x0200
+ * (2.00). See docs/source/release_procedure.rst.
  *
  * bcdDevice is binary-coded decimal, so 0x0109 is followed by 0x0110 (shown
- * as 1.10), then 0x0111 (1.11), and so on to 0x0114 (1.14).
+ * as 1.10), then 0x0111 (1.11), and so on to 0x0115 (1.15); after 0x0119
+ * comes 0x0120, not 0x011a.
  */
-#define UBERTOOTH_API_VERSION 0x0114
+#define UBERTOOTH_API_VERSION 0x0115
 
 /*
  * LED spectrum analyzer (ubertooth-util -q N): the threshold is -N dBm. The
