@@ -50,13 +50,12 @@ enum board_ids {
  * has gone away, and both still have a callback to come.
  * RX_XFER_OURS is zero so a zeroed handle starts out owning nothing.
  *
- * The poll thread writes this from the transfer's callback while the receive
- * loop reads it, with no lock, as the code already does for rx_xfer itself.
- * No interleaving frees a transfer libusb holds, or frees one twice: the
- * callback gives a transfer up only together with rx_xfer, clearing the
- * pointer first, and a teardown stops at a cleared pointer. That is the whole
- * of the claim; cancelling is not covered by it, and giving the transfer a
- * lock of its own is a change of its own. */
+ * This and rx_xfer are shared with the poll thread without a lock, which
+ * works because only one thread touches them at a time: while a capture runs
+ * they belong to the transfer's callback, which the poll thread calls, and
+ * every teardown runs after that thread has been joined. Nothing on the
+ * receive loop's side writes them or hands them to libusb. Keep it that way,
+ * or give the transfer a lock. */
 enum rx_xfer_state {
 	RX_XFER_OURS = 0,   /* no transfer, or one libusb is not holding */
 	RX_XFER_IN_FLIGHT,  /* submitted: libusb owns it */
@@ -172,6 +171,11 @@ int ubertooth_connect_select(ubertooth_t* ut, const char* u_arg);
 ubertooth_t* ubertooth_start_select_quiet(const char* u_arg);
 void ubertooth_close(ubertooth_t* ut);
 void ubertooth_stop(ubertooth_t* ut);
+/* Releases a handle ubertooth_stop() or ubertooth_close() has finished with.
+ * A handle whose receive transfer libusb never gave back is left allocated
+ * instead: that transfer's callback reads into this handle's ring buffer. The
+ * teardown reports such a handle as a warning, so a caller that keeps going
+ * sees it; one that is about to exit can ignore it. */
 void ubertooth_free(ubertooth_t* ut);
 int ubertooth_get_api(ubertooth_t *ut, uint16_t *version);
 int ubertooth_check_api(ubertooth_t *ut);

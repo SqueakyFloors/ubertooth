@@ -752,15 +752,14 @@ int ubertooth_bulk_receive(ubertooth_t* ut, rx_callback cb, void* cb_args)
 	if (!fifo_empty(ut->fifo)) {
 		(*cb)(ut, cb_args);
 		if(ut->stop_ubertooth) {
-			/* Cancelled here so the board stops writing into a ring buffer
-			 * nothing is draining any more; ubertooth_bulk_stop() waits for
-			 * the completion. Only a transfer libusb is holding can be
-			 * cancelled, and only a cancel it accepted puts one on its
-			 * way. */
-			if (ut->rx_xfer != NULL
-			    && ut->rx_xfer_state == RX_XFER_IN_FLIGHT
-			    && libusb_cancel_transfer(ut->rx_xfer) == 0)
-				ut->rx_xfer_state = RX_XFER_CANCELLING;
+			/* The transfer is not cancelled here, where the poll thread is
+			 * still running and may be freeing it in cb_xfer() at this very
+			 * moment: the cancel would then be made on freed memory. It is
+			 * not needed either. cb_xfer() stops putting the transfer back
+			 * in flight as soon as stop_ubertooth is set, which is before
+			 * this returns, so the board has nowhere to send to within one
+			 * transfer; ubertooth_bulk_stop() cancels once the poll thread
+			 * has been joined, where it is the only thread left. */
 			return 1;
 		}
 		fflush(stderr);

@@ -98,6 +98,14 @@ Exit status is 0 only when the command did what was asked, including `-h`, and
 is missing or failed, a partial failure. ubertooth-afh(1) also uses 2, for a
 detection phase that received no packet.
 
+One warning is worth knowing on sight. When a capture ends, the USB transfer
+it was reading into has to come back before the device can be closed; a board
+that never returns it leaves the tool no safe way to close the device, so it
+says `warning: the receive transfer did not finish; the Ubertooth is left open
+and may still be capturing` and exits with the status the command earned. The
+board usually needs `ubertooth-util [-U <selector>] -S` or `-r` afterwards, and
+one that answers neither has to be unplugged and plugged in again.
+
 libubertooth follows the split already: it returns what it reads to the tool
 that called it and reports its own problems on standard error, so a library
 message does not land in the middle of a capture. The clock trim and AFH

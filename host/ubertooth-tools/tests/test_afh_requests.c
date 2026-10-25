@@ -878,40 +878,51 @@ MU_TEST(a_stop_with_a_packet_in_hand_gives_the_transfer_back)
 	release_handle(ut);
 }
 
-/* A board that leaves the bus mid-capture: libusb refuses the cancel because
- * the device is gone, and the transfer is still in flight. It is left
- * allocated rather than freed under libusb, so the run ends without touching
- * it and the next phase on the same handle refuses to start. */
+/* The refusals that do not mean the transfer is back. libusb reports
+ * NOT_FOUND for a transfer whose cancellation is already under way, which is
+ * still in flight with its callback to come, and NO_DEVICE for a board that
+ * has left the bus, which is no guarantee either. Reading either as "not in
+ * flight" freed a transfer libusb was still holding. Such a transfer is left
+ * allocated instead, so the run ends without touching it and the next phase
+ * on the same handle refuses to start. */
 MU_TEST(a_cancel_the_device_refuses_leaves_the_transfer_alone)
 {
+	static const int refusals[] = {
+		LIBUSB_ERROR_NOT_FOUND, LIBUSB_ERROR_NO_DEVICE
+	};
 	char err[1024] = "";
 	ubertooth_t* ut;
+	size_t i;
 
-	reset();
-	fake.cancel_rc = LIBUSB_ERROR_NO_DEVICE;
-	fake.poll_thread_idle = 1;
-	ut = new_handle();
-	mu_assert(ut != NULL, "a handle");
-	if (ut == NULL)
-		return;
+	for (i = 0; i < ARRAY_LEN(refusals); i++) {
+		reset();
+		fake.cancel_rc = refusals[i];
+		fake.poll_thread_idle = 1;
+		ut = new_handle();
+		mu_assert(ut != NULL, "a handle");
+		if (ut == NULL)
+			return;
 
-	capture_output();
-	rx_dump(ut, 1);
-	release_output(err, sizeof(err));
+		capture_output();
+		rx_dump(ut, 1);
+		release_output(err, sizeof(err));
 
-	assert_transfer_lifetimes();
-	mu_assert_int_eq(1, fake.xfer_allocs);
-	mu_assert_int_eq(0, fake.xfer_frees);
-	mu_assert(ut->rx_xfer != NULL, "the transfer is still libusb's");
+		assert_transfer_lifetimes();
+		mu_assert_int_eq(1, fake.xfer_allocs);
+		mu_assert_int_eq(0, fake.xfer_frees);
+		mu_assert(ut->rx_xfer != NULL, "the transfer is still libusb's");
 
-	capture_output();
-	mu_assert_int_eq(-1, ubertooth_bulk_init(ut));
-	release_output(err, sizeof(err));
-	assert_transfer_lifetimes();
-	mu_assert(strstr(err, "the previous receive transfer did not finish")
-	          != NULL, err);
+		/* and the next phase on the same handle refuses to start rather
+		 * than replacing a transfer libusb is holding */
+		capture_output();
+		mu_assert_int_eq(-1, ubertooth_bulk_init(ut));
+		release_output(err, sizeof(err));
+		assert_transfer_lifetimes();
+		mu_assert(strstr(err, "the previous receive transfer did not finish")
+		          != NULL, err);
 
-	release_handle(ut);
+		release_handle(ut);
+	}
 }
 
 /* A transfer libusb never hands back keeps the device and the libusb session
@@ -927,7 +938,7 @@ MU_TEST(a_transfer_that_never_comes_back_keeps_the_device_open)
 	reset();
 	/* refused for a transfer that stays in flight, and nothing delivers its
 	 * completion: the bounded wait in the teardown runs out */
-	fake.cancel_rc = LIBUSB_ERROR_NO_DEVICE;
+	fake.cancel_rc = LIBUSB_ERROR_NOT_FOUND;
 	fake.poll_thread_idle = 1;
 	ut = new_handle();
 	mu_assert(ut != NULL, "a handle");

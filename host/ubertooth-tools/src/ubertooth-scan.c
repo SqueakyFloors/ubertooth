@@ -322,8 +322,12 @@ int main(int argc, char *argv[])
 
 	// init USB transfer
 	r = ubertooth_bulk_init(ut);
-	if (r < 0)
+	if (r < 0) {
+		/* nothing is in flight, but the board is still open and in
+		 * whatever mode an earlier command left it */
+		ubertooth_stop(ut);
 		return r;
+	}
 
 	r = ubertooth_bulk_thread_start();
 	if (r < 0) {
