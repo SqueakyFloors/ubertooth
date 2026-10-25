@@ -274,9 +274,27 @@ MU_TEST(a_lost_wrap_is_reported_where_the_packets_carry_no_count)
 	           text, sizeof(text));
 
 	mu_assert_int_eq(0, ut.clk100ns_upper);
-	mu_assert(strstr(text, "warning: packet times are more than the capture "
-	                 "clock's 429.50 s period behind the host clock") != NULL,
-	          text);
+	mu_assert(strstr(text, "warning: packet times are behind the host clock "
+	                 "by more than half the capture clock's 429.50 s period")
+	          != NULL, text);
+}
+
+/* One lost wrap is the whole of the issue for those modes, and it leaves the
+ * times exactly one period short, so the report cannot wait for a second. */
+MU_TEST(a_single_lost_wrap_is_reported_too)
+{
+	ubertooth_t ut;
+	uint64_t times[2];
+	char text[400];
+
+	replay_gap(&ut, CLK100NS_TIMER1_PERIOD, 0, FIRST_TICKS,
+	           CLK100NS_TIMER1_PERIOD + STEP_TICKS, times,
+	           text, sizeof(text));
+
+	mu_assert_int_eq(0, ut.clk100ns_upper);
+	mu_assert(strstr(text, "warning: packet times are behind the host clock "
+	                 "by more than half the capture clock's 429.50 s period")
+	          != NULL, text);
 }
 
 /* A capture whose times keep up with the host clock says nothing, so the
@@ -323,9 +341,9 @@ MU_TEST(a_gap_of_a_whole_multiple_of_256_periods_is_reported_not_guessed)
 	 * single period an inference would have added. */
 	mu_assert_int_eq(0, ut.clk100ns_upper);
 	mu_assert_int_eq(100 * STEP_TICKS, times[0] - times[1]);
-	mu_assert(strstr(text, "warning: packet times are more than the capture "
-	                 "clock's 327.68 s period behind the host clock") != NULL,
-	          text);
+	mu_assert(strstr(text, "warning: packet times are behind the host clock "
+	                 "by more than half the capture clock's 327.68 s period")
+	          != NULL, text);
 }
 
 /* A count that reads lower than the last packet's is a record out of order or
@@ -335,16 +353,24 @@ MU_TEST(a_count_that_reads_backwards_does_not_move_the_clock)
 {
 	ubertooth_t ut;
 	uint64_t first = 5 * (uint64_t)CLK100NS_PERIOD + FIRST_TICKS;
-	uint64_t before, after;
+	uint64_t before, after, back;
 
 	start_capture(&ut, CLK100NS_PERIOD);
 	before = at_clock_counted(&ut, first, 1);
 	/* The same clock a step on, but stamped with the period before it. */
-	after = at_clock_with_count(&ut, first + STEP_TICKS,
-	                            (uint8_t)(first / CLK100NS_PERIOD - 1));
+	back = at_clock_with_count(&ut, first + STEP_TICKS,
+	                           (uint8_t)(first / CLK100NS_PERIOD - 1));
 
 	mu_assert_int_eq(0, ut.clk100ns_upper);
-	mu_assert_int_eq(100 * STEP_TICKS, after - before);
+	mu_assert_int_eq(100 * STEP_TICKS, back - before);
+
+	/* A record that is in order again is measured from the count last
+	 * believed, not from the one just rejected, so the climb back out of it
+	 * is not counted as a period of its own. */
+	after = at_clock_counted(&ut, first + 2 * STEP_TICKS, 1);
+
+	mu_assert_int_eq(0, ut.clk100ns_upper);
+	mu_assert_int_eq(100 * 2 * STEP_TICKS, after - before);
 }
 
 /* The firmware latches a packet's clock reading and its period count with two
@@ -461,6 +487,7 @@ int main(void)
 	MU_RUN(a_gap_longer_than_a_period_is_taken_from_the_packet);
 	MU_RUN(the_count_in_the_packet_wraps_without_losing_a_period);
 	MU_RUN(a_lost_wrap_is_reported_where_the_packets_carry_no_count);
+	MU_RUN(a_single_lost_wrap_is_reported_too);
 	MU_RUN(a_capture_that_keeps_up_reports_nothing);
 	MU_RUN(a_gap_of_a_whole_multiple_of_256_periods_is_reported_not_guessed);
 	MU_RUN(a_count_that_reads_backwards_does_not_move_the_clock);

@@ -108,19 +108,27 @@ def offsets_ns(ticks):
 TICKS = [FIRST_TICKS + i * STEP_TICKS for i in range(RECORDS)]
 assert max(TICKS) // CLK100NS_PERIOD == 2, "the fixture must cross two wraps"
 
-# Four records 100 s apart, a gap of two whole periods and 10 s, then four
-# more. The gap leaves the clock reading a little higher than it did, so
-# nothing in the sequence of clock values shows that it started over twice;
-# only the count each record carries does.
-GAP = 2 * CLK100NS_PERIOD + 100_000_000
-LOST_PERIODS = 2
-GAP_TICKS = [FIRST_TICKS + i * STEP_TICKS for i in range(4)]
-GAP_TICKS += [GAP_TICKS[3] + GAP + i * STEP_TICKS for i in range(4)]
-assert len(GAP_TICKS) == RECORDS
-assert GAP_TICKS[4] % CLK100NS_PERIOD > GAP_TICKS[3] % CLK100NS_PERIOD, \
-    "the gap must leave the clock reading higher, not lower"
-assert GAP_TICKS[4] // CLK100NS_PERIOD - GAP_TICKS[3] // CLK100NS_PERIOD \
-    == LOST_PERIODS, "the gap must cross two whole periods"
+
+def gap_ticks(periods):
+    """Four records 100 s apart, a gap of whole periods and 10 s, then four
+    more. The gap leaves the clock reading a little higher than it did, so
+    nothing in the sequence of clock values shows that it started over; only
+    the count each record carries does."""
+    ticks = [FIRST_TICKS + i * STEP_TICKS for i in range(4)]
+    gap = periods * CLK100NS_PERIOD + 100_000_000
+    ticks += [ticks[3] + gap + i * STEP_TICKS for i in range(4)]
+    assert len(ticks) == RECORDS
+    assert ticks[4] % CLK100NS_PERIOD > ticks[3] % CLK100NS_PERIOD, \
+        "the gap must leave the clock reading higher, not lower"
+    assert ticks[4] // CLK100NS_PERIOD - ticks[3] // CLK100NS_PERIOD \
+        == periods, "the gap must cross whole periods"
+    return ticks
+
+
+# One lost period is the commonest case and two shows them adding up; both
+# have to come out of the count, and both have to be reported where there is
+# no count to come out of.
+GAPS = (1, 2)
 
 
 def pcap_times(path):
@@ -216,23 +224,28 @@ with tempfile.TemporaryDirectory() as workdir:
                 (counted, name, steps, result)
         assert "warning:" not in result.stderr, result.stderr
 
-    # A gap of more than a whole period in the middle. The count the records
-    # carry puts every later packet where it belongs and nothing is said.
-    result, pcap, pcapng = replay(fixture(GAP_TICKS), work)
-    assert pcap == offsets_ns(GAP_TICKS), (pcap, result)
-    assert pcapng == offsets_ns(GAP_TICKS), (pcapng, result)
-    assert "warning:" not in result.stderr, result.stderr
+    for periods in GAPS:
+        ticks = gap_ticks(periods)
 
-    # The same gap in records carrying no count: the wrap cannot be seen, so
-    # the later packets come out two periods early, and that is reported
-    # against the host time each record carries rather than passed in silence.
-    result, pcap, pcapng = replay(fixture(GAP_TICKS, counted=False), work)
-    lost_ns = 100 * LOST_PERIODS * CLK100NS_PERIOD
-    expected = [t - (lost_ns if i >= 4 else 0)
-                for i, t in enumerate(offsets_ns(GAP_TICKS))]
-    assert pcap == expected, (pcap, result)
-    assert pcapng == expected, (pcapng, result)
-    assert "warning: packet times are more than the capture clock's 327.68 s "\
-        "period behind the host clock" in result.stderr, result.stderr
-    # Said once, not once a packet.
-    assert result.stderr.count("warning:") == 1, result.stderr
+        # A gap of whole periods in the middle. The count the records carry
+        # puts every later packet where it belongs and nothing is said.
+        result, pcap, pcapng = replay(fixture(ticks), work)
+        assert pcap == offsets_ns(ticks), (periods, pcap, result)
+        assert pcapng == offsets_ns(ticks), (periods, pcapng, result)
+        assert "warning:" not in result.stderr, result.stderr
+
+        # The same gap in records carrying no count: the wraps cannot be seen,
+        # so the later packets come out that many periods early, and it is
+        # reported against the host time each record carries rather than
+        # passed in silence.
+        result, pcap, pcapng = replay(fixture(ticks, counted=False), work)
+        lost_ns = 100 * periods * CLK100NS_PERIOD
+        expected = [t - (lost_ns if i >= 4 else 0)
+                    for i, t in enumerate(offsets_ns(ticks))]
+        assert pcap == expected, (periods, pcap, result)
+        assert pcapng == expected, (periods, pcapng, result)
+        assert "warning: packet times are behind the host clock by more than "\
+            "half the capture clock's 327.68 s period" in result.stderr, \
+            result.stderr
+        # Said once, not once a packet.
+        assert result.stderr.count("warning:") == 1, result.stderr
