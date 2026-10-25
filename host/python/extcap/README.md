@@ -29,7 +29,9 @@ worth running by hand when a board does not appear in Wireshark.
  - `--extcap-interfaces` :
    one `interface` line per attached board, named `ubertooth<serial>`. A
    board whose serial cannot be read is left out, since it has no name to
-   offer
+   offer, and the boards that could be named are still listed. No board
+   attached is an empty listing and exit 0; a listing that failed for any
+   other reason exits 1 and reports what `ubertooth-util` said
  - `--extcap-interface=ubertooth<serial>` :
    the board every other call applies to. The serial is passed to
    `ubertooth-btle -U`, so a board keeps its interface across a reboot or a
@@ -83,7 +85,10 @@ and are refused like any other unknown option.
    to `ubertooth-btle`, which dies of it, or `ubertooth-btle` dies of SIGPIPE
    because nothing is reading the fifo any more
  - `1` :
-   a usage error, a board that could not be opened, or any other failure
+   a usage error, a board that could not be opened, a tool that could not be
+   run, or any other failure. `--extcap-interfaces` exits 0 when no board is
+   attached, since an empty listing is the answer to that, and 1 when
+   `ubertooth-util` failed for any other reason
  - anything else :
    `ubertooth-btle`'s own exit status, or `128` plus the number of the signal
    that killed it. Wireshark reads a non-zero exit of the `--capture` call as
@@ -93,9 +98,10 @@ and are refused like any other unknown option.
 
 Errors, warnings and the usage line after a bad command line go to standard
 error; the script's own standard output carries only the listings above, the
-capture data going to the fifo instead, and nothing when a call fails. During
-`--capture` the `ubertooth-btle` it runs inherits that standard output and
-writes its own decode of every packet there; Wireshark discards it.
+capture data going to the fifo instead, and nothing when a call fails, except
+for the boards a partly failed listing could still name. During `--capture`
+the `ubertooth-btle` it runs inherits that standard output and writes its own
+decode of every packet there; Wireshark discards it.
 
 A command line the script will not take is refused before `ubertooth-btle`
 runs, so nothing is written to the fifo:
@@ -111,7 +117,13 @@ word too, rather than ending the command before the rest has parsed.
 Whatever `ubertooth-util` and `ubertooth-btle` write to standard error,
 Wireshark shows for the interface, including
 `no Ubertooth found with serial matching '<serial>'` for a board that has been
-unplugged since the listing.
+unplugged since the listing. The one line not passed on is
+`ubertooth-util`'s `error: no Ubertooth devices found`, which only says the
+listing is empty, as the listing itself does.
+
+A tool that is not on the `PATH` Wireshark started the script with, or that
+cannot be executed, is reported as
+`error: could not run ubertooth-util: No such file or directory`.
 
 ## See also
 

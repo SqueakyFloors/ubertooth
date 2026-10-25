@@ -184,6 +184,11 @@
   refused, and a failed or refused capture exits non-zero.
   [#297](https://github.com/SqueakyFloors/ubertooth/issues/297)
   [#334](https://github.com/SqueakyFloors/ubertooth/issues/334)
+- `btle-extcap.py --extcap-interfaces` no longer hides a failing
+  `ubertooth-util`: what it wrote to standard error is passed on and the
+  status is 1, so a failure is told apart from an empty listing. A tool that
+  is not on `PATH` is reported instead of ending in a Python traceback.
+  [#362](https://github.com/SqueakyFloors/ubertooth/issues/362)
 - `btle-extcap.py -h` names the options the script accepts, not
   `--list-interfaces`, `--list-dlts` and `--config`, which it rejects.
   [#268](https://github.com/SqueakyFloors/ubertooth/issues/268)
