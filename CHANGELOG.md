@@ -38,9 +38,9 @@
   <n>` on standard error and exits 1; it was a line on standard output with
   exit 0.
   [#338](https://github.com/SqueakyFloors/ubertooth/issues/338)
-- `ubertooth-specan` reports an option it does not know itself,
-  `error: unrecognized option '-Z'`, instead of letting the option parser name
-  the whole path of the binary.
+- `ubertooth-specan` reports a bad option itself, as the other tools do:
+  `error: unrecognized option '-Z'` and `error: option '-l' requires a value`,
+  instead of the option parser's own lines naming the whole path of the binary.
   [#338](https://github.com/SqueakyFloors/ubertooth/issues/338)
 - ubertooth-btle can stream PCAP data to stdout with `-q -`
   or `-c -`, safely separating diagnostics for Wireshark and other consumers.

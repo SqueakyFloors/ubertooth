@@ -143,11 +143,10 @@ Common options:
    with nothing but a `-U <index|serial>` selector beside it, it prints the
    count, opens no device and exits 0, unless the count itself fails: a
    selector alone asks nothing of the board it names. A command line refused
-   before anything runs (two modes, `-z` with a
-   mode, `-U all` with an option it does not support, a bad option value, an
-   unknown option or a stray word) prints no count, and `-h`, `-H` and
-   `--host-version` end the command before it, as they do before every other
-   option.
+   before anything runs (two modes, `-z` with a mode, `-U all` with an option
+   it does not support, a bad option value, an unknown option or a stray word)
+   prints no count, and `-h`, `-H` and `--host-version` end the command before
+   it, as they do before every other option.
 
 Radio options:
 
