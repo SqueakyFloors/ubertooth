@@ -19,9 +19,8 @@
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
 - **Script-visible change:** every tool now keeps standard output for its
   results and capture data; errors, warnings and progress go to standard
-  error, `-h` exits 0, and a command line with nothing to do is refused. In
-  `ubertooth-rx` that also covers an unknown option, `-h`, and a `-i` or `-d`
-  file it cannot open, now `error: <file>: <reason>` on standard error.
+  error, `-h` exits 0, and a command line with nothing to do is refused. A
+  file a tool cannot open is reported as `error: <file>: <reason>`.
   [#323](https://github.com/SqueakyFloors/ubertooth/issues/323)
 - ubertooth-btle can stream PCAP data to stdout with `-q -`
   or `-c -`, safely separating diagnostics for Wireshark and other consumers.
