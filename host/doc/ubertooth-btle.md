@@ -172,7 +172,8 @@ promiscuous mode. The packets of those two modes carry no count of how often
 it has, so a gap longer than one period leaves every later time short by a
 period. That cannot be recovered, but it is reported, on standard error:
 `warning: packet times are more than the capture clock's 429.50 s period
-behind the host clock`.
+behind the host clock`. A host clock stepped forwards during a capture looks
+the same from here, which is why the message names both causes.
 
 Miscellaneous:
 

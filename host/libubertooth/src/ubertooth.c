@@ -1049,6 +1049,9 @@ ubertooth_t* ubertooth_init()
 	ut->rx_xfer = NULL;
 	ut->stop_ubertooth = 0;
 	ubertooth_capture_clock_reset(ut);
+	/* Which clock a mode stamps with is the tool's to say, and it says so
+	 * before it starts such a mode; until then, the CLKN-derived one. */
+	ut->clk100ns_period = CLK100NS_PERIOD;
 
 	ut->h_pcap_bredr = NULL;
 	ut->h_pcap_le = NULL;

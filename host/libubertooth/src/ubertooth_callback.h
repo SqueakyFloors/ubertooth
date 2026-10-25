@@ -28,7 +28,9 @@
 
 /* Returns the capture clock tracking to the state a capture starts from. A
  * handle used for a second capture must not inherit the first one's wrap
- * count, or every time it reconstructs would be a period or more too high. */
+ * count, or every time it reconstructs would be a period or more too high.
+ * Which clock stamps the packets (clk100ns_period) is the tool's choice, not
+ * tracking state, and is left as the tool set it. */
 void ubertooth_capture_clock_reset(ubertooth_t* ut);
 
 void cb_afh_initial(ubertooth_t* ut, void* args);

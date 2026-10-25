@@ -236,4 +236,3 @@ with tempfile.TemporaryDirectory() as workdir:
         "period behind the host clock" in result.stderr, result.stderr
     # Said once, not once a packet.
     assert result.stderr.count("warning:") == 1, result.stderr
-

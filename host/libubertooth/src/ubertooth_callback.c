@@ -111,10 +111,8 @@ void ubertooth_capture_clock_reset( ubertooth_t* ut )
 	ut->last_clkn_high = 0;
 	ut->clk100ns_upper = 0;
 	ut->clk100ns_started = 0;
+	ut->clk100ns_counted = 0;
 	ut->clk100ns_gap_warned = 0;
-	/* The CLKN-derived clock is what a mode stamps with unless the tool says
-	 * otherwise, which it does before it starts such a mode. */
-	ut->clk100ns_period = CLK100NS_PERIOD;
 }
 
 static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx )
@@ -130,6 +128,13 @@ static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx )
 	                  rx->clkn_high : 0;
 	uint8_t advance;
 
+	/* A count has to arrive before it can be believed: a mode that sends
+	 * none leaves the field zero, which is also what the first period of a
+	 * capture that does send one looks like. From the first non-zero count
+	 * on, the count is the authority and the clock is not second-guessed. */
+	if (periods != 0)
+		ut->clk100ns_counted = 1;
+
 	if (!ut->clk100ns_started) {
 		ut->clk100ns_started = 1;
 		ut->last_clk100ns = ut->start_clk100ns = clk100ns;
@@ -138,28 +143,38 @@ static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx )
 		return;
 	}
 
-	/* The count is one byte, so it is taken as a difference from the last
-	 * packet's and so covers a gap of up to 256 periods, about 23 hours.
-	 * Where the packets carry no count, a wrap can only be inferred from
-	 * the clock going backwards, which misses one that falls in a gap
-	 * longer than a single period. */
-	advance = (uint8_t) (periods - ut->last_clkn_high);
-	if (advance != 0)
-		ut->clk100ns_upper += advance;
-	else if (clk100ns < ut->last_clk100ns)
+	if (ut->clk100ns_counted) {
+		/* The count is one byte, read as a difference from the last
+		 * packet's, so the byte's own wrap costs nothing. Only a
+		 * forward difference is time passing: half the byte's range is
+		 * kept for that, covering a gap of up to 127 periods, so a
+		 * count that reads backwards - a record out of order or edited
+		 * - is ignored rather than read as nearly 23 hours forwards. A
+		 * longer gap cannot be counted at all; the host clock is what
+		 * reports the loss. */
+		advance = (uint8_t) (periods - ut->last_clkn_high);
+		if (advance != 0 && advance < 128)
+			ut->clk100ns_upper += advance;
+	} else if (clk100ns < ut->last_clk100ns) {
+		/* Without a count a wrap can only be inferred from the clock
+		 * reading lower than it did, which misses one that falls in a
+		 * gap longer than a single period. */
 		ut->clk100ns_upper += 1;
+	}
 
 	ut->last_clk100ns = clk100ns;
 	ut->last_clkn_high = periods;
 }
 
-/* A wrap inferred from the clock going backwards is lost when it falls in a
- * gap longer than one period, and nothing in the capture shows it: the times
- * simply come out a period short from then on. The host clock does show it,
- * because it kept running, so it ends up more than a period ahead of the
- * reconstructed times. Said once, and not used to correct them: it says that
- * time was lost, not where, and a host clock that is stepped during a capture
- * must not move packet times. */
+/* A wrap that cannot be counted - inferred from the clock going backwards and
+ * falling in a gap longer than one period, or past the range of the count a
+ * packet carries - leaves nothing in the capture to show it: the times simply
+ * come out short from then on. The host clock does show it, because it kept
+ * running, so it ends up more than a period ahead of the reconstructed times.
+ * Said once, and not used to correct them: it says that time was lost, not
+ * where, and a host clock that is stepped during a capture must not move
+ * packet times. A step is also why the message does not claim a lost wrap as
+ * the cause: a host clock jumped forwards looks the same from here. */
 static void warn_if_a_wrap_was_lost( ubertooth_t* ut, uint64_t packet_ns )
 {
 	uint64_t host_ns;
@@ -174,7 +189,7 @@ static void warn_if_a_wrap_was_lost( ubertooth_t* ut, uint64_t packet_ns )
 	ut->clk100ns_gap_warned = 1;
 	fprintf(stderr, "warning: packet times are more than the capture clock's "
 	        "%.2f s period behind the host clock: a quiet gap lost a clock "
-	        "wrap, so times after it are short\n", period_ns / 1e9);
+	        "wrap, or the host clock was stepped forwards\n", period_ns / 1e9);
 }
 
 /* The capture clock of a packet, as 100 ns ticks since the board started
@@ -193,9 +208,14 @@ static uint64_t now_ns_from_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx )
 
 	track_clk100ns( ut, rx );
 	/* The 100 ns ticks since the first packet, as nanoseconds: the whole
-	 * difference is scaled, not just the current tick count. */
-	packet_ns = ut->abs_start_ns + 100ull *
-	            (clk100ns_extended( ut, rx ) - ut->start_clk100ns);
+	 * difference is scaled, not just the current tick count. Signed,
+	 * because a packet can read a little before the one a capture started
+	 * on: the firmware latches clk100ns and the period count with separate
+	 * reads of CLKN, so a packet caught as the count ticks over carries one
+	 * a period ahead of its own clock reading. */
+	packet_ns = (uint64_t) ((int64_t) ut->abs_start_ns + 100 *
+	            ((int64_t) clk100ns_extended( ut, rx ) -
+	             (int64_t) ut->start_clk100ns));
 	warn_if_a_wrap_was_lost( ut, packet_ns );
 	return packet_ns;
 }

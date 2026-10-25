@@ -141,7 +141,7 @@ ubertooth\-btle \-f \-c \- | wireshark \-k \-i \-
 .IP
 When stdout capture is selected, regular packet/status text is suppressed so it cannot corrupt the binary stream; errors remain on stderr\. The lines that answer an option in the same command go to stderr rather than being suppressed with it: the \fBAccess address:\fR line of \fB\-a\fR, the \fBCRC:\fR line of \fB\-v\fR, and the target lines of \fB\-t\fR\. The tool refuses to write binary capture data directly to an interactive terminal: \fBerror: stdout is a tty, refusing to write binary capture data to it\fR, with exit status 1 and before any device is opened\.
 .P
-The times in a logged capture follow the board's capture clock, which starts over every 429\.50 s in the \fB\-f\fR and \fB\-n\fR modes and every 327\.68 s in promiscuous mode\. The packets of those two modes carry no count of how often it has, so a gap longer than one period leaves every later time short by a period\. That cannot be recovered, but it is reported, on standard error: \fBwarning: packet times are more than the capture clock's 429\.50 s period behind the host clock\fR\.
+The times in a logged capture follow the board's capture clock, which starts over every 429\.50 s in the \fB\-f\fR and \fB\-n\fR modes and every 327\.68 s in promiscuous mode\. The packets of those two modes carry no count of how often it has, so a gap longer than one period leaves every later time short by a period\. That cannot be recovered, but it is reported, on standard error: \fBwarning: packet times are more than the capture clock's 429\.50 s period behind the host clock\fR\. A host clock stepped forwards during a capture looks the same from here, which is why the message names both causes\.
 .P
 Miscellaneous:
 .TP

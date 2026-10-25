@@ -75,6 +75,11 @@ typedef struct {
 	 * for a capture whose packets do not carry one. */
 	uint8_t last_clkn_high;
 
+	/* Whether a packet of this capture has carried a period count, which is
+	 * what makes the count rather than the clock reading lower the record of
+	 * how many periods have gone by. */
+	uint8_t clk100ns_counted;
+
 	/* Whether the host clock running ahead of the reconstructed times has
 	 * already been reported, so it is said once per capture. */
 	uint8_t clk100ns_gap_warned;

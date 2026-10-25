@@ -171,9 +171,13 @@ capture written with `-q` or `-r` starts from the host time of the first
 record it decodes and follows the Ubertooth clock from there, and `-d`
 writes the records back out with their original times.
 
-That clock starts over every 327.68 s, and each Classic packet carries the
-number of times it has, so the times hold across a gap of any length: a quiet
-band, an `-s` that drops everything, or a capture left idle for minutes.
+That clock starts over every 327.68 s, and each Classic packet carries a count
+of how often it has, so the times hold across a quiet gap: a quiet band, an
+`-s` that drops everything, or a capture left idle. The count is one byte, so
+a gap of up to about 11.6 hours is covered; past that the periods cannot be
+counted and every later time comes out short, which is reported on standard
+error: `warning: packet times are more than the capture clock's 327.68 s
+period behind the host clock`.
 
 A replay that reaches the end of the file exits 0, including for an empty
 file. These two are reported on standard error and exit 1, after whatever
