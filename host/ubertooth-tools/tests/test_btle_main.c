@@ -500,7 +500,7 @@ MU_TEST(the_usage_text_documents_the_set_and_the_read)
 	reset_fake();
 	r = RUN("-h");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strstr(r.out, "-v[01]") != NULL, r.out);
+	mu_assert(strstr(r.out, "-v [01]") != NULL, r.out);
 	mu_assert(strstr(r.out, "reports the new value") != NULL, r.out);
 	mu_assert_int_eq(0, fake.crc_sets);
 	mu_assert_int_eq(0, fake.crc_gets);
