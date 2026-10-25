@@ -116,6 +116,29 @@ read-only location can be signed or flashed. `-s <file.bin>` writes
 it again would bury the first suffix in the firmware payload. Nothing is
 written in that case.
 
+`-s` replaces `<file>.dfu` only once the whole signed image is ready, writing
+it through a temporary file beside the target as `-u` does for its dump (see
+[READING FLASH BACK][]). If the signing does not get that far, for any reason
+(an input it refuses, a `-d` image refused in the same command, a read or a
+write that fails), an earlier `<file>.dfu` is left untouched and none is
+created; whichever way the command ends on its own it leaves no temporary file
+behind, and only a signal that kills it can. The image it writes is the one it
+always wrote: the input, unchanged, with the 16-byte suffix appended, keeping
+the permissions of the file it replaced.
+
+What happens after the signed file is in place is a separate matter. `-s`
+alongside `-d`, `-u` or `-r` signs first and then goes to the board, so a
+command that fails there, with a device it cannot open or a flash that does
+not take, exits 1 with `<file>.dfu` already written.
+
+Writing it that way means `-s`, like `-u`, needs to be able to create a file in
+the output's directory, not just write the output itself: signing into a
+read-only directory fails even where the `<file>.dfu` it would replace is
+writable. The new file is put in the target's place rather than written through
+it, so a `<file>.dfu` that is a symlink, or one with other hard links to it, is
+replaced by the signed image instead of having the image written into what it
+points at.
+
 Both read their whole file into memory, so what the file is comes first. A
 directory, a FIFO or a device node is refused (`error: <file> is not a regular
 file`): its length says nothing about what a read would return. So is a file
@@ -125,6 +148,16 @@ the bootloader on the largest part this host knows plus the 16-byte suffix,
 and `-s` takes 507904, the same less the suffix it adds, so the file it writes
 is one `-d` still accepts. Either refusal ends the command with exit status 1
 before any device is opened, and with `-s` before the output file is created.
+
+A command that gives both `-s` and `-d` checks both files it only reads before
+it creates anything, so an image it refuses costs the signed file nothing:
+
+    $ ubertooth-dfu -s firmware.bin -d not-an-image.dfu
+    Checking firmware signature
+    Unknown DFU suffix length: 115
+    Signature check failed, firmware will not be updated
+
+`firmware.dfu` is neither created nor replaced.
 
 In the DFU bootloader, the TX, RX, and USR LEDs will turn on and off in
 sequence. If this does not occur, you can try to manually force the
@@ -239,8 +272,11 @@ alongside it.
 
 A refused command line creates and truncates nothing, and leaves no temporary
 file: `-s`, `-u` and `-d` name their file while the command line is read, and
-the files are opened only once every check has passed. Whether `-s` was given a
-`.bin` is a check on the name, so it is still reported alongside `-h`.
+the files are opened only once every check has passed. The files that are only
+read, the `-d` image and the `-s` input, are opened and checked first, since
+they are the last things that can refuse the command; neither output file is
+created until they have passed. Whether `-s` was given a `.bin` is a check on
+the name, so it is still reported alongside `-h`.
 
 ## SEE ALSO
 

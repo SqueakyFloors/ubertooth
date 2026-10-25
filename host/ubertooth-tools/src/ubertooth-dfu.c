@@ -126,8 +126,10 @@ static int image_file_refused(const char* name, FILE* file,
 
 /* Add a DFU suffix naming idVendor/idProduct to infile and write to outfile.
  * The whole input is read into memory, so it has already been through
- * image_file_refused(): that runs before the output file is created, so a
- * refused input leaves nothing behind. */
+ * image_file_refused(): that runs before any output exists, so a refused input
+ * leaves nothing behind. outfile is the temporary file the caller renamed over
+ * the target only once this returned 0, so a failure here leaves an earlier
+ * file of that name as it was. */
 int sign(FILE* infile, FILE* outfile, uint16_t idVendor, uint16_t idProduct) {
 	uint8_t* suffix;
 	long file_length;
@@ -1114,11 +1116,12 @@ static int ends_with_dfu_suffix(FILE* file) {
 	return found;
 }
 
-/* Open a temporary file beside target to upload into, so a failed read-back
- * leaves any earlier file alone; it is renamed over target only once the whole
- * upload has arrived. The name is stored in *temp_name for the caller to free
+/* Open a temporary file beside target to write into, so a run that fails
+ * part-way leaves any earlier file alone; it is renamed over target only once
+ * the whole thing is there. Both outputs use it: the read-back of -u and the
+ * signed image of -s. The name is stored in *temp_name for the caller to free
  * and, on failure, unlink. */
-static FILE* open_upload_temp(const char* target, char** temp_name) {
+static FILE* open_output_temp(const char* target, char** temp_name) {
 	size_t length = strlen(target) + sizeof(".XXXXXX");
 	char* name = malloc(length);
 	struct stat target_state;
@@ -1156,9 +1159,9 @@ static FILE* open_upload_temp(const char* target, char** temp_name) {
 	return file;
 }
 
-/* Close and remove the temporary upload file, so no command that ends before
- * a complete upload leaves one behind. */
-static void discard_upload_temp(FILE** file, char** name) {
+/* Close and remove a temporary output file, so no command that ends before it
+ * was complete leaves one behind. */
+static void discard_output_temp(FILE** file, char** name) {
 	if (*file != NULL) {
 		fclose(*file);
 		*file = NULL;
@@ -1252,6 +1255,7 @@ int main(int argc, char **argv) {
 	FILE* infile = NULL;
 	FILE* outfile = NULL;
 	char* outfile_name = NULL;
+	char* outfile_temp = NULL;
 	/* Values of -s, -d and -u, acted on after every check has passed. */
 	char* sign_name = NULL;
 	const char* downfile_name = NULL;
@@ -1335,8 +1339,10 @@ int main(int argc, char **argv) {
 		goto end_without_device;
 	}
 
-	/* Every check has passed, so the files can be opened: a refused command
-	 * line creates and truncates nothing, and leaves no temporary file. */
+	/* Every check on the command line has passed, so the files this command
+	 * only reads can be opened and checked: the -d image here and the -s
+	 * input below. Reading them creates nothing, and either can still end the
+	 * command, so both come before any output exists. */
 	if (downfile_name != NULL) {
 		/* Read-only: the image is never written to. */
 		downfile = fopen(downfile_name, "rb");
@@ -1352,14 +1358,29 @@ int main(int argc, char **argv) {
 			goto end_without_device;
 		}
 	}
-	if (upfile_name != NULL) {
-		upfile = open_upload_temp(upfile_name, &upfile_temp);
-		if (upfile == NULL) {
-			perror(upfile_name);
+
+	/* The whole image is checked before any output file exists and with no
+	 * device touched: an image this command refuses leaves the file system
+	 * as it was, so -s ... -d <refused image> writes no signed file, and the
+	 * board keeps running its firmware. */
+	if (functions & FUNC_DOWNLOAD) {
+		if (check_download_image(downfile, (functions & FUNC_RESET) != 0,
+		                         expected_revision,
+		                         sizeof(expected_revision),
+		                         &download_image_size) != 0) {
 			exit_status = 1;
 			goto end_without_device;
 		}
+		if (functions & FUNC_RESET) {
+			fprintf(stderr, "DFU expected revision: %s\n", expected_revision);
+			fflush(stderr);
+		}
 	}
+
+	/* The -s input, for the same reason: with -u and -s together, an input
+	 * that -s will not take must not cost the read-back a temporary file,
+	 * and must be what the command reports rather than an output the
+	 * read-back could not have created either. */
 	if (sign_name != NULL) {
 		infile = fopen(sign_name, "rb");
 		if (infile == NULL) {
@@ -1385,14 +1406,30 @@ int main(int argc, char **argv) {
 			exit_status = 1;
 			goto end_without_device;
 		}
-		outfile = fopen(outfile_name, "w+b");
+	}
+
+	/* Everything that can be settled by reading has been, so the output
+	 * files can be created. What is left is the work itself, which can still
+	 * fail: signing can hit a short read or a write that does not fit, and
+	 * the read-back depends on the board. So both go through a temporary file
+	 * renamed over the target once what belongs in it is all there, and a
+	 * failure from here on leaves an earlier file of the same name untouched
+	 * and creates none. */
+	if (upfile_name != NULL) {
+		upfile = open_output_temp(upfile_name, &upfile_temp);
+		if (upfile == NULL) {
+			perror(upfile_name);
+			exit_status = 1;
+			goto end_without_device;
+		}
+	}
+	if (sign_name != NULL) {
+		outfile = open_output_temp(outfile_name, &outfile_temp);
 		if (outfile == NULL) {
 			perror(outfile_name);
 			exit_status = 1;
 			goto end_without_device;
 		}
-		free(outfile_name);
-		outfile_name = NULL;
 	}
 
 	if(functions & FUNC_SIGN) {
@@ -1400,30 +1437,33 @@ int main(int argc, char **argv) {
 		                   U1_DFU_PRODUCTID);
 		fclose(infile);
 		infile = NULL;
-		fclose(outfile);
-		outfile = NULL;
+		if (exit_status == 0) {
+			/* Buffered bytes can still fail to reach the file, so the close
+			 * is what settles whether the whole signed image was written. */
+			if (fclose(outfile) != 0) {
+				perror(outfile_name);
+				exit_status = 1;
+			}
+			outfile = NULL;
+		}
+		/* A signing run that got this far without the whole image ends
+		 * through the path that removes the temporary file, so an earlier
+		 * .dfu of the same name survives and no partial one appears. */
 		if (exit_status != 0)
 			goto end_without_device;
+		if (rename(outfile_temp, outfile_name) != 0) {
+			perror(outfile_name);
+			exit_status = 1;
+			goto end_without_device;
+		}
+		free(outfile_temp);
+		outfile_temp = NULL;
+		free(outfile_name);
+		outfile_name = NULL;
 	}
 
 	if (!(functions & (FUNC_UPLOAD|FUNC_DOWNLOAD|FUNC_RESET)))
 		goto end_without_device;
-
-	/* The whole image is checked here, with no device touched yet: a bad
-	 * file leaves the board running its application. */
-	if (functions & FUNC_DOWNLOAD) {
-		if (check_download_image(downfile, (functions & FUNC_RESET) != 0,
-		                         expected_revision,
-		                         sizeof(expected_revision),
-		                         &download_image_size) != 0) {
-			exit_status = 1;
-			goto end_without_device;
-		}
-		if (functions & FUNC_RESET) {
-			fprintf(stderr, "DFU expected revision: %s\n", expected_revision);
-			fflush(stderr);
-		}
-	}
 
 	start_operation_timer();
 	log_dfu_stage("operation started");
@@ -1653,7 +1693,13 @@ int main(int argc, char **argv) {
 
 cleanup:
 	log_dfu_stage("cleanup started");
-	discard_upload_temp(&upfile, &upfile_temp);
+	discard_output_temp(&upfile, &upfile_temp);
+	/* A signed image has been renamed into place long before this, so there
+	 * is normally nothing here; it stays so that moving the signing step
+	 * cannot leave a temporary file behind. */
+	discard_output_temp(&outfile, &outfile_temp);
+	free(outfile_name);
+	outfile_name = NULL;
 	if (downfile != NULL)
 		fclose(downfile);
 	/* A failure once the board is in DFU must not leave it there: -r asked
@@ -1678,15 +1724,14 @@ cleanup:
 	return exit_status;
 
 	/* Ends before any device was opened, so nothing USB to unwind: just the
-	 * files, including the temporary upload file that never filled. */
+	 * files, including either temporary output file that never filled. */
 end_without_device:
 	if (downfile != NULL)
 		fclose(downfile);
 	if (infile != NULL)
 		fclose(infile);
-	if (outfile != NULL)
-		fclose(outfile);
+	discard_output_temp(&outfile, &outfile_temp);
 	free(outfile_name);
-	discard_upload_temp(&upfile, &upfile_temp);
+	discard_output_temp(&upfile, &upfile_temp);
 	return exit_status;
 }
