@@ -149,10 +149,10 @@ static void usage(void)
 	printf("\t-n don't follow, only print advertisements\n");
 	printf("\t-p promiscuous: sniff active connections\n");
 	printf("\n");
-	printf("\t-a[address] get/set access address, 1-8 hex digits (example: -a8e89bed6 or -a 8e89bed6)\n");
-	printf("\t-s<address> faux slave mode, using MAC addr (example: -s22:44:66:88:aa:cc)\n");
-	printf("\t-t<address> set connection following target (example: -t22:44:66:88:aa:cc/48)\n");
-	printf("\t-tnone unset connection following target\n");
+	printf("\t-a [address] get/set access address, 1-8 hex digits (example: -a 8e89bed6)\n");
+	printf("\t-s <address> faux slave mode, using MAC addr (example: -s 22:44:66:88:aa:cc)\n");
+	printf("\t-t <address> set connection following target (example: -t 22:44:66:88:aa:cc/48)\n");
+	printf("\t-t none unset connection following target\n");
 	printf("\n");
 	printf("    Interference (use with -f or -p):\n");
 	printf("\t-i interfere with one connection and return to idle\n");
@@ -162,14 +162,14 @@ static void usage(void)
 	fputs(OPT_USAGE_SELECT_DEVICE, stdout);
 	printf("\n");
 	printf("    Misc:\n");
-	printf("\t-r<filename> capture packets to PCAPNG file\n");
-	printf("\t-q<filename> capture packets to PCAP file (DLT_BLUETOOTH_LE_LL_WITH_PHDR)\n");
-	printf("\t-c<filename> capture packets to PCAP file (DLT_PPI + DLT_BLUETOOTH_LE_LL)\n");
-	printf("\t-A<%d-%d> advertising channel index (default %d)\n",
+	printf("\t-r <filename> capture packets to PCAPNG file\n");
+	printf("\t-q <filename> capture packets to PCAP file (DLT_BLUETOOTH_LE_LL_WITH_PHDR)\n");
+	printf("\t-c <filename> capture packets to PCAP file (DLT_PPI + DLT_BLUETOOTH_LE_LL)\n");
+	printf("\t-A <%d-%d> advertising channel index (default %d)\n",
 	       ADV_INDEX_MIN, ADV_INDEX_MAX, ADV_INDEX_MIN);
-	printf("\t-v[01] verify CRC mode, read status (-v) or enable/disable (-v1, -v 0);\n");
+	printf("\t-v [01] verify CRC mode, read status (-v) or enable/disable (-v 1, -v 0);\n");
 	printf("\t       both in one command sets first, then reports the new value\n");
-	printf("\t-x<0-%d> allow n access address offenses (default %d)\n",
+	printf("\t-x <0-%d> allow n access address offenses (default %d)\n",
 	       AA_ERRORS_MAX, AA_ERRORS_MAX);
 
 	printf("\nIf an input file is not specified, an Ubertooth device is used for live capture.\n");

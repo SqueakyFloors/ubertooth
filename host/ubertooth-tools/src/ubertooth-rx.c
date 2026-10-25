@@ -53,9 +53,9 @@ static void usage()
 	printf("\t-t <SECONDS> sniff timeout - 0 means no timeout [Default: 0]\n");
 	printf("\n");
 	printf("Output options:\n");
-	printf("\t-r<filename> capture packets to PcapNG file\n");
-	printf("\t-q<filename> capture packets to PCAP file\n");
-	printf("\t-d<filename> dump packets to binary file\n");
+	printf("\t-r <filename> capture packets to PcapNG file\n");
+	printf("\t-q <filename> capture packets to PCAP file\n");
+	printf("\t-d <filename> dump packets to binary file\n");
 	printf("\n");
 	printf("Miscellaneous:\n");
 	printf("\t-V print version information\n");

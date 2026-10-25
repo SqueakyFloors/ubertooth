@@ -72,7 +72,10 @@ Control-click.
 
 ## SEE ALSO
 
-ubertooth-specan(1), ubertooth-util(1), ubertooth(7)
+ubertooth-specan(1), ubertooth-util(1)
+
+ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how
+option values are written
 
 ## COPYRIGHT
 

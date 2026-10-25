@@ -113,7 +113,8 @@ exits 0.
 
 ubertooth-rx(1): a tool for finding UAP and LAP
 
-ubertooth(7): overview of Project Ubertooth
+ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how
+option values are written
 
 ## AUTHOR
 

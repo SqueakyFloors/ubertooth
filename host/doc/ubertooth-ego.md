@@ -78,7 +78,8 @@ way instead of being read as 0, for example
 
 ## SEE ALSO
 
-ubertooth(7): overview of Project Ubertooth
+ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how
+option values are written
 
 ## AUTHOR
 

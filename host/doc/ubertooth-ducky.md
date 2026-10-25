@@ -59,7 +59,10 @@ The optional value of `-q` may be attached or given as the next word
 
 ## SEE ALSO
 
-ubertooth-btle(1), ubertooth(7)
+ubertooth-btle(1)
+
+ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how
+option values are written
 
 ## COPYRIGHT
 

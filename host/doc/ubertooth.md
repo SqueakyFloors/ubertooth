@@ -37,11 +37,26 @@ Less useful commands:
  - ubertooth-debug(1) : Peeking and poking registers on the CC2400
  - ubertooth-specan(1) : Raw RSSI values used by graphical specan
 
+## OPTION VALUES
+
+These pages write an option's value as a separate word, which is the POSIX
+convention: `ubertooth-util -c 2440`, `ubertooth-btle -a 8e89bed6`,
+`ubertooth-rx -l 446688 -u 22`. The value placeholders are written the same way
+(`-c <2402-2480>`). A one-letter option also takes its value attached, so
+`-c 2440` and `-c2440` are the same. Where the value is optional, the next word
+is taken as the value only when it is a valid value, so an option never
+swallows the option after it: `-c -b` reads the channel and then the board ID,
+while `-z -90` sets the squelch to -90 dBm. A long option takes `--name value` or
+`--name=value`, never attached without the `=` (no long option takes a value
+today; this is for consistency with `getopt_long`). A lone `-` as the value of
+a file option means standard input or standard output, so `ubertooth-btle -q -`
+writes the capture to stdout.
+
 ## SELECTING A DEVICE
 
 With a single Ubertooth attached, the tools find it automatically. With more
 than one attached, every tool takes `-U <index|serial>` to choose one: an
-index is a position in the list of attached Ubertooths (`-U0` is the first),
+index is a position in the list of attached Ubertooths (`-U 0` is the first),
 and a serial-number string selects that board whatever the enumeration order.
 An index that is not attached is refused (`error: no Ubertooth at index 2 (2
 attached)`) and the tool exits non-zero. Indexes are positions in the list of

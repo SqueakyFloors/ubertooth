@@ -203,7 +203,8 @@ every check has passed.
 ubertooth-scan(1): active device scanning and inquiry using Ubertooth
 and BlueZ
 
-ubertooth(7): overview of Project Ubertooth
+ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how
+option values are written
 
 D. Spill and A. Bittau. "BlueSniff: Eve Meets Alice and Bluetooth."
 USENIX WOOT 2007.

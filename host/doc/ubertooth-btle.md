@@ -42,7 +42,7 @@ limit this to following a specific Bluetooth Address (BD ADDR) using the
 sniff connections where the central or peripheral's BD ADDR is
 `22:44:66:88:AA:CC`:
 
-    ubertooth-btle -f -t22:44:66:88:AA:CC
+    ubertooth-btle -f -t 22:44:66:88:AA:CC
 
 `-t` can also take a mask length in CIDR-like notation. Masks can be
 between 1 and 48 bits long, with a 48 bit mask matching the entire
@@ -97,7 +97,7 @@ Interfere with connections recovered with promiscuous mode:
 
 Send advertising packets using BD ADDR `22:44:66:88:AA:CC`:
 
-    ubertooth-btle -s22:44:66:88:AA:CC
+    ubertooth-btle -s 22:44:66:88:AA:CC
 
 ## OPTIONS
 
@@ -112,7 +112,7 @@ Major modes:
    No-follow mode: log advertising packets but don't follow connections
  - `-p` :
    Promiscuous mode: sniff already-established connections
- - `-s<BD ADDR>` : 
+ - `-s <BD ADDR>` : 
    Inject advertising packets using specified BD ADDR
 
 Interference (pair with `-f` or `-p`):
@@ -128,7 +128,7 @@ Interference (pair with `-f` or `-p`):
 
 Filtering:
 
- - `-t<BD ADDR>` :
+ - `-t <BD ADDR>` :
    Limit connection following and interference in follow mode to the
    specified BD ADDR
 
@@ -156,15 +156,14 @@ Miscellaneous:
 
  - `-A <37|38|39>` :
    Which advertising channel to use in follow mode (default: 37)
- - `-a[address]` :
-   Get (`-a`) or set (`-a<address>`) the access address used in promiscuous
-   mode. The address is 1 to 8 hex digits, attached or as the next word
-   (`-a8e89bed6` or `-a 8e89bed6`); fewer than 8 means leading zeros
-   (`-a12345` sets `00012345`). Anything else is refused before the device is
-   opened. Getting and setting in one command is refused; other options such
-   as `-v` still run after a get.
- - `-v[01]` :
-   Read (`-v`) or set (`-v0`, `-v1`, or `-v 1`) CRC verification
+ - `-a [address]` :
+   Get (`-a`) or set (`-a <address>`) the access address used in promiscuous
+   mode. The address is 1 to 8 hex digits (`-a 8e89bed6`); fewer than 8 means
+   leading zeros (`-a 12345` sets `00012345`). Anything else is refused before
+   the device is opened. Getting and setting in one command is refused; other
+   options such as `-v` still run after a get.
+ - `-v [01]` :
+   Read (`-v`) or set (`-v 0` or `-v 1`) CRC verification
    (default: 0). Any other value is refused. A set and a read in one command
    both happen, the set first, so the read reports the new value, in whichever
    order they are written; two sets keep the last one. In a sniffing mode both
@@ -172,7 +171,7 @@ Miscellaneous:
    and the firmware then turns verification on and off itself as it recovers a
    connection. A set or a read the board does not answer is reported on
    standard error with exit status 1.
- - `-x<0-32>` :
+ - `-x <0-32>` :
    Allow n access address violations (default: 32). Filtering occurs on
    host.
 
@@ -216,9 +215,9 @@ An option value must be a whole value in its range, or it is refused the same
 way instead of being read as 0, for example
 `error: advertising channel index must be 37-39 (got 40)`.
 
-The optional values of `-a` and `-v` may be attached or given as the next
-word (`-a 8e89bed6`, `-v 1`); a following option is never taken as a value.
-A bare `-` is still the stdin/stdout value of `-q`, `-c` and `-r`.
+A bare `-` is still the stdin/stdout value of `-q`, `-c` and `-r`. See
+ubertooth(7), OPTION VALUES, for the forms an option's value can take,
+including the optional values of `-a` and `-v`.
 
 An option combination the tool cannot carry out is refused there too, before
 any device is opened, so the message never depends on which boards are
@@ -234,6 +233,9 @@ check has passed.
 ## SEE ALSO
 
 crackle(1): https://github.com/mikeryan/crackle
+
+ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how
+option values are written
 
 ## COPYRIGHT
 

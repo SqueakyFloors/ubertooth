@@ -55,7 +55,7 @@ sniff connections where the central or peripheral's BD ADDR is
 .PP
 .RS
 .nf
-ubertooth\-btle \-f \-t22:44:66:88:AA:CC
+ubertooth\-btle \-f \-t 22:44:66:88:AA:CC
 .fi
 .RE
 .PP
@@ -133,7 +133,7 @@ Send advertising packets using BD ADDR \fB\fC22:44:66:88:AA:CC\fR:
 .PP
 .RS
 .nf
-ubertooth\-btle \-s22:44:66:88:AA:CC
+ubertooth\-btle \-s 22:44:66:88:AA:CC
 .fi
 .RE
 .SH OPTIONS
@@ -155,7 +155,7 @@ No\-follow mode: log advertising packets but don't follow connections
 \fB\fC\-p\fR :
 Promiscuous mode: sniff already\-established connections
 .IP \(bu 2
-\fB\fC\-s<BD ADDR>\fR : 
+\fB\fC\-s <BD ADDR>\fR : 
 Inject advertising packets using specified BD ADDR
 .RE
 .PP
@@ -178,7 +178,7 @@ Jam connections continuously
 Filtering:
 .RS
 .IP \(bu 2
-\fB\fC\-t<BD ADDR>\fR :
+\fB\fC\-t <BD ADDR>\fR :
 Limit connection following and interference in follow mode to the
 specified BD ADDR
 .RE
@@ -218,17 +218,16 @@ Miscellaneous:
 \fB\fC\-A <37|38|39>\fR :
 Which advertising channel to use in follow mode (default: 37)
 .IP \(bu 2
-\fB\fC\-a[address]\fR :
-Get (\fB\fC\-a\fR) or set (\fB\fC\-a<address>\fR) the access address used in promiscuous
-mode\. The address is 1 to 8 hex digits, attached or as the next word
-(\fB\fC\-a8e89bed6\fR or \fB\fC\-a 8e89bed6\fR); fewer than 8 means leading zeros
-(\fB\fC\-a12345\fR sets \fB\fC00012345\fR)\. Anything else is refused before the device is
-opened\. Getting and setting in one command is refused; other options such
+\fB\fC\-a [address]\fR :
+Get (\fB\fC\-a\fR) or set (\fB\fC\-a <address>\fR) the access address used in promiscuous
+mode\. The address is 1 to 8 hex digits (\fB\fC\-a 8e89bed6\fR); fewer than 8
+means leading zeros (\fB\fC\-a 12345\fR sets \fB\fC00012345\fR)\. Anything else
+is refused before the device is opened\. Getting and setting in one command is refused; other options such
 as \fB\fC\-v\fR still run after a get\.
 .IP \(bu 2
-\fB\fC\-v[01]\fR :
-Read (\fB\fC\-v\fR) or set (\fB\fC\-v0\fR, \fB\fC\-v1\fR, or
-\fB\fC\-v 1\fR) CRC verification (default: 0). Any other value is refused.
+\fB\fC\-v [01]\fR :
+Read (\fB\fC\-v\fR) or set (\fB\fC\-v 0\fR or \fB\fC\-v 1\fR) CRC
+verification (default: 0). Any other value is refused.
 A set and a read in one command both happen, the set first, so the read
 reports the new value, in whichever order they are written; two sets keep
 the last one. In a sniffing mode both run once the mode has started, because
@@ -236,7 +235,7 @@ entering a mode clears the setting, and the firmware then turns verification
 on and off itself as it recovers a connection. A set or a read the board does
 not answer is reported on standard error with exit status 1.
 .IP \(bu 2
-\fB\fC\-x<0\-32>\fR :
+\fB\fC\-x <0\-32>\fR :
 Allow n access address violations (default: 32). Filtering occurs on
 host.
 .RE
@@ -285,9 +284,10 @@ An option value must be a whole value in its range, or it is refused the same
 way instead of being read as 0, for example
 \fB\fCerror: advertising channel index must be 37\-39 (got 40)\fR\&.
 .PP
-The optional values of \-a and \-v may be attached or given as the next word
-(\-a 8e89bed6, \-v 1); a following option is never taken as a value. A bare \-
-is still the stdin/stdout value of \-q, \-c and \-r.
+A bare \- is still the stdin/stdout value of \-q, \-c and \-r. See
+.BR ubertooth (7),
+OPTION VALUES, for the forms an option's value can take, including the
+optional values of \-a and \-v.
 .PP
 An option combination the tool cannot carry out is refused there too, before
 any device is opened, so the message never depends on which boards are
@@ -303,6 +303,10 @@ opened only once every check has passed.
 .PP
 .BR crackle (1): 
 \[la]https://github.com/mikeryan/crackle\[ra]
+.PP
+.BR ubertooth (7): 
+overview of Project Ubertooth; OPTION VALUES describes how
+option values are written
 .SH COPYRIGHT
 .PP
 \fB\fCubertooth\-btle\fR is Copyright (C) 2012\-2018 Mike Ryan. This tool is

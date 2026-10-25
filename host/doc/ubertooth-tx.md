@@ -55,7 +55,10 @@ depends on which boards are attached:
 
 ## SEE ALSO
 
-ubertooth-dump(1), ubertooth(7)
+ubertooth-dump(1)
+
+ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how
+option values are written
 
 ## COPYRIGHT
 

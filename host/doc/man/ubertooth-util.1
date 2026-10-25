@@ -5,7 +5,7 @@
 \- general purpose Ubertooth utility
 .SH SYNOPSIS
 .PP
-ubertooth\-util [\-v] [\-V] [\-H] [\-\-host\-version] [\-I] [\-d[0\-1]] [\-l[0\-1]] [\-S] [\-r] [\-U<index|serial|all>] [\-a[0\-7]] [\-c[2402\-2480]] [\-C[0\-78]] [\-q[20\-120]] [\-t] [\-z[\-128..127]] [\-e] [\-m] [\-n] [\-f] [\-i] [\-b] [\-p] [\-s] [\-N] [\-x] [\-h]
+ubertooth\-util [\-v] [\-V] [\-H] [\-\-host\-version] [\-I] [\-d [0\-1]] [\-l [0\-1]] [\-S] [\-r] [\-U <index|serial|all>] [\-a [0\-7]] [\-c [2402\-2480]] [\-C [0\-78]] [\-q [20\-120]] [\-t] [\-z [\-128..127]] [\-e] [\-m] [\-n] [\-f] [\-i] [\-b] [\-p] [\-s] [\-N] [\-x] [\-h]
 .SH DESCRIPTION
 .PP
 .BR ubertooth-util (1) 
@@ -31,17 +31,17 @@ Other options are available for modifying LED states, setting channel,
 and performing miscellaneous radio\-related actions. Refer to the
 [OPTIONS][] section for full details.
 .PP
-An option value can be attached or given as the next word: \fB\fC\-c2440\fR and
-\fB\fC\-c 2440\fR both set the channel, and \fB\fC\-z\-90\fR and \fB\fC\-z \-90\fR both set the squelch.
 Without a number after it, \fB\fC\-c\fR (and \fB\fC\-a\fR, \fB\fC\-C\fR, \fB\fC\-d\fR, \fB\fC\-l\fR, \fB\fC\-z\fR) reads the
-current value instead.
+current value instead. See
+.BR ubertooth (7),
+OPTION VALUES, for the forms an option's value can take.
 .PP
 A set and a read of the same value in one command both run, the set first, so
 the read reports the new value. The order they are written in does not matter:
 .PP
 .RS
 .nf
-$ ubertooth\-util \-c2426 \-c
+$ ubertooth\-util \-c 2426 \-c
 Current frequency: 2426 MHz (Bluetooth channel 24)
 .fi
 .RE
@@ -54,7 +54,7 @@ command can do both; \fB\fCubertooth\-btle \-a\fR refuses the combination
 instead, because there the access address parameterises the capture that
 command is about to start. One exception to the read reporting the new value: a
 board already running a connection\-following BLE mode keeps a requested
-channel aside until that mode ends, so \fB\fC\-c2426 \-c\fR against such a
+channel aside until that mode ends, so \fB\fC\-c 2426 \-c\fR against such a
 board reports the frequency still in use. \fB\fCubertooth\-util\fR cannot enter
 that mode itself, so this only arises alongside another program.
 .PP
@@ -78,8 +78,8 @@ on\-off blinks a second, until it is stopped:
 .PP
 .RS
 .nf
-ubertooth\-util \-U<serial> \-I      # start blinking
-ubertooth\-util \-U<serial> \-S      # stop; the LEDs end off
+ubertooth\-util \-U <serial> \-I      # start blinking
+ubertooth\-util \-U <serial> \-S      # stop; the LEDs end off
 .fi
 .RE
 .PP
@@ -118,17 +118,17 @@ identify ubertooth device by flashing the USR, RX, and TX LEDs on the board;
 the command returns at once and the blink runs until \fB\fC\-S\fR or any mode
 option ends it, leaving the LEDs off (see LEDs doc)
 .IP \(bu 2
-\fB\fC\-d[0\-1]\fR :
+\fB\fC\-d [0\-1]\fR :
 get/set all LEDs
 .IP \(bu 2
-\fB\fC\-l[0\-1]\fR :
+\fB\fC\-l [0\-1]\fR :
 get/set USR LED
 .IP \(bu 2
 \fB\fC\-S\fR :
 stop current operation
 .IP \(bu 2
 \fB\fC\-r\fR :
-full reset; then waits up to 10 seconds for the same device (by serial with \fB\fC\-U<serial>\fR) to come back on USB before any later option runs, and exits non\-zero with \fB\fCerror: Ubertooth device <selector> did not come back within 10 s after the reset\fR if it does not. With several boards attached, select by serial: the index order can change across a reset
+full reset; then waits up to 10 seconds for the same device (by serial with \fB\fC\-U <serial>\fR) to come back on USB before any later option runs, and exits non\-zero with \fB\fCerror: Ubertooth device <selector> did not come back within 10 s after the reset\fR if it does not. With several boards attached, select by serial: the index order can change across a reset
 .IP \(bu 2
 \fB\fC\-U <index|serial>\fR :
 select which Ubertooth to use, either by USB enumeration index or by its serial number string; see SELECTING A DEVICE
@@ -140,7 +140,7 @@ report the read\-only queries \fB\fC\-b\fR, \fB\fC\-v\fR, \fB\fC\-V\fR, \fB\fC\-
 Radio options:
 .RS
 .IP \(bu 2
-\fB\fC\-a[0\-7]\fR :
+\fB\fC\-a [0\-7]\fR :
 get/set power amplifier level, 0 (lowest, \-25 dBm) to 7 (maximum, 0 dBm) at
 the CC2400 radio\. The board powers on and resets (\fB\fC\-r\fR) at level 7, the
 CC2400's own reset value (the firmware does not set it at start\-up)\.
@@ -150,13 +150,13 @@ E\-GO jamming\. The range test and repeater (\fB\fC\-n\fR, \fB\fC\-e\fR) step th
 by design and leave the level wherever their sweep ended, so set it again
 after using them\.
 .IP \(bu 2
-\fB\fC\-c[2402\-2480]\fR :
+\fB\fC\-c [2402\-2480]\fR :
 get/set channel in MHz
 .IP \(bu 2
-\fB\fC\-C[0\-78]\fR :
+\fB\fC\-C [0\-78]\fR :
 get/set channel
 .IP \(bu 2
-\fB\fC\-q[20\-120]\fR :
+\fB\fC\-q [20\-120]\fR :
 start LED spectrum analyzer\. The threshold is \-N dBm, so a larger N lights
 the LEDs for weaker signals; 20\-120 is the radio's RSSI range, and bare
 \fB\fC\-q\fR uses \-85 dBm, which shows Wi\-Fi traffic without lighting on noise\. The TX, RX and USR LEDs stand for 2412,
@@ -165,7 +165,7 @@ the LEDs for weaker signals; 20\-120 is the radio's RSSI range, and bare
 \fB\fC\-t\fR :
 intitiate continuous transmit test
 .IP \(bu 2
-\fB\fC\-z[\-128..127]\fR :
+\fB\fC\-z [\-128..127]\fR :
 get/set squelch level (a signed RSSI threshold; values above 0 are relative
 to the average RSSI) for a later RX capture\.
 Stopping a running mode resets it to the default, so \fB\fC\-z\fR cannot be
@@ -211,30 +211,33 @@ With a single Ubertooth attached, the tools find it automatically and \fB\fC\-U\
 is unnecessary.
 .PP
 With multiple Ubertooths attached, \fB\fC\-U\fR selects one either by its
-position in the USB device list or by its serial number. \fB\fC\-U<n>\fR
-selects by index (\fB\fC\-U0\fR is the first match, and so on); this index
+position in the USB device list or by its serial number. \fB\fC\-U <n>\fR
+selects by index (\fB\fC\-U 0\fR is the first match, and so on); this index
 reflects USB enumeration order (bus/port and plug order) \- it is not derived
 from the serial number and is not guaranteed stable across reboots or
-re\-plugging. \fB\fC\-U<serial>\fR selects the device whose serial number
+re\-plugging. \fB\fC\-U <serial>\fR selects the device whose serial number
 matches the given string (\fB\fC\-s\fR prints the serials), which is stable
 across reboots and re\-plugging and is the recommended way to pin a specific
 board.
 .PP
-The argument may be attached or separated \- \fB\fC\-U0\fR and \fB\fC\-U 0\fR are
-equivalent, as are \fB\fC\-U<serial>\fR and \fB\fC\-U <serial>\fR. An all\-digits
-argument is treated as an index, anything else as a serial. There is no fixed
+Index or serial is auto\-detected: an all\-digits value is treated as an
+index, anything else as a serial. See
+.BR ubertooth (7),
+OPTION VALUES, for the forms the value can take.
+.PP
+There is no fixed
 upper limit on attached devices and the index is not capped at any particular
-number (older docs showed \fB\fC\-U<0\-7>\fR, a convention only); with many
+number (older docs showed \fB\fC\-U <0\-7>\fR, a convention only); with many
 devices prefer serial selection.
 .PP
 An index must be one that is actually attached: it is a position in the list
-of attached Ubertooths, so with \fIn\fR attached only \fB\fC\-U0\fR to
-\fB\fC\-U<n\-1>\fR select a device. Any other index is refused before any
+of attached Ubertooths, so with \fIn\fR attached only \fB\fC\-U 0\fR to
+\fB\fC\-U <n\-1>\fR select a device. Any other index is refused before any
 device is opened, and the tool exits non\-zero:
 .PP
 .RS
 .nf
-$ ubertooth\-util \-U2 \-s
+$ ubertooth\-util \-U 2 \-s
 error: no Ubertooth at index 2 (2 attached)
 indexes change when boards are added or removed; select a board by serial with \-U<serial>
 could not open Ubertooth device
@@ -242,13 +245,13 @@ could not open Ubertooth device
 .RE
 .PP
 Indexes are positions in the list of boards attached when the command runs:
-unplugging \fB\fC\-U0\fR makes the old \fB\fC\-U1\fR the new \fB\fC\-U0\fR\&. To keep targeting the same
+unplugging \fB\fC\-U 0\fR makes the old \fB\fC\-U 1\fR the new \fB\fC\-U 0\fR\&. To keep targeting the same
 board, select it by serial number, in full or by its first few characters (as
 long as no other attached board's serial starts the same way).
 .PP
-This includes a nonzero index with a single Ubertooth attached (\fB\fC\-U1\fR
-of one device is refused; use \fB\fC\-U0\fR, or no \fB\fC\-U\fR at all). With no
-Ubertooth attached, any \fB\fC\-U<n>\fR reports that no device could be opened.
+This includes a nonzero index with a single Ubertooth attached (\fB\fC\-U 1\fR
+of one device is refused; use \fB\fC\-U 0\fR, or no \fB\fC\-U\fR at all). With no
+Ubertooth attached, any \fB\fC\-U <n>\fR reports that no device could be opened.
 .PP
 A digit string too large to be a device index at all is refused before the
 device list is read, naming it as given. That is the whole message, without the
@@ -257,7 +260,7 @@ for:
 .PP
 .RS
 .nf
-$ ubertooth\-util \-U4294967296 \-s
+$ ubertooth\-util \-U 4294967296 \-s
 error: no Ubertooth at index 4294967296 (2 attached)
 indexes change when boards are added or removed; select a board by serial with \-U<serial>
 .fi
@@ -281,7 +284,7 @@ select one of them by a longer prefix of its serial number
 .RE
 .PP
 If the matching boards report the \fIsame\fP serial, no longer string can tell
-them apart, and the message says so and points at \fB\fC\-U<index>\fR instead.
+them apart, and the message says so and points at \fB\fC\-U <index>\fR instead.
 .PP
 A string that matches no attached board also exits non\-zero, with
 \fB\fCno Ubertooth found with serial matching '<string>'\fR\&.
@@ -365,13 +368,13 @@ one present it lists each index with its serial number), or flash the LEDs on a 
 .PP
 .RS
 .nf
-ubertooth\-util \-U0 \-I
-ubertooth\-util \-U0 \-S
+ubertooth\-util \-U 0 \-I
+ubertooth\-util \-U 0 \-S
 .fi
 .RE
 .PP
 For a stable identity across reboots, select a device by its serial number
-(\fB\fC\-U<serial> \-I\fR); unlike the index, the serial does not change.
+(\fB\fC\-U <serial> \-I\fR); unlike the index, the serial does not change.
 .SH RANGE TEST
 .PP
 Using two Ubertooth devices it is possible to perform a range test. One
@@ -442,7 +445,8 @@ the only line, with the counts added, for example
 .SH SEE ALSO
 .PP
 .BR ubertooth (7): 
-overview of Project Ubertooth
+overview of Project Ubertooth; OPTION VALUES describes how
+option values are written
 .SH AUTHOR
 .PP
 This manual page was written by Mike Ryan.

@@ -2,9 +2,10 @@
 
 ## SYNOPSIS
 
-`ubertooth-util` [-v] [-V] [-H] [--host-version] [-I] [-d[0-1]] [-l[0-1]]
-[-S] [-r] [-U<index|serial|all>] [-a[0-7]] [-c[2402-2480]] [-C[0-78]] [-q[20-120]] [-t]
-[-z[-128..127]] [-e] [-m] [-n] [-f] [-i] [-b] [-p] [-s] [-N] [-x] [-h]
+`ubertooth-util` [-v] [-V] [-H] [--host-version] [-I] [-d [0-1]] [-l [0-1]]
+[-S] [-r] [-U <index|serial|all>] [-a [0-7]] [-c [2402-2480]] [-C [0-78]]
+[-q [20-120]] [-t] [-z [-128..127]] [-e] [-m] [-n] [-f] [-i] [-b] [-p] [-s]
+[-N] [-x] [-h]
 
 ## DESCRIPTION
 
@@ -22,15 +23,14 @@ Other options are available for modifying LED states, setting channel,
 and performing miscellaneous radio-related actions. Refer to the
 [OPTIONS][] section for full details.
 
-An option value can be attached or given as the next word: `-c2440` and
-`-c 2440` both set the channel, and `-z-90` and `-z -90` both set the squelch.
 Without a number after it, `-c` (and `-a`, `-C`, `-d`, `-l`, `-z`) reads the
-current value instead.
+current value instead. See ubertooth(7), OPTION VALUES, for the forms an
+option's value can take.
 
 A set and a read of the same value in one command both run, the set first, so
 the read reports the new value. The order they are written in does not matter:
 
-    $ ubertooth-util -c2426 -c
+    $ ubertooth-util -c 2426 -c
     Current frequency: 2426 MHz (Bluetooth channel 24)
 
 The same holds for `-a`, `-C`, `-d`, `-l` and `-z`. Two sets of the same value
@@ -41,7 +41,7 @@ command can do both; `ubertooth-btle -a` refuses the combination instead,
 because there the access address parameterises the capture that command is
 about to start. One exception to the read reporting the new value: a board
 already running a connection-following BLE mode keeps a requested channel
-aside until that mode ends, so `-c2426 -c` against such a board reports the
+aside until that mode ends, so `-c 2426 -c` against such a board reports the
 frequency still in use. `ubertooth-util` cannot enter that mode itself, so this
 only arises alongside another program.
 
@@ -62,8 +62,8 @@ ends by itself when the test finishes.
 `-I` (identify) blinks the USR, RX and TX LEDs together, about three on-off
 blinks a second, until it is stopped:
 
-    ubertooth-util -U<serial> -I      # start blinking
-    ubertooth-util -U<serial> -S      # stop; the LEDs end off
+    ubertooth-util -U <serial> -I      # start blinking
+    ubertooth-util -U <serial> -S      # stop; the LEDs end off
 
 `-I` needs firmware of this tree's API version and refuses any other, saying
 so. The other options work with any firmware, so `-v` can still read the
@@ -92,15 +92,15 @@ Common options:
    identify ubertooth device by flashing the USR, RX, and TX LEDs on the board;
    the command returns at once and the blink runs until `-S` or any mode option
    ends it, leaving the LEDs off (see LEDs doc)
- - `-d[0-1]` :
+ - `-d [0-1]` :
    get/set all LEDs
- - `-l[0-1]` :
+ - `-l [0-1]` :
    get/set USR LED
  - `-S` :
    stop current operation
  - `-r` :
    full reset; then waits up to 10 seconds for the same device (by serial
-   with `-U<serial>`) to come back on USB before any later option runs, and
+   with `-U <serial>`) to come back on USB before any later option runs, and
    exits non-zero with `error: Ubertooth device <selector> did not come back
    within 10 s after the reset` if it does not. With several boards attached,
    select by serial: the index order can change across a reset
@@ -113,7 +113,7 @@ Common options:
 
 Radio options:
 
- - `-a[0-7]` :
+ - `-a [0-7]` :
    get/set power amplifier level, 0 (lowest, -25 dBm) to 7 (maximum, 0 dBm) at
    the CC2400 radio. The board powers on and resets (`-r`) at level 7, the
    CC2400's own reset value (the firmware does not set it at start-up).
@@ -122,18 +122,18 @@ Radio options:
    E-GO jamming. The range test and repeater (`-n`, `-e`) step through levels
    by design and leave the level wherever their sweep ended, so set it again
    after using them.
- - `-c[2402-2480]` :
+ - `-c [2402-2480]` :
    get/set channel in MHz
- - `-C[0-78]` :
+ - `-C [0-78]` :
    get/set channel
- - `-q[20-120]` :
+ - `-q [20-120]` :
    start LED spectrum analyzer. The threshold is -N dBm, so a larger N lights
    the LEDs for weaker signals; 20-120 is the radio's RSSI range, and bare `-q`
    uses -85 dBm, which shows Wi-Fi traffic without lighting on noise. The TX, RX and USR LEDs stand for 2412, 2437
    and 2462 MHz. `-S` stops it and leaves the LEDs off.
  - `-t` :
    intitiate continuous transmit test
- - `-z[-128..127]` :
+ - `-z [-128..127]` :
    get/set squelch level (a signed RSSI threshold; values above 0 are relative
    to the average RSSI) for a later RX capture.
    Stopping a running mode resets it to the default, so `-z` cannot be
@@ -171,49 +171,48 @@ is unnecessary.
 With **multiple** Ubertooths attached, `-U` selects one either by its position
 in the USB device list or by its serial number:
 
-- `-U<n>` selects by index (`-U0` is the first match, `-U1` the second, and so
-  on). This index reflects **USB enumeration order** (bus/port and plug order) —
-  it is **not** derived from the serial number and is **not guaranteed stable**
-  across reboots or re-plugging.
-- `-U<serial>` selects the device whose serial number matches the given string
+- `-U <n>` selects by index (`-U 0` is the first match, `-U 1` the second, and
+  so on). This index reflects **USB enumeration order** (bus/port and plug
+  order) — it is **not** derived from the serial number and is **not guaranteed
+  stable** across reboots or re-plugging.
+- `-U <serial>` selects the device whose serial number matches the given string
   (`-s` prints the serials). This is stable across reboots and re-plugging, so
   it is the recommended way to pin a specific board.
 
-The argument may be written **attached or separated** — `-U0` and `-U 0` are
-equivalent, as are `-U<serial>` and `-U <serial>`. (Index or serial is
-auto-detected: an all-digits argument is treated as an index, anything else as
-a serial.)
+Index or serial is auto-detected: an all-digits value is treated as an index,
+anything else as a serial. See ubertooth(7), OPTION VALUES, for the forms the
+value can take.
 
 An index must be one that is actually attached: it is a position in the list of
-attached Ubertooths, so with *n* attached only `-U0` to `-U<n-1>` select a
+attached Ubertooths, so with *n* attached only `-U 0` to `-U <n-1>` select a
 device. Any other index is refused before any device is opened, and the tool
 exits non-zero:
 
-    $ ubertooth-util -U2 -s
+    $ ubertooth-util -U 2 -s
     error: no Ubertooth at index 2 (2 attached)
     indexes change when boards are added or removed; select a board by serial with -U<serial>
     could not open Ubertooth device
 
 Indexes are positions in the list of boards attached when the command runs:
-unplugging `-U0` makes the old `-U1` the new `-U0`. To keep targeting the same
+unplugging `-U 0` makes the old `-U 1` the new `-U 0`. To keep targeting the same
 board, select it by serial number, in full or by its first few characters (as
 long as no other attached board's serial starts the same way).
 
-This includes a nonzero index with a single Ubertooth attached (`-U1` of one
-device is refused; use `-U0`, or no `-U` at all). With no Ubertooth attached,
-any `-U<n>` reports that no device could be opened.
+This includes a nonzero index with a single Ubertooth attached (`-U 1` of one
+device is refused; use `-U 0`, or no `-U` at all). With no Ubertooth attached,
+any `-U <n>` reports that no device could be opened.
 
 A digit string too large to be a device index at all is refused before the
 device list is read, naming it as given. That is the whole message, without the
 `could not open Ubertooth device` line, because no device was looked for:
 
-    $ ubertooth-util -U4294967296 -s
+    $ ubertooth-util -U 4294967296 -s
     error: no Ubertooth at index 4294967296 (2 attached)
     indexes change when boards are added or removed; select a board by serial with -U<serial>
 
 There is **no fixed upper limit** on the number of attached Ubertooths: the
 device list is sized dynamically and the index is not capped at any particular
-number (older docs showed `-U<0-7>`, which was only a convention). In practice
+number (older docs showed `-U <0-7>`, which was only a convention). In practice
 the limit is USB topology, hub bandwidth, and power — with many devices, prefer
 serial selection since indices become unwieldy and unstable.
 
@@ -230,7 +229,7 @@ few more characters pick one:
     select one of them by a longer prefix of its serial number
 
 If the matching boards report the *same* serial, no longer string can tell them
-apart, and the message says so and points at `-U<index>` instead.
+apart, and the message says so and points at `-U <index>` instead.
 
 A string that matches no attached board also exits non-zero, with
 `no Ubertooth found with serial matching '<string>'`.
@@ -296,11 +295,11 @@ To tell which index or serial is which physical device:
 - Or flash the LEDs on a given device and watch which board blinks, then stop
   it:
 
-        ubertooth-util -U0 -I
-        ubertooth-util -U0 -S
+        ubertooth-util -U 0 -I
+        ubertooth-util -U 0 -S
 
 For a stable identity across reboots, select a device by its serial number
-(`ubertooth-util -U<serial> -I`); unlike the index, the serial does not change.
+(`ubertooth-util -U <serial> -I`); unlike the index, the serial does not change.
 
 ## RANGE TEST
 
@@ -361,7 +360,8 @@ the only line, with the counts added, for example
 
 ## SEE ALSO
 
-ubertooth(7): overview of Project Ubertooth
+ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how
+option values are written
 
 ## AUTHOR
 

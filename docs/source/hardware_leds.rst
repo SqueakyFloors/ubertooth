@@ -16,8 +16,8 @@ the firmware can turn on and off (Ubertooth One pins shown):
 LED               Pin       Meaning
 ================  ========  ====================================================
 USR (user)        P1.1      General-purpose indicator. Host-settable with
-                            ``ubertooth-util -l[0-1]`` (USR only) and
-                            ``-d[0-1]`` (all three). Used by various modes as a
+                            ``ubertooth-util -l [0-1]`` (USR only) and
+                            ``-d [0-1]`` (all three). Used by various modes as a
                             state/activity light (e.g. range test, LED spectrum
                             analyzer).
 RX                P1.4      Lit while the radio is receiving. Toggled throughout
@@ -35,8 +35,8 @@ yellow/orange/red LEDs.
 
 Host control:
 
-- ``ubertooth-util -l0`` / ``-l1`` — turn the USR LED off / on.
-- ``ubertooth-util -d0`` / ``-d1`` — turn all three off / on.
+- ``ubertooth-util -l 0`` / ``-l 1`` — turn the USR LED off / on.
+- ``ubertooth-util -d 0`` / ``-d 1`` — turn all three off / on.
 - ``ubertooth-util -I`` — flash all three to identify the device;
   ``ubertooth-util -S`` stops it.
 
