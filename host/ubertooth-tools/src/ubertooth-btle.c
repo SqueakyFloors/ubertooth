@@ -110,13 +110,15 @@ static char *handle_special_filename(const char *filename, int *saved_fd)
 }
 
 /* Carry out the -v options: the set first, then the read, so one command can
- * do both and the read reports the value it just set. The set keeps its own
+ * do both and the read reports the value it just set. The caller stops a
+ * started mode before it gives up on a failure here. The set keeps its own
  * line only when nothing reads afterwards, so a set and a read print one line
  * between them. Returns 0, or -1 once the failure has been reported. */
-static int apply_crc_options(ubertooth_t* ut, int do_set_crc, int do_get_crc)
+static int apply_crc_options(struct libusb_device_handle* devh, int do_set_crc,
+                             int do_get_crc)
 {
 	if (do_set_crc >= 0) {
-		if (cmd_set_crc_verify(ut->devh, do_set_crc) < 0) {
+		if (cmd_set_crc_verify(devh, do_set_crc) < 0) {
 			fprintf(stderr, "error: CRC verify set failed\n");
 			return -1;
 		}
@@ -124,7 +126,7 @@ static int apply_crc_options(ubertooth_t* ut, int do_set_crc, int do_get_crc)
 			printf("CRC: %sverify\n", do_set_crc ? "" : "DO NOT ");
 	}
 	if (do_get_crc) {
-		int r = cmd_get_crc_verify(ut->devh);
+		int r = cmd_get_crc_verify(devh);
 		if (r < 0) {
 			/* a short reply's whole error line is already printed */
 			if (r != UBERTOOTH_ERROR_SHORT_REPLY)
@@ -457,8 +459,13 @@ int main(int argc, char *argv[])
 		// for sniffing modes. A read here reports the setting the capture
 		// starts with; the firmware turns verification on and off itself as it
 		// recovers a connection.
-		if (apply_crc_options(ut, do_set_crc, do_get_crc) < 0)
+		// The mode is running by now, so a failure here has to stop it before
+		// giving up: a board abandoned in a low-energy mode is the state it
+		// stops answering control requests in.
+		if (apply_crc_options(ut->devh, do_set_crc, do_get_crc) < 0) {
+			ubertooth_stop(ut);
 			return 1;
+		}
 
 		// running can be changed by signal handler
 		while (running) {
@@ -502,7 +509,7 @@ int main(int argc, char *argv[])
 
 	// For sniffing modes this was already handled before the capture loop.
 	if (!(do_follow || do_no_follow || do_promisc)) {
-		if (apply_crc_options(ut, do_set_crc, do_get_crc) < 0)
+		if (apply_crc_options(ut->devh, do_set_crc, do_get_crc) < 0)
 			return 1;
 	}
 

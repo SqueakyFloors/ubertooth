@@ -37,8 +37,8 @@ static struct {
 	int aa_reads;
 	int aa_writes;
 	/* Every device call in order, one letter each: s set CRC, g get CRC,
-	 * r read access address, w write access address, m mode started,
-	 * p poll. */
+	 * r read access address, w write access address, t set target,
+	 * m mode started, p poll. */
 	char calls[64];
 } fake;
 
@@ -447,6 +447,31 @@ MU_TEST(a_sniffing_mode_sets_and_reads_after_the_mode_starts)
 	mu_assert(strcmp(r.out, "CRC: verify\n") == 0, r.out);
 }
 
+/* The mode is running by the time the -v options go out, so a failure there
+ * has to stop it before giving up: a board abandoned in a low-energy mode is
+ * the state it stops answering control requests in. */
+MU_TEST(a_failure_in_a_sniffing_mode_still_stops_the_board)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.set_crc_rc = -1;
+	r = RUN("-f", "-v1");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(fake.calls, "ms") == 0, fake.calls);
+	mu_assert_int_eq(0, fake.polls); /* no capture was started */
+	mu_assert_int_eq(1, fake.stops);
+	mu_assert(strcmp(r.err, "error: CRC verify set failed\n") == 0, r.err);
+
+	reset_fake();
+	fake.get_crc_rc = -1;
+	r = RUN("-p", "-v");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(fake.calls, "mg") == 0, fake.calls);
+	mu_assert_int_eq(1, fake.stops);
+	mu_assert(strcmp(r.err, "error: CRC verify read failed\n") == 0, r.err);
+}
+
 /* -v alongside an access address read, which the tool carries on after. */
 MU_TEST(an_access_address_read_and_the_crc_options_all_run)
 {
@@ -481,6 +506,7 @@ int main(void)
 	MU_RUN(a_failed_set_is_reported_and_the_read_does_not_run);
 	MU_RUN(a_failed_read_is_reported_once);
 	MU_RUN(a_sniffing_mode_sets_and_reads_after_the_mode_starts);
+	MU_RUN(a_failure_in_a_sniffing_mode_still_stops_the_board);
 	MU_RUN(an_access_address_read_and_the_crc_options_all_run);
 	MU_RUN(the_usage_text_documents_the_set_and_the_read);
 	return mu_report();
