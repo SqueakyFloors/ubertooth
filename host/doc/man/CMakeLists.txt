@@ -61,9 +61,11 @@ set(MAN_PAGES_BY_HAND
 
 set(MAN_ORGANIZATION "Project Ubertooth")
 
-# The one supported generator version. Two versions of ronn render the same
-# .md differently, so the committed pages only match what a refresh writes
-# when everyone runs this one; the CI man-page check installs exactly it.
+# The one supported generator version, and the only place it is decided: the
+# CI man-page job reads this line to know what to install. Two versions of
+# ronn render the same .md differently, so the committed pages only match what
+# a refresh writes when everyone runs this one; any other, and the refresh
+# refuses rather than rewrite all eleven pages in a style nobody asked for.
 set(RONN_VERSION "0.10.1")
 
 # The date in the page footer. ronn defaults it to the .md's modification
@@ -74,22 +76,64 @@ set(RONN_VERSION "0.10.1")
 # release; an ordinary .md edit does not need it moved.
 set(MAN_DATE "2026-10-25")
 
+# Stand-ins for `manpages` and `refresh-manpages` when nothing can render a
+# page. They exist so the documented command explains itself instead of
+# failing with "No rule to make target", and they fail, because a refresh that
+# wrote nothing did not do what was asked: a check that runs the target cannot
+# then go green having refreshed nothing. The reason is baked into a script
+# rather than passed to the shell, so quotes and parentheses in it are safe.
+function(man_refusing_targets reason)
+	set(script "${CMAKE_CURRENT_BINARY_DIR}/man-refresh-refused.cmake")
+	file(WRITE "${script}" "message(FATAL_ERROR \"${reason}\")\n")
+	foreach(target manpages refresh-manpages)
+		add_custom_target(${target} COMMAND ${CMAKE_COMMAND} -P "${script}")
+	endforeach()
+endfunction()
+
+# Why a refresh cannot run, if it cannot: ronn missing, or the wrong version.
+# Anything but the pinned version renders different roff, which a refresh
+# would write over all eleven pages at once.
+set(MAN_REFUSE_REASON "")
 find_program(RONN_EXECUTABLE NAMES ronn ronn-ng)
-if(RONN_EXECUTABLE)
-	message(STATUS "ronn found: refresh-manpages can regenerate the committed "
-	               "man pages from host/doc/*.md")
-	# A different version renders different roff, so say so rather than let
-	# the refresh produce a diff nobody asked for.
+if(NOT RONN_EXECUTABLE)
+	message(STATUS "ronn not found: the committed man pages are installed as "
+	               "they are (ronn-ng ${RONN_VERSION} is needed only to "
+	               "refresh them after editing host/doc/*.md)")
+	set(MAN_REFUSE_REASON
+		"ronn is not installed, so no man page was rendered: install it (gem install ronn-ng -v ${RONN_VERSION}) and configure again")
+else()
+	# The version is pulled out and compared whole: the pinned string on its
+	# own is a regular expression, and a substring, that a later 0.10.10 would
+	# match.
 	execute_process(COMMAND ${RONN_EXECUTABLE} --version
 		OUTPUT_VARIABLE ronn_version_output
 		ERROR_VARIABLE ronn_version_output
 		OUTPUT_STRIP_TRAILING_WHITESPACE)
-	if(NOT ronn_version_output MATCHES "${RONN_VERSION}")
-		message(WARNING "ronn is \"${ronn_version_output}\", but the committed "
-		                "man pages are rendered with ronn-ng ${RONN_VERSION}: "
-		                "refresh-manpages will rewrite them in this version's "
-		                "style (gem install ronn-ng -v ${RONN_VERSION})")
+	if(ronn_version_output MATCHES "([0-9]+\\.[0-9]+(\\.[0-9]+)?)")
+		set(ronn_version "${CMAKE_MATCH_1}")
+	else()
+		set(ronn_version "unknown")
 	endif()
+	if(ronn_version STREQUAL RONN_VERSION)
+		message(STATUS "ronn ${ronn_version} found: refresh-manpages can "
+		               "regenerate the committed man pages from host/doc/*.md")
+	else()
+		# A warning, not an error: having the wrong ronn installed must not
+		# break the host build for someone who never refreshes a page. The
+		# refusal is on the refresh, where the damage would be done.
+		message(WARNING "ronn reports version ${ronn_version} "
+		                "(\"${ronn_version_output}\"), but the committed man "
+		                "pages are rendered with ronn-ng ${RONN_VERSION}: "
+		                "refresh-manpages will refuse to run "
+		                "(gem install ronn-ng -v ${RONN_VERSION})")
+		set(MAN_REFUSE_REASON
+			"ronn is version ${ronn_version}, not the ${RONN_VERSION} the committed pages are rendered with, so no man page was rendered: install that one (gem install ronn-ng -v ${RONN_VERSION}) and configure again, or change RONN_VERSION in host/doc/man/CMakeLists.txt to adopt this version for every page")
+	endif()
+endif()
+
+if(MAN_REFUSE_REASON)
+	man_refusing_targets("${MAN_REFUSE_REASON}")
+else()
 	set(DOC_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/..")
 	set(GENERATED_MAN_PAGES "")
 	foreach(spec ${MAN_PAGES_FROM_MARKDOWN})
@@ -117,20 +161,6 @@ if(RONN_EXECUTABLE)
 		        "${CMAKE_CURRENT_SOURCE_DIR}"
 		DEPENDS ${GENERATED_MAN_PAGES}
 		COMMENT "refreshing the committed man pages in host/doc/man")
-else()
-	message(STATUS "ronn not found: the committed man pages are installed as "
-	               "they are (ronn-ng ${RONN_VERSION} is needed only to "
-	               "refresh them after editing host/doc/*.md)")
-	# Both targets still exist, so the documented command explains itself
-	# instead of failing with "No rule to make target". VERBATIM, so the
-	# message reaches the shell as one argument whatever it contains: without
-	# it the Makefile generator escapes spaces but not parentheses or quotes.
-	foreach(target manpages refresh-manpages)
-		add_custom_target(${target}
-			COMMAND ${CMAKE_COMMAND} -E echo
-			        "ronn is not installed, so nothing was rendered: install it (gem install ronn-ng -v ${RONN_VERSION}), configure again, and run this again"
-			VERBATIM)
-	endforeach()
 endif()
 
 # One list per section, from the generated and the hand-kept pages together.

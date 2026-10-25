@@ -51,6 +51,27 @@ def fail(message):
     sys.exit(1)
 
 
+def ronn_directories():
+    """The directories to keep CMake's find_program away from ronn.
+
+    Only ronn's own, by both its symlink and its real path: hiding a shared
+    prefix such as /usr/bin would take the compiler and make with it. Empty
+    when ronn lives somewhere that cannot be hidden, in which case the caller
+    skips the check that needs it.
+    """
+    found = shutil.which("ronn") or shutil.which("ronn-ng")
+    if not found:
+        return []
+    paths = []
+    for path in (os.path.dirname(found),
+                 os.path.dirname(os.path.realpath(found))):
+        if path in ("/usr/bin", "/bin", "/usr/sbin", "/sbin"):
+            return []
+        if path not in paths:
+            paths.append(path)
+    return paths
+
+
 def title_line(path):
     """The page's .TH line, which carries its name, section and headings."""
     with open(path, encoding="utf-8", errors="replace") as handle:
@@ -124,8 +145,9 @@ def main():
         if "ronn not found" in configure:
             print("SKIP: CMake found no ronn, so nothing renders man pages")
             sys.exit(SKIP)
-        if "ronn found" not in configure:
-            fail("the configure step said nothing about ronn:\n%s" % configure)
+        if "found: refresh-manpages can" not in configure:
+            fail("the configure step said nothing usable about ronn:\n%s"
+                 % configure)
 
         run([cmake, "--build", build], "the default build")
         if digests(man) != committed:
@@ -183,6 +205,37 @@ def main():
         if set(refreshed) != set(committed):
             fail("refresh-manpages added or removed a page: %s"
                  % sorted(set(refreshed) ^ set(committed)))
+
+        # Without a usable ronn the targets must fail, not print and succeed.
+        # A check that runs refresh-manpages and then looks for a change would
+        # otherwise pass having refreshed nothing. Hiding ronn's directory is
+        # how such a machine looks to CMake's find_program.
+        hidden_from = ronn_directories()
+        if not hidden_from:
+            print("ronn cannot be hidden from CMake here; not checking that "
+                  "the targets refuse without it")
+        else:
+            hidden = os.path.join(work, "no-ronn")
+            configure = run([cmake, "-S", work, "-B", hidden,
+                             "-DCMAKE_IGNORE_PATH=%s" % ";".join(hidden_from)],
+                            "configure with ronn hidden")
+            if "ronn not found" not in configure:
+                fail("hiding %s did not stop CMake finding ronn, so the "
+                     "refusing targets are untested:\n%s"
+                     % (hidden_from, configure))
+            for target in ("manpages", "refresh-manpages"):
+                done = subprocess.run([cmake, "--build", hidden, "--target",
+                                       target], stdout=subprocess.PIPE,
+                                      stderr=subprocess.STDOUT, text=True)
+                if done.returncode == 0:
+                    fail("%s succeeded without ronn; it rendered nothing:\n%s"
+                         % (target, done.stdout))
+                # CMake wraps a long message, so compare on one line.
+                if "gem install ronn-ng" not in " ".join(done.stdout.split()):
+                    fail("%s failed without saying how to fix it:\n%s"
+                         % (target, done.stdout))
+            if digests(man) != refreshed:
+                fail("a refusing target wrote to the source tree")
 
     print("PASS")
 

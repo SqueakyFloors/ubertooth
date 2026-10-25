@@ -98,9 +98,10 @@ See also the [Ubertooth overview man page](host/doc/ubertooth.md).
 Documentation for Ubertooth can be viewed on [Read the Docs](https://ubertooth.readthedocs.io/en/latest/). The raw documenation files for Ubertooth are in the [docs folder](https://github.com/greatscottgadgets/ubertooth/tree/master/docs) in this repository. Documentation changes can be submitted through pull request and suggestions can be made as GitHub issues. 
 
 After editing a man page source in `host/doc/`, regenerate its committed roff
-page and commit both, or CI fails:
+page and commit both, or the `Man pages` CI job fails:
 
 ```sh
+cmake -S host -B build
 cmake --build build --target refresh-manpages
 ```
 

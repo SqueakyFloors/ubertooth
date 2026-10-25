@@ -35,9 +35,16 @@ gem install ronn-ng -v 0.10.1
 
 Another version renders the same Markdown differently, so the committed pages
 would stop matching a refresh and the CI check would fail on a page nobody
-touched. The version is `RONN_VERSION` in `CMakeLists.txt`, which warns at
-configure time when the installed ronn is a different one, and the CI job
-installs exactly it.
+touched. `RONN_VERSION` in `CMakeLists.txt` is where the version is decided:
+configure warns when the installed ronn is a different one, `refresh-manpages`
+refuses to run rather than rewrite every page in the wrong style, and the CI
+job reads the same line to decide what to install.
+
+ronn does the roff; the Markdown parse is kramdown's, and ronn-ng 0.10.1
+accepts any kramdown 2.x. The CI job pins kramdown too (2.5.2, with
+kramdown-parser-gfm 1.1.0), since otherwise a kramdown release could change
+the rendering with no change here. Homebrew's `ronn-ng` bottle carries its own
+copy (kramdown 2.4.0), which renders these pages identically.
 
 The footer date comes from `MAN_DATE` in `CMakeLists.txt`, not from a file
 timestamp, so a refresh writes the same bytes on any machine and in any month.

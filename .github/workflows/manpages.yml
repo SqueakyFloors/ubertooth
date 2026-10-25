@@ -48,14 +48,26 @@ jobs:
         sudo apt update
         sudo apt install -y libusb-1.0-0-dev
 
-    - name: Install ronn-ng
-      # The pinned version, kept in step with RONN_VERSION in
-      # host/doc/man/CMakeLists.txt: two versions of ronn render the same .md
-      # differently, so the check is only meaningful against one of them. The
-      # version is printed so a run's log says what rendered the pages.
+    - name: Install the pinned generator
+      # RONN_VERSION in the CMake file is the one place the version is
+      # decided, so it is read from there rather than repeated here: a bump
+      # cannot leave this job behind.
+      #
+      # kramdown does the Markdown parse and ronn-ng accepts any 2.x of it, so
+      # pinning ronn alone would leave the rendering free to change under a
+      # kramdown release and turn this check red on a page nobody touched.
+      # Both are installed first, and --conservative keeps them when ronn's
+      # own dependency resolution runs. The versions are printed so a run's
+      # log records what rendered the pages.
       run: |
-        sudo gem install ronn-ng -v 0.10.1
+        version=$(sed -n 's/^set(RONN_VERSION "\(.*\)")$/\1/p' \
+          host/doc/man/CMakeLists.txt)
+        test -n "$version" || { echo "no RONN_VERSION in host/doc/man/CMakeLists.txt" >&2; exit 1; }
+        sudo gem install --no-document kramdown -v 2.5.2
+        sudo gem install --no-document kramdown-parser-gfm -v 1.1.0
+        sudo gem install --no-document --conservative ronn-ng -v "$version"
         ronn --version
+        gem list kramdown nokogiri mustache ronn-ng
 
     - name: Build and install libbtbb
       # Same steps as build.yml: libbtbb is a required dependency of the host
@@ -73,14 +85,21 @@ jobs:
       run: cmake -S host -B build
 
     - name: Refresh the man pages
+      # Without a usable ronn this target fails rather than rendering nothing,
+      # so the check below cannot pass vacuously on a runner where the install
+      # above went wrong.
       run: cmake --build build --target refresh-manpages
 
     - name: Check the committed pages match their Markdown
+      # git diff covers tracked pages; git status also catches a page that was
+      # rendered but never added.
       run: |
-        if git diff --exit-code host/doc/man; then
+        untracked=$(git status --porcelain host/doc/man)
+        if git diff --exit-code host/doc/man && [ -z "$untracked" ]; then
           echo "The committed man pages match host/doc/*.md."
           exit 0
         fi
+        [ -n "$untracked" ] && printf 'not committed:\n%s\n' "$untracked"
         cat >&2 <<'EOF'
 
         The committed man pages in host/doc/man no longer match host/doc/*.md
@@ -90,9 +109,10 @@ jobs:
             cmake --build build --target refresh-manpages
 
         then commit the regenerated .1 files together with the .md you edited.
-        Install the pinned generator first if you do not have it:
+        Install the pinned generator first if you do not have it; the version
+        is RONN_VERSION in host/doc/man/CMakeLists.txt:
 
-            gem install ronn-ng -v 0.10.1
+            gem install ronn-ng -v <that version>
 
         EOF
         exit 1

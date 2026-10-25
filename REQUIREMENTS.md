@@ -28,8 +28,10 @@ Missing a **required** dependency fails the build.
 | ronn-ng **0.10.1** | the `refresh-manpages` target, which regenerates the committed man pages from `host/doc/*.md` | nothing: the committed `.1` pages are the ones installed, and a build never regenerates them ([host/doc/man/README.md](host/doc/man/README.md)) | `gem install ronn-ng -v 0.10.1` |
 
 Only that one ronn version is supported: another renders the same Markdown
-differently, so the committed pages would no longer match a refresh. It is the
-version the man-page CI check installs.
+differently, so the committed pages would no longer match a refresh, and
+`refresh-manpages` refuses to run. `RONN_VERSION` in
+`host/doc/man/CMakeLists.txt` is where it is decided, and the man-page CI job
+reads that line; the job also pins kramdown, which does the Markdown parse.
 
 See [COMPATIBILITY.md](COMPATIBILITY.md) for supported OS / toolchain / Python **versions**.
 
