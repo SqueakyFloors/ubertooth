@@ -2,8 +2,8 @@
 
 ## SYNOPSIS
 
-ubertooth-ducky [-q [uuid]] [-b] [-A index] [-a BD_ADDR] [-s]
-[-U <index|serial>]
+    ubertooth-ducky [-q [uuid]] [-b] [-A index] [-a BD_ADDR] [-s]
+    [-U <index|serial>]
 
 ## DESCRIPTION
 

@@ -2,7 +2,7 @@
 
 ## SYNOPSIS
 
-ubertooth-tx -l LAP -u UAP [-t SECONDS] [-U index|serial] [-V]
+    ubertooth-tx -l LAP -u UAP [-t SECONDS] [-U <index|serial>] [-V]
 
 ## DESCRIPTION
 

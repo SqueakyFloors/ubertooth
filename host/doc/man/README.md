@@ -57,9 +57,5 @@ from the rendered page.
 ## Pages kept by hand
 
 `ubertooth-debug.1` has no generated counterpart and is edited here directly,
-in step with `../ubertooth-debug.md` in the same change. The list of generated
-pages is in `CMakeLists.txt`.
-
-`ubertooth-ducky.md`, `ubertooth-follow.md` and `ubertooth-tx.md` have no page
-here at all, so those tools have no `man` entry; the Markdown is the only
-documentation for them.
+in step with `../ubertooth-debug.md` in the same change. It is the only one;
+every other tool's page is generated, and the list is in `CMakeLists.txt`.

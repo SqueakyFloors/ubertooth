@@ -2,7 +2,8 @@
 
 ## SYNOPSIS
 
-ubertooth-follow [-l LAP] [-u UAP] [-U 0-7] [-r file] [-q file] [-d file] [-e errors] [-a] [-b hciN] [-w delay]
+    ubertooth-follow [-l LAP] [-u UAP] [-U <index|serial>] [-r file]
+    [-q file] [-d file] [-e errors] [-a] [-b hciN] [-w delay]
 
 ## DESCRIPTION
 

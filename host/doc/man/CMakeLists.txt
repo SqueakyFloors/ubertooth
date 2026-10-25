@@ -45,12 +45,15 @@ set(MAN_PAGES_FROM_MARKDOWN
 	"ubertooth-afh|1|User Commands"
 	"ubertooth-btle|1|User Commands"
 	"ubertooth-dfu|1|User Commands"
+	"ubertooth-ducky|1|User Commands"
 	"ubertooth-dump|1|User Commands"
 	"ubertooth-ego|1|User Commands"
+	"ubertooth-follow|1|User Commands"
 	"ubertooth-rx|1|User Commands"
 	"ubertooth-scan|1|User Commands"
 	"ubertooth-specan|1|User Commands"
 	"ubertooth-specan-ui|1|User Commands"
+	"ubertooth-tx|1|User Commands"
 	"ubertooth-util|1|User Commands"
 	"ubertooth|7|Project Ubertooth Overview")
 
@@ -65,7 +68,7 @@ set(MAN_ORGANIZATION "Project Ubertooth")
 # CI man-page job reads this line to know what to install. Two versions of
 # ronn render the same .md differently, so the committed pages only match what
 # a refresh writes when everyone runs this one; any other, and the refresh
-# refuses rather than rewrite all eleven pages in a style nobody asked for.
+# refuses rather than rewrite all fourteen pages in a style nobody asked for.
 set(RONN_VERSION "0.10.1")
 
 # The date in the page footer. ronn defaults it to the .md's modification
@@ -92,7 +95,7 @@ endfunction()
 
 # Why a refresh cannot run, if it cannot: ronn missing, or the wrong version.
 # Anything but the pinned version renders different roff, which a refresh
-# would write over all eleven pages at once.
+# would write over all fourteen pages at once.
 set(MAN_REFUSE_REASON "")
 find_program(RONN_EXECUTABLE NAMES ronn ronn-ng)
 if(NOT RONN_EXECUTABLE)
