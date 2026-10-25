@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """btle-extcap.py's command line and its interface listing, without a board.
 
-Run as: test_btle_extcap.py <path to btle-extcap.py>
+Run as: test_btle_extcap.py <path to btle-extcap.py> [path to ubertooth-util]
 
 Two things are checked:
 
@@ -372,16 +372,19 @@ for reason in ("error: libusb_init failed\n",
 # one that failed without saying why still has to name the failure, otherwise
 # the reason never reaches the user, which is the whole complaint. A note or a
 # warning is not a reason, so one of those on its own does not stand in for it
-for said, named in (("", ""),
-                    ("note: something odd\n", "note: something odd\n"),
-                    ("warning: something odd\n", "warning: something odd\n"),
-                    ("\n", "\n")):
+for said in ("", "note: something odd\n", "warning: something odd\n", "\n"):
     result = run(("--extcap-interfaces",), errors=said, status=3)
     assert result.returncode == 1, (said, result)
     assert result.stdout == "", (said, result)
     assert result.stderr == \
-        named + "error: ubertooth-util failed (exit status 3)\n", \
-        (said, result)
+        said + "error: ubertooth-util failed (exit status 3)\n", (said, result)
+
+# a diagnosis with no "error: " prefix is still a reason, since libubertooth
+# writes some of its failures without one: nothing is added to it
+result = run(("--extcap-interfaces",),
+             errors="could not open Ubertooth device\n", status=1)
+assert result.returncode == 1, result
+assert result.stderr == "could not open Ubertooth device\n", result
 result = run(("--extcap-interfaces",), kill_with=signal.SIGABRT)
 assert result.returncode == 1, result
 assert result.stderr == "error: ubertooth-util failed (killed by signal %d)\n" \

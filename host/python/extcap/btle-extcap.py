@@ -285,10 +285,15 @@ def list_interfaces():
     # complaint was that there is no board.
     if serials or no_devices or proc.returncode == 0:
         return 0
-    # Nothing was suppressed on this path, so these are the error lines the
-    # user got. Without one, the failure said nothing of itself, and its
-    # status is all there is to report: a note or a warning is not a reason.
-    if not reported:
+    # Nothing was suppressed on this path, so whatever ubertooth-util wrote,
+    # the user saw. Without a line that says something went wrong, the failure
+    # said nothing of itself and its status is all there is to report: a note,
+    # a warning or a blank line is not a reason. An unprefixed diagnosis is
+    # one, since libubertooth writes some of its failures without a prefix.
+    diagnosed = [line for line in errors.splitlines()
+                 if line.strip() and
+                 not line.startswith(("note: ", "warning: "))]
+    if not diagnosed:
         print("error: ubertooth-util failed (%s)" % (
             "killed by signal %d" % -proc.returncode if proc.returncode < 0
             else "exit status %d" % proc.returncode), file=sys.stderr)
