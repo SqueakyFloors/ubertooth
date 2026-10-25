@@ -16,6 +16,8 @@ In piconet following mode, the tool will follow the first piconet it fully ident
 Piconet following is the main mode entered when no arguments are passed to the command or a LAP and optionally a UAP are provided\. If no arguments are passed, the tool will attempt to calculate the UAP for any observed LAPs\. If a LAP is passed, the UAP will be calculated for that specific LAP\. Once a LAP and UAP have been recovered, the tool will attempt to recover the clock value, and if that succeeds it will follow that piconet\.
 .P
 Survey mode, entered using \fB\-z\fR, will record all LAPs and attempt to calculate the UAPs for any observed LAPs\. This mode can be combined with a timeout using \fB\-t\fR, and it can be interrupted at any time using \fBctrl\-C\fR\.
+.P
+This tool's \fB\-z\fR is survey mode, not a squelch: only \fBubertooth\-util \-z\fR sets the receive squelch\. The capture runs at whatever squelch the board holds when the mode starts, the default \-120 dBm unless \fBubertooth\-util \-z\fR set another value while the board was idle\. The firmware resets the squelch on every mode change, so a value set for an earlier capture is already gone; set it again before this command, or while it is running\. See ubertooth\-util(1), SQUELCH\.
 .SH "EXAMPLES"
 Follow the first piconet whose LAP, UAP, and clock are recovered from the air:
 .IP "" 4
@@ -148,6 +150,8 @@ An option combination the tool cannot carry out is refused there too, before any
 .P
 A refused command line creates and truncates nothing: \fB\-r\fR, \fB\-q\fR and \fB\-d\fR name their file while the command line is read, and it is opened only once every check has passed\.
 .SH "SEE ALSO"
+ubertooth\-util(1): sets the receive squelch (\fB\-z\fR); SQUELCH describes how long it lasts
+.P
 ubertooth\-scan(1): active device scanning and inquiry using Ubertooth and BlueZ
 .P
 ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how option values are written

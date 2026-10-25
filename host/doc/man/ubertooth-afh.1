@@ -13,6 +13,8 @@ Classic Bluetooth piconets commonly make use of Adaptive Frequency Hopping (AFH)
 At a minimum you must provide UAP and LAP\. See ubertooth\-rx(1) for a method for sniffing these over the air and details on where else to find them\. By default the tool will only print the AFH map when it is updated\. By providing the \fB\-r\fR flag, the AFH map will be printed out in binary form once per second\.
 .P
 Note: the \fB\-a\fR option (initial AFH map) is currently non\-functional; its handler is disabled in the source and the flag has no effect\.
+.P
+The capture is gated by the board's squelch, which this tool does not set: it is the default \-120 dBm unless \fBubertooth\-util \-z\fR set another value while the board was idle, and the firmware resets it on every mode change, so it never carries over from an earlier capture\. See ubertooth\-util(1), SQUELCH\.
 .SH "OPTIONS"
 .TP
 \fB\-l <LAP>\fR
@@ -79,6 +81,8 @@ It exits 2 when the \fB\-t\fR detection phase received no packet from the picone
 .P
 It exits 1 without opening a device for a bad command line (a missing UAP or LAP, an option value out of range, or a word that is not an option), and when the selected Ubertooth is not found\. Without \fB\-r\fR, it also exits 1 when the receive could not be started at all; \fB\-r\fR does not report that and still exits 0\.
 .SH "SEE ALSO"
+ubertooth\-util(1): sets the receive squelch (\fB\-z\fR); SQUELCH describes how long it lasts
+.P
 ubertooth\-rx(1): a tool for finding UAP and LAP
 .P
 ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how option values are written

@@ -36,6 +36,13 @@ When sniffing, Ubertooth can only operate in either follow mode or
 promiscuous mode, but not both at the same time. If you are unsure which
 mode to use, use follow mode.
 
+While promiscuous mode hunts for an access address it is gated by the board's
+squelch; follow and no-follow mode are not. `ubertooth-btle` does not set the
+squelch, so it is the default -120 dBm unless `ubertooth-util -z` set another
+value while the board was idle, and the firmware resets it on every mode
+change, so it never carries over from an earlier capture. See
+ubertooth-util(1), SQUELCH.
+
 By default, Ubertooth will follow any connection it observes. You can
 limit this to following a specific Bluetooth Address (BD ADDR) using the
 `-t` command line flag. For example, the following command will only
@@ -240,6 +247,9 @@ their file while the command line is read, and it is opened only once every
 check has passed.
 
 ## SEE ALSO
+
+ubertooth-util(1): sets the receive squelch (`-z`); SQUELCH describes how
+long it lasts
 
 crackle(1): https://github.com/mikeryan/crackle
 

@@ -7,6 +7,8 @@
 ubertooth\-scan [\-s] [\-x]
 .SH "DESCRIPTION"
 This tool uses a normal Bluetooth dongle to perform Inquiry Scans and Extended Inquiry scans of Bluetooth devices\. It uses Ubertooth to discover undiscoverable devices and can use BlueZ to scan for discoverable devices\.
+.P
+The Ubertooth capture is gated by the board's squelch, which this tool does not set: it is the default \-120 dBm unless \fBubertooth\-util \-z\fR set another value while the board was idle, and the firmware resets it on every mode change, so it never carries over from an earlier capture\. See ubertooth\-util(1), SQUELCH\.
 .SH "EXAMPLES"
 Use Ubertooth to discover devices and perform Inquiry Scan with BlueZ:
 .IP "" 4
@@ -47,6 +49,8 @@ select an Ubertooth by enumeration index or serial number; see ubertooth(7), SEL
 .P
 An option value must be a whole value in its range, or it is refused the same way instead of being read as 0, for example \fBerror: maximum access code errors must be 0\-5 (got 6)\fR\.
 .SH "SEE ALSO"
+ubertooth\-util(1): sets the receive squelch (\fB\-z\fR); SQUELCH describes how long it lasts
+.P
 ubertooth\-rx(1): Discover devices passively with Ubertooth
 .P
 ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how option values are written

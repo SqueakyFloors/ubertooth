@@ -11,6 +11,12 @@ Extended Inquiry scans of Bluetooth devices. It uses Ubertooth to
 discover undiscoverable devices and can use BlueZ to scan for
 discoverable devices.
 
+The Ubertooth capture is gated by the board's squelch, which this tool does
+not set: it is the default -120 dBm unless `ubertooth-util -z` set another
+value while the board was idle, and the firmware resets it on every mode
+change, so it never carries over from an earlier capture. See
+ubertooth-util(1), SQUELCH.
+
 
 ## EXAMPLES
 
@@ -54,6 +60,9 @@ way instead of being read as 0, for example
 `error: maximum access code errors must be 0-5 (got 6)`.
 
 ## SEE ALSO
+
+ubertooth-util(1): sets the receive squelch (`-z`); SQUELCH describes how
+long it lasts
 
 ubertooth-rx(1): Discover devices passively with Ubertooth
 

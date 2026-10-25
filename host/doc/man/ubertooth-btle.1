@@ -27,6 +27,8 @@ Promiscuous mode is an experimental mode for sniffing connections after they hav
 .P
 When sniffing, Ubertooth can only operate in either follow mode or promiscuous mode, but not both at the same time\. If you are unsure which mode to use, use follow mode\.
 .P
+While promiscuous mode hunts for an access address it is gated by the board's squelch; follow and no\-follow mode are not\. \fBubertooth\-btle\fR does not set the squelch, so it is the default \-120 dBm unless \fBubertooth\-util \-z\fR set another value while the board was idle, and the firmware resets it on every mode change, so it never carries over from an earlier capture\. See ubertooth\-util(1), SQUELCH\.
+.P
 By default, Ubertooth will follow any connection it observes\. You can limit this to following a specific Bluetooth Address (BD ADDR) using the \fB\-t\fR command line flag\. For example, the following command will only sniff connections where the central or peripheral's BD ADDR is \fB22:44:66:88:AA:CC\fR:
 .IP "" 4
 .nf
@@ -180,6 +182,8 @@ A command line with no work in it is refused the same way\. \fB\-U\fR, \fB\-A\fR
 .P
 A refused command line creates and truncates nothing: \fB\-r\fR, \fB\-q\fR and \fB\-c\fR name their file while the command line is read, and it is opened only once every check has passed\.
 .SH "SEE ALSO"
+ubertooth\-util(1): sets the receive squelch (\fB\-z\fR); SQUELCH describes how long it lasts
+.P
 crackle(1): https://github\.com/mikeryan/crackle
 .P
 ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how option values are written

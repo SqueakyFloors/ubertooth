@@ -55,6 +55,8 @@ ubertooth\-util \-U <serial> \-S      # stop; the LEDs end off
 .P
 \fB\-I\fR needs firmware of this tree's API version and refuses any other, saying so\. The other options work with any firmware, so \fB\-v\fR can still read the version and \fB\-f\fR can reflash it\.
 .P
+The API version is bumped once per release, not once per change, so between releases it says nothing about which commit a board carries: firmware from an earlier development commit reports the same number and is accepted even though its behaviour may differ\. Flash the firmware from the commit the tools were built from (\fB\./install\.sh \-\-flash\fR); the revision shown by \fB\-v\fR alongside the API version is what identifies the build\.
+.P
 Only one mode option can be given per command: \fB\-q\fR, \fB\-n\fR, \fB\-e\fR, \fB\-t\fR, \fB\-x\fR, \fB\-I\fR, \fB\-i\fR (In\-System Programming, ISP) and \fB\-f\fR (Device Firmware Upgrade, DFU) each end the command, so a command with two or more of them is refused before any device is opened, nothing is sent to the device, and the exit status is 1:
 .IP "" 4
 .nf
@@ -113,7 +115,7 @@ start LED spectrum analyzer\. The threshold is \-N dBm, so a larger N lights the
 intitiate continuous transmit test
 .TP
 \fB\-z [\-128\.\.127]\fR
-get/set squelch level (a signed RSSI threshold; values above 0 are relative to the average RSSI) for a later RX capture\. Stopping a running mode resets it to the default, so \fB\-z\fR cannot be combined with a mode option (\fB\-q\fR, \fB\-n\fR, \fB\-e\fR, \fB\-t\fR, \fB\-x\fR, \fB\-I\fR, \fB\-i\fR, \fB\-f\fR)\.
+get/set squelch level (a signed RSSI threshold; values above 0 are relative to the average RSSI) for an RX capture\. The firmware puts it back to the default \-120 dBm on every mode change, so set it in the same step as the capture it is meant for, or once that capture is running; it does not carry into the next mode\. See \fISQUELCH\fR\. \fB\-z\fR cannot be combined with a mode option (\fB\-q\fR, \fB\-n\fR, \fB\-e\fR, \fB\-t\fR, \fB\-x\fR, \fB\-I\fR, \fB\-i\fR, \fB\-f\fR), which would reset it before the mode started\.
 .P
 Range test:
 .TP
@@ -278,6 +280,26 @@ ubertooth\-util \-m
 Before a range test has completed since the board started, \fB\-m\fR prints \fBno range test result yet\fR and exits 0\. A test whose packets did not match prints \fBInvalid range test: mismatch on byte <n>\fR\.
 .P
 Note that the range test transmits the Cortex M3 microcontroller's serial number\. If you do not wish to broadcast that information wirelessly, do not use the range test functionality\.
+.SH "SQUELCH"
+\fB\-z\fR writes the squelch to the board\. It gates the carrier\-sense trigger of the Classic Bluetooth symbol capture (\fBubertooth\-rx\fR, \fBubertooth\-dump\fR, \fBubertooth\-scan\fR, \fBubertooth\-follow\fR, \fBubertooth\-afh\fR) and of the BLE promiscuous mode of \fBubertooth\-btle\fR; at the default \-120 dBm nothing is squelched\. No other tool sets or reports it\.
+.P
+It lasts for one mode, not until the board is reset: the firmware runs its idle reset whenever it leaves a mode, before the next one starts, and that puts the squelch back to \-120 dBm along with the LEDs and the channel\. So a value set for one capture never reaches a later one\. That is deliberate \(em a squelch left behind would quietly change every capture that followed \(em and it is the behaviour to work with:
+.IP "\(bu" 4
+Set it while the board is idle, then start the capture\. A mode entered from idle keeps the value, because no mode is being left:
+.IP "" 4
+.nf
+  ubertooth\-util \-U <serial> \-z \-70
+  ubertooth\-rx \-U <serial>
+.fi
+.IP "" 0
+
+.IP "\(bu" 4
+Or set it once the capture is running: \fB\-z\fR works on a board that is in a mode and takes effect immediately\. Bare \fB\-z\fR reads back what the running capture is using\.
+.IP "\(bu" 4
+Set it again for each capture\. After a capture ends, or as soon as one mode replaces another, \fB\-z\fR reads \-120 dBm again\.
+.IP "" 0
+.P
+\fB\-z\fR together with one of \fBubertooth\-util\fR's own mode options is refused rather than quietly dropped, because each of those modes leaves whatever was running first and the reset would discard the value before the mode started\.
 .SH "EXIT STATUS"
 \fBubertooth\-util\fR exits with 0 when every requested operation succeeds, including queries that report a nonzero value such as \fB\-b\fR (board ID), \fB\-c\fR (channel), or \fB\-a\fR (power amplifier level)\. \fB\-m\fR with no range test result yet also exits 0 (see \fIRANGE TEST\fR)\. It exits with a nonzero status if any requested operation fails, even when a later operation in the same command succeeds\. It exits with 1, without opening a device, when two or more mode options are given (see DESCRIPTION), when \fB\-z\fR is combined with a mode option, or when an \fB\-a\fR level is not a single digit 0\-7 (\fBerror: PA level must be a single digit 0\-7 (got <value>)\fR)\. The same holds for any other option value that is not a whole decimal number in its range (\fB\-c\fR, \fB\-C\fR, \fB\-d\fR, \fB\-l\fR, \fB\-q\fR, \fB\-z\fR), for example \fBerror: channel must be 0\-78 (got abc)\fR\. It also exits with 1, without opening a device, when the command line contains a word that is not an option, and names it: \fBerror: unexpected argument '<word>'\fR\. \fBubertooth\-util\fR takes no other arguments\.
 .P
