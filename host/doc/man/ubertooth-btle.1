@@ -207,7 +207,9 @@ ubertooth\-btle \-f \-c \- | wireshark \-k \-i \-
 .PP
 When stdout capture is selected, regular packet/status text is suppressed so
 it cannot corrupt the binary stream; errors remain on stderr. The tool refuses
-to write binary capture data directly to an interactive terminal.
+to write binary capture data directly to an interactive terminal:
+\fB\fCerror: stdout is a tty, refusing to write binary capture data to it\fR,
+with exit status 1 and before any device is opened.
 .RE
 .PP
 Miscellaneous:

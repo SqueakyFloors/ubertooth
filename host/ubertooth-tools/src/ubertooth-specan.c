@@ -98,7 +98,7 @@ static void usage(FILE *file)
 	fprintf(file, "\t-v verbose (print debug information to stderr)\n");
 	fprintf(file, "\t-g output suitable for feedgnuplot\n");
 	fprintf(file, "\t-G output suitable for 3D feedgnuplot\n");
-	fprintf(file, "\t-d <filename> output to file; -d - writes to stdout\n");
+	fprintf(file, "\t-d <filename> output to file; -d - writes to stdout (not a tty)\n");
 	fprintf(file, "\t-l <%d-%d> lower frequency in MHz (default %d)\n",
 	        SPECAN_FREQ_MIN, SPECAN_FREQ_MAX, SPECAN_FREQ_MIN);
 	fprintf(file, "\t-u <%d-%d> upper frequency in MHz (default %d)\n",
@@ -185,6 +185,14 @@ int main(int argc, char *argv[])
 	 * to stdout and dropping a mistyped option. */
 	if (dump_name != NULL) {
 		if (strcmp(dump_name, "-") == 0) {
+			/* The samples are raw 3-byte records, so a terminal is
+			 * refused the way ubertooth-btle refuses its capture.
+			 * Only when they are what the run writes: a later -g or
+			 * -G takes the output mode back to text, which a
+			 * terminal is welcome to. */
+			if (output_mode == SPECAN_FILE &&
+			    opt_check_stdout_not_tty("samples") < 0)
+				return 1;
 			dumpfile = stdout;
 		} else {
 			dumpfile = fopen(dump_name, "w");

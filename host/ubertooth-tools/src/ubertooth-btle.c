@@ -73,10 +73,8 @@ static char *handle_special_filename(const char *filename, int *saved_fd)
 	if (strcmp(filename, "-") != 0)
 		return strdup(filename);
 
-	if (isatty(STDOUT_FILENO)) {
-		fprintf(stderr, "Error: stdout is a tty, refusing binary capture\n");
+	if (opt_check_stdout_not_tty("capture data") < 0)
 		return NULL;
-	}
 
 	fflush(stdout);
 	*saved_fd = dup(STDOUT_FILENO);

@@ -79,6 +79,17 @@ int opt_parse_access_address(const char *text, uint32_t *address);
 int opt_parse_bd_addr(const char *text, uint8_t *address);
 
 /*
+ * A bare "-" means standard output, which is only useful for a pipe or a
+ * redirect: binary written to a terminal fills it with control characters and
+ * can leave it in a strange state. Call this where a tool is about to stream
+ * binary to stdout. Returns 0 when stdout is not a terminal, or prints
+ * "error: stdout is a tty, refusing to write binary <what> to it" and returns
+ * -1, so the caller only has to exit. <what> names what would be written,
+ * for example "samples"; NULL reads "output".
+ */
+int opt_check_stdout_not_tty(const char *what);
+
+/*
  * The one argument rule.
  *
  * No ubertooth-* tool takes operands, so a leftover word is always a mistake:
