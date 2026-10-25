@@ -298,8 +298,10 @@ int main(int argc, char *argv[])
 
 	r = ubertooth_check_api(ut);
 	if (r < 0) {
-		/* No ubertooth_stop() here: ubertooth_check_api() releases the
-		 * board itself on a version mismatch. */
+		/* Only the memory is given back: on a version mismatch
+		 * ubertooth_check_api() has released the board already, and its
+		 * cleanup ends the libusb context, so an ubertooth_stop() here
+		 * would end that context a second time. */
 		ubertooth_free(ut);
 		return 1;
 	}

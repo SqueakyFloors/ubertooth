@@ -183,8 +183,8 @@
 - `ubertooth-afh` gives its piconet back before it exits, so a run no longer
   ends with one unfreed allocation.
   [#366](https://github.com/SqueakyFloors/ubertooth/issues/366)
-- `ubertooth-ducky` gives its device bookkeeping back on every exit path, so a
-  run no longer ends with one unfreed allocation.
+- `ubertooth-ducky` gives its device bookkeeping back on every exit path,
+  instead of leaving it and its ring buffer outstanding at exit.
   [#381](https://github.com/SqueakyFloors/ubertooth/issues/381)
 - A capture gives its receive transfer back when it ends, so a run with more
   than one phase (`ubertooth-afh` detects a map, then monitors it) no longer

@@ -197,6 +197,9 @@ int main(int argc, char *argv[])
 			else
 				fputs("error: E-GO not supported by this firmware "
 				      "(or TX not enabled)\n", stderr);
+			/* Released like any other refused request, rather than left
+			 * claimed because this one has its own message. */
+			ubertooth_stop(ut);
 			return 1;
 		}
 

@@ -285,7 +285,9 @@ MU_TEST(the_access_code_request_is_only_sent_for_a)
 }
 
 /* The firmware refusing the mode itself is reported as it always was, after
- * the setup requests the board did take. */
+ * the setup requests the board did take, and leaves the board released like a
+ * refused setup request does. Interfering needs transmit enabled as well, so
+ * it says so. */
 MU_TEST(a_firmware_without_ego_is_still_reported)
 {
 	struct run_result r;
@@ -297,6 +299,30 @@ MU_TEST(a_firmware_without_ego_is_still_reported)
 	mu_assert(r.out[0] == '\0', r.out);
 	mu_assert(strcmp(r.err, "error: E-GO not supported by this firmware\n") == 0,
 	          r.err);
+	mu_assert_int_eq(1, fake.stops);
+
+	reset_fake();
+	fake.ego_rc = -9;
+	r = RUN("-i");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strcmp(r.err, "error: E-GO not supported by this firmware "
+	                        "(or TX not enabled)\n") == 0, r.err);
+	mu_assert_int_eq(1, fake.stops);
+}
+
+/* Interfering hops on the board and does not read, so the capture length is
+ * the only setup request it sends: no channel is set even though -c was
+ * given. Every device call here is faked, so nothing is transmitted. */
+MU_TEST(interfering_sets_only_the_capture_length)
+{
+	struct run_result r;
+
+	reset_fake();
+	r = RUN("-i", "-c", "2408");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(fake.calls, "le") == 0, fake.calls);
+	mu_assert_int_eq(2, fake.last_ego_mode);
 }
 
 int main(void)
@@ -306,5 +332,6 @@ int main(void)
 	MU_RUN(a_refused_setup_request_is_named_and_exits_1);
 	MU_RUN(the_access_code_request_is_only_sent_for_a);
 	MU_RUN(a_firmware_without_ego_is_still_reported);
+	MU_RUN(interfering_sets_only_the_capture_length);
 	return mu_report();
 }
