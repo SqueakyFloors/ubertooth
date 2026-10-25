@@ -32,8 +32,12 @@ stream a line is on.
 ## Exit status
 
 - `0`: the command did what was asked, including `-h`.
-- `1`: anything else: a usage error, a command line with nothing to do, a
-  device that is missing or failed, a partial failure.
+- `1`: a failure: a usage error, a command line with nothing to do, a device
+  that is missing or failed, a partial failure.
+- Other codes only for a distinct outcome a script needs to tell apart from
+  failure, defined by that tool and listed in its man page's EXIT STATUS. Today
+  there is one: `ubertooth-afh -t` exits `2` when no packet from the piconet
+  arrived within the timeout. A usage error is never one of these; it is `1`.
 - A command that did nothing exits `1`, never `0`, and opens no device.
 - Check command-line problems before opening a device or creating an output
   file, so a refused command touches nothing.
