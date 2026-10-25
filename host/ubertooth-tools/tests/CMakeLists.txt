@@ -372,6 +372,27 @@ if(libubertooth_SOURCE_DIR)
 	# call should fail instead of hanging the suite.
 	set_tests_properties(device-select PROPERTIES TIMEOUT 10)
 
+	# The control requests the AFH paths send, in order, against the same
+	# faked libusb: AFH detection has to run in the board's AFH mode, so
+	# UBERTOOTH_RX_SYMBOLS must never be sent on top of it. The fifo calls
+	# are faked in the test (ubertooth_fifo.c is not linked), which is also
+	# what stops the receive loops.
+	add_executable(test-afh-requests
+		test_afh_requests.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_callback.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
+	target_include_directories(test-afh-requests PRIVATE
+		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+	target_link_libraries(test-afh-requests ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES})
+	find_package(Threads REQUIRED)
+	target_link_libraries(test-afh-requests Threads::Threads)
+	add_test(NAME afh-requests COMMAND test-afh-requests)
+	# The loops are stopped from the faked fifo after a few turns and every
+	# transfer is faked, so a run takes milliseconds. A regression that leaves
+	# a receive loop running would hang here; fail it instead.
+	set_tests_properties(afh-requests PROPERTIES TIMEOUT 10)
+
 	# The capture clock across its wrap. The time reconstruction is static in
 	# ubertooth_callback.c, so the test includes that source itself; the rest
 	# of the library is linked for the symbols the callbacks reference.
