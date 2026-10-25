@@ -41,6 +41,7 @@ static struct {
 	int stop_calls, flash_calls, isp_calls, led_specan_calls, range_test_calls;
 	int repeater_calls, tx_test_calls, xmas_calls, reset_calls;
 	int identify_calls;
+	int serial_reads, resets_at_first_serial_read;
 	int last_channel_set, last_squelch_set, last_led_specan_arg;
 	int last_palevel_set, last_usrled_set;
 	/* LED writes: -I must not blink from the host */
@@ -265,6 +266,10 @@ int cmd_get_serial(struct libusb_device_handle *h, u8 *serial)
 	int i;
 
 	fake_use(h);
+	/* -r must read the serial while the device is still there, before the
+	 * reset is sent: how many resets had been sent at the first read. */
+	if (fake.serial_reads++ == 0)
+		fake.resets_at_first_serial_read = fake.reset_calls;
 	serial[0] = 0;
 	for (i = 1; i < 17; i++)
 		serial[i] = (u8)(0xa0 + i);
@@ -479,7 +484,10 @@ static struct run_result run_util(const char *const *args)
 #define USRLED_LINE "USR LED status: 0\n"
 #define PALEVEL_LINE "PA Level: 7\n"
 #define PART_LINE "Part ID: 25011723\n"
-#define SERIAL_LINE "Serial No: a1a2a3a4a5a6a7a8a9aaabacadaeafb0\n"
+/* The serial the scripted device reports, as -s prints it and as -r follows
+ * it across a reset. */
+#define FAKE_SERIAL "a1a2a3a4a5a6a7a8a9aaabacadaeafb0"
+#define SERIAL_LINE "Serial No: " FAKE_SERIAL "\n"
 
 /* ---- successful queries exit 0 even when the value is nonzero --------- */
 
@@ -967,8 +975,9 @@ MU_TEST(stop_and_reset_report_failures)
 	mu_assert_int_eq(1, fake.first_closes);
 	mu_assert_int_eq(1, fake.first_frees);
 	mu_assert_int_eq(0, fake.first_stops);
-	/* the count never recovers, so an index is never opened */
-	mu_assert_int_eq(0, fake.quiet_starts);
+	/* the serial it follows never comes back: polled every time, opened never */
+	mu_assert(fake.quiet_starts > 0, "polled for the serial");
+	mu_assert_int_eq(fake.quiet_starts, fake.quiet_while_absent);
 	mu_assert_int_eq(0, fake.first_used_after_release);
 	mu_assert_int_eq(1000 + (int)UTIL_RESET_WAIT_DEADLINE_MS, (int)fake.now_ms);
 }
@@ -2197,11 +2206,12 @@ MU_TEST(reset_waits_for_a_slow_reenumeration_then_runs_later_actions)
 	mu_assert(strcmp(r.out, "Resetting ubertooth device 0\n" BOARD_LINE) == 0,
 	          "board read after the reset");
 	mu_assert(strcmp(r.err, "") == 0, "polls print nothing");
-	mu_assert_int_eq(0, fake.quiet_while_absent); /* index: waits for the count */
 	mu_assert(fake.now_ms >= fake.returns_at_ms &&
 	          fake.now_ms < fake.returns_at_ms + UTIL_RESET_WAIT_POLL_MS,
 	          "selected within one poll of returning");
-	mu_assert(fake.quiet_null_selector, "the default selection is kept");
+	/* the board is followed by its own serial, not by the default selection */
+	mu_assert(strcmp(fake.quiet_selector, FAKE_SERIAL) == 0, "follows the serial");
+	mu_assert(!fake.quiet_null_selector, "not the default selection");
 	mu_assert_int_eq(0, fake.stop_calls);
 	mu_assert_int_eq(0, fake.first_used_after_release);
 	/* a libusb reference is held through every poll and released after */
@@ -2229,8 +2239,10 @@ MU_TEST(reset_by_serial_polls_for_the_same_serial)
 	mu_assert(strcmp(r.out, "Resetting ubertooth device a9aaabacadaeafb0\n"
 	                 SERIAL_LINE) == 0, "serial read after the reset");
 	mu_assert(strcmp(r.err, "") == 0, "polls print nothing");
-	mu_assert(strcmp(fake.quiet_selector, "a9aaabacadaeafb0") == 0,
-	          "same serial selector");
+	/* the prefix the user gave selected this board; the wait follows its
+	 * whole serial, which is the same board */
+	mu_assert(strcmp(fake.quiet_selector, FAKE_SERIAL) == 0,
+	          "follows the board's serial");
 	/* a serial cannot match another board, so it is polled while gone */
 	mu_assert(fake.quiet_while_absent > 0, "polled while gone");
 	mu_assert(fake.now_ms >= fake.returns_at_ms, "selected once back");
@@ -2238,21 +2250,60 @@ MU_TEST(reset_by_serial_polls_for_the_same_serial)
 	mu_assert_int_eq(0, fake.loud_starts_after_reset);
 }
 
-MU_TEST(reset_by_index_waits_for_every_board_before_reselecting)
+MU_TEST(reset_by_index_follows_the_board_by_serial)
 {
 	struct run_result r;
 
-	/* With two boards, opening index 1 while the reset board is gone could
-	 * open the other one. */
+	/* With two boards, waiting for index 1 could open the other one: the
+	 * index order can change across the reset. */
 	reset_fake();
 	fake.device_count = 2;
 	fake.returns_at_ms = 1000 + 3000;
 	r = RUN("-U", "1", "-r", "-b");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(fake.quiet_selector, "1") == 0, "same index selector");
-	mu_assert_int_eq(0, fake.quiet_while_absent);
+	mu_assert(strcmp(fake.quiet_selector, FAKE_SERIAL) == 0,
+	          "follows the board's serial, not the index");
+	/* read before the reset was sent, while the device was still there */
+	mu_assert_int_eq(1, fake.serial_reads);
+	mu_assert_int_eq(0, fake.resets_at_first_serial_read);
+	mu_assert(strcmp(r.err, "") == 0, "nothing printed about the serial");
+	/* the "Resetting" line keeps the selector the user gave */
+	mu_assert(strncmp(r.out, "Resetting ubertooth device 1\n", 29) == 0,
+	          "the user's selector is reported");
 	mu_assert(fake.now_ms >= fake.returns_at_ms, "selected once back");
 	mu_assert_int_eq(0, fake.stop_calls);
+}
+
+MU_TEST(a_serial_that_cannot_be_read_keeps_the_selector_with_a_warning)
+{
+	struct run_result r;
+
+	/* Falls back to today's behaviour: the index is waited for, and the user
+	 * is told later options may not reach the same board. */
+	reset_fake();
+	fake.device_count = 2;
+	fake.serial_rc = 1; /* nonzero status byte */
+	fake.returns_at_ms = 1000 + 3000;
+	r = RUN("-U", "1", "-r", "-b");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(fake.quiet_selector, "1") == 0, "the index is kept");
+	mu_assert(strcmp(r.err, "warning: serial read failed on Ubertooth device 1 "
+	                 "before the reset; later options may reach a different "
+	                 "board if the enumeration order changes\n") == 0,
+	          "one warning line");
+	mu_assert_int_eq(0, fake.quiet_while_absent); /* index: waits for the count */
+	mu_assert(strstr(r.out, BOARD_LINE) != NULL, "board read after the reset");
+
+	/* A serial selector already follows the board, so nothing is lost and
+	 * nothing is warned about. */
+	reset_fake();
+	fake.device_count = 2;
+	fake.serial_rc = 1;
+	r = RUN("-U", "a9aaabacadaeafb0", "-r");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(fake.quiet_selector, "a9aaabacadaeafb0") == 0,
+	          "the serial selector is kept");
+	mu_assert(strcmp(r.err, "") == 0, "no warning for a serial selector");
 }
 
 MU_TEST(a_failed_reset_still_reselects_once_the_leave_window_passes)
@@ -2353,7 +2404,8 @@ int main(void)
 	MU_RUN(reset_waits_for_a_slow_reenumeration_then_runs_later_actions);
 	MU_RUN(the_wait_still_works_if_libusb_cannot_be_held);
 	MU_RUN(reset_by_serial_polls_for_the_same_serial);
-	MU_RUN(reset_by_index_waits_for_every_board_before_reselecting);
+	MU_RUN(reset_by_index_follows_the_board_by_serial);
+	MU_RUN(a_serial_that_cannot_be_read_keeps_the_selector_with_a_warning);
 	MU_RUN(a_failed_reset_still_reselects_once_the_leave_window_passes);
 	MU_RUN(reset_by_index_with_one_board_reopens_it);
 	MU_RUN(the_handle_reopened_after_a_reset_is_released);

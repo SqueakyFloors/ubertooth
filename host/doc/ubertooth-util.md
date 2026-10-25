@@ -99,11 +99,16 @@ Common options:
  - `-S` :
    stop current operation
  - `-r` :
-   full reset; then waits up to 10 seconds for the same device (by serial
-   with `-U <serial>`) to come back on USB before any later option runs, and
-   exits non-zero with `error: Ubertooth device <selector> did not come back
-   within 10 s after the reset` if it does not. With several boards attached,
-   select by serial: the index order can change across a reset
+   full reset; then waits up to 10 seconds for the same board to come back on
+   USB before any later option runs, and exits non-zero with `error: Ubertooth
+   device <selector> did not come back within 10 s after the reset` if it does
+   not. The board's serial number is read before the reset and the wait looks
+   for that serial, whatever `-U` selected, so a later option in the same
+   command (`-U 0 -r -b`) stays on the board that was reset even if the index
+   order changed across the reset. If the serial cannot be read, the `-U`
+   argument is waited for instead; unless it is a serial, or the only board
+   attached is this one, a warning on stderr says later options may reach a
+   different board
  - `-U <index|serial>` :
    select which Ubertooth to use, either by USB enumeration index or by its
    serial number string. See SELECTING A DEVICE.

@@ -4,6 +4,7 @@
  */
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "../../../firmware/tests/minunit.h"
@@ -245,6 +246,240 @@ MU_TEST(polls_never_sleep_past_an_uneven_deadline)
 	mu_assert_int_eq(5000 + 1000, (int)bus.now);
 }
 
+/* ---- following the board that was reset ------------------------------- */
+
+/*
+ * Two boards whose enumeration order swaps across the reset: the board that
+ * is reset sits at index 0 before it and at index 1 after it, the other board
+ * the other way round. Selection resolves whatever selector the wait was
+ * given, as the library does: an index against the order of the moment, a
+ * serial (or a prefix of one) against the board itself.
+ */
+#define RESET_SERIAL "aa11aa22aa33aa44aa55aa66aa77aa88"
+#define OTHER_SERIAL "bb11bb22bb33bb44bb55bb66bb77bb88"
+#define BOARD_RESET 0 /* indices into fake_swap.boards[] */
+#define BOARD_OTHER 1
+
+struct fake_swap {
+	uint64_t now;
+	uint64_t leaves_at_ms, returns_at_ms;
+	const char *selector;  /* what the wait is following */
+	const char *serial_read; /* what the read reports (NULL: RESET_SERIAL) */
+	int serial_read_fails; /* the read before the reset fails */
+	int warnings;
+	int opened;            /* the board that was opened, or -1 */
+	int boards[2];         /* what try_select() returns for each board */
+};
+
+static struct fake_swap make_swap(void)
+{
+	struct fake_swap bus;
+
+	memset(&bus, 0, sizeof(bus));
+	bus.now = 5000;
+	bus.leaves_at_ms = bus.now + 100;
+	bus.returns_at_ms = bus.now + 2000;
+	bus.opened = -1;
+	return bus;
+}
+
+/* The board at index now, or -1 if there is none. */
+static int swap_board_at(const struct fake_swap *bus, int index)
+{
+	int back = bus->now >= bus->returns_at_ms;
+	int gone = bus->now >= bus->leaves_at_ms && !back;
+
+	if (index < 0 || index > 1)
+		return -1;
+	if (gone) /* only the other board is attached */
+		return index == 0 ? BOARD_OTHER : -1;
+	if (back) /* the reset board came back behind the other one */
+		return index == 0 ? BOARD_OTHER : BOARD_RESET;
+	return index == 0 ? BOARD_RESET : BOARD_OTHER;
+}
+
+static int swap_present(const struct fake_swap *bus, int board)
+{
+	return swap_board_at(bus, 0) == board || swap_board_at(bus, 1) == board;
+}
+
+static uint64_t swap_now(void *context)
+{
+	return ((struct fake_swap *)context)->now;
+}
+
+static void swap_sleep(void *context, unsigned ms)
+{
+	((struct fake_swap *)context)->now += ms;
+}
+
+static int swap_count(void *context)
+{
+	struct fake_swap *bus = context;
+
+	return (swap_board_at(bus, 0) >= 0) + (swap_board_at(bus, 1) >= 0);
+}
+
+static void *swap_try_select(void *context)
+{
+	struct fake_swap *bus = context;
+	const char *selector = bus->selector;
+	int board = -1;
+
+	if (selector == NULL || selector[0] == '\0')
+		board = swap_count(bus) == 1 ? swap_board_at(bus, 0) : -1;
+	else if (selector[strspn(selector, "0123456789")] == '\0')
+		board = swap_board_at(bus, atoi(selector));
+	else if (swap_present(bus, BOARD_RESET) &&
+	         strncmp(selector, RESET_SERIAL, strlen(selector)) == 0)
+		board = BOARD_RESET;
+	else if (swap_present(bus, BOARD_OTHER) &&
+	         strncmp(selector, OTHER_SERIAL, strlen(selector)) == 0)
+		board = BOARD_OTHER;
+	if (board < 0)
+		return NULL;
+	bus->opened = board;
+	return &bus->boards[board];
+}
+
+static const struct util_reset_wait_ops swap_ops = {
+	swap_now, swap_sleep, swap_count, swap_try_select,
+};
+
+static int swap_get_serial(void *context, char *serial, size_t size)
+{
+	struct fake_swap *bus = context;
+
+	if (bus->serial_read_fails)
+		return -1;
+	snprintf(serial, size, "%s", bus->serial_read ? bus->serial_read
+	                                              : RESET_SERIAL);
+	return 0;
+}
+
+static void swap_warn(void *context, const char *u_arg)
+{
+	(void)u_arg;
+	((struct fake_swap *)context)->warnings++;
+}
+
+static const struct util_reset_follow_ops follow_ops = {
+	swap_get_serial, swap_warn,
+};
+
+/* What ubertooth-util -r does: choose what to follow with the device still
+ * open, then wait for it with both boards counted before the reset. */
+static void *swap_run(struct fake_swap *bus, const char *u_arg,
+                      struct util_reset_follow *follow)
+{
+	struct util_reset_wait_params params = defaults(2, 0);
+
+	util_reset_follow_init(follow, &follow_ops, bus, u_arg, swap_count(bus));
+	params.select_needs_count = follow->select_needs_count;
+	bus->selector = follow->selector;
+	return util_reset_wait(&swap_ops, bus, &params);
+}
+
+MU_TEST(an_index_follows_the_board_that_was_reset_across_a_swap)
+{
+	struct fake_swap bus = make_swap();
+	struct util_reset_follow follow;
+	void *device = swap_run(&bus, "0", &follow);
+
+	mu_assert(strcmp(follow.selector, RESET_SERIAL) == 0, "follows the serial");
+	mu_assert_int_eq(0, follow.select_needs_count);
+	mu_assert_int_eq(0, bus.warnings);
+	mu_assert(device == &bus.boards[BOARD_RESET], "the board that was reset");
+	mu_assert(bus.now >= bus.returns_at_ms, "waited for it to come back");
+}
+
+MU_TEST(a_serial_that_cannot_be_read_keeps_the_index_and_warns)
+{
+	struct fake_swap bus = make_swap();
+	struct util_reset_follow follow;
+	void *device;
+
+	bus.serial_read_fails = 1;
+	device = swap_run(&bus, "0", &follow);
+	mu_assert(strcmp(follow.selector, "0") == 0, "the index is kept");
+	mu_assert_int_eq(1, follow.select_needs_count);
+	mu_assert_int_eq(1, bus.warnings);
+	/* what the warning is about: index 0 is the other board now */
+	mu_assert(device == &bus.boards[BOARD_OTHER], "the other board");
+	mu_assert(bus.now >= bus.returns_at_ms, "waited for both boards");
+}
+
+MU_TEST(a_serial_selector_follows_the_same_board)
+{
+	struct fake_swap bus = make_swap();
+	struct util_reset_follow follow;
+	void *device = swap_run(&bus, "aa11", &follow);
+
+	/* the prefix the user gave becomes the whole serial of that board */
+	mu_assert(strcmp(follow.selector, RESET_SERIAL) == 0, "follows the serial");
+	mu_assert_int_eq(0, follow.select_needs_count);
+	mu_assert_int_eq(0, bus.warnings);
+	mu_assert(device == &bus.boards[BOARD_RESET], "the board that was reset");
+
+	/* and with no serial to read, the prefix is kept: it is already the
+	 * board, so nothing is lost and nothing is warned about */
+	bus = make_swap();
+	bus.serial_read_fails = 1;
+	device = swap_run(&bus, "aa11", &follow);
+	mu_assert(strcmp(follow.selector, "aa11") == 0, "the prefix is kept");
+	mu_assert_int_eq(0, follow.select_needs_count);
+	mu_assert_int_eq(0, bus.warnings);
+	mu_assert(device == &bus.boards[BOARD_RESET], "the board that was reset");
+}
+
+MU_TEST(the_default_selection_is_kept_when_the_serial_cannot_be_read)
+{
+	struct fake_swap bus = make_swap();
+	struct util_reset_follow follow;
+
+	/* No -U: the index gate and the warning apply as they do to an index. */
+	bus.serial_read_fails = 1;
+	mu_assert(swap_run(&bus, NULL, &follow) == NULL, "two boards, no selection");
+	mu_assert(follow.selector == NULL, "no selector to follow");
+	mu_assert_int_eq(1, follow.select_needs_count);
+	mu_assert_int_eq(1, bus.warnings);
+}
+
+MU_TEST(a_serial_that_would_read_as_an_index_is_not_followed)
+{
+	struct fake_swap bus = make_swap();
+	struct util_reset_follow follow;
+
+	/* A selection is a serial or an index, so a serial of nothing but digits
+	 * cannot be followed: it would select index 11223344... instead, which no
+	 * board has. The selector is kept, as for a read that failed. */
+	bus.serial_read = "11223344112233441122334411223344";
+	mu_assert(swap_run(&bus, "0", &follow) == &bus.boards[BOARD_OTHER],
+	          "the index, as before this fix");
+	mu_assert(strcmp(follow.selector, "0") == 0, "the index is kept");
+	mu_assert_int_eq(1, follow.select_needs_count);
+	mu_assert_int_eq(1, bus.warnings);
+}
+
+MU_TEST(nothing_is_warned_about_with_one_board_attached)
+{
+	struct fake_swap bus = make_swap();
+	struct util_reset_follow follow;
+
+	/* No other board can be opened instead, so a serial that cannot be read
+	 * costs nothing. */
+	bus.serial_read_fails = 1;
+	util_reset_follow_init(&follow, &follow_ops, &bus, "0", 1);
+	mu_assert(strcmp(follow.selector, "0") == 0, "the index is kept");
+	mu_assert_int_eq(1, follow.select_needs_count);
+	mu_assert_int_eq(0, bus.warnings);
+
+	/* A count that failed rules nothing out, so it does warn. */
+	bus.warnings = 0;
+	util_reset_follow_init(&follow, &follow_ops, &bus, "0", -1);
+	mu_assert_int_eq(1, bus.warnings);
+}
+
 int main(void)
 {
 	MU_RUN(defaults_are_short_polls_with_a_ten_second_deadline);
@@ -260,5 +495,11 @@ int main(void)
 	MU_RUN(a_device_that_never_returns_times_out_at_the_deadline);
 	MU_RUN(a_device_that_returns_but_cannot_be_opened_times_out);
 	MU_RUN(polls_never_sleep_past_an_uneven_deadline);
+	MU_RUN(an_index_follows_the_board_that_was_reset_across_a_swap);
+	MU_RUN(a_serial_that_cannot_be_read_keeps_the_index_and_warns);
+	MU_RUN(a_serial_selector_follows_the_same_board);
+	MU_RUN(the_default_selection_is_kept_when_the_serial_cannot_be_read);
+	MU_RUN(a_serial_that_would_read_as_an_index_is_not_followed);
+	MU_RUN(nothing_is_warned_about_with_one_board_attached);
 	return mu_report();
 }

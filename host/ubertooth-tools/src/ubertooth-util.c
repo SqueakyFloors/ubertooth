@@ -258,13 +258,40 @@ static const struct util_reset_wait_ops reset_wait_ops = {
 	reset_wait_try_select,
 };
 
-/* True if the -U argument selects by serial number rather than by index. */
-static int selects_by_serial(const char *u_arg)
+_Static_assert(UTIL_RESET_SERIAL_STR_LEN == 2 * (UTIL_SERIAL_BUFFER_LEN - 1) + 1,
+               "a serial string holds every byte of a serial as two hex digits");
+
+/* Reads the serial of the board about to be reset, in the hex form -U matches,
+ * so -r can follow that board and not the selector; see
+ * util_reset_follow_init(). */
+static int follow_get_serial(void *context, char *serial, size_t size)
 {
-	if (u_arg == NULL || u_arg[0] == '\0')
-		return 0;
-	return u_arg[strspn(u_arg, "0123456789")] != '\0';
+	uint8_t raw[UTIL_SERIAL_BUFFER_LEN] = { 0 };
+	int r = cmd_get_serial(((ubertooth_t*)context)->devh, raw);
+	int i;
+
+	if (r != 0)
+		return r;
+	if (size < UTIL_RESET_SERIAL_STR_LEN)
+		return -1;
+	/* The hex form -U matches and -s prints: serial[0] is a status byte. */
+	for (i = 1; i < UTIL_SERIAL_BUFFER_LEN; i++)
+		snprintf(serial + (i - 1) * 2, 3, "%02x", raw[i]);
+	return 0;
 }
+
+static void follow_warn_no_serial(void *context, const char *u_arg)
+{
+	(void)context;
+	fprintf(stderr, "warning: serial read failed on Ubertooth device %s before "
+	        "the reset; later options may reach a different board if the "
+	        "enumeration order changes\n", u_arg ? u_arg : "0");
+}
+
+static const struct util_reset_follow_ops follow_ops = {
+	follow_get_serial,
+	follow_warn_no_serial,
+};
 
 /*
  * -I needs this tree's firmware. ubertooth-util does not call
@@ -636,14 +663,20 @@ int main(int argc, char *argv[])
 			UTIL_RESET_WAIT_INITIAL_DELAY_MS, UTIL_RESET_WAIT_POLL_MS,
 			UTIL_RESET_WAIT_LEAVE_MS, UTIL_RESET_WAIT_DEADLINE_MS, 0, 0
 		};
+		struct util_reset_follow follow;
 		int libusb_held;
 
-		/* Counted before the reset, so the wait can see the device leave and
-		 * (for an index) not open another board while it is gone. The leave
-		 * wait is kept even if the reset command reports an error, since the
-		 * device may have reset anyway. */
+		/* Counted before the reset, so the wait can see the device leave and,
+		 * where the selection is by index, not open another board while it is
+		 * gone. The leave wait is kept even if the reset command reports an
+		 * error, since the device may have reset anyway. */
 		wait.count_before = ubertooth_count();
-		wait.select_needs_count = !selects_by_serial(ubertooth_device);
+		/* Read while the device is still open: the wait then looks for this
+		 * board's serial, so later options in the same command cannot land on
+		 * another board whose index changed across the reset. */
+		util_reset_follow_init(&follow, &follow_ops, ut, ubertooth_device,
+		                       wait.count_before);
+		wait.select_needs_count = follow.select_needs_count;
 		fprintf(stdout, "Resetting ubertooth device %s\n", ubertooth_device ? ubertooth_device : "0");
 		status = util_status_after(status, cmd_reset(ut->devh));
 		/* The device re-enumerates after a reset, so this handle is about
@@ -658,7 +691,8 @@ int main(int argc, char *argv[])
 		libusb_held = libusb_init(NULL) >= 0;
 		ubertooth_close(ut);
 		ubertooth_free(ut);
-		ut = util_reset_wait(&reset_wait_ops, ubertooth_device, &wait);
+		/* cast away const: the context is only read, as a selector string */
+		ut = util_reset_wait(&reset_wait_ops, (void *)follow.selector, &wait);
 		if (ut == NULL) {
 			/* The held reference is left to process exit, for the same
 			 * reason. */

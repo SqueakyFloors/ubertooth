@@ -4,6 +4,7 @@
 #include "util_reset_wait.h"
 
 #include <stddef.h>
+#include <string.h>
 
 /* Sleeps for the poll interval, but not past the deadline. */
 static void sleep_until_next(const struct util_reset_wait_ops *ops, void *context,
@@ -62,4 +63,40 @@ void *util_reset_wait(const struct util_reset_wait_ops *ops, void *context,
 		sleep_until_next(ops, context, elapsed, params->deadline_ms,
 		                 params->poll_ms);
 	}
+}
+
+/* True if a -U argument selects by serial number rather than by index, the
+ * same split libubertooth's classify_selector() makes (an all-digits argument
+ * is an index). This module stays free of the library, so it only decides
+ * which of the two a string is, never which device it selects. */
+static int selects_by_serial(const char *u_arg)
+{
+	if (u_arg == NULL || u_arg[0] == '\0')
+		return 0;
+	return u_arg[strspn(u_arg, "0123456789")] != '\0';
+}
+
+void util_reset_follow_init(struct util_reset_follow *follow,
+                            const struct util_reset_follow_ops *ops,
+                            void *context, const char *u_arg, int attached)
+{
+	follow->serial[0] = '\0';
+	/* A string of digits would be taken for an index, so only a serial that
+	 * selects as one is followed. Nothing is lost: the fallback below is what
+	 * the command did before. */
+	if (ops->get_serial(context, follow->serial, sizeof(follow->serial)) == 0 &&
+	    selects_by_serial(follow->serial)) {
+		/* A serial matches one board wherever it enumerates, so the wait does
+		 * not need the device count to open the right one. */
+		follow->selector = follow->serial;
+		follow->select_needs_count = 0;
+		return;
+	}
+	follow->serial[0] = '\0';
+	follow->selector = u_arg;
+	follow->select_needs_count = !selects_by_serial(u_arg);
+	/* Only a selection that can come back as another board is worth a warning:
+	 * an index or the default device, with another board there to be picked. */
+	if (follow->select_needs_count && attached != 1)
+		ops->warn(context, u_arg);
 }
