@@ -72,7 +72,8 @@ or non-trivial operational documentation changes:
 
 - CI has two tiers. Pull requests and pushes to `main` run the minimal tier:
   host and firmware on `ubuntu-24.04` and `macos-26`. The `install-sh` jobs run
-  on every push to `main` but on a PR only when `install.sh` changes. The
+  on every push to `main` but on a PR only when `install.sh` changes; the
+  `Man pages` job the same way, when anything under `host/doc` changes. The
   weekly schedule, a published release, and a manual run run the full matrix.
   A branch with no open PR gets no CI; open a PR (a draft is enough) to get a
   run.
@@ -92,12 +93,14 @@ or non-trivial operational documentation changes:
 Speed matters. Do not wait for every job.
 
 - **No CI wait** for changes limited to documentation or agent rules
-  (`*.md`, `.kiro/steering/`): merge as soon as the PR is ready.
+  (`*.md`, `.kiro/steering/`): merge as soon as the PR is ready. A change
+  under `host/doc` is the exception: wait for `Man pages`, since it is what
+  catches a page left unrefreshed.
 - **Gating set: one Linux and one Mac.** A code change is good to merge once
   `host (ubuntu-24.04)` and `host (macos-26)` have passed and nothing has
   failed. Changes under `firmware/` also need both firmware jobs; changes to
-  `install.sh` need both `install-sh` jobs. A full-tier failure is followed up
-  on `main`.
+  `install.sh` need both `install-sh` jobs; changes under `host/doc` need
+  `Man pages`. A full-tier failure is followed up on `main`.
 - **Time budget**: wait at most 10 minutes for the gating set once the run has
   started. Poll every 30 seconds (`gh pr checks <PR>`) rather than one long
   `--watch`, and merge as soon as the gating set is green. If jobs have not started after 5 minutes, say so and decide with the
@@ -151,6 +154,10 @@ Speed matters. Do not wait for every job.
 - MUST preserve exact error strings that users are likely to search for, such
   as `ModuleNotFoundError: No module named 'specan'`, in the relevant
   troubleshooting documentation even when changelog prose is condensed.
+- After editing a man page source in `host/doc/`, MUST regenerate its
+  committed roff page with `cmake -S host -B build && cmake --build build
+  --target refresh-manpages` and commit the `.1` with the `.md`. The
+  `Man pages` CI job fails otherwise.
 
 ## Public text: no lab or company details
 

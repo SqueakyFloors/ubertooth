@@ -25,7 +25,13 @@ Missing a **required** dependency fails the build.
 | libbluetooth (BlueZ) | `ubertooth-scan`, `ubertooth-follow` | those two tools are **not built** | `libbluetooth-dev` / `bluez-libs-devel` (Linux only; not on macOS) |
 | FFTW3 | specan_ui spectrum GUI deps | GUI may not function | `libfftw3-dev` / `fftw-devel` / `brew install fftw` |
 | Python 3 + runtime modules | specan_ui / ubtbr Python tools | Python tools install, but fail at runtime if deps are missing | `python3`; specan_ui: `numpy qtpy` plus `pyside6` (pip) or `pyqt5` (apt: `python3-pyqt5`); ubtbr: `libusb1` / distro `python3-usb1` |
-| ronn (ronn-ng) | regenerate man pages from `host/doc/*.md` | committed `.1` man pages are installed as-is | `gem install ronn-ng` |
+| ronn-ng **0.10.1** | the `refresh-manpages` target, which regenerates the committed man pages from `host/doc/*.md` | nothing: the committed `.1` pages are the ones installed, and a build never regenerates them ([host/doc/man/README.md](host/doc/man/README.md)) | `gem install ronn-ng -v 0.10.1` |
+
+Only that one ronn version is supported: another renders the same Markdown
+differently, so the committed pages would no longer match a refresh, and
+`refresh-manpages` refuses to run. `RONN_VERSION` in
+`host/doc/man/CMakeLists.txt` is where it is decided, and the man-page CI job
+reads that line; the job also pins kramdown, which does the Markdown parse.
 
 See [COMPATIBILITY.md](COMPATIBILITY.md) for supported OS / toolchain / Python **versions**.
 

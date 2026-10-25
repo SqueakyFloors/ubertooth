@@ -4,7 +4,10 @@
 .SH "NAME"
 \fBubertooth\-specan\-ui\fR \- graphical 2\.4 GHz spectrum analyzer for Ubertooth
 .SH "SYNOPSIS"
-\fBubertooth\-specan\-ui\fR [\-U \fIindex|serial\fR] [\-l \fIfreq\fR] [\-u \fIfreq\fR] [\-\-wifi[=\fIchannel(s)\fR]] [\-\-padding \fIMHz\fR]
+.nf
+ubertooth\-specan\-ui [\-U <index|serial>] [\-l <freq>] [\-u <freq>]
+[\-\-wifi[=<channel(s)>]] [\-\-padding <MHz>]
+.fi
 .SH "DESCRIPTION"
 ubertooth\-specan\-ui(1) shows the 2\.4 GHz band as a live spectrum plot in a window\. It runs ubertooth\-specan(1) in the background and draws what it reports, so it needs an attached Ubertooth running the \fBbluetooth_rxtx\fR firmware, Python 3\.8 or newer, and the Python packages \fBnumpy\fR, \fBqtpy\fR and a Qt binding (\fBPySide6\fR or \fBPyQt5\fR)\.
 .P

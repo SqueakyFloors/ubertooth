@@ -1,117 +1,74 @@
-.TH UBERTOOTH\-EGO 1 "October 2026" "Project Ubertooth" "User Commands"
-.SH NAME
-.PP
-.BR ubertooth-ego (1) 
-\- Yuneec E\-Go sniffing
-.SH SYNOPSIS
-.PP
-.RS
+.\" generated with Ronn-NG/v0.10.1
+.\" http://github.com/apjanke/ronn-ng/tree/0.10.1
+.TH "UBERTOOTH\-EGO" "1" "October 2026" "Project Ubertooth" "User Commands"
+.SH "NAME"
+\fBubertooth\-ego\fR \- Yuneec E\-Go sniffing
+.SH "SYNOPSIS"
 .nf
 ubertooth\-ego \-f
 .fi
-.RE
-.SH DESCRIPTION
-.PP
-The Yuneec E\-Go is an electric skateboard controlled by a wireless
-handheld remote. This handheld remote uses a custom protocol implemented
-in 2.4 GHz RF. 
-.BR ubertooth-ego (1) 
-can sniff this protocol and interfere
-with its operation.
-.SH EXAMPLES
-.PP
+.SH "DESCRIPTION"
+The Yuneec E\-Go is an electric skateboard controlled by a wireless handheld remote\. This handheld remote uses a custom protocol implemented in 2\.4 GHz RF\. ubertooth\-ego(1) can sniff this protocol and interfere with its operation\.
+.SH "EXAMPLES"
 Sniff the connection between an E\-Go and its remote:
-.PP
-.RS
+.IP "" 4
 .nf
 ubertooth\-ego \-f
 .fi
-.RE
-.PP
+.IP "" 0
+.P
 Receive all E\-Go packets on 2408 MHz:
-.PP
-.RS
+.IP "" 4
 .nf
 ubertooth\-ego \-r \-c 2408
 .fi
-.RE
-.PP
+.IP "" 0
+.P
 Interfere with a connection:
-.PP
-.RS
+.IP "" 4
 .nf
 ubertooth\-ego \-i
 .fi
-.RE
-.SH OPTIONS
-.PP
+.IP "" 0
+.SH "OPTIONS"
 Major modes:
-.RS
-.IP \(bu 2
-\fB\fC\-f\fR :
+.TP
+\fB\-f\fR
 Sniff a connection by hopping along channels
-.IP \(bu 2
-\fB\fC\-r\fR :
-Continuously receive packets on a single channel (see \fB\fC\-c\fR)
-.IP \(bu 2
-\fB\fC\-i\fR :
+.TP
+\fB\-r\fR
+Continuously receive packets on a single channel (see \fB\-c\fR)
+.TP
+\fB\-i\fR
 Interfere with a connection
-.IP \(bu 2
-\fB\fC\-j\fR :
-Interfere with a connection (alias of \fB\fC\-i\fR)
-.RE
-.PP
+.TP
+\fB\-j\fR
+Interfere with a connection (alias of \fB\-i\fR)
+.P
 Options:
-.RS
-.IP \(bu 2
-\fB\fC\-c <2402\-2480>\fR :
-Channel in MHz to use for continuous receive (suggested: 2408, 2418,
-2423, 2469)
-.IP \(bu 2
-\fB\fC\-l <1\-48>\fR :
-Packet length to use. The value must be a complete decimal integer from 1
-through 48; invalid values fail before the Ubertooth is opened.
-.IP \(bu 2
-\fB\fC\-a <access_code>\fR :
-Access code to use, given as 2, 4, 6 or 8 hex digits (1 to 4 whole
-bytes, default: 630f9ffe)
-.IP \(bu 2
-\fB\fC\-U <index|serial>\fR :
-select an Ubertooth by enumeration index or serial number; see
-.BR ubertooth (7),
-SELECTING A DEVICE
-.RE
-.SH TRANSMIT POWER
-.PP
-Interference (\fB\fC\-i\fR, \fB\fC\-j\fR) transmits at the CC2400 power level set with
-\fB\fCubertooth\-util \-a\fR and leaves it unchanged\. A board that has not been given a
-level jams at 7 (0 dBm, the maximum), the CC2400's reset value and the level
-jamming always used before\. Sniffing does not transmit and does not change the
-level\. These levels are at the CC2400 radio; the Ubertooth One's RF amplifier
-changes the actual output after that\.
-.SH ARGUMENTS
-.PP
-\fB\fCubertooth\-ego\fR takes options only. A word that is not an option, including
-a bare \fB\fC\-\fR, is refused before any device is opened and named:
-\fB\fCerror: unexpected argument '<word>'\fR, with exit status 1.
-.PP
-\fB\fC\-h\fR ends the command only once the whole command line has
-parsed, so a stray word or a bad option value is reported even
-alongside it.
-.PP
-An option value must be a whole value in its range, or it is refused the same
-way instead of being read as 0, for example
-\fB\fCerror: channel must be 2402\-2480 MHz (got 2481)\fR\&.
-.SH SEE ALSO
-.PP
-.BR ubertooth (7): 
-overview of Project Ubertooth; OPTION VALUES describes how
-option values are written
-.SH AUTHOR
-.PP
-This manual page was written by Mike Ryan.
-.SH COPYRIGHT
-.PP
-.BR ubertooth-ego (1) 
-is Copyright (c) 2015 Mike Ryan. This tool is released
-under the GPLv2. Refer to COPYING \[la]https://github.com/SqueakyFloors/ubertooth/blob/main/COPYING\[ra] for further details.
+.TP
+\fB\-c <2402\-2480>\fR
+Channel in MHz to use for continuous receive (suggested: 2408, 2418, 2423, 2469)
+.TP
+\fB\-l <1\-48>\fR
+Packet length to use\. The value must be a complete decimal integer from 1 through 48; invalid values fail before the Ubertooth is opened\.
+.TP
+\fB\-a <access_code>\fR
+Access code to use, given as 2, 4, 6 or 8 hex digits (1 to 4 whole bytes, default: 630f9ffe)
+.TP
+\fB\-U <index|serial>\fR
+select an Ubertooth by enumeration index or serial number; see ubertooth(7), SELECTING A DEVICE
+.SH "TRANSMIT POWER"
+Interference (\fB\-i\fR, \fB\-j\fR) transmits at the CC2400 power level set with \fBubertooth\-util \-a\fR and leaves it unchanged\. A board that has not been given a level jams at 7 (0 dBm, the maximum), the CC2400's reset value and the level jamming always used before\. Sniffing does not transmit and does not change the level\. These levels are at the CC2400 radio; the Ubertooth One's RF amplifier changes the actual output after that\.
+.SH "ARGUMENTS"
+\fBubertooth\-ego\fR takes options only\. A word that is not an option, including a bare \fB\-\fR, is refused before any device is opened and named: \fBerror: unexpected argument '<word>'\fR, with exit status 1\.
+.P
+\fB\-h\fR ends the command only once the whole command line has parsed, so a stray word or a bad option value is reported even alongside it\.
+.P
+An option value must be a whole value in its range, or it is refused the same way instead of being read as 0, for example \fBerror: channel must be 2402\-2480 MHz (got 2481)\fR\.
+.SH "SEE ALSO"
+ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how option values are written
+.SH "AUTHOR"
+This manual page was written by Mike Ryan\.
+.SH "COPYRIGHT"
+ubertooth\-ego(1) is Copyright (c) 2015 Mike Ryan\. This tool is released under the GPLv2\. Refer to COPYING \fIhttps://github\.com/SqueakyFloors/ubertooth/blob/main/COPYING\fR for further details\.

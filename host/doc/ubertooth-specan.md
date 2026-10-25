@@ -2,7 +2,7 @@
 
 ## SYNOPSIS
 
-ubertooth-specan [-l <freq>] [-u <freq>] [-g|G] [-d <filename>|-]
+    ubertooth-specan [-l <freq>] [-u <freq>] [-g|G] [-d <filename>|-]
 
 ## DESCRIPTION
 
@@ -28,7 +28,7 @@ Options:
  - `-G` :
    format output for 3D feedgnuplot
  - `-d <filename>` :
-   write the binary samples to <filename>; `-d -` writes them to standard
+   write the binary samples to `<filename>`; `-d -` writes them to standard
    output, which must not be a terminal. See ARGUMENTS
  - `-v` :
    print verbose output to stderr

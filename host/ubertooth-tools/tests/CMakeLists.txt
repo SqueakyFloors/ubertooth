@@ -428,3 +428,18 @@ add_test(
 		${CMAKE_CURRENT_SOURCE_DIR}/test_rx_clock_wrap.py
 		$<TARGET_FILE:ubertooth-rx>)
 set_tests_properties(rx-clock-wrap PROPERTIES TIMEOUT 30)
+
+# host/doc/man: a build must leave the committed man pages alone, and the
+# refresh-manpages target must rewrite them, keeping the .TH fields ronn
+# leaves empty by default. Configures the real host/doc project against a copy
+# of the source tree and builds three targets in it.
+add_test(
+	NAME manpages
+	COMMAND ${Python3_EXECUTABLE}
+		${CMAKE_CURRENT_SOURCE_DIR}/test_manpages.py
+		${CMAKE_COMMAND}
+		${CMAKE_CURRENT_SOURCE_DIR}/../..)
+# One ronn pass over eleven pages: about 5 s warm and 17 s cold here. Without
+# ronn the test skips in well under a second, and reports as skipped rather
+# than passed, so a green run cannot hide an absent check.
+set_tests_properties(manpages PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 77)
