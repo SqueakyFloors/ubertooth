@@ -4,11 +4,9 @@
 
 ### New features
 
-- **Script-visible change:** in `ubertooth-afh`, `-ducky`, `-dump`, `-ego` and
-  `-tx`, standard output now carries only what was asked for, so diagnostics,
-  progress and the usage text after a bad command line move to standard error,
-  `-h` exits 0, and a command line with nothing to do is refused with
-  `error: ...` and exit 1 instead of opening a board and exiting 0.
+- **Script-visible change:** `ubertooth-afh`, `-ducky`, `-dump`, `-ego` and
+  `-tx` keep only what was asked for on stdout, exit 0 for `-h`, and refuse a
+  command line with nothing to do instead of opening a board and exiting 0.
   [#323](https://github.com/SqueakyFloors/ubertooth/issues/323)
 - ubertooth-btle can stream PCAP data to stdout with `-q -`
   or `-c -`, safely separating diagnostics for Wireshark and other consumers.

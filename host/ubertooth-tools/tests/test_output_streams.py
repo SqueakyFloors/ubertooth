@@ -39,7 +39,8 @@ FOLLOWS_THE_RULE = {
 }
 
 # One option per tool that takes a required value, for the missing-value case.
-# A tool with no such option is left out of that check.
+# ubertooth-ducky is left out because test_ducky_options.py already covers its
+# missing -U value, in the middle of the rest of its selector parsing.
 OPTION_NEEDING_A_VALUE = {
     "ubertooth-afh": "l",
     "ubertooth-dump": "d",

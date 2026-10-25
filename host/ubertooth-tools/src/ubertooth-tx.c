@@ -137,9 +137,11 @@ int main(int argc, char* argv[])
 		return 1;
 
 	// set bt address
+	/* A libusb error code is not an exit status: the documented statuses
+	 * are 0 and 1. */
 	r = cmd_set_bdaddr(ut->devh, (((uint32_t)uap)<<24)|lap);
 	if (r < 0)
-		return r;
+		return 1;
 	/* The tool transmits; the syncword it derived is progress, not the
 	 * result the user asked for. */
 	fprintf(stderr, "Syncword: 0x%" PRIx64 "\n", btbb_gen_syncword(lap));
@@ -153,7 +155,7 @@ int main(int argc, char* argv[])
 	// tell ubertooth to send packets
 	r = cmd_tx_syms(ut->devh);
 	if (r < 0)
-		return r;
+		return 1;
 
 	// TODO - send symbols to the bulk endpoint
 

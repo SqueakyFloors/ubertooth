@@ -100,9 +100,10 @@ piconet`.
 
 ## DIAGNOSTICS
 
-Standard output carries only the detected channel maps. Errors, warnings and
-progress go to standard error, each error as one line starting `error: `, so a
-script reading the maps sees nothing else.
+Standard output carries the detected channel maps. Errors, warnings and the
+tool's own progress go to standard error, each error as one line starting
+`error: `. The channel-change lines that libubertooth prints alongside each map
+are still on standard output; see ubertooth(7), OUTPUT AND DIAGNOSTICS.
 
 A command line the tool will not take is reported as that one `error: ` line
 followed by the usage text, both on standard error. An option the tool does

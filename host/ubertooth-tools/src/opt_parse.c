@@ -199,9 +199,15 @@ void opt_report_bad_option(int opt, int argc, char *argv[])
 	 * second '-' and leaves the rest of the word unread, which is how the
 	 * whole word can be quoted back. No tool takes long options. */
 	if (optopt == '-' && optind < argc && argv[optind] != NULL &&
-	    strncmp(argv[optind], "--", 2) == 0 && argv[optind][2] != '\0') {
-		fprintf(stderr, "error: unrecognized option '%s': the tools take "
-		        "single-letter options\n", argv[optind]);
+	    argv[optind][0] == '-') {
+		if (strncmp(argv[optind], "--", 2) == 0 && argv[optind][2] != '\0')
+			fprintf(stderr, "error: unrecognized option '%s': the tools take "
+			        "single-letter options\n", argv[optind]);
+		else
+			/* A '-' inside a cluster, as in "-r-x": quoting "--" would name
+			 * an option the user never typed. */
+			fprintf(stderr, "error: unrecognized option '-' in '%s'\n",
+			        argv[optind]);
 		return;
 	}
 	if (optopt != 0 && isprint((unsigned char)optopt))
