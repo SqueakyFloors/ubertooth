@@ -305,10 +305,9 @@
   the part and the flash it has, while the board is still running its
   application; a part it cannot identify is reported as unchecked.
   [#281](https://github.com/SqueakyFloors/ubertooth/issues/281)
-- The firmware's generic receive mode (`UBERTOOTH_RX_GENERIC`) now picks
-  between its packet-mode and symbol-stream receives by testing GRMDM's
-  packet-mode bit instead of whether the register reads non-zero, so the
-  symbol stream is reachable, and it streams rather than returning at once.
+- The firmware's generic receive mode (`UBERTOOTH_RX_GENERIC`) picks between
+  its packet-mode and symbol-stream receives by GRMDM's packet-mode bit, so
+  the symbol stream is reachable at all, and it now streams.
   [#252](https://github.com/SqueakyFloors/ubertooth/issues/252)
 
 - `ubertooth-dfu` now performs bounded, device-specific DFU entry and

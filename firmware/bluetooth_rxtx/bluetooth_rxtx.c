@@ -1403,6 +1403,15 @@ void bt_stream_rx()
 	 * therefore ends this loop and goes through the dispatch, instead of
 	 * being absorbed here and streaming the running mode's symbols under the
 	 * new mode's name.
+	 *
+	 * That is the cross-mode case only. Re-sending the mode that is already
+	 * running is absorbed here as it is for the other three, so a host that
+	 * reconfigures GRMDM and asks for MODE_RX_GENERIC again keeps the receive
+	 * it has: the choice is made on the way in, and getting back to it means
+	 * leaving the mode first. Equally, asking for one of the three above
+	 * while this one streams keeps the loop running under `mode ==
+	 * MODE_RX_GENERIC`, which is the same absorption they have always had
+	 * among themselves.
 	 */
 	while ( requested_mode == MODE_RX_SYMBOLS
 	     || requested_mode == MODE_BT_FOLLOW

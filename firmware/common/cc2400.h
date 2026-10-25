@@ -100,9 +100,12 @@ static inline uint16_t frend_keep_pa_level(uint16_t frend)
 
 /* GRMDM: generic radio modem control */
 /* PACKET_MODE (bit 10): the modem frames packets itself -- preamble, sync
- * word and the FIFO -- instead of handing over a raw symbol stream. The
- * values the firmware writes carry it or not: 0x0ce1 and 0x0f61 are packet
- * mode, 0x0101 ("un-buffered mode, GFSK") is not. */
+ * word and the FIFO -- instead of handing over a raw symbol stream. Bit 11
+ * is buffering and is a separate choice. The bit map is written out beside
+ * the cc2400_set(GRMDM, ...) calls in cc2400_rx() and le_transmit() in
+ * firmware/bluetooth_rxtx/bluetooth_rxtx.c. The values this firmware writes
+ * carry the bit or not: 0x0c01, 0x0ce1 and 0x0f61 are packet mode, 0x0101
+ * ("un-buffered mode, GFSK") is not. */
 #define GRMDM_PACKET_MODE 0x0400
 
 /*

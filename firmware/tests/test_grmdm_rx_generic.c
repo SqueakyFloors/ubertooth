@@ -25,14 +25,16 @@
 #include "source_scan.h"
 
 /* The values the firmware writes to GRMDM, from the cc2400_set(GRMDM, ...)
- * calls in firmware/bluetooth_rxtx: the comment beside each says whether it
- * is packet mode, and bit 10 agrees. */
-#define GRMDM_UNBUFFERED_GFSK 0x0101  /* un-buffered mode, GFSK */
+ * calls in firmware/bluetooth_rxtx. Whether each is packet mode is read from
+ * bit 10 and the bit maps in cc2400_rx() and le_transmit(), not from the
+ * one-line comment next to each call: those name the buffering and the
+ * modulation and mostly say nothing about packet mode. */
+#define GRMDM_UNBUFFERED_GFSK 0x0101  /* un-buffered, GFSK, not packet mode */
 #define GRMDM_BUFFERED_PACKET 0x0ce1  /* buffered, packet mode */
 #define GRMDM_TX_GENERIC      0x0f61  /* buffered, packet mode */
 #define GRMDM_RANGETEST       0x0df1  /* the datasheet default value */
-/* Buffering (bit 11) and packet mode (bit 10) are separate: the eGo mode is
- * un-buffered and in packet mode. */
+/* Buffering (bit 11) and packet mode (bit 10) are separate choices: the eGo
+ * mode is un-buffered and in packet mode. */
 #define GRMDM_EGO_2FSK        0x04c0
 
 MU_TEST(test_the_packet_mode_bit_is_bit_ten)
@@ -75,7 +77,15 @@ struct scan {
 
 /* Does this line test something with `&&` against a hexadecimal literal?
  * That is the bug: `x && 0x0400` compiles, warns about nothing useful, and
- * means "x is non-zero". */
+ * means "x is non-zero".
+ *
+ * Only a literal to the right of the operator counts. A hexadecimal number
+ * in front of `&&` is nearly always the right-hand side of a comparison
+ * (`llid == 0x03 &&`), and this file has two of those, so matching that side
+ * as well would fail on correct code. The same goes for the forms this cannot
+ * see at all: `0x0400 && x` with the mask written first, or a named mask
+ * (`&& GRMDM_PACKET_MODE`). This is a guard against the shape that was here,
+ * not a proof that no truth test can come back. */
 static int tests_a_mask_with_and_and(const char *line)
 {
 	const char *p;
@@ -139,7 +149,6 @@ MU_TEST(test_rx_generic_chooses_through_the_bit_test)
 {
 	char msg[512];
 
-	scan_source(&s);
 	snprintf(msg, sizeof(msg), "cannot open %s to scan", path);
 	mu_assert(s.opened, msg);
 
@@ -173,6 +182,8 @@ MU_TEST(test_no_mask_is_tested_with_a_logical_and)
 int main(void)
 {
 	printf("GRMDM generic receive tests\n");
+	/* Scanned once, so the two tests that read it can run in any order. */
+	scan_source(&s);
 	MU_RUN(test_the_packet_mode_bit_is_bit_ten);
 	MU_RUN(test_packet_mode_follows_the_bit_and_not_the_register);
 	MU_RUN(test_rx_generic_chooses_through_the_bit_test);
