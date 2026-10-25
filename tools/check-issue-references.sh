@@ -12,20 +12,35 @@
 #
 #     tools/check-issue-references.sh
 #
-# It prints every match as file:line: text and exits 1, or says the tree is
-# clean and exits 0. CI runs this same script, so what fails there fails here.
+# It reports every match as file:line: text on standard error and exits 1, or
+# says on standard output that the tree is clean and exits 0. CI runs this same
+# script, so what fails there fails here.
+#
+# What it does not catch, so the next reader knows: a reference written in
+# words ("issue 246", "GH-246", "# 246"), and a file that is not tracked yet,
+# which git ls-files cannot see. It is a net for the common spelling, not a
+# proof.
 
 set -u
 
-cd "$(git rev-parse --show-toplevel)" || exit 1
+top=$(git rev-parse --show-toplevel) || exit 1
+if [ -z "$top" ]; then
+    echo "error: not inside a git checkout" >&2
+    exit 1
+fi
+cd "$top" || exit 1
 
 # In scope: the files the rule names. An inclusion list rather than an
 # exclusion one, so a new kind of documentation cannot quietly join the check
 # and a new source file cannot quietly leave it. The cost of that choice is
-# that a kind of source file nobody thought of is not scanned, so the list
+# that a kind of source file nobody thought of goes unscanned, so the list
 # covers the spellings a C, C++, Python, shell, CMake, make or packaging file
-# can arrive under, and the *.in templates those are generated from, not only
-# the ones the tree happens to use today.
+# can arrive under, and the *.in templates such files are generated from, not
+# only the ones the tree happens to use today.
+#
+# A pathspec with no wildcard in it is a path, not a name: 'Makefile' matches a
+# Makefile at the root and nowhere else. Hence the '*/' forms below, which is
+# how the per-directory CMakeLists.txt and Makefile files are reached.
 #
 # Assembly (*.S, *.s) is left out, because an immediate operand is spelt the
 # same way as a reference and every line of one would need excusing. Inline
@@ -35,13 +50,19 @@ cd "$(git rev-parse --show-toplevel)" || exit 1
 files=$(git ls-files -- \
             '*.c' '*.h' '*.cc' '*.cpp' '*.cxx' '*.hh' '*.hpp' \
             '*.py' '*.sh' '*.rb' '*.bat' \
-            'CMakeLists.txt' '*.cmake' 'Makefile' '*.mk' '*.ld' '*.in' \
+            'CMakeLists.txt' '*/CMakeLists.txt' '*.cmake' \
+            'Makefile' '*/Makefile' '*.mk' '*.ld' '*.in' \
             '.github/workflows/*.yml' '.github/workflows/*.yaml' \
             'Dockerfile' 'Jenkinsfile' |
         grep -v -E '^(host/cmake/modules/|firmware/common/lpcusb/)')
 
-if [ -z "$files" ]; then
-    echo "check-issue-references: nothing in scope, which cannot be right" >&2
+# A floor, so a pathspec that stops matching cannot turn this check into a
+# scan of nothing that passes. The CI job plants a reference in a build file
+# as well, which catches the same mistake from the other side.
+count=$(printf '%s\n' "$files" | grep -c .)
+if [ "$count" -lt 250 ]; then
+    echo "error: only $count files in scope, which cannot be right:" >&2
+    echo "       a pathspec in this script has stopped matching" >&2
     exit 1
 fi
 
@@ -58,19 +79,16 @@ allowlist=$(mktemp) || exit 1
 matches=$(mktemp) || exit 1
 reported=$(mktemp) || exit 1
 trap 'rm -f "$allowlist" "$matches" "$reported"' EXIT HUP INT TERM
-cat > "$allowlist" <<'EOF'
-# ARM immediates in the reset-vector assembly, which is written as quoted asm
-# lines inside the C++ file.
-^firmware/bootloader/bootloader\.cpp:[0-9]+:[[:space:]]*"
+grep -v '^#' > "$allowlist" <<'EOF'
+# ARM immediates in the reset-vector assembly, matched on the shape of an
+# operand rather than on the quoted line, so prose smuggled into a string in
+# that file is still caught.
+^firmware/bootloader/bootloader\.cpp:[0-9]+:.*, #[0-9]+
 # The libusb descriptor message, which this test asserts on word for word.
 ^host/ubertooth-tools/tests/test_device_select\.c:[0-9]+:.*dev #1!
 # The allowlist entries above, as they appear in this file.
 ^tools/check-issue-references\.sh:[0-9]+:\^
 EOF
-grep -v '^#' "$allowlist" > "$allowlist.patterns" && mv "$allowlist.patterns" "$allowlist"
-
-matches=$(mktemp) || exit 1
-reported=$(mktemp) || exit 1
 
 # Both spellings the rule reserves for commit messages, pull request
 # descriptions and CHANGELOG.md: the bare number, and the full URL that is the
@@ -78,21 +96,29 @@ reported=$(mktemp) || exit 1
 # a hat, and nothing in the tree uses one, so there is no cost to refusing it.
 reference='#[0-9]+|github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(issues|pull)/[0-9]+'
 
+# grep's own errors are kept: a tracked file missing from the worktree should
+# be heard about, not scanned silently as nothing.
 printf '%s\n' "$files" | tr '\n' '\0' |
-    xargs -0 grep -n -H -E -- "$reference" > "$matches" 2>/dev/null
+    xargs -0 grep -n -H -E -- "$reference" > "$matches"
+status=$?
+if [ $status -gt 1 ]; then
+    echo "error: the scan itself failed (grep exited $status)" >&2
+    exit 1
+fi
 
 grep -v -E -f "$allowlist" "$matches" > "$reported"
 
 if [ ! -s "$reported" ]; then
-    echo "check-issue-references: no issue numbers in source, tests or build files."
+    echo "check-issue-references: $count files scanned, no issue references."
     exit 0
 fi
 
-sed 's/^\([^:]*:[0-9]*\):/\1: /' "$reported"
-cat >&2 <<'EOF'
+{
+    echo "error: issue or pull request numbers in source, tests or build files:"
+    sed 's/^\([^:]*:[0-9]*\):/  \1: /' "$reported"
+    cat <<'EOF'
 
-The lines above put an issue or pull request number in a source, test or build
-file, which .kiro/steering/branch-and-review.md does not allow: this fork and
+.kiro/steering/branch-and-review.md does not allow them there: this fork and
 upstream number issues independently, so a bare number does not say which
 tracker it belongs to.
 
@@ -100,7 +126,8 @@ Say in the comment why the code is the way it is, and put the link in the
 commit message, the pull request description or CHANGELOG.md, as a full URL or
 owner/repo#N.
 
-If a match is not an issue reference, add it to the allowlist in
+If a match is not a reference, add it to the allowlist in
 tools/check-issue-references.sh, with the reason.
 EOF
+} >&2
 exit 1
