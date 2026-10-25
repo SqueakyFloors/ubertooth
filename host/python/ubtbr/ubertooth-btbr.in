@@ -11,6 +11,7 @@ _module_dir = os.path.normpath(os.path.join(
 if os.path.isdir(_module_dir) and _module_dir not in sys.path:
 	sys.path.insert(0, _module_dir)
 
+import usb1
 from cmd import Cmd
 from ubtbr.btctl import *
 from getopt import getopt
@@ -48,6 +49,8 @@ class BTCtlL2Ping(BTCtlPagingCmd):
 class BTCtlPrompt(Cmd):
 	prompt = "bt> "
 	intro = "Type ? to list commands"
+	# Long enough for a command to run its own stop grace out.
+	JOIN_TIMEOUT = 2
 
 	def __init__(self, bt):
 		self._bt = bt
@@ -82,7 +85,14 @@ class BTCtlPrompt(Cmd):
 	def stop_cmd(self):
 		if self._cmd is not None:
 			self._cmd.stop()
-			self._cmd.join()
+			self._cmd.join(self.JOIN_TIMEOUT)
+			if self._cmd.is_alive():
+				# Keep the handle: start_cmd then refuses to start another
+				# rather than tripping over the one still holding the
+				# message handler. The prompt itself stays usable, and
+				# exiting is never blocked by it.
+				log.error("%s did not stop"%self._cmd)
+				return
 			self._cmd = None
 
 	def cmdloop(self, intro=None):
@@ -92,11 +102,17 @@ class BTCtlPrompt(Cmd):
 				super().cmdloop(intro="")
 				break
 			except KeyboardInterrupt:
-				self.do_idle()
+				try:
+					self.do_idle()
+				except KeyboardInterrupt:
+					# A second Ctrl-C while the command is being stopped
+					# returns to the prompt instead of ending the tool
+					# somewhere in the middle of the stop.
+					pass
 
 	def default(self, inp):
 		if inp in ('x','q'):
-			return self.do_exit()
+			return self.do_exit(inp)
 
 	def do_exit(self, inp):
 		self._bt.close()
@@ -190,19 +206,25 @@ def main():
 		usage()
 
 	bt = BTCtl.find()
-	bt.connect()
+	try:
+		bt.connect()
 
-	for o, v in opt:
-		if o == '-f':
-			bt.send_set_freq_off_cmd(int(v))
-		elif o == '-b':
-			bt.send_set_max_ac_errors_cmd(int(v))
+		for o, v in opt:
+			if o == '-f':
+				bt.send_set_freq_off_cmd(int(v))
+			elif o == '-b':
+				bt.send_set_max_ac_errors_cmd(int(v))
 
-	bt.send_set_bdaddr_cmd(0x112233445566)
-	eir = BTCtlEIR([
-		(BTCtlEIR.EIR_COMPLETE_LOCAL_NAME, b"Ubertooth"),
-	])
-	bt.send_set_eir_cmd(eir.pack())
+		bt.send_set_bdaddr_cmd(0x112233445566)
+		eir = BTCtlEIR([
+			(BTCtlEIR.EIR_COMPLETE_LOCAL_NAME, b"Ubertooth"),
+		])
+		bt.send_set_eir_cmd(eir.pack())
+	except usb1.USBError as e:
+		# A board running firmware other than ubtbr takes none of this, and
+		# used to leave the tool waiting on the write for good.
+		eprint("error: could not set up the Ubertooth: %s\n"%e)
+		sys.exit(1)
 	sleep(0.02)
 	prompt = BTCtlPrompt(bt)
 	prompt.cmdloop()

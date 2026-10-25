@@ -2,9 +2,9 @@ import usb1
 import sys
 from binascii import hexlify, unhexlify
 from threading import Thread, Event, Lock
-from queue import Queue
+from queue import Queue, Empty
 from struct import pack, unpack
-from time import sleep
+from time import monotonic, sleep
 from ubtbr.lmp import *
 import logging
 log = logging.getLogger("btctl")
@@ -423,12 +423,23 @@ class BTCtlRxPkt:
 		return s
 
 class BTCtlCmd(Thread):
+	# A stop asks the device to go idle; the state response that follows is
+	# what normally ends the command, with its closing log line. Wait that
+	# long for it, then end regardless: a device that answers nothing must
+	# not keep the command, and with it the whole tool, alive.
+	STOP_GRACE = 0.5
+	# How often the loop looks at a pending stop while waiting for a message.
+	POLL_INTERVAL = 0.05
+
 	def __init__(self, bt):
-		super().__init__()
+		# A daemon thread, so an interpreter shutting down is never held up
+		# by a command waiting on a device that stopped answering.
+		super().__init__(daemon=True)
 		self._bt = bt
 		self._msg_q = Queue()
 		self._ready = False
 		self._done = False
+		self._stopping = Event()
 		self._bt.register_msg_handler(self._put_msg)
 
 	def _start(self):
@@ -438,10 +449,12 @@ class BTCtlCmd(Thread):
 		return True
 
 	def stop(self):
+		# Set first: a request that cannot be sent must still end the command.
+		self._stopping.set()
 		self._bt.send_idle_cmd()
 
 	def _handle_state(self, state, reason):
-		print_state(state)
+		print_state(state, reason)
 
 	def _handle_fhs(self, pkt):
 		log.info("RX FHS: %s"%(pkt.bt_data))
@@ -471,22 +484,42 @@ class BTCtlCmd(Thread):
 	def _put_msg(self, t, data):
 		self._msg_q.put((t,data))
 
-	def run(self):
-		self._start()
+	def _run_loop(self):
+		# Set once a stop has been asked for, to the time by which the device
+		# must have answered it.
+		deadline = None
 		while not self._done:
-			t, msg = self._msg_q.get()
+			if self._stopping.is_set():
+				if deadline is None:
+					deadline = monotonic() + self.STOP_GRACE
+				elif monotonic() >= deadline:
+					log.warning("%s: no answer to the idle request, "
+						"stopping anyway"%self)
+					return
+			try:
+				t, msg = self._msg_q.get(timeout=self.POLL_INTERVAL)
+			except Empty:
+				continue
 			if t == BTCTL_STATE_RESP:
 				self._handle_state(*msg)
 			elif t == BTCTL_RX_PKT:
 				if not self._ready:
-					log.warn ("Not ready for msg %d %s"%(t,msg))
+					log.warning("Not ready for msg %d %s"%(t,msg))
 				else:
 					self._handle_pkt(msg)
 			else:
 				log.warning("nyi msg %d %s"%(t,msg))
-		log.debug("%s done"%self)
-		self._bt.unregister_msg_handler(self._put_msg)
-		return
+
+	def run(self):
+		try:
+			self._start()
+			self._run_loop()
+		finally:
+			# Whatever ended the loop, the command is over: say so before
+			# releasing the handler, so the next command can be started.
+			self._done = True
+			log.debug("%s done"%self)
+			self._bt.unregister_msg_handler(self._put_msg)
 
 	def done(self):
 		return self._done
@@ -495,8 +528,12 @@ class BTCtlCmd(Thread):
 		return self.__class__.__name__
 
 class BTCtlSuperCmd(Thread):
+	# Long enough for the command it drives to run its own stop grace out.
+	JOIN_TIMEOUT = 2
+
 	def __init__(self, bt):
-		super().__init__()
+		# Daemon for the same reason as BTCtlCmd.
+		super().__init__(daemon=True)
 		self._bt = bt
 		self._stopped = Event()
 		self._cmd = None
@@ -514,14 +551,21 @@ class BTCtlSuperCmd(Thread):
 	def _stop_cmd(self):
 		if self._cmd is not None:
 			self._cmd.stop()
-			self._cmd.join()
+			self._cmd.join(self.JOIN_TIMEOUT)
+			if self._cmd.is_alive():
+				log.error("%s did not stop"%self._cmd)
 			self._cmd = None
 
 	def stop(self):
 		self._stopped.set()
 
 	def stopped(self):
-		return self._stopped.isSet()
+		return self._stopped.is_set()
+
+	def _wait(self, timeout):
+		# Waiting on the stop event rather than sleeping, so a stop is acted
+		# on at once instead of at the end of the current step.
+		self._stopped.wait(timeout)
 
 	def run(self):
 		while not self.stopped():
@@ -649,15 +693,21 @@ class BTCtlPagingCmd(BTCtlCmd):
 		self._lmp.receive(pkt.clkn, acl.data)
 
 class BTCtlDiscoverableCmd(BTCtlSuperCmd):
+	# How long each of the two scans runs before the other takes its turn.
+	SCAN_TIME = 2
+
 	def run_once(self):
-		self._cmd = self._start_cmd(BTCtlInquiryScanCmd)
-		sleep(2)
+		# _start_cmd keeps the handle itself, and returns nothing when it
+		# refuses to start one, so assigning its result here would drop it.
+		self._start_cmd(BTCtlInquiryScanCmd)
+		self._wait(self.SCAN_TIME)
 		self._stop_cmd()
-		self._cmd = self._start_cmd(BTCtlPageScanCmd)
-		sleep(2)
+		self._start_cmd(BTCtlPageScanCmd)
+		self._wait(self.SCAN_TIME)
 		# If a connection is running, wait for it to complete
-		while not self._cmd.stop_allowed() and not self.stopped():
-			sleep(0.5)
+		while (self._cmd is not None and not self._cmd.stop_allowed()
+				and not self.stopped()):
+			self._wait(0.5)
 		self._stop_cmd()
 
 class BTCtlMonitorCmd(BTCtlCmd):
@@ -729,9 +779,21 @@ class BTCtlMonitorCmd(BTCtlCmd):
 		role = "slave" if (pkt.clkn & 2) else "master"
 		log.info("RX L2CAP (%6s:%7x): %s"%(role,pkt.clkn,pkt))
 
+class BTCtlFramingError(Exception):
+	"""A USB packet that does not fit the framing the device sends."""
+
 class BTCtl:
 	DATA_IN = 0x82
 	DATA_OUT = 0x05
+	# The receive loop looks at the stop flag every bulk read timeout, so a
+	# join this long only runs out when libusb itself is stuck.
+	JOIN_TIMEOUT = 2
+	# Milliseconds a request may take to reach the device. Writes were given
+	# no timeout at all, so a device that never drains the endpoint, which is
+	# what firmware other than ubtbr looks like, blocked the sender for good
+	# inside a libusb call no keyboard interrupt can reach. Long enough that
+	# nothing working trips it.
+	WRITE_TIMEOUT = 2000
 	def __init__(self, usb):
 		self._usb = usb
 		self._rx_thread = None
@@ -739,6 +801,7 @@ class BTCtl:
 		self._con_lock = Lock()
 		self._rx_stopped = Event()
 		self._rx_stopped.clear()
+		self._rx_error = None
 		self._msg_handler = None
 
 	@staticmethod
@@ -786,40 +849,68 @@ class BTCtl:
 			else:
 				self._handle_default(t, msg)
 
-	def _rx_thread_main(self):
+	def _rx_loop(self):
 		msg = None
 		msg_size = 0
-		log.info("Rx thread started")
-		while not self._rx_stopped.isSet():
+		while not self._rx_stopped.is_set():
 			try:
 				data = self._usb.bulkRead(self.DATA_IN, 64,100)
 			except usb1.USBErrorTimeout:
 				continue
 			t = data[:1]
-			#log.info ("got data (l:%d, t:%s): %s"%(len(data),repr(t),repr(data)))
 			if t == b'P':
 				self._print_debug(data[1:].strip(b"\x00"))
 			else:
 				if  msg is None:
-					assert(t == b'S')
+					if t != b'S' or len(data) < 4:
+						raise BTCtlFramingError(
+							"expected the start of a message, got %r"
+							%data[:4])
 					msg_size, = unpack("<H",data[2:4])
 					msg = data[4:]
-					assert (len(data) == min(64, 4+msg_size))
+					if len(data) != min(64, 4+msg_size):
+						raise BTCtlFramingError(
+							"message of %d bytes started by a packet of %d"
+							%(msg_size, len(data)))
 				else:
-					assert(t == b'C')
-					assert(len(data) == min(64, 1+msg_size-len(msg)))
+					if t != b'C':
+						raise BTCtlFramingError(
+							"expected the rest of a message, got %r"
+							%data[:4])
+					if len(data) != min(64, 1+msg_size-len(msg)):
+						raise BTCtlFramingError(
+							"%d bytes left of a message, got a packet of %d"
+							%(msg_size-len(msg), len(data)))
 					msg += data[1:]
 				if len(msg) == msg_size:
 					self._handle_msg(msg)
 					msg = None
-		log.debug("Rx thread stopped")
+
+	def _rx_thread_main(self):
+		log.info("Rx thread started")
+		try:
+			self._rx_loop()
+			log.debug("Rx thread stopped")
+		except Exception as e:
+			# Ending silently would leave the tool waiting for messages that
+			# can no longer arrive, so keep the reason for close() to report.
+			self._rx_error = e
+			log.error("Rx thread stopped: %s: %s"%(type(e).__name__, e))
+		finally:
+			# Tells a reader of the flag that nothing is reading the device
+			# any more, however this thread ended.
+			self._rx_stopped.set()
 
 	def connect(self):
 		if self.connected():
 			log.warning("Already connected")
 			return
 		self._usb.claimInterface(0)
-		self._rx_thread = Thread(target=self._rx_thread_main)
+		self._rx_stopped.clear()
+		self._rx_error = None
+		# Daemon, so a receive loop stuck in libusb cannot hold up an
+		# interpreter that is shutting down.
+		self._rx_thread = Thread(target=self._rx_thread_main, daemon=True)
 		self._rx_thread.start()
 		log.info("USB connected")
 		self._con = True
@@ -829,29 +920,44 @@ class BTCtl:
 	def connected(self):
 		return self._con
 
+	def rx_error(self):
+		"""What ended the receive thread, when something other than a stop did."""
+		return self._rx_error
+
 	def close(self):
 		if not self.connected():
 			log.warning("Not connected")
 			return
-		self.send_idle_cmd()
-		self._rx_stopped.set()
-		self._rx_thread.join()
-		self._usb.close()
 		self._con = False
+		try:
+			self.send_idle_cmd()
+		except usb1.USBError as e:
+			log.warning("Could not ask the device to go idle: %s"%e)
+		if self._rx_error is not None:
+			log.warning("Receive thread had already stopped: %s"%self._rx_error)
+		self._rx_stopped.set()
+		self._rx_thread.join(self.JOIN_TIMEOUT)
+		if self._rx_thread.is_alive():
+			# Closing the handle under a read still running in libusb is how
+			# a clean exit turns into a crash, so leave it to the exit.
+			log.error("Receive thread did not stop; leaving the device open")
+			return
+		self._usb.close()
 
 	def _send_usb_bulk(self, bulk):
 		assert(len(bulk)<=64)
-		self._usb.bulkWrite(self.DATA_OUT, bulk)
+		self._usb.bulkWrite(self.DATA_OUT, bulk, self.WRITE_TIMEOUT)
 
 	def _send_usb(self, data):
-		self._con_lock.acquire()
-		usb_hdr = b"S\x00"+pack("<H", len(data))
-		chunk,data = data[:60],data[60:]
-		self._send_usb_bulk(usb_hdr+chunk)
-		while data:
-			chunk,data = data[:63],data[63:]
-			self._send_usb_bulk(b'C'+chunk)
-		self._con_lock.release()
+		# Held as a context manager: a write that fails half way through a
+		# message used to keep the lock, so the next send never returned.
+		with self._con_lock:
+			usb_hdr = b"S\x00"+pack("<H", len(data))
+			chunk,data = data[:60],data[60:]
+			self._send_usb_bulk(usb_hdr+chunk)
+			while data:
+				chunk,data = data[:63],data[63:]
+				self._send_usb_bulk(b'C'+chunk)
 
 	def _send_cmd(self, t, data=b''):
 		hdr = pack("<I", t)
