@@ -286,8 +286,9 @@ followed by the usage text, both on standard error. An option the tool does
 not know reads `error: unrecognized option '-Z'`; one whose value is missing
 reads `error: option '-A' requires a value`.
 
-`-h` is what the user asked for, so the usage text goes to standard output and
-nothing goes to standard error.
+`-h` is what the user asked for, so the usage text goes to standard output.
+Nothing else goes to standard error either, unless the rest of the command
+line produced a warning before `-h` ended the command.
 
 ## EXIT STATUS
 

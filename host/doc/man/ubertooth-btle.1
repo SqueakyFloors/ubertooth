@@ -197,7 +197,7 @@ Errors, warnings and progress go to standard error, each error as one line start
 .P
 A command line the tool will not take is reported as that one \fBerror:\fR line followed by the usage text, both on standard error\. An option the tool does not know reads \fBerror: unrecognized option '\-Z'\fR; one whose value is missing reads \fBerror: option '\-A' requires a value\fR\.
 .P
-\fB\-h\fR is what the user asked for, so the usage text goes to standard output and nothing goes to standard error\.
+\fB\-h\fR is what the user asked for, so the usage text goes to standard output\. Nothing else goes to standard error either, unless the rest of the command line produced a warning before \fB\-h\fR ended the command\.
 .SH "EXIT STATUS"
 0 when the command did what was asked, including \fB\-h\fR, and after a capture is interrupted (Ctrl\-C) having polled cleanly to that point\.
 .P

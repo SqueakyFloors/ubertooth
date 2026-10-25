@@ -44,6 +44,9 @@ static struct {
 	/* Returned by the requests that start a mode: a board that refuses one
 	 * must not be followed by a run that reports success. */
 	int mode_start_rc;
+	int channel_rc;      /* returned by cmd_set_channel() */
+	int modulation_rc;   /* returned by cmd_set_modulation() */
+	int adv_data_rc;     /* returned by cmd_le_set_adv_data() */
 	u16 last_channel;
 	u32 access_address;
 	int aa_reads;
@@ -220,14 +223,14 @@ int cmd_set_channel(struct libusb_device_handle *devh, u16 channel)
 {
 	(void)devh;
 	fake.last_channel = channel;
-	return 0;
+	return fake.channel_rc;
 }
 
 int cmd_set_modulation(struct libusb_device_handle *devh, u16 mod)
 {
 	(void)devh;
 	(void)mod;
-	return 0;
+	return fake.modulation_rc;
 }
 
 int cmd_set_jam_mode(struct libusb_device_handle *devh, int mode)
@@ -271,7 +274,7 @@ int cmd_le_set_adv_data(struct libusb_device_handle *devh, uint8_t *data,
 	(void)devh;
 	(void)data;
 	(void)data_len;
-	return 0;
+	return fake.adv_data_rc;
 }
 
 void fifo_push(fifo_t *fifo, const usb_pkt_rx *packet)
@@ -785,6 +788,41 @@ MU_TEST(a_mode_the_board_refuses_stops_the_run)
 	          r.err);
 	mu_assert(r.out[0] == '\0', r.out);
 
+	/* the other requests each mode sends: the modulation and the channel
+	 * for a sniffing mode, the channel and the advertising data for the
+	 * faux slave mode */
+	reset_fake();
+	fake.modulation_rc = -1;
+	r = RUN("-f");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, fake.sniffing_calls); /* the mode was not started */
+	mu_assert_int_eq(1, fake.stops);
+	mu_assert(strcmp(r.err, "error: modulation set failed\n") == 0, r.err);
+
+	reset_fake();
+	fake.channel_rc = -1;
+	r = RUN("-f");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, fake.sniffing_calls);
+	mu_assert(strcmp(r.err, "error: could not start follow mode\n") == 0,
+	          r.err);
+
+	reset_fake();
+	fake.channel_rc = -1;
+	r = RUN("-s22:44:66:88:aa:cc");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, fake.slave_calls);
+	mu_assert(strcmp(r.err, "error: could not start faux slave mode\n") == 0,
+	          r.err);
+
+	reset_fake();
+	fake.adv_data_rc = -1;
+	r = RUN("-s22:44:66:88:aa:cc");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, fake.slave_calls);
+	mu_assert(strcmp(r.err, "error: could not start faux slave mode\n") == 0,
+	          r.err);
+
 	/* the -A channel index reaches the board in both modes */
 	reset_fake();
 	r = RUN("-A39", "-s22:44:66:88:aa:cc");
@@ -917,6 +955,16 @@ MU_TEST(a_bad_command_line_is_reported_on_stderr)
 	mu_assert(r.out[0] == '\0', r.out);
 	mu_assert(strstr(r.err, "error: MAC mask must be 0-48 (got 49)\n")
 	          == r.err, r.err);
+
+	/* a masked address is quoted whole, mask included, even though the
+	 * parser splits it in place */
+	reset_fake();
+	r = RUN("-t", "22:44:66:88:aa:zz/24");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strstr(r.err, "error: MAC address must be hex digits and"
+	                 " colons (got 22:44:66:88:aa:zz/24)\n") == r.err,
+	          r.err);
 
 	/* a second capture file is a warning, not an error: the first one wins
 	 * and the run carries on */

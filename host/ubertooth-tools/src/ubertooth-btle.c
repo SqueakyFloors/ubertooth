@@ -521,9 +521,11 @@ int main(int argc, char *argv[])
 			return 1;
 		}
 		/* A mode the board would not enter must not be followed by a
-		 * capture loop that reports a clean run: each request is
-		 * checked, and the board is stopped before giving up because
-		 * one of them may have left it part-way into the mode. */
+		 * capture loop that reports a clean run, so each request below
+		 * is checked. Each failure stops the board first: the mode
+		 * request may have reached it even though the reply did not
+		 * come back, and a board left part-way into a low-energy mode
+		 * is the state it stops answering control requests in. */
 		if (cmd_set_modulation(ut->devh, MOD_BT_LOW_ENERGY) < 0) {
 			fprintf(stderr, "error: modulation set failed\n");
 			ubertooth_stop(ut);
@@ -622,6 +624,10 @@ int main(int argc, char *argv[])
 		/* flags: LE Limited Discovery */
 		uint8_t adv_data[] = { 0x02, 0x01, 0x05 };
 
+		/* No ubertooth_stop() on the way out, unlike the sniffing
+		 * block: only the last of these three starts a mode, so a
+		 * failure leaves the board idle with a channel set, and the
+		 * success path deliberately leaves it advertising. */
 		if (cmd_set_channel(ut->devh, adv_channel(do_adv_index)) < 0 ||
 		    cmd_le_set_adv_data(ut->devh, adv_data,
 		                        sizeof(adv_data)) < 0 ||

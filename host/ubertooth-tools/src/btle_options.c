@@ -9,11 +9,16 @@
 
 int convert_mac_address(char *text, uint8_t *address, uint8_t *mask_out)
 {
+	/* The word as the user wrote it, for the diagnostics: splitting the
+	 * mask off below writes into text, which would otherwise make an
+	 * error quote only the part before the '/'. */
+	char given[80];
 	char *mask_text;
 	int mask = MAC_MASK_MAX;
 
 	if (text == NULL || address == NULL || mask_out == NULL)
 		return 0;
+	snprintf(given, sizeof(given), "%s", text);
 	if (strcmp(text, "none") == 0) {
 		memset(address, 0, 6);
 		*mask_out = 0;
@@ -31,16 +36,14 @@ int convert_mac_address(char *text, uint8_t *address, uint8_t *mask_out)
 		}
 	}
 
-	/* The mask has been split off by now, so these quote the address part
-	 * of what the user wrote rather than the whole word. */
 	if (strlen(text) != 6 * 2 + 5) {
 		fprintf(stderr, "error: MAC address must be"
-		        " xx:xx:xx:xx:xx:xx (got %s)\n", text);
+		        " xx:xx:xx:xx:xx:xx (got %s)\n", given);
 		return 0;
 	}
 	if (opt_parse_bd_addr(text, address) < 0) {
 		fprintf(stderr, "error: MAC address must be hex digits and"
-		        " colons (got %s)\n", text);
+		        " colons (got %s)\n", given);
 		return 0;
 	}
 
