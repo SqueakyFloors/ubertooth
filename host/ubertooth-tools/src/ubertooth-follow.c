@@ -423,6 +423,10 @@ int main(int argc, char *argv[])
 
 	r = ubertooth_bulk_thread_start();
 	if (r < 0) {
+		/* The receive transfer is in flight and the board is about to be
+		 * left in its mode: give both back. Not follow_cleanup(), which
+		 * would join a thread that was never created. */
+		ubertooth_stop(ut);
 		follow_disconnect(sock, handle, cc);
 		return r;
 	}

@@ -48,7 +48,13 @@ enum board_ids {
  * result of libusb_cancel_transfer() cannot stand in for this: it refuses a
  * transfer whose cancellation is already in progress, and one whose device
  * has gone away, and both still have a callback to come.
- * RX_XFER_OURS is zero so a zeroed handle starts out owning nothing. */
+ * RX_XFER_OURS is zero so a zeroed handle starts out owning nothing.
+ *
+ * The poll thread writes this from the transfer's callback while the receive
+ * loop reads it, with no lock, as the code already does for rx_xfer itself.
+ * Every interleaving either leaves a transfer libusb holds alone or finds
+ * rx_xfer already cleared, so none of them frees one; giving the transfer a
+ * lock of its own is a change of its own. */
 enum rx_xfer_state {
 	RX_XFER_OURS = 0,   /* no transfer, or one libusb is not holding */
 	RX_XFER_IN_FLIGHT,  /* submitted: libusb owns it */

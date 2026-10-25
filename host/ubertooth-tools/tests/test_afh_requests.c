@@ -93,6 +93,8 @@ static struct {
 	int packet_pending;             /* fifo_empty() reports a packet waiting */
 	int poll_thread_idle;           /* completions are delivered only to the
 	                                 * thread that asks for them */
+	int closes;                     /* libusb_close() calls */
+	int exits;                      /* libusb_exit() calls */
 	pthread_t main_thread;
 } fake;
 
@@ -158,6 +160,21 @@ int LIBUSB_CALL libusb_init(libusb_context** ctx)
 void LIBUSB_CALL libusb_exit(libusb_context* ctx)
 {
 	(void)ctx;
+	fake.exits++;
+}
+
+void LIBUSB_CALL libusb_close(libusb_device_handle* devh)
+{
+	(void)devh;
+	fake.closes++;
+}
+
+int LIBUSB_CALL libusb_release_interface(libusb_device_handle* devh,
+                                         int interface_number)
+{
+	(void)devh;
+	(void)interface_number;
+	return 0;
 }
 
 int LIBUSB_CALL libusb_control_transfer(libusb_device_handle* devh,
@@ -884,6 +901,62 @@ MU_TEST(a_cancel_the_device_refuses_leaves_the_transfer_alone)
 	release_handle(ut);
 }
 
+/* A transfer libusb never hands back keeps the device and the libusb session
+ * alive: both are things libusb may still need to finish it, and the
+ * transfer's callback reaches this handle. The teardown says so and leaves
+ * them, rather than closing the device and ending the session underneath a
+ * transfer that is still in flight. */
+MU_TEST(a_transfer_that_never_comes_back_keeps_the_device_open)
+{
+	char err[1024] = "";
+	ubertooth_t* ut;
+
+	reset();
+	/* refused for a transfer that stays in flight, and nothing delivers its
+	 * completion: the bounded wait in the teardown runs out */
+	fake.cancel_rc = LIBUSB_ERROR_NO_DEVICE;
+	fake.poll_thread_idle = 1;
+	ut = new_handle();
+	mu_assert(ut != NULL, "a handle");
+	if (ut == NULL)
+		return;
+
+	capture_output();
+	mu_assert_int_eq(0, ubertooth_bulk_init(ut));
+	ubertooth_stop(ut);
+	release_output(err, sizeof(err));
+
+	assert_transfer_lifetimes();
+	mu_assert_int_eq(0, fake.xfer_frees);
+	mu_assert_int_eq(0, fake.closes);
+	mu_assert_int_eq(0, fake.exits);
+	mu_assert(ut->devh != NULL, "the device is left open");
+	mu_assert(strstr(err, "the receive transfer did not finish; leaving the "
+	          "Ubertooth open") != NULL, err);
+
+	release_handle(ut);
+
+	/* and an ordinary stop does close the device and end the session */
+	reset();
+	ut = new_handle();
+	mu_assert(ut != NULL, "a handle");
+	if (ut == NULL)
+		return;
+
+	capture_output();
+	mu_assert_int_eq(0, ubertooth_bulk_init(ut));
+	ubertooth_stop(ut);
+	release_output(err, sizeof(err));
+
+	assert_transfer_lifetimes();
+	mu_assert_int_eq(1, fake.xfer_frees);
+	mu_assert_int_eq(1, fake.closes);
+	mu_assert_int_eq(1, fake.exits);
+	mu_assert(ut->devh == NULL, "the device is closed");
+
+	release_handle(ut);
+}
+
 /* A bulk timeout that lands while the capture is stopping: the transfer is
  * given back rather than put in flight again, which left the teardown waiting
  * for a completion that was no longer coming and the next phase refusing to
@@ -975,6 +1048,7 @@ int main(void)
 	MU_RUN(a_refused_submit_leaves_no_transfer_behind);
 	MU_RUN(a_stop_with_a_packet_in_hand_gives_the_transfer_back);
 	MU_RUN(a_cancel_the_device_refuses_leaves_the_transfer_alone);
+	MU_RUN(a_transfer_that_never_comes_back_keeps_the_device_open);
 	MU_RUN(a_bulk_timeout_while_stopping_does_not_re_arm_the_transfer);
 	MU_RUN(a_refused_re_arm_gives_the_transfer_back);
 	reset(); /* release the last case's transfer bodies */

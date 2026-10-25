@@ -1091,14 +1091,25 @@ static void ubertooth_cleanup(ubertooth_t* ut, int send_stop)
 	 * Cancelling it and closing anyway, as this did, left the transfer
 	 * allocated for the rest of the process. */
 	ubertooth_bulk_stop(ut);
-	if (ut->devh != NULL) {
-		if (send_stop)
-			cmd_stop(ut->devh);
-		libusb_release_interface(ut->devh, 0);
-		libusb_close(ut->devh);
-		ut->devh = NULL;
+	if (ut->rx_xfer != NULL) {
+		/* The transfer never came back, so libusb may still be holding this
+		 * device and this session. Closing them underneath it, or ending the
+		 * session, is worse than leaving both: a capture ends here, so the
+		 * handle goes when the process does. The capture files below are
+		 * still closed, so nothing a run wrote is lost. */
+		fprintf(stderr, "error: the receive transfer did not finish; leaving "
+		        "the Ubertooth open\n");
 	}
-	libusb_exit(NULL);
+	else {
+		if (ut->devh != NULL) {
+			if (send_stop)
+				cmd_stop(ut->devh);
+			libusb_release_interface(ut->devh, 0);
+			libusb_close(ut->devh);
+			ut->devh = NULL;
+		}
+		libusb_exit(NULL);
+	}
 
 	if (ut->h_pcap_bredr) {
 		btbb_pcap_close(ut->h_pcap_bredr);
