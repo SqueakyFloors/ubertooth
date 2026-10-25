@@ -433,7 +433,7 @@ int main(int argc, char *argv[])
 	/* The board keeps the AFH map and the enable flag an earlier run left,
 	 * and start-hopping does not reset them, so a follow with no map has to
 	 * clear them: otherwise it would hop adaptively on a stale map while
-	 * reporting that it is not using AFH (#312). Both are checked, because
+	 * reporting that it is not using AFH. Both are checked, because
 	 * carrying on would hop on the wrong channel set either way. The set is
 	 * asynchronous, so this catches a submission that fails, not a transfer
 	 * that fails later. */
