@@ -8,8 +8,8 @@
  * the failure that mattered is the one that gets reported.
  *
  * The cases below fail assertions on purpose. Each one captures the FAIL
- * lines and restores the counters, so the deliberate failures are this test's
- * subject rather than its result.
+ * lines and restores mu_checks and mu_fails, the harness's whole state, so
+ * the deliberate failures are this test's subject rather than its result.
  */
 #include <stdio.h>
 #include <string.h>
@@ -62,8 +62,10 @@ static int saved_stdout;
 static void capture_stdout(void)
 {
 	capture = tmpfile();
-	saved_stdout = dup(fileno(stdout));
+	saved_stdout = capture != NULL ? dup(fileno(stdout)) : -1;
 	mu_assert(capture != NULL && saved_stdout >= 0, "capture stdout");
+	if (saved_stdout < 0)
+		return; /* nothing is redirected, so nothing is restored below */
 	fflush(stdout);
 	dup2(fileno(capture), fileno(stdout));
 }
@@ -72,6 +74,12 @@ static void release_stdout(char* text, size_t len)
 {
 	size_t n;
 
+	text[0] = '\0';
+	if (saved_stdout < 0) {
+		if (capture != NULL)
+			fclose(capture);
+		return;
+	}
 	fflush(stdout);
 	dup2(saved_stdout, fileno(stdout));
 	close(saved_stdout);

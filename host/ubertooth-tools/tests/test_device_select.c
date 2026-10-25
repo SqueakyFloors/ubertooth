@@ -114,8 +114,9 @@ static void bus_with_shared_prefix(void)
  * bus is fine. Nothing here reads a packet, so a one-byte stand-in does, and
  * selection no longer depends on 64 MB being available.
  *
- * Counted, not reset between cases: a run that linked the real ring buffer
- * again would leave this at zero. */
+ * Counted, not reset between cases, so one case can check that selection
+ * allocated through this fake at all. (Linking ubertooth_fifo.c again would
+ * not reach that check: it fails the link with duplicate symbols.) */
 static int fifo_inits;
 
 fifo_t* fifo_init()
@@ -600,7 +601,8 @@ MU_TEST(the_test_switch_hides_every_device)
 	          != NULL, msg);
 
 	/* Only "1" turns it on: a user whose environment holds the name for some
-	 * other reason still gets their board. */
+	 * other reason still gets their board. A fatal assertion in this loop
+	 * returns with the switch still set, which is why this case runs last. */
 	for (i = 0; i < sizeof(off) / sizeof(off[0]); i++) {
 		setenv("UBERTOOTH_TEST_NO_DEVICES", off[i], 1);
 		bus_with_ubertooths(1);
@@ -948,9 +950,8 @@ MU_TEST(the_quiet_selection_matches_the_same_serials)
 	mu_assert_int_eq(0, fake.lists);
 }
 
-/* The faked ring buffer is the one the library got: if ubertooth_fifo.c were
- * linked again, every selection here would allocate 64 MB and this would be
- * zero. */
+/* Selection still allocates a ring buffer, and it came from this fake rather
+ * than from the library's 64 MB one. */
 MU_TEST(the_selections_used_the_faked_ring_buffer)
 {
 	mu_assert(fifo_inits > 0, "fifo_init() came from this test");
