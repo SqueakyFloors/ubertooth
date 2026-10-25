@@ -56,8 +56,10 @@ FAKE_USB1 = '''"""A fake usb1 module: no device is opened.
 
 UBTBR_FAKE_WRITES names a file every bulk write is appended to, as its bytes
 in hex and the timeout it was given, so a test can tell what the tool sent and
-how long it was prepared to wait. UBTBR_FAKE_WRITE_TIMES_OUT makes every write
-time out, standing in for a device that takes none of them.
+how long it was prepared to wait. UBTBR_FAKE_WRITE_FAILS_AFTER is how many
+writes are taken before the rest time out, standing in for a device that stops
+draining the endpoint, and UBTBR_FAKE_SETUP_DELAY how long claiming the
+interface takes, which holds the tool short of its prompt.
 """
 
 import os
@@ -73,15 +75,20 @@ class USBErrorTimeout(USBError):
 
 
 class _Handle:
+    def __init__(self):
+        self.writes = 0
+
     def claimInterface(self, interface):
-        pass
+        time.sleep(float(os.environ.get("UBTBR_FAKE_SETUP_DELAY", "0")))
 
     def bulkWrite(self, endpoint, data, timeout=0):
+        self.writes += 1
         path = os.environ.get("UBTBR_FAKE_WRITES")
         if path:
             with open(path, "a") as writes:
                 writes.write("%s %d\\n" % (bytes(data).hex(), timeout))
-        if os.environ.get("UBTBR_FAKE_WRITE_TIMES_OUT"):
+        taken = os.environ.get("UBTBR_FAKE_WRITE_FAILS_AFTER")
+        if taken is not None and self.writes > int(taken):
             raise USBErrorTimeout("timeout")
         return len(data)
 
@@ -126,7 +133,7 @@ IDLE_PACKET = request_packet(btctl.BTCTL_IDLE_REQ)
 INQUIRY_PACKET = request_packet(btctl.BTCTL_INQUIRY_REQ)
 # What a command says when the device did not answer the idle request, which
 # is how the two ways of ending a stop are told apart below.
-NO_ANSWER = "no answer to the idle request"
+NO_ANSWER = "did not go idle"
 
 
 class Recorder(logging.Handler):
@@ -235,6 +242,53 @@ assert records.said("Inquiry done"), records.messages
 assert not records.said(NO_ANSWER), records.messages
 print("ubtbr: an answered stop ends the command in %.2fs" % took)
 
+# a stop the device does not even take the request for: asking for it must not
+# raise, since what asks is the keyboard interrupt handler
+class RefusingDevice(SilentDevice):
+    def send_idle_cmd(self):
+        super().send_idle_cmd()
+        raise usb1.USBErrorTimeout("timeout")
+
+
+device = RefusingDevice()
+command = btctl.BTCtlInquiryCmd(device)
+command.start()
+command.stop()
+command.join(DEADLINE)
+assert not command.is_alive(), "a stop that could not be sent must still stop"
+assert device.idle_requests == 1, device.idle_requests
+print("ubtbr: a stop the device will not take still ends the command")
+
+# ---- a command of a super command that will not stop ----------------------
+
+# Driven through the pieces a super command uses on itself: the thread it
+# would run them from is what the case is about.
+class WedgedCmd(btctl.BTCtlCmd):
+    """A command whose loop does not look at the stop."""
+
+    def _run_loop(self):
+        time.sleep(DEADLINE * 10)
+
+
+class BareSuperCmd(btctl.BTCtlSuperCmd):
+    def run_once(self):
+        self._wait(DEADLINE)
+
+
+device = SilentDevice()
+super_command = BareSuperCmd(device)
+assert super_command._start_cmd(WedgedCmd) is not None
+super_command._stop_cmd()
+# the wedged command still owns the message handler, so the handle on it is
+# kept rather than dropped and tripped over by the next one
+assert super_command._cmd is not None, "a command that did not stop must be kept"
+assert device.handler is not None, device.handler
+assert super_command._start_cmd(WedgedCmd) is None, \
+    "no second command while the first still holds the handler"
+assert super_command.stopped() and super_command.done(), \
+    "a super command that cannot stop its command is over"
+print("ubtbr: a command that will not stop does not take the next one with it")
+
 # ---- a packet that does not fit the framing -------------------------------
 
 class BadFramingDevice:
@@ -334,13 +388,36 @@ print("ubtbr: q at the prompt exits 0")
 
 # a device that takes none of the requests: the tool says so on standard
 # error and exits 1, where the write used to wait for good
-running = tool(dict(ENVIRONMENT, UBTBR_FAKE_WRITE_TIMES_OUT="1"))
+running = tool(dict(ENVIRONMENT, UBTBR_FAKE_WRITE_FAILS_AFTER="0"))
 output, errors = running.communicate("", timeout=DEADLINE * 2)
 assert running.returncode == 1, (running.returncode, output, errors)
 assert output == "", output
 assert "error: could not set up the Ubertooth" in errors, errors
 assert "Traceback" not in errors, errors
 print("ubtbr: a device that takes no request is reported, not waited on")
+
+# a device that stops taking requests once the prompt is up: that command
+# fails, the prompt stays, and the tool still exits 0. The three writes taken
+# are the ones the tool sends before its prompt.
+running = tool(dict(ENVIRONMENT, UBTBR_FAKE_WRITE_FAILS_AFTER="3"))
+output, errors = running.communicate("bdaddr 11:22:33:44:55:66\nq\n",
+                                     timeout=DEADLINE * 2)
+assert running.returncode == 0, (running.returncode, output, errors)
+assert "error: timeout" in errors, errors
+assert "Traceback" not in errors, errors
+print("ubtbr: a request the device will not take ends the command, not the tool")
+
+# an interrupt before the prompt is up, which is the window the hang shortly
+# after start lives in: the tool ends, with no traceback and nothing on
+# standard output
+running = tool(dict(ENVIRONMENT, UBTBR_FAKE_SETUP_DELAY=str(DEADLINE)))
+time.sleep(0.5)
+running.send_signal(signal.SIGINT)
+output, errors = running.communicate("", timeout=DEADLINE * 2)
+assert running.returncode == 1, (running.returncode, output, errors)
+assert output == "", output
+assert "Traceback" not in errors, errors
+print("ubtbr: an interrupt before the prompt ends the tool")
 
 # Ctrl-C with a command running returns to the prompt, and the tool then
 # exits 0. The command is one the fake device never answers, which is the

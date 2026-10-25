@@ -430,6 +430,9 @@ class BTCtlCmd(Thread):
 	STOP_GRACE = 0.5
 	# How often the loop looks at a pending stop while waiting for a message.
 	POLL_INTERVAL = 0.05
+	# What a caller joining a stopped command should allow it: the grace
+	# above, and room to finish what it was in the middle of.
+	JOIN_TIMEOUT = 2
 
 	def __init__(self, bt):
 		# A daemon thread, so an interpreter shutting down is never held up
@@ -451,7 +454,13 @@ class BTCtlCmd(Thread):
 	def stop(self):
 		# Set first: a request that cannot be sent must still end the command.
 		self._stopping.set()
-		self._bt.send_idle_cmd()
+		try:
+			self._bt.send_idle_cmd()
+		except usb1.USBError as e:
+			# Raising here would come out of whoever asked for the stop,
+			# which is the keyboard interrupt handler among others. The
+			# command ends on its own below either way.
+			log.warning("Could not ask the device to go idle: %s"%e)
 
 	def _handle_state(self, state, reason):
 		print_state(state, reason)
@@ -493,7 +502,7 @@ class BTCtlCmd(Thread):
 				if deadline is None:
 					deadline = monotonic() + self.STOP_GRACE
 				elif monotonic() >= deadline:
-					log.warning("%s: no answer to the idle request, "
+					log.warning("%s: the device did not go idle, "
 						"stopping anyway"%self)
 					return
 			try:
@@ -528,9 +537,6 @@ class BTCtlCmd(Thread):
 		return self.__class__.__name__
 
 class BTCtlSuperCmd(Thread):
-	# Long enough for the command it drives to run its own stop grace out.
-	JOIN_TIMEOUT = 2
-
 	def __init__(self, bt):
 		# Daemon for the same reason as BTCtlCmd.
 		super().__init__(daemon=True)
@@ -549,18 +555,29 @@ class BTCtlSuperCmd(Thread):
 		return self._cmd
 
 	def _stop_cmd(self):
-		if self._cmd is not None:
-			self._cmd.stop()
-			self._cmd.join(self.JOIN_TIMEOUT)
-			if self._cmd.is_alive():
-				log.error("%s did not stop"%self._cmd)
-			self._cmd = None
+		if self._cmd is None:
+			return
+		self._cmd.stop()
+		self._cmd.join(self._cmd.JOIN_TIMEOUT)
+		if self._cmd.is_alive():
+			# It still holds the message handler, so no other command can be
+			# started: keep the handle and give up rather than start one and
+			# trip over it.
+			log.error("%s did not stop"%self._cmd)
+			self.stop()
+			return
+		self._cmd = None
 
 	def stop(self):
 		self._stopped.set()
 
 	def stopped(self):
 		return self._stopped.is_set()
+
+	def done(self):
+		# What a command of its own reports when its loop has ended: this one
+		# runs until it is stopped.
+		return self.stopped()
 
 	def _wait(self, timeout):
 		# Waiting on the stop event rather than sleeping, so a stop is acted
@@ -702,6 +719,8 @@ class BTCtlDiscoverableCmd(BTCtlSuperCmd):
 		self._start_cmd(BTCtlInquiryScanCmd)
 		self._wait(self.SCAN_TIME)
 		self._stop_cmd()
+		if self.stopped():
+			return
 		self._start_cmd(BTCtlPageScanCmd)
 		self._wait(self.SCAN_TIME)
 		# If a connection is running, wait for it to complete
@@ -933,8 +952,8 @@ class BTCtl:
 			self.send_idle_cmd()
 		except usb1.USBError as e:
 			log.warning("Could not ask the device to go idle: %s"%e)
-		if self._rx_error is not None:
-			log.warning("Receive thread had already stopped: %s"%self._rx_error)
+		if self.rx_error() is not None:
+			log.warning("Receive thread had already stopped: %s"%self.rx_error())
 		self._rx_stopped.set()
 		self._rx_thread.join(self.JOIN_TIMEOUT)
 		if self._rx_thread.is_alive():

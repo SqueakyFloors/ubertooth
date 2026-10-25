@@ -49,8 +49,6 @@ class BTCtlL2Ping(BTCtlPagingCmd):
 class BTCtlPrompt(Cmd):
 	prompt = "bt> "
 	intro = "Type ? to list commands"
-	# Long enough for a command to run its own stop grace out.
-	JOIN_TIMEOUT = 2
 
 	def __init__(self, bt):
 		self._bt = bt
@@ -85,7 +83,7 @@ class BTCtlPrompt(Cmd):
 	def stop_cmd(self):
 		if self._cmd is not None:
 			self._cmd.stop()
-			self._cmd.join(self.JOIN_TIMEOUT)
+			self._cmd.join(self._cmd.JOIN_TIMEOUT)
 			if self._cmd.is_alive():
 				# Keep the handle: start_cmd then refuses to start another
 				# rather than tripping over the one still holding the
@@ -109,6 +107,15 @@ class BTCtlPrompt(Cmd):
 					# returns to the prompt instead of ending the tool
 					# somewhere in the middle of the stop.
 					pass
+
+	def onecmd(self, line):
+		try:
+			return super().onecmd(line)
+		except usb1.USBError as e:
+			# A request the board no longer takes ends that command, not the
+			# session: the prompt is where the user gets to try again or
+			# leave.
+			eprint("error: %s\n"%e)
 
 	def default(self, inp):
 		if inp in ('x','q'):
@@ -224,6 +231,10 @@ def main():
 		# A board running firmware other than ubtbr takes none of this, and
 		# used to leave the tool waiting on the write for good.
 		eprint("error: could not set up the Ubertooth: %s\n"%e)
+		sys.exit(1)
+	except KeyboardInterrupt:
+		# Interrupted before the prompt was up, which is the window the hang
+		# shortly after start lives in.
 		sys.exit(1)
 	sleep(0.02)
 	prompt = BTCtlPrompt(bt)
