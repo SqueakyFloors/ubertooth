@@ -770,8 +770,11 @@ MU_TEST(setters_pass_their_arguments_and_report_failures)
 
 	reset_fake();
 	fake.set_squelch_rc = -1;
-	r = RUN("-z5");
+	r = RUN("-z5"); /* a failed set exits 1 and still prints no value line; the
+	                 * error line itself comes from libubertooth, which the
+	                 * fake replaces */
 	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, "") == 0, "a failed set writes no result either");
 
 	reset_fake();
 	fake.set_palevel_rc = -1;

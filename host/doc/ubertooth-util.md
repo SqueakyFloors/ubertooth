@@ -425,7 +425,8 @@ or any mode option`, naming the selector so the command can be pasted; there
 is no separate line announcing the LEDs. Setting the squelch with `-z <n>`
 prints nothing, as `-a`, `-c`, `-C`, `-d` and `-l` do not: the value `-z`
 reads back afterwards (`Squelch set to <n>`) is the result and goes to
-standard output. `-x` has never had a line of its own.
+standard output. A set that fails is still reported, on standard error, and
+the command exits 1. `-x` has never had a line of its own.
 
 The errors this tool prints itself are one line starting `error: `; its
 warnings and notes start `warning: ` and `note: `. Two kinds of line do not
