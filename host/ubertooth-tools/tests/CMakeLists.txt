@@ -554,3 +554,33 @@ add_test(
 # ronn the test skips in well under a second, and reports as skipped rather
 # than passed, so a green run cannot hide an absent check.
 set_tests_properties(manpages PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 77)
+
+# The same approach for ubertooth-debug, -dump and -tx: their real main()
+# against a scripted device, so which exits open one and which give the handle
+# back is checked without a board. None of them reaches a capture or transmit
+# path; the fakes assert if one ever does.
+add_executable(test-debug-main test_debug_main.c
+	../src/debug_registers.c ../src/cc2400.c ../src/arglist.c)
+add_executable(test-dump-main test_dump_main.c)
+add_executable(test-tx-main test_tx_main.c)
+foreach(tool debug dump tx)
+	target_link_libraries(test-${tool}-main opt-parse-for-tests
+		${LIBBTBB_LIBRARIES})
+	if(libubertooth_SOURCE_DIR)
+		target_include_directories(test-${tool}-main PRIVATE
+			${libubertooth_SOURCE_DIR}/src)
+	else()
+		target_include_directories(test-${tool}-main PRIVATE
+			${LIBUBERTOOTH_INCLUDE_DIR})
+	endif()
+	target_include_directories(test-${tool}-main PRIVATE ../src
+		${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+	if(USE_OWN_GNU_GETOPT)
+		target_include_directories(test-${tool}-main BEFORE PRIVATE ../getopt)
+		target_link_libraries(test-${tool}-main libgetopt_static)
+	endif()
+	add_test(NAME ${tool}-main COMMAND test-${tool}-main)
+	# Nothing here waits on a device; a regression that reaches a real
+	# receive or transmit loop should fail instead of hanging the suite.
+	set_tests_properties(${tool}-main PROPERTIES TIMEOUT 10)
+endforeach()

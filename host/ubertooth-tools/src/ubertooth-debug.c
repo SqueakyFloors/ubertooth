@@ -126,8 +126,10 @@ int main(int argc, char *argv[])
 	    ubertooth_device = optarg;
 	    break;
 	case 'v':
-	    if (opt_require_int(optarg, 0, 2, "verbosity", "", &verbose) < 0)
+	    if (opt_require_int(optarg, 0, 2, "verbosity", "", &verbose) < 0) {
+		free(regList);
 		return 1;
+	    }
 	    break;
 	case 'r': {
 	    struct int_list_error failure;
@@ -152,6 +154,8 @@ int main(int argc, char *argv[])
 		    fprintf(stderr, "error: register list must be names or"
 			    " addresses, single or as a range: %s (got %s)\n",
 			    failure.reason, item);
+		/* listOfInts() frees its partial array and returns NULL on
+		 * every failure, so there is nothing of ours to give back. */
 		return 1;
 	    }
 	    if (regListN > 0)
@@ -160,30 +164,36 @@ int main(int argc, char *argv[])
 	}
 	default:
 	    usage();
+	    free(regList);
 	    return 1;
 	}
     }
 
     /* ubertooth-debug takes no operands: refuse a leftover word before any
      * device is opened, rather than running the rest of the command. */
-    if (opt_check_no_operands(argc, argv) < 0)
+    if (opt_check_no_operands(argc, argv) < 0) {
+	free(regList);
 	return 1;
+    }
 
     /* -h ends the command, but only once the whole command line has parsed:
      * a bad option value or a stray word is reported even alongside it. */
     if (do_help) {
 	usage();
+	free(regList);
 	return 0;
     }
 
     if (regListN == 0) {
 	fprintf(stderr, "error: -r <reg>[,<reg>[,...]] is required:"
 		" at least one register to read\n");
+	free(regList);
 	return 1;
     }
     /* initialise device */
     ut = ubertooth_start_select(ubertooth_device);
     if (ut == NULL) {
+	free(regList);
 	return 1;
     }
 
@@ -192,6 +202,15 @@ int main(int argc, char *argv[])
     if (do_read_register >= 0)
 	r = debug_read_registers(read_register, ut->devh, regList, regListN,
 	                         verbose, stdout, stderr);
+
+    free(regList);
+    /* Release the handle without sending STOP, as ubertooth-util does, so the
+     * device's radio state is left as the tool found it: this one only reads
+     * registers. Releasing the interface is still a request to the device;
+     * what is avoided is cmd_stop, which would take the radio through
+     * cc2400_idle() and reset the channel. */
+    ubertooth_close(ut);
+    ubertooth_free(ut);
 
     return r;
 }

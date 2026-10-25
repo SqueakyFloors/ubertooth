@@ -125,8 +125,17 @@ int main(int argc, char *argv[])
 	}
 
 	r = ubertooth_check_api(ut);
-	if (r < 0)
+	if (r < 0) {
+		/* As in ubertooth-tx: a refused version was already stopped and
+		 * closed inside ubertooth_check_api(), a version that could not
+		 * be read was not, and closing twice would exit libusb twice.
+		 * The dump file is left to process exit, as on every other exit
+		 * of this tool: libubertooth owns that global, not the tool. */
+		if (ut->devh != NULL)
+			ubertooth_close(ut);
+		ubertooth_free(ut);
 		return 1;
+	}
 
 	/* Clean up on exit. */
 	register_cleanup_handler(ut, 0);
