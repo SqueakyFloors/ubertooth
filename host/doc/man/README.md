@@ -9,6 +9,8 @@ never writes to this directory and never needs ronn.
 
 ## Refreshing a page after editing its Markdown
 
+After editing a `../<tool>.md`, regenerate its page here and commit both:
+
 ```sh
 cmake -S host -B build
 cmake --build build --target refresh-manpages
@@ -19,9 +21,31 @@ that changed over the files here. Review the diff and commit the `.1` with the
 `.md` in the same change. `--target manpages` renders them into the build
 directory without touching this one, to see first what a refresh would write.
 
-ronn (`gem install ronn-ng`, or Homebrew) is the only supported generator: the
-pages here were originally produced by go-md2man, so the first refresh of a
-page rewrites it wholesale in ronn's style.
+The `Man pages` CI job (`.github/workflows/manpages.yml`) runs that refresh on
+every pull request that touches `host/doc` and fails if it changes anything, so
+a `.md` edit cannot land without its page.
+
+## The generator
+
+ronn-ng **0.10.1** is the one supported generator:
+
+```sh
+gem install ronn-ng -v 0.10.1
+```
+
+Another version renders the same Markdown differently, so the committed pages
+would stop matching a refresh and the CI check would fail on a page nobody
+touched. The version is `RONN_VERSION` in `CMakeLists.txt`, which warns at
+configure time when the installed ronn is a different one, and the CI job
+installs exactly it.
+
+The footer date comes from `MAN_DATE` in `CMakeLists.txt`, not from a file
+timestamp, so a refresh writes the same bytes on any machine and in any month.
+
+Two Markdown habits matter here, because ronn drops what it reads as inline
+HTML: write a `SYNOPSIS` as an indented block, and put `<placeholder>` inside
+backticks in prose. Without that the angle brackets, or the whole line, vanish
+from the rendered page.
 
 ## Pages kept by hand
 

@@ -145,7 +145,11 @@ def main():
                  % sorted(HAND_MAINTAINED & set(generated)))
 
         # A refresh must not strip the page headings: without --organization
-        # and --manual, ronn writes `.TH "NAME" "1" "<date>" ""`.
+        # and --manual, ronn writes `.TH "NAME" "1" "<date>" ""`. The date
+        # must not move either: ronn defaults it to the .md's modification
+        # time, every .md was touched above, and a page whose date follows the
+        # clock would differ from the committed one in a month's time, which
+        # no check could tell from a real change.
         for name in sorted(generated):
             title = title_line(os.path.join(rendered, name))
             manual = MANUALS[name.rsplit(".", 1)[1]]
@@ -153,6 +157,11 @@ def main():
                 if field not in title:
                     fail("%s lost %s from its .TH line: %s"
                          % (name, field, title))
+            if title != title_line(os.path.join(man, name)):
+                fail("%s renders a different .TH line from the committed "
+                     "page, so a refresh is not reproducible:\n  rendered:  "
+                     "%s\n  committed: %s"
+                     % (name, title, title_line(os.path.join(man, name))))
 
         # Make one committed page stale, so the refresh has something to do
         # whatever ronn renders: a copy that did nothing would otherwise pass

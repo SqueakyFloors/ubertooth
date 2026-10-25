@@ -1,145 +1,80 @@
-.TH UBERTOOTH\-AFH 1 "October 2026" "Project Ubertooth" "User Commands"
-.SH NAME
-.PP
-.BR ubertooth-afh (1) 
-\- passive detection of AFH channel map
-.SH SYNOPSIS
-.PP
-.RS
+.\" generated with Ronn-NG/v0.10.1
+.\" http://github.com/apjanke/ronn-ng/tree/0.10.1
+.TH "UBERTOOTH\-AFH" "1" "October 2026" "Project Ubertooth" "User Commands"
+.SH "NAME"
+\fBubertooth\-afh\fR \- passive detection of AFH channel map
+.SH "SYNOPSIS"
 .nf
 ubertooth\-afh \-u <uap> \-l <lap> [\-r] [\-m <count>]
 .fi
-.RE
-.SH DESCRIPTION
-.PP
-Classic Bluetooth piconets commonly make use of Adaptive Frequency
-Hopping (AFH) to avoid interference with other signals in 2.4 GHz. This
-tool attempts to determine the AFH map being used for a given piconet
-identified by UAP and LAP.
-.PP
-At a minimum you must provide UAP and LAP. See 
-.BR ubertooth-rx (1) 
-for a
-method for sniffing these over the air and details on where else to find
-them. By default the tool will only print the AFH map when it is
-updated. By providing the \fB\fC\-r\fR flag, the AFH map will be printed out in
-binary form once per second.
-.PP
-Note: the \fB\fC\-a\fR option (initial AFH map) is currently non\-functional; its
-handler is disabled in the source and the flag has no effect.
-.SH OPTIONS
-.RS
-.IP \(bu 2
-\fB\fC\-l <LAP>\fR :
+.SH "DESCRIPTION"
+Classic Bluetooth piconets commonly make use of Adaptive Frequency Hopping (AFH) to avoid interference with other signals in 2\.4 GHz\. This tool attempts to determine the AFH map being used for a given piconet identified by UAP and LAP\.
+.P
+At a minimum you must provide UAP and LAP\. See ubertooth\-rx(1) for a method for sniffing these over the air and details on where else to find them\. By default the tool will only print the AFH map when it is updated\. By providing the \fB\-r\fR flag, the AFH map will be printed out in binary form once per second\.
+.P
+Note: the \fB\-a\fR option (initial AFH map) is currently non\-functional; its handler is disabled in the source and the flag has no effect\.
+.SH "OPTIONS"
+.TP
+\fB\-l <LAP>\fR
 LAP of target piconet (3 bytes / 6 hex digits)
-.IP \(bu 2
-\fB\fC\-u <UAP>\fR :
+.TP
+\fB\-u <UAP>\fR
 UAP of target piconet (1 byte / 2 hex digits)
-.IP \(bu 2
-\fB\fC\-m <int>\fR :
-threshold for channel removal: a channel is marked unused once this many packets
-arrive without it being seen; 1 or more (default: 5)
-.IP \(bu 2
-\fB\fC\-r\fR :
+.TP
+\fB\-m <int>\fR
+threshold for channel removal: a channel is marked unused once this many packets arrive without it being seen; 1 or more (default: 5)
+.TP
+\fB\-r\fR
 print AFH channel map once every second (default: print on update)
-.RE
-.PP
+.P
 Other options:
-.RS
-.IP \(bu 2
-\fB\fC\-t <seconds>\fR :
-timeout for initial AFH map detection (not required); see DETECTION AND
-MONITORING\&. No effect with \fB\fC\-r\fR\&.
-.IP \(bu 2
-\fB\fC\-e <0\-5>\fR :
+.TP
+\fB\-t <seconds>\fR
+timeout for initial AFH map detection (not required); see DETECTION AND MONITORING\. No effect with \fB\-r\fR\.
+.TP
+\fB\-e <0\-5>\fR
 maximum access code errors (default: 2, range: 0\-5)
-.IP \(bu 2
-\fB\fC\-V\fR :
+.TP
+\fB\-V\fR
 print version information
-.IP \(bu 2
-\fB\fC\-U <index|serial>\fR :
-select an Ubertooth by enumeration index or serial number; see
-.BR ubertooth (7),
-SELECTING A DEVICE
-.RE
-.SH DETECTION AND MONITORING
-.PP
-\fB\fCubertooth\-afh\fR does not stop on its own. It keeps monitoring the
-piconet and reporting changes to the map until it is interrupted (Ctrl\-C),
-both with and without \fB\fC\-t\fR\&.
-.PP
-While it listens, the board hops across the channels the piconet has not been
-seen on, and the tool tells the board to stop visiting a channel once a packet
-from the piconet has arrived there. That is how the map fills in: a channel is
-reported used only when a packet is received on it.
-.PP
-\fB\fC\-t <seconds>\fR only adds an initial detection phase: the tool listens
-for that many seconds, prints the map it found, and then starts monitoring. If
-that phase received no packet from the piconet there is no map to print, so the
-tool says so, does not start monitoring, and exits with status 2 instead of
-printing an all\-zero map
-(which reads as a detected map whose piconet uses no channel at all):
-.PP
-.RS
+.TP
+\fB\-U <index|serial>\fR
+select an Ubertooth by enumeration index or serial number; see ubertooth(7), SELECTING A DEVICE
+.SH "DETECTION AND MONITORING"
+\fBubertooth\-afh\fR does not stop on its own\. It keeps monitoring the piconet and reporting changes to the map until it is interrupted (Ctrl\-C), both with and without \fB\-t\fR\.
+.P
+While it listens, the board hops across the channels the piconet has not been seen on, and the tool tells the board to stop visiting a channel once a packet from the piconet has arrived there\. That is how the map fills in: a channel is reported used only when a packet is received on it\.
+.P
+\fB\-t <seconds>\fR only adds an initial detection phase: the tool listens for that many seconds, prints the map it found, and then starts monitoring\. If that phase received no packet from the piconet there is no map to print, so the tool says so, does not start monitoring, and exits with status 2 instead of printing an all\-zero map (which reads as a detected map whose piconet uses no channel at all):
+.IP "" 4
 .nf
 $ ubertooth\-afh \-l 446688 \-u 22 \-t 3
 error: no packets from ??:??:22:44:66:88 within 3 s; AFH map unknown, not monitoring
 .fi
-.RE
-.PP
-Nothing is wrong with the board in that case: the piconet is out of range, it
-is not transmitting, or the UAP/LAP is not the one in use. A longer
-\fB\fC\-t\fR, or no \fB\fC\-t\fR at all, keeps listening.
-.PP
-To wait for a piconet that is not in range yet (start the tool, then bring the
-devices close or start the connection), run without \fB\fC\-t\fR: monitoring
-starts at once, waits as long as it takes, and prints
-\fB\fC+ channel N is used now\fR as the piconet's packets arrive.
-\fB\fC\-t\fR is for a bounded check that gives up when nothing is heard in time.
-.PP
-\fB\fC\-r\fR has its own loop, which prints the map once a second from the
-start and ignores \fB\fC\-t\fR\&.
-.SH ARGUMENTS
-.PP
-\fB\fCubertooth\-afh\fR takes options only. A word that is not an option, including
-a bare \fB\fC\-\fR, is refused before any device is opened and named:
-\fB\fCerror: unexpected argument '<word>'\fR, with exit status 1.
-.PP
-\fB\fC\-h\fR and \fB\fC\-V\fR end the command only once the whole command line has
-parsed, so a stray word or a bad option value is reported even
-alongside them.
-.PP
-An option value must be a whole value in its range, or it is refused the same
-way instead of being read as 0, for example
-\fB\fCerror: timeout must be a whole number of seconds, 0 for none (got abc)\fR\&.
-.SH EXIT STATUS
-.PP
-\fB\fCubertooth\-afh\fR does not stop on its own, so it normally exits 0 after
-being interrupted (Ctrl\-C).
-.PP
-It exits 2 when the \fB\fC\-t\fR detection phase received no packet from the
-piconet (see DETECTION AND MONITORING). The number of seconds in that message
-is the \fB\fC\-t\fR value, not the time actually spent listening, which is
-shorter if the tool was interrupted during the phase.
-.PP
-It exits 1 without opening a device for a bad command line (a missing UAP or
-LAP, an option value out of range, or a word that is not an option), and when
-the selected Ubertooth is not found. Without \fB\fC\-r\fR, it also exits 1
-when the receive could not be started at all; \fB\fC\-r\fR does not report
-that and still exits 0.
-.SH SEE ALSO
-.PP
-.BR ubertooth-rx (1): 
-a tool for finding UAP and LAP
-.PP
-.BR ubertooth (7): 
-overview of Project Ubertooth; OPTION VALUES describes how
-option values are written
-.SH AUTHOR
-.PP
-This manual page was written by Mike Ryan.
-.SH COPYRIGHT
-.PP
-.BR ubertooth-afh (1) 
-is Copyright (c) 2015\-2017. This tool is released under the
-GPLv2. Refer to COPYING \[la]https://github.com/SqueakyFloors/ubertooth/blob/main/COPYING\[ra] for further details.
+.IP "" 0
+.P
+Nothing is wrong with the board in that case: the piconet is out of range, it is not transmitting, or the UAP/LAP is not the one in use\. A longer \fB\-t\fR, or no \fB\-t\fR at all, keeps listening\.
+.P
+To wait for a piconet that is not in range yet (start the tool, then bring the devices close or start the connection), run without \fB\-t\fR: monitoring starts at once, waits as long as it takes, and prints \fB+ channel N is used now\fR as the piconet's packets arrive\. \fB\-t\fR is for a bounded check that gives up when nothing is heard in time\.
+.P
+\fB\-r\fR has its own loop, which prints the map once a second from the start and ignores \fB\-t\fR\.
+.SH "ARGUMENTS"
+\fBubertooth\-afh\fR takes options only\. A word that is not an option, including a bare \fB\-\fR, is refused before any device is opened and named: \fBerror: unexpected argument '<word>'\fR, with exit status 1\.
+.P
+\fB\-h\fR and \fB\-V\fR end the command only once the whole command line has parsed, so a stray word or a bad option value is reported even alongside them\.
+.P
+An option value must be a whole value in its range, or it is refused the same way instead of being read as 0, for example \fBerror: timeout must be a whole number of seconds, 0 for none (got abc)\fR\.
+.SH "EXIT STATUS"
+\fBubertooth\-afh\fR does not stop on its own, so it normally exits 0 after being interrupted (Ctrl\-C)\.
+.P
+It exits 2 when the \fB\-t\fR detection phase received no packet from the piconet (see DETECTION AND MONITORING)\. The number of seconds in that message is the \fB\-t\fR value, not the time actually spent listening, which is shorter if the tool was interrupted during the phase\.
+.P
+It exits 1 without opening a device for a bad command line (a missing UAP or LAP, an option value out of range, or a word that is not an option), and when the selected Ubertooth is not found\. Without \fB\-r\fR, it also exits 1 when the receive could not be started at all; \fB\-r\fR does not report that and still exits 0\.
+.SH "SEE ALSO"
+ubertooth\-rx(1): a tool for finding UAP and LAP
+.P
+ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how option values are written
+.SH "AUTHOR"
+This manual page was written by Mike Ryan\.
+.SH "COPYRIGHT"
+ubertooth\-afh(1) is Copyright (c) 2015\-2017\. This tool is released under the GPLv2\. Refer to COPYING \fIhttps://github\.com/SqueakyFloors/ubertooth/blob/main/COPYING\fR for further details\.

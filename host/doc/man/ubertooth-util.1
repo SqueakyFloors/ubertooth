@@ -1,457 +1,290 @@
-.TH UBERTOOTH\-UTIL 1 "October 2026" "Project Ubertooth" "User Commands"
-.SH NAME
-.PP
-.BR ubertooth-util (1) 
-\- general purpose Ubertooth utility
-.SH SYNOPSIS
-.PP
-ubertooth\-util [\-v] [\-V] [\-H] [\-\-host\-version] [\-I] [\-d [0\-1]] [\-l [0\-1]] [\-S] [\-r] [\-U <index|serial|all>] [\-a [0\-7]] [\-c [2402\-2480]] [\-C [0\-78]] [\-q [20\-120]] [\-t] [\-z [\-128..127]] [\-e] [\-m] [\-n] [\-f] [\-i] [\-b] [\-p] [\-s] [\-N] [\-x] [\-h]
-.SH DESCRIPTION
-.PP
-.BR ubertooth-util (1) 
-is a catch\-all tool for doing generally useful things
-with, to, and about Ubertooth. To get firmware revision and compile
-information, run:
-.PP
-.RS
+.\" generated with Ronn-NG/v0.10.1
+.\" http://github.com/apjanke/ronn-ng/tree/0.10.1
+.TH "UBERTOOTH\-UTIL" "1" "October 2026" "Project Ubertooth" "User Commands"
+.SH "NAME"
+\fBubertooth\-util\fR \- general purpose Ubertooth utility
+.SH "SYNOPSIS"
+.nf
+ubertooth\-util [\-v] [\-V] [\-H] [\-\-host\-version] [\-I] [\-d [0\-1]] [\-l [0\-1]]
+[\-S] [\-r] [\-U <index|serial|all>] [\-a [0\-7]] [\-c [2402\-2480]] [\-C [0\-78]]
+[\-q [20\-120]] [\-t] [\-z [\-128\.\.127]] [\-e] [\-m] [\-n] [\-f] [\-i] [\-b] [\-p] [\-s]
+[\-N] [\-x] [\-h]
+.fi
+.SH "DESCRIPTION"
+ubertooth\-util(1) is a catch\-all tool for doing generally useful things with, to, and about Ubertooth\. To get firmware revision and compile information, run:
+.IP "" 4
 .nf
 ubertooth\-util \-vV
 .fi
-.RE
-.PP
+.IP "" 0
+.P
 To fully reset Ubertooth, run:
-.PP
-.RS
+.IP "" 4
 .nf
 ubertooth\-util \-r
 .fi
-.RE
-.PP
-Other options are available for modifying LED states, setting channel,
-and performing miscellaneous radio\-related actions. Refer to the
-[OPTIONS][] section for full details.
-.PP
-Without a number after it, \fB\fC\-c\fR (and \fB\fC\-a\fR, \fB\fC\-C\fR, \fB\fC\-d\fR, \fB\fC\-l\fR, \fB\fC\-z\fR) reads the
-current value instead. See
-.BR ubertooth (7),
-OPTION VALUES, for the forms an option's value can take.
-.PP
-A set and a read of the same value in one command both run, the set first, so
-the read reports the new value. The order they are written in does not matter:
-.PP
-.RS
+.IP "" 0
+.P
+Other options are available for modifying LED states, setting channel, and performing miscellaneous radio\-related actions\. Refer to the \fIOPTIONS\fR section for full details\.
+.P
+Without a number after it, \fB\-c\fR (and \fB\-a\fR, \fB\-C\fR, \fB\-d\fR, \fB\-l\fR, \fB\-z\fR) reads the current value instead\. See ubertooth(7), OPTION VALUES, for the forms an option's value can take\.
+.P
+A set and a read of the same value in one command both run, the set first, so the read reports the new value\. The order they are written in does not matter:
+.IP "" 4
 .nf
 $ ubertooth\-util \-c 2426 \-c
 Current frequency: 2426 MHz (Bluetooth channel 24)
 .fi
-.RE
-.PP
-The same holds for \fB\fC\-a\fR, \fB\fC\-C\fR, \fB\fC\-d\fR, \fB\fC\-l\fR and
-\fB\fC\-z\fR\&. Two sets of the same value in one command keep the last one.
-.PP
-Setting and reading are separate device operations here, which is why one
-command can do both; \fB\fCubertooth\-btle \-a\fR refuses the combination
-instead, because there the access address parameterises the capture that
-command is about to start. One exception to the read reporting the new value: a
-board already running a connection\-following BLE mode keeps a requested
-channel aside until that mode ends, so \fB\fC\-c 2426 \-c\fR against such a
-board reports the frequency still in use. \fB\fCubertooth\-util\fR cannot enter
-that mode itself, so this only arises alongside another program.
-.PP
-The utility also includes a simple range test tool for use with two
-Ubertooth devices. Refer to [RANGE TEST][] for full details.
-.PP
-Operations that put the device into a continuous mode \- \fB\fC\-I\fR, \fB\fC\-q\fR,
-\fB\fC\-x\fR, \fB\fC\-t\fR, \fB\fC\-n\fR, and \fB\fC\-e\fR \- first stop any operation
-already running on that device, so each starts from a known idle state.
-Stopping a mode, with \fB\fC\-S\fR or normally by starting another, puts the
-board back to idle: LEDs off, channel 2441 MHz and squelch \-120 dBm. The
-power amplifier level set with \fB\fC\-a\fR is kept.
-Each of them runs on the board and \fB\fCubertooth\-util\fR returns
-immediately, so the same board stays usable from other commands meanwhile.
-\fB\fC\-I\fR, \fB\fC\-q\fR, \fB\fC\-x\fR, \fB\fC\-t\fR and \fB\fC\-e\fR keep
-running until \fB\fC\-S\fR stops them or another mode replaces them;
-\fB\fC\-n\fR (range test) ends by itself when the test finishes.
-.PP
-\fB\fC\-I\fR (identify) blinks the USR, RX and TX LEDs together, about three
-on\-off blinks a second, until it is stopped:
-.PP
-.RS
+.IP "" 0
+.P
+The same holds for \fB\-a\fR, \fB\-C\fR, \fB\-d\fR, \fB\-l\fR and \fB\-z\fR\. Two sets of the same value in one command keep the last one\.
+.P
+Setting and reading are separate device operations here, which is why one command can do both; \fBubertooth\-btle \-a\fR refuses the combination instead, because there the access address parameterises the capture that command is about to start\. One exception to the read reporting the new value: a board already running a connection\-following BLE mode keeps a requested channel aside until that mode ends, so \fB\-c 2426 \-c\fR against such a board reports the frequency still in use\. \fBubertooth\-util\fR cannot enter that mode itself, so this only arises alongside another program\.
+.P
+The utility also includes a simple range test tool for use with two Ubertooth devices\. Refer to \fIRANGE TEST\fR for full details\.
+.P
+Operations that put the device into a continuous mode \(em \fB\-I\fR (identify), \fB\-q\fR (LED spectrum), \fB\-x\fR (xmas), \fB\-t\fR (TX test), \fB\-n\fR (range test), and \fB\-e\fR (repeater) \(em first stop any operation already running on that device, so each starts from a known idle state\. Stopping a mode, with \fB\-S\fR or normally by starting another, puts the board back to idle: LEDs off, channel 2441 MHz and squelch \-120 dBm\. The power amplifier level set with \fB\-a\fR is kept\. Each of them runs on the board and \fBubertooth\-util\fR returns immediately, so the board stays usable from other commands meanwhile\. \fB\-I\fR, \fB\-q\fR, \fB\-x\fR, \fB\-t\fR and \fB\-e\fR keep running until \fB\-S\fR stops them or another mode replaces them; \fB\-n\fR (range test) ends by itself when the test finishes\.
+.P
+\fB\-I\fR (identify) blinks the USR, RX and TX LEDs together, about three on\-off blinks a second, until it is stopped:
+.IP "" 4
 .nf
 ubertooth\-util \-U <serial> \-I      # start blinking
 ubertooth\-util \-U <serial> \-S      # stop; the LEDs end off
 .fi
-.RE
-.PP
-\fB\fC\-I\fR needs firmware of this tree's API version and refuses any other,
-saying so. The other options work with any firmware, so \fB\fC\-v\fR can still
-read the version and \fB\fC\-f\fR can reflash it.
-.PP
-Only one mode option can be given per command: \fB\fC\-q\fR, \fB\fC\-n\fR, \fB\fC\-e\fR, \fB\fC\-t\fR, \fB\fC\-x\fR,
-\fB\fC\-I\fR, \fB\fC\-i\fR (In\-System Programming, ISP) and \fB\fC\-f\fR (Device Firmware Upgrade,
-DFU) each end the command, so a command with two or more of them is refused
-before any device is opened, nothing is sent to the device, and the exit
-status is 1:
-.PP
-.RS
+.IP "" 0
+.P
+\fB\-I\fR needs firmware of this tree's API version and refuses any other, saying so\. The other options work with any firmware, so \fB\-v\fR can still read the version and \fB\-f\fR can reflash it\.
+.P
+Only one mode option can be given per command: \fB\-q\fR, \fB\-n\fR, \fB\-e\fR, \fB\-t\fR, \fB\-x\fR, \fB\-I\fR, \fB\-i\fR (In\-System Programming, ISP) and \fB\-f\fR (Device Firmware Upgrade, DFU) each end the command, so a command with two or more of them is refused before any device is opened, nothing is sent to the device, and the exit status is 1:
+.IP "" 4
 .nf
 $ ubertooth\-util \-q \-n
 error: options \-q \-n cannot be combined; give only one of \-q \-n \-e \-t \-x \-I \-i \-f
 .fi
-.RE
-.SH OPTIONS
-.PP
+.IP "" 0
+.SH "OPTIONS"
 Common options:
-.RS
-.IP \(bu 2
-\fB\fC\-v\fR :
+.TP
+\fB\-v\fR
 get firmware revision number; exits non\-zero if the read fails
-.IP \(bu 2
-\fB\fC\-V\fR :
+.TP
+\fB\-V\fR
 get compile info; exits non\-zero if the read fails
-.IP \(bu 2
-\fB\fC\-H\fR, \fB\fC\-\-host\-version\fR :
+.TP
+\fB\-H\fR, \fB\-\-host\-version\fR
 get host tools (libubertooth) version; works without a device
-.IP \(bu 2
-\fB\fC\-I\fR :
-identify ubertooth device by flashing the USR, RX, and TX LEDs on the board;
-the command returns at once and the blink runs until \fB\fC\-S\fR or any mode
-option ends it, leaving the LEDs off (see LEDs doc)
-.IP \(bu 2
-\fB\fC\-d [0\-1]\fR :
+.TP
+\fB\-I\fR
+identify ubertooth device by flashing the USR, RX, and TX LEDs on the board; the command returns at once and the blink runs until \fB\-S\fR or any mode option ends it, leaving the LEDs off (see LEDs doc)
+.TP
+\fB\-d [0\-1]\fR
 get/set all LEDs
-.IP \(bu 2
-\fB\fC\-l [0\-1]\fR :
+.TP
+\fB\-l [0\-1]\fR
 get/set USR LED
-.IP \(bu 2
-\fB\fC\-S\fR :
+.TP
+\fB\-S\fR
 stop current operation
-.IP \(bu 2
-\fB\fC\-r\fR :
-full reset; then waits up to 10 seconds for the same board to come back on USB before any later option runs, and exits non\-zero with \fB\fCerror: Ubertooth device <selector> did not come back within 10 s after the reset\fR if it does not. The board's serial number is read before the reset and the wait looks for that serial, whatever \fB\fC\-U\fR selected, so a later option in the same command (\fB\fC\-U 0 \-r \-b\fR) stays on the board that was reset even if the index order changed across the reset. If the serial cannot be read, the \fB\fC\-U\fR argument is waited for instead; unless it is a serial, or the only board attached is this one, a warning on stderr says later options may reach a different board
-.IP \(bu 2
-\fB\fC\-U <index|serial>\fR :
-select which Ubertooth to use, either by USB enumeration index or by its serial number string; see SELECTING A DEVICE
-.IP \(bu 2
-\fB\fC\-U all\fR :
-report the read\-only queries \fB\fC\-b\fR, \fB\fC\-v\fR, \fB\fC\-V\fR, \fB\fC\-p\fR and \fB\fC\-s\fR for every attached Ubertooth; refused with any other option; see SELECTING A DEVICE
-.RE
-.PP
+.TP
+\fB\-r\fR
+full reset; then waits up to 10 seconds for the same board to come back on USB before any later option runs, and exits non\-zero with \fBerror: Ubertooth device <selector> did not come back within 10 s after the reset\fR if it does not\. The board's serial number is read before the reset and the wait looks for that serial, whatever \fB\-U\fR selected, so a later option in the same command (\fB\-U 0 \-r \-b\fR) stays on the board that was reset even if the index order changed across the reset\. If the serial cannot be read, the \fB\-U\fR argument is waited for instead; unless it is a serial, or the only board attached is this one, a warning on stderr says later options may reach a different board
+.TP
+\fB\-U <index|serial>\fR
+select which Ubertooth to use, either by USB enumeration index or by its serial number string\. See SELECTING A DEVICE\.
+.TP
+\fB\-U all\fR
+report the read\-only queries \fB\-b\fR, \fB\-v\fR, \fB\-V\fR, \fB\-p\fR and \fB\-s\fR for every attached Ubertooth; refused with any other option\. See SELECTING A DEVICE\.
+.P
 Radio options:
-.RS
-.IP \(bu 2
-\fB\fC\-a [0\-7]\fR :
-get/set power amplifier level, 0 (lowest, \-25 dBm) to 7 (maximum, 0 dBm) at
-the CC2400 radio\. The board powers on and resets (\fB\fC\-r\fR) at level 7, the
-CC2400's own reset value (the firmware does not set it at start\-up)\.
-Receiving does not change it\. Transmit modes use the level set here and
-leave it unchanged: \fB\fC\-t\fR (TX test), Bluetooth and BLE transmit, and BLE and
-E\-GO jamming\. The range test and repeater (\fB\fC\-n\fR, \fB\fC\-e\fR) step through levels
-by design and leave the level wherever their sweep ended, so set it again
-after using them\.
-.IP \(bu 2
-\fB\fC\-c [2402\-2480]\fR :
+.TP
+\fB\-a [0\-7]\fR
+get/set power amplifier level, 0 (lowest, \-25 dBm) to 7 (maximum, 0 dBm) at the CC2400 radio\. The board powers on and resets (\fB\-r\fR) at level 7, the CC2400's own reset value (the firmware does not set it at start\-up)\. Receiving does not change it\. Transmit modes use the level set here and leave it unchanged: \fB\-t\fR (TX test), Bluetooth and BLE transmit, and BLE and E\-GO jamming\. The range test and repeater (\fB\-n\fR, \fB\-e\fR) step through levels by design and leave the level wherever their sweep ended, so set it again after using them\.
+.TP
+\fB\-c [2402\-2480]\fR
 get/set channel in MHz
-.IP \(bu 2
-\fB\fC\-C [0\-78]\fR :
+.TP
+\fB\-C [0\-78]\fR
 get/set channel
-.IP \(bu 2
-\fB\fC\-q [20\-120]\fR :
-start LED spectrum analyzer\. The threshold is \-N dBm, so a larger N lights
-the LEDs for weaker signals; 20\-120 is the radio's RSSI range, and bare
-\fB\fC\-q\fR uses \-85 dBm, which shows Wi\-Fi traffic without lighting on noise\. The TX, RX and USR LEDs stand for 2412,
-2437 and 2462 MHz\. \fB\fC\-S\fR stops it and leaves the LEDs off\.
-.IP \(bu 2
-\fB\fC\-t\fR :
+.TP
+\fB\-q [20\-120]\fR
+start LED spectrum analyzer\. The threshold is \-N dBm, so a larger N lights the LEDs for weaker signals; 20\-120 is the radio's RSSI range, and bare \fB\-q\fR uses \-85 dBm, which shows Wi\-Fi traffic without lighting on noise\. The TX, RX and USR LEDs stand for 2412, 2437 and 2462 MHz\. \fB\-S\fR stops it and leaves the LEDs off\.
+.TP
+\fB\-t\fR
 intitiate continuous transmit test
-.IP \(bu 2
-\fB\fC\-z [\-128..127]\fR :
-get/set squelch level (a signed RSSI threshold; values above 0 are relative
-to the average RSSI) for a later RX capture\.
-Stopping a running mode resets it to the default, so \fB\fC\-z\fR cannot be
-combined with a mode option (\fB\fC\-q\fR, \fB\fC\-n\fR, \fB\fC\-e\fR, \fB\fC\-t\fR, \fB\fC\-x\fR, \fB\fC\-I\fR, \fB\fC\-i\fR,
-\fB\fC\-f\fR)\.
-.RE
-.PP
+.TP
+\fB\-z [\-128\.\.127]\fR
+get/set squelch level (a signed RSSI threshold; values above 0 are relative to the average RSSI) for a later RX capture\. Stopping a running mode resets it to the default, so \fB\-z\fR cannot be combined with a mode option (\fB\-q\fR, \fB\-n\fR, \fB\-e\fR, \fB\-t\fR, \fB\-x\fR, \fB\-I\fR, \fB\-i\fR, \fB\-f\fR)\.
+.P
 Range test:
-.RS
-.IP \(bu 2
-\fB\fC\-e\fR :
+.TP
+\fB\-e\fR
 start repeater mode
-.IP \(bu 2
-\fB\fC\-m\fR :
+.TP
+\fB\-m\fR
 display range test result
-.IP \(bu 2
-\fB\fC\-n\fR :
+.TP
+\fB\-n\fR
 initiate range test
-.RE
-.PP
+.P
 Miscellaneous:
-.RS
-.IP \(bu 2
-\fB\fC\-f\fR :
+.TP
+\fB\-f\fR
 activate flash programming (DFU) mode
-.IP \(bu 2
-\fB\fC\-i\fR :
+.TP
+\fB\-i\fR
 activate In\-System Programming (ISP) mode
-.IP \(bu 2
-\fB\fC\-b\fR :
+.TP
+\fB\-b\fR
 get hardware board id number
-.IP \(bu 2
-\fB\fC\-p\fR :
-get microcontroller Part ID (32\-bit, hexadecimal); exits non\-zero if the
-device reports a nonzero status for the read
-.IP \(bu 2
-\fB\fC\-s\fR :
+.TP
+\fB\-p\fR
+get microcontroller Part ID (32\-bit, hexadecimal); exits non\-zero if the device reports a nonzero status for the read
+.TP
+\fB\-s\fR
 get microcontroller serial number
-.RE
-.SH SELECTING A DEVICE
-.PP
-With a single Ubertooth attached, the tools find it automatically and \fB\fC\-U\fR
-is unnecessary.
-.PP
-With multiple Ubertooths attached, \fB\fC\-U\fR selects one either by its
-position in the USB device list or by its serial number. \fB\fC\-U <n>\fR
-selects by index (\fB\fC\-U 0\fR is the first match, and so on); this index
-reflects USB enumeration order (bus/port and plug order) \- it is not derived
-from the serial number and is not guaranteed stable across reboots or
-re\-plugging. \fB\fC\-U <serial>\fR selects the device whose serial number
-matches the given string (\fB\fC\-s\fR prints the serials), which is stable
-across reboots and re\-plugging and is the recommended way to pin a specific
-board.
-.PP
-Index or serial is auto\-detected: an all\-digits value is treated as an
-index, anything else as a serial. See
-.BR ubertooth (7),
-OPTION VALUES, for the forms the value can take.
-.PP
-There is no fixed
-upper limit on attached devices and the index is not capped at any particular
-number (older docs showed \fB\fC\-U <0\-7>\fR, a convention only); with many
-devices prefer serial selection.
-.PP
-An index must be one that is actually attached: it is a position in the list
-of attached Ubertooths, so with \fIn\fR attached only \fB\fC\-U 0\fR to
-\fB\fC\-U <n\-1>\fR select a device. Any other index is refused before any
-device is opened, and the tool exits non\-zero:
-.PP
-.RS
+.SH "SELECTING A DEVICE"
+With a single Ubertooth attached, the tools find it automatically and \fB\-U\fR is unnecessary\.
+.P
+With \fBmultiple\fR Ubertooths attached, \fB\-U\fR selects one either by its position in the USB device list or by its serial number:
+.IP "\(bu" 4
+\fB\-U <n>\fR selects by index (\fB\-U 0\fR is the first match, \fB\-U 1\fR the second, and so on)\. This index reflects \fBUSB enumeration order\fR (bus/port and plug order) \(em it is \fBnot\fR derived from the serial number and is \fBnot guaranteed stable\fR across reboots or re\-plugging\.
+.IP "\(bu" 4
+\fB\-U <serial>\fR selects the device whose serial number matches the given string (\fB\-s\fR prints the serials)\. This is stable across reboots and re\-plugging, so it is the recommended way to pin a specific board\.
+.IP "" 0
+.P
+Index or serial is auto\-detected: an all\-digits value is treated as an index, anything else as a serial\. See ubertooth(7), OPTION VALUES, for the forms the value can take\.
+.P
+An index must be one that is actually attached: it is a position in the list of attached Ubertooths, so with \fIn\fR attached only \fB\-U 0\fR to \fB\-U <n\-1>\fR select a device\. Any other index is refused before any device is opened, and the tool exits non\-zero:
+.IP "" 4
 .nf
 $ ubertooth\-util \-U 2 \-s
 error: no Ubertooth at index 2 (2 attached)
 indexes change when boards are added or removed; select a board by serial with \-U<serial>
 could not open Ubertooth device
 .fi
-.RE
-.PP
-Indexes are positions in the list of boards attached when the command runs:
-unplugging \fB\fC\-U 0\fR makes the old \fB\fC\-U 1\fR the new \fB\fC\-U 0\fR\&. To keep targeting the same
-board, select it by serial number, in full or by its first few characters (as
-long as no other attached board's serial starts the same way).
-.PP
-This includes a nonzero index with a single Ubertooth attached (\fB\fC\-U 1\fR
-of one device is refused; use \fB\fC\-U 0\fR, or no \fB\fC\-U\fR at all). With no
-Ubertooth attached, any \fB\fC\-U <n>\fR reports that no device could be opened.
-.PP
-A digit string too large to be a device index at all is refused before the
-device list is read, naming it as given. That is the whole message, without the
-\fB\fCcould not open Ubertooth device\fR line, because no device was looked
-for:
-.PP
-.RS
+.IP "" 0
+.P
+Indexes are positions in the list of boards attached when the command runs: unplugging \fB\-U 0\fR makes the old \fB\-U 1\fR the new \fB\-U 0\fR\. To keep targeting the same board, select it by serial number, in full or by its first few characters (as long as no other attached board's serial starts the same way)\.
+.P
+This includes a nonzero index with a single Ubertooth attached (\fB\-U 1\fR of one device is refused; use \fB\-U 0\fR, or no \fB\-U\fR at all)\. With no Ubertooth attached, any \fB\-U <n>\fR reports that no device could be opened\.
+.P
+A digit string too large to be a device index at all is refused before the device list is read, naming it as given\. That is the whole message, without the \fBcould not open Ubertooth device\fR line, because no device was looked for:
+.IP "" 4
 .nf
 $ ubertooth\-util \-U 4294967296 \-s
 error: no Ubertooth at index 4294967296 (2 attached)
 indexes change when boards are added or removed; select a board by serial with \-U<serial>
 .fi
-.RE
-.PP
-A serial number need not be given in full: its first few characters are
-enough, upper or lower case. For a board whose serial is
-\fB\fC1cc001038088cb956c43ad61c52000f5\fR, \fB\fC\-U 1cc0\fR and
-\fB\fC\-U 1CC0\fR both select it.
-.PP
-If those characters start the serial of more than one attached board, the
-tool selects neither: it lists the matching serials and exits non\-zero, and a
-few more characters pick one:
-.PP
-.RS
+.IP "" 0
+.P
+There is \fBno fixed upper limit\fR on the number of attached Ubertooths: the device list is sized dynamically and the index is not capped at any particular number (older docs showed \fB\-U <0\-7>\fR, which was only a convention)\. In practice the limit is USB topology, hub bandwidth, and power \(em with many devices, prefer serial selection since indices become unwieldy and unstable\.
+.P
+A serial number need not be given in full: its \fBfirst few characters\fR are enough, upper or lower case\. For a board whose serial is \fB1cc001038088cb956c43ad61c52000f5\fR, \fB\-U 1cc0\fR and \fB\-U 1CC0\fR both select it\.
+.P
+If those characters start the serial of \fBmore than one\fR attached board, the tool selects neither: it lists the matching serials and exits non\-zero, and a few more characters pick one:
+.IP "" 4
 .nf
 $ ubertooth\-util \-U 1c \-s
 error: '1c' matches 2 Ubertooth devices: 1cc001038088cb956c43ad61c52000f5, 1cd3f0a9b4e26c1d8a7f30b5c42000f5
 select one of them by a longer prefix of its serial number
 .fi
-.RE
-.PP
-If the matching boards report the \fIsame\fP serial, no longer string can tell
-them apart, and the message says so and points at \fB\fC\-U <index>\fR instead.
-.PP
-A string that matches no attached board also exits non\-zero, with
-\fB\fCno Ubertooth found with serial matching '<string>'\fR\&.
-.PP
-A board that cannot be opened, or that does not answer the serial read, is
-skipped quietly while another board is being selected. It is reported with the
-result, because the string may well be that board's serial:
-.PP
-.RS
+.IP "" 0
+.P
+If the matching boards report the \fIsame\fR serial, no longer string can tell them apart, and the message says so and points at \fB\-U <index>\fR instead\.
+.P
+A string that matches no attached board also exits non\-zero, with \fBno Ubertooth found with serial matching '<string>'\fR\.
+.P
+A board that cannot be opened, or that does not answer the serial read, is skipped quietly while another board is being selected\. It is reported with the result, because the string may well be that board's serial:
+.IP "" 4
 .nf
 $ ubertooth\-util \-U 1cc0 \-s
 no Ubertooth found with serial matching '1cc0'
 2 attached Ubertooth devices could not be opened
 libUSB Error: Access denied (insufficient permissions)
 .fi
-.RE
-.PP
-(On Linux, that usually means the udev rules are not installed.)
-.PP
-An all\-digits string is always an index, never a serial, even when it would
-match a serial: \fB\fC\-U 05\fR asks for index 5, not for the board whose
-serial starts \fB\fC05f0\fR\&. Select that board by a longer prefix that includes
-a non\-digit (\fB\fC\-U 05f\fR), or by its full serial.
-.PP
-With several Ubertooths attached and no \fB\fC\-U\fR, the read\-only identity
-queries \fB\fC\-s\fR (serial), \fB\fC\-v\fR (firmware version), \fB\fC\-V\fR (compile
-info), \fB\fC\-p\fR (part ID) and \fB\fC\-b\fR (board ID) report every device, in
-enumeration order, instead of refusing to pick one. A single query prints one
-\fB\fC<index>: <value>\fR line per device:
-.PP
-.RS
+.IP "" 0
+.P
+(On Linux, that usually means the udev rules are not installed\.)
+.P
+An all\-digits string is always an index, never a serial, even when it would match a serial: \fB\-U 05\fR asks for index 5, not for the board whose serial starts \fB05f0\fR\. Select that board by a longer prefix that includes a non\-digit (\fB\-U 05f\fR), or by its full serial\.
+.P
+With several Ubertooths attached and no \fB\-U\fR, the read\-only identity queries \fB\-s\fR (serial), \fB\-v\fR (firmware version), \fB\-V\fR (compile info), \fB\-p\fR (part ID) and \fB\-b\fR (board ID) report every device, in enumeration order, instead of refusing to pick one\. A single query prints one \fB<index>: <value>\fR line per device:
+.IP "" 4
 .nf
 $ ubertooth\-util \-s
 0: 1cc001038088cb956c43ad61c52000f5
 1: 05f00014e380df95f4436562c32000f5
 .fi
-.RE
-.PP
-Several queries together (for example \fB\fC\-vVspb\fR) print each report line
-prefixed with the device index. A device that cannot be opened is shown as
-\fB\fC<index>: <unavailable>\fR, a failed read as \fB\fC<index>: <query read
-failed>\fR, and a query that reports an error as that error (for example
-\fB\fC<error: unknown board ID 7>\fR). The other devices are still reported, and
-the command exits non\-zero if any device failed. A failed \fB\fC\-v\fR or
-\fB\fC\-V\fR read is shown as \fB\fC<index>: <firmware read failed>\fR or
-\fB\fC<index>: <compile info read failed>\fR; a firmware version whose API
-version cannot be read is shown without it and also makes the command fail.
-Listing does not stop a mode a device is running. Any other option in the
-same command still needs \fB\fC\-U\fR\&.
-.PP
-\fB\fC\-U all\fR asks for the same listing explicitly. It works with any number
-of attached devices, including one (\fB\fC0: <value>\fR), and fails with
-\fB\fCerror: no Ubertooth devices found\fR when none is attached:
-.PP
-.RS
+.IP "" 0
+.P
+Several queries together (for example \fB\-vVspb\fR) print each report line prefixed with the device index\. A device that cannot be opened is shown as \fB<index>: <unavailable>\fR, a failed read as \fB<index>: <query read failed>\fR, and a query that reports an error as that error (for example \fB<error: unknown board ID 7>\fR)\. The other devices are still reported, and the command exits non\-zero if any device failed\. A failed \fB\-v\fR or \fB\-V\fR read is shown as \fB<index>: <firmware read failed>\fR or \fB<index>: <compile info read failed>\fR; a firmware version whose API version cannot be read is shown without it and also makes the command fail\. Listing does not stop a mode a device is running\. Any other option in the same command still needs \fB\-U\fR\.
+.P
+\fB\-U all\fR asks for the same listing explicitly\. It works with any number of attached devices, including one (\fB0: <value>\fR), and fails with \fBerror: no Ubertooth devices found\fR when none is attached:
+.IP "" 4
 .nf
 $ ubertooth\-util \-U all \-s
 0: 1cc001038088cb956c43ad61c52000f5
 .fi
-.RE
-.PP
-\fB\fC\-U all\fR only applies to the read\-only queries \fB\fC\-b\fR, \fB\fC\-v\fR,
-\fB\fC\-V\fR, \fB\fC\-p\fR and \fB\fC\-s\fR\&. Combined with any other option (a
-setter, a mode such as \fB\fC\-x\fR or \fB\fC\-q\fR, \fB\fC\-r\fR, \fB\fC\-S\fR,
-\fB\fC\-N\fR, or another read such as \fB\fC\-c\fR), or given with no query at
-all, it is refused before any device is opened:
-.PP
-.RS
+.IP "" 0
+.P
+\fB\-U all\fR only applies to the read\-only queries \fB\-b\fR, \fB\-v\fR, \fB\-V\fR, \fB\-p\fR and \fB\-s\fR\. Combined with any other option (a setter, a mode such as \fB\-x\fR or \fB\-q\fR, \fB\-r\fR, \fB\-S\fR, \fB\-N\fR, or another read such as \fB\-c\fR), or given with no query at all, it is refused before any device is opened:
+.IP "" 4
 .nf
 error: \-U all only supports the read\-only queries \-b, \-v, \-V, \-p and \-s; select one device with \-U<index|serial> for other options
 .fi
-.RE
-.PP
-Only the exact word \fB\fCall\fR has this meaning. The other tools do not
-support \fB\fC\-U all\fR; they treat it as a serial number and report that no
-device matches.
-.PP
-To tell which index or serial is which physical device: run
-\fB\fCubertooth\-util \-s\fR, or any other tool with no \fB\fC\-U\fR (with more than
-one present it lists each index with its serial number), or flash the LEDs on a given device and watch which board blinks, then stop it:
-.PP
-.RS
+.IP "" 0
+.P
+Only the exact word \fBall\fR has this meaning\. The other tools do not support \fB\-U all\fR; they treat it as a serial number and report that no device matches\.
+.P
+To tell which index or serial is which physical device:
+.IP "\(bu" 4
+Run \fBubertooth\-util \-s\fR, or any other tool with no \fB\-U\fR: with more than one Ubertooth present, the tool lists each device's index with its serial number (other tools refuse to pick one)\. Use that to map index to serial\.
+.IP "\(bu" 4
+Or flash the LEDs on a given device and watch which board blinks, then stop it:
+.IP "" 4
 .nf
-ubertooth\-util \-U 0 \-I
-ubertooth\-util \-U 0 \-S
+  ubertooth\-util \-U 0 \-I
+  ubertooth\-util \-U 0 \-S
 .fi
-.RE
-.PP
-For a stable identity across reboots, select a device by its serial number
-(\fB\fC\-U <serial> \-I\fR); unlike the index, the serial does not change.
-.SH RANGE TEST
-.PP
-Using two Ubertooth devices it is possible to perform a range test. One
-Ubertooth acts as a repeater by running:
-.PP
-.RS
+.IP "" 0
+
+.IP "" 0
+.P
+For a stable identity across reboots, select a device by its serial number (\fBubertooth\-util \-U <serial> \-I\fR); unlike the index, the serial does not change\.
+.SH "RANGE TEST"
+Using two Ubertooth devices it is possible to perform a range test\. One Ubertooth acts as a repeater by running:
+.IP "" 4
 .nf
 ubertooth\-util \-e
 .fi
-.RE
-.PP
+.IP "" 0
+.P
 A second Ubertooth (the sender) initiates the range test by running:
-.PP
-.RS
+.IP "" 4
 .nf
 ubertooth\-util \-n
 .fi
-.RE
-.PP
-During the range test the sender Ubertooth will transmit data packets at
-increasing power level, listening for repeats from the repeater
-Ubertooth. The receiving Ubertooth will validate that the received data
-was not corrupted in flight.
-.PP
-The range test results can be displayed on the sender Ubertooth's system
-by running:
-.PP
-.RS
+.IP "" 0
+.P
+During the range test the sender Ubertooth will transmit data packets at increasing power level, listening for repeats from the repeater Ubertooth\. The receiving Ubertooth will validate that the received data was not corrupted in flight\.
+.P
+The range test results can be displayed on the sender Ubertooth's system by running:
+.IP "" 4
 .nf
 ubertooth\-util \-m
 .fi
-.RE
-.PP
-Before a range test has completed since the board started, \fB\fC\-m\fR prints
-\fB\fCno range test result yet\fR and exits 0. A test whose packets did not match prints
-\fB\fCInvalid range test: mismatch on byte <n>\fR\&.
-.PP
-Note that the range test transmits the Cortex M3 microcontroller's
-serial number. If you do not wish to broadcast that information
-wirelessly, do not use the range test functionality.
-.SH EXIT STATUS
-.PP
-\fB\fCubertooth\-util\fR exits with 0 when every requested operation succeeds, including
-queries that report a nonzero value such as \fB\fC\-b\fR (board ID), \fB\fC\-c\fR (channel), or
-\fB\fC\-a\fR (power amplifier level). \fB\fC\-m\fR with no range test result yet also exits 0
-(see RANGE TEST). It exits with a nonzero status if any requested
-operation fails, even when a later operation in the same command succeeds.
-It exits with 1, without opening a device, when two or more mode options are
-given (see DESCRIPTION), when \fB\fC\-z\fR is combined with a mode option, or when an
-\fB\fC\-a\fR level is not a single digit 0\-7
-(\fB\fCerror: PA level must be a single digit 0\-7 (got <value>)\fR)\.
-The same holds
-for any other option value that is not a whole decimal number in its range
-(\fB\fC\-c\fR, \fB\fC\-C\fR, \fB\fC\-d\fR, \fB\fC\-l\fR, \fB\fC\-q\fR, \fB\fC\-z\fR), for example
-\fB\fCerror: channel must be 0\-78 (got abc)\fR\.
-It also exits with 1, without opening a device, when the command line contains
-a word that is not an option, and names it: \fB\fCerror: unexpected argument '<word>'\fR\&.
-\fB\fCubertooth\-util\fR takes no other arguments.
-.PP
-When a \fB\fC\-b\fR, \fB\fC\-c\fR, \fB\fC\-a\fR, \fB\fC\-z\fR, \fB\fC\-l\fR, \fB\fC\-d\fR, \fB\fC\-p\fR, \fB\fC\-s\fR, \fB\fC\-m\fR or \fB\fC\-9\fR read fails,
-no value line is printed on standard output, so an error code is never shown as
-a value; the other requested queries are still reported. A failed \fB\fC\-b\fR, \fB\fC\-c\fR, \fB\fC\-a\fR, \fB\fC\-z\fR, \fB\fC\-l\fR, \fB\fC\-d\fR, \fB\fC\-p\fR, \fB\fC\-s\fR, \fB\fC\-m\fR or \fB\fC\-9\fR read also prints
-\fB\fCerror: <query> read failed\fR (for example \fB\fCerror: channel read failed\fR or
-\fB\fCerror: board ID read failed\fR) on standard error, after any message from
-libubertooth. When the board returns fewer bytes than the read needs, that is
-the only line, with the counts added, for example
-\fB\fCerror: channel read failed: board returned 0 of 2 bytes\fR\.
-.SH SEE ALSO
-.PP
-.BR ubertooth (7): 
-overview of Project Ubertooth; OPTION VALUES describes how
-option values are written
-.SH AUTHOR
-.PP
-This manual page was written by Mike Ryan.
-.SH COPYRIGHT
-.PP
-.BR ubertooth-util (1) 
-is Copyright (c) 2010\-2017. This tool is released under the
-GPLv2. Refer to COPYING \[la]https://github.com/SqueakyFloors/ubertooth/blob/main/COPYING\[ra] for further details.
+.IP "" 0
+.P
+Before a range test has completed since the board started, \fB\-m\fR prints \fBno range test result yet\fR and exits 0\. A test whose packets did not match prints \fBInvalid range test: mismatch on byte <n>\fR\.
+.P
+Note that the range test transmits the Cortex M3 microcontroller's serial number\. If you do not wish to broadcast that information wirelessly, do not use the range test functionality\.
+.SH "EXIT STATUS"
+\fBubertooth\-util\fR exits with 0 when every requested operation succeeds, including queries that report a nonzero value such as \fB\-b\fR (board ID), \fB\-c\fR (channel), or \fB\-a\fR (power amplifier level)\. \fB\-m\fR with no range test result yet also exits 0 (see \fIRANGE TEST\fR)\. It exits with a nonzero status if any requested operation fails, even when a later operation in the same command succeeds\. It exits with 1, without opening a device, when two or more mode options are given (see DESCRIPTION), when \fB\-z\fR is combined with a mode option, or when an \fB\-a\fR level is not a single digit 0\-7 (\fBerror: PA level must be a single digit 0\-7 (got <value>)\fR)\. The same holds for any other option value that is not a whole decimal number in its range (\fB\-c\fR, \fB\-C\fR, \fB\-d\fR, \fB\-l\fR, \fB\-q\fR, \fB\-z\fR), for example \fBerror: channel must be 0\-78 (got abc)\fR\. It also exits with 1, without opening a device, when the command line contains a word that is not an option, and names it: \fBerror: unexpected argument '<word>'\fR\. \fBubertooth\-util\fR takes no other arguments\.
+.P
+When a \fB\-b\fR, \fB\-c\fR, \fB\-a\fR, \fB\-z\fR, \fB\-l\fR, \fB\-d\fR, \fB\-p\fR, \fB\-s\fR, \fB\-m\fR or \fB\-9\fR read fails, no value line is printed on standard output, so an error code is never shown as a value; the other requested queries are still reported\. A failed \fB\-b\fR, \fB\-c\fR, \fB\-a\fR, \fB\-z\fR, \fB\-l\fR, \fB\-d\fR, \fB\-p\fR, \fB\-s\fR, \fB\-m\fR or \fB\-9\fR read also prints \fBerror: <query> read failed\fR (for example \fBerror: channel read failed\fR or \fBerror: board ID read failed\fR) on standard error, after any message from libubertooth\. When the board returns fewer bytes than the read needs, that is the only line, with the counts added, for example \fBerror: channel read failed: board returned 0 of 2 bytes\fR\.
+.SH "SEE ALSO"
+ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how option values are written
+.SH "AUTHOR"
+This manual page was written by Mike Ryan\.
+.SH "COPYRIGHT"
+ubertooth\-util(1) is Copyright (c) 2010\-2017\. This tool is released under the GPLv2\. Refer to COPYING \fIhttps://github\.com/SqueakyFloors/ubertooth/blob/main/COPYING\fR for further details\.

@@ -2,8 +2,8 @@
 
 ## SYNOPSIS
 
-`ubertooth-specan-ui` [-U <index|serial>] [-l <freq>] [-u <freq>]
-[--wifi[=<channel(s)>]] [--padding <MHz>]
+    ubertooth-specan-ui [-U <index|serial>] [-l <freq>] [-u <freq>]
+    [--wifi[=<channel(s)>]] [--padding <MHz>]
 
 ## DESCRIPTION
 

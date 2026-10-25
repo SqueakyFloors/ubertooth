@@ -2,10 +2,10 @@
 
 ## SYNOPSIS
 
-`ubertooth-util` [-v] [-V] [-H] [--host-version] [-I] [-d [0-1]] [-l [0-1]]
-[-S] [-r] [-U <index|serial|all>] [-a [0-7]] [-c [2402-2480]] [-C [0-78]]
-[-q [20-120]] [-t] [-z [-128..127]] [-e] [-m] [-n] [-f] [-i] [-b] [-p] [-s]
-[-N] [-x] [-h]
+    ubertooth-util [-v] [-V] [-H] [--host-version] [-I] [-d [0-1]] [-l [0-1]]
+    [-S] [-r] [-U <index|serial|all>] [-a [0-7]] [-c [2402-2480]] [-C [0-78]]
+    [-q [20-120]] [-t] [-z [-128..127]] [-e] [-m] [-n] [-f] [-i] [-b] [-p] [-s]
+    [-N] [-x] [-h]
 
 ## DESCRIPTION
 

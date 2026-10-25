@@ -23,7 +23,9 @@ include(GNUInstallDirs)
 
 # The per-tool "<tool>.md" files in host/doc are the single source; the roff
 # "<tool>.1" here are generated from them with ronn and committed, so that
-# `man` and `make install` work on a machine without ronn.
+# `man` and `make install` work on a machine without ronn. A committed page
+# is exactly what a refresh writes, and a CI job checks that, so a .md edit
+# that lands without one is caught.
 #
 # A build never writes to the source tree, and never needs ronn: the committed
 # pages are the ones installed. Refreshing them is a separate, deliberate step
@@ -59,10 +61,35 @@ set(MAN_PAGES_BY_HAND
 
 set(MAN_ORGANIZATION "Project Ubertooth")
 
+# The one supported generator version. Two versions of ronn render the same
+# .md differently, so the committed pages only match what a refresh writes
+# when everyone runs this one; the CI man-page check installs exactly it.
+set(RONN_VERSION "0.10.1")
+
+# The date in the page footer. ronn defaults it to the .md's modification
+# time, which a fresh checkout sets to the time of the checkout: the pages
+# would then differ from the committed ones purely by the month they were
+# rendered in, and no check could tell that from a real change. Passing it
+# makes a refresh reproducible. Bump it when refreshing the pages for a
+# release; an ordinary .md edit does not need it moved.
+set(MAN_DATE "2026-10-25")
+
 find_program(RONN_EXECUTABLE NAMES ronn ronn-ng)
 if(RONN_EXECUTABLE)
 	message(STATUS "ronn found: refresh-manpages can regenerate the committed "
 	               "man pages from host/doc/*.md")
+	# A different version renders different roff, so say so rather than let
+	# the refresh produce a diff nobody asked for.
+	execute_process(COMMAND ${RONN_EXECUTABLE} --version
+		OUTPUT_VARIABLE ronn_version_output
+		ERROR_VARIABLE ronn_version_output
+		OUTPUT_STRIP_TRAILING_WHITESPACE)
+	if(NOT ronn_version_output MATCHES "${RONN_VERSION}")
+		message(WARNING "ronn is \"${ronn_version_output}\", but the committed "
+		                "man pages are rendered with ronn-ng ${RONN_VERSION}: "
+		                "refresh-manpages will rewrite them in this version's "
+		                "style (gem install ronn-ng -v ${RONN_VERSION})")
+	endif()
 	set(DOC_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/..")
 	set(GENERATED_MAN_PAGES "")
 	foreach(spec ${MAN_PAGES_FROM_MARKDOWN})
@@ -71,15 +98,12 @@ if(RONN_EXECUTABLE)
 		list(GET parts 1 section)
 		list(GET parts 2 manual)
 		set(generated "${CMAKE_CURRENT_BINARY_DIR}/${pg}.${section}")
-		# The committed pages were produced by go-md2man rather than ronn, so
-		# the first refresh of a page rewrites its body wholesale in ronn's
-		# style. The .TH fields stay as they are, except the date, which ronn
-		# takes from the .md's modification time: a refresh moves it.
 		add_custom_command(
 			OUTPUT "${generated}"
 			COMMAND ${RONN_EXECUTABLE} --roff --pipe
 			        "--organization=${MAN_ORGANIZATION}"
 			        "--manual=${manual}"
+			        "--date=${MAN_DATE}"
 			        "${DOC_SRC_DIR}/${pg}.md" > "${generated}"
 			DEPENDS "${DOC_SRC_DIR}/${pg}.md"
 			COMMENT "ronn: ${pg}.md -> ${pg}.${section}")
@@ -95,8 +119,8 @@ if(RONN_EXECUTABLE)
 		COMMENT "refreshing the committed man pages in host/doc/man")
 else()
 	message(STATUS "ronn not found: the committed man pages are installed as "
-	               "they are (needed only to refresh them after editing "
-	               "host/doc/*.md)")
+	               "they are (ronn-ng ${RONN_VERSION} is needed only to "
+	               "refresh them after editing host/doc/*.md)")
 	# Both targets still exist, so the documented command explains itself
 	# instead of failing with "No rule to make target". VERBATIM, so the
 	# message reaches the shell as one argument whatever it contains: without
@@ -104,7 +128,7 @@ else()
 	foreach(target manpages refresh-manpages)
 		add_custom_target(${target}
 			COMMAND ${CMAKE_COMMAND} -E echo
-			        "ronn is not installed, so nothing was rendered: install it (gem install ronn-ng) and run this again"
+			        "ronn is not installed, so nothing was rendered: install it (gem install ronn-ng -v ${RONN_VERSION}), configure again, and run this again"
 			VERBATIM)
 	endforeach()
 endif()

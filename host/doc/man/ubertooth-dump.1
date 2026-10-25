@@ -1,65 +1,39 @@
-.TH UBERTOOTH\-DUMP 1 "October 2026" "Project Ubertooth" "User Commands"
-.SH NAME
-.PP
-.BR ubertooth-dump (1) 
-\- output a continuous stream of received bits
-.SH SYNOPSIS
-.PP
-.RS
+.\" generated with Ronn-NG/v0.10.1
+.\" http://github.com/apjanke/ronn-ng/tree/0.10.1
+.TH "UBERTOOTH\-DUMP" "1" "October 2026" "Project Ubertooth" "User Commands"
+.SH "NAME"
+\fBubertooth\-dump\fR \- output a continuous stream of received bits
+.SH "SYNOPSIS"
 .nf
-ubertooth\-dump [\-b] [\-c | \-l] [\-d <filename.bin>]
+ubertooth\-dump [\-b] [\-c | \-l] [\-d <filename\.bin>]
 .fi
-.RE
-.SH DESCRIPTION
-.PP
-This tool dumps the raw bitstream received from the CC2400 radio to
-STDOUT or a file (if specified with \fB\fC\-d\fR). It can configure the radio to
-demodulate Classic Bluetooth with \fB\fC\-c\fR (default), or Bluetooth Low
-Energy (BLE) with \fB\fC\-l\fR\&. Optionally it can decode the binary data and
-print ASCII 0 and 1 using \fB\fC\-b\fR\&.
-.SH OPTIONS
-.RS
-.IP \(bu 2
-\fB\fC\-b\fR :
+.SH "DESCRIPTION"
+This tool dumps the raw bitstream received from the CC2400 radio to STDOUT or a file (if specified with \fB\-d\fR)\. It can configure the radio to demodulate Classic Bluetooth with \fB\-c\fR (default), or Bluetooth Low Energy (BLE) with \fB\-l\fR\. Optionally it can decode the binary data and print ASCII 0 and 1 using \fB\-b\fR\.
+.SH "OPTIONS"
+.TP
+\fB\-b\fR
 Print ASCII 0 and 1 instead of raw data
-.IP \(bu 2
-\fB\fC\-c\fR :
+.TP
+\fB\-c\fR
 Classic Bluetooth modulation (default)
-.IP \(bu 2
-\fB\fC\-l\fR :
+.TP
+\fB\-l\fR
 Bluetooth Low Energy (BLE) modulation
-.IP \(bu 2
-\fB\fC\-d <filename.bin>\fR :
+.TP
+\fB\-d <filename\.bin>\fR
 Dump to file instead of stdout
-.IP \(bu 2
-\fB\fC\-U <index|serial>\fR :
-select an Ubertooth by enumeration index or serial number; see
-.BR ubertooth (7),
-SELECTING A DEVICE
-.RE
-.SH ARGUMENTS
-.PP
-\fB\fCubertooth\-dump\fR takes options only. A word that is not an option, including
-a bare \fB\fC\-\fR, is refused before any device is opened and named:
-\fB\fCerror: unexpected argument '<word>'\fR, with exit status 1.
-.PP
-\fB\fC\-h\fR ends the command only once the whole command line has
-parsed, so a stray word or a bad option value is reported even
-alongside it.
-.PP
-A refused command line creates and truncates nothing: \fB\fC\-d\fR names its file
-while the command line is read, and it is opened only once every check has
-passed.
-.SH SEE ALSO
-.PP
-.BR ubertooth (7): 
-overview of Project Ubertooth; OPTION VALUES describes how
-option values are written
-.SH AUTHOR
-.PP
-This manual page was written by Mike Ryan.
-.SH COPYRIGHT
-.PP
-.BR ubertooth-dump (1) 
-is Copyright (c) 2010\-2017. This tool is released under the
-GPLv2. Refer to COPYING \[la]https://github.com/SqueakyFloors/ubertooth/blob/main/COPYING\[ra] for further details.
+.TP
+\fB\-U <index|serial>\fR
+select an Ubertooth by enumeration index or serial number; see ubertooth(7), SELECTING A DEVICE
+.SH "ARGUMENTS"
+\fBubertooth\-dump\fR takes options only\. A word that is not an option, including a bare \fB\-\fR, is refused before any device is opened and named: \fBerror: unexpected argument '<word>'\fR, with exit status 1\.
+.P
+\fB\-h\fR ends the command only once the whole command line has parsed, so a stray word or a bad option value is reported even alongside it\.
+.P
+A refused command line creates and truncates nothing: \fB\-d\fR names its file while the command line is read, and it is opened only once every check has passed\.
+.SH "SEE ALSO"
+ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how option values are written
+.SH "AUTHOR"
+This manual page was written by Mike Ryan\.
+.SH "COPYRIGHT"
+ubertooth\-dump(1) is Copyright (c) 2010\-2017\. This tool is released under the GPLv2\. Refer to COPYING \fIhttps://github\.com/SqueakyFloors/ubertooth/blob/main/COPYING\fR for further details\.

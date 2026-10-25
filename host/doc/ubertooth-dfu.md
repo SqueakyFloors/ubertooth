@@ -123,9 +123,9 @@ says what it is about to read:
 
     Reading back 114688 bytes, 0x4000-0x1ffff: part 0x25011722 (LPC1754) has 128 KiB of flash
 
-A part with 128 KiB of flash gives 114688 bytes, one with 256 KiB gives
-245760. The size comes from the part identification number, which is only
-readable while the board is still running its application: when the board is
+A part with 128 KiB of flash gives 114688 bytes, one with 256 KiB gives 245760.
+The size comes from the part identification number, which is only readable
+while the board is still running its application: when the board is
 already in the bootloader, or will not report it, the dump covers the 114688
 bytes above the bootloader that the firmware is linked for, and the line says
 so in place of a part. There is no option for a longer dump, so on a larger

@@ -1,108 +1,62 @@
-.TH UBERTOOTH\-SPECAN 1 "October 2026" "Project Ubertooth" "User Commands"
-.SH NAME
-.PP
-ubertooth\-specan(1) \- a spectrum analyzer for Ubertooth
-
-.SH SYNOPSIS
-.PP
+.\" generated with Ronn-NG/v0.10.1
+.\" http://github.com/apjanke/ronn-ng/tree/0.10.1
+.TH "UBERTOOTH\-SPECAN" "1" "October 2026" "Project Ubertooth" "User Commands"
+.SH "NAME"
+\fBubertooth\-specan\fR \- a spectrum analyzer for Ubertooth
+.SH "SYNOPSIS"
+.nf
 ubertooth\-specan [\-l <freq>] [\-u <freq>] [\-g|G] [\-d <filename>|\-]
-
-.SH DESCRIPTION
-.PP
-ubertooth\-specan(1) is a tool for using Ubertooth as a spectrum analyzer
-in the 2.4GHz band. It is often used as a helper for GUI tools, such as
-ubertooth\-specan\-ui or Spectools. It can also produce output suitable for
-user with the feedgnuplot tool.
-
-.PP
-Other options allow upper and lower bounds to be set on the frequencies
-monitored. Refer to the [OPTIONS][] section for full details.
-
-.SH OPTIONS
-.PP
+.fi
+.SH "DESCRIPTION"
+ubertooth\-specan(1) is a tool for using Ubertooth as a spectrum analyzer in the 2\.4GHz band\. It is often used as a helper for GUI tools, such as ubertooth\-specan\-ui(1) or Spectools\. It can also produce output suitable for user with the feedgnuplot tool\.
+.P
+Other options allow upper and lower bounds to be set on the frequencies monitored\. Refer to the \fIOPTIONS\fR section for full details\.
+.SH "OPTIONS"
 Options:
-.IP \(bu 2
-\fB\fC\-l <2402\-2480>\fR :
-lower frequency in MHz (default 2402); the value is required when \fB\fC\-l\fR is used
-.IP \(bu 2
-\fB\fC\-u <2402\-2480>\fR :
-upper frequency in MHz (default 2480); the value is required when \fB\fC\-u\fR is used
-and must not be lower than the selected lower frequency
-.IP \(bu 2
-\fB\fC\-g\fR :
+.TP
+\fB\-l <2402\-2480>\fR
+lower frequency in MHz (default 2402); the value is required when \fB\-l\fR is used
+.TP
+\fB\-u <2402\-2480>\fR
+upper frequency in MHz (default 2480); the value is required when \fB\-u\fR is used and must not be lower than the selected lower frequency
+.TP
+\fB\-g\fR
 format output for feedgnuplot
-.IP \(bu 2
-\fB\fC\-G\fR :
+.TP
+\fB\-G\fR
 format output for 3D feedgnuplot
-.IP \(bu 2
-\fB\fC\-d <filename>\fR :
-write the binary samples to <filename>; \fB\fC\-d \-\fR writes them to standard
-output, which must not be a terminal. See ARGUMENTS
-.IP \(bu 2
-\fB\fC\-v\fR :
+.TP
+\fB\-d <filename>\fR
+write the binary samples to \fB<filename>\fR; \fB\-d \-\fR writes them to standard output, which must not be a terminal\. See ARGUMENTS
+.TP
+\fB\-v\fR
 print verbose output to stderr
-.IP \(bu 2
-\fB\fC\-U <index|serial>\fR :
-select an Ubertooth by enumeration index or serial number; see
-.BR ubertooth (7),
-SELECTING A DEVICE
-
-.PP
-.SH EXAMPLES
-
-.PP
-To monitor the 2.4GHz band and produce a file suitable for feedgnuplot:
-
-.PP
-ubertooth\-specan \-g \-d output.dat
-
-.PP
-To monitor the upper half of the 2.4GHz band, use:
-
-.PP
+.TP
+\fB\-U <index|serial>\fR
+select an Ubertooth by enumeration index or serial number; see ubertooth(7), SELECTING A DEVICE
+.SH "EXAMPLES"
+To monitor the 2\.4GHz band and produce a file suitable for feedgnuplot:
+.P
+ubertooth\-specan \-g \-d output\.dat
+.P
+To monitor the upper half of the 2\.4GHz band, use:
+.P
 ubertooth\-specan \-l 2440
-
-.SH ARGUMENTS
-.PP
-\fB\fCubertooth\-specan\fR takes options only. A word that is not an option, including
-a bare \fB\fC\-\fR, is refused before any device is opened and named:
-\fB\fCerror: unexpected argument '<word>'\fR, with exit status 1.
-.PP
-\fB\fC\-h\fR ends the command only once the whole command line has
-parsed, so a stray word or a bad option value is reported even
-alongside it.
-.PP
-An option value must be a whole value in its range, or it is refused the same
-way instead of being read as 0, for example
-\fB\fCerror: lower frequency must be 2402\-2480 MHz (got bad)\fR\&.
-.PP
-\fB\fC\-\fR means standard output only as the whole value of \fB\fC\-d\fR\&. Any
-other value is a file name, including one that starts with \fB\fC\-\fR:
-\fB\fC\-d \-x\fR writes the file \fB\fC\-x\fR, and a forgotten file name such as
-\fB\fC\-d \-v\fR writes a file called \fB\fC\-v\fR rather than streaming samples
-to the terminal and dropping the \fB\fC\-v\fR\&.
-.PP
-\fB\fC\-d \-\fR is for a pipe or a redirect. The samples are raw 3\-byte records,
-which fill a terminal with control characters and can leave it in a strange
-state, so a terminal is refused before any device is opened:
-\fB\fCerror: stdout is a tty, refusing to write binary samples to it\fR, with
-exit status 1.
-.BR ubertooth-btle (1)
-refuses its binary capture to a terminal the same way.
-.PP
-A refused command line creates and truncates nothing: \fB\fC\-d\fR names its file
-while the command line is read, and it is opened only once every check has
-passed.
-.SH SEE ALSO
-.PP
-ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how
-option values are written
-
-.SH AUTHOR
-.PP
-This manual page was written by Dominic Spill.
-
-.SH COPYRIGHT
-.PP
-ubertooth\-specan(1) is Copyright (c) 2010\-2017. This tool is released under the
-GPLv2. Refer to COPYING \[la]https://github.com/SqueakyFloors/ubertooth/blob/main/COPYING\[ra] for further details.
+.SH "ARGUMENTS"
+\fBubertooth\-specan\fR takes options only\. A word that is not an option, including a bare \fB\-\fR, is refused before any device is opened and named: \fBerror: unexpected argument '<word>'\fR, with exit status 1\.
+.P
+\fB\-h\fR ends the command only once the whole command line has parsed, so a stray word or a bad option value is reported even alongside it\.
+.P
+An option value must be a whole value in its range, or it is refused the same way instead of being read as 0, for example \fBerror: lower frequency must be 2402\-2480 MHz (got bad)\fR\.
+.P
+\fB\-\fR means standard output only as the whole value of \fB\-d\fR\. Any other value is a file name, including one that starts with \fB\-\fR: \fB\-d \-x\fR writes the file \fB\-x\fR, and a forgotten file name such as \fB\-d \-v\fR writes a file called \fB\-v\fR rather than streaming samples to the terminal and dropping the \fB\-v\fR\.
+.P
+\fB\-d \-\fR is for a pipe or a redirect\. The samples are raw 3\-byte records, which fill a terminal with control characters and can leave it in a strange state, so a terminal is refused before any device is opened: \fBerror: stdout is a tty, refusing to write binary samples to it\fR, with exit status 1\. ubertooth\-btle(1) refuses its binary capture to a terminal the same way\.
+.P
+A refused command line creates and truncates nothing: \fB\-d\fR names its file while the command line is read, and it is opened only once every check has passed\.
+.SH "SEE ALSO"
+ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how option values are written
+.SH "AUTHOR"
+This manual page was written by Dominic Spill\.
+.SH "COPYRIGHT"
+ubertooth\-specan(1) is Copyright (c) 2010\-2017\. This tool is released under the GPLv2\. Refer to COPYING \fIhttps://github\.com/SqueakyFloors/ubertooth/blob/main/COPYING\fR for further details\.

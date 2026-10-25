@@ -1,323 +1,159 @@
-.TH UBERTOOTH\-RX 1 "October 2026" "Project Ubertooth" "User Commands"
-.SH NAME
-.PP
-ubertooth\-rx(1) \- Classic Bluetooth discovery, sniffing, and decoding
-
-.SH SYNOPSIS
-.PP
-.RS
-
+.\" generated with Ronn-NG/v0.10.1
+.\" http://github.com/apjanke/ronn-ng/tree/0.10.1
+.TH "UBERTOOTH\-RX" "1" "October 2026" "Project Ubertooth" "User Commands"
+.SH "NAME"
+\fBubertooth\-rx\fR \- Classic Bluetooth discovery, sniffing, and decoding
+.SH "SYNOPSIS"
 .nf
 ubertooth\-rx [ \-l <lap> [ \-u <uap> ] ]
 ubertooth\-rx \-z
-
 .fi
-.RE
-
-.SH DESCRIPTION
-.PP
-ubertooth\-rx(1) is the primary interface into Classic Bluetooth (BR)
-functionality provided by Ubertooth. It has two main modes of operation:
-piconet following and survey mode. In either mode, ubertooth\-rx(1) is
-able to discover undiscoverable devices. See [DISCOVERING UNDISCOVERABLE
-DEVICES][].
-
-.PP
-In piconet following mode, the tool will follow the first piconet it
-fully identifies. In survey mode the device will attempt to identify all
-piconets in a given area and display them after either a timeout or
-manual interruption.
-
-.PP
-Piconet following is the main mode entered when no arguments are passed
-to the command or a LAP and optionally a UAP are provided. If no
-arguments are passed, the tool will attempt to calculate the UAP for any
-observed LAPs. If a LAP is passed, the UAP will be calculated for that
-specific LAP. Once a LAP and UAP have been recovered, the tool will
-attempt to recover the clock value, and if that succeeds it will follow
-that piconet.
-
-.PP
-Survey mode, entered using \fB\fC\-z\fR, will record all LAPs and attempt to
-calculate the UAPs for any observed LAPs. This mode can be combined with
-a timeout using \fB\fC\-t\fR, and it can be interrupted at any time using
-\fB\fCctrl\-C\fR\&.
-
-.SH EXAMPLES
-.PP
-Follow the first piconet whose LAP, UAP, and clock are recovered from
-the air:
-
-.PP
-.RS
-
+.SH "DESCRIPTION"
+ubertooth\-rx(1) is the primary interface into Classic Bluetooth (BR) functionality provided by Ubertooth\. It has two main modes of operation: piconet following and survey mode\. In either mode, ubertooth\-rx(1) is able to discover undiscoverable devices\. See \fIDISCOVERING UNDISCOVERABLE DEVICES\fR\.
+.P
+In piconet following mode, the tool will follow the first piconet it fully identifies\. In survey mode the device will attempt to identify all piconets in a given area and display them after either a timeout or manual interruption\.
+.P
+Piconet following is the main mode entered when no arguments are passed to the command or a LAP and optionally a UAP are provided\. If no arguments are passed, the tool will attempt to calculate the UAP for any observed LAPs\. If a LAP is passed, the UAP will be calculated for that specific LAP\. Once a LAP and UAP have been recovered, the tool will attempt to recover the clock value, and if that succeeds it will follow that piconet\.
+.P
+Survey mode, entered using \fB\-z\fR, will record all LAPs and attempt to calculate the UAPs for any observed LAPs\. This mode can be combined with a timeout using \fB\-t\fR, and it can be interrupted at any time using \fBctrl\-C\fR\.
+.SH "EXAMPLES"
+Follow the first piconet whose LAP, UAP, and clock are recovered from the air:
+.IP "" 4
 .nf
 ubertooth\-rx
-
 .fi
-.RE
-
-.PP
+.IP "" 0
+.P
 For a given LAP, calculate the UAP and recover the clock, then follow:
-
-.PP
-.RS
-
+.IP "" 4
 .nf
 ubertooth\-rx \-l 112233
-
 .fi
-.RE
-
-.PP
+.IP "" 0
+.P
 For a given LAP and UAP, recover the clock then follow:
-
-.PP
-.RS
-
+.IP "" 4
 .nf
 ubertooth\-rx \-l 112233 \-u ab
-
 .fi
-.RE
-
-.PP
-Enter survey mode for 20 seconds, and print out the BD ADDRs of all
-observed piconets:
-
-.PP
-.RS
-
+.IP "" 0
+.P
+Enter survey mode for 20 seconds, and print out the BD ADDRs of all observed piconets:
+.IP "" 4
 .nf
 ubertooth\-rx \-z \-t 20
-
 .fi
-.RE
-
-.PP
+.IP "" 0
+.P
 Decode a capture saved earlier, writing a PCAP of it:
-
-.PP
-.RS
-
+.IP "" 4
 .nf
-ubertooth\-rx \-i capture.bin \-q capture.pcap
-
+ubertooth\-rx \-i capture\.bin \-q capture\.pcap
 .fi
-.RE
-
-.SH OPTIONS
-.PP
+.IP "" 0
+.SH "OPTIONS"
 Major modes:
-.IP \(bu 2
-
-.PP
-\fB\fC\-l <lap>\fR :
-Limit UAP recovery, clock recovery, and piconet following to a given
-LAP. Format is 3 bytes / 6 hex characters.
-.IP \(bu 2
-
-.PP
-\fB\fC\-u <uap>\fR :
-Limit clock recovery and piconet following to a given UAP. Must be
-used in conjunction with \fB\fC\-l\fR\&. Format is 1 byte / 2 hex characters.
-.IP \(bu 2
-
-.PP
-\fB\fC\-z\fR :
-Survey mode: recover all LAP and UAP pairs and display them. Will run
-indefinitely until interrupted with \fB\fCctrl\-C\fR unless paired with \fB\fC\-t\fR\&.
-
-.PP
+.TP
+\fB\-l <lap>\fR
+Limit UAP recovery, clock recovery, and piconet following to a given LAP\. Format is 3 bytes / 6 hex characters\.
+.TP
+\fB\-u <uap>\fR
+Limit clock recovery and piconet following to a given UAP\. Must be used in conjunction with \fB\-l\fR\. Format is 1 byte / 2 hex characters\.
+.TP
+\fB\-z\fR
+Survey mode: recover all LAP and UAP pairs and display them\. Will run indefinitely until interrupted with \fBctrl\-C\fR unless paired with \fB\-t\fR\.
+.P
 Options:
-.IP \(bu 2
-
-.PP
-\fB\fC\-i <input>\fR :
-Replay a capture saved earlier with \fB\fC\-d\fR (or with \fB\fCubertooth\-dump \-f\fR)
-instead of capturing live with an Ubertooth. See [REPLAYING A SAVED
-CAPTURE][].
-.IP \(bu 2
-
-.PP
-\fB\fC\-c <0\-78>\fR :
-Fixed channel for all major modes. If not specified will sweep
-through all channels.
-.IP \(bu 2
-
-.PP
-\fB\fC\-e <0\-5>\fR :
-Maximum access code bit errors. [Default: 2]
-.IP \(bu 2
-
-.PP
-\fB\fC\-t <seconds>\fR :
-Timeout in seconds. If not specified will run indefinitely. Suggested
-values for \fB\fC\-z\fR: 20\-60 seconds.
-
-.PP
+.TP
+\fB\-i <input>\fR
+Replay a capture saved earlier with \fB\-d\fR (or with \fBubertooth\-dump \-f\fR) instead of capturing live with an Ubertooth\. See \fIREPLAYING A SAVED CAPTURE\fR\.
+.TP
+\fB\-c <0\-78>\fR
+Fixed channel for all major modes\. If not specified will sweep through all channels\.
+.TP
+\fB\-e <0\-5>\fR
+Maximum access code bit errors\. [Default: 2]
+.TP
+\fB\-t <seconds>\fR
+Timeout in seconds\. If not specified will run indefinitely\. Suggested values for \fB\-z\fR: 20\-60 seconds\.
+.P
 Output options:
-.IP \(bu 2
-\fB\fC\-r <file.pcapng>\fR :
+.TP
+\fB\-r <file\.pcapng>\fR
 Capture packets to PcapNG
-.IP \(bu 2
-\fB\fC\-q <file.pcap>\fR :
+.TP
+\fB\-q <file\.pcap>\fR
 Capture packets to PCAP
-.IP \(bu 2
-\fB\fC\-d <file.bin>\fR :
-Capture packets to binary file suitable for use with \fB\fC\-i\fR\&.
-
-.PP
+.TP
+\fB\-d <file\.bin>\fR
+Capture packets to binary file suitable for use with \fB\-i\fR\.
+.P
 Miscellaneous:
-.IP \(bu 2
-
-.PP
-\fB\fC\-V\fR :
+.TP
+\fB\-V\fR
 Version information
-.IP \(bu 2
-
-.PP
-\fB\fC\-s\fR :
-Deprecated no\-op. Sweep mode is now the default; this flag is retained
-for backward compatibility and has no effect.
-.IP \(bu 2
-
-.PP
-\fB\fC\-U <index|serial>\fR :
-select an Ubertooth by enumeration index or serial number; see
-.BR ubertooth (7),
-SELECTING A DEVICE
-
-.SH DISCOVERING UNDISCOVERABLE DEVICES
-.PP
-Classic Bluetooth piconets are defined by the Lower Address Part (LAP)
-and Upper Address Part (UAP) of the master device. These are elements
-of the master device's Bluetooth Address (BD ADDR).
-
-.PP
+.TP
+\fB\-s\fR
+Deprecated no\-op\. Sweep mode is now the default; this flag is retained for backward compatibility and has no effect\.
+.TP
+\fB\-U <index|serial>\fR
+select an Ubertooth by enumeration index or serial number; see ubertooth(7), SELECTING A DEVICE
+.SH "DISCOVERING UNDISCOVERABLE DEVICES"
+Classic Bluetooth piconets are defined by the Lower Address Part (LAP) and Upper Address Part (UAP) of the master device\. These are elements of the master device's Bluetooth Address (BD ADDR)\.
+.P
 Consider the following BD ADDR:
-
-.PP
-.RS
-
+.IP "" 4
 .nf
 22:44:66:88:AA:BB
-
 .fi
-.RE
-
-.PP
-The lower address part (LAP) is the lower 24 bits, so \fB\fC88:AA:BB\fR\&. In the
-context of this tool, the value is written \fB\fC88AABB\fR\&. The upper address
-part is the next 8 bits, so \fB\fC66\fR\&. The \fB\fC22:44\fR is called the
-Non\-significant Address Part (NAP) and as you might imagine it is not
-significant.
-
-.PP
-In piconet following mode, the tool will recover LAP values from the air
-and attempt to calculate the UAP from those. It will go on to follow the
-piconet if it can recover the clock value. In survey mode, the tool will
-simply recover LAP and UAP values.
-
-.PP
-To convert LAP + UAP pairs back into Bluetooth addresses, do the reverse
-of the above. For example, if the tool recovers a LAP of 36A2B4 and a
-UAP of 98, the associated Bluetooth address is \fB\fC??:??:98:36:A2:B4\fR\&. Any
-value can be substituted into the ?? slots and most Bluetooth tools will
-still work. For example, \fB\fChcitool name 00:00:98:36:A2:B4\fR will establish
-a connection to the device and return its name.
-
-.PP
-This attack works against discoverable and undiscoverable devices alike.
-
-.SH REPLAYING A SAVED CAPTURE
-.PP
-Record the raw packets once with \fB\fC\-d <file.bin>\fR, then decode them as often
-as you like with \fB\fC\-i <file.bin>\fR, without the Ubertooth or the piconet. Use it
-to decode again with other options (the \fB\fC\-l\fR/\fB\fC\-u\fR you have since learned, or a
-different \fB\fC\-e\fR), to analyse on another machine, to attach a capture to a bug
-report, or as fixed input for tests:
-.PP
-.RS
+.IP "" 0
+.P
+The lower address part (LAP) is the lower 24 bits, so \fB88:AA:BB\fR\. In the context of this tool, the value is written \fB88AABB\fR\. The upper address part is the next 8 bits, so \fB66\fR\. The \fB22:44\fR is called the Non\-significant Address Part (NAP) and as you might imagine it is not significant\.
+.P
+In piconet following mode, the tool will recover LAP values from the air and attempt to calculate the UAP from those\. It will go on to follow the piconet if it can recover the clock value\. In survey mode, the tool will simply recover LAP and UAP values\.
+.P
+To convert LAP + UAP pairs back into Bluetooth addresses, do the reverse of the above\. For example, if the tool recovers a LAP of 36A2B4 and a UAP of 98, the associated Bluetooth address is \fB??:??:98:36:A2:B4\fR\. Any value can be substituted into the ?? slots and most Bluetooth tools will still work\. For example, \fBhcitool name 00:00:98:36:A2:B4\fR will establish a connection to the device and return its name\.
+.P
+This attack works against discoverable and undiscoverable devices alike\.
+.SH "REPLAYING A SAVED CAPTURE"
+Record the raw packets once with \fB\-d <file\.bin>\fR, then decode them as often as you like with \fB\-i <file\.bin>\fR, without the Ubertooth or the piconet\. Use it to decode again with other options (the \fB\-l\fR/\fB\-u\fR you have since learned, or a different \fB\-e\fR), to analyse on another machine, to attach a capture to a bug report, or as fixed input for tests:
+.IP "" 4
 .nf
-ubertooth\-rx \-d capture.bin                    # live, saving raw packets
-ubertooth\-rx \-i capture.bin \-l 446688 \-u 22    # later, no device needed
+ubertooth\-rx \-d capture\.bin                    # live, saving raw packets
+ubertooth\-rx \-i capture\.bin \-l 446688 \-u 22    # later, no device needed
 .fi
-.RE
-.PP
-With \fB\fC\-i <file>\fR, ubertooth\-rx(1) decodes the records of a saved capture
-instead of opening a device: each record holds the host time the packet
-was received and the packet as the Ubertooth delivered it. No device is
-needed, and the decoding options (\fB\fC\-l\fR, \fB\fC\-u\fR, \fB\fC\-z\fR, \fB\fC\-e\fR) work as they
-do on live data. \fB\fC\-c\fR and \fB\fC\-t\fR have no effect on a replay.
-
-.PP
-The times reported are the recorded ones, not the time of the replay. The
-\fB\fCsystime\fR of each packet line is the host time stored with that record, a
-capture written with \fB\fC\-q\fR or \fB\fC\-r\fR starts from the host time of the first
-record it decodes and follows the Ubertooth clock from there, and \fB\fC\-d\fR
-writes the records back out with their original times.
-
-.PP
-A replay that reaches the end of the file exits 0, including for an empty
-file. These two are reported on standard error and exit 1, after whatever
-was decoded:
-.IP \(bu 2
-
-.PP
-a file that cannot be read, for example a directory:
-\fB\fCerror: reading <file> failed: Is a directory\fR
-.IP \(bu 2
-
-.PP
-a last record cut short:
-\fB\fCerror: <file> ends in a partial record: 58 of 68 bytes, ignored\fR
-
-.PP
-A file that cannot be opened at all is reported on standard output with
-the usage text, as before: \fB\fCCould not open file <file>\fR, exit 1.
-
-.SH ARGUMENTS
-.PP
-\fB\fCubertooth\-rx\fR takes options only. A word that is not an option, including
-a bare \fB\fC\-\fR, is refused before any device is opened and named:
-\fB\fCerror: unexpected argument '<word>'\fR, with exit status 1.
-.PP
-\fB\fC\-h\fR and \fB\fC\-V\fR end the command only once the whole command line has
-parsed, so a stray word or a bad option value is reported even
-alongside them.
-.PP
-An option value must be a whole value in its range, or it is refused the same
-way instead of being read as 0, for example
-\fB\fCerror: channel must be 0\-78 (got 79)\fR\&.
-.PP
-An option combination the tool cannot carry out is refused there too, before
-any device is opened, so the message never depends on which boards are
-attached: \fB\fC\-u\fR without \fB\fC\-l\fR gives
-\fB\fCerror: \-u <UAP> requires \-l <LAP>\fR\&.
-.PP
-A refused command line creates and truncates nothing: \fB\fC\-r\fR, \fB\fC\-q\fR
-and \fB\fC\-d\fR name their file while the command line is read, and it is
-opened only once every check has passed.
-.SH SEE ALSO
-.PP
-ubertooth\-scan(1): active device scanning and inquiry using Ubertooth
-and BlueZ
-
-.PP
-ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how
-option values are written
-
-.PP
-D. Spill and A. Bittau. "BlueSniff: Eve Meets Alice and Bluetooth."
-USENIX WOOT 2007.
-
-.SH AUTHOR
-.PP
-This manual page was written by Mike Ryan.
-
-.SH COPYRIGHT
-.PP
-ubertooth\-rx(1) is Copyright (c) 2010\-2017 Michael Ossmann, Dominic
-Spill, and others. This tool is released under the GPLv2. Refer to
-COPYING \[la]https://github.com/SqueakyFloors/ubertooth/blob/main/COPYING\[ra] for further details.
+.IP "" 0
+.P
+With \fB\-i <file>\fR, ubertooth\-rx(1) decodes the records of a saved capture instead of opening a device: each record holds the host time the packet was received and the packet as the Ubertooth delivered it\. No device is needed, and the decoding options (\fB\-l\fR, \fB\-u\fR, \fB\-z\fR, \fB\-e\fR) work as they do on live data\. \fB\-c\fR and \fB\-t\fR have no effect on a replay\.
+.P
+The times reported are the recorded ones, not the time of the replay\. The \fBsystime\fR of each packet line is the host time stored with that record, a capture written with \fB\-q\fR or \fB\-r\fR starts from the host time of the first record it decodes and follows the Ubertooth clock from there, and \fB\-d\fR writes the records back out with their original times\.
+.P
+A replay that reaches the end of the file exits 0, including for an empty file\. These two are reported on standard error and exit 1, after whatever was decoded:
+.TP
+a file that cannot be read, for example a directory
+\fBerror: reading <file> failed: Is a directory\fR
+.TP
+a last record cut short
+\fBerror: <file> ends in a partial record: 58 of 68 bytes, ignored\fR
+.P
+A file that cannot be opened at all is reported on standard output with the usage text, as before: \fBCould not open file <file>\fR, exit 1\.
+.SH "ARGUMENTS"
+\fBubertooth\-rx\fR takes options only\. A word that is not an option, including a bare \fB\-\fR, is refused before any device is opened and named: \fBerror: unexpected argument '<word>'\fR, with exit status 1\.
+.P
+\fB\-h\fR and \fB\-V\fR end the command only once the whole command line has parsed, so a stray word or a bad option value is reported even alongside them\.
+.P
+An option value must be a whole value in its range, or it is refused the same way instead of being read as 0, for example \fBerror: channel must be 0\-78 (got 79)\fR\.
+.P
+An option combination the tool cannot carry out is refused there too, before any device is opened, so the message never depends on which boards are attached: \fB\-u\fR without \fB\-l\fR gives \fBerror: \-u <UAP> requires \-l <LAP>\fR\.
+.P
+A refused command line creates and truncates nothing: \fB\-r\fR, \fB\-q\fR and \fB\-d\fR name their file while the command line is read, and it is opened only once every check has passed\.
+.SH "SEE ALSO"
+ubertooth\-scan(1): active device scanning and inquiry using Ubertooth and BlueZ
+.P
+ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how option values are written
+.P
+D\. Spill and A\. Bittau\. "BlueSniff: Eve Meets Alice and Bluetooth\." USENIX WOOT 2007\.
+.SH "AUTHOR"
+This manual page was written by Mike Ryan\.
+.SH "COPYRIGHT"
+ubertooth\-rx(1) is Copyright (c) 2010\-2017 Michael Ossmann, Dominic Spill, and others\. This tool is released under the GPLv2\. Refer to COPYING \fIhttps://github\.com/SqueakyFloors/ubertooth/blob/main/COPYING\fR for further details\.

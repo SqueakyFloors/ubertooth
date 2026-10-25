@@ -1,193 +1,82 @@
-.TH UBERTOOTH\-DFU 1 "October 2026" "Project Ubertooth" "User Commands"
-.SH NAME
-.PP
-.BR ubertooth-dfu (1) 
-\- Device firmware update for Ubertooth
-.SH SYNOPSIS
-.PP
+.\" generated with Ronn-NG/v0.10.1
+.\" http://github.com/apjanke/ronn-ng/tree/0.10.1
+.TH "UBERTOOTH\-DFU" "1" "October 2026" "Project Ubertooth" "User Commands"
+.SH "NAME"
+\fBubertooth\-dfu\fR \- Device firmware update for Ubertooth
+.SH "SYNOPSIS"
 To update firmware, run:
-.PP
-.RS
+.IP "" 4
 .nf
-ubertooth\-dfu \-d bluetooth_rxtx.dfu \-r
+ubertooth\-dfu \-d bluetooth_rxtx\.dfu \-r
 .fi
-.RE
-.SH DESCRIPTION
-.PP
-.BR ubertooth-dfu (1) 
-is a utility for updating firmware on Ubertooth. It can
-also download the currently running firmware from the device.
-.PP
-Running the upload or download command automatically resets the device
-into the firmware update bootloader. The USB ID of the Ubertooth will
-change in the bootloader, and this may cause problems when attempting to
-update firmware from inside a VM.
-.PP
-The application\-to\-DFU transition checks the device command, closes the
-application handle without sending a conflicting stop command, and follows
-the selected device by its physical USB bus/port path. If DFU does not appear,
-the tool makes two bounded five\-second entry attempts when the application
-device is available again. Flushed monotonic stage timing identifies time spent
-in entry, programming, reset, and cleanup. It refuses to choose between
-multiple devices already in DFU mode.
-.PP
-Every wait for the bootloader is bounded. Before each operation the tool asks
-the bootloader for its DFU state and drives it to the idle state, aborting a
-half\-finished transfer or clearing an error state as needed. A bootloader that
-does not answer that question, or that never becomes idle, ends the command
-with a line naming what it last reported and exit status 1; a board that
-answers nothing at all usually needs a USB power cycle.
-.PP
-\fB\fC\-d\fR checks the whole image before the board is asked to leave its
-application: the 16\-byte DFU suffix and its length, the DFU version, the
-\fB\fCUFD\fR signature, a non\-empty payload, the suffix CRC, and the suffix
-\fB\fCidVendor\fR and \fB\fCidProduct\fR, which must name this device (\fB\fC1d50:6003\fR) or be
-the \fB\fC0xffff\fR wildcard. With \fB\fC\-r\fR the expected firmware revision is read from
-the image at the same time. A file that fails any of these is reported and the
-command ends with exit status 1 without opening a device, so the board keeps
-running its firmware. If a later step fails once the board is already in DFU
-and \fB\fC\-r\fR was given, the tool detaches it anyway, reopening the DFU device on
-the same physical path when the failure closed the handle, so the board returns
-to its application. A board that never answered in DFU at all cannot be
-detached, and then needs another \fB\fCubertooth\-dfu\fR run or a power cycle. A reset
-the bootloader refuses is reported and fails the command instead of exiting 0
-with the board still in DFU; a reset it accepts but does not act on is caught
-only by the \fB\fC\-d ... \-r\fR verification below.
-.PP
-The detach request can fail because the bootloader resets while it is still in
-flight, which on macOS is what every reset that worked looks like. No status
-from that request is read as a verdict: the tool looks for the DFU device on
-the same physical path again, and reports the board as still in DFU only when
-it is still there. Once it has gone, the run carries on to the \fB\fC\-d ... \-r\fR
-verification, which decides whether the flash succeeded.
-.PP
-If a transfer fails, in either direction, the tool closes the stale handle,
-reopens and claims the DFU device on the same physical path, restores its DFU
-state, and retries the whole transfer once from its first block. A transfer
-that fails twice ends the command with exit status 1. With \fB\fC\-d ... \-r\fR,
-it extracts the expected revision from the image and does not return success
-until the application on that same path reports the exact revision. Images
-used with automatic verification must contain the normal
-\fB\fCubertooth <revision> (\fR compile\-information marker.
-.PP
-With multiple Ubertooths, flash them sequentially using \fB\fC\-U <serial>\fR and
-verify each device before starting the next. DFU mode does not expose a serial
-number, so an explicit selector never adopts an unidentified device that was
-already in DFU when the command started. Simultaneous flashing is not yet
-supported or validated.
-.PP
-\fB\fC\-s\fR and \fB\fC\-d\fR only read the file they are given, so a firmware image in a
-read\-only location can be signed or flashed. \fB\fC\-s <file.bin>\fR writes
-\fB\fC<file>.dfu\fR, and refuses an input that already ends in a DFU suffix: signing
-it again would bury the first suffix in the firmware payload. Nothing is
-written in that case.
-.PP
-Both read their whole file into memory, so what the file is comes first. A
-directory, a FIFO or a device node is refused (\fB\fCerror: <file> is not a
-regular file\fR): its length says nothing about what a read would return. So is
-a file too large to be an image (\fB\fCerror: <file> is <n> bytes; an Ubertooth
-image is at most 507920\fR). \fB\fC\-d\fR takes at most 507920 bytes, which is
-the flash above the bootloader on the largest part this host knows plus the
-16\-byte suffix, and \fB\fC\-s\fR takes 507904, the same less the suffix it
-adds, so the file it writes is one \fB\fC\-d\fR still accepts. Either refusal
-ends the command with exit status 1 before any device is opened, and with
-\fB\fC\-s\fR before the output file is created.
-.PP
-In the DFU bootloader, the TX, RX, and USR LEDs will turn on and off in
-sequence. If this does not occur, you can try to manually force the
-device to boot into the bootloader. Refer to [MANUALLY ENTERING
-BOOTLOADER][].
-.SH OPTIONS
-.PP
+.IP "" 0
+.SH "DESCRIPTION"
+ubertooth\-dfu(1) is a utility for updating firmware on Ubertooth\. It can also download the currently running firmware from the device\.
+.P
+Running the upload or download command automatically resets the device into the firmware update bootloader\. The USB ID of the Ubertooth will change in the bootloader, and this may cause problems when attempting to update firmware from inside a VM\.
+.P
+The application\-to\-DFU transition checks the device command, closes the application handle without sending a conflicting stop command, and follows the selected device by its physical USB bus/port path\. If DFU does not appear, the tool makes two bounded five\-second entry attempts when the application device is available again\. Flushed monotonic stage timing identifies time spent in entry, programming, reset, and cleanup\. It refuses to choose between multiple devices already in DFU mode\.
+.P
+Every wait for the bootloader is bounded\. Before each operation the tool asks the bootloader for its DFU state and drives it to the idle state, aborting a half\-finished transfer or clearing an error state as needed\. A bootloader that does not answer that question, or that never becomes idle, ends the command with a line naming what it last reported and exit status 1; a board that answers nothing at all usually needs a USB power cycle\.
+.P
+\fB\-d\fR checks the whole image before the board is asked to leave its application: the 16\-byte DFU suffix and its length, the DFU version, the \fBUFD\fR signature, a non\-empty payload, the suffix CRC, and the suffix \fBidVendor\fR and \fBidProduct\fR, which must name this device (\fB1d50:6003\fR) or be the \fB0xffff\fR wildcard\. With \fB\-r\fR the expected firmware revision is read from the image at the same time\. A file that fails any of these is reported and the command ends with exit status 1 without opening a device, so the board keeps running its firmware\. If a later step fails once the board is already in DFU and \fB\-r\fR was given, the tool detaches it anyway, reopening the DFU device on the same physical path when the failure closed the handle, so the board returns to its application\. A board that never answered in DFU at all cannot be detached, and then needs another \fBubertooth\-dfu\fR run or a power cycle\. A reset the bootloader refuses is reported and fails the command instead of exiting 0 with the board still in DFU; a reset it accepts but does not act on is caught only by the \fB\-d \|\.\|\.\|\. \-r\fR verification below\.
+.P
+The detach request can fail because the bootloader resets while it is still in flight, which on macOS is what every reset that worked looks like\. No status from that request is read as a verdict: the tool looks for the DFU device on the same physical path again, and reports the board as still in DFU only when it is still there\. Once it has gone, the run carries on to the \fB\-d \|\.\|\.\|\. \-r\fR verification, which decides whether the flash succeeded\.
+.P
+If a transfer fails, in either direction, the tool closes the stale handle, reopens and claims the DFU device on the same physical path, restores its DFU state, and retries the whole transfer once from its first block\. A transfer that fails twice ends the command with exit status 1\. With \fB\-d \|\.\|\.\|\. \-r\fR, it extracts the expected revision from the image and does not return success until the application on that same path reports the exact revision\. Images used with automatic verification must contain the normal \fBubertooth <revision> (\fR compile\-information marker\.
+.P
+With multiple Ubertooths, flash them sequentially using \fB\-U <serial>\fR and verify each device before starting the next\. DFU mode does not expose a serial number, so an explicit selector never adopts an unidentified device that was already in DFU when the command started\. Simultaneous flashing is not yet supported or validated\.
+.P
+\fB\-s\fR and \fB\-d\fR only read the file they are given, so a firmware image in a read\-only location can be signed or flashed\. \fB\-s <file\.bin>\fR writes \fB<file>\.dfu\fR, and refuses an input that already ends in a DFU suffix: signing it again would bury the first suffix in the firmware payload\. Nothing is written in that case\.
+.P
+Both read their whole file into memory, so what the file is comes first\. A directory, a FIFO or a device node is refused (\fBerror: <file> is not a regular file\fR): its length says nothing about what a read would return\. So is a file too large to be an image (\fBerror: <file> is <n> bytes; an Ubertooth image is at most 507920\fR)\. \fB\-d\fR takes at most 507920 bytes, which is the flash above the bootloader on the largest part this host knows plus the 16\-byte suffix, and \fB\-s\fR takes 507904, the same less the suffix it adds, so the file it writes is one \fB\-d\fR still accepts\. Either refusal ends the command with exit status 1 before any device is opened, and with \fB\-s\fR before the output file is created\.
+.P
+In the DFU bootloader, the TX, RX, and USR LEDs will turn on and off in sequence\. If this does not occur, you can try to manually force the device to boot into the bootloader\. Refer to \fIMANUALLY ENTERING BOOTLOADER\fR\.
+.SH "OPTIONS"
 Major modes:
-.RS
-.IP \(bu 2
-\fB\fC\-d <firmware.dfu>\fR :
+.TP
+\fB\-d <firmware\.dfu>\fR
 Download \- write DFU file to device
-.IP \(bu 2
-\fB\fC\-u <output.bin>\fR :
-Upload \- read the application flash region, as much of it as the part has,
-into a raw file (see [READING FLASH BACK][])
-.IP \(bu 2
-\fB\fC\-r\fR :
+.TP
+\fB\-u <output\.bin>\fR
+Upload \- read the application flash region, as much of it as the part has, into a raw file (see \fIREADING FLASH BACK\fR)
+.TP
+\fB\-r\fR
 Reset device after performing operation
-.RE
-.PP
+.P
 Miscellaneous:
-.RS
-.IP \(bu 2
-\fB\fC\-s <file.bin>\fR :
+.TP
+\fB\-s <file\.bin>\fR
 Add DFU suffix to binary firmware file
-.IP \(bu 2
-\fB\fC\-U <index|serial>\fR :
-select the application\-mode Ubertooth by enumeration index or serial
-number; see
-.BR ubertooth (7),
-SELECTING A DEVICE
-.RE
-.SH READING FLASH BACK
-.PP
-\fB\fC\-u <output.bin>\fR is not the inverse of \fB\fC\-d\fR: it writes a raw dump of the
-application flash region, from 0x4000 to the end of the part's flash, with no
-DFU suffix, so \fB\fC\-d\fR refuses the result. The dump holds the image that was
-written (its own suffix included, padded with 0xff to the next 256\-byte
-block), followed by whatever the rest of the region contains, normally 0xff.
-.PP
-How long that is depends on the part, which differs between boards, so the command
-says what it is about to read:
-.PP
-.RS
+.TP
+\fB\-U <index|serial>\fR
+select the application\-mode Ubertooth by enumeration index or serial number; see ubertooth(7), SELECTING A DEVICE
+.SH "READING FLASH BACK"
+\fB\-u <output\.bin>\fR is not the inverse of \fB\-d\fR: it writes a raw dump of the application flash region, from 0x4000 to the end of the part's flash, with no DFU suffix, so \fB\-d\fR refuses the result\. The dump holds the image that was written (its own suffix included, padded with 0xff to the next 256\-byte block), followed by whatever the rest of the region contains, normally 0xff\.
+.P
+How long that is depends on the part, which differs between boards, so the command says what it is about to read:
+.IP "" 4
 .nf
 Reading back 114688 bytes, 0x4000\-0x1ffff: part 0x25011722 (LPC1754) has 128 KiB of flash
 .fi
-.RE
-.PP
-A part with 128 KiB of flash gives 114688 bytes, one with 256 KiB gives
-245760. The size comes from the part identification number, which is only
-readable while the board is still running its application: when the board is
-already in the bootloader, or will not report it, the dump covers the 114688
-bytes above the bootloader that the firmware is linked for, and the line says
-so in place of a part. There is no option for a longer dump, so on a larger
-part that was already in the bootloader the shorter dump is all there is; let
-the tool enter DFU itself to get the whole region. The assumption has a limit
-the other way too: a board with a smaller part than that, already in the
-bootloader so its part cannot be read, would still be asked for more flash
-than it has. Asking for more than the
-part has is what the bootloader cannot survive: it answers a read from any
-address below 512 KiB, and a read with no flash behind it faults it until the
-board is power\-cycled.
-.PP
-To compare a dump with the image it came from, compare the first bytes and
-check that the rest is padding, for example:
-.PP
-.RS
+.IP "" 0
+.P
+A part with 128 KiB of flash gives 114688 bytes, one with 256 KiB gives 245760\. The size comes from the part identification number, which is only readable while the board is still running its application: when the board is already in the bootloader, or will not report it, the dump covers the 114688 bytes above the bootloader that the firmware is linked for, and the line says so in place of a part\. There is no option for a longer dump, so on a larger part that was already in the bootloader the shorter dump is all there is; let the tool enter DFU itself to get the whole region\. The assumption has a limit the other way too: a board with a smaller part than that, already in the bootloader so its part cannot be read, would still be asked for more flash than it has\. Asking for more than the part has is what the bootloader cannot survive: it answers a read from any address below 512 KiB, and a read with no flash behind it faults it until the board is power\-cycled\.
+.P
+To compare a dump with the image it came from, compare the first bytes and check that the rest is padding, for example:
+.IP "" 4
 .nf
-ubertooth\-dfu \-U <serial> \-u readback.bin \-r
-cmp \-n $(stat \-f%z bluetooth_rxtx.dfu) bluetooth_rxtx.dfu readback.bin
+ubertooth\-dfu \-U <serial> \-u readback\.bin \-r
+cmp \-n $(stat \-f%z bluetooth_rxtx\.dfu) bluetooth_rxtx\.dfu readback\.bin
 .fi
-.RE
-.PP
-On Linux use \fB\fCstat \-c%s\fR\&. The output file is only replaced once a complete dump
-has arrived: a read\-back that fails part\-way leaves an earlier file of the same
-name untouched, names the block that would not read, and exits 1. Like
-\fB\fC\-d\fR, it is retried once from the first block before the command gives up.
-Whichever way the command ends on its own, including a \fB\fC\-d\fR image it
-refuses, it leaves no temporary file beside the output; only a signal that kills
-it can.
-.SH MANUALLY ENTERING BOOTLOADER
-.PP
-If the device does not enter the bootloader when running the upload or
-download commands, it is possible to force the device to boot into that
-mode when it is inserted. To do so, you will need to jumper two pins on
-the expansion header.
-.PP
-The expansion header is a 2x3 pin header between the two largest chips
-on the board, about halfway between the USB connector and antenna. It is
-labeled "EXPAND" on the back side of the board. Holding the board so USB
-is pointed up, on the front side of the board the expansion header looks
-like this:
-.PP
-.RS
+.IP "" 0
+.P
+On Linux use \fBstat \-c%s\fR\. The output file is only replaced once a complete dump has arrived: a read\-back that fails part\-way leaves an earlier file of the same name untouched, names the block that would not read, and exits 1\. Like \fB\-d\fR, it is retried once from the first block before the command gives up\. Whichever way the command ends on its own, including a \fB\-d\fR image it refuses, it leaves no temporary file beside the output; only a signal that kills it can\.
+.SH "MANUALLY ENTERING BOOTLOADER"
+If the device does not enter the bootloader when running the upload or download commands, it is possible to force the device to boot into that mode when it is inserted\. To do so, you will need to jumper two pins on the expansion header\.
+.P
+The expansion header is a 2x3 pin header between the two largest chips on the board, about halfway between the USB connector and antenna\. It is labeled "EXPAND" on the back side of the board\. Holding the board so USB is pointed up, on the front side of the board the expansion header looks like this:
+.IP "" 4
 .nf
   +\-\-\-\-\-\-\-+
 6 + O | O | 3
@@ -197,46 +86,22 @@ like this:
 4 + O | X | 1
   +\-\-\-+\-\-\-+
 .fi
-.RE
-.PP
-PIN #1, marked X, is square.
-.PP
-With Ubertooth unplugged, bridge pins 1 and 3, then plug the device in
-while keeping the bridge in place. Wait for the distinctive LED sequence or
-confirm that USB ID \fB\fC1d50:6003\fR is present. The bootloader samples the entry pin
-only during reset, so once DFU is active you may remove the bridge without
-exiting DFU. Run \fB\fCubertooth\-dfu\fR promptly because pin\-entry DFU times out after
-a few seconds if no DFU request begins.
-.PP
-Remove the bridge before the final reset if you want the application firmware
-to boot. If it remains installed, the next reset will sample the entry pin
-again and return to the bootloader. If removing a live bridge is inconvenient,
-finish the flash, unplug the device, remove the bridge, and reconnect it.
-.SH ARGUMENTS
-.PP
-\fB\fCubertooth\-dfu\fR takes options only. A word that is not an option, including
-a bare \fB\fC\-\fR, is refused before any device is opened and named:
-\fB\fCerror: unexpected argument '<word>'\fR, with exit status 1.
-.PP
-\fB\fC\-h\fR ends the command only once the whole command line has
-parsed, so a stray word or a bad option value is reported even
-alongside it.
-.PP
-A refused command line creates and truncates nothing, and leaves no temporary
-file: \fB\fC\-s\fR, \fB\fC\-u\fR and \fB\fC\-d\fR name their file while the
-command line is read, and the files are opened only once every check has
-passed. Whether \fB\fC\-s\fR was given a \fB\fC\&.bin\fR is a check on the
-name, so it is still reported alongside \fB\fC\-h\fR\&.
-.SH SEE ALSO
-.PP
-.BR ubertooth (7): 
-overview of Project Ubertooth; OPTION VALUES describes how
-option values are written
-.SH AUTHOR
-.PP
-This manual page was written by Mike Ryan.
-.SH COPYRIGHT
-.PP
-.BR ubertooth-dfu (1) 
-is Copyright (c) 2010\-2017. This tool is released under
-the GPLv2. Refer to COPYING \[la]https://github.com/SqueakyFloors/ubertooth/blob/main/COPYING\[ra] for further details.
+.IP "" 0
+.P
+PIN #1, marked X, is square\.
+.P
+With Ubertooth unplugged, bridge pins 1 and 3, then plug the device in while keeping the bridge in place\. Wait for the distinctive LED sequence or confirm that USB ID \fB1d50:6003\fR is present\. The bootloader samples the entry pin only during reset, so once DFU is active you may remove the bridge without exiting DFU\. Run \fBubertooth\-dfu\fR promptly because pin\-entry DFU times out after a few seconds if no DFU request begins\.
+.P
+Remove the bridge before the final reset if you want the application firmware to boot\. If it remains installed, the next reset will sample the entry pin again and return to the bootloader\. If removing a live bridge is inconvenient, finish the flash, unplug the device, remove the bridge, and reconnect it\.
+.SH "ARGUMENTS"
+\fBubertooth\-dfu\fR takes options only\. A word that is not an option, including a bare \fB\-\fR, is refused before any device is opened and named: \fBerror: unexpected argument '<word>'\fR, with exit status 1\.
+.P
+\fB\-h\fR ends the command only once the whole command line has parsed, so a stray word or a bad option value is reported even alongside it\.
+.P
+A refused command line creates and truncates nothing, and leaves no temporary file: \fB\-s\fR, \fB\-u\fR and \fB\-d\fR name their file while the command line is read, and the files are opened only once every check has passed\. Whether \fB\-s\fR was given a \fB\.bin\fR is a check on the name, so it is still reported alongside \fB\-h\fR\.
+.SH "SEE ALSO"
+ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how option values are written
+.SH "AUTHOR"
+This manual page was written by Mike Ryan\.
+.SH "COPYRIGHT"
+ubertooth\-dfu(1) is Copyright (c) 2010\-2017\. This tool is released under the GPLv2\. Refer to COPYING \fIhttps://github\.com/SqueakyFloors/ubertooth/blob/main/COPYING\fR for further details\.
