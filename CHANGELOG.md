@@ -111,6 +111,11 @@
   no `-DCMAKE_POLICY_VERSION_MINIMUM=3.5`; `install.sh --libbtbb-url`/`--libbtbb-ref`
   build a different one.
   [#320](https://github.com/SqueakyFloors/ubertooth/issues/320)
+- The host tests that compile libubertooth's sources link pthread, so the host
+  builds again on Ubuntu 20.04, this fork's declared minimum, where glibc still
+  keeps the pthread calls out of libc. The libubertooth targets carry it too, so
+  linking the library no longer leaves `pthread_create` undefined.
+  [#315](https://github.com/SqueakyFloors/ubertooth/issues/315)
 
 ### Reliability fixes
 

@@ -39,8 +39,15 @@ set(c_headers ${CMAKE_CURRENT_SOURCE_DIR}/ubertooth.h
 find_package(BTBB REQUIRED)
 find_package(USB1 REQUIRED)
 
+# ubertooth.c runs the capture ring buffer on its own thread. glibc 2.34 and
+# later fold the pthread calls into libc, so a missing -lpthread goes unnoticed
+# there; on this fork's declared minimum (Ubuntu 20.04, glibc 2.31) the link
+# fails without it.
+find_package(Threads REQUIRED)
+
 include_directories(${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
-LIST(APPEND LIBUBERTOOTH_LIBS ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES})
+LIST(APPEND LIBUBERTOOTH_LIBS ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES}
+     Threads::Threads)
 
 if( ${BUILD_SHARED_LIB} )
 	# Shared library

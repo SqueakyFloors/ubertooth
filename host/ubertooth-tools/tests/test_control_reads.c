@@ -210,7 +210,7 @@ MU_TEST(short_reply_message_names_the_read_and_the_counts)
 	int saved = dup(fileno(stderr));
 	size_t n;
 
-	mu_assert(capture != NULL && saved >= 0, "capture stderr");
+	mu_assert_fatal(capture != NULL && saved >= 0, "capture stderr");
 	fflush(stderr);
 	dup2(fileno(capture), fileno(stderr));
 	script(0, 0);

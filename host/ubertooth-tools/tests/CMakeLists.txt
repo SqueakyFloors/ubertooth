@@ -324,8 +324,10 @@ set_tests_properties(dfu-main PROPERTIES TIMEOUT 10)
 # libusb is linked for the other symbols. Needs the library sources, so only
 # when built from the whole host tree.
 if(libubertooth_SOURCE_DIR)
-	# The AFH request test runs the library's receive loop, which starts its
-	# poll thread; the other tests that compile ubertooth.c never reach it.
+	# ubertooth.c runs the capture ring buffer on its own thread, so every
+	# test that compiles it needs pthread on the link line, whether or not
+	# the case reaches the receive loop: glibc before 2.34 keeps the pthread
+	# calls out of libc, and Ubuntu 20.04 (this fork's minimum) is one such.
 	# Inside this guard, so a standalone ubertooth-tools configure, which
 	# builds none of these, does not require it.
 	find_package(Threads REQUIRED)
@@ -369,7 +371,8 @@ if(libubertooth_SOURCE_DIR)
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
 	target_include_directories(test-init-failure PRIVATE
 		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
-	target_link_libraries(test-init-failure ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES})
+	target_link_libraries(test-init-failure ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES}
+		Threads::Threads)
 	add_test(NAME init-failure COMMAND test-init-failure)
 	# Nothing here waits on a device; a regression that reaches USB should
 	# fail instead of hanging the suite.
@@ -397,7 +400,8 @@ if(libubertooth_SOURCE_DIR)
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
 	target_include_directories(test-device-select PRIVATE
 		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
-	target_link_libraries(test-device-select ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES})
+	target_link_libraries(test-device-select ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES}
+		Threads::Threads)
 	add_test(NAME device-select COMMAND test-device-select)
 	# Nothing here waits on hardware; a regression that blocks on a real USB
 	# call should fail instead of hanging the suite.
@@ -433,7 +437,8 @@ if(libubertooth_SOURCE_DIR)
 		${libubertooth_SOURCE_DIR}/src/ubertooth_fifo.c)
 	target_include_directories(test-clk100ns-wrap PRIVATE
 		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
-	target_link_libraries(test-clk100ns-wrap ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES})
+	target_link_libraries(test-clk100ns-wrap ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES}
+		Threads::Threads)
 	# One case reads ubertooth-btle's source, which starts the mode whose
 	# packets come from the other clock (like test_mode_dispatch does).
 	target_compile_definitions(test-clk100ns-wrap PRIVATE

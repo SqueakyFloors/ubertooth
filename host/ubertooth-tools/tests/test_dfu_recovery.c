@@ -1020,7 +1020,7 @@ MU_TEST(test_extract_revision_from_existing_compile_info_marker)
 	FILE *image = tmpfile();
 	char revision[64];
 	const char bytes[] = "\x01\x02ubertooth git-deadbee* (builder@host) date\0tail";
-	mu_assert(image != NULL, "tmpfile failed");
+	mu_assert_fatal(image != NULL, "tmpfile failed");
 	mu_assert_int_eq((int)sizeof(bytes),
 	                 (int)fwrite(bytes, 1, sizeof(bytes), image));
 	mu_assert_int_eq(0,
@@ -1038,16 +1038,16 @@ MU_TEST(test_part_lookup_knows_the_lpc17xx_flash_sizes)
 	const struct dfu_part *part;
 
 	part = dfu_part_lookup(0x25011722);
-	mu_assert(part != NULL, "LPC1754 is not in the table");
+	mu_assert_fatal(part != NULL, "LPC1754 is not in the table");
 	mu_assert(strcmp(part->name, "LPC1754") == 0, "wrong part name");
 	mu_assert_int_eq(128 * 1024, (int)part->flash_size);
 
 	part = dfu_part_lookup(0x25011723);
-	mu_assert(part != NULL, "LPC1756 is not in the table");
+	mu_assert_fatal(part != NULL, "LPC1756 is not in the table");
 	mu_assert_int_eq(256 * 1024, (int)part->flash_size);
 
 	part = dfu_part_lookup(0x26113F37);
-	mu_assert(part != NULL, "LPC1769 is not in the table");
+	mu_assert_fatal(part != NULL, "LPC1769 is not in the table");
 	mu_assert_int_eq(512 * 1024, (int)part->flash_size);
 
 	mu_assert(dfu_part_lookup(0x12345678) == NULL,
