@@ -321,11 +321,15 @@
   without stopping a running mode.
   [#117](https://github.com/SqueakyFloors/ubertooth/issues/117)
 - `ubertooth-util -r` waits up to 10 seconds for the device to re-enumerate
-  (by serial with `-U <serial>`) instead of a fixed 2 seconds, so a slow macOS
-  re-enumeration no longer fails a successful reset. libubertooth adds
+  instead of a fixed 2 seconds, so a slow macOS re-enumeration no longer fails
+  a successful reset. libubertooth adds
   `ubertooth_start_select_quiet()` for this silent, STOP-free polling, and
   `ubertooth_count()` no longer leaves libusb initialised.
   [#94](https://github.com/SqueakyFloors/ubertooth/issues/94)
+- `ubertooth-util -r` reads the board's serial before the reset and waits for
+  that serial, so later options in the same command (`-U0 -r -b`) stay on the
+  board that was reset even if the index order changed across the reset.
+  [#139](https://github.com/SqueakyFloors/ubertooth/issues/139)
 - `ubertooth-debug` exits 0 only when every register read succeeds (it used to
   exit with the last register's value) and names each register that fails.
   [#164](https://github.com/SqueakyFloors/ubertooth/issues/164)
