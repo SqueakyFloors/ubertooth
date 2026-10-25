@@ -87,9 +87,9 @@ def run_tool(command, **options):
 
     A tool that is not on the PATH Wireshark started this script with, or
     that cannot be executed, would otherwise end the script in a Python
-    traceback. Wireshark shows what a failed call wrote to standard error, so
-    the reason has to arrive in the same one-line form as every other error
-    here.
+    traceback. The reason has to arrive in the same one-line form as every
+    other error here, since for a capture that is what Wireshark shows for
+    the interface.
     """
     try:
         return Popen(command, **options)
@@ -267,11 +267,9 @@ def list_interfaces():
     reported = [line for line in errors.splitlines()
                 if line.startswith("error: ")]
     no_devices = not serials and reported == [NO_DEVICES]
-    passed_on = False
     for line in errors.splitlines():
         if not (no_devices and line == NO_DEVICES):
             print(line, file=sys.stderr)
-            passed_on = True
 
     # The boards that could be named are listed even when another one could
     # not be, which is what ubertooth-util itself does with a partial
@@ -287,9 +285,10 @@ def list_interfaces():
     # complaint was that there is no board.
     if serials or no_devices or proc.returncode == 0:
         return 0
-    if not passed_on:
-        # It failed without saying why, so its status is all there is to
-        # report, and a failure the user is told about has to name itself.
+    # Nothing was suppressed on this path, so these are the error lines the
+    # user got. Without one, the failure said nothing of itself, and its
+    # status is all there is to report: a note or a warning is not a reason.
+    if not reported:
         print("error: ubertooth-util failed (%s)" % (
             "killed by signal %d" % -proc.returncode if proc.returncode < 0
             else "exit status %d" % proc.returncode), file=sys.stderr)
