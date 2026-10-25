@@ -64,7 +64,9 @@ PREFIX=""
 SKIP_DEPS=0
 
 die() { echo "error: $*" >&2; exit 1; }
-info() { echo "==> $*"; }
+# Progress, not a result: the script writes nothing to standard output,
+# so "./install.sh > log" still shows what it is doing.
+info() { echo "==> $*" >&2; }
 # The Python tools need Python 3.8 or newer (host/python/cmake/UbertoothPythonFloor.cmake).
 require_python() {
 	local version

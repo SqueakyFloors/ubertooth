@@ -457,7 +457,8 @@ class Window(QtWidgets.QWidget):
             key = chr(event.key()).upper()
             event.accept()
         except:
-            print('Unknown key pressed: 0x%x' % event.key())
+            print('note: unknown key pressed: 0x%x' % event.key(),
+                  file=sys.stderr)
             event.ignore()
             return
         if key == 'H':
@@ -478,10 +479,10 @@ class Window(QtWidgets.QWidget):
             self.render_area.schedule_clear()
             return
         if key == 'Q':
-            print('Quit!')
+            print('note: quitting', file=sys.stderr)
             self.close()
             return
-        print('Unsupported key pressed:', key)
+        print('note: unsupported key pressed:', key, file=sys.stderr)
 
 
 def sigint_handler(*args):
@@ -491,7 +492,8 @@ def sigint_handler(*args):
 
 def convert_wifi(channel):
     if channel < 1 or channel > 14:
-        print("ERROR: channel " + str(channel) + " is not a valid wifi channel")
+        print("error: channel " + str(channel) + " is not a valid wifi channel",
+              file=sys.stderr)
         raise ValueError()
 
     if channel == 14:
@@ -501,10 +503,12 @@ def convert_wifi(channel):
 
 def check_freq(freq):
     if freq < MIN_FREQ:
-        print("ERROR: frequency of " + str(freq) + " MHz is below minimum frequency of " + str(MIN_FREQ))
+        print("error: frequency of " + str(freq) + " MHz is below minimum "
+              "frequency of " + str(MIN_FREQ), file=sys.stderr)
         raise ValueError()
     if freq > MAX_FREQ:
-        print("ERROR: frequency of " + str(freq) + " MHz is above maximum frequency of " + str(MAX_FREQ))
+        print("error: frequency of " + str(freq) + " MHz is above maximum "
+              "frequency of " + str(MAX_FREQ), file=sys.stderr)
         raise ValueError()
 
 
@@ -513,7 +517,8 @@ def check_freq_pair(freq1, freq2):
     check_freq(freq2)
 
     if freq1 > freq2:
-        print("ERROR: lower frequency of " + str(freq1) + " MHz is above upper frequency of " + str(freq2) + " MHz")
+        print("error: lower frequency of " + str(freq1) + " MHz is above "
+              "upper frequency of " + str(freq2) + " MHz", file=sys.stderr)
         raise ValueError()
 
 if __name__ == '__main__':
@@ -552,7 +557,8 @@ if __name__ == '__main__':
             else:
                 raise ValueError()
         except ValueError:
-            print("ERROR: invalid channel range: " + options.wifi)
+            print("error: invalid channel range: " + options.wifi,
+                  file=sys.stderr)
             sys.exit(1)
 
         try:

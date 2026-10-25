@@ -70,6 +70,25 @@ Control-click.
  - `q` :
    quit
 
+## DIAGNOSTICS
+
+A range `ubertooth-specan-ui` will not take is refused before the window
+opens, with one line starting `error: ` on standard error and exit status 1:
+`error: invalid channel range: <value>`,
+`error: channel <n> is not a valid wifi channel`,
+`error: frequency of <n> MHz is below minimum frequency of <min>`,
+`error: frequency of <n> MHz is above maximum frequency of <max>` and
+`error: lower frequency of <n> MHz is above upper frequency of <n> MHz`. They
+used to be `ERROR: ...` on standard output.
+
+A failure to start `ubertooth-specan` is reported the same way, as
+`error: could not open an Ubertooth device` followed by a `note: ` naming the
+command, and whatever `ubertooth-specan` itself said on standard error.
+
+The key help `h` shows goes to standard output, as what the user asked for.
+The notes about an unknown or unsupported key are `note: ` lines on standard
+error. `--help` comes from the argument parser: standard output, exit 0.
+
 ## SEE ALSO
 
 ubertooth-specan(1), ubertooth-util(1)

@@ -108,6 +108,16 @@ foreach(tool ${UBERTOOTH_TOOLS})
 	set_tests_properties(output-streams-${tool} PROPERTIES TIMEOUT 30)
 endforeach()
 
+# install.sh answers -h on standard output and refuses a bad command line on
+# standard error, installing nothing either way. The script is above the host
+# build, so it is named by a relative path from here.
+add_test(
+	NAME install-streams
+	COMMAND ${Python3_EXECUTABLE}
+		${CMAKE_CURRENT_SOURCE_DIR}/test_install_streams.py
+		${CMAKE_CURRENT_SOURCE_DIR}/../../../install.sh)
+set_tests_properties(install-streams PROPERTIES TIMEOUT 120)
+
 add_test(
 	NAME specan-cli
 	COMMAND ${Python3_EXECUTABLE}

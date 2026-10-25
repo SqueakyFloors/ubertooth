@@ -25,6 +25,7 @@ import struct
 import numpy
 import time
 import subprocess
+import sys
 
 
 class Ubertooth(object):
@@ -57,11 +58,13 @@ class Ubertooth(object):
         # Give it a chance to time out if it fails to find Ubertooth
         time.sleep(0.5)
         if self.proc.poll() is not None:
-            print("Could not open Ubertooth device")
-            print("Failed to run: ", ' '.join(args))
+            # The child's own diagnostic belongs on the stream it was
+            # written to, not replayed on this process's standard output.
+            print("error: could not open an Ubertooth device", file=sys.stderr)
+            print("note: failed to run:", ' '.join(args), file=sys.stderr)
             error = self.proc.stderr.read().decode(errors="replace").strip()
             if error:
-                print(error)
+                print(error, file=sys.stderr)
             return
         while self.proc.poll() is None:
             data = self.proc.stdout.read(buffer_size)
