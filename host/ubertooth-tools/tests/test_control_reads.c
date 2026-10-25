@@ -423,10 +423,10 @@ MU_TEST(no_read_writes_to_standard_output)
 /* A read that times out is a board that did not answer. Say that, in one
  * line, instead of "libUSB Error: Operation timed out:  (-7)", and keep the
  * code for bug reports. What a silent board means depends on the caller, so
- * this does not guess; the paths that know add it. A board libusb itself calls
- * busy -- which it returns from an open rather than from a request -- gets the
- * same treatment. Both are on standard error, and neither says anything on
- * standard output. */
+ * this does not guess; the paths that know add it. On standard error, with
+ * nothing on standard output. (The other code with wording of its own,
+ * LIBUSB_ERROR_BUSY, is not something a control transfer returns; it is
+ * pinned on the open path, in test_device_select.c.) */
 MU_TEST(a_board_that_does_not_answer_is_reported_in_words)
 {
 	char out[512], err[1024];
@@ -437,15 +437,12 @@ MU_TEST(a_board_that_does_not_answer_is_reported_in_words)
 	}
 	script(LIBUSB_ERROR_TIMEOUT, 0);
 	mu_assert_int_eq(LIBUSB_ERROR_TIMEOUT, cmd_get_squelch(NULL));
-	script(LIBUSB_ERROR_BUSY, 0);
-	mu_assert_int_eq(LIBUSB_ERROR_BUSY, cmd_get_squelch(NULL));
 	release_both(out, sizeof(out), err, sizeof(err));
 
 	mu_assert(out[0] == '\0', out);
 	mu_assert(strcmp(err,
-	    "error: the Ubertooth did not answer in time (libusb -7)\n"
-	    "error: the Ubertooth is in use by another program (libusb -6)\n")
-	    == 0, err);
+	    "error: the Ubertooth did not answer in time (libusb -7)\n") == 0,
+	    err);
 }
 
 /* Every other code still goes through the libusb naming, so the plain wording

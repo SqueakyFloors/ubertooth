@@ -287,9 +287,11 @@ static struct libusb_device_handle* find_ubertooth_device_opt(int ubertooth_devi
 			ret = libusb_open(usb_list[ubertooth_devs[i]], &devh);
 			if (ret) {
 				/* Self-contained, because show_libusb_error() now reports
-				 * some codes as a whole line of their own. */
-				fprintf(stderr, "  Device %d: could not be opened "
-				        "(libusb %d)\n", i, ret);
+				 * some codes as a whole line of their own, and libusb's own
+				 * naming is the useful part here: the usual cause of an open
+				 * that fails is missing permissions. */
+				fprintf(stderr, "  Device %d: could not be opened: %s "
+				        "(libusb %d)\n", i, libusb_strerror(ret), ret);
 			}
 			else {
 				sr = cmd_get_serial(devh, serial);
@@ -316,11 +318,12 @@ static struct libusb_device_handle* find_ubertooth_device(int ubertooth_device)
 	return find_ubertooth_device_opt(ubertooth_device, 0);
 }
 
-/* How a message names the board a selection is working on: by the serial the
- * user gave, by index, or not at all when neither is known. A serial string
- * that reaches here has already matched a board, so it is at most a whole
- * serial. The result lives in a static buffer, so it is printed straight
- * away. */
+/* How a message names the board a selection is working on: by serial, by
+ * index, or not at all when neither is known. Normally the whole serial of the
+ * board that matched; a longer string is truncated rather than refused, which
+ * only a caller passing a raw -U argument could reach. The result lives in one
+ * static buffer, so it is printed straight away and not held across another
+ * call to this. */
 static const char* board_label(const char* serial, int index)
 {
 	static char label[sizeof("Ubertooth ") + UBERTOOTH_SERIAL_STR_LEN];

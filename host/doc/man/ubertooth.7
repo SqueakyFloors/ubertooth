@@ -62,6 +62,14 @@ error: Ubertooth 05f00014e380df95f4436562c32000f5 is in use by another program (
 .P
 That is another tool from this package, a graphical specan, or anything else holding its USB interface; on Linux it may be a kernel driver\. Stop that program and run the command again\. Which libusb code says so depends on the system, which is why the message does not depend on it\. Nothing is sent to the board on this path, so the command does not disturb whatever is using it\.
 .P
+With one board attached and no \fB\-U\fR, there is no name to use, and a \fB\-U <index>\fR run has only the index:
+.IP "" 4
+.nf
+error: the Ubertooth is in use by another program (libusb \-6)
+error: Ubertooth at index 1 is in use by another program (libusb \-3)
+.fi
+.IP "" 0
+.P
 The board took the request and sent nothing back:
 .IP "" 4
 .nf
@@ -69,7 +77,7 @@ error: the Ubertooth did not answer in time (libusb \-7)
 .fi
 .IP "" 0
 .P
-A board left in a mode does this: \fBubertooth\-util \-q\fR (LED spectrum analyser) keeps running on the board after the command returns, and so do the other display modes\. Stop it with \fBubertooth\-util [\-U <selector>] \-S\fR; \fBubertooth\-util \-r\fR resets the board if a stop is not enough\. The same line appears when a board is wedged, or busy with something else, so the command that printed it says what it was doing rather than guessing a cause here\.
+A board that has stopped answering control requests does this: it happens after some captures end, and a board left in a mode that keeps polling can do it too\. Try \fBubertooth\-util [\-U <selector>] \-S\fR to stop a mode and \fBubertooth\-util \-r\fR to reset the board; a board that answers neither has to be unplugged and plugged in again, or its hub port power\-cycled\. The line says only what happened, because what it means depends on what the command was doing: mid\-flash, for instance, it is a bootloader that lost its place, and no mode is involved\.
 .P
 A serial\-number selector names the reason, because a board it could not read may be the board asked for:
 .IP "" 4

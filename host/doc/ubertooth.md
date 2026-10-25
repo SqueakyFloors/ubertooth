@@ -89,16 +89,24 @@ program and run the command again. Which libusb code says so depends on the
 system, which is why the message does not depend on it. Nothing is sent to the
 board on this path, so the command does not disturb whatever is using it.
 
+With one board attached and no `-U`, there is no name to use, and a `-U
+<index>` run has only the index:
+
+    error: the Ubertooth is in use by another program (libusb -6)
+    error: Ubertooth at index 1 is in use by another program (libusb -3)
+
 The board took the request and sent nothing back:
 
     error: the Ubertooth did not answer in time (libusb -7)
 
-A board left in a mode does this: `ubertooth-util -q` (LED spectrum analyser)
-keeps running on the board after the command returns, and so do the other
-display modes. Stop it with `ubertooth-util [-U <selector>] -S`;
-`ubertooth-util -r` resets the board if a stop is not enough. The same line
-appears when a board is wedged, or busy with something else, so the command
-that printed it says what it was doing rather than guessing a cause here.
+A board that has stopped answering control requests does this: it happens
+after some captures end, and a board left in a mode that keeps polling can do
+it too. Try `ubertooth-util [-U <selector>] -S` to stop a mode and
+`ubertooth-util -r` to reset the board; a board that answers neither has to be
+unplugged and plugged in again, or its hub port power-cycled. The line says
+only what happened, because what it means depends on what the command was
+doing: mid-flash, for instance, it is a bootloader that lost its place, and no
+mode is involved.
 
 A serial-number selector names the reason, because a board it could not read
 may be the board asked for:

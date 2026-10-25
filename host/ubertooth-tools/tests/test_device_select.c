@@ -993,6 +993,28 @@ MU_TEST(a_board_another_program_is_using_says_so)
 	}
 }
 
+/* An open libusb refuses as busy gets the plain wording too. It cannot name
+ * the board: the report is the library's shared sink for libusb failures,
+ * which has no handle to look at. */
+MU_TEST(an_open_refused_as_busy_says_the_board_is_in_use)
+{
+	char msg[256];
+
+	bus_with_ubertooths(2);
+	fake.open_rc = LIBUSB_ERROR_BUSY;
+	mu_assert(select_capturing("1", msg, sizeof(msg)) == NULL, msg);
+	mu_assert(strstr(msg, "error: the Ubertooth is in use by another program "
+	          "(libusb -6)") != NULL, msg);
+
+	/* An open refused for want of permission keeps libusb's own naming: that
+	 * is the usual cause there, and it is a different problem. */
+	bus_with_ubertooths(2);
+	fake.open_rc = LIBUSB_ERROR_ACCESS;
+	mu_assert(select_capturing("1", msg, sizeof(msg)) == NULL, msg);
+	mu_assert(strstr(msg, "in use by another program") == NULL, msg);
+	mu_assert(strstr(msg, "libUSB Error") != NULL, msg);
+}
+
 /* Any other claim failure is still reported as itself, naming the board, so
  * the plain wording above is not put on causes it does not fit. With no
  * selector there is no name to use. */
@@ -1047,6 +1069,7 @@ int main(void)
 	MU_RUN(the_quiet_selection_matches_the_same_serials);
 	MU_RUN(the_test_switch_hides_every_device);
 	MU_RUN(a_board_another_program_is_using_says_so);
+	MU_RUN(an_open_refused_as_busy_says_the_board_is_in_use);
 	MU_RUN(another_claim_failure_is_reported_as_itself);
 	MU_RUN(the_selections_used_the_faked_ring_buffer);
 	return mu_report();

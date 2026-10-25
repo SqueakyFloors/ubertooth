@@ -1718,9 +1718,13 @@ cleanup:
 	 * for a reset, so detach before closing the handle. The success path has
 	 * already detached and cleared devh. A failed programming transfer closes
 	 * the DFU handle on its way out, so reopen the device on the same path
-	 * first; if DFU never answered at all there is nothing to detach. */
+	 * first; if DFU never answered at all there is nothing to detach.
+	 *
+	 * A board this run never claimed is left alone: something else has it,
+	 * and a detach is a reset aimed at whatever that is doing. */
 	if (exit_status != 0 && (functions & FUNC_RESET) &&
-	    selected_identity.port_count != 0) {
+	    selected_identity.port_count != 0 &&
+	    (devh == NULL || interface_claimed)) {
 		if (devh == NULL)
 			reopen_dfu_for_detach(&runtime, &selected_identity, &devh,
 			                      &interface_claimed);
