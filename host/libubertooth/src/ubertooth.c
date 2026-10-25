@@ -506,12 +506,9 @@ static void rx_xfer_status(int status)
 		case LIBUSB_TRANSFER_ERROR:
 			error_name="Transfer error.";
 			break;
-		case LIBUSB_TRANSFER_TIMED_OUT:
-			error_name="Transfer timed out.";
-			break;
-		case LIBUSB_TRANSFER_CANCELLED:
-			error_name="Transfer cancelled.";
-			break;
+		/* No LIBUSB_TRANSFER_TIMED_OUT or LIBUSB_TRANSFER_CANCELLED case:
+		 * both are ordinary parts of a capture, handled by the caller
+		 * before it reaches this. */
 		case LIBUSB_TRANSFER_STALL:
 			error_name="Halt condition detected, or control request not supported.";
 			break;
@@ -551,78 +548,80 @@ int ubertooth_stream_failed(ubertooth_t* ut)
 	return ut != NULL && ut->rx_stream_status != 0;
 }
 
-/* Gives up a transfer libusb has handed back for the last time. Only
- * reachable with the state already RX_XFER_OURS, so nothing libusb is holding
- * is ever freed here. */
+/* Gives up a transfer nothing is holding any more. rx_xfer is cleared before
+ * the state, so a teardown looking at this handle sees either a transfer it
+ * may not touch or no transfer at all, never one it may free twice. */
 static void rx_xfer_release(ubertooth_t* ut, struct libusb_transfer* xfer)
 {
 	ut->rx_xfer = NULL;
+	ut->rx_xfer_state = RX_XFER_OURS;
 	libusb_free_transfer(xfer);
 }
 
 static void cb_xfer(struct libusb_transfer *xfer)
 {
-	int r;
 	ubertooth_t* ut = (ubertooth_t*)xfer->user_data;
+	/* Whether something is waiting for this transfer rather than for more
+	 * packets: a teardown that has cancelled it, or a capture that is
+	 * stopping. Read before anything below changes the state, because a
+	 * cancelled transfer can come back as a bulk timeout -- libusb reports
+	 * that when the timeout expired before the cancellation took effect --
+	 * and putting that one back in flight leaves the teardown waiting for a
+	 * completion that is no longer on its way. The teardown's cancel is the
+	 * only signal that covers it: a teardown between the phases of a run
+	 * leaves stop_ubertooth clear. */
+	int wanted_back = ut->rx_xfer_state == RX_XFER_CANCELLING
+	                  || ut->stop_ubertooth;
+	/* The libusb status that ended the stream, or 0 if it has not ended. */
+	int failed = 0;
+	int r;
 
-	/* libusb hands the transfer back for the duration of this callback: it is
-	 * this handle's again unless a submit below is accepted. */
-	ut->rx_xfer_state = RX_XFER_OURS;
-
+	/* libusb hands the transfer back for the duration of this callback. The
+	 * state is cleared only by rx_xfer_release() below, so nothing can free
+	 * this transfer while the callback is still using it. */
 	switch (xfer->status) {
 	case LIBUSB_TRANSFER_COMPLETED:
-		/* A capture that is ending keeps the packets it already has: the
-		 * teardown frees the transfer rather than reading into another slot
-		 * of a ring buffer nobody is draining. */
-		if (ut->stop_ubertooth)
-			return;
-		fifo_inc_write_ptr(ut->fifo);
-		xfer->buffer = (uint8_t*)fifo_get_write_element(ut->fifo);
-		break;
 	case LIBUSB_TRANSFER_TIMED_OUT:
-		/* The board simply had nothing to send, so the same transfer goes
-		 * back in flight -- but not while the capture is stopping, where
-		 * re-arming it would leave the teardown waiting for a completion
-		 * that is no longer on its way. Either way this is routine, so it is
-		 * not reported. */
-		if (ut->stop_ubertooth) {
-			rx_xfer_release(ut, xfer);
+		/* A packet, or the board having had nothing to send. Either way the
+		 * same transfer goes back in flight, and neither is reported: both
+		 * are what a running capture looks like. A capture that is ending
+		 * keeps the packets it already has rather than reading into another
+		 * slot of a ring buffer nobody is draining. */
+		if (wanted_back)
+			break;
+		if (xfer->status == LIBUSB_TRANSFER_COMPLETED) {
+			fifo_inc_write_ptr(ut->fifo);
+			xfer->buffer = (uint8_t*)fifo_get_write_element(ut->fifo);
+		}
+		r = libusb_submit_transfer(xfer);
+		if (r == 0) {
+			/* It was already RX_XFER_IN_FLIGHT and still is: the state is
+			 * never set to anything else while libusb holds it. */
 			return;
 		}
+		fprintf(stderr, "error: resubmitting the receive transfer failed "
+		        "(%d)\n", r);
+		/* Refused, so libusb is not holding it: given up below rather than
+		 * left to refuse the next ubertooth_bulk_init() on this handle.
+		 * Nothing is in flight either, so the board has nowhere to send to
+		 * and the stream is as dead as a failed transfer. */
+		failed = LIBUSB_TRANSFER_ERROR;
 		break;
 	case LIBUSB_TRANSFER_CANCELLED:
 		/* The teardown's own cancellation, which is how it gets the transfer
 		 * back: expected, so nothing is said about it. */
-		rx_xfer_release(ut, xfer);
-		return;
-	default: {
-		/* Read the status while the transfer is still there to read it
-		 * from. */
-		int status = xfer->status;
-
-		rx_xfer_status(status);
-		/* The handle gives up the transfer before the failure is published.
-		 * Publishing it releases the capture's own loop, and what that loop
-		 * then looks at must not be a transfer this has already freed. */
-		rx_xfer_release(ut, xfer);
-		rx_stream_failed(ut, status);
-		return;
+		break;
+	default:
+		rx_xfer_status(xfer->status);
+		failed = xfer->status;
+		break;
 	}
-	}
-
-	r = libusb_submit_transfer(xfer);
-	if (r == 0) {
-		ut->rx_xfer_state = RX_XFER_IN_FLIGHT;
-		return;
-	}
-	fprintf(stderr, "error: resubmitting the receive transfer failed (%d)\n",
-	        r);
-	/* It was refused, so libusb is not holding it: freed here rather than
-	 * left to refuse the next ubertooth_bulk_init() on this handle. Nothing
-	 * is in flight now either, so the board has nowhere to send to and the
-	 * stream is as dead as a failed transfer. */
+	/* The handle gives up the transfer before a failure is published.
+	 * Publishing it releases the capture's own thread, and what that thread
+	 * then looks at must not be a transfer this has already freed. */
 	rx_xfer_release(ut, xfer);
-	rx_stream_failed(ut, LIBUSB_TRANSFER_ERROR);
+	if (failed)
+		rx_stream_failed(ut, failed);
 }
 
 static void* poll_thread_main(void* arg __attribute__((unused)))
@@ -1096,9 +1095,17 @@ static void ubertooth_cleanup(ubertooth_t* ut, int send_stop)
 		 * device and this session. Closing them underneath it, or ending the
 		 * session, is worse than leaving both: a capture ends here, so the
 		 * handle goes when the process does. The capture files below are
-		 * still closed, so nothing a run wrote is lost. */
-		fprintf(stderr, "error: the receive transfer did not finish; leaving "
-		        "the Ubertooth open\n");
+		 * still closed, so nothing a run wrote is lost.
+		 *
+		 * The stop is still worth sending, on the one path where the board
+		 * has already stopped behaving: it is a control transfer on a handle
+		 * that is deliberately still open, and it fails harmlessly if the
+		 * device has gone. A warning rather than an error, because the
+		 * command itself did what was asked. */
+		if (send_stop)
+			cmd_stop(ut->devh);
+		fprintf(stderr, "warning: the receive transfer did not finish; the "
+		        "Ubertooth is left open and may still be capturing\n");
 	}
 	else {
 		if (ut->devh != NULL) {
@@ -1148,6 +1155,12 @@ void ubertooth_stop(ubertooth_t* ut)
 void ubertooth_free(ubertooth_t* ut)
 {
 	if (ut == NULL)
+		return;
+	/* A transfer libusb is still holding points its callback at this handle
+	 * and reads into this ring buffer, so both outlive the run rather than
+	 * being freed under it. The teardown has already said the transfer did
+	 * not finish; a process ending here gives the memory back anyway. */
+	if (ut->rx_xfer != NULL)
 		return;
 	free(ut->fifo);
 	free(ut);

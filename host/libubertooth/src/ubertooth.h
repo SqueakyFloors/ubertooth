@@ -52,8 +52,10 @@ enum board_ids {
  *
  * The poll thread writes this from the transfer's callback while the receive
  * loop reads it, with no lock, as the code already does for rx_xfer itself.
- * Every interleaving either leaves a transfer libusb holds alone or finds
- * rx_xfer already cleared, so none of them frees one; giving the transfer a
+ * No interleaving frees a transfer libusb holds, or frees one twice: the
+ * callback gives a transfer up only together with rx_xfer, clearing the
+ * pointer first, and a teardown stops at a cleared pointer. That is the whole
+ * of the claim; cancelling is not covered by it, and giving the transfer a
  * lock of its own is a change of its own. */
 enum rx_xfer_state {
 	RX_XFER_OURS = 0,   /* no transfer, or one libusb is not holding */
@@ -85,11 +87,12 @@ typedef struct {
 
 	/* Whether abs_start_ns and start_clk100ns hold the first packet of a
 	 * capture yet: a first packet at clk100ns 0 is a valid start, not a
-	 * missing one. Last, so the offsets above do not move. */
+	 * missing one. */
 	uint8_t clk100ns_started;
 
 	/* Whether libusb is holding rx_xfer, one of enum rx_xfer_state. Next to
-	 * the byte above so the two share its padding. */
+	 * the byte above so the two share its padding, and after the offsets
+	 * above so that none of them moved. */
 	uint8_t rx_xfer_state;
 
 	/* After how many ticks the clock stamping these packets starts over:

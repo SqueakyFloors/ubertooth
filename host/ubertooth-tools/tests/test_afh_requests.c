@@ -90,6 +90,7 @@ static struct {
 	                                 * transfer returns; it stays in flight */
 	int time_out_once;              /* the next completion is a bulk timeout
 	                                 * rather than the cancellation */
+	int complete_once;              /* ... or a packet */
 	int packet_pending;             /* fifo_empty() reports a packet waiting */
 	int poll_thread_idle;           /* completions are delivered only to the
 	                                 * thread that asks for them */
@@ -310,11 +311,11 @@ int LIBUSB_CALL libusb_cancel_transfer(struct libusb_transfer* xfer)
  * turn, as it does on the poll thread.
  *
  * A cancelled transfer comes back cancelled, unless the case asked for a bulk
- * timeout instead: libusb reports that for a transfer whose timeout expired
- * before the cancellation took effect, and it is the completion that used to
- * put a cancelled transfer back in flight. poll_thread_idle keeps the delivery
- * on the calling thread, which is the timing a teardown sees when the poll
- * thread has already been joined. */
+ * timeout or a packet instead: libusb reports either for a transfer whose
+ * completion beat the cancellation, and either used to put a cancelled
+ * transfer back in flight. poll_thread_idle keeps the delivery on the calling
+ * thread, which is the timing a teardown sees when the poll thread has already
+ * been joined. */
 int LIBUSB_CALL libusb_handle_events_timeout(libusb_context* ctx,
                                              struct timeval* tv)
 {
@@ -333,11 +334,16 @@ int LIBUSB_CALL libusb_handle_events_timeout(libusb_context* ctx,
 
 		if (fx->state != FX_IN_FLIGHT && fx->state != FX_CANCELLING)
 			continue;
-		if (fx->state == FX_IN_FLIGHT && !fake.time_out_once)
+		if (fx->state == FX_IN_FLIGHT
+		    && !fake.time_out_once && !fake.complete_once)
 			continue; /* nothing has happened to it yet */
 		if (fake.time_out_once) {
 			fake.time_out_once = 0;
 			xfer->status = LIBUSB_TRANSFER_TIMED_OUT;
+		} else if (fake.complete_once) {
+			fake.complete_once = 0;
+			xfer->status = LIBUSB_TRANSFER_COMPLETED;
+			xfer->actual_length = PKT_LEN;
 		} else {
 			xfer->status = LIBUSB_TRANSFER_CANCELLED;
 		}
@@ -551,6 +557,7 @@ MU_TEST(the_detection_phase_starts_the_stream_with_afh)
 	mu_assert_int_eq(0, fake.bulk_at[0]);
 	mu_assert(fake.bulk_at[1] >= 1, "AFH is asked for after the bulk submit");
 
+	assert_transfer_lifetimes();
 	release_handle(ut);
 	btbb_piconet_unref(pn);
 }
@@ -584,6 +591,7 @@ MU_TEST(the_monitor_phase_after_a_detected_map_asks_for_afh_again)
 	assert_requests(expected, ARRAY_LEN(expected));
 	mu_assert(err[0] == '\0', err);
 
+	assert_transfer_lifetimes();
 	release_handle(ut);
 	btbb_piconet_unref(pn);
 }
@@ -615,6 +623,7 @@ MU_TEST(the_monitor_alone_asks_for_afh)
 	assert_requests(expected, ARRAY_LEN(expected));
 	mu_assert(err[0] == '\0', err);
 
+	assert_transfer_lifetimes();
 	release_handle(ut);
 	btbb_piconet_unref(pn);
 }
@@ -644,6 +653,7 @@ MU_TEST(the_r_format_loop_asks_for_afh)
 	mu_assert_int_eq(AFH_DETECTION_CHANNEL, fake.values[0]);
 	mu_assert(err[0] == '\0', err);
 
+	assert_transfer_lifetimes();
 	release_handle(ut);
 	btbb_piconet_unref(pn);
 }
@@ -671,6 +681,7 @@ MU_TEST(a_symbol_capture_still_asks_for_symbols)
 	mu_assert_int_eq(0, sent(UBERTOOTH_AFH));
 	mu_assert(err[0] == '\0', err);
 
+	assert_transfer_lifetimes();
 	release_handle(ut);
 }
 
@@ -725,6 +736,7 @@ MU_TEST(a_refused_mode_request_joins_the_poll_thread)
 	assert_requests(expected, ARRAY_LEN(expected));
 	mu_assert_int_eq(1, do_exit);
 
+	assert_transfer_lifetimes();
 	release_handle(ut);
 	btbb_piconet_unref(pn);
 }
@@ -827,6 +839,7 @@ MU_TEST(a_refused_submit_leaves_no_transfer_behind)
 	mu_assert(err[0] == '\0', err);
 	mu_assert(ut->rx_xfer != NULL, "a transfer in place");
 
+	assert_transfer_lifetimes();
 	release_handle(ut);
 }
 
@@ -931,8 +944,18 @@ MU_TEST(a_transfer_that_never_comes_back_keeps_the_device_open)
 	mu_assert_int_eq(0, fake.closes);
 	mu_assert_int_eq(0, fake.exits);
 	mu_assert(ut->devh != NULL, "the device is left open");
-	mu_assert(strstr(err, "the receive transfer did not finish; leaving the "
-	          "Ubertooth open") != NULL, err);
+	mu_assert_int_eq(1, sent(UBERTOOTH_STOP)); /* still asked to stop */
+	/* a warning, not an error: the command itself did what was asked, and
+	 * ubertooth_cleanup() returns nothing a caller could turn into an exit
+	 * status */
+	mu_assert(strstr(err, "warning: the receive transfer did not finish; the "
+	          "Ubertooth is left open and may still be capturing") != NULL,
+	          err);
+	mu_assert(strstr(err, "error:") == NULL, err);
+	/* ubertooth_free() leaves this handle alone too, so the callback of a
+	 * transfer libusb is still holding does not land in freed memory. Not
+	 * asserted here: every way of observing it reads the handle after the
+	 * call, which is exactly the freed memory the guard exists to avoid. */
 
 	release_handle(ut);
 
@@ -957,12 +980,57 @@ MU_TEST(a_transfer_that_never_comes_back_keeps_the_device_open)
 	release_handle(ut);
 }
 
-/* A bulk timeout that lands while the capture is stopping: the transfer is
- * given back rather than put in flight again, which left the teardown waiting
- * for a completion that was no longer coming and the next phase refusing to
- * start. Driven through the event handling directly, so which thread reaps
- * the completion does not decide the result. */
-MU_TEST(a_bulk_timeout_while_stopping_does_not_re_arm_the_transfer)
+/* A completion that beats the teardown's cancellation -- a bulk timeout, or a
+ * last packet -- does not put the transfer back in flight. Re-arming it left
+ * the teardown waiting for a completion that was no longer coming, so the wait
+ * ran out, the device was never closed and the next phase refused to start.
+ *
+ * The teardown here runs with stop_ubertooth clear, which is what a teardown
+ * between the phases of a run, or after a mode request the board refused,
+ * looks like: the cancellation is the only thing that says a teardown is
+ * waiting. */
+MU_TEST(a_completion_during_the_teardown_does_not_re_arm_the_transfer)
+{
+	static const char* const what[] = { "a bulk timeout", "a packet" };
+	char err[1024] = "";
+	ubertooth_t* ut;
+	size_t i;
+
+	for (i = 0; i < ARRAY_LEN(what); i++) {
+		reset();
+		fake.poll_thread_idle = 1;
+		ut = new_handle();
+		mu_assert(ut != NULL, "a handle");
+		if (ut == NULL)
+			return;
+
+		capture_output();
+		mu_assert_int_eq(0, ubertooth_bulk_init(ut));
+		if (i == 0)
+			fake.time_out_once = 1;
+		else
+			fake.complete_once = 1;
+		mu_assert_int_eq(0, ut->stop_ubertooth);
+		ubertooth_stop(ut);
+		release_output(err, sizeof(err));
+
+		assert_transfer_lifetimes();
+		mu_assert_int_eq(1, fake.bulk_submits); /* not re-armed */
+		mu_assert_int_eq(1, fake.xfer_frees);
+		mu_assert(ut->rx_xfer == NULL, what[i]);
+		mu_assert_int_eq(1, fake.closes); /* so the device is closed */
+		mu_assert_int_eq(1, fake.exits);
+		/* neither is a failure, so neither is reported */
+		mu_assert(strstr(err, "error:") == NULL, err);
+		mu_assert(strstr(err, "warning:") == NULL, err);
+
+		release_handle(ut);
+	}
+}
+
+/* The other side of it: a completion during a running capture does put the
+ * transfer back in flight, with the ring buffer advanced to the next slot. */
+MU_TEST(a_packet_during_a_capture_re_arms_the_transfer)
 {
 	struct timeval tv = { 0, 1000 };
 	char err[1024] = "";
@@ -977,16 +1045,23 @@ MU_TEST(a_bulk_timeout_while_stopping_does_not_re_arm_the_transfer)
 
 	capture_output();
 	mu_assert_int_eq(0, ubertooth_bulk_init(ut));
-	ut->stop_ubertooth = 1;
-	fake.time_out_once = 1;
+	fake.complete_once = 1;
 	libusb_handle_events_timeout(NULL, &tv);
 	release_output(err, sizeof(err));
 
 	assert_transfer_lifetimes();
-	mu_assert_int_eq(1, fake.bulk_submits); /* not re-armed */
+	mu_assert_int_eq(2, fake.bulk_submits); /* submitted, then re-armed */
+	mu_assert_int_eq(0, fake.xfer_frees);
+	mu_assert(ut->rx_xfer != NULL, "the transfer is back in flight");
+	mu_assert(err[0] == '\0', err);
+
+	/* and the teardown still gets it back */
+	capture_output();
+	ubertooth_stop(ut);
+	release_output(err, sizeof(err));
+	assert_transfer_lifetimes();
 	mu_assert_int_eq(1, fake.xfer_frees);
 	mu_assert(ut->rx_xfer == NULL, "no transfer left on the handle");
-	/* a timeout is the board having nothing to send, so it is not reported */
 	mu_assert(err[0] == '\0', err);
 
 	release_handle(ut);
@@ -1049,7 +1124,8 @@ int main(void)
 	MU_RUN(a_stop_with_a_packet_in_hand_gives_the_transfer_back);
 	MU_RUN(a_cancel_the_device_refuses_leaves_the_transfer_alone);
 	MU_RUN(a_transfer_that_never_comes_back_keeps_the_device_open);
-	MU_RUN(a_bulk_timeout_while_stopping_does_not_re_arm_the_transfer);
+	MU_RUN(a_completion_during_the_teardown_does_not_re_arm_the_transfer);
+	MU_RUN(a_packet_during_a_capture_re_arms_the_transfer);
 	MU_RUN(a_refused_re_arm_gives_the_transfer_back);
 	reset(); /* release the last case's transfer bodies */
 	return mu_report();

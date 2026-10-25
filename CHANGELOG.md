@@ -227,7 +227,8 @@
   `ubertooth-rx` timeout with traffic flowing) no longer releases a receive
   transfer the USB layer is still using, which could corrupt memory or crash
   the tool. `ubertooth-rx` and `ubertooth-scan` also give the board and the
-  transfer back when they cannot start a capture.
+  transfer back when they cannot start a capture, as `ubertooth-follow` now
+  does too.
   [#370](https://github.com/SqueakyFloors/ubertooth/issues/370)
 - A capture gives its receive transfer back when it ends, so a run with more
   than one phase (`ubertooth-afh` detects a map, then monitors it) no longer
