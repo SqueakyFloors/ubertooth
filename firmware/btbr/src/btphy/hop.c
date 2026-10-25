@@ -57,18 +57,22 @@ void hop_init(uint32_t address)
 			((address >> 1) & 0x01);
 	hop_state.x = 0;
 	hop_state.afh_enabled = 0;
-	hop_state.bank = hop_state.basic_bank;
-	hop_state.chan_count = NUM_BREDR_CHANNELS;
+	hop_state.afh_chan_count = 0;
 }
 
-/* BT Core v5.1 | Vol 2, Part B, Section 2.6*/
+/*
+ * BT Core v5.1 | Vol 2, Part B, Section 2.6.  Returns PERM5 + E + Y2, that is
+ * the kernel output before input F of its final adder.  F is left to the
+ * caller because AFH re-mapping (2.6.3.1) needs this same value with two
+ * different F, and because adding F here would overflow a uint8_t.
+ */
 static uint8_t hop_selection_kernel(uint8_t x, uint8_t y1, uint8_t y2,
 			uint8_t a, uint8_t b, uint8_t c,
-			uint16_t d, uint8_t e, uint8_t f)
+			uint16_t d, uint8_t e)
 {
 	/* Extend y1 on 5 bits */
 	y1 = ~(y1-1);
-	return (perm5((a+x)^b, y1^c, d) + e + f + y2);
+	return (perm5((a+x)^b, y1^c, d) + e + y2);
 }
 
 static uint8_t hop_inquiry_with_phase(uint32_t clk, uint8_t x)
@@ -85,8 +89,8 @@ static uint8_t hop_inquiry_with_phase(uint32_t clk, uint8_t x)
 			hop_state.a22_19,	// B = A22_19
 			hop_state.C,		// C = A8,6,4,2,0
 			hop_state.a18_10,	// D = A18_10
-			hop_state.E,		// E = A13,11,9,7,5,3,1
-			0) % NUM_BREDR_CHANNELS;
+			hop_state.E		// E = A13,11,9,7,5,3,1
+			) % NUM_BREDR_CHANNELS;	// F = 0 in these states
 
 	return hop_state.basic_bank[sel];
 }
@@ -101,15 +105,26 @@ static uint8_t hop_paging(uint32_t clk)
 	return hop_inquiry_with_phase(clk, calc_iterate_slave_page_scan_phase(clk));
 }
 
-static void hop_set_afh_map(uint8_t *afh_map)
+/* nonzero if the AFH channel map marks this channel (0-78) as used */
+static uint8_t afh_channel_used(uint8_t chan)
+{
+	return (hop_state.afh_map[chan/8] >> (chan%8)) & 0x1;
+}
+
+static void hop_set_afh_map(uint8_t *map)
 {
 	uint8_t chan;
 	unsigned i,count;
 
+	for (i = 0; i < sizeof(hop_state.afh_map); i++)
+		hop_state.afh_map[i] = map[i];
+
+	/* Walk the basic table so the AFH table keeps its channel order, and
+	 * count only the entries actually placed in it, so a stray reserved
+	 * bit 79 in the map cannot index past the used channels. */
 	for (i = 0, count=0; i < NUM_BREDR_CHANNELS; i++) {
-		//chan = (i * 2) % NUM_BREDR_CHANNELS;
 		chan = hop_state.basic_bank[i];
-		if(afh_map[chan/8] & (0x1 << (chan%8)))
+		if (afh_channel_used(chan))
 			hop_state.afh_bank[count++] = chan;
 	}
 	hop_state.afh_chan_count = count;
@@ -120,33 +135,40 @@ void hop_cfg_afh(uint8_t* buf)
 	uint8_t enabled = buf[0] & 1;
 	uint8_t *map = buf+1;
 
+	/* Hop basic while the tables are rebuilt: hop_basic() may run from an
+	 * interrupt and must not see a new count with a half-built table. */
+	hop_state.afh_enabled = 0;
 	if (enabled)
 	{
 		cprintf("(+afh)");
 		hop_set_afh_map(map);
-		hop_state.bank = hop_state.afh_bank;
-		hop_state.chan_count = hop_state.afh_chan_count;
 	}
 	else
 	{
 		cprintf("(-afh)");
-		hop_state.bank = hop_state.basic_bank;
-		hop_state.chan_count = NUM_BREDR_CHANNELS;
 	}
 	hop_state.afh_enabled = enabled;
 }
 
 uint8_t hop_basic(uint32_t clk)
 {
-	uint8_t clk1, sel;
+	uint8_t clk1, sel, chan;
+	uint32_t base_f;
+	/* Read once: an AFH map update from the timer callback must not change
+	 * N between the check and the divisions below. */
+	uint8_t n_used = hop_state.afh_chan_count;
+	/* Fewer than the spec minimum of 20 used channels (or an unset map)
+	 * falls back to basic hopping, which also avoids dividing by zero. */
+	uint8_t afh_active = hop_state.afh_enabled && n_used >= 20;
 
-	uint8_t safe_chan_count = (hop_state.chan_count > 0) ? hop_state.chan_count : 79;
-
-	// Same-channel mechanism for AFH (FIXME: is this correct ?)
-	if (hop_state.afh_enabled)
+	/* AFH same channel mechanism (2.6.1): the peripheral-to-central slot
+	 * reuses the preceding central-to-peripheral channel, i.e. CLK1 = 0. */
+	if (afh_active)
 		clk1 = 0;
 	else
 		clk1 = 1&(clk>>1);
+
+	base_f = (clk>>(7-4))&(0x1fffff<<4);		// 16 * clk27_7
 
 	sel = hop_selection_kernel(
 		0x1f & (clk>>2),			// X = clk6_2
@@ -156,10 +178,16 @@ uint8_t hop_basic(uint32_t clk)
 		hop_state.a22_19,			// B = A22_19
 		hop_state.C^(0x1f&(clk>>16)),		// C = A8,6,4,2,0 ^ clk20_16
 		hop_state.a18_10^(0x1ff&(clk>>7)),	// D = a18_10 ^ clk15_7
-		hop_state.E,				// E = A13,11,9,7,5,3,1
-		((clk>>(7-4))&(0x1fffff<<4))% safe_chan_count	// F = 16*clk27_7 % 79
+		hop_state.E				// E = A13,11,9,7,5,3,1
 		);
-	return hop_state.bank[sel % safe_chan_count];
+	chan = hop_state.basic_bank[(sel + base_f % NUM_BREDR_CHANNELS)
+					% NUM_BREDR_CHANNELS];
+	/* AFH re-mapping (2.6.3.1): a used basic channel is kept unchanged; an
+	 * unused one is replaced by entry k' = (PERM5 + E + F' + Y2) mod N of
+	 * the AFH mapping table, where F' = 16 * clk27_7 mod N. */
+	if (afh_active && !afh_channel_used(chan))
+		chan = hop_state.afh_bank[(sel + base_f % n_used) % n_used];
+	return chan;
 }
 
 uint8_t hop_channel(uint32_t clk)

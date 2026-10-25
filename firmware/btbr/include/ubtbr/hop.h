@@ -7,13 +7,22 @@ typedef struct hop_state_s {
 	uint8_t a27_23, a22_19, C, E;
 	uint16_t a18_10;
 	uint8_t x;
-	/* frequency register bank */
+	/*
+	 * Basic mapping table (Core spec Vol 2 Part B 2.6.2): even channels in
+	 * ascending order followed by odd channels.  AFH consults it first, so
+	 * it always describes the full 79-channel sequence.
+	 */
 	uint8_t basic_bank[NUM_BREDR_CHANNELS];
+	/*
+	 * AFH mapping table (2.6.3.1): the basic table with every unused
+	 * channel removed, holding afh_chan_count entries.
+	 */
 	uint8_t afh_bank[NUM_BREDR_CHANNELS];
 	uint8_t afh_chan_count;
+	/* Channel map as the host sends it, one bit per channel, channel 0 in
+	 * the least significant bit of byte 0 (btctl_set_afh_req_t.map). */
+	uint8_t afh_map[10];
 	uint8_t afh_enabled;
-	uint8_t *bank;
-	uint8_t chan_count;
 } hop_state_t;
 
 void hop_init(uint32_t address);
