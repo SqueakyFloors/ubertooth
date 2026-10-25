@@ -242,6 +242,31 @@ add_test(NAME afh-main COMMAND test-afh-main)
 # loop should fail instead of hanging the suite.
 set_tests_properties(afh-main PROPERTIES TIMEOUT 10)
 
+# The same approach for ubertooth-btle: its real main() against a scripted
+# device, so which commands the -v options run, in which order, is checked
+# without a board. libbtbb is the real one (the capture options are not used,
+# and no device is touched).
+add_executable(test-btle-main
+	test_btle_main.c
+	../src/btle_options.c)
+target_link_libraries(test-btle-main opt-parse-for-tests ${LIBBTBB_LIBRARIES})
+if(libubertooth_SOURCE_DIR)
+	target_include_directories(test-btle-main PRIVATE ${libubertooth_SOURCE_DIR}/src)
+else()
+	target_include_directories(test-btle-main PRIVATE ${LIBUBERTOOTH_INCLUDE_DIR})
+endif()
+target_include_directories(test-btle-main PRIVATE ../src
+	${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+if(USE_OWN_GNU_GETOPT)
+	target_include_directories(test-btle-main BEFORE PRIVATE ../getopt)
+	target_link_libraries(test-btle-main libgetopt_static)
+endif()
+
+add_test(NAME btle-main COMMAND test-btle-main)
+# The fake poll ends the capture loop at once; a regression that waits on a
+# real device should fail instead of hanging the suite.
+set_tests_properties(btle-main PROPERTIES TIMEOUT 10)
+
 # The same approach for ubertooth-dfu: its real main() against a faked DFU
 # transport, so a bootloader that stops answering and a read-back that fails
 # part-way are testable without a board.

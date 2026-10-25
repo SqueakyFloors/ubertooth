@@ -227,8 +227,14 @@ opened\. Getting and setting in one command is refused; other options such
 as \fB\fC\-v\fR still run after a get\.
 .IP \(bu 2
 \fB\fC\-v[01]\fR :
-Get (\fB\fC\-v\fR) or set (\fB\fC\-v0\fR, \fB\fC\-v1\fR, or
+Read (\fB\fC\-v\fR) or set (\fB\fC\-v0\fR, \fB\fC\-v1\fR, or
 \fB\fC\-v 1\fR) CRC verification (default: 0). Any other value is refused.
+A set and a read in one command both happen, the set first, so the read
+reports the new value, in whichever order they are written; two sets keep
+the last one. In a sniffing mode both run once the mode has started, because
+entering a mode clears the setting, and the firmware then turns verification
+on and off itself as it recovers a connection. A set or a read the board does
+not answer is reported on standard error with exit status 1.
 .IP \(bu 2
 \fB\fC\-x<0\-32>\fR :
 Allow n access address violations (default: 32). Filtering occurs on
