@@ -40,7 +40,7 @@
   the command returns at once and the board stays reachable; `-S` or any mode
   option stops it and leaves the LEDs off.
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
-- **Reflash required:** the firmware API version is now 1.13, and the host
+- **Reflash required:** the firmware API version is now 1.14, and the host
   tools require firmware of exactly their own API version, older or newer
   (`ubertooth-util` still reads the version and reflashes any firmware). Host
   and firmware come from the same tree; `2020-12-R1` firmware is refused.
@@ -305,6 +305,11 @@
   the part and the flash it has, while the board is still running its
   application; a part it cannot identify is reported as unchecked.
   [#281](https://github.com/SqueakyFloors/ubertooth/issues/281)
+- The firmware's generic receive mode (`UBERTOOTH_RX_GENERIC`) now picks
+  between its packet-mode and symbol-stream receives by testing GRMDM's
+  packet-mode bit instead of whether the register reads non-zero, so the
+  symbol stream is reachable, and it streams rather than returning at once.
+  [#252](https://github.com/SqueakyFloors/ubertooth/issues/252)
 
 - `ubertooth-dfu` now performs bounded, device-specific DFU entry and
   recovery, retries interrupted transfers, and verifies

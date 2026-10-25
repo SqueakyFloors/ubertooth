@@ -98,6 +98,27 @@ static inline uint16_t frend_keep_pa_level(uint16_t frend)
 	return FREND_RESERVED_ONE | (frend & FREND_PA_LEVEL);
 }
 
+/* GRMDM: generic radio modem control */
+/* PACKET_MODE (bit 10): the modem frames packets itself -- preamble, sync
+ * word and the FIFO -- instead of handing over a raw symbol stream. The
+ * values the firmware writes carry it or not: 0x0ce1 and 0x0f61 are packet
+ * mode, 0x0101 ("un-buffered mode, GFSK") is not. */
+#define GRMDM_PACKET_MODE 0x0400
+
+/*
+ * Does this GRMDM value select the packet-mode receive? Read the register
+ * with cc2400_get(GRMDM).
+ *
+ * A bit test, not a truth test: the mode choice in rx_generic() was written
+ * `cc2400_get(GRMDM) && 0x0400`, which is "GRMDM reads non-zero", so every
+ * value with any bit set took the packet-mode path and the symbol-stream one
+ * was dead.
+ */
+static inline int grmdm_packet_mode(uint16_t grmdm)
+{
+	return (grmdm & GRMDM_PACKET_MODE) != 0;
+}
+
 /* GIO signals */
 #define GIO_PA_EN             3  /* Active high PA enable signal */
 #define GIO_PA_EN_N           4  /* Active low PA enable signal */

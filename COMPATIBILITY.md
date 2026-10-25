@@ -33,7 +33,7 @@ Legend:
 | **libusb** | 1.0.23 | 1.0.23 (Ubuntu 20.04 CI), 1.0.25 (22.04), 1.0.27 (24.04), 1.0.30 (macOS) | pre-1.0; older than 1.0.23 (not tested) | ✅ 1.0.23 verified in CI (oldest tested) |
 | **libbtbb** | 2020-12-R1 | current master (C lib) | older than 2020-12-R1 | 🎯 minimum not exercised: CI builds current master |
 | **ronn-ng (man pages)** | 0.10.1, exactly | 0.10.1 (`Man pages` CI job on Ubuntu 24.04; macOS 26 via Homebrew) | any other version: it renders the same Markdown differently, so the committed pages would stop matching a refresh | ✅ 0.10.1 verified in CI. Optional: only `refresh-manpages` needs it, and a build neither needs it nor runs it |
-| **Ubertooth firmware (API)** | 1.13 (this tree), exactly | 1.12 on hardware; 1.13 not yet run on a board ([#251](https://github.com/SqueakyFloors/ubertooth/issues/251)) | any other API version, including 1.07 (`2020-12-R1`): refused by the tools, except `ubertooth-util` reading the version or reflashing | 🎯 1.13 not yet on hardware; the exact-version refusal was verified on an Ubertooth One with 1.12 |
+| **Ubertooth firmware (API)** | 1.14 (this tree), exactly | 1.14 on hardware (flashed and read back on an Ubertooth One); 1.12 before that | any other API version, including 1.07 (`2020-12-R1`): refused by the tools, except `ubertooth-util` reading the version or reflashing | ✅ 1.14 verified on hardware; the exact-version refusal was verified on an Ubertooth One with 1.12 |
 
 ---
 

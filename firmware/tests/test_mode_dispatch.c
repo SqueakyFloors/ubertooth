@@ -52,11 +52,16 @@
 #define DISPATCH_CASES 19
 
 /* How many modes the dispatch runs by calling bt_stream_rx() itself. Same
- * purpose: update it when one is added or removed. A mode the dispatch sends
- * to a function that calls bt_stream_rx() in turn -- MODE_RX_GENERIC, through
- * rx_generic() -- is not one of these: that function sets its mode up and the
- * loop is not asked to recognise it. */
+ * purpose: update it when one is added or removed. MODE_RX_GENERIC is not one
+ * of these, because the dispatch sends it to rx_generic(), which picks
+ * between two receives and reaches bt_stream_rx() for one of them; the loop
+ * still has to name it, which the last test checks separately. */
 #define STREAM_RX_MODES 3
+
+/* Modes that reach bt_stream_rx() through a function of their own rather than
+ * from a case of the dispatch, so the scan cannot pair them up but the loop
+ * condition must still name them. */
+#define INDIRECT_STREAM_MODE "MODE_RX_GENERIC"
 
 /* Where each thing the scan looks for was found, 0 if it was not. */
 struct scan {
@@ -372,6 +377,15 @@ MU_TEST(test_the_stream_loop_runs_every_mode_dispatched_to_it)
 		mu_assert(contains_identifier(s.stream_cond, s.stream_modes[i]),
 		          msg);
 	}
+
+	/* And the mode that gets there through rx_generic(), whose symbol-stream
+	 * receive returned at once as MODE_AFH's did. */
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: rx_generic() runs %s through bt_stream_rx(), but its "
+	         "loop condition (`%s`) does not name it, so that receive "
+	         "returns at once and streams nothing",
+	         path, s.stream_cond_line, INDIRECT_STREAM_MODE, s.stream_cond);
+	mu_assert(contains_identifier(s.stream_cond, INDIRECT_STREAM_MODE), msg);
 }
 
 int main(void)
