@@ -72,7 +72,7 @@ jobs:
       # than let one of them drift to another libbtbb.
       run: |
         status=0
-        for f in install.sh Dockerfile COMPATIBILITY.md \
+        for f in install.sh COMPATIBILITY.md \
                  docs/source/build_guide.rst docs/source/building_from_git.rst; do
           grep -q "$LIBBTBB_REF" "$f" || {
             echo "$f does not name the pinned libbtbb commit $LIBBTBB_REF"

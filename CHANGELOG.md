@@ -69,6 +69,8 @@
 
 ### Build and compatibility
 
+- Removed the unmaintained Dockerfile.
+  [#324](https://github.com/SqueakyFloors/ubertooth/issues/324)
 - A build no longer rewrites the committed man pages in `host/doc/man`, and
   installs the same pages with or without ronn. Refresh them after editing a
   `host/doc/*.md`: `cmake --build <build dir> --target refresh-manpages`; CI
