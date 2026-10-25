@@ -103,6 +103,11 @@
   one, and `ubertooth-btle`, `ubertooth-ducky`, `ubertooth-follow`,
   `ubertooth-rx` and `ubertooth-tx` stop when it fails.
   [#247](https://github.com/SqueakyFloors/ubertooth/issues/247)
+- A set and a read of `ubertooth-btle`'s CRC verify setting in one command both
+  run, the set first, so `-v1 -v` reports the new value instead of dropping
+  one of the two. A read now also works alongside `-f`, `-n` and `-p`, and a
+  set the board does not answer exits 1 instead of being ignored.
+  [#265](https://github.com/SqueakyFloors/ubertooth/issues/265)
 - A set and a read of the same `ubertooth-util` value in one command both run,
   the set first, so `-c2426 -c`, `-a5 -a`, `-l1 -l` and `-d1 -d` report the new
   value instead of dropping the set.

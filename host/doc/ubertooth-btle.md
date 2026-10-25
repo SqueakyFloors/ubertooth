@@ -164,8 +164,14 @@ Miscellaneous:
    opened. Getting and setting in one command is refused; other options such
    as `-v` still run after a get.
  - `-v[01]` :
-   Get (`-v`) or set (`-v0`, `-v1`, or `-v 1`) CRC verification
-   (default: 0). Any other value is refused.
+   Read (`-v`) or set (`-v0`, `-v1`, or `-v 1`) CRC verification
+   (default: 0). Any other value is refused. A set and a read in one command
+   both happen, the set first, so the read reports the new value, in whichever
+   order they are written; two sets keep the last one. In a sniffing mode both
+   run once the mode has started, because entering a mode clears the setting,
+   and the firmware then turns verification on and off itself as it recovers a
+   connection. A set or a read the board does not answer is reported on
+   standard error with exit status 1.
  - `-x<0-32>` :
    Allow n access address violations (default: 32). Filtering occurs on
    host.

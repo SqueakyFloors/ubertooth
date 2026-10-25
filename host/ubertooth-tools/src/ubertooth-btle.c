@@ -109,6 +109,33 @@ static char *handle_special_filename(const char *filename, int *saved_fd)
 	return strdup(path);
 }
 
+/* Carry out the -v options: the set first, then the read, so one command can
+ * do both and the read reports the value it just set. The set keeps its own
+ * line only when nothing reads afterwards, so a set and a read print one line
+ * between them. Returns 0, or -1 once the failure has been reported. */
+static int apply_crc_options(ubertooth_t* ut, int do_set_crc, int do_get_crc)
+{
+	if (do_set_crc >= 0) {
+		if (cmd_set_crc_verify(ut->devh, do_set_crc) < 0) {
+			fprintf(stderr, "error: CRC verify set failed\n");
+			return -1;
+		}
+		if (!do_get_crc)
+			printf("CRC: %sverify\n", do_set_crc ? "" : "DO NOT ");
+	}
+	if (do_get_crc) {
+		int r = cmd_get_crc_verify(ut->devh);
+		if (r < 0) {
+			/* a short reply's whole error line is already printed */
+			if (r != UBERTOOTH_ERROR_SHORT_REPLY)
+				fprintf(stderr, "error: CRC verify read failed\n");
+			return -1;
+		}
+		printf("CRC: %sverify\n", r ? "" : "DO NOT ");
+	}
+	return 0;
+}
+
 static void usage(void)
 {
 	printf("ubertooth-btle - passive Bluetooth Low Energy monitoring\n");
@@ -138,7 +165,8 @@ static void usage(void)
 	printf("\t-c<filename> capture packets to PCAP file (DLT_PPI + DLT_BLUETOOTH_LE_LL)\n");
 	printf("\t-A<%d-%d> advertising channel index (default %d)\n",
 	       ADV_INDEX_MIN, ADV_INDEX_MAX, ADV_INDEX_MIN);
-	printf("\t-v[01] verify CRC mode, get status (-v) or enable/disable (-v1, -v 0)\n");
+	printf("\t-v[01] verify CRC mode, read status (-v) or enable/disable (-v1, -v 0);\n");
+	printf("\t       both in one command sets first, then reports the new value\n");
 	printf("\t-x<0-%d> allow n access address offenses (default %d)\n",
 	       AA_ERRORS_MAX, AA_ERRORS_MAX);
 
@@ -153,7 +181,11 @@ int main(int argc, char *argv[])
 	int first_exit_option = 0;
 	int do_follow, do_no_follow, do_promisc;
 	int do_get_aa, do_set_aa;
-	int do_crc;
+	/* The CRC verify set and read have their own state, so one command can
+	 * do both: -1 means no set was asked for, 0 or 1 the value to set, and
+	 * do_get_crc is a plain flag. They shared one variable, so -v1 -v read
+	 * only and -v -v1 set only, dropping the other half with exit 0. */
+	int do_set_crc, do_get_crc;
 	int do_adv_index;
 	int do_slave_mode;
 	int do_target;
@@ -176,7 +208,8 @@ int main(int argc, char *argv[])
 
 	do_follow = do_no_follow = do_promisc = 0;
 	do_get_aa = do_set_aa = 0;
-	do_crc = -1; // 0 and 1 mean set, 2 means get
+	do_set_crc = -1;
+	do_get_crc = 0;
 	do_adv_index = 37;
 	do_slave_mode = do_target = 0;
 
@@ -241,10 +274,10 @@ int main(int argc, char *argv[])
 				optarg = opt_separate_value(argc, argv, opt_value_decimal);
 			if (optarg) {
 				if (opt_require_int(optarg, 0, 1, "CRC verify mode", "",
-				                    &do_crc) < 0)
+				                    &do_set_crc) < 0)
 					return 1;
 			} else
-				do_crc = 2; // get
+				do_get_crc = 1;
 			break;
 		case 'A':
 			if (opt_require_int(optarg, ADV_INDEX_MIN, ADV_INDEX_MAX,
@@ -418,14 +451,14 @@ int main(int argc, char *argv[])
 			cmd_btle_promisc(ut->devh);
 		}
 
-		// Set CRC verification *after* the mode has started (mode entry runs
+		// The -v options run *after* the mode has started (mode entry runs
 		// reset_le() which clears crc_verify) but *before* the capture loop —
-		// otherwise the do_crc block further below only ran after streaming
-		// ended, making -v1 a no-op for sniffing modes.
-		if (do_crc >= 0 && do_crc != 2) {
-			cmd_set_crc_verify(ut->devh, do_crc);
-			printf("CRC: %sverify\n", do_crc ? "" : "DO NOT ");
-		}
+		// otherwise they only ran after streaming ended, making -v1 a no-op
+		// for sniffing modes. A read here reports the setting the capture
+		// starts with; the firmware turns verification on and off itself as it
+		// recovers a connection.
+		if (apply_crc_options(ut, do_set_crc, do_get_crc) < 0)
+			return 1;
 
 		// running can be changed by signal handler
 		while (running) {
@@ -468,21 +501,9 @@ int main(int argc, char *argv[])
 	}
 
 	// For sniffing modes this was already handled before the capture loop.
-	if (do_crc >= 0 && !(do_follow || do_no_follow || do_promisc)) {
-		int r;
-		if (do_crc == 2) {
-			r = cmd_get_crc_verify(ut->devh);
-			if (r < 0) {
-				/* a short reply's whole error line is already printed */
-				if (r != UBERTOOTH_ERROR_SHORT_REPLY)
-					fprintf(stderr, "error: CRC verify read failed\n");
-				return 1;
-			}
-		} else {
-			cmd_set_crc_verify(ut->devh, do_crc);
-			r = do_crc;
-		}
-		printf("CRC: %sverify\n", r ? "" : "DO NOT ");
+	if (!(do_follow || do_no_follow || do_promisc)) {
+		if (apply_crc_options(ut, do_set_crc, do_get_crc) < 0)
+			return 1;
 	}
 
 	if (do_slave_mode) {
@@ -503,7 +524,7 @@ int main(int argc, char *argv[])
 	}
 
 	if (!(do_follow || do_no_follow || do_promisc || do_get_aa || do_set_aa ||
-				do_crc >= 0 || do_slave_mode || do_target))
+				do_set_crc >= 0 || do_get_crc || do_slave_mode || do_target))
 		usage();
 
 	return 0;
