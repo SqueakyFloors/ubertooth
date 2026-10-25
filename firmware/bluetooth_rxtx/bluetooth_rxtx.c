@@ -579,18 +579,6 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params, uin
 		le.target_set = 1;
 		break;
 
-	case UBERTOOTH_DO_SOMETHING:
-		// do something! just don't commit anything here
-		break;
-
-	case UBERTOOTH_DO_SOMETHING_REPLY:
-		// after you do something, tell me what you did!
-		// don't commit here please
-		data[0] = 0x13;
-		data[1] = 0x37;
-		*data_len = 2;
-		break;
-
 	case UBERTOOTH_GET_CRC_VERIFY:
 		data[0] = le.crc_verify ? 1 : 0;
 		*data_len = 1;

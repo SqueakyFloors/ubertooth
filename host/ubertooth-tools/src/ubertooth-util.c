@@ -379,7 +379,7 @@ int main(int argc, char *argv[])
 	 * silently. */
 	int do_get_leds, do_get_all_leds, do_get_channel, do_get_palevel;
 	int do_set_squelch, do_get_squelch, squelch_level;
-	int do_something, do_compile_info;
+	int do_compile_info;
 	int first_exit_option, long_host_version; /* -h / -H / --host-version */
 	int do_number, do_xmas;
 	char* ubertooth_device = NULL;
@@ -398,7 +398,7 @@ int main(int argc, char *argv[])
 	do_range_result= do_all_leds= do_identify= -1;
 	do_get_leds= do_get_all_leds= do_get_channel= do_get_palevel= 0;
 	do_set_squelch= -1, do_get_squelch= -1; squelch_level= 0;
-	do_something= 0; do_compile_info= -1;
+	do_compile_info= -1;
 	do_number= 0; do_xmas= 0;
 	first_exit_option= 0; long_host_version= 0;
 
@@ -414,7 +414,11 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	while ((opt=getopt(argc,argv,"U:hnmefiIprsStvbl::a::C::c::d::q::z::9VNxH")) != EOF) {
+	/* The tool reports a bad option itself, in the usual one-line form:
+	 * see opt_report_bad_option(). The leading ':' makes a missing option
+	 * value distinguishable from an option getopt does not know. */
+	opterr = 0;
+	while ((opt=getopt(argc,argv,":U:hnmefiIprsStvbl::a::C::c::d::q::z::VNxH")) != EOF) {
 		/* An optional value may also be the next word: -c 2440, -z -90. Only
 		 * -z takes a negative value (a signed RSSI threshold). */
 		if (optarg == NULL && strchr("lacCdqz", opt) != NULL)
@@ -531,9 +535,6 @@ int main(int argc, char *argv[])
 				do_get_squelch = 1;
 			}
 			break;
-		case '9':
-			do_something= 1;
-			break;
 		case 'V':
 			do_compile_info = 0;
 			break;
@@ -552,6 +553,7 @@ int main(int argc, char *argv[])
 				first_exit_option = 'h';
 			break;
 		default:
+			opt_report_bad_option(opt, argc, argv);
 			usage(stderr);
 			return 1;
 		}
@@ -877,19 +879,6 @@ int main(int argc, char *argv[])
 		status = util_status_after(status, cmd_stop(ut->devh)); /* leave any prior mode before starting */
 		status = util_status_after(status, cmd_xmas(ut->devh));
 		goto out;
-	}
-	if(do_something) {
-		unsigned char buf[4] = { 0x55, 0x55, 0x55, 0x55 };
-		/* Bytes the firmware does not fill keep the 0x55 marker. */
-		if (cmd_do_something(ut->devh, NULL, 0) < 0) {
-			fprintf(stderr, "error: test command send failed\n");
-			status = 1;
-		}
-		int reply = cmd_do_something_reply(ut->devh, buf, 4);
-		if (reply < 0)
-			status = util_status_merge(status, report_read_failed("test command reply", reply));
-		else
-			fprintf(stdout, "%02x %02x %02x %02x\n", buf[0], buf[1], buf[2], buf[3]);
 	}
 
 out:

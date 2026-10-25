@@ -95,9 +95,6 @@ Miscellaneous:
 \fB\-V\fR
 Version information
 .TP
-\fB\-s\fR
-Deprecated no\-op\. Sweep mode is now the default; this flag is retained for backward compatibility and has no effect\.
-.TP
 \fB\-U <index|serial>\fR
 select an Ubertooth by enumeration index or serial number; see ubertooth(7), SELECTING A DEVICE
 .SH "DISCOVERING UNDISCOVERABLE DEVICES"
@@ -138,11 +135,15 @@ a file that cannot be read, for example a directory
 a last record cut short
 \fBerror: <file> ends in a partial record: 58 of 68 bytes, ignored\fR
 .P
-A file that cannot be opened at all is reported on standard output with the usage text, as before: \fBCould not open file <file>\fR, exit 1\.
+A file that cannot be opened at all is reported the same way, before anything is decoded: \fBerror: <file>: No such file or directory\fR, exit 1\. So is a \fB\-d\fR dump file that cannot be created\.
 .SH "ARGUMENTS"
 \fBubertooth\-rx\fR takes options only\. A word that is not an option, including a bare \fB\-\fR, is refused before any device is opened and named: \fBerror: unexpected argument '<word>'\fR, with exit status 1\.
 .P
 \fB\-h\fR and \fB\-V\fR end the command only once the whole command line has parsed, so a stray word or a bad option value is reported even alongside them\.
+.P
+An option the tool does not know is refused the same way, with the usage text after it on standard error: \fBerror: unrecognized option '\-Z'\fR\. An option whose value is missing reads \fBerror: option '\-l' requires a value\fR\.
+.P
+\fB\-h\fR is what the user asked for, so its usage text goes to standard output, nothing goes to standard error, and it exits 0\.
 .P
 An option value must be a whole value in its range, or it is refused the same way instead of being read as 0, for example \fBerror: channel must be 0\-78 (got 79)\fR\.
 .P

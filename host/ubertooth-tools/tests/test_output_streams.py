@@ -15,9 +15,15 @@ No device is opened in any of those cases, so nothing here depends on what is
 attached; UBERTOOTH_TEST_NO_DEVICES=1 hides any board that is, and a run that
 reached device selection is caught by the message that reports it.
 
-Tools are converted one at a time, so a tool not yet in FOLLOWS_THE_RULE is
-reported as pending and nothing is asserted for it: adding a tool to that set
-is what turns these checks on for it.
+Reporting a bad command line the shared way (opterr = 0, an option string
+starting with ':', opt_report_bad_option()) is a smaller step than the whole
+rule, so it has a set of its own, REPORTS_BAD_OPTIONS, which FOLLOWS_THE_RULE
+is part of. For a tool in it, `-h`, an unknown option, a missing option value,
+and every option the tool used to have (REMOVED_OPTIONS) are checked.
+
+Tools are converted one at a time, so a tool in neither set is reported as
+pending and nothing is asserted for it: adding a tool to a set is what turns
+those checks on for it.
 """
 
 import os
@@ -38,6 +44,15 @@ FOLLOWS_THE_RULE = {
     "ubertooth-tx",
 }
 
+# The tools that report a bad command line the shared way: opterr = 0, an
+# option string starting with ':', and opt_report_bad_option(). That is a
+# smaller step than the whole rule, so a tool can be here before it is in
+# FOLLOWS_THE_RULE, and the bad-option checks below run for it either way.
+REPORTS_BAD_OPTIONS = FOLLOWS_THE_RULE | {
+    "ubertooth-rx",
+    "ubertooth-util",
+}
+
 # One option per tool that takes a required value, for the missing-value case.
 # ubertooth-ducky is left out because test_ducky_options.py already covers its
 # missing -U value, in the middle of the rest of its selector parsing.
@@ -45,7 +60,9 @@ OPTION_NEEDING_A_VALUE = {
     "ubertooth-afh": "l",
     "ubertooth-dump": "d",
     "ubertooth-ego": "c",
+    "ubertooth-rx": "l",
     "ubertooth-tx": "l",
+    "ubertooth-util": "U",
 }
 
 # The tools whose empty command line has nothing to do, and the "error: " line
@@ -81,46 +98,74 @@ def usage_text(text):
     return TOOL in text and "-U <index|serial>" in text
 
 
-if TOOL not in FOLLOWS_THE_RULE:
-    print("%s: output streams not converted yet, nothing asserted" % TOOL)
-    sys.exit(0)
+# ---- a bad command line, for every tool that reports one the shared way ----
 
-# ---- -h: the usage text on stdout, nothing on stderr, status 0 -------------
+# Flags that are gone: each was dead, a documented no-op, or a developer
+# scratch hook. A removed flag is an option the tool does not know, so a
+# script still passing one must fail loudly instead of having it taken as
+# something else.
+REMOVED_OPTIONS = {
+    "ubertooth-afh": ["-a"],
+    "ubertooth-rx": ["-s"],
+    "ubertooth-util": ["-9"],
+}
 
-result = run(["-h"])
-assert result.returncode == 0, result
-assert usage_text(result.stdout), result
-assert result.stderr == "", result
+if TOOL in REPORTS_BAD_OPTIONS:
+    # -h is what the user asked for: the usage text on stdout, nothing on
+    # stderr, status 0. The other half of reading a command line properly,
+    # so it is checked alongside the ways one can be wrong.
+    result = run(["-h"])
+    assert result.returncode == 0, result
+    assert usage_text(result.stdout), result
+    assert result.stderr == "", result
 
-# ---- an option the tool does not know --------------------------------------
+    # an option the tool does not know
+    result = run(["-Z"])
+    assert result.returncode == 1, result
+    # Nothing on stdout: a script reading the tool's output sees no usage text.
+    assert result.stdout == "", result
+    # The "error: " line comes first, then the usage text, both on stderr.
+    first, _, rest = result.stderr.partition("\n")
+    assert first == "error: unrecognized option '-Z'", result
+    assert usage_text(rest), result
 
-result = run(["-Z"])
-assert result.returncode == 1, result
-# Nothing on stdout: a script reading the tool's output sees no usage text.
-assert result.stdout == "", result
-# The "error: " line comes first, then the usage text, both on stderr.
-first, _, rest = result.stderr.partition("\n")
-assert first == "error: unrecognized option '-Z'", result
-assert usage_text(rest), result
-
-# A word starting with -- is quoted as the user wrote it: getopt rejects its
-# second '-', which would otherwise be reported as the option "--".
-result = run(["--bogus"])
-assert result.returncode == 1, result
-assert result.stdout == "", result
-assert result.stderr.startswith("error: unrecognized option '--bogus':"), result
-assert usage_text(result.stderr), result
-
-# ---- an option whose value is missing --------------------------------------
-
-option = OPTION_NEEDING_A_VALUE.get(TOOL)
-if option is not None:
-    result = run(["-" + option])
+    # A word starting with -- is quoted as the user wrote it: getopt rejects
+    # its second '-', which would otherwise be reported as the option "--".
+    result = run(["--bogus"])
     assert result.returncode == 1, result
     assert result.stdout == "", result
-    first, _, rest = result.stderr.partition("\n")
-    assert first == "error: option '-%s' requires a value" % option, result
-    assert usage_text(rest), result
+    assert result.stderr.startswith("error: unrecognized option '--bogus':"), result
+    assert usage_text(result.stderr), result
+
+    # every option the tool used to have, refused the same way
+    for removed in REMOVED_OPTIONS.get(TOOL, []):
+        result = run([removed])
+        assert result.returncode == 1, (removed, result)
+        assert result.stdout == "", (removed, result)
+        first, _, rest = result.stderr.partition("\n")
+        assert first == "error: unrecognized option '%s'" % removed, (removed, result)
+        assert usage_text(rest), (removed, result)
+
+    # an option whose value is missing
+    option = OPTION_NEEDING_A_VALUE.get(TOOL)
+    if option is not None:
+        result = run(["-" + option])
+        assert result.returncode == 1, result
+        assert result.stdout == "", result
+        first, _, rest = result.stderr.partition("\n")
+        assert first == "error: option '-%s' requires a value" % option, result
+        assert usage_text(rest), result
+elif REMOVED_OPTIONS.get(TOOL):
+    sys.exit("%s has removed options but does not report a bad option the "
+             "shared way" % TOOL)
+
+if TOOL not in FOLLOWS_THE_RULE:
+    if TOOL in REPORTS_BAD_OPTIONS:
+        print("%s: streams not converted yet; a bad command line asserted"
+              % TOOL)
+    else:
+        print("%s: output streams not converted yet, nothing asserted" % TOOL)
+    sys.exit(0)
 
 # ---- a command line with nothing to do -------------------------------------
 
