@@ -160,6 +160,7 @@ static void reset_conn(void) {
 
 // pre-declarations for utility stuff
 static void timer1_start(void);
+static void timer1_enable_interrupt(void);
 static void timer1_stop(void);
 static void timer1_set_match(uint32_t match);
 static void timer1_clear_match(void);
@@ -596,12 +597,34 @@ static void change_channel(void) {
 ///////
 // timer stuff
 
+// Start the counter. It has to be running before the radio is set up, because
+// the matches are armed against NOW, which reads it. That is why unmasking the
+// interrupt is a separate step: see le_phy_main().
 static void timer1_start(void) {
 	T1TCR = TCR_Counter_Reset;
 	T1PR = 4; // 100 ns
-	T1TCR = TCR_Counter_Enable;
 
-	// set up interrupt handler
+	// Start from nothing pending. The teardown masks the line, but a match
+	// taken just before the mask stays pending in the NVIC, and a match flag
+	// can be left in T1IR; either would be delivered as the first interrupt
+	// of this run, after le_phy_active is set, and the handler would act on
+	// it as a live event. Clearing it here, before the counter runs, is also
+	// before le_cc2400_init_rf() arms the FS_LOCK match this run does want.
+	//
+	// Best-effort on the last line: if the T1IR write has not reached the
+	// timer when the pending bit is cleared, the still-asserted line latches
+	// it again. Harmless, because the handler then finds no T1IR bit set and
+	// falls through every branch.
+	T1MCR = 0;
+	T1IR = 0xff; // write-1-to-clear: every match and capture flag
+	ICPR0 = ICPR0_ICP_TIMER1;
+
+	T1TCR = TCR_Counter_Enable;
+}
+
+// Let timer1's matches reach TIMER1_IRQHandler(). The handler drives the LE
+// state machine, so this comes after le_phy_active says that state is set up.
+static void timer1_enable_interrupt(void) {
 	ISER0 = ISER0_ISE_TIMER1;
 }
 
@@ -1045,7 +1068,10 @@ void le_phy_main(void) {
 
 	buffers_init();
 	queue_init(&packet_queue);
-	le_phy_active = 1;
+
+	// The counter runs from here because NOW, and the FS_LOCK match
+	// le_cc2400_init_rf() arms through it, are measured against it. Its
+	// interrupt stays masked until the setup below is done.
 	timer1_start();
 
 	current_rxbuf = buffer_get();
@@ -1053,6 +1079,26 @@ void le_phy_main(void) {
 	conn.access_address = ADVERTISING_AA;
 	le_sys_init();
 	le_cc2400_init_rf();
+
+	// Everything the interrupt handlers read is set up now: the buffer pool
+	// and the packet queue, the first receive buffer, the DMA channel and the
+	// SSP, and the radio with its FS_LOCK match armed. Nothing above needs
+	// le_phy_active set, so the flag can wait until here, and the interrupt
+	// that checks it is unmasked only after it is set. That closes the window
+	// in which a timer1 match left over from an earlier run could be taken
+	// with current_rxbuf still the NULL the teardown left behind; the NULL
+	// guards in le_DMA_IRQHandler() and TIMER1_IRQHandler() stay as the
+	// backstop for the buffer pool running dry while the mode runs.
+	//
+	// One interrupt can be taken in the window: dio_ssp_start() inside
+	// le_sys_init() arms DMA channel 0, and the DMA line is live on entry
+	// (the teardown leaves it enabled for the modes that follow). With the
+	// flag clear, le_DMA_IRQHandler() acknowledges and returns instead of
+	// writing bytes into a buffer whose RX has not been armed yet, which is
+	// the behaviour wanted here: nothing should arrive until the FS_LOCK path
+	// strobes RX.
+	le_phy_active = 1;
+	timer1_enable_interrupt();
 
 	cancel_follow = 0;
 
@@ -1130,9 +1176,12 @@ void le_phy_main(void) {
 	// on rx_tc from legacy_DMA_IRQHandler().
 	ISER0 = ISER0_ISE_DMA;
 
-	// drop every armed match, including MR1 (the LED blink), before stopping
-	// the timer, so nothing is left pending for the next entry into this mode
+	// drop every armed match, including MR1 (the LED blink), and any flag one
+	// of them has already latched, before stopping the timer, so the hardware
+	// is left quiet. The next entry clears all of this again rather than
+	// trusting it.
 	T1MCR = 0;
+	T1IR = 0xff; // write-1-to-clear: every match and capture flag
 	timer1_stop();
 
 	// kill the CC2400: synthesizer off, and the Ubertooth One amplifier with it

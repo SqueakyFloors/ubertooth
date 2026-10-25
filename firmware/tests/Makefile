@@ -12,7 +12,7 @@ FW_RXTX := ../bluetooth_rxtx
 FW_COMMON := ../common
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS   := test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_mode_dispatch
+TESTS   := test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_mode_dispatch test_le_phy_order
 BINDIR  := bin
 
 .PHONY: all test clean
@@ -57,10 +57,18 @@ $(BINDIR)/test_cc2400_wait: test_cc2400_wait.c minunit.h stubs-radio/ubertooth.h
 # The mode dispatch lives in main(), which cannot run here, so this test scans
 # bluetooth_rxtx.c as text (like test_frend's last case). FW_RXTX_DIR points it
 # at the source; it links nothing from the firmware.
-$(BINDIR)/test_mode_dispatch: test_mode_dispatch.c minunit.h \
+$(BINDIR)/test_mode_dispatch: test_mode_dispatch.c minunit.h source_scan.h \
 		$(FW_RXTX)/bluetooth_rxtx.c | $(BINDIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
 		-o $@ test_mode_dispatch.c
+
+# le_phy_main() brings the PHY up and tears it down around le_phy_active, and
+# the order of those writes is what keeps a stray interrupt harmless. It is
+# hardware code, so this test scans le_phy.c as text too.
+$(BINDIR)/test_le_phy_order: test_le_phy_order.c minunit.h source_scan.h \
+		$(FW_RXTX)/le_phy.c | $(BINDIR)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
+		-o $@ test_le_phy_order.c
 
 $(BINDIR):
 	mkdir -p $(BINDIR)
