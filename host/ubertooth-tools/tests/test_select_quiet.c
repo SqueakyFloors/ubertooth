@@ -402,7 +402,8 @@ MU_TEST(a_board_that_cannot_be_claimed_gets_no_stop)
 	fake.claim_rc = LIBUSB_ERROR_BUSY;
 	mu_assert(select_capturing("0", 0, text, sizeof(text)) == NULL, text);
 	mu_assert_int_eq(1, sent(UBERTOOTH_STOP));
-	mu_assert(strstr(text, "claiming the USB interface failed") != NULL, text);
+	mu_assert(strstr(text, "Ubertooth at index 0 is in use by another "
+	          "program (libusb -6)") != NULL, text);
 }
 
 /* An index is a position in the list of attached Ubertooths, so one past the

@@ -50,6 +50,35 @@ These pages write an option's value as a separate word: \fBubertooth\-util \-c 2
 With a single Ubertooth attached, the tools find it automatically\. With more than one attached, every tool takes \fB\-U <index|serial>\fR to choose one: an index is a position in the list of attached Ubertooths (\fB\-U 0\fR is the first), and a serial\-number string selects that board whatever the enumeration order\. An index that is not attached is refused (\fBerror: no Ubertooth at index 2 (2 attached)\fR) and the tool exits non\-zero\. Indexes are positions in the list of boards attached when the command runs, so they shift when a board is added or removed; to keep targeting the same board, select it by serial\.
 .P
 A serial may be shortened to its first few characters, in either case, so \fB\-U 1cc0\fR and \fB\-U 1CC0\fR select the same board\. If those characters start more than one attached board's serial, the tool lists the matching serials and selects neither\. An all\-digits string is read as an index, so include a non\-digit (\fB\-U 05f\fR rather than \fB\-U 05\fR)\. See ubertooth\-util(1), SELECTING A DEVICE, for the full description and for listing the attached devices\.
+.SH "WHEN A BOARD CANNOT BE USED"
+A board can be attached and still be unavailable, because only one program at a time can use it and because a mode keeps running on the board until it is stopped\. The tools report these two cases in words, with the libusb code in parentheses for a bug report:
+.IP "" 4
+.nf
+error: Ubertooth 05f is in use by another program (libusb \-3)
+.fi
+.IP "" 0
+.P
+Something else has the board: another tool from this package, a graphical specan, or anything else holding its USB interface\. Stop that program and run the command again\. The libusb code differs by system (macOS reports it as \-3, Linux as \-6), which is why the message does not depend on it\.
+.IP "" 4
+.nf
+error: the Ubertooth did not answer in time: it may be in use by another
+program, or busy in a mode (libusb \-7)
+.fi
+.IP "" 0
+.P
+The board took the request but sent nothing back\. A board left in a mode does this: \fBubertooth\-util \-q\fR (LED spectrum analyser) keeps running on the board after the command returns, and so do the other display modes\. Stop it with \fBubertooth\-util [\-U <selector>] \-S\fR; \fBubertooth\-util \-r\fR resets the board if a stop is not enough\. The same message appears when another program is using the board on a system where that shows up as a silent board rather than a refused claim\.
+.P
+A serial\-number selector reports the boards it could not read for the same reason, because one of them may be the board asked for:
+.IP "" 4
+.nf
+no Ubertooth found with serial matching '1cc'
+1 attached Ubertooth device did not answer the serial read
+note: a board that does not answer may be in use by another program, or
+busy in a mode; stop a mode with ubertooth\-util [\-U <selector>] \-S
+.fi
+.IP "" 0
+.P
+A board that cannot be \fIopened\fR at all is a different problem, usually file permissions: on Linux, install the udev rules shipped with this package (see ubertooth\-util(1), DIAGNOSTICS)\.
 .SH "OUTPUT AND DIAGNOSTICS"
 This is the split the tools are being brought to, tool by tool\. Each tool's own page says what it does today, under DIAGNOSTICS and EXIT STATUS; where a page has neither section yet, that tool has not been converted\.
 .P

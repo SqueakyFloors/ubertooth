@@ -33,6 +33,28 @@ void show_libusb_error(int error_code)
 	char *error_hint = "";
 	const char *error_name;
 
+	/* The two failures that say something about the board rather than about
+	 * the USB transport get plain words of their own, with the code kept in
+	 * parentheses for bug reports. A board that answers nothing is almost
+	 * always busy -- held by another program, or still running a mode of its
+	 * own, which a timed-out read looks exactly like -- and one libusb calls
+	 * busy is held by something else for certain. Each is one self-contained
+	 * line, so a failure is never reported as a transport code to look up
+	 * followed by a second line about a board that seems to be missing.
+	 * Nothing here knows which board the request went to, so these do not
+	 * name one; the selection paths, which do, name it themselves. */
+	if (error_code == LIBUSB_ERROR_TIMEOUT) {
+		fprintf(stderr, "error: the Ubertooth did not answer in time: it may "
+		        "be in use by another program, or busy in a mode "
+		        "(libusb %d)\n", error_code);
+		return;
+	}
+	if (error_code == LIBUSB_ERROR_BUSY) {
+		fprintf(stderr, "error: the Ubertooth is in use by another program "
+		        "(libusb %d)\n", error_code);
+		return;
+	}
+
 	/* Available only in libusb > 1.0.3 */
 	// error_name = libusb_error_name(error_code);
 

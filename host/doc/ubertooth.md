@@ -72,6 +72,43 @@ selects neither. An all-digits string is read as an index, so include a
 non-digit (`-U 05f` rather than `-U 05`). See ubertooth-util(1), SELECTING A
 DEVICE, for the full description and for listing the attached devices.
 
+## WHEN A BOARD CANNOT BE USED
+
+A board can be attached and still be unavailable, because only one program at
+a time can use it and because a mode keeps running on the board until it is
+stopped. The tools report these two cases in words, with the libusb code in
+parentheses for a bug report:
+
+    error: Ubertooth 05f is in use by another program (libusb -3)
+
+Something else has the board: another tool from this package, a graphical
+specan, or anything else holding its USB interface. Stop that program and run
+the command again. The libusb code differs by system (macOS reports it as -3,
+Linux as -6), which is why the message does not depend on it.
+
+    error: the Ubertooth did not answer in time: it may be in use by another
+    program, or busy in a mode (libusb -7)
+
+The board took the request but sent nothing back. A board left in a mode does
+this: `ubertooth-util -q` (LED spectrum analyser) keeps running on the board
+after the command returns, and so do the other display modes. Stop it with
+`ubertooth-util [-U <selector>] -S`; `ubertooth-util -r` resets the board if a
+stop is not enough. The same message appears when another program is using the
+board on a system where that shows up as a silent board rather than a refused
+claim.
+
+A serial-number selector reports the boards it could not read for the same
+reason, because one of them may be the board asked for:
+
+    no Ubertooth found with serial matching '1cc'
+    1 attached Ubertooth device did not answer the serial read
+    note: a board that does not answer may be in use by another program, or
+    busy in a mode; stop a mode with ubertooth-util [-U <selector>] -S
+
+A board that cannot be *opened* at all is a different problem, usually file
+permissions: on Linux, install the udev rules shipped with this package (see
+ubertooth-util(1), DIAGNOSTICS).
+
 ## OUTPUT AND DIAGNOSTICS
 
 This is the split the tools are being brought to, tool by tool. Each tool's

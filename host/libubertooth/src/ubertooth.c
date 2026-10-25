@@ -314,6 +314,40 @@ static struct libusb_device_handle* find_ubertooth_device(int ubertooth_device)
 	return find_ubertooth_device_opt(ubertooth_device, 0);
 }
 
+/* How a message names the board a selection is working on: by the serial the
+ * user gave, by index, or not at all when neither is known. A serial string
+ * that reaches here has already matched a board, so it is at most a whole
+ * serial. The result lives in a static buffer, so it is printed straight
+ * away. */
+static const char* board_label(const char* serial, int index)
+{
+	static char label[sizeof("Ubertooth ") + UBERTOOTH_SERIAL_STR_LEN];
+
+	if (serial != NULL && serial[0] != '\0')
+		snprintf(label, sizeof(label), "Ubertooth %s", serial);
+	else if (index >= 0)
+		snprintf(label, sizeof(label), "Ubertooth at index %d", index);
+	else
+		snprintf(label, sizeof(label), "the Ubertooth");
+	return label;
+}
+
+/* Reports a board that opened but could not be claimed. On this path the
+ * device opened, so it is not a permissions problem: LIBUSB_ERROR_BUSY and
+ * LIBUSB_ERROR_ACCESS both mean something else is holding the interface --
+ * another program, or a kernel driver. macOS reports it as ACCESS and Linux
+ * as BUSY, which is why neither code is reported on its own. The code is kept
+ * in parentheses for bug reports. */
+static void report_claim_failed(const char* board, int err)
+{
+	if (err == LIBUSB_ERROR_BUSY || err == LIBUSB_ERROR_ACCESS)
+		fprintf(stderr, "error: %s is in use by another program "
+		        "(libusb %d)\n", board, err);
+	else
+		fprintf(stderr, "error: claiming the USB interface of %s failed "
+		        "(libusb %d)\n", board, err);
+}
+
 /* Documented with the declaration in ubertooth.h. */
 int ubertooth_read_serial_string(struct libusb_device_handle* devh, char* out,
                                  size_t size, unsigned timeout_ms)
@@ -362,9 +396,16 @@ static void report_unscanned(int unopened, int open_err, int unread)
 		if (open_err)
 			show_libusb_error(open_err);
 	}
-	if (unread)
+	if (unread) {
 		fprintf(stderr, "%d attached Ubertooth device%s did not answer the "
 		        "serial read\n", unread, unread == 1 ? "" : "s");
+		/* The count alone does not say why, and the string the user gave may
+		 * well be the serial of one of those boards. This runs once per
+		 * command, at the end of the scan, so the note is not repeated. */
+		fprintf(stderr, "note: a board that does not answer may be in use by "
+		        "another program, or busy in a mode; stop a mode with "
+		        "ubertooth-util [-U <selector>] -S\n");
+	}
 }
 
 /* Find an Ubertooth by serial-number string (hex, as printed by -s), matched
@@ -1268,7 +1309,7 @@ int ubertooth_connect(ubertooth_t* ut, int ubertooth_device)
 
 	r = libusb_claim_interface(ut->devh, 0);
 	if (r < 0) {
-		fprintf(stderr, "error: claiming the USB interface failed (%d)\n", r);
+		report_claim_failed(board_label(NULL, ubertooth_device), r);
 		ubertooth_stop(ut);
 		return -1;
 	}
@@ -1310,7 +1351,7 @@ int ubertooth_connect_serial(ubertooth_t* ut, char* serial_number)
 
 	r = libusb_claim_interface(ut->devh, 0);
 	if (r < 0) {
-		fprintf(stderr, "error: claiming the USB interface failed (%d)\n", r);
+		report_claim_failed(board_label(serial_number, -1), r);
 		ubertooth_stop(ut);
 		return -1;
 	}
