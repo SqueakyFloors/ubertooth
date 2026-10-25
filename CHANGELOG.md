@@ -7,16 +7,16 @@
 - **Script-visible change:** `ubertooth-afh -a` is gone. It never sent
   anything, and it silently swallowed the word after it.
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
-- `ubertooth-rx -s` asks for the channel sweep that is already the default,
-  listed in `-h` and no longer warned about; the `-z` line no longer claims to
-  imply it.
-  [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
 - **Script-visible change:** `ubertooth-util -9` is gone, with the two
   developer scratch requests it sent. Firmware answers requests 45 and 46 no
   longer, and libubertooth no longer exports `cmd_do_something()` or
   `cmd_do_something_reply()`.
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
 - `ubertooth-btle` and `ubertooth-ego` list their `-j`/`-J` jam aliases in `-h`.
+  [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
+- `ubertooth-rx` lists `-s` in `-h` as the explicit form of its default channel
+  sweep, and no longer calls it deprecated; the `-z` line no longer claims to
+  imply it.
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
 - **Script-visible change:** every tool now keeps standard output for its
   results and capture data; errors, warnings and progress go to standard
