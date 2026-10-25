@@ -481,7 +481,8 @@
   Gristina ([@matrix](https://github.com/matrix)).
   [upstream #481](https://github.com/greatscottgadgets/ubertooth/pull/481)
 - Improve Classic Bluetooth paging speed and reliability. Credit: Hillel
-  Chimowicz ([@hllhll](https://github.com/hllhll)).
+  Chimowicz ([@hllhll](https://github.com/hllhll)) and
+  [@shapaz](https://github.com/shapaz).
   [upstream #540](https://github.com/greatscottgadgets/ubertooth/pull/540)
 - Bluetooth and BLE transmit and jamming
   (`ubertooth-tx`, `ubertooth-btle -s` and its interference modes,
