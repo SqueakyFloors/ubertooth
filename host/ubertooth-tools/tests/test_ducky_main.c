@@ -26,6 +26,11 @@
 static struct {
 	int connect_rc;      /* returned by ubertooth_connect_select() */
 	int api_rc;          /* returned by ubertooth_check_api() */
+	/* Whether that failure is a version mismatch, which the library
+	 * reports by releasing the board itself, or a version it could not read
+	 * at all, which leaves the board open for the caller to close. */
+	int api_mismatch;
+	int closes;          /* ubertooth_close(): released without a STOP */
 	int channel_rc;      /* returned by cmd_set_channel() */
 	int adv_data_rc;     /* returned by cmd_le_set_adv_data() */
 	int slave_rc;        /* returned by cmd_btle_slave() */
@@ -86,14 +91,21 @@ int ubertooth_connect_select(ubertooth_t *ut, const char *u_arg)
 
 int ubertooth_check_api(ubertooth_t *ut)
 {
-	(void)ut;
+	if (fake.api_rc < 0 && fake.api_mismatch)
+		ubertooth_stop(ut);
 	return fake.api_rc;
 }
 
 void ubertooth_stop(ubertooth_t *ut)
 {
-	(void)ut;
+	ut->devh = NULL; /* as the library's cleanup leaves it */
 	fake.stops++;
+}
+
+void ubertooth_close(ubertooth_t *ut)
+{
+	ut->devh = NULL;
+	fake.closes++;
 }
 
 int cmd_set_channel(struct libusb_device_handle *devh, u16 channel)
@@ -344,12 +356,28 @@ MU_TEST(every_exit_path_gives_the_device_back)
 	mu_assert_int_eq(1, fake.inits);
 	mu_assert_int_eq(1, fake.frees);
 
+	/* A firmware version the host will not run with: the library has
+	 * released the board and ended the libusb context, so the tool gives
+	 * back the memory and nothing else. */
 	reset_fake();
-	fake.api_rc = -1; /* the firmware version the host will not run with */
+	fake.api_rc = -1;
+	fake.api_mismatch = 1;
 	r = RUN("-q");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert_int_eq(1, fake.inits);
 	mu_assert_int_eq(1, fake.frees);
+	mu_assert_int_eq(0, fake.closes);
+
+	/* A version it could not read at all leaves the board open, so the tool
+	 * closes it rather than freeing the memory around a claimed board. No
+	 * STOP: this firmware is not one the host will drive. */
+	reset_fake();
+	fake.api_rc = -1;
+	r = RUN("-q");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, fake.frees);
+	mu_assert_int_eq(1, fake.closes);
+	mu_assert_int_eq(0, fake.stops);
 
 	reset_fake();
 	fake.adv_data_rc = -9;

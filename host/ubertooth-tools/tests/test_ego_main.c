@@ -28,6 +28,7 @@ static struct {
 	int set_aa_rc;       /* returned by cmd_rfcat_subcmd(RFCAT_SET_AA) */
 	int cap_len_rc;      /* returned by cmd_rfcat_subcmd(RFCAT_CAP_LEN) */
 	int ego_rc;          /* returned by cmd_ego() */
+	int poll_rc;         /* returned by cmd_poll() */
 	int last_channel;    /* the channel the capture was set to, in MHz */
 	uint8_t last_access_code[8];
 	int last_access_code_len;
@@ -116,7 +117,7 @@ int cmd_poll(struct libusb_device_handle *devh, usb_pkt_rx *p)
 	(void)devh;
 	(void)p;
 	running = 0;
-	return 0;
+	return fake.poll_rc;
 }
 
 void fifo_push(fifo_t *fifo, const usb_pkt_rx *packet)
@@ -325,6 +326,21 @@ MU_TEST(interfering_sets_only_the_capture_length)
 	mu_assert_int_eq(2, fake.last_ego_mode);
 }
 
+/* A capture that stops short because a poll failed did not do what was asked,
+ * so it says so and exits 1, which the man page's EXIT STATUS promises. */
+MU_TEST(a_failed_poll_ends_the_capture_with_1)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.poll_rc = -9;
+	r = RUN("-f");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strcmp(r.err, "error: USB poll failed\n") == 0, r.err);
+	mu_assert_int_eq(1, fake.stops);
+}
+
 int main(void)
 {
 	MU_RUN(a_capture_the_board_took_sends_the_setup_requests_and_exits_0);
@@ -333,5 +349,6 @@ int main(void)
 	MU_RUN(the_access_code_request_is_only_sent_for_a);
 	MU_RUN(a_firmware_without_ego_is_still_reported);
 	MU_RUN(interfering_sets_only_the_capture_length);
+	MU_RUN(a_failed_poll_ends_the_capture_with_1);
 	return mu_report();
 }

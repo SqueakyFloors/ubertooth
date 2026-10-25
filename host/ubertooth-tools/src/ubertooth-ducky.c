@@ -51,7 +51,7 @@ void print_mac(FILE *file, uint8_t *mac_address) {
 	fprintf(file, "%02x", mac_address[5]);
 }
 
-int parse_uuid(char *s, uint8_t *uuid_out) {
+int parse_uuid(const char *s, uint8_t *uuid_out) {
 	unsigned i, n;
 
 	if (s == NULL || strlen(s) != 36)
@@ -152,7 +152,9 @@ int main(int argc, char *argv[])
 	int first_exit_option = 0;
 	int do_quack, do_adv_index;
 	int addr_set, be_sarcastic;
-	char *uuid_str = NULL;
+	/* Either a word of argv or one of the UUID constants: nothing is copied,
+	 * so no exit path has a string to give back. */
+	const char *uuid_str = NULL;
 	uint8_t uuid[16] = { 0, };
 	uint8_t bd_addr[6] = { 0, };
 	uint8_t adv_data[16+2] = { 0, };
@@ -180,22 +182,12 @@ int main(int argc, char *argv[])
 			if (optarg == NULL)
 				optarg = opt_separate_value(argc, argv, opt_value_not_option);
 			do_quack = 1;
-			free(uuid_str);
-			uuid_str = strdup(optarg ? optarg : DEFAULT_UUID);
-			if (uuid_str == NULL) {
-				fprintf(stderr, "error: out of memory\n");
-				return 1;
-			}
+			uuid_str = optarg ? optarg : DEFAULT_UUID;
 			break;
 
 		case 'b':
 			do_quack = 1;
-			free(uuid_str);
-			uuid_str = strdup(BOOTLOADER_UUID);
-			if (uuid_str == NULL) {
-				fprintf(stderr, "error: out of memory\n");
-				return 1;
-			}
+			uuid_str = BOOTLOADER_UUID;
 			break;
 
 		case 'A':
@@ -267,7 +259,6 @@ int main(int argc, char *argv[])
 				      "tell you to type that?\n", stderr);
 			return 1;
 		}
-		free(uuid_str);
 
 		if (!addr_set) {
 			random = fopen("/dev/urandom", "r");
@@ -298,10 +289,13 @@ int main(int argc, char *argv[])
 
 	r = ubertooth_check_api(ut);
 	if (r < 0) {
-		/* Only the memory is given back: on a version mismatch
-		 * ubertooth_check_api() has released the board already, and its
-		 * cleanup ends the libusb context, so an ubertooth_stop() here
-		 * would end that context a second time. */
+		/* On a version mismatch ubertooth_check_api() has released the
+		 * board and ended the libusb context itself, and ending that
+		 * context twice is not safe; where it could not even read the
+		 * version it has released nothing, so the board is closed here,
+		 * without a STOP for a firmware this host will not drive. */
+		if (ut->devh != NULL)
+			ubertooth_close(ut);
 		ubertooth_free(ut);
 		return 1;
 	}
