@@ -71,7 +71,7 @@ int cc2400_wait_fs(int locked, void (*service)(void));
  * The unbounded `while (!(cc2400_status() & XOSC16M_STABLE));` it replaces sits
  * at the top of a mode, before the loop that services USB has started, so a
  * part that never reports stable leaves the board enumerated and answering
- * nothing (issue #239). A caller that times out has a radio that is not
+ * nothing. A caller that times out has a radio that is not
  * running; it can carry on and produce junk samples, which the host can see,
  * rather than a board that has to be power-cycled.
  *

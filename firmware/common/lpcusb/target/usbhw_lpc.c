@@ -102,9 +102,10 @@ volatile U32 usbhw_timeouts = 0;
     only here. If that completion never arrives, the caller never returns, and
     because USB in this firmware is serviced from whatever loop is running
     (handle_usb()), a board whose firmware is stuck in here answers no further
-    USB request at all. That is the state issue #239 is about: the board still
-    enumerates, every control request times out, and only a power cycle brings
-    it back. A bound turns it into one transfer the host retries.
+    USB request at all. That is the state reported repeatedly from the bench:
+    the board still enumerates, every control request times out, and only a
+    power cycle brings it back. A bound turns it into one transfer the host
+    retries.
 
     This handshake is also one set of registers -- USBCmdCode, USBCmdData and
     these interrupt bits -- so it cannot take a second caller: two contexts
@@ -523,7 +524,7 @@ int USBHwEPRead(U8 bEP, U8 *pbBuf, U32 iMaxLen)
      * endpoint is the one selected in the global USBCtrl register -- so a
      * controller that stops answering, or a selection that is no longer this
      * endpoint, left this polling forever and the firmware servicing USB never
-     * again (issue #239). Callers have to check the result: a read that gave
+     * again. Callers have to check the result: a read that gave
      * up has not filled the buffer, and acting on what was already in it is
      * how a stale request gets run (see USBHandleControlTransfer()). */
     for (i = 0; i < USBHW_POLLS; ++i) {

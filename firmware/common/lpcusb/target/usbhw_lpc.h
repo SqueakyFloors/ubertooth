@@ -141,7 +141,7 @@
  * are on the path of every control request. USB is serviced in the same thread
  * as the mode loops, so one of those waits never finishing does not cost a
  * transfer, it stops the board answering anything at all until it is
- * power-cycled -- the wedge in issue #239.
+ * power-cycled -- the wedge this file's bounds exist for.
  *
  * Each poll is a volatile read of a device register across the AHB, so call it
  * ten or so cycles at 100 MHz: 2000 polls is a few hundred microseconds. That

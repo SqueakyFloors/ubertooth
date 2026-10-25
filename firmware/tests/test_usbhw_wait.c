@@ -11,9 +11,10 @@
  * is serviced from whatever loop is running (handle_usb()), plus the USB
  * interrupt in six modes, so a wait that never finishes stops the board
  * answering any USB request at all -- it still enumerates, every control
- * request times out (-7), and only a power cycle brings it back. That is
- * issue #239. The waits must therefore always terminate, say that they gave
- * up, and leave the controller in a state the next call can use.
+ * request times out (-7), and only a power cycle brings it back. That state
+ * has been reported from the bench repeatedly. The waits must therefore
+ * always terminate, say that they gave up, and leave the controller in a
+ * state the next call can use.
  *
  * Note: a test for a loop that used to be unbounded cannot fail politely. If
  * a bound is removed, the test binary hangs rather than reporting a failure --
@@ -398,8 +399,8 @@ MU_TEST(test_ep_write_returns_when_the_engine_stops_answering)
  * be read, decoded as a request anyway.
  *
  * USBHandleControlTransfer() keeps the setup packet in a static, and used to
- * ignore what the read returned. A read that came back short -- which #223
- * recorded happening -- or one that reported no packet left the previous
+ * ignore what the read returned. A read that came back short -- which has
+ * been recorded happening -- or one that reported no packet left the previous
  * request sitting there to be handled a second time. Whatever it was: a mode
  * change, a reset, a register write.
  */

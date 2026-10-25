@@ -2642,8 +2642,8 @@ void specan()
 	//FIXME maybe set RSSI.RSSI_FILT
 	/* Bounded: this mode services USB from its own loop below, so a radio
 	 * that never reports ready here used to leave the board enumerated and
-	 * answering no control request at all. Three of the wedges reported in
-	 * issue #239 followed a specan run. */
+	 * answering no control request at all. Three of the wedges reported
+	 * against this firmware followed a specan run. */
 	cc2400_wait_xosc_stable();
 	cc2400_wait_fs_unlock();
 
@@ -2658,9 +2658,9 @@ void specan()
 			 * No service callback, unlike led_specan(): passing handle_usb()
 			 * in would service USB between every status poll, which changes
 			 * what this loop's timing looks like on every sample, not only on
-			 * a failing one. #223 is where that is measured per mode, and it
-			 * also records that this loop's once-per-16-samples USB service is
-			 * itself enough to stall a control request.
+			 * a failing one. That cost wants measuring per mode before it is
+			 * paid, and this loop's once-per-16-samples USB service is
+			 * already known to be enough to stall a control request.
 			 *
 			 * So the cost of leaving it out is real: a radio that stops
 			 * locking spends both bounds on every frequency step -- around
@@ -2742,7 +2742,7 @@ void led_specan()
 
 	/* Bounded, as in specan(): this is before the loop that services USB
 	 * has started, so a radio that never reports ready here stops the board
-	 * answering altogether (issue #239). */
+	 * answering altogether. */
 	cc2400_wait_xosc_stable();
 	cc2400_wait_fs_unlock();
 
