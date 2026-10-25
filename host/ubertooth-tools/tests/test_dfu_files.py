@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""ubertooth-dfu file handling: -s, and the files -d and -u touch (#200, #241).
+"""ubertooth-dfu file handling: -s, and the files -d and -u touch.
 
 Run as: test_dfu_files.py <path to ubertooth-dfu>
 
 No board is needed. The cases that would otherwise reach a device use a serial
 number no board has, and the tool runs with UBERTOOTH_TEST_NO_DEVICES=1, so
-device selection finds nothing without opening anything whatever is attached
-(#219). The read-only cases are skipped when running as root,
-because root ignores the permissions they rely on.
+device selection finds nothing without opening anything whatever is attached.
+The read-only cases are skipped when running as root, because root ignores
+the permissions they rely on.
 """
 
 import os
@@ -22,7 +22,7 @@ NO_SUCH_SERIAL = "ffffffffffffffffffffffffffffffff"
 NOT_FOUND = f"no ubertooth found with serial matching '{NO_SUCH_SERIAL}'"
 # Hide attached boards from the tool: matching a serial otherwise opens every
 # one of them to read its serial, which stalls on a board another process is
-# using (#219).
+# using.
 ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1")
 SUFFIX_LENGTH = 16
 # The largest image the tool reads: the flash above the 16 KiB bootloader on
@@ -171,7 +171,7 @@ with tempfile.TemporaryDirectory() as directory:
     keep_survived("a failed -u")
 
     # The refused -d image is checked after -u has already made its temporary
-    # file, so that exit has to clean up like the rest (#241).
+    # file, so that exit has to clean up like the rest.
     refused = os.path.join(directory, "not-a-dfu-file")
     write(refused, b"this is not firmware, it is a note to self\n")
 

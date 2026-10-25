@@ -145,7 +145,7 @@ with tempfile.TemporaryDirectory() as workdir:
         [BINARY, "-i", "wrap.bin", "-q", "wrap.pcap", "-r", "wrap.pcapng"],
         capture_output=True, text=True, timeout=30, check=False, cwd=work,
         # A replay opens no device; the switch keeps it that way if this run
-        # ever reaches device selection (#219).
+        # ever reaches device selection.
         env=dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1"))
     assert result.returncode == 0, result
 

@@ -108,7 +108,7 @@ def run(*arguments, directory):
         check=False,
         cwd=directory,
         # A replay opens no device; the switch keeps it that way if one of
-        # these runs ever reaches device selection (#219).
+        # these runs ever reaches device selection.
         env=dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1"),
     )
 

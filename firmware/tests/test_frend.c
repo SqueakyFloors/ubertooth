@@ -5,7 +5,7 @@
  * `ubertooth-util -a<0-7>` sets FREND's PA_LEVEL[2:0]. The transmit paths in
  * bluetooth_rxtx.c and ego.c used to write a whole FREND value of their own
  * (0b1011, level 3, "picked from hat"; ego used 0xf), which silently replaced
- * the level the user asked for and left it changed afterwards (issue #165).
+ * the level the user asked for and left it changed afterwards.
  * They now go through frend_keep_pa_level(), which writes the reserved bits
  * and keeps PA_LEVEL as it is.
  *

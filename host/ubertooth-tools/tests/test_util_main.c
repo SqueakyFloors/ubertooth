@@ -864,7 +864,7 @@ MU_TEST(a_set_and_a_read_of_the_same_value_both_run_set_first)
 	                        "TX LED status : 0\n") == 0,
 	          "-d0 -d reports every new LED state");
 
-	/* the issue's own command line: the squelch set, the LED set and the
+	/* the reported command line: the squelch set, the LED set and the
 	 * LED read all happen */
 	reset_fake();
 	r = RUN("-z-120", "-l1", "-l");

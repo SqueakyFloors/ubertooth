@@ -5,9 +5,9 @@ Run as: test_no_file_on_refusal.py <path to one ubertooth-* binary>
 
 The file options used to open their file inside the getopt loop, so a command
 line the argument rule then refused had already written a PCAP header or
-truncated an existing capture (#193). Every file option is now named during
-parsing and opened only once the whole command line has been accepted, so each
-case here checks two things after a refused run:
+truncated an existing capture. Every file option is now named during parsing
+and opened only once the whole command line has been accepted, so each case
+here checks two things after a refused run:
 
   * the named file was not created, and
   * a file that was already there still has its old contents.

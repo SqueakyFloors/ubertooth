@@ -459,7 +459,7 @@ MU_TEST(a_read_back_with_reset_writes_the_dump_and_detaches)
 	remove_dump();
 }
 
-/* ---- #216: a bootloader that stops answering --------------------------- */
+/* ---- a bootloader that stops answering --------------------------------- */
 
 /* The state read failing used to loop forever, one error line per attempt. */
 MU_TEST(a_bootloader_that_never_reports_its_state_ends_the_read_back)
@@ -531,7 +531,7 @@ MU_TEST(a_half_finished_transfer_is_aborted_before_the_read_back)
 	remove_dump();
 }
 
-/* ---- #208: a read-back that fails part-way ----------------------------- */
+/* ---- a read-back that fails part-way ----------------------------------- */
 
 MU_TEST(a_read_back_failing_part_way_still_detaches_with_reset)
 {
@@ -541,10 +541,10 @@ MU_TEST(a_read_back_failing_part_way_still_detaches_with_reset)
 	board_in_dfu();
 	remove_dump();
 	fake.upload_fail_block = FIRST_BLOCK + 100;
-	fake.upload_fail_rc = LIBUSB_ERROR_OTHER;  /* as seen in #208 */
+	fake.upload_fail_rc = LIBUSB_ERROR_OTHER;  /* as the reported failure did */
 	r = RUN("-u", dump_path, "-r");
 	/* The libusb status is reported, but the exit status is 1, not the
-	 * truncated negative code the issue saw. */
+	 * truncated negative code the original failure returned. */
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strstr(r.err, "Firmware upload failed after 2 attempt(s)") != NULL,
 	          "the read-back failure was not reported");
@@ -572,8 +572,8 @@ MU_TEST(a_read_back_failing_without_reset_leaves_the_board_in_dfu)
 	mu_assert_int_eq(-1, dump_length_and_content(&ignored));
 }
 
-/* The transient failure of #208: one block fails, and the retry reads the
- * whole region again from its first block. */
+/* A transient failure: one block fails, and the retry reads the whole region
+ * again from its first block. */
 MU_TEST(a_transient_read_back_failure_is_retried_once_and_succeeds)
 {
 	struct run_result r;
@@ -640,7 +640,7 @@ MU_TEST(asking_past_the_end_of_flash_takes_the_bootloader_down)
 	mu_assert(fake.wedged, "the bootloader was read past without faulting");
 	mu_assert(strstr(r.err, "block 512 was not read") != NULL,
 	          "the block at 0x20000 was not named");
-	/* As in the issue: the state read stops answering too. */
+	/* As in the original failure: the state read stops answering too. */
 	begin_capture();
 	mu_assert_int_eq(LIBUSB_ERROR_TIMEOUT, dfu_get_state(FAKE_HANDLE));
 	end_capture(&r);

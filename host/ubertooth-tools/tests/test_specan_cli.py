@@ -4,7 +4,7 @@ a bare "-" means stdout for -d, and that "-d -" refuses a terminal.
 
 UBERTOOTH_TEST_NO_DEVICES=1 hides attached boards from the tool, so a case
 that reached device selection reports no device instead of opening a board
-this machine is using (#219).
+this machine is using.
 """
 
 import os
@@ -52,8 +52,8 @@ reject(("-u", "2481"), "upper frequency")
 reject(("-l", "2441", "-u", "2440"), "must not exceed")
 
 # -d: only a bare "-" means stdout; every other value is a file name, even one
-# starting with "-" (#231). Each run stops at device selection, after the -d
-# value has been handled, so what it did with the value is visible on disk.
+# starting with "-". Each run stops at device selection, after the -d value
+# has been handled, so what it did with the value is visible on disk.
 # Each case gets an empty directory of its own, so the file it is expected to
 # create cannot be one an earlier case left behind.
 for value, written in (("-x", "-x"), ("./-x", "-x"), ("-v", "-v"),

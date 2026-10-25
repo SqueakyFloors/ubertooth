@@ -1394,10 +1394,11 @@ void bt_stream_rx()
 	 * must be one whose own vendor request sets up everything it needs:
 	 * MODE_AFH's does (hop mode, empty map, afh_enabled), as does
 	 * MODE_BT_FOLLOW's. What such a request still inherits from the mode it
-	 * replaces is #261. MODE_RX_GENERIC is dispatched to rx_generic(), which
-	 * sets up the mode itself and then calls this function, so it is
-	 * deliberately not listed -- its unsynchronized path returns at once as
-	 * MODE_AFH used to, which is part of #252.
+	 * replaces is a separate open question. MODE_RX_GENERIC is dispatched to
+	 * rx_generic(), which sets up the mode itself and then calls this
+	 * function, so it is deliberately not listed -- its unsynchronized path
+	 * returns at once as MODE_AFH used to, which is another open problem of
+	 * its own.
 	 */
 	while ( requested_mode == MODE_RX_SYMBOLS
 	     || requested_mode == MODE_BT_FOLLOW

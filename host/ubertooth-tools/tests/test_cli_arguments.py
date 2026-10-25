@@ -11,7 +11,7 @@ The tools run with UBERTOOTH_TEST_NO_DEVICES=1, which hides attached boards
 from device selection. A case that slipped past argument checking then reports
 that it found no device, on any machine, instead of opening whatever happens to
 be attached (possibly a board another process is using) and printing whichever
-message that produced (#219).
+message that produced.
 
 Four kinds of case:
   * a stray word, including a bare "-": "error: unexpected argument '<word>'";
@@ -20,7 +20,7 @@ Four kinds of case:
     a trailing "extra" proves by being the word the tool complains about;
   * an option combination the tool cannot carry out (a missing companion
     option, or two major modes at once): refused here too, so the diagnostic
-    does not depend on which boards are attached (#236).
+    does not depend on which boards are attached.
 """
 
 import os
