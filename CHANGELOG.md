@@ -145,12 +145,11 @@
   of the two. A read works alongside `-f`, `-n` and `-p` as well, and a set the
   board does not answer exits 1 instead of being ignored.
   [#265](https://github.com/SqueakyFloors/ubertooth/issues/265)
-- `btle-extcap.py --extcap-interfaces` shows each board's serial with any
-  number of boards attached, instead of `Ubertooth One 0:` with two or more,
-  and a Wireshark capture now selects its board by that serial, so re-plugging
-  boards cannot move it to another board. The interface's name changed with
-  it, so an Ubertooth saved in a Wireshark profile has to be picked once more.
-  A usage error goes to standard error with exit status 1.
+- `btle-extcap.py` names each Wireshark interface by its board's serial, so
+  re-plugging boards cannot move a capture to another board and two or more
+  boards no longer list as `Ubertooth One 0:` repeated. The name changed with
+  it, so an Ubertooth saved in a Wireshark profile has to be picked once more;
+  a usage error goes to standard error with exit status 1.
   [#269](https://github.com/SqueakyFloors/ubertooth/issues/269)
 - `btle-extcap.py` takes the options Wireshark adds to its own calls, so an
   Ubertooth reaches Wireshark's capture list instead of the listing being

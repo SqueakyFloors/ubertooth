@@ -35,12 +35,13 @@ stop_signal = None
 # specification numbers them. The first is the default.
 ADVERTISING_CHANNELS = ("37", "38", "39")
 
-# Options Wireshark adds to the calls it makes, which this script accepts and
-# ignores. Only the ones Wireshark passes to every extcap program are here:
-# --extcap-version carries the calling Wireshark's version, added to the
-# --extcap-interfaces call by Wireshark 2.9 and later, and
+# Options Wireshark adds to the calls it makes, which this script accepts
+# rather than refuse the call they came with. Only the ones Wireshark passes
+# to every extcap program are here: --extcap-version carries the calling
+# Wireshark's version, added to the --extcap-interfaces call by Wireshark 2.9
+# and later, and nothing here behaves differently for different versions;
 # --extcap-capture-filter carries a capture filter the user typed, which
-# ubertooth-btle cannot apply.
+# ubertooth-btle cannot apply, so the capture starts and says so.
 #
 # The rest of what Wireshark can pass (--extcap-reload-option,
 # --extcap-control-in, --extcap-control-out, --extcap-config-option-name and
@@ -48,7 +49,7 @@ ADVERTISING_CHANNELS = ("37", "38", "39")
 # advertises the feature behind it: a reloadable argument, a toolbar control,
 # a configurable table value. This one advertises none of them, so those stay
 # unrecognized and are refused like any other unknown option.
-IGNORED_OPTIONS = ("extcap-version=", "extcap-capture-filter=")
+TOLERATED_OPTIONS = ("extcap-version=", "extcap-capture-filter=")
 
 # --extcap-version is documented as carrying a value and is seen without one,
 # and getopt has no long option whose value is optional. with_optional_values
@@ -69,6 +70,10 @@ def with_optional_values(argv):
     """
     rewritten = []
     for position, word in enumerate(argv):
+        if word == "--":
+            # getopt stops here, so nothing after it is an option to rewrite
+            rewritten.extend(argv[position:])
+            break
         if word in OPTIONAL_VALUE:
             following = argv[position + 1] if position + 1 < len(argv) else None
             if following is None or following.startswith("-"):
@@ -102,7 +107,7 @@ def main():
                 "extcap-interface=",
                 "fifo=",
                 "channel=",
-                *IGNORED_OPTIONS,
+                *TOLERATED_OPTIONS,
             ])
     except getopt.GetoptError as err:
         # A usage error: the message and the usage line go to standard error
@@ -115,7 +120,11 @@ def main():
     # before anything runs and before -h ends the command, the way the other
     # tools here refuse one (opt_check_no_operands in opt_parse.c).
     if args:
-        print("error: unexpected argument '%s'" % args[0], file=sys.stderr)
+        # getopt read the rewritten words, so the user's own are quoted back:
+        # the two lists have the same length and order, and what getopt did
+        # not take is the tail of both.
+        typed = sys.argv[1:][len(sys.argv[1:]) - len(args):]
+        print("error: unexpected argument '%s'" % typed[0], file=sys.stderr)
         sys.exit(1)
 
     interface = ''

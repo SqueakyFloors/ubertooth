@@ -75,7 +75,7 @@ with toolbar controls, `--extcap-config-option-name` and
 script advertises none of them, so those options can only arrive by mistake
 and are refused like any other unknown option.
 
-## EXIT STATUS
+## Exit status
 
  - `0` :
    the call did what was asked. For `--capture` that includes a capture
@@ -89,11 +89,13 @@ and are refused like any other unknown option.
    that killed it. Wireshark reads a non-zero exit of the `--capture` call as
    a failed capture and shows the error for it
 
-## DIAGNOSTICS
+## Diagnostics
 
 Errors, warnings and the usage line after a bad command line go to standard
-error; standard output carries only the listings above, the capture data going
-to the fifo instead. Standard output is empty when a call fails.
+error; the script's own standard output carries only the listings above, the
+capture data going to the fifo instead, and nothing when a call fails. During
+`--capture` the `ubertooth-btle` it runs inherits that standard output and
+writes its own decode of every packet there; Wireshark discards it.
 
 A command line the script will not take is refused before `ubertooth-btle`
 runs, so nothing is written to the fifo:
@@ -111,7 +113,7 @@ Wireshark shows for the interface, including
 `no Ubertooth found with serial matching '<serial>'` for a board that has been
 unplugged since the listing.
 
-## SEE ALSO
+## See also
 
 `ubertooth-btle` and `ubertooth-util` (`host/doc/ubertooth-btle.md`,
 `host/doc/ubertooth-util.md`), and `extcap(4)` for the interface Wireshark

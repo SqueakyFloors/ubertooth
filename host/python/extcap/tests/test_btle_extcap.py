@@ -135,7 +135,7 @@ def run(arguments, listing="", status=0, kill_with=0):
         [sys.executable, SCRIPT, *arguments],
         capture_output=True,
         text=True,
-        # Every run is milliseconds, and there are about a dozen, so this
+        # Every run is milliseconds, and there are several dozen, so this
         # stays well inside the CTest timeout and reports the hung case
         # itself.
         timeout=5,
@@ -219,7 +219,12 @@ for stray, word in ((("--extcap-interfaces", "extra"), "extra"),
                     (("--extcap-version", "-", "--extcap-interfaces"), "-"),
                     # -h does not excuse a stray word: it ends the command
                     # only once the whole command line has parsed
-                    (("-h", "extra"), "extra")):
+                    (("-h", "extra"), "extra"),
+                    # the word quoted back is the user's own. After "--"
+                    # nothing is an option, so the optional-value rewrite
+                    # must not reach it and report a word nobody typed
+                    (("--", "--extcap-version"), "--extcap-version"),
+                    (("--extcap-interfaces", "--", "extra"), "extra")):
     result = run(stray, listing="0: %s\n" % SERIALS[0])
     assert result.returncode == 1, (stray, result)
     assert result.stdout == "", (stray, result)
@@ -414,6 +419,9 @@ if os.path.exists(ARGS_FILE):
 loader = importlib.machinery.SourceFileLoader("btle_extcap", SCRIPT)
 script = importlib.util.module_from_spec(
     importlib.util.spec_from_loader(loader.name, loader))
+# the script lives in the source tree, and a test must not leave a
+# __pycache__ behind in it
+sys.dont_write_bytecode = True
 loader.exec_module(script)
 script.sig_handler(signal.SIGTERM, None)
 assert script.capture(SERIALS[0], fifo, ADVERTISING_CHANNELS[0]) == 0
