@@ -1198,15 +1198,22 @@ static void ubertooth_cleanup(ubertooth_t* ut, int send_stop)
 		 * handle goes when the process does. The capture files below are
 		 * still closed, so nothing a run wrote is lost.
 		 *
-		 * The stop is still worth sending, on the one path where the board
-		 * has already stopped behaving: it is a control transfer on a handle
-		 * that is deliberately still open, and it fails harmlessly if the
-		 * device has gone. A warning rather than an error, because the
-		 * command itself did what was asked. */
-		if (send_stop)
-			cmd_stop(ut->devh);
+		 * Nothing more is asked of the board either, not even the stop. A
+		 * transfer libusb has neither completed nor cancelled is what a
+		 * board that has left the bus, or stopped answering, looks like:
+		 * the stop cannot reach such a board, so sending it would only put
+		 * another transfer on a session that still has one stuck in
+		 * flight. The warning is the whole of what a teardown can do
+		 * here. */
 		fprintf(stderr, "warning: the receive transfer did not finish; the "
 		        "Ubertooth is left open and may still be capturing\n");
+		/* The run is a failure all the same, so a caller can tell it from a
+		 * capture that finished: this one lost its stream, and left a board
+		 * that may still be sending. The first failure wins, as in
+		 * rx_stream_failed(); stop_ubertooth is left alone, because the
+		 * capture it would stop is already over. */
+		if (ut->rx_stream_status == 0)
+			ut->rx_stream_status = LIBUSB_TRANSFER_ERROR;
 	}
 	else {
 		if (ut->devh != NULL) {

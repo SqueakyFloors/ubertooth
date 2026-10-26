@@ -116,14 +116,16 @@ typedef struct {
 
 	/* Set when the receive stream ended because its USB transfer failed. It
 	 * holds the libusb transfer status, or LIBUSB_TRANSFER_ERROR for a
-	 * transfer libusb would not put back in flight. It stays 0 while a
-	 * capture runs and after every ordinary end: a timeout, an interrupt,
-	 * the teardown's own cancellation. So a capture that ends with this set
-	 * stopped where the stream died, and holds less than was asked for.
-	 * Read it through ubertooth_stream_failed().
+	 * transfer libusb would not put back in flight, or one it never handed
+	 * back at all. It stays 0 while a capture runs and after every ordinary
+	 * end: a timeout, an interrupt, the teardown's own cancellation. So a
+	 * capture that ends with this set stopped where the stream died, and
+	 * holds less than was asked for. Read it through
+	 * ubertooth_stream_failed().
 	 *
 	 * Written on the poll thread, like stop_ubertooth above, which is why
-	 * it is volatile too. A caller reads it once that thread is joined.
+	 * it is volatile too, and by the teardown once that thread is joined. A
+	 * caller reads it after the teardown.
 	 *
 	 * It is never cleared once set. On a handle that runs more than one
 	 * stream (ubertooth-afh detects a map, then monitors it) it therefore

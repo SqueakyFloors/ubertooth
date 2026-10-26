@@ -152,7 +152,8 @@ One warning is worth knowing on sight. When a capture ends, the USB transfer
 it was reading into has to come back before the device can be closed; a board
 that never returns it leaves the tool no safe way to close the device, so it
 says `warning: the receive transfer did not finish; the Ubertooth is left open
-and may still be capturing` and exits with the status the command earned. The
+and may still be capturing`, asks that board for nothing further, and exits 1:
+the capture lost its stream, so it holds less than was asked for. The
 board usually needs `ubertooth-util [-U <selector>] -S` or `-r` afterwards, and
 one that answers neither has to be unplugged and plugged in again.
 
