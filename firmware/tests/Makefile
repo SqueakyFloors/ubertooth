@@ -156,12 +156,17 @@ $(BINDIR)/test_usbhw_wait: test_usbhw_wait.c minunit.h stubs-usb/lpc17.h \
 # stubs-usbq/ stands in for ubertooth.h and lpcusb's usbapi.h and comes first
 # so it wins; usbhw_lpc.h is register #defines and prototypes with no hardware
 # dependency, so the real one is used.
-$(BINDIR)/test_usb_queue: test_usb_queue.c minunit.h stubs-usbq/usbapi.h \
+#
+# Its last cases scan the mode loops for which USB service each one calls, so
+# FW_RXTX_DIR points at those sources too.
+$(BINDIR)/test_usb_queue: test_usb_queue.c minunit.h source_scan.h \
+		stubs-usbq/usbapi.h \
 		stubs-usbq/ubertooth.h stubs/ubertooth.h \
 		$(FW_RXTX)/ubertooth_usb.c $(FW_RXTX)/ubertooth_usb.h \
+		$(FW_RXTX)/bluetooth_rxtx.c $(FW_RXTX)/le_phy.c $(FW_RXTX)/ego.c \
 		$(FW_COMMON)/usb_irq.h | $(BINDIR)
 	$(CC) $(CFLAGS) -Istubs-usbq $(CPPFLAGS) -I$(FW_LPCUSB) \
-		-I$(FW_COMMON) -DFW_HOST_TEST \
+		-I$(FW_COMMON) -DFW_HOST_TEST -DFW_RXTX_DIR='"$(FW_RXTX)"' \
 		-o $@ test_usb_queue.c
 
 # The part table in flash.h and Flash::valid_address compile here as they are,

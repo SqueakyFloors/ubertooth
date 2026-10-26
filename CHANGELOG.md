@@ -99,15 +99,17 @@
   the command returns at once and the board stays reachable; `-S` or any mode
   option stops it and leaves the LEDs off.
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
-- **Reflash required:** the firmware API version is now 1.25, last moved by the
-  cut on an over-long build string reply, and the host tools require firmware
-  of exactly their own API version, older or newer (`ubertooth-util` still
-  reads the version and reflashes any firmware). Host and firmware come from
-  the same tree; `2020-12-R1` firmware is refused.
+- **Reflash required:** the firmware API version is now 1.26, last moved by the
+  BLE follow modes keeping their packets for the host's poll requests instead
+  of the receive endpoint, and the host tools require firmware of exactly their
+  own API version, older or newer (`ubertooth-util` still reads the version and
+  reflashes any firmware). Host and firmware come from the same tree;
+  `2020-12-R1` firmware is refused.
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
   [#240](https://github.com/SqueakyFloors/ubertooth/issues/240)
   [#433](https://github.com/SqueakyFloors/ubertooth/issues/433)
+  [#434](https://github.com/SqueakyFloors/ubertooth/issues/434)
 - `ubertooth-specan-ui` draws a slowly smoothed average of the max-hold trace
   as a cyan dotted line labelled "Avg: N dBm", shown with the other markers.
   Credit: Sirio Balmelli ([@siriobalmelli](https://github.com/siriobalmelli)).
@@ -419,6 +421,9 @@
   record from a stray keep-alive.
   [#179](https://github.com/SqueakyFloors/ubertooth/issues/179)
   [#318](https://github.com/SqueakyFloors/ubertooth/issues/318)
+- `ubertooth-btle -n` and `-f` report the first two packets of a session. The
+  board used to hand them to a receive endpoint these modes never read.
+  [#434](https://github.com/SqueakyFloors/ubertooth/issues/434)
 - `btbr` firmware: a host that stops reading no longer leaves the board
   answering nothing until it is power-cycled. A debug or fault message now
   waits about a tenth of a second for the host to read it and is then dropped,

@@ -1149,8 +1149,12 @@ void le_phy_main(void) {
 			buffer_release(packet);
 		}
 
-		// polled USB handling
-		handle_usb(0);
+		// Polled USB handling, control requests only. The host for this
+		// mode (ubertooth-btle -n/-f) collects packets with UBERTOOTH_POLL
+		// and never reads the bulk IN endpoint, so handing packets to that
+		// endpoint loses them: it has two hardware buffers, and this mode's
+		// first two packets went into them every session.
+		handle_usb_control();
 
 		// XXX maybe LED light show?
 	}

@@ -827,23 +827,25 @@ MU_TEST(test_no_unbounded_waits_on_usb_registers_remain)
 }
 
 /*
- * handle_usb() is the one place the loop drives USB, and it holds the USB
- * interrupt off while it does.
+ * Two functions let a mode loop drive USB: handle_usb(), which also keeps the
+ * bulk IN endpoint loaded, and handle_usb_control(), for a mode whose host
+ * reads packets with poll requests instead. Each holds the USB interrupt off
+ * while it runs, so the count below is one per function.
  *
  * On the modes that exist today this costs a register read and nothing else:
- * the six modes that service USB from the interrupt do not call handle_usb(),
- * so the two callers never overlap. That is a property of those mode
- * functions, though, not of this code -- a mode that polled USB with the
- * interrupt still enabled would have two contexts driving one set of
- * registers, and the loser of that would wait on a handshake completion the
- * winner consumed. This keeps the guarantee here, where it can be checked.
+ * the six modes that service USB from the interrupt call neither, so the two
+ * contexts never overlap. That is a property of those mode functions, though,
+ * not of this code -- a mode that polled USB with the interrupt still enabled
+ * would have two contexts driving one set of registers, and the loser of that
+ * would wait on a handshake completion the winner consumed. This keeps the
+ * guarantee here, where it can be checked.
  */
 MU_TEST(test_handle_usb_holds_the_usb_interrupt_off)
 {
 	const char *path = FW_RXTX_DIR "/ubertooth_usb.c";
 
-	mu_assert_int_eq(1, count_lines_with(path, "usb_irq_hold", NULL, NULL));
-	mu_assert_int_eq(1, count_lines_with(path, "usb_irq_release", NULL, NULL));
+	mu_assert_int_eq(2, count_lines_with(path, "usb_irq_hold", NULL, NULL));
+	mu_assert_int_eq(2, count_lines_with(path, "usb_irq_release", NULL, NULL));
 }
 
 /*
