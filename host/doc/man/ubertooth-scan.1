@@ -53,15 +53,15 @@ A scan that ran to its \fB\-t\fR timeout, or that was interrupted (Ctrl\-C), exi
 .P
 A scan whose USB stream fails part\-way also exits 1: the board stopped answering, or dropped off the bus, so the Ubertooth half of the scan stops there\. The results it did get are still printed, and the failure is reported on standard error as it happens, as \fBerror: receive transfer failed: <reason>\fR\.
 .P
-A board that refuses the request that puts it in sweep mode exits 1 as well\. Standard output stays empty and standard error carries the reason from the library followed by the tool naming the request:
+A board that refuses the request that puts it in sweep mode exits 1 as well\. Standard output stays empty\. Standard error names the request, why the board refused it and the libusb code, and adds a note where there is something to try:
 .IP "" 4
 .nf
-error: control message unsupported
-error: could not set sweep mode
+error: could not set sweep mode: the board did not answer in time (libusb \-7)
+note: if a mode is running, stop it with ubertooth\-util \-S; if the board does not answer at all, re\-plug it
 .fi
 .IP "" 0
 .P
-The AFH map this tool prints is only meaningful while the board sweeps the whole band, so neither the BlueZ inquiry nor the Ubertooth scan starts after that\.
+That pair is the whole report\. A request the board stalls (\fBlibusb \-9\fR) reads \fBthe board does not support this command (stalled)\fR and carries no note, there being nothing to try\. The AFH map this tool prints is only meaningful while the board sweeps the whole band, so neither the BlueZ inquiry nor the Ubertooth scan starts after that\.
 .SH "SEE ALSO"
 ubertooth\-util(1): sets the receive squelch (\fB\-z\fR); SQUELCH describes how long it lasts
 .P

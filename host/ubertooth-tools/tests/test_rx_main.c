@@ -53,8 +53,8 @@ static struct {
 	int bulk_inits, thread_starts, thread_stops, rx_syms_calls, stops;
 	int channels_set;
 	int bdaddrs_set;
-	int channel_rc;      /* returned by cmd_set_channel() */
-	int bdaddr_rc;       /* returned by cmd_set_bdaddr() */
+	int channel_rc;      /* returned by cmd_set_channel_quiet() */
+	int bdaddr_rc;       /* returned by cmd_set_bdaddr_quiet() */
 	int api_rc;          /* returned by ubertooth_check_api() */
 	int api_released;    /* whether that call released the board itself */
 	int closes;          /* ubertooth_close() */
@@ -142,7 +142,7 @@ void ubertooth_set_timeout(ubertooth_t* ut, int seconds)
 	device.timeout_set = seconds;
 }
 
-int cmd_set_channel(struct libusb_device_handle* devh, uint16_t channel)
+int cmd_set_channel_quiet(struct libusb_device_handle* devh, uint16_t channel)
 {
 	(void)devh;
 	device.channels_set++;
@@ -157,7 +157,7 @@ int cmd_rx_syms(struct libusb_device_handle* devh)
 	return 0;
 }
 
-int cmd_set_bdaddr(struct libusb_device_handle* devh, uint64_t address)
+int cmd_set_bdaddr_quiet(struct libusb_device_handle* devh, uint64_t address)
 {
 	(void)devh;
 	(void)address;

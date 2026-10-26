@@ -379,20 +379,26 @@ int cmd_get_channel(struct libusb_device_handle* devh)
 }
 
 
-int cmd_set_channel(struct libusb_device_handle* devh, u16 channel)
+int cmd_set_channel_quiet(struct libusb_device_handle* devh, u16 channel)
 {
 	int r;
 
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_SET_CHANNEL, channel, 0,
 			NULL, 0, 1000);
-	if (r == LIBUSB_ERROR_PIPE) {
-		fprintf(stderr, "error: control message unsupported\n");
+	if (r < 0)
 		return r;
-	} else if (r < 0) {
-		show_libusb_error(r);
-		return r;
-	}
 	return 0;
+}
+
+int cmd_set_channel(struct libusb_device_handle* devh, u16 channel)
+{
+	int r = cmd_set_channel_quiet(devh, channel);
+
+	if (r == LIBUSB_ERROR_PIPE)
+		fprintf(stderr, "error: control message unsupported\n");
+	else if (r < 0)
+		show_libusb_error(r);
+	return r;
 }
 
 int cmd_get_part_id(struct libusb_device_handle* devh, u32 *part_id)
@@ -838,7 +844,7 @@ int cmd_get_squelch(struct libusb_device_handle* devh)
 	return level;
 }
 
-int cmd_set_bdaddr(struct libusb_device_handle* devh, u64 address)
+int cmd_set_bdaddr_quiet(struct libusb_device_handle* devh, u64 address)
 {
 	int r, data_len;
 	u64 syncword;
@@ -854,18 +860,26 @@ int cmd_set_bdaddr(struct libusb_device_handle* devh, u64 address)
 
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_SET_BDADDR, 0, 0,
 		data, data_len, 1000);
-	if (r < 0) {
-		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "error: control message unsupported\n");
-		} else {
-			show_libusb_error(r);
-		}
+	if (r < 0)
 		return r;
-	} else if (r < data_len) {
+	if (r < data_len) {
+		/* A whole line of its own, naming the request and the counts,
+		 * so a caller adds nothing to it. */
 		fprintf(stderr, "error: only %d of %d bytes transferred\n", r, data_len);
 		return 1;
 	}
 	return 0;
+}
+
+int cmd_set_bdaddr(struct libusb_device_handle* devh, u64 address)
+{
+	int r = cmd_set_bdaddr_quiet(devh, address);
+
+	if (r == LIBUSB_ERROR_PIPE)
+		fprintf(stderr, "error: control message unsupported\n");
+	else if (r < 0)
+		show_libusb_error(r);
+	return r;
 }
 
 int cmd_start_hopping(struct libusb_device_handle* devh, int clkn_offset, int clk100ns_offset)

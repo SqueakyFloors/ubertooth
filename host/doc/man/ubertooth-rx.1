@@ -160,15 +160,15 @@ A capture that ran to its \fB\-t\fR timeout, or that was interrupted (Ctrl\-C), 
 .P
 A live capture whose USB stream fails part\-way also exits 1: the board stopped answering, or dropped off the bus, so the capture stops there and holds only what arrived before it\. The failure is reported on standard error as it happens, as \fBerror: receive transfer failed: <reason>\fR\. A \fB\-z\fR survey still prints the results it did get\.
 .P
-A board that refuses the channel request, or the address request \fB\-l\fR and \fB\-u\fR together name, exits 1 as well, and the capture does not start, so a board that will not leave the channel it is on cannot be mistaken for one that is sweeping\. Standard output stays empty and standard error carries the reason from the library followed by the tool naming the request:
+A board that refuses the channel request, or the address request \fB\-l\fR and \fB\-u\fR together name, exits 1 as well, and the capture does not start, so a board that will not leave the channel it is on cannot be mistaken for one that is sweeping\. Standard output stays empty\. Standard error names the request, why the board refused it and the libusb code, and adds a note where there is something to try:
 .IP "" 4
 .nf
-error: control message unsupported
-error: could not set sweep mode
+error: could not set the channel: the board did not answer in time (libusb \-7)
+note: if a mode is running, stop it with ubertooth\-util \-S; if the board does not answer at all, re\-plug it
 .fi
 .IP "" 0
 .P
-The last line reads \fBerror: could not set the channel\fR when \fB\-c\fR named one, and \fBerror: could not set the Bluetooth address\fR for the address request\. Without \fB\-c\fR the command asks for the sweep across the whole band, which is why the sweep is what the message names\.
+That pair is the whole report: the request named as \fBset sweep mode\fR without \fB\-c\fR, since the command then asks for the sweep across the whole band rather than for a channel, and as \fBset the Bluetooth address\fR for the address request\. A request the board stalls (\fBlibusb \-9\fR) reads \fBthe board does not support this command (stalled)\fR and carries no note, there being nothing to try\.
 .SH "SEE ALSO"
 ubertooth\-util(1): sets the receive squelch (\fB\-z\fR); SQUELCH describes how long it lasts
 .P

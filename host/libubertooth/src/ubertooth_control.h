@@ -146,6 +146,12 @@ int cmd_get_palevel(struct libusb_device_handle* devh);
 int cmd_set_palevel(struct libusb_device_handle* devh, u16 level);
 int cmd_get_channel(struct libusb_device_handle* devh);
 int cmd_set_channel(struct libusb_device_handle* devh, u16 channel);
+/* The channel and address requests without a report of their own: they return
+ * 0, or the libusb error code, and print nothing for a refused transfer. A
+ * caller that names the request itself (the ubertooth-* tools' shared
+ * report_refused_request()) then prints the whole failure as one line, where
+ * the reporting forms above would add a second. */
+int cmd_set_channel_quiet(struct libusb_device_handle* devh, u16 channel);
 int cmd_get_rangeresult(struct libusb_device_handle* devh, rangetest_result *rr);
 int cmd_range_test(struct libusb_device_handle* devh);
 int cmd_repeater(struct libusb_device_handle* devh);
@@ -167,6 +173,9 @@ int cmd_get_board_id(struct libusb_device_handle* devh);
 int cmd_set_squelch(struct libusb_device_handle* devh, u16 level);
 int cmd_get_squelch(struct libusb_device_handle* devh);
 int cmd_set_bdaddr(struct libusb_device_handle* devh, u64 bdaddr);
+/* See cmd_set_channel_quiet(). A reply shorter than the address still carries
+ * its own complete line and returns 1. */
+int cmd_set_bdaddr_quiet(struct libusb_device_handle* devh, u64 bdaddr);
 int cmd_set_syncword(struct libusb_device_handle* devh, u64 syncword);
 int cmd_next_hop(struct libusb_device_handle* devh, u16 clk);
 int cmd_start_hopping(struct libusb_device_handle* devh, int clkn_offset, int clk100ns_offset);

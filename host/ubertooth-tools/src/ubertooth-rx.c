@@ -292,7 +292,7 @@ int main(int argc, char* argv[])
 				 * capture does not start. A replay sends no
 				 * request at all. */
 				if (infile == NULL) {
-					r = cmd_set_bdaddr(ut->devh,
+					r = cmd_set_bdaddr_quiet(ut->devh,
 					        btbb_piconet_get_bdaddr(pn));
 					if (r < 0)
 						return request_failed(ut,
@@ -312,7 +312,7 @@ int main(int argc, char* argv[])
 		/* A board that refused this would capture on whatever channel
 		 * it was left on, and say nothing about it, so the capture does
 		 * not start. */
-		r = cmd_set_channel(ut->devh, channel);
+		r = cmd_set_channel_quiet(ut->devh, channel);
 		if (r < 0)
 			return request_failed(ut, have_channel ? "set the channel"
 			                                       : "set sweep mode", r);

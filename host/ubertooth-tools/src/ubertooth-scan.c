@@ -303,7 +303,7 @@ int main(int argc, char *argv[])
 	 * firmware for that, and without it the AFH map this tool prints would
 	 * only ever show the one channel the board sat on. A board that refused
 	 * it would print a map that means nothing, so neither scan runs. */
-	rv = cmd_set_channel(ut->devh, 9999);
+	rv = cmd_set_channel_quiet(ut->devh, 9999);
 	if (rv < 0) {
 		/* A refused request is not proof that the board never got it --
 		 * a transfer can time out after it arrived -- so the message

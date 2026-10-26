@@ -34,7 +34,7 @@ static struct {
 	int api_rc;          /* returned by ubertooth_check_api() */
 	int api_released;    /* whether that call released the board itself */
 	int closes;          /* ubertooth_close() */
-	int channel_rc;      /* returned by cmd_set_channel() */
+	int channel_rc;      /* returned by cmd_set_channel_quiet() */
 	int last_channel;    /* the channel the capture was set to, in MHz */
 	int timeout;         /* seconds passed to ubertooth_set_timeout() */
 	int stops;
@@ -124,7 +124,7 @@ void ubertooth_stop(ubertooth_t* ut)
 	fake.stops++;
 }
 
-int cmd_set_channel(struct libusb_device_handle* devh, u16 channel)
+int cmd_set_channel_quiet(struct libusb_device_handle* devh, u16 channel)
 {
 	(void)devh;
 	record('c');

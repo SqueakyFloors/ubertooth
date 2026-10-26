@@ -79,11 +79,11 @@ try:
     error: could not set sweep mode: the board did not answer in time (libusb -7)
     note: if a mode is running, stop it with ubertooth-util -S; if the board does not answer at all, re-plug it
 
-A request the board stalls (`libusb -9`) reads `the board does not support
-this command (stalled)` and carries no note, there being nothing to try;
-libubertooth prints its own line for the failed transfer above the pair. The
-AFH map this tool prints is only meaningful while the board sweeps the whole
-band, so neither the BlueZ inquiry nor the Ubertooth scan starts after that.
+That pair is the whole report. A request the board stalls (`libusb -9`) reads
+`the board does not support this command (stalled)` and carries no note, there
+being nothing to try. The AFH map this tool prints is only meaningful while
+the board sweeps the whole band, so neither the BlueZ inquiry nor the
+Ubertooth scan starts after that.
 
 ## SEE ALSO
 
