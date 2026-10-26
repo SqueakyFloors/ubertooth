@@ -114,21 +114,29 @@ jobs:
         # install.sh and the guides promise a commit of the released library,
         # not whatever a side branch holds today.
         if ! git -C "$clone" merge-base --is-ancestor "$LIBBTBB_REF" "$branch" 2> /dev/null; then
-          echo "error: libbtbb commit $LIBBTBB_REF is not on the $branch branch" >&2
-          echo "       of $LIBBTBB_REPO, so a plain clone cannot check it out." >&2
-          echo "       Pin a commit that is merged to $branch." >&2
+          echo "error: libbtbb commit $LIBBTBB_REF is not on $LIBBTBB_REPO's" >&2
+          echo "       $branch branch, so it is not a released commit: a merged" >&2
+          echo "       pull request head whose branch is gone is served to CI by" >&2
+          echo "       its hash but is in nobody's clone, and a side branch moves." >&2
+          echo "       Pin a commit merged to $branch." >&2
           status=1
         fi
 
-        # So the assert above cannot pass because the clone or the comparison
-        # stopped working, which is how the gap it closes went unnoticed. This
-        # commit is the head of a squash-merged libbtbb pull request: still
-        # served by hash, never merged to the default branch, which is exactly
-        # the pin the assert has to refuse.
-        unreachable=351dbe69f78620a5a2d8bbcbd2d0371785a72f05
-        if git -C "$clone" merge-base --is-ancestor "$unreachable" "$branch" 2> /dev/null; then
-          echo "error: the reachability check accepted $unreachable," >&2
-          echo "       which is not on $branch, so it is no longer checking anything" >&2
+        # So the assert above cannot pass by having stopped comparing, which
+        # is how the gap it closes went unnoticed in the first place. The
+        # control is the tip of a branch the clone holds but $branch does not,
+        # so refusing it takes a real ancestry comparison and not a missing
+        # object -- which is what a hard-coded commit would have given, since
+        # a bare clone does not fetch one that no branch points at.
+        control=$(git -C "$clone" for-each-ref --format='%(objectname)' \
+                    --no-merged "$branch" refs/heads | head -n 1)
+        if [ -z "$control" ]; then
+          echo "error: $LIBBTBB_REPO has no branch off $branch, so there is" >&2
+          echo "       nothing to show the check above still refuses anything" >&2
+          status=1
+        elif git -C "$clone" merge-base --is-ancestor "$control" "$branch" 2> /dev/null; then
+          echo "error: the check above accepted $control, which is not on" >&2
+          echo "       $branch, so it is no longer checking anything" >&2
           status=1
         fi
         rm -rf "$clone"
@@ -457,14 +465,16 @@ jobs:
     # recommends as the firmware job does; ca-certificates is then needed
     # explicitly for the HTTPS checkout of the submodules.
     - name: Install checkout prerequisites
-      # Two bounded commands of 150 seconds, so 5 minutes of work at worst.
-      timeout-minutes: 6
+      # Two bounded commands of 100 seconds, so under 4 minutes at worst.
+      # With the 8 of the toolchain step that leaves 3 of the job's 15 for the
+      # checkout and the firmware build, which take well under one.
+      timeout-minutes: 4
       # tools/retry.sh really is unavailable here, but timeout is not, so the
       # two downloads are bounded and say what happened, without being retried.
       run: |
-        timeout 150 apt-get update ||
+        timeout 100 apt-get update ||
           { echo "error: apt-get update never finished; the mirror has stalled" >&2; exit 1; }
-        timeout 150 apt-get install -y --no-install-recommends -d ca-certificates git ||
+        timeout 100 apt-get install -y --no-install-recommends -d ca-certificates git ||
           { echo "error: downloading git never finished; the mirror has stalled" >&2; exit 1; }
         apt-get install -y --no-install-recommends ca-certificates git
 
