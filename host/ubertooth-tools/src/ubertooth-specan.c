@@ -324,9 +324,10 @@ int main(int argc, char *argv[])
 
 	ubertooth_stop(ut);
 
-	/* A sweep whose stream died stopped where it died, so the samples are
-	 * incomplete. Read after the teardown, where a failure the cancellation
-	 * turns up is recorded; libubertooth has already said what failed. */
+	/* A sweep whose stream died stopped there, so the samples are
+	 * incomplete. The handle is read after the teardown, because cancelling
+	 * the transfer can be what brings the failure out. libubertooth has
+	 * already printed what failed. */
 	stream_failed = ubertooth_stream_failed(ut);
 
 	fprintf(stderr, "Ubertooth stopped\n");

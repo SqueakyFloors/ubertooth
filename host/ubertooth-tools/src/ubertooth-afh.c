@@ -186,10 +186,9 @@ int main(int argc, char* argv[])
 
 	if (use_r_format) {
 		rx_afh_r(ut, pn, timeout);
-		/* This format has its own receive loop and reports nothing back,
-		 * so the one failure it cannot shrug off is read from the handle:
-		 * a stream that died stopped the run where it died.
-		 * libubertooth has already reported what failed. */
+		/* rx_afh_r() runs its own receive loop and returns nothing, so a
+		 * stream that died has to be read from the handle. The run stopped
+		 * there, and libubertooth has already printed what failed. */
 		if (ubertooth_stream_failed(ut))
 			status = 1;
 	} else {

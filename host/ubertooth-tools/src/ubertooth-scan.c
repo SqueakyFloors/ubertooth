@@ -343,11 +343,11 @@ int main(int argc, char *argv[])
 
 	ubertooth_stop(ut);
 
-	/* A scan whose stream died stopped where it died, so the results below
-	 * are whatever arrived before that rather than the scan that was asked
-	 * for: they are still printed, and the exit status says so. Read after
-	 * the teardown, where a failure the cancellation turns up is recorded;
-	 * libubertooth has already said what failed. */
+	/* A scan whose stream died stopped there, so the results below are
+	 * only what arrived before that. They are still printed, and the exit
+	 * status says they are incomplete. The handle is read after the
+	 * teardown, because cancelling the transfer can be what brings the
+	 * failure out. libubertooth has already printed what failed. */
 	if (ubertooth_stream_failed(ut))
 		exit_status = 1;
 

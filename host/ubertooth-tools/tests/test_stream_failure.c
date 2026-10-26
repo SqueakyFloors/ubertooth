@@ -452,10 +452,9 @@ MU_TEST(a_cancellation_is_not_a_failure)
 	release_handle(ut);
 }
 
-/* A re-arm libusb will not accept leaves nothing in flight, so the board has
- * nowhere to send to: as dead a stream as a failed transfer, and it used to
- * be the one that hung until the timeout, since no completion was coming to
- * end the loop either. */
+/* A re-arm libusb refuses leaves nothing in flight, so the board has nowhere
+ * to send to: as dead a stream as a failed transfer. No completion is coming
+ * either, so only the recorded failure can end the loop. */
 MU_TEST(a_refused_re_arm_ends_the_capture)
 {
 	ubertooth_t* ut;

@@ -303,12 +303,13 @@ int main(int argc, char* argv[])
 
 		ubertooth_stop(ut);
 
-		/* A capture whose stream died stopped where it died, so it holds
-		 * less than was asked for: the exit status has to say so, or a
-		 * caller cannot tell it from a timeout or a Ctrl-C. Read after the
-		 * teardown, which is where a failure the cancellation turns up is
-		 * recorded. The survey results below are still printed, since they
-		 * are what did arrive; libubertooth has already said what failed. */
+		/* A capture whose stream died stopped there, so it holds less than
+		 * was asked for. The exit status has to say so, or a caller cannot
+		 * tell it from a timeout or a Ctrl-C. The handle is read after the
+		 * teardown, because cancelling the transfer can be what brings the
+		 * failure out. The survey results below are still printed, since
+		 * they are what did arrive, and libubertooth has already printed
+		 * what failed. */
 		if (ubertooth_stream_failed(ut))
 			exit_status = 1;
 	} else {

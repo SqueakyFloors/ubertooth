@@ -88,22 +88,21 @@ typedef struct {
 	 * already been reported, so it is said once per capture. */
 	uint8_t clk100ns_gap_warned;
 
-	/* Why the receive stream ended, when it ended because the USB transfer
-	 * failed: the libusb transfer status, or LIBUSB_TRANSFER_ERROR for a
-	 * transfer libusb would not put back in flight. 0 while a capture runs
-	 * and after every ordinary end -- a timeout, an interrupt, the
-	 * teardown's own cancellation -- so a capture that ends with this set
-	 * stopped where the stream died and holds less than was asked for.
+	/* Set when the receive stream ended because its USB transfer failed. It
+	 * holds the libusb transfer status, or LIBUSB_TRANSFER_ERROR for a
+	 * transfer libusb would not put back in flight. It stays 0 while a
+	 * capture runs and after every ordinary end: a timeout, an interrupt,
+	 * the teardown's own cancellation. So a capture that ends with this set
+	 * stopped where the stream died, and holds less than was asked for.
 	 * Read it through ubertooth_stream_failed().
 	 *
-	 * Written on the poll thread, like stop_ubertooth above, so it is
-	 * volatile for the same reason. A caller reads it after joining that
-	 * thread, which is where the capture's view of it is settled.
+	 * Written on the poll thread, like stop_ubertooth above, which is why
+	 * it is volatile too. A caller reads it once that thread is joined.
 	 *
-	 * It is never cleared once set, so on a handle that runs more than one
-	 * stream (ubertooth-afh detects a map, then monitors it) it means "a
-	 * stream on this handle failed", which is what a tool's exit status
-	 * has to say anyway. */
+	 * It is never cleared once set. On a handle that runs more than one
+	 * stream (ubertooth-afh detects a map, then monitors it) it therefore
+	 * means "a stream on this handle failed", which is all a tool's exit
+	 * status has to say anyway. */
 	volatile int rx_stream_status;
 } ubertooth_t;
 
@@ -171,11 +170,11 @@ int ubertooth_read_serial_string(struct libusb_device_handle* devh, char* out,
 
 /* Whether a receive stream on this handle ended because its USB transfer
  * failed -- the board stopped answering, or dropped off the bus -- rather
- * than because the capture was asked to stop. The failure is reported on
- * standard error as it happens and the capture stops there, so a tool that
- * streamed has to turn this into a non-zero exit status: it captured less
- * than was asked for. Read it after the capture's teardown, so a failure
- * that only surfaces while the transfer is finished is counted too. */
+ * than because the capture was asked to stop. The failure is printed on
+ * standard error as it happens, and the capture stops there, so it captured
+ * less than was asked for: a tool that streamed has to turn this into a
+ * non-zero exit status. Read it after the capture's teardown, because
+ * cancelling the transfer can be what brings the failure out. */
 int ubertooth_stream_failed(ubertooth_t* ut);
 
 int ubertooth_bulk_init(ubertooth_t* ut);

@@ -519,18 +519,19 @@ static void rx_xfer_status(int status)
 	        error_name, status);
 }
 
-/* Records a stream that died: nothing is arriving any more, so the capture
- * stops here instead of running until its timeout or an interrupt and then
- * reporting a clean run. The status is kept as libusb gave it, and the first
- * one wins, since what ends a stream is what explains it; the message has
- * already been printed by the caller. Only a transfer that really failed
- * reaches this: a bulk timeout is what a quiet board looks like, and a
- * cancellation is how a teardown gets its transfer back.
+/* Records a stream that died. Nothing is arriving any more, so the capture
+ * stops here rather than running out its timeout and then reporting a clean
+ * run. The status is kept as libusb gave it, and the first failure wins: what
+ * ended the stream is what explains it. The caller has already printed the
+ * message.
  *
- * Runs on the poll thread, and touches nothing but these two fields: the
- * transfer belongs to libusb or to the callback that is giving it up, never
- * to this. The fields are read again on the capture's own thread, which has
- * joined the poll thread by then. */
+ * Only a transfer that really failed gets here. A bulk timeout is what a
+ * quiet board looks like, and a cancellation is how the teardown takes its
+ * transfer back, so neither is a failure.
+ *
+ * This runs on the poll thread and writes only these two fields; the transfer
+ * itself is left to libusb, or to the callback that is giving it up. The
+ * capture's own thread reads the fields back after joining the poll thread. */
 static void rx_stream_failed(ubertooth_t* ut, int status)
 {
 	if (ut->rx_stream_status == 0)
@@ -553,11 +554,12 @@ static void cb_xfer(struct libusb_transfer *xfer)
 		int status = xfer->status;
 
 		if(status == LIBUSB_TRANSFER_TIMED_OUT) {
-			/* A capture that is ending keeps what it has rather than going
-			 * back in flight; the teardown gets the transfer back from
-			 * where it is, not in flight, as it does for a refused submit.
-			 * Putting it back would also let a refusal in this window
-			 * report a failure for a run that had already finished. */
+			/* A capture that is already stopping does not put the transfer
+			 * back in flight; it keeps what it has. The transfer is left
+			 * allocated and idle, which ubertooth_bulk_stop() handles: its
+			 * cancel is refused, and it frees the transfer itself. Re-arming
+			 * here would also mean that a refusal in this last moment failed
+			 * a run that had really finished. */
 			if (ut->stop_ubertooth)
 				return;
 			r = libusb_submit_transfer(xfer);
@@ -565,19 +567,21 @@ static void cb_xfer(struct libusb_transfer *xfer)
 				fprintf(stderr, "error: resubmitting the receive transfer "
 				        "failed (%d)\n", r);
 				/* Nothing is in flight now, so the board has nowhere to
-				 * send to: the stream is as dead as a failed transfer. The
-				 * transfer is left for the teardown to free, so it is
-				 * still reachable when the failure is published below. */
+				 * send to and the stream is as dead as a failed transfer.
+				 * The transfer is left for the teardown to free, so it is
+				 * still there to be cancelled once the failure is
+				 * published. */
 				rx_stream_failed(ut, LIBUSB_TRANSFER_ERROR);
 			}
 			return;
 		}
 		if(status != LIBUSB_TRANSFER_CANCELLED)
 			rx_xfer_status(status);
-		/* Cleared and freed before the failure is published: the capture's
-		 * own loop cancels ut->rx_xfer as soon as it sees the stop, so a
-		 * transfer that has been freed must not still be reachable there.
-		 * ubertooth_bulk_stop() keeps the same order, for the same reason. */
+		/* The handle gives up the transfer before the failure is published.
+		 * Publishing it releases the capture's own loop, which cancels
+		 * whatever ut->rx_xfer points at, and that must not be a transfer
+		 * this has already freed. ubertooth_bulk_stop() uses the same order
+		 * for the same reason. */
 		ut->rx_xfer = NULL;
 		libusb_free_transfer(xfer);
 		if(status != LIBUSB_TRANSFER_CANCELLED)
