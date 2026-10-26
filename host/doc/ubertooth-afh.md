@@ -135,6 +135,11 @@ selected Ubertooth is not found. Without `-r`, it also exits 1 when the
 receive could not be started at all; `-r` does not report that and still
 exits 0.
 
+A run whose USB stream fails part-way, with or without `-r`, exits 1: the
+board stopped answering or dropped off the bus, so what it reported is
+whatever arrived before that. A detection phase that lost its stream is never
+reported as a quiet piconet, so it exits 1 rather than 2.
+
 ## SEE ALSO
 
 ubertooth-util(1): sets the receive squelch (`-z`); SQUELCH describes how

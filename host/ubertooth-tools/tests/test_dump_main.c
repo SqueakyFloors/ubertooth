@@ -97,11 +97,19 @@ int cmd_set_modulation(struct libusb_device_handle* devh, uint16_t mod)
 	return -1;
 }
 
-void rx_dump(ubertooth_t* ut, int bitstream)
+int rx_dump(ubertooth_t* ut, int bitstream)
 {
 	(void)ut;
 	(void)bitstream;
 	mu_assert(0, "no test should reach the capture");
+	return -1;
+}
+
+int ubertooth_stream_failed(ubertooth_t* ut)
+{
+	(void)ut;
+	mu_assert(0, "no test should reach the end of a capture");
+	return 0;
 }
 
 void ubertooth_stop(ubertooth_t* ut)

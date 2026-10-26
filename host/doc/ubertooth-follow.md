@@ -115,6 +115,17 @@ A refused command line creates and truncates nothing: `-r`, `-q` and `-d` name
 their file while the command line is read, and it is opened only once every
 check has passed.
 
+## EXIT STATUS
+
+A follow that was interrupted (Ctrl-C) exits 0 with whatever it captured, and
+so does `-h`. A refused command line exits 1 (see ARGUMENTS), as does a file
+that cannot be opened and a target the tool could not set up a follow on.
+
+A follow whose USB stream fails part-way also exits 1: the board stopped
+answering, or dropped off the bus, so the capture stops there and holds only
+what arrived before it. The failure is reported on standard error as it
+happens, as `error: receive transfer failed: <reason>`.
+
 ## SEE ALSO
 
 ubertooth-util(1): sets the receive squelch (`-z`); SQUELCH describes how

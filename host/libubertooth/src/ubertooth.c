@@ -519,23 +519,69 @@ static void rx_xfer_status(int status)
 	        error_name, status);
 }
 
+/* Records a stream that died: nothing is arriving any more, so the capture
+ * stops here instead of running until its timeout or an interrupt and then
+ * reporting a clean run. The status is kept as libusb gave it, and the first
+ * one wins, since what ends a stream is what explains it; the message has
+ * already been printed by the caller. Only a transfer that really failed
+ * reaches this: a bulk timeout is what a quiet board looks like, and a
+ * cancellation is how a teardown gets its transfer back.
+ *
+ * Runs on the poll thread, and touches nothing but these two fields: the
+ * transfer belongs to libusb or to the callback that is giving it up, never
+ * to this. The fields are read again on the capture's own thread, which has
+ * joined the poll thread by then. */
+static void rx_stream_failed(ubertooth_t* ut, int status)
+{
+	if (ut->rx_stream_status == 0)
+		ut->rx_stream_status = status != 0 ? status : LIBUSB_TRANSFER_ERROR;
+	ut->stop_ubertooth = 1;
+}
+
+int ubertooth_stream_failed(ubertooth_t* ut)
+{
+	return ut != NULL && ut->rx_stream_status != 0;
+}
+
 static void cb_xfer(struct libusb_transfer *xfer)
 {
 	int r;
 	ubertooth_t* ut = (ubertooth_t*)xfer->user_data;
 
 	if (xfer->status != LIBUSB_TRANSFER_COMPLETED) {
-		if(xfer->status == LIBUSB_TRANSFER_TIMED_OUT) {
-			r = libusb_submit_transfer(ut->rx_xfer);
-			if (r < 0)
+		/* Read while the transfer is still there to read it from. */
+		int status = xfer->status;
+
+		if(status == LIBUSB_TRANSFER_TIMED_OUT) {
+			/* A capture that is ending keeps what it has rather than going
+			 * back in flight; the teardown gets the transfer back from
+			 * where it is, not in flight, as it does for a refused submit.
+			 * Putting it back would also let a refusal in this window
+			 * report a failure for a run that had already finished. */
+			if (ut->stop_ubertooth)
+				return;
+			r = libusb_submit_transfer(xfer);
+			if (r < 0) {
 				fprintf(stderr, "error: resubmitting the receive transfer "
 				        "failed (%d)\n", r);
+				/* Nothing is in flight now, so the board has nowhere to
+				 * send to: the stream is as dead as a failed transfer. The
+				 * transfer is left for the teardown to free, so it is
+				 * still reachable when the failure is published below. */
+				rx_stream_failed(ut, LIBUSB_TRANSFER_ERROR);
+			}
 			return;
 		}
-		if(xfer->status != LIBUSB_TRANSFER_CANCELLED)
-			rx_xfer_status(xfer->status);
-		libusb_free_transfer(xfer);
+		if(status != LIBUSB_TRANSFER_CANCELLED)
+			rx_xfer_status(status);
+		/* Cleared and freed before the failure is published: the capture's
+		 * own loop cancels ut->rx_xfer as soon as it sees the stop, so a
+		 * transfer that has been freed must not still be reachable there.
+		 * ubertooth_bulk_stop() keeps the same order, for the same reason. */
 		ut->rx_xfer = NULL;
+		libusb_free_transfer(xfer);
+		if(status != LIBUSB_TRANSFER_CANCELLED)
+			rx_stream_failed(ut, status);
 		return;
 	}
 
@@ -546,9 +592,11 @@ static void cb_xfer(struct libusb_transfer *xfer)
 	ut->rx_xfer->buffer = (uint8_t*)fifo_get_write_element(ut->fifo);
 
 	r = libusb_submit_transfer(ut->rx_xfer);
-	if (r < 0)
+	if (r < 0) {
 		fprintf(stderr, "error: resubmitting the receive transfer failed "
 		        "(%d)\n", r);
+		rx_stream_failed(ut, LIBUSB_TRANSFER_ERROR);
+	}
 }
 
 static void* poll_thread_main(void* arg __attribute__((unused)))
@@ -628,6 +676,7 @@ static void ubertooth_bulk_stop(ubertooth_t* ut)
 
 int ubertooth_bulk_init(ubertooth_t* ut)
 {
+	struct libusb_transfer* xfer;
 	int r;
 
 	/* A second phase of the same run calls this again on the same handle.
@@ -653,9 +702,12 @@ int ubertooth_bulk_init(ubertooth_t* ut)
 		fprintf(stderr, "error: submitting the receive transfer failed "
 		        "(%d)\n", r);
 		/* It was never in flight, so it is freed here; leaving it in place
-		 * would refuse the next ubertooth_bulk_init() on this handle. */
-		libusb_free_transfer(ut->rx_xfer);
+		 * would refuse the next ubertooth_bulk_init() on this handle.
+		 * Cleared before the free, as everywhere else that gives a
+		 * transfer up. */
+		xfer = ut->rx_xfer;
 		ut->rx_xfer = NULL;
+		libusb_free_transfer(xfer);
 		return -1;
 	}
 	return 0;
@@ -726,6 +778,11 @@ static int stream_rx_usb(ubertooth_t* ut, rx_callback cb, void* cb_args,
 	 * (rx_afh() monitors after it has detected) does not leave this one
 	 * behind. */
 	ubertooth_bulk_stop(ut);
+
+	/* A stream that died is not an end of capture: the caller is told so
+	 * rather than left to read this as the normal "stopped" return. */
+	if (ut->rx_stream_status != 0)
+		return UBERTOOTH_ERROR_STREAM_FAILED;
 
 	return 1;
 }
@@ -815,9 +872,15 @@ int rx_afh(ubertooth_t* ut, btbb_piconet* pn, int timeout)
 		ut->stop_ubertooth = 0;
 
 		/* A phase that could not even receive has not shown that the piconet
-		 * is quiet; stream_rx_usb() has already reported why. */
-		if (r < 0)
+		 * is quiet; stream_rx_usb() has already reported why. Whatever it
+		 * did detect before it failed is still printed, as the other tools
+		 * print the partial results of a capture that died, and the error
+		 * decides the exit status. */
+		if (r < 0) {
+			if (!afh_map_empty(pn))
+				btbb_print_afh_map(pn);
 			return r;
+		}
 
 		/* Nothing was received: there is no map to print, and monitoring
 		 * changes to a map we never found would report nothing either. Let
@@ -975,12 +1038,15 @@ static void cb_dump_full(ubertooth_t* ut, void* args __attribute__((unused)))
 }
 
 /* dump received symbols to stdout */
-void rx_dump(ubertooth_t* ut, int bitstream)
+int rx_dump(ubertooth_t* ut, int bitstream)
 {
+	int r;
+
 	if (bitstream)
-		stream_rx_usb(ut, cb_dump_bitstream, NULL, cmd_rx_syms);
+		r = stream_rx_usb(ut, cb_dump_bitstream, NULL, cmd_rx_syms);
 	else
-		stream_rx_usb(ut, cb_dump_full, NULL, cmd_rx_syms);
+		r = stream_rx_usb(ut, cb_dump_full, NULL, cmd_rx_syms);
+	return r < 0 ? r : 0;
 }
 
 static void ubertooth_cleanup(ubertooth_t* ut, int send_stop)
@@ -1058,6 +1124,7 @@ ubertooth_t* ubertooth_init()
 
 	ut->devh = NULL;
 	ut->rx_xfer = NULL;
+	ut->rx_stream_status = 0;
 	ut->stop_ubertooth = 0;
 	ubertooth_capture_clock_reset(ut);
 	/* Which clock a mode stamps with is the tool's to say, and it says so

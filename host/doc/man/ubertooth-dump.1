@@ -41,6 +41,8 @@ A command line the tool will not take is reported as that one \fBerror:\fR line 
 \fB\-h\fR is what the user asked for, so the usage text goes to standard output and nothing goes to standard error\.
 .SH "EXIT STATUS"
 0 when the command did what was asked, including \fB\-h\fR, and after the dump is interrupted (Ctrl\-C)\. 1 for a command line the tool will not take, for a \fB\-d\fR file that cannot be opened, and when the selected Ubertooth is not found or cannot be opened\.
+.P
+Also 1 when the dump's USB stream fails part\-way: the board stopped answering or dropped off the bus, so the dump stops there and holds only what arrived before it\. The failure is reported on standard error as it happens\.
 .SH "SEE ALSO"
 ubertooth\-util(1): sets the receive squelch (\fB\-z\fR); SQUELCH describes how long it lasts
 .P

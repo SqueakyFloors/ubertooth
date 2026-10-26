@@ -202,6 +202,9 @@ int main(int argc, char *argv[])
 	int max_rsp, num_rsp, lap, timeout = 20;
 	uint8_t uap, extended = 0;
 	uint8_t scan = 0;
+	/* 1 once the Ubertooth scan's USB stream died part-way, so the exit
+	 * status says the results below are incomplete. */
+	int exit_status = 0;
 	/* -h ends the command once the whole command line has parsed (see below). */
 	int first_exit_option = 0;
 	char* ubertooth_device = NULL;
@@ -340,6 +343,14 @@ int main(int argc, char *argv[])
 
 	ubertooth_stop(ut);
 
+	/* A scan whose stream died stopped where it died, so the results below
+	 * are whatever arrived before that rather than the scan that was asked
+	 * for: they are still printed, and the exit status says so. Read after
+	 * the teardown, where a failure the cancellation turns up is recorded;
+	 * libubertooth has already said what failed. */
+	if (ubertooth_stream_failed(ut))
+		exit_status = 1;
+
 	printf("\nScan results:\n");
 	while((pn=btbb_next_survey_result()) != NULL) {
 		lap = btbb_piconet_get_lap(pn);
@@ -359,5 +370,5 @@ int main(int argc, char *argv[])
 	}
 
 	close(dev_handle);
-	return 0;
+	return exit_status;
 }

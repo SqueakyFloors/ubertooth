@@ -492,5 +492,10 @@ int main(int argc, char *argv[])
 
 	ubertooth_stop(ut);
 
-	return 0;
+	/* A follow whose stream died stopped where it died, so it holds less
+	 * than was asked for: the exit status has to say so, or a caller cannot
+	 * tell it from a Ctrl-C. Read after the teardown, where a failure the
+	 * cancellation turns up is recorded; libubertooth has already said what
+	 * failed. */
+	return ubertooth_stream_failed(ut) ? 1 : 0;
 }

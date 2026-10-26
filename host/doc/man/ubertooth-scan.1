@@ -48,6 +48,10 @@ select an Ubertooth by enumeration index or serial number; see ubertooth(7), SEL
 \fB\-h\fR ends the command only once the whole command line has parsed, so a stray word or a bad option value is reported even alongside it\.
 .P
 An option value must be a whole value in its range, or it is refused the same way instead of being read as 0, for example \fBerror: maximum access code errors must be 0\-5 (got 6)\fR\.
+.SH "EXIT STATUS"
+A scan that ran to its \fB\-t\fR timeout, or that was interrupted (Ctrl\-C), exits 0 with whatever it found, and so does \fB\-h\fR\. A refused command line exits 1 (see ARGUMENTS)\.
+.P
+A scan whose USB stream fails part\-way also exits 1: the board stopped answering, or dropped off the bus, so the Ubertooth half of the scan stops there\. The results it did get are still printed, and the failure is reported on standard error as it happens, as \fBerror: receive transfer failed: <reason>\fR\.
 .SH "SEE ALSO"
 ubertooth\-util(1): sets the receive squelch (\fB\-z\fR); SQUELCH describes how long it lasts
 .P

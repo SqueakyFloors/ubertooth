@@ -140,8 +140,13 @@ int main(int argc, char *argv[])
 	register_cleanup_handler(ut, 0);
 
 	cmd_set_modulation(ut->devh, modulation);
-	rx_dump(ut, bitstream);
+	/* A dump that could not be started at all, or whose stream died
+	 * part-way, holds less than was asked for: the exit status has to say
+	 * so, or a caller cannot tell it from a Ctrl-C. The handle is asked
+	 * again after the teardown, where a failure the cancellation turns up
+	 * is recorded; libubertooth has already said what failed. */
+	r = rx_dump(ut, bitstream);
 
 	ubertooth_stop(ut);
-	return 0;
+	return (r < 0 || ubertooth_stream_failed(ut)) ? 1 : 0;
 }

@@ -327,6 +327,29 @@ if(USE_OWN_GNU_GETOPT)
 	target_link_libraries(test-btle-main libgetopt_static)
 endif()
 
+# The same approach for ubertooth-rx: its real main() against a scripted
+# library, so what a live capture exits with is checked without a board.
+# libbtbb is the real one (the tool hands it the piconet and the survey).
+add_executable(test-rx-main test_rx_main.c)
+target_link_libraries(test-rx-main opt-parse-for-tests ${LIBBTBB_LIBRARIES})
+if(libubertooth_SOURCE_DIR)
+	target_include_directories(test-rx-main PRIVATE ${libubertooth_SOURCE_DIR}/src)
+else()
+	target_include_directories(test-rx-main PRIVATE ${LIBUBERTOOTH_INCLUDE_DIR})
+endif()
+target_include_directories(test-rx-main PRIVATE ../src
+	${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+if(USE_OWN_GNU_GETOPT)
+	target_include_directories(test-rx-main BEFORE PRIVATE ../getopt)
+	target_link_libraries(test-rx-main libgetopt_static)
+endif()
+
+add_test(NAME rx-main COMMAND test-rx-main)
+# The scripted library ends each capture after a few blocks; a regression that
+# waits out a -t timer, or a real device, should fail instead of hanging the
+# suite.
+set_tests_properties(rx-main PROPERTIES TIMEOUT 10)
+
 add_test(NAME btle-main COMMAND test-btle-main)
 # The fake poll ends the capture loop at once; a regression that waits on a
 # real device should fail instead of hanging the suite.
@@ -575,6 +598,26 @@ if(libubertooth_SOURCE_DIR)
 	add_test(NAME le-decode-buffer COMMAND test-le-decode-buffer)
 	# One callback call against a faked ring buffer: milliseconds.
 	set_tests_properties(le-decode-buffer PROPERTIES TIMEOUT 5)
+
+	# What the library does when a capture's USB stream fails part-way: the
+	# transfer callback driven straight from the test, and whole streams
+	# driven through the faked poll loop. The libusb and fifo calls are the
+	# test's own (ubertooth_fifo.c is not linked, for the same reason as
+	# above), so no board or ring buffer is involved.
+	add_executable(test-stream-failure
+		test_stream_failure.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_callback.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
+	target_include_directories(test-stream-failure PRIVATE
+		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+	target_link_libraries(test-stream-failure ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES}
+		Threads::Threads)
+	add_test(NAME stream-failure COMMAND test-stream-failure)
+	# Every event is delivered by the fake as soon as it is asked for, so a
+	# run takes milliseconds. A failure that no longer stops the receive loop
+	# would hang here; fail it instead.
+	set_tests_properties(stream-failure PROPERTIES TIMEOUT 10)
 endif()
 
 # The same clock wrap through a replay, so the times a capture file carries are
