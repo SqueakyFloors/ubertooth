@@ -189,6 +189,11 @@
   still persists until a mode starts.
   [#261](https://github.com/SqueakyFloors/ubertooth/issues/261)
   [#312](https://github.com/SqueakyFloors/ubertooth/issues/312)
+- `ubertooth-follow` hops with the piconet when it starts on a board that was
+  still in another mode, such as a spectrum scan that was never stopped. It
+  used to sit on one channel and follow nothing. The same went for a transmit
+  started that way.
+  [#261](https://github.com/SqueakyFloors/ubertooth/issues/261)
 - A control request sent to a board that is receiving, transmitting or scanning
   no longer stalls. `ubertooth-util`, `ubertooth-debug` and anything else that
   reads the channel, a register or the clock during a capture used to fail

@@ -457,6 +457,13 @@ What is set on an idle board is for the capture that follows, as the squelch
 is: no mode is being left, so there is nothing to reset. What a mode left
 behind, on the other hand, never decides how the next one captures.
 
+Re-sending the mode a board is already running is not a mode start, and resets
+nothing. That is what lets a tool restate its mode mid-session without losing
+what it is capturing on, as `ubertooth-follow` does each time it re-syncs its
+clock. A tool cannot tell the board which of the two it is doing, so one that
+wants a clean map after a restart says what it wants of the map once its mode
+is running, rather than before it starts.
+
 ## EXIT STATUS
 
 `ubertooth-util` exits with 0 when every requested operation succeeds, including
