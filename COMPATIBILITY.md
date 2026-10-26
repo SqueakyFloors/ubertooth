@@ -90,7 +90,9 @@ the pin (`install.sh --libbtbb-url`/`--libbtbb-ref`) is on you.
 CI, `install.sh` and the build guide all build the same
 `SqueakyFloors/libbtbb` commit, so a push to libbtbb cannot change an
 Ubertooth build. The pin lives in `.github/workflows/build.yml`; a CI step
-fails if any other file naming it, this one included, falls behind. Only the
+fails if any other file naming it, this one included, falls behind, and also
+if the pin names a commit that is not on the fork's default branch, which a
+plain `git clone` could not check out. Only the
 C library is built
 (`-DENABLE_PYTHON=OFF`): the Ubertooth tools link nothing else from libbtbb.
 

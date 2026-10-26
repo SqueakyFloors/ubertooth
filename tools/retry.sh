@@ -37,9 +37,16 @@ if [ $# -ge 1 ] && { [ "$1" = -h ] || [ "$1" = --help ]; }; then
     exit 0
 fi
 
-if [ $# -lt 2 ]; then
+# Run with nothing at all, print the usage text; refuse any other bad command
+# line with the error line alone, as .kiro/steering/cli-output.md asks.
+if [ $# -eq 0 ]; then
     echo "error: a per-attempt limit in seconds and a command are both needed" >&2
     echo "$usage" >&2
+    exit 1
+fi
+
+if [ $# -lt 2 ]; then
+    echo "error: no command given after the per-attempt limit '$1'" >&2
     exit 1
 fi
 
@@ -79,11 +86,12 @@ timed_out=no
 while :; do
     if [ -n "$limiter" ]; then
         # SIGTERM at the limit, SIGKILL $grace seconds later if it is ignored.
-        # The limit is set far longer than a healthy install takes, so it
-        # expires while the mirror is still being waited on, with nothing
-        # unpacked yet to undo; the package manager's lock goes with the
-        # process. A limit short enough to expire during unpacking would leave
-        # dpkg needing `dpkg --configure -a`, which no retry here can do.
+        # Killing a command part way through is only safe if the command has
+        # no state to leave half-written, which is why the workflow wraps the
+        # download of a package and not its installation: a kill during
+        # unpacking would leave dpkg needing `dpkg --configure -a`, which no
+        # retry here can do. A fetch has nothing to undo, and the package
+        # manager's lock goes with the process.
         "$limiter" --kill-after="${grace}s" "$limit" "$@"
         status=$?
     else
