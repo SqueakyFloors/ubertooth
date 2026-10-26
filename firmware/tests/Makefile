@@ -20,7 +20,7 @@ FW_BOOT := ../bootloader
 HOST_DFU := ../../host/ubertooth-tools/src
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_mode_dispatch test_le_phy_order test_grmdm_rx_generic test_tx_generic_bounds test_btbr_hop test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_usb_queue
+TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_mode_dispatch test_le_phy_order test_grmdm_rx_generic test_tx_generic_bounds test_btbr_hop test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_usb_queue test_btbr_usb_send
 BINDIR  := bin
 
 .PHONY: all test clean
@@ -168,6 +168,25 @@ $(BINDIR)/test_vendor_request_bounds: test_vendor_request_bounds.c minunit.h \
 	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
 		-DFW_BTBR_DIR='"$(FW_BTBR)"' -DFW_COMMON_DIR='"$(FW_COMMON)"' \
 		-o $@ test_vendor_request_bounds.c
+
+# The btbr image's USB shim reaches the controller only through the vendored
+# stack's USBHw* calls and the NVIC enable registers, so this links the real
+# shim against fakes for both: stubs-btbr-usb/ supplies a hardware-free
+# ubertooth.h with a fake interrupt controller and a PRIMASK-free system.h,
+# stubs-btbr/ the diagnostics stand-in, and the test implements the
+# controller. queue.c is the message queue the shim sends from.
+$(BINDIR)/test_btbr_usb_send: test_btbr_usb_send.c minunit.h \
+		stubs-btbr-usb/ubertooth.h stubs-btbr-usb/ubtbr/system.h \
+		stubs-btbr/ubtbr/debug.h \
+		$(FW_BTBR)/src/drivers/ubertooth_usb.c \
+		$(FW_BTBR)/src/util/queue.c \
+		$(FW_BTBR)/include/ubtbr/ubertooth_usb.h | $(BINDIR)
+# usb_bulk_out_handler() takes the arguments the stack's endpoint callback
+# passes and uses neither, which is not what this tests.
+	$(CC) $(CFLAGS) -Istubs-btbr-usb -Istubs-btbr -I$(FW_BTBR)/include \
+		-I$(FW_LPCUSB) $(CPPFLAGS) -Wno-unused-parameter \
+		-o $@ test_btbr_usb_send.c \
+		$(FW_BTBR)/src/drivers/ubertooth_usb.c $(FW_BTBR)/src/util/queue.c
 
 $(BINDIR):
 	mkdir -p $(BINDIR)
