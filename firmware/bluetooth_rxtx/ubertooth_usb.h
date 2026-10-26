@@ -73,6 +73,23 @@ typedef int (VendorRequestHandler)(u8 request, u16 *request_params, u8 *data,
                                    int *data_len);
 
 /*
+ * A write to NVIC ICER0 is not self-synchronising on Cortex-M3, so without
+ * these an interrupt already pending can still be taken after the mask --
+ * inside the section being protected. le_phy.c works around the same thing for
+ * the DMA line with a flag.
+ *
+ * It has a name, and a definition that can be replaced, because the host unit
+ * test for the packet queue compiles this header and has no Cortex-M3 to run
+ * the instructions on.
+ */
+#ifndef USB_IRQ_SYNC
+#define USB_IRQ_SYNC() do {                               \
+		__asm__ volatile ("dsb" ::: "memory");            \
+		__asm__ volatile ("isb" ::: "memory");            \
+	} while (0)
+#endif
+
+/*
  * Hold off the USB interrupt across a section that must not be re-entered,
  * and put it back the way it was.
  *
@@ -96,12 +113,7 @@ static inline u32 usb_irq_hold(void)
 
 	if (was_enabled) {
 		ICER0 = ICER0_ICE_USB;
-		/* A write to NVIC ICER0 is not self-synchronising on Cortex-M3, so
-		 * without these an interrupt already pending can still be taken
-		 * after the mask -- inside the section being protected. le_phy.c
-		 * works around the same thing for the DMA line with a flag. */
-		__asm__ volatile ("dsb" ::: "memory");
-		__asm__ volatile ("isb" ::: "memory");
+		USB_IRQ_SYNC();
 	}
 
 	return was_enabled;

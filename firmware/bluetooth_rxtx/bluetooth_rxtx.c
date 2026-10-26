@@ -2870,9 +2870,45 @@ int main()
 		 * returned for its own reason, or a second request arriving in the
 		 * handle_usb() above, carried the old mode's LEDs, amplifier,
 		 * channel and squelch straight into the new mode.
+		 *
+		 * Leaving a mode also drops whatever it had queued for the host and
+		 * never got to send. Those packets belong to a capture that has
+		 * ended, and the queue only used to be cleared when a mode started,
+		 * so they were handed to whoever read the endpoint next -- before
+		 * that reader's own mode had started.
+		 *
+		 * This is the dispatch's job and not cc2400_idle()'s. That reset
+		 * runs at boot, and bt_generic_le() and bt_le_sync() call it in the
+		 * middle of a mode, so reaching it does not mean a capture has
+		 * ended. This is the one place a mode change happens.
+		 *
+		 * A single-shot jam is the one mode that ends itself while it has a
+		 * capture running, and there the drop does take whatever tail the
+		 * host had not collected yet: the cost of the guarantee, and the jam
+		 * is the last thing that run was for.
+		 *
+		 * What this cannot reach is the bulk IN endpoint's two hardware
+		 * buffers. A packet already handed to them is past the queue, and
+		 * flushing them from here would reset the endpoint's data toggle and
+		 * leave the host's toggle one ahead. Resynchronizing a pipe is the
+		 * host's to do, and libubertooth does it as it starts reading, which
+		 * puts both toggles back to DATA0 together.
+		 *
+		 * The clear runs with the USB interrupt held off because the queue
+		 * is also read from that interrupt, by the UBERTOOTH_POLL request.
+		 * Every interrupt-driven mode does disable the interrupt before it
+		 * returns, so today nothing could race this; the hold makes that a
+		 * property of this code rather than of fifteen mode functions, for
+		 * one register read.
 		 */
-		if (prev_mode != MODE_IDLE)
+		if (prev_mode != MODE_IDLE) {
+			u32 usb_irq;
+
 			cc2400_idle();
+			usb_irq = usb_irq_hold();
+			usb_queue_init();
+			usb_irq_release(usb_irq);
+		}
 
 		/*
 		 * Record the new mode here rather than in each case. When each case

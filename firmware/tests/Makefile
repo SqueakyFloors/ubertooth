@@ -20,7 +20,7 @@ FW_BOOT := ../bootloader
 HOST_DFU := ../../host/ubertooth-tools/src
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_mode_dispatch test_le_phy_order test_grmdm_rx_generic test_tx_generic_bounds test_btbr_hop test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds
+TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_mode_dispatch test_le_phy_order test_grmdm_rx_generic test_tx_generic_bounds test_btbr_hop test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_usb_queue
 BINDIR  := bin
 
 .PHONY: all test clean
@@ -132,6 +132,16 @@ $(BINDIR)/test_usbhw_wait: test_usbhw_wait.c minunit.h stubs-usb/lpc17.h \
 		-Wno-pointer-to-int-cast -Wno-unused-but-set-variable \
 		-Wno-unused-parameter -o $@ test_usbhw_wait.c \
 		$(FW_LPCUSB)/usbhw_lpc.c $(FW_LPCUSB)/usbcontrol.c
+# The packet queue is pure logic, so ubertooth_usb.c is included into the test
+# (see its header comment) and the test supplies the bulk IN endpoint.
+# stubs-usbq/ stands in for ubertooth.h and lpcusb's usbapi.h and comes first
+# so it wins; usbhw_lpc.h is register #defines and prototypes with no hardware
+# dependency, so the real one is used.
+$(BINDIR)/test_usb_queue: test_usb_queue.c minunit.h stubs-usbq/usbapi.h \
+		stubs-usbq/ubertooth.h stubs/ubertooth.h \
+		$(FW_RXTX)/ubertooth_usb.c $(FW_RXTX)/ubertooth_usb.h | $(BINDIR)
+	$(CC) $(CFLAGS) -Istubs-usbq $(CPPFLAGS) -I$(FW_LPCUSB) \
+		-o $@ test_usb_queue.c
 
 # The part table in flash.h and Flash::valid_address compile here as they are,
 # with the In-Application Programming read behind them faked by the test, so

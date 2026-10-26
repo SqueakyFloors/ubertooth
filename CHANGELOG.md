@@ -101,9 +101,9 @@
   the command returns at once and the board stays reachable; `-S` or any mode
   option stops it and leaves the LEDs off.
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
-- **Reflash required:** the firmware API version is now 1.21, last moved by the
-  bounds on a vendor request's data, and the host tools require firmware of exactly
-  their own API version, older or newer (`ubertooth-util` still reads
+- **Reflash required:** the firmware API version is now 1.22, last moved by
+  dropping a stopped mode's queued packets, and the host tools require firmware
+  of exactly their own API version, older or newer (`ubertooth-util` still reads
   the version and reflashes any firmware). Host and firmware come from the
   same tree; `2020-12-R1` firmware is refused.
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
@@ -438,6 +438,13 @@
   cannot be read is refused rather than run as whatever the previous request
   was.
   [#239](https://github.com/SqueakyFloors/ubertooth/issues/239)
+- A capture now holds only packets from the mode it started: stopping a mode
+  drops what it had queued and resets its keep-alive timer, and a stream clears
+  the board's receive endpoint before it reads. A basic-rate dump taken after a
+  BLE capture no longer begins with two low-energy packets, or with an empty
+  record from a stray keep-alive.
+  [#179](https://github.com/SqueakyFloors/ubertooth/issues/179)
+  [#318](https://github.com/SqueakyFloors/ubertooth/issues/318)
 - `ubertooth-dfu` no longer waits forever for a bootloader that stops
   answering: every DFU state wait is bounded and ends with a message and exit
   1. A read-back (`-u`) that fails part-way is retried once like a download,

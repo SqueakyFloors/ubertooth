@@ -285,11 +285,27 @@ usb_pkt_rx fifo[128];
 volatile u32 head = 0;
 volatile u32 tail = 0;
 
+/* When the host last had something, so a quiet capture can still be told the
+ * board is alive. See dequeue_send() below. */
+#define USB_KEEP_ALIVE 400000
+u32 last_usb_pkt = 0;
+
 void usb_queue_init(void)
 {
 	head = 0;
 	tail = 0;
 	memset(fifo, 0, sizeof(fifo));
+
+	/*
+	 * The keep-alive timer goes with the queue. It holds a clock reading
+	 * from the mode that set it, and cc2400_idle() restarts the clock at
+	 * zero, so carrying it across a mode change made `clkn - last_usb_pkt`
+	 * wrap and look like a long silence: the board sent a keep-alive into
+	 * the endpoint the moment the next capture cleared it, and that landed
+	 * at the head of the capture as a record of whatever the host's receive
+	 * buffer happened to hold. A basic-rate dump opened with one.
+	 */
+	last_usb_pkt = 0;
 }
 
 usb_pkt_rx *usb_enqueue(void)
@@ -321,9 +337,6 @@ usb_pkt_rx *dequeue(void)
 	++head;
 	return &fifo[h];
 }
-
-#define USB_KEEP_ALIVE 400000
-u32 last_usb_pkt = 0;  // for keep alive packets
 
 int dequeue_send(u32 clkn)
 {
