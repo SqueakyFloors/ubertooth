@@ -714,13 +714,16 @@ MU_TEST(range_result_is_reported_and_a_failed_read_fails)
 	mu_assert(strcmp(r.out, "no range test result yet\n") == 0,
 	          "no-result output");
 
-	/* a test that ran but whose data did not match */
+	/* A test that ran but whose data did not match: a diagnostic, so it is
+	 * on standard error and the command fails. Standard output stays empty,
+	 * so a script reading a result is not handed this instead. */
 	reset_fake();
 	fake.range.valid = 2 + 5;
 	r = RUN("-m");
-	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(r.out, "Invalid range test: mismatch on byte 5\n") == 0,
-	          "mismatch output");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, (long)strlen(r.out));
+	mu_assert(strcmp(r.err, "error: invalid range test: mismatch on byte 5\n") == 0,
+	          r.err);
 
 	reset_fake();
 	fake.rangeresult_rc = -1;
@@ -1904,6 +1907,106 @@ MU_TEST(the_flash_option_is_gone)
 	mu_assert(strstr(r.out, "(DFU)") == NULL, "no DFU mode in the usage text");
 }
 
+/*
+ * A command line that asks for nothing is a mistake, not a no-op: it used to
+ * open the selected board, do nothing with it and exit 0.
+ */
+MU_TEST(a_command_line_with_nothing_to_do_is_refused)
+{
+	struct run_result r;
+
+	/* no options at all */
+	reset_fake();
+	r = run_util((const char *const[]){ "ubertooth-util", NULL });
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, (long)strlen(r.out));
+	mu_assert(strstr(r.err, "error: nothing to do: give an option that reads "
+	          "or sets something, or -N to count the attached boards\n") == r.err,
+	          r.err);
+	/* the usage text follows it, on standard error */
+	mu_assert(strstr(r.err, "ubertooth-util - command line utility") != NULL,
+	          r.err);
+	/* and nothing was opened, counted or sent */
+	mu_assert_int_eq(0, fake.start_calls);
+	mu_assert_int_eq(0, fake.indexed_starts);
+	mu_assert_int_eq(0, fake.count_calls);
+	mu_assert_int_eq(0, fake.stop_calls);
+
+	/* a selector on its own says which board and asks nothing of it; the
+	 * value is quoted as the user wrote it */
+	reset_fake();
+	r = RUN("-U", "0");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, (long)strlen(r.out));
+	mu_assert(strstr(r.err, "error: nothing to do: -U '0' selects a device "
+	          "but no option asks anything of it\n") == r.err, r.err);
+	mu_assert(strstr(r.err, "ubertooth-util - command line utility") != NULL,
+	          r.err);
+	mu_assert_int_eq(0, fake.start_calls);
+
+	reset_fake();
+	fake.device_count = 2;
+	r = RUN("-U", "a9aa");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: nothing to do: -U 'a9aa' selects a device")
+	          == r.err, r.err);
+	mu_assert_int_eq(0, fake.start_calls);
+
+	/* An empty selector is quoted too, so the line does not read as though
+	 * -U had been given no value at all. */
+	reset_fake();
+	r = RUN("-U", "");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: nothing to do: -U '' selects a device")
+	          == r.err, r.err);
+	mu_assert_int_eq(0, fake.start_calls);
+
+	/* -N is an operation in its own right, so a selector beside it is not a
+	 * command line with nothing to do: the count is printed and still no
+	 * board is opened, which is the case that brought this check about */
+	reset_fake();
+	fake.device_count = 2;
+	r = RUN("-U", "0", "-N");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "2\n") == 0, r.out);
+	mu_assert_int_eq(0, fake.start_calls);
+	mu_assert_int_eq(0, fake.indexed_starts);
+
+	reset_fake();
+	fake.device_count = 2;
+	r = RUN("-N", "-U", "0");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "2\n") == 0, r.out);
+	mu_assert_int_eq(0, fake.start_calls);
+
+	/* so are -h, -H and --host-version, alongside a selector or not */
+	reset_fake();
+	r = RUN("-U", "0", "-h");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.out, "ubertooth-util - command line utility") != NULL,
+	          r.out);
+	mu_assert_int_eq(0, (long)strlen(r.err));
+
+	reset_fake();
+	r = RUN("-U", "0", "-H");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "libubertooth fake\n") == 0, r.out);
+
+	reset_fake();
+	r = RUN("-U", "0", "--host-version");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "libubertooth fake\n") == 0, r.out);
+
+	/* -U all with nothing to list keeps its own, more specific refusal */
+	reset_fake();
+	fake.device_count = 2;
+	r = RUN("-U", "all");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "-U all only supports the read-only queries") != NULL,
+	          r.err);
+	mu_assert(strstr(r.err, "nothing to do") == NULL, r.err);
+}
+
 MU_TEST(firmware_listing_with_several_devices_reports_each_device)
 {
 	struct run_result r;
@@ -2660,6 +2763,7 @@ int main(void)
 	MU_RUN(number_combines_with_the_multi_device_listings);
 	MU_RUN(number_leaves_the_exit_status_to_the_rest_of_the_command);
 	MU_RUN(the_flash_option_is_gone);
+	MU_RUN(a_command_line_with_nothing_to_do_is_refused);
 	MU_RUN(firmware_listing_with_several_devices_reports_each_device);
 	MU_RUN(serial_listing_with_several_devices_exits_zero);
 	MU_RUN(each_identity_query_alone_lists_every_device_compactly);

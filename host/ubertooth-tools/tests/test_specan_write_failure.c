@@ -8,13 +8,20 @@
  * receive loop stops, and the run exits 1.
  *
  * cb_specan() is static in ubertooth-specan.c, so that source is compiled in
- * here with main() renamed, as test_util_main.c does. No device is opened:
- * the callback is handed a fifo this test filled itself.
+ * here with main() renamed, as test_util_main.c does. The first half of this
+ * file drives the callback directly, with a fifo it fills itself. The second
+ * half runs the real main() against the scripted device below, so that the
+ * exit status a failed write produces is checked where a user sees it and not
+ * only in the flag the callback sets.
+ *
+ * No device is opened either way: the libubertooth device functions are the
+ * fakes here, and only its fifo is the real one.
  */
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "../../../firmware/tests/minunit.h"
@@ -22,6 +29,11 @@
 #define main ubertooth_specan_main
 #include "ubertooth-specan.c"
 #undef main
+
+/* The one libubertooth global ubertooth-specan uses. It lives in
+ * ubertooth.c, which is not linked here: its device functions are faked
+ * below. */
+FILE* dumpfile;
 
 /* A block of samples the board could have sent, all inside 2402-2480 MHz so
  * none is dropped as left over from an earlier run. */
@@ -252,11 +264,307 @@ MU_TEST(an_output_mode_that_is_not_one_of_ours_ends_the_run)
 	          "one error: line, naming the mode");
 }
 
+/* ---- a scripted device, so the real main() can be run ----------------- */
+
+/* How the samples written during the sweep are made to fail. */
+enum break_output {
+	OUTPUT_WORKS,
+	/* Unbuffered, so each 3-byte write fails as it is made: the full-disk
+	 * case the sweep has to notice while it is running. */
+	OUTPUT_FAILS_AT_THE_WRITE,
+	/* Buffered, so the writes are accepted and only the flush after the
+	 * sweep fails. */
+	OUTPUT_FAILS_AT_THE_FLUSH
+};
+
+static struct {
+	int start_calls, check_api_calls, cleanup_handlers, bulk_inits;
+	int thread_starts, thread_stops, specan_calls, stops, device_stops;
+	int blocks;            /* blocks handed to the callback */
+	int blocks_to_sweep;   /* ...before the fake ends the endless sweep */
+	int start_fails;
+	int check_api_rc, bulk_init_rc, specan_rc, stop_rc, thread_start_rc;
+	int stop_before_bulk_init; /* STOP was sent before the transfer was set up */
+	uint16_t low_freq, high_freq;
+	char selector[64];
+	enum break_output break_output;
+	ubertooth_t ut;
+} device;
+
+static void reset_device(void)
+{
+	memset(&device, 0, sizeof(device));
+	device.blocks_to_sweep = 1;
+	device.ut.devh = (struct libusb_device_handle*)&device;
+}
+
+ubertooth_t* ubertooth_start_select(const char* u_arg)
+{
+	device.start_calls++;
+	snprintf(device.selector, sizeof(device.selector), "%s",
+	         u_arg ? u_arg : "");
+	if (device.start_fails)
+		return NULL;
+	device.ut.fifo = fifo_init();
+	return &device.ut;
+}
+
+int ubertooth_check_api(ubertooth_t* ut)
+{
+	(void)ut;
+	device.check_api_calls++;
+	return device.check_api_rc;
+}
+
+void register_cleanup_handler(ubertooth_t* ut, int do_exit)
+{
+	(void)ut;
+	(void)do_exit;
+	device.cleanup_handlers++;
+}
+
+int cmd_stop(struct libusb_device_handle* devh)
+{
+	(void)devh;
+	device.stops++;
+	if (device.bulk_inits == 0)
+		device.stop_before_bulk_init = 1;
+	return device.stop_rc;
+}
+
+/*
+ * Called once the -d file is open and before any sample is written, which is
+ * the only moment at which this test can get at that stream: main() opens it
+ * itself. Standing its descriptor on a read-only one makes every write to it
+ * fail the way a full disk does. Nothing has been written yet, so setvbuf()
+ * is still allowed here.
+ *
+ * Only a stream of its own is broken: with "-d -" dumpfile is this process's
+ * own standard output, and pointing that at /dev/null would break the test
+ * run itself rather than the run under test.
+ */
+int ubertooth_bulk_init(ubertooth_t* ut)
+{
+	(void)ut;
+	device.bulk_inits++;
+	if (device.break_output != OUTPUT_WORKS && dumpfile != NULL &&
+	    dumpfile != stdout) {
+		int readonly = open("/dev/null", O_RDONLY);
+
+		if (readonly >= 0) {
+			if (device.break_output == OUTPUT_FAILS_AT_THE_WRITE)
+				setvbuf(dumpfile, NULL, _IONBF, 0);
+			dup2(readonly, fileno(dumpfile));
+			close(readonly);
+		}
+	}
+	return device.bulk_init_rc;
+}
+
+int ubertooth_bulk_thread_start(void)
+{
+	device.thread_starts++;
+	return device.thread_start_rc;
+}
+
+void ubertooth_bulk_thread_stop(void) { device.thread_stops++; }
+
+int cmd_specan(struct libusb_device_handle* devh, u16 low_freq, u16 high_freq)
+{
+	(void)devh;
+	device.specan_calls++;
+	device.low_freq = low_freq;
+	device.high_freq = high_freq;
+	return device.specan_rc;
+}
+
+/* One block of samples per call, as the board would send them. A sweep never
+ * ends by itself, so the fake ends it after blocks_to_sweep blocks. */
+int ubertooth_bulk_receive(ubertooth_t* ut, rx_callback cb, void* cb_args)
+{
+	usb_pkt_rx rx;
+
+	fill_block(&rx);
+	fifo_push(ut->fifo, &rx);
+	cb(ut, cb_args);
+	device.blocks++;
+	if (device.blocks >= device.blocks_to_sweep)
+		ut->stop_ubertooth = 1;
+	return 0;
+}
+
+void ubertooth_stop(ubertooth_t* ut)
+{
+	(void)ut;
+	device.device_stops++;
+}
+
+/* A fresh empty temp file for a -d value, with its name in path. mkstemp()
+ * replaces the template in place, so each call needs the template written
+ * back rather than the name the last one produced. */
+static int make_temp_file(char* path, size_t size)
+{
+	int fd;
+
+	snprintf(path, size, "/tmp/specan-main-XXXXXX");
+	fd = mkstemp(path);
+	if (fd < 0)
+		return -1;
+	close(fd);
+	return 0;
+}
+
+/* The real main(), with standard error captured. The -d file is left open by
+ * main(), so it is closed here once the run is over. */
+static int run_specan(const char* const* args, char* err, size_t err_size)
+{
+	char* argv[16];
+	int argc = 0;
+	int rc;
+
+	while (args[argc] != NULL && argc < 15) {
+		argv[argc] = (char*)args[argc];
+		argc++;
+	}
+	argv[argc] = NULL;
+
+	output_failed = 0;
+	write_failure_said = 0;
+	dumpfile = NULL;
+	debug = 0;
+	optind = 0; /* restart option parsing for each run */
+
+	capture_stderr_begin();
+	rc = ubertooth_specan_main(argc, argv);
+	capture_stderr_end(err, err_size);
+
+	if (dumpfile != NULL && dumpfile != stdout) {
+		fclose(dumpfile);
+		dumpfile = NULL;
+	}
+	free(device.ut.fifo);
+	device.ut.fifo = NULL;
+	return rc;
+}
+
+#define RUN_SPECAN(err, ...) \
+	run_specan((const char* const[]){ "ubertooth-specan", __VA_ARGS__, NULL }, \
+	           (err), sizeof(err))
+
+MU_TEST(a_sweep_that_could_not_be_written_exits_one)
+{
+	char path[64];
+	char err[512];
+	struct stat info;
+
+	/* Every write fails as it is made, so the sweep ends at the first block. */
+	reset_device();
+	device.break_output = OUTPUT_FAILS_AT_THE_WRITE;
+	device.blocks_to_sweep = 10;
+	mu_assert_fatal(make_temp_file(path, sizeof(path)) == 0,
+	                "temp file created");
+
+	mu_assert_int_eq(1, RUN_SPECAN(err, "-d", path));
+	mu_assert(strstr(err, "error: writing samples failed: wrote 0 of 3 bytes")
+	          != NULL, err);
+	/* One block, not the ten the fake would have supplied: the failure ends
+	 * the sweep rather than repeating for every block of it. */
+	mu_assert_int_eq(1, device.blocks);
+	mu_assert_int_eq(0, stat(path, &info));
+	mu_assert_int_eq(0, (int)info.st_size);
+	unlink(path);
+
+	/* The writes are accepted into a buffer and only the flush after the
+	 * sweep fails, which main() has to check too. */
+	reset_device();
+	device.break_output = OUTPUT_FAILS_AT_THE_FLUSH;
+	mu_assert_fatal(make_temp_file(path, sizeof(path)) == 0,
+	                "temp file created");
+
+	mu_assert_int_eq(1, RUN_SPECAN(err, "-d", path));
+	mu_assert(strstr(err, "error: writing samples failed: could not flush")
+	          != NULL, err);
+	mu_assert_int_eq(1, device.blocks);
+	unlink(path);
+}
+
+MU_TEST(a_sweep_that_was_written_exits_zero)
+{
+	char path[64];
+	char err[512];
+	struct stat info;
+
+	reset_device();
+	device.blocks_to_sweep = 3;
+	mu_assert_fatal(make_temp_file(path, sizeof(path)) == 0,
+	                "temp file created");
+
+	mu_assert_int_eq(0, RUN_SPECAN(err, "-U", "0", "-d", path));
+	mu_assert(strcmp(err, "Ubertooth stopped\n") == 0, err);
+	mu_assert_int_eq(3, device.blocks);
+	/* Three bytes per sample, and the samples of three blocks arrived. */
+	mu_assert_int_eq(0, stat(path, &info));
+	mu_assert(info.st_size > 0, "the samples were written");
+	mu_assert_int_eq(0, (int)(info.st_size % 3));
+	unlink(path);
+
+	/* The command line reached the device as given, the whole band by
+	 * default, and the sweep was started on an idle board with the transfer
+	 * already set up. */
+	mu_assert(strcmp(device.selector, "0") == 0, device.selector);
+	mu_assert_int_eq(BT_FREQ_MIN, device.low_freq);
+	mu_assert_int_eq(BT_FREQ_MAX, device.high_freq);
+	mu_assert_int_eq(1, device.stop_before_bulk_init);
+	mu_assert_int_eq(1, device.specan_calls);
+	mu_assert_int_eq(1, device.thread_starts);
+	mu_assert_int_eq(1, device.thread_stops);
+	mu_assert_int_eq(1, device.device_stops);
+
+	/* A narrower range reaches the device too, and the filter in the
+	 * callback drops the samples outside it: every frequency in the fake
+	 * block is below 2470, so this run writes none of them and still
+	 * succeeds. */
+	reset_device();
+	mu_assert_fatal(make_temp_file(path, sizeof(path)) == 0,
+	                "temp file created");
+
+	mu_assert_int_eq(0, RUN_SPECAN(err, "-l", "2470", "-u", "2480",
+	                               "-d", path));
+	mu_assert_int_eq(2470, device.low_freq);
+	mu_assert_int_eq(2480, device.high_freq);
+	mu_assert_int_eq(0, stat(path, &info));
+	mu_assert_int_eq(0, (int)info.st_size);
+	unlink(path);
+}
+
+MU_TEST(a_refused_command_line_opens_no_device)
+{
+	char err[512];
+
+	/* An option the tool does not know: one error: line, then the usage
+	 * text, both on standard error, and nothing was opened. */
+	reset_device();
+	mu_assert_int_eq(1, RUN_SPECAN(err, "-Z"));
+	mu_assert(strncmp(err, "error: unrecognized option '-Z'\n", 32) == 0, err);
+	mu_assert(strstr(err, "ubertooth-specan") != NULL, err);
+	mu_assert_int_eq(0, device.start_calls);
+
+	/* An option whose value is missing reads the same way. */
+	reset_device();
+	mu_assert_int_eq(1, RUN_SPECAN(err, "-d"));
+	mu_assert(strncmp(err, "error: option '-d' requires a value\n", 36) == 0,
+	          err);
+	mu_assert_int_eq(0, device.start_calls);
+}
+
 int main(void)
 {
 	MU_RUN(a_failed_sample_write_ends_the_run);
 	MU_RUN(samples_lost_in_a_buffer_end_the_run_too);
 	MU_RUN(a_write_that_works_leaves_the_run_alone);
 	MU_RUN(an_output_mode_that_is_not_one_of_ours_ends_the_run);
+	MU_RUN(a_sweep_that_could_not_be_written_exits_one);
+	MU_RUN(a_sweep_that_was_written_exits_zero);
+	MU_RUN(a_refused_command_line_opens_no_device);
 	return mu_report();
 }

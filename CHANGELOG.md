@@ -29,6 +29,19 @@
   error, `-h` exits 0, and a command line with nothing to do is refused. A
   file a tool cannot open is reported as `error: <file>: <reason>`.
   [#323](https://github.com/SqueakyFloors/ubertooth/issues/323)
+- **Script-visible change:** `ubertooth-util` refuses a command line that asks
+  for nothing, `-U 0` on its own included: it used to open the board, do
+  nothing and exit 0.
+  [#367](https://github.com/SqueakyFloors/ubertooth/issues/367)
+- **Script-visible change:** `ubertooth-util -m` reports a range test whose
+  packets came back corrupted as `error: invalid range test: mismatch on byte
+  <n>` on standard error and exits 1; it was a line on standard output with
+  exit 0.
+  [#338](https://github.com/SqueakyFloors/ubertooth/issues/338)
+- `ubertooth-specan` reports a bad option itself, as the other tools do:
+  `error: unrecognized option '-Z'` and `error: option '-l' requires a value`,
+  instead of the option parser's own lines naming the whole path of the binary.
+  [#338](https://github.com/SqueakyFloors/ubertooth/issues/338)
 - ubertooth-btle can stream PCAP data to stdout with `-q -`
   or `-c -`, safely separating diagnostics for Wireshark and other consumers.
   Credit: Ryan Govostes ([@rgov](https://github.com/rgov)).

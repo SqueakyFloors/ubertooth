@@ -60,6 +60,11 @@ An option value must be a whole value in its range, or it is refused the same
 way instead of being read as 0, for example
 `error: lower frequency must be 2402-2480 MHz (got bad)`.
 
+An option the tool does not know, and an option whose value is missing, are
+refused the same way, with the usage text after the `error: ` line on standard
+error: `error: unrecognized option '-Z'` and
+`error: option '-d' requires a value`.
+
 `-` means standard output only as the whole value of `-d`. Any other value is a
 file name, including one that starts with `-`: `-d -x` writes the file `-x`, and
 a forgotten file name such as `-d -v` writes a file called `-v` rather than
@@ -82,9 +87,8 @@ and `-G` modes, or the raw records with `-d -` — and the usage text for `-h`.
 Errors, warnings and progress, including `Ubertooth stopped`, go to standard
 error. The errors this tool prints itself are one line starting `error: `, for
 example `error: /no/such/dir/samples.bin: No such file or directory` for a
-`-d` file that cannot be opened. The unknown-option line from the option
-parser and libubertooth's own messages, such as
-`could not open Ubertooth device`, do not follow that yet.
+`-d` file that cannot be opened. One kind of line does not follow that yet:
+libubertooth's own messages, such as `could not open Ubertooth device`.
 
 If the samples cannot be written, `ubertooth-specan` says so once and exits 1,
 rather than reporting every failed write and then exiting 0. A write that

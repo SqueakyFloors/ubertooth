@@ -167,7 +167,11 @@ int main(int argc, char *argv[])
 
 	ubertooth_t* ut = NULL;
 
-	while ((opt=getopt(argc,argv,"vhgGd:l:u:U:")) != EOF) {
+	/* The tool reports a bad option itself, in the usual one-line form:
+	 * see opt_report_bad_option(). The leading ':' makes a missing option
+	 * value distinguishable from an option getopt does not know. */
+	opterr = 0;
+	while ((opt=getopt(argc,argv,":vhgGd:l:u:U:")) != EOF) {
 		switch(opt) {
 		case 'v':
 			debug++;
@@ -206,6 +210,7 @@ int main(int argc, char *argv[])
 			do_help = 1;
 			break;
 		default:
+			opt_report_bad_option(opt, argc, argv);
 			usage(stderr);
 			return 1;
 		}
