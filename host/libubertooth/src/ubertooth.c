@@ -307,29 +307,22 @@ static struct libusb_device_handle* find_ubertooth_device(int ubertooth_device)
 	return find_ubertooth_device_opt(ubertooth_device, 0);
 }
 
-/* A serial number as printed by -s: 16 bytes as lowercase hex, plus the NUL. */
-#define SERIAL_STR_LEN 33
-
-/* Reads one device's serial number as lowercase hex, the form -s prints.
- * Returns 0 on success.
- *
- * This is the same read as cmd_get_serial() without its error messages,
- * because matching a serial means reading every attached device: a board that
- * is still starting, or wedged, must not print an error of its own while
- * another board is being selected. timeout_ms keeps a silent board from
- * stalling the caller. */
-static int read_serial_string(struct libusb_device_handle* devh,
-                              char out[SERIAL_STR_LEN], unsigned timeout_ms)
+/* Documented with the declaration in ubertooth.h. */
+int ubertooth_read_serial_string(struct libusb_device_handle* devh, char* out,
+                                 size_t size, unsigned timeout_ms)
 {
-	uint8_t serial[17] = {0};
+	uint8_t serial[UBERTOOTH_SERIAL_LEN] = {0};
 	int sr, j;
 
+	if (size < UBERTOOTH_SERIAL_STR_LEN)
+		return -1;
 	sr = libusb_control_transfer(devh,
 	        LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_ENDPOINT_IN,
-	        UBERTOOTH_GET_SERIAL, 0, 0, serial, 17, timeout_ms);
-	if (sr != 17 || serial[0] != 0)
+	        UBERTOOTH_GET_SERIAL, 0, 0, serial, UBERTOOTH_SERIAL_LEN, timeout_ms);
+	/* serial[0] is a status byte from the firmware, not part of the number. */
+	if (sr != UBERTOOTH_SERIAL_LEN || serial[0] != 0)
 		return -1;
-	for (j = 1; j < 17; j++)
+	for (j = 1; j < UBERTOOTH_SERIAL_LEN; j++)
 		sprintf(&out[(j - 1) * 2], "%02x", serial[j]);
 	return 0;
 }
@@ -377,7 +370,7 @@ static struct libusb_device_handle* find_ubertooth_device_serial_opt(
 	struct libusb_device **usb_list = NULL;
 	struct libusb_device_handle *devh = NULL;
 	struct libusb_device_descriptor desc;
-	char (*matched_serials)[SERIAL_STR_LEN] = NULL;
+	char (*matched_serials)[UBERTOOTH_SERIAL_STR_LEN] = NULL;
 	int *matched_devs = NULL;
 	int usb_devs, i, r, ret, matches = 0, unread = 0, unopened = 0, open_err = 0;
 
@@ -410,7 +403,7 @@ static struct libusb_device_handle* find_ubertooth_device_serial_opt(
 	}
 
 	for (i = 0; i < usb_devs; ++i) {
-		char serial_c[SERIAL_STR_LEN] = {0};
+		char serial_c[UBERTOOTH_SERIAL_STR_LEN] = {0};
 
 		r = libusb_get_device_descriptor(usb_list[i], &desc);
 		if (r < 0)
@@ -433,7 +426,9 @@ static struct libusb_device_handle* find_ubertooth_device_serial_opt(
 		}
 		/* The quiet caller polls a device that may be re-enumerating, so it
 		 * waits briefly; the loud path keeps cmd_get_serial()'s timeout. */
-		r = read_serial_string(devh, serial_c, quiet ? 200 : 1000);
+		r = ubertooth_read_serial_string(devh, serial_c, sizeof(serial_c),
+		                                 quiet ? UBERTOOTH_SERIAL_READ_QUIET_MS
+		                                       : 1000);
 		/* Closed again whether it matched or not: the chosen device is
 		 * reopened below, once it is known to be the only match. */
 		libusb_close(devh);

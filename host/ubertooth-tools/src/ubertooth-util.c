@@ -258,26 +258,25 @@ static const struct util_reset_wait_ops reset_wait_ops = {
 	reset_wait_try_select,
 };
 
-_Static_assert(UTIL_RESET_SERIAL_STR_LEN == 2 * (UTIL_SERIAL_BUFFER_LEN - 1) + 1,
-               "a serial string holds every byte of a serial as two hex digits");
+_Static_assert(UTIL_RESET_SERIAL_STR_LEN == UBERTOOTH_SERIAL_STR_LEN,
+               "the followed serial is the library's serial string");
+_Static_assert(UTIL_SERIAL_BUFFER_LEN == UBERTOOTH_SERIAL_LEN,
+               "a reported serial is the firmware's whole serial reply");
 
-/* Reads the serial of the board about to be reset, in the hex form -U matches,
+/*
+ * Reads the serial of the board about to be reset, in the hex form -U matches,
  * so -r can follow that board and not the selector; see
- * util_reset_follow_init(). */
+ * util_reset_follow_init().
+ *
+ * The quiet read, because -r is the command used to recover a board that has
+ * stopped answering: a transfer error and a full second of timeout here would
+ * belong to a read the user never asked for. util_reset_follow_init() reports
+ * a failed read, once, as the warning that matters.
+ */
 static int follow_get_serial(void *context, char *serial, size_t size)
 {
-	uint8_t raw[UTIL_SERIAL_BUFFER_LEN] = { 0 };
-	int r = cmd_get_serial(((ubertooth_t*)context)->devh, raw);
-	int i;
-
-	if (r != 0)
-		return r;
-	if (size < UTIL_RESET_SERIAL_STR_LEN)
-		return -1;
-	/* The hex form -U matches and -s prints: serial[0] is a status byte. */
-	for (i = 1; i < UTIL_SERIAL_BUFFER_LEN; i++)
-		snprintf(serial + (i - 1) * 2, 3, "%02x", raw[i]);
-	return 0;
+	return ubertooth_read_serial_string(((ubertooth_t*)context)->devh, serial,
+	                                    size, UBERTOOTH_SERIAL_READ_QUIET_MS);
 }
 
 static void follow_warn_no_serial(void *context, const char *u_arg)
@@ -388,6 +387,7 @@ int main(int argc, char *argv[])
 	char* ubertooth_device = NULL;
 	int requested[QUERY_COUNT]; /* identity queries, for the per-device listing */
 	int any_query, list_all;
+	int count_only;             /* -N, with at most a selector beside it */
 	int device_count = -1;      /* a successful ubertooth_count(), to reuse */
 	int modes[UTIL_MODE_COUNT]; /* exclusive mode options that were given */
 
@@ -624,13 +624,23 @@ int main(int argc, char *argv[])
 	/* -U all lists the read-only identity queries for every attached device,
 	 * so it is refused for anything that acts on one device: setters, modes
 	 * and other reads. -N asks about the bus rather than a device, so it is
-	 * allowed alongside the listing. Refused before -N prints anything, so a
-	 * refused command line writes nothing to standard output. */
+	 * allowed alongside the listing, and -N with nothing but -U all beside it
+	 * asks only for the count: nothing is listed and nothing is refused, just
+	 * as -U<index|serial> with -N alone counts and opens no board. Any other
+	 * refusal comes before -N prints, so a refused command line writes
+	 * nothing to standard output. */
+	count_only = do_number && !operations_besides_count;
 	list_all = (ubertooth_device != NULL && strcmp(ubertooth_device, "all") == 0);
-	if (list_all && (other_operations || !any_query)) {
-		fprintf(stderr, "error: -U all only supports the read-only queries "
-		        "-b, -v, -V, -p and -s; select one device with -U<index|serial> "
-		        "for other options\n");
+	if (list_all && !count_only && (other_operations || !any_query)) {
+		if (other_operations)
+			fprintf(stderr, "error: -U all only supports the read-only queries "
+			        "-b, -v, -V, -p and -s; select one device with "
+			        "-U<index|serial> for other options\n");
+		else
+			/* Say what the listing is missing: naming the options -U all does
+			 * not support describes a command line the user did not type. */
+			fprintf(stderr, "error: -U all needs one of the read-only queries "
+			        "-b, -v, -V, -p or -s to list\n");
 		return 1;
 	}
 

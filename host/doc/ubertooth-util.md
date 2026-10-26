@@ -129,8 +129,9 @@ Common options:
    serial number string. See SELECTING A DEVICE.
  - `-U all` :
    report the read-only queries `-b`, `-v`, `-V`, `-p` and `-s` for every
-   attached Ubertooth; refused with any other option, `-N` excepted. See
-   SELECTING A DEVICE.
+   attached Ubertooth; refused with any other option, `-N` excepted, and,
+   unless `-N` is the only option beside it, refused with no query to list.
+   See SELECTING A DEVICE.
  - `-N` :
    print the number of attached Ubertooths, as a single decimal number on
    standard output, then run the rest of the command. The number comes from
@@ -140,8 +141,8 @@ Common options:
    it combines with everything else, in either order — reads, setters, modes,
    `-r`, `-S`, `-U <index|serial>` and the `-U all` listing — and a count that
    succeeds leaves the exit status to the rest of the command. On its own, or
-   with nothing but a `-U <index|serial>` selector beside it, it prints the
-   count, opens no device and exits 0, unless the count itself fails: a
+   with nothing but a `-U` selector beside it (`-U all` included), it prints
+   the count, opens no device and exits 0, unless the count itself fails: a
    selector alone asks nothing of the board it names. A command line refused
    before anything runs (two modes, `-z` with a mode, `-U all` with an option
    it does not support, a bad option value, an unknown option or a stray word)
@@ -316,10 +317,14 @@ Ubertooth devices found` when none is attached:
 
 `-U all` only applies to the read-only queries `-b`, `-v`, `-V`, `-p` and `-s`.
 Combined with any other option (a setter, a mode such as `-x` or `-q`, `-r`,
-`-S`, or another read such as `-c`), or given with no query at all, it is
-refused before any device is opened:
+`-S`, or another read such as `-c`) it is refused before any device is opened:
 
     error: -U all only supports the read-only queries -b, -v, -V, -p and -s; select one device with -U<index|serial> for other options
+
+Given with no query at all there is nothing to list, and the refusal says so:
+
+    $ ubertooth-util -U all
+    error: -U all needs one of the read-only queries -b, -v, -V, -p or -s to list
 
 `-N` is the one option that is not refused: it asks about the USB bus rather
 than about a device, so it prints the count and the listing follows it, from
@@ -330,11 +335,12 @@ the same enumeration:
     0: 1cc001038088cb956c43ad61c52000f5
     1: 05f00014e380df95f4436562c32000f5
 
-`-U all -N` with no query is still refused, because `-U all` has nothing to
-list. That refusal comes before the count, so no number is printed:
+`-U all -N` with no query asks only for the count, which comes from the bus and
+not from any device. There is nothing to list, so nothing is refused either: it
+prints the count and exits 0, as `-U 0 -N` does.
 
     $ ubertooth-util -U all -N
-    error: -U all only supports the read-only queries -b, -v, -V, -p and -s; select one device with -U<index|serial> for other options
+    2
 
 Only the exact word `all` has this meaning. The other tools do not support
 `-U all`; they treat it as a serial number and report that no device matches.

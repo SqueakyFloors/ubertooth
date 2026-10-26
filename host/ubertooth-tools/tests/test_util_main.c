@@ -42,7 +42,10 @@ static struct {
 	int stop_calls, isp_calls, led_specan_calls, range_test_calls;
 	int repeater_calls, tx_test_calls, xmas_calls, reset_calls;
 	int identify_calls;
-	int serial_reads, resets_at_first_serial_read;
+	int serial_reads;
+	/* the quiet serial read -r makes before the reset */
+	int follow_serial_reads, resets_at_first_serial_read;
+	int follow_serial_rc, follow_serial_timeout_ms;
 	int last_channel_set, last_squelch_set, last_led_specan_arg;
 	int last_palevel_set, last_usrled_set;
 	/* LED writes: -I must not blink from the host */
@@ -268,14 +271,35 @@ int cmd_get_serial(struct libusb_device_handle *h, u8 *serial)
 	int i;
 
 	fake_use(h);
-	/* -r must read the serial while the device is still there, before the
-	 * reset is sent: how many resets had been sent at the first read. */
-	if (fake.serial_reads++ == 0)
-		fake.resets_at_first_serial_read = fake.reset_calls;
+	fake.serial_reads++;
 	serial[0] = 0;
 	for (i = 1; i < 17; i++)
 		serial[i] = (u8)(0xa0 + i);
 	return fake.serial_rc;
+}
+
+/* The library's quiet serial read, which prints nothing of its own. -r uses
+ * it before the reset; cmd_get_serial() above would print a transfer error
+ * and wait out its own timeout. */
+int ubertooth_read_serial_string(struct libusb_device_handle *h, char *out,
+                                 size_t size, unsigned timeout_ms)
+{
+	int i;
+
+	fake_use(h);
+	/* Like the library: too small a buffer is refused before any transfer. */
+	if (size < UBERTOOTH_SERIAL_STR_LEN)
+		return -1;
+	/* -r must read the serial while the device is still there, before the
+	 * reset is sent: how many resets had been sent at the first read. */
+	if (fake.follow_serial_reads++ == 0)
+		fake.resets_at_first_serial_read = fake.reset_calls;
+	fake.follow_serial_timeout_ms = (int)timeout_ms;
+	if (fake.follow_serial_rc != 0)
+		return fake.follow_serial_rc;
+	for (i = 1; i < UBERTOOTH_SERIAL_LEN; i++)
+		snprintf(out + (i - 1) * 2, 3, "%02x", 0xa0 + i);
+	return 0;
 }
 
 /* Like the library: on failure the buffer is left empty. The void
@@ -2002,7 +2026,7 @@ MU_TEST(a_command_line_with_nothing_to_do_is_refused)
 	fake.device_count = 2;
 	r = RUN("-U", "all");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strstr(r.err, "-U all only supports the read-only queries") != NULL,
+	mu_assert(strstr(r.err, "-U all needs one of the read-only queries") != NULL,
 	          r.err);
 	mu_assert(strstr(r.err, "nothing to do") == NULL, r.err);
 }
@@ -2349,8 +2373,9 @@ MU_TEST(u_all_is_rejected_before_opening_a_device_for_any_other_option)
 		                    fake.tx_test_calls + fake.xmas_calls + fake.identify_calls);
 	}
 
-	/* -U all with no query at all is rejected the same way, with or without
-	 * -N: -N prints no count, because the command line was refused */
+	/* -U all with no query at all is refused too, but for the other reason:
+	 * the message names the queries the listing needs, not the options the
+	 * user did not give */
 	{
 		struct run_result r;
 
@@ -2358,21 +2383,48 @@ MU_TEST(u_all_is_rejected_before_opening_a_device_for_any_other_option)
 		fake.device_count = 2;
 		r = RUN("-U", "all");
 		mu_assert_int_eq(1, r.rc);
-		mu_assert(strstr(r.err, "-U all only supports the read-only queries") != NULL,
-		          "no query");
-		mu_assert_int_eq(0, fake.start_calls);
-		mu_assert_int_eq(0, fake.indexed_starts);
-
-		reset_fake();
-		fake.device_count = 2;
-		r = RUN("-U", "all", "-N");
-		mu_assert_int_eq(1, r.rc);
-		mu_assert(strstr(r.err, "-U all only supports the read-only queries") != NULL,
-		          "no query, with -N");
+		mu_assert(strcmp(r.err, "error: -U all needs one of the read-only "
+		                 "queries -b, -v, -V, -p or -s to list\n") == 0, r.err);
 		mu_assert_int_eq(0, (long)strlen(r.out));
 		mu_assert_int_eq(0, fake.count_calls);
 		mu_assert_int_eq(0, fake.start_calls);
+		mu_assert_int_eq(0, fake.indexed_starts);
 	}
+}
+
+MU_TEST(u_all_with_only_the_count_beside_it_prints_the_count)
+{
+	struct run_result r;
+
+	/* Nothing is asked of any device, so there is nothing for -U all to list
+	 * and nothing to refuse: the count comes from the bus, as it does for
+	 * -U <index> -N. */
+	reset_fake();
+	fake.device_count = 2;
+	r = RUN("-U", "all", "-N");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "2\n") == 0, r.out);
+	mu_assert_int_eq(0, (long)strlen(r.err));
+	mu_assert_int_eq(0, fake.start_calls);
+	mu_assert_int_eq(0, fake.indexed_starts);
+
+	/* A failed count still fails the command, and prints no number. */
+	reset_fake();
+	fake.device_count = -1;
+	r = RUN("-U", "all", "-N");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, (long)strlen(r.out));
+	mu_assert_int_eq(0, fake.indexed_starts);
+
+	/* An option -U all does not support is still refused, count and all. */
+	reset_fake();
+	fake.device_count = 2;
+	r = RUN("-U", "all", "-N", "-S");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "-U all only supports the read-only queries") != NULL,
+	          r.err);
+	mu_assert_int_eq(0, (long)strlen(r.out));
+	mu_assert_int_eq(0, fake.count_calls);
 }
 
 MU_TEST(only_the_exact_word_all_selects_every_device)
@@ -2637,9 +2689,13 @@ MU_TEST(reset_by_index_follows_the_board_by_serial)
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(fake.quiet_selector, FAKE_SERIAL) == 0,
 	          "follows the board's serial, not the index");
-	/* read before the reset was sent, while the device was still there */
-	mu_assert_int_eq(1, fake.serial_reads);
+	/* read before the reset was sent, while the device was still there,
+	 * through the library's quiet read and not cmd_get_serial() */
+	mu_assert_int_eq(1, fake.follow_serial_reads);
 	mu_assert_int_eq(0, fake.resets_at_first_serial_read);
+	mu_assert_int_eq(0, fake.serial_reads);
+	mu_assert_int_eq((int)UBERTOOTH_SERIAL_READ_QUIET_MS,
+	                 fake.follow_serial_timeout_ms);
 	/* the "Resetting" line is progress, on stderr, and keeps the selector
 	 * the user gave; nothing else is printed about the serial */
 	mu_assert(strcmp(r.err, "Resetting ubertooth device 1\n") == 0,
@@ -2657,7 +2713,7 @@ MU_TEST(a_serial_that_cannot_be_read_keeps_the_selector_with_a_warning)
 	 * is told later options may not reach the same board. */
 	reset_fake();
 	fake.device_count = 2;
-	fake.serial_rc = 1; /* nonzero status byte */
+	fake.follow_serial_rc = -1;
 	fake.returns_at_ms = 1000 + 3000;
 	r = RUN("-U", "1", "-r", "-b");
 	mu_assert_int_eq(0, r.rc);
@@ -2674,7 +2730,7 @@ MU_TEST(a_serial_that_cannot_be_read_keeps_the_selector_with_a_warning)
 	 * nothing is warned about. */
 	reset_fake();
 	fake.device_count = 2;
-	fake.serial_rc = 1;
+	fake.follow_serial_rc = -1;
 	r = RUN("-U", "a9aaabacadaeafb0", "-r");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(fake.quiet_selector, "a9aaabacadaeafb0") == 0,
@@ -2774,6 +2830,7 @@ int main(void)
 	MU_RUN(u_all_lists_every_device_even_when_only_one_is_attached);
 	MU_RUN(u_all_fails_cleanly_with_no_devices_or_a_count_error);
 	MU_RUN(u_all_is_rejected_before_opening_a_device_for_any_other_option);
+	MU_RUN(u_all_with_only_the_count_beside_it_prints_the_count);
 	MU_RUN(only_the_exact_word_all_selects_every_device);
 	MU_RUN(a_failed_read_prints_no_value_line_and_names_the_query_on_stderr);
 	MU_RUN(a_failed_identity_read_names_the_query_on_stderr);

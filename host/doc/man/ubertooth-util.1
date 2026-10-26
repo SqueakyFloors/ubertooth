@@ -97,10 +97,10 @@ full reset; then waits up to 10 seconds for the same board to come back on USB b
 select which Ubertooth to use, either by USB enumeration index or by its serial number string\. See SELECTING A DEVICE\.
 .TP
 \fB\-U all\fR
-report the read\-only queries \fB\-b\fR, \fB\-v\fR, \fB\-V\fR, \fB\-p\fR and \fB\-s\fR for every attached Ubertooth; refused with any other option, \fB\-N\fR excepted\. See SELECTING A DEVICE\.
+report the read\-only queries \fB\-b\fR, \fB\-v\fR, \fB\-V\fR, \fB\-p\fR and \fB\-s\fR for every attached Ubertooth; refused with any other option, \fB\-N\fR excepted, and, unless \fB\-N\fR is the only option beside it, refused with no query to list\. See SELECTING A DEVICE\.
 .TP
 \fB\-N\fR
-print the number of attached Ubertooths, as a single decimal number on standard output, then run the rest of the command\. The number comes from the USB device list, so it needs no board and opens none, and it is taken before any device is opened: it is printed first, ahead of anything the other options report\. \fB\-N\fR is neither a selector nor a per\-device query, so it combines with everything else, in either order \(em reads, setters, modes, \fB\-r\fR, \fB\-S\fR, \fB\-U <index|serial>\fR and the \fB\-U all\fR listing \(em and a count that succeeds leaves the exit status to the rest of the command\. On its own, or with nothing but a \fB\-U <index|serial>\fR selector beside it, it prints the count, opens no device and exits 0, unless the count itself fails: a selector alone asks nothing of the board it names\. A command line refused before anything runs (two modes, \fB\-z\fR with a mode, \fB\-U all\fR with an option it does not support, a bad option value, an unknown option or a stray word) prints no count, and \fB\-h\fR, \fB\-H\fR and \fB\-\-host\-version\fR end the command before it, as they do before every other option\.
+print the number of attached Ubertooths, as a single decimal number on standard output, then run the rest of the command\. The number comes from the USB device list, so it needs no board and opens none, and it is taken before any device is opened: it is printed first, ahead of anything the other options report\. \fB\-N\fR is neither a selector nor a per\-device query, so it combines with everything else, in either order \(em reads, setters, modes, \fB\-r\fR, \fB\-S\fR, \fB\-U <index|serial>\fR and the \fB\-U all\fR listing \(em and a count that succeeds leaves the exit status to the rest of the command\. On its own, or with nothing but a \fB\-U\fR selector beside it (\fB\-U all\fR included), it prints the count, opens no device and exits 0, unless the count itself fails: a selector alone asks nothing of the board it names\. A command line refused before anything runs (two modes, \fB\-z\fR with a mode, \fB\-U all\fR with an option it does not support, a bad option value, an unknown option or a stray word) prints no count, and \fB\-h\fR, \fB\-H\fR and \fB\-\-host\-version\fR end the command before it, as they do before every other option\.
 .P
 Radio options:
 .TP
@@ -231,10 +231,18 @@ $ ubertooth\-util \-U all \-s
 .fi
 .IP "" 0
 .P
-\fB\-U all\fR only applies to the read\-only queries \fB\-b\fR, \fB\-v\fR, \fB\-V\fR, \fB\-p\fR and \fB\-s\fR\. Combined with any other option (a setter, a mode such as \fB\-x\fR or \fB\-q\fR, \fB\-r\fR, \fB\-S\fR, or another read such as \fB\-c\fR), or given with no query at all, it is refused before any device is opened:
+\fB\-U all\fR only applies to the read\-only queries \fB\-b\fR, \fB\-v\fR, \fB\-V\fR, \fB\-p\fR and \fB\-s\fR\. Combined with any other option (a setter, a mode such as \fB\-x\fR or \fB\-q\fR, \fB\-r\fR, \fB\-S\fR, or another read such as \fB\-c\fR) it is refused before any device is opened:
 .IP "" 4
 .nf
 error: \-U all only supports the read\-only queries \-b, \-v, \-V, \-p and \-s; select one device with \-U<index|serial> for other options
+.fi
+.IP "" 0
+.P
+Given with no query at all there is nothing to list, and the refusal says so:
+.IP "" 4
+.nf
+$ ubertooth\-util \-U all
+error: \-U all needs one of the read\-only queries \-b, \-v, \-V, \-p or \-s to list
 .fi
 .IP "" 0
 .P
@@ -248,11 +256,11 @@ $ ubertooth\-util \-U all \-N \-s
 .fi
 .IP "" 0
 .P
-\fB\-U all \-N\fR with no query is still refused, because \fB\-U all\fR has nothing to list\. That refusal comes before the count, so no number is printed:
+\fB\-U all \-N\fR with no query asks only for the count, which comes from the bus and not from any device\. There is nothing to list, so nothing is refused either: it prints the count and exits 0, as \fB\-U 0 \-N\fR does\.
 .IP "" 4
 .nf
 $ ubertooth\-util \-U all \-N
-error: \-U all only supports the read\-only queries \-b, \-v, \-V, \-p and \-s; select one device with \-U<index|serial> for other options
+2
 .fi
 .IP "" 0
 .P

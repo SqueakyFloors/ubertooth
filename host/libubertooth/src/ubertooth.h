@@ -116,6 +116,24 @@ int ubertooth_get_api(ubertooth_t *ut, uint16_t *version);
 int ubertooth_check_api(ubertooth_t *ut);
 void ubertooth_set_timeout(ubertooth_t* ut, int seconds);
 
+/* A timeout for the quiet read below, for the callers that would rather give
+ * up than wait: long enough for a board that answers, short enough not to
+ * stall a caller reading a board that may be absent, still starting or wedged.
+ * Both of this tree's callers want exactly that. */
+#define UBERTOOTH_SERIAL_READ_QUIET_MS 200u
+
+/* Reads an open device's serial number into out as the hex string -s prints;
+ * size must be at least UBERTOOTH_SERIAL_STR_LEN. Returns 0 on success, and
+ * leaves out as the caller passed it on failure.
+ *
+ * This is the same read as cmd_get_serial() without its error messages, with
+ * a caller-chosen timeout, for callers that must stay quiet: a board that is
+ * still starting, or wedged, must not print an error of its own while another
+ * board is being selected, or while the board the user is resetting is read
+ * to follow it across the reset. */
+int ubertooth_read_serial_string(struct libusb_device_handle* devh, char* out,
+                                 size_t size, unsigned timeout_ms);
+
 int ubertooth_bulk_init(ubertooth_t* ut);
 void ubertooth_bulk_wait(ubertooth_t* ut);
 int ubertooth_bulk_receive(ubertooth_t* ut, rx_callback cb, void* cb_args);
