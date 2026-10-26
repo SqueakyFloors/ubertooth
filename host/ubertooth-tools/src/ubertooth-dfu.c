@@ -211,7 +211,8 @@ static int check_download_image(const char* name, FILE* downfile,
 	                    &image_report) != DFU_IMAGE_OK) {
 		dfu_image_describe_failure(&image_report, message, sizeof(message));
 		/* One line: what is wrong with the file, and that the board was
-		 * left alone. Nothing has been opened at this point. */
+		 * left alone. No device has been opened and no output file exists
+		 * yet. */
 		fprintf(stderr, "error: %s: %s; firmware will not be updated\n",
 		        name, message);
 		return 1;
@@ -221,9 +222,11 @@ static int check_download_image(const char* name, FILE* downfile,
 	*image_size = (unsigned long)image_report.image_size;
 	if (want_revision &&
 	    dfu_extract_firmware_revision(downfile, revision, revision_size) != 0) {
-		fprintf(stderr, "error: %s: no firmware revision in the image, which "
-		        "-r needs to check the board afterwards; firmware will not be "
-		        "updated\n", name);
+		/* The revision may be absent, or the file may have failed to read;
+		 * either way -r has nothing to check the board against. */
+		fprintf(stderr, "error: %s: could not read a firmware revision from "
+		        "the image, which -r needs to check the board afterwards; "
+		        "firmware will not be updated\n", name);
 		return 1;
 	}
 	return 0;

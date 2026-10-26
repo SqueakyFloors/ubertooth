@@ -62,7 +62,10 @@
   missing one on.
   [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
 - **Script-visible change:** `ubertooth-dfu` prints its `Checking firmware
-  signature` progress line on standard error; it was on standard output.
+  signature` progress line on standard error; it was on standard output. It
+  also reports an image it will not write as one `error:` line, where it was
+  two, so `Signature check failed, firmware will not be updated` and `Image
+  too large for the attached part, firmware will not be updated` are gone.
   [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
 - **Script-visible change:** after an error, tools print only the error; run
   `-h` for the usage text. A tool that needs arguments and is run with none

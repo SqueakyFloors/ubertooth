@@ -113,7 +113,7 @@ def usage_text(text):
 NO_SUCH_SERIAL = "ffffffffffffffffffffffffffffffff"
 
 
-# ---- a bad command line, for every tool that reports one the shared way ----
+# ---- a bad command line ----------------------------------------------------
 
 # Flags that are gone: dead, a documented no-op, a developer scratch hook, or
 # superseded by another tool. A removed flag is an option the tool does not
