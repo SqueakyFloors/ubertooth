@@ -273,12 +273,12 @@ BOOL usb_vendor_request_handler(TSetupPacket *pSetup, int *piLen, u8 **ppbData)
 	 * stack waits for all of it before calling; a device-to-host request
 	 * is handled at SETUP time, with nothing of the host's in the buffer.
 	 */
-	unsigned data_in_len =
-		(REQTYPE_GET_DIR(pSetup->bmRequestType) == REQTYPE_DIR_TO_DEVICE)
-			? pSetup->wLength : 0;
+	int data_from_host =
+		REQTYPE_GET_DIR(pSetup->bmRequestType) == REQTYPE_DIR_TO_DEVICE;
+	unsigned data_in_len = data_from_host ? pSetup->wLength : 0;
 
-	rv = v_req_handler(pSetup->bRequest, params, *ppbData, data_in_len,
-	                   piLen);
+	rv = v_req_handler(pSetup->bRequest, params, *ppbData, data_from_host,
+	                   data_in_len, piLen);
 	return (BOOL) (rv==1);
 }
 

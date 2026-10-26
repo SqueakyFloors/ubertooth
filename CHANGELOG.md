@@ -214,10 +214,9 @@
   previous request.
   [#402](https://github.com/SqueakyFloors/ubertooth/issues/402)
 - The firmware stalls a vendor request that carries fewer bytes than it reads,
-  including a read-direction request of a number that expects data, which the
-  USB stack hands to the handler before any data arrives. Such a request used
-  to act on whatever the previous one left in the buffer, write stale bytes to
-  radio registers or start a transmit.
+  and a read-direction request of a number that expects data. Either used to
+  act on whatever the previous request had left in the shared buffer: a stale
+  address, stale writes to radio registers, or a transmit from stale bytes.
   [#393](https://github.com/SqueakyFloors/ubertooth/issues/393)
 - A capture gives its receive transfer back when it ends, so a run with more
   than one phase (`ubertooth-afh` detects a map, then monitors it) no longer

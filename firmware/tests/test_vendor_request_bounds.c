@@ -159,21 +159,33 @@ MU_TEST(test_the_old_bound_was_right_when_the_length_did_not_shrink)
  * The dispatch rule, and a request that reads its data
  * ------------------------------------------------------------------------- */
 
-/* State two requests set, so a refused request can be seen to have set none. */
+/* State these requests set, so a refused one can be seen to have set none. */
 static uint64_t target_address;
 static uint16_t registers[0x100];
+static uint8_t advertising[LE_ADV_MAX_LEN];
+static int advertising_len = -1;
 
 /*
- * Two of the requests that read their data stage, with the length each needs:
- * an address of eight bytes and a syncword of eight more, and a register
- * number plus a 16-bit value for each of wValue registers.
+ * Three of the requests that read their data stage. Two need a length -- an
+ * address of eight bytes and a syncword of eight more, and a register number
+ * plus a 16-bit value for each of wValue registers -- and the third takes
+ * whatever it is given, including nothing, so only the direction tells a
+ * request of it from a read of the same number.
  */
 static int fake_request_handler(uint8_t request, const uint16_t *params,
-                                const uint8_t *data, unsigned data_in_len)
+                                const uint8_t *data, int data_from_host,
+                                unsigned data_in_len)
 {
 	unsigned i;
 
 	switch (request) {
+	case UBERTOOTH_LE_SET_ADV_DATA:
+		if (!data_from_host || data_in_len > LE_ADV_MAX_LEN)
+			return 0;
+		memcpy(advertising, data, data_in_len);
+		advertising_len = (int)data_in_len;
+		return 1;
+
 	case UBERTOOTH_SET_BDADDR:
 		if (data_in_len < 16)
 			return 0;
@@ -198,20 +210,23 @@ static int fake_request_handler(uint8_t request, const uint16_t *params,
 
 /* The same two without the length check, to show what the buffer held. */
 static int unchecked_request_handler(uint8_t request, const uint16_t *params,
-                                     const uint8_t *data, unsigned data_in_len)
+                                     const uint8_t *data, int data_from_host,
+                                     unsigned data_in_len)
 {
+	(void)data_from_host;
 	(void)data_in_len;
 	switch (request) {
 	case UBERTOOTH_SET_BDADDR:
 	case UBERTOOTH_WRITE_REGISTERS:
-		return fake_request_handler(request, params, data, 0xffffu);
+		return fake_request_handler(request, params, data, 1, 0xffffu);
 	default:
 		return 0;
 	}
 }
 
 typedef int (*handler_fn)(uint8_t request, const uint16_t *params,
-                          const uint8_t *data, unsigned data_in_len);
+                          const uint8_t *data, int data_from_host,
+                          unsigned data_in_len);
 
 /*
  * What the stack does with a vendor request, from the specification: a
@@ -225,22 +240,25 @@ static int control_transfer(handler_fn handler, uint8_t bmRequestType,
                             const uint8_t *stage, uint16_t wLength)
 {
 	uint16_t params[3] = { wValue, 0, wLength };
+	int data_from_host = (bmRequestType & BM_REQUEST_TYPE_DIR) == 0;
 	unsigned data_in_len = 0;
 
-	if ((bmRequestType & BM_REQUEST_TYPE_DIR) == 0 && wLength > 0) {
+	if (data_from_host && wLength > 0) {
 		unsigned stored = wLength < VENDOR_REQ_BUF ? wLength
 		                                           : VENDOR_REQ_BUF;
 
 		memcpy(req_buf, stage, stored);
 		data_in_len = wLength;
 	}
-	return handler(request, params, req_buf, data_in_len);
+	return handler(request, params, req_buf, data_from_host, data_in_len);
 }
 
 static void reset_state(void)
 {
 	memset(req_buf, 0, sizeof(req_buf));
 	memset(registers, 0, sizeof(registers));
+	memset(advertising, 0, sizeof(advertising));
+	advertising_len = -1;
 	target_address = 0;
 }
 
@@ -346,6 +364,42 @@ MU_TEST(test_a_register_write_needs_three_bytes_per_register)
 	mu_assert_int_eq(0, registers[0x10]);
 }
 
+/*
+ * A request whose body may be empty still works with an empty one: an
+ * advertising payload of no bytes is something the host can ask for, and the
+ * length alone cannot tell that apart from a read of the same number.
+ */
+MU_TEST(test_a_request_with_an_empty_body_is_accepted)
+{
+	static const uint8_t body[3] = { 0x02, 0x01, 0x05 };
+
+	reset_state();
+	mu_assert_int_eq(1, control_transfer(fake_request_handler, REQ_OUT,
+	                                     UBERTOOTH_LE_SET_ADV_DATA, 0,
+	                                     body, sizeof(body)));
+	mu_assert_int_eq(3, advertising_len);
+
+	mu_assert_int_eq(1, control_transfer(fake_request_handler, REQ_OUT,
+	                                     UBERTOOTH_LE_SET_ADV_DATA, 0,
+	                                     body, 0));
+	mu_assert_int_eq(0, advertising_len);
+}
+
+/* A read of that number is still refused, and changes nothing. */
+MU_TEST(test_a_read_of_a_request_with_an_empty_body_is_refused)
+{
+	static const uint8_t body[3] = { 0x02, 0x01, 0x05 };
+
+	reset_state();
+	mu_assert_int_eq(1, control_transfer(fake_request_handler, REQ_OUT,
+	                                     UBERTOOTH_LE_SET_ADV_DATA, 0,
+	                                     body, sizeof(body)));
+	mu_assert_int_eq(0, control_transfer(fake_request_handler, REQ_IN,
+	                                     UBERTOOTH_LE_SET_ADV_DATA, 0,
+	                                     NULL, 0));
+	mu_assert_int_eq(3, advertising_len);
+}
+
 /* -------------------------------------------------------------------------
  * The firmware's own shape
  * ------------------------------------------------------------------------- */
@@ -421,7 +475,7 @@ static int writes_the_reply_through_data(const char *text)
 	return 0;
 }
 
-/* One case label of the handler's switch. */
+/* One case label of a handler's switch. */
 struct req_case {
 	char name[64];
 	int label_line;
@@ -431,19 +485,23 @@ struct req_case {
 
 #define MAX_CASES 128
 
-static struct req_case cases[MAX_CASES];
-static int case_count;
-static int handler_line;       /* the handler's own definition */
-static int handler_takes_len;  /* ...with data_in_len in its parameters */
+/* One image's request handler. */
+struct handler_scan {
+	const char *path;
+	int scanned;
+	int def_line;     /* the handler's own definition */
+	int takes_len;    /* ...with data_in_len in its parameters */
+	int takes_dir;    /* ...and the data stage direction */
+	int case_count;
+	struct req_case cases[MAX_CASES];
+};
 
-static const char *rxtx_path = FW_RXTX_DIR "/bluetooth_rxtx.c";
-
-/* Walk the handler's switch, recording what each case does with `data`. */
-static int scan_handler(const char *path)
+/* Walk a handler's switch, recording what each case does with `data`. */
+static int scan_handler(struct handler_scan *h)
 {
 	char line[512], flat[512];
 	int lineno = 0, in_block = 0, depth = 0, started = 0;
-	FILE *f = fopen(path, "r");
+	FILE *f = fopen(h->path, "r");
 
 	if (f == NULL)
 		return 0;
@@ -456,16 +514,20 @@ static int scan_handler(const char *path)
 		strip_comments(line, &in_block);
 		collapse_spaces(line, flat, sizeof(flat));
 
-		if (handler_line == 0 &&
+		if (h->def_line == 0 &&
 		    strstr(flat, "vendor_request_handler(uint8_t request,") !=
 		    NULL) {
-			handler_line = lineno;
+			h->def_line = lineno;
 			continue;
 		}
-		if (handler_line == 0)
+		if (h->def_line == 0)
 			continue;
-		if (!started && strstr(flat, "unsigned data_in_len,") != NULL)
-			handler_takes_len = lineno;
+		if (!started) {
+			if (strstr(flat, "unsigned data_in_len") != NULL)
+				h->takes_len = lineno;
+			if (strstr(flat, "int data_from_host,") != NULL)
+				h->takes_dir = lineno;
+		}
 
 		for (brace = flat; *brace != '\0'; brace++) {
 			if (*brace == '{') {
@@ -480,15 +542,15 @@ static int scan_handler(const char *path)
 		if (depth == 0)
 			continue;
 
-		if (strncmp(flat, "case UBERTOOTH_", 5 + 10) == 0 ||
+		if (strncmp(flat, "case UBERTOOTH_", 15) == 0 ||
 		    strncmp(flat, "default:", 8) == 0) {
 			const char *end;
 
-			if (case_count >= MAX_CASES) {
+			if (h->case_count >= MAX_CASES) {
 				fclose(f);
 				return 0;
 			}
-			c = &cases[case_count++];
+			c = &h->cases[h->case_count++];
 			memset(c, 0, sizeof(*c));
 			c->label_line = lineno;
 			end = strchr(flat, ':');
@@ -497,9 +559,9 @@ static int scan_handler(const char *path)
 			                           : (long)strlen(flat)), flat);
 			continue;
 		}
-		if (case_count == 0)
+		if (h->case_count == 0)
 			continue;
-		c = &cases[case_count - 1];
+		c = &h->cases[h->case_count - 1];
 
 		if (c->length_seen == 0 &&
 		    contains_identifier(flat, "data_in_len"))
@@ -514,29 +576,45 @@ static int scan_handler(const char *path)
 	return 1;
 }
 
-static int handler_scanned;
+/* Both images' handlers: the one that reads its requests' data, and the one
+ * that does not, so the rule is enforced there before a request that does. */
+static struct handler_scan handlers[] = {
+	{ .path = FW_RXTX_DIR "/bluetooth_rxtx.c" },
+	{ .path = FW_BTBR_DIR "/src/btctl/vendor_request_handler.c" },
+};
+#define HANDLER_COUNT (sizeof(handlers) / sizeof(handlers[0]))
 
-MU_TEST(test_the_handler_was_scanned)
+/* The handler that carries the requests this test is about. */
+#define RXTX (&handlers[0])
+
+MU_TEST(test_the_handlers_were_scanned)
 {
 	char msg[512];
 	int with_reads = 0, i;
+	size_t n;
 
-	snprintf(msg, sizeof(msg), "cannot open %s to scan", rxtx_path);
-	mu_assert(handler_scanned, msg);
+	for (n = 0; n < HANDLER_COUNT; n++) {
+		const struct handler_scan *h = &handlers[n];
 
-	snprintf(msg, sizeof(msg),
-	         "%s: the scan did not find the vendor request handler, so the "
-	         "checks below would pass without reading anything", rxtx_path);
-	mu_assert(handler_line > 0, msg);
+		snprintf(msg, sizeof(msg), "cannot open %s to scan", h->path);
+		mu_assert(h->scanned, msg);
 
-	snprintf(msg, sizeof(msg),
-	         "%s:%d: the handler does not take `unsigned data_in_len`, so "
-	         "it cannot tell how much of the buffer the host sent",
-	         rxtx_path, handler_line);
-	mu_assert(handler_takes_len > 0, msg);
+		snprintf(msg, sizeof(msg),
+		         "%s: the scan did not find a vendor request handler, "
+		         "so the checks below would pass without reading "
+		         "anything", h->path);
+		mu_assert(h->def_line > 0, msg);
 
-	for (i = 0; i < case_count; i++)
-		if (cases[i].first_read > 0)
+		snprintf(msg, sizeof(msg),
+		         "%s:%d: the handler does not take the data stage "
+		         "direction and `unsigned data_in_len`, so it cannot "
+		         "tell how much of the buffer the host sent", h->path,
+		         h->def_line);
+		mu_assert(h->takes_len > 0 && h->takes_dir > 0, msg);
+	}
+
+	for (i = 0; i < RXTX->case_count; i++)
+		if (RXTX->cases[i].first_read > 0)
 			with_reads++;
 
 	/* The requests that read their data today; a floor, not a ceiling, so
@@ -544,8 +622,9 @@ MU_TEST(test_the_handler_was_scanned)
 	snprintf(msg, sizeof(msg),
 	         "%s: the scan found %d requests and %d of them reading their "
 	         "data; the handler has at least a dozen that do, so the scan "
-	         "is not reading the switch", rxtx_path, case_count, with_reads);
-	mu_assert(case_count > 50 && with_reads >= 12, msg);
+	         "is not reading the switch", RXTX->path, RXTX->case_count,
+	         with_reads);
+	mu_assert(RXTX->case_count > 50 && with_reads >= 12, msg);
 }
 
 /*
@@ -556,30 +635,36 @@ MU_TEST(test_the_handler_was_scanned)
  */
 MU_TEST(test_every_request_that_reads_data_checks_its_length)
 {
+	size_t n;
 	int i;
 
-	for (i = 0; i < case_count; i++) {
-		const struct req_case *c = &cases[i];
-		char msg[640];
+	for (n = 0; n < HANDLER_COUNT; n++) {
+		const struct handler_scan *h = &handlers[n];
 
-		if (c->first_read == 0)
-			continue;
+		for (i = 0; i < h->case_count; i++) {
+			const struct req_case *c = &h->cases[i];
+			char msg[640];
 
-		snprintf(msg, sizeof(msg),
-		         "%s:%d: %s reads the request's data at line %d without "
-		         "checking data_in_len, so it acts on whatever the "
-		         "previous request left in the buffer when the host "
-		         "sends too little -- or nothing at all, as a "
-		         "device-to-host request does", rxtx_path,
-		         c->label_line, c->name, c->first_read);
-		mu_assert(c->length_seen > 0, msg);
+			if (c->first_read == 0)
+				continue;
 
-		snprintf(msg, sizeof(msg),
-		         "%s:%d: %s reads the request's data at line %d but "
-		         "only reaches data_in_len at line %d, after the read",
-		         rxtx_path, c->label_line, c->name, c->first_read,
-		         c->length_seen);
-		mu_assert(c->length_seen <= c->first_read, msg);
+			snprintf(msg, sizeof(msg),
+			         "%s:%d: %s reads the request's data at line %d "
+			         "without checking data_in_len, so it acts on "
+			         "whatever the previous request left in the "
+			         "buffer when the host sends too little -- or "
+			         "nothing at all, as a device-to-host request "
+			         "does", h->path, c->label_line, c->name,
+			         c->first_read);
+			mu_assert(c->length_seen > 0, msg);
+
+			snprintf(msg, sizeof(msg),
+			         "%s:%d: %s reads the request's data at line %d "
+			         "but only reaches data_in_len at line %d, "
+			         "after the read", h->path, c->label_line,
+			         c->name, c->first_read, c->length_seen);
+			mu_assert(c->length_seen <= c->first_read, msg);
+		}
 	}
 }
 
@@ -606,10 +691,11 @@ static int scan_shim(const char *path, int *dir_check, int *zero, int *passed)
 		if (strstr(flat, "REQTYPE_GET_DIR(pSetup->bmRequestType) == "
 		                 "REQTYPE_DIR_TO_DEVICE") != NULL)
 			*dir_check = lineno;
-		if (strstr(flat, "? pSetup->wLength : 0") != NULL)
+		if (strstr(flat, "data_in_len = data_from_host ? "
+		                 "pSetup->wLength : 0") != NULL)
 			*zero = lineno;
 		if (strstr(flat, "v_req_handler(pSetup->bRequest, params, "
-		                 "*ppbData, data_in_len,") != NULL)
+		                 "*ppbData, data_from_host,") != NULL)
 			*passed = lineno;
 	}
 
@@ -644,8 +730,8 @@ MU_TEST(test_the_usb_shims_zero_the_length_for_a_read)
 		mu_assert(zero > 0, msg);
 
 		snprintf(msg, sizeof(msg),
-		         "%s: the shim does not hand data_in_len to the "
-		         "request handler", shims[i]);
+		         "%s: the shim does not hand the direction and the "
+		         "length to the request handler", shims[i]);
 		mu_assert(passed > 0, msg);
 	}
 }
@@ -745,6 +831,8 @@ MU_TEST(test_the_access_code_loop_is_bounded_by_its_body)
 
 int main(void)
 {
+	int i;
+
 	printf("vendor request data bounds tests\n");
 	MU_RUN(test_an_access_code_is_built_from_its_own_body);
 	MU_RUN(test_a_four_byte_access_code_is_the_whole_sync_word);
@@ -756,11 +844,14 @@ int main(void)
 	MU_RUN(test_without_the_check_a_read_acted_on_the_previous_request);
 	MU_RUN(test_a_write_request_shorter_than_it_reads_is_refused);
 	MU_RUN(test_a_register_write_needs_three_bytes_per_register);
+	MU_RUN(test_a_request_with_an_empty_body_is_accepted);
+	MU_RUN(test_a_read_of_a_request_with_an_empty_body_is_refused);
 
 	/* Scanned once here rather than from the first test that needs it,
 	 * which would leave the others depending on the order they run in. */
-	handler_scanned = scan_handler(rxtx_path);
-	MU_RUN(test_the_handler_was_scanned);
+	for (i = 0; i < (int)HANDLER_COUNT; i++)
+		handlers[i].scanned = scan_handler(&handlers[i]);
+	MU_RUN(test_the_handlers_were_scanned);
 	MU_RUN(test_every_request_that_reads_data_checks_its_length);
 	MU_RUN(test_the_usb_shims_zero_the_length_for_a_read);
 	MU_RUN(test_lpcusb_spells_the_direction_bit_as_the_specification_does);

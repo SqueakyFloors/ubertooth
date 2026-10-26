@@ -35,7 +35,8 @@ static void request_reset(void)
 }
 
 int vendor_request_handler(uint8_t request, uint16_t* request_params,
-                           uint8_t* data, unsigned data_in_len, int* data_len)
+                           uint8_t* data, int data_from_host,
+                           unsigned data_in_len, int* data_len)
 {
 	uint32_t clock;
 	size_t length; // string length
@@ -43,7 +44,9 @@ int vendor_request_handler(uint8_t request, uint16_t* request_params,
 	uint16_t reg_val;
 	uint8_t i;
 
-	(void)data_in_len; /* no request here reads its data stage */
+	/* no request here reads its data stage */
+	(void)data_from_host;
+	(void)data_in_len;
 
 	switch (request) {
 

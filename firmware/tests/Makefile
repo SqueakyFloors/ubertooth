@@ -153,6 +153,7 @@ $(BINDIR)/test_bootloader_flash_bounds: test_bootloader_flash_bounds.cpp \
 $(BINDIR)/test_vendor_request_bounds: test_vendor_request_bounds.c minunit.h \
 		source_scan.h $(FW_RXTX)/bluetooth_rxtx.c $(FW_RXTX)/ego.c \
 		$(FW_RXTX)/ubertooth_usb.c $(FW_BTBR)/src/drivers/ubertooth_usb.c \
+		$(FW_BTBR)/src/btctl/vendor_request_handler.c \
 		$(FW_COMMON)/lpcusb/target/usbstruct.h | $(BINDIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
 		-DFW_BTBR_DIR='"$(FW_BTBR)"' -DFW_COMMON_DIR='"$(FW_COMMON)"' \

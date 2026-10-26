@@ -204,11 +204,12 @@ int enqueue_with_ts(uint8_t type, uint8_t* buf, uint32_t ts)
  * carrying less than it reads: that keeps a short request out, and it is also
  * what keeps a device-to-host request of the same number out, since that one
  * reaches the handler with no data stage behind it and a buffer still holding
- * the previous request's bytes.
+ * the previous request's bytes. A case whose body may be empty cannot tell
+ * those two apart by length, and uses `data_from_host` instead.
  */
 static int vendor_request_handler(uint8_t request, uint16_t* request_params,
-                                  uint8_t* data, unsigned data_in_len,
-                                  int* data_len)
+                                  uint8_t* data, int data_from_host,
+                                  unsigned data_in_len, int* data_len)
 {
 	uint32_t clock;
 	size_t length; // string length
@@ -701,8 +702,11 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 #endif
 
 	case UBERTOOTH_LE_SET_ADV_DATA:
-		// make sure the data fits in our buffer
-		if (data_in_len < 1 || data_in_len > LE_ADV_MAX_LEN)
+		/* An empty payload is a request in its own right, so the
+		 * direction is what tells it apart from a read of this number;
+		 * every other case that reads data needs a byte of it and is
+		 * refused by its own length check. */
+		if (!data_from_host || data_in_len > LE_ADV_MAX_LEN)
 			return 0;
 		le_adv_len = data_in_len;
 		memcpy(le_adv_data, data, le_adv_len);

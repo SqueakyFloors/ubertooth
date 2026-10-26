@@ -60,9 +60,16 @@
  * request it calls at SETUP time, before any data stage, where wLength is the
  * host's read size and `data` still holds the previous request's bytes. So a
  * case that reads `data` may read `data_in_len` bytes of it and no more.
+ *
+ * `data_from_host` is what tells a request that brought an empty data stage
+ * apart from one that brought none at all; both arrive with data_in_len zero,
+ * and for a request whose body may legitimately be empty that is the only
+ * difference between the host asking for something and a read of the same
+ * number asking for nothing.
  */
 typedef int (VendorRequestHandler)(u8 request, u16 *request_params, u8 *data,
-                                   unsigned data_in_len, int *data_len);
+                                   int data_from_host, unsigned data_in_len,
+                                   int *data_len);
 
 /*
  * Hold off the USB interrupt across a section that must not be re-entered,
