@@ -189,6 +189,11 @@
   link pthread, so linking the library no longer leaves `pthread_create`
   undefined.
   [#315](https://github.com/SqueakyFloors/ubertooth/issues/315)
+- Each firmware image now compiles the shared sources under `firmware/common`
+  into its own directory. Building two images in one tree used to give the
+  second one the first's objects, built with the wrong flags, so a release or
+  CI build could ship an image nobody had built from clean.
+  [#486](https://github.com/SqueakyFloors/ubertooth/issues/486)
 
 ### Reliability fixes
 

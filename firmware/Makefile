@@ -25,18 +25,10 @@ all: $(DIRS)
 
 # The bootloader, which is not in DIRS: it is the one image written in C++, so
 # `make` here would need the ARM C++ runtime on every machine that builds
-# firmware, and it can only be installed over ISP or JTAG anyway.
-#
-# Built from clean, and the objects it shares with the other images are removed
-# afterwards. Every image writes its objects next to the sources, so the ones
-# under common/ are shared, and the bootloader is the only image with its own
-# compiler flags: without this it would link another image's objects, or leave
-# its own for another image to link. Build it with this target rather than by
-# hand, which is also what CI and tools/ubertooth-release.sh do.
+# firmware, and it can only be installed over ISP or JTAG anyway. CI and
+# tools/ubertooth-release.sh build it through this target.
 bootloader:
-	$(MAKE) -C bootloader clean
 	$(MAKE) -C bootloader elf hex bin sym
-	$(MAKE) -C bootloader clean_shared
 
 bootloader_clean:
 	$(MAKE) -C bootloader clean

@@ -17,10 +17,11 @@ FW_BTBR := ../btbr
 FW_COMMON := ../common
 FW_LPCUSB := ../common/lpcusb/target
 FW_BOOT := ../bootloader
+FW_DIR := ..
 HOST_DFU := ../../host/ubertooth-tools/src
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_le_phy_order test_grmdm_rx_generic test_tx_generic_bounds test_write_registers_bounds test_btbr_hop test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order
+TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_le_phy_order test_grmdm_rx_generic test_tx_generic_bounds test_write_registers_bounds test_btbr_hop test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths
 BINDIR  := bin
 
 .PHONY: all test clean
@@ -289,6 +290,15 @@ $(BINDIR)/test_reset_order: test_reset_order.c minunit.h source_scan.h \
 		-DFW_RXTX_DIR='"$(FW_RXTX)"' -DFW_BTBR_DIR='"$(FW_BTBR)"' \
 		-Wno-unused-but-set-variable -Wno-unused-parameter \
 		-o $@ test_reset_order.c $(FW_LPCUSB)/usbcontrol.c
+
+# Where each image's object files land is decided by ../common.mk and the
+# bootloader's own makefile, so this test reads those as text -- building both
+# images in both orders and comparing them needs the ARM toolchain and several
+# minutes. FW_DIR points it at firmware/, which it also walks for images.
+$(BINDIR)/test_firmware_object_paths: test_firmware_object_paths.c minunit.h \
+		$(FW_DIR)/common.mk $(FW_BOOT)/Makefile | $(BINDIR)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_DIR='"$(FW_DIR)"' \
+		-o $@ test_firmware_object_paths.c
 
 $(BINDIR):
 	mkdir -p $(BINDIR)

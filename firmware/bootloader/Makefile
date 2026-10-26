@@ -100,6 +100,13 @@ ASRC =
 #     this an empty or blank macro!
 OBJDIR = .
 
+# Where this image's build output for one source file goes. Sources under
+# ../common are shared with every other image, which compiles them with its
+# own flags, so their output goes under this image's own shared/ instead of
+# beside the source. Same definition and same reason as in ../common.mk; this
+# image has its own makefile because it is the one written in C++.
+per_image = $(addprefix $(OBJDIR)/,$(patsubst ../%,shared/%,$(1)))
+
 # Optimization level, can be [0, 1, 2, 3, s].
 #     0 = turn off optimization. s = optimize for size.
 #     (Note: 3 is not always the best optimization level. See libc FAQ.)
@@ -167,7 +174,7 @@ CFLAGS += -mfix-cortex-m3-ldrd
 #CFLAGS += -fno-unit-at-a-time
 #CFLAGS += -Wunreachable-code
 #CFLAGS += -Wsign-compare
-CFLAGS += -Wa,-alhms=$(<:%.c=$(OBJDIR)/%.lst)
+CFLAGS += -Wa,-alhms=$(call per_image,$(<:%.c=%.lst))
 CFLAGS += $(patsubst %,-I%,$(EXTRAINCDIRS))
 CFLAGS += $(CSTANDARD)
 
@@ -197,7 +204,7 @@ CPPFLAGS += -Weffc++
 #CPPFLAGS += -Wstrict-prototypes
 #CPPFLAGS += -Wunreachable-code
 #CPPFLAGS += -Wsign-compare
-CPPFLAGS += -Wa,-alhms=$(<:%.cpp=$(OBJDIR)/%.lst)
+CPPFLAGS += -Wa,-alhms=$(call per_image,$(<:%.cpp=%.lst))
 CPPFLAGS += $(patsubst %,-I%,$(EXTRAINCDIRS))
 #CPPFLAGS += $(CSTANDARD)
 
@@ -207,7 +214,7 @@ CPPFLAGS += $(patsubst %,-I%,$(EXTRAINCDIRS))
 #  -gstabs:   have the assembler create line number information
 #  -listing-cont-lines: Sets the maximum number of continuation lines of hex
 #       dump that will be displayed for a given single line of source input.
-ASFLAGS = -g$(DEBUG) $(ADEFS) -I.  -alhms=$(<:%.S=$(OBJDIR)/%.lst)
+ASFLAGS = -g$(DEBUG) $(ADEFS) -I.  -alhms=$(call per_image,$(<:%.S=%.lst))
 
 #---------------- Library Options ----------------
 
@@ -269,10 +276,10 @@ MSG_CLEANING = Cleaning project:
 MSG_CREATING_LIBRARY = Creating library:
 
 # Define all object files.
-OBJ = $(SRC:%.c=$(OBJDIR)/%.o) $(CPPSRC:%.cpp=$(OBJDIR)/%.o) $(ASRC:%.S=$(OBJDIR)/%.o)
+OBJ = $(call per_image,$(SRC:%.c=%.o) $(CPPSRC:%.cpp=%.o) $(ASRC:%.S=%.o))
 
 # Define all listing files.
-LST = $(SRC:%.c=$(OBJDIR)/%.lst) $(CPPSRC:%.cpp=$(OBJDIR)/%.lst) $(ASRC:%.S=$(OBJDIR)/%.lst)
+LST = $(call per_image,$(SRC:%.c=%.lst) $(CPPSRC:%.cpp=%.lst) $(ASRC:%.S=%.lst))
 
 # Compiler flags to generate dependency files.
 GENDEPFLAGS = -MMD -MP -MD
@@ -386,17 +393,47 @@ program: $(TARGET).hex
 	@echo $(MSG_LINKING) $@
 	$(LD) $(LINKER_SCRIPT) $(ALL_CFLAGS_LINKER) $(LDFLAGS) -o $@ $^
 
+# The compile commands, written once.
+#
+# Each kind of source needs two rules: one for a source in this directory, one
+# for a source above it, whose output $(per_image) puts under shared/. The two
+# differ only in the paths they match, so the commands live here and both
+# rules run them. mkdir is for the shared/ case, which has directories to
+# create; for the other it is a no-op on $(OBJDIR), which already exists.
+define compile_c
+@echo
+@echo $(MSG_COMPILING) $<
+@mkdir -p $(@D)
+$(CC) -c $(ALL_CFLAGS) $< -o $@
+endef
+
+define compile_cpp
+@echo
+@echo $(MSG_COMPILING_CPP) $<
+@mkdir -p $(@D)
+$(CC) -c $(ALL_CPPFLAGS) $< -o $@
+endef
+
+define assemble
+@echo
+@echo $(MSG_ASSEMBLING) $<
+@mkdir -p $(@D)
+$(AS) $< $(ALL_ASFLAGS) --MD $@.d -o $@
+endef
+
 # Compile: create object files from C source files.
 $(OBJDIR)/%.o : %.c
-	@echo
-	@echo $(MSG_COMPILING) $<
-	$(CC) -c $(ALL_CFLAGS) $< -o $@
+	$(compile_c)
+
+$(OBJDIR)/shared/%.o : ../%.c
+	$(compile_c)
 
 # Compile: create object files from C++ source files.
 $(OBJDIR)/%.o : %.cpp
-	@echo
-	@echo $(MSG_COMPILING_CPP) $<
-	$(CC) -c $(ALL_CPPFLAGS) $< -o $@
+	$(compile_cpp)
+
+$(OBJDIR)/shared/%.o : ../%.cpp
+	$(compile_cpp)
 
 # Compile: create assembler files from C source files.
 %.s : %.c
@@ -408,9 +445,10 @@ $(OBJDIR)/%.o : %.cpp
 
 # Assemble: create object files from assembler source files.
 $(OBJDIR)/%.o : %.S
-	@echo
-	@echo $(MSG_ASSEMBLING) $<
-	$(AS) $< $(ALL_ASFLAGS) --MD $(OBJDIR)/$(@F).d -o $@
+	$(assemble)
+
+$(OBJDIR)/shared/%.o : ../%.S
+	$(assemble)
 
 # Create preprocessed source for use in sending a bug report.
 %.i : %.c
@@ -418,18 +456,6 @@ $(OBJDIR)/%.o : %.S
 
 # Target: clean project.
 clean: begin clean_list clean_binary end
-
-# Remove only the objects built from the shared sources under ../common, which
-# every firmware image writes next to the sources rather than in its own
-# directory. This image is the only one with its own compiler flags, so it is
-# built from clean and these go afterwards, leaving nothing another image would
-# pick up. The built images are left alone. See the bootloader target in
-# ../Makefile, which is how this is meant to be driven.
-clean_shared:
-	$(REMOVE) $(SRC:%.c=$(OBJDIR)/%.o)
-	$(REMOVE) $(SRC:%.c=$(OBJDIR)/%.lst)
-	$(REMOVE) $(SRC:.c=.d)
-	$(REMOVE) $(SRC:%.c=$(OBJDIR)/%.o.d)
 
 clean_binary:
 	$(REMOVE) $(TARGET).hex
@@ -443,18 +469,24 @@ clean_list:
 	$(REMOVE) $(TARGET).map
 	$(REMOVE) $(TARGET).sym
 	$(REMOVE) $(TARGET).lss
-	$(REMOVE) $(SRC:%.c=$(OBJDIR)/%.o)
-	$(REMOVE) $(CPPSRC:%.cpp=$(OBJDIR)/%.o)
-	$(REMOVE) $(SRC:%.c=$(OBJDIR)/%.lst)
-	$(REMOVE) $(CPPSRC:%.cpp=$(OBJDIR)/%.lst)
-	$(REMOVE) $(ASRC:%.S=$(OBJDIR)/%.lst)
-	$(REMOVE) $(ASRC:%.S=$(OBJDIR)/%.o)
-	$(REMOVE) $(ASRC:%.S=$(OBJDIR)/%.o.d)
+	@# Every object, listing and depfile this image builds, taken from the
+	@# same lists the build uses, so clean cannot drift from it.
+	$(REMOVE) $(OBJ)
+	$(REMOVE) $(LST)
+	$(REMOVE) $(call per_image,$(SRC:%.c=%.o.d) $(CPPSRC:%.cpp=%.o.d) $(ASRC:%.S=%.o.d))
+	$(REMOVE) $(call per_image,$(SRC:%.c=%.d) $(CPPSRC:%.cpp=%.d))
+	@# The shared/ tree the lines above emptied. addsuffix yields nothing at
+	@# all if OBJDIR is somehow blank, rather than a path at the root.
+	rm -rf $(addsuffix /shared,$(OBJDIR))
 	$(REMOVE) *.o.d
 	$(REMOVE) $(SRC:.c=.s)
 	$(REMOVE) $(SRC:.c=.d)
 	$(REMOVE) $(CPPSRC:.cpp=.d)
 	$(REMOVE) $(SRC:.c=.i)
+	@# Output left in ../common by a build from before the per-image layout.
+	@# Nothing reads it now, but leaving it would remove less than clean
+	@# always has, and it is what made another image wrong.
+	$(REMOVE) $(SRC:.c=.o) $(SRC:.c=.lst) $(CPPSRC:.cpp=.o) $(CPPSRC:.cpp=.lst)
 	$(REMOVE) InvalidEvents.tmp
 	$(REMOVE) $(TARGET).bin
 	$(REMOVE) $(TARGET).srec
@@ -473,6 +505,6 @@ $(shell mkdir $(OBJDIR)/ 2>/dev/null)
 # Listing of phony targets.
 .PHONY : all showtarget begin end sizebefore sizeafter \
 gccversion build elf hex eep lss sym program clean \
-clean_list clean_binary clean_shared doxygen
+clean_list clean_binary doxygen
 
 include ../ctags.mk
