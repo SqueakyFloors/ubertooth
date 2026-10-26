@@ -60,29 +60,95 @@ jobs:
         # one macOS runner.
         os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'release' || github.event_name == 'workflow_dispatch') && '["ubuntu-22.04","ubuntu-24.04","macos-14","macos-15","macos-26","ubuntu-latest"]' || '["ubuntu-24.04","macos-26"]') }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+    # Above what the two bounded steps below can take together, plus the
+    # build and the tests, so a step that overruns fails itself and names what
+    # stalled rather than being cancelled along with the job.
+    timeout-minutes: 20
 
     steps:
     - uses: actions/checkout@v4
 
     - name: Check the libbtbb pin
       shell: bash
-      # The pin above is written out again in every file that builds libbtbb
-      # or states which one this fork uses. Fail here, naming the file, rather
-      # than let one of them drift to another libbtbb.
+      # It clones libbtbb, so it waits on the network like the install steps.
+      # 60 seconds an attempt caps the retries at 2 minutes 30, and the rest of
+      # the step is a few greps.
+      timeout-minutes: 4
+      # Two things have to hold for the pin: every file that writes it out
+      # agrees, and the commit is one a user can actually get.
       run: |
         status=0
+
+        # The pin above is written out again in every file that builds libbtbb
+        # or states which one this fork uses. Fail here, naming the file, rather
+        # than let one of them drift to another libbtbb.
         for f in install.sh COMPATIBILITY.md \
                  docs/source/build_guide.rst docs/source/building_from_git.rst; do
           grep -q "$LIBBTBB_REF" "$f" || {
-            echo "$f does not name the pinned libbtbb commit $LIBBTBB_REF"
+            echo "error: $f does not name the pinned libbtbb commit $LIBBTBB_REF" >&2
             status=1
           }
           grep -q "$LIBBTBB_REPO" "$f" || {
-            echo "$f does not name the pinned libbtbb repository $LIBBTBB_REPO"
+            echo "error: $f does not name the pinned libbtbb repository $LIBBTBB_REPO" >&2
             status=1
           }
         done
+
+        # Agreeing on a commit is not enough: it has to be a commit a clone
+        # can reach. GitHub keeps serving a pull request's head commit by its
+        # hash even after that branch is deleted, so the checkouts below would
+        # fetch it happily while every user following install.sh or a build
+        # guide -- git clone, then git checkout <commit> -- gets "unable to
+        # read tree". Clone the way they do and require the pin to be an
+        # ancestor of the default branch.
+        #
+        # The clone is removed inside the retried command, because an attempt
+        # that had to be killed leaves the directory behind and git refuses to
+        # clone into one that is not empty.
+        : "${RUNNER_TEMP:?}"
+        clone="$RUNNER_TEMP/libbtbb-pin.git"
+        # http.lowSpeedLimit makes git itself abandon a transfer that has
+        # slowed to a trickle for 30 seconds. It needs nothing installed, so
+        # unlike the retry limit it also applies on the macOS runners, which
+        # ship no timeout command.
+        tools/retry.sh 60 sh -c 'rm -rf "$1" && git -c http.lowSpeedLimit=1000 \
+          -c http.lowSpeedTime=30 clone --quiet --bare "$2" "$1"' \
+          clone-libbtbb "$clone" "https://github.com/$LIBBTBB_REPO"
+        branch=$(git -C "$clone" symbolic-ref --short HEAD)
+
+        # Requiring the default branch is stricter than a user needs, since a
+        # full clone brings down the other branches too. That is deliberate:
+        # install.sh and the guides promise a commit of the released library,
+        # not whatever a side branch holds today.
+        if ! git -C "$clone" merge-base --is-ancestor "$LIBBTBB_REF" "$branch" 2> /dev/null; then
+          echo "error: libbtbb commit $LIBBTBB_REF is not on $LIBBTBB_REPO's" >&2
+          echo "       $branch branch, so it is not a released commit. A" >&2
+          echo "       squash-merged pull request head whose branch is gone is" >&2
+          echo "       served to CI by its hash but is in nobody's clone, and a" >&2
+          echo "       side branch moves under users' feet." >&2
+          echo "       Pin a commit merged to $branch." >&2
+          status=1
+        fi
+
+        # So the assert above cannot pass by having stopped comparing, which
+        # is how the gap it closes went unnoticed in the first place. The
+        # control is a commit written here, which the clone therefore has while
+        # $branch does not contain it: refusing it needs a real ancestry
+        # comparison, where a commit named in this file would have been
+        # refused merely for being absent from a bare clone. Writing it rather
+        # than picking a side branch keeps the check from depending on what
+        # branches the libbtbb fork happens to carry.
+        control=$(GIT_AUTHOR_NAME=pin GIT_AUTHOR_EMAIL=pin@invalid \
+                  GIT_COMMITTER_NAME=pin GIT_COMMITTER_EMAIL=pin@invalid \
+                  git -C "$clone" commit-tree "$branch^{tree}" \
+                    -p "$branch" -m control < /dev/null)
+        if git -C "$clone" merge-base --is-ancestor "$control" "$branch" 2> /dev/null; then
+          echo "error: the check above accepted $control, which is not on" >&2
+          echo "       $branch, so it is no longer checking anything" >&2
+          status=1
+        fi
+        rm -rf "$clone"
+
         exit $status
 
     - uses: actions/checkout@v4
@@ -92,7 +158,28 @@ jobs:
         ref: ${{ env.LIBBTBB_REF }}
         path: 'libbtbb'
 
+    # Every install step is given a timeout-minutes of its own, so a package
+    # source that stops sending bytes fails a step that names it instead of
+    # hanging until the job timeout cancels the job, where it reads as a
+    # broken build. On apt that limit is tightened and retried per attempt by
+    # tools/retry.sh; brew is left alone, because on an older runner it
+    # legitimately builds a dependency from source for minutes at a time and
+    # no short limit can tell that apart from a stall.
+    #
+    # On apt only the downloads are wrapped, never the installation that
+    # follows: a command killed while unpacking would leave dpkg half-done,
+    # which no retry can repair. Acquire::http::Timeout asks apt to give up on
+    # a connection that has gone quiet, so a dead mirror becomes apt's own
+    # error instead of a wait with no end; the limit below is the outer bound,
+    # sized for a mirror that is merely slow.
+    #
+    # Each step limit has to cover the retries AND the install that follows
+    # them, which is deliberately not bounded, or GitHub cancels the step
+    # before tools/retry.sh can say what happened.
     - name: Install dependencies (macOS)
+      # One bottle, where the firmware job runs several brew commands, so this
+      # needs far less room than the 12 minutes that step is given.
+      timeout-minutes: 8
       run: brew install fftw
       if: runner.os == 'macOS'
 
@@ -101,9 +188,20 @@ jobs:
       # without it cmake skips both tools, so nothing on Linux CI compiled
       # them or ran their CLI tests. macOS has no BlueZ, so there they stay
       # skipped by design.
+      # One bounded call of 180 seconds an attempt, so at most 6 minutes 30
+      # seconds, and then the install.
+      timeout-minutes: 8
+      # sudo is outside the helper so the limit lands on apt itself: killing
+      # sudo would leave apt holding the dpkg lock.
       run: |
-        sudo apt update
-        sudo apt install libfftw3-dev libusb-1.0-0-dev libbluetooth-dev
+        packages="libfftw3-dev libusb-1.0-0-dev libbluetooth-dev"
+        apt_opts="-o Acquire::http::Timeout=30 -o Acquire::Retries=2"
+        # Refreshing the index and fetching the packages is one unit to retry:
+        # an attempt that skipped the refresh would keep failing on whatever
+        # made the last one fail.
+        sudo tools/retry.sh 180 sh -c \
+          "apt-get $apt_opts update && apt-get $apt_opts install -y -d $packages"
+        sudo apt-get install -y $packages
       if: runner.os == 'Linux'
 
     - name: (libbtbb) Create Build Environment
@@ -201,14 +299,24 @@ jobs:
         # Same tiers as the host job.
         os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'release' || github.event_name == 'workflow_dispatch') && '["ubuntu-22.04","ubuntu-24.04","macos-14","macos-15","macos-26","ubuntu-latest"]' || '["ubuntu-24.04","macos-26"]') }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    # Above the install step below plus the build, as in the host job.
+    timeout-minutes: 18
 
     steps:
     - uses: actions/checkout@v4
       with:
         submodules: true
 
+    # The ARM toolchain is the big download in this workflow: 57 MB of
+    # gcc-arm-none-eabi on Linux, a comparable cask on macOS. A mirror that
+    # stops sending bytes part way through used to leave this step waiting
+    # until the job timeout, so each step is bounded as in the host job.
     - name: Install dependencies (macOS)
+      # Twelve minutes is well above what this step has ever legitimately
+      # taken (four and a half on the oldest runner, where brew rebuilt a
+      # dependency from source), and well below the job's eighteen, so a brew
+      # that never finishes fails here by name.
+      timeout-minutes: 12
       run: |
         # Refresh cask definitions first: the gcc-arm-embedded cask pins a
         # SHA-256 that breaks whenever Arm bumps a point release before the
@@ -220,12 +328,23 @@ jobs:
       if: runner.os == 'macOS'
 
     - name: Install dependencies (Ubuntu)
+      # This is the big one: 94 to 110 MB of toolchain, depending on the
+      # release. One attempt has to fetch all of it, since a killed apt keeps
+      # only what it had finished, so the limit is sized from the slowest
+      # mirror seen here: 0.4 MB a second, which is about four minutes. An
+      # attempt gets five. That is 10 minutes 30 seconds of retries at worst,
+      # and then the unpacking. A mirror slower than that is reported rather
+      # than waited on, which is the whole point.
+      timeout-minutes: 12
       run: |
         # gcc-arm-none-eabi recommends a large C++ runtime that none of the
         # firmware built here uses (only firmware/bootloader, which CI does not
         # build, links libstdc++); skip recommends and install newlib explicitly.
-        sudo apt-get install -y --no-install-recommends \
-          dfu-util gcc-arm-none-eabi libnewlib-arm-none-eabi
+        packages="dfu-util gcc-arm-none-eabi libnewlib-arm-none-eabi"
+        apt_opts="-o Acquire::http::Timeout=30 -o Acquire::Retries=2"
+        sudo tools/retry.sh 300 apt-get $apt_opts \
+          install -y --no-install-recommends -d $packages
+        sudo apt-get install -y --no-install-recommends $packages
       if: runner.os == 'Linux'
 
     - name: Unit tests (host)
@@ -310,12 +429,16 @@ jobs:
     # Full tier only.
     if: (github.event_name == 'schedule' || github.event_name == 'release' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 14
     container: ubuntu:20.04
     env:
       DEBIAN_FRONTEND: noninteractive
     steps:
     - name: Install build prerequisites
+      # A bound of its own, so a stalled mirror fails a step that names it
+      # rather than the job. Bounding the attempts and retrying them, as the
+      # firmware jobs do, needs the checkout this one installs git for.
+      timeout-minutes: 8
       run: |
         apt-get update
         apt-get install -y git cmake build-essential pkg-config \
@@ -361,22 +484,55 @@ jobs:
     # Full tier only.
     if: (github.event_name == 'schedule' || github.event_name == 'release' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Above the two install steps below plus the checkout and the build.
+    timeout-minutes: 20
     container: ubuntu:20.04
     env:
       DEBIAN_FRONTEND: noninteractive
     steps:
-    - name: Install build prerequisites
+    # Installed in two steps so the toolchain download gets the same
+    # stalled-mirror guard as the hosted firmware job: tools/retry.sh comes
+    # from the checkout, and the checkout needs git first. Both steps skip
+    # recommends as the firmware job does; ca-certificates is then needed
+    # explicitly for the HTTPS checkout of the submodules.
+    - name: Install checkout prerequisites
+      # Two bounded commands of 100 seconds, so 3 minutes 40 at worst.
+      timeout-minutes: 5
+      # Not retried: tools/retry.sh needs the checkout this step installs for.
+      # tools/retry.sh really is unavailable here, but timeout is not, so the
+      # two downloads are bounded and say what happened, without being retried.
       run: |
-        apt-get update
-        # Skip recommends as in the firmware job; ca-certificates is then
-        # needed explicitly for the HTTPS checkout of the submodules.
-        apt-get install -y --no-install-recommends \
-          ca-certificates git make dfu-util gcc-arm-none-eabi libnewlib-arm-none-eabi
+        # 124 is the limit being reached, 137 the status of a command that
+        # had to be killed at it. Any other failure is apt's own and has
+        # printed its reason, so only the limit needs explaining.
+        bounded() {
+          timeout --kill-after=10s 100 "$@" && return 0
+          status=$?
+          if [ "$status" -eq 124 ] || [ "$status" -eq 137 ]; then
+            echo "error: '$*' never finished; the package mirror has stalled" >&2
+          fi
+          exit 1
+        }
+        apt_opts="-o Acquire::http::Timeout=30 -o Acquire::Retries=2"
+        bounded apt-get $apt_opts update
+        bounded apt-get $apt_opts install -y --no-install-recommends -d \
+          ca-certificates git
+        apt-get install -y --no-install-recommends ca-certificates git
 
     - uses: actions/checkout@v4
       with:
         submodules: true
+
+    - name: Install the ARM toolchain
+      # The same toolchain as the hosted firmware job, so the same 300 seconds
+      # an attempt and the same 12 minutes for the step.
+      timeout-minutes: 12
+      run: |
+        packages="make dfu-util gcc-arm-none-eabi libnewlib-arm-none-eabi"
+        apt_opts="-o Acquire::http::Timeout=30 -o Acquire::Retries=2"
+        tools/retry.sh 300 apt-get $apt_opts \
+          install -y --no-install-recommends -d $packages
+        apt-get install -y --no-install-recommends $packages
 
     - name: Build firmware
       working-directory: ${{github.workspace}}/firmware
@@ -397,11 +553,13 @@ jobs:
     # Full tier only.
     if: (github.event_name == 'schedule' || github.event_name == 'release' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 14
     container: fedora:latest
     continue-on-error: ${{ github.event_name != 'schedule' }}
     steps:
     - name: Install build prerequisites
+      # As in the Ubuntu 20.04 container above: a bound of its own.
+      timeout-minutes: 8
       run: |
         dnf -y install git cmake gcc gcc-c++ make pkgconf-pkg-config \
                        fftw-devel libusb1-devel bluez-libs-devel python3
