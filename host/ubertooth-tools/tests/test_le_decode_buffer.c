@@ -84,8 +84,13 @@ static void fill_packet(usb_pkt_rx* rx)
 	rx->data[5] = 58;
 }
 
-/* Leaves non-zero bytes in the stack the callback is about to use, so a read
- * past the end of the packet cannot quietly find zeros there and pass. */
+/* Leaves non-zero bytes in the stack the callback is about to use, so that a
+ * read past the end of the packet is less likely to find zeros there and pass
+ * anyway. Best-effort only: the callback's own locals and spills overwrite
+ * most of what this leaves behind, so which values survive depends on the
+ * frame layout the compiler chose. What is guaranteed comes from checking the
+ * buffer directly, and from a sanitizer build, where the read is a
+ * stack-buffer-overflow whatever the bytes happen to be. */
 static volatile uint8_t sink;
 
 static void dirty_the_stack(void)
@@ -147,7 +152,7 @@ MU_TEST(the_buffer_holds_the_packet_and_zeros)
 	memset(frame.behind, STACK_PATTERN, sizeof(frame.behind));
 
 	memset(symbols, STACK_PATTERN, sizeof(symbols));
-	ubertooth_le_symbols(&frame.rx, symbols);
+	ubertooth_le_symbols(&frame.rx, &symbols);
 
 	mu_assert(memcmp(symbols, frame.rx.data, DMA_SIZE) == 0,
 	          "the captured bytes are not the packet's");

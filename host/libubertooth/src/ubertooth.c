@@ -912,13 +912,10 @@ void ubertooth_unpack_symbols(const uint8_t* buf, char* unpacked)
 	}
 }
 
-_Static_assert(DMA_SIZE <= LE_SYM_LEN,
-               "a received packet no longer fits the decoder's buffer");
-
-void ubertooth_le_symbols(const usb_pkt_rx* rx, uint8_t* symbols)
+void ubertooth_le_symbols(const usb_pkt_rx* rx, uint8_t (*symbols)[LE_SYM_LEN])
 {
-	memcpy(symbols, rx->data, DMA_SIZE);
-	memset(symbols + DMA_SIZE, 0, LE_SYM_LEN - DMA_SIZE);
+	memcpy(*symbols, rx->data, DMA_SIZE);
+	memset(*symbols + DMA_SIZE, 0, LE_SYM_LEN - DMA_SIZE);
 }
 
 static void cb_dump_bitstream(ubertooth_t* ut, void* args __attribute__((unused)))

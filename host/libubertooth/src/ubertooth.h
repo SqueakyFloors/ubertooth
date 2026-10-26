@@ -194,13 +194,19 @@ void ubertooth_unpack_symbols(const uint8_t* buf, char* unpacked);
  * carries only DMA_SIZE bytes, which is fewer. */
 #define LE_SYM_LEN 64
 
+_Static_assert(DMA_SIZE <= LE_SYM_LEN,
+               "a received packet no longer fits the decoder's buffer");
+
 /* Lays a received packet's bytes out for lell_allocate_and_decode(), in a
  * buffer of LE_SYM_LEN that the caller provides. The bytes a packet does not
  * reach are zeroed rather than left as whatever followed it in memory: the
  * decoder reads the PDU length from byte 5 and then the payload and CRC that
  * follow, so a PDU claiming more than was captured decodes zeros instead of
  * the caller's stack. The capture is still short; zeroing only stops the
- * decoder inventing the rest of it. */
-void ubertooth_le_symbols(const usb_pkt_rx* rx, uint8_t* symbols);
+ * decoder inventing the rest of it.
+ *
+ * The buffer is taken as a pointer to an array so the compiler checks its
+ * length, rather than trusting a caller the way the decoder trusts us. */
+void ubertooth_le_symbols(const usb_pkt_rx* rx, uint8_t (*symbols)[LE_SYM_LEN]);
 
 #endif /* __UBERTOOTH_H__ */
