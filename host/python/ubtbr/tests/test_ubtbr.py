@@ -33,6 +33,8 @@ What is checked:
     command and receive threads were alive.
 """
 
+import importlib.machinery
+import importlib.util
 import logging
 import os
 import signal
@@ -59,8 +61,9 @@ in hex and the timeout it was given, so a test can tell what the tool sent and
 how long it was prepared to wait. UBTBR_FAKE_WRITE_FAILS_AFTER is how many
 writes are taken before the rest time out, standing in for a device that stops
 draining the endpoint, and UBTBR_FAKE_SETUP_DELAY how long claiming the
-interface takes, which holds the tool short of its prompt.
-UBTBR_FAKE_NO_DEVICE makes the context find nothing to open.
+interface takes, which holds the tool short of its prompt, with
+UBTBR_FAKE_CLAIMED a file created once it is in there. UBTBR_FAKE_NO_DEVICE
+makes the context find nothing to open.
 """
 
 import os
@@ -80,6 +83,9 @@ class _Handle:
         self.writes = 0
 
     def claimInterface(self, interface):
+        marker = os.environ.get("UBTBR_FAKE_CLAIMED")
+        if marker:
+            open(marker, "w").close()
         time.sleep(float(os.environ.get("UBTBR_FAKE_SETUP_DELAY", "0")))
 
     def bulkWrite(self, endpoint, data, timeout=0):
@@ -190,6 +196,7 @@ class SilentDevice:
         self.handler = None
         self.idle_requests = 0
         self.inquiry_requests = 0
+        self.closed = False
 
     def register_msg_handler(self, handler):
         assert self.handler is None
@@ -206,6 +213,9 @@ class SilentDevice:
 
     def send_inquiry_cmd(self):
         self.inquiry_requests += 1
+
+    def close(self):
+        self.closed = True
 
 
 device = SilentDevice()
@@ -292,6 +302,10 @@ print("ubtbr: a command the device will not start is reported, not raised")
 class WedgedCmd(btctl.BTCtlCmd):
     """A command whose loop does not look at the stop."""
 
+    # Its own allowance: what is being tested is giving up, not how long the
+    # tool waits before it does.
+    JOIN_TIMEOUT = 0.5
+
     def _run_loop(self):
         time.sleep(DEADLINE * 10)
 
@@ -314,6 +328,42 @@ assert super_command._start_cmd(WedgedCmd) is None, \
 assert super_command.stopped() and super_command.done(), \
     "a super command that cannot stop its command is over"
 print("ubtbr: a command that will not stop does not take the next one with it")
+
+# ---- the prompt, with a command that will not stop ------------------------
+
+# The prompt lives in the tool, which only runs main() when run as a program.
+loader = importlib.machinery.SourceFileLoader("ubertooth_btbr", WRAPPER)
+tool_module = importlib.util.module_from_spec(
+    importlib.util.spec_from_loader(loader.name, loader))
+loader.exec_module(tool_module)
+
+
+class WedgedSuperCmd(btctl.BTCtlSuperCmd):
+    """A super command whose thread does not look at the stop either."""
+
+    JOIN_TIMEOUT = 0.5
+
+    def run(self):
+        self._start_cmd(WedgedCmd)
+        time.sleep(DEADLINE * 10)
+
+
+device = SilentDevice()
+prompt = tool_module.BTCtlPrompt(device)
+assert prompt.start_cmd(WedgedSuperCmd) is not None
+assert wait_until(lambda: device.handler is not None), "no command started"
+prompt.stop_cmd()
+assert prompt._cmd is not None, "a command that did not stop must be kept"
+# typing another command must not build one behind the one still holding the
+# message handler, whatever the kept one reports about being done
+assert prompt.start_cmd(btctl.BTCtlInquiryCmd) is None, \
+    "no second command while the first still holds the handler"
+assert device.inquiry_requests == 0, device.inquiry_requests
+# and leaving must not take the device from under it either
+prompt.do_exit("q")
+assert not device.closed, \
+    "the device must stay open while a command can still write to it"
+print("ubtbr: the prompt stays usable with a command that will not stop")
 
 # ---- a packet that does not fit the framing -------------------------------
 
@@ -461,8 +511,11 @@ print("ubtbr: no Ubertooth is one error line and exit 1")
 # an interrupt before the prompt is up, which is the window the hang shortly
 # after start lives in: the tool ends, with no traceback and nothing on
 # standard output
-running = tool(dict(ENVIRONMENT, UBTBR_FAKE_SETUP_DELAY=str(DEADLINE)))
-time.sleep(0.5)
+claimed = os.path.join(WORK.name, "claimed")
+running = tool(dict(ENVIRONMENT, UBTBR_FAKE_SETUP_DELAY=str(DEADLINE),
+                    UBTBR_FAKE_CLAIMED=claimed))
+# interrupted inside claiming the interface, not somewhere in the imports
+assert wait_until(lambda: os.path.exists(claimed)), claimed
 running.send_signal(signal.SIGINT)
 output, errors = running.communicate("", timeout=DEADLINE * 2)
 assert running.returncode == 1, (running.returncode, output, errors)

@@ -53,6 +53,7 @@ class BTCtlPrompt(Cmd):
 	def __init__(self, bt):
 		self._bt = bt
 		self._cmd = None
+		self._gave_up = False
 		super().__init__()
 
 	def _parse_bdaddr(self, inp):
@@ -67,31 +68,37 @@ class BTCtlPrompt(Cmd):
 			return bdaddr
 
 	def start_cmd(self, cls, *args):
+		if self._cmd is not None and self._cmd.done():
+			self.stop_cmd()
 		if self._cmd is not None:
-			if self._cmd.done():
-				self.stop_cmd()
-			else:
-				log.info ("Not idle")
-				return
+			# Either it is still running, or it outlived its stop and still
+			# holds the message handler a new command would claim.
+			log.info ("Not idle")
+			return
 
 		log.info("Starting %s"%cls.__name__)
 		args = [self._bt]+list(args)
 		self._cmd = cls(*args)
+		self._gave_up = False
 		self._cmd.start()
 		return self._cmd
 
 	def stop_cmd(self):
-		if self._cmd is not None:
-			self._cmd.stop()
-			self._cmd.join(self._cmd.JOIN_TIMEOUT)
-			if self._cmd.is_alive():
-				# Keep the handle: start_cmd then refuses to start another
-				# rather than tripping over the one still holding the
-				# message handler. The prompt itself stays usable, and
-				# exiting is never blocked by it.
-				log.error("%s did not stop"%self._cmd)
-				return
-			self._cmd = None
+		# Asking a command that already outlived its stop again would only
+		# spend another join on it.
+		if self._cmd is None or self._gave_up:
+			return
+		self._cmd.stop()
+		self._cmd.join(self._cmd.JOIN_TIMEOUT)
+		if self._cmd.is_alive():
+			# Keep the handle: start_cmd then refuses to start another rather
+			# than tripping over the one still holding the message handler.
+			# The prompt itself stays usable, and exiting is never blocked by
+			# it.
+			log.error("%s did not stop"%self._cmd)
+			self._gave_up = True
+			return
+		self._cmd = None
 
 	def cmdloop(self, intro=None):
 		print(self.intro)
@@ -125,7 +132,11 @@ class BTCtlPrompt(Cmd):
 		# Stopped first: a command still running would be left writing to a
 		# device the close below took away.
 		self.stop_cmd()
-		self._bt.close()
+		if self._cmd is not None:
+			log.error("Leaving the device open: %s is still running"
+				%self._cmd)
+		else:
+			self._bt.close()
 		return True
 
 	def help_exit(self):

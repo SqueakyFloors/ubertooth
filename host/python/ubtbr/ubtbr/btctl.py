@@ -205,6 +205,12 @@ def print_state(state, reason):
 	rs = REASON_TO_STR.get(reason) or str(reason)
 	log.info ("Device state: %s, reason %s"%(ss, rs))
 
+class BTCtlFramingError(Exception):
+	"""A USB packet, or a message in it, that does not fit what the device sends."""
+
+class BTCtlNoDeviceError(Exception):
+	"""No Ubertooth to control."""
+
 class BBHdr:
 	def __init__(self, lt_addr, type_, flags=0, hec=0):
 		self.lt_addr = lt_addr
@@ -279,7 +285,9 @@ class BTCtlEIR:
 			l,t = buf[:2]
 			dat,buf = buf[2:1+l], buf[1+l:]
 			if (1+len(dat) != l):
-				print("Malformed EIR!")
+				# A library writes nothing to standard output, where the
+				# capture the user asked for goes.
+				log.warning("Malformed EIR")
 				break
 			fields.append((t,dat))
 		return BTCtlEIR(fields)
@@ -356,7 +364,8 @@ class BTCtlACLPkt:
 	@staticmethod
 	def unpack(type_, inp):
 		tp = acl_type_find(type_)
-		assert(tp is not None)
+		if tp is None:
+			raise BTCtlFramingError("packet of unknown type %d"%type_)
 		bt_type,hlen,plen,fec = tp
 		if len(inp) < hlen:
 			hdr = 0
@@ -406,7 +415,9 @@ class BTCtlRxPkt:
 		"""
 		hdr,bb_hdr,bt_data = data[:8],data[8:12],data[12:]
 		clkn,chan,flags,data_size = unpack("<IBBH", hdr)
-		assert(data_size==len(bt_data))
+		if data_size != len(bt_data):
+			raise BTCtlFramingError(
+				"packet of %d bytes carrying %d"%(data_size, len(bt_data)))
 		bb_hdr = BBHdr.unpack(bb_hdr)
 		t = bb_hdr.type
 		if t == FHS:
@@ -542,9 +553,9 @@ class BTCtlCmd(Thread):
 
 class BTCtlSuperCmd(Thread):
 	# What a caller joining a stopped super command should allow it. Stopping
-	# it includes stopping the command it is running, so it needs longer than
-	# that command does.
-	JOIN_TIMEOUT = BTCtlCmd.JOIN_TIMEOUT + 1
+	# it means stopping the command it is running first, which can cost that
+	# command's own join and a write timeout before it.
+	JOIN_TIMEOUT = 2 * BTCtlCmd.JOIN_TIMEOUT
 
 	def __init__(self, bt):
 		# Daemon for the same reason as BTCtlCmd.
@@ -810,12 +821,6 @@ class BTCtlMonitorCmd(BTCtlCmd):
 	def _handle_l2cap(self, pkt):
 		role = "slave" if (pkt.clkn & 2) else "master"
 		log.info("RX L2CAP (%6s:%7x): %s"%(role,pkt.clkn,pkt))
-
-class BTCtlFramingError(Exception):
-	"""A USB packet that does not fit the framing the device sends."""
-
-class BTCtlNoDeviceError(Exception):
-	"""No Ubertooth to control."""
 
 class BTCtl:
 	DATA_IN = 0x82
