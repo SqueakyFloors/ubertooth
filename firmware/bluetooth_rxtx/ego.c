@@ -42,6 +42,8 @@ static const uint16_t channels[4] = { 2408, 2418, 2423, 2469 };
 // global mutable state
 // FIXME: put this in a struct and reset it properly
 uint32_t access_code = 0x630f9ffe;
+/* Stored for rf_on()'s TODO below: the radio is told a 32-bit sync word
+ * whatever length the host asked for, so nothing reads this yet. */
 int access_code_len = 4;
 
 typedef enum _ego_state_t {
