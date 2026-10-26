@@ -40,11 +40,12 @@
 #define TESTS_DIR "tests"
 
 /*
- * The tree has seven images. The sweep below checks it found at least that
- * many, so a sweep that stopped finding them -- a renamed directory, a wrong
- * path -- fails rather than passing on nothing.
+ * The tree has eight images that build the shared sources: the seven in
+ * firmware/Makefile's DIRS, plus the bootloader. The sweep below checks it
+ * found at least that many, so a sweep that stopped finding them -- a renamed
+ * directory, a wrong path -- fails rather than passing on nothing.
  */
-#define IMAGES_EXPECTED 7
+#define IMAGES_EXPECTED 8
 
 /* Longer than any makefile line in the tree, with room to spare. */
 #define MAX_LINE 512
@@ -104,6 +105,13 @@ static const struct {
 	 * clean cannot disagree about where output lands. */
 	{ "OBJ = $(call per_image,", "OBJ built through per_image" },
 	{ "LST = $(call per_image,", "LST built through per_image" },
+	/* The depfiles too. The compiler writes each one beside its object, so
+	 * a makefile that looked for them anywhere else would read none. */
+	{ "DEPFILES = $(call per_image,", "DEPFILES built through per_image" },
+	/* And it must read them back, or editing a header rebuilds nothing and
+	 * the image goes stale in its own tree -- the same class of bug from
+	 * the other direction. */
+	{ "-include $(DEPFILES)", "the depfiles being read back" },
 	/* A rule for each kind of source above the image directory. Without
 	 * one, make falls back to the in-directory rule and writes the object
 	 * beside the shared source again. */
@@ -124,6 +132,7 @@ static const struct {
 static const char *const banned_shape[] = {
 	"=$(OBJDIR)/%.o",
 	"=$(OBJDIR)/%.lst",
+	"=$(OBJDIR)/%.d",
 };
 
 static void check_one_makefile(const char *path)

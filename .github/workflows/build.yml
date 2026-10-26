@@ -386,7 +386,7 @@ jobs:
       # flashing, not to verify that the firmware compiles and links.
       #
       # The bootloader is built through its own target in firmware/Makefile,
-      # which handles the objects it shares with the other images. Its link is
+      # because it is the one image needing the ARM C++ runtime. Its link is
       # also the check that the image still fits: the linker script gives it a
       # 16 KiB region, and a build that outgrows it fails here rather than on a
       # board that will not boot, which matters because it is the one image

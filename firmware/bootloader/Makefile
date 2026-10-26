@@ -284,6 +284,12 @@ LST = $(call per_image,$(SRC:%.c=%.lst) $(CPPSRC:%.cpp=%.lst) $(ASRC:%.S=%.lst))
 # Compiler flags to generate dependency files.
 GENDEPFLAGS = -MMD -MP -MD
 
+# Read those dependency files back, so editing a header rebuilds what includes
+# it. The compiler writes each one beside its object, so the paths come from
+# per_image too.
+DEPFILES = $(call per_image,$(SRC:%.c=%.d) $(CPPSRC:%.cpp=%.d))
+-include $(DEPFILES)
+
 # Combine all necessary flags and optional flags.
 # Add target processor to flags.
 ALL_CFLAGS = -mcpu=$(CPU) -$(CPU_MODE) $(CPU_FLAGS) -I. $(CFLAGS) $(GENDEPFLAGS)
@@ -473,8 +479,8 @@ clean_list:
 	@# same lists the build uses, so clean cannot drift from it.
 	$(REMOVE) $(OBJ)
 	$(REMOVE) $(LST)
-	$(REMOVE) $(call per_image,$(SRC:%.c=%.o.d) $(CPPSRC:%.cpp=%.o.d) $(ASRC:%.S=%.o.d))
-	$(REMOVE) $(call per_image,$(SRC:%.c=%.d) $(CPPSRC:%.cpp=%.d))
+	$(REMOVE) $(call per_image,$(ASRC:%.S=%.o.d))
+	$(REMOVE) $(DEPFILES)
 	@# The shared/ tree the lines above emptied. addsuffix yields nothing at
 	@# all if OBJDIR is somehow blank, rather than a path at the root.
 	rm -rf $(addsuffix /shared,$(OBJDIR))

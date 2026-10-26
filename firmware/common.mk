@@ -113,6 +113,9 @@ OBJDIR = .
 #   bluetooth.c           ->  ./bluetooth.o
 #   ../common/ubertooth.c ->  ./shared/common/ubertooth.o
 # Objects, listings and depfiles all go through here, so they stay together.
+#
+# shared/ is reserved for build output: clean removes the whole tree, so no
+# image may keep sources in a directory of that name.
 per_image = $(addprefix $(OBJDIR)/,$(patsubst ../%,shared/%,$(1)))
 
 # Optimization level, can be [0, 1, 2, 3, s].
