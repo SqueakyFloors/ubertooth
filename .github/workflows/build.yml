@@ -63,7 +63,7 @@ jobs:
     # Above what the two bounded steps below can take together, plus the
     # build and the tests, so a step that overruns fails itself and names what
     # stalled rather than being cancelled along with the job.
-    timeout-minutes: 18
+    timeout-minutes: 20
 
     steps:
     - uses: actions/checkout@v4
@@ -190,7 +190,7 @@ jobs:
       # skipped by design.
       # One bounded call of 180 seconds an attempt, so at most 9 minutes 50
       # seconds, and then the install.
-      timeout-minutes: 10
+      timeout-minutes: 11
       # sudo is outside the helper so the limit lands on apt itself: killing
       # sudo would leave apt holding the dpkg lock.
       run: |
@@ -314,7 +314,7 @@ jobs:
     - name: Install dependencies (macOS)
       # Twelve minutes is well above what this step has ever legitimately
       # taken (four and a half on the oldest runner, where brew rebuilt a
-      # dependency from source), and well below the job's fifteen, so a brew
+      # dependency from source), and well below the job's eighteen, so a brew
       # that never finishes fails here by name.
       timeout-minutes: 12
       run: |
@@ -494,17 +494,20 @@ jobs:
     # recommends as the firmware job does; ca-certificates is then needed
     # explicitly for the HTTPS checkout of the submodules.
     - name: Install checkout prerequisites
-      # Two bounded commands of 100 seconds, so under 4 minutes at worst.
-      timeout-minutes: 4
+      # Two bounded commands of 100 seconds, so 3 minutes 40 at worst.
+      timeout-minutes: 5
       # tools/retry.sh really is unavailable here, but timeout is not, so the
       # two downloads are bounded and say what happened, without being retried.
       run: |
-        # 124 is the limit being reached. Any other failure is apt's own and
-        # has printed its reason, so only the timeout needs explaining.
+        # 124 is the limit being reached, 137 the status of a command that
+        # had to be killed at it. Any other failure is apt's own and has
+        # printed its reason, so only the limit needs explaining.
         bounded() {
           timeout --kill-after=10s 100 "$@" && return 0
-          [ $? -eq 124 ] &&
+          status=$?
+          if [ "$status" -eq 124 ] || [ "$status" -eq 137 ]; then
             echo "error: '$*' never finished; the package mirror has stalled" >&2
+          fi
           exit 1
         }
         apt_opts="-o Acquire::http::Timeout=30 -o Acquire::Retries=2"
