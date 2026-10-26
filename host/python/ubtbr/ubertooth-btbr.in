@@ -310,7 +310,12 @@ def main():
 	prompt.cmdloop()
 	if prompt.abandoned():
 		# The session ended with the device still claimed by a command that
-		# would not stop, so it did not do all it was asked.
-		sys.exit(1)
+		# would not stop, so it did not do all it was asked. Out without the
+		# interpreter's own teardown: that command may still be inside
+		# libusb, and taking the library down under it is what turns an exit
+		# into an abort. Nothing is buffered past the flushes.
+		sys.stdout.flush()
+		sys.stderr.flush()
+		os._exit(1)
 
 if __name__ == '__main__': main()

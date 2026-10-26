@@ -619,6 +619,20 @@ ENVIRONMENT = dict(
 )
 
 
+# The wrapper puts its own module directory ahead of PYTHONPATH, so check
+# that the fake still wins where the tool itself looks, before any case runs
+# the tool. Otherwise these cases would quietly open whatever board is
+# plugged in.
+found = subprocess.run(
+    [sys.executable, "-c",
+     "import sys; sys.path.insert(0, %r); import usb1; print(usb1.__file__)"
+     % MODULE_DIR],
+    capture_output=True, text=True, env=ENVIRONMENT, timeout=DEADLINE)
+assert os.path.dirname(found.stdout.strip()) == WORK.name, \
+    ("the tool would import the real usb1 and open a board", found.stdout,
+     found.stderr)
+
+
 def tool(environment=None):
     if os.path.exists(WRITES_FILE):
         os.remove(WRITES_FILE)

@@ -994,10 +994,12 @@ class BTCtl:
 		# Daemon, so a receive loop stuck in libusb cannot hold up an
 		# interpreter that is shutting down.
 		self._rx_thread = Thread(target=self._rx_thread_main, daemon=True)
-		self._rx_thread.start()
-		log.info("USB connected")
+		# Set before the thread runs, so an interrupt landing between the two
+		# still leaves a device whoever handles it can see and close.
 		self._open = True
 		self._con = True
+		self._rx_thread.start()
+		log.info("USB connected")
 		self.send_idle_cmd()
 		sleep(1)
 

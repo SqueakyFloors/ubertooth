@@ -98,7 +98,7 @@ add_test(NAME ubtbr
 	COMMAND ${Python3_EXECUTABLE}
 		${CMAKE_CURRENT_SOURCE_DIR}/ubtbr/tests/test_ubtbr.py
 		${UBTBR_WRAPPER})
-set_tests_properties(ubtbr PROPERTIES TIMEOUT 60)
+set_tests_properties(ubtbr PROPERTIES TIMEOUT 90)
 
 # Create uninstall target
 if(NOT ubertooth_all_SOURCE_DIR)
