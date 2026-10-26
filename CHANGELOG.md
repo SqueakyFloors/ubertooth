@@ -231,10 +231,11 @@
   [#370](https://github.com/SqueakyFloors/ubertooth/issues/370)
 - `ubertooth-btbr` can be interrupted: Ctrl-C ends the running command and
   returns to the `bt>` prompt, and `q` exits. A request the board will not take
-  or answer, a command that outlived its stop, and no board at all, are
-  reported as an `error:` line instead of a hang or a traceback, and the
-  `Malformed EIR` note moves off standard output with them. The hang shortly
-  after start is unresolved.
+  or answer, and no board at all, are reported instead of hanging or ending in
+  a traceback, and the `Malformed EIR` note moves off standard output. A
+  session that ends with the board still held by a command that would not stop
+  now exits 1 rather than 0, and a bad `-f` or `-b` value is refused before a
+  board is opened. The hang shortly after start is unresolved.
   [#1](https://github.com/SqueakyFloors/ubertooth/issues/1)
 - A follow-mode control command the board refuses now names itself and says
   what went wrong, for example `error: start hopping failed: the board does

@@ -64,8 +64,10 @@ how long it was prepared to wait. UBTBR_FAKE_WRITE_FAILS_AFTER is how many
 writes are taken before the rest time out, standing in for a device that stops
 draining the endpoint, and UBTBR_FAKE_SETUP_DELAY how long claiming the
 interface takes, which holds the tool short of its prompt, with
-UBTBR_FAKE_CLAIMED a file created once it is in there. UBTBR_FAKE_NO_DEVICE
-makes the context find nothing to open.
+UBTBR_FAKE_CLAIMED a file created once it is in there. UBTBR_FAKE_WRITE_DELAY
+holds each write, which keeps the tool short of its prompt with the receive
+thread already running. UBTBR_FAKE_NO_DEVICE makes the context find nothing
+to open, and UBTBR_FAKE_CLOSED names a file created when the handle is closed.
 """
 
 import os
@@ -96,6 +98,7 @@ class _Handle:
         if path:
             with open(path, "a") as writes:
                 writes.write("%s %d\\n" % (bytes(data).hex(), timeout))
+        time.sleep(float(os.environ.get("UBTBR_FAKE_WRITE_DELAY", "0")))
         taken = os.environ.get("UBTBR_FAKE_WRITE_FAILS_AFTER")
         if taken is not None and self.writes > int(taken):
             raise USBErrorTimeout("timeout")
@@ -106,7 +109,9 @@ class _Handle:
         raise USBErrorTimeout("timeout")
 
     def close(self):
-        pass
+        marker = os.environ.get("UBTBR_FAKE_CLOSED")
+        if marker:
+            open(marker, "w").close()
 
 
 class USBContext:
@@ -370,6 +375,9 @@ assert device.inquiry_requests == 0, device.inquiry_requests
 prompt.do_exit("q")
 assert not device.closed, \
     "the device must stay open while a command can still write to it"
+# and a session that ends with the board still held did not do all it was
+# asked, so it must not report success
+assert prompt.abandoned(), "leaving the device claimed is not a clean exit"
 print("ubtbr: the prompt stays usable with a command that will not stop")
 
 # ---- a super command that gives up and then ends cleanly ------------------
@@ -512,6 +520,62 @@ assert not handle.closed, \
     "the device must stay open while a command can still write to it"
 print("ubtbr: exiting leaves the device open for a command nobody holds")
 
+# ---- a message that stopped part way --------------------------------------
+
+# A message longer than one packet goes out as a start packet and
+# continuations. The device keeps what it has and takes only the rest: a
+# fresh start packet is a framing error its firmware does not come back
+# from. So a message that stopped part way has to end the sending, not free
+# the connection for the next command to frame a new one.
+class StallingHandle:
+    """A USB handle that takes the first write of each message and no more."""
+
+    def __init__(self):
+        self.sent = []
+        self.closed = False
+
+    def claimInterface(self, interface):
+        pass
+
+    def bulkWrite(self, endpoint, data, timeout=0):
+        self.sent.append(bytes(data)[:1])
+        if len(self.sent) > 1:
+            raise usb1.USBErrorTimeout("timeout")
+        return len(data)
+
+    def bulkRead(self, endpoint, length, timeout=0):
+        time.sleep(timeout / 1000.0)
+        raise usb1.USBErrorTimeout("timeout")
+
+    def close(self):
+        self.closed = True
+
+
+handle = StallingHandle()
+bt = btctl.BTCtl(handle)
+long_message = bytes(200)
+try:
+    bt._send_usb(long_message)
+except usb1.USBError:
+    pass
+else:
+    raise AssertionError("the continuation did not fail")
+assert handle.sent == [b"S", b"C"], handle.sent
+# nothing else may be framed onto a device waiting for the rest of that one
+for again in (long_message, bytes(4)):
+    try:
+        bt._send_usb(again)
+    except btctl.BTCtlFramingError:
+        pass
+    else:
+        raise AssertionError("a second message was framed anyway")
+assert handle.sent == [b"S", b"C"], handle.sent
+# and a stop asked for in that state is reported, not raised: what asks is
+# the keyboard interrupt handler
+command = btctl.BTCtlInquiryCmd(bt)
+command.stop()
+print("ubtbr: a message that stopped part way ends the sending")
+
 # ---- a command that ends after the prompt gave up on it -------------------
 
 # Giving up has to be a pause, not the end of the session: a command that
@@ -630,16 +694,20 @@ assert errors == "error: no Ubertooth devices found\n", errors
 print("ubtbr: no Ubertooth is one error line and exit 1")
 
 # an option value that is not a number: one error line, not the traceback
-# out of int() that this change's try block would otherwise let through
+# out of int(). Refused before a board is opened, so a wrong command line
+# touches nothing and says what is wrong with it rather than reporting
+# whatever the board did first: there is no device here to find, and the
+# answer is still about the option.
 running = subprocess.Popen([sys.executable, WRAPPER, "-f", "nine"],
                            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                           stderr=subprocess.PIPE, text=True, env=ENVIRONMENT)
+                           stderr=subprocess.PIPE, text=True,
+                           env=dict(ENVIRONMENT, UBTBR_FAKE_NO_DEVICE="1"))
 output, errors = running.communicate("", timeout=DEADLINE * 2)
 assert running.returncode == 1, (running.returncode, output, errors)
 assert output == "", output
-assert "error: -f must be a whole number (got nine)" in errors, errors
-assert "Traceback" not in errors, errors
-print("ubtbr: an option value that is not a number is one error line")
+assert errors == "error: -f must be a whole number (got nine)\n", repr(errors)
+assert not writes(), writes()
+print("ubtbr: a bad option value is refused before a board is opened")
 
 # an interrupt before the prompt is up, which is the window the hang shortly
 # after start lives in: the tool ends, with no traceback and nothing on
@@ -655,6 +723,27 @@ assert running.returncode == 1, (running.returncode, output, errors)
 assert output == "", output
 assert "Traceback" not in errors, errors
 print("ubtbr: an interrupt before the prompt ends the tool")
+
+# the same, but interrupted once the receive thread is running, which is the
+# window the setup requests sit in. The thread has to be given its stop
+# before the interpreter goes: one still inside libusb when the library is
+# taken down turns the exit into an abort, which is what a board dropping off
+# USB mid-run produced on hardware.
+closed = os.path.join(WORK.name, "closed")
+# Long enough to be interrupted inside a request, short enough that the idle
+# request the way out sends is not what this case spends its time on.
+running = tool(dict(ENVIRONMENT, UBTBR_FAKE_WRITE_DELAY="2",
+                    UBTBR_FAKE_CLOSED=closed))
+# interrupted inside a setup request, so the device is open and being read
+assert wait_until(lambda: writes()), "no request was sent"
+running.send_signal(signal.SIGINT)
+output, errors = running.communicate("", timeout=DEADLINE * 2)
+assert running.returncode == 1, (running.returncode, output, errors)
+assert output == "", output
+assert "Traceback" not in errors, errors
+assert os.path.exists(closed), \
+    "the device was not closed, so a thread was left inside libusb"
+print("ubtbr: an interrupt mid-request stops the receive thread before exiting")
 
 # Ctrl-C with a command running returns to the prompt, and the tool then
 # exits 0. The command is one the fake device never answers, which is the

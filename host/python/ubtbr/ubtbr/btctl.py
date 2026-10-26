@@ -447,8 +447,12 @@ class BTCtlCmd(Thread):
 	STOP_GRACE = 0.5
 	# How often the loop looks at a pending stop while waiting for a message.
 	POLL_INTERVAL = 0.05
-	# What a caller joining a stopped command should allow it: the grace
-	# above, and room to finish what it was in the middle of.
+	# What a caller joining a stopped command should allow it. Asking for the
+	# stop already waited behind whatever write was in flight, since both go
+	# through the one send lock, so this covers the grace above and a little
+	# more. A handler part way through several writes to a board that takes
+	# none of them can outlast it; the command is then given up on, and the
+	# prompt takes commands again once it ends.
 	JOIN_TIMEOUT = 2
 
 	def __init__(self, bt):
@@ -473,7 +477,7 @@ class BTCtlCmd(Thread):
 		self._stopping.set()
 		try:
 			self._bt.send_idle_cmd()
-		except usb1.USBError as e:
+		except (usb1.USBError, BTCtlError) as e:
 			# Raising here would come out of whoever asked for the stop,
 			# which is the keyboard interrupt handler among others. The
 			# command ends on its own below either way.
@@ -551,7 +555,13 @@ class BTCtlCmd(Thread):
 			# releasing the handler, so the next command can be started.
 			self._done = True
 			log.debug("%s done"%self)
-			self._bt.unregister_msg_handler(self._put_msg)
+			try:
+				self._bt.unregister_msg_handler(self._put_msg)
+			except BTCtlError as e:
+				# Nothing can swap the handler underneath a command, so this
+				# is only here so that no path out of this thread is a
+				# traceback.
+				log.error("%s could not let the device go: %s"%(self, e))
 
 	def done(self):
 		return self._done
@@ -859,6 +869,9 @@ class BTCtl:
 		self._rx_stopped = Event()
 		self._rx_stopped.clear()
 		self._rx_error = None
+		# Set when a message may have been left half delivered, after which
+		# the device accepts nothing but the rest of it.
+		self._out_of_step = False
 		self._msg_handler = None
 
 	@staticmethod
@@ -994,7 +1007,7 @@ class BTCtl:
 		self._con = False
 		try:
 			self.send_idle_cmd()
-		except usb1.USBError as e:
+		except (usb1.USBError, BTCtlError) as e:
 			log.warning("Could not ask the device to go idle: %s"%e)
 		if self.rx_error() is not None:
 			log.warning("Receive thread had already stopped: %s"%self.rx_error())
@@ -1023,12 +1036,26 @@ class BTCtl:
 		# Held as a context manager: a write that fails half way through a
 		# message used to keep the lock, so the next send never returned.
 		with self._con_lock:
+			if self._out_of_step:
+				raise BTCtlFramingError(
+					"the device is waiting for the rest of a message that "
+					"could not be sent")
 			usb_hdr = b"S\x00"+pack("<H", len(data))
-			chunk,data = data[:60],data[60:]
-			self._send_usb_bulk(usb_hdr+chunk)
-			while data:
-				chunk,data = data[:63],data[63:]
-				self._send_usb_bulk(b'C'+chunk)
+			head,rest = data[:60],data[60:]
+			try:
+				self._send_usb_bulk(usb_hdr+head)
+				while rest:
+					chunk,rest = rest[:63],rest[63:]
+					self._send_usb_bulk(b'C'+chunk)
+			except usb1.USBError:
+				if len(data) > 60:
+					# The device keeps what it has of a message and takes
+					# only the rest of it; anything else is a framing error
+					# the firmware does not come back from. A message that
+					# needed more than one packet and stopped part way may
+					# have left it waiting, so nothing more is sent here.
+					self._out_of_step = True
+				raise
 
 	def _send_cmd(self, t, data=b''):
 		hdr = pack("<I", t)
