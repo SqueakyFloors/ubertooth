@@ -747,7 +747,7 @@ static int count_lines_with(const char *path, const char *a, const char *b,
 /*
  * The waits that hung the firmware were all `while` loops on a USB register.
  * There must be none left: each one is a loop a controller that stops
- * answering holds for good, and USB service is in the same thread as the mode
+ * answering holds forever, and USB service is in the same thread as the mode
  * loops, so the board stops answering with it.
  */
 MU_TEST(test_no_unbounded_waits_on_usb_registers_remain)

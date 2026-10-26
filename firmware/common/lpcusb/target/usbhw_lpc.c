@@ -709,7 +709,7 @@ DEBUG_LED_ON(9);
          * read it on the next pass.
          *
          * Once, though. The device interrupt stays asserted while the bit is
-         * set, so against an engine that has stopped answering for good this
+         * set, so against an engine that has stopped answering forever this
          * would re-enter the handler for ever in the modes that service USB
          * from the interrupt. One retry recovers the transient case; after
          * that the event is dropped, and the endpoint work below still runs.

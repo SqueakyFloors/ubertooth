@@ -235,7 +235,7 @@ void dfu_image_describe_failure(const struct dfu_image_report *report,
  * How much flash there is to read back.
  *
  * A read with no flash behind it is a bus fault that takes the bootloader
- * down for good, so the host must not ask for more than the part has.
+ * down permanently, so the host must not ask for more than the part has.
  *
  * A bootloader built from this tree refuses such a request itself, bounded by
  * the same figures (firmware/bootloader/flash.h). But a board carries
