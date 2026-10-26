@@ -101,7 +101,7 @@
   the command returns at once and the board stays reachable; `-S` or any mode
   option stops it and leaves the LEDs off.
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
-- **Reflash required:** the firmware API version is now 1.19, last moved by the
+- **Reflash required:** the firmware API version is now 1.20, last moved by the
   bootloader's read-back bound, and the host tools require firmware of exactly
   their own API version, older or newer (`ubertooth-util` still reads
   the version and reflashes any firmware). Host and firmware come from the
