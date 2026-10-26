@@ -131,4 +131,9 @@ usb_pkt_rx *usb_enqueue();
 usb_pkt_rx *dequeue();
 void handle_usb(u32 clkn);
 
+/* handle_usb() with the bulk stream's keep-alive timestamp filled in, for the
+ * mode loops to pass to the bounded radio waits in cc2400_wait.h. Defined in
+ * bluetooth_rxtx.c, where that timestamp is in scope. */
+void service_usb(void);
+
 #endif /* __UBERTOOTH_USB_H */

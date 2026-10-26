@@ -56,7 +56,18 @@ static u8 channel_used(u8 chan)
 	return (afh_map[chan / 8] >> (chan % 8)) & 0x1;
 }
 
-/* do all of the one time precalculation */
+/*
+ * Do all of the one time precalculation.
+ *
+ * This rebuilds bank[], afh_bank[] and used_channels in place, which next_hop()
+ * reads. It is safe only because both run in one context: a control request
+ * reaches it through bluetooth_set_afh_map(), and the BR/EDR modes that hop
+ * poll USB from their own loops, so the request runs between next_hop() calls
+ * and never during one. A mode that serviced USB from the USB interrupt
+ * instead could take the request mid-hop and read a half-rebuilt table; such a
+ * mode would have to rebuild into a second table and swap it in, or defer the
+ * change to the next hop.
+ */
 void precalc(void)
 {
 	u8 i, j, chan;

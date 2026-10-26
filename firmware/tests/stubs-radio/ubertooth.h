@@ -18,5 +18,6 @@
 
 u8 cc2400_status(void);
 u8 cc2400_strobe(u8 reg);
+u16 cc2400_get(u8 reg);
 
 #endif /* UBERTOOTH_TEST_RADIO_STUB_H */

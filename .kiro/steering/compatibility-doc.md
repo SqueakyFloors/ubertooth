@@ -26,6 +26,9 @@ adjacent commit on the same branch) as whatever alters it.
 - Follow the document's honesty rule: mark a cell *Verified* only if it was
   exercised by CI or on real hardware. Use *Target (unverified)* for intended
   but unproven support. Never claim support that has not been proven.
+- Table cells are a few words each: the version, the platform, and ✅/❌ with at
+  most one short clause. Details of what was tested and when go in PRs and
+  hardware reports, not in the table.
 - Keep the matrix to current claims and the versions seen. Do NOT add a running
   log of hardware or CI runs to `COMPATIBILITY.md`; it has no natural end and
   goes stale. Hardware evidence belongs in the per-release validation report

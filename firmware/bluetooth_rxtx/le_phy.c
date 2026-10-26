@@ -546,7 +546,7 @@ static void le_cc2400_init_rf(void) {
 	// status read is a bit-banged SPI transfer on a bus interrupt handlers
 	// also drive, so a corrupt status byte is a real possibility rather than
 	// a hypothetical one.
-	cc2400_wait_xosc_stable();
+	cc2400_wait_xosc_stable(NULL);
 
 	// wait for FS_LOCK in background
 	cc2400_strobe(SFSON);

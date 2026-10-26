@@ -468,6 +468,12 @@ void clock_start()
 	cc2400_reset();
 	cc2400_set(IOCFG, (GIO_CARRIER_SENSE_N << 9) | (GIO_CLK_16M << 3));
 	cc2400_strobe(SXOSCON);
+	/* The one radio wait in this file left unbounded. It runs from
+	 * clock_start() during boot, before the USB controller is brought up, so
+	 * a part that never reports its oscillator stable gives a board that
+	 * never enumerates -- not one that enumerates and answers nothing. There
+	 * is also nothing to carry on with: everything after this needs the
+	 * 16 MHz clock the CC2400 provides. */
 	while (!(cc2400_status() & XOSC16M_STABLE));
 
 	/* activate main oscillator */
@@ -579,48 +585,6 @@ void EINT3_IRQHandler(void)
 	IO2IntClr |= (0x1 << 8);
 }
 #endif
-
-/*
- * Tune the CC2400 to a frequency in MHz for RX.  The calling function should
- * ensure that the CC2400 is in the IDLE state.
- */
-void cc2400_tune_rx(uint16_t channel)
-{
-	cc2400_set(FSDIV, channel - 1);
-}
-
-/*
- * Tune the CC2400 to a frequency in MHz for TX.  The calling function should
- * ensure that the CC2400 is in the IDLE state.
- */
-void cc2400_tune_tx(uint16_t channel)
-{
-	cc2400_set(FSDIV, channel);
-}
-
-/* Hop to a new RX frequency in MHz.  Assumes starting from RX or TX state. */
-void cc2400_hop_rx(uint16_t channel)
-{
-	cc2400_strobe(SRFOFF);
-	while ((cc2400_status() & FS_LOCK));
-	cc2400_tune_rx(channel);
-	while (!(cc2400_status() & XOSC16M_STABLE));
-	cc2400_strobe(SFSON);
-	while (!(cc2400_status() & FS_LOCK));
-	cc2400_strobe(SRX);
-}
-
-/* Hop to a new TX frequency in MHz.  Assumes starting from RX or TX state. */
-void cc2400_hop_tx(uint16_t channel)
-{
-	cc2400_strobe(SRFOFF);
-	while ((cc2400_status() & FS_LOCK));
-	cc2400_tune_rx(channel);
-	while (!(cc2400_status() & XOSC16M_STABLE));
-	cc2400_strobe(SFSON);
-	while (!(cc2400_status() & FS_LOCK));
-	cc2400_strobe(SRX);
-}
 
 void get_part_num(uint8_t *buffer, int *len)
 {

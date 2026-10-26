@@ -1,5 +1,5 @@
 /*
- * Bounded waits on CC2400 synthesizer state.
+ * Bounded waits on CC2400 radio state.
  *
  * This file is part of Project Ubertooth and is released under the
  * terms of the GPL. Refer to COPYING for more information.
@@ -65,8 +65,10 @@ int cc2400_wait_fs(int locked, void (*service)(void));
 #define XOSC_STABLE_POLLS 10000
 
 /* Wait, with a bound, for the CC2400 to report its 16 MHz crystal oscillator
- * stable. There is nothing to re-strobe: the oscillator is started by the
- * register configuration the caller has already written, so this only polls.
+ * stable. Calls `service`, if it is not NULL, between reads, for the same
+ * reason cc2400_wait_fs() does. There is nothing to re-strobe: the oscillator
+ * is started by the register configuration the caller has already written, so
+ * this only polls.
  *
  * The unbounded `while (!(cc2400_status() & XOSC16M_STABLE));` it replaces sits
  * at the top of a mode, before the loop that services USB has started, so a
@@ -77,7 +79,7 @@ int cc2400_wait_fs(int locked, void (*service)(void));
  *
  * Returns 1 if the oscillator reported stable, 0 if the wait timed out.
  */
-int cc2400_wait_xosc_stable(void);
+int cc2400_wait_xosc_stable(void (*service)(void));
 
 /* Wait for the CC2400 synthesizer to report unlocked, with a bound.
  *
@@ -103,5 +105,31 @@ int cc2400_wait_xosc_stable(void);
  * Returns 1 if the synthesizer reported unlocked, 0 if the wait timed out.
  */
 int cc2400_wait_fs_unlock(void);
+
+/* Polls before the wait on the radio's state machine gives up. Each poll is a
+ * 16-bit bit-banged read (cc2400_get(), two SPI bytes), so a couple of
+ * microseconds, which makes 2000 polls a few milliseconds -- and longer again
+ * for the callers that pass a service callback, since each poll then also
+ * services USB. The states callers wait for are reached in well under a
+ * millisecond: the longest is the end of a transmit, and the longest packet any
+ * caller sends is the range test's 22 bytes, 176 microseconds at 1 Mbit. So the
+ * bound is out of reach of a radio that is working at all, which is all it has
+ * to be. */
+#define FSM_POLLS 2000
+
+/* Wait, with a bound, for the CC2400's state machine to report `state`: one of
+ * the STATE_* values, compared against the low five bits of FSMSTATE. Calls
+ * `service`, if it is not NULL, between reads, for the same reason
+ * cc2400_wait_fs() does.
+ *
+ * Callers use this to wait for STATE_STROBE_FS_ON, which the state machine
+ * returns to when a transmit finishes. The unbounded
+ * `while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);` it replaces
+ * sits in br_transmit()'s streaming loop, so a radio that stops advancing left
+ * the board enumerated and answering no control request.
+ *
+ * Returns 1 if the state machine reported `state`, 0 if the wait timed out.
+ */
+int cc2400_wait_fsm(u8 state, void (*service)(void));
 
 #endif /* __UBERTOOTH_CC2400_WAIT_H */
