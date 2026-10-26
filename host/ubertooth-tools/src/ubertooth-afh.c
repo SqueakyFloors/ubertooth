@@ -187,10 +187,7 @@ int main(int argc, char* argv[])
 	if (use_r_format) {
 		rx_afh_r(ut, pn, timeout);
 		/* rx_afh_r() runs its own receive loop and returns nothing, so a
-		 * stream that died has to be read from the handle. The run stopped
-		 * there, and libubertooth has already printed what failed. */
-		if (ubertooth_stream_failed(ut))
-			status = 1;
+		 * stream that died is read from the handle below. */
 	} else {
 		r = rx_afh(ut, pn, timeout);
 		if (r == UBERTOOTH_AFH_NO_PACKETS) {
@@ -208,6 +205,12 @@ int main(int argc, char* argv[])
 	}
 
 	ubertooth_stop(ut);
+	/* A stream that died is read after the teardown, because the teardown is
+	 * where a transfer the board never gave back comes out: that run holds
+	 * less than was asked for, whatever the phases above made of it.
+	 * libubertooth has already printed what failed. */
+	if (ubertooth_stream_failed(ut))
+		status = 1;
 	/* The piconet outlives the receive phases, so it is given back here
 	 * rather than in them. */
 	btbb_piconet_unref(pn);
