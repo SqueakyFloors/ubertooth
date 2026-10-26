@@ -436,23 +436,6 @@ int main(int argc, char *argv[])
 
 	cmd_set_bdaddr(ut->devh, btbb_piconet_get_bdaddr(pn));
 	cmd_set_clock(ut->devh, 0);
-	/* The board keeps the AFH map and the enable flag an earlier run left,
-	 * and start-hopping does not reset them, so a follow with no map has to
-	 * clear them: otherwise it would hop adaptively on a stale map while
-	 * reporting that it is not using AFH. Both are checked, because
-	 * carrying on would hop on the wrong channel set either way. The set is
-	 * asynchronous, so this catches a submission that fails, not a transfer
-	 * that fails later. */
-	if (afh_enabled)
-		r = cmd_set_afh_map(ut->devh, afh_map);
-	else
-		r = cmd_clear_afh_map(ut->devh);
-	if (r < 0) {
-		fprintf(stderr, "error: %s the board's AFH map failed\n",
-		        afh_enabled ? "setting" : "clearing");
-		follow_cleanup(ut, sock, handle, cc);
-		return 1;
-	}
 
 	/* Read clocks here to ensure clock is closest to real value. Without a
 	 * clock there is nothing to follow, so a failed read stops the command
@@ -484,6 +467,18 @@ int main(int argc, char *argv[])
 	if (r < 0) {
 		follow_cleanup(ut, sock, handle, cc);
 		return r;
+	}
+
+	/* A map read from the remote device with -a is applied after the mode
+	 * has started, not before: starting a mode forgets whatever AFH map the
+	 * board was holding, so a map sent first would be thrown away. With no
+	 * -a there is nothing to send, and the mode start is what leaves the
+	 * board hopping the whole channel set. The set is asynchronous, so this
+	 * catches a submission that fails, not a transfer that fails later. */
+	if (afh_enabled && cmd_set_afh_map(ut->devh, afh_map) < 0) {
+		fprintf(stderr, "error: setting the board's AFH map failed\n");
+		follow_cleanup(ut, sock, handle, cc);
+		return 1;
 	}
 
     if (cc) {

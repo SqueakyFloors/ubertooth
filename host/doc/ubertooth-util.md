@@ -163,10 +163,11 @@ Radio options:
    through levels by design and leave the level wherever their sweep ended, so
    set it again after using them.
  - `-c [2402-2480]` :
-   get/set channel in MHz. A standalone set sticks: the board keeps it after the
-   command exits, so a later command reads the same value back, as long as the
-   board stays idle in between. Running any mode puts the channel back to 2441
-   MHz when that mode ends, as described above.
+   get/set channel in MHz. A standalone set persists until a mode starts: the
+   board keeps it after the command exits, so a later command reads the same
+   value back, as long as no mode runs in between. A mode takes the channel
+   over — it is back to 2441 MHz once that mode ends, as described above — so
+   set it again after one. See CARRY-OVER BETWEEN RUNS.
  - `-C [0-78]` :
    get/set channel, by Bluetooth channel number rather than frequency. It is the
    same setting as `-c` and keeps its value the same way.
@@ -436,6 +437,25 @@ is the behaviour to work with:
 `-z` together with one of `ubertooth-util`'s own mode options is refused
 rather than quietly dropped, because each of those modes leaves whatever was
 running first and the reset would discard the value before the mode started.
+
+## CARRY-OVER BETWEEN RUNS
+
+One rule covers everything a board holds from one command to the next:
+
+- **Every mode start resets the board's mode state, its hop mode and its AFH
+  channel map.** A capture hops the way the mode that started it asks, and no
+  other way: `ubertooth-rx` after an `ubertooth-afh` hops across the whole
+  channel set, not on the map that run found. This holds even when the earlier
+  tool was killed and left the board streaming. The squelch and the LEDs go
+  with it, as above; the power amplifier level set with `-a` does not.
+- **A channel set on its own persists until a mode starts.** `-c`/`-C` with no
+  mode on the command line leaves the board on that channel for as long as it
+  stays idle, and a later `-c` reads it back. The next mode takes the channel
+  over, so set it again afterwards.
+
+So a setting meant for one capture is set for that capture: on an idle board
+just before it starts, or on the board while it runs. Nothing a command leaves
+behind decides how the next one captures.
 
 ## EXIT STATUS
 

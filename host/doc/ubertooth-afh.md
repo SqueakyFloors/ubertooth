@@ -58,6 +58,13 @@ seen on, and the tool tells the board to stop visiting a channel once a packet
 from the piconet has arrived there. That is how the map fills in: a channel is
 reported used only when a packet is received on it.
 
+The map lives on the board only while this run does. Every mode start resets
+the board's hop mode and AFH map, so this run begins from an empty map, and the
+next capture — another `ubertooth-afh`, an `ubertooth-rx`, anything — hops
+across the whole channel set rather than on the map found here. That holds even
+if this run is killed and leaves the board streaming. See ubertooth-util(1),
+CARRY-OVER BETWEEN RUNS.
+
 `-t <seconds>` only adds an initial detection phase: the tool listens for that
 many seconds, prints the map it found, and then starts monitoring. If that
 phase received no packet from the piconet there is no map to print, so the tool
@@ -143,7 +150,8 @@ reported as a quiet piconet, so it exits 1 rather than 2.
 ## SEE ALSO
 
 ubertooth-util(1): sets the receive squelch (`-z`); SQUELCH describes how
-long it lasts
+long it lasts, and CARRY-OVER BETWEEN RUNS what else a board keeps from one
+command to the next
 
 ubertooth-rx(1): a tool for finding UAP and LAP
 

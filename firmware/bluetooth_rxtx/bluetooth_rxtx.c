@@ -227,6 +227,66 @@ int enqueue_with_ts(uint8_t type, uint8_t* buf, uint32_t ts)
 #define READ_ALL_REGISTERS_LEN   (READ_ALL_REGISTERS_COUNT * 3)
 
 /*
+ * Forget the AFH channel map and the flag that says to hop on it.
+ *
+ * The map belongs to the run that found it: a channel set the host narrowed
+ * down for one piconet says nothing about the next capture. used_channels is
+ * the count of entries the map put in the hopping table, so it goes too.
+ */
+static void clear_afh_map(void)
+{
+	size_t i;
+
+	for (i = 0; i < sizeof(afh_map); i++)
+		afh_map[i] = 0;
+	afh_enabled = 0;
+	used_channels = 0;
+}
+
+/*
+ * The three modes bt_stream_rx()'s loop keeps streaming for. A request for one
+ * of them that arrives while another of them runs is absorbed by that loop and
+ * never reaches the mode dispatch in main().
+ */
+static int streams_symbols(uint8_t m)
+{
+	return m == MODE_RX_SYMBOLS || m == MODE_BT_FOLLOW || m == MODE_AFH;
+}
+
+/*
+ * Reset what a mode start resets, for a mode request the running stream
+ * absorbs.
+ *
+ * Starting a mode through the dispatch always leaves the previous one first,
+ * which runs cc2400_idle() and so puts the hop mode back to HOP_NONE and
+ * forgets the AFH map. A request for one of the three modes above, arriving
+ * while another of them runs, never gets there: the loop carries on under the
+ * new mode's name. Without this it also carried on with the old mode's hop
+ * mode and map, so a killed ubertooth-afh left the board streaming and the
+ * next ubertooth-rx captured while hopping adaptively on the old map.
+ *
+ * Only state a running receive can be reset under: the radio stays tuned and
+ * receiving, so the channel it is on and the modulation it is receiving are
+ * left alone. Leaving the channel alone is also what lets a channel set on its
+ * own, with no mode running, persist until a mode starts.
+ *
+ * Call this before the request's own setup, which is what the absorbed mode
+ * starts from. Re-sending the mode that is already running resets nothing: it
+ * is not a mode start, and the dispatch does not reset for one either.
+ */
+static void reset_absorbed_mode_state(uint8_t requested)
+{
+	if (requested == mode || !streams_symbols(mode) ||
+	    !streams_symbols(requested))
+		return;
+
+	hop_mode = HOP_NONE;
+	do_hop = 0;
+	hop_direct_channel = 0;
+	clear_afh_map();
+}
+
+/*
  * Returning 0 stalls the request. `data` is the buffer the USB stack filled
  * from the request's data stage and `data_in_len` how many bytes the host
  * actually sent with it, so a case that reads `data` refuses a request
@@ -253,6 +313,9 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		break;
 
 	case UBERTOOTH_RX_SYMBOLS:
+		/* A plain symbol capture sets nothing up of its own, so this is
+		 * all that keeps it from inheriting a running stream's hopping. */
+		reset_absorbed_mode_state(MODE_RX_SYMBOLS);
 		requested_mode = MODE_RX_SYMBOLS;
 		*data_len = 0;
 		break;
@@ -525,6 +588,7 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 			clkn_offset <<= 8;
 			clkn_offset |= data[i];
 		}
+		reset_absorbed_mode_state(MODE_BT_FOLLOW);
 		hop_mode = HOP_BLUETOOTH;
 		dma_discard = 1;
 		DIO_SSEL_SET;
@@ -540,13 +604,11 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 	 * top, which took the board straight back out of this mode.
 	 */
 	case UBERTOOTH_AFH:
+		reset_absorbed_mode_state(MODE_AFH);
 		hop_mode = HOP_AFH;
 		requested_mode = MODE_AFH;
 
-		for(int i=0; i < 10; i++) {
-			afh_map[i] = 0;
-		}
-		used_channels = 0;
+		clear_afh_map();
 		afh_enabled = 1;
 		break;
 
@@ -570,10 +632,7 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		break;
 
 	case UBERTOOTH_CLEAR_AFHMAP:
-		for(int i=0; i < 10; i++) {
-			afh_map[i] = 0;
-		}
-		afh_enabled = 0;
+		clear_afh_map();
 		*data_len = 10;
 		break;
 
@@ -1040,6 +1099,15 @@ static void cc2400_idle()
 	requested_channel = 0;
 	le_adv_channel = 2402;
 
+	/*
+	 * The AFH map goes with the mode that was using it. Nothing used to
+	 * clear it, so a board that had once run AFH detection or been given a
+	 * map kept hopping on it: the next ubertooth-rx, -tx or -ducky hopped
+	 * adaptively on a channel set found for someone else's piconet, while
+	 * the host reported that it was not using AFH. A mode that wants a map
+	 * sends one once it has started.
+	 */
+	clear_afh_map();
 
 	/* bulk USB stuff */
 	idle_buf_clkn_high = 0;
@@ -1546,8 +1614,11 @@ void bt_stream_rx()
 	 * here rather than going through the dispatch, so a mode in this list
 	 * must be one whose own vendor request sets up everything it needs:
 	 * MODE_AFH's does (hop mode, empty map, afh_enabled), as does
-	 * MODE_BT_FOLLOW's. What such a request still inherits from the mode it
-	 * replaces is a separate open question.
+	 * MODE_BT_FOLLOW's. Such a request inherits nothing else from the mode
+	 * it replaces: each of the three calls reset_absorbed_mode_state()
+	 * first, which clears the hop mode and the AFH map the way leaving a
+	 * mode would have. That is what makes a plain symbol capture, whose
+	 * request sets nothing up, stream plainly here.
 	 *
 	 * MODE_RX_GENERIC reaches this loop through rx_generic(), which is where
 	 * its two receives are told apart and the symbol stream is set up, so it
@@ -3082,17 +3153,27 @@ int main()
 				 * arrive. UBERTOOTH_AFH asks for the hop mode as well, which
 				 * covers a switch into AFH hopping while a stream is already
 				 * running; setting it here is what survives the teardown
-				 * above, which puts hop_mode back to HOP_NONE on the way out
-				 * of whatever ran before.
+				 * above, which puts hop_mode back to HOP_NONE and forgets
+				 * the AFH map on the way out of whatever ran before.
 				 */
 				hop_mode = HOP_AFH;
+				afh_enabled = 1;
 				/* fall through */
 			case MODE_RX_SYMBOLS:
+				bt_stream_rx();
+				break;
 			case MODE_BT_FOLLOW:
+				/* Hopping with the piconet is the whole of following, and
+				 * UBERTOOTH_START_HOPPING asked for it before the teardown
+				 * above ran: ask again, as MODE_AFH does. */
+				hop_mode = HOP_BLUETOOTH;
 				bt_stream_rx();
 				break;
 #ifdef TX_ENABLE
 			case MODE_TX_SYMBOLS:
+				/* Same again: UBERTOOTH_TX_SYMBOLS transmits along the
+				 * piconet's hopping sequence. */
+				hop_mode = HOP_BLUETOOTH;
 				br_transmit();
 				break;
 #endif

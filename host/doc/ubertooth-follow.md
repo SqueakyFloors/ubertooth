@@ -75,9 +75,11 @@ The map that comes back is used only when it could be a hop sequence at all:
    does not work on a controller that does not implement
    HCI_Read_AFH_Channel_Map; run without `-a` on one of those;
  - a reply of AFH off is followed without it:
-   `the remote device is not using AFH; following without it`. The board's AFH
-   map is cleared in that case, and whenever `-a` is not given, so a map left
-   by an earlier run cannot make it hop adaptively anyway;
+   `the remote device is not using AFH; following without it`. Nothing is sent
+   to the board in that case: starting the follow resets its hop mode and AFH
+   map, so a map left by an earlier run cannot make it hop adaptively anyway.
+   An accepted map is applied once the follow has started, for the same reason
+   (see ubertooth-util(1), CARRY-OVER BETWEEN RUNS);
  - a map with fewer than the 20 channels AFH requires, or none at all, is read
    again — three reads in total, 200ms apart — in case it has not settled. If
    it still reports too few, the command stops and says so;
@@ -131,7 +133,8 @@ ubertooth(7) describes rather than that error.
 ## SEE ALSO
 
 ubertooth-util(1): sets the receive squelch (`-z`); SQUELCH describes how
-long it lasts
+long it lasts, and CARRY-OVER BETWEEN RUNS what else a board keeps from one
+command to the next
 
 ubertooth-rx(1), ubertooth-afh(1)
 
