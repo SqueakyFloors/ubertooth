@@ -47,7 +47,31 @@ struct scan {
 	int turnaround_service; /* it services USB while it waits */
 	int turnaround_mode;    /* it gives up when the mode is stopped */
 	int turnaround_call;    /* and the repeater calls it */
+
+	int ticks_from_clkn;    /* the delay is converted from clkn's rate */
+	char ticks_text[256];   /* the conversion as written */
+
+	int rx_off_line;        /* where the repeater stops receiving */
 };
+
+/*
+ * Does this line open a function body at file scope? Used only to end the
+ * scope the scan is tracking, so it is deliberately blunt: no leading
+ * whitespace, a parameter list, and not a prototype or a preprocessor line.
+ */
+static int is_function_definition(const char *line)
+{
+	size_t len;
+
+	if (!is_ident_char(line[0]))
+		return 0;
+	if (strchr(line, '(') == NULL)
+		return 0;
+	len = strlen(line);
+	while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
+		len--;
+	return len > 0 && line[len - 1] != ';';
+}
 
 /*
  * Is this line a `while (` whose statement ends in `);` on the same line, so
@@ -75,12 +99,20 @@ static int is_dead_countdown(const char *line)
 {
 	char trimmed[512];
 
-	if (strstr(line, "--") == NULL && strstr(line, "++") == NULL)
-		return 0;
 	if (contains_identifier(line, "cc2400_status") ||
-	    contains_identifier(line, "cc2400_get"))
+	    contains_identifier(line, "cc2400_get") ||
+	    contains_identifier(line, "clkn"))
 		return 0;
-	return is_body_less_while(line, trimmed, sizeof(trimmed));
+	if (!is_body_less_while(line, trimmed, sizeof(trimmed)))
+		return 0;
+	/*
+	 * A wait on something the rest of the program can see is fine; what is
+	 * not is a loop whose only term is a local being counted. Match the
+	 * counting forms rather than requiring them on the `while` line, so
+	 * `while (i--)` and a countdown set up on the line above are both caught.
+	 */
+	return strstr(trimmed, "--") != NULL || strstr(trimmed, "++") != NULL ||
+	       strstr(trimmed, " - 1)") != NULL;
 }
 
 static int scan_source(const char *path, struct scan *s)
@@ -99,28 +131,45 @@ static int scan_source(const char *path, struct scan *s)
 		lineno++;
 		strip_comments(line, &in_block);
 
+		/*
+		 * Any other function definition ends the scope being tracked, so a
+		 * helper added between repeater_turnaround() and cc2400_rangetest()
+		 * -- rangetest_radio_off() sits there today -- cannot satisfy the
+		 * checks on the turnaround wait by accident.
+		 */
+		if (is_function_definition(line))
+			in_rangetest = in_repeater = in_turnaround = 0;
+
 		if (strstr(line, "repeater_turnaround(void)") != NULL) {
 			s->turnaround_fn = lineno;
 			in_turnaround = 1;
-			in_rangetest = in_repeater = 0;
 			continue;
 		}
 		if (strstr(line, "void cc2400_rangetest(") != NULL) {
 			in_rangetest = 1;
-			in_repeater = in_turnaround = 0;
 			continue;
 		}
 		if (strstr(line, "void cc2400_repeater(") != NULL) {
 			in_repeater = 1;
-			in_rangetest = in_turnaround = 0;
 			continue;
 		}
-		if (strstr(line, "void cc2400_txtest(") != NULL) {
-			/* Not part of the range test pair: cc2400_txtest() sets the
-			 * radio transmitting and returns, and it neither receives nor
-			 * waits for a peer. */
-			in_rangetest = in_repeater = in_turnaround = 0;
-			continue;
+		/*
+		 * cc2400_txtest() is not part of the range test pair: it sets the
+		 * radio transmitting and returns, and it neither receives nor waits
+		 * for a peer. The scope reset above has already left it out.
+		 */
+
+		/*
+		 * The delay has to be converted from clkn's rate, not written as a
+		 * bare tick count: a plain number here is how a 1 s delay silently
+		 * becomes 300 us.
+		 */
+		if (strstr(line, "define REPEATER_TURNAROUND_TICKS") != NULL) {
+			collapse_spaces(line, s->ticks_text, sizeof(s->ticks_text));
+			if (strstr(s->ticks_text, "3200") != NULL &&
+			    strstr(s->ticks_text, "REPEATER_TURNAROUND_MS") != NULL &&
+			    strstr(s->ticks_text, "1000") != NULL)
+				s->ticks_from_clkn = 1;
 		}
 
 		if (in_turnaround) {
@@ -166,6 +215,12 @@ static int scan_source(const char *path, struct scan *s)
 		if (in_repeater && contains_identifier(line, "repeater_turnaround") &&
 		    s->turnaround_call == 0)
 			s->turnaround_call = lineno;
+
+		/* The SRFOFF that ends the repeater's receive, which has to come
+		 * before the delay rather than after it. */
+		if (in_repeater && strstr(line, "SRFOFF") != NULL &&
+		    s->rx_off_line == 0)
+			s->rx_off_line = lineno;
 	}
 
 	fclose(f);
@@ -249,6 +304,34 @@ MU_TEST(test_the_turnaround_delay_is_a_timed_wait)
 	         "%s: cc2400_repeater() never calls repeater_turnaround(), so it "
 	         "answers before the sender has finished its burst", path);
 	mu_assert(s.turnaround_call > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: REPEATER_TURNAROUND_TICKS is `%s`, which does not convert "
+	         "milliseconds at clkn's 3200 ticks a second: a delay written as "
+	         "a bare tick count is wrong by a factor of thousands and nothing "
+	         "else here would notice", path, s.ticks_text);
+	mu_assert(s.ticks_from_clkn, msg);
+}
+
+/*
+ * The repeater has to stop receiving before it waits, not after. The rest of
+ * the sender's burst would otherwise arrive through the delay and fill the
+ * 32-byte FIFO the reply is written into.
+ */
+MU_TEST(test_the_repeater_stops_receiving_before_it_waits)
+{
+	char msg[512];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: cc2400_repeater() has no SRFOFF at all", path);
+	mu_assert(s.rx_off_line > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the repeater's first SRFOFF is at line %d, after the "
+	         "turnaround wait at line %d: the rest of the sender's burst "
+	         "arrives into the reply's FIFO during the delay",
+	         path, s.rx_off_line, s.turnaround_call);
+	mu_assert(s.rx_off_line < s.turnaround_call, msg);
 }
 
 /*
@@ -279,6 +362,7 @@ int main(void)
 	MU_RUN(test_both_modes_hold_the_gain_amplifier_out_of_reset);
 	MU_RUN(test_the_repeater_sets_the_packet_format);
 	MU_RUN(test_the_turnaround_delay_is_a_timed_wait);
+	MU_RUN(test_the_repeater_stops_receiving_before_it_waits);
 	MU_RUN(test_the_result_is_cleared_before_the_test_can_return_early);
 	return mu_report();
 }

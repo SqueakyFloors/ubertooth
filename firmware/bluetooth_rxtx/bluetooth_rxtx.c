@@ -1077,9 +1077,10 @@ static void cc2400_idle()
  * Polling keeps the servicing between transfers, where it has always been.
  *
  * clkn is the bulk stream's keep-alive timestamp, and it stands still in the
- * modes that never start the Bluetooth clock: led_specan(), the range test, the
- * repeater and the transmit test. None of those streams bulk packets either, so
- * there is no keep-alive to be late. Every other caller has the clock running.
+ * modes that never start the Bluetooth clock: led_specan(), the range test and
+ * the transmit test. The repeater does start it, for the timing of its reply.
+ * None of these modes streams bulk packets, so there is no keep-alive to be
+ * late either way. Every other caller has the clock running.
  */
 void service_usb(void)
 {

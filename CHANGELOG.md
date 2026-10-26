@@ -212,7 +212,7 @@
   transmitting, because its delay was a loop the compiler deleted; and it
   decoded requests only while the radio still held its reset value.
   **The reply still reads back corrupted**, so `-m` reports
-  `error: invalid range test: mismatch on byte 17` rather than power levels.
+  `error: invalid range test: mismatch on byte <n>` rather than power levels.
   That is the expected outcome today.
   [#26](https://github.com/SqueakyFloors/ubertooth/issues/26)
 - **Script-visible change:** a capture whose USB stream fails stops there and

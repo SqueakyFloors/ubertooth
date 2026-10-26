@@ -394,10 +394,11 @@ value: `error: invalid range test: mismatch on byte <n>` on standard error,
 with exit status 1 and nothing on standard output.
 
 **The range test does not yet produce a usable measurement.** With a repeater
-running, the exchange completes in under a second, and the reply arrives with
-a valid checksum and reads back corrupted, so `-m` reports
-`error: invalid range test: mismatch on byte 17` rather than power levels.
-That is the expected outcome today, on any pair of boards, and is tracked as
+running, the exchange completes within a couple of seconds, and the reply
+arrives with a valid checksum and reads back corrupted, so `-m` reports
+`error: invalid range test: mismatch on byte <n>` rather than power levels.
+That is the expected outcome today, on any pair of boards; which byte it names
+depends on the sender's serial number. Tracked as
 [issue 26](https://github.com/SqueakyFloors/ubertooth/issues/26).
 
 Note that the range test transmits the Cortex M3 microcontroller's

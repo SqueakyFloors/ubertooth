@@ -78,13 +78,19 @@ rangetest_result rr;
  * has already been and gone.
  *
  * The burst is 8 amplifier levels times 16 packets of 32 bytes on air at
- * 1 Mbit/s: 256 us of air time each, so about 33 ms, plus the time the sender
- * spends writing each packet into the radio and servicing USB between them,
- * which depends on what the host is doing. 200 ms is six times the air time,
- * so host traffic cannot push the burst past it, and waiting longer than
- * necessary costs nothing: the sender listens until it is stopped.
+ * 1 Mbit/s: 256 us of air time each, so about 33 ms. The rest of its length is
+ * the sender writing 128 packets into the radio a bit-banged byte at a time,
+ * waiting on the state machine between them and servicing USB as it goes, so
+ * it varies with what the host is doing and is not measured here.
+ *
+ * Waiting too long costs nothing -- the sender listens until it is stopped --
+ * and waiting too little costs the whole test: the reply lands while the
+ * sender is still transmitting, the sender then listens for a reply that has
+ * been and gone, and that is the "no result in either direction" this is here
+ * to fix. So this takes the generous end: a second, thirty times the air time.
+ * A reply in a second is still immediate to anyone watching.
  */
-#define REPEATER_TURNAROUND_MS 200
+#define REPEATER_TURNAROUND_MS 1000
 #define REPEATER_TURNAROUND_TICKS (3200u * REPEATER_TURNAROUND_MS / 1000u)
 
 /*
@@ -299,6 +305,7 @@ void cc2400_repeater(volatile u16 *chan_ptr)
 	u8 pa = 0;
 	u8 buf[len];
 	int got_request;
+	u16 chan;
 
 	/* A time base for the turnaround delay below. The repeater does not
 	 * otherwise use clkn, and the dispatch's cc2400_idle() stops it again on
@@ -310,6 +317,15 @@ void cc2400_repeater(volatile u16 *chan_ptr)
 	 * nothing serviced USB, so the board answered no control request from
 	 * the moment the mode started and only a re-plug ended it. */
 	while (requested_mode == MODE_REPEATER) {
+		/*
+		 * One channel for the whole exchange. A request serviced while this
+		 * pass runs writes the mode's channel straight through, and the
+		 * reply is tuned after the turnaround delay, so reading the live
+		 * value twice could answer on a channel the request was not heard
+		 * on. A channel change takes effect on the next pass instead.
+		 */
+		chan = *chan_ptr;
+
 		/* See RANGETEST_MANAND: without this the repeater decodes nothing. */
 		cc2400_set(MANAND,  RANGETEST_MANAND);
 		cc2400_set(LMTST,   0x2b22);
@@ -320,7 +336,7 @@ void cc2400_repeater(volatile u16 *chan_ptr)
 		 * happens to be this. After any mode that writes GRMDM, a capture
 		 * mode or `-q`, it could not decode a request at all. */
 		cc2400_set(GRMDM,   0x0df1);
-		cc2400_set(FSDIV,   *chan_ptr - 1);
+		cc2400_set(FSDIV,   chan - 1);
 		cc2400_set(SYNCH,   0xf9ae);
 		cc2400_set(SYNCL,   0x1584);
 		cc2400_set(FREND,   0x0008); // minimum tx power
@@ -357,16 +373,23 @@ void cc2400_repeater(volatile u16 *chan_ptr)
 		if (!got_request)
 			break;
 
-		/* Got a packet. Let the sender finish its burst and arm its
-		 * receiver before answering. */
-		if (!repeater_turnaround())
-			break;
+		/*
+		 * Got a packet. Stop receiving before anything else: the rest of
+		 * the sender's burst would otherwise keep arriving through the
+		 * delay below and fill the radio's 32-byte FIFO, which is the same
+		 * FIFO the reply is written into. The delay used to be a loop the
+		 * compiler deleted, so this ordering did not matter before.
+		 */
 		USRLED_CLR;
 		RXLED_CLR;
 		cc2400_strobe(SRFOFF);
 		cc2400_wait_fs_unlock();
+
+		/* Now let the sender finish its burst and arm its receiver. */
+		if (!repeater_turnaround())
+			break;
 		cc2400_wait_xosc_stable(service_usb);
-		cc2400_set(FSDIV, *chan_ptr);
+		cc2400_set(FSDIV, chan);
 		cc2400_wait_xosc_stable(service_usb);
 		cc2400_strobe(SFSON);
 		TXLED_SET;

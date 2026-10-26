@@ -307,7 +307,7 @@ ubertooth\-util \-m
 .P
 Before a range test has completed since the board started, \fB\-m\fR prints \fBno range test result yet\fR on standard output and exits 0: there is no result yet, which is not a failure\. A test that ran but whose packets came back corrupted has no result to report either, so it is a diagnostic rather than a value: \fBerror: invalid range test: mismatch on byte <n>\fR on standard error, with exit status 1 and nothing on standard output\.
 .P
-\fBThe range test does not yet produce a usable measurement\.\fR With a repeater running, the exchange completes in under a second, and the reply arrives with a valid checksum and reads back corrupted, so \fB\-m\fR reports \fBerror: invalid range test: mismatch on byte 17\fR rather than power levels\. That is the expected outcome today, on any pair of boards, and is tracked as issue 26 \fIhttps://github\.com/SqueakyFloors/ubertooth/issues/26\fR\.
+\fBThe range test does not yet produce a usable measurement\.\fR With a repeater running, the exchange completes within a couple of seconds, and the reply arrives with a valid checksum and reads back corrupted, so \fB\-m\fR reports \fBerror: invalid range test: mismatch on byte <n>\fR rather than power levels\. That is the expected outcome today, on any pair of boards; which byte it names depends on the sender's serial number\. Tracked as issue 26 \fIhttps://github\.com/SqueakyFloors/ubertooth/issues/26\fR\.
 .P
 Note that the range test transmits the Cortex M3 microcontroller's serial number\. If you do not wish to broadcast that information wirelessly, do not use the range test functionality\.
 .SH "SQUELCH"
