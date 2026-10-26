@@ -82,6 +82,12 @@ void cb_specan(ubertooth_t* ut, void* args)
 	int8_t rssi;
 	char detail[128];
 
+	/* A keep-alive only says a quiet sweep is still alive. It carries no
+	 * samples, so reading frequencies and levels out of it would report
+	 * whatever the slot held before. */
+	if (rx.pkt_type == KEEP_ALIVE)
+		return;
+
 	/* process each received block */
 	for (j = 0; j < DMA_SIZE-2; j += 3) {
 		frequency = (rx.data[j] << 8) | rx.data[j + 1];

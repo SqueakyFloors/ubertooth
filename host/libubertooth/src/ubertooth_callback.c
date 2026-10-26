@@ -442,6 +442,12 @@ void cb_btle(ubertooth_t* ut, void* args)
 	uint32_t refAA;
 	int8_t sig, noise;
 
+	/* A keep-alive only says a quiet capture is still alive. It carries no
+	 * packet, so there is nothing to decode and nothing to record: a replay
+	 * of an older capture file can still hold one. */
+	if (rx->pkt_type == KEEP_ALIVE)
+		return;
+
 	// display LE promiscuous mode state changes
 	if (rx->pkt_type == LE_PROMISC) {
 		u8 state = rx->data[0];
