@@ -59,6 +59,10 @@ assert "-i, -j" in help_run.stdout, help_run
 # -c is only used by continuous receive, and -a is not a default the tool
 # sends: the board keeps the last code it was given.
 assert "continuous rx only" in help_run.stdout, help_run
+# The channel -r receives on without -c is a real default the tool sends, so
+# the usage text names it the way the -l line names 18.
+assert "default: 2418" in help_run.stdout, help_run
+assert "default: 18" in help_run.stdout, help_run
 assert "keeps the last code it was given" in help_run.stdout, help_run
 assert "default: 630f9ffe" not in help_run.stdout, help_run
 

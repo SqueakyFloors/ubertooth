@@ -48,7 +48,7 @@ Original "jam" spelling of \fB\-i\fR; does exactly what \fB\-i\fR does
 Options:
 .TP
 \fB\-c <2402\-2480>\fR
-Channel in MHz to use for continuous receive (suggested: 2408, 2418, 2423, 2469)\. Only \fB\-r\fR uses it: \fB\-f\fR, \fB\-i\fR and \fB\-j\fR hop across the E\-Go's own channel list, so \fB\-c\fR with one of those is refused rather than ignored\.
+Channel in MHz to use for continuous receive (suggested: 2408, 2418, 2423, 2469; default: 2418)\. Only \fB\-r\fR uses it: \fB\-f\fR, \fB\-i\fR and \fB\-j\fR hop across the E\-Go's own channel list, so \fB\-c\fR with one of those is refused rather than ignored\. The default is sent like any other channel, so \fBubertooth\-ego \-r\fR on its own receives on 2418 MHz rather than on whatever channel the board was left on\.
 .TP
 \fB\-l <1\-48>\fR
 Packet length to use\. The value must be a complete decimal integer from 1 through 48; invalid values fail before the Ubertooth is opened\.

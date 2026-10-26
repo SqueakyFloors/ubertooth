@@ -11,6 +11,12 @@
 /* RFCAT_SET_AA takes a 1 to 4 byte access code (firmware rfcat_subcommand()). */
 #define EGO_ACCESS_CODE_BYTES 4
 
+/* The channel continuous receive uses when -c is not given, in MHz. One of
+ * the four the E-GO hops across (firmware/bluetooth_rxtx/ego.c, channels[]),
+ * so a run without -c lands on real traffic. The tool always sends it, which
+ * is what makes such a run reproducible. */
+#define EGO_DEFAULT_CHANNEL 2418
+
 /* The modes cmd_ego() asks the firmware for, numbered as its state machine
  * expects (firmware/bluetooth_rxtx/ego.h). Only continuous receive stays on
  * one channel: following and jamming hop across the E-GO's own channel list

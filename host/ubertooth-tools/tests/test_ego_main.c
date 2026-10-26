@@ -277,6 +277,21 @@ MU_TEST(following_sets_only_the_capture_length)
 	mu_assert_int_eq(0, fake.last_ego_mode); /* follow */
 }
 
+/* Continuous receive always sends a channel, so a run without -c is on a
+ * known one rather than on whatever the board was left on. The literal is the
+ * pin: 2418 is the value the usage text and the man page name. */
+MU_TEST(continuous_receive_without_c_sends_the_default_channel)
+{
+	struct run_result r;
+
+	reset_fake();
+	r = RUN("-r");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(fake.calls, "cle") == 0, fake.calls);
+	mu_assert_int_eq(2418, fake.last_channel);
+	mu_assert(strstr(r.err, "error: ") == NULL, r.err);
+}
+
 /* A board that cannot be opened, and a firmware the host will not drive, each
  * end the command before any setup request. */
 MU_TEST(a_board_or_firmware_the_tool_cannot_use_exits_1)
@@ -519,6 +534,7 @@ int main(void)
 {
 	MU_RUN(a_capture_the_board_took_sends_the_setup_requests_and_exits_0);
 	MU_RUN(following_sets_only_the_capture_length);
+	MU_RUN(continuous_receive_without_c_sends_the_default_channel);
 	MU_RUN(a_board_or_firmware_the_tool_cannot_use_exits_1);
 	MU_RUN(a_refused_setup_request_is_named_and_exits_1);
 	MU_RUN(the_access_code_request_is_only_sent_for_a);
