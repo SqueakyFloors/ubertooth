@@ -73,25 +73,8 @@ typedef int (VendorRequestHandler)(u8 request, u16 *request_params, u8 *data,
                                    int *data_len);
 
 /*
- * A write to NVIC ICER0 is not self-synchronising on Cortex-M3, so without
- * these an interrupt already pending can still be taken after the mask --
- * inside the section being protected. le_phy.c works around the same thing for
- * the DMA line with a flag.
- *
- * It has a name, and a definition that can be replaced, because the host unit
- * test for the packet queue compiles this header and has no Cortex-M3 to run
- * the instructions on.
- */
-#ifndef USB_IRQ_SYNC
-#define USB_IRQ_SYNC() do {                               \
-		__asm__ volatile ("dsb" ::: "memory");            \
-		__asm__ volatile ("isb" ::: "memory");            \
-	} while (0)
-#endif
-
-/*
- * Hold off the USB interrupt across a section that must not be re-entered,
- * and put it back the way it was.
+ * Why this image holds the USB interrupt off; usb_irq.h says what the
+ * helpers do.
  *
  * Six modes service USB from the USB interrupt rather than from their loop
  * (bt_generic_le(), bt_le_sync(), bt_slave_le(), ego, xmas, identify), so
@@ -102,28 +85,9 @@ typedef int (VendorRequestHandler)(u8 request, u16 *request_params, u8 *data,
  * safe; where it does not, as in handle_usb(), this is what keeps it safe if
  * a mode ever does both.
  *
- * usb_irq_hold() reports whether the interrupt was enabled; pass that to
- * usb_irq_release(), which re-enables it only if it was. Nesting is therefore
- * safe, and a mode that services USB from its own loop pays only a register
- * read. The interrupt is not lost while held off: the NVIC keeps it pending.
+ * The helpers themselves are shared with the btbr image.
  */
-static inline u32 usb_irq_hold(void)
-{
-	u32 was_enabled = ISER0 & ISER0_ISE_USB;
-
-	if (was_enabled) {
-		ICER0 = ICER0_ICE_USB;
-		USB_IRQ_SYNC();
-	}
-
-	return was_enabled;
-}
-
-static inline void usb_irq_release(u32 was_enabled)
-{
-	if (was_enabled)
-		ISER0 = ISER0_ISE_USB;
-}
+#include "usb_irq.h"
 
 int ubertooth_usb_init(VendorRequestHandler *vendor_req_handler);
 void usb_queue_init();

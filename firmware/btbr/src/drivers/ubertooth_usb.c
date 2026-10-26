@@ -332,16 +332,78 @@ int ubertooth_usb_init(VendorRequestHandler *vendor_req_handler)
 	return 0;
 }
 
+volatile uint32_t usb_send_drops = 0;
+
+/*
+ * Send one message to the host now, rather than through the queue usb_work()
+ * drains. This is the debug and fault path: early_printf() and die() use it
+ * because the loop that would drain the queue is not running.
+ */
 void usb_send_sync(void *buf, int size)
 {
+	/* How many calls to this are on the stack. Servicing USB below reaches
+	 * usb_bulk_out_handler(), which DIE()s on a message it cannot make
+	 * sense of, and die() prints through here -- so this can be entered
+	 * from inside itself. A nested call sends if there is room and drops
+	 * its message if there is not, rather than starting a second wait. One
+	 * bound is then the whole wait, however the firmware got here. */
+	static volatile unsigned depth = 0;
+	/* Set once a wait has run the whole bound and given up, cleared by the
+	 * next message that gets through. The caller is usually printing a run
+	 * of lines -- the fault handler dumps the stack 16 bytes at a time --
+	 * and a host that did not read the first line will not read the rest, so
+	 * without this each line pays the full bound and a dump costs seconds
+	 * with interrupts masked. Once it is set, a message is sent if there is
+	 * room and dropped if there is not; the rest of such a run is not a
+	 * chance to service USB, since nothing polls the interrupt on the way
+	 * through. */
+	static volatile unsigned host_stalled = 0;
+	unsigned polls, i;
 	u8 epstat;
-	/* mask usb interrupt */
-	ICER0 = ICER0_ICE_USB;
-	
-	/* flush usb buffers */
-	do {
+	uint32_t usb_irq = usb_irq_hold();
+
+	/* Read after the hold, so a nested call really does see depth non-zero. */
+	polls = (depth || host_stalled) ? 1 : USB_SEND_SYNC_POLLS;
+	depth++;
+
+	/*
+	 * Wait for room in the bulk IN endpoint, with a bound.
+	 *
+	 * Both endpoint buffers stay full until the host reads them, and the
+	 * host may never read: its process was killed, or it is not reading
+	 * bulk at all. This wait used to have no bound and ran with the USB
+	 * interrupt masked, which is how this firmware services USB, so a host
+	 * that stopped reading left a board that still enumerated and answered
+	 * nothing until it was power-cycled.
+	 *
+	 * Room is one free buffer of the endpoint's two, which is all a packet
+	 * needs and what usb_work() below checks for; waiting for both to
+	 * drain, as this did, waits on a host that is reading steadily. The
+	 * USB interrupt is polled between passes, so control requests are
+	 * answered while we wait -- the rest of the firmware is not running,
+	 * which is why the bound matters -- and giving up costs one debug
+	 * message the host was not going to read. bluetooth_rxtx's handle_usb()
+	 * drops one without waiting at all.
+	 */
+	for (i = 0; ; i++) {
 		epstat = USBHwEPGetStatus(BULK_IN_EP);
-	} while(epstat & (EPSTAT_B1FULL|EPSTAT_B2FULL));
+		if (!(epstat & EPSTAT_B1FULL) || !(epstat & EPSTAT_B2FULL))
+			break;
+		if (i+1 >= polls) {
+			usb_send_drops++;
+			/* Only a call that ran the whole bound has learnt
+			 * anything about the host. A call that skipped the wait
+			 * may be looking at a packet the call below it has just
+			 * written, with a host that is reading perfectly well. */
+			if (polls == USB_SEND_SYNC_POLLS)
+				host_stalled = 1;
+			goto end;
+		}
+		/* polled "interrupt" */
+		USBHwISR();
+	}
+
+	host_stalled = 0;
 
 	size = MIN(size, MAX_PACKET_SIZE);
 
@@ -349,23 +411,19 @@ void usb_send_sync(void *buf, int size)
 	
 	/* polled "interrupt" */
 	USBHwISR();
-
-	/* restore usb interrupt */
-	ISER0 = ICER0_ICE_USB;
+end:
+	depth--;
+	usb_irq_release(usb_irq);
 }
 
 int usb_work(void)
 {
-	uint32_t flags;
 	uint8_t epstat, b1full, b2full;
 	int len;
-	uint8_t buf[MAX_PACKET_SIZE], *p;
+	uint8_t buf[MAX_PACKET_SIZE];
 	uint16_t full_len, buf_idx = 0;
-	unsigned buf_avail = MAX_PACKET_SIZE;
 	int work = 0;
-
-	/* mask usb interrupt */
-	ICER0 = ICER0_ICE_USB;
+	uint32_t usb_irq = usb_irq_hold();
 
 	epstat = USBHwEPGetStatus(BULK_IN_EP);
 	b1full = epstat & EPSTAT_B1FULL;
@@ -421,6 +479,6 @@ int usb_work(void)
 	}
 	work = 1;
 end:
-	ISER0 = ISER0_ISE_USB;
+	usb_irq_release(usb_irq);
 	return work;
 }

@@ -400,6 +400,11 @@
   record from a stray keep-alive.
   [#179](https://github.com/SqueakyFloors/ubertooth/issues/179)
   [#318](https://github.com/SqueakyFloors/ubertooth/issues/318)
+- `btbr` firmware: a host that stops reading no longer leaves the board
+  answering nothing until it is power-cycled. A debug or fault message now
+  waits about a tenth of a second for the host to read it and is then dropped,
+  and the board keeps answering commands while it waits.
+  [#282](https://github.com/SqueakyFloors/ubertooth/issues/282)
 - `ubertooth-dfu -d <image> -r` no longer exits 1 after a flash that worked:
   the bootloader resets while the detach request is in flight, so the request
   fails on every macOS flash. The board is reported as still in DFU only when
