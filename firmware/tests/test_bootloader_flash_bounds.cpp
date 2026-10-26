@@ -431,14 +431,16 @@ struct part_table {
 	uint32_t flash_size[PART_TABLE_MAX];
 };
 
-/* "128 * 1024" anywhere in the line, as bytes. */
+/* A size written as a multiple of 1024, as bytes, whatever the spacing. */
 static int parse_kib(const char *line, uint32_t *flash_size)
 {
-	const char *at = strstr(line, "* 1024");
+	const char *at = strchr(line, '*');
 	const char *digits;
-	unsigned long kib;
+	unsigned long kib, unit;
 
 	if (at == NULL)
+		return 0;
+	if (sscanf(at + 1, " %lu", &unit) != 1 || unit != 1024)
 		return 0;
 	digits = at;
 	while (digits > line && (digits[-1] == ' ' || digits[-1] == '\t'))
@@ -447,7 +449,7 @@ static int parse_kib(const char *line, uint32_t *flash_size)
 		digits--;
 	if (sscanf(digits, "%lu", &kib) != 1)
 		return 0;
-	*flash_size = (uint32_t)(kib * 1024);
+	*flash_size = (uint32_t)(kib * unit);
 	return 1;
 }
 

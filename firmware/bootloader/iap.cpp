@@ -120,9 +120,9 @@ IAP::ReturnCode IAP::read_part_identification_number(uint32_t& part_id) const {
         INVALID_COMMAND,
         0
     };
-    
+
     entry_point(input, output);
-    
+
     const ReturnCode result = static_cast<ReturnCode>(output[0]);
     if( result == CMD_SUCCESS ) {
         part_id = output[1];

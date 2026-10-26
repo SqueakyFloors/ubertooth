@@ -68,6 +68,21 @@ Hardware required: Ubertooth One, Linux machine (Ubuntu 22.04+ preferred), a BLE
 - [ ] Run `ubertooth-util -s` (serial number)
 - [ ] Confirm: all return values without errors
 
+### 2e. Bootloader refuses a read-back past the end of flash
+
+*Needs a board whose part is smaller than 512 KiB (`ubertooth-util -p` reports
+0x25011722 for the 128 KiB LPC1754) and ISP or JTAG: `ubertooth-dfu` cannot
+write a bootloader.*
+
+- [ ] Install `firmware/bootloader/bootloader.hex` over ISP or JTAG
+- [ ] Put the board in DFU and send `REQ_UPLOAD` (class request 2) with wValue
+      512, which is 0x20000, the first block past a 128 KiB part
+- [ ] Confirm: the request is refused and `REQ_GETSTATUS` reports status 0x08
+      (`ERRADDRESS`); the board still answers `REQ_GETSTATE`
+- [ ] Send `REQ_CLRSTATUS`, then run `ubertooth-dfu -U <serial> -u <file> -r`
+- [ ] Confirm: the read-back still returns all 114688 bytes above the
+      bootloader, and the board comes back running its application
+
 ---
 
 ## 3. BLE Sniffing (tests cherry-picked PR #550 — CRC fix)

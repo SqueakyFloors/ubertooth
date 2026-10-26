@@ -76,7 +76,7 @@ static inline uint32_t lpc_part_flash_size(const uint32_t part_id) {
         { 0x26013F37, 512 * 1024 },  /* LPC1768 */
         { 0x26113F37, 512 * 1024 },  /* LPC1769 */
     };
-    
+
     for( unsigned i = 0; i < sizeof(table) / sizeof(table[0]); i++ ) {
         if( table[i].part_id == part_id ) {
             return table[i].flash_size;
@@ -98,7 +98,7 @@ public:
         iap(),
         part_id_read(0) {
     }
-    
+
     bool write(const uint32_t flash_address, uint32_t source_address, uint32_t length) {
         IAP::ReturnCode result = IAP::CMD_SUCCESS;
         
@@ -146,7 +146,7 @@ private:
         }
         return part_id_read;
     }
-    
+
     bool at_sector_boundary(const uint32_t address) const {
         return (address & (sector_size(address) - 1)) == 0;
     }

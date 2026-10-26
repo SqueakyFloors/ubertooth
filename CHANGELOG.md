@@ -451,9 +451,10 @@
   the part and the flash it has, while the board is still running its
   application; a part it cannot identify is reported as unchecked.
   [#281](https://github.com/SqueakyFloors/ubertooth/issues/281)
-- The bootloader refuses a read-back past the end of the part's flash, instead
-  of faulting and answering nothing at all until the board is power-cycled.
-  Reflash the bootloader to get it.
+- The bootloader refuses a read-back past the end of the flash the attached
+  part has, instead of faulting and answering nothing at all until the board is
+  power-cycled; a part it cannot identify keeps the old fixed bound. It reaches
+  a board only through ISP or JTAG, not `ubertooth-dfu`.
   [#256](https://github.com/SqueakyFloors/ubertooth/issues/256)
 - The firmware's generic receive mode (`UBERTOOTH_RX_GENERIC`) picks between
   its packet-mode and symbol-stream receives by GRMDM's packet-mode bit, so
