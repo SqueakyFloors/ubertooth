@@ -161,9 +161,13 @@ Radio options:
    through levels by design and leave the level wherever their sweep ended, so
    set it again after using them.
  - `-c [2402-2480]` :
-   get/set channel in MHz
+   get/set channel in MHz. A standalone set sticks: the board keeps it after the
+   command exits, so a later command reads the same value back, as long as the
+   board stays idle in between. Running any mode puts the channel back to 2441
+   MHz when that mode ends, as described above.
  - `-C [0-78]` :
-   get/set channel
+   get/set channel, by Bluetooth channel number rather than frequency. It is the
+   same setting as `-c` and keeps its value the same way.
  - `-q [20-120]` :
    start LED spectrum analyzer. The threshold is -N dBm, so a larger N lights
    the LEDs for weaker signals; 20-120 is the radio's RSSI range, and bare `-q`
