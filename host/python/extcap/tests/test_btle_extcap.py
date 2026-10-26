@@ -401,10 +401,13 @@ result = run(("--extcap-interfaces",),
              errors="could not open Ubertooth device\n", status=1)
 assert result.returncode == 1, result
 assert result.stderr == "could not open Ubertooth device\n", result
-result = run(("--extcap-interfaces",), kill_with=signal.SIGABRT)
+# a tool killed by a signal is reported with the signal's number. SIGTERM is
+# the signal to send here: an aborted or faulted process gets a crash report
+# from macOS, and a dialog on the screen of whoever runs the tests
+result = run(("--extcap-interfaces",), kill_with=signal.SIGTERM)
 assert result.returncode == 1, result
 assert result.stderr == "error: ubertooth-util failed (killed by signal %d)\n" \
-    % int(signal.SIGABRT), result
+    % int(signal.SIGTERM), result
 
 # a silent failure that still listed a board is not reported as a failure: the
 # listing is the answer, and Wireshark keeps it
