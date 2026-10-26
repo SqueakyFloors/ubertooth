@@ -82,6 +82,23 @@ def with_optional_values(argv):
     return rewritten
 
 
+def run_tool(command, **options):
+    """Start one of the Ubertooth tools, or end with an error: line.
+
+    A tool that is not on the PATH Wireshark started this script with, or
+    that cannot be executed, would otherwise end the script in a Python
+    traceback. The reason has to arrive in the same one-line form as every
+    other error here, since for a capture that is what Wireshark shows for
+    the interface.
+    """
+    try:
+        return Popen(command, **options)
+    except OSError as err:
+        print("error: could not run %s: %s"
+              % (command[0], err.strerror or err), file=sys.stderr)
+        sys.exit(1)
+
+
 def sig_handler(sig, frame):
     global stop_signal
     stop_signal = sig
@@ -140,8 +157,7 @@ def main():
             usage()
             sys.exit(0)
         elif o == "--extcap-interfaces":
-            list_interfaces()
-            sys.exit(0)
+            sys.exit(list_interfaces())
         elif o == "--extcap-dlts":
             do_list_dlts = True
         elif o == "--extcap-config":
@@ -208,8 +224,23 @@ def usage(out=sys.stdout):
 # "ubertooth-util -U all -s" prints for any number of boards.
 INTERFACE_LINE = re.compile(r'(\d+): ([0-9a-fA-F]+)$')
 
+# What "ubertooth-util -U all -s" says when no board is attached. It exits 1
+# for that as it does for a real failure, so this line is the only thing that
+# tells the two apart, and an empty listing is the right answer to one of
+# them. The host tools and this script are installed together, so the wording
+# is pinned here rather than guessed at, and the test checks it against the
+# built ubertooth-util.
+NO_DEVICES = "error: no Ubertooth devices found"
+
 
 def list_interfaces():
+    """List one interface per attached board, and report a failed listing.
+
+    Returns the exit status: 1 when ubertooth-util failed and there is
+    nothing to list, 0 otherwise. An empty listing used to be the answer to
+    a failure too, which to Wireshark looks exactly like "no Ubertooth
+    attached".
+    """
     # -U all asks for the indexed listing explicitly, so one output form
     # covers one board and several. Each interface is named by the board's
     # serial, which --capture passes to "ubertooth-btle -U <serial>": an index
@@ -217,15 +248,56 @@ def list_interfaces():
     # serial cannot. A board whose serial could not be read is shown by
     # ubertooth-util as "<index>: <unavailable>" and has no serial to offer,
     # so it is left out.
-    proc = Popen(['ubertooth-util', '-U', 'all', '-s'],
-                 stdout=PIPE, stderr=PIPE, universal_newlines=True)
-    out = proc.communicate()[0]
+    proc = run_tool(['ubertooth-util', '-U', 'all', '-s'],
+                    stdout=PIPE, stderr=PIPE, universal_newlines=True)
+    out, errors = proc.communicate()
 
-    for line in out.split('\n'):
-        m = INTERFACE_LINE.match(line.strip())
-        if m:
-            print("interface {value=ubertooth%s}{display=Ubertooth One %s}"
-                  % (m.group(2), m.group(2)))
+    serials = [m.group(2) for m in
+               (INTERFACE_LINE.match(line.strip()) for line in out.split('\n'))
+               if m]
+
+    # Nothing failed if the only error ubertooth-util reported is that there
+    # is no board: the empty listing says that already, so that line is not
+    # passed on. Only the "error: " lines are weighed, because libubertooth
+    # writes some of its failures without a prefix, and such a line arriving
+    # beside this one would still mean no board was found. Everything it wrote
+    # is passed on, which is the only place the reason can appear: Wireshark
+    # reads this call's standard output and leaves its standard error to its
+    # own, and someone running the call by hand sees it there too.
+    reported = [line for line in errors.splitlines()
+                if line.startswith("error: ")]
+    no_devices = not serials and reported == [NO_DEVICES]
+    for line in errors.splitlines():
+        if not (no_devices and line == NO_DEVICES):
+            print(line, file=sys.stderr)
+
+    # The boards that could be named are listed even when another one could
+    # not be, which is what ubertooth-util itself does with a partial
+    # listing.
+    for serial in serials:
+        print("interface {value=ubertooth%s}{display=Ubertooth One %s}"
+              % (serial, serial))
+
+    # Wireshark throws away everything this call printed when it exits
+    # non-zero, so a board that could not be opened must not take the boards
+    # that could with it: a listing that named a board is a listing, whatever
+    # else went wrong. An empty one is a failure, unless ubertooth-util's only
+    # complaint was that there is no board.
+    if serials or no_devices or proc.returncode == 0:
+        return 0
+    # Nothing was suppressed on this path, so whatever ubertooth-util wrote,
+    # the user saw. Without a line that says something went wrong, the failure
+    # said nothing of itself and its status is all there is to report: a note,
+    # a warning or a blank line is not a reason. An unprefixed diagnosis is
+    # one, since libubertooth writes some of its failures without a prefix.
+    diagnosed = [line for line in errors.splitlines()
+                 if line.strip() and
+                 not line.startswith(("note: ", "warning: "))]
+    if not diagnosed:
+        print("error: ubertooth-util failed (%s)" % (
+            "killed by signal %d" % -proc.returncode if proc.returncode < 0
+            else "exit status %d" % proc.returncode), file=sys.stderr)
+    return 1
 
 
 def list_dlts():
@@ -259,7 +331,7 @@ def capture(interface, fifo, channel):
         # stopped before the capture began: there is nothing to start, and
         # nothing failed
         return 0
-    child = Popen([
+    child = run_tool([
         "ubertooth-btle", "-f",
         "-U", interface,
         "-q", fifo,

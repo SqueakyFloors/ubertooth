@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """btle-extcap.py's command line and its interface listing, without a board.
 
-Run as: test_btle_extcap.py <path to btle-extcap.py>
+Run as: test_btle_extcap.py <path to btle-extcap.py> [path to ubertooth-util]
 
 Two things are checked:
 
@@ -16,6 +16,22 @@ Two things are checked:
     "0:". Each interface is named by the board's serial, which --capture
     passes to "ubertooth-btle -U <serial>", so re-plugging boards between the
     listing and the capture cannot move the capture to the other board.
+
+  * a listing that failed, against a fake ubertooth-util that fails the way a
+    libusb failure does. Its standard error used to be read and thrown away
+    and its exit status never looked at, so a failure came out as an empty
+    listing and exit 0, which to Wireshark is exactly "no Ubertooth
+    attached". No board attached is still that, since ubertooth-util exits 1
+    for it as well, and so is a listing that named a board but could not open
+    another: Wireshark throws away everything the call printed when it exits
+    non-zero, so exiting 1 there would hide the board it can capture on.
+
+    The line that tells no board apart from a failure is checked against the
+    built ubertooth-util when CMake passes its path, so rewording it on the C
+    side cannot leave this script matching text nothing prints.
+
+  * a tool that is not on PATH, which used to end the script in a Python
+    traceback rather than an "error: " line.
 
   * --capture runs ubertooth-btle on the selected board, against a fake
     ubertooth-btle that records its arguments, and reports how it ended: a
@@ -50,6 +66,8 @@ import time
 
 
 SCRIPT = sys.argv[1]
+# The built ubertooth-util, when the caller has one to offer.
+REAL_UTIL = sys.argv[2] if len(sys.argv) > 2 else None
 # The channels ubertooth-btle will tune to, which is what the script offers
 # in its configuration and the only thing it accepts for --channel.
 ADVERTISING_CHANNELS = ("37", "38", "39")
@@ -65,6 +83,11 @@ ACCEPTED = {
     "--help": None,
 }
 GONE = ("--list-interfaces", "--list-dlts", "--config")
+# What "ubertooth-util -U all -s" says when no board is attached, which is the
+# only thing telling that apart from a failed listing. The cases below pin
+# that the script suppresses exactly this line, and REAL_UTIL pins that this
+# is what ubertooth-util prints, so the two cannot drift apart silently.
+NO_DEVICES = "error: no Ubertooth devices found"
 SERIALS = ("1ff0ff1967102caf8334fa5ac52000f5",
            "0b700017490c2cafa039ee5ac52000f5")
 
@@ -77,6 +100,8 @@ SERIALS = ("1ff0ff1967102caf8334fa5ac52000f5",
 # kills itself with instead, and FAKE_UTIL_SLEEP how long it stays running
 # first, which is how a capture that is stopped from outside is tested. It
 # records its arguments before sleeping, so the file appearing means it is up.
+# FAKE_UTIL_ERRORS is what it writes to standard error, which is where a real
+# ubertooth-util reports a failure.
 FAKE_UTIL = """#!%s
 import os
 import signal
@@ -88,6 +113,8 @@ with open(os.environ["FAKE_UTIL_ARGS"], "w") as record:
 with open(os.environ["FAKE_UTIL_OUTPUT"]) as listing:
     sys.stdout.write(listing.read())
 sys.stdout.flush()
+sys.stderr.write(os.environ.get("FAKE_UTIL_ERRORS", ""))
+sys.stderr.flush()
 time.sleep(float(os.environ.get("FAKE_UTIL_SLEEP", "0")))
 if os.environ.get("FAKE_UTIL_SIGNAL"):
     number = int(os.environ["FAKE_UTIL_SIGNAL"])
@@ -124,13 +151,16 @@ ENVIRONMENT = dict(
 )
 
 
-def run(arguments, listing="", status=0, kill_with=0):
+def run(arguments, listing="", status=0, kill_with=0, errors="", path=None):
     with open(OUTPUT_FILE, "w") as output:
         output.write(listing)
     if os.path.exists(ARGS_FILE):
         os.remove(ARGS_FILE)
     environment = dict(ENVIRONMENT, FAKE_UTIL_STATUS=str(status),
-                       FAKE_UTIL_SIGNAL=str(kill_with) if kill_with else "")
+                       FAKE_UTIL_SIGNAL=str(kill_with) if kill_with else "",
+                       FAKE_UTIL_ERRORS=errors)
+    if path is not None:
+        environment["PATH"] = path
     return subprocess.run(
         [sys.executable, SCRIPT, *arguments],
         capture_output=True,
@@ -287,19 +317,20 @@ assert interfaces(result) == [
     "interface {value=ubertooth%s}{display=Ubertooth One %s}" % ((SERIALS[0],) * 2),
 ], result
 
-# a board that could not be read has no serial to offer, so it is left out
+# a board that could not be read has no serial to offer, so it is left out,
+# while the board that has one is still listed. ubertooth-util exits 1 for the
+# board it could not open, with the message libubertooth prints for one, and
+# the script still exits 0: Wireshark throws away everything the call printed
+# when it exits non-zero, so a board it can capture on must not be hidden by
+# one it cannot
 result = run(("--extcap-interfaces",),
              listing="0: <unavailable>\n1: %s\n" % SERIALS[1],
-             status=1)
+             errors="could not open Ubertooth device\n", status=1)
+assert result.returncode == 0, result
 assert interfaces(result) == [
     "interface {value=ubertooth%s}{display=Ubertooth One %s}" % ((SERIALS[1],) * 2),
 ], result
-
-# no board at all: no interface lines, and no crash
-result = run(("--extcap-interfaces",),
-             listing="error: no Ubertooth devices found\n", status=1)
-assert result.returncode == 0, result
-assert interfaces(result) == [], result
+assert result.stderr == "could not open Ubertooth device\n", result
 
 # nothing that is not a listing line is taken for a serial
 result = run(("--extcap-interfaces",),
@@ -308,6 +339,130 @@ result = run(("--extcap-interfaces",),
 assert interfaces(result) == [], result
 
 print("btle-extcap: the interface listing reports each board's serial")
+
+# ---- a listing that failed -------------------------------------------------
+
+# no board at all: ubertooth-util exits 1 and says so, and an empty listing is
+# the right answer to that, so the script exits 0. Its one error line is not
+# passed on, since nothing failed
+result = run(("--extcap-interfaces",), errors=NO_DEVICES + "\n", status=1)
+assert result.returncode == 0, result
+assert result.stdout == "" and result.stderr == "", result
+
+# and whatever else ubertooth-util wrote still reaches the user: a note is
+# what UBERTOOTH_TEST_NO_DEVICES adds to the same listing
+result = run(("--extcap-interfaces",),
+             errors="note: UBERTOOTH_TEST_NO_DEVICES is set\n"
+                    + NO_DEVICES + "\n", status=1)
+assert result.returncode == 0, result
+assert result.stdout == "", result
+assert result.stderr == "note: UBERTOOTH_TEST_NO_DEVICES is set\n", result
+
+# a ubertooth-util that failed for any other reason listed nothing because it
+# failed, not because there is no board: the status is 1 and the reason is
+# passed through. This used to be an empty listing and exit 0,
+# indistinguishable from no board being attached
+for reason in ("error: libusb_init failed\n",
+               NO_DEVICES + "\nerror: libusb_init failed\n"):
+    result = run(("--extcap-interfaces",), errors=reason, status=1)
+    assert result.returncode == 1, (reason, result)
+    assert interfaces(result) == [], (reason, result)
+    assert result.stderr == reason, (reason, result)
+
+# one that failed without saying why still has to name the failure, otherwise
+# the reason never reaches the user, which is the whole complaint. A note or a
+# warning is not a reason, so one of those on its own does not stand in for it
+for said in ("", "note: something odd\n", "warning: something odd\n", "\n"):
+    result = run(("--extcap-interfaces",), errors=said, status=3)
+    assert result.returncode == 1, (said, result)
+    assert result.stdout == "", (said, result)
+    assert result.stderr == \
+        said + "error: ubertooth-util failed (exit status 3)\n", (said, result)
+
+# a diagnosis with no "error: " prefix is still a reason, since libubertooth
+# writes some of its failures without one: nothing is added to it
+result = run(("--extcap-interfaces",),
+             errors="could not open Ubertooth device\n", status=1)
+assert result.returncode == 1, result
+assert result.stderr == "could not open Ubertooth device\n", result
+result = run(("--extcap-interfaces",), kill_with=signal.SIGABRT)
+assert result.returncode == 1, result
+assert result.stderr == "error: ubertooth-util failed (killed by signal %d)\n" \
+    % int(signal.SIGABRT), result
+
+# a silent failure that still listed a board is not reported as a failure: the
+# listing is the answer, and Wireshark keeps it
+result = run(("--extcap-interfaces",), listing="0: %s\n" % SERIALS[0],
+             status=3)
+assert result.returncode == 0, result
+assert len(interfaces(result)) == 1 and result.stderr == "", result
+
+# a failure that still listed a board keeps the board and the reason, and is
+# not reported as a failed call, since that is what loses the board
+result = run(("--extcap-interfaces",), listing="0: %s\n" % SERIALS[0],
+             errors="error: libusb_init failed\n", status=1)
+assert result.returncode == 0, result
+assert interfaces(result) == [
+    "interface {value=ubertooth%s}{display=Ubertooth One %s}" % ((SERIALS[0],) * 2),
+], result
+assert result.stderr == "error: libusb_init failed\n", result
+
+# a warning from a listing that worked reaches the user too, and is not a
+# failure
+result = run(("--extcap-interfaces",), listing="0: %s\n" % SERIALS[0],
+             errors="warning: something to know\n")
+assert result.returncode == 0, result
+assert len(interfaces(result)) == 1, result
+assert result.stderr == "warning: something to know\n", result
+
+print("btle-extcap: a failed listing exits 1 and says why")
+
+# The script matches that one line to tell no board apart from a failure, so
+# the line has to be the one ubertooth-util prints. UBERTOOTH_TEST_NO_DEVICES
+# makes it report no board without one being attached, and without opening a
+# board this machine may be using.
+if REAL_UTIL:
+    real = subprocess.run(
+        [REAL_UTIL, "-U", "all", "-s"],
+        capture_output=True, text=True, timeout=10, check=False,
+        env=dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1"))
+    assert real.returncode == 1, real
+    assert NO_DEVICES in real.stderr.splitlines(), (NO_DEVICES, real)
+    print("btle-extcap: ubertooth-util still reports %r" % NO_DEVICES)
+
+# ---- a tool that is not on PATH --------------------------------------------
+
+# Nothing is on this PATH, so the script cannot run either tool. That used to
+# end it in a Python traceback; the message has to be the same one-line form
+# as every other error here. The script itself runs under this interpreter by
+# path, so an empty PATH costs it nothing.
+EMPTY = os.path.join(directory, "empty")
+os.mkdir(EMPTY)
+for arguments, tool in (
+        (("--extcap-interfaces",), "ubertooth-util"),
+        (("--capture", "--extcap-interface=ubertooth" + SERIALS[0],
+          "--fifo=" + os.devnull), "ubertooth-btle")):
+    result = run(arguments, path=EMPTY)
+    assert result.returncode == 1, (tool, result)
+    assert result.stdout == "", (tool, result)
+    assert "Traceback" not in result.stderr, (tool, result)
+    assert result.stderr == \
+        "error: could not run %s: No such file or directory\n" % tool, \
+        (tool, result)
+
+# a tool that is there but cannot be executed is reported the same way
+NOT_EXECUTABLE = os.path.join(directory, "not-executable")
+os.mkdir(NOT_EXECUTABLE)
+with open(os.path.join(NOT_EXECUTABLE, "ubertooth-util"), "w") as blocked:
+    blocked.write("#!/bin/sh\nexit 0\n")
+os.chmod(os.path.join(NOT_EXECUTABLE, "ubertooth-util"), 0o644)
+result = run(("--extcap-interfaces",), path=NOT_EXECUTABLE)
+assert result.returncode == 1, result
+assert result.stdout == "" and "Traceback" not in result.stderr, result
+assert result.stderr.startswith("error: could not run ubertooth-util: "), \
+    result
+
+print("btle-extcap: a tool that is not on PATH is reported, not a traceback")
 
 # ---- --capture --------------------------------------------------------------
 
