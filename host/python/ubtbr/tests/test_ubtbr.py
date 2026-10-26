@@ -298,7 +298,8 @@ command.join(DEADLINE)
 assert not command.is_alive(), "a command that could not start must end"
 assert command.done(), "a command whose loop never ran must still report it"
 assert device.handler is None, "a command that ended must release the handler"
-assert records.said("BTCtlInquiryCmd stopped: timeout"), records.messages
+assert records.said("BTCtlInquiryCmd stopped: USBErrorTimeout: timeout"), \
+    records.messages
 print("ubtbr: a command the device will not start is reported, not raised")
 
 # ---- a command of a super command that will not stop ----------------------
@@ -407,6 +408,27 @@ assert refused.getvalue() == \
 assert said.getvalue() == "", said.getvalue()
 print("ubtbr: a command left behind by a super command is reported, not raised")
 
+# the refusal can also land on a command's own thread, where a traceback is
+# nobody's to report: a command that runs commands of its own starts them
+# from there
+device = SilentDevice()
+orphan = WedgedCmd(device)
+orphan.start()
+assert wait_until(lambda: device.handler is not None), "no command started"
+records.messages.clear()
+thrown = io.StringIO()
+with contextlib.redirect_stderr(thrown):
+    refused_super = GivingUpSuperCmd(device)
+    refused_super.start()
+    refused_super.join(DEADLINE)
+assert not refused_super.is_alive(), "a refused super command must end"
+assert "Exception in thread" not in thrown.getvalue(), thrown.getvalue()
+assert "Traceback" not in thrown.getvalue(), thrown.getvalue()
+assert records.said("the previous command is still running"), records.messages
+print("ubtbr: a refusal on a command's own thread is logged, not a traceback")
+
+
+
 # ---- a packet that does not fit the framing -------------------------------
 
 class BadFramingDevice:
@@ -467,6 +489,57 @@ assert took < DEADLINE, took
 assert not handle.closed, \
     "the device must stay open while a read is still running in libusb"
 print("ubtbr: close() returns in %.2fs with the receive loop stuck" % took)
+
+# ---- exiting with a command the prompt has lost track of ------------------
+
+# The device itself is the only thing that knows a command still owns the
+# messages, so it is where the refusal to close belongs: the prompt rightly
+# let go of the super command once it ended, and closing the handle under the
+# child it left behind is how a clean exit turns into a crash.
+handle = BadFramingDevice([])
+bt = btctl.BTCtl(handle)
+bt.connect()
+prompt = tool_module.BTCtlPrompt(bt)
+assert prompt.start_cmd(GivingUpSuperCmd) is not None
+assert wait_until(lambda: not prompt._cmd.is_alive()), \
+    "a super command that gave up must end"
+prompt.stop_cmd()
+assert prompt._cmd is None, "a super command that ended must be let go of"
+assert bt._msg_handler is not None, "the child still owns the messages"
+with contextlib.redirect_stderr(io.StringIO()):
+    prompt.do_exit("q")
+assert not handle.closed, \
+    "the device must stay open while a command can still write to it"
+print("ubtbr: exiting leaves the device open for a command nobody holds")
+
+# ---- a command that ends after the prompt gave up on it -------------------
+
+# Giving up has to be a pause, not the end of the session: a command that
+# ends later releases the handler, and the prompt must notice rather than
+# refusing every command for as long as the tool runs.
+class SlowCmd(btctl.BTCtlCmd):
+    """A command that ignores its stop, then ends on its own."""
+
+    JOIN_TIMEOUT = 0.2
+    LINGER = 1
+
+    def _run_loop(self):
+        time.sleep(self.LINGER)
+
+
+device = SilentDevice()
+prompt = tool_module.BTCtlPrompt(device)
+assert prompt.start_cmd(SlowCmd) is not None
+prompt.stop_cmd()
+assert prompt._cmd is not None, "a command that outlived its stop is kept"
+assert prompt.start_cmd(btctl.BTCtlInquiryCmd) is None, "must refuse while held"
+assert wait_until(lambda: device.handler is None), "the command never ended"
+assert prompt.start_cmd(btctl.BTCtlInquiryCmd) is not None, \
+    "the prompt must take commands again once the handler is free"
+assert wait_until(lambda: device.inquiry_requests == 1), device.inquiry_requests
+prompt.stop_cmd()
+assert prompt._cmd is None, prompt._cmd
+print("ubtbr: the prompt recovers when a command it gave up on ends")
 
 # ---- the tool, driven through its prompt ----------------------------------
 
@@ -555,6 +628,18 @@ assert running.returncode == 1, (running.returncode, output, errors)
 assert output == "", output
 assert errors == "error: no Ubertooth devices found\n", errors
 print("ubtbr: no Ubertooth is one error line and exit 1")
+
+# an option value that is not a number: one error line, not the traceback
+# out of int() that this change's try block would otherwise let through
+running = subprocess.Popen([sys.executable, WRAPPER, "-f", "nine"],
+                           stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                           stderr=subprocess.PIPE, text=True, env=ENVIRONMENT)
+output, errors = running.communicate("", timeout=DEADLINE * 2)
+assert running.returncode == 1, (running.returncode, output, errors)
+assert output == "", output
+assert "error: -f must be a whole number (got nine)" in errors, errors
+assert "Traceback" not in errors, errors
+print("ubtbr: an option value that is not a number is one error line")
 
 # an interrupt before the prompt is up, which is the window the hang shortly
 # after start lives in: the tool ends, with no traceback and nothing on

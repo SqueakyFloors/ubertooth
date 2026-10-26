@@ -181,8 +181,10 @@ write a bootloader.*
 - [ ] Run `ubertooth-btbr` targeting a known classic BT device BD_ADDR
 - [ ] Confirm: starts without hanging (tests issue #520 — if it still hangs, note it)
 - [ ] Confirm: packets captured after paging completes
-- [ ] Confirm: Ctrl-C returns to the `bt>` prompt and `q` then exits, whether or
-      not it hung
+- [ ] Confirm: Ctrl-C before the `bt>` prompt appears, which is where the hang
+      above sits, ends the tool with exit status 1
+- [ ] Confirm: Ctrl-C with a command running returns to the `bt>` prompt, and
+      `q` then exits
 
 ### 5c. AFH channel map detection (issue #238)
 *Requires: two classic BT devices with an active connection, for example audio

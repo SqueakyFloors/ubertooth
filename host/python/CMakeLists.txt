@@ -91,7 +91,7 @@ add_subdirectory(specan_ui)
 add_subdirectory(ubtbr)
 
 # ubertooth-btbr and the ubtbr modules ending when they are asked to, against
-# a fake usb1 module: no board is involved. Around fifteen seconds, nearly all
+# a fake usb1 module: no board is involved. Around twenty seconds, nearly all
 # of it waiting: several cases give a thread a bounded time to stop, and each
 # run of the tool spends a second settling the device it thinks it opened.
 add_test(NAME ubtbr

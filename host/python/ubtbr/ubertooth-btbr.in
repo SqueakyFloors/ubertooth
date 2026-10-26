@@ -68,7 +68,7 @@ class BTCtlPrompt(Cmd):
 			return bdaddr
 
 	def start_cmd(self, cls, *args):
-		if self._cmd is not None and self._cmd.done():
+		if self._cmd is not None and (self._cmd.done() or self._gave_up):
 			self.stop_cmd()
 		if self._cmd is not None:
 			# Either it is still running, or it outlived its stop and still
@@ -86,9 +86,16 @@ class BTCtlPrompt(Cmd):
 		return self._cmd
 
 	def stop_cmd(self):
-		# Asking a command that already outlived its stop again would only
-		# spend another join on it.
-		if self._cmd is None or self._gave_up:
+		if self._cmd is None:
+			return
+		if self._gave_up:
+			# It already outlived one stop. Asking again would only spend
+			# another join on it, but if it has ended since, the session gets
+			# its device back instead of refusing every later command.
+			if self._cmd.is_alive():
+				return
+			self._cmd = None
+			self._gave_up = False
 			return
 		self._cmd.stop()
 		self._cmd.join(self._cmd.JOIN_TIMEOUT)
@@ -236,10 +243,15 @@ def main():
 		bt.connect()
 
 		for o, v in opt:
+			try:
+				value = int(v)
+			except ValueError:
+				eprint("error: %s must be a whole number (got %s)\n"%(o, v))
+				sys.exit(1)
 			if o == '-f':
-				bt.send_set_freq_off_cmd(int(v))
+				bt.send_set_freq_off_cmd(value)
 			elif o == '-b':
-				bt.send_set_max_ac_errors_cmd(int(v))
+				bt.send_set_max_ac_errors_cmd(value)
 
 		bt.send_set_bdaddr_cmd(0x112233445566)
 		eir = BTCtlEIR([

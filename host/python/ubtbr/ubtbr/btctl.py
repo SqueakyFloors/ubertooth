@@ -540,10 +540,12 @@ class BTCtlCmd(Thread):
 		try:
 			self._start()
 			self._run_loop()
-		except usb1.USBError as e:
+		except Exception as e:
 			# This runs on the command's own thread, so there is nobody above
-			# to report it: an unhandled one comes out as a thread traceback.
-			log.error("%s stopped: %s"%(self, e))
+			# to report it: anything let out here comes out as a thread
+			# traceback, and the finally below is what frees the device for
+			# the next command. Named by type, so a bug still reads as one.
+			log.error("%s stopped: %s: %s"%(self, type(e).__name__, e))
 		finally:
 			# Whatever ended the loop, the command is over: say so before
 			# releasing the handler, so the next command can be started.
@@ -615,10 +617,19 @@ class BTCtlSuperCmd(Thread):
 		self._stopped.wait(timeout)
 
 	def run(self):
-		while not self.stopped():
-			self.run_once()
-		self._stop_cmd()
-		log.info("%s stopped"%self.__class__.__name__)
+		try:
+			while not self.stopped():
+				self.run_once()
+		except Exception as e:
+			# Its own thread too, so the same applies as for BTCtlCmd: the
+			# commands it starts can refuse, and a traceback from in here is
+			# nobody's to report.
+			log.error("%s stopped: %s: %s"
+				%(self.__class__.__name__, type(e).__name__, e))
+			self.stop()
+		finally:
+			self._stop_cmd()
+			log.info("%s stopped"%self.__class__.__name__)
 
 class BTCtlInquiryCmd(BTCtlCmd):
 	def _start(self):
@@ -993,6 +1004,14 @@ class BTCtl:
 			# Closing the handle under a read still running in libusb is how
 			# a clean exit turns into a crash, so leave it to the exit.
 			log.error("Receive thread did not stop; leaving the device open")
+			return
+		if self._msg_handler is not None:
+			# A command still owns the messages, so it is still running and
+			# can still write. Whoever started it may have lost track of it:
+			# a command that runs commands of its own can give up on a child
+			# and then end itself, leaving nobody holding the child. This is
+			# the check that covers every such route.
+			log.error("A command is still running; leaving the device open")
 			return
 		self._usb.close()
 
