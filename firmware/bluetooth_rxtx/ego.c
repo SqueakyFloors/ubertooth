@@ -20,6 +20,7 @@
  */
 
 #include "ego.h"
+#include "cc2400_wait.h"
 #include "ubertooth_clock.h"
 
 /*
@@ -34,7 +35,7 @@
 int enqueue_with_ts(u8 type, u8 *buf, u32 ts);
 /* CLK100NS comes from ubertooth_clock.h, included above. */
 extern volatile u32 clkn; // TODO: replace with timer1
-extern volatile u8 requested_mode;
+/* requested_mode comes from ubertooth.h, with the mode values. */
 extern volatile u16 channel;
 
 static const uint16_t channels[4] = { 2408, 2418, 2423, 2469 };
@@ -127,13 +128,17 @@ static void rf_on(void) {
 	cc2400_set(SYNCH, (access_code >> 16) & 0xffff);
 	cc2400_set(SYNCL, (access_code >>  0) & 0xffff);
 
-	while (!(cc2400_status() & XOSC16M_STABLE));
+	/* Bounded, so a radio that stops answering cannot hold this mode for
+	 * good: ego_main()'s loop is then reached again and sees that the host
+	 * has asked for another mode. No service callback is needed -- this mode
+	 * runs USB off its interrupt, which ego_main() enables on the way in. */
+	cc2400_wait_xosc_stable(NULL);
 
 	ssp_start();
 
 	cc2400_strobe(SFSON);
-	while (!(cc2400_status() & FS_LOCK));
-	while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
+	cc2400_wait_fs(1, NULL);
+	cc2400_wait_fsm(STATE_STROBE_FS_ON, NULL);
 
 	cc2400_strobe(SRX);
 }
@@ -251,8 +256,9 @@ static void continuous_cap_state(ego_fsm_state_t *state) {
 		ssp_stop();
 		// restart cap with radio warm
 		cc2400_strobe(SFSON);
-		while (!(cc2400_status() & FS_LOCK));
-		while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
+		/* Bounded, as in rf_on(). */
+		cc2400_wait_fs(1, NULL);
+		cc2400_wait_fsm(STATE_STROBE_FS_ON, NULL);
 
 		while (SSP1SR & SSPSR_RNE) {
 			uint8_t tmp = (uint8_t)DIO_SSP_DR;
@@ -303,11 +309,12 @@ static void start_jamming_state(ego_fsm_state_t *state) {
 	// which is the level this used to force)
 	cc2400_set(FREND, frend_keep_pa_level(cc2400_get(FREND)));
 
-	while (!(cc2400_status() & XOSC16M_STABLE));
+	/* Bounded, as in rf_on(). */
+	cc2400_wait_xosc_stable(NULL);
 
 	cc2400_strobe(SFSON);
-	while (!(cc2400_status() & FS_LOCK));
-	while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
+	cc2400_wait_fs(1, NULL);
+	cc2400_wait_fsm(STATE_STROBE_FS_ON, NULL);
 
 #ifdef UBERTOOTH_ONE
 	PAEN_SET;

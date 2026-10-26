@@ -21,6 +21,7 @@
 
 #include "cc2400_rangetest.h"
 #include "cc2400_wait.h"
+#include "ubertooth_usb.h"
 
 /*
  * This range test transmits a Bluetooth-like (but not Bluetooth compatible)
@@ -50,6 +51,20 @@
 rangetest_result rr;
 
 #ifdef TX_ENABLE
+/* Put the radio and the amplifier back to quiet. Both exits from the range test
+ * go through here: the one that finishes the test and the one the host stops. */
+static void rangetest_radio_off(void)
+{
+	TXLED_CLR;
+	cc2400_strobe(SRFOFF);
+	cc2400_wait_fs_unlock();
+#ifdef UBERTOOTH_ONE
+	PAEN_CLR;
+#endif
+	RXLED_CLR;
+	USRLED_CLR;
+}
+
 void cc2400_rangetest(volatile u16 *chan_ptr)
 {
 	u32 command[5];
@@ -60,6 +75,7 @@ void cc2400_rangetest(volatile u16 *chan_ptr)
 	u8 pa = 0;
 	u8 txbuf[len];
 	u8 rxbuf[len];
+	int got_reply = 0;
 
 	txbuf[0] = len - 1; // length of data (rest of payload)
 	txbuf[1] = 0; // request
@@ -100,55 +116,88 @@ void cc2400_rangetest(volatile u16 *chan_ptr)
 	cc2400_set(SYNCL,   0x1584);
 	cc2400_set(FREND,   8 | pa);
 	cc2400_set(MDMCTRL, 0x0029);
-	while (!(cc2400_status() & XOSC16M_STABLE));
+	cc2400_wait_xosc_stable(service_usb);
 	cc2400_strobe(SFSON);
-	while (!(cc2400_status() & FS_LOCK));
+	cc2400_wait_fs(1, service_usb);
 	TXLED_SET;
 #ifdef UBERTOOTH_ONE
 	PAEN_SET;
 #endif
-	for (pa = 0; pa < 8; pa++) {
+	/*
+	 * 128 packets, eight amplifier levels of 16. The waits in here answer
+	 * control requests, so the host can stop the mode part-way through the
+	 * burst; both loops check for that rather than transmitting the rest of
+	 * it after the board has agreed to stop.
+	 */
+	for (pa = 0; pa < 8 && requested_mode == MODE_RANGE_TEST; pa++) {
 		cc2400_set(FREND, 8 | pa);
 		txbuf[18] = pa;
-		for (i = 0; i < 16; i++) {
+		for (i = 0; i < 16 && requested_mode == MODE_RANGE_TEST; i++) {
 			txbuf[19] = i;
-			while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
+			cc2400_wait_fsm(STATE_STROBE_FS_ON, service_usb);
 			// transmit a packet
 			for (j = 0; j < len; j++)
 				cc2400_set8(FIFOREG, txbuf[j]);
 			cc2400_strobe(STX);
 		}
 	}
+	if (requested_mode != MODE_RANGE_TEST) {
+		rangetest_radio_off();
+		return;
+	}
+
 	// sent packet, now look for repeated packet
-	while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
+	cc2400_wait_fsm(STATE_STROBE_FS_ON, service_usb);
 	TXLED_CLR;
 	cc2400_strobe(SRFOFF);
 	cc2400_wait_fs_unlock();
 	cc2400_set(FSDIV, *chan_ptr - 1);
-	while (!(cc2400_status() & XOSC16M_STABLE));
+	cc2400_wait_xosc_stable(service_usb);
 	cc2400_strobe(SFSON);
-	while (!(cc2400_status() & FS_LOCK));
+	cc2400_wait_fs(1, service_usb);
 	RXLED_SET;
-	while (1) {
-		while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
+	/*
+	 * Wait for the repeater's reply. There is no deadline: the other board
+	 * may be out of range, or not running, so this can wait indefinitely and
+	 * that is not a failure. What it must not do is wait without servicing
+	 * USB, which is how this used to leave a board enumerated and answering
+	 * no control request -- not even the one that stops the mode -- until it
+	 * was re-plugged.
+	 */
+	while (!got_reply && requested_mode == MODE_RANGE_TEST) {
+		cc2400_wait_fsm(STATE_STROBE_FS_ON, service_usb);
 		cc2400_strobe(SRX);
-		while (!(cc2400_status() & SYNC_RECEIVED));
+		while (!(cc2400_status() & SYNC_RECEIVED)) {
+			service_usb();
+			if (requested_mode != MODE_RANGE_TEST)
+				break;
+		}
+		if (requested_mode != MODE_RANGE_TEST)
+			break;
 		USRLED_SET;
 		for (j = 0; j < len; j++)
 			rxbuf[j] = cc2400_get8(FIFOREG);
 		if (cc2400_status() & STATUS_CRC_OK)
-			break;
-		USRLED_CLR;
+			got_reply = 1;
+		else
+			USRLED_CLR;
 	}
 
 	// done
-	while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
-	cc2400_strobe(SRFOFF);
-	cc2400_wait_fs_unlock();
-#ifdef UBERTOOTH_ONE
-	PAEN_CLR;
-#endif
-	RXLED_CLR;
+	if (got_reply)
+		cc2400_wait_fsm(STATE_STROBE_FS_ON, service_usb);
+	rangetest_radio_off();
+
+	/*
+	 * Only a reply that arrived gives a result, so a test the host stopped
+	 * clears rr instead of leaving the previous test's numbers in it:
+	 * ubertooth-util -r reads rr whenever rr.valid is set, and would
+	 * otherwise report an older test's answer as this one's.
+	 */
+	if (!got_reply) {
+		rr.valid = 0;
+		return;
+	}
 
 	// get test result
 	rr.valid       = 1;
@@ -176,9 +225,13 @@ void cc2400_repeater(volatile u16 *chan_ptr)
 	u8 len = 22;
 	u8 pa = 0;
 	u8 buf[len];
+	int got_request;
 
-	//FIXME allow to be turned off
-	while (1) {
+	/* This used to be `while (1)` with a FIXME asking for a way to turn it
+	 * off. There was none: nothing in here looked at requested_mode and
+	 * nothing serviced USB, so the board answered no control request from
+	 * the moment the mode started and only a re-plug ended it. */
+	while (requested_mode == MODE_REPEATER) {
 		cc2400_set(LMTST,   0x2b22);
 		cc2400_set(MDMTST0, 0x134b);
 		cc2400_set(FSDIV,   *chan_ptr - 1);
@@ -186,45 +239,69 @@ void cc2400_repeater(volatile u16 *chan_ptr)
 		cc2400_set(SYNCL,   0x1584);
 		cc2400_set(FREND,   0x0008); // minimum tx power
 		cc2400_set(MDMCTRL, 0x0029); // 160 kHz frequency deviation
-		while (!(cc2400_status() & XOSC16M_STABLE));
+		cc2400_wait_xosc_stable(service_usb);
 		cc2400_strobe(SFSON);
-		while (!(cc2400_status() & FS_LOCK));
+		cc2400_wait_fs(1, service_usb);
 		RXLED_SET;
 		TXLED_CLR;
 		USRLED_CLR;
 #ifdef UBERTOOTH_ONE
 		PAEN_SET;
 #endif
-		while (1) {
-			while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
+		/* Wait for a request to repeat. No deadline, for the reason given
+		 * in cc2400_rangetest(). */
+		got_request = 0;
+		while (!got_request && requested_mode == MODE_REPEATER) {
+			cc2400_wait_fsm(STATE_STROBE_FS_ON, service_usb);
 			USRLED_CLR;
 			cc2400_strobe(SRX);
-			while (!(cc2400_status() & SYNC_RECEIVED));
+			while (!(cc2400_status() & SYNC_RECEIVED)) {
+				service_usb();
+				if (requested_mode != MODE_REPEATER)
+					break;
+			}
+			if (requested_mode != MODE_REPEATER)
+				break;
 			USRLED_SET;
 			for (i = 0; i < len; i++)
 				buf[i] = cc2400_get8(FIFOREG);
 			if (cc2400_status() & STATUS_CRC_OK)
-				break;
+				got_request = 1;
 		}
-		// got packet, now repeat it
+		if (!got_request)
+			break;
+
+		/*
+		 * Got a packet, now repeat it. The delay gives the requester time
+		 * to switch to receive, and it deliberately does not service USB:
+		 * every pass through handle_usb() would stretch it, and the other
+		 * board is waiting on this timing. It is a busy-wait of a few tens
+		 * of milliseconds, well inside the host's one-second request
+		 * timeout, so a request that lands in it is answered late rather
+		 * than lost. The mode is re-checked once the delay is over.
+		 */
 		i = 2000000; while (--i); // allow time for requester to switch to rx
+		if (requested_mode != MODE_REPEATER)
+			break;
 		USRLED_CLR;
 		RXLED_CLR;
 		cc2400_strobe(SRFOFF);
 		cc2400_wait_fs_unlock();
-		while (!(cc2400_status() & XOSC16M_STABLE));
+		cc2400_wait_xosc_stable(service_usb);
 		cc2400_set(FSDIV, *chan_ptr);
-		while (!(cc2400_status() & XOSC16M_STABLE));
+		cc2400_wait_xosc_stable(service_usb);
 		cc2400_strobe(SFSON);
 		TXLED_SET;
 		buf[0] = len - 1; // length of data (rest of payload)
 		buf[1] = 1; // reply
-		for (pa = 0; pa < 8; pa++) {
+		/* Stops part-way through the reply burst if the host stops the
+		 * mode, for the reason the request burst does. */
+		for (pa = 0; pa < 8 && requested_mode == MODE_REPEATER; pa++) {
 			cc2400_set(FREND, 8 | pa);
 			buf[20] = pa;
-			for (i = 0; i < 16; i++) {
+			for (i = 0; i < 16 && requested_mode == MODE_REPEATER; i++) {
 				buf[21] = i;
-				while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
+				cc2400_wait_fsm(STATE_STROBE_FS_ON, service_usb);
 				for (j = 0; j < len; j++)
 					cc2400_set8(FIFOREG, buf[j]);
 				cc2400_strobe(STX);
@@ -255,9 +332,9 @@ void cc2400_txtest(volatile u8 *mod_ptr, volatile u16 *chan_ptr)
 	cc2400_set(FSDIV,   *chan_ptr);
 	cc2400_set(MDMCTRL, mdmctrl);
 
-	while (!(cc2400_status() & XOSC16M_STABLE));
+	cc2400_wait_xosc_stable(service_usb);
 	cc2400_strobe(SFSON);
-	while (!(cc2400_status() & FS_LOCK));
+	cc2400_wait_fs(1, service_usb);
 	TXLED_SET;
 	cc2400_strobe(STX);
 #ifdef UBERTOOTH_ONE

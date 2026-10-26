@@ -1029,6 +1029,41 @@ static void cc2400_idle()
 	target.syncword = 0;
 }
 
+/*
+ * What a polled mode loop does between radio status polls instead of spinning.
+ *
+ * USB in this firmware is polled from whichever mode loop is running
+ * (handle_usb()), and endpoint 0 -- the one control requests arrive on -- is
+ * single-buffered. A loop that polls once per pass is therefore a whole pass
+ * behind the host: a SETUP packet arriving while the previous transfer's
+ * status packet is still in the endpoint is read back short, decodes to a
+ * request this firmware does not know, and lpcusb halts the endpoint. The host
+ * sees a stalled control transfer (-9). led_specan() lost one every few
+ * samples that way; Bluetooth follow mode loses roughly one GET_CHANNEL in
+ * twenty, because the loop's pass is short but the hop in the middle of it is
+ * not.
+ *
+ * Passing this into the bounded radio waits keeps endpoint 0 within a few
+ * microseconds of the host, and keeps it serviced between the waits'
+ * bit-banged CC2400 transfers rather than inside one.
+ *
+ * The alternative the six interrupt-driven modes use -- enabling the USB
+ * interrupt for the duration of the mode -- also works, and was measured
+ * working, but it lets a control request that drives the radio (a register
+ * read or write, the squelch, the channel) run inside one of a loop's
+ * bit-banged transfers, which holds CSN low and does not mask interrupts.
+ * Polling keeps the servicing between transfers, where it has always been.
+ *
+ * clkn is the bulk stream's keep-alive timestamp, and it stands still in the
+ * modes that never start the Bluetooth clock: led_specan(), the range test, the
+ * repeater and the transmit test. None of those streams bulk packets either, so
+ * there is no keep-alive to be late. Every other caller has the clock running.
+ */
+void service_usb(void)
+{
+	handle_usb(clkn);
+}
+
 /* start un-buffered rx */
 static void cc2400_rx()
 {
@@ -1059,9 +1094,18 @@ static void cc2400_rx()
 
 	clkn_start();
 
-	while (!(cc2400_status() & XOSC16M_STABLE));
+	/* Bounded, so a radio that stops answering cannot keep the mode loop
+	 * below from ever starting -- and that loop is what services USB, so a
+	 * board stuck here answers no control request until it is re-plugged.
+	 *
+	 * No service callback: this is the setup the mode is about to stream
+	 * with, and a control request serviced here could change the channel or
+	 * the modulation between the register writes above and the receive
+	 * strobe below. The wait happens once per mode start, not once per hop,
+	 * so bounding it is enough. */
+	cc2400_wait_xosc_stable(NULL);
 	cc2400_strobe(SFSON);
-	while (!(cc2400_status() & FS_LOCK));
+	cc2400_wait_fs(1, NULL);
 	cc2400_strobe(SRX);
 #ifdef UBERTOOTH_ONE
 	PAEN_SET;
@@ -1130,9 +1174,10 @@ static void cc2400_rx_sync(u32 sync)
 
 	clkn_start();
 
-	while (!(cc2400_status() & XOSC16M_STABLE));
+	/* Bounded without a service callback, as in cc2400_rx(). */
+	cc2400_wait_xosc_stable(NULL);
 	cc2400_strobe(SFSON);
-	while (!(cc2400_status() & FS_LOCK));
+	cc2400_wait_fs(1, NULL);
 	cc2400_strobe(SRX);
 #ifdef UBERTOOTH_ONE
 	PAEN_SET;
@@ -1175,15 +1220,16 @@ static void cc2400_tx_sync(uint32_t sync)
 
 	clkn_start();
 
-	while (!(cc2400_status() & XOSC16M_STABLE));
+	/* Bounded without a service callback, as in cc2400_rx(). */
+	cc2400_wait_xosc_stable(NULL);
 	cc2400_strobe(SFSON);
-	while (!(cc2400_status() & FS_LOCK));
+	cc2400_wait_fs(1, NULL);
 
 #ifdef UBERTOOTH_ONE
 	PAEN_SET;
 #endif
 
-	while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
+	cc2400_wait_fsm(STATE_STROBE_FS_ON, NULL);
 	cc2400_strobe(STX);
 
 }
@@ -1249,14 +1295,16 @@ void le_transmit(u32 aa, u8 len, u8 *data)
 	cc2400_set(IOCFG, (GIO_FIFO_EMPTY << 9) | (gio_save & 0x1ff));
 
 	// turn on the radio
-	while (!(cc2400_status() & XOSC16M_STABLE));
+	/* Bounded without a service callback: this sends one packet for the
+	 * caller, which is a mode loop that services USB itself. */
+	cc2400_wait_xosc_stable(NULL);
 	cc2400_strobe(SFSON);
-	while (!(cc2400_status() & FS_LOCK));
+	cc2400_wait_fs(1, NULL);
 	TXLED_SET;
 #ifdef UBERTOOTH_ONE
 	PAEN_SET;
 #endif
-	while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
+	cc2400_wait_fsm(STATE_STROBE_FS_ON, NULL);
 	/*
 		This is the correct way of talking to the CC2400 FIFO, the algorithm is as follows:
 	 	While i need to send more data:
@@ -1285,7 +1333,7 @@ void le_transmit(u32 aa, u8 len, u8 *data)
 		// From now on, we only get interrupt on GIO6, which means that we work according to FIFO_THRESHOLD now, the fifo is only half full.
 		fifo_space = 16;
 	}
-	while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
+	cc2400_wait_fsm(STATE_STROBE_FS_ON, NULL);
 	TXLED_CLR;
 
 	cc2400_strobe(SRFOFF);
@@ -1318,21 +1366,48 @@ void le_jam(void) {
 	cc2400_set(FREND,   frend_keep_pa_level(cc2400_get(FREND)));
 	cc2400_set(MDMCTRL, 0x0040);    // 250 kHz frequency deviation
 
-	while (!(cc2400_status() & XOSC16M_STABLE));
+	/* Bounded without a service callback, as in le_transmit(). */
+	cc2400_wait_xosc_stable(NULL);
 	cc2400_strobe(SFSON);
-	while (!(cc2400_status() & FS_LOCK));
+	cc2400_wait_fs(1, NULL);
 	TXLED_SET;
 #ifdef UBERTOOTH_ONE
 	PAEN_SET;
 #endif
-	while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
+	cc2400_wait_fsm(STATE_STROBE_FS_ON, NULL);
 	cc2400_strobe(STX);
 }
 #endif
 
 /* TODO - return whether hop happened, or should caller have to keep
  * track of this? */
-void hop(void)
+/*
+ * Retune to the next channel.
+ *
+ * `service` is what to do between radio status polls while the synthesizer
+ * settles: service_usb() from the loops that poll USB, NULL from the loops
+ * that run USB off its interrupt. Those two waits are most of a hop, around
+ * 300 microseconds, and in follow mode a hop happens every 625 microseconds.
+ * Before this took a callback, that was the gap in endpoint 0 service that
+ * stalled roughly one GET_CHANNEL in twenty (see service_usb()).
+ *
+ * What a request serviced inside those waits can and cannot change:
+ *
+ *   - The hop mode and the AFH map are read above, before the first wait, so a
+ *     change to either takes effect from the next hop. That is also what keeps
+ *     the map rebuild safe (see precalc()).
+ *   - The channel is not. FSDIV below is written from the global, so a
+ *     UBERTOOTH_SET_CHANNEL serviced inside the first wait retunes this hop to
+ *     the host's channel instead of the computed one. Nothing ends up
+ *     inconsistent -- the channel the board reports and the packet headers it
+ *     sends are read from the same global -- and in follow mode the next hop
+ *     overwrites it.
+ *   - A request that writes a radio register directly, which only the
+ *     developer requests behind `ubertooth-util -a` and `ubertooth-debug` do,
+ *     can land between the register write and the strobe below and spoil the
+ *     one hop.
+ */
+void hop(void (*service)(void))
 {
 	do_hop = 0;
 	last_hop = clkn;
@@ -1377,7 +1452,7 @@ void hop(void)
 	}
 	/* IDLE mode, but leave amp on, so don't call cc2400_idle(). */
 	cc2400_strobe(SRFOFF);
-	cc2400_wait_fs_unlock();
+	cc2400_wait_fs(0, service);
 
 	/* Retune */
 	if(mode == MODE_TX_SYMBOLS)
@@ -1392,7 +1467,7 @@ void hop(void)
 
 	/* Wait for lock */
 	cc2400_strobe(SFSON);
-	while (!(cc2400_status() & FS_LOCK));
+	cc2400_wait_fs(1, service);
 
 	dma_discard = 1;
 
@@ -1488,11 +1563,13 @@ void bt_stream_rx()
 			}
 			rssi_add(rssi);
 
-			handle_usb(clkn);
+			service_usb();
 
-			/* If timer says time to hop, do it. */
+			/* If timer says time to hop, do it. The hop keeps servicing
+			 * USB while the synthesizer settles; without that, endpoint 0
+			 * went unserviced for the whole retune. */
 			if (do_hop) {
-				hop();
+				hop(service_usb);
 			} else {
 				TXLED_CLR;
 			}
@@ -1532,7 +1609,7 @@ void bt_stream_rx()
 
 		enqueue(BR_PACKET, (uint8_t*)idle_rxbuf);
 
-		handle_usb(clkn);
+		service_usb();
 		rx_tc = 0;
 		rx_err = 0;
 	}
@@ -1571,6 +1648,19 @@ static uint16_t reverse16(uint16_t data)
  * All modulation parameters are set within this function.
  */
 #ifdef TX_ENABLE
+/* How long before br_transmit()'s transmit point it stops servicing USB, in
+ * T0TC's 100 ns ticks. 100 microseconds, which is longer than a typical
+ * service pass, so a pass that starts just inside the margin normally finishes
+ * before the transmit point.
+ *
+ * It is not a guarantee: handle_usb() has no deadline of its own, and a single
+ * request can be long -- UBERTOOTH_READ_ALL_REGISTERS is 46 bit-banged
+ * register reads. A pass that overruns costs this packet its slot, which the
+ * host sees as a gap in the transmitted stream, not as a board that stopped
+ * answering. The cost of the margin itself is up to 100 microseconds of
+ * spinning per packet. */
+#define TX_USB_SERVICE_MARGIN 1000
+
 void br_transmit()
 {
 	uint16_t gio_save;
@@ -1610,11 +1700,28 @@ void br_transmit()
 	while ( requested_mode == MODE_TX_SYMBOLS )
 	{
 
+		/* Wait for the next pair of slots. This used to spin, so endpoint 0
+		 * went unserviced for the whole wait -- most of 625 microseconds,
+		 * far longer than the gap that stalls a control request in follow
+		 * mode.
+		 *
+		 * Servicing USB here has to stop before the transmit point. T0TC
+		 * counts 100 ns ticks and wraps every 3125, so `T0TC < 2250` is the
+		 * last 87.5 microseconds of a tick, and the FIFO write below has to
+		 * land in it. So the service stops a margin ahead of 2250 and the
+		 * loop spins out the rest: a service pass that begins just inside
+		 * the margin still finishes before the transmit point. While the
+		 * slot pair has not advanced there is no deadline at all, because
+		 * the wait for T0TC starts over on the next tick. */
 		while ((clkn >> 1) == (clkn_saved >> 1) || T0TC < 2250) {
+			if ((clkn >> 1) == (clkn_saved >> 1)
+			    || T0TC < 2250 - TX_USB_SERVICE_MARGIN) {
+				service_usb();
+			}
 
 			// If timer says time to hop, do it.
 			if (do_hop) {
-				hop();
+				hop(service_usb);
 			}
 		}
 
@@ -1624,20 +1731,25 @@ void br_transmit()
 
 		cc2400_fifo_write(16, data);
 
-		while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
+		/* The rest of this pass waits on the radio four times: the transmit
+		 * finishing, then the retune. Every wait is bounded and keeps
+		 * servicing USB, so a radio that stops advancing no longer takes the
+		 * board with it: the loop keeps coming back here and keeps answering
+		 * the host, which can then stop the mode. */
+		cc2400_wait_fsm(STATE_STROBE_FS_ON, service_usb);
 		TXLED_CLR;
 
 		cc2400_strobe(SRFOFF);
-		cc2400_wait_fs_unlock();
+		cc2400_wait_fs(0, service_usb);
 
-		while (!(cc2400_status() & XOSC16M_STABLE));
+		cc2400_wait_xosc_stable(service_usb);
 		cc2400_strobe(SFSON);
-		while (!(cc2400_status() & FS_LOCK));
+		cc2400_wait_fs(1, service_usb);
 
-		while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
+		cc2400_wait_fsm(STATE_STROBE_FS_ON, service_usb);
 		cc2400_strobe(STX);
 
-		handle_usb(clkn);
+		service_usb();
 	}
 
 #ifdef UBERTOOTH_ONE
@@ -1733,7 +1845,7 @@ void bt_generic_le(u8 active_mode)
 
 			/* Wait for lock */
 			cc2400_strobe(SFSON);
-			while (!(cc2400_status() & FS_LOCK));
+			cc2400_wait_fs(1, NULL);
 
 			/* RX mode */
 			cc2400_strobe(SRX);
@@ -1741,8 +1853,11 @@ void bt_generic_le(u8 active_mode)
 			requested_channel = 0;
 		}
 
+		/* No service callback: this mode runs USB off its interrupt, which
+		 * it enabled on the way in, so endpoint 0 is serviced during the
+		 * hop without the loop doing anything. */
 		if (do_hop) {
-			hop();
+			hop(NULL);
 		} else {
 			TXLED_CLR;
 		}
@@ -1863,7 +1978,7 @@ void bt_le_sync(u8 active_mode)
 
 			/* Wait for lock */
 			cc2400_strobe(SFSON);
-			while (!(cc2400_status() & FS_LOCK));
+			cc2400_wait_fs(1, NULL);
 
 			/* RX mode */
 			cc2400_strobe(SRX);
@@ -2010,8 +2125,10 @@ void bt_le_sync(u8 active_mode)
 		cc2400_set(SYNCL, le.syncl);
 		cc2400_set(SYNCH, le.synch);
 
+		/* No service callback, as in bt_generic_le(): USB runs off its
+		 * interrupt here. */
 		if (do_hop)
-			hop();
+			hop(NULL);
 
 		// ♪ you can jam but you keep turning off the light ♪
 		if (le_jam_count > 0) {
@@ -2029,7 +2146,7 @@ void bt_le_sync(u8 active_mode)
 				restart_jamming = 0;
 			} else {
 				// wait till we're in FSLOCK before strobing RX
-				while (!(cc2400_status() & FS_LOCK));
+				cc2400_wait_fs(1, NULL);
 				cc2400_strobe(SRX);
 			}
 		}
@@ -2554,24 +2671,47 @@ void rx_generic_sync(void) {
 	usb_queue_init();
 	clkn_start();
 
-	while (!(cc2400_status() & XOSC16M_STABLE));
+	/* Bounded without a service callback, as in cc2400_rx(). */
+	cc2400_wait_xosc_stable(NULL);
 	cc2400_strobe(SFSON);
-	while (!(cc2400_status() & FS_LOCK));
+	cc2400_wait_fs(1, NULL);
 	RXLED_SET;
 #ifdef UBERTOOTH_ONE
 		PAEN_SET;
 		HGM_SET;
 #endif
-	while (1) {
-		while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
+	/*
+	 * This used to be `while (1)`, with the wait for a sync word below
+	 * spinning on the radio and USB serviced only once a packet had arrived.
+	 * So on a quiet channel -- which is every channel, until something
+	 * transmits the configured sync word -- the board answered no control
+	 * request at all and nothing could stop the mode: not even
+	 * `ubertooth-util -S`, because the loop never looked at requested_mode.
+	 * It needed a re-plug.
+	 *
+	 * Now the loop ends when the mode does, and the wait services USB while
+	 * it polls, so the request that stops the mode gets through.
+	 */
+	while (requested_mode == MODE_RX_GENERIC) {
+		cc2400_wait_fsm(STATE_STROBE_FS_ON, service_usb);
 		cc2400_strobe(SRX);
 		USRLED_CLR;
-		while (!(cc2400_status() & SYNC_RECEIVED));
+
+		/* Wait for a packet. This one has no deadline -- nothing may be
+		 * transmitting the sync word, perhaps for hours, and that is not a
+		 * failure -- so instead of a poll bound it services USB and leaves
+		 * when the host stops the mode. The main loop's idle reset clears
+		 * the LEDs, the amplifier and the radio on the way out. */
+		while (!(cc2400_status() & SYNC_RECEIVED)) {
+			service_usb();
+			if (requested_mode != MODE_RX_GENERIC)
+				return;
+		}
 		USRLED_SET;
 
 		cc2400_fifo_read(len, buf+4);
 		enqueue(BR_PACKET, buf);
-		handle_usb(clkn);
+		service_usb();
 	}
 }
 
@@ -2619,14 +2759,16 @@ void tx_generic(u8 prev_mode) {
 	 */
 	cc2400_set(FREND, FREND_RESERVED_ONE | (tx_pkt.pa_level & FREND_PA_LEVEL));
 
-	while (!(cc2400_status() & XOSC16M_STABLE));
+	/* Bounded without a service callback, as in le_transmit(): one packet,
+	 * then back to the mode loop that services USB. */
+	cc2400_wait_xosc_stable(NULL);
 	cc2400_strobe(SFSON);
-	while (!(cc2400_status() & FS_LOCK));
+	cc2400_wait_fs(1, NULL);
 	TXLED_SET;
 #ifdef UBERTOOTH_ONE
 		PAEN_SET;
 #endif
-	while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
+	cc2400_wait_fsm(STATE_STROBE_FS_ON, NULL);
 
 	/*
 	 * The vendor request already refuses a longer packet; clamped again
@@ -2636,7 +2778,7 @@ void tx_generic(u8 prev_mode) {
 	cc2400_fifo_write(MIN(tx_pkt.length, DMA_SIZE), tx_pkt.data);
 	cc2400_strobe(STX);
 
-	while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
+	cc2400_wait_fsm(STATE_STROBE_FS_ON, NULL);
 	TXLED_CLR;
 
 	cc2400_strobe(SRFOFF);
@@ -2678,38 +2820,37 @@ void specan()
 	/* Bounded: this mode services USB from its own loop below, so a radio
 	 * that never reports ready here used to leave the board enumerated and
 	 * answering no control request at all. Three of the wedges reported
-	 * against this firmware followed a specan run. */
-	cc2400_wait_xosc_stable();
+	 * against this firmware followed a specan run.
+	 *
+	 * No service callback on these two, as in cc2400_rx(): they run once,
+	 * before the loop starts. */
+	cc2400_wait_xosc_stable(NULL);
 	cc2400_wait_fs_unlock();
 
 	while (requested_mode == MODE_SPECAN) {
 		for (f = low_freq; f < high_freq + 1; f++) {
 			cc2400_set(FSDIV, f - 1);
 			cc2400_strobe(SFSON);
-			/* Bounded, for the reason above. A sample taken without a lock
-			 * is junk, which the host sees; a wait without a bound is a
-			 * board that has to be power-cycled.
+			/* The two waits either side of a sample are where this loop
+			 * spends its time, and it only drains endpoint 0 every sixteenth
+			 * sample, so they are also where a control request stalls.
+			 * Servicing USB between their status polls is what led_specan()
+			 * does. This loop pays more for it than that one did, because it
+			 * takes a sample at every frequency step rather than cycling
+			 * three. What it costs in samples per second has not been
+			 * measured; the pass runs while the radio is settling anyway, so
+			 * the expectation is that it is small, not that it is nothing.
 			 *
-			 * No service callback, unlike led_specan(): passing handle_usb()
-			 * in would service USB between every status poll, which changes
-			 * what this loop's timing looks like on every sample, not only on
-			 * a failing one. That cost wants measuring per mode before it is
-			 * paid, and this loop's once-per-16-samples USB service is
-			 * already known to be enough to stall a control request.
-			 *
-			 * So the cost of leaving it out is real: a radio that stops
-			 * locking spends both bounds on every frequency step -- around
-			 * 11,000 bit-banged status reads -- and this loop only services
-			 * USB every sixteenth step, so endpoint 0 can go on the order of a
-			 * hundred milliseconds unserviced. Still an order of magnitude
-			 * inside the host's control transfer timeout, and a radio in that
-			 * state is producing junk anyway; the mode can be stopped, which
-			 * is what the bound is for. */
-			cc2400_wait_fs(1, NULL);
+			 * The bound is separate and was already here: a sample taken
+			 * without a lock is junk, which the host can see, while a wait
+			 * without a bound is a board that has to be power-cycled. */
+			cc2400_wait_fs(1, service_usb);
 			cc2400_strobe(SRX);
 
 			/* give the CC2400 time to acquire RSSI reading */
+			service_usb();
 			volatile u32 j = 500; while (--j); //FIXME crude delay
+			service_usb();
 			buf[3 * i] = (f >> 8) & 0xFF;
 			buf[(3 * i) + 1] = f  & 0xFF;
 			buf[(3 * i) + 2] = cc2400_get(RSSI) >> 8;
@@ -2718,42 +2859,14 @@ void specan()
 				enqueue(SPECAN, buf);
 				i = 0;
 
-				handle_usb(clkn);
+				service_usb();
 			}
 
 			cc2400_strobe(SRFOFF);
-			cc2400_wait_fs_unlock();
+			cc2400_wait_fs(0, service_usb);
 		}
 	}
 	RXLED_CLR;
-}
-
-/*
- * What led_specan() does between radio polls instead of spinning.
- *
- * Its loop blocks on the radio either side of every sample -- waiting for the
- * synthesizer to lock, the crude delay while the CC2400 acquires RSSI, then
- * waiting for the synthesizer to unlock -- and endpoint 0 is single-buffered.
- * Servicing USB once per sample left the firmware a whole sample behind the
- * host, so a SETUP packet arriving while the previous transfer's status packet
- * was still in the endpoint was read back short, decoded to a request this
- * firmware does not know, and lpcusb halted the endpoint: the host saw a
- * stalled control transfer every few samples. Polling here instead keeps
- * endpoint 0 within a few microseconds of the host.
- *
- * The other mode loops with radio busy waits answer this by enabling the USB
- * interrupt for the duration of the mode. That would do here too, but it also
- * lets a control request that drives the radio -- a register read or write,
- * the squelch, the channel -- run inside one of this loop's bit-banged CC2400
- * transfers, which holds CSN low and does not mask interrupts. Polling keeps
- * the servicing between transfers, where it has always been.
- *
- * clkn is stopped in this mode, so the keep-alive timestamp handle_usb() wants
- * does not advance; nothing reads the bulk endpoint while this mode runs.
- */
-static void led_specan_service_usb(void)
-{
-	handle_usb(clkn);
 }
 
 /* LED based spectrum analysis */
@@ -2778,19 +2891,19 @@ void led_specan()
 	/* Bounded, as in specan(): this is before the loop that services USB
 	 * has started, so a radio that never reports ready here stops the board
 	 * answering altogether. */
-	cc2400_wait_xosc_stable();
+	cc2400_wait_xosc_stable(NULL);
 	cc2400_wait_fs_unlock();
 
 	while (requested_mode == MODE_LED_SPECAN) {
 		cc2400_set(FSDIV, channels[i] - 1);
 		cc2400_strobe(SFSON);
-		cc2400_wait_fs(1, led_specan_service_usb);
+		cc2400_wait_fs(1, service_usb);
 		cc2400_strobe(SRX);
 
 		/* give the CC2400 time to acquire RSSI reading */
-		led_specan_service_usb();
+		service_usb();
 		volatile u32 j = 500; while (--j); //FIXME crude delay
-		led_specan_service_usb();
+		service_usb();
 
 		lvl = (int8_t)((cc2400_get(RSSI) >> 8) & 0xff);
 		if (rssi_above_threshold(lvl, rssi_threshold)) {
@@ -2823,7 +2936,7 @@ void led_specan()
 		i = (i+1) % 3;
 
 		cc2400_strobe(SRFOFF);
-		cc2400_wait_fs(0, led_specan_service_usb);
+		cc2400_wait_fs(0, service_usb);
 	}
 }
 
@@ -2961,7 +3074,18 @@ int main()
 				break;
 			case MODE_RANGE_TEST:
 				cc2400_rangetest(&channel);
-				requested_mode = MODE_IDLE;
+				/*
+				 * The range test runs once and then stops, so it
+				 * asks for idle on its own behalf -- but only if
+				 * the host has not asked for something else
+				 * first. It now answers control requests while it
+				 * waits for the repeater's reply, so a mode or
+				 * reset request can have been accepted while it
+				 * ran; overwriting requested_mode here would
+				 * report success to the host and then drop it.
+				 */
+				if (requested_mode == MODE_RANGE_TEST)
+					requested_mode = MODE_IDLE;
 				break;
 			case MODE_REPEATER:
 				cc2400_repeater(&channel);

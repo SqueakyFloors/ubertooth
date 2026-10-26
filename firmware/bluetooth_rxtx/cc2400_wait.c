@@ -1,5 +1,5 @@
 /*
- * Bounded waits on CC2400 synthesizer state.
+ * Bounded waits on CC2400 radio state.
  *
  * This file is part of Project Ubertooth and is released under the
  * terms of the GPL. Refer to COPYING for more information.
@@ -37,13 +37,33 @@ int cc2400_wait_fs_unlock(void)
 	return cc2400_wait_fs(0, NULL);
 }
 
-int cc2400_wait_xosc_stable(void)
+int cc2400_wait_xosc_stable(void (*service)(void))
 {
 	unsigned i;
 
 	for (i = 0; i < XOSC_STABLE_POLLS; ++i) {
 		if (cc2400_status() & XOSC16M_STABLE)
 			return 1;
+
+		if (service != NULL)
+			service();
+	}
+
+	return 0;
+}
+
+int cc2400_wait_fsm(u8 state, void (*service)(void))
+{
+	unsigned i;
+
+	for (i = 0; i < FSM_POLLS; ++i) {
+		/* FSMSTATE's low five bits are the state; the rest is breakpoint
+		 * configuration. */
+		if ((cc2400_get(FSMSTATE) & 0x1f) == state)
+			return 1;
+
+		if (service != NULL)
+			service();
 	}
 
 	return 0;

@@ -65,9 +65,14 @@ $(BINDIR)/test_frend: test_frend.c minunit.h $(FW_COMMON)/cc2400.h \
 # cc2400_wait.c reaches the radio only through cc2400_status()/cc2400_strobe();
 # stubs-radio/ubertooth.h declares them and the test supplies fake
 # implementations.
-$(BINDIR)/test_cc2400_wait: test_cc2400_wait.c minunit.h stubs-radio/ubertooth.h \
-		stubs/ubertooth.h $(FW_RXTX)/cc2400_wait.c $(FW_RXTX)/cc2400_wait.h | $(BINDIR)
-	$(CC) $(CFLAGS) -Istubs-radio $(CPPFLAGS) -o $@ test_cc2400_wait.c $(FW_RXTX)/cc2400_wait.c
+#
+# Its last cases scan the mode sources as text, so FW_RXTX_DIR points at them.
+$(BINDIR)/test_cc2400_wait: test_cc2400_wait.c minunit.h source_scan.h \
+		stubs-radio/ubertooth.h stubs/ubertooth.h $(FW_RXTX)/cc2400_wait.c \
+		$(FW_RXTX)/cc2400_wait.h $(FW_RXTX)/bluetooth_rxtx.c $(FW_RXTX)/ego.c \
+		$(FW_RXTX)/le_phy.c $(FW_RXTX)/cc2400_rangetest.c | $(BINDIR)
+	$(CC) $(CFLAGS) -Istubs-radio $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
+		-o $@ test_cc2400_wait.c $(FW_RXTX)/cc2400_wait.c
 
 # The mode dispatch lives in main(), which cannot run here, so this test scans
 # bluetooth_rxtx.c as text (like test_frend's last case). FW_RXTX_DIR points it

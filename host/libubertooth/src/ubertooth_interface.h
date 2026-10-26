@@ -47,7 +47,7 @@
  * as 1.10), then 0x0111 (1.11), and so on to 0x0119 (1.19); after 0x0119
  * comes 0x0120, not 0x011a.
  */
-#define UBERTOOTH_API_VERSION 0x0122
+#define UBERTOOTH_API_VERSION 0x0123
 
 /*
  * LED spectrum analyzer (ubertooth-util -q N): the threshold is -N dBm. The

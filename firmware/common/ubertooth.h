@@ -53,6 +53,13 @@ enum operating_modes {
 	MODE_IDENTIFY      = 18,
 };
 
+/* The mode the host has asked for, one of the values above. Defined by the
+ * application image (bluetooth_rxtx.c), written by the control request handler
+ * and read by the mode loops, which is how the host stops a running mode.
+ * Declared here, with the values, so the loops in other files cannot drift from
+ * the definition's type. */
+extern volatile uint8_t requested_mode;
+
 /* hardware identification number */
 #define BOARD_ID_UBERTOOTH_ZERO 0
 #define BOARD_ID_UBERTOOTH_ONE  1
@@ -336,10 +343,6 @@ void cc2400_reset(void);
 void clock_start(void);
 void reset(void);
 void r8c_takeover(void);
-void cc2400_tune_rx(uint16_t channel);
-void cc2400_tune_tx(uint16_t channel);
-void cc2400_hop_rx(uint16_t channel);
-void cc2400_hop_tx(uint16_t channel);
 void get_part_num(uint8_t *buffer, int *len);
 void get_device_serial(uint8_t *buffer, int *len);
 void set_isp(void);

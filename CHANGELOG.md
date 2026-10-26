@@ -99,11 +99,11 @@
   the command returns at once and the board stays reachable; `-S` or any mode
   option stops it and leaves the LEDs off.
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
-- **Reflash required:** the firmware API version is now 1.22, last moved by
-  dropping a stopped mode's queued packets, and the host tools require firmware
-  of exactly their own API version, older or newer (`ubertooth-util` still reads
-  the version and reflashes any firmware). Host and firmware come from the
-  same tree; `2020-12-R1` firmware is refused.
+- **Reflash required:** the firmware API version is now 1.23, last moved by the
+  control requests that no longer stall during a capture, and the host tools
+  require firmware of exactly their own API version, older or newer
+  (`ubertooth-util` still reads the version and reflashes any firmware). Host
+  and firmware come from the same tree; `2020-12-R1` firmware is refused.
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
   [#240](https://github.com/SqueakyFloors/ubertooth/issues/240)
@@ -173,6 +173,22 @@
 
 ### Reliability fixes
 
+- A control request sent to a board that is receiving, transmitting or scanning
+  no longer stalls. `ubertooth-util`, `ubertooth-debug` and anything else that
+  reads the channel, a register or the clock during a capture used to fail
+  roughly one call in twenty in Bluetooth follow mode, because the board stopped
+  answering while it retuned.
+  [#149](https://github.com/SqueakyFloors/ubertooth/issues/149)
+  [#223](https://github.com/SqueakyFloors/ubertooth/issues/223)
+- Three modes that could only be ended by unplugging the board now stop when
+  asked: generic receive (`ubertooth-debug` after `UBERTOOTH_RX_GENERIC`), the
+  range test and the repeater. Each waited for a packet without answering the
+  host, so on a quiet channel the board was unreachable; the repeater never
+  looked at the requested mode at all.
+  [#223](https://github.com/SqueakyFloors/ubertooth/issues/223)
+- `ubertooth-util -r` no longer reports an older range test's numbers as the
+  current test's. A test that found no reply, or that the host stopped, now
+  leaves no result, and the command says so.
 - **Script-visible change:** a capture whose USB stream fails stops there and
   exits 1, instead of waiting out its `-t` timer with nothing arriving and
   reporting success. `ubertooth-rx`, `ubertooth-dump`, `ubertooth-specan`,

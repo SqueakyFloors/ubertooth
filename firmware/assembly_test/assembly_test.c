@@ -88,7 +88,7 @@ u8 *idle_rxbuf = &rxbuf2[0];
 rangetest_result rr;
 
 volatile u32 mode = MODE_IDLE;
-volatile u32 requested_mode = MODE_IDLE;
+volatile uint8_t requested_mode = MODE_IDLE;
 volatile u32 modulation = MOD_BT_BASIC_RATE;
 volatile u16 channel = 2441;
 volatile u16 low_freq = 2400;
