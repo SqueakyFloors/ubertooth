@@ -285,8 +285,20 @@ int main(int argc, char *argv[])
 	if (rv < 0)
 		return 1;
 
-	/* Set sweep mode - otherwise AFH map is useless */
-	cmd_set_channel(ut->devh, 9999);
+	/* Sweep the whole band: any channel above the Bluetooth band asks the
+	 * firmware for that, and without it the AFH map this tool prints would
+	 * only ever show the one channel the board sat on. A board that refused
+	 * it would print a map that means nothing, so neither scan runs. */
+	if (cmd_set_channel(ut->devh, 9999) < 0) {
+		/* The library has already said why; this names the request. A
+		 * refused request is not proof that the board never got it -- a
+		 * transfer can time out after it arrived -- so the message says
+		 * only what the tool knows. */
+		fprintf(stderr, "error: could not set sweep mode\n");
+		ubertooth_stop(ut);
+		close(dev_handle);
+		return 1;
+	}
 
 	/* Clean up on exit. */
 	register_cleanup_handler(ut, 0);

@@ -1,6 +1,11 @@
 /*
- * What ubertooth-rx's exit status says about a live capture, run through its
- * real main() against a scripted library.
+ * What ubertooth-rx's exit status says about a live capture, and about the
+ * requests that set one up, run through its real main() against a scripted
+ * library.
+ *
+ * A board that refuses one of those requests used to be ignored, so the
+ * capture ran on whatever channel and address the board was left on and the
+ * run reported success. A refused request is now named and ends the command.
  *
  * A capture whose USB stream fails stops where it failed, so it holds less
  * than was asked for. It used to exit 0 all the same: the library printed the
@@ -47,6 +52,10 @@ static struct {
 	int connect_calls, check_api_calls, cleanup_handlers;
 	int bulk_inits, thread_starts, thread_stops, rx_syms_calls, stops;
 	int channels_set;
+	int bdaddrs_set;
+	int channel_rc;      /* returned by cmd_set_channel() */
+	int bdaddr_rc;       /* returned by cmd_set_bdaddr() */
+	int last_channel;    /* the channel the capture was set to, in MHz */
 	int timeout_set;
 	int blocks;          /* blocks handed to the callback */
 	int blocks_to_end;   /* ...before the fake ends the capture */
@@ -121,9 +130,9 @@ void ubertooth_set_timeout(ubertooth_t* ut, int seconds)
 int cmd_set_channel(struct libusb_device_handle* devh, uint16_t channel)
 {
 	(void)devh;
-	(void)channel;
 	device.channels_set++;
-	return 0;
+	device.last_channel = channel;
+	return device.channel_rc;
 }
 
 int cmd_rx_syms(struct libusb_device_handle* devh)
@@ -137,7 +146,8 @@ int cmd_set_bdaddr(struct libusb_device_handle* devh, uint64_t address)
 {
 	(void)devh;
 	(void)address;
-	return 0;
+	device.bdaddrs_set++;
+	return device.bdaddr_rc;
 }
 
 int ubertooth_bulk_init(ubertooth_t* ut)
@@ -388,6 +398,127 @@ MU_TEST(a_refused_command_line_opens_no_device)
 	mu_assert_int_eq(0, device.blocks);
 }
 
+/* What the setup requests carry on a capture the board took. A command line
+ * without -c asks for the sweep, which the board is told by a channel above
+ * the band; -c sends that channel as a frequency; -l with -u sends the address
+ * first. This is the regression that matters, since it is every normal run. */
+MU_TEST(a_capture_the_board_took_sets_up_and_exits_zero)
+{
+	struct run_result r;
+
+	reset_device();
+	r = RUN_RX("-t", "10");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, device.channels_set);
+	mu_assert_int_eq(9999, device.last_channel);
+	mu_assert_int_eq(0, device.bdaddrs_set);
+	mu_assert_int_eq(1, device.rx_syms_calls);
+	mu_assert(r.err[0] == '\0', r.err);
+
+	/* -s states that default, so it leaves the sweep in place. */
+	reset_device();
+	r = RUN_RX("-s", "-t", "10");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(9999, device.last_channel);
+
+	reset_device();
+	r = RUN_RX("-c", "39", "-t", "10");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(2441, device.last_channel);
+	mu_assert(r.err[0] == '\0', r.err);
+
+	reset_device();
+	r = RUN_RX("-l", "112233", "-u", "ab", "-t", "10");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, device.bdaddrs_set);
+	mu_assert_int_eq(1, device.channels_set);
+	mu_assert_int_eq(1, device.rx_syms_calls);
+	mu_assert(r.err[0] == '\0', r.err);
+}
+
+/* Each refused setup request is named, in one line on standard error, and ends
+ * the command there, with nothing on standard output and no capture started.
+ * The channel request is named for what the command line asked of it, because
+ * a run without -c never named a channel. */
+MU_TEST(a_refused_setup_request_is_named_and_exits_one)
+{
+	static const struct {
+		const char* option;  /* the extra option for this case, if any */
+		const char* value;
+		int refuse_channel;  /* which request the board refuses */
+		int channels;        /* requests made before the refusal */
+		int bdaddrs;
+		const char* message;
+	} cases[] = {
+		{ NULL, NULL, 1, 1, 0, "error: could not set sweep mode\n" },
+		{ "-c", "39", 1, 1, 0, "error: could not set the channel\n" },
+		{ "-u", "ab", 0, 0, 1,
+		  "error: could not set the Bluetooth address\n" },
+	};
+	struct run_result r;
+	size_t i;
+
+	for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+		reset_device();
+		/* LIBUSB_ERROR_PIPE, how a board refuses a request it does not
+		 * implement. */
+		if (cases[i].refuse_channel)
+			device.channel_rc = -9;
+		else
+			device.bdaddr_rc = -9;
+
+		if (cases[i].option != NULL)
+			r = RUN_RX("-l", "112233", cases[i].option,
+			           cases[i].value, "-t", "10");
+		else
+			r = RUN_RX("-l", "112233", "-t", "10");
+
+		mu_assert_int_eq(1, r.rc);
+		mu_assert(strcmp(r.err, cases[i].message) == 0, r.err);
+		mu_assert(r.out[0] == '\0', r.out);
+		mu_assert_int_eq(cases[i].channels, device.channels_set);
+		mu_assert_int_eq(cases[i].bdaddrs, device.bdaddrs_set);
+		/* The capture never starts on top of a refused setting. */
+		mu_assert_int_eq(0, device.rx_syms_calls);
+		mu_assert_int_eq(0, device.bulk_inits);
+		mu_assert_int_eq(0, device.blocks);
+		mu_assert_int_eq(0, device.cleanup_handlers);
+		mu_assert_int_eq(1, device.stops); /* the board is released */
+	}
+}
+
+/* Survey mode needs the sweep most of all, so a refused one keeps it from
+ * printing a result list it never gathered. */
+MU_TEST(a_refused_sweep_leaves_survey_mode_with_no_results)
+{
+	struct run_result r;
+
+	reset_device();
+	device.channel_rc = -9;
+	r = RUN_RX("-z", "-t", "30");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strstr(r.out, "Survey Results") == NULL, r.out);
+	mu_assert(strcmp(r.err, "error: could not set sweep mode\n") == 0, r.err);
+}
+
+/* A replay opens no device, so it sends no setup request at all and a board
+ * that would refuse one cannot affect it. */
+MU_TEST(a_replay_sends_no_setup_request)
+{
+	struct run_result r;
+
+	reset_device();
+	device.channel_rc = -9;
+	device.bdaddr_rc = -9;
+	r = RUN_RX("-i", "/dev/null", "-l", "112233", "-u", "ab");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0, device.channels_set);
+	mu_assert_int_eq(0, device.bdaddrs_set);
+	mu_assert_int_eq(0, device.connect_calls);
+	mu_assert(r.err[0] == '\0', r.err);
+}
+
 int main(void)
 {
 	/* Nothing here should look for a board; make sure of it. */
@@ -398,5 +529,9 @@ int main(void)
 	MU_RUN(an_interrupted_capture_still_exits_zero);
 	MU_RUN(a_survey_whose_stream_died_still_prints_its_results);
 	MU_RUN(a_refused_command_line_opens_no_device);
+	MU_RUN(a_capture_the_board_took_sets_up_and_exits_zero);
+	MU_RUN(a_refused_setup_request_is_named_and_exits_one);
+	MU_RUN(a_refused_sweep_leaves_survey_mode_with_no_results);
+	MU_RUN(a_replay_sends_no_setup_request);
 	return mu_report();
 }

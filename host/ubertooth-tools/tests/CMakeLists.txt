@@ -644,6 +644,36 @@ add_test(
 # than passed, so a green run cannot hide an absent check.
 set_tests_properties(manpages PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 77)
 
+# The same approach for ubertooth-scan. Its main() needs the BlueZ headers, so
+# like the tool itself this is built only where libbluetooth is installed; the
+# find_package here is what makes that visible in this directory.
+find_package(BLUETOOTH)
+if(LIBBLUETOOTH_FOUND)
+	add_executable(test-scan-main test_scan_main.c)
+	target_link_libraries(test-scan-main opt-parse-for-tests
+		${LIBBTBB_LIBRARIES} ${LIBBLUETOOTH_LIBRARIES})
+	if(libubertooth_SOURCE_DIR)
+		target_include_directories(test-scan-main PRIVATE
+			${libubertooth_SOURCE_DIR}/src)
+	else()
+		target_include_directories(test-scan-main PRIVATE
+			${LIBUBERTOOTH_INCLUDE_DIR})
+	endif()
+	target_include_directories(test-scan-main PRIVATE ../src
+		${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR}
+		${LIBBLUETOOTH_INCLUDE_DIR})
+	if(USE_OWN_GNU_GETOPT)
+		target_include_directories(test-scan-main BEFORE PRIVATE ../getopt)
+		target_link_libraries(test-scan-main libgetopt_static)
+	endif()
+
+	add_test(NAME scan-main COMMAND test-scan-main)
+	# No case reaches an inquiry and the faked receive ends the capture loop
+	# at once; a regression that waits on an adapter or a board should fail
+	# instead of hanging the suite.
+	set_tests_properties(scan-main PROPERTIES TIMEOUT 10)
+endif()
+
 # The same approach for ubertooth-debug, -dump and -tx: their real main()
 # against a scripted device, so which exits open one and which give the handle
 # back is checked without a board. None of them reaches a capture or transmit

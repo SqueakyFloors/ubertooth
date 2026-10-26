@@ -203,6 +203,11 @@
   (channel, access code, capture length) and exits 1, instead of capturing with
   whatever settings the board was left on.
   [#379](https://github.com/SqueakyFloors/ubertooth/issues/379)
+- `ubertooth-rx` and `ubertooth-scan` name a request the board refused while
+  setting a capture up (the channel or band sweep, and `ubertooth-rx`'s
+  Bluetooth address for `-l`/`-u`) and exit 1, instead of capturing on whatever
+  channel the board was left on and reporting success.
+  [#379](https://github.com/SqueakyFloors/ubertooth/issues/379)
 - `ubertooth-ego` refuses `-c` combined with `-f`, `-i` or `-j`, where it
   silently had no effect: those modes hop across the E-GO's own channel list.
   [#394](https://github.com/SqueakyFloors/ubertooth/issues/394)
