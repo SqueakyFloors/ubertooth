@@ -32,8 +32,9 @@
 static struct {
 	int start_fails;     /* no board answers the -U selection */
 	int api_rc;          /* returned by ubertooth_check_api() */
+	int api_released;    /* whether that call released the board itself */
+	int closes;          /* ubertooth_close() */
 	int channel_rc;      /* returned by cmd_set_channel() */
-	int rx_syms_rc;      /* returned by cmd_rx_syms() */
 	int last_channel;    /* the channel the capture was set to, in MHz */
 	int timeout;         /* seconds passed to ubertooth_set_timeout() */
 	int stops;
@@ -101,8 +102,20 @@ ubertooth_t* ubertooth_start_select(const char* u_arg)
 
 int ubertooth_check_api(ubertooth_t* ut)
 {
-	(void)ut;
+	/* The library releases the board itself when the firmware reports a
+	 * version this host will not drive; a version it could not read at all
+	 * leaves the board open for the caller to close. */
+	if (fake.api_rc < 0 && fake.api_released) {
+		ut->devh = NULL;
+		fake.stops++;
+	}
 	return fake.api_rc;
+}
+
+void ubertooth_close(ubertooth_t* ut)
+{
+	ut->devh = NULL;
+	fake.closes++;
 }
 
 void ubertooth_stop(ubertooth_t* ut)
@@ -119,11 +132,13 @@ int cmd_set_channel(struct libusb_device_handle* devh, u16 channel)
 	return fake.channel_rc;
 }
 
+/* No case here refuses this request: what the tool does with a refused one is
+ * its exit status, which has its own fix. */
 int cmd_rx_syms(struct libusb_device_handle* devh)
 {
 	(void)devh;
 	record('s');
-	return fake.rx_syms_rc;
+	return 0;
 }
 
 void register_cleanup_handler(ubertooth_t* ut, int do_exit)
@@ -321,12 +336,26 @@ MU_TEST(a_board_or_firmware_the_tool_cannot_use_exits_1)
 	mu_assert(fake.calls[0] == '\0', fake.calls);
 	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
 
+	/* A version mismatch: the library has released the board, and releasing
+	 * it twice is not safe. */
+	reset_fake();
+	fake.api_rc = -1;
+	fake.api_released = 1;
+	r = RUN("-t", "5");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(fake.calls[0] == '\0', fake.calls);
+	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
+	mu_assert_int_eq(0, fake.closes);
+
+	/* A version that could not be read at all leaves the board open, so the
+	 * tool closes it rather than leaving it claimed. */
 	reset_fake();
 	fake.api_rc = -1;
 	r = RUN("-t", "5");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(fake.calls[0] == '\0', fake.calls);
 	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
+	mu_assert_int_eq(1, fake.closes);
 }
 
 /* -h is what the user asked for, so it goes to standard output and exits 0,

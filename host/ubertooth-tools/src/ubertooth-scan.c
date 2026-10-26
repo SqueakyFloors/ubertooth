@@ -277,7 +277,8 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	/* From here on every exit gives the adapter handle back, as the end of a
+	/* Opening the board, checking its firmware and setting the sweep each
+	 * give the adapter handle back on the way out, as the end of a
 	 * successful scan does. */
 	ut = ubertooth_start_select(ubertooth_device);
 	if (ut == NULL) {
@@ -286,6 +287,13 @@ int main(int argc, char *argv[])
 	}
 	rv = ubertooth_check_api(ut);
 	if (rv < 0) {
+		/* On a version mismatch ubertooth_check_api() has released the
+		 * board itself, and releasing it twice is not safe; where it
+		 * could not even read the version it has released nothing, so
+		 * the board is closed here, without a STOP for a firmware this
+		 * host will not drive. */
+		if (ut->devh != NULL)
+			ubertooth_close(ut);
 		close(dev_handle);
 		return 1;
 	}

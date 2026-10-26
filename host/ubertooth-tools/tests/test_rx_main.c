@@ -55,6 +55,9 @@ static struct {
 	int bdaddrs_set;
 	int channel_rc;      /* returned by cmd_set_channel() */
 	int bdaddr_rc;       /* returned by cmd_set_bdaddr() */
+	int api_rc;          /* returned by ubertooth_check_api() */
+	int api_released;    /* whether that call released the board itself */
+	int closes;          /* ubertooth_close() */
 	int last_channel;    /* the channel the capture was set to, in MHz */
 	int timeout_set;
 	int blocks;          /* blocks handed to the callback */
@@ -97,9 +100,21 @@ int ubertooth_connect_select(ubertooth_t* ut, const char* u_arg)
 
 int ubertooth_check_api(ubertooth_t* ut)
 {
-	(void)ut;
 	device.check_api_calls++;
-	return 0;
+	/* The library releases the board itself when the firmware reports a
+	 * version this host will not drive; a version it could not read at all
+	 * leaves the board open for the caller to close. */
+	if (device.api_rc < 0 && device.api_released) {
+		ut->devh = NULL;
+		device.stops++;
+	}
+	return device.api_rc;
+}
+
+void ubertooth_close(ubertooth_t* ut)
+{
+	ut->devh = NULL;
+	device.closes++;
 }
 
 /* The one the library installs stops the capture on Ctrl-C; the fake does the
@@ -514,6 +529,36 @@ MU_TEST(a_refused_sweep_leaves_survey_mode_with_no_results)
 	mu_assert(strcmp(r.err, "error: could not set sweep mode\n") == 0, r.err);
 }
 
+/* A firmware this host will not drive ends the command before any setup
+ * request, with the board released whichever way the check failed: the library
+ * releases it itself on a version mismatch, and the tool closes it when the
+ * version could not be read at all. */
+MU_TEST(a_firmware_the_tool_cannot_use_exits_one)
+{
+	struct run_result r;
+
+	reset_device();
+	device.api_rc = -1;
+	device.api_released = 1;
+	r = RUN_RX("-t", "10");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, device.channels_set);
+	mu_assert_int_eq(0, device.rx_syms_calls);
+	mu_assert_int_eq(0, device.cleanup_handlers);
+	mu_assert_int_eq(1, device.stops);
+	mu_assert_int_eq(0, device.closes); /* releasing it twice is not safe */
+
+	reset_device();
+	device.api_rc = -1;
+	r = RUN_RX("-t", "10");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, device.channels_set);
+	mu_assert_int_eq(0, device.rx_syms_calls);
+	mu_assert_int_eq(0, device.cleanup_handlers);
+	mu_assert_int_eq(0, device.stops);
+	mu_assert_int_eq(1, device.closes); /* the board is not left claimed */
+}
+
 /* A replay opens no device, so it sends no setup request at all and a board
  * that would refuse one cannot affect it. */
 MU_TEST(a_replay_sends_no_setup_request)
@@ -544,6 +589,7 @@ int main(void)
 	MU_RUN(a_capture_the_board_took_sets_up_and_exits_zero);
 	MU_RUN(a_refused_setup_request_is_named_and_exits_one);
 	MU_RUN(a_refused_sweep_leaves_survey_mode_with_no_results);
+	MU_RUN(a_firmware_the_tool_cannot_use_exits_one);
 	MU_RUN(a_replay_sends_no_setup_request);
 	return mu_report();
 }

@@ -260,8 +260,16 @@ int main(int argc, char* argv[])
 		}
 
 		r = ubertooth_check_api(ut);
-		if (r < 0)
+		if (r < 0) {
+			/* A version mismatch has already released the board, and
+			 * releasing it twice is not safe; a version the library
+			 * could not read at all leaves it open, so it is closed
+			 * here, without a STOP for a firmware this host will
+			 * not drive. */
+			if (ut->devh != NULL)
+				ubertooth_close(ut);
 			return 1;
+		}
 	}
 
 	r = btbb_init(max_ac_errors);
