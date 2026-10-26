@@ -557,7 +557,39 @@ static int scan_function(const char *path, const char *function,
 	return 1;
 }
 
+/*
+ * The scan above reads one function body at a time, so it would miss a bulk
+ * service reached from a helper: le_cc2400_init_rf() hands the bounded radio
+ * waits a service callback, and every other mode hands them service_usb().
+ * The whole of le_phy.c is the poll-read engine, so the simpler statement
+ * holds there -- nothing in the file feeds the endpoint -- and that is what
+ * this counts.
+ */
+static int scan_file_for_bulk_service(const char *path, int *lines)
+{
+	char line[512];
+	int in_block = 0, hits = 0;
+	FILE *f = fopen(path, "r");
+
+	if (f == NULL)
+		return -1;
+
+	*lines = 0;
+	while (fgets(line, sizeof(line), f) != NULL) {
+		strip_comments(line, &in_block);
+		(*lines)++;
+		if (contains_identifier(line, "handle_usb") ||
+		    contains_identifier(line, "service_usb"))
+			hits++;
+	}
+
+	fclose(f);
+	return hits;
+}
+
 static int scanned_modes;
+static int le_phy_bulk_hits = -1;
+static int le_phy_lines;
 
 static int scan_modes(void)
 {
@@ -573,7 +605,10 @@ static int scan_modes(void)
 		                   &modes[i].unmask_found))
 			return 0;
 	}
-	return 1;
+
+	le_phy_bulk_hits = scan_file_for_bulk_service(FW_RXTX_DIR "/le_phy.c",
+	                                              &le_phy_lines);
+	return le_phy_bulk_hits >= 0;
 }
 
 /*
@@ -670,6 +705,25 @@ MU_TEST(a_polled_mode_still_services_control_requests)
 	}
 }
 
+/* Nowhere in the low-energy engine, not just not in its loop. */
+MU_TEST(nothing_in_the_le_engine_feeds_the_endpoint)
+{
+	char msg[384];
+	const char *path = FW_RXTX_DIR "/le_phy.c";
+
+	snprintf(msg, sizeof(msg), "%s: scanned as %d lines, so the scan did not "
+	         "read the file", path, le_phy_lines);
+	mu_assert(le_phy_lines > 100, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: %d lines name handle_usb() or service_usb(). This file is "
+	         "the engine behind ubertooth-btle -n and -f, whose host polls, "
+	         "so anything it hands to the bulk IN endpoint -- from its loop "
+	         "or from a radio wait's service callback -- is lost",
+	         path, le_phy_bulk_hits);
+	mu_assert(le_phy_bulk_hits == 0, msg);
+}
+
 int main(void)
 {
 	MU_RUN(a_new_mode_reads_only_its_own_packets);
@@ -686,6 +740,7 @@ int main(void)
 	MU_RUN(a_bulk_read_mode_keeps_the_endpoint_loaded);
 	MU_RUN(a_polled_mode_does_not_feed_the_endpoint);
 	MU_RUN(a_polled_mode_still_services_control_requests);
+	MU_RUN(nothing_in_the_le_engine_feeds_the_endpoint);
 
 	return mu_report();
 }

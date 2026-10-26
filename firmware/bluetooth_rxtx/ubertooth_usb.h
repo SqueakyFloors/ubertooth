@@ -110,7 +110,12 @@ void handle_usb(u32 clkn);
 /* The control path on its own, for a mode whose host reads packets with
  * UBERTOOTH_POLL. Such a mode must not call handle_usb() or service_usb():
  * those hand queued packets to the bulk IN endpoint, which no poll-read host
- * reads, so the packets are lost rather than delivered. */
+ * reads, so the packets are lost rather than delivered.
+ *
+ * And the other way round, which is the quieter failure: a mode whose host
+ * does read that endpoint must not call this. Nothing would reach the endpoint
+ * at all, not even the keep-alive, so the host would wait out its read
+ * timeouts and report an empty capture rather than an error. */
 void handle_usb_control(void);
 
 /* handle_usb() with the bulk stream's keep-alive timestamp filled in, for the
