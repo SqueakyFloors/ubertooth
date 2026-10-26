@@ -71,6 +71,20 @@ there. The results it did get are still printed, and the failure is reported
 on standard error as it happens, as `error: receive transfer failed:
 <reason>`.
 
+A board that refuses the request that puts it in sweep mode exits 1 as well.
+Standard output stays empty. Standard error names the request, why the board
+refused it and the libusb code, and adds a note where there is something to
+try:
+
+    error: could not set sweep mode: the board did not answer in time (libusb -7)
+    note: if a mode is running, stop it with ubertooth-util -S; if the board does not answer at all, re-plug it
+
+That pair is the whole report. A request the board stalls (`libusb -9`) reads
+`the board does not support this command (stalled)` and carries no note, there
+being nothing to try. The AFH map this tool prints is only meaningful while
+the board sweeps the whole band, so neither the BlueZ inquiry nor the
+Ubertooth scan starts after that.
+
 ## SEE ALSO
 
 ubertooth-util(1): sets the receive squelch (`-z`); SQUELCH describes how

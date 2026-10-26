@@ -34,6 +34,7 @@
 #include "ubertooth.h"
 #include "ubertooth_callback.h"
 #include "opt_parse.h"
+#include "request_report.h"
 #include <btbb.h>
 #include <getopt.h>
 #include <limits.h>
@@ -277,16 +278,43 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	/* Opening the board, checking its firmware and setting the sweep each
+	 * give the adapter handle back on the way out, as the end of a
+	 * successful scan does. */
 	ut = ubertooth_start_select(ubertooth_device);
 	if (ut == NULL) {
+		close(dev_handle);
 		return 1;
 	}
 	rv = ubertooth_check_api(ut);
-	if (rv < 0)
+	if (rv < 0) {
+		/* On a version mismatch ubertooth_check_api() has released the
+		 * board itself, and releasing it twice is not safe; where it
+		 * could not even read the version it has released nothing, so
+		 * the board is closed here, without a STOP for a firmware this
+		 * host will not drive. */
+		if (ut->devh != NULL)
+			ubertooth_close(ut);
+		close(dev_handle);
 		return 1;
+	}
 
-	/* Set sweep mode - otherwise AFH map is useless */
-	cmd_set_channel(ut->devh, 9999);
+	/* Sweep the whole band: any channel above the Bluetooth band asks the
+	 * firmware for that, and without it the AFH map this tool prints would
+	 * only ever show the one channel the board sat on. A board that refused
+	 * it would print a map that means nothing, so neither scan runs. */
+	rv = cmd_set_channel_quiet(ut->devh, 9999);
+	if (rv < 0) {
+		/* A refused request is not proof that the board never got it --
+		 * a transfer can time out after it arrived -- so the message
+		 * says only what the tool knows. Closed without a STOP: no mode
+		 * has started yet, and a STOP to a board that is not answering
+		 * would only add a second failure to the report. */
+		report_refused_request("set sweep mode", rv);
+		ubertooth_close(ut);
+		close(dev_handle);
+		return 1;
+	}
 
 	/* Clean up on exit. */
 	register_cleanup_handler(ut, 0);

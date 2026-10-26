@@ -236,6 +236,24 @@ what arrived before it. The failure is reported on standard error as it
 happens, as `error: receive transfer failed: <reason>`. A `-z` survey still
 prints the results it did get.
 
+A board that refuses the channel request, or the address request `-l` and `-u`
+together name, exits 1 as well, and the capture does not start, so a board
+that will not leave the channel it is on cannot be mistaken for one that is
+sweeping. Standard output stays empty. Standard error names the request, why
+the board refused it and the libusb code, and adds a note where there is
+something to try:
+
+    error: could not set the channel: the board did not answer in time (libusb -7)
+    note: if a mode is running, stop it with ubertooth-util -S; if the board does not answer at all, re-plug it
+
+That pair is the whole report: the request named as `set sweep mode` without
+`-c`, since the command then asks for the sweep across the whole band rather
+than for a channel, and as `set the Bluetooth address` for the address
+request. A request the board stalls (`libusb -9`) reads `the board does not
+support this command (stalled)` and carries no note, there being nothing to
+try. A board that took only part of the address gives the counts instead, as
+`error: Bluetooth address write failed: board took 8 of 16 bytes`.
+
 ## SEE ALSO
 
 ubertooth-util(1): sets the receive squelch (`-z`); SQUELCH describes how

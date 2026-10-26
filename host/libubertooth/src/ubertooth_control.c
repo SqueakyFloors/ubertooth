@@ -79,8 +79,11 @@ static const char* async_request_name(uint8_t request)
 	}
 }
 
-/* A libusb_transfer_status in plain words. These are not libusb_error codes
- * -- they are a separate, positive enumeration -- so passing one to
+/* A libusb_transfer_status in plain words. The host tools' shared
+ * report_refused_request() keeps the same wording for the libusb error codes
+ * of a synchronous request, so the two reports read alike; change both
+ * together. These statuses are not libusb_error codes -- they are a separate,
+ * positive enumeration -- so passing one to
  * show_libusb_error() printed a stall (status 4) as
  * "libUSB Error: Other error:  (4)", which is what libusb_strerror() returns
  * for any positive code. NULL for a status this libusb version has added,
@@ -379,20 +382,26 @@ int cmd_get_channel(struct libusb_device_handle* devh)
 }
 
 
-int cmd_set_channel(struct libusb_device_handle* devh, u16 channel)
+int cmd_set_channel_quiet(struct libusb_device_handle* devh, u16 channel)
 {
 	int r;
 
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_SET_CHANNEL, channel, 0,
 			NULL, 0, 1000);
-	if (r == LIBUSB_ERROR_PIPE) {
-		fprintf(stderr, "error: control message unsupported\n");
+	if (r < 0)
 		return r;
-	} else if (r < 0) {
-		show_libusb_error(r);
-		return r;
-	}
 	return 0;
+}
+
+int cmd_set_channel(struct libusb_device_handle* devh, u16 channel)
+{
+	int r = cmd_set_channel_quiet(devh, channel);
+
+	if (r == LIBUSB_ERROR_PIPE)
+		fprintf(stderr, "error: control message unsupported\n");
+	else if (r < 0)
+		show_libusb_error(r);
+	return r;
 }
 
 int cmd_get_part_id(struct libusb_device_handle* devh, u32 *part_id)
@@ -838,7 +847,7 @@ int cmd_get_squelch(struct libusb_device_handle* devh)
 	return level;
 }
 
-int cmd_set_bdaddr(struct libusb_device_handle* devh, u64 address)
+int cmd_set_bdaddr_quiet(struct libusb_device_handle* devh, u64 address)
 {
 	int r, data_len;
 	u64 syncword;
@@ -854,18 +863,30 @@ int cmd_set_bdaddr(struct libusb_device_handle* devh, u64 address)
 
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_SET_BDADDR, 0, 0,
 		data, data_len, 1000);
-	if (r < 0) {
-		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "error: control message unsupported\n");
-		} else {
-			show_libusb_error(r);
-		}
+	if (r < 0)
 		return r;
-	} else if (r < data_len) {
-		fprintf(stderr, "error: only %d of %d bytes transferred\n", r, data_len);
-		return 1;
+	if (r < data_len) {
+		/* One complete line, naming the request and the counts, and
+		 * UBERTOOTH_ERROR_SHORT_REPLY so the caller adds no second
+		 * line -- as the fixed-size reads above do. It used to say
+		 * "only 8 of 16 bytes transferred" and return 1, which a
+		 * caller testing for a negative result read as success. */
+		fprintf(stderr, "error: Bluetooth address write failed: "
+		        "board took %d of %d bytes\n", r, data_len);
+		return UBERTOOTH_ERROR_SHORT_REPLY;
 	}
 	return 0;
+}
+
+int cmd_set_bdaddr(struct libusb_device_handle* devh, u64 address)
+{
+	int r = cmd_set_bdaddr_quiet(devh, address);
+
+	if (r == LIBUSB_ERROR_PIPE)
+		fprintf(stderr, "error: control message unsupported\n");
+	else if (r < 0 && r != UBERTOOTH_ERROR_SHORT_REPLY)
+		show_libusb_error(r);
+	return r;
 }
 
 int cmd_start_hopping(struct libusb_device_handle* devh, int clkn_offset, int clk100ns_offset)

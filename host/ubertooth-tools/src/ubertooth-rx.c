@@ -22,6 +22,7 @@
 #include "ubertooth.h"
 #include "ubertooth_callback.h"
 #include "opt_parse.h"
+#include "request_report.h"
 #include <err.h>
 #include <errno.h>
 #include <getopt.h>
@@ -64,10 +65,27 @@ static void usage(FILE *file)
 	fputs(OPT_USAGE_SELECT_DEVICE, file);
 }
 
+/* Names the request the board refused, says why and what to try, and gives the
+ * board back rather than capturing with settings the user did not ask for.
+ * Closed without a STOP: no mode has started yet, so there is nothing to stop,
+ * and a STOP to a board that is not answering would only add a second failure
+ * to the report. A refused request is not proof that the board never got it --
+ * a transfer can time out after it arrived -- so the message says only what
+ * the tool knows. */
+static int request_failed(ubertooth_t* ut, const char* what, int code)
+{
+	report_refused_request(what, code);
+	ubertooth_close(ut);
+	return 1;
+}
+
 int main(int argc, char* argv[])
 {
 	int opt, have_lap = 0, have_uap = 0;
 	int survey_mode = 0;
+	/* Whether -c named a channel, which decides only how a refused channel
+	 * request is named: a command line without it asks for the sweep. */
+	int have_channel = 0;
 	int exit_status = 0;
 	const char* infile_name = NULL;
 	/* Files named on the command line, opened after every check passes. */
@@ -82,6 +100,8 @@ int main(int argc, char* argv[])
 	btbb_piconet* pn = NULL;
 	uint32_t lap = 0;
 	uint8_t uap = 0;
+	/* Above the Bluetooth band, which the firmware reads as "sweep the
+	 * whole band": the default when no -c names a fixed channel. */
 	uint16_t channel = 9999;
 
 	ubertooth_t* ut = ubertooth_init();
@@ -153,6 +173,7 @@ int main(int argc, char* argv[])
 			                    "channel", "", &bt_channel) < 0)
 				return 1;
 			channel = (uint16_t)(bt_channel + BT_FREQ_MIN);
+			have_channel = 1;
 			break;
 		}
 		case 'V':
@@ -242,8 +263,16 @@ int main(int argc, char* argv[])
 		}
 
 		r = ubertooth_check_api(ut);
-		if (r < 0)
+		if (r < 0) {
+			/* A version mismatch has already released the board, and
+			 * releasing it twice is not safe; a version the library
+			 * could not read at all leaves it open, so it is closed
+			 * here, without a STOP for a firmware this host will
+			 * not drive. */
+			if (ut->devh != NULL)
+				ubertooth_close(ut);
 			return 1;
+		}
 	}
 
 	r = btbb_init(max_ac_errors);
@@ -260,8 +289,18 @@ int main(int argc, char* argv[])
 			btbb_init_piconet(pn, lap);
 			if (have_uap) {
 				btbb_piconet_set_uap(pn, uap);
-				if (infile == NULL)
-					cmd_set_bdaddr(ut->devh, btbb_piconet_get_bdaddr(pn));
+				/* A board that refused this would follow
+				 * whatever address it was left on, so the
+				 * capture does not start. A replay sends no
+				 * request at all. */
+				if (infile == NULL) {
+					r = cmd_set_bdaddr_quiet(ut->devh,
+					        btbb_piconet_get_bdaddr(pn));
+					if (r < 0)
+						return request_failed(ut,
+						        "set the Bluetooth address",
+						        r);
+				}
 			}
 			if (ut->h_pcapng_bredr) {
 				btbb_pcapng_record_bdaddr(ut->h_pcapng_bredr,
@@ -272,7 +311,13 @@ int main(int argc, char* argv[])
 	}
 
 	if (infile == NULL) {
-		cmd_set_channel(ut->devh, channel);
+		/* A board that refused this would capture on whatever channel
+		 * it was left on, and say nothing about it, so the capture does
+		 * not start. */
+		r = cmd_set_channel_quiet(ut->devh, channel);
+		if (r < 0)
+			return request_failed(ut, have_channel ? "set the channel"
+			                                       : "set sweep mode", r);
 
 		/* Clean up on exit. */
 		register_cleanup_handler(ut, 0);

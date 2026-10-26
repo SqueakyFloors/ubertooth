@@ -1,5 +1,6 @@
 /*
- * Hardware-independent tests for the fixed-size libubertooth read commands.
+ * Hardware-independent tests for the fixed-size libubertooth read commands,
+ * and for which of its set commands report a refused request themselves.
  *
  * The real ubertooth_control.c is compiled into this test, and the test
  * defines libusb_control_transfer() itself so the library's calls resolve to a
@@ -202,31 +203,95 @@ MU_TEST(read_access_address_returns_errors_separately)
 	mu_assert(aa == 0xdeadbeefu, "left untouched on an error");
 }
 
-/* The library prints the one complete line for a short reply. */
-MU_TEST(short_reply_message_names_the_read_and_the_counts)
+/* Captures standard error over one call and returns what it holds. */
+static void run_captured(void (*call)(void), char *text, size_t size)
 {
-	char text[256] = "";
 	FILE *capture = tmpfile();
 	int saved = dup(fileno(stderr));
 	size_t n;
 
+	text[0] = '\0';
 	mu_assert_fatal(capture != NULL && saved >= 0, "capture stderr");
 	fflush(stderr);
 	dup2(fileno(capture), fileno(stderr));
-	script(0, 0);
-	cmd_read_access_address(NULL, &(uint32_t){0});
-	script(1, 0x89);
-	cmd_get_channel(NULL);
+	call();
 	fflush(stderr);
 	dup2(saved, fileno(stderr));
 	close(saved);
 	rewind(capture);
-	n = fread(text, 1, sizeof(text) - 1, capture);
+	n = fread(text, 1, size - 1, capture);
 	text[n] = '\0';
 	fclose(capture);
+}
+
+/* Two short replies in a row, so one capture holds both lines. */
+static void two_short_reads(void)
+{
+	script(0, 0);
+	cmd_read_access_address(NULL, &(uint32_t){0});
+	script(1, 0x89);
+	cmd_get_channel(NULL);
+}
+
+/* The library prints the one complete line for a short reply. */
+MU_TEST(short_reply_message_names_the_read_and_the_counts)
+{
+	char text[256];
+
+	run_captured(two_short_reads, text, sizeof(text));
 	mu_assert(strcmp(text,
 	    "error: access address read failed: board returned 0 of 4 bytes\n"
 	    "error: channel read failed: board returned 1 of 2 bytes\n") == 0, text);
+}
+
+static void set_channel_quiet(void) { cmd_set_channel_quiet(NULL, 2441); }
+static void set_channel(void) { cmd_set_channel(NULL, 2441); }
+static void set_bdaddr_quiet(void) { cmd_set_bdaddr_quiet(NULL, 0x112233); }
+
+/* A tool that names the request itself asks for the quiet form, so the whole
+ * failure is the one line the tool prints. The reporting form keeps its own
+ * line for the callers that do not check the result at all. */
+MU_TEST(the_quiet_set_forms_report_nothing)
+{
+	char text[256];
+
+	script(LIBUSB_ERROR_TIMEOUT, 0);
+	mu_assert_int_eq(LIBUSB_ERROR_TIMEOUT, cmd_set_channel_quiet(NULL, 2441));
+	run_captured(set_channel_quiet, text, sizeof(text));
+	mu_assert(text[0] == '\0', text);
+
+	script(LIBUSB_ERROR_PIPE, 0);
+	run_captured(set_channel_quiet, text, sizeof(text));
+	mu_assert(text[0] == '\0', text);
+
+	script(LIBUSB_ERROR_TIMEOUT, 0);
+	mu_assert_int_eq(LIBUSB_ERROR_TIMEOUT, cmd_set_bdaddr_quiet(NULL, 0x112233));
+	run_captured(set_bdaddr_quiet, text, sizeof(text));
+	mu_assert(text[0] == '\0', text);
+
+	/* A transfer the board truncated is a complete line of its own, so the
+	 * quiet form keeps it, and the short-reply code says so. */
+	script(8, 0);
+	mu_assert_int_eq(UBERTOOTH_ERROR_SHORT_REPLY,
+	                 cmd_set_bdaddr_quiet(NULL, 0x112233));
+	run_captured(set_bdaddr_quiet, text, sizeof(text));
+	mu_assert(strcmp(text, "error: Bluetooth address write failed: "
+	    "board took 8 of 16 bytes\n") == 0, text);
+
+	/* Unchanged for the reporting form. */
+	script(LIBUSB_ERROR_PIPE, 0);
+	run_captured(set_channel, text, sizeof(text));
+	mu_assert(strcmp(text, "error: control message unsupported\n") == 0, text);
+
+	script(LIBUSB_ERROR_TIMEOUT, 0);
+	run_captured(set_channel, text, sizeof(text));
+	mu_assert(strstr(text, "libUSB Error") != NULL, text);
+
+	/* A request the board took says nothing either way. */
+	script(0, 0);
+	mu_assert_int_eq(0, cmd_set_channel_quiet(NULL, 2441));
+	run_captured(set_channel, text, sizeof(text));
+	mu_assert(text[0] == '\0', text);
 }
 
 MU_TEST(range_result_needs_all_5_bytes)
@@ -362,6 +427,7 @@ int main(void)
 	MU_RUN(serial_needs_all_17_bytes);
 	MU_RUN(range_result_needs_all_5_bytes);
 	MU_RUN(short_reply_message_names_the_read_and_the_counts);
+	MU_RUN(the_quiet_set_forms_report_nothing);
 	MU_RUN(four_and_two_byte_reads_need_their_full_length);
 	MU_RUN(read_access_address_returns_errors_separately);
 	MU_RUN(no_read_writes_to_standard_output);
