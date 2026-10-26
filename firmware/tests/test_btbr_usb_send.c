@@ -37,8 +37,9 @@
 #include <ubtbr/ubertooth_usb.h>
 #include <ubtbr/btctl_intf.h>
 
-#define BULK_IN_EP 0x82
-#define BULK_OUT_EP 0x05
+/* The bulk endpoint's packet size. The shim keeps its own file-local copy of
+ * this; test_a_message_is_cut_to_one_packet() is what holds the two together,
+ * since it asserts the length the shim actually wrote. */
 #define MAX_PACKET_SIZE 64
 
 /* ---- the fake interrupt controller ---- */
@@ -100,9 +101,8 @@ static unsigned status_polls;
 static unsigned isr_sends_at_call;
 static unsigned nested_sends;
 
-static void fake_usb_reset(void)
+static void clear_counters(void)
 {
-	bulk_in_status = 0;
 	memset(writes, 0, sizeof(writes));
 	write_count = 0;
 	isr_calls = 0;
@@ -112,7 +112,21 @@ static void fake_usb_reset(void)
 	isr_sends_at_call = 0;
 	nested_sends = 0;
 	usb_send_drops = 0;
+}
+
+static void fake_usb_reset(void)
+{
+	U8 prime[1] = { 0 };
+
+	bulk_in_status = 0;
 	set_usb_irq_enabled(1);
+	clear_counters();
+	/* The shim remembers that a host stopped reading, so that a run of
+	 * messages does not pay the bound over and over. That memory is
+	 * file-local to the firmware and outlives one test, and a send that gets
+	 * through is what clears it -- so each test starts with one. */
+	usb_send_sync(prime, sizeof(prime));
+	clear_counters();
 }
 
 U8 USBHwEPGetStatus(U8 bEP)
@@ -380,6 +394,49 @@ MU_TEST(test_a_send_works_again_after_a_drop)
 }
 
 /*
+ * A caller printing a run of lines pays the bound once, not per line. The
+ * fault handlers dump the stack 16 bytes at a time, with all interrupts
+ * masked, so a few hundred lines each waiting the full bound would be the
+ * stall over again in slow motion.
+ */
+MU_TEST(test_a_drop_does_not_make_the_next_message_wait)
+{
+	U8 msg[4] = { 7, 0, 0, 0 };
+
+	fake_usb_reset();
+	bulk_in_status = EPSTAT_B1FULL | EPSTAT_B2FULL;
+	usb_send_sync(msg, sizeof(msg));
+	mu_assert_int_eq(1, (int)usb_send_drops);
+
+	clear_counters();
+	usb_send_sync(msg, sizeof(msg));
+
+	mu_assert_int_eq(1, (int)status_polls);
+	mu_assert_int_eq(0, (int)write_count);
+	mu_assert_int_eq(1, (int)usb_send_drops);
+}
+
+/* And it is only remembered until a message gets through: a host that comes
+ * back is waited for again, as it was before it left. */
+MU_TEST(test_a_message_that_gets_through_is_waited_for_again)
+{
+	U8 msg[4] = { 8, 0, 0, 0 };
+
+	fake_usb_reset();
+	bulk_in_status = EPSTAT_B1FULL | EPSTAT_B2FULL;
+	usb_send_sync(msg, sizeof(msg));
+
+	bulk_in_status = 0;
+	usb_send_sync(msg, sizeof(msg));
+
+	clear_counters();
+	bulk_in_status = EPSTAT_B1FULL | EPSTAT_B2FULL;
+	usb_send_sync(msg, sizeof(msg));
+
+	mu_assert_int_eq(USB_SEND_SYNC_POLLS, (int)status_polls);
+}
+
+/*
  * The interrupt is put back the way it was found, not simply switched on. The
  * old code ended with `ISER0 = ICER0_ICE_USB`, which enabled it for a caller
  * that ran before ubertooth_usb_init() had -- early_printf() is reachable that
@@ -500,6 +557,8 @@ int main(void)
 	MU_RUN(test_a_host_that_starts_reading_is_served);
 	MU_RUN(test_every_dropped_message_is_counted);
 	MU_RUN(test_a_send_works_again_after_a_drop);
+	MU_RUN(test_a_drop_does_not_make_the_next_message_wait);
+	MU_RUN(test_a_message_that_gets_through_is_waited_for_again);
 	MU_RUN(test_a_send_with_the_interrupt_off_leaves_it_off);
 	MU_RUN(test_a_nested_send_does_not_wait_again);
 	MU_RUN(test_a_nested_send_with_room_is_sent);

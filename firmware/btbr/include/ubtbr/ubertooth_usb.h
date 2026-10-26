@@ -72,62 +72,25 @@ typedef int (VendorRequestHandler)(u8 request, u16 *request_params, u8 *data,
                                    int data_from_host, unsigned data_in_len,
                                    int *data_len);
 
-/*
- * Hold off the USB interrupt across a section that must not be re-entered,
- * and put it back the way it was.
- *
- * Everything that drives the USB controller goes through registers there is
- * only one of: USBCtrl selects which endpoint reads and writes apply to, and
- * the protocol engine is driven by a command-code handshake reported through
- * the device interrupt bits. Two contexts doing that at once would each
- * consume the other's handshake, so usb_work() and usb_send_sync() keep the
- * USB interrupt out for the duration.
- *
- * usb_irq_hold() reports whether the interrupt was enabled; pass that to
- * usb_irq_release(), which re-enables it only if it was. The old code enabled
- * it unconditionally on the way out, which turned it on for a caller that ran
- * before ubertooth_usb_init() had. The interrupt is not lost while held off:
- * the NVIC keeps it pending and takes it as soon as the mask is lifted.
- */
-static inline uint32_t usb_irq_hold(void)
-{
-	uint32_t was_enabled = ISER0 & ISER0_ISE_USB;
-
-	if (was_enabled) {
-		ICER0 = ICER0_ICE_USB;
-		/* A write to NVIC ICER0 is not self-synchronising on Cortex-M3, so
-		 * without these an interrupt already pending can still be taken
-		 * after the mask -- inside the section being protected. They are
-		 * ARM instructions, and the host unit tests compile this header,
-		 * where there is no interrupt to order against. */
-#ifdef __arm__
-		__asm__ volatile ("dsb" ::: "memory");
-		__asm__ volatile ("isb" ::: "memory");
-#endif
-	}
-
-	return was_enabled;
-}
-
-static inline void usb_irq_release(uint32_t was_enabled)
-{
-	if (was_enabled)
-		ISER0 = ISER0_ISE_USB;
-}
+/* usb_work() and usb_send_sync() drive the USB controller from the loop, so
+ * both hold the USB interrupt off while they do. */
+#include "usb_irq.h"
 
 /* Passes before usb_send_sync() gives up on the host reading.
  *
- * Each pass asks the controller for the endpoint status and polls the USB
- * interrupt once, so call it a few microseconds: 20000 passes is on the order
- * of a tenth of a second. A host that is reading drains a 64-byte bulk packet
- * within a frame or two of 1 ms, so the bound is far beyond the normal case,
- * and a host that is not reading never drains it at all. The margin has not
- * been measured on hardware; usb_send_drops is what shows the bound being
- * hit. */
+ * Each pass asks the controller for the endpoint status, and every pass but
+ * the last also polls the USB interrupt, so call it a few microseconds: 20000
+ * passes is on the order of a tenth of a second. A host that is reading drains
+ * a 64-byte bulk packet within a frame or two of 1 ms, so the bound is far
+ * beyond the normal case, and a host that is not reading never drains it at
+ * all. The margin has not been measured on hardware; usb_send_drops is what
+ * shows the bound being hit, under a debugger. */
 #define USB_SEND_SYNC_POLLS 20000
 
 /* Debug messages dropped because the host never freed a bulk IN buffer.
- * Non-zero means a host stopped reading while the firmware was printing. */
+ * Non-zero means a host stopped reading while the firmware was printing.
+ * Nothing reads it on the device or the host; it is there to be read under a
+ * debugger, as usbhw_timeouts is in the other image. */
 extern volatile uint32_t usb_send_drops;
 
 int ubertooth_usb_init(VendorRequestHandler *vendor_req_handler);

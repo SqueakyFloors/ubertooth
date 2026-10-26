@@ -347,12 +347,21 @@ void usb_send_sync(void *buf, int size)
 	 * from inside itself. A nested call sends if there is room and drops
 	 * its message if there is not, rather than starting a second wait. One
 	 * bound is then the whole wait, however the firmware got here. */
-	static unsigned depth = 0;
-	unsigned polls = depth ? 1 : USB_SEND_SYNC_POLLS;
-	unsigned i;
+	static volatile unsigned depth = 0;
+	/* Set once a wait has given up, cleared by the next message that gets
+	 * through. The caller is usually printing a run of lines -- the fault
+	 * handler dumps the stack 16 bytes at a time -- and a host that did not
+	 * read the first line will not read the rest, so without this each line
+	 * pays the full bound and a dump costs seconds with interrupts masked.
+	 * Once it is set, a message is sent if there is room and dropped if
+	 * there is not. */
+	static volatile unsigned host_stalled = 0;
+	unsigned polls, i;
 	u8 epstat;
 	uint32_t usb_irq = usb_irq_hold();
 
+	/* Read after the hold, so a nested call really does see depth non-zero. */
+	polls = (depth || host_stalled) ? 1 : USB_SEND_SYNC_POLLS;
 	depth++;
 
 	/*
@@ -369,8 +378,9 @@ void usb_send_sync(void *buf, int size)
 	 * needs and what usb_work() below checks for; waiting for both to
 	 * drain, as this did, waits on a host that is reading steadily. The
 	 * USB interrupt is polled between passes, so control requests are
-	 * still answered while we wait, and giving up costs one debug message
-	 * the host was not going to read -- bluetooth_rxtx's handle_usb()
+	 * answered while we wait -- the rest of the firmware is not running,
+	 * which is why the bound matters -- and giving up costs one debug
+	 * message the host was not going to read. bluetooth_rxtx's handle_usb()
 	 * drops one without waiting at all.
 	 */
 	for (i = 0; ; i++) {
@@ -379,11 +389,14 @@ void usb_send_sync(void *buf, int size)
 			break;
 		if (i+1 >= polls) {
 			usb_send_drops++;
+			host_stalled = 1;
 			goto end;
 		}
 		/* polled "interrupt" */
 		USBHwISR();
 	}
+
+	host_stalled = 0;
 
 	size = MIN(size, MAX_PACKET_SIZE);
 

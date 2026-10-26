@@ -122,13 +122,16 @@ $(BINDIR)/test_btbr_hop: test_btbr_hop.c minunit.h stubs-btbr/ubtbr/debug.h \
 # comes first so its lpc17.h wins over firmware/common's.
 $(BINDIR)/test_usbhw_wait: test_usbhw_wait.c minunit.h stubs-usb/lpc17.h \
 		$(FW_LPCUSB)/usbhw_lpc.c $(FW_LPCUSB)/usbhw_lpc.h \
-		$(FW_LPCUSB)/usbcontrol.c | $(BINDIR)
+		$(FW_LPCUSB)/usbcontrol.c $(FW_COMMON)/usb_irq.h \
+		$(FW_RXTX)/ubertooth_usb.h \
+		$(FW_BTBR)/include/ubtbr/ubertooth_usb.h | $(BINDIR)
 # Two kinds of noise come from compiling this vendored code on a 64-bit host
 # with the debug macros off: the DMA descriptor helpers cast pointers to U32,
 # and usbcontrol.c's stall path builds a dump the disabled DBG() would have
 # printed. Neither is what this tests.
 	$(CC) $(CFLAGS) -Istubs-usb -I$(FW_LPCUSB) $(CPPFLAGS) -DLPC17xx \
 		-DFW_LPCUSB_DIR='"$(FW_LPCUSB)"' -DFW_RXTX_DIR='"$(FW_RXTX)"' \
+		-DFW_BTBR_DIR='"$(FW_BTBR)"' -DFW_COMMON_DIR='"$(FW_COMMON)"' \
 		-Wno-pointer-to-int-cast -Wno-unused-but-set-variable \
 		-Wno-unused-parameter -o $@ test_usbhw_wait.c \
 		$(FW_LPCUSB)/usbhw_lpc.c $(FW_LPCUSB)/usbcontrol.c
@@ -174,17 +177,20 @@ $(BINDIR)/test_vendor_request_bounds: test_vendor_request_bounds.c minunit.h \
 # shim against fakes for both: stubs-btbr-usb/ supplies a hardware-free
 # ubertooth.h with a fake interrupt controller and a PRIMASK-free system.h,
 # stubs-btbr/ the diagnostics stand-in, and the test implements the
-# controller. queue.c is the message queue the shim sends from.
+# controller. queue.c is the message queue the shim sends from. firmware/common
+# is last on the include path, for the shared usb_irq.h; "ubertooth.h" still
+# resolves to the stub, which comes first.
 $(BINDIR)/test_btbr_usb_send: test_btbr_usb_send.c minunit.h \
 		stubs-btbr-usb/ubertooth.h stubs-btbr-usb/ubtbr/system.h \
 		stubs-btbr/ubtbr/debug.h \
 		$(FW_BTBR)/src/drivers/ubertooth_usb.c \
 		$(FW_BTBR)/src/util/queue.c \
-		$(FW_BTBR)/include/ubtbr/ubertooth_usb.h | $(BINDIR)
+		$(FW_BTBR)/include/ubtbr/ubertooth_usb.h \
+		$(FW_COMMON)/usb_irq.h | $(BINDIR)
 # usb_bulk_out_handler() takes the arguments the stack's endpoint callback
 # passes and uses neither, which is not what this tests.
 	$(CC) $(CFLAGS) -Istubs-btbr-usb -Istubs-btbr -I$(FW_BTBR)/include \
-		-I$(FW_LPCUSB) $(CPPFLAGS) -Wno-unused-parameter \
+		-I$(FW_LPCUSB) -I$(FW_COMMON) $(CPPFLAGS) -Wno-unused-parameter \
 		-o $@ test_btbr_usb_send.c \
 		$(FW_BTBR)/src/drivers/ubertooth_usb.c $(FW_BTBR)/src/util/queue.c
 

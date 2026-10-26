@@ -809,11 +809,17 @@ MU_TEST(test_handle_usb_holds_the_usb_interrupt_off)
  */
 MU_TEST(test_the_usb_interrupt_hold_synchronises)
 {
-	const char *path = FW_RXTX_DIR "/ubertooth_usb.h";
+	const char *path = FW_COMMON_DIR "/usb_irq.h";
 
 	mu_assert_int_eq(1, count_lines_with(path, "ICER0", "ICER0_ICE_USB", NULL));
 	mu_assert_int_eq(1, count_lines_with(path, "dsb", NULL, NULL));
 	mu_assert_int_eq(1, count_lines_with(path, "isb", NULL, NULL));
+	/* One definition, shared: each image's USB header includes it rather
+	 * than carrying a copy that could drift from this one. */
+	mu_assert_int_eq(1, count_lines_with(FW_RXTX_DIR "/ubertooth_usb.h",
+	                                     "usb_irq.h", NULL, NULL));
+	mu_assert_int_eq(1, count_lines_with(FW_BTBR_DIR "/include/ubtbr/ubertooth_usb.h",
+	                                     "usb_irq.h", NULL, NULL));
 }
 
 int main(void)
