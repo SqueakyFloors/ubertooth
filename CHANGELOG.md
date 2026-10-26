@@ -637,6 +637,11 @@
   counts the capture clock's periods from the packets, which carry the count,
   and where they do not, a lost one is reported on standard error.
   [#229](https://github.com/SqueakyFloors/ubertooth/issues/229)
+- A capture whose first record reads ahead of the records after it is no longer
+  anchored 327.68 s late: a clock reading lower than it did is only taken for a
+  wrap where the host clock saw the time a wrap would have taken, so every
+  packet keeps its own time.
+  [#436](https://github.com/SqueakyFloors/ubertooth/issues/436)
 
 ### Documentation
 
