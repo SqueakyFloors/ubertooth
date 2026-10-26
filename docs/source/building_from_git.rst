@@ -46,7 +46,7 @@ Next the Bluetooth baseband library (libbtbb) needs to be built for the Ubertoot
 
 		git clone https://github.com/SqueakyFloors/libbtbb.git
 		cd libbtbb
-		git checkout 84ab41fc99d172e812438bc9188f30a67216f748
+		git checkout da9c2cd0c1f7de96c589b13ff40585efdfded991
 		mkdir build
 		cd build
 		cmake -DENABLE_PYTHON=OFF ..

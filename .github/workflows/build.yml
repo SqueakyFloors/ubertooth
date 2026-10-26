@@ -48,7 +48,7 @@ env:
   # below fetches that commit, and the "Check the libbtbb pin" step names the
   # other files that write it out and fails until they agree.
   LIBBTBB_REPO: SqueakyFloors/libbtbb
-  LIBBTBB_REF: 84ab41fc99d172e812438bc9188f30a67216f748
+  LIBBTBB_REF: da9c2cd0c1f7de96c589b13ff40585efdfded991
 
 jobs:
   host:

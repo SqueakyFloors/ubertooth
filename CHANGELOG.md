@@ -186,6 +186,11 @@
   reporting success. `ubertooth-rx`, `ubertooth-dump`, `ubertooth-specan`,
   `ubertooth-scan`, `ubertooth-follow` and `ubertooth-afh` are affected.
   [#319](https://github.com/SqueakyFloors/ubertooth/issues/319)
+- The pinned libbtbb now follows the Core specification when AFH re-maps a hop
+  channel, so host-side predictions agree with the channel the board tunes to.
+  A clock and UAP tracked with an AFH map used to name channels the piconet was
+  not on.
+  [#143](https://github.com/SqueakyFloors/ubertooth/issues/143)
 - The firmware refuses a generic transmit request
   (`UBERTOOTH_TX_GENERIC_PACKET`) whose payload does not fit the packet, and no
   longer drops the last byte of one that does. No shipped tool sends it.
