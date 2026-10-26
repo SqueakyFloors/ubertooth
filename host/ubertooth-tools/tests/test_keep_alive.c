@@ -475,15 +475,22 @@ MU_TEST(a_transfer_shorter_than_a_packet_is_not_published)
 
 	for (i = 0; i < sizeof(lengths) / sizeof(lengths[0]); i++) {
 		ubertooth_t* ut;
+		uint8_t* slot_before;
 
 		reset();
 		ut = new_handle();
 		mu_assert_fatal(ut != NULL, "a handle");
 
 		mu_assert_int_eq(0, ubertooth_bulk_init(ut));
+		slot_before = fake.in_flight->buffer;
 		deliver_bytes(lengths[i]);
 
 		mu_assert_int_eq(0, ring.published);
+		mu_assert(fake.in_flight != NULL
+		          && fake.in_flight->buffer == slot_before,
+		          "the slot was kept for the next packet");
+		mu_assert(!ubertooth_stream_failed(ut),
+		          "the capture is still running");
 
 		release_handle(ut);
 	}
@@ -592,6 +599,7 @@ MU_TEST(a_bitstream_dump_leaves_out_a_keep_alive)
 	 * keep-alive. */
 	mu_assert_int_eq(BANK_LEN + 1, (int)size);
 	mu_assert(out[0] == '\0', out);
+	mu_assert(strstr(err, "rx block timestamp") != NULL, err);
 	mu_assert(strchr(err, '\n') == strrchr(err, '\n'), "said once");
 
 	fclose(dump);

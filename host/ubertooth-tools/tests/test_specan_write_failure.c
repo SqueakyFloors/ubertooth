@@ -256,6 +256,54 @@ MU_TEST(a_write_that_works_leaves_the_run_alone)
 	mu_assert(size > 0, "the samples were written");
 }
 
+/* A keep-alive is what a quiet sweep gets, and it carries no samples. Reading
+ * frequencies and levels out of it would write whatever the slot held before,
+ * so nothing is written for it and the sweep carries on. */
+MU_TEST(a_keep_alive_writes_no_samples)
+{
+	ubertooth_t ut;
+	usb_pkt_rx ka;
+	uint8_t args[5];
+	char path[] = "/tmp/specan-ka-XXXXXX";
+	int fd;
+	FILE* writable;
+	char err[512];
+	long size;
+
+	fd = mkstemp(path);
+	writable = fdopen(fd, "w");
+	mu_assert_fatal(writable != NULL, "temp file opened");
+
+	memset(&ut, 0, sizeof(ut));
+	ut.fifo = fifo_init();
+	/* Samples in every byte, so anything written out is recognisable as
+	 * the block the keep-alive never replaced. */
+	fill_block(&ka);
+	ka.pkt_type = KEEP_ALIVE;
+	fifo_push(ut.fifo, &ka);
+	specan_args(args, SPECAN_FILE);
+
+	output_failed = 0;
+	write_failure_said = 0;
+	dumpfile = writable;
+
+	capture_stderr_begin();
+	cb_specan(&ut, args);
+	capture_stderr_end(err, sizeof(err));
+	free(ut.fifo);
+
+	fflush(writable);
+	fseek(writable, 0, SEEK_END);
+	size = ftell(writable);
+	fclose(writable);
+	unlink(path);
+
+	mu_assert_int_eq(0, (int)size);
+	mu_assert_int_eq(0, output_failed);
+	mu_assert_int_eq(0, ut.stop_ubertooth);
+	mu_assert(strcmp(err, "") == 0, "nothing said about a quiet sweep");
+}
+
 MU_TEST(an_output_mode_that_is_not_one_of_ours_ends_the_run)
 {
 	ubertooth_t ut;
@@ -651,6 +699,7 @@ int main(void)
 	MU_RUN(a_failed_sample_write_ends_the_run);
 	MU_RUN(samples_lost_in_a_buffer_end_the_run_too);
 	MU_RUN(a_write_that_works_leaves_the_run_alone);
+	MU_RUN(a_keep_alive_writes_no_samples);
 	MU_RUN(an_output_mode_that_is_not_one_of_ours_ends_the_run);
 	MU_RUN(a_sweep_that_could_not_be_written_exits_one);
 	MU_RUN(a_sweep_that_was_written_exits_zero);
