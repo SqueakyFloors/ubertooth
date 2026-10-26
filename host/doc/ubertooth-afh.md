@@ -138,9 +138,11 @@ tool was interrupted during the phase.
 It exits 1 without opening a device for a bad command line (a missing UAP or
 LAP, an option value out of range, or a word that is not an option) or when the
 piconet it tracks cannot be allocated (`error: out of memory`), and when the
-selected Ubertooth is not found. Without `-r`, it also exits 1 when the
-receive could not be started at all; `-r` does not report that and still
-exits 0.
+selected Ubertooth is not found. It also exits 1, with or without `-r`, when
+the receive could not be started at all: a setup request the board refused,
+or a USB transfer that could not be set up. One of those is the band sweep
+the whole band is watched through, without which the board stays on the
+channel it was left on and the map would hold that channel alone.
 
 A run whose USB stream fails part-way, with or without `-r`, exits 1: the
 board stopped answering or dropped off the bus, so what it reported is

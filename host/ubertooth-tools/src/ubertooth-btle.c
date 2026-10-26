@@ -59,6 +59,15 @@ static void quit(int sig __attribute__((unused))) {
  * error instead. main() sets this; nothing here prints before that. */
 static FILE *report_stream = NULL;
 
+/* The library has already said why a request was refused; this names the
+ * request. A refused request is not proof that the board never got it -- a
+ * transfer can time out after it arrived -- so the message says only what the
+ * tool knows. */
+static void report_request_failure(const char *what)
+{
+	fprintf(stderr, "error: could not %s\n", what);
+}
+
 /* The centre frequency of a BLE advertising channel index (Bluetooth Core
  * spec), which both the sniffing and the faux slave mode tune to. */
 static u16 adv_channel(int index)
@@ -529,9 +538,17 @@ int main(int argc, char *argv[])
 		}
 
 		if (do_follow || do_no_follow) {
+			/* Checked one at a time, so the report names the
+			 * request that failed rather than the mode it was
+			 * part of. */
 			if (cmd_set_channel(ut->devh,
-			                    adv_channel(do_adv_index)) < 0 ||
-			    cmd_btle_sniffing(ut->devh, do_follow) < 0) {
+			                    adv_channel(do_adv_index)) < 0) {
+				report_request_failure(
+					"set the advertising channel");
+				ubertooth_stop(ut);
+				return 1;
+			}
+			if (cmd_btle_sniffing(ut->devh, do_follow) < 0) {
 				fprintf(stderr, "error: could not start %sfollow"
 				        " mode\n", do_follow ? "" : "no-");
 				ubertooth_stop(ut);
@@ -620,16 +637,26 @@ int main(int argc, char *argv[])
 		/* flags: LE Limited Discovery */
 		uint8_t adv_data[] = { 0x02, 0x01, 0x05 };
 
-		/* No ubertooth_stop() on the way out, unlike the sniffing
+		/* Checked one at a time, so the report names the request that
+		 * failed: all three had to work for the board to advertise,
+		 * and "could not start faux slave mode" did not say which of
+		 * them the board refused.
+		 *
+		 * No ubertooth_stop() on the way out, unlike the sniffing
 		 * block: only the last of these three starts a mode, so a
 		 * failure leaves the board idle with a channel set, and the
 		 * success path deliberately leaves it advertising. */
-		if (cmd_set_channel(ut->devh, adv_channel(do_adv_index)) < 0 ||
-		    cmd_le_set_adv_data(ut->devh, adv_data,
-		                        sizeof(adv_data)) < 0 ||
-		    cmd_btle_slave(ut->devh, mac_address) < 0) {
-			fprintf(stderr, "error: could not start faux slave"
-			        " mode\n");
+		if (cmd_set_channel(ut->devh, adv_channel(do_adv_index)) < 0) {
+			report_request_failure("set the advertising channel");
+			return 1;
+		}
+		if (cmd_le_set_adv_data(ut->devh, adv_data,
+		                        sizeof(adv_data)) < 0) {
+			report_request_failure("set the advertising data");
+			return 1;
+		}
+		if (cmd_btle_slave(ut->devh, mac_address) < 0) {
+			report_request_failure("start advertising");
 			return 1;
 		}
 	}

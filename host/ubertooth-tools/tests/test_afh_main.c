@@ -24,6 +24,7 @@
 
 static struct {
 	int rx_afh_rc;    /* returned by rx_afh() */
+	int rx_afh_r_rc;  /* returned by rx_afh_r() */
 	int rx_afh_calls;
 	int rx_afh_r_calls;
 	int last_timeout; /* timeout passed to the detection phase */
@@ -126,12 +127,13 @@ int rx_afh(ubertooth_t *ut, btbb_piconet *pn, int timeout)
 	return fake.rx_afh_rc;
 }
 
-void rx_afh_r(ubertooth_t *ut, btbb_piconet *pn, int timeout)
+int rx_afh_r(ubertooth_t *ut, btbb_piconet *pn, int timeout)
 {
 	(void)ut;
 	(void)pn;
 	fake.rx_afh_r_calls++;
 	fake.last_timeout = timeout;
+	return fake.rx_afh_r_rc;
 }
 
 int ubertooth_stream_failed(ubertooth_t *ut)
@@ -294,9 +296,10 @@ MU_TEST(the_r_format_is_unchanged)
 	mu_assert(r.err[0] == '\0', r.err);
 }
 
-/* -r has no return value to carry a failure, so the run that lost its stream
- * is read from the handle instead: it used to exit 0, which told a script the
- * monitoring it never got had worked. */
+/* A stream that died part-way is read from the handle rather than from the
+ * return value, because the teardown is where a transfer the board never gave
+ * back comes out: it used to exit 0, which told a script the monitoring it
+ * never got had worked. */
 MU_TEST(the_r_format_exits_1_when_its_stream_died)
 {
 	struct run_result r;
@@ -309,6 +312,31 @@ MU_TEST(the_r_format_exits_1_when_its_stream_died)
 	/* the library reported the failure; the tool adds nothing */
 	mu_assert(r.err[0] == '\0', r.err);
 	mu_assert_int_eq(1, fake.stops);
+}
+
+/* A receive -r could not start at all -- a refused band sweep, a transfer
+ * that could not be set up -- comes back as the error, and the run exits 1
+ * rather than 0 for monitoring that never happened. The library has already
+ * said what failed. */
+MU_TEST(the_r_format_exits_1_when_its_receive_could_not_start)
+{
+	static const int errors[] = {
+		-1, -9 /* LIBUSB_ERROR_PIPE: the board stalled the request */,
+		-4 /* LIBUSB_ERROR_NO_DEVICE */
+	};
+	struct run_result r;
+	size_t i;
+
+	for (i = 0; i < sizeof(errors) / sizeof(errors[0]); i++) {
+		reset_fake();
+		fake.rx_afh_r_rc = errors[i];
+		r = RUN("-r", "-l", "446688", "-u", "22");
+		mu_assert_int_eq(1, r.rc);
+		mu_assert_int_eq(1, fake.rx_afh_r_calls);
+		mu_assert(r.out[0] == '\0', r.out);
+		mu_assert(r.err[0] == '\0', r.err);
+		mu_assert_int_eq(1, fake.stops);
+	}
 }
 
 /* A run whose board never gave the receive transfer back: the phases above
@@ -464,6 +492,7 @@ int main(void)
 	MU_RUN(no_timeout_runs_the_monitor_as_before);
 	MU_RUN(the_r_format_is_unchanged);
 	MU_RUN(the_r_format_exits_1_when_its_stream_died);
+	MU_RUN(the_r_format_exits_1_when_its_receive_could_not_start);
 	MU_RUN(a_run_whose_stream_is_only_found_lost_at_the_teardown_exits_1);
 	MU_RUN(a_library_error_is_not_mistaken_for_no_packets);
 	MU_RUN(a_run_that_never_reaches_the_receive_phase_frees_the_piconet);

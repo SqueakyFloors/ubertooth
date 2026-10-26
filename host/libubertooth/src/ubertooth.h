@@ -259,12 +259,17 @@ int rx_btle_file(FILE* fp);
  * Returns 0 when the monitor was stopped normally, UBERTOOTH_AFH_NO_PACKETS
  * when the detection phase saw no packet (nothing is printed and monitoring is
  * not started), or a negative error: -1 if libbtbb could not be initialised,
- * the receive error, already reported, if a phase could not run, or
+ * the request or receive error, already reported, if a phase could not run, or
  * UBERTOOTH_ERROR_STREAM_FAILED if a phase's stream died part-way. A phase
  * that lost its stream is not a quiet piconet, so it is never reported as
  * "no packets". */
 int rx_afh(ubertooth_t* ut, btbb_piconet* pn, int timeout);
-void rx_afh_r(ubertooth_t* ut, btbb_piconet* pn, int timeout);
+/* The one-line-per-second form of the above (ubertooth-afh -r), with its own
+ * receive loop and no detection phase, so the timeout is unused. Returns 0
+ * when it was stopped normally, or a negative error, already reported: -1 if
+ * libbtbb could not be initialised, or the request or transfer error if the
+ * receive could not be started. */
+int rx_afh_r(ubertooth_t* ut, btbb_piconet* pn, int timeout);
 
 void ubertooth_unpack_symbols(const uint8_t* buf, char* unpacked);
 

@@ -291,6 +291,13 @@ answering during a capture, `error: jamming not supported by this firmware`,
 `error: MAC address must be xx:xx:xx:xx:xx:xx (got 11:22:33:44:55)`. A capture
 file that cannot be created is reported as `error: <file>: <reason>`.
 
+Each request that sets a mode up is named on its own, so the line says which
+one the board refused: `error: could not set the advertising channel`,
+`error: could not set the advertising data`, `error: could not start
+advertising` for `-s`, and `error: could not start follow mode` (or
+`no-follow`, or `promiscuous`) for the sniffing modes. No capture starts after
+one of these.
+
 `-q` and `-c` share one capture handle, so a second file between them is
 ignored with `warning: ignoring extra capture file: <name>` and the first one
 given is used; `-r` has its own handle, so `-q a.pcap -r b.pcapng` writes both.

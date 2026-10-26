@@ -185,9 +185,12 @@ int main(int argc, char* argv[])
 	register_cleanup_handler(ut, 0);
 
 	if (use_r_format) {
-		rx_afh_r(ut, pn, timeout);
-		/* rx_afh_r() runs its own receive loop and returns nothing, so a
-		 * stream that died is read from the handle below. */
+		r = rx_afh_r(ut, pn, timeout);
+		/* A receive that could not be started at all; libubertooth has
+		 * already said what failed. A stream that died part-way is read
+		 * from the handle below instead. */
+		if (r < 0)
+			status = 1;
 	} else {
 		r = rx_afh(ut, pn, timeout);
 		if (r == UBERTOOTH_AFH_NO_PACKETS) {

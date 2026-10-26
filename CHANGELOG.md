@@ -277,6 +277,12 @@
   address is a failure too, so `ubertooth-tx` stops there rather than
   transmitting.
   [#379](https://github.com/SqueakyFloors/ubertooth/issues/379)
+- `ubertooth-afh` stops when the board refuses the band sweep its map is
+  watched through, instead of printing a map of the one channel the board was
+  left on. With `-r` it now exits 1 when the receive could not be started at
+  all, where it exited 0. `ubertooth-btle` names which of the requests that set
+  a mode up the board refused, rather than only the mode.
+  [#379](https://github.com/SqueakyFloors/ubertooth/issues/379)
 - `ubertooth-ego` refuses `-c` combined with `-f`, `-i` or `-j`, where it
   silently had no effect: those modes hop across the E-GO's own channel list.
   [#394](https://github.com/SqueakyFloors/ubertooth/issues/394)

@@ -982,7 +982,15 @@ int rx_afh(ubertooth_t* ut, btbb_piconet* pn, int timeout)
 	if (r < 0)
 		return -1;
 
-	cmd_set_channel(ut->devh, 9999);
+	/* Sweep the whole band: a channel above the Bluetooth band is how the
+	 * firmware is told to take its channel from the AFH hopping instead. A
+	 * board that refused this stays on the one channel it was left on, so
+	 * the map would hold that channel alone and still read as the piconet's
+	 * -- so the refusal ends the receive phase here rather than being
+	 * carried past it. cmd_set_channel() has already said why. */
+	r = cmd_set_channel(ut->devh, 9999);
+	if (r < 0)
+		return r;
 
 	if (timeout) {
 		ubertooth_set_timeout(ut, timeout);
@@ -1030,26 +1038,29 @@ int rx_afh(ubertooth_t* ut, btbb_piconet* pn, int timeout)
 	return r < 0 ? r : 0;
 }
 
-void rx_afh_r(ubertooth_t* ut, btbb_piconet* pn, int timeout __attribute__((unused)))
+int rx_afh_r(ubertooth_t* ut, btbb_piconet* pn, int timeout __attribute__((unused)))
 {
 	static uint32_t lasttime;
 
 	int r = btbb_init(max_ac_errors);
 	int i, j;
 	if (r < 0)
-		return;
+		return -1;
 
-	cmd_set_channel(ut->devh, 9999);
+	/* The band sweep, for the reason rx_afh() gives. */
+	r = cmd_set_channel(ut->devh, 9999);
+	if (r < 0)
+		return r;
 
 	// init USB transfer
 	r = ubertooth_bulk_init(ut);
 	if (r < 0)
-		return;
+		return r;
 
 	r = ubertooth_bulk_thread_start();
 	if (r < 0) {
 		ubertooth_bulk_stop(ut);
-		return;
+		return r;
 	}
 
 	// tell ubertooth to send packets, in the AFH detection mode (see rx_afh)
@@ -1058,7 +1069,7 @@ void rx_afh_r(ubertooth_t* ut, btbb_piconet* pn, int timeout __attribute__((unus
 		/* as in stream_rx_usb(): the poll thread has to be joined here */
 		ubertooth_bulk_thread_stop();
 		ubertooth_bulk_stop(ut);
-		return;
+		return r;
 	}
 
 	// receive and process each packet
@@ -1082,6 +1093,7 @@ void rx_afh_r(ubertooth_t* ut, btbb_piconet* pn, int timeout __attribute__((unus
 
 	ubertooth_bulk_thread_stop();
 	ubertooth_bulk_stop(ut);
+	return 0;
 }
 
 int rx_btle_file(FILE* fp)
