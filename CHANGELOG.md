@@ -223,6 +223,15 @@
   act on whatever the previous request had left in the shared buffer: a stale
   address, stale writes to radio registers, or a transmit from stale bytes.
   [#393](https://github.com/SqueakyFloors/ubertooth/issues/393)
+- Stopping a capture that has packets in hand (Ctrl-C, or an `ubertooth-afh` or
+  `ubertooth-rx` timeout with traffic flowing) no longer releases a receive
+  transfer the USB layer is still using, which could corrupt memory or crash
+  the tool. A board that never gives the transfer back is now reported and
+  left open rather than closed underneath it.
+  [#370](https://github.com/SqueakyFloors/ubertooth/issues/370)
+- `ubertooth-rx`, `ubertooth-scan` and `ubertooth-follow` give the board back
+  when they cannot start a capture.
+  [#370](https://github.com/SqueakyFloors/ubertooth/issues/370)
 - A capture gives its receive transfer back when it ends, so a run with more
   than one phase (`ubertooth-afh` detects a map, then monitors it) no longer
   leaks one transfer per extra phase.

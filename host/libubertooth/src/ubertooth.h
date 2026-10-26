@@ -41,6 +41,27 @@ enum board_ids {
 	BOARD_ID_TC13BADGE      = 2
 };
 
+/* Who owns the receive transfer, which decides whether it may be freed or put
+ * back in flight. libusb owns a transfer from the moment it accepts a submit
+ * until its callback has run without resubmitting it; freeing one in between
+ * is undefined behaviour, and a cancelled one must not be resubmitted. The
+ * result of libusb_cancel_transfer() cannot stand in for this: it refuses a
+ * transfer whose cancellation is already in progress, and one whose device
+ * has gone away, and both still have a callback to come.
+ * RX_XFER_OURS is zero so a zeroed handle starts out owning nothing.
+ *
+ * This and rx_xfer are shared with the poll thread without a lock, which
+ * works because only one thread touches them at a time: while a capture runs
+ * they belong to the transfer's callback, which the poll thread calls, and
+ * every teardown runs after that thread has been joined. Nothing on the
+ * receive loop's side writes them or hands them to libusb. Keep it that way,
+ * or give the transfer a lock. */
+enum rx_xfer_state {
+	RX_XFER_OURS = 0,   /* no transfer, or one libusb is not holding */
+	RX_XFER_IN_FLIGHT,  /* submitted: libusb owns it */
+	RX_XFER_CANCELLING  /* submitted and cancelled: libusb still owns it */
+};
+
 typedef struct {
 	/* Ringbuffers for USB and Bluetooth symbols */
 	fifo_t* fifo;
@@ -65,8 +86,13 @@ typedef struct {
 
 	/* Whether abs_start_ns and start_clk100ns hold the first packet of a
 	 * capture yet: a first packet at clk100ns 0 is a valid start, not a
-	 * missing one. Last, so the offsets above do not move. */
+	 * missing one. */
 	uint8_t clk100ns_started;
+
+	/* Whether libusb is holding rx_xfer, one of enum rx_xfer_state. Next to
+	 * the byte above so the two share its padding, and after the offsets
+	 * above so that none of them moved. */
+	uint8_t rx_xfer_state;
 
 	/* After how many ticks the clock stamping these packets starts over:
 	 * CLK100NS_PERIOD for the CLKN-derived clock, which is what a mode
@@ -145,6 +171,11 @@ int ubertooth_connect_select(ubertooth_t* ut, const char* u_arg);
 ubertooth_t* ubertooth_start_select_quiet(const char* u_arg);
 void ubertooth_close(ubertooth_t* ut);
 void ubertooth_stop(ubertooth_t* ut);
+/* Releases a handle ubertooth_stop() or ubertooth_close() has finished with.
+ * A handle whose receive transfer libusb never gave back is left allocated
+ * instead: that transfer's callback reads into this handle's ring buffer. The
+ * teardown reports such a handle as a warning, so a caller that keeps going
+ * sees it; one that is about to exit can ignore it. */
 void ubertooth_free(ubertooth_t* ut);
 int ubertooth_get_api(ubertooth_t *ut, uint16_t *version);
 int ubertooth_check_api(ubertooth_t *ut);

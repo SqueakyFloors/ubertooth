@@ -417,12 +417,19 @@ int main(int argc, char *argv[])
 	// init USB transfer
 	r = ubertooth_bulk_init(ut);
 	if (r < 0) {
+		/* nothing is in flight, but the board is still open and in
+		 * whatever mode an earlier command left it */
+		ubertooth_stop(ut);
 		follow_disconnect(sock, handle, cc);
 		return r;
 	}
 
 	r = ubertooth_bulk_thread_start();
 	if (r < 0) {
+		/* The receive transfer is in flight and the board is about to be
+		 * left in its mode: give both back. Not follow_cleanup(), which
+		 * would join a thread that was never created. */
+		ubertooth_stop(ut);
 		follow_disconnect(sock, handle, cc);
 		return r;
 	}
