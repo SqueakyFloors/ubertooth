@@ -204,6 +204,17 @@
   from it in its PCAP output, and `ubertooth-specan -d` wrote samples read out
   of it. Replaying a capture file recorded before this skips such records.
   [#435](https://github.com/SqueakyFloors/ubertooth/issues/435)
+- The two-board range test exchanges packets at last: `ubertooth-util -n`
+  against a `-e` repeater gets a reply within a couple of seconds where it
+  previously never got one, in either direction. Neither mode held the radio's receive
+  gain amplifier out of reset, so both receivers reported a strong signal and
+  never a sync word; the repeater answered before the sender had finished
+  transmitting, because its delay was a loop the compiler deleted; and it
+  decoded requests only while the radio still held its reset value.
+  **The reply still reads back corrupted**, so `-m` reports
+  `error: invalid range test: mismatch on byte <n>` rather than power levels.
+  That is the expected outcome today.
+  [#26](https://github.com/SqueakyFloors/ubertooth/issues/26)
 - **Script-visible change:** a capture whose USB stream fails stops there and
   exits 1, instead of waiting out its `-t` timer with nothing arriving and
   reporting success. `ubertooth-rx`, `ubertooth-dump`, `ubertooth-specan`,

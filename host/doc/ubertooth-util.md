@@ -57,7 +57,9 @@ squelch -120 dBm. The power amplifier level set with `-a` is kept. Each of
 them runs on the board and `ubertooth-util` returns immediately, so the board
 stays usable from other commands meanwhile. `-I`, `-q`, `-x`, `-t` and `-e` keep
 running until `-S` stops them or another mode replaces them; `-n` (range test)
-ends by itself when the test finishes.
+ends by itself when the test finishes, and waits for a reply until `-S` stops
+it if no repeater answers. `-S` stops either of the range test pair at any
+point.
 
 `-I` (identify) blinks the USR, RX and TX LEDs together, about three on-off
 blinks a second, until it is stopped:
@@ -390,6 +392,14 @@ yet, which is not a failure. A test that ran but whose packets came back
 corrupted has no result to report either, so it is a diagnostic rather than a
 value: `error: invalid range test: mismatch on byte <n>` on standard error,
 with exit status 1 and nothing on standard output.
+
+**The range test does not yet produce a usable measurement.** With a repeater
+running, the exchange completes within a couple of seconds, and the reply
+arrives with a valid checksum and reads back corrupted, so `-m` reports
+`error: invalid range test: mismatch on byte <n>` rather than power levels.
+That is the expected outcome today, on any pair of boards; which byte it names
+depends on the sender's serial number. Tracked as
+[issue 26](https://github.com/SqueakyFloors/ubertooth/issues/26).
 
 Note that the range test transmits the Cortex M3 microcontroller's
 serial number. If you do not wish to broadcast that information
