@@ -400,10 +400,19 @@ def check_the_spec_lists_every_option():
                              "%s cites %s, which is not there" % (TOOL, page)))
         else:
             with open(path) as handle:
-                if " - `-h`" not in handle.read():
+                text = handle.read()
+            if " - `-h`" not in text:
+                problems.append((MAN_PAGE_CASE,
+                                 "%s does not list -h in its OPTIONS "
+                                 "section" % page))
+            # A page that promises behaviour the rules forbid, so that fixing
+            # the sentence is what closes the finding. The spec names the
+            # phrase, because only the page knows how it is worded.
+            for phrase, complaint in CONTRACT.get("man_must_not_say", []):
+                if phrase in text:
                     problems.append((MAN_PAGE_CASE,
-                                     "%s does not list -h in its OPTIONS "
-                                     "section" % page))
+                                     "%s says %r: %s" % (page, phrase,
+                                                         complaint)))
 
     written = CONTRACT.get("optstring")
     if written is None:

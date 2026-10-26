@@ -388,6 +388,10 @@
 
     "ubertooth-specan": {
       "man": "ubertooth-specan.md",
+      "man_must_not_say": [
+        ["with the usage text after the `error: ` line on standard\nerror",
+         "a described error prints no usage text, and this tool does not print one"]
+      ],
       "optstring": ":vhgGd:l:u:U:",
       "options": {
         "-h": {"value": "none", "role": "help"},
@@ -661,7 +665,7 @@
     "F-05": "ubertooth-rx -r - creates a PcapNG file called '-' and carries on to device lookup. A PcapNG writer has to seek, so '-' cannot be its destination; ubertooth-btle -r - says so in one line (\"error: PCAPNG capture to stdout is not supported; use -q - or -c -\"). With a file called '-' already there, the message is \"ubertooth-rx: create_bredr_capture_file: : File exists\".",
     "F-06": "A lone '-' is written as a file name rather than standard output by ubertooth-rx (-q, -d), ubertooth-dump (-d) and ubertooth-follow (-q, -d, -r), against ubertooth(7) OPTION VALUES. ubertooth-btle and ubertooth-specan do take it as standard output.",
     "F-07": "ubertooth-scan writes its own error line to standard output: \"error: Unable to find hci0 (-1)\". Errors belong on standard error.",
-    "F-08": "Documentation, not testable here: ubertooth-specan.md says an unknown option and a missing option value are refused \"with the usage text after the 'error: ' line on standard error\". The tool prints the error line alone, which is what the rule asks for, so the page is what needs changing.",
+    "F-08": "Documentation: ubertooth-specan.md says an unknown option and a missing option value are refused \"with the usage text after the 'error: ' line on standard error\". The tool prints the error line alone, which is what the rule asks for, so the page is what needs changing. Held by \"man_must_not_say\" on the page's own wording.",
     "F-09": "Documentation, not testable here: ten of the thirteen man pages do not list -h in their OPTIONS section (afh, debug, dfu, dump, ego, rx, scan, specan, tx, util), although every tool has it and the pages discuss it elsewhere."
   },
 
@@ -689,6 +693,9 @@
      "cases": ["ubertooth-scan (the man page)"]},
     {"tool": "ubertooth-specan", "findings": ["F-09"],
      "problem_contains": "does not list -h in its OPTIONS section",
+     "cases": ["ubertooth-specan (the man page)"]},
+    {"tool": "ubertooth-specan", "findings": ["F-08"],
+     "problem_contains": "a described error prints no usage text",
      "cases": ["ubertooth-specan (the man page)"]},
     {"tool": "ubertooth-tx", "findings": ["F-09"],
      "problem_contains": "does not list -h in its OPTIONS section",
