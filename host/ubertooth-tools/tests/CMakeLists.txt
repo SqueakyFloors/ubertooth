@@ -138,7 +138,8 @@ foreach(tool ${UBERTOOTH_TOOLS})
 	# failure names the tool. Several hundred short runs per tool, so the
 	# timeout only catches a tool that waits for a device it should never
 	# have looked for; ubertooth-util, with the most options, is the
-	# slowest at 684 runs and 21 s. The limit is generous against that
+	# slowest at 684 runs: 21 s on macOS, where starting a process is dear,
+	# and 0.8 s on the Linux runners. The limit is generous against that
 	# because each run inside the test has its own 20 s deadline, and the
 	# per-case report is only printed when the test itself finishes.
 	add_test(

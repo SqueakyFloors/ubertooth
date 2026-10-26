@@ -45,3 +45,22 @@ add_test(NAME specan-ui-streams
 		${CMAKE_CURRENT_SOURCE_DIR}
 		${CMAKE_CURRENT_SOURCE_DIR}/ubertooth-specan-ui.in)
 set_tests_properties(specan-ui-streams PROPERTIES TIMEOUT 120)
+
+# The command-line contract (host/ubertooth-tools/tests/cli_spec.json) says
+# this tool's command line cannot be reached without its Qt binding and numpy,
+# so the matrix runs nothing here. Its man page is still checked, which is
+# what holds the documentation findings for it. Named by relative path, and
+# registered only when the spec and the test are there, so host/python can be
+# configured on its own.
+set(UBERTOOTH_CLI_MATRIX
+	"${CMAKE_CURRENT_SOURCE_DIR}/../../ubertooth-tools/tests/test_cli_matrix.py")
+set(UBERTOOTH_CLI_SPEC
+	"${CMAKE_CURRENT_SOURCE_DIR}/../../ubertooth-tools/tests/cli_spec.json")
+if(EXISTS "${UBERTOOTH_CLI_MATRIX}" AND EXISTS "${UBERTOOTH_CLI_SPEC}")
+	add_test(NAME cli-matrix-ubertooth-specan-ui
+		COMMAND ${Python3_EXECUTABLE}
+			${UBERTOOTH_CLI_MATRIX}
+			${UBERTOOTH_CLI_SPEC}
+			${SPECAN_WRAPPER})
+	set_tests_properties(cli-matrix-ubertooth-specan-ui PROPERTIES TIMEOUT 30)
+endif()

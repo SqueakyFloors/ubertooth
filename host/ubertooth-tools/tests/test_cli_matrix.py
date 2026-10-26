@@ -56,9 +56,11 @@ if TOOL not in SPEC["tools"]:
 
 CONTRACT = SPEC["tools"][TOOL]
 
-if not CONTRACT.get("testable", True):
-    print("%s: %s" % (TOOL, " ".join(CONTRACT["why_not"])))
-    sys.exit(0)
+# A tool whose command line cannot be reached here (see "why_not" in the
+# spec). Its man page and the spec's own ids are still checked: those need no
+# run, and leaving them out would let a documentation finding go unheld for
+# the one tool nothing else looks at.
+TESTABLE = CONTRACT.get("testable", True)
 
 # Case ids for the two checks that are about the spec and the documentation
 # rather than about a command line, so a finding can claim them by id.
@@ -111,11 +113,15 @@ if CONTRACT.get("devices_via") == "usb1":
         path.append(os.path.normpath(os.path.join(
             os.path.dirname(os.path.abspath(SPEC_PATH)), module_dir)))
     ENVIRONMENT["PYTHONPATH"] = os.pathsep.join(path)
-    # The tool puts its own module directory ahead of PYTHONPATH, so check
-    # that the stub still wins where the tool itself looks. Without this a
-    # machine with the real usb1 installed would open a board.
+    # The tool puts its own module directory ahead of PYTHONPATH before it
+    # imports usb1, so the check has to do the same thing: the question is
+    # which usb1 wins where the tool itself looks, not where a plain
+    # interpreter looks. Without this a machine with the real usb1 installed
+    # could open a board.
     found = subprocess.run(
-        [sys.executable, "-c", "import usb1; print(usb1.__file__)"],
+        [sys.executable, "-c",
+         "import sys; sys.path.insert(0, %r); import usb1; "
+         "print(usb1.__file__)" % (module_dir or "")],
         env=ENVIRONMENT, stdout=subprocess.PIPE, universal_newlines=True)
     if os.path.dirname(found.stdout.strip()) != STUB_DIRECTORY:
         sys.exit("%s would import %s and could open a board"
@@ -403,6 +409,12 @@ def check(case, result, created):
             complain("opened a device for a count that needs none")
 
     elif case.verdict == "count_then_device":
+        # The count came out, and then the rest of the command failed to find
+        # a board, so the status is the failure's: a run that answers part of
+        # what was asked and then cannot do the rest did not do what was
+        # asked.
+        if status != 1:
+            complain("exited %d, not 1" % status)
         if not stdout.split("\n")[0].strip().isdigit():
             complain("the count is not the first line of standard output: %r"
                      % stdout[:120])
@@ -520,9 +532,12 @@ def check_the_spec_lists_every_option():
                                  "section" % page))
             # A page that promises behaviour the rules forbid, so that fixing
             # the sentence is what closes the finding. The spec names the
-            # phrase, because only the page knows how it is worded.
+            # phrase, because only the page knows how it is worded. Both
+            # sides have their whitespace collapsed, so reflowing the
+            # paragraph does not read as the claim having been taken out.
+            flowed = " ".join(text.split())
             for phrase, complaint in CONTRACT.get("man_must_not_say", []):
-                if phrase in text:
+                if " ".join(phrase.split()) in flowed:
                     problems.append((MAN_PAGE_CASE,
                                      "%s says %r: %s" % (page, phrase,
                                                          complaint)))
@@ -531,11 +546,19 @@ def check_the_spec_lists_every_option():
     if written is None:
         return problems
 
+    # The source to read the real option string out of: a C tool's own file,
+    # or the script itself for a Python one. Without this the spec's copy
+    # would only be checked against the spec, which is what it is meant to
+    # keep honest.
     source = os.path.join(here, "..", "src", TOOL + ".c")
+    pattern = r'getopt\(argc,\s*argv,\s*"([^"]+)"\)'
+    if not os.path.exists(source) and CONTRACT.get("kind") == "python":
+        source = BINARY
+        pattern = r'getopt\(sys\.argv\[1:\],\s*"([^"]+)"\)'
     if os.path.exists(source):
         with open(source) as handle:
             text = handle.read()
-        found = re.search(r'getopt\(argc,\s*argv,\s*"([^"]+)"\)', text)
+        found = re.search(pattern, text)
         if found is None:
             problems.append((SPEC_CASE,
                          "could not find the getopt string in %s"
@@ -682,8 +705,8 @@ def matches(rule_side, name):
 def pair_verdict(first, second, arguments):
     """The verdict for a pair, from the spec's rules, in the order written.
 
-    The tool's own rules come first, then the rules that hold for every tool,
-    then the tool's shape (see verdict_for_line).
+    The rules that hold for every tool come first, then the tool's own, then
+    the tool's shape (see verdict_for_line).
     """
     # The rules that hold for every tool come first: an option that ends the
     # command outranks any combination rule, since the rest of the line never
@@ -952,7 +975,13 @@ def no_local_adapter(directory):
 
 
 def main():
-    cases = generated_cases() if OPTIONS else listed_cases()
+    if not TESTABLE:
+        cases = []
+        print("%s: %s" % (TOOL, " ".join(CONTRACT["why_not"])))
+    elif OPTIONS:
+        cases = generated_cases()
+    else:
+        cases = listed_cases()
     seen = {}
     for case in cases:
         # A generated case can repeat one the spec also states; keep the first.

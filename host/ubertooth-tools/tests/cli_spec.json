@@ -176,6 +176,7 @@
       "pair_rules": [
         {"a": "role:major_mode", "b": "role:major_mode", "verdict": "refused",
          "error": "error: choose one of -f, -n or -p, pick one pal",
+         "question": "Q-13",
          "source": "ubertooth-btle.md ARGUMENTS"},
         {"a": "-a", "b": "role:major_mode", "verdict": "refused",
          "error": "error: -a and -s do not go with -f, -n or -p: a sniffing mode runs until it is interrupted",
@@ -530,6 +531,9 @@
          "source": "ubertooth-util.md OPTIONS, -z"},
         {"a": "-H", "b": "any", "verdict": "report",
          "why": "-H ends the command before every other option, as -h does"},
+        {"a": "-N", "b": "role:selector", "verdict": "undecided",
+         "question": "Q-11",
+         "source": "ubertooth-util.md does not say; -N needs no board, and -U asks nothing of one"},
         {"a": "-N", "b": "any", "verdict": "count_then_device"},
         {"a": "-c", "b": "-C", "verdict": "undecided",
          "question": "Q-5",
@@ -540,7 +544,7 @@
     "ubertooth-follow": {
       "man": "ubertooth-follow.md",
       "optstring": "hl:u:U:e:d:ab:w:r:q:",
-      "built_when": "libbluetooth is installed (Linux)",
+      "_built_when": "libbluetooth is installed (Linux)",
       "accepted_markers": ["error: Bluetooth device hci0 not found"],
       "_accepted_markers_why": "ubertooth-follow opens the local Bluetooth adapter before it looks for an Ubertooth, so on a machine without one an accepted command line stops there instead of at device lookup",
       "options": {
@@ -584,7 +588,7 @@
     "ubertooth-scan": {
       "man": "ubertooth-scan.md",
       "optstring": "hU:t:e:xsb:",
-      "built_when": "libbluetooth is installed (Linux)",
+      "_built_when": "libbluetooth is installed (Linux)",
       "accepted_markers": ["Unable to find hci"],
       "_accepted_markers_why": "ubertooth-scan opens the local Bluetooth adapter before it looks for an Ubertooth, so on a machine without one an accepted command line stops there instead of at device lookup",
       "options": {
@@ -647,6 +651,7 @@
         {"args": ["-h"], "verdict": "help"},
         {"args": ["--help"], "verdict": "help"},
         {"args": ["--bogus"], "verdict": "refused",
+         "question": "Q-12",
          "error_contains": "option --bogus not recognized"},
         {"args": ["--fifo"], "verdict": "refused",
          "error_contains": "option --fifo requires argument"},
@@ -703,7 +708,7 @@
     "F-07": "ubertooth-scan writes its own error line to standard output: \"error: Unable to find hci0 (-1)\". Errors belong on standard error.",
     "F-08": "Documentation: ubertooth-specan.md says an unknown option and a missing option value are refused \"with the usage text after the 'error: ' line on standard error\". The tool prints the error line alone, which is what the rule asks for, so the page is what needs changing. Held by \"man_must_not_say\" on the page's own wording.",
     "F-10": "ubertooth-btbr answers every command line it will not take -- an unknown option, a missing option value, a stray word -- with its usage text on standard output, no 'error: ' line and status 1. It also has no -h, so there is no way to ask for that usage text: the same text, on the same stream, is both the answer to -h and the answer to a mistake. usage() in ubertooth-btbr.in is the one place to change.",
-    "F-09": "Documentation, not testable here: ten of the thirteen man pages do not list -h in their OPTIONS section (afh, debug, dfu, dump, ego, rx, scan, specan, tx, util), although every tool has it and the pages discuss it elsewhere."
+    "F-09": "Documentation: eleven man pages do not list -h in their OPTIONS section (afh, debug, dfu, dump, ego, rx, scan, specan, specan-ui, tx, util), although every tool has it and the pages discuss it elsewhere. Each page is one case, so fixing one page closes its part and the rest stay held."
   },
 
   "expected_failures": [
@@ -731,6 +736,9 @@
     {"tool": "ubertooth-specan", "findings": ["F-09"],
      "problem_contains": "does not list -h in its OPTIONS section",
      "cases": ["ubertooth-specan (the man page)"]},
+    {"tool": "ubertooth-specan-ui", "findings": ["F-09"],
+     "problem_contains": "does not list -h in its OPTIONS section",
+     "cases": ["ubertooth-specan-ui (the man page)"]},
     {"tool": "ubertooth-specan", "findings": ["F-08"],
      "problem_contains": "a described error prints no usage text",
      "cases": ["ubertooth-specan (the man page)"]},
@@ -979,6 +987,9 @@
     "Q-7": "Does a lone \"--\" count as a bare command line, which gets the usage text, or as a line that said something, which gets the error line alone? The tools treat it as the second; the spec follows them.",
     "Q-8": "ubertooth-dfu -s beside a board operation (-d, -u, -r): in which order do they run, and what is the status when one half succeeds?",
     "Q-9": "ubertooth-specan -d <file> -g: the file is created and left empty while the samples go to standard output as text. Which one should win, and should the file be created at all?",
-    "Q-10": "ubertooth-btle -i on its own answers \"nothing to do\", not the \"-i needs -f or -p\" its page promises for \"-i or -I without -f or -p\". Beside any other option it does say \"-i needs -f or -p\". Which message belongs to the bare case?"
+    "Q-10": "ubertooth-btle -i on its own answers \"nothing to do\", not the \"-i needs -f or -p\" its page promises for \"-i or -I without -f or -p\". Beside any other option it does say \"-i needs -f or -p\". Which message belongs to the bare case?",
+    "Q-11": "ubertooth-util -U 0 -N prints the count and exits 0: -N needs no board, so the selector asks nothing of one. On its own, -U is refused for exactly that reason (\"selects a device but no option asks anything of it\"). Should -U beside -N be refused the same way, or is the count enough to make the line worth running?",
+    "Q-12": "An unknown long option reads \"error: unrecognized option '--bogus': the tools take single-letter options\" from the nine C tools that use opt_parse.c, and \"error: option --bogus not recognized\" from btle-extcap.py, which takes the wording from Python's getopt. Both obey the rules, so the spec pins each as it is. Should the Python tools be made to match the C ones?",
+    "Q-13": "ubertooth-btle refuses two modes with \"error: choose one of -f, -n or -p, pick one pal\". It obeys the rules, so the spec pins it, but it is the only error message in any tool that addresses the reader. Keep it?"
   }
 }
