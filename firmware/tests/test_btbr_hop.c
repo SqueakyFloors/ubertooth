@@ -25,6 +25,7 @@
  * The one thing the test shares with the firmware is the order the butterfly
  * stages run in, which only the specification's figure shows; see PERM5 below.
  */
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -43,7 +44,13 @@ void cprintf(char *fmt, ...)
 void __attribute__((noreturn)) die(char *fmt, ...)
 {
 	(void)fmt;
-	abort();
+	/*
+	 * The code under test only calls this on a bug, so failing the test is
+	 * the point. Exit rather than abort(): an aborted process gets a crash
+	 * report, and on macOS a dialog with it.
+	 */
+	fputs("die() was called\n", stderr);
+	exit(1);
 }
 
 /*
