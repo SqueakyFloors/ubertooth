@@ -156,8 +156,12 @@ def run(arguments, listing="", status=0, kill_with=0, errors="", path=None):
         output.write(listing)
     if os.path.exists(ARGS_FILE):
         os.remove(ARGS_FILE)
+    # int() before str(): kill_with is a signal.Signals member, and str() on
+    # one gives "Signals.SIGTERM" before Python 3.11 and "15" from 3.11 on,
+    # while the fake reads the number back with int().
+    kill_signal = str(int(kill_with)) if kill_with else ""
     environment = dict(ENVIRONMENT, FAKE_UTIL_STATUS=str(status),
-                       FAKE_UTIL_SIGNAL=str(kill_with) if kill_with else "",
+                       FAKE_UTIL_SIGNAL=kill_signal,
                        FAKE_UTIL_ERRORS=errors)
     if path is not None:
         environment["PATH"] = path
