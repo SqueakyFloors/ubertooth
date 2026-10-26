@@ -129,10 +129,6 @@ void get_device_serial(uint8_t *buffer, int *len)
 uint32_t fake_iser0;
 uint32_t fake_icer0;
 
-/* The Cortex-M3 barriers the USB interrupt hold uses do not assemble on a
- * host, and the ordering they enforce is not what this tests. */
-#define USB_IRQ_SYNC() ((void)0)
-
 /* The queue under test, compiled into this file so its statics are reachable
  * and nothing has to be linked from the firmware image. */
 #include "ubertooth_usb.c"
