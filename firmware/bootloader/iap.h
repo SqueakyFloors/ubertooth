@@ -53,8 +53,11 @@ public:
                              const uint32_t end_sector_number,
                              const uint32_t cpu_clock_frequency_khz);
     
+    /* Whether these sectors are erased. Answers INVALID_SECTOR for a sector
+     * the part has not got, which is the only way to ask about a sector
+     * without addressing it; reads flash but changes nothing. */
     ReturnCode blank_check_sectors(const uint32_t start_sector_number,
-                                   const uint32_t end_sector_number);
+                                   const uint32_t end_sector_number) const;
     
     ReturnCode compare(const uint32_t destination_address,
                        const uint32_t source_address,

@@ -424,24 +424,22 @@ struct dfu_runtime_context {
 
 /* Does the image -d was given fit the flash the attached part has?
  *
- * The write goes to the application region from 0x4000 upwards, and the
- * bootloader's write path checks nothing but that: REQ_DNLOAD refuses an
- * address below 0x4000 and has no upper bound at all
- * (firmware/bootloader/dfu.cpp, memory_policy::write_permitted; the
- * Flash::valid_address check is on the read-back path only). So on a part
- * smaller than the image, the blocks past the end of flash are sent, and each
- * one asks IAP to erase and program a sector the part does not have. IAP
- * fails, the bootloader answers ERRPROG, and the host sees the stall as
- * "control message unsupported" and gives up -- with the blocks before that
- * already written. The board is left with an application missing its tail and
- * a message that says nothing about flash sizes, which is why this is worth
- * refusing rather than reporting.
+ * The write goes to the application region from 0x4000 upwards. A bootloader
+ * built from this tree refuses a block with no flash behind it
+ * (firmware/bootloader/dfu.cpp, request_dnload), so an oversize image stops
+ * at the top of the part's flash rather than reporting a programming failure.
+ * Either way the blocks below that are already written, and the board is left
+ * with an application missing its tail: all the host sees of the refusal is
+ * the stall, which it reports as "control message unsupported". Older
+ * bootloaders have no upper bound at all. That is why this is worth refusing
+ * here, where the image and the part are both known, rather than reporting
+ * whatever comes back from the board.
  *
  * It is the same cause as the read-back bound: asking for flash the part has
  * not got. The consequence differs, because the two bootloader paths do. A
  * read past the end is a bus fault that takes the bootloader down until the
- * board is power-cycled; a write past the end stops, loudly but unhelpfully,
- * part-way through the application.
+ * board is power-cycled; a write past the end stops part-way through the
+ * application.
  *
  * The part identification number says how much flash there is; it is readable
  * only while the board still runs its application, which is where this is

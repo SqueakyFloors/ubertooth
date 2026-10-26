@@ -76,7 +76,7 @@ IAP::ReturnCode IAP::erase_sectors(const uint32_t start_sector_number,
 }
 
 IAP::ReturnCode IAP::blank_check_sectors(const uint32_t start_sector_number,
-                               const uint32_t end_sector_number) {
+                               const uint32_t end_sector_number) const {
     uint32_t input[] = {
         53,
         start_sector_number,

@@ -337,10 +337,13 @@ jobs:
       # than waited on, which is the whole point.
       timeout-minutes: 12
       run: |
-        # gcc-arm-none-eabi recommends a large C++ runtime that none of the
-        # firmware built here uses (only firmware/bootloader, which CI does not
-        # build, links libstdc++); skip recommends and install newlib explicitly.
-        packages="dfu-util gcc-arm-none-eabi libnewlib-arm-none-eabi"
+        # gcc-arm-none-eabi recommends a large set of packages none of this
+        # needs, so skip recommends and name the two runtimes explicitly:
+        # newlib for every image, and the C++ one for firmware/bootloader,
+        # which is the only thing in the tree that links libstdc++. macOS
+        # needs no equivalent; the toolchain cask carries both.
+        packages="dfu-util gcc-arm-none-eabi libnewlib-arm-none-eabi \
+          libstdc++-arm-none-eabi-newlib"
         apt_opts="-o Acquire::http::Timeout=30 -o Acquire::Retries=2"
         sudo tools/retry.sh 300 apt-get $apt_opts \
           install -y --no-install-recommends -d $packages
@@ -361,9 +364,15 @@ jobs:
       # the default target's final `dfu` step because it shells out to the
       # `ubertooth-dfu` host tool and is only needed to package firmware for
       # flashing, not to verify that the firmware compiles and links.
+      #
+      # bootloader is here rather than in DIRS in firmware/Makefile, so that
+      # `make -C firmware` does not need the C++ runtime on every developer's
+      # machine. Its link is also the check that the image still fits: the
+      # linker script gives it a 16 KiB region, and a build that outgrows it
+      # fails here rather than on a board that will not boot.
       run: |
         set -e
-        for d in blinky bluetooth_rxtx cc2400_test clock_test usb_test assembly_test btbr; do
+        for d in blinky bluetooth_rxtx cc2400_test clock_test usb_test assembly_test btbr bootloader; do
           echo "::group::firmware: $d"
           make -C "$d" bin sym
           echo "::endgroup::"
@@ -528,7 +537,8 @@ jobs:
       # an attempt and the same 12 minutes for the step.
       timeout-minutes: 12
       run: |
-        packages="make dfu-util gcc-arm-none-eabi libnewlib-arm-none-eabi"
+        packages="make dfu-util gcc-arm-none-eabi libnewlib-arm-none-eabi \
+          libstdc++-arm-none-eabi-newlib"
         apt_opts="-o Acquire::http::Timeout=30 -o Acquire::Retries=2"
         tools/retry.sh 300 apt-get $apt_opts \
           install -y --no-install-recommends -d $packages
@@ -539,7 +549,7 @@ jobs:
       shell: bash
       run: |
         set -e
-        for d in blinky bluetooth_rxtx cc2400_test clock_test usb_test assembly_test btbr; do
+        for d in blinky bluetooth_rxtx cc2400_test clock_test usb_test assembly_test btbr bootloader; do
           echo "::group::firmware: $d"
           make -C "$d" bin sym
           echo "::endgroup::"
