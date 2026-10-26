@@ -128,19 +128,27 @@ int cc2400_wait_xosc_stable(void (*service)(void));
 int cc2400_wait_fs_unlock(void);
 
 /* Polls before the wait on the radio's state machine gives up. Each poll is a
- * 16-bit bit-banged read (cc2400_get(), two SPI bytes), so a couple of
- * microseconds, which makes 2000 polls a few milliseconds -- and longer again
- * for the callers that pass a service callback, since each poll then also
- * services USB. The states callers wait for are reached in well under a
- * millisecond: the longest is the end of a transmit, and the longest packet any
- * caller sends is the range test's 22 bytes, 176 microseconds at 1 Mbit. The
- * BR/EDR image's waits are shorter still -- the state machine reaching idle
- * after a strobe off, or receive after a strobe to receive. So the bound is out
- * of reach of a radio that is working at all, which is all it has to be.
+ * cc2400_get(), a 24-bit bit-banged transfer -- 8 bits of address and 16 of
+ * data -- which takes about 4.6 microseconds with interrupts masked, so 2000
+ * polls is roughly 9 milliseconds, and longer again for the callers that pass
+ * a service callback, since each poll then also services USB.
  *
- * The BR/EDR image waits here from an interrupt handler, on a 312.5 microsecond
- * slot, so a wait that runs to the bound overruns several slots. That is the
- * failure case, where the alternative was overrunning every slot from then on.
+ * The states callers wait for are reached in well under a millisecond: the
+ * longest is the end of a transmit, and the longest packet any caller sends is
+ * the range test's 22 bytes, 176 microseconds at 1 Mbit. The BR/EDR image's
+ * waits are shorter still -- the state machine reaching idle after a strobe
+ * off, or receive after a strobe to receive. So the bound is out of reach of a
+ * radio that is working at all, which is all it has to be.
+ *
+ * Running to the bound is not free, and it costs the BR/EDR image most: its
+ * waits run inside TIMER0_IRQHandler, which fires every 312.5 microseconds,
+ * and btphy_handler() counts one slot per interrupt. Nine milliseconds in the
+ * handler means around 28 matches the timer cannot latch, so the piconet clock
+ * loses that many counts and stays off by them. A bound sized to the slot,
+ * the way tx_task.c's own wait is, would hold the damage to one slot -- but
+ * the state after a strobe to receive needs the synthesizer locked first, so
+ * how short is safe has to be measured on a board before it is tightened. The
+ * alternative this replaces was overrunning every slot from then on.
  */
 #define FSM_POLLS 2000
 

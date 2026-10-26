@@ -625,7 +625,9 @@ static const char *const radio_sources[] = {
  * Any read of the radio counts: the status byte, a register read, or the
  * FS_TUNED() test the BR/EDR image spells its lock check with. tx_task.c has
  * one wait that reads FSMSTATE and is bounded by the slot clock rather than by
- * a poll count, so a condition naming CLKN_OFFSET is left alone.
+ * a poll count, so a condition that tests `CLKN_OFFSET <` is left alone --
+ * that exact shape, not any mention of the slot clock, so a spin cannot get
+ * past by naming it.
  *
  * Only that shape, written on one line. A reintroduced spin with its `;` on
  * the next line gets past this. The point is to catch the pattern coming back
@@ -643,7 +645,7 @@ static int is_bare_radio_spin(const char *line)
 	    !contains_identifier(line, "FSMSTATE") &&
 	    !contains_identifier(line, "FS_TUNED"))
 		return 0;
-	if (contains_identifier(line, "CLKN_OFFSET"))
+	if (strstr(line, "CLKN_OFFSET <") != NULL)
 		return 0;
 	/* An empty body is a ';' as the last thing on the line. */
 	length = strlen(line);
@@ -741,6 +743,45 @@ MU_TEST(test_only_the_boot_path_still_spins_on_the_radio)
 
 	mu_assert_int_eq(0, elsewhere);
 	mu_assert_int_eq(3, boot_spins);
+}
+
+/*
+ * The one converted site whose caller must not carry on. The BR/EDR scan
+ * strobes the radio to receive, waits for the state machine to get there, and
+ * then reads GIO6 as "a sync word arrived" and moves the slave clock to it. If
+ * the wait gives up and the scan carries on, that read is not a measurement
+ * and the scan reports a packet that never came -- worse than the hang the
+ * bound replaces. So the result has to be checked, and the slot ended.
+ *
+ * Scanned rather than run: the surrounding code reads a GPIO and runs from the
+ * timer interrupt.
+ */
+MU_TEST(test_the_scan_slot_ends_when_the_radio_is_not_receiving)
+{
+	const char *path = FW_BTBR_DIR "/src/btphy/scan_task.c";
+	FILE *source = fopen(path, "r");
+	char line[512];
+	int in_block = 0, guarded = 0, unguarded = 0, ends_the_slot = 0;
+
+	mu_assert(source != NULL, path);
+	while (fgets(line, sizeof(line), source) != NULL) {
+		strip_comments(line, &in_block);
+		if (strstr(line, "cc2400_wait_fsm") == NULL) {
+			/* The slot has to end before the GIO6 read in scan_wait(). */
+			if (guarded && strstr(line, "scan_finalize()") != NULL)
+				ends_the_slot = 1;
+			continue;
+		}
+		if (strstr(line, "if (!cc2400_wait_fsm") != NULL)
+			guarded = 1;
+		else
+			unguarded = 1;
+	}
+	fclose(source);
+
+	mu_assert_int_eq(1, guarded);
+	mu_assert_int_eq(0, unguarded);
+	mu_assert_int_eq(1, ends_the_slot);
 }
 
 /*
@@ -883,6 +924,7 @@ int main(void)
 	MU_RUN(test_service_runs_on_the_fsm_wait);
 	MU_RUN(test_no_radio_source_spins_on_the_radio);
 	MU_RUN(test_only_the_boot_path_still_spins_on_the_radio);
+	MU_RUN(test_the_scan_slot_ends_when_the_radio_is_not_receiving);
 	MU_RUN(test_the_polled_stream_loop_services_usb_across_a_hop);
 	MU_RUN(test_the_range_test_keeps_a_newer_mode_request);
 	MU_RUN(test_the_transmit_bursts_stop_when_the_mode_does);
