@@ -11,10 +11,10 @@ CFLAGS  ?= -O2 -Wall -Wextra -std=gnu99 -g
 FW_RXTX := ../bluetooth_rxtx
 FW_BTBR := ../btbr
 FW_COMMON := ../common
-FW_BTBR := ../btbr
+FW_LPCUSB := ../common/lpcusb/target
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_mode_dispatch test_le_phy_order test_grmdm_rx_generic test_tx_generic_bounds test_btbr_hop
+TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_mode_dispatch test_le_phy_order test_grmdm_rx_generic test_tx_generic_bounds test_btbr_hop test_usbhw_wait
 BINDIR  := bin
 
 .PHONY: all test clean
@@ -109,6 +109,23 @@ $(BINDIR)/test_btbr_hop: test_btbr_hop.c minunit.h stubs-btbr/ubtbr/debug.h \
 	$(CC) $(CFLAGS) -Istubs-btbr -I$(FW_BTBR)/include $(CPPFLAGS) \
 		-o $@ test_btbr_hop.c $(FW_BTBR)/src/btphy/hop.c \
 		$(FW_BTBR)/src/codec/perm5.c
+
+# The USB hardware layer reaches the controller only through the register
+# macros in lpc17.h, so stubs-usb/ supplies a fake one and this links the real
+# usbhw_lpc.c against it. -DLPC17xx picks that branch of the file; -Istubs-usb
+# comes first so its lpc17.h wins over firmware/common's.
+$(BINDIR)/test_usbhw_wait: test_usbhw_wait.c minunit.h stubs-usb/lpc17.h \
+		$(FW_LPCUSB)/usbhw_lpc.c $(FW_LPCUSB)/usbhw_lpc.h \
+		$(FW_LPCUSB)/usbcontrol.c | $(BINDIR)
+# Two kinds of noise come from compiling this vendored code on a 64-bit host
+# with the debug macros off: the DMA descriptor helpers cast pointers to U32,
+# and usbcontrol.c's stall path builds a dump the disabled DBG() would have
+# printed. Neither is what this tests.
+	$(CC) $(CFLAGS) -Istubs-usb -I$(FW_LPCUSB) $(CPPFLAGS) -DLPC17xx \
+		-DFW_LPCUSB_DIR='"$(FW_LPCUSB)"' -DFW_RXTX_DIR='"$(FW_RXTX)"' \
+		-Wno-pointer-to-int-cast -Wno-unused-but-set-variable \
+		-Wno-unused-parameter -o $@ test_usbhw_wait.c \
+		$(FW_LPCUSB)/usbhw_lpc.c $(FW_LPCUSB)/usbcontrol.c
 
 $(BINDIR):
 	mkdir -p $(BINDIR)

@@ -133,6 +133,33 @@
 #define TGL_ERR						(1<<7)
 
 
+/* Polls before a wait on the USB controller gives up.
+ *
+ * Every wait in usbhw_lpc.c is on a register the controller updates in a
+ * handful of cycles: a protocol engine command completing, or a received
+ * packet becoming readable. None of them used to have a bound, and all of them
+ * are on the path of every control request. USB is serviced in the same thread
+ * as the mode loops, so one of those waits never finishing does not cost a
+ * transfer, it stops the board answering anything at all until it is
+ * power-cycled -- the wedge this file's bounds exist for.
+ *
+ * Each poll is a volatile read of a device register across the AHB, so call it
+ * ten or so cycles at 100 MHz: 2000 polls is a few hundred microseconds. That
+ * is far beyond anything these handshakes take, and still short enough that
+ * giving up costs one transfer the host retries. The margin has not been
+ * measured on hardware; usbhw_timeouts is what would show a bound being hit. */
+#define USBHW_POLLS 2000
+
+/* Polls before the wait for an endpoint to be realized gives up. Realizing an
+ * endpoint makes the controller reorganise its buffer space rather than answer
+ * a handshake, so it is slower and gets a bound well clear of the others. It
+ * runs at init and from SET_CONFIGURATION, never in a mode loop. */
+#define USBHW_REALIZE_POLLS 100000
+
+/* Number of waits above that gave up; non-zero means the controller stopped
+ * answering at least once. */
+extern volatile U32 usbhw_timeouts;
+
 /** USBHw functions only used internally */
 BOOL USBHwInit			(void);
 void USBHwSetAddress	(U8 bAddr);

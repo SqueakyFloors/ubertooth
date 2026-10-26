@@ -1918,10 +1918,12 @@ void bt_le_sync(u8 active_mode)
 		RXLED_SET;
 		packet_cb((uint8_t *)packet);
 
-		// disable USB interrupts while we touch USB data structures
-		ICER0 = ICER0_ICE_USB;
+		// hold the USB interrupt off while we touch USB data structures:
+		// UBERTOOTH_POLL dequeues from the vendor request handler, which
+		// runs from that interrupt in this mode
+		u32 usb_irq = usb_irq_hold();
 		enqueue(LE_PACKET, (uint8_t *)packet);
-		ISER0 = ISER0_ISE_USB;
+		usb_irq_release(usb_irq);
 
 		le.last_packet = CLK100NS;
 
@@ -2638,14 +2640,37 @@ void specan()
 	cc2400_set(GRMDM,   0x0101); // un-buffered mode, GFSK
 	cc2400_set(MDMCTRL, 0x0029); // 160 kHz frequency deviation
 	//FIXME maybe set RSSI.RSSI_FILT
-	while (!(cc2400_status() & XOSC16M_STABLE));
+	/* Bounded: this mode services USB from its own loop below, so a radio
+	 * that never reports ready here used to leave the board enumerated and
+	 * answering no control request at all. Three of the wedges reported
+	 * against this firmware followed a specan run. */
+	cc2400_wait_xosc_stable();
 	cc2400_wait_fs_unlock();
 
 	while (requested_mode == MODE_SPECAN) {
 		for (f = low_freq; f < high_freq + 1; f++) {
 			cc2400_set(FSDIV, f - 1);
 			cc2400_strobe(SFSON);
-			while (!(cc2400_status() & FS_LOCK));
+			/* Bounded, for the reason above. A sample taken without a lock
+			 * is junk, which the host sees; a wait without a bound is a
+			 * board that has to be power-cycled.
+			 *
+			 * No service callback, unlike led_specan(): passing handle_usb()
+			 * in would service USB between every status poll, which changes
+			 * what this loop's timing looks like on every sample, not only on
+			 * a failing one. That cost wants measuring per mode before it is
+			 * paid, and this loop's once-per-16-samples USB service is
+			 * already known to be enough to stall a control request.
+			 *
+			 * So the cost of leaving it out is real: a radio that stops
+			 * locking spends both bounds on every frequency step -- around
+			 * 11,000 bit-banged status reads -- and this loop only services
+			 * USB every sixteenth step, so endpoint 0 can go on the order of a
+			 * hundred milliseconds unserviced. Still an order of magnitude
+			 * inside the host's control transfer timeout, and a radio in that
+			 * state is producing junk anyway; the mode can be stopped, which
+			 * is what the bound is for. */
+			cc2400_wait_fs(1, NULL);
 			cc2400_strobe(SRX);
 
 			/* give the CC2400 time to acquire RSSI reading */
@@ -2715,7 +2740,10 @@ void led_specan()
 	cc2400_set(MDMCTRL, 0x0029); // 160 kHz frequency deviation
 	cc2400_set(RSSI,    0x00F1); // RSSI Sample over 2 symbols
 
-	while (!(cc2400_status() & XOSC16M_STABLE));
+	/* Bounded, as in specan(): this is before the loop that services USB
+	 * has started, so a radio that never reports ready here stops the board
+	 * answering altogether. */
+	cc2400_wait_xosc_stable();
 	cc2400_wait_fs_unlock();
 
 	while (requested_mode == MODE_LED_SPECAN) {

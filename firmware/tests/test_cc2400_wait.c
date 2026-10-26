@@ -310,6 +310,62 @@ MU_TEST(test_lock_no_strobe_on_short_wait)
 	mu_assert_int_eq(0, (int)sfson_strobes);
 }
 
+/* ---- the crystal oscillator wait ---- */
+
+/* Already stable: success on the first read. */
+MU_TEST(test_xosc_returns_immediately_when_stable)
+{
+	const u8 seq[] = { XOSC16M_STABLE };
+
+	fake_radio_reset();
+	fake_radio_status_sequence(seq, 1);
+
+	mu_assert_int_eq(1, cc2400_wait_xosc_stable());
+	mu_assert_int_eq(1, (int)status_reads);
+}
+
+/* A few polls, then stable: success, and FS_LOCK on its own is not stable. */
+MU_TEST(test_xosc_returns_success_once_stable)
+{
+	const u8 seq[] = { 0x00, FS_LOCK, FS_LOCK | XOSC16M_STABLE };
+
+	fake_radio_reset();
+	fake_radio_status_sequence(seq, 3);
+
+	mu_assert_int_eq(1, cc2400_wait_xosc_stable());
+	mu_assert_int_eq(3, (int)status_reads);
+}
+
+/* The regression: this wait sits at the top of specan() and led_specan(),
+ * before the loop that services USB has started, so a radio that never
+ * reports its oscillator stable used to leave the board enumerated and
+ * answering nothing at all. It has to give up. */
+MU_TEST(test_xosc_gives_up_when_never_stable)
+{
+	const u8 seq[] = { 0x00 };
+
+	fake_radio_reset();
+	fake_radio_status_sequence(seq, 1);
+
+	mu_assert_int_eq(0, cc2400_wait_xosc_stable());
+	mu_assert_int_eq(XOSC_STABLE_POLLS, (int)status_reads);
+}
+
+/* It only polls: there is no strobe that starts the oscillator, so strobing
+ * anything here would be driving the radio behind the caller's back. */
+MU_TEST(test_xosc_strobes_nothing)
+{
+	const u8 seq[] = { 0x00 };
+
+	fake_radio_reset();
+	fake_radio_status_sequence(seq, 1);
+
+	mu_assert_int_eq(0, cc2400_wait_xosc_stable());
+	mu_assert_int_eq(0, (int)srfoff_strobes);
+	mu_assert_int_eq(0, (int)sfson_strobes);
+	mu_assert_int_eq(0, (int)other_strobes);
+}
+
 /* ---- the service callback ---- */
 
 static unsigned service_calls;
@@ -391,6 +447,10 @@ int main(void)
 	MU_RUN(test_lock_on_last_poll_succeeds);
 	MU_RUN(test_lock_one_poll_too_late_times_out);
 	MU_RUN(test_lock_no_strobe_on_short_wait);
+	MU_RUN(test_xosc_returns_immediately_when_stable);
+	MU_RUN(test_xosc_returns_success_once_stable);
+	MU_RUN(test_xosc_gives_up_when_never_stable);
+	MU_RUN(test_xosc_strobes_nothing);
 	MU_RUN(test_service_runs_between_every_poll);
 	MU_RUN(test_service_runs_on_the_unlock_side);
 	MU_RUN(test_service_not_run_when_wait_is_satisfied_at_once);

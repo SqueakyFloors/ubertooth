@@ -216,6 +216,13 @@ void usb_bulk_out_handler(u8 bEP, u8 bEPStatus)
 	// Read the received packet 
 	bulk_size = USBHwEPRead(BULK_OUT_EP, (u8*)data, MAX_PACKET_SIZE);
 
+	/* A read that failed, or a packet too short to hold the four-byte header
+	 * below, has nothing to work with: the sizes computed from it go negative
+	 * and reach memcpy(). Drop it; the host's message is lost, which is what
+	 * a lost bulk packet always is. */
+	if (bulk_size < 4)
+		return;
+
 	/* copy/pasted from host code */
 	type = data[0];
 

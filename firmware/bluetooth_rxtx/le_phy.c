@@ -13,6 +13,7 @@
 #include "ubertooth_dma.h"
 #include "ubertooth_usb.h"
 #include "bluetooth_le.h"
+#include "cc2400_wait.h"
 #include "queue.h"
 
 // current time, from timer1
@@ -535,8 +536,17 @@ static void le_cc2400_init_rf(void) {
 	cc2400_set(FSDIV,   rf_channel - 1); // 1 MHz IF
 	cc2400_set(MDMCTRL, mdmctrl);
 
-	// XOSC16M should always be stable, but leave this test anyway
-	while (!(cc2400_status() & XOSC16M_STABLE));
+	// XOSC16M should always be stable, but leave this test anyway.
+	//
+	// Bounded, and this one has to be: change_channel() calls this from
+	// TIMER1_IRQHandler() on every connection-event hop, and this mode polls
+	// USB from its own loop. A poll that never satisfies hangs the interrupt
+	// handler, which stops the loop with it -- board still enumerated, every
+	// control request timing out, nothing but a power cycle to recover. The
+	// status read is a bit-banged SPI transfer on a bus interrupt handlers
+	// also drive, so a corrupt status byte is a real possibility rather than
+	// a hypothetical one.
+	cc2400_wait_xosc_stable();
 
 	// wait for FS_LOCK in background
 	cc2400_strobe(SFSON);

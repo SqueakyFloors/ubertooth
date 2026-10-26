@@ -58,6 +58,27 @@
  */
 int cc2400_wait_fs(int locked, void (*service)(void));
 
+/* Polls before the wait for the 16 MHz crystal oscillator gives up. The
+ * oscillator settles in a few hundred microseconds from cold, so this is sized
+ * the same way as the wait for a lock: out of reach of a part that is working,
+ * and reached only by one that has stopped answering. */
+#define XOSC_STABLE_POLLS 10000
+
+/* Wait, with a bound, for the CC2400 to report its 16 MHz crystal oscillator
+ * stable. There is nothing to re-strobe: the oscillator is started by the
+ * register configuration the caller has already written, so this only polls.
+ *
+ * The unbounded `while (!(cc2400_status() & XOSC16M_STABLE));` it replaces sits
+ * at the top of a mode, before the loop that services USB has started, so a
+ * part that never reports stable leaves the board enumerated and answering
+ * nothing. A caller that times out has a radio that is not
+ * running; it can carry on and produce junk samples, which the host can see,
+ * rather than a board that has to be power-cycled.
+ *
+ * Returns 1 if the oscillator reported stable, 0 if the wait timed out.
+ */
+int cc2400_wait_xosc_stable(void);
+
 /* Wait for the CC2400 synthesizer to report unlocked, with a bound.
  *
  * Every poll is a bit-banged SPI transaction on the shared CC2400 bus:
