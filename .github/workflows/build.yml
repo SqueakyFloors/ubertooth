@@ -71,9 +71,9 @@ jobs:
     - name: Check the libbtbb pin
       shell: bash
       # It clones libbtbb, so it waits on the network like the install steps.
-      # 60 seconds an attempt caps the retries at 3 minutes 50, and the rest of
+      # 60 seconds an attempt caps the retries at 2 minutes 30, and the rest of
       # the step is a few greps.
-      timeout-minutes: 5
+      timeout-minutes: 4
       # Two things have to hold for the pin: every file that writes it out
       # agrees, and the commit is one a user can actually get.
       run: |
@@ -188,9 +188,9 @@ jobs:
       # without it cmake skips both tools, so nothing on Linux CI compiled
       # them or ran their CLI tests. macOS has no BlueZ, so there they stay
       # skipped by design.
-      # One bounded call of 180 seconds an attempt, so at most 9 minutes 50
+      # One bounded call of 180 seconds an attempt, so at most 6 minutes 30
       # seconds, and then the install.
-      timeout-minutes: 11
+      timeout-minutes: 8
       # sudo is outside the helper so the limit lands on apt itself: killing
       # sudo would leave apt holding the dpkg lock.
       run: |
@@ -328,19 +328,21 @@ jobs:
       if: runner.os == 'macOS'
 
     - name: Install dependencies (Ubuntu)
-      # This is the big one: about 110 MB of toolchain. A run on a mirror
-      # giving roughly 0.7 MB a second needed over two and a half minutes of
-      # it, so an attempt gets 200 seconds, and apt resumes where the last
-      # attempt stopped so the attempts add up. That is 10 minutes 50 seconds
-      # of retries at worst, and then the unpacking.
-      timeout-minutes: 13
+      # This is the big one: 94 to 110 MB of toolchain, depending on the
+      # release. One attempt has to fetch all of it, since a killed apt keeps
+      # only what it had finished, so the limit is sized from the slowest
+      # mirror seen here: 0.4 MB a second, which is about four minutes. An
+      # attempt gets five. That is 10 minutes 30 seconds of retries at worst,
+      # and then the unpacking. A mirror slower than that is reported rather
+      # than waited on, which is the whole point.
+      timeout-minutes: 12
       run: |
         # gcc-arm-none-eabi recommends a large C++ runtime that none of the
         # firmware built here uses (only firmware/bootloader, which CI does not
         # build, links libstdc++); skip recommends and install newlib explicitly.
         packages="dfu-util gcc-arm-none-eabi libnewlib-arm-none-eabi"
         apt_opts="-o Acquire::http::Timeout=30 -o Acquire::Retries=2"
-        sudo tools/retry.sh 200 apt-get $apt_opts \
+        sudo tools/retry.sh 300 apt-get $apt_opts \
           install -y --no-install-recommends -d $packages
         sudo apt-get install -y --no-install-recommends $packages
       if: runner.os == 'Linux'
@@ -496,6 +498,7 @@ jobs:
     - name: Install checkout prerequisites
       # Two bounded commands of 100 seconds, so 3 minutes 40 at worst.
       timeout-minutes: 5
+      # Not retried: tools/retry.sh needs the checkout this step installs for.
       # tools/retry.sh really is unavailable here, but timeout is not, so the
       # two downloads are bounded and say what happened, without being retried.
       run: |
@@ -521,13 +524,13 @@ jobs:
         submodules: true
 
     - name: Install the ARM toolchain
-      # The same 110 MB as the hosted firmware job, so the same 200 seconds an
-      # attempt and the same 13 minutes for the step.
-      timeout-minutes: 13
+      # The same toolchain as the hosted firmware job, so the same 300 seconds
+      # an attempt and the same 12 minutes for the step.
+      timeout-minutes: 12
       run: |
         packages="make dfu-util gcc-arm-none-eabi libnewlib-arm-none-eabi"
         apt_opts="-o Acquire::http::Timeout=30 -o Acquire::Retries=2"
-        tools/retry.sh 200 apt-get $apt_opts \
+        tools/retry.sh 300 apt-get $apt_opts \
           install -y --no-install-recommends -d $packages
         apt-get install -y --no-install-recommends $packages
 

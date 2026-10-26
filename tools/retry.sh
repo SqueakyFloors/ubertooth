@@ -3,11 +3,11 @@
 #
 #     tools/retry.sh <seconds> <command> [argument ...]
 #
-# <seconds> is the limit for one attempt. There are three attempts, 10 seconds
+# <seconds> is the limit for one attempt. There are two attempts, 10 seconds
 # apart, and a command that ignores the limit is given 10 more seconds before
 # it is killed. So the longest this can take is
 #
-#     3 * (<seconds> + 10) + 20
+#     2 * (<seconds> + 10) + 10
 #
 # which is what a workflow step's timeout-minutes has to leave room for, or
 # GitHub cancels the step before the message below is printed.
@@ -23,10 +23,12 @@
 #
 # The limit is the outer bound, not the stall detector: the workflow asks apt
 # to give up on a connection that has gone quiet, so a dead mirror is reported
-# by apt, by name, long before this limit. The limit is sized instead for the
-# mirror that is merely slow, which an attempt should be able to ride out --
-# apt resumes a part-finished download, so the attempts add up rather than
-# starting over.
+# by apt, by name, well before this limit is near. What the limit is sized for
+# is the mirror that is merely slow, and one attempt has to be able to ride
+# that out on its own. A killed apt keeps only the packages it had finished,
+# and in a run where it was killed three times it kept 3 MB of 94, so the
+# attempts do not add up to much: two long ones beat three short ones, and the
+# retry is there for a fetch that failed rather than one that was slow.
 #
 # Every failure is retried, not only a timeout, because a mirror having a bad
 # minute surfaces as whatever the package manager made of it -- a 404 from a
@@ -40,7 +42,7 @@
 
 set -u
 
-attempts=3
+attempts=2
 backoff=10
 grace=10
 
