@@ -21,7 +21,7 @@ FW_DIR := ..
 HOST_DFU := ../../host/ubertooth-tools/src
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_le_phy_order test_grmdm_rx_generic test_tx_generic_bounds test_write_registers_bounds test_btbr_hop test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths
+TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_le_phy_order test_grmdm_rx_generic test_tx_generic_bounds test_write_registers_bounds test_btbr_hop test_btbr_rx_deadline test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths
 BINDIR  := bin
 
 .PHONY: all test clean
@@ -160,6 +160,32 @@ $(BINDIR)/test_btbr_hop: test_btbr_hop.c minunit.h stubs-btbr/ubtbr/debug.h \
 	$(CC) $(CFLAGS) -Istubs-btbr -I$(FW_BTBR)/include $(CPPFLAGS) \
 		-o $@ test_btbr_hop.c $(FW_BTBR)/src/btphy/hop.c \
 		$(FW_BTBR)/src/codec/perm5.c
+
+# The btbr image's receive task waits for a packet's bytes from a slot task in
+# the timer interrupt, so the test drives those waits with a fake slot clock
+# and a fake DMA controller: stubs-btbr-rx/ supplies a hardware-free
+# ubertooth.h with both, plus an interrupt-mask stand-in, and stubs-btbr/ the
+# diagnostics stand-in. rx_task.c is included into the test (see its header
+# comment), because the waits and their callers are static. bitstream_proc.c is
+# the byte-reversal table the task reads the DMA buffer through, and is pure
+# logic, so the real one links. Its last case scans rx_task.c as text, so
+# FW_BTBR_DIR points at the source.
+$(BINDIR)/test_btbr_rx_deadline: test_btbr_rx_deadline.c minunit.h \
+		source_scan.h stubs-btbr-rx/ubertooth.h \
+		stubs-btbr-rx/ubtbr/system.h stubs-btbr/ubtbr/debug.h \
+		stubs/ubertooth.h $(FW_BTBR)/src/btphy/rx_task.c \
+		$(FW_BTBR)/src/codec/bitstream_proc.c \
+		$(FW_BTBR)/include/ubtbr/rf.h \
+		$(FW_BTBR)/include/ubtbr/btphy.h | $(BINDIR)
+# rx_task.c carries unused locals and unused slot-task parameters of its own,
+# and takes the address of a packed field to hand the codec a size to fill in.
+# None of that is what this tests, and none of it is this change's.
+	$(CC) $(CFLAGS) -Istubs-btbr-rx -Istubs-btbr -I$(FW_BTBR)/include \
+		$(CPPFLAGS) -I$(FW_COMMON) -DFW_BTBR_DIR='"$(FW_BTBR)"' \
+		-Wno-unused-parameter -Wno-unused-variable \
+		-Wno-unused-but-set-variable -Wno-address-of-packed-member \
+		-o $@ test_btbr_rx_deadline.c \
+		$(FW_BTBR)/src/codec/bitstream_proc.c
 
 # The USB hardware layer reaches the controller only through the register
 # macros in lpc17.h, so stubs-usb/ supplies a fake one and this links the real

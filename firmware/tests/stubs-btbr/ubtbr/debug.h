@@ -12,4 +12,7 @@ void cprintf(char *fmt, ...);
 void __attribute__((noreturn)) die(char *fmt, ...);
 #define DIE(fmt, ...)	die("DIE|"fmt"\n", ##__VA_ARGS__)
 
+/* The baseband diagnostic, off in the firmware too. */
+#define BB_DEBUG(fmt, ...)
+
 #endif /* __SC_DEBUG_H */

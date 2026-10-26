@@ -273,6 +273,12 @@
   radio's state machine forever, from the timer interrupt, so the board stopped
   answering anything until it was re-plugged.
   [#174](https://github.com/SqueakyFloors/ubertooth/issues/174)
+- `ubertooth-btbr` no longer leaves the board unreachable when a packet stops
+  part-way through. The BR/EDR firmware waited forever for the rest of the
+  bytes, from the timer interrupt; it now gives up when they are overdue and
+  reports the packet as received but undecodable, as it already did for a
+  header it could not decode.
+  [#495](https://github.com/SqueakyFloors/ubertooth/issues/495)
 - **Script-visible change:** a capture whose USB stream fails stops there and
   exits 1, instead of waiting out its `-t` timer with nothing arriving and
   reporting success. `ubertooth-rx`, `ubertooth-dump`, `ubertooth-specan`,
