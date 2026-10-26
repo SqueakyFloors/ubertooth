@@ -13,11 +13,7 @@ extern int debug_dma_active;
 // initialize debug UART
 void debug_uart_init(int flow_control);
 
-// write a string to UART synchronously without DMA
-// you probably don't want this
-void debug_write(char *fmt);
-
-// printf to debug UART -- this is the one you want!
+// printf to debug UART
 void debug_printf(char *fmt, ...);
 
 #endif

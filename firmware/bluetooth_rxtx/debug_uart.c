@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "ubertooth.h"
+#include "debug_uart.h"
 #include "tinyprintf.h"
 
 int debug_dma_active = 0;
@@ -48,18 +49,6 @@ void debug_uart_init(int flow_control) {
 		// set P0.22 as RTS1, no pullup/down
 		PINSEL1  = (PINSEL1  & ~(0b11 << 12)) | (0b01 << 12);
 		PINMODE1 = (PINMODE1 & ~(0b11 << 12)) | (0b10 << 12);
-	}
-}
-
-// synchronously write a string to debug UART
-// does not start any DMA
-void debug_write(const char *str) {
-	unsigned i;
-
-	for (i = 0; str[i]; ++i) {
-		while ((U1LSR & U1LSR_THRE) == 0)
-			;
-		U1THR = str[i];
 	}
 }
 
