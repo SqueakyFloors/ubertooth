@@ -33,8 +33,10 @@ What is checked:
     command and receive threads were alive.
 """
 
+import contextlib
 import importlib.machinery
 import importlib.util
+import io
 import logging
 import os
 import signal
@@ -199,13 +201,17 @@ class SilentDevice:
         self.closed = False
 
     def register_msg_handler(self, handler):
-        assert self.handler is None
+        # Refused the way BTCtl refuses it, so what a caller sees here is
+        # what it sees against a real device.
+        if self.handler is not None:
+            raise btctl.BTCtlBusyError("the previous command is still running")
         self.handler = handler
 
     def unregister_msg_handler(self, handler):
         # Compared the way BTCtl compares it: each read of a bound method
         # gives a new object, so "is" would never match.
-        assert self.handler == handler
+        if self.handler != handler:
+            raise btctl.BTCtlBusyError("another command holds it")
         self.handler = None
 
     def send_idle_cmd(self):
@@ -365,6 +371,42 @@ assert not device.closed, \
     "the device must stay open while a command can still write to it"
 print("ubtbr: the prompt stays usable with a command that will not stop")
 
+# ---- a super command that gives up and then ends cleanly ------------------
+
+# The harder shape of the case above. A super command that gives up on a
+# child stops itself, so its own thread ends and the prompt's join succeeds:
+# the prompt rightly lets go of it, while the child it left behind still owns
+# the device's one message handler. The next command typed therefore has to
+# be refused by the device, not by the prompt, and the refusal has to come
+# back as an error rather than out of the prompt as a traceback.
+class GivingUpSuperCmd(btctl.BTCtlSuperCmd):
+    """A super command running one child that does not look at its stop."""
+
+    def run_once(self):
+        self._start_cmd(WedgedCmd)
+        self._wait(0.2)
+        self._stop_cmd()
+
+
+device = SilentDevice()
+prompt = tool_module.BTCtlPrompt(device)
+assert prompt.start_cmd(GivingUpSuperCmd) is not None
+assert wait_until(lambda: device.handler is not None), "no child started"
+assert wait_until(lambda: not prompt._cmd.is_alive()), \
+    "a super command that gave up must end"
+prompt.stop_cmd()
+assert prompt._cmd is None, "a super command that ended must be let go of"
+assert device.handler is not None, "the child still holds the handler"
+refused, said = io.StringIO(), io.StringIO()
+with contextlib.redirect_stderr(refused), contextlib.redirect_stdout(said):
+    assert prompt.onecmd("inquiry") is None, "a refused command must not exit"
+assert device.inquiry_requests == 0, device.inquiry_requests
+assert refused.getvalue() == \
+    "error: inquiry: the previous command is still running\n", \
+    repr(refused.getvalue())
+assert said.getvalue() == "", said.getvalue()
+print("ubtbr: a command left behind by a super command is reported, not raised")
+
 # ---- a packet that does not fit the framing -------------------------------
 
 class BadFramingDevice:
@@ -487,17 +529,23 @@ assert "Exception in thread" not in errors, errors
 print("ubtbr: a request the device will not take ends the command, not the tool")
 
 # an interrupt while a command that runs commands of its own is going: the
-# prompt joins whatever it started, and a super command is not a command
+# prompt joins whatever it started, and a super command is not a command.
+# A command is then typed, because running one after the advertised
+# "discoverable" is what the report is about: the interrupt has to have left
+# the message handler free, not just returned to the prompt.
 running = tool()
 running.stdin.write("discoverable\n")
 running.stdin.flush()
 assert wait_until(lambda: INQUIRY_SCAN_PACKET in writes()), writes()
+sent = writes()
 running.send_signal(signal.SIGINT)
-output, errors = running.communicate("q\n", timeout=DEADLINE * 2)
+output, errors = running.communicate("inquiry\nq\n", timeout=DEADLINE * 2)
 assert running.returncode == 0, (running.returncode, output, errors)
 assert "Traceback" not in errors, errors
 assert "Exception in thread" not in errors, errors
-print("ubtbr: Ctrl-C with a discoverable running returns to the prompt")
+assert "still running" not in errors, errors
+assert INQUIRY_PACKET in writes()[len(sent):], (sent, writes())
+print("ubtbr: a command runs after Ctrl-C ended a discoverable")
 
 # no Ubertooth at all: one error line, nothing on standard output, exit 1,
 # where the tool used to end in a traceback

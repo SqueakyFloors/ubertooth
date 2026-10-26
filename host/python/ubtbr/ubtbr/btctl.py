@@ -205,11 +205,17 @@ def print_state(state, reason):
 	rs = REASON_TO_STR.get(reason) or str(reason)
 	log.info ("Device state: %s, reason %s"%(ss, rs))
 
-class BTCtlFramingError(Exception):
+class BTCtlError(Exception):
+	"""Something the caller can be told about, rather than a bug in this code."""
+
+class BTCtlFramingError(BTCtlError):
 	"""A USB packet, or a message in it, that does not fit what the device sends."""
 
-class BTCtlNoDeviceError(Exception):
+class BTCtlNoDeviceError(BTCtlError):
 	"""No Ubertooth to control."""
+
+class BTCtlBusyError(BTCtlError):
+	"""A command still holds the one message handler the device has."""
 
 class BBHdr:
 	def __init__(self, lt_addr, type_, flags=0, hec=0):
@@ -856,11 +862,17 @@ class BTCtl:
 		return BTCtl(handle)
 
 	def register_msg_handler(self, h):
-		assert(self._msg_handler is None)
+		# There is one handler, so a command that outlived its stop still
+		# owns the messages. Saying so beats an assert: the caller can report
+		# it and stay up, and under python -O an assert would quietly
+		# overwrite the live handler and lose the messages going to it.
+		if self._msg_handler is not None:
+			raise BTCtlBusyError("the previous command is still running")
 		self._msg_handler = h
 
 	def unregister_msg_handler(self, h):
-		assert(self._msg_handler == h)
+		if self._msg_handler != h:
+			raise BTCtlBusyError("another command holds the message handler")
 		self._msg_handler = None
 
 	def _print_console(self, msg):

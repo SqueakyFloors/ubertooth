@@ -78,8 +78,10 @@ class BTCtlPrompt(Cmd):
 
 		log.info("Starting %s"%cls.__name__)
 		args = [self._bt]+list(args)
+		# Claiming the message handler is what can still refuse here, and it
+		# raises: nothing is assigned, so the prompt is left as it was and
+		# onecmd reports it.
 		self._cmd = cls(*args)
-		self._gave_up = False
 		self._cmd.start()
 		return self._cmd
 
@@ -118,10 +120,13 @@ class BTCtlPrompt(Cmd):
 	def onecmd(self, line):
 		try:
 			return super().onecmd(line)
-		except usb1.USBError as e:
-			# A request the board no longer takes ends that command, not the
-			# session: the prompt is where the user gets to try again or
-			# leave.
+		except (usb1.USBError, BTCtlError) as e:
+			# A request the board no longer takes, or a command that outlived
+			# its stop and still owns the messages, ends that command and not
+			# the session: the prompt is where the user gets to try again or
+			# leave. A command that runs commands of its own reaches the
+			# second case, since it can give up on a child and then end
+			# cleanly itself, leaving the child holding the handler.
 			eprint("error: %s: %s\n"%(line, e))
 
 	def default(self, inp):
@@ -228,11 +233,6 @@ def main():
 
 	try:
 		bt = BTCtl.find()
-	except BTCtlNoDeviceError as e:
-		eprint("error: %s\n"%e)
-		sys.exit(1)
-
-	try:
 		bt.connect()
 
 		for o, v in opt:
@@ -247,14 +247,17 @@ def main():
 		])
 		bt.send_set_eir_cmd(eir.pack())
 		sleep(0.02)
+	except BTCtlNoDeviceError as e:
+		eprint("error: %s\n"%e)
+		sys.exit(1)
 	except usb1.USBError as e:
 		# A board running firmware other than ubtbr takes none of this, and
 		# used to leave the tool waiting on the write for good.
 		eprint("error: could not set up the Ubertooth: %s\n"%e)
 		sys.exit(1)
 	except KeyboardInterrupt:
-		# Interrupted before the prompt was up, which is the window the hang
-		# shortly after start lives in.
+		# Interrupted anywhere before the prompt was up, which is the window
+		# the hang shortly after start lives in.
 		sys.exit(1)
 	prompt = BTCtlPrompt(bt)
 	prompt.cmdloop()
