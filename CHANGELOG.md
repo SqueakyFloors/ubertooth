@@ -210,9 +210,9 @@
   `ubertooth-scan`, `ubertooth-follow` and `ubertooth-afh` are affected.
   [#319](https://github.com/SqueakyFloors/ubertooth/issues/319)
 - **Script-visible change:** a capture that never gets its receive transfer
-  back, which is what a board gone off USB or no longer answering looks like,
-  exits 1 instead of 0, and the teardown no longer asks that board to stop.
-  The warning that the Ubertooth is left open is unchanged.
+  back exits 1 instead of 0, and the board is no longer sent a stop it may not
+  be there to hear. The warning already says it may still be capturing;
+  `ubertooth-util -S` stops one that is.
   [#454](https://github.com/SqueakyFloors/ubertooth/issues/454)
 - The pinned libbtbb now follows the Core specification when AFH re-maps a hop
   channel, so host-side predictions agree with the channel the board tunes to.

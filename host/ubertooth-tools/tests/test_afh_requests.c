@@ -1066,9 +1066,10 @@ MU_TEST(a_detection_phase_that_lost_its_transfer_sends_no_stop)
 	btbb_piconet_unref(pn);
 }
 
-/* A board that leaves the bus during a capture: its transfer comes back with
- * NO_DEVICE, so libusb is holding nothing by the time the teardown runs and
- * the device can be closed as usual. The stop on the way out is refused, as
+/* A board that leaves the bus during a capture: the teardown's own wait for
+ * events gets the transfer back with NO_DEVICE, so libusb is holding nothing
+ * by the time the device is closed, and it closes as usual. The stop on the
+ * way out is refused, as
  * every request to a board that has gone is; the refusal is reported and the
  * teardown finishes it rather than stopping there, so the capture files are
  * still closed and the session still ended. */

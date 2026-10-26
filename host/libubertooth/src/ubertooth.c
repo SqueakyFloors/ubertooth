@@ -1204,20 +1204,25 @@ static void ubertooth_cleanup(ubertooth_t* ut, int send_stop)
 		 * handle goes when the process does. The capture files below are
 		 * still closed, so nothing a run wrote is lost.
 		 *
-		 * Nothing more is asked of the board either, not even the stop. A
-		 * transfer libusb has neither completed nor cancelled is what a
-		 * board that has left the bus, or stopped answering, looks like:
-		 * the stop cannot reach such a board, so sending it would only put
-		 * another transfer on a session that still has one stuck in
-		 * flight. The warning is the whole of what a teardown can do
-		 * here. */
+		 * Nothing more is asked of the board either, not even the stop.
+		 * Which board this is cannot be told from here: one that has left
+		 * the bus or stopped answering, or a live one whose cancellation
+		 * did not arrive within the wait above. Neither can be stopped --
+		 * the first cannot hear the request, and for the second it would
+		 * mean submitting a transfer on a session that still has one stuck
+		 * in flight, which is the call this teardown has faulted inside
+		 * libusb on. The warning covers both: it says the board may still
+		 * be capturing, and ubertooth(7) says how to stop one. */
 		fprintf(stderr, "warning: the receive transfer did not finish; the "
 		        "Ubertooth is left open and may still be capturing\n");
 		/* The run is a failure all the same, so a caller can tell it from a
 		 * capture that finished: this one lost its stream, and left a board
-		 * that may still be sending. The first failure wins, as in
-		 * rx_stream_failed(); stop_ubertooth is left alone, because the
-		 * capture it would stop is already over. */
+		 * that may still be sending. The message stays a warning because it
+		 * is about what was left behind; nothing can be said about what
+		 * went wrong, since the transfer's callback never ran to report it.
+		 * The first failure wins, as in rx_stream_failed(); stop_ubertooth
+		 * is left alone, because the capture it would stop is already
+		 * over. */
 		if (ut->rx_stream_status == 0)
 			ut->rx_stream_status = LIBUSB_TRANSFER_ERROR;
 	}
