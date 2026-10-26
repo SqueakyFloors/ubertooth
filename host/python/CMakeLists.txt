@@ -90,6 +90,16 @@ add_subdirectory(specan_ui)
 # add_subdirectory(usb_dfu)
 add_subdirectory(ubtbr)
 
+# ubertooth-btbr and the ubtbr modules ending when they are asked to, against
+# a fake usb1 module: no board is involved. Around twenty seconds, nearly all
+# of it waiting: several cases give a thread a bounded time to stop, and each
+# run of the tool spends a second settling the device it thinks it opened.
+add_test(NAME ubtbr
+	COMMAND ${Python3_EXECUTABLE}
+		${CMAKE_CURRENT_SOURCE_DIR}/ubtbr/tests/test_ubtbr.py
+		${UBTBR_WRAPPER})
+set_tests_properties(ubtbr PROPERTIES TIMEOUT 90)
+
 # Create uninstall target
 if(NOT ubertooth_all_SOURCE_DIR)
 	configure_file(

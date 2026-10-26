@@ -254,7 +254,7 @@ class LMP:
 		fsm = self._FSM[self._state]
 		reg = fsm.get(op)
 		if reg is None:
-			log.warn("Unhandled opcode 0x%x"%op)
+			log.warning("Unhandled opcode 0x%x"%op)
 			return False
 		else:
 			handler = reg[0]

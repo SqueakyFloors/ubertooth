@@ -17,8 +17,10 @@ This firmware implements partial support of the Bluetooth BR/EDR baseband layer.
 - Role-switching and related LMP procedures are not yet implemented.
 - Encryption of packets is not yet implemented.
 - **Known issue: `ubertooth-btbr` may hang shortly after start** (upstream
-  issue #520), typically right after the EIR setup line, and may not respond to
-  Ctrl-C. This is unresolved. If it affects you, report it on the issue tracker.
+  issue #520), typically right after the EIR setup line. The cause is
+  unresolved. Ctrl-C is no longer swallowed, though: at the prompt it ends the
+  command being waited on, and before the prompt it ends the tool. If it
+  affects you, report it on the issue tracker.
 
 ## Host code
 The *ubtbr* python modules contains the host control interface and a minimal implementation of the LMP protocol. 

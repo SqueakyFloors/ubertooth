@@ -31,7 +31,9 @@ Ping the device with L2CAP echo transfers:
 Change bdaddr of the Ubertooth
 > bdaddr AA:BB:CC:DD:EE:FF
 
-You can stop the current command with Ctrl+C.
+You can stop the current command with Ctrl+C: it returns you to the prompt,
+where `q` leaves the tool. A command the Ubertooth does not answer is ended
+anyway, rather than leaving the tool waiting for a reply that never comes.
 
 ## Monitor mode:
 This mode allows to monitor a connection as it is being established.

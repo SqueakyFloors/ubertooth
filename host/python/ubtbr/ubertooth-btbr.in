@@ -11,6 +11,7 @@ _module_dir = os.path.normpath(os.path.join(
 if os.path.isdir(_module_dir) and _module_dir not in sys.path:
 	sys.path.insert(0, _module_dir)
 
+import usb1
 from cmd import Cmd
 from ubtbr.btctl import *
 from getopt import getopt
@@ -52,6 +53,8 @@ class BTCtlPrompt(Cmd):
 	def __init__(self, bt):
 		self._bt = bt
 		self._cmd = None
+		self._gave_up = False
+		self._abandoned = False
 		super().__init__()
 
 	def _parse_bdaddr(self, inp):
@@ -61,29 +64,52 @@ class BTCtlPrompt(Cmd):
 		except:
 			pass
 		if bdaddr is None or bdaddr < 0 or bdaddr >= (1<<48):
-			print("Invalid BD_ADDR")
+			# A diagnostic, so not on standard output.
+			eprint("error: BD_ADDR must be xx:xx:xx:xx:xx:xx (got %s)\n"%inp)
 		else:
 			return bdaddr
 
 	def start_cmd(self, cls, *args):
+		if self._cmd is not None and (self._cmd.done() or self._gave_up):
+			self.stop_cmd()
 		if self._cmd is not None:
-			if self._cmd.done():
-				self.stop_cmd()
-			else:
-				log.info ("Not idle")
-				return
+			# Either it is still running, or it outlived its stop and still
+			# holds the message handler a new command would claim.
+			log.info ("Not idle")
+			return
 
 		log.info("Starting %s"%cls.__name__)
 		args = [self._bt]+list(args)
+		# Claiming the message handler is what can still refuse here, and it
+		# raises: nothing is assigned, so the prompt is left as it was and
+		# onecmd reports it.
 		self._cmd = cls(*args)
 		self._cmd.start()
 		return self._cmd
 
 	def stop_cmd(self):
-		if self._cmd is not None:
-			self._cmd.stop()
-			self._cmd.join()
+		if self._cmd is None:
+			return
+		if self._gave_up:
+			# It already outlived one stop. Asking again would only spend
+			# another join on it, but if it has ended since, the session gets
+			# its device back instead of refusing every later command.
+			if self._cmd.is_alive():
+				return
 			self._cmd = None
+			self._gave_up = False
+			return
+		self._cmd.stop()
+		self._cmd.join(self._cmd.JOIN_TIMEOUT)
+		if self._cmd.is_alive():
+			# Keep the handle: start_cmd then refuses to start another rather
+			# than tripping over the one still holding the message handler.
+			# The prompt itself stays usable, and exiting is never blocked by
+			# it.
+			log.error("%s did not stop"%self._cmd)
+			self._gave_up = True
+			return
+		self._cmd = None
 
 	def cmdloop(self, intro=None):
 		print(self.intro)
@@ -92,15 +118,48 @@ class BTCtlPrompt(Cmd):
 				super().cmdloop(intro="")
 				break
 			except KeyboardInterrupt:
-				self.do_idle()
+				try:
+					self.do_idle()
+				except KeyboardInterrupt:
+					# A second Ctrl-C while the command is being stopped
+					# returns to the prompt instead of ending the tool
+					# somewhere in the middle of the stop.
+					pass
+
+	def onecmd(self, line):
+		try:
+			return super().onecmd(line)
+		except (usb1.USBError, BTCtlError) as e:
+			# A request the board no longer takes, or a command that outlived
+			# its stop and still owns the messages, ends that command and not
+			# the session: the prompt is where the user gets to try again or
+			# leave. A command that runs commands of its own reaches the
+			# second case, since it can give up on a child and then end
+			# cleanly itself, leaving the child holding the handler.
+			eprint("error: %s: %s\n"%(line, e))
 
 	def default(self, inp):
 		if inp in ('x','q'):
-			return self.do_exit()
+			return self.do_exit(inp)
 
 	def do_exit(self, inp):
-		self._bt.close()
+		# Stopped first: a command still running would be left writing to a
+		# device the close below took away.
+		self.stop_cmd()
+		if self._cmd is not None:
+			log.error("Leaving the device open: %s is still running"
+				%self._cmd)
+			self._abandoned = True
+		elif not self._bt.close():
+			# close() has said what it kept the device open for: a command
+			# this prompt had already let go of, or a receive thread still
+			# inside libusb.
+			self._abandoned = True
 		return True
+
+	def abandoned(self):
+		"""Whether the session ended with the device still claimed."""
+		return self._abandoned
 
 	def help_exit(self):
 		print("Exit the application")
@@ -181,6 +240,19 @@ def usage():
 		)
 	sys.exit(1)
 
+def leave(bt, status):
+	"""Exit with no thread left inside libusb.
+
+	The receive thread is a daemon, so the interpreter will not wait for it,
+	and taking libusb down while that thread is inside a bulk read is how an
+	exit becomes an abort. Stopping it first costs one read timeout. A thread
+	that will not come out is reported by close(), which then leaves the
+	handle alone.
+	"""
+	if bt is not None and bt.connected():
+		bt.close()
+	sys.exit(status)
+
 def main():
 	try:
 		opt, args = getopt(sys.argv[1:], "f:b:")
@@ -189,22 +261,61 @@ def main():
 	if args:
 		usage()
 
-	bt = BTCtl.find()
-	bt.connect()
-
+	# Read before the device is opened, so a command line that is wrong is
+	# refused without touching a board, and says what is wrong with it rather
+	# than reporting whatever the board did first.
+	# Both go into a request as 16 bits, so a value outside that is refused
+	# here rather than reaching the packing and raising from there.
+	settings = []
 	for o, v in opt:
-		if o == '-f':
-			bt.send_set_freq_off_cmd(int(v))
-		elif o == '-b':
-			bt.send_set_max_ac_errors_cmd(int(v))
+		try:
+			value = int(v)
+		except ValueError:
+			value = None
+		if value is None or value < 0 or value > 0xffff:
+			eprint("error: %s must be 0-65535 (got %s)\n"%(o, v))
+			sys.exit(1)
+		settings.append((o, value))
 
-	bt.send_set_bdaddr_cmd(0x112233445566)
-	eir = BTCtlEIR([
-		(BTCtlEIR.EIR_COMPLETE_LOCAL_NAME, b"Ubertooth"),
-	])
-	bt.send_set_eir_cmd(eir.pack())
-	sleep(0.02)
+	bt = None
+	try:
+		bt = BTCtl.find()
+		bt.connect()
+
+		for o, value in settings:
+			if o == '-f':
+				bt.send_set_freq_off_cmd(value)
+			elif o == '-b':
+				bt.send_set_max_ac_errors_cmd(value)
+
+		bt.send_set_bdaddr_cmd(0x112233445566)
+		eir = BTCtlEIR([
+			(BTCtlEIR.EIR_COMPLETE_LOCAL_NAME, b"Ubertooth"),
+		])
+		bt.send_set_eir_cmd(eir.pack())
+		sleep(0.02)
+	except BTCtlNoDeviceError as e:
+		eprint("error: %s\n"%e)
+		sys.exit(1)
+	except (usb1.USBError, BTCtlError) as e:
+		# A board running firmware other than ubtbr takes none of this, and
+		# used to leave the tool waiting on the write forever.
+		eprint("error: could not set up the Ubertooth: %s\n"%e)
+		leave(bt, 1)
+	except KeyboardInterrupt:
+		# Interrupted anywhere before the prompt was up, which is the window
+		# the hang shortly after start lives in.
+		leave(bt, 1)
 	prompt = BTCtlPrompt(bt)
 	prompt.cmdloop()
+	if prompt.abandoned():
+		# The session ended with the device still claimed by a command that
+		# would not stop, so it did not do all it was asked. Out without the
+		# interpreter's own teardown: that command may still be inside
+		# libusb, and taking the library down under it is what turns an exit
+		# into an abort. Nothing is buffered past the flushes.
+		sys.stdout.flush()
+		sys.stderr.flush()
+		os._exit(1)
 
 if __name__ == '__main__': main()
