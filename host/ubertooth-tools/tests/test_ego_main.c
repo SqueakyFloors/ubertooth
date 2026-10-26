@@ -456,6 +456,18 @@ MU_TEST(a_channel_the_mode_cannot_use_is_refused)
 	r = RUN("-r", "-c", "2408", "-f");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.err, cases[0].message) == 0, r.err);
+
+	/* With no mode at all there is nothing to refuse the channel for, and
+	 * the refusal has no option to name: the earlier "nothing to do" check
+	 * answers, with the usage text a bare -c really does need. */
+	reset_fake();
+	r = RUN("-c", "2408");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strncmp(r.err, "error: nothing to do: ",
+	                  strlen("error: nothing to do: ")) == 0, r.err);
+	mu_assert(strstr(r.err, "cannot be combined") == NULL, r.err);
+	mu_assert(strstr(r.err, "Usage:") != NULL, r.err);
 }
 
 /* -h is what the user asked for, so it is answered even when the rest of the

@@ -24,9 +24,10 @@ stream a line is on.
 - Progress and status: "Resetting ...", "Stopping ...", DFU progress, device
   selection messages, "Ubertooth stopped", timing traces.
 - The usage text when it is shown because the tool could not take the command
-  line at all, or it asked for nothing: an option the tool does not know, an
-  option whose value is missing, no mode. Print the one-line `error: ` first,
-  then the usage text, both on standard error.
+  line at all, or it did not have the work to do: an option the tool does not
+  know, an option whose value is missing, no mode, a required option missing.
+  Print the one-line `error: ` first, then the usage text, both on standard
+  error.
 - A command line the tool understood and will not run is the one `error: `
   line alone, with no usage text: a combination of options that cannot work
   (`ubertooth-util -z` with a mode option, `ubertooth-btle -f -n`,

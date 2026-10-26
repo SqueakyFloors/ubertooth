@@ -185,7 +185,7 @@
   whatever settings the board was left on.
   [#379](https://github.com/SqueakyFloors/ubertooth/issues/379)
 - `ubertooth-ego` refuses `-c` combined with `-f`, `-i` or `-j`, where it
-  silently had no effect: those modes hop across the E-Go's own channel list.
+  silently had no effect: those modes hop across the E-GO's own channel list.
   [#394](https://github.com/SqueakyFloors/ubertooth/issues/394)
 - `ubertooth-afh` gives its piconet back before it exits, so a run no longer
   ends with one unfreed allocation.

@@ -97,10 +97,10 @@ refused before any device is opened: `error: nothing to do: choose a major
 mode (-f, -r or -i)`. It used to open the selected board, check its firmware,
 do nothing and exit 0.
 
-`-c` outside continuous receive is refused the same way, naming the mode as it
-was spelled: `error: -c cannot be combined with -f; only continuous receive
-(-r) uses a channel`. It used to be accepted and then dropped silently in
-those modes.
+`-c` outside continuous receive is refused before any device is opened too,
+naming the mode as it was spelled: `error: -c cannot be combined with -f; only
+continuous receive (-r) uses a channel`, with no usage text after it (see
+DIAGNOSTICS). It used to be accepted and then dropped silently in those modes.
 
 ## DIAGNOSTICS
 
@@ -119,8 +119,8 @@ with exit status 1 and one `error: ` line on standard error. The usage text
 follows that line for an option the tool does not know
 (`error: unrecognized option '-Z'`), for one whose value is missing
 (`error: option '-c' requires a value`), and for a command line with nothing
-to do. A bad option value, a stray word, and an option the chosen mode cannot
-use are the one `error: ` line alone, matching `ubertooth-util`.
+to do. A bad option value, a stray word, and `-c` outside continuous receive
+are the one `error: ` line alone, matching `ubertooth-util`.
 
 `-h` is what the user asked for, so the usage text goes to standard output and
 nothing goes to standard error.

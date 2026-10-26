@@ -173,7 +173,9 @@ int main(int argc, char *argv[])
 	/* Only continuous receive sends a channel, so -c in any other mode used
 	 * to be parsed, range-checked and then dropped without a word. Refused
 	 * before any device is opened, like the other combinations that cannot
-	 * work. */
+	 * work. Below the check above, which is what guarantees mode_option
+	 * names an option the user gave: a command line with -c and no mode has
+	 * nothing to do, which is the more useful thing to say. */
 	if (have_channel && do_mode != EGO_MODE_CONTINUOUS_RX) {
 		fprintf(stderr, "error: -c cannot be combined with -%c; only "
 		        "continuous receive (-r) uses a channel\n", mode_option);
