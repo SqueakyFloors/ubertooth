@@ -912,9 +912,9 @@ void ubertooth_unpack_symbols(const uint8_t* buf, char* unpacked)
 	}
 }
 
-/* Here rather than beside the macro in the header, which C++ includes: both
- * sides are constants from the same headers, so the one translation unit that
- * lays the buffer out is enough to break the build if a packet outgrows it. */
+/* Stop the build if a received packet (DMA_SIZE) no longer fits the
+ * decoder's buffer (LE_SYM_LEN). It lives here rather than in the header
+ * because C++ code includes that header, and _Static_assert is C only. */
 _Static_assert(DMA_SIZE <= LE_SYM_LEN,
                "a received packet no longer fits the decoder's buffer");
 
