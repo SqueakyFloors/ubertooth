@@ -12,8 +12,8 @@
  * What usb_send_sync() has to guarantee: it is the firmware's debug and fault
  * print path, and it waits for a free bulk IN buffer. Both buffers stay full
  * until the host reads them, so a host that stopped reading -- its process was
- * killed, or it never read bulk at all -- used to leave this spinning for
- * good, with the USB interrupt masked, which is how this firmware services
+ * killed, or it never read bulk at all -- used to leave this spinning
+ * forever, with the USB interrupt masked, which is how this firmware services
  * USB. The board then still enumerated and answered nothing until it was
  * power-cycled. The wait must therefore terminate, keep answering the host
  * while it runs, drop the message it could not send and count it, and leave
@@ -414,6 +414,9 @@ MU_TEST(test_a_drop_does_not_make_the_next_message_wait)
 	mu_assert_int_eq(1, (int)status_polls);
 	mu_assert_int_eq(0, (int)write_count);
 	mu_assert_int_eq(1, (int)usb_send_drops);
+	/* And it is a drop, not a shorter wait: nothing is polled on the way
+	 * through, so the rest of such a run does not service USB either. */
+	mu_assert_int_eq(0, (int)isr_calls);
 }
 
 /* And it is only remembered until a message gets through: a host that comes
@@ -461,6 +464,13 @@ MU_TEST(test_a_send_with_the_interrupt_off_leaves_it_off)
  * this can be entered from inside itself. The nested call must not start a
  * second wait: nested waits would multiply the bound, and the recursion goes
  * through the fault path.
+ *
+ * The recursion is modelled rather than reproduced: the fake interrupt handler
+ * calls in directly and returns, where on the board it arrives through die(),
+ * which never returns. So what these two cases pin is the one thing that
+ * matters before the board reaches die()'s LED loop -- that the nested print
+ * does not start a second bound -- and not the unwinding afterwards, which the
+ * firmware never does.
  */
 MU_TEST(test_a_nested_send_does_not_wait_again)
 {
@@ -543,6 +553,10 @@ MU_TEST(test_usb_work_sends_a_queued_message)
 	mu_assert_int_eq(0xAA, writes[0].data[4]);
 	mu_assert_int_eq(0xCC, writes[0].data[6]);
 	mu_assert(usb_irq_enabled(), "the interrupt must be put back afterwards");
+	/* And it drove the controller with the interrupt held off, as the send
+	 * does: usb_work() polls it on the way through. */
+	mu_assert(isr_calls > 0, "usb_work() must poll the USB interrupt");
+	mu_assert_int_eq(0, (int)isr_calls_with_irq_enabled);
 }
 
 int main(void)
