@@ -6,6 +6,8 @@
 
 - **Script-visible change:** `ubertooth-btle` refuses `-i`/`-I` without `-f` or
   `-p`, and `-a`/`-s` alongside `-f`, `-n` or `-p`, before it opens a device.
+  Those command lines, and a mode the board refuses to start, now exit 1 where
+  they used to exit 0, so a script that read that as success sees a failure.
   [#299](https://github.com/SqueakyFloors/ubertooth/issues/299)
   [#309](https://github.com/SqueakyFloors/ubertooth/issues/309)
 - **Script-visible change:** `ubertooth-btle` exits 0 for `-h` and 1 when a
