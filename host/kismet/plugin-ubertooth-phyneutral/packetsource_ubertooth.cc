@@ -129,7 +129,10 @@ static void cb_cap(ubertooth_t* ut, void* args)
 
 	ubertooth_unpack_symbols((uint8_t*)rx->data, syms);
 
-	int offset = btbb_find_ac(syms, BANK_LEN, LAP_ANY, 1, &pkt);
+	/* The search reads the 64-symbol access code at every offset it tries,
+	 * so the last offset that stays inside the bank is 64 short of its end
+	 * (the library's other callers pass the same length). */
+	int offset = btbb_find_ac(syms, BANK_LEN - 64, LAP_ANY, 1, &pkt);
 	if (offset >= 0) {
 
 		uint32_t clkn = (rx->clkn_high << 20) + (le32toh(rx->clk100ns) + offset*10) / 3125;

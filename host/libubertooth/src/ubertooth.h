@@ -187,4 +187,20 @@ void rx_afh_r(ubertooth_t* ut, btbb_piconet* pn, int timeout);
 
 void ubertooth_unpack_symbols(const uint8_t* buf, char* unpacked);
 
+/* How many bytes libbtbb's low-energy decoder copies out of the stream
+ * pointer it is given. It takes no length and its public header does not
+ * export the value (MAX_LE_SYMBOLS in lib/src/bluetooth_le_packet.h), so the
+ * contract is implicit and this is the host's half of it. A received packet
+ * carries only DMA_SIZE bytes, which is fewer. */
+#define LE_SYM_LEN 64
+
+/* Lays a received packet's bytes out for lell_allocate_and_decode(), in a
+ * buffer of LE_SYM_LEN that the caller provides. The bytes a packet does not
+ * reach are zeroed rather than left as whatever followed it in memory: the
+ * decoder reads the PDU length from byte 5 and then the payload and CRC that
+ * follow, so a PDU claiming more than was captured decodes zeros instead of
+ * the caller's stack. The capture is still short; zeroing only stops the
+ * decoder inventing the rest of it. */
+void ubertooth_le_symbols(const usb_pkt_rx* rx, uint8_t* symbols);
+
 #endif /* __UBERTOOTH_H__ */
