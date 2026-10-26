@@ -74,6 +74,7 @@ static ubertooth_t* new_handle(void)
  * already stopping. */
 static void release_handle(ubertooth_t* ut)
 {
+	alarm(0);
 	signal(SIGINT, SIG_DFL);
 	signal(SIGQUIT, SIG_DFL);
 	signal(SIGTERM, SIG_DFL);
@@ -170,7 +171,11 @@ MU_TEST(a_cleared_stop_lets_a_second_capture_run)
 
 	mu_assert_fatal(ut != NULL, "a handle");
 
-	raise(SIGALRM); /* as the -t timer does */
+	/* The -t handler, which a tool installs over the one above, and which
+	 * nothing else here reaches: the alarm itself is never waited for, so
+	 * the long timer only has to be longer than the test. */
+	ubertooth_set_timeout(ut, 300);
+	raise(SIGALRM);
 	mu_assert_int_eq(1, ubertooth_stopping(ut));
 
 	ubertooth_clear_stop(ut);

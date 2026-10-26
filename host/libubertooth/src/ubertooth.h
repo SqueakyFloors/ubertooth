@@ -168,11 +168,13 @@ extern int max_ac_errors;
 void print_version();
 void register_cleanup_handler(ubertooth_t* ut, int do_exit);
 
-/* 1 once this capture should stop, which is how every receive loop asks. It
- * covers both ways a run ends early: a signal (Ctrl-C, SIGTERM, the -t alarm),
- * which the handler records in a flag of its own, and the handle's
- * stop_ubertooth, which the poll thread and the callbacks set. Call it from
- * the thread running the capture. */
+/* 1 once this capture should stop, which is how a receive loop asks. It covers
+ * both ways a run ends early: a signal (Ctrl-C, SIGTERM, the -t alarm), which
+ * the handler records in a flag of its own, and the handle's stop_ubertooth,
+ * which the poll thread and the callbacks set.
+ *
+ * It writes the handle, so call it from the thread running the capture. The
+ * poll thread reads the two flags instead. */
 int ubertooth_stopping(ubertooth_t* ut);
 
 /* Back to "keep going", for a handle that runs a second capture after the
@@ -217,6 +219,9 @@ void ubertooth_stop(ubertooth_t* ut);
 void ubertooth_free(ubertooth_t* ut);
 int ubertooth_get_api(ubertooth_t *ut, uint16_t *version);
 int ubertooth_check_api(ubertooth_t *ut);
+/* Stops the capture after this many seconds, through the same flag Ctrl-C
+ * uses. The handle is not read: the alarm stops whichever capture is running,
+ * and a signal handler cannot follow a pointer to a handle. */
 void ubertooth_set_timeout(ubertooth_t* ut, int seconds);
 
 /* A timeout for the quiet read below, for the callers that would rather give

@@ -96,7 +96,7 @@ void print_version() {
 	       btbb_get_version(), btbb_get_release());
 }
 
-ubertooth_t* cleanup_devh = NULL;
+static ubertooth_t* cleanup_devh = NULL;
 
 /* 1 once a signal has asked the run to stop. Set by the handlers below and
  * by nothing else.
@@ -645,9 +645,13 @@ static void cb_xfer(struct libusb_transfer *xfer)
 	 * and putting that one back in flight leaves the teardown waiting for a
 	 * completion that is no longer on its way. The teardown's cancel is the
 	 * only signal that covers it: a teardown between the phases of a run
-	 * leaves stop_ubertooth clear. */
+	 * leaves stop_ubertooth clear.
+	 *
+	 * Both stop flags are read here rather than through
+	 * ubertooth_stopping(), which writes the handle: this runs on the poll
+	 * thread, and the capture's own thread is the one that writes. */
 	int wanted_back = ut->rx_xfer_state == RX_XFER_CANCELLING
-	                  || ubertooth_stopping(ut);
+	                  || stop_requested || ut->stop_ubertooth;
 	/* The libusb status that ended the stream, or 0 if it has not ended. */
 	int failed = 0;
 	int r;

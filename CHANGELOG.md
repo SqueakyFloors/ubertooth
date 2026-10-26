@@ -751,9 +751,10 @@ Fixes with no visible change in normal use.
   this tree builds are twelve characters, so nothing reached that.
   [#464](https://github.com/SqueakyFloors/ubertooth/issues/464)
 - Ctrl-C, SIGTERM, SIGHUP and the `-t` alarm now stop a capture through a flag
-  a signal handler is allowed to set. The handler used to reach into the
-  capture handle, which a handler may not do and which left no guarantee that
-  the receive loop would see the stop.
+  a signal handler is allowed to set, in the tools that use libubertooth's
+  handlers. The handler used to reach into the capture handle, which a handler
+  may not do and which left no guarantee that the receive loop would see the
+  stop.
   [#499](https://github.com/SqueakyFloors/ubertooth/issues/499)
 - A BLE packet whose length field claims more than the board captured reads
   zeros past the capture, instead of whatever followed it in memory; the

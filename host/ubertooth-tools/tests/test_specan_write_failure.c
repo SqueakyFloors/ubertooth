@@ -40,6 +40,14 @@
  * below. */
 FILE* dumpfile;
 
+/* The library's stop route, in miniature, so a case can raise a real signal
+ * and see what the tool makes of it. fake_cleanup() below sets this flag and
+ * nothing else, and ubertooth_stopping() is the only place it reaches the
+ * handle: a sweep whose loop read the handle directly would not notice the
+ * interrupt here either. The handle's own flag still stops a sweep, which is
+ * what the callback and a dead stream use. */
+static volatile sig_atomic_t stop_requested;
+
 /* A block of samples the board could have sent, all inside 2402-2480 MHz so
  * none is dropped as left over from an earlier run. */
 static void fill_block(usb_pkt_rx* rx)
@@ -152,16 +160,20 @@ static void capture_stdout_begin(void)
 	dup2(out_fd, fileno(stdout));
 }
 
-/* How many bytes the run wrote, with standard output put back. */
+/* How many bytes of the run reached the file, with standard output put back.
+ * Nothing is flushed before the size is read: what the run left in a stdio
+ * buffer does not count, which is what makes this check main()'s own flush.
+ * Anything still buffered is then pushed into the temp file, before standard
+ * output goes back, so it cannot land in the test's own output. */
 static long capture_stdout_end(void)
 {
 	struct stat info;
 	long size;
 
+	size = fstat(out_fd, &info) == 0 ? (long)info.st_size : -1;
 	fflush(stdout);
 	dup2(out_saved, fileno(stdout));
 	close(out_saved);
-	size = fstat(out_fd, &info) == 0 ? (long)info.st_size : -1;
 	close(out_fd);
 	unlink(out_path);
 	return size;
@@ -384,6 +396,7 @@ static struct {
 static void reset_device(void)
 {
 	memset(&device, 0, sizeof(device));
+	stop_requested = 0;
 	device.blocks_to_sweep = 1;
 	device.ut.devh = (struct libusb_device_handle*)&device;
 }
@@ -406,19 +419,16 @@ int ubertooth_check_api(ubertooth_t* ut)
 	return device.check_api_rc;
 }
 
-/* The one the library installs stops the capture on Ctrl-C, which is how
- * every sweep ends in practice, so the fake does the same: a case can then
- * raise a real signal and check what the tool makes of it. */
 static void fake_cleanup(int sig)
 {
 	(void)sig;
-	device.ut.stop_ubertooth = 1;
+	stop_requested = 1;
 }
 
-/* The real one folds the signal handler's own flag into the handle; the
- * fake handler below sets the handle directly, so reading it is enough here. */
 int ubertooth_stopping(ubertooth_t* ut)
 {
+	if (stop_requested)
+		ut->stop_ubertooth = 1;
 	return ut->stop_ubertooth;
 }
 
