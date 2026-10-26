@@ -5,19 +5,19 @@
 
 
 if test $# -lt 1 ; then
-	version=`git rev-parse --abbrev-ref HEAD`
+	version=$(git rev-parse --abbrev-ref HEAD)
 else
 	version=${1}
 fi
 
 # FIXME you'll need to update these:
-top="`pwd`/../release"
+top="$(pwd)/../release"
 
 releasename="ubertooth-${version}"
 targetdir="${top}/${releasename}"
 
-mkdir -p ${targetdir}
-git archive --format=tar  HEAD | (cd ${targetdir} && tar xf -)
+mkdir -p "${targetdir}"
+git archive --format=tar  HEAD | (cd "${targetdir}" && tar xf -)
 
 # The firmware version string now comes from a generated version.h (the -D
 # GIT_REVISION compile flag was removed). The archive has no .git, so write a
@@ -38,55 +38,54 @@ for imgdir in bluetooth_rxtx btbr assembly_test bootloader; do
 EOF
 done
 
-sed -e "s/set(RELEASE.*/set(RELEASE \"${version}\")/" -i ${targetdir}/host/libubertooth/src/CMakeLists.txt
+sed -e "s/set(RELEASE.*/set(RELEASE \"${version}\")/" -i "${targetdir}/host/libubertooth/src/CMakeLists.txt"
 
 ############################
 # Documentation
 ############################
-cd ${targetdir}/web
+cd "${targetdir}/web" || exit 1
 make
 
 ############################
 # Software
 ############################
 export BOARD=UBERTOOTH_ONE
-mkdir ${targetdir}/ubertooth-one-firmware-bin
-cd ${targetdir}/firmware
+mkdir "${targetdir}/ubertooth-one-firmware-bin"
+cd "${targetdir}/firmware" || exit 1
 make clean
 make bluetooth_rxtx
-cp bluetooth_rxtx/bluetooth_rxtx.hex ${targetdir}/ubertooth-one-firmware-bin/
-cp bluetooth_rxtx/bluetooth_rxtx.bin ${targetdir}/ubertooth-one-firmware-bin/
-cp bluetooth_rxtx/bluetooth_rxtx.dfu ${targetdir}/ubertooth-one-firmware-bin/
+cp bluetooth_rxtx/bluetooth_rxtx.hex "${targetdir}/ubertooth-one-firmware-bin/"
+cp bluetooth_rxtx/bluetooth_rxtx.bin "${targetdir}/ubertooth-one-firmware-bin/"
+cp bluetooth_rxtx/bluetooth_rxtx.dfu "${targetdir}/ubertooth-one-firmware-bin/"
 make bootloader
-cp bootloader/bootloader.hex ${targetdir}/ubertooth-one-firmware-bin/
-cp bootloader/bootloader.bin ${targetdir}/ubertooth-one-firmware-bin/
+cp bootloader/bootloader.hex "${targetdir}/ubertooth-one-firmware-bin/"
+cp bootloader/bootloader.bin "${targetdir}/ubertooth-one-firmware-bin/"
 make assembly_test
-cp assembly_test/assembly_test.hex ${targetdir}/ubertooth-one-firmware-bin/
-cp assembly_test/assembly_test.bin ${targetdir}/ubertooth-one-firmware-bin/
+cp assembly_test/assembly_test.hex "${targetdir}/ubertooth-one-firmware-bin/"
+cp assembly_test/assembly_test.bin "${targetdir}/ubertooth-one-firmware-bin/"
 make clean
 
 # Receive Only firmware
 DISABLE_TX=1 make bluetooth_rxtx
-cp bluetooth_rxtx/bluetooth_rxtx.hex ${targetdir}/ubertooth-one-firmware-bin/bluetooth_rx_only.hex
-cp bluetooth_rxtx/bluetooth_rxtx.bin ${targetdir}/ubertooth-one-firmware-bin/bluetooth_rx_only.bin
-cp bluetooth_rxtx/bluetooth_rxtx.dfu ${targetdir}/ubertooth-one-firmware-bin/bluetooth_rx_only.dfu
+cp bluetooth_rxtx/bluetooth_rxtx.hex "${targetdir}/ubertooth-one-firmware-bin/bluetooth_rx_only.hex"
+cp bluetooth_rxtx/bluetooth_rxtx.bin "${targetdir}/ubertooth-one-firmware-bin/bluetooth_rx_only.bin"
+cp bluetooth_rxtx/bluetooth_rxtx.dfu "${targetdir}/ubertooth-one-firmware-bin/bluetooth_rx_only.dfu"
 make clean
 
 ############################
 # Clean up
 ############################
-cp ${targetdir}/tools/RELEASENOTES ${targetdir}/
-rm -rf ${targetdir}/tools
-rm -rf ${targetdir}/hardware
-rm ${targetdir}/.gitignore
-rm ${targetdir}/.travis.yml
+cp "${targetdir}/tools/RELEASENOTES" "${targetdir}/"
+rm -rf "${targetdir}/tools"
+rm -rf "${targetdir}/hardware"
+rm "${targetdir}/.gitignore"
+rm "${targetdir}/.travis.yml"
 
 ############################
 # Archive
 ############################
-cd ${top}
-tar -cJf ${releasename}.tar.xz ${releasename}/
+cd "${top}" || exit 1
+tar -cJf "${releasename}.tar.xz" "${releasename}/"
 
-sha256sum ${releasename}.tar.xz
-sha512sum ${releasename}.tar.xz
-
+sha256sum "${releasename}.tar.xz"
+sha512sum "${releasename}.tar.xz"

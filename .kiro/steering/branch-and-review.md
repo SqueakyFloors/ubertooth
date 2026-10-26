@@ -75,6 +75,8 @@ or non-trivial operational documentation changes:
   on every push to `main` but on a PR only when `install.sh` changes; the
   `Man pages` job the same way, when anything under `host/doc` changes. The
   weekly schedule, a published release, and a manual run run the full matrix.
+  `issue-references`, `libbtbb-pin` and the two `scripts` jobs run on both
+  tiers and need nothing built.
   A branch with no open PR gets no CI; open a PR (a draft is enough) to get a
   run.
 - Before cutting a release, run the full tier manually and wait for it:
@@ -100,9 +102,11 @@ Speed matters. Do not wait for every job.
   `host (ubuntu-24.04)` and `host (macos-26)` have passed and nothing has
   failed. Changes under `firmware/` also need both firmware jobs; changes to
   `install.sh` need both `install-sh` jobs; changes under `host/doc` need
-  `Man pages`. `issue-references` gates every change it runs on, whatever the
-  change touches: it takes seconds, and a red one means the change itself
-  broke the rule. A full-tier failure is followed up on `main`.
+  `Man pages`. `issue-references`, `libbtbb-pin`, `scripts (ubuntu-24.04)` and
+  `scripts (macos-26)` gate every change they run on, whatever the change
+  touches: they take seconds to a minute, need nothing built, and a red one
+  means the change itself broke the rule they check. A full-tier failure is
+  followed up on `main`.
 - **Time budget**: wait at most 10 minutes for the gating set once the run has
   started. Poll every 30 seconds (`gh pr checks <PR>`) rather than one long
   `--watch`, and merge as soon as the gating set is green. If jobs have not started after 5 minutes, say so and decide with the

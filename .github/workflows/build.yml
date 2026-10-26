@@ -49,6 +49,16 @@ env:
   # other files that write it out and fails until they agree.
   LIBBTBB_REPO: SqueakyFloors/libbtbb
   LIBBTBB_REF: b32cf5adde496548057fdf6ea7c852378ad7411a
+  # The ARM toolchain, named once so the step that fetches it, the step that
+  # resolves it for the cache key, and the Ubuntu 20.04 container below cannot
+  # drift apart. gcc-arm-none-eabi recommends a large set of packages none of
+  # this needs, so recommends are skipped and the two runtimes are named
+  # explicitly: newlib for every image, and the C++ one for firmware/
+  # bootloader, which is the only thing in the tree that links libstdc++.
+  # macOS needs no equivalent; the toolchain cask carries both.
+  ARM_PACKAGES: >-
+    dfu-util gcc-arm-none-eabi libnewlib-arm-none-eabi
+    libstdc++-arm-none-eabi-newlib
 
 jobs:
   host:
@@ -60,96 +70,14 @@ jobs:
         # one macOS runner.
         os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'release' || github.event_name == 'workflow_dispatch') && '["ubuntu-22.04","ubuntu-24.04","macos-14","macos-15","macos-26","ubuntu-latest"]' || '["ubuntu-24.04","macos-26"]') }}
     runs-on: ${{ matrix.os }}
-    # Above what the two bounded steps below can take together, plus the
-    # build and the tests, so a step that overruns fails itself and names what
-    # stalled rather than being cancelled along with the job.
-    timeout-minutes: 20
+    # Above the bounded install step below plus the build and the tests, so a
+    # step that overruns fails itself and names what stalled rather than being
+    # cancelled along with the job. The libbtbb pin check used to run here and
+    # wanted 4 of these minutes; it is its own job now.
+    timeout-minutes: 16
 
     steps:
     - uses: actions/checkout@v4
-
-    - name: Check the libbtbb pin
-      shell: bash
-      # It clones libbtbb, so it waits on the network like the install steps.
-      # 60 seconds an attempt caps the retries at 2 minutes 30, and the rest of
-      # the step is a few greps.
-      timeout-minutes: 4
-      # Two things have to hold for the pin: every file that writes it out
-      # agrees, and the commit is one a user can actually get.
-      run: |
-        status=0
-
-        # The pin above is written out again in every file that builds libbtbb
-        # or states which one this fork uses. Fail here, naming the file, rather
-        # than let one of them drift to another libbtbb.
-        for f in install.sh COMPATIBILITY.md \
-                 docs/source/build_guide.rst docs/source/building_from_git.rst; do
-          grep -q "$LIBBTBB_REF" "$f" || {
-            echo "error: $f does not name the pinned libbtbb commit $LIBBTBB_REF" >&2
-            status=1
-          }
-          grep -q "$LIBBTBB_REPO" "$f" || {
-            echo "error: $f does not name the pinned libbtbb repository $LIBBTBB_REPO" >&2
-            status=1
-          }
-        done
-
-        # Agreeing on a commit is not enough: it has to be a commit a clone
-        # can reach. GitHub keeps serving a pull request's head commit by its
-        # hash even after that branch is deleted, so the checkouts below would
-        # fetch it happily while every user following install.sh or a build
-        # guide -- git clone, then git checkout <commit> -- gets "unable to
-        # read tree". Clone the way they do and require the pin to be an
-        # ancestor of the default branch.
-        #
-        # The clone is removed inside the retried command, because an attempt
-        # that had to be killed leaves the directory behind and git refuses to
-        # clone into one that is not empty.
-        : "${RUNNER_TEMP:?}"
-        clone="$RUNNER_TEMP/libbtbb-pin.git"
-        # http.lowSpeedLimit makes git itself abandon a transfer that has
-        # slowed to a trickle for 30 seconds. It needs nothing installed, so
-        # unlike the retry limit it also applies on the macOS runners, which
-        # ship no timeout command.
-        tools/retry.sh 60 sh -c 'rm -rf "$1" && git -c http.lowSpeedLimit=1000 \
-          -c http.lowSpeedTime=30 clone --quiet --bare "$2" "$1"' \
-          clone-libbtbb "$clone" "https://github.com/$LIBBTBB_REPO"
-        branch=$(git -C "$clone" symbolic-ref --short HEAD)
-
-        # Requiring the default branch is stricter than a user needs, since a
-        # full clone brings down the other branches too. That is deliberate:
-        # install.sh and the guides promise a commit of the released library,
-        # not whatever a side branch holds today.
-        if ! git -C "$clone" merge-base --is-ancestor "$LIBBTBB_REF" "$branch" 2> /dev/null; then
-          echo "error: libbtbb commit $LIBBTBB_REF is not on $LIBBTBB_REPO's" >&2
-          echo "       $branch branch, so it is not a released commit. A" >&2
-          echo "       squash-merged pull request head whose branch is gone is" >&2
-          echo "       served to CI by its hash but is in nobody's clone, and a" >&2
-          echo "       side branch moves under users' feet." >&2
-          echo "       Pin a commit merged to $branch." >&2
-          status=1
-        fi
-
-        # So the assert above cannot pass by having stopped comparing, which
-        # is how the gap it closes went unnoticed in the first place. The
-        # control is a commit written here, which the clone therefore has while
-        # $branch does not contain it: refusing it needs a real ancestry
-        # comparison, where a commit named in this file would have been
-        # refused merely for being absent from a bare clone. Writing it rather
-        # than picking a side branch keeps the check from depending on what
-        # branches the libbtbb fork happens to carry.
-        control=$(GIT_AUTHOR_NAME=pin GIT_AUTHOR_EMAIL=pin@invalid \
-                  GIT_COMMITTER_NAME=pin GIT_COMMITTER_EMAIL=pin@invalid \
-                  git -C "$clone" commit-tree "$branch^{tree}" \
-                    -p "$branch" -m control < /dev/null)
-        if git -C "$clone" merge-base --is-ancestor "$control" "$branch" 2> /dev/null; then
-          echo "error: the check above accepted $control, which is not on" >&2
-          echo "       $branch, so it is no longer checking anything" >&2
-          status=1
-        fi
-        rm -rf "$clone"
-
-        exit $status
 
     - uses: actions/checkout@v4
       name: Fetch libbtbb
@@ -327,27 +255,72 @@ jobs:
         pip install PyYAML
       if: runner.os == 'macOS'
 
+    # Bounding the download reports a slow mirror instead of waiting for it,
+    # but it cannot make the download finish: measured here, the same 94 MB
+    # arrived in 8 seconds on a healthy mirror and at 0.06 MB a second on a
+    # bad one, which is half an hour. Keeping the .deb files between runs is
+    # the only thing that removes the download, so the two steps below do
+    # that and the fetch beneath them stays exactly as it was for the run
+    # that has to do it for real.
+    #
+    # The key is the set of files apt would fetch, not the package names.
+    # apt-get --print-uris resolves the names against the runner image's
+    # package index without downloading anything, so the key changes exactly
+    # when the files behind those names change: a point release of the
+    # compiler gets a new key, a cold download and a new cache, and CI goes
+    # on building with the toolchain the distribution ships today. That is
+    # what a pinned tarball from the vendor would have cost.
+    #
+    # No restore-keys: a near miss would hand apt an archive directory full
+    # of .deb files it no longer wants, which it does not clean up, so the
+    # saved cache would grow with every toolchain bump. A miss here is a
+    # cold run, which is what the bound and the retry below are for.
+    - name: Resolve the toolchain packages
+      id: toolchain
+      if: runner.os == 'Linux'
+      run: |
+        # Fields 2 to 4 are the file name, its size and its hash; field 1 is
+        # the mirror URL, left out so a run that is sent to a different
+        # mirror still matches the cache.
+        sudo apt-get install --print-uris -y --no-install-recommends -d \
+          $ARM_PACKAGES | sed -n "s/^'[^']*' //p" | sort > toolchain-uris
+        cat toolchain-uris
+        echo "key=$(cut -d' ' -f1-3 < toolchain-uris | sha256sum | cut -c1-16)" \
+          >> "$GITHUB_OUTPUT"
+        rm -f toolchain-uris
+
+    - name: Restore the toolchain packages
+      if: runner.os == 'Linux'
+      uses: actions/cache@v4
+      with:
+        path: ${{ runner.temp }}/apt-archives
+        key: arm-toolchain-${{ matrix.os }}-${{ steps.toolchain.outputs.key }}
+
     - name: Install dependencies (Ubuntu)
-      # This is the big one: 94 to 110 MB of toolchain, depending on the
-      # release. One attempt has to fetch all of it, since a killed apt keeps
-      # only what it had finished, so the limit is sized from the slowest
-      # mirror seen here: 0.4 MB a second, which is about four minutes. An
-      # attempt gets five. That is 10 minutes 30 seconds of retries at worst,
-      # and then the unpacking. A mirror slower than that is reported rather
-      # than waited on, which is the whole point.
+      # Sized for the run that finds nothing cached: 94 to 110 MB of
+      # toolchain, depending on the release. One attempt has to fetch all of
+      # it, since a killed apt keeps only the packages it had finished, so
+      # the limit comes from the slowest mirror seen here that still
+      # completed -- 0.4 MB a second, about four minutes. An attempt gets
+      # five. That is 10 minutes 30 seconds of retries at worst, and then the
+      # unpacking. A mirror slower than that is reported rather than waited
+      # on, which is the whole point.
       timeout-minutes: 12
       run: |
-        # gcc-arm-none-eabi recommends a large set of packages none of this
-        # needs, so skip recommends and name the two runtimes explicitly:
-        # newlib for every image, and the C++ one for firmware/bootloader,
-        # which is the only thing in the tree that links libstdc++. macOS
-        # needs no equivalent; the toolchain cask carries both.
-        packages="dfu-util gcc-arm-none-eabi libnewlib-arm-none-eabi \
-          libstdc++-arm-none-eabi-newlib"
-        apt_opts="-o Acquire::http::Timeout=30 -o Acquire::Retries=2"
+        archives="$RUNNER_TEMP/apt-archives"
+        # apt needs the partial directory to exist before it will fetch.
+        mkdir -p "$archives/partial"
+        # APT::Sandbox::User=root stops apt dropping to the _apt user for the
+        # download, which cannot read a directory under the runner's temp;
+        # without it apt warns and silently fetches as root anyway.
+        apt_opts="-o Acquire::http::Timeout=30 -o Acquire::Retries=2 \
+          -o Dir::Cache::archives=$archives -o APT::Sandbox::User=root"
         sudo tools/retry.sh 300 apt-get $apt_opts \
-          install -y --no-install-recommends -d $packages
-        sudo apt-get install -y --no-install-recommends $packages
+          install -y --no-install-recommends -d $ARM_PACKAGES
+        sudo apt-get $apt_opts install -y --no-install-recommends $ARM_PACKAGES
+        # apt wrote these as root; the cache is saved as the runner user.
+        sudo chown -R "$(id -u):$(id -g)" "$archives"
+        du -sh "$archives"
       if: runner.os == 'Linux'
 
     - name: Unit tests (host)
@@ -390,6 +363,127 @@ jobs:
           ${{github.workspace}}/firmware/*/*.bin
           ${{github.workspace}}/firmware/*/*.elf
         if-no-files-found: error
+
+  # The pinned libbtbb commit is checked on its own, not as part of a build:
+  # it needs nothing compiled, and it used to run once per entry of the host
+  # matrix, cloning libbtbb six times in a full-tier run for one answer. A bad
+  # pin now reports itself as a red check of its own rather than as a host
+  # build failure. The name of this job is in the gating set in
+  # .kiro/steering/branch-and-review.md; keep the two the same.
+  libbtbb-pin:
+    runs-on: ubuntu-24.04
+    # The clone is bounded to 60 seconds an attempt by tools/retry.sh below,
+    # so 2 minutes 30 at worst, and the rest is a few greps.
+    timeout-minutes: 6
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Check the libbtbb pin
+      shell: bash
+      # Two things have to hold for the pin: every file that writes it out
+      # agrees, and the commit is one a user can actually get.
+      run: |
+        status=0
+
+        # The pin above is written out again in every file that builds libbtbb
+        # or states which one this fork uses. Fail here, naming the file, rather
+        # than let one of them drift to another libbtbb.
+        for f in install.sh COMPATIBILITY.md \
+                 docs/source/build_guide.rst docs/source/building_from_git.rst; do
+          grep -q "$LIBBTBB_REF" "$f" || {
+            echo "error: $f does not name the pinned libbtbb commit $LIBBTBB_REF" >&2
+            status=1
+          }
+          grep -q "$LIBBTBB_REPO" "$f" || {
+            echo "error: $f does not name the pinned libbtbb repository $LIBBTBB_REPO" >&2
+            status=1
+          }
+        done
+
+        # Agreeing on a commit is not enough: it has to be a commit a clone
+        # can reach. GitHub keeps serving a pull request's head commit by its
+        # hash even after that branch is deleted, so the checkouts below would
+        # fetch it happily while every user following install.sh or a build
+        # guide -- git clone, then git checkout <commit> -- gets "unable to
+        # read tree". Clone the way they do and require the pin to be an
+        # ancestor of the default branch.
+        #
+        # The clone is removed inside the retried command, because an attempt
+        # that had to be killed leaves the directory behind and git refuses to
+        # clone into one that is not empty.
+        : "${RUNNER_TEMP:?}"
+        clone="$RUNNER_TEMP/libbtbb-pin.git"
+        # http.lowSpeedLimit makes git itself abandon a transfer that has
+        # slowed to a trickle for 30 seconds, so a stalled clone is git's own
+        # error well before the retry limit is near.
+        tools/retry.sh 60 sh -c 'rm -rf "$1" && git -c http.lowSpeedLimit=1000 \
+          -c http.lowSpeedTime=30 clone --quiet --bare "$2" "$1"' \
+          clone-libbtbb "$clone" "https://github.com/$LIBBTBB_REPO"
+        branch=$(git -C "$clone" symbolic-ref --short HEAD)
+
+        # Requiring the default branch is stricter than a user needs, since a
+        # full clone brings down the other branches too. That is deliberate:
+        # install.sh and the guides promise a commit of the released library,
+        # not whatever a side branch holds today.
+        if ! git -C "$clone" merge-base --is-ancestor "$LIBBTBB_REF" "$branch" 2> /dev/null; then
+          echo "error: libbtbb commit $LIBBTBB_REF is not on $LIBBTBB_REPO's" >&2
+          echo "       $branch branch, so it is not a released commit. A" >&2
+          echo "       squash-merged pull request head whose branch is gone is" >&2
+          echo "       served to CI by its hash but is in nobody's clone, and a" >&2
+          echo "       side branch moves under users' feet." >&2
+          echo "       Pin a commit merged to $branch." >&2
+          status=1
+        fi
+
+        # So the assert above cannot pass by having stopped comparing, which
+        # is how the gap it closes went unnoticed in the first place. The
+        # control is a commit written here, which the clone therefore has while
+        # $branch does not contain it: refusing it needs a real ancestry
+        # comparison, where a commit named in this file would have been
+        # refused merely for being absent from a bare clone. Writing it rather
+        # than picking a side branch keeps the check from depending on what
+        # branches the libbtbb fork happens to carry.
+        control=$(GIT_AUTHOR_NAME=pin GIT_AUTHOR_EMAIL=pin@invalid \
+                  GIT_COMMITTER_NAME=pin GIT_COMMITTER_EMAIL=pin@invalid \
+                  git -C "$clone" commit-tree "$branch^{tree}" \
+                    -p "$branch" -m control < /dev/null)
+        if git -C "$clone" merge-base --is-ancestor "$control" "$branch" 2> /dev/null; then
+          echo "error: the check above accepted $control, which is not on" >&2
+          echo "       $branch, so it is no longer checking anything" >&2
+          status=1
+        fi
+        rm -rf "$clone"
+
+        exit $status
+
+  # The scripts in tools/ are CI's own moving parts, and nothing used to lint
+  # or test them: a mistake in one surfaced as a confusing failure in whatever
+  # job happened to run it. Runs on both tiers, and on both platforms because
+  # retry.sh takes an unbounded fallback wherever there is no timeout command,
+  # which is every macOS runner and the one path nothing had ever run.
+  scripts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-26]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: shellcheck
+      # shellcheck is on GitHub's Ubuntu images already. Installing it on
+      # macOS as well would cost a brew install to check the same files
+      # twice, so the lint is the Linux leg's and the macOS leg is here for
+      # the self-test below.
+      if: runner.os == 'Linux'
+      run: shellcheck tools/*.sh install.sh
+
+    - name: Check that retry.sh bounds, retries and reports
+      # Not inline here, unlike the issue-reference check below, because the
+      # self-test is long enough to want linting itself and to be worth
+      # running by hand: it is one of the tools/*.sh the step above covers.
+      run: tools/retry-selftest.sh
 
   # Issue and pull request numbers must not appear in source, tests or build
   # files (.kiro/steering/branch-and-review.md). A reviewer who happens to know
@@ -442,22 +536,36 @@ jobs:
     # Full tier only.
     if: (github.event_name == 'schedule' || github.event_name == 'release' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
-    timeout-minutes: 14
+    # Above the bounded install step below plus the libbtbb and host builds.
+    timeout-minutes: 18
     container: ubuntu:20.04
     env:
       DEBIAN_FRONTEND: noninteractive
     steps:
-    - name: Install build prerequisites
-      # A bound of its own, so a stalled mirror fails a step that names it
-      # rather than the job. Bounding the attempts and retrying them, as the
-      # firmware jobs do, needs the checkout this one installs git for.
-      timeout-minutes: 8
-      run: |
-        apt-get update
-        apt-get install -y git cmake build-essential pkg-config \
-                           libfftw3-dev libusb-1.0-0-dev libbluetooth-dev python3
-
+    # Checked out first, so the install below can be bounded and retried by
+    # tools/retry.sh rather than only bounded. The container has no git yet,
+    # so actions/checkout fetches a tarball through the API instead of
+    # cloning; nothing in this job reads the history.
     - uses: actions/checkout@v4
+
+    - name: Install build prerequisites
+      # This list is far larger than the firmware job's -- build-essential
+      # alone pulls in the compiler and the C library headers -- so an
+      # attempt gets 240 seconds rather than that job's 120. That is 8
+      # minutes 20 of retries at worst, and then the install.
+      timeout-minutes: 10
+      run: |
+        packages="git cmake build-essential pkg-config libfftw3-dev \
+          libusb-1.0-0-dev libbluetooth-dev python3"
+        apt_opts="-o Acquire::http::Timeout=30 -o Acquire::Retries=2"
+        # Refreshing the index and fetching the packages is one unit to
+        # retry: an attempt that skipped the refresh would keep failing on
+        # whatever made the last one fail. The install that follows is not
+        # bounded, because a command killed while unpacking leaves dpkg
+        # half-done and no retry can repair that.
+        tools/retry.sh 240 sh -c \
+          "apt-get $apt_opts update && apt-get $apt_opts install -y -d $packages"
+        apt-get install -y $packages
 
     - uses: actions/checkout@v4
       name: Fetch libbtbb
@@ -538,11 +646,13 @@ jobs:
 
     - name: Install the ARM toolchain
       # The same toolchain as the hosted firmware job, so the same 300 seconds
-      # an attempt and the same 12 minutes for the step.
+      # an attempt and the same 12 minutes for the step. Not cached as that
+      # job's is: this one runs on the weekly schedule, and a cache goes
+      # unused for the same seven days after which GitHub evicts it, so the
+      # hit would be a coin toss.
       timeout-minutes: 12
       run: |
-        packages="make dfu-util gcc-arm-none-eabi libnewlib-arm-none-eabi \
-          libstdc++-arm-none-eabi-newlib"
+        packages="make $ARM_PACKAGES"
         apt_opts="-o Acquire::http::Timeout=30 -o Acquire::Retries=2"
         tools/retry.sh 300 apt-get $apt_opts \
           install -y --no-install-recommends -d $packages
@@ -572,18 +682,28 @@ jobs:
     # Full tier only.
     if: (github.event_name == 'schedule' || github.event_name == 'release' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
-    timeout-minutes: 14
+    # As in the Ubuntu 20.04 container above.
+    timeout-minutes: 18
     container: fedora:latest
     continue-on-error: ${{ github.event_name != 'schedule' }}
     steps:
-    - name: Install build prerequisites
-      # As in the Ubuntu 20.04 container above: a bound of its own.
-      timeout-minutes: 8
-      run: |
-        dnf -y install git cmake gcc gcc-c++ make pkgconf-pkg-config \
-                       fftw-devel libusb1-devel bluez-libs-devel python3
-
+    # Checked out first, for the reason given in the Ubuntu 20.04 job above.
     - uses: actions/checkout@v4
+
+    - name: Install build prerequisites
+      # The same 240 seconds an attempt as the Ubuntu 20.04 container, for
+      # the same reason: a long package list.
+      timeout-minutes: 10
+      run: |
+        packages="git cmake gcc gcc-c++ make pkgconf-pkg-config \
+          fftw-devel libusb1-devel bluez-libs-devel python3"
+        # dnf has no separate download command here, so the fetch is split
+        # off with --downloadonly and keepcache makes the install that
+        # follows local. Only the fetch is bounded: killing a download costs
+        # nothing, killing an rpm transaction leaves the database to repair.
+        tools/retry.sh 240 dnf -y --setopt=keepcache=1 install \
+          --downloadonly $packages
+        dnf -y --setopt=keepcache=1 install $packages
 
     - uses: actions/checkout@v4
       name: Fetch libbtbb
