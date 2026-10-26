@@ -97,6 +97,10 @@ static struct {
 	int closes;                     /* libusb_close() calls */
 	int exits;                      /* libusb_exit() calls */
 	pthread_t main_thread;
+	int clear_halts;                /* libusb_clear_halt() calls */
+	int clear_halt_at_submit;       /* bulk transfers submitted by then */
+	unsigned char clear_halt_ep;    /* the endpoint of the last one */
+	int refuse_clear_halt;          /* fail libusb_clear_halt() */
 } fake;
 
 /* The handle the receive loop under test is using, so the faked fifo can stop
@@ -199,6 +203,18 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle* devh,
 	if (data != NULL && wLength > 0)
 		memset(data, 0, wLength);
 	return wLength;
+}
+
+/* Clearing the halt feature is how a stream start empties the board's bulk IN
+ * endpoint, which can still hold packets from a capture that has ended. */
+int LIBUSB_CALL libusb_clear_halt(libusb_device_handle* devh,
+	unsigned char endpoint)
+{
+	(void)devh;
+	fake.clear_halts++;
+	fake.clear_halt_ep = endpoint;
+	fake.clear_halt_at_submit = fake.bulk_submits;
+	return fake.refuse_clear_halt ? LIBUSB_ERROR_PIPE : 0;
 }
 
 /* The record of a transfer the fake knows about, or NULL for one it does
@@ -1118,6 +1134,67 @@ MU_TEST(a_refused_re_arm_gives_the_transfer_back)
 	release_handle(ut);
 }
 
+/*
+ * A stream starts from an empty pipe. The board's bulk IN endpoint holds two
+ * packets in hardware, past the firmware's queue, so a capture that ended
+ * with packets this host never collected left one in each -- and they reached
+ * the next capture before its own mode had started. Clearing the halt feature
+ * discards them and resets the data toggle on both sides.
+ *
+ * It has to happen before the receive transfer is submitted, and before the
+ * mode request: after the request, the clear would take the caller's own first
+ * packets with it.
+ */
+MU_TEST(a_stream_clears_the_receive_pipe_before_it_reads)
+{
+	char err[256] = "";
+	ubertooth_t* ut;
+
+	reset();
+	ut = new_handle();
+	mu_assert(ut != NULL, "a handle");
+	if (ut == NULL)
+		return;
+
+	capture_output();
+	mu_assert_int_eq(0, ubertooth_bulk_init(ut));
+	release_output(err, sizeof(err));
+
+	mu_assert_int_eq(1, fake.clear_halts);
+	mu_assert_int_eq(DATA_IN, fake.clear_halt_ep);
+	mu_assert_int_eq(0, fake.clear_halt_at_submit);
+	mu_assert_int_eq(1, fake.bulk_submits);
+	mu_assert(err[0] == '\0', err);
+
+	release_handle(ut);
+}
+
+/* A board that refuses it is a warning on standard error, not a failure: the
+ * stream still works, it may just open with a packet or two from before. */
+MU_TEST(a_refused_pipe_clear_warns_and_still_streams)
+{
+	char err[256] = "";
+	ubertooth_t* ut;
+
+	reset();
+	fake.refuse_clear_halt = 1;
+	ut = new_handle();
+	mu_assert(ut != NULL, "a handle");
+	if (ut == NULL)
+		return;
+
+	capture_output();
+	mu_assert_int_eq(0, ubertooth_bulk_init(ut));
+	release_output(err, sizeof(err));
+
+	mu_assert_int_eq(1, fake.bulk_submits);
+	mu_assert(ut->rx_xfer != NULL, "a transfer in place");
+	mu_assert(strstr(err, "warning: could not clear the receive endpoint")
+	          != NULL, err);
+
+	release_handle(ut);
+}
+
 int main(void)
 {
 	/* Nothing here should look for a board; make sure of it. */
@@ -1138,6 +1215,8 @@ int main(void)
 	MU_RUN(a_completion_during_the_teardown_does_not_re_arm_the_transfer);
 	MU_RUN(a_packet_during_a_capture_re_arms_the_transfer);
 	MU_RUN(a_refused_re_arm_gives_the_transfer_back);
+	MU_RUN(a_stream_clears_the_receive_pipe_before_it_reads);
+	MU_RUN(a_refused_pipe_clear_warns_and_still_streams);
 	reset(); /* release the last case's transfer bodies */
 	return mu_report();
 }

@@ -71,10 +71,15 @@ struct scan {
 	int mode_assigns;     /* how many */
 	int first_case;       /* first `case MODE_...:` in the dispatch */
 	int cases;            /* how many */
+	int clear_call;       /* usb_queue_init() in main() */
+	int clear_calls;      /* how many */
+	int irq_hold;         /* usb_irq_hold() in the dispatch */
+	int irq_release;      /* usb_irq_release() in the dispatch */
 	int idle_fn;          /* where cc2400_idle() is defined */
 	int idle_fn_lines;    /* how many lines of it the scan read */
 	int idle_fn_mode;     /* `mode = ...` inside cc2400_idle() */
 	int idle_fn_request;  /* `requested_mode = ...` inside cc2400_idle() */
+	int idle_fn_clear;    /* usb_queue_init() inside cc2400_idle() */
 
 	/* The modes the dispatch runs by calling bt_stream_rx(), and the
 	 * condition of the loop that is meant to run them. Room for more modes
@@ -198,6 +203,9 @@ static int scan_source(const char *path, struct scan *s)
 			if (is_assignment_to(line, "requested_mode") &&
 			    s->idle_fn_request == 0)
 				s->idle_fn_request = lineno;
+			if (strstr(line, "usb_queue_init(") != NULL &&
+			    s->idle_fn_clear == 0)
+				s->idle_fn_clear = lineno;
 			/* a closing brace in column 1 ends the function */
 			if (line[0] == '}')
 				in_idle_fn = 0;
@@ -218,6 +226,15 @@ static int scan_source(const char *path, struct scan *s)
 			if (s->idle_call == 0)
 				s->idle_call = lineno;
 		}
+		if (strstr(line, "usb_queue_init(") != NULL) {
+			s->clear_calls++;
+			if (s->clear_call == 0)
+				s->clear_call = lineno;
+		}
+		if (strstr(line, "usb_irq_hold(") != NULL && s->irq_hold == 0)
+			s->irq_hold = lineno;
+		if (strstr(line, "usb_irq_release(") != NULL && s->irq_release == 0)
+			s->irq_release = lineno;
 		if (is_assignment_to(line, "mode")) {
 			s->mode_assigns++;
 			if (s->mode_assign == 0)
@@ -321,6 +338,65 @@ MU_TEST(test_leaving_a_mode_idles_once_first)
 	         path, s.idle_call, s.mode_assign);
 	mu_assert(s.idle_call > 0 && s.mode_assign > 0 &&
 	          s.idle_call < s.mode_assign, msg);
+}
+
+/*
+ * Leaving a mode also drops what that mode had queued for the host. The queue
+ * was only ever cleared when a mode started, so packets from a capture that
+ * had ended were handed to whoever read the endpoint next, before that
+ * reader's own mode had started.
+ */
+MU_TEST(test_leaving_a_mode_drops_what_it_queued)
+{
+	char msg[512];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the dispatch loop calls usb_queue_init() %d times; it "
+	         "calls it once, on the way out of whatever mode was running",
+	         path, s.clear_calls);
+	mu_assert(s.clear_calls == 1, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: usb_queue_init() is called at or after the `mode =` at "
+	         "line %d, so the old mode's packets would be dropped after the "
+	         "new mode was already recorded", path, s.clear_call,
+	         s.mode_assign);
+	mu_assert(s.clear_call > 0 && s.mode_assign > 0 &&
+	          s.clear_call < s.mode_assign, msg);
+}
+
+/*
+ * The queue is also read from the USB interrupt, by the poll request, so the
+ * clear is held off against it. Every interrupt-driven mode disables that
+ * interrupt before it returns, which is why nothing races this today; the
+ * hold makes it a property of the dispatch instead.
+ */
+MU_TEST(test_the_queue_clear_holds_the_usb_interrupt_off)
+{
+	char msg[512];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the dispatch clears the queue at line %d, outside a "
+	         "usb_irq_hold() (%d) / usb_irq_release() (%d) pair",
+	         path, s.clear_call, s.irq_hold, s.irq_release);
+	mu_assert(s.irq_hold > 0 && s.irq_release > 0 && s.clear_call > 0 &&
+	          s.irq_hold < s.clear_call && s.clear_call < s.irq_release, msg);
+}
+
+/*
+ * ...and the drop belongs to the dispatch, not to cc2400_idle(). That reset
+ * runs at boot, and bt_generic_le() and bt_le_sync() call it in the middle of
+ * a mode, so reaching it does not mean a capture has ended.
+ */
+MU_TEST(test_cc2400_idle_does_not_drop_queued_packets)
+{
+	char msg[512];
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: cc2400_idle() drops the queue, but it also runs at boot "
+	         "and from inside a mode, so the drop would not mean a capture "
+	         "had ended", path, s.idle_fn_clear);
+	mu_assert(s.idle_fn_clear == 0, msg);
 }
 
 /*
@@ -439,7 +515,10 @@ int main(void)
 	MU_RUN(test_mode_is_recorded_once);
 	MU_RUN(test_mode_is_recorded_before_the_cases);
 	MU_RUN(test_leaving_a_mode_idles_once_first);
+	MU_RUN(test_leaving_a_mode_drops_what_it_queued);
+	MU_RUN(test_the_queue_clear_holds_the_usb_interrupt_off);
 	MU_RUN(test_cc2400_idle_does_not_choose_the_mode);
+	MU_RUN(test_cc2400_idle_does_not_drop_queued_packets);
 	MU_RUN(test_the_stream_loop_runs_every_mode_dispatched_to_it);
 	MU_RUN(test_the_stream_loop_keeps_the_indirect_mode_apart);
 	return mu_report();

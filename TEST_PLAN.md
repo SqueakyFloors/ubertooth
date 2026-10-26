@@ -40,7 +40,7 @@ Hardware required: Ubertooth One, Linux machine (Ubuntu 22.04+ preferred), a BLE
 
 ### 2a. Firmware version check
 - [ ] Run `ubertooth-util -v`
-- [ ] Confirm: returns `Firmware version: <revision> (API:1.21)` (firmware
+- [ ] Confirm: returns `Firmware version: <revision> (API:1.22)` (firmware
       built from this tree; the host tools refuse any other API version)
 - [ ] Confirm: no `usb_claim_interface` errors
 - [ ] Confirm: no timeout errors
@@ -156,6 +156,16 @@ write a bootloader.*
 - [ ] Repeat the other way round (`-x` then `-q 120`), then `-S`, then
       `-d -C -z`
 - [ ] Confirm: LEDs 0 0 0, channel 2441 MHz, squelch -120
+
+### 4g. A new capture holds only its own packets
+- [ ] Run `ubertooth-btle -n -A37` for about 3 s and stop it with Ctrl+C
+- [ ] Run `ubertooth-util -S`
+- [ ] Run `ubertooth-dump -d dump.bin` for about 2 s and stop it with Ctrl+C
+- [ ] Read byte 4 (`pkt_type`) of each 68-byte record in `dump.bin`
+- [ ] Confirm: every record is 0 (`BR_PACKET`) — no 1 (`LE_PACKET`) left by
+      the BLE capture and no 3 (`KEEP_ALIVE`) at the head
+- [ ] Repeat about ten times: it used to show two `LE_PACKET` records at the
+      head roughly one run in three
 
 ---
 

@@ -135,6 +135,16 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle* devh,
 	return wLength;
 }
 
+/* The stream clears the receive pipe before it reads; nothing here depends on
+ * it, but the real call would reach a device this test does not have. */
+int LIBUSB_CALL libusb_clear_halt(libusb_device_handle* devh,
+	unsigned char endpoint)
+{
+	(void)devh;
+	(void)endpoint;
+	return 0;
+}
+
 struct libusb_transfer* LIBUSB_CALL libusb_alloc_transfer(int iso_packets)
 {
 	return calloc(1, sizeof(struct libusb_transfer)

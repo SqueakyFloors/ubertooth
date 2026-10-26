@@ -720,6 +720,38 @@ int ubertooth_bulk_init(ubertooth_t* ut)
 		return -1;
 	}
 
+	/*
+	 * Start from an empty pipe. The board's bulk IN endpoint has two
+	 * hardware buffers, and a capture that ended with packets this host
+	 * never collected leaves one in each: they are past the firmware's
+	 * queue, so the board cannot drop them when the mode stops, and they
+	 * were delivered to the next reader before its own mode had started -- a
+	 * basic-rate dump taken after a BLE capture began with two low-energy
+	 * packets.
+	 *
+	 * Clearing the halt feature is what discards them, even though the
+	 * endpoint is not halted. The request reaches the board's USB controller
+	 * as "write zero to the endpoint's stall bit", and the LPC17xx
+	 * re-initializes an endpoint on that write whether or not it was stalled
+	 * (user manual UM10360, Set Endpoint Status, bit ST): the buffers are
+	 * flushed and an IN endpoint writes a DATA0 PID next. libusb puts this
+	 * host's toggle back to DATA0 to match, so the two stay in step.
+	 *
+	 * Doing it before the mode request is what keeps it from discarding
+	 * anything the caller wants: nothing has been asked for yet. It does not
+	 * close the window on a board still running a mode somebody else
+	 * started, whose loop can hand the endpoint another packet between this
+	 * and the mode request. A tool that exits normally sends STOP, so the
+	 * board this runs against is idle and has already dropped its queue.
+	 *
+	 * A board that refuses it is worth a word but not a failure: the stream
+	 * works, it may just open with a packet or two from before.
+	 */
+	r = libusb_clear_halt(ut->devh, DATA_IN);
+	if (r < 0)
+		fprintf(stderr, "warning: could not clear the receive endpoint "
+		        "(%d); the capture may start with packets from before\n", r);
+
 	ut->rx_xfer = libusb_alloc_transfer(0);
 	if (ut->rx_xfer == NULL) {
 		fprintf(stderr, "error: allocating the receive transfer failed\n");
