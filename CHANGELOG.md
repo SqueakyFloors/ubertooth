@@ -205,8 +205,8 @@
   of it. Replaying a capture file recorded before this skips such records.
   [#435](https://github.com/SqueakyFloors/ubertooth/issues/435)
 - The two-board range test exchanges packets at last: `ubertooth-util -n`
-  against a `-e` repeater gets a reply in under a second where it previously
-  never got one, in either direction. Neither mode held the radio's receive
+  against a `-e` repeater gets a reply within a couple of seconds where it
+  previously never got one, in either direction. Neither mode held the radio's receive
   gain amplifier out of reset, so both receivers reported a strong signal and
   never a sync word; the repeater answered before the sender had finished
   transmitting, because its delay was a loop the compiler deleted; and it
