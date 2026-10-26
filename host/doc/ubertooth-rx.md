@@ -181,6 +181,14 @@ clock's 327.68 s period: a quiet gap lost a clock wrap, or the host clock was
 stepped forwards`. Both causes look the same from here, which is why the
 message names each.
 
+Files recorded with older firmware can replay with the wrong times. Firmware
+from before this fork's first release, 2020-12-R1+modern1, and upstream
+firmware up to 2020-12-R1, could begin a capture with a record left over from
+the mode before it, holding that mode's clock reading. A replay anchors on the
+first record, so a file like that comes out with every time after it 327.68 s
+late. Nothing here can tell such a record apart from a real one, so record
+again with current firmware rather than trying to correct the times.
+
 A replay that reaches the end of the file exits 0, including for an empty
 file. These two are reported on standard error and exit 1, after whatever
 was decoded:
