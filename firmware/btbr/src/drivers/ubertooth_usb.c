@@ -348,13 +348,15 @@ void usb_send_sync(void *buf, int size)
 	 * its message if there is not, rather than starting a second wait. One
 	 * bound is then the whole wait, however the firmware got here. */
 	static volatile unsigned depth = 0;
-	/* Set once a wait has given up, cleared by the next message that gets
-	 * through. The caller is usually printing a run of lines -- the fault
-	 * handler dumps the stack 16 bytes at a time -- and a host that did not
-	 * read the first line will not read the rest, so without this each line
-	 * pays the full bound and a dump costs seconds with interrupts masked.
-	 * Once it is set, a message is sent if there is room and dropped if
-	 * there is not. */
+	/* Set once a wait has run the whole bound and given up, cleared by the
+	 * next message that gets through. The caller is usually printing a run
+	 * of lines -- the fault handler dumps the stack 16 bytes at a time --
+	 * and a host that did not read the first line will not read the rest, so
+	 * without this each line pays the full bound and a dump costs seconds
+	 * with interrupts masked. Once it is set, a message is sent if there is
+	 * room and dropped if there is not; the rest of such a run is not a
+	 * chance to service USB, since nothing polls the interrupt on the way
+	 * through. */
 	static volatile unsigned host_stalled = 0;
 	unsigned polls, i;
 	u8 epstat;
@@ -389,7 +391,12 @@ void usb_send_sync(void *buf, int size)
 			break;
 		if (i+1 >= polls) {
 			usb_send_drops++;
-			host_stalled = 1;
+			/* Only a call that ran the whole bound has learnt
+			 * anything about the host. A call that skipped the wait
+			 * may be looking at a packet the call below it has just
+			 * written, with a host that is reading perfectly well. */
+			if (polls == USB_SEND_SYNC_POLLS)
+				host_stalled = 1;
 			goto end;
 		}
 		/* polled "interrupt" */

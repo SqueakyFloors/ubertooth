@@ -56,10 +56,15 @@ static inline u32 usb_irq_hold(void)
 		 * after the mask -- inside the section being protected. le_phy.c
 		 * works around the same thing for the DMA line with a flag. They
 		 * are ARM instructions, and the host unit tests compile this
-		 * header, where there is no interrupt to order against. */
+		 * header, where there is no interrupt to order against -- those
+		 * define FW_HOST_TEST. Any other build without them is a mistake,
+		 * and silently dropping them would leave the hold unsynchronised
+		 * with nothing to show for it. */
 #ifdef __arm__
 		__asm__ volatile ("dsb" ::: "memory");
 		__asm__ volatile ("isb" ::: "memory");
+#elif !defined(FW_HOST_TEST)
+#error "usb_irq_hold() needs the memory barriers on this target"
 #endif
 	}
 

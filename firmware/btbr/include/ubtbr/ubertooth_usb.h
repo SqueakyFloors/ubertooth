@@ -78,13 +78,19 @@ typedef int (VendorRequestHandler)(u8 request, u16 *request_params, u8 *data,
 
 /* Passes before usb_send_sync() gives up on the host reading.
  *
- * Each pass asks the controller for the endpoint status, and every pass but
- * the last also polls the USB interrupt, so call it a few microseconds: 20000
- * passes is on the order of a tenth of a second. A host that is reading drains
- * a 64-byte bulk packet within a frame or two of 1 ms, so the bound is far
- * beyond the normal case, and a host that is not reading never drains it at
- * all. The margin has not been measured on hardware; usb_send_drops is what
- * shows the bound being hit, under a debugger. */
+ * The bound is a number of passes, not a time. Each pass asks the controller
+ * for the endpoint status, and every pass but the last also polls the USB
+ * interrupt, which is what the pass costs: a few microseconds when there is
+ * nothing to do, more when there is -- a host that writes bulk while not
+ * reading it has every pass read a packet and allocate for it. So 20000
+ * passes is on the order of a tenth of a second at best and some multiple of
+ * that at worst, rather than a ceiling.
+ *
+ * A host that is reading drains a 64-byte bulk packet within a frame or two
+ * of 1 ms, so the bound is far beyond the normal case, and a host that is not
+ * reading never drains it at all. The margin has not been measured on
+ * hardware; usb_send_drops is what shows the bound being hit, under a
+ * debugger. */
 #define USB_SEND_SYNC_POLLS 20000
 
 /* Debug messages dropped because the host never freed a bulk IN buffer.

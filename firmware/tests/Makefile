@@ -190,7 +190,8 @@ $(BINDIR)/test_btbr_usb_send: test_btbr_usb_send.c minunit.h \
 # usb_bulk_out_handler() takes the arguments the stack's endpoint callback
 # passes and uses neither, which is not what this tests.
 	$(CC) $(CFLAGS) -Istubs-btbr-usb -Istubs-btbr -I$(FW_BTBR)/include \
-		-I$(FW_LPCUSB) -I$(FW_COMMON) $(CPPFLAGS) -Wno-unused-parameter \
+		-I$(FW_LPCUSB) -I$(FW_COMMON) $(CPPFLAGS) -DFW_HOST_TEST \
+		-Wno-unused-parameter \
 		-o $@ test_btbr_usb_send.c \
 		$(FW_BTBR)/src/drivers/ubertooth_usb.c $(FW_BTBR)/src/util/queue.c
 
