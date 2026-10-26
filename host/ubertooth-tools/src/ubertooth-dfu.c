@@ -1250,6 +1250,20 @@ static int plan_upload(struct dfu_runtime_context *runtime)
 #define FUNC_SIGN     (1<<2)
 #define FUNC_RESET    (1<<3)
 
+/* How a claim failure names the board: by the -U string, which is all this
+ * tool knows about it. NULL without one, which the reporter reads as "the
+ * Ubertooth". The result lives in a static buffer, so it is printed straight
+ * away. */
+static const char* dfu_board_label(const char* selector)
+{
+	static char label[64];
+
+	if (selector == NULL || selector[0] == '\0')
+		return NULL;
+	snprintf(label, sizeof(label), "Ubertooth %s", selector);
+	return label;
+}
+
 int main(int argc, char **argv) {
 	FILE* downfile = NULL;
 	FILE* upfile = NULL;
@@ -1571,8 +1585,10 @@ int main(int argc, char **argv) {
 
 	r = libusb_claim_interface(devh, 0);
 	if (r < 0) {
-		fprintf(stderr, "usb_claim_interface error %d\n", r);
-		fprintf(stderr, "Correct permissions to access Ubertooth?\n");
+		/* The board opened, so this is not the permissions problem this used
+		 * to blame: something else holds the interface. Named by the -U
+		 * string when there was one, as the library's own paths do. */
+		ubertooth_report_claim_failed(dfu_board_label(ubertooth_device), r);
 		exit_status = 1;
 		goto cleanup;
 	}
@@ -1717,9 +1733,13 @@ cleanup:
 	 * for a reset, so detach before closing the handle. The success path has
 	 * already detached and cleared devh. A failed programming transfer closes
 	 * the DFU handle on its way out, so reopen the device on the same path
-	 * first; if DFU never answered at all there is nothing to detach. */
+	 * first; if DFU never answered at all there is nothing to detach.
+	 *
+	 * A board this run never claimed is left alone: something else has it,
+	 * and a detach is a reset aimed at whatever that is doing. */
 	if (exit_status != 0 && (functions & FUNC_RESET) &&
-	    selected_identity.port_count != 0) {
+	    selected_identity.port_count != 0 &&
+	    (devh == NULL || interface_claimed)) {
 		if (devh == NULL)
 			reopen_dfu_for_detach(&runtime, &selected_identity, &devh,
 			                      &interface_claimed);

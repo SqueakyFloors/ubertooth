@@ -33,6 +33,26 @@ void show_libusb_error(int error_code)
 	char *error_hint = "";
 	const char *error_name;
 
+	/* The two failures that say something about the board rather than about
+	 * the USB transport get plain words of their own, as one self-contained
+	 * line each, with the code kept in parentheses for bug reports. That is
+	 * all they say: this is the sink for every request the library makes, so
+	 * what a silent board means differs by caller -- a board still running a
+	 * mode, for a first read; a bootloader that lost its place, mid-flash --
+	 * and a cause guessed here would be wrong as often as right. The callers
+	 * that know add it, as the serial scan does. Nothing here knows which
+	 * board the request went to either, so these do not name one. */
+	if (error_code == LIBUSB_ERROR_TIMEOUT) {
+		fprintf(stderr, "error: the Ubertooth did not answer in time "
+		        "(libusb %d)\n", error_code);
+		return;
+	}
+	if (error_code == LIBUSB_ERROR_BUSY) {
+		fprintf(stderr, "error: the Ubertooth is in use by another program "
+		        "(libusb %d)\n", error_code);
+		return;
+	}
+
 	/* Available only in libusb > 1.0.3 */
 	// error_name = libusb_error_name(error_code);
 
@@ -40,9 +60,8 @@ void show_libusb_error(int error_code)
 	error_name = libusb_strerror(error_code);
 #else
 	switch (error_code) {
-		case LIBUSB_ERROR_TIMEOUT:
-			error_name="Timeout";
-			break;
+		/* No LIBUSB_ERROR_TIMEOUT case: it is reported above, before this
+		 * naming is reached. */
 		case LIBUSB_ERROR_NO_DEVICE:
 			error_name="No Device";
 			error_hint="Check Ubertooth is connected to host";

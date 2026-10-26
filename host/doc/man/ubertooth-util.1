@@ -356,7 +356,7 @@ That includes the progress lines for the operations that do something rather tha
 .P
 Each operation says what it did once\. \fB\-I\fR reports the blink only through \fBnote: the board is blinking; stop it with ubertooth\-util [\-U <selector>] \-S or any mode option\fR, naming the selector so the command can be pasted; there is no separate line announcing the LEDs\. Setting the squelch with \fB\-z <n>\fR prints nothing, as \fB\-a\fR, \fB\-c\fR, \fB\-C\fR, \fB\-d\fR and \fB\-l\fR do not: the value \fB\-z\fR reads back afterwards (\fBSquelch set to <n>\fR) is the result and goes to standard output\. A set that fails is still reported, on standard error, and the command exits 1\. \fB\-x\fR has never had a line of its own\.
 .P
-The errors this tool prints itself are one line starting \fBerror:\fR; its warnings and notes start \fBwarning:\fR and \fBnote:\fR\. One kind of line does not follow that yet: libubertooth's own messages, such as \fBcould not open Ubertooth device\fR\.
+The errors this tool prints itself are one line starting \fBerror:\fR; its warnings and notes start \fBwarning:\fR and \fBnote:\fR\. Some lines from elsewhere do not follow that yet: the unknown\-option line from the option parser, and the libubertooth messages that have not been converted, such as \fBcould not open Ubertooth device\fR\. Those that have carry the prefix, for example \fBerror: Ubertooth <serial> is in use by another program (libusb \-3)\fR; see ubertooth(7), WHEN A BOARD CANNOT BE USED\.
 .SH "SEE ALSO"
 ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how option values are written
 .SH "AUTHOR"

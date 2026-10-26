@@ -505,9 +505,12 @@ standard output. A set that fails is still reported, on standard error, and
 the command exits 1. `-x` has never had a line of its own.
 
 The errors this tool prints itself are one line starting `error: `; its
-warnings and notes start `warning: ` and `note: `. One kind of line does not
-follow that yet: libubertooth's own messages, such as
-`could not open Ubertooth device`.
+warnings and notes start `warning: ` and `note: `. Some lines from elsewhere
+do not follow that yet: the unknown-option line from the option parser, and
+the libubertooth messages that have not been converted, such as `could not
+open Ubertooth device`. Those that have carry the prefix, for example
+`error: Ubertooth <serial> is in use by another program (libusb -3)`; see
+ubertooth(7), WHEN A BOARD CANNOT BE USED.
 
 ## SEE ALSO
 

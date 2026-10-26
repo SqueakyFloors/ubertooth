@@ -72,6 +72,56 @@ selects neither. An all-digits string is read as an index, so include a
 non-digit (`-U 05f` rather than `-U 05`). See ubertooth-util(1), SELECTING A
 DEVICE, for the full description and for listing the attached devices.
 
+## WHEN A BOARD CANNOT BE USED
+
+A board can be attached and still be unavailable, because only one program at
+a time can use it and because a mode keeps running on the board until it is
+stopped. Both cases are reported in words, with the libusb code in parentheses
+for a bug report.
+
+The board opened, and then something else turned out to be holding it:
+
+    error: Ubertooth 05f00014e380df95f4436562c32000f5 is in use by another program (libusb -3)
+
+That is another tool from this package, a graphical specan, or anything else
+holding its USB interface; on Linux it may be a kernel driver. Stop that
+program and run the command again. Which libusb code says so depends on the
+system, which is why the message does not depend on it. Nothing is sent to the
+board on this path, so the command does not disturb whatever is using it.
+
+With one board attached and no `-U`, there is no name to use, and a `-U
+<index>` run has only the index:
+
+    error: the Ubertooth is in use by another program (libusb -6)
+    error: Ubertooth at index 1 is in use by another program (libusb -3)
+
+The board took the request and sent nothing back:
+
+    error: the Ubertooth did not answer in time (libusb -7)
+
+A board that has stopped answering control requests does this: it happens
+after some captures end, and a board left in a mode that keeps polling can do
+it too. Try `ubertooth-util [-U <selector>] -S` to stop a mode and
+`ubertooth-util -r` to reset the board; a board that answers neither has to be
+unplugged and plugged in again, or its hub port power-cycled. The line says
+only what happened, because what it means depends on what the command was
+doing: mid-flash, for instance, it is a bootloader that lost its place, and no
+mode is involved.
+
+A serial-number selector names the reason, because a board it could not read
+may be the board asked for:
+
+    no Ubertooth found with serial matching '1cc'
+    1 attached Ubertooth device did not answer the serial read
+    note: a board that does not answer may be in use by another program, or busy in a mode; stop a mode with ubertooth-util -U <index> -S
+
+The remedy is by index there because a board whose serial could not be read
+cannot be selected by serial.
+
+A board that cannot be *opened* at all is a different problem, usually file
+permissions: on Linux, install the udev rules shipped with this package (see
+ubertooth-util(1), SELECTING A DEVICE).
+
 ## OUTPUT AND DIAGNOSTICS
 
 This is the split the tools are being brought to, tool by tool. Each tool's

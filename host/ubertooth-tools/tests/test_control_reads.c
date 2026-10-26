@@ -278,14 +278,16 @@ MU_TEST(the_quiet_set_forms_report_nothing)
 	mu_assert(strcmp(text, "error: Bluetooth address write failed: "
 	    "board took 8 of 16 bytes\n") == 0, text);
 
-	/* Unchanged for the reporting form. */
+	/* The reporting form still prints its own line for each. */
 	script(LIBUSB_ERROR_PIPE, 0);
 	run_captured(set_channel, text, sizeof(text));
 	mu_assert(strcmp(text, "error: control message unsupported\n") == 0, text);
 
 	script(LIBUSB_ERROR_TIMEOUT, 0);
 	run_captured(set_channel, text, sizeof(text));
-	mu_assert(strstr(text, "libUSB Error") != NULL, text);
+	mu_assert(strcmp(text,
+	    "error: the Ubertooth did not answer in time (libusb -7)\n") == 0,
+	    text);
 
 	/* A request the board took says nothing either way. */
 	script(0, 0);
@@ -418,6 +420,50 @@ MU_TEST(no_read_writes_to_standard_output)
 	mu_assert(strstr(err, "error: serial read failed") != NULL, err);
 }
 
+/* A read that times out is a board that did not answer. Say that, in one
+ * line, instead of "libUSB Error: Operation timed out:  (-7)", and keep the
+ * code for bug reports. What a silent board means depends on the caller, so
+ * this does not guess; the paths that know add it. On standard error, with
+ * nothing on standard output. (The other code with wording of its own,
+ * LIBUSB_ERROR_BUSY, is not something a control transfer returns; it is
+ * pinned on the open path, in test_device_select.c.) */
+MU_TEST(a_board_that_does_not_answer_is_reported_in_words)
+{
+	char out[512], err[1024];
+
+	if (!capture_both()) {
+		mu_assert(0, "could not capture both streams");
+		return;
+	}
+	script(LIBUSB_ERROR_TIMEOUT, 0);
+	mu_assert_int_eq(LIBUSB_ERROR_TIMEOUT, cmd_get_squelch(NULL));
+	release_both(out, sizeof(out), err, sizeof(err));
+
+	mu_assert(out[0] == '\0', out);
+	mu_assert(strcmp(err,
+	    "error: the Ubertooth did not answer in time (libusb -7)\n") == 0,
+	    err);
+}
+
+/* Every other code still goes through the libusb naming, so the plain wording
+ * above is not put on causes it does not fit. */
+MU_TEST(other_libusb_errors_keep_their_own_report)
+{
+	char out[512], err[1024];
+
+	if (!capture_both()) {
+		mu_assert(0, "could not capture both streams");
+		return;
+	}
+	script(LIBUSB_ERROR_PIPE, 0);
+	mu_assert_int_eq(LIBUSB_ERROR_PIPE, cmd_get_squelch(NULL));
+	release_both(out, sizeof(out), err, sizeof(err));
+
+	mu_assert(out[0] == '\0', out);
+	mu_assert(strstr(err, "libUSB Error") != NULL, err);
+	mu_assert(strstr(err, "in use by another program") == NULL, err);
+}
+
 int main(void)
 {
 	MU_RUN(one_byte_reads_return_the_byte_for_a_full_reply);
@@ -431,5 +477,7 @@ int main(void)
 	MU_RUN(four_and_two_byte_reads_need_their_full_length);
 	MU_RUN(read_access_address_returns_errors_separately);
 	MU_RUN(no_read_writes_to_standard_output);
+	MU_RUN(a_board_that_does_not_answer_is_reported_in_words);
+	MU_RUN(other_libusb_errors_keep_their_own_report);
 	return mu_report();
 }

@@ -286,8 +286,12 @@ static struct libusb_device_handle* find_ubertooth_device_opt(int ubertooth_devi
 			libusb_get_device_descriptor(usb_list[ubertooth_devs[i]], &desc);
 			ret = libusb_open(usb_list[ubertooth_devs[i]], &devh);
 			if (ret) {
-				fprintf(stderr, "  Device %d: ", i);
-				show_libusb_error(ret);
+				/* Self-contained, because show_libusb_error() now reports
+				 * some codes as a whole line of their own, and libusb's own
+				 * naming is the useful part here: the usual cause of an open
+				 * that fails is missing permissions. */
+				fprintf(stderr, "  Device %d: could not be opened: %s "
+				        "(libusb %d)\n", i, libusb_strerror(ret), ret);
 			}
 			else {
 				sr = cmd_get_serial(devh, serial);
@@ -312,6 +316,37 @@ static struct libusb_device_handle* find_ubertooth_device_opt(int ubertooth_devi
 static struct libusb_device_handle* find_ubertooth_device(int ubertooth_device)
 {
 	return find_ubertooth_device_opt(ubertooth_device, 0);
+}
+
+/* How a message names the board a selection is working on: by serial, by
+ * index, or not at all when neither is known. Normally the whole serial of the
+ * board that matched; a longer string is truncated rather than refused, which
+ * only a caller passing a raw -U argument could reach. The result lives in one
+ * static buffer, so it is printed straight away and not held across another
+ * call to this. */
+static const char* board_label(const char* serial, int index)
+{
+	static char label[sizeof("Ubertooth ") + UBERTOOTH_SERIAL_STR_LEN];
+
+	if (serial != NULL && serial[0] != '\0')
+		snprintf(label, sizeof(label), "Ubertooth %s", serial);
+	else if (index >= 0)
+		snprintf(label, sizeof(label), "Ubertooth at index %d", index);
+	else
+		snprintf(label, sizeof(label), "the Ubertooth");
+	return label;
+}
+
+void ubertooth_report_claim_failed(const char* board, int err)
+{
+	if (board == NULL)
+		board = "the Ubertooth";
+	if (err == LIBUSB_ERROR_BUSY || err == LIBUSB_ERROR_ACCESS)
+		fprintf(stderr, "error: %s is in use by another program "
+		        "(libusb %d)\n", board, err);
+	else
+		fprintf(stderr, "error: claiming the USB interface of %s failed "
+		        "(libusb %d)\n", board, err);
 }
 
 /* Documented with the declaration in ubertooth.h. */
@@ -362,9 +397,18 @@ static void report_unscanned(int unopened, int open_err, int unread)
 		if (open_err)
 			show_libusb_error(open_err);
 	}
-	if (unread)
+	if (unread) {
 		fprintf(stderr, "%d attached Ubertooth device%s did not answer the "
 		        "serial read\n", unread, unread == 1 ? "" : "s");
+		/* The count alone does not say why, and the string the user gave may
+		 * well be the serial of one of those boards. This runs once per
+		 * command, at the end of the scan, so the note is not repeated. The
+		 * remedy is given by index, because a board whose serial could not
+		 * be read cannot be selected by serial; the index path reads none. */
+		fprintf(stderr, "note: a board that does not answer may be in use by "
+		        "another program, or busy in a mode; stop a mode with "
+		        "ubertooth-util -U <index> -S\n");
+	}
 }
 
 /* Find an Ubertooth by serial-number string (hex, as printed by -s), matched
@@ -372,7 +416,7 @@ static void report_unscanned(int unopened, int open_err, int unread)
  * a string that matches several is refused with the matching serials instead
  * of selecting one of them at random. Returns an open handle or NULL. */
 static struct libusb_device_handle* find_ubertooth_device_serial_opt(
-		const char* serial_number, int quiet)
+		const char* serial_number, int quiet, char matched[UBERTOOTH_SERIAL_STR_LEN])
 {
 	struct libusb_device **usb_list = NULL;
 	struct libusb_device_handle *devh = NULL;
@@ -388,8 +432,8 @@ static struct libusb_device_handle* find_ubertooth_device_serial_opt(
 		/* A bus that could not be listed is not the same as a serial that is
 		 * not attached, so do not report it as one. */
 		if (!quiet) {
-			fprintf(stderr, "error: could not list USB devices: ");
-			show_libusb_error(usb_devs);
+			fprintf(stderr, "error: could not list USB devices: %s "
+			        "(libusb %d)\n", libusb_strerror(usb_devs), usb_devs);
 		}
 		return NULL;
 	}
@@ -458,6 +502,11 @@ static struct libusb_device_handle* find_ubertooth_device_serial_opt(
 				show_libusb_error(ret);
 			devh = NULL;
 		}
+		/* The whole serial of the board that was selected, so a later
+		 * failure names the board rather than the few characters of it the
+		 * user happened to type. */
+		else if (matched != NULL)
+			memcpy(matched, matched_serials[0], UBERTOOTH_SERIAL_STR_LEN);
 	}
 	else if (!quiet && matches > 1) {
 		int same = 1;
@@ -490,9 +539,10 @@ static struct libusb_device_handle* find_ubertooth_device_serial_opt(
 	return devh;
 }
 
-static struct libusb_device_handle* find_ubertooth_device_serial(char* serial_number)
+static struct libusb_device_handle* find_ubertooth_device_serial(
+		char* serial_number, char matched[UBERTOOTH_SERIAL_STR_LEN])
 {
-	return find_ubertooth_device_serial_opt(serial_number, 0);
+	return find_ubertooth_device_serial_opt(serial_number, 0, matched);
 }
 
 /*
@@ -1268,8 +1318,12 @@ int ubertooth_connect(ubertooth_t* ut, int ubertooth_device)
 
 	r = libusb_claim_interface(ut->devh, 0);
 	if (r < 0) {
-		fprintf(stderr, "error: claiming the USB interface failed (%d)\n", r);
-		ubertooth_stop(ut);
+		ubertooth_report_claim_failed(board_label(NULL, ubertooth_device), r);
+		/* Closed without a STOP: the interface was never claimed, so there
+		 * is no mode of ours to end -- and when another program holds the
+		 * board, a STOP would interrupt the capture this message has just
+		 * blamed it for. */
+		ubertooth_close(ut);
 		return -1;
 	}
 
@@ -1284,9 +1338,9 @@ ubertooth_t* ubertooth_start(int ubertooth_device)
 
 	int r = ubertooth_connect(ut, ubertooth_device);
 	if (r < 0) {
-		/* ubertooth_connect() already called ubertooth_stop() to close the
-		 * device and any pcap handles; release the memory allocated by
-		 * ubertooth_init() so the failed-connect path does not leak. */
+		/* ubertooth_connect() has already closed the device and any pcap
+		 * handles; release the memory allocated by ubertooth_init() so the
+		 * failed-connect path does not leak. */
 		ubertooth_free(ut);
 		return NULL;
 	}
@@ -1296,13 +1350,14 @@ ubertooth_t* ubertooth_start(int ubertooth_device)
 
 int ubertooth_connect_serial(ubertooth_t* ut, char* serial_number)
 {
+	char matched[UBERTOOTH_SERIAL_STR_LEN] = "";
 	int r = libusb_init(NULL);
 	if (r < 0) {
 		fprintf(stderr, "error: libusb_init failed (got 1.0?)\n");
 		return -1;
 	}
 
-	ut->devh = find_ubertooth_device_serial(serial_number);
+	ut->devh = find_ubertooth_device_serial(serial_number, matched);
 	if (ut->devh == NULL) {
 		ubertooth_stop(ut);
 		return -1;
@@ -1310,8 +1365,12 @@ int ubertooth_connect_serial(ubertooth_t* ut, char* serial_number)
 
 	r = libusb_claim_interface(ut->devh, 0);
 	if (r < 0) {
-		fprintf(stderr, "error: claiming the USB interface failed (%d)\n", r);
-		ubertooth_stop(ut);
+		ubertooth_report_claim_failed(
+		        board_label(matched[0] != '\0' ? matched : serial_number, -1),
+		        r);
+		/* as in ubertooth_connect(): nothing of ours to stop, and a STOP
+		 * here would interrupt whatever has the board */
+		ubertooth_close(ut);
 		return -1;
 	}
 
@@ -1431,7 +1490,7 @@ ubertooth_t* ubertooth_start_select_quiet(const char* u_arg)
 	else if (kind == SELECTOR_INDEX)
 		devh = find_ubertooth_device_opt(index, 1);
 	else
-		devh = find_ubertooth_device_serial_opt(u_arg, 1);
+		devh = find_ubertooth_device_serial_opt(u_arg, 1, NULL);
 	if (devh == NULL || libusb_claim_interface(devh, 0) < 0) {
 		if (devh != NULL)
 			libusb_close(devh);

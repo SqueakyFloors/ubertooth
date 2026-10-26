@@ -42,6 +42,7 @@ static struct {
 	ssize_t list_rc;        /* <0 to fail libusb_get_device_list() */
 	int descriptor_fails;   /* bus index whose descriptor read fails, or -1 */
 	int open_rc;            /* returned by libusb_open() */
+	int claim_rc;           /* returned by libusb_claim_interface() */
 	struct fake_dev *opened; /* the device the library opened, or NULL */
 	int opens;              /* libusb_open() calls */
 	int closes;             /* libusb_close() calls */
@@ -215,7 +216,7 @@ int LIBUSB_CALL libusb_claim_interface(libusb_device_handle *devh,
 {
 	(void)devh;
 	(void)interface_number;
-	return 0;
+	return fake.claim_rc;
 }
 
 int LIBUSB_CALL libusb_release_interface(libusb_device_handle *devh,
@@ -829,7 +830,10 @@ MU_TEST(a_board_that_does_not_answer_is_skipped_quietly)
 	          "the serial of the silent board");
 	mu_assert(strcmp(msg,
 	    "no Ubertooth found with serial matching '1cc'\n"
-	    "1 attached Ubertooth device did not answer the serial read\n") == 0,
+	    "1 attached Ubertooth device did not answer the serial read\n"
+	    "note: a board that does not answer may be in use by another "
+	    "program, or busy in a mode; stop a mode with "
+	    "ubertooth-util -U <index> -S\n") == 0,
 	    msg);
 
 	bus_with_two_serials();
@@ -955,6 +959,82 @@ MU_TEST(the_quiet_selection_matches_the_same_serials)
 	mu_assert_int_eq(0, fake.lists);
 }
 
+/* A board another program is using opens, and then cannot be claimed: that is
+ * how both systems report it, macOS as ACCESS and Linux as BUSY. Say so in
+ * words, naming the board as the selector named it, and keep the libusb code
+ * for bug reports. It used to read "error: claiming the USB interface failed
+ * (-3)", which says nothing about what is going on or what to do. */
+MU_TEST(a_board_another_program_is_using_says_so)
+{
+	static const int in_use[] = { LIBUSB_ERROR_ACCESS, LIBUSB_ERROR_BUSY };
+	char msg[256], expected[256];
+	size_t i;
+
+	for (i = 0; i < sizeof(in_use) / sizeof(in_use[0]); i++) {
+		/* selected by serial: named as the user named it */
+		bus_with_two_serials();
+		fake.claim_rc = in_use[i];
+		mu_assert(select_capturing("05f", msg, sizeof(msg)) == NULL, msg);
+		/* the whole serial of the board that matched, not the few characters
+		 * of it the user typed */
+		snprintf(expected, sizeof(expected),
+		         "error: Ubertooth " SERIAL_B " is in use by another program "
+		         "(libusb %d)\n", in_use[i]);
+		mu_assert(strcmp(msg, expected) == 0, msg);
+
+		/* and by index, which is all a -U<index> run knows about it */
+		bus_with_ubertooths(2);
+		fake.claim_rc = in_use[i];
+		mu_assert(select_capturing("1", msg, sizeof(msg)) == NULL, msg);
+		snprintf(expected, sizeof(expected),
+		         "error: Ubertooth at index 1 is in use by another program "
+		         "(libusb %d)\n", in_use[i]);
+		mu_assert(strcmp(msg, expected) == 0, msg);
+	}
+}
+
+/* An open libusb refuses as busy gets the plain wording too. It cannot name
+ * the board: the report is the library's shared sink for libusb failures,
+ * which has no handle to look at. */
+MU_TEST(an_open_refused_as_busy_says_the_board_is_in_use)
+{
+	char msg[256];
+
+	bus_with_ubertooths(2);
+	fake.open_rc = LIBUSB_ERROR_BUSY;
+	mu_assert(select_capturing("1", msg, sizeof(msg)) == NULL, msg);
+	mu_assert(strstr(msg, "error: the Ubertooth is in use by another program "
+	          "(libusb -6)") != NULL, msg);
+
+	/* An open refused for want of permission keeps libusb's own naming: that
+	 * is the usual cause there, and it is a different problem. */
+	bus_with_ubertooths(2);
+	fake.open_rc = LIBUSB_ERROR_ACCESS;
+	mu_assert(select_capturing("1", msg, sizeof(msg)) == NULL, msg);
+	mu_assert(strstr(msg, "in use by another program") == NULL, msg);
+	mu_assert(strstr(msg, "libUSB Error") != NULL, msg);
+}
+
+/* Any other claim failure is still reported as itself, naming the board, so
+ * the plain wording above is not put on causes it does not fit. With no
+ * selector there is no name to use. */
+MU_TEST(another_claim_failure_is_reported_as_itself)
+{
+	char msg[256];
+
+	bus_with_ubertooths(1);
+	fake.claim_rc = LIBUSB_ERROR_NO_DEVICE;
+	mu_assert(select_capturing("0", msg, sizeof(msg)) == NULL, msg);
+	mu_assert(strcmp(msg, "error: claiming the USB interface of Ubertooth at "
+	          "index 0 failed (libusb -4)\n") == 0, msg);
+
+	bus_with_ubertooths(1);
+	fake.claim_rc = LIBUSB_ERROR_NO_DEVICE;
+	mu_assert(select_capturing(NULL, msg, sizeof(msg)) == NULL, msg);
+	mu_assert(strcmp(msg, "error: claiming the USB interface of the Ubertooth "
+	          "failed (libusb -4)\n") == 0, msg);
+}
+
 /* Selection still allocates a ring buffer, and it came from this fake rather
  * than from the library's 64 MB one. */
 MU_TEST(the_selections_used_the_faked_ring_buffer)
@@ -988,6 +1068,9 @@ int main(void)
 	MU_RUN(a_bus_that_cannot_be_listed_is_not_reported_as_no_match);
 	MU_RUN(the_quiet_selection_matches_the_same_serials);
 	MU_RUN(the_test_switch_hides_every_device);
+	MU_RUN(a_board_another_program_is_using_says_so);
+	MU_RUN(an_open_refused_as_busy_says_the_board_is_in_use);
+	MU_RUN(another_claim_failure_is_reported_as_itself);
 	MU_RUN(the_selections_used_the_faked_ring_buffer);
 	return mu_report();
 }

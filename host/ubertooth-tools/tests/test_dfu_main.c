@@ -68,6 +68,9 @@ static struct {
 	int revision_calls;
 	int abort_calls, clrstatus_calls, getstatus_calls;
 	int opens, closes, claims, releases, claim_rc;
+	int claim_reports;            /* ubertooth_report_claim_failed() calls */
+	int claim_report_err;         /* the code it was given */
+	const char *claim_report_board;
 	int lists;              /* outstanding device lists */
 	int flash_calls;        /* cmd_flash(): the application-to-DFU request */
 	int libusb_errors;      /* show_libusb_error() calls */
@@ -292,6 +295,20 @@ void show_libusb_error(int error_code)
 	fprintf(stderr, "libUSB Error: fake: (%d)\n", error_code);
 }
 
+/* Stands in for the library's reporter, which the other tools share, so no
+ * case here depends on libubertooth being linked. It records the call rather
+ * than repeating the wording: what this file can check is that a claim
+ * failure goes through the shared reporter at all, with the code it got. The
+ * wording itself is pinned where the real function is compiled in, in
+ * test_device_select.c. */
+void ubertooth_report_claim_failed(const char* board, int err)
+{
+	fake.claim_reports++;
+	fake.claim_report_err = err;
+	fake.claim_report_board = board;
+	fprintf(stderr, "<the shared claim-failure report, libusb %d>\n", err);
+}
+
 /* The application device -U opens, when the case has one. The handle is the
  * same faked one the bootloader answers on, which is what the real board does
  * from the host's point of view: one device that changes identity. */
@@ -514,6 +531,41 @@ static void write_image(const char *revision)
 }
 
 /* ---- a read-back that works, as the baseline --------------------------- */
+
+/* A bootloader something else is already talking to opens and then refuses the
+ * claim, which this reported as "usb_claim_interface error -3" followed by
+ * advice about permissions -- the one thing it cannot be, since the board
+ * opened. It now hands the failure to the reporter every tool shares, with the
+ * code it got, so the user gets the same wording here as anywhere else.
+ *
+ * And nothing is sent to that board on the way out: -r asks for a reset, but
+ * detaching a board this run never claimed is a reset aimed at whatever does
+ * hold it, which could be another flash in progress. */
+MU_TEST(a_dfu_board_in_use_goes_through_the_shared_report_and_is_left_alone)
+{
+	static const int refusals[] = {
+		LIBUSB_ERROR_ACCESS, LIBUSB_ERROR_BUSY, LIBUSB_ERROR_NO_DEVICE
+	};
+	struct run_result r;
+	size_t i;
+
+	for (i = 0; i < sizeof(refusals) / sizeof(refusals[0]); i++) {
+		board_in_dfu();
+		remove_dump();
+		fake.claim_rc = refusals[i];
+		r = RUN("-u", dump_path, "-r");
+		mu_assert_int_eq(1, r.rc);
+		mu_assert_int_eq(1, fake.claim_reports);
+		mu_assert_int_eq(refusals[i], fake.claim_report_err);
+		mu_assert(strstr(r.err, "permissions") == NULL, r.err);
+		mu_assert_int_eq(0, fake.detach_calls);
+		/* These runs give no -U, so there is no board to name. With one, the
+		 * board is named by that string; reaching the claim with a selector
+		 * needs the application device this case does not put on the bus. */
+		mu_assert(fake.claim_report_board == NULL, "unnamed");
+	}
+	remove_dump();
+}
 
 MU_TEST(a_read_back_with_reset_writes_the_dump_and_detaches)
 {
@@ -1251,6 +1303,7 @@ int main(void)
 	detach_gone_polls = 3;
 	detach_gone_interval_ms = 1;
 
+	MU_RUN(a_dfu_board_in_use_goes_through_the_shared_report_and_is_left_alone);
 	MU_RUN(a_read_back_with_reset_writes_the_dump_and_detaches);
 	MU_RUN(a_bootloader_that_never_reports_its_state_ends_the_read_back);
 	MU_RUN(a_bootloader_that_never_reports_its_state_ends_a_bare_reset);
