@@ -112,4 +112,22 @@ IAP::ReturnCode IAP::compare(const uint32_t destination_address,
     return static_cast<ReturnCode>(output[0]);
 }
 
+IAP::ReturnCode IAP::read_part_identification_number(uint32_t& part_id) const {
+    uint32_t input[] = {
+        54
+    };
+    uint32_t output[] = {
+        INVALID_COMMAND,
+        0
+    };
+    
+    entry_point(input, output);
+    
+    const ReturnCode result = static_cast<ReturnCode>(output[0]);
+    if( result == CMD_SUCCESS ) {
+        part_id = output[1];
+    }
+    return result;
+}
+
 const IAP::EntryPoint IAP::entry_point = reinterpret_cast<IAP::EntryPoint>(0x1FFF1FF1);

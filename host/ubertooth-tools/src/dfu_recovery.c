@@ -597,11 +597,12 @@ void dfu_image_describe_failure(const struct dfu_image_report *report,
  * 128 KiB), so the table covers the family rather than one part.
  *
  * An entry that claims more flash than the part has is what wedges a board,
- * so these figures are the load-bearing part of this file. The largest here,
- * 512 KiB, is also the ceiling the bootloader's own address check enforces
- * (firmware/bootloader/flash.h): a request derived from this table therefore
- * cannot reach the bootloader's memcpy() out of bounds, and an entry above
- * 512 KiB would be refused rather than faulted. */
+ * so these figures are the load-bearing part of this file. The bootloader
+ * keeps the same table, without the names, and bounds its own read-back by it
+ * (firmware/bootloader/flash.h); a firmware unit test reads both tables and
+ * fails if they disagree. The largest here, 512 KiB, is also what a
+ * bootloader falls back to for a part it has no entry for, and what older
+ * bootloaders allow on every part. */
 static const struct dfu_part DFU_PARTS[] = {
 	{ 0x25001110, "LPC1751",  32 * 1024 },
 	{ 0x25001118, "LPC1751",  32 * 1024 },

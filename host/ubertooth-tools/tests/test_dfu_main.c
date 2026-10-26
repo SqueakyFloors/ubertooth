@@ -230,10 +230,12 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle *devh,
 		          "UPLOAD asked for a block inside the bootloader");
 		fake.upload_calls++;
 		address = (uint32_t)value * BLOCK_SIZE;
-		/* The bootloader checks the address against 512 KiB whatever part it
-		 * runs on, so a read past the end of this part's flash is a bus
-		 * fault that it never returns from: it stops answering for good
-		 * instead of refusing the request. */
+		/* A bootloader without the per-part bound -- which is what a board
+		 * flashed before it carries -- checks the address against 512 KiB
+		 * whatever part it runs on, so a read past the end of this part's
+		 * flash is a bus fault it never returns from: it stops answering for
+		 * good instead of refusing the request. That is the board the host
+		 * has to avoid asking, so it is the one faked here. */
 		if (address + BLOCK_SIZE > fake.flash_size) {
 			fake.wedged = 1;
 			return LIBUSB_ERROR_TIMEOUT;

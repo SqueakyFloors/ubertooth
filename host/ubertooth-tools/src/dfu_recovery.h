@@ -234,11 +234,16 @@ void dfu_image_describe_failure(const struct dfu_image_report *report,
 /*
  * How much flash there is to read back.
  *
- * The bootloader answers REQ_UPLOAD from any address below 512 KiB whatever
- * part it runs on, and a read with no flash behind it is a bus fault that
- * takes the bootloader down for good, so the host must not ask for more than
- * the part has. The part identification number says how much that is. It is
- * an In-Application Programming value the application reports
+ * A read with no flash behind it is a bus fault that takes the bootloader
+ * down for good, so the host must not ask for more than the part has. A
+ * bootloader built from this tree refuses such a request itself, bounded by
+ * the same figures (firmware/bootloader/flash.h), but a board carries
+ * whatever bootloader was flashed on it, and older ones answer REQ_UPLOAD
+ * from any address below 512 KiB whatever part they run on. The host asking
+ * for no more than the part has is what protects those boards.
+ *
+ * The part identification number says how much that is. It is an
+ * In-Application Programming value the application reports
  * (UBERTOOTH_GET_PARTNUM); the bootloader has no such request, so a board
  * already sitting in DFU cannot be asked.
  */
@@ -265,8 +270,9 @@ const struct dfu_part *dfu_part_at(size_t index);
  * for the parts the Ubertooth One is built from, which have at least this
  * much, but it is an assumption and not a floor: the family table does list
  * smaller parts, a 31 KiB image would fit one of them, and such a board in
- * the bootloader would still be read past the end of its flash. The lasting
- * answer to that is the bootloader refusing the request, which is firmware. */
+ * the bootloader would still be read past the end of its flash. A bootloader
+ * built from this tree refuses the request, so what is left exposed is a
+ * board carrying an older one. */
 #define DFU_ASSUMED_FLASH_SIZE (128u * 1024u)
 
 /* How many bytes above the bootloader a read-back covers on a part with

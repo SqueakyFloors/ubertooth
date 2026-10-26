@@ -1072,8 +1072,9 @@ MU_TEST(test_every_part_entry_is_usable_and_within_the_bootloader_limit)
 		mu_assert(part->flash_size > application,
 		          "a part entry has no flash above the bootloader");
 		mu_assert_int_eq(0, (int)(part->flash_size % BLOCK_SIZE));
-		/* The bootloader's own address check stops at 512 KiB, so an entry
-		 * above it would ask for an address it refuses. */
+		/* A bootloader bounds a part it cannot identify at 512 KiB, and an
+		 * older one bounds every part there, so an entry above it would ask
+		 * for an address a bootloader refuses. */
 		mu_assert(part->flash_size <= BOOTLOADER_FLASH_LIMIT,
 		          "a part entry claims more flash than the bootloader allows");
 		mu_assert(dfu_part_lookup(part->part_id) != NULL,

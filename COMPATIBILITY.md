@@ -34,7 +34,8 @@ Legend:
 | **libbtbb** | the pinned fork commit ([`84ab41f`](https://github.com/SqueakyFloors/libbtbb/commit/84ab41fc99d172e812438bc9188f30a67216f748), C lib) | that commit (CI, `install.sh`); upstream master was CI's dependency until the switch to the pin | any other libbtbb, upstream's included: untested here | ✅ the pin is what CI builds |
 | **libbluetooth (BlueZ)** — optional, for `ubertooth-scan` and `ubertooth-follow` | 5.53 | 5.53 (Ubuntu 20.04 CI), 5.64 (22.04), 5.72 (24.04), 5.87 (Fedora CI) | macOS (no BlueZ: both tools are skipped there) | 🎯 5.53 verified in CI as the oldest that compiles both tools and passes their CLI tests; neither tool has ever been run against a BlueZ adapter and a real piconet ([#44](https://github.com/SqueakyFloors/ubertooth/issues/44)) |
 | **ronn-ng (man pages)** | 0.10.1, exactly | 0.10.1 (`Man pages` CI job on Ubuntu 24.04; macOS 26 via Homebrew) | any other version: it renders the same Markdown differently, so the committed pages would stop matching a refresh | ✅ 0.10.1 verified in CI. Optional: only `refresh-manpages` needs it, and a build neither needs it nor runs it |
-| **Ubertooth firmware (API)** | 1.18 (this tree), exactly | 1.18 flashed on an Ubertooth One and read back, with a BLE and a BR/EDR receive and a spectrum capture; the mode checks of [#251](https://github.com/SqueakyFloors/ubertooth/issues/251) have not been run | any other API version, including 1.17 and 1.07 (`2020-12-R1`): refused by the tools, except `ubertooth-util`, which checks no version at all, and `ubertooth-dfu`, which reflashes any firmware | ✅ 1.18 verified on an Ubertooth One: flash and read back, `ubertooth-util -b/-r`, `ubertooth-btle`, `ubertooth-rx`, `ubertooth-specan`. Last verified at 1.16 and not re-run since: the exact-version refusal (1.15 firmware under 1.16 tools) and `ubertooth-util -a`. The mode checks of [#251](https://github.com/SqueakyFloors/ubertooth/issues/251) are still open, and no transmit mode has run on hardware |
+| **Ubertooth firmware (API)** | 1.19 (this tree), exactly | 1.18 flashed on an Ubertooth One and read back, with a BLE and a BR/EDR receive and a spectrum capture; the mode checks of [#251](https://github.com/SqueakyFloors/ubertooth/issues/251) have not been run | any other API version, including 1.18 and 1.07 (`2020-12-R1`): refused by the tools, except `ubertooth-util`, which checks no version at all, and `ubertooth-dfu`, which reflashes any firmware | 🎯 1.19 moves the bootloader's read-back bound and has not been flashed on a board ([#256](https://github.com/SqueakyFloors/ubertooth/issues/256)). Last verified at 1.18 on an Ubertooth One: flash and read back, `ubertooth-util -b/-r`, `ubertooth-btle`, `ubertooth-rx`, `ubertooth-specan`. Last verified at 1.16 and not re-run since: the exact-version refusal (1.15 firmware under 1.16 tools) and `ubertooth-util -a`. The mode checks of [#251](https://github.com/SqueakyFloors/ubertooth/issues/251) are still open, and no transmit mode has run on hardware |
+| **Ubertooth bootloader** | whichever one is on the board; no tool checks it (its `bcdDevice` is a fixed 1.00) | the bootloader the boards here were manufactured with. `ubertooth-dfu` cannot replace a bootloader and CI does not build one, so the one in this tree has been built and unit-tested only | — | 🎯 the bootloader in this tree bounds a read-back by the flash the part reports having; an older one faults on a read past the end of its flash, so the host asks for no more than the part has either way ([#256](https://github.com/SqueakyFloors/ubertooth/issues/256)). Installing a bootloader needs ISP or JTAG |
 
 ---
 
@@ -109,6 +110,13 @@ firmware behaviour the host relies on, so a board carrying firmware from an
 earlier commit is normally refused rather than used with behaviour the tools
 no longer expect. The first fork release takes 2.00, to mark that its host
 tools and firmware only work with each other.
+
+The bootloader is not covered by that number. It reports a fixed `bcdDevice`
+of 1.00, no host tool checks it, and `./install.sh --flash` writes the
+application only, so a change to the bootloader reaches a board only when
+someone flashes it deliberately. A bump that moves bootloader behaviour
+therefore marks the change in the tree rather than anything a host can read
+off a board sitting in DFU.
 
 The number still does not pin down a commit, since every commit that does not
 touch the firmware interface shares the number before it: hence "normally"
