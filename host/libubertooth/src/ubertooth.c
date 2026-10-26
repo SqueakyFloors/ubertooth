@@ -992,7 +992,13 @@ int rx_afh(ubertooth_t* ut, btbb_piconet* pn, int timeout)
 		 * MODE_AFH. */
 		r = stream_rx_usb(ut, cb_afh_initial, pn, cmd_afh);
 
-		cmd_stop(ut->devh);
+		/* Out of AFH mode before the monitor phase starts it again -- but
+		 * not when this phase's transfer was never handed back. As in
+		 * ubertooth_cleanup(), that is a board which has gone or stopped
+		 * answering, and it is asked for nothing; the monitor phase then
+		 * refuses to start on a handle whose transfer is still in flight. */
+		if (ut->rx_xfer == NULL)
+			cmd_stop(ut->devh);
 		ut->stop_ubertooth = 0;
 
 		/* A phase that could not even receive has not shown that the piconet

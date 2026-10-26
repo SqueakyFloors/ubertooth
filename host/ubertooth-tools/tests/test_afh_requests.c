@@ -1026,6 +1026,46 @@ MU_TEST(a_transfer_that_never_comes_back_keeps_the_device_open)
 	release_handle(ut);
 }
 
+/* The detection phase takes the board out of AFH mode before the monitor
+ * phase starts it again. Not when its own transfer was never handed back,
+ * though: that is the same gone or unanswering board the teardown finds, and
+ * the monitor phase cannot start on a handle whose transfer is still in
+ * flight, so the run ends there. */
+MU_TEST(a_detection_phase_that_lost_its_transfer_sends_no_stop)
+{
+	char err[1024] = "";
+	ubertooth_t* ut;
+	btbb_piconet* pn;
+	int r;
+
+	reset();
+	/* refused for a transfer that stays in flight, and nothing delivers its
+	 * completion: the bounded wait in the teardown runs out */
+	fake.cancel_rc = LIBUSB_ERROR_NO_DEVICE;
+	fake.poll_thread_idle = 1;
+	ut = new_handle();
+	pn = new_piconet();
+	mu_assert(ut != NULL && pn != NULL, "a handle and a piconet");
+	if (ut == NULL || pn == NULL)
+		return;
+	mark_a_channel_seen(pn);
+
+	capture_output();
+	r = rx_afh(ut, pn, 30);
+	alarm(0); /* rx_afh() set one for the detection phase */
+	release_output(err, sizeof(err));
+
+	assert_transfer_lifetimes();
+	mu_assert_int_eq(0, sent(UBERTOOTH_STOP));
+	mu_assert(ut->rx_xfer != NULL, "the transfer is still libusb's");
+	mu_assert(r < 0, "the run reports a failure");
+	mu_assert(strstr(err, "the previous receive transfer did not finish")
+	          != NULL, err);
+
+	release_handle(ut);
+	btbb_piconet_unref(pn);
+}
+
 /* A board that leaves the bus during a capture: its transfer comes back with
  * NO_DEVICE, so libusb is holding nothing by the time the teardown runs and
  * the device can be closed as usual. The stop on the way out is refused, as
@@ -1276,6 +1316,7 @@ int main(void)
 	MU_RUN(a_stop_with_a_packet_in_hand_gives_the_transfer_back);
 	MU_RUN(a_cancel_the_device_refuses_leaves_the_transfer_alone);
 	MU_RUN(a_transfer_that_never_comes_back_keeps_the_device_open);
+	MU_RUN(a_detection_phase_that_lost_its_transfer_sends_no_stop);
 	MU_RUN(a_board_that_leaves_the_bus_is_still_closed);
 	MU_RUN(a_completion_during_the_teardown_does_not_re_arm_the_transfer);
 	MU_RUN(a_packet_during_a_capture_re_arms_the_transfer);
