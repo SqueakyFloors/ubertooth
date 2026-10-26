@@ -1648,7 +1648,11 @@ MU_TEST(invalid_arguments_are_rejected_before_opening_the_device)
 	reset_fake();
 	r = RUN("-Y");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strstr(r.err, "ubertooth-util - command line utility") != NULL, "usage on stderr");
+	mu_assert(strstr(r.err, "error: unrecognized option '-Y'") != NULL,
+	          "bad option named on stderr");
+	/* The line above says what was wrong, so no usage text follows it. */
+	mu_assert(strstr(r.err, "ubertooth-util - command line utility") == NULL,
+	          "no usage text after an error");
 	mu_assert_int_eq(0, fake.start_calls);
 }
 
@@ -1915,8 +1919,8 @@ MU_TEST(the_flash_option_is_gone)
 	r = RUN("-f");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strstr(r.err, "error: unrecognized option '-f'") != NULL, r.err);
-	mu_assert(strstr(r.err, "ubertooth-util - command line utility") != NULL,
-	          "the usage text follows it, on stderr");
+	mu_assert(strstr(r.err, "ubertooth-util - command line utility") == NULL,
+	          "no usage text follows it");
 	mu_assert_int_eq(0, (long)strlen(r.out));
 	mu_assert_int_eq(0, fake.start_calls);
 	mu_assert_int_eq(0, fake.count_calls);
@@ -1964,7 +1968,8 @@ MU_TEST(a_command_line_with_nothing_to_do_is_refused)
 	mu_assert_int_eq(0, (long)strlen(r.out));
 	mu_assert(strstr(r.err, "error: nothing to do: -U '0' selects a device "
 	          "but no option asks anything of it\n") == r.err, r.err);
-	mu_assert(strstr(r.err, "ubertooth-util - command line utility") != NULL,
+	/* The command line said something, so that line is the whole answer. */
+	mu_assert(strstr(r.err, "ubertooth-util - command line utility") == NULL,
 	          r.err);
 	mu_assert_int_eq(0, fake.start_calls);
 

@@ -113,9 +113,9 @@ for mode in ("-f", "-n", "-p"):
     accepted_command_line((mode, "-v1"))
 print("ubertooth-btle: -a and -s are refused alongside a sniffing mode")
 
-# the refusal goes to standard error, followed by the usage text (also on
-# standard error, as after any bad command line), and nothing is printed on
-# standard output: the usage text used to land there
+# a bare command line is the one refusal the usage text follows, on standard
+# error with it, and nothing is printed on standard output: the usage text
+# used to land there
 result = subprocess.run(
     [BINARY],
     capture_output=True,
@@ -126,8 +126,22 @@ result = subprocess.run(
 )
 assert result.returncode == 1, result
 assert result.stdout == "", result
-assert result.stderr.startswith(NOTHING + "\n\n"), result
+assert result.stderr.startswith(NOTHING + "\n"), result
 assert "Usage:" in result.stderr and "Major modes:" in result.stderr, result
+
+# the same nothing to do, from a command line that did say something: the one
+# line, and no usage text after it
+result = subprocess.run(
+    [BINARY, "-A", "39"],
+    capture_output=True,
+    text=True,
+    timeout=5,
+    check=False,
+    env=ENVIRONMENT,
+)
+assert result.returncode == 1, result
+assert result.stdout == "", result
+assert result.stderr == NOTHING + "\n", result
 # each of the options that do have work in it gets past this check: it is the
 # device the tool then complains about, not the command line
 for arguments in (("-f",), ("-n",), ("-p",), ("-a",), ("-a8e89bed6",),
@@ -185,9 +199,28 @@ else:
     assert "could not open" not in result.stderr.lower(), result
     print("ubertooth-btle: -q - refuses a tty")
 
-# Usage text streams: -h asked for it, so it is the command's output and goes
-# to standard output; after an unknown option it explains an error and goes to
-# standard error, with standard output left empty.
+# The bad-address lines are diagnostics, so they go to standard error with
+# nothing on standard output: standard output can be a capture stream.
+for arguments, expected in (
+        (("-s", "00:11"),
+         "error: MAC address must be xx:xx:xx:xx:xx:xx (got 00:11)\n"),
+        (("-t", "zz:zz:zz:zz:zz:zz"),
+         "error: MAC address must be hex digits and colons"
+         " (got zz:zz:zz:zz:zz:zz)\n"),
+        (("-s", "11:22:33:44:55:66/99"),
+         "error: MAC mask must be 0-48 (got 99)\n"),
+):
+    result = subprocess.run([BINARY, *arguments], capture_output=True,
+                            text=True, timeout=5, check=False,
+                            env=ENVIRONMENT)
+    assert result.returncode == 1, (arguments, result)
+    assert result.stdout == "", (arguments, result)
+    assert result.stderr == expected, (arguments, result)
+print("ubertooth-btle: the bad-address lines are on standard error")
+
+# Usage text streams: -h asked for it, so it is the command's output, it goes
+# to standard output and the command succeeds. An unknown option is reported
+# on standard error and no usage text follows it.
 result = subprocess.run([BINARY, "-h"], capture_output=True, text=True,
                         timeout=5, check=False, env=ENVIRONMENT)
 # -h did what was asked, so the status says so: it used to be 1, which a
@@ -199,6 +232,5 @@ result = subprocess.run([BINARY, "-Z"], capture_output=True, text=True,
                         timeout=5, check=False, env=ENVIRONMENT)
 assert result.returncode == 1, result
 assert result.stdout == "", result
-assert result.stderr.startswith("error: unrecognized option '-Z'\n"), result
-assert "Usage:" in result.stderr, result
-print("ubertooth-btle: usage on stdout for -h, on stderr after a bad option")
+assert result.stderr == "error: unrecognized option '-Z'\n", result
+print("ubertooth-btle: usage on stdout for -h, and not after a bad option")

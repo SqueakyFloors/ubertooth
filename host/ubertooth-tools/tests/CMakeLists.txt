@@ -125,7 +125,7 @@ foreach(tool ${UBERTOOTH_TOOLS})
 	set_tests_properties(no-file-on-refusal-${tool} PROPERTIES TIMEOUT 30)
 	# Which stream the usage text lands on, and the exit status, for -h and
 	# for a command line the tool will not take. One entry per built tool;
-	# a tool whose streams have not been converted yet says so and passes.
+	# a check a tool is not ready for yet says so and passes.
 	add_test(
 		NAME output-streams-${tool}
 		COMMAND ${Python3_EXECUTABLE}

@@ -57,6 +57,10 @@
   `error: unrecognized option '-Z'` and `error: option '-l' requires a value`,
   instead of the option parser's own lines naming the whole path of the binary.
   [#338](https://github.com/SqueakyFloors/ubertooth/issues/338)
+- **Script-visible change:** after an error, tools print only the error; run
+  `-h` for the usage text. A tool that needs arguments and is run with none
+  still prints it, on standard error.
+  [#323](https://github.com/SqueakyFloors/ubertooth/issues/323)
 - ubertooth-btle can stream PCAP data to stdout with `-q -`
   or `-c -`, safely separating diagnostics for Wireshark and other consumers.
   Credit: Ryan Govostes ([@rgov](https://github.com/rgov)).
@@ -184,6 +188,9 @@
   (channel, access code, capture length) and exits 1, instead of capturing with
   whatever settings the board was left on.
   [#379](https://github.com/SqueakyFloors/ubertooth/issues/379)
+- `ubertooth-ego` refuses `-c` combined with `-f`, `-i` or `-j`, where it
+  silently had no effect: those modes hop across the E-GO's own channel list.
+  [#394](https://github.com/SqueakyFloors/ubertooth/issues/394)
 - `ubertooth-afh` gives its piconet back before it exits, so a run no longer
   ends with one unfreed allocation.
   [#366](https://github.com/SqueakyFloors/ubertooth/issues/366)
@@ -595,6 +602,10 @@
 
 ### Documentation
 
+- `ubertooth-ego -h` and its man page no longer call `630f9ffe` the default
+  access code. A run without `-a` sends none, so it uses whichever one the
+  board was last given; `630f9ffe` is only the firmware's value after a reset.
+  [#397](https://github.com/SqueakyFloors/ubertooth/issues/397)
 - Help text, man pages and examples write option values as separate words
   (`-c 2440`), following the POSIX Utility Syntax Guidelines; the attached form
   (`-c2440`) still works. ubertooth(7), OPTION VALUES, explains the forms once.

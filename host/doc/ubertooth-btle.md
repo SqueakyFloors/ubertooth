@@ -268,7 +268,10 @@ A command line with no work in it is refused the same way. `-U`, `-A`, `-x`,
 shape work another option asks for, so a command made up of those alone, or a
 bare `ubertooth-btle`, gives
 `error: nothing to do: choose a major mode (-f, -n or -p), or -a, -v, -s or -t`,
-followed by the usage text, both on standard error.
+on standard error with nothing on standard output. A bare `ubertooth-btle` is
+the one refusal the usage text follows, also on standard error; every other
+refused command line is the `error: ` line alone, and `-h` prints the usage
+text on standard output.
 
 A refused command line creates and truncates nothing: `-r`, `-q` and `-c` name
 their file while the command line is read, and it is opened only once every
@@ -293,13 +296,16 @@ ignored with `warning: ignoring extra capture file: <name>` and the first one
 given is used; `-r` has its own handle, so `-q a.pcap -r b.pcapng` writes both.
 
 A command line the tool will not take is reported as that one `error: ` line
-followed by the usage text, both on standard error. An option the tool does
-not know reads `error: unrecognized option '-Z'`; one whose value is missing
-reads `error: option '-A' requires a value`.
+on standard error, with no usage text after it: the line describes the
+problem, and `-h` prints the usage text for a reader who wants it. An option
+the tool does not know reads `error: unrecognized option '-Z'`; one whose
+value is missing reads `error: option '-A' requires a value`.
 
 `-h` is what the user asked for, so the usage text goes to standard output.
 Nothing else goes to standard error either, unless the rest of the command
-line produced a warning before `-h` ended the command.
+line produced a warning before `-h` ended the command. A bare
+`ubertooth-btle`, with no arguments at all, is the one refusal the usage text
+does follow, on standard error with the `error: ` line.
 
 ## EXIT STATUS
 

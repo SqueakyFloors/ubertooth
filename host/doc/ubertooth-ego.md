@@ -42,16 +42,32 @@ Options:
 
  - `-c <2402-2480>` :
    Channel in MHz to use for continuous receive (suggested: 2408, 2418,
-   2423, 2469)
+   2423, 2469). Only `-r` uses it: `-f`, `-i` and `-j` hop across the E-Go's
+   own channel list, so `-c` with one of those is refused rather than
+   ignored.
  - `-l <1-48>` :
    Packet length to use. The value must be a complete decimal integer from 1
    through 48; invalid values fail before the Ubertooth is opened.
  - `-a <access_code>` :
    Access code to use, given as 2, 4, 6 or 8 hex digits (1 to 4 whole
-   bytes, default: 630f9ffe)
+   bytes). See ACCESS CODE below for what a run without `-a` uses.
  - `-U <index|serial>` :
    select an Ubertooth by enumeration index or serial number; see
    ubertooth(7), SELECTING A DEVICE
+
+## ACCESS CODE
+
+`-a` sets the access code on the board, which keeps it until the board is
+reset or reflashed. A run without `-a` sends no access code at all, so it uses
+whichever one the board was last given, not a default of its own:
+
+    ubertooth-ego -r -c 2418 -a 11223344   # sets the board's access code
+    ubertooth-ego -r -c 2418               # still receives with 11223344
+
+`630f9ffe` is the firmware's value after a reset, so it is what a run without
+`-a` uses only on a board that has not been given another. Pass `-a` when a
+run has to be reproducible, or reset the board (`ubertooth-util -r`) first.
+All three modes use the access code.
 
 ## TRANSMIT POWER
 
@@ -81,6 +97,11 @@ refused before any device is opened: `error: nothing to do: choose a major
 mode (-f, -r or -i)`. It used to open the selected board, check its firmware,
 do nothing and exit 0.
 
+`-c` outside continuous receive is refused before any device is opened too,
+naming the mode as it was spelled: `error: -c cannot be combined with -f; only
+continuous receive (-r) uses a channel`, with no usage text after it (see
+DIAGNOSTICS). It used to be accepted and then dropped silently in those modes.
+
 ## DIAGNOSTICS
 
 Standard output carries only the captured packets. Errors, warnings and
@@ -93,10 +114,15 @@ command there, named in one line, for example
 refused request is not proof that the board never got it, so the message does
 not claim one way or the other.
 
-A command line the tool will not take is reported as that one `error: ` line
-followed by the usage text, both on standard error. An option the tool does
-not know reads `error: unrecognized option '-Z'`; one whose value is missing
-reads `error: option '-c' requires a value`.
+A command line the tool will not take is refused before any device is opened,
+with exit status 1 and one `error: ` line on standard error and nothing after
+it: an option the tool does not know (`error: unrecognized option '-Z'`), one
+whose value is missing (`error: option '-c' requires a value`), a bad option
+value, a stray word, `-c` outside continuous receive, and a command line that
+said something but has nothing to do. The line describes the problem, so the
+usage text is left to `-h`. A bare `ubertooth-ego`, with no arguments at all,
+is the one refusal the usage text does follow, on standard error with the
+`error: ` line.
 
 `-h` is what the user asked for, so the usage text goes to standard output and
 nothing goes to standard error.

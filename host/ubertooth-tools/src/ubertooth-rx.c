@@ -165,11 +165,10 @@ int main(int argc, char* argv[])
 			break;
 		default:
 			/* A command line the tool will not take: the one-line
-			 * reason and the usage text both go to standard error,
-			 * and standard output stays empty. The tool's other
-			 * output lines are converted separately. */
+			 * reason goes to standard error and standard output
+			 * stays empty. The tool's other output lines are
+			 * converted separately. */
 			opt_report_bad_option(opt, argc, argv);
-			usage(stderr);
 			return 1;
 		}
 	}

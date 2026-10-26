@@ -86,9 +86,12 @@ diagnostic or a progress line.
 
 Errors are one line starting `error: `; warnings start `warning: ` and notes
 start `note: `. Progress and status ("Resetting ...", "Ubertooth stopped", DFU
-progress) carry no prefix. The usage text goes to standard output for `-h` and
-to standard error, after the `error: ` line, when the command line was wrong or
-had nothing to do.
+progress) carry no prefix. The usage text goes to standard output for `-h`, and
+to standard error after the `error: ` line when a tool that needs arguments is
+run with none (a tool with work to do and no options, such as
+ubertooth-specan(1), runs instead). Every other refused command line is the
+`error: ` line alone: it describes the problem, so `-h` is where the usage text
+comes from.
 
 Exit status is 0 only when the command did what was asked, including `-h`, and
 1 otherwise: a usage error, a command line with nothing to do, a device that

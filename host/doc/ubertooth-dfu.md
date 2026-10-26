@@ -268,7 +268,15 @@ bare `-`, is refused before any device is opened and named:
 
 `-h` ends the command only once the whole command line has
 parsed, so a stray word or a bad option value is reported even
-alongside it.
+alongside it. `-h` is what the user asked for, so its usage text goes to
+standard output and it exits 0.
+
+A command line with no function in it does nothing, so it is refused with
+`error: nothing to do: give -d to write an image, -u to read one back, -s to
+sign one, or -r to reset` on standard error and exit status 1, before any
+device is opened; it used to exit 0 having said and done nothing. A bare
+`ubertooth-dfu`, with no arguments at all, prints the usage text after that
+line; every other refused command line is the `error: ` line alone.
 
 A refused command line creates and truncates nothing, and leaves no temporary
 file: `-s`, `-u` and `-d` name their file while the command line is read, and

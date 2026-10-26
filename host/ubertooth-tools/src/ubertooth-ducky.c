@@ -220,7 +220,6 @@ int main(int argc, char *argv[])
 			break;
 		default:
 			opt_report_bad_option(opt, argc, argv);
-			usage(stderr);
 			return 1;
 		}
 	}
@@ -243,7 +242,8 @@ int main(int argc, char *argv[])
 	if (!do_quack) {
 		fputs("error: nothing to do: give -q to quack, or -b to signal the "
 		      "bootloader\n", stderr);
-		usage(stderr);
+		if (opt_no_arguments(argc))
+			usage(stderr);
 		return 1;
 	}
 

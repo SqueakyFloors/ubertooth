@@ -263,7 +263,8 @@ MU_TEST(a_capture_the_board_took_sends_the_setup_requests_and_exits_0)
 
 /* Following connections hops on the board, so no channel is set, and the tool
  * sends no access code of its own: the board keeps whichever one it was last
- * set to. The capture length is the only setup request. */
+ * set to, which is what the man page's ACCESS CODE section describes. The
+ * capture length is the only setup request. */
 MU_TEST(following_sets_only_the_capture_length)
 {
 	struct run_result r;
@@ -389,17 +390,114 @@ MU_TEST(a_firmware_without_ego_is_still_reported)
 }
 
 /* Interfering hops on the board and does not read, so the capture length is
- * the only setup request it sends: no channel is set even though -c was
- * given. Every device call here is faked, so nothing is transmitted. */
+ * the only setup request it sends. Every device call here is faked, so nothing
+ * is transmitted. */
 MU_TEST(interfering_sets_only_the_capture_length)
 {
 	struct run_result r;
 
 	reset_fake();
-	r = RUN("-i", "-c", "2408");
+	r = RUN("-i");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(fake.calls, "le") == 0, fake.calls);
 	mu_assert_int_eq(2, fake.last_ego_mode);
+}
+
+/* A channel the chosen mode never sends is refused, naming the mode option as
+ * the user spelled it, before any board is opened: -c used to be parsed,
+ * range-checked and then dropped without a word. */
+MU_TEST(a_channel_the_mode_cannot_use_is_refused)
+{
+	static const struct {
+		const char *mode;
+		const char *message;
+	} cases[] = {
+		{ "-f", "error: -c cannot be combined with -f; only continuous "
+		        "receive (-r) uses a channel\n" },
+		{ "-i", "error: -c cannot be combined with -i; only continuous "
+		        "receive (-r) uses a channel\n" },
+		{ "-j", "error: -c cannot be combined with -j; only continuous "
+		        "receive (-r) uses a channel\n" },
+	};
+	struct run_result r;
+	size_t i;
+
+	for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+		reset_fake();
+		r = RUN(cases[i].mode, "-c", "2408");
+		mu_assert_int_eq(1, r.rc);
+		mu_assert(r.out[0] == '\0', r.out);
+		mu_assert(strcmp(r.err, cases[i].message) == 0, r.err);
+		mu_assert_int_eq(0, fake.inits); /* no board was opened */
+		mu_assert(fake.calls[0] == '\0', fake.calls);
+	}
+
+	/* The mode that does use a channel still takes it, and a bad value is
+	 * still reported as a bad value rather than as the wrong mode. */
+	reset_fake();
+	r = RUN("-r", "-c", "2408");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(2408, fake.last_channel);
+
+	reset_fake();
+	r = RUN("-f", "-c", "2481");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, "error: channel must be 2402-2480 MHz (got 2481)\n")
+	          == 0, r.err);
+
+	/* The last mode on the command line is the one that runs, so it decides
+	 * whether the channel is used. */
+	reset_fake();
+	r = RUN("-f", "-c", "2408", "-r");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(2408, fake.last_channel);
+
+	reset_fake();
+	r = RUN("-r", "-c", "2408", "-f");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, cases[0].message) == 0, r.err);
+
+	/* With no mode at all there is nothing to refuse the channel for, and
+	 * the refusal has no option to name: the earlier "nothing to do" check
+	 * answers. The command line said something, so that line is all of it. */
+	reset_fake();
+	r = RUN("-c", "2408");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strncmp(r.err, "error: nothing to do: ",
+	                  strlen("error: nothing to do: ")) == 0, r.err);
+	mu_assert(strstr(r.err, "cannot be combined") == NULL, r.err);
+	mu_assert(strstr(r.err, "Usage:") == NULL, r.err);
+}
+
+/* A bare command line is the one refusal the usage text follows: the user
+ * asked for nothing, so there is nothing else to say. */
+MU_TEST(a_bare_command_line_is_refused_with_the_usage_text)
+{
+	struct run_result r;
+
+	reset_fake();
+	r = run_ego((const char *const[]){ "ubertooth-ego", NULL });
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strncmp(r.err, "error: nothing to do: ",
+	                  strlen("error: nothing to do: ")) == 0, r.err);
+	mu_assert(strstr(r.err, "Usage:") != NULL, r.err);
+	mu_assert_int_eq(0, fake.inits);
+}
+
+/* -h is what the user asked for, so it is answered even when the rest of the
+ * command line is a combination the tool would refuse. */
+MU_TEST(help_wins_over_a_refused_combination)
+{
+	struct run_result r;
+
+	reset_fake();
+	r = RUN("-f", "-c", "2408", "-h");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(r.err[0] == '\0', r.err);
+	mu_assert(strstr(r.out, "continuous rx only") != NULL, r.out);
+	mu_assert_int_eq(0, fake.inits);
 }
 
 /* A capture that stops short because a poll failed did not do what was asked,
@@ -426,6 +524,9 @@ int main(void)
 	MU_RUN(the_access_code_request_is_only_sent_for_a);
 	MU_RUN(a_firmware_without_ego_is_still_reported);
 	MU_RUN(interfering_sets_only_the_capture_length);
+	MU_RUN(a_channel_the_mode_cannot_use_is_refused);
+	MU_RUN(a_bare_command_line_is_refused_with_the_usage_text);
+	MU_RUN(help_wins_over_a_refused_combination);
 	MU_RUN(a_failed_poll_ends_the_capture_with_1);
 	return mu_report();
 }

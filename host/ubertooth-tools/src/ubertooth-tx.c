@@ -93,7 +93,6 @@ int main(int argc, char* argv[])
 			break;
 		default:
 			opt_report_bad_option(opt, argc, argv);
-			usage(stderr);
 			return 1;
 		}
 	}
@@ -121,7 +120,8 @@ int main(int argc, char* argv[])
 	 * used to depend on whether a board happened to be free. */
 	if (!have_lap || !have_uap) {
 		fputs("error: -l <LAP> and -u <UAP> are both required\n", stderr);
-		usage(stderr);
+		if (opt_no_arguments(argc))
+			usage(stderr);
 		return 1;
 	}
 

@@ -55,7 +55,7 @@ This is the split the tools are being brought to, tool by tool\. Each tool's own
 .P
 Standard output carries only what was asked for: the report a query returns, the packets or samples a capture decodes, the capture data itself when the file argument is \fB\-\fR, and the usage text for \fB\-h\fR\. Everything else goes to standard error, so a script reading a tool's standard output is not fed a diagnostic or a progress line\.
 .P
-Errors are one line starting \fBerror:\fR; warnings start \fBwarning:\fR and notes start \fBnote:\fR\. Progress and status ("Resetting \|\.\|\.\|\.", "Ubertooth stopped", DFU progress) carry no prefix\. The usage text goes to standard output for \fB\-h\fR and to standard error, after the \fBerror:\fR line, when the command line was wrong or had nothing to do\.
+Errors are one line starting \fBerror:\fR; warnings start \fBwarning:\fR and notes start \fBnote:\fR\. Progress and status ("Resetting \|\.\|\.\|\.", "Ubertooth stopped", DFU progress) carry no prefix\. The usage text goes to standard output for \fB\-h\fR, and to standard error after the \fBerror:\fR line when a tool that needs arguments is run with none (a tool with work to do and no options, such as ubertooth\-specan(1), runs instead)\. Every other refused command line is the \fBerror:\fR line alone: it describes the problem, so \fB\-h\fR is where the usage text comes from\.
 .P
 Exit status is 0 only when the command did what was asked, including \fB\-h\fR, and 1 otherwise: a usage error, a command line with nothing to do, a device that is missing or failed, a partial failure\. ubertooth\-afh(1) also uses 2, for a detection phase that received no packet\.
 .P

@@ -185,6 +185,11 @@ int opt_check_no_operands(int argc, char *argv[])
 	return 0;
 }
 
+int opt_no_arguments(int argc)
+{
+	return argc <= 1;
+}
+
 void opt_report_bad_option(int opt, int argc, char *argv[])
 {
 	if (opt == ':' && optopt != 0 && isprint((unsigned char)optopt)) {

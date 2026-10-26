@@ -7,23 +7,22 @@ The rule:
 
   * -h is what the user asked for: the usage text goes to standard output,
     nothing goes to standard error, and the status is 0;
-  * a command line the tool will not take, including one with nothing to do,
-    gets one "error: " line and then the usage text, both on standard error,
-    nothing on standard output, and the status is 1.
+  * a bare command line -- no arguments at all -- gets one "error: " line and
+    then the usage text, both on standard error, nothing on standard output,
+    and the status is 1;
+  * every other command line the tool will not take gets that "error: " line
+    alone, with no usage text after it: the line describes the problem, and a
+    reader who wants the usage text runs -h.
 
 No device is opened in any of those cases, so nothing here depends on what is
 attached; UBERTOOTH_TEST_NO_DEVICES=1 hides any board that is, and a run that
 reached device selection is caught by the message that reports it.
 
-Reporting a bad command line the shared way (opterr = 0, an option string
-starting with ':', opt_report_bad_option()) is a smaller step than the whole
-rule, so it has a set of its own, REPORTS_BAD_OPTIONS, which FOLLOWS_THE_RULE
-is part of. For a tool in it, `-h`, an unknown option, a missing option value,
-and every option the tool used to have (REMOVED_OPTIONS) are checked.
-
-Tools are converted one at a time, so a tool in neither set is reported as
-pending and nothing is asserted for it: adding a tool to a set is what turns
-those checks on for it.
+-h and the bare command line are checked for every tool. The wording of a bad
+option is not: reporting one the shared way (opterr = 0, an option string
+starting with ':', opt_report_bad_option()) is a conversion the tools are
+going through one at a time, so those checks run for the tools in
+REPORTS_BAD_OPTIONS, and a tool that is not in it yet is reported as pending.
 """
 
 import os
@@ -35,24 +34,20 @@ BINARY = sys.argv[1]
 TOOL = os.path.basename(BINARY)
 ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1")
 
-# The tools whose output streams have been brought in line with the rule.
-FOLLOWS_THE_RULE = {
+# The tools that report a bad command line the shared way: opterr = 0, an
+# option string starting with ':', and opt_report_bad_option(). The rest still
+# leave an unknown option to getopt's own message, which names the whole path
+# of the binary and carries no prefix.
+REPORTS_BAD_OPTIONS = {
     "ubertooth-afh",
     "ubertooth-btle",
     "ubertooth-ducky",
     "ubertooth-dump",
     "ubertooth-ego",
+    "ubertooth-rx",
     "ubertooth-specan",
     "ubertooth-tx",
     "ubertooth-util",
-}
-
-# The tools that report a bad command line the shared way: opterr = 0, an
-# option string starting with ':', and opt_report_bad_option(). That is a
-# smaller step than the whole rule, so a tool can be here before it is in
-# FOLLOWS_THE_RULE, and the bad-option checks below run for it either way.
-REPORTS_BAD_OPTIONS = FOLLOWS_THE_RULE | {
-    "ubertooth-rx",
 }
 
 # One option per tool that takes a required value, for the missing-value case.
@@ -77,12 +72,24 @@ NOTHING_TO_DO = {
                      "the map is detected for one piconet",
     "ubertooth-btle": "error: nothing to do: choose a major mode "
                       "(-f, -n or -p), or -a, -v, -s or -t",
+    "ubertooth-debug": "error: -r <reg>[,<reg>[,...]] is required: at least "
+                       "one register to read",
+    "ubertooth-dfu": "error: nothing to do: give -d to write an image, -u to "
+                     "read one back, -s to sign one, or -r to reset",
     "ubertooth-ducky": "error: nothing to do: give -q to quack, or -b to "
                        "signal the bootloader",
     "ubertooth-ego": "error: nothing to do: choose a major mode (-f, -r or -i)",
     "ubertooth-tx": "error: -l <LAP> and -u <UAP> are both required",
     "ubertooth-util": "error: nothing to do: give an option that reads or sets "
                       "something, or -N to count the attached boards",
+}
+
+# The same nothing to do from a command line that did say something. -U is a
+# selector and never work of its own, so it is what every tool is given;
+# ubertooth-util names the selector in its answer, so it has a line of its own.
+SAID_SOMETHING = {
+    "ubertooth-util": "error: nothing to do: -U '%s' selects a device but no "
+                      "option asks anything of it",
 }
 
 # Anything libubertooth prints once a tool starts looking for a device: a
@@ -106,6 +113,11 @@ def usage_text(text):
     return TOOL in text and "-U <index|serial>" in text
 
 
+# A serial no board has, for a refusal that has to be the command line's and
+# not the fault of whichever boards are attached.
+NO_SUCH_SERIAL = "ffffffffffffffffffffffffffffffff"
+
+
 # ---- a bad command line, for every tool that reports one the shared way ----
 
 # Flags that are gone: dead, a documented no-op, a developer scratch hook, or
@@ -117,24 +129,23 @@ REMOVED_OPTIONS = {
     "ubertooth-util": ["-9", "-f"],
 }
 
-if TOOL in REPORTS_BAD_OPTIONS:
-    # -h is what the user asked for: the usage text on stdout, nothing on
-    # stderr, status 0. The other half of reading a command line properly,
-    # so it is checked alongside the ways one can be wrong.
-    result = run(["-h"])
-    assert result.returncode == 0, result
-    assert usage_text(result.stdout), result
-    assert result.stderr == "", result
+# ---- -h, for every tool ----------------------------------------------------
 
-    # an option the tool does not know
+# What the user asked for: the usage text on stdout, nothing on stderr, and
+# the status of a command that did what was asked.
+result = run(["-h"])
+assert result.returncode == 0, result
+assert usage_text(result.stdout), result
+assert result.stderr == "", result
+
+if TOOL in REPORTS_BAD_OPTIONS:
+    # an option the tool does not know: the one "error: " line, and no usage
+    # text after it
     result = run(["-Z"])
     assert result.returncode == 1, result
     # Nothing on stdout: a script reading the tool's output sees no usage text.
     assert result.stdout == "", result
-    # The "error: " line comes first, then the usage text, both on stderr.
-    first, _, rest = result.stderr.partition("\n")
-    assert first == "error: unrecognized option '-Z'", result
-    assert usage_text(rest), result
+    assert result.stderr == "error: unrecognized option '-Z'\n", result
 
     # A word starting with -- is quoted as the user wrote it: getopt rejects
     # its second '-', which would otherwise be reported as the option "--".
@@ -142,16 +153,15 @@ if TOOL in REPORTS_BAD_OPTIONS:
     assert result.returncode == 1, result
     assert result.stdout == "", result
     assert result.stderr.startswith("error: unrecognized option '--bogus':"), result
-    assert usage_text(result.stderr), result
+    assert not usage_text(result.stderr), result
 
     # every option the tool used to have, refused the same way
     for removed in REMOVED_OPTIONS.get(TOOL, []):
         result = run([removed])
         assert result.returncode == 1, (removed, result)
         assert result.stdout == "", (removed, result)
-        first, _, rest = result.stderr.partition("\n")
-        assert first == "error: unrecognized option '%s'" % removed, (removed, result)
-        assert usage_text(rest), (removed, result)
+        assert result.stderr == "error: unrecognized option '%s'\n" % removed, (
+            removed, result)
 
     # an option whose value is missing
     option = OPTION_NEEDING_A_VALUE.get(TOOL)
@@ -159,25 +169,23 @@ if TOOL in REPORTS_BAD_OPTIONS:
         result = run(["-" + option])
         assert result.returncode == 1, result
         assert result.stdout == "", result
-        first, _, rest = result.stderr.partition("\n")
-        assert first == "error: option '-%s' requires a value" % option, result
-        assert usage_text(rest), result
+        assert result.stderr == "error: option '-%s' requires a value\n" % option, \
+            result
 elif REMOVED_OPTIONS.get(TOOL):
     sys.exit("%s has removed options but does not report a bad option the "
              "shared way" % TOOL)
 
-if TOOL not in FOLLOWS_THE_RULE:
-    if TOOL in REPORTS_BAD_OPTIONS:
-        print("%s: streams not converted yet; a bad command line asserted"
-              % TOOL)
-    else:
-        print("%s: output streams not converted yet, nothing asserted" % TOOL)
-    sys.exit(0)
-
 # ---- a command line with nothing to do -------------------------------------
+
+checked = ["-h"]
+if TOOL in REPORTS_BAD_OPTIONS:
+    checked.append("a bad option")
 
 refusal = NOTHING_TO_DO.get(TOOL)
 if refusal is not None:
+    checked.append("a bare command line")
+    # A bare command line: the "error: " line, then the usage text, since the
+    # user has not said anything for the line alone to answer.
     result = run([])
     assert result.returncode == 1, result
     assert result.stdout == "", result
@@ -188,4 +196,19 @@ if refusal is not None:
     for message in DEVICE_ACCESS:
         assert message not in result.stderr.lower(), (message, result)
 
-print("%s: output streams and exit status follow the rule" % TOOL)
+    # The same nothing to do, but the command line did say something: that one
+    # line is the whole answer, with no usage text after it.
+    said_something = SAID_SOMETHING.get(TOOL, refusal)
+    if "%s" in said_something:
+        said_something = said_something % NO_SUCH_SERIAL
+    result = run(["-U", NO_SUCH_SERIAL])
+    assert result.returncode == 1, result
+    assert result.stdout == "", result
+    assert result.stderr == said_something + "\n", result
+    for message in DEVICE_ACCESS:
+        assert message not in result.stderr.lower(), (message, result)
+
+print("%s: the rule holds for %s" % (TOOL, " and ".join(checked)))
+if TOOL not in REPORTS_BAD_OPTIONS:
+    print("%s: a bad option is still getopt's own message, not asserted"
+          % TOOL)

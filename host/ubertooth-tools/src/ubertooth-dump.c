@@ -91,7 +91,6 @@ int main(int argc, char *argv[])
 			break;
 		default:
 			opt_report_bad_option(opt, argc, argv);
-			usage(stderr);
 			return 1;
 		}
 	}

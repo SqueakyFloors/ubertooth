@@ -160,8 +160,8 @@ static int apply_crc_options(struct libusb_device_handle* devh, int do_set_crc,
 	return 0;
 }
 
-/* The usage text: on standard output for -h, on standard error after a bad
- * or empty command line. */
+/* The usage text: on standard output for -h, on standard error for a bare
+ * command line. */
 static void usage(FILE *out)
 {
 	fprintf(out, "ubertooth-btle - passive Bluetooth Low Energy monitoring\n");
@@ -327,18 +327,14 @@ int main(int argc, char *argv[])
 		case 's':
 			do_slave_mode = 1;
 			r = convert_mac_address(optarg, mac_address, &mac_mask);
-			if (!r) {
-				usage(stderr);
+			if (!r)
 				return 1;
-			}
 			break;
 		case 't':
 			do_target = 1;
 			r = convert_mac_address(optarg, mac_address, &mac_mask);
-			if (!r) {
-				usage(stderr);
+			if (!r)
 				return 1;
-			}
 			break;
 		case 'x': {
 			int offenses;
@@ -365,7 +361,6 @@ int main(int argc, char *argv[])
 			break;
 		default:
 			opt_report_bad_option(opt, argc, argv);
-			usage(stderr);
 			return 1;
 		}
 	}
@@ -421,8 +416,9 @@ int main(int argc, char *argv[])
 	if (!(do_follow || do_no_follow || do_promisc || do_get_aa || do_set_aa ||
 	      do_set_crc >= 0 || do_get_crc || do_slave_mode || do_target)) {
 		fprintf(stderr, "error: nothing to do: choose a major mode"
-		        " (-f, -n or -p), or -a, -v, -s or -t\n\n");
-		usage(stderr);
+		        " (-f, -n or -p), or -a, -v, -s or -t\n");
+		if (opt_no_arguments(argc))
+			usage(stderr);
 		return 1;
 	}
 

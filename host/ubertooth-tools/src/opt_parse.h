@@ -103,13 +103,27 @@ int opt_check_stdout_not_tty(const char *what);
 int opt_check_no_operands(int argc, char *argv[]);
 
 /*
+ * True when the user gave no arguments at all.
+ *
+ * A bare command line is the one refusal that carries the usage text: a tool
+ * that needs arguments prints its one `error: ` line and then the usage text,
+ * both on standard error. Every other refusal is that line alone, and leaves
+ * the usage text to -h. Call this where a tool refuses a command line with
+ * nothing to do:
+ *
+ *     if (opt_no_arguments(argc))
+ *             usage(stderr);
+ */
+int opt_no_arguments(int argc);
+
+/*
  * The diagnostic for an option getopt would not take.
  *
  * getopt's own message names the whole argv[0] path and carries no prefix, so
  * a tool sets opterr = 0 and calls this instead. Start the option string with
  * ':' so a missing option value comes back as ':' rather than '?', then call
- * this from the getopt loop's default case and print the usage text on
- * standard error after it.
+ * this from the getopt loop's default case. The usage text does not follow it:
+ * the line it prints describes the problem (see opt_no_arguments()).
  *
  * <opt> is what getopt returned: ':' for an option whose value is missing,
  * anything else for an option it does not know.

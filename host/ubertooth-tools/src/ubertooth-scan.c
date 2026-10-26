@@ -245,7 +245,6 @@ int main(int argc, char *argv[])
 				first_exit_option = 'h';
 			break;
 		default:
-			usage();
 			return 1;
 		}
 	}
@@ -260,7 +259,7 @@ int main(int argc, char *argv[])
 	 * alongside it. */
 	if (first_exit_option == 'h') {
 		usage();
-		return 1;
+		return 0;
 	}
 
 	dev_id = hci_devid(bt_dev);

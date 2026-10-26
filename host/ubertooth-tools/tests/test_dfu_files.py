@@ -118,6 +118,21 @@ with tempfile.TemporaryDirectory() as directory:
         check(False, "-s created no .dfu")
 
     # 2. -s refuses a .bin that already carries a suffix, and writes nothing.
+    print("\n### -s refuses a name that is not a .bin")
+    not_bin = os.path.join(directory, "firmware.img")
+    write(not_bin, FIRMWARE)
+    result = subprocess.run([BINARY, "-s", not_bin], capture_output=True,
+                            text=True, timeout=20, check=False,
+                            env=ENVIRONMENT)
+    print("$", BINARY, "-s", not_bin)
+    check(result.returncode == 1,
+          f"-s on a name that is not a .bin exited {result.returncode}")
+    check(result.stdout == "", "-s put its refusal on standard output")
+    check(result.stderr == "error: -s requires a .bin\n",
+          f"-s refusal was {result.stderr!r}")
+    check(not os.path.exists(os.path.join(directory, "firmware.dfu")),
+          "-s wrote a .dfu for a name it refused")
+
     print("\n### -s refuses an already-suffixed .bin")
     suffixed = os.path.join(directory, "suffixed.bin")
     shutil.copyfile(signed, suffixed)
@@ -204,18 +219,20 @@ with tempfile.TemporaryDirectory() as directory:
     refused = os.path.join(directory, "not-a-dfu-file")
     write(refused, b"this is not firmware, it is a note to self\n")
 
-    for label, arguments in (
-        ("-u with -h", ("-u", keep, "-h")),
-        ("-u with a stray word", ("-u", keep, "extra")),
-        ("-u with an unknown option", ("-u", keep, "-Z")),
-        ("-u twice", ("-u", keep, "-u", keep, "-U", NO_SUCH_SERIAL, "-r")),
+    for label, arguments, expected in (
+        # -h is what the user asked for, so it is the one of these that
+        # succeeds; the temporary file must be gone either way.
+        ("-u with -h", ("-u", keep, "-h"), 0),
+        ("-u with a stray word", ("-u", keep, "extra"), 1),
+        ("-u with an unknown option", ("-u", keep, "-Z"), 1),
+        ("-u twice", ("-u", keep, "-u", keep, "-U", NO_SUCH_SERIAL, "-r"), 1),
         ("-u with a refused -d image",
-         ("-u", keep, "-d", refused, "-U", NO_SUCH_SERIAL, "-r")),
+         ("-u", keep, "-d", refused, "-U", NO_SUCH_SERIAL, "-r"), 1),
         ("-u with a refused -d image, -d first",
-         ("-d", refused, "-u", keep, "-U", NO_SUCH_SERIAL, "-r")),
+         ("-d", refused, "-u", keep, "-U", NO_SUCH_SERIAL, "-r"), 1),
     ):
         code, output = run(*arguments)
-        check(code == 1, f"{label} exited {code}")
+        check(code == expected, f"{label} exited {code}")
         keep_survived(label)
         if "refused -d" in label:
             check("firmware will not be updated" in output,

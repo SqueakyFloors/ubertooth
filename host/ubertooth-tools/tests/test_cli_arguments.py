@@ -221,11 +221,11 @@ for arguments, expected in CASES[TOOL]:
         assert message not in output, (arguments, message, result)
 
 # -h on its own still prints the tool's help and reaches no device. Which
-# stream it lands on and the exit status are pinned by test_output_streams.py,
-# tool by tool, so both of the statuses still in the tree are accepted here.
+# stream it lands on is pinned by test_output_streams.py, tool by tool; -h did
+# what was asked, so every tool exits 0.
 help_result = run(("-h",))
 help_output = (help_result.stdout + help_result.stderr).lower()
-assert help_result.returncode in (0, 1), help_result
+assert help_result.returncode == 0, help_result
 assert TOOL in help_output, help_result
 assert "unexpected argument" not in help_output, help_result
 # every tool prints the same -U line (OPT_USAGE_SELECT_DEVICE in opt_parse.h)

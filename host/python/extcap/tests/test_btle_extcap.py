@@ -206,14 +206,30 @@ for option in sorted(named):
     assert result.returncode != 2, (argument, result)
 print("btle-extcap: the usage line names %d options, all accepted" % len(named))
 
-# an option that really is unknown still says so: an "error: " line and the
-# usage line on standard error, nothing on standard output, exit status 1
+# an option that really is unknown still says so: one "error: " line on
+# standard error, with no usage line after it, nothing on standard output,
+# exit status 1
 unknown = run(("--list-dlts",))
 assert unknown.returncode == 1, unknown
 assert unknown.stdout == "", unknown
 assert unknown.stderr.startswith("error: ") and \
     "not recognized" in unknown.stderr, unknown
-assert "Usage:" in unknown.stderr, unknown
+assert "Usage:" not in unknown.stderr, unknown
+
+# an interface and no operation to carry out with it: the one "error: " line,
+# and the call fails rather than exiting 0 having done nothing
+nothing = run(("--extcap-interface=ubertooth" + SERIALS[0],))
+assert nothing.returncode == 1, nothing
+assert nothing.stdout == "", nothing
+assert nothing.stderr.startswith("error: nothing to do: give"), nothing
+assert "Usage:" not in nothing.stderr, nothing
+
+# a bare call is the one refusal the usage line follows, on standard error
+bare = run(())
+assert bare.returncode == 1, bare
+assert bare.stdout == "", bare
+assert bare.stderr.startswith("error: nothing to do: give"), bare
+assert "Usage:" in bare.stderr, bare
 
 # ---- the options Wireshark adds to its own calls ---------------------------
 
@@ -293,7 +309,7 @@ for option in ("--extcap-reload-option=channel",
     assert result.stdout == "", (option, result)
     assert result.stderr.startswith("error: ") and \
         "not recognized" in result.stderr, (option, result)
-    assert "Usage:" in result.stderr, (option, result)
+    assert "Usage:" not in result.stderr, (option, result)
 
 print("btle-extcap: Wireshark's start-up options are accepted")
 

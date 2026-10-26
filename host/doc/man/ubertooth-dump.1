@@ -36,7 +36,7 @@ A refused command line creates and truncates nothing: \fB\-d\fR names its file w
 .SH "DIAGNOSTICS"
 Without \fB\-d\fR, standard output carries the binary symbol stream and nothing else\. Errors, warnings and the per\-block timestamp go to standard error, each error as one line starting \fBerror:\fR, for example \fBerror: /no/such/dir/capture\.bin: No such file or directory\fR\.
 .P
-A command line the tool will not take is reported as that one \fBerror:\fR line followed by the usage text, both on standard error\. An option the tool does not know reads \fBerror: unrecognized option '\-Z'\fR; one whose value is missing reads \fBerror: option '\-d' requires a value\fR\.
+A command line the tool will not take is reported as that one \fBerror:\fR line on standard error, with no usage text after it: the line describes the problem, and \fB\-h\fR prints the usage text for a reader who wants it\. An option the tool does not know reads \fBerror: unrecognized option '\-Z'\fR; one whose value is missing reads \fBerror: option '\-d' requires a value\fR\.
 .P
 \fB\-h\fR is what the user asked for, so the usage text goes to standard output and nothing goes to standard error\.
 .SH "EXIT STATUS"

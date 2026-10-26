@@ -457,8 +457,8 @@ for any other option value that is not a whole decimal number in its range
 It also exits with 1, without opening a device, when the command line contains
 a word that is not an option, and names it: `error: unexpected argument '<word>'`.
 `ubertooth-util` takes no other arguments. An option the tool does not know is
-refused the same way, with the usage text after it on standard error:
-`error: unrecognized option '-Z'`; an option whose value is missing reads
+refused the same way, as one line on standard error with no usage text after
+it: `error: unrecognized option '-Z'`; an option whose value is missing reads
 `error: option '-U' requires a value`. The removed `-f` is one of those
 options now: use ubertooth-dfu(1) instead.
 

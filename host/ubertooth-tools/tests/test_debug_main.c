@@ -201,13 +201,13 @@ MU_TEST(the_refusals_never_open_a_device)
 	char* help_after_a_list[] = { "ubertooth-debug", "-r", "0x02", "-h", NULL };
 
 	reset();
-	/* An unknown option prints the usage, which this tool still sends to
-	 * standard output even when the command line was refused. That is one
-	 * of the output-stream gaps already listed on the stream issue, not
-	 * something this test is fixing; it is pinned so the fix is visible. */
+	/* An unknown option is getopt's own message, which this tool has not
+	 * been converted to report itself yet. No usage text follows it, on
+	 * either stream. */
 	run_main(&r, 2, bad_option);
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strstr(r.out, "Usage:") != NULL, "today the usage is on stdout");
+	mu_assert(strstr(r.out, "Usage:") == NULL, r.out);
+	mu_assert(strstr(r.err, "Usage:") == NULL, r.err);
 
 	/* A refused option value is reported the way the rest of the tools do
 	 * it: the reason on standard error, nothing on standard output. */

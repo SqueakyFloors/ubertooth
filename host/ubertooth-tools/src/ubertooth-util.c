@@ -562,7 +562,6 @@ int main(int argc, char *argv[])
 			break;
 		default:
 			opt_report_bad_option(opt, argc, argv);
-			usage(stderr);
 			return 1;
 		}
 	}
@@ -657,7 +656,8 @@ int main(int argc, char *argv[])
 		else
 			fprintf(stderr, "error: nothing to do: give an option that reads "
 			        "or sets something, or -N to count the attached boards\n");
-		usage(stderr);
+		if (opt_no_arguments(argc))
+			usage(stderr);
 		return 1;
 	}
 
