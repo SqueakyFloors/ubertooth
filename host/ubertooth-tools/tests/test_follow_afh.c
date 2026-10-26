@@ -446,13 +446,12 @@ MU_TEST(dash_a_needs_a_target_address_and_a_connection)
 {
 	const char *refusal;
 
-	/* No -l/-u: the old code read the map with an uninitialised handle. */
+	/* No -t: the old code read the map with an uninitialised handle. */
 	refusal = follow_afh_handle_refusal(0, 0);
 	mu_assert(refusal != NULL, "no address must refuse");
-	/* "once each", so a doubled -l or -u is not told to supply what it
-	 * already supplied. */
-	mu_assert(strstr(refusal, "-l once") != NULL &&
-	          strstr(refusal, "-u once") != NULL, refusal);
+	/* The connection needs all six bytes, which only -t gives, so the
+	 * refusal names that option and the form it takes. */
+	mu_assert(strstr(refusal, "-t xx:xx:xx:xx:xx:xx") != NULL, refusal);
 	/* An address with no handle is still no link to read over. */
 	mu_assert(follow_afh_handle_refusal(0, 1) != NULL, "no address refuses");
 	refusal = follow_afh_handle_refusal(1, 0);

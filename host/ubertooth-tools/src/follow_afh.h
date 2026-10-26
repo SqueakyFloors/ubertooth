@@ -152,8 +152,12 @@ void follow_afh_message(const follow_afh_read* out, const char* detail,
                         char* buf, size_t len);
 
 /* Whether -a can be attempted at all: the map is read over an ACL link to the
- * target, so it needs a remote connection handle. Returns NULL when AFH can go
- * ahead, otherwise the one line to print after "error: ". */
-const char* follow_afh_handle_refusal(int have_remote_address, int have_handle);
+ * target, so it needs an address a connection can be made to, which is the
+ * whole six bytes of one. have_whole_address is therefore 1 only when the
+ * whole address was given (ubertooth-follow's -t); a LAP and UAP are four of
+ * the six bytes and do not count, even though they name a piconet. Returns
+ * NULL when AFH can go ahead, otherwise the one line to print after
+ * "error: ". */
+const char* follow_afh_handle_refusal(int have_whole_address, int have_handle);
 
 #endif /* __UBERTOOTH_FOLLOW_AFH_H__ */

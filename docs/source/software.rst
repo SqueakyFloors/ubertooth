@@ -33,7 +33,7 @@ Ubertooth itself. Most tools also have a manual page under ``host/doc/``.
 - ``ubertooth-afh`` — Passively recover a piconet's AFH channel map. (Needs: an
   active piconet.)
 - ``ubertooth-follow`` — Active clock discovery and follow a piconet for a given
-  UAP/LAP. (Needs: BlueZ and a target.)
+  target address. (Needs: BlueZ and a target.)
 - ``ubertooth-scan`` — Active inquiry scan using a BlueZ dongle plus Ubertooth.
   (Needs: a BlueZ Bluetooth dongle.)
 
