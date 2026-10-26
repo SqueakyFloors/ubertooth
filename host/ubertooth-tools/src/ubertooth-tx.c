@@ -57,9 +57,7 @@ int main(int argc, char* argv[])
 	uint32_t lap = 0;
 	uint8_t uap = 0;
 
-	ubertooth_t* ut = ubertooth_init();
-	if (ut == NULL)
-		return 1;
+	ubertooth_t* ut = NULL;
 
 	/* The tool reports a bad option itself, in the usual one-line form:
 	 * see opt_report_bad_option(). The leading ':' makes a missing option
@@ -127,21 +125,45 @@ int main(int argc, char* argv[])
 		return 1;
 	}
 
+	/* Allocated here rather than at the top of main(): every refusal above
+	 * returns without a device, and the handle carries a 64 MB fifo. */
+	ut = ubertooth_init();
+	if (ut == NULL)
+		return 1;
+
 	r = ubertooth_connect_select(ut, ubertooth_device);
 	if (r < 0) {
+		/* ubertooth_connect_select() has already closed whatever it
+		 * opened, so only the handle itself is left to give back. */
+		ubertooth_free(ut);
 		return 1;
 	}
 
 	r = ubertooth_check_api(ut);
-	if (r < 0)
+	if (r < 0) {
+		/* A refused version was stopped and closed inside
+		 * ubertooth_check_api(), which has already sent STOP; a
+		 * version that could not be read was not. So close only a
+		 * handle still holding a device, because closing twice would
+		 * exit libusb twice. What is not added here is a second STOP. */
+		if (ut->devh != NULL)
+			ubertooth_close(ut);
+		ubertooth_free(ut);
 		return 1;
+	}
 
 	// set bt address
 	/* A libusb error code is not an exit status: the documented statuses
 	 * are 0 and 1. */
 	r = cmd_set_bdaddr(ut->devh, (((uint32_t)uap)<<24)|lap);
-	if (r < 0)
+	if (r < 0) {
+		/* Nothing has been started on the board and no signal handler
+		 * holds the handle yet, so release it here. Without STOP: the
+		 * address was not set, so there is nothing to stop. */
+		ubertooth_close(ut);
+		ubertooth_free(ut);
 		return 1;
+	}
 	/* The tool transmits; the syncword it derived is progress, not the
 	 * result the user asked for. */
 	fprintf(stderr, "Syncword: 0x%" PRIx64 "\n", btbb_gen_syncword(lap));
