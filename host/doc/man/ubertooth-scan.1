@@ -52,6 +52,8 @@ An option value must be a whole value in its range, or it is refused the same wa
 A scan that ran to its \fB\-t\fR timeout, or that was interrupted (Ctrl\-C), exits 0 with whatever it found, and so does \fB\-h\fR\. A refused command line exits 1 (see ARGUMENTS)\.
 .P
 A scan whose USB stream fails part\-way also exits 1: the board stopped answering, or dropped off the bus, so the Ubertooth half of the scan stops there\. The results it did get are still printed, and the failure is reported on standard error as it happens, as \fBerror: receive transfer failed: <reason>\fR\.
+.P
+A board that refuses the request that puts it in sweep mode exits 1 as well: \fBerror: could not set sweep mode\fR, in one line on standard error\. The AFH map this tool prints is only meaningful while the board sweeps the whole band, so neither the BlueZ inquiry nor the Ubertooth scan starts after that, and nothing is printed\.
 .SH "SEE ALSO"
 ubertooth\-util(1): sets the receive squelch (\fB\-z\fR); SQUELCH describes how long it lasts
 .P

@@ -236,6 +236,19 @@ what arrived before it. The failure is reported on standard error as it
 happens, as `error: receive transfer failed: <reason>`. A `-z` survey still
 prints the results it did get.
 
+A board that refuses one of the requests that set the capture up exits 1 too,
+and the capture does not start, so a board that will not leave the channel it
+is on cannot be mistaken for one that is sweeping. The refused request is
+named in one line on standard error, and nothing is printed:
+
+    error: could not set sweep mode
+    error: could not set the channel
+    error: could not set the Bluetooth address
+
+The first is a command line without `-c`, which asks for the sweep across the
+whole band; the second a `-c` channel; the third the address `-l` and `-u`
+together name.
+
 ## SEE ALSO
 
 ubertooth-util(1): sets the receive squelch (`-z`); SQUELCH describes how
