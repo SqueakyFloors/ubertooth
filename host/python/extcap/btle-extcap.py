@@ -33,6 +33,10 @@ stop_signal = None
 
 # The advertising channels ubertooth-btle will tune to, as the Bluetooth core
 # specification numbers them. The first is the default.
+# A call with no operation in it, bare or not.
+NOTHING_TO_DO = ("error: nothing to do: give --extcap-interfaces,"
+                 " --extcap-dlts, --extcap-config or --capture")
+
 ADVERTISING_CHANNELS = ("37", "38", "39")
 
 # Options Wireshark adds to the calls it makes, which this script accepts
@@ -111,6 +115,15 @@ def sig_handler(sig, frame):
 def main():
     signal.signal(signal.SIGTERM, sig_handler)
 
+    # A bare call has said nothing for a message about the command line to
+    # answer, so the usage line is the answer, on standard error since it was
+    # not asked for. Every other refusal is its one "error: " line alone
+    # (.kiro/steering/cli-output.md).
+    if not sys.argv[1:]:
+        print(NOTHING_TO_DO, file=sys.stderr)
+        usage(sys.stderr)
+        sys.exit(1)
+
     try:
         opts, args = getopt.getopt(
             with_optional_values(sys.argv[1:]),
@@ -127,10 +140,10 @@ def main():
                 *TOLERATED_OPTIONS,
             ])
     except getopt.GetoptError as err:
-        # A usage error: the message and the usage line go to standard error
-        # and the exit status is 1 (.kiro/steering/cli-output.md).
+        # A usage error: the message goes to standard error and the exit
+        # status is 1. The message says what was wrong, so the usage line
+        # does not follow it (.kiro/steering/cli-output.md).
         print("error: %s" % err, file=sys.stderr)
-        usage(sys.stderr)
         sys.exit(1)
 
     # No call here takes an operand, so a leftover word is a mistake, refused
@@ -210,6 +223,11 @@ def main():
                   "filter the packets in Wireshark instead (got %s)"
                   % capture_filter, file=sys.stderr)
         sys.exit(capture(interface, fifo, channel))
+    else:
+        # An interface and nothing to do with it: the call used to exit 0
+        # having done nothing, which Wireshark reads as a call that worked.
+        print(NOTHING_TO_DO, file=sys.stderr)
+        sys.exit(1)
 
 
 def usage(out=sys.stdout):

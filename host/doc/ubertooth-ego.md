@@ -115,12 +115,14 @@ refused request is not proof that the board never got it, so the message does
 not claim one way or the other.
 
 A command line the tool will not take is refused before any device is opened,
-with exit status 1 and one `error: ` line on standard error. The usage text
-follows that line for an option the tool does not know
-(`error: unrecognized option '-Z'`), for one whose value is missing
-(`error: option '-c' requires a value`), and for a command line with nothing
-to do. A bad option value, a stray word, and `-c` outside continuous receive
-are the one `error: ` line alone, matching `ubertooth-util`.
+with exit status 1 and one `error: ` line on standard error and nothing after
+it: an option the tool does not know (`error: unrecognized option '-Z'`), one
+whose value is missing (`error: option '-c' requires a value`), a bad option
+value, a stray word, `-c` outside continuous receive, and a command line that
+said something but has nothing to do. The line describes the problem, so the
+usage text is left to `-h`. A bare `ubertooth-ego`, with no arguments at all,
+is the one refusal the usage text does follow, on standard error with the
+`error: ` line.
 
 `-h` is what the user asked for, so the usage text goes to standard output and
 nothing goes to standard error.

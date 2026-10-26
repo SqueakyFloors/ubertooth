@@ -144,7 +144,7 @@ void print_version(void) { printf("test\n"); }
 struct run_result {
 	int rc;
 	char out[4096];
-	/* A refused command line prints the whole usage text here. */
+	/* A bare command line prints the whole usage text here. */
 	char err[4096];
 };
 
@@ -358,9 +358,10 @@ MU_TEST(the_usage_text_documents_the_monitoring_and_the_exit_status)
 	mu_assert_int_eq(0, fake.rx_afh_calls);
 }
 
-/* A command line with no piconet address does nothing, so it is refused: the
- * error line and the usage text on standard error, nothing on standard
- * output, exit 1, and no device opened. */
+/* A command line with no piconet address does nothing, so it is refused: one
+ * error line on standard error, nothing on standard output, exit 1, and no
+ * device opened. The error line says what was wrong, so the usage text does
+ * not follow it. */
 MU_TEST(a_missing_piconet_address_is_refused_on_standard_error)
 {
 	static const char REFUSAL[] =
@@ -372,6 +373,24 @@ MU_TEST(a_missing_piconet_address_is_refused_on_standard_error)
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(r.out[0] == '\0', r.out);
 	mu_assert(strncmp(r.err, REFUSAL, strlen(REFUSAL)) == 0, r.err);
+	/* "keeps monitoring" is a line of the usage text. */
+	mu_assert(strstr(r.err, "keeps monitoring") == NULL, r.err);
+	mu_assert_int_eq(0, fake.rx_afh_calls);
+}
+
+/* A bare command line is the one refusal the usage text follows: the user
+ * asked for nothing, so there is nothing else to say. */
+MU_TEST(a_bare_command_line_is_refused_with_the_usage_text)
+{
+	struct run_result r;
+
+	reset_fake();
+	r = run_afh((const char *const[]){ "ubertooth-afh", NULL });
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strncmp(r.err, "error: -l <LAP> and -u <UAP> are both required",
+	                  strlen("error: -l <LAP> and -u <UAP> are both required")) == 0,
+	          r.err);
 	mu_assert(strstr(r.err, "keeps monitoring") != NULL, r.err);
 	mu_assert_int_eq(0, fake.rx_afh_calls);
 }
@@ -388,5 +407,6 @@ int main(void)
 	MU_RUN(a_piconet_that_cannot_be_allocated_is_refused);
 	MU_RUN(the_usage_text_documents_the_monitoring_and_the_exit_status);
 	MU_RUN(a_missing_piconet_address_is_refused_on_standard_error);
+	MU_RUN(a_bare_command_line_is_refused_with_the_usage_text);
 	return mu_report();
 }

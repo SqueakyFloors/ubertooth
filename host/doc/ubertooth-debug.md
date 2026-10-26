@@ -90,7 +90,11 @@ a range: unknown name (got %nosuchregister)`. The other reasons are
 `not a name, address or range`.
 
 `-r` is required: without it the command is refused with
-`error: -r <reg>[,<reg>[,...]] is required: at least one register to read`.
+`error: -r <reg>[,<reg>[,...]] is required: at least one register to read`,
+on standard error and with exit status 1. A bare `ubertooth-debug`, with no
+arguments at all, prints the usage text after that line; every other refused
+command line is the `error: ` line alone, and `-h` prints the usage text on
+standard output.
 
 ## SEE ALSO
 

@@ -23,19 +23,28 @@ stream a line is on.
 - Warnings, prefixed `warning: `; notes, prefixed `note: `.
 - Progress and status: "Resetting ...", "Stopping ...", DFU progress, device
   selection messages, "Ubertooth stopped", timing traces.
-- The usage text when it is shown because the tool could not take the command
-  line at all, or it did not have the work to do: an option the tool does not
-  know, an option whose value is missing, no mode, a required option missing.
-  Print the one-line `error: ` first, then the usage text, both on standard
-  error.
-- A command line the tool understood and will not run is the one `error: `
-  line alone, with no usage text: a combination of options that cannot work
-  (`ubertooth-util -z` with a mode option, `ubertooth-btle -f -n`,
-  `ubertooth-ego -f -c`), an option value outside its range, a word that is
-  not an option. The line already names what was wrong, so the usage text adds
-  nothing.
+- The usage text, for a bare command line only: a tool that needs arguments
+  and is run with none prints its one `error: ` line and then the usage text,
+  both on standard error. A tool that has work to do with no options
+  (`ubertooth-dump`, `ubertooth-rx`, `ubertooth-specan`) runs instead.
+- No other refused command line carries the usage text. The `error: ` line
+  describes the problem, so the usage text adds nothing; a reader who wants it
+  runs `-h`. That covers an option the tool does not know, an option whose
+  value is missing, a combination that cannot work, a value out of range, a
+  stray word, and nothing to do on a command line that did say something. No
+  tool is an exception.
 - libubertooth and libbtbb never write to standard output. Their diagnostics
   go to standard error (or are returned to the caller).
+
+The three cases, with `ubertooth-ego`:
+
+    $ ubertooth-ego -h          # the usage text on standard output, status 0
+    $ ubertooth-ego             # "error: nothing to do: choose a major mode
+                                # (-f, -r or -i)" and the usage text, both on
+                                # standard error, status 1
+    $ ubertooth-ego -f -c 2408  # "error: -c cannot be combined with -f; only
+                                # continuous receive (-r) uses a channel", that
+                                # line alone on standard error, status 1
 
 ## Exit status
 

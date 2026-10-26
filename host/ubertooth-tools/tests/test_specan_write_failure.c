@@ -541,12 +541,11 @@ MU_TEST(a_refused_command_line_opens_no_device)
 {
 	char err[512];
 
-	/* An option the tool does not know: one error: line, then the usage
-	 * text, both on standard error, and nothing was opened. */
+	/* An option the tool does not know: that one error: line on standard
+	 * error, with no usage text after it, and nothing was opened. */
 	reset_device();
 	mu_assert_int_eq(1, RUN_SPECAN(err, "-Z"));
-	mu_assert(strncmp(err, "error: unrecognized option '-Z'\n", 32) == 0, err);
-	mu_assert(strstr(err, "ubertooth-specan") != NULL, err);
+	mu_assert(strcmp(err, "error: unrecognized option '-Z'\n") == 0, err);
 	mu_assert_int_eq(0, device.start_calls);
 
 	/* An option whose value is missing reads the same way. */

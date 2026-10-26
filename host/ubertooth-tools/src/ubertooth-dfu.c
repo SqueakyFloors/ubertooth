@@ -1187,24 +1187,26 @@ static int get_outfile(char *infile, char **outfile) {
 	}
 }
 
-static void usage()
+/* The usage text: on standard output for -h, on standard error for a bare
+ * command line. */
+static void usage(FILE *file)
 {
-	printf("ubertooth-dfu - Ubertooth firmware update tool\n");
-	printf("\n");
-	printf("To update firmware, run:\n");
-	printf("\tubertooth-dfu -d bluetooth_rxtx.dfu -r\n");
-	printf("\n");
-	printf("Usage:\n");
-	printf("\t-u <filename> upload - read the application flash region to a\n");
-	printf("\t              raw file (from 0x4000 to the end of the part's\n");
-	printf("\t              flash, no DFU suffix: it is not a file -d can\n");
-	printf("\t              write back)\n");
-	printf("\t-d <filename> download - write DFU file to device\n");
-	printf("\t-r reset Ubertooth after other operations complete\n");
-	printf("\n");
-	printf("Miscellaneous:\n");
-	printf("\t-s <filename> add DFU suffix to binary firmware file\n");
-	fputs(OPT_USAGE_SELECT_DEVICE, stdout);
+	fputs("ubertooth-dfu - Ubertooth firmware update tool\n", file);
+	fputs("\n", file);
+	fputs("To update firmware, run:\n", file);
+	fputs("\tubertooth-dfu -d bluetooth_rxtx.dfu -r\n", file);
+	fputs("\n", file);
+	fputs("Usage:\n", file);
+	fputs("\t-u <filename> upload - read the application flash region to a\n", file);
+	fputs("\t              raw file (from 0x4000 to the end of the part's\n", file);
+	fputs("\t              flash, no DFU suffix: it is not a file -d can\n", file);
+	fputs("\t              write back)\n", file);
+	fputs("\t-d <filename> download - write DFU file to device\n", file);
+	fputs("\t-r reset Ubertooth after other operations complete\n", file);
+	fputs("\n", file);
+	fputs("Miscellaneous:\n", file);
+	fputs("\t-s <filename> add DFU suffix to binary firmware file\n", file);
+	fputs(OPT_USAGE_SELECT_DEVICE, file);
 }
 
 /* Settle how much flash the read-back asks the bootloader for, and say what
@@ -1300,7 +1302,7 @@ int main(int argc, char **argv) {
 			free(outfile_name);
 			outfile_name = NULL;
 			if (get_outfile(sign_name, &outfile_name) == 0) {
-				printf("Error: -s requires a .bin\n");
+				fputs("error: -s requires a .bin\n", stderr);
 				exit_status = 1;
 				goto end_without_device;
 			}
@@ -1317,7 +1319,6 @@ int main(int argc, char **argv) {
 				first_exit_option = 'h';
 			break;
 		default:
-			usage();
 			exit_status = 1;
 			goto end_without_device;
 		}
@@ -1334,7 +1335,18 @@ int main(int argc, char **argv) {
 	 * parsed: a bad option value or a stray word is reported even
 	 * alongside it. */
 	if (first_exit_option == 'h') {
-		usage();
+		usage(stdout);
+		goto end_without_device;
+	}
+
+	/* No function is no work: the tool used to exit 0 having touched
+	 * nothing and said nothing, so a mistyped command looked like a
+	 * firmware update that had worked. */
+	if (functions == 0) {
+		fputs("error: nothing to do: give -d to write an image, -u to read"
+		      " one back, -s to sign one, or -r to reset\n", stderr);
+		if (opt_no_arguments(argc))
+			usage(stderr);
 		exit_status = 1;
 		goto end_without_device;
 	}

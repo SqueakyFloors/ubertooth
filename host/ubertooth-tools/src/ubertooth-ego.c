@@ -143,7 +143,6 @@ int main(int argc, char *argv[])
 			break;
 		default:
 			opt_report_bad_option(opt, argc, argv);
-			usage(stderr);
 			return 1;
 		}
 	}
@@ -166,7 +165,8 @@ int main(int argc, char *argv[])
 	if (do_mode < 0) {
 		fputs("error: nothing to do: choose a major mode (-f, -r or -i)\n",
 		      stderr);
-		usage(stderr);
+		if (opt_no_arguments(argc))
+			usage(stderr);
 		return 1;
 	}
 

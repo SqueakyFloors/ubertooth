@@ -127,7 +127,6 @@ int main(int argc, char* argv[])
 			break;
 		default:
 			opt_report_bad_option(opt, argc, argv);
-			usage(stderr);
 			return 1;
 		}
 	}
@@ -163,7 +162,8 @@ int main(int argc, char* argv[])
 	} else {
 		fputs("error: -l <LAP> and -u <UAP> are both required: "
 		      "the map is detected for one piconet\n", stderr);
-		usage(stderr);
+		if (opt_no_arguments(argc))
+			usage(stderr);
 		return 1;
 	}
 

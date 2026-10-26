@@ -99,22 +99,28 @@ and are refused like any other unknown option.
 
 ## Diagnostics
 
-Errors, warnings and the usage line after a bad command line go to standard
-error; the script's own standard output carries only the listings above, the
-capture data going to the fifo instead, and nothing when a call fails. During
+Errors and warnings go to standard error, as does the usage line after a bare
+call (`error: nothing to do: give --extcap-interfaces, --extcap-dlts,
+--extcap-config or --capture`, then the usage line). The script's own standard
+output carries only the listings above, the capture data going to the fifo
+instead, and nothing when a call fails. During
 `--capture` the `ubertooth-btle` it runs inherits that standard output and
 writes its own decode of every packet there; Wireshark discards it.
 
 A command line the script will not take is refused before `ubertooth-btle`
 runs, so nothing is written to the fifo:
-`error: option --list-dlts not recognized` followed by the usage line,
+`error: option --list-dlts not recognized`,
 `error: unexpected argument 'extra'` for a word that is not an option or the
 value of one, since no call here takes an operand,
 `error: --extcap-interface must be ubertooth<serial>, as --extcap-interfaces
 lists it`, `error: --capture needs --fifo=PATH` and
 `error: advertising channel index must be 37-39 (got 40)`, which is
-`ubertooth-btle`'s own wording for the same mistake. `-h` reports a stray
-word too, rather than ending the command before the rest has parsed.
+`ubertooth-btle`'s own wording for the same mistake. A call with no operation
+in it, which used to exit 0 having done nothing, gives the same
+`error: nothing to do: ...` line as a bare call. Each is that one line:
+the usage line follows only a bare `btle-extcap.py`, and `-h` prints it on
+standard output. `-h` reports a stray word too, rather than ending the command
+before the rest has parsed.
 
 Whatever `ubertooth-util` and `ubertooth-btle` write to standard error is
 passed on, including

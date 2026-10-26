@@ -76,12 +76,15 @@ already said why. A refused request is not proof that the board never got it,
 so the message does not claim one way or the other.
 
 A command line the tool will not take is reported as that one `error: ` line
-followed by the usage text, both on standard error. An option the tool does
-not know reads `error: unrecognized option '-Z'`; one whose value is missing
-reads `error: option '-U' requires a value`.
+on standard error, with no usage text after it: the line describes the
+problem, and `-h` prints the usage text for a reader who wants it. An option
+the tool does not know reads `error: unrecognized option '-Z'`; one whose
+value is missing reads `error: option '-U' requires a value`.
 
-`-h` is what the user asked for, so the usage text goes to standard output and
-nothing goes to standard error.
+`-h` is what the user asked for, so the usage text goes to standard output
+and nothing goes to standard error. A bare `ubertooth-ducky`, with no arguments
+at all, is the one refusal the usage text does follow, on standard error with
+the `error: ` line.
 
 ## EXIT STATUS
 

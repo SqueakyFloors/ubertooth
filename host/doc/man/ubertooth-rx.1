@@ -146,7 +146,7 @@ A file that cannot be opened at all is reported the same way, before anything is
 .P
 \fB\-h\fR and \fB\-V\fR end the command only once the whole command line has parsed, so a stray word or a bad option value is reported even alongside them\.
 .P
-An option the tool does not know is refused the same way, with the usage text after it on standard error: \fBerror: unrecognized option '\-Z'\fR\. An option whose value is missing reads \fBerror: option '\-l' requires a value\fR\.
+An option the tool does not know is refused the same way, as one line on standard error with no usage text after it: \fBerror: unrecognized option '\-Z'\fR\. An option whose value is missing reads \fBerror: option '\-l' requires a value\fR\.
 .P
 \fB\-h\fR is what the user asked for, so its usage text goes to standard output, nothing goes to standard error, and it exits 0\.
 .P

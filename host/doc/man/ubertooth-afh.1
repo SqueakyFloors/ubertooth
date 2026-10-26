@@ -69,9 +69,9 @@ Both halves of the piconet address are required, and a command line missing eith
 .SH "DIAGNOSTICS"
 Standard output carries the detected channel maps\. Errors, warnings and the tool's own progress go to standard error, each error as one line starting \fBerror:\fR\. The channel\-change lines that libubertooth raises alongside each map are \fBnote:\fR lines on standard error; see ubertooth(7), OUTPUT AND DIAGNOSTICS\.
 .P
-A command line the tool will not take is reported as that one \fBerror:\fR line followed by the usage text, both on standard error\. An option the tool does not know reads \fBerror: unrecognized option '\-Z'\fR; one whose value is missing reads \fBerror: option '\-l' requires a value\fR\.
+A command line the tool will not take is reported as that one \fBerror:\fR line on standard error, with no usage text after it: the line describes the problem, and \fB\-h\fR prints the usage text for a reader who wants it\. An option the tool does not know reads \fBerror: unrecognized option '\-Z'\fR; one whose value is missing reads \fBerror: option '\-l' requires a value\fR\.
 .P
-\fB\-h\fR is what the user asked for, so the usage text goes to standard output and nothing goes to standard error\.
+\fB\-h\fR is what the user asked for, so the usage text goes to standard output and nothing goes to standard error\. A bare \fBubertooth\-afh\fR, with no arguments at all, is the one refusal the usage text does follow, on standard error with the \fBerror:\fR line\.
 .SH "EXIT STATUS"
 \fBubertooth\-afh\fR does not stop on its own, so it normally exits 0 after being interrupted (Ctrl\-C)\. \fB\-h\fR also exits 0\.
 .P

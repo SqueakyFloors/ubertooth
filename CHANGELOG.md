@@ -57,6 +57,10 @@
   `error: unrecognized option '-Z'` and `error: option '-l' requires a value`,
   instead of the option parser's own lines naming the whole path of the binary.
   [#338](https://github.com/SqueakyFloors/ubertooth/issues/338)
+- **Script-visible change:** after an error, tools print only the error; run
+  `-h` for the usage text. A tool that needs arguments and is run with none
+  still prints it, on standard error.
+  [#323](https://github.com/SqueakyFloors/ubertooth/issues/323)
 - ubertooth-btle can stream PCAP data to stdout with `-q -`
   or `-c -`, safely separating diagnostics for Wireshark and other consumers.
   Credit: Ryan Govostes ([@rgov](https://github.com/rgov)).

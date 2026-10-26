@@ -53,18 +53,22 @@ static void describe_item(char *out, size_t size,
 		 failure->item, value);
 }
 
-static void usage()
+/* The usage text: on standard output for -h, on standard error for a bare
+ * command line. */
+static void usage(FILE *file)
 {
-    printf
-	("ubertooth-debug - command line utility for debugging Ubertooth One\n");
-    printf("Usage:\n");
-    printf("\t-h this message\n");
-    printf("\t-r <reg>[,<reg>[,...]] read the contents of CC2400 register(s),\n");
-    printf("\t   each 0x00-0x%02x or a %%name (example: -r 0x02,%%main)\n",
-	   CC2400_REG_ADDRESS_MAX);
-    printf("\t-r <start>-<end> read a consecutive set of CC2400 register(s)\n");
-    fputs(OPT_USAGE_SELECT_DEVICE, stdout);
-    printf("\t-v <0-2> verbosity (default=1)\n");
+    fputs("ubertooth-debug - command line utility for debugging Ubertooth One\n",
+	  file);
+    fputs("Usage:\n", file);
+    fputs("\t-h this message\n", file);
+    fputs("\t-r <reg>[,<reg>[,...]] read the contents of CC2400 register(s),\n",
+	  file);
+    fprintf(file, "\t   each 0x00-0x%02x or a %%name (example: -r 0x02,%%main)\n",
+	    CC2400_REG_ADDRESS_MAX);
+    fputs("\t-r <start>-<end> read a consecutive set of CC2400 register(s)\n",
+	  file);
+    fputs(OPT_USAGE_SELECT_DEVICE, file);
+    fputs("\t-v <0-2> verbosity (default=1)\n", file);
 }
 
 /* Looks up one "%name" at the start of t, which runs to the next list
@@ -163,7 +167,6 @@ int main(int argc, char *argv[])
 	    break;
 	}
 	default:
-	    usage();
 	    free(regList);
 	    return 1;
 	}
@@ -179,7 +182,7 @@ int main(int argc, char *argv[])
     /* -h ends the command, but only once the whole command line has parsed:
      * a bad option value or a stray word is reported even alongside it. */
     if (do_help) {
-	usage();
+	usage(stdout);
 	free(regList);
 	return 0;
     }
@@ -187,6 +190,8 @@ int main(int argc, char *argv[])
     if (regListN == 0) {
 	fprintf(stderr, "error: -r <reg>[,<reg>[,...]] is required:"
 		" at least one register to read\n");
+	if (opt_no_arguments(argc))
+	    usage(stderr);
 	free(regList);
 	return 1;
     }

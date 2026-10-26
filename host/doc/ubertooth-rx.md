@@ -204,9 +204,9 @@ bare `-`, is refused before any device is opened and named:
 parsed, so a stray word or a bad option value is reported even
 alongside them.
 
-An option the tool does not know is refused the same way, with the usage text
-after it on standard error: `error: unrecognized option '-Z'`. An option whose
-value is missing reads `error: option '-l' requires a value`.
+An option the tool does not know is refused the same way, as one line on
+standard error with no usage text after it: `error: unrecognized option '-Z'`.
+An option whose value is missing reads `error: option '-l' requires a value`.
 
 `-h` is what the user asked for, so its usage text goes to standard output,
 nothing goes to standard error, and it exits 0.

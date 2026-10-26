@@ -459,7 +459,7 @@ MU_TEST(a_channel_the_mode_cannot_use_is_refused)
 
 	/* With no mode at all there is nothing to refuse the channel for, and
 	 * the refusal has no option to name: the earlier "nothing to do" check
-	 * answers, with the usage text a bare -c really does need. */
+	 * answers. The command line said something, so that line is all of it. */
 	reset_fake();
 	r = RUN("-c", "2408");
 	mu_assert_int_eq(1, r.rc);
@@ -467,7 +467,23 @@ MU_TEST(a_channel_the_mode_cannot_use_is_refused)
 	mu_assert(strncmp(r.err, "error: nothing to do: ",
 	                  strlen("error: nothing to do: ")) == 0, r.err);
 	mu_assert(strstr(r.err, "cannot be combined") == NULL, r.err);
+	mu_assert(strstr(r.err, "Usage:") == NULL, r.err);
+}
+
+/* A bare command line is the one refusal the usage text follows: the user
+ * asked for nothing, so there is nothing else to say. */
+MU_TEST(a_bare_command_line_is_refused_with_the_usage_text)
+{
+	struct run_result r;
+
+	reset_fake();
+	r = run_ego((const char *const[]){ "ubertooth-ego", NULL });
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strncmp(r.err, "error: nothing to do: ",
+	                  strlen("error: nothing to do: ")) == 0, r.err);
 	mu_assert(strstr(r.err, "Usage:") != NULL, r.err);
+	mu_assert_int_eq(0, fake.inits);
 }
 
 /* -h is what the user asked for, so it is answered even when the rest of the
@@ -509,6 +525,7 @@ int main(void)
 	MU_RUN(a_firmware_without_ego_is_still_reported);
 	MU_RUN(interfering_sets_only_the_capture_length);
 	MU_RUN(a_channel_the_mode_cannot_use_is_refused);
+	MU_RUN(a_bare_command_line_is_refused_with_the_usage_text);
 	MU_RUN(help_wins_over_a_refused_combination);
 	MU_RUN(a_failed_poll_ends_the_capture_with_1);
 	return mu_report();

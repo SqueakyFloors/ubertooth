@@ -151,7 +151,10 @@ or as a range: unknown name (got %nosuchregister)\fR\&. The other reasons are
 .PP
 \fB\fC\-r\fR is required: without it the command is refused with
 \fB\fCerror: \-r <reg>[,<reg>[,...]] is required: at least one register to
-read\fR\&.
+read\fR, on standard error and with exit status 1\&. A bare
+\fB\fCubertooth\-debug\fR, with no arguments at all, prints the usage text
+after that line; every other refused command line is the \fB\fCerror: \fR line
+alone, and \fB\fC\-h\fR prints the usage text on standard output\&.
 .SH SEE ALSO
 .PP
 ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how

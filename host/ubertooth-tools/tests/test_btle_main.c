@@ -909,8 +909,8 @@ MU_TEST(the_help_option_exits_0_with_the_usage_text_on_stdout)
 }
 
 /* A bad option line comes from the shared helper, so this tool reports one
- * the way every other does: an "error: " line and the usage text, both on
- * standard error, with standard output left empty. */
+ * the way every other does: that one "error: " line on standard error, with
+ * no usage text after it and standard output left empty. */
 MU_TEST(a_bad_command_line_is_reported_on_stderr)
 {
 	struct run_result r;
@@ -919,9 +919,7 @@ MU_TEST(a_bad_command_line_is_reported_on_stderr)
 	r = RUN("-Z");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(r.out[0] == '\0', r.out);
-	mu_assert(strstr(r.err, "error: unrecognized option '-Z'\n") == r.err,
-	          r.err);
-	mu_assert(strstr(r.err, "Usage:") != NULL, r.err);
+	mu_assert(strcmp(r.err, "error: unrecognized option '-Z'\n") == 0, r.err);
 	mu_assert_int_eq(0, fake.connects);
 
 	/* an option whose value is missing, which the leading ':' in the
