@@ -23,9 +23,16 @@ stream a line is on.
 - Warnings, prefixed `warning: `; notes, prefixed `note: `.
 - Progress and status: "Resetting ...", "Stopping ...", DFU progress, device
   selection messages, "Ubertooth stopped", timing traces.
-- The usage text when it is shown because the command line was wrong or did
-  nothing (a missing mode, a bad option): print the one-line `error: ` first,
+- The usage text when it is shown because the tool could not take the command
+  line at all, or it asked for nothing: an option the tool does not know, an
+  option whose value is missing, no mode. Print the one-line `error: ` first,
   then the usage text, both on standard error.
+- A command line the tool understood and will not run is the one `error: `
+  line alone, with no usage text: a combination of options that cannot work
+  (`ubertooth-util -z` with a mode option, `ubertooth-btle -f -n`,
+  `ubertooth-ego -f -c`), an option value outside its range, a word that is
+  not an option. The line already names what was wrong, so the usage text adds
+  nothing.
 - libubertooth and libbtbb never write to standard output. Their diagnostics
   go to standard error (or are returned to the caller).
 
