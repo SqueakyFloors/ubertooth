@@ -63,12 +63,60 @@ if not CONTRACT.get("testable", True):
 # rather than about a command line, so a finding can claim them by id.
 SPEC_CASE = TOOL + " (the option table)"
 MAN_PAGE_CASE = TOOL + " (the man page)"
+SPEC_IDS_CASE = "cli_spec.json (the ids)"
+# The questions whose cases the generator makes rather than the spec listing
+# them: a lone "--" and a doubled option are the same two command lines for
+# every tool, so they are not written out per tool.
+GENERATED_QUESTIONS = {"Q-6", "Q-7"}
 
 ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1")
 # A Python tool runs under the interpreter CMake found, as every other Python
 # test here does, rather than under whatever its shebang resolves to.
 COMMAND = ([sys.executable, BINARY] if CONTRACT.get("kind") == "python"
            else [BINARY])
+
+# A tool that finds boards through the Python usb1 module rather than through
+# libubertooth, which is what UBERTOOTH_TEST_NO_DEVICES reaches. It gets a
+# usb1 that finds nothing, so an accepted command line stops where the other
+# tools stop, and no board is opened whatever is attached. The tool's own
+# modules go on the path with it, because the wrapper under test is the one
+# CMake configured into the build tree rather than an installed one.
+USB1_STUB = '''"""A usb1 that finds no device: the matrix opens no board."""
+
+
+class USBError(Exception):
+    pass
+
+
+class USBErrorTimeout(USBError):
+    pass
+
+
+class USBContext:
+    def openByVendorIDAndProductID(self, vendor, product,
+                                   skip_on_error=False):
+        return None
+'''
+
+if CONTRACT.get("devices_via") == "usb1":
+    STUB_DIRECTORY = tempfile.mkdtemp(prefix="cli-matrix-usb1-")
+    with open(os.path.join(STUB_DIRECTORY, "usb1.py"), "w") as handle:
+        handle.write(USB1_STUB)
+    path = [STUB_DIRECTORY]
+    module_dir = CONTRACT.get("module_dir")
+    if module_dir is not None:
+        path.append(os.path.normpath(os.path.join(
+            os.path.dirname(os.path.abspath(SPEC_PATH)), module_dir)))
+    ENVIRONMENT["PYTHONPATH"] = os.pathsep.join(path)
+    # The tool puts its own module directory ahead of PYTHONPATH, so check
+    # that the stub still wins where the tool itself looks. Without this a
+    # machine with the real usb1 installed would open a board.
+    found = subprocess.run(
+        [sys.executable, "-c", "import usb1; print(usb1.__file__)"],
+        env=ENVIRONMENT, stdout=subprocess.PIPE, universal_newlines=True)
+    if os.path.dirname(found.stdout.strip()) != STUB_DIRECTORY:
+        sys.exit("%s would import %s and could open a board"
+                 % (TOOL, found.stdout.strip() or "the real usb1"))
 DEVICE_LOOKUP = tuple(message.lower() for message in SPEC["_device_lookup_messages"])
 # An open finding, as the cases it breaks and the complaint it produces. Every
 # case listed has to keep failing with that complaint: a finding half fixed,
@@ -389,6 +437,50 @@ def check_the_spec_lists_every_option():
     here = os.path.dirname(os.path.abspath(SPEC_PATH))
     problems = []
 
+    # The ids the spec uses have to exist, or an entry naming a tool, a
+    # finding or a question by a name nothing else has is dropped in silence:
+    # the cases it claims go unchecked and nothing says so. Every run checks
+    # the whole file, because an entry for a tool that is not built here is
+    # exactly the one that would never be looked at.
+    findings = set(SPEC["_findings"]) - {"_about"}
+    questions = set(SPEC["_questions"]) - {"_about"}
+    for entry in SPEC["expected_failures"]:
+        where = "%s %s" % (", ".join(entry["findings"]), entry["cases"][0])
+        if entry["tool"] not in SPEC["tools"]:
+            problems.append((SPEC_IDS_CASE,
+                             "%s names the tool %s, which the spec does not "
+                             "have" % (where, entry["tool"])))
+        unknown = sorted(set(entry["findings"]) - findings)
+        if unknown:
+            problems.append((SPEC_IDS_CASE,
+                             "%s names %s, which _findings does not have"
+                             % (where, " ".join(unknown))))
+    # A question id can be on a case, a stated combination or a pair rule,
+    # per tool or across all of them, so the whole file is walked for them.
+    asked_by_the_spec = {}
+    def collect(node, where):
+        if isinstance(node, dict):
+            if "question" in node:
+                asked_by_the_spec.setdefault(node["question"], where)
+            for key, value in node.items():
+                collect(value, "%s %s" % (where, key))
+        elif isinstance(node, list):
+            for value in node:
+                collect(value, where)
+    collect(SPEC, "cli_spec.json")
+
+    for asked, where in sorted(asked_by_the_spec.items()):
+        if asked not in questions:
+            problems.append((SPEC_IDS_CASE,
+                             "%s names %s, which _questions does not have"
+                             % (where, asked)))
+    # And the other way round: a question with no case behind it is one the
+    # maintainer is asked about and the matrix never runs.
+    for asked in sorted(questions - set(asked_by_the_spec)
+                        - GENERATED_QUESTIONS):
+        problems.append((SPEC_IDS_CASE,
+                         "%s is in _questions, but no case names it" % asked))
+
     # The man page the spec cites has to be there, and it has to list -h:
     # ten of them do not, which is finding F-09. It gets a case id of its own
     # so that finding can claim it like any other.
@@ -401,7 +493,14 @@ def check_the_spec_lists_every_option():
         else:
             with open(path) as handle:
                 text = handle.read()
-            if " - `-h`" not in text:
+            # Only the OPTIONS section counts: a page that mentions -h under
+            # DIAGNOSTICS still does not list it where a reader looks for it.
+            section = re.search(r"\n## OPTIONS\n(.*?)(?=\n## |\Z)", text,
+                                re.S)
+            if section is None:
+                problems.append((MAN_PAGE_CASE,
+                                 "%s has no OPTIONS section" % page))
+            elif " - `-h`" not in section.group(1):
                 problems.append((MAN_PAGE_CASE,
                                  "%s does not list -h in its OPTIONS "
                                  "section" % page))
@@ -620,7 +719,11 @@ def generated_cases():
         cases.append(Case([], "device"))
 
     # -h, and -h alongside a command line the tool will not take: -h ends the
-    # command only once the whole line has parsed.
+    # command only once the whole line has parsed. A tool without a -h at all
+    # still gets the case: no tool is an exception to it, so the absence is a
+    # finding rather than a reason to generate nothing.
+    if not HELP_OPTIONS:
+        cases.append(Case(["-h"], "help"))
     if HELP_OPTIONS:
         help_option = HELP_OPTIONS[0]
         cases.append(Case([help_option], "help"))
@@ -692,10 +795,17 @@ def generated_cases():
             if reference is not None:
                 cases.append(Case(attached, reference["verdict"],
                                   error=reference.get("error"),
-                                  contains=reference.get("error_contains")))
+                                  contains=reference.get("error_contains"),
+                                  source=source_of(reference),
+                                  creates=reference.get("creates", ())))
             else:
-                cases.append(Case(attached, verdict_for_line(arguments).verdict,
-                                  error=verdict_for_line(arguments).error))
+                separate = verdict_for_line(arguments)
+                cases.append(Case(attached, separate.verdict,
+                                  error=separate.error,
+                                  contains=separate.contains,
+                                  names=separate.names,
+                                  source=separate.source,
+                                  creates=separate.creates))
 
         # An optional value written as the next word is taken as the value
         # when it is a valid one, which a trailing stray word proves by being
@@ -716,11 +826,16 @@ def generated_cases():
                     cases.append(Case(written, dash["verdict"],
                                       error=dash.get("error"),
                                       contains=dash.get("error_contains"),
-                                      source=source_of(dash)))
+                                      source=source_of(dash),
+                                      creates=dash.get("creates", ())))
                 else:
-                    cases.append(Case(written,
-                                      verdict_for_line([name, "-"]).verdict,
-                                      error=verdict_for_line([name, "-"]).error))
+                    shape = verdict_for_line([name, "-"])
+                    cases.append(Case(written, shape.verdict,
+                                      error=shape.error,
+                                      contains=shape.contains,
+                                      names=shape.names,
+                                      source=shape.source,
+                                      creates=shape.creates))
 
     # The command lines the spec states outright, including the ones with more
     # than two options.

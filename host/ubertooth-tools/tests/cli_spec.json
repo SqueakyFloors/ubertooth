@@ -50,7 +50,13 @@
     "no adapter, and every accepted case stops there. With an adapter present",
     "those cases would go on to talk to it, which is not what this test is",
     "about, so they are skipped, the run says how many, and the findings",
-    "marked \"only_without_local_adapter\" are not enforced."
+    "marked \"only_without_local_adapter\" are not enforced.",
+    "Either way, what those two tools do after the adapter opens is outside",
+    "this matrix: on a machine with no adapter they stop at it, and on one",
+    "with an adapter the accepted cases are not run. Lines they print past",
+    "that point are unchecked, and ubertooth-follow.c and ubertooth-scan.c",
+    "do print some of them on stdout, so this is a gap and not a clean",
+    "result. Closing it needs a fake adapter, which is a job of its own."
   ],
 
   "_global_pair_rules": [
@@ -535,7 +541,7 @@
       "man": "ubertooth-follow.md",
       "optstring": "hl:u:U:e:d:ab:w:r:q:",
       "built_when": "libbluetooth is installed (Linux)",
-      "accepted_markers": ["Bluetooth device", "not found: No such device"],
+      "accepted_markers": ["error: Bluetooth device hci0 not found"],
       "_accepted_markers_why": "ubertooth-follow opens the local Bluetooth adapter before it looks for an Ubertooth, so on a machine without one an accepted command line stops there instead of at device lookup",
       "options": {
         "-h": {"value": "none", "role": "help"},
@@ -591,6 +597,36 @@
                "invalid": [["6", "error: maximum access code errors must be 0-5 (got 6)"]]},
         "-b": {"value": "required", "role": "modifier", "valid": ["hci0"]},
         "-U": {"value": "required", "role": "selector", "valid": ["0"]}
+      }
+    },
+
+
+    "ubertooth-btbr": {
+      "man": "none; the tool has no man page",
+      "kind": "python",
+      "devices_via": "usb1",
+      "module_dir": "../../python/ubtbr",
+      "optstring": "f:b:",
+      "usage_marker": "Usage: ubertooth-btbr OPTIONS",
+      "_shape": [
+        "The installed wrapper host/python/ubtbr/ubertooth-btbr.in, built by",
+        "CMake. It has no -h and no man page, and it finds its board through",
+        "the Python usb1 module rather than libubertooth, so the matrix gives",
+        "it a usb1 that finds nothing instead of setting",
+        "UBERTOOTH_TEST_NO_DEVICES. Its interactive prompt is not a command",
+        "line and is covered by host/python/ubtbr/tests/test_ubtbr.py."
+      ],
+      "options": {
+        "-f": {"value": "required", "role": "modifier",
+               "doc": "MOD_OFFSET register",
+               "valid": ["0", "100", "65535"],
+               "invalid": [["bad", "error: -f must be 0-65535 (got bad)"],
+                           ["70000", "error: -f must be 0-65535 (got 70000)"]]},
+        "-b": {"value": "required", "role": "modifier",
+               "doc": "maximum bit errors in syncword detection",
+               "valid": ["0", "4", "65535"],
+               "invalid": [["bad", "error: -b must be 0-65535 (got bad)"],
+                           ["70000", "error: -b must be 0-65535 (got 70000)"]]}
       }
     },
 
@@ -666,6 +702,7 @@
     "F-06": "A lone '-' is written as a file name rather than standard output by ubertooth-rx (-q, -d), ubertooth-dump (-d) and ubertooth-follow (-q, -d, -r), against ubertooth(7) OPTION VALUES. ubertooth-btle and ubertooth-specan do take it as standard output.",
     "F-07": "ubertooth-scan writes its own error line to standard output: \"error: Unable to find hci0 (-1)\". Errors belong on standard error.",
     "F-08": "Documentation: ubertooth-specan.md says an unknown option and a missing option value are refused \"with the usage text after the 'error: ' line on standard error\". The tool prints the error line alone, which is what the rule asks for, so the page is what needs changing. Held by \"man_must_not_say\" on the page's own wording.",
+    "F-10": "ubertooth-btbr answers every command line it will not take -- an unknown option, a missing option value, a stray word -- with its usage text on standard output, no 'error: ' line and status 1. It also has no -h, so there is no way to ask for that usage text: the same text, on the same stream, is both the answer to -h and the answer to a mistake. usage() in ubertooth-btbr.in is the one place to change.",
     "F-09": "Documentation, not testable here: ten of the thirteen man pages do not list -h in their OPTIONS section (afh, debug, dfu, dump, ego, rx, scan, specan, tx, util), although every tool has it and the pages discuss it elsewhere."
   },
 
@@ -697,6 +734,31 @@
     {"tool": "ubertooth-specan", "findings": ["F-08"],
      "problem_contains": "a described error prints no usage text",
      "cases": ["ubertooth-specan (the man page)"]},
+
+    {"tool": "ubertooth-btbr", "findings": ["F-10"],
+     "problem_contains": "the usage text is on standard output",
+     "cases": ["ubertooth-btbr -", "ubertooth-btbr --bogus",
+               "ubertooth-btbr -Z", "ubertooth-btbr -b",
+               "ubertooth-btbr -f", "ubertooth-btbr extra"]},
+    {"tool": "ubertooth-btbr", "findings": ["F-10"],
+     "problem_contains": "wrote to standard output",
+     "cases": ["ubertooth-btbr -", "ubertooth-btbr --bogus",
+               "ubertooth-btbr -Z", "ubertooth-btbr -b",
+               "ubertooth-btbr -f", "ubertooth-btbr extra"]},
+    {"tool": "ubertooth-btbr", "findings": ["F-10"],
+     "problem_contains": "expected one 'error: ' line, got 0",
+     "cases": ["ubertooth-btbr -", "ubertooth-btbr --bogus",
+               "ubertooth-btbr -Z", "ubertooth-btbr -b",
+               "ubertooth-btbr -f", "ubertooth-btbr extra"]},
+    {"tool": "ubertooth-btbr", "findings": ["F-10"],
+     "problem_contains": "standard output is not empty on a failure",
+     "cases": ["ubertooth-btbr -", "ubertooth-btbr --bogus",
+               "ubertooth-btbr -Z", "ubertooth-btbr -b",
+               "ubertooth-btbr -f", "ubertooth-btbr extra",
+               "ubertooth-btbr -h"]},
+    {"tool": "ubertooth-btbr", "findings": ["F-10"],
+     "problem_contains": "-h exited 1, not 0",
+     "cases": ["ubertooth-btbr -h"]},
     {"tool": "ubertooth-tx", "findings": ["F-09"],
      "problem_contains": "does not list -h in its OPTIONS section",
      "cases": ["ubertooth-tx (the man page)"]},

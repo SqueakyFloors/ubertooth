@@ -135,17 +135,19 @@ foreach(tool ${UBERTOOTH_TOOLS})
 	# The whole command-line contract of the tool, generated from
 	# cli_spec.json: every option alone, every bad value, every pair, and
 	# the stream and status rules for each. One entry per built tool so a
-	# failure names the tool. A few hundred short runs per tool, so the
+	# failure names the tool. Several hundred short runs per tool, so the
 	# timeout only catches a tool that waits for a device it should never
 	# have looked for; ubertooth-util, with the most options, is the
-	# slowest at about 400 runs.
+	# slowest at 684 runs and 21 s. The limit is generous against that
+	# because each run inside the test has its own 20 s deadline, and the
+	# per-case report is only printed when the test itself finishes.
 	add_test(
 		NAME cli-matrix-${tool}
 		COMMAND ${Python3_EXECUTABLE}
 			${CMAKE_CURRENT_SOURCE_DIR}/test_cli_matrix.py
 			${CMAKE_CURRENT_SOURCE_DIR}/cli_spec.json
 			$<TARGET_FILE:${tool}>)
-	set_tests_properties(cli-matrix-${tool} PROPERTIES TIMEOUT 600)
+	set_tests_properties(cli-matrix-${tool} PROPERTIES TIMEOUT 180)
 endforeach()
 
 # The same contract for btle-extcap.py, which has a command line of its own
