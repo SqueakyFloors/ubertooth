@@ -3,11 +3,11 @@
 #
 #     tools/retry.sh <seconds> <command> [argument ...]
 #
-# <seconds> is the limit for one attempt. There are three attempts, with 5 then
-# 10 seconds between them, and a command that ignores the limit is given 10
-# more seconds before it is killed. So the longest this can take is
+# <seconds> is the limit for one attempt. There are three attempts, 10 seconds
+# apart, and a command that ignores the limit is given 10 more seconds before
+# it is killed. So the longest this can take is
 #
-#     3 * (<seconds> + 10) + 15
+#     3 * (<seconds> + 10) + 20
 #
 # which is what a workflow step's timeout-minutes has to leave room for, or
 # GitHub cancels the step before the message below is printed.
@@ -20,6 +20,13 @@
 # looking at the wrong thing. A limit per attempt turns it into a named
 # failure in a few minutes, and the retry recovers the common case where the
 # mirror is only having a bad minute.
+#
+# The limit is the outer bound, not the stall detector: the workflow asks apt
+# to give up on a connection that has gone quiet, so a dead mirror is reported
+# by apt, by name, long before this limit. The limit is sized instead for the
+# mirror that is merely slow, which an attempt should be able to ride out --
+# apt resumes a part-finished download, so the attempts add up rather than
+# starting over.
 #
 # Every failure is retried, not only a timeout, because a mirror having a bad
 # minute surfaces as whatever the package manager made of it -- a 404 from a
@@ -34,7 +41,7 @@
 set -u
 
 attempts=3
-backoff=5
+backoff=10
 grace=10
 
 usage="usage: tools/retry.sh <seconds> <command> [argument ...]"
@@ -128,7 +135,6 @@ while :; do
     attempt=$((attempt + 1))
     printf '%s\n' "note: retrying in ${backoff}s" >&2
     sleep "$backoff"
-    backoff=$((backoff * 2))
 done
 
 if [ "$timed_out" = yes ]; then
