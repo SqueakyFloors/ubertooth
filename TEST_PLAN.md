@@ -83,6 +83,30 @@ write a bootloader.*
 - [ ] Confirm: the read-back still returns all 114688 bytes above the
       bootloader, and the board comes back running its application
 
+### 2f. Bootloader refuses an image past the end of flash
+
+*Same board and the same ISP or JTAG requirement as 2e. `ubertooth-dfu -d`
+refuses an oversize image before it sends anything, so these steps send the
+requests directly.*
+
+- [ ] First, with nothing clever: flash the application with
+      `ubertooth-dfu -U <serial> -d bluetooth_rxtx.dfu -r`
+- [ ] Confirm: it succeeds and `ubertooth-util -U <serial> -v` reports the
+      revision just written. This is the step that matters most, because the
+      bootloader now reports a failed program instead of discarding it, and
+      that is the only change that affects an ordinary flash
+- [ ] Put the board in DFU and send `REQ_DNLOAD` (class request 1) with a
+      256-byte block and a wValue past the end of the part's flash: 512, which
+      is 0x20000, on a 128 KiB part. On a larger part use its own figure, or
+      that block is flash the part has and will be programmed
+- [ ] Confirm: `REQ_GETSTATUS` reports status 0x08 (`ERRADDRESS`), and the
+      board still answers `REQ_GETSTATE`
+- [ ] Send `REQ_CLRSTATUS`, then flash the application again
+- [ ] Confirm: it succeeds, so the refusal left the part usable
+- [ ] Not reachable on an Ubertooth: the sector probe, which only runs on a
+      part the bootloader's table has no entry for. Every board shipped is
+      built from a listed part
+
 ---
 
 ## 3. BLE Sniffing (tests cherry-picked PR #550 — CRC fix)

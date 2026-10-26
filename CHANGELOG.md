@@ -680,8 +680,17 @@ Fixes with no visible change in normal use.
   [#252](https://github.com/SqueakyFloors/ubertooth/issues/252)
 - The bootloader refuses a read-back past the end of the flash the attached
   part has, instead of faulting and answering nothing until the board is
-  power-cycled. It is reached only through ISP or JTAG, not `ubertooth-dfu`.
+  power-cycled, and refuses a block of an image there rather than asking the
+  part to program memory it has not got. It cannot undo the blocks already
+  written, so an oversize image still leaves an application missing its tail;
+  what it no longer does is write past the end of flash. A part its table
+  cannot identify is bounded by the sectors it reports having, or by the old
+  fixed bound if it reports nothing at all, and a block the part failed to
+  program is reported rather than answered as written. It is reached only
+  through ISP or JTAG, not `ubertooth-dfu`.
   [#256](https://github.com/SqueakyFloors/ubertooth/issues/256)
+  [#423](https://github.com/SqueakyFloors/ubertooth/issues/423)
+  [#424](https://github.com/SqueakyFloors/ubertooth/issues/424)
 - `ubertooth-dfu` bounds every wait on the bootloader and retries a read-back
   that failed part-way, instead of waiting forever or reporting a truncated
   error code.

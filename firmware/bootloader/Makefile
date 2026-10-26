@@ -419,6 +419,18 @@ $(OBJDIR)/%.o : %.S
 # Target: clean project.
 clean: begin clean_list clean_binary end
 
+# Remove only the objects built from the shared sources under ../common, which
+# every firmware image writes next to the sources rather than in its own
+# directory. This image is the only one with its own compiler flags, so it is
+# built from clean and these go afterwards, leaving nothing another image would
+# pick up. The built images are left alone. See the bootloader target in
+# ../Makefile, which is how this is meant to be driven.
+clean_shared:
+	$(REMOVE) $(SRC:%.c=$(OBJDIR)/%.o)
+	$(REMOVE) $(SRC:%.c=$(OBJDIR)/%.lst)
+	$(REMOVE) $(SRC:.c=.d)
+	$(REMOVE) $(SRC:%.c=$(OBJDIR)/%.o.d)
+
 clean_binary:
 	$(REMOVE) $(TARGET).hex
 
@@ -461,6 +473,6 @@ $(shell mkdir $(OBJDIR)/ 2>/dev/null)
 # Listing of phony targets.
 .PHONY : all showtarget begin end sizebefore sizeafter \
 gccversion build elf hex eep lss sym program clean \
-clean_list clean_binary doxygen
+clean_list clean_binary clean_shared doxygen
 
 include ../ctags.mk

@@ -41,13 +41,16 @@ See [COMPATIBILITY.md](COMPATIBILITY.md) for supported OS / toolchain / Python *
 |---|---|---|---|
 | GNU make | firmware build | `build-essential` | Xcode CLT (stock `make` 3.81 is fine) |
 | arm-none-eabi-gcc | cross-compile firmware | `gcc-arm-none-eabi` | `brew install --cask gcc-arm-embedded` |
+| ARM C++ runtime | only `firmware/bootloader`, the one image written in C++ | `libstdc++-arm-none-eabi-newlib` | carried by the cask above |
 | dfu-util | flash firmware over DFU | `dfu-util` | `brew install dfu-util` |
 | ubertooth-dfu (host tool) | the `.dfu` packaging step | built with the host tools | same |
 
 ## Quick install (Ubuntu 22.04 / 24.04, macOS with Homebrew)
 
 The easiest path is the bootstrap script, which installs all of the below and
-builds/installs libbtbb and the host tools for you:
+builds/installs libbtbb and the host tools for you. The one exception is the
+ARM C++ runtime: nothing the script builds needs it, so install it by hand if
+you are going to build the bootloader (`make -C firmware bootloader`).
 
 ```sh
 ./install.sh            # see ./install.sh --help for options (venv, flash, ...)

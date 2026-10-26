@@ -134,20 +134,32 @@ bool DFU::request_dnload(TSetupPacket *pSetup, uint32_t *piLen, uint8_t *pbData)
             return error(ERRSTALLEDPKT);
         }
         
-        // TODO: Improve returned error values.
         const uint32_t length = pSetup->wLength;
-        const uint32_t flash_address = pSetup->wValue * transfer_size;
+        const uint32_t flash_address_start = pSetup->wValue * transfer_size;
+        const uint32_t flash_address_end = flash_address_start + length;
         const uint32_t source_address = reinterpret_cast<uint32_t>(pbData);
-        if( memory_policy::write_permitted(flash_address) ) {
-            if( flash.write(flash_address, source_address, length) ) {
-                set_state(DFUDNLOAD_SYNC);
-            } else {
-                return error(ERRPROG);
-            }
-            return true;
-        } else {
+        if( !memory_policy::write_permitted(flash_address_start) ) {
             return error(ERRWRITE);
         }
+        /* Refuse a block with no flash behind it before anything is written,
+         * so an image larger than the part's flash cannot leave an
+         * application missing its tail. Both ends of the block are checked,
+         * as on the read-back, so a part whose flash does not end on a block
+         * boundary cannot have a straddling block written to it.
+         *
+         * ERRADDRESS, not the ERRWRITE above: a block below the application
+         * region is addressed at memory that exists and is refused by policy,
+         * while this one is addressed at memory the part has not got. The
+         * read-back answers ERRADDRESS for the same reason. */
+        if( !flash.valid_address(flash_address_start) ||
+            !flash.valid_address(flash_address_end - 1) ) {
+            return error(ERRADDRESS);
+        }
+        if( !flash.write(flash_address_start, source_address, length) ) {
+            return error(ERRPROG);
+        }
+        set_state(DFUDNLOAD_SYNC);
+        return true;
     } else {
         return error(ERRUNKNOWN);
     }

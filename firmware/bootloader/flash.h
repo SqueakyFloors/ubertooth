@@ -25,16 +25,54 @@
 #include "iap.h"
 
 /*
- * The bound for a part the table below has no entry for: 512 KiB, which is
- * what the bootloader allowed on every part before the table existed.
+ * The bound for a part the table below has no entry for and the sector probe
+ * got no answer out of: 512 KiB, which is what the bootloader allowed on every
+ * part before the table existed.
  *
  * Keeping the old figure cannot leave such a board worse off than it is
- * today. A part with at least 512 KiB reads back as it always did. A part
- * with less faults on a read past its end, as it always did. Bounding an
- * unidentified part at the smallest part in the family would instead refuse a
- * read-back that works today.
+ * today. A part with at least 512 KiB behaves as it always did. A part with
+ * less faults on a read past its end, as it always did. Bounding a part
+ * nobody can place at the smallest part in the family would instead refuse a
+ * read-back, and an image, that work today.
  */
 #define LPC_FLASH_SIZE_FALLBACK 0x80000u
+
+/*
+ * The sector map of the family: sixteen 4 KiB sectors over the first 64 KiB,
+ * then 32 KiB sectors upwards. The largest part in the family has 512 KiB, so
+ * sector 29 is the highest sector there is (NXP LPC176x/5x user manual
+ * UM10360, "Flash memory sectors").
+ */
+#define LPC_SMALL_SECTOR_SIZE  0x1000u
+#define LPC_SMALL_SECTOR_COUNT 16u
+#define LPC_LARGE_SECTOR_SIZE  0x8000u
+#define LPC_LARGE_SECTOR_BASE  (LPC_SMALL_SECTOR_SIZE * LPC_SMALL_SECTOR_COUNT)
+#define LPC_TOP_SECTOR         29u
+
+/* The first address in a sector. One past the top sector gives the top of
+ * flash on the largest part in the family. */
+static inline uint32_t lpc_sector_start(const uint32_t sector) {
+    if( sector < LPC_SMALL_SECTOR_COUNT ) {
+        return sector * LPC_SMALL_SECTOR_SIZE;
+    }
+    return LPC_LARGE_SECTOR_BASE +
+           (sector - LPC_SMALL_SECTOR_COUNT) * LPC_LARGE_SECTOR_SIZE;
+}
+
+/* The sector an address is in. */
+static inline uint32_t lpc_sector_number(const uint32_t address) {
+    if( address < LPC_LARGE_SECTOR_BASE ) {
+        return address / LPC_SMALL_SECTOR_SIZE;
+    }
+    return LPC_SMALL_SECTOR_COUNT +
+           (address - LPC_LARGE_SECTOR_BASE) / LPC_LARGE_SECTOR_SIZE;
+}
+
+/* The size of the sector an address is in. */
+static inline uint32_t lpc_sector_size(const uint32_t address) {
+    return (address < LPC_LARGE_SECTOR_BASE) ? LPC_SMALL_SECTOR_SIZE
+                                             : LPC_LARGE_SECTOR_SIZE;
+}
 
 /*
  * The flash the part with this identification number has, in bytes, or 0 for
@@ -43,9 +81,12 @@
  * Reading flash a part has not got is a precise bus fault on LPC17xx, and the
  * fault does not return to the bootloader's polled USB loop: the board
  * answers nothing more, not even a state request, until it is power-cycled.
- * The read-back bound therefore has to come from the part rather than from a
- * constant, because the boards in the field are a mix -- the Ubertooth One
- * schematic specifies an LPC1754 with 128 KiB, and others read back more.
+ * Writing flash a part has not got is milder -- In-Application Programming
+ * refuses it and the bootloader can report that -- but it stops part-way
+ * through an image, leaving an application missing its tail. Either way the
+ * bound has to come from the part rather than from a constant, because the
+ * boards in the field are a mix: the Ubertooth One schematic specifies an
+ * LPC1754 with 128 KiB, and others read back more.
  *
  * The identification numbers and sizes are from the NXP LPC176x/5x user
  * manual (UM10360, "Part identification numbers"). The host keeps the same
@@ -84,24 +125,20 @@ static inline uint32_t lpc_part_flash_size(const uint32_t part_id) {
     return 0;
 }
 
-/* One past the last address with flash behind it on this part, or the
- * fallback above for a part with no entry in the table. */
-static inline uint32_t lpc_part_flash_bound(const uint32_t part_id) {
-    const uint32_t flash_size = lpc_part_flash_size(part_id);
-    return (flash_size != 0) ? flash_size : LPC_FLASH_SIZE_FALLBACK;
-}
-
 class Flash {
 public:
     Flash() :
         iap(),
-        part_id_read(0) {
+        part_id_read(0),
+        flash_bound_found(0),
+        probe_walked(false),
+        probe_walked_part_id(0) {
     }
 
     bool write(const uint32_t flash_address, uint32_t source_address, uint32_t length) {
         IAP::ReturnCode result = IAP::CMD_SUCCESS;
         
-        const uint32_t sector = sector_number(flash_address);
+        const uint32_t sector = lpc_sector_number(flash_address);
         if( at_sector_boundary(flash_address) ) {
             if( result == IAP::CMD_SUCCESS) {
                 result = iap.prepare_sectors_for_write_operation(sector, sector);
@@ -115,7 +152,10 @@ public:
             result = iap.prepare_sectors_for_write_operation(sector, sector);
         }
         if( result == IAP::CMD_SUCCESS ) {
-            iap.copy_ram_to_flash(flash_address, source_address, length, cclk_khz);
+            /* Reported, not discarded: a program the part refuses has to
+             * reach the host as a failure, or a block that never made it
+             * into flash is answered as written. */
+            result = iap.copy_ram_to_flash(flash_address, source_address, length, cclk_khz);
         }
         
         return (result == IAP::CMD_SUCCESS);
@@ -123,7 +163,45 @@ public:
     
     /* Is there flash behind this address on the part this is running on? */
     bool valid_address(const uint32_t address) const {
-        return (address < lpc_part_flash_bound(part_id()));
+        return (address < flash_bound());
+    }
+
+    /*
+     * One past the last address with flash behind it on this part.
+     *
+     * The table is the fast answer. A part with no entry is asked which
+     * sectors it has instead, so that nothing here depends on a part being
+     * listed. If neither answers, the old fixed 512 KiB stands.
+     *
+     * The first answer, from either source, is remembered: the part cannot
+     * change while the bootloader runs, and a transfer checks two addresses
+     * for every 256-byte block, so asking again each time would make it
+     * crawl. While neither has answered, the table is looked up on every
+     * check, because that costs one command, so a part whose identification
+     * number only reads later still ends up bounded by its own flash.
+     *
+     * The probe is not retried on the same reading of the part, because it is
+     * up to 30 commands: a part that failed it would otherwise be re-walked
+     * twice per block, which is a transfer nobody can wait out. It is walked
+     * again once the identification number reads for the first time, since
+     * that is a part answering commands it was not answering before, and
+     * there are only ever the two readings -- unreadable, then whatever the
+     * ROM gave -- so the walk can happen at most twice.
+     */
+    uint32_t flash_bound() const {
+        if( flash_bound_found == 0 ) {
+            const uint32_t id = part_id();
+            const uint32_t from_table = lpc_part_flash_size(id);
+            if( from_table != 0 ) {
+                flash_bound_found = from_table;
+            } else if( !probe_walked || (id != probe_walked_part_id) ) {
+                probe_walked = true;
+                probe_walked_part_id = id;
+                flash_bound_found = probe_flash_bound();
+            }
+        }
+        return (flash_bound_found != 0) ? flash_bound_found
+                                        : LPC_FLASH_SIZE_FALLBACK;
     }
     
 private:
@@ -134,11 +212,55 @@ private:
      * to gain from asking the ROM again.
      *
      * Zero means not read yet. No part has that number, so a read that fails
-     * is bounded by the fallback above and asked again on the next request. */
+     * leaves the bound to the sector probe and is asked again on the next
+     * request. */
     mutable uint32_t part_id_read;
     
+    /* The bound flash_bound() worked out, or 0 for not worked out yet. No
+     * part has a top of flash at address 0, so there is no answer to confuse
+     * with "no answer yet". */
+    mutable uint32_t flash_bound_found;
+
+    /* Has the sector probe been walked, and under which reading of the part
+     * identification number (0 for a reading that failed)? A walk that gave
+     * no answer is not repeated for the same reading. */
+    mutable bool probe_walked;
+    mutable uint32_t probe_walked_part_id;
+
     static const uint32_t cclk_khz = 100000;
     
+    /*
+     * The top of flash on a part the table has no entry for, found by asking
+     * the part which sectors it has. 0 when the walk got no usable answer,
+     * which includes a part that answered for the sectors below and then
+     * something unexpected: those answers give a floor, not a bound, so the
+     * walk is discarded rather than taken as the top of flash.
+     *
+     * The blank check is the one In-Application Programming command that asks
+     * about a sector without addressing it: a sector the part has not got
+     * answers INVALID_SECTOR, and a sector it has answers CMD_SUCCESS or
+     * SECTOR_NOT_BLANK depending on its contents. That is what makes the
+     * probe safe, since reading an address the part has not got is the bus
+     * fault this bound exists to avoid.
+     *
+     * Sectors run from 0 with no gaps, so the first sector the part refuses
+     * is the end of its flash. A part that refuses sector 0 is answering
+     * nonsense, and the 0 that comes back sends it to the fallback.
+     */
+    uint32_t probe_flash_bound() const {
+        for( uint32_t sector = 0; sector <= LPC_TOP_SECTOR; sector++ ) {
+            const IAP::ReturnCode result = iap.blank_check_sectors(sector, sector);
+            if( result == IAP::INVALID_SECTOR ) {
+                return lpc_sector_start(sector);
+            }
+            if( (result != IAP::CMD_SUCCESS) &&
+                (result != IAP::SECTOR_NOT_BLANK) ) {
+                return 0;
+            }
+        }
+        return lpc_sector_start(LPC_TOP_SECTOR + 1);
+    }
+
     uint32_t part_id() const {
         if( part_id_read == 0 ) {
             uint32_t id = 0;
@@ -150,23 +272,7 @@ private:
     }
 
     bool at_sector_boundary(const uint32_t address) const {
-        return (address & (sector_size(address) - 1)) == 0;
-    }
-    
-    uint32_t sector_size(const uint32_t address) const {
-        if( address < 0x10000 ) {
-            return 4096;
-        } else {
-            return 32768;
-        }
-    }
-                              
-    uint32_t sector_number(const uint32_t address) const {
-        if( address < 0x10000 ) {
-            return address >> 12;
-        } else {
-            return 14 + (address >> 15);
-        }
+        return (address & (lpc_sector_size(address) - 1)) == 0;
     }
 };
 
