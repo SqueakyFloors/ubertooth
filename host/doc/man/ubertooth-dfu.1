@@ -139,7 +139,7 @@ Remove the bridge before the final reset if you want the application firmware to
 .P
 An option the tool does not know is refused the same way, as one line on standard error with no usage text after it: \fBerror: unrecognized option '\-Z'\fR\. An option whose value is missing reads \fBerror: option '\-d' requires a value\fR\.
 .P
-A file the tool cannot read, and an image it will not write, are each refused with one line on standard error, beginning \fBerror:\fR and naming the file\. The \fBChecking firmware signature\fR line that precedes an image refusal is progress, so it is on standard error as well and the two stay in order whatever either stream is piped into\.
+A file the tool cannot open, and an image it will not write, are each refused with one line on standard error, beginning \fBerror:\fR and naming the file\. The \fBChecking firmware signature\fR line that precedes an image refusal is progress, so it is on standard error as well and the two stay in order whatever either stream is piped into\.
 .P
 A command line with no function in it does nothing, so it is refused with \fBerror: nothing to do: give \-d to write an image, \-u to read one back, \-s to sign one, or \-r to reset\fR on standard error and exit status 1, before any device is opened; it used to exit 0 having said and done nothing\. A bare \fBubertooth\-dfu\fR, with no arguments at all, prints the usage text after that line; every other refused command line is the \fBerror:\fR line alone\.
 .P

@@ -276,7 +276,7 @@ An option the tool does not know is refused the same way, as one line on
 standard error with no usage text after it: `error: unrecognized option '-Z'`.
 An option whose value is missing reads `error: option '-d' requires a value`.
 
-A file the tool cannot read, and an image it will not write, are each refused
+A file the tool cannot open, and an image it will not write, are each refused
 with one line on standard error, beginning `error: ` and naming the file. The
 `Checking firmware signature` line that precedes an image refusal is progress,
 so it is on standard error as well and the two stay in order whatever either

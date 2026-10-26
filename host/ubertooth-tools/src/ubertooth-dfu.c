@@ -221,8 +221,9 @@ static int check_download_image(const char* name, FILE* downfile,
 	*image_size = (unsigned long)image_report.image_size;
 	if (want_revision &&
 	    dfu_extract_firmware_revision(downfile, revision, revision_size) != 0) {
-		fprintf(stderr, "error: %s: no firmware revision in the image, so -r "
-		        "could not verify the update\n", name);
+		fprintf(stderr, "error: %s: no firmware revision in the image, which "
+		        "-r needs to check the board afterwards; firmware will not be "
+		        "updated\n", name);
 		return 1;
 	}
 	return 0;
@@ -981,8 +982,7 @@ static int runtime_upload(void *context, void *handle)
 	 * not stay in front of it. */
 	if (fseek(runtime->upload_file, 0, SEEK_SET) != 0 ||
 	    ftruncate(fileno(runtime->upload_file), 0) != 0) {
-		fprintf(stderr, "error: could not rewind the read-back file: %s\n",
-		        strerror(errno));
+		perror("upload file");
 		return -1;
 	}
 	return upload(handle, runtime->upload_file, runtime->upload_length);
