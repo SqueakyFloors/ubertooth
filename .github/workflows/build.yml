@@ -45,8 +45,9 @@ env:
   BUILD_TYPE: Release
   # libbtbb comes from this project's fork, pinned to a commit so a push there
   # cannot change an ubertooth build. This is the place to bump it: every job
-  # below fetches that commit, and the "Check the libbtbb pin" step names the
-  # other files that write it out and fails until they agree.
+  # below fetches that commit, and the libbtbb-pin workflow reads the two
+  # lines below as the pin, names the other files that write it out, and fails
+  # until they all agree.
   LIBBTBB_REPO: SqueakyFloors/libbtbb
   LIBBTBB_REF: b32cf5adde496548057fdf6ea7c852378ad7411a
   # The ARM toolchain, named once so the step that fetches it, the step that
@@ -367,98 +368,6 @@ jobs:
           ${{github.workspace}}/firmware/*/*.bin
           ${{github.workspace}}/firmware/*/*.elf
         if-no-files-found: error
-
-  # The pinned libbtbb commit is checked on its own, not as part of a build:
-  # it needs nothing compiled, and it used to run once per entry of the host
-  # matrix, cloning libbtbb six times in a full-tier run for one answer. A bad
-  # pin now reports itself as a red check of its own rather than as a host
-  # build failure. The name of this job is in the gating set in
-  # .kiro/steering/branch-and-review.md; keep the two the same.
-  libbtbb-pin:
-    runs-on: ubuntu-24.04
-    # The clone is bounded to 60 seconds an attempt by tools/retry.sh below,
-    # so 2 minutes 30 at worst, and the rest is a few greps.
-    timeout-minutes: 6
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Check the libbtbb pin
-      shell: bash
-      # Two things have to hold for the pin: every file that writes it out
-      # agrees, and the commit is one a user can actually get.
-      run: |
-        status=0
-
-        # The pin above is written out again in every file that builds libbtbb
-        # or states which one this fork uses. Fail here, naming the file, rather
-        # than let one of them drift to another libbtbb.
-        for f in install.sh COMPATIBILITY.md \
-                 docs/source/build_guide.rst docs/source/building_from_git.rst; do
-          grep -q "$LIBBTBB_REF" "$f" || {
-            echo "error: $f does not name the pinned libbtbb commit $LIBBTBB_REF" >&2
-            status=1
-          }
-          grep -q "$LIBBTBB_REPO" "$f" || {
-            echo "error: $f does not name the pinned libbtbb repository $LIBBTBB_REPO" >&2
-            status=1
-          }
-        done
-
-        # Agreeing on a commit is not enough: it has to be a commit a clone
-        # can reach. GitHub keeps serving a pull request's head commit by its
-        # hash even after that branch is deleted, so the checkouts below would
-        # fetch it happily while every user following install.sh or a build
-        # guide -- git clone, then git checkout <commit> -- gets "unable to
-        # read tree". Clone the way they do and require the pin to be an
-        # ancestor of the default branch.
-        #
-        # The clone is removed inside the retried command, because an attempt
-        # that had to be killed leaves the directory behind and git refuses to
-        # clone into one that is not empty.
-        : "${RUNNER_TEMP:?}"
-        clone="$RUNNER_TEMP/libbtbb-pin.git"
-        # http.lowSpeedLimit makes git itself abandon a transfer that has
-        # slowed to a trickle for 30 seconds, so a stalled clone is git's own
-        # error well before the retry limit is near.
-        tools/retry.sh 60 sh -c 'rm -rf "$1" && git -c http.lowSpeedLimit=1000 \
-          -c http.lowSpeedTime=30 clone --quiet --bare "$2" "$1"' \
-          clone-libbtbb "$clone" "https://github.com/$LIBBTBB_REPO"
-        branch=$(git -C "$clone" symbolic-ref --short HEAD)
-
-        # Requiring the default branch is stricter than a user needs, since a
-        # full clone brings down the other branches too. That is deliberate:
-        # install.sh and the guides promise a commit of the released library,
-        # not whatever a side branch holds today.
-        if ! git -C "$clone" merge-base --is-ancestor "$LIBBTBB_REF" "$branch" 2> /dev/null; then
-          echo "error: libbtbb commit $LIBBTBB_REF is not on $LIBBTBB_REPO's" >&2
-          echo "       $branch branch, so it is not a released commit. A" >&2
-          echo "       squash-merged pull request head whose branch is gone is" >&2
-          echo "       served to CI by its hash but is in nobody's clone, and a" >&2
-          echo "       side branch moves under users' feet." >&2
-          echo "       Pin a commit merged to $branch." >&2
-          status=1
-        fi
-
-        # So the assert above cannot pass by having stopped comparing, which
-        # is how the gap it closes went unnoticed in the first place. The
-        # control is a commit written here, which the clone therefore has while
-        # $branch does not contain it: refusing it needs a real ancestry
-        # comparison, where a commit named in this file would have been
-        # refused merely for being absent from a bare clone. Writing it rather
-        # than picking a side branch keeps the check from depending on what
-        # branches the libbtbb fork happens to carry.
-        control=$(GIT_AUTHOR_NAME=pin GIT_AUTHOR_EMAIL=pin@invalid \
-                  GIT_COMMITTER_NAME=pin GIT_COMMITTER_EMAIL=pin@invalid \
-                  git -C "$clone" commit-tree "$branch^{tree}" \
-                    -p "$branch" -m control < /dev/null)
-        if git -C "$clone" merge-base --is-ancestor "$control" "$branch" 2> /dev/null; then
-          echo "error: the check above accepted $control, which is not on" >&2
-          echo "       $branch, so it is no longer checking anything" >&2
-          status=1
-        fi
-        rm -rf "$clone"
-
-        exit $status
 
   # The scripts in tools/ are CI's own moving parts, and nothing used to lint
   # or test them: a mistake in one surfaced as a confusing failure in whatever

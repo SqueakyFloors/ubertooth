@@ -75,8 +75,10 @@ or non-trivial operational documentation changes:
   on every push to `main` but on a PR only when `install.sh` changes; the
   `Man pages` job the same way, when anything under `host/doc` changes. The
   weekly schedule, a published release, and a manual run run the full matrix.
-  `issue-references`, `libbtbb-pin` and the two `scripts` jobs run on both
-  tiers and need nothing built.
+  `issue-references` and the two `scripts` jobs run on both tiers and need
+  nothing built. `libbtbb-pin` is its own workflow with no path filter, so it
+  runs on every change, documentation included: two of the files that have to
+  agree on the pin are `COMPATIBILITY.md` and the build guides.
   A branch with no open PR gets no CI; open a PR (a draft is enough) to get a
   run.
 - Before cutting a release, run the full tier manually and wait for it:
@@ -95,9 +97,10 @@ or non-trivial operational documentation changes:
 Speed matters. Do not wait for every job.
 
 - **No CI wait** for changes limited to documentation or agent rules
-  (`*.md`, `.kiro/steering/`): merge as soon as the PR is ready. A change
-  under `host/doc` is the exception: wait for `Man pages`, since it is what
-  catches a page left unrefreshed.
+  (`*.md`, `.kiro/steering/`): merge as soon as the PR is ready. Two
+  exceptions: a change under `host/doc` waits for `Man pages`, since it is
+  what catches a page left unrefreshed, and any documentation change waits
+  for `libbtbb-pin`, which takes about five seconds.
 - **Gating set: one Linux and one Mac.** A code change is good to merge once
   `host (ubuntu-24.04)` and `host (macos-26)` have passed and nothing has
   failed. Changes under `firmware/` also need both firmware jobs; changes to
