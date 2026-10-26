@@ -1,7 +1,7 @@
 /*
  * Hardware-independent tests of ubertooth-ducky's main(): what it sends to
- * quack, and what it reports and exits with when the board refuses one of the
- * requests.
+ * quack, what it reports and exits with when the board refuses one of the
+ * requests, and that every exit path gives the device bookkeeping back.
  *
  * ubertooth-ducky.c is compiled into this test with main() renamed, and the
  * libubertooth functions it calls are replaced by the fakes below, so the real
@@ -24,6 +24,13 @@
 /* ---- scripted device ---------------------------------------------------- */
 
 static struct {
+	int connect_rc;      /* returned by ubertooth_connect_select() */
+	int api_rc;          /* returned by ubertooth_check_api() */
+	/* Whether that failure is a version mismatch, which the library
+	 * reports by releasing the board itself, or a version it could not read
+	 * at all, which leaves the board open for the caller to close. */
+	int api_mismatch;
+	int closes;          /* ubertooth_close(): released without a STOP */
 	int channel_rc;      /* returned by cmd_set_channel() */
 	int adv_data_rc;     /* returned by cmd_le_set_adv_data() */
 	int slave_rc;        /* returned by cmd_btle_slave() */
@@ -32,6 +39,9 @@ static struct {
 	unsigned last_adv_len;
 	uint8_t last_bd_addr[6];
 	int stops;
+	int inits;           /* ubertooth_t allocations handed to the tool */
+	int frees;           /* and how many of them it gave back */
+	ubertooth_t *last_freed;
 	int sleeps;
 	/* Every device call in order, one letter each: c set channel,
 	 * a set advertising data, s start advertising as a slave. */
@@ -60,26 +70,42 @@ static void reset_fake(void)
 
 ubertooth_t *ubertooth_init(void)
 {
+	fake.inits++;
 	return &fake_ut;
+}
+
+/* Asserting here would print to the standard output a run has redirected, so
+ * the pointer is recorded and checked in the test body instead. */
+void ubertooth_free(ubertooth_t *ut)
+{
+	fake.frees++;
+	fake.last_freed = ut;
 }
 
 int ubertooth_connect_select(ubertooth_t *ut, const char *u_arg)
 {
 	(void)ut;
 	(void)u_arg;
-	return 0;
+	return fake.connect_rc;
 }
 
 int ubertooth_check_api(ubertooth_t *ut)
 {
-	(void)ut;
-	return 0;
+	if (fake.api_rc < 0 && fake.api_mismatch)
+		ubertooth_stop(ut);
+	return fake.api_rc;
 }
 
 void ubertooth_stop(ubertooth_t *ut)
 {
-	(void)ut;
+	ut->devh = NULL; /* as the library's cleanup leaves it */
 	fake.stops++;
+}
+
+void ubertooth_close(ubertooth_t *ut)
+{
+	ut->devh = NULL;
+	fake.closes++;
 }
 
 int cmd_set_channel(struct libusb_device_handle *devh, u16 channel)
@@ -180,6 +206,12 @@ static struct run_result run_ducky(const char *const *args)
 	read_back(err, result.err, sizeof(result.err));
 	fclose(out);
 	fclose(err);
+	/* Checked for every case in this file, not just the cases below that
+	 * name an exit path: a run must give back whatever it was handed, and
+	 * nothing else. The tool used to keep it on every path. */
+	mu_assert(fake.frees == fake.inits, "the run did not free its device");
+	mu_assert(fake.frees == 0 || fake.last_freed == &fake_ut,
+	          "the run freed something other than its device");
 	return result;
 }
 
@@ -290,11 +322,81 @@ MU_TEST(a_random_address_quack_is_checked_as_well)
 	mu_assert_int_eq(0, fake.sleeps);
 }
 
+/* Every exit path gives the device bookkeeping back, and a command line that
+ * never reaches a board asks for none in the first place. run_ducky() checks
+ * the balance for each run; this walks the paths so a regression names the one
+ * that kept it. */
+MU_TEST(every_exit_path_gives_the_device_back)
+{
+	struct run_result r;
+
+	/* A refused command line: nothing is allocated, so there is nothing to
+	 * give back. */
+	reset_fake();
+	r = RUN("-Z");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, fake.inits);
+
+	reset_fake();
+	r = RUN("-h");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0, fake.inits);
+
+	/* A UUID the tool cannot read is refused before a board is opened too. */
+	reset_fake();
+	r = RUN("-q", "nonsense");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, fake.inits);
+
+	/* From here the tool has a device to give back. */
+	reset_fake();
+	fake.connect_rc = -1;
+	r = RUN("-q");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, fake.inits);
+	mu_assert_int_eq(1, fake.frees);
+
+	/* A firmware version the host will not run with: the library has
+	 * released the board and ended the libusb context, so the tool gives
+	 * back the memory and nothing else. */
+	reset_fake();
+	fake.api_rc = -1;
+	fake.api_mismatch = 1;
+	r = RUN("-q");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, fake.inits);
+	mu_assert_int_eq(1, fake.frees);
+	mu_assert_int_eq(0, fake.closes);
+
+	/* A version it could not read at all leaves the board open, so the tool
+	 * closes it rather than freeing the memory around a claimed board. No
+	 * STOP: this firmware is not one the host will drive. */
+	reset_fake();
+	fake.api_rc = -1;
+	r = RUN("-q");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, fake.frees);
+	mu_assert_int_eq(1, fake.closes);
+	mu_assert_int_eq(0, fake.stops);
+
+	reset_fake();
+	fake.adv_data_rc = -9;
+	r = RUN("-q");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, fake.frees);
+
+	reset_fake();
+	r = RUN("-q", "-a", "11:22:33:44:55:66");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, fake.frees);
+}
+
 int main(void)
 {
 	MU_RUN(a_quack_the_board_took_sends_the_three_requests_and_exits_0);
 	MU_RUN(a_refused_request_is_named_and_exits_1);
 	MU_RUN(the_bootloader_signal_is_checked_too);
 	MU_RUN(a_random_address_quack_is_checked_as_well);
+	MU_RUN(every_exit_path_gives_the_device_back);
 	return mu_report();
 }

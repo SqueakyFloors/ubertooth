@@ -51,7 +51,7 @@ void print_mac(FILE *file, uint8_t *mac_address) {
 	fprintf(file, "%02x", mac_address[5]);
 }
 
-int parse_uuid(char *s, uint8_t *uuid_out) {
+int parse_uuid(const char *s, uint8_t *uuid_out) {
 	unsigned i, n;
 
 	if (s == NULL || strlen(s) != 36)
@@ -125,6 +125,7 @@ void print_duck(FILE *file, int s) {
 static int request_failed(ubertooth_t *ut, const char *what) {
 	fprintf(stderr, "error: could not %s\n", what);
 	ubertooth_stop(ut);
+	ubertooth_free(ut);
 	return 1;
 }
 
@@ -151,14 +152,14 @@ int main(int argc, char *argv[])
 	int first_exit_option = 0;
 	int do_quack, do_adv_index;
 	int addr_set, be_sarcastic;
-	char *uuid_str = NULL;
+	/* Either a word of argv or one of the UUID constants: nothing is copied,
+	 * so no exit path has a string to give back. */
+	const char *uuid_str = NULL;
 	uint8_t uuid[16] = { 0, };
 	uint8_t bd_addr[6] = { 0, };
 	uint8_t adv_data[16+2] = { 0, };
 	char* ubertooth_device = NULL;
-	ubertooth_t* ut = ubertooth_init();
-	if (ut == NULL)
-		return 1;
+	ubertooth_t* ut = NULL;
 
 	int r;
 
@@ -181,22 +182,12 @@ int main(int argc, char *argv[])
 			if (optarg == NULL)
 				optarg = opt_separate_value(argc, argv, opt_value_not_option);
 			do_quack = 1;
-			free(uuid_str);
-			uuid_str = strdup(optarg ? optarg : DEFAULT_UUID);
-			if (uuid_str == NULL) {
-				fprintf(stderr, "error: out of memory\n");
-				return 1;
-			}
+			uuid_str = optarg ? optarg : DEFAULT_UUID;
 			break;
 
 		case 'b':
 			do_quack = 1;
-			free(uuid_str);
-			uuid_str = strdup(BOOTLOADER_UUID);
-			if (uuid_str == NULL) {
-				fprintf(stderr, "error: out of memory\n");
-				return 1;
-			}
+			uuid_str = BOOTLOADER_UUID;
 			break;
 
 		case 'A':
@@ -268,7 +259,6 @@ int main(int argc, char *argv[])
 				      "tell you to type that?\n", stderr);
 			return 1;
 		}
-		free(uuid_str);
 
 		if (!addr_set) {
 			random = fopen("/dev/urandom", "r");
@@ -284,14 +274,31 @@ int main(int argc, char *argv[])
 
 	}
 
+	/* Nothing above this point touches a board, so the bookkeeping for one is
+	 * allocated only once the command line has been accepted: a refused
+	 * command line then has nothing to give back. */
+	ut = ubertooth_init();
+	if (ut == NULL)
+		return 1;
+
 	r = ubertooth_connect_select(ut, ubertooth_device);
 	if (r < 0) {
+		ubertooth_free(ut);
 		return 1;
 	}
 
 	r = ubertooth_check_api(ut);
-	if (r < 0)
+	if (r < 0) {
+		/* On a version mismatch ubertooth_check_api() has released the
+		 * board and ended the libusb context itself, and ending that
+		 * context twice is not safe; where it could not even read the
+		 * version it has released nothing, so the board is closed here,
+		 * without a STOP for a firmware this host will not drive. */
+		if (ut->devh != NULL)
+			ubertooth_close(ut);
+		ubertooth_free(ut);
 		return 1;
+	}
 
 	// quit on ctrl-C
 	signal(SIGINT, quit);
@@ -331,6 +338,7 @@ int main(int argc, char *argv[])
 
 		sleep(2);
 		ubertooth_stop(ut);
-	} 
+	}
+	ubertooth_free(ut);
 	return 0;
 }

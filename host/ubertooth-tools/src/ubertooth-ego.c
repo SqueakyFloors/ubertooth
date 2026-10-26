@@ -39,6 +39,19 @@ void quit(int signo __attribute__((unused)))
 	running = 0;
 }
 
+/* The library has already said why a request was refused; this names the
+ * request, and leaves the board released rather than capturing with settings
+ * the user did not ask for. A refused request is not proof that the board
+ * never got it -- a transfer can time out after it arrived -- so the message
+ * says only what the tool knows. */
+static int request_failed(const char *what)
+{
+	fprintf(stderr, "error: could not %s\n", what);
+	ubertooth_stop(ut);
+	ubertooth_free(ut);
+	return 1;
+}
+
 static void usage(FILE *file)
 {
 	fprintf(file, "ubertooth-ego - Yuneec E-GO skateboard sniffing\n");
@@ -153,8 +166,17 @@ int main(int argc, char *argv[])
 	}
 
 	r = ubertooth_check_api(ut);
-	if (r < 0)
+	if (r < 0) {
+		/* ubertooth_check_api() releases the board itself on a version
+		 * mismatch, and ends the libusb context with it, which must not
+		 * happen twice; a version it could not read at all leaves the
+		 * board open, so it is closed here, without a STOP for a
+		 * firmware this host will not drive. */
+		if (ut->devh != NULL)
+			ubertooth_close(ut);
+		ubertooth_free(ut);
 		return 1;
+	}
 
 	// quit on ctrl-C
 	signal(SIGINT, quit);
@@ -164,13 +186,19 @@ int main(int argc, char *argv[])
 	if (do_mode >= 0) {
 		usb_pkt_rx rx;
 
-		if (do_mode == 1) // FIXME magic number!
-			cmd_set_channel(ut->devh, do_channel);
+		if (do_mode == 1) { // FIXME magic number!
+			if (cmd_set_channel(ut->devh, do_channel) < 0)
+				return request_failed("set the channel");
+		}
 
-		if (have_access_code)
-			cmd_rfcat_subcmd(ut->devh, RFCAT_SET_AA, access_code, access_code_len);
+		if (have_access_code) {
+			if (cmd_rfcat_subcmd(ut->devh, RFCAT_SET_AA, access_code,
+			                     access_code_len) < 0)
+				return request_failed("set the access code");
+		}
 
-		cmd_rfcat_subcmd(ut->devh, RFCAT_CAP_LEN, &len, sizeof(len));
+		if (cmd_rfcat_subcmd(ut->devh, RFCAT_CAP_LEN, &len, sizeof(len)) < 0)
+			return request_failed("set the capture length");
 
 		r = cmd_ego(ut->devh, do_mode);
 		if (r < 0) {
@@ -179,6 +207,10 @@ int main(int argc, char *argv[])
 			else
 				fputs("error: E-GO not supported by this firmware "
 				      "(or TX not enabled)\n", stderr);
+			/* Released like any other refused request, rather than left
+			 * claimed because this one has its own message. */
+			ubertooth_stop(ut);
+			ubertooth_free(ut);
 			return 1;
 		}
 
@@ -200,6 +232,7 @@ int main(int argc, char *argv[])
 		}
 		ubertooth_stop(ut);
 	}
+	ubertooth_free(ut);
 
 	return status;
 }

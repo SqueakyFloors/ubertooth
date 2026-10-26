@@ -71,11 +71,13 @@ A major mode is the work, so a command line without \fB\-f\fR, \fB\-r\fR or \fB\
 .SH "DIAGNOSTICS"
 Standard output carries only the captured packets\. Errors, warnings and progress go to standard error, each error as one line starting \fBerror:\fR, for example \fBerror: E\-GO not supported by this firmware\fR\.
 .P
+A request that sets the capture up and is refused by the board ends the command there, named in one line, for example \fBerror: could not set the channel\fR; libubertooth has already said why\. A refused request is not proof that the board never got it, so the message does not claim one way or the other\.
+.P
 A command line the tool will not take is reported as that one \fBerror:\fR line followed by the usage text, both on standard error\. An option the tool does not know reads \fBerror: unrecognized option '\-Z'\fR; one whose value is missing reads \fBerror: option '\-c' requires a value\fR\.
 .P
 \fB\-h\fR is what the user asked for, so the usage text goes to standard output and nothing goes to standard error\.
 .SH "EXIT STATUS"
-0 when the command did what was asked, including \fB\-h\fR, and after a capture is interrupted (Ctrl\-C)\. 1 for a command line the tool will not take or with nothing to do, when the selected Ubertooth is not found or cannot be opened, when the firmware does not support the requested mode, and when the capture stops short because a poll failed\.
+0 when the command did what was asked, including \fB\-h\fR, and after a capture is interrupted (Ctrl\-C)\. 1 for a command line the tool will not take or with nothing to do, when the selected Ubertooth is not found or cannot be opened, when the board refuses one of the requests that set the capture up, when the firmware does not support the requested mode, and when the capture stops short because a poll failed\.
 .SH "SEE ALSO"
 ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how option values are written
 .SH "AUTHOR"
