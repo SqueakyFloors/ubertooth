@@ -91,9 +91,9 @@ CI, `install.sh` and the build guide all build the same
 `SqueakyFloors/libbtbb` commit, so a push to libbtbb cannot change an
 Ubertooth build. The pin lives in `.github/workflows/build.yml`; a CI step
 fails if any other file naming it, this one included, falls behind, or if the
-pin is not a commit on the fork's default branch: a pull request head that has
-been merged and had its branch deleted is still served to CI by its hash, but
-is in nobody's clone. Only the C library is built (`-DENABLE_PYTHON=OFF`): the
+pin is not a commit on the fork's default branch: a squash-merged pull request
+head whose branch has been deleted is still served to CI by its hash, but is
+in nobody's clone. Only the C library is built (`-DENABLE_PYTHON=OFF`): the
 Ubertooth tools link nothing else from libbtbb.
 
 The pin changes no part of `btbb.h`, so the interface these tools compile and

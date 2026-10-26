@@ -118,26 +118,27 @@ jobs:
         # not whatever a side branch holds today.
         if ! git -C "$clone" merge-base --is-ancestor "$LIBBTBB_REF" "$branch" 2> /dev/null; then
           echo "error: libbtbb commit $LIBBTBB_REF is not on $LIBBTBB_REPO's" >&2
-          echo "       $branch branch, so it is not a released commit: a merged" >&2
-          echo "       pull request head whose branch is gone is served to CI by" >&2
-          echo "       its hash but is in nobody's clone, and a side branch moves." >&2
+          echo "       $branch branch, so it is not a released commit. A" >&2
+          echo "       squash-merged pull request head whose branch is gone is" >&2
+          echo "       served to CI by its hash but is in nobody's clone, and a" >&2
+          echo "       side branch moves under users' feet." >&2
           echo "       Pin a commit merged to $branch." >&2
           status=1
         fi
 
         # So the assert above cannot pass by having stopped comparing, which
         # is how the gap it closes went unnoticed in the first place. The
-        # control is the tip of a branch the clone holds but $branch does not,
-        # so refusing it takes a real ancestry comparison and not a missing
-        # object -- which is what a hard-coded commit would have given, since
-        # a bare clone does not fetch one that no branch points at.
-        control=$(git -C "$clone" for-each-ref --format='%(objectname)' \
-                    --no-merged "$branch" refs/heads | head -n 1)
-        if [ -z "$control" ]; then
-          echo "error: $LIBBTBB_REPO has no branch off $branch, so there is" >&2
-          echo "       nothing to show the check above still refuses anything" >&2
-          status=1
-        elif git -C "$clone" merge-base --is-ancestor "$control" "$branch" 2> /dev/null; then
+        # control is a commit written here, which the clone therefore has while
+        # $branch does not contain it: refusing it needs a real ancestry
+        # comparison, where a commit named in this file would have been
+        # refused merely for being absent from a bare clone. Writing it rather
+        # than picking a side branch keeps the check from depending on what
+        # branches the libbtbb fork happens to carry.
+        control=$(GIT_AUTHOR_NAME=pin GIT_AUTHOR_EMAIL=pin@invalid \
+                  GIT_COMMITTER_NAME=pin GIT_COMMITTER_EMAIL=pin@invalid \
+                  git -C "$clone" commit-tree "$branch^{tree}" \
+                    -p "$branch" -m control < /dev/null)
+        if git -C "$clone" merge-base --is-ancestor "$control" "$branch" 2> /dev/null; then
           echo "error: the check above accepted $control, which is not on" >&2
           echo "       $branch, so it is no longer checking anything" >&2
           status=1
