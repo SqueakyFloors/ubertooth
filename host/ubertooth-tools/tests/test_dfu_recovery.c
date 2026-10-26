@@ -1031,6 +1031,73 @@ MU_TEST(test_extract_revision_from_existing_compile_info_marker)
 	fclose(image);
 }
 
+/* An image with no build string at all: what the btbr image was until it got
+ * one. There is no revision to verify against, so -r has to refuse the file
+ * rather than reset the board and claim the firmware matched. */
+MU_TEST(test_extract_revision_fails_without_a_compile_info_marker)
+{
+	FILE *image = tmpfile();
+	char revision[64];
+	const char bytes[] = "\x01\x02 some firmware with no build string \x00\xff";
+
+	mu_assert_fatal(image != NULL, "tmpfile failed");
+	mu_assert_int_eq((int)sizeof(bytes),
+	                 (int)fwrite(bytes, 1, sizeof(bytes), image));
+	mu_assert_int_eq(-1, dfu_extract_firmware_revision(image, revision,
+	                                                   sizeof(revision)));
+	fclose(image);
+}
+
+/* Writes the bytes as an image and asserts no revision comes out of it. */
+static void expect_no_revision(const void *bytes, size_t length,
+                               const char *what)
+{
+	FILE *image = tmpfile();
+	char revision[64];
+
+	mu_assert_fatal(image != NULL, "tmpfile failed");
+	mu_assert_int_eq((int)length, (int)fwrite(bytes, 1, length, image));
+	mu_assert(dfu_extract_firmware_revision(image, revision,
+	                                        sizeof(revision)) == -1, what);
+	fclose(image);
+}
+
+/* The marker is there but the revision after it never ends: it runs into
+ * binary, it runs to the end of the file, or the marker is the last thing in
+ * the file. A truncated build string is not a revision, so each of these is
+ * refused instead of returning whatever bytes followed. */
+MU_TEST(test_extract_revision_fails_on_a_truncated_marker)
+{
+	static const char runs_into_binary[] =
+		"\x01ubertooth git-deadbee\x07\x00tail";
+	static const char never_terminated[] = "\x01ubertooth git-deadbee";
+	static const char marker_ends_the_file[] = "\x01ubertooth ";
+
+	expect_no_revision(runs_into_binary, sizeof(runs_into_binary),
+	                   "a revision running into binary was accepted");
+	expect_no_revision(never_terminated, sizeof(never_terminated) - 1,
+	                   "a revision with no \" (\" after it was accepted");
+	expect_no_revision(marker_ends_the_file, sizeof(marker_ends_the_file),
+	                   "a marker with nothing after it was accepted");
+}
+
+/* A revision longer than the caller's buffer is not truncated into it: a
+ * shortened revision would never match the board's, so the file is refused
+ * and the caller is told, rather than failing after the reset. */
+MU_TEST(test_extract_revision_fails_when_the_buffer_is_too_small)
+{
+	FILE *image = tmpfile();
+	char revision[8];
+	const char bytes[] = "\x01ubertooth git-deadbee* (builder@host) date";
+
+	mu_assert_fatal(image != NULL, "tmpfile failed");
+	mu_assert_int_eq((int)sizeof(bytes),
+	                 (int)fwrite(bytes, 1, sizeof(bytes), image));
+	mu_assert_int_eq(-1, dfu_extract_firmware_revision(image, revision,
+	                                                   sizeof(revision)));
+	fclose(image);
+}
+
 /* The read-back length follows the part's flash, so the bootloader is never
  * asked for an address with no flash behind it. */
 MU_TEST(test_part_lookup_knows_the_lpc17xx_flash_sizes)
@@ -1171,5 +1238,8 @@ int main(void)
 	MU_RUN(test_image_rejects_a_file_that_is_not_a_regular_file);
 	MU_RUN(test_extract_revision_refuses_a_file_past_the_size_cap);
 	MU_RUN(test_extract_revision_from_existing_compile_info_marker);
+	MU_RUN(test_extract_revision_fails_without_a_compile_info_marker);
+	MU_RUN(test_extract_revision_fails_on_a_truncated_marker);
+	MU_RUN(test_extract_revision_fails_when_the_buffer_is_too_small);
 	return mu_report();
 }

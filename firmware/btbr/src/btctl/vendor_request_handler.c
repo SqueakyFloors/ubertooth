@@ -29,6 +29,16 @@
 #include <ubtbr/btphy.h>
 #include <ubtbr/btctl_intf.h>
 
+/*
+ * The build string, in the one layout the host can read back out of a firmware
+ * file: "ubertooth ", the revision, then " (". ubertooth-dfu -r searches the
+ * image for exactly that so it can check, after the reset, that the board came
+ * back running what was just written; an image without it cannot be flashed
+ * with -r at all. Keep this identical to the one in bluetooth_rxtx.c.
+ */
+const char compile_info[] =
+	"ubertooth " GIT_REVISION " (" COMPILE_BY "@" COMPILE_HOST ") " TIMESTAMP;
+
 static void request_reset(void)
 {
 	btctl_rx_enqueue(btctl_msg_alloc(BTCTL_RESET_REQ));
@@ -173,6 +183,15 @@ int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		memcpy(&data[3], GIT_REVISION, length);
 
 		*data_len = 2 + 1 + length;
+		break;
+
+	case UBERTOOTH_GET_COMPILE_INFO:
+		length = strlen(compile_info);
+		if (length > UBERTOOTH_COMPILE_INFO_MAX)
+			length = UBERTOOTH_COMPILE_INFO_MAX;
+		data[0] = (u8)length;
+		memcpy(&data[1], compile_info, length);
+		*data_len = 1 + length;
 		break;
 
 	case UBERTOOTH_GET_BOARD_ID:

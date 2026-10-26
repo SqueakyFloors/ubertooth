@@ -99,14 +99,15 @@
   the command returns at once and the board stays reachable; `-S` or any mode
   option stops it and leaves the LEDs off.
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
-- **Reflash required:** the firmware API version is now 1.24, last moved by the
-  bound on a multi-register write's register count, and the host tools require
-  firmware of exactly their own API version, older or newer (`ubertooth-util`
-  still reads the version and reflashes any firmware). Host and firmware come
-  from the same tree; `2020-12-R1` firmware is refused.
+- **Reflash required:** the firmware API version is now 1.25, last moved by the
+  cut on an over-long build string reply, and the host tools require firmware
+  of exactly their own API version, older or newer (`ubertooth-util` still
+  reads the version and reflashes any firmware). Host and firmware come from
+  the same tree; `2020-12-R1` firmware is refused.
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
   [#240](https://github.com/SqueakyFloors/ubertooth/issues/240)
+  [#433](https://github.com/SqueakyFloors/ubertooth/issues/433)
 - `ubertooth-specan-ui` draws a slowly smoothed average of the max-hold trace
   as a cyan dotted line labelled "Avg: N dBm", shown with the other markers.
   Credit: Sirio Balmelli ([@siriobalmelli](https://github.com/siriobalmelli)).
@@ -425,6 +426,14 @@
 - `ubertooth-dfu -u <dump> -d <image>` no longer leaves a temporary dump file
   beside the target when the image is refused.
   [#241](https://github.com/SqueakyFloors/ubertooth/issues/241)
+- The `btbr` image now carries the build string `ubertooth-dfu -r` reads the
+  expected revision from, so flashing it no longer stops with "Unable to
+  determine expected firmware revision from image" and then needs a power
+  cycle; `ubertooth-util -V` reports that string from a board running `btbr`
+  too. Flashing back off `btbr` still takes a second `ubertooth-dfu` run
+  without `-U`, because a board in the bootloader reports no serial
+  ([#475](https://github.com/SqueakyFloors/ubertooth/issues/475)).
+  [#433](https://github.com/SqueakyFloors/ubertooth/issues/433)
 - `ubertooth-afh` now detects the channel map from the board's AFH hopping
   mode, which had never run: the firmware's AFH mode returned as soon as it was
   entered, and the capture that followed hopped only by leftover state, so the

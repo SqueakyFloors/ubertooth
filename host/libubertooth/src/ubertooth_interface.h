@@ -47,7 +47,19 @@
  * as 1.10), then 0x0111 (1.11), and so on to 0x0119 (1.19); after 0x0119
  * comes 0x0120, not 0x011a.
  */
-#define UBERTOOTH_API_VERSION 0x0124
+#define UBERTOOTH_API_VERSION 0x0125
+
+/*
+ * The build string every image carries, reported by UBERTOOTH_GET_COMPILE_INFO
+ * as a one-byte length and then that many characters. A one-byte length cannot
+ * describe more than 255 characters, and the host reads at most 1 + 255 bytes
+ * of the reply (cmd_get_firmware_compile_info()), so a longer string is cut to
+ * this. Cutting it leaves the host a shortened string it can see is shortened.
+ * Casting the real length to a byte instead, as the handlers used to, wrapped
+ * it modulo 256 and sent that many characters: a 300-character string went out
+ * as its first 44, and a 256-character one as nothing at all.
+ */
+#define UBERTOOTH_COMPILE_INFO_MAX 255
 
 /*
  * LED spectrum analyzer (ubertooth-util -q N): the threshold is -N dBm. The

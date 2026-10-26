@@ -20,7 +20,7 @@ FW_BOOT := ../bootloader
 HOST_DFU := ../../host/ubertooth-tools/src
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_mode_dispatch test_le_phy_order test_grmdm_rx_generic test_tx_generic_bounds test_write_registers_bounds test_btbr_hop test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_usb_queue test_btbr_usb_send
+TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_mode_dispatch test_le_phy_order test_grmdm_rx_generic test_tx_generic_bounds test_write_registers_bounds test_btbr_hop test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_usb_queue test_btbr_usb_send test_compile_info
 BINDIR  := bin
 
 .PHONY: all test clean
@@ -212,6 +212,22 @@ $(BINDIR)/test_btbr_usb_send: test_btbr_usb_send.c minunit.h \
 		-Wno-unused-parameter \
 		-o $@ test_btbr_usb_send.c \
 		$(FW_BTBR)/src/drivers/ubertooth_usb.c $(FW_BTBR)/src/util/queue.c
+
+# The build string in both images is what ubertooth-dfu -r reads the expected
+# revision out of, so this test links the host's real extractor and scans both
+# images' definitions, the way test_bootloader_flash_bounds puts the
+# bootloader's part table against the host's copy. compile_info itself cannot
+# be compiled here: it is built from the generated version.h, which only exists
+# once an image has been built.
+$(BINDIR)/test_compile_info: test_compile_info.c minunit.h source_scan.h \
+		$(FW_RXTX)/bluetooth_rxtx.c \
+		$(FW_BTBR)/src/btctl/vendor_request_handler.c \
+		$(HOST_DFU)/dfu_recovery.c $(HOST_DFU)/dfu_recovery.h \
+		$(HOST_DFU)/dfu_transition.c | $(BINDIR)
+	$(CC) $(CFLAGS) -I$(HOST_DFU) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
+		-DFW_BTBR_DIR='"$(FW_BTBR)"' \
+		-o $@ test_compile_info.c $(HOST_DFU)/dfu_recovery.c \
+		$(HOST_DFU)/dfu_transition.c
 
 $(BINDIR):
 	mkdir -p $(BINDIR)

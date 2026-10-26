@@ -43,7 +43,14 @@
 #define MIN(x,y)	((x)<(y)?(x):(y))
 #define MAX(x,y)	((x)>(y)?(x):(y))
 
-/* build info */
+/*
+ * The build string, in the one layout the host can read back out of a firmware
+ * file: "ubertooth ", the revision, then " (". ubertooth-dfu -r searches the
+ * image for exactly that so it can check, after the reset, that the board came
+ * back running what was just written; an image without it cannot be flashed
+ * with -r at all. Keep this identical to the one in
+ * btbr/src/btctl/vendor_request_handler.c.
+ */
 const char compile_info[] =
 	"ubertooth " GIT_REVISION " (" COMPILE_BY "@" COMPILE_HOST ") " TIMESTAMP;
 
@@ -460,8 +467,10 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		break;
 
 	case UBERTOOTH_GET_COMPILE_INFO:
-		length = (u8)strlen(compile_info);
-		data[0] = length;
+		length = strlen(compile_info);
+		if (length > UBERTOOTH_COMPILE_INFO_MAX)
+			length = UBERTOOTH_COMPILE_INFO_MAX;
+		data[0] = (u8)length;
 		memcpy(&data[1], compile_info, length);
 		*data_len = 1 + length;
 		break;
