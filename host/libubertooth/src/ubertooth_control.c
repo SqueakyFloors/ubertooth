@@ -738,7 +738,7 @@ static int copy_reply_string(const char *what, const u8 *data, int data_len,
 int cmd_get_firmware_revision(struct libusb_device_handle* devh, char *revision,
                               size_t size)
 {
-	u8 result[2 + 1 + 255];
+	u8 result[2 + 1 + UBERTOOTH_REVISION_MAX];
 	int r;
 
 	if (revision == NULL || size == 0)
@@ -767,7 +767,7 @@ int cmd_get_firmware_revision(struct libusb_device_handle* devh, char *revision,
 int cmd_get_firmware_compile_info(struct libusb_device_handle* devh,
                                   char *compile_info, size_t size)
 {
-	u8 result[1 + 255];
+	u8 result[1 + UBERTOOTH_COMPILE_INFO_MAX];
 	int r;
 
 	if (compile_info == NULL || size == 0)

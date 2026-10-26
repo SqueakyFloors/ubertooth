@@ -111,11 +111,12 @@
   the command returns at once and the board stays reachable; `-S` or any mode
   option stops it and leaves the LEDs off.
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
-- **Reflash required:** the firmware API version is now 1.30, last moved by a
-  change to the firmware's waits on the radio, and the host tools
-  require firmware of exactly their own API version, older or newer
-  (`ubertooth-util` still reads the version and reflashes any firmware). Host
-  and firmware come from the same tree; `2020-12-R1` firmware is refused.
+- **Reflash required:** the firmware API version is now 1.31, last moved by the
+  deferred reset in the `btbr` image and the cut on an over-long revision
+  reply, and the host tools require firmware of exactly their own API version,
+  older or newer (`ubertooth-util` still reads the version and reflashes any
+  firmware). Host and firmware come from the same tree; `2020-12-R1` firmware
+  is refused.
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
   [#174](https://github.com/SqueakyFloors/ubertooth/issues/174)
@@ -123,6 +124,8 @@
   [#261](https://github.com/SqueakyFloors/ubertooth/issues/261)
   [#433](https://github.com/SqueakyFloors/ubertooth/issues/433)
   [#434](https://github.com/SqueakyFloors/ubertooth/issues/434)
+  [#464](https://github.com/SqueakyFloors/ubertooth/issues/464)
+  [#475](https://github.com/SqueakyFloors/ubertooth/issues/475)
 - `ubertooth-specan-ui` draws a slowly smoothed average of the max-hold trace
   as a cyan dotted line labelled "Avg: N dBm", shown with the other markers.
   Credit: Sirio Balmelli ([@siriobalmelli](https://github.com/siriobalmelli)).
@@ -212,6 +215,11 @@
   clock after the capture had started, so a packet caught around the reset
   added about 34,700 s to every later packet time.
   [#494](https://github.com/SqueakyFloors/ubertooth/issues/494)
+- A board running `btbr` can be reflashed with `-U <serial>`. It used to answer
+  `ubertooth-dfu` with a stalled transfer and exit 1, because the image reset
+  before the request asking it to enter DFU had been answered; it did enter the
+  bootloader, which carries no serial number, so no `-U` could reach it again.
+  [#475](https://github.com/SqueakyFloors/ubertooth/issues/475)
 - A control request sent to a board that is receiving, transmitting or scanning
   no longer stalls. `ubertooth-util`, `ubertooth-debug` and anything else that
   reads the channel, a register or the clock during a capture used to fail
@@ -733,6 +741,10 @@
 
 Fixes with no visible change in normal use.
 
+- A revision string too long for the one-byte length the firmware reports it
+  with is cut to 255 characters, rather than counted modulo 256. The revisions
+  this tree builds are twelve characters, so nothing reached that.
+  [#464](https://github.com/SqueakyFloors/ubertooth/issues/464)
 - A BLE packet whose length field claims more than the board captured reads
   zeros past the capture, instead of whatever followed it in memory; the
   Kismet plugins' access code search stays inside its bank too.
