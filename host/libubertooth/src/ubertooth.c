@@ -912,6 +912,22 @@ void ubertooth_unpack_symbols(const uint8_t* buf, char* unpacked)
 	}
 }
 
+/* Stop the build if a received packet (DMA_SIZE, 50 bytes) no longer fits the
+ * decoder's buffer (LE_SYM_LEN, 64 bytes).
+ *
+ * The check sits here and not next to LE_SYM_LEN in ubertooth.h because the
+ * Kismet plugins include that header from C++, where _Static_assert is only
+ * an extension. Checking it in this one file is enough: both sides are
+ * constants, so every file would reach the same answer. */
+_Static_assert(DMA_SIZE <= LE_SYM_LEN,
+               "a received packet no longer fits the decoder's buffer");
+
+void ubertooth_le_symbols(const usb_pkt_rx* rx, uint8_t (*symbols)[LE_SYM_LEN])
+{
+	memcpy(*symbols, rx->data, DMA_SIZE);
+	memset(*symbols + DMA_SIZE, 0, LE_SYM_LEN - DMA_SIZE);
+}
+
 static void cb_dump_bitstream(ubertooth_t* ut, void* args __attribute__((unused)))
 {
 	int i;

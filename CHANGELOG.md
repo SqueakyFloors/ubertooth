@@ -176,6 +176,12 @@
 
 ### Reliability fixes
 
+- `ubertooth-btle` no longer decodes the capture callback's stack as packet
+  data. A PDU whose length field claims more than the board captured now reads
+  zeros past the capture, instead of whatever followed the packet in memory.
+  The Kismet plugins' access code search no longer runs past the end of its
+  bank either.
+  [#416](https://github.com/SqueakyFloors/ubertooth/issues/416)
 - The firmware refuses a generic transmit request
   (`UBERTOOTH_TX_GENERIC_PACKET`) whose payload does not fit the packet, and no
   longer drops the last byte of one that does. No shipped tool sends it.

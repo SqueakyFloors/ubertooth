@@ -129,7 +129,12 @@ static void cb_cap(ubertooth_t* ut, void* args)
 
 	ubertooth_unpack_symbols((uint8_t*)rx->data, syms);
 
-	int offset = btbb_find_ac(syms, BANK_LEN, LAP_ANY, 1, &pkt);
+	/* btbb_find_ac() tries to match a whole access code, AC_LEN (72)
+	 * symbols, at every offset up to the search length it is given. It
+	 * therefore reads up to 72 symbols beyond that length, which is the
+	 * margin btbb.h asks the caller to leave. Passing the full BANK_LEN
+	 * ran the search off the end of syms. */
+	int offset = btbb_find_ac(syms, BANK_LEN - AC_LEN, LAP_ANY, 1, &pkt);
 	if (offset >= 0) {
 
 		uint32_t clkn = (rx->clkn_high << 20) + (le32toh(rx->clk100ns) + offset*10) / 3125;

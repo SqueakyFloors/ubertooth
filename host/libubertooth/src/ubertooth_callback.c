@@ -490,7 +490,11 @@ void cb_btle(ubertooth_t* ut, void* args)
 		fflush(dumpfile);
 	}
 
-	lell_allocate_and_decode(rx->data, rx->channel + 2402, rx->clk100ns, &pkt);
+	/* The decoder always reads 64 bytes from the pointer it is handed, and
+	 * a received packet is only 50, so it cannot be given rx->data. */
+	uint8_t symbols[LE_SYM_LEN];
+	ubertooth_le_symbols(rx, &symbols);
+	lell_allocate_and_decode(symbols, rx->channel + 2402, rx->clk100ns, &pkt);
 
 	/* do nothing further if filtered due to bad AA */
 	if (opts &&

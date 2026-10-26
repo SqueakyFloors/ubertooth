@@ -554,6 +554,27 @@ if(libubertooth_SOURCE_DIR)
 	# Arithmetic, one source read and a stop on a handle that never opened a
 	# device: a run takes milliseconds.
 	set_tests_properties(clk100ns-wrap PROPERTIES TIMEOUT 5)
+
+	# What the low-energy callback hands libbtbb's decoder. The decoder
+	# always copies 64 bytes, more than the 50 a received packet holds.
+	#
+	# The test includes ubertooth_callback.c itself, so the real cb_btle()
+	# runs. Nothing touches a device or does a real decode: the test defines
+	# its own stand-in for the decoder, and the fifo calls are faked in the
+	# test (ubertooth_fifo.c is not linked), as in the tests above. libbtbb
+	# is still linked, for the packet allocation and the symbols the other
+	# callbacks reference.
+	add_executable(test-le-decode-buffer
+		test_le_decode_buffer.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
+	target_include_directories(test-le-decode-buffer PRIVATE
+		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+	target_link_libraries(test-le-decode-buffer ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES}
+		Threads::Threads)
+	add_test(NAME le-decode-buffer COMMAND test-le-decode-buffer)
+	# One callback call against a faked ring buffer: milliseconds.
+	set_tests_properties(le-decode-buffer PROPERTIES TIMEOUT 5)
 endif()
 
 # The same clock wrap through a replay, so the times a capture file carries are
