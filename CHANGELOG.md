@@ -628,8 +628,9 @@ Fixes with no visible change in normal use.
   tool sends it.
   [#384](https://github.com/SqueakyFloors/ubertooth/issues/384)
 - The firmware refuses a multi-register write asking for more registers than
-  the request can carry, instead of writing radio registers forever until the
-  board is power-cycled. No shipped tool sends it.
+  the request can carry. Such a count used to be walked in a counter too
+  narrow to reach it, so the loop never ended and wrote radio registers until
+  the board was power-cycled. No shipped tool sends it.
   [#409](https://github.com/SqueakyFloors/ubertooth/issues/409)
 - A device status event the USB controller would not report is retried once
   per event. The retry used to be spent permanently after two failures in a

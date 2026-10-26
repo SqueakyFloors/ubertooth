@@ -223,7 +223,7 @@ struct scan {
 	int buffer_decl;      /* abVendorReqData, declared with that length */
 	int case_line;        /* the handler's `case UBERTOOTH_WRITE_...:` */
 	int count_check;      /* the count is at most WRITE_REGISTERS_MAX */
-	int refusal;          /* the refusal that follows it */
+	int refusal;          /* ...whose own body stalls the request */
 	int loop;             /* the loop over the registers */
 	int wide_counter;     /* ...walked in a counter as wide as the count */
 	int write;            /* the register write inside it */
@@ -250,7 +250,15 @@ static void scan_line(const char *flat, int lineno, struct scan *s,
 
 	if (strstr(flat, "request_params[0] > WRITE_REGISTERS_MAX") != NULL)
 		s->count_check = lineno;
-	if (s->count_check > 0 && s->loop == 0 &&
+	/*
+	 * The refusal must be the count check's own body, so the next line and
+	 * no later one. Any `return 0;` after the check would also be matched
+	 * by the request's other refusal, the one for a short data stage, and
+	 * then a case that quietly clamped the count instead of stalling would
+	 * satisfy this scan.
+	 */
+	if (s->count_check > 0 && s->refusal == 0 &&
+	    lineno == s->count_check + 1 &&
 	    strstr(flat, "return 0;") != NULL)
 		s->refusal = lineno;
 	if (strstr(flat, "reg < request_params[0];") != NULL) {
@@ -335,9 +343,12 @@ MU_TEST(test_the_handler_refuses_before_it_writes)
 	mu_assert(s.count_check > 0, msg);
 
 	snprintf(msg, sizeof(msg),
-	         "%s:%d: the count check does not stall the request", rxtx,
-	         s.count_check);
-	mu_assert(s.refusal > s.count_check, msg);
+	         "%s:%d: the count check's own body is not `return 0;`, so a "
+	         "count the buffer cannot hold is not stalled. Clamping it "
+	         "instead would not do: the host asked for registers the "
+	         "request never carried, and writing some of them is not what "
+	         "it asked for", rxtx, s.count_check);
+	mu_assert(s.refusal == s.count_check + 1, msg);
 
 	snprintf(msg, sizeof(msg),
 	         "%s:%d: the scan did not find the loop over the registers",
