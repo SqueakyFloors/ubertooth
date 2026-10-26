@@ -42,9 +42,10 @@
 #define SLOT_JUNK 0xa5
 
 /* ---- fifo fake ---------------------------------------------------------- */
-/* A ring of a few slots with the real ring's behaviour, so a case can see
- * exactly which slots a capture published and what was in them. The real
- * ubertooth_fifo.c is not linked: its ring is 64 MB. */
+/* A ring of a few slots, so a case can see exactly which slots a capture
+ * published and what was in them. The real ubertooth_fifo.c is not linked:
+ * its ring is 64 MB. Nothing here fills the ring, so unlike the real one this
+ * fake always advances rather than refusing to when full. */
 
 #define FAKE_SLOTS 8
 
@@ -414,6 +415,7 @@ MU_TEST(a_keep_alive_transfer_is_not_published)
 	mu_assert_int_eq(6, fake.submits);
 	mu_assert(!ubertooth_stream_failed(ut), "the capture is still running");
 	mu_assert(err[0] == '\0', err);
+	mu_assert(out[0] == '\0', out);
 
 	release_handle(ut);
 }
@@ -540,9 +542,11 @@ MU_TEST(a_dump_leaves_out_a_keep_alive_record)
 	mu_assert_int_eq(BR_PACKET, written.pkt_type);
 	mu_assert_int_eq(23, written.channel);
 	/* The dump went to the file, so the tool's own stream carries only its
-	 * one timestamp line per packet -- and none for the keep-alive. */
+	 * one timestamp line per packet -- and none for the keep-alive -- while
+	 * standard output carries nothing at all. */
 	mu_assert(strstr(err, "rx block timestamp") != NULL, err);
 	mu_assert(strchr(err, '\n') == strrchr(err, '\n'), "said once");
+	mu_assert(out[0] == '\0', out);
 
 	fclose(dump);
 	release_handle(ut);
@@ -582,8 +586,13 @@ MU_TEST(a_bitstream_dump_leaves_out_a_keep_alive)
 	mu_assert_fatal(fseek(dump, 0, SEEK_END) == 0, "seek the dump");
 	size = ftell(dump);
 
-	/* One line of symbols and its newline: the packet's. */
+	/* One line of symbols and its newline: the packet's. The bits went to
+	 * the file, so standard output carries nothing, and the tool's own
+	 * stream carries its one timestamp line for the packet and none for the
+	 * keep-alive. */
 	mu_assert_int_eq(BANK_LEN + 1, (int)size);
+	mu_assert(out[0] == '\0', out);
+	mu_assert(strchr(err, '\n') == strrchr(err, '\n'), "said once");
 
 	fclose(dump);
 	release_handle(ut);

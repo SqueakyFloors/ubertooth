@@ -624,8 +624,8 @@ if(libubertooth_SOURCE_DIR)
 	# The keep-alive a quiet capture gets: what the receive callback
 	# publishes for a transfer shorter than a whole packet, and what a dump
 	# writes for a keep-alive that reaches the consumer anyway. The fifo
-	# fake here is a small ring with the real ring's behaviour, so a case
-	# can see which slots were published and what was in them.
+	# fake here is a small ring, so a case can see which slots were
+	# published and what was in them.
 	add_executable(test-keep-alive
 		test_keep_alive.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth.c

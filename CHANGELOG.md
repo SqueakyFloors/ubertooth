@@ -192,8 +192,10 @@
   leaves no result, and the command says so.
 - A capture that goes quiet no longer writes junk records. The keep-alive the
   firmware sends when it has nothing to capture used to be published as a
-  packet, so `ubertooth-dump -d` saved a record whose contents were never set.
-  Replaying a capture file recorded before this skips such records.
+  packet, so `ubertooth-dump -d` saved a record whose contents were never set,
+  and `ubertooth-btle` put the same record in its `-d` capture and a packet
+  decoded from it in its PCAP output. Replaying a capture file recorded before
+  this skips such records.
   [#435](https://github.com/SqueakyFloors/ubertooth/issues/435)
 - **Script-visible change:** a capture whose USB stream fails stops there and
   exits 1, instead of waiting out its `-t` timer with nothing arriving and
