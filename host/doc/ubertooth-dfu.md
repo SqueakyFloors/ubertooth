@@ -207,10 +207,11 @@ part that was already in the bootloader the shorter dump is all there is; let
 the tool enter DFU itself to get the whole region. The assumption has a limit
 the other way too: a board with a smaller part than that, already in the
 bootloader so its part cannot be read, would still be asked for more flash
-than it has. Asking for more than the
-part has is what the bootloader cannot survive: it answers a read from any
-address below 512 KiB, and a read with no flash behind it faults it until the
-board is power-cycled.
+than it has. A bootloader built from this tree refuses such a request and
+carries on, but a board carries whatever bootloader was flashed on it, and an
+older one cannot survive being asked: it answers a read from any address below
+512 KiB, and a read with no flash behind it faults it until the board is
+power-cycled.
 
 To compare a dump with the image it came from, compare the first bytes and
 check that the rest is padding, for example:

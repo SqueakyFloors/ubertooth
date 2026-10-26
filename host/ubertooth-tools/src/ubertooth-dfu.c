@@ -427,7 +427,7 @@ struct dfu_runtime_context {
  * The write goes to the application region from 0x4000 upwards, and the
  * bootloader's write path checks nothing but that: REQ_DNLOAD refuses an
  * address below 0x4000 and has no upper bound at all
- * (firmware/bootloader/dfu.cpp, memory_policy::write_permitted; the 512 KiB
+ * (firmware/bootloader/dfu.cpp, memory_policy::write_permitted; the
  * Flash::valid_address check is on the read-back path only). So on a part
  * smaller than the image, the blocks past the end of flash are sent, and each
  * one asks IAP to erase and program a sector the part does not have. IAP

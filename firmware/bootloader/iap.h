@@ -60,6 +60,12 @@ public:
                        const uint32_t source_address,
                        const uint32_t number_of_bytes_to_compare);
 
+    /* The part identification number, which says which LPC175x/176x part this
+     * is and so how much flash it has. Reads a register rather than touching
+     * flash, so it is safe to ask at any time; part_id is left alone unless
+     * the command succeeds. */
+    ReturnCode read_part_identification_number(uint32_t& part_id) const;
+
 private:
     typedef void(*EntryPoint)(uint32_t[], uint32_t[]);
     

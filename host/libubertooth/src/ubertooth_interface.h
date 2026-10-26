@@ -44,10 +44,10 @@
  * (2.00). See docs/source/release_procedure.rst.
  *
  * bcdDevice is binary-coded decimal, so 0x0109 is followed by 0x0110 (shown
- * as 1.10), then 0x0111 (1.11), and so on to 0x0118 (1.18); after 0x0119
+ * as 1.10), then 0x0111 (1.11), and so on to 0x0119 (1.19); after 0x0119
  * comes 0x0120, not 0x011a.
  */
-#define UBERTOOTH_API_VERSION 0x0118
+#define UBERTOOTH_API_VERSION 0x0120
 
 /*
  * LED spectrum analyzer (ubertooth-util -q N): the threshold is -N dBm. The

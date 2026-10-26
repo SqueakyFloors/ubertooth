@@ -7,14 +7,20 @@
 
 CC      ?= cc
 CFLAGS  ?= -O2 -Wall -Wextra -std=gnu99 -g
+# The bootloader is the only C++ in the tree, so its test is the only one
+# built with the C++ compiler.
+CXX     ?= c++
+CXXFLAGS ?= -O2 -Wall -Wextra -g
 # Headers under test live in the firmware image dir; tests include by name.
 FW_RXTX := ../bluetooth_rxtx
 FW_BTBR := ../btbr
 FW_COMMON := ../common
 FW_LPCUSB := ../common/lpcusb/target
+FW_BOOT := ../bootloader
+HOST_DFU := ../../host/ubertooth-tools/src
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_mode_dispatch test_le_phy_order test_grmdm_rx_generic test_tx_generic_bounds test_btbr_hop test_usbhw_wait
+TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_mode_dispatch test_le_phy_order test_grmdm_rx_generic test_tx_generic_bounds test_btbr_hop test_usbhw_wait test_bootloader_flash_bounds
 BINDIR  := bin
 
 .PHONY: all test clean
@@ -126,6 +132,20 @@ $(BINDIR)/test_usbhw_wait: test_usbhw_wait.c minunit.h stubs-usb/lpc17.h \
 		-Wno-pointer-to-int-cast -Wno-unused-but-set-variable \
 		-Wno-unused-parameter -o $@ test_usbhw_wait.c \
 		$(FW_LPCUSB)/usbhw_lpc.c $(FW_LPCUSB)/usbcontrol.c
+
+# The part table in flash.h and Flash::valid_address compile here as they are,
+# with the In-Application Programming read behind them faked by the test, so
+# the bound is the real one. dfu.cpp cannot be compiled here -- it casts a
+# pointer to uint32_t -- so request_upload()'s shape is faked and the test
+# scans dfu.cpp for it, as test_tx_generic_bounds does. It also puts the
+# host's copy of the part table against the bootloader's, so the paths to both
+# sources are passed in.
+$(BINDIR)/test_bootloader_flash_bounds: test_bootloader_flash_bounds.cpp \
+		minunit.h source_scan.h $(FW_BOOT)/flash.h $(FW_BOOT)/iap.h \
+		$(FW_BOOT)/dfu.cpp $(HOST_DFU)/dfu_recovery.c | $(BINDIR)
+	$(CXX) $(CXXFLAGS) -I$(FW_BOOT) $(CPPFLAGS) \
+		-DFW_BOOTLOADER_DIR='"$(FW_BOOT)"' -DHOST_DFU_DIR='"$(HOST_DFU)"' \
+		-o $@ test_bootloader_flash_bounds.cpp
 
 $(BINDIR):
 	mkdir -p $(BINDIR)

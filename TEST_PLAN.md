@@ -40,7 +40,7 @@ Hardware required: Ubertooth One, Linux machine (Ubuntu 22.04+ preferred), a BLE
 
 ### 2a. Firmware version check
 - [ ] Run `ubertooth-util -v`
-- [ ] Confirm: returns `Firmware version: <revision> (API:1.18)` (firmware
+- [ ] Confirm: returns `Firmware version: <revision> (API:1.20)` (firmware
       built from this tree; the host tools refuse any other API version)
 - [ ] Confirm: no `usb_claim_interface` errors
 - [ ] Confirm: no timeout errors
@@ -67,6 +67,21 @@ Hardware required: Ubertooth One, Linux machine (Ubuntu 22.04+ preferred), a BLE
 - [ ] Run `ubertooth-util -p` (part ID)
 - [ ] Run `ubertooth-util -s` (serial number)
 - [ ] Confirm: all return values without errors
+
+### 2e. Bootloader refuses a read-back past the end of flash
+
+*Needs a board whose part is smaller than 512 KiB (`ubertooth-util -p` reports
+0x25011722 for the 128 KiB LPC1754) and ISP or JTAG: `ubertooth-dfu` cannot
+write a bootloader.*
+
+- [ ] Install `firmware/bootloader/bootloader.hex` over ISP or JTAG
+- [ ] Put the board in DFU and send `REQ_UPLOAD` (class request 2) with wValue
+      512, which is 0x20000, the first block past a 128 KiB part
+- [ ] Confirm: the request is refused and `REQ_GETSTATUS` reports status 0x08
+      (`ERRADDRESS`); the board still answers `REQ_GETSTATE`
+- [ ] Send `REQ_CLRSTATUS`, then run `ubertooth-dfu -U <serial> -u <file> -r`
+- [ ] Confirm: the read-back still returns all 114688 bytes above the
+      bootloader, and the board comes back running its application
 
 ---
 
