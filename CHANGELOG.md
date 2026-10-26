@@ -23,9 +23,7 @@
   anything, and it silently swallowed the word after it.
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
 - **Script-visible change:** `ubertooth-util -9` is gone, with the two
-  developer scratch requests it sent. Firmware answers requests 45 and 46 no
-  longer, and libubertooth no longer exports `cmd_do_something()` or
-  `cmd_do_something_reply()`.
+  developer scratch requests it sent, which the firmware no longer answers.
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
 - **Script-visible change:** `ubertooth-util -f` is gone; use `ubertooth-dfu`
   to reflash a board.
@@ -167,20 +165,14 @@
   no `-DCMAKE_POLICY_VERSION_MINIMUM=3.5`; `install.sh --libbtbb-url`/`--libbtbb-ref`
   build a different one.
   [#320](https://github.com/SqueakyFloors/ubertooth/issues/320)
-- The host tests that compile libubertooth's sources link pthread, so the host
-  builds again on Ubuntu 20.04, this fork's declared minimum, where glibc still
-  keeps the pthread calls out of libc. The libubertooth targets carry it too, so
-  linking the library no longer leaves `pthread_create` undefined.
+- The host builds again on Ubuntu 20.04, this fork's declared minimum, where
+  glibc still keeps the pthread calls out of libc: the libubertooth targets
+  link pthread, so linking the library no longer leaves `pthread_create`
+  undefined.
   [#315](https://github.com/SqueakyFloors/ubertooth/issues/315)
 
 ### Reliability fixes
 
-- `ubertooth-btle` no longer decodes the capture callback's stack as packet
-  data. A PDU whose length field claims more than the board captured now reads
-  zeros past the capture, instead of whatever followed the packet in memory.
-  The Kismet plugins' access code search no longer runs past the end of its
-  bank either.
-  [#416](https://github.com/SqueakyFloors/ubertooth/issues/416)
 - **Script-visible change:** a capture whose USB stream fails stops there and
   exits 1, instead of waiting out its `-t` timer with nothing arriving and
   reporting success. `ubertooth-rx`, `ubertooth-dump`, `ubertooth-specan`,
@@ -191,10 +183,6 @@
   A clock and UAP tracked with an AFH map used to name channels the piconet was
   not on.
   [#143](https://github.com/SqueakyFloors/ubertooth/issues/143)
-- The firmware refuses a generic transmit request
-  (`UBERTOOTH_TX_GENERIC_PACKET`) whose payload does not fit the packet, and no
-  longer drops the last byte of one that does. No shipped tool sends it.
-  [#384](https://github.com/SqueakyFloors/ubertooth/issues/384)
 - `ubertooth-ducky -q` and `-b` name a request the board refused and exit 1,
   instead of waiting their two seconds and exiting 0 on a request the board
   refused.
@@ -214,36 +202,16 @@
 - `ubertooth-ego` refuses `-c` combined with `-f`, `-i` or `-j`, where it
   silently had no effect: those modes hop across the E-GO's own channel list.
   [#394](https://github.com/SqueakyFloors/ubertooth/issues/394)
-- `ubertooth-afh` gives its piconet back before it exits, so a run no longer
-  ends with one unfreed allocation.
-  [#366](https://github.com/SqueakyFloors/ubertooth/issues/366)
-- `ubertooth-ducky` and `ubertooth-ego` give everything they allocate back
-  before they exit, instead of leaving the device bookkeeping and its ring
-  buffer outstanding.
-  [#381](https://github.com/SqueakyFloors/ubertooth/issues/381)
-  [#388](https://github.com/SqueakyFloors/ubertooth/issues/388)
 - `ubertooth-ego -a` with an access code shorter than four bytes sets the code
   the user asked for, zero-filled, instead of padding it with leftovers of the
   previous request.
   [#402](https://github.com/SqueakyFloors/ubertooth/issues/402)
-- The firmware stalls a vendor request that carries fewer bytes than it reads,
-  and a read-direction request of a number that expects data. Either used to
-  act on whatever the previous request had left in the shared buffer: a stale
-  address, stale writes to radio registers, or a transmit from stale bytes.
-  [#393](https://github.com/SqueakyFloors/ubertooth/issues/393)
 - Stopping a capture that has packets in hand (Ctrl-C, or an `ubertooth-afh` or
   `ubertooth-rx` timeout with traffic flowing) no longer releases a receive
   transfer the USB layer is still using, which could corrupt memory or crash
   the tool. A board that never gives the transfer back is now reported and
   left open rather than closed underneath it.
   [#370](https://github.com/SqueakyFloors/ubertooth/issues/370)
-- `ubertooth-rx`, `ubertooth-scan` and `ubertooth-follow` give the board back
-  when they cannot start a capture.
-  [#370](https://github.com/SqueakyFloors/ubertooth/issues/370)
-- A capture gives its receive transfer back when it ends, so a run with more
-  than one phase (`ubertooth-afh` detects a map, then monitors it) no longer
-  leaks one transfer per extra phase.
-  [#307](https://github.com/SqueakyFloors/ubertooth/issues/307)
 - A follow-mode control command the board refuses now names itself and says
   what went wrong, for example `error: start hopping failed: the board does
   not support this command (stalled)`. It used to read the completion status
@@ -253,22 +221,11 @@
   following an AFH map it could not read or that has fewer than 20 channels. A
   follow without a map clears any map an earlier run left on the board.
   [#44](https://github.com/SqueakyFloors/ubertooth/issues/44)
-- Follow mode's asynchronous control commands (hop, AFH map, clock trim, start
-  hopping) now give libusb a buffer that outlives the submit, and release the
-  transfer when a submit fails. They built the setup packet and the data on a
-  stack frame that had already returned by the time libusb read it, and a
-  failed submit left its transfer allocated.
-  [#245](https://github.com/SqueakyFloors/ubertooth/issues/245)
 - `ubertooth-dfu -d` and `-s` check the file before they read it into memory:
   a directory, a FIFO or a device node is refused, and so is a file too large
   to be an image (507920 bytes for `-d`, 16 fewer for `-s`, which adds the
   suffix), instead of allocating from a size nothing had checked.
   [#246](https://github.com/SqueakyFloors/ubertooth/issues/246)
-- A tool that cannot allocate its capture ring buffer now says so and exits
-  instead of crashing: `ubertooth_init()` no longer returns a handle without
-  one, and `ubertooth-btle`, `ubertooth-ducky`, `ubertooth-follow`,
-  `ubertooth-rx` and `ubertooth-tx` stop when it fails.
-  [#247](https://github.com/SqueakyFloors/ubertooth/issues/247)
 - A set and a read of `ubertooth-btle`'s CRC verify setting in one command both
   run, the set first, so `-v1 -v` reports the new value instead of dropping one
   of the two. A read works alongside `-f`, `-n` and `-p` as well, and a set the
@@ -323,11 +280,6 @@
   status 1. A pipe or a redirect is unaffected, and btle's own refusal now
   reads the same way.
   [#259](https://github.com/SqueakyFloors/ubertooth/issues/259)
-- A `ctest` run no longer opens an attached Ubertooth, so it cannot disturb a
-  board another process is using. The tests set `UBERTOOTH_TEST_NO_DEVICES=1`,
-  which makes a tool behave as if no board were attached, and say so; only that
-  exact value turns it on, and nothing else sets it.
-  [#219](https://github.com/SqueakyFloors/ubertooth/issues/219)
 - `ubertooth-afh -t` now says when the initial detection phase received no
   packet from the piconet, does not start monitoring, and exits with status 2,
   instead of printing an all-zero map and carrying on monitoring until
@@ -370,10 +322,6 @@
   requests after a BLE sniffing mode is stopped, so the
   board no longer needs a re-plug to be usable again.
   [#158](https://github.com/SqueakyFloors/ubertooth/issues/158)
-- A BLE sniffing mode counts as running only once its first receive buffer and
-  the radio are ready, and starts with no timer match left pending from the
-  previous run.
-  [#248](https://github.com/SqueakyFloors/ubertooth/issues/248)
 - `ubertooth-dfu -s` refuses a binary that already carries a DFU suffix
   instead of adding a second one, and names the output
   file when it cannot create it. `-s` and `-d` now only read their input, so a
@@ -429,15 +377,6 @@
   BLE mode shuts down is no longer dropped, which used to leave the board idle
   after the host had been told the mode started.
   [#209](https://github.com/SqueakyFloors/ubertooth/issues/209)
-- Fewer ways for the board to stop answering until it is re-plugged. USB is
-  serviced from whatever the firmware is doing at the time, so any wait that
-  never finishes stops the board answering anything: it still enumerates and
-  every control request times out. The waits on the USB controller are now
-  bounded, as are the radio waits in the spectrum analyzer and on the BLE
-  follow hop, which ran from an interrupt handler. A control request that
-  cannot be read is refused rather than run as whatever the previous request
-  was.
-  [#239](https://github.com/SqueakyFloors/ubertooth/issues/239)
 - A capture now holds only packets from the mode it started: stopping a mode
   drops what it had queued and resets its keep-alive timer, and a stream clears
   the board's receive endpoint before it reads. A basic-rate dump taken after a
@@ -445,15 +384,6 @@
   record from a stray keep-alive.
   [#179](https://github.com/SqueakyFloors/ubertooth/issues/179)
   [#318](https://github.com/SqueakyFloors/ubertooth/issues/318)
-- `ubertooth-dfu` no longer waits forever for a bootloader that stops
-  answering: every DFU state wait is bounded and ends with a message and exit
-  1. A read-back (`-u`) that fails part-way is retried once like a download,
-  names the block that would not read, exits 1 rather than a truncated libusb
-  code, and still detaches the board when `-r` was given. A reset the
-  bootloader refuses now fails the command instead of exiting 0 with the board
-  left in DFU.
-  [#208](https://github.com/SqueakyFloors/ubertooth/issues/208)
-  [#216](https://github.com/SqueakyFloors/ubertooth/issues/216)
 - `ubertooth-dfu -d <image> -r` no longer exits 1 after a flash that worked:
   the bootloader resets while the detach request is in flight, so the request
   fails on every macOS flash. The board is reported as still in DFU only when
@@ -489,22 +419,6 @@
   the part and the flash it has, while the board is still running its
   application; a part it cannot identify is reported as unchecked.
   [#281](https://github.com/SqueakyFloors/ubertooth/issues/281)
-- The bootloader refuses a read-back past the end of the flash the attached
-  part has, instead of faulting and answering nothing at all until the board is
-  power-cycled; a part it cannot identify keeps the old fixed bound. It reaches
-  a board only through ISP or JTAG, not `ubertooth-dfu`.
-  [#256](https://github.com/SqueakyFloors/ubertooth/issues/256)
-- The firmware's generic receive mode (`UBERTOOTH_RX_GENERIC`) picks between
-  its packet-mode and symbol-stream receives by GRMDM's packet-mode bit, so
-  the symbol stream is reachable at all, and it now streams.
-  [#252](https://github.com/SqueakyFloors/ubertooth/issues/252)
-
-- `ubertooth-dfu` now performs bounded, device-specific DFU entry and
-  recovery, retries interrupted transfers, and verifies
-  that the selected device returns with the expected firmware revision.
-  [#29](https://github.com/SqueakyFloors/ubertooth/issues/29)
-  [#31](https://github.com/SqueakyFloors/ubertooth/issues/31)
-  [#35](https://github.com/SqueakyFloors/ubertooth/issues/35)
 - `ubertooth-ducky -U` now selects devices by index or serial number.
   [#36](https://github.com/SqueakyFloors/ubertooth/issues/36)
 - `ubertooth-specan -l`/`-u` now require valid, ordered in-band frequencies
@@ -533,9 +447,6 @@
   standard error instead, as `-b`, `-p` and `-s` now also do.
   [#59](https://github.com/SqueakyFloors/ubertooth/issues/59)
   [#123](https://github.com/SqueakyFloors/ubertooth/issues/123)
-- Host-library failures now propagate correctly and release device resources;
-  firmware-image and ducky operations reject short reads.
-  [#2](https://github.com/SqueakyFloors/ubertooth/issues/2)
 - `ubertooth-util -p` exits non-zero when the device reports a failed part ID
   read instead of printing `Part ID: 0`. In libubertooth, `cmd_get_partnum()`
   now returns a negative error for that case (it returned 0), and the new
@@ -601,12 +512,6 @@
   the other tools, and it no longer crashes when `C` is pressed before data
   arrives.
   [#124](https://github.com/SqueakyFloors/ubertooth/issues/124)
-- `ubertooth-scan` no longer leaks connection information after failed probes.
-  [#3](https://github.com/SqueakyFloors/ubertooth/issues/3)
-  [upstream #542](https://github.com/greatscottgadgets/ubertooth/issues/542)
-- Prevent Adaptive Frequency Hopping (AFH) divide-by-zero failures in both
-  baseband hop implementations. Credit: [@Kielukel](https://github.com/Kielukel) and Piotr Wasylów.
-  https://github.com/Kielukel/ubertooth
 - Firmware AFH hopping (`ubertooth-follow` with an AFH map) now follows the
   piconet's used channels instead of sitting on 2402 MHz, matching the
   Bluetooth spec's re-mapping and same-channel rules. A new AFH map now takes
@@ -622,9 +527,6 @@
   verification in the physical-layer engine. Credit: oliver
   ([@Oliver0804](https://github.com/Oliver0804)).
   [upstream #550](https://github.com/greatscottgadgets/ubertooth/pull/550)
-- Correct firmware signal-strength channel bounds. Credit: Gabriele
-  Gristina ([@matrix](https://github.com/matrix)).
-  [upstream #481](https://github.com/greatscottgadgets/ubertooth/pull/481)
 - Improve Classic Bluetooth paging speed and reliability. Credit: Hillel
   Chimowicz ([@hllhll](https://github.com/hllhll)) and
   [@shapaz](https://github.com/shapaz).
@@ -691,6 +593,77 @@
 - Added the supported platform/toolchain matrix, missing per-tool pages, and
   an archived 2020-12-R1 release guide.
   [#12](https://github.com/SqueakyFloors/ubertooth/issues/12)
+
+### Under the hood
+
+Fixes with no visible change in normal use.
+
+- A BLE packet whose length field claims more than the board captured reads
+  zeros past the capture, instead of whatever followed it in memory; the
+  Kismet plugins' access code search stays inside its bank too.
+  [#416](https://github.com/SqueakyFloors/ubertooth/issues/416)
+- The firmware refuses a generic transmit request whose payload does not fit
+  the packet, and no longer drops the last byte of one that does. No shipped
+  tool sends it.
+  [#384](https://github.com/SqueakyFloors/ubertooth/issues/384)
+- The firmware stalls a vendor request that carries fewer bytes than it reads,
+  and a read-direction request that expects data, instead of acting on what
+  the previous request left in the shared buffer.
+  [#393](https://github.com/SqueakyFloors/ubertooth/issues/393)
+- The firmware's waits on the USB controller and on the radio are bounded, so
+  fewer ways are left for a board to stop answering until it is re-plugged.
+  [#239](https://github.com/SqueakyFloors/ubertooth/issues/239)
+- A BLE sniffing mode counts as running only once its first receive buffer and
+  the radio are ready, and starts with no timer match left pending from the
+  previous run.
+  [#248](https://github.com/SqueakyFloors/ubertooth/issues/248)
+- The firmware's generic receive mode picks between its packet-mode and
+  symbol-stream receives by the radio's packet-mode bit, so the symbol stream
+  is reachable at all.
+  [#252](https://github.com/SqueakyFloors/ubertooth/issues/252)
+- The bootloader refuses a read-back past the end of the flash the attached
+  part has, instead of faulting and answering nothing until the board is
+  power-cycled. It is reached only through ISP or JTAG, not `ubertooth-dfu`.
+  [#256](https://github.com/SqueakyFloors/ubertooth/issues/256)
+- `ubertooth-dfu` bounds every wait on the bootloader and retries a read-back
+  that failed part-way, instead of waiting forever or reporting a truncated
+  error code.
+  [#208](https://github.com/SqueakyFloors/ubertooth/issues/208)
+  [#216](https://github.com/SqueakyFloors/ubertooth/issues/216)
+- `ubertooth-dfu` enters and recovers from DFU with bounded, device-specific
+  steps, retries an interrupted transfer, and checks that the board comes back
+  with the firmware revision it expects.
+  [#29](https://github.com/SqueakyFloors/ubertooth/issues/29)
+  [#31](https://github.com/SqueakyFloors/ubertooth/issues/31)
+  [#35](https://github.com/SqueakyFloors/ubertooth/issues/35)
+- Follow mode's asynchronous control commands give the USB layer a buffer that
+  outlives the submit, and release the transfer when a submit fails.
+  [#245](https://github.com/SqueakyFloors/ubertooth/issues/245)
+- A tool that cannot allocate its capture ring buffer says so and exits
+  instead of crashing.
+  [#247](https://github.com/SqueakyFloors/ubertooth/issues/247)
+- A capture gives its receive transfer back when it ends, and `ubertooth-rx`,
+  `ubertooth-scan` and `ubertooth-follow` give the board back when they cannot
+  start one.
+  [#307](https://github.com/SqueakyFloors/ubertooth/issues/307)
+  [#370](https://github.com/SqueakyFloors/ubertooth/issues/370)
+- `ubertooth-afh`, `ubertooth-ducky` and `ubertooth-ego` give back everything
+  they allocate before they exit.
+  [#366](https://github.com/SqueakyFloors/ubertooth/issues/366)
+  [#381](https://github.com/SqueakyFloors/ubertooth/issues/381)
+  [#388](https://github.com/SqueakyFloors/ubertooth/issues/388)
+- `ubertooth-scan` no longer leaks connection information after failed probes.
+  [#3](https://github.com/SqueakyFloors/ubertooth/issues/3)
+  [upstream #542](https://github.com/greatscottgadgets/ubertooth/issues/542)
+- Host-library failures reach the caller and release the device, and a short
+  read of a firmware image or a ducky payload is refused.
+  [#2](https://github.com/SqueakyFloors/ubertooth/issues/2)
+- AFH hopping no longer divides by zero in either baseband hop implementation.
+  Credit: [@Kielukel](https://github.com/Kielukel) and Piotr Wasylów.
+  https://github.com/Kielukel/ubertooth
+- Corrected firmware signal-strength channel bounds. Credit: Gabriele
+  Gristina ([@matrix](https://github.com/matrix)).
+  [upstream #481](https://github.com/greatscottgadgets/ubertooth/pull/481)
 
 _community fork, Fri, 23 Oct 2026 01:38:18 -0700_
 
