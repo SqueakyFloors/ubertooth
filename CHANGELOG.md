@@ -588,6 +588,10 @@
   capture clock rolls over, which it does every 327.68 s, so packet times in a
   long capture are continuous again, live and on `ubertooth-rx -i` replay.
   [#218](https://github.com/SqueakyFloors/ubertooth/issues/218)
+- PCAP and PcapNG timestamps also survive a quiet gap: a Classic capture
+  counts the capture clock's periods from the packets, which carry the count,
+  and where they do not, a lost one is reported on standard error.
+  [#229](https://github.com/SqueakyFloors/ubertooth/issues/229)
 
 ### Documentation
 

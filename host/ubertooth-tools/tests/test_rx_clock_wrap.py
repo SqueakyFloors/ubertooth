@@ -6,9 +6,15 @@ any capture longer than that crosses a wrap. Extending the clock as a 32-bit
 counter put a 101.8 s step into every PCAP and PcapNG timestamp after the first
 wrap.
 
-The fixture is built here, so no board and no saved capture is needed: a replay
-reads the record format ``ubertooth-rx -d`` writes (a big-endian 32-bit host
-time, then one 64-byte usb_pkt_rx), and the access code of each record is
+A wrap is also lost when more than a whole period passes between two packets,
+because the clock then reads higher than it did and there is nothing to infer
+one from. A Classic packet carries the period count the firmware keeps, which
+covers such a gap; a capture whose packets carry none has the loss reported
+against the host time of each record instead. Both are replayed here.
+
+The fixtures are built here, so no board and no saved capture is needed: a
+replay reads the record format ``ubertooth-rx -d`` writes (a big-endian 32-bit
+host time, then one 64-byte usb_pkt_rx), and the access code of each record is
 computed from the Bluetooth Core specification (Vol 2, Part B 6.3.3) in the bit
 order libbtbb decodes. Only the times relative to the first packet are checked,
 since where a capture is anchored is a separate question.
@@ -32,7 +38,7 @@ CLK100NS_PERIOD = 3125 * 2 ** 20    # the clock's period, in 100 ns ticks
 STEP_TICKS = 1_000_000_000          # 100 s of device clock between records
 FIRST_TICKS = 100_000_000           # the first record's clock, away from the wrap
 RECORDS = 8                         # 700 s of clock: two wraps
-AGE_S = 3600                        # the records were written this long ago
+AGE_S = 7200                        # the first record was written this long ago
 
 # The 64-bit scrambling sequence applied to the sync word, the (64,30)
 # expurgated BCH generator (octal 260534236651), and the Barker sequence
@@ -54,10 +60,11 @@ def sync_word(lap):
     return ((scrambled << 34) | remainder) ^ PN
 
 
-def record(host_time, clk100ns, channel):
+def record(host_time, clk100ns, channel, clkn_high=0):
     """One replay record of a decodable packet at this clock value.
 
-    The clock is packed little-endian, which is how the host reads it.
+    The clock is packed little-endian, which is how the host reads it, and
+    clkn_high is the period count a board sends with a Classic packet.
     """
     bits = [(sync_word(LAP) >> i) & 1 for i in range(64)]
     symbols = [0] * PREAMBLE_AT
@@ -68,21 +75,60 @@ def record(host_time, clk100ns, channel):
         sum(bit << (7 - j) for j, bit in enumerate(symbols[i:i + 8]))
         for i in range(0, SYMBOLS, 8)
     )
-    header = struct.pack("<BBBBIbbbB2x", BR_PACKET, 0, channel, 0, clk100ns,
-                         -40, -90, -70, 1)
+    header = struct.pack("<BBBBIbbbB2x", BR_PACKET, 0, channel, clkn_high,
+                         clk100ns, -40, -90, -70, 1)
     return struct.pack(">I", host_time) + header + data
 
 
-# Records 100 s of device clock apart, so the sequence crosses the wrap twice.
 BASE_TIME = int(time.time()) - AGE_S
+
+
+def fixture(ticks, counted=True):
+    """A replay of decodable packets at these clock values.
+
+    The host time of each record follows the device clock, as a real capture's
+    does. counted is what a board sends with a Classic packet: the number of
+    times the capture clock has started over. A mode that sends no count
+    (ubertooth-btle -f and -n) leaves the field zero.
+    """
+    return b"".join(
+        record(BASE_TIME + (t - ticks[0]) // 10_000_000,
+               t % CLK100NS_PERIOD, 3 + 7 * i,
+               (t // CLK100NS_PERIOD) & 0xFF if counted else 0)
+        for i, t in enumerate(ticks)
+    )
+
+
+def offsets_ns(ticks):
+    """The times each packet should carry, relative to the first."""
+    return [100 * (t - ticks[0]) for t in ticks]
+
+
+# Records 100 s of device clock apart, so the sequence crosses the wrap twice.
 TICKS = [FIRST_TICKS + i * STEP_TICKS for i in range(RECORDS)]
-FIXTURE = b"".join(
-    record(BASE_TIME + 100 * i, ticks % CLK100NS_PERIOD, 3 + 7 * i)
-    for i, ticks in enumerate(TICKS)
-)
 assert max(TICKS) // CLK100NS_PERIOD == 2, "the fixture must cross two wraps"
-# Every packet sits 100 s of clock after the one before it, wrap or no wrap.
-EXPECTED_OFFSETS_NS = [100 * (ticks - TICKS[0]) for ticks in TICKS]
+
+
+def gap_ticks(periods):
+    """Four records 100 s apart, a gap of whole periods and 10 s, then four
+    more. The gap leaves the clock reading a little higher than it did, so
+    nothing in the sequence of clock values shows that it started over; only
+    the count each record carries does."""
+    ticks = [FIRST_TICKS + i * STEP_TICKS for i in range(4)]
+    gap = periods * CLK100NS_PERIOD + 100_000_000
+    ticks += [ticks[3] + gap + i * STEP_TICKS for i in range(4)]
+    assert len(ticks) == RECORDS
+    assert ticks[4] % CLK100NS_PERIOD > ticks[3] % CLK100NS_PERIOD, \
+        "the gap must leave the clock reading higher, not lower"
+    assert ticks[4] // CLK100NS_PERIOD - ticks[3] // CLK100NS_PERIOD \
+        == periods, "the gap must cross whole periods"
+    return ticks
+
+
+# One lost period is the commonest case and two shows them adding up; both
+# have to come out of the count, and both have to be reported where there is
+# no count to come out of.
+GAPS = (1, 2)
 
 
 def pcap_times(path):
@@ -137,10 +183,14 @@ def offsets(times):
     return [t - times[0] for t in times]
 
 
-with tempfile.TemporaryDirectory() as workdir:
-    work = Path(workdir)
-    (work / "wrap.bin").write_bytes(FIXTURE)
-
+def replay(data, work):
+    """Replays a fixture through ubertooth-rx and returns the run and the
+    PCAP and PcapNG times it wrote, each relative to its first packet."""
+    (work / "wrap.bin").write_bytes(data)
+    # libbtbb refuses to overwrite a capture file, so a second replay in the
+    # same directory starts from nothing.
+    for name in ("wrap.pcap", "wrap.pcapng"):
+        (work / name).unlink(missing_ok=True)
     result = subprocess.run(
         [BINARY, "-i", "wrap.bin", "-q", "wrap.pcap", "-r", "wrap.pcapng"],
         capture_output=True, text=True, timeout=30, check=False, cwd=work,
@@ -148,16 +198,54 @@ with tempfile.TemporaryDirectory() as workdir:
         # ever reaches device selection.
         env=dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1"))
     assert result.returncode == 0, result
-
     pcap = pcap_times(work / "wrap.pcap")
     pcapng = pcapng_times(work / "wrap.pcapng")
     assert len(pcap) == RECORDS, (pcap, result)
     assert len(pcapng) == RECORDS, (pcapng, result)
-    assert offsets(pcap) == EXPECTED_OFFSETS_NS, (pcap, result)
-    assert offsets(pcapng) == EXPECTED_OFFSETS_NS, (pcapng, result)
+    return result, offsets(pcap), offsets(pcapng)
 
-    # Said plainly: no packet is further from the one before it than the step
-    # between the records, so no wrap adds 101.8 s of its own.
-    for times, name in ((pcap, "pcap"), (pcapng, "pcapng")):
-        steps = [later - earlier for earlier, later in zip(times, times[1:])]
-        assert steps == [100 * STEP_TICKS] * (RECORDS - 1), (name, steps, result)
+
+with tempfile.TemporaryDirectory() as workdir:
+    work = Path(workdir)
+
+    # A wrap the records cross with no gap: seen either from the count each
+    # one carries or, where a mode sends none, from the clock reading lower
+    # than it did.
+    for counted in (True, False):
+        result, pcap, pcapng = replay(fixture(TICKS, counted), work)
+        assert pcap == offsets_ns(TICKS), (counted, pcap, result)
+        assert pcapng == offsets_ns(TICKS), (counted, pcapng, result)
+
+        # Said plainly: no packet is further from the one before it than the
+        # step between the records, so no wrap adds 101.8 s of its own.
+        for times, name in ((pcap, "pcap"), (pcapng, "pcapng")):
+            steps = [b - a for a, b in zip(times, times[1:])]
+            assert steps == [100 * STEP_TICKS] * (RECORDS - 1), \
+                (counted, name, steps, result)
+        assert "warning:" not in result.stderr, result.stderr
+
+    for periods in GAPS:
+        ticks = gap_ticks(periods)
+
+        # A gap of whole periods in the middle. The count the records carry
+        # puts every later packet where it belongs and nothing is said.
+        result, pcap, pcapng = replay(fixture(ticks), work)
+        assert pcap == offsets_ns(ticks), (periods, pcap, result)
+        assert pcapng == offsets_ns(ticks), (periods, pcapng, result)
+        assert "warning:" not in result.stderr, result.stderr
+
+        # The same gap in records carrying no count: the wraps cannot be seen,
+        # so the later packets come out that many periods early, and it is
+        # reported against the host time each record carries rather than
+        # passed in silence.
+        result, pcap, pcapng = replay(fixture(ticks, counted=False), work)
+        lost_ns = 100 * periods * CLK100NS_PERIOD
+        expected = [t - (lost_ns if i >= 4 else 0)
+                    for i, t in enumerate(offsets_ns(ticks))]
+        assert pcap == expected, (periods, pcap, result)
+        assert pcapng == expected, (periods, pcapng, result)
+        assert "warning: packet times are behind the host clock by more than "\
+            "half the capture clock's 327.68 s period" in result.stderr, \
+            result.stderr
+        # Said once, not once a packet.
+        assert result.stderr.count("warning:") == 1, result.stderr

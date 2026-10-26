@@ -92,31 +92,118 @@ static uint64_t now_ns( void )
 	return (1000000000ull*(uint64_t) ts.tv_sec) + (uint64_t) ts.tv_nsec;
 }
 
-/* Where a capture's timestamps start: the current time for a live capture,
- * and the host time stored with the first replayed record for a replay, so a
- * capture written with -q/-r while replaying keeps the recorded times. */
-static uint64_t capture_start_ns( void )
+/* The host time a packet arrived: the current time for a live capture, and
+ * the host time stored with the replayed record for a replay, so a capture
+ * written with -q/-r while replaying keeps the recorded times. The first
+ * packet's is where a capture's timestamps start. */
+static uint64_t packet_host_ns( void )
 {
 	if (infile != NULL)
 		return 1000000000ull * (uint64_t) systime;
 	return now_ns( );
 }
 
+void ubertooth_capture_clock_reset( ubertooth_t* ut )
+{
+	ut->abs_start_ns = 0;
+	ut->start_clk100ns = 0;
+	ut->last_clk100ns = 0;
+	ut->last_clkn_high = 0;
+	ut->clk100ns_upper = 0;
+	ut->clk100ns_started = 0;
+	ut->clk100ns_counted = 0;
+	ut->clk100ns_gap_warned = 0;
+}
+
 static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx )
 {
 	uint32_t clk100ns = le32toh( rx->clk100ns );
+	/* How many times the clock stamping this packet has started over, as
+	 * the packet itself reports it: clkn_high is the byte of CLKN directly
+	 * above the 20 bits CLK100NS counts through, so it is that clock's
+	 * period count. It is only read for a capture stamped with that clock:
+	 * the low-energy physical-layer modes stamp from timer1, whose periods
+	 * CLKN does not count, and they send a zero in the field. */
+	uint8_t periods = (ut->clk100ns_period == CLK100NS_PERIOD) ?
+	                  rx->clkn_high : 0;
+	uint8_t advance;
 
-	/* track clk100ns */
+	/* A count has to arrive before it can be believed: a mode that sends
+	 * none leaves the field zero, which is also what the first period of a
+	 * capture that does send one looks like. From the first non-zero count
+	 * on, the count is the authority and the clock is not second-guessed. */
+	if (periods != 0)
+		ut->clk100ns_counted = 1;
+
 	if (!ut->clk100ns_started) {
 		ut->clk100ns_started = 1;
 		ut->last_clk100ns = ut->start_clk100ns = clk100ns;
-		ut->abs_start_ns = capture_start_ns( );
+		ut->last_clkn_high = periods;
+		ut->abs_start_ns = packet_host_ns( );
+		return;
 	}
-	/* detect clk100ns roll-over */
-	if (clk100ns < ut->last_clk100ns) {
+
+	if (ut->clk100ns_counted) {
+		/* The count is one byte, read as a difference from the last
+		 * packet's, so the byte's own wrap costs nothing. Only a
+		 * forward difference is time passing: half the byte's range is
+		 * kept for that, covering a gap of up to 127 periods, so a
+		 * count that reads backwards - a record out of order or edited
+		 * - is ignored rather than read as nearly 23 hours forwards. A
+		 * longer gap cannot be counted at all; the host clock is what
+		 * reports the loss. A rejected count is not kept either, or the
+		 * climb back from it would be counted as time of its own. The
+		 * cost of that is a capture past the covered range: its counts
+		 * stay rejected until they come back around to the one last
+		 * believed, so its times slide further behind rather than
+		 * settling a fixed amount behind. An out-of-order record is
+		 * much the likelier of the two inputs, and the host clock
+		 * reports the other. */
+		advance = (uint8_t) (periods - ut->last_clkn_high);
+		if (advance < 128) {
+			ut->clk100ns_upper += advance;
+			ut->last_clkn_high = periods;
+		}
+	} else if (clk100ns < ut->last_clk100ns) {
+		/* Without a count a wrap can only be inferred from the clock
+		 * reading lower than it did, which misses one that falls in a
+		 * gap longer than a single period. */
 		ut->clk100ns_upper += 1;
 	}
+
 	ut->last_clk100ns = clk100ns;
+}
+
+/* A wrap that cannot be counted - inferred from the clock going backwards and
+ * falling in a gap longer than one period, or past the range of the count a
+ * packet carries - leaves nothing in the capture to show it: the times simply
+ * come out short from then on. The host clock does show it, because it kept
+ * running, so it ends up ahead of the reconstructed times. Said once, and not
+ * used to correct them: it says that time was lost, not where, and a host
+ * clock that is stepped during a capture must not move packet times. A step
+ * is also why the message does not claim a lost wrap as the cause: a host
+ * clock jumped forwards looks the same from here. */
+static void warn_if_a_wrap_was_lost( ubertooth_t* ut, uint64_t packet_ns )
+{
+	uint64_t host_ns;
+	uint64_t period_ns = 100ull * ut->clk100ns_period;
+
+	if (ut->clk100ns_gap_warned)
+		return;
+	host_ns = packet_host_ns( );
+	/* Half a period, not a whole one: a single lost wrap leaves the times
+	 * exactly one period short, and the host time a replayed record carries
+	 * is a whole second, so a whole-period test would turn on sub-second
+	 * truncation and say nothing about the commonest case. A capture that
+	 * keeps up is a packet's latency behind, far inside half a period. */
+	if (host_ns < packet_ns || host_ns - packet_ns <= period_ns / 2)
+		return;
+
+	ut->clk100ns_gap_warned = 1;
+	fprintf(stderr, "warning: packet times are behind the host clock by more "
+	        "than half the capture clock's %.2f s period: a quiet gap lost a "
+	        "clock wrap, or the host clock was stepped forwards\n",
+	        period_ns / 1e9);
 }
 
 /* The capture clock of a packet, as 100 ns ticks since the board started
@@ -131,11 +218,21 @@ static uint64_t clk100ns_extended( const ubertooth_t* ut, const usb_pkt_rx* rx )
 
 static uint64_t now_ns_from_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx )
 {
+	uint64_t packet_ns;
+
 	track_clk100ns( ut, rx );
 	/* The 100 ns ticks since the first packet, as nanoseconds: the whole
-	 * difference is scaled, not just the current tick count. */
-	return ut->abs_start_ns + 100ull *
-	       (clk100ns_extended( ut, rx ) - ut->start_clk100ns);
+	 * difference is scaled, not just the current tick count. Signed,
+	 * because a packet can read a little before the one a capture started
+	 * on: the firmware latches clk100ns and the period count with separate
+	 * reads of CLKN, so a packet caught as the count ticks over carries one
+	 * that disagrees with its own clock reading by a period, in whichever
+	 * direction that mode's two reads happen to be ordered. */
+	packet_ns = (uint64_t) ((int64_t) ut->abs_start_ns + 100 *
+	            ((int64_t) clk100ns_extended( ut, rx ) -
+	             (int64_t) ut->start_clk100ns));
+	warn_if_a_wrap_was_lost( ut, packet_ns );
+	return packet_ns;
 }
 
 /* Sniff for LAPs. If a piconet is provided, use the given LAP to
