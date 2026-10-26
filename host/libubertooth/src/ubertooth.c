@@ -912,9 +912,10 @@ void ubertooth_unpack_symbols(const uint8_t* buf, char* unpacked)
 	}
 }
 
-/* Stop the build if a received packet (DMA_SIZE) no longer fits the
- * decoder's buffer (LE_SYM_LEN). It lives here rather than in the header
- * because C++ code includes that header, and _Static_assert is C only. */
+/* Beside the code it guards rather than beside the macro in ubertooth.h,
+ * because the Kismet plugins pull that header into C++, where _Static_assert
+ * is a C11 extension. One translation unit is enough to stop the build: both
+ * sides are constants from the same headers. */
 _Static_assert(DMA_SIZE <= LE_SYM_LEN,
                "a received packet no longer fits the decoder's buffer");
 
