@@ -129,11 +129,11 @@ static void cb_cap(ubertooth_t* ut, void* args)
 
 	ubertooth_unpack_symbols((uint8_t*)rx->data, syms);
 
-	/* The search reads the 64-symbol access code at every offset it tries,
-	 * so handing it the whole bank as the search length ran it off the end.
-	 * This is the length the bank-sized callbacks in libubertooth pass, and
-	 * one offset more conservative than the search itself needs. */
-	int offset = btbb_find_ac(syms, BANK_LEN - 64, LAP_ANY, 1, &pkt);
+	/* The search looks for an access code at every offset it tries, so
+	 * handing it the whole bank as the search length ran it off the end.
+	 * An offset only holds a whole access code if AC_LEN symbols are left
+	 * after it, which is also the margin btbb.h asks a caller to leave. */
+	int offset = btbb_find_ac(syms, BANK_LEN - AC_LEN, LAP_ANY, 1, &pkt);
 	if (offset >= 0) {
 
 		uint32_t clkn = (rx->clkn_high << 20) + (le32toh(rx->clk100ns) + offset*10) / 3125;

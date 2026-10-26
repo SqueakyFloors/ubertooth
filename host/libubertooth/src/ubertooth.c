@@ -912,6 +912,12 @@ void ubertooth_unpack_symbols(const uint8_t* buf, char* unpacked)
 	}
 }
 
+/* Here rather than beside the macro in the header, which C++ includes: both
+ * sides are constants from the same headers, so the one translation unit that
+ * lays the buffer out is enough to break the build if a packet outgrows it. */
+_Static_assert(DMA_SIZE <= LE_SYM_LEN,
+               "a received packet no longer fits the decoder's buffer");
+
 void ubertooth_le_symbols(const usb_pkt_rx* rx, uint8_t (*symbols)[LE_SYM_LEN])
 {
 	memcpy(*symbols, rx->data, DMA_SIZE);

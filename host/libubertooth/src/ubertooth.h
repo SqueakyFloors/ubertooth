@@ -194,9 +194,6 @@ void ubertooth_unpack_symbols(const uint8_t* buf, char* unpacked);
  * carries only DMA_SIZE bytes, which is fewer. */
 #define LE_SYM_LEN 64
 
-_Static_assert(DMA_SIZE <= LE_SYM_LEN,
-               "a received packet no longer fits the decoder's buffer");
-
 /* Lays a received packet's bytes out for lell_allocate_and_decode(), in a
  * buffer of LE_SYM_LEN that the caller provides. The bytes a packet does not
  * reach are zeroed rather than left as whatever followed it in memory: the
