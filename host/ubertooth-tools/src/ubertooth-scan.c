@@ -215,7 +215,11 @@ int main(int argc, char *argv[])
 	btbb_piconet* pn;
 	bdaddr_t bdaddr;
 
-	while ((opt=getopt(argc,argv,"hU:t:e:xsb:")) != EOF) {
+	/* Report a bad option ourselves rather than letting getopt print it:
+	 * see opt_report_bad_option(). The leading ':' makes a missing option
+	 * value distinguishable from an option getopt does not know. */
+	opterr = 0;
+	while ((opt=getopt(argc,argv,":hU:t:e:xsb:")) != EOF) {
 		switch(opt) {
 		case 'U':
 			ubertooth_device = optarg;
@@ -249,6 +253,7 @@ int main(int argc, char *argv[])
 				first_exit_option = 'h';
 			break;
 		default:
+			opt_report_bad_option(opt, argc, argv);
 			return 1;
 		}
 	}

@@ -47,6 +47,8 @@ select an Ubertooth by enumeration index or serial number; see ubertooth(7), SEL
 .P
 \fB\-h\fR ends the command only once the whole command line has parsed, so a stray word or a bad option value is reported even alongside it\.
 .P
+An option the tool does not know is refused the same way, as one line on standard error with no usage text after it: \fBerror: unrecognized option '\-Z'\fR\. An option whose value is missing reads \fBerror: option '\-t' requires a value\fR\.
+.P
 An option value must be a whole value in its range, or it is refused the same way instead of being read as 0, for example \fBerror: maximum access code errors must be 0\-5 (got 6)\fR\.
 .SH "EXIT STATUS"
 A scan that ran to its \fB\-t\fR timeout, or that was interrupted (Ctrl\-C), exits 0 with whatever it found, and so does \fB\-h\fR\. A refused command line exits 1 (see ARGUMENTS)\.

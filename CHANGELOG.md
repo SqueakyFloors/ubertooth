@@ -55,6 +55,15 @@
   `error: unrecognized option '-Z'` and `error: option '-l' requires a value`,
   instead of the option parser's own lines naming the whole path of the binary.
   [#338](https://github.com/SqueakyFloors/ubertooth/issues/338)
+- Every tool now answers a mistyped command line the same way, with one
+  `error: unrecognized option '-Z'` or `error: option '-d' requires a value`
+  line: `ubertooth-debug`, `ubertooth-dfu`, `ubertooth-follow` and
+  `ubertooth-scan` were the last four leaving it to the option parser, which
+  named the whole path of the binary and reported `--bogus` as `-`.
+  `ubertooth-dfu` also prefixes the refusal of an image it will not write and
+  of a file it cannot read, and keeps its signature-check progress on standard
+  error, and `ubertooth-rx` prefixes its refusal of an address beside `-z`.
+  [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
 - **Script-visible change:** after an error, tools print only the error; run
   `-h` for the usage text. A tool that needs arguments and is run with none
   still prints it, on standard error.

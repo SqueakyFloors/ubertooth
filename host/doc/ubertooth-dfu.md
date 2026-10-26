@@ -51,8 +51,7 @@ number is read while the board is still running its application, as it is for
 `-u`, and an image whose blocks would not all fit above the bootloader is
 refused there, before the board is asked for DFU:
 
-    error: too-big.dfu needs 114944 bytes of flash; part 0x25011722 (LPC1754) has 114688 above the bootloader
-    Image too large for the attached part, firmware will not be updated
+    error: too-big.dfu needs 114944 bytes of flash; part 0x25011722 (LPC1754) has 114688 above the bootloader; firmware will not be updated
 
 An image that fits says so, in the same terms as the read-back:
 
@@ -156,8 +155,7 @@ it creates anything, so an image it refuses costs the signed file nothing:
 
     $ ubertooth-dfu -s firmware.bin -d not-an-image.dfu
     Checking firmware signature
-    Unknown DFU suffix length: 115
-    Signature check failed, firmware will not be updated
+    error: not-an-image.dfu: Unknown DFU suffix length: 115; firmware will not be updated
 
 `firmware.dfu` is neither created nor replaced.
 
@@ -273,6 +271,16 @@ bare `-`, is refused before any device is opened and named:
 parsed, so a stray word or a bad option value is reported even
 alongside it. `-h` is what the user asked for, so its usage text goes to
 standard output and it exits 0.
+
+An option the tool does not know is refused the same way, as one line on
+standard error with no usage text after it: `error: unrecognized option '-Z'`.
+An option whose value is missing reads `error: option '-d' requires a value`.
+
+A file the tool cannot read, and an image it will not write, are each refused
+with one line on standard error, beginning `error: ` and naming the file. The
+`Checking firmware signature` line that precedes an image refusal is progress,
+so it is on standard error as well and the two stay in order whatever either
+stream is piped into.
 
 A command line with no function in it does nothing, so it is refused with
 `error: nothing to do: give -d to write an image, -u to read one back, -s to

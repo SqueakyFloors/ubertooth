@@ -122,6 +122,10 @@ a bare \fB\fC\-\fR, is refused before any device is opened and named:
 parsed, so a stray word or a bad option value is reported even
 alongside it.
 .PP
+An option the tool does not know is refused the same way, as one line on
+standard error with no usage text after it: \fB\fCerror: unrecognized option '\-Z'\fR\&.
+An option whose value is missing reads \fB\fCerror: option '\-r' requires a value\fR\&.
+.PP
 An option value must be a whole value in its range, or it is refused the same
 way instead of being read as 0, for example
 \fB\fCerror: verbosity must be 0\-2 (got 3)\fR\&.

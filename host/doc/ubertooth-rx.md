@@ -225,7 +225,9 @@ way instead of being read as 0, for example
 
 An option combination the tool cannot carry out is refused there too, before
 any device is opened, so the message never depends on which boards are
-attached: `-u` without `-l` gives `error: -u <UAP> requires -l <LAP>`.
+attached: `-u` without `-l` gives `error: -u <UAP> requires -l <LAP>`, and an
+address beside survey mode gives `error: survey mode (-z) discovers addresses,
+so it cannot be given -l or -u`.
 
 A refused command line creates and truncates nothing: `-r`, `-q` and `-d`
 name their file while the command line is read, and it is opened only once

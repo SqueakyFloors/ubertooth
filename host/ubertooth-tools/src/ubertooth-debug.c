@@ -121,7 +121,11 @@ int main(int argc, char *argv[])
      * setting to positive is value of specified argument */
     do_read_register = -1;
 
-    while ((opt = getopt(argc, argv, "hU:r:v:")) != EOF) {
+    /* Report a bad option ourselves rather than letting getopt print it:
+     * see opt_report_bad_option(). The leading ':' makes a missing option
+     * value distinguishable from an option getopt does not know. */
+    opterr = 0;
+    while ((opt = getopt(argc, argv, ":hU:r:v:")) != EOF) {
 	switch (opt) {
 	case 'h':
 	    do_help = 1;
@@ -167,6 +171,7 @@ int main(int argc, char *argv[])
 	    break;
 	}
 	default:
+	    opt_report_bad_option(opt, argc, argv);
 	    free(regList);
 	    return 1;
 	}

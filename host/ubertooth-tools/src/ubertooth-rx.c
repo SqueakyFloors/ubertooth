@@ -212,7 +212,8 @@ int main(int argc, char* argv[])
 	}
 
 	if(survey_mode && (have_lap || have_uap)) {
-		fprintf(stderr, "No address should be specified for survey mode\n");
+		fprintf(stderr, "error: survey mode (-z) discovers addresses, so it"
+		        " cannot be given -l or -u\n");
 		return 1;
 	}
 
