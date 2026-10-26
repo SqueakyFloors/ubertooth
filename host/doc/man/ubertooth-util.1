@@ -108,10 +108,10 @@ Radio options:
 get/set power amplifier level, 0 (lowest, \-25 dBm) to 7 (maximum, 0 dBm) at the CC2400 radio\. The board powers on and resets (\fB\-r\fR) at level 7, the CC2400's own reset value, which the firmware keeps rather than choosing a level of its own\. Receiving does not change it\. Transmit modes use the level set here and leave it unchanged: \fB\-t\fR (TX test), Bluetooth and BLE transmit, and BLE and E\-GO jamming\. The range test and repeater (\fB\-n\fR, \fB\-e\fR) step through levels by design and leave the level wherever their sweep ended, so set it again after using them\.
 .TP
 \fB\-c [2402\-2480]\fR
-get/set channel in MHz
+get/set channel in MHz\. A standalone set sticks: the board keeps it after the command exits, so a later command reads the same value back, as long as the board stays idle in between\. Running any mode puts the channel back to 2441 MHz when that mode ends, as described above\.
 .TP
 \fB\-C [0\-78]\fR
-get/set channel
+get/set channel, by Bluetooth channel number rather than frequency\. It is the same setting as \fB\-c\fR and keeps its value the same way\.
 .TP
 \fB\-q [20\-120]\fR
 start LED spectrum analyzer\. The threshold is \-N dBm, so a larger N lights the LEDs for weaker signals; 20\-120 is the radio's RSSI range, and bare \fB\-q\fR uses \-85 dBm, which shows Wi\-Fi traffic without lighting on noise\. The TX, RX and USR LEDs stand for 2412, 2437 and 2462 MHz\. \fB\-S\fR stops it and leaves the LEDs off\.
