@@ -65,19 +65,18 @@ will not report itself at all, which includes every board already in the
 bootloader, leave nothing to check against: both say so and write the image as
 before.
 
-That check is the only one that can say anything useful about an oversize
-image, because the board cannot. A bootloader built from this tree refuses a
+That check is the only one this tool can act on, because it never reads the
+board's answer after the stall. A bootloader built from this tree refuses a
 block with no flash behind it, bounded the same way as the read-back described
-under READING FLASH BACK below, so it stops at the top of the part's flash;
-older bootloaders have no upper bound and instead ask the microcontroller's
-programming interface to erase and program a sector the part does not have,
-which fails. Either way everything sent before that point is already written,
-and all this tool sees of the refusal is the stall, which it reports as
-`control message unsupported`: the board is left running an application
-missing its tail, after a message that says nothing about flash sizes. It is
-the same cause as the read-back bound, with a different ending: a read past
-the end faults the bootloader until the board is power-cycled, a write past
-the end stops part-way.
+under READING FLASH BACK below, so it stops at the top of the part's flash and
+says `ERRADDRESS` for the blocks above it; older bootloaders have no upper
+bound and instead ask the microcontroller's programming interface to erase and
+program a sector the part does not have, which fails. Either way everything
+sent before that point is already written, and all this tool sees of the
+refusal is the stall, which it reports as `control message unsupported`: the
+board is left running an application missing its tail, after a message that
+says nothing about flash sizes. It is the same cause as the read-back bound:
+asking for flash the part has not got.
 
 What the detach request returns says nothing about where the board ended up,
 in either direction. It can fail because the bootloader resets while the

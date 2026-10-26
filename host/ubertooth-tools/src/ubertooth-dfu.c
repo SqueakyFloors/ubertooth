@@ -436,9 +436,10 @@ struct dfu_runtime_context {
  * whatever comes back from the board.
  *
  * It is the same cause as the read-back bound: asking for flash the part has
- * not got. The consequence differs, because the two bootloader paths do. A
- * read past the end is a bus fault that takes the bootloader down until the
- * board is power-cycled; a write past the end stops part-way through the
+ * not got. On a bootloader from this tree both paths end the same way, with
+ * ERRADDRESS before the part is touched. On an older one they do not: a read
+ * past the end is a bus fault that takes the bootloader down until the board
+ * is power-cycled, while a write past the end stops part-way through the
  * application.
  *
  * The part identification number says how much flash there is; it is readable

@@ -95,8 +95,10 @@ requests directly.*
       revision just written. This is the step that matters most, because the
       bootloader now reports a failed program instead of discarding it, and
       that is the only change that affects an ordinary flash
-- [ ] Put the board in DFU and send `REQ_DNLOAD` (class request 1) with wValue
-      512 and a 256-byte block
+- [ ] Put the board in DFU and send `REQ_DNLOAD` (class request 1) with a
+      256-byte block and a wValue past the end of the part's flash: 512, which
+      is 0x20000, on a 128 KiB part. On a larger part use its own figure, or
+      that block is flash the part has and will be programmed
 - [ ] Confirm: `REQ_GETSTATUS` reports status 0x08 (`ERRADDRESS`), and the
       board still answers `REQ_GETSTATE`
 - [ ] Send `REQ_CLRSTATUS`, then flash the application again
