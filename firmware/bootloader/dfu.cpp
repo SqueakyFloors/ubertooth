@@ -145,7 +145,12 @@ bool DFU::request_dnload(TSetupPacket *pSetup, uint32_t *piLen, uint8_t *pbData)
          * so an image larger than the part's flash cannot leave an
          * application missing its tail. Both ends of the block are checked,
          * as on the read-back, so a part whose flash does not end on a block
-         * boundary cannot have a straddling block written to it. */
+         * boundary cannot have a straddling block written to it.
+         *
+         * ERRADDRESS, not the ERRWRITE above: a block below the application
+         * region is addressed at memory that exists and is refused by policy,
+         * while this one is addressed at memory the part has not got. The
+         * read-back answers ERRADDRESS for the same reason. */
         if( !flash.valid_address(flash_address_start) ||
             !flash.valid_address(flash_address_end - 1) ) {
             return error(ERRADDRESS);

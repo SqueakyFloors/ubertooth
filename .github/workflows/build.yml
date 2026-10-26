@@ -365,18 +365,30 @@ jobs:
       # `ubertooth-dfu` host tool and is only needed to package firmware for
       # flashing, not to verify that the firmware compiles and links.
       #
-      # bootloader is here rather than in DIRS in firmware/Makefile, so that
-      # `make -C firmware` does not need the C++ runtime on every developer's
-      # machine. Its link is also the check that the image still fits: the
-      # linker script gives it a 16 KiB region, and a build that outgrows it
-      # fails here rather than on a board that will not boot.
+      # The bootloader is built last, from clean. It is here rather than in
+      # DIRS in firmware/Makefile so that `make -C firmware` does not need the
+      # C++ runtime on every developer's machine, and its link is also the
+      # check that the image still fits: the linker script gives it a 16 KiB
+      # region, and a build that outgrows it fails here rather than on a board
+      # that will not boot.
+      #
+      # Clean first because every image puts its objects next to the sources,
+      # so the ones built from firmware/common are shared, and the bootloader
+      # is the only image with its own compiler flags (it does not include
+      # common.mk). Without the clean it would link objects the previous image
+      # compiled. It is also the only image that cannot be replaced over DFU,
+      # so a wrong one is the expensive one to ship.
       run: |
         set -e
-        for d in blinky bluetooth_rxtx cc2400_test clock_test usb_test assembly_test btbr bootloader; do
+        for d in blinky bluetooth_rxtx cc2400_test clock_test usb_test assembly_test btbr; do
           echo "::group::firmware: $d"
           make -C "$d" bin sym
           echo "::endgroup::"
         done
+        echo "::group::firmware: bootloader"
+        make -C bootloader clean
+        make -C bootloader bin sym
+        echo "::endgroup::"
 
     - name: Upload firmware artifacts
       uses: actions/upload-artifact@v4
@@ -547,13 +559,19 @@ jobs:
     - name: Build firmware
       working-directory: ${{github.workspace}}/firmware
       shell: bash
+      # The bootloader is built last and from clean, for the reasons in the
+      # firmware job above.
       run: |
         set -e
-        for d in blinky bluetooth_rxtx cc2400_test clock_test usb_test assembly_test btbr bootloader; do
+        for d in blinky bluetooth_rxtx cc2400_test clock_test usb_test assembly_test btbr; do
           echo "::group::firmware: $d"
           make -C "$d" bin sym
           echo "::endgroup::"
         done
+        echo "::group::firmware: bootloader"
+        make -C bootloader clean
+        make -C bootloader bin sym
+        echo "::endgroup::"
 
   # Fedora as an early-warning canary: it ships newer CMake/Python/GCC sooner
   # than Ubuntu, so breakage shows here first. Hard-fails on the weekly

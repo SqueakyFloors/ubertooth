@@ -92,11 +92,13 @@ Developing Firmware
 
 
 
-You'll need a toolchain that supports ARM Cortex-M3. The Makefiles in the firmware directory are designed for GCC and a Linux-based toolchain, specifically ``arm-none-eabi-gcc and libnewlib-arm-none-eabi``. If you are running a Debian based distribution, you can run:
+You'll need a toolchain that supports ARM Cortex-M3. The Makefiles in the firmware directory are designed for GCC and a Linux-based toolchain, specifically ``arm-none-eabi-gcc and libnewlib-arm-none-eabi``. The bootloader also needs the ARM C++ runtime, because it is the one image written in C++; ``make -C firmware`` leaves it out, so you only need that package to build the bootloader itself. If you are running a Debian based distribution, you can run:
 
 	.. code-block:: sh
 
 		apt-get install gcc-arm-none-eabi libnewlib-arm-none-eabi
+		# only for firmware/bootloader
+		apt-get install libstdc++-arm-none-eabi-newlib
 
 Otherwise it can be downloaded from `https://launchpad.net/gcc-arm-embedded <https://launchpad.net/gcc-arm-embedded>`__, just unpack the archive and add the bin directory to your PATH.
 

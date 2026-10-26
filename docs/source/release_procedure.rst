@@ -36,6 +36,14 @@ An Ubertooth release is not as simple as a standard GitHub release, there are a 
 
     * At time of writing, these are only bluetooth_rxtx and bootloader for Ubertooth One.
 
+    * Build the bootloader from clean (``make -C firmware/bootloader clean``
+      first), and after the other images rather than before. Every image writes
+      its objects next to the sources, so the ones under ``firmware/common`` are
+      shared, and the bootloader is the only image with its own compiler flags.
+      Without the clean it would link objects another image compiled, and it is
+      the one artifact that cannot be replaced over DFU. CI builds it the same
+      way.
+
     * The firmware version string now comes from a generated ``version.h`` (the
       old ``GIT_REVISION`` ``-D`` flag in ``firmware/common.mk`` was removed).
       ``tools/ubertooth-release.sh`` writes a ``version.h`` carrying the release

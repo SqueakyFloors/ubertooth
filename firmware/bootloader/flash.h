@@ -130,7 +130,8 @@ public:
     Flash() :
         iap(),
         part_id_read(0),
-        flash_bound_found(0) {
+        flash_bound_found(0),
+        probe_walked(false) {
     }
 
     bool write(const uint32_t flash_address, uint32_t source_address, uint32_t length) {
@@ -163,7 +164,7 @@ public:
     bool valid_address(const uint32_t address) const {
         return (address < flash_bound());
     }
-    
+
     /*
      * One past the last address with flash behind it on this part.
      *
@@ -173,15 +174,22 @@ public:
      *
      * An answer is remembered: the part cannot change while the bootloader
      * runs, and a transfer checks two addresses for every 256-byte block, so
-     * asking again each time would make it crawl. A failure is not
-     * remembered, so a part that answers late still ends up bounded by its
-     * own flash rather than by the fallback.
+     * asking again each time would make it crawl. The table is still looked
+     * up each time until it answers, because that costs one command, so a
+     * part whose identification number only reads later still ends up
+     * bounded by its own flash. The probe is walked at most once: it is up to
+     * 30 commands, and a part that fails it part-way would otherwise be
+     * re-walked twice per block, which is a transfer nobody can wait out.
      */
     uint32_t flash_bound() const {
         if( flash_bound_found == 0 ) {
             const uint32_t from_table = lpc_part_flash_size(part_id());
-            flash_bound_found = (from_table != 0) ? from_table
-                                                  : probe_flash_bound();
+            if( from_table != 0 ) {
+                flash_bound_found = from_table;
+            } else if( !probe_walked ) {
+                probe_walked = true;
+                flash_bound_found = probe_flash_bound();
+            }
         }
         return (flash_bound_found != 0) ? flash_bound_found
                                         : LPC_FLASH_SIZE_FALLBACK;
@@ -203,12 +211,19 @@ private:
      * part has a top of flash at address 0, so there is no answer to confuse
      * with "no answer yet". */
     mutable uint32_t flash_bound_found;
-    
+
+    /* Has the sector probe been walked? It is walked at most once, whether or
+     * not it answered. */
+    mutable bool probe_walked;
+
     static const uint32_t cclk_khz = 100000;
     
     /*
      * The top of flash on a part the table has no entry for, found by asking
-     * the part which sectors it has. 0 when the part says nothing either way.
+     * the part which sectors it has. 0 when the walk got no usable answer,
+     * which includes a part that answered for the sectors below and then
+     * something unexpected: those answers give a floor, not a bound, so the
+     * walk is discarded rather than taken as the top of flash.
      *
      * The blank check is the one In-Application Programming command that asks
      * about a sector without addressing it: a sector the part has not got
@@ -234,7 +249,7 @@ private:
         }
         return lpc_sector_start(LPC_TOP_SECTOR + 1);
     }
-    
+
     uint32_t part_id() const {
         if( part_id_read == 0 ) {
             uint32_t id = 0;
