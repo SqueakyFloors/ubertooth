@@ -179,6 +179,16 @@ static void request_set_channel(u16 mhz)
 	board_poll();
 }
 
+/* UBERTOOTH_SET_CHANNEL, sweep form: a channel above the band asks for the
+ * band sweep instead, which is how ubertooth-rx and ubertooth-scan ask for
+ * one. */
+static void request_set_channel_sweep(void)
+{
+	hop_mode = HOP_SWEEP;
+	channel = 2402;
+	board_poll();
+}
+
 /* UBERTOOTH_SET_AFHMAP: the firmware's own, map and hopping table alike. */
 static void request_set_afh_map(const u8 *map)
 {
@@ -426,6 +436,26 @@ MU_TEST(a_channel_set_on_its_own_persists)
 }
 
 /*
+ * A mode started from an idle board resets nothing, because there is nothing
+ * to reset: no earlier mode's state can be there, and what the host set while
+ * the board was idle is for the capture it is about to start. The band sweep
+ * is the case that matters -- ubertooth-rx asks for one by default, and
+ * ubertooth-scan always, each just before asking for the capture -- so the
+ * capture has to start sweeping, not on one channel.
+ */
+MU_TEST(a_mode_started_from_idle_keeps_what_was_set_for_it)
+{
+	board_reset();
+
+	request_set_channel_sweep();
+	request_rx_symbols();
+
+	mu_assert_int_eq(MODE_RX_SYMBOLS, mode);
+	mu_assert_int_eq(HOP_SWEEP, hop_mode);
+	mu_assert(channels_visited() > 1, "the capture sweeps the band");
+}
+
+/*
  * ...and the reset an absorbed request runs leaves the channel alone: the
  * radio is tuned and receiving, and the channel is the one the host set for
  * this capture, a moment before the mode request.
@@ -473,6 +503,7 @@ int main(void)
 	MU_RUN(re_sending_the_running_mode_keeps_its_hopping);
 	MU_RUN(switching_back_resets_again);
 	MU_RUN(a_channel_set_on_its_own_persists);
+	MU_RUN(a_mode_started_from_idle_keeps_what_was_set_for_it);
 	MU_RUN(an_absorbed_request_leaves_the_channel_alone);
 	MU_RUN(a_dispatched_follow_still_hops);
 	return mu_report();
