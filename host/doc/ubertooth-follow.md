@@ -124,7 +124,9 @@ that cannot be opened and a target the tool could not set up a follow on.
 A follow whose USB stream fails part-way also exits 1: the board stopped
 answering, or dropped off the bus, so the capture stops there and holds only
 what arrived before it. The failure is reported on standard error as it
-happens, as `error: receive transfer failed: <reason>`.
+happens, as `error: receive transfer failed: <reason>`. A board that never
+hands the transfer back at all exits 1 too, reported by the `warning:` line
+ubertooth(7) describes rather than that error.
 
 ## SEE ALSO
 

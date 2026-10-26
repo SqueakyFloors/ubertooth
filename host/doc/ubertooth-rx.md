@@ -241,8 +241,10 @@ that could not be read whole (see REPLAYING A SAVED CAPTURE).
 A live capture whose USB stream fails part-way also exits 1: the board stopped
 answering, or dropped off the bus, so the capture stops there and holds only
 what arrived before it. The failure is reported on standard error as it
-happens, as `error: receive transfer failed: <reason>`. A `-z` survey still
-prints the results it did get.
+happens, as `error: receive transfer failed: <reason>`. A board that never
+hands the transfer back at all exits 1 too, reported by the `warning:` line
+ubertooth(7) describes rather than that error. A `-z` survey still prints the
+results it did get.
 
 A board that refuses the channel request, or the address request `-l` and `-u`
 together name, exits 1 as well, and the capture does not start, so a board
