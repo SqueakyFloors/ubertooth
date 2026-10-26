@@ -100,11 +100,15 @@ $(BINDIR)/test_tx_generic_bounds: test_tx_generic_bounds.c minunit.h \
 # hop.c in the btbr image reaches the hardware only through ubtbr/debug.h,
 # which pulls in the console and USB headers and an ARM inline-asm helper;
 # stubs-btbr/ supplies a hardware-free stand-in. -Istubs-btbr comes first so
-# it wins, and the test supplies perm5_lut and the btphy state.
+# it wins. perm5.c is the pre-computed PERM5 table and nothing else, so it
+# links as is; the test supplies the btphy state.
 $(BINDIR)/test_btbr_hop: test_btbr_hop.c minunit.h stubs-btbr/ubtbr/debug.h \
-		$(FW_BTBR)/src/btphy/hop.c $(FW_BTBR)/include/ubtbr/hop.h | $(BINDIR)
+		$(FW_BTBR)/src/btphy/hop.c $(FW_BTBR)/src/codec/perm5.c \
+		$(FW_BTBR)/include/ubtbr/hop.h $(FW_BTBR)/include/ubtbr/btphy.h \
+		| $(BINDIR)
 	$(CC) $(CFLAGS) -Istubs-btbr -I$(FW_BTBR)/include $(CPPFLAGS) \
-		-o $@ test_btbr_hop.c $(FW_BTBR)/src/btphy/hop.c
+		-o $@ test_btbr_hop.c $(FW_BTBR)/src/btphy/hop.c \
+		$(FW_BTBR)/src/codec/perm5.c
 
 $(BINDIR):
 	mkdir -p $(BINDIR)

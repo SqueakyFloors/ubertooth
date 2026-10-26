@@ -27,7 +27,8 @@
 
 hop_state_t hop_state;
 
-/* Nmin, the fewest used channels AFH is defined for (Core spec 2.3.1). */
+/* Nmin, the fewest used channels AFH is defined for
+ * (BT Core v5.1 | Vol 2, Part B, Section 2.3.1). */
 #define AFH_MIN_USED_CHANNELS	20
 
 /* do all of the one time precalculation */
@@ -158,10 +159,11 @@ uint8_t hop_basic(uint32_t clk)
 {
 	uint8_t clk1, sel, chan;
 	uint32_t base_f;
-	/* The AFH state is written only by hop_cfg_afh(), which runs from
-	 * btphy_timers_execute() earlier in the same TIMER0 handler as the
-	 * scheduler callback that hops, so the count, map and table read here
-	 * are always one consistent set. */
+	/* The AFH map, table and count are only ever set together, by
+	 * hop_cfg_afh(), which runs from btphy_timers_execute() earlier in the
+	 * same TIMER0 handler as the scheduler callback that hops, so what is
+	 * read here is one consistent set. (hop_init() also clears the count,
+	 * from the main loop, but that can only turn AFH off.) */
 	uint8_t n_used = hop_state.afh_chan_count;
 	/* Fewer used channels than the spec defines AFH for (or an unset map)
 	 * falls back to basic hopping, which also avoids dividing by zero. */

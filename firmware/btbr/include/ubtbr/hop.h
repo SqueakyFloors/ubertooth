@@ -36,7 +36,7 @@ extern hop_state_t hop_state;
 
 static inline uint8_t perm5(uint8_t z, uint8_t p_high, uint16_t p_low)
 {
-	extern uint8_t perm5_lut[2][4096];
+	extern const uint8_t perm5_lut[2][4096];
 	uint16_t p = (p_low&0x1ff)|((p_high&0x1f)<<9);
 
 	z &= 0x1f;

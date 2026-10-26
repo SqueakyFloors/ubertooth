@@ -19,11 +19,11 @@
  *    hopping;
  *  - with AFH, the peripheral slot (CLK1 = 1) reuses the central slot channel.
  *
- * hop.c reaches PERM5 through a lookup table that the firmware image builds
- * once; the test fills that table from the specification's butterfly network
- * instead, so the expected values do not come from firmware code.  The one
- * thing the test shares with the firmware is the order the butterfly stages
- * run in, which only the specification's figure shows; see PERM5 below.
+ * hop.c reaches PERM5 through the pre-computed table in btbr's perm5.c, which
+ * is linked here and checked against the specification's butterfly network
+ * over every input, so the expected values do not come from firmware code.
+ * The one thing the test shares with the firmware is the order the butterfly
+ * stages run in, which only the specification's figure shows; see PERM5 below.
  */
 #include <stdlib.h>
 #include <string.h>
@@ -34,7 +34,6 @@
 
 /* Definitions the firmware image provides and hop.c reads. */
 btphy_t btphy;
-uint8_t perm5_lut[2][4096];
 
 void cprintf(char *fmt, ...)
 {
@@ -92,25 +91,6 @@ static uint8_t perm5_spec(uint8_t z, uint8_t p_high, uint16_t p_low)
 	return perm5_butterflies(z & 0x1f, p, 13, 0);
 }
 
-/*
- * The table hop.h's perm5() indexes: entry [0] applies the butterflies gated
- * by P13-P7, entry [1] those gated by P6-P0, each for one 7-bit slice of the
- * control word and one value of Z.
- */
-static void perm5_lut_init(void)
-{
-	unsigned slice, z;
-
-	for (slice = 0; slice < 128; slice++) {
-		for (z = 0; z < 32; z++) {
-			perm5_lut[0][(slice << 5) | z] =
-				perm5_butterflies(z, slice << 7, 13, 7);
-			perm5_lut[1][(slice << 5) | z] =
-				perm5_butterflies(z, slice, 6, 0);
-		}
-	}
-}
-
 #define TEST_ADDRESS	UINT32_C(0x12345678)
 /*
  * Second address whose E input is 127, the largest the spec allows.  With
@@ -130,7 +110,9 @@ static const uint8_t FULL_MAP[10] = {
 static const uint8_t REDUCED_MAP[10] = {
 	0x00, 0x00, 0xc0, 0xff, 0xff, 0xff, 0x01, 0x00, 0x00, 0x7f
 };
-/* Channels 0-18: one short of the spec minimum of 20. */
+/* Channels 0-19: exactly the spec minimum of 20, where AFH still applies. */
+static const uint8_t MIN_MAP[10] = {0xff, 0xff, 0x0f};
+/* Channels 0-18: one short of it. */
 static const uint8_t SMALL_MAP[10] = {0xff, 0xff, 0x07};
 
 struct hop_vector {
@@ -169,17 +151,43 @@ static const struct hop_vector HOP_VECTORS[] = {
 };
 #define NUM_VECTORS (sizeof(HOP_VECTORS) / sizeof(HOP_VECTORS[0]))
 
+struct clk_vector {
+	uint32_t clk;
+	uint8_t chan;
+};
+
 /* BIG_E_ADDRESS, AFH disabled.  The first four clk values are ones where
- * PERM5 + E + F + Y2 exceeds 255. */
-static const struct hop_vector BIG_E_VECTORS[] = {
-	{0x00000776, 38, 0, 0},
-	{0x00000777, 38, 0, 0},
-	{0x000009d6, 38, 0, 0},
-	{0x000009f6, 40, 0, 0},
-	{0x00000000, 37, 0, 0},
-	{0x00123456, 47, 0, 0},
+ * PERM5 + E + F + Y2 exceeds 255; the last two are controls below it. */
+static const struct clk_vector BIG_E_VECTORS[] = {
+	{0x00000776, 38},
+	{0x00000777, 38},
+	{0x000009d6, 38},
+	{0x000009f6, 40},
+	{0x00000000, 37},
+	{0x00123456, 47},
 };
 #define NUM_BIG_E_VECTORS (sizeof(BIG_E_VECTORS) / sizeof(BIG_E_VECTORS[0]))
+
+/*
+ * TEST_ADDRESS under MIN_MAP.  AFH applies at exactly 20 used channels, so
+ * these are the re-mapped channels, not the basic ones: ten of the twelve
+ * differ from the basic column above.
+ */
+static const struct clk_vector MIN_MAP_VECTORS[] = {
+	{0x00000000,  1},
+	{0x00000002,  1},
+	{0x00000004,  5},
+	{0x00000006,  5},
+	{0x0000007e, 10},
+	{0x00123456,  7},
+	{0x00123458,  6},
+	{0x07fffffc, 14},
+	{0xfffffffc,  6},
+	{0x00002000,  9},
+	{0x00045678, 12},
+	{0x03fffffc, 19},
+};
+#define NUM_MIN_MAP_VECTORS (sizeof(MIN_MAP_VECTORS) / sizeof(MIN_MAP_VECTORS[0]))
 
 static void set_afh(const uint8_t *map, uint8_t enabled)
 {
@@ -205,6 +213,7 @@ static int map_marks_used(const uint8_t *map, uint8_t chan)
 	return chan < NUM_BREDR_CHANNELS && ((map[chan / 8] >> (chan % 8)) & 1);
 }
 
+/* The table the firmware image ships, and hop.h's indexing of it. */
 MU_TEST(test_perm5_lookup_table_matches_spec)
 {
 	unsigned p, z;
@@ -246,8 +255,19 @@ MU_TEST(test_basic_hops_do_not_truncate_the_kernel_sum)
 	follow_setup(BIG_E_ADDRESS, NULL);
 	mu_assert_int_eq(127, hop_state.E);
 	for (i = 0; i < NUM_BIG_E_VECTORS; i++)
-		mu_assert_int_eq(BIG_E_VECTORS[i].basic,
+		mu_assert_int_eq(BIG_E_VECTORS[i].chan,
 				hop_basic(BIG_E_VECTORS[i].clk));
+}
+
+MU_TEST(test_exactly_the_minimum_used_channels_still_adapts)
+{
+	size_t i;
+
+	follow_setup(TEST_ADDRESS, MIN_MAP);
+	mu_assert_int_eq(20, hop_state.afh_chan_count);
+	for (i = 0; i < NUM_MIN_MAP_VECTORS; i++)
+		mu_assert_int_eq(MIN_MAP_VECTORS[i].chan,
+				hop_basic(MIN_MAP_VECTORS[i].clk));
 }
 
 MU_TEST(test_afh_mapping_table_is_used_channels_even_then_odd)
@@ -381,15 +401,16 @@ MU_TEST(test_connection_modes_hop_through_hop_basic)
 
 int main(void)
 {
-	perm5_lut_init();
 	printf("btbr hop selection tests\n");
 	MU_RUN(test_perm5_lookup_table_matches_spec);
 	MU_RUN(test_basic_bank_is_even_then_odd_channels);
 	MU_RUN(test_basic_hops_match_reference);
 	MU_RUN(test_basic_hops_do_not_truncate_the_kernel_sum);
+	/* Boundary of the 20-used-channel minimum, both sides. */
 	MU_RUN(test_afh_mapping_table_is_used_channels_even_then_odd);
 	MU_RUN(test_full_map_hops_match_reference);
 	MU_RUN(test_reduced_map_hops_match_reference);
+	MU_RUN(test_exactly_the_minimum_used_channels_still_adapts);
 	MU_RUN(test_too_few_used_channels_falls_back_to_basic);
 	MU_RUN(test_afh_hops_keep_used_channels_and_repeat_the_central_slot);
 	MU_RUN(test_clearing_afh_restores_basic_hopping);
