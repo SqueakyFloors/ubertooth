@@ -620,6 +620,25 @@ if(libubertooth_SOURCE_DIR)
 	# run takes milliseconds. A failure that no longer stops the receive loop
 	# would hang here; fail it instead.
 	set_tests_properties(stream-failure PROPERTIES TIMEOUT 10)
+
+	# The keep-alive a quiet capture gets: what the receive callback
+	# publishes for a transfer shorter than a whole packet, and what a dump
+	# writes for a keep-alive that reaches the consumer anyway. The fifo
+	# fake here is a small ring with the real ring's behaviour, so a case
+	# can see which slots were published and what was in them.
+	add_executable(test-keep-alive
+		test_keep_alive.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_callback.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
+	target_include_directories(test-keep-alive PRIVATE
+		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+	target_link_libraries(test-keep-alive ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES}
+		Threads::Threads)
+	add_test(NAME keep-alive COMMAND test-keep-alive)
+	# A handful of callback calls and one short capture: milliseconds. A
+	# capture that no longer stops would hang here; fail it instead.
+	set_tests_properties(keep-alive PROPERTIES TIMEOUT 10)
 endif()
 
 # The same clock wrap through a replay, so the times a capture file carries are

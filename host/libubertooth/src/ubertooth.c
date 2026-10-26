@@ -589,7 +589,15 @@ static void cb_xfer(struct libusb_transfer *xfer)
 		 * slot of a ring buffer nobody is draining. */
 		if (wanted_back)
 			break;
-		if (xfer->status == LIBUSB_TRANSFER_COMPLETED) {
+		/* Only a whole 64-byte packet is a packet. When a capture goes
+		 * quiet the firmware answers the bulk endpoint with a one-byte
+		 * keep-alive, which sets pkt_type in the receive slot and leaves
+		 * the other 63 bytes as they were. Handing that slot on publishes
+		 * a packet nothing filled in, and a consumer that writes records
+		 * out then saves 64 bytes of which only pkt_type was ever set. The
+		 * slot is kept instead, for the next real packet to read into. */
+		if (xfer->status == LIBUSB_TRANSFER_COMPLETED
+		    && xfer->actual_length == PKT_LEN) {
 			fifo_inc_write_ptr(ut->fifo);
 			xfer->buffer = (uint8_t*)fifo_get_write_element(ut->fifo);
 		}
@@ -1065,6 +1073,12 @@ static void cb_dump_bitstream(ubertooth_t* ut, void* args __attribute__((unused)
 	usb_pkt_rx usb = fifo_pop(ut->fifo);
 	usb_pkt_rx* rx = &usb;
 	char bitstream[BANK_LEN];
+
+	/* A keep-alive only says a quiet capture is still alive. It carries no
+	 * symbols, so there is no bitstream to write. */
+	if (rx->pkt_type == KEEP_ALIVE)
+		return;
+
 	ubertooth_unpack_symbols((uint8_t*)rx->data, bitstream);
 
 	// convert to ascii
@@ -1086,6 +1100,12 @@ static void cb_dump_full(ubertooth_t* ut, void* args __attribute__((unused)))
 {
 	usb_pkt_rx usb = fifo_pop(ut->fifo);
 	usb_pkt_rx* rx = &usb;
+
+	/* A keep-alive only says a quiet capture is still alive. Writing it out
+	 * would put a record in the dump whose packet fields nothing ever set,
+	 * and a reader of the dump cannot tell such a record from data. */
+	if (rx->pkt_type == KEEP_ALIVE)
+		return;
 
 	fprintf(stderr, "rx block timestamp %u * 100 nanoseconds\n", rx->clk100ns);
 	/* A replayed record keeps the host time it was recorded with, which
