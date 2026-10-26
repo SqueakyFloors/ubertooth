@@ -133,6 +133,40 @@ static void capture_stderr_end(char* err, size_t err_size)
 	unlink(capture_path);
 }
 
+/* Standard output, redirected to a temp file for the runs that write samples
+ * to it ("-d -"). Only its size is read back: the samples are raw bytes, and
+ * what matters is that they reached the file rather than a stdio buffer the
+ * run never flushed. */
+static char out_path[] = "/tmp/specan-out-XXXXXX";
+static int out_fd = -1;
+static int out_saved = -1;
+
+static void capture_stdout_begin(void)
+{
+	char template[] = "/tmp/specan-out-XXXXXX";
+
+	memcpy(out_path, template, sizeof(template));
+	out_fd = mkstemp(out_path);
+	fflush(stdout);
+	out_saved = dup(fileno(stdout));
+	dup2(out_fd, fileno(stdout));
+}
+
+/* How many bytes the run wrote, with standard output put back. */
+static long capture_stdout_end(void)
+{
+	struct stat info;
+	long size;
+
+	fflush(stdout);
+	dup2(out_saved, fileno(stdout));
+	close(out_saved);
+	size = fstat(out_fd, &info) == 0 ? (long)info.st_size : -1;
+	close(out_fd);
+	unlink(out_path);
+	return size;
+}
+
 /* One capture, with dumpfile set to the stream given, and whatever the
  * callback wrote to standard error returned in err. */
 static void one_block(ubertooth_t* ut, FILE* out, uint8_t mode,
@@ -379,6 +413,13 @@ static void fake_cleanup(int sig)
 {
 	(void)sig;
 	device.ut.stop_ubertooth = 1;
+}
+
+/* The real one folds the signal handler's own flag into the handle; the
+ * fake handler below sets the handle directly, so reading it is enough here. */
+int ubertooth_stopping(ubertooth_t* ut)
+{
+	return ut->stop_ubertooth;
 }
 
 void register_cleanup_handler(ubertooth_t* ut, int do_exit)
@@ -652,8 +693,10 @@ MU_TEST(a_sweep_whose_stream_died_exits_one)
 	unlink(path);
 }
 
-/* A Ctrl-C is a user stopping a sweep that was working: it keeps exiting 0,
- * with the samples it captured. */
+/* A Ctrl-C is a user stopping a sweep that was working: the receive loop
+ * leaves at once, the run exits 0, and the samples it took are on disk rather
+ * than left in a buffer. A sweep that cannot be stopped has to be killed,
+ * which leaves the board in its mode for the next tool to clear. */
 MU_TEST(an_interrupted_sweep_still_exits_zero)
 {
 	char path[64];
@@ -668,10 +711,41 @@ MU_TEST(an_interrupted_sweep_still_exits_zero)
 
 	mu_assert_int_eq(0, RUN_SPECAN(err, "-d", path));
 	mu_assert(strcmp(err, "Ubertooth stopped\n") == 0, err);
+	/* Two blocks, not the fifty the fake would have supplied. */
 	mu_assert_int_eq(2, device.blocks);
+	/* The file is read after main() has returned and before the test closes
+	 * the stream, so what is here is what main() flushed. */
 	mu_assert_int_eq(0, stat(path, &info));
 	mu_assert(info.st_size > 0, "the samples up to the interrupt were written");
+	mu_assert_int_eq(0, (int)(info.st_size % 3));
 	unlink(path);
+	signal(SIGINT, SIG_DFL);
+}
+
+/* The same with "-d -", which writes the samples to standard output. It is
+ * the same output mode and the same receive loop as a named file, so it has
+ * to stop the same way; a run that reported stopping on one and not the other
+ * would be the difference showing up here. */
+MU_TEST(an_interrupted_sweep_to_stdout_still_exits_zero)
+{
+	char err[512];
+	long written;
+
+	reset_device();
+	device.interrupt_after = 2;
+	device.blocks_to_sweep = 50;
+
+	/* The samples are raw bytes, so this process's standard output is sent
+	 * to a temp file for the run: writing them to the test's own output
+	 * would mix them into the CTest log. */
+	capture_stdout_begin();
+	mu_assert_int_eq(0, RUN_SPECAN(err, "-d", "-"));
+	written = capture_stdout_end();
+
+	mu_assert(strcmp(err, "Ubertooth stopped\n") == 0, err);
+	mu_assert_int_eq(2, device.blocks);
+	mu_assert(written > 0, "the samples up to the interrupt were written");
+	mu_assert_int_eq(0, (int)(written % 3));
 	signal(SIGINT, SIG_DFL);
 }
 
@@ -705,6 +779,7 @@ int main(void)
 	MU_RUN(a_sweep_that_was_written_exits_zero);
 	MU_RUN(a_sweep_whose_stream_died_exits_one);
 	MU_RUN(an_interrupted_sweep_still_exits_zero);
+	MU_RUN(an_interrupted_sweep_to_stdout_still_exits_zero);
 	MU_RUN(a_refused_command_line_opens_no_device);
 	return mu_report();
 }

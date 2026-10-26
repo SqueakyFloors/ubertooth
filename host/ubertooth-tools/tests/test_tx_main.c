@@ -86,6 +86,13 @@ void ubertooth_stop(ubertooth_t* ut)
 	mu_assert(0, "no test should reach the transmit path");
 }
 
+/* The real one folds the signal handler's own flag into the handle; the
+ * fake handler below sets the handle directly, so reading it is enough here. */
+int ubertooth_stopping(ubertooth_t* ut)
+{
+	return ut->stop_ubertooth;
+}
+
 void register_cleanup_handler(ubertooth_t* ut, int do_exit)
 {
 	(void)ut;
