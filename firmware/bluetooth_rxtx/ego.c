@@ -42,6 +42,8 @@ static const uint16_t channels[4] = { 2408, 2418, 2423, 2469 };
 // global mutable state
 // FIXME: put this in a struct and reset it properly
 uint32_t access_code = 0x630f9ffe;
+/* Stored for rf_on()'s TODO below: the radio is told a 32-bit sync word
+ * whatever length the host asked for, so nothing reads this yet. */
 int access_code_len = 4;
 
 typedef enum _ego_state_t {
@@ -422,13 +424,20 @@ void ego_main(ego_mode_t mode) {
 int rfcat_subcommand(uint16_t cmd, uint8_t *body, int body_len) {
 	int i;
 	switch (cmd) {
-		// set aa
+		/*
+		 * Set the access code. Its bytes are the most significant of
+		 * the 32-bit sync word, so a code shorter than four bytes
+		 * leaves the rest zero. The loop has to be bounded by the
+		 * length of this body: the request buffer is shared between
+		 * requests, so reading further would build the code partly out
+		 * of whatever the previous request left there.
+		 */
 		case RFCAT_SET_AA:
 			if (body_len < 1 || body_len > 4)
 				return 0;
 			for (i = 0; i < 4; ++i) {
 				access_code <<= 8;
-				if (i < access_code_len)
+				if (i < body_len)
 					access_code |= body[i];
 			}
 			access_code_len = body_len;

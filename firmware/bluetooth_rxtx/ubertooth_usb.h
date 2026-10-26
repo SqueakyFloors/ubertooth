@@ -53,7 +53,24 @@
 #include "ubertooth.h"
 #include "ubertooth_interface.h"
 
-typedef int (VendorRequestHandler)(u8 request, u16 *request_params, u8 *data, int *data_len);
+/*
+ * `data_in_len` is how many bytes of its own the request arrived with, which
+ * is not what wLength says: the USB stack calls the handler once a whole
+ * host-to-device data stage has landed in `data`, but for a device-to-host
+ * request it calls at SETUP time, before any data stage, where wLength is the
+ * host's read size and `data` still holds the previous request's bytes. So a
+ * case that reads `data` may read `data_in_len` bytes of it and no more.
+ *
+ * The stack also calls at SETUP time for a host-to-device request of no
+ * length, so an empty data stage and no data stage at all arrive the same way,
+ * with data_in_len zero. `data_from_host` is what tells them apart, and for a
+ * request whose body may legitimately be empty that is the only difference
+ * between the host asking for something and a read of the same number asking
+ * for nothing.
+ */
+typedef int (VendorRequestHandler)(u8 request, u16 *request_params, u8 *data,
+                                   int data_from_host, unsigned data_in_len,
+                                   int *data_len);
 
 /*
  * Hold off the USB interrupt across a section that must not be re-entered,
