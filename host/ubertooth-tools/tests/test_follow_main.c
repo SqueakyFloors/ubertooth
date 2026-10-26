@@ -37,9 +37,10 @@
 #include "ubertooth-follow.c"
 #undef main
 
-/* A libubertooth global the tool reads; it lives in ubertooth.c, which is not
- * linked here. max_ac_errors is defined by the tool's own source. */
+/* The libubertooth globals the tool uses; they live in ubertooth.c, which is
+ * not linked here. */
 FILE* dumpfile;
+int max_ac_errors = 2;
 
 /* ---- scripted device and adapter ---------------------------------------- */
 
@@ -232,12 +233,12 @@ int cmd_clear_afh_map(struct libusb_device_handle* devh)
 	return 0;
 }
 
-int cmd_start_hopping(struct libusb_device_handle* devh, int clk100ns_offset,
-                      uint16_t clk27_offset)
+int cmd_start_hopping(struct libusb_device_handle* devh, int clkn_offset,
+                      int clk100ns_offset)
 {
 	(void)devh;
+	(void)clkn_offset;
 	(void)clk100ns_offset;
-	(void)clk27_offset;
 	record('h');
 	return 0;
 }
