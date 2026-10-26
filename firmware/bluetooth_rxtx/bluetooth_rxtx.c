@@ -214,6 +214,19 @@ int enqueue_with_ts(uint8_t type, uint8_t* buf, uint32_t ts)
 #define WRITE_REGISTERS_MAX (VENDOR_REQ_DATA_LEN / 3)
 
 /*
+ * The registers UBERTOOTH_READ_ALL_REGISTERS answers with: every CC2400
+ * address from MAIN (0x00) through SYNCH (0x2d), the last register below the
+ * command strobes. A few addresses in that run are not registers the radio
+ * documents, and they are read anyway, as they always have been. Each address
+ * takes three bytes of the reply, its number and the 16-bit value read from
+ * it, so the length of the reply follows from the count. The
+ * loop that fills the reply and the length the reply reports both come from
+ * this one count, so the reply cannot claim fewer registers than it carries.
+ */
+#define READ_ALL_REGISTERS_COUNT (SYNCH + 1)
+#define READ_ALL_REGISTERS_LEN   (READ_ALL_REGISTERS_COUNT * 3)
+
+/*
  * Returning 0 stalls the request. `data` is the buffer the USB stack filled
  * from the request's data stage and `data_in_len` how many bytes the host
  * actually sent with it, so a case that reads `data` refuses a request
@@ -683,14 +696,13 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		break;
 
 	case UBERTOOTH_READ_ALL_REGISTERS:
-		#define MAX_READ_REG 0x2d
-		for(i=0; i<=MAX_READ_REG; i++) {
+		for (i = 0; i < READ_ALL_REGISTERS_COUNT; i++) {
 			reg_val = cc2400_get(i);
 			data[i*3] = i;
 			data[(i*3)+1] = (reg_val >> 8) & 0xff;
 			data[(i*3)+2] = reg_val & 0xff;
 		}
-		*data_len = MAX_READ_REG*3;
+		*data_len = READ_ALL_REGISTERS_LEN;
 		break;
 
 #ifdef TX_ENABLE

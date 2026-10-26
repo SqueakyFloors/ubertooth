@@ -99,12 +99,11 @@
   the command returns at once and the board stays reachable; `-S` or any mode
   option stops it and leaves the LEDs off.
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
-- **Reflash required:** the firmware API version is now 1.26, last moved by the
-  BLE follow modes keeping their packets for the host's poll requests instead
-  of the receive endpoint, and the host tools require firmware of exactly their
-  own API version, older or newer (`ubertooth-util` still reads the version and
-  reflashes any firmware). Host and firmware come from the same tree;
-  `2020-12-R1` firmware is refused.
+- **Reflash required:** the firmware API version is now 1.27, last moved by the
+  reply to a read of every register, and the host tools require firmware of
+  exactly their own API version, older or newer (`ubertooth-util` still reads
+  the version and reflashes any firmware). Host and firmware come from the same
+  tree; `2020-12-R1` firmware is refused.
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
   [#240](https://github.com/SqueakyFloors/ubertooth/issues/240)
@@ -685,6 +684,10 @@ Fixes with no visible change in normal use.
   narrow to reach it, so the loop never ended and wrote radio registers until
   the board was power-cycled. No shipped tool sends it.
   [#409](https://github.com/SqueakyFloors/ubertooth/issues/409)
+- The reply to a read of every radio register claims all the bytes it carries,
+  so the last register no longer goes missing from it. No shipped tool sends
+  that request.
+  [#450](https://github.com/SqueakyFloors/ubertooth/issues/450)
 - A device status event the USB controller would not report is retried once
   per event, so a transient failure cannot lose a bus reset and leave the board
   answering on an address the host has taken away.
