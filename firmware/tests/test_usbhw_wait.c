@@ -680,6 +680,51 @@ MU_TEST(test_a_failed_device_status_read_is_retried_once)
 	mu_assert_int_eq(1, (int)dev_handler_calls);
 }
 
+/*
+ * The one-shot is one retry per event, not one for the life of the firmware.
+ *
+ * Dropping an event used to leave the flag set, so the next transient failure
+ * got no retry. Device status events are rare -- a reset, a suspend, a resume,
+ * not one per frame -- so that next failure can be minutes later, and the bus
+ * reset it loses is the case the retry exists for.
+ *
+ * A successful read between the two would hide it, because success cleared the
+ * flag even before the fix. So: an event the engine never answers, then an
+ * isolated failure straight after it.
+ */
+MU_TEST(test_a_dropped_device_status_event_leaves_the_next_one_its_retry)
+{
+	isr_test_setup();
+	devintst_events = DEV_STAT;
+	fake_cmddata = RST | CON;
+
+	/* A clean pass first: the flag is a static in the file under test, so
+	 * this starts the test from a known one-shot whatever ran before. */
+	USBHwISR();
+	mu_assert_int_eq(1, (int)dev_handler_calls);
+
+	/* An event the engine never answers: one retry, then dropped. */
+	sie_answers = 0;
+	USBHwISR();
+	mu_assert_int_eq(DEV_STAT, (int)fake_devintset);
+	fake_devintset = 0;
+	USBHwISR();
+	mu_assert_int_eq(0, (int)fake_devintset);
+	mu_assert_int_eq(1, (int)dev_handler_calls);
+
+	/* The next event's read fails once. It must still be put back. */
+	USBHwISR();
+	mu_assert(fake_devintset == (uint32_t)DEV_STAT,
+	          "a device status event after a dropped one got no retry, so "
+	          "its bus reset was lost");
+
+	/* And the retried read reaches the handler. */
+	fake_devintset = 0;
+	sie_answers = 1;
+	USBHwISR();
+	mu_assert_int_eq(2, (int)dev_handler_calls);
+}
+
 /* ---- source scans ---- */
 
 /*
@@ -850,6 +895,7 @@ int main(void)
 	MU_RUN(test_a_failed_status_read_does_not_answer_the_next_one);
 	MU_RUN(test_a_device_status_event_reaches_its_handler);
 	MU_RUN(test_a_failed_device_status_read_is_retried_once);
+	MU_RUN(test_a_dropped_device_status_event_leaves_the_next_one_its_retry);
 	MU_RUN(test_no_unbounded_waits_on_usb_registers_remain);
 	MU_RUN(test_handle_usb_holds_the_usb_interrupt_off);
 	MU_RUN(test_the_usb_interrupt_hold_synchronises);

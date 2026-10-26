@@ -54,6 +54,13 @@
 #include "ubertooth_interface.h"
 
 /*
+ * The buffer the USB stack fills from a vendor request's data stage, and so
+ * the most one request can deliver. A case whose body is a count of items
+ * works out from this how many of them a request could have carried.
+ */
+#define VENDOR_REQ_DATA_LEN 258
+
+/*
  * `data_in_len` is how many bytes of its own the request arrived with, which
  * is not what wLength says: the USB stack calls the handler once a whole
  * host-to-device data stage has landed in `data`, but for a device-to-host
