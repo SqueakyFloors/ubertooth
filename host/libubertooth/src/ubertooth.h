@@ -187,23 +187,26 @@ void rx_afh_r(ubertooth_t* ut, btbb_piconet* pn, int timeout);
 
 void ubertooth_unpack_symbols(const uint8_t* buf, char* unpacked);
 
-/* How many bytes libbtbb's low-energy decoder copies out of the stream
- * pointer it is given. It takes no length and its public header does not
- * export the value (MAX_LE_SYMBOLS in lib/src/bluetooth_le_packet.h), so the
- * contract is implicit and this is the host's half of it. A received packet
- * carries only DMA_SIZE bytes, which is fewer. */
+/* How many bytes the decoder (libbtbb's lell_allocate_and_decode()) copies
+ * out of the pointer it is handed: 64. It takes no length, so a caller has to
+ * know that number. libbtbb keeps it in a private header, MAX_LE_SYMBOLS in
+ * lib/src/bluetooth_le_packet.h, so the host has to repeat it here. A
+ * received packet holds only 50 bytes (DMA_SIZE), which is why a buffer this
+ * long is needed at all. */
 #define LE_SYM_LEN 64
 
-/* Lays a received packet's bytes out for lell_allocate_and_decode(), in a
- * buffer of LE_SYM_LEN that the caller provides. The bytes a packet does not
- * reach are zeroed rather than left as whatever followed it in memory: the
- * decoder reads the PDU length from byte 5 and then the payload and CRC that
- * follow, so a PDU claiming more than was captured decodes zeros instead of
- * the caller's stack. The capture is still short; zeroing only stops the
- * decoder inventing the rest of it.
+/* Copies a received packet into a 64-byte buffer for the decoder and zeroes
+ * the 14 bytes the packet does not reach. The caller provides the buffer.
  *
- * The buffer is taken as a pointer to an array so the compiler checks its
- * length, rather than trusting a caller the way the decoder trusts us. */
+ * The zeroing is the point. The decoder reads the PDU length from byte 5 and
+ * then reads the payload and the CRC that follow it. A PDU whose length field
+ * claims more than the board captured therefore reads past the 50 bytes that
+ * arrived. Here it finds zeros there, not whatever memory sat behind the
+ * packet. The capture is still only 50 bytes long; zeroing just stops the
+ * decoder presenting the rest as packet data.
+ *
+ * The buffer is a pointer to an array rather than a plain uint8_t*, so the
+ * compiler rejects a caller that passes something shorter. */
 void ubertooth_le_symbols(const usb_pkt_rx* rx, uint8_t (*symbols)[LE_SYM_LEN]);
 
 #endif /* __UBERTOOTH_H__ */

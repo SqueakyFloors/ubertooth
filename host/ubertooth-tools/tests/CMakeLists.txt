@@ -555,12 +555,15 @@ if(libubertooth_SOURCE_DIR)
 	# device: a run takes milliseconds.
 	set_tests_properties(clk100ns-wrap PROPERTIES TIMEOUT 5)
 
-	# What the low-energy callback hands libbtbb's decoder, which copies a
-	# fixed length longer than a received packet. cb_btle() is in
-	# ubertooth_callback.c, which the test includes itself; the decoder and
-	# the ring buffer are defined in the test, so they win over the library's
-	# and no device or real decode is involved. libbtbb is still linked, for
-	# the packet allocation and the symbols the other callbacks reference.
+	# What the low-energy callback hands libbtbb's decoder. The decoder
+	# always copies 64 bytes, more than the 50 a received packet holds.
+	#
+	# The test includes ubertooth_callback.c itself, so the real cb_btle()
+	# runs. Nothing touches a device or does a real decode: the test defines
+	# its own stand-in for the decoder, and the fifo calls are faked in the
+	# test (ubertooth_fifo.c is not linked), as in the tests above. libbtbb
+	# is still linked, for the packet allocation and the symbols the other
+	# callbacks reference.
 	add_executable(test-le-decode-buffer
 		test_le_decode_buffer.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth.c

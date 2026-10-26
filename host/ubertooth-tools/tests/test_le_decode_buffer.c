@@ -1,17 +1,19 @@
 /*
- * What the low-energy callback hands libbtbb's decoder.
+ * What the low-energy callback hands the decoder, libbtbb's
+ * lell_allocate_and_decode().
  *
- * The decoder takes a bare pointer and copies a fixed LE_SYM_LEN bytes out of
- * it, while a received packet carries only DMA_SIZE. Handing it the received
- * packet's own array therefore read 14 bytes of whatever followed the packet
- * in memory, and the decoder reads exactly those bytes for the tail of a
+ * The decoder takes a bare pointer with no length and always copies 64 bytes
+ * out of it. A received packet holds only 50. The callback used to hand it
+ * the packet's own array, so it copied 14 bytes of whatever followed the
+ * packet in memory. The decoder reads those 14 bytes for the tail of the
  * payload and for the CRC, so a PDU whose length field claimed more than was
- * captured decoded them as packet data.
+ * captured showed that leftover memory as packet data.
  *
- * ubertooth_callback.c is compiled into this test so cb_btle() itself runs,
- * with the ring buffer and the decoder replaced by the fakes below. The fake
- * decoder copies the same fixed length the real one copies, so a caller that
- * hands it a shorter buffer is caught here as well as by a sanitizer.
+ * This test runs the real cb_btle(), by compiling ubertooth_callback.c into
+ * itself, with the ring buffer and the decoder replaced by the fakes below.
+ * The fake decoder copies the same 64 bytes the real one does, so a caller
+ * that hands it a shorter buffer fails here in a plain build as well as under
+ * a sanitizer.
  */
 #include <fcntl.h>
 #include <stdint.h>
@@ -23,13 +25,14 @@
 #include "../../../firmware/tests/minunit.h"
 #include "../../libubertooth/src/ubertooth_callback.c"
 
-/* A byte no crafted packet uses, so anything of it reaching the decoder came
- * from past the end of the packet. */
+/* A filler byte that no crafted packet here uses. Any of it reaching the
+ * decoder must have come from past the end of the packet. */
 #define STACK_PATTERN 0xab
 
 /* ---- fakes -------------------------------------------------------------- */
 
-/* The one packet a capture delivers, and what the decoder was handed. */
+/* The one packet the faked capture delivers, and a copy of the bytes the
+ * decoder was handed. */
 static usb_pkt_rx next_packet;
 static uint8_t handed[LE_SYM_LEN];
 static int decodes;
@@ -46,10 +49,11 @@ usb_pkt_rx fifo_pop(fifo_t* fifo)
 	return next_packet;
 }
 
-/* Stands in for lell_allocate_and_decode(), copying the fixed length the real
- * one copies. The packet it returns is a real, empty one: what the decoder
- * makes of the bytes is libbtbb's business, and only the bytes it was given
- * are checked here. */
+/* Stands in for the decoder. It copies the same 64 bytes the real one copies,
+ * which is what makes a short buffer fail here. The packet it hands back is a
+ * real but empty libbtbb packet, because the rest of cb_btle() goes on to use
+ * it. What the real decoder makes of the bytes is libbtbb's business; this
+ * test only checks which bytes it was given. */
 void lell_allocate_and_decode(const uint8_t* stream, uint16_t phys_channel,
                               uint32_t clk100ns, lell_packet** pkt)
 {
@@ -62,8 +66,9 @@ void lell_allocate_and_decode(const uint8_t* stream, uint16_t phys_channel,
 
 /* ---- helpers ------------------------------------------------------------ */
 
-/* A low-energy advertising packet whose every captured byte is set, so a byte
- * the decoder reads is either one of these or came from past the packet. */
+/* A BLE advertising packet with every captured byte set non-zero. Any byte
+ * the decoder reads is then either one of these or came from past the
+ * packet. */
 static void fill_packet(usb_pkt_rx* rx)
 {
 	unsigned i;
@@ -74,8 +79,8 @@ static void fill_packet(usb_pkt_rx* rx)
 	rx->clk100ns = htole32(1234);
 	for (i = 0; i < DMA_SIZE; i++)
 		rx->data[i] = (uint8_t)(i + 1);
-	/* The advertising access address, little endian, and a PDU header
-	 * claiming a payload longer than the capture reaches. */
+	/* The advertising access address, little endian, then a PDU header
+	 * whose length field claims 58 bytes while only 50 were captured. */
 	rx->data[0] = 0xd6;
 	rx->data[1] = 0xbe;
 	rx->data[2] = 0x89;
@@ -84,15 +89,18 @@ static void fill_packet(usb_pkt_rx* rx)
 	rx->data[5] = 58;
 }
 
-/* Leaves non-zero bytes in the stack the callback is about to use, so that a
- * read past the end of the packet is less likely to find zeros there and pass
- * anyway. Best-effort only: the callback's own locals and spills overwrite
- * most of what this leaves behind, so which values survive depends on the
- * frame layout the compiler chose. What is guaranteed comes from checking the
- * buffer directly, and from a sanitizer build, where the read is a
- * stack-buffer-overflow whatever the bytes happen to be. */
+/* Written below, so the compiler cannot drop the fill as dead code. */
 static volatile uint8_t sink;
 
+/* Writes the filler byte over the stack the callback is about to use. A read
+ * past the end of the packet is then unlikely to find zeros there and pass by
+ * luck.
+ *
+ * This is best effort. The callback's own locals overwrite most of what is
+ * left here, so which bytes survive depends on the stack frame the compiler
+ * chose. The guarantees come from elsewhere: the first case checks the buffer
+ * directly, and a sanitizer build reports the read as a stack-buffer-overflow
+ * whatever the bytes happen to be. */
 static void dirty_the_stack(void)
 {
 	uint8_t scratch[4096];
@@ -101,8 +109,9 @@ static void dirty_the_stack(void)
 	sink = scratch[0];
 }
 
-/* One capture through the real callback, with its output kept off the test's
- * own, and the bytes the decoder was given left in handed[]. */
+/* Runs one capture through the real callback. The callback prints the packet,
+ * so its output goes to /dev/null to keep it out of the test's own, and the
+ * bytes the decoder was given are left in handed[]. */
 static void one_packet(void)
 {
 	ubertooth_t ut;
@@ -138,8 +147,8 @@ static void one_packet(void)
 
 MU_TEST(the_buffer_holds_the_packet_and_zeros)
 {
-	/* The packet with the pattern laid down right behind it, so the whole
-	 * length the decoder reads is accounted for without depending on what
+	/* The packet with filler laid down immediately behind it. All 64 bytes
+	 * the decoder reads are then accounted for, without depending on what
 	 * a stack frame happens to hold. */
 	struct {
 		usb_pkt_rx rx;
@@ -170,9 +179,9 @@ MU_TEST(a_capture_decodes_no_byte_from_past_the_packet)
 	mu_assert_int_eq(1, decodes);
 	mu_assert(memcmp(handed, next_packet.data, DMA_SIZE) == 0,
 	          "the decoder was given something other than the packet");
-	/* The bytes the capture does not reach. The decoder reads them for the
-	 * tail of the payload and for the CRC, so they must be zero rather
-	 * than whatever the callback's stack held. */
+	/* The 14 bytes the capture does not reach. The decoder reads them for
+	 * the tail of the payload and for the CRC, so they have to be zero and
+	 * not whatever the callback's stack held. */
 	for (i = DMA_SIZE; i < LE_SYM_LEN; i++)
 		mu_assert_int_eq(0, handed[i]);
 }
