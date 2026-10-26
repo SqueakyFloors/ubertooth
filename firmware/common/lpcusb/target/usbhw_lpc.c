@@ -77,8 +77,8 @@ static TFnDevIntHandler *_pfnDevIntHandler = NULL;
 static TFnEPIntHandler  *_apfnEPIntHandlers[16];
 /** Installed frame interrupt handlers */
 static TFnFrameHandler  *_pfnFrameHandler = NULL;
-/** Whether a device status read has already been given a second chance; see
-    USBHwISR(). */
+/** Whether this device status event has already been given a second chance;
+    cleared once the event is done with, either way. See USBHwISR(). */
 static BOOL dev_stat_retried = FALSE;
 
 /** convert from endpoint address to endpoint index */
@@ -708,16 +708,25 @@ DEBUG_LED_ON(9);
          * a board that answers nothing. Put the interrupt back instead and
          * read it on the next pass.
          *
-         * Once, though. The device interrupt stays asserted while the bit is
-         * set, so against an engine that has stopped answering forever this
-         * would re-enter the handler for ever in the modes that service USB
-         * from the interrupt. One retry recovers the transient case; after
-         * that the event is dropped, and the endpoint work below still runs.
+         * Once per event, though. The device interrupt stays asserted while
+         * the bit is set, so against an engine that has stopped answering
+         * forever this would re-enter the handler for ever in the modes that
+         * service USB from the interrupt. One retry recovers the transient
+         * case; after that the event is dropped, and the endpoint work below
+         * still runs.
+         *
+         * Dropping the event arms the retry again. Device status events are
+         * rare -- a reset, a suspend, a resume, not one per frame -- so a
+         * one-shot left used up would give the next transient failure,
+         * possibly minutes later, no retry at all, and lose exactly the bus
+         * reset this is here to keep.
          */
         if (!USBHwCmdReadChecked(CMD_DEV_STATUS, &bDevStat)) {
             if (!dev_stat_retried) {
                 dev_stat_retried = TRUE;
                 USBDevIntSet = DEV_STAT;
+            } else {
+                dev_stat_retried = FALSE;
             }
             bDevStat = 0;
         } else {

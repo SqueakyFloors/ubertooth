@@ -20,7 +20,7 @@ FW_BOOT := ../bootloader
 HOST_DFU := ../../host/ubertooth-tools/src
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_mode_dispatch test_le_phy_order test_grmdm_rx_generic test_tx_generic_bounds test_btbr_hop test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_usb_queue test_btbr_usb_send
+TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_mode_dispatch test_le_phy_order test_grmdm_rx_generic test_tx_generic_bounds test_write_registers_bounds test_btbr_hop test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_usb_queue test_btbr_usb_send
 BINDIR  := bin
 
 .PHONY: all test clean
@@ -107,6 +107,17 @@ $(BINDIR)/test_tx_generic_bounds: test_tx_generic_bounds.c minunit.h \
 		source_scan.h $(FW_RXTX)/bluetooth_rxtx.c | $(BINDIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
 		-o $@ test_tx_generic_bounds.c
+
+# The multi-register write's handler is hardware code too -- it writes radio
+# registers -- so the bound on its register count is exercised through a fake
+# of the case, and the firmware's own shape is scanned across the three files
+# the bound is spread over.
+$(BINDIR)/test_write_registers_bounds: test_write_registers_bounds.c minunit.h \
+		source_scan.h $(FW_RXTX)/bluetooth_rxtx.c \
+		$(FW_RXTX)/ubertooth_usb.c $(FW_RXTX)/ubertooth_usb.h \
+		| $(BINDIR)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
+		-o $@ test_write_registers_bounds.c
 
 # hop.c in the btbr image reaches the hardware only through ubtbr/debug.h,
 # which pulls in the console and USB headers and an ARM inline-asm helper;

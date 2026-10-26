@@ -99,11 +99,11 @@
   the command returns at once and the board stays reachable; `-S` or any mode
   option stops it and leaves the LEDs off.
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
-- **Reflash required:** the firmware API version is now 1.23, last moved by the
-  control requests that no longer stall during a capture, and the host tools
-  require firmware of exactly their own API version, older or newer
-  (`ubertooth-util` still reads the version and reflashes any firmware). Host
-  and firmware come from the same tree; `2020-12-R1` firmware is refused.
+- **Reflash required:** the firmware API version is now 1.24, last moved by the
+  bound on a multi-register write's register count, and the host tools require
+  firmware of exactly their own API version, older or newer (`ubertooth-util`
+  still reads the version and reflashes any firmware). Host and firmware come
+  from the same tree; `2020-12-R1` firmware is refused.
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
   [#240](https://github.com/SqueakyFloors/ubertooth/issues/240)
@@ -627,6 +627,15 @@ Fixes with no visible change in normal use.
   the packet, and no longer drops the last byte of one that does. No shipped
   tool sends it.
   [#384](https://github.com/SqueakyFloors/ubertooth/issues/384)
+- The firmware refuses a multi-register write asking for more registers than
+  the request can carry. Such a count used to be walked in a counter too
+  narrow to reach it, so the loop never ended and wrote radio registers until
+  the board was power-cycled. No shipped tool sends it.
+  [#409](https://github.com/SqueakyFloors/ubertooth/issues/409)
+- A device status event the USB controller would not report is retried once
+  per event, so a transient failure cannot lose a bus reset and leave the board
+  answering on an address the host has taken away.
+  [#359](https://github.com/SqueakyFloors/ubertooth/issues/359)
 - The firmware stalls a vendor request that carries fewer bytes than it reads,
   and a read-direction request that expects data, instead of acting on what
   the previous request left in the shared buffer.

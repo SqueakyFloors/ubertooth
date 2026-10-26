@@ -198,6 +198,15 @@ int enqueue_with_ts(uint8_t type, uint8_t* buf, uint32_t ts)
 }
 
 /*
+ * Registers one UBERTOOTH_WRITE_REGISTERS request can write: a register
+ * number and a 16-bit value each, within the buffer the request's data stage
+ * lands in. The count arrives in a 16-bit field, so without this bound the
+ * handler would walk a count the buffer cannot hold -- reading past it, and
+ * never finishing at all in a counter narrower than the field.
+ */
+#define WRITE_REGISTERS_MAX (VENDOR_REQ_DATA_LEN / 3)
+
+/*
  * Returning 0 stalls the request. `data` is the buffer the USB stack filled
  * from the request's data stage and `data_in_len` how many bytes the host
  * actually sent with it, so a case that reads `data` refuses a request
@@ -651,12 +660,16 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		break;
 
 	case UBERTOOTH_WRITE_REGISTERS:
+		/* A count the buffer cannot hold is refused before the count
+		 * is used at all. */
+		if (request_params[0] > WRITE_REGISTERS_MAX)
+			return 0;
 		/* a register number and a 16-bit value per register */
 		if (data_in_len < request_params[0] * 3u)
 			return 0;
-		for(i=0; i<request_params[0]; i++) {
-			reg_val = (data[(i*3)+1] << 8) | data[(i*3)+2];
-			cc2400_set(data[i*3], reg_val);
+		for (unsigned reg = 0; reg < request_params[0]; reg++) {
+			reg_val = (data[(reg*3)+1] << 8) | data[(reg*3)+2];
+			cc2400_set(data[reg*3], reg_val);
 		}
 		break;
 

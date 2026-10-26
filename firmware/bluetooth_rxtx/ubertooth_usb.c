@@ -195,7 +195,7 @@ static u8 abDescriptors[] = {
 
 #define USB_SERIAL_OFFSET 124
 
-u8 abVendorReqData[258];
+u8 abVendorReqData[VENDOR_REQ_DATA_LEN];
 
 /* Unused functions
 void usb_bulk_in_handler(u8 bEP, u8 bEPStatus)
