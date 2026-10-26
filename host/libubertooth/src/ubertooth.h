@@ -115,9 +115,10 @@ typedef struct {
 	 * how many periods have gone by. */
 	uint8_t clk100ns_counted;
 
-	/* Whether the capture's anchor may still move down to a lower clock
-	 * reading. Set by the first packet and cleared by the second, so the
-	 * anchor can only move while the packet it holds is the one in doubt. */
+	/* Whether the capture's anchor may still move to the next packet's
+	 * clock reading, and its period count baseline to that packet's count.
+	 * Set by the first packet and cleared by the second, so either can only
+	 * move while the packet holding them is the one in doubt. */
 	uint8_t clk100ns_anchor_open;
 
 	/* Whether the host clock running ahead of the reconstructed times has

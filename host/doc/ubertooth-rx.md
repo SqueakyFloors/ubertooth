@@ -184,15 +184,20 @@ message names each.
 Files recorded with older firmware can begin with a record out of place.
 Firmware from before this fork's first release, 2020-12-R1+modern1, and
 upstream firmware up to 2020-12-R1, could begin a capture with a record left
-over from the mode before it, holding that mode's clock reading. The second
-record then reads lower, which used to be taken for the capture clock starting
-over and put 327.68 s into every time after it. A replay now compares that
-against the host times the records carry: a clock that started over accounts
-for the time between them, and a leftover record does not, so the capture is
-anchored on the second record instead and the times that follow are its own.
-The one reading that cannot be told apart is a leftover within a couple of
-seconds of a whole period ahead, which looks exactly like a wrap that late;
-record again with current firmware if a file's times still look wrong.
+over from the mode before it, holding that mode's clock reading and its count
+of periods. The second record then reads lower, which used to be taken for the
+capture clock starting over and put 327.68 s into every time after it, and the
+count dropping back to the new mode's used to be read as whole periods of time
+passing: 18,321 s, over five hours, where the mode before had run 200 periods.
+A replay now compares both against the host times the records carry: a clock
+that started over, or periods that really went by, account for the time between
+the two records, and a leftover record does not, so the capture is anchored on
+the second record instead and the times that follow are its own. What cannot be
+told apart is a leftover within a couple of seconds of a whole period of the
+capture's own reading or count, which looks exactly like a wrap that late, or
+of two periods of its count. The capture's times then come out one or two
+periods early for the whole of it, and the warning above reports it; record
+again with current firmware if a file's times still look wrong.
 
 A replay that reaches the end of the file exits 0, including for an empty
 file. These two are reported on standard error and exit 1, after whatever

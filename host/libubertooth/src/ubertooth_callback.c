@@ -149,6 +149,71 @@ void ubertooth_capture_clock_reset( ubertooth_t* ut )
  * says so, because that report only looks for times behind the host clock. */
 #define CLK100NS_WRAP_SLACK_NS 2000000000ull
 
+/* Whether the period count the capture's first packet carried belonged to the
+ * mode before it, that packet being one left over from it. The firmware resets
+ * CLKN when a mode starts, so the capture's own first count drops to whatever
+ * the new mode has reached; read as a difference from the leftover's, the drop
+ * is time that never passed. Where the mode before had run 200 periods that
+ * came to 56 periods forwards, five hours into every time from there on, and
+ * where it had run fewer than 128 the difference read backwards and was
+ * rejected, which left the stale count as the baseline and stopped the capture
+ * counting its own periods at all.
+ *
+ * What says so is the host's own clock, as it does for a wrap above: the two
+ * packets' counts and readings together claim how much time passed between
+ * them, and only a count from another mode claims an amount the host never
+ * saw. The slack is the wrap test's, for the same reason - it is how far the
+ * host's measure of the gap may be out - plus a whole period, because the
+ * firmware latches a packet's count and its clock reading with separate reads
+ * of CLKN: a packet caught as the count ticks over carries one a period from
+ * its own reading, which is legitimate and has to be believed. One period is
+ * as far as that can take a single packet, and one period is also as far as it
+ * can take a pair of them. The two reads happen at one place in the firmware
+ * per capture, in a fixed order - a counted capture's packets are stamped by
+ * the receive interrupt, which reads the clock before the count - so whichever
+ * way that order leans, both packets lean the same way and the difference
+ * between their counts is out by at most the one period. Two packets leaning
+ * opposite ways would have to come from two different places, which is a mode
+ * change: the case below.
+ *
+ * The two allowances share one budget, and the budget cannot be widened: a
+ * leftover count two periods from the capture's own already claims only about
+ * two periods, so anything wider would stop catching it. So a packet whose
+ * count really was latched a period from its reading leaves only the gap slack
+ * to cover error in the host's measure of the gap, and a live capture that
+ * stalls longer than that before its first packet reaches the reconstruction -
+ * output blocked on a slow pipe, say - can have a legitimate count rejected and
+ * lose the gap between the capture's first two packets. It is reported, by the
+ * same message as a lost wrap below, and a replay cannot hit it at all, its
+ * host times being whole seconds.
+ *
+ * What is left unsettled is a leftover count a period from the capture's own,
+ * which looks exactly like that latch, or two periods from it where the two
+ * readings are also within the slack of a whole period apart. Either costs
+ * those one or two periods, as it did before, and no more: the capture runs at
+ * the right rate from there, a fixed amount behind. ubertooth-rx(1) says so. */
+static int count_came_from_the_mode_before( const ubertooth_t* ut,
+                                            uint32_t clk100ns, uint8_t periods,
+                                            uint64_t since_last_ns )
+{
+	/* The periods the count moved, as a signed difference: a count that
+	 * reads lower is time going backwards, not 255 periods forwards. The
+	 * byte's top half is read as that, rather than cast to a signed type,
+	 * which C leaves to the compiler for a value that does not fit. */
+	uint8_t stepped = (uint8_t) (periods - ut->last_clkn_high);
+	int64_t moved = (stepped < 128) ? (int64_t) stepped :
+	                                  (int64_t) stepped - 256;
+	int64_t claim_ns = 100 * (moved * (int64_t) ut->clk100ns_period +
+	                          (int64_t) clk100ns -
+	                          (int64_t) ut->last_clk100ns);
+	int64_t gap_ns = (int64_t) since_last_ns;
+	int64_t apart_ns = (claim_ns > gap_ns) ? claim_ns - gap_ns :
+	                                         gap_ns - claim_ns;
+
+	return apart_ns > (int64_t) (100 * ut->clk100ns_period +
+	                             CLK100NS_WRAP_SLACK_NS);
+}
+
 static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx,
                             uint64_t host_ns, uint64_t elapsed_ns )
 {
@@ -162,13 +227,14 @@ static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx,
 	uint8_t periods = (ut->clk100ns_period == CLK100NS_PERIOD) ?
 	                  rx->clkn_high : 0;
 	uint8_t advance;
-	/* How much time a wrap here would account for, against how much the
-	 * host saw pass. Only meaningful where the clock reads lower than it
-	 * did. */
+	/* How much time the host saw pass since the last packet, and how much a
+	 * wrap here would account for. The latter is only meaningful where the
+	 * clock reads lower than it did. */
 	uint64_t wrap_ns, since_last_ns;
 	/* Whether this is the packet right after the capture's first, the only
-	 * one where a lower clock reading has a rival reading. Taken once and
-	 * cleared here, so no later packet is judged that way. */
+	 * one where what the record says has a rival reading: the packet before
+	 * it can be one left over from the mode before. Taken once and cleared
+	 * here, so no later packet is judged that way. */
 	uint8_t anchor_open = ut->clk100ns_anchor_open;
 
 	ut->clk100ns_anchor_open = 0;
@@ -190,6 +256,9 @@ static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx,
 		return;
 	}
 
+	since_last_ns = (elapsed_ns > ut->last_elapsed_ns) ?
+	                elapsed_ns - ut->last_elapsed_ns : 0;
+
 	if (ut->clk100ns_counted) {
 		/* The count is one byte, read as a difference from the last
 		 * packet's, so the byte's own wrap costs nothing. Only a
@@ -207,7 +276,25 @@ static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx,
 		 * much the likelier of the two inputs, and the host clock
 		 * reports the other. */
 		advance = (uint8_t) (periods - ut->last_clkn_high);
-		if (advance < 128) {
+		if (anchor_open && count_came_from_the_mode_before( ut, clk100ns,
+		                                                    periods,
+		                                                    since_last_ns )) {
+			/* The count the capture was anchored on was the
+			 * leftover's, so the difference from it is not time.
+			 * This packet's count becomes the baseline and the
+			 * anchor moves to its reading, which is where the
+			 * capture starts. The host time the anchor carries
+			 * stays as it was, because that is when the capture
+			 * started, which is what its times are measured from.
+			 * Where some of the gap between the two packets really
+			 * did pass - a quiet start, or a gap too long for the
+			 * count to cover - those absolute times come out that
+			 * much early. Nothing here can recover it: the count
+			 * is the only record of such a gap and it is the count
+			 * being rejected. The message below reports it. */
+			ut->last_clkn_high = periods;
+			ut->start_clk100ns = clk100ns;
+		} else if (advance < 128) {
 			ut->clk100ns_upper += advance;
 			ut->last_clkn_high = periods;
 		}
@@ -239,8 +326,6 @@ static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx,
 		 * than the two could disagree by on their own. */
 		wrap_ns = 100 * (ut->clk100ns_period -
 		                 (ut->last_clk100ns - clk100ns));
-		since_last_ns = (elapsed_ns > ut->last_elapsed_ns) ?
-		                elapsed_ns - ut->last_elapsed_ns : 0;
 
 		if (anchor_open &&
 		    wrap_ns > since_last_ns + CLK100NS_WRAP_SLACK_NS) {
