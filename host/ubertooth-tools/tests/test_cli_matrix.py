@@ -32,6 +32,7 @@ one case to passing -- at which point this test fails until the entry is
 removed, which is how the finding gets closed.
 """
 
+import atexit
 import itertools
 import json
 import os
@@ -100,6 +101,8 @@ class USBContext:
 
 if CONTRACT.get("devices_via") == "usb1":
     STUB_DIRECTORY = tempfile.mkdtemp(prefix="cli-matrix-usb1-")
+    # However the run ends, including the exits just below.
+    atexit.register(shutil.rmtree, STUB_DIRECTORY, ignore_errors=True)
     with open(os.path.join(STUB_DIRECTORY, "usb1.py"), "w") as handle:
         handle.write(USB1_STUB)
     path = [STUB_DIRECTORY]
@@ -338,10 +341,21 @@ def check(case, result, created):
         if stdout:
             complain("wrote to standard output: %r" % stdout[:120])
         lines = error_lines(stderr)
+        # A refusal is that one line and nothing else. Counting only the
+        # prefixed lines would let a tool add the right line in front of the
+        # unprefixed ones it already printed and read as fixed.
+        # A warning or a note beside the error line is allowed: cli-output.md
+        # puts all three on standard error. Anything else is a second line
+        # saying what went wrong, which is what the one-line rule is about.
+        said = [line for line in stderr.splitlines()
+                if line.strip() and not line.startswith(("warning: ", "note: "))]
         if len(lines) != 1:
             complain("expected one 'error: ' line, got %d: %r"
                      % (len(lines), stderr[:240]))
         else:
+            if said != lines:
+                complain("said more than the one 'error: ' line: %r"
+                         % [line for line in said if line not in lines][:4])
             if case.error is not None and lines[0] != case.error:
                 complain("said %r, not %r" % (lines[0], case.error))
             if case.contains is not None and case.contains not in lines[0]:
