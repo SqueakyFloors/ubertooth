@@ -245,8 +245,9 @@ in a row show whether the board is hopping and over which channels.*
       confirm the same: the capture that follows does not inherit the killed
       run's hopping. `ubertooth-util -S` puts such a board back to idle
 - [ ] With no mode running, confirm `ubertooth-util -C 10` then
-      `ubertooth-util -c` still reads `2412 MHz` back: a channel set on its own
-      persists until a mode starts
+      `ubertooth-util -c` still reads `2412 MHz` back, and that a mode started
+      afterwards runs on it: a channel set on its own is kept, and the next mode
+      starts on it unless that tool sets a channel of its own
 
 ---
 

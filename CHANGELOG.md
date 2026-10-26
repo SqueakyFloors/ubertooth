@@ -185,8 +185,9 @@
   resets the hop mode and forgets the AFH map, so an `ubertooth-rx` after an
   `ubertooth-afh` -- including one that was killed and left the board streaming
   -- captures on the whole channel set instead of hopping adaptively on the old
-  map. A channel set on its own, with `ubertooth-util -c`/`-C` and no mode,
-  still persists until a mode starts.
+  map. A channel set on its own, with `ubertooth-util -c`/`-C` and no mode
+  running, is still kept, and the next mode starts on it unless that tool sets
+  a channel of its own.
   [#261](https://github.com/SqueakyFloors/ubertooth/issues/261)
   [#312](https://github.com/SqueakyFloors/ubertooth/issues/312)
 - `ubertooth-follow` hops with the piconet when it starts on a board that was

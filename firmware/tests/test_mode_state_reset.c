@@ -2,9 +2,9 @@
  * What a board carries over from one run to the next.
  *
  * Every mode start resets the board's mode state, its hop mode and its AFH
- * channel map; a channel set on its own, with no mode running, persists until
- * a mode starts. Two places have to hold that rule, because there are two ways
- * a mode starts:
+ * channel map. The channel is the exception: one set on its own, with no mode
+ * running, is kept, and the next mode starts on it. Two places have to hold
+ * that rule, because there are two ways a mode starts:
  *
  *   - the mode dispatch in main(), which leaves the running mode first and so
  *     runs the idle reset; and
@@ -411,8 +411,8 @@ MU_TEST(switching_back_resets_again)
 	mu_assert_int_eq(NUM_BREDR_CHANNELS, channels_visited());
 }
 
-/* A channel set on its own persists until a mode starts. */
-MU_TEST(a_channel_set_on_its_own_persists)
+/* A channel set on its own is kept, and the next mode starts on it. */
+MU_TEST(a_channel_set_on_its_own_is_kept_for_the_next_mode)
 {
 	board_reset();
 
@@ -502,7 +502,7 @@ int main(void)
 	MU_RUN(an_absorbed_detection_starts_from_an_empty_map);
 	MU_RUN(re_sending_the_running_mode_keeps_its_hopping);
 	MU_RUN(switching_back_resets_again);
-	MU_RUN(a_channel_set_on_its_own_persists);
+	MU_RUN(a_channel_set_on_its_own_is_kept_for_the_next_mode);
 	MU_RUN(a_mode_started_from_idle_keeps_what_was_set_for_it);
 	MU_RUN(an_absorbed_request_leaves_the_channel_alone);
 	MU_RUN(a_dispatched_follow_still_hops);

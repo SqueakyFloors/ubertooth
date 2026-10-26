@@ -739,8 +739,8 @@ MU_TEST(test_an_absorbable_request_resets_before_its_own_setup)
 }
 
 /*
- * ...and nothing else resets. A channel set on its own persists until a mode
- * starts, so the request that sets it must not reset anything -- least of all
+ * ...and nothing else resets. A channel set on its own is kept for the next
+ * mode, so the request that sets it must not reset anything -- least of all
  * through a helper whose job is mode starts.
  */
 MU_TEST(test_setting_a_channel_resets_nothing)

@@ -163,11 +163,11 @@ Radio options:
    through levels by design and leave the level wherever their sweep ended, so
    set it again after using them.
  - `-c [2402-2480]` :
-   get/set channel in MHz. A standalone set persists until a mode starts: the
-   board keeps it after the command exits, so a later command reads the same
-   value back, as long as no mode runs in between. A mode takes the channel
-   over — it is back to 2441 MHz once that mode ends, as described above — so
-   set it again after one. See CARRY-OVER BETWEEN RUNS.
+   get/set channel in MHz. A standalone set is kept: the board holds that
+   channel after the command exits, so a later command reads the same value
+   back, and the next mode starts on it unless that tool sets a channel of its
+   own. Once that mode ends the channel is back to 2441 MHz, as described
+   above, so set it again for the one after. See CARRY-OVER BETWEEN RUNS.
  - `-C [0-78]` :
    get/set channel, by Bluetooth channel number rather than frequency. It is the
    same setting as `-c` and keeps its value the same way.
@@ -448,10 +448,12 @@ One rule covers what a board holds from one command to the next:
   whole channel set, not on the map that run found. This holds even when the
   earlier tool was killed and left the board streaming. The squelch and the
   LEDs go with it, as above; the power amplifier level set with `-a` does not.
-- **A channel set on its own persists until a mode starts.** `-c`/`-C` with no
-  mode on the command line leaves the board on that channel for as long as it
-  stays idle, and a later `-c` reads it back. The next mode takes the channel
-  over, so set it again afterwards.
+- **A channel set on its own is kept, and the next mode starts on it.** `-c`/`-C`
+  with no mode on the command line leaves the board on that channel for as long
+  as it stays idle, a later `-c` reads it back, and a mode started afterwards
+  captures there — unless that tool sets a channel of its own, as `ubertooth-rx`
+  does when it asks for a band sweep. Once that mode ends the channel is back to
+  2441 MHz, so set it again for the next one.
 
 What is set on an idle board is for the capture that follows, as the squelch
 is: no mode is being left, so there is nothing to reset. What a mode left
