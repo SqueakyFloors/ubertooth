@@ -358,7 +358,30 @@ int dequeue_send(u32 clkn)
 }
 
 /*
- * Service USB from the loop that is running, with the USB interrupt held off.
+ * Service the control path only, for a mode whose host collects packets with
+ * UBERTOOTH_POLL control requests instead of reading the bulk IN endpoint.
+ *
+ * Such a mode must leave its packets in the queue, because that is where the
+ * request looks for them. handle_usb() below does the opposite: it hands a
+ * queued packet to each free bulk IN hardware buffer. There are two of them
+ * and nothing drains them while a poll-read mode runs, so every one of those
+ * packets was simply gone -- the first two packets of every session.
+ *
+ * The USB interrupt is held off for the reason handle_usb() gives.
+ */
+void handle_usb_control(void)
+{
+	u32 usb_irq = usb_irq_hold();
+
+	/* polled "interrupt" */
+	USBHwISR();
+
+	usb_irq_release(usb_irq);
+}
+
+/*
+ * Service USB from the loop that is running, with the USB interrupt held off,
+ * and keep the bulk IN endpoint loaded for a host that reads it.
  *
  * Everything in here drives the USB controller through registers there is only
  * one of: USBCtrl selects which endpoint reads and writes apply to, USBTxPLen
@@ -367,13 +390,15 @@ int dequeue_send(u32 clkn)
  * control transfer handler in usbcontrol.c also keeps one set of state for the
  * transfer it is part way through. None of it can take a second caller.
  *
- * There are two callers in the firmware. Six modes service USB from the USB
- * interrupt (bt_generic_le(), bt_le_sync(), bt_slave_le(), ego, xmas,
- * identify); every other mode, and the main loop, call this instead. What
- * keeps them apart today is only that no mode does both: each of those six
- * enables the interrupt on the way in and disables it on the way out, and
- * nothing calls this function in between. That is a property of fifteen mode
- * functions, not of this code, and nothing used to state it or check it.
+ * USB is driven from two contexts in the firmware. Six modes service it from
+ * the USB interrupt (bt_generic_le(), bt_le_sync(), bt_slave_le(), ego, xmas,
+ * identify); the other modes and the main loop call this from their loop, or
+ * handle_usb_control() above where the mode's host reads packets with
+ * UBERTOOTH_POLL. What keeps the two apart today is only that no mode does
+ * both: each of those six enables the interrupt on the way in and disables it
+ * on the way out, and nothing calls either of these functions in between. That
+ * is a property of fifteen mode functions, not of this code, and nothing used
+ * to state it or check it.
  *
  * Holding the interrupt off here makes it a property of this code: whatever a
  * mode does, this is the only context driving USB while it runs. The interrupt

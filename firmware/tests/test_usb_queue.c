@@ -18,11 +18,19 @@
  * The queue is pure logic, so it runs here for real: ubertooth_usb.c is
  * compiled into this translation unit and the endpoint below stands in for the
  * hardware -- two buffers, filled by the firmware, emptied by the host.
+ *
+ * Not every host reads that endpoint. A mode whose host collects packets with
+ * UBERTOOTH_POLL control requests leaves them in the ring, where the request
+ * finds them, and the endpoint's two buffers are then a place packets go to be
+ * lost: those modes used to lose the first two packets of every session there.
+ * The last part of this file scans the mode loops for which of the two USB
+ * services each one calls, since that is where the rule has to hold.
  */
 #include <stdio.h>
 #include <string.h>
 
 #include "minunit.h"
+#include "source_scan.h"
 
 /* ------------------------------------------------------------------ *
  * The bulk IN endpoint: two buffers, as the LPC17xx has.
@@ -370,6 +378,298 @@ MU_TEST(the_queue_still_works_after_a_clear)
 	mu_assert_int_eq(BR_PACKET, p->pkt_type);
 }
 
+/* ------------------------------------------------------------------ *
+ * A mode whose host polls: the endpoint stays out of it
+ * ------------------------------------------------------------------ */
+
+/*
+ * UBERTOOTH_POLL answers out of the ring, so a mode whose host polls has to
+ * leave every packet there. handle_usb_control() services the control path and
+ * touches neither the ring nor the endpoint, which is what makes the first
+ * packets of the session reachable.
+ */
+MU_TEST(a_polled_mode_keeps_every_packet_for_the_host)
+{
+	int i;
+
+	start_fresh();
+
+	capture(LE_PACKET, 5);
+	for (i = 0; i < 4; i++)
+		handle_usb_control();
+
+	mu_assert_int_eq(0, USBHwEPGetStatus(0x82));
+	mu_assert_int_eq(-1, ep_host_read());
+
+	/* What the host's poll requests find: all five, the first included. */
+	for (i = 0; i < 5; i++) {
+		usb_pkt_rx *p = dequeue();
+		char msg[128];
+
+		snprintf(msg, sizeof(msg), "packet %d of the session was gone "
+		         "before the host could poll for it", i);
+		mu_assert(p != NULL, msg);
+		mu_assert_int_eq(LE_PACKET, p->pkt_type);
+	}
+	mu_assert(dequeue() == NULL, "the ring held more than was captured");
+}
+
+/*
+ * ...and the bulk service is what used to take them. It loads both endpoint
+ * buffers, so a polling host was left the session minus its first two packets.
+ * This is the state the fix changed.
+ */
+MU_TEST(the_bulk_service_takes_the_first_packet_of_each_buffer)
+{
+	int i, left = 0;
+
+	start_fresh();
+
+	capture(LE_PACKET, 5);
+	service();
+
+	mu_assert_int_eq(EPSTAT_B1FULL | EPSTAT_B2FULL, USBHwEPGetStatus(0x82));
+	for (i = 0; i < 5; i++)
+		if (dequeue() != NULL)
+			left++;
+	mu_assert_int_eq(3, left);
+}
+
+/* ------------------------------------------------------------------ *
+ * Which modes feed the bulk IN endpoint
+ * ------------------------------------------------------------------ */
+
+/*
+ * Each half of the rule belongs to a mode loop: a mode whose host reads the
+ * bulk endpoint has to keep it loaded, and a mode whose host polls must not
+ * touch it. The loops are hardware code and cannot run here, so this scans
+ * them as text, the way test_le_phy_order.c scans le_phy.c.
+ *
+ * Two of the three USB services feed the endpoint: handle_usb(), and
+ * service_usb(), which is handle_usb() with the clock filled in. The third,
+ * handle_usb_control(), does not. service_usb is also handed to the bounded
+ * radio waits by name, so the scan matches the identifier rather than a call.
+ *
+ * Listed below is every mode whose host collects packets. The modes that
+ * stream nothing -- the transmit tests, the range test, the repeater, the LED
+ * spectrum display, xmas and identify -- are free to call either.
+ */
+enum usb_service {
+	USB_BULK,      /* keeps the bulk IN endpoint loaded */
+	USB_CONTROL,   /* services control requests from the loop, nothing else */
+	USB_INTERRUPT, /* unmasks the USB interrupt and services USB there */
+};
+
+/* What one function's body was found to name. */
+struct fn_usb {
+	int lines;
+	int bulk;     /* handle_usb or service_usb */
+	int control;  /* handle_usb_control */
+	int unmask;   /* ISER0 = ISER0_ISE_USB */
+};
+
+struct mode_usb {
+	const char *file;
+	const char *function;
+	enum usb_service service;
+	/* Where an interrupt-driven mode unmasks the interrupt: the mode itself
+	 * for the two BLE halves, ego_init() for ego. */
+	const char *unmask_in;
+	const char *host;
+	/* filled in by the scan */
+	struct fn_usb found;
+	struct fn_usb unmask_found;
+};
+
+static struct mode_usb modes[] = {
+	{ "bluetooth_rxtx.c", "bt_stream_rx", USB_BULK, NULL,
+	  "ubertooth-rx, -dump, -scan, -follow and -afh read the endpoint",
+	  { 0, 0, 0, 0 }, { 0, 0, 0, 0 } },
+	{ "bluetooth_rxtx.c", "specan", USB_BULK, NULL,
+	  "ubertooth-specan reads the endpoint",
+	  { 0, 0, 0, 0 }, { 0, 0, 0, 0 } },
+	{ "bluetooth_rxtx.c", "rx_generic_sync", USB_BULK, NULL,
+	  "generic receive streams to the endpoint",
+	  { 0, 0, 0, 0 }, { 0, 0, 0, 0 } },
+	{ "le_phy.c", "le_phy_main", USB_CONTROL, NULL,
+	  "ubertooth-btle -n and -f poll",
+	  { 0, 0, 0, 0 }, { 0, 0, 0, 0 } },
+	{ "bluetooth_rxtx.c", "bt_generic_le", USB_INTERRUPT, "bt_generic_le",
+	  "ubertooth-btle -p polls",
+	  { 0, 0, 0, 0 }, { 0, 0, 0, 0 } },
+	{ "bluetooth_rxtx.c", "bt_le_sync", USB_INTERRUPT, "bt_le_sync",
+	  "ubertooth-btle -p polls",
+	  { 0, 0, 0, 0 }, { 0, 0, 0, 0 } },
+	{ "ego.c", "ego_main", USB_INTERRUPT, "ego_init",
+	  "ubertooth-ego polls",
+	  { 0, 0, 0, 0 }, { 0, 0, 0, 0 } },
+};
+
+#define MODE_COUNT (sizeof(modes) / sizeof(modes[0]))
+
+/*
+ * Read one function's body out of a firmware source file. A definition is a
+ * line that starts in column 1, names the function in front of its first '('
+ * and does not end the statement, which is what tells it from a prototype or a
+ * call; the body ends at the next closing brace in column 1.
+ */
+static int scan_function(const char *path, const char *function,
+                         struct fn_usb *out)
+{
+	char line[512], name[64];
+	int in_block = 0, in_fn = 0;
+	FILE *f = fopen(path, "r");
+
+	if (f == NULL)
+		return 0;
+
+	memset(out, 0, sizeof(*out));
+
+	while (fgets(line, sizeof(line), f) != NULL) {
+		strip_comments(line, &in_block);
+
+		if (!in_fn) {
+			if (line[0] != ' ' && line[0] != '\t' &&
+			    strchr(line, ';') == NULL &&
+			    call_name(line, name, sizeof(name)) &&
+			    strcmp(name, function) == 0)
+				in_fn = 1;
+			continue;
+		}
+
+		out->lines++;
+		/* handle_usb_control is a whole identifier of its own, so a match
+		 * on handle_usb is the bulk service and nothing else. */
+		if (contains_identifier(line, "handle_usb") ||
+		    contains_identifier(line, "service_usb"))
+			out->bulk++;
+		if (contains_identifier(line, "handle_usb_control"))
+			out->control++;
+		if (is_assignment_to(line, "ISER0") &&
+		    contains_identifier(line, "ISER0_ISE_USB"))
+			out->unmask++;
+
+		if (line[0] == '}')
+			in_fn = 0;
+	}
+
+	fclose(f);
+	return 1;
+}
+
+static int scanned_modes;
+
+static int scan_modes(void)
+{
+	char path[512];
+	size_t i;
+
+	for (i = 0; i < MODE_COUNT; i++) {
+		snprintf(path, sizeof(path), "%s/%s", FW_RXTX_DIR, modes[i].file);
+		if (!scan_function(path, modes[i].function, &modes[i].found))
+			return 0;
+		if (modes[i].unmask_in != NULL &&
+		    !scan_function(path, modes[i].unmask_in,
+		                   &modes[i].unmask_found))
+			return 0;
+	}
+	return 1;
+}
+
+/*
+ * The scan runs once, in main(), and the tests below read its result, so no
+ * test depends on another having run first.
+ */
+MU_TEST(the_scan_found_every_mode_loop)
+{
+	size_t i;
+
+	mu_assert(scanned_modes, "cannot open the firmware sources to scan");
+
+	/* Without a body, every check below would pass for want of anything to
+	 * look at. */
+	for (i = 0; i < MODE_COUNT; i++) {
+		char msg[256];
+
+		snprintf(msg, sizeof(msg),
+		         "%s: %s() scanned as %d lines, so the scan lost track of "
+		         "the function", modes[i].file, modes[i].function,
+		         modes[i].found.lines);
+		mu_assert(modes[i].found.lines > 10, msg);
+	}
+}
+
+/* A mode whose host reads the endpoint has to keep handing packets to it. */
+MU_TEST(a_bulk_read_mode_keeps_the_endpoint_loaded)
+{
+	size_t i;
+
+	for (i = 0; i < MODE_COUNT; i++) {
+		char msg[384];
+
+		if (modes[i].service != USB_BULK)
+			continue;
+		snprintf(msg, sizeof(msg),
+		         "%s: %s() no longer calls handle_usb() or service_usb(), "
+		         "so nothing loads the bulk IN endpoint while it runs -- "
+		         "and %s", modes[i].file, modes[i].function, modes[i].host);
+		mu_assert(modes[i].found.bulk > 0, msg);
+	}
+}
+
+/*
+ * ...and a mode whose host polls must not, because nothing reads the endpoint
+ * while it runs: a packet handed over there is lost, and the endpoint has two
+ * buffers, which is why it was the first two packets of the session.
+ */
+MU_TEST(a_polled_mode_does_not_feed_the_endpoint)
+{
+	size_t i;
+
+	for (i = 0; i < MODE_COUNT; i++) {
+		char msg[384];
+
+		if (modes[i].service == USB_BULK)
+			continue;
+		snprintf(msg, sizeof(msg),
+		         "%s: %s() names handle_usb() or service_usb(), which hands "
+		         "packets to the bulk IN endpoint -- but %s, so those "
+		         "packets are lost", modes[i].file, modes[i].function,
+		         modes[i].host);
+		mu_assert(modes[i].found.bulk == 0, msg);
+	}
+}
+
+/*
+ * Not feeding the endpoint must not mean not servicing USB at all: a mode that
+ * stops answering control requests cannot be polled, or stopped. Each polled
+ * mode services the control path its own way -- from its loop, or from the USB
+ * interrupt it unmasks on the way in.
+ */
+MU_TEST(a_polled_mode_still_services_control_requests)
+{
+	size_t i;
+
+	for (i = 0; i < MODE_COUNT; i++) {
+		char msg[384];
+
+		if (modes[i].service == USB_CONTROL) {
+			snprintf(msg, sizeof(msg),
+			         "%s: %s() does not call handle_usb_control(), so "
+			         "nothing services USB while it runs", modes[i].file,
+			         modes[i].function);
+			mu_assert(modes[i].found.control > 0, msg);
+		}
+		if (modes[i].service == USB_INTERRUPT) {
+			snprintf(msg, sizeof(msg),
+			         "%s: %s() no longer unmasks the USB interrupt, so "
+			         "nothing services USB while %s() runs", modes[i].file,
+			         modes[i].unmask_in, modes[i].function);
+			mu_assert(modes[i].unmask_found.unmask > 0, msg);
+		}
+	}
+}
+
 int main(void)
 {
 	MU_RUN(a_new_mode_reads_only_its_own_packets);
@@ -378,6 +678,14 @@ int main(void)
 	MU_RUN(the_endpoint_keeps_one_packet_for_each_buffer);
 	MU_RUN(a_stopped_modes_keep_alive_timer_does_not_follow_it);
 	MU_RUN(the_queue_still_works_after_a_clear);
+	MU_RUN(a_polled_mode_keeps_every_packet_for_the_host);
+	MU_RUN(the_bulk_service_takes_the_first_packet_of_each_buffer);
+
+	scanned_modes = scan_modes();
+	MU_RUN(the_scan_found_every_mode_loop);
+	MU_RUN(a_bulk_read_mode_keeps_the_endpoint_loaded);
+	MU_RUN(a_polled_mode_does_not_feed_the_endpoint);
+	MU_RUN(a_polled_mode_still_services_control_requests);
 
 	return mu_report();
 }
