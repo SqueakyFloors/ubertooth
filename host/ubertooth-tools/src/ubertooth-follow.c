@@ -419,6 +419,18 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	/* The target's address and the board's clock are set before the receive
+	 * transfer is submitted below, because zeroing CLKN moves the clock the
+	 * board stamps its records with. A record sent before the reset and read
+	 * after it carries the period count from before: the host reads that
+	 * count as a difference from the previous record's, so 150 then 0 reads
+	 * as 106 periods gone by and adds about 34,700 s to every later
+	 * timestamp. Both requests are synchronous, so the board has them before
+	 * anything is in flight; the asynchronous ones below cannot move up here,
+	 * because the poll thread is what completes them. */
+	cmd_set_bdaddr(ut->devh, btbb_piconet_get_bdaddr(pn));
+	cmd_set_clock(ut->devh, 0);
+
 	// init USB transfer
 	r = ubertooth_bulk_init(ut);
 	if (r < 0) {
@@ -438,9 +450,6 @@ int main(int argc, char *argv[])
 		follow_disconnect(sock, handle, cc);
 		return r;
 	}
-
-	cmd_set_bdaddr(ut->devh, btbb_piconet_get_bdaddr(pn));
-	cmd_set_clock(ut->devh, 0);
 
 	/* Read clocks here to ensure clock is closest to real value. Without a
 	 * clock there is nothing to follow, so a failed read stops the command
