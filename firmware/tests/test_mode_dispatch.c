@@ -24,7 +24,7 @@
  *     requested_mode == mode when the mode stopped, so no reset ran at all.
  *     The LED spectrum analyzer, spectrum analyzer, BLE promiscuous and BLE
  *     faux slave cases were all like that.
- *   - An unknown request left `mode` alone for good and spun the loop.
+ *   - An unknown request left `mode` alone forever and spun the loop.
  *
  * Recording `mode` once, before the switch, and idling once, before that,
  * makes all three unreachable -- as long as the shape holds. main() is

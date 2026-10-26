@@ -2879,7 +2879,7 @@ int main()
 		 * did it, a case that left it out kept `mode` at the previous mode,
 		 * so stopping the mode it was running found requested_mode == mode
 		 * and no reset ran at all; and an unknown request kept `mode`
-		 * unchanged for good, spinning this loop at full rate.
+		 * unchanged forever, spinning this loop at full rate.
 		 */
 		mode = next_mode;
 

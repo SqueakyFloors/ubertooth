@@ -377,7 +377,7 @@ MU_TEST(a_count_that_reads_backwards_does_not_move_the_clock)
  * reads of CLKN, so a packet caught between them carries a count a period
  * ahead of its clock reading. That is one packet's time out; the clock
  * reading lower than it did on the next packet must not be taken as a second
- * period, or every time after it is a period too high for good. */
+ * period, or every time after it is a period too high, permanently. */
 MU_TEST(a_count_latched_a_period_early_costs_only_its_own_packet)
 {
 	ubertooth_t ut;
