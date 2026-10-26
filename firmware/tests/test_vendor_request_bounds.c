@@ -197,9 +197,10 @@ static int fake_request_handler(uint8_t request, const uint16_t *params,
 	case UBERTOOTH_WRITE_REGISTERS:
 		if (data_in_len < params[0] * 3u)
 			return 0;
-		/* The firmware walks this count in a uint8_t and so wraps
-		 * above 255; the width is not reproduced here, because what
-		 * this case is for is the length check in front of it. */
+		/* The firmware also bounds this count by the length of the
+		 * buffer. That bound is not reproduced here, because what
+		 * this case stands in for is the length check in front of
+		 * it; test_write_registers_bounds.c covers the bound. */
 		for (i = 0; i < params[0]; i++)
 			registers[data[i * 3]] =
 				(uint16_t)((data[i * 3 + 1] << 8) |

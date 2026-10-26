@@ -660,9 +660,8 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		break;
 
 	case UBERTOOTH_WRITE_REGISTERS:
-		/* The count is a 16-bit field, so a request can name more
-		 * registers than the buffer its data stage lands in could
-		 * hold. Those are refused before the count is used at all. */
+		/* A count the buffer cannot hold is refused before the count
+		 * is used at all. */
 		if (request_params[0] > WRITE_REGISTERS_MAX)
 			return 0;
 		/* a register number and a 16-bit value per register */

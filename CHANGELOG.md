@@ -633,9 +633,8 @@ Fixes with no visible change in normal use.
   the board was power-cycled. No shipped tool sends it.
   [#409](https://github.com/SqueakyFloors/ubertooth/issues/409)
 - A device status event the USB controller would not report is retried once
-  per event. The retry used to be spent permanently after two failures in a
-  row, so a later transient failure could lose a bus reset and leave the board
-  answering on an address the host had taken away.
+  per event, so a transient failure cannot lose a bus reset and leave the board
+  answering on an address the host has taken away.
   [#359](https://github.com/SqueakyFloors/ubertooth/issues/359)
 - The firmware stalls a vendor request that carries fewer bytes than it reads,
   and a read-direction request that expects data, instead of acting on what
