@@ -103,6 +103,21 @@ static uint64_t packet_host_ns( void )
 	return now_ns( );
 }
 
+/* A second reading of the host, used only to measure how long passed between
+ * two packets. A live capture reads the monotonic clock, which no step of the
+ * host clock can move, so a step cannot change how a packet's clock reading is
+ * read; the time written into the capture still comes from packet_host_ns()
+ * above. A replay has only the host time each record carries. */
+static uint64_t packet_elapsed_ns( void )
+{
+	struct timespec ts = { 0, 0 };
+
+	if (infile != NULL)
+		return 1000000000ull * (uint64_t) systime;
+	(void) clock_gettime( CLOCK_MONOTONIC, &ts );
+	return (1000000000ull*(uint64_t) ts.tv_sec) + (uint64_t) ts.tv_nsec;
+}
+
 void ubertooth_capture_clock_reset( ubertooth_t* ut )
 {
 	ut->abs_start_ns = 0;
@@ -112,10 +127,30 @@ void ubertooth_capture_clock_reset( ubertooth_t* ut )
 	ut->clk100ns_upper = 0;
 	ut->clk100ns_started = 0;
 	ut->clk100ns_counted = 0;
+	ut->last_elapsed_ns = 0;
+	ut->clk100ns_anchor_open = 0;
 	ut->clk100ns_gap_warned = 0;
 }
 
-static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx )
+/* How far the host's measure of the gap between two packets may fall short of
+ * the time a wrap would account for and still be read as that wrap. It is
+ * sized to how imprecisely that gap is known, not to the clock's period: a
+ * replayed record's host time is a whole second, so two of them can misstate
+ * the gap by just under a second either way, and a live capture reads the host
+ * as it takes each packet in, a packet's latency apart. Two seconds covers
+ * both, and a genuine wrap's own figure is good to well inside it.
+ *
+ * Whichever way the decision goes wrong it costs a whole period, so this does
+ * not bound the error; what it bounds is how far the two measures have to
+ * disagree before the decision flips. Small is still the safer direction. Too
+ * small loses a genuine wrap between the first two packets: the times come out
+ * a period short, which the host clock catches and reports below. Too large
+ * reads the leftover packet as a wrap: they come out a period long, and nothing
+ * says so, because that report only looks for times behind the host clock. */
+#define CLK100NS_WRAP_SLACK_NS 2000000000ull
+
+static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx,
+                            uint64_t host_ns, uint64_t elapsed_ns )
 {
 	uint32_t clk100ns = le32toh( rx->clk100ns );
 	/* How many times the clock stamping this packet has started over, as
@@ -127,6 +162,16 @@ static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx )
 	uint8_t periods = (ut->clk100ns_period == CLK100NS_PERIOD) ?
 	                  rx->clkn_high : 0;
 	uint8_t advance;
+	/* How much time a wrap here would account for, against how much the
+	 * host saw pass. Only meaningful where the clock reads lower than it
+	 * did. */
+	uint64_t wrap_ns, since_last_ns;
+	/* Whether this is the packet right after the capture's first, the only
+	 * one where a lower clock reading has a rival reading. Taken once and
+	 * cleared here, so no later packet is judged that way. */
+	uint8_t anchor_open = ut->clk100ns_anchor_open;
+
+	ut->clk100ns_anchor_open = 0;
 
 	/* A count has to arrive before it can be believed: a mode that sends
 	 * none leaves the field zero, which is also what the first period of a
@@ -139,7 +184,9 @@ static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx )
 		ut->clk100ns_started = 1;
 		ut->last_clk100ns = ut->start_clk100ns = clk100ns;
 		ut->last_clkn_high = periods;
-		ut->abs_start_ns = packet_host_ns( );
+		ut->abs_start_ns = host_ns;
+		ut->last_elapsed_ns = elapsed_ns;
+		ut->clk100ns_anchor_open = 1;
 		return;
 	}
 
@@ -167,11 +214,51 @@ static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx )
 	} else if (clk100ns < ut->last_clk100ns) {
 		/* Without a count a wrap can only be inferred from the clock
 		 * reading lower than it did, which misses one that falls in a
-		 * gap longer than a single period. */
-		ut->clk100ns_upper += 1;
+		 * gap longer than a single period.
+		 *
+		 * Between the capture's first two packets, and only there, that
+		 * inference has a rival. The first packet of a capture can be
+		 * one left over from the mode before, carrying that mode's
+		 * clock; then the second reads lower not because the clock
+		 * started over but because the first was never part of this
+		 * capture. A packet out of place further in reads lower too, and
+		 * is still read as a wrap. Settling those the same way would
+		 * need the gap between two packets known as each arrived rather
+		 * than as the host got round to it: a packet taken from a
+		 * backlog is processed moments after the one before it however
+		 * long the real gap was, so judging every drop this way refuses
+		 * genuine wraps. That reading is not kept per packet today.
+		 *
+		 * What separates the two is how much time passed. A wrap says
+		 * how much: the clock ran from where the first packet read,
+		 * round the end of its range, to where this one reads. A
+		 * leftover packet was taken in moments before this one, so
+		 * hardly any time passed. The host's own clock, which kept
+		 * running either way, says which of those happened: the wrap
+		 * stands unless it claims more time than the host saw, by more
+		 * than the two could disagree by on their own. */
+		wrap_ns = 100 * (ut->clk100ns_period -
+		                 (ut->last_clk100ns - clk100ns));
+		since_last_ns = (elapsed_ns > ut->last_elapsed_ns) ?
+		                elapsed_ns - ut->last_elapsed_ns : 0;
+
+		if (anchor_open &&
+		    wrap_ns > since_last_ns + CLK100NS_WRAP_SLACK_NS) {
+			/* The packet the capture was anchored on was the
+			 * leftover. The anchor moves down to this packet, so
+			 * the capture starts at its own first reading and
+			 * nothing after it lands before the capture began. The
+			 * host time the anchor carries stays as it was: it is
+			 * when the capture started, and this packet was taken
+			 * in within a packet's latency of it. */
+			ut->start_clk100ns = clk100ns;
+		} else {
+			ut->clk100ns_upper += 1;
+		}
 	}
 
 	ut->last_clk100ns = clk100ns;
+	ut->last_elapsed_ns = elapsed_ns;
 }
 
 /* A wrap that cannot be counted - inferred from the clock going backwards and
@@ -180,17 +267,17 @@ static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx )
  * come out short from then on. The host clock does show it, because it kept
  * running, so it ends up ahead of the reconstructed times. Said once, and not
  * used to correct them: it says that time was lost, not where, and a host
- * clock that is stepped during a capture must not move packet times. A step
- * is also why the message does not claim a lost wrap as the cause: a host
- * clock jumped forwards looks the same from here. */
-static void warn_if_a_wrap_was_lost( ubertooth_t* ut, uint64_t packet_ns )
+ * clock that is stepped during a capture must not move packet times, which is
+ * why the reading that decides a wrap above is taken from the monotonic clock
+ * instead. A step is also why this message does not claim a lost wrap as the
+ * cause: a host clock jumped forwards looks the same from here. */
+static void warn_if_a_wrap_was_lost( ubertooth_t* ut, uint64_t packet_ns,
+                                     uint64_t host_ns )
 {
-	uint64_t host_ns;
 	uint64_t period_ns = 100ull * ut->clk100ns_period;
 
 	if (ut->clk100ns_gap_warned)
 		return;
-	host_ns = packet_host_ns( );
 	/* Half a period, not a whole one: a single lost wrap leaves the times
 	 * exactly one period short, and the host time a replayed record carries
 	 * is a whole second, so a whole-period test would turn on sub-second
@@ -219,8 +306,14 @@ static uint64_t clk100ns_extended( const ubertooth_t* ut, const usb_pkt_rx* rx )
 static uint64_t now_ns_from_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx )
 {
 	uint64_t packet_ns;
+	/* The time this packet is stamped with, read once and used both to
+	 * start the capture and to report a wrap that could not be told either
+	 * way, and the separate reading that measures how long passed since the
+	 * last packet. */
+	uint64_t host_ns = packet_host_ns( );
+	uint64_t elapsed_ns = packet_elapsed_ns( );
 
-	track_clk100ns( ut, rx );
+	track_clk100ns( ut, rx, host_ns, elapsed_ns );
 	/* The 100 ns ticks since the first packet, as nanoseconds: the whole
 	 * difference is scaled, not just the current tick count. Signed,
 	 * because a packet can read a little before the one a capture started
@@ -231,7 +324,7 @@ static uint64_t now_ns_from_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx )
 	packet_ns = (uint64_t) ((int64_t) ut->abs_start_ns + 100 *
 	            ((int64_t) clk100ns_extended( ut, rx ) -
 	             (int64_t) ut->start_clk100ns));
-	warn_if_a_wrap_was_lost( ut, packet_ns );
+	warn_if_a_wrap_was_lost( ut, packet_ns, host_ns );
 	return packet_ns;
 }
 
