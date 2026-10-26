@@ -84,6 +84,7 @@ static uint32_t present_flash;
 static uint32_t fake_part_id;
 static IAP::ReturnCode fake_part_result;
 static IAP::ReturnCode fake_blank_check_result;  /* for a sector the part has */
+static uint32_t fake_blank_check_fails_from;     /* ...from this sector up */
 static IAP::ReturnCode fake_program_result;      /* for a write inside flash */
 static unsigned part_reads;
 static unsigned blank_checks;
@@ -137,6 +138,8 @@ IAP::ReturnCode IAP::blank_check_sectors(const uint32_t start_sector_number,
 	blank_checks++;
 	if (!sectors_present(start_sector_number, end_sector_number))
 		return INVALID_SECTOR;
+	if (start_sector_number < fake_blank_check_fails_from)
+		return SECTOR_NOT_BLANK;
 	return fake_blank_check_result;
 }
 
@@ -214,6 +217,7 @@ static void attach_part(uint32_t part_id, uint32_t flash_size)
 	fake_part_id = part_id;
 	fake_part_result = IAP::CMD_SUCCESS;
 	fake_blank_check_result = IAP::SECTOR_NOT_BLANK;
+	fake_blank_check_fails_from = 0;
 	fake_program_result = IAP::CMD_SUCCESS;
 	present_flash = flash_size;
 	part_reads = 0;
@@ -269,6 +273,12 @@ static uint8_t upload_block(Flash& flash, uint16_t block, uint8_t *out)
  * request_dnload()'s shape: the bootloader's own flash is refused first, then
  * both ends of the block go through the bound, and only a block that passes
  * all three is written. Returns the DFU status the request leaves behind.
+ *
+ * The DFU state machine is left out of both this and upload() above: on a
+ * board, a refusal puts the device in DFUERROR, so the blocks after the first
+ * refused one answer ERRSTALLEDPKT until the host sends REQ_CLRSTATUS. The
+ * status every block gets here is therefore the bound's answer, not the
+ * board's; what these tests are for is which blocks reach flash.
  */
 static uint8_t dnload(Flash& flash, uint32_t address, uint32_t length,
                       const uint8_t *in)
@@ -819,6 +829,26 @@ MU_TEST(test_a_part_that_refuses_its_first_sector_keeps_the_old_bound)
 	mu_assert_int_eq(1, (int)blank_checks);
 }
 
+/*
+ * A walk that answers for the sectors below and then says something
+ * unexpected is thrown away, not taken as the top of flash: those answers
+ * say the part has at least that much, which is a floor, not a bound. Taking
+ * the floor would refuse flash the part has.
+ */
+MU_TEST(test_a_walk_that_stops_part_way_is_discarded)
+{
+	Flash flash;
+
+	attach_part(PART_UNKNOWN, 128 * 1024);
+	/* Sectors 0 to 3 answer; sector 4 onwards does not. */
+	fake_blank_check_result = IAP::BUSY;
+	fake_blank_check_fails_from = 4;
+
+	mu_assert_int_eq(LPC_FLASH_SIZE_FALLBACK, (int)flash.flash_bound());
+	mu_assert(flash.valid_address(lpc_sector_start(4)),
+	          "the sectors the part answered for were taken as its whole flash");
+}
+
 /* A part read that fails on its own falls through to the probe, which is the
  * part answering the same question directly. */
 MU_TEST(test_a_failed_part_read_falls_through_to_the_probe)
@@ -868,6 +898,13 @@ MU_TEST(test_a_failed_part_read_falls_through_to_the_probe)
 	"return error(ERRPROG); }"
 #define UPLOAD_READ \
 	"memcpy(pbData, reinterpret_cast<const void*>(flash_address_start), length);"
+
+/* Where the end of the block comes from. Both guards check
+ * flash_address_end - 1, so an end that is not the start plus the length
+ * makes the second check a copy of the first and the straddling block the
+ * bound is there for goes through. */
+#define BLOCK_END \
+	"const uint32_t flash_address_end = flash_address_start + length;"
 
 struct scan {
 	int floor;                 /* the bootloader's own flash, in memory_policy */
@@ -1063,6 +1100,12 @@ MU_TEST(test_the_read_back_refuses_before_it_reads)
 	         "read an address it did not check",
 	         dfu_path, s.upload, UPLOAD_READ);
 	mu_assert(strstr(s.upload_text, UPLOAD_READ) != NULL, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: request_upload() does not take the end of the block as "
+	         "\"%s\", so its second check may be a copy of its first",
+	         dfu_path, s.upload, BLOCK_END);
+	mu_assert(strstr(s.upload_text, BLOCK_END) != NULL, msg);
 }
 
 MU_TEST(test_the_download_refuses_before_it_writes)
@@ -1139,6 +1182,12 @@ MU_TEST(test_the_download_refuses_before_it_writes)
 	         "write an address it did not check",
 	         dfu_path, s.dnload, DNLOAD_WRITE);
 	mu_assert(strstr(s.dnload_text, DNLOAD_WRITE) != NULL, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: request_dnload() does not take the end of the block as "
+	         "\"%s\", so its second check may be a copy of its first",
+	         dfu_path, s.dnload, BLOCK_END);
+	mu_assert(strstr(s.dnload_text, BLOCK_END) != NULL, msg);
 }
 
 /*
@@ -1289,6 +1338,7 @@ int main(void)
 	MU_RUN(test_a_failed_probe_is_not_walked_again);
 	MU_RUN(test_a_part_that_starts_answering_is_probed_again);
 	MU_RUN(test_a_part_that_refuses_its_first_sector_keeps_the_old_bound);
+	MU_RUN(test_a_walk_that_stops_part_way_is_discarded);
 	MU_RUN(test_a_failed_part_read_falls_through_to_the_probe);
 
 	/* Scanned once here rather than from the first of the tests below,
