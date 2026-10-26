@@ -48,8 +48,9 @@ Running the script without the '-d' option will print the files to be removed.
 
 The Tools
 ---------
-ubertooth-util: various utility functions including reboot into bootloader DFU
-mode.
+ubertooth-util: various utility functions including firmware and host versions,
+LEDs, reset, channel and the attached-device count. Reflashing is
+ubertooth-dfu's job.
 
 ubertooth-rx: a general purpose Bluetooth sniffing tool, will promiscuously
 find LAPs or, if given a LAP, will determine a UAP.  Given both a LAP and a UAP

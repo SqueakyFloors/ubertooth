@@ -4,7 +4,7 @@
 
     ubertooth-util [-v] [-V] [-H] [--host-version] [-I] [-d [0-1]] [-l [0-1]]
     [-S] [-r] [-U <index|serial|all>] [-a [0-7]] [-c [2402-2480]] [-C [0-78]]
-    [-q [20-120]] [-t] [-z [-128..127]] [-e] [-m] [-n] [-f] [-i] [-b] [-p] [-s]
+    [-q [20-120]] [-t] [-z [-128..127]] [-e] [-m] [-n] [-i] [-b] [-p] [-s]
     [-N] [-x] [-h]
 
 ## DESCRIPTION
@@ -67,7 +67,7 @@ blinks a second, until it is stopped:
 
 `-I` needs firmware of this tree's API version and refuses any other, saying
 so. The other options work with any firmware, so `-v` can still read the
-version and `-f` can reflash it.
+version, and ubertooth-dfu(1) can reflash it.
 
 The API version is bumped whenever a firmware change affects the host, so a
 board flashed from an earlier commit is normally refused rather than used. It
@@ -77,13 +77,21 @@ build. Flash the firmware from the commit the tools were built from
 (`./install.sh --flash`).
 
 Only one mode option can be given per command: `-q`, `-n`, `-e`, `-t`, `-x`,
-`-I`, `-i` (In-System Programming, ISP) and `-f` (Device Firmware Upgrade,
-DFU) each end the command, so a command with two or more of them is refused
-before any device is opened, nothing is sent to the device, and the exit
-status is 1:
+`-I` and `-i` (In-System Programming, ISP) each end the command, so a command
+with two or more of them is refused before any device is opened, nothing is
+sent to the device, and the exit status is 1:
 
     $ ubertooth-util -q -n
-    error: options -q -n cannot be combined; give only one of -q -n -e -t -x -I -i -f
+    error: options -q -n cannot be combined; give only one of -q -n -e -t -x -I -i
+
+To put a board into the DFU bootloader and reflash it, use ubertooth-dfu(1),
+which enters the bootloader itself as part of a write (`-d`), a read (`-u`) or
+`-r`. `ubertooth-util -f` entered it too, but warned for years that it was no
+longer required and pointed at ubertooth-dfu(1); it has been removed, so `-f`
+is now an option the tool does not know (`error: unrecognized option '-f'`,
+exit 1). Nothing enters the bootloader and leaves the board there any more; to
+park a board in it, jumper the expansion header (ubertooth-dfu(1), MANUALLY
+ENTERING BOOTLOADER).
 
 ## OPTIONS
 
@@ -121,7 +129,23 @@ Common options:
    serial number string. See SELECTING A DEVICE.
  - `-U all` :
    report the read-only queries `-b`, `-v`, `-V`, `-p` and `-s` for every
-   attached Ubertooth; refused with any other option. See SELECTING A DEVICE.
+   attached Ubertooth; refused with any other option, `-N` excepted. See
+   SELECTING A DEVICE.
+ - `-N` :
+   print the number of attached Ubertooths, as a single decimal number on
+   standard output, then run the rest of the command. The number comes from
+   the USB device list, so it needs no board and opens none, and it is taken
+   before any device is opened: it is printed first, ahead of anything the
+   other options report. `-N` is neither a selector nor a per-device query, so
+   it combines with everything else, in either order — reads, setters, modes,
+   `-r`, `-S`, `-U <index|serial>` and the `-U all` listing — and a count that
+   succeeds leaves the exit status to the rest of the command. On its own it
+   prints the count, opens no device and exits 0, unless the count itself
+   fails. A command line refused before anything runs (two modes, `-z` with a
+   mode, `-U all` with an option it does not support, a bad option value, an
+   unknown option or a stray word) prints no count, and `-h`, `-H` and
+   `--host-version` end the command before it, as they do before every other
+   option.
 
 Radio options:
 
@@ -151,8 +175,8 @@ Radio options:
    default -120 dBm on every mode change, so set it in the same step as the
    capture it is meant for, or once that capture is running; it does not carry
    into the next mode. See [SQUELCH][]. `-z` cannot be combined with a mode
-   option (`-q`, `-n`, `-e`, `-t`, `-x`, `-I`, `-i`, `-f`), which would reset
-   it before the mode started.
+   option (`-q`, `-n`, `-e`, `-t`, `-x`, `-I`, `-i`), which would reset it
+   before the mode started.
 
 Range test:
 
@@ -165,8 +189,6 @@ Range test:
 
 Miscellaneous:
 
- - `-f` :
-   activate flash programming (DFU) mode
  - `-i` :
    activate In-System Programming (ISP) mode
  - `-b` :
@@ -291,11 +313,26 @@ Ubertooth devices found` when none is attached:
     $ ubertooth-util -U all -s
     0: 1cc001038088cb956c43ad61c52000f5
 
-`-U all` only applies to the read-only queries `-b`, `-v`, `-V`, `-p` and
-`-s`. Combined with any other option (a setter, a mode such as `-x` or `-q`,
-`-r`, `-S`, `-N`, or another read such as `-c`), or given with no query at
-all, it is refused before any device is opened:
+`-U all` only applies to the read-only queries `-b`, `-v`, `-V`, `-p` and `-s`.
+Combined with any other option (a setter, a mode such as `-x` or `-q`, `-r`,
+`-S`, or another read such as `-c`), or given with no query at all, it is
+refused before any device is opened:
 
+    error: -U all only supports the read-only queries -b, -v, -V, -p and -s; select one device with -U<index|serial> for other options
+
+`-N` is the one option that is not refused: it asks about the USB bus rather
+than about a device, so it prints the count and the listing follows it, from
+the same enumeration:
+
+    $ ubertooth-util -U all -N -s
+    2
+    0: 1cc001038088cb956c43ad61c52000f5
+    1: 05f00014e380df95f4436562c32000f5
+
+`-U all -N` with no query is still refused, because `-U all` has nothing to
+list. That refusal comes before the count, so no number is printed:
+
+    $ ubertooth-util -U all -N
     error: -U all only supports the read-only queries -b, -v, -V, -p and -s; select one device with -U<index|serial> for other options
 
 Only the exact word `all` has this meaning. The other tools do not support
@@ -395,7 +432,13 @@ a word that is not an option, and names it: `error: unexpected argument '<word>'
 `ubertooth-util` takes no other arguments. An option the tool does not know is
 refused the same way, with the usage text after it on standard error:
 `error: unrecognized option '-Z'`; an option whose value is missing reads
-`error: option '-U' requires a value`.
+`error: option '-U' requires a value`. The removed `-f` is one of those
+options now: use ubertooth-dfu(1) instead.
+
+A `-N` count that succeeds does not affect the exit status: the number is
+printed and the rest of the command decides it. A count that cannot be read is
+a failed operation like any other: it prints no number and makes the command
+exit 1, and the rest of it still runs.
 
 When a `-b`, `-c`, `-a`, `-z`, `-l`, `-d`, `-p`, `-s` or `-m` read fails,
 no value line is printed on standard output, so an error code is never shown as
@@ -416,7 +459,6 @@ standard error, so a script reading a value is not fed anything else.
 That includes the progress lines for the operations that do something rather
 than report something: `Resetting ubertooth device <selector>`,
 `Stopping ubertooth device <selector>`,
-`Entering flash programming (DFU) mode`,
 `Entering flash programming (ISP) mode`,
 `Entering LED specan mode (threshold -<n> dBm)`, `Starting range test`,
 `Starting repeater` and `Starting TX test`. They were written to standard

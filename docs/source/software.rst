@@ -51,7 +51,8 @@ Ubertooth itself. Most tools also have a manual page under ``host/doc/``.
 
 - ``ubertooth-util`` — Device admin: version flags (``-v`` firmware revision,
   ``-V`` firmware compile info, ``-H`` / ``--host-version`` host tools version),
-  LEDs, reset, channel, DFU.
+  LEDs, reset, channel, device count (``-N``). Reflashing is
+  ``ubertooth-dfu``'s job.
 - ``ubertooth-dfu`` — Flash or read firmware over DFU.
 
 **Special-purpose**

@@ -100,13 +100,13 @@ def usage_text(text):
 
 # ---- a bad command line, for every tool that reports one the shared way ----
 
-# Flags that are gone: each was dead, a documented no-op, or a developer
-# scratch hook. A removed flag is an option the tool does not know, so a
-# script still passing one must fail loudly instead of having it taken as
-# something else.
+# Flags that are gone: dead, a documented no-op, a developer scratch hook, or
+# superseded by another tool. A removed flag is an option the tool does not
+# know, so a script still passing one must fail loudly instead of having it
+# taken as something else.
 REMOVED_OPTIONS = {
     "ubertooth-afh": ["-a"],
-    "ubertooth-util": ["-9"],
+    "ubertooth-util": ["-9", "-f"],
 }
 
 if TOOL in REPORTS_BAD_OPTIONS:

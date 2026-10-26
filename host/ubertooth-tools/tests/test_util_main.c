@@ -28,17 +28,18 @@ static struct {
 	const char *revision, *compile_info;
 	/* results of commands that set state or start a mode */
 	int stop_rc, reset_rc, set_channel_rc, set_usrled_rc, set_rxled_rc;
-	int set_txled_rc, set_palevel_rc, set_squelch_rc, flash_rc, isp_rc;
+	int set_txled_rc, set_palevel_rc, set_squelch_rc, isp_rc;
 	int led_specan_rc, range_test_rc, repeater_rc, tx_test_rc, xmas_rc;
 	int identify_rc;
 	int rangeresult_rc;
 	rangetest_result range;
 	/* bookkeeping */
 	int device_count;
+	int count_calls; /* ubertooth_count() calls */
 	int start_calls;
 	int fail_start_from; /* 0: never; n: ubertooth_start_select fails from call n */
 	char selector[64];
-	int stop_calls, flash_calls, isp_calls, led_specan_calls, range_test_calls;
+	int stop_calls, isp_calls, led_specan_calls, range_test_calls;
 	int repeater_calls, tx_test_calls, xmas_calls, reset_calls;
 	int identify_calls;
 	int serial_reads, resets_at_first_serial_read;
@@ -129,6 +130,7 @@ static int fake_reset_device_absent(void)
 
 int ubertooth_count(void)
 {
+	fake.count_calls++;
 	if (fake.device_count > 0 && fake_reset_device_absent())
 		return fake.device_count - 1;
 	return fake.device_count;
@@ -384,7 +386,6 @@ int cmd_set_squelch(struct libusb_device_handle *h, u16 level)
 	return fake.set_squelch_rc;
 }
 
-int cmd_flash(struct libusb_device_handle *h) { fake_use(h); fake.flash_calls++; return fake.flash_rc; }
 int cmd_set_isp(struct libusb_device_handle *h) { fake_use(h); fake.isp_calls++; return fake.isp_rc; }
 int cmd_range_test(struct libusb_device_handle *h) { fake_use(h); fake.range_test_calls++; return fake.range_test_rc; }
 int cmd_repeater(struct libusb_device_handle *h) { fake_use(h); fake.repeater_calls++; return fake.repeater_rc; }
@@ -983,7 +984,7 @@ MU_TEST(stop_and_reset_report_failures)
 
 /* ---- mode commands: success and failure ------------------------------- */
 
-static const char *const mode_options[] = { "-f", "-i", "-q", "-n", "-e", "-t", "-x", "-I" };
+static const char *const mode_options[] = { "-i", "-q", "-n", "-e", "-t", "-x", "-I" };
 #define MODE_COUNT (sizeof(mode_options) / sizeof(mode_options[0]))
 
 /* The LED specan default is a number in a header, so it is spelled into the
@@ -995,9 +996,6 @@ static const char *const mode_options[] = { "-f", "-i", "-q", "-n", "-e", "-t", 
  * -U that succeeds. Pinned by text, not just by "stdout is empty", so a line
  * cannot be dropped or reworded without a test saying so. */
 static const char *const mode_progress[MODE_COUNT] = {
-	/* -f */ "warning: ubertooth-util -f is no longer required "
-	         "- use ubertooth-dfu instead\n"
-	         "Entering flash programming (DFU) mode\n",
 	/* -i */ "Entering flash programming (ISP) mode\n",
 	/* -q */ "Entering LED specan mode (threshold -"
 	         MODE_STR(UBERTOOTH_LED_SPECAN_N_DEFAULT) " dBm)\n",
@@ -1013,7 +1011,7 @@ static const char *const mode_progress[MODE_COUNT] = {
 static int *mode_result(size_t i)
 {
 	int *results[] = {
-		&fake.flash_rc, &fake.isp_rc, &fake.led_specan_rc, &fake.range_test_rc,
+		&fake.isp_rc, &fake.led_specan_rc, &fake.range_test_rc,
 		&fake.repeater_rc, &fake.tx_test_rc, &fake.xmas_rc, &fake.identify_rc,
 	};
 	return results[i];
@@ -1022,7 +1020,7 @@ static int *mode_result(size_t i)
 static int mode_calls(size_t i)
 {
 	int calls[] = {
-		fake.flash_calls, fake.isp_calls, fake.led_specan_calls,
+		fake.isp_calls, fake.led_specan_calls,
 		fake.range_test_calls, fake.repeater_calls, fake.tx_test_calls,
 		fake.xmas_calls, fake.identify_calls,
 	};
@@ -1035,8 +1033,8 @@ MU_TEST(mode_commands_exit_zero_on_success_and_one_on_failure)
 
 	for (i = 0; i < MODE_COUNT; i++) {
 		struct run_result r;
-		/* -f and -i start no mode, so they do not stop the device first */
-		int stops_first = (i >= 2);
+		/* -i starts no mode, so it does not stop the device first */
+		int stops_first = (i >= 1);
 
 		reset_fake();
 		r = run_util((const char *const[]){ "ubertooth-util", mode_options[i], NULL });
@@ -1045,8 +1043,7 @@ MU_TEST(mode_commands_exit_zero_on_success_and_one_on_failure)
 		mu_assert_int_eq(stops_first, fake.stop_calls);
 		/* starting a mode reports nothing: its progress line is on stderr */
 		mu_assert(strcmp(r.out, "") == 0, r.out);
-		/* and that line is pinned, so dropping one would be noticed. -f
-		 * prints its deprecation warning before the progress line; -x has
+		/* and that line is pinned, so dropping one would be noticed. -x has
 		 * never had one. */
 		mu_assert(strcmp(r.err, mode_progress[i]) == 0, r.err);
 
@@ -1062,7 +1059,7 @@ MU_TEST(a_failed_stop_before_a_mode_command_fails_the_command)
 {
 	size_t i;
 
-	for (i = 2; i < MODE_COUNT; i++) { /* the modes that stop the device first */
+	for (i = 1; i < MODE_COUNT; i++) { /* the modes that stop the device first */
 		struct run_result r;
 
 		reset_fake();
@@ -1415,7 +1412,7 @@ MU_TEST(pa_level_zero_is_set_and_bad_levels_are_refused)
 MU_TEST(squelch_with_a_mode_option_is_refused)
 {
 	static const char *const modes[] = {
-		"-q", "-n", "-e", "-t", "-x", "-I", "-i", "-f",
+		"-q", "-n", "-e", "-t", "-x", "-I", "-i",
 	};
 	size_t i;
 	struct run_result r;
@@ -1552,7 +1549,7 @@ MU_TEST(two_or_more_mode_options_are_rejected_before_opening_the_device)
 	/* -I is included: alone it blinks until interrupted, but combined it
 	 * must be refused before the loop is ever reached. */
 	static const char *const modes[] = {
-		"-q", "-n", "-e", "-t", "-x", "-I", "-i", "-f",
+		"-q", "-n", "-e", "-t", "-x", "-I", "-i",
 	};
 	size_t count = sizeof(modes) / sizeof(modes[0]);
 	size_t a, b, i;
@@ -1567,7 +1564,6 @@ MU_TEST(two_or_more_mode_options_are_rejected_before_opening_the_device)
 			                                    modes[a], modes[b], NULL });
 			mu_assert_int_eq(1, r.rc);
 			mu_assert(strstr(r.err, "cannot be combined") != NULL, "conflict diagnostic");
-			mu_assert(strstr(r.err, "no longer required") == NULL, "only the conflict is reported");
 			mu_assert_int_eq(0, (long)strlen(r.out));
 			mu_assert_int_eq(0, fake.start_calls);
 			mu_assert_int_eq(0, fake.stop_calls);
@@ -1650,6 +1646,262 @@ MU_TEST(help_version_and_count_exit_zero_without_a_device)
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(r.out, "3\n") == 0, "device count");
 	mu_assert_int_eq(0, fake.start_calls);
+
+	/* the same option twice is still one count */
+	reset_fake();
+	fake.device_count = 3;
+	r = RUN("-N", "-N");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "3\n") == 0, "device count, once");
+	mu_assert_int_eq(0, fake.start_calls);
+
+	/* -h, -H and --host-version end the command before the count */
+	reset_fake();
+	fake.device_count = 3;
+	r = RUN("-N", "-h");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.out, "command line utility") != NULL, "usage on stdout");
+	mu_assert(strstr(r.out, "3\n") == NULL, "no count");
+	mu_assert_int_eq(0, fake.count_calls);
+
+	reset_fake();
+	fake.device_count = 3;
+	r = RUN("-N", "-H");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "libubertooth fake\n") == 0, r.out);
+	mu_assert_int_eq(0, fake.count_calls);
+
+	reset_fake();
+	fake.device_count = 3;
+	r = RUN("-N", "--host-version");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "libubertooth fake\n") == 0, r.out);
+	mu_assert_int_eq(0, fake.count_calls);
+}
+
+/* ---- -N combines with the rest of the command line -------------------- */
+
+/* One board attached, so the count is "1". */
+MU_TEST(number_prints_the_count_first_and_the_rest_still_runs)
+{
+	struct run_result r;
+
+	/* a read */
+	reset_fake();
+	r = RUN("-N", "-b");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "1\n" BOARD_LINE) == 0, r.out);
+	mu_assert_int_eq(1, fake.start_calls);
+
+	reset_fake();
+	r = RUN("-b", "-N");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "1\n" BOARD_LINE) == 0, r.out);
+
+	/* several reads in one command: the count, then every value line */
+	reset_fake();
+	r = RUN("-N", "-v", "-b", "-s");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "1\n" BOARD_LINE FIRMWARE_LINE SERIAL_LINE) == 0, r.out);
+	mu_assert(strcmp(r.err, "") == 0, "nothing on stderr");
+
+	reset_fake();
+	r = RUN("-v", "-b", "-s", "-N");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "1\n" BOARD_LINE FIRMWARE_LINE SERIAL_LINE) == 0, r.out);
+
+	/* a setter, which prints nothing of its own */
+	reset_fake();
+	r = RUN("-N", "-c2450");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "1\n") == 0, r.out);
+	mu_assert_int_eq(2450, fake.last_channel_set);
+
+	reset_fake();
+	r = RUN("-c2450", "-N");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "1\n") == 0, r.out);
+	mu_assert_int_eq(2450, fake.last_channel_set);
+
+	/* a mode */
+	reset_fake();
+	r = RUN("-N", "-x");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "1\n") == 0, r.out);
+	mu_assert_int_eq(1, fake.xmas_calls);
+
+	reset_fake();
+	r = RUN("-x", "-N");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "1\n") == 0, r.out);
+	mu_assert_int_eq(1, fake.xmas_calls);
+
+	/* -i, the remaining programming mode */
+	reset_fake();
+	r = RUN("-N", "-i");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "1\n") == 0, r.out);
+	mu_assert_int_eq(1, fake.isp_calls);
+
+	/* -r, which counts the devices itself to follow the board back */
+	reset_fake();
+	r = RUN("-N", "-r");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "1\n") == 0, r.out);
+	mu_assert_int_eq(1, fake.reset_calls);
+
+	reset_fake();
+	r = RUN("-r", "-N");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "1\n") == 0, r.out);
+	mu_assert_int_eq(1, fake.reset_calls);
+
+	/* -S */
+	reset_fake();
+	r = RUN("-N", "-S");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "1\n") == 0, r.out);
+	mu_assert_int_eq(1, fake.stop_calls);
+
+	reset_fake();
+	r = RUN("-S", "-N");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "1\n") == 0, r.out);
+	mu_assert_int_eq(1, fake.stop_calls);
+
+	/* a selector, which the count ignores: it counts every attached board */
+	reset_fake();
+	fake.device_count = 2;
+	r = RUN("-U", "1", "-N", "-b");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "2\n" BOARD_LINE) == 0, r.out);
+	mu_assert(strcmp(fake.selector, "1") == 0, "-U still applies");
+
+	reset_fake();
+	fake.device_count = 2;
+	r = RUN("-N", "-U", "1", "-b");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "2\n" BOARD_LINE) == 0, r.out);
+	mu_assert(strcmp(fake.selector, "1") == 0, "-U still applies");
+}
+
+/* The listings are per-device and -N is not, so they run alongside it. */
+MU_TEST(number_combines_with_the_multi_device_listings)
+{
+	struct run_result r;
+
+	/* -U all: the count, then the listing */
+	reset_fake();
+	fake.device_count = 2;
+	r = RUN("-U", "all", "-N", "-s");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "2\n0: " FAKE_SERIAL "\n1: " FAKE_SERIAL "\n") == 0, r.out);
+	mu_assert_int_eq(2, fake.indexed_starts);
+	mu_assert_int_eq(0, fake.start_calls); /* no single-device selection */
+
+	reset_fake();
+	fake.device_count = 2;
+	r = RUN("-N", "-s", "-U", "all");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "2\n0: " FAKE_SERIAL "\n1: " FAKE_SERIAL "\n") == 0, r.out);
+
+	/* and the same listing without -U, which several boards and a read-only
+	 * query reach on their own */
+	reset_fake();
+	fake.device_count = 2;
+	r = RUN("-N", "-s");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "2\n0: " FAKE_SERIAL "\n1: " FAKE_SERIAL "\n") == 0, r.out);
+	mu_assert_int_eq(0, fake.start_calls);
+
+	/* a device the listing cannot open still fails the command, with the
+	 * count already printed */
+	reset_fake();
+	fake.device_count = 2;
+	fake.unavailable_index = 1;
+	r = RUN("-N", "-U", "all", "-b");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, "2\n0: 1 (Ubertooth One)\n1: <unavailable>\n") == 0, r.out);
+
+	/* no board attached: the count is 0 on standard output, then -U all
+	 * says what it could not list, and the command fails */
+	reset_fake();
+	fake.device_count = 0;
+	r = RUN("-N", "-U", "all", "-s");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, "0\n") == 0, r.out);
+	mu_assert(strstr(r.err, "error: no Ubertooth devices found") != NULL, r.err);
+	mu_assert_int_eq(0, fake.indexed_starts);
+
+	/* one enumeration serves both the count and the listing */
+	reset_fake();
+	fake.device_count = 2;
+	r = RUN("-N", "-U", "all", "-s");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, fake.count_calls);
+}
+
+/* The exit status is the rest of the command's: -N never makes a failing
+ * command succeed, and a count that fails never costs the rest its run. */
+MU_TEST(number_leaves_the_exit_status_to_the_rest_of_the_command)
+{
+	struct run_result r;
+
+	/* a failed read still fails the command, after the count */
+	reset_fake();
+	fake.channel = -7;
+	r = RUN("-N", "-c");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, "1\n") == 0, r.out);
+	mu_assert(strstr(r.err, "error: channel read failed") != NULL, r.err);
+
+	/* so does a failed mode */
+	reset_fake();
+	fake.xmas_rc = -1;
+	r = RUN("-N", "-x");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, "1\n") == 0, r.out);
+
+	/* and a board that cannot be selected */
+	reset_fake();
+	fake.fail_start_from = 1;
+	r = RUN("-N", "-b");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, "1\n") == 0, r.out);
+
+	/* a count that fails prints no number, fails the command, and leaves
+	 * the rest of it to run */
+	reset_fake();
+	fake.device_count = -1;
+	r = RUN("-N", "-b");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, BOARD_LINE) == 0, r.out);
+	mu_assert_int_eq(1, fake.start_calls);
+}
+
+/* ubertooth-dfu reflashes a board; -f is not an option this tool has. */
+MU_TEST(the_flash_option_is_gone)
+{
+	struct run_result r;
+
+	reset_fake();
+	r = RUN("-f");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: unrecognized option '-f'") != NULL, r.err);
+	mu_assert(strstr(r.err, "ubertooth-util - command line utility") != NULL,
+	          "the usage text follows it, on stderr");
+	mu_assert_int_eq(0, (long)strlen(r.out));
+	mu_assert_int_eq(0, fake.start_calls);
+	mu_assert_int_eq(0, fake.count_calls);
+	mu_assert(strstr(r.err, "ubertooth-dfu") == NULL, "no deprecation warning");
+	mu_assert(strstr(r.err, "(DFU) mode") == NULL, "no DFU progress line");
+
+	/* nor is it offered by the usage text */
+	reset_fake();
+	r = RUN("-h");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.out, "\t-f ") == NULL, "no -f line in the usage text");
+	mu_assert(strstr(r.out, "(DFU)") == NULL, "no DFU mode in the usage text");
 }
 
 MU_TEST(firmware_listing_with_several_devices_reports_each_device)
@@ -1960,8 +2212,8 @@ MU_TEST(u_all_is_rejected_before_opening_a_device_for_any_other_option)
 {
 	static const char *const others[] = {
 		"-c", "-c2450", "-C39", "-a", "-a3", "-l", "-l1", "-d", "-d1",
-		"-z", "-z5", "-m", "-S", "-r", "-I", "-N",
-		"-f", "-i", "-q", "-n", "-e", "-t", "-x",
+		"-z", "-z5", "-m", "-S", "-r", "-I",
+		"-i", "-q", "-n", "-e", "-t", "-x",
 	};
 	size_t i;
 
@@ -1984,16 +2236,18 @@ MU_TEST(u_all_is_rejected_before_opening_a_device_for_any_other_option)
 		mu_assert_int_eq(0, (long)strlen(r.out));
 
 		/* nothing was opened, counted, sent or started */
+		mu_assert_int_eq(0, fake.count_calls);
 		mu_assert_int_eq(0, fake.start_calls);
 		mu_assert_int_eq(0, fake.indexed_starts);
 		mu_assert_int_eq(0, fake.stop_calls);
 		mu_assert_int_eq(0, fake.reset_calls);
-		mu_assert_int_eq(0, fake.flash_calls + fake.isp_calls + fake.led_specan_calls +
+		mu_assert_int_eq(0, fake.isp_calls + fake.led_specan_calls +
 		                    fake.range_test_calls + fake.repeater_calls +
 		                    fake.tx_test_calls + fake.xmas_calls + fake.identify_calls);
 	}
 
-	/* -U all with no query at all is rejected the same way */
+	/* -U all with no query at all is rejected the same way, with or without
+	 * -N: -N prints no count, because the command line was refused */
 	{
 		struct run_result r;
 
@@ -2005,6 +2259,16 @@ MU_TEST(u_all_is_rejected_before_opening_a_device_for_any_other_option)
 		          "no query");
 		mu_assert_int_eq(0, fake.start_calls);
 		mu_assert_int_eq(0, fake.indexed_starts);
+
+		reset_fake();
+		fake.device_count = 2;
+		r = RUN("-U", "all", "-N");
+		mu_assert_int_eq(1, r.rc);
+		mu_assert(strstr(r.err, "-U all only supports the read-only queries") != NULL,
+		          "no query, with -N");
+		mu_assert_int_eq(0, (long)strlen(r.out));
+		mu_assert_int_eq(0, fake.count_calls);
+		mu_assert_int_eq(0, fake.start_calls);
 	}
 }
 
@@ -2193,9 +2457,9 @@ MU_TEST(setters_and_modes_release_the_handle_on_success_and_failure)
 			mu_assert(fake.first_closes == 1, mode_options[i]);
 			mu_assert(fake.first_frees == 1, mode_options[i]);
 			mu_assert(fake.first_used_after_release == 0, mode_options[i]);
-			/* only the STOP that leaves a prior mode (-f and -i send none);
+			/* only the STOP that leaves a prior mode (-i sends none);
 			 * releasing the handle sends no STOP of its own */
-			mu_assert(fake.stop_calls == (i >= 2), mode_options[i]);
+			mu_assert(fake.stop_calls == (i >= 1), mode_options[i]);
 		}
 	}
 }
@@ -2392,6 +2656,10 @@ int main(void)
 	MU_RUN(squelch_with_a_mode_option_is_refused);
 	MU_RUN(invalid_arguments_are_rejected_before_opening_the_device);
 	MU_RUN(help_version_and_count_exit_zero_without_a_device);
+	MU_RUN(number_prints_the_count_first_and_the_rest_still_runs);
+	MU_RUN(number_combines_with_the_multi_device_listings);
+	MU_RUN(number_leaves_the_exit_status_to_the_rest_of_the_command);
+	MU_RUN(the_flash_option_is_gone);
 	MU_RUN(firmware_listing_with_several_devices_reports_each_device);
 	MU_RUN(serial_listing_with_several_devices_exits_zero);
 	MU_RUN(each_identity_query_alone_lists_every_device_compactly);

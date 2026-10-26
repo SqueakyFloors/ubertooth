@@ -7,7 +7,7 @@
 #include "../../../firmware/tests/minunit.h"
 #include "util_modes.h"
 
-#define ALL_MODES "-q -n -e -t -x -I -i -f"
+#define ALL_MODES "-q -n -e -t -x -I -i"
 
 /* Runs the check and captures what it writes to err. */
 static int check(const int requested[UTIL_MODE_COUNT], char *text, size_t size)
@@ -30,7 +30,7 @@ static int check(const int requested[UTIL_MODE_COUNT], char *text, size_t size)
 MU_TEST(options_are_named_in_table_order)
 {
 	static const char *const expected[UTIL_MODE_COUNT] = {
-		"-q", "-n", "-e", "-t", "-x", "-I", "-i", "-f",
+		"-q", "-n", "-e", "-t", "-x", "-I", "-i",
 	};
 	int m;
 

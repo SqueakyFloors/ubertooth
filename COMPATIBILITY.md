@@ -34,7 +34,7 @@ Legend:
 | **libbtbb** | the pinned fork commit ([`84ab41f`](https://github.com/SqueakyFloors/libbtbb/commit/84ab41fc99d172e812438bc9188f30a67216f748), C lib) | that commit (CI, `install.sh`); upstream master was CI's dependency until the switch to the pin | any other libbtbb, upstream's included: untested here | ✅ the pin is what CI builds |
 | **libbluetooth (BlueZ)** — optional, for `ubertooth-scan` and `ubertooth-follow` | 5.53 | 5.53 (Ubuntu 20.04 CI), 5.64 (22.04), 5.72 (24.04), 5.87 (Fedora CI) | macOS (no BlueZ: both tools are skipped there) | 🎯 5.53 verified in CI as the oldest that compiles both tools and passes their CLI tests; neither tool has ever been run against a BlueZ adapter and a real piconet ([#44](https://github.com/SqueakyFloors/ubertooth/issues/44)) |
 | **ronn-ng (man pages)** | 0.10.1, exactly | 0.10.1 (`Man pages` CI job on Ubuntu 24.04; macOS 26 via Homebrew) | any other version: it renders the same Markdown differently, so the committed pages would stop matching a refresh | ✅ 0.10.1 verified in CI. Optional: only `refresh-manpages` needs it, and a build neither needs it nor runs it |
-| **Ubertooth firmware (API)** | 1.15 (this tree), exactly | 1.15 flashed on an Ubertooth One and read back, with a BLE and a BR/EDR receive, a spectrum capture and a reset; the mode checks of [#251](https://github.com/SqueakyFloors/ubertooth/issues/251) have not been run | any other API version, including 1.14 and 1.07 (`2020-12-R1`): refused by the tools, except `ubertooth-util`, which checks no version so it can still read and reflash any firmware | ✅ 1.15 verified on an Ubertooth One: flash and read back, `ubertooth-util -b/-s`, `ubertooth-btle`, `ubertooth-rx`, `ubertooth-specan`, reset. The exact-version refusal was verified the same way, with 1.14 firmware under 1.15 tools; the mode checks of [#251](https://github.com/SqueakyFloors/ubertooth/issues/251) are still open |
+| **Ubertooth firmware (API)** | 1.15 (this tree), exactly | 1.15 flashed on an Ubertooth One and read back, with a BLE and a BR/EDR receive, a spectrum capture and a reset; the mode checks of [#251](https://github.com/SqueakyFloors/ubertooth/issues/251) have not been run | any other API version, including 1.14 and 1.07 (`2020-12-R1`): refused by the tools, except `ubertooth-util`, which checks no version at all, and `ubertooth-dfu`, which reflashes any firmware | ✅ 1.15 verified on an Ubertooth One: flash and read back, `ubertooth-util -b/-s`, `ubertooth-btle`, `ubertooth-rx`, `ubertooth-specan`, reset. The exact-version refusal was verified the same way, with 1.14 firmware under 1.15 tools; the mode checks of [#251](https://github.com/SqueakyFloors/ubertooth/issues/251) are still open |
 
 ---
 
@@ -102,7 +102,8 @@ exercised here.
 ### Firmware API version: exact match, bumped per firmware change
 The host tools require firmware whose API version (`UBERTOOTH_API_VERSION`,
 reported as the USB `bcdDevice`) is exactly their own, and refuse any other —
-only `ubertooth-util` reading the version and reflashing still work. During
+only `ubertooth-util` reading the version and `ubertooth-dfu` reflashing still
+work. During
 development the minor version is bumped in every pull request that changes
 firmware behaviour the host relies on, so a board carrying firmware from an
 earlier commit is normally refused rather than used with behaviour the tools
