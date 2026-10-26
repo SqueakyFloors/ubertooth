@@ -65,9 +65,10 @@
   the command returns at once and the board stays reachable; `-S` or any mode
   option stops it and leaves the LEDs off.
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
-- **Reflash required:** the firmware API version is now 1.15, last moved by
-  the removal of requests 45 and 46, and the host tools require firmware of
-  exactly their own API version, older or newer (`ubertooth-util` still reads
+- **Reflash required:** the firmware API version is now 1.16, last moved by the
+  amplifier level of the generic transmit request, and the host tools require
+  firmware of exactly their own API version, older or newer (`ubertooth-util`
+  still reads
   the version and reflashes any firmware). Host and firmware come from the
   same tree; `2020-12-R1` firmware is refused.
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
@@ -502,6 +503,12 @@
   rather than the level 3 (-7 dBm) they used to force. E-GO jamming already
   used 7, so it is unchanged.
   [#165](https://github.com/SqueakyFloors/ubertooth/issues/165)
+- The Classic Bluetooth (`btbr`) firmware keeps the power amplifier level set
+  with `ubertooth-util -a` instead of forcing level 3 when it brings the radio
+  up, so its default rises to the power-on level 7 the same way. A generic
+  transmit still sends at the level in its own request, but leaves the board's
+  level as it found it.
+  [#181](https://github.com/SqueakyFloors/ubertooth/issues/181)
 - PCAP and PcapNG timestamps no longer jump 101.8 s every time the board's
   capture clock rolls over, which it does every 327.68 s, so packet times in a
   long capture are continuous again, live and on `ubertooth-rx -i` replay.

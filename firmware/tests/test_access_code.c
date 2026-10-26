@@ -9,7 +9,7 @@
  * was zero, so a second call reused the first buffer's bits.
  *
  * bluetooth.c is included directly so the test does not need test-only
- * symbols in production firmware. ubertooth.h in this directory supplies the
+ * symbols in production firmware. stubs/ubertooth.h supplies the
  * hardware-free types and constants that bluetooth.h needs.
  */
 #include <stdint.h>

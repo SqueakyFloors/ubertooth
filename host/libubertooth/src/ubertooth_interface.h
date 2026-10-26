@@ -44,10 +44,10 @@
  * (2.00). See docs/source/release_procedure.rst.
  *
  * bcdDevice is binary-coded decimal, so 0x0109 is followed by 0x0110 (shown
- * as 1.10), then 0x0111 (1.11), and so on to 0x0115 (1.15); after 0x0119
+ * as 1.10), then 0x0111 (1.11), and so on to 0x0116 (1.16); after 0x0119
  * comes 0x0120, not 0x011a.
  */
-#define UBERTOOTH_API_VERSION 0x0115
+#define UBERTOOTH_API_VERSION 0x0116
 
 /*
  * LED spectrum analyzer (ubertooth-util -q N): the threshold is -N dBm. The
@@ -263,6 +263,8 @@ typedef struct {
 	uint16_t syncl;
 	uint16_t channel;
 	uint8_t  length;
+	/* Only the low three bits reach FREND's PA_LEVEL; unlike
+	 * UBERTOOTH_SET_PALEVEL, a larger value is masked rather than refused. */
 	uint8_t  pa_level;
 	uint8_t  data[DMA_SIZE];
 } generic_tx_packet;

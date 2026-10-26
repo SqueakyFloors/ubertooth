@@ -22,7 +22,6 @@
 #include "bluetooth.h"
 
 bdaddr target;
-u64 syncword;
 u8 afh_enabled;
 u8 afh_map[10];
 u8 used_channels;
@@ -63,7 +62,6 @@ void precalc(void)
 	u8 i, j, chan;
 	u32 address;
 	address = target.address & 0xffffffff;
-	syncword = 0;
 
 	/* populate frequency register bank*/
 	for (i = 0; i < NUM_BREDR_CHANNELS; i++)
@@ -211,10 +209,10 @@ u16 next_hop(u32 clock)
  * word in hardware. It is kept as a reference correlator.
  *
  * Each call searches only the buffer it is given, using a local window seeded
- * from that buffer's first 64 bits; it no longer reads or writes the
- * file-scope `syncword`. An earlier version kept the window in that global
- * and reseeded it only when it was zero, so later calls compared bits left
- * over from an earlier buffer. That carry was not a working streaming
+ * from that buffer's first 64 bits. An earlier version kept the window in a
+ * file-scope variable and reseeded it only when it was zero, so later calls
+ * compared bits left over from an earlier buffer. That carry was not a
+ * working streaming
  * design: the window stopped 64 bits short of the previous buffer's end, the
  * buffers it was used on were not contiguous (the radio hops between them),
  * and the returned offset had no consistent origin. That version also

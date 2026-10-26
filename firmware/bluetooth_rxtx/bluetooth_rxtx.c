@@ -2543,11 +2543,12 @@ void rx_generic(void) {
  * because the dispatch records the mode it is entering for every mode alike.
  */
 void tx_generic(u8 prev_mode) {
-	u16 synch, syncl;
+	u16 synch, syncl, frend;
 
-	// Save existing syncword
+	// Save existing syncword and amplifier level
 	synch = cc2400_get(SYNCH);
 	syncl = cc2400_get(SYNCL);
+	frend = cc2400_get(FREND);
 
 	cc2400_set(SYNCH, tx_pkt.synch);
 	cc2400_set(SYNCL, tx_pkt.syncl);
@@ -2555,7 +2556,13 @@ void tx_generic(u8 prev_mode) {
 	cc2400_set(MDMTST0, 0x134b);
 	cc2400_set(GRMDM, 0x0f61);
 	cc2400_set(FSDIV, tx_pkt.channel);
-	cc2400_set(FREND, tx_pkt.pa_level);
+	/*
+	 * The level belongs to this one packet, so it is taken from the request
+	 * rather than from the radio, but only its three level bits: bit 3 is
+	 * reserved and must be written as 1, and the level set with
+	 * `ubertooth-util -a` is put back below.
+	 */
+	cc2400_set(FREND, FREND_RESERVED_ONE | (tx_pkt.pa_level & FREND_PA_LEVEL));
 
 	while (!(cc2400_status() & XOSC16M_STABLE));
 	cc2400_strobe(SFSON);
@@ -2582,6 +2589,7 @@ void tx_generic(u8 prev_mode) {
 	// Restore state
 	cc2400_set(SYNCH, synch);
 	cc2400_set(SYNCL, syncl);
+	cc2400_set(FREND, frend_keep_pa_level(frend));
 	requested_mode = prev_mode;
 }
 #endif

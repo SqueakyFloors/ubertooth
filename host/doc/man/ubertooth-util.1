@@ -105,7 +105,7 @@ print the number of attached Ubertooths, as a single decimal number on standard 
 Radio options:
 .TP
 \fB\-a [0\-7]\fR
-get/set power amplifier level, 0 (lowest, \-25 dBm) to 7 (maximum, 0 dBm) at the CC2400 radio\. The board powers on and resets (\fB\-r\fR) at level 7, the CC2400's own reset value (the firmware does not set it at start\-up)\. Receiving does not change it\. Transmit modes use the level set here and leave it unchanged: \fB\-t\fR (TX test), Bluetooth and BLE transmit, and BLE and E\-GO jamming\. The range test and repeater (\fB\-n\fR, \fB\-e\fR) step through levels by design and leave the level wherever their sweep ended, so set it again after using them\.
+get/set power amplifier level, 0 (lowest, \-25 dBm) to 7 (maximum, 0 dBm) at the CC2400 radio\. The board powers on and resets (\fB\-r\fR) at level 7, the CC2400's own reset value, which the firmware keeps rather than choosing a level of its own\. Receiving does not change it\. Transmit modes use the level set here and leave it unchanged: \fB\-t\fR (TX test), Bluetooth and BLE transmit, and BLE and E\-GO jamming\. The range test and repeater (\fB\-n\fR, \fB\-e\fR) step through levels by design and leave the level wherever their sweep ended, so set it again after using them\.
 .TP
 \fB\-c [2402\-2480]\fR
 get/set channel in MHz

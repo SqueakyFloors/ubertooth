@@ -28,7 +28,6 @@
 #define MAX_SYNCWORD_ERRS 5
 
 extern bdaddr target;
-extern u64 syncword;
 extern u8 afh_enabled;
 extern u8 afh_map[10];
 extern u8 used_channels;
