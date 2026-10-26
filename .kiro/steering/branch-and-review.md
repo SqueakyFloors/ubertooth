@@ -146,6 +146,23 @@ change the host relies on**, in the PR that makes it.
 
 ## Changelog discipline
 
+Each release section has three buckets, and every change goes in exactly one:
+
+- **Main sections** (New features, Reliability fixes, Build and compatibility,
+  Documentation): what a user sees change in normal use — a wedge or a hang,
+  wrong data, a new or changed option, a message or an exit code.
+- **"Under the hood"**, the last section of the release: real fixes with no
+  visible change in normal use — firmware bounds, retries, buffer limits,
+  resources given back, edge cases only stress testing or odd hardware reaches.
+  One line each, plain words, no function names.
+- **No entry at all**: tests, CI, internal refactors, test-only firmware
+  images (`usb_test`, `assembly_test`) and development-only tools. Shipped
+  tools and images, `btbr` and `ubertooth-btbr` included, do get entries.
+
+When unsure which bucket a change belongs in, ask rather than guessing.
+
+Within a bucket:
+
 - MUST describe user-facing impact concisely, normally in one bullet of one to
   three short lines.
 - MUST keep implementation history, detailed validation evidence, diagnostics,
