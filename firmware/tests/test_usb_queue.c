@@ -26,6 +26,7 @@
  * The last part of this file scans the mode loops for which of the two USB
  * services each one calls, since that is where the rule has to hold.
  */
+#include <dirent.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -465,7 +466,7 @@ struct fn_usb {
 	int lines;
 	int bulk;     /* handle_usb or service_usb, named anywhere */
 	int direct;   /* ...called outright, rather than handed to something */
-	int control;  /* handle_usb_control */
+	int control;  /* handle_usb_control, called */
 	int unmask;   /* ISER0 = ISER0_ISE_USB */
 };
 
@@ -551,11 +552,13 @@ static int scan_function(const char *path, const char *function,
 		 * the mode hops -- and never service USB on its ordinary one. What
 		 * answers for the ordinary path is a call.
 		 */
-		if (call_name(line, name, sizeof(name)) &&
-		    (strcmp(name, "service_usb") == 0 ||
-		     strcmp(name, "handle_usb") == 0))
+		if (calls_identifier(line, "service_usb") ||
+		    calls_identifier(line, "handle_usb"))
 			out->direct++;
-		if (contains_identifier(line, "handle_usb_control"))
+		/* A call, for the same reason: naming the control service in a
+		 * callback the loop rarely reaches would not keep the host's
+		 * requests answered. */
+		if (calls_identifier(line, "handle_usb_control"))
 			out->control++;
 		if (is_assignment_to(line, "ISER0") &&
 		    contains_identifier(line, "ISER0_ISE_USB"))
@@ -738,6 +741,248 @@ MU_TEST(nothing_in_the_le_engine_feeds_the_endpoint)
 	mu_assert(le_phy_bulk_hits == 0, msg);
 }
 
+/* ------------------------------------------------------------------ *
+ * Every mode that produces packets is in the table above
+ * ------------------------------------------------------------------ */
+
+/*
+ * The table above is written by hand, so a mode added later could stream
+ * packets without being in it, and its loop would be free to call either
+ * service with nothing here to notice.
+ *
+ * What a new mode cannot avoid is the queue. Every packet a host ever reads is
+ * put there by usb_enqueue(), so the scan below reads every source file of
+ * this image, finds each function that enqueues, and requires it to be
+ * accounted for here -- either as a mode loop that is a row above, or as a
+ * helper that belongs to no single mode. A function that enqueues and is not
+ * listed fails the test, which is where the new mode gets classified.
+ */
+struct producer {
+	const char *file;
+	const char *function;
+	/* The loop in modes[] whose host collects what this enqueues, or NULL
+	 * for a helper that runs under several modes or none. */
+	const char *mode_loop;
+	int found;
+};
+
+/*
+ * The promisc path switches its packet callback as it learns the connection,
+ * and the callbacks run under both of its loops. Both loops are rows above and
+ * both are classified the same way, so naming either is accurate about how
+ * those packets reach the host.
+ */
+static struct producer producers[] = {
+	{ "bluetooth_rxtx.c", "enqueue",              NULL,              0 },
+	{ "bluetooth_rxtx.c", "enqueue_with_ts",      NULL,              0 },
+	{ "bluetooth_rxtx.c", "bt_stream_rx",         "bt_stream_rx",    0 },
+	{ "bluetooth_rxtx.c", "specan",               "specan",          0 },
+	{ "bluetooth_rxtx.c", "rx_generic_sync",      "rx_generic_sync", 0 },
+	{ "bluetooth_rxtx.c", "bt_le_sync",           "bt_le_sync",      0 },
+	{ "bluetooth_rxtx.c", "cb_follow_le",         "bt_le_sync",      0 },
+	{ "bluetooth_rxtx.c", "cb_le_promisc",        "bt_generic_le",   0 },
+	{ "bluetooth_rxtx.c", "le_promisc_state",     "bt_generic_le",   0 },
+	{ "le_phy.c",         "usb_enqueue_le",       NULL,              0 },
+	{ "le_phy.c",         "le_phy_main",          "le_phy_main",     0 },
+	{ "ego.c",            "cap_state",            "ego_main",        0 },
+	{ "ego.c",            "continuous_cap_state", "ego_main",        0 },
+};
+
+#define PRODUCER_COUNT (sizeof(producers) / sizeof(producers[0]))
+
+#define MAX_FOUND 64
+
+struct found_producer {
+	char file[64];
+	char function[64];
+};
+
+static struct found_producer found[MAX_FOUND];
+static int found_count;
+static int scanned_files;
+static int scan_overflowed;
+
+/*
+ * usb_enqueue() is the queue's own name for it, and the modes reach it through
+ * wrappers: enqueue(), enqueue_with_ts(), usb_enqueue_le(). Rather than list
+ * them, this takes any identifier with "enqueue" in it, so a wrapper added
+ * later is found too.
+ */
+static int line_enqueues(const char *line)
+{
+	const char *p = line;
+	char ident[128];
+
+	while (*p != '\0') {
+		const char *start;
+
+		if (!is_ident_char(*p)) {
+			p++;
+			continue;
+		}
+		start = p;
+		while (is_ident_char(*p))
+			p++;
+		if ((size_t)(p - start) < sizeof(ident)) {
+			memcpy(ident, start, (size_t)(p - start));
+			ident[p - start] = '\0';
+			if (strstr(ident, "enqueue") != NULL)
+				return 1;
+		}
+	}
+	return 0;
+}
+
+/*
+ * Record every function in one file that enqueues, once each. A definition is
+ * a line that starts in column 1, names something in front of its first '('
+ * and does not end the statement, the same test the mode scan above uses.
+ */
+static void scan_file_for_producers(const char *file)
+{
+	char path[512], line[512], name[64], current[64];
+	int in_block = 0, recorded = 0;
+	FILE *f;
+
+	snprintf(path, sizeof(path), "%s/%s", FW_RXTX_DIR, file);
+	f = fopen(path, "r");
+	if (f == NULL)
+		return;
+
+	scanned_files++;
+	current[0] = '\0';
+
+	while (fgets(line, sizeof(line), f) != NULL) {
+		strip_comments(line, &in_block);
+
+		if (line[0] != ' ' && line[0] != '\t' && line[0] != '\n' &&
+		    line[0] != '\0' && strchr(line, ';') == NULL &&
+		    call_name(line, name, sizeof(name))) {
+			snprintf(current, sizeof(current), "%s", name);
+			recorded = 0;
+			continue;
+		}
+		if (current[0] == '\0' || recorded || !line_enqueues(line))
+			continue;
+		if (found_count >= MAX_FOUND) {
+			scan_overflowed = 1;
+			break;
+		}
+		snprintf(found[found_count].file, sizeof(found[0].file), "%s",
+		         file);
+		snprintf(found[found_count].function,
+		         sizeof(found[0].function), "%s", current);
+		found_count++;
+		recorded = 1;
+	}
+
+	fclose(f);
+}
+
+/* Every source file of this image, so a file added later is scanned without
+ * being listed anywhere. */
+static void scan_producers(void)
+{
+	struct dirent *entry;
+	DIR *dir = opendir(FW_RXTX_DIR);
+
+	if (dir == NULL)
+		return;
+
+	while ((entry = readdir(dir)) != NULL) {
+		size_t len = strlen(entry->d_name);
+
+		if (len > 2 && strcmp(entry->d_name + len - 2, ".c") == 0)
+			scan_file_for_producers(entry->d_name);
+	}
+
+	closedir(dir);
+}
+
+MU_TEST(the_producer_scan_read_the_sources)
+{
+	mu_assert(scanned_files > 0,
+	          "cannot open " FW_RXTX_DIR " to scan for packet producers");
+	mu_assert(!scan_overflowed,
+	          "more functions enqueue than this scan can hold");
+	/* Without this, a scan that found nothing would pass the next check for
+	 * want of anything to look at. */
+	mu_assert(found_count > 0,
+	          "the scan read the sources and found nothing that enqueues");
+}
+
+/* A function that enqueues and is not in the table above is a mode nobody has
+ * classified. */
+MU_TEST(every_packet_producer_is_accounted_for)
+{
+	int i;
+	size_t j;
+
+	for (i = 0; i < found_count; i++) {
+		char msg[384];
+		int listed = 0;
+
+		for (j = 0; j < PRODUCER_COUNT; j++)
+			if (strcmp(producers[j].file, found[i].file) == 0 &&
+			    strcmp(producers[j].function,
+			           found[i].function) == 0) {
+				producers[j].found = 1;
+				listed = 1;
+			}
+
+		snprintf(msg, sizeof(msg),
+		         "%s: %s() puts packets in the queue and is not in "
+		         "producers[]. Add it, and say which mode loop collects "
+		         "what it enqueues -- if that loop is new, it also needs a "
+		         "row in modes[] saying whether its host reads the bulk IN "
+		         "endpoint or polls", found[i].file, found[i].function);
+		mu_assert(listed, msg);
+	}
+}
+
+/* ...and a row that no longer matches the sources is a rule nothing enforces.
+ */
+MU_TEST(every_listed_producer_was_found)
+{
+	size_t i;
+
+	for (i = 0; i < PRODUCER_COUNT; i++) {
+		char msg[384];
+
+		snprintf(msg, sizeof(msg),
+		         "%s: %s() is listed in producers[] but no longer enqueues, "
+		         "so the row is stale", producers[i].file,
+		         producers[i].function);
+		mu_assert(producers[i].found, msg);
+	}
+}
+
+/* The mode loop a producer names has to be one the transport table classifies,
+ * or naming it proves nothing. */
+MU_TEST(every_producers_mode_loop_is_classified)
+{
+	size_t i, j;
+
+	for (i = 0; i < PRODUCER_COUNT; i++) {
+		char msg[384];
+		int classified = 0;
+
+		if (producers[i].mode_loop == NULL)
+			continue;
+		for (j = 0; j < MODE_COUNT; j++)
+			if (strcmp(modes[j].function,
+			           producers[i].mode_loop) == 0)
+				classified = 1;
+
+		snprintf(msg, sizeof(msg),
+		         "%s: %s() enqueues for %s(), which has no row in modes[], "
+		         "so nothing says whether its host reads the bulk IN "
+		         "endpoint or polls", producers[i].file,
+		         producers[i].function, producers[i].mode_loop);
+		mu_assert(classified, msg);
+	}
+}
+
 int main(void)
 {
 	MU_RUN(a_new_mode_reads_only_its_own_packets);
@@ -755,6 +1000,12 @@ int main(void)
 	MU_RUN(a_polled_mode_does_not_feed_the_endpoint);
 	MU_RUN(a_polled_mode_still_services_control_requests);
 	MU_RUN(nothing_in_the_le_engine_feeds_the_endpoint);
+
+	scan_producers();
+	MU_RUN(the_producer_scan_read_the_sources);
+	MU_RUN(every_packet_producer_is_accounted_for);
+	MU_RUN(every_listed_producer_was_found);
+	MU_RUN(every_producers_mode_loop_is_classified);
 
 	return mu_report();
 }

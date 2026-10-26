@@ -132,6 +132,31 @@ static inline int call_name(const char *line, char *out, size_t size)
 }
 
 /*
+ * Does `text` call `name`? The identifier whole, with its own '(' right after
+ * it. A name handed to something else as a callback does not count --
+ * hop(service_usb) names service_usb but does not call it -- and a call that
+ * shares its line with something else does, which call_name() above misses
+ * because it only reads the word in front of the line's first '('.
+ */
+static inline int calls_identifier(const char *text, const char *name)
+{
+	size_t len = strlen(name);
+	const char *p = text;
+
+	while ((p = strstr(p, name)) != NULL) {
+		char prev = (p == text) ? ' ' : p[-1];
+		const char *after = p + len;
+
+		while (*after == ' ' || *after == '\t')
+			after++;
+		if (!is_ident_char(prev) && *after == '(')
+			return 1;
+		p += len;
+	}
+	return 0;
+}
+
+/*
  * Does the text assign to `name`? Looks for "name = " with no identifier
  * character in front, so `mode` does not match inside `requested_mode`.
  */
