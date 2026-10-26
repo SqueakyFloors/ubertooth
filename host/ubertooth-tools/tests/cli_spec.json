@@ -223,6 +223,8 @@
       "optstring": ":hd:u:s:rU:",
       "work_options": ["-d", "-u", "-s", "-r"],
       "nothing_to_do": "error: nothing to do: give -d to write an image, -u to read one back, -s to sign one, or -r to reset",
+      "progress_before_refusal": ["Checking firmware signature"],
+      "_progress_before_refusal_why": "the whole -d image is read before the tool knows whether it will take it, so the line that says so is printed first and a refusal follows it; both are on standard error, which is where cli-output.md puts progress and errors alike",
       "options": {
         "-h": {"value": "none", "role": "help"},
         "-d": {"value": "required", "role": "work", "valid": ["IMAGE.dfu"],
