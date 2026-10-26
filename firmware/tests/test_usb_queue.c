@@ -760,8 +760,13 @@ MU_TEST(nothing_in_the_le_engine_feeds_the_endpoint)
 struct producer {
 	const char *file;
 	const char *function;
-	/* The loop in modes[] whose host collects what this enqueues, or NULL
-	 * for a helper that runs under several modes or none. */
+	/*
+	 * The loop in modes[] whose host collects what this enqueues, or NULL
+	 * for a helper that runs under several modes or none. What the tests
+	 * check is that the name, where there is one, is a loop the table
+	 * classifies; whether a row names the right loop, or should have named
+	 * one at all, is read by whoever adds it.
+	 */
 	const char *mode_loop;
 	int found;
 };
@@ -793,8 +798,10 @@ static struct producer producers[] = {
 #define MAX_FOUND 64
 
 struct found_producer {
+	char dir[64];
 	char file[64];
 	char function[64];
+	int listed;
 };
 
 static struct found_producer found[MAX_FOUND];
@@ -833,18 +840,38 @@ static int line_enqueues(const char *line)
 	return 0;
 }
 
+/* Words that start a statement and would otherwise read as a definition:
+ * `if (...)` in column 1 names "if". */
+static int is_c_keyword(const char *name)
+{
+	static const char *const keywords[] = {
+		"if", "else", "for", "while", "do", "switch", "return",
+		"sizeof", "defined", "__attribute__",
+	};
+	size_t i;
+
+	for (i = 0; i < sizeof(keywords) / sizeof(keywords[0]); i++)
+		if (strcmp(name, keywords[i]) == 0)
+			return 1;
+	return 0;
+}
+
 /*
- * Record every function in one file that enqueues, once each. A definition is
- * a line that starts in column 1, names something in front of its first '('
- * and does not end the statement, the same test the mode scan above uses.
+ * Record every function in one file that enqueues, once each.
+ *
+ * Everything at file scope starts in column 1, so that is what tells one
+ * function's body from the next. A definition names something in front of its
+ * first '(' and does not end the statement; a line ending in ';' there is a
+ * declaration, and a '}' is the end of a body, so both mean the lines that
+ * follow belong to no function yet.
  */
-static void scan_file_for_producers(const char *file)
+static void scan_file_for_producers(const char *dir, const char *file)
 {
 	char path[512], line[512], name[64], current[64];
 	int in_block = 0, recorded = 0;
 	FILE *f;
 
-	snprintf(path, sizeof(path), "%s/%s", FW_RXTX_DIR, file);
+	snprintf(path, sizeof(path), "%s/%s", dir, file);
 	f = fopen(path, "r");
 	if (f == NULL)
 		return;
@@ -856,10 +883,19 @@ static void scan_file_for_producers(const char *file)
 		strip_comments(line, &in_block);
 
 		if (line[0] != ' ' && line[0] != '\t' && line[0] != '\n' &&
-		    line[0] != '\0' && strchr(line, ';') == NULL &&
-		    call_name(line, name, sizeof(name))) {
-			snprintf(current, sizeof(current), "%s", name);
-			recorded = 0;
+		    line[0] != '\0') {
+			/* The macro guard below is what covers these. */
+			if (line[0] == '#')
+				continue;
+			if (line[0] == '}' || strchr(line, ';') != NULL) {
+				current[0] = '\0';
+				continue;
+			}
+			if (call_name(line, name, sizeof(name)) &&
+			    !is_c_keyword(name)) {
+				snprintf(current, sizeof(current), "%s", name);
+				recorded = 0;
+			}
 			continue;
 		}
 		if (current[0] == '\0' || recorded || !line_enqueues(line))
@@ -868,6 +904,8 @@ static void scan_file_for_producers(const char *file)
 			scan_overflowed = 1;
 			break;
 		}
+		snprintf(found[found_count].dir, sizeof(found[0].dir), "%s",
+		         dir);
 		snprintf(found[found_count].file, sizeof(found[0].file), "%s",
 		         file);
 		snprintf(found[found_count].function,
@@ -879,12 +917,20 @@ static void scan_file_for_producers(const char *file)
 	fclose(f);
 }
 
-/* Every source file of this image, so a file added later is scanned without
- * being listed anywhere. */
-static void scan_producers(void)
+/*
+ * Both source trees this image is built from, so a file added to either is
+ * scanned without being listed anywhere. The third, lpcusb, is the USB stack
+ * itself: the endpoint writes live there by definition, and the two guards
+ * after the table are what keep the rest of the firmware out of them.
+ */
+static const char *const scanned_dirs[] = { FW_RXTX_DIR, FW_COMMON_DIR };
+
+#define SCANNED_DIR_COUNT (sizeof(scanned_dirs) / sizeof(scanned_dirs[0]))
+
+static void scan_dir(const char *path, void (*visit)(const char *, const char *))
 {
 	struct dirent *entry;
-	DIR *dir = opendir(FW_RXTX_DIR);
+	DIR *dir = opendir(path);
 
 	if (dir == NULL)
 		return;
@@ -893,10 +939,38 @@ static void scan_producers(void)
 		size_t len = strlen(entry->d_name);
 
 		if (len > 2 && strcmp(entry->d_name + len - 2, ".c") == 0)
-			scan_file_for_producers(entry->d_name);
+			visit(path, entry->d_name);
 	}
 
 	closedir(dir);
+}
+
+/*
+ * Resolve the scan against the table here rather than in a test, so neither
+ * of the two tests that read the result depends on the other having run.
+ */
+static void resolve_producers(void)
+{
+	int i;
+	size_t j;
+
+	for (i = 0; i < found_count; i++)
+		for (j = 0; j < PRODUCER_COUNT; j++)
+			if (strcmp(producers[j].file, found[i].file) == 0 &&
+			    strcmp(producers[j].function,
+			           found[i].function) == 0) {
+				producers[j].found = 1;
+				found[i].listed = 1;
+			}
+}
+
+static void scan_producers(void)
+{
+	size_t i;
+
+	for (i = 0; i < SCANNED_DIR_COUNT; i++)
+		scan_dir(scanned_dirs[i], scan_file_for_producers);
+	resolve_producers();
 }
 
 MU_TEST(the_producer_scan_read_the_sources)
@@ -916,27 +990,18 @@ MU_TEST(the_producer_scan_read_the_sources)
 MU_TEST(every_packet_producer_is_accounted_for)
 {
 	int i;
-	size_t j;
 
 	for (i = 0; i < found_count; i++) {
 		char msg[384];
-		int listed = 0;
-
-		for (j = 0; j < PRODUCER_COUNT; j++)
-			if (strcmp(producers[j].file, found[i].file) == 0 &&
-			    strcmp(producers[j].function,
-			           found[i].function) == 0) {
-				producers[j].found = 1;
-				listed = 1;
-			}
 
 		snprintf(msg, sizeof(msg),
-		         "%s: %s() puts packets in the queue and is not in "
+		         "%s/%s: %s() puts packets in the queue and is not in "
 		         "producers[]. Add it, and say which mode loop collects "
 		         "what it enqueues -- if that loop is new, it also needs a "
 		         "row in modes[] saying whether its host reads the bulk IN "
-		         "endpoint or polls", found[i].file, found[i].function);
-		mu_assert(listed, msg);
+		         "endpoint or polls", found[i].dir, found[i].file,
+		         found[i].function);
+		mu_assert(found[i].listed, msg);
 	}
 }
 
@@ -955,6 +1020,114 @@ MU_TEST(every_listed_producer_was_found)
 		         producers[i].function);
 		mu_assert(producers[i].found, msg);
 	}
+}
+
+/*
+ * The queue has to be reached by a call, because that is what the scan above
+ * can follow. A macro would hide it: uses of the macro carry no identifier
+ * with "enqueue" in it, so a mode that streamed packets through one would be
+ * invisible here. Make it a function instead.
+ */
+static int macro_enqueue_hits;
+static char macro_enqueue_where[256];
+
+static void check_file_for_enqueue_macro(const char *dir, const char *file)
+{
+	char path[512], line[512];
+	int in_block = 0;
+	FILE *f;
+
+	snprintf(path, sizeof(path), "%s/%s", dir, file);
+	f = fopen(path, "r");
+	if (f == NULL)
+		return;
+
+	while (fgets(line, sizeof(line), f) != NULL) {
+		strip_comments(line, &in_block);
+		if (strncmp(line, "#define", 7) != 0)
+			continue;
+		if (!line_enqueues(line))
+			continue;
+		macro_enqueue_hits++;
+		if (macro_enqueue_where[0] == '\0')
+			snprintf(macro_enqueue_where,
+			         sizeof(macro_enqueue_where), "%s/%s: %s", dir,
+			         file, line);
+	}
+
+	fclose(f);
+}
+
+MU_TEST(nothing_reaches_the_queue_through_a_macro)
+{
+	char msg[512];
+	size_t i;
+
+	for (i = 0; i < SCANNED_DIR_COUNT; i++)
+		scan_dir(scanned_dirs[i], check_file_for_enqueue_macro);
+
+	snprintf(msg, sizeof(msg),
+	         "%s -- a macro around the queue hides the mode that uses it "
+	         "from the scan above. Make it a function and add it to "
+	         "producers[]", macro_enqueue_where);
+	mu_assert(macro_enqueue_hits == 0, msg);
+}
+
+/*
+ * ...and the queue is the only way to the endpoint. A mode that wrote to the
+ * bulk IN endpoint itself would be past both the queue and the table, so the
+ * one file that owns the endpoint is the only one allowed to name the write.
+ */
+static int stray_endpoint_writes;
+static char stray_endpoint_where[256];
+
+static void check_file_for_endpoint_write(const char *dir, const char *file)
+{
+	char path[512], line[512];
+	int in_block = 0;
+	FILE *f;
+
+	/* The queue's own file, which is what every producer above goes
+	 * through. */
+	if (strcmp(file, "ubertooth_usb.c") == 0)
+		return;
+
+	snprintf(path, sizeof(path), "%s/%s", dir, file);
+	f = fopen(path, "r");
+	if (f == NULL)
+		return;
+
+	while (fgets(line, sizeof(line), f) != NULL) {
+		strip_comments(line, &in_block);
+		if (!calls_identifier(line, "USBHwEPWrite"))
+			continue;
+		if (!contains_identifier(line, "BULK_IN_EP") &&
+		    strstr(line, "0x82") == NULL)
+			continue;
+		stray_endpoint_writes++;
+		if (stray_endpoint_where[0] == '\0')
+			snprintf(stray_endpoint_where,
+			         sizeof(stray_endpoint_where), "%s/%s: %s", dir,
+			         file, line);
+	}
+
+	fclose(f);
+}
+
+MU_TEST(only_the_queue_writes_to_the_bulk_endpoint)
+{
+	char msg[512];
+	size_t i;
+
+	for (i = 0; i < SCANNED_DIR_COUNT; i++)
+		scan_dir(scanned_dirs[i], check_file_for_endpoint_write);
+
+	snprintf(msg, sizeof(msg),
+	         "%s -- only ubertooth_usb.c hands packets to the bulk IN "
+	         "endpoint. A mode writing to it directly is past the queue, so "
+	         "nothing above can tell whether its host reads that endpoint",
+	         stray_endpoint_where);
+	mu_assert(stray_endpoint_writes == 0, msg);
 }
 
 /* The mode loop a producer names has to be one the transport table classifies,
@@ -1005,6 +1178,8 @@ int main(void)
 	MU_RUN(the_producer_scan_read_the_sources);
 	MU_RUN(every_packet_producer_is_accounted_for);
 	MU_RUN(every_listed_producer_was_found);
+	MU_RUN(nothing_reaches_the_queue_through_a_macro);
+	MU_RUN(only_the_queue_writes_to_the_bulk_endpoint);
 	MU_RUN(every_producers_mode_loop_is_classified);
 
 	return mu_report();
