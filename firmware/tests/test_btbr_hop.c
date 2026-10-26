@@ -25,6 +25,7 @@
  * The one thing the test shares with the firmware is the order the butterfly
  * stages run in, which only the specification's figure shows; see PERM5 below.
  */
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -43,13 +44,22 @@ void cprintf(char *fmt, ...)
 
 void __attribute__((noreturn)) die(char *fmt, ...)
 {
-	(void)fmt;
+	va_list args;
+
 	/*
 	 * The code under test only calls this on a bug, so failing the test is
-	 * the point. Exit rather than abort(): an aborted process gets a crash
-	 * report, and on macOS a dialog with it.
+	 * the point. Print what it said, after the test names minunit has
+	 * already written, so the two read in order.
 	 */
-	fputs("die() was called\n", stderr);
+	fflush(stdout);
+	fputs("die: ", stderr);
+	va_start(args, fmt);
+	vfprintf(stderr, fmt, args);
+	va_end(args);
+	/*
+	 * Exit rather than abort(): an aborted process gets a crash report,
+	 * and on macOS a dialog with it.
+	 */
 	exit(1);
 }
 
