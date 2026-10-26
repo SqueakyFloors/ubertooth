@@ -288,64 +288,27 @@ enum dfu_file_size_result dfu_image_size_check(FILE *file,
 	return DFU_FILE_SIZE_OK;
 }
 
-int dfu_extract_firmware_revision(FILE *image, char *revision,
-                                  size_t revision_size)
+int dfu_read_image_info(FILE *image, struct ubertooth_fw_info *info)
 {
-	static const unsigned char marker[] = "ubertooth ";
-	unsigned char *data = NULL;
-	long original_position, image_size;
-	size_t marker_size = sizeof(marker) - 1;
-	int result = -1;
-	long i;
+	uint8_t raw[UBERTOOTH_FW_INFO_LENGTH];
+	long original_position;
+	int result;
 
-	if (image == NULL || revision == NULL || revision_size < 2)
-		return -1;
-	/* The whole file is read below, so it has to be a file with a bounded
-	 * size first. */
-	if (dfu_image_size_check(image, dfu_max_image_size(), NULL) !=
-	    DFU_FILE_SIZE_OK)
-		return -1;
+	if (info != NULL)
+		memset(info, 0, sizeof(*info));
+	if (image == NULL || info == NULL)
+		return UBERTOOTH_FW_INFO_SHORT;
+	/* The block sits at a fixed offset, so only those 64 bytes are read: no
+	 * allocation, and no size check beyond what the file holds. */
 	original_position = ftell(image);
-	if (original_position < 0 || fseek(image, 0, SEEK_END) != 0)
-		return -1;
-	image_size = ftell(image);
-	/* The allocation below is sized from this read, not from the check
-	 * above, so the cap is applied to it as well: a file a writer is still
-	 * growing cannot slip past. */
-	if (image_size <= 0 ||
-	    (unsigned long)image_size > dfu_max_image_size() ||
-	    fseek(image, 0, SEEK_SET) != 0)
-		goto done;
-	data = malloc((size_t)image_size);
-	if (data == NULL)
-		goto done;
-	if (fread(data, 1, (size_t)image_size, image) != (size_t)image_size)
-		goto done;
-
-	for (i = 0; i + (long)marker_size < image_size; i++) {
-		long start, end;
-		if (memcmp(data + i, marker, marker_size) != 0)
-			continue;
-		start = i + (long)marker_size;
-		for (end = start; end + 1 < image_size; end++) {
-			if (data[end] == ' ' && data[end + 1] == '(') {
-				size_t length = (size_t)(end - start);
-				if (length > 0 && length < revision_size) {
-					memcpy(revision, data + start, length);
-					revision[length] = '\0';
-					result = 0;
-				}
-				goto done;
-			}
-			if (data[end] == '\0' || data[end] < 0x20 || data[end] > 0x7e)
-				break;
-		}
-	}
-
-done:
-	free(data);
-	if (original_position >= 0)
-		fseek(image, original_position, SEEK_SET);
+	if (original_position < 0 ||
+	    fseek(image, UBERTOOTH_FW_INFO_OFFSET, SEEK_SET) != 0)
+		return UBERTOOTH_FW_INFO_SHORT;
+	if (fread(raw, 1, sizeof(raw), image) != sizeof(raw))
+		result = UBERTOOTH_FW_INFO_SHORT;
+	else
+		result = ubertooth_fw_info_parse(raw, sizeof(raw), info);
+	fseek(image, original_position, SEEK_SET);
 	return result;
 }
 

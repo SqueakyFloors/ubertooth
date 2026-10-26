@@ -125,11 +125,12 @@
   the command returns at once and the board stays reachable; `-S` or any mode
   option stops it and leaves the LEDs off.
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
-- **Reflash required:** the firmware API version is now 1.32, last moved by
-  long low-energy packets travelling in several records, and the host tools
-  require firmware of exactly their own API version, older or newer
-  (`ubertooth-util` still reads the version and reflashes any firmware). Host
-  and firmware come from the same tree; `2020-12-R1` firmware is refused.
+- **Reflash required:** the firmware API version is now 1.33, last moved by the
+  firmware info block and the request that returns it, and the host tools
+  require firmware of exactly their own API version, older or newer. Host and
+  firmware come from the same tree: `ubertooth-dfu` reflashes a board whatever
+  firmware it is running, but only with an image built from this tree, and
+  `2020-12-R1` firmware is refused.
   [#4](https://github.com/SqueakyFloors/ubertooth/issues/4)
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
@@ -139,7 +140,17 @@
   [#433](https://github.com/SqueakyFloors/ubertooth/issues/433)
   [#434](https://github.com/SqueakyFloors/ubertooth/issues/434)
   [#464](https://github.com/SqueakyFloors/ubertooth/issues/464)
+  [#473](https://github.com/SqueakyFloors/ubertooth/issues/473)
   [#475](https://github.com/SqueakyFloors/ubertooth/issues/475)
+- Every firmware image now carries a block naming the image and the revision
+  it was built from, read the same way off a board and out of a file.
+  `ubertooth-dfu -d` says which image a file holds before it writes it
+  (`Image: bluetooth_rxtx git-ed30131d* (API:1.33)`), and refuses a file that
+  carries no such block before erasing anything, which includes every image
+  built before this one. `ubertooth-util -v` and `-V` name the image a board is
+  running, and still read a board whose firmware has no block, showing its
+  revision alone.
+  [#473](https://github.com/SqueakyFloors/ubertooth/issues/473)
 - `ubertooth-specan-ui` draws a slowly smoothed average of the max-hold trace
   as a cyan dotted line labelled "Avg: N dBm", shown with the other markers.
   Credit: Sirio Balmelli ([@siriobalmelli](https://github.com/siriobalmelli)).

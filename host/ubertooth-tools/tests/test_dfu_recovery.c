@@ -969,8 +969,14 @@ MU_TEST(test_image_rejects_a_file_that_is_not_a_regular_file)
 		mu_assert_int_eq(DFU_IMAGE_NOT_REGULAR,
 		                 dfu_image_check(fifo, U1_DFU_VENDORID,
 		                                 U1_DFU_PRODUCTID, &report));
-		mu_assert_int_eq(-1, dfu_extract_firmware_revision(fifo, message,
-		                                                   sizeof(message)));
+		/* A FIFO cannot be seeked, so there is no fixed offset to read
+		 * the firmware info block from either. */
+		{
+			struct ubertooth_fw_info info;
+
+			mu_assert_int_eq(UBERTOOTH_FW_INFO_SHORT,
+			                 dfu_read_image_info(fifo, &info));
+		}
 		fclose(fifo);
 	} else if (descriptor >= 0) {
 		close(descriptor);
@@ -1001,100 +1007,207 @@ MU_TEST(test_size_check_measures_against_the_cap_it_is_given)
 	fclose(file);
 }
 
-MU_TEST(test_extract_revision_refuses_a_file_past_the_size_cap)
-{
-	FILE *image = sparse_file((long long)dfu_max_image_size() + 1);
-	char revision[64];
+/*
+ * The firmware info block every image carries, at the fixed offset
+ * ubertooth-dfu reads it from. These build files by hand rather than from a
+ * real image, so the offset, the magic and the field positions are pinned
+ * here; firmware/tests/test_fw_info.c checks that a block the firmware builds
+ * is read the same way.
+ */
 
-	if (image == NULL)
-		return;
-	/* The marker search reads the whole file too, so it is bounded by the
-	 * same guard rather than its own. */
-	mu_assert_int_eq(-1, dfu_extract_firmware_revision(image, revision,
-	                                                   sizeof(revision)));
+/* A 512-byte file of filler with the 64-byte block written over it at offset,
+ * so that every case is a file long enough to hold a block at 0x100 whether
+ * or not one is there. */
+static FILE *file_with_block(long offset, const char *magic, uint16_t format,
+                             uint16_t api, const char *image,
+                             const char *revision)
+{
+	uint8_t block[UBERTOOTH_FW_INFO_LENGTH];
+	uint8_t filler[0x200];
+	FILE *file = tmpfile();
+	size_t i;
+
+	if (file == NULL)
+		return NULL;
+	/* Filler that is not a block, and not 0xff padding either, so a read at
+	 * the wrong offset cannot accidentally pass. */
+	for (i = 0; i < sizeof(filler); i++)
+		filler[i] = (uint8_t)(i & 0xff);
+	memset(block, 0, sizeof(block));
+	memcpy(block + UBERTOOTH_FW_INFO_OFF_MAGIC, magic,
+	       UBERTOOTH_FW_INFO_MAGIC_LEN);
+	block[UBERTOOTH_FW_INFO_OFF_FORMAT] = (uint8_t)(format & 0xff);
+	block[UBERTOOTH_FW_INFO_OFF_FORMAT + 1] = (uint8_t)(format >> 8);
+	block[UBERTOOTH_FW_INFO_OFF_API] = (uint8_t)(api & 0xff);
+	block[UBERTOOTH_FW_INFO_OFF_API + 1] = (uint8_t)(api >> 8);
+	memcpy(block + UBERTOOTH_FW_INFO_OFF_IMAGE, image, strlen(image));
+	memcpy(block + UBERTOOTH_FW_INFO_OFF_REVISION, revision,
+	       strlen(revision));
+	if (fwrite(filler, 1, sizeof(filler), file) != sizeof(filler) ||
+	    fseek(file, offset, SEEK_SET) != 0 ||
+	    fwrite(block, 1, sizeof(block), file) != sizeof(block)) {
+		fclose(file);
+		return NULL;
+	}
+	rewind(file);
+	return file;
+}
+
+/* A file holding a well-formed block where an image carries one. */
+static FILE *image_with_block(const char *image, const char *revision)
+{
+	return file_with_block(UBERTOOTH_FW_INFO_OFFSET,
+	                       UBERTOOTH_FW_INFO_MAGIC,
+	                       UBERTOOTH_FW_INFO_FORMAT, 0x0133, image,
+	                       revision);
+}
+
+MU_TEST(test_image_info_is_read_from_the_fixed_offset)
+{
+	struct ubertooth_fw_info info;
+	FILE *image = image_with_block("bluetooth_rxtx", "git-deadbee*");
+
+	mu_assert_fatal(image != NULL, "could not build the image");
+	/* The read starts somewhere else to show it seeks, and the position is
+	 * put back for the caller that is part-way through its own checks. */
+	mu_assert_int_eq(0, fseek(image, 7, SEEK_SET));
+	mu_assert_int_eq(UBERTOOTH_FW_INFO_OK,
+	                 dfu_read_image_info(image, &info));
+	mu_assert(strcmp(info.image, "bluetooth_rxtx") == 0,
+	          "wrong image name read from the block");
+	mu_assert(strcmp(info.revision, "git-deadbee*") == 0,
+	          "wrong revision read from the block");
+	mu_assert_int_eq(UBERTOOTH_FW_INFO_FORMAT, info.format_version);
+	mu_assert_int_eq(0x0133, info.api_version);
+	mu_assert_int_eq(7, (int)ftell(image));
 	fclose(image);
 }
 
-MU_TEST(test_extract_revision_from_existing_compile_info_marker)
+/* The other image, so the block is what tells the two apart. */
+MU_TEST(test_image_info_names_the_btbr_image)
 {
+	struct ubertooth_fw_info info;
+	FILE *image = image_with_block("btbr", "git-deadbee*");
+
+	mu_assert_fatal(image != NULL, "could not build the image");
+	mu_assert_int_eq(UBERTOOTH_FW_INFO_OK,
+	                 dfu_read_image_info(image, &info));
+	mu_assert(strcmp(info.image, "btbr") == 0, "wrong image name");
+	fclose(image);
+}
+
+/* A field filled to its last byte carries no terminator, so a reader that
+ * treated it as a C string would run into the next field. */
+MU_TEST(test_image_info_reads_a_field_with_no_room_for_a_terminator)
+{
+	struct ubertooth_fw_info info;
+	FILE *image = image_with_block("0123456789abcdef",
+	                               "0123456789abcdef0123456789abcdef");
+
+	mu_assert_fatal(image != NULL, "could not build the image");
+	mu_assert_int_eq(UBERTOOTH_FW_INFO_OK,
+	                 dfu_read_image_info(image, &info));
+	mu_assert(strcmp(info.image, "0123456789abcdef") == 0,
+	          "a full image field was not read whole");
+	mu_assert(strcmp(info.revision,
+	                 "0123456789abcdef0123456789abcdef") == 0,
+	          "a full revision field was not read whole");
+	fclose(image);
+}
+
+/* A file that is not an image from this tree: nothing at the offset. This is
+ * what ubertooth-dfu -d refuses before it erases anything. */
+MU_TEST(test_image_info_refuses_a_file_with_no_block)
+{
+	struct ubertooth_fw_info info;
 	FILE *image = tmpfile();
-	char revision[64];
-	const char bytes[] = "\x01\x02ubertooth git-deadbee* (builder@host) date\0tail";
+	uint8_t bytes[0x200];
+	size_t i;
+
 	mu_assert_fatal(image != NULL, "tmpfile failed");
+	for (i = 0; i < sizeof(bytes); i++)
+		bytes[i] = (uint8_t)(i & 0xff);
 	mu_assert_int_eq((int)sizeof(bytes),
 	                 (int)fwrite(bytes, 1, sizeof(bytes), image));
-	mu_assert_int_eq(0,
-	                 dfu_extract_firmware_revision(image, revision,
-	                                               sizeof(revision)));
-	mu_assert(strcmp(revision, "git-deadbee*") == 0,
-	          "wrong revision extracted");
+	mu_assert_int_eq(UBERTOOTH_FW_INFO_NO_MAGIC,
+	                 dfu_read_image_info(image, &info));
+	mu_assert(info.revision[0] == '\0' && info.image[0] == '\0',
+	          "a refused block left text behind");
 	fclose(image);
 }
 
-/* An image with no build string at all: what the btbr image was until it got
- * one. There is no revision to verify against, so -r has to refuse the file
- * rather than reset the board and claim the firmware matched. */
-MU_TEST(test_extract_revision_fails_without_a_compile_info_marker)
+/* A block the firmware put somewhere else is not found: the whole point of
+ * the fixed offset is that nothing searches the file. */
+MU_TEST(test_image_info_refuses_a_block_at_another_offset)
 {
+	struct ubertooth_fw_info info;
+	FILE *image = file_with_block(0x80, UBERTOOTH_FW_INFO_MAGIC,
+	                              UBERTOOTH_FW_INFO_FORMAT, 0x0133,
+	                              "bluetooth_rxtx", "git-deadbee*");
+
+	mu_assert_fatal(image != NULL, "could not build the image");
+	mu_assert_int_eq(UBERTOOTH_FW_INFO_NO_MAGIC,
+	                 dfu_read_image_info(image, &info));
+	fclose(image);
+}
+
+/* A format this host does not know: the fields may have moved, so nothing is
+ * read out of them, but the number found is reported so a message can name it. */
+MU_TEST(test_image_info_refuses_an_unknown_block_format)
+{
+	struct ubertooth_fw_info info;
+	FILE *image = file_with_block(UBERTOOTH_FW_INFO_OFFSET,
+	                              UBERTOOTH_FW_INFO_MAGIC, 99, 0x0133,
+	                              "bluetooth_rxtx", "git-deadbee*");
+
+	mu_assert_fatal(image != NULL, "could not build the image");
+	mu_assert_int_eq(UBERTOOTH_FW_INFO_FORMAT_UNKNOWN,
+	                 dfu_read_image_info(image, &info));
+	mu_assert_int_eq(99, info.format_version);
+	mu_assert(info.image[0] == '\0' && info.revision[0] == '\0',
+	          "fields of an unknown format were read anyway");
+	fclose(image);
+}
+
+/* An empty or unprintable string is not a name or a revision: the magic can
+ * be matched by a file that is not an image, so the text is checked too. */
+MU_TEST(test_image_info_refuses_unreadable_text)
+{
+	struct ubertooth_fw_info info;
+	FILE *image;
+
+	image = image_with_block("", "git-deadbee*");
+	mu_assert_fatal(image != NULL, "could not build the image");
+	mu_assert_int_eq(UBERTOOTH_FW_INFO_BAD_TEXT,
+	                 dfu_read_image_info(image, &info));
+	fclose(image);
+
+	image = image_with_block("bluetooth_rxtx", "");
+	mu_assert_fatal(image != NULL, "could not build the image");
+	mu_assert_int_eq(UBERTOOTH_FW_INFO_BAD_TEXT,
+	                 dfu_read_image_info(image, &info));
+	fclose(image);
+
+	image = image_with_block("rxtx\x01\x02", "git-deadbee*");
+	mu_assert_fatal(image != NULL, "could not build the image");
+	mu_assert_int_eq(UBERTOOTH_FW_INFO_BAD_TEXT,
+	                 dfu_read_image_info(image, &info));
+	fclose(image);
+}
+
+/* A file with nothing at the offset to read: the 64 bytes are not there. */
+MU_TEST(test_image_info_refuses_a_file_too_short_for_a_block)
+{
+	struct ubertooth_fw_info info;
 	FILE *image = tmpfile();
-	char revision[64];
-	const char bytes[] = "\x01\x02 some firmware with no build string \x00\xff";
+	uint8_t bytes[UBERTOOTH_FW_INFO_OFFSET + 8];
 
 	mu_assert_fatal(image != NULL, "tmpfile failed");
+	memset(bytes, 0, sizeof(bytes));
 	mu_assert_int_eq((int)sizeof(bytes),
 	                 (int)fwrite(bytes, 1, sizeof(bytes), image));
-	mu_assert_int_eq(-1, dfu_extract_firmware_revision(image, revision,
-	                                                   sizeof(revision)));
-	fclose(image);
-}
-
-/* Writes the bytes as an image and asserts no revision comes out of it. */
-static void expect_no_revision(const void *bytes, size_t length,
-                               const char *what)
-{
-	FILE *image = tmpfile();
-	char revision[64];
-
-	mu_assert_fatal(image != NULL, "tmpfile failed");
-	mu_assert_int_eq((int)length, (int)fwrite(bytes, 1, length, image));
-	mu_assert(dfu_extract_firmware_revision(image, revision,
-	                                        sizeof(revision)) == -1, what);
-	fclose(image);
-}
-
-/* The marker is there but the revision after it never ends: it runs into
- * binary, it runs to the end of the file, or the marker is the last thing in
- * the file. A truncated build string is not a revision, so each of these is
- * refused instead of returning whatever bytes followed. */
-MU_TEST(test_extract_revision_fails_on_a_truncated_marker)
-{
-	static const char runs_into_binary[] =
-		"\x01ubertooth git-deadbee\x07\x00tail";
-	static const char never_terminated[] = "\x01ubertooth git-deadbee";
-	static const char marker_ends_the_file[] = "\x01ubertooth ";
-
-	expect_no_revision(runs_into_binary, sizeof(runs_into_binary),
-	                   "a revision running into binary was accepted");
-	expect_no_revision(never_terminated, sizeof(never_terminated) - 1,
-	                   "a revision with no \" (\" after it was accepted");
-	expect_no_revision(marker_ends_the_file, sizeof(marker_ends_the_file),
-	                   "a marker with nothing after it was accepted");
-}
-
-/* A revision longer than the caller's buffer is not truncated into it: a
- * shortened revision would never match the board's, so the file is refused
- * and the caller is told, rather than failing after the reset. */
-MU_TEST(test_extract_revision_fails_when_the_buffer_is_too_small)
-{
-	FILE *image = tmpfile();
-	char revision[8];
-	const char bytes[] = "\x01ubertooth git-deadbee* (builder@host) date";
-
-	mu_assert_fatal(image != NULL, "tmpfile failed");
-	mu_assert_int_eq((int)sizeof(bytes),
-	                 (int)fwrite(bytes, 1, sizeof(bytes), image));
-	mu_assert_int_eq(-1, dfu_extract_firmware_revision(image, revision,
-	                                                   sizeof(revision)));
+	mu_assert_int_eq(UBERTOOTH_FW_INFO_SHORT,
+	                 dfu_read_image_info(image, &info));
 	fclose(image);
 }
 
@@ -1236,10 +1349,13 @@ int main(void)
 	MU_RUN(test_image_rejects_a_file_past_the_size_cap);
 	MU_RUN(test_image_accepts_a_file_at_the_size_cap);
 	MU_RUN(test_image_rejects_a_file_that_is_not_a_regular_file);
-	MU_RUN(test_extract_revision_refuses_a_file_past_the_size_cap);
-	MU_RUN(test_extract_revision_from_existing_compile_info_marker);
-	MU_RUN(test_extract_revision_fails_without_a_compile_info_marker);
-	MU_RUN(test_extract_revision_fails_on_a_truncated_marker);
-	MU_RUN(test_extract_revision_fails_when_the_buffer_is_too_small);
+	MU_RUN(test_image_info_is_read_from_the_fixed_offset);
+	MU_RUN(test_image_info_names_the_btbr_image);
+	MU_RUN(test_image_info_reads_a_field_with_no_room_for_a_terminator);
+	MU_RUN(test_image_info_refuses_a_file_with_no_block);
+	MU_RUN(test_image_info_refuses_a_block_at_another_offset);
+	MU_RUN(test_image_info_refuses_an_unknown_block_format);
+	MU_RUN(test_image_info_refuses_unreadable_text);
+	MU_RUN(test_image_info_refuses_a_file_too_short_for_a_block);
 	return mu_report();
 }

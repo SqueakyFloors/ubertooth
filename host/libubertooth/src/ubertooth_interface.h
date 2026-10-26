@@ -22,6 +22,7 @@
 #ifndef __UBERTOOTH_INTERFACE_H
 #define __UBERTOOTH_INTERFACE_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 /*
@@ -47,7 +48,7 @@
  * as 1.10), then 0x0111 (1.11), and so on to 0x0119 (1.19); after 0x0119
  * comes 0x0120, not 0x011a.
  */
-#define UBERTOOTH_API_VERSION 0x0132
+#define UBERTOOTH_API_VERSION 0x0133
 
 /*
  * The build string every image carries, reported by UBERTOOTH_GET_COMPILE_INFO
@@ -69,6 +70,177 @@
  * 258-byte reply buffer in each image's USB shim holds.
  */
 #define UBERTOOTH_REVISION_MAX 255
+
+/*
+ * The firmware info block: what an image says about itself, in one place.
+ *
+ * Every image carries 64 bytes at a fixed offset from its start, just past the
+ * vector table. firmware/common/fw_info.c fills them in and
+ * firmware/common/sections.ld puts them there, so an image cannot leave the
+ * block out.
+ *
+ * ubertooth-dfu reads the block straight out of a firmware file at that
+ * offset. That is how it names the image and the revision a file carries, and
+ * how it refuses a file that is not an image from this tree before it erases
+ * anything. The firmware returns the same 64 bytes through
+ * UBERTOOTH_GET_FW_INFO, so a board and a file are described the same way.
+ *
+ * The offset has to clear the vector table. Its eighth word, at offset 0x1c,
+ * is the checksum the LPC boot ROM reads over the table, so the block must
+ * sit well past that; the table is 204 bytes (51 words) today, and 256 is the
+ * next round number above it. sections.ld fails the link if the table ever
+ * grows that far.
+ */
+#define UBERTOOTH_FW_INFO_OFFSET 0x100
+/* The 8 bytes a block starts with, no terminator. */
+#define UBERTOOTH_FW_INFO_MAGIC "UBTFINFO"
+#define UBERTOOTH_FW_INFO_MAGIC_LEN 8
+/* The layout below. A block with any other number is not read. */
+#define UBERTOOTH_FW_INFO_FORMAT 1
+#define UBERTOOTH_FW_INFO_IMAGE_LEN 16
+#define UBERTOOTH_FW_INFO_REVISION_LEN 32
+#define UBERTOOTH_FW_INFO_LENGTH 64
+
+/*
+ * The block as it sits in an image: 64 bytes, no padding, the two 16-bit
+ * fields little-endian as the ARM stores them. The strings are padded with
+ * zeros and are only terminated when they are shorter than their field, so a
+ * reader must not treat them as C strings -- ubertooth_fw_info_parse() below
+ * copies them out safely.
+ */
+struct ubertooth_fw_info_block {
+	uint8_t magic[UBERTOOTH_FW_INFO_MAGIC_LEN];
+	uint16_t format_version;
+	uint16_t api_version;
+	uint8_t reserved[4];
+	char image[UBERTOOTH_FW_INFO_IMAGE_LEN];
+	char revision[UBERTOOTH_FW_INFO_REVISION_LEN];
+};
+
+/* Where each field starts, for a reader working on raw bytes. */
+#define UBERTOOTH_FW_INFO_OFF_MAGIC 0
+#define UBERTOOTH_FW_INFO_OFF_FORMAT 8
+#define UBERTOOTH_FW_INFO_OFF_API 10
+#define UBERTOOTH_FW_INFO_OFF_RESERVED 12
+#define UBERTOOTH_FW_INFO_OFF_IMAGE 16
+#define UBERTOOTH_FW_INFO_OFF_REVISION 32
+
+/* The layout is the wire format, so a compiler that padded the struct would
+ * silently move every field after the padding. */
+typedef char ubertooth_fw_info_block_is_64_bytes[
+	sizeof(struct ubertooth_fw_info_block) == UBERTOOTH_FW_INFO_LENGTH ? 1 : -1];
+
+/* The block this image carries, and what UBERTOOTH_GET_FW_INFO returns.
+ * Defined in firmware/common/fw_info.c, which every image links. */
+extern const struct ubertooth_fw_info_block fw_info_block;
+
+/* A block read out of an image or off a board, with both strings terminated. */
+struct ubertooth_fw_info {
+	uint16_t format_version;
+	uint16_t api_version;
+	char image[UBERTOOTH_FW_INFO_IMAGE_LEN + 1];
+	char revision[UBERTOOTH_FW_INFO_REVISION_LEN + 1];
+};
+
+/* Why a block was not read. The caller names the file or the board, so these
+ * say only what was wrong with the 64 bytes. */
+enum ubertooth_fw_info_result {
+	UBERTOOTH_FW_INFO_OK = 0,
+	UBERTOOTH_FW_INFO_SHORT = -1,       /* fewer than 64 bytes to read */
+	UBERTOOTH_FW_INFO_NO_MAGIC = -2,    /* no block here */
+	UBERTOOTH_FW_INFO_FORMAT_UNKNOWN = -3,
+	UBERTOOTH_FW_INFO_BAD_TEXT = -4,    /* an empty or unprintable string */
+};
+
+/* Copies length bytes of a field into out (size bytes), stopping at the first
+ * zero, and terminates it. Returns 0 when what it copied is non-empty and
+ * printable, and -1 otherwise: a block read from the wrong offset, or from a
+ * file that is not an image, is mostly unprintable. out is terminated either
+ * way, so a caller that ignores the result still has a string. */
+static inline int ubertooth_fw_info_text(const uint8_t *field, size_t length,
+                                         char *out, size_t size)
+{
+	size_t i;
+
+	if (out == NULL || size == 0)
+		return -1;
+	out[0] = '\0';
+	if (size < length + 1)
+		return -1;
+	for (i = 0; i < length && field[i] != 0; i++) {
+		if (field[i] < 0x20 || field[i] > 0x7e) {
+			out[i] = '\0';
+			return -1;
+		}
+		out[i] = (char)field[i];
+	}
+	out[i] = '\0';
+	return i > 0 ? 0 : -1;
+}
+
+/*
+ * Reads the 64 bytes at raw into *out: the magic, the format version, and
+ * both strings. length is how many bytes are there to read. Returns
+ * UBERTOOTH_FW_INFO_OK, or a negative enum ubertooth_fw_info_result, and
+ * leaves *out zeroed on failure.
+ */
+static inline int ubertooth_fw_info_parse(const uint8_t *raw, size_t length,
+                                          struct ubertooth_fw_info *out)
+{
+	static const char magic[] = UBERTOOTH_FW_INFO_MAGIC;
+	size_t i;
+
+	if (raw == NULL || out == NULL)
+		return UBERTOOTH_FW_INFO_SHORT;
+	for (i = 0; i < sizeof(*out); i++)
+		((uint8_t *)out)[i] = 0;
+	if (length < UBERTOOTH_FW_INFO_LENGTH)
+		return UBERTOOTH_FW_INFO_SHORT;
+	for (i = 0; i < UBERTOOTH_FW_INFO_MAGIC_LEN; i++) {
+		if (raw[UBERTOOTH_FW_INFO_OFF_MAGIC + i] != (uint8_t)magic[i])
+			return UBERTOOTH_FW_INFO_NO_MAGIC;
+	}
+	out->format_version = (uint16_t)(raw[UBERTOOTH_FW_INFO_OFF_FORMAT] |
+		(raw[UBERTOOTH_FW_INFO_OFF_FORMAT + 1] << 8));
+	if (out->format_version != UBERTOOTH_FW_INFO_FORMAT) {
+		uint16_t found = out->format_version;
+
+		for (i = 0; i < sizeof(*out); i++)
+			((uint8_t *)out)[i] = 0;
+		out->format_version = found;
+		return UBERTOOTH_FW_INFO_FORMAT_UNKNOWN;
+	}
+	out->api_version = (uint16_t)(raw[UBERTOOTH_FW_INFO_OFF_API] |
+		(raw[UBERTOOTH_FW_INFO_OFF_API + 1] << 8));
+	if (ubertooth_fw_info_text(raw + UBERTOOTH_FW_INFO_OFF_IMAGE,
+	                           UBERTOOTH_FW_INFO_IMAGE_LEN,
+	                           out->image, sizeof(out->image)) != 0 ||
+	    ubertooth_fw_info_text(raw + UBERTOOTH_FW_INFO_OFF_REVISION,
+	                           UBERTOOTH_FW_INFO_REVISION_LEN,
+	                           out->revision, sizeof(out->revision)) != 0) {
+		for (i = 0; i < sizeof(*out); i++)
+			((uint8_t *)out)[i] = 0;
+		return UBERTOOTH_FW_INFO_BAD_TEXT;
+	}
+	return UBERTOOTH_FW_INFO_OK;
+}
+
+/* One phrase naming what was wrong with a block, for a caller's message. */
+static inline const char *ubertooth_fw_info_result_string(int result)
+{
+	switch (result) {
+	case UBERTOOTH_FW_INFO_OK:
+		return "the firmware info block was read";
+	case UBERTOOTH_FW_INFO_NO_MAGIC:
+		return "there is no firmware info block here";
+	case UBERTOOTH_FW_INFO_FORMAT_UNKNOWN:
+		return "the firmware info block is in a format this host does not know";
+	case UBERTOOTH_FW_INFO_BAD_TEXT:
+		return "the firmware info block holds no readable image name or revision";
+	default:
+		return "there are not 64 bytes of firmware info block to read";
+	}
+}
 
 /*
  * LED spectrum analyzer (ubertooth-util -q N): the threshold is -N dBm. The
@@ -190,6 +362,7 @@ enum ubertooth_usb_commands {
 	UBERTOOTH_RFCAT_SUBCMD       = 72,
 	UBERTOOTH_XMAS               = 73,
 	UBERTOOTH_IDENTIFY           = 74,
+	UBERTOOTH_GET_FW_INFO        = 75,
 };
 
 enum rfcat24_subcommands {

@@ -1,22 +1,17 @@
 /*
- * The two text replies both firmware images carry -- the build string and the
- * revision on its own -- and the one thing the host needs out of the first.
+ * The two text replies both firmware images carry: the build string and the
+ * revision on its own.
  *
- * ubertooth-dfu -r checks, after the reset, that the board came back running
- * the revision that was just written. It learns which revision to expect by
- * reading the firmware FILE, not the board: dfu_extract_firmware_revision()
- * searches the image for "ubertooth ", takes what follows as the revision, and
- * stops at " (". The btbr image carried no such string, so -r refused to flash
- * it at all and the user was left to flash without -r and power-cycle the
- * board by hand.
+ * It is what ubertooth-util -V reports, so both images spell it the same way:
+ * a board running either one describes its build in the same terms. (Which
+ * image a board or a file holds, and which revision it was built from, come
+ * from the firmware info block instead -- see test_fw_info.c.)
  *
  * Neither image's request handler can run here, so this test reads the
  * compile_info definition out of each image's source and checks both say the
- * same thing, then hands the string that definition produces to the host's
- * real extractor. The equality check pins the spelling, which is stricter than
- * the host needs: a reformat the tool would still read fine fails it too. That
- * is the direction to err in, because the thing the host really needs is a
- * property of the built image, and nothing here can build one.
+ * same thing. The equality check pins the spelling, which is stricter than
+ * anything needs: a reformat nothing would mind fails it too. That is the
+ * direction to err in, because nothing here can build an image to look at.
  *
  * The rest is about the replies these strings go out in: a one-byte length and
  * then the characters, which the host reads at most 255 characters of. A longer
@@ -34,7 +29,6 @@
 
 #include "minunit.h"
 #include "source_scan.h"
-#include "dfu_recovery.h"
 #include "ubertooth_interface.h"
 
 /*
@@ -187,37 +181,13 @@ MU_TEST(both_images_define_the_build_string_the_same_way)
 		                                sizeof(definition)), message);
 		snprintf(message, sizeof(message),
 		         "%s: compile_info is defined as `%s`, not `%s`. "
-		         "ubertooth-dfu -r reads the revision out of the image "
-		         "by searching for that exact text, so an image whose "
-		         "definition differs cannot be flashed with -r",
+		         "ubertooth-util -V reports this string, so a board "
+		         "running either image has to describe its build in "
+		         "the same terms",
 		         source_paths[i], definition, COMPILE_INFO_DEFINITION);
 		mu_assert(strcmp(definition, COMPILE_INFO_DEFINITION) == 0,
 		          message);
 	}
-}
-
-/*
- * What the definition above expands to once the build fills in the generated
- * version.h, placed in a file the way it sits in an image: binary either side,
- * nothing that looks like a string boundary to help the search.
- */
-MU_TEST(the_host_finds_the_revision_in_that_string)
-{
-	static const char image[] =
-		"\x12\x34\x00\xff"
-		"ubertooth git-deadbee* (builder@buildhost) Mon Oct 27 11:22:33 2025"
-		"\x00\x00\xaa";
-	FILE *file = tmpfile();
-	char revision[64];
-
-	mu_assert_fatal(file != NULL, "tmpfile failed");
-	mu_assert_int_eq((int)sizeof(image),
-	                 (int)fwrite(image, 1, sizeof(image), file));
-	mu_assert_int_eq(0, dfu_extract_firmware_revision(file, revision,
-	                                                  sizeof(revision)));
-	mu_assert(strcmp(revision, "git-deadbee*") == 0,
-	          "the host did not read the revision the build string carries");
-	fclose(file);
 }
 
 /* -------------------------------------------------------------------------
@@ -456,7 +426,6 @@ int main(void)
 {
 	printf("firmware text reply tests\n");
 	MU_RUN(both_images_define_the_build_string_the_same_way);
-	MU_RUN(the_host_finds_the_revision_in_that_string);
 	MU_RUN(a_normal_revision_goes_out_whole);
 	MU_RUN(a_long_revision_is_cut_to_the_cap);
 	MU_RUN(the_old_cast_wrapped_a_long_revision);

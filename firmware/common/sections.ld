@@ -47,6 +47,36 @@ SECTIONS
 		. = ALIGN(0x400); /* Ensure that vector table is aligned as hardware requires. */
 		_interrupt_vector_table = .;
 		KEEP(*(.irq_handler_table))
+		_interrupt_vector_table_end = .;
+
+		/*
+		 * The firmware info block, at a fixed offset from the start of
+		 * the image so that ubertooth-dfu can read it out of a firmware
+		 * file without searching: UBERTOOTH_FW_INFO_OFFSET (0x100) and
+		 * UBERTOOTH_FW_INFO_LENGTH (64) in
+		 * host/libubertooth/src/ubertooth_interface.h, which
+		 * firmware/tests/test_fw_info.c reads and puts against these
+		 * numbers. The offset clears the vector table, including the
+		 * checksum word at 0x1c that the LPC boot ROM reads over it;
+		 * the ASSERTs after this block are what catch a vector table
+		 * that has grown that far, and an image whose block is the
+		 * wrong size.
+		 *
+		 * MAX() rather than a plain assignment, because a location
+		 * counter cannot move backwards: a vector table past the
+		 * offset would fail the link with the linker's own message
+		 * about the counter, before any ASSERT ran. Taking the later
+		 * of the two addresses lets the link reach the ASSERTs, which
+		 * name the problem.
+		 *
+		 * The bootloader shares this script and carries no block, so
+		 * for that one image this leaves 0x100 - 0xcc = 52 bytes of
+		 * zeros where the block would go.
+		 */
+		. = MAX(., _interrupt_vector_table + 0x100);
+		_fw_info_start = .;
+		KEEP(*(.fw_info))
+		_fw_info_end = .;
 
 		*(.text .text.* .gnu.linkonce.t.*)
 		*(.rodata .rodata.* .gnu.linkonce.r.*)
@@ -147,3 +177,12 @@ SECTIONS
 	_StackTop = ORIGIN(ram) + LENGTH(ram) - 32;
 
 }
+
+/* The firmware info block has to stay where the host looks for it. These are
+ * checked after allocation, so they read the addresses the link really chose. */
+ASSERT(_interrupt_vector_table_end - _interrupt_vector_table <= 0x100,
+	"the interrupt vector table has grown into the firmware info block at offset 0x100")
+ASSERT(_fw_info_start - _interrupt_vector_table == 0x100,
+	"the firmware info block is not at offset 0x100")
+ASSERT(_fw_info_end - _fw_info_start == 0 || _fw_info_end - _fw_info_start == 64,
+	"the firmware info block is not 64 bytes")

@@ -7,8 +7,10 @@
 
 struct fake_device {
 	int board_id;
+	const char *image;
 	const char *firmware;
 	int firmware_result;
+	int revision_result;
 	int api_result;
 	uint16_t api_version;
 	const char *compile_info;
@@ -26,6 +28,7 @@ static struct fake_device make_fake(void)
 
 	memset(&fake, 0, sizeof(fake));
 	fake.board_id = 1;
+	fake.image = "bluetooth_rxtx";
 	fake.firmware = "git-test";
 	fake.api_version = 0x0107;
 	fake.compile_info = "compile-test";
@@ -40,13 +43,29 @@ static int fake_board_id(void *context)
 	return ((struct fake_device *)context)->board_id;
 }
 
-static int fake_firmware(void *context, char *revision, size_t size)
+/* The firmware info block the board carries: the image and the revision -v
+ * and -V name come from here. On failure the fields are filled in anyway, to
+ * check that nothing is printed from them. */
+static int fake_firmware_info(void *context, struct ubertooth_fw_info *info)
 {
 	struct fake_device *fake = context;
 
-	/* On failure, leave text behind to check that it is not printed. */
-	snprintf(revision, size, "%s", fake->firmware);
+	memset(info, 0, sizeof(*info));
+	info->format_version = UBERTOOTH_FW_INFO_FORMAT;
+	info->api_version = fake->api_version;
+	snprintf(info->image, sizeof(info->image), "%s", fake->image);
+	snprintf(info->revision, sizeof(info->revision), "%s", fake->firmware);
 	return fake->firmware_result;
+}
+
+/* The revision on its own, which every firmware answers: what -v falls back
+ * to when the board's firmware carries no info block. */
+static int fake_firmware_revision(void *context, char *revision, size_t size)
+{
+	struct fake_device *fake = context;
+
+	snprintf(revision, size, "%s", fake->firmware);
+	return fake->revision_result;
 }
 
 static int fake_api(void *context, uint16_t *version)
@@ -83,7 +102,8 @@ static int fake_serial(void *context, uint8_t serial[UTIL_SERIAL_BUFFER_LEN])
 
 static const struct util_report_ops ops = {
 	fake_board_id,
-	fake_firmware,
+	fake_firmware_info,
+	fake_firmware_revision,
 	fake_api,
 	fake_compile_info,
 	fake_part_id,
@@ -297,7 +317,8 @@ MU_TEST(failed_identity_reads_name_the_query_once_each)
 	captured = run(&request, &fake);
 	mu_assert_int_eq(1, captured.status);
 	mu_assert(strcmp(captured.out,
-	                 "Firmware version: git-test (API:1.07)\ncompile-test\n") == 0,
+	                 "Firmware version: bluetooth_rxtx git-test (API:1.07)\n"
+	                 "bluetooth_rxtx: compile-test\n") == 0,
 	          "other reports not printed");
 	mu_assert(strcmp(captured.err,
 	                 "error: board ID read failed\n"
@@ -356,8 +377,8 @@ MU_TEST(board_id_composes_with_firmware_compile_part_and_serial)
 	struct captured captured = run(&request, &fake);
 	static const char expected[] =
 		"Board ID Number: 1 (Ubertooth One)\n"
-		"Firmware version: git-test (API:1.07)\n"
-		"compile-test\n"
+		"Firmware version: bluetooth_rxtx git-test (API:1.07)\n"
+		"bluetooth_rxtx: compile-test\n"
 		"Part ID: 25011723\n"
 		"Serial No: a1a2a3a4a5a6a7a8a9aaabacadaeafb0\n";
 
@@ -397,7 +418,7 @@ MU_TEST(early_failure_is_not_masked_by_later_success)
 	captured = run(&request, &fake);
 	mu_assert_int_eq(1, captured.status);
 	/* Later reports still run and print. */
-	mu_assert(strstr(captured.out, "Firmware version: git-test") != NULL,
+	mu_assert(strstr(captured.out, "Firmware version: bluetooth_rxtx git-test") != NULL,
 	          "firmware report skipped after failure");
 	mu_assert(strstr(captured.out, "Serial No: ") != NULL,
 	          "serial report skipped after failure");
@@ -446,7 +467,7 @@ MU_TEST(part_id_error_fails_and_firmware_api_error_fails)
 	fake.api_result = -1;
 	captured = run(&request, &fake);
 	mu_assert_int_eq(1, captured.status);
-	mu_assert(strstr(captured.out, "Firmware version: git-test\n") != NULL,
+	mu_assert(strstr(captured.out, "Firmware version: bluetooth_rxtx git-test\n") != NULL,
 	          "firmware line missing without API");
 }
 
@@ -469,8 +490,12 @@ MU_TEST(firmware_revision_error_fails_without_printing_a_line)
 	mu_assert_int_eq(1, captured.status);
 	mu_assert(strstr(captured.out, "Firmware version") == NULL,
 	          "firmware line printed on error");
-	mu_assert(strstr(captured.out, "compile-test\n") != NULL,
-	          "compile info skipped after firmware failure");
+	/* -V names the image from the same block, so a block that will not read
+	 * costs that line too. */
+	mu_assert(strstr(captured.out, "compile-test") == NULL,
+	          "compile info printed without the block that names its image");
+	mu_assert(strstr(captured.out, "Serial No: ") != NULL,
+	          "serial report skipped after firmware failure");
 }
 
 MU_TEST(compile_info_error_fails_without_printing_a_line)
@@ -491,10 +516,68 @@ MU_TEST(compile_info_error_fails_without_printing_a_line)
 	mu_assert_int_eq(1, captured.status);
 	mu_assert(strstr(captured.out, "compile-test") == NULL,
 	          "compile info printed on error");
-	mu_assert(strstr(captured.out, "Firmware version: git-test (API:1.07)\n") != NULL,
+	mu_assert(strstr(captured.out, "Firmware version: bluetooth_rxtx git-test (API:1.07)\n") != NULL,
 	          "firmware line missing");
 	mu_assert(strstr(captured.out, "Serial No: ") != NULL,
 	          "serial skipped after compile info failure");
+}
+
+/* -V names the image the compile info came from, and that name is in the
+ * firmware info block, so -V on its own fails when the block will not read
+ * even though the compile info itself would have. */
+MU_TEST(compile_info_fails_when_the_block_read_fails)
+{
+	struct fake_device fake = make_fake();
+	struct util_report_request request;
+	struct captured captured;
+
+	memset(&request, 0, sizeof(request));
+	request.compile_info = 1;
+	fake.firmware_result = -7;
+	captured = run(&request, &fake);
+	mu_assert_int_eq(1, captured.status);
+	mu_assert_int_eq(0, (long)strlen(captured.out));
+}
+
+/*
+ * Firmware built before the info block existed stalls the request for it.
+ * Both reports carry on from what that firmware does answer: -v prints the
+ * revision with no image name, the line this tool always printed, and -V
+ * prints the build string on its own.
+ */
+MU_TEST(firmware_without_a_block_is_still_reported)
+{
+	struct fake_device fake = make_fake();
+	struct util_report_request request;
+	struct captured captured;
+
+	memset(&request, 0, sizeof(request));
+	request.firmware = 1;
+	request.compile_info = 1;
+	fake.firmware_result = UTIL_ERROR_NO_FW_INFO;
+	captured = run(&request, &fake);
+	mu_assert_int_eq(0, captured.status);
+	mu_assert(strcmp(captured.out,
+	                 "Firmware version: git-test (API:1.07)\n"
+	                 "compile-test\n") == 0,
+	          "a board with no info block was not reported from what it answers");
+}
+
+/* A stall with no revision to fall back on is still a failure, and a failed
+ * read prints no line. */
+MU_TEST(a_stalled_block_with_an_unreadable_revision_prints_no_line)
+{
+	struct fake_device fake = make_fake();
+	struct util_report_request request;
+	struct captured captured;
+
+	memset(&request, 0, sizeof(request));
+	request.firmware = 1;
+	fake.firmware_result = UTIL_ERROR_NO_FW_INFO;
+	fake.revision_result = -7;
+	captured = run(&request, &fake);
+	mu_assert_int_eq(1, captured.status);
+	mu_assert_int_eq(0, (long)strlen(captured.out));
 }
 
 MU_TEST(nonzero_successful_values_do_not_become_status)
@@ -545,6 +628,9 @@ int main(void)
 	MU_RUN(part_id_error_fails_and_firmware_api_error_fails);
 	MU_RUN(firmware_revision_error_fails_without_printing_a_line);
 	MU_RUN(compile_info_error_fails_without_printing_a_line);
+	MU_RUN(compile_info_fails_when_the_block_read_fails);
+	MU_RUN(firmware_without_a_block_is_still_reported);
+	MU_RUN(a_stalled_block_with_an_unreadable_revision_prints_no_line);
 	MU_RUN(nonzero_successful_values_do_not_become_status);
 	MU_RUN(status_helpers);
 	return mu_report();

@@ -63,7 +63,29 @@ def read(path):
         return handle.read()
 
 
-FIRMWARE = b"ubertooth git-testing (builder@host) 2026-01-01\x00" + bytes(200)
+# A firmware payload laid out like a real image: the build string at the
+# start, and the firmware info block at the fixed offset -d reads the image
+# name and revision from (ubertooth_interface.h). -d refuses a file without
+# one, so every image these cases use carries it.
+FW_INFO_OFFSET = 0x100
+FW_INFO_LENGTH = 64
+
+
+def _firmware():
+    body = bytearray(b"\xff" * (FW_INFO_OFFSET + FW_INFO_LENGTH + 64))
+    marker = b"ubertooth git-testing (builder@host) 2026-01-01\x00"
+    body[0:len(marker)] = marker
+    block = bytearray(FW_INFO_LENGTH)
+    block[0:8] = b"UBTFINFO"
+    block[8:10] = (1).to_bytes(2, "little")
+    block[10:12] = (0x0133).to_bytes(2, "little")
+    block[16:30] = b"bluetooth_rxtx"
+    block[32:43] = b"git-testing"
+    body[FW_INFO_OFFSET:FW_INFO_OFFSET + FW_INFO_LENGTH] = block
+    return bytes(body)
+
+
+FIRMWARE = _firmware()
 
 
 def expected_signed(payload):

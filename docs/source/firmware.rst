@@ -31,14 +31,19 @@ accept, and ``ubertooth-btbr`` says it could not set the Ubertooth up.
 How To Update Firmware
 ~~~~~~~~~~~~~~~~~~~~~~
 
-First, grab the `latest Ubertooth release <https://github.com/greatscottgadgets/ubertooth/releases/latest>`__. Then, extract the archive and change into directory ``ubertooth-one-firmware-bin``.
-
-You may then run the ``ubertooth-dfu`` command like so:
+Flash the firmware built from this tree: the host tools require firmware of
+their own API version, and ``ubertooth-dfu`` only writes an image carrying the
+firmware info block described below, so images from an upstream release are
+refused. ``./install.sh --flash-device <index|serial|all>`` builds and flashes
+it; to do it by
+hand, build the image with ``make -C firmware/bluetooth_rxtx`` and run the
+``ubertooth-dfu`` command like so:
 
 	.. code-block:: Sh
 
 		$ ubertooth-dfu -d bluetooth_rxtx.dfu -r
 		Checking firmware signature
+		Image: bluetooth_rxtx git-ed30131d* (API:1.33)
 		Switching selected device to DFU mode...
 		........................................
 		........................................
@@ -50,12 +55,18 @@ selected device by its physical USB path, and makes bounded retries if the
 application returns without entering DFU. With multiple devices already in DFU,
 it fails rather than choosing one ambiguously.
 
-After flashing with ``-d ... -r``, the tool extracts the expected revision from
-the image, waits for the application to return on the same physical USB path,
-and requires the reported revision to match before returning success. If a
-programming transfer fails while the device remains in DFU, it reopens that same
-path and retries the complete image once from block zero. Project firmware
-images include the compile-information marker used for this verification.
+Every image built from this tree carries a firmware info block at a fixed
+offset, naming the image and the revision it was built from. The tool reads it
+out of the file before it writes anything, says what it is about to write
+(``Image: bluetooth_rxtx git-ed30131d* (API:1.33)``), and refuses a file that
+carries no such block, which includes every image built before the block
+existed.
+
+After flashing with ``-d ... -r``, the tool takes the expected revision from
+that block, waits for the application to return on the same physical USB path,
+and requires the revision the board reports to match before returning success.
+If a programming transfer fails while the device remains in DFU, it reopens
+that same path and retries the complete image once from block zero.
 
 The reset request itself often fails, because the bootloader disconnects as it
 resets rather than acknowledging the request first. That is not a failure: the
@@ -101,13 +112,15 @@ In non-DFU mode, you can obtain firmware information with ``ubertooth-util -v``.
 	.. code-block:: sh
 
 		$ ubertooth-util -v
-		Firmware version: 2018-12-R1 (API:1.05)
+		Firmware version: bluetooth_rxtx git-ed30131d* (API:1.33)
 		$ ubertooth-util -V
-		ubertooth 2018-12-R1 (mikeryan@steel) Tue Aug  7 15:33:06 PDT 2018
+		bluetooth_rxtx: ubertooth git-ed30131d* (builder@host) Tue Aug  7 15:33:06 PDT 2018
 
-A firmware built from a git checkout reports its git revision instead, e.g.
-``git-1a2b3c4`` (with a trailing ``*`` if the working tree had uncommitted
-changes); release archives report the release name as above. The version is
+Both lines start with the image the board is running, read from its firmware
+info block; a board running firmware from before the block shows the revision
+alone. A firmware built from a git checkout reports its git revision as
+above, with a trailing ``*`` if the working tree had uncommitted changes; a
+release build reports the release name instead. The version is
 generated into a ``version.h`` at build time and tracks the exact source it was
 built from, so ``-v`` always reflects the firmware actually running.
 

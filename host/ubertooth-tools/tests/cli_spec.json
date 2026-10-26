@@ -228,7 +228,7 @@
       "options": {
         "-h": {"value": "none", "role": "help"},
         "-d": {"value": "required", "role": "work", "valid": ["IMAGE.dfu"],
-               "doc": "write an image; the whole image is checked before a device is opened, so a file that is not a DFU image is refused there"},
+               "doc": "write an image; the whole image is checked before a device is opened, so a file that is not a DFU image is refused there, as is a signed file with no firmware info block at the fixed offset"},
         "-u": {"value": "required", "role": "work", "valid": ["OUT.bin"],
                "doc": "read the application flash region back"},
         "-s": {"value": "required", "role": "work", "valid": ["PLAIN.bin"],

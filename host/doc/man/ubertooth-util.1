@@ -53,7 +53,27 @@ ubertooth\-util \-U <serial> \-S      # stop; the LEDs end off
 .fi
 .IP "" 0
 .P
-\fB\-I\fR needs firmware of this tree's API version and refuses any other, saying so\. The other options work with any firmware, so \fB\-v\fR can still read the version, and ubertooth\-dfu(1) can reflash it\.
+\fB\-I\fR needs firmware of this tree's API version and refuses any other, saying so\. The other options are not gated on the API version, and ubertooth\-dfu(1) reflashes a board whatever firmware it is running, so a board is always recoverable with an image from this tree\.
+.P
+\fB\-v\fR and \fB\-V\fR read the firmware info block described below, so they name the image the board is running:
+.IP "" 4
+.nf
+$ ubertooth\-util \-v
+Firmware version: bluetooth_rxtx git\-ed30131d* (API:1\.33)
+$ ubertooth\-util \-V
+bluetooth_rxtx: ubertooth git\-ed30131d* (builder@buildhost) Mon Oct 27 11:22:33 2025
+.fi
+.IP "" 0
+.P
+Every image built from this tree carries that block at a fixed offset, which is also where ubertooth\-dfu(1) reads it out of a firmware file, so a board and the file it was flashed from are named in the same terms\. Firmware built before the block existed has none to read, and both options then report what it does answer: the revision alone, with no image name in front of it\. Identifying an unknown board is what these two options are for, so neither needs firmware from this tree\.
+.IP "" 4
+.nf
+$ ubertooth\-util \-v        # a board running 2020\-12\-R1
+Firmware version: 2020\-12\-R1 (API:1\.07)
+.fi
+.IP "" 0
+.P
+The API version beside the revision is not from the block: it is the USB \fBbcdDevice\fR, which is the number the other tools check a board against\. The \fBbtbr\fR image reports a fixed \fBbcdDevice\fR of 1\.06 whatever it was built from, which is why every tool but this one and ubertooth\-dfu(1) refuses a board running it\.
 .P
 The API version is bumped whenever a firmware change affects the host, so a board flashed from an earlier commit is normally refused rather than used\. It still does not pin down a commit, since several commits share one number: the firmware revision shown by \fB\-v\fR beside the API version is what identifies the build\. Flash the firmware from the commit the tools were built from (\fB\./install\.sh \-\-flash\fR)\.
 .P
@@ -70,10 +90,10 @@ To put a board into the DFU bootloader and reflash it, use ubertooth\-dfu(1), wh
 Common options:
 .TP
 \fB\-v\fR
-get firmware revision number; exits non\-zero if the read fails
+get the image and revision the firmware was built from; exits non\-zero if the read fails
 .TP
 \fB\-V\fR
-get compile info; exits non\-zero if the read fails
+get compile info, named with the image it came from; exits non\-zero if the read fails
 .TP
 \fB\-H\fR, \fB\-\-host\-version\fR
 get host tools (libubertooth) version; works without a device
@@ -212,7 +232,7 @@ libUSB Error: Access denied (insufficient permissions)
 .P
 An all\-digits string is always an index, never a serial, even when it would match a serial: \fB\-U 05\fR asks for index 5, not for the board whose serial starts \fB05f0\fR\. Select that board by a longer prefix that includes a non\-digit (\fB\-U 05f\fR), or by its full serial\.
 .P
-With several Ubertooths attached and no \fB\-U\fR, the read\-only identity queries \fB\-s\fR (serial), \fB\-v\fR (firmware version), \fB\-V\fR (compile info), \fB\-p\fR (part ID) and \fB\-b\fR (board ID) report every device, in enumeration order, instead of refusing to pick one\. A single query prints one \fB<index>: <value>\fR line per device:
+With several Ubertooths attached and no \fB\-U\fR, the read\-only identity queries \fB\-s\fR (serial), \fB\-v\fR (firmware image and revision), \fB\-V\fR (compile info), \fB\-p\fR (part ID) and \fB\-b\fR (board ID) report every device, in enumeration order, instead of refusing to pick one\. A single query prints one \fB<index>: <value>\fR line per device:
 .IP "" 4
 .nf
 $ ubertooth\-util \-s

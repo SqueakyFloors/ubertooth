@@ -68,8 +68,34 @@ blinks a second, until it is stopped:
     ubertooth-util -U <serial> -S      # stop; the LEDs end off
 
 `-I` needs firmware of this tree's API version and refuses any other, saying
-so. The other options work with any firmware, so `-v` can still read the
-version, and ubertooth-dfu(1) can reflash it.
+so. The other options are not gated on the API version, and ubertooth-dfu(1)
+reflashes a board whatever firmware it is running, so a board is always
+recoverable with an image from this tree.
+
+`-v` and `-V` read the firmware info block described below, so they name the
+image the board is running:
+
+    $ ubertooth-util -v
+    Firmware version: bluetooth_rxtx git-ed30131d* (API:1.33)
+    $ ubertooth-util -V
+    bluetooth_rxtx: ubertooth git-ed30131d* (builder@buildhost) Mon Oct 27 11:22:33 2025
+
+Every image built from this tree carries that block at a fixed offset, which
+is also where ubertooth-dfu(1) reads it out of a firmware file, so a board and
+the file it was flashed from are named in the same terms. Firmware built before
+the block existed has none to read, and both options then report what it does
+answer: the revision alone, with no image name in front of it. Identifying an
+unknown board is what these two options are for, so neither needs firmware
+from this tree.
+
+    $ ubertooth-util -v        # a board running 2020-12-R1
+    Firmware version: 2020-12-R1 (API:1.07)
+
+The API version beside the
+revision is not from the block: it is the USB `bcdDevice`, which is the number
+the other tools check a board against. The `btbr` image reports a fixed
+`bcdDevice` of 1.06 whatever it was built from, which is why every tool but
+this one and ubertooth-dfu(1) refuses a board running it.
 
 The API version is bumped whenever a firmware change affects the host, so a
 board flashed from an earlier commit is normally refused rather than used. It
@@ -100,9 +126,11 @@ ENTERING BOOTLOADER).
 Common options:
 
  - `-v` :
-   get firmware revision number; exits non-zero if the read fails
+   get the image and revision the firmware was built from; exits non-zero if
+   the read fails
  - `-V` :
-   get compile info; exits non-zero if the read fails
+   get compile info, named with the image it came from; exits non-zero if the
+   read fails
  - `-H`, `--host-version` :
    get host tools (libubertooth) version; works without a device
  - `-I` :
@@ -296,7 +324,8 @@ match a serial: `-U 05` asks for index 5, not for the board whose serial starts
 (`-U 05f`), or by its full serial.
 
 With several Ubertooths attached and no `-U`, the read-only identity queries
-`-s` (serial), `-v` (firmware version), `-V` (compile info), `-p` (part ID) and
+`-s` (serial), `-v` (firmware image and revision), `-V` (compile info), `-p`
+(part ID) and
 `-b` (board ID) report every device, in enumeration order, instead of refusing
 to pick one. A single query prints one `<index>: <value>` line per device:
 

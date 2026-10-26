@@ -197,12 +197,12 @@ int sign(FILE* infile, FILE* outfile, uint16_t idVendor, uint16_t idProduct) {
  * a write covers is worked out from; it is left alone when the image is
  * refused. */
 static int check_download_image(const char* name, FILE* downfile,
-                                int want_revision,
-                                char* revision, size_t revision_size,
+                                struct ubertooth_fw_info* info,
                                 unsigned long* image_size)
 {
 	struct dfu_image_report image_report;
 	char message[160];
+	int found;
 
 	/* Progress, so standard error, where the refusal below goes too: the two
 	 * then stay in order whatever either stream is piped into. */
@@ -220,15 +220,25 @@ static int check_download_image(const char* name, FILE* downfile,
 	/* The check has read the whole file, so its length is settled here and
 	 * the flash a write covers can be worked out from it. */
 	*image_size = (unsigned long)image_report.image_size;
-	if (want_revision &&
-	    dfu_extract_firmware_revision(downfile, revision, revision_size) != 0) {
-		/* The revision may be absent, or the file may have failed to read;
-		 * either way -r has nothing to check the board against. */
-		fprintf(stderr, "error: %s: could not read a firmware revision from "
-		        "the image, which -r needs to check the board afterwards; "
-		        "firmware will not be updated\n", name);
+	/* Every image from this tree carries a firmware info block at a fixed
+	 * offset. A DFU file that has none is some other device's image, or a
+	 * file that happens to carry a valid suffix, so it is refused here --
+	 * before the board is asked to leave its application, and so before
+	 * anything is erased. */
+	found = dfu_read_image_info(downfile, info);
+	if (found != UBERTOOTH_FW_INFO_OK) {
+		fprintf(stderr, "error: %s: %s at offset 0x%x\n", name,
+		        ubertooth_fw_info_result_string(found),
+		        UBERTOOTH_FW_INFO_OFFSET);
+		fprintf(stderr, "Not an Ubertooth firmware image, firmware will "
+		        "not be updated\n");
 		return 1;
 	}
+	/* What is about to be written: a note about the run, so standard error,
+	 * where the revision lines after it already go. */
+	fprintf(stderr, "Image: %s %s (API:%x.%02x)\n", info->image,
+	        info->revision, (info->api_version >> 8) & 0xFF,
+	        info->api_version & 0xFF);
 	return 0;
 }
 
@@ -1290,7 +1300,9 @@ int main(int argc, char **argv) {
 	libusb_device_handle* devh = NULL;
 	struct dfu_usb_identity selected_identity;
 	struct dfu_runtime_context runtime;
-	char expected_revision[UBERTOOTH_REVISION_MAX + 1] = {0};
+	/* What the -d image says about itself, read from its firmware info
+	 * block; its revision is what the -r verification expects back. */
+	struct ubertooth_fw_info image_info = {0};
 	unsigned long download_image_size = 0;
 	uint8_t functions = 0;
 	int interface_claimed = 0;
@@ -1404,16 +1416,14 @@ int main(int argc, char **argv) {
 	 * as it was, so -s ... -d <refused image> writes no signed file, and the
 	 * board keeps running its firmware. */
 	if (functions & FUNC_DOWNLOAD) {
-		if (check_download_image(downfile_name, downfile,
-		                         (functions & FUNC_RESET) != 0,
-		                         expected_revision,
-		                         sizeof(expected_revision),
+		if (check_download_image(downfile_name, downfile, &image_info,
 		                         &download_image_size) != 0) {
 			exit_status = 1;
 			goto end_without_device;
 		}
 		if (functions & FUNC_RESET) {
-			fprintf(stderr, "DFU expected revision: %s\n", expected_revision);
+			fprintf(stderr, "DFU expected revision: %s\n",
+			        image_info.revision);
 			fflush(stderr);
 		}
 	}
@@ -1720,18 +1730,18 @@ int main(int argc, char **argv) {
 		log_dfu_stage("post-reset application verification started");
 		runtime.verify_identity = &selected_identity;
 		r = dfu_verify_application(&VERIFY_OPS, &runtime, selector,
-		                           &selected_identity, expected_revision,
+		                           &selected_identity, image_info.revision,
 		                           &verify_config, &verify_report);
 		if (r != DFU_VERIFY_OK) {
 			fprintf(stderr,
 			        "Post-reset verification failed: result=%d expected=%s actual=%s usb_error=%d\n",
-			        verify_report.result, expected_revision,
+			        verify_report.result, image_info.revision,
 			        verify_report.actual_revision,
 			        verify_report.operation_error);
 			exit_status = 1;
 			goto cleanup;
 		}
-		fprintf(stderr, "Verified firmware revision: %s\n", expected_revision);
+		fprintf(stderr, "Verified firmware revision: %s\n", image_info.revision);
 		log_dfu_stage("post-reset application verification completed");
 	}
 

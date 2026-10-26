@@ -11,6 +11,13 @@ add_executable(test-dfu-recovery
 	../src/dfu_recovery.c
 	../src/dfu_transition.c)
 
+# dfu_recovery.h describes the firmware info block, whose layout is shared
+# with the firmware in libubertooth's ubertooth_interface.h.
+if(libubertooth_SOURCE_DIR)
+	target_include_directories(test-dfu-recovery PRIVATE ${libubertooth_SOURCE_DIR}/src)
+else()
+	target_include_directories(test-dfu-recovery PRIVATE ${LIBUBERTOOTH_INCLUDE_DIR})
+endif()
 target_include_directories(test-dfu-recovery PRIVATE ../src)
 
 add_test(NAME dfu-recovery COMMAND test-dfu-recovery)
@@ -256,6 +263,13 @@ add_executable(test-util-report
 	test_util_report.c
 	../src/util_report.c)
 
+# util_report.h describes the firmware info block -v and -V report, whose
+# layout is in libubertooth's ubertooth_interface.h.
+if(libubertooth_SOURCE_DIR)
+	target_include_directories(test-util-report PRIVATE ${libubertooth_SOURCE_DIR}/src)
+else()
+	target_include_directories(test-util-report PRIVATE ${LIBUBERTOOTH_INCLUDE_DIR})
+endif()
 target_include_directories(test-util-report PRIVATE ../src)
 
 add_test(NAME util-report COMMAND test-util-report)
