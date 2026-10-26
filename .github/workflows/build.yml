@@ -256,12 +256,13 @@ jobs:
       if: runner.os == 'macOS'
 
     # Bounding the download reports a slow mirror instead of waiting for it,
-    # but it cannot make the download finish: measured here, the same 94 MB
-    # arrived in 8 seconds on a healthy mirror and at 0.06 MB a second on a
-    # bad one, which is half an hour. Keeping the .deb files between runs is
-    # the only thing that removes the download, so the two steps below do
-    # that and the fetch beneath them stays exactly as it was for the run
-    # that has to do it for real.
+    # but it cannot make the download finish, and the download is large: 574
+    # MB on Ubuntu 24.04, of which 462 MB is the C++ runtime. The same fetch
+    # took 31 seconds on a healthy mirror and, an hour later on a bad one,
+    # moved 3 MB in 63 seconds and did not get through the 57 MB compiler in
+    # either attempt. Keeping the .deb files between runs is the only thing
+    # that removes the download, so the two steps below do that and the
+    # fetch beneath them is unchanged for the run that has to do it for real.
     #
     # The key is the set of files apt would fetch, not the package names.
     # apt-get --print-uris resolves the names against the runner image's
@@ -279,32 +280,35 @@ jobs:
       id: toolchain
       if: runner.os == 'Linux'
       run: |
-        # Fields 2 to 4 are the file name, its size and its hash; field 1 is
-        # the mirror URL, left out so a run that is sent to a different
-        # mirror still matches the cache.
+        uris="$RUNNER_TEMP/toolchain-uris"
+        # What is left of each line is the file name, its size and its hash;
+        # the mirror URL in front of them is dropped, so a run sent to a
+        # different mirror still matches the cache.
         sudo apt-get install --print-uris -y --no-install-recommends -d \
-          $ARM_PACKAGES | sed -n "s/^'[^']*' //p" | sort > toolchain-uris
-        cat toolchain-uris
-        echo "key=$(cut -d' ' -f1-3 < toolchain-uris | sha256sum | cut -c1-16)" \
-          >> "$GITHUB_OUTPUT"
-        rm -f toolchain-uris
+          $ARM_PACKAGES | sed -n "s/^'[^']*' //p" | sort > "$uris"
+        cat "$uris"
+        echo "key=$(sha256sum < "$uris" | cut -c1-16)" >> "$GITHUB_OUTPUT"
 
     - name: Restore the toolchain packages
       if: runner.os == 'Linux'
       uses: actions/cache@v4
       with:
         path: ${{ runner.temp }}/apt-archives
-        key: arm-toolchain-${{ matrix.os }}-${{ steps.toolchain.outputs.key }}
+        # No runner label in the key. Two images that resolve the same .deb
+        # files want the same cache, and ubuntu-latest is ubuntu-24.04 today,
+        # so keying on the label would have stored half a gigabyte twice and
+        # left the canary with a cold run of its own.
+        key: arm-toolchain-${{ steps.toolchain.outputs.key }}
 
     - name: Install dependencies (Ubuntu)
-      # Sized for the run that finds nothing cached: 94 to 110 MB of
-      # toolchain, depending on the release. One attempt has to fetch all of
-      # it, since a killed apt keeps only the packages it had finished, so
-      # the limit comes from the slowest mirror seen here that still
-      # completed -- 0.4 MB a second, about four minutes. An attempt gets
-      # five. That is 10 minutes 30 seconds of retries at worst, and then the
-      # unpacking. A mirror slower than that is reported rather than waited
-      # on, which is the whole point.
+      # Only the run that finds nothing cached gets this far, and one attempt
+      # has to fetch the whole 574 MB, because a killed apt keeps only the
+      # packages it had finished: in a run measured here, attempt two still
+      # needed 571 MB of the 574. Five minutes an attempt therefore wants
+      # about 2 MB a second, which a healthy mirror beats several times over
+      # and a bad one does not come close to. A mirror that slow is reported
+      # by name rather than waited on, which is the point of the bound; what
+      # removes the wait altogether is the cache above.
       timeout-minutes: 12
       run: |
         archives="$RUNNER_TEMP/apt-archives"
