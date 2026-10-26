@@ -11,9 +11,10 @@ CFLAGS  ?= -O2 -Wall -Wextra -std=gnu99 -g
 FW_RXTX := ../bluetooth_rxtx
 FW_BTBR := ../btbr
 FW_COMMON := ../common
+FW_BTBR := ../btbr
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_mode_dispatch test_le_phy_order test_grmdm_rx_generic test_tx_generic_bounds
+TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_mode_dispatch test_le_phy_order test_grmdm_rx_generic test_tx_generic_bounds test_btbr_hop
 BINDIR  := bin
 
 .PHONY: all test clean
@@ -95,6 +96,19 @@ $(BINDIR)/test_tx_generic_bounds: test_tx_generic_bounds.c minunit.h \
 		source_scan.h $(FW_RXTX)/bluetooth_rxtx.c | $(BINDIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
 		-o $@ test_tx_generic_bounds.c
+
+# hop.c in the btbr image reaches the hardware only through ubtbr/debug.h,
+# which pulls in the console and USB headers and an ARM inline-asm helper;
+# stubs-btbr/ supplies a hardware-free stand-in. -Istubs-btbr comes first so
+# it wins. perm5.c is the pre-computed PERM5 table and nothing else, so it
+# links as is; the test supplies the btphy state.
+$(BINDIR)/test_btbr_hop: test_btbr_hop.c minunit.h stubs-btbr/ubtbr/debug.h \
+		$(FW_BTBR)/src/btphy/hop.c $(FW_BTBR)/src/codec/perm5.c \
+		$(FW_BTBR)/include/ubtbr/hop.h $(FW_BTBR)/include/ubtbr/btphy.h \
+		| $(BINDIR)
+	$(CC) $(CFLAGS) -Istubs-btbr -I$(FW_BTBR)/include $(CPPFLAGS) \
+		-o $@ test_btbr_hop.c $(FW_BTBR)/src/btphy/hop.c \
+		$(FW_BTBR)/src/codec/perm5.c
 
 $(BINDIR):
 	mkdir -p $(BINDIR)

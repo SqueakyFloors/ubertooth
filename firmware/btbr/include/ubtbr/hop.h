@@ -7,13 +7,22 @@ typedef struct hop_state_s {
 	uint8_t a27_23, a22_19, C, E;
 	uint16_t a18_10;
 	uint8_t x;
-	/* frequency register bank */
+	/*
+	 * Basic mapping table (Core spec Vol 2 Part B 2.6.2): even channels in
+	 * ascending order followed by odd channels.  AFH consults it first, so
+	 * it always describes the full 79-channel sequence.
+	 */
 	uint8_t basic_bank[NUM_BREDR_CHANNELS];
+	/*
+	 * AFH mapping table (2.6.3.1): the basic table with every unused
+	 * channel removed, holding afh_chan_count entries.
+	 */
 	uint8_t afh_bank[NUM_BREDR_CHANNELS];
 	uint8_t afh_chan_count;
+	/* Channel map as the host sends it, one bit per channel, channel 0 in
+	 * the least significant bit of byte 0 (btctl_set_afh_req_t.map). */
+	uint8_t afh_map[10];
 	uint8_t afh_enabled;
-	uint8_t *bank;
-	uint8_t chan_count;
 } hop_state_t;
 
 void hop_init(uint32_t address);
@@ -27,7 +36,7 @@ extern hop_state_t hop_state;
 
 static inline uint8_t perm5(uint8_t z, uint8_t p_high, uint16_t p_low)
 {
-	extern uint8_t perm5_lut[2][4096];
+	extern const uint8_t perm5_lut[2][4096];
 	uint16_t p = (p_low&0x1ff)|((p_high&0x1f)<<9);
 
 	z &= 0x1f;
@@ -66,7 +75,7 @@ even slots are the master's), in a way that:
 * CLK[5:2,0] is a simple incrementing counter (jumping over slave slots indicated by CLK[1]==1) to satisfy (1);
 * CLK[16:12]*17 ensures adding 17 every 1.28s to satisfy (2);
 * CLK[16:13]*16 ensures adding 17+17+16=50 == 18 (mod 32) every 2.56s to satisfy (3). */
-inline uint8_t calc_iterate_slave_page_scan_phase(uint32_t clk)
+static inline uint8_t calc_iterate_slave_page_scan_phase(uint32_t clk)
 {
 	// 	X = ( CLK[5...2,0] + CLK[16...12]*17 + CLK[16...13]*16 ) mod 32
 	return ((((clk>>1) & 0x1e) | (clk&1) ) + ((clk>>12)&0x1f)*17 + ((clk>>13)&0xf)*16)%32  ;
@@ -75,7 +84,7 @@ inline uint8_t calc_iterate_slave_page_scan_phase(uint32_t clk)
 /* When we recive an ID(1) acknoledgment, that is, ID(2) From the slave device we transition into PAGE_RESPONSE
 we freeze this value and use a frozen value of this +N (see Master Page Response Substate hopping scheme control word)
 ("our" N is actually hop_state.x which is also used in bbcodec) */
-inline void hop_freeze_clock(uint32_t clk)
+static inline void hop_freeze_clock(uint32_t clk)
 {
 	hop_state.x = calc_iterate_slave_page_scan_phase(clk);
 }

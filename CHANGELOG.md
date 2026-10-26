@@ -510,6 +510,12 @@
   Bluetooth spec's re-mapping and same-channel rules. A new AFH map now takes
   effect at once, including in sweep and `ubertooth-afh` modes.
   [#34](https://github.com/SqueakyFloors/ubertooth/issues/34)
+- The `btbr` firmware image hops to the channels the Bluetooth spec selects.
+  Under an AFH map it now keeps a used channel of the basic sequence instead of
+  always selecting inside the reduced set, and falls back to basic hopping
+  below the spec minimum of 20 used channels; without a map it no longer picks
+  the wrong channel for some addresses.
+  [#13](https://github.com/SqueakyFloors/ubertooth/issues/13)
 - Correct Bluetooth Low Energy cyclic redundancy check filtering and perform
   verification in the physical-layer engine. Credit: oliver
   ([@Oliver0804](https://github.com/Oliver0804)).
