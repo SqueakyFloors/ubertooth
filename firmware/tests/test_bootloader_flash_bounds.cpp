@@ -802,6 +802,23 @@ MU_TEST(test_a_part_that_starts_answering_is_probed_again)
 	          "a part that started answering kept the fallback bound");
 }
 
+/*
+ * A part that refuses sector 0 is answering nonsense -- no part has no flash
+ * at all -- so the walk gives nothing and the fallback stands. Without this,
+ * the bound would be 0 and every address would be refused.
+ */
+MU_TEST(test_a_part_that_refuses_its_first_sector_keeps_the_old_bound)
+{
+	Flash flash;
+
+	attach_part(PART_UNKNOWN, 0);
+
+	mu_assert_int_eq(LPC_FLASH_SIZE_FALLBACK, (int)flash.flash_bound());
+	mu_assert(flash.valid_address(0),
+	          "a part that refused sector 0 has no addresses at all");
+	mu_assert_int_eq(1, (int)blank_checks);
+}
+
 /* A part read that fails on its own falls through to the probe, which is the
  * part answering the same question directly. */
 MU_TEST(test_a_failed_part_read_falls_through_to_the_probe)
@@ -836,6 +853,21 @@ MU_TEST(test_a_failed_part_read_falls_through_to_the_probe)
 	"if( !flash.valid_address(flash_address_start) || " \
 	"!flash.valid_address(flash_address_end - 1) ) { " \
 	"return error(ERRADDRESS); }"
+
+/*
+ * The rest of each handler, matched whole for the same reason: a call by name
+ * says nothing about the address it is given, so a handler could check one
+ * address and act on another -- check the start of the block and write its
+ * end -- with every name the scan looks for still present.
+ */
+#define DNLOAD_FLOOR \
+	"if( !memory_policy::write_permitted(flash_address_start) ) { " \
+	"return error(ERRWRITE); }"
+#define DNLOAD_WRITE \
+	"if( !flash.write(flash_address_start, source_address, length) ) { " \
+	"return error(ERRPROG); }"
+#define UPLOAD_READ \
+	"memcpy(pbData, reinterpret_cast<const void*>(flash_address_start), length);"
 
 struct scan {
 	int floor;                 /* the bootloader's own flash, in memory_policy */
@@ -1025,6 +1057,12 @@ MU_TEST(test_the_read_back_refuses_before_it_reads)
 	         "refusal does not stop the request",
 	         dfu_path, s.upload, UPLOAD_REFUSAL);
 	mu_assert(strstr(s.upload_text, UPLOAD_REFUSAL) != NULL, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: request_upload() does not read with \"%s\", so it may "
+	         "read an address it did not check",
+	         dfu_path, s.upload, UPLOAD_READ);
+	mu_assert(strstr(s.upload_text, UPLOAD_READ) != NULL, msg);
 }
 
 MU_TEST(test_the_download_refuses_before_it_writes)
@@ -1042,6 +1080,13 @@ MU_TEST(test_the_download_refuses_before_it_writes)
 	         "bootloader's own flash", dfu_path, s.dnload);
 	mu_assert(s.dnload_permitted > 0 && s.dnload_errwrite > s.dnload_permitted,
 	          msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the check against the bootloader's own flash is at line "
+	         "%d, after the write at %d, so a download can overwrite the "
+	         "bootloader", dfu_path, s.dnload, s.dnload_permitted,
+	         s.dnload_write);
+	mu_assert(s.dnload_permitted < s.dnload_write, msg);
 
 	snprintf(msg, sizeof(msg),
 	         "%s:%d: request_dnload() does not put the block's first address to "
@@ -1083,6 +1128,17 @@ MU_TEST(test_the_download_refuses_before_it_writes)
 	         "refuse exactly the blocks with no flash behind them",
 	         dfu_path, s.dnload, DNLOAD_GUARD);
 	mu_assert(strstr(s.dnload_text, DNLOAD_GUARD) != NULL, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: request_dnload() does not check the bootloader's own "
+	         "flash with \"%s\"", dfu_path, s.dnload, DNLOAD_FLOOR);
+	mu_assert(strstr(s.dnload_text, DNLOAD_FLOOR) != NULL, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: request_dnload() does not write with \"%s\", so it may "
+	         "write an address it did not check",
+	         dfu_path, s.dnload, DNLOAD_WRITE);
+	mu_assert(strstr(s.dnload_text, DNLOAD_WRITE) != NULL, msg);
 }
 
 /*
@@ -1232,6 +1288,7 @@ int main(void)
 	MU_RUN(test_a_part_that_answers_nothing_keeps_the_old_bound);
 	MU_RUN(test_a_failed_probe_is_not_walked_again);
 	MU_RUN(test_a_part_that_starts_answering_is_probed_again);
+	MU_RUN(test_a_part_that_refuses_its_first_sector_keeps_the_old_bound);
 	MU_RUN(test_a_failed_part_read_falls_through_to_the_probe);
 
 	/* Scanned once here rather than from the first of the tests below,

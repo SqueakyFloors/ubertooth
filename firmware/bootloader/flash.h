@@ -173,12 +173,12 @@ public:
      * sectors it has instead, so that nothing here depends on a part being
      * listed. If neither answers, the old fixed 512 KiB stands.
      *
-     * An answer is remembered: the part cannot change while the bootloader
-     * runs, and a transfer checks two addresses for every 256-byte block, so
-     * asking again each time would make it crawl. The table is still looked
-     * up each time until it answers, because that costs one command, so a
-     * part whose identification number only reads later still ends up bounded
-     * by its own flash.
+     * The first answer, from either source, is remembered: the part cannot
+     * change while the bootloader runs, and a transfer checks two addresses
+     * for every 256-byte block, so asking again each time would make it
+     * crawl. While neither has answered, the table is looked up on every
+     * check, because that costs one command, so a part whose identification
+     * number only reads later still ends up bounded by its own flash.
      *
      * The probe is not retried on the same reading of the part, because it is
      * up to 30 commands: a part that failed it would otherwise be re-walked

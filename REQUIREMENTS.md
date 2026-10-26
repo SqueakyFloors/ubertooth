@@ -48,7 +48,9 @@ See [COMPATIBILITY.md](COMPATIBILITY.md) for supported OS / toolchain / Python *
 ## Quick install (Ubuntu 22.04 / 24.04, macOS with Homebrew)
 
 The easiest path is the bootstrap script, which installs all of the below and
-builds/installs libbtbb and the host tools for you:
+builds/installs libbtbb and the host tools for you. The one exception is the
+ARM C++ runtime: nothing the script builds needs it, so install it by hand if
+you are going to build the bootloader (`make -C firmware bootloader`).
 
 ```sh
 ./install.sh            # see ./install.sh --help for options (venv, flash, ...)
