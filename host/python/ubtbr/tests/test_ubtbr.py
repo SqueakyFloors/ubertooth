@@ -12,7 +12,7 @@ What is checked:
   * a command the device never answers still stops. The message loop used to
     wait for a message with no timeout and leave only when a state response
     said so, so a request the device never answered left the command thread
-    waiting for good. Whoever then stopped it joined that thread with no
+    waiting forever. Whoever then stopped it joined that thread with no
     timeout either, which is why the tool could not be interrupted: Ctrl-C at
     the prompt runs the same stop, so the key meant to recover the tool was
     what wedged it.
@@ -22,7 +22,7 @@ What is checked:
     returns and closes the device.
 
   * a close() while the receive loop is stuck inside libusb returns rather
-    than joining for good, and leaves the device open: closing the handle
+    than joining forever, and leaves the device open: closing the handle
     under a read still running there turns an exit into a crash.
 
   * the tool itself, driven through its prompt: "q" exits 0, where it used to
@@ -518,6 +518,10 @@ with contextlib.redirect_stderr(io.StringIO()):
     prompt.do_exit("q")
 assert not handle.closed, \
     "the device must stay open while a command can still write to it"
+# only close() knows it kept the device open here, since the prompt had
+# already let go of the command: it has to say so, or the session reports
+# success having abandoned a claimed board
+assert prompt.abandoned(), "an exit that left the device claimed is not clean"
 print("ubtbr: exiting leaves the device open for a command nobody holds")
 
 # ---- a message that stopped part way --------------------------------------
@@ -642,7 +646,7 @@ for packet, timeout in recorded_writes():
 print("ubtbr: q at the prompt exits 0")
 
 # a device that takes none of the requests: the tool says so on standard
-# error and exits 1, where the write used to wait for good
+# error and exits 1, where the write used to wait forever
 running = tool(dict(ENVIRONMENT, UBTBR_FAKE_WRITE_FAILS_AFTER="0"))
 output, errors = running.communicate("", timeout=DEADLINE * 2)
 assert running.returncode == 1, (running.returncode, output, errors)
@@ -698,15 +702,19 @@ print("ubtbr: no Ubertooth is one error line and exit 1")
 # touches nothing and says what is wrong with it rather than reporting
 # whatever the board did first: there is no device here to find, and the
 # answer is still about the option.
-running = subprocess.Popen([sys.executable, WRAPPER, "-f", "nine"],
-                           stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                           stderr=subprocess.PIPE, text=True,
-                           env=dict(ENVIRONMENT, UBTBR_FAKE_NO_DEVICE="1"))
-output, errors = running.communicate("", timeout=DEADLINE * 2)
-assert running.returncode == 1, (running.returncode, output, errors)
-assert output == "", output
-assert errors == "error: -f must be a whole number (got nine)\n", repr(errors)
-assert not writes(), writes()
+# "nine" is not a number; -5 and 70000 do not fit the 16 bits the request
+# packs, and used to reach the packing and raise from there, which left the
+# device open and the receive thread inside libusb.
+for bad in ("nine", "-5", "70000"):
+    running = subprocess.Popen([sys.executable, WRAPPER, "-f", bad],
+                               stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, text=True,
+                               env=dict(ENVIRONMENT, UBTBR_FAKE_NO_DEVICE="1"))
+    output, errors = running.communicate("", timeout=DEADLINE * 2)
+    assert running.returncode == 1, (bad, running.returncode, output, errors)
+    assert output == "", (bad, output)
+    assert errors == "error: -f must be 0-65535 (got %s)\n" % bad, repr(errors)
+    assert not writes(), (bad, writes())
 print("ubtbr: a bad option value is refused before a board is opened")
 
 # an interrupt before the prompt is up, which is the window the hang shortly

@@ -234,8 +234,9 @@
   or answer, and no board at all, are reported instead of hanging or ending in
   a traceback, and the `Malformed EIR` note moves off standard output. A
   session that ends with the board still held by a command that would not stop
-  now exits 1 rather than 0, and a bad `-f` or `-b` value is refused before a
-  board is opened. The hang shortly after start is unresolved.
+  now exits 1 rather than 0, a `-f` or `-b` value that is not 0-65535 is
+  refused before a board is opened, and a bad `bdaddr` at the prompt is an
+  `error:` line on standard error. The hang shortly after start is unresolved.
   [#1](https://github.com/SqueakyFloors/ubertooth/issues/1)
 - A follow-mode control command the board refuses now names itself and says
   what went wrong, for example `error: start hopping failed: the board does

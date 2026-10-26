@@ -64,7 +64,8 @@ class BTCtlPrompt(Cmd):
 		except:
 			pass
 		if bdaddr is None or bdaddr < 0 or bdaddr >= (1<<48):
-			print("Invalid BD_ADDR")
+			# A diagnostic, so not on standard output.
+			eprint("error: BD_ADDR must be xx:xx:xx:xx:xx:xx (got %s)\n"%inp)
 		else:
 			return bdaddr
 
@@ -149,8 +150,11 @@ class BTCtlPrompt(Cmd):
 			log.error("Leaving the device open: %s is still running"
 				%self._cmd)
 			self._abandoned = True
-		else:
-			self._bt.close()
+		elif not self._bt.close():
+			# close() has said what it kept the device open for: a command
+			# this prompt had already let go of, or a receive thread still
+			# inside libusb.
+			self._abandoned = True
 		return True
 
 	def abandoned(self):
@@ -260,13 +264,18 @@ def main():
 	# Read before the device is opened, so a command line that is wrong is
 	# refused without touching a board, and says what is wrong with it rather
 	# than reporting whatever the board did first.
+	# Both go into a request as 16 bits, so a value outside that is refused
+	# here rather than reaching the packing and raising from there.
 	settings = []
 	for o, v in opt:
 		try:
-			settings.append((o, int(v)))
+			value = int(v)
 		except ValueError:
-			eprint("error: %s must be a whole number (got %s)\n"%(o, v))
+			value = None
+		if value is None or value < 0 or value > 0xffff:
+			eprint("error: %s must be 0-65535 (got %s)\n"%(o, v))
 			sys.exit(1)
+		settings.append((o, value))
 
 	bt = None
 	try:
@@ -290,7 +299,7 @@ def main():
 		sys.exit(1)
 	except (usb1.USBError, BTCtlError) as e:
 		# A board running firmware other than ubtbr takes none of this, and
-		# used to leave the tool waiting on the write for good.
+		# used to leave the tool waiting on the write forever.
 		eprint("error: could not set up the Ubertooth: %s\n"%e)
 		leave(bt, 1)
 	except KeyboardInterrupt:

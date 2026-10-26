@@ -626,6 +626,10 @@ class BTCtlSuperCmd(Thread):
 		# on at once instead of at the end of the current step.
 		self._stopped.wait(timeout)
 
+	def __str__(self):
+		# Named like a BTCtlCmd, since the same messages report both.
+		return self.__class__.__name__
+
 	def run(self):
 		try:
 			while not self.stopped():
@@ -857,7 +861,7 @@ class BTCtl:
 	JOIN_TIMEOUT = 2
 	# Milliseconds a request may take to reach the device. Writes were given
 	# no timeout at all, so a device that never drains the endpoint, which is
-	# what firmware other than ubtbr looks like, blocked the sender for good
+	# what firmware other than ubtbr looks like, blocked the sender forever
 	# inside a libusb call no keyboard interrupt can reach. Long enough that
 	# nothing working trips it.
 	WRITE_TIMEOUT = 2000
@@ -872,6 +876,9 @@ class BTCtl:
 		# Set when a message may have been left half delivered, after which
 		# the device accepts nothing but the rest of it.
 		self._out_of_step = False
+		# Whether the USB handle is still open, which outlives _con: a close
+		# that had to leave the device alone clears one and not the other.
+		self._open = False
 		self._msg_handler = None
 
 	@staticmethod
@@ -989,6 +996,7 @@ class BTCtl:
 		self._rx_thread = Thread(target=self._rx_thread_main, daemon=True)
 		self._rx_thread.start()
 		log.info("USB connected")
+		self._open = True
 		self._con = True
 		self.send_idle_cmd()
 		sleep(1)
@@ -1001,9 +1009,17 @@ class BTCtl:
 		return self._rx_error
 
 	def close(self):
+		"""Ask the device to go idle and close it.
+
+		Returns whether the device ended up closed. A receive thread still
+		inside libusb, or a command that still owns the messages, leaves the
+		handle open, because closing it under either is how a clean exit
+		turns into a crash. The caller is the only one that can report that
+		the session did not finish what it was asked.
+		"""
 		if not self.connected():
 			log.warning("Not connected")
-			return
+			return not self._open
 		self._con = False
 		try:
 			self.send_idle_cmd()
@@ -1014,10 +1030,8 @@ class BTCtl:
 		self._rx_stopped.set()
 		self._rx_thread.join(self.JOIN_TIMEOUT)
 		if self._rx_thread.is_alive():
-			# Closing the handle under a read still running in libusb is how
-			# a clean exit turns into a crash, so leave it to the exit.
 			log.error("Receive thread did not stop; leaving the device open")
-			return
+			return False
 		if self._msg_handler is not None:
 			# A command still owns the messages, so it is still running and
 			# can still write. Whoever started it may have lost track of it:
@@ -1025,8 +1039,10 @@ class BTCtl:
 			# and then end itself, leaving nobody holding the child. This is
 			# the check that covers every such route.
 			log.error("A command is still running; leaving the device open")
-			return
+			return False
 		self._usb.close()
+		self._open = False
+		return True
 
 	def _send_usb_bulk(self, bulk):
 		assert(len(bulk)<=64)
