@@ -21,6 +21,13 @@
 # failure in a few minutes, and the retry recovers the common case where the
 # mirror is only having a bad minute.
 #
+# Every failure is retried, not only a timeout, because a mirror having a bad
+# minute surfaces as whatever the package manager made of it -- a 404 from a
+# half-written index, a hash mismatch, apt's own 100 -- and telling those from
+# a genuine "no such package" by their status is guesswork. The waiting costs
+# 15 seconds, so retrying the deterministic failures too is the cheaper
+# mistake; their own error is printed on every attempt.
+#
 # The command's own output is left alone; the notes and errors here go to
 # standard error. Exit status is the command's, or 1 when it never completed.
 
@@ -33,20 +40,20 @@ grace=10
 usage="usage: tools/retry.sh <seconds> <command> [argument ...]"
 
 if [ $# -ge 1 ] && { [ "$1" = -h ] || [ "$1" = --help ]; }; then
-    echo "$usage"
+    printf '%s\n' "$usage"
     exit 0
 fi
 
 # Run with nothing at all, print the usage text; refuse any other bad command
 # line with the error line alone, as .kiro/steering/cli-output.md asks.
 if [ $# -eq 0 ]; then
-    echo "error: a per-attempt limit in seconds and a command are both needed" >&2
-    echo "$usage" >&2
+    printf '%s\n' "error: a per-attempt limit in seconds and a command are both needed" >&2
+    printf '%s\n' "$usage" >&2
     exit 1
 fi
 
 if [ $# -lt 2 ]; then
-    echo "error: no command given after the per-attempt limit '$1'" >&2
+    printf '%s\n' "error: no command given after the per-attempt limit '$1'" >&2
     exit 1
 fi
 
@@ -55,7 +62,7 @@ shift
 
 case $limit in
     '' | *[!0-9]*)
-        echo "error: the per-attempt limit must be whole seconds, not '$limit'" >&2
+        printf '%s\n' "error: the per-attempt limit must be whole seconds, not '$limit'" >&2
         exit 1
         ;;
 esac
@@ -63,7 +70,7 @@ esac
 # 0 is rejected rather than passed on, because `timeout 0` means no limit at
 # all, which is the one thing this script exists to prevent.
 if [ "$limit" -eq 0 ]; then
-    echo "error: the per-attempt limit must not be 0, which means no limit" >&2
+    printf '%s\n' "error: the per-attempt limit must not be 0, which means no limit" >&2
     exit 1
 fi
 
@@ -78,7 +85,7 @@ elif command -v gtimeout > /dev/null 2>&1; then
     limiter=gtimeout
 else
     limiter=
-    echo "note: no timeout command here, so attempts are not time-limited" >&2
+    printf '%s\n' "note: no timeout command here, so attempts are not time-limited" >&2
 fi
 
 attempt=1
@@ -109,27 +116,27 @@ while :; do
     # reading of it here rather than a certain one.
     if [ "$status" -eq 124 ] || [ "$status" -eq 137 ]; then
         timed_out=yes
-        echo "note: '$*' did not finish within ${limit}s (attempt $attempt of $attempts)" >&2
+        printf '%s\n' "note: '$*' did not finish within ${limit}s (attempt $attempt of $attempts)" >&2
     else
         timed_out=no
-        echo "note: '$*' failed with status $status (attempt $attempt of $attempts)" >&2
+        printf '%s\n' "note: '$*' failed with status $status (attempt $attempt of $attempts)" >&2
     fi
 
     if [ "$attempt" -ge "$attempts" ]; then
         break
     fi
     attempt=$((attempt + 1))
-    echo "note: retrying in ${backoff}s" >&2
+    printf '%s\n' "note: retrying in ${backoff}s" >&2
     sleep "$backoff"
     backoff=$((backoff * 2))
 done
 
 if [ "$timed_out" = yes ]; then
-    echo "error: '$*' never finished, in $attempts attempts of ${limit}s each." >&2
-    echo "       The package mirror is too slow or has stalled. This is not a" >&2
-    echo "       build or test failure; re-run the job." >&2
+    printf '%s\n' "error: '$*' never finished, in $attempts attempts of ${limit}s each." >&2
+    printf '%s\n' "       The package mirror is too slow or has stalled. This is not a" >&2
+    printf '%s\n' "       build or test failure; re-run the job." >&2
     exit 1
 fi
 
-echo "error: '$*' failed $attempts times, last with status $status." >&2
+printf '%s\n' "error: '$*' failed $attempts times, last with status $status." >&2
 exit "$status"

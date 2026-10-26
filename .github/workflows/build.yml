@@ -70,8 +70,10 @@ jobs:
 
     - name: Check the libbtbb pin
       shell: bash
-      # It clones libbtbb, so it waits on the network like the install steps:
-      # 60 seconds an attempt is at most 3 minutes 45 seconds.
+      # It clones libbtbb, so it waits on the network like the install steps.
+      # On Linux 60 seconds an attempt caps the retries at 3 minutes 45; the
+      # macOS runners have no timeout command, so there this limit is the only
+      # bound on a clone that never answers.
       timeout-minutes: 5
       # Two things have to hold for the pin: every file that writes it out
       # agrees, and the commit is one a user can actually get.
@@ -104,6 +106,7 @@ jobs:
         # The clone is removed inside the retried command, because an attempt
         # that had to be killed leaves the directory behind and git refuses to
         # clone into one that is not empty.
+        : "${RUNNER_TEMP:?}"
         clone="$RUNNER_TEMP/libbtbb-pin.git"
         tools/retry.sh 60 sh -c 'rm -rf "$1" && git clone --quiet --bare "$2" "$1"' \
           clone-libbtbb "$clone" "https://github.com/$LIBBTBB_REPO"
@@ -472,10 +475,16 @@ jobs:
       # tools/retry.sh really is unavailable here, but timeout is not, so the
       # two downloads are bounded and say what happened, without being retried.
       run: |
-        timeout 100 apt-get update ||
-          { echo "error: apt-get update never finished; the mirror has stalled" >&2; exit 1; }
-        timeout 100 apt-get install -y --no-install-recommends -d ca-certificates git ||
-          { echo "error: downloading git never finished; the mirror has stalled" >&2; exit 1; }
+        # 124 is the limit being reached. Any other failure is apt's own and
+        # has printed its reason, so only the timeout needs explaining.
+        bounded() {
+          timeout 100 "$@" && return 0
+          [ $? -eq 124 ] &&
+            echo "error: '$*' never finished; the package mirror has stalled" >&2
+          exit 1
+        }
+        bounded apt-get update
+        bounded apt-get install -y --no-install-recommends -d ca-certificates git
         apt-get install -y --no-install-recommends ca-certificates git
 
     - uses: actions/checkout@v4
