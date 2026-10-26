@@ -993,10 +993,10 @@ int rx_afh(ubertooth_t* ut, btbb_piconet* pn, int timeout)
 		r = stream_rx_usb(ut, cb_afh_initial, pn, cmd_afh);
 
 		/* Out of AFH mode before the monitor phase starts it again -- but
-		 * not when this phase's transfer was never handed back. As in
-		 * ubertooth_cleanup(), that is a board which has gone or stopped
-		 * answering, and it is asked for nothing; the monitor phase then
-		 * refuses to start on a handle whose transfer is still in flight. */
+		 * not when this phase's transfer was never handed back, for the
+		 * reason ubertooth_cleanup() gives: with no status for the lost
+		 * transfer, the board cannot be known to be there to answer. A
+		 * monitor phase on such a handle refuses to start anyway. */
 		if (ut->rx_xfer == NULL)
 			cmd_stop(ut->devh);
 		ut->stop_ubertooth = 0;
@@ -1207,12 +1207,13 @@ static void ubertooth_cleanup(ubertooth_t* ut, int send_stop)
 		 * Nothing more is asked of the board either, not even the stop.
 		 * Which board this is cannot be told from here: one that has left
 		 * the bus or stopped answering, or a live one whose cancellation
-		 * did not arrive within the wait above. Neither can be stopped --
-		 * the first cannot hear the request, and for the second it would
-		 * mean submitting a transfer on a session that still has one stuck
-		 * in flight, which is the call this teardown has faulted inside
-		 * libusb on. The warning covers both: it says the board may still
-		 * be capturing, and ubertooth(7) says how to stop one. */
+		 * did not arrive within the wait above. The transfer's callback
+		 * never ran, so there is no status to tell them apart. A stop sent
+		 * blind would reach only the live one; on the others it would add a
+		 * libusb error line about a board that is no longer there to answer
+		 * it. The warning covers all of them: it says the board may still
+		 * be capturing, and ubertooth(7) names ubertooth-util -S for one
+		 * that is. */
 		fprintf(stderr, "warning: the receive transfer did not finish; the "
 		        "Ubertooth is left open and may still be capturing\n");
 		/* The run is a failure all the same, so a caller can tell it from a
