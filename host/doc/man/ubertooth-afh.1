@@ -78,6 +78,8 @@ A command line the tool will not take is reported as that one \fBerror:\fR line 
 It exits 2 when the \fB\-t\fR detection phase received no packet from the piconet (see DETECTION AND MONITORING)\. The number of seconds in that message is the \fB\-t\fR value, not the time actually spent listening, which is shorter if the tool was interrupted during the phase\.
 .P
 It exits 1 without opening a device for a bad command line (a missing UAP or LAP, an option value out of range, or a word that is not an option) or when the piconet it tracks cannot be allocated (\fBerror: out of memory\fR), and when the selected Ubertooth is not found\. Without \fB\-r\fR, it also exits 1 when the receive could not be started at all; \fB\-r\fR does not report that and still exits 0\.
+.P
+A run whose USB stream fails part\-way, with or without \fB\-r\fR, exits 1: the board stopped answering or dropped off the bus, so what it reported is whatever arrived before that\. A detection phase that lost its stream is never reported as a quiet piconet, so it exits 1 rather than 2\.
 .SH "SEE ALSO"
 ubertooth\-util(1): sets the receive squelch (\fB\-z\fR); SQUELCH describes how long it lasts
 .P

@@ -302,6 +302,16 @@ int main(int argc, char* argv[])
 		ubertooth_bulk_thread_stop();
 
 		ubertooth_stop(ut);
+
+		/* A capture whose stream died stopped there, so it holds less than
+		 * was asked for. The exit status has to say so, or a caller cannot
+		 * tell it from a timeout or a Ctrl-C. The handle is read after the
+		 * teardown, because cancelling the transfer can be what brings the
+		 * failure out. The survey results below are still printed, since
+		 * they are what did arrive, and libubertooth has already printed
+		 * what failed. */
+		if (ubertooth_stream_failed(ut))
+			exit_status = 1;
 	} else {
 		/* A read error or a last record cut short is reported and ends
 		 * the command with an error, after whatever was decoded. */

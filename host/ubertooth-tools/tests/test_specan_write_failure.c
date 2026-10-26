@@ -7,6 +7,10 @@
  * capture it never received had succeeded, so the failure is recorded, the
  * receive loop stops, and the run exits 1.
  *
+ * The other way a running sweep ends early is the board's USB stream failing,
+ * which libubertooth records on the handle; the main() cases below cover that
+ * too, next to the ordinary ends it must not be confused with.
+ *
  * cb_specan() is static in ubertooth-specan.c, so that source is compiled in
  * here with main() renamed, as test_util_main.c does. The first half of this
  * file drives the callback directly, with a fifo it fills itself. The second
@@ -18,6 +22,7 @@
  * fakes here, and only its fifo is the real one.
  */
 #include <fcntl.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -282,6 +287,9 @@ static struct {
 	int thread_starts, thread_stops, specan_calls, stops, device_stops;
 	int blocks;            /* blocks handed to the callback */
 	int blocks_to_sweep;   /* ...before the fake ends the endless sweep */
+	int stream_dies_after; /* ...after which the stream fails, 0 for never */
+	int stream_failed;     /* what ubertooth_stream_failed() reports */
+	int interrupt_after;   /* blocks after which a Ctrl-C arrives */
 	int start_fails;
 	int check_api_rc, bulk_init_rc, specan_rc, stop_rc, thread_start_rc;
 	int stop_before_bulk_init; /* STOP was sent before the transfer was set up */
@@ -316,11 +324,27 @@ int ubertooth_check_api(ubertooth_t* ut)
 	return device.check_api_rc;
 }
 
+/* The one the library installs stops the capture on Ctrl-C, which is how
+ * every sweep ends in practice, so the fake does the same: a case can then
+ * raise a real signal and check what the tool makes of it. */
+static void fake_cleanup(int sig)
+{
+	(void)sig;
+	device.ut.stop_ubertooth = 1;
+}
+
 void register_cleanup_handler(ubertooth_t* ut, int do_exit)
 {
 	(void)ut;
 	(void)do_exit;
 	device.cleanup_handlers++;
+	signal(SIGINT, fake_cleanup);
+}
+
+int ubertooth_stream_failed(ubertooth_t* ut)
+{
+	(void)ut;
+	return device.stream_failed;
 }
 
 int cmd_stop(struct libusb_device_handle* devh)
@@ -379,7 +403,11 @@ int cmd_specan(struct libusb_device_handle* devh, u16 low_freq, u16 high_freq)
 }
 
 /* One block of samples per call, as the board would send them. A sweep never
- * ends by itself, so the fake ends it after blocks_to_sweep blocks. */
+ * ends by itself, so the fake ends it after blocks_to_sweep blocks.
+ *
+ * It can also end it the two other ways a real sweep ends: a stream that
+ * fails, which libubertooth reports and records on the handle before stopping
+ * the capture, and a Ctrl-C, which only stops it. */
 int ubertooth_bulk_receive(ubertooth_t* ut, rx_callback cb, void* cb_args)
 {
 	usb_pkt_rx rx;
@@ -388,6 +416,15 @@ int ubertooth_bulk_receive(ubertooth_t* ut, rx_callback cb, void* cb_args)
 	fifo_push(ut->fifo, &rx);
 	cb(ut, cb_args);
 	device.blocks++;
+	if (device.stream_dies_after && device.blocks >= device.stream_dies_after) {
+		fprintf(stderr, "error: receive transfer failed: Device "
+		        "disconnected. (5)\n");
+		device.stream_failed = 1;
+		ut->stop_ubertooth = 1;
+		return 1;
+	}
+	if (device.interrupt_after && device.blocks >= device.interrupt_after)
+		raise(SIGINT);
 	if (device.blocks >= device.blocks_to_sweep)
 		ut->stop_ubertooth = 1;
 	return 0;
@@ -537,6 +574,59 @@ MU_TEST(a_sweep_that_was_written_exits_zero)
 	unlink(path);
 }
 
+/*
+ * A sweep whose USB stream fails part-way holds fewer samples than were
+ * asked for. It used to exit 0: the error line went by, the receive loop kept
+ * spinning with nothing arriving, and the run ended on its own timeout or a
+ * Ctrl-C looking like a success.
+ */
+MU_TEST(a_sweep_whose_stream_died_exits_one)
+{
+	char path[64];
+	char err[512];
+	struct stat info;
+
+	reset_device();
+	device.stream_dies_after = 2;
+	device.blocks_to_sweep = 50;
+	mu_assert_fatal(make_temp_file(path, sizeof(path)) == 0,
+	                "temp file created");
+
+	mu_assert_int_eq(1, RUN_SPECAN(err, "-d", path));
+	/* On standard error, where the library put it, not mixed into samples. */
+	mu_assert(strstr(err, "error: receive transfer failed") != NULL, err);
+	/* Two blocks, not the fifty the fake would have supplied: the capture
+	 * stops where the stream died instead of waiting out the run. */
+	mu_assert_int_eq(2, device.blocks);
+	/* The samples that did arrive were still written out. */
+	mu_assert_int_eq(0, stat(path, &info));
+	mu_assert(info.st_size > 0, "the samples before the failure were written");
+	unlink(path);
+}
+
+/* A Ctrl-C is a user stopping a sweep that was working: it keeps exiting 0,
+ * with the samples it captured. */
+MU_TEST(an_interrupted_sweep_still_exits_zero)
+{
+	char path[64];
+	char err[512];
+	struct stat info;
+
+	reset_device();
+	device.interrupt_after = 2;
+	device.blocks_to_sweep = 50;
+	mu_assert_fatal(make_temp_file(path, sizeof(path)) == 0,
+	                "temp file created");
+
+	mu_assert_int_eq(0, RUN_SPECAN(err, "-d", path));
+	mu_assert(strcmp(err, "Ubertooth stopped\n") == 0, err);
+	mu_assert_int_eq(2, device.blocks);
+	mu_assert_int_eq(0, stat(path, &info));
+	mu_assert(info.st_size > 0, "the samples up to the interrupt were written");
+	unlink(path);
+	signal(SIGINT, SIG_DFL);
+}
+
 MU_TEST(a_refused_command_line_opens_no_device)
 {
 	char err[512];
@@ -564,6 +654,8 @@ int main(void)
 	MU_RUN(an_output_mode_that_is_not_one_of_ours_ends_the_run);
 	MU_RUN(a_sweep_that_could_not_be_written_exits_one);
 	MU_RUN(a_sweep_that_was_written_exits_zero);
+	MU_RUN(a_sweep_whose_stream_died_exits_one);
+	MU_RUN(an_interrupted_sweep_still_exits_zero);
 	MU_RUN(a_refused_command_line_opens_no_device);
 	return mu_report();
 }

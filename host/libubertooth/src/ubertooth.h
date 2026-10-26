@@ -48,7 +48,11 @@ typedef struct {
 	struct libusb_device_handle* devh;
 	struct libusb_transfer* rx_xfer;
 
-	uint8_t stop_ubertooth;
+	/* Set to stop the capture. Written from a signal handler (Ctrl-C, the
+	 * -t alarm) and from the poll thread (a stream that died), and read by
+	 * the capture's own loop while both of those can run, so the loop has
+	 * to reload it rather than keep a copy of it. */
+	volatile uint8_t stop_ubertooth;
 	uint64_t abs_start_ns;
 	uint32_t start_clk100ns;
 	uint64_t last_clk100ns;
@@ -83,6 +87,23 @@ typedef struct {
 	/* Whether the host clock running ahead of the reconstructed times has
 	 * already been reported, so it is said once per capture. */
 	uint8_t clk100ns_gap_warned;
+
+	/* Set when the receive stream ended because its USB transfer failed. It
+	 * holds the libusb transfer status, or LIBUSB_TRANSFER_ERROR for a
+	 * transfer libusb would not put back in flight. It stays 0 while a
+	 * capture runs and after every ordinary end: a timeout, an interrupt,
+	 * the teardown's own cancellation. So a capture that ends with this set
+	 * stopped where the stream died, and holds less than was asked for.
+	 * Read it through ubertooth_stream_failed().
+	 *
+	 * Written on the poll thread, like stop_ubertooth above, which is why
+	 * it is volatile too. A caller reads it once that thread is joined.
+	 *
+	 * It is never cleared once set. On a handle that runs more than one
+	 * stream (ubertooth-afh detects a map, then monitors it) it therefore
+	 * means "a stream on this handle failed", which is all a tool's exit
+	 * status has to say anyway. */
+	volatile int rx_stream_status;
 } ubertooth_t;
 
 typedef void (*rx_callback)(ubertooth_t* ut, void* args);
@@ -147,6 +168,15 @@ void ubertooth_set_timeout(ubertooth_t* ut, int seconds);
 int ubertooth_read_serial_string(struct libusb_device_handle* devh, char* out,
                                  size_t size, unsigned timeout_ms);
 
+/* Whether a receive stream on this handle ended because its USB transfer
+ * failed -- the board stopped answering, or dropped off the bus -- rather
+ * than because the capture was asked to stop. The failure is printed on
+ * standard error as it happens, and the capture stops there, so it captured
+ * less than was asked for: a tool that streamed has to turn this into a
+ * non-zero exit status. Read it after the capture's teardown, because
+ * cancelling the transfer can be what brings the failure out. */
+int ubertooth_stream_failed(ubertooth_t* ut);
+
 int ubertooth_bulk_init(ubertooth_t* ut);
 void ubertooth_bulk_wait(ubertooth_t* ut);
 int ubertooth_bulk_receive(ubertooth_t* ut, rx_callback cb, void* cb_args);
@@ -165,7 +195,14 @@ int stream_rx_file(ubertooth_t* ut,FILE* fp, rx_callback cb, void* cb_args);
  * the exit status the tool should use: 1 for anything but a clean end. */
 int rx_file_report(int result, const char* filename);
 
-void rx_dump(ubertooth_t* ut, int full);
+/* Returned by a receive path whose stream ended because the USB transfer
+ * failed, already reported, rather than because the capture was stopped. */
+#define UBERTOOTH_ERROR_STREAM_FAILED (-2001)
+
+/* Dumps received symbols until the capture is stopped. Returns 0 when it was
+ * stopped normally, or the error, already reported, if the capture could not
+ * be started or its stream died part-way. */
+int rx_dump(ubertooth_t* ut, int full);
 void rx_btle(ubertooth_t* ut);
 int rx_btle_file(FILE* fp);
 /* Returned by rx_afh() when the initial detection phase (-t) ended without a
@@ -181,7 +218,10 @@ int rx_btle_file(FILE* fp);
  * Returns 0 when the monitor was stopped normally, UBERTOOTH_AFH_NO_PACKETS
  * when the detection phase saw no packet (nothing is printed and monitoring is
  * not started), or a negative error: -1 if libbtbb could not be initialised,
- * or the receive error, already reported, if a phase could not run. */
+ * the receive error, already reported, if a phase could not run, or
+ * UBERTOOTH_ERROR_STREAM_FAILED if a phase's stream died part-way. A phase
+ * that lost its stream is not a quiet piconet, so it is never reported as
+ * "no packets". */
 int rx_afh(ubertooth_t* ut, btbb_piconet* pn, int timeout);
 void rx_afh_r(ubertooth_t* ut, btbb_piconet* pn, int timeout);
 

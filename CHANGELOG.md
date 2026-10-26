@@ -182,6 +182,11 @@
   The Kismet plugins' access code search no longer runs past the end of its
   bank either.
   [#416](https://github.com/SqueakyFloors/ubertooth/issues/416)
+- **Script-visible change:** a capture whose USB stream fails stops there and
+  exits 1, instead of waiting out its `-t` timer with nothing arriving and
+  reporting success. `ubertooth-rx`, `ubertooth-dump`, `ubertooth-specan`,
+  `ubertooth-scan`, `ubertooth-follow` and `ubertooth-afh` are affected.
+  [#319](https://github.com/SqueakyFloors/ubertooth/issues/319)
 - The firmware refuses a generic transmit request
   (`UBERTOOTH_TX_GENERIC_PACKET`) whose payload does not fit the packet, and no
   longer drops the last byte of one that does. No shipped tool sends it.

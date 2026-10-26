@@ -160,6 +160,9 @@ static void usage(FILE *file)
 int main(int argc, char *argv[])
 {
 	int opt, r = 0, output_mode = SPECAN_STDOUT;
+	/* 1 once the sweep's USB stream died part-way, so the exit status says
+	 * the samples are incomplete. */
+	int stream_failed = 0;
 	int do_help = 0;
 	int lower= SPECAN_FREQ_MIN, upper= SPECAN_FREQ_MAX;
 	char* ubertooth_device = NULL;
@@ -320,6 +323,13 @@ int main(int argc, char *argv[])
 	ubertooth_bulk_thread_stop();
 
 	ubertooth_stop(ut);
+
+	/* A sweep whose stream died stopped there, so the samples are
+	 * incomplete. The handle is read after the teardown, because cancelling
+	 * the transfer can be what brings the failure out. libubertooth has
+	 * already printed what failed. */
+	stream_failed = ubertooth_stream_failed(ut);
+
 	fprintf(stderr, "Ubertooth stopped\n");
 	/* The samples a write accepted may still be sitting in a stdio buffer, so
 	 * the last of them can fail after the sweep has ended: the run is not
@@ -329,9 +339,10 @@ int main(int argc, char *argv[])
 		output_failed = 1;
 	if (output_mode != SPECAN_FILE && specan_output_flushed(stdout) < 0)
 		output_failed = 1;
-	/* A sweep that could not be written out did not do what was asked, even
-	 * though the command that started it succeeded. */
-	if (output_failed)
+	/* A sweep that could not be written out, or that lost its stream part-way,
+	 * did not do what was asked, even though the command that started it
+	 * succeeded. */
+	if (output_failed || stream_failed)
 		return 1;
 	return r;
 }

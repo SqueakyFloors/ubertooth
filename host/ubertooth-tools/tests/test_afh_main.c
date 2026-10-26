@@ -30,6 +30,7 @@ static struct {
 	int stops;
 	int no_device;    /* no board matches -U */
 	int check_api_rc; /* returned by ubertooth_check_api() */
+	int stream_failed;/* the receive stream died part-way */
 	int no_memory;    /* btbb_piconet_new() cannot allocate */
 	int piconet_news; /* btbb_piconet_new() calls */
 	int piconet_frees;/* btbb_piconet_unref() calls */
@@ -129,6 +130,12 @@ void rx_afh_r(ubertooth_t *ut, btbb_piconet *pn, int timeout)
 	(void)pn;
 	fake.rx_afh_r_calls++;
 	fake.last_timeout = timeout;
+}
+
+int ubertooth_stream_failed(ubertooth_t *ut)
+{
+	(void)ut;
+	return fake.stream_failed;
 }
 
 void ubertooth_stop(ubertooth_t *ut)
@@ -283,12 +290,32 @@ MU_TEST(the_r_format_is_unchanged)
 	mu_assert(r.err[0] == '\0', r.err);
 }
 
+/* -r has no return value to carry a failure, so the run that lost its stream
+ * is read from the handle instead: it used to exit 0, which told a script the
+ * monitoring it never got had worked. */
+MU_TEST(the_r_format_exits_1_when_its_stream_died)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.stream_failed = 1;
+	r = RUN("-r", "-l", "446688", "-u", "22");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, fake.rx_afh_r_calls);
+	/* the library reported the failure; the tool adds nothing */
+	mu_assert(r.err[0] == '\0', r.err);
+	mu_assert_int_eq(1, fake.stops);
+}
+
 /* A library error - libbtbb, or a receive that could not be started - is not
  * reported as "no packets", and it is not reported as success either. The
  * library has already said what failed. */
 MU_TEST(a_library_error_is_not_mistaken_for_no_packets)
 {
-	static const int errors[] = { -1, -4 /* LIBUSB_ERROR_NO_DEVICE */ };
+	static const int errors[] = {
+		-1, -4 /* LIBUSB_ERROR_NO_DEVICE */,
+		UBERTOOTH_ERROR_STREAM_FAILED
+	};
 	struct run_result r;
 	size_t i;
 
@@ -402,6 +429,7 @@ int main(void)
 	MU_RUN(a_detected_map_still_exits_0_with_no_message);
 	MU_RUN(no_timeout_runs_the_monitor_as_before);
 	MU_RUN(the_r_format_is_unchanged);
+	MU_RUN(the_r_format_exits_1_when_its_stream_died);
 	MU_RUN(a_library_error_is_not_mistaken_for_no_packets);
 	MU_RUN(a_run_that_never_reaches_the_receive_phase_frees_the_piconet);
 	MU_RUN(a_piconet_that_cannot_be_allocated_is_refused);
