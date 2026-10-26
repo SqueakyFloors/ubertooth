@@ -267,16 +267,25 @@ static int streams_symbols(uint8_t m)
  *
  * Only state a running receive can be reset under: the radio stays tuned and
  * receiving, so the channel it is on and the modulation it is receiving are
- * left alone. Leaving the channel alone is also what lets a channel set on its
- * own, with no mode running, persist until a mode starts.
+ * left alone. The channel is also the one the host set for the capture it is
+ * starting, a request or two before this one.
  *
  * Call this before the request's own setup, which is what the absorbed mode
- * starts from. Re-sending the mode that is already running resets nothing: it
- * is not a mode start, and the dispatch does not reset for one either.
+ * starts from. Re-sending the mode that is already streaming resets nothing:
+ * it is not a mode start, and the dispatch does not reset for one either. That
+ * is what keeps a follow that re-syncs its clock mid-session -- which sends
+ * UBERTOOTH_START_HOPPING again -- from throwing away the AFH map it is
+ * following on.
+ *
+ * Which mode is streaming is `requested_mode`, not `mode`: an absorbed request
+ * never reaches the dispatch, so `mode` still names the mode that entered the
+ * loop, while the loop is streaming whatever the last accepted request asked
+ * for. Reading `mode` here would skip the reset on a second switch back, as in
+ * follow, then capture, then follow again.
  */
 static void reset_absorbed_mode_state(uint8_t requested)
 {
-	if (requested == mode || !streams_symbols(mode) ||
+	if (requested == requested_mode || !streams_symbols(mode) ||
 	    !streams_symbols(requested))
 		return;
 

@@ -91,7 +91,7 @@ static void cc2400_idle(void)
 /* reset_absorbed_mode_state() */
 static void reset_absorbed_mode_state(u8 requested)
 {
-	if (requested == mode || !streams_symbols(mode) ||
+	if (requested == requested_mode || !streams_symbols(mode) ||
 	    !streams_symbols(requested))
 		return;
 
@@ -379,6 +379,28 @@ MU_TEST(re_sending_the_running_mode_keeps_its_hopping)
 	mu_assert_int_eq(20, channels_visited());
 }
 
+/*
+ * Switching back and forth under one stream resets every time. An absorbed
+ * request never reaches the dispatch, so `mode` stays the mode that entered
+ * the loop: asking whether this request is a re-send has to compare it with
+ * the mode the loop is streaming, which is the last accepted request.
+ */
+MU_TEST(switching_back_resets_again)
+{
+	board_reset();
+	request_start_hopping();
+	request_rx_symbols();
+	/* A map arriving while the capture runs, as a host that drives the
+	 * board by hand can send one. */
+	request_set_afh_map(AFH_MAP_20);
+
+	request_start_hopping();
+
+	mu_assert_int_eq(HOP_BLUETOOTH, hop_mode);
+	mu_assert_int_eq(0, afh_enabled);
+	mu_assert_int_eq(NUM_BREDR_CHANNELS, channels_visited());
+}
+
 /* A channel set on its own persists until a mode starts. */
 MU_TEST(a_channel_set_on_its_own_persists)
 {
@@ -449,6 +471,7 @@ int main(void)
 	MU_RUN(an_absorbed_follow_hops_with_the_piconet);
 	MU_RUN(an_absorbed_detection_starts_from_an_empty_map);
 	MU_RUN(re_sending_the_running_mode_keeps_its_hopping);
+	MU_RUN(switching_back_resets_again);
 	MU_RUN(a_channel_set_on_its_own_persists);
 	MU_RUN(an_absorbed_request_leaves_the_channel_alone);
 	MU_RUN(a_dispatched_follow_still_hops);

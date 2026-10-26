@@ -469,14 +469,22 @@ int main(int argc, char *argv[])
 		return r;
 	}
 
-	/* A map read from the remote device with -a is applied after the mode
-	 * has started, not before: starting a mode forgets whatever AFH map the
-	 * board was holding, so a map sent first would be thrown away. With no
-	 * -a there is nothing to send, and the mode start is what leaves the
-	 * board hopping the whole channel set. The set is asynchronous, so this
-	 * catches a submission that fails, not a transfer that fails later. */
-	if (afh_enabled && cmd_set_afh_map(ut->devh, afh_map) < 0) {
-		fprintf(stderr, "error: setting the board's AFH map failed\n");
+	/* Say what this follow wants of the board's AFH map, after the mode has
+	 * started rather than before: starting a mode forgets the map, so one
+	 * sent first would be thrown away. A follow with no -a clears it, which
+	 * is what covers a run that follows a killed follow: the board is still
+	 * streaming in the same mode, so the firmware sees the same mode request
+	 * again and cannot tell this new run from a re-sync of the old one.
+	 * Both are checked, because carrying on would hop on the wrong channel
+	 * set either way. The request is asynchronous, so this catches a
+	 * submission that fails, not a transfer that fails later. */
+	if (afh_enabled)
+		r = cmd_set_afh_map(ut->devh, afh_map);
+	else
+		r = cmd_clear_afh_map(ut->devh);
+	if (r < 0) {
+		fprintf(stderr, "error: %s the board's AFH map failed\n",
+		        afh_enabled ? "setting" : "clearing");
 		follow_cleanup(ut, sock, handle, cc);
 		return 1;
 	}

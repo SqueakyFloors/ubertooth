@@ -440,22 +440,22 @@ running first and the reset would discard the value before the mode started.
 
 ## CARRY-OVER BETWEEN RUNS
 
-One rule covers everything a board holds from one command to the next:
+One rule covers what a board holds from one command to the next:
 
-- **Every mode start resets the board's mode state, its hop mode and its AFH
-  channel map.** A capture hops the way the mode that started it asks, and no
-  other way: `ubertooth-rx` after an `ubertooth-afh` hops across the whole
-  channel set, not on the map that run found. This holds even when the earlier
-  tool was killed and left the board streaming. The squelch and the LEDs go
-  with it, as above; the power amplifier level set with `-a` does not.
+- **Every mode start resets the mode state, hop mode and AFH channel map the
+  mode before it left.** A capture hops the way the mode that started it asks,
+  and no other way: `ubertooth-rx` after an `ubertooth-afh` hops across the
+  whole channel set, not on the map that run found. This holds even when the
+  earlier tool was killed and left the board streaming. The squelch and the
+  LEDs go with it, as above; the power amplifier level set with `-a` does not.
 - **A channel set on its own persists until a mode starts.** `-c`/`-C` with no
   mode on the command line leaves the board on that channel for as long as it
   stays idle, and a later `-c` reads it back. The next mode takes the channel
   over, so set it again afterwards.
 
-So a setting meant for one capture is set for that capture: on an idle board
-just before it starts, or on the board while it runs. Nothing a command leaves
-behind decides how the next one captures.
+What is set on an idle board is for the capture that follows, as the squelch
+is: no mode is being left, so there is nothing to reset. What a mode left
+behind, on the other hand, never decides how the next one captures.
 
 ## EXIT STATUS
 
