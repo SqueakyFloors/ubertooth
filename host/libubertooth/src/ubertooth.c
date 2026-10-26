@@ -992,7 +992,13 @@ int rx_afh(ubertooth_t* ut, btbb_piconet* pn, int timeout)
 		 * MODE_AFH. */
 		r = stream_rx_usb(ut, cb_afh_initial, pn, cmd_afh);
 
-		cmd_stop(ut->devh);
+		/* Out of AFH mode before the monitor phase starts it again -- but
+		 * not when this phase's transfer was never handed back, for the
+		 * reason ubertooth_cleanup() gives: with no status for the lost
+		 * transfer, the board cannot be known to be there to answer. A
+		 * monitor phase on such a handle refuses to start anyway. */
+		if (ut->rx_xfer == NULL)
+			cmd_stop(ut->devh);
 		ut->stop_ubertooth = 0;
 
 		/* A phase that could not even receive has not shown that the piconet
@@ -1198,15 +1204,36 @@ static void ubertooth_cleanup(ubertooth_t* ut, int send_stop)
 		 * handle goes when the process does. The capture files below are
 		 * still closed, so nothing a run wrote is lost.
 		 *
-		 * The stop is still worth sending, on the one path where the board
-		 * has already stopped behaving: it is a control transfer on a handle
-		 * that is deliberately still open, and it fails harmlessly if the
-		 * device has gone. A warning rather than an error, because the
-		 * command itself did what was asked. */
-		if (send_stop)
-			cmd_stop(ut->devh);
+		 * Nothing more is asked of the board either, not even the stop.
+		 * Which board this is cannot be told from here: one that has left
+		 * the bus or stopped answering, or a live one whose cancellation
+		 * did not arrive within the wait above. The transfer's callback
+		 * never ran, so there is no status to tell them apart, and a stop
+		 * sent blind would reach only the live one.
+		 *
+		 * Sending it would also hand this thread an event loop. cmd_stop()
+		 * uses libusb's synchronous control transfer, which handles events
+		 * until its own completes -- and the receive transfer is still in
+		 * flight, so its cancellation could complete inside that call and
+		 * run cb_xfer() here, on the one thread that is meant to be past
+		 * the stream (the poll thread was joined above). The teardown has
+		 * already chosen this branch by then.
+		 *
+		 * The warning covers every one of those boards: it says this one
+		 * may still be capturing, and ubertooth(7) names ubertooth-util -S
+		 * for a board that is. */
 		fprintf(stderr, "warning: the receive transfer did not finish; the "
 		        "Ubertooth is left open and may still be capturing\n");
+		/* The run is a failure all the same, so a caller can tell it from a
+		 * capture that finished: this one lost its stream, and left a board
+		 * that may still be sending. The message stays a warning because it
+		 * is about what was left behind; nothing can be said about what
+		 * went wrong, since the transfer's callback never ran to report it.
+		 * The first failure wins, as in rx_stream_failed(); stop_ubertooth
+		 * is left alone, because the capture it would stop is already
+		 * over. */
+		if (ut->rx_stream_status == 0)
+			ut->rx_stream_status = LIBUSB_TRANSFER_ERROR;
 	}
 	else {
 		if (ut->devh != NULL) {

@@ -69,7 +69,8 @@ A scan whose USB stream fails part-way also exits 1: the board stopped
 answering, or dropped off the bus, so the Ubertooth half of the scan stops
 there. The results it did get are still printed, and the failure is reported
 on standard error as it happens, as `error: receive transfer failed:
-<reason>`.
+<reason>`. A board that never hands the transfer back at all exits 1 too,
+reported by the `warning:` line ubertooth(7) describes rather than that error.
 
 A board that refuses the request that puts it in sweep mode exits 1 as well.
 Standard output stays empty. Standard error names the request, why the board

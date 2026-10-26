@@ -94,6 +94,10 @@ static struct {
 	int packet_pending;             /* fifo_empty() reports a packet waiting */
 	int poll_thread_idle;           /* completions are delivered only to the
 	                                 * thread that asks for them */
+	int device_gone;                /* the board has left the bus: a transfer
+	                                 * libusb is holding comes back with
+	                                 * LIBUSB_TRANSFER_NO_DEVICE, and every
+	                                 * control request is refused */
 	int closes;                     /* libusb_close() calls */
 	int exits;                      /* libusb_exit() calls */
 	pthread_t main_thread;
@@ -198,6 +202,8 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle* devh,
 	} else {
 		fake.overflow = 1;
 	}
+	if (fake.device_gone)
+		return LIBUSB_ERROR_NO_DEVICE;
 	if (bRequest == fake.refuse_request)
 		return LIBUSB_ERROR_PIPE; /* the board stalled it */
 	if (data != NULL && wLength > 0)
@@ -329,9 +335,11 @@ int LIBUSB_CALL libusb_cancel_transfer(struct libusb_transfer* xfer)
  * A cancelled transfer comes back cancelled, unless the case asked for a bulk
  * timeout or a packet instead: libusb reports either for a transfer whose
  * completion beat the cancellation, and either used to put a cancelled
- * transfer back in flight. poll_thread_idle keeps the delivery on the calling
- * thread, which is the timing a teardown sees when the poll thread has already
- * been joined. */
+ * transfer back in flight. A case with device_gone set gets NO_DEVICE for any
+ * transfer libusb is holding.
+ *
+ * poll_thread_idle keeps the delivery on the calling thread, which is the
+ * timing a teardown sees when the poll thread has already been joined. */
 int LIBUSB_CALL libusb_handle_events_timeout(libusb_context* ctx,
                                              struct timeval* tv)
 {
@@ -350,10 +358,14 @@ int LIBUSB_CALL libusb_handle_events_timeout(libusb_context* ctx,
 
 		if (fx->state != FX_IN_FLIGHT && fx->state != FX_CANCELLING)
 			continue;
-		if (fx->state == FX_IN_FLIGHT
+		if (fx->state == FX_IN_FLIGHT && !fake.device_gone
 		    && !fake.time_out_once && !fake.complete_once)
 			continue; /* nothing has happened to it yet */
-		if (fake.time_out_once) {
+		if (fake.device_gone) {
+			/* A board that has left the bus ends the transfer this way
+			 * whether or not a cancellation was already under way. */
+			xfer->status = LIBUSB_TRANSFER_NO_DEVICE;
+		} else if (fake.time_out_once) {
 			fake.time_out_once = 0;
 			xfer->status = LIBUSB_TRANSFER_TIMED_OUT;
 		} else if (fake.complete_once) {
@@ -945,7 +957,12 @@ MU_TEST(a_cancel_the_device_refuses_leaves_the_transfer_alone)
  * alive: both are things libusb may still need to finish it, and the
  * transfer's callback reaches this handle. The teardown says so and leaves
  * them, rather than closing the device and ending the session underneath a
- * transfer that is still in flight. */
+ * transfer that is still in flight.
+ *
+ * It asks the board for nothing either, not even the stop: a transfer libusb
+ * has neither completed nor cancelled is a board that has gone or stopped
+ * answering, which no request can reach. The run is still marked failed, so
+ * a tool exits non-zero on a capture that lost its stream. */
 MU_TEST(a_transfer_that_never_comes_back_keeps_the_device_open)
 {
 	char err[1024] = "";
@@ -971,14 +988,17 @@ MU_TEST(a_transfer_that_never_comes_back_keeps_the_device_open)
 	mu_assert_int_eq(0, fake.closes);
 	mu_assert_int_eq(0, fake.exits);
 	mu_assert(ut->devh != NULL, "the device is left open");
-	mu_assert_int_eq(1, sent(UBERTOOTH_STOP)); /* still asked to stop */
-	/* a warning, not an error: the command itself did what was asked, and
-	 * ubertooth_cleanup() returns nothing a caller could turn into an exit
-	 * status */
+	/* nothing was asked of the board, the stop least of all */
+	mu_assert_int_eq(0, sent(UBERTOOTH_STOP));
+	mu_assert(fake.n == 0, requests_text());
+	/* a warning, on standard error: the teardown itself did what it could,
+	 * and the exit status below is what says the capture fell short */
 	mu_assert(strstr(err, "warning: the receive transfer did not finish; the "
 	          "Ubertooth is left open and may still be capturing") != NULL,
 	          err);
 	mu_assert(strstr(err, "error:") == NULL, err);
+	/* what ubertooth-dump and the other streaming tools turn into exit 1 */
+	mu_assert(ubertooth_stream_failed(ut), "the run is marked failed");
 	/* ubertooth_free() leaves this handle alone too, so the callback of a
 	 * transfer libusb is still holding does not land in freed memory. Not
 	 * asserted here: every way of observing it reads the handle after the
@@ -1003,6 +1023,92 @@ MU_TEST(a_transfer_that_never_comes_back_keeps_the_device_open)
 	mu_assert_int_eq(1, fake.closes);
 	mu_assert_int_eq(1, fake.exits);
 	mu_assert(ut->devh == NULL, "the device is closed");
+
+	release_handle(ut);
+}
+
+/* The detection phase takes the board out of AFH mode before the monitor
+ * phase starts it again. Not when its own transfer was never handed back,
+ * though: that is the same gone or unanswering board the teardown finds, and
+ * the monitor phase cannot start on a handle whose transfer is still in
+ * flight, so the run ends there. */
+MU_TEST(a_detection_phase_that_lost_its_transfer_sends_no_stop)
+{
+	char err[1024] = "";
+	ubertooth_t* ut;
+	btbb_piconet* pn;
+	int r;
+
+	reset();
+	/* refused for a transfer that stays in flight, and nothing delivers its
+	 * completion: the bounded wait in the teardown runs out */
+	fake.cancel_rc = LIBUSB_ERROR_NO_DEVICE;
+	fake.poll_thread_idle = 1;
+	ut = new_handle();
+	pn = new_piconet();
+	mu_assert(ut != NULL && pn != NULL, "a handle and a piconet");
+	if (ut == NULL || pn == NULL)
+		return;
+	mark_a_channel_seen(pn);
+
+	capture_output();
+	r = rx_afh(ut, pn, 30);
+	alarm(0); /* rx_afh() set one for the detection phase */
+	release_output(err, sizeof(err));
+
+	assert_transfer_lifetimes();
+	mu_assert_int_eq(0, sent(UBERTOOTH_STOP));
+	mu_assert(ut->rx_xfer != NULL, "the transfer is still libusb's");
+	mu_assert(r < 0, "the run reports a failure");
+	mu_assert(strstr(err, "the previous receive transfer did not finish")
+	          != NULL, err);
+
+	release_handle(ut);
+	btbb_piconet_unref(pn);
+}
+
+/* A board that leaves the bus during a capture: the teardown's own wait for
+ * events gets the transfer back with NO_DEVICE, so libusb is holding nothing
+ * by the time the device is closed, and it closes as usual. The stop on the
+ * way out is refused, as every request to a board that has gone is; the
+ * refusal is reported and the teardown finishes it rather than stopping
+ * there, so the capture files are still closed and the session still
+ * ended. */
+MU_TEST(a_board_that_leaves_the_bus_is_still_closed)
+{
+	char err[1024] = "";
+	char refused[32];
+	ubertooth_t* ut;
+
+	reset();
+	fake.poll_thread_idle = 1;
+	ut = new_handle();
+	mu_assert(ut != NULL, "a handle");
+	if (ut == NULL)
+		return;
+
+	capture_output();
+	mu_assert_int_eq(0, ubertooth_bulk_init(ut)); /* a capture is running */
+	fake.device_gone = 1;                         /* and the board goes */
+	ubertooth_stop(ut);
+	release_output(err, sizeof(err));
+
+	assert_transfer_lifetimes();
+	mu_assert(ut->rx_xfer == NULL, "the transfer came back");
+	mu_assert_int_eq(1, fake.xfer_frees);
+	mu_assert_int_eq(1, fake.closes);
+	mu_assert_int_eq(1, fake.exits);
+	mu_assert(ut->devh == NULL, "the device is closed");
+	mu_assert_int_eq(1, sent(UBERTOOTH_STOP));
+	/* the lost transfer, and the stop the gone board could not answer. The
+	 * code is built rather than spelled out, so the text libusb supplies
+	 * for it is left to libusb. */
+	snprintf(refused, sizeof(refused), "(%d)", LIBUSB_ERROR_NO_DEVICE);
+	mu_assert(strstr(err, "error: receive transfer failed: Device "
+	          "disconnected.") != NULL, err);
+	mu_assert(strstr(err, "libUSB Error:") != NULL, err);
+	mu_assert(strstr(err, refused) != NULL, err);
+	mu_assert(ubertooth_stream_failed(ut), "the run is marked failed");
 
 	release_handle(ut);
 }
@@ -1212,6 +1318,8 @@ int main(void)
 	MU_RUN(a_stop_with_a_packet_in_hand_gives_the_transfer_back);
 	MU_RUN(a_cancel_the_device_refuses_leaves_the_transfer_alone);
 	MU_RUN(a_transfer_that_never_comes_back_keeps_the_device_open);
+	MU_RUN(a_detection_phase_that_lost_its_transfer_sends_no_stop);
+	MU_RUN(a_board_that_leaves_the_bus_is_still_closed);
 	MU_RUN(a_completion_during_the_teardown_does_not_re_arm_the_transfer);
 	MU_RUN(a_packet_during_a_capture_re_arms_the_transfer);
 	MU_RUN(a_refused_re_arm_gives_the_transfer_back);

@@ -31,6 +31,8 @@ static struct {
 	int no_device;    /* no board matches -U */
 	int check_api_rc; /* returned by ubertooth_check_api() */
 	int stream_failed;/* the receive stream died part-way */
+	int fails_at_stop;/* ... and only the teardown finds out, which is what a
+	                   * transfer the board never gave back looks like */
 	int no_memory;    /* btbb_piconet_new() cannot allocate */
 	int piconet_news; /* btbb_piconet_new() calls */
 	int piconet_frees;/* btbb_piconet_unref() calls */
@@ -142,6 +144,8 @@ void ubertooth_stop(ubertooth_t *ut)
 {
 	(void)ut;
 	fake.stops++;
+	if (fake.fails_at_stop)
+		fake.stream_failed = 1;
 }
 
 void print_version(void) { printf("test\n"); }
@@ -307,6 +311,36 @@ MU_TEST(the_r_format_exits_1_when_its_stream_died)
 	mu_assert_int_eq(1, fake.stops);
 }
 
+/* A run whose board never gave the receive transfer back: the phases above
+ * finished as usual, and the teardown is where that comes out. It exits 1
+ * rather than reporting the monitoring, or the quiet piconet, that a lost
+ * stream cannot have established. */
+MU_TEST(a_run_whose_stream_is_only_found_lost_at_the_teardown_exits_1)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.fails_at_stop = 1;
+	r = RUN("-l", "446688", "-u", "22", "-t", "3");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, fake.stops);
+
+	/* the same for a detection phase that found nothing, where the exit
+	 * status would otherwise be the one for a quiet piconet */
+	reset_fake();
+	fake.fails_at_stop = 1;
+	fake.rx_afh_rc = UBERTOOTH_AFH_NO_PACKETS;
+	r = RUN("-l", "446688", "-u", "22", "-t", "3");
+	mu_assert_int_eq(1, r.rc);
+
+	/* and for -r, which has no return value of its own */
+	reset_fake();
+	fake.fails_at_stop = 1;
+	r = RUN("-r", "-l", "446688", "-u", "22");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, fake.rx_afh_r_calls);
+}
+
 /* A library error - libbtbb, or a receive that could not be started - is not
  * reported as "no packets", and it is not reported as success either. The
  * library has already said what failed. */
@@ -430,6 +464,7 @@ int main(void)
 	MU_RUN(no_timeout_runs_the_monitor_as_before);
 	MU_RUN(the_r_format_is_unchanged);
 	MU_RUN(the_r_format_exits_1_when_its_stream_died);
+	MU_RUN(a_run_whose_stream_is_only_found_lost_at_the_teardown_exits_1);
 	MU_RUN(a_library_error_is_not_mistaken_for_no_packets);
 	MU_RUN(a_run_that_never_reaches_the_receive_phase_frees_the_piconet);
 	MU_RUN(a_piconet_that_cannot_be_allocated_is_refused);

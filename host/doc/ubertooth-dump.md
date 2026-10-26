@@ -69,7 +69,9 @@ cannot be opened.
 
 Also 1 when the dump's USB stream fails part-way: the board stopped answering
 or dropped off the bus, so the dump stops there and holds only what arrived
-before it. The failure is reported on standard error as it happens.
+before it. The failure is reported on standard error as it happens. A board
+that never hands the transfer back at all exits 1 too, reported by the
+`warning:` line ubertooth(7) describes rather than an error.
 
 ## SEE ALSO
 
