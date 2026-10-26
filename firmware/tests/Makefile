@@ -187,11 +187,12 @@ $(BINDIR)/test_bootloader_flash_bounds: test_bootloader_flash_bounds.cpp \
 # is scanned: the handler and the access code loop, both images' USB shims, and
 # the direction bit in the vendored lpcusb header the shims read.
 $(BINDIR)/test_vendor_request_bounds: test_vendor_request_bounds.c minunit.h \
-		source_scan.h $(FW_RXTX)/bluetooth_rxtx.c $(FW_RXTX)/ego.c \
+		source_scan.h $(FW_COMMON)/cc2400.h $(FW_RXTX)/bluetooth_rxtx.c \
+		$(FW_RXTX)/ego.c \
 		$(FW_RXTX)/ubertooth_usb.c $(FW_BTBR)/src/drivers/ubertooth_usb.c \
 		$(FW_BTBR)/src/btctl/vendor_request_handler.c \
 		$(FW_COMMON)/lpcusb/target/usbstruct.h | $(BINDIR)
-	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
+	$(CC) $(CFLAGS) $(CPPFLAGS) -I$(FW_COMMON) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
 		-DFW_BTBR_DIR='"$(FW_BTBR)"' -DFW_COMMON_DIR='"$(FW_COMMON)"' \
 		-o $@ test_vendor_request_bounds.c
 

@@ -1,5 +1,6 @@
 /*
- * Bounds on the data a vendor request carries.
+ * Bounds on the data a vendor request carries, in both directions: how much of
+ * the shared buffer a handler may read, and how much of it a reply may claim.
  *
  * Two things go wrong when a request handler reads more of the shared request
  * buffer than the request put there.
@@ -18,11 +19,18 @@
  * it was given wValue, wIndex and wLength but not the direction, and wLength
  * looks the same either way.
  *
+ * The other direction has the same shape. The request that reads every CC2400
+ * register fills the buffer with one register per three bytes and then reports
+ * how long the reply is; the two came from separate expressions, and the length
+ * claimed one register fewer than the fill wrote, so the host never saw the
+ * last register.
+ *
  * Neither the handler nor the stack can run here, so the fakes below are the
  * shape of both -- the dispatch rule the specification lays down, a request
- * buffer that keeps the previous request's bytes, and two requests that read
- * their data -- and the scans at the end read the firmware source, the way
- * test_tx_generic_bounds.c does, so the fakes cannot drift away from it.
+ * buffer that keeps the previous request's bytes, two requests that read their
+ * data, and the register dump's fill -- and the scans at the end read the
+ * firmware source, the way test_tx_generic_bounds.c does, so the fakes cannot
+ * drift away from it.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,6 +39,7 @@
 #include "minunit.h"
 #include "source_scan.h"
 #include "ubertooth_interface.h"
+#include "cc2400.h"
 
 /* abVendorReqData in the two ubertooth_usb.c files: the buffer the stack fills
  * from the data stage and hands to every vendor request, kept across requests. */
@@ -402,6 +411,101 @@ MU_TEST(test_a_read_of_a_request_with_an_empty_body_is_refused)
 	                                     UBERTOOTH_LE_SET_ADV_DATA, 0,
 	                                     NULL, 0));
 	mu_assert_int_eq(3, advertising_len);
+}
+
+/* -------------------------------------------------------------------------
+ * The reply to a read of every register (UBERTOOTH_READ_ALL_REGISTERS)
+ * ------------------------------------------------------------------------- */
+
+/*
+ * The registers the reply carries and how long that makes it, as the firmware
+ * works them out: every address from MAIN (0x00) through SYNCH (0x2d), three
+ * bytes each. The last scan checks the firmware spells both of these the same
+ * way, from one count, so a reply cannot claim a different number of registers
+ * than it filled.
+ */
+#define REPLY_REGISTERS (SYNCH + 1)
+#define REPLY_LEN       (REPLY_REGISTERS * 3)
+
+/* The length the handler used to report: one register short of the fill. */
+#define OLD_REPLY_LEN ((REPLY_REGISTERS - 1) * 3)
+
+/* A value per register, distinct from any neighbour's and from the 0xff the
+ * buffer is filled with, so a byte from the wrong place is visible. */
+static uint16_t fake_register_value(unsigned reg)
+{
+	return (uint16_t)(0x1000 + reg * 0x11);
+}
+
+/* The handler's fill: the register number and its 16-bit value, big end
+ * first, for each of `count` registers. Returns the bytes written. */
+static unsigned fill_register_reply(uint8_t *reply, unsigned count)
+{
+	unsigned reg;
+
+	for (reg = 0; reg < count; reg++) {
+		uint16_t reg_val = fake_register_value(reg);
+
+		reply[reg * 3] = (uint8_t)reg;
+		reply[reg * 3 + 1] = (reg_val >> 8) & 0xff;
+		reply[reg * 3 + 2] = reg_val & 0xff;
+	}
+	return count * 3;
+}
+
+/* The reply the host gets: `claimed` bytes of the buffer and nothing else. */
+MU_TEST(test_the_reply_claims_every_register_it_filled)
+{
+	unsigned written, reg;
+
+	memset(req_buf, 0xff, sizeof(req_buf));
+	written = fill_register_reply(req_buf, REPLY_REGISTERS);
+
+	mu_assert_int_eq(46, REPLY_REGISTERS);
+	mu_assert_int_eq(138, REPLY_LEN);
+	mu_assert(REPLY_LEN == (int)written,
+	          "the reply reports a different length than the fill wrote, "
+	          "so the two are not coming from one count");
+
+	for (reg = 0; reg < REPLY_REGISTERS; reg++) {
+		char msg[160];
+		uint16_t reg_val = fake_register_value(reg);
+
+		snprintf(msg, sizeof(msg),
+		         "register 0x%02x sits past the %d bytes the reply "
+		         "claims, so the host never sees it", reg, REPLY_LEN);
+		mu_assert((reg * 3 + 3) <= (unsigned)REPLY_LEN, msg);
+
+		snprintf(msg, sizeof(msg),
+		         "register 0x%02x is not in the reply where the host "
+		         "looks for it", reg);
+		mu_assert(req_buf[reg * 3] == reg &&
+		          req_buf[reg * 3 + 1] == ((reg_val >> 8) & 0xff) &&
+		          req_buf[reg * 3 + 2] == (reg_val & 0xff), msg);
+	}
+}
+
+/* The bug: the length was three bytes short, so SYNCH was cut off the end. */
+MU_TEST(test_the_old_length_dropped_the_last_register)
+{
+	memset(req_buf, 0xff, sizeof(req_buf));
+	fill_register_reply(req_buf, REPLY_REGISTERS);
+
+	mu_assert_int_eq(135, OLD_REPLY_LEN);
+	/* the fill wrote 46 registers; the old length covered 45 of them */
+	mu_assert_int_eq(REPLY_REGISTERS - 1, OLD_REPLY_LEN / 3);
+	/* SYNCH's three bytes were in the buffer all along, behind that end */
+	mu_assert_int_eq(SYNCH, req_buf[OLD_REPLY_LEN]);
+	mu_assert_int_eq(fake_register_value(SYNCH) & 0xff,
+	                 req_buf[OLD_REPLY_LEN + 2]);
+}
+
+/* The reply fits the buffer the stack hands the handler. */
+MU_TEST(test_the_reply_fits_the_request_buffer)
+{
+	mu_assert(REPLY_LEN <= VENDOR_REQ_BUF,
+	          "the register dump is longer than the request buffer, so the "
+	          "fill runs past it");
 }
 
 /* -------------------------------------------------------------------------
@@ -833,6 +937,101 @@ MU_TEST(test_the_access_code_loop_is_bounded_by_its_body)
 	mu_assert(bound > 0 && bound > guard, msg);
 }
 
+/*
+ * The register dump's fill and the length it reports, both from one count. The
+ * two were separate expressions and disagreed, so what the scan looks for is
+ * that neither spells a number of its own: the loop walks
+ * READ_ALL_REGISTERS_COUNT registers and the reply reports
+ * READ_ALL_REGISTERS_LEN, which is that count times three.
+ */
+MU_TEST(test_the_register_dump_reports_the_length_it_filled)
+{
+	static const char *const path = FW_RXTX_DIR "/bluetooth_rxtx.c";
+	char line[512], flat[512];
+	int lineno = 0, in_block = 0, in_case = 0;
+	int count_def = 0, len_def = 0, bound = 0, reported = 0, old_name = 0;
+	int wrote_number = 0, wrote_high = 0, wrote_low = 0;
+	FILE *f = fopen(path, "r");
+	char msg[640];
+
+	snprintf(msg, sizeof(msg), "cannot open %s to scan", path);
+	mu_assert_fatal(f != NULL, msg);
+
+	while (fgets(line, sizeof(line), f) != NULL) {
+		lineno++;
+		strip_comments(line, &in_block);
+		collapse_spaces(line, flat, sizeof(flat));
+
+		if (strcmp(flat, "#define READ_ALL_REGISTERS_COUNT (SYNCH + 1)")
+		    == 0)
+			count_def = lineno;
+		if (strcmp(flat, "#define READ_ALL_REGISTERS_LEN "
+		                 "(READ_ALL_REGISTERS_COUNT * 3)") == 0)
+			len_def = lineno;
+		if (contains_identifier(flat, "MAX_READ_REG"))
+			old_name = lineno;
+
+		if (strstr(flat, "case UBERTOOTH_READ_ALL_REGISTERS:") != NULL) {
+			in_case = 1;
+			continue;
+		}
+		if (!in_case)
+			continue;
+		if (strcmp(flat, "for (i = 0; i < READ_ALL_REGISTERS_COUNT; "
+		                 "i++) {") == 0)
+			bound = lineno;
+		/* the three bytes each register takes, in the order the host
+		 * reads them: the register number, then its value */
+		if (strcmp(flat, "data[i*3] = i;") == 0)
+			wrote_number = lineno;
+		if (strcmp(flat, "data[(i*3)+1] = (reg_val >> 8) & 0xff;") == 0)
+			wrote_high = lineno;
+		if (strcmp(flat, "data[(i*3)+2] = reg_val & 0xff;") == 0)
+			wrote_low = lineno;
+		if (strcmp(flat, "*data_len = READ_ALL_REGISTERS_LEN;") == 0)
+			reported = lineno;
+		if (strcmp(flat, "break;") == 0)
+			in_case = 0;
+	}
+	fclose(f);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: READ_ALL_REGISTERS_COUNT is not defined as (SYNCH + 1), "
+	         "so the registers the test above fills are not the ones the "
+	         "firmware reads", path);
+	mu_assert(count_def > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: READ_ALL_REGISTERS_LEN is not three bytes for each of "
+	         "READ_ALL_REGISTERS_COUNT registers, so the reply's length "
+	         "does not follow from the count", path);
+	mu_assert(len_def > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: MAX_READ_REG is back; the reply's length came from it "
+	         "while the loop ran one register further, which is how the "
+	         "last register went missing", path, old_name);
+	mu_assert(old_name == 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the register dump's loop is not bounded by "
+	         "READ_ALL_REGISTERS_COUNT", path);
+	mu_assert(bound > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the register dump does not report READ_ALL_REGISTERS_LEN "
+	         "as its length, so it can claim a length its fill did not "
+	         "write", path);
+	mu_assert(reported > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the register dump does not write the three bytes per "
+	         "register the length counts on -- the number at i*3 and the "
+	         "two value bytes after it -- so the reply can claim a length "
+	         "the fill did not write even from the right count", path);
+	mu_assert(wrote_number > 0 && wrote_high > 0 && wrote_low > 0, msg);
+}
+
 int main(void)
 {
 	int i;
@@ -851,6 +1050,10 @@ int main(void)
 	MU_RUN(test_a_request_with_an_empty_body_is_accepted);
 	MU_RUN(test_a_read_of_a_request_with_an_empty_body_is_refused);
 
+	MU_RUN(test_the_reply_claims_every_register_it_filled);
+	MU_RUN(test_the_old_length_dropped_the_last_register);
+	MU_RUN(test_the_reply_fits_the_request_buffer);
+
 	/* Scanned once here rather than from the first test that needs it,
 	 * which would leave the others depending on the order they run in. */
 	for (i = 0; i < (int)HANDLER_COUNT; i++)
@@ -860,5 +1063,6 @@ int main(void)
 	MU_RUN(test_the_usb_shims_zero_the_length_for_a_read);
 	MU_RUN(test_lpcusb_spells_the_direction_bit_as_the_specification_does);
 	MU_RUN(test_the_access_code_loop_is_bounded_by_its_body);
+	MU_RUN(test_the_register_dump_reports_the_length_it_filled);
 	return mu_report();
 }
