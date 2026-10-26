@@ -24,7 +24,7 @@
 
 #include <stdio.h>
 
-#include <libusb-1.0/libusb.h>
+#include "ubertooth_control.h"
 
 /* Why the request failed, in plain words. The same wording libubertooth uses
  * for the matching status of an asynchronous transfer, so the two reports read
@@ -71,6 +71,11 @@ void report_refused_request(const char *what, int code)
 {
 	const char *why = reason(code);
 	const char *advice = hint(code);
+
+	/* libubertooth has already printed the whole line for a transfer the
+	 * board truncated, naming the request and the counts. */
+	if (code == UBERTOOTH_ERROR_SHORT_REPLY)
+		return;
 
 	if (why != NULL)
 		fprintf(stderr, "error: could not %s: %s (libusb %d)\n",

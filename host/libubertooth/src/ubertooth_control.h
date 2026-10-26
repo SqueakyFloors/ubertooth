@@ -173,8 +173,8 @@ int cmd_get_board_id(struct libusb_device_handle* devh);
 int cmd_set_squelch(struct libusb_device_handle* devh, u16 level);
 int cmd_get_squelch(struct libusb_device_handle* devh);
 int cmd_set_bdaddr(struct libusb_device_handle* devh, u64 bdaddr);
-/* See cmd_set_channel_quiet(). A reply shorter than the address still carries
- * its own complete line and returns 1. */
+/* See cmd_set_channel_quiet(). A transfer the board truncated carries its own
+ * complete line and returns UBERTOOTH_ERROR_SHORT_REPLY, as the reads do. */
 int cmd_set_bdaddr_quiet(struct libusb_device_handle* devh, u64 bdaddr);
 int cmd_set_syncword(struct libusb_device_handle* devh, u64 syncword);
 int cmd_next_hop(struct libusb_device_handle* devh, u16 clk);

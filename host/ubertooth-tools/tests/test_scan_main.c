@@ -314,7 +314,10 @@ MU_TEST(a_refused_sweep_is_named_and_exits_1)
 	mu_assert(strcmp(fake.calls, "c") == 0, fake.calls);
 	mu_assert_int_eq(0, fake.receives);
 	mu_assert_int_eq(0, fake.registrations);
-	mu_assert_int_eq(1, fake.stops); /* the board is still released */
+	/* Given back, and without a STOP: no mode had started, and a STOP to a
+	 * board that is not answering would add a second failure. */
+	mu_assert_int_eq(1, fake.closes);
+	mu_assert_int_eq(0, fake.stops);
 	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
 	mu_assert(r.out[0] == '\0', r.out);
 	mu_assert(strcmp(r.err, STALLED) == 0, r.err);

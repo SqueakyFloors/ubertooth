@@ -519,7 +519,11 @@ MU_TEST(a_refused_setup_request_is_named_and_exits_one)
 		mu_assert_int_eq(0, device.bulk_inits);
 		mu_assert_int_eq(0, device.blocks);
 		mu_assert_int_eq(0, device.cleanup_handlers);
-		mu_assert_int_eq(1, device.stops); /* the board is released */
+		/* Given back, and without a STOP: no mode had started, and a
+		 * STOP to a board that is not answering would add a second
+		 * failure to the report. */
+		mu_assert_int_eq(1, device.closes);
+		mu_assert_int_eq(0, device.stops);
 	}
 
 	/* The address is sent first, so a run that needs both requests reaches
@@ -533,6 +537,27 @@ MU_TEST(a_refused_setup_request_is_named_and_exits_one)
 	mu_assert_int_eq(0, device.rx_syms_calls);
 	mu_assert(r.out[0] == '\0', r.out);
 	mu_assert(strcmp(r.err, STALLED("set sweep mode")) == 0, r.err);
+}
+
+/* A board that took only part of the address is a failed request too, and one
+ * libubertooth reports in full itself, counts and all. The capture used to
+ * start on top of it and exit 0, because the result was positive rather than
+ * negative. The tool adds no line of its own here. */
+MU_TEST(a_truncated_address_request_ends_the_run_too)
+{
+	struct run_result r;
+
+	reset_device();
+	device.bdaddr_rc = -1000; /* UBERTOOTH_ERROR_SHORT_REPLY */
+	r = RUN_RX("-l", "112233", "-u", "ab", "-t", "10");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, device.bdaddrs_set);
+	mu_assert_int_eq(0, device.channels_set);
+	mu_assert_int_eq(0, device.rx_syms_calls);
+	mu_assert_int_eq(1, device.closes);
+	mu_assert_int_eq(0, device.stops);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(r.err[0] == '\0', r.err);
 }
 
 /* Survey mode needs the sweep most of all, so a refused one keeps it from
@@ -609,6 +634,7 @@ int main(void)
 	MU_RUN(a_refused_command_line_opens_no_device);
 	MU_RUN(a_capture_the_board_took_sets_up_and_exits_zero);
 	MU_RUN(a_refused_setup_request_is_named_and_exits_one);
+	MU_RUN(a_truncated_address_request_ends_the_run_too);
 	MU_RUN(a_refused_sweep_leaves_survey_mode_with_no_results);
 	MU_RUN(a_firmware_the_tool_cannot_use_exits_one);
 	MU_RUN(a_replay_sends_no_setup_request);

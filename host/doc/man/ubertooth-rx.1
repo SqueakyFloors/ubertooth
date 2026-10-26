@@ -168,7 +168,7 @@ note: if a mode is running, stop it with ubertooth\-util \-S; if the board does 
 .fi
 .IP "" 0
 .P
-That pair is the whole report: the request named as \fBset sweep mode\fR without \fB\-c\fR, since the command then asks for the sweep across the whole band rather than for a channel, and as \fBset the Bluetooth address\fR for the address request\. A request the board stalls (\fBlibusb \-9\fR) reads \fBthe board does not support this command (stalled)\fR and carries no note, there being nothing to try\.
+That pair is the whole report: the request named as \fBset sweep mode\fR without \fB\-c\fR, since the command then asks for the sweep across the whole band rather than for a channel, and as \fBset the Bluetooth address\fR for the address request\. A request the board stalls (\fBlibusb \-9\fR) reads \fBthe board does not support this command (stalled)\fR and carries no note, there being nothing to try\. A board that took only part of the address gives the counts instead, as \fBerror: Bluetooth address write failed: board took 8 of 16 bytes\fR\.
 .SH "SEE ALSO"
 ubertooth\-util(1): sets the receive squelch (\fB\-z\fR); SQUELCH describes how long it lasts
 .P

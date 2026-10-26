@@ -251,7 +251,8 @@ That pair is the whole report: the request named as `set sweep mode` without
 than for a channel, and as `set the Bluetooth address` for the address
 request. A request the board stalls (`libusb -9`) reads `the board does not
 support this command (stalled)` and carries no note, there being nothing to
-try.
+try. A board that took only part of the address gives the counts instead, as
+`error: Bluetooth address write failed: board took 8 of 16 bytes`.
 
 ## SEE ALSO
 

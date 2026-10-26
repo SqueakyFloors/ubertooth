@@ -276,12 +276,14 @@ MU_TEST(the_quiet_set_forms_report_nothing)
 	run_captured(set_bdaddr_quiet, text, sizeof(text));
 	mu_assert(text[0] == '\0', text);
 
-	/* A reply shorter than the address is a complete line of its own, so
-	 * the quiet form keeps it. */
+	/* A transfer the board truncated is a complete line of its own, so the
+	 * quiet form keeps it, and the short-reply code says so. */
 	script(8, 0);
+	mu_assert_int_eq(UBERTOOTH_ERROR_SHORT_REPLY,
+	                 cmd_set_bdaddr_quiet(NULL, 0x112233));
 	run_captured(set_bdaddr_quiet, text, sizeof(text));
-	mu_assert(strcmp(text,
-	    "error: only 8 of 16 bytes transferred\n") == 0, text);
+	mu_assert(strcmp(text, "error: Bluetooth address write failed: "
+	    "board took 8 of 16 bytes\n") == 0, text);
 
 	/* Unchanged for the reporting form. */
 	script(LIBUSB_ERROR_PIPE, 0);

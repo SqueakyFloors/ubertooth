@@ -36,6 +36,9 @@
  * "error: could not <what> (libusb <code>)", and a code with nothing useful to
  * suggest prints no note.
  *
+ * Prints nothing for UBERTOOTH_ERROR_SHORT_REPLY, whose whole line
+ * libubertooth has already printed.
+ *
  * This lives apart from the tools so each one names its own request while the
  * wording and the advice stay in one place.
  */

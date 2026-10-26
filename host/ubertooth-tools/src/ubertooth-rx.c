@@ -65,15 +65,17 @@ static void usage(FILE *file)
 	fputs(OPT_USAGE_SELECT_DEVICE, file);
 }
 
-/* Names the request the board refused, says why and what to try, and leaves
- * the board released rather than capturing with settings the user did not ask
- * for. A refused request is not proof that the board never got it -- a
- * transfer can time out after it arrived -- so the message says only what the
- * tool knows. */
+/* Names the request the board refused, says why and what to try, and gives the
+ * board back rather than capturing with settings the user did not ask for.
+ * Closed without a STOP: no mode has started yet, so there is nothing to stop,
+ * and a STOP to a board that is not answering would only add a second failure
+ * to the report. A refused request is not proof that the board never got it --
+ * a transfer can time out after it arrived -- so the message says only what
+ * the tool knows. */
 static int request_failed(ubertooth_t* ut, const char* what, int code)
 {
 	report_refused_request(what, code);
-	ubertooth_stop(ut);
+	ubertooth_close(ut);
 	return 1;
 }
 

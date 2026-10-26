@@ -79,8 +79,11 @@ static const char* async_request_name(uint8_t request)
 	}
 }
 
-/* A libusb_transfer_status in plain words. These are not libusb_error codes
- * -- they are a separate, positive enumeration -- so passing one to
+/* A libusb_transfer_status in plain words. The host tools' shared
+ * report_refused_request() keeps the same wording for the libusb error codes
+ * of a synchronous request, so the two reports read alike; change both
+ * together. These statuses are not libusb_error codes -- they are a separate,
+ * positive enumeration -- so passing one to
  * show_libusb_error() printed a stall (status 4) as
  * "libUSB Error: Other error:  (4)", which is what libusb_strerror() returns
  * for any positive code. NULL for a status this libusb version has added,
@@ -863,10 +866,14 @@ int cmd_set_bdaddr_quiet(struct libusb_device_handle* devh, u64 address)
 	if (r < 0)
 		return r;
 	if (r < data_len) {
-		/* A whole line of its own, naming the request and the counts,
-		 * so a caller adds nothing to it. */
-		fprintf(stderr, "error: only %d of %d bytes transferred\n", r, data_len);
-		return 1;
+		/* One complete line, naming the request and the counts, and
+		 * UBERTOOTH_ERROR_SHORT_REPLY so the caller adds no second
+		 * line -- as the fixed-size reads above do. It used to say
+		 * "only 8 of 16 bytes transferred" and return 1, which a
+		 * caller testing for a negative result read as success. */
+		fprintf(stderr, "error: Bluetooth address write failed: "
+		        "board took %d of %d bytes\n", r, data_len);
+		return UBERTOOTH_ERROR_SHORT_REPLY;
 	}
 	return 0;
 }
@@ -877,7 +884,7 @@ int cmd_set_bdaddr(struct libusb_device_handle* devh, u64 address)
 
 	if (r == LIBUSB_ERROR_PIPE)
 		fprintf(stderr, "error: control message unsupported\n");
-	else if (r < 0)
+	else if (r < 0 && r != UBERTOOTH_ERROR_SHORT_REPLY)
 		show_libusb_error(r);
 	return r;
 }

@@ -307,9 +307,11 @@ int main(int argc, char *argv[])
 	if (rv < 0) {
 		/* A refused request is not proof that the board never got it --
 		 * a transfer can time out after it arrived -- so the message
-		 * says only what the tool knows. */
+		 * says only what the tool knows. Closed without a STOP: no mode
+		 * has started yet, and a STOP to a board that is not answering
+		 * would only add a second failure to the report. */
 		report_refused_request("set sweep mode", rv);
-		ubertooth_stop(ut);
+		ubertooth_close(ut);
 		close(dev_handle);
 		return 1;
 	}
