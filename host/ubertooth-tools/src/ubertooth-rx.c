@@ -22,6 +22,7 @@
 #include "ubertooth.h"
 #include "ubertooth_callback.h"
 #include "opt_parse.h"
+#include "request_report.h"
 #include <err.h>
 #include <errno.h>
 #include <getopt.h>
@@ -64,14 +65,14 @@ static void usage(FILE *file)
 	fputs(OPT_USAGE_SELECT_DEVICE, file);
 }
 
-/* The library has already said why a request was refused; this names the
- * request, and leaves the board released rather than capturing with settings
- * the user did not ask for. A refused request is not proof that the board
- * never got it -- a transfer can time out after it arrived -- so the message
- * says only what the tool knows. */
-static int request_failed(ubertooth_t* ut, const char* what)
+/* Names the request the board refused, says why and what to try, and leaves
+ * the board released rather than capturing with settings the user did not ask
+ * for. A refused request is not proof that the board never got it -- a
+ * transfer can time out after it arrived -- so the message says only what the
+ * tool knows. */
+static int request_failed(ubertooth_t* ut, const char* what, int code)
 {
-	fprintf(stderr, "error: could not %s\n", what);
+	report_refused_request(what, code);
 	ubertooth_stop(ut);
 	return 1;
 }
@@ -288,12 +289,16 @@ int main(int argc, char* argv[])
 				btbb_piconet_set_uap(pn, uap);
 				/* A board that refused this would follow
 				 * whatever address it was left on, so the
-				 * capture does not start. */
-				if (infile == NULL &&
-				    cmd_set_bdaddr(ut->devh,
-				                   btbb_piconet_get_bdaddr(pn)) < 0)
-					return request_failed(ut,
-					        "set the Bluetooth address");
+				 * capture does not start. A replay sends no
+				 * request at all. */
+				if (infile == NULL) {
+					r = cmd_set_bdaddr(ut->devh,
+					        btbb_piconet_get_bdaddr(pn));
+					if (r < 0)
+						return request_failed(ut,
+						        "set the Bluetooth address",
+						        r);
+				}
 			}
 			if (ut->h_pcapng_bredr) {
 				btbb_pcapng_record_bdaddr(ut->h_pcapng_bredr,
@@ -307,9 +312,10 @@ int main(int argc, char* argv[])
 		/* A board that refused this would capture on whatever channel
 		 * it was left on, and say nothing about it, so the capture does
 		 * not start. */
-		if (cmd_set_channel(ut->devh, channel) < 0)
+		r = cmd_set_channel(ut->devh, channel);
+		if (r < 0)
 			return request_failed(ut, have_channel ? "set the channel"
-			                                       : "set sweep mode");
+			                                       : "set sweep mode", r);
 
 		/* Clean up on exit. */
 		register_cleanup_handler(ut, 0);

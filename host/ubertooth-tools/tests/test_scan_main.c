@@ -287,10 +287,22 @@ MU_TEST(a_scan_the_board_took_sweeps_and_exits_0)
 	mu_assert(r.err[0] == '\0', r.err);
 }
 
-/* A refused sweep is named, in one line on standard error, and ends the
- * command there: it used to be ignored, so the board stayed on whatever
- * channel it was left on and the tool printed an AFH map that meant nothing,
- * reporting success. */
+/* The whole report for a refused sweep: one error line naming the request,
+ * why it failed and the libusb code, and a note only where there is something
+ * to try. */
+#define STALLED \
+	"error: could not set sweep mode" \
+	": the board does not support this command (stalled) (libusb -9)\n"
+#define NO_ANSWER \
+	"error: could not set sweep mode" \
+	": the board did not answer in time (libusb -7)\n" \
+	"note: if a mode is running, stop it with ubertooth-util -S; " \
+	"if the board does not answer at all, re-plug it\n"
+
+/* A refused sweep is named, with the reason and what to try, on standard
+ * error, and ends the command there: it used to be ignored, so the board
+ * stayed on whatever channel it was left on and the tool printed an AFH map
+ * that meant nothing, reporting success. */
 MU_TEST(a_refused_sweep_is_named_and_exits_1)
 {
 	struct run_result r;
@@ -305,7 +317,25 @@ MU_TEST(a_refused_sweep_is_named_and_exits_1)
 	mu_assert_int_eq(1, fake.stops); /* the board is still released */
 	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
 	mu_assert(r.out[0] == '\0', r.out);
-	mu_assert(strcmp(r.err, "error: could not set sweep mode\n") == 0, r.err);
+	mu_assert(strcmp(r.err, STALLED) == 0, r.err);
+
+	/* A board that took the request and said nothing is the case the note
+	 * is about. */
+	reset_fake();
+	fake.channel_rc = -7; /* LIBUSB_ERROR_TIMEOUT */
+	r = RUN("-t", "5");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, fake.receives);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strcmp(r.err, NO_ANSWER) == 0, r.err);
+
+	/* A code with no plain words still names the request and the number. */
+	reset_fake();
+	fake.channel_rc = -5;
+	r = RUN("-t", "5");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err,
+	          "error: could not set sweep mode (libusb -5)\n") == 0, r.err);
 }
 
 /* The sweep is set before either scan starts, so a refused sweep also leaves
@@ -320,7 +350,7 @@ MU_TEST(a_refused_sweep_leaves_the_bluez_scan_unrun)
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(r.out[0] == '\0', r.out);
 	mu_assert(strstr(r.out, "HCI scan") == NULL, r.out);
-	mu_assert(strcmp(r.err, "error: could not set sweep mode\n") == 0, r.err);
+	mu_assert(strcmp(r.err, STALLED) == 0, r.err);
 }
 
 /* A board that cannot be opened, and a firmware the host will not drive, each

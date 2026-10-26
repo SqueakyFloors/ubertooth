@@ -1,0 +1,83 @@
+/*
+ * The one report for a control request the board refused, shared by the
+ * ubertooth-* host tools that set a capture up.
+ *
+ * This file is part of Project Ubertooth.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; see the file COPYING.  If not, write to
+ * the Free Software Foundation, Inc., 51 Franklin Street,
+ * Boston, MA 02110-1301, USA.
+ */
+
+#include "request_report.h"
+
+#include <stdio.h>
+
+#include <libusb-1.0/libusb.h>
+
+/* Why the request failed, in plain words. The same wording libubertooth uses
+ * for the matching status of an asynchronous transfer, so the two reports read
+ * alike. NULL for a code with no plain words, which the line then carries as a
+ * number alone. */
+static const char *reason(int code)
+{
+	switch (code) {
+	case LIBUSB_ERROR_TIMEOUT:
+		return "the board did not answer in time";
+	case LIBUSB_ERROR_PIPE:
+		/* How a board refuses a request it does not implement. */
+		return "the board does not support this command (stalled)";
+	case LIBUSB_ERROR_NO_DEVICE:
+		return "the board is no longer attached";
+	case LIBUSB_ERROR_OVERFLOW:
+		return "the board sent more data than the request allows";
+	case LIBUSB_ERROR_IO:
+		return "the transfer failed";
+	default:
+		return NULL;
+	}
+}
+
+/* What to try next, for the failures the user can do something about. NULL
+ * where there is nothing honest to suggest: a stalled request is the board
+ * rejecting the command outright, which re-plugging it does not change. */
+static const char *hint(int code)
+{
+	switch (code) {
+	case LIBUSB_ERROR_TIMEOUT:
+		/* A board busy in a mode takes no new request until the mode
+		 * stops; one that answers nothing at all needs re-plugging. */
+		return "if a mode is running, stop it with ubertooth-util -S; "
+		       "if the board does not answer at all, re-plug it";
+	case LIBUSB_ERROR_NO_DEVICE:
+		return "re-attach the board and run the command again";
+	default:
+		return NULL;
+	}
+}
+
+void report_refused_request(const char *what, int code)
+{
+	const char *why = reason(code);
+	const char *advice = hint(code);
+
+	if (why != NULL)
+		fprintf(stderr, "error: could not %s: %s (libusb %d)\n",
+		        what, why, code);
+	else
+		fprintf(stderr, "error: could not %s (libusb %d)\n", what, code);
+
+	if (advice != NULL)
+		fprintf(stderr, "note: %s\n", advice);
+}

@@ -451,36 +451,57 @@ MU_TEST(a_capture_the_board_took_sets_up_and_exits_zero)
 	mu_assert(r.err[0] == '\0', r.err);
 }
 
-/* Each refused setup request is named, in one line on standard error, and ends
- * the command there, with nothing on standard output and no capture started.
- * The channel request is named for what the command line asked of it, because
- * a run without -c never named a channel. */
+/* The whole report for a refused request: one error line naming the request,
+ * why it failed and the libusb code, and a note only where there is something
+ * to try. */
+#define STALLED(what) \
+	"error: could not " what \
+	": the board does not support this command (stalled) (libusb -9)\n"
+#define NO_ANSWER(what) \
+	"error: could not " what \
+	": the board did not answer in time (libusb -7)\n" \
+	"note: if a mode is running, stop it with ubertooth-util -S; " \
+	"if the board does not answer at all, re-plug it\n"
+
+/* Each refused setup request is named, with the reason and what to try, on
+ * standard error, and ends the command there, with nothing on standard output
+ * and no capture started. The channel request is named for what the command
+ * line asked of it, because a run without -c never named a channel. */
 MU_TEST(a_refused_setup_request_is_named_and_exits_one)
 {
 	static const struct {
 		const char* option;  /* the extra option for this case, if any */
 		const char* value;
 		int refuse_channel;  /* which request the board refuses */
+		int code;            /* what the request came back with */
 		int channels;        /* requests made before the refusal */
 		int bdaddrs;
 		const char* message;
 	} cases[] = {
-		{ NULL, NULL, 1, 1, 0, "error: could not set sweep mode\n" },
-		{ "-c", "39", 1, 1, 0, "error: could not set the channel\n" },
-		{ "-u", "ab", 0, 0, 1,
-		  "error: could not set the Bluetooth address\n" },
+		/* LIBUSB_ERROR_PIPE, how a board refuses a request it does not
+		 * implement: there is nothing to suggest, so no note follows. */
+		{ NULL, NULL, 1, -9, 1, 0, STALLED("set sweep mode") },
+		{ "-c", "39", 1, -9, 1, 0, STALLED("set the channel") },
+		{ "-u", "ab", 0, -9, 0, 1, STALLED("set the Bluetooth address") },
+		/* LIBUSB_ERROR_TIMEOUT: the board took the request and said
+		 * nothing, which the note is about. */
+		{ "-c", "39", 1, -7, 1, 0, NO_ANSWER("set the channel") },
+		{ "-u", "ab", 0, -7, 0, 1,
+		  NO_ANSWER("set the Bluetooth address") },
+		/* A code with no plain words still names the request and the
+		 * number, rather than printing nothing. */
+		{ NULL, NULL, 1, -5, 1, 0,
+		  "error: could not set sweep mode (libusb -5)\n" },
 	};
 	struct run_result r;
 	size_t i;
 
 	for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
 		reset_device();
-		/* LIBUSB_ERROR_PIPE, how a board refuses a request it does not
-		 * implement. */
 		if (cases[i].refuse_channel)
-			device.channel_rc = -9;
+			device.channel_rc = cases[i].code;
 		else
-			device.bdaddr_rc = -9;
+			device.bdaddr_rc = cases[i].code;
 
 		if (cases[i].option != NULL)
 			r = RUN_RX("-l", "112233", cases[i].option,
@@ -511,7 +532,7 @@ MU_TEST(a_refused_setup_request_is_named_and_exits_one)
 	mu_assert_int_eq(1, device.channels_set);
 	mu_assert_int_eq(0, device.rx_syms_calls);
 	mu_assert(r.out[0] == '\0', r.out);
-	mu_assert(strcmp(r.err, "error: could not set sweep mode\n") == 0, r.err);
+	mu_assert(strcmp(r.err, STALLED("set sweep mode")) == 0, r.err);
 }
 
 /* Survey mode needs the sweep most of all, so a refused one keeps it from
@@ -526,7 +547,7 @@ MU_TEST(a_refused_sweep_leaves_survey_mode_with_no_results)
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(r.out[0] == '\0', r.out);
 	mu_assert(strstr(r.out, "Survey Results") == NULL, r.out);
-	mu_assert(strcmp(r.err, "error: could not set sweep mode\n") == 0, r.err);
+	mu_assert(strcmp(r.err, STALLED("set sweep mode")) == 0, r.err);
 }
 
 /* A firmware this host will not drive ends the command before any setup

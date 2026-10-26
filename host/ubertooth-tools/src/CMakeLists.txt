@@ -133,3 +133,10 @@ message(STATUS "")
 target_sources(ubertooth-specan PRIVATE specan_options.c)
 target_sources(ubertooth-btle PRIVATE btle_options.c)
 target_sources(ubertooth-ego PRIVATE ego_options.c)
+
+# The shared wording for a request the board refused, for the tools that check
+# the requests setting a capture up.
+target_sources(ubertooth-rx PRIVATE request_report.c)
+if ( ${LIBBLUETOOTH_FOUND} )
+	target_sources(ubertooth-scan PRIVATE request_report.c)
+endif()

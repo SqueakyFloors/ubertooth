@@ -330,7 +330,9 @@ endif()
 # The same approach for ubertooth-rx: its real main() against a scripted
 # library, so what a live capture exits with is checked without a board.
 # libbtbb is the real one (the tool hands it the piconet and the survey).
-add_executable(test-rx-main test_rx_main.c)
+# request_report.c is the real one, so the cases pin the wording the tool
+# prints rather than a stub's.
+add_executable(test-rx-main test_rx_main.c ../src/request_report.c)
 target_link_libraries(test-rx-main opt-parse-for-tests ${LIBBTBB_LIBRARIES})
 if(libubertooth_SOURCE_DIR)
 	target_include_directories(test-rx-main PRIVATE ${libubertooth_SOURCE_DIR}/src)
@@ -649,7 +651,7 @@ set_tests_properties(manpages PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 77)
 # find_package here is what makes that visible in this directory.
 find_package(BLUETOOTH)
 if(LIBBLUETOOTH_FOUND)
-	add_executable(test-scan-main test_scan_main.c)
+	add_executable(test-scan-main test_scan_main.c ../src/request_report.c)
 	target_link_libraries(test-scan-main opt-parse-for-tests
 		${LIBBTBB_LIBRARIES} ${LIBBLUETOOTH_LIBRARIES})
 	if(libubertooth_SOURCE_DIR)
