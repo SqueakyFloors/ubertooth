@@ -463,7 +463,8 @@ enum usb_service {
 /* What one function's body was found to name. */
 struct fn_usb {
 	int lines;
-	int bulk;     /* handle_usb or service_usb */
+	int bulk;     /* handle_usb or service_usb, named anywhere */
+	int direct;   /* ...called outright, rather than handed to something */
 	int control;  /* handle_usb_control */
 	int unmask;   /* ISER0 = ISER0_ISE_USB */
 };
@@ -484,25 +485,25 @@ struct mode_usb {
 static struct mode_usb modes[] = {
 	{ "bluetooth_rxtx.c", "bt_stream_rx", USB_BULK, NULL,
 	  "ubertooth-rx, -dump, -scan, -follow and -afh read the endpoint",
-	  { 0, 0, 0, 0 }, { 0, 0, 0, 0 } },
+	  { 0 }, { 0 } },
 	{ "bluetooth_rxtx.c", "specan", USB_BULK, NULL,
 	  "ubertooth-specan reads the endpoint",
-	  { 0, 0, 0, 0 }, { 0, 0, 0, 0 } },
+	  { 0 }, { 0 } },
 	{ "bluetooth_rxtx.c", "rx_generic_sync", USB_BULK, NULL,
 	  "generic receive streams to the endpoint",
-	  { 0, 0, 0, 0 }, { 0, 0, 0, 0 } },
+	  { 0 }, { 0 } },
 	{ "le_phy.c", "le_phy_main", USB_CONTROL, NULL,
 	  "ubertooth-btle -n and -f poll",
-	  { 0, 0, 0, 0 }, { 0, 0, 0, 0 } },
+	  { 0 }, { 0 } },
 	{ "bluetooth_rxtx.c", "bt_generic_le", USB_INTERRUPT, "bt_generic_le",
 	  "ubertooth-btle -p polls",
-	  { 0, 0, 0, 0 }, { 0, 0, 0, 0 } },
+	  { 0 }, { 0 } },
 	{ "bluetooth_rxtx.c", "bt_le_sync", USB_INTERRUPT, "bt_le_sync",
 	  "ubertooth-btle -p polls",
-	  { 0, 0, 0, 0 }, { 0, 0, 0, 0 } },
+	  { 0 }, { 0 } },
 	{ "ego.c", "ego_main", USB_INTERRUPT, "ego_init",
 	  "ubertooth-ego polls",
-	  { 0, 0, 0, 0 }, { 0, 0, 0, 0 } },
+	  { 0 }, { 0 } },
 };
 
 #define MODE_COUNT (sizeof(modes) / sizeof(modes[0]))
@@ -543,6 +544,17 @@ static int scan_function(const char *path, const char *function,
 		if (contains_identifier(line, "handle_usb") ||
 		    contains_identifier(line, "service_usb"))
 			out->bulk++;
+		/*
+		 * A bare mention is not enough to keep a stream fed: the bounded
+		 * radio waits and hop() take service_usb as a callback, so a loop
+		 * could name it on a path it rarely takes -- hop() runs only when
+		 * the mode hops -- and never service USB on its ordinary one. What
+		 * answers for the ordinary path is a call.
+		 */
+		if (call_name(line, name, sizeof(name)) &&
+		    (strcmp(name, "service_usb") == 0 ||
+		     strcmp(name, "handle_usb") == 0))
+			out->direct++;
 		if (contains_identifier(line, "handle_usb_control"))
 			out->control++;
 		if (is_assignment_to(line, "ISER0") &&
@@ -645,10 +657,12 @@ MU_TEST(a_bulk_read_mode_keeps_the_endpoint_loaded)
 		if (modes[i].service != USB_BULK)
 			continue;
 		snprintf(msg, sizeof(msg),
-		         "%s: %s() no longer calls handle_usb() or service_usb(), "
-		         "so nothing loads the bulk IN endpoint while it runs -- "
-		         "and %s", modes[i].file, modes[i].function, modes[i].host);
-		mu_assert(modes[i].found.bulk > 0, msg);
+		         "%s: %s() no longer calls handle_usb() or service_usb() on "
+		         "its own path (%d mentions, %d calls), so nothing loads the "
+		         "bulk IN endpoint while it runs -- and %s", modes[i].file,
+		         modes[i].function, modes[i].found.bulk,
+		         modes[i].found.direct, modes[i].host);
+		mu_assert(modes[i].found.direct > 0, msg);
 	}
 }
 
