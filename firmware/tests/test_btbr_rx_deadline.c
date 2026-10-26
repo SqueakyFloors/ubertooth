@@ -52,10 +52,16 @@ void __attribute__((noreturn)) die(char *fmt, ...);
  * The fake clock and the fake DMA controller share one model of time. The clock
  * counts 100ns steps, as TIMER0 does, and advances on every read, so a wait
  * that polls it makes progress. The DMA controller hands out the bytes the air
- * would have delivered by the current clock: four sync word bytes at
- * sync_clock, then one byte every 8usec, up to bytes_available. Capping
- * bytes_available is how a radio that stops part-way through a packet is
- * modelled.
+ * would have delivered by the current clock: nothing at sync_clock, when the
+ * packet strobe goes low, then one byte every 8usec, up to bytes_available. The
+ * first four of those are the high half of the access code, which the radio
+ * does not match on and rx_buf_update() skips. Capping bytes_available is how a
+ * radio that stops part-way through a packet is modelled.
+ *
+ * What it does not model: the microsecond or so between a byte's last air
+ * symbol and the DMA controller's pointer moving, which is part of what the
+ * deadline's slack is for. A byte here is visible the instant the air finishes
+ * it, so these tests see slightly more margin than a board does.
  */
 static uint32_t fake_clock;
 static uint32_t fake_clock_step;
@@ -85,9 +91,9 @@ int fake_gio6(void)
 }
 
 /*
- * How many bytes the DMA controller has written, sync word included -- what
- * DMACC0DestAddr minus the buffer gives on the board. 80 steps of 100ns is the
- * 8usec an air byte takes.
+ * How many bytes the DMA controller has written -- what DMACC0DestAddr minus
+ * the buffer gives on the board. 80 steps of 100ns is the 8usec an air byte
+ * takes.
  */
 static unsigned fake_dma_bytes(void)
 {
@@ -95,7 +101,7 @@ static unsigned fake_dma_bytes(void)
 
 	if (fake_clock < fake_sync_clock)
 		return 0;
-	bytes = 4 + (fake_clock - fake_sync_clock) / 80;
+	bytes = (fake_clock - fake_sync_clock) / 80;
 	if (bytes > fake_bytes_available)
 		bytes = fake_bytes_available;
 	return bytes;
@@ -263,7 +269,7 @@ MU_TEST(test_a_normal_data_header_wait_gets_its_bytes)
  */
 MU_TEST(test_a_stalled_buffer_gives_up_at_the_deadline)
 {
-	fake_receive(RF_EXPECTED_RX_CLKN_OFFSET, 4 + 2);
+	fake_receive(RF_EXPECTED_RX_CLKN_OFFSET, RX_SYNC_WORD_BYTES + 2);
 	rx_task.rx_offset = 0;
 	rx_task.pkt_time = RF_EXPECTED_RX_CLKN_OFFSET;
 
@@ -273,7 +279,8 @@ MU_TEST(test_a_stalled_buffer_gives_up_at_the_deadline)
 /* The same for the longer wait. */
 MU_TEST(test_a_stalled_buffer_gives_up_on_the_data_header_too)
 {
-	fake_receive(RF_EXPECTED_RX_CLKN_OFFSET, 4 + NUM_PKT_HDR_BYTES);
+	fake_receive(RF_EXPECTED_RX_CLKN_OFFSET,
+	             RX_SYNC_WORD_BYTES + NUM_PKT_HDR_BYTES);
 	rx_task.rx_offset = 0;
 	rx_task.pkt_time = RF_EXPECTED_RX_CLKN_OFFSET;
 
@@ -299,7 +306,8 @@ MU_TEST(test_a_buffer_that_never_advances_gives_up)
 MU_TEST(test_it_gives_up_when_the_bytes_are_overdue)
 {
 	uint32_t due = RF_EXPECTED_RX_CLKN_OFFSET
-		+ (NUM_PKT_HDR_BYTES+RX_WAIT_SLACK_BYTES)*RX_CLKN_PER_AIR_BYTE;
+		+ (NUM_PKT_HDR_BYTES+RX_SYNC_WORD_BYTES+RX_WAIT_SLACK_BYTES)
+		  *RX_CLKN_PER_AIR_BYTE;
 
 	fake_receive(RF_EXPECTED_RX_CLKN_OFFSET, 0);
 	rx_task.rx_offset = 0;
@@ -372,26 +380,43 @@ MU_TEST(test_a_late_sync_word_pushes_the_deadline_out)
 }
 
 /*
- * No wait may be given a deadline past the end of the clkn tick: the slot clock
- * restarts there, so a deadline beyond it would never be reached and the spin
- * would be back. The receive task's own constants have to leave room for the
- * longest wait, and this is what fails if one of them grows -- the size of a
- * codec chunk, say, which sets how many bytes the data header wait asks for.
+ * The ceiling has to leave room for a whole packet header to arrive at the air's
+ * own rate, even when the sync word was detected as late as the task will accept
+ * one. If it did not, the longest wait would be cut short of bytes that were
+ * going to turn up, and a board would lose packets it used to decode. This is
+ * what fails if one of the constants behind it grows -- the size of a codec
+ * chunk, say, which sets how many bytes the data header wait asks for.
+ *
+ * The deadline is allowed to be clamped by the ceiling, and for the longest wait
+ * it is: what matters is that the bytes are due before the clamp, not that the
+ * slack survives it.
  */
-MU_TEST(test_the_longest_wait_fits_inside_the_clkn_tick)
+MU_TEST(test_the_ceiling_leaves_room_for_the_longest_wait)
 {
 	unsigned latest_sync = WAIT_SYNCWORD;
-	unsigned longest = latest_sync
-		+ (NUM_DATA_HDR_BYTES+RX_WAIT_SLACK_BYTES)*RX_CLKN_PER_AIR_BYTE;
+	unsigned last_byte_due = latest_sync
+		+ (NUM_DATA_HDR_BYTES+RX_SYNC_WORD_BYTES)*RX_CLKN_PER_AIR_BYTE;
 
-	mu_assert(longest <= RX_WAIT_LATEST,
-	          "the data header deadline can land past the end of the tick");
+	mu_assert(last_byte_due < RX_WAIT_LATEST,
+	          "the longest wait can be cut off before its bytes are due");
 	mu_assert(RX_WAIT_LATEST < CLKN_OFFSET_RESET_VAL,
 	          "the deadline ceiling is not inside the tick");
 }
 
-/* And the ceiling itself is honoured, for the case the test above rules out: a
- * sync word so late that the bytes would be due after the tick ends. */
+/* The longest wait, with the sync word as late as it is ever accepted: the
+ * bytes still arrive in time, clamp and all. */
+MU_TEST(test_a_late_sync_word_still_gets_a_whole_data_header)
+{
+	fake_receive(WAIT_SYNCWORD, sizeof(rx_task.rx_dma_buf));
+	rx_task.rx_offset = 0;
+	rx_task.pkt_time = WAIT_SYNCWORD;
+
+	mu_assert_int_eq(NUM_DATA_HDR_BYTES,
+	                 (int)rx_wait_bytes(NUM_DATA_HDR_BYTES));
+}
+
+/* And the ceiling itself is honoured, for the case the two tests above rule
+ * out: a sync word so late that the bytes would be due after the tick ends. */
 MU_TEST(test_the_deadline_never_runs_past_the_ceiling)
 {
 	fake_receive(CLKN_OFFSET_RESET_VAL - 10, 0);
@@ -401,6 +426,25 @@ MU_TEST(test_the_deadline_never_runs_past_the_ceiling)
 	mu_assert_int_eq(0, (int)rx_wait_bytes(NUM_DATA_HDR_BYTES));
 	/* It had already passed the ceiling, so it gave up on the first poll. */
 	mu_assert_int_eq(1, (int)fake_clock_reads);
+}
+
+/*
+ * The ceiling has to be far enough from the restart that a poll lands at or past
+ * it. The loop ends on `CLKN_OFFSET < due` going false, so a clock that stepped
+ * from below the ceiling straight past the restart would miss it and the wait
+ * would run a whole tick longer. Polling in steps far coarser than any iteration
+ * of the real loop takes still ends the wait inside the tick.
+ */
+MU_TEST(test_a_coarse_clock_still_sees_the_ceiling)
+{
+	fake_receive(CLKN_OFFSET_RESET_VAL - 200, 0);
+	fake_clock_step = 60;
+	rx_task.rx_offset = 0;
+	rx_task.pkt_time = CLKN_OFFSET_RESET_VAL - 200;
+
+	mu_assert_int_eq(0, (int)rx_wait_bytes(NUM_DATA_HDR_BYTES));
+	mu_assert(fake_clock_peek() < CLKN_OFFSET_RESET_VAL,
+	          "the wait ran past the end of the tick");
 }
 
 /* ---- what the callers report ---- */
@@ -428,7 +472,7 @@ static void start_packet(uint32_t sync_clock, unsigned bytes_available)
  */
 MU_TEST(test_an_overdue_header_reports_no_header)
 {
-	start_packet(RF_EXPECTED_RX_CLKN_OFFSET, 4 + 1);
+	start_packet(RF_EXPECTED_RX_CLKN_OFFSET, RX_SYNC_WORD_BYTES + 1);
 
 	mu_assert_int_eq(-1, rx_pkt_hdr_callback());
 	mu_assert_int_eq(0, BBPKT_HAS_HDR(&test_pkt));
@@ -459,7 +503,7 @@ MU_TEST(test_an_overdue_payload_takes_the_header_flag_back)
 	mu_assert_int_eq(1, BBPKT_HAS_HDR(&test_pkt));
 
 	/* The radio stops after the packet header. */
-	fake_bytes_available = 4 + NUM_PKT_HDR_BYTES;
+	fake_bytes_available = RX_SYNC_WORD_BYTES + NUM_PKT_HDR_BYTES;
 
 	mu_assert_int_eq(-1, rx_data_hdr_callback());
 	mu_assert_int_eq(0, BBPKT_HAS_HDR(&test_pkt));
@@ -487,6 +531,11 @@ MU_TEST(test_a_payload_that_arrives_is_decoded)
  * `while (<reads rx_buf_update>);` on one line. A condition that tests the slot
  * clock is the fixed shape and is left alone -- that exact spelling, so a spin
  * cannot get past by merely naming the clock.
+ *
+ * Only that shape, written on one line. A reintroduced spin whose `;` or whose
+ * read of the buffer is on the next line gets past this, as rx_decode()'s own
+ * bounded wait is written. The point is to catch the pattern coming back by copy
+ * and paste, not to prove it cannot.
  *
  * test_cc2400_wait.c scans the same file for spins on the radio's registers.
  * The DMA buffer is the other thing the receive task waits on, and that scan
@@ -544,8 +593,10 @@ int main(void)
 	MU_RUN(test_it_gives_up_when_the_bytes_are_overdue);
 	MU_RUN(test_the_deadline_is_the_slot_clock_not_a_poll_count);
 	MU_RUN(test_a_late_sync_word_pushes_the_deadline_out);
-	MU_RUN(test_the_longest_wait_fits_inside_the_clkn_tick);
+	MU_RUN(test_the_ceiling_leaves_room_for_the_longest_wait);
+	MU_RUN(test_a_late_sync_word_still_gets_a_whole_data_header);
 	MU_RUN(test_the_deadline_never_runs_past_the_ceiling);
+	MU_RUN(test_a_coarse_clock_still_sees_the_ceiling);
 	MU_RUN(test_an_overdue_header_reports_no_header);
 	MU_RUN(test_a_header_that_arrives_is_decoded);
 	MU_RUN(test_an_overdue_payload_takes_the_header_flag_back);

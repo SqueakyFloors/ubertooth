@@ -46,19 +46,32 @@
 /* Maximum transmission size, for debug purpose */
 #define	WAIT_RX_MAX	1500 
 
-/* The air carries one symbol per microsecond, and CLKN_OFFSET counts the slot
- * clock in 100ns steps, so one air byte takes 8usec, which is 80 steps. */
-#define RX_CLKN_PER_AIR_BYTE	80
+/* CLKN_OFFSET counts the slot clock in 100ns steps. The air carries one symbol
+ * per microsecond, so an air byte takes 8usec. */
+#define RX_CLKN_PER_USEC	(CLK100NS_SECOND/1000000)
+#define RX_CLKN_PER_AIR_BYTE	(8*RX_CLKN_PER_USEC)
 
-/* How much later than the air says a byte may still turn up. The radio's
- * symbol timing is not exact, and the SSP FIFO sits between the radio and the
- * DMA controller, so allow four bytes' worth. */
+/* The radio's sync word register holds the low half of the 64-bit access code,
+ * so the packet strobe goes low with the high half still to come. Those four
+ * bytes land in the DMA buffer, where rx_buf_update() skips them, and they
+ * arrive after the strobe, not before it. */
+#define RX_SYNC_WORD_BYTES	4
+
+/* How much later than the air says a byte may still turn up. The radio's symbol
+ * timing is not exact, and the SSP FIFO sits between the radio and the DMA
+ * controller, so allow four bytes' worth. */
 #define RX_WAIT_SLACK_BYTES	4
 
 /* No wait may run past the end of the clkn tick, because the slot clock
  * restarts there and a deadline beyond it would never be reached. Stop 10usec
- * short of the restart, which is later than the last byte of a packet header
- * is ever due, and leaves the loop time to notice the deadline pass. */
+ * short of the restart, which still leaves the loop time to see the deadline
+ * pass, and is later than the last byte of the longest wait -- the first chunk
+ * of a payload -- is ever due.
+ *
+ * It assumes a tick of the usual length. btphy_adj_clkn_delay() can shorten one
+ * tick to move the slave clock onto a master's, and a wait in that tick would
+ * not see its deadline; the next tick is back to full length, so such a wait
+ * costs one more tick rather than running forever. */
 #define RX_WAIT_LATEST		(CLKN_OFFSET_RESET_VAL-100)
 
 /* Maximum size we can RX in WAIT_RX_MAX
@@ -100,8 +113,8 @@ static unsigned rx_buf_update(void)
 	rx_task.rx_offset = size;
 
 	/* Skip 32-bits of syncword*/
-	if (size > 4)
-		return size-4;
+	if (size > RX_SYNC_WORD_BYTES)
+		return size-RX_SYNC_WORD_BYTES;
 	return 0;
 }
 
@@ -124,10 +137,13 @@ static unsigned rx_buf_update(void)
  */
 static unsigned rx_wait_bytes(unsigned want)
 {
-	/* pkt_time is the slot clock when the sync word was detected, so the
-	 * bytes after it are the ones still to come. */
+	/* pkt_time is the slot clock when the packet strobe went low. `want` is
+	 * what rx_buf_update() reports, so the DMA controller has to reach the
+	 * high half of the access code as well, and every one of those bytes is
+	 * still to come. */
 	unsigned due = rx_task.pkt_time
-			+ (want+RX_WAIT_SLACK_BYTES)*RX_CLKN_PER_AIR_BYTE;
+			+ (want+RX_SYNC_WORD_BYTES+RX_WAIT_SLACK_BYTES)
+			  *RX_CLKN_PER_AIR_BYTE;
 	unsigned size;
 
 	if (due > RX_WAIT_LATEST)
@@ -271,7 +287,8 @@ static int rx_data_hdr_callback(void)
 		 * produced nothing -- the same thing a header that fails to
 		 * decode reports. It also keeps rx_finalize() out of
 		 * bbcodec_decode_finalize(), which stops the firmware when it
-		 * is handed a part-decoded payload. */
+		 * is handed a part-decoded payload. The decoded header itself
+		 * is left alone: the flag is what every reader keys on. */
 		pkt->flags &= ~((1<<BBPKT_F_HAS_HDR)|(1<<BBPKT_F_HAS_CRC));
 		return -1;
 	}
