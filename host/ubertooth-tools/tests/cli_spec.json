@@ -1,0 +1,915 @@
+{
+  "_about": [
+    "The command-line contract of every installed host tool, in one place.",
+    "test_cli_matrix.py reads this file and generates the cases from it, so a",
+    "rule written here is checked against the real binaries rather than",
+    "described in prose only.",
+    "",
+    "JSON rather than YAML on purpose: the test runs on CI images that have",
+    "python3 and nothing else (the Ubuntu 20.04 and Fedora containers install",
+    "python3 alone), and PyYAML is not among them.",
+    "",
+    "Where this file and a tool disagree, the disagreement is a finding, listed",
+    "in \"expected_failures\" with its finding id, not a rule bent to match the",
+    "code. Where the man page does not decide a case, it is listed in",
+    "\"undecided\" with a question id and only the universal checks run."
+  ],
+
+  "_rules": {
+    "streams": ".kiro/steering/cli-output.md",
+    "option_values": "host/doc/ubertooth.md, OPTION VALUES",
+    "per_tool": "host/doc/<tool>.md"
+  },
+
+  "_verdicts": {
+    "help": "the usage text on stdout, exit 0, stderr empty, no device looked for",
+    "report": "the answer on stdout, exit 0, stderr empty, no device looked for",
+    "silent_success": "exit 0 and both streams empty: a command that only set something, which the codebase reports by saying nothing",
+    "count_only": "a decimal count on stdout, exit 0, no device opened",
+    "count_then_device": "the count on stdout first, then the rest of the command reaches device lookup",
+    "usage": "the one 'error: ' line then the usage text, both on stderr, exit 1, stdout empty, no device looked for",
+    "refused": "exactly one 'error: ' line on stderr, exit 1, stdout empty, no usage text, no device looked for",
+    "device": "the command line was accepted, so the run reaches device lookup: exit 1 with the device-lookup message on stderr",
+    "undecided": "only the universal checks: a valid exit status, and either a clean refusal or device lookup"
+  },
+
+  "_universal": [
+    "the exit status is 0 or 1, or a code the tool's man page lists",
+    "stdout is empty whenever the status is not 0, unless the option is listed in stdout_on_failure",
+    "a refusal is exactly one line starting 'error: ' on stderr",
+    "the usage text appears on stdout only for -h, and on stderr only after a bare command line",
+    "a refused command line never reaches device lookup",
+    "a refused command line creates no file"
+  ],
+
+  "_local_adapter_probe": [
+    "ubertooth-follow and ubertooth-scan open the local Bluetooth adapter",
+    "before they look for an Ubertooth, so where an accepted command line",
+    "stops depends on whether the machine has one. The test runs the bare",
+    "command once to find out: an \"accepted_markers\" message means there is",
+    "no adapter, and every accepted case stops there. With an adapter present",
+    "those cases would go on to talk to it, which is not what this test is",
+    "about, so they are skipped, the run says how many, and the findings",
+    "marked \"only_without_local_adapter\" are not enforced."
+  ],
+
+  "_global_pair_rules": [
+    {"a": "role:help", "b": "role:report", "verdict": "undecided",
+     "question": "Q-1",
+     "why": "-h and -V (or -H) both end the command and both print to standard output, and the first one written wins. Each page says -h ends the command once the whole line has parsed, which reads as -h winning either way, but none of them decides it."},
+    {"a": "role:help", "b": "any", "verdict": "help",
+     "why": "-h ends the command whatever else the line asks for, once the whole line has parsed"},
+    {"a": "role:report", "b": "any", "verdict": "report",
+     "why": "-V and -H answer from the host and end the command, like -h"}
+  ],
+
+  "_device_lookup_messages": [
+    "note: UBERTOOTH_TEST_NO_DEVICES is set, so no board is selected",
+    "could not open Ubertooth device",
+    "error: no Ubertooth devices found",
+    "no Ubertooth found",
+    "multiple Ubertooth devices found"
+  ],
+
+  "tools": {
+    "ubertooth-afh": {
+      "man": "ubertooth-afh.md",
+      "optstring": ":rhVl:u:U:e:t:m:",
+      "requires_all": ["-l", "-u"],
+      "requires_all_error": "error: -l <LAP> and -u <UAP> are both required: the map is detected for one piconet",
+      "other_exit_codes": {"2": "the -t detection phase received no packet from the piconet"},
+      "options": {
+        "-h": {"value": "none", "role": "help"},
+        "-V": {"value": "none", "role": "report"},
+        "-r": {"value": "none", "role": "modifier",
+               "doc": "print the map once a second instead of on update"},
+        "-l": {"value": "required", "role": "target", "valid": ["446688"],
+               "invalid": [["zz3344", "error: LAP must be 6 hex digits (got zz3344)"],
+                           ["44668", "error: LAP must be 6 hex digits (got 44668)"],
+                           ["4466889", "error: LAP must be 6 hex digits (got 4466889)"]]},
+        "-u": {"value": "required", "role": "target", "valid": ["22"],
+               "invalid": [["2", "error: UAP must be 2 hex digits (got 2)"],
+                           ["2g", "error: UAP must be 2 hex digits (got 2g)"]]},
+        "-U": {"value": "required", "role": "selector", "valid": ["0"]},
+        "-e": {"value": "required", "role": "modifier", "valid": ["0", "2", "5"],
+               "invalid": [["6", "error: maximum access code errors must be 0-5 (got 6)"],
+                           ["abc", "error: maximum access code errors must be 0-5 (got abc)"]]},
+        "-t": {"value": "required", "role": "modifier", "valid": ["0", "5"],
+               "invalid": [["abc", "error: timeout must be a whole number of seconds, 0 for none (got abc)"],
+                           ["-1", "error: timeout must be a whole number of seconds, 0 for none (got -1)"]]},
+        "-m": {"value": "required", "role": "modifier", "valid": ["1", "5"],
+               "invalid": [["0", "error: channel removal threshold must be a whole number of packets, 1 or more (got 0)"],
+                           ["5x", "error: channel removal threshold must be a whole number of packets, 1 or more (got 5x)"]]}
+      },
+      "pair_rules": [
+        {"a": "-l", "b": "-u", "verdict": "device",
+         "why": "the one pair that names a whole piconet, so the run starts"}
+      ]
+    },
+
+    "ubertooth-btle": {
+      "man": "ubertooth-btle.md",
+      "optstring": ":a::r:hfnpU:v::A:s:t:x:c:q:jJiI",
+      "work_options": ["-f", "-n", "-p", "-a", "-v", "-s", "-t"],
+      "nothing_to_do": "error: nothing to do: choose a major mode (-f, -n or -p), or -a, -v, -s or -t",
+      "stdout_on_failure": ["-q -", "-c -"],
+      "options": {
+        "-h": {"value": "none", "role": "help"},
+        "-f": {"value": "none", "role": "major_mode", "doc": "follow connections"},
+        "-n": {"value": "none", "role": "major_mode", "doc": "advertisements only"},
+        "-p": {"value": "none", "role": "major_mode", "doc": "promiscuous"},
+        "-i": {"value": "none", "role": "interfere", "doc": "interfere once"},
+        "-I": {"value": "none", "role": "interfere", "doc": "interfere continuously"},
+        "-j": {"value": "none", "role": "interfere", "doc": "older spelling of -i"},
+        "-J": {"value": "none", "role": "interfere", "doc": "older spelling of -I"},
+        "-a": {"value": "optional", "role": "address", "valid": ["8e89bed6", "12345"],
+               "invalid": [["zzzz", "error: access address must be 1-8 hex digits (got zzzz)"],
+                           ["123456789", "error: access address must be 1-8 hex digits (got 123456789)"]]},
+        "-s": {"value": "required", "role": "faux_slave", "valid": ["22:44:66:88:aa:cc"],
+               "invalid": [["11:22:33:44:55", "error: MAC address must be xx:xx:xx:xx:xx:xx (got 11:22:33:44:55)"],
+                           ["11:22:33:44:55:GG", "error: MAC address must be hex digits and colons (got 11:22:33:44:55:GG)"]]},
+        "-t": {"value": "required", "role": "filter", "valid": ["22:44:66:88:aa:cc", "none"],
+               "invalid": [["11:22:33:44:55:66/49", "error: MAC mask must be 0-48 (got 49)"],
+                           ["11:22:33:44:55:66/abc", "error: MAC mask must be 0-48 (got abc)"]]},
+        "-v": {"value": "optional", "role": "verify", "valid": ["0", "1"],
+               "invalid": [["2", "error: CRC verify mode must be 0-1 (got 2)"]]},
+        "-A": {"value": "required", "role": "modifier", "valid": ["37", "38", "39"],
+               "invalid": [["40", "error: advertising channel index must be 37-39 (got 40)"],
+                           ["abc", "error: advertising channel index must be 37-39 (got abc)"]]},
+        "-x": {"value": "required", "role": "modifier", "valid": ["0", "32"],
+               "invalid": [["33", "error: access address offenses must be 0-32 (got 33)"],
+                           ["abc", "error: access address offenses must be 0-32 (got abc)"]]},
+        "-r": {"value": "required", "role": "capture", "valid": ["CAPTURE.pcapng"],
+               "stdout_value": false,
+               "doc": "PcapNG; the writer seeks, so -r - is refused"},
+        "-q": {"value": "required", "role": "capture", "valid": ["CAPTURE.pcap"],
+               "stdout_value": true},
+        "-c": {"value": "required", "role": "capture", "valid": ["CAPTURE.pcap"],
+               "stdout_value": true},
+        "-U": {"value": "required", "role": "selector", "valid": ["0"]}
+      },
+      "combinations": [
+        {"args": ["-r", "-"], "verdict": "refused",
+         "error": "error: PCAPNG capture to stdout is not supported; use -q - or -c -",
+         "source": "ubertooth-btle.md OPTIONS, -r"},
+        {"args": ["-a", "-a", "8e89bed6"], "verdict": "refused",
+         "error": "error: -a cannot both read and set the access address",
+         "source": "ubertooth-btle.md ARGUMENTS"},
+        {"args": ["-i"], "verdict": "undecided", "question": "Q-10"},
+        {"args": ["-I"], "verdict": "undecided", "question": "Q-10"},
+        {"args": ["-j"], "verdict": "undecided", "question": "Q-10"},
+        {"args": ["-J"], "verdict": "undecided", "question": "Q-10"},
+        {"args": ["-f", "-q", "-"], "verdict": "device",
+         "source": "ubertooth-btle.md OPTIONS, -q: the capture itself goes to stdout"},
+        {"args": ["-f", "-c", "-"], "verdict": "device",
+         "source": "ubertooth-btle.md OPTIONS, -c"},
+        {"args": ["-f", "-q", "CAPTURE.pcap", "-c", "CAPTURE2.pcap"],
+         "verdict": "device",
+         "source": "ubertooth-btle.md DIAGNOSTICS: -q and -c share one handle, so the second file is ignored with a warning"}
+      ],
+      "pair_rules": [
+        {"a": "role:major_mode", "b": "role:major_mode", "verdict": "refused",
+         "error": "error: choose one of -f, -n or -p, pick one pal",
+         "source": "ubertooth-btle.md ARGUMENTS"},
+        {"a": "-a", "b": "role:major_mode", "verdict": "refused",
+         "error": "error: -a and -s do not go with -f, -n or -p: a sniffing mode runs until it is interrupted",
+         "source": "ubertooth-btle.md ARGUMENTS"},
+        {"a": "-s", "b": "role:major_mode", "verdict": "refused",
+         "error": "error: -a and -s do not go with -f, -n or -p: a sniffing mode runs until it is interrupted",
+         "source": "ubertooth-btle.md ARGUMENTS"},
+        {"a": "role:interfere", "b": "-f", "verdict": "device"},
+        {"a": "role:interfere", "b": "-p", "verdict": "device"},
+        {"a": "role:interfere", "b": "role:major_mode", "verdict": "refused",
+         "error_contains": "needs -f or -p: there is no connection to interfere with otherwise",
+         "source": "ubertooth-btle.md ARGUMENTS; -n is the mode that cannot carry it"},
+        {"a": "role:interfere", "b": "role:address", "verdict": "refused",
+         "error_contains": "needs -f or -p: there is no connection to interfere with otherwise"},
+        {"a": "role:interfere", "b": "role:faux_slave", "verdict": "refused",
+         "error_contains": "needs -f or -p: there is no connection to interfere with otherwise"},
+        {"a": "role:interfere", "b": "role:filter", "verdict": "refused",
+         "error_contains": "needs -f or -p: there is no connection to interfere with otherwise"},
+        {"a": "role:interfere", "b": "role:verify", "verdict": "refused",
+         "error_contains": "needs -f or -p: there is no connection to interfere with otherwise"}
+      ]
+    },
+
+    "ubertooth-debug": {
+      "man": "ubertooth-debug.md",
+      "optstring": "hU:r:v:",
+      "requires_all": ["-r"],
+      "requires_all_error": "error: -r <reg>[,<reg>[,...]] is required: at least one register to read",
+      "options": {
+        "-h": {"value": "none", "role": "help"},
+        "-r": {"value": "required", "role": "work",
+               "valid": ["0x02", "0x02,%main", "0x00-0x05", "%main"],
+               "invalid": [["0x100", "error: register address must be 0x00-0xff (got 0x100)"],
+                           ["%nosuch", "error: register list must be names or addresses, single or as a range: unknown name (got %nosuch)"]]},
+        "-v": {"value": "required", "role": "modifier", "valid": ["0", "1", "2"],
+               "invalid": [["3", "error: verbosity must be 0-2 (got 3)"],
+                           ["abc", "error: verbosity must be 0-2 (got abc)"]]},
+        "-U": {"value": "required", "role": "selector", "valid": ["0"]}
+      }
+    },
+
+    "ubertooth-dfu": {
+      "man": "ubertooth-dfu.md",
+      "optstring": "hd:u:s:rU:",
+      "work_options": ["-d", "-u", "-s", "-r"],
+      "nothing_to_do": "error: nothing to do: give -d to write an image, -u to read one back, -s to sign one, or -r to reset",
+      "options": {
+        "-h": {"value": "none", "role": "help"},
+        "-d": {"value": "required", "role": "work", "valid": ["IMAGE.dfu"],
+               "doc": "write an image; the whole image is checked before a device is opened, so a file that is not a DFU image is refused there"},
+        "-u": {"value": "required", "role": "work", "valid": ["OUT.bin"],
+               "doc": "read the application flash region back"},
+        "-s": {"value": "required", "role": "work", "valid": ["PLAIN.bin"],
+               "doc": "add a DFU suffix to a binary; a local operation that opens no device"},
+        "-r": {"value": "none", "role": "work", "doc": "reset the board"},
+        "-U": {"value": "required", "role": "selector", "valid": ["0"]}
+      },
+      "combinations": [
+        {"args": ["-s", "PLAIN.bin"], "verdict": "silent_success",
+         "creates": ["PLAIN.dfu"],
+         "source": "ubertooth-dfu.md: -s writes <file>.dfu and opens no device"},
+        {"args": ["-s", "MISSING.bin"], "verdict": "refused",
+         "error_contains": "No such file or directory",
+         "source": "ubertooth-dfu.md: an input it cannot read is refused"},
+        {"args": ["-d", "IMAGE.dfu"], "verdict": "refused",
+         "error_contains": "DFU suffix",
+         "source": "ubertooth-dfu.md: the whole image is checked before a device is opened, so a file that is not a DFU image ends the command there, naming what it could not read"}
+      ],
+      "pair_rules": [
+        {"a": "-d", "b": "any", "verdict": "refused", "error_contains": "DFU suffix",
+         "source": "ubertooth-dfu.md: the whole image is checked before the board is asked to leave its application, so a file that is not a DFU image ends the command there, whatever else the line asks for"},
+        {"a": "-s", "b": "any", "verdict": "undecided",
+         "question": "Q-8",
+         "why": "signing is local work; the man page does not say in which order -s runs beside a board operation, nor what the status is when one half succeeds"}
+      ]
+    },
+
+    "ubertooth-ducky": {
+      "man": "ubertooth-ducky.md",
+      "optstring": ":q::bA:a:hsU:",
+      "work_options": ["-q", "-b"],
+      "nothing_to_do": "error: nothing to do: give -q to quack, or -b to signal the bootloader",
+      "options": {
+        "-h": {"value": "none", "role": "help"},
+        "-q": {"value": "optional", "role": "work",
+               "valid": ["fd123ff9-9e30-45b2-af0d-b85b7d2dc80c"],
+               "invalid": [["nonsense", "error: cannot read the UUID 'nonsense'"]]},
+        "-b": {"value": "none", "role": "work"},
+        "-A": {"value": "required", "role": "modifier", "valid": ["37", "38", "39"],
+               "invalid": [["40", "error: advertising channel index must be 37-39 (got 40)"]]},
+        "-a": {"value": "required", "role": "modifier", "valid": ["22:44:66:88:aa:cc"],
+               "invalid": [["11:22:33:44:55", "error: Bluetooth address must be xx:xx:xx:xx:xx:xx (got 11:22:33:44:55)"]]},
+        "-s": {"value": "none", "role": "undocumented",
+               "doc": "an easter egg this fork keeps as it is; not in the man page or the usage text"},
+        "-U": {"value": "required", "role": "selector", "valid": ["0"]}
+      }
+    },
+
+    "ubertooth-dump": {
+      "man": "ubertooth-dump.md",
+      "optstring": ":bhclU:d:",
+      "options": {
+        "-h": {"value": "none", "role": "help"},
+        "-b": {"value": "none", "role": "modifier", "doc": "bitstream only"},
+        "-c": {"value": "none", "role": "modulation", "doc": "classic modulation"},
+        "-l": {"value": "none", "role": "modulation", "doc": "LE modulation"},
+        "-d": {"value": "required", "role": "capture", "valid": ["DUMP.bin"],
+               "stdout_value": true,
+               "doc": "the man page writes it <filename.bin>; ubertooth(7) claims '-' for any file option"},
+        "-U": {"value": "required", "role": "selector", "valid": ["0"]}
+      },
+      "combinations": [
+        {"args": ["-d", "-"], "verdict": "device",
+         "source": "ubertooth(7) OPTION VALUES: a lone - is standard output"}
+      ],
+      "pair_rules": [
+        {"a": "role:modulation", "b": "role:modulation", "verdict": "undecided",
+         "question": "Q-3",
+         "why": "the man page does not say what -c and -l in one command do"}
+      ]
+    },
+
+    "ubertooth-ego": {
+      "man": "ubertooth-ego.md",
+      "optstring": ":frijc:U:a:l:h",
+      "work_options": ["-f", "-r", "-i", "-j"],
+      "nothing_to_do": "error: nothing to do: choose a major mode (-f, -r or -i)",
+      "options": {
+        "-h": {"value": "none", "role": "help"},
+        "-f": {"value": "none", "role": "major_mode", "doc": "follow connections"},
+        "-r": {"value": "none", "role": "major_mode", "doc": "continuous receive on one channel"},
+        "-i": {"value": "none", "role": "major_mode", "doc": "interfere"},
+        "-j": {"value": "none", "role": "major_mode", "doc": "older spelling of -i"},
+        "-c": {"value": "required", "role": "channel", "valid": ["2402", "2418", "2480"],
+               "invalid": [["2481", "error: channel must be 2402-2480 MHz (got 2481)"],
+                           ["2401", "error: channel must be 2402-2480 MHz (got 2401)"],
+                           ["abc", "error: channel must be 2402-2480 MHz (got abc)"]]},
+        "-l": {"value": "required", "role": "modifier", "valid": ["1", "18", "48"],
+               "invalid": [["49", "error: capture length must be 1-48 (got 49)"],
+                           ["0", "error: capture length must be 1-48 (got 0)"]]},
+        "-a": {"value": "required", "role": "modifier", "valid": ["630f9ffe", "11", "1122"],
+               "invalid": [["zzzzzzzz", "error: access code must be 2, 4, 6 or 8 hex digits"],
+                           ["630f9ff", "error: access code must be 2, 4, 6 or 8 hex digits"],
+                           ["630f9ffe9", "error: access code must be 2, 4, 6 or 8 hex digits"]]},
+        "-U": {"value": "required", "role": "selector", "valid": ["0"]}
+      },
+      "pair_rules": [
+        {"a": "-c", "b": "-r", "verdict": "device"},
+        {"a": "-c", "b": "role:major_mode", "verdict": "refused",
+         "error_contains": "cannot be combined with", "names_the_other": true,
+         "source": "ubertooth-ego.md ARGUMENTS"},
+        {"a": "role:major_mode", "b": "role:major_mode", "verdict": "undecided",
+         "question": "Q-2",
+         "why": "the man page calls each of -f, -r and -i a major mode but never says what two of them in one command do; ubertooth-btle and ubertooth-util both refuse two modes"}
+      ]
+    },
+
+    "ubertooth-rx": {
+      "man": "ubertooth-rx.md",
+      "optstring": ":hVi:l:u:U:d:e:r:sq:t:zc:",
+      "options": {
+        "-h": {"value": "none", "role": "help"},
+        "-V": {"value": "none", "role": "report"},
+        "-l": {"value": "required", "role": "target", "valid": ["446688"],
+               "invalid": [["zz3344", "error: LAP must be 6 hex digits (got zz3344)"],
+                           ["44668", "error: LAP must be 6 hex digits (got 44668)"]]},
+        "-u": {"value": "required", "role": "target", "valid": ["22"],
+               "requires": ["-l"],
+               "requires_error": "error: -u <UAP> requires -l <LAP>",
+               "invalid": [["2", "error: UAP must be 2 hex digits (got 2)"],
+                           ["2g", "error: UAP must be 2 hex digits (got 2g)"]]},
+        "-z": {"value": "none", "role": "survey"},
+        "-i": {"value": "required", "role": "replay", "valid": ["MISSING.bin"],
+               "doc": "replay a capture written with -d; a file it cannot read ends the command before any device is opened. A replay that does run is covered by test_rx_replay.py, which builds real fixtures"},
+        "-c": {"value": "required", "role": "modifier", "valid": ["0", "39", "78"],
+               "invalid": [["79", "error: channel must be 0-78 (got 79)"],
+                           ["abc", "error: channel must be 0-78 (got abc)"]]},
+        "-s": {"value": "none", "role": "modifier", "doc": "sweep; the default"},
+        "-e": {"value": "required", "role": "modifier", "valid": ["0", "2", "5"],
+               "invalid": [["6", "error: maximum access code errors must be 0-5 (got 6)"]]},
+        "-t": {"value": "required", "role": "modifier", "valid": ["0", "5"],
+               "invalid": [["abc", "error: timeout must be a whole number of seconds, 0 for none (got abc)"]]},
+        "-r": {"value": "required", "role": "capture", "valid": ["CAPTURE.pcapng"],
+               "stdout_value": false},
+        "-q": {"value": "required", "role": "capture", "valid": ["CAPTURE.pcap"],
+               "stdout_value": true},
+        "-d": {"value": "required", "role": "capture", "valid": ["DUMP.bin"],
+               "stdout_value": true},
+        "-U": {"value": "required", "role": "selector", "valid": ["0"]}
+      },
+      "combinations": [
+        {"args": ["-i", "MISSING.bin"], "verdict": "refused",
+         "error_contains": "No such file or directory",
+         "source": "ubertooth-rx.md EXIT STATUS: a file that cannot be read exits 1"},
+        {"args": ["-q", "-"], "verdict": "device",
+         "source": "ubertooth(7) OPTION VALUES: a lone - is standard output"},
+        {"args": ["-d", "-"], "verdict": "device",
+         "source": "ubertooth(7) OPTION VALUES"},
+        {"args": ["-r", "-"], "verdict": "refused",
+         "error_contains": "PCAPNG capture to stdout is not supported",
+         "source": "a PcapNG writer has to seek, so - cannot be its destination; ubertooth-btle -r - refuses it with exactly that wording"}
+      ],
+      "pair_rules": [
+        {"a": "-z", "b": "role:target", "verdict": "refused",
+         "error_contains": "survey mode",
+         "why": "a survey discovers addresses, so it cannot be given one; this check runs before the one below"},
+        {"a": "-u", "b": "-l", "verdict": "device"},
+        {"a": "-u", "b": "any", "verdict": "refused",
+         "error": "error: -u <UAP> requires -l <LAP>",
+         "source": "ubertooth-rx.md ARGUMENTS"},
+        {"a": "-i", "b": "any", "verdict": "refused",
+         "error_contains": "No such file or directory",
+         "source": "the replay file is read before any device is opened, so an unreadable one ends the command there"}
+      ]
+    },
+
+    "ubertooth-specan": {
+      "man": "ubertooth-specan.md",
+      "optstring": ":vhgGd:l:u:U:",
+      "options": {
+        "-h": {"value": "none", "role": "help"},
+        "-v": {"value": "none", "role": "modifier", "doc": "verbose, on stderr"},
+        "-g": {"value": "none", "role": "output_mode", "doc": "feedgnuplot text"},
+        "-G": {"value": "none", "role": "output_mode", "doc": "3D feedgnuplot text"},
+        "-d": {"value": "required", "role": "capture", "valid": ["SAMPLES.bin"],
+               "stdout_value": true},
+        "-l": {"value": "required", "role": "range", "valid": ["2402", "2410", "2480"],
+               "invalid": [["bad", "error: lower frequency must be 2402-2480 MHz (got bad)"],
+                           ["2401", "error: lower frequency must be 2402-2480 MHz (got 2401)"]]},
+        "-u": {"value": "required", "role": "range", "valid": ["2480"],
+               "invalid": [["2481", "error: upper frequency must be 2402-2480 MHz (got 2481)"],
+                           ["bad", "error: upper frequency must be 2402-2480 MHz (got bad)"]]},
+        "-U": {"value": "required", "role": "selector", "valid": ["0"]}
+      },
+      "combinations": [
+        {"args": ["-l", "2470", "-u", "2410"], "verdict": "refused",
+         "error": "error: lower frequency must not exceed upper frequency",
+         "source": "ubertooth-specan.md DIAGNOSTICS"},
+        {"args": ["-l", "2410", "-u", "2410"], "verdict": "device",
+         "source": "a range of one channel is a range"},
+        {"args": ["-d", "-"], "verdict": "device",
+         "source": "ubertooth-specan.md ARGUMENTS: a lone - is standard output"},
+        {"args": ["-d", "-x"], "verdict": "device",
+         "source": "ubertooth-specan.md ARGUMENTS: any other value is a file name, including one starting with -"}
+      ],
+      "pair_rules": [
+        {"a": "role:output_mode", "b": "role:output_mode", "verdict": "undecided",
+         "question": "Q-4",
+         "why": "the man page does not say what -g and -G in one command do"},
+        {"a": "-d", "b": "role:output_mode", "verdict": "undecided",
+         "question": "Q-9",
+         "why": "the man page does not say which output mode wins, nor whether the -d file is still created when a later -g takes the samples to standard output instead"}
+      ]
+    },
+
+    "ubertooth-tx": {
+      "man": "ubertooth-tx.md",
+      "optstring": ":hVl:u:U:t:",
+      "requires_all": ["-l", "-u"],
+      "requires_all_error": "error: -l <LAP> and -u <UAP> are both required",
+      "options": {
+        "-h": {"value": "none", "role": "help"},
+        "-V": {"value": "none", "role": "report"},
+        "-l": {"value": "required", "role": "target", "valid": ["446688"],
+               "invalid": [["zz3344", "error: LAP must be 6 hex digits (got zz3344)"]]},
+        "-u": {"value": "required", "role": "target", "valid": ["22"],
+               "invalid": [["2", "error: UAP must be 2 hex digits (got 2)"]]},
+        "-t": {"value": "required", "role": "modifier", "valid": ["0", "5"],
+               "invalid": [["abc", "error: timeout must be a whole number of seconds, 0 for none (got abc)"]]},
+        "-U": {"value": "required", "role": "selector", "valid": ["0"]}
+      },
+      "pair_rules": [
+        {"a": "-l", "b": "-u", "verdict": "device"}
+      ]
+    },
+
+    "ubertooth-util": {
+      "man": "ubertooth-util.md",
+      "optstring": ":U:hnmeiIprsStvbl::a::C::c::d::q::z::VNxH",
+      "work_options": ["-n", "-m", "-e", "-i", "-I", "-p", "-r", "-s", "-S", "-t",
+                       "-v", "-b", "-l", "-a", "-C", "-c", "-d", "-q", "-z", "-V",
+                       "-N", "-x", "-H"],
+      "nothing_to_do": "error: nothing to do: give an option that reads or sets something, or -N to count the attached boards",
+      "selector_only_error": "error: nothing to do: -U '%s' selects a device but no option asks anything of it",
+      "stdout_on_failure": ["-N"],
+      "removed_options": ["-9", "-f"],
+      "options": {
+        "-h": {"value": "none", "role": "help"},
+        "-H": {"value": "none", "role": "report",
+               "doc": "the host tools version; works without a device"},
+        "-N": {"value": "none", "role": "count",
+               "doc": "the number of attached boards, on stdout, then the rest of the command"},
+        "-U": {"value": "required", "role": "selector", "valid": ["0", "all"]},
+        "-v": {"value": "none", "role": "query"},
+        "-V": {"value": "none", "role": "query"},
+        "-b": {"value": "none", "role": "query"},
+        "-p": {"value": "none", "role": "query"},
+        "-s": {"value": "none", "role": "query"},
+        "-m": {"value": "none", "role": "query"},
+        "-S": {"value": "none", "role": "action"},
+        "-r": {"value": "none", "role": "action"},
+        "-n": {"value": "none", "role": "mode"},
+        "-e": {"value": "none", "role": "mode"},
+        "-t": {"value": "none", "role": "mode"},
+        "-x": {"value": "none", "role": "mode"},
+        "-i": {"value": "none", "role": "mode"},
+        "-I": {"value": "none", "role": "mode"},
+        "-q": {"value": "optional", "role": "mode", "valid": ["20", "85", "120"],
+               "invalid": [["19", "error: RSSI threshold must be 20-120 (got 19)"],
+                           ["121", "error: RSSI threshold must be 20-120 (got 121)"]]},
+        "-a": {"value": "optional", "role": "setter", "valid": ["0", "7"],
+               "invalid": [["8", "error: PA level must be a single digit 0-7 (got 8)"]]},
+        "-c": {"value": "optional", "role": "setter", "valid": ["2402", "2440", "2480"],
+               "invalid": [["2401", "error: frequency must be 2402-2480 MHz (got 2401)"],
+                           ["2481", "error: frequency must be 2402-2480 MHz (got 2481)"]]},
+        "-C": {"value": "optional", "role": "setter", "valid": ["0", "39", "78"],
+               "invalid": [["79", "error: channel must be 0-78 (got 79)"]]},
+        "-d": {"value": "optional", "role": "setter", "valid": ["0", "1"],
+               "invalid": [["2", "error: all-LED state must be 0-1 (got 2)"]]},
+        "-l": {"value": "optional", "role": "setter", "valid": ["0", "1"],
+               "invalid": [["2", "error: USR LED state must be 0-1 (got 2)"]]},
+        "-z": {"value": "optional", "role": "squelch", "valid": ["-128", "-90", "127"],
+               "invalid": [["-129", "error: squelch level must be -128 to 127 (got -129)"],
+                           ["128", "error: squelch level must be -128 to 127 (got 128)"]]}
+      },
+      "combinations": [
+        {"args": ["-U", "all"], "verdict": "refused",
+         "error": "error: -U all needs one of the read-only queries -b, -v, -V, -p or -s to list",
+         "source": "ubertooth-util.md SELECTING A DEVICE"},
+        {"args": ["-U", "all", "-c", "2440"], "verdict": "refused",
+         "error": "error: -U all only supports the read-only queries -b, -v, -V, -p and -s; select one device with -U<index|serial> for other options",
+         "source": "ubertooth-util.md SELECTING A DEVICE"},
+        {"args": ["-U", "all", "-N"], "verdict": "count_only",
+         "source": "ubertooth-util.md OPTIONS, -N"},
+        {"args": ["-N"], "verdict": "count_only",
+         "source": "ubertooth-util.md OPTIONS, -N: on its own it prints the count, opens no device and exits 0"},
+        {"args": ["-N", "-U", "0"], "verdict": "count_only",
+         "source": "ubertooth-util.md OPTIONS, -N: a selector alone asks nothing of the board it names"},
+        {"args": ["--host-version"], "verdict": "report",
+         "source": "ubertooth-util.md OPTIONS, -H"}
+      ],
+      "pair_rules": [
+        {"a": "role:mode", "b": "role:mode", "verdict": "refused",
+         "error_contains": "cannot be combined; give only one of -q -n -e -t -x -I -i",
+         "source": "ubertooth-util.md DESCRIPTION"},
+        {"a": "-z", "b": "role:mode", "verdict": "refused",
+         "error_contains": "-z cannot be combined with", "names_the_other": true,
+         "source": "ubertooth-util.md OPTIONS, -z"},
+        {"a": "-H", "b": "any", "verdict": "report",
+         "why": "-H ends the command before every other option, as -h does"},
+        {"a": "-N", "b": "any", "verdict": "count_then_device"},
+        {"a": "-c", "b": "-C", "verdict": "undecided",
+         "question": "Q-5",
+         "why": "-c and -C are the same setting written two ways; the man page does not say which wins, or whether both are sent"}
+      ]
+    },
+
+    "ubertooth-follow": {
+      "man": "ubertooth-follow.md",
+      "optstring": "hl:u:U:e:d:ab:w:r:q:",
+      "built_when": "libbluetooth is installed (Linux)",
+      "accepted_markers": ["Bluetooth device", "not found: No such device"],
+      "_accepted_markers_why": "ubertooth-follow opens the local Bluetooth adapter before it looks for an Ubertooth, so on a machine without one an accepted command line stops there instead of at device lookup",
+      "options": {
+        "-h": {"value": "none", "role": "help"},
+        "-l": {"value": "required", "role": "target", "valid": ["446688"],
+               "invalid": [["zz3344", "error: LAP must be 6 hex digits (got zz3344)"]]},
+        "-u": {"value": "required", "role": "target", "valid": ["22"],
+               "invalid": [["2", "error: UAP must be 2 hex digits (got 2)"]]},
+        "-a": {"value": "none", "role": "afh_read",
+               "requires": ["-l", "-u"],
+               "requires_error_contains": "-a reads the AFH map over a Bluetooth connection",
+               "doc": "read the AFH map over a Bluetooth connection; needs exactly one -l and one -u"},
+        "-b": {"value": "required", "role": "modifier", "valid": ["hci0"]},
+        "-e": {"value": "required", "role": "modifier", "valid": ["0", "2", "5"],
+               "invalid": [["6", "error: maximum access code errors must be 0-5 (got 6)"]]},
+        "-w": {"value": "required", "role": "modifier", "valid": ["0", "10"],
+               "invalid": [["abc", "error: USB delay must be a whole number of timeslots, 0 or more (got abc)"]]},
+        "-r": {"value": "required", "role": "capture", "valid": ["CAPTURE.pcapng"],
+               "stdout_value": false},
+        "-q": {"value": "required", "role": "capture", "valid": ["CAPTURE.pcap"],
+               "stdout_value": true},
+        "-d": {"value": "required", "role": "capture", "valid": ["DUMP.bin"],
+               "stdout_value": true},
+        "-U": {"value": "required", "role": "selector", "valid": ["0"]}
+      },
+      "combinations": [
+        {"args": ["-a"], "verdict": "refused",
+         "error_contains": "-a reads the AFH map over a Bluetooth connection",
+         "source": "ubertooth-follow.md ARGUMENTS"},
+        {"args": ["-a", "-l", "446688", "-l", "446688", "-u", "22"], "verdict": "refused",
+         "error_contains": "give -l once and -u once",
+         "source": "ubertooth-follow.md ARGUMENTS"},
+        {"args": ["-a", "-l", "446688", "-u", "22"], "verdict": "device"},
+        {"args": ["-q", "-"], "verdict": "device",
+         "source": "ubertooth(7) OPTION VALUES: a lone - is standard output"},
+        {"args": ["-d", "-"], "verdict": "device",
+         "source": "ubertooth(7) OPTION VALUES"}
+      ]
+    },
+
+    "ubertooth-scan": {
+      "man": "ubertooth-scan.md",
+      "optstring": "hU:t:e:xsb:",
+      "built_when": "libbluetooth is installed (Linux)",
+      "accepted_markers": ["Unable to find hci"],
+      "_accepted_markers_why": "ubertooth-scan opens the local Bluetooth adapter before it looks for an Ubertooth, so on a machine without one an accepted command line stops there instead of at device lookup",
+      "options": {
+        "-h": {"value": "none", "role": "help"},
+        "-s": {"value": "none", "role": "modifier", "doc": "scan for names and services"},
+        "-x": {"value": "none", "role": "modifier", "doc": "extended scan"},
+        "-t": {"value": "required", "role": "modifier", "valid": ["0", "5"],
+               "invalid": [["abc", "error: timeout must be a whole number of seconds, 0 for none (got abc)"]]},
+        "-e": {"value": "required", "role": "modifier", "valid": ["0", "2", "5"],
+               "invalid": [["6", "error: maximum access code errors must be 0-5 (got 6)"]]},
+        "-b": {"value": "required", "role": "modifier", "valid": ["hci0"]},
+        "-U": {"value": "required", "role": "selector", "valid": ["0"]}
+      }
+    },
+
+    "btle-extcap.py": {
+      "man": "none; the extcap protocol defines the command line",
+      "kind": "python",
+      "usage_marker": "--extcap-interfaces",
+      "_shape": [
+        "All long options, defined by the extcap protocol Wireshark calls the",
+        "script with, so there is no short-option table to generate a matrix",
+        "from. The cases below are the whole contract that needs no device:",
+        "everything else it does shells out to ubertooth-util and",
+        "ubertooth-btle, which its own test",
+        "(host/python/extcap/tests/test_btle_extcap.py) covers against fakes."
+      ],
+      "nothing_to_do": "error: nothing to do: give --extcap-interfaces, --extcap-dlts, --extcap-config or --capture",
+      "cases": [
+        {"args": ["-h"], "verdict": "help"},
+        {"args": ["--help"], "verdict": "help"},
+        {"args": ["--bogus"], "verdict": "refused",
+         "error_contains": "option --bogus not recognized"},
+        {"args": ["--fifo"], "verdict": "refused",
+         "error_contains": "option --fifo requires argument"},
+        {"args": ["-Z"], "verdict": "refused",
+         "error_contains": "option -Z not recognized"},
+        {"args": ["-"], "verdict": "refused",
+         "error": "error: unexpected argument '-'"},
+        {"args": ["extra"], "verdict": "refused",
+         "error": "error: unexpected argument 'extra'"},
+        {"args": ["--extcap-config"], "verdict": "refused",
+         "error": "error: --extcap-interface must be ubertooth<serial>, as --extcap-interfaces lists it"},
+        {"args": ["--extcap-interface=ubertooth0"], "verdict": "refused",
+         "error_contains": "nothing to do"},
+        {"args": ["--extcap-interface=ubertooth0", "--capture"], "verdict": "refused",
+         "error": "error: --capture needs --fifo=PATH"},
+        {"args": ["--extcap-interface=ubertooth0", "--capture", "--fifo=/dev/null",
+                  "--channel=40"], "verdict": "refused",
+         "error": "error: advertising channel index must be 37-39 (got 40)"}
+      ]
+    },
+
+    "ubertooth-specan-ui": {
+      "man": "ubertooth-specan-ui.md",
+      "kind": "python",
+      "testable": false,
+      "why_not": [
+        "The script imports numpy and a Qt binding at module level, before it",
+        "reads its command line, so none of its refusals can be reached on a",
+        "machine without them. Its own test",
+        "(host/python/specan_ui/tests/test_specan_ui_streams.py) skips for the",
+        "same reason.",
+        "What it would check: -h on stdout with status 0, and one 'error: '",
+        "line on stderr with status 1 for a bad -l/-u range, a --wifi channel",
+        "that is not 1-14 and a --padding that is not a whole number of MHz,",
+        "all before the window opens (ubertooth-specan-ui.md ARGUMENTS)."
+      ]
+    }
+  },
+
+  "_findings": {
+    "_about": [
+      "Where a tool and the rules disagree today. Each one is listed in",
+      "\"expected_failures\" as the cases it breaks and the complaint it",
+      "produces. Every case listed has to keep failing in that way, so a",
+      "finding fixed for some of its cases, or breaking differently, fails",
+      "this test rather than passing quietly."
+    ],
+    "F-01": "ubertooth-debug, ubertooth-dfu, ubertooth-follow and ubertooth-scan leave a bad option and a missing option value to getopt's own message: it names the binary's whole path, carries no 'error: ' prefix, and reports --bogus as \"invalid option -- '-'\". The rule wants one line: \"error: unrecognized option '-Z'\" and \"error: option '-U' requires a value\", which opt_report_bad_option() in opt_parse.c already produces for the other nine tools.",
+    "F-02": "ubertooth-dfu -d writes its progress line \"Checking firmware signature\" to standard output. Progress belongs on standard error.",
+    "F-03": "ubertooth-dfu reports a refused image and an unreadable -s input as plain lines with no 'error: ' prefix, and as two of them: \"Unknown DFU suffix length: 0\" then \"Signature check failed, firmware will not be updated\", and \"<file>: No such file or directory\". Its own man page shows the prefixed form for the too-big-for-the-part check, so the tool is inconsistent with itself.",
+    "F-04": "ubertooth-rx refuses -z beside -l or -u with \"No address should be specified for survey mode\": no 'error: ' prefix. The refusal itself is right and happens before any device is opened.",
+    "F-05": "ubertooth-rx -r - creates a PcapNG file called '-' and carries on to device lookup. A PcapNG writer has to seek, so '-' cannot be its destination; ubertooth-btle -r - says so in one line (\"error: PCAPNG capture to stdout is not supported; use -q - or -c -\"). With a file called '-' already there, the message is \"ubertooth-rx: create_bredr_capture_file: : File exists\".",
+    "F-06": "A lone '-' is written as a file name rather than standard output by ubertooth-rx (-q, -d), ubertooth-dump (-d) and ubertooth-follow (-q, -d, -r), against ubertooth(7) OPTION VALUES. ubertooth-btle and ubertooth-specan do take it as standard output.",
+    "F-07": "ubertooth-scan writes its own error line to standard output: \"error: Unable to find hci0 (-1)\". Errors belong on standard error.",
+    "F-08": "Documentation, not testable here: ubertooth-specan.md says an unknown option and a missing option value are refused \"with the usage text after the 'error: ' line on standard error\". The tool prints the error line alone, which is what the rule asks for, so the page is what needs changing.",
+    "F-09": "Documentation, not testable here: ten of the thirteen man pages do not list -h in their OPTIONS section (afh, debug, dfu, dump, ego, rx, scan, specan, tx, util), although every tool has it and the pages discuss it elsewhere."
+  },
+
+  "expected_failures": [
+    {"tool": "ubertooth-afh", "findings": ["F-09"],
+     "problem_contains": "does not list -h in its OPTIONS section",
+     "cases": ["ubertooth-afh (the man page)"]},
+    {"tool": "ubertooth-debug", "findings": ["F-09"],
+     "problem_contains": "does not list -h in its OPTIONS section",
+     "cases": ["ubertooth-debug (the man page)"]},
+    {"tool": "ubertooth-dfu", "findings": ["F-09"],
+     "problem_contains": "does not list -h in its OPTIONS section",
+     "cases": ["ubertooth-dfu (the man page)"]},
+    {"tool": "ubertooth-dump", "findings": ["F-09"],
+     "problem_contains": "does not list -h in its OPTIONS section",
+     "cases": ["ubertooth-dump (the man page)"]},
+    {"tool": "ubertooth-ego", "findings": ["F-09"],
+     "problem_contains": "does not list -h in its OPTIONS section",
+     "cases": ["ubertooth-ego (the man page)"]},
+    {"tool": "ubertooth-rx", "findings": ["F-09"],
+     "problem_contains": "does not list -h in its OPTIONS section",
+     "cases": ["ubertooth-rx (the man page)"]},
+    {"tool": "ubertooth-scan", "findings": ["F-09"],
+     "problem_contains": "does not list -h in its OPTIONS section",
+     "cases": ["ubertooth-scan (the man page)"]},
+    {"tool": "ubertooth-specan", "findings": ["F-09"],
+     "problem_contains": "does not list -h in its OPTIONS section",
+     "cases": ["ubertooth-specan (the man page)"]},
+    {"tool": "ubertooth-tx", "findings": ["F-09"],
+     "problem_contains": "does not list -h in its OPTIONS section",
+     "cases": ["ubertooth-tx (the man page)"]},
+    {"tool": "ubertooth-util", "findings": ["F-09"],
+     "problem_contains": "does not list -h in its OPTIONS section",
+     "cases": ["ubertooth-util (the man page)"]},
+    {"tool": "ubertooth-debug", "findings": ["F-01"],
+     "problem_contains": "invalid option --",
+     "cases": [
+       "ubertooth-debug --bogus",
+       "ubertooth-debug -Z",
+       "ubertooth-debug -h -Z"
+     ]},
+    {"tool": "ubertooth-debug", "findings": ["F-01"],
+     "problem_contains": "option requires an argument --",
+     "cases": [
+       "ubertooth-debug -U",
+       "ubertooth-debug -r",
+       "ubertooth-debug -v"
+     ]},
+    {"tool": "ubertooth-dfu", "findings": ["F-01"],
+     "problem_contains": "invalid option --",
+     "cases": [
+       "ubertooth-dfu --bogus",
+       "ubertooth-dfu -Z",
+       "ubertooth-dfu -h -Z"
+     ]},
+    {"tool": "ubertooth-dfu", "findings": ["F-01"],
+     "problem_contains": "option requires an argument --",
+     "cases": [
+       "ubertooth-dfu -U",
+       "ubertooth-dfu -d",
+       "ubertooth-dfu -s",
+       "ubertooth-dfu -u"
+     ]},
+    {"tool": "ubertooth-dfu", "findings": ["F-02"],
+     "problem_contains": "Checking firmware signature",
+     "cases": [
+       "ubertooth-dfu -U 0 -d IMAGE.dfu",
+       "ubertooth-dfu -d IMAGE.dfu",
+       "ubertooth-dfu -d IMAGE.dfu -U 0",
+       "ubertooth-dfu -d IMAGE.dfu -r",
+       "ubertooth-dfu -d IMAGE.dfu -s PLAIN.bin",
+       "ubertooth-dfu -d IMAGE.dfu -u OUT.bin",
+       "ubertooth-dfu -r -d IMAGE.dfu",
+       "ubertooth-dfu -s PLAIN.bin -d IMAGE.dfu",
+       "ubertooth-dfu -u OUT.bin -d IMAGE.dfu"
+     ]},
+    {"tool": "ubertooth-dfu", "findings": ["F-03"],
+     "problem_contains": "No such file or directory",
+     "cases": [
+       "ubertooth-dfu -s MISSING.bin"
+     ]},
+    {"tool": "ubertooth-dfu", "findings": ["F-03"],
+     "problem_contains": "Unknown DFU suffix length",
+     "cases": [
+       "ubertooth-dfu -U 0 -d IMAGE.dfu",
+       "ubertooth-dfu -d IMAGE.dfu",
+       "ubertooth-dfu -d IMAGE.dfu -U 0",
+       "ubertooth-dfu -d IMAGE.dfu -r",
+       "ubertooth-dfu -d IMAGE.dfu -s PLAIN.bin",
+       "ubertooth-dfu -d IMAGE.dfu -u OUT.bin",
+       "ubertooth-dfu -r -d IMAGE.dfu",
+       "ubertooth-dfu -s PLAIN.bin -d IMAGE.dfu",
+       "ubertooth-dfu -u OUT.bin -d IMAGE.dfu"
+     ]},
+    {"tool": "ubertooth-dump", "findings": ["F-06"],
+     "problem_contains": "wrote a file called '-'",
+     "cases": [
+       "ubertooth-dump -d -",
+       "ubertooth-dump -d-"
+     ]},
+    {"tool": "ubertooth-follow", "findings": ["F-01"],
+     "problem_contains": "invalid option --",
+     "cases": [
+       "ubertooth-follow --bogus",
+       "ubertooth-follow -Z",
+       "ubertooth-follow -h -Z"
+     ]},
+    {"tool": "ubertooth-follow", "findings": ["F-01"],
+     "problem_contains": "option requires an argument --",
+     "cases": [
+       "ubertooth-follow -U",
+       "ubertooth-follow -b",
+       "ubertooth-follow -d",
+       "ubertooth-follow -e",
+       "ubertooth-follow -l",
+       "ubertooth-follow -q",
+       "ubertooth-follow -r",
+       "ubertooth-follow -u",
+       "ubertooth-follow -w"
+     ]},
+    {"tool": "ubertooth-follow", "findings": ["F-06"],
+     "only_without_local_adapter": true,
+     "problem_contains": "wrote a file called '-'",
+     "cases": [
+       "ubertooth-follow -d -",
+       "ubertooth-follow -d-",
+       "ubertooth-follow -q -",
+       "ubertooth-follow -q-",
+       "ubertooth-follow -r -",
+       "ubertooth-follow -r-"
+     ]},
+    {"tool": "ubertooth-rx", "findings": ["F-04"],
+     "problem_contains": "No address should be specified for survey mode",
+     "cases": [
+       "ubertooth-rx -l 446688 -z",
+       "ubertooth-rx -u 22 -z",
+       "ubertooth-rx -z -l 446688",
+       "ubertooth-rx -z -u 22"
+     ]},
+    {"tool": "ubertooth-rx", "findings": ["F-05"],
+     "problem_contains": "a refused command line created ['-']",
+     "cases": [
+       "ubertooth-rx -r -",
+       "ubertooth-rx -r-"
+     ]},
+    {"tool": "ubertooth-rx", "findings": ["F-05"],
+     "problem_contains": "could not open Ubertooth device",
+     "cases": [
+       "ubertooth-rx -r -",
+       "ubertooth-rx -r-"
+     ]},
+    {"tool": "ubertooth-rx", "findings": ["F-05"],
+     "problem_contains": "reached device lookup for a command line it refused",
+     "cases": [
+       "ubertooth-rx -r -",
+       "ubertooth-rx -r-"
+     ]},
+    {"tool": "ubertooth-rx", "findings": ["F-06"],
+     "problem_contains": "wrote a file called '-'",
+     "cases": [
+       "ubertooth-rx -d -",
+       "ubertooth-rx -d-",
+       "ubertooth-rx -q -",
+       "ubertooth-rx -q-",
+       "ubertooth-rx -r -",
+       "ubertooth-rx -r-"
+     ]},
+    {"tool": "ubertooth-scan", "findings": ["F-01"],
+     "problem_contains": "invalid option --",
+     "cases": [
+       "ubertooth-scan --bogus",
+       "ubertooth-scan -Z",
+       "ubertooth-scan -h -Z"
+     ]},
+    {"tool": "ubertooth-scan", "findings": ["F-01"],
+     "problem_contains": "option requires an argument --",
+     "cases": [
+       "ubertooth-scan -U",
+       "ubertooth-scan -b",
+       "ubertooth-scan -e",
+       "ubertooth-scan -t"
+     ]},
+    {"tool": "ubertooth-scan", "findings": ["F-07"],
+     "only_without_local_adapter": true,
+     "problem_contains": "standard output is not empty on a failure: 'error: Unable to find",
+     "cases": [
+       "ubertooth-scan",
+       "ubertooth-scan --",
+       "ubertooth-scan -U 0",
+       "ubertooth-scan -U 0 -b hci0",
+       "ubertooth-scan -U 0 -e 0",
+       "ubertooth-scan -U 0 -s",
+       "ubertooth-scan -U 0 -t 0",
+       "ubertooth-scan -U 0 -x",
+       "ubertooth-scan -U0",
+       "ubertooth-scan -b hci0",
+       "ubertooth-scan -b hci0 -U 0",
+       "ubertooth-scan -b hci0 -e 0",
+       "ubertooth-scan -b hci0 -s",
+       "ubertooth-scan -b hci0 -t 0",
+       "ubertooth-scan -b hci0 -x",
+       "ubertooth-scan -bhci0",
+       "ubertooth-scan -e 0",
+       "ubertooth-scan -e 0 -e 2",
+       "ubertooth-scan -e 0 -U 0",
+       "ubertooth-scan -e 0 -b hci0",
+       "ubertooth-scan -e 0 -s",
+       "ubertooth-scan -e 0 -t 0",
+       "ubertooth-scan -e 0 -x",
+       "ubertooth-scan -e0",
+       "ubertooth-scan -s",
+       "ubertooth-scan -s -U 0",
+       "ubertooth-scan -s -b hci0",
+       "ubertooth-scan -s -e 0",
+       "ubertooth-scan -s -t 0",
+       "ubertooth-scan -s -x",
+       "ubertooth-scan -t 0",
+       "ubertooth-scan -t 0 -t 5",
+       "ubertooth-scan -t 0 -U 0",
+       "ubertooth-scan -t 0 -b hci0",
+       "ubertooth-scan -t 0 -e 0",
+       "ubertooth-scan -t 0 -s",
+       "ubertooth-scan -t 0 -x",
+       "ubertooth-scan -t0",
+       "ubertooth-scan -x",
+       "ubertooth-scan -x -U 0",
+       "ubertooth-scan -x -b hci0",
+       "ubertooth-scan -x -e 0",
+       "ubertooth-scan -x -s",
+       "ubertooth-scan -x -t 0"
+     ]}
+  ],
+
+  "_questions": {
+    "_about": [
+      "Cases the man pages never decide. The test runs them and checks only",
+      "that the tool either refuses cleanly or goes on to look for a device;",
+      "which of the two it should be is the maintainer's call."
+    ],
+    "Q-1": "-h beside -V (or -H): both end the command and both answer on standard output, and the first one written wins. Should -h always win?",
+    "Q-2": "ubertooth-ego accepts two major modes (-f -r, -i -r, -i -j) and runs one of them. ubertooth-btle and ubertooth-util both refuse two modes. Should ubertooth-ego?",
+    "Q-3": "ubertooth-dump accepts -c and -l together, two modulations for one capture.",
+    "Q-4": "ubertooth-specan accepts -g and -G together, two output formats for one sweep.",
+    "Q-5": "ubertooth-util accepts -c and -C together, the same channel setting written two ways, and sends both.",
+    "Q-6": "ubertooth-afh accepts a doubled -l and keeps the last; ubertooth-follow refuses one (\"give -l once and -u once\"). Which is the rule?",
+    "Q-7": "Does a lone \"--\" count as a bare command line, which gets the usage text, or as a line that said something, which gets the error line alone? The tools treat it as the second; the spec follows them.",
+    "Q-8": "ubertooth-dfu -s beside a board operation (-d, -u, -r): in which order do they run, and what is the status when one half succeeds?",
+    "Q-9": "ubertooth-specan -d <file> -g: the file is created and left empty while the samples go to standard output as text. Which one should win, and should the file be created at all?",
+    "Q-10": "ubertooth-btle -i on its own answers \"nothing to do\", not the \"-i needs -f or -p\" its page promises for \"-i or -I without -f or -p\". Beside any other option it does say \"-i needs -f or -p\". Which message belongs to the bare case?"
+  }
+}

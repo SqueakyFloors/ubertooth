@@ -132,7 +132,38 @@ foreach(tool ${UBERTOOTH_TOOLS})
 			${CMAKE_CURRENT_SOURCE_DIR}/test_output_streams.py
 			$<TARGET_FILE:${tool}>)
 	set_tests_properties(output-streams-${tool} PROPERTIES TIMEOUT 30)
+	# The whole command-line contract of the tool, generated from
+	# cli_spec.json: every option alone, every bad value, every pair, and
+	# the stream and status rules for each. One entry per built tool so a
+	# failure names the tool. A few hundred short runs per tool, so the
+	# timeout only catches a tool that waits for a device it should never
+	# have looked for; ubertooth-util, with the most options, is the
+	# slowest at about 400 runs.
+	add_test(
+		NAME cli-matrix-${tool}
+		COMMAND ${Python3_EXECUTABLE}
+			${CMAKE_CURRENT_SOURCE_DIR}/test_cli_matrix.py
+			${CMAKE_CURRENT_SOURCE_DIR}/cli_spec.json
+			$<TARGET_FILE:${tool}>)
+	set_tests_properties(cli-matrix-${tool} PROPERTIES TIMEOUT 600)
 endforeach()
+
+# The same contract for btle-extcap.py, which has a command line of its own
+# (the extcap protocol Wireshark calls it with) and no man page. The script
+# sits outside this directory, so it is named by a relative path and the entry
+# is registered only when it is there: host/ubertooth-tools can be configured
+# on its own.
+set(UBERTOOTH_BTLE_EXTCAP
+	"${CMAKE_CURRENT_SOURCE_DIR}/../../python/extcap/btle-extcap.py")
+if(EXISTS "${UBERTOOTH_BTLE_EXTCAP}")
+	add_test(
+		NAME cli-matrix-btle-extcap
+		COMMAND ${Python3_EXECUTABLE}
+			${CMAKE_CURRENT_SOURCE_DIR}/test_cli_matrix.py
+			${CMAKE_CURRENT_SOURCE_DIR}/cli_spec.json
+			${UBERTOOTH_BTLE_EXTCAP})
+	set_tests_properties(cli-matrix-btle-extcap PROPERTIES TIMEOUT 60)
+endif()
 
 # install.sh answers -h on standard output and refuses a bad command line on
 # standard error, installing nothing either way. The script sits above the host
