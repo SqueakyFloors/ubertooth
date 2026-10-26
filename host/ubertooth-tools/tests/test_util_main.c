@@ -287,6 +287,9 @@ int ubertooth_read_serial_string(struct libusb_device_handle *h, char *out,
 	int i;
 
 	fake_use(h);
+	/* Like the library: too small a buffer is refused before any transfer. */
+	if (size < UBERTOOTH_SERIAL_STR_LEN)
+		return -1;
 	/* -r must read the serial while the device is still there, before the
 	 * reset is sent: how many resets had been sent at the first read. */
 	if (fake.follow_serial_reads++ == 0)
@@ -294,8 +297,6 @@ int ubertooth_read_serial_string(struct libusb_device_handle *h, char *out,
 	fake.follow_serial_timeout_ms = (int)timeout_ms;
 	if (fake.follow_serial_rc != 0)
 		return fake.follow_serial_rc;
-	if (size < UBERTOOTH_SERIAL_STR_LEN)
-		return -1;
 	for (i = 1; i < UBERTOOTH_SERIAL_LEN; i++)
 		snprintf(out + (i - 1) * 2, 3, "%02x", 0xa0 + i);
 	return 0;

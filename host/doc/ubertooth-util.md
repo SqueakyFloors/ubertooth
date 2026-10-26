@@ -129,8 +129,9 @@ Common options:
    serial number string. See SELECTING A DEVICE.
  - `-U all` :
    report the read-only queries `-b`, `-v`, `-V`, `-p` and `-s` for every
-   attached Ubertooth; refused with any other option, `-N` excepted, and
-   refused with no query to list. See SELECTING A DEVICE.
+   attached Ubertooth; refused with any other option, `-N` excepted, and,
+   unless `-N` is the only option beside it, refused with no query to list.
+   See SELECTING A DEVICE.
  - `-N` :
    print the number of attached Ubertooths, as a single decimal number on
    standard output, then run the rest of the command. The number comes from

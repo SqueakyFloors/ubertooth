@@ -116,17 +116,15 @@ int ubertooth_get_api(ubertooth_t *ut, uint16_t *version);
 int ubertooth_check_api(ubertooth_t *ut);
 void ubertooth_set_timeout(ubertooth_t* ut, int seconds);
 
-/* The firmware's serial reply: a status byte then the 16-byte number. */
-#define UBERTOOTH_SERIAL_LEN 17
-/* That number as the lowercase hex string -s prints and -U matches: two hex
- * digits per byte, plus the NUL. */
-#define UBERTOOTH_SERIAL_STR_LEN 33
-/* Long enough for a board that answers, short enough not to stall a caller
- * reading a board that may be absent or wedged. */
+/* A timeout for the quiet read below, for the callers that would rather give
+ * up than wait: long enough for a board that answers, short enough not to
+ * stall a caller reading a board that may be absent, still starting or wedged.
+ * Both of this tree's callers want exactly that. */
 #define UBERTOOTH_SERIAL_READ_QUIET_MS 200u
 
-/* Reads an open device's serial number into out as that hex string; size must
- * be at least UBERTOOTH_SERIAL_STR_LEN. Returns 0 on success.
+/* Reads an open device's serial number into out as the hex string -s prints;
+ * size must be at least UBERTOOTH_SERIAL_STR_LEN. Returns 0 on success, and
+ * leaves out as the caller passed it on failure.
  *
  * This is the same read as cmd_get_serial() without its error messages, with
  * a caller-chosen timeout, for callers that must stay quiet: a board that is

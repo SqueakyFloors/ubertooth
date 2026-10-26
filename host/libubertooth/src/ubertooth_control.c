@@ -444,7 +444,7 @@ void print_serial(u8 *serial, FILE *fileptr)
 		fileptr = stdout;
 
 	fprintf(fileptr, "Serial No: ");
-	for(i=1; i<17; i++)
+	for(i=1; i<UBERTOOTH_SERIAL_LEN; i++)
 		fprintf(fileptr, "%02x", serial[i]);
 	fprintf(fileptr, "\n");
 }
@@ -453,12 +453,12 @@ int cmd_get_serial(struct libusb_device_handle* devh, u8 *serial)
 {
 	int r;
 	r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_GET_SERIAL, 0, 0,
-			serial, 17, 1000);
+			serial, UBERTOOTH_SERIAL_LEN, 1000);
 	if (r < 0) {
 		show_libusb_error(r);
 		return r;
 	}
-	r = check_reply_length(r, 17, "serial");
+	r = check_reply_length(r, UBERTOOTH_SERIAL_LEN, "serial");
 	if (r < 0)
 		return r;
 	if (serial[0] != 0) {

@@ -260,6 +260,8 @@ static const struct util_reset_wait_ops reset_wait_ops = {
 
 _Static_assert(UTIL_RESET_SERIAL_STR_LEN == UBERTOOTH_SERIAL_STR_LEN,
                "the followed serial is the library's serial string");
+_Static_assert(UTIL_SERIAL_BUFFER_LEN == UBERTOOTH_SERIAL_LEN,
+               "a reported serial is the firmware's whole serial reply");
 
 /*
  * Reads the serial of the board about to be reset, in the hex form -U matches,

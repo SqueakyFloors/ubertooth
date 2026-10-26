@@ -48,14 +48,6 @@
   for nothing, `-U 0` on its own included: it used to open the board, do
   nothing and exit 0.
   [#367](https://github.com/SqueakyFloors/ubertooth/issues/367)
-- **Script-visible change:** `ubertooth-util -U all -N` prints the count and
-  exits 0, as `-U 0 -N` does. It was refused, because `-U all` had nothing to
-  list, even though the count asks nothing of any board.
-  [#401](https://github.com/SqueakyFloors/ubertooth/issues/401)
-- `ubertooth-util -U all` with no query is refused with `error: -U all needs
-  one of the read-only queries -b, -v, -V, -p or -s to list`, instead of a
-  message about options the command line did not give.
-  [#396](https://github.com/SqueakyFloors/ubertooth/issues/396)
 - **Script-visible change:** `ubertooth-util -m` reports a range test whose
   packets came back corrupted as `error: invalid range test: mismatch on byte
   <n>` on standard error and exits 1; it was a line on standard output with
@@ -76,10 +68,14 @@
   `ubertooth-util` read-only queries (`-s`, `-v`, `-V`, `-p`, `-b`, alone or
   combined) report every device and exit non-zero if a device cannot be opened
   or a query fails; `-U all` requests that listing explicitly, even for one
-  device, and is refused for every other option but `-N`.
+  device, and is refused for every other option but `-N`, saying which queries
+  it needs when none was given. `-U all -N` alone just prints the count, as
+  `-U 0 -N` does.
   [#6](https://github.com/SqueakyFloors/ubertooth/issues/6)
   [#27](https://github.com/SqueakyFloors/ubertooth/issues/27)
   [#28](https://github.com/SqueakyFloors/ubertooth/issues/28)
+  [#396](https://github.com/SqueakyFloors/ubertooth/issues/396)
+  [#401](https://github.com/SqueakyFloors/ubertooth/issues/401)
 - `install.sh` provides one-command source installation on Debian/Ubuntu and on
   macOS with Homebrew, with optional virtual environments, a custom `--prefix`,
   `--skip-deps` for already-installed packages, udev setup on Linux, firmware
@@ -499,12 +495,11 @@
   [#94](https://github.com/SqueakyFloors/ubertooth/issues/94)
 - `ubertooth-util -r` reads the board's serial before the reset and waits for
   that serial, so later options in the same command (`-U0 -r -b`) stay on the
-  board that was reset even if the index order changed across the reset.
+  board that was reset even if the index order changed across the reset. That
+  read is quiet, through libubertooth's new `ubertooth_read_serial_string()`:
+  a board that has stopped answering no longer prints a transfer error, or
+  costs a second of timeout, on the command used to recover it.
   [#139](https://github.com/SqueakyFloors/ubertooth/issues/139)
-- That pre-reset serial read is quiet: a board that has stopped answering no
-  longer prints a transfer error, and waits out a second of timeout, on the
-  very command used to recover it. libubertooth adds
-  `ubertooth_read_serial_string()` for it.
   [#306](https://github.com/SqueakyFloors/ubertooth/issues/306)
 - `ubertooth-debug` exits 0 only when every register read succeeds (it used to
   exit with the last register's value) and names each register that fails.
