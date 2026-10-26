@@ -10,7 +10,24 @@
 
 #include <stddef.h>
 
-#include "ubertooth.h"
+/* Angle brackets, not quotes: this header sits next to firmware/common's own
+ * ubertooth.h, and a quoted include would always pick that one up -- including
+ * in the host tests, which put a hardware-free stand-in earlier on the include
+ * path and cannot compile the real one. */
+#include <ubertooth.h>
+
+/*
+ * What a caller does when one of these waits gives up: carry on. The radio is
+ * in the wrong state, so the next thing the caller reads from it is not a
+ * measurement and the next packet it sends may not go out -- but the bound is
+ * there to end the loop, not to make the radio work, and every alternative
+ * loses the same packet or sample. Carrying on is what keeps the board
+ * answering the host, which can then stop the mode; the hang these replace
+ * needed the board re-plugged.
+ *
+ * So no caller has to check the return value, and most do not. A site that
+ * must not carry on says why where it checks.
+ */
 
 /* Polls before cc2400_wait_fs_unlock() gives up. Each poll is one bit-banged
  * 8-bit SPI transaction with no delay loops (cc2400_spi()), about 1.6
@@ -47,13 +64,15 @@
  * reads from the radio next is not a measurement; a caller that only samples,
  * like led_specan(), can carry on and lose that one sample.
  *
- * `service` is for a loop that spends most of its time in here. USB in this
- * firmware is polled from the mode loops (handle_usb()), and endpoint 0 is
- * single-buffered, so a loop that only polls once per pass runs a whole pass
- * behind the host and control requests stall. Passing handle_usb() in keeps
- * endpoint 0 within a few microseconds of the host, and keeps it serviced
- * between this loop's bit-banged SPI transfers rather than inside one, which
- * is what servicing it from the USB interrupt instead would risk.
+ * `service` is for a loop that spends most of its time in here. USB in the
+ * bluetooth_rxtx image is polled from the mode loops (handle_usb()), and
+ * endpoint 0 is single-buffered, so a loop that only polls once per pass runs
+ * a whole pass behind the host and control requests stall. Passing
+ * handle_usb() in keeps endpoint 0 within a few microseconds of the host, and
+ * keeps it serviced between this loop's bit-banged SPI transfers rather than
+ * inside one, which is what servicing it from the USB interrupt instead would
+ * risk. The BR/EDR image drives USB from the USB interrupt, so its callers
+ * pass NULL.
  *
  * Returns 1 if the synthesizer reported `locked`, 0 if the wait timed out.
  */
@@ -114,9 +133,15 @@ int cc2400_wait_fs_unlock(void);
  * for the callers that pass a service callback, since each poll then also
  * services USB. The states callers wait for are reached in well under a
  * millisecond: the longest is the end of a transmit, and the longest packet any
- * caller sends is the range test's 22 bytes, 176 microseconds at 1 Mbit. So the
- * bound is out of reach of a radio that is working at all, which is all it has
- * to be. */
+ * caller sends is the range test's 22 bytes, 176 microseconds at 1 Mbit. The
+ * BR/EDR image's waits are shorter still -- the state machine reaching idle
+ * after a strobe off, or receive after a strobe to receive. So the bound is out
+ * of reach of a radio that is working at all, which is all it has to be.
+ *
+ * The BR/EDR image waits here from an interrupt handler, on a 312.5 microsecond
+ * slot, so a wait that runs to the bound overruns several slots. That is the
+ * failure case, where the alternative was overrunning every slot from then on.
+ */
 #define FSM_POLLS 2000
 
 /* Wait, with a bound, for the CC2400's state machine to report `state`: one of
@@ -124,11 +149,17 @@ int cc2400_wait_fs_unlock(void);
  * `service`, if it is not NULL, between reads, for the same reason
  * cc2400_wait_fs() does.
  *
- * Callers use this to wait for STATE_STROBE_FS_ON, which the state machine
- * returns to when a transmit finishes. The unbounded
+ * The bluetooth_rxtx image waits here for STATE_STROBE_FS_ON, which the state
+ * machine returns to when a transmit finishes. The unbounded
  * `while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);` it replaces
  * sits in br_transmit()'s streaming loop, so a radio that stops advancing left
  * the board enumerated and answering no control request.
+ *
+ * The BR/EDR image waits here for STATE_IDLE before it retunes and for
+ * STATE_STROBE_RX after it strobes the radio to receive, from a slot task
+ * running in the timer interrupt. A task that does not return blocks the USB
+ * interrupt behind it, so there the same stall shows up as a board that has
+ * stopped answering while its LEDs are still on.
  *
  * Returns 1 if the state machine reported `state`, 0 if the wait timed out.
  */

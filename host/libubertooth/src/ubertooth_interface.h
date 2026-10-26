@@ -47,7 +47,7 @@
  * as 1.10), then 0x0111 (1.11), and so on to 0x0119 (1.19); after 0x0119
  * comes 0x0120, not 0x011a.
  */
-#define UBERTOOTH_API_VERSION 0x0129
+#define UBERTOOTH_API_VERSION 0x0130
 
 /*
  * The build string every image carries, reported by UBERTOOTH_GET_COMPILE_INFO

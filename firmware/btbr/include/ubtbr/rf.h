@@ -2,14 +2,19 @@
 #define __BTPHY_RF_H
 #include <stdint.h>
 #include "ubertooth.h"
+#include "cc2400_wait.h"
 
 /* Num of bytes left in fifo when FIFO_EMPTY int trigger 64usec */
 #define PHY_MIN_FIFO_BYTES 16
 #define PHY_FIFO_THRESHOLD (32-PHY_MIN_FIFO_BYTES)
 
-#define WAIT_CC2400_STATE(state) while((cc2400_get(FSMSTATE) & 0x1f) != (state));
+/* Wait for a radio state with cc2400_wait_fsm(state, NULL). There is
+ * deliberately no spin-on-FSMSTATE macro here: the tasks that wait run from
+ * TIMER0_IRQHandler, and USB in this image is interrupt-driven at the same
+ * priority, so an unbounded wait blocks the USB handler and the board answers
+ * nothing until it is re-plugged. */
+
 #define FS_TUNED() (cc2400_status() & FS_LOCK)
-#define WAIT_FS_TUNED() while(!FS_TUNED())
 
 #define RF_EXPECTED_RX_CLKN_OFFSET 610	// (29usec of rf warmup + 32usec of sw)
 

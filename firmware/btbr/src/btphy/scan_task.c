@@ -121,7 +121,7 @@ static int scan_start(uint8_t p1, uint8_t p2, uint16_t p3)
 	cc2400_strobe(SFSON);
 	btphy_rf_cfg_rx();
 	btphy_rf_rx();
-	while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_RX);
+	cc2400_wait_fsm(STATE_STROBE_RX, NULL);
 
 	scan_wait();
 

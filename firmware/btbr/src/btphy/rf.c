@@ -106,7 +106,7 @@ void btphy_rf_init(void)
 	rf_state.max_ac_errors = MAX_AC_ERRORS_DEFAULT;
 
 	btphy_rf_idle();
-	WAIT_CC2400_STATE(STATE_IDLE);
+	cc2400_wait_fsm(STATE_IDLE, NULL);
 
 	// Bluetooth-like modulation
 	cc2400_set(MANAND,  0x7fff);
@@ -196,7 +196,7 @@ void btphy_rf_fifo_write(uint8_t *data, unsigned len)
 void btphy_rf_off(void)
 {
 	btphy_rf_idle();
-	WAIT_CC2400_STATE(STATE_IDLE);
+	cc2400_wait_fsm(STATE_IDLE, NULL);
 
 #ifdef UBERTOOTH_ONE
 	PAEN_CLR;
@@ -206,8 +206,15 @@ void btphy_rf_off(void)
 
 void btphy_rf_tune_chan(uint16_t channel, int tx)
 {
-	/* Wait for state IDLE before changing FSDIV */
-	WAIT_CC2400_STATE(STATE_IDLE);
+	/* Wait for state IDLE before changing FSDIV.
+	 *
+	 * The bound matters more here than anywhere else in this image: every
+	 * slot retunes, and the task that does it runs from TIMER0_IRQHandler.
+	 * If the wait gives up, FSDIV is written anyway and the retune may not
+	 * take, which costs this slot's packet -- the same as not writing it.
+	 * Either way the next slot tries again, and the handler returns, which
+	 * is what keeps USB answering. */
+	cc2400_wait_fsm(STATE_IDLE, NULL);
 
 	/* Retune */
 #ifdef USE_TX_1MHZ_OFF

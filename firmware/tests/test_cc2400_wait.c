@@ -1,5 +1,5 @@
 /*
- * Unit tests for firmware/bluetooth_rxtx/cc2400_wait.c
+ * Unit tests for firmware/common/cc2400_wait.c
  *
  * These run on the host (plain gcc). cc2400_wait_fs() is pure control flow
  * over two radio primitives and an optional callback, so the test supplies
@@ -19,9 +19,9 @@
  * board answer no control request at all until it is re-plugged. The wait must
  * therefore always terminate.
  *
- * The last cases scan the mode source as text, the way test_frend.c does, to
- * check that the mode loops reach the radio through these waits and not
- * through a bare spin again.
+ * The last cases scan the radio source of both firmware images as text, the
+ * way test_frend.c does, to check that the code that drives the radio reaches
+ * it through these waits and not through a bare spin again.
  */
 #include "minunit.h"
 #include "source_scan.h"
@@ -465,6 +465,41 @@ MU_TEST(test_fsm_one_poll_too_late_times_out)
 	mu_assert_int_eq(FSM_POLLS, (int)fsm_reads);
 }
 
+/*
+ * The two states the BR/EDR image waits for, each from a slot task running in
+ * the timer interrupt: idle before it retunes, and receive after it strobes
+ * the radio to receive. Both have to give up, because a task that does not
+ * return blocks the USB interrupt behind it and the board answers nothing.
+ */
+MU_TEST(test_fsm_gives_up_waiting_for_idle)
+{
+	fake_radio_reset();
+	fake_radio_fsm_state_at_poll(STATE_IDLE, 0);
+
+	mu_assert_int_eq(0, cc2400_wait_fsm(STATE_IDLE, NULL));
+	mu_assert_int_eq(FSM_POLLS, (int)fsm_reads);
+}
+
+MU_TEST(test_fsm_gives_up_waiting_for_receive)
+{
+	fake_radio_reset();
+	fake_radio_fsm_state_at_poll(STATE_STROBE_RX, 0);
+
+	mu_assert_int_eq(0, cc2400_wait_fsm(STATE_STROBE_RX, NULL));
+	mu_assert_int_eq(FSM_POLLS, (int)fsm_reads);
+}
+
+/* It waits for the state it was asked for and no other: a radio parked in
+ * idle must not satisfy a wait for receive. */
+MU_TEST(test_fsm_does_not_match_another_state)
+{
+	fake_radio_reset();
+	fake_radio_fsm_state_at_poll(STATE_IDLE, 1);
+
+	mu_assert_int_eq(0, cc2400_wait_fsm(STATE_STROBE_RX, NULL));
+	mu_assert_int_eq(FSM_POLLS, (int)fsm_reads);
+}
+
 /* ---- the service callback ---- */
 
 static unsigned service_calls;
@@ -555,14 +590,29 @@ MU_TEST(test_service_runs_on_the_fsm_wait)
 	mu_assert_int_eq(5, (int)service_calls);
 }
 
-/* ---- the mode source ---- */
+/* ---- the radio source ---- */
 
-/* Every file in the bluetooth_rxtx image that drives the radio from a mode. */
-static const char *const mode_sources[] = {
+/*
+ * Every file that drives the radio from a mode in the bluetooth_rxtx image, or
+ * from a slot task in the BR/EDR image. rf.h is in the list because the BR/EDR
+ * image waited through a macro defined there, and a macro puts the spin back
+ * in all of its callers at once.
+ *
+ * The bench images (assembly_test, cc2400_test) are not here. They are
+ * installed with a programmer, not shipped, and a stall at a step is what tells
+ * whoever is running them that the radio did not answer, so their waits stay
+ * as they are.
+ */
+static const char *const radio_sources[] = {
 	FW_RXTX_DIR "/bluetooth_rxtx.c",
 	FW_RXTX_DIR "/cc2400_rangetest.c",
 	FW_RXTX_DIR "/ego.c",
 	FW_RXTX_DIR "/le_phy.c",
+	FW_BTBR_DIR "/include/ubtbr/rf.h",
+	FW_BTBR_DIR "/src/btphy/rf.c",
+	FW_BTBR_DIR "/src/btphy/rx_task.c",
+	FW_BTBR_DIR "/src/btphy/scan_task.c",
+	FW_BTBR_DIR "/src/btphy/tx_task.c",
 };
 
 /*
@@ -572,10 +622,14 @@ static const char *const mode_sources[] = {
  * waiting for a packet has no deadline, and the body is what services USB and
  * lets the host stop the mode.
  *
- * Only that shape, written on one line, and only on the status byte or
- * FSMSTATE. A reintroduced spin with its `;` on the next line, or on another
- * register, gets past this. The point is to catch the pattern coming back by
- * copy and paste, not to prove it cannot.
+ * Any read of the radio counts: the status byte, a register read, or the
+ * FS_TUNED() test the BR/EDR image spells its lock check with. tx_task.c has
+ * one wait that reads FSMSTATE and is bounded by the slot clock rather than by
+ * a poll count, so a condition naming CLKN_OFFSET is left alone.
+ *
+ * Only that shape, written on one line. A reintroduced spin with its `;` on
+ * the next line gets past this. The point is to catch the pattern coming back
+ * by copy and paste, not to prove it cannot.
  */
 static int is_bare_radio_spin(const char *line)
 {
@@ -585,7 +639,11 @@ static int is_bare_radio_spin(const char *line)
 	if (p == NULL || is_ident_char(p[5]))
 		return 0;
 	if (!contains_identifier(line, "cc2400_status") &&
-	    !contains_identifier(line, "FSMSTATE"))
+	    !contains_identifier(line, "cc2400_get") &&
+	    !contains_identifier(line, "FSMSTATE") &&
+	    !contains_identifier(line, "FS_TUNED"))
+		return 0;
+	if (contains_identifier(line, "CLKN_OFFSET"))
 		return 0;
 	/* An empty body is a ';' as the last thing on the line. */
 	length = strlen(line);
@@ -594,34 +652,95 @@ static int is_bare_radio_spin(const char *line)
 	return length > 0 && line[length - 1] == ';';
 }
 
+/* Count the bare radio spins in one file, printing each. */
+static int count_bare_radio_spins(const char *path)
+{
+	FILE *source = fopen(path, "r");
+	char line[512];
+	int in_block = 0, lineno = 0, found = 0;
+
+	if (source == NULL) {
+		printf("  FAIL cannot open %s\n", path);
+		return -1;
+	}
+	while (fgets(line, sizeof(line), source) != NULL) {
+		lineno++;
+		strip_comments(line, &in_block);
+		if (is_bare_radio_spin(line)) {
+			printf("  FAIL %s:%d spins on the radio: %s",
+			       path, lineno, line);
+			found++;
+		}
+	}
+	fclose(source);
+	return found;
+}
+
 /*
- * The regression this whole file is about, checked against the source: a mode
- * loop that spins on the radio with nothing in the loop body services no USB
- * while it spins, so the board answers nothing. Every such wait is now one of
+ * The regression this whole file is about, checked against the source: a loop
+ * that spins on the radio with nothing in the loop body never looks at
+ * anything else again. In the bluetooth_rxtx image that loop is a mode loop,
+ * which is also what services USB, so the board answers nothing. In the BR/EDR
+ * image it is a slot task running from the timer interrupt, which blocks the
+ * USB interrupt behind it, with the same result. Every such wait is now one of
  * the bounded waits above.
  */
-MU_TEST(test_no_mode_loop_spins_on_the_radio)
+MU_TEST(test_no_radio_source_spins_on_the_radio)
 {
 	size_t f;
 
-	for (f = 0; f < sizeof(mode_sources) / sizeof(mode_sources[0]); ++f) {
-		FILE *source = fopen(mode_sources[f], "r");
-		char line[512];
-		int in_block = 0, lineno = 0, found = 0;
+	for (f = 0; f < sizeof(radio_sources) / sizeof(radio_sources[0]); ++f)
+		mu_assert_int_eq(0, count_bare_radio_spins(radio_sources[f]));
+}
 
-		mu_assert(source != NULL, mode_sources[f]);
-		while (fgets(line, sizeof(line), source) != NULL) {
-			lineno++;
-			strip_comments(line, &in_block);
-			if (is_bare_radio_spin(line)) {
-				printf("  FAIL %s:%d spins on the radio: %s",
-				       mode_sources[f], lineno, line);
-				found++;
+/*
+ * firmware/common/ubertooth.c is the exception, and a narrow one: the radio
+ * waits in cc2400_reset() and clock_start() stay unbounded because they run
+ * during boot, before USB exists, and the 16 MHz clock everything after them
+ * needs comes from the radio -- so a bound would only move the hang a few
+ * lines down. There are exactly three, and they are in those two functions.
+ * A fourth anywhere, or one in a function that runs after boot, fails here.
+ */
+MU_TEST(test_only_the_boot_path_still_spins_on_the_radio)
+{
+	const char *path = FW_COMMON_DIR "/ubertooth.c";
+	FILE *source = fopen(path, "r");
+	char line[512], function[128] = "";
+	int in_block = 0, lineno = 0, boot_spins = 0, elsewhere = 0;
+
+	mu_assert(source != NULL, path);
+	while (fgets(line, sizeof(line), source) != NULL) {
+		lineno++;
+		strip_comments(line, &in_block);
+		/* A definition at file scope: a name in the first column. */
+		if (!isspace((unsigned char)line[0]) && strchr(line, '(') != NULL) {
+			const char *open = strchr(line, '(');
+			const char *name = open;
+			size_t length;
+
+			while (name > line && is_ident_char(name[-1]))
+				name--;
+			length = (size_t)(open - name);
+			if (length > 0 && length < sizeof(function)) {
+				memcpy(function, name, length);
+				function[length] = '\0';
 			}
 		}
-		fclose(source);
-		mu_assert_int_eq(0, found);
+		if (!is_bare_radio_spin(line))
+			continue;
+		if (strcmp(function, "cc2400_reset") == 0 ||
+		    strcmp(function, "clock_start") == 0) {
+			boot_spins++;
+			continue;
+		}
+		printf("  FAIL %s:%d spins on the radio in %s(): %s",
+		       path, lineno, function, line);
+		elsewhere++;
 	}
+	fclose(source);
+
+	mu_assert_int_eq(0, elsewhere);
+	mu_assert_int_eq(3, boot_spins);
 }
 
 /*
@@ -753,13 +872,17 @@ int main(void)
 	MU_RUN(test_fsm_gives_up_when_state_never_arrives);
 	MU_RUN(test_fsm_on_last_poll_succeeds);
 	MU_RUN(test_fsm_one_poll_too_late_times_out);
+	MU_RUN(test_fsm_gives_up_waiting_for_idle);
+	MU_RUN(test_fsm_gives_up_waiting_for_receive);
+	MU_RUN(test_fsm_does_not_match_another_state);
 	MU_RUN(test_service_runs_between_every_poll);
 	MU_RUN(test_service_runs_on_the_unlock_side);
 	MU_RUN(test_service_not_run_when_wait_is_satisfied_at_once);
 	MU_RUN(test_service_runs_on_every_poll_of_a_timeout);
 	MU_RUN(test_service_runs_on_the_oscillator_wait);
 	MU_RUN(test_service_runs_on_the_fsm_wait);
-	MU_RUN(test_no_mode_loop_spins_on_the_radio);
+	MU_RUN(test_no_radio_source_spins_on_the_radio);
+	MU_RUN(test_only_the_boot_path_still_spins_on_the_radio);
 	MU_RUN(test_the_polled_stream_loop_services_usb_across_a_hop);
 	MU_RUN(test_the_range_test_keeps_a_newer_mode_request);
 	MU_RUN(test_the_transmit_bursts_stop_when_the_mode_does);

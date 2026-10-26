@@ -12,7 +12,6 @@ SRC = $(TARGET).c \
 	ubertooth_cs.c \
 	ubertooth_clock.c \
 	ubertooth_dma.c \
-	cc2400_wait.c \
 	le_phy.c \
 	queue.c \
 	cc2400_rangetest.c \
@@ -28,6 +27,7 @@ SRC = $(TARGET).c \
 	$(LIBS_PATH)/LPC17xx_Startup.c \
 	$(LIBS_PATH)/LPC17xx_Interrupts.c \
 	$(LIBS_PATH)/ubertooth.c \
+	$(LIBS_PATH)/cc2400_wait.c \
 	$(LPCUSB_PATH)/usbcontrol.c \
 	$(LPCUSB_PATH)/usbinit.c \
 	$(LPCUSB_PATH)/usbhw_lpc.c \

@@ -74,15 +74,24 @@ $(BINDIR)/test_frend: test_frend.c minunit.h $(FW_COMMON)/cc2400.h \
 
 # cc2400_wait.c reaches the radio only through cc2400_status()/cc2400_strobe();
 # stubs-radio/ubertooth.h declares them and the test supplies fake
-# implementations.
+# implementations. It lives in firmware/common because both firmware images
+# wait on the radio, so -I$(FW_COMMON) comes last, after stubs-radio: the stub
+# must still win for "ubertooth.h".
 #
-# Its last cases scan the mode sources as text, so FW_RXTX_DIR points at them.
+# Its last cases scan the radio sources of both images as text, so FW_RXTX_DIR,
+# FW_BTBR_DIR and FW_COMMON_DIR point at them.
 $(BINDIR)/test_cc2400_wait: test_cc2400_wait.c minunit.h source_scan.h \
-		stubs-radio/ubertooth.h stubs/ubertooth.h $(FW_RXTX)/cc2400_wait.c \
-		$(FW_RXTX)/cc2400_wait.h $(FW_RXTX)/bluetooth_rxtx.c $(FW_RXTX)/ego.c \
-		$(FW_RXTX)/le_phy.c $(FW_RXTX)/cc2400_rangetest.c | $(BINDIR)
-	$(CC) $(CFLAGS) -Istubs-radio $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
-		-o $@ test_cc2400_wait.c $(FW_RXTX)/cc2400_wait.c
+		stubs-radio/ubertooth.h stubs/ubertooth.h $(FW_COMMON)/cc2400_wait.c \
+		$(FW_COMMON)/cc2400_wait.h $(FW_COMMON)/ubertooth.c \
+		$(FW_RXTX)/bluetooth_rxtx.c $(FW_RXTX)/ego.c \
+		$(FW_RXTX)/le_phy.c $(FW_RXTX)/cc2400_rangetest.c \
+		$(FW_BTBR)/src/btphy/rf.c $(FW_BTBR)/src/btphy/scan_task.c \
+		$(FW_BTBR)/src/btphy/rx_task.c $(FW_BTBR)/src/btphy/tx_task.c \
+		$(FW_BTBR)/include/ubtbr/rf.h | $(BINDIR)
+	$(CC) $(CFLAGS) -Istubs-radio $(CPPFLAGS) -I$(FW_COMMON) \
+		-DFW_RXTX_DIR='"$(FW_RXTX)"' -DFW_BTBR_DIR='"$(FW_BTBR)"' \
+		-DFW_COMMON_DIR='"$(FW_COMMON)"' \
+		-o $@ test_cc2400_wait.c $(FW_COMMON)/cc2400_wait.c
 
 # cc2400_spi() is GPIO register writes in a file that also configures the
 # clock, so it cannot run here; this test scans firmware/common as text, like
