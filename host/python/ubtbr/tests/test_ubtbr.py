@@ -60,6 +60,7 @@ how long it was prepared to wait. UBTBR_FAKE_WRITE_FAILS_AFTER is how many
 writes are taken before the rest time out, standing in for a device that stops
 draining the endpoint, and UBTBR_FAKE_SETUP_DELAY how long claiming the
 interface takes, which holds the tool short of its prompt.
+UBTBR_FAKE_NO_DEVICE makes the context find nothing to open.
 """
 
 import os
@@ -103,6 +104,8 @@ class _Handle:
 class USBContext:
     def openByVendorIDAndProductID(self, vendor, product,
                                    skip_on_error=False):
+        if os.environ.get("UBTBR_FAKE_NO_DEVICE"):
+            return None
         return _Handle()
 '''
 
@@ -131,6 +134,7 @@ def request_packet(code):
 
 IDLE_PACKET = request_packet(btctl.BTCTL_IDLE_REQ)
 INQUIRY_PACKET = request_packet(btctl.BTCTL_INQUIRY_REQ)
+INQUIRY_SCAN_PACKET = request_packet(btctl.BTCTL_INQUIRY_SCAN_REQ)
 # What a command says when the device did not answer the idle request, which
 # is how the two ways of ending a stop are told apart below.
 NO_ANSWER = "did not go idle"
@@ -258,6 +262,28 @@ command.join(DEADLINE)
 assert not command.is_alive(), "a stop that could not be sent must still stop"
 assert device.idle_requests == 1, device.idle_requests
 print("ubtbr: a stop the device will not take still ends the command")
+
+# a command whose opening request the device will not take either. It runs on
+# its own thread, so an error let out of there is a thread traceback nobody
+# can report.
+records.messages.clear()
+
+
+class RefusingStartDevice(SilentDevice):
+    def send_inquiry_cmd(self):
+        super().send_inquiry_cmd()
+        raise usb1.USBErrorTimeout("timeout")
+
+
+device = RefusingStartDevice()
+command = btctl.BTCtlInquiryCmd(device)
+command.start()
+command.join(DEADLINE)
+assert not command.is_alive(), "a command that could not start must end"
+assert command.done(), "a command whose loop never ran must still report it"
+assert device.handler is None, "a command that ended must release the handler"
+assert records.said("BTCtlInquiryCmd stopped: timeout"), records.messages
+print("ubtbr: a command the device will not start is reported, not raised")
 
 # ---- a command of a super command that will not stop ----------------------
 
@@ -400,12 +426,37 @@ print("ubtbr: a device that takes no request is reported, not waited on")
 # fails, the prompt stays, and the tool still exits 0. The three writes taken
 # are the ones the tool sends before its prompt.
 running = tool(dict(ENVIRONMENT, UBTBR_FAKE_WRITE_FAILS_AFTER="3"))
-output, errors = running.communicate("bdaddr 11:22:33:44:55:66\nq\n",
+# the first of these is sent from the command's thread, the second from the
+# prompt's, and neither may come out as a traceback
+output, errors = running.communicate("inquiry\nbdaddr 11:22:33:44:55:66\nq\n",
                                      timeout=DEADLINE * 2)
 assert running.returncode == 0, (running.returncode, output, errors)
-assert "error: timeout" in errors, errors
+assert "error: bdaddr 11:22:33:44:55:66: timeout" in errors, errors
 assert "Traceback" not in errors, errors
+assert "Exception in thread" not in errors, errors
 print("ubtbr: a request the device will not take ends the command, not the tool")
+
+# an interrupt while a command that runs commands of its own is going: the
+# prompt joins whatever it started, and a super command is not a command
+running = tool()
+running.stdin.write("discoverable\n")
+running.stdin.flush()
+assert wait_until(lambda: INQUIRY_SCAN_PACKET in writes()), writes()
+running.send_signal(signal.SIGINT)
+output, errors = running.communicate("q\n", timeout=DEADLINE * 2)
+assert running.returncode == 0, (running.returncode, output, errors)
+assert "Traceback" not in errors, errors
+assert "Exception in thread" not in errors, errors
+print("ubtbr: Ctrl-C with a discoverable running returns to the prompt")
+
+# no Ubertooth at all: one error line, nothing on standard output, exit 1,
+# where the tool used to end in a traceback
+running = tool(dict(ENVIRONMENT, UBTBR_FAKE_NO_DEVICE="1"))
+output, errors = running.communicate("", timeout=DEADLINE * 2)
+assert running.returncode == 1, (running.returncode, output, errors)
+assert output == "", output
+assert errors == "error: no Ubertooth devices found\n", errors
+print("ubtbr: no Ubertooth is one error line and exit 1")
 
 # an interrupt before the prompt is up, which is the window the hang shortly
 # after start lives in: the tool ends, with no traceback and nothing on

@@ -229,9 +229,10 @@
   the tool. A board that never gives the transfer back is now reported and
   left open rather than closed underneath it.
   [#370](https://github.com/SqueakyFloors/ubertooth/issues/370)
-- `ubertooth-btbr` can be interrupted again: Ctrl-C ends the running command
-  and returns to the `bt>` prompt, `q` exits, and a command the board never
-  answers no longer waits for ever. The hang shortly after start is unresolved.
+- `ubertooth-btbr` can be interrupted: Ctrl-C ends the running command and
+  returns to the `bt>` prompt, `q` exits, and a request the board does not
+  answer or will not take is reported instead of waited on for ever. The hang
+  shortly after start is unresolved.
   [#1](https://github.com/SqueakyFloors/ubertooth/issues/1)
 - A follow-mode control command the board refuses now names itself and says
   what went wrong, for example `error: start hopping failed: the board does

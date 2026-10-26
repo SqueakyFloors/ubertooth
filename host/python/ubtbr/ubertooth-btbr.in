@@ -115,13 +115,16 @@ class BTCtlPrompt(Cmd):
 			# A request the board no longer takes ends that command, not the
 			# session: the prompt is where the user gets to try again or
 			# leave.
-			eprint("error: %s\n"%e)
+			eprint("error: %s: %s\n"%(line, e))
 
 	def default(self, inp):
 		if inp in ('x','q'):
 			return self.do_exit(inp)
 
 	def do_exit(self, inp):
+		# Stopped first: a command still running would be left writing to a
+		# device the close below took away.
+		self.stop_cmd()
 		self._bt.close()
 		return True
 
@@ -212,7 +215,12 @@ def main():
 	if args:
 		usage()
 
-	bt = BTCtl.find()
+	try:
+		bt = BTCtl.find()
+	except BTCtlNoDeviceError as e:
+		eprint("error: %s\n"%e)
+		sys.exit(1)
+
 	try:
 		bt.connect()
 
@@ -227,6 +235,7 @@ def main():
 			(BTCtlEIR.EIR_COMPLETE_LOCAL_NAME, b"Ubertooth"),
 		])
 		bt.send_set_eir_cmd(eir.pack())
+		sleep(0.02)
 	except usb1.USBError as e:
 		# A board running firmware other than ubtbr takes none of this, and
 		# used to leave the tool waiting on the write for good.
@@ -236,7 +245,6 @@ def main():
 		# Interrupted before the prompt was up, which is the window the hang
 		# shortly after start lives in.
 		sys.exit(1)
-	sleep(0.02)
 	prompt = BTCtlPrompt(bt)
 	prompt.cmdloop()
 

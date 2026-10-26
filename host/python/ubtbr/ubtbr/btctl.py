@@ -523,6 +523,10 @@ class BTCtlCmd(Thread):
 		try:
 			self._start()
 			self._run_loop()
+		except usb1.USBError as e:
+			# This runs on the command's own thread, so there is nobody above
+			# to report it: an unhandled one comes out as a thread traceback.
+			log.error("%s stopped: %s"%(self, e))
 		finally:
 			# Whatever ended the loop, the command is over: say so before
 			# releasing the handler, so the next command can be started.
@@ -537,12 +541,18 @@ class BTCtlCmd(Thread):
 		return self.__class__.__name__
 
 class BTCtlSuperCmd(Thread):
+	# What a caller joining a stopped super command should allow it. Stopping
+	# it includes stopping the command it is running, so it needs longer than
+	# that command does.
+	JOIN_TIMEOUT = BTCtlCmd.JOIN_TIMEOUT + 1
+
 	def __init__(self, bt):
 		# Daemon for the same reason as BTCtlCmd.
 		super().__init__(daemon=True)
 		self._bt = bt
 		self._stopped = Event()
 		self._cmd = None
+		self._gave_up = False
 
 	def _start_cmd(self, cls, *args):
 		if self._cmd is not None:
@@ -555,7 +565,9 @@ class BTCtlSuperCmd(Thread):
 		return self._cmd
 
 	def _stop_cmd(self):
-		if self._cmd is None:
+		# Trying a command that already outlived its stop again would only
+		# spend another join on it.
+		if self._cmd is None or self._gave_up:
 			return
 		self._cmd.stop()
 		self._cmd.join(self._cmd.JOIN_TIMEOUT)
@@ -564,6 +576,7 @@ class BTCtlSuperCmd(Thread):
 			# started: keep the handle and give up rather than start one and
 			# trip over it.
 			log.error("%s did not stop"%self._cmd)
+			self._gave_up = True
 			self.stop()
 			return
 		self._cmd = None
@@ -801,6 +814,9 @@ class BTCtlMonitorCmd(BTCtlCmd):
 class BTCtlFramingError(Exception):
 	"""A USB packet that does not fit the framing the device sends."""
 
+class BTCtlNoDeviceError(Exception):
+	"""No Ubertooth to control."""
+
 class BTCtl:
 	DATA_IN = 0x82
 	DATA_OUT = 0x05
@@ -830,8 +846,8 @@ class BTCtl:
 			UBERTOOTH_VENDOR_ID, UBERTOOTH_PRODUCT_ID,
 			skip_on_error = True)
 		if handle is None:
-			raise Exception("Ubertooth device not found")
-			sys.exit(1)
+			# The wording the other tools use for the same thing.
+			raise BTCtlNoDeviceError("no Ubertooth devices found")
 		return BTCtl(handle)
 
 	def register_msg_handler(self, h):
