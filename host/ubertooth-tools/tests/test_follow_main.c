@@ -11,10 +11,15 @@
  *
  * Which requests may move is decided by how they are sent. The address and
  * the clock go out synchronously, so the board has them before anything is in
- * flight. The AFH map set and the start-hopping request are asynchronous:
- * libusb hands their completions to whoever polls for events, which here is
- * the thread ubertooth_bulk_thread_start() creates, so they must stay after
- * it. Both halves of that are pinned below.
+ * flight. The AFH map set (-a) and the start-hopping request are
+ * asynchronous: libusb hands their completions to whoever polls for events,
+ * which here is the thread ubertooth_bulk_thread_start() creates, so those two
+ * must stay after it.
+ *
+ * The cases below pin the whole order of requests, not only the two halves
+ * that are required, so a request that moves anywhere is caught and looked at.
+ * Clearing the AFH map, which is what a follow without -a does, is
+ * synchronous and under no ordering requirement of its own.
  *
  * ubertooth-follow.c is compiled in with main() renamed, as test_scan_main.c
  * does for the other BlueZ tool, and every libubertooth call is a fake here,
@@ -23,8 +28,6 @@
  * the clock reads, so no case needs a Bluetooth adapter on the machine running
  * the tests.
  */
-#include <errno.h>
-#include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -45,8 +48,6 @@ int max_ac_errors = 2;
 /* ---- scripted device and adapter ---------------------------------------- */
 
 static struct {
-	int connect_fails;    /* no board answers the -U selection */
-	int api_rc;           /* returned by ubertooth_check_api() */
 	int bulk_init_rc;     /* returned by ubertooth_bulk_init() */
 	int thread_starts;
 	int thread_stops;
@@ -55,7 +56,6 @@ static struct {
 	int blocks_to_end;    /* ...before the fake ends the capture */
 	uint8_t afh_mode;     /* what the target reports for AFH */
 	uint8_t afh_map[AFH_MAP_BYTES];
-	int dev_fd;           /* the adapter handle the tool was given */
 	/* Every device call in order, one letter each: a set the target's
 	 * address, k set the board's clock, i submitted the receive transfer,
 	 * p started the poll thread, m set the AFH map, c cleared it, h told
@@ -89,7 +89,6 @@ static void reset_fake(void)
 	memset(&fake, 0, sizeof(fake));
 	memset(&fake_ut, 0, sizeof(fake_ut));
 	fake_ut.devh = (struct libusb_device_handle*)&fake_devh;
-	fake.dev_fd = -1;
 	fake.blocks_to_end = 2;
 	/* A target using AFH on every channel, so -a reaches the map set. */
 	fake.afh_mode = FOLLOW_AFH_MODE_ON;
@@ -104,13 +103,12 @@ int hci_devid(const char* str)
 	return 0;
 }
 
-/* A real descriptor, so the tool's close() is a real close, but one that is
- * not a Bluetooth socket. */
+/* Any non-negative number: every call the tool makes on the adapter is faked
+ * below, and the tool never closes it, so no real descriptor is needed. */
 int hci_open_dev(int dev_id)
 {
 	(void)dev_id;
-	fake.dev_fd = open("/dev/null", O_RDONLY);
-	return fake.dev_fd;
+	return 3;
 }
 
 int hci_devinfo(int dev_id, struct hci_dev_info* di)
@@ -183,17 +181,20 @@ ubertooth_t* ubertooth_init()
 	return &fake_ut;
 }
 
+/* No case here refuses a board or a firmware version: what the tool does with
+ * those is checked against the real binary by board-not-found-ubertooth-follow
+ * and by the output-stream cases. */
 int ubertooth_connect_select(ubertooth_t* ut, const char* u_arg)
 {
 	(void)ut;
 	(void)u_arg;
-	return fake.connect_fails ? -1 : 0;
+	return 0;
 }
 
 int ubertooth_check_api(ubertooth_t* ut)
 {
 	(void)ut;
-	return fake.api_rc;
+	return 0;
 }
 
 void register_cleanup_handler(ubertooth_t* ut, int do_exit)
@@ -326,8 +327,13 @@ static struct run_result run_follow(const char* const* args)
 	memset(&result, 0, sizeof(result));
 	result.rc = -1; /* a failed capture must not look like a successful run */
 	mu_assert(out != NULL && err != NULL, "tmpfile failed");
-	if (out == NULL || err == NULL)
+	if (out == NULL || err == NULL) {
+		if (out != NULL)
+			fclose(out);
+		if (err != NULL)
+			fclose(err);
 		return result;
+	}
 	while (args[argc] != NULL && argc < 15) {
 		argv[argc] = (char*)args[argc];
 		argc++;
@@ -415,6 +421,23 @@ MU_TEST(a_follow_the_board_took_exits_0)
 	mu_assert(r.err[0] == '\0', r.err);
 }
 
+/* The board is configured before the stream is started, so a stream that
+ * cannot start has a configured board to give back: it is stopped, the poll
+ * thread is never created, and no further request goes out. */
+MU_TEST(a_stream_that_cannot_start_gives_the_board_back)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.bulk_init_rc = -1;
+	r = RUN(TARGET);
+	mu_assert(r.rc != 0, "a follow that never streamed must not exit 0");
+	mu_assert(strcmp(fake.calls, "aki") == 0, fake.calls);
+	mu_assert_int_eq(0, fake.thread_starts);
+	mu_assert_int_eq(0, fake.receives);
+	mu_assert_int_eq(1, fake.stops);
+}
+
 int main(void)
 {
 	/* This binary does not link libubertooth: the fakes above are the whole
@@ -423,5 +446,6 @@ int main(void)
 	MU_RUN(the_clock_is_set_before_the_receive_transfer);
 	MU_RUN(the_asynchronous_requests_stay_after_the_poll_thread);
 	MU_RUN(a_follow_the_board_took_exits_0);
+	MU_RUN(a_stream_that_cannot_start_gives_the_board_back);
 	return mu_report();
 }

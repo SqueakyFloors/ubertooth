@@ -427,7 +427,14 @@ int main(int argc, char *argv[])
 	 * as 106 periods gone by and adds about 34,700 s to every later
 	 * timestamp. Both requests are synchronous, so the board has them before
 	 * anything is in flight; the asynchronous ones below cannot move up here,
-	 * because the poll thread is what completes them. */
+	 * because the poll thread is what completes them.
+	 *
+	 * What this costs is a slightly staler hop offset. Start-hopping adds its
+	 * offset to whatever CLKN has reached since the reset rather than
+	 * replacing it, so everything between the two is error in the followed
+	 * clock, and the endpoint flush and the thread creation are now inside
+	 * that window: a few of the 312.5 us ticks that -w compensates, against
+	 * timestamps that were hours out. */
 	cmd_set_bdaddr(ut->devh, btbb_piconet_get_bdaddr(pn));
 	cmd_set_clock(ut->devh, 0);
 
