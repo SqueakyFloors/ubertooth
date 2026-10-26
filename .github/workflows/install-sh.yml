@@ -36,34 +36,50 @@ jobs:
       matrix:
         os: [ubuntu-24.04, macos-15]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    # Above the bounded install step below plus the install.sh run it tests.
+    timeout-minutes: 18
 
     steps:
     - uses: actions/checkout@v4
 
+    # Both install steps get a timeout-minutes of their own, as build.yml's
+    # do, so a package source that stops sending bytes fails a step that
+    # names it instead of hanging until the job timeout, where it reads as a
+    # broken install.sh. On apt the limit is tightened and retried per
+    # attempt by tools/retry.sh; brew is left alone, because on an older
+    # runner image it legitimately builds a dependency from source for
+    # minutes and no short limit can tell that apart from a stall.
     - name: Install dependencies (macOS)
-      # The host build deps install.sh would install itself (--skip-deps is
-      # used below), plus shellcheck.
-      run: brew install cmake pkg-config libusb fftw shellcheck
+      # The host build dependencies install.sh would install itself
+      # (--skip-deps is used below).
+      timeout-minutes: 10
+      run: brew install cmake pkg-config libusb fftw
       if: runner.os == 'macOS'
 
     - name: Install dependencies (Ubuntu)
-      # Same list as install.sh's apt step; shellcheck is preinstalled on
-      # GitHub's Ubuntu images but is installed here if it is ever dropped.
+      # Same list as install.sh's apt step. One bounded call of 180 seconds
+      # an attempt, so 6 minutes 30 at worst, and then the install, which is
+      # deliberately not bounded: a command killed while unpacking leaves
+      # dpkg half-done and no retry can repair that.
+      timeout-minutes: 8
       run: |
-        sudo apt update
-        sudo apt install -y cmake build-essential pkg-config libusb-1.0-0-dev \
-          libbluetooth-dev libfftw3-dev python3 python3-venv python3-usb1 git
-        command -v shellcheck >/dev/null || sudo apt install -y shellcheck
+        packages="cmake build-essential pkg-config libusb-1.0-0-dev \
+          libbluetooth-dev libfftw3-dev python3 python3-venv python3-usb1 git"
+        apt_opts="-o Acquire::http::Timeout=30 -o Acquire::Retries=2"
+        # sudo is outside the helper so the limit lands on apt itself:
+        # killing sudo would leave apt holding the dpkg lock.
+        sudo tools/retry.sh 180 sh -c \
+          "apt-get $apt_opts update && apt-get $apt_opts install -y -d $packages"
+        sudo apt-get install -y $packages
       if: runner.os == 'Linux'
 
     - name: Syntax check
       shell: bash
+      # shellcheck covers install.sh too, from the `scripts` job in
+      # build.yml, which runs on every change rather than only on the ones
+      # that touch install.sh. This is the real bash's own parse, which
+      # shellcheck's does not replace.
       run: bash -n install.sh
-
-    - name: shellcheck
-      shell: bash
-      run: shellcheck install.sh
 
     - name: Smoke run
       shell: bash

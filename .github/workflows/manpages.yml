@@ -30,7 +30,9 @@ concurrency:
 jobs:
   refresh:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # Above the two bounded install steps below plus the libbtbb build and
+    # the render.
+    timeout-minutes: 20
 
     steps:
     - uses: actions/checkout@v4
@@ -44,9 +46,22 @@ jobs:
     - name: Install dependencies
       # Configuring the host tree needs its required dependencies even though
       # only the documentation subproject is built here.
+      #
+      # Bounded and retried as build.yml's installs are, because this job
+      # gates every change under host/doc and a package source that stops
+      # sending bytes used to stall it until the job timeout cancelled it,
+      # with nothing in the log to say why. One package, so 120 seconds an
+      # attempt is plenty: 4 minutes 30 at worst, and then the install, which
+      # is not bounded because a command killed while unpacking leaves dpkg
+      # half-done.
+      timeout-minutes: 6
       run: |
-        sudo apt update
-        sudo apt install -y libusb-1.0-0-dev
+        apt_opts="-o Acquire::http::Timeout=30 -o Acquire::Retries=2"
+        # sudo is outside the helper so the limit lands on apt itself:
+        # killing sudo would leave apt holding the dpkg lock.
+        sudo tools/retry.sh 120 sh -c \
+          "apt-get $apt_opts update && apt-get $apt_opts install -y -d libusb-1.0-0-dev"
+        sudo apt-get install -y libusb-1.0-0-dev
 
     - name: Install the pinned generator
       # RONN_VERSION in the CMake file is the one place the version is
@@ -59,13 +74,25 @@ jobs:
       # Both are installed first, and --conservative keeps them when ronn's
       # own dependency resolution runs. The versions are printed so a run's
       # log records what rendered the pages.
+      #
+      # rubygems.org is bounded and retried like the package installs, for
+      # the same reason: it is a network fetch that can slow to a crawl, and
+      # this job gates every change under host/doc. The three gems are one
+      # unit, because an attempt that skipped the first two would leave
+      # ronn's own dependency resolution to choose a kramdown. --conservative
+      # on all three is what makes retrying cheap: a gem already at the
+      # pinned version is left alone. 180 seconds an attempt is 6 minutes 30
+      # at worst, well above the few seconds these take.
+      timeout-minutes: 8
       run: |
         version=$(sed -n 's/^set(RONN_VERSION "\(.*\)")$/\1/p' \
           host/doc/man/CMakeLists.txt)
         test -n "$version" || { echo "no RONN_VERSION in host/doc/man/CMakeLists.txt" >&2; exit 1; }
-        sudo gem install --no-document kramdown -v 2.5.2
-        sudo gem install --no-document kramdown-parser-gfm -v 1.1.0
-        sudo gem install --no-document --conservative ronn-ng -v "$version"
+        sudo tools/retry.sh 180 sh -c '
+          gem install --no-document --conservative kramdown -v 2.5.2 &&
+          gem install --no-document --conservative kramdown-parser-gfm -v 1.1.0 &&
+          gem install --no-document --conservative ronn-ng -v "$1"' \
+          install-gems "$version"
         ronn --version
         gem list kramdown nokogiri mustache ronn-ng
 
