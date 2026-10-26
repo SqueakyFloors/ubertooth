@@ -52,7 +52,10 @@ Options:
    through 48; invalid values fail before the Ubertooth is opened.
  - `-a <access_code>` :
    Access code to use, given as 2, 4, 6 or 8 hex digits (1 to 4 whole
-   bytes). See ACCESS CODE below for what a run without `-a` uses.
+   bytes). A code shorter than four bytes becomes the most significant bytes
+   of the radio's 32-bit sync word and the rest are zero, so `-a 1122`
+   matches `11220000`, not a shorter pattern. See ACCESS CODE below for what
+   a run without `-a` uses.
  - `-U <index|serial>` :
    select an Ubertooth by enumeration index or serial number; see
    ubertooth(7), SELECTING A DEVICE
