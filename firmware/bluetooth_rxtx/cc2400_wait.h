@@ -13,21 +13,22 @@
 #include "ubertooth.h"
 
 /* Polls before cc2400_wait_fs_unlock() gives up. Each poll is one bit-banged
- * 8-bit SPI transaction with no delay loops (cc2400_spi()), so well under a
- * microsecond, putting the bound around a millisecond. It is kept short
- * deliberately: hop() calls this from bt_stream_rx()'s streaming loop, where a
- * long stall costs symbols. */
+ * 8-bit SPI transaction with no delay loops (cc2400_spi()), about 1.6
+ * microseconds, putting the bound a little under two milliseconds. It is kept
+ * short deliberately: hop() calls this from bt_stream_rx()'s streaming loop,
+ * where a long stall costs symbols. */
 #define FS_UNLOCK_POLLS 1000
 
-/* Re-strobe SRFOFF every this many polls. Short, so a strobe lost to bus
- * contention is retried quickly rather than after most of the budget. */
+/* Re-strobe SRFOFF every this many polls. Short, so the synthesizer is pushed
+ * back off quickly if a handler switched it on, rather than after most of the
+ * budget. */
 #define FS_UNLOCK_RESTROBE_INTERVAL 32
 
 /* Polls before the wait for a lock gives up. Locking takes the synthesizer a
  * few hundred microseconds, so this is sized to be out of reach of a radio
- * that is working at all: at roughly a microsecond per poll it is around ten
- * milliseconds, far longer than the lock needs. The wait for an unlock is
- * deliberately shorter, so it cannot be the long one. */
+ * that is working at all: at about 1.6 microseconds per poll it is around
+ * sixteen milliseconds, far longer than the lock needs. The wait for an unlock
+ * is deliberately shorter, so it cannot be the long one. */
 #define FS_LOCK_POLLS 10000
 
 /* Re-strobe SFSON every this many polls, for the same reason the wait for an
@@ -83,11 +84,12 @@ int cc2400_wait_xosc_stable(void (*service)(void));
 
 /* Wait for the CC2400 synthesizer to report unlocked, with a bound.
  *
- * Every poll is a bit-banged SPI transaction on the shared CC2400 bus:
- * cc2400_spi() holds CSN low across the transfer and does not mask interrupts.
- * If an interrupt handler drives the radio at the same time -- the LE PHY's DMA
- * handler reads RSSI and strobes SFSON/SRFOFF -- the status byte read here can
- * be corrupt, or the synthesizer can genuinely have been switched back on.
+ * The status byte each poll reads is itself intact: cc2400_spi() masks
+ * interrupts for the length of a transfer, so a handler cannot interleave with
+ * it. What the poll can still miss is the synthesizer going back on under it,
+ * because an interrupt handler may strobe it -- the LE PHY's DMA handler
+ * strobes SFSON and SRFOFF between polls -- so the state being waited for
+ * never arrives.
  *
  * An unbounded wait then hangs whichever loop called it. That is fatal in this
  * firmware because USB is polled rather than interrupt-driven (see

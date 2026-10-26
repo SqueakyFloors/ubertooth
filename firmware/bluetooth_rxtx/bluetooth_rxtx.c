@@ -1083,10 +1083,12 @@ static void cc2400_idle()
  *
  * The alternative the six interrupt-driven modes use -- enabling the USB
  * interrupt for the duration of the mode -- also works, and was measured
- * working, but it lets a control request that drives the radio (a register
- * read or write, the squelch, the channel) run inside one of a loop's
- * bit-banged transfers, which holds CSN low and does not mask interrupts.
- * Polling keeps the servicing between transfers, where it has always been.
+ * working. A control request that drives the radio (a register read or write,
+ * the squelch, the channel) can then run while a loop is mid-transfer. For a
+ * register transfer it waits, because cc2400_spi() masks interrupts for its
+ * length; for one of the longer FIFO transfers, which are not masked, it still
+ * cuts in. Polling keeps the servicing between transfers, where it has always
+ * been.
  *
  * clkn is the bulk stream's keep-alive timestamp, and it stands still in the
  * modes that never start the Bluetooth clock: led_specan(), the range test and

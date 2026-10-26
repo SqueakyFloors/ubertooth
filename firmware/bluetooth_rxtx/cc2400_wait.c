@@ -22,9 +22,8 @@ int cc2400_wait_fs(int locked, void (*service)(void))
 		if (service != NULL)
 			service();
 
-		/* Re-assert the strobe now and then, in case the original was lost
-		 * to SPI bus contention with an interrupt handler, or an interrupt
-		 * handler put the synthesizer back the other way. */
+		/* Re-assert the strobe now and then, in case an interrupt handler
+		 * put the synthesizer back the other way after the first strobe. */
 		if ((i % interval) == interval - 1)
 			cc2400_strobe(strobe);
 	}

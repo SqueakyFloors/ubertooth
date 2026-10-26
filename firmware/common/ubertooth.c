@@ -257,6 +257,50 @@ void cc2400_init()
 }
 
 /*
+ * Turn interrupts off and return the mask setting that was in force, so the
+ * caller can put it back with irq_restore(). Code between the two runs with no
+ * interrupt handler able to cut in.
+ *
+ * PRIMASK is the Cortex-M3 register that blocks every interrupt bar the two
+ * faults that cannot be masked. `cpsid i` sets it; writing the saved value
+ * back clears it only if it was clear to begin with. Restoring the old
+ * setting, rather than simply enabling interrupts at the end, is what makes
+ * the pair safe to nest and safe to use inside an interrupt handler -- a
+ * handler that called irq_save_disable() must still return with interrupts
+ * masked.
+ *
+ * No barrier is needed either side. Writing PRIMASK takes effect on the next
+ * instruction, unlike a write to one of the interrupt controller's enable
+ * registers, which is why the code that disables an interrupt through ICER0
+ * follows it with a barrier and this does not.
+ *
+ * Keep the span between them short. Interrupts raised while masked are not
+ * lost: the controller latches them and they run as soon as the mask comes
+ * off. But a periodic interrupt whose period is shorter than the span loses a
+ * tick, and the clkn timer interrupt in the bluetooth_rxtx image fires every
+ * 312.5 microseconds.
+ *
+ * The btbr image has its own pair, with the same names and the same meaning,
+ * in firmware/btbr/include/ubtbr/system.h. Keeping this copy file-local is
+ * what lets both exist side by side; the price is that the two can drift
+ * apart.
+ */
+static inline u32 irq_save_disable(void)
+{
+	u32 primask;
+
+	asm volatile ("mrs %0, primask\n\t"
+	              "cpsid i"
+	              : "=r" (primask) : : "memory");
+	return primask;
+}
+
+static inline void irq_restore(u32 primask)
+{
+	asm volatile ("msr primask, %0" : : "r" (primask) : "memory");
+}
+
+/*
  * This is a single SPI transaction of variable length, usually 8 or 24 bits.
  * The CC2400 also supports longer transactions (e.g. for the FIFO), but we
  * haven't implemented anything longer than 32 bits.
@@ -268,10 +312,60 @@ void cc2400_init()
  * 2. We're saving the second SPI peripheral for an expansion port.
  * 3. The CC2400 needs CSN held low for the entire transaction which the
  *    LPC17xx SPI peripheral won't do without some workaround anyway.
+ *
+ * Interrupts are masked for the length of the transfer. CSN, SCLK and MOSI
+ * are the only path to the radio, and the interrupt handlers that drive the
+ * radio reach it through this same function: the LE PHY's DMA handler reads
+ * RSSI and strobes the synthesizer, its timer handler retunes, and in the
+ * modes that service USB from the USB interrupt the vendor request handler
+ * writes radio registers. A handler that ran part-way through a transfer
+ * would begin its own with CSN already low, and both would then read or write
+ * a corrupt word, or lose a strobe.
+ *
+ * The cost is one transfer of interrupt latency. A bit of the loop below
+ * compiles to about 19 cycles, so once the PLL is up and the CPU runs at
+ * 100 MHz an 8-bit status read or strobe masks for roughly 1.6 microseconds
+ * and the longest transfer, 24 bits, for roughly 4.6. The transfers that
+ * cc2400_reset() and clock_start() make run before the PLL, on the 4 MHz
+ * internal oscillator, and so take 25 times as long, but nothing is armed
+ * that early in boot.
+ *
+ * Two things in the firmware feel that latency. The LE PHY accepts a measured
+ * connection anchor only within 3 microseconds of its estimate, and it takes
+ * that measurement from the clock read at the top of its DMA handler. A
+ * register transfer elsewhere can delay that handler past the window, and the
+ * PHY then keeps its estimate for that connection event instead of the
+ * measurement. In LE follow mode the main loop touches the radio only for a
+ * host request, but the PHY's own timer handler also drives it, so a request
+ * in flight is not the only way to reach this.
+ *
+ * The BR/EDR receive loop pays it on every pass, with no host involved.
+ * bt_stream_rx() polls RSSI while it waits for each DMA transfer to finish,
+ * 50 to 80 times across roughly 400 microseconds, and each poll is a 24-bit
+ * transfer. So for most of that wait interrupts are masked, and the
+ * carrier-sense interrupt that opens the symbol capture --
+ * EINT3_IRQHandler(), which drops DIO_SSEL -- runs up to 4.6 microseconds
+ * late, moving the start of the capture window by a few symbol periods at
+ * 1 megabit per second.
+ *
+ * Whether either costs a packet is not known: the capture rate has not been
+ * measured on hardware before and after. What is certain is that a transfer
+ * which comes out corrupt costs more.
+ *
+ * PRIMASK is blunter than the problem needs, because it also blocks the
+ * handlers that never touch the bus -- the carrier-sense and clkn handlers,
+ * the two most timing-sensitive ones in the BR/EDR path, pay the latency for
+ * nothing. Masking only the handlers that drive the radio, through the
+ * interrupt controller's enable registers, would avoid that, at the price of
+ * a guard that has to be kept in step with which handlers those are.
+ *
+ * Each bit costs the same whether interrupts are masked or not, so the
+ * transfer itself is no slower than before.
  */
 u32 cc2400_spi(u8 len, u32 data)
 {
 	u32 msb = 1 << (len - 1);
+	u32 primask = irq_save_disable();
 
 	/* start transaction by dropping CSN */
 	CSN_CLR;
@@ -291,6 +385,8 @@ u32 cc2400_spi(u8 len, u32 data)
 
 	/* end transaction by raising CSN */
 	CSN_SET;
+
+	irq_restore(primask);
 
 	return data;
 }
@@ -335,6 +431,30 @@ static void spi_delay() {
        while (--delay_counter);
 }
 
+
+/*
+ * The two FIFO transfers below drive the same CSN/SCLK/MOSI lines by hand
+ * instead of going through cc2400_spi(), so they are open to the same
+ * corruption by an interrupt handler that drives the radio, and they are not
+ * masked. Neither is the btbr image's own copy of the FIFO write, in
+ * firmware/btbr/src/btphy/rf.c.
+ *
+ * They are left unmasked because they hold the bus far longer than a register
+ * transfer does, and for the read that is long enough to break the clock. The
+ * read waits out a delay loop twice per bit; one delay is about 0.85
+ * microseconds, so a bit costs about 1.8 and a 32-byte read runs to roughly
+ * 460 microseconds, past the clkn timer interrupt's 312.5 microsecond period,
+ * so masking across one would cost the capture timestamps a tick. The write
+ * has no delay loops and a 50-byte write takes roughly 50 microseconds, which
+ * is inside a tick but still ten times a register transfer, so masking it
+ * would add that much to every handler's latency.
+ *
+ * Fixing either needs a way to hold the bus that does not stop the clock, or
+ * a mask narrowed to the handlers that drive the radio. That is a separate
+ * piece of work; until then a control request arriving from the USB interrupt
+ * can still cut into a FIFO transfer, which is what the modes that transmit
+ * from their loop are exposed to.
+ */
 
 /* write multiple bytes to SPI */
 void cc2400_fifo_write(u8 len, u8 *data) {
