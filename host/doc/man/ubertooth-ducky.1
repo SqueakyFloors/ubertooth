@@ -51,11 +51,13 @@ The optional value of \fB\-q\fR may be attached or given as the next word (\fB\-
 .SH "DIAGNOSTICS"
 What \fBubertooth\-ducky\fR does happens over the air, so it writes no result: everything it prints, including the duck and the "Quacking \|\.\|\.\|\. as \|\.\|\.\|\." line, goes to standard error, and standard output stays empty\. Each error is one line starting \fBerror:\fR, for example \fBerror: cannot read the UUID 'nonsense'\fR\.
 .P
+A request the board refuses ends the command there, named in one line, for example \fBerror: could not set the advertising channel\fR; libubertooth has already said why\. A refused request is not proof that the board never got it, so the message does not claim one way or the other\.
+.P
 A command line the tool will not take is reported as that one \fBerror:\fR line followed by the usage text, both on standard error\. An option the tool does not know reads \fBerror: unrecognized option '\-Z'\fR; one whose value is missing reads \fBerror: option '\-U' requires a value\fR\.
 .P
 \fB\-h\fR is what the user asked for, so the usage text goes to standard output and nothing goes to standard error\.
 .SH "EXIT STATUS"
-0 when the command did what was asked, including \fB\-h\fR\. 1 for a command line the tool will not take or with nothing to do, for a UUID it cannot read, and when the selected Ubertooth is not found or cannot be opened\.
+0 when the command did what was asked, including \fB\-h\fR: for \fB\-q\fR and \fB\-b\fR, when the board took every request the advertisement needs\. 1 for a command line the tool will not take or with nothing to do, for a UUID it cannot read, when the selected Ubertooth is not found or cannot be opened, and when the board refuses one of those requests\.
 .SH "SEE ALSO"
 ubertooth\-btle(1)
 .P

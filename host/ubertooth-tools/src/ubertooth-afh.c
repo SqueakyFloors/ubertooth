@@ -72,6 +72,7 @@ int main(int argc, char* argv[])
 
 	ubertooth_t* ut = NULL;
 	int r;
+	int status = 0;
 
 	// default value for '-m' channel timeout
 	packet_counter_max = 5;
@@ -150,6 +151,10 @@ int main(int argc, char* argv[])
 
 	if (have_lap && have_uap) {
 		pn = btbb_piconet_new();
+		if (pn == NULL) {
+			fputs("error: out of memory\n", stderr);
+			return 1;
+		}
 		btbb_init_piconet(pn, lap);
 		btbb_piconet_set_uap(pn, uap);
 		btbb_piconet_set_flag(pn, BTBB_IS_AFH, 1);
@@ -166,12 +171,15 @@ int main(int argc, char* argv[])
 	 * has already said why. */
 	ut = ubertooth_start_select(ubertooth_device);
 	if (ut == NULL) {
+		btbb_piconet_unref(pn);
 		return 1;
 	}
 
 	r = ubertooth_check_api(ut);
-	if (r < 0)
+	if (r < 0) {
+		btbb_piconet_unref(pn);
 		return 1;
+	}
 
 	/* Clean up on exit. */
 	register_cleanup_handler(ut, 0);
@@ -187,17 +195,17 @@ int main(int argc, char* argv[])
 			        " within %d s; AFH map unknown, not monitoring\n",
 			        uap, (lap >> 16) & 0xff, (lap >> 8) & 0xff, lap & 0xff,
 			        timeout);
-			ubertooth_stop(ut);
-			return 2;
-		}
-		if (r < 0) {
+			status = 2;
+		} else if (r < 0) {
 			/* libubertooth has already said what failed. */
-			ubertooth_stop(ut);
-			return 1;
+			status = 1;
 		}
 	}
 
 	ubertooth_stop(ut);
+	/* The piconet outlives the receive phases, so it is given back here
+	 * rather than in them. */
+	btbb_piconet_unref(pn);
 
-	return 0;
+	return status;
 }

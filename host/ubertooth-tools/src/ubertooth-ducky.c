@@ -117,6 +117,17 @@ void print_duck(FILE *file, int s) {
 }
 
 
+/* The library has already said why a request was refused; this names the
+ * request, and leaves the board released rather than part-way into a
+ * low-energy mode. A refused request is not proof that the board never got
+ * it -- a transfer can time out after it arrived -- so the message says only
+ * what the tool knows. */
+static int request_failed(ubertooth_t *ut, const char *what) {
+	fprintf(stderr, "error: could not %s\n", what);
+	ubertooth_stop(ut);
+	return 1;
+}
+
 static void usage(FILE *file) {
 	fprintf(file, "ubertooth-ducky - make an Uberducky quack like a USB Rubber Ducky\n");
 	fprintf(file, "Usage:\n");
@@ -311,9 +322,12 @@ int main(int argc, char *argv[])
 		else
 			channel = 2480;
 
-		cmd_set_channel(ut->devh, channel);
-		cmd_le_set_adv_data(ut->devh, adv_data, sizeof(adv_data));
-		cmd_btle_slave(ut->devh, bd_addr);
+		if (cmd_set_channel(ut->devh, channel) < 0)
+			return request_failed(ut, "set the advertising channel");
+		if (cmd_le_set_adv_data(ut->devh, adv_data, sizeof(adv_data)) < 0)
+			return request_failed(ut, "set the advertising data");
+		if (cmd_btle_slave(ut->devh, bd_addr) < 0)
+			return request_failed(ut, "start advertising");
 
 		sleep(2);
 		ubertooth_stop(ut);

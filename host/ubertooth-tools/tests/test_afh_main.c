@@ -3,8 +3,10 @@
  * what it exits with after the initial AFH detection phase.
  *
  * ubertooth-afh.c is compiled into this test with main() renamed, and the
- * libubertooth functions it calls are replaced by the fakes below, so the real
- * command-line handling and reporting run against a scripted detection phase.
+ * libubertooth and libbtbb functions it calls are replaced by the fakes below,
+ * so the real command-line handling and reporting run against a scripted
+ * detection phase. The faked piconet calls also count what a run allocates and
+ * frees, so every path can be required to give the piconet back.
  */
 #include <stdint.h>
 #include <stdio.h>
@@ -26,6 +28,11 @@ static struct {
 	int rx_afh_r_calls;
 	int last_timeout; /* timeout passed to the detection phase */
 	int stops;
+	int no_device;    /* no board matches -U */
+	int check_api_rc; /* returned by ubertooth_check_api() */
+	int no_memory;    /* btbb_piconet_new() cannot allocate */
+	int piconet_news; /* btbb_piconet_new() calls */
+	int piconet_frees;/* btbb_piconet_unref() calls */
 } fake;
 
 static ubertooth_t fake_ut;
@@ -45,12 +52,59 @@ unsigned int packet_counter_max = 5;
 ubertooth_t *ubertooth_start_select(const char *u_arg)
 {
 	(void)u_arg;
-	return &fake_ut;
+	return fake.no_device ? NULL : &fake_ut;
 }
 
 int ubertooth_check_api(ubertooth_t *ut)
 {
 	(void)ut;
+	return fake.check_api_rc;
+}
+
+/* The piconet is opaque to the tool, so a plain allocation stands in for
+ * libbtbb's. It is allocated for real, so a leak checker run over this binary
+ * still reports an unfreed piconet if the tool stops giving it back. */
+btbb_piconet *btbb_piconet_new(void)
+{
+	if (fake.no_memory)
+		return NULL;
+	fake.piconet_news++;
+	return (btbb_piconet *)calloc(1, sizeof(int));
+}
+
+void btbb_piconet_unref(btbb_piconet *pn)
+{
+	/* The real one dereferences its argument at once, to drop a reference, so
+	 * an unref of NULL must be reported here rather than pass and crash in a
+	 * real build. */
+	mu_assert(pn != NULL, "the piconet given back was NULL");
+	if (pn == NULL)
+		return;
+	fake.piconet_frees++;
+	free(pn);
+}
+
+void btbb_init_piconet(btbb_piconet *pn, uint32_t lap)
+{
+	(void)pn;
+	(void)lap;
+}
+
+void btbb_piconet_set_uap(btbb_piconet *pn, uint8_t uap)
+{
+	(void)pn;
+	(void)uap;
+}
+
+void btbb_piconet_set_flag(btbb_piconet *pn, int flag, int val)
+{
+	(void)pn;
+	(void)flag;
+	(void)val;
+}
+
+int btbb_init_survey(void)
+{
 	return 0;
 }
 
@@ -141,6 +195,10 @@ static struct run_result run_afh(const char *const *args)
 	dup2(saved_err, STDERR_FILENO);
 	close(saved_out);
 	close(saved_err);
+
+	/* The tool owns the piconet for the whole run, so by the time main()
+	 * returns it has given back whatever it allocated, on every path. */
+	mu_assert_int_eq(fake.piconet_news, fake.piconet_frees);
 
 	read_back(out, result.out, sizeof(result.out));
 	read_back(err, result.err, sizeof(result.err));
@@ -244,6 +302,45 @@ MU_TEST(a_library_error_is_not_mistaken_for_no_packets)
 	}
 }
 
+/* The piconet is allocated before a board is opened, so the paths that end
+ * the run there have to give it back as well: no board matching -U, and a
+ * board whose firmware does not match. */
+MU_TEST(a_run_that_never_reaches_the_receive_phase_frees_the_piconet)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.no_device = 1;
+	r = RUN("-l", "446688", "-u", "22");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, fake.piconet_news);
+	mu_assert_int_eq(1, fake.piconet_frees);
+	mu_assert_int_eq(0, fake.rx_afh_calls);
+
+	reset_fake();
+	fake.check_api_rc = -1;
+	r = RUN("-l", "446688", "-u", "22");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, fake.piconet_news);
+	mu_assert_int_eq(1, fake.piconet_frees);
+	mu_assert_int_eq(0, fake.rx_afh_calls);
+}
+
+/* A piconet that cannot be allocated is reported rather than used: the tool
+ * sets its fields straight after, so a NULL would be dereferenced. */
+MU_TEST(a_piconet_that_cannot_be_allocated_is_refused)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.no_memory = 1;
+	r = RUN("-l", "446688", "-u", "22");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strcmp(r.err, "error: out of memory\n") == 0, r.err);
+	mu_assert_int_eq(0, fake.rx_afh_calls);
+}
+
 /* The usage text says that the tool keeps monitoring until it is interrupted
  * and what -t does at the end of its phase. -h is what the user asked for, so
  * it goes to standard output, leaves standard error empty and exits 0. */
@@ -287,6 +384,8 @@ int main(void)
 	MU_RUN(no_timeout_runs_the_monitor_as_before);
 	MU_RUN(the_r_format_is_unchanged);
 	MU_RUN(a_library_error_is_not_mistaken_for_no_packets);
+	MU_RUN(a_run_that_never_reaches_the_receive_phase_frees_the_piconet);
+	MU_RUN(a_piconet_that_cannot_be_allocated_is_refused);
 	MU_RUN(the_usage_text_documents_the_monitoring_and_the_exit_status);
 	MU_RUN(a_missing_piconet_address_is_refused_on_standard_error);
 	return mu_report();
