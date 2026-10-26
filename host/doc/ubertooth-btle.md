@@ -80,6 +80,9 @@ interference with newly established or long-lived connections. When this
 attack succeeds, the BLE connection between the central and peripheral
 will be terminated. Pair the `-i` or `-I` flag with `-f` to interfere
 with new connections or `-p` to interfere with long-lived connections.
+`-i` or `-I` (or their older spellings `-j` and `-J`) with neither `-f` nor
+`-p` is refused before any device is opened: there is no connection to
+interfere with.
 Note that causing intentional interference may be illegal in your
 jurisdiction. Check your local laws before using this feature.
 
@@ -119,10 +122,11 @@ Major modes:
    No-follow mode: log advertising packets but don't follow connections
  - `-p` :
    Promiscuous mode: sniff already-established connections
- - `-s <BD ADDR>` : 
-   Inject advertising packets using specified BD ADDR
+ - `-s <BD ADDR>` :
+   Inject advertising packets using specified BD ADDR. Like `-a`, it does not
+   go with `-f`, `-n` or `-p`.
 
-Interference (pair with `-f` or `-p`):
+Interference (only with `-f` or `-p`):
 
  - `-i` :
    Interfere with one connection and return to idle
@@ -154,7 +158,10 @@ Logging:
        ubertooth-btle -f -c - | wireshark -k -i -
 
    When stdout capture is selected, regular packet/status text is suppressed so
-   it cannot corrupt the binary stream; errors remain on stderr. The tool
+   it cannot corrupt the binary stream; errors remain on stderr. The lines that
+   answer an option in the same command go to stderr rather than being
+   suppressed with it: the `Access address:` line of `-a`, the `CRC:` line of
+   `-v`, and the target lines of `-t`. The tool
    refuses to write binary capture data directly to an interactive terminal:
    `error: stdout is a tty, refusing to write binary capture data to it`, with
    exit status 1 and before any device is opened.
@@ -168,7 +175,9 @@ Miscellaneous:
    mode. The address is 1 to 8 hex digits (`-a 8e89bed6`); fewer than 8 means
    leading zeros (`-a 12345` sets `00012345`). Anything else is refused before
    the device is opened. Getting and setting in one command is refused; other
-   options such as `-v` still run after a get.
+   options such as `-v` still run after a get. `-a` does not go with a
+   sniffing mode (`-f`, `-n`, `-p`), which runs until it is interrupted; the
+   combination is refused before any device is opened.
  - `-v [01]` :
    Read (`-v`) or set (`-v 0` or `-v 1`) CRC verification
    (default: 0). Any other value is refused. A set and a read in one command
@@ -176,8 +185,7 @@ Miscellaneous:
    order they are written; two sets keep the last one. In a sniffing mode both
    run once the mode has started, because entering a mode clears the setting,
    and the firmware then turns verification on and off itself as it recovers a
-   connection. A set or a read the board does not answer is reported on
-   standard error with exit status 1.
+   connection.
  - `-x <0-32>` :
    Allow n access address violations (default: 32). Filtering occurs on
    host.
@@ -233,18 +241,66 @@ attached: more than one of `-f`, `-n` and `-p` gives
 access address in one command gives
 `error: -a cannot both read and set the access address`.
 
+`-a` or `-s` alongside a sniffing mode gives
+`error: -a and -s do not go with -f, -n or -p: a sniffing mode runs until it
+is interrupted`, so there is nothing for an access address or faux slave mode
+request to run after. `-t` and `-v` are not in that list: `-t` is sent before
+the mode starts, which is what it is for, and the `-v` options run once it has
+started.
+
+`-i` or `-I` without `-f` or `-p` gives
+`error: -i needs -f or -p: there is no connection to interfere with
+otherwise`, naming the spelling that was used (`-j` and `-J` included).
+
 A command line with no work in it is refused the same way. `-U`, `-A`, `-x`,
 `-i`/`-I` (and their older spellings `-j`/`-J`) and the capture options only
 shape work another option asks for, so a command made up of those alone, or a
 bare `ubertooth-btle`, gives
 `error: nothing to do: choose a major mode (-f, -n or -p), or -a, -v, -s or -t`,
-followed by the usage text, with exit status 1 and before any device is
-opened. Both go to standard error, with nothing on standard output, as after
-any bad command line; `-h` prints the usage text on standard output.
+followed by the usage text, both on standard error.
 
 A refused command line creates and truncates nothing: `-r`, `-q` and `-c` name
 their file while the command line is read, and it is opened only once every
 check has passed.
+
+## DIAGNOSTICS
+
+Standard output carries only what was asked for: the decoded packets, the
+capture data of `-q -` or `-c -`, and the lines that answer `-a`, `-v` and
+`-t`. With the capture on standard output those answer lines move to standard
+error, because standard output belongs to the capture for the whole run.
+
+Errors, warnings and progress go to standard error, each error as one line
+starting `error: `, for example `error: USB poll failed` when the board stops
+answering during a capture, `error: jamming not supported by this firmware`,
+`error: target set failed`, or
+`error: MAC address must be xx:xx:xx:xx:xx:xx (got 11:22:33:44:55)`. A capture
+file that cannot be created is reported as `error: <file>: <reason>`.
+
+`-q` and `-c` share one capture handle, so a second file between them is
+ignored with `warning: ignoring extra capture file: <name>` and the first one
+given is used; `-r` has its own handle, so `-q a.pcap -r b.pcapng` writes both.
+
+A command line the tool will not take is reported as that one `error: ` line
+followed by the usage text, both on standard error. An option the tool does
+not know reads `error: unrecognized option '-Z'`; one whose value is missing
+reads `error: option '-A' requires a value`.
+
+`-h` is what the user asked for, so the usage text goes to standard output.
+Nothing else goes to standard error either, unless the rest of the command
+line produced a warning before `-h` ended the command.
+
+## EXIT STATUS
+
+0 when the command did what was asked, including `-h`, and after a capture is
+interrupted (Ctrl-C) having polled cleanly to that point.
+
+1 for a command line the tool will not take or with nothing to do, for a
+capture file that cannot be created, when the selected Ubertooth is not found
+or cannot be opened, when the board refuses the jam mode, a `-t` target, a
+sniffing or faux slave mode, or an access address or CRC verify request, and
+when a capture stops short because a poll failed. No device is opened for a
+refused command line.
 
 ## SEE ALSO
 

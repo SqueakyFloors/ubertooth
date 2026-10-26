@@ -54,7 +54,7 @@ When filtering, previous versions of the firmware would still log all advertisin
 .P
 In all sniffing modes, Ubertooth can log data to PCAP or PcapNG with a variety of pseudoheaders\. The recommended logging format is PcapNG (\fB\-r\fR) or PCAP with LE Pseudoheader (\fB\-q\fR)\. For compatibility with crackle (see \fIUSING WITH CRACKLE\fR), use PCAP with PPI (\fB\-c\fR)\.
 .P
-Interfering with connections is a feature for causing intentional interference with newly established or long\-lived connections\. When this attack succeeds, the BLE connection between the central and peripheral will be terminated\. Pair the \fB\-i\fR or \fB\-I\fR flag with \fB\-f\fR to interfere with new connections or \fB\-p\fR to interfere with long\-lived connections\. Note that causing intentional interference may be illegal in your jurisdiction\. Check your local laws before using this feature\.
+Interfering with connections is a feature for causing intentional interference with newly established or long\-lived connections\. When this attack succeeds, the BLE connection between the central and peripheral will be terminated\. Pair the \fB\-i\fR or \fB\-I\fR flag with \fB\-f\fR to interfere with new connections or \fB\-p\fR to interfere with long\-lived connections\. \fB\-i\fR or \fB\-I\fR (or their older spellings \fB\-j\fR and \fB\-J\fR) with neither \fB\-f\fR nor \fB\-p\fR is refused before any device is opened: there is no connection to interfere with\. Note that causing intentional interference may be illegal in your jurisdiction\. Check your local laws before using this feature\.
 .P
 Finally, \fBubertooth\-btle\fR supports transmitting advertising packets with a specified BD ADDR\. This feature, referred to as faux slave mode, is experimental and may not function as intended\. Use at your own risk\.
 .SH "EXAMPLES"
@@ -91,17 +91,20 @@ ubertooth\-btle \-s 22:44:66:88:AA:CC
 Displays help message
 .P
 Major modes:
-.IP "\(bu" 4
-\fB\-f\fR : Follow mode: sniff connections as they are established
-.IP "\(bu" 4
-\fB\-n\fR : No\-follow mode: log advertising packets but don't follow connections
-.IP "\(bu" 4
-\fB\-p\fR : Promiscuous mode: sniff already\-established connections
-.IP "\(bu" 4
-\fB\-s <BD ADDR>\fR : Inject advertising packets using specified BD ADDR
-.IP "" 0
+.TP
+\fB\-f\fR
+Follow mode: sniff connections as they are established
+.TP
+\fB\-n\fR
+No\-follow mode: log advertising packets but don't follow connections
+.TP
+\fB\-p\fR
+Promiscuous mode: sniff already\-established connections
+.TP
+\fB\-s <BD ADDR>\fR
+Inject advertising packets using specified BD ADDR\. Like \fB\-a\fR, it does not go with \fB\-f\fR, \fB\-n\fR or \fB\-p\fR\.
 .P
-Interference (pair with \fB\-f\fR or \fB\-p\fR):
+Interference (only with \fB\-f\fR or \fB\-p\fR):
 .TP
 \fB\-i\fR
 Interfere with one connection and return to idle
@@ -136,7 +139,7 @@ ubertooth\-btle \-f \-c \- | wireshark \-k \-i \-
 .fi
 .IP "" 0
 .IP
-When stdout capture is selected, regular packet/status text is suppressed so it cannot corrupt the binary stream; errors remain on stderr\. The tool refuses to write binary capture data directly to an interactive terminal: \fBerror: stdout is a tty, refusing to write binary capture data to it\fR, with exit status 1 and before any device is opened\.
+When stdout capture is selected, regular packet/status text is suppressed so it cannot corrupt the binary stream; errors remain on stderr\. The lines that answer an option in the same command go to stderr rather than being suppressed with it: the \fBAccess address:\fR line of \fB\-a\fR, the \fBCRC:\fR line of \fB\-v\fR, and the target lines of \fB\-t\fR\. The tool refuses to write binary capture data directly to an interactive terminal: \fBerror: stdout is a tty, refusing to write binary capture data to it\fR, with exit status 1 and before any device is opened\.
 .P
 Miscellaneous:
 .TP
@@ -144,10 +147,10 @@ Miscellaneous:
 Which advertising channel to use in follow mode (default: 37)
 .TP
 \fB\-a [address]\fR
-Get (\fB\-a\fR) or set (\fB\-a <address>\fR) the access address used in promiscuous mode\. The address is 1 to 8 hex digits (\fB\-a 8e89bed6\fR); fewer than 8 means leading zeros (\fB\-a 12345\fR sets \fB00012345\fR)\. Anything else is refused before the device is opened\. Getting and setting in one command is refused; other options such as \fB\-v\fR still run after a get\.
+Get (\fB\-a\fR) or set (\fB\-a <address>\fR) the access address used in promiscuous mode\. The address is 1 to 8 hex digits (\fB\-a 8e89bed6\fR); fewer than 8 means leading zeros (\fB\-a 12345\fR sets \fB00012345\fR)\. Anything else is refused before the device is opened\. Getting and setting in one command is refused; other options such as \fB\-v\fR still run after a get\. \fB\-a\fR does not go with a sniffing mode (\fB\-f\fR, \fB\-n\fR, \fB\-p\fR), which runs until it is interrupted; the combination is refused before any device is opened\.
 .TP
 \fB\-v [01]\fR
-Read (\fB\-v\fR) or set (\fB\-v 0\fR or \fB\-v 1\fR) CRC verification (default: 0)\. Any other value is refused\. A set and a read in one command both happen, the set first, so the read reports the new value, in whichever order they are written; two sets keep the last one\. In a sniffing mode both run once the mode has started, because entering a mode clears the setting, and the firmware then turns verification on and off itself as it recovers a connection\. A set or a read the board does not answer is reported on standard error with exit status 1\.
+Read (\fB\-v\fR) or set (\fB\-v 0\fR or \fB\-v 1\fR) CRC verification (default: 0)\. Any other value is refused\. A set and a read in one command both happen, the set first, so the read reports the new value, in whichever order they are written; two sets keep the last one\. In a sniffing mode both run once the mode has started, because entering a mode clears the setting, and the firmware then turns verification on and off itself as it recovers a connection\.
 .TP
 \fB\-x <0\-32>\fR
 Allow n access address violations (default: 32)\. Filtering occurs on host\.
@@ -178,9 +181,27 @@ A bare \fB\-\fR is still the stdin/stdout value of \fB\-q\fR, \fB\-c\fR and \fB\
 .P
 An option combination the tool cannot carry out is refused there too, before any device is opened, so the message never depends on which boards are attached: more than one of \fB\-f\fR, \fB\-n\fR and \fB\-p\fR gives \fBerror: choose one of \-f, \-n or \-p, pick one pal\fR, and a read and a set of the access address in one command gives \fBerror: \-a cannot both read and set the access address\fR\.
 .P
-A command line with no work in it is refused the same way\. \fB\-U\fR, \fB\-A\fR, \fB\-x\fR, \fB\-i\fR/\fB\-I\fR (and their older spellings \fB\-j\fR/\fB\-J\fR) and the capture options only shape work another option asks for, so a command made up of those alone, or a bare \fBubertooth\-btle\fR, gives \fBerror: nothing to do: choose a major mode (\-f, \-n or \-p), or \-a, \-v, \-s or \-t\fR, followed by the usage text, with exit status 1 and before any device is opened\. Both go to standard error, with nothing on standard output, as after any bad command line; \fB\-h\fR prints the usage text on standard output\.
+\fB\-a\fR or \fB\-s\fR alongside a sniffing mode gives \fBerror: \-a and \-s do not go with \-f, \-n or \-p: a sniffing mode runs until it is interrupted\fR, so there is nothing for an access address or faux slave mode request to run after\. \fB\-t\fR and \fB\-v\fR are not in that list: \fB\-t\fR is sent before the mode starts, which is what it is for, and the \fB\-v\fR options run once it has started\.
+.P
+\fB\-i\fR or \fB\-I\fR without \fB\-f\fR or \fB\-p\fR gives \fBerror: \-i needs \-f or \-p: there is no connection to interfere with otherwise\fR, naming the spelling that was used (\fB\-j\fR and \fB\-J\fR included)\.
+.P
+A command line with no work in it is refused the same way\. \fB\-U\fR, \fB\-A\fR, \fB\-x\fR, \fB\-i\fR/\fB\-I\fR (and their older spellings \fB\-j\fR/\fB\-J\fR) and the capture options only shape work another option asks for, so a command made up of those alone, or a bare \fBubertooth\-btle\fR, gives \fBerror: nothing to do: choose a major mode (\-f, \-n or \-p), or \-a, \-v, \-s or \-t\fR, followed by the usage text, both on standard error\.
 .P
 A refused command line creates and truncates nothing: \fB\-r\fR, \fB\-q\fR and \fB\-c\fR name their file while the command line is read, and it is opened only once every check has passed\.
+.SH "DIAGNOSTICS"
+Standard output carries only what was asked for: the decoded packets, the capture data of \fB\-q \-\fR or \fB\-c \-\fR, and the lines that answer \fB\-a\fR, \fB\-v\fR and \fB\-t\fR\. With the capture on standard output those answer lines move to standard error, because standard output belongs to the capture for the whole run\.
+.P
+Errors, warnings and progress go to standard error, each error as one line starting \fBerror:\fR, for example \fBerror: USB poll failed\fR when the board stops answering during a capture, \fBerror: jamming not supported by this firmware\fR, \fBerror: target set failed\fR, or \fBerror: MAC address must be xx:xx:xx:xx:xx:xx (got 11:22:33:44:55)\fR\. A capture file that cannot be created is reported as \fBerror: <file>: <reason>\fR\.
+.P
+\fB\-q\fR and \fB\-c\fR share one capture handle, so a second file between them is ignored with \fBwarning: ignoring extra capture file: <name>\fR and the first one given is used; \fB\-r\fR has its own handle, so \fB\-q a\.pcap \-r b\.pcapng\fR writes both\.
+.P
+A command line the tool will not take is reported as that one \fBerror:\fR line followed by the usage text, both on standard error\. An option the tool does not know reads \fBerror: unrecognized option '\-Z'\fR; one whose value is missing reads \fBerror: option '\-A' requires a value\fR\.
+.P
+\fB\-h\fR is what the user asked for, so the usage text goes to standard output\. Nothing else goes to standard error either, unless the rest of the command line produced a warning before \fB\-h\fR ended the command\.
+.SH "EXIT STATUS"
+0 when the command did what was asked, including \fB\-h\fR, and after a capture is interrupted (Ctrl\-C) having polled cleanly to that point\.
+.P
+1 for a command line the tool will not take or with nothing to do, for a capture file that cannot be created, when the selected Ubertooth is not found or cannot be opened, when the board refuses the jam mode, a \fB\-t\fR target, a sniffing or faux slave mode, or an access address or CRC verify request, and when a capture stops short because a poll failed\. No device is opened for a refused command line\.
 .SH "SEE ALSO"
 ubertooth\-util(1): sets the receive squelch (\fB\-z\fR); SQUELCH describes how long it lasts
 .P

@@ -38,6 +38,7 @@ ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1")
 # The tools whose output streams have been brought in line with the rule.
 FOLLOWS_THE_RULE = {
     "ubertooth-afh",
+    "ubertooth-btle",
     "ubertooth-ducky",
     "ubertooth-dump",
     "ubertooth-ego",
@@ -59,6 +60,7 @@ REPORTS_BAD_OPTIONS = FOLLOWS_THE_RULE | {
 # missing -U value, in the middle of the rest of its selector parsing.
 OPTION_NEEDING_A_VALUE = {
     "ubertooth-afh": "l",
+    "ubertooth-btle": "A",
     "ubertooth-dump": "d",
     "ubertooth-ego": "c",
     "ubertooth-rx": "l",
@@ -73,6 +75,8 @@ OPTION_NEEDING_A_VALUE = {
 NOTHING_TO_DO = {
     "ubertooth-afh": "error: -l <LAP> and -u <UAP> are both required: "
                      "the map is detected for one piconet",
+    "ubertooth-btle": "error: nothing to do: choose a major mode "
+                      "(-f, -n or -p), or -a, -v, -s or -t",
     "ubertooth-ducky": "error: nothing to do: give -q to quack, or -b to "
                        "signal the bootloader",
     "ubertooth-ego": "error: nothing to do: choose a major mode (-f, -r or -i)",

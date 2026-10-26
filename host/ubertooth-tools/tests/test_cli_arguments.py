@@ -106,9 +106,16 @@ CASES = {
         (("-x", "abc"), "error: access address offenses must be 0-32 (got abc)"),
         (("-azzzz",), "error: access address must be 1-8 hex digits (got zzzz)"),
         (("-a", "zzzz"), "error: access address must be 1-8 hex digits (got zzzz)"),
-        (("-s", "11:22:33:44:55:GG"), "mac address contains invalid character"),
-        (("-t", "11:22:33:44:55:66/49"), "mac mask must be between 0 and 48"),
-        (("-t", "11:22:33:44:55:66/abc"), "mac mask must be between 0 and 48"),
+        (("-s", "11:22:33:44:55:GG"),
+         "error: mac address must be hex digits and colons"
+         " (got 11:22:33:44:55:gg)"),
+        (("-s", "11:22:33:44:55"),
+         "error: mac address must be xx:xx:xx:xx:xx:xx"
+         " (got 11:22:33:44:55)"),
+        (("-t", "11:22:33:44:55:66/49"),
+         "error: mac mask must be 0-48 (got 49)"),
+        (("-t", "11:22:33:44:55:66/abc"),
+         "error: mac mask must be 0-48 (got abc)"),
         # optional values as the next word: consumed, so "extra" is the stray
         (("-a", "8e89bed6", "extra"), "error: unexpected argument 'extra'"),
         (("-v", "1", "extra"), "error: unexpected argument 'extra'"),
