@@ -12,9 +12,8 @@
   longer, and libubertooth no longer exports `cmd_do_something()` or
   `cmd_do_something_reply()`.
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
-- **Script-visible change:** `ubertooth-util -f` is gone. It entered the DFU
-  bootloader, but warned first that it was no longer required; use
-  `ubertooth-dfu` to reflash a board.
+- **Script-visible change:** `ubertooth-util -f` is gone; use `ubertooth-dfu`
+  to reflash a board.
   [#333](https://github.com/SqueakyFloors/ubertooth/issues/333)
 - **Script-visible change:** `ubertooth-util -N` prints the device count and
   then runs the rest of the command, instead of dropping it.
