@@ -64,8 +64,9 @@ static void usage(FILE *file)
 	fprintf(file, "\t-i, -j  interfere\n");
 	fprintf(file, "\n");
 	fprintf(file, "    Options:\n");
-	fprintf(file, "\t-c <%d-%d> set channel in MHz (continuous rx only)\n",
-	        BT_FREQ_MIN, BT_FREQ_MAX);
+	fprintf(file, "\t-c <%d-%d> set channel in MHz (continuous rx only,"
+	        " default: %d)\n",
+	        BT_FREQ_MIN, BT_FREQ_MAX, EGO_DEFAULT_CHANNEL);
 	fprintf(file, "\t-l <%d-%d> capture length as a decimal integer (default: 18)\n",
 	        EGO_PACKET_LENGTH_MIN, EGO_PACKET_LENGTH_MAX);
 	fprintf(file, "\t-a <access_code> access code, 2, 4, 6 or 8 hex digits\n");
@@ -84,7 +85,7 @@ int main(int argc, char *argv[])
 	 * it as the user spelled it: -i and -j are the same mode. */
 	int mode_option = 0;
 	int status = 0;
-	int do_channel = 2418;
+	int do_channel = EGO_DEFAULT_CHANNEL;
 	int have_channel = 0;
 	char* ubertooth_device = NULL;
 	uint8_t len = 18;

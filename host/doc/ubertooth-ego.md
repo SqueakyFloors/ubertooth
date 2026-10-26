@@ -42,9 +42,11 @@ Options:
 
  - `-c <2402-2480>` :
    Channel in MHz to use for continuous receive (suggested: 2408, 2418,
-   2423, 2469). Only `-r` uses it: `-f`, `-i` and `-j` hop across the E-Go's
-   own channel list, so `-c` with one of those is refused rather than
-   ignored.
+   2423, 2469; default: 2418). Only `-r` uses it: `-f`, `-i` and `-j` hop
+   across the E-Go's own channel list, so `-c` with one of those is refused
+   rather than ignored. The default is sent like any other channel, so
+   `ubertooth-ego -r` on its own receives on 2418 MHz rather than on whatever
+   channel the board was left on.
  - `-l <1-48>` :
    Packet length to use. The value must be a complete decimal integer from 1
    through 48; invalid values fail before the Ubertooth is opened.

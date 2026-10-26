@@ -635,6 +635,9 @@
   access code. A run without `-a` sends none, so it uses whichever one the
   board was last given; `630f9ffe` is only the firmware's value after a reset.
   [#397](https://github.com/SqueakyFloors/ubertooth/issues/397)
+- `ubertooth-ego -h` and its man page now say that `-r` without `-c` receives
+  on 2418 MHz.
+  [#413](https://github.com/SqueakyFloors/ubertooth/issues/413)
 - Help text, man pages and examples write option values as separate words
   (`-c 2440`), following the POSIX Utility Syntax Guidelines; the attached form
   (`-c2440`) still works. ubertooth(7), OPTION VALUES, explains the forms once.
