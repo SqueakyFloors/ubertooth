@@ -5,7 +5,7 @@
     ubertooth-util [-v] [-V] [-H] [--host-version] [-I] [-d [0-1]] [-l [0-1]]
     [-S] [-r] [-U <index|serial|all>] [-a [0-7]] [-c [2402-2480]] [-C [0-78]]
     [-q [20-120]] [-t] [-z [-128..127]] [-e] [-m] [-n] [-i] [-b] [-p] [-s]
-    [-N] [-x] [-h]
+    [-w] [-N] [-x] [-h]
 
 ## DESCRIPTION
 
@@ -235,6 +235,44 @@ Miscellaneous:
    device reports a nonzero status for the read
  - `-s` :
    get microcontroller serial number
+ - `-w` :
+   get the watchdog state, and why the board last reset itself. See
+   [WATCHDOG][]; exits non-zero if the read fails
+
+## WATCHDOG
+
+The firmware resets the board if it goes two seconds without servicing USB.
+A board that stops answering the host is useless to it and cannot be recovered
+from it — the reset request travels over USB too — so the board recovers
+itself, re-enumerates, and comes back idle. What a capture used to see as a
+hang is now the board disappearing and coming back; the tools treat a board
+that has gone as lost and exit.
+
+Before it resets, the firmware has already recorded what it was doing in a
+corner of RAM that a reset does not clear, so `-w` can say where the board
+was stuck:
+
+    $ ubertooth-util -U <serial> -w
+    Last boot cause: watchdog
+    Watchdog: armed; 2000 ms without USB being serviced resets the board
+    Unrequested watchdog resets since power-on: 2 (in 3 boots)
+      the last was in BLE follow mode, waiting for the 16 MHz crystal oscillator
+    Now in idle mode, not in a wait
+
+`Last boot cause` is why the board started this time: `power-on`, `watchdog`,
+`reset pin`, `brown-out`, or several of those joined with `+`. A reset the
+firmware asked for — `-r`, or entering the bootloader for ubertooth-dfu(1) —
+is also a watchdog reset, because that is how this microcontroller resets
+itself; those are not counted and do not overwrite the last line, so the
+counter and the mode it names describe only the times the board stopped
+answering on its own.
+
+Both counters are since power-on and stop at 255. Unplugging the board, or
+cutting power to its hub port, starts them again; `-r` does not.
+
+`-i` (In-System Programming) is the one hand-over the watchdog cannot be
+switched off for: it keeps the chip running, so the timeout is stretched to
+about 71 minutes first.
 
 ## SELECTING A DEVICE
 
@@ -541,6 +579,9 @@ A `-N` count that succeeds does not affect the exit status: the number is
 printed and the rest of the command decides it. A count that cannot be read is
 a failed operation like any other: it prints no number and makes the command
 exit 1, and the rest of it still runs.
+
+A failed `-w` read prints `error: watchdog state read failed` on standard
+error, nothing on standard output, and makes the command exit 1.
 
 When a `-b`, `-c`, `-a`, `-z`, `-l`, `-d`, `-p`, `-s` or `-m` read fails,
 no value line is printed on standard output, so an error code is never shown as

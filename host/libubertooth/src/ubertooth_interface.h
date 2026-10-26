@@ -363,7 +363,92 @@ enum ubertooth_usb_commands {
 	UBERTOOTH_XMAS               = 73,
 	UBERTOOTH_IDENTIFY           = 74,
 	UBERTOOTH_GET_FW_INFO        = 75,
+	UBERTOOTH_GET_WATCHDOG       = 76,
 };
+
+/*
+ * The modes the board can be in. The host asks for one with the request that
+ * starts it, and reads the mode back out of the watchdog breadcrumb below, so
+ * the numbers are part of the interface rather than private to the firmware.
+ */
+enum operating_modes {
+	MODE_IDLE          = 0,
+	MODE_RX_SYMBOLS    = 1,
+	MODE_TX_SYMBOLS    = 2,
+	MODE_TX_TEST       = 3,
+	MODE_SPECAN        = 4,
+	MODE_RANGE_TEST    = 5,
+	MODE_REPEATER      = 6,
+	MODE_LED_SPECAN    = 7,
+	MODE_BT_FOLLOW     = 8,
+	MODE_BT_FOLLOW_LE  = 9,
+	MODE_BT_PROMISC_LE = 10,
+	MODE_RESET         = 11,
+	MODE_BT_SLAVE_LE   = 12,
+	MODE_EGO           = 13,
+	MODE_AFH           = 14,
+	MODE_RX_GENERIC    = 15,
+	MODE_TX_GENERIC    = 16,
+	MODE_XMAS          = 17,
+	MODE_IDENTIFY      = 18,
+	/* The btbr image has its own states and reports no mode at all. */
+	MODE_UNKNOWN       = 255,
+};
+
+/*
+ * How long the board may go without servicing USB before the watchdog resets
+ * it. Comfortably longer than any gap the firmware leaves on purpose: the
+ * longest is the repeater's turnaround delay, a few tens of milliseconds.
+ */
+#define UBERTOOTH_WATCHDOG_TIMEOUT_MS 2000
+
+/*
+ * Why the board last started. The same bits as the part's reset source
+ * register, so a value can be read straight out of it.
+ */
+enum watchdog_reset_cause {
+	WATCHDOG_RESET_POWER_ON  = (1 << 0),
+	WATCHDOG_RESET_EXTERNAL  = (1 << 1),
+	WATCHDOG_RESET_WATCHDOG  = (1 << 2),
+	WATCHDOG_RESET_BROWN_OUT = (1 << 3),
+};
+
+/*
+ * Where the board was waiting. Every bounded wait in the firmware records its
+ * own value here as it starts, so a watchdog reset says which wait the board
+ * was in and not only which mode.
+ */
+enum watchdog_site {
+	WATCHDOG_SITE_NONE       = 0, /* not in one of the waits below */
+	WATCHDOG_SITE_USB        = 1, /* servicing USB */
+	WATCHDOG_SITE_FS_LOCK    = 2, /* waiting for the synthesizer to lock */
+	WATCHDOG_SITE_FS_UNLOCK  = 3, /* waiting for it to unlock */
+	WATCHDOG_SITE_XOSC       = 4, /* waiting for the 16 MHz crystal oscillator */
+	WATCHDOG_SITE_FSM        = 5, /* waiting on the radio's state machine */
+	WATCHDOG_SITE_COUNT
+};
+
+/*
+ * UBERTOOTH_GET_WATCHDOG's reply: eight bytes in this order, which is why
+ * every field is a byte -- no padding to agree about between the board and the
+ * host.
+ *
+ * A watchdog reset the firmware asked for (a reset or a flash request) is not
+ * counted and does not overwrite reset_mode/reset_site, so those describe the
+ * last time the board stopped servicing USB on its own.
+ */
+#define UBERTOOTH_WATCHDOG_INFO_LEN 8
+
+typedef struct {
+	uint8_t reset_cause; /* why the board last started: watchdog_reset_cause bits */
+	uint8_t armed;       /* 1 while the watchdog is running */
+	uint8_t resets;      /* unasked-for watchdog resets since power-on, stopping at 255 */
+	uint8_t boots;       /* boots since power-on, stopping at 255 */
+	uint8_t reset_mode;  /* the mode it was in at the last one */
+	uint8_t reset_site;  /* and the wait it was in: watchdog_site */
+	uint8_t mode;        /* the mode it is in now */
+	uint8_t site;        /* and the wait it is in now */
+} watchdog_info;
 
 enum rfcat24_subcommands {
 	RFCAT_RESERVED               = 0,

@@ -27,11 +27,38 @@
  * services each one calls, since that is where the rule has to hold.
  */
 #include <dirent.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
 #include "minunit.h"
 #include "source_scan.h"
+#include "ubertooth_interface.h"
+
+/* ------------------------------------------------------------------ *
+ * The watchdog, as handle_usb() sees it.
+ * ------------------------------------------------------------------ */
+
+/* handle_usb() is one of the two places the watchdog is fed: a pass that got
+ * all the way through means the host's requests are being answered. */
+static unsigned watchdog_feeds;
+static uint8_t watchdog_site;
+static uint8_t watchdog_site_during_pass;
+
+uint8_t watchdog_mark(uint8_t site)
+{
+	uint8_t previous = watchdog_site;
+
+	watchdog_site = site;
+	if (site == WATCHDOG_SITE_USB)
+		watchdog_site_during_pass = site;
+	return previous;
+}
+
+void watchdog_usb_serviced(void)
+{
+	watchdog_feeds++;
+}
 
 /* ------------------------------------------------------------------ *
  * The bulk IN endpoint: two buffers, as the LPC17xx has.
@@ -2488,6 +2515,31 @@ MU_TEST(no_source_line_is_too_long_for_the_scans)
 	mu_assert(longest_line + 2 <= SCAN_LINE_MAX, msg);
 }
 
+/*
+ * What the watchdog gets from a service pass: one feed per pass, and the site
+ * marker saying "servicing USB" while the pass runs and back to what the
+ * caller was in when it ends. A board that stops making these passes stops
+ * answering the host, which is what the watchdog resets it for.
+ */
+MU_TEST(a_usb_service_pass_feeds_the_watchdog)
+{
+	ep_reset();
+	usb_queue_init();
+	watchdog_feeds = 0;
+	watchdog_site = WATCHDOG_SITE_FS_LOCK;
+	watchdog_site_during_pass = WATCHDOG_SITE_NONE;
+
+	handle_usb(0);
+
+	mu_assert_int_eq(1, (int)watchdog_feeds);
+	mu_assert_int_eq(WATCHDOG_SITE_USB, watchdog_site_during_pass);
+	/* The wait the pass was called from is the site again. */
+	mu_assert_int_eq(WATCHDOG_SITE_FS_LOCK, watchdog_site);
+
+	handle_usb(0);
+	mu_assert_int_eq(2, (int)watchdog_feeds);
+}
+
 int main(void)
 {
 	MU_RUN(a_new_mode_reads_only_its_own_packets);
@@ -2506,6 +2558,7 @@ int main(void)
 	MU_RUN(a_polled_mode_does_not_feed_the_endpoint);
 	MU_RUN(a_polled_mode_still_services_control_requests);
 	MU_RUN(nothing_in_the_le_engine_feeds_the_endpoint);
+	MU_RUN(a_usb_service_pass_feeds_the_watchdog);
 
 	scan_producers();
 	MU_RUN(the_producer_scan_read_the_sources);

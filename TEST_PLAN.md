@@ -78,6 +78,16 @@ ISP or JTAG.
 - [ ] Run `ubertooth-util -s` (serial number)
 - [ ] Confirm: all return values without errors
 
+### 2e. Watchdog state
+- [ ] Run `ubertooth-util -w` on a freshly plugged-in board
+- [ ] Confirm: `Last boot cause: power-on`, the watchdog is armed, and
+      0 unrequested resets
+- [ ] Run `ubertooth-util -r`, wait for the board, then `-w` again
+- [ ] Confirm: `Last boot cause: watchdog` (that is how the part resets) and
+      the unrequested count is still 0
+- [ ] Reflash with `ubertooth-dfu -d <image>.dfu -r`, then `-w`
+- [ ] Confirm: the unrequested count is still 0 — a flash is not a wedge
+
 ### 2e. Bootloader refuses a read-back past the end of flash
 
 *Needs a board whose part is smaller than 512 KiB (`ubertooth-util -p` reports

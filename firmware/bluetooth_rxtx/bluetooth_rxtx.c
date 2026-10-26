@@ -39,6 +39,7 @@
 #include "debug_uart.h"
 #include "xmas.h"
 #include "identify.h"
+#include "watchdog.h"
 
 #define MIN(x,y)	((x)<(y)?(x):(y))
 #define MAX(x,y)	((x)>(y)?(x):(y))
@@ -504,13 +505,27 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		break;
 
 	case UBERTOOTH_SET_ISP:
+		/* The on-chip programmer takes over without a chip reset, so the
+		 * watchdog stays armed and nothing in there feeds it. It cannot be
+		 * switched off before a reset, so the timeout is stretched to the
+		 * longest the counter holds instead. */
+		watchdog_intent(WATCHDOG_INTENT_ISP);
+		watchdog_stretch();
 		set_isp();
 		*data_len = 0; /* should never return */
 		break;
 
 	case UBERTOOTH_FLASH:
+		/* The reset below is how the bootloader is reached, so the watchdog
+		 * reset it ends in is not the board having stopped answering. */
+		watchdog_intent(WATCHDOG_INTENT_FLASH);
 		bootloader_ctrl = DFU_MODE;
 		requested_mode = MODE_RESET;
+		break;
+
+	case UBERTOOTH_GET_WATCHDOG:
+		watchdog_report(data);
+		*data_len = UBERTOOTH_WATCHDOG_INFO_LEN;
 		break;
 
 	case UBERTOOTH_SPECAN:
@@ -1961,6 +1976,8 @@ void bt_generic_le(u8 active_mode)
 	hold = 0;
 
 	while (requested_mode == active_mode) {
+		watchdog_usb_ready();
+
 		if (requested_channel != 0) {
 			cc2400_strobe(SRFOFF);
 			cc2400_wait_fs_unlock();
@@ -2094,6 +2111,8 @@ void bt_le_sync(u8 active_mode)
 	cc2400_rx_sync(rbit(le.access_address)); // bit-reversed access address
 
 	while (requested_mode == active_mode) {
+		watchdog_usb_ready();
+
 		if (requested_channel != 0) {
 			cc2400_strobe(SRFOFF);
 			cc2400_wait_fs_unlock();
@@ -2769,6 +2788,7 @@ void bt_slave_le() {
 
 	// spam advertising packets
 	while (requested_mode == MODE_BT_SLAVE_LE) {
+		watchdog_usb_ready();
 		le_transmit(0x8e89bed6, adv_ind_len+3, adv_ind);
 		msleep(100);
 	}
@@ -3070,6 +3090,10 @@ int main()
 	// enable all fault handlers (see fault.c)
 	SCB_SHCSR = (1 << 18) | (1 << 17) | (1 << 16);
 
+	/* Before anything that could record a wait site: this is what turns what
+	 * the last run left in the breadcrumb into a record of why it ended. */
+	watchdog_boot();
+
 	ubertooth_init();
 	clkn_init();
 	ubertooth_usb_init(vendor_request_handler);
@@ -3078,6 +3102,10 @@ int main()
 
 	debug_uart_init(0);
 	debug_printf("\n\n****UBERTOOTH BOOT****\n%s\n", compile_info);
+
+	/* Last, because from here on two seconds without a USB service pass
+	 * resets the board, and the loop below is what makes those passes. */
+	watchdog_start();
 
 	while (1) {
 		u8 next_mode, prev_mode;
@@ -3156,9 +3184,13 @@ int main()
 		 * unchanged forever, spinning this loop at full rate.
 		 */
 		mode = next_mode;
+		/* The breadcrumb's record of what the board was doing. This is the
+		 * one place a mode changes, so it is the one place that needs it. */
+		watchdog_mode(mode);
 
 		switch (next_mode) {
 			case MODE_RESET:
+				watchdog_intent(WATCHDOG_INTENT_RESET);
 				/* Allow time for the USB command to return correctly */
 				wait(1);
 				reset();

@@ -127,17 +127,20 @@
   [#154](https://github.com/SqueakyFloors/ubertooth/issues/154)
 - `ubertooth-util -H`/`--host-version` reports the installed host-tools
   version without a device.
+- `ubertooth-util -w` reports whether the board last came up from a watchdog
+  reset, how many it has done since power-on, and which mode and which wait it
+  was in when it stopped answering.
+  [#509](https://github.com/SqueakyFloors/ubertooth/issues/509)
 - `ubertooth-util -I` blinks the LEDs faster for easier
   identification, and now runs the blink on the board like every other mode, so
   the command returns at once and the board stays reachable; `-S` or any mode
   option stops it and leaves the LEDs off.
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
-- **Reflash required:** the firmware API version is now 1.33, last moved by the
-  firmware info block and the request that returns it, and the host tools
-  require firmware of exactly their own API version, older or newer. Host and
-  firmware come from the same tree: `ubertooth-dfu` reflashes a board whatever
-  firmware it is running, but only with an image built from this tree, and
-  `2020-12-R1` firmware is refused.
+- **Reflash required:** the firmware API version is now 1.34, last moved by the
+  watchdog state request, and the host tools require firmware of exactly their
+  own API version, older or newer. Host and firmware come from the same tree:
+  `ubertooth-dfu` reflashes a board whatever firmware it is running, but only
+  with an image built from this tree, and `2020-12-R1` firmware is refused.
   [#4](https://github.com/SqueakyFloors/ubertooth/issues/4)
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
@@ -250,6 +253,12 @@
   matched no packet, and without the reset it hopped on a clock the offset was
   not measured from.
   [#504](https://github.com/SqueakyFloors/ubertooth/issues/504)
+- A board that stops answering the host resets itself within about two seconds
+  and comes back idle, instead of staying on USB answering nothing until it is
+  unplugged or its hub port is power-cycled. A capture sees the board
+  disappear rather than hang.
+  [#239](https://github.com/SqueakyFloors/ubertooth/issues/239)
+  [#509](https://github.com/SqueakyFloors/ubertooth/issues/509)
 - A board another program is using says so (`error: Ubertooth <serial> is in
   use by another program (libusb -3)`) instead of reporting a libusb code, and
   no longer has a stop sent to it on the way out; a board that answers nothing

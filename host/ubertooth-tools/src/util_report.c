@@ -6,6 +6,9 @@
 #include <string.h>
 
 #include "util_report.h"
+/* The modes, wait sites and reset causes the board reports, and the timeout
+ * it is armed with: all from the interface the firmware shares with the host. */
+#include "ubertooth_interface.h"
 
 #define UTIL_TEXT_LEN 255
 
@@ -188,5 +191,115 @@ int util_report_serial(const struct util_report_ops *ops, void *context,
 	for (i = 1; i < UTIL_SERIAL_BUFFER_LEN; i++)
 		fprintf(out, "%02x", serial[i]);
 	fprintf(out, "\n");
+	return 0;
+}
+
+/*
+ * The watchdog report. Names are indexed by the interface's own enumerations,
+ * so a mode or wait site added there without a name here reads as unknown
+ * rather than as the wrong thing.
+ */
+static const char *const watchdog_mode_names[] = {
+	[MODE_IDLE]          = "idle",
+	[MODE_RX_SYMBOLS]    = "rx symbols",
+	[MODE_TX_SYMBOLS]    = "tx symbols",
+	[MODE_TX_TEST]       = "tx test",
+	[MODE_SPECAN]        = "spectrum analyzer",
+	[MODE_RANGE_TEST]    = "range test",
+	[MODE_REPEATER]      = "repeater",
+	[MODE_LED_SPECAN]    = "LED spectrum analyzer",
+	[MODE_BT_FOLLOW]     = "Bluetooth follow",
+	[MODE_BT_FOLLOW_LE]  = "BLE follow",
+	[MODE_BT_PROMISC_LE] = "BLE promiscuous",
+	[MODE_RESET]         = "reset",
+	[MODE_BT_SLAVE_LE]   = "BLE slave",
+	[MODE_EGO]           = "E-GO",
+	[MODE_AFH]           = "AFH",
+	[MODE_RX_GENERIC]    = "generic rx",
+	[MODE_TX_GENERIC]    = "generic tx",
+	[MODE_XMAS]          = "xmas",
+	[MODE_IDENTIFY]      = "identify",
+};
+
+static const char *const watchdog_site_text[WATCHDOG_SITE_COUNT] = {
+	[WATCHDOG_SITE_NONE]      = "not in a wait",
+	[WATCHDOG_SITE_USB]       = "servicing USB",
+	[WATCHDOG_SITE_FS_LOCK]   = "waiting for the synthesizer to lock",
+	[WATCHDOG_SITE_FS_UNLOCK] = "waiting for the synthesizer to unlock",
+	[WATCHDOG_SITE_XOSC]      = "waiting for the 16 MHz crystal oscillator",
+	[WATCHDOG_SITE_FSM]       = "waiting on the radio's state machine",
+};
+
+const char *util_watchdog_mode_name(unsigned mode)
+{
+	if (mode == MODE_UNKNOWN)
+		return "not reported";
+	if (mode >= sizeof(watchdog_mode_names) / sizeof(watchdog_mode_names[0]) ||
+	    watchdog_mode_names[mode] == NULL)
+		return "unknown";
+	return watchdog_mode_names[mode];
+}
+
+const char *util_watchdog_site_text(unsigned site)
+{
+	if (site >= WATCHDOG_SITE_COUNT || watchdog_site_text[site] == NULL)
+		return "in a wait this version does not know";
+	return watchdog_site_text[site];
+}
+
+/* "power-on", or several joined with "+", or "not recorded" for no bits. The
+ * buffer is written even when nothing is known, so callers never print from an
+ * uninitialised one. */
+void util_watchdog_cause_text(unsigned cause, char *text, size_t size)
+{
+	static const struct { unsigned bit; const char *name; } causes[] = {
+		{ WATCHDOG_RESET_POWER_ON,  "power-on" },
+		{ WATCHDOG_RESET_EXTERNAL,  "reset pin" },
+		{ WATCHDOG_RESET_WATCHDOG,  "watchdog" },
+		{ WATCHDOG_RESET_BROWN_OUT, "brown-out" },
+	};
+	size_t i, used = 0;
+
+	if (size == 0)
+		return;
+	text[0] = '\0';
+	for (i = 0; i < sizeof(causes) / sizeof(causes[0]); i++) {
+		if (!(cause & causes[i].bit))
+			continue;
+		if (used > 0 && used + 1 < size) {
+			text[used++] = '+';
+			text[used] = '\0';
+		}
+		strncat(text + used, causes[i].name, size - used - 1);
+		used = strlen(text);
+	}
+	if (used == 0)
+		strncpy(text, "not recorded", size - 1);
+	text[size - 1] = '\0';
+}
+
+int util_report_watchdog(FILE *out, const uint8_t *info, size_t len)
+{
+	char cause[64];
+
+	if (info == NULL || len < UBERTOOTH_WATCHDOG_INFO_LEN)
+		return 1;
+
+	util_watchdog_cause_text(info[0], cause, sizeof(cause));
+	fprintf(out, "Last boot cause: %s\n", cause);
+	if (info[1])
+		fprintf(out, "Watchdog: armed; %u ms without USB being serviced "
+		        "resets the board\n", (unsigned)UBERTOOTH_WATCHDOG_TIMEOUT_MS);
+	else
+		fprintf(out, "Watchdog: not armed\n");
+	fprintf(out, "Unrequested watchdog resets since power-on: %u (in %u boot%s)\n",
+	        (unsigned)info[2], (unsigned)info[3], info[3] == 1 ? "" : "s");
+	if (info[2] > 0)
+		fprintf(out, "  the last was in %s mode, %s\n",
+		        util_watchdog_mode_name(info[4]),
+		        util_watchdog_site_text(info[5]));
+	fprintf(out, "Now in %s mode, %s\n",
+	        util_watchdog_mode_name(info[6]),
+	        util_watchdog_site_text(info[7]));
 	return 0;
 }

@@ -145,6 +145,10 @@ SECTIONS
 		_persistent_end = .;
 	} > ram
 	bootloader_ctrl = _persistent_start + 0x1C;
+	/* The watchdog breadcrumb (firmware/common/watchdog.c) takes the rest of
+	 * the region, below bootloader_ctrl. Nothing initialises either, which is
+	 * how they survive a reset. */
+	watchdog_crumb = _persistent_start;
 
 	.data :
 	{

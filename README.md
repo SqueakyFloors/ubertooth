@@ -127,7 +127,7 @@ Ubertooth ships a set of host command-line tools. Each links to its manual page.
 ### Device administration & firmware
 | Tool | What it does | Needs |
 |---|---|---|
-| [ubertooth-util](host/doc/ubertooth-util.md) | Device admin: versions (`-v`/`-V`/`-H`), LEDs, reset, channel, device count | — |
+| [ubertooth-util](host/doc/ubertooth-util.md) | Device admin: versions (`-v`/`-V`/`-H`), LEDs, reset, channel, device count, watchdog state (`-w`) | — |
 | [ubertooth-dfu](host/doc/ubertooth-dfu.md) | Flash/read firmware over DFU | — |
 
 ### Special-purpose

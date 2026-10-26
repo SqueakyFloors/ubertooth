@@ -22,7 +22,7 @@ HOST_DFU := ../../host/ubertooth-tools/src
 HOST_LIB := ../../host/libubertooth/src
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_le_phy_order test_le_frag_shape test_le_phy_logic test_grmdm_rx_generic test_tx_generic_bounds test_write_registers_bounds test_btbr_hop test_btbr_rx_deadline test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info
+TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_le_phy_order test_le_frag_shape test_le_phy_logic test_grmdm_rx_generic test_tx_generic_bounds test_write_registers_bounds test_btbr_hop test_btbr_rx_deadline test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_watchdog
 BINDIR  := bin
 
 .PHONY: all test clean
@@ -380,6 +380,25 @@ $(BINDIR)/test_firmware_object_paths: test_firmware_object_paths.c minunit.h \
 		$(FW_DIR)/common.mk $(FW_BOOT)/Makefile | $(BINDIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_DIR='"$(FW_DIR)"' \
 		-o $@ test_firmware_object_paths.c
+
+# watchdog.c reaches the part only through the register macros, so
+# stubs-watchdog/ubertooth.h replaces them with variables and the test drives
+# them. It includes watchdog.c into its own translation unit, because the
+# breadcrumb is a linker-placed object on the board and an ordinary one here.
+# Its last cases scan both images for the places the feed is called from, so
+# FW_RXTX_DIR, FW_BTBR_DIR and FW_COMMON_DIR point at them.
+$(BINDIR)/test_watchdog: test_watchdog.c minunit.h source_scan.h \
+		stubs-watchdog/ubertooth.h stubs/ubertooth.h \
+		$(FW_COMMON)/watchdog.c $(FW_COMMON)/watchdog.h \
+		$(FW_COMMON)/usb_irq.h \
+		$(FW_RXTX)/ubertooth_usb.c $(FW_RXTX)/bluetooth_rxtx.c \
+		$(FW_RXTX)/ego.c $(FW_RXTX)/xmas.c $(FW_RXTX)/identify.c \
+		$(FW_COMMON)/usb_serial.c \
+		$(FW_BTBR)/src/btctl/main.c | $(BINDIR)
+	$(CC) $(CFLAGS) -Istubs-watchdog -I$(FW_COMMON) $(CPPFLAGS) \
+		-DFW_HOST_TEST -DFW_RXTX_DIR='"$(FW_RXTX)"' \
+		-DFW_BTBR_DIR='"$(FW_BTBR)"' -DFW_COMMON_DIR='"$(FW_COMMON)"' \
+		-o $@ test_watchdog.c
 
 $(BINDIR):
 	mkdir -p $(BINDIR)

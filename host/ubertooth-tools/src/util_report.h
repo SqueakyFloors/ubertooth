@@ -95,4 +95,12 @@ int util_report_part_id(const struct util_report_ops *ops, void *context,
 int util_report_serial(const struct util_report_ops *ops, void *context,
                        FILE *out, FILE *err);
 
+/* The watchdog report (ubertooth-util -w), from UBERTOOTH_GET_WATCHDOG's reply
+ * as the bytes it arrived in. Returns 0, or 1 for a reply this cannot read.
+ * The helpers below are what it prints each field as, exposed for the tests. */
+int util_report_watchdog(FILE *out, const uint8_t *info, size_t len);
+const char *util_watchdog_mode_name(unsigned mode);
+const char *util_watchdog_site_text(unsigned site);
+void util_watchdog_cause_text(unsigned cause, char *text, size_t size);
+
 #endif /* UBERTOOTH_UTIL_REPORT_H */

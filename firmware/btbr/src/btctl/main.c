@@ -24,6 +24,7 @@
 #include <ubtbr/btctl_intf.h>
 #include <ubtbr/vendor_request_handler.h>
 #include <ubtbr/btphy.h>
+#include <watchdog.h>
 
 int main()
 {
@@ -31,6 +32,12 @@ int main()
 
 	// enable all fault handlers (see fault.c)
 	SCB_SHCSR = (1 << 18) | (1 << 17) | (1 << 16);
+
+	watchdog_boot();
+	/* This image runs its own state machine rather than the mode the other
+	 * image's breadcrumb records, so it says so instead of claiming to be
+	 * idle. */
+	watchdog_mode(MODE_UNKNOWN);
 
 	ubertooth_init();
 	ubertooth_usb_init(vendor_request_handler);
@@ -44,7 +51,19 @@ int main()
 	/* Initialize sync & phy */
 	btphy_init();
 
+	/* Last, as in the other image: from here on two seconds without a USB
+	 * service pass resets the board. */
+	watchdog_start();
+
 	while (1) {
+		/* This image services USB from the USB interrupt, which it leaves
+		 * enabled for as long as it runs, so there is no service pass of its
+		 * own to feed the watchdog from when the host is quiet. Reaching the
+		 * top of this loop is the feed instead: it runs below every
+		 * interrupt handler, so a request arriving now would be answered.
+		 * See watchdog_usb_ready() in firmware/common/watchdog.h. */
+		watchdog_usb_ready();
+
 		/* Flush console once per second */
 		if ((clk = MASTER_CLKN) >= clk_prev+3200)
 		{

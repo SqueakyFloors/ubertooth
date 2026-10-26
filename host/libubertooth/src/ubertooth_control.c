@@ -690,6 +690,39 @@ int cmd_get_rangeresult(struct libusb_device_handle* devh,
 	return 0;
 }
 
+int cmd_get_watchdog(struct libusb_device_handle* devh, watchdog_info *info)
+{
+	u8 result[UBERTOOTH_WATCHDOG_INFO_LEN];
+	int r;
+
+	r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_GET_WATCHDOG, 0, 0,
+			result, sizeof(result), 1000);
+	if (r < LIBUSB_SUCCESS) {
+		if (r == LIBUSB_ERROR_PIPE) {
+			fprintf(stderr, "error: control message unsupported\n");
+		} else {
+			show_libusb_error(r);
+		}
+		return r;
+	}
+	r = check_reply_length(r, UBERTOOTH_WATCHDOG_INFO_LEN, "watchdog state");
+	if (r < 0)
+		return r;
+
+	/* Byte by byte, in the order ubertooth_interface.h gives: the reply is a
+	 * byte string, not this struct's memory. */
+	info->reset_cause = result[0];
+	info->armed       = result[1];
+	info->resets      = result[2];
+	info->boots       = result[3];
+	info->reset_mode  = result[4];
+	info->reset_site  = result[5];
+	info->mode        = result[6];
+	info->site        = result[7];
+
+	return 0;
+}
+
 int cmd_range_test(struct libusb_device_handle* devh)
 {
 	int r;

@@ -664,14 +664,26 @@ void reset()
 {
 	all_pins_off();
 
-	/* Enable the watchdog with reset enabled */
+	/*
+	 * A watchdog time-out is this part's chip reset, so the way to reset the
+	 * board is to let the watchdog run out. The timeout is set to the
+	 * smallest the counter accepts, 255 counts of the watchdog clock, which
+	 * is 255 microseconds -- and it is set here rather than left alone
+	 * because the application arms the watchdog with a two-second timeout
+	 * while it runs (watchdog.c). Without this write, a reset would wait two
+	 * seconds and this function would return first, leaving the caller
+	 * running on a board that was supposed to have reset.
+	 *
+	 * The reset clears the enable bits again, so the bootloader this hands
+	 * over to runs with the watchdog off and no feed of its own to write.
+	 */
 	USRLED_CLR;
+	WDTC = 0xFF;
 	WDMOD |= WDMOD_WDEN | WDMOD_WDRESET;
 	WDFEED_SEQUENCE;
-	
-	/* Set watchdog timeout to 256us (minimum) */
-	
-	/* sleep for 1s (minimum) */
+
+	/* Longer than the timeout above, by a wide margin, so this never
+	 * returns. */
 	wait(1);
 }
 

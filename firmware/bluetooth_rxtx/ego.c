@@ -20,6 +20,7 @@
  */
 
 #include "ego.h"
+#include "watchdog.h"
 #include "cc2400_wait.h"
 #include "ubertooth_clock.h"
 
@@ -416,6 +417,7 @@ void ego_main(ego_mode_t mode) {
 	ego_init();
 
 	while (1) {
+		watchdog_usb_ready();
 		if (requested_mode != MODE_EGO)
 			break;
 		handler[state.state](&state);
