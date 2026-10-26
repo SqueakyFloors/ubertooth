@@ -207,7 +207,9 @@
   setting a capture up (the channel or band sweep, and `ubertooth-rx`'s
   Bluetooth address for `-l`/`-u`) and exit 1, instead of capturing on whatever
   channel the board was left on and reporting success. The one line says why,
-  and a `note:` says what to try.
+  and a `note:` says what to try. A board that takes only part of a Bluetooth
+  address is a failure too, so `ubertooth-tx` stops there rather than
+  transmitting.
   [#379](https://github.com/SqueakyFloors/ubertooth/issues/379)
 - `ubertooth-ego` refuses `-c` combined with `-f`, `-i` or `-j`, where it
   silently had no effect: those modes hop across the E-GO's own channel list.

@@ -203,33 +203,6 @@ MU_TEST(read_access_address_returns_errors_separately)
 	mu_assert(aa == 0xdeadbeefu, "left untouched on an error");
 }
 
-/* The library prints the one complete line for a short reply. */
-MU_TEST(short_reply_message_names_the_read_and_the_counts)
-{
-	char text[256] = "";
-	FILE *capture = tmpfile();
-	int saved = dup(fileno(stderr));
-	size_t n;
-
-	mu_assert_fatal(capture != NULL && saved >= 0, "capture stderr");
-	fflush(stderr);
-	dup2(fileno(capture), fileno(stderr));
-	script(0, 0);
-	cmd_read_access_address(NULL, &(uint32_t){0});
-	script(1, 0x89);
-	cmd_get_channel(NULL);
-	fflush(stderr);
-	dup2(saved, fileno(stderr));
-	close(saved);
-	rewind(capture);
-	n = fread(text, 1, sizeof(text) - 1, capture);
-	text[n] = '\0';
-	fclose(capture);
-	mu_assert(strcmp(text,
-	    "error: access address read failed: board returned 0 of 4 bytes\n"
-	    "error: channel read failed: board returned 1 of 2 bytes\n") == 0, text);
-}
-
 /* Captures standard error over one call and returns what it holds. */
 static void run_captured(void (*call)(void), char *text, size_t size)
 {
@@ -249,6 +222,26 @@ static void run_captured(void (*call)(void), char *text, size_t size)
 	n = fread(text, 1, size - 1, capture);
 	text[n] = '\0';
 	fclose(capture);
+}
+
+/* Two short replies in a row, so one capture holds both lines. */
+static void two_short_reads(void)
+{
+	script(0, 0);
+	cmd_read_access_address(NULL, &(uint32_t){0});
+	script(1, 0x89);
+	cmd_get_channel(NULL);
+}
+
+/* The library prints the one complete line for a short reply. */
+MU_TEST(short_reply_message_names_the_read_and_the_counts)
+{
+	char text[256];
+
+	run_captured(two_short_reads, text, sizeof(text));
+	mu_assert(strcmp(text,
+	    "error: access address read failed: board returned 0 of 4 bytes\n"
+	    "error: channel read failed: board returned 1 of 2 bytes\n") == 0, text);
 }
 
 static void set_channel_quiet(void) { cmd_set_channel_quiet(NULL, 2441); }

@@ -488,6 +488,18 @@ MU_TEST(a_refused_setup_request_is_named_and_exits_one)
 		{ "-c", "39", 1, -7, 1, 0, NO_ANSWER("set the channel") },
 		{ "-u", "ab", 0, -7, 0, 1,
 		  NO_ANSWER("set the Bluetooth address") },
+		/* LIBUSB_ERROR_NO_DEVICE: the other code with advice. */
+		{ NULL, NULL, 1, -4, 1, 0,
+		  "error: could not set sweep mode: the board is no longer "
+		  "attached (libusb -4)\n"
+		  "note: re-attach the board and run the command again\n" },
+		/* LIBUSB_ERROR_OVERFLOW and LIBUSB_ERROR_IO: named, no advice. */
+		{ "-c", "39", 1, -8, 1, 0,
+		  "error: could not set the channel: the board sent more data "
+		  "than the request allows (libusb -8)\n" },
+		{ "-c", "39", 1, -1, 1, 0,
+		  "error: could not set the channel: the transfer failed "
+		  "(libusb -1)\n" },
 		/* A code with no plain words still names the request and the
 		 * number, rather than printing nothing. */
 		{ NULL, NULL, 1, -5, 1, 0,
@@ -548,7 +560,7 @@ MU_TEST(a_truncated_address_request_ends_the_run_too)
 	struct run_result r;
 
 	reset_device();
-	device.bdaddr_rc = -1000; /* UBERTOOTH_ERROR_SHORT_REPLY */
+	device.bdaddr_rc = UBERTOOTH_ERROR_SHORT_REPLY;
 	r = RUN_RX("-l", "112233", "-u", "ab", "-t", "10");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert_int_eq(1, device.bdaddrs_set);
@@ -570,8 +582,7 @@ MU_TEST(a_refused_sweep_leaves_survey_mode_with_no_results)
 	device.channel_rc = -9;
 	r = RUN_RX("-z", "-t", "30");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(r.out[0] == '\0', r.out);
-	mu_assert(strstr(r.out, "Survey Results") == NULL, r.out);
+	mu_assert(r.out[0] == '\0', r.out); /* no "Survey Results" list either */
 	mu_assert(strcmp(r.err, STALLED("set sweep mode")) == 0, r.err);
 }
 

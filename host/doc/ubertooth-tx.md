@@ -78,6 +78,10 @@ interrupted (Ctrl-C) or its `-t` timeout passes. 1 for a command line the tool
 will not take and when the selected Ubertooth is not found or cannot be
 opened.
 
+1 as well when the board refuses the Bluetooth address the transmit needs, or
+takes only part of it: nothing is transmitted, since the address decides what
+the board sends. libubertooth reports the refusal.
+
 ## SEE ALSO
 
 ubertooth-dump(1)

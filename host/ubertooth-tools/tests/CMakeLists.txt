@@ -648,10 +648,13 @@ set_tests_properties(manpages PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 77)
 
 # The same approach for ubertooth-scan. Its main() needs the BlueZ headers, so
 # like the tool itself this is built only where libbluetooth is installed; the
-# find_package here is what makes that visible in this directory. QUIET, so a
-# machine without libbluetooth does not repeat the probe's complaint after the
-# tools' own build summary has already explained what is skipped.
-find_package(BLUETOOTH QUIET)
+# find_package here is what makes that visible in this directory. FindBLUETOOTH
+# reports through FIND_PACKAGE_HANDLE_STANDARD_ARGS(LIBBLUETOOTH), which reads
+# LIBBLUETOOTH_FIND_QUIETLY rather than this call's own name, so that is what
+# keeps a machine without libbluetooth from repeating the probe's complaint
+# after the tools' build summary has already said what is skipped.
+set(LIBBLUETOOTH_FIND_QUIETLY TRUE)
+find_package(BLUETOOTH)
 if(LIBBLUETOOTH_FOUND)
 	add_executable(test-scan-main test_scan_main.c ../src/request_report.c)
 	target_link_libraries(test-scan-main opt-parse-for-tests
