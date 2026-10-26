@@ -20,7 +20,7 @@ FW_BOOT := ../bootloader
 HOST_DFU := ../../host/ubertooth-tools/src
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_mode_dispatch test_le_phy_order test_grmdm_rx_generic test_tx_generic_bounds test_write_registers_bounds test_btbr_hop test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_usb_queue test_btbr_usb_send test_compile_info
+TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_mode_dispatch test_le_phy_order test_grmdm_rx_generic test_tx_generic_bounds test_write_registers_bounds test_btbr_hop test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info
 BINDIR  := bin
 
 .PHONY: all test clean
@@ -233,6 +233,15 @@ $(BINDIR)/test_compile_info: test_compile_info.c minunit.h source_scan.h \
 		-DFW_BTBR_DIR='"$(FW_BTBR)"' \
 		-o $@ test_compile_info.c $(HOST_DFU)/dfu_recovery.c \
 		$(HOST_DFU)/dfu_transition.c
+
+# The range test and the repeater are hardware loops, so this scans
+# cc2400_rangetest.c as text for the radio writes they need and for the shape
+# of the repeater's turnaround delay, the way test_mode_dispatch.c scans the
+# dispatch. It links nothing from the firmware.
+$(BINDIR)/test_rangetest_radio: test_rangetest_radio.c minunit.h source_scan.h \
+		$(FW_RXTX)/cc2400_rangetest.c | $(BINDIR)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
+		-o $@ test_rangetest_radio.c
 
 $(BINDIR):
 	mkdir -p $(BINDIR)

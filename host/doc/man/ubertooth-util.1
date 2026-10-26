@@ -43,7 +43,7 @@ Setting and reading are separate device operations here, which is why one comman
 .P
 The utility also includes a simple range test tool for use with two Ubertooth devices\. Refer to \fIRANGE TEST\fR for full details\.
 .P
-Operations that put the device into a continuous mode \(em \fB\-I\fR (identify), \fB\-q\fR (LED spectrum), \fB\-x\fR (xmas), \fB\-t\fR (TX test), \fB\-n\fR (range test), and \fB\-e\fR (repeater) \(em first stop any operation already running on that device, so each starts from a known idle state\. Stopping a mode, with \fB\-S\fR or normally by starting another, puts the board back to idle: LEDs off, channel 2441 MHz and squelch \-120 dBm\. The power amplifier level set with \fB\-a\fR is kept\. Each of them runs on the board and \fBubertooth\-util\fR returns immediately, so the board stays usable from other commands meanwhile\. \fB\-I\fR, \fB\-q\fR, \fB\-x\fR, \fB\-t\fR and \fB\-e\fR keep running until \fB\-S\fR stops them or another mode replaces them; \fB\-n\fR (range test) ends by itself when the test finishes\.
+Operations that put the device into a continuous mode \(em \fB\-I\fR (identify), \fB\-q\fR (LED spectrum), \fB\-x\fR (xmas), \fB\-t\fR (TX test), \fB\-n\fR (range test), and \fB\-e\fR (repeater) \(em first stop any operation already running on that device, so each starts from a known idle state\. Stopping a mode, with \fB\-S\fR or normally by starting another, puts the board back to idle: LEDs off, channel 2441 MHz and squelch \-120 dBm\. The power amplifier level set with \fB\-a\fR is kept\. Each of them runs on the board and \fBubertooth\-util\fR returns immediately, so the board stays usable from other commands meanwhile\. \fB\-I\fR, \fB\-q\fR, \fB\-x\fR, \fB\-t\fR and \fB\-e\fR keep running until \fB\-S\fR stops them or another mode replaces them; \fB\-n\fR (range test) ends by itself when the test finishes, and waits for a reply until \fB\-S\fR stops it if no repeater answers\. \fB\-S\fR stops either of the range test pair at any point\.
 .P
 \fB\-I\fR (identify) blinks the USR, RX and TX LEDs together, about three on\-off blinks a second, until it is stopped:
 .IP "" 4
@@ -306,6 +306,8 @@ ubertooth\-util \-m
 .IP "" 0
 .P
 Before a range test has completed since the board started, \fB\-m\fR prints \fBno range test result yet\fR on standard output and exits 0: there is no result yet, which is not a failure\. A test that ran but whose packets came back corrupted has no result to report either, so it is a diagnostic rather than a value: \fBerror: invalid range test: mismatch on byte <n>\fR on standard error, with exit status 1 and nothing on standard output\.
+.P
+\fBThe range test does not yet produce a usable measurement\.\fR With a repeater running, the exchange completes in under a second, and the reply arrives with a valid checksum and reads back corrupted, so \fB\-m\fR reports \fBerror: invalid range test: mismatch on byte 17\fR rather than power levels\. That is the expected outcome today, on any pair of boards, and is tracked as issue 26 \fIhttps://github\.com/SqueakyFloors/ubertooth/issues/26\fR\.
 .P
 Note that the range test transmits the Cortex M3 microcontroller's serial number\. If you do not wish to broadcast that information wirelessly, do not use the range test functionality\.
 .SH "SQUELCH"

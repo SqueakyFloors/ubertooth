@@ -21,6 +21,7 @@
 
 #include "cc2400_rangetest.h"
 #include "cc2400_wait.h"
+#include "ubertooth_clock.h"
 #include "ubertooth_usb.h"
 
 /*
@@ -51,6 +52,68 @@
 rangetest_result rr;
 
 #ifdef TX_ENABLE
+/*
+ * Hold the CC2400's receive gain amplifier out of reset.
+ *
+ * Neither of these two modes used to write this, and neither could decode the
+ * other: on the bench both receivers reported a strong signal, hundreds of
+ * valid RSSI readings, and not one sync word. With this write the exchange
+ * completes in under a second.
+ *
+ * The one write at boot does not survive. ubertooth_init() writes MANAND and
+ * then calls clock_start(), which resets the CC2400 and takes the register
+ * back to the chip's 0xffff; a register dump on a board that has just been
+ * reset reads 0xffff, never 0x7fff. Every receive path in this firmware
+ * therefore writes it itself, and these two now do the same.
+ */
+#define RANGETEST_MANAND 0x7fff
+
+/*
+ * How long the repeater lets the sender finish before it answers.
+ *
+ * The sender transmits its whole request burst and only then switches its
+ * radio to receive. The repeater answers the first request it decodes, which
+ * is normally the first packet of that burst, so without a wait its reply is
+ * over before the sender is listening, and the sender waits for a reply that
+ * has already been and gone.
+ *
+ * The burst is 8 amplifier levels times 16 packets of 32 bytes on air at
+ * 1 Mbit/s: 256 us of air time each, so about 33 ms, plus the time the sender
+ * spends writing each packet into the radio and servicing USB between them,
+ * which depends on what the host is doing. 200 ms is six times the air time,
+ * so host traffic cannot push the burst past it, and waiting longer than
+ * necessary costs nothing: the sender listens until it is stopped.
+ */
+#define REPEATER_TURNAROUND_MS 200
+#define REPEATER_TURNAROUND_TICKS (3200u * REPEATER_TURNAROUND_MS / 1000u)
+
+/*
+ * Sit out the turnaround delay, servicing USB, and report whether the host
+ * asked for another mode while it ran.
+ *
+ * This was `i = 2000000; while (--i);` with a comment saying it allowed time
+ * for the requester to switch to receive. It did not: i is a plain local and
+ * the loop has no side effects, so the compiler deleted it -- confirmed in the
+ * disassembly -- and the built firmware replied immediately.
+ *
+ * clkn is the Bluetooth native clock, 3200 ticks per second. The deadline is
+ * absolute, so servicing USB inside the wait cannot stretch it the way a
+ * counted delay loop would.
+ *
+ * Returns 1 if the delay ran to its end, 0 if the mode was stopped during it.
+ */
+static int repeater_turnaround(void)
+{
+	u32 until = clkn + REPEATER_TURNAROUND_TICKS;
+
+	while ((int32_t)(clkn - until) < 0) {
+		if (requested_mode != MODE_REPEATER)
+			return 0;
+		service_usb();
+	}
+	return 1;
+}
+
 /* Put the radio and the amplifier back to quiet. Both exits from the range test
  * go through here: the one that finishes the test and the one the host stops. */
 static void rangetest_radio_off(void)
@@ -76,6 +139,15 @@ void cc2400_rangetest(volatile u16 *chan_ptr)
 	u8 txbuf[len];
 	u8 rxbuf[len];
 	int got_reply = 0;
+
+	/*
+	 * rr is static and this run has not measured anything yet. Clearing it
+	 * on entry, as well as where the test ends without a reply, covers the
+	 * two remaining ways `ubertooth-util -m` could report the previous run's
+	 * levels as this one's: a read while the test is still running, and the
+	 * serial-number read below failing and returning early.
+	 */
+	rr.valid = 0;
 
 	txbuf[0] = len - 1; // length of data (rest of payload)
 	txbuf[1] = 0; // request
@@ -108,6 +180,7 @@ void cc2400_rangetest(volatile u16 *chan_ptr)
 	txbuf[21] = 0xff; // reply number
 
 	// Bluetooth-like modulation
+	cc2400_set(MANAND,  RANGETEST_MANAND);
 	cc2400_set(LMTST,   0x2b22);
 	cc2400_set(MDMTST0, 0x134b);
 	cc2400_set(GRMDM,   0x0df1);  // default value
@@ -227,13 +300,26 @@ void cc2400_repeater(volatile u16 *chan_ptr)
 	u8 buf[len];
 	int got_request;
 
+	/* A time base for the turnaround delay below. The repeater does not
+	 * otherwise use clkn, and the dispatch's cc2400_idle() stops it again on
+	 * the way out of this mode. */
+	clkn_start();
+
 	/* This used to be `while (1)` with a FIXME asking for a way to turn it
 	 * off. There was none: nothing in here looked at requested_mode and
 	 * nothing serviced USB, so the board answered no control request from
 	 * the moment the mode started and only a re-plug ended it. */
 	while (requested_mode == MODE_REPEATER) {
+		/* See RANGETEST_MANAND: without this the repeater decodes nothing. */
+		cc2400_set(MANAND,  RANGETEST_MANAND);
 		cc2400_set(LMTST,   0x2b22);
 		cc2400_set(MDMTST0, 0x134b);
+		/* The packet format the sender uses: 4 preamble bytes, a 32-bit sync
+		 * word, CRC on. The repeater used to leave this register alone, so it
+		 * worked only while the radio still held its reset value -- which
+		 * happens to be this. After any mode that writes GRMDM, a capture
+		 * mode or `-q`, it could not decode a request at all. */
+		cc2400_set(GRMDM,   0x0df1);
 		cc2400_set(FSDIV,   *chan_ptr - 1);
 		cc2400_set(SYNCH,   0xf9ae);
 		cc2400_set(SYNCL,   0x1584);
@@ -271,17 +357,9 @@ void cc2400_repeater(volatile u16 *chan_ptr)
 		if (!got_request)
 			break;
 
-		/*
-		 * Got a packet, now repeat it. The delay gives the requester time
-		 * to switch to receive, and it deliberately does not service USB:
-		 * every pass through handle_usb() would stretch it, and the other
-		 * board is waiting on this timing. It is a busy-wait of a few tens
-		 * of milliseconds, well inside the host's one-second request
-		 * timeout, so a request that lands in it is answered late rather
-		 * than lost. The mode is re-checked once the delay is over.
-		 */
-		i = 2000000; while (--i); // allow time for requester to switch to rx
-		if (requested_mode != MODE_REPEATER)
+		/* Got a packet. Let the sender finish its burst and arm its
+		 * receiver before answering. */
+		if (!repeater_turnaround())
 			break;
 		USRLED_CLR;
 		RXLED_CLR;
