@@ -71,11 +71,16 @@ there. The results it did get are still printed, and the failure is reported
 on standard error as it happens, as `error: receive transfer failed:
 <reason>`.
 
-A board that refuses the request that puts it in sweep mode exits 1 as well:
-`error: could not set sweep mode`, in one line on standard error. The AFH map
-this tool prints is only meaningful while the board sweeps the whole band, so
-neither the BlueZ inquiry nor the Ubertooth scan starts after that, and
-nothing is printed.
+A board that refuses the request that puts it in sweep mode exits 1 as well.
+Standard output stays empty and standard error carries the reason from the
+library followed by the tool naming the request:
+
+    error: control message unsupported
+    error: could not set sweep mode
+
+The AFH map this tool prints is only meaningful while the board sweeps the
+whole band, so neither the BlueZ inquiry nor the Ubertooth scan starts after
+that.
 
 ## SEE ALSO
 

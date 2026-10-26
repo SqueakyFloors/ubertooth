@@ -277,13 +277,18 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	/* From here on every exit gives the adapter handle back, as the end of a
+	 * successful scan does. */
 	ut = ubertooth_start_select(ubertooth_device);
 	if (ut == NULL) {
+		close(dev_handle);
 		return 1;
 	}
 	rv = ubertooth_check_api(ut);
-	if (rv < 0)
+	if (rv < 0) {
+		close(dev_handle);
 		return 1;
+	}
 
 	/* Sweep the whole band: any channel above the Bluetooth band asks the
 	 * firmware for that, and without it the AFH map this tool prints would

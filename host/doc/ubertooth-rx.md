@@ -236,18 +236,19 @@ what arrived before it. The failure is reported on standard error as it
 happens, as `error: receive transfer failed: <reason>`. A `-z` survey still
 prints the results it did get.
 
-A board that refuses one of the requests that set the capture up exits 1 too,
-and the capture does not start, so a board that will not leave the channel it
-is on cannot be mistaken for one that is sweeping. The refused request is
-named in one line on standard error, and nothing is printed:
+A board that refuses the channel request, or the address request `-l` and `-u`
+together name, exits 1 as well, and the capture does not start, so a board
+that will not leave the channel it is on cannot be mistaken for one that is
+sweeping. Standard output stays empty and standard error carries the reason
+from the library followed by the tool naming the request:
 
+    error: control message unsupported
     error: could not set sweep mode
-    error: could not set the channel
-    error: could not set the Bluetooth address
 
-The first is a command line without `-c`, which asks for the sweep across the
-whole band; the second a `-c` channel; the third the address `-l` and `-u`
-together name.
+The last line reads `error: could not set the channel` when `-c` named one, and
+`error: could not set the Bluetooth address` for the address request. Without
+`-c` the command asks for the sweep across the whole band, which is why the
+sweep is what the message names.
 
 ## SEE ALSO
 

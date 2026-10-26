@@ -319,12 +319,14 @@ MU_TEST(a_board_or_firmware_the_tool_cannot_use_exits_1)
 	r = RUN("-t", "5");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(fake.calls[0] == '\0', fake.calls);
+	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
 
 	reset_fake();
 	fake.api_rc = -1;
 	r = RUN("-t", "5");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(fake.calls[0] == '\0', fake.calls);
+	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
 }
 
 /* -h is what the user asked for, so it goes to standard output and exits 0,

@@ -485,6 +485,18 @@ MU_TEST(a_refused_setup_request_is_named_and_exits_one)
 		mu_assert_int_eq(0, device.cleanup_handlers);
 		mu_assert_int_eq(1, device.stops); /* the board is released */
 	}
+
+	/* The address is sent first, so a run that needs both requests reaches
+	 * the channel only once the board has taken the address. */
+	reset_device();
+	device.channel_rc = -9;
+	r = RUN_RX("-l", "112233", "-u", "ab", "-t", "10");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, device.bdaddrs_set);
+	mu_assert_int_eq(1, device.channels_set);
+	mu_assert_int_eq(0, device.rx_syms_calls);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strcmp(r.err, "error: could not set sweep mode\n") == 0, r.err);
 }
 
 /* Survey mode needs the sweep most of all, so a refused one keeps it from
