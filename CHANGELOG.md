@@ -48,6 +48,14 @@
   for nothing, `-U 0` on its own included: it used to open the board, do
   nothing and exit 0.
   [#367](https://github.com/SqueakyFloors/ubertooth/issues/367)
+- **Script-visible change:** `ubertooth-util -U all -N` prints the count and
+  exits 0, as `-U 0 -N` does. It was refused, because `-U all` had nothing to
+  list, even though the count asks nothing of any board.
+  [#401](https://github.com/SqueakyFloors/ubertooth/issues/401)
+- `ubertooth-util -U all` with no query is refused with `error: -U all needs
+  one of the read-only queries -b, -v, -V, -p or -s to list`, instead of a
+  message about options the command line did not give.
+  [#396](https://github.com/SqueakyFloors/ubertooth/issues/396)
 - **Script-visible change:** `ubertooth-util -m` reports a range test whose
   packets came back corrupted as `error: invalid range test: mismatch on byte
   <n>` on standard error and exits 1; it was a line on standard output with
@@ -493,6 +501,11 @@
   that serial, so later options in the same command (`-U0 -r -b`) stay on the
   board that was reset even if the index order changed across the reset.
   [#139](https://github.com/SqueakyFloors/ubertooth/issues/139)
+- That pre-reset serial read is quiet: a board that has stopped answering no
+  longer prints a transfer error, and waits out a second of timeout, on the
+  very command used to recover it. libubertooth adds
+  `ubertooth_read_serial_string()` for it.
+  [#306](https://github.com/SqueakyFloors/ubertooth/issues/306)
 - `ubertooth-debug` exits 0 only when every register read succeeds (it used to
   exit with the last register's value) and names each register that fails.
   [#164](https://github.com/SqueakyFloors/ubertooth/issues/164)
