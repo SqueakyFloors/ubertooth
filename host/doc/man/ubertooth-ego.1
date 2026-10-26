@@ -54,7 +54,7 @@ Channel in MHz to use for continuous receive (suggested: 2408, 2418, 2423, 2469;
 Packet length to use\. The value must be a complete decimal integer from 1 through 48; invalid values fail before the Ubertooth is opened\.
 .TP
 \fB\-a <access_code>\fR
-Access code to use, given as 2, 4, 6 or 8 hex digits (1 to 4 whole bytes)\. See ACCESS CODE below for what a run without \fB\-a\fR uses\.
+Access code to use, given as 2, 4, 6 or 8 hex digits (1 to 4 whole bytes)\. A code shorter than four bytes becomes the most significant bytes of the radio's 32\-bit sync word and the rest are zero, so \fB\-a 1122\fR matches \fB11220000\fR, not a shorter pattern\. See ACCESS CODE below for what a run without \fB\-a\fR uses\.
 .TP
 \fB\-U <index|serial>\fR
 select an Ubertooth by enumeration index or serial number; see ubertooth(7), SELECTING A DEVICE
