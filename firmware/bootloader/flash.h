@@ -25,9 +25,9 @@
 #include "iap.h"
 
 /*
- * The bound for a part that neither the table below nor the sector probe can
- * place: 512 KiB, which is what the bootloader allowed on every part before
- * the table existed.
+ * The bound for a part the table below has no entry for and the sector probe
+ * got no answer out of: 512 KiB, which is what the bootloader allowed on every
+ * part before the table existed.
  *
  * Keeping the old figure cannot leave such a board worse off than it is
  * today. A part with at least 512 KiB behaves as it always did. A part with
@@ -131,7 +131,8 @@ public:
         iap(),
         part_id_read(0),
         flash_bound_found(0),
-        probe_walked(false) {
+        probe_walked(false),
+        probe_walked_part_id(0) {
     }
 
     bool write(const uint32_t flash_address, uint32_t source_address, uint32_t length) {
@@ -176,18 +177,26 @@ public:
      * runs, and a transfer checks two addresses for every 256-byte block, so
      * asking again each time would make it crawl. The table is still looked
      * up each time until it answers, because that costs one command, so a
-     * part whose identification number only reads later still ends up
-     * bounded by its own flash. The probe is walked at most once: it is up to
-     * 30 commands, and a part that fails it part-way would otherwise be
-     * re-walked twice per block, which is a transfer nobody can wait out.
+     * part whose identification number only reads later still ends up bounded
+     * by its own flash.
+     *
+     * The probe is not retried on the same reading of the part, because it is
+     * up to 30 commands: a part that failed it would otherwise be re-walked
+     * twice per block, which is a transfer nobody can wait out. It is walked
+     * again once the identification number reads for the first time, since
+     * that is a part answering commands it was not answering before, and
+     * there are only ever the two readings -- unreadable, then whatever the
+     * ROM gave -- so the walk can happen at most twice.
      */
     uint32_t flash_bound() const {
         if( flash_bound_found == 0 ) {
-            const uint32_t from_table = lpc_part_flash_size(part_id());
+            const uint32_t id = part_id();
+            const uint32_t from_table = lpc_part_flash_size(id);
             if( from_table != 0 ) {
                 flash_bound_found = from_table;
-            } else if( !probe_walked ) {
+            } else if( !probe_walked || (id != probe_walked_part_id) ) {
                 probe_walked = true;
+                probe_walked_part_id = id;
                 flash_bound_found = probe_flash_bound();
             }
         }
@@ -212,9 +221,11 @@ private:
      * with "no answer yet". */
     mutable uint32_t flash_bound_found;
 
-    /* Has the sector probe been walked? It is walked at most once, whether or
-     * not it answered. */
+    /* Has the sector probe been walked, and under which reading of the part
+     * identification number (0 for a reading that failed)? A walk that gave
+     * no answer is not repeated for the same reading. */
     mutable bool probe_walked;
+    mutable uint32_t probe_walked_part_id;
 
     static const uint32_t cclk_khz = 100000;
     

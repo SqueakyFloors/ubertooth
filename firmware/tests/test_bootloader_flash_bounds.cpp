@@ -750,10 +750,10 @@ MU_TEST(test_a_part_that_answers_nothing_keeps_the_old_bound)
 }
 
 /*
- * The probe is walked once, answer or no answer. It is up to 30 commands, and
- * a transfer checks two addresses for every 256-byte block, so a part that
- * fails the walk and was re-walked each time would turn a refused image into
- * a transfer nobody can wait out.
+ * The probe is not walked again while the part reads the same. It is up to 30
+ * commands, and a transfer checks two addresses for every 256-byte block, so
+ * a part that failed the walk and was re-walked each time would turn a
+ * refused image into a transfer nobody can wait out.
  */
 MU_TEST(test_a_failed_probe_is_not_walked_again)
 {
@@ -771,6 +771,35 @@ MU_TEST(test_a_failed_probe_is_not_walked_again)
 	for (i = 0; i < 100; i++)
 		flash.flash_bound();
 	mu_assert_int_eq((int)walked, (int)blank_checks);
+}
+
+/*
+ * A part that starts answering is probed again. The one reading of the part
+ * that is not retried is the one the failed walk was done under, so a board
+ * whose ROM was busy at the first request is not left on the fallback for the
+ * rest of the session -- which on a part smaller than the fallback is the
+ * wedge this bound exists to prevent.
+ */
+MU_TEST(test_a_part_that_starts_answering_is_probed_again)
+{
+	Flash flash;
+	unsigned walked;
+
+	attach_part(PART_UNKNOWN, 128 * 1024);
+	fake_part_result = IAP::BUSY;
+	fake_blank_check_result = IAP::BUSY;
+
+	mu_assert_int_eq(LPC_FLASH_SIZE_FALLBACK, (int)flash.flash_bound());
+	walked = blank_checks;
+
+	/* The part answers now: its identification number reads, the table still
+	 * has no entry for it, and the walk it refused before succeeds. */
+	fake_part_result = IAP::CMD_SUCCESS;
+	fake_blank_check_result = IAP::SECTOR_NOT_BLANK;
+	mu_assert_int_eq(128 * 1024, (int)flash.flash_bound());
+	mu_assert(blank_checks > walked, "a part that started answering was not probed again");
+	mu_assert(!flash.valid_address(0x20000),
+	          "a part that started answering kept the fallback bound");
 }
 
 /* A part read that fails on its own falls through to the probe, which is the
@@ -793,14 +822,28 @@ MU_TEST(test_a_failed_part_read_falls_through_to_the_probe)
  * shape, and they cannot be compiled here. So: find them, and check that both
  * ends of the block go through Flash::valid_address, that the read or write
  * comes after both, and that a block that fails them answers ERRADDRESS.
+ *
+ * The two guards are also matched whole, below, because line numbers and the
+ * presence of a call say nothing about which way a condition reads. Written
+ * out as the source has them, with each line's spacing collapsed, so a guard
+ * that is reformatted fails these and has to be written out again here.
  */
+#define UPLOAD_GUARD \
+	"if( flash.valid_address(flash_address_start) && " \
+	"flash.valid_address(flash_address_end - 1) ) {"
+#define UPLOAD_REFUSAL "} else { return error(ERRADDRESS); }"
+#define DNLOAD_GUARD \
+	"if( !flash.valid_address(flash_address_start) || " \
+	"!flash.valid_address(flash_address_end - 1) ) { " \
+	"return error(ERRADDRESS); }"
+
 struct scan {
 	int floor;                 /* the bootloader's own flash, in memory_policy */
 
 	int upload;                /* request_upload()'s definition */
 	int upload_start_check;    /* the block's first address */
 	int upload_end_check;      /* ...and its last */
-	int upload_negated;        /* a check written as !valid_address(...) */
+	char upload_text[4096];    /* the function body, a line to a space */
 	int upload_read;           /* the read out of flash */
 	int upload_reads;          /* how many reads the function has */
 	int upload_erraddress;     /* the refusal */
@@ -810,24 +853,26 @@ struct scan {
 	int dnload_errwrite;       /* ...and its refusal */
 	int dnload_start_check;
 	int dnload_end_check;
-	int dnload_negated;        /* both checks written as !valid_address(...) */
+	char dnload_text[4096];
 	int dnload_write;          /* the write to flash */
 	int dnload_writes;
 	int dnload_erraddress;
 };
 
-/* How many times `needle` appears in `haystack`. */
-static int count_occurrences(const char *haystack, const char *needle)
+/*
+ * Add a line of the function to the text the tests search. The lines arrive
+ * already collapsed to single spaces, and are joined by one more, so a guard
+ * written over several lines can be matched as the one expression it is.
+ */
+static void append_line(char *text, size_t size, const char *line)
 {
-	const size_t length = strlen(needle);
-	const char *at = haystack;
-	int found = 0;
+	const size_t used = strlen(text);
 
-	while ((at = strstr(at, needle)) != NULL) {
-		found++;
-		at += length;
-	}
-	return found;
+	if (used + strlen(line) + 2 >= size)
+		return;
+	if (used > 0)
+		strcat(text, " ");
+	strcat(text, line);
 }
 
 static int scan_dfu(const char *path, struct scan *s)
@@ -869,11 +914,11 @@ static int scan_dfu(const char *path, struct scan *s)
 		}
 
 		if (in_upload) {
+			append_line(s->upload_text, sizeof(s->upload_text), flat);
 			if (strstr(flat, "flash.valid_address(flash_address_start)") != NULL)
 				s->upload_start_check = lineno;
 			if (strstr(flat, "flash.valid_address(flash_address_end - 1)") != NULL)
 				s->upload_end_check = lineno;
-			s->upload_negated += count_occurrences(flat, "!flash.valid_address(");
 			if (strstr(flat, "memcpy(") != NULL) {
 				s->upload_reads++;
 				if (s->upload_read == 0)
@@ -884,6 +929,7 @@ static int scan_dfu(const char *path, struct scan *s)
 		}
 
 		if (in_dnload) {
+			append_line(s->dnload_text, sizeof(s->dnload_text), flat);
 			if (strstr(flat, "memory_policy::write_permitted(") != NULL)
 				s->dnload_permitted = lineno;
 			if (strstr(flat, "error(ERRWRITE)") != NULL)
@@ -892,7 +938,6 @@ static int scan_dfu(const char *path, struct scan *s)
 				s->dnload_start_check = lineno;
 			if (strstr(flat, "flash.valid_address(flash_address_end - 1)") != NULL)
 				s->dnload_end_check = lineno;
-			s->dnload_negated += count_occurrences(flat, "!flash.valid_address(");
 			if (strstr(flat, "flash.write(") != NULL) {
 				s->dnload_writes++;
 				if (s->dnload_write == 0)
@@ -962,16 +1007,24 @@ MU_TEST(test_the_read_back_refuses_before_it_reads)
 	         "outside flash", dfu_path, s.upload);
 	mu_assert(s.upload_erraddress > s.upload_read, msg);
 
-	/* Which way round the checks are read. Without this, inverting them
-	 * leaves every line the scan looks for where it was, so the order checks
-	 * above would still pass while the firmware read exactly the blocks it
-	 * should refuse. request_upload() reads when both addresses are valid, so
-	 * neither check is negated. */
+	/*
+	 * The guard as a whole, which is what the line-order checks above cannot
+	 * see: inverting a check, swapping && for ||, or dropping the `return`
+	 * from the refusal leaves every line they look for exactly where it was.
+	 * request_upload() reads only when both addresses are valid, and refuses
+	 * by returning.
+	 */
 	snprintf(msg, sizeof(msg),
-	         "%s:%d: request_upload() negates a Flash::valid_address check "
-	         "(%d of them), so it reads the blocks it should refuse",
-	         dfu_path, s.upload, s.upload_negated);
-	mu_assert(s.upload_negated == 0, msg);
+	         "%s:%d: request_upload()'s guard is not \"%s\", so it does not "
+	         "refuse exactly the blocks with no flash behind them",
+	         dfu_path, s.upload, UPLOAD_GUARD);
+	mu_assert(strstr(s.upload_text, UPLOAD_GUARD) != NULL, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: request_upload() does not refuse with \"%s\", so the "
+	         "refusal does not stop the request",
+	         dfu_path, s.upload, UPLOAD_REFUSAL);
+	mu_assert(strstr(s.upload_text, UPLOAD_REFUSAL) != NULL, msg);
 }
 
 MU_TEST(test_the_download_refuses_before_it_writes)
@@ -1022,15 +1075,14 @@ MU_TEST(test_the_download_refuses_before_it_writes)
 	mu_assert(s.dnload_erraddress > s.dnload_end_check &&
 	          s.dnload_erraddress < s.dnload_write, msg);
 
-	/* Which way round the checks are read, as in the read-back test above.
-	 * request_dnload() refuses when either address is outside flash, so both
-	 * checks are negated; inverting them would refuse every block that fits
-	 * and write every block that does not. */
+	/* The guard as a whole, as in the read-back test above. request_dnload()
+	 * refuses, by returning, as soon as either end of the block is outside
+	 * flash. */
 	snprintf(msg, sizeof(msg),
-	         "%s:%d: request_dnload() refuses on %d negated Flash::valid_address "
-	         "checks, not both of them, so the bound is the wrong way round",
-	         dfu_path, s.dnload, s.dnload_negated);
-	mu_assert(s.dnload_negated == 2, msg);
+	         "%s:%d: request_dnload()'s guard is not \"%s\", so it does not "
+	         "refuse exactly the blocks with no flash behind them",
+	         dfu_path, s.dnload, DNLOAD_GUARD);
+	mu_assert(strstr(s.dnload_text, DNLOAD_GUARD) != NULL, msg);
 }
 
 /*
@@ -1179,6 +1231,7 @@ int main(void)
 	MU_RUN(test_the_part_is_asked_about_once);
 	MU_RUN(test_a_part_that_answers_nothing_keeps_the_old_bound);
 	MU_RUN(test_a_failed_probe_is_not_walked_again);
+	MU_RUN(test_a_part_that_starts_answering_is_probed_again);
 	MU_RUN(test_a_failed_part_read_falls_through_to_the_probe);
 
 	/* Scanned once here rather than from the first of the tests below,
