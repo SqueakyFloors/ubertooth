@@ -25,15 +25,14 @@
 #include "iap.h"
 
 /*
- * The ceiling used for a part with no entry in the table below: what the
- * bootloader enforced on every part, whatever flash it had.
+ * The bound for a part the table below has no entry for: 512 KiB, which is
+ * what the bootloader allowed on every part before the table existed.
  *
- * It is not a figure any part is known to have; it is the status quo, chosen
- * so that a part with no entry cannot end up worse off than it is now. Such a
- * part either has at least this much flash, and reads back as it always did,
- * or has less and faults on a read past its end as it always did. Bounding it
- * at the smallest part in the family instead would refuse a read-back that
- * works today, which is a regression on a board that is fine.
+ * Keeping the old figure cannot leave such a board worse off than it is
+ * today. A part with at least 512 KiB reads back as it always did. A part
+ * with less faults on a read past its end, as it always did. Bounding an
+ * unidentified part at the smallest part in the family would instead refuse a
+ * read-back that works today.
  */
 #define LPC_FLASH_SIZE_FALLBACK 0x80000u
 
@@ -129,10 +128,13 @@ public:
     
 private:
     IAP iap;
-    /* The part, read once and remembered: the read-back asks about every
-     * 256-byte block twice and the answer cannot change while the bootloader
-     * runs. Zero means not read yet, which matches no entry in the table, so
-     * a read that fails is retried and bounded by the fallback meanwhile. */
+    /* The part identification number, read once and then remembered. A
+     * read-back checks two addresses for every 256-byte block it sends, and
+     * the part cannot change while the bootloader runs, so there is nothing
+     * to gain from asking the ROM again.
+     *
+     * Zero means not read yet. No part has that number, so a read that fails
+     * is bounded by the fallback above and asked again on the next request. */
     mutable uint32_t part_id_read;
     
     static const uint32_t cclk_khz = 100000;

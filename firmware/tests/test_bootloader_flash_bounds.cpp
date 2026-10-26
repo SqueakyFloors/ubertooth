@@ -94,9 +94,9 @@ static void attach_part(uint32_t part_id, uint32_t flash_size)
 }
 
 /*
- * request_upload()'s shape: the first and last address of the block are put
- * to the bound, and only a block that passes both is read. Returns the DFU
- * status the request leaves behind.
+ * request_upload()'s shape: the first and last address of the block are both
+ * checked against the bound, and only a block that passes both is read.
+ * Returns the DFU status the request leaves behind.
  *
  * Takes the address and length rather than a block number so that a block
  * straddling the end of flash can be asked for. The firmware's own blocks are
@@ -233,11 +233,11 @@ MU_TEST(test_a_512k_part_reads_back_all_of_it)
 }
 
 /*
- * A part with no entry in the table keeps the bound the bootloader enforced
- * on every part before the table existed. Such a board either reads back
- * today, because it has at least that much flash, or already wedges on a read
- * past its end; neither gets worse, where bounding it at the smallest part in
- * the family would refuse a read-back that works.
+ * A part with no entry in the table keeps the 512 KiB bound the bootloader
+ * enforced on every part before the table existed. Such a board is no worse
+ * off: it either has at least 512 KiB and reads back as it did, or has less
+ * and wedges on a read past its end as it did. Bounding it at the smallest
+ * part in the family would refuse a read-back that works.
  */
 MU_TEST(test_an_unknown_part_keeps_the_old_bound)
 {
@@ -253,7 +253,8 @@ MU_TEST(test_an_unknown_part_keeps_the_old_bound)
 	mu_assert_int_eq(DFU_STATUS_ERRADDRESS, upload_block(flash, 0x800, out));
 }
 
-/* A part read that fails is the same case: no figure, so the old bound. */
+/* A part read that fails leaves no figure to bound by, so it gets the same
+ * 512 KiB fallback as an unidentified part. */
 MU_TEST(test_a_failed_part_read_keeps_the_old_bound)
 {
 	Flash flash;
@@ -307,7 +308,7 @@ MU_TEST(test_the_old_fixed_bound_read_past_the_end)
 /*
  * The fakes are worth something only if request_upload() has the same shape,
  * and it cannot be compiled here. So: find it, and check that both ends of
- * the block are put to Flash::valid_address, that the one read out of flash
+ * the block go through Flash::valid_address, that the one read out of flash
  * comes after both, and that a block that fails them answers ERRADDRESS.
  */
 struct scan {

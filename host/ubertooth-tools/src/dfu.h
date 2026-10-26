@@ -84,16 +84,19 @@
 
 #define BOOTLOADER_OFFSET 0x0
 #define BOOTLOADER_SIZE 0x4000
-/* The most flash any part in the family has, and so the highest address any
- * bootloader will read back. A bootloader built from this tree stops at the
- * flash the attached part has, which is less on most of them; this is the
- * ceiling it falls back to for a part it cannot identify, and the one older
- * bootloaders enforce on every part (firmware/bootloader/flash.h,
- * Flash::valid_address). Nothing above this can be read on any part, so it
- * also bounds the largest image there is any point writing. The write path
- * does not share the check -- it refuses an address below 0x4000 and nothing
- * else -- so this is a ceiling on what is useful, not one the bootloader
- * enforces on a download. */
+/* 512 KiB: the most flash any part in the family has, and so the highest
+ * address any bootloader will read back.
+ *
+ * A bootloader built from this tree stops at the flash the attached part
+ * reports having, which is less than this on most parts. It falls back to
+ * 512 KiB only for a part it cannot identify, and that is what older
+ * bootloaders allow on every part (firmware/bootloader/flash.h,
+ * Flash::valid_address).
+ *
+ * Nothing above this can be read on any part, so it also bounds the largest
+ * image there is any point writing. The write path does not share the check:
+ * it refuses an address below 0x4000 and nothing else. So this is a ceiling
+ * on what is useful, not one the bootloader enforces on a download. */
 #define BOOTLOADER_FLASH_LIMIT 0x80000u
 #define BLOCK_SIZE (1<<8)
 #define SECTOR_SIZE (1<<12)
