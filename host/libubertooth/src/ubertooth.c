@@ -1208,12 +1208,20 @@ static void ubertooth_cleanup(ubertooth_t* ut, int send_stop)
 		 * Which board this is cannot be told from here: one that has left
 		 * the bus or stopped answering, or a live one whose cancellation
 		 * did not arrive within the wait above. The transfer's callback
-		 * never ran, so there is no status to tell them apart. A stop sent
-		 * blind would reach only the live one; on the others it would add a
-		 * libusb error line about a board that is no longer there to answer
-		 * it. The warning covers all of them: it says the board may still
-		 * be capturing, and ubertooth(7) names ubertooth-util -S for one
-		 * that is. */
+		 * never ran, so there is no status to tell them apart, and a stop
+		 * sent blind would reach only the live one.
+		 *
+		 * Sending it would also hand this thread an event loop. cmd_stop()
+		 * uses libusb's synchronous control transfer, which handles events
+		 * until its own completes -- and the receive transfer is still in
+		 * flight, so its cancellation could complete inside that call and
+		 * run cb_xfer() here, on the one thread that is meant to be past
+		 * the stream (the poll thread was joined above). The teardown has
+		 * already chosen this branch by then.
+		 *
+		 * The warning covers every one of those boards: it says this one
+		 * may still be capturing, and ubertooth(7) names ubertooth-util -S
+		 * for a board that is. */
 		fprintf(stderr, "warning: the receive transfer did not finish; the "
 		        "Ubertooth is left open and may still be capturing\n");
 		/* The run is a failure all the same, so a caller can tell it from a

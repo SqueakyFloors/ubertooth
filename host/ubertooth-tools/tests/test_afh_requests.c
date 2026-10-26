@@ -989,6 +989,7 @@ MU_TEST(a_transfer_that_never_comes_back_keeps_the_device_open)
 	mu_assert_int_eq(0, fake.exits);
 	mu_assert(ut->devh != NULL, "the device is left open");
 	/* nothing was asked of the board, the stop least of all */
+	mu_assert_int_eq(0, sent(UBERTOOTH_STOP));
 	mu_assert(fake.n == 0, requests_text());
 	/* a warning, on standard error: the teardown itself did what it could,
 	 * and the exit status below is what says the capture fell short */
@@ -1069,10 +1070,10 @@ MU_TEST(a_detection_phase_that_lost_its_transfer_sends_no_stop)
 /* A board that leaves the bus during a capture: the teardown's own wait for
  * events gets the transfer back with NO_DEVICE, so libusb is holding nothing
  * by the time the device is closed, and it closes as usual. The stop on the
- * way out is refused, as
- * every request to a board that has gone is; the refusal is reported and the
- * teardown finishes it rather than stopping there, so the capture files are
- * still closed and the session still ended. */
+ * way out is refused, as every request to a board that has gone is; the
+ * refusal is reported and the teardown finishes it rather than stopping
+ * there, so the capture files are still closed and the session still
+ * ended. */
 MU_TEST(a_board_that_leaves_the_bus_is_still_closed)
 {
 	char err[1024] = "";
