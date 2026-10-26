@@ -554,6 +554,11 @@
   counts the capture clock's periods from the packets, which carry the count,
   and where they do not, a lost one is reported on standard error.
   [#229](https://github.com/SqueakyFloors/ubertooth/issues/229)
+- A live capture now counts the capture clock's rollovers from how much real
+  time passed between packets, so a quiet gap of any length and a record that
+  arrives out of place no longer shift every later timestamp by 327.68 s.
+  Replaying a saved file is unchanged, having no host clock to work from.
+  [#465](https://github.com/SqueakyFloors/ubertooth/issues/465)
 
 ### Documentation
 

@@ -11,11 +11,20 @@
  * 101.8 s off instead. Both clocks are exercised here. The reconstruction is
  * static in ubertooth_callback.c, so that source is compiled into this test.
  *
- * A wrap inferred from the clock reading lower than it did is also lost
- * whenever more than one period passes between two packets, so the cases here
- * include gaps that long: a Classic packet carries its own period count,
- * which covers them, and a capture whose packets carry none has the loss
- * reported against the host clock instead.
+ * How many times the clock started over between two packets comes from one of
+ * three places, and all three are exercised here:
+ *
+ *  - the count a Classic packet carries, which is exact;
+ *  - for a live capture whose packets carry none, how much real time passed
+ *    between the two packets, which covers a quiet gap of any length and a
+ *    record out of place alike;
+ *  - for a replay, which has no such clock, the clock reading going down,
+ *    which loses a wrap that falls in a gap longer than one period. The loss
+ *    is reported against the host time the records carry.
+ *
+ * The host's two clocks are driven by the cases below rather than by the
+ * machine, because a live capture's times cannot be checked against clocks
+ * that run on their own.
  *
  * Only differences between reconstructed times are checked. Where a capture
  * starts is a separate matter (the anchor and the start offset), so these
@@ -37,20 +46,56 @@ static volatile uint32_t T0TC;
 #define STEP_TICKS 1000000000ull
 /* Where the first packet lands, well away from either wrap. */
 #define FIRST_TICKS 100000000ull
+/* The host wall clock at the start of a capture: a real time, so a capture
+ * whose times fall a period short of it is still a time. */
+#define WALL_BASE 1700000000000000000ull
+
+/* The host clocks the reconstruction reads. */
+static uint64_t host_elapsed_ns;
+static uint64_t host_wall_ns;
+
+static uint64_t fake_elapsed_ns( void )
+{
+	return host_elapsed_ns;
+}
+
+static uint64_t fake_wall_ns( void )
+{
+	return host_wall_ns;
+}
+
+/* What the host wall clock has been stepped by since a capture started, as a
+ * time sync or a hand-set clock would step it. The elapsed-time clock is not
+ * stepped, which is the point of reading it. */
+static int64_t wall_step_ns;
 
 /* The reconstructed time of a packet captured at this clock value, with the
- * count it carries given outright: the firmware can send one that does not
- * match its own clock reading, because the two are latched by separate reads
- * of CLKN, and a saved capture can be edited or replayed out of order. */
-static uint64_t at_clock_with_count(ubertooth_t* ut, uint64_t ticks,
-                                    uint8_t count)
+ * count it carries and the real time since the capture started both given
+ * outright.
+ *
+ * The count can disagree with the clock reading: the firmware latches the two
+ * with separate reads of CLKN, and a saved capture can be edited or replayed
+ * out of order. The elapsed time can disagree with both, which is what the
+ * cases for a record out of place are built on. */
+static uint64_t at_clock_host_count(ubertooth_t* ut, uint64_t ticks,
+                                    uint64_t elapsed_ns, uint8_t count)
 {
 	usb_pkt_rx rx;
 
 	memset(&rx, 0, sizeof(rx));
 	rx.clk100ns = htole32((uint32_t)(ticks % ut->clk100ns_period));
 	rx.clkn_high = count;
+	host_elapsed_ns = elapsed_ns;
+	host_wall_ns = WALL_BASE + elapsed_ns + (uint64_t) wall_step_ns;
 	return now_ns_from_clk100ns( ut, &rx );
+}
+
+/* The same for a capture that is keeping up: a packet this far into the board
+ * clock arrived this long after the capture started. */
+static uint64_t at_clock_with_count(ubertooth_t* ut, uint64_t ticks,
+                                    uint8_t count)
+{
+	return at_clock_host_count( ut, ticks, 100 * ticks, count );
 }
 
 /* The same for a packet stamped the way a real board stamps it: the
@@ -71,11 +116,53 @@ static uint64_t at_clock(ubertooth_t* ut, uint64_t ticks)
 	return at_clock_counted(ut, ticks, 0);
 }
 
-/* A capture that has seen no packet yet, stamped with this clock. */
+/* A capture that has seen no packet yet, stamped with this clock, with the
+ * host clocks of this test in place of the machine's. */
 static void start_capture(ubertooth_t* ut, uint64_t period)
 {
 	memset(ut, 0, sizeof(*ut));
 	ut->clk100ns_period = period;
+	read_elapsed_ns = fake_elapsed_ns;
+	read_now_ns = fake_wall_ns;
+	host_elapsed_ns = 0;
+	host_wall_ns = WALL_BASE;
+	wall_step_ns = 0;
+}
+
+/* Standard error, redirected to a temporary file so a case can read what the
+ * library wrote there. */
+static FILE* captured_stderr;
+static int real_stderr = -1;
+
+static int capture_stderr(void)
+{
+	captured_stderr = tmpfile();
+	real_stderr = dup(fileno(stderr));
+	if (captured_stderr == NULL || real_stderr < 0)
+		return 0;
+	fflush(stderr);
+	dup2(fileno(captured_stderr), fileno(stderr));
+	return 1;
+}
+
+static void read_captured_stderr(char* text, size_t size)
+{
+	size_t n;
+
+	text[0] = '\0';
+	if (captured_stderr == NULL)
+		return;
+	fflush(stderr);
+	if (real_stderr >= 0) {
+		dup2(real_stderr, fileno(stderr));
+		close(real_stderr);
+		real_stderr = -1;
+	}
+	rewind(captured_stderr);
+	n = fread(text, 1, size - 1, captured_stderr);
+	text[n] = '\0';
+	fclose(captured_stderr);
+	captured_stderr = NULL;
 }
 
 MU_TEST(the_period_is_the_clock_the_firmware_counts)
@@ -213,6 +300,160 @@ MU_TEST(the_count_in_the_packet_wraps_without_losing_a_period)
 	mu_assert_int_eq(100 * (uint64_t)CLK100NS_PERIOD, after - before);
 }
 
+/* Two packets of a live capture a quiet gap apart, with no count in them:
+ * whatever the gap, the time between them has to come out as the gap. */
+static void live_gap(uint64_t period, uint64_t first, uint64_t gap)
+{
+	ubertooth_t ut;
+	uint64_t before, after;
+
+	start_capture(&ut, period);
+	before = at_clock(&ut, first);
+	after = at_clock(&ut, first + gap);
+
+	mu_assert_int_eq(100 * gap, after - before);
+}
+
+/* The same gap from two starting points, because the clock reading on its own
+ * says different things about the same gap depending on where it starts: from
+ * one of these the reading comes out lower than it was, which the old rule
+ * read as exactly one wrap, and from the other it comes out higher, which the
+ * old rule read as no wrap at all. */
+static void live_gap_from_either_side_of_a_wrap(uint64_t period, uint64_t gap)
+{
+	uint64_t into_period = gap % period;
+
+	/* Far enough in that a start before a wrap is still a positive clock
+	 * reading, whatever the gap. */
+	live_gap(period, 11 * period - into_period / 2, gap);
+	live_gap(period, 10 * period, gap);
+}
+
+/* A quiet gap in a live capture, which the clock reading alone cannot
+ * measure: under a period it may or may not come out lower than it was, and
+ * over a period it hides whole wraps. The real time between the two packets
+ * settles it either way. A gap of seconds on an idle channel is ordinary; a
+ * gap of minutes takes only a quiet channel and a narrow filter. */
+MU_TEST(a_quiet_gap_in_a_live_capture_is_counted_from_real_time)
+{
+	uint64_t period = CLK100NS_PERIOD;
+
+	/* Either side of the half period a threshold would have to split. */
+	live_gap_from_either_side_of_a_wrap(period, 4 * period / 10);
+	live_gap_from_either_side_of_a_wrap(period, 6 * period / 10);
+	/* Longer than a period, where a reading that comes out lower cannot
+	 * say how many went by and one that comes out higher hides them
+	 * completely. */
+	live_gap_from_either_side_of_a_wrap(period, 3 * period / 2);
+	live_gap_from_either_side_of_a_wrap(period, 3 * period);
+	/* The low-energy engine's clock, whose packets never carry a count. */
+	period = CLK100NS_TIMER1_PERIOD;
+	live_gap_from_either_side_of_a_wrap(period, 3 * period / 2);
+	live_gap_from_either_side_of_a_wrap(period, 3 * period);
+}
+
+/* A record out of place in a live capture, the other half of the problem: the
+ * clock reads lower than it did, but no real time passed, so it is not a
+ * wrap. Counted as one, this packet and every packet after it in the capture
+ * came out a whole period late. */
+MU_TEST(a_record_out_of_place_in_a_live_capture_is_not_a_wrap)
+{
+	ubertooth_t ut;
+	uint64_t period = CLK100NS_TIMER1_PERIOD;
+	uint64_t first = FIRST_TICKS + period / 5;
+	uint64_t back = period / 10;
+	uint64_t times[3];
+
+	start_capture(&ut, period);
+	times[0] = at_clock(&ut, first);
+	/* A tenth of a period earlier on the board clock, arriving in the same
+	 * millisecond as the packet before it. */
+	times[1] = at_clock_host_count(&ut, first - back, 100 * first + 1000000,
+	                               0);
+	times[2] = at_clock(&ut, first + STEP_TICKS);
+
+	mu_assert_int_eq(0, ut.clk100ns_upper);
+	mu_assert_int_eq(100 * back, times[0] - times[1]);
+	mu_assert_int_eq(100 * STEP_TICKS, times[2] - times[0]);
+}
+
+/* A live capture that opens on a record left over from the mode before it,
+ * whose clock reads seconds ahead of the packets that follow. The drop is
+ * read for what it is, so the real packets keep their own spacing; counted as
+ * a wrap, they were spread over the whole 327.68 s period, which is why a
+ * twelve-second capture came out of Wireshark five and a half minutes long.
+ *
+ * Where a capture is anchored is unchanged: the stale record's host time is
+ * still the capture's start, so the records after it are stamped before it. */
+MU_TEST(a_stale_first_record_does_not_stretch_a_live_capture)
+{
+	ubertooth_t ut;
+	/* Twelve seconds of board clock, as the real dump in the report was. */
+	uint64_t ahead = 120000000ull;
+	uint64_t real = FIRST_TICKS;
+	uint64_t times[3];
+
+	start_capture(&ut, CLK100NS_PERIOD);
+	times[0] = at_clock(&ut, real + ahead);
+	/* The real packets, arriving in the milliseconds after it. */
+	times[1] = at_clock_host_count(&ut, real, 1000000, 0);
+	times[2] = at_clock_host_count(&ut, real + STEP_TICKS,
+	                               1000000 + 100 * STEP_TICKS, 0);
+
+	mu_assert_int_eq(0, ut.clk100ns_upper);
+	mu_assert_int_eq(100 * ahead, times[0] - times[1]);
+	mu_assert_int_eq(100 * STEP_TICKS, times[2] - times[1]);
+}
+
+/* A host clock stepped during a live capture - a time sync, or someone
+ * setting the clock - must not move packet times, so the periods are counted
+ * from elapsed time, which a step does not touch. The step is still reported,
+ * because from here it looks exactly like a lost wrap. */
+MU_TEST(a_stepped_host_clock_does_not_move_packet_times)
+{
+	ubertooth_t ut;
+	uint64_t period_ns = 100 * CLK100NS_TIMER1_PERIOD;
+	uint64_t times[3];
+	char text[400];
+
+	start_capture(&ut, CLK100NS_TIMER1_PERIOD);
+	mu_assert(capture_stderr(), "cannot capture standard error");
+	times[0] = at_clock(&ut, FIRST_TICKS);
+	/* Two periods forwards, from here to the end of the capture. */
+	wall_step_ns = (int64_t) (2 * period_ns);
+	times[1] = at_clock(&ut, FIRST_TICKS + STEP_TICKS);
+	times[2] = at_clock(&ut, FIRST_TICKS + 2 * STEP_TICKS);
+	read_captured_stderr(text, sizeof(text));
+
+	mu_assert_int_eq(0, ut.clk100ns_upper);
+	mu_assert_int_eq(100 * STEP_TICKS, times[1] - times[0]);
+	mu_assert_int_eq(100 * STEP_TICKS, times[2] - times[1]);
+	mu_assert(strstr(text, "warning: packet times are behind the host clock "
+	                 "by more than half the capture clock's 429.50 s period")
+	          != NULL, text);
+}
+
+/* A step backwards leaves the times alone as well, and says nothing: packet
+ * times ahead of the host clock are what a capture that is keeping up looks
+ * like, down to its last packet's latency. */
+MU_TEST(a_host_clock_stepped_backwards_is_not_reported)
+{
+	ubertooth_t ut;
+	uint64_t times[2];
+	char text[400];
+
+	start_capture(&ut, CLK100NS_TIMER1_PERIOD);
+	mu_assert(capture_stderr(), "cannot capture standard error");
+	times[0] = at_clock(&ut, FIRST_TICKS);
+	wall_step_ns = -(int64_t) (100 * STEP_TICKS);
+	times[1] = at_clock(&ut, FIRST_TICKS + STEP_TICKS);
+	read_captured_stderr(text, sizeof(text));
+
+	mu_assert_int_eq(0, ut.clk100ns_upper);
+	mu_assert_int_eq(100 * STEP_TICKS, times[1] - times[0]);
+	mu_assert_int_eq(0, (int)strlen(text));
+}
+
 /* Feeds a replay of two packets a gap apart, where each packet's host time is
  * the one its record carries, and returns what the library wrote to standard
  * error. */
@@ -220,50 +461,39 @@ static void replay_gap(ubertooth_t* ut, uint64_t period, int counted,
                        uint64_t first, uint64_t gap, uint64_t times[2],
                        char* text, size_t size)
 {
-	/* The first packet's host time: a real one, so a capture whose times
-	 * fall a day short of it is still a time, and a whole second, so the
-	 * seconds the records carry are exact. */
-	uint32_t base = 1700000000;
-	size_t n;
-	FILE* capture = tmpfile();
+	/* The host time of the first record, as a whole second, which is all a
+	 * record stores. */
+	uint32_t base = (uint32_t)(WALL_BASE / 1000000000ull);
 	FILE* replay = tmpfile();
-	int saved = dup(fileno(stderr));
 
 	text[0] = '\0';
-	mu_assert(capture != NULL && replay != NULL && saved >= 0,
-	          "cannot capture standard error");
-	if (capture == NULL || replay == NULL || saved < 0)
+	mu_assert(replay != NULL, "cannot stand in for a capture file");
+	if (replay == NULL)
 		return;
 
 	/* Only whether a replay is running is read from infile, never the
 	 * file itself. */
 	infile = replay;
 	start_capture(ut, period);
-	fflush(stderr);
-	dup2(fileno(capture), fileno(stderr));
+	mu_assert(capture_stderr(), "cannot capture standard error");
 	systime = base;
 	times[0] = at_clock_counted(ut, first, counted);
 	/* The host clock keeps running through the gap, whatever the capture
 	 * clock did: 100 ns a tick. */
 	systime = base + (uint32_t)(gap / 10000000ull);
 	times[1] = at_clock_counted(ut, first + gap, counted);
-	fflush(stderr);
-	dup2(saved, fileno(stderr));
-	close(saved);
 	infile = NULL;
 	fclose(replay);
-
-	rewind(capture);
-	n = fread(text, 1, size - 1, capture);
-	text[n] = '\0';
-	fclose(capture);
+	read_captured_stderr(text, size);
 }
 
-/* Packets that carry no count leave the wrap to be inferred, so a gap longer
- * than one period still loses it: the modes behind ubertooth-btle -f and -n
- * are in that position. The host clock is the only evidence that it happened,
- * and it is reported rather than used to correct the times. */
-MU_TEST(a_lost_wrap_is_reported_where_the_packets_carry_no_count)
+/* A replay of records that carry no count leaves the wrap to be inferred, so
+ * a gap longer than one period still loses it: a record stores the host time
+ * it was captured with only to the second, and nothing of how long the
+ * capture had been running, so there is no real time to count the periods
+ * from. The host time the records carry is the only evidence that it
+ * happened, and it is reported rather than used to correct the times. */
+MU_TEST(a_lost_wrap_is_reported_where_a_replay_cannot_count_it)
 {
 	ubertooth_t ut;
 	uint64_t times[2];
@@ -279,8 +509,8 @@ MU_TEST(a_lost_wrap_is_reported_where_the_packets_carry_no_count)
 	          != NULL, text);
 }
 
-/* One lost wrap is the whole of the issue for those modes, and it leaves the
- * times exactly one period short, so the report cannot wait for a second. */
+/* One lost wrap leaves the times exactly one period short, so the report
+ * cannot wait for a second. */
 MU_TEST(a_single_lost_wrap_is_reported_too)
 {
 	ubertooth_t ut;
@@ -292,6 +522,29 @@ MU_TEST(a_single_lost_wrap_is_reported_too)
 	           text, sizeof(text));
 
 	mu_assert_int_eq(0, ut.clk100ns_upper);
+	mu_assert(strstr(text, "warning: packet times are behind the host clock "
+	                 "by more than half the capture clock's 429.50 s period")
+	          != NULL, text);
+}
+
+/* The two rules side by side on the same gap, deliberately: a replay of a
+ * saved file keeps the reading-goes-down rule, because the host clock of the
+ * capture that wrote the file is not in it. A gap of one and a half periods
+ * is one wrap for the replay and two for a live capture, so the replay's
+ * times come out a period short - and say so. */
+MU_TEST(a_replay_keeps_the_old_rule_where_a_live_capture_counts_the_periods)
+{
+	ubertooth_t ut;
+	uint64_t period = CLK100NS_TIMER1_PERIOD;
+	uint64_t gap = 3 * period / 2;
+	uint64_t times[2];
+	char text[400];
+
+	live_gap(period, FIRST_TICKS, gap);
+
+	replay_gap(&ut, period, 0, FIRST_TICKS, gap, times, text, sizeof(text));
+
+	mu_assert_int_eq(100 * (gap - period), times[1] - times[0]);
 	mu_assert(strstr(text, "warning: packet times are behind the host clock "
 	                 "by more than half the capture clock's 429.50 s period")
 	          != NULL, text);
@@ -422,6 +675,7 @@ MU_TEST(a_reused_handle_starts_the_next_capture_fresh)
 	mu_assert_int_eq(0, ut.clk100ns_started);
 	mu_assert_int_eq(0, ut.clk100ns_counted);
 	mu_assert_int_eq(0, ut.last_clkn_high);
+	mu_assert_int_eq(0, ut.last_elapsed_ns);
 	mu_assert_int_eq(0, ut.clk100ns_gap_warned);
 
 	/* The second capture is anchored on its own first packet, which starts
@@ -486,8 +740,14 @@ int main(void)
 	MU_RUN(several_wraps_stay_continuous);
 	MU_RUN(a_gap_longer_than_a_period_is_taken_from_the_packet);
 	MU_RUN(the_count_in_the_packet_wraps_without_losing_a_period);
-	MU_RUN(a_lost_wrap_is_reported_where_the_packets_carry_no_count);
+	MU_RUN(a_quiet_gap_in_a_live_capture_is_counted_from_real_time);
+	MU_RUN(a_record_out_of_place_in_a_live_capture_is_not_a_wrap);
+	MU_RUN(a_stale_first_record_does_not_stretch_a_live_capture);
+	MU_RUN(a_stepped_host_clock_does_not_move_packet_times);
+	MU_RUN(a_host_clock_stepped_backwards_is_not_reported);
+	MU_RUN(a_lost_wrap_is_reported_where_a_replay_cannot_count_it);
 	MU_RUN(a_single_lost_wrap_is_reported_too);
+	MU_RUN(a_replay_keeps_the_old_rule_where_a_live_capture_counts_the_periods);
 	MU_RUN(a_capture_that_keeps_up_reports_nothing);
 	MU_RUN(a_gap_of_a_whole_multiple_of_256_periods_is_reported_not_guessed);
 	MU_RUN(a_count_that_reads_backwards_does_not_move_the_clock);

@@ -168,14 +168,18 @@ Logging:
 
 The times in a logged capture follow the board's capture clock, which starts
 over every 429.50 s in the `-f` and `-n` modes and every 327.68 s in
-promiscuous mode. A promiscuous packet carries a count of how often it has,
-which covers a quiet gap; the packets of the other two modes carry none, so a
-gap longer than one period leaves every later time short by a period. That
-cannot be recovered, but it is reported, on standard error: `warning: packet
-times are behind the host clock by more than half the capture clock's 429.50 s
-period: a quiet gap lost a clock wrap, or the host clock was stepped
-forwards`. Both causes look the same from here, which is why the message names
-each.
+promiscuous mode. The board sends no count of how often it has started over in
+the `-f` and `-n` modes, so a live capture takes that from how much real time
+passed between one packet and the next: a quiet gap of any length is covered,
+and so is a packet that arrives out of place. A promiscuous packet carries the
+count itself, which is exact.
+
+A host clock stepped forwards during a capture does not move packet times, but
+it is reported on standard error, because a step looks the same from here as
+time lost from the capture: `warning: packet times are behind the host clock
+by more than half the capture clock's 429.50 s period: a quiet gap lost a
+clock wrap, or the host clock was stepped forwards`. That is why the message
+names both causes.
 
 Miscellaneous:
 

@@ -77,7 +77,10 @@ typedef struct {
 	uint64_t abs_start_ns;
 	uint32_t start_clk100ns;
 	uint64_t last_clk100ns;
-	uint64_t clk100ns_upper;
+	/* How many times the capture clock has started over since the packet
+	 * the capture is anchored on, as periods to add to a packet's raw
+	 * reading. Signed: a record out of place reads before the anchor. */
+	int64_t clk100ns_upper;
 
 	btbb_pcap_handle* h_pcap_bredr;
 	lell_pcap_handle* h_pcap_le;
@@ -100,6 +103,12 @@ typedef struct {
 	 * the low-energy physical-layer modes, which stamp from timer1. A mode
 	 * that uses the latter sets this before streaming. */
 	uint64_t clk100ns_period;
+
+	/* What the host's elapsed-time clock read when the last packet
+	 * arrived. The real time between two packets is what says how many
+	 * periods of the capture clock went by in between. Only a live
+	 * capture has such a clock; a replay leaves this zero. */
+	uint64_t last_elapsed_ns;
 
 	/* The period count the last packet carried (usb_pkt_rx.clkn_high), zero
 	 * for a capture whose packets do not carry one. */

@@ -92,15 +92,54 @@ static uint64_t now_ns( void )
 	return (1000000000ull*(uint64_t) ts.tv_sec) + (uint64_t) ts.tv_nsec;
 }
 
+/* The clock a capture measures elapsed time with: it only ever moves forwards
+ * at one second per second, so a wall clock stepped mid-capture - by a time
+ * sync, or by hand - cannot move packet times.
+ *
+ * It has to keep running while the machine is suspended, because the board's
+ * clock does. On Linux that is CLOCK_BOOTTIME; CLOCK_MONOTONIC stops there.
+ * macOS has no CLOCK_BOOTTIME and its CLOCK_MONOTONIC already keeps running. */
+#ifdef CLOCK_BOOTTIME
+#define CAPTURE_ELAPSED_CLOCK CLOCK_BOOTTIME
+#else
+#define CAPTURE_ELAPSED_CLOCK CLOCK_MONOTONIC
+#endif
+
+static uint64_t elapsed_ns( void )
+{
+	struct timespec ts = { 0, 0 };
+
+	/* Fall back to the wall clock rather than a constant, so the periods
+	 * are still counted from something that moves. */
+	if (clock_gettime( CAPTURE_ELAPSED_CLOCK, &ts ) != 0)
+		return now_ns( );
+	return (1000000000ull*(uint64_t) ts.tv_sec) + (uint64_t) ts.tv_nsec;
+}
+
+/* Both host clock reads go through a pointer so the tests can hand the time
+ * reconstruction a clock they drive themselves; a live capture's timestamps
+ * cannot be checked against clocks that run on their own. Nothing in the
+ * library replaces them. */
+static uint64_t (*read_now_ns)( void ) = now_ns;
+static uint64_t (*read_elapsed_ns)( void ) = elapsed_ns;
+
+/* Whether packets are arriving from a device rather than from a saved file.
+ * It decides which of the two wrap rules in track_clk100ns() applies: only a
+ * live capture has a host clock running alongside it. */
+static int capture_is_live( void )
+{
+	return infile == NULL;
+}
+
 /* The host time a packet arrived: the current time for a live capture, and
  * the host time stored with the replayed record for a replay, so a capture
  * written with -q/-r while replaying keeps the recorded times. The first
  * packet's is where a capture's timestamps start. */
 static uint64_t packet_host_ns( void )
 {
-	if (infile != NULL)
+	if (!capture_is_live( ))
 		return 1000000000ull * (uint64_t) systime;
-	return now_ns( );
+	return read_now_ns( );
 }
 
 void ubertooth_capture_clock_reset( ubertooth_t* ut )
@@ -109,10 +148,43 @@ void ubertooth_capture_clock_reset( ubertooth_t* ut )
 	ut->start_clk100ns = 0;
 	ut->last_clk100ns = 0;
 	ut->last_clkn_high = 0;
+	ut->last_elapsed_ns = 0;
 	ut->clk100ns_upper = 0;
 	ut->clk100ns_started = 0;
 	ut->clk100ns_counted = 0;
 	ut->clk100ns_gap_warned = 0;
+}
+
+/* How many whole periods the capture clock went through between two packets,
+ * worked out from how much real time passed between them.
+ *
+ * The clock sends no wrap count, and its reading alone cannot tell: a reading
+ * lower than the last one is a wrap only if the two packets are in order, and
+ * a gap longer than one period hides a wrap completely. Elapsed time settles
+ * both, because the number of whole periods is simply the one that makes the
+ * clock's advance match the time that passed. The margin is half a period -
+ * 163.84 s for the CLKN-derived clock - against a delay between a packet
+ * arriving and this code seeing it of milliseconds, and the two clocks'
+ * crystals drifting apart by microseconds over that.
+ *
+ * ticks_into_period is the advance the clock reading itself shows, 0 to one
+ * tick below the period, so the clock advanced that plus the periods returned.
+ * The result is negative for a record out of place, whose reading really does
+ * come before the previous packet's. */
+static int64_t periods_from_elapsed_time( const ubertooth_t* ut,
+                                          uint64_t ticks_into_period,
+                                          uint64_t since_last_ns )
+{
+	int64_t period = (int64_t) ut->clk100ns_period;
+	/* Elapsed time as 100 ns ticks, less the advance the reading shows:
+	 * what is left is the whole periods, to within the two clocks' error. */
+	int64_t unaccounted = (int64_t) (since_last_ns / 100) -
+	                      (int64_t) ticks_into_period;
+
+	/* Rounded to the nearest period, in whichever direction. */
+	if (unaccounted >= 0)
+		return (unaccounted + period / 2) / period;
+	return -((-unaccounted + period / 2) / period);
 }
 
 static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx )
@@ -127,6 +199,9 @@ static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx )
 	uint8_t periods = (ut->clk100ns_period == CLK100NS_PERIOD) ?
 	                  rx->clkn_high : 0;
 	uint8_t advance;
+	uint64_t elapsed = capture_is_live( ) ? read_elapsed_ns( ) : 0;
+	uint64_t since_last;
+	uint64_t ticks_into_period;
 
 	/* A count has to arrive before it can be believed: a mode that sends
 	 * none leaves the field zero, which is also what the first period of a
@@ -139,6 +214,7 @@ static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx )
 		ut->clk100ns_started = 1;
 		ut->last_clk100ns = ut->start_clk100ns = clk100ns;
 		ut->last_clkn_high = periods;
+		ut->last_elapsed_ns = elapsed;
 		ut->abs_start_ns = packet_host_ns( );
 		return;
 	}
@@ -164,20 +240,42 @@ static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx )
 			ut->clk100ns_upper += advance;
 			ut->last_clkn_high = periods;
 		}
+	} else if (capture_is_live( )) {
+		/* No count in the packets, but a host clock running alongside
+		 * the capture, so the periods are taken from the real time
+		 * between the two packets. The reading's own advance is what it
+		 * shows folded into one period; the periods on top of it are
+		 * what the elapsed time asks for. */
+		since_last = (elapsed > ut->last_elapsed_ns) ?
+		             elapsed - ut->last_elapsed_ns : 0;
+		ticks_into_period = (clk100ns >= ut->last_clk100ns) ?
+		                    clk100ns - ut->last_clk100ns :
+		                    clk100ns + ut->clk100ns_period -
+		                    ut->last_clk100ns;
+		ut->clk100ns_upper += periods_from_elapsed_time(
+		                          ut, ticks_into_period, since_last );
+		/* clk100ns_upper counts the periods to add to the raw reading,
+		 * so a reading that folded over carries one of its own. */
+		if (clk100ns < ut->last_clk100ns)
+			ut->clk100ns_upper += 1;
 	} else if (clk100ns < ut->last_clk100ns) {
-		/* Without a count a wrap can only be inferred from the clock
-		 * reading lower than it did, which misses one that falls in a
-		 * gap longer than a single period. */
+		/* A replayed record stores the host time it was captured with
+		 * only to the second, and nothing of how long the capture had
+		 * been running, so there is no elapsed time to compare against:
+		 * a replay is left with the wrap inferred from the reading
+		 * going down, which misses one that falls in a gap longer than
+		 * a single period. */
 		ut->clk100ns_upper += 1;
 	}
 
 	ut->last_clk100ns = clk100ns;
+	ut->last_elapsed_ns = elapsed;
 }
 
-/* A wrap that cannot be counted - inferred from the clock going backwards and
- * falling in a gap longer than one period, or past the range of the count a
- * packet carries - leaves nothing in the capture to show it: the times simply
- * come out short from then on. The host clock does show it, because it kept
+/* A wrap that is missed leaves nothing in the capture to show it: the times
+ * simply come out short from then on. What can still miss one is a replay,
+ * which has no elapsed time to work from, and a gap past the range of the
+ * count a packet carries. The host clock does show it, because it kept
  * running, so it ends up ahead of the reconstructed times. Said once, and not
  * used to correct them: it says that time was lost, not where, and a host
  * clock that is stepped during a capture must not move packet times. A step
@@ -210,10 +308,14 @@ static void warn_if_a_wrap_was_lost( ubertooth_t* ut, uint64_t packet_ns )
  * counting: each wrap seen adds the period of the clock this mode stamps with
  * (ut->clk100ns_period). Adding 2^32 instead, as if every clock were a 32-bit
  * counter, put 101.8 s into every packet after a wrap of the CLKN-derived
- * clock, which wraps at 3125 * 2^20. */
-static uint64_t clk100ns_extended( const ubertooth_t* ut, const usb_pkt_rx* rx )
+ * clock, which wraps at 3125 * 2^20.
+ *
+ * Signed, because the period count runs below zero for a record out of
+ * place: its reading comes before the one the capture is anchored on. */
+static int64_t clk100ns_extended( const ubertooth_t* ut, const usb_pkt_rx* rx )
 {
-	return ut->clk100ns_upper * ut->clk100ns_period + le32toh( rx->clk100ns );
+	return ut->clk100ns_upper * (int64_t) ut->clk100ns_period +
+	       le32toh( rx->clk100ns );
 }
 
 static uint64_t now_ns_from_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx )
@@ -229,7 +331,7 @@ static uint64_t now_ns_from_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx )
 	 * that disagrees with its own clock reading by a period, in whichever
 	 * direction that mode's two reads happen to be ordered. */
 	packet_ns = (uint64_t) ((int64_t) ut->abs_start_ns + 100 *
-	            ((int64_t) clk100ns_extended( ut, rx ) -
+	            (clk100ns_extended( ut, rx ) -
 	             (int64_t) ut->start_clk100ns));
 	warn_if_a_wrap_was_lost( ut, packet_ns );
 	return packet_ns;

@@ -174,8 +174,12 @@ writes the records back out with their original times.
 That clock starts over every 327.68 s, and each Classic packet carries a count
 of how often it has, so the times hold across a quiet gap: a `-c` on a quiet
 channel, a tight `-e`, or a capture left idle. The count is one byte, so a gap
-of up to about 11.6 hours is covered; past that the periods cannot be counted
-and every later time comes out short, which is reported on standard error:
+of up to about 11.6 hours is covered. Until the first count arrives, in the
+capture's first period, a live capture counts the periods from how much real
+time passed between one packet and the next instead. A replay has no such
+clock: it reads a clock value lower than the last as a single period, and
+loses a gap longer than that. Where the periods cannot be counted every later
+time comes out short, which is reported on standard error:
 `warning: packet times are behind the host clock by more than half the capture
 clock's 327.68 s period: a quiet gap lost a clock wrap, or the host clock was
 stepped forwards`. Both causes look the same from here, which is why the
