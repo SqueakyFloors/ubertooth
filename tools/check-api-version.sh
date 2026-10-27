@@ -53,14 +53,17 @@
 #     what the host sees are watched one by one (see watched_flags below), and
 #     the rest of that file -- where object files go, the warning flags, the
 #     rules -- is not.
-#   - It calls changes interface changes that are not. Three kinds, in
+#   - It calls changes interface changes that are not. Four kinds, in
 #     rough order of how often they turn up: a change to the BTBR and BTCTL
 #     half of ubertooth_interface.h, which belongs to the btbr image and its
 #     own bcdDevice; a change to one of the image's sources that the host
 #     never reads, the LED patterns, the debug UART and tinyprintf among
-#     them; and code moved verbatim between two watched files. Each is a
-#     false red on a gating job, and the way out is the maintainer merging
-#     it red, not a version nobody needs; the message below says so.
+#     them; code moved verbatim between two watched files; and a line of
+#     firmware/common.mk that carries a watched flag without setting it, the
+#     recipe that echoes the board name and the link command that uses
+#     LINKER_SCRIPT being the two in the file today. Each is a false red on a
+#     gating job, and the way out is the maintainer merging it red, not a
+#     version nobody needs; the message below says so.
 #   - It cannot see two open branches claiming the same value, since neither
 #     is wrong until the other merges. The second goes red as soon as the
 #     first lands, and the push-to-main leg of the job catches it even if the
@@ -108,8 +111,7 @@ EOF
 # Only files that are compiled or linked, that say which files are, or that
 # say how they are compiled: a README under one of those directories cannot
 # change what the host sees, and counting it would let a branch authorise its
-# own bump by appending a line to one. A pathspec wildcard here matches across
-# directories, so firmware/common/*.c reaches lpcusb too.
+# own bump by appending a line to one.
 #
 # The two linker scripts are named rather than matched, because firmware/common
 # holds four and this image uses two of them: common.mk's default,
@@ -126,7 +128,7 @@ EOF
 # firmware/common.mk is watched, but only a few lines of it. It is the shared
 # build file every image includes and it carries the compile flags, so a change
 # there can alter what the host sees with no source change at all -- and most of
-# it cannot: its two changes in main's history moved where object files are
+# it cannot: its changes in main's recent history moved where object files are
 # written and which shared source every image compiles in, neither of which a
 # host can observe. So it is read through watched_flags below, which names the
 # flags that move the interface and ignores every other line.
@@ -243,9 +245,12 @@ EOF
 #     -mfix-cortex-m3-ldrd, -mapcs-frame, -mthumb-interwork), -fno-builtin,
 #     -fno-hosted, -ffunction-sections. Get one wrong and the image does not
 #     run, and the host cannot misread a board that never answers.
-#   - -D__thumb2__=1 and CSTANDARD. Nothing in the tree reads the first, and
-#     the C dialect does not decide the layout of the shared structs; the
-#     processor's ABI does.
+#   - CSTANDARD. The C dialect does not decide the layout of the shared
+#     structs; the processor's ABI does. -D__thumb2__=1 belongs here for the
+#     same kind of reason, nothing in the tree reading it, but it is written
+#     as a -D and so the -D entry above watches its line anyway. That is a
+#     false red the entry is worth having, and a cheap one: the line has not
+#     changed in main's history.
 #   - LINKER_OPTS, the passthrough for linker options, which lay the image out
 #     rather than define anything: the previous point covers it.
 #   - OBJDIR, OUTDIR, FORMAT, per_image, DEBUG, the listing and depfile flags,
@@ -259,8 +264,8 @@ EOF
 #     ubertooth-dfu reads arrived that way -- but the source itself is watched,
 #     because it lives in firmware/common. Only dropping such a line while
 #     leaving the file in the tree would pass unnoticed, and watching these
-#     names would bring back the plumbing churn this narrowing is for: both
-#     changes to this file in main's history move one of them.
+#     names would bring back the plumbing churn this narrowing is for: the
+#     changes to this file in main's recent history move one of them.
 
 # One line of text with its runs of blanks collapsed to one space and the ends
 # trimmed, so reindenting a flag line is not a change to it.
@@ -351,10 +356,13 @@ interface_text() {
         # one is not.
         #
         # grep exits 1 when nothing matched, and here that is an answer rather
-        # than a failure: this commit sets none of the watched flags. Its
-        # status is not read, as with the other greps in this script.
+        # than a failure: this commit sets none of the watched flags. Anything
+        # above 1 is a real failure, an unreadable pattern file above all, and
+        # must not pass as that answer: empty is what asks for no bump.
         printf '%s\n' "$text" | grep -v '^[[:space:]]*#[[:space:]]' |
-            collapse_blanks | grep -F -f "$work/flags" || :
+            collapse_blanks | grep -F -f "$work/flags"
+        matched=$?
+        [ "$matched" -le 1 ] || return 1
         return 0
     fi
     printf '%s\n' "$text" | strip_noninterface
@@ -685,8 +693,11 @@ if grep -qxF "$common_mk" "$work/changed"; then
         exit 1
     }
     flag_lines=$(cat "$work/mk.diff")
+    # grep finds nothing only if a differing line sets no watched flag, which
+    # cannot happen: that is what put the line in the comparison. The message
+    # below falls back to the lines alone if it ever does.
     flag_names=$(sed 's/^[-+] //' "$work/mk.diff" |
-        grep -oF -f "$work/flags" | sort -u) || flag_names=
+        grep -oF -f "$work/flags" | sort -u)
 fi
 
 # What was compared, for the record: a log that only says "passed" cannot be

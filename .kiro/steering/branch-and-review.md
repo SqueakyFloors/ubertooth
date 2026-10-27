@@ -171,8 +171,9 @@ change the host relies on**, in the PR that makes it.
   observe is still asked for one. The false reds to expect: a change to the
   BTBR or BTCTL half of the interface header, which belongs to the separate
   `btbr` image; a change to one of the image's sources the host never reads,
-  such as the LED patterns or the debug UART; and code moved verbatim between
-  two watched files.
+  such as the LED patterns or the debug UART; code moved verbatim between two
+  watched files; and a line of `firmware/common.mk` that carries a watched
+  flag without setting it, such as the recipe that echoes the board name.
 - So `api-version` is the one job in the gating set whose red is sometimes
   wrong. If it refuses a branch that changes nothing the host sees, do NOT
   bump the version to clear it and do NOT edit the watched list to suit one
