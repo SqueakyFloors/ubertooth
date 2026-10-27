@@ -230,8 +230,13 @@ check_image() {
              "a $SUFFIX_LENGTH-byte suffix, and nothing else"
         return 1
     fi
-    dd if="$packaged" of="$work/payload" bs="$image_size" count=1 \
-        2> /dev/null
+    # head, not dd: it reads exactly this many bytes however the kernel
+    # hands them over, and a read that failed is a failure here rather than
+    # a stale payload compared against the next image.
+    if ! head -c "$image_size" "$packaged" > "$work/payload" 2> /dev/null; then
+        fail "$path: could not read the packaged file's payload back"
+        return 1
+    fi
     if ! cmp -s "$copy" "$work/payload"; then
         fail "$path: the packaged file holds other firmware than the image" \
              "it was built from, so flashing the .dfu would not write" \
@@ -288,6 +293,7 @@ find_images() {
 }
 
 from_directory=
+dfu_tool_seen=
 while [ $# -gt 0 ]; do
     case $1 in
     -h|--help)
@@ -301,12 +307,15 @@ while [ $# -gt 0 ]; do
         fi
         # A repeated option is refused rather than quietly reconciled, as
         # every tool in this tree does: two tools named in one command line
-        # is a mistake, and acting on one of them hides it.
-        if [ "$dfu_tool" != "$DEFAULT_DFU_TOOL" ]; then
+        # is a mistake, and acting on one of them hides it. The flag, not the
+        # value: naming the default tool first and another one second is still
+        # naming two.
+        if [ -n "$dfu_tool_seen" ]; then
             fail "--dfu-tool twice ($dfu_tool, then $2): name one tool"
             exit 1
         fi
         dfu_tool=$2
+        dfu_tool_seen=yes
         shift 2
         ;;
     --from)

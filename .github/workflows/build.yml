@@ -481,15 +481,17 @@ jobs:
       timeout-minutes: 6
       run: tools/check-api-version-selftest.sh
     - name: Check that the DFU packaging check holds both ways
-      # Same split as the step above. The dfu-package job below packages the
-      # real images with the real tool, which shows the check passing and
-      # says nothing about whether it would still refuse a .dfu the tool
-      # cannot flash -- and a release that broke packaging is exactly when
-      # nobody can ask CI to try it. This packages with stand-ins that write
+      # Same split and the same bound as the step above. The dfu-package job
+      # below packages the real images with the real tool, which shows the
+      # check passing and says nothing about whether it would still refuse a
+      # .dfu the tool cannot flash -- and a release that broke packaging is
+      # exactly when nobody can ask CI to try it. This packages with
+      # stand-ins that write
       # a wrong vendor or product, a wrong signature, a corrupted CRC, no
       # firmware, no file at all, or other firmware than they were given, and
       # asserts the status and the message for each. A C compiler and nothing
       # else: no ARM toolchain, no host build, no board, no network.
+      timeout-minutes: 6
       run: tools/check-dfu-package-selftest.sh
 
   # Issue and pull request numbers must not appear in source, tests or build

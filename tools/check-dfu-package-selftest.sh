@@ -448,6 +448,14 @@ want_status 1
 want_empty_stdout
 want_stderr "--dfu-tool twice"
 
+# Naming the default tool first and another one second is still naming two, so
+# the refusal cannot come from comparing the value with the default.
+run "--dfu-tool twice, the first one the default" \
+    --dfu-tool ubertooth-dfu --dfu-tool "$good" "$image"
+want_status 1
+want_empty_stdout
+want_stderr "--dfu-tool twice"
+
 run "--from twice" --dfu-tool "$good" --from "$work" --from "$work"
 want_status 1
 want_empty_stdout

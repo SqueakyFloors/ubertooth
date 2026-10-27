@@ -116,12 +116,11 @@ Speed matters. Do not wait for every job.
   built; a change to the host's DFU code needs `dfu-package` too, since it
   builds and runs the packaging tool; changes to `install.sh` need both
   `install-sh` jobs; changes under `host/doc` need the `Man pages` workflow,
-  which `gh pr checks` prints under its job name,
-  `refresh`. `issue-references`, `api-version`, `libbtbb-pin`,
-  `scripts (ubuntu-24.04)` and `scripts (macos-26)` gate every change they
-  run on, whatever the change touches: they take seconds to a minute, need
-  nothing built, and a red one means the change itself broke the rule they
-  check. A full-tier failure is
+  which `gh pr checks` prints under its job name, `refresh`.
+  `issue-references`, `api-version`, `libbtbb-pin`, `scripts (ubuntu-24.04)`
+  and `scripts (macos-26)` gate every change they run on, whatever the change
+  touches: they take seconds to a minute, need nothing built, and a red one
+  means the change itself broke the rule they check. A full-tier failure is
   followed up on `main`.
 - **Time budget**: wait at most 10 minutes for the gating set once the run has
   started. Poll every 30 seconds (`gh pr checks <PR>`) rather than one long
