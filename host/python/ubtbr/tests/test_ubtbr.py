@@ -893,7 +893,8 @@ print("ubtbr: a device that takes no request is reported, not waited on")
 
 # and the same when the requests stop being taken part way through the three
 # the session opens with, which is the shape a real board gives: the endpoint
-# it never reads holds the first of them, and the one that fills it waits.
+# nothing reads holds the first two, and the third, the one that fills it,
+# waits.
 running = tool(dict(ENVIRONMENT, UBTBR_FAKE_WRITE_FAILS_AFTER="2"))
 output, errors = running.communicate("", timeout=DEADLINE * 2)
 assert running.returncode == 1, (running.returncode, output, errors)

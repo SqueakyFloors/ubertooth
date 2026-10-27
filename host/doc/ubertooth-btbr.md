@@ -150,9 +150,9 @@ as well.
 With no Ubertooth attached the tool says `error: no Ubertooth devices found`
 and exits 1. A board that takes none of the requests the session opens with
 gets `error: could not set up the Ubertooth: ...` and, when the request timed
-out, a `note: ` naming the image to flash: that is nearly always a board
-carrying `bluetooth_rxtx`, though a board already carrying `btbr` that stopped
-answering times out the same way. See FIRMWARE.
+out, a `note: ` naming `bluetooth_rxtx` and the image to flash: that is nearly
+always what such a board is carrying, though a board already carrying `btbr`
+that stopped answering times out the same way. See FIRMWARE.
 
 ## EXIT STATUS
 
