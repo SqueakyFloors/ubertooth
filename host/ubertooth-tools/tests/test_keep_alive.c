@@ -9,13 +9,19 @@
  * quiet put a packet nothing had filled in into the ring buffer -- and
  * ubertooth-dump -d wrote it out as a record a reader cannot tell from data.
  *
- * Two things are checked here, matching the two places a keep-alive is
+ * Three things are checked here. Two match the two places a keep-alive is
  * stopped:
  *
  *  - the receive callback publishes a whole packet and nothing shorter, which
  *    is the fix: a short transfer keeps the slot for the next real packet;
  *  - the consumers that write records out skip a keep-alive that reaches them
  *    anyway, which a replay of a capture file recorded before the fix does.
+ *
+ * The third is which short transfers are said out loud. The keep-alive is the
+ * only one a board sends on purpose, so any other means the stream is losing
+ * packets, and dropping those in silence made a faulty capture look like a
+ * quiet board. One such transfer is reported once per handle; a keep-alive and
+ * a whole packet are not reported at all.
  *
  * The real ubertooth.c, ubertooth_callback.c and ubertooth_control.c are
  * compiled in; the test defines the libusb calls and the fifo calls itself,
@@ -434,21 +440,28 @@ MU_TEST(a_keep_alive_transfer_is_not_published)
 	release_handle(ut);
 }
 
-/* The case that must keep working: a whole packet is published, once. */
+/* The case that must keep working: a whole packet is published, once, and
+ * nothing is said about it. */
 MU_TEST(a_whole_packet_is_published)
 {
 	ubertooth_t* ut;
+	char err[256] = "";
+	char out[256] = "";
 
 	reset();
 	ut = new_handle();
 	mu_assert_fatal(ut != NULL, "a handle");
 
+	capture_output();
 	mu_assert_int_eq(0, ubertooth_bulk_init(ut));
 	deliver_bytes(fill_slot_with_a_packet(17));
+	release_output(out, sizeof(out), err, sizeof(err));
 
 	mu_assert_int_eq(1, ring.published);
 	mu_assert_int_eq(BR_PACKET, ring.slots[0].pkt_type);
 	mu_assert_int_eq(17, ring.slots[0].channel);
+	mu_assert(err[0] == '\0', err);
+	mu_assert(out[0] == '\0', out);
 
 	release_handle(ut);
 }
@@ -481,7 +494,10 @@ MU_TEST(a_packet_after_a_quiet_spell_is_the_only_record)
 
 /* A transfer cut short anywhere other than at a keep-alive is not a packet
  * either: a record 63 bytes of data short is not something a consumer can
- * read. */
+ * read. Each of those also means the stream lost that packet, so each is
+ * reported -- except a transfer that brought nothing, which is just a bulk
+ * read that found a quiet board. The slot these read into holds stale bytes,
+ * so none of them is a keep-alive. */
 MU_TEST(a_transfer_shorter_than_a_packet_is_not_published)
 {
 	static const int lengths[] = { 0, 1, 2, 32, PKT_LEN - 1 };
@@ -490,14 +506,18 @@ MU_TEST(a_transfer_shorter_than_a_packet_is_not_published)
 	for (i = 0; i < sizeof(lengths) / sizeof(lengths[0]); i++) {
 		ubertooth_t* ut;
 		uint8_t* slot_before;
+		char err[256] = "";
+		char out[256] = "";
 
 		reset();
 		ut = new_handle();
 		mu_assert_fatal(ut != NULL, "a handle");
 
+		capture_output();
 		mu_assert_int_eq(0, ubertooth_bulk_init(ut));
 		slot_before = fake.in_flight->buffer;
 		deliver_bytes(lengths[i]);
+		release_output(out, sizeof(out), err, sizeof(err));
 
 		mu_assert_int_eq(0, ring.published);
 		mu_assert(fake.in_flight != NULL
@@ -505,9 +525,77 @@ MU_TEST(a_transfer_shorter_than_a_packet_is_not_published)
 		          "the slot was kept for the next packet");
 		mu_assert(!ubertooth_stream_failed(ut),
 		          "the capture is still running");
+		mu_assert_int_eq(lengths[i] == 0 ? 0 : 1,
+		                 count_of(err, "warning: "));
+		mu_assert(out[0] == '\0', out);
 
 		release_handle(ut);
 	}
+}
+
+/* The diagnostic. A transfer that arrived with part of a packet is still
+ * dropped -- that is what keeps half a record out of the capture -- and now
+ * says so on standard error, so a capture losing packets no longer reads as a
+ * quiet board. A fault that repeats is said once, not once per transfer. */
+MU_TEST(a_truncated_transfer_is_reported_once)
+{
+	ubertooth_t* ut;
+	uint8_t* slot_before;
+	char err[512] = "";
+	char out[256] = "";
+
+	reset();
+	ut = new_handle();
+	mu_assert_fatal(ut != NULL, "a handle");
+
+	capture_output();
+	mu_assert_int_eq(0, ubertooth_bulk_init(ut));
+	slot_before = fake.in_flight->buffer;
+	deliver_bytes(32);
+	deliver_bytes(32);
+	deliver_bytes(2);
+	release_output(out, sizeof(out), err, sizeof(err));
+
+	/* All three dropped: nothing published, and the slot is still the one
+	 * being read into, so the next whole packet overwrites every byte. */
+	mu_assert_int_eq(0, ring.published);
+	mu_assert(fake.in_flight != NULL && fake.in_flight->buffer == slot_before,
+	          "the slot was kept for the next packet");
+	mu_assert(!ubertooth_stream_failed(ut), "the capture is still running");
+	/* One line, naming how much arrived, on standard error. */
+	mu_assert_int_eq(1, count_of(err, "warning: "));
+	mu_assert(strstr(err, "32 of a packet's 64 bytes") != NULL, err);
+	mu_assert(strchr(err, '\n') == strrchr(err, '\n'), "said once");
+	mu_assert(out[0] == '\0', out);
+
+	release_handle(ut);
+}
+
+/* What makes a short transfer the keep-alive is the byte it carries, not its
+ * length: one byte that is not the keep-alive type is a transfer cut short
+ * after one byte, which is a fault, and is reported. */
+MU_TEST(a_one_byte_transfer_that_is_not_a_keep_alive_is_reported)
+{
+	ubertooth_t* ut;
+	char err[512] = "";
+	char out[256] = "";
+
+	reset();
+	ut = new_handle();
+	mu_assert_fatal(ut != NULL, "a handle");
+
+	capture_output();
+	mu_assert_int_eq(0, ubertooth_bulk_init(ut));
+	((usb_pkt_rx*)fake.in_flight->buffer)->pkt_type = BR_PACKET;
+	deliver_bytes(1);
+	release_output(out, sizeof(out), err, sizeof(err));
+
+	mu_assert_int_eq(0, ring.published);
+	mu_assert_int_eq(1, count_of(err, "warning: "));
+	mu_assert(strstr(err, "1 of a packet's 64 bytes") != NULL, err);
+	mu_assert(out[0] == '\0', out);
+
+	release_handle(ut);
 }
 
 /* ---- what a dump writes ------------------------------------------------- */
@@ -689,6 +777,8 @@ int main(void)
 	MU_RUN(a_whole_packet_is_published);
 	MU_RUN(a_packet_after_a_quiet_spell_is_the_only_record);
 	MU_RUN(a_transfer_shorter_than_a_packet_is_not_published);
+	MU_RUN(a_truncated_transfer_is_reported_once);
+	MU_RUN(a_one_byte_transfer_that_is_not_a_keep_alive_is_reported);
 	MU_RUN(a_dump_leaves_out_a_keep_alive_record);
 	MU_RUN(a_bitstream_dump_leaves_out_a_keep_alive);
 	MU_RUN(a_replayed_keep_alive_is_not_decoded_or_recorded);

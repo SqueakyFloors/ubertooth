@@ -159,6 +159,21 @@ typedef struct {
 	 * means "a stream on this handle failed", which is all a tool's exit
 	 * status has to say anyway. */
 	volatile int rx_stream_status;
+
+	/* Whether a receive transfer that arrived with some bytes but not a
+	 * whole packet has already been reported, so it is said once rather
+	 * than once per transfer: the fault that truncates one usually
+	 * truncates many.
+	 *
+	 * Written where the receive callback runs: the poll thread while a
+	 * capture is running, and the stopping thread for the last transfer,
+	 * which the teardown waits for. Those never overlap, and a short
+	 * transfer during the teardown is not reported anyway.
+	 *
+	 * Never cleared, so on a handle that runs more than one stream
+	 * (ubertooth-afh detects a map, then monitors it) it means "a transfer
+	 * on this handle was truncated". */
+	uint8_t short_xfer_warned;
 } ubertooth_t;
 
 typedef void (*rx_callback)(ubertooth_t* ut, void* args);

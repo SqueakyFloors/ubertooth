@@ -650,6 +650,39 @@ static void rx_xfer_release(ubertooth_t* ut, struct libusb_transfer* xfer)
 	libusb_free_transfer(xfer);
 }
 
+/* Says that a receive transfer arrived truncated, which means the capture is
+ * losing packets: the USB stack or the firmware cut the transfer short, and
+ * part of a packet is not something a consumer can read, so it is dropped.
+ *
+ * The one short transfer a board sends on purpose is the keep-alive a quiet
+ * capture gets: a single byte holding the packet type KEEP_ALIVE. It is let
+ * through on that byte and not on its length alone, because a transfer cut
+ * short after one byte is just as possible, and that one is a fault.
+ *
+ * A transfer that brought no bytes at all is the ordinary quiet-board case, a
+ * bulk read that found nothing, and says nothing.
+ *
+ * Said once per handle. A fault that truncates one transfer usually truncates
+ * many, and a line each would bury the capture's own output. */
+static void warn_if_transfer_was_truncated(ubertooth_t* ut,
+                                           const struct libusb_transfer* xfer)
+{
+	if (ut->short_xfer_warned)
+		return;
+	if (xfer->actual_length <= 0 || xfer->actual_length == PKT_LEN)
+		return;
+	/* The keep-alive. Its one byte is the first field of a receive slot,
+	 * usb_pkt_rx.pkt_type. */
+	if (xfer->actual_length == 1 && xfer->buffer != NULL
+	    && xfer->buffer[0] == KEEP_ALIVE)
+		return;
+
+	ut->short_xfer_warned = 1;
+	fprintf(stderr, "warning: a receive transfer arrived with %d of a "
+	        "packet's %d bytes and was dropped; the capture is losing "
+	        "packets\n", xfer->actual_length, PKT_LEN);
+}
+
 static void cb_xfer(struct libusb_transfer *xfer)
 {
 	ubertooth_t* ut = (ubertooth_t*)xfer->user_data;
@@ -697,7 +730,11 @@ static void cb_xfer(struct libusb_transfer *xfer)
 		 * the other 63 bytes as they were. Handing that slot on publishes
 		 * a packet nothing filled in, and a consumer that writes records
 		 * out then saves 64 bytes of which only pkt_type was ever set. The
-		 * slot is kept instead, for the next real packet to read into. */
+		 * slot is kept instead, for the next real packet to read into.
+		 *
+		 * Anything short other than that keep-alive is a fault, and
+		 * dropping it in silence left a capture losing packets looking
+		 * like a quiet board, so it is reported. */
 		if (xfer->status == LIBUSB_TRANSFER_COMPLETED
 		    && xfer->actual_length == PKT_LEN) {
 			/* When this packet arrived, stamped here because this is
@@ -708,6 +745,8 @@ static void cb_xfer(struct libusb_transfer *xfer)
 			 * then caught up on. */
 			fifo_inc_write_ptr(ut->fifo, ubertooth_packet_arrival_ns());
 			xfer->buffer = (uint8_t*)fifo_get_write_element(ut->fifo);
+		} else {
+			warn_if_transfer_was_truncated(ut, xfer);
 		}
 		r = libusb_submit_transfer(xfer);
 		if (r == 0) {
@@ -1412,6 +1451,7 @@ ubertooth_t* ubertooth_init()
 	ut->rx_xfer = NULL;
 	ut->rx_xfer_state = RX_XFER_OURS;
 	ut->rx_stream_status = 0;
+	ut->short_xfer_warned = 0;
 	ut->stop_ubertooth = 0;
 	ubertooth_capture_clock_reset(ut);
 	/* Which clock a mode stamps with is the tool's to say, and it says so

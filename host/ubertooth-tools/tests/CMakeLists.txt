@@ -707,10 +707,10 @@ if(libubertooth_SOURCE_DIR)
 	set_tests_properties(stream-failure PROPERTIES TIMEOUT 10)
 
 	# The keep-alive a quiet capture gets: what the receive callback
-	# publishes for a transfer shorter than a whole packet, and what a dump
-	# writes for a keep-alive that reaches the consumer anyway. The fifo
-	# fake here is a small ring, so a case can see which slots were
-	# published and what was in them.
+	# publishes for a transfer shorter than a whole packet, which of those
+	# it reports as a fault, and what a dump writes for a keep-alive that
+	# reaches the consumer anyway. The fifo fake here is a small ring, so a
+	# case can see which slots were published and what was in them.
 	add_executable(test-keep-alive
 		test_keep_alive.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth.c
