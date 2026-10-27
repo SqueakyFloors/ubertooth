@@ -208,18 +208,11 @@ static char *posixly_correct;
    whose names are inconsistent.  */
 
 #ifndef getenv
-#ifdef _MSC_VER
-// DDK will complain if you don't use the stdlib defined getenv
 #include <stdlib.h>
-#else
-extern char *getenv ();
-#endif
 #endif
 
 static char *
-my_index (str, chr)
-     const char *str;
-     int chr;
+my_index (const char *str, int chr)
 {
   while (*str)
     {
@@ -300,8 +293,7 @@ static void exchange (char **);
 #endif
 
 static void
-exchange (argv)
-     char **argv;
+exchange (char **argv)
 {
   int bottom = first_nonopt;
   int middle = last_nonopt;
@@ -385,10 +377,9 @@ exchange (argv)
 static const char *_getopt_initialize (int, char *const *, const char *);
 #endif
 static const char *
-_getopt_initialize (argc, argv, optstring)
-     int argc __attribute__((unused));
-     char *const *argv __attribute__((unused));
-     const char *optstring;
+_getopt_initialize (int argc __attribute__((unused)),
+		    char *const *argv __attribute__((unused)),
+		    const char *optstring)
 {
   /* Start processing options with ARGV-element 1 (since ARGV-element 0
      is the program name); the sequence of previously skipped
@@ -534,13 +525,8 @@ getopt_long_only (
    long-named options.  */
 
 int
-_getopt_internal (argc, argv, optstring, longopts, longind, long_only)
-     int argc;
-     char *const *argv;
-     const char *optstring;
-     const struct option *longopts;
-     int *longind;
-     int long_only;
+_getopt_internal (int argc, char *const *argv, const char *optstring,
+		  const struct option *longopts, int *longind, int long_only)
 {
   int print_errors = opterr;
   if (optstring[0] == ':')
@@ -1000,10 +986,7 @@ _getopt_internal (argc, argv, optstring, longopts, longind, long_only)
 }
 
 int
-getopt (argc, argv, optstring)
-     int argc;
-     char *const *argv;
-     const char *optstring;
+getopt (int argc, char *const *argv, const char *optstring)
 {
   return _getopt_internal (argc, argv, optstring,
 			   (const struct option *) 0,

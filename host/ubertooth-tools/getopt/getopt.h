@@ -138,14 +138,10 @@ struct option
    `getopt'.  */
 
 #if (defined __STDC__ && __STDC__) || defined __cplusplus
-# ifdef __GNU_LIBRARY__
-/* Many other libraries have conflicting prototypes for getopt, with
-   differences in the consts, in stdlib.h.  To avoid compilation
-   errors, only prototype getopt for the GNU C library.  */
+/* Always prototype getopt.  Upstream left it unprototyped off the GNU C
+   library to dodge const mismatches, but that form conflicts with the C
+   library's own declaration, and C23 reads it as taking no arguments.  */
 extern int getopt (int __argc, char *const *__argv, const char *__shortopts);
-# else /* not __GNU_LIBRARY__ */
-extern int getopt ();
-# endif /* __GNU_LIBRARY__ */
 
 # ifndef __need_getopt
 extern int getopt_long (int __argc, char *const *__argv, const char *__shortopts,
@@ -161,12 +157,19 @@ extern int _getopt_internal (int __argc, char *const *__argv,
 			     int __long_only);
 # endif
 #else /* not __STDC__ */
-extern int getopt ();
+extern int getopt (int __argc, char *const *__argv, const char *__shortopts);
 # ifndef __need_getopt
-extern int getopt_long ();
-extern int getopt_long_only ();
+extern int getopt_long (int __argc, char *const *__argv, const char *__shortopts,
+		        const struct option *__longopts, int *__longind);
+extern int getopt_long_only (int __argc, char *const *__argv,
+			     const char *__shortopts,
+		             const struct option *__longopts, int *__longind);
 
-extern int _getopt_internal ();
+/* Internal only.  Users should not call this directly.  */
+extern int _getopt_internal (int __argc, char *const *__argv,
+			     const char *__shortopts,
+		             const struct option *__longopts, int *__longind,
+			     int __long_only);
 # endif
 #endif /* __STDC__ */
 
