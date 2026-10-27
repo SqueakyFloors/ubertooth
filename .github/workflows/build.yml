@@ -403,20 +403,6 @@ jobs:
         make bootloader
         echo "::endgroup::"
 
-    # The makefiles rebuild the objects when a compile flag changes and relink
-    # when a linker script changes, so that a build after such an edit is not
-    # the previous image. The firmware unit tests above can only read the
-    # makefiles as text, which says the lines are there, not that they work.
-    # This builds blinky and the bootloader in a copy of the tree, changes one
-    # thing at a time and looks at what was rewritten, which needs the ARM
-    # toolchain -- already installed for this job. Around a minute, most of it
-    # the builds and the whole seconds the check has to wait out.
-    - name: Check that a flag or linker-script change rebuilds the firmware
-      working-directory: ${{github.workspace}}
-      shell: bash
-      timeout-minutes: 8
-      run: tools/check-firmware-rebuilds.sh
-
     - name: Upload firmware artifacts
       uses: actions/upload-artifact@v4
       with:
@@ -425,6 +411,26 @@ jobs:
           ${{github.workspace}}/firmware/*/*.bin
           ${{github.workspace}}/firmware/*/*.elf
         if-no-files-found: error
+
+    # The makefiles rebuild the objects when a compile flag changes and relink
+    # when a linker script changes, so that a build after such an edit is not
+    # the previous image. The firmware unit tests above can only read the
+    # makefiles as text, which says the lines are there, not that they work.
+    # This builds three images in a copy of the tree, changes one thing at a
+    # time and looks at what was rewritten, which needs the ARM toolchain --
+    # already installed for this job. Around a minute, most of it the builds
+    # and the whole seconds the check has to wait out.
+    #
+    # After the upload on purpose, so a failure here still leaves the images
+    # this job built to download, and still feeds the image-revision job.
+    - name: Check that a flag or linker-script change rebuilds the firmware
+      working-directory: ${{github.workspace}}
+      shell: bash
+      # Above its worst observed run by a wide margin but well under the job's
+      # own limit, so a check that hangs is reported as this step timing out
+      # rather than as the whole job running out.
+      timeout-minutes: 5
+      run: tools/check-firmware-rebuilds.sh
 
   # The scripts in tools/ are CI's own moving parts, and nothing used to lint
   # or test them: a mistake in one surfaced as a confusing failure in whatever

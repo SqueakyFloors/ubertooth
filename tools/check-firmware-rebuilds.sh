@@ -20,10 +20,12 @@
 # this needs the ARM toolchain, which is why it lives here and runs in the CI
 # job that installs one.
 #
-# Per image: a first build compiles and links; a second with nothing changed
-# rebuilds nothing; a different optimisation level recompiles the objects;
-# touching the linker script, or the file it includes, relinks the image
-# without recompiling anything.
+# Three images, for three shapes of makefile: blinky uses the shared one as
+# most images do, the bootloader has its own, and assembly_test overrides
+# which linker script to use. Per image: a first build compiles and links; a
+# second with nothing changed rebuilds nothing; a different optimisation level
+# recompiles the objects; touching the linker script, or the file it includes,
+# relinks the image without recompiling anything.
 #
 # Two more legs then break the mechanism in the copy and assert the opposite,
 # because a leg that would pass either way proves nothing: with the link's
@@ -97,10 +99,24 @@ pass() {
 #
 # host/libubertooth/src comes along because the firmware includes the
 # host/firmware interface header from it.
+#
+# Tracked means tracked: an edit to a tracked file is copied, but a file nobody
+# has added yet is not there at all, so a run against a half-staged tree checks
+# a tree nobody has. CI always runs this on a clean checkout.
 if ! git -C "$top" ls-files firmware host/libubertooth/src > "$work/files"; then
     printf '%s\n' \
         "error: cannot list the tracked files under $top; this check needs a" \
         "       git checkout to copy the firmware sources out of" >&2
+    exit 1
+fi
+# A handful of files cannot be the firmware: the listing worked but matched
+# almost nothing, which a renamed directory would do. Without this the first
+# symptom is make complaining about a missing file.
+file_count=$(wc -l < "$work/files")
+if [ "$file_count" -lt 100 ]; then
+    printf '%s\n' \
+        "error: only $file_count tracked files under firmware, which cannot be" \
+        "       right; has one of the directories this check names moved?" >&2
     exit 1
 fi
 while IFS= read -r file; do
@@ -112,6 +128,35 @@ while IFS= read -r file; do
         exit 1
     fi
 done < "$work/files"
+
+# The copy is a repository of its own, because the build asks git for the
+# revision it stamps into the image. Without one the build would take its
+# "no git here" path and write that header once, and the legs below would
+# never exercise the rewrite-only-when-it-changed handling a real build goes
+# through -- a regression that rewrote the header every time would recompile
+# everything for real and still pass here.
+if ! (cd "$tree" && git init -q . && git add -A && \
+      git -c user.name=check -c user.email=check@invalid \
+          commit -q -m "firmware sources under test") > "$work/git.log" 2>&1; then
+    printf '%s\n' "error: could not make the copy at $tree a git repository:" >&2
+    sed 's/^/  /' "$work/git.log" >&2
+    exit 1
+fi
+
+# The makefiles read the script's own INCLUDE lines, one level deep. A script
+# that included a file which included another would leave that third file off
+# every prerequisite list, silently, which is the bug this whole check exists
+# for. Nothing in the tree nests them today; this says so out loud, so the day
+# someone does the check fails here instead of years later.
+nested=$(awk '$1 == "INCLUDE" { print FILENAME }' \
+    /dev/null "$tree"/firmware/common/sections.ld | sed "s|^$tree/||")
+if [ -n "$nested" ]; then
+    printf '%s\n' \
+        "error: $nested is included by a linker script and includes one" \
+        "       itself; the makefiles only read one level, so a prerequisite" \
+        "       would be missing" >&2
+    exit 1
+fi
 
 # Wait out the current second, then plant a marker. Everything a build writes
 # after this is newer than the marker and everything an earlier build wrote is
@@ -131,10 +176,18 @@ rewritten() {
 # Build one image. $1 is its directory, anything after it is passed to make as
 # a variable setting. A build that fails is not a leg failing: nothing can be
 # concluded from it, so it stops the check and prints its output.
+#
+# DIRTY= holds the revision stamp still. The makefiles mark the revision they
+# stamp into an image with a "*" when the checkout has uncommitted changes, and
+# regenerate the version header when that stamp changes -- which recompiles
+# whatever includes it. Several legs below edit a file in the copy, so without
+# this the stamp would flip from clean to dirty under them and they would see a
+# rebuild they did not ask for. Everything else about the version header is
+# left alone, so a build still generates it, compares it and leaves it.
 build() {
     build_dir=$1
     shift
-    if ! make -C "$build_dir" elf "$@" > "$work/build.log" 2>&1; then
+    if ! make -C "$build_dir" elf DIRTY= "$@" > "$work/build.log" 2>&1; then
         printf '%s\n' "error: building $build_dir with 'make elf $*' failed:" >&2
         sed 's/^/  /' "$work/build.log" >&2
         exit 1
@@ -241,6 +294,14 @@ check_image blinky blinky.elf \
 # C++, so the same mechanism is there in its own copy of these lines.
 check_image bootloader bootloader.elf \
     common/LPC17xx_Linker_Script_bootloader.ld common/sections.ld
+
+# assembly_test is the one image that chooses a different linker script, which
+# it does before including the shared makefile. The resolution there is a
+# snapshot taken as that makefile is read, so this is the image that shows an
+# override reaching it -- not the one users flash, but the one that would catch
+# a change breaking that order.
+check_image assembly_test assembly_test.elf \
+    common/LPC17xx_Linker_Script_without_bootloader.ld common/sections.ld
 
 # The two legs that show the ones above are not vacuous, both against
 # firmware/common.mk and the blinky image it builds.

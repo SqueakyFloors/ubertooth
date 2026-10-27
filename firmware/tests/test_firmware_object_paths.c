@@ -336,6 +336,47 @@ static void check_link_script_resolved_before_the_rule(const char *path)
 	mu_assert(rule > resolved, why);
 }
 
+/*
+ * The resolution is a snapshot, so everything it reads has to be set above it.
+ *
+ * `:=` expands where it is written. A directory added to the linker's search
+ * path below that line, or a script named below it, is not in the snapshot,
+ * and the link then depends on the wrong script or on nothing -- with no
+ * error, which is the whole failure this guards against. An image names its
+ * own script before it includes this file, so that one is covered too.
+ */
+static void check_link_script_inputs_set_before_resolution(const char *path)
+{
+	static const char *const inputs[] = {
+		"LINKER_SCRIPT ?=",
+		"LINKER_SCRIPT =",
+		"EXTRALIBDIRS =",
+		"EXTRALIBDIRS +=",
+	};
+	int resolved = line_with(path, "LINKER_SCRIPT_FOUND :=");
+	int set = 0;
+	size_t i;
+	char why[448];
+
+	/* A makefile missing it is reported by the shape scan. */
+	if (resolved == 0)
+		return;
+	for (i = 0; i < sizeof(inputs) / sizeof(inputs[0]); i++) {
+		int line = last_line_with(path, inputs[i]);
+
+		if (line > set)
+			set = line;
+	}
+	snprintf(why, sizeof(why), "%s names no linker script at all", path);
+	mu_assert_fatal(set != 0, why);
+	snprintf(why, sizeof(why),
+	         "%s works out where its linker script is on line %d but still "
+	         "sets where to look, or which script, on line %d, so what it "
+	         "depends on is not what it links with",
+	         path, resolved, set);
+	mu_assert(resolved > set, why);
+}
+
 static void check_link_script_tracking(const char *path)
 {
 	size_t i;
@@ -354,6 +395,7 @@ static void check_link_script_tracking(const char *path)
 		mu_assert(!file_has(path, banned_link_shape[i]), why);
 	}
 	check_link_script_resolved_before_the_rule(path);
+	check_link_script_inputs_set_before_resolution(path);
 }
 
 static void check_flag_tracking(const char *path)

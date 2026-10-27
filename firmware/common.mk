@@ -278,9 +278,11 @@ LDFLAGS += -Wl,--end-group
 # them further.
 #
 # Finding nothing means no searched directory holds the file. The prerequisite
-# list is then short by that file and the link fails with the linker's own
-# message about the missing script, which says more than make could about a
-# missing prerequisite.
+# list is then short by that file, and for a name the linker cannot find either
+# the link fails with the linker's own message about the missing script, which
+# says more than make could about a missing prerequisite. A $(LINKER_SCRIPT)
+# written as a path rather than a name would be the one case that links fine
+# with nothing tracked, so keep naming the script and let the search find it.
 LINKER_SCRIPT_DIRS = . $(EXTRALIBDIRS)
 find_linker_script = $(firstword $(wildcard $(addsuffix /$(1),$(LINKER_SCRIPT_DIRS))))
 LINKER_SCRIPT_FOUND := $(call find_linker_script,$(LINKER_SCRIPT))
