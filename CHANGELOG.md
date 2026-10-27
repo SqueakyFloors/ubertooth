@@ -969,6 +969,11 @@
 
 Fixes with no visible change in normal use.
 
+- A packet captured by `ubertooth-btle -p` is timestamped a fixed moment after
+  the board synchronized on it, rather than somewhere in the middle of the
+  packet, so its time no longer drifts later the longer the packet is. Times
+  in a `-p` capture move earlier by up to about a third of a millisecond.
+  [#546](https://github.com/SqueakyFloors/ubertooth/issues/546)
 - A capture's ring buffer hands a record over properly: the record and the
   time it arrived are now published together, and a slot is not given back to
   the board until the capture has finished copying out of it. A capture far

@@ -112,6 +112,13 @@ uint8_t le_map_channel(uint8_t channel_idx, le_channel_remapping_t *remapping);
  * le_dewhiten_from(), which needs no table. */
 #define LE_WHITENING_WORD_BYTES 48
 
+/* The longest payload a data channel PDU may carry: 251 bytes with Bluetooth
+ * 4.2 Data Length Extension, and 37 without it. A length field claiming more
+ * than the first is not a packet at all, so the capture loops use these to
+ * tell a length from noise. */
+#define LE_MAX_PAYLOAD 251
+#define LE_MAX_PAYLOAD_NO_DLE 37
+
 static const u32 whitening_word[40][12] = {
 	{ 0xc3bcb240, 0x5f4a371f, 0x9a9cf685, 0x44c5d6c1, 0xe1de5920, 0xafa51b8f,
 	  0xcd4e7b42, 0x2262eb60, 0xf0ef2c90, 0x57d28dc7, 0x66a73da1, 0x113175b0, },

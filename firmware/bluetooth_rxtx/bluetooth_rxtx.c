@@ -171,6 +171,16 @@ static union {
  * le_rx.packet except the four the access address takes. */
 #define LE_RX_PDU_MAX (LE_MAX_USB_PACKET_SIZE - 4)
 
+/* dma_init_le() splits what it is given into a first item of LE_DMA_HEAD
+ * bytes and a second of the rest, and the controller's transfer size is a
+ * 12-bit field. Both bounds are checked here because the length is a constant
+ * at the only call site; a transfer size that overflowed would run into the
+ * burst-size bits and mis-program the controller rather than fail. */
+_Static_assert(LE_RX_PDU_MAX > LE_DMA_HEAD,
+               "the low-energy receive buffer is shorter than the first DMA item");
+_Static_assert(LE_RX_PDU_MAX - LE_DMA_HEAD <= 0xfff,
+               "the low-energy receive buffer does not fit one DMA transfer");
+
 static int enqueue(uint8_t type, uint8_t* buf)
 {
 	usb_pkt_rx* f = usb_enqueue();
@@ -2133,6 +2143,17 @@ void bt_generic_le(u8 active_mode)
 
 
 /*
+ * Keeps reads of the low-energy receive buffer after the wait that ended
+ * because the DMA had filled it. The controller writes the buffer without the
+ * compiler knowing, and the waits watch registers rather than the buffer, so
+ * without this a load could legally be hoisted above one of them.
+ */
+static inline void le_rx_barrier(void)
+{
+	__asm__ volatile ("" ::: "memory");
+}
+
+/*
  * Dewhitens four bytes of a PDU in place: reverses the bit order of each byte
  * and applies the channel's whitening sequence, a word at a time out of the
  * pre-computed table. `offset` is how far into the PDU the four bytes sit,
@@ -2234,14 +2255,36 @@ void bt_le_sync(u8 active_mode)
 		/* The packet as the host will see it: the access address the radio
 		 * synchronized on, then the bytes the DMA put after it. */
 		u8 *p = le_rx.packet;
+		/* The DMA writes into that buffer without the compiler knowing, so
+		 * a read of it must not be moved above the wait that has just ended
+		 * because the bytes are there. The buffer itself is not volatile:
+		 * it is read a word at a time in the dewhitening below, and the
+		 * symbol half of it is read a byte at a time in a search loop. */
+		le_rx_barrier();
 		memcpy(p, &le.access_address, 4);
 
 		const uint32_t *whit = whitening_word[btle_channel_index(channel)];
 		dewhiten_word(p + 4, 0, whit);
 
-		/* The PDU's length field is eight bits wide, so the longest packet
-		 * a Data Length Extension payload can make still fits the buffer
-		 * and nothing has to be refused for its length. */
+		/* The PDU's length field is eight bits wide, and the buffer holds
+		 * whatever it can claim, so nothing has to be refused to keep the
+		 * capture inside it. Two lengths are still refused, because waiting
+		 * for bytes is not free: the radio synchronizes on a 32-bit access
+		 * address, so noise does occasionally look like a packet, and the
+		 * longest packet takes about 2 ms to arrive -- blind time in which
+		 * the next connection event is missed.
+		 *
+		 * A length the specification does not allow is noise. And until
+		 * promisc_follow_cb() has worked out the connection's CRCInit there
+		 * is no CRC to check a packet against either; the empty data PDUs
+		 * it is looking for to get there are short, so a claimed Data
+		 * Length Extension payload in that window is refused rather than
+		 * waited for and shown to the user as a packet. */
+		unsigned max_payload = le.crc_verify ? LE_MAX_PAYLOAD
+		                                     : LE_MAX_PAYLOAD_NO_DLE;
+		if (p[5] > max_payload)
+			goto rx_flush;
+
 		unsigned len = p[5] + 2;
 		unsigned pdu_bytes = len + 3;   /* header, payload and CRC */
 
@@ -2271,6 +2314,7 @@ void bt_le_sync(u8 active_mode)
 		DIO_SSP_DMACR &= ~SSPDMACR_RXDMAE;
 		if (!whole)
 			goto rx_flush;
+		le_rx_barrier();
 
 		// strobe SFSON to allow the resync to occur while we process the packet
 		cc2400_strobe(SFSON);
@@ -2376,6 +2420,14 @@ void bt_le_sync(u8 active_mode)
 		if (do_hop)
 			hop(NULL);
 
+		/* Cleared before the receive is armed below, not after. Exactly one
+		 * terminal count is raised per packet, and it is what tells the
+		 * loop a packet has started, so a count raised between arming the
+		 * controller and clearing the counter would be lost and the loop
+		 * would wait for a packet it had already been handed. */
+		rx_tc = 0;
+		rx_err = 0;
+
 		// ♪ you can jam but you keep turning off the light ♪
 		if (le_jam_count > 0) {
 #ifdef TX_ENABLE
@@ -2396,9 +2448,6 @@ void bt_le_sync(u8 active_mode)
 				cc2400_strobe(SRX);
 			}
 		}
-
-		rx_tc = 0;
-		rx_err = 0;
 	}
 
 cleanup:

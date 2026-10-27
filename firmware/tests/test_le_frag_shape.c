@@ -41,6 +41,10 @@
 /* Each file, comments and string literals removed, spaces collapsed. */
 static char le_phy[400000];
 static char rxtx[600000];
+static char dma[60000];
+/* Only the declarations near the top; the whitening tables below them are
+ * long and nothing here reads them. */
+static char le_h[20000];
 
 static void load(const char *name, char *out, size_t size)
 {
@@ -251,11 +255,77 @@ MU_TEST(a_packet_whose_bytes_did_not_all_arrive_is_dropped)
 	          "a transfer error during a packet is not reported");
 }
 
+/* Waiting for a long packet costs time the mode could spend on the next
+ * connection event, and the radio synchronizes on 32 bits, so noise does look
+ * like a packet sometimes. A length the specification does not allow, and any
+ * long length before there is a CRC to check it against, is refused. */
+MU_TEST(an_impossible_length_is_not_waited_for)
+{
+	mu_assert(strstr(rxtx,
+	                 "unsigned max_payload = le.crc_verify ? LE_MAX_PAYLOAD :"
+	                 " LE_MAX_PAYLOAD_NO_DLE; if (p[5] > max_payload)"
+	                 " goto rx_flush;") != NULL,
+	          "an impossible PDU length is waited for and sent on");
+	mu_assert(strstr(le_h, "#define LE_MAX_PAYLOAD 251") != NULL,
+	          "the specification's longest payload is not 251 bytes");
+	mu_assert(strstr(le_h, "#define LE_MAX_PAYLOAD_NO_DLE 37") != NULL,
+	          "the longest payload without Data Length Extension is not 37");
+	/* The larger of the two still fits a capture, so refusing a length is
+	 * about the time it costs and not about running past the buffer. */
+	mu_assert(4 + 2 + 251 + 3 <= LE_MAX_USB_PACKET_SIZE,
+	          "the longest allowed packet does not fit a capture");
+}
+
+/* ------------------------------------------------------------------ *
+ * What the receive DMA is armed to do
+ * ------------------------------------------------------------------ */
+
+/* Exactly one item interrupts, which is what makes the terminal count mean
+ * "a packet has started" rather than "another four bytes arrived". The loop's
+ * counter has to be cleared before the controller is armed, or that one count
+ * can be lost. */
+MU_TEST(only_the_first_dma_item_interrupts)
+{
+	const char *arm = strstr(rxtx, "dma_init_le(le_rx.packet + 4,"
+	                               " LE_RX_PDU_MAX); dio_ssp_start();");
+	const char *clear = strstr(rxtx, "rx_tc = 0; rx_err = 0;");
+
+	mu_assert(strstr(dma, "(i == 0 ? DMACCxControl_I : 0);") != NULL,
+	          "more than the first DMA item raises a terminal count");
+	mu_assert(strstr(dma, "const unsigned size[2] = { LE_DMA_HEAD,"
+	                      " len - LE_DMA_HEAD };") != NULL,
+	          "the chain is not the first bytes and then the rest");
+	mu_assert(clear != NULL, "the terminal count is never cleared");
+	mu_assert(arm != NULL, "the re-arming in the mode loop moved");
+	mu_assert(clear < arm,
+	          "the terminal count is cleared after the receive is armed");
+}
+
+/* The buffer is written by the controller, not by code the compiler can see,
+ * so reads of it are kept after the waits that end when the bytes are there.
+ */
+MU_TEST(reads_of_the_receive_buffer_are_kept_after_the_waits)
+{
+	/* The scan strips string literals, so the barrier's operands are gone
+	 * from this text and only its shape is left to look for. */
+	mu_assert(strstr(rxtx, "static inline void le_rx_barrier(void) {"
+	                       " __asm__ volatile (") != NULL,
+	          "there is no barrier between the wait and reading the buffer");
+	mu_assert(strstr(rxtx, "le_rx_barrier(); memcpy(p, &le.access_address, 4);")
+	          != NULL,
+	          "the first bytes are read without a barrier after the wait");
+	mu_assert(strstr(rxtx, "if (!whole) goto rx_flush; le_rx_barrier();")
+	          != NULL,
+	          "the rest of the packet is read without a barrier after the wait");
+}
+
 int main(void)
 {
 	printf("LE capture shape tests\n");
 	load("le_phy.c", le_phy, sizeof(le_phy));
 	load("bluetooth_rxtx.c", rxtx, sizeof(rxtx));
+	load("ubertooth_dma.c", dma, sizeof(dma));
+	load("bluetooth_le.h", le_h, sizeof(le_h));
 	MU_RUN(both_capture_loops_hand_their_packets_to_the_shared_enqueue);
 	MU_RUN(the_promiscuous_loop_queues_the_whole_packet);
 	MU_RUN(the_promiscuous_loop_reads_the_whole_length_field);
@@ -265,5 +335,8 @@ int main(void)
 	MU_RUN(the_shared_buffer_is_cleared_before_symbols_are_searched);
 	MU_RUN(the_loop_waits_for_the_length_byte_and_then_for_the_packet);
 	MU_RUN(a_packet_whose_bytes_did_not_all_arrive_is_dropped);
+	MU_RUN(an_impossible_length_is_not_waited_for);
+	MU_RUN(only_the_first_dma_item_interrupts);
+	MU_RUN(reads_of_the_receive_buffer_are_kept_after_the_waits);
 	return mu_report();
 }
