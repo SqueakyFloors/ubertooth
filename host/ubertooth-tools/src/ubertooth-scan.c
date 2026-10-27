@@ -283,9 +283,9 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	/* Opening the board, checking its firmware and setting the sweep each
-	 * give the adapter handle back on the way out, as the end of a
-	 * successful scan does. */
+	/* Every way out from here gives the adapter handle back, as the end of
+	 * a successful scan does: opening the board, checking its firmware, and
+	 * the capture requests further down. */
 	ut = ubertooth_start_select(ubertooth_device);
 	if (ut == NULL) {
 		close(dev_handle);
@@ -300,23 +300,6 @@ int main(int argc, char *argv[])
 		 * host will not drive. */
 		if (ut->devh != NULL)
 			ubertooth_close(ut);
-		close(dev_handle);
-		return 1;
-	}
-
-	/* Sweep the whole band: any channel above the Bluetooth band asks the
-	 * firmware for that, and without it the AFH map this tool prints would
-	 * only ever show the one channel the board sat on. A board that refused
-	 * it would print a map that means nothing, so neither scan runs. */
-	rv = cmd_set_channel_quiet(ut->devh, 9999);
-	if (rv < 0) {
-		/* A refused request is not proof that the board never got it --
-		 * a transfer can time out after it arrived -- so the message
-		 * says only what the tool knows. Closed without a STOP: no mode
-		 * has started yet, and a STOP to a board that is not answering
-		 * would only add a second failure to the report. */
-		report_refused_request("set sweep mode", rv);
-		ubertooth_close(ut);
 		close(dev_handle);
 		return 1;
 	}
@@ -344,9 +327,6 @@ int main(int argc, char *argv[])
 		free(ii);
 	}
 
-	/* Now find hidden piconets with Ubertooth */
-	printf("\nUbertooth scan\n");
-
 	btbb_init(max_ac_errors);
 	btbb_init_survey();
 
@@ -359,6 +339,7 @@ int main(int argc, char *argv[])
 		/* nothing is in flight, but the board is still open and in
 		 * whatever mode an earlier command left it */
 		ubertooth_stop(ut);
+		close(dev_handle);
 		return r;
 	}
 
@@ -367,6 +348,7 @@ int main(int argc, char *argv[])
 		/* The receive transfer is in flight and the board is about to be
 		 * left in its mode: give both back before returning. */
 		ubertooth_stop(ut);
+		close(dev_handle);
 		return r;
 	}
 
@@ -377,8 +359,50 @@ int main(int argc, char *argv[])
 		 * ubertooth_stop() frees the libusb context it polls. */
 		ubertooth_bulk_thread_stop();
 		ubertooth_stop(ut);
+		close(dev_handle);
 		return r;
 	}
+
+	/* Sweep the whole band, which any channel above the Bluetooth band asks
+	 * the firmware for. This goes after the capture request, not before:
+	 * starting a mode puts the board's hop mode back to "no hopping", so a
+	 * sweep stated first is thrown away. The scan then sat on one channel
+	 * and printed an AFH map that means nothing, since the map only says
+	 * which channels a piconet uses if the board listened to all of them.
+	 *
+	 * A board already capturing symbols -- what a killed ubertooth-afh or
+	 * ubertooth-follow leaves behind -- does that reset while it takes the
+	 * request above, so a sweep stated here survives it. A board left in a
+	 * mode that captures nothing, a spectrum scan say, resets a moment
+	 * later instead, as it leaves that mode, and can still swallow this
+	 * request; the board has to say when its mode has started before the
+	 * host can close that gap.
+	 *
+	 * A board that refused this would print such a map, so the scan ends
+	 * here. A BlueZ inquiry asked for with -s has run by then and has
+	 * printed what it found: it needs no Ubertooth, and what it reported is
+	 * what it saw. */
+	rv = cmd_set_channel_quiet(ut->devh, 9999);
+	if (rv < 0) {
+		/* The capture is running, so the mode is stopped and the board
+		 * given back rather than left streaming on one channel. A board
+		 * that has stopped answering can make that STOP print a line of
+		 * its own, which the man page says; a mode left running is
+		 * worse. A refused request is not proof that the board never
+		 * got it -- a transfer can time out after it arrived -- so the
+		 * message says only what the tool knows. */
+		report_refused_request("set sweep mode", rv);
+		ubertooth_bulk_thread_stop();
+		ubertooth_stop(ut);
+		close(dev_handle);
+		return 1;
+	}
+
+	/* Now find hidden piconets with Ubertooth. This heads the results below,
+	 * so it waits until the board is sweeping: printed before the requests
+	 * that start the capture, it was left on standard output by a run that
+	 * then refused one of them and printed no results at all. */
+	printf("\nUbertooth scan\n");
 
 	// receive and process each packet
 	while(!ubertooth_stopping(ut)) {

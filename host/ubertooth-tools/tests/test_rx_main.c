@@ -66,8 +66,22 @@ static struct {
 	int stream_failed;
 	enum capture_end end;
 	char selector[64];
+	/* Every request the tool sent, in order, one letter each: b the
+	 * Bluetooth address, s start sending symbols, c the channel or the
+	 * sweep. */
+	char calls[16];
 	ubertooth_t ut;
 } device;
+
+static void record(char call)
+{
+	size_t length = strlen(device.calls);
+
+	if (length + 1 < sizeof(device.calls)) {
+		device.calls[length] = call;
+		device.calls[length + 1] = '\0';
+	}
+}
 
 static void reset_device(void)
 {
@@ -152,6 +166,7 @@ void ubertooth_set_timeout(ubertooth_t* ut, int seconds)
 int cmd_set_channel_quiet(struct libusb_device_handle* devh, uint16_t channel)
 {
 	(void)devh;
+	record('c');
 	device.channels_set++;
 	device.last_channel = channel;
 	return device.channel_rc;
@@ -160,6 +175,7 @@ int cmd_set_channel_quiet(struct libusb_device_handle* devh, uint16_t channel)
 int cmd_rx_syms(struct libusb_device_handle* devh)
 {
 	(void)devh;
+	record('s');
 	device.rx_syms_calls++;
 	return 0;
 }
@@ -168,6 +184,7 @@ int cmd_set_bdaddr_quiet(struct libusb_device_handle* devh, uint64_t address)
 {
 	(void)devh;
 	(void)address;
+	record('b');
 	device.bdaddrs_set++;
 	return device.bdaddr_rc;
 }
@@ -423,7 +440,7 @@ MU_TEST(a_refused_command_line_opens_no_device)
 /* What the setup requests carry on a capture the board took. A command line
  * without -c asks for the sweep, which the board is told by a channel above
  * the band; -c sends that channel as a frequency; -l with -u sends the address
- * first. This is the regression that matters, since it is every normal run. */
+ * too. This is the regression that matters, since it is every normal run. */
 MU_TEST(a_capture_the_board_took_sets_up_and_exits_zero)
 {
 	struct run_result r;
@@ -458,6 +475,33 @@ MU_TEST(a_capture_the_board_took_sets_up_and_exits_zero)
 	mu_assert(r.err[0] == '\0', r.err);
 }
 
+/* The order the requests go in, which is the whole of what the board keeps:
+ * the capture is asked for first and the channel or the sweep stated after it.
+ * Stating it first lost it to the reset a mode start runs, which puts the
+ * board's hop mode back to "no hopping" -- so a capture started on a board a
+ * killed ubertooth-afh had left capturing sat on one channel while the command
+ * line asked for the whole band. The address request is not part of that and
+ * still goes first. */
+MU_TEST(the_capture_is_asked_for_before_the_channel)
+{
+	struct run_result r;
+
+	reset_device();
+	r = RUN_RX("-t", "10");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(device.calls, "sc") == 0, device.calls);
+
+	reset_device();
+	r = RUN_RX("-c", "39", "-t", "10");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(device.calls, "sc") == 0, device.calls);
+
+	reset_device();
+	r = RUN_RX("-l", "112233", "-u", "ab", "-t", "10");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(device.calls, "bsc") == 0, device.calls);
+}
+
 /* The whole report for a refused request: one error line naming the request,
  * why it failed and the libusb code, and a note only where there is something
  * to try. */
@@ -472,8 +516,8 @@ MU_TEST(a_capture_the_board_took_sets_up_and_exits_zero)
 
 /* Each refused setup request is named, with the reason and what to try, on
  * standard error, and ends the command there, with nothing on standard output
- * and no capture started. The channel request is named for what the command
- * line asked of it, because a run without -c never named a channel. */
+ * and nothing captured. The channel request is named for what the command line
+ * asked of it, because a run without -c never named a channel. */
 MU_TEST(a_refused_setup_request_is_named_and_exits_one)
 {
 	static const struct {
@@ -533,27 +577,44 @@ MU_TEST(a_refused_setup_request_is_named_and_exits_one)
 		mu_assert(r.out[0] == '\0', r.out);
 		mu_assert_int_eq(cases[i].channels, device.channels_set);
 		mu_assert_int_eq(cases[i].bdaddrs, device.bdaddrs_set);
-		/* The capture never starts on top of a refused setting. */
-		mu_assert_int_eq(0, device.rx_syms_calls);
-		mu_assert_int_eq(0, device.bulk_inits);
+		/* Not one block was taken either way: the channel request is
+		 * sent as soon as the capture has been asked for, before the
+		 * receive loop. */
 		mu_assert_int_eq(0, device.blocks);
-		mu_assert_int_eq(0, device.cleanup_handlers);
-		/* Given back, and without a STOP: no mode had started, and a
-		 * STOP to a board that is not answering would add a second
-		 * failure to the report. */
-		mu_assert_int_eq(1, device.closes);
-		mu_assert_int_eq(0, device.stops);
+
+		if (cases[i].refuse_channel) {
+			/* The channel is stated after the capture starts, so the
+			 * mode is running when this one is refused: it is
+			 * stopped, which gives the board back, and the capture
+			 * never reaches its loop. */
+			mu_assert_int_eq(1, device.rx_syms_calls);
+			mu_assert_int_eq(1, device.bulk_inits);
+			mu_assert_int_eq(1, device.thread_starts);
+			mu_assert_int_eq(1, device.thread_stops);
+			mu_assert_int_eq(1, device.stops);
+			mu_assert_int_eq(0, device.closes);
+		} else {
+			/* The address goes before any of that, so nothing has
+			 * started yet and no capture is set up on top of a
+			 * refused address. */
+			mu_assert_int_eq(0, device.rx_syms_calls);
+			mu_assert_int_eq(0, device.bulk_inits);
+			mu_assert_int_eq(0, device.cleanup_handlers);
+			/* Given back, and without a STOP: no mode had started,
+			 * and a STOP to a board that is not answering would add
+			 * a second failure to the report. */
+			mu_assert_int_eq(1, device.closes);
+			mu_assert_int_eq(0, device.stops);
+		}
 	}
 
-	/* The address is sent first, so a run that needs both requests reaches
-	 * the channel only once the board has taken the address. */
+	/* A run that needs both requests sends the address, asks for the
+	 * capture, and states the channel last. */
 	reset_device();
 	device.channel_rc = -9;
 	r = RUN_RX("-l", "112233", "-u", "ab", "-t", "10");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert_int_eq(1, device.bdaddrs_set);
-	mu_assert_int_eq(1, device.channels_set);
-	mu_assert_int_eq(0, device.rx_syms_calls);
+	mu_assert(strcmp(device.calls, "bsc") == 0, device.calls);
 	mu_assert(r.out[0] == '\0', r.out);
 	mu_assert(strcmp(r.err, STALLED("set sweep mode")) == 0, r.err);
 }
@@ -651,6 +712,7 @@ int main(void)
 	MU_RUN(a_survey_whose_stream_died_still_prints_its_results);
 	MU_RUN(a_refused_command_line_opens_no_device);
 	MU_RUN(a_capture_the_board_took_sets_up_and_exits_zero);
+	MU_RUN(the_capture_is_asked_for_before_the_channel);
 	MU_RUN(a_refused_setup_request_is_named_and_exits_one);
 	MU_RUN(a_truncated_address_request_ends_the_run_too);
 	MU_RUN(a_refused_sweep_leaves_survey_mode_with_no_results);

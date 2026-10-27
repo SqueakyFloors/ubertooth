@@ -747,7 +747,7 @@ if(LIBBLUETOOTH_FOUND)
 	endif()
 
 	add_test(NAME scan-main COMMAND test-scan-main)
-	# No case reaches an inquiry and the faked receive ends the capture loop
+	# The BlueZ inquiry is faked and the faked receive ends the capture loop
 	# at once; a regression that waits on an adapter or a board should fail
 	# instead of hanging the suite.
 	set_tests_properties(scan-main PROPERTIES TIMEOUT 10)

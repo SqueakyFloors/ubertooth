@@ -464,7 +464,10 @@ nothing. That is what lets a tool restate its mode mid-session without losing
 what it is capturing on, as `ubertooth-follow` does each time it re-syncs its
 clock. A tool cannot tell the board which of the two it is doing, so one that
 wants a clean map after a restart says what it wants of the map once its mode
-is running, rather than before it starts.
+is running, rather than before it starts. The channel a capture needs goes the
+same way round: `ubertooth-rx` and `ubertooth-scan` state theirs after their
+mode request, so a board that was already capturing cannot decide where they
+listen.
 
 ## EXIT STATUS
 
