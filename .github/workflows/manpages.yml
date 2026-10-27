@@ -46,11 +46,11 @@ jobs:
 
     - uses: actions/checkout@v4
       name: Fetch libbtbb
-      # The same pinned fork commit every build.yml job fetches. Upstream
-      # master is missing functions the host tools call, so configuring the
-      # host tree against it fails outright. The pin is written out here as
-      # well as in build.yml's env, and the libbtbb-pin workflow reads both
-      # and fails if they disagree.
+      # The same pinned fork commit the build.yml jobs that build the host
+      # tree fetch. Upstream master is missing functions the host tools call,
+      # so configuring the host tree against it fails outright. The pin is
+      # written out here as well as in build.yml's env, and the libbtbb-pin
+      # workflow reads both and fails if they disagree.
       with:
         repository: ${{ env.LIBBTBB_REPO }}
         ref: ${{ env.LIBBTBB_REF }}
@@ -110,10 +110,13 @@ jobs:
         gem list kramdown nokogiri mustache ronn-ng
 
     - name: Build and install libbtbb
-      # Same steps as build.yml: libbtbb is a required dependency of the host
-      # tree, and upstream declares a cmake_minimum_required that CMake 4.x
-      # rejects, so the policy minimum is forced. Its Python bindings are not
-      # needed and fail on modern setuptools.
+      # libbtbb is a required dependency of the host tree, so it has to be
+      # installed even though only the documentation subproject is built here.
+      #
+      # ENABLE_PYTHON=OFF skips libbtbb's pcaptools, as build.yml does: the
+      # host tree links only the C library. The policy minimum is forced
+      # because the pinned libbtbb asks for cmake_minimum_required 3.5, which
+      # a CMake 4 runner would refuse.
       run: |
         cmake -S libbtbb -B libbtbb/build -DCMAKE_BUILD_TYPE=Release \
           -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DENABLE_PYTHON=OFF
