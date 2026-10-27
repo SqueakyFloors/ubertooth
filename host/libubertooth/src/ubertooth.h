@@ -84,10 +84,14 @@ typedef struct {
 	uint64_t last_clk100ns;
 	uint64_t clk100ns_upper;
 
-	/* Where the host's own clock stood at the last packet this capture took
-	 * in. How much of it passes between two packets is what tells a capture
-	 * clock that has started over from a packet simply out of place. */
-	uint64_t last_elapsed_ns;
+	/* Where the host's own clock stood when the last packet of this capture
+	 * arrived, as the ring buffer recorded it (fifo_popped_arrival_ns()).
+	 * How much of it passes between two packets is what tells a capture
+	 * clock that has started over from a packet simply out of place, so it
+	 * has to be when each packet came in and not when the loop reached it:
+	 * a loop behind a backlog takes two packets moments apart however long
+	 * the real gap was. */
+	uint64_t last_arrival_ns;
 
 	le_usb_reassembly le_reassembly;
 

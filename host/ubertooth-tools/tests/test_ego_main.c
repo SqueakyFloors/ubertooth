@@ -192,10 +192,16 @@ int cmd_poll(struct libusb_device_handle *devh, usb_pkt_rx *p)
 	return fake.poll_rc;
 }
 
-void fifo_push(fifo_t *fifo, const usb_pkt_rx *packet)
+void fifo_push(fifo_t *fifo, const usb_pkt_rx *packet, uint64_t arrival_ns)
 {
 	(void)fifo;
 	(void)packet;
+	(void)arrival_ns;
+}
+
+uint64_t ubertooth_packet_arrival_ns(void)
+{
+	return 0;
 }
 
 void cb_ego(ubertooth_t *ut, void *args)

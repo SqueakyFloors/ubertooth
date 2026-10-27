@@ -48,8 +48,12 @@ typedef struct {
 	/* Whether a chain is being collected at all. */
 	uint8_t active;
 	/* The first record of the chain, which carries the channel, timestamp
-	 * and signal readings of the packet as a whole. */
+	 * and signal readings of the packet as a whole, and when that record
+	 * arrived. The timestamp and the arrival reading are compared against
+	 * each other, so both have to come from the same record: the records
+	 * that follow in a chain arrive later and are not it. */
 	usb_pkt_rx metadata;
+	uint64_t metadata_arrival_ns;
 } le_usb_reassembly;
 
 enum le_usb_reassembly_result {
@@ -63,9 +67,13 @@ enum le_usb_reassembly_result {
  *
  * A record of the plain LE_PACKET type is a whole packet already, so it
  * completes at once. A chain completes on the record that brings the last of
- * the declared length. COMPLETE fills in data, its length, and the record
- * whose metadata describes the packet; all three stay valid until the next
- * call with this state.
+ * the declared length. COMPLETE fills in data, its length, the record whose
+ * metadata describes the packet, and when that record arrived; the first
+ * three stay valid until the next call with this state.
+ *
+ * arrival_ns is when the record passed in arrived. It is reported back as
+ * metadata_arrival_ns for the record the metadata came from, which for a
+ * chain is the first record rather than the one that completed it.
  *
  * WAIT means more records of this chain are still to come. ERROR means the
  * record cannot be part of a packet -- a continuation with no chain started,
@@ -73,8 +81,9 @@ enum le_usb_reassembly_result {
  * half a packet is never handed on.
  */
 int le_usb_reassemble(le_usb_reassembly *state, const usb_pkt_rx *frame,
-                      const uint8_t **data, uint16_t *length,
-                      const usb_pkt_rx **metadata);
+                      uint64_t arrival_ns, const uint8_t **data,
+                      uint16_t *length, const usb_pkt_rx **metadata,
+                      uint64_t *metadata_arrival_ns);
 
 /* Forgets a chain in progress, so a handle starting a capture never carries
  * half a packet in from the last one. */

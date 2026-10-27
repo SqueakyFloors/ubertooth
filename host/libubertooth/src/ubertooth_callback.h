@@ -33,6 +33,20 @@
  * tracking state, and is left as the tool set it. */
 void ubertooth_capture_clock_reset(ubertooth_t* ut);
 
+/* Reads the clock the capture clock tracking measures gaps between records
+ * with, to be called as each record arrives and carried with it through the
+ * ring buffer. A live capture reads the monotonic clock, which no step of the
+ * host clock can move, so a step cannot change how a record's clock reading is
+ * read; the time written into the capture comes from the host clock instead. A
+ * replay has only the host time each record carries, which the caller has read
+ * into systime by the time the record is pushed.
+ *
+ * A live capture calls this from the thread its transfers complete on, which
+ * is safe because a capture that has one is never a replay: infile is NULL for
+ * the whole of it, so nothing here reads systime, which that thread does not
+ * own. A replay has no such thread. */
+uint64_t ubertooth_packet_arrival_ns(void);
+
 void cb_afh_initial(ubertooth_t* ut, void* args);
 void cb_afh_monitor(ubertooth_t* ut, void* args);
 void cb_afh_r(ubertooth_t* ut, void* args);

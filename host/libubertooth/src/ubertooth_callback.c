@@ -103,12 +103,7 @@ static uint64_t packet_host_ns( void )
 	return now_ns( );
 }
 
-/* A second reading of the host, used only to measure how long passed between
- * two packets. A live capture reads the monotonic clock, which no step of the
- * host clock can move, so a step cannot change how a packet's clock reading is
- * read; the time written into the capture still comes from packet_host_ns()
- * above. A replay has only the host time each record carries. */
-static uint64_t packet_elapsed_ns( void )
+uint64_t ubertooth_packet_arrival_ns( void )
 {
 	struct timespec ts = { 0, 0 };
 
@@ -127,7 +122,7 @@ void ubertooth_capture_clock_reset( ubertooth_t* ut )
 	ut->clk100ns_upper = 0;
 	ut->clk100ns_started = 0;
 	ut->clk100ns_counted = 0;
-	ut->last_elapsed_ns = 0;
+	ut->last_arrival_ns = 0;
 	ut->clk100ns_anchor_open = 0;
 	ut->clk100ns_gap_warned = 0;
 }
@@ -137,8 +132,8 @@ void ubertooth_capture_clock_reset( ubertooth_t* ut )
  * sized to how imprecisely that gap is known, not to the clock's period: a
  * replayed record's host time is a whole second, so two of them can misstate
  * the gap by just under a second either way, and a live capture reads the host
- * as it takes each packet in, a packet's latency apart. Two seconds covers
- * both, and a genuine wrap's own figure is good to well inside it.
+ * as each packet's transfer completes, a packet's latency apart. Two seconds
+ * covers both, and a genuine wrap's own figure is good to well inside it.
  *
  * Whichever way the decision goes wrong it costs a whole period, so this does
  * not bound the error; what it bounds is how far the two measures have to
@@ -178,14 +173,14 @@ void ubertooth_capture_clock_reset( ubertooth_t* ut )
  *
  * The two allowances share one budget, and the budget cannot be widened: a
  * leftover count two periods from the capture's own already claims only about
- * two periods, so anything wider would stop catching it. So a packet whose
- * count really was latched a period from its reading leaves only the gap slack
- * to cover error in the host's measure of the gap, and a live capture that
- * stalls longer than that before its first packet reaches the reconstruction -
- * output blocked on a slow pipe, say - can have a legitimate count rejected and
- * lose the gap between the capture's first two packets. It is reported, by the
- * same message as a lost wrap below, and a replay cannot hit it at all, its
- * host times being whole seconds.
+ * two periods, so anything wider would stop catching it. A packet whose count
+ * really was latched a period from its reading therefore leaves only the gap
+ * slack to cover error in the host's measure of the gap, which is why that
+ * measure is taken as each packet's transfer completes rather than where the
+ * reconstruction is reached: a capture whose output is blocked on a slow pipe
+ * can be minutes behind by the time it reads its first packet, and measured
+ * there the gap before the second would be almost nothing, rejecting a count
+ * the firmware legitimately latched and losing the whole gap between the two.
  *
  * What is left unsettled is a leftover count a period from the capture's own,
  * which looks exactly like that latch, or two periods from it where the two
@@ -215,7 +210,7 @@ static int count_came_from_the_mode_before( const ubertooth_t* ut,
 }
 
 static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx,
-                            uint64_t host_ns, uint64_t elapsed_ns )
+                            uint64_t host_ns, uint64_t arrival_ns )
 {
 	uint32_t clk100ns = le32toh( rx->clk100ns );
 	/* How many times the clock stamping this packet has started over, as
@@ -251,13 +246,13 @@ static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx,
 		ut->last_clk100ns = ut->start_clk100ns = clk100ns;
 		ut->last_clkn_high = periods;
 		ut->abs_start_ns = host_ns;
-		ut->last_elapsed_ns = elapsed_ns;
+		ut->last_arrival_ns = arrival_ns;
 		ut->clk100ns_anchor_open = 1;
 		return;
 	}
 
-	since_last_ns = (elapsed_ns > ut->last_elapsed_ns) ?
-	                elapsed_ns - ut->last_elapsed_ns : 0;
+	since_last_ns = (arrival_ns > ut->last_arrival_ns) ?
+	                arrival_ns - ut->last_arrival_ns : 0;
 
 	if (ut->clk100ns_counted) {
 		/* The count is one byte, read as a difference from the last
@@ -308,13 +303,11 @@ static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx,
 		 * one left over from the mode before, carrying that mode's
 		 * clock; then the second reads lower not because the clock
 		 * started over but because the first was never part of this
-		 * capture. A packet out of place further in reads lower too, and
-		 * is still read as a wrap. Settling those the same way would
-		 * need the gap between two packets known as each arrived rather
-		 * than as the host got round to it: a packet taken from a
-		 * backlog is processed moments after the one before it however
-		 * long the real gap was, so judging every drop this way refuses
-		 * genuine wraps. That reading is not kept per packet today.
+		 * capture. A packet out of place further in reads lower too,
+		 * and is still read as a wrap: settling that the same way needs
+		 * a count of how many wraps the gap holds rather than whether
+		 * it holds one, because a gap longer than a period leaves the
+		 * clock reading higher than it did and offers no drop to judge.
 		 *
 		 * What separates the two is how much time passed. A wrap says
 		 * how much: the clock ran from where the first packet read,
@@ -343,7 +336,7 @@ static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx,
 	}
 
 	ut->last_clk100ns = clk100ns;
-	ut->last_elapsed_ns = elapsed_ns;
+	ut->last_arrival_ns = arrival_ns;
 }
 
 /* A wrap that cannot be counted - inferred from the clock going backwards and
@@ -388,17 +381,20 @@ static uint64_t clk100ns_extended( const ubertooth_t* ut, const usb_pkt_rx* rx )
 	return ut->clk100ns_upper * ut->clk100ns_period + le32toh( rx->clk100ns );
 }
 
-static uint64_t now_ns_from_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx )
+/* arrival_ns is when this packet arrived, read as its transfer completed and
+ * carried with it through the ring buffer (fifo_popped_arrival_ns()). Reading
+ * that clock here instead would say when this call was reached, which for a
+ * packet taken from a backlog is no measure of the gap before it. */
+static uint64_t now_ns_from_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx,
+                                      uint64_t arrival_ns )
 {
 	uint64_t packet_ns;
 	/* The time this packet is stamped with, read once and used both to
 	 * start the capture and to report a wrap that could not be told either
-	 * way, and the separate reading that measures how long passed since the
-	 * last packet. */
+	 * way. */
 	uint64_t host_ns = packet_host_ns( );
-	uint64_t elapsed_ns = packet_elapsed_ns( );
 
-	track_clk100ns( ut, rx, host_ns, elapsed_ns );
+	track_clk100ns( ut, rx, host_ns, arrival_ns );
 	/* The 100 ns ticks since the first packet, as nanoseconds: the whole
 	 * difference is scaled, not just the current tick count. Signed,
 	 * because a packet can read a little before the one a capture started
@@ -614,10 +610,13 @@ void cb_btle(ubertooth_t* ut, void* args)
 	int i;
 	usb_pkt_rx usb = fifo_pop(ut->fifo);
 	const usb_pkt_rx* rx = &usb;
-	/* The whole captured packet and its length, once reassembly has it. */
+	uint64_t arrival_ns = fifo_popped_arrival_ns(ut->fifo);
+	/* The whole captured packet and its length, once reassembly has it,
+	 * and when the record its readings come from arrived. */
 	const uint8_t* le_data;
 	uint16_t le_data_len;
 	const usb_pkt_rx* le_metadata;
+	uint64_t le_arrival_ns;
 	// u32 access_address = 0; // Build warning
 
 	static uint64_t prev_ts = 0;
@@ -682,16 +681,19 @@ void cb_btle(ubertooth_t* ut, void* args)
 	/* A packet too long for one record arrives as several. Nothing below
 	 * runs until the whole packet is here: a chain still arriving returns,
 	 * and so does a broken one, whose records are dropped. */
-	if (le_usb_reassemble(&ut->le_reassembly, rx, &le_data, &le_data_len,
-	                      &le_metadata) != LE_REASSEMBLY_COMPLETE)
+	if (le_usb_reassemble(&ut->le_reassembly, rx, arrival_ns, &le_data,
+	                      &le_data_len, &le_metadata,
+	                      &le_arrival_ns) != LE_REASSEMBLY_COMPLETE)
 		return;
 	/* The channel, timestamp and signal readings of the packet as a whole,
 	 * which for a chain are the first record's. */
 	rx = le_metadata;
 
 	/* After reassembly, so the clock sees one timestamp per packet rather
-	 * than the same one once per record. */
-	uint64_t nowns = now_ns_from_clk100ns( ut, rx );
+	 * than the same one once per record. The arrival reading is the one
+	 * belonging to the record the timestamp came from, so the two always
+	 * describe the same moment. */
+	uint64_t nowns = now_ns_from_clk100ns( ut, rx, le_arrival_ns );
 
 	/* The decoder is told how many bytes were captured, so it reads no
 	 * further than that. */
@@ -811,6 +813,7 @@ void cb_rx(ubertooth_t* ut, void* args)
 
 	usb_pkt_rx usb = fifo_pop(ut->fifo);
 	usb_pkt_rx* rx = &usb;
+	uint64_t arrival_ns = fifo_popped_arrival_ns(ut->fifo);
 	ubertooth_unpack_symbols((uint8_t*)rx->data, syms);
 
 	if (rx->pkt_type != BR_PACKET) {
@@ -831,7 +834,7 @@ void cb_rx(ubertooth_t* ut, void* args)
 	if (infile == NULL)
 		systime = time(NULL);
 
-	uint64_t nowns = now_ns_from_clk100ns( ut, rx );
+	uint64_t nowns = now_ns_from_clk100ns( ut, rx, arrival_ns );
 
 	int8_t signal_level = rx->rssi_max;
 	int8_t noise_level = rx->rssi_min;

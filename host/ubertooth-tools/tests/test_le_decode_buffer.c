@@ -40,11 +40,14 @@ static size_t handed_len;
 static int decodes;
 
 fifo_t* fifo_init(void) { return (fifo_t*)malloc(1); }
-void fifo_inc_write_ptr(fifo_t* fifo) { (void)fifo; }
-void fifo_push(fifo_t* fifo, const usb_pkt_rx* packet) { (void)fifo; (void)packet; }
+void fifo_inc_write_ptr(fifo_t* fifo, uint64_t arrival_ns)
+{ (void)fifo; (void)arrival_ns; }
+void fifo_push(fifo_t* fifo, const usb_pkt_rx* packet, uint64_t arrival_ns)
+{ (void)fifo; (void)packet; (void)arrival_ns; }
 usb_pkt_rx* fifo_get_write_element(fifo_t* fifo) { (void)fifo; return NULL; }
 uint8_t fifo_empty(fifo_t* fifo) { (void)fifo; return next_index >= next_count; }
 
+uint64_t fifo_popped_arrival_ns(const fifo_t* fifo) { (void)fifo; return 0; }
 usb_pkt_rx fifo_pop(fifo_t* fifo)
 {
 	(void)fifo;

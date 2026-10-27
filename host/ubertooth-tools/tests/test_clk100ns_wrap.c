@@ -29,11 +29,13 @@
  * place are the exception: there the question is which record the capture is
  * anchored on.
  *
- * Every case here runs as a replay, so that the host time of each packet comes
+ * Most cases here run as a replay, so that the host time of each packet comes
  * from the case rather than from the clock of the machine running the test.
- * That leaves the monotonic clock a live capture measures its gaps on covered
- * only by the hardware runs recorded in the pull request; reaching it from here
- * would need a seam for that reading.
+ * The last few run as a live capture instead: there the gap between two
+ * packets is measured on the reading each one arrived with, which the ring
+ * buffer carries, so a case can set when each packet arrived and then hand
+ * them all to the reconstruction at once - which is what a host that stalled
+ * before its first packet leaves behind.
  */
 #include <stdint.h>
 #include <string.h>
@@ -74,7 +76,9 @@ static uint64_t at_clock_with_count(ubertooth_t* ut, uint64_t ticks,
 	memset(&rx, 0, sizeof(rx));
 	rx.clk100ns = htole32((uint32_t)(ticks % ut->clk100ns_period));
 	rx.clkn_high = count;
-	return now_ns_from_clk100ns( ut, &rx );
+	/* A replayed record arrives with the host time it carries, which is
+	 * what the library pushes into the ring buffer with it. */
+	return now_ns_from_clk100ns( ut, &rx, ubertooth_packet_arrival_ns( ) );
 }
 
 /* The same for a packet stamped the way a real board stamps it: the
@@ -107,6 +111,65 @@ static void start_capture(ubertooth_t* ut, uint64_t period)
 	ut->clk100ns_period = period;
 	infile = stdin;
 	host_time_follows_the_clock = 1;
+}
+
+/* The ring buffer the live cases below push their records through, allocated
+ * once because a real one is 72 MB. Reset rather than reallocated per case. */
+static fifo_t* ring;
+
+/* A live capture that has seen no record yet: no replay, so the time each
+ * record is stamped with comes from the clock of the machine running the test
+ * and only differences between the reconstructed times are checked. What the
+ * cases do set is when each record arrived, which is what the gap between two
+ * records is measured on. */
+static void start_live_capture(ubertooth_t* ut, uint64_t period)
+{
+	if (ring == NULL)
+		ring = fifo_init();
+	mu_assert_fatal(ring != NULL, "cannot allocate the ring buffer");
+	ring->read_ptr = ring->write_ptr = 0;
+	memset(ut, 0, sizeof(*ut));
+	ut->clk100ns_period = period;
+	ut->fifo = ring;
+	infile = NULL;
+	host_time_follows_the_clock = 0;
+}
+
+/* Captures records live: ticks[] is where each one's clock reading lands,
+ * counts[] the period count it carries - NULL where the records carry none -
+ * and arrived_ns[] when it arrived, as nanoseconds from the start of the
+ * capture. The reconstructed times come back in times[].
+ *
+ * Every record is pushed before any is popped, which is what a host that
+ * stalled before its first record leaves: the loop then takes them all within
+ * microseconds of each other, however far apart they really arrived. A gap
+ * measured where the loop reaches a record would be almost nothing here, so
+ * these cases only come out right if the reading each record arrived with is
+ * what the gap is measured on. */
+static void capture_records(ubertooth_t* ut, uint64_t period, int records,
+                            const uint64_t ticks[], const uint64_t arrived_ns[],
+                            const uint8_t counts[], uint64_t times[])
+{
+	/* Where this capture's monotonic clock starts. Not zero, so a case
+	 * cannot pass on a reading that was never stamped. */
+	const uint64_t base_ns = 4000000000ull;
+	int record;
+
+	start_live_capture(ut, period);
+	for (record = 0; record < records; record++) {
+		usb_pkt_rx rx;
+
+		memset(&rx, 0, sizeof(rx));
+		rx.clk100ns = htole32((uint32_t)(ticks[record] % period));
+		rx.clkn_high = counts != NULL ? counts[record] : 0;
+		fifo_push(ut->fifo, &rx, base_ns + arrived_ns[record]);
+	}
+	for (record = 0; record < records; record++) {
+		usb_pkt_rx popped = fifo_pop(ut->fifo);
+
+		times[record] = now_ns_from_clk100ns(ut, &popped,
+		                                     fifo_popped_arrival_ns(ut->fifo));
+	}
 }
 
 MU_TEST(the_period_is_the_clock_the_firmware_counts)
@@ -238,10 +301,10 @@ MU_TEST(a_record_ahead_of_the_rest_does_not_add_a_period)
 
 /* Only between the capture's first two packets is a lower reading read any way
  * but as a wrap. Further in it is still read as one, as it always was, even
- * where the host times say otherwise. This pins where the change stops, not
- * that a stray further in is beyond settling: that needs the gap between two
- * packets measured as each arrived rather than as the host got round to it,
- * which is not kept per packet today. */
+ * where the host times say otherwise. This pins where the decision stops, not
+ * that a stray further in is beyond settling: settling that needs a count of
+ * how many wraps a gap holds rather than whether it holds one, because a gap
+ * longer than a period leaves the clock reading higher than it did. */
 MU_TEST(a_lower_reading_further_in_is_still_a_wrap)
 {
 	ubertooth_t ut;
@@ -837,7 +900,7 @@ MU_TEST(a_reused_handle_starts_the_next_capture_fresh)
 	mu_assert_int_eq(0, ut.clk100ns_started);
 	mu_assert_int_eq(0, ut.clk100ns_counted);
 	mu_assert_int_eq(0, ut.last_clkn_high);
-	mu_assert_int_eq(0, ut.last_elapsed_ns);
+	mu_assert_int_eq(0, ut.last_arrival_ns);
 	mu_assert_int_eq(0, ut.clk100ns_anchor_open);
 	mu_assert_int_eq(0, ut.clk100ns_gap_warned);
 
@@ -865,6 +928,77 @@ MU_TEST(stopping_a_capture_leaves_the_chosen_clock_alone)
 
 	mu_assert(ut.clk100ns_period == CLK100NS_TIMER1_PERIOD,
 	          "the period the tool chose");
+}
+
+/* A live capture that went quiet across a wrap, taken in by a host that was
+ * not reading. The board's clock ran 200 s from 300 s into its period, so the
+ * second record reads 172.32 s - lower than the first, which between a
+ * capture's first two records can also mean the first was a record left over
+ * from the mode before. The 200 s the records arrived apart is what says this
+ * one is a wrap, and that is the whole of the evidence: by the time the host
+ * got round to either record they were both waiting, microseconds apart. */
+MU_TEST(a_wrap_the_host_was_not_reading_through_still_counts)
+{
+	ubertooth_t ut;
+	uint64_t gap = 200 * ONE_SECOND_TICKS;
+	const uint64_t ticks[2] = { 300 * ONE_SECOND_TICKS,
+	                            300 * ONE_SECOND_TICKS + gap };
+	const uint64_t arrived_ns[2] = { 0, 100 * gap };
+	uint64_t times[2];
+
+	capture_records(&ut, CLK100NS_PERIOD, 2, ticks, arrived_ns, NULL, times);
+
+	mu_assert_int_eq(1, ut.clk100ns_upper);
+	mu_assert_int_eq(100 * gap, times[1] - times[0]);
+}
+
+/* The same stall against the period count a record carries, which is the
+ * costlier of the two decisions. The capture's first two records are 665.36 s
+ * apart - two whole periods and 10 s - and their counts say so, which the host
+ * clock has to agree with for the count to be believed. Measured where the host
+ * reached the records, the gap would be microseconds, the count would be
+ * rejected as the previous mode's, and the capture would start at its second
+ * record with those 665 s gone from every time in it. */
+MU_TEST(a_stall_does_not_reject_a_counted_gap_at_the_start)
+{
+	ubertooth_t ut;
+	uint64_t gap = 2 * (uint64_t) CLK100NS_PERIOD + 10 * ONE_SECOND_TICKS;
+	const uint64_t ticks[2] = { 1 * (uint64_t) CLK100NS_PERIOD
+	                            + 10 * ONE_SECOND_TICKS,
+	                            1 * (uint64_t) CLK100NS_PERIOD
+	                            + 10 * ONE_SECOND_TICKS + gap };
+	const uint64_t arrived_ns[2] = { 0, 100 * gap };
+	const uint8_t counts[2] = { 1, 3 };
+	uint64_t times[2];
+
+	capture_records(&ut, CLK100NS_PERIOD, 2, ticks, arrived_ns, counts,
+	                times);
+
+	mu_assert_int_eq(2, ut.clk100ns_upper);
+	mu_assert_int_eq(3, ut.last_clkn_high);
+	mu_assert_int_eq(100 * gap, times[1] - times[0]);
+}
+
+/* A live capture that really did open with a record left over from the mode
+ * before. The leftover reads 30 s into the clock and the capture's own two
+ * records read 1 s and 2 s, so the second reads lower; what makes it a
+ * leftover rather than a wrap is that it arrived a millisecond before the
+ * record after it, with no room for the 298.68 s a wrap there would mean. The
+ * capture is anchored on its own first record. */
+MU_TEST(a_leftover_first_record_is_found_on_a_live_capture)
+{
+	ubertooth_t ut;
+	const uint64_t ticks[3] = { 30 * ONE_SECOND_TICKS,
+	                             1 * ONE_SECOND_TICKS,
+	                             2 * ONE_SECOND_TICKS };
+	const uint64_t arrived_ns[3] = { 0, 1000000ull, 2000000ull };
+	uint64_t times[3];
+
+	capture_records(&ut, CLK100NS_PERIOD, 3, ticks, arrived_ns, NULL, times);
+
+	mu_assert_int_eq(0, ut.clk100ns_upper);
+	mu_assert_int_eq(ut.abs_start_ns, times[1]);
+	mu_assert_int_eq(100 * ONE_SECOND_TICKS, times[2] - times[1]);
 }
 
 /* Which clock a mode stamps with is known only to the tool that starts it, so
@@ -925,6 +1059,9 @@ int main(void)
 	MU_RUN(a_count_latched_a_period_early_costs_only_its_own_packet);
 	MU_RUN(a_reused_handle_starts_the_next_capture_fresh);
 	MU_RUN(stopping_a_capture_leaves_the_chosen_clock_alone);
+	MU_RUN(a_wrap_the_host_was_not_reading_through_still_counts);
+	MU_RUN(a_stall_does_not_reject_a_counted_gap_at_the_start);
+	MU_RUN(a_leftover_first_record_is_found_on_a_live_capture);
 	MU_RUN(the_low_energy_engine_is_started_with_its_own_period);
 	return mu_report();
 }

@@ -19,6 +19,20 @@
  * payload Data Length Extension allows, and the CRC (3). */
 #define LE_MAX_VALID_PACKET (4 + 2 + 251 + 3)
 
+/* Most cases here are about the bytes of a packet rather than its timing, so
+ * they go through this: it passes an arrival reading of zero and keeps the
+ * one reported back out of the way. The cases that are about the arrival
+ * reading call le_usb_reassemble() themselves. */
+static int reassemble(le_usb_reassembly *state, const usb_pkt_rx *frame,
+                      const uint8_t **data, uint16_t *length,
+                      const usb_pkt_rx **metadata)
+{
+	uint64_t ignored_arrival_ns;
+
+	return le_usb_reassemble(state, frame, 0, data, length, metadata,
+	                         &ignored_arrival_ns);
+}
+
 /* A packet of `total` bytes, every byte differing from its neighbours so a
  * chunk copied to the wrong place shows up. */
 static void fill_packet(uint8_t *packet, uint16_t total)
@@ -64,7 +78,7 @@ static void check_round_trip(uint16_t total)
 
 	for (offset = 0; offset < total; offset += DMA_SIZE) {
 		make_fragment(&frame, total, packet, offset);
-		result = le_usb_reassemble(&state, &frame, &data, &length, &metadata);
+		result = reassemble(&state, &frame, &data, &length, &metadata);
 		/* Nothing comes out until the last record of the chain. */
 		if (offset + (uint16_t) DMA_SIZE < total)
 			mu_assert_int_eq(LE_REASSEMBLY_WAIT, result);
@@ -97,8 +111,8 @@ MU_TEST(a_short_packet_arrives_in_one_record)
 	frame.data[49] = 0x5a;
 
 	mu_assert_int_eq(LE_REASSEMBLY_COMPLETE,
-	                 le_usb_reassemble(&state, &frame, &data, &length,
-	                                   &metadata));
+	                 reassemble(&state, &frame, &data, &length,
+	                            &metadata));
 	mu_assert_int_eq(DMA_SIZE, length);
 	mu_assert_int_eq(0x5a, data[49]);
 	mu_assert(metadata == &frame,
@@ -127,16 +141,16 @@ MU_TEST(a_chain_with_a_record_missing_gives_back_nothing)
 
 	make_fragment(&frame, 150, packet, 0);
 	mu_assert_int_eq(LE_REASSEMBLY_WAIT,
-	                 le_usb_reassemble(&state, &frame, &data, &length,
-	                                   &metadata));
+	                 reassemble(&state, &frame, &data, &length,
+	                            &metadata));
 
 	/* The middle record never arrives. The third must be refused, not
 	 * spliced onto the first, which would leave 50 bytes of the packet
 	 * holding the wrong payload. */
 	make_fragment(&frame, 150, packet, 100);
 	mu_assert_int_eq(LE_REASSEMBLY_ERROR,
-	                 le_usb_reassemble(&state, &frame, &data, &length,
-	                                   &metadata));
+	                 reassemble(&state, &frame, &data, &length,
+	                            &metadata));
 	mu_assert(data == NULL, "a refused record hands back no packet");
 	mu_assert_int_eq(0, length);
 
@@ -144,8 +158,8 @@ MU_TEST(a_chain_with_a_record_missing_gives_back_nothing)
 	 * it either. */
 	make_fragment(&frame, 150, packet, 50);
 	mu_assert_int_eq(LE_REASSEMBLY_ERROR,
-	                 le_usb_reassemble(&state, &frame, &data, &length,
-	                                   &metadata));
+	                 reassemble(&state, &frame, &data, &length,
+	                            &metadata));
 
 	/* The next whole packet still decodes. */
 	check_round_trip(100);
@@ -166,39 +180,39 @@ MU_TEST(a_record_that_cannot_belong_to_a_packet_is_refused)
 	/* A continuation with no chain started. */
 	make_fragment(&frame, 100, packet, 50);
 	mu_assert_int_eq(LE_REASSEMBLY_ERROR,
-	                 le_usb_reassemble(&state, &frame, &data, &length,
-	                                   &metadata));
+	                 reassemble(&state, &frame, &data, &length,
+	                            &metadata));
 
 	/* A chain whose records disagree about how long the packet is. */
 	make_fragment(&frame, 100, packet, 0);
 	mu_assert_int_eq(LE_REASSEMBLY_WAIT,
-	                 le_usb_reassemble(&state, &frame, &data, &length,
-	                                   &metadata));
+	                 reassemble(&state, &frame, &data, &length,
+	                            &metadata));
 	make_fragment(&frame, 99, packet, 50);
 	mu_assert_int_eq(LE_REASSEMBLY_ERROR,
-	                 le_usb_reassemble(&state, &frame, &data, &length,
-	                                   &metadata));
+	                 reassemble(&state, &frame, &data, &length,
+	                            &metadata));
 
 	/* A chain claiming a length no packet has: 50 bytes or less travels in
 	 * one record, and nothing is longer than the transport's maximum. */
 	make_fragment(&frame, 40, packet, 0);
 	mu_assert_int_eq(LE_REASSEMBLY_ERROR,
-	                 le_usb_reassemble(&state, &frame, &data, &length,
-	                                   &metadata));
+	                 reassemble(&state, &frame, &data, &length,
+	                            &metadata));
 	make_fragment(&frame, 100, packet, 0);
 	frame.reserved[0] = (LE_MAX_USB_PACKET_SIZE + 1) & 0xff;
 	frame.reserved[1] = (((LE_MAX_USB_PACKET_SIZE + 1) >> 8) &
 	                     LE_FRAG_TOTAL_HIGH_MASK);
 	mu_assert_int_eq(LE_REASSEMBLY_ERROR,
-	                 le_usb_reassemble(&state, &frame, &data, &length,
-	                                   &metadata));
+	                 reassemble(&state, &frame, &data, &length,
+	                            &metadata));
 
 	/* A record type that is not a low-energy packet at all. */
 	memset(&frame, 0, sizeof(frame));
 	frame.pkt_type = BR_PACKET;
 	mu_assert_int_eq(LE_REASSEMBLY_ERROR,
-	                 le_usb_reassemble(&state, &frame, &data, &length,
-	                                   &metadata));
+	                 reassemble(&state, &frame, &data, &length,
+	                            &metadata));
 }
 
 /* Two boards captured at once each have their own state, so their chains
@@ -223,19 +237,19 @@ MU_TEST(two_boards_do_not_mix_their_packets)
 
 	make_fragment(&frame, 51, first, 0);
 	mu_assert_int_eq(LE_REASSEMBLY_WAIT,
-	                 le_usb_reassemble(&a, &frame, &data, &length, &metadata));
+	                 reassemble(&a, &frame, &data, &length, &metadata));
 	make_fragment(&frame, 51, second, 0);
 	mu_assert_int_eq(LE_REASSEMBLY_WAIT,
-	                 le_usb_reassemble(&b, &frame, &data, &length, &metadata));
+	                 reassemble(&b, &frame, &data, &length, &metadata));
 
 	make_fragment(&frame, 51, first, 50);
 	mu_assert_int_eq(LE_REASSEMBLY_COMPLETE,
-	                 le_usb_reassemble(&a, &frame, &data, &length, &metadata));
+	                 reassemble(&a, &frame, &data, &length, &metadata));
 	mu_assert_int_eq(0x11, data[0]);
 
 	make_fragment(&frame, 51, second, 50);
 	mu_assert_int_eq(LE_REASSEMBLY_COMPLETE,
-	                 le_usb_reassemble(&b, &frame, &data, &length, &metadata));
+	                 reassemble(&b, &frame, &data, &length, &metadata));
 	mu_assert_int_eq(0x22, data[0]);
 }
 
@@ -255,15 +269,68 @@ MU_TEST(a_reset_forgets_a_chain_in_progress)
 
 	make_fragment(&frame, 100, packet, 0);
 	mu_assert_int_eq(LE_REASSEMBLY_WAIT,
-	                 le_usb_reassemble(&state, &frame, &data, &length,
-	                                   &metadata));
+	                 reassemble(&state, &frame, &data, &length,
+	                            &metadata));
 
 	le_usb_reassembly_reset(&state);
 
 	make_fragment(&frame, 100, packet, 50);
 	mu_assert_int_eq(LE_REASSEMBLY_ERROR,
-	                 le_usb_reassemble(&state, &frame, &data, &length,
-	                                   &metadata));
+	                 reassemble(&state, &frame, &data, &length,
+	                            &metadata));
+}
+
+/* The packet's timestamp is the first record's, so the arrival reading handed
+ * back has to be the first record's too: the clock tracking compares the two
+ * against each other, and readings from different records would not describe
+ * the same moment. */
+MU_TEST(a_chain_reports_the_arrival_of_the_record_it_started_with)
+{
+	uint8_t packet[LE_MAX_USB_PACKET_SIZE];
+	le_usb_reassembly state;
+	usb_pkt_rx frame;
+	const uint8_t *data = NULL;
+	const usb_pkt_rx *metadata = NULL;
+	uint16_t length = 0;
+	uint64_t arrival_ns = 0;
+
+	memset(&state, 0, sizeof(state));
+	fill_packet(packet, 100);
+
+	/* Two records, arriving a millisecond apart. */
+	make_fragment(&frame, 100, packet, 0);
+	mu_assert_int_eq(LE_REASSEMBLY_WAIT,
+	                 le_usb_reassemble(&state, &frame, 7000000, &data,
+	                                   &length, &metadata, &arrival_ns));
+
+	make_fragment(&frame, 100, packet, 50);
+	mu_assert_int_eq(LE_REASSEMBLY_COMPLETE,
+	                 le_usb_reassemble(&state, &frame, 8000000, &data,
+	                                   &length, &metadata, &arrival_ns));
+	mu_assert(arrival_ns == 7000000,
+	          "a chain's arrival reading is its first record's");
+}
+
+/* A whole packet in one record describes itself, so the reading handed back
+ * is the one passed in. */
+MU_TEST(a_single_record_reports_its_own_arrival)
+{
+	le_usb_reassembly state;
+	usb_pkt_rx frame;
+	const uint8_t *data = NULL;
+	const usb_pkt_rx *metadata = NULL;
+	uint16_t length = 0;
+	uint64_t arrival_ns = 0;
+
+	memset(&state, 0, sizeof(state));
+	memset(&frame, 0, sizeof(frame));
+	frame.pkt_type = LE_PACKET;
+
+	mu_assert_int_eq(LE_REASSEMBLY_COMPLETE,
+	                 le_usb_reassemble(&state, &frame, 4200000000ull, &data,
+	                                   &length, &metadata, &arrival_ns));
+	mu_assert(arrival_ns == 4200000000ull,
+	          "a single record's arrival reading is the one it came with");
 }
 
 int main(void)
@@ -274,5 +341,7 @@ int main(void)
 	MU_RUN(a_record_that_cannot_belong_to_a_packet_is_refused);
 	MU_RUN(two_boards_do_not_mix_their_packets);
 	MU_RUN(a_reset_forgets_a_chain_in_progress);
+	MU_RUN(a_chain_reports_the_arrival_of_the_record_it_started_with);
+	MU_RUN(a_single_record_reports_its_own_arrival);
 	return mu_report();
 }
