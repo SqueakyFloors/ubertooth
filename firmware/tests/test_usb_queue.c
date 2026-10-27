@@ -3969,8 +3969,11 @@ static void walk_br_edr_sources(const char *path,
 		size_t len = strlen(entry->d_name);
 		int n;
 
-		/* "." and ".." would recurse here forever. */
-		if (entry->d_name[0] == '.')
+		/* Only these two, which would recurse here forever. Any other
+		 * name starting with a dot is a file like the rest, and the
+		 * image's makefile compiles it like the rest. */
+		if (strcmp(entry->d_name, ".") == 0 ||
+		    strcmp(entry->d_name, "..") == 0)
 			continue;
 		n = snprintf(child, sizeof(child), "%s/%s", path,
 		             entry->d_name);
