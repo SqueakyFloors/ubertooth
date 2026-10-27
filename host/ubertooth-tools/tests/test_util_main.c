@@ -1313,14 +1313,19 @@ MU_TEST(identify_refuses_firmware_of_another_api_version)
  */
 MU_TEST(identify_prints_the_librarys_mismatch_message)
 {
-	char expected[128];
+	/* The whole first line, built here the way the library builds it, so a
+	 * reworded message fails rather than matching a shorter prefix. */
+	char expected[256];
 	struct run_result r;
+	int written;
 
-	snprintf(expected, sizeof(expected),
+	written = snprintf(expected, sizeof(expected),
 	         "error: Ubertooth firmware API version %x.%02x found, libubertooth %s requires %x.%02x.\n",
 	         ((UBERTOOTH_API_VERSION - 1) >> 8) & 0xFF, (UBERTOOTH_API_VERSION - 1) & 0xFF,
 	         VERSION,
 	         (UBERTOOTH_API_VERSION >> 8) & 0xFF, UBERTOOTH_API_VERSION & 0xFF);
+	mu_assert(written > 0 && (size_t)written < sizeof(expected),
+	          "the expected line fits");
 
 	reset_fake();
 	fake.api_version = UBERTOOTH_API_VERSION - 1;
@@ -1335,12 +1340,15 @@ MU_TEST(identify_prints_the_librarys_mismatch_message)
 	/* The option it was given is not what needs a version. */
 	mu_assert(strstr(r.err, "-I needs firmware") == NULL,
 	          "does not blame -I");
+	mu_assert_int_eq(0, fake.identify_calls); /* said, not done */
 
-	snprintf(expected, sizeof(expected),
+	written = snprintf(expected, sizeof(expected),
 	         "error: Ubertooth firmware API version %x.%02x found, libubertooth %s requires %x.%02x.\n",
 	         ((UBERTOOTH_API_VERSION + 1) >> 8) & 0xFF, (UBERTOOTH_API_VERSION + 1) & 0xFF,
 	         VERSION,
 	         (UBERTOOTH_API_VERSION >> 8) & 0xFF, UBERTOOTH_API_VERSION & 0xFF);
+	mu_assert(written > 0 && (size_t)written < sizeof(expected),
+	          "the expected line fits");
 
 	reset_fake();
 	fake.api_version = UBERTOOTH_API_VERSION + 1;
@@ -1352,6 +1360,7 @@ MU_TEST(identify_prints_the_librarys_mismatch_message)
 	          "a newer board needs newer tools");
 	mu_assert(strstr(r.err, "flash the firmware") == NULL,
 	          "and no backwards flash");
+	mu_assert_int_eq(0, fake.identify_calls);
 }
 #endif
 

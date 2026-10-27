@@ -29,6 +29,12 @@
 
 #include "ubertooth.h"
 
+/* The build normally passes the library's version in; ubertooth.c keeps the
+ * same fallback, so a build that does not still compiles. */
+#ifndef VERSION
+#define VERSION "unknown"
+#endif
+
 void ubertooth_report_api_mismatch(uint16_t version)
 {
 	fprintf(stderr, "error: Ubertooth firmware API version %x.%02x found, libubertooth %s requires %x.%02x.\n",
