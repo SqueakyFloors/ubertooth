@@ -467,8 +467,15 @@ static void close_dfu_device(libusb_device_handle *devh, int claimed)
  * left. Four flashes on a lab board had the board back on the bus 400-630 ms
  * after it was asked to reset, so 1.5 s is about two and a half times the
  * slowest of them. It is spent once per detach, and only once the device has
- * gone, so a flash pays it and a board still in the bootloader does not. */
+ * gone, so a flash pays it and a board still in the bootloader does not.
+ *
+ * The confirming listing is tried this many times, at the ordinary poll
+ * interval, so one listing that cannot answer does not decide it. The gap is
+ * waited once however many of these it takes: the wait is what the answer
+ * needs, and repeating it would be the only thing in here that is not
+ * bounded by a listing. */
 #define DETACH_CONFIRM_INTERVAL_MS 1500
+#define DETACH_CONFIRM_POLLS 3
 
 /* Held as values rather than used as constants so the hardware-independent
  * tests can shorten the wait: the cases where a detach fails would otherwise
@@ -826,18 +833,26 @@ static int dfu_device_presence(struct dfu_runtime_context *runtime,
 			last_error = result;
 		if (result == 0) {
 			/* Gone once. What settles it is the listing after the gap a
-			 * re-entering board would be back from. */
+			 * re-entering board would be back from, so the wait happens
+			 * here and the answer is whatever is on the path afterwards. A
+			 * listing that fails is retried a few times rather than waiting
+			 * the gap again: the one wait is what the answer needs, and the
+			 * retries keep a single failed listing from deciding it. */
+			unsigned confirm;
+
 			transition_sleep_ms(runtime, detach_confirm_interval_ms);
-			result = find_ubertooth_dfu_device(runtime->usb_context,
-			                                   identity, NULL);
-			if (result == 0)
-				return DFU_PRESENCE_GONE;
-			if (result == 1)
-				return DFU_PRESENCE_RETURNED;
-			/* The confirming listing could not tell either way, so the wait
-			 * carries on rather than taking the first absence as the
-			 * answer. */
-			last_error = result;
+			for (confirm = 0; confirm < DETACH_CONFIRM_POLLS; confirm++) {
+				result = find_ubertooth_dfu_device(runtime->usb_context,
+				                                   identity, NULL);
+				if (result == 0)
+					return DFU_PRESENCE_GONE;
+				if (result == 1)
+					return DFU_PRESENCE_RETURNED;
+				last_error = result;
+				transition_sleep_ms(runtime, detach_gone_interval_ms);
+			}
+			/* No listing after the gap could tell, so nothing here can. */
+			return last_error;
 		}
 		if (poll + 1 < detach_gone_polls)
 			transition_sleep_ms(runtime, detach_gone_interval_ms);

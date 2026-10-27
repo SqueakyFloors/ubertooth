@@ -95,6 +95,8 @@ static struct {
 	int claim_rc_after_detach; /* what claiming the returned board returns */
 	int detach_returns_to_dfu; /* ...and the bootloader runs again */
 	int absent_lists;       /* this many listings find nothing on the bus */
+	int list_rc;            /* < 0: a device listing fails with this */
+	int list_rc_after_detach; /* ...from the reset on */
 	char revision[64];      /* what the returned application reports, if any */
 	int revision_calls;
 	char image[32];         /* ...and which image its info block names */
@@ -163,6 +165,14 @@ ssize_t LIBUSB_CALL libusb_get_device_list(libusb_context *ctx,
 	*list = calloc(2, sizeof(libusb_device *));
 	if (*list == NULL)
 		return LIBUSB_ERROR_NO_MEM;
+	/* A listing that cannot be read at all, which is not the same as one
+	 * that found nothing. It returns no list, so the caller frees nothing
+	 * and this one is not counted. */
+	if (fake.list_rc < 0 && fake.absent_lists == 0) {
+		free(*list);
+		*list = NULL;
+		return fake.list_rc;
+	}
 	fake.lists++;
 	/* A board that is off the bus while it comes up again: the listings in
 	 * that gap find nothing, and the one after it finds whatever the case
@@ -337,6 +347,10 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle *devh,
 				fake.vid = U1_DFU_VENDORID;
 				fake.pid = U1_DFU_PRODUCTID;
 				fake.absent_lists = 1;
+			}
+			if (fake.list_rc_after_detach != 0) {
+				fake.absent_lists = 1;
+				fake.list_rc = fake.list_rc_after_detach;
 			}
 			/* A board that does not re-enumerate is simply not on the bus
 			 * any more: the DFU device has gone, which is what the detach
@@ -1222,6 +1236,26 @@ MU_TEST(a_board_that_comes_back_in_the_bootloader_fails_before_verification)
 	mu_assert_int_eq(0, fake.revision_calls);
 }
 
+/* The confirming listing is what settles the detach, so a bus that cannot be
+ * listed after the device went leaves it unsettled. It is retried a few times
+ * first, and then said rather than guessed either way. */
+MU_TEST(a_confirming_listing_that_cannot_be_read_says_it_could_not_tell)
+{
+	struct run_result r;
+
+	board_in_dfu();
+	fake.list_rc_after_detach = LIBUSB_ERROR_NO_MEM;
+	r = RUN("-r");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: detach failed: could not tell whether "
+	                 "the board left DFU (usb_error=-11)\n") != NULL,
+	          "the unanswerable confirming listing was not reported");
+	mu_assert(strstr(r.err, "Detached\n") == NULL,
+	          "an unsettled detach was reported as detached");
+	mu_assert(strstr(r.err, "came back in the bootloader") == NULL,
+	          "an unsettled detach was reported as a board in the bootloader");
+}
+
 /* ---- what the image says about itself ---------------------------------- */
 
 /* An image built for another API version leaves a board every other tool
@@ -1976,6 +2010,7 @@ int main(void)
 	MU_RUN(a_board_that_comes_back_in_the_bootloader_fails_a_bare_reset);
 	MU_RUN(a_board_that_comes_back_in_the_bootloader_fails_a_read_back);
 	MU_RUN(a_board_that_comes_back_in_the_bootloader_fails_before_verification);
+	MU_RUN(a_confirming_listing_that_cannot_be_read_says_it_could_not_tell);
 	MU_RUN(an_image_for_another_api_version_is_warned_about_and_written);
 	MU_RUN(a_board_running_the_other_image_fails_the_verification);
 	MU_RUN(a_board_that_will_not_name_its_image_fails_the_verification);
