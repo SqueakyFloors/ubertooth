@@ -1156,6 +1156,10 @@ static int is_in_a_scanned_dir(const char *file)
 	char path[512];
 	size_t i;
 
+	/* The scans read a directory's own entries, not its subdirectories, so
+	 * a name with a path left in it is not one of them. */
+	if (strchr(file, '/') != NULL)
+		return 0;
 	for (i = 0; i < SCANNED_DIR_COUNT; i++) {
 		FILE *f;
 
@@ -1169,21 +1173,22 @@ static int is_in_a_scanned_dir(const char *file)
 	return 0;
 }
 
-/* The name a source list entry stands for: the leading make variable is the
- * directory, which the lookup above covers, and $(TARGET) is the image. */
+/*
+ * The name a source list entry stands for. A leading make variable is the
+ * directory the file sits in, which the lookup above covers, and $(TARGET) is
+ * the image itself. Anything else keeps whatever path it has, so a real
+ * subdirectory is reported as unscanned, which it is.
+ */
 static const char *source_list_name(const char *token)
 {
-	const char *slash = strrchr(token, '/');
+	const char *close;
 
 	if (strncmp(token, "$(TARGET)", 9) == 0)
 		return "bluetooth_rxtx.c";
-	if (slash == NULL)
-		return token;
-	/* Only a leading make variable, so a real subdirectory keeps its path
-	 * and is reported as unscanned, which it is. */
 	if (token[0] != '$')
 		return token;
-	return slash + 1;
+	close = strstr(token, ")/");
+	return close == NULL ? token : close + 2;
 }
 
 static int sources_listed;
