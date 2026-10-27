@@ -718,17 +718,27 @@ static int read_function_body(const char *path, const char *function,
 		strip_string_literals(line);
 
 		if (!in_fn) {
+			const char *body;
+
 			if (!is_definition_line(line, function))
 				continue;
 			in_fn = 1;
 			opened = 0;
 			memset(&braces, 0, sizeof(braces));
-			/* The signature itself is not body, but it may open the
-			 * body -- and then it carries the body's first statement,
-			 * which the brace walk below accounts for. */
 			brace_state_advance(&braces, line);
 			if (braces.depth > 0)
 				opened = 1;
+			/*
+			 * A body that starts on the signature's line is body all
+			 * the same, so read what follows the '{' -- and only that,
+			 * because the signature names the function in front of its
+			 * own '(' and would otherwise read as a call to itself.
+			 */
+			body = strchr(line, '{');
+			if (body != NULL) {
+				lines++;
+				visit(body + 1, inside_a_branch(&braces), ctx);
+			}
 			if (opened && braces.depth == 0)
 				in_fn = 0;
 			continue;
@@ -914,7 +924,7 @@ MU_TEST(the_wrapper_every_bulk_mode_calls_reaches_the_queues_service)
 	mu_assert(found.lines > 0,
 	          "service_usb()'s body is empty, so the bulk IN endpoint is "
 	          "never loaded however many modes call it");
-	mu_assert(found.direct > 0,
+	mu_assert(found.direct_every_turn > 0,
 	          "service_usb() no longer calls handle_usb(), so every mode "
 	          "above that calls it leaves the bulk IN endpoint empty and its "
 	          "host reads nothing");
