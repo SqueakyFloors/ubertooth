@@ -106,8 +106,7 @@ static void follow_cleanup(ubertooth_t* ut, int sock, uint16_t handle, int cc)
 }
 
 /* Gives the board back along with the adapter, for a failure after the board
- * was opened but before any mode has started. Without this the board stayed
- * claimed until the process exited.
+ * was opened but before any mode has started.
  *
  * It goes back without a STOP: there is no mode of ours to end, and a STOP to
  * a board that has just refused a request would only add a second failure to
@@ -118,7 +117,7 @@ static void follow_cleanup(ubertooth_t* ut, int sock, uint16_t handle, int cc)
  * itself when the firmware reports a version this host will not drive, and
  * releasing it twice is not safe, while a version it could not read at all
  * leaves the board open, so closing it here is what frees it. ubertooth-scan
- * tells them apart the same way. */
+ * guards its own check_api() failure the same way. */
 static void follow_release_board(ubertooth_t* ut, int sock, uint16_t handle,
                                  int cc)
 {

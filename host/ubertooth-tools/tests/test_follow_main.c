@@ -245,12 +245,11 @@ int ubertooth_connect_select(ubertooth_t* ut, const char* u_arg)
 int ubertooth_check_api(ubertooth_t* ut)
 {
 	/* The library releases the board itself when the firmware reports a
-	 * version this host will not drive; a version it could not read at all
-	 * leaves the board open for the caller to close. */
-	if (fake.api_rc < 0 && fake.api_released) {
-		ut->devh = NULL;
-		fake.stops++;
-	}
+	 * version this host will not drive, through the same ubertooth_stop()
+	 * faked below; a version it could not read at all leaves the board open
+	 * for the caller to close. */
+	if (fake.api_rc < 0 && fake.api_released)
+		ubertooth_stop(ut);
 	return fake.api_rc;
 }
 
