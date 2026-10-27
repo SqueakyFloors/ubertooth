@@ -211,6 +211,23 @@ void mem_pool_free(void *p)
 	free(p);
 }
 
+/* Watchdog feeds, and the site the firmware says it is in. */
+static unsigned feeds;
+static uint8_t site_now;
+
+uint8_t watchdog_mark(uint8_t site)
+{
+	uint8_t previous = site_now;
+
+	site_now = site;
+	return previous;
+}
+
+void watchdog_usb_serviced(void)
+{
+	feeds++;
+}
+
 void cprintf(char *fmt, ...)
 {
 	(void)fmt;
@@ -320,6 +337,43 @@ MU_TEST(test_usb_is_serviced_while_the_send_waits)
 
 	mu_assert(isr_calls > 1, "the wait must poll the USB interrupt");
 	mu_assert_int_eq(USB_SEND_SYNC_POLLS - 1, (int)isr_calls);
+}
+
+/*
+ * Every one of those passes feeds. The wait runs with the USB interrupt held
+ * off and the main loop -- this image's other feed -- not running, so a wait
+ * that only fed at the end would let the watchdog reset a board that is
+ * answering the host throughout. A fault dump is a run of these waits.
+ */
+MU_TEST(test_the_send_feeds_the_watchdog_while_it_waits)
+{
+	U8 msg[4] = { 7, 0, 0, 0 };
+
+	fake_usb_reset();
+	feeds = 0;
+	site_now = WATCHDOG_SITE_NONE;
+	bulk_in_status = EPSTAT_B1FULL | EPSTAT_B2FULL;
+
+	usb_send_sync(msg, sizeof(msg));
+
+	mu_assert_int_eq((int)isr_calls, (int)feeds);
+	mu_assert(feeds > 1, "the wait must feed the watchdog as it polls");
+	mu_assert_int_eq(WATCHDOG_SITE_NONE, (int)site_now);
+}
+
+/* And it puts the site back, so a later wedge is not blamed on the USB path
+ * this send left marked. */
+MU_TEST(test_the_send_puts_the_site_back)
+{
+	U8 msg[4] = { 7, 0, 0, 0 };
+
+	fake_usb_reset();
+	site_now = 42;
+	bulk_in_status = 0;
+
+	usb_send_sync(msg, sizeof(msg));
+
+	mu_assert_int_eq(42, (int)site_now);
 }
 
 /* And it must service USB with the interrupt held off: two contexts driving
@@ -567,6 +621,8 @@ int main(void)
 	MU_RUN(test_one_full_buffer_is_room_enough);
 	MU_RUN(test_a_host_that_never_reads_does_not_hang_the_send);
 	MU_RUN(test_usb_is_serviced_while_the_send_waits);
+	MU_RUN(test_the_send_feeds_the_watchdog_while_it_waits);
+	MU_RUN(test_the_send_puts_the_site_back);
 	MU_RUN(test_the_send_holds_the_usb_interrupt_off);
 	MU_RUN(test_a_host_that_starts_reading_is_served);
 	MU_RUN(test_every_dropped_message_is_counted);

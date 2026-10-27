@@ -257,7 +257,9 @@
   seconds and comes back idle, instead of staying on USB answering nothing
   until it is unplugged or its hub port is power-cycled. A capture sees the
   board disappear rather than hang. A board that hits one of the LED fault
-  codes now reboots between bursts of it for the same reason.
+  codes now reboots part-way through blinking it for the same reason, and says
+  it was in a fault handler when `ubertooth-util -w` asks, which counting
+  blinks never gave you.
   [#239](https://github.com/SqueakyFloors/ubertooth/issues/239)
   [#509](https://github.com/SqueakyFloors/ubertooth/issues/509)
 - A board another program is using says so (`error: Ubertooth <serial> is in

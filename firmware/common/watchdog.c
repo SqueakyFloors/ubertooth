@@ -39,6 +39,7 @@ typedef struct {
 	uint32_t magic;
 	uint8_t  live_mode;
 	uint8_t  live_site;
+	uint8_t  live_outer_site;
 	uint8_t  live_intent;
 	uint8_t  reset_cause;
 	uint8_t  reset_mode;
@@ -98,6 +99,14 @@ uint8_t watchdog_mark(uint8_t site)
 {
 	uint8_t previous = watchdog_crumb.live_site;
 
+	/*
+	 * What the board was doing one level out. This is what watchdog_report()
+	 * tells the host the board is busy with, because live_site cannot serve:
+	 * a reply is written from inside the USB service path, which has marked
+	 * itself by then, so live_site always reads back as "servicing USB". One
+	 * level out is the wait the mode was really in when the request arrived.
+	 */
+	watchdog_crumb.live_outer_site = previous;
 	watchdog_crumb.live_site = site;
 	return previous;
 }
@@ -147,6 +156,7 @@ void watchdog_boot(void)
 	watchdog_crumb.reset_cause = cause;
 	watchdog_crumb.live_mode = MODE_IDLE;
 	watchdog_crumb.live_site = WATCHDOG_SITE_NONE;
+	watchdog_crumb.live_outer_site = WATCHDOG_SITE_NONE;
 	watchdog_crumb.live_intent = WATCHDOG_INTENT_RUNNING;
 	if (watchdog_crumb.boots < 255)
 		watchdog_crumb.boots++;
@@ -203,12 +213,18 @@ void watchdog_usb_ready(void)
 
 void watchdog_stretch(void)
 {
+	/* As in watchdog_feed(): an image that never armed it must not be left
+	 * writing to a watchdog that is not running. */
+	if (!watchdog_armed)
+		return;
 	WDTC = WATCHDOG_TICKS_MAX;
 	watchdog_feed();
 }
 
 void watchdog_unstretch(void)
 {
+	if (!watchdog_armed)
+		return;
 	WDTC = WATCHDOG_TICKS;
 	watchdog_feed();
 	/*
@@ -229,5 +245,6 @@ void watchdog_report(uint8_t *data)
 	data[4] = watchdog_crumb.reset_mode;
 	data[5] = watchdog_crumb.reset_site;
 	data[6] = watchdog_crumb.live_mode;
-	data[7] = watchdog_crumb.live_site;
+	/* Not live_site: see watchdog_mark(). */
+	data[7] = watchdog_crumb.live_outer_site;
 }

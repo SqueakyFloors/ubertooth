@@ -653,6 +653,27 @@ MU_TEST(a_wedged_board_reports_where_it_was_stuck)
 	free(text);
 }
 
+/*
+ * A board that hit a processor fault says that, which is what the blink code
+ * used to be for. The watchdog cuts a blink burst off part-way, so this is now
+ * the readable form of the same information.
+ */
+MU_TEST(a_board_that_faulted_says_so)
+{
+	uint8_t info[UBERTOOTH_WATCHDOG_INFO_LEN] = {
+		WATCHDOG_RESET_WATCHDOG, 1, 1, 2,
+		MODE_SPECAN, WATCHDOG_SITE_FAULT,
+		MODE_IDLE, WATCHDOG_SITE_NONE,
+	};
+	int status = -1;
+	char *text = watchdog_text(info, sizeof(info), &status);
+
+	mu_assert(text != NULL, "no report");
+	mu_assert_int_eq(0, status);
+	mu_assert(strstr(text, "in a processor fault handler") != NULL, text);
+	free(text);
+}
+
 /* A board that has never reset itself has no last one to describe. */
 MU_TEST(a_healthy_board_reports_no_last_reset)
 {
@@ -769,6 +790,7 @@ int main(void)
 	MU_RUN(nonzero_successful_values_do_not_become_status);
 	MU_RUN(status_helpers);
 	MU_RUN(a_wedged_board_reports_where_it_was_stuck);
+	MU_RUN(a_board_that_faulted_says_so);
 	MU_RUN(a_healthy_board_reports_no_last_reset);
 	MU_RUN(an_unarmed_watchdog_is_reported_as_such);
 	MU_RUN(causes_combine_and_a_short_reply_fails);

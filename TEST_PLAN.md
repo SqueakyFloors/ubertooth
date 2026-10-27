@@ -95,6 +95,11 @@ ISP or JTAG.
       is still 0 — a board working normally is never reset
 - [ ] Repeat with `ubertooth-util -I` (identify), which toggles every 167 ms
 - [ ] Confirm: the same
+- [ ] Run `ubertooth-util -w` while a capture is running (`ubertooth-rx` in
+      another shell)
+- [ ] Confirm: the last line names a wait of the running mode, not "servicing
+      USB" — a reply is always written from the USB path, so that line would
+      say nothing
 
 ### 2f. Bootloader refuses a read-back past the end of flash
 

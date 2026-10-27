@@ -438,6 +438,7 @@ enum watchdog_site {
 	WATCHDOG_SITE_XOSC       = 4, /* waiting for the 16 MHz crystal oscillator */
 	WATCHDOG_SITE_FSM        = 5, /* waiting on the radio's state machine */
 	WATCHDOG_SITE_LE_RX      = 6, /* waiting for a BLE packet or the next hop */
+	WATCHDOG_SITE_FAULT      = 7, /* in a processor fault handler, blinking a code */
 	WATCHDOG_SITE_COUNT
 };
 

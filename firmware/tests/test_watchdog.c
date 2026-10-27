@@ -26,9 +26,11 @@
  * loops of the modes that cannot prove more than that -- and from nowhere
  * driven by a timer, which would only show the CPU is running.
  */
+#include <dirent.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include "minunit.h"
 #include "source_scan.h"
@@ -418,7 +420,10 @@ MU_TEST(test_the_reply_is_the_documented_eight_bytes)
 	watchdog_boot();
 	watchdog_start();
 	watchdog_mode(MODE_SPECAN);
+	/* How the board really reaches watchdog_report(): the mode was in a
+	 * wait, which called the USB service path, which marked itself. */
 	watchdog_mark(WATCHDOG_SITE_FS_LOCK);
+	watchdog_mark(WATCHDOG_SITE_USB);
 
 	memset(data, 0xee, sizeof(data));
 	watchdog_report(data);
@@ -431,6 +436,36 @@ MU_TEST(test_the_reply_is_the_documented_eight_bytes)
 	mu_assert_int_eq(WATCHDOG_SITE_XOSC, data[5]);/* wait at the reset */
 	mu_assert_int_eq(MODE_SPECAN, data[6]);       /* mode now */
 	mu_assert_int_eq(WATCHDOG_SITE_FS_LOCK, data[7]); /* wait now */
+}
+
+/*
+ * The reply never says the board is servicing USB, however it was reached: a
+ * reply is written from inside the USB service path, so the site one level out
+ * is the only one that says anything. An idle board really is in no wait, and
+ * the man page's example shows that line.
+ */
+MU_TEST(test_the_reply_says_the_wait_the_mode_is_in_not_the_usb_path)
+{
+	uint8_t data[UBERTOOTH_WATCHDOG_INFO_LEN];
+
+	boot_with(RSID_POR);
+	watchdog_boot();
+	watchdog_start();
+
+	/* Idle: the main loop's service pass is the only mark. */
+	watchdog_mark(WATCHDOG_SITE_USB);
+	watchdog_report(data);
+	mu_assert_int_eq(WATCHDOG_SITE_NONE, data[7]);
+
+	/* A capture waiting for a packet, servicing USB from inside that wait. */
+	watchdog_mark(WATCHDOG_SITE_NONE);
+	watchdog_mark(WATCHDOG_SITE_LE_RX);
+	watchdog_mark(WATCHDOG_SITE_USB);
+	watchdog_report(data);
+	mu_assert_int_eq(WATCHDOG_SITE_LE_RX, data[7]);
+	mu_assert(data[7] != WATCHDOG_SITE_USB,
+	          "the reply would say the board is servicing USB, which it "
+	          "always is while answering, and so says nothing");
 }
 
 /* A board that has not armed it yet says so, rather than claiming a guard it
@@ -473,6 +508,65 @@ static int source_has(const char *path, const char *needle, int *count)
 }
 
 /*
+ * Walk every .c and .h file under `dir`, skipping the paths in `allowed`, and
+ * report the first one with `needle` on a line of code. Its path is written to
+ * `offender`, and `*scanned` counts the files read, so a walk that found
+ * nothing cannot pass by accident. Returns 1 if one was found, 0 if none was,
+ * -1 if the directory cannot be read.
+ */
+static int tree_has(const char *dir, const char *needle,
+                    const char *const *allowed, size_t allowed_count,
+                    char *offender, size_t offender_size, int *scanned)
+{
+	DIR *d = opendir(dir);
+	struct dirent *e;
+	int found = 0;
+
+	if (d == NULL)
+		return -1;
+	while (found == 0 && (e = readdir(d)) != NULL) {
+		char path[512];
+		const char *dot;
+		size_t i;
+		int skip = 0;
+		struct stat st;
+
+		if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0)
+			continue;
+		snprintf(path, sizeof(path), "%s/%s", dir, e->d_name);
+		if (stat(path, &st) != 0)
+			continue;
+		if (S_ISDIR(st.st_mode)) {
+			/* "shared" holds build output: the same sources again,
+			 * plus listings that quote them. */
+			if (strcmp(e->d_name, "shared") == 0)
+				continue;
+			found = tree_has(path, needle, allowed, allowed_count,
+			                 offender, offender_size, scanned);
+			if (found < 0)
+				found = 0;
+			continue;
+		}
+		dot = strrchr(e->d_name, '.');
+		if (dot == NULL || (strcmp(dot, ".c") != 0 && strcmp(dot, ".h") != 0))
+			continue;
+		for (i = 0; i < allowed_count; i++) {
+			if (strcmp(path, allowed[i]) == 0)
+				skip = 1;
+		}
+		if (skip)
+			continue;
+		(*scanned)++;
+		if (source_has(path, needle, NULL) == 1) {
+			snprintf(offender, offender_size, "%s", path);
+			found = 1;
+		}
+	}
+	closedir(d);
+	return found;
+}
+
+/*
  * Every place USB is serviced feeds the watchdog. "Serviced" is one thing in
  * this firmware: a call to the stack's USBHwISR(), which drives the controller
  * and answers the host. So each function that makes that call must feed, and
@@ -480,15 +574,17 @@ static int source_has(const char *path, const char *needle, int *count)
  * service path added without a feed would have the watchdog reset a board that
  * is capturing happily.
  *
- * btbr is not in this list: it leaves the USB interrupt on for as long as it
- * runs and feeds from its main loop instead, which
- * test_every_interrupt_driven_mode_loop_feeds covers.
+ * btbr's driver is in the list too. Its main loop feeds, but both of its
+ * service paths hold the USB interrupt off and poll the controller tens of
+ * thousands of times with that loop not running, so each has to feed for
+ * itself: otherwise a fault dump would be cut off part-way by a reset.
  */
 MU_TEST(test_every_usb_service_path_feeds)
 {
 	static const char *const sources[] = {
 		FW_RXTX_DIR "/ubertooth_usb.c",
 		FW_COMMON_DIR "/usb_serial.c",
+		FW_BTBR_DIR "/src/drivers/ubertooth_usb.c",
 	};
 	size_t i;
 	int service_paths = 0;
@@ -740,8 +836,12 @@ MU_TEST(test_the_open_ended_ble_waits_feed)
  * check is that no source raises another interrupt to meet it. Both images do
  * set exactly one priority -- dma_poweron() puts GPDMA at 31, the lowest -- so
  * those two lines are named here rather than banned, and the test insists they
- * stay at 31. The files that write a priority are the ones that most need
- * reading, which is why both are in this list.
+ * stay at 31.
+ *
+ * Every other firmware source is scanned, rather than a list of the files that
+ * enable an interrupt today: a priority raised in a file nobody thought to
+ * name would otherwise pass, and this is the assumption the whole design rests
+ * on.
  */
 MU_TEST(test_nothing_is_raised_above_the_usb_interrupt)
 {
@@ -750,35 +850,42 @@ MU_TEST(test_nothing_is_raised_above_the_usb_interrupt)
 		FW_RXTX_DIR "/ubertooth_dma.c",
 		FW_BTBR_DIR "/src/drivers/ubertooth_dma.c",
 	};
-	/* Everything that enables or handles an interrupt, and must set none. */
-	static const char *const none[] = {
-		FW_RXTX_DIR "/bluetooth_rxtx.c",
-		FW_RXTX_DIR "/le_phy.c",
-		FW_RXTX_DIR "/ubertooth_usb.c",
-		FW_RXTX_DIR "/xmas.c",
-		FW_RXTX_DIR "/identify.c",
-		FW_RXTX_DIR "/ego.c",
-		FW_COMMON_DIR "/ubertooth.c",
-		FW_COMMON_DIR "/usb_serial.c",
-		FW_BTBR_DIR "/src/btctl/main.c",
-		FW_BTBR_DIR "/src/drivers/ubertooth_usb.c",
+	/* Named with the DMA drivers because the walk looks for the register
+	 * name: this is the header that gives the registers their names, and
+	 * declaring one is not writing it. */
+	static const char *const allowed[] = {
+		FW_RXTX_DIR "/ubertooth_dma.c",
+		FW_BTBR_DIR "/src/drivers/ubertooth_dma.c",
+		FW_COMMON_DIR "/lpc17.h",
+	};
+	static const char *const trees[] = {
+		FW_RXTX_DIR, FW_COMMON_DIR, FW_BTBR_DIR, FW_BOOTLOADER_DIR,
 	};
 	size_t i;
+	int scanned = 0;
 
-	for (i = 0; i < sizeof(none) / sizeof(none[0]); i++) {
-		char msg[384];
-		int found = source_has(none[i], "IPR", NULL);
+	for (i = 0; i < sizeof(trees) / sizeof(trees[0]); i++) {
+		char msg[640];
+		char offender[512] = "";
+		int found = tree_has(trees[i], "IPR", allowed,
+		                     sizeof(allowed) / sizeof(allowed[0]),
+		                     offender, sizeof(offender), &scanned);
 
-		snprintf(msg, sizeof(msg), "cannot read %s", none[i]);
+		snprintf(msg, sizeof(msg), "cannot walk %s", trees[i]);
 		mu_assert(found >= 0, msg);
 
 		snprintf(msg, sizeof(msg),
 		         "%s writes an interrupt priority register. The watchdog "
 		         "relies on nothing outranking the USB interrupt, so that "
-		         "a stuck handler also stops the USB handler feeding",
-		         none[i]);
+		         "a stuck handler also stops the USB handler feeding. If "
+		         "the new priority really is below USB's, add the file to "
+		         "this test's list of files allowed to set the lowest",
+		         offender);
 		mu_assert(found == 0, msg);
 	}
+
+	/* A walk that found nothing would pass the check above vacuously. */
+	mu_assert(scanned > 20, "the firmware source walk found almost no files");
 
 	for (i = 0; i < sizeof(lowest) / sizeof(lowest[0]); i++) {
 		char line[512], msg[384];
@@ -891,6 +998,70 @@ MU_TEST(test_no_interrupt_handler_but_the_usb_one_feeds)
  * on-chip programmer is the exception the enum spells out: it never resets, so
  * it is not checked here.
  */
+/*
+ * The breadcrumb only works because of where it is linked, and the tests above
+ * cannot see that: they build for the host, where watchdog_crumb is an ordinary
+ * object they can poke. So the linker script is read as text. Move the symbol
+ * into .data or .bss and every reset would wipe the record, with every test
+ * above still passing.
+ *
+ * All five images share this script, which is why one read covers them all.
+ */
+MU_TEST(test_the_breadcrumb_is_linked_where_a_reset_cannot_clear_it)
+{
+	const char *path = FW_COMMON_DIR "/sections.ld";
+	char line[512];
+	int in_block = 0;
+	int region = 0, crumb_at_start = 0, ctrl_above = 0, reserves_32 = 0;
+	int data_after = 0, seen_region = 0;
+	FILE *f = fopen(path, "r");
+
+	mu_assert(f != NULL, "cannot read sections.ld");
+	while (fgets(line, sizeof(line), f) != NULL) {
+		strip_comments(line, &in_block);
+		/* NOLOAD keeps it out of the image, so startup loads nothing over
+		 * it; being its own output section keeps it out of .bss, which
+		 * startup zeroes. */
+		if (strstr(line, ".persistent") != NULL &&
+		    strstr(line, "NOLOAD") != NULL &&
+		    strstr(line, "ORIGIN(ram)") != NULL) {
+			region = 1;
+			seen_region = 1;
+		}
+		if (strstr(line, ". += 32") != NULL)
+			reserves_32 = 1;
+		if (strstr(line, "watchdog_crumb") != NULL &&
+		    strstr(line, "_persistent_start") != NULL &&
+		    strstr(line, "+") == NULL)
+			crumb_at_start = 1;
+		if (strstr(line, "bootloader_ctrl") != NULL &&
+		    strstr(line, "0x1C") != NULL)
+			ctrl_above = 1;
+		/* .data starts after the region, so it cannot overlap it. */
+		if (seen_region && strstr(line, ".data") != NULL)
+			data_after = 1;
+	}
+	fclose(f);
+
+	mu_assert(region == 1,
+	          "sections.ld has no .persistent (NOLOAD) output section at the "
+	          "bottom of RAM: the breadcrumb would be loaded or zeroed at "
+	          "startup and a watchdog reset would wipe what it recorded");
+	mu_assert(reserves_32 == 1,
+	          "the .persistent region no longer reserves its 32 bytes");
+	mu_assert(crumb_at_start == 1,
+	          "watchdog_crumb is no longer placed at the start of .persistent");
+	mu_assert(ctrl_above == 1,
+	          "bootloader_ctrl is no longer at the top of .persistent, so it "
+	          "and the breadcrumb may overlap");
+	mu_assert(data_after == 1, "sections.ld places .data before .persistent");
+
+	/* The struct has to fit below bootloader_ctrl; watchdog.c asserts that at
+	 * compile time, and this says what the budget is for. */
+	mu_assert(sizeof(watchdog_crumb_t) <= 0x1C,
+	          "the breadcrumb no longer fits below bootloader_ctrl");
+}
+
 MU_TEST(test_a_claimed_reset_is_claimed_where_it_happens)
 {
 	static const char *const sources[] = {
@@ -976,6 +1147,7 @@ int main(void)
 	MU_RUN(test_the_counters_stop_at_their_largest_value);
 	MU_RUN(test_a_mark_returns_the_site_it_replaced);
 	MU_RUN(test_the_reply_is_the_documented_eight_bytes);
+	MU_RUN(test_the_reply_says_the_wait_the_mode_is_in_not_the_usb_path);
 	MU_RUN(test_the_reply_says_when_the_watchdog_is_not_armed);
 	MU_RUN(test_every_usb_service_path_feeds);
 	MU_RUN(test_every_interrupt_driven_mode_loop_feeds);
@@ -983,6 +1155,7 @@ int main(void)
 	MU_RUN(test_the_open_ended_ble_waits_feed);
 	MU_RUN(test_nothing_is_raised_above_the_usb_interrupt);
 	MU_RUN(test_no_interrupt_handler_but_the_usb_one_feeds);
+	MU_RUN(test_the_breadcrumb_is_linked_where_a_reset_cannot_clear_it);
 	MU_RUN(test_a_claimed_reset_is_claimed_where_it_happens);
 	return mu_report();
 }

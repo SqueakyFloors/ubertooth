@@ -229,6 +229,7 @@ static const char *const watchdog_site_text[WATCHDOG_SITE_COUNT] = {
 	[WATCHDOG_SITE_XOSC]      = "waiting for the 16 MHz crystal oscillator",
 	[WATCHDOG_SITE_FSM]       = "waiting on the radio's state machine",
 	[WATCHDOG_SITE_LE_RX]     = "waiting for a BLE packet or the next hop",
+	[WATCHDOG_SITE_FAULT]     = "in a processor fault handler",
 };
 
 const char *util_watchdog_mode_name(unsigned mode)
@@ -296,7 +297,7 @@ int util_report_watchdog(FILE *out, const uint8_t *info, size_t len)
 	fprintf(out, "Last boot cause: %s\n", cause);
 	if (info[1])
 		fprintf(out, "Watchdog: armed; %u ms without USB being serviced "
-		        "resets the board\n", (unsigned)UBERTOOTH_WATCHDOG_TIMEOUT_MS);
+		        "or the mode looping resets the board\n", (unsigned)UBERTOOTH_WATCHDOG_TIMEOUT_MS);
 	else
 		fprintf(out, "Watchdog: not armed\n");
 	fprintf(out, "Unrequested watchdog resets since power-on: %u (in %u boot%s)\n",

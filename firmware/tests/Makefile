@@ -307,7 +307,7 @@ $(BINDIR)/test_vendor_request_bounds: test_vendor_request_bounds.c minunit.h \
 # resolves to the stub, which comes first.
 $(BINDIR)/test_btbr_usb_send: test_btbr_usb_send.c minunit.h \
 		stubs-btbr-usb/ubertooth.h stubs-btbr-usb/ubtbr/system.h \
-		stubs-btbr/ubtbr/debug.h \
+		stubs-btbr/ubtbr/debug.h stubs-btbr-usb/watchdog.h \
 		$(FW_BTBR)/src/drivers/ubertooth_usb.c \
 		$(FW_BTBR)/src/util/queue.c \
 		$(FW_BTBR)/include/ubtbr/ubertooth_usb.h \
@@ -390,14 +390,16 @@ $(BINDIR)/test_firmware_object_paths: test_firmware_object_paths.c minunit.h \
 $(BINDIR)/test_watchdog: test_watchdog.c minunit.h source_scan.h \
 		stubs-watchdog/ubertooth.h stubs/ubertooth.h \
 		$(FW_COMMON)/watchdog.c $(FW_COMMON)/watchdog.h \
-		$(FW_COMMON)/usb_irq.h \
+		$(FW_COMMON)/usb_irq.h $(FW_COMMON)/sections.ld \
 		$(FW_RXTX)/ubertooth_usb.c $(FW_RXTX)/bluetooth_rxtx.c \
 		$(FW_RXTX)/ego.c $(FW_RXTX)/xmas.c $(FW_RXTX)/identify.c \
 		$(FW_COMMON)/usb_serial.c \
+		$(FW_BTBR)/src/drivers/ubertooth_usb.c \
 		$(FW_BTBR)/src/btctl/main.c | $(BINDIR)
 	$(CC) $(CFLAGS) -Istubs-watchdog -I$(FW_COMMON) $(CPPFLAGS) \
 		-DFW_HOST_TEST -DFW_RXTX_DIR='"$(FW_RXTX)"' \
 		-DFW_BTBR_DIR='"$(FW_BTBR)"' -DFW_COMMON_DIR='"$(FW_COMMON)"' \
+		-DFW_BOOTLOADER_DIR='"$(FW_BOOT)"' \
 		-o $@ test_watchdog.c
 
 $(BINDIR):
