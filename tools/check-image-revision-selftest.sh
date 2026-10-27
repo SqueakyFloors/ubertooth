@@ -389,6 +389,21 @@ want_stderr "firmware/newimage is not in any of the lists"
 # reason to fail comes from the list check.
 want_stdout "bluetooth_rxtx.bin: git-cafe1234"
 
+# --list-shipped from the same tree hands out no list at all: a caller acting
+# on one would be checking a set of images nobody has decided about.
+case_name="--list-shipped over a tree whose list is wrong"
+printf '\n%s\n' "case: $case_name"
+printf '%s\n' "  (scratch tree) check-image-revision.sh --list-shipped"
+"$scratch/tools/check-image-revision.sh" --list-shipped \
+    > "$work/out" 2> "$work/err"
+status=$?
+printf '%s\n' "  exit status $status"
+sed 's/^/  stderr: /' "$work/err"
+sed 's/^/  stdout: /' "$work/out"
+want_status 1
+want_empty_stdout
+want_stderr "firmware/newimage is not in any of the lists"
+
 # -------------------------------------------------------------------------
 # --check-list: the lists against the firmware tree
 # -------------------------------------------------------------------------
@@ -446,6 +461,25 @@ want_stderr "has no subdirectories"
 run "--check-list with a tree that has no firmware" --check-list "$work"
 want_status 1
 want_stderr "has no firmware directory"
+
+# -------------------------------------------------------------------------
+# --list-shipped: the list, for the other check over built images
+# -------------------------------------------------------------------------
+
+# tools/check-dfu-package.sh reads the list from here rather than keeping a
+# second copy, so standard output carries the names and nothing else, one a
+# line.
+run "the list of shipped images" --list-shipped
+want_status 0
+want_stdout "bluetooth_rxtx"
+want_stdout "btbr"
+want_stdout_only '^[a-z0-9_]+$'
+want_stderr "shipped images: bluetooth_rxtx btbr"
+
+run "--list-shipped with something else" --list-shipped "$work"
+want_status 1
+want_empty_stdout
+want_stderr "takes nothing else"
 
 printf '\n'
 if [ "$failures" -eq 0 ]; then

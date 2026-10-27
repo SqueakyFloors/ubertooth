@@ -76,15 +76,17 @@ or non-trivial operational documentation changes:
   `Man pages` job the same way, when anything under `host/doc` changes. The
   weekly schedule, a published release, and a manual run run the full matrix.
   `issue-references` and the two `scripts` jobs run on both tiers and need
-  nothing built. `image-revision` runs on both tiers too, after the firmware
-  job, on the images that job built: it is the only check that reads a built
-  image's firmware info block the way `ubertooth-dfu` reads it, rather than
-  comparing the magic bytes. `api-version` runs on pull requests and pushes to
-  `main` only, because it compares a branch with `main` and on the other
-  triggers there is no branch to compare. `libbtbb-pin` is its own workflow
-  with no path filter, so it runs on every change, documentation included: two
-  of the files that have to agree on the pin are `COMPATIBILITY.md` and the
-  build guides.
+  nothing built. `image-revision` and `dfu-package` run on both tiers too,
+  after the firmware job, on the images that job built: `image-revision` is the
+  only check that reads a built image's firmware info block the way
+  `ubertooth-dfu` reads it, rather than comparing the magic bytes, and
+  `dfu-package` the only one that packages an image into the `.dfu` users flash
+  and asks the tool whether it would accept it. `api-version` runs on pull
+  requests and pushes to `main` only, because it compares a branch with `main`
+  and on the other triggers there is no branch to compare. `libbtbb-pin` is its
+  own workflow with no path filter, so it runs on every change, documentation
+  included: two of the files that have to agree on the pin are
+  `COMPATIBILITY.md` and the build guides.
   A branch with no open PR gets no CI; open a PR (a draft is enough) to get a
   run.
 - Before cutting a release, run the full tier manually and wait for it:
@@ -109,15 +111,17 @@ Speed matters. Do not wait for every job.
   for `libbtbb-pin`, which takes about five seconds.
 - **Gating set: one Linux and one Mac.** A code change is good to merge once
   `host (ubuntu-24.04)` and `host (macos-26)` have passed and nothing has
-  failed. Changes under `firmware/` also need both firmware jobs and
-  `image-revision`, which reads the images they built; changes to
-  `install.sh` need both `install-sh` jobs; changes under `host/doc` need the
-  `Man pages` workflow, which `gh pr checks` prints under its job name,
+  failed. Changes under `firmware/` also need both firmware jobs,
+  `image-revision` and `dfu-package`, which read and package the images they
+  built; a change to the host's DFU code needs `dfu-package` too, since it
+  builds and runs the packaging tool; changes to `install.sh` need both
+  `install-sh` jobs; changes under `host/doc` need the `Man pages` workflow,
+  which `gh pr checks` prints under its job name,
   `refresh`. `issue-references`, `api-version`, `libbtbb-pin`,
   `scripts (ubuntu-24.04)` and `scripts (macos-26)` gate every change they
   run on, whatever the change touches: they take seconds to a minute, need
-  nothing built, and a red one
-  means the change itself broke the rule they check. A full-tier failure is
+  nothing built, and a red one means the change itself broke the rule they
+  check. A full-tier failure is
   followed up on `main`.
 - **Time budget**: wait at most 10 minutes for the gating set once the run has
   started. Poll every 30 seconds (`gh pr checks <PR>`) rather than one long
