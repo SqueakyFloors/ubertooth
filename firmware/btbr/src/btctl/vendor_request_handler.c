@@ -177,11 +177,11 @@ int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		data[0] = 0x00;
 		data[1] = 0x00;
 
-		length = (u8)strlen(GIT_REVISION);
-		data[2] = length;
-
+		length = strlen(GIT_REVISION);
+		if (length > UBERTOOTH_REVISION_MAX)
+			length = UBERTOOTH_REVISION_MAX;
+		data[2] = (u8)length;
 		memcpy(&data[3], GIT_REVISION, length);
-
 		*data_len = 2 + 1 + length;
 		break;
 

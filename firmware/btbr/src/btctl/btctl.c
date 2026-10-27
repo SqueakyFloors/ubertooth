@@ -53,8 +53,46 @@ static void btctl_handle_debug_req(msg_t *msg)
 	cprintf("debug req: %s\n", (char*)hdr->data);
 }
 
+/* The board stays up this long before it resets: ten times the 1 ms USB frame
+ * the host's next token can be away. */
+#define RESET_DELAY_CLKN (CLKN_RATE/100)
+
 static void btctl_handle_reset_req(msg_t *msg)
 {
+	uint32_t start;
+
+	/*
+	 * Let the host collect its answer before going away. reset() turns the
+	 * USB pins off as its first act, and this runs from the loop a few
+	 * microseconds after the request handler that asked for it returned --
+	 * while the control transfer's status stage is still sitting in the
+	 * endpoint 0 buffer, waiting for the host's next IN token, which can be
+	 * a whole 1 ms frame away. Going off the bus throws that packet away,
+	 * and the host sees a stalled transfer: ubertooth-dfu reads that as a
+	 * board refusing to enter DFU and gives up, even though the board does
+	 * land in the bootloader, which carries no serial number.
+	 *
+	 * The delay is spent the way the idle request spends its own: standby
+	 * first, then usb_work() until the time is up. A receiving state would
+	 * otherwise keep filling the queue to the host while nothing emptied it,
+	 * and a state that cannot enqueue a packet calls die(), which never
+	 * returns -- so a board asked to reset mid-capture would stop here
+	 * instead of resetting. The states read this field to see that they have
+	 * been cancelled; usb_work() is what empties the queue.
+	 *
+	 * The field is set here rather than through btctl_set_state(), which
+	 * prints a line to the host's console and enqueues a state response, and
+	 * either can reach that same die() on a queue that is already full.
+	 *
+	 * MASTER_CLKN is a free-running hardware counter, so the subtraction
+	 * stays right to within a tick of its wrap, and nothing but a stopped
+	 * timer 1 -- which would have stopped the whole image long before this --
+	 * can hold the board here.
+	 */
+	btctl.state = BTCTL_STATE_STANDBY;
+	start = MASTER_CLKN;
+	while ((uint32_t)(MASTER_CLKN - start) < RESET_DELAY_CLKN)
+		usb_work();
 	reset();
 }
 

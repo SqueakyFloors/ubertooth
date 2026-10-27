@@ -1290,7 +1290,7 @@ int main(int argc, char **argv) {
 	libusb_device_handle* devh = NULL;
 	struct dfu_usb_identity selected_identity;
 	struct dfu_runtime_context runtime;
-	char expected_revision[64] = {0};
+	char expected_revision[UBERTOOTH_REVISION_MAX + 1] = {0};
 	unsigned long download_image_size = 0;
 	uint8_t functions = 0;
 	int interface_claimed = 0;

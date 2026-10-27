@@ -1,6 +1,6 @@
 /*
- * The build string both firmware images carry, and the one thing the host
- * needs out of it.
+ * The two text replies both firmware images carry -- the build string and the
+ * revision on its own -- and the one thing the host needs out of the first.
  *
  * ubertooth-dfu -r checks, after the reset, that the board came back running
  * the revision that was just written. It learns which revision to expect by
@@ -18,13 +18,16 @@
  * is the direction to err in, because the thing the host really needs is a
  * property of the built image, and nothing here can build one.
  *
- * The last two cases are about the reply the same string goes out in: a
- * one-byte length and then the characters, which the host reads at most
- * 1 + 255 bytes of. A longer string has to be cut to 255, because a one-byte
- * length cannot describe more. The old code cast the length to a byte, which
- * wrapped it modulo 256 and sent that many characters, so a 300-character
- * string reached the host as its first 44 and a 256-character one as nothing.
+ * The rest is about the replies these strings go out in: a one-byte length and
+ * then the characters, which the host reads at most 255 characters of. A longer
+ * string has to be cut to 255, because a one-byte length cannot describe more.
+ * The old code cast the length to a byte, which wrapped it modulo 256 and sent
+ * that many characters, so a 300-character string reached the host as its
+ * first 44 and a 256-character one as nothing. Both the build string and the
+ * revision reply were written that way; neither is reachable with the
+ * `git-<8 hex>` revisions this tree produces.
  */
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -49,6 +52,11 @@ static const char *const source_paths[] = {
 	FW_BTBR_DIR "/src/btctl/vendor_request_handler.c",
 };
 #define SOURCE_COUNT (int)(sizeof(source_paths) / sizeof(source_paths[0]))
+
+/* abVendorReqData in the two ubertooth_usb.c files: the buffer a handler
+ * writes its reply into. The last test reads the declared size out of both
+ * rather than trusting this one. */
+#define VENDOR_REQ_BUF 258
 
 /*
  * The definition as the named source spells it, comments stripped and spaces
@@ -212,11 +220,129 @@ MU_TEST(the_host_finds_the_revision_in_that_string)
 	fclose(file);
 }
 
+/* -------------------------------------------------------------------------
+ * The revision reply
+ * ------------------------------------------------------------------------- */
+
+/*
+ * The reply UBERTOOTH_GET_REV_NUM builds, as both handlers build it: two zero
+ * bytes where an old firmware put a 16-bit revision number, then a one-byte
+ * length, then that many characters. Returns the reply length.
+ */
+static int revision_reply(const char *revision, uint8_t *data)
+{
+	size_t length = strlen(revision);
+
+	if (length > UBERTOOTH_REVISION_MAX)
+		length = UBERTOOTH_REVISION_MAX;
+	data[0] = 0x00;
+	data[1] = 0x00;
+	data[2] = (uint8_t)length;
+	memcpy(&data[3], revision, length);
+	return (int)(2 + 1 + length);
+}
+
+/* The same with the length cast to a byte, as it was: the cast wraps a length
+ * of 256 or more modulo 256 and that many characters go out behind it. */
+static int old_revision_reply(const char *revision, uint8_t *data)
+{
+	size_t length = (uint8_t)strlen(revision);
+
+	data[0] = 0x00;
+	data[1] = 0x00;
+	data[2] = (uint8_t)length;
+	memcpy(&data[3], revision, length);
+	return (int)(2 + 1 + length);
+}
+
+/*
+ * A revision of `length` characters. Either reply above writes at most
+ * 3 + 255 bytes for any of these, which is the reply buffer both images
+ * declare -- the last case puts that size against the cap -- so neither can
+ * run off the end of a VENDOR_REQ_BUF buffer.
+ */
+#define LONGEST_REVISION 512
+static const char *revision_of_length(size_t length)
+{
+	static char revision[LONGEST_REVISION + 1];
+	size_t i;
+
+	if (length > LONGEST_REVISION)
+		length = LONGEST_REVISION;
+	for (i = 0; i < length; i++)
+		revision[i] = (char)('a' + i % 26);
+	revision[length] = '\0';
+	return revision;
+}
+
+/* The revision this tree produces goes out whole, as it always did. */
+MU_TEST(a_normal_revision_goes_out_whole)
+{
+	uint8_t reply[VENDOR_REQ_BUF];
+
+	mu_assert_int_eq(15, revision_reply("git-deadbeef", reply));
+	mu_assert_int_eq(12, reply[2]);
+	mu_assert(memcmp(&reply[3], "git-deadbeef", 12) == 0,
+	          "the reply does not carry the revision");
+}
+
+/* A revision too long for a one-byte length is cut to the cap. */
+MU_TEST(a_long_revision_is_cut_to_the_cap)
+{
+	static const size_t lengths[] = { 255, 256, 300, 511, 512 };
+	uint8_t reply[VENDOR_REQ_BUF];
+	size_t i;
+
+	for (i = 0; i < sizeof(lengths) / sizeof(lengths[0]); i++) {
+		const char *revision = revision_of_length(lengths[i]);
+		char message[128];
+
+		snprintf(message, sizeof(message),
+		         "a %d-character revision was not reported as the "
+		         "%d-character cap", (int)lengths[i],
+		         UBERTOOTH_REVISION_MAX);
+		mu_assert_int_eq(3 + UBERTOOTH_REVISION_MAX,
+		                 revision_reply(revision, reply));
+		mu_assert(reply[2] == UBERTOOTH_REVISION_MAX, message);
+		mu_assert(memcmp(&reply[3], revision,
+		                 UBERTOOTH_REVISION_MAX) == 0,
+		          "the cut reply does not carry the leading "
+		          "characters of the revision");
+	}
+}
+
+/*
+ * The bug: the cast reported the length modulo 256, so a 256-character
+ * revision went out as none at all and a 300-character one as its first 44.
+ * Either reads back as a revision the board is not running, and
+ * `ubertooth-dfu -r` compares exactly that against the image it wrote.
+ */
+MU_TEST(the_old_cast_wrapped_a_long_revision)
+{
+	uint8_t reply[VENDOR_REQ_BUF];
+	int capped;
+
+	mu_assert_int_eq(3, old_revision_reply(revision_of_length(256), reply));
+	mu_assert_int_eq(0, reply[2]);
+
+	mu_assert_int_eq(3 + 44,
+	                 old_revision_reply(revision_of_length(300), reply));
+	mu_assert_int_eq(44, reply[2]);
+
+	/* ...and it was right for every revision short enough to describe,
+	 * which is why nothing on the bench ever saw this. */
+	capped = revision_reply(revision_of_length(255), reply);
+	mu_assert_int_eq(capped,
+	                 old_revision_reply(revision_of_length(255), reply));
+	mu_assert_int_eq(UBERTOOTH_REVISION_MAX, reply[2]);
+}
+
 /*
  * The cap is only safe because the buffer a handler writes its reply into is
  * bigger than the biggest reply the cap allows. That buffer is declared in
  * each image's USB shim, nowhere near the cap, so this reads the declared size
- * out of both and puts the cap against it.
+ * out of both and puts both caps against it. The revision reply is the tighter
+ * of the two: it carries three bytes of header rather than one.
  */
 MU_TEST(the_cap_fits_the_buffer_both_shims_declare)
 {
@@ -251,10 +377,31 @@ MU_TEST(the_cap_fits_the_buffer_both_shims_declare)
 		         UBERTOOTH_COMPILE_INFO_MAX);
 		mu_assert(1 + (size_t)UBERTOOTH_COMPILE_INFO_MAX <= declared,
 		          message);
+
+		snprintf(message, sizeof(message),
+		         "%s: abVendorReqData is %d bytes, too small for the "
+		         "%d-byte reply UBERTOOTH_REVISION_MAX allows (two "
+		         "zero bytes, one length byte and %d characters)",
+		         path, (int)declared,
+		         3 + UBERTOOTH_REVISION_MAX, UBERTOOTH_REVISION_MAX);
+		mu_assert(3 + (size_t)UBERTOOTH_REVISION_MAX <= declared,
+		          message);
+
+		snprintf(message, sizeof(message),
+		         "%s: abVendorReqData is %d bytes, not the %d the "
+		         "fakes above write their replies into", path,
+		         (int)declared, VENDOR_REQ_BUF);
+		mu_assert(declared == VENDOR_REQ_BUF, message);
 	}
 }
 
-MU_TEST(both_handlers_cut_the_reply_to_that_cap)
+/*
+ * Both handlers cut, rather than cast. The handlers are hardware code that
+ * cannot run here, so this scans the named case in each source for the cap,
+ * which is what keeps the fakes above from drifting away from the firmware.
+ */
+static void assert_both_handlers_cap(const char *request, const char *cap,
+                                     int cap_value)
 {
 	char line[512], message[1024];
 	int i;
@@ -268,13 +415,13 @@ MU_TEST(both_handlers_cut_the_reply_to_that_cap)
 		mu_assert_fatal(file != NULL, message);
 		while (fgets(line, sizeof(line), file) != NULL) {
 			strip_comments(line, &in_block);
-			if (contains_identifier(line, "UBERTOOTH_GET_COMPILE_INFO")) {
+			if (contains_identifier(line, request)) {
 				in_case = 1;
 				continue;
 			}
 			if (!in_case)
 				continue;
-			if (contains_identifier(line, "UBERTOOTH_COMPILE_INFO_MAX"))
+			if (contains_identifier(line, cap))
 				capped = 1;
 			/* The case ends at its break. */
 			if (contains_identifier(line, "break"))
@@ -282,22 +429,39 @@ MU_TEST(both_handlers_cut_the_reply_to_that_cap)
 		}
 		fclose(file);
 		snprintf(message, sizeof(message),
-		         "%s: the UBERTOOTH_GET_COMPILE_INFO case does not cut "
-		         "the string to UBERTOOTH_COMPILE_INFO_MAX (%d), so a "
-		         "longer one would reach the host as its first "
+		         "%s: the %s case does not cut the string to %s (%d), "
+		         "so a longer one would reach the host as its first "
 		         "strlen-modulo-256 characters, or as none at all",
-		         source_paths[i], UBERTOOTH_COMPILE_INFO_MAX);
+		         source_paths[i], request, cap, cap_value);
 		mu_assert(in_case, message);
 		mu_assert(capped, message);
 	}
 }
 
+MU_TEST(both_handlers_cut_the_reply_to_that_cap)
+{
+	assert_both_handlers_cap("UBERTOOTH_GET_COMPILE_INFO",
+	                         "UBERTOOTH_COMPILE_INFO_MAX",
+	                         UBERTOOTH_COMPILE_INFO_MAX);
+}
+
+MU_TEST(both_handlers_cut_the_revision_to_its_cap)
+{
+	assert_both_handlers_cap("UBERTOOTH_GET_REV_NUM",
+	                         "UBERTOOTH_REVISION_MAX",
+	                         UBERTOOTH_REVISION_MAX);
+}
+
 int main(void)
 {
-	printf("firmware build string tests\n");
+	printf("firmware text reply tests\n");
 	MU_RUN(both_images_define_the_build_string_the_same_way);
 	MU_RUN(the_host_finds_the_revision_in_that_string);
+	MU_RUN(a_normal_revision_goes_out_whole);
+	MU_RUN(a_long_revision_is_cut_to_the_cap);
+	MU_RUN(the_old_cast_wrapped_a_long_revision);
 	MU_RUN(both_handlers_cut_the_reply_to_that_cap);
+	MU_RUN(both_handlers_cut_the_revision_to_its_cap);
 	MU_RUN(the_cap_fits_the_buffer_both_shims_declare);
 	return mu_report();
 }

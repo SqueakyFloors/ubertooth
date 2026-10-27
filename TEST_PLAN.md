@@ -40,7 +40,7 @@ Hardware required: Ubertooth One, Linux machine (Ubuntu 22.04+ preferred), a BLE
 
 ### 2a. Firmware version check
 - [ ] Run `ubertooth-util -v`
-- [ ] Confirm: returns `Firmware version: <revision> (API:1.30)` (firmware
+- [ ] Confirm: returns `Firmware version: <revision> (API:1.31)` (firmware
       built from this tree; the host tools refuse any other API version)
 - [ ] Confirm: no `is in use by another program` or `claiming the USB
       interface` errors
@@ -107,6 +107,21 @@ requests directly.*
 - [ ] Not reachable on an Ubertooth: the sector probe, which only runs on a
       part the bootloader's table has no entry for. Every board shipped is
       built from a listed part
+
+### 2g. Flashing back off the btbr image
+
+*Needs a board that can be reached at the bench: a run that leaves it in the
+bootloader needs the entry pin or a power cycle.*
+
+- [ ] Run `ubertooth-dfu -U <serial> -d firmware/btbr/btbr.dfu -r`
+- [ ] Run `ubertooth-dfu -U <serial> -d firmware/bluetooth_rxtx/bluetooth_rxtx.dfu -r`
+- [ ] Confirm: the second flash exits 0, with no `DFU entry failed`; the board
+      comes back and `ubertooth-util -v` reports the revision just written
+      (`-r` reads the revision off the board directly, so `btbr`'s fixed
+      `bcdDevice` of 1.06 does not get in the way)
+- [ ] Flash `btbr.dfu` again, start `ubertooth-btbr`, and flash
+      `bluetooth_rxtx.dfu` while it is capturing
+- [ ] Confirm: the same result, and the board does not stop answering
 
 ---
 
