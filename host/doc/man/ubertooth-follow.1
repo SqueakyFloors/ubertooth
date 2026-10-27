@@ -61,7 +61,7 @@ The map that comes back is used only when it could be a hop sequence at all:
 .IP "\(bu" 4
 a failed read stops the command (\fBerror: AFH map read failed: \|\.\|\.\|\.\fR), rather than following with whatever the map happened to contain\. \fB\-a\fR therefore does not work on a controller that does not implement HCI_Read_AFH_Channel_Map; run without \fB\-a\fR on one of those;
 .IP "\(bu" 4
-a reply of AFH off is followed without it: \fBthe remote device is not using AFH; following without it\fR\. The board's AFH map is cleared in that case, and whenever \fB\-a\fR is not given, so a map left by an earlier run cannot make it hop adaptively anyway;
+a reply of AFH off is followed without it: \fBthe remote device is not using AFH; following without it\fR\. Nothing is sent to the board in that case: starting the follow resets its hop mode and AFH map, so a map left by an earlier run cannot make it hop adaptively anyway\. An accepted map is applied once the follow has started, for the same reason (see ubertooth\-util(1), CARRY\-OVER BETWEEN RUNS);
 .IP "\(bu" 4
 a map with fewer than the 20 channels AFH requires, or none at all, is read again \(em three reads in total, 200ms apart \(em in case it has not settled\. If it still reports too few, the command stops and says so;
 .IP "\(bu" 4
@@ -96,7 +96,7 @@ A follow that was interrupted (Ctrl\-C) exits 0 with whatever it captured, and s
 .P
 A follow whose USB stream fails part\-way also exits 1: the board stopped answering, or dropped off the bus, so the capture stops there and holds only what arrived before it\. The failure is reported on standard error as it happens, as \fBerror: receive transfer failed: <reason>\fR\. A board that never hands the transfer back at all exits 1 too, reported by the \fBwarning:\fR line ubertooth(7) describes rather than that error\.
 .SH "SEE ALSO"
-ubertooth\-util(1): sets the receive squelch (\fB\-z\fR); SQUELCH describes how long it lasts
+ubertooth\-util(1): sets the receive squelch (\fB\-z\fR); SQUELCH describes how long it lasts, and CARRY\-OVER BETWEEN RUNS what else a board keeps from one command to the next
 .P
 ubertooth\-rx(1), ubertooth\-afh(1)
 .P

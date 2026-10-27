@@ -20,7 +20,7 @@ FW_BOOT := ../bootloader
 HOST_DFU := ../../host/ubertooth-tools/src
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_le_phy_order test_grmdm_rx_generic test_tx_generic_bounds test_write_registers_bounds test_btbr_hop test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info
+TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_le_phy_order test_grmdm_rx_generic test_tx_generic_bounds test_write_registers_bounds test_btbr_hop test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info
 BINDIR  := bin
 
 .PHONY: all test clean
@@ -39,6 +39,16 @@ $(BINDIR)/test_rssi: test_rssi.c minunit.h $(FW_RXTX)/ubertooth_rssi.c $(FW_RXTX
 $(BINDIR)/test_bluetooth_hop: test_bluetooth_hop.c minunit.h stubs/ubertooth.h \
 		$(FW_RXTX)/bluetooth.c $(FW_RXTX)/bluetooth.h | $(BINDIR)
 	$(CC) $(CFLAGS) -Istubs $(CPPFLAGS) -o $@ test_bluetooth_hop.c $(FW_RXTX)/bluetooth.c
+
+# The mode dispatch, the request handler and bt_stream_rx() are hardware code,
+# so what a mode start resets is modelled (see the test's header comment) and
+# the model's shape is scanned in test_mode_dispatch. bluetooth.c is linked in,
+# so the AFH map and the hop sequence the model asks about are the firmware's.
+$(BINDIR)/test_mode_state_reset: test_mode_state_reset.c minunit.h \
+		stubs/ubertooth.h $(FW_RXTX)/bluetooth.c $(FW_RXTX)/bluetooth.h \
+		| $(BINDIR)
+	$(CC) $(CFLAGS) -Istubs $(CPPFLAGS) -o $@ test_mode_state_reset.c \
+		$(FW_RXTX)/bluetooth.c
 
 # bluetooth.c is included into the test translation unit (see the test's
 # header comment); stubs/ubertooth.h stands in for the hardware headers.

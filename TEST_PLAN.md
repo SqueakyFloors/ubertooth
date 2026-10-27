@@ -40,7 +40,7 @@ Hardware required: Ubertooth One, Linux machine (Ubuntu 22.04+ preferred), a BLE
 
 ### 2a. Firmware version check
 - [ ] Run `ubertooth-util -v`
-- [ ] Confirm: returns `Firmware version: <revision> (API:1.28)` (firmware
+- [ ] Confirm: returns `Firmware version: <revision> (API:1.29)` (firmware
       built from this tree; the host tools refuse any other API version)
 - [ ] Confirm: no `is in use by another program` or `claiming the USB
       interface` errors
@@ -229,6 +229,25 @@ streaming, so the piconet is transmitting throughout*
 - [ ] Interrupt each run with Ctrl-C, confirm exit status 0, then confirm
       `ubertooth-util -d -C -z` reports LEDs 0 0 0, channel 2441 MHz,
       squelch -120
+
+### 5d. What a board carries over between runs (issues #261, #312)
+*Requires: the same active piconet as 5c. The channel a mode is on is sampled
+with `ubertooth-util -c`, which answers while a capture runs: a few dozen reads
+in a row show whether the board is hopping and over which channels.*
+- [ ] Run `ubertooth-afh -l <lap> -u <uap> -t 20` and let it find a map with
+      clearly fewer than 79 channels, then interrupt it (Ctrl-C)
+- [ ] Start `ubertooth-rx -l <lap> -u <uap>`, sample the channel a few dozen
+      times while it runs, and confirm: the channels seen cover the whole band,
+      including ones the map above had marked unused — the map did not carry
+      over
+- [ ] Repeat with the `ubertooth-afh` run killed rather than interrupted
+      (`kill -9`, so no stop reaches the board and it is left streaming), and
+      confirm the same: the capture that follows does not inherit the killed
+      run's hopping. `ubertooth-util -S` puts such a board back to idle
+- [ ] With no mode running, confirm `ubertooth-util -C 10` then
+      `ubertooth-util -c` still reads `2412 MHz` back, and that a mode started
+      afterwards runs on it: a channel set on its own is kept, and the next mode
+      starts on it unless that tool sets a channel of its own
 
 ---
 

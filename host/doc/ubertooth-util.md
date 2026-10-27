@@ -163,10 +163,11 @@ Radio options:
    through levels by design and leave the level wherever their sweep ended, so
    set it again after using them.
  - `-c [2402-2480]` :
-   get/set channel in MHz. A standalone set sticks: the board keeps it after the
-   command exits, so a later command reads the same value back, as long as the
-   board stays idle in between. Running any mode puts the channel back to 2441
-   MHz when that mode ends, as described above.
+   get/set channel in MHz. A standalone set is kept: the board holds that
+   channel after the command exits, so a later command reads the same value
+   back, and the next mode starts on it unless that tool sets a channel of its
+   own. Once that mode ends the channel is back to 2441 MHz, as described
+   above, so set it again for the one after. See CARRY-OVER BETWEEN RUNS.
  - `-C [0-78]` :
    get/set channel, by Bluetooth channel number rather than frequency. It is the
    same setting as `-c` and keeps its value the same way.
@@ -436,6 +437,34 @@ is the behaviour to work with:
 `-z` together with one of `ubertooth-util`'s own mode options is refused
 rather than quietly dropped, because each of those modes leaves whatever was
 running first and the reset would discard the value before the mode started.
+
+## CARRY-OVER BETWEEN RUNS
+
+One rule covers what a board holds from one command to the next:
+
+- **Every mode start resets the mode state, hop mode and AFH channel map the
+  mode before it left.** A capture hops the way the mode that started it asks,
+  and no other way: `ubertooth-rx` after an `ubertooth-afh` hops across the
+  whole channel set, not on the map that run found. This holds even when the
+  earlier tool was killed and left the board streaming. The squelch and the
+  LEDs go with it, as above; the power amplifier level set with `-a` does not.
+- **A channel set on its own is kept, and the next mode starts on it.** `-c`/`-C`
+  with no mode on the command line leaves the board on that channel for as long
+  as it stays idle, a later `-c` reads it back, and a mode started afterwards
+  captures there — unless that tool sets a channel of its own, as `ubertooth-rx`
+  does when it asks for a band sweep. Once that mode ends the channel is back to
+  2441 MHz, so set it again for the next one.
+
+What is set on an idle board is for the capture that follows, as the squelch
+is: no mode is being left, so there is nothing to reset. What a mode left
+behind, on the other hand, never decides how the next one captures.
+
+Re-sending the mode a board is already running is not a mode start, and resets
+nothing. That is what lets a tool restate its mode mid-session without losing
+what it is capturing on, as `ubertooth-follow` does each time it re-syncs its
+clock. A tool cannot tell the board which of the two it is doing, so one that
+wants a clean map after a restart says what it wants of the map once its mode
+is running, rather than before it starts.
 
 ## EXIT STATUS
 

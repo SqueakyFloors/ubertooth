@@ -99,14 +99,15 @@
   the command returns at once and the board stays reachable; `-S` or any mode
   option stops it and leaves the LEDs off.
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
-- **Reflash required:** the firmware API version is now 1.28, last moved by
-  masking interrupts across a CC2400 register transfer, and the host tools
+- **Reflash required:** the firmware API version is now 1.29, last moved by the
+  mode start that resets the hop mode and the AFH map, and the host tools
   require firmware of exactly their own API version, older or newer
   (`ubertooth-util` still reads the version and reflashes any firmware). Host
   and firmware come from the same tree; `2020-12-R1` firmware is refused.
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
   [#240](https://github.com/SqueakyFloors/ubertooth/issues/240)
+  [#261](https://github.com/SqueakyFloors/ubertooth/issues/261)
   [#433](https://github.com/SqueakyFloors/ubertooth/issues/433)
   [#434](https://github.com/SqueakyFloors/ubertooth/issues/434)
 - `ubertooth-specan-ui` draws a slowly smoothed average of the max-hold trace
@@ -180,6 +181,20 @@
   no longer has a stop sent to it on the way out; a board that answers nothing
   says that plainly too. See ubertooth(7), WHEN A BOARD CANNOT BE USED.
   [#232](https://github.com/SqueakyFloors/ubertooth/issues/232)
+- A board no longer carries one run's hopping into the next. Starting a mode
+  resets the hop mode and forgets the AFH map, so an `ubertooth-rx` after an
+  `ubertooth-afh` -- including one that was killed and left the board streaming
+  -- captures on the whole channel set instead of hopping adaptively on the old
+  map. A channel set on its own, with `ubertooth-util -c`/`-C` and no mode
+  running, is still kept, and the next mode starts on it unless that tool sets
+  a channel of its own.
+  [#261](https://github.com/SqueakyFloors/ubertooth/issues/261)
+  [#312](https://github.com/SqueakyFloors/ubertooth/issues/312)
+- `ubertooth-follow` hops with the piconet when it starts on a board that was
+  still in another mode, such as a spectrum scan that was never stopped. It
+  used to sit on one channel and follow nothing. The same went for a transmit
+  started that way.
+  [#261](https://github.com/SqueakyFloors/ubertooth/issues/261)
 - A control request sent to a board that is receiving, transmitting or scanning
   no longer stalls. `ubertooth-util`, `ubertooth-debug` and anything else that
   reads the channel, a register or the clock during a capture used to fail

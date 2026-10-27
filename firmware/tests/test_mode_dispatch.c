@@ -63,6 +63,22 @@
  * condition must still name them. */
 #define INDIRECT_STREAM_MODE "MODE_RX_GENERIC"
 
+#define ARRAY_LEN(a) (sizeof(a) / sizeof((a)[0]))
+
+/* Vendor request cases the scan keeps: one per `case UBERTOOTH_...:` that asks
+ * for a mode. More than the handler has today, so an added one is counted. */
+#define MAX_REQUEST_CASES 32
+
+/* What one mode-asking vendor request case does, in the order it does it. */
+struct request_case {
+	char request[48];  /* the UBERTOOTH_... label */
+	char mode[32];     /* the mode it asks for */
+	int line;          /* where the label is */
+	int reset;         /* reset_absorbed_mode_state() in the case, else 0 */
+	char reset_mode[32]; /* the mode it passes */
+	int setup;         /* its first `hop_mode =` or `requested_mode =` */
+};
+
 /* Where each thing the scan looks for was found, 0 if it was not. */
 struct scan {
 	int idle_call;        /* cc2400_idle() in main() */
@@ -90,7 +106,47 @@ struct scan {
 	char stream_cond[512];
 	int stream_cond_line;  /* where its `while (` starts */
 	int stream_cond_depth; /* open parentheses still to close */
+
+	int idle_fn_afh_clear; /* clear_afh_map() inside cc2400_idle() */
+
+	/* The modes streams_symbols() names, and where its body was read. */
+	char absorbed_modes[STREAM_RX_MODES + 4][32];
+	int absorbed_mode_count;
+	int absorbed_fn;
+
+	/* Every vendor request case that asks for a mode. */
+	struct request_case requests[MAX_REQUEST_CASES];
+	int request_count;
 };
+
+/* Keep a finished vendor request case, if it is one of the ones these tests
+ * are about: a case that asks for a mode, or that resets without asking for
+ * one. The handler has far more cases than that. */
+static void keep_request_case(struct scan *s, const struct request_case *rc)
+{
+	if (rc->line == 0 || (rc->mode[0] == '\0' && rc->reset == 0))
+		return;
+	if (s->request_count == MAX_REQUEST_CASES)
+		return;
+	s->requests[s->request_count++] = *rc;
+}
+
+/* The first MODE_... identifier on a line, "" if it has none. */
+static void mode_on_line(const char *line, char *out, size_t size)
+{
+	const char *mode = strstr(line, "MODE_");
+	size_t len = 0;
+
+	out[0] = '\0';
+	if (mode == NULL)
+		return;
+	while (is_ident_char(mode[len]))
+		len++;
+	if (len < size) {
+		memcpy(out, mode, len);
+		out[len] = '\0';
+	}
+}
 
 /* Remember a mode the dispatch runs through bt_stream_rx(). */
 static void add_stream_mode(struct scan *s, const char *mode)
@@ -158,6 +214,8 @@ static int scan_source(const char *path, struct scan *s)
 	char line[512];
 	int lineno = 0, in_block = 0, in_main = 0, in_loop = 0, in_idle_fn = 0;
 	char fn[64] = "", name[64];
+	struct request_case current;
+	const char *p;
 	char pending[MAX_PENDING][32];
 	int pending_count = 0, i;
 	FILE *f = fopen(path, "r");
@@ -166,6 +224,7 @@ static int scan_source(const char *path, struct scan *s)
 		return 0;
 
 	memset(s, 0, sizeof(*s));
+	memset(&current, 0, sizeof(current));
 
 	while (fgets(line, sizeof(line), f) != NULL) {
 		lineno++;
@@ -193,11 +252,78 @@ static int scan_source(const char *path, struct scan *s)
 
 			if (strcmp(fn, "bt_stream_rx") == 0)
 				capture_while_condition(line, lineno, s);
+
+			/* The modes a request can be absorbed into, as
+			 * streams_symbols() lists them. */
+			if (strcmp(fn, "streams_symbols") == 0) {
+				char mode[32];
+
+				if (s->absorbed_fn == 0)
+					s->absorbed_fn = lineno;
+				for (p = line; (p = strstr(p, "MODE_")) != NULL; ) {
+					mode_on_line(p, mode, sizeof(mode));
+					p += strlen("MODE_");
+					if (mode[0] == '\0' ||
+					    s->absorbed_mode_count ==
+					        (int)ARRAY_LEN(s->absorbed_modes))
+						continue;
+					snprintf(s->absorbed_modes[
+					             s->absorbed_mode_count++],
+					         sizeof(s->absorbed_modes[0]), "%s",
+					         mode);
+				}
+			}
+
+			/* What each vendor request case does, in order: the
+			 * handler is the one place a mode request is accepted,
+			 * and a request absorbed by a running stream is reset
+			 * here rather than by the dispatch. */
+			if (strcmp(fn, "vendor_request_handler") == 0) {
+				if (strstr(line, "case UBERTOOTH_") != NULL) {
+					const char *label = strstr(line,
+					                           "UBERTOOTH_");
+					size_t len = 0;
+
+					keep_request_case(s, &current);
+					memset(&current, 0, sizeof(current));
+					while (is_ident_char(label[len]))
+						len++;
+					if (len < sizeof(current.request)) {
+						memcpy(current.request, label, len);
+						current.request[len] = '\0';
+					}
+					current.line = lineno;
+					continue;
+				}
+				if (current.line == 0)
+					continue;
+				if (strstr(line, "reset_absorbed_mode_state(")
+				    != NULL && current.reset == 0) {
+					current.reset = lineno;
+					mode_on_line(line, current.reset_mode,
+					             sizeof(current.reset_mode));
+				}
+				if ((is_assignment_to(line, "hop_mode") ||
+				     is_assignment_to(line, "requested_mode")) &&
+				    current.setup == 0)
+					current.setup = lineno;
+				if (is_assignment_to(line, "requested_mode") &&
+				    current.mode[0] == '\0')
+					mode_on_line(line, current.mode,
+					             sizeof(current.mode));
+			} else {
+				/* out of the handler: the last case is done */
+				keep_request_case(s, &current);
+				memset(&current, 0, sizeof(current));
+			}
 			continue;
 		}
 
 		if (in_idle_fn) {
 			s->idle_fn_lines++;
+			if (strstr(line, "clear_afh_map(") != NULL &&
+			    s->idle_fn_afh_clear == 0)
+				s->idle_fn_afh_clear = lineno;
 			if (is_assignment_to(line, "mode") && s->idle_fn_mode == 0)
 				s->idle_fn_mode = lineno;
 			if (is_assignment_to(line, "requested_mode") &&
@@ -508,6 +634,133 @@ MU_TEST(test_the_stream_loop_keeps_the_indirect_mode_apart)
 	mu_assert(contains_identifier(condition, needle), msg);
 }
 
+/*
+ * Leaving a mode forgets the AFH channel map, along with the hop mode that was
+ * already reset there. Nothing used to clear the map, so a board that had run
+ * AFH detection kept hopping on that map through every capture that followed.
+ */
+MU_TEST(test_leaving_a_mode_forgets_the_afh_map)
+{
+	char msg[512];
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: cc2400_idle() does not clear the AFH map, so a map one "
+	         "run found is still there for the next: its mode hops "
+	         "adaptively on a channel set found for someone else's piconet",
+	         path, s.idle_fn);
+	mu_assert(s.idle_fn_afh_clear > 0, msg);
+}
+
+/*
+ * The modes a request can be absorbed into are the modes bt_stream_rx()
+ * streams, and streams_symbols() is where the request handler reads that list.
+ * A mode added to the loop and not to the list gets no reset on the way in.
+ */
+MU_TEST(test_the_absorbed_modes_are_the_streamed_modes)
+{
+	char msg[1024];
+	int i, j;
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the scan did not find streams_symbols(), so the checks on "
+	         "its list would pass without reading anything", path);
+	mu_assert(s.absorbed_fn > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: streams_symbols() names %d modes; the dispatch runs %d "
+	         "through bt_stream_rx(), and a request for one of those is "
+	         "absorbed by the running loop",
+	         path, s.absorbed_fn, s.absorbed_mode_count, s.stream_mode_count);
+	mu_assert(s.absorbed_mode_count == s.stream_mode_count, msg);
+
+	for (i = 0; i < s.stream_mode_count; i++) {
+		int found = 0;
+
+		for (j = 0; j < s.absorbed_mode_count; j++)
+			if (strcmp(s.stream_modes[i], s.absorbed_modes[j]) == 0)
+				found = 1;
+		snprintf(msg, sizeof(msg),
+		         "%s:%d: streams_symbols() does not name %s, which the "
+		         "dispatch runs through bt_stream_rx(): a request for it "
+		         "absorbed by a running stream would keep the old mode's "
+		         "hop mode and AFH map",
+		         path, s.absorbed_fn, s.stream_modes[i]);
+		mu_assert(found, msg);
+	}
+}
+
+/*
+ * Each of those modes is asked for by one vendor request, and that request
+ * resets before it sets anything up of its own. The order is the point: the
+ * reset clears the hop mode, so a request that sets one -- AFH hopping, or
+ * hopping with the piconet -- has to set it after the reset, not before.
+ */
+MU_TEST(test_an_absorbable_request_resets_before_its_own_setup)
+{
+	char msg[1024];
+	int i, j, checked = 0;
+
+	mu_assert(s.request_count > 0, "the scan found no vendor request cases");
+
+	for (i = 0; i < s.request_count; i++) {
+		const struct request_case *rc = &s.requests[i];
+		int absorbable = 0;
+
+		for (j = 0; j < s.absorbed_mode_count; j++)
+			if (strcmp(rc->mode, s.absorbed_modes[j]) == 0)
+				absorbable = 1;
+		if (!absorbable)
+			continue;
+		checked++;
+
+		snprintf(msg, sizeof(msg),
+		         "%s:%d: %s asks for %s, which a running stream absorbs, "
+		         "without calling reset_absorbed_mode_state(): the mode it "
+		         "starts keeps the hop mode and AFH map of the one it "
+		         "replaces", path, rc->line, rc->request, rc->mode);
+		mu_assert(rc->reset > 0, msg);
+
+		snprintf(msg, sizeof(msg),
+		         "%s:%d: %s resets with %s but asks for %s",
+		         path, rc->reset, rc->request, rc->reset_mode, rc->mode);
+		mu_assert(strcmp(rc->reset_mode, rc->mode) == 0, msg);
+
+		snprintf(msg, sizeof(msg),
+		         "%s:%d: %s resets at line %d, after its own setup at line "
+		         "%d, so the reset discards what the request just asked for",
+		         path, rc->line, rc->request, rc->reset, rc->setup);
+		mu_assert(rc->setup > 0 && rc->reset < rc->setup, msg);
+	}
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the scan checked %d of the %d absorbable mode requests",
+	         path, checked, s.absorbed_mode_count);
+	mu_assert(checked == s.absorbed_mode_count, msg);
+}
+
+/*
+ * ...and nothing else resets. A channel set on its own is kept for the next
+ * mode, so the request that sets it must not reset anything -- least of all
+ * through a helper whose job is mode starts.
+ */
+MU_TEST(test_setting_a_channel_resets_nothing)
+{
+	char msg[512];
+	int i;
+
+	for (i = 0; i < s.request_count; i++) {
+		const struct request_case *rc = &s.requests[i];
+
+		if (rc->mode[0] != '\0' || rc->reset == 0)
+			continue;
+		snprintf(msg, sizeof(msg),
+		         "%s:%d: %s asks for no mode but calls "
+		         "reset_absorbed_mode_state() at line %d",
+		         path, rc->line, rc->request, rc->reset);
+		mu_assert(0, msg);
+	}
+}
+
 int main(void)
 {
 	printf("mode dispatch tests\n");
@@ -521,5 +774,9 @@ int main(void)
 	MU_RUN(test_cc2400_idle_does_not_drop_queued_packets);
 	MU_RUN(test_the_stream_loop_runs_every_mode_dispatched_to_it);
 	MU_RUN(test_the_stream_loop_keeps_the_indirect_mode_apart);
+	MU_RUN(test_leaving_a_mode_forgets_the_afh_map);
+	MU_RUN(test_the_absorbed_modes_are_the_streamed_modes);
+	MU_RUN(test_an_absorbable_request_resets_before_its_own_setup);
+	MU_RUN(test_setting_a_channel_resets_nothing);
 	return mu_report();
 }

@@ -436,23 +436,6 @@ int main(int argc, char *argv[])
 
 	cmd_set_bdaddr(ut->devh, btbb_piconet_get_bdaddr(pn));
 	cmd_set_clock(ut->devh, 0);
-	/* The board keeps the AFH map and the enable flag an earlier run left,
-	 * and start-hopping does not reset them, so a follow with no map has to
-	 * clear them: otherwise it would hop adaptively on a stale map while
-	 * reporting that it is not using AFH. Both are checked, because
-	 * carrying on would hop on the wrong channel set either way. The set is
-	 * asynchronous, so this catches a submission that fails, not a transfer
-	 * that fails later. */
-	if (afh_enabled)
-		r = cmd_set_afh_map(ut->devh, afh_map);
-	else
-		r = cmd_clear_afh_map(ut->devh);
-	if (r < 0) {
-		fprintf(stderr, "error: %s the board's AFH map failed\n",
-		        afh_enabled ? "setting" : "clearing");
-		follow_cleanup(ut, sock, handle, cc);
-		return 1;
-	}
 
 	/* Read clocks here to ensure clock is closest to real value. Without a
 	 * clock there is nothing to follow, so a failed read stops the command
@@ -484,6 +467,26 @@ int main(int argc, char *argv[])
 	if (r < 0) {
 		follow_cleanup(ut, sock, handle, cc);
 		return r;
+	}
+
+	/* Say what this follow wants of the board's AFH map, after the mode has
+	 * started rather than before: starting a mode forgets the map, so one
+	 * sent first would be thrown away. A follow with no -a clears it, which
+	 * is what covers a run that follows a killed follow: the board is still
+	 * streaming in the same mode, so the firmware sees the same mode request
+	 * again and cannot tell this new run from a re-sync of the old one.
+	 * Both are checked, because carrying on would hop on the wrong channel
+	 * set either way. The request is asynchronous, so this catches a
+	 * submission that fails, not a transfer that fails later. */
+	if (afh_enabled)
+		r = cmd_set_afh_map(ut->devh, afh_map);
+	else
+		r = cmd_clear_afh_map(ut->devh);
+	if (r < 0) {
+		fprintf(stderr, "error: %s the board's AFH map failed\n",
+		        afh_enabled ? "setting" : "clearing");
+		follow_cleanup(ut, sock, handle, cc);
+		return 1;
 	}
 
     if (cc) {
