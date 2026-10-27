@@ -52,6 +52,20 @@ struct scan {
 	char ticks_text[256];   /* the conversion as written */
 
 	int rx_off_line;        /* where the repeater stops receiving */
+
+	int rangetest_fifo_write;  /* cc2400_fifo_write() in the range test */
+	int rangetest_fifo_read;   /* cc2400_fifo_read() in it */
+	int repeater_fifo_write;   /* and both in the repeater */
+	int repeater_fifo_read;
+	int perbyte_fifo;          /* a byte-at-a-time FIFOREG access */
+	char perbyte_text[256];
+};
+
+/* What the scan of firmware/common/ubertooth.c records. */
+struct spi_scan {
+	int write_clock_sites;  /* lines that clock SCLK in cc2400_fifo_write() */
+	int write_hold;         /* its spi_delay() before CSN rises */
+	int read_delays;        /* spi_delay() sites in cc2400_fifo_read() */
 };
 
 /*
@@ -216,6 +230,32 @@ static int scan_source(const char *path, struct scan *s)
 		    s->turnaround_call == 0)
 			s->turnaround_call = lineno;
 
+		/*
+		 * The FIFO has to be reached through the two helpers. A
+		 * cc2400_get8(FIFOREG) or cc2400_set8(FIFOREG, b) in a loop makes
+		 * one SPI transfer per byte: the write then lands nowhere and the
+		 * read comes back wrong.
+		 */
+		if (contains_identifier(line, "FIFOREG") &&
+		    (contains_identifier(line, "cc2400_get8") ||
+		     contains_identifier(line, "cc2400_set8")) &&
+		    s->perbyte_fifo == 0) {
+			s->perbyte_fifo = lineno;
+			collapse_spaces(line, s->perbyte_text, sizeof(s->perbyte_text));
+		}
+		if (contains_identifier(line, "cc2400_fifo_write")) {
+			if (in_rangetest && s->rangetest_fifo_write == 0)
+				s->rangetest_fifo_write = lineno;
+			if (in_repeater && s->repeater_fifo_write == 0)
+				s->repeater_fifo_write = lineno;
+		}
+		if (contains_identifier(line, "cc2400_fifo_read")) {
+			if (in_rangetest && s->rangetest_fifo_read == 0)
+				s->rangetest_fifo_read = lineno;
+			if (in_repeater && s->repeater_fifo_read == 0)
+				s->repeater_fifo_read = lineno;
+		}
+
 		/* The SRFOFF that ends the repeater's receive, which has to come
 		 * before the delay rather than after it. */
 		if (in_repeater && strstr(line, "SRFOFF") != NULL &&
@@ -227,8 +267,55 @@ static int scan_source(const char *path, struct scan *s)
 	return 1;
 }
 
+/*
+ * Scan cc2400_fifo_write() and cc2400_fifo_read() in
+ * firmware/common/ubertooth.c: how many places clock the bus, and where the
+ * delays are.
+ */
+static int scan_spi_source(const char *spi_path, struct spi_scan *s)
+{
+	char line[512], name[128], current[128] = "";
+	int in_block = 0, depth = 0;
+	FILE *f = fopen(spi_path, "r");
+
+	if (f == NULL)
+		return 0;
+
+	memset(s, 0, sizeof(*s));
+
+	while (fgets(line, sizeof(line), f) != NULL) {
+		const char *p;
+
+		strip_comments(line, &in_block);
+		if (depth == 0 && call_name(line, name, sizeof(name)))
+			snprintf(current, sizeof(current), "%s", name);
+
+		if (strcmp(current, "cc2400_fifo_write") == 0) {
+			if (strstr(line, "SCLK_SET") != NULL)
+				s->write_clock_sites++;
+			if (contains_identifier(line, "spi_delay"))
+				s->write_hold++;
+		} else if (strcmp(current, "cc2400_fifo_read") == 0) {
+			if (contains_identifier(line, "spi_delay"))
+				s->read_delays++;
+		}
+
+		for (p = line; *p != '\0'; p++) {
+			if (*p == '{')
+				depth++;
+			else if (*p == '}')
+				depth--;
+		}
+	}
+
+	fclose(f);
+	return 1;
+}
+
 static struct scan s;
+static struct spi_scan spi;
 static const char *path = FW_RXTX_DIR "/cc2400_rangetest.c";
+static const char *spi_path = FW_COMMON_DIR "/ubertooth.c";
 
 /*
  * The deafness. Without MANAND the demodulator never settles on a packet, so
@@ -350,6 +437,82 @@ MU_TEST(test_the_result_is_cleared_before_the_test_can_return_early)
 	mu_assert(s.rr_cleared_early > 0, msg);
 }
 
+/*
+ * Both modes reach the radio's FIFO the way every other mode does. Writing or
+ * reading it a byte at a time, each byte its own SPI transfer, is what left
+ * the range test comparing 22 zeros against its own payload: the write put
+ * nothing in the FIFO, and a read at that clock speed returns the wrong
+ * bytes.
+ */
+MU_TEST(test_the_fifo_is_reached_through_the_helpers)
+{
+	char msg[768];
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: `%s` reaches the FIFO a byte at a time, one SPI transfer "
+	         "each: the radio wants the address once and then the bytes while "
+	         "CSN stays low, so a write like this lands nowhere and a read "
+	         "comes back wrong. Use cc2400_fifo_write() and cc2400_fifo_read()",
+	         path, s.perbyte_fifo, s.perbyte_text);
+	mu_assert(s.perbyte_fifo == 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: cc2400_rangetest() does not call cc2400_fifo_write(), so its "
+	         "request packets carry no data", path);
+	mu_assert(s.rangetest_fifo_write > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: cc2400_rangetest() does not call cc2400_fifo_read(), so it "
+	         "cannot read the reply", path);
+	mu_assert(s.rangetest_fifo_read > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: cc2400_repeater() does not call cc2400_fifo_write(), so its "
+	         "replies carry no data", path);
+	mu_assert(s.repeater_fifo_write > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: cc2400_repeater() does not call cc2400_fifo_read(), so it "
+	         "cannot read the request", path);
+	mu_assert(s.repeater_fifo_read > 0, msg);
+}
+
+/*
+ * The shared FIFO transfers, which the two modes above now depend on.
+ *
+ * The write must clock the address and the data and nothing else. It used to
+ * clock a further eight pulses after the data, which the radio took as one
+ * more FIFO byte, so every packet carried a stray byte. With the radio's CRC
+ * off that is a tail the receiver ignores; with it on, as the range test has
+ * it, the CRC covers the stray byte and no receiver can match it.
+ *
+ * The read must keep its per-bit delays. At the speed cc2400_spi() clocks at
+ * a FIFO read returns the wrong bytes, whatever the framing.
+ */
+MU_TEST(test_the_shared_fifo_transfers_keep_their_shape)
+{
+	char msg[768];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: cc2400_fifo_write() clocks the bus in %d places, not the two "
+	         "it needs (the address byte and the data). A third clocks bits "
+	         "that are not data, and the radio takes them as another FIFO byte",
+	         spi_path, spi.write_clock_sites);
+	mu_assert(spi.write_clock_sites == 2, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: cc2400_fifo_write() does not call spi_delay(), so CSN rises "
+	         "before the radio has taken the last byte", spi_path);
+	mu_assert(spi.write_hold > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: cc2400_fifo_read() has %d spi_delay() calls. It needs one on "
+	         "each side of every clock edge plus the hold before CSN rises: "
+	         "read at cc2400_spi()'s speed the FIFO returns wrong bytes",
+	         spi_path, spi.read_delays);
+	mu_assert(spi.read_delays >= 3, msg);
+}
+
 int main(void)
 {
 	printf("range test radio setup tests\n");
@@ -358,11 +521,17 @@ int main(void)
 		printf("cannot open %s to scan\n", path);
 		return 1;
 	}
+	if (!scan_spi_source(spi_path, &spi)) {
+		printf("cannot open %s to scan\n", spi_path);
+		return 1;
+	}
 
 	MU_RUN(test_both_modes_hold_the_gain_amplifier_out_of_reset);
 	MU_RUN(test_the_repeater_sets_the_packet_format);
 	MU_RUN(test_the_turnaround_delay_is_a_timed_wait);
 	MU_RUN(test_the_repeater_stops_receiving_before_it_waits);
 	MU_RUN(test_the_result_is_cleared_before_the_test_can_return_early);
+	MU_RUN(test_the_fifo_is_reached_through_the_helpers);
+	MU_RUN(test_the_shared_fifo_transfers_keep_their_shape);
 	return mu_report();
 }
