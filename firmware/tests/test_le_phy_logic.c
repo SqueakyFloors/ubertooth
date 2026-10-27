@@ -469,7 +469,13 @@ MU_TEST(a_field_is_read_least_significant_byte_first)
  * full of 0xa5, so a test that reads a record back is reading the new
  * packet's bytes and not the old ones.
  */
-#define RING_RECORDS 128
+/*
+ * Derived from the ring itself, not restated: ubertooth_usb.c is included
+ * into this test and `fifo` is its ring, so changing the firmware's ring size
+ * changes this too. A number copied here would go on claiming to wrap the
+ * ring after the ring had grown.
+ */
+#define RING_RECORDS ((unsigned)(sizeof(fifo) / sizeof(fifo[0])))
 
 static void dirty_the_ring(void)
 {
@@ -1073,6 +1079,23 @@ MU_TEST(only_the_packets_the_engine_knows_are_acted_on)
 	packet_handler(&buf);
 	mu_assert_int_eq(0, conn.channel_map_update_pending);
 
+	/*
+	 * A data PDU that is not an LL control PDU is left alone, whatever its
+	 * third byte looks like. Every case above sets the control LLID, so
+	 * without this one the LLID test could be dropped from the engine and
+	 * an ordinary data packet carrying 0x00 there would be read as a
+	 * connection update.
+	 */
+	start_fresh();
+	fill_packet(&buf, 13, DATA_CHANNEL_MHZ);
+	memset(buf.data, 0, sizeof(buf.data));
+	buf.data[0] = 0x02;    /* an L2CAP data PDU, not an LL control PDU */
+	buf.data[1] = 12;
+	buf.data[2] = 0x00;    /* what the opcode would be, if this were one */
+	put_le(&buf.data[12], 99, 2);
+	packet_handler(&buf);
+	mu_assert_int_eq(0, conn.conn_update_pending);
+
 	mu_assert_int_eq(0, radio_touched);
 }
 
@@ -1091,16 +1114,25 @@ MU_TEST(a_target_filters_advertising_packets_only)
 	le_rx_t buf;
 	int i;
 
+	/*
+	 * With no target asked for, everything is kept. The target and its
+	 * mask are set first and only the flag left clear, because an all-zero
+	 * mask matches every address: without a real target here, the engine
+	 * could stop checking the flag and this would still pass, while a
+	 * plain `ubertooth-btle -n` quietly dropped every advertising PDU of a
+	 * type the filter cannot read.
+	 */
 	start_fresh();
-	fill_packet(&buf, 20, ADV_CHANNEL_MHZ);
-	mu_assert(filter_match(&buf) == 1,
-	          "a packet was dropped with no target set");
-
-	le.target_set = 1;
 	for (i = 0; i < 6; i++) {
 		le.target[i] = (uint8_t)(0x10 + i);
 		le.target_mask[i] = 0xff;
 	}
+	fill_packet(&buf, 20, ADV_CHANNEL_MHZ);
+	buf.data[0] = 0x00;
+	mu_assert(filter_match(&buf) == 1,
+	          "a packet was dropped with no target set");
+
+	le.target_set = 1;
 
 	/* A data-channel packet is part of the connection being followed, so it
 	 * is kept whatever the target is. */
@@ -1128,14 +1160,23 @@ MU_TEST(a_target_filters_advertising_packets_only)
 	mu_assert(filter_match(&buf) == 0,
 	          "a connection request between two other devices was kept");
 
-	/* Too short to hold the address the type says it has. */
-	fill_packet(&buf, 3, ADV_CHANNEL_MHZ);
+	/*
+	 * Too short to hold the address the type says it has. The target's own
+	 * bytes are planted where the handler would read them, so a read that
+	 * ran past the end of the PDU would come back a match: that is what
+	 * makes these two cases test the length guards rather than the
+	 * mismatch that would follow from any other filling.
+	 */
+	fill_packet(&buf, 2, ADV_CHANNEL_MHZ);
 	buf.data[0] = 0x00;
+	memcpy(&buf.data[2], le.target, 6);
 	mu_assert(filter_match(&buf) == 0,
 	          "an advertising packet too short to hold an address was read "
 	          "for one");
 	fill_packet(&buf, 6, ADV_CHANNEL_MHZ);
 	buf.data[0] = 0x05;
+	memcpy(&buf.data[2], le.target, 6);
+	memcpy(&buf.data[8], le.target, 6);
 	mu_assert(filter_match(&buf) == 0,
 	          "a connection request too short to hold both addresses was "
 	          "read for them");
@@ -1238,6 +1279,10 @@ MU_TEST(a_silent_event_moves_the_anchor_on_by_one_interval)
 	anchored_connection(100000);
 	conn_event.num_packets = 0;
 	conn_event.opened = 1;
+	/* Away from the recorded time of the last packet, so that recording the
+	 * current time here would be visible. With the two equal, the engine
+	 * could stamp every silent event and this would still pass. */
+	fake_t1tc = 2000;
 
 	finish_conn_event();
 
