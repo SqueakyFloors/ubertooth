@@ -2530,12 +2530,18 @@ static void visit_dispatch_line(const char *line, const struct body_pos *pos,
 		}
 
 		/*
-		 * A plain label at the start of a line, which is where a
-		 * `goto` inside a case lands. Such a `goto` never left the
-		 * case, so the run it closed is taken up again and the work
-		 * below the label is recorded against it.
+		 * A plain label at the start of a line and at the level the
+		 * case's own statements sit at, which is where a `goto` inside
+		 * the case lands. Such a `goto` never left the case, so the run
+		 * it closed is taken up again and the work below the label is
+		 * recorded against it.
+		 *
+		 * The level is what keeps this to the case: a `goto` out of the
+		 * switch lands on a label below it, shallower than this, and
+		 * the work there belongs to no case.
 		 */
 		if (s->pending_count == 0 && s->resumable_count > 0 &&
+		    pos->depth == s->case_level &&
 		    starts_the_line(line, start) && strcmp(word, "default") != 0 &&
 		    names_a_label(p)) {
 			memcpy(s->pending, s->resumable,
@@ -2933,7 +2939,9 @@ MU_TEST(a_mode_that_streams_runs_a_classified_loop)
  *    and, separately, written after its closing brace -- a level above the
  *    statements it follows;
  *  - below a `goto` that lands on a label inside the same case, so it never
- *    left it;
+ *    left it -- while a `goto` out of the switch lands below it, where the
+ *    work belongs to no case, which is why the switch's last case is one
+ *    that leaves that way;
  *  - in the statement that leaves (`return the_work();`);
  *  - inside plain `{ }` blocks opened to scope a variable, which look like a
  *    loop's braces by depth alone but which the case passes through every
@@ -3021,13 +3029,17 @@ static const char *const dispatch_shapes =
 	"		case MODE_LAST:\n"
 	"			last_work();\n"
 	"			break;\n"
+	"		case MODE_GOTO_OUT_LAST:\n"
+	"			goto_out_last_work();\n"
+	"			goto done;\n"
 	"		}\n"
 	"	}\n"
 	"done:\n"
+	"	after_the_switch_work();\n"
 	"	return 0;\n"
 	"}\n";
 
-#define DISPATCH_SHAPE_COUNT 18
+#define DISPATCH_SHAPE_COUNT 19
 
 /* Run the case scan over a function written out as text. tmpfile() rather
  * than a path: the scans walk whole directories, so a C file left in one of
@@ -3110,7 +3122,9 @@ static const struct {
 	  "after_scoped_blocks_work" },
 	{ "MODE_AFTER_SCOPED_BLOCKS",  "after_scoped_blocks_work",
 	  "last_work" },
-	{ "MODE_LAST",                 "last_work",           NULL },
+	{ "MODE_LAST",                 "last_work",
+	  "goto_out_last_work" },
+	{ "MODE_GOTO_OUT_LAST",        "goto_out_last_work",  NULL },
 };
 
 MU_TEST(the_dispatch_scan_reads_each_case_to_its_own_break)
@@ -3156,6 +3170,13 @@ MU_TEST(the_dispatch_scan_reads_each_case_to_its_own_break)
 			mu_assert(case_calls(c, dispatch_shape_cases[i].own_work),
 			          msg);
 		}
+
+		snprintf(msg, sizeof(msg),
+		         "the scan read after_the_switch_work() into %s. That "
+		         "call is below the switch, where a case that leaves by "
+		         "`goto` lands, and belongs to no case at all",
+		         dispatch_shape_cases[i].label);
+		mu_assert(!case_calls(c, "after_the_switch_work"), msg);
 
 		if (dispatch_shape_cases[i].next_work == NULL)
 			continue;
