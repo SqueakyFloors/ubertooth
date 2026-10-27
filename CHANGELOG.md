@@ -242,6 +242,11 @@
 
 ### Reliability fixes
 
+- `ubertooth-btle -q -` and `-c -` no longer fill the terminal with the
+  decoder's complaints about packets they do not print. A capture on standard
+  output leaves no room for the per-packet dump, so that dump is not produced
+  at all, and the complaints about fields in it go with it.
+  [#602](https://github.com/SqueakyFloors/ubertooth/issues/602)
 - `ubertooth-btle -f` and `-n` capture a Bluetooth low-energy packet longer
   than 50 bytes whole. The board used to cut every one of them to 50 bytes and
   the host then showed the first 46 bytes of the packet, so a Bluetooth 4.2

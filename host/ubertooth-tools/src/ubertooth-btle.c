@@ -466,8 +466,11 @@ int main(int argc, char *argv[])
 		        : lell_pcap_create_file(file, &ut->h_pcap_le);
 		if (saved_fd >= 0) {
 			/* The capture has taken stdout, which is now /dev/null
-			 * for the rest of this run. */
+			 * for the rest of this run: the lines that answer an
+			 * option go to standard error instead, and the callback
+			 * leaves out the per-packet dump that would go nowhere. */
 			report_stream = stderr;
+			cb_opts.capture_took_stdout = 1;
 			close(saved_fd);
 		}
 		free(file);
