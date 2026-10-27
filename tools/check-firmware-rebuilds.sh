@@ -251,6 +251,9 @@ check_image bootloader bootloader.elf \
 printf '%s\n' "Now with the mechanism broken on purpose, nothing may rebuild"
 
 common_mk=firmware/common.mk
+# The quoted strings here and below are makefile text, matched and written
+# literally: $(OBJ) and the rest are make's variables, not the shell's.
+# shellcheck disable=SC2016
 replace_line "$tree/$common_mk" '%.elf: $(OBJ) $(LINKER_SCRIPT_FILES)' '%.elf: $(OBJ)'
 mark
 touch "$tree/firmware/common/LPC17xx_Linker_Script_with_bootloader.ld" || exit 1
@@ -267,6 +270,7 @@ restore "$common_mk"
 # objects depend on it, so this leg has to watch the objects and not the image:
 # the link's prerequisite on the script, restored above, relinks the image on
 # its own after the touch in the leg before.
+# shellcheck disable=SC2016 # makefile text, as above
 replace_line "$tree/$common_mk" '$(OBJ): $(BUILD_FLAGS_FILE)' ''
 mark
 build "$tree/firmware/blinky"
