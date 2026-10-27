@@ -2486,6 +2486,17 @@ static void visit_dispatch_line(const char *line, const struct body_pos *pos,
 				depth--;
 				conditional = 0;
 				s->awaiting_body = 0;
+				/*
+				 * Shallower than the labels means the switch
+				 * body has closed, so every case in it is
+				 * finished and no label below can be one of
+				 * theirs -- however the scopes after the
+				 * switch are nested, and whatever raw depth
+				 * they reach.
+				 */
+				if (s->switch_level >= 0 &&
+				    depth < s->switch_level)
+					s->resumable_count = 0;
 				break;
 			case '(':
 				parens++;
@@ -2577,13 +2588,13 @@ static void visit_dispatch_line(const char *line, const struct body_pos *pos,
 		 * it closed is taken up again and the work below the label is
 		 * recorded against it.
 		 *
-		 * Two levels keep this to the case. The label has to be at or
-		 * below the level the case's own statements sit at, which a
-		 * label after the switch is not -- that is where a `goto` out
-		 * of the switch lands, and the work there belongs to no case.
-		 * And no loop or branch inside the case may enclose it, so a
-		 * plain `{ }` block opened to scope a variable still holds the
-		 * case's own labels.
+		 * What keeps this to the case: the run to take up is dropped
+		 * when the switch body closes, so a label after the switch is
+		 * never one of these however deeply it is nested. Within the
+		 * switch, the label has to be at or below the level the case's
+		 * own statements sit at, with no loop or branch of the case
+		 * around it, so a plain `{ }` block opened to scope a variable
+		 * still holds the case's own labels.
 		 */
 		if (s->pending_count == 0 && s->resumable_count > 0 &&
 		    pos->depth >= s->case_level &&
@@ -2990,8 +3001,10 @@ MU_TEST(a_mode_that_streams_runs_a_classified_loop)
  *  - below a `goto` that lands on a label inside the same case, so it never
  *    left it -- while a `goto` out of the switch lands below it, where the
  *    work belongs to no case, which is why the switch's last case is one
- *    that leaves that way. One case jumps into a plain block and does its
- *    work there, which is still inside the case;
+ *    that leaves that way and the label it lands on is inside plain blocks
+ *    of its own, where counting depth alone would put it back in the case.
+ *    One case jumps into a plain block and does its work there, which is
+ *    still inside the case;
  *  - in the statement that leaves (`return the_work();`);
  *  - inside plain `{ }` blocks opened to scope a variable, which look like a
  *    loop's braces by depth alone but which the case passes through every
@@ -3096,8 +3109,12 @@ static const char *const dispatch_shapes =
 	"			goto done;\n"
 	"		}\n"
 	"	}\n"
-	"done:\n"
-	"	after_the_switch_work();\n"
+	"	{\n"
+	"		{\n"
+	"		done:\n"
+	"			after_the_switch_work();\n"
+	"		}\n"
+	"	}\n"
 	"	return 0;\n"
 	"}\n";
 
