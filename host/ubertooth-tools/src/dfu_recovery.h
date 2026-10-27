@@ -122,11 +122,18 @@ struct dfu_verify_config {
 struct dfu_verify_report {
 	enum dfu_verify_result result;
 	unsigned polls;
+	/* Where the last poll stood: the transport error that stopped the
+	 * application from opening, or 0 when there was no such device on the
+	 * bus to open. The two are different things to whoever holds the board,
+	 * so they are reported differently. */
 	int operation_error;
 	char actual_revision[64];
 };
 
 struct dfu_verify_ops {
+	/* Return 1 when the application was opened, 0 when no such device is on
+	 * the bus, and a negative transport error when a device is there but
+	 * would not open. */
 	int (*open_application)(void *context, const char *selector,
 	                        void **handle,
 	                        struct dfu_usb_identity *identity);
@@ -150,7 +157,10 @@ int dfu_verify_application(const struct dfu_verify_ops *ops,
  * The outcomes mean different things to whoever is holding the board, and
  * only one of them says the write did not take: a board that never came back
  * on USB has the new firmware in its flash already, so flashing it again is
- * the one thing it does not need. Each therefore gets its own line. */
+ * the one thing it does not need. Each therefore gets its own line.
+ *
+ * A report that passed is described too ("the board came back running ..."),
+ * so call this only for a report whose result is not DFU_VERIFY_OK. */
 void dfu_verify_describe_failure(const struct dfu_verify_report *report,
                                  const char *expected_revision,
                                  char *message, size_t message_size);

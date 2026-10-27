@@ -1077,8 +1077,11 @@ static int verify_open_application(void *context,
 	log_dfu_stage(stage);
 	result = find_ubertooth_application_device(
 		runtime->usb_context, runtime->verify_identity, &devh);
+	/* Nothing there yet is not an error: the board is still re-enumerating,
+	 * or it will not come back at all. Either way it is not a device that
+	 * refused to open, and the two are reported differently. */
 	if (result == 0)
-		return LIBUSB_ERROR_NO_DEVICE;
+		return 0;
 	if (result < 0)
 		return result;
 	result = libusb_claim_interface(devh, 0);
@@ -1092,7 +1095,7 @@ static int verify_open_application(void *context,
 		return result;
 	}
 	*handle = devh;
-	return 0;
+	return 1;
 }
 
 static int verify_get_revision(void *context __attribute__((unused)),

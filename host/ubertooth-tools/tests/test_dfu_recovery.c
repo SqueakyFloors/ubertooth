@@ -115,12 +115,12 @@ static int fake_open_app(void *context, const char *selector, void **handle,
                          struct dfu_usb_identity *identity)
 {
 	struct fake_recovery *fake = context;
-	int result = 0;
+	int result = 1;
 	mu_assert(strcmp(selector, "serial") == 0,
 	          "verification selector changed");
 	if (fake->app_open_index < fake->app_open_count)
 		result = fake->app_open_results[fake->app_open_index++];
-	if (result == 0) {
+	if (result == 1) {
 		*handle = fake->app_handle;
 		*identity = fake->app_identity;
 	}
@@ -243,7 +243,8 @@ MU_TEST(test_verify_waits_for_same_app_and_exact_revision)
 	struct fake_recovery fake = make_fake();
 	struct dfu_verify_config config = {3, 10};
 	struct dfu_verify_report report;
-	int opens[] = {-4, 0};
+	/* Nothing on the bus, then the application. */
+	int opens[] = {0, 1};
 	memcpy(fake.app_open_results, opens, sizeof(opens));
 	fake.app_open_count = ARRAY_LEN(opens);
 
@@ -298,7 +299,8 @@ MU_TEST(test_a_board_that_never_came_back_is_told_apart_from_a_failed_write)
 	struct dfu_verify_config config = {2, 10};
 	struct dfu_verify_report report;
 	char message[256];
-	int opens[] = {-4, -4};
+	/* Nothing on the bus for either poll. */
+	int opens[] = {0, 0};
 	memcpy(fake.app_open_results, opens, sizeof(opens));
 	fake.app_open_count = ARRAY_LEN(opens);
 
@@ -306,6 +308,7 @@ MU_TEST(test_a_board_that_never_came_back_is_told_apart_from_a_failed_write)
 	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
 	                                        &fake.identity, "git-expected",
 	                                        &config, &report));
+	mu_assert_int_eq(0, report.operation_error);
 	dfu_verify_describe_failure(&report, "git-expected", message,
 	                            sizeof(message));
 	mu_assert(strstr(message, "the firmware was written") != NULL,
@@ -316,6 +319,41 @@ MU_TEST(test_a_board_that_never_came_back_is_told_apart_from_a_failed_write)
 	          "the line does not say how to read the board's revision");
 	mu_assert(strstr(message, "not written") == NULL,
 	          "the line claims the write did not take");
+	mu_assert(strchr(message, '\n') == NULL, "the line is more than one line");
+}
+
+/* A board that is on the bus and will not open is not a board that stayed
+ * away: it is there, so power-cycling it is not the answer and claiming it
+ * came back is not a guess. Something else holding its interface, or no
+ * permission to it, reads the same way from here. */
+MU_TEST(test_a_board_that_will_not_open_is_not_a_board_that_stayed_away)
+{
+	struct fake_recovery fake = make_fake();
+	struct dfu_verify_config config = {3, 10};
+	struct dfu_verify_report report;
+	char message[256];
+	/* Absent, then there and refusing: the last poll is what is described. */
+	int opens[] = {0, -6, -6};
+	memcpy(fake.app_open_results, opens, sizeof(opens));
+	fake.app_open_count = ARRAY_LEN(opens);
+
+	mu_assert_int_eq(DFU_VERIFY_APP_TIMEOUT,
+	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
+	                                        &fake.identity, "git-expected",
+	                                        &config, &report));
+	mu_assert_int_eq(-6, report.operation_error);
+	dfu_verify_describe_failure(&report, "git-expected", message,
+	                            sizeof(message));
+	mu_assert(strstr(message, "the firmware was written") != NULL,
+	          "the line does not say the image reached the board");
+	mu_assert(strstr(message, "came back and would not open") != NULL,
+	          "the line does not say the board refused to open");
+	mu_assert(strstr(message, "did not come back on USB") == NULL,
+	          "the line calls a board that is there missing");
+	mu_assert(strstr(message, "power-cycle") == NULL,
+	          "the line prescribes a power cycle for a board that is there");
+	mu_assert(strstr(message, "ubertooth-util -v") != NULL,
+	          "the line does not say how to read the board's revision");
 	mu_assert(strchr(message, '\n') == NULL, "the line is more than one line");
 }
 
@@ -421,6 +459,15 @@ MU_TEST(test_describing_a_verification_survives_what_a_caller_passes)
 	mu_assert(strcmp(message,
 	                 "the flash could not be checked after the reset") == 0,
 	          "a missing report is not described");
+
+	/* A value that is not one of the enumerators still gets a line, and the
+	 * line names it. */
+	report.result = (enum dfu_verify_result)42;
+	dfu_verify_describe_failure(&report, "git-expected", message,
+	                            sizeof(message));
+	mu_assert(strcmp(message, "the flash could not be checked after the "
+	                 "reset (result 42)") == 0,
+	          "a result this host has no case for is not described");
 
 	/* A buffer too small truncates rather than overruns, and a zero-length
 	 * one is left alone. */
@@ -1471,6 +1518,7 @@ int main(void)
 	MU_RUN(test_verify_rejects_wrong_physical_path);
 	MU_RUN(test_verify_rejects_wrong_revision);
 	MU_RUN(test_a_board_that_never_came_back_is_told_apart_from_a_failed_write);
+	MU_RUN(test_a_board_that_will_not_open_is_not_a_board_that_stayed_away);
 	MU_RUN(test_a_board_running_another_revision_is_described_as_a_failed_write);
 	MU_RUN(test_a_board_that_will_not_report_its_revision_is_not_a_mismatch);
 	MU_RUN(test_a_device_on_another_path_is_described_as_unchecked);

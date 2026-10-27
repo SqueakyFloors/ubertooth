@@ -196,12 +196,14 @@ The \fB\-d \|\.\|\.\|\. \-r\fR verification has more than one way not to pass, a
 .IP "" 4
 .nf
 error: the firmware was written, but the board did not come back on USB: power\-cycle it and read its revision with ubertooth\-util \-v before flashing it again
+error: the firmware was written, but the board came back and would not open, so the flash was not checked: read its revision with ubertooth\-util \-v
 error: the board came back running git\-0000000, not git\-ed30131d: the firmware was not written, so flash it again
 error: the board came back but would not report its firmware revision, so the flash was not checked: read it with ubertooth\-util \-v
+error: the device that came back is not on the flashed board's USB path, so the flash was not checked: read the board's revision with ubertooth\-util \-v
 .fi
 .IP "" 0
 .P
-Only the second of those says the write did not take\. In the first the board's flash already holds the new firmware: the whole image went in and the board was reset before it stopped answering, so what it needs is a power cycle and a \fBubertooth\-util \-v\fR, not another flash\. Whichever line is printed, the stage trace carries the raw codes behind it on its \fBpost\-reset application verification failed: \|\.\|\.\|\.\fR line\.
+Only the third of those says the write did not take\. The first two are boards whose flash already holds the new firmware: the whole image went in and the board was reset before it stopped answering, so what they need is a \fBubertooth\-util \-v\fR, not another flash\. The second is a board that is on the bus and will not open, usually because something else is using it or this user has no permission to it, so a power cycle is not what it is waiting for\. Whichever line is printed, the stage trace carries the raw codes behind it on its \fBpost\-reset application verification failed: \|\.\|\.\|\.\fR line\.
 .SH "SEE ALSO"
 ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how option values are written
 .SH "AUTHOR"

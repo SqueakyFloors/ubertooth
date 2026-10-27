@@ -20,24 +20,23 @@
 
 #include "../../../firmware/tests/minunit.h"
 
-/* The waits between polls are what the tool does while a real device changes
- * identity on the bus. The faked device changes the moment it is told to, so
- * every one of those waits is dead time here, and the cases that poll a
- * device out would spend seconds of it. Stand in for the one call they all
- * come down to; nothing in these tests depends on wall-clock time passing. */
-static int test_nanosleep(const struct timespec *requested,
-                          struct timespec *remaining)
+/* Stands in for libc's, the one call every wait in the tool comes down to.
+ * Those waits are what the tool does while a real device changes identity on
+ * the bus; the faked device changes the moment it is told to, so each one is
+ * dead time here and the cases that poll a device out would spend seconds of
+ * it. Defined with libc's own prototype, so it is this definition the test
+ * binary links rather than a renaming the tool's own headers could trip over.
+ * Nothing in these tests depends on wall-clock time passing. */
+int nanosleep(const struct timespec *requested, struct timespec *remaining)
 {
 	(void)requested;
 	(void)remaining;
 	return 0;
 }
-#define nanosleep test_nanosleep
 
 #define main ubertooth_dfu_main
 #include "ubertooth-dfu.c"
 #undef main
-#undef nanosleep
 
 /* The flash region -u reads back. Its length follows the part: these runs
  * reach the bootloader without an application to ask, so they get the size
@@ -85,6 +84,7 @@ static struct {
 	int detach_rc;
 	int detach_resets;      /* the bootloader acts on REQ_DETACH and resets */
 	int detach_drops_off_bus; /* ...and the board then leaves USB entirely */
+	int claim_rc_after_detach; /* what claiming the returned board returns */
 	char revision[64];      /* what the returned application reports, if any */
 	int revision_calls;
 	int abort_calls, clrstatus_calls, getstatus_calls;
@@ -313,6 +313,11 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle *devh,
 			 * check asks, and no application arrives in its place. */
 			if (fake.detach_drops_off_bus)
 				fake.present = 0;
+			/* A board that comes back and will not be claimed: the reset is
+			 * when that starts, since the claim before it had to succeed for
+			 * the download to happen at all. */
+			if (fake.claim_rc_after_detach != 0)
+				fake.claim_rc = fake.claim_rc_after_detach;
 		}
 		return fake.detach_rc;
 	default:
@@ -1110,6 +1115,34 @@ MU_TEST(a_board_that_does_not_come_back_says_the_firmware_was_written)
 	mu_assert_int_eq(0, fake.revision_calls);
 }
 
+/* The board came back, and the interface would not be claimed: something else
+ * is using it, or this user may not have it. The write still completed, but
+ * the board is there, so neither "it did not come back" nor a power cycle
+ * would be true of it. */
+MU_TEST(a_board_that_will_not_be_claimed_is_not_reported_as_missing)
+{
+	struct run_result r;
+
+	board_in_dfu();
+	fake.claim_rc_after_detach = LIBUSB_ERROR_BUSY;
+	r = RUN("-d", image_path, "-r");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: the firmware was written, but the board "
+	                 "came back and would not open, so the flash was not "
+	                 "checked: read its revision with ubertooth-util -v\n")
+	          != NULL,
+	          "the board that refused to open was not reported as such");
+	mu_assert(strstr(r.err, "did not come back on USB") == NULL,
+	          "a board that is on the bus was reported as missing");
+	mu_assert(strstr(r.err, "post-reset application verification failed: "
+	                 "result=-2 polls=20 expected=" IMAGE_REVISION
+	                 " actual= usb_error=-6") != NULL,
+	          "the stage trace lost the error that stopped the open");
+	mu_assert_int_eq(1, error_lines(r.err));
+	mu_assert_int_eq(0, (int)strlen(r.out));
+	mu_assert_int_eq(0, fake.revision_calls);
+}
+
 /* The board came back and would not say what it runs, which is not the same
  * as a board running the wrong firmware: the flash is unchecked, not known to
  * have failed. */
@@ -1117,9 +1150,9 @@ MU_TEST(a_board_that_will_not_report_its_revision_says_the_flash_is_unchecked)
 {
 	struct run_result r;
 
+	/* Leaves the revision empty, which is a board whose firmware does not
+	 * answer the request for it. */
 	board_in_dfu();
-	/* An empty revision is a board whose firmware will not answer. */
-	fake.revision[0] = '\0';
 	r = RUN("-d", image_path, "-r");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strstr(r.err, "error: the board came back but would not report "
@@ -1721,6 +1754,7 @@ int main(void)
 	MU_RUN(an_accepted_detach_with_no_usb_path_says_it_could_not_tell);
 	MU_RUN(a_detach_race_followed_by_the_old_firmware_fails_the_command);
 	MU_RUN(a_board_that_does_not_come_back_says_the_firmware_was_written);
+	MU_RUN(a_board_that_will_not_be_claimed_is_not_reported_as_missing);
 	MU_RUN(a_board_that_will_not_report_its_revision_says_the_flash_is_unchecked);
 	MU_RUN(asking_past_the_end_of_flash_takes_the_bootloader_down);
 	MU_RUN(a_board_already_in_dfu_reads_the_assumed_flash_only);
