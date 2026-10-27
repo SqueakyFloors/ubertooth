@@ -2159,31 +2159,71 @@ struct dispatch_scan {
 	int awaiting_body;
 	int lines;
 	int overflowed;
+	/*
+	 * The text after a `case` that this pass could not turn into a label
+	 * at all. Skipping one silently would hide a whole case: its calls
+	 * would be recorded against the case above it, and the mode it handles
+	 * would appear in no table. The checks below fail on it instead.
+	 */
+	char unreadable[64];
+};
+
+/* What read_case_label() made of the text after a `case`. */
+enum label_read {
+	/* A label carrying this pass's prefix; `out` holds it. */
+	LABEL_READ,
+	/* An identifier with some other prefix, so it belongs to another
+	 * switch and this pass is right to walk past it. */
+	LABEL_OTHER_PREFIX,
+	/* Neither: a label this pass cannot read. */
+	LABEL_UNREADABLE,
 };
 
 /*
  * The label a `case` names, when it carries the prefix this pass is reading.
  * `p` is left after the label; on anything else it is left where it was, so
  * the caller reads that text as ordinary code.
+ *
+ * A label that is not a bare identifier (`case (MODE_X):`, `case 3:`) and one
+ * whose identifier is too long for `out` both come back LABEL_UNREADABLE,
+ * with up to `size` of the text in `out` so the failure can quote it. Neither
+ * shape appears in the two dispatches scanned here, where every case is a
+ * bare prefixed name; one turning up means a case the pass would otherwise
+ * walk straight past.
  */
-static int read_case_label(const char **p, const char *prefix, char *out,
-                           size_t size)
+static enum label_read read_case_label(const char **p, const char *prefix,
+                                       char *out, size_t size)
 {
 	const char *q = *p;
 	const char *start;
+	size_t len;
 
 	while (*q == ' ' || *q == '\t')
 		q++;
 	start = q;
 	while (is_ident_char(*q))
 		q++;
-	if (q == start || (size_t)(q - start) >= size ||
-	    strncmp(start, prefix, strlen(prefix)) != 0)
-		return 0;
-	memcpy(out, start, (size_t)(q - start));
-	out[q - start] = '\0';
+	len = (size_t)(q - start);
+
+	if (len == 0 || len >= size) {
+		/* Quote what is there, up to the first ':' or the end of the
+		 * line, so the failure names the case. */
+		size_t n = 0;
+
+		while (start[n] != '\0' && start[n] != ':' && start[n] != '\n' &&
+		       n < size - 1)
+			n++;
+		memcpy(out, start, n);
+		out[n] = '\0';
+		return LABEL_UNREADABLE;
+	}
+	if (strncmp(start, prefix, strlen(prefix)) != 0)
+		return LABEL_OTHER_PREFIX;
+
+	memcpy(out, start, len);
+	out[len] = '\0';
 	*p = q;
-	return 1;
+	return LABEL_READ;
 }
 
 /* Record a call against every case whose body is still being read. */
@@ -2341,8 +2381,20 @@ static void visit_dispatch_line(const char *line, const struct body_pos *pos,
 		if (strcmp(word, "case") == 0) {
 			char label[sizeof(s->cases[0].label)];
 
-			if (read_case_label(&p, s->prefix, label, sizeof(label)))
+			switch (read_case_label(&p, s->prefix, label,
+			                        sizeof(label))) {
+			case LABEL_READ:
 				add_case_label(s, label, depth);
+				break;
+			case LABEL_UNREADABLE:
+				if (s->unreadable[0] == '\0')
+					snprintf(s->unreadable,
+					         sizeof(s->unreadable), "%s",
+					         label);
+				break;
+			case LABEL_OTHER_PREFIX:
+				break;
+			}
 			continue;
 		}
 		if (s->pending_count == 0)
@@ -2442,6 +2494,20 @@ static struct dispatch_scan dispatch_found;
 static int dispatch_scanned;
 static char unlisted_case[64];
 
+/* What to say about a `case` whose label the scan could not read. */
+static const char *unreadable_case_message(const char *text, const char *prefix)
+{
+	static char msg[384];
+
+	snprintf(msg, sizeof(msg),
+	         "the scan met `case %s:`, which it cannot read as a %s name, "
+	         "so that case is invisible to it: its calls are recorded "
+	         "against the case above it and whatever it handles appears in "
+	         "no table here. Write the label as a bare name short enough "
+	         "for the scan, or teach the scan this shape", text, prefix);
+	return msg;
+}
+
 static void scan_dispatch(void)
 {
 	char path[512];
@@ -2493,6 +2559,8 @@ MU_TEST(the_dispatch_scan_read_every_case)
 	mu_assert(!dispatch_found.overflowed,
 	          "the dispatch has more cases, or a case more calls, than this "
 	          "scan can hold");
+	mu_assert(dispatch_found.unreadable[0] == '\0', unreadable_case_message(
+	          dispatch_found.unreadable, "MODE_"));
 	mu_assert(dispatch_found.lines > 50,
 	          "main() scanned as fewer than 50 lines, so the scan lost "
 	          "track of the function");
@@ -2804,6 +2872,58 @@ MU_TEST(the_dispatch_scan_reads_each_case_to_its_own_break)
 	}
 }
 
+/*
+ * The other way a case can go unseen: a label the scan cannot read. It walks
+ * past anything after `case` that is not a bare prefixed name, and past a
+ * name too long for the buffer it reads into, and either leaves the case
+ * invisible -- its calls recorded against the case above it, and the mode it
+ * handles in no table. Both are legal C that the firmware does not use today,
+ * so they are written out here, and the scan has to say it met them.
+ */
+static const char *const unreadable_label_shapes =
+	"int main(void)\n"
+	"{\n"
+	"	switch (requested_mode) {\n"
+	"	case (MODE_PARENTHESISED):\n"
+	"		parenthesised_work();\n"
+	"		break;\n"
+	"	}\n"
+	"	return 0;\n"
+	"}\n";
+
+static const char *const long_label_shapes =
+	"int main(void)\n"
+	"{\n"
+	"	switch (requested_mode) {\n"
+	"	case MODE_A_NAME_TOO_LONG_FOR_THE_BUFFER_THE_SCAN_READS_IT_INTO:\n"
+	"		long_name_work();\n"
+	"		break;\n"
+	"	}\n"
+	"	return 0;\n"
+	"}\n";
+
+MU_TEST(a_case_label_the_scan_cannot_read_is_reported)
+{
+	static struct dispatch_scan shapes;
+
+	mu_assert_fatal(scan_dispatch_text(unreadable_label_shapes, &shapes),
+	                "cannot scan the written-out dispatch, so the checks "
+	                "below would pass for want of anything to look at");
+	mu_assert_int_eq(0, shapes.case_count);
+	mu_assert(shapes.unreadable[0] != '\0',
+	          "the scan walked past `case (MODE_PARENTHESISED):` without a "
+	          "word, so a case written that way is classified by nothing");
+
+	mu_assert_fatal(scan_dispatch_text(long_label_shapes, &shapes),
+	                "cannot scan the written-out dispatch, so the check "
+	                "below would pass for want of anything to look at");
+	mu_assert_int_eq(0, shapes.case_count);
+	mu_assert(shapes.unreadable[0] != '\0',
+	          "the scan walked past a MODE_ label too long for its buffer "
+	          "without a word, so a mode named that long is classified by "
+	          "nothing");
+}
+
 /* ------------------------------------------------------------------ *
  * The BR/EDR image: one way to the host, and every request on it
  * ------------------------------------------------------------------ */
@@ -2918,6 +3038,8 @@ MU_TEST(the_br_edr_request_scan_read_every_case)
 	mu_assert(!btctl_found.overflowed,
 	          "the request dispatch has more cases, or a case more calls, "
 	          "than this scan can hold");
+	mu_assert(btctl_found.unreadable[0] == '\0', unreadable_case_message(
+	          btctl_found.unreadable, "BTCTL_"));
 	mu_assert(btctl_found.case_count >= (int)BTCTL_REQUEST_COUNT,
 	          "the scan found fewer request cases than the table lists, so "
 	          "it lost track of btctl_handle_msg()");
@@ -3216,6 +3338,7 @@ int main(void)
 	MU_RUN(a_mode_uses_the_transport_of_the_loop_it_runs);
 	MU_RUN(a_mode_that_streams_runs_a_classified_loop);
 	MU_RUN(the_dispatch_scan_reads_each_case_to_its_own_break);
+	MU_RUN(a_case_label_the_scan_cannot_read_is_reported);
 
 	scan_btctl_requests();
 	MU_RUN(the_br_edr_request_scan_read_every_case);
