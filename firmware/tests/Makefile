@@ -186,6 +186,7 @@ $(BINDIR)/test_usb_queue: test_usb_queue.c minunit.h source_scan.h \
 		$(FW_COMMON)/usb_irq.h | $(BINDIR)
 	$(CC) $(CFLAGS) -Istubs-usbq $(CPPFLAGS) -I$(FW_LPCUSB) \
 		-I$(FW_COMMON) -DFW_HOST_TEST -DFW_RXTX_DIR='"$(FW_RXTX)"' \
+		-DFW_COMMON_DIR='"$(FW_COMMON)"' \
 		-o $@ test_usb_queue.c
 
 # The part table in flash.h and Flash::valid_address compile here as they are,

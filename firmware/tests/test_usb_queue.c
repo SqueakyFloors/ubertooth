@@ -26,6 +26,7 @@
  * The last part of this file scans the mode loops for which of the two USB
  * services each one calls, since that is where the rule has to hold.
  */
+#include <dirent.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -465,7 +466,7 @@ struct fn_usb {
 	int lines;
 	int bulk;     /* handle_usb or service_usb, named anywhere */
 	int direct;   /* ...called outright, rather than handed to something */
-	int control;  /* handle_usb_control */
+	int control;  /* handle_usb_control, called */
 	int unmask;   /* ISER0 = ISER0_ISE_USB */
 };
 
@@ -508,6 +509,55 @@ static struct mode_usb modes[] = {
 
 #define MODE_COUNT (sizeof(modes) / sizeof(modes[0]))
 
+/* A line continued with a trailing backslash: the statement carries on. */
+static int line_continues(const char *line)
+{
+	size_t n = strlen(line);
+
+	while (n > 0 && (line[n - 1] == '\n' || line[n - 1] == '\r'))
+		n--;
+	return n > 0 && line[n - 1] == '\\';
+}
+
+/*
+ * Does this line call `name` on the path it is on, rather than on a branch off
+ * it? A condition can share the line with the call it guards --
+ * `if (rare) service_usb();` services USB only when `rare` holds -- and such a
+ * call does not answer for what the loop does every turn, which is what the
+ * bulk and control guards below ask about.
+ */
+static int calls_unconditionally(const char *line, const char *name)
+{
+	static const char *const branches[] = {
+		"if", "else", "while", "for", "switch", "case",
+	};
+	size_t len = strlen(name), i;
+	const char *p = line;
+
+	while ((p = strstr(p, name)) != NULL) {
+		char prev = (p == line) ? ' ' : p[-1];
+		const char *after = p + len;
+		char before[512];
+
+		while (*after == ' ' || *after == '\t')
+			after++;
+		if (is_ident_char(prev) || *after != '(' ||
+		    (size_t)(p - line) >= sizeof(before)) {
+			p += len;
+			continue;
+		}
+		memcpy(before, line, (size_t)(p - line));
+		before[p - line] = '\0';
+		for (i = 0; i < sizeof(branches) / sizeof(branches[0]); i++)
+			if (contains_identifier(before, branches[i]))
+				break;
+		if (i == sizeof(branches) / sizeof(branches[0]))
+			return 1;
+		p += len;
+	}
+	return 0;
+}
+
 /*
  * Read one function's body out of a firmware source file. A definition is a
  * line that starts in column 1, names the function in front of its first '('
@@ -528,6 +578,7 @@ static int scan_function(const char *path, const char *function,
 
 	while (fgets(line, sizeof(line), f) != NULL) {
 		strip_comments(line, &in_block);
+		strip_string_literals(line);
 
 		if (!in_fn) {
 			if (line[0] != ' ' && line[0] != '\t' &&
@@ -549,13 +600,15 @@ static int scan_function(const char *path, const char *function,
 		 * radio waits and hop() take service_usb as a callback, so a loop
 		 * could name it on a path it rarely takes -- hop() runs only when
 		 * the mode hops -- and never service USB on its ordinary one. What
-		 * answers for the ordinary path is a call.
+		 * answers for the ordinary path is a call the loop always makes.
 		 */
-		if (call_name(line, name, sizeof(name)) &&
-		    (strcmp(name, "service_usb") == 0 ||
-		     strcmp(name, "handle_usb") == 0))
+		if (calls_unconditionally(line, "service_usb") ||
+		    calls_unconditionally(line, "handle_usb"))
 			out->direct++;
-		if (contains_identifier(line, "handle_usb_control"))
+		/* A call, for the same reason: naming the control service in a
+		 * callback the loop rarely reaches would not keep the host's
+		 * requests answered. */
+		if (calls_unconditionally(line, "handle_usb_control"))
 			out->control++;
 		if (is_assignment_to(line, "ISER0") &&
 		    contains_identifier(line, "ISER0_ISE_USB"))
@@ -589,6 +642,7 @@ static int scan_file_for_bulk_service(const char *path, int *lines)
 	*lines = 0;
 	while (fgets(line, sizeof(line), f) != NULL) {
 		strip_comments(line, &in_block);
+		strip_string_literals(line);
 		(*lines)++;
 		if (contains_identifier(line, "handle_usb") ||
 		    contains_identifier(line, "service_usb"))
@@ -667,6 +721,30 @@ MU_TEST(a_bulk_read_mode_keeps_the_endpoint_loaded)
 }
 
 /*
+ * The guard above accepts either name because the modes reach the service
+ * through service_usb(), which is one line: it calls handle_usb(). That one
+ * line is what every bulk-read mode above rests on, so if it ever stopped
+ * leading to the queue's own service, each of those modes would keep its call
+ * and its host would still go empty.
+ */
+MU_TEST(the_wrapper_every_bulk_mode_calls_reaches_the_queues_service)
+{
+	char path[512];
+	struct fn_usb found;
+
+	snprintf(path, sizeof(path), "%s/bluetooth_rxtx.c", FW_RXTX_DIR);
+	mu_assert(scan_function(path, "service_usb", &found),
+	          "cannot read service_usb() in bluetooth_rxtx.c");
+	mu_assert(found.lines > 0,
+	          "service_usb()'s body is empty, so the bulk IN endpoint is "
+	          "never loaded however many modes call it");
+	mu_assert(found.direct > 0,
+	          "service_usb() no longer calls handle_usb(), so every mode "
+	          "above that calls it leaves the bulk IN endpoint empty and its "
+	          "host reads nothing");
+}
+
+/*
  * ...and a mode whose host polls must not, because nothing reads the endpoint
  * while it runs: a packet handed over there is lost, and the endpoint has two
  * buffers, which is why it was the first two packets of the session.
@@ -738,6 +816,909 @@ MU_TEST(nothing_in_the_le_engine_feeds_the_endpoint)
 	mu_assert(le_phy_bulk_hits == 0, msg);
 }
 
+/* ------------------------------------------------------------------ *
+ * Every mode that produces packets is in the table above
+ * ------------------------------------------------------------------ */
+
+/*
+ * The table above is written by hand, so a mode added later could stream
+ * packets without being in it, and its loop would be free to call either
+ * service with nothing here to notice.
+ *
+ * What a new mode cannot avoid is the queue. Every packet a host ever reads is
+ * put there by usb_enqueue(), so the scan below reads every source file of
+ * this image, finds each function that enqueues, and requires it to be
+ * accounted for here -- either as a mode loop that is a row above, or as a
+ * helper that belongs to no single mode. A function that enqueues and is not
+ * listed fails the test, which is where the new mode gets classified.
+ */
+struct producer {
+	const char *file;
+	const char *function;
+	/*
+	 * The loop in modes[] whose host collects what this enqueues, or NULL
+	 * for a helper that runs under several modes or none. What the tests
+	 * check is that the name, where there is one, is a loop the table
+	 * classifies; whether a row names the right loop, or should have named
+	 * one at all, is read by whoever adds it.
+	 */
+	const char *mode_loop;
+	int found;
+	/* both filled in by the scan, for a helper */
+	int classified_caller;
+	char unlisted_caller[128];
+};
+
+/*
+ * The promisc path switches its packet callback as it learns the connection,
+ * and the callbacks run under both of its loops. Both loops are rows above and
+ * both are classified the same way, so naming either is accurate about how
+ * those packets reach the host.
+ */
+static struct producer producers[] = {
+	{ "bluetooth_rxtx.c", "enqueue",              NULL,              0, 0, { 0 } },
+	{ "bluetooth_rxtx.c", "enqueue_with_ts",      NULL,              0, 0, { 0 } },
+	{ "bluetooth_rxtx.c", "bt_stream_rx",         "bt_stream_rx",    0, 0, { 0 } },
+	{ "bluetooth_rxtx.c", "specan",               "specan",          0, 0, { 0 } },
+	{ "bluetooth_rxtx.c", "rx_generic_sync",      "rx_generic_sync", 0, 0, { 0 } },
+	{ "bluetooth_rxtx.c", "bt_le_sync",           "bt_le_sync",      0, 0, { 0 } },
+	{ "bluetooth_rxtx.c", "cb_follow_le",         "bt_le_sync",      0, 0, { 0 } },
+	{ "bluetooth_rxtx.c", "cb_le_promisc",        "bt_generic_le",   0, 0, { 0 } },
+	{ "bluetooth_rxtx.c", "le_promisc_state",     "bt_generic_le",   0, 0, { 0 } },
+	{ "le_phy.c",         "usb_enqueue_le",       NULL,              0, 0, { 0 } },
+	{ "le_phy.c",         "le_phy_main",          "le_phy_main",     0, 0, { 0 } },
+	{ "ego.c",            "cap_state",            "ego_main",        0, 0, { 0 } },
+	{ "ego.c",            "continuous_cap_state", "ego_main",        0, 0, { 0 } },
+};
+
+#define PRODUCER_COUNT (sizeof(producers) / sizeof(producers[0]))
+
+#define MAX_FOUND 64
+
+struct found_producer {
+	char dir[64];
+	char file[64];
+	char function[64];
+	int listed;
+};
+
+static struct found_producer found[MAX_FOUND];
+static int found_count;
+static int scanned_files;
+static int scan_overflowed;
+
+/*
+ * usb_enqueue() is the queue's own name for it, and the modes reach it through
+ * wrappers: enqueue(), enqueue_with_ts(), usb_enqueue_le(). Rather than list
+ * them, this takes any identifier with "enqueue" in it, so a wrapper added
+ * later is found too.
+ */
+static int enqueue_identifier_at(const char *line, int n, char *out,
+                                 size_t size, int *called)
+{
+	const char *p = line;
+	int seen = 0;
+
+	while (*p != '\0') {
+		const char *start, *after;
+
+		if (!is_ident_char(*p)) {
+			p++;
+			continue;
+		}
+		start = p;
+		while (is_ident_char(*p))
+			p++;
+		if ((size_t)(p - start) >= size)
+			continue;
+		memcpy(out, start, (size_t)(p - start));
+		out[p - start] = '\0';
+		if (strstr(out, "enqueue") == NULL)
+			continue;
+		if (seen++ != n)
+			continue;
+		/* Its own '(' right after the name is what makes the mention a
+		 * call, a prototype or a definition rather than a hand-over. */
+		after = p;
+		while (*after == ' ' || *after == '\t')
+			after++;
+		*called = *after == '(';
+		return 1;
+	}
+	out[0] = '\0';
+	return 0;
+}
+
+static int enqueue_identifier(const char *line, int must_call)
+{
+	char ident[128];
+	int n, called;
+
+	for (n = 0; enqueue_identifier_at(line, n, ident, sizeof(ident),
+	                                  &called); n++)
+		if (!must_call || called)
+			return 1;
+	return 0;
+}
+
+/*
+ * A call, which is what puts a packet in the queue. A name is not enough: an
+ * ordinary variable can carry "enqueue" too, and an `int enqueue_count` would
+ * otherwise make the function holding it a producer that has to be classified.
+ */
+static int line_calls_enqueue(const char *line)
+{
+	return enqueue_identifier(line, 1);
+}
+
+/*
+ * Words that read as a name followed by its arguments without being one:
+ * `if (...)` in column 1 would otherwise be taken for a definition, and an
+ * attribute sits in front of the name it decorates.
+ */
+static int is_not_a_function_name(const char *name)
+{
+	static const char *const words[] = {
+		"if", "else", "for", "while", "do", "switch", "return",
+		"sizeof", "__attribute__",
+	};
+	size_t i;
+
+	for (i = 0; i < sizeof(words) / sizeof(words[0]); i++)
+		if (strcmp(name, words[i]) == 0)
+			return 1;
+	return 0;
+}
+
+/*
+ * The name a definition declares: the first identifier with its own '(' that
+ * is a name at all. Reading only the word in front of the line's first '(',
+ * as call_name() does, gives "__attribute__" for a decorated definition and
+ * so loses the whole body.
+ */
+static int definition_name(const char *line, char *out, size_t size)
+{
+	const char *p = line;
+
+	while (*p != '\0') {
+		const char *start, *after;
+
+		if (!is_ident_char(*p)) {
+			p++;
+			continue;
+		}
+		start = p;
+		while (is_ident_char(*p))
+			p++;
+		after = p;
+		while (*after == ' ' || *after == '\t')
+			after++;
+		if (*after != '(' || (size_t)(p - start) >= size)
+			continue;
+		memcpy(out, start, (size_t)(p - start));
+		out[p - start] = '\0';
+		if (!is_not_a_function_name(out))
+			return 1;
+	}
+	return 0;
+}
+
+/*
+ * Record every function in one file that enqueues, once each.
+ *
+ * Everything at file scope starts in column 1, so that is what tells one
+ * function's body from the next. A definition names something in front of its
+ * first '(' and does not end the statement; a line ending in ';' there is a
+ * declaration, and a '}' is the end of a body, so both mean the lines that
+ * follow belong to no function yet.
+ */
+static void scan_file_for_producers(const char *dir, const char *file)
+{
+	char path[512], line[512], name[64], current[64];
+	int in_block = 0, recorded = 0;
+	FILE *f;
+
+	snprintf(path, sizeof(path), "%s/%s", dir, file);
+	f = fopen(path, "r");
+	if (f == NULL)
+		return;
+
+	scanned_files++;
+	current[0] = '\0';
+
+	while (fgets(line, sizeof(line), f) != NULL) {
+		strip_comments(line, &in_block);
+		strip_string_literals(line);
+
+		if (line[0] != ' ' && line[0] != '\t' && line[0] != '\n' &&
+		    line[0] != '\0') {
+			/* The macro guard below is what covers these. */
+			if (line[0] == '#')
+				continue;
+			/* A body opened on the signature's line is still a
+			 * definition, ';' and all. */
+			if (line[0] == '}' || (strchr(line, ';') != NULL &&
+			                       strchr(line, '{') == NULL)) {
+				current[0] = '\0';
+				continue;
+			}
+			if (definition_name(line, name, sizeof(name))) {
+				snprintf(current, sizeof(current), "%s", name);
+				recorded = 0;
+			} else {
+				continue;
+			}
+			/* ...and its first body line is this one. */
+			if (strchr(line, '{') == NULL)
+				continue;
+		}
+		if (current[0] == '\0' || recorded || !line_calls_enqueue(line))
+			continue;
+		if (found_count >= MAX_FOUND) {
+			scan_overflowed = 1;
+			break;
+		}
+		snprintf(found[found_count].dir, sizeof(found[0].dir), "%s",
+		         dir);
+		snprintf(found[found_count].file, sizeof(found[0].file), "%s",
+		         file);
+		snprintf(found[found_count].function,
+		         sizeof(found[0].function), "%s", current);
+		found_count++;
+		recorded = 1;
+	}
+
+	fclose(f);
+}
+
+/*
+ * Both source trees this image is built from, so a file added to either is
+ * scanned without being listed anywhere. The third, lpcusb, is the USB stack
+ * itself: the endpoint writes live there by definition, and the two guards
+ * after the table are what keep the rest of the firmware out of them.
+ */
+static const char *const scanned_dirs[] = { FW_RXTX_DIR, FW_COMMON_DIR };
+
+#define SCANNED_DIR_COUNT (sizeof(scanned_dirs) / sizeof(scanned_dirs[0]))
+
+/*
+ * Visit the files of one directory, `.c` alone or headers too. Each scan
+ * counts what it opened, because a directory that cannot be read would
+ * otherwise leave its guard passing for want of anything to look at.
+ */
+static int scan_dir(const char *path, int headers,
+                    void (*visit)(const char *, const char *))
+{
+	struct dirent *entry;
+	int files = 0;
+	DIR *dir = opendir(path);
+
+	if (dir == NULL)
+		return 0;
+
+	while ((entry = readdir(dir)) != NULL) {
+		size_t len = strlen(entry->d_name);
+		const char *tail;
+
+		/* Before naming the last two characters, because "." has only
+		 * one and the pointer would be before the name. */
+		if (len < 3)
+			continue;
+		tail = entry->d_name + len - 2;
+		if (strcmp(tail, ".c") != 0 &&
+		    !(headers && strcmp(tail, ".h") == 0))
+			continue;
+		visit(path, entry->d_name);
+		files++;
+	}
+
+	closedir(dir);
+	return files;
+}
+
+/* Each directory read by every scan, so none of them is quietly skipped. */
+static int files_seen[SCANNED_DIR_COUNT];
+
+static void run_scan(int headers, void (*visit)(const char *, const char *))
+{
+	size_t i;
+
+	for (i = 0; i < SCANNED_DIR_COUNT; i++)
+		files_seen[i] += scan_dir(scanned_dirs[i], headers, visit);
+}
+
+MU_TEST(every_scanned_directory_was_read)
+{
+	size_t i;
+
+	for (i = 0; i < SCANNED_DIR_COUNT; i++) {
+		char msg[256];
+
+		snprintf(msg, sizeof(msg),
+		         "%s: no source file read, so every scan below passed for "
+		         "want of anything to look at", scanned_dirs[i]);
+		mu_assert(files_seen[i] > 0, msg);
+	}
+}
+
+/*
+ * ...and the two directories are the whole image. The scans read what is in
+ * them, so a source file the image compiles from anywhere else -- a new
+ * subdirectory, a new tree -- would never be read and the mode in it would
+ * never be classified. The image's own source list is what says which files
+ * those are, so read it and require each one to be somewhere a scan looks.
+ *
+ * lpcusb is the exception the comment above the directories explains: it is
+ * the USB stack, where the endpoint writes live by definition.
+ */
+static int is_in_a_scanned_dir(const char *file)
+{
+	char path[512];
+	size_t i;
+
+	/* The scans read a directory's own entries, not its subdirectories, so
+	 * a name with a path left in it is not one of them. */
+	if (strchr(file, '/') != NULL)
+		return 0;
+	for (i = 0; i < SCANNED_DIR_COUNT; i++) {
+		FILE *f;
+
+		snprintf(path, sizeof(path), "%s/%s", scanned_dirs[i], file);
+		f = fopen(path, "r");
+		if (f != NULL) {
+			fclose(f);
+			return 1;
+		}
+	}
+	return 0;
+}
+
+/*
+ * The name a source list entry stands for. A leading make variable is the
+ * directory the file sits in, which the lookup above covers, and $(TARGET) is
+ * the image itself. Anything else keeps whatever path it has, so a real
+ * subdirectory is reported as unscanned, which it is.
+ */
+static const char *source_list_name(const char *token)
+{
+	const char *close;
+
+	if (strncmp(token, "$(TARGET)", 9) == 0)
+		return "bluetooth_rxtx.c";
+	if (token[0] != '$')
+		return token;
+	close = strstr(token, ")/");
+	return close == NULL ? token : close + 2;
+}
+
+static int sources_listed;
+static char unscanned_source[256];
+
+static void read_the_images_source_list(void)
+{
+	char path[512], line[512];
+	int in_src = 0;
+	FILE *f;
+
+	snprintf(path, sizeof(path), "%s/Makefile", FW_RXTX_DIR);
+	f = fopen(path, "r");
+	if (f == NULL)
+		return;
+
+	while (fgets(line, sizeof(line), f) != NULL) {
+		char *token, *rest = line;
+
+		if (!in_src) {
+			if (strncmp(line, "SRC", 3) != 0 ||
+			    strchr(line, '=') == NULL)
+				continue;
+			in_src = 1;
+			rest = strchr(line, '=') + 1;
+		}
+		if (!line_continues(line))
+			in_src = 0;
+
+		for (token = strtok(rest, " \t\r\n\\"); token != NULL;
+		     token = strtok(NULL, " \t\r\n\\")) {
+			const char *file;
+			size_t len = strlen(token);
+
+			if (len < 3 || strcmp(token + len - 2, ".c") != 0)
+				continue;
+			if (strstr(token, "LPCUSB_PATH") != NULL)
+				continue;
+			file = source_list_name(token);
+			sources_listed++;
+			if (!is_in_a_scanned_dir(file) &&
+			    unscanned_source[0] == '\0')
+				snprintf(unscanned_source,
+				         sizeof(unscanned_source), "%s", token);
+		}
+	}
+
+	fclose(f);
+}
+
+MU_TEST(every_source_the_image_compiles_is_scanned)
+{
+	char msg[512];
+
+	read_the_images_source_list();
+	mu_assert(sources_listed > 0,
+	          "cannot read the image's source list in "
+	          FW_RXTX_DIR "/Makefile, so the check below passed for want of "
+	          "anything to look at");
+	snprintf(msg, sizeof(msg),
+	         "%s is compiled into this image and is in neither directory the "
+	         "scans read, so a mode in it would never be classified. Put it "
+	         "in one of them, or add its directory to scanned_dirs[]",
+	         unscanned_source);
+	mu_assert(unscanned_source[0] == '\0', msg);
+}
+
+/*
+ * Resolve the scan against the table here rather than in a test, so neither
+ * of the two tests that read the result depends on the other having run.
+ */
+static void resolve_producers(void)
+{
+	int i;
+	size_t j;
+
+	for (i = 0; i < found_count; i++)
+		for (j = 0; j < PRODUCER_COUNT; j++)
+			if (strcmp(producers[j].file, found[i].file) == 0 &&
+			    strcmp(producers[j].function,
+			           found[i].function) == 0) {
+				producers[j].found = 1;
+				found[i].listed = 1;
+			}
+}
+
+/*
+ * A producer with no mode loop is a helper, which means some classified
+ * producer calls it. Without that, "helper" is the cheapest answer to the
+ * failure above: a new loop could list its own enqueueing helper as one and
+ * never reach the transport table. So find each helper's callers.
+ *
+ * Every one of them has to be in the table, not just one. A new mode that
+ * enqueues only through an existing helper names nothing with "enqueue" in it,
+ * so the scan above does not see the mode at all; what gives it away is that
+ * the helper is suddenly called from a function nobody has classified.
+ */
+static void scan_file_for_helper_callers(const char *dir, const char *file)
+{
+	char path[512], line[512], name[64], current[64];
+	int in_block = 0;
+	size_t i, j;
+	FILE *f;
+
+	snprintf(path, sizeof(path), "%s/%s", dir, file);
+	f = fopen(path, "r");
+	if (f == NULL)
+		return;
+
+	current[0] = '\0';
+
+	while (fgets(line, sizeof(line), f) != NULL) {
+		strip_comments(line, &in_block);
+		strip_string_literals(line);
+
+		if (line[0] != ' ' && line[0] != '\t' && line[0] != '\n' &&
+		    line[0] != '\0') {
+			if (line[0] == '#')
+				continue;
+			if (line[0] == '}' || (strchr(line, ';') != NULL &&
+			                       strchr(line, '{') == NULL)) {
+				current[0] = '\0';
+				continue;
+			}
+			if (!definition_name(line, name, sizeof(name)))
+				continue;
+			snprintf(current, sizeof(current), "%s", name);
+			if (strchr(line, '{') == NULL)
+				continue;
+		}
+		if (current[0] == '\0')
+			continue;
+
+		for (i = 0; i < PRODUCER_COUNT; i++) {
+			int listed = 0;
+
+			if (producers[i].mode_loop != NULL)
+				continue;
+			if (!calls_identifier(line, producers[i].function))
+				continue;
+			for (j = 0; j < PRODUCER_COUNT; j++) {
+				if (strcmp(producers[j].function, current) != 0)
+					continue;
+				listed = 1;
+				if (producers[j].mode_loop != NULL)
+					producers[i].classified_caller = 1;
+			}
+			/* A caller that is itself a helper is listed too, and
+			 * answers for its own callers in the same way. */
+			if (!listed && producers[i].unlisted_caller[0] == '\0')
+				snprintf(producers[i].unlisted_caller,
+				         sizeof(producers[i].unlisted_caller),
+				         "%s/%s: %s()", dir, file, current);
+		}
+	}
+
+	fclose(f);
+}
+
+static void scan_producers(void)
+{
+	run_scan(0, scan_file_for_producers);
+	resolve_producers();
+	run_scan(0, scan_file_for_helper_callers);
+}
+
+MU_TEST(every_helper_is_called_by_a_classified_producer)
+{
+	size_t i;
+
+	for (i = 0; i < PRODUCER_COUNT; i++) {
+		char msg[384];
+
+		if (producers[i].mode_loop != NULL)
+			continue;
+		snprintf(msg, sizeof(msg),
+		         "%s: %s() is listed as a helper that belongs to no single "
+		         "mode, but no producer with a mode loop calls it. Name the "
+		         "loop whose host collects what it enqueues",
+		         producers[i].file, producers[i].function);
+		mu_assert(producers[i].classified_caller, msg);
+	}
+}
+
+/* ...and nobody outside the table calls a helper, which is how a mode that
+ * enqueues only through one still gets classified. */
+MU_TEST(every_caller_of_a_helper_is_accounted_for)
+{
+	size_t i;
+
+	for (i = 0; i < PRODUCER_COUNT; i++) {
+		char msg[384];
+
+		if (producers[i].mode_loop != NULL)
+			continue;
+		snprintf(msg, sizeof(msg),
+		         "%s calls %s(), which enqueues, and is not in producers[]. "
+		         "Add it, and say which mode loop collects what it "
+		         "enqueues -- if that loop is new, it also needs a row in "
+		         "modes[] saying whether its host reads the bulk IN "
+		         "endpoint or polls", producers[i].unlisted_caller,
+		         producers[i].function);
+		mu_assert(producers[i].unlisted_caller[0] == '\0', msg);
+	}
+}
+
+MU_TEST(the_producer_scan_read_the_sources)
+{
+	mu_assert(scanned_files > 0,
+	          "cannot open " FW_RXTX_DIR " to scan for packet producers");
+	mu_assert(!scan_overflowed,
+	          "more functions enqueue than this scan can hold");
+	/* Without this, a scan that found nothing would pass the next check for
+	 * want of anything to look at. */
+	mu_assert(found_count > 0,
+	          "the scan read the sources and found nothing that enqueues");
+}
+
+/* A function that enqueues and is not in the table above is a mode nobody has
+ * classified. */
+MU_TEST(every_packet_producer_is_accounted_for)
+{
+	int i;
+
+	for (i = 0; i < found_count; i++) {
+		char msg[384];
+
+		snprintf(msg, sizeof(msg),
+		         "%s/%s: %s() puts packets in the queue and is not in "
+		         "producers[]. Add it, and say which mode loop collects "
+		         "what it enqueues -- if that loop is new, it also needs a "
+		         "row in modes[] saying whether its host reads the bulk IN "
+		         "endpoint or polls", found[i].dir, found[i].file,
+		         found[i].function);
+		mu_assert(found[i].listed, msg);
+	}
+}
+
+/* ...and a row that no longer matches the sources is a rule nothing enforces.
+ */
+MU_TEST(every_listed_producer_was_found)
+{
+	size_t i;
+
+	for (i = 0; i < PRODUCER_COUNT; i++) {
+		char msg[384];
+
+		snprintf(msg, sizeof(msg),
+		         "%s: %s() is listed in producers[] but no longer enqueues, "
+		         "so the row is stale", producers[i].file,
+		         producers[i].function);
+		mu_assert(producers[i].found, msg);
+	}
+}
+
+/*
+ * The queue has to be reached by a call, because that is what the scan above
+ * can follow. A macro would hide it: uses of the macro carry no identifier
+ * with "enqueue" in it, so a mode that streamed packets through one would be
+ * invisible here. Make it a function instead.
+ */
+static int macro_enqueue_hits;
+static char macro_enqueue_where[256];
+
+/*
+ * `# define` with spaces after the '#' is the same directive and this tree
+ * already spells it that way, so read past the whitespace rather than matching
+ * one spelling.
+ */
+static int is_define_line(const char *line)
+{
+	const char *p = line;
+
+	if (*p != '#')
+		return 0;
+	p++;
+	while (*p == ' ' || *p == '\t')
+		p++;
+	return strncmp(p, "define", 6) == 0 && !is_ident_char(p[6]);
+}
+
+static void check_file_for_enqueue_macro(const char *dir, const char *file)
+{
+	char path[512], line[512];
+	int in_block = 0, in_define = 0;
+	FILE *f;
+
+	snprintf(path, sizeof(path), "%s/%s", dir, file);
+	f = fopen(path, "r");
+	if (f == NULL)
+		return;
+
+	while (fgets(line, sizeof(line), f) != NULL) {
+		int continued;
+
+		strip_comments(line, &in_block);
+		strip_string_literals(line);
+		/* A macro body can run over several lines, and the call that
+		 * reaches the queue may sit on any of them. */
+		if (!in_define && !is_define_line(line))
+			continue;
+		continued = line_continues(line);
+		if (!line_calls_enqueue(line)) {
+			in_define = continued;
+			continue;
+		}
+		in_define = continued;
+		macro_enqueue_hits++;
+		if (macro_enqueue_where[0] == '\0')
+			snprintf(macro_enqueue_where,
+			         sizeof(macro_enqueue_where), "%s/%s: %s", dir,
+			         file, line);
+	}
+
+	fclose(f);
+}
+
+MU_TEST(nothing_reaches_the_queue_through_a_macro)
+{
+	char msg[512];
+
+	/* Headers too: a macro defined in one is used by every file that
+	 * includes it. */
+	run_scan(1, check_file_for_enqueue_macro);
+
+	snprintf(msg, sizeof(msg),
+	         "%s -- a macro around the queue hides the mode that uses it "
+	         "from the scan above. Make it a function and add it to "
+	         "producers[]", macro_enqueue_where);
+	mu_assert(macro_enqueue_hits == 0, msg);
+}
+
+/*
+ * ...and nothing hands the queue over by name either. The scan reads calls, so
+ * a mode reaching usb_enqueue() through a function pointer would be invisible
+ * to it. Every mention of the queue is a call, a prototype or a definition,
+ * each of which has the name's own '(' right after it; taking the address does
+ * not.
+ *
+ * Only the names that are functions count. "enqueue" in a name is what finds
+ * the wrappers without listing them, and an ordinary variable can carry it
+ * too, so the first pass collects the names seen with a '(' somewhere -- which
+ * a variable never is -- and the guard reports a bare mention of one of those.
+ */
+#define MAX_QUEUE_NAMES 32
+
+static char queue_names[MAX_QUEUE_NAMES][64];
+static int queue_name_count;
+static int queue_names_overflowed;
+
+static int is_queue_name(const char *ident)
+{
+	int i;
+
+	for (i = 0; i < queue_name_count; i++)
+		if (strcmp(queue_names[i], ident) == 0)
+			return 1;
+	return 0;
+}
+
+static void collect_file_queue_names(const char *dir, const char *file)
+{
+	char path[512], line[512], ident[128];
+	int in_block = 0, n, called;
+	FILE *f;
+
+	snprintf(path, sizeof(path), "%s/%s", dir, file);
+	f = fopen(path, "r");
+	if (f == NULL)
+		return;
+
+	while (fgets(line, sizeof(line), f) != NULL) {
+		strip_comments(line, &in_block);
+		strip_string_literals(line);
+		for (n = 0; enqueue_identifier_at(line, n, ident, sizeof(ident),
+		                                  &called); n++) {
+			if (!called || is_queue_name(ident))
+				continue;
+			if (queue_name_count >= MAX_QUEUE_NAMES) {
+				queue_names_overflowed = 1;
+				break;
+			}
+			snprintf(queue_names[queue_name_count],
+			         sizeof(queue_names[0]), "%s", ident);
+			queue_name_count++;
+		}
+	}
+
+	fclose(f);
+}
+
+static int queue_addresses_taken;
+static char queue_address_where[256];
+
+static void check_file_for_queue_address(const char *dir, const char *file)
+{
+	char path[512], line[512], ident[128];
+	int in_block = 0, n, called;
+	FILE *f;
+
+	snprintf(path, sizeof(path), "%s/%s", dir, file);
+	f = fopen(path, "r");
+	if (f == NULL)
+		return;
+
+	while (fgets(line, sizeof(line), f) != NULL) {
+		strip_comments(line, &in_block);
+		strip_string_literals(line);
+		for (n = 0; enqueue_identifier_at(line, n, ident, sizeof(ident),
+		                                  &called); n++) {
+			if (called || !is_queue_name(ident))
+				continue;
+			queue_addresses_taken++;
+			if (queue_address_where[0] == '\0')
+				snprintf(queue_address_where,
+				         sizeof(queue_address_where),
+				         "%s/%s: %s", dir, file, line);
+		}
+	}
+
+	fclose(f);
+}
+
+MU_TEST(nothing_takes_the_queue_by_address)
+{
+	char msg[512];
+
+	run_scan(1, collect_file_queue_names);
+	mu_assert(queue_name_count > 0,
+	          "the scan read the sources and found no queue function to "
+	          "watch for");
+	mu_assert(!queue_names_overflowed,
+	          "more queue functions than this scan can hold");
+
+	run_scan(1, check_file_for_queue_address);
+
+	snprintf(msg, sizeof(msg),
+	         "%s -- the queue is named without being called. Reached through "
+	         "a pointer it is invisible to the scan above, so the mode using "
+	         "it would never be classified", queue_address_where);
+	mu_assert(queue_addresses_taken == 0, msg);
+}
+
+/*
+ * ...and the queue is the only way to the endpoint. A mode that wrote to the
+ * bulk IN endpoint itself would be past both the queue and the table, so the
+ * one file that owns the endpoint is the only one allowed to name the write.
+ */
+static int stray_endpoint_writes;
+static char stray_endpoint_where[256];
+
+static void check_file_for_endpoint_write(const char *dir, const char *file)
+{
+	char path[512], line[512];
+	int in_block = 0;
+	FILE *f;
+
+	/*
+	 * Two files write an endpoint and are not a mode. ubertooth_usb.c owns
+	 * the bulk IN endpoint, which is what every producer above goes
+	 * through. usb_serial.c is the serial console's own endpoints: it is
+	 * compiled into this image but nothing in it starts the console, so no
+	 * mode reaches it.
+	 */
+	if (strcmp(file, "ubertooth_usb.c") == 0 ||
+	    strcmp(file, "usb_serial.c") == 0)
+		return;
+
+	snprintf(path, sizeof(path), "%s/%s", dir, file);
+	f = fopen(path, "r");
+	if (f == NULL)
+		return;
+
+	while (fgets(line, sizeof(line), f) != NULL) {
+		strip_comments(line, &in_block);
+		strip_string_literals(line);
+		/* Any endpoint: the address is often a variable, so asking for
+		 * the bulk one by name would let that through. */
+		if (!calls_identifier(line, "USBHwEPWrite"))
+			continue;
+		stray_endpoint_writes++;
+		if (stray_endpoint_where[0] == '\0')
+			snprintf(stray_endpoint_where,
+			         sizeof(stray_endpoint_where), "%s/%s: %s", dir,
+			         file, line);
+	}
+
+	fclose(f);
+}
+
+MU_TEST(only_the_queue_writes_to_the_bulk_endpoint)
+{
+	char msg[512];
+
+	run_scan(0, check_file_for_endpoint_write);
+
+	snprintf(msg, sizeof(msg),
+	         "%s -- only ubertooth_usb.c hands packets to the bulk IN "
+	         "endpoint. A mode writing to an endpoint directly is past the "
+	         "queue, so nothing above can tell whether its host reads that "
+	         "endpoint", stray_endpoint_where);
+	mu_assert(stray_endpoint_writes == 0, msg);
+}
+
+/* The mode loop a producer names has to be one the transport table classifies,
+ * or naming it proves nothing. */
+MU_TEST(every_producers_mode_loop_is_classified)
+{
+	size_t i, j;
+
+	for (i = 0; i < PRODUCER_COUNT; i++) {
+		char msg[384];
+		int classified = 0;
+
+		if (producers[i].mode_loop == NULL)
+			continue;
+		for (j = 0; j < MODE_COUNT; j++)
+			if (strcmp(modes[j].function,
+			           producers[i].mode_loop) == 0)
+				classified = 1;
+
+		snprintf(msg, sizeof(msg),
+		         "%s: %s() enqueues for %s(), which has no row in modes[], "
+		         "so nothing says whether its host reads the bulk IN "
+		         "endpoint or polls", producers[i].file,
+		         producers[i].function, producers[i].mode_loop);
+		mu_assert(classified, msg);
+	}
+}
+
 int main(void)
 {
 	MU_RUN(a_new_mode_reads_only_its_own_packets);
@@ -752,9 +1733,23 @@ int main(void)
 	scanned_modes = scan_modes();
 	MU_RUN(the_scan_found_every_mode_loop);
 	MU_RUN(a_bulk_read_mode_keeps_the_endpoint_loaded);
+	MU_RUN(the_wrapper_every_bulk_mode_calls_reaches_the_queues_service);
 	MU_RUN(a_polled_mode_does_not_feed_the_endpoint);
 	MU_RUN(a_polled_mode_still_services_control_requests);
 	MU_RUN(nothing_in_the_le_engine_feeds_the_endpoint);
+
+	scan_producers();
+	MU_RUN(the_producer_scan_read_the_sources);
+	MU_RUN(every_packet_producer_is_accounted_for);
+	MU_RUN(every_listed_producer_was_found);
+	MU_RUN(every_helper_is_called_by_a_classified_producer);
+	MU_RUN(every_caller_of_a_helper_is_accounted_for);
+	MU_RUN(nothing_reaches_the_queue_through_a_macro);
+	MU_RUN(nothing_takes_the_queue_by_address);
+	MU_RUN(only_the_queue_writes_to_the_bulk_endpoint);
+	MU_RUN(every_producers_mode_loop_is_classified);
+	MU_RUN(every_scanned_directory_was_read);
+	MU_RUN(every_source_the_image_compiles_is_scanned);
 
 	return mu_report();
 }
