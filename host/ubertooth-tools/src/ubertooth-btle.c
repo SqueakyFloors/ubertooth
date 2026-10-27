@@ -642,10 +642,10 @@ int main(int argc, char *argv[])
 		 * and "could not start faux slave mode" did not say which of
 		 * them the board refused.
 		 *
-		 * No ubertooth_stop() on the way out, unlike the sniffing
-		 * block: only the last of these three starts a mode, so a
-		 * failure leaves the board idle with a channel set, and the
-		 * success path deliberately leaves it advertising. */
+		 * The first two set something up and start nothing, so a
+		 * failure leaves the board idle and it is left alone, as
+		 * ubertooth-scan leaves it: a STOP to a board that is not
+		 * answering would only add a second failure to the report. */
 		if (cmd_set_channel(ut->devh, adv_channel(do_adv_index)) < 0) {
 			report_request_failure("set the advertising channel");
 			return 1;
@@ -655,8 +655,15 @@ int main(int argc, char *argv[])
 			report_request_failure("set the advertising data");
 			return 1;
 		}
+		/* The last one starts advertising, so it is stopped on the way
+		 * out, as the sniffing block stops its mode: the request may
+		 * have reached the board even though the reply did not come
+		 * back, and a board left part-way into a low-energy mode is
+		 * the state it stops answering control requests in. The
+		 * success path deliberately leaves it advertising. */
 		if (cmd_btle_slave(ut->devh, mac_address) < 0) {
 			report_request_failure("start advertising");
+			ubertooth_stop(ut);
 			return 1;
 		}
 	}

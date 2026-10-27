@@ -281,7 +281,9 @@
   watched through, instead of printing a map of the one channel the board was
   left on. With `-r` it now exits 1 when the receive could not be started at
   all, where it exited 0. `ubertooth-btle` names which of the requests that set
-  a mode up the board refused, rather than only the mode.
+  a mode up the board refused, rather than only the mode, and a refused
+  `-s` advertise request stops the board rather than possibly leaving it
+  advertising, which is the state it stops answering in.
   [#379](https://github.com/SqueakyFloors/ubertooth/issues/379)
 - `ubertooth-ego` refuses `-c` combined with `-f`, `-i` or `-j`, where it
   silently had no effect: those modes hop across the E-GO's own channel list.

@@ -782,10 +782,14 @@ MU_TEST(a_mode_the_board_refuses_stops_the_run)
 	mu_assert(strcmp(r.err, "error: could not start promiscuous mode\n") == 0,
 	          r.err);
 
+	/* The request that starts the advertising is stopped on the way out: a
+	 * timeout is not proof the board never got it, and a board left
+	 * part-way into a low-energy mode stops answering. */
 	reset_fake();
 	fake.mode_start_rc = -1;
 	r = RUN("-s22:44:66:88:aa:cc");
 	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, fake.stops);
 	mu_assert(strcmp(r.err, "error: could not start advertising\n") == 0,
 	          r.err);
 	mu_assert(r.out[0] == '\0', r.out);
@@ -813,12 +817,15 @@ MU_TEST(a_mode_the_board_refuses_stops_the_run)
 	          r.err);
 	mu_assert(r.out[0] == '\0', r.out);
 
+	/* Neither of the two that only set something up has started a mode, so
+	 * neither sends a STOP the board may not be able to answer. */
 	reset_fake();
 	fake.channel_rc = -1;
 	r = RUN("-s22:44:66:88:aa:cc");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert_int_eq(0, fake.adv_data_calls);
 	mu_assert_int_eq(0, fake.slave_calls);
+	mu_assert_int_eq(0, fake.stops);
 	mu_assert(strcmp(r.err,
 	                 "error: could not set the advertising channel\n") == 0,
 	          r.err);
@@ -829,6 +836,7 @@ MU_TEST(a_mode_the_board_refuses_stops_the_run)
 	r = RUN("-s22:44:66:88:aa:cc");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert_int_eq(0, fake.slave_calls);
+	mu_assert_int_eq(0, fake.stops);
 	mu_assert(strcmp(r.err,
 	                 "error: could not set the advertising data\n") == 0,
 	          r.err);
