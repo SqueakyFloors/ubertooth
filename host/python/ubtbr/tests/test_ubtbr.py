@@ -804,15 +804,34 @@ def prompts_printed():
     return seen.count(tool_module.BTCtlPrompt.prompt.encode())
 
 
+def what_the_tool_did():
+    """What to report if a wait below runs out.
+
+    Neither wait reaches communicate(), so nothing else would drain standard
+    error, and the prompts alone say almost nothing. Only called from a
+    failing assert, where consuming standard error costs nothing.
+    """
+    os.set_blocking(running.stderr.fileno(), False)
+    try:
+        errors = os.read(running.stderr.fileno(), 1 << 16)
+    except BlockingIOError:
+        errors = b""
+    finally:
+        os.set_blocking(running.stderr.fileno(), True)
+    return ("stdout: %r, stderr: %r, exit: %s"
+            % (bytes(seen), errors, running.poll()))
+
+
 os.set_blocking(running.stdout.fileno(), False)
-assert wait_until(lambda: prompts_printed() >= 2), seen
+assert wait_until(lambda: prompts_printed() >= 2), what_the_tool_did()
 running.send_signal(signal.SIGINT)
-assert wait_until(lambda: prompts_printed() >= 3), seen
+assert wait_until(lambda: prompts_printed() >= 3), what_the_tool_did()
 os.set_blocking(running.stdout.fileno(), True)
 output, errors = running.communicate("inquiry\nq\n", timeout=DEADLINE * 2)
 # whatever was read above to see the prompts, so a failure below still shows
-# everything the tool printed
-output = seen.decode() + output
+# everything the tool printed. Decoded leniently because these are raw pipe
+# bytes, and a failure must not turn into a decode error.
+output = seen.decode(errors="replace") + output
 assert running.returncode == 0, (running.returncode, output, errors)
 assert "Traceback" not in errors, errors
 assert "Exception in thread" not in errors, errors
