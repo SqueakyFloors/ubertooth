@@ -22,6 +22,8 @@
 #include "ubertooth-ducky.c"
 #undef main
 
+#include "run_main.h"
+
 /* ---- scripted device ---------------------------------------------------- */
 
 static struct {
@@ -159,65 +161,10 @@ unsigned int sleep(unsigned int seconds)
 
 /* ---- running the tool --------------------------------------------------- */
 
-struct run_result {
-	int rc;
-	char out[4096];
-	/* The duck, the "Quacking ..." line and any error line land here. */
-	char err[4096];
-};
-
-static void read_back(FILE *file, char *buffer, size_t size)
-{
-	size_t length;
-
-	fflush(file);
-	rewind(file);
-	length = fread(buffer, 1, size - 1, file);
-	buffer[length] = '\0';
-	/* A capture that did not fit must fail loudly instead of comparing a
-	 * prefix. */
-	mu_assert(fgetc(file) == EOF, "captured output was truncated");
-}
-
 static struct run_result run_ducky(const char *const *args)
 {
-	struct run_result result;
-	char *argv[16];
-	int argc = 0;
-	int saved_out, saved_err;
-	FILE *out = tmpfile();
-	FILE *err = tmpfile();
+	struct run_result result = run_tool_main(ubertooth_ducky_main, args);
 
-	memset(&result, 0, sizeof(result));
-	result.rc = -1; /* a failed capture must not look like a successful run */
-	mu_assert(out != NULL && err != NULL, "tmpfile failed");
-	if (out == NULL || err == NULL)
-		return result;
-	while (args[argc] != NULL && argc < 15) {
-		argv[argc] = (char *)args[argc];
-		argc++;
-	}
-	argv[argc] = NULL;
-
-	fflush(stdout);
-	fflush(stderr);
-	saved_out = dup(STDOUT_FILENO);
-	saved_err = dup(STDERR_FILENO);
-	dup2(fileno(out), STDOUT_FILENO);
-	dup2(fileno(err), STDERR_FILENO);
-	optind = 0; /* restart option parsing for each run */
-	result.rc = ubertooth_ducky_main(argc, argv);
-	fflush(stdout);
-	fflush(stderr);
-	dup2(saved_out, STDOUT_FILENO);
-	dup2(saved_err, STDERR_FILENO);
-	close(saved_out);
-	close(saved_err);
-
-	read_back(out, result.out, sizeof(result.out));
-	read_back(err, result.err, sizeof(result.err));
-	fclose(out);
-	fclose(err);
 	/* Checked for every case in this file, not just the cases below that
 	 * name an exit path: a run must give back whatever it was handed, and
 	 * nothing else. The tool used to keep it on every path. */
