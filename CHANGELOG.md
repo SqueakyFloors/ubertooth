@@ -336,17 +336,18 @@
   from it in its PCAP output, and `ubertooth-specan -d` wrote samples read out
   of it. Replaying a capture file recorded before this skips such records.
   [#435](https://github.com/SqueakyFloors/ubertooth/issues/435)
-- The two-board range test exchanges packets at last: `ubertooth-util -n`
-  against a `-e` repeater gets a reply within a couple of seconds where it
-  previously never got one, in either direction. Neither mode held the radio's receive
-  gain amplifier out of reset, so both receivers reported a strong signal and
-  never a sync word; the repeater answered before the sender had finished
-  transmitting, because its delay was a loop the compiler deleted; and it
-  decoded requests only while the radio still held its reset value.
-  **The reply still reads back corrupted**, so `-m` reports
-  `error: invalid range test: mismatch on byte <n>` rather than power levels.
-  That is the expected outcome today.
+- The two-board range test measures something at last: `ubertooth-util -n`
+  against a `-e` repeater reports the power levels within a couple of seconds,
+  in either direction, where it used to report nothing at all. Neither mode
+  held the radio's receive gain amplifier in reset, so both receivers reported
+  a strong signal and never a sync word; the repeater answered before the
+  sender had finished transmitting, because its delay was a loop the compiler
+  deleted; it decoded requests only while the radio still held its reset
+  value; and neither mode reached the radio's packet buffer in a way the radio
+  accepts, so the packets carried no payload and the replies read back as
+  zeros.
   [#26](https://github.com/SqueakyFloors/ubertooth/issues/26)
+  [#483](https://github.com/SqueakyFloors/ubertooth/issues/483)
 - An interrupt handler can no longer cut into a CC2400 register transfer and
   corrupt the register being read or written, or cost the radio a strobe and
   leave the board quiet. The longer FIFO transfers are still unguarded.
@@ -889,6 +890,12 @@ Fixes with no visible change in normal use.
   longer waits on a thread that was never created.
   [#431](https://github.com/SqueakyFloors/ubertooth/issues/431)
   [#564](https://github.com/SqueakyFloors/ubertooth/issues/564)
+- Every packet the firmware writes into the radio's 32-byte packet buffer used
+  to carry one stray byte on the end, from eight clock pulses sent after the
+  data. The modes that transmit with the radio's checksum turned off are
+  unaffected, because a receiver ignores the tail; the range test, which has it
+  on, could not work at all.
+  [#483](https://github.com/SqueakyFloors/ubertooth/issues/483)
 - A revision string too long for the one-byte length the firmware reports it
   with is cut to 255 characters, rather than counted modulo 256. The revisions
   this tree builds are twelve characters, so nothing reached that.

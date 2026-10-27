@@ -472,20 +472,25 @@ by running:
 
     ubertooth-util -m
 
+With a repeater in range the exchange completes within a couple of seconds,
+and `-m` prints the lowest power level that got through in each direction
+together with which of the sixteen packets at that level it was:
+
+    request PA level : 0
+    request number   : 3
+    reply PA level   : 0
+    reply number     : 0
+
+Both boards must be running the same firmware revision.
+
 Before a range test has completed since the board started, `-m` prints
 `no range test result yet` on standard output and exits 0: there is no result
 yet, which is not a failure. A test that ran but whose packets came back
 corrupted has no result to report either, so it is a diagnostic rather than a
 value: `error: invalid range test: mismatch on byte <n>` on standard error,
-with exit status 1 and nothing on standard output.
-
-**The range test does not yet produce a usable measurement.** With a repeater
-running, the exchange completes within a couple of seconds, and the reply
-arrives with a valid checksum and reads back corrupted, so `-m` reports
-`error: invalid range test: mismatch on byte <n>` rather than power levels.
-That is the expected outcome today, on any pair of boards; which byte it names
-depends on the sender's serial number. Tracked as
-[issue 26](https://github.com/SqueakyFloors/ubertooth/issues/26).
+with exit status 1 and nothing on standard output. That means a reply arrived
+whose payload is not the one that was sent, so the levels it carries cannot be
+trusted.
 
 Note that the range test transmits the Cortex M3 microcontroller's
 serial number. If you do not wish to broadcast that information

@@ -425,6 +425,12 @@ void cc2400_set8(u8 reg, u8 val)
 	cc2400_spi(16, out);
 }
 
+/*
+ * The hold the CC2400 needs at the end of a FIFO transfer, before CSN rises.
+ * The datasheet calls it t_ps and asks for 300 nanoseconds, FIFO accesses
+ * only; this is about 0.85 microseconds. delay_counter is volatile so that
+ * the loop survives the optimizer.
+ */
 static volatile u32 delay_counter;
 static void spi_delay() {
        delay_counter = 10;
@@ -488,11 +494,22 @@ void cc2400_fifo_write(u8 len, u8 *data) {
 		}
 	}
 
-	// this is necessary to clock in the last byte
-	for (i = 0; i < 8; ++i) {
-		SCLK_SET;
-		SCLK_CLR;
-	}
+	/*
+	 * What used to be here was another eight clock pulses, with a comment
+	 * saying they were necessary to clock in the last byte. They are not:
+	 * the radio takes each byte as its eighth bit is clocked, and what it
+	 * then needs is the hold below, not more clocks. The extra pulses
+	 * clocked a whole extra byte into the FIFO -- whatever MOSI happened to
+	 * be left holding -- so every packet written through here carried one
+	 * stray byte on the end.
+	 *
+	 * In the modes that transmit with the radio's CRC off that byte is a
+	 * harmless tail the receiver ignores, which is why it went unnoticed.
+	 * With the CRC on, as the range test has it, the radio computes the CRC
+	 * over the stray byte too, so the receiver -- which reads the number of
+	 * bytes it expects and then asks the radio whether the next two make
+	 * the CRC -- never sees a match, and the whole exchange fails.
+	 */
 	
 	spi_delay();
 	/* end transaction by raising CSN */

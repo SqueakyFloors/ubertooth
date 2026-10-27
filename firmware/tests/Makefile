@@ -352,9 +352,9 @@ $(BINDIR)/test_fw_info: test_fw_info.c minunit.h source_scan.h \
 # of the repeater's turnaround delay, the way test_mode_dispatch.c scans the
 # dispatch. It links nothing from the firmware.
 $(BINDIR)/test_rangetest_radio: test_rangetest_radio.c minunit.h source_scan.h \
-		$(FW_RXTX)/cc2400_rangetest.c | $(BINDIR)
+		$(FW_RXTX)/cc2400_rangetest.c $(FW_COMMON)/ubertooth.c | $(BINDIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
-		-o $@ test_rangetest_radio.c
+		-DFW_COMMON_DIR='"$(FW_COMMON)"' -o $@ test_rangetest_radio.c
 
 # A control transfer is only answered after its handler has returned, which is
 # why a reset has to be deferred and waited for. The real control transfer

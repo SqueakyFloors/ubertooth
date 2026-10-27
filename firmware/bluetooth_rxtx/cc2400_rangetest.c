@@ -90,6 +90,36 @@ rangetest_result rr;
  * to fix. So this takes the generous end: a second, thirty times the air time.
  * A reply in a second is still immediate to anyone watching.
  */
+/*
+ * Why these two modes reach the radio's FIFO through cc2400_fifo_write() and
+ * cc2400_fifo_read(), like every other mode, and not a byte at a time.
+ *
+ * They used to write and read the FIFO with cc2400_set8(FIFOREG, b) and
+ * cc2400_get8(FIFOREG) in a loop. Each of those is a separate SPI transfer:
+ * CSN drops, the FIFO's address goes out, one byte of data follows, CSN rises
+ * again. Neither direction works that way, and both failures were measured on
+ * a pair of boards.
+ *
+ * The write put nothing in the FIFO at all. The radio needs the address once
+ * and then the data bytes while CSN stays low, and it needs CSN held low for
+ * a moment after the last clock (the datasheet's t_ps). A per-byte transfer
+ * gives it neither, so the FIFO stayed empty and each packet went out as
+ * preamble, sync word and CRC with no data in between.
+ *
+ * The read came back as 22 zeros -- not the data, and not even the FIFO's
+ * real contents: a read at the speed cc2400_spi() clocks at returns wrong
+ * bytes whatever the framing, and only the slower clock cc2400_fifo_read()
+ * uses gets them right.
+ *
+ * The two faults hid each other, and hid behind the CRC. The radio's CRC_OK
+ * flag does not mean "a good packet arrived": the datasheet defines it as
+ * "the next two bytes in the FIFO equal the CRC16 over the bytes already read
+ * from the FIFO". Reading 22 zeros out of an empty FIFO gives a CRC of zero,
+ * and the next two bytes read as zero too, so the flag came up set. Both
+ * boards therefore believed they had a valid packet, exchanged one, and the
+ * sender compared 22 zeros against its own 22 bytes.
+ */
+
 #define REPEATER_TURNAROUND_MS 1000
 #define REPEATER_TURNAROUND_TICKS (3200u * REPEATER_TURNAROUND_MS / 1000u)
 
@@ -139,7 +169,6 @@ void cc2400_rangetest(volatile u16 *chan_ptr)
 	u32 command[5];
 	u32 result[5];
 	int i;
-	int j;
 	u8 len = 22;
 	u8 pa = 0;
 	u8 txbuf[len];
@@ -215,8 +244,7 @@ void cc2400_rangetest(volatile u16 *chan_ptr)
 			txbuf[19] = i;
 			cc2400_wait_fsm(STATE_STROBE_FS_ON, service_usb);
 			// transmit a packet
-			for (j = 0; j < len; j++)
-				cc2400_set8(FIFOREG, txbuf[j]);
+			cc2400_fifo_write(len, txbuf);
 			cc2400_strobe(STX);
 		}
 	}
@@ -254,8 +282,7 @@ void cc2400_rangetest(volatile u16 *chan_ptr)
 		if (requested_mode != MODE_RANGE_TEST)
 			break;
 		USRLED_SET;
-		for (j = 0; j < len; j++)
-			rxbuf[j] = cc2400_get8(FIFOREG);
+		cc2400_fifo_read(len, rxbuf);
 		if (cc2400_status() & STATUS_CRC_OK)
 			got_reply = 1;
 		else
@@ -300,7 +327,6 @@ void cc2400_rangetest(volatile u16 *chan_ptr)
 void cc2400_repeater(volatile u16 *chan_ptr)
 {
 	int i;
-	int j;
 	u8 len = 22;
 	u8 pa = 0;
 	u8 buf[len];
@@ -365,8 +391,7 @@ void cc2400_repeater(volatile u16 *chan_ptr)
 			if (requested_mode != MODE_REPEATER)
 				break;
 			USRLED_SET;
-			for (i = 0; i < len; i++)
-				buf[i] = cc2400_get8(FIFOREG);
+			cc2400_fifo_read(len, buf);
 			if (cc2400_status() & STATUS_CRC_OK)
 				got_request = 1;
 		}
@@ -403,8 +428,7 @@ void cc2400_repeater(volatile u16 *chan_ptr)
 			for (i = 0; i < 16 && requested_mode == MODE_REPEATER; i++) {
 				buf[21] = i;
 				cc2400_wait_fsm(STATE_STROBE_FS_ON, service_usb);
-				for (j = 0; j < len; j++)
-					cc2400_set8(FIFOREG, buf[j]);
+				cc2400_fifo_write(len, buf);
 				cc2400_strobe(STX);
 			}
 		}
