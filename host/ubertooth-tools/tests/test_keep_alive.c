@@ -572,9 +572,8 @@ MU_TEST(a_truncated_transfer_is_reported_once)
 }
 
 /* What makes a short transfer the keep-alive is the byte it carries, not its
- * length: one byte that is not the keep-alive type is a fault and is
- * reported. The btbr firmware writes bulk records of its own lengths, so a
- * length test alone would be wrong for it. */
+ * length: one byte that is not the keep-alive type is a transfer cut short
+ * after one byte, which is a fault, and is reported. */
 MU_TEST(a_one_byte_transfer_that_is_not_a_keep_alive_is_reported)
 {
 	ubertooth_t* ut;

@@ -184,7 +184,8 @@ reports it once per run, because such a fault usually repeats: `warning: a
 receive transfer arrived with 32 of a packet's 64 bytes and was dropped; the
 capture is losing packets`. The one short transfer a board sends on purpose is
 the keep-alive a quiet capture gets, a single byte, and that one is not
-reported.
+reported. The capture runs on and ends as it otherwise would, so the warning
+is the only sign: it says packets were lost, it does not fail the run.
 
 libubertooth follows the split already: it returns what it reads to the tool
 that called it and reports its own problems on standard error, so a library

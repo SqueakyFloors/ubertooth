@@ -655,10 +655,9 @@ static void rx_xfer_release(ubertooth_t* ut, struct libusb_transfer* xfer)
  * part of a packet is not something a consumer can read, so it is dropped.
  *
  * The one short transfer a board sends on purpose is the keep-alive a quiet
- * capture gets, a single byte holding the packet type KEEP_ALIVE. That is why
- * the test here is "not the keep-alive" rather than "shorter than a packet":
- * the btbr firmware writes bulk records of its own lengths, so a length test
- * alone would call those a fault if that image ever shared this path.
+ * capture gets: a single byte holding the packet type KEEP_ALIVE. It is let
+ * through on that byte and not on its length alone, because a transfer cut
+ * short after one byte is just as possible, and that one is a fault.
  *
  * A transfer that brought no bytes at all is the ordinary quiet-board case, a
  * bulk read that found nothing, and says nothing.
