@@ -68,6 +68,10 @@ import time
 SCRIPT = sys.argv[1]
 # The built ubertooth-util, when the caller has one to offer.
 REAL_UTIL = sys.argv[2] if len(sys.argv) > 2 else None
+# ubertooth-util's man page, which is where the shape of the device listing
+# this script parses is written down. Required: a check that can vanish when
+# the file is not where it was looked for is no check.
+MAN_PAGE = sys.argv[3]
 # The channels ubertooth-btle will tune to, which is what the script offers
 # in its configuration and the only thing it accepts for --channel.
 ADVERTISING_CHANNELS = ("37", "38", "39")
@@ -100,8 +104,6 @@ LISTING = LISTING_ONE + "Serial No (1): %s\n"
 # are run through the script further down, so a change to the listing that
 # leaves this script's parser behind fails here instead of silently costing
 # Wireshark its capture interface.
-MAN_PAGE = os.path.join(os.path.dirname(os.path.abspath(SCRIPT)),
-                        os.pardir, os.pardir, "doc", "ubertooth-util.md")
 DOCUMENTED_LINE = re.compile(r'^ +(Serial No \(\d+\): [0-9a-f]{32})$', re.M)
 
 # A fake ubertooth-util: prints the lines the test asks for and records the
@@ -374,17 +376,16 @@ result = run(("--extcap-interfaces",),
 assert interfaces(result) == [], result
 
 # the listing lines ubertooth-util's own man page shows, parsed by this script
-if os.path.exists(MAN_PAGE):
-    with open(MAN_PAGE) as page:
-        documented = DOCUMENTED_LINE.findall(page.read())
-    assert documented, \
-        "%s no longer shows a listing line; it is where the shape this " \
-        "script parses is written down" % MAN_PAGE
-    result = run(("--extcap-interfaces",),
-                 listing="".join(line + "\n" for line in documented))
-    assert len(interfaces(result)) == len(documented), (documented, result)
-    print("btle-extcap: the %d listing lines the man page shows are parsed"
-          % len(documented))
+with open(MAN_PAGE) as page:
+    documented = DOCUMENTED_LINE.findall(page.read())
+assert documented, \
+    "%s no longer shows a listing line; it is where the shape this script " \
+    "parses is written down" % MAN_PAGE
+for line in sorted(set(documented)):
+    result = run(("--extcap-interfaces",), listing=line + "\n")
+    assert len(interfaces(result)) == 1, (line, result)
+print("btle-extcap: the %d listing lines the man page shows are parsed"
+      % len(set(documented)))
 
 print("btle-extcap: the interface listing reports each board's serial")
 

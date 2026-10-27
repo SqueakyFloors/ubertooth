@@ -420,10 +420,13 @@ line per query asked for and libubertooth's own `error: ` line on standard
 error. A failed read is shown as `read failed`
 (`Firmware version (0): read failed`), and a query that reports an error as
 that error without its `error: ` prefix (`Board ID Number (0): unknown board
-ID 7`). The other devices are still reported, and the command exits non-zero
-if any device failed. A firmware version whose API version cannot be read is
-shown without it and also makes the command fail. Listing does not stop a mode
-a device is running. Any other option in the same command still needs `-U`.
+ID 7`). `-V`, having no label to name it, says which read failed in the line
+instead (`1: compile info read failed`, `1: unavailable, in use by another
+program`). The other devices are still reported, and the command exits
+non-zero if any device failed. A firmware version whose API version cannot be
+read is shown without it and also makes the command fail. Listing does not
+stop a mode a device is running. Any other option in the same command still
+needs `-U`.
 
 `-U all` asks for the same listing explicitly. It works with any number of
 attached devices, including one, and fails with `error: no Ubertooth devices

@@ -1065,8 +1065,6 @@ MU_TEST(a_failed_open_says_why_in_a_phrase_a_report_can_use)
 	                 "more than one board is attached and none was selected") == 0,
 	          ubertooth_open_failure_reason());
 
-
-
 	/* An index with no board behind it. */
 	bus_with_ubertooths(1);
 	mu_assert(select_capturing("1", msg, sizeof(msg)) == NULL, "index past end");

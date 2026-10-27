@@ -271,11 +271,6 @@ static int pick_ubertooth_device(int ubertooth_device, int ut_ct)
 	return (ubertooth_device < ut_ct) ? ubertooth_device : -1;
 }
 
-/* Opens the Ubertooth at enumeration index ubertooth_device, or the only one
- * when ubertooth_device is negative. When quiet, nothing is printed and no
- * command is sent: an index that is not present, or several devices with no
- * index, simply return NULL (without listing serials, which would mean sending
- * a command to every device). */
 /*
  * Why the last open failed, for ubertooth_open_failure_reason(). One phrase
  * per failure the open paths below can report, set as each is taken and
@@ -289,8 +284,6 @@ static void note_open_failure(const char* reason)
 	open_failure_reason = reason;
 }
 
-
-
 /* Documented with the declaration in ubertooth.h. */
 const char* ubertooth_open_failure_reason(void)
 {
@@ -298,6 +291,11 @@ const char* ubertooth_open_failure_reason(void)
 	                                   : "it could not be opened";
 }
 
+/* Opens the Ubertooth at enumeration index ubertooth_device, or the only one
+ * when ubertooth_device is negative. When quiet, nothing is printed and no
+ * command is sent: an index that is not present, or several devices with no
+ * index, simply return NULL (without listing serials, which would mean sending
+ * a command to every device). */
 static struct libusb_device_handle* find_ubertooth_device_opt(int ubertooth_device,
                                                               int quiet)
 {
@@ -1726,8 +1724,12 @@ int ubertooth_connect(ubertooth_t* ut, int ubertooth_device)
 ubertooth_t* ubertooth_start(int ubertooth_device)
 {
 	ubertooth_t* ut = ubertooth_init();
-	if (ut == NULL)
+	/* Before ubertooth_connect() has run, so this path sets the reason
+	 * itself rather than leaving the one an earlier open did. */
+	if (ut == NULL) {
+		note_open_failure("the host ran out of memory");
 		return NULL;
+	}
 
 	int r = ubertooth_connect(ut, ubertooth_device);
 	if (r < 0) {
@@ -1781,8 +1783,11 @@ int ubertooth_connect_serial(ubertooth_t* ut, char* serial_number)
 ubertooth_t* ubertooth_start_serial(char* serial_number)
 {
 	ubertooth_t* ut = ubertooth_init();
-	if (ut == NULL)
+	/* as in ubertooth_start(): before the reason is cleared */
+	if (ut == NULL) {
+		note_open_failure("the host ran out of memory");
 		return NULL;
+	}
 
 	int r = ubertooth_connect_serial(ut, serial_number);
 	if (r < 0) {
@@ -1859,6 +1864,7 @@ ubertooth_t* ubertooth_start_select(const char* u_arg)
 		ut = ubertooth_start(index);
 		break;
 	case SELECTOR_NO_INDEX:
+		note_open_failure("no board can have that index");
 		report_no_index(u_arg);
 		return NULL;
 	case SELECTOR_SERIAL:
@@ -1946,6 +1952,7 @@ int ubertooth_connect_select(ubertooth_t* ut, const char* u_arg)
 		ut->selector = u_arg;
 		return ubertooth_connect(ut, index);
 	case SELECTOR_NO_INDEX:
+		note_open_failure("no board can have that index");
 		report_no_index(u_arg);
 		return -1;
 	case SELECTOR_SERIAL:
