@@ -509,11 +509,9 @@ endif()
 
 add_test(NAME dfu-main COMMAND test-dfu-main)
 # The unbounded bootloader state loop this test covers would hang here; fail
-# it instead. A normal run takes about 2.6 seconds locally and 4 on the
-# slowest CI runner: the transfers are faked, but the case where the board
-# comes back on its old firmware waits out cleanup's real hunt for the DFU
-# device.
-set_tests_properties(dfu-main PROPERTIES TIMEOUT 10)
+# it instead. The transfers are faked and so are the waits between polls, so
+# a normal run is well under a second.
+set_tests_properties(dfu-main PROPERTIES TIMEOUT 5)
 
 # Runs the real libubertooth part-ID commands against a fake libusb control
 # transfer (defined in the test, so it wins over libusb's). libbtbb is faked;

@@ -13,15 +13,31 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <libusb.h>
 
 #include "../../../firmware/tests/minunit.h"
 
+/* The waits between polls are what the tool does while a real device changes
+ * identity on the bus. The faked device changes the moment it is told to, so
+ * every one of those waits is dead time here, and the cases that poll a
+ * device out would spend seconds of it. Stand in for the one call they all
+ * come down to; nothing in these tests depends on wall-clock time passing. */
+static int test_nanosleep(const struct timespec *requested,
+                          struct timespec *remaining)
+{
+	(void)requested;
+	(void)remaining;
+	return 0;
+}
+#define nanosleep test_nanosleep
+
 #define main ubertooth_dfu_main
 #include "ubertooth-dfu.c"
 #undef main
+#undef nanosleep
 
 /* The flash region -u reads back. Its length follows the part: these runs
  * reach the bootloader without an application to ask, so they get the size
@@ -68,6 +84,7 @@ static struct {
 	int detach_calls;
 	int detach_rc;
 	int detach_resets;      /* the bootloader acts on REQ_DETACH and resets */
+	int detach_drops_off_bus; /* ...and the board then leaves USB entirely */
 	char revision[64];      /* what the returned application reports, if any */
 	int revision_calls;
 	int abort_calls, clrstatus_calls, getstatus_calls;
@@ -291,6 +308,11 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle *devh,
 		if (fake.detach_resets) {
 			fake.vid = U1_VENDORID;
 			fake.pid = U1_PRODUCTID;
+			/* A board that does not re-enumerate is simply not on the bus
+			 * any more: the DFU device has gone, which is what the detach
+			 * check asks, and no application arrives in its place. */
+			if (fake.detach_drops_off_bus)
+				fake.present = 0;
 		}
 		return fake.detach_rc;
 	default:
@@ -1048,8 +1070,67 @@ MU_TEST(a_detach_race_followed_by_the_old_firmware_fails_the_command)
 	snprintf(fake.revision, sizeof(fake.revision), "git-0000000");
 	r = RUN("-d", image_path, "-r");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strstr(r.err, "error: post-reset verification failed") != NULL,
+	mu_assert(strstr(r.err, "error: the board came back running git-0000000, "
+	                 "not " IMAGE_REVISION ": the firmware was not written, "
+	                 "so flash it again\n") != NULL,
 	          "the unchanged revision was not reported");
+	mu_assert_int_eq(1, fake.revision_calls);
+}
+
+/* ---- which of the post-reset outcomes it was ---------------------------- */
+
+/* The board took the whole image and then left the bus, so its flash holds
+ * the new firmware and nothing came back to say so. The line has to tell that
+ * apart from a write that did not take: flashing again is what this board
+ * does not need. */
+MU_TEST(a_board_that_does_not_come_back_says_the_firmware_was_written)
+{
+	struct run_result r;
+
+	board_in_dfu();
+	fake.detach_drops_off_bus = 1;
+	r = RUN("-d", image_path, "-r");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "Detached\n") != NULL,
+	          "the board was not reported as having left the bootloader");
+	mu_assert(strstr(r.err, "error: the firmware was written, but the board "
+	                 "did not come back on USB: power-cycle it and read its "
+	                 "revision with ubertooth-util -v before flashing it "
+	                 "again\n") != NULL,
+	          "the board that stayed away was reported as a failed write");
+	/* The raw codes are still there for anyone debugging the tool, in the
+	 * stage trace rather than in the line the user reads. */
+	mu_assert(strstr(r.err, "post-reset application verification failed: "
+	                 "result=-2 polls=20 expected=" IMAGE_REVISION
+	                 " actual= usb_error=") != NULL,
+	          "the stage trace lost the verification's own result");
+	mu_assert_int_eq(1, error_lines(r.err));
+	mu_assert_int_eq(0, (int)strlen(r.out));
+	/* Nothing answered, so the revision was never asked for. */
+	mu_assert_int_eq(0, fake.revision_calls);
+}
+
+/* The board came back and would not say what it runs, which is not the same
+ * as a board running the wrong firmware: the flash is unchecked, not known to
+ * have failed. */
+MU_TEST(a_board_that_will_not_report_its_revision_says_the_flash_is_unchecked)
+{
+	struct run_result r;
+
+	board_in_dfu();
+	/* An empty revision is a board whose firmware will not answer. */
+	fake.revision[0] = '\0';
+	r = RUN("-d", image_path, "-r");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: the board came back but would not report "
+	                 "its firmware revision, so the flash was not checked: "
+	                 "read it with ubertooth-util -v\n") != NULL,
+	          "the board that would not answer was not reported as such");
+	mu_assert(strstr(r.err, "post-reset application verification failed: "
+	                 "result=-4 polls=1") != NULL,
+	          "the stage trace lost the verification's own result");
+	mu_assert_int_eq(1, error_lines(r.err));
+	mu_assert_int_eq(0, (int)strlen(r.out));
 	mu_assert_int_eq(1, fake.revision_calls);
 }
 
@@ -1639,6 +1720,8 @@ int main(void)
 	MU_RUN(a_detach_that_is_accepted_and_ignored_fails_before_verification);
 	MU_RUN(an_accepted_detach_with_no_usb_path_says_it_could_not_tell);
 	MU_RUN(a_detach_race_followed_by_the_old_firmware_fails_the_command);
+	MU_RUN(a_board_that_does_not_come_back_says_the_firmware_was_written);
+	MU_RUN(a_board_that_will_not_report_its_revision_says_the_flash_is_unchecked);
 	MU_RUN(asking_past_the_end_of_flash_takes_the_bootloader_down);
 	MU_RUN(a_board_already_in_dfu_reads_the_assumed_flash_only);
 	MU_RUN(a_128_kib_part_is_read_to_the_end_of_its_flash);

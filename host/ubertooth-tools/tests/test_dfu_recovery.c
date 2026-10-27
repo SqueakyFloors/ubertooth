@@ -286,6 +286,153 @@ MU_TEST(test_verify_rejects_wrong_revision)
 	mu_assert_int_eq(1, fake.app_close_calls);
 }
 
+/* ---- the line each outcome is described by ------------------------------ */
+
+/* The one that matters most: the write completed and the board stayed off the
+ * bus, so its flash already holds the new firmware. The line has to say so,
+ * because a line that only says the verification failed sends the reader back
+ * to flash a board that does not need it. */
+MU_TEST(test_a_board_that_never_came_back_is_told_apart_from_a_failed_write)
+{
+	struct fake_recovery fake = make_fake();
+	struct dfu_verify_config config = {2, 10};
+	struct dfu_verify_report report;
+	char message[256];
+	int opens[] = {-4, -4};
+	memcpy(fake.app_open_results, opens, sizeof(opens));
+	fake.app_open_count = ARRAY_LEN(opens);
+
+	mu_assert_int_eq(DFU_VERIFY_APP_TIMEOUT,
+	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
+	                                        &fake.identity, "git-expected",
+	                                        &config, &report));
+	dfu_verify_describe_failure(&report, "git-expected", message,
+	                            sizeof(message));
+	mu_assert(strstr(message, "the firmware was written") != NULL,
+	          "the line does not say the image reached the board");
+	mu_assert(strstr(message, "did not come back on USB") != NULL,
+	          "the line does not say the board stayed off the bus");
+	mu_assert(strstr(message, "ubertooth-util -v") != NULL,
+	          "the line does not say how to read the board's revision");
+	mu_assert(strstr(message, "not written") == NULL,
+	          "the line claims the write did not take");
+	mu_assert(strchr(message, '\n') == NULL, "the line is more than one line");
+}
+
+/* A board running something else did not take the write, and this is the one
+ * outcome that asks for another flash. */
+MU_TEST(test_a_board_running_another_revision_is_described_as_a_failed_write)
+{
+	struct fake_recovery fake = make_fake();
+	struct dfu_verify_config config = {1, 10};
+	struct dfu_verify_report report;
+	char message[256];
+	fake.app_revision = "git-old";
+
+	mu_assert_int_eq(DFU_VERIFY_REVISION_MISMATCH,
+	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
+	                                        &fake.identity, "git-expected",
+	                                        &config, &report));
+	dfu_verify_describe_failure(&report, "git-expected", message,
+	                            sizeof(message));
+	mu_assert(strstr(message, "running git-old, not git-expected") != NULL,
+	          "the line does not name both revisions");
+	mu_assert(strstr(message, "the firmware was not written") != NULL,
+	          "the line does not say the write did not take");
+	mu_assert(strstr(message, "flash it again") != NULL,
+	          "the line does not say to flash the board again");
+}
+
+/* A board that came back but would not answer is not a board running the
+ * wrong firmware: nothing is known about what it runs. */
+MU_TEST(test_a_board_that_will_not_report_its_revision_is_not_a_mismatch)
+{
+	struct fake_recovery fake = make_fake();
+	struct dfu_verify_config config = {1, 10};
+	struct dfu_verify_report report;
+	char message[256];
+	fake.revision_result = -7;
+
+	mu_assert_int_eq(DFU_VERIFY_REVISION_FAILED,
+	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
+	                                        &fake.identity, "git-expected",
+	                                        &config, &report));
+	dfu_verify_describe_failure(&report, "git-expected", message,
+	                            sizeof(message));
+	mu_assert(strstr(message, "would not report its firmware revision")
+	          != NULL, "the line does not say what the board withheld");
+	mu_assert(strstr(message, "the flash was not checked") != NULL,
+	          "the line does not say the flash is unverified");
+	mu_assert(strstr(message, "not written") == NULL,
+	          "the line claims the write did not take");
+}
+
+/* A device that answered on another path says nothing about the board that
+ * was flashed. */
+MU_TEST(test_a_device_on_another_path_is_described_as_unchecked)
+{
+	struct fake_recovery fake = make_fake();
+	struct dfu_verify_config config = {1, 10};
+	struct dfu_verify_report report;
+	char message[256];
+	fake.app_identity.port_numbers[0] = 6;
+
+	mu_assert_int_eq(DFU_VERIFY_IDENTITY_MISMATCH,
+	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
+	                                        &fake.identity, "git-expected",
+	                                        &config, &report));
+	dfu_verify_describe_failure(&report, "git-expected", message,
+	                            sizeof(message));
+	mu_assert(strstr(message, "not on the flashed board's USB path") != NULL,
+	          "the line does not say which device answered");
+	mu_assert(strstr(message, "the flash was not checked") != NULL,
+	          "the line does not say the flash is unverified");
+}
+
+/* Nothing a caller can pass leaves the message unwritten or overruns it. */
+MU_TEST(test_describing_a_verification_survives_what_a_caller_passes)
+{
+	struct dfu_verify_report report;
+	char message[256];
+	char small[8];
+
+	memset(&report, 0, sizeof(report));
+	snprintf(report.actual_revision, sizeof(report.actual_revision),
+	         "git-expected");
+	dfu_verify_describe_failure(&report, "git-expected", message,
+	                            sizeof(message));
+	mu_assert(strstr(message, "came back running git-expected") != NULL,
+	          "a passed verification is not described");
+
+	report.result = DFU_VERIFY_REVISION_MISMATCH;
+	dfu_verify_describe_failure(&report, NULL, message, sizeof(message));
+	mu_assert(strstr(message, "running git-expected, not ") != NULL,
+	          "a missing expected revision was not left blank");
+
+	report.result = DFU_VERIFY_INVALID_ARGUMENT;
+	dfu_verify_describe_failure(&report, "git-expected", message,
+	                            sizeof(message));
+	mu_assert(strcmp(message,
+	                 "the flash could not be checked after the reset") == 0,
+	          "a verification that did not run is not described");
+
+	dfu_verify_describe_failure(NULL, "git-expected", message,
+	                            sizeof(message));
+	mu_assert(strcmp(message,
+	                 "the flash could not be checked after the reset") == 0,
+	          "a missing report is not described");
+
+	/* A buffer too small truncates rather than overruns, and a zero-length
+	 * one is left alone. */
+	report.result = DFU_VERIFY_APP_TIMEOUT;
+	memset(small, 'x', sizeof(small));
+	dfu_verify_describe_failure(&report, "git-expected", small,
+	                            sizeof(small));
+	mu_assert_int_eq((int)sizeof(small) - 1, (int)strlen(small));
+	dfu_verify_describe_failure(&report, "git-expected", small, 0);
+	mu_assert_int_eq((int)sizeof(small) - 1, (int)strlen(small));
+}
+
 /*
  * Reaching DFU idle: a faked DFU transport, no device. The states are
  * scripted in turn and the last one is reported for as long as it is asked
@@ -1323,6 +1470,11 @@ int main(void)
 	MU_RUN(test_verify_waits_for_same_app_and_exact_revision);
 	MU_RUN(test_verify_rejects_wrong_physical_path);
 	MU_RUN(test_verify_rejects_wrong_revision);
+	MU_RUN(test_a_board_that_never_came_back_is_told_apart_from_a_failed_write);
+	MU_RUN(test_a_board_running_another_revision_is_described_as_a_failed_write);
+	MU_RUN(test_a_board_that_will_not_report_its_revision_is_not_a_mismatch);
+	MU_RUN(test_a_device_on_another_path_is_described_as_unchecked);
+	MU_RUN(test_describing_a_verification_survives_what_a_caller_passes);
 	MU_RUN(test_idle_stops_on_the_first_failed_state_read);
 	MU_RUN(test_idle_is_bounded_when_the_state_never_settles);
 	MU_RUN(test_idle_aborts_a_half_finished_transfer_then_succeeds);

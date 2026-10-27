@@ -329,7 +329,11 @@ line the tool will not take or that has nothing to do, a file it cannot read
 or create, an image it refuses, a selected board that is missing or that
 something else is using, a bootloader that will not answer or will not become
 idle, a transfer that failed both its attempts, a reset that left the board in
-DFU, and a revision after the reset that is not the image's.
+DFU, and a verification after the reset that did not end in the image's own
+revision. That last one includes a board that did not come back on USB at all:
+the write had completed by then, but the command cannot say the board runs
+what was written, so it is not reported as a success. The line it prints says
+which of those happened.
 
 ## DIAGNOSTICS
 
@@ -368,6 +372,20 @@ example `error: detach failed: the board is still in DFU`,
 identify begin `warning: `. Lines from elsewhere do not follow that yet: the
 libusb status reports (`libUSB Error: ...`) and the libubertooth messages that
 have not been converted, such as `could not open Ubertooth device`.
+
+The `-d ... -r` verification has more than one way not to pass, and they do not
+mean the same thing, so each has its own line:
+
+    error: the firmware was written, but the board did not come back on USB: power-cycle it and read its revision with ubertooth-util -v before flashing it again
+    error: the board came back running git-0000000, not git-ed30131d: the firmware was not written, so flash it again
+    error: the board came back but would not report its firmware revision, so the flash was not checked: read it with ubertooth-util -v
+
+Only the second of those says the write did not take. In the first the board's
+flash already holds the new firmware: the whole image went in and the board
+was reset before it stopped answering, so what it needs is a power cycle and a
+`ubertooth-util -v`, not another flash. Whichever line is printed, the stage
+trace carries the raw codes behind it on its
+`post-reset application verification failed: ...` line.
 
 ## SEE ALSO
 

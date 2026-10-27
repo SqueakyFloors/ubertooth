@@ -247,6 +247,12 @@
   built with, so it no longer tells you to flash older firmware over a board
   that is the newer of the two.
   [#635](https://github.com/SqueakyFloors/ubertooth/issues/635)
+- `ubertooth-dfu -d <image> -r` says which of the post-reset outcomes it hit,
+  instead of one numeric line for all of them. A board that took the whole
+  image and then did not come back on USB is now reported as written and
+  needing a power cycle rather than as a failed flash, so it is no longer
+  flashed again for nothing.
+  [#579](https://github.com/SqueakyFloors/ubertooth/issues/579)
 - `ubertooth-btle -q -` and `-c -` no longer fill the terminal with the
   decoder's complaints about packets they do not print. A capture on standard
   output leaves no room for the per-packet dump, so that dump is not produced

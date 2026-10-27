@@ -144,6 +144,17 @@ int dfu_verify_application(const struct dfu_verify_ops *ops,
                            const struct dfu_verify_config *config,
                            struct dfu_verify_report *report);
 
+/* One line saying what the verification described by report found, and what
+ * to do about it. expected_revision is the revision the image carries.
+ *
+ * The outcomes mean different things to whoever is holding the board, and
+ * only one of them says the write did not take: a board that never came back
+ * on USB has the new firmware in its flash already, so flashing it again is
+ * the one thing it does not need. Each therefore gets its own line. */
+void dfu_verify_describe_failure(const struct dfu_verify_report *report,
+                                 const char *expected_revision,
+                                 char *message, size_t message_size);
+
 /*
  * Is this a file that can be read into memory whole?
  *
