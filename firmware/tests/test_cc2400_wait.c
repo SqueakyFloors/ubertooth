@@ -500,6 +500,123 @@ MU_TEST(test_fsm_does_not_match_another_state)
 	mu_assert_int_eq(FSM_POLLS, (int)fsm_reads);
 }
 
+/* ---- the watchdog site marker ---- */
+
+/*
+ * Each wait records which wait it is, so a board the watchdog resets says
+ * where it was stuck. The fake keeps the current site and the sequence of
+ * sites it was set to, which is what the cases below check: the site while the
+ * wait runs, and the site put back when it ends.
+ */
+#define MARK_TRACE_MAX 16
+static uint8_t mark_site;
+static uint8_t mark_trace[MARK_TRACE_MAX];
+static unsigned mark_count;
+
+uint8_t watchdog_mark(uint8_t site)
+{
+	uint8_t previous = mark_site;
+
+	mark_site = site;
+	if (mark_count < MARK_TRACE_MAX)
+		mark_trace[mark_count] = site;
+	mark_count++;
+	return previous;
+}
+
+static void mark_reset(uint8_t outer)
+{
+	mark_site = outer;
+	mark_count = 0;
+}
+
+/* What handle_usb() does: record the USB site, then put back whatever the
+ * caller was in. */
+static void mark_as_usb_service(void)
+{
+	uint8_t outer = watchdog_mark(WATCHDOG_SITE_USB);
+
+	watchdog_mark(outer);
+}
+
+/* The site each wait records while it runs. */
+MU_TEST(test_each_wait_records_its_own_site)
+{
+	fake_radio_reset();
+	mark_reset(WATCHDOG_SITE_NONE);
+	fake_radio_lock_at_poll(3);
+	cc2400_wait_fs(1, NULL);
+	mu_assert_int_eq(WATCHDOG_SITE_FS_LOCK, mark_trace[0]);
+
+	fake_radio_reset();
+	mark_reset(WATCHDOG_SITE_NONE);
+	fake_radio_unlock_at_poll(3);
+	cc2400_wait_fs(0, NULL);
+	mu_assert_int_eq(WATCHDOG_SITE_FS_UNLOCK, mark_trace[0]);
+
+	fake_radio_reset();
+	mark_reset(WATCHDOG_SITE_NONE);
+	fake_radio_status_sequence((const u8[]){ XOSC16M_STABLE }, 1);
+	cc2400_wait_xosc_stable(NULL);
+	mu_assert_int_eq(WATCHDOG_SITE_XOSC, mark_trace[0]);
+
+	fake_radio_reset();
+	mark_reset(WATCHDOG_SITE_NONE);
+	fake_radio_fsm_state_at_poll(STATE_STROBE_FS_ON, 1);
+	cc2400_wait_fsm(STATE_STROBE_FS_ON, NULL);
+	mu_assert_int_eq(WATCHDOG_SITE_FSM, mark_trace[0]);
+}
+
+/*
+ * The site is put back on the way out, both when the wait is satisfied and
+ * when it times out. A wait that left its own site behind would blame the
+ * radio for a board that wedged somewhere else entirely.
+ */
+MU_TEST(test_the_site_is_put_back_when_the_wait_ends)
+{
+	fake_radio_reset();
+	mark_reset(WATCHDOG_SITE_USB);
+	fake_radio_lock_at_poll(2);
+	mu_assert_int_eq(1, cc2400_wait_fs(1, NULL));
+	mu_assert_int_eq(WATCHDOG_SITE_USB, mark_site);
+
+	fake_radio_reset();
+	mark_reset(WATCHDOG_SITE_USB);
+	fake_radio_lock_at_poll(FS_LOCK_POLLS + 1);
+	mu_assert_int_eq(0, cc2400_wait_fs(1, NULL));
+	mu_assert_int_eq(WATCHDOG_SITE_USB, mark_site);
+
+	fake_radio_reset();
+	mark_reset(WATCHDOG_SITE_USB);
+	fake_radio_fsm_state_at_poll(STATE_STROBE_FS_ON, FSM_POLLS + 1);
+	mu_assert_int_eq(0, cc2400_wait_fsm(STATE_STROBE_FS_ON, NULL));
+	mu_assert_int_eq(WATCHDOG_SITE_USB, mark_site);
+
+	fake_radio_reset();
+	mark_reset(WATCHDOG_SITE_USB);
+	fake_radio_status_sequence((const u8[]){ 0 }, 1);
+	mu_assert_int_eq(0, cc2400_wait_xosc_stable(NULL));
+	mu_assert_int_eq(WATCHDOG_SITE_USB, mark_site);
+}
+
+/* A wait that services USB while it polls nests: the service pass records the
+ * USB site and the wait's own site is there again by the next poll. */
+MU_TEST(test_a_servicing_wait_keeps_its_site_between_passes)
+{
+	fake_radio_reset();
+	mark_reset(WATCHDOG_SITE_NONE);
+	fake_radio_lock_at_poll(3);
+	cc2400_wait_fs(1, mark_as_usb_service);
+	/* FS_LOCK, then USB and back to FS_LOCK for each of the two service
+	 * passes. */
+	mu_assert_int_eq(WATCHDOG_SITE_FS_LOCK, mark_trace[0]);
+	mu_assert_int_eq(WATCHDOG_SITE_USB, mark_trace[1]);
+	mu_assert_int_eq(WATCHDOG_SITE_FS_LOCK, mark_trace[2]);
+	mu_assert_int_eq(WATCHDOG_SITE_USB, mark_trace[3]);
+	mu_assert_int_eq(WATCHDOG_SITE_FS_LOCK, mark_trace[4]);
+	mu_assert_int_eq(WATCHDOG_SITE_NONE, mark_site);
+}
+
 /* ---- the service callback ---- */
 
 static unsigned service_calls;
@@ -925,6 +1042,9 @@ int main(void)
 	MU_RUN(test_no_radio_source_spins_on_the_radio);
 	MU_RUN(test_only_the_boot_path_still_spins_on_the_radio);
 	MU_RUN(test_the_scan_slot_ends_when_the_radio_is_not_receiving);
+	MU_RUN(test_each_wait_records_its_own_site);
+	MU_RUN(test_the_site_is_put_back_when_the_wait_ends);
+	MU_RUN(test_a_servicing_wait_keeps_its_site_between_passes);
 	MU_RUN(test_the_polled_stream_loop_services_usb_across_a_hop);
 	MU_RUN(test_the_range_test_keeps_a_newer_mode_request);
 	MU_RUN(test_the_transmit_bursts_stop_when_the_mode_does);

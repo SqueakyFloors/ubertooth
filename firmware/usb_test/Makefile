@@ -16,6 +16,7 @@ SRC = $(TARGET).c \
 	$(LIBS_PATH)/LPC17xx_Startup.c \
 	$(LIBS_PATH)/LPC17xx_Interrupts.c \
 	$(LIBS_PATH)/ubertooth.c \
+	$(LIBS_PATH)/watchdog.c \
 	$(LPCUSB_PATH)/usbcontrol.c \
 	$(LPCUSB_PATH)/usbinit.c \
 	$(LPCUSB_PATH)/usbhw_lpc.c \

@@ -40,7 +40,7 @@ Hardware required: Ubertooth One, Linux machine (Ubuntu 22.04+ preferred), a BLE
 
 ### 2a. Firmware version check
 - [ ] Run `ubertooth-util -v`
-- [ ] Confirm: returns `Firmware version: <image> <revision> (API:1.33)` (firmware
+- [ ] Confirm: returns `Firmware version: <image> <revision> (API:1.34)` (firmware
       built from this tree; the host tools refuse any other API version, and a
       board whose firmware has no info block shows the revision without an
       image name)
@@ -78,7 +78,30 @@ ISP or JTAG.
 - [ ] Run `ubertooth-util -s` (serial number)
 - [ ] Confirm: all return values without errors
 
-### 2e. Bootloader refuses a read-back past the end of flash
+### 2e. Watchdog state
+- [ ] Run `ubertooth-util -w` on a freshly plugged-in board
+- [ ] Confirm: `Last boot cause: power-on`, the watchdog is armed, and
+      0 unrequested resets
+- [ ] Run `ubertooth-util -r`, wait for the board, then `-w` again
+- [ ] Confirm: `Last boot cause: watchdog` (that is how the part resets) and
+      the unrequested count is still 0
+- [ ] Reflash with `ubertooth-dfu -d <image>.dfu -r`, then `-w`
+- [ ] Confirm: the unrequested count is still 0 — a flash is not a wedge
+- [ ] Run `ubertooth-util -x`, leave it blinking for a minute, then `-S` and
+      `-w`. This is the tightest margin in the design: xmas mode waits up to
+      1600 ms between blinks against a three-second timeout, and it is one of
+      the modes whose loop feeds on its own rather than by answering the host.
+- [ ] Confirm: the LEDs blink for the whole minute and the unrequested count
+      is still 0 — a board working normally is never reset
+- [ ] Repeat with `ubertooth-util -I` (identify), which toggles every 167 ms
+- [ ] Confirm: the same
+- [ ] Run `ubertooth-util -w` while a capture is running (`ubertooth-rx` in
+      another shell)
+- [ ] Confirm: the last line names a wait of the running mode, not "servicing
+      USB" — a reply is always written from the USB path, so that line would
+      say nothing
+
+### 2f. Bootloader refuses a read-back past the end of flash
 
 *Needs a board whose part is smaller than 512 KiB (`ubertooth-util -p` reports
 0x25011722 for the 128 KiB LPC1754) and ISP or JTAG: `ubertooth-dfu` cannot
@@ -93,9 +116,9 @@ write a bootloader.*
 - [ ] Confirm: the read-back still returns all 114688 bytes above the
       bootloader, and the board comes back running its application
 
-### 2f. Bootloader refuses an image past the end of flash
+### 2g. Bootloader refuses an image past the end of flash
 
-*Same board and the same ISP or JTAG requirement as 2e. `ubertooth-dfu -d`
+*Same board and the same ISP or JTAG requirement as 2f. `ubertooth-dfu -d`
 refuses an oversize image before it sends anything, so these steps send the
 requests directly.*
 
@@ -117,7 +140,7 @@ requests directly.*
       part the bootloader's table has no entry for. Every board shipped is
       built from a listed part
 
-### 2g. Flashing back off the btbr image
+### 2h. Flashing back off the btbr image
 
 *Needs a board that can be reached at the bench: a run that leaves it in the
 bootloader needs the entry pin or a power cycle.*

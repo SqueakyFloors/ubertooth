@@ -23,6 +23,7 @@
 #include "version.h"
 #include <ubertooth.h>
 #include <ubertooth_interface.h>
+#include <watchdog.h>
 #include <ubtbr/cfg.h>
 #include <ubtbr/ubertooth_usb.h>
 #include <ubtbr/ubertooth_dma.h>
@@ -164,13 +165,27 @@ int vendor_request_handler(uint8_t request, uint16_t* request_params,
 #endif
 
 	case UBERTOOTH_SET_ISP:
+		/* See the same case in bluetooth_rxtx.c: the on-chip programmer has
+		 * no feed of its own and there is no reset to switch the watchdog
+		 * off, so the timeout is stretched instead. */
+		watchdog_intent(WATCHDOG_INTENT_ISP);
+		watchdog_stretch();
 		set_isp();
+		/* As in bluetooth_rxtx.c: if the programmer ever returns, put the
+		 * timeout and the intent back rather than leave the board
+		 * unguarded. */
+		watchdog_unstretch();
 		*data_len = 0; /* should never return */
 		break;
 
 	case UBERTOOTH_FLASH:
 		bootloader_ctrl = DFU_MODE;
 		request_reset();
+		break;
+
+	case UBERTOOTH_GET_WATCHDOG:
+		watchdog_report(data);
+		*data_len = UBERTOOTH_WATCHDOG_INFO_LEN;
 		break;
 
 	case UBERTOOTH_GET_REV_NUM:

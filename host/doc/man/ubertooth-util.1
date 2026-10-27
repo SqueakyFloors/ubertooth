@@ -8,7 +8,7 @@
 ubertooth\-util [\-v] [\-V] [\-H] [\-\-host\-version] [\-I] [\-d [0\-1]] [\-l [0\-1]]
 [\-S] [\-r] [\-U <index|serial|all>] [\-a [0\-7]] [\-c [2402\-2480]] [\-C [0\-78]]
 [\-q [20\-120]] [\-t] [\-z [\-128\.\.127]] [\-e] [\-m] [\-n] [\-i] [\-b] [\-p] [\-s]
-[\-N] [\-x] [\-h]
+[\-w] [\-N] [\-x] [\-h]
 .fi
 .SH "DESCRIPTION"
 ubertooth\-util(1) is a catch\-all tool for doing generally useful things with, to, and about Ubertooth\. To get firmware revision and compile information, run:
@@ -166,6 +166,31 @@ get microcontroller Part ID (32\-bit, hexadecimal); exits non\-zero if the devic
 .TP
 \fB\-s\fR
 get microcontroller serial number
+.TP
+\fB\-w\fR
+get the watchdog state, and why the board last reset itself\. See \fIWATCHDOG\fR; exits non\-zero if the read fails
+.SH "WATCHDOG"
+The firmware resets the board if it goes three seconds without servicing USB, or without its mode getting back round its own loop\. A board that stops answering the host is useless to it and cannot be recovered from it \(em the reset request travels over USB too \(em so the board recovers itself, re\-enumerates, and comes back idle\. What a capture used to see as a hang is now the board disappearing and coming back; the tools treat a board that has gone as lost and exit\.
+.P
+The loop half is the weaker of the two\. Six modes service USB from the interrupt rather than by polling, and get no service pass at all while the host is quiet, so for them the guard is that the mode loop is still turning\. A board in one of those whose USB path alone has died, with its loop still going round, is not reset\. Everything the lab soak caught was caught by the other half\.
+.P
+Before it resets, the firmware has already recorded what it was doing in a corner of RAM that a reset does not clear, so \fB\-w\fR can say where the board was stuck:
+.IP "" 4
+.nf
+$ ubertooth\-util \-U <serial> \-w
+Last boot cause: watchdog
+Watchdog: armed; 3000 ms without USB being serviced or the mode looping resets the board
+Unrequested watchdog resets since power\-on: 2 (in 3 boots)
+  the last was in BLE follow mode, waiting for the 16 MHz crystal oscillator
+Now in idle mode, not in a wait
+.fi
+.IP "" 0
+.P
+\fBLast boot cause\fR is why the board started this time: \fBpower\-on\fR, \fBwatchdog\fR, \fBreset pin\fR, \fBbrown\-out\fR, or several of those joined with \fB+\fR\. A reset the firmware asked for \(em \fB\-r\fR, or entering the bootloader for ubertooth\-dfu(1) \(em is also a watchdog reset, because that is how this microcontroller resets itself; those are not counted and do not overwrite the last line, so the counter and the mode it names describe only the times the board stopped answering on its own\.
+.P
+Both counters are since power\-on and stop at 255\. Unplugging the board, or cutting power to its hub port, starts them again; \fB\-r\fR does not\.
+.P
+\fB\-i\fR (In\-System Programming) is the one hand\-over the watchdog cannot be switched off for: it keeps the chip running, so the timeout is stretched to about 71 minutes first\.
 .SH "SELECTING A DEVICE"
 With a single Ubertooth attached, the tools find it automatically and \fB\-U\fR is unnecessary\.
 .P
@@ -380,6 +405,8 @@ error: nothing to do: \-U '0' selects a device but no option asks anything of it
 It exits with 1, without opening a device, when two or more mode options are given (see DESCRIPTION), when \fB\-z\fR is combined with a mode option, or when an \fB\-a\fR level is not a single digit 0\-7 (\fBerror: PA level must be a single digit 0\-7 (got <value>)\fR)\. The same holds for any other option value that is not a whole decimal number in its range (\fB\-c\fR, \fB\-C\fR, \fB\-d\fR, \fB\-l\fR, \fB\-q\fR, \fB\-z\fR), for example \fBerror: channel must be 0\-78 (got abc)\fR\. It also exits with 1, without opening a device, when the command line contains a word that is not an option, and names it: \fBerror: unexpected argument '<word>'\fR\. \fBubertooth\-util\fR takes no other arguments\. An option the tool does not know is refused the same way, as one line on standard error with no usage text after it: \fBerror: unrecognized option '\-Z'\fR; an option whose value is missing reads \fBerror: option '\-U' requires a value\fR\. The removed \fB\-f\fR is one of those options now: use ubertooth\-dfu(1) instead\.
 .P
 A \fB\-N\fR count that succeeds does not affect the exit status: the number is printed and the rest of the command decides it\. A count that cannot be read is a failed operation like any other: it prints no number and makes the command exit 1, and the rest of it still runs\.
+.P
+A failed \fB\-w\fR read prints \fBerror: watchdog state read failed\fR on standard error, nothing on standard output, and makes the command exit 1\.
 .P
 When a \fB\-b\fR, \fB\-c\fR, \fB\-a\fR, \fB\-z\fR, \fB\-l\fR, \fB\-d\fR, \fB\-p\fR, \fB\-s\fR or \fB\-m\fR read fails, no value line is printed on standard output, so an error code is never shown as a value; the other requested queries are still reported\. A failed \fB\-b\fR, \fB\-c\fR, \fB\-a\fR, \fB\-z\fR, \fB\-l\fR, \fB\-d\fR, \fB\-p\fR, \fB\-s\fR or \fB\-m\fR read also prints \fBerror: <query> read failed\fR (for example \fBerror: channel read failed\fR or \fBerror: board ID read failed\fR) on standard error, after any message from libubertooth\. When the board returns fewer bytes than the read needs, that is the only line, with the counts added, for example \fBerror: channel read failed: board returned 0 of 2 bytes\fR\.
 .SH "DIAGNOSTICS"

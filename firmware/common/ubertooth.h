@@ -30,30 +30,11 @@
 typedef void (*IAP_ENTRY)(u32[], u32[]);
 extern const IAP_ENTRY iap_entry;
 
-/* operating modes */
-enum operating_modes {
-	MODE_IDLE          = 0,
-	MODE_RX_SYMBOLS    = 1,
-	MODE_TX_SYMBOLS    = 2,
-	MODE_TX_TEST       = 3,
-	MODE_SPECAN        = 4,
-	MODE_RANGE_TEST    = 5,
-	MODE_REPEATER      = 6,
-	MODE_LED_SPECAN    = 7,
-	MODE_BT_FOLLOW     = 8,
-	MODE_BT_FOLLOW_LE  = 9,
-	MODE_BT_PROMISC_LE = 10,
-	MODE_RESET         = 11,
-	MODE_BT_SLAVE_LE   = 12,
-	MODE_EGO           = 13,
-	MODE_AFH           = 14,
-	MODE_RX_GENERIC    = 15,
-	MODE_TX_GENERIC    = 16,
-	MODE_XMAS          = 17,
-	MODE_IDENTIFY      = 18,
-};
+/* The operating modes are enum operating_modes in ubertooth_interface.h,
+ * included above: the host reads the mode back out of the watchdog
+ * breadcrumb, so the numbers are shared with it. */
 
-/* The mode the host has asked for, one of the values above. Defined by the
+/* The mode the host has asked for, one of those values. Defined by the
  * application image (bluetooth_rxtx.c), written by the control request handler
  * and read by the mode loops, which is how the host stops a running mode.
  * Declared here, with the values, so the loops in other files cannot drift from

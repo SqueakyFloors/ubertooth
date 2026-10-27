@@ -39,6 +39,7 @@
 #include "debug_uart.h"
 #include "xmas.h"
 #include "identify.h"
+#include "watchdog.h"
 
 #define MIN(x,y)	((x)<(y)?(x):(y))
 #define MAX(x,y)	((x)>(y)?(x):(y))
@@ -504,13 +505,32 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		break;
 
 	case UBERTOOTH_SET_ISP:
+		/* The on-chip programmer takes over without a chip reset, so the
+		 * watchdog stays armed and nothing in there feeds it. It cannot be
+		 * switched off before a reset, so the timeout is stretched to the
+		 * longest the counter holds instead. */
+		watchdog_intent(WATCHDOG_INTENT_ISP);
+		watchdog_stretch();
 		set_isp();
+		/* set_isp() is not supposed to come back -- it hands the chip to
+		 * code in ROM. If it ever does, the board must not be left running
+		 * for the next hour with a watchdog that cannot reset it and a
+		 * wedge that would not be counted. */
+		watchdog_unstretch();
 		*data_len = 0; /* should never return */
 		break;
 
 	case UBERTOOTH_FLASH:
+		/* The bootloader is reached by resetting, so MODE_RESET below is
+		 * what tells the watchdog the reset was asked for. Saying it here
+		 * instead would excuse a board that wedged before getting there. */
 		bootloader_ctrl = DFU_MODE;
 		requested_mode = MODE_RESET;
+		break;
+
+	case UBERTOOTH_GET_WATCHDOG:
+		watchdog_report(data);
+		*data_len = UBERTOOTH_WATCHDOG_INFO_LEN;
 		break;
 
 	case UBERTOOTH_SPECAN:
@@ -1939,6 +1959,7 @@ void bt_generic_le(u8 active_mode)
 	u8 hold;
 	int i, j;
 	int8_t rssi, rssi_at_trigger;
+	uint8_t site;
 
 	modulation = MOD_BT_LOW_ENERGY;
 	mode = active_mode;
@@ -1961,6 +1982,8 @@ void bt_generic_le(u8 active_mode)
 	hold = 0;
 
 	while (requested_mode == active_mode) {
+		watchdog_usb_ready();
+
 		if (requested_channel != 0) {
 			cc2400_strobe(SRFOFF);
 			cc2400_wait_fs_unlock();
@@ -1992,8 +2015,15 @@ void bt_generic_le(u8 active_mode)
 		/* Wait for DMA. Meanwhile keep track of RSSI. */
 		rssi_reset();
 		rssi_at_trigger = INT8_MIN;
+		/* This wait has no deadline: on a quiet channel no packet ever
+		 * completes the transfer, so it can last as long as the capture
+		 * does. It feeds, because it is the mode loop's own code and runs
+		 * below every interrupt handler, exactly like the feed at the top
+		 * of the loop -- a handler that stops returning stops this too. */
+		site = watchdog_mark(WATCHDOG_SITE_LE_RX);
 		while ((rx_tc == 0) && (rx_err == 0))
 		{
+			watchdog_usb_ready();
 			rssi = (int8_t)(cc2400_get(RSSI) >> 8);
 			if (cs_trigger && (rssi_at_trigger == INT8_MIN)) {
 				rssi = MAX(rssi,(cs_threshold_cur+54));
@@ -2001,6 +2031,7 @@ void bt_generic_le(u8 active_mode)
 			}
 			rssi_add(rssi);
 		}
+		watchdog_mark(site);
 
 		if (rx_err) {
 			status |= DMA_ERROR;
@@ -2074,6 +2105,7 @@ void bt_le_sync(u8 active_mode)
 {
 	int i;
 	int8_t rssi;
+	uint8_t site;
 	static int restart_jamming = 0;
 
 	modulation = MOD_BT_LOW_ENERGY;
@@ -2094,6 +2126,8 @@ void bt_le_sync(u8 active_mode)
 	cc2400_rx_sync(rbit(le.access_address)); // bit-reversed access address
 
 	while (requested_mode == active_mode) {
+		watchdog_usb_ready();
+
 		if (requested_channel != 0) {
 			cc2400_strobe(SRFOFF);
 			cc2400_wait_fs_unlock();
@@ -2115,8 +2149,15 @@ void bt_le_sync(u8 active_mode)
 
 		/* Wait for DMA. Meanwhile keep track of RSSI. */
 		rssi_reset();
+		/* Nothing bounds this wait: following a connection, the next thing
+		 * to end it is the hop at the end of the connection interval, which
+		 * BLE allows to be as long as 4 s. It feeds for the reason the wait
+		 * in bt_generic_le() does -- it is the mode loop running, below
+		 * every interrupt handler. */
+		site = watchdog_mark(WATCHDOG_SITE_LE_RX);
 		while ((rx_tc == 0) && (rx_err == 0) && (do_hop == 0) && requested_mode == active_mode)
-			;
+			watchdog_usb_ready();
+		watchdog_mark(site);
 
 		rssi = (int8_t)(cc2400_get(RSSI) >> 8);
 		rssi_min = rssi_max = rssi;
@@ -2769,6 +2810,7 @@ void bt_slave_le() {
 
 	// spam advertising packets
 	while (requested_mode == MODE_BT_SLAVE_LE) {
+		watchdog_usb_ready();
 		le_transmit(0x8e89bed6, adv_ind_len+3, adv_ind);
 		msleep(100);
 	}
@@ -3070,6 +3112,10 @@ int main()
 	// enable all fault handlers (see fault.c)
 	SCB_SHCSR = (1 << 18) | (1 << 17) | (1 << 16);
 
+	/* Before anything that could record a wait site: this is what turns what
+	 * the last run left in the breadcrumb into a record of why it ended. */
+	watchdog_boot();
+
 	ubertooth_init();
 	clkn_init();
 	ubertooth_usb_init(vendor_request_handler);
@@ -3078,6 +3124,11 @@ int main()
 
 	debug_uart_init(0);
 	debug_printf("\n\n****UBERTOOTH BOOT****\n%s\n", compile_info);
+
+	/* Last, because from here on a board that goes the watchdog timeout
+	 * without a USB service pass resets itself, and the loop below is what
+	 * makes those passes. */
+	watchdog_start();
 
 	while (1) {
 		u8 next_mode, prev_mode;
@@ -3156,9 +3207,13 @@ int main()
 		 * unchanged forever, spinning this loop at full rate.
 		 */
 		mode = next_mode;
+		/* The breadcrumb's record of what the board was doing. This is the
+		 * one place a mode changes, so it is the one place that needs it. */
+		watchdog_mode(mode);
 
 		switch (next_mode) {
 			case MODE_RESET:
+				watchdog_intent(WATCHDOG_INTENT_RESET);
 				/* Allow time for the USB command to return correctly */
 				wait(1);
 				reset();

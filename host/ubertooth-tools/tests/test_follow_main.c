@@ -641,8 +641,9 @@ MU_TEST(a_whole_address_and_its_lap_and_uap_follow_the_same_piconet)
 #define NO_ANSWER(what) \
 	"error: could not " what \
 	": the board did not answer in time (libusb -7)\n" \
-	"note: if a mode is running, stop it with ubertooth-util -S; if the " \
-	"board does not answer at all, re-plug it\n"
+	"note: if a mode is running, stop it with ubertooth-util -S; " \
+	"a board that does not answer at all resets itself within a few " \
+	"seconds, so run the command again\n"
 
 /* How many times a string occurs, for pinning that a refusal is reported once
  * rather than alongside a second line. */

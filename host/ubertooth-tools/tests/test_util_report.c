@@ -1,9 +1,11 @@
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "../../../firmware/tests/minunit.h"
 #include "util_report.h"
+#include "ubertooth_interface.h"
 
 struct fake_device {
 	int board_id;
@@ -610,6 +612,160 @@ MU_TEST(status_helpers)
 	mu_assert_int_eq(1, util_status_after(1, 0));
 }
 
+/* ---- the watchdog report (-w) ------------------------------------------ */
+
+/* The report, from the eight bytes the board sends. */
+static char *watchdog_text(const uint8_t *info, size_t len, int *status)
+{
+	char *text = NULL;
+	size_t size = 0;
+	FILE *out = open_memstream(&text, &size);
+
+	*status = util_report_watchdog(out, info, len);
+	fclose(out);
+	return text;
+}
+
+/*
+ * A board that has reset itself says so, and says where it was. This is the
+ * whole point of the breadcrumb: a wedge that used to need a power cycle and
+ * left no trace now names the mode and the wait it happened in.
+ */
+MU_TEST(a_wedged_board_reports_where_it_was_stuck)
+{
+	uint8_t info[UBERTOOTH_WATCHDOG_INFO_LEN] = {
+		WATCHDOG_RESET_WATCHDOG, 1, 2, 5,
+		MODE_BT_FOLLOW_LE, WATCHDOG_SITE_XOSC,
+		MODE_IDLE, WATCHDOG_SITE_NONE,
+	};
+	int status = -1;
+	char *text = watchdog_text(info, sizeof(info), &status);
+
+	mu_assert(text != NULL, "no report");
+	mu_assert_int_eq(0, status);
+	mu_assert(strstr(text, "Last boot cause: watchdog\n") != NULL, text);
+	mu_assert(strstr(text, "Watchdog: armed;") != NULL, text);
+	mu_assert(strstr(text, "resets since power-on: 2 (in 5 boots)") != NULL,
+	          text);
+	mu_assert(strstr(text, "BLE follow") != NULL, text);
+	mu_assert(strstr(text, "16 MHz crystal oscillator") != NULL, text);
+	mu_assert(strstr(text, "Now in idle mode") != NULL, text);
+	free(text);
+}
+
+/*
+ * A board that hit a processor fault says that, which is what the blink code
+ * used to be for. The watchdog cuts a blink burst off part-way, so this is now
+ * the readable form of the same information.
+ */
+MU_TEST(a_board_that_faulted_says_so)
+{
+	uint8_t info[UBERTOOTH_WATCHDOG_INFO_LEN] = {
+		WATCHDOG_RESET_WATCHDOG, 1, 1, 2,
+		MODE_SPECAN, WATCHDOG_SITE_FAULT,
+		MODE_IDLE, WATCHDOG_SITE_NONE,
+	};
+	int status = -1;
+	char *text = watchdog_text(info, sizeof(info), &status);
+
+	mu_assert(text != NULL, "no report");
+	mu_assert_int_eq(0, status);
+	mu_assert(strstr(text, "in a processor fault handler") != NULL, text);
+	free(text);
+}
+
+/* A board that has never reset itself has no last one to describe. */
+MU_TEST(a_healthy_board_reports_no_last_reset)
+{
+	uint8_t info[UBERTOOTH_WATCHDOG_INFO_LEN] = {
+		WATCHDOG_RESET_POWER_ON, 1, 0, 1,
+		MODE_IDLE, WATCHDOG_SITE_NONE, MODE_SPECAN, WATCHDOG_SITE_USB,
+	};
+	int status = -1;
+	char *text = watchdog_text(info, sizeof(info), &status);
+
+	mu_assert(text != NULL, "no report");
+	mu_assert_int_eq(0, status);
+	mu_assert(strstr(text, "Last boot cause: power-on\n") != NULL, text);
+	mu_assert(strstr(text, "resets since power-on: 0 (in 1 boot)") != NULL,
+	          text);
+	mu_assert(strstr(text, "the last was") == NULL, text);
+	mu_assert(strstr(text, "Now in spectrum analyzer mode, servicing USB")
+	          != NULL, text);
+	free(text);
+}
+
+/* An unarmed watchdog is reported as unarmed, not as a guard the board does
+ * not have. */
+MU_TEST(an_unarmed_watchdog_is_reported_as_such)
+{
+	uint8_t info[UBERTOOTH_WATCHDOG_INFO_LEN] = { 0, 0, 0, 1, 0, 0, 0, 0 };
+	int status = -1;
+	char *text = watchdog_text(info, sizeof(info), &status);
+
+	mu_assert(text != NULL, "no report");
+	mu_assert(strstr(text, "Watchdog: not armed\n") != NULL, text);
+	mu_assert(strstr(text, "Last boot cause: not recorded\n") != NULL, text);
+	free(text);
+}
+
+/* Several causes can be set at once, and a reply this version cannot read
+ * fails rather than printing from it. */
+MU_TEST(causes_combine_and_a_short_reply_fails)
+{
+	uint8_t info[UBERTOOTH_WATCHDOG_INFO_LEN] = {
+		WATCHDOG_RESET_POWER_ON | WATCHDOG_RESET_WATCHDOG,
+		1, 0, 1, 0, 0, 0, 0,
+	};
+	char cause[64];
+	int status = -1;
+	char *text = watchdog_text(info, sizeof(info), &status);
+
+	mu_assert(text != NULL, "no report");
+	mu_assert(strstr(text, "Last boot cause: power-on+watchdog\n") != NULL,
+	          text);
+	free(text);
+
+	text = watchdog_text(info, sizeof(info) - 1, &status);
+	mu_assert_int_eq(1, status);
+	free(text);
+
+	/* Every cause has a name, and a buffer too small is still terminated. */
+	util_watchdog_cause_text(WATCHDOG_RESET_EXTERNAL, cause, sizeof(cause));
+	mu_assert(strcmp(cause, "reset pin") == 0, cause);
+	util_watchdog_cause_text(WATCHDOG_RESET_BROWN_OUT, cause, sizeof(cause));
+	mu_assert(strcmp(cause, "brown-out") == 0, cause);
+	util_watchdog_cause_text(0xFF, cause, 6);
+	mu_assert_int_eq(0, cause[5]);
+}
+
+/*
+ * Every mode and wait site the interface defines has a name, so a breadcrumb
+ * never reads as a mode this version does not know when it does; and a value
+ * from a newer firmware says so instead of indexing past the table.
+ */
+MU_TEST(every_mode_and_site_has_a_name)
+{
+	unsigned i;
+
+	for (i = 0; i <= MODE_IDENTIFY; i++) {
+		const char *name = util_watchdog_mode_name(i);
+
+		mu_assert(strcmp(name, "unknown") != 0, name);
+	}
+	mu_assert(strcmp(util_watchdog_mode_name(MODE_IDENTIFY + 1),
+	                 "unknown") == 0, "an unnamed mode is not unknown");
+	mu_assert(strcmp(util_watchdog_mode_name(MODE_UNKNOWN),
+	                 "not reported") == 0, "btbr's mode is not reported");
+
+	for (i = 0; i < WATCHDOG_SITE_COUNT; i++)
+		mu_assert(strstr(util_watchdog_site_text(i), "does not know")
+		          == NULL, util_watchdog_site_text(i));
+	mu_assert(strstr(util_watchdog_site_text(WATCHDOG_SITE_COUNT),
+	                 "does not know") != NULL,
+	          "an unknown site is not reported as unknown");
+}
+
 int main(void)
 {
 	MU_RUN(board_id_one_prints_name_and_succeeds);
@@ -633,5 +789,11 @@ int main(void)
 	MU_RUN(a_stalled_block_with_an_unreadable_revision_prints_no_line);
 	MU_RUN(nonzero_successful_values_do_not_become_status);
 	MU_RUN(status_helpers);
+	MU_RUN(a_wedged_board_reports_where_it_was_stuck);
+	MU_RUN(a_board_that_faulted_says_so);
+	MU_RUN(a_healthy_board_reports_no_last_reset);
+	MU_RUN(an_unarmed_watchdog_is_reported_as_such);
+	MU_RUN(causes_combine_and_a_short_reply_fails);
+	MU_RUN(every_mode_and_site_has_a_name);
 	return mu_report();
 }

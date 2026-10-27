@@ -263,8 +263,9 @@ add_executable(test-util-report
 	test_util_report.c
 	../src/util_report.c)
 
-# util_report.h describes the firmware info block -v and -V report, whose
-# layout is in libubertooth's ubertooth_interface.h.
+# util_report.h describes the firmware info block -v and -V report and the
+# watchdog breadcrumb, whose layouts are in libubertooth's
+# ubertooth_interface.h.
 if(libubertooth_SOURCE_DIR)
 	target_include_directories(test-util-report PRIVATE ${libubertooth_SOURCE_DIR}/src)
 else()

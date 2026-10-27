@@ -36,6 +36,9 @@ static struct {
 	int identify_rc;
 	int rangeresult_rc;
 	rangetest_result range;
+	watchdog_info watchdog;
+	int watchdog_rc;
+	int watchdog_calls;
 	/* bookkeeping */
 	int device_count;
 	int count_calls; /* ubertooth_count() calls */
@@ -377,6 +380,14 @@ int cmd_get_rangeresult(struct libusb_device_handle *h, rangetest_result *rr)
 	return fake.rangeresult_rc;
 }
 
+int cmd_get_watchdog(struct libusb_device_handle *h, watchdog_info *info)
+{
+	fake_use(h);
+	fake.watchdog_calls++;
+	*info = fake.watchdog;
+	return fake.watchdog_rc;
+}
+
 int cmd_reset(struct libusb_device_handle *h) { fake_use(h); fake.reset_calls++; return fake.reset_rc; }
 int cmd_stop(struct libusb_device_handle *h)
 {
@@ -529,7 +540,7 @@ static struct run_result run_util(const char *const *args)
 /* Exact expected report lines, in the order ubertooth-util prints them. */
 #define BOARD_LINE "Board ID Number: 1 (Ubertooth One)\n"
 #define CHANNEL_LINE "Current frequency: 2441 MHz (Bluetooth channel 39)\n"
-#define FIRMWARE_LINE "Firmware version: bluetooth_rxtx git-test (API:1.33)\n"
+#define FIRMWARE_LINE "Firmware version: bluetooth_rxtx git-test (API:1.34)\n"
 #define COMPILE_LINE "bluetooth_rxtx: compile-test\n"
 #define USRLED_LINE "USR LED status: 0\n"
 #define PALEVEL_LINE "PA Level: 7\n"
@@ -689,7 +700,7 @@ MU_TEST(a_board_without_an_info_block_is_still_identified)
 	fake.fw_info_rc = LIBUSB_ERROR_PIPE;
 	r = RUN("-v", "-V");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(r.out, "Firmware version: git-test (API:1.33)\n"
+	mu_assert(strcmp(r.out, "Firmware version: git-test (API:1.34)\n"
 	                        "compile-test\n") == 0, r.out);
 	mu_assert_int_eq(0, (long)strlen(r.err));
 
@@ -783,6 +794,39 @@ MU_TEST(all_leds_query_reports_each_led_and_fails_if_any_read_fails)
 	fake.rxled = -1;
 	r = RUN("-d");
 	mu_assert_int_eq(1, r.rc);
+}
+
+/*
+ * -w reads the watchdog breadcrumb. A board that reset itself says which mode
+ * and which wait it was in, on standard output because it is a read; a failed
+ * read names the query and fails the command.
+ */
+MU_TEST(the_watchdog_state_is_reported_and_a_failed_read_fails)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.watchdog.reset_cause = WATCHDOG_RESET_WATCHDOG;
+	fake.watchdog.armed = 1;
+	fake.watchdog.resets = 2;
+	fake.watchdog.boots = 4;
+	fake.watchdog.reset_mode = MODE_BT_FOLLOW_LE;
+	fake.watchdog.reset_site = WATCHDOG_SITE_XOSC;
+	fake.watchdog.mode = MODE_IDLE;
+	fake.watchdog.site = WATCHDOG_SITE_NONE;
+	r = RUN("-w");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, fake.watchdog_calls);
+	mu_assert(strstr(r.out, "Last boot cause: watchdog\n") != NULL, r.out);
+	mu_assert(strstr(r.out, "BLE follow") != NULL, r.out);
+	mu_assert(strcmp(r.err, "") == 0, r.err);
+
+	reset_fake();
+	fake.watchdog_rc = -7;
+	r = RUN("-w");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, "") == 0, r.out);
+	mu_assert(strstr(r.err, "watchdog state read failed") != NULL, r.err);
 }
 
 MU_TEST(range_result_is_reported_and_a_failed_read_fails)
@@ -2110,8 +2154,8 @@ MU_TEST(firmware_listing_with_several_devices_reports_each_device)
 	r = RUN("-v");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(r.out,
-	                 "0: bluetooth_rxtx git-test (API:1.33)\n"
-	                 "1: bluetooth_rxtx git-test (API:1.33)\n") == 0,
+	                 "0: bluetooth_rxtx git-test (API:1.34)\n"
+	                 "1: bluetooth_rxtx git-test (API:1.34)\n") == 0,
 	          "per-device firmware lines");
 }
 
@@ -2133,8 +2177,8 @@ MU_TEST(each_identity_query_alone_lists_every_device_compactly)
 {
 	struct { const char *option; const char *expected; } cases[] = {
 		{ "-b", "0: 1 (Ubertooth One)\n1: 1 (Ubertooth One)\n" },
-		{ "-v", "0: bluetooth_rxtx git-test (API:1.33)\n"
-	                 "1: bluetooth_rxtx git-test (API:1.33)\n" },
+		{ "-v", "0: bluetooth_rxtx git-test (API:1.34)\n"
+	                 "1: bluetooth_rxtx git-test (API:1.34)\n" },
 		{ "-V", "0: bluetooth_rxtx: compile-test\n"
 		         "1: bluetooth_rxtx: compile-test\n" },
 		{ "-p", "0: 25011723\n1: 25011723\n" },
@@ -2268,7 +2312,7 @@ MU_TEST(a_failed_read_on_one_device_is_reported_and_fails_the_listing)
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.out,
 	                 "0: <firmware read failed>\n"
-	                 "1: bluetooth_rxtx git-test (API:1.33)\n") == 0,
+	                 "1: bluetooth_rxtx git-test (API:1.34)\n") == 0,
 	          "failed revision read shown per device");
 
 	reset_fake();
@@ -2877,6 +2921,7 @@ int main(void)
 	MU_RUN(each_failing_report_makes_the_command_fail);
 	MU_RUN(all_leds_query_reports_each_led_and_fails_if_any_read_fails);
 	MU_RUN(range_result_is_reported_and_a_failed_read_fails);
+	MU_RUN(the_watchdog_state_is_reported_and_a_failed_read_fails);
 	MU_RUN(setters_pass_their_arguments_and_report_failures);
 	MU_RUN(a_set_and_a_read_of_the_same_value_both_run_set_first);
 	MU_RUN(stop_and_reset_report_failures);

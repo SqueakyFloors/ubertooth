@@ -48,6 +48,7 @@
 
 #include "ubertooth.h"
 #include "usb_serial.h"
+#include "watchdog.h"
 #include "serial_fifo.h"
 #include <string.h>
 
@@ -363,7 +364,17 @@ int VCOM_getchar(void)
 
 void USB_IRQHandler()
 {
+	/* The USB interrupt is how the six modes that do not poll USB service it,
+	 * so this is the second place the watchdog is fed from: reaching the end
+	 * means the controller was driven and the host was answered. The site
+	 * marker is saved and put back, because this interrupt can land in the
+	 * middle of a wait that recorded its own. */
+	uint8_t site = watchdog_mark(WATCHDOG_SITE_USB);
+
 	USBHwISR();
+
+	watchdog_mark(site);
+	watchdog_usb_serviced();
 }
 
 void usb_serial_init()

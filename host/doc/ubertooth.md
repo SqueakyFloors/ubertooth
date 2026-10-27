@@ -104,11 +104,18 @@ The board took the request and sent nothing back:
 A board that has stopped answering control requests does this: it happens
 after some captures end, and a board left in a mode that keeps polling can do
 it too. Try `ubertooth-util [-U <selector>] -S` to stop a mode and
-`ubertooth-util -r` to reset the board; a board that answers neither has to be
-unplugged and plugged in again, or its hub port power-cycled. The line says
+`ubertooth-util -r` to reset the board; a board that answers neither resets
+itself, as the next paragraph describes. The line says
 only what happened, because what it means depends on what the command was
 doing: mid-flash, for instance, it is a bootloader that lost its place, and no
 mode is involved.
+
+A board running this tree's firmware recovers itself: it resets about three
+seconds after it stops servicing USB, drops off the bus and comes back idle, so
+the fix is to run the command again. `ubertooth-util [-U <selector>] -w` then
+says how often that has happened and which mode and which wait the board was in
+the last time. Only firmware without the watchdog, such as `2020-12-R1`, has to
+be unplugged or have its hub port power-cycled.
 
 A serial-number selector names the reason, because a board it could not read
 may be the board asked for:
@@ -157,7 +164,8 @@ says `warning: the receive transfer did not finish; the Ubertooth is left open
 and may still be capturing`, asks that board for nothing further, and exits 1:
 the capture lost its stream, so it holds less than was asked for. The
 board usually needs `ubertooth-util [-U <selector>] -S` or `-r` afterwards, and
-one that answers neither has to be unplugged and plugged in again.
+one that answers neither resets itself about three seconds later and comes
+back idle.
 
 libubertooth follows the split already: it returns what it reads to the tool
 that called it and reports its own problems on standard error, so a library

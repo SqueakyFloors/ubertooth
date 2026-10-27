@@ -8,6 +8,7 @@
 #include <stdlib.h>
 
 #include "ubertooth.h"
+#include "watchdog.h"
 
 extern volatile uint8_t requested_mode;
 
@@ -46,8 +47,15 @@ void xmas_main(void) {
 
 	T2MCR |= TMCR_MR0I | TMCR_MR1I | TMCR_MR2I;
 
-	while (requested_mode == MODE_XMAS)
+	while (requested_mode == MODE_XMAS) {
+		/* Nothing here services USB -- the USB interrupt does, and it only
+		 * fires when the host asks something, which in this mode it may
+		 * never do. Reaching this line is what the watchdog gets instead:
+		 * it runs below every interrupt handler, so no handler is stuck and
+		 * a request would be answered. */
+		watchdog_usb_ready();
 		asm("WFI"); // wait for interrupt
+	}
 
 	timer2_stop();
 

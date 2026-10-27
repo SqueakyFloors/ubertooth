@@ -341,6 +341,42 @@ MU_TEST(range_result_needs_all_5_bytes)
 	mu_assert_int_eq(0x5a, rr.valid); /* left untouched */
 }
 
+/*
+ * The watchdog state: eight bytes, read in the order the interface gives, and
+ * a short reply leaves the caller's struct alone rather than filling it from
+ * whatever the buffer held.
+ */
+MU_TEST(watchdog_state_needs_all_8_bytes)
+{
+	watchdog_info info;
+
+	script(UBERTOOTH_WATCHDOG_INFO_LEN, 0);
+	fake.reply[0] = WATCHDOG_RESET_WATCHDOG;
+	fake.reply[1] = 1;
+	fake.reply[2] = 3;
+	fake.reply[3] = 4;
+	fake.reply[4] = MODE_BT_FOLLOW_LE;
+	fake.reply[5] = WATCHDOG_SITE_XOSC;
+	fake.reply[6] = MODE_IDLE;
+	fake.reply[7] = WATCHDOG_SITE_NONE;
+	mu_assert_int_eq(0, cmd_get_watchdog(NULL, &info));
+	mu_assert_int_eq(UBERTOOTH_GET_WATCHDOG, fake.last_request);
+	mu_assert_int_eq(WATCHDOG_RESET_WATCHDOG, info.reset_cause);
+	mu_assert_int_eq(1, info.armed);
+	mu_assert_int_eq(3, info.resets);
+	mu_assert_int_eq(4, info.boots);
+	mu_assert_int_eq(MODE_BT_FOLLOW_LE, info.reset_mode);
+	mu_assert_int_eq(WATCHDOG_SITE_XOSC, info.reset_site);
+	mu_assert_int_eq(MODE_IDLE, info.mode);
+	mu_assert_int_eq(WATCHDOG_SITE_NONE, info.site);
+
+	memset(&info, 0x5a, sizeof(info));
+	script(UBERTOOTH_WATCHDOG_INFO_LEN - 1, 0x11);
+	mu_assert_int_eq(UBERTOOTH_ERROR_SHORT_REPLY,
+	                 cmd_get_watchdog(NULL, &info));
+	mu_assert_int_eq(0x5a, info.reset_cause); /* left untouched */
+}
+
 /* ---- the library writes nothing to standard output --------------------- */
 
 /*
@@ -498,6 +534,7 @@ int main(void)
 	MU_RUN(channel_needs_both_bytes);
 	MU_RUN(serial_needs_all_17_bytes);
 	MU_RUN(range_result_needs_all_5_bytes);
+	MU_RUN(watchdog_state_needs_all_8_bytes);
 	MU_RUN(short_reply_message_names_the_read_and_the_counts);
 	MU_RUN(the_quiet_set_forms_report_nothing);
 	MU_RUN(four_and_two_byte_reads_need_their_full_length);

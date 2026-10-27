@@ -56,6 +56,7 @@
 #include <ubtbr/ubertooth_usb.h>
 #include <ubtbr/btphy.h>
 #include <ubtbr/btctl_intf.h>
+#include <watchdog.h>
 
 #ifdef UBERTOOTH_ZERO
 #define ID_VENDOR 0x1D50
@@ -361,6 +362,9 @@ void usb_send_sync(void *buf, int size)
 	unsigned polls, i;
 	u8 epstat;
 	uint32_t usb_irq = usb_irq_hold();
+	/* So that a board the watchdog resets while it is in here says so, rather
+	 * than blaming whatever the firmware was doing when it called this. */
+	uint8_t site = watchdog_mark(WATCHDOG_SITE_USB);
 
 	/* Read after the hold, so a nested call really does see depth non-zero. */
 	polls = (depth || host_stalled) ? 1 : USB_SEND_SYNC_POLLS;
@@ -401,6 +405,13 @@ void usb_send_sync(void *buf, int size)
 		}
 		/* polled "interrupt" */
 		USBHwISR();
+		/* A pass through the controller answered whatever the host had
+		 * asked for, which is what the watchdog wants to see. Feeding
+		 * inside the wait matters here: the bound below is tens of
+		 * thousands of passes, and the main loop -- this image's other
+		 * feed -- is not running while we are in here, so without this
+		 * the watchdog would cut a fault dump off part-way. */
+		watchdog_usb_serviced();
 	}
 
 	host_stalled = 0;
@@ -411,7 +422,9 @@ void usb_send_sync(void *buf, int size)
 	
 	/* polled "interrupt" */
 	USBHwISR();
+	watchdog_usb_serviced();
 end:
+	watchdog_mark(site);
 	depth--;
 	usb_irq_release(usb_irq);
 }
@@ -424,6 +437,8 @@ int usb_work(void)
 	uint16_t full_len, buf_idx = 0;
 	int work = 0;
 	uint32_t usb_irq = usb_irq_hold();
+	/* As in usb_send_sync(): a reset from in here names this path. */
+	uint8_t site = watchdog_mark(WATCHDOG_SITE_USB);
 
 	epstat = USBHwEPGetStatus(BULK_IN_EP);
 	b1full = epstat & EPSTAT_B1FULL;
@@ -469,6 +484,7 @@ int usb_work(void)
 	}
 	/* polled "interrupt" */
 	USBHwISR();
+	watchdog_usb_serviced();
 
 	/* Free message if completed */
 	if (!msg_read_avail(tx_msg))
@@ -479,6 +495,7 @@ int usb_work(void)
 	}
 	work = 1;
 end:
+	watchdog_mark(site);
 	usb_irq_release(usb_irq);
 	return work;
 }

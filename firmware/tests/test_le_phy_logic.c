@@ -153,6 +153,17 @@ void get_device_serial(uint8_t *buffer, int *len)
 }
 
 /* ------------------------------------------------------------------ *
+ * The watchdog
+ * ------------------------------------------------------------------ */
+
+/* The engine's loop and every USB service pass tell the watchdog they are
+ * alive, and mark which wait they are in so a reset can say where the board
+ * died. Nothing here is about that, so these only have to exist; what the
+ * firmware does with them is tested in test_watchdog.c and test_usb_queue.c. */
+uint8_t watchdog_mark(uint8_t site) { (void)site; return WATCHDOG_SITE_NONE; }
+void watchdog_usb_serviced(void) {}
+
+/* ------------------------------------------------------------------ *
  * The code under test
  * ------------------------------------------------------------------ */
 

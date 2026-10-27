@@ -19,6 +19,7 @@
 #include "ubertooth.h"
 #include "identify.h"
 #include "identify_blink.h"
+#include "watchdog.h"
 
 extern volatile uint8_t requested_mode;
 
@@ -93,8 +94,12 @@ void identify_main(void)
 
 	T3MCR |= TMCR_MR0I;
 
-	while (requested_mode == MODE_IDENTIFY)
+	while (requested_mode == MODE_IDENTIFY) {
+		/* As in xmas mode: the blink needs nothing of the host, so the feed
+		 * is this loop reaching the interrupt wait. */
+		watchdog_usb_ready();
 		asm("WFI"); // wait for interrupt
+	}
 
 	timer3_stop();
 

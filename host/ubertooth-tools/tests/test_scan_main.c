@@ -357,7 +357,8 @@ MU_TEST(a_scan_the_board_took_sweeps_and_exits_0)
 	"error: could not set sweep mode" \
 	": the board did not answer in time (libusb -7)\n" \
 	"note: if a mode is running, stop it with ubertooth-util -S; " \
-	"if the board does not answer at all, re-plug it\n"
+	"a board that does not answer at all resets itself within a few " \
+	"seconds, so run the command again\n"
 
 /* A refused sweep is named, with the reason and what to try, on standard
  * error, and ends the command there: it used to be ignored, so the board
@@ -459,7 +460,8 @@ MU_TEST(a_capture_that_cannot_be_set_up_exits_1_and_gives_everything_back)
 		  "error: could not start the capture: the board did not answer "
 		  "in time (libusb -7)\n"
 		  "note: if a mode is running, stop it with ubertooth-util -S; "
-		  "if the board does not answer at all, re-plug it\n" },
+		  "a board that does not answer at all resets itself within a "
+		  "few seconds, so run the command again\n" },
 		{ "s", 0, 0, LIBUSB_ERROR_PIPE,
 		  "error: could not start the capture: the board does not "
 		  "support this command (stalled) (libusb -9)\n" },

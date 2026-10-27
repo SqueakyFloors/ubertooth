@@ -51,6 +51,7 @@
 #include "usbhw_lpc.h"
 #include "ubertooth.h"
 #include "ubertooth_usb.h"
+#include "watchdog.h"
 #include <string.h>
 
 #ifdef UBERTOOTH_ZERO
@@ -382,9 +383,18 @@ int dequeue_send(u32 clkn)
 void handle_usb_control(void)
 {
 	u32 usb_irq = usb_irq_hold();
+	/* As in handle_usb(): a board the watchdog resets while it is in here
+	 * says so rather than blaming the wait this pass was called from. */
+	uint8_t site = watchdog_mark(WATCHDOG_SITE_USB);
 
 	/* polled "interrupt" */
 	USBHwISR();
+
+	watchdog_mark(site);
+	/* The LE engine's loop services USB only through here, so this is its
+	 * feed: without it the watchdog would reset a board capturing happily
+	 * with ubertooth-btle -f. */
+	watchdog_usb_serviced();
 
 	usb_irq_release(usb_irq);
 }
@@ -420,6 +430,9 @@ void handle_usb(u32 clkn)
 {
 	u8 epstat;
 	u32 usb_irq = usb_irq_hold();
+	/* So that a board the watchdog resets while it is in here says so, rather
+	 * than blaming the wait this service pass was called from. */
+	uint8_t site = watchdog_mark(WATCHDOG_SITE_USB);
 
 	/* write queued packets to USB if possible */
 	epstat = USBHwEPGetStatus(BULK_IN_EP);
@@ -432,6 +445,11 @@ void handle_usb(u32 clkn)
 
 	/* polled "interrupt" */
 	USBHwISR();
+
+	watchdog_mark(site);
+	/* A pass got all the way through, so the host's requests are being
+	 * answered: the watchdog's whole subject. */
+	watchdog_usb_serviced();
 
 	usb_irq_release(usb_irq);
 }

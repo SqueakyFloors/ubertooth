@@ -40,20 +40,6 @@ extern u8 afh_bank[NUM_BREDR_CHANNELS];
 /* The channel a fixed-channel capture is left on by the idle reset. */
 #define IDLE_CHANNEL 2441
 
-/*
- * The modes this model needs. Only their identity matters -- the firmware
- * compares modes, it never orders them -- so these are names for the test,
- * not the numbers in firmware/common/ubertooth.h, which pulls in registers
- * that do not exist on the host.
- */
-enum test_mode {
-	MODE_IDLE,
-	MODE_RX_SYMBOLS,
-	MODE_BT_FOLLOW,
-	MODE_AFH,
-	MODE_SPECAN,
-};
-
 /* The board state the firmware keeps in bluetooth_rxtx.c. */
 static u8 mode;
 static u8 requested_mode;

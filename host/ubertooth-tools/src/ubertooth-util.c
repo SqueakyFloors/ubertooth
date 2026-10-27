@@ -365,6 +365,7 @@ static void usage(FILE *output)
 	fprintf(output, "\t-i activate In-System Programming (ISP) mode\n");
 	fprintf(output, "\t-b get hardware board id number\n");
 	fprintf(output, "\t-p get microcontroller Part ID\n");
+	fprintf(output, "\t-w get the watchdog state, and why the board last reset itself\n");
 	fprintf(output, "\t-s get microcontroller serial number\n");
 	fprintf(output, "\t-x xmas lights\n");
 }
@@ -393,7 +394,7 @@ int main(int argc, char *argv[])
 	int do_set_squelch, do_get_squelch, squelch_level;
 	int do_compile_info;
 	int first_exit_option, long_host_version; /* -h / -H / --host-version */
-	int do_number, do_xmas;
+	int do_number, do_xmas, do_watchdog;
 	char* ubertooth_device = NULL;
 	int requested[QUERY_COUNT]; /* identity queries, for the per-device listing */
 	int any_query, list_all;
@@ -413,7 +414,7 @@ int main(int argc, char *argv[])
 	do_get_leds= do_get_all_leds= do_get_channel= do_get_palevel= 0;
 	do_set_squelch= -1, do_get_squelch= -1; squelch_level= 0;
 	do_compile_info= -1;
-	do_number= 0; do_xmas= 0;
+	do_number= 0; do_xmas= 0; do_watchdog= -1;
 	first_exit_option= 0; long_host_version= 0;
 
 	/* Host-tools version: printed before touching the device, so it works
@@ -432,7 +433,7 @@ int main(int argc, char *argv[])
 	 * see opt_report_bad_option(). The leading ':' makes a missing option
 	 * value distinguishable from an option getopt does not know. */
 	opterr = 0;
-	while ((opt=getopt(argc,argv,":U:hnmeiIprsStvbl::a::C::c::d::q::z::VNxH")) != EOF) {
+	while ((opt=getopt(argc,argv,":U:hnmeiIprsStvbwl::a::C::c::d::q::z::VNxH")) != EOF) {
 		/* An optional value may also be the next word: -c 2440, -z -90. Only
 		 * -z takes a negative value (a signed RSSI threshold). */
 		if (optarg == NULL && strchr("lacCdqz", opt) != NULL)
@@ -562,6 +563,9 @@ int main(int argc, char *argv[])
 			break;
 		case 'N':
 			do_number = 1;
+			break;
+		case 'w':
+			do_watchdog = 0;
 			break;
 		case 'x':
 			do_xmas = 1;
@@ -866,6 +870,26 @@ int main(int argc, char *argv[])
 	if(do_serial == 0)
 		status = util_status_merge(status,
 		        util_report_serial(&report_ops, ut, stdout, stderr));
+
+	if(do_watchdog == 0) {
+		watchdog_info info;
+		int w = cmd_get_watchdog(ut->devh, &info);
+
+		if (w < 0) {
+			status = util_status_merge(status,
+			        report_read_failed("watchdog state", w));
+		} else {
+			/* Printed from the bytes as they arrived, so the report and the
+			 * firmware agree on the order without a struct layout in
+			 * between. */
+			uint8_t raw[UBERTOOTH_WATCHDOG_INFO_LEN] = {
+				info.reset_cause, info.armed, info.resets, info.boots,
+				info.reset_mode, info.reset_site, info.mode, info.site,
+			};
+			status = util_status_merge(status,
+			        util_report_watchdog(stdout, raw, sizeof(raw)));
+		}
+	}
 
 	/* final actions */
 	if(do_identify == 0) {
