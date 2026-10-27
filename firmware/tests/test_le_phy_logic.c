@@ -507,6 +507,10 @@ static int round_trip(le_rx_t *buf, const uint8_t **data, uint16_t *length,
 	static le_usb_reassembly state;
 	usb_pkt_rx *record;
 	int result = LE_REASSEMBLY_WAIT;
+	/* These cases are about the bytes of a packet, not when it arrived, so
+	 * every record is handed in with an arrival reading of zero and the one
+	 * reported back is kept out of the way. */
+	uint64_t ignored_arrival_ns;
 
 	le_usb_reassembly_reset(&state);
 	*records = 0;
@@ -515,8 +519,8 @@ static int round_trip(le_rx_t *buf, const uint8_t **data, uint16_t *length,
 
 	while ((record = dequeue()) != NULL) {
 		(*records)++;
-		result = le_usb_reassemble(&state, record, data, length,
-		                           metadata);
+		result = le_usb_reassemble(&state, record, 0, data, length,
+		                           metadata, &ignored_arrival_ns);
 		if (result != LE_REASSEMBLY_WAIT)
 			break;
 	}
