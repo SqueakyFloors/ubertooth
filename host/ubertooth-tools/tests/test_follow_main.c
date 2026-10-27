@@ -493,7 +493,10 @@ MU_TEST(a_stream_that_cannot_start_gives_the_board_back)
 	reset_fake();
 	fake.bulk_init_rc = -1;
 	r = RUN(TARGET);
-	mu_assert(r.rc != 0, "a follow that never streamed must not exit 0");
+	/* 1, not the failing call's own return value: that used to go out as
+	 * the exit status, and a shell wraps it into a byte, so a script read
+	 * -1 as 255. */
+	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(fake.calls, "aki") == 0, fake.calls);
 	mu_assert_int_eq(0, fake.thread_starts);
 	mu_assert_int_eq(0, fake.receives);

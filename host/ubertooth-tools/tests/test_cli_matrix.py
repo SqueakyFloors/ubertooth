@@ -227,10 +227,8 @@ def reached_device_lookup(output):
     command line was accepted: the spec names those messages per tool.
 
     Both streams are searched, because this asks only whether argument
-    checking passed, not which stream the message used. ubertooth-scan puts
-    its adapter message on standard output, which is wrong and is finding
-    F-07; the stream rules are checked separately, so looking at both here
-    does not let that through.
+    checking passed, not which stream the message used. The stream rules are
+    checked separately, so looking at both here lets nothing through.
     """
     lowered = output.lower()
     markers = DEVICE_LOOKUP + tuple(

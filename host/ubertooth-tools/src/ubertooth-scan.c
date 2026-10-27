@@ -21,7 +21,9 @@
  * Boston, MA 02110-1301, USA.
  */
 
+#include <errno.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include <stdio.h>
 
@@ -271,15 +273,23 @@ int main(int argc, char *argv[])
 		return 0;
 	}
 
+	/* Both adapter failures are reported the way ubertooth-follow, the other
+	 * BlueZ tool, reports them: one "error: " line on standard error, saying
+	 * which adapter and why. The first used to go to standard output, where a
+	 * caller redirecting the scan results to a file collected it with them and
+	 * saw nothing on the terminal; the second was a perror() line with no
+	 * "error: " prefix. */
 	dev_id = hci_devid(bt_dev);
 	if (dev_id < 0) {
-		printf("error: Unable to find %s (%d)\n", bt_dev, dev_id);
+		fprintf(stderr, "error: Bluetooth device %s not found: %s\n",
+		        bt_dev, strerror(errno));
 		return 1;
 	}
 
 	dev_handle = hci_open_dev( dev_id );
 	if (dev_handle < 0) {
-		perror("HCI device open failed");
+		fprintf(stderr, "error: cannot open Bluetooth device %s: %s\n",
+		        bt_dev, strerror(errno));
 		return 1;
 	}
 
@@ -333,34 +343,46 @@ int main(int argc, char *argv[])
 	if (timeout)
 		ubertooth_set_timeout(ut, timeout);
 
+	/* Each of the three steps below exits 1, as every failure here does. The
+	 * failing call's own return value used to go out as the exit status, and a
+	 * shell wraps that into a byte (-9 read as 247, -7 as 249), so a script
+	 * could not tell a scan that failed from anything else. */
+
 	// init USB transfer
 	r = ubertooth_bulk_init(ut);
 	if (r < 0) {
 		/* nothing is in flight, but the board is still open and in
-		 * whatever mode an earlier command left it */
+		 * whatever mode an earlier command left it. libubertooth has
+		 * already said what failed, so the status is all this adds. */
 		ubertooth_stop(ut);
 		close(dev_handle);
-		return r;
+		return 1;
 	}
 
 	r = ubertooth_bulk_thread_start();
-	if (r < 0) {
+	if (r != 0) {
+		/* Not "< 0": this is pthread_create()'s errno, which is positive,
+		 * so a failure used to slip through and leave the capture with
+		 * nobody to complete its transfers -- it then waited forever with
+		 * nothing arriving. */
+		report_capture_thread_failure(r);
 		/* The receive transfer is in flight and the board is about to be
 		 * left in its mode: give both back before returning. */
 		ubertooth_stop(ut);
 		close(dev_handle);
-		return r;
+		return 1;
 	}
 
 	// tell ubertooth to send packets
 	r = cmd_rx_syms(ut->devh);
 	if (r < 0) {
-		/* The poll thread is running by now and nothing else joins it:
-		 * ubertooth_stop() frees the libusb context it polls. */
+		/* libubertooth has named this one too. The poll thread is running
+		 * by now and nothing else joins it: ubertooth_stop() frees the
+		 * libusb context it polls. */
 		ubertooth_bulk_thread_stop();
 		ubertooth_stop(ut);
 		close(dev_handle);
-		return r;
+		return 1;
 	}
 
 	/* Sweep the whole band, which any channel above the Bluetooth band asks

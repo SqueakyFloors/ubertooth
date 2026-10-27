@@ -7,6 +7,10 @@
  * capture ran on whatever channel and address the board was left on and the
  * run reported success. A refused request is now named and ends the command.
  *
+ * A capture that cannot be started exits 1. The failing call's own return
+ * value used to go out as the exit status, and a shell wraps that into a
+ * byte, so a script saw 255 or 247 rather than a failure it could read.
+ *
  * A capture whose USB stream fails stops where it failed, so it holds less
  * than was asked for. It used to exit 0 all the same: the library printed the
  * transfer error and the receive loop kept spinning with nothing arriving
@@ -19,6 +23,7 @@
  * so no board is opened and no 64 MB ring buffer is allocated; libbtbb is the
  * real one, since the tool hands it the piconet and the survey.
  */
+#include <errno.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -55,6 +60,12 @@ static struct {
 	int bdaddrs_set;
 	int channel_rc;      /* returned by cmd_set_channel_quiet() */
 	int bdaddr_rc;       /* returned by cmd_set_bdaddr_quiet() */
+	/* Returned by the three steps that set a capture up: the receive
+	 * transfer, the poll thread that completes it, and the request that
+	 * starts the mode. */
+	int bulk_init_rc;
+	int thread_start_rc;
+	int rx_syms_rc;
 	int api_rc;          /* returned by ubertooth_check_api() */
 	int api_released;    /* whether that call released the board itself */
 	int closes;          /* ubertooth_close() */
@@ -177,7 +188,12 @@ int cmd_rx_syms(struct libusb_device_handle* devh)
 	(void)devh;
 	record('s');
 	device.rx_syms_calls++;
-	return 0;
+	if (device.rx_syms_rc == LIBUSB_ERROR_TIMEOUT)
+		/* The line the library prints for this one, so the case pins what
+		 * the user sees rather than a stub's wording. */
+		fprintf(stderr, "error: the Ubertooth did not answer in time "
+		        "(libusb %d)\n", LIBUSB_ERROR_TIMEOUT);
+	return device.rx_syms_rc;
 }
 
 int cmd_set_bdaddr_quiet(struct libusb_device_handle* devh, uint64_t address)
@@ -193,13 +209,19 @@ int ubertooth_bulk_init(ubertooth_t* ut)
 {
 	(void)ut;
 	device.bulk_inits++;
-	return 0;
+	if (device.bulk_init_rc < 0)
+		/* As the library reports a transfer libusb would not take. */
+		fprintf(stderr, "error: submitting the receive transfer failed "
+		        "(%d)\n", device.bulk_init_rc);
+	return device.bulk_init_rc;
 }
 
+/* pthread_create() returns an errno, which is positive, and the tool has to
+ * read it that way: the fake hands back whatever the case asked for. */
 int ubertooth_bulk_thread_start(void)
 {
 	device.thread_starts++;
-	return 0;
+	return device.thread_start_rc;
 }
 
 void ubertooth_bulk_thread_stop(void) { device.thread_stops++; }
@@ -684,6 +706,73 @@ MU_TEST(a_firmware_the_tool_cannot_use_exits_one)
 	mu_assert_int_eq(1, device.closes); /* the board is not left claimed */
 }
 
+/* A capture that cannot be started at all exits 1 with one "error: " line on
+ * standard error and nothing on standard output. Each of these used to hand
+ * the failing call's own return value to the exit status, which a shell wraps
+ * into a byte: a script read -1 as 255 and the libusb codes as 247 and 249. */
+MU_TEST(a_capture_that_cannot_start_exits_one)
+{
+	char expected[128];
+	struct run_result r;
+
+	/* The receive transfer libusb would not take. */
+	reset_device();
+	device.bulk_init_rc = -1;
+	r = RUN_RX("-t", "10");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, "error: submitting the receive transfer failed "
+	          "(-1)\n") == 0, r.err);
+	mu_assert(r.out[0] == '\0', r.out);
+	/* Nothing was started on top of it: no poll thread, no mode request, no
+	 * channel, no block. The board is given back. */
+	mu_assert_int_eq(0, device.thread_starts);
+	mu_assert_int_eq(0, device.rx_syms_calls);
+	mu_assert_int_eq(0, device.channels_set);
+	mu_assert_int_eq(0, device.blocks);
+	mu_assert_int_eq(1, device.stops);
+
+	/* The thread that collects the capture. pthread_create() reports a
+	 * failure as a positive errno, which a "< 0" test let through: the
+	 * capture then had nobody to complete its transfers and waited forever
+	 * with nothing arriving. */
+	reset_device();
+	device.thread_start_rc = EAGAIN;
+	r = RUN_RX("-t", "10");
+	snprintf(expected, sizeof(expected),
+	         "error: could not start the thread that collects the capture:"
+	         " %s\n", strerror(EAGAIN));
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, expected) == 0, r.err);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert_int_eq(1, device.thread_starts);
+	mu_assert_int_eq(0, device.rx_syms_calls);
+	mu_assert_int_eq(0, device.channels_set);
+	mu_assert_int_eq(0, device.blocks);
+	mu_assert_int_eq(1, device.stops);
+
+	/* The request that starts the mode, which libubertooth reports itself.
+	 * The poll thread is running by then, so it is joined on the way out. */
+	reset_device();
+	device.rx_syms_rc = LIBUSB_ERROR_TIMEOUT;
+	r = RUN_RX("-t", "10");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, "error: the Ubertooth did not answer in time "
+	          "(libusb -7)\n") == 0, r.err);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert_int_eq(1, device.rx_syms_calls);
+	mu_assert_int_eq(0, device.channels_set);
+	mu_assert_int_eq(0, device.blocks);
+	mu_assert_int_eq(1, device.thread_stops);
+	mu_assert_int_eq(1, device.stops);
+
+	/* A survey prints no result list for a capture that never started. */
+	reset_device();
+	device.bulk_init_rc = -1;
+	r = RUN_RX("-z", "-t", "10");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+}
+
 /* A replay opens no device, so it sends no setup request at all and a board
  * that would refuse one cannot affect it. */
 MU_TEST(a_replay_sends_no_setup_request)
@@ -716,6 +805,7 @@ int main(void)
 	MU_RUN(a_refused_setup_request_is_named_and_exits_one);
 	MU_RUN(a_truncated_address_request_ends_the_run_too);
 	MU_RUN(a_refused_sweep_leaves_survey_mode_with_no_results);
+	MU_RUN(a_capture_that_cannot_start_exits_one);
 	MU_RUN(a_firmware_the_tool_cannot_use_exits_one);
 	MU_RUN(a_replay_sends_no_setup_request);
 	return mu_report();

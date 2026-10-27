@@ -1,6 +1,7 @@
 /*
- * The one report for a control request the board refused, shared by the
- * ubertooth-* host tools that set a capture up.
+ * The reports for a capture that could not be started, shared by the
+ * ubertooth-* host tools that set one up: a control request the board
+ * refused, and the host thread that collects the capture.
  *
  * This file is part of Project Ubertooth.
  *
@@ -23,6 +24,7 @@
 #include "request_report.h"
 
 #include <stdio.h>
+#include <string.h>
 
 #include "ubertooth_control.h"
 
@@ -85,4 +87,10 @@ void report_refused_request(const char *what, int code)
 
 	if (advice != NULL)
 		fprintf(stderr, "note: %s\n", advice);
+}
+
+void report_capture_thread_failure(int error)
+{
+	fprintf(stderr, "error: could not start the thread that collects the "
+	        "capture: %s\n", strerror(error));
 }

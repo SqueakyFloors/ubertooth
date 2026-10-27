@@ -277,6 +277,16 @@ hands the transfer back at all exits 1 too, reported by the `warning:` line
 ubertooth(7) describes rather than that error. A `-z` survey still prints the
 results it did get.
 
+A capture that could not be started at all exits 1 as well, whichever step
+failed: the receive transfer libusb would not take, the host thread that
+collects the capture, or the request that puts the board in its capture mode.
+Standard output stays empty and standard error carries the one `error: ` line
+for that step, for example `error: could not start the thread that collects
+the capture: Resource temporarily unavailable`. The status is 1 in every case,
+never the failing call's own return value: a negative libusb code handed to
+the exit status is wrapped into a byte, so `libusb -9` reached a script as
+247.
+
 A board that refuses the channel request, or the address request `-l` and `-u`
 together name, exits 1 as well, and nothing is captured, so a board that will
 not leave the channel it is on cannot be mistaken for one that is sweeping.

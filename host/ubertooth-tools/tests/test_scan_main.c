@@ -11,7 +11,8 @@
  * BlueZ itself is faked as far as finding and opening a local adapter, which
  * every run does before it reaches the Ubertooth, and the inquiry -s asks for,
  * which finds nothing: no case needs a Bluetooth adapter on the machine
- * running the tests.
+ * running the tests. Both adapter steps can be made to fail, so what the tool
+ * says and which stream it says it on are pinned here too.
  */
 #include <errno.h>
 #include <fcntl.h>
@@ -47,6 +48,10 @@ static struct {
 	int bulk_init_rc;
 	int thread_start_rc;
 	int rx_syms_rc;
+	/* The two BlueZ failures: no adapter of that name, and one that is
+	 * there but will not open. Each is the errno the call leaves behind. */
+	int devid_fails;
+	int open_fails;
 	char adapter[16];    /* the adapter name -b asked for */
 	int dev_fd;          /* the adapter handle the tool was given */
 	int dev_fd_closed;   /* whether the run gave it back */
@@ -85,6 +90,10 @@ static void reset_fake(void)
 int hci_devid(const char* str)
 {
 	snprintf(fake.adapter, sizeof(fake.adapter), "%s", str ? str : "");
+	if (fake.devid_fails) {
+		errno = ENODEV;
+		return -1;
+	}
 	return 0;
 }
 
@@ -93,6 +102,10 @@ int hci_devid(const char* str)
 int hci_open_dev(int dev_id)
 {
 	(void)dev_id;
+	if (fake.open_fails) {
+		errno = EPERM;
+		return -1;
+	}
 	fake.dev_fd = open("/dev/null", O_RDONLY);
 	return fake.dev_fd;
 }
@@ -158,6 +171,11 @@ int cmd_rx_syms(struct libusb_device_handle* devh)
 {
 	(void)devh;
 	record('s');
+	if (fake.rx_syms_rc == LIBUSB_ERROR_TIMEOUT)
+		/* The line the library prints for this one, so the case pins what
+		 * the user sees rather than a stub's wording. */
+		fprintf(stderr, "error: the Ubertooth did not answer in time "
+		        "(libusb %d)\n", LIBUSB_ERROR_TIMEOUT);
 	return fake.rx_syms_rc;
 }
 
@@ -184,9 +202,15 @@ void ubertooth_set_timeout(ubertooth_t* ut, int seconds)
 int ubertooth_bulk_init(ubertooth_t* ut)
 {
 	(void)ut;
+	if (fake.bulk_init_rc < 0)
+		/* As the library reports a transfer libusb would not take. */
+		fprintf(stderr, "error: submitting the receive transfer failed "
+		        "(%d)\n", fake.bulk_init_rc);
 	return fake.bulk_init_rc;
 }
 
+/* pthread_create() returns an errno, which is positive, and the tool has to
+ * read it that way: the fake hands back whatever the case asked for. */
 int ubertooth_bulk_thread_start()
 {
 	return fake.thread_start_rc;
@@ -397,24 +421,43 @@ MU_TEST(a_refused_sweep_keeps_the_bluez_results)
 	mu_assert(strcmp(r.err, STALLED) == 0, r.err);
 }
 
-/* Each of the three steps that set the capture up can fail, and each gives
- * back both the board and the BlueZ adapter handle this tool holds alongside
- * it. The handle is the one easily forgotten: the scan opens it before it
- * touches the Ubertooth at all. */
-MU_TEST(a_capture_that_cannot_be_set_up_gives_everything_back)
+/* Each of the three steps that set the capture up can fail. Each exits 1 with
+ * one "error: " line on standard error and nothing on standard output, and
+ * each gives back both the board and the BlueZ adapter handle this tool holds
+ * alongside it. The handle is the one easily forgotten: the scan opens it
+ * before it touches the Ubertooth at all.
+ *
+ * The status is the point of the three cases together. Each used to hand the
+ * failing call's own return value to the exit status, which a shell wraps into
+ * a byte, so a script read -1 as 255 and the libusb codes as 247 and 249.
+ *
+ * The poll thread's case asks for a positive code, because that is what
+ * pthread_create() returns: a "< 0" test let a failure through, and the
+ * capture then had nobody to complete its transfers and waited forever with
+ * nothing arriving. */
+MU_TEST(a_capture_that_cannot_be_set_up_exits_1_and_gives_everything_back)
 {
-	static const struct {
+	char thread_failed[128];
+	struct {
 		const char* calls;   /* the requests made before the failure */
 		int bulk_init_rc;
 		int thread_start_rc;
 		int rx_syms_rc;
+		const char* message;
 	} cases[] = {
-		{ "",  -1,  0,  0 },
-		{ "",   0, -1,  0 },
-		{ "s",  0,  0, -9 },
+		{ "",  -1, 0, 0,
+		  "error: submitting the receive transfer failed (-1)\n" },
+		{ "",  0, EAGAIN, 0, NULL /* filled in below */ },
+		{ "s", 0, 0, LIBUSB_ERROR_TIMEOUT,
+		  "error: the Ubertooth did not answer in time (libusb -7)\n" },
 	};
 	struct run_result r;
 	size_t i;
+
+	snprintf(thread_failed, sizeof(thread_failed),
+	         "error: could not start the thread that collects the capture:"
+	         " %s\n", strerror(EAGAIN));
+	cases[1].message = thread_failed;
 
 	for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
 		reset_fake();
@@ -422,7 +465,7 @@ MU_TEST(a_capture_that_cannot_be_set_up_gives_everything_back)
 		fake.thread_start_rc = cases[i].thread_start_rc;
 		fake.rx_syms_rc = cases[i].rx_syms_rc;
 		r = RUN("-t", "5");
-		mu_assert(r.rc != 0, "the run failed");
+		mu_assert_int_eq(1, r.rc);
 		mu_assert(strcmp(fake.calls, cases[i].calls) == 0, fake.calls);
 		/* No sweep was stated, and no results were gathered. */
 		mu_assert_int_eq(0, fake.receives);
@@ -432,7 +475,45 @@ MU_TEST(a_capture_that_cannot_be_set_up_gives_everything_back)
 		mu_assert_int_eq(0, fake.closes);
 		mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
 		mu_assert(r.out[0] == '\0', r.out);
+		mu_assert(strcmp(r.err, cases[i].message) == 0, r.err);
 	}
+}
+
+/* The two BlueZ failures, each one "error: " line on standard error. The
+ * first used to go to standard output, where a caller redirecting the scan
+ * results to a file collected it with them and saw nothing on the terminal;
+ * the second was a perror() line with no "error: " prefix. */
+MU_TEST(a_bluez_failure_is_reported_on_standard_error)
+{
+	char expected[128];
+	struct run_result r;
+
+	/* No adapter of that name. */
+	reset_fake();
+	fake.devid_fails = 1;
+	r = RUN("-b", "hci7");
+	snprintf(expected, sizeof(expected),
+	         "error: Bluetooth device hci7 not found: %s\n",
+	         strerror(ENODEV));
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strcmp(r.err, expected) == 0, r.err);
+	/* Nothing was opened: the adapter is found before the board. */
+	mu_assert(fake.calls[0] == '\0', fake.calls);
+	mu_assert_int_eq(0, fake.stops);
+
+	/* An adapter that is there but will not open. */
+	reset_fake();
+	fake.open_fails = 1;
+	r = RUN("-t", "5");
+	snprintf(expected, sizeof(expected),
+	         "error: cannot open Bluetooth device hci0: %s\n",
+	         strerror(EPERM));
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strcmp(r.err, expected) == 0, r.err);
+	mu_assert(fake.calls[0] == '\0', fake.calls);
+	mu_assert_int_eq(0, fake.stops);
 }
 
 /* A board that cannot be opened, and a firmware the host will not drive, each
@@ -492,7 +573,8 @@ int main(void)
 	MU_RUN(a_scan_the_board_took_sweeps_and_exits_0);
 	MU_RUN(a_refused_sweep_is_named_and_exits_1);
 	MU_RUN(a_refused_sweep_keeps_the_bluez_results);
-	MU_RUN(a_capture_that_cannot_be_set_up_gives_everything_back);
+	MU_RUN(a_capture_that_cannot_be_set_up_exits_1_and_gives_everything_back);
+	MU_RUN(a_bluez_failure_is_reported_on_standard_error);
 	MU_RUN(a_board_or_firmware_the_tool_cannot_use_exits_1);
 	MU_RUN(help_exits_0_on_standard_output);
 	return mu_report();
