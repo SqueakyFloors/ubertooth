@@ -37,12 +37,12 @@ add_definitions( -DVERSION="${VERSION}" )
 # in <endian.h> (le32toh, htobe32, be32toh), which are a glibc extension.
 # _DEFAULT_SOURCE is the one macro that covers both: glibc's <features.h>
 # turns it into _POSIX_C_SOURCE 200809L plus the extensions, so there is no
-# need to set _POSIX_C_SOURCE as well.
+# need to set _POSIX_C_SOURCE as well. musl reads it the same way.
 #
 # Without it, a strict standard (-std=c17, -std=c2x) hides all of the above
 # and the build fails; it only worked because gcc and clang default to a GNU
-# standard, which defines _DEFAULT_SOURCE for us. Other C libraries ignore the
-# macro: macOS declares these without being asked.
+# standard, which defines _DEFAULT_SOURCE for us. macOS and the BSDs ignore
+# the macro and declare these without being asked.
 #
 # This is set here, for every target below, rather than in the sources: the
 # library, the tools and the tests all use these interfaces.

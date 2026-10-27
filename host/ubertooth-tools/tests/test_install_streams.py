@@ -5,7 +5,8 @@ Run as: test_install_streams.py <path to install.sh>
 
 The script installs nothing here, and touches no device: the first runs are
 refused or answered while the command line is being read, and the rest are
-faked (see FAKES below) and stop at a clone that cannot succeed.
+faked (see FAKES below) and stop at a device that is not there or a clone that
+cannot succeed.
 
   * --help is what the user asked for, so it goes to standard output and
     exits 0;
@@ -63,10 +64,10 @@ assert result.stderr.startswith("error: "), result
 
 # The slow quiet steps announce themselves before they run.
 #
-# Faking brew, uname, sysctl, python3, ubertooth-util and git puts the macOS
-# path of the script in reach on any platform and installs nothing: the
-# formulae are reported absent, no device is found, and the libbtbb clone
-# fails, which ends the run before anything is built.
+# Faking brew, uname, sysctl, python3, make, git and the two Ubertooth tools
+# puts the macOS path of the script in reach on any platform and installs
+# nothing: the formulae are reported absent, no device is found, and the
+# libbtbb clone fails, so every run ends before anything is built.
 #
 # Each fake also appends a line naming the call it just received to the file
 # the script's standard error is going to, so the announcement and the slow
@@ -74,8 +75,8 @@ assert result.stderr.startswith("error: "), result
 # then checks that the announcement comes before that command rather than
 # merely somewhere earlier in the run.
 FAKES = {
-    # Only "uname -s" is faked; anything else goes to the real one.
-    "uname": '[ "$1" = -s ] && echo Darwin || exec /usr/bin/uname "$@"',
+    # The script asks for "uname -s" and nothing else.
+    "uname": 'echo Darwin',
     # "brew --prefix" names a scratch prefix (which the script then compares
     # with its install prefix, so the formula check runs); "brew list" reports
     # every formula absent.
@@ -162,23 +163,28 @@ in_order(lines, ["==> Checking Homebrew for an ubertooth or libbtbb",
 
 # So is each read of the device list that resolves the flash target: the one
 # in the pre-flight check, which a --flash with no selector goes through, and
-# the one before the flash itself, which every --flash run reaches.
+# the one before the flash itself, which every --flash run reaches. The two
+# announcements differ, so one of them cannot stand in for both.
 status, lines, stdout = run_with_fakes(["--flash", "--skip-deps"])
 assert status != 0, lines
 assert stdout == "", stdout
-in_order(lines, ["==> Looking for the Ubertooth to flash",
+in_order(lines, ["==> Checking which Ubertooth to flash",
                  "ran: ubertooth-util -s",
                  "==> Looking for the Ubertooth to flash",
                  "ran: ubertooth-util -s"])
 
 # A named device skips the pre-flight check but still reads the device list.
+# The name has letters in it, so the script takes it as a serial rather than
+# as an index.
+serial = "ab" * 16
 status, lines, stdout = run_with_fakes(
-    ["--flash-device", "0" * 32, "--skip-deps"])
+    ["--flash-device", serial, "--skip-deps"])
 assert status != 0, lines
 assert stdout == "", stdout
 in_order(lines, ["==> Looking for the Ubertooth to flash",
                  "ran: ubertooth-util -s",
-                 "ran: ubertooth-dfu -U " + "0" * 32])
+                 "==> Flashing bluetooth_rxtx to Ubertooth serial " + serial,
+                 "ran: ubertooth-dfu -U " + serial])
 
 print("install.sh: --help on stdout, refusals and progress on stderr, "
       "slow steps announced before they run")

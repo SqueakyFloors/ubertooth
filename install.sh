@@ -247,8 +247,8 @@ flash_firmware() {
 		return 0
 	fi
 
-	# Reached with any selector, --flash-device <serial> included, and a
-	# device that is busy or wedged makes each read wait, so say so first.
+	# Reached with any selector, --flash-device <serial> included, and here
+	# too a device that is busy or wedged makes each read wait.
 	info "Looking for the Ubertooth to flash"
 	devices="$(list_devices "$util")"
 	n="$(printf '%s\n' "$devices" | grep -c . || true)"
@@ -295,9 +295,9 @@ flash_firmware() {
 # build. Only possible if ubertooth-util is already installed.
 if [ "$FLASH" -eq 1 ] && command -v ubertooth-util >/dev/null 2>&1; then
 	if [ "$FLASH_DEVICE" != "all" ] && [ -z "$FLASH_DEVICE" ]; then
-		# Two reads of the device list, and a device that is busy or wedged
-		# makes each one wait, so say so before it starts.
-		info "Looking for the Ubertooth to flash"
+		# list_devices runs ubertooth-util twice (-s and -N), and a device
+		# that is busy or wedged makes each read wait, so say so first.
+		info "Checking which Ubertooth to flash"
 		_devices="$(list_devices "$(command -v ubertooth-util)")"
 		_n="$(printf '%s\n' "$_devices" | grep -c . || true)"
 		[ "$_n" -le 1 ] || die "$(multi_device_msg "$_devices")"
