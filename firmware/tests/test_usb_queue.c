@@ -3769,6 +3769,8 @@ static const char *const br_edr_dirs[] = {
 
 static int br_edr_dir_seen[BR_EDR_DIR_COUNT];
 static int br_edr_files_read;
+/* A path the walk could not hold; see walk_br_edr_sources(). */
+static char br_edr_path_too_long[1024];
 static char br_edr_stray_write[256];
 static char br_edr_stray_dequeue[256];
 static char br_edr_stray_sync[256];
@@ -3913,11 +3915,26 @@ static void walk_br_edr_sources(const char *path,
 	while ((entry = readdir(dir)) != NULL) {
 		char child[512];
 		size_t len = strlen(entry->d_name);
+		int n;
 
 		/* "." and ".." would recurse here forever. */
 		if (entry->d_name[0] == '.')
 			continue;
-		snprintf(child, sizeof(child), "%s/%s", path, entry->d_name);
+		n = snprintf(child, sizeof(child), "%s/%s", path,
+		             entry->d_name);
+		/*
+		 * A path too long to hold would be opened truncated, fail, and
+		 * be passed over without a word -- so a source nested that
+		 * deep would be in the image and in none of the checks below.
+		 * It is recorded instead.
+		 */
+		if (n < 0 || (size_t)n >= sizeof(child)) {
+			if (br_edr_path_too_long[0] == '\0')
+				snprintf(br_edr_path_too_long,
+				         sizeof(br_edr_path_too_long), "%s/%s",
+				         path, entry->d_name);
+			continue;
+		}
 		/* Headers as well as sources: a `static inline` in a header
 		 * that one of these sources includes puts its code in the
 		 * image just as a .c file would. */
@@ -4032,6 +4049,13 @@ MU_TEST(the_br_edr_image_has_one_way_to_the_host)
 	mu_assert(br_edr_files_read > 10,
 	          "nothing read under " FW_BTBR_DIR "/src or /include, so the "
 	          "checks below passed for want of anything to look at");
+
+	snprintf(msg, sizeof(msg),
+	         "%s is nested too deep for the walk to name, so it was not "
+	         "read and the checks below say nothing about it. The image "
+	         "compiles every source under its tree whatever the depth",
+	         br_edr_path_too_long);
+	mu_assert(br_edr_path_too_long[0] == '\0', msg);
 
 	for (d = 0; d < BR_EDR_DIR_COUNT; d++) {
 		snprintf(msg, sizeof(msg),
