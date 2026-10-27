@@ -195,6 +195,8 @@ Standard output carries only what was asked for: the decoded packets, the captur
 .P
 Errors, warnings and progress go to standard error, each error as one line starting \fBerror:\fR, for example \fBerror: USB poll failed\fR when the board stops answering during a capture, \fBerror: jamming not supported by this firmware\fR, \fBerror: target set failed\fR, or \fBerror: MAC address must be xx:xx:xx:xx:xx:xx (got 11:22:33:44:55)\fR\. A capture file that cannot be created is reported as \fBerror: <file>: <reason>\fR\.
 .P
+Each request that sets a mode up is named on its own, so the line says which one the board refused: \fBerror: could not set the advertising channel\fR, \fBerror: could not set the advertising data\fR, \fBerror: could not start advertising\fR for \fB\-s\fR, and \fBerror: could not start follow mode\fR (or \fBno\-follow\fR, or \fBpromiscuous\fR) for the sniffing modes\. No capture starts after one of these\.
+.P
 \fB\-q\fR and \fB\-c\fR share one capture handle, so a second file between them is ignored with \fBwarning: ignoring extra capture file: <name>\fR and the first one given is used; \fB\-r\fR has its own handle, so \fB\-q a\.pcap \-r b\.pcapng\fR writes both\.
 .P
 A command line the tool will not take is reported as that one \fBerror:\fR line on standard error, with no usage text after it: the line describes the problem, and \fB\-h\fR prints the usage text for a reader who wants it\. An option the tool does not know reads \fBerror: unrecognized option '\-Z'\fR; one whose value is missing reads \fBerror: option '\-A' requires a value\fR\.

@@ -665,6 +665,7 @@ MU_TEST(the_r_format_loop_asks_for_afh)
 	char err[256] = "";
 	ubertooth_t* ut;
 	btbb_piconet* pn;
+	int r;
 
 	reset();
 	ut = new_handle();
@@ -674,9 +675,10 @@ MU_TEST(the_r_format_loop_asks_for_afh)
 		return;
 
 	capture_output();
-	rx_afh_r(ut, pn, 0);
+	r = rx_afh_r(ut, pn, 0);
 	release_output(err, sizeof(err));
 
+	mu_assert_int_eq(0, r); /* stopped normally */
 	assert_requests(expected, ARRAY_LEN(expected));
 	mu_assert_int_eq(AFH_DETECTION_CHANNEL, fake.values[0]);
 	mu_assert(err[0] == '\0', err);
@@ -758,11 +760,72 @@ MU_TEST(a_refused_mode_request_joins_the_poll_thread)
 	}
 
 	capture_output();
-	rx_afh_r(ut, pn, 0);
+	r = rx_afh_r(ut, pn, 0);
 	release_output(err, sizeof(err));
 
+	mu_assert_int_eq(LIBUSB_ERROR_PIPE, r);
 	assert_requests(expected, ARRAY_LEN(expected));
 	mu_assert_int_eq(1, do_exit);
+
+	assert_transfer_lifetimes();
+	release_handle(ut);
+	btbb_piconet_unref(pn);
+}
+
+/* The band sweep is what makes the map a map: without it the board stays on
+ * one channel, so a refused request ends the receive phase instead of being
+ * carried past it. Both paths used to send it and look at nothing, then
+ * stream and print a map of the one channel the board happened to sit on. No
+ * stream starts, and the library's own report is the only line. */
+MU_TEST(a_refused_band_sweep_ends_the_receive_phase)
+{
+	static const uint8_t expected[] = { UBERTOOTH_SET_CHANNEL };
+	char err[256] = "";
+	ubertooth_t* ut;
+	btbb_piconet* pn;
+	int r;
+
+	reset();
+	fake.refuse_request = UBERTOOTH_SET_CHANNEL;
+	ut = new_handle();
+	pn = new_piconet();
+	mu_assert(ut != NULL && pn != NULL, "a handle and a piconet");
+	if (ut == NULL || pn == NULL)
+		return;
+
+	capture_output();
+	r = rx_afh(ut, pn, 30);
+	alarm(0); /* in case the detection phase was reached after all */
+	release_output(err, sizeof(err));
+
+	mu_assert_int_eq(LIBUSB_ERROR_PIPE, r);
+	assert_requests(expected, ARRAY_LEN(expected));
+	mu_assert_int_eq(AFH_DETECTION_CHANNEL, fake.values[0]);
+	mu_assert_int_eq(0, fake.bulk_submits);
+	/* the library reports the refusal; the caller adds nothing */
+	mu_assert(strstr(err, "control message unsupported") != NULL, err);
+
+	assert_transfer_lifetimes();
+	release_handle(ut);
+
+	/* and the -r loop, whose return value is how its caller finds out */
+	reset();
+	fake.refuse_request = UBERTOOTH_SET_CHANNEL;
+	ut = new_handle();
+	mu_assert(ut != NULL, "a handle");
+	if (ut == NULL) {
+		btbb_piconet_unref(pn);
+		return;
+	}
+
+	capture_output();
+	r = rx_afh_r(ut, pn, 0);
+	release_output(err, sizeof(err));
+
+	mu_assert_int_eq(LIBUSB_ERROR_PIPE, r);
+	assert_requests(expected, ARRAY_LEN(expected));
+	mu_assert_int_eq(0, fake.bulk_submits);
+	mu_assert(strstr(err, "control message unsupported") != NULL, err);
 
 	assert_transfer_lifetimes();
 	release_handle(ut);
@@ -1312,6 +1375,7 @@ int main(void)
 	MU_RUN(the_r_format_loop_asks_for_afh);
 	MU_RUN(a_symbol_capture_still_asks_for_symbols);
 	MU_RUN(a_refused_mode_request_joins_the_poll_thread);
+	MU_RUN(a_refused_band_sweep_ends_the_receive_phase);
 	MU_RUN(a_two_phase_run_frees_every_receive_transfer);
 	MU_RUN(a_single_phase_stream_frees_its_receive_transfer);
 	MU_RUN(a_refused_submit_leaves_no_transfer_behind);

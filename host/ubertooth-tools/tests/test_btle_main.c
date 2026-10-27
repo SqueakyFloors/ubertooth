@@ -47,6 +47,7 @@ static struct {
 	int channel_rc;      /* returned by cmd_set_channel() */
 	int modulation_rc;   /* returned by cmd_set_modulation() */
 	int adv_data_rc;     /* returned by cmd_le_set_adv_data() */
+	int adv_data_calls;
 	u16 last_channel;
 	u32 access_address;
 	int aa_reads;
@@ -274,6 +275,7 @@ int cmd_le_set_adv_data(struct libusb_device_handle *devh, uint8_t *data,
 	(void)devh;
 	(void)data;
 	(void)data_len;
+	fake.adv_data_calls++;
 	return fake.adv_data_rc;
 }
 
@@ -780,17 +782,22 @@ MU_TEST(a_mode_the_board_refuses_stops_the_run)
 	mu_assert(strcmp(r.err, "error: could not start promiscuous mode\n") == 0,
 	          r.err);
 
+	/* The request that starts the advertising is stopped on the way out: a
+	 * timeout is not proof the board never got it, and a board left
+	 * part-way into a low-energy mode stops answering. */
 	reset_fake();
 	fake.mode_start_rc = -1;
 	r = RUN("-s22:44:66:88:aa:cc");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(r.err, "error: could not start faux slave mode\n") == 0,
+	mu_assert_int_eq(1, fake.stops);
+	mu_assert(strcmp(r.err, "error: could not start advertising\n") == 0,
 	          r.err);
 	mu_assert(r.out[0] == '\0', r.out);
 
 	/* the other requests each mode sends: the modulation and the channel
 	 * for a sniffing mode, the channel and the advertising data for the
-	 * faux slave mode */
+	 * faux slave mode. Each is named on its own, so the user is told which
+	 * request the board refused rather than only which mode failed. */
 	reset_fake();
 	fake.modulation_rc = -1;
 	r = RUN("-f");
@@ -804,24 +811,36 @@ MU_TEST(a_mode_the_board_refuses_stops_the_run)
 	r = RUN("-f");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert_int_eq(0, fake.sniffing_calls);
-	mu_assert(strcmp(r.err, "error: could not start follow mode\n") == 0,
+	mu_assert_int_eq(1, fake.stops);
+	mu_assert(strcmp(r.err,
+	                 "error: could not set the advertising channel\n") == 0,
 	          r.err);
+	mu_assert(r.out[0] == '\0', r.out);
 
+	/* Neither of the two that only set something up has started a mode, so
+	 * neither sends a STOP the board may not be able to answer. */
 	reset_fake();
 	fake.channel_rc = -1;
 	r = RUN("-s22:44:66:88:aa:cc");
 	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, fake.adv_data_calls);
 	mu_assert_int_eq(0, fake.slave_calls);
-	mu_assert(strcmp(r.err, "error: could not start faux slave mode\n") == 0,
+	mu_assert_int_eq(0, fake.stops);
+	mu_assert(strcmp(r.err,
+	                 "error: could not set the advertising channel\n") == 0,
 	          r.err);
+	mu_assert(r.out[0] == '\0', r.out);
 
 	reset_fake();
 	fake.adv_data_rc = -1;
 	r = RUN("-s22:44:66:88:aa:cc");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert_int_eq(0, fake.slave_calls);
-	mu_assert(strcmp(r.err, "error: could not start faux slave mode\n") == 0,
+	mu_assert_int_eq(0, fake.stops);
+	mu_assert(strcmp(r.err,
+	                 "error: could not set the advertising data\n") == 0,
 	          r.err);
+	mu_assert(r.out[0] == '\0', r.out);
 
 	/* the -A channel index reaches the board in both modes */
 	reset_fake();
