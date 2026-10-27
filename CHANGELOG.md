@@ -136,11 +136,12 @@
   the command returns at once and the board stays reachable; `-S` or any mode
   option stops it and leaves the LEDs off.
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
-- **Reflash required:** the firmware API version is now 1.34, last moved by the
-  watchdog state request, and the host tools require firmware of exactly their
-  own API version, older or newer. Host and firmware come from the same tree:
-  `ubertooth-dfu` reflashes a board whatever firmware it is running, but only
-  with an image built from this tree, and `2020-12-R1` firmware is refused.
+- **Reflash required:** the firmware API version is now 1.35, last moved by the
+  range test reaching the radio's packet buffer, and the host tools require
+  firmware of exactly their own API version, older or newer. Host and firmware
+  come from the same tree: `ubertooth-dfu` reflashes a board whatever firmware
+  it is running, but only with an image built from this tree, and `2020-12-R1`
+  firmware is refused.
   [#4](https://github.com/SqueakyFloors/ubertooth/issues/4)
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)

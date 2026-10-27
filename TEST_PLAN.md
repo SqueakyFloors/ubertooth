@@ -40,7 +40,7 @@ Hardware required: Ubertooth One, Linux machine (Ubuntu 22.04+ preferred), a BLE
 
 ### 2a. Firmware version check
 - [ ] Run `ubertooth-util -v`
-- [ ] Confirm: returns `Firmware version: <image> <revision> (API:1.34)` (firmware
+- [ ] Confirm: returns `Firmware version: <image> <revision> (API:1.35)` (firmware
       built from this tree; the host tools refuse any other API version, and a
       board whose firmware has no info block shows the revision without an
       image name)
