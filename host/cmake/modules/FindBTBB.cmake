@@ -26,6 +26,12 @@ set(LIBBTBB_PINNED_REF "2fd0d391d99e9b0620146f63f439c1ec74f79861")
 # tools/check-btbb-symbols.sh compares this list with the calls in the host
 # sources, and the scripts CI job runs it, so a call added to a function that
 # is not listed here fails that check rather than going unnoticed.
+#
+# Every call in the tree, not the calls this configuration will compile: a few
+# of these are reached only by ubertooth-scan and ubertooth-follow, which are
+# skipped where there is no libbluetooth, and asking for a different set per
+# machine would mean a libbtbb that satisfies a macOS build and fails a Linux
+# one later.
 set(LIBBTBB_REQUIRED_FUNCTIONS
   btbb_find_ac
   btbb_gen_syncword
@@ -94,13 +100,23 @@ function(btbb_require_functions)
   set(CMAKE_REQUIRED_INCLUDES ${LIBBTBB_INCLUDE_DIR})
   set(CMAKE_REQUIRED_LIBRARIES ${LIBBTBB_LIBRARIES})
 
-  # Taking the address of each function needs a declaration from btbb.h and a
-  # definition in the library, so one compile and link answers for the header
-  # and the library together. All of them at once, because the common case is
-  # that nothing is missing and that case has to cost one compile.
-  set(body "#include <btbb.h>\nint main(void) {\n\tconst void *used[] = {\n")
+  # Taking the address of each function needs a declaration from btbb.h, and
+  # storing it needs a definition in the library, so one compile and link
+  # answers for the header and the library together. All of them at once,
+  # because the common case is that nothing is missing and that case has to
+  # cost one compile.
+  #
+  # The addresses are cast to a function pointer type rather than to void *.
+  # Converting a function pointer to an object pointer is not something C
+  # promises, and a user whose CFLAGS carry -Wpedantic -Werror would get a
+  # refusal that has nothing to do with their libbtbb. Casting between
+  # function pointer types is allowed, and storing the result still needs the
+  # symbol at link time, which a comparison such as &f != 0 would not: the
+  # compiler folds that to 1 and references nothing.
+  set(body "#include <btbb.h>\ntypedef void (*btbb_probe_fn)(void);\n")
+  string(APPEND body "int main(void) {\n\tbtbb_probe_fn used[] = {\n")
   foreach(function ${LIBBTBB_REQUIRED_FUNCTIONS})
-    string(APPEND body "\t\t(const void *)&${function},\n")
+    string(APPEND body "\t\t(btbb_probe_fn)&${function},\n")
   endforeach()
   string(APPEND body "\t};\n\treturn used[0] == 0;\n}\n")
 
@@ -111,6 +127,34 @@ function(btbb_require_functions)
   check_c_source_compiles("${body}" LIBBTBB_HAS_REQUIRED_FUNCTIONS)
   if(LIBBTBB_HAS_REQUIRED_FUNCTIONS)
     return()
+  endif()
+
+  # The fix, whichever way the probe failed. The pinned commit is in it
+  # because that is what the reader has to check out, and the pin otherwise
+  # lives in a CI workflow file where nobody would look. The commands are the
+  # build guide's, which work on the CMake 3.5 this project still supports:
+  # cmake -S/-B needs 3.13 and cmake --install needs 3.15.
+  # One quoted string, and referenced as one below: a semicolon in an unquoted
+  # CMake variable is a list separator and would be eaten.
+  set(fix "Rebuild and install libbtbb at the commit this fork is built against:\n")
+  string(APPEND fix
+    "    git clone https://github.com/${LIBBTBB_PINNED_REPO}.git\n"
+    "    cd libbtbb\n"
+    "    git checkout ${LIBBTBB_PINNED_REF}\n"
+    "    mkdir build && cd build\n"
+    "    cmake -DENABLE_PYTHON=OFF .. && make\n"
+    "    sudo make install\n"
+    "    sudo ldconfig     # Linux only\n"
+    "then configure this build again, or let ./install.sh do all of it for you.")
+
+  # The header has to be read to say which functions are missing. It was there
+  # when it was found, so this is the libbtbb that has been uninstalled or
+  # moved under a build directory that configured once -- the same fix, with
+  # nothing to name.
+  if(NOT EXISTS "${LIBBTBB_INCLUDE_DIR}/btbb.h")
+    message(FATAL_ERROR
+      "btbb.h is gone from ${LIBBTBB_INCLUDE_DIR}, where this build found "
+      "libbtbb.\n" "${fix}")
   endif()
 
   # Which functions are missing, read out of btbb.h rather than probed one at
@@ -131,33 +175,25 @@ function(btbb_require_functions)
       list(APPEND missing ${function})
     endif()
   endforeach()
+
   if(NOT missing)
     # btbb.h names every one of them, so this is not a libbtbb that is too
-    # old: the header, the library or the compiler flags disagree with each
-    # other.
+    # old: the header and the library are from different installs, or the
+    # library cannot be linked where it is. Reinstalling the pinned one is
+    # still the likely fix, so the commands come too.
     message(FATAL_ERROR
       "the libbtbb found at ${LIBBTBB_INCLUDE_DIR} declares the functions the "
       "Ubertooth host tools call, but a program that uses all of them and "
-      "links ${LIBBTBB_LIBRARIES} does not build. The last attempt is in "
-      "${CMAKE_BINARY_DIR}/CMakeFiles/CMakeConfigureLog.yaml (older CMake: "
-      "CMakeFiles/CMakeError.log).")
+      "links ${LIBBTBB_LIBRARIES} does not build. The attempt is in "
+      "${CMAKE_BINARY_DIR}/CMakeFiles/CMakeConfigureLog.yaml (CMake older "
+      "than 3.26: CMakeFiles/CMakeError.log).\n" "${fix}")
   endif()
 
+  # One line for what is wrong, then the commands that fix it.
   string(REPLACE ";" ", " missing_names "${missing}")
-  # One line for what is wrong, then the commands that fix it. The pinned
-  # commit is in it because that is what the reader has to check out, and the
-  # pin lives in a CI workflow file where nobody would look.
   message(FATAL_ERROR
     "the libbtbb found at ${LIBBTBB_INCLUDE_DIR} does not have "
-    "${missing_names}, which the Ubertooth host tools call.\n"
-    "Rebuild and install libbtbb at the commit this fork is built against:\n"
-    "    git clone https://github.com/${LIBBTBB_PINNED_REPO}\n"
-    "    cd libbtbb\n"
-    "    git checkout ${LIBBTBB_PINNED_REF}\n"
-    "    cmake -S . -B build -DENABLE_PYTHON=OFF\n"
-    "    cmake --build build\n"
-    "    sudo cmake --install build\n"
-    "then configure this build again; ./install.sh does all of it for you.")
+    "${missing_names}, which the Ubertooth host tools call.\n" "${fix}")
 endfunction()
 
 

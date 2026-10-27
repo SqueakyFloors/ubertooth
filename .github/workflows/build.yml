@@ -493,7 +493,7 @@ jobs:
     - name: Check that the list check still catches a difference
       # So the step above cannot pass because the list or the scan has stopped
       # being read. Dropping a name has to be reported as a call the list is
-      # missing; the copy is thrown away with the runner.
+      # missing.
       shell: bash
       run: |
         module=host/cmake/modules/FindBTBB.cmake
@@ -501,7 +501,12 @@ jobs:
                   sed -n 's/^  \([a-z_][a-z0-9_]*\)$/\1/p' | head -1)
         : "${dropped:?no function name to drop from $module}"
         sed -i.bak "/^  $dropped\$/d" "$module"
-        if tools/check-btbb-symbols.sh > dropped.out 2>&1; then
+        status=0
+        tools/check-btbb-symbols.sh > dropped.out 2>&1 || status=$?
+        # Put the file back before anything is asserted, so a failing run
+        # leaves the checkout as it found it.
+        mv "$module.bak" "$module"
+        if [ "$status" -eq 0 ]; then
           echo "the check passed with $dropped removed from $module" >&2
           exit 1
         fi
@@ -510,7 +515,6 @@ jobs:
           cat dropped.out >&2
           exit 1
         }
-        mv "$module.bak" "$module"
         rm -f dropped.out
         echo "The check catches a function dropped from the list."
 

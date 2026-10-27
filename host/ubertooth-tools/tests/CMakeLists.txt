@@ -870,5 +870,6 @@ add_test(
 		${LIBBTBB_INCLUDE_DIR}
 		${LIBBTBB_LIBRARIES})
 # Two configures of a project with one C file's worth of compiler detection in
-# it: about 3 s here, most of it the two probe compiles.
+# it, plus the two probe compiles: about 7 s here. The limit has room for a
+# cold CI runner, where compiler detection alone takes seconds.
 set_tests_properties(btbb-check PROPERTIES TIMEOUT 60)

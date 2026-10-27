@@ -64,11 +64,16 @@ fi
 # code does not call -- the function a call replaced, most likely. Counting
 # those as calls would demand them of every installed libbtbb.
 #
-# Strings are not stripped, so a "//" inside one ends the line early here. No
-# source has one, and the cost would be a missing candidate reported as a
-# listed function nothing calls, not a build that breaks.
-printf '%s\n' "$sources" | tr '\n' '\0' | xargs -0 cat |
-    awk '
+# Strings are not stripped, so a "//" inside one ends the line early and a
+# "/*" inside one swallows the lines up to the next "*/". No source has
+# either, and the cost of one would be a missing candidate, which is reported
+# as a listed function nothing calls: loud, and never a build that breaks.
+# in_block is cleared at the start of each file, so one unterminated comment
+# cannot carry into the next.
+# shellcheck disable=SC2016  # $0 and FNR below belong to awk, not to the shell
+printf '%s\n' "$sources" | tr '\n' '\0' |
+    xargs -0 awk '
+    FNR == 1 { in_block = 0 }
     {
         line = $0
         code = ""
@@ -101,6 +106,9 @@ printf '%s\n' "$sources" | tr '\n' '\0' | xargs -0 cat |
     grep -o -E '\b(btbb|lell)_[a-zA-Z0-9_]*[[:space:]]*\(' |
     sed 's/[[:space:]]*($//' | sort -u > "$called"
 
+# No floor on the number of calls found, unlike the file count above: a scan
+# that stopped matching reports all of the listed functions as called by
+# nothing, which is as loud as a floor would be.
 unlisted=$(comm -13 "$listed" "$called")
 uncalled=$(comm -23 "$listed" "$called")
 
