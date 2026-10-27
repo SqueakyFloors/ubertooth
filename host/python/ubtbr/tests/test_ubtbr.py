@@ -89,9 +89,14 @@ to open, and UBTBR_FAKE_CLOSED names a file created when the handle is closed.
 UBTBR_FAKE_SERIALS is the boards on the bus, in enumeration order, as
 comma-separated serial numbers; "?" stands for a board whose serial cannot be
 read, and "!" for one that answers neither the serial read nor an open, which
-is what a board another program holds looks like. Unset means one board.
+is what a board another program holds looks like. An entry may name its USB
+ids as "<serial>/vvvv:pppp"; without them it is an Ubertooth One. Unset means
+one board.
 UBTBR_FAKE_OPENED names a file the serial of the board that was opened is
 written to, which is how a test tells which board a selection reached.
+UBTBR_FAKE_SERIAL_READS and UBTBR_FAKE_OPENS name files every serial read and
+every open is appended to, which is how a test tells how many boards a
+selection touched.
 """
 
 import os
@@ -104,6 +109,15 @@ class USBError(Exception):
 
 class USBErrorTimeout(USBError):
     pass
+
+
+class USBErrorAccess(USBError):
+    # python-libusb1 keeps the libusb code the class stands for here.
+    value = -3
+
+
+class USBErrorBusy(USBError):
+    value = -6
 
 
 class _Handle:
@@ -141,32 +155,54 @@ class _Handle:
 
 
 class _Device:
-    """One board on the bus. The Ubertooth One ids, as ubtbr matches them."""
+    """One device on the bus, an Ubertooth One unless the test says otherwise."""
 
-    def __init__(self, serial):
+    def __init__(self, serial, vendor=0x1d50, product=0x6002):
         self._serial = serial
+        self._vendor = vendor
+        self._product = product
 
     def getVendorID(self):
-        return 0x1d50
+        return self._vendor
 
     def getProductID(self):
-        return 0x6002
+        return self._product
 
     def getSerialNumber(self):
-        # A board another program holds answers neither: reading the serial
-        # opens it too.
+        # Reading the serial opens the board, so it is recorded as an open
+        # too: a test can then tell that a selection by index touched no
+        # board it was not asked about.
+        self._note("UBTBR_FAKE_SERIAL_READS")
+        self._note("UBTBR_FAKE_OPENS")
+        # A board another program holds answers neither this nor an open.
         if self._serial in ("?", "!"):
             raise USBError("serial unreadable")
         return self._serial
 
     def open(self):
+        self._note("UBTBR_FAKE_OPENS")
         if self._serial == "!":
-            raise USBError("busy")
+            raise USBErrorAccess("access denied")
         marker = os.environ.get("UBTBR_FAKE_OPENED")
         if marker:
             with open(marker, "w") as opened:
                 opened.write(self._serial)
         return _Handle()
+
+    def _note(self, variable):
+        path = os.environ.get(variable)
+        if path:
+            with open(path, "a") as noted:
+                noted.write("%s\\n" % self._serial)
+
+
+def _described(entry):
+    """One UBTBR_FAKE_SERIALS entry: "<serial>" or "<serial>/vvvv:pppp"."""
+    serial, _, ids = entry.partition("/")
+    if not ids:
+        return _Device(serial)
+    vendor, _, product = ids.partition(":")
+    return _Device(serial, int(vendor, 16), int(product, 16))
 
 
 class USBContext:
@@ -174,7 +210,7 @@ class USBContext:
         if os.environ.get("UBTBR_FAKE_NO_DEVICE"):
             return iter(())
         serials = os.environ.get("UBTBR_FAKE_SERIALS", ONE_BOARD)
-        return iter([_Device(serial) for serial in serials.split(",")])
+        return iter([_described(entry) for entry in serials.split(",")])
 '''
 
 # The one board the fake puts on the bus unless a test says otherwise.
@@ -1068,6 +1104,8 @@ print("ubtbr: no Ubertooth is one error line and exit 1")
 OTHER_BOARD = "346001058088cb95345bad61c52000f5"
 TWO_BOARDS = ",".join((ONE_BOARD, OTHER_BOARD))
 OPENED_FILE = os.path.join(WORK.name, "opened")
+SERIAL_READS_FILE = os.path.join(WORK.name, "serial-reads")
+OPENS_FILE = os.path.join(WORK.name, "opens")
 
 
 def opened():
@@ -1078,15 +1116,22 @@ def opened():
         return marker.read()
 
 
-def forget_which_board_was_opened():
-    if os.path.exists(OPENED_FILE):
-        os.remove(OPENED_FILE)
+def touched(path):
+    """Every board the last run read a serial from, or opened, oldest first."""
+    if not os.path.exists(path):
+        return []
+    with open(path) as noted:
+        return noted.read().splitlines()
 
 
 def selecting(arguments, typed="", serials=TWO_BOARDS, **fakes):
-    forget_which_board_was_opened()
+    for path in (OPENED_FILE, SERIAL_READS_FILE, OPENS_FILE):
+        if os.path.exists(path):
+            os.remove(path)
     return ran(arguments, typed, UBTBR_FAKE_SERIALS=serials,
-               UBTBR_FAKE_OPENED=OPENED_FILE, **fakes)
+               UBTBR_FAKE_OPENED=OPENED_FILE,
+               UBTBR_FAKE_SERIAL_READS=SERIAL_READS_FILE,
+               UBTBR_FAKE_OPENS=OPENS_FILE, **fakes)
 
 
 # several boards and no -U: refused, with the boards listed, and no board
@@ -1140,19 +1185,34 @@ assert output == "", output
 assert errors == "error: no Ubertooth found with serial matching 'zz'\n", errors
 print("ubtbr: an unmatched serial is one error line")
 
-# an all-digits argument is an index into the enumeration order
+# an all-digits argument is an index into the enumeration order, and reaches
+# that board without reading any serial: reading one opens the board, and
+# ubertooth(7) promises the index path disturbs nothing.
 status, output, errors = selecting(("-U", "1"), "q\n")
 assert status == 0, (status, output, errors)
 assert opened() == OTHER_BOARD, opened()
+assert touched(SERIAL_READS_FILE) == [], touched(SERIAL_READS_FILE)
+assert touched(OPENS_FILE) == [OTHER_BOARD], touched(OPENS_FILE)
 status, output, errors = selecting(("-U", "0"), "q\n")
 assert status == 0, (status, output, errors)
 assert opened() == ONE_BOARD, opened()
-print("ubtbr: -U <index> is a position in the enumeration order")
+assert touched(SERIAL_READS_FILE) == [], touched(SERIAL_READS_FILE)
+print("ubtbr: -U <index> is a position in the list, and reads no serial")
+
+# an empty -U is no selection at all, as it is in the other tools
+status, output, errors = selecting(("-U", ""), "q\n", serials=ONE_BOARD)
+assert status == 0, (status, output, errors)
+assert opened() == ONE_BOARD, opened()
+assert touched(SERIAL_READS_FILE) == [], touched(SERIAL_READS_FILE)
+print("ubtbr: an empty -U takes the only attached board")
 
 # an index no board has, including a nonzero index with one board attached:
-# opening the only board for any index would hide that indexes renumber
+# opening the only board for any index would hide that indexes renumber. The
+# last is past what a C int holds, which libubertooth has a case of its own
+# for because atoi() would wrap it into a real index.
 for serials, selector, attached in ((TWO_BOARDS, "9", 2),
-                                    (ONE_BOARD, "1", 1)):
+                                    (ONE_BOARD, "1", 1),
+                                    (TWO_BOARDS, "4294967296", 2)):
     status, output, errors = selecting(("-U", selector), serials=serials)
     assert status == 1, (selector, status, output, errors)
     assert output == "", (selector, output)
@@ -1174,21 +1234,77 @@ assert status == 1, (status, output, errors)
 assert "  Device 1: serial unreadable\n" in errors, errors
 print("ubtbr: a board with no readable serial is still listed and indexable")
 
+# and a serial that matches nothing while a board stayed quiet says so: the
+# string the user gave may well be that board's serial
+status, output, errors = selecting(("-U", "abcd"),
+                                   serials=",".join((ONE_BOARD, "?")))
+assert status == 1, (status, output, errors)
+assert errors == ("error: no Ubertooth found with serial matching 'abcd'\n"
+                  "1 attached Ubertooth device did not answer the serial "
+                  "read\n"
+                  "note: such a board may be in use by another program, or "
+                  "busy in a mode; stop a mode with ubertooth-util -U "
+                  "<index> -S\n"), errors
+print("ubtbr: a serial refusal says when a board did not answer the read")
+
+# boards reporting one serial cannot be told apart by a longer prefix, so
+# that refusal says to use an index instead
+status, output, errors = selecting(("-U", "1cc0"),
+                                   serials=",".join((ONE_BOARD, ONE_BOARD)))
+assert status == 1, (status, output, errors)
+assert errors == ("error: '1cc0' matches 2 Ubertooth devices: %s, %s\n"
+                  "these Ubertooth devices report the same serial number; "
+                  "select one by index with -U<index>\n"
+                  % (ONE_BOARD, ONE_BOARD)), errors
+print("ubtbr: boards sharing a serial are selected by index, not a prefix")
+
+# every board the C tools recognize is listed, not only the Ubertooth One.
+# The btbr firmware builds for the Ubertooth Zero too, and a board left out
+# of the list would not be listed here, so a bare command would call the One
+# the only board and open it -- the fault this whole section is about.
+ZERO_AND_ONE = ",".join(("0b700017490c2cafa039ee5ac52000f5/1d50:6000",
+                         ONE_BOARD))
+status, output, errors = selecting((), serials=ZERO_AND_ONE)
+assert status == 1, (status, output, errors)
+assert errors == ("error: multiple Ubertooth devices found; select one with "
+                  "-U <index|serial>\n"
+                  "  Device 0: 0b700017490c2cafa039ee5ac52000f5\n"
+                  "  Device 1: %s\n" % ONE_BOARD), errors
+status, output, errors = selecting(("-U", "0b70"), "q\n", serials=ZERO_AND_ONE)
+assert status == 0, (status, output, errors)
+assert opened() == "0b700017490c2cafa039ee5ac52000f5", opened()
+# and something else of the same vendor is not an Ubertooth
+status, output, errors = selecting(("-U", "0b70"),
+                                   serials=",".join(
+                                       ("0b700017490c2cafa039ee5ac52000f5"
+                                        "/1d50:1234", ONE_BOARD)))
+assert status == 1, (status, output, errors)
+assert errors == "error: no Ubertooth found with serial matching '0b70'\n", \
+    errors
+print("ubtbr: every board the C tools recognize is listed, and nothing else")
+
 # a board that cannot be opened at all, which is what another program holding
-# it looks like: reported as that board, not as a board that is not there
+# it looks like: reported as that board, in the words libubertooth uses for
+# the same two libusb codes, not as a board that is not there
 status, output, errors = selecting(("-U", "0"), serials="!")
 assert status == 1, (status, output, errors)
 assert output == "", output
-assert errors == "error: could not open Ubertooth: busy\n", errors
+assert errors == ("error: Ubertooth at index 0 is in use by another program "
+                  "(libusb -3)\n"), errors
 print("ubtbr: a board that cannot be opened is reported as that board")
 
 # the board a failed setup was talking to is named, so the wrong board is
-# told apart from a bad one
+# told apart from a bad one: by serial when one was read, by index when the
+# selection never needed one
 status, output, errors = selecting(("-U", OTHER_BOARD),
                                    UBTBR_FAKE_WRITE_FAILS_AFTER="0")
 assert status == 1, (status, output, errors)
 assert ("error: could not set up the Ubertooth %s: " % OTHER_BOARD) in errors, \
     errors
+status, output, errors = selecting(("-U", "1"),
+                                   UBTBR_FAKE_WRITE_FAILS_AFTER="0")
+assert status == 1, (status, output, errors)
+assert "error: could not set up the Ubertooth at index 1: " in errors, errors
 print("ubtbr: a setup that failed names the board it was talking to")
 
 # ---- the command line ------------------------------------------------------
@@ -1235,7 +1351,10 @@ for arguments, said in ((("-h", "-f", "nine"),
     assert errors == said, (arguments, errors)
 print("ubtbr: a bad command line is reported even alongside -h")
 
-forget_which_board_was_opened()
+# the cases below run against one board, as the ones above this section did
+for selection_marker in (OPENED_FILE, SERIAL_READS_FILE, OPENS_FILE):
+    if os.path.exists(selection_marker):
+        os.remove(selection_marker)
 
 # an option value that is not a number: one error line, not the traceback
 # out of int(). Refused before a board is opened, so a wrong command line

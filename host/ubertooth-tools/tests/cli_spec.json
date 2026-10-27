@@ -704,7 +704,7 @@
 
 
     "ubertooth-btbr": {
-      "man": "none; the tool has no man page",
+      "man": "none; its man page is not checked here yet",
       "kind": "python",
       "devices_via": "usb1",
       "module_dir": "../../python/ubtbr",
@@ -716,9 +716,10 @@
         "libubertooth, so the matrix gives it a usb1 that finds nothing",
         "instead of setting UBERTOOTH_TEST_NO_DEVICES; its -U selection is",
         "the ubtbr module's own, checked against several fake boards by",
-        "host/python/ubtbr/tests/test_ubtbr.py. The man page is not wired up",
-        "here yet (issue #583). Its interactive prompt is not a command line",
-        "and is covered by the same test."
+        "host/python/ubtbr/tests/test_ubtbr.py. Its man page exists but is",
+        "not checked against this spec yet, so \"man\" is still none. The",
+        "interactive prompt is not a command line and is covered by the",
+        "same test."
       ],
       "options": {
         "-h": {"value": "none", "role": "help"},

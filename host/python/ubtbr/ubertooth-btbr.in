@@ -279,7 +279,8 @@ class BTCtlPrompt(Cmd):
 USAGE = ("Usage: ubertooth-btbr [-U <index|serial>] [-f <freq_offset>] "
 	"[-b <max_ac_errors>]\n"
 	"Options:\n"
-	"  -U <index|serial>: which Ubertooth to use\n"
+	"  -U <index|serial>: select Ubertooth by index or serial; "
+	"see ubertooth(7)\n"
 	"  -f freq_offset: Set MOD_OFFSET register\n"
 	"  -b max_ac_errors: Max bit errors in Syncword detection\n"
 	"  -h: print this help\n")

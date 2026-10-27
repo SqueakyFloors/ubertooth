@@ -184,11 +184,7 @@
   [#125](https://github.com/SqueakyFloors/ubertooth/issues/125)
   [#126](https://github.com/SqueakyFloors/ubertooth/issues/126)
 - `ubertooth-btbr` takes `-U <index|serial>` to choose one of several attached
-  boards, and `-h` to print its usage text. With more than one board attached
-  and no `-U` it now lists them and opens none; it used to open whichever
-  board enumerated first, so a session could reach a board still carrying
-  `bluetooth_rxtx` and blame its write timeout on the board the user had just
-  flashed with `btbr`. A failed setup names the board by serial.
+  boards, as every other tool does, and `-h` to print its usage text.
   [#642](https://github.com/SqueakyFloors/ubertooth/issues/642)
   [#410](https://github.com/SqueakyFloors/ubertooth/issues/410)
 - **Script-visible change:** `ubertooth-btbr` exits 0 for `-h`, and reports a
@@ -286,6 +282,13 @@
 - The note about firmware the host tools were not built with names the board
   the message is about, instead of offering to reflash every board attached.
   [#652](https://github.com/SqueakyFloors/ubertooth/issues/652)
+- `ubertooth-btbr` no longer starts a session on an arbitrary board. With
+  several attached it used to open whichever one enumerated first, so a
+  session could reach a board still carrying `bluetooth_rxtx` and report its
+  write timeout as a failure of the board the user had just flashed with
+  `btbr`. It now lists the attached boards and opens none until `-U` names
+  one, and a failed setup names the board it was talking to.
+  [#642](https://github.com/SqueakyFloors/ubertooth/issues/642)
 - `ubertooth-util -I` says what every other tool says about firmware it was not
   built with, so it no longer tells you to flash older firmware over a board
   that is the newer of the two.

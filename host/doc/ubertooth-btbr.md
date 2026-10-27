@@ -72,7 +72,15 @@ ubertooth(7), SELECTING A DEVICE: an index is a position in the list of
 attached Ubertooths (`-U 0` is the first), and a serial-number string selects
 that board whatever the enumeration order. A serial may be shortened to its
 first few characters, in either case, and an all-digits string is read as an
-index, so include a non-digit (`-U 05f` rather than `-U 05`).
+index, so include a non-digit (`-U 05f` rather than `-U 05`). If those
+characters start more than one attached board's serial, the tool lists the
+matching serials and selects neither; boards reporting the same serial are
+told apart by index instead.
+
+An index names a board without reading any serial, so it disturbs none of the
+others. Matching a serial has to read every attached board's, which means
+opening each one briefly; a board that does not answer is counted in the
+refusal, because the serial given may well be its own.
 
 With more than one board attached and no `-U`, the tool lists them and opens
 none:
@@ -162,8 +170,8 @@ If no FHS appears, the peripheral won the race; try again.
 
 Standard output carries the prompt and the usage text `-h` prints. Everything
 else goes to standard error. A command line the tool will not take, and a
-board it cannot open or set up, are reported as the `error: ` and `note: `
-lines the other tools use; the packets a command reports, and the module's
+board it cannot select, open or set up, are reported as the `error: ` and
+`note: ` lines the other tools use; the packets a command reports, and the module's
 own warnings, are still log lines of the form `HH:MM:SS | INFO | ...`, which
 is a remaining deviation from ubertooth(7), OUTPUT AND DIAGNOSTICS, tracked
 as issue [#410](https://github.com/SqueakyFloors/ubertooth/issues/410).
@@ -181,7 +189,10 @@ standard error with no usage text, and exit 1: `error: unrecognized option
 
 With no Ubertooth attached the tool says `error: no Ubertooth devices found`
 and exits 1. A selection that names no board, or more than one, is refused
-the same way; see SELECTING A DEVICE. A board that takes none of the requests
+the same way; see SELECTING A DEVICE. A board that cannot be opened because
+another program holds it, or because the permissions are missing, is
+`error: Ubertooth <serial> is in use by another program (libusb -3)`, as in
+the other tools. A board that takes none of the requests
 the session opens with gets `error: could not set up the Ubertooth <serial>:
 ...` and, when the request timed out, a `note: ` naming `bluetooth_rxtx` and
 the image to flash: that is nearly always what such a board is carrying,
