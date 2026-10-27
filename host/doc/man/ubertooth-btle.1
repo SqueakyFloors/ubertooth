@@ -193,7 +193,7 @@ A command line with no work in it is refused the same way\. \fB\-U\fR, \fB\-A\fR
 .P
 A refused command line creates and truncates nothing: \fB\-r\fR, \fB\-q\fR and \fB\-c\fR name their file while the command line is read, and it is opened only once every check has passed\.
 .SH "DIAGNOSTICS"
-Standard output carries only what was asked for: the decoded packets, the capture data of \fB\-q \-\fR or \fB\-c \-\fR, and the lines that answer \fB\-a\fR, \fB\-v\fR and \fB\-t\fR\. With the capture on standard output those answer lines move to standard error, because standard output belongs to the capture for the whole run, and the decoded packets are not printed at all\.
+Standard output carries only what was asked for: either the decoded packets or the capture data of \fB\-q \-\fR or \fB\-c \-\fR, plus the lines that answer \fB\-a\fR, \fB\-v\fR and \fB\-t\fR\. With the capture on standard output, standard output belongs to the capture for the whole run: the answer lines move to standard error, and the decoded packets are not printed at all\.
 .P
 Errors, warnings and progress go to standard error, each error as one line starting \fBerror:\fR, for example \fBerror: USB poll failed\fR when the board stops answering during a capture, \fBerror: jamming not supported by this firmware\fR, \fBerror: target set failed\fR, or \fBerror: MAC address must be xx:xx:xx:xx:xx:xx (got 11:22:33:44:55)\fR\. A capture file that cannot be created is reported as \fBerror: <file>: <reason>\fR\.
 .P

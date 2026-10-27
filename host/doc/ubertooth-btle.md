@@ -288,11 +288,11 @@ check has passed.
 
 ## DIAGNOSTICS
 
-Standard output carries only what was asked for: the decoded packets, the
-capture data of `-q -` or `-c -`, and the lines that answer `-a`, `-v` and
-`-t`. With the capture on standard output those answer lines move to standard
-error, because standard output belongs to the capture for the whole run, and
-the decoded packets are not printed at all.
+Standard output carries only what was asked for: either the decoded packets or
+the capture data of `-q -` or `-c -`, plus the lines that answer `-a`, `-v` and
+`-t`. With the capture on standard output, standard output belongs to the
+capture for the whole run: the answer lines move to standard error, and the
+decoded packets are not printed at all.
 
 Errors, warnings and progress go to standard error, each error as one line
 starting `error: `, for example `error: USB poll failed` when the board stops
