@@ -70,11 +70,11 @@ Because the map is read over a connection to the target, \fB\-a\fR needs the who
 A follow keyed on \fB\-l\fR and \fB\-u\fR instead connects to \fB00:00:<UAP>:<LAP>\fR, with the two most significant bytes zero, because a sniffer cannot see them\. That reaches only a target whose address begins \fB00:00\fR; for any other target the connection fails and the command stops, saying what to do about it:
 .IP "" 4
 .nf
-error: connecting to 00:00:33:44:55:66 failed: Host is down; \-l and \-u give four of the six bytes of the target address, so the connection is made to 00:00:<UAP>:<LAP>: give the whole target address with \-t xx:xx:xx:xx:xx:xx
+error: connecting to 00:00:33:44:55:66 failed: Host is down; \-l and \-u give four of the six bytes of the target address, so 00:00 is a guess: give the whole target address with \-t xx:xx:xx:xx:xx:xx
 .fi
 .IP "" 0
 .P
-Give the target as \fB\-t\fR and the connection is made to the address as it is, so that failure means the target itself did not answer; the line is then the reason alone, without the advice\.
+Give the target as \fB\-t\fR and the connection is made to the address as it is, so that failure means the target itself did not answer; the line is then the reason alone, without the advice\. A page that fails without leaving a reason behind says only \fBerror: connecting to 00:00:33:44:55:66 failed\fR\.
 .P
 The map that comes back is used only when it could be a hop sequence at all:
 .IP "\(bu" 4
@@ -133,7 +133,7 @@ A refused command line creates and truncates nothing: \fB\-r\fR, \fB\-q\fR and \
 .SH "EXIT STATUS"
 A follow that was interrupted (Ctrl\-C) exits 0 with whatever it captured, and so does \fB\-h\fR\. A refused command line exits 1 (see ARGUMENTS), as does a file that cannot be opened and a target the tool could not set up a follow on\.
 .P
-A page to the target that fails exits 1 as well, before any board is opened: without the target's clock offset there is nothing to key the follow on\. A follow keyed on \fB\-l\fR and \fB\-u\fR pages a guessed \fB00:00:<UAP>:<LAP>\fR, so that line also asks for the whole address with \fB\-t\fR (see AFH above)\.
+A page to the target that fails exits 1 as well, before any board is opened: the page is what yields the target's clock offset, and a follow of a named target without it would hop on the local device's clock instead\. A follow keyed on \fB\-l\fR and \fB\-u\fR pages a guessed \fB00:00:<UAP>:<LAP>\fR, so that line also asks for the whole address with \fB\-t\fR (see AFH above)\.
 .P
 A board that refuses the target's address or the clock reset exits 1 before the capture starts, with the request named on standard error\. Following anyway would mean a board that is not set up for the piconet: without the target's address it matches no packet, and with its clock never zeroed it hops on a clock the offset was not measured from\.
 .P

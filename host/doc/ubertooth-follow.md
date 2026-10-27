@@ -93,11 +93,12 @@ the two most significant bytes zero, because a sniffer cannot see them. That
 reaches only a target whose address begins `00:00`; for any other target the
 connection fails and the command stops, saying what to do about it:
 
-    error: connecting to 00:00:33:44:55:66 failed: Host is down; -l and -u give four of the six bytes of the target address, so the connection is made to 00:00:<UAP>:<LAP>: give the whole target address with -t xx:xx:xx:xx:xx:xx
+    error: connecting to 00:00:33:44:55:66 failed: Host is down; -l and -u give four of the six bytes of the target address, so 00:00 is a guess: give the whole target address with -t xx:xx:xx:xx:xx:xx
 
 Give the target as `-t` and the connection is made to the address as it is, so
 that failure means the target itself did not answer; the line is then the
-reason alone, without the advice.
+reason alone, without the advice. A page that fails without leaving a reason
+behind says only `error: connecting to 00:00:33:44:55:66 failed`.
 
 The map that comes back is used only when it could be a hop sequence at all:
 
@@ -186,9 +187,10 @@ so does `-h`. A refused command line exits 1 (see ARGUMENTS), as does a file
 that cannot be opened and a target the tool could not set up a follow on.
 
 A page to the target that fails exits 1 as well, before any board is opened:
-without the target's clock offset there is nothing to key the follow on. A
-follow keyed on `-l` and `-u` pages a guessed `00:00:<UAP>:<LAP>`, so that line
-also asks for the whole address with `-t` (see AFH above).
+the page is what yields the target's clock offset, and a follow of a named
+target without it would hop on the local device's clock instead. A follow keyed
+on `-l` and `-u` pages a guessed `00:00:<UAP>:<LAP>`, so that line also asks
+for the whole address with `-t` (see AFH above).
 
 A board that refuses the target's address or the clock reset exits 1 before the
 capture starts, with the request named on standard error. Following anyway

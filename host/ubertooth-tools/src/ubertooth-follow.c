@@ -314,6 +314,7 @@ int main(int argc, char *argv[])
 	}
 
 	have_lap_uap = (have_lap > 0) && (have_uap > 0);
+	remote_target = have_target || have_lap_uap;
 
 	/* -a reads the map from the target over an ACL link, so it needs an
 	 * address a connection can be made to, which is all six bytes of it:
@@ -349,8 +350,6 @@ int main(int argc, char *argv[])
 		fputs("error: -u <UAP> requires -l <LAP>\n", stderr);
 		return 1;
 	}
-
-	remote_target = have_target || have_lap_uap;
 
 	/* Every check has passed, so the files can be opened: a refused command
 	 * line creates and truncates nothing. */
@@ -476,22 +475,34 @@ int main(int argc, char *argv[])
 		 * whose address really begins that way. The failure therefore
 		 * says what to do about it -- give the whole address with -t --
 		 * in the same terms as -a needing -t. The command stops either
-		 * way: without the target's clock offset there is nothing to
-		 * key the follow on. */
+		 * way: the page is what yields the target's clock offset, and a
+		 * follow of a named target without it would hop on the local
+		 * adapter's clock rather than the target's.
+		 *
+		 * errno is cleared first and the reason given only if there is
+		 * one, as the two adapter failures above do: BlueZ does not
+		 * promise an errno for every way the page can fail, so a
+		 * leftover one would be reported as its cause and a failure that
+		 * set none would read "Undefined error: 0". */
+		errno = 0;
 		if (hci_create_connection(sock, &bdaddr,
 					htobs(di.pkt_type & ACL_PTYPE_MASK),
 					0, 0x01, &handle, 25000) < 0) {
+			char reason[128] = { 0 };
+
+			if (errno != 0)
+				snprintf(reason, sizeof(reason), ": %s",
+				         strerror(errno));
 			if (have_target)
-				fprintf(stderr, "error: connecting to %s failed: "
-				        "%s\n", addr, strerror(errno));
+				fprintf(stderr, "error: connecting to %s "
+				        "failed%s\n", addr, reason);
 			else
-				fprintf(stderr, "error: connecting to %s failed: "
-				        "%s; -l and -u give four of the six bytes "
-				        "of the target address, so the connection "
-				        "is made to 00:00:<UAP>:<LAP>: give the "
-				        "whole target address with "
-				        "-t xx:xx:xx:xx:xx:xx\n",
-				        addr, strerror(errno));
+				fprintf(stderr, "error: connecting to %s "
+				        "failed%s; -l and -u give four of the six "
+				        "bytes of the target address, so 00:00 is "
+				        "a guess: give the whole target address "
+				        "with -t xx:xx:xx:xx:xx:xx\n",
+				        addr, reason);
 			follow_release_adapter(sock, handle, cc);
 			return 1;
 		}

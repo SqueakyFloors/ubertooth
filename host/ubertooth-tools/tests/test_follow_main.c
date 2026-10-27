@@ -78,6 +78,7 @@ static struct {
 	/* The page to the target: whether it fails, and the errno it leaves. */
 	int connect_fails;
 	int connect_errno;
+	int connects;         /* ubertooth_connect_select(): the board opened */
 	/* The address the page was sent to, as the tool spelled it. */
 	char paged[19];
 	int thread_starts;
@@ -254,6 +255,7 @@ int ubertooth_connect_select(ubertooth_t* ut, const char* u_arg)
 {
 	(void)ut;
 	(void)u_arg;
+	fake.connects++;
 	return 0;
 }
 
@@ -823,8 +825,9 @@ MU_TEST(half_a_lap_uap_pair_is_refused)
 	          r.err);
 	mu_assert(r.out[0] == '\0', r.out);
 	/* Nothing was opened and nothing was followed: no adapter handle, no
-	 * board request, and not the local address the old path read. */
+	 * board, and not the local address the old path read. */
 	mu_assert_int_eq(-1, fake.dev_fd);
+	mu_assert_int_eq(0, fake.connects);
 	mu_assert(fake.calls[0] == '\0', fake.calls);
 
 	reset_fake();
@@ -834,6 +837,7 @@ MU_TEST(half_a_lap_uap_pair_is_refused)
 	          r.err);
 	mu_assert(r.out[0] == '\0', r.out);
 	mu_assert_int_eq(-1, fake.dev_fd);
+	mu_assert_int_eq(0, fake.connects);
 	mu_assert(fake.calls[0] == '\0', fake.calls);
 
 	/* -a beside half a pair still reports -a needing -t: completing the
@@ -856,35 +860,54 @@ MU_TEST(half_a_lap_uap_pair_is_refused)
  * -t rather than leaving the user with a page to an address they never named. */
 MU_TEST(a_failed_page_to_the_guessed_address_asks_for_t)
 {
+	char expected[256];
 	struct run_result r;
 
 	reset_fake();
 	fake.connect_fails = 1;
 	fake.connect_errno = EHOSTDOWN;
 	r = RUN(TARGET);
+	snprintf(expected, sizeof(expected),
+	         "error: connecting to 00:00:44:11:22:33 failed: %s; -l and -u "
+	         "give four of the six bytes of the target address, so 00:00 is "
+	         "a guess: give the whole target address with "
+	         "-t xx:xx:xx:xx:xx:xx\n", strerror(EHOSTDOWN));
 	mu_assert_int_eq(1, r.rc);
+	/* The guessed address really is what was paged, so the advice is about
+	 * the address the user would have to change. */
 	mu_assert(strcmp(fake.paged, "00:00:44:11:22:33") == 0, fake.paged);
-	mu_assert(strstr(r.err, "error: connecting to 00:00:44:11:22:33 "
-	          "failed:") != NULL, r.err);
-	mu_assert(strstr(r.err, strerror(EHOSTDOWN)) != NULL, r.err);
-	mu_assert(strstr(r.err, "-t xx:xx:xx:xx:xx:xx") != NULL, r.err);
-	mu_assert_int_eq(1, occurrences(r.err, "error:"));
+	mu_assert(strcmp(r.err, expected) == 0, r.err);
 	mu_assert(r.out[0] == '\0', r.out);
-	/* No board was opened, and the adapter handle went back. */
+	/* The board was never opened, and the adapter handle went back. */
+	mu_assert_int_eq(0, fake.connects);
 	mu_assert(fake.calls[0] == '\0', fake.calls);
 	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
 
 	/* The user who gave the whole address has nothing to change, so that
-	 * failure is reported without the hint. */
+	 * failure is the reason alone. */
 	reset_fake();
 	fake.connect_fails = 1;
 	fake.connect_errno = EHOSTDOWN;
 	r = RUN(WHOLE_TARGET);
+	snprintf(expected, sizeof(expected),
+	         "error: connecting to 00:00:44:11:22:33 failed: %s\n",
+	         strerror(EHOSTDOWN));
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strstr(r.err, "-t xx:xx:xx:xx:xx:xx") == NULL, r.err);
-	mu_assert_int_eq(1, occurrences(r.err, "error:"));
+	mu_assert(strcmp(r.err, expected) == 0, r.err);
 	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert_int_eq(0, fake.connects);
 	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
+
+	/* A page that fails without leaving an errno behind says what it knows,
+	 * rather than printing "Undefined error: 0" as the reason, which is how
+	 * the two adapter failures above already report themselves. */
+	reset_fake();
+	fake.connect_fails = 1;
+	r = RUN(WHOLE_TARGET);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err,
+	          "error: connecting to 00:00:44:11:22:33 failed\n") == 0, r.err);
+	mu_assert(r.out[0] == '\0', r.out);
 }
 
 /* A board that took only part of a write is the third way one of these
