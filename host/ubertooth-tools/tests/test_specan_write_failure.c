@@ -1,5 +1,6 @@
 /*
- * What ubertooth-specan does when it cannot write the samples it captured.
+ * What ubertooth-specan does when it cannot write the samples it captured,
+ * and what it reports about the sweep while it runs.
  *
  * The sample write is the one place a specan run can fail after the device is
  * open and the sweep is running: a redirect to a full disk, or `-d -` into a
@@ -18,8 +19,16 @@
  * exit status a failed write produces is checked where a user sees it and not
  * only in the flag the callback sets.
  *
+ * The last cases cover -v, which used to count a flag nothing read. Every
+ * line it adds belongs on standard error, so the samples are untouched: the
+ * bytes a "-d -" run writes to standard output have to be the same with it
+ * and without it, which is checked by running both and comparing them.
+ *
  * No device is opened either way: the libubertooth device functions are the
- * fakes here, and only its fifo is the real one.
+ * fakes here, and only its fifo is the real one. The clock is faked too
+ * (util_clock.c is not linked), so the summary lines -v prints once a second
+ * fall at times this file chooses rather than at whatever speed the machine
+ * runs the fake sweep.
  */
 #include <fcntl.h>
 #include <signal.h>
@@ -142,9 +151,10 @@ static void capture_stderr_end(char* err, size_t err_size)
 }
 
 /* Standard output, redirected to a temp file for the runs that write samples
- * to it ("-d -"). Only its size is read back: the samples are raw bytes, and
- * what matters is that they reached the file rather than a stdio buffer the
- * run never flushed. */
+ * to it ("-d -"). Its size is what most cases read back: the samples are raw
+ * bytes, and what matters is that they reached the file rather than a stdio
+ * buffer the run never flushed. The -v cases read the bytes as well, to
+ * compare two runs. */
 static char out_path[] = "/tmp/specan-out-XXXXXX";
 static int out_fd = -1;
 static int out_saved = -1;
@@ -165,19 +175,48 @@ static void capture_stdout_begin(void)
  * buffer does not count, which is what makes this check main()'s own flush.
  * Anything still buffered is then pushed into the temp file, before standard
  * output goes back, so it cannot land in the test's own output. */
-static long capture_stdout_end(void)
+static long capture_stdout_end_bytes(char* out, size_t size)
 {
 	struct stat info;
-	long size;
+	long written;
 
-	size = fstat(out_fd, &info) == 0 ? (long)info.st_size : -1;
+	written = fstat(out_fd, &info) == 0 ? (long)info.st_size : -1;
+	if (out != NULL && written > 0) {
+		long want = written < (long)size ? written : (long)size;
+
+		if (pread(out_fd, out, (size_t)want, 0) != want)
+			written = -1;
+	}
 	fflush(stdout);
 	dup2(out_saved, fileno(stdout));
 	close(out_saved);
 	close(out_fd);
 	unlink(out_path);
-	return size;
+	return written;
 }
+
+static long capture_stdout_end(void)
+{
+	return capture_stdout_end_bytes(NULL, 0);
+}
+
+/* The monotonic clock ubertooth-specan times its -v summary lines by. The
+ * fake sweep below moves it on by a fixed step per block, so a case decides
+ * how many summary lines a run produces. */
+static uint64_t fake_now_ms;
+
+uint64_t util_clock_now_ms(void)
+{
+	return fake_now_ms;
+}
+
+/* How far the clock moves per block of samples. Two blocks is just over the
+ * second between summary lines, so a run of a few blocks prints a few lines
+ * rather than one per block or one per sample. */
+#define FAKE_MS_PER_BLOCK 600u
+
+/* The serial number the fake board answers with, which -v names. */
+#define FAKE_SERIAL "1ff0ff1967102caf8334fa5ac52000f5"
 
 /* One capture, with dumpfile set to the stream given, and whatever the
  * callback wrote to standard error returned in err. */
@@ -385,6 +424,8 @@ static struct {
 	int stream_failed;     /* what ubertooth_stream_failed() reports */
 	int interrupt_after;   /* blocks after which a Ctrl-C arrives */
 	int start_fails;
+	int serial_reads;      /* how often -v asked which board this is */
+	int serial_read_fails; /* a board that would not say */
 	int check_api_rc, bulk_init_rc, specan_rc, stop_rc, thread_start_rc;
 	int stop_before_bulk_init; /* STOP was sent before the transfer was set up */
 	uint16_t low_freq, high_freq;
@@ -399,6 +440,19 @@ static void reset_device(void)
 	stop_requested = 0;
 	device.blocks_to_sweep = 1;
 	device.ut.devh = (struct libusb_device_handle*)&device;
+	fake_now_ms = 0;
+}
+
+int ubertooth_read_serial_string(struct libusb_device_handle* devh, char* out,
+                                 size_t size, unsigned timeout_ms)
+{
+	(void)devh;
+	(void)timeout_ms;
+	device.serial_reads++;
+	if (device.serial_read_fails)
+		return -1;
+	snprintf(out, size, "%s", FAKE_SERIAL);
+	return 0;
 }
 
 ubertooth_t* ubertooth_start_select(const char* u_arg)
@@ -522,6 +576,7 @@ int ubertooth_bulk_receive(ubertooth_t* ut, rx_callback cb, void* cb_args)
 		ut->stop_ubertooth = 1;
 		return 1;
 	}
+	fake_now_ms += FAKE_MS_PER_BLOCK;
 	if (device.interrupt_after && device.blocks >= device.interrupt_after)
 		raise(SIGINT);
 	if (device.blocks >= device.blocks_to_sweep)
@@ -567,7 +622,8 @@ static int run_specan(const char* const* args, char* err, size_t err_size)
 	output_failed = 0;
 	write_failure_said = 0;
 	dumpfile = NULL;
-	debug = 0;
+	verbose = 0;
+	memset(&progress, 0, sizeof(progress));
 	optind = 0; /* restart option parsing for each run */
 
 	capture_stderr_begin();
@@ -763,6 +819,188 @@ MU_TEST(an_interrupted_sweep_to_stdout_still_exits_zero)
 	signal(SIGINT, SIG_DFL);
 }
 
+/* ---- what -v reports --------------------------------------------------- */
+
+static int count_lines(const char* text)
+{
+	int lines = 0;
+
+	for (; *text != '\0'; text++)
+		if (*text == '\n')
+			lines++;
+	return lines;
+}
+
+/*
+ * -v says which board, what is being swept, where the samples go, and how the
+ * sweep is getting on. The range here is 2402-2410 MHz, and every fake block
+ * holds 2402-2417, so each block contributes nine samples in range, seven
+ * dropped as left over, and one pass over the range: the three counters are
+ * pinned to numbers a reader can check by hand.
+ */
+MU_TEST(verbose_reports_the_sweep_on_stderr)
+{
+	char path[64];
+	char err[1024];
+	char expected[256];
+	long written;
+
+	reset_device();
+	device.blocks_to_sweep = 2;
+	mu_assert_fatal(make_temp_file(path, sizeof(path)) == 0,
+	                "temp file created");
+
+	/* Standard output is captured to prove nothing of -v reached it: the
+	 * samples of this run go to the -d file, so it must stay empty. */
+	capture_stdout_begin();
+	mu_assert_int_eq(0, RUN_SPECAN(err, "-v", "-l", "2402", "-u", "2410",
+	                               "-d", path));
+	written = capture_stdout_end();
+	mu_assert_int_eq(0, (int)written);
+
+	mu_assert(strstr(err, "Using Ubertooth " FAKE_SERIAL "\n") != NULL, err);
+	/* -U may name an index, so which board it is comes from the board. */
+	mu_assert_int_eq(1, device.serial_reads);
+	mu_assert(strstr(err, "Sweeping 2402-2410 MHz in 1 MHz steps, "
+	                 "9 samples per sweep\n") != NULL, err);
+	snprintf(expected, sizeof(expected), "Writing raw samples to %s\n", path);
+	mu_assert(strstr(err, expected) != NULL, err);
+	/* The clock moves 600 ms per block, so the second block is the first
+	 * one a second after the start: one summary line, then the total. */
+	mu_assert(strstr(err, "After 1.2 s: 2 sweeps, 18 samples, "
+	                 "14 out of range\n") != NULL, err);
+	mu_assert(strstr(err, "Total after 1.2 s: 2 sweeps, 18 samples, "
+	                 "14 out of range\n") != NULL, err);
+	mu_assert(strstr(err, "Ubertooth stopped\n") != NULL, err);
+	/* Six lines for a two-block sweep of 32 samples: a line per sample, or
+	 * per block, would bury a terminal in a run of a few seconds. */
+	mu_assert_int_eq(6, count_lines(err));
+	unlink(path);
+
+	/* A board that will not say which it is leaves the rest of the run
+	 * alone: the line says so instead of naming a serial number it never
+	 * read. */
+	reset_device();
+	device.serial_read_fails = 1;
+	mu_assert_fatal(make_temp_file(path, sizeof(path)) == 0,
+	                "temp file created");
+
+	mu_assert_int_eq(0, RUN_SPECAN(err, "-v", "-d", path));
+	mu_assert(strstr(err, "Using an Ubertooth whose serial number could not "
+	                 "be read\n") != NULL, err);
+	unlink(path);
+}
+
+/* Without -v the run says only what it always said. */
+MU_TEST(a_run_without_verbose_reports_nothing)
+{
+	char path[64];
+	char err[512];
+
+	reset_device();
+	device.blocks_to_sweep = 3;
+	mu_assert_fatal(make_temp_file(path, sizeof(path)) == 0,
+	                "temp file created");
+
+	mu_assert_int_eq(0, RUN_SPECAN(err, "-d", path));
+	mu_assert(strcmp(err, "Ubertooth stopped\n") == 0, err);
+	/* Not even the serial read -v makes: a run that was not asked for it
+	 * sends the board nothing extra. */
+	mu_assert_int_eq(0, device.serial_reads);
+	unlink(path);
+}
+
+/*
+ * The whole point of putting every -v line on standard error: with "-d -" the
+ * samples are standard output, and they have to come out the same either way.
+ * The two runs are identical but for the option, so their bytes are compared
+ * directly.
+ */
+MU_TEST(verbose_leaves_the_samples_on_stdout_alone)
+{
+	char quiet_err[512], verbose_err[1024];
+	char quiet[4096], loud[4096];
+	long quiet_len, loud_len;
+
+	reset_device();
+	device.blocks_to_sweep = 3;
+	capture_stdout_begin();
+	mu_assert_int_eq(0, RUN_SPECAN(quiet_err, "-d", "-"));
+	quiet_len = capture_stdout_end_bytes(quiet, sizeof(quiet));
+
+	reset_device();
+	device.blocks_to_sweep = 3;
+	capture_stdout_begin();
+	mu_assert_int_eq(0, RUN_SPECAN(verbose_err, "-d", "-", "-v"));
+	loud_len = capture_stdout_end_bytes(loud, sizeof(loud));
+
+	mu_assert(quiet_len > 0, "the quiet run wrote samples");
+	/* The buffers hold the whole run, so the compare below reads only what
+	 * was captured. Three blocks are 144 bytes; raise the buffers if a case
+	 * ever sweeps for longer. */
+	mu_assert(quiet_len <= (long)sizeof(quiet),
+	          "the run fit in the capture buffer");
+	mu_assert_int_eq((int)quiet_len, (int)loud_len);
+	mu_assert(memcmp(quiet, loud, (size_t)quiet_len) == 0,
+	          "-v changed the samples on standard output");
+
+	/* The lines went somewhere, and that somewhere is standard error. */
+	mu_assert(strstr(verbose_err, "Writing raw samples to standard output\n")
+	          != NULL, verbose_err);
+	mu_assert(strstr(quiet_err, "Writing") == NULL, quiet_err);
+}
+
+/* -v names the output the options chose, not the one -d would have given. */
+MU_TEST(verbose_names_the_output_the_options_chose)
+{
+	char err[1024];
+	char path[64];
+
+	reset_device();
+	capture_stdout_begin();
+	mu_assert_int_eq(0, RUN_SPECAN(err, "-v"));
+	capture_stdout_end();
+	mu_assert(strstr(err, "Writing text to standard output\n") != NULL, err);
+
+	reset_device();
+	capture_stdout_begin();
+	mu_assert_int_eq(0, RUN_SPECAN(err, "-v", "-g"));
+	capture_stdout_end();
+	mu_assert(strstr(err, "Writing feedgnuplot text to standard output\n")
+	          != NULL, err);
+
+	reset_device();
+	capture_stdout_begin();
+	mu_assert_int_eq(0, RUN_SPECAN(err, "-v", "-G"));
+	capture_stdout_end();
+	mu_assert(strstr(err, "Writing 3D feedgnuplot text to standard output\n")
+	          != NULL, err);
+
+	/* The case report_output_target() exists for: -g took the samples away
+	 * from the file -d named, so -v names standard output, not the file. */
+	mu_assert_int_eq(0, make_temp_file(path, sizeof(path)));
+	reset_device();
+	capture_stdout_begin();
+	mu_assert_int_eq(0, RUN_SPECAN(err, "-v", "-d", path, "-g"));
+	capture_stdout_end();
+	mu_assert(strstr(err, "Writing feedgnuplot text to standard output\n")
+	          != NULL, err);
+	mu_assert(strstr(err, path) == NULL, err);
+	unlink(path);
+}
+
+/* There is one level of verbosity, so a second -v is a mistyped command line
+ * rather than a request for more: that one error: line, and nothing opened. */
+MU_TEST(a_second_verbose_is_refused)
+{
+	char err[512];
+
+	reset_device();
+	mu_assert_int_eq(1, RUN_SPECAN(err, "-v", "-v"));
+	mu_assert(strcmp(err, "error: -v may be given only once\n") == 0, err);
+	mu_assert_int_eq(0, device.start_calls);
+}
+
 MU_TEST(a_refused_command_line_opens_no_device)
 {
 	char err[512];
@@ -794,6 +1032,11 @@ int main(void)
 	MU_RUN(a_sweep_whose_stream_died_exits_one);
 	MU_RUN(an_interrupted_sweep_still_exits_zero);
 	MU_RUN(an_interrupted_sweep_to_stdout_still_exits_zero);
+	MU_RUN(verbose_reports_the_sweep_on_stderr);
+	MU_RUN(a_run_without_verbose_reports_nothing);
+	MU_RUN(verbose_leaves_the_samples_on_stdout_alone);
+	MU_RUN(verbose_names_the_output_the_options_chose);
+	MU_RUN(a_second_verbose_is_refused);
 	MU_RUN(a_refused_command_line_opens_no_device);
 	return mu_report();
 }

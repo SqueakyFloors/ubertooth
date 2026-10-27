@@ -51,6 +51,10 @@
   <n>` on standard error and exits 1; it was a line on standard output with
   exit 0.
   [#338](https://github.com/SqueakyFloors/ubertooth/issues/338)
+- `ubertooth-specan -v` now prints what its page says it does, on standard
+  error: the board, the sweep, where the samples go, and a summary once a
+  second. It used to do nothing. A second `-v` is refused.
+  [#510](https://github.com/SqueakyFloors/ubertooth/issues/510)
 - `ubertooth-specan` reports a bad option itself, as the other tools do:
   `error: unrecognized option '-Z'` and `error: option '-l' requires a value`,
   instead of the option parser's own lines naming the whole path of the binary.

@@ -31,7 +31,9 @@ Options:
    write the binary samples to `<filename>`; `-d -` writes them to standard
    output, which must not be a terminal. See ARGUMENTS
  - `-v` :
-   print verbose output to stderr
+   report the sweep on standard error; see VERBOSE OUTPUT. Give it at most
+   once: a second `-v` is refused with
+   `error: -v may be given only once`
  - `-U <index|serial>` :
    select an Ubertooth by enumeration index or serial number; see
    ubertooth(7), SELECTING A DEVICE
@@ -79,6 +81,34 @@ way.
 
 A refused command line creates and truncates nothing: `-d` names its file while
 the command line is read, and it is opened only once every check has passed.
+
+## VERBOSE OUTPUT
+
+`-v` reports what the sweep is doing on standard error. It writes nothing to
+standard output, so the samples are the same with it and without it, including
+the raw records of `-d -`.
+
+Three lines before the sweep starts name the board, the sweep as it will
+actually run, and where the samples go:
+
+    Using Ubertooth 1ff0ff1967102caf8334fa5ac52000f5
+    Sweeping 2402-2480 MHz in 1 MHz steps, 79 samples per sweep
+    Writing raw samples to standard output
+
+The board's serial number is read from the board, so it is the one that was
+selected even when `-U` named an enumeration index. A board that does not
+answer gives `Using an Ubertooth whose serial number could not be read`
+instead, and the sweep goes on.
+
+While the sweep runs, one summary line a second, and one more when it ends:
+
+    After 1.0 s: 12 sweeps, 948 samples, 0 out of range
+
+`sweeps` counts the passes over the range that completed, `samples` the
+samples inside the range, and `out of range` the ones dropped because they
+were left over from an earlier run, still queued on the board. The line is
+printed whether samples arrived or not, so a board that has stopped sending
+shows up within a second as counters that stop moving.
 
 ## DIAGNOSTICS
 

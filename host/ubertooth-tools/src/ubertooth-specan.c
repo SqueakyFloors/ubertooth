@@ -26,11 +26,81 @@
 #include "ubertooth.h"
 #include "opt_parse.h"
 #include "specan_options.h"
+#include "util_clock.h"
 
 _Static_assert(SPECAN_FREQ_MIN == BT_FREQ_MIN && SPECAN_FREQ_MAX == BT_FREQ_MAX,
                "specan_options.h must match the library's band limits");
 
-uint8_t debug;
+/* Set by -v: the run says what it is doing on standard error. Standard output
+ * carries only the samples, so nothing here is ever written to it. */
+static int verbose;
+
+/* How often a running sweep reports: often enough that a sweep which has gone
+ * quiet shows up within a second, rare enough that a few seconds of capture
+ * stays readable. A line per sample would bury the terminal. */
+#define SPECAN_REPORT_INTERVAL_MS 1000u
+
+/* What the sweep has done so far, counted for the -v summary lines. */
+static struct {
+	uint64_t started_ms;  /* when the receive loop started */
+	uint64_t reported_ms; /* when the last summary line was printed */
+	unsigned long sweeps;       /* passes over the range that completed */
+	unsigned long samples;      /* samples the board reported in range */
+	unsigned long out_of_range; /* samples dropped as left over from an
+	                             * earlier run (see cb_specan) */
+} progress;
+
+/* One summary line, labelled so the closing total is not read as another
+ * periodic line. Counting nothing is itself the answer for a board that
+ * stopped sending, so the line is printed whatever the counters hold. */
+static void report_progress(const char *label, uint64_t now_ms)
+{
+	fprintf(stderr, "%s %.1f s: %lu sweeps, %lu samples, "
+	        "%lu out of range\n", label,
+	        (double)(now_ms - progress.started_ms) / 1000.0,
+	        progress.sweeps, progress.samples, progress.out_of_range);
+}
+
+/* Called between receives: a summary line once per interval, so the rate is
+ * the same whether the board is flooding the host or silent. */
+static void report_progress_if_due(void)
+{
+	uint64_t now_ms = util_clock_now_ms();
+
+	if (now_ms - progress.reported_ms < SPECAN_REPORT_INTERVAL_MS)
+		return;
+	progress.reported_ms = now_ms;
+	report_progress("After", now_ms);
+}
+
+/* Where the samples are going, in the words of the option that chose it. A
+ * -d file that a later -g took the samples away from is not the target: this
+ * says where they land, not which options were given. */
+static void report_output_target(int output_mode, const char *dump_name)
+{
+	switch (output_mode) {
+	case SPECAN_FILE:
+		/* -d set this mode, so it named a file or a bare "-". */
+		if (strcmp(dump_name, "-") == 0)
+			fputs("Writing raw samples to standard output\n", stderr);
+		else
+			fprintf(stderr, "Writing raw samples to %s\n", dump_name);
+		break;
+	case SPECAN_GNUPLOT_NORMAL:
+		fputs("Writing feedgnuplot text to standard output\n", stderr);
+		break;
+	case SPECAN_GNUPLOT_3D:
+		fputs("Writing 3D feedgnuplot text to standard output\n", stderr);
+		break;
+	case SPECAN_STDOUT:
+	default:
+		/* Every mode is named above, so the default is only reached by a
+		 * mode cb_specan would refuse. Naming SPECAN_STDOUT as well keeps
+		 * the compiler's warning about a mode added here and nowhere else. */
+		fputs("Writing text to standard output\n", stderr);
+		break;
+	}
+}
 
 /* Set when the run cannot write a sample. The callback has no way to return a
  * status, so it records the failure here and stops the receive loop; main()
@@ -94,8 +164,15 @@ void cb_specan(ubertooth_t* ut, void* args)
 		rssi = (int8_t)rx.data[j + 2];
 		/* Drop samples outside the requested range: they are left over
 		 * from an earlier run, still queued on the device. */
-		if (!specan_sample_in_range(frequency, low_freq, high_freq))
+		if (!specan_sample_in_range(frequency, low_freq, high_freq)) {
+			progress.out_of_range++;
 			continue;
+		}
+		progress.samples++;
+		/* The upper frequency is the last step of a pass over the range,
+		 * which is what the gnuplot modes below end a record on. */
+		if (frequency == high_freq)
+			progress.sweeps++;
 		switch(output_mode) {
 			case SPECAN_FILE:
 				/* fwrite() is not required to set errno, so a stale one
@@ -152,7 +229,8 @@ static void usage(FILE *file)
 	fprintf(file, "\n");
 	fprintf(file, "Usage:\n");
 	fprintf(file, "\t-h this help\n");
-	fprintf(file, "\t-v verbose (print debug information to stderr)\n");
+	fprintf(file, "\t-v report the board, the sweep and a summary of it "
+	        "once a second, to stderr\n");
 	fprintf(file, "\t-g output suitable for feedgnuplot\n");
 	fprintf(file, "\t-G output suitable for 3D feedgnuplot\n");
 	fprintf(file, "\t-d <filename> output to file; -d - writes to stdout (not a tty)\n");
@@ -183,7 +261,13 @@ int main(int argc, char *argv[])
 	while ((opt=getopt(argc,argv,":vhgGd:l:u:U:")) != EOF) {
 		switch(opt) {
 		case 'v':
-			debug++;
+			/* There is one level of it, so a second -v says nothing
+			 * new and is more likely a mistyped command line. */
+			if (verbose) {
+				fputs("error: -v may be given only once\n", stderr);
+				return 1;
+			}
+			verbose = 1;
 			break;
 		case 'g':
 			output_mode = SPECAN_GNUPLOT_NORMAL;
@@ -274,9 +358,39 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	/* Which board, before the firmware check below, so a -v run that ends
+	 * on a version mismatch still says which board it read. The selection
+	 * above prints nothing when it succeeds, and -U may name an index, so
+	 * the serial number is read rather than repeated from the command
+	 * line. */
+	if (verbose) {
+		char serial[UBERTOOTH_SERIAL_STR_LEN];
+
+		if (ubertooth_read_serial_string(ut->devh, serial, sizeof(serial),
+		                                 UBERTOOTH_SERIAL_READ_QUIET_MS) == 0)
+			fprintf(stderr, "Using Ubertooth %s\n", serial);
+		else
+			fputs("Using an Ubertooth whose serial number could not be "
+			      "read\n", stderr);
+	}
+
 	r = ubertooth_check_api(ut);
 	if (r < 0)
 		return 1;
+
+	/* The sweep as it will actually run, and where its samples go: the two
+	 * things a user comparing a specan run with what they asked for needs,
+	 * and the file name -d opened. */
+	if (verbose) {
+		int per_sweep = (upper - lower) / SPECAN_FREQ_STEP + 1;
+
+		/* -l 2450 -u 2450 is a legal one-channel sweep, so the count can
+		 * be 1. */
+		fprintf(stderr, "Sweeping %d-%d MHz in %d MHz steps, "
+		        "%d sample%s per sweep\n", lower, upper, SPECAN_FREQ_STEP,
+		        per_sweep, per_sweep == 1 ? "" : "s");
+		report_output_target(output_mode, dump_name);
+	}
 
 	/* Clean up on exit. */
 	register_cleanup_handler(ut, 0);
@@ -321,10 +435,20 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	progress.started_ms = util_clock_now_ms();
+	progress.reported_ms = progress.started_ms;
+
 	// receive and process each packet
 	while(!ubertooth_stopping(ut)) {
 		ubertooth_bulk_receive(ut, cb_specan, specan_args);
+		/* Here rather than in cb_specan(): this loop runs whether samples
+		 * arrive or not, so a sweep that has gone silent still reports. */
+		if (verbose)
+			report_progress_if_due();
 	}
+
+	if (verbose)
+		report_progress("Total after", util_clock_now_ms());
 
 	ubertooth_bulk_thread_stop();
 

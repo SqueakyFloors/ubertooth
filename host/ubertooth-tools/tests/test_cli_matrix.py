@@ -928,9 +928,10 @@ def generated_cases():
             expected = expected % NO_SUCH_SERIAL
         cases.append(Case([name, NO_SUCH_SERIAL], "refused", error=expected))
 
-    # An option given twice. The man pages do not decide what the second one
-    # does, except ubertooth-follow's -a, which says "give -l once and -u
-    # once"; everywhere else the tools keep the last and say nothing.
+    # An option given twice. The man pages mostly do not decide what the second
+    # one does: ubertooth-follow's -a says "give -l once and -u once" and
+    # ubertooth-specan's -v may be given only once, both refusals; everywhere
+    # else the tools keep the last and say nothing.
     for name, option in sorted(OPTIONS.items()):
         if option["value"] == "none" or ROLES.get(name) in ("help", "report"):
             continue

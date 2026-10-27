@@ -1,5 +1,5 @@
 /*
- * Monotonic clock and sleep for ubertooth-util; see util_clock.h.
+ * Monotonic clock and sleep for the host tools; see util_clock.h.
  */
 #define _POSIX_C_SOURCE 200809L
 
