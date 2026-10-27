@@ -150,6 +150,9 @@ static struct run_result run_tool_main(run_main_fn tool_main,
 		argc++;
 	}
 	argv[argc] = NULL;
+	/* A command line longer than that would be cut short here, and the case
+	 * would go on to test a command nobody wrote. */
+	mu_assert(args[argc] == NULL, "too many arguments for one run");
 
 	fflush(stdout);
 	fflush(stderr);
@@ -168,7 +171,11 @@ static struct run_result run_tool_main(run_main_fn tool_main,
 		/* Whichever of the two did get redirected is put back, so the
 		 * rest of the test run keeps its own streams. Running the tool
 		 * with one stream uncaptured would compare the other against
-		 * assertions the run never had a chance to satisfy. */
+		 * assertions the run never had a chance to satisfy.
+		 *
+		 * The results are not checked: the assertion below reports the
+		 * run as failed either way, and there is nothing further to do
+		 * about a process whose streams cannot be moved at all. */
 		dup2(saved_out, STDOUT_FILENO);
 		dup2(saved_err, STDERR_FILENO);
 		mu_assert(0, "a standard stream could not be redirected");

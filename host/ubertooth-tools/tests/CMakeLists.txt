@@ -347,9 +347,9 @@ add_test(NAME util-main COMMAND test-util-main)
 # takes well under a second (0.02-0.5 s locally and in CI).
 set_tests_properties(util-main PROPERTIES TIMEOUT 5)
 
-# run_main.h, the harness the tests above and below use to run a tool's
-# main() with both its streams captured. Its own cases drive a fake main(),
-# so no tool, no library and no getopt is linked in.
+# run_main.h, the harness that runs a tool's main() with both its streams
+# captured, for the tests below that drive one. Its own cases drive a fake
+# main(), so no tool, no library and no getopt is linked in.
 add_executable(test-run-main test_run_main.c)
 
 add_test(NAME run-main COMMAND test-run-main)

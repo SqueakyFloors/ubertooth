@@ -50,8 +50,10 @@ static int fake_tool_main(int argc, char *argv[])
 	fprintf(stderr, "error: a diagnostic\n");
 	for (; tool.out_bytes > 0; tool.out_bytes--)
 		putchar('o');
+	/* Bounded by what it is overwriting, so a case passing a short argument
+	 * cannot run off the end of it. */
 	if (tool.write_to_argv && argc > 1)
-		strcpy(argv[1], "written");
+		snprintf(argv[1], strlen(argv[1]) + 1, "written");
 
 	/* Recorded after the write above, so a case can see what the tool left
 	 * in its own argv. */
@@ -180,46 +182,91 @@ MU_TEST(the_test_gets_its_own_streams_back)
 }
 
 /*
- * read_back() reports a capture that did not fit instead of silently
- * comparing a prefix. Its report is a failed assertion, which prints to
- * standard output and counts against the test run, so this runs it with both
- * held aside and gives back how many assertions it failed.
+ * Part of what the harness does is report a failure: a capture that did not
+ * fit, a command line longer than one run can pass on. Checking that means
+ * letting an assertion fail on purpose, which prints to standard output and
+ * counts against the test run. These two hold both aside, so what happens in
+ * between can be counted instead.
  */
-static int failures_from_read_back(FILE *file, char *buffer, size_t size)
+static struct {
+	FILE *sink;
+	int saved_out;
+	int checks_before;
+	int fails_before;
+} quiet;
+
+/* 0 if the streams could not be moved, in which case nothing was changed. */
+static int begin_quiet(void)
 {
-	FILE *sink = tmpfile();
-	int saved_out = dup(STDOUT_FILENO);
-	int checks_before = mu_checks;
-	int fails_before = mu_fails;
-	int failures;
+	quiet.sink = tmpfile();
+	quiet.saved_out = dup(STDOUT_FILENO);
+	quiet.checks_before = mu_checks;
+	quiet.fails_before = mu_fails;
+
+	fflush(stdout);
+	if (quiet.sink == NULL || quiet.saved_out < 0 ||
+	    dup2(fileno(quiet.sink), STDOUT_FILENO) < 0) {
+		if (quiet.sink != NULL)
+			fclose(quiet.sink);
+		if (quiet.saved_out >= 0)
+			close(quiet.saved_out);
+		mu_assert(0, "the test's own output could not be held aside");
+		return 0;
+	}
+	return 1;
+}
+
+/* How many assertions failed since begin_quiet(). */
+static int end_quiet(void)
+{
 	int restored;
+	int failures;
 
-	if (sink == NULL || saved_out < 0) {
-		if (sink != NULL)
-			fclose(sink);
-		if (saved_out >= 0)
-			close(saved_out);
-		mu_assert(0, "the test's own output could not be held aside");
-		return -1;
-	}
 	fflush(stdout);
-	if (dup2(fileno(sink), STDOUT_FILENO) < 0) {
-		close(saved_out);
-		fclose(sink);
-		mu_assert(0, "the test's own output could not be held aside");
-		return -1;
-	}
-	read_back(file, buffer, size);
-	fflush(stdout);
-	restored = dup2(saved_out, STDOUT_FILENO);
-	close(saved_out);
-	fclose(sink);
+	restored = dup2(quiet.saved_out, STDOUT_FILENO);
+	close(quiet.saved_out);
+	fclose(quiet.sink);
 
-	failures = mu_fails - fails_before;
-	mu_checks = checks_before;
-	mu_fails = fails_before;
+	failures = mu_fails - quiet.fails_before;
+	mu_checks = quiet.checks_before;
+	mu_fails = quiet.fails_before;
 	mu_assert(restored >= 0, "the test's own output could not be put back");
 	return failures;
+}
+
+static int failures_from_read_back(FILE *file, char *buffer, size_t size)
+{
+	if (!begin_quiet())
+		return -1;
+	read_back(file, buffer, size);
+	return end_quiet();
+}
+
+static int failures_from_run(const char *const *args)
+{
+	if (!begin_quiet())
+		return -1;
+	run_tool_main(fake_tool_main, args);
+	return end_quiet();
+}
+
+/* A command line longer than the harness can pass on is reported rather than
+ * cut short, which would leave the case testing a command nobody wrote. */
+MU_TEST(a_command_line_too_long_for_one_run_is_reported)
+{
+	static const char *const too_many[RUN_MAIN_MAX_ARGS + 2] = {
+		"a-tool", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+		"10", "11", "12", "13", "14", "15", NULL
+	};
+	const char *const *just_fits = too_many + 1; /* drops one argument */
+
+	/* The first entry is the tool's name, so this is one too many. */
+	reset_tool();
+	mu_assert_int_eq(1, failures_from_run(too_many));
+
+	reset_tool();
+	mu_assert_int_eq(0, failures_from_run(just_fits));
+	mu_assert_int_eq(RUN_MAIN_MAX_ARGS, tool.argc);
 }
 
 MU_TEST(a_capture_that_did_not_fit_is_reported)
@@ -260,5 +307,6 @@ int main(void)
 	MU_RUN(a_run_does_not_see_what_the_run_before_it_printed);
 	MU_RUN(the_test_gets_its_own_streams_back);
 	MU_RUN(a_capture_that_did_not_fit_is_reported);
+	MU_RUN(a_command_line_too_long_for_one_run_is_reported);
 	return mu_report();
 }
