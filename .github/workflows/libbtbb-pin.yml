@@ -37,6 +37,10 @@ jobs:
     - uses: actions/checkout@v4
 
     - name: Check the libbtbb pin
+      # Its own limit, above the clone's worst case of 2 minutes 30, so the
+      # step that stalled is the one that fails rather than the whole job
+      # being cancelled without saying what it was waiting for.
+      timeout-minutes: 4
       shell: bash
       # Two things have to hold for the pin: every file that writes it out
       # agrees, and the commit is one a user can actually get.

@@ -118,8 +118,12 @@ jobs:
       # them or ran their CLI tests. macOS has no BlueZ, so there they stay
       # skipped by design.
       # One bounded call of 180 seconds an attempt, so at most 6 minutes 30
-      # seconds, and then the install.
-      timeout-minutes: 8
+      # seconds, and then the install. Ten minutes leaves the install over
+      # three of them: the step limit has to sit above tools/retry.sh's worst
+      # case plus the unpacking, or the corner where attempt one times out and
+      # attempt two succeeds is cancelled part way through dpkg -- the opaque
+      # failure this whole arrangement exists to remove.
+      timeout-minutes: 10
       # sudo is outside the helper so the limit lands on apt itself: killing
       # sudo would leave apt holding the dpkg lock.
       run: |
@@ -228,18 +232,20 @@ jobs:
         # Same tiers as the host job.
         os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'release' || github.event_name == 'workflow_dispatch') && '["ubuntu-22.04","ubuntu-24.04","macos-14","macos-15","macos-26","ubuntu-latest"]' || '["ubuntu-24.04","macos-26"]') }}
     runs-on: ${{ matrix.os }}
-    # Above the install step below plus the build, as in the host job.
-    timeout-minutes: 18
+    # Above the install step below plus the build, as in the host job. The
+    # cold-run install step may take fourteen of these minutes on its own.
+    timeout-minutes: 20
 
     steps:
     - uses: actions/checkout@v4
       with:
         submodules: true
 
-    # The ARM toolchain is the big download in this workflow: 57 MB of
-    # gcc-arm-none-eabi on Linux, a comparable cask on macOS. A mirror that
-    # stops sending bytes part way through used to leave this step waiting
-    # until the job timeout, so each step is bounded as in the host job.
+    # The ARM toolchain is the big download in this workflow: 574 MB of
+    # packages on Ubuntu 24.04, a cask of comparable size on macOS. A mirror
+    # that stops sending bytes part way through used to leave this step
+    # waiting until the job timeout, so each step is bounded as in the host
+    # job.
     - name: Install dependencies (macOS)
       # Twelve minutes is well above what this step has ever legitimately
       # taken (four and a half on the oldest runner, where brew rebuilt a
@@ -257,13 +263,20 @@ jobs:
       if: runner.os == 'macOS'
 
     # Bounding the download reports a slow mirror instead of waiting for it,
-    # but it cannot make the download finish, and the download is large: 574
-    # MB on Ubuntu 24.04, of which 462 MB is the C++ runtime. The same fetch
-    # took 31 seconds on a healthy mirror and, an hour later on a bad one,
-    # moved 3 MB in 63 seconds and did not get through the 57 MB compiler in
-    # either attempt. Keeping the .deb files between runs is the only thing
-    # that removes the download, so the two steps below do that and the
-    # fetch beneath them is unchanged for the run that has to do it for real.
+    # but it cannot make the download finish, and the download is large.
+    # Measured on ubuntu-24.04 (noble, gcc-arm-none-eabi 13.2.rel1-2): 574 MB
+    # for the four packages, 463 MB of it the C++ runtime
+    # (libstdc++-arm-none-eabi-newlib), 57 MB the compiler itself and 49 MB
+    # newlib. Only the compiler was counted when this job was first bounded,
+    # which is why older notes about it say 94 MB; naming the two runtimes
+    # explicitly, rather than taking them as recommends, is what made the real
+    # figure visible.
+    #
+    # The same fetch took 31 seconds on a healthy mirror and, an hour later on
+    # a bad one, moved 3 MB in 63 seconds and did not get through the compiler
+    # in either attempt. Keeping the .deb files between runs is the only thing
+    # that removes the download, so the two steps below do that and the fetch
+    # beneath them is unchanged for the run that has to do it for real.
     #
     # The key is the set of files apt would fetch, not the package names.
     # apt-get --print-uris resolves the names against the runner image's
@@ -280,6 +293,14 @@ jobs:
     - name: Resolve the toolchain packages
       id: toolchain
       if: runner.os == 'Linux'
+      # bash, not the default shell: GitHub's `bash` keyword adds -o pipefail,
+      # so a failing apt-get in the pipeline below fails this step. Without it
+      # the pipeline's status is sort's, the step would succeed with an empty
+      # list, and the key would become the hash of nothing -- one constant that
+      # matches every toolchain. Nothing downstream would complain, because the
+      # install refetches whatever is missing, so the key would quietly stop
+      # being a key.
+      shell: bash
       run: |
         uris="$RUNNER_TEMP/toolchain-uris"
         # What is left of each line is the file name, its size and its hash;
@@ -288,6 +309,14 @@ jobs:
         sudo apt-get install --print-uris -y --no-install-recommends -d \
           $ARM_PACKAGES | sed -n "s/^'[^']*' //p" | sort > "$uris"
         cat "$uris"
+        # The belt to pipefail's braces: a key may only be computed from a
+        # list that has something in it. An empty list is a resolve that went
+        # wrong, never a toolchain with no files.
+        if [ ! -s "$uris" ]; then
+          echo "error: apt resolved no files for the toolchain packages, so" >&2
+          echo "       there is nothing to key the cache on" >&2
+          exit 1
+        fi
         echo "key=$(sha256sum < "$uris" | cut -c1-16)" >> "$GITHUB_OUTPUT"
 
     - name: Restore the toolchain packages
@@ -310,7 +339,11 @@ jobs:
       # and a bad one does not come close to. A mirror that slow is reported
       # by name rather than waited on, which is the point of the bound; what
       # removes the wait altogether is the cache above.
-      timeout-minutes: 12
+      #
+      # Fourteen minutes: tools/retry.sh's worst case here is 10 minutes 30,
+      # and the rest is for unpacking half a gigabyte of toolchain, which must
+      # not be cancelled half done.
+      timeout-minutes: 14
       run: |
         archives="$RUNNER_TEMP/apt-archives"
         # apt needs the partial directory to exist before it will fetch.
@@ -389,8 +422,24 @@ jobs:
       # macOS as well would cost a brew install to check the same files
       # twice, so the lint is the Linux leg's and the macOS leg is here for
       # the self-test below.
+      #
+      # ci-scripts/ is left out on purpose: those four scripts belong to
+      # upstream's retired Jenkins build, nothing in this fork runs them, and
+      # linting them would mean fixing scripts nobody can test.
       if: runner.os == 'Linux'
-      run: shellcheck tools/*.sh install.sh
+      timeout-minutes: 6
+      run: |
+        # The runner image ships shellcheck, so this normally installs
+        # nothing. If an image ever drops it, install it rather than have
+        # every pull request blocked by a command that is not there; bounded
+        # and retried like the other package installs in this workflow.
+        if ! command -v shellcheck > /dev/null; then
+          apt_opts="-o Acquire::http::Timeout=30 -o Acquire::Retries=2"
+          sudo tools/retry.sh 120 sh -c \
+            "apt-get $apt_opts update && apt-get $apt_opts install -y -d shellcheck"
+          sudo apt-get install -y shellcheck
+        fi
+        shellcheck tools/*.sh install.sh
 
     - name: Check that retry.sh bounds, retries and reports
       # Not inline here, unlike the issue-reference check below, because the
@@ -465,8 +514,10 @@ jobs:
       # This list is far larger than the firmware job's -- build-essential
       # alone pulls in the compiler and the C library headers -- so an
       # attempt gets 240 seconds rather than that job's 120. That is 8
-      # minutes 20 of retries at worst, and then the install.
-      timeout-minutes: 10
+      # minutes 30 of retries at worst, and then the install, which is why
+      # the step gets twelve minutes and not ten: unpacking a compiler must
+      # not be cancelled part way.
+      timeout-minutes: 12
       run: |
         packages="git cmake build-essential pkg-config libfftw3-dev \
           libusb-1.0-0-dev libbluetooth-dev python3"
@@ -518,8 +569,10 @@ jobs:
     # Full tier only.
     if: (github.event_name == 'schedule' || github.event_name == 'release' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
-    # Above the two install steps below plus the checkout and the build.
-    timeout-minutes: 20
+    # Above the two install steps below plus the checkout and the build. Those
+    # two steps may want twenty of these minutes between them on the day the
+    # mirror is bad, and this job never has a cache to fall back on.
+    timeout-minutes: 24
     container: ubuntu:20.04
     env:
       DEBIAN_FRONTEND: noninteractive
@@ -530,8 +583,9 @@ jobs:
     # recommends as the firmware job does; ca-certificates is then needed
     # explicitly for the HTTPS checkout of the submodules.
     - name: Install checkout prerequisites
-      # Two bounded commands of 100 seconds, so 3 minutes 40 at worst.
-      timeout-minutes: 5
+      # Two bounded commands of 100 seconds, so 3 minutes 40 at worst, and
+      # then the install of git and the certificates.
+      timeout-minutes: 6
       # Not retried: tools/retry.sh needs the checkout this step installs for.
       # tools/retry.sh really is unavailable here, but timeout is not, so the
       # two downloads are bounded and say what happened, without being retried.
@@ -559,11 +613,12 @@ jobs:
 
     - name: Install the ARM toolchain
       # The same toolchain as the hosted firmware job, so the same 300 seconds
-      # an attempt and the same 12 minutes for the step. Not cached as that
+      # an attempt and the same 14 minutes for the step. Not cached as that
       # job's is: this one runs on the weekly schedule, and a cache goes
       # unused for the same seven days after which GitHub evicts it, so the
-      # hit would be a coin toss.
-      timeout-minutes: 12
+      # hit would be a coin toss. This job therefore always pays the cold
+      # download, which is the other reason the step limit is generous.
+      timeout-minutes: 14
       run: |
         packages="make $ARM_PACKAGES"
         apt_opts="-o Acquire::http::Timeout=30 -o Acquire::Retries=2"
@@ -604,9 +659,11 @@ jobs:
     - uses: actions/checkout@v4
 
     - name: Install build prerequisites
-      # The same 240 seconds an attempt as the Ubuntu 20.04 container, for
-      # the same reason: a long package list.
-      timeout-minutes: 10
+      # The same 240 seconds an attempt and the same twelve minutes for the
+      # step as the Ubuntu 20.04 container, for the same reasons: a long
+      # package list, and an rpm transaction that must not be cancelled part
+      # way through.
+      timeout-minutes: 12
       run: |
         packages="git cmake gcc gcc-c++ make pkgconf-pkg-config \
           fftw-devel libusb1-devel bluez-libs-devel python3"

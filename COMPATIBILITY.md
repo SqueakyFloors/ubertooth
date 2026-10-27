@@ -89,9 +89,10 @@ the pin (`install.sh --libbtbb-url`/`--libbtbb-ref`) is on you.
 ### libbtbb comes from this project's fork, at a pinned commit
 CI, `install.sh` and the build guide all build the same
 `SqueakyFloors/libbtbb` commit, so a push to libbtbb cannot change an
-Ubertooth build. The pin lives in `.github/workflows/build.yml`; a CI step
-fails if any other file naming it, this one included, falls behind, or if the
-pin is not a commit on the fork's default branch: a squash-merged pull request
+Ubertooth build. The pin lives in `.github/workflows/build.yml`; the
+`libbtbb pin` workflow, which runs on every change including a documentation
+one, fails if any other file naming it, this one included, falls behind, or if
+the pin is not a commit on the fork's default branch: a squash-merged pull request
 head whose branch has been deleted is still served to CI by its hash, but is
 in nobody's clone. Only the C library is built (`-DENABLE_PYTHON=OFF`): the
 Ubertooth tools link nothing else from libbtbb.
