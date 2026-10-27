@@ -145,6 +145,11 @@ static uint64_t packet_host_ns( uint64_t arrival_ns )
 	return host_ns_at_arrival( real_ns, mono_ns, arrival_ns );
 }
 
+uint32_t ubertooth_packet_systime( uint64_t arrival_ns )
+{
+	return (uint32_t) (packet_host_ns( arrival_ns ) / 1000000000ull);
+}
+
 uint64_t ubertooth_packet_arrival_ns( void )
 {
 	if (infile != NULL)
@@ -468,6 +473,7 @@ void cb_scan(ubertooth_t* ut, void* args __attribute__((unused)))
 
 	usb_pkt_rx usb = fifo_pop(ut->fifo);
 	usb_pkt_rx* rx = &usb;
+	uint64_t arrival_ns = fifo_popped_arrival_ns(ut->fifo);
 	char syms[BANK_LEN];
 	ubertooth_unpack_symbols((uint8_t*)rx->data, syms);
 
@@ -491,10 +497,9 @@ void cb_scan(ubertooth_t* ut, void* args __attribute__((unused)))
 	btbb_packet_set_data(pkt, syms + offset, BANK_LEN - offset,
 	                     rx->channel, clkn);
 
-	/* A replayed record carries the host time it was recorded with (read
-	 * into systime by the caller); a live one is stamped now. */
-	if (infile == NULL)
-		systime = time(NULL);
+	/* The host time this record arrived. A replayed record keeps the one it
+	 * was recorded with. */
+	systime = ubertooth_packet_systime( arrival_ns );
 
 	printf("systime=%u ch=%2d LAP=%06x err=%u clk100ns=%u clk1=%u s=%d n=%d snr=%d\n",
 	       systime,
@@ -703,10 +708,13 @@ void cb_btle(ubertooth_t* ut, void* args)
 		return;
 	}
 
-	/* When reading from file, the caller read the record's host time into
-	 * systime before calling this routine, so do not overwrite it. */
-	if (infile == NULL)
-		systime = time(NULL);
+	/* The host time this record arrived, which the dump below stores with
+	 * it. A replayed record keeps the one it was recorded with. Per record,
+	 * because that is what the dump stores: a packet that arrived as a
+	 * chain of records is printed with the arrival of the one that
+	 * completed it, while the capture below places it where the chain
+	 * started. */
+	systime = ubertooth_packet_systime( arrival_ns );
 
 	/* Sanity check */
 	if (rx->channel > (NUM_BREDR_CHANNELS-1))
@@ -884,11 +892,9 @@ void cb_rx(ubertooth_t* ut, void* args)
 	if (rx->channel > (NUM_BREDR_CHANNELS-1))
 		goto out;
 
-	/* When reading from file, caller will read
-	 * systime before calling this routine, so do
-	 * not overwrite. Otherwise, get current time. */
-	if (infile == NULL)
-		systime = time(NULL);
+	/* The host time this record arrived, which the dump below stores with
+	 * it. A replayed record keeps the one it was recorded with. */
+	systime = ubertooth_packet_systime( arrival_ns );
 
 	uint64_t nowns = now_ns_from_clk100ns( ut, rx, arrival_ns );
 

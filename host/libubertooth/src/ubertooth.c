@@ -1291,6 +1291,7 @@ static void cb_dump_full(ubertooth_t* ut, void* args __attribute__((unused)))
 {
 	usb_pkt_rx usb = fifo_pop(ut->fifo);
 	usb_pkt_rx* rx = &usb;
+	uint64_t arrival_ns = fifo_popped_arrival_ns(ut->fifo);
 
 	/* A keep-alive only says a quiet capture is still alive. Writing it out
 	 * would put a record in the dump whose packet fields nothing ever set,
@@ -1299,10 +1300,8 @@ static void cb_dump_full(ubertooth_t* ut, void* args __attribute__((unused)))
 		return;
 
 	fprintf(stderr, "rx block timestamp %u * 100 nanoseconds\n", rx->clk100ns);
-	/* A replayed record keeps the host time it was recorded with, which
-	 * stream_rx_file() left in systime; a live one is stamped now. */
-	if (infile == NULL)
-		systime = time(NULL);
+	/* The host time this record arrived. */
+	systime = ubertooth_packet_systime(arrival_ns);
 	uint32_t time_be = htobe32(systime);
 	if (dumpfile == NULL) {
 		fwrite(&time_be, 1, sizeof(time_be), stdout);

@@ -43,7 +43,13 @@
  * got round to it. Those cases read the real clocks of the machine running
  * the test, because relating the two is the whole of what they check, and
  * allow for the moments between the readings.
+ *
+ * The last few cases take that as far as the files a run writes. They drive
+ * the real callbacks with a dump and a capture open at once and then replay
+ * the dump, so the host time the dump carries and the time the capture gives
+ * the same packet are compared as a user would compare them.
  */
+#include <fcntl.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -1154,6 +1160,420 @@ MU_TEST(a_reading_that_cannot_place_a_record_leaves_the_host_time_alone)
 	                 host_ns_at_arrival(10000000000ull, mono_ns, 1000ull));
 }
 
+/* ---- the host time a dump carries -------------------------------------- */
+
+/* The other half of the same question, run through the real callbacks: what a
+ * `-d` dump stores with each record, which is also what the systime= column
+ * prints and what a replay of that dump has to go on. It is now worked out
+ * from the same arrival reading as the capture's own times, so the two
+ * outputs of one run describe the same moment. Stamped from the clock read
+ * where the loop reached the record, as it was, a stalled host's dump carried
+ * every time late and disagreed with the capture written beside it.
+ *
+ * A dump stores whole seconds, so a time read back from one lands at the
+ * moment it came from or up to a second before it, never after. */
+
+/* Which callback a case drives. `ubertooth-rx -d <file> -q <file>`, the
+ * command the issue is about, reaches the basic-rate one; the low-energy one
+ * stamps and dumps a record the same way. The scan one writes no dump and no
+ * capture, so the printed column is the whole of what it stamps. */
+enum stamped_mode {
+	STAMPED_BASIC_RATE,
+	STAMPED_LOW_ENERGY,
+	STAMPED_SCAN,
+};
+
+/* A low-energy advertising packet the decoder takes: the advertising access
+ * address, little endian, then an ADV_IND header whose length matches the six
+ * bytes of payload after it. */
+static void advertising_record(usb_pkt_rx* rx)
+{
+	memset(rx, 0, sizeof(*rx));
+	rx->pkt_type = LE_PACKET;
+	rx->channel = 0;
+	rx->clk100ns = htole32((uint32_t) FIRST_TICKS);
+	rx->data[0] = 0xd6;
+	rx->data[1] = 0xbe;
+	rx->data[2] = 0x89;
+	rx->data[3] = 0x8e;
+	rx->data[4] = 0x00;
+	rx->data[5] = 6;
+}
+
+/* The LAP the basic-rate record below carries, the 64-bit sequence its sync
+ * word is scrambled with, the (64,30) expurgated BCH generator, and the
+ * Barker sequence the LAP's top bit chooses. */
+#define BASIC_RATE_LAP     0x5a3c96u
+#define SYNC_WORD_SCRAMBLE 0x83848d96bbcc54fcull
+#define SYNC_WORD_BCH      0260534236651ull
+#define SYNC_WORD_BARKER_0 0x2cu
+#define SYNC_WORD_BARKER_1 0x13u
+
+/* The 64-bit sync word of a LAP, built from the Bluetooth Core specification
+ * (Vol 2, Part B 6.3.3): the LAP and its Barker sequence, scrambled, then the
+ * BCH parity of that. Bit i is the i-th symbol on air. Building it here is
+ * what lets a basic-rate case run with no board and no saved capture. */
+static uint64_t sync_word(uint32_t lap)
+{
+	uint64_t information, scrambled, parity;
+	int bit;
+
+	lap &= 0xffffffu;
+	information = lap | ((uint64_t) ((lap >> 23) ? SYNC_WORD_BARKER_1 :
+	                                               SYNC_WORD_BARKER_0) << 24);
+	scrambled = information ^ (SYNC_WORD_SCRAMBLE >> 34);
+	parity = scrambled << 34;
+	for (bit = 63; bit >= 34; bit--) {
+		if ((parity >> bit) & 1)
+			parity ^= SYNC_WORD_BCH << (bit - 34);
+	}
+	return ((scrambled << 34) | parity) ^ SYNC_WORD_SCRAMBLE;
+}
+
+/* A basic-rate packet the decoder finds: silence, then the preamble and sync
+ * word of one LAP, then silence again, packed most significant bit first the
+ * way the board sends symbols. */
+static void basic_rate_record(usb_pkt_rx* rx)
+{
+	/* Where the access code starts, far enough in that the decoder has
+	 * room to search before it. */
+	enum { PREAMBLE_AT = 16 };
+	uint8_t symbols[SYM_LEN * 8] = { 0 };
+	uint64_t word = sync_word(BASIC_RATE_LAP);
+	int i, j;
+
+	memset(rx, 0, sizeof(*rx));
+	rx->pkt_type = BR_PACKET;
+	rx->channel = 0;
+	rx->clk100ns = htole32((uint32_t) FIRST_TICKS);
+	rx->rssi_max = -40;
+	rx->rssi_min = -90;
+	rx->rssi_avg = -70;
+	rx->rssi_count = 1;
+
+	/* The preamble is the two symbols that lead into the sync word's first
+	 * bit, so which pair it is follows that bit. */
+	symbols[PREAMBLE_AT + 0] = (word & 1) ? 1 : 0;
+	symbols[PREAMBLE_AT + 1] = (word & 1) ? 0 : 1;
+	symbols[PREAMBLE_AT + 2] = (word & 1) ? 1 : 0;
+	symbols[PREAMBLE_AT + 3] = (word & 1) ? 0 : 1;
+	for (i = 0; i < 64; i++)
+		symbols[PREAMBLE_AT + 4 + i] = (word >> i) & 1;
+
+	for (i = 0; i < SYM_LEN; i++) {
+		for (j = 0; j < 8; j++)
+			rx->data[i] |= symbols[i * 8 + j] << (7 - j);
+	}
+}
+
+/* The host time a dump record carries: a big-endian 32-bit value ahead of the
+ * 64 bytes of the record itself. 0 where the dump holds no whole record. */
+static uint32_t dump_record_systime(FILE* dump)
+{
+	uint8_t record[RX_FILE_RECORD_LEN];
+
+	rewind(dump);
+	if (fread(record, 1, sizeof(record), dump) != sizeof(record))
+		return 0;
+	return ((uint32_t) record[0] << 24) | ((uint32_t) record[1] << 16) |
+	       ((uint32_t) record[2] << 8) | record[3];
+}
+
+/* The host time the packet line printed, from the systime= column of the
+ * first line of a file the callback's output was sent to. 0 where no such
+ * line is there. */
+static uint32_t printed_systime(const char* path)
+{
+	FILE* fp = fopen(path, "r");
+	char line[400];
+	uint32_t printed = 0;
+
+	if (fp == NULL)
+		return 0;
+	while (fgets(line, sizeof(line), fp) != NULL) {
+		if (sscanf(line, "systime=%u", &printed) == 1)
+			break;
+		printed = 0;
+	}
+	fclose(fp);
+	return printed;
+}
+
+/* The pcap magic number that says the times are nanoseconds. libbtbb writes
+ * the header as a struct, so the file is in this machine's own byte order and
+ * the fields read back without swapping. */
+#define PCAP_NANOSECOND_MAGIC 0xa1b23c4du
+
+/* The time the first packet of such a file carries, as nanoseconds. 0 where
+ * the file is not one of these or holds no packet. */
+static uint64_t first_capture_ns(const char* path)
+{
+	FILE* fp = fopen(path, "rb");
+	uint32_t header[6];
+	uint32_t record[4];
+	int readable;
+
+	if (fp == NULL)
+		return 0;
+	readable = fread(header, sizeof(header[0]), 6, fp) == 6 &&
+	           header[0] == PCAP_NANOSECOND_MAGIC &&
+	           fread(record, sizeof(record[0]), 4, fp) == 4;
+	fclose(fp);
+	if (!readable)
+		return 0;
+	return 1000000000ull * record[0] + record[1];
+}
+
+/* Runs one record through a real callback with a dump and a capture open at
+ * once, which is what `ubertooth-rx -d <file> -q <file>` leaves it with. The
+ * scan mode opens neither, as ubertooth-scan does not.
+ *
+ * stall_ns is how long before the callback takes it the record arrived, which
+ * is what a host slow to get going leaves behind. replayed says this is a
+ * replay instead: such a record has only the host time it was recorded with,
+ * recorded_systime, which is also the arrival reading the library pushes for
+ * it, so stall_ns does not apply.
+ *
+ * The host time the dump stored comes back in *stored, the one the packet
+ * line printed in *printed, the time the capture gave the packet in
+ * *capture_ns, and the moment the record arrived, read from the host clock,
+ * in *arrived_ns (0 for a replay, which has no such moment of its own). */
+static void run_one_record(enum stamped_mode mode, int replayed,
+                           uint64_t stall_ns, uint32_t recorded_systime,
+                           uint32_t* stored, uint32_t* printed,
+                           uint64_t* capture_ns, uint64_t* arrived_ns)
+{
+	/* A directory of its own per run, so a file left behind by an earlier
+	 * run, or one a parallel test is writing, cannot be read back here by
+	 * mistake. */
+	char dir[] = "/tmp/ubertooth-dump-time-XXXXXX";
+	char capture_path[sizeof(dir) + 16];
+	char output_path[sizeof(dir) + 16];
+	ubertooth_t ut;
+	usb_pkt_rx rx;
+	FILE* dump;
+	fifo_t* fifo;
+	uint64_t arrival_ns;
+	int saved_stdout, output;
+
+	memset(&ut, 0, sizeof(ut));
+	/* The period of the counter each mode's packets are stamped with, as
+	 * the tool that starts that mode sets it. */
+	ut.clk100ns_period = mode == STAMPED_LOW_ENERGY ? CLK100NS_TIMER1_PERIOD :
+	                                                  CLK100NS_PERIOD;
+	fifo = fifo_init();
+	mu_assert_fatal(fifo != NULL, "cannot allocate the ring buffer");
+	ut.fifo = fifo;
+
+	mu_assert_fatal(mkdtemp(dir) != NULL, "cannot make a directory to write in");
+	snprintf(capture_path, sizeof(capture_path), "%s/capture.pcap", dir);
+	snprintf(output_path, sizeof(output_path), "%s/output", dir);
+	dump = tmpfile();
+	mu_assert_fatal(dump != NULL, "cannot open a dump to write");
+	if (mode == STAMPED_LOW_ENERGY) {
+		advertising_record(&rx);
+		mu_assert_fatal(lell_pcap_create_file(capture_path,
+		                                      &ut.h_pcap_le) == 0,
+		                "cannot open a capture to write");
+	} else {
+		basic_rate_record(&rx);
+		/* The decoder's error-correction tables, which finding an
+		 * access code needs. */
+		mu_assert_fatal(btbb_init(max_ac_errors) == 0,
+		                "cannot set up the decoder");
+		if (mode == STAMPED_BASIC_RATE)
+			mu_assert_fatal(btbb_pcap_create_file(capture_path,
+			                                      &ut.h_pcap_bredr) == 0,
+			                "cannot open a capture to write");
+	}
+
+	/* The callback prints the packet line; send it to a file, both to keep
+	 * it out of the test's own output and to read the systime= column it
+	 * carries back. */
+	fflush(stdout);
+	saved_stdout = dup(fileno(stdout));
+	mu_assert_fatal(saved_stdout >= 0, "cannot set the output aside");
+	output = open(output_path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+	mu_assert_fatal(output >= 0, "cannot open a file for the output");
+	dup2(output, fileno(stdout));
+	close(output);
+
+	/* The globals the callbacks read, set once everything they need is
+	 * open: a case that stopped short of here would otherwise leave infile
+	 * pointing at a file and send every later case down the replay
+	 * branch. stdin stands in for a dump being replayed; nothing reads it,
+	 * only its being non-NULL matters. */
+	infile = replayed ? stdin : NULL;
+	systime = replayed ? recorded_systime : 0;
+	dumpfile = mode == STAMPED_SCAN ? NULL : dump;
+
+	/* The two readings a live case compares, taken together so that only
+	 * the moments between them are in play: when the record arrived, on
+	 * the monotonic clock the ring buffer stamps records with, and the
+	 * host time of that same moment. Anything slow between them would
+	 * separate them and the assertions below would have to allow for it. */
+	if (replayed) {
+		arrival_ns = 1000000000ull * (uint64_t) recorded_systime;
+		*arrived_ns = 0;
+	} else {
+		*arrived_ns = clock_ns(CLOCK_REALTIME) - stall_ns;
+		arrival_ns = clock_ns(CLOCK_MONOTONIC) - stall_ns;
+	}
+	fifo_push(fifo, &rx, arrival_ns);
+
+	switch (mode) {
+	case STAMPED_LOW_ENERGY:
+		cb_btle(&ut, NULL);
+		break;
+	case STAMPED_SCAN:
+		cb_scan(&ut, NULL);
+		break;
+	case STAMPED_BASIC_RATE:
+		cb_rx(&ut, NULL);
+		break;
+	}
+
+	fflush(stdout);
+	dup2(saved_stdout, fileno(stdout));
+	close(saved_stdout);
+
+	if (ut.h_pcap_le != NULL) {
+		lell_pcap_close(ut.h_pcap_le);
+		ut.h_pcap_le = NULL;
+	}
+	if (ut.h_pcap_bredr != NULL) {
+		btbb_pcap_close(ut.h_pcap_bredr);
+		ut.h_pcap_bredr = NULL;
+	}
+	*stored = dump_record_systime(dump);
+	*printed = printed_systime(output_path);
+	*capture_ns = first_capture_ns(capture_path);
+
+	fclose(dump);
+	dumpfile = NULL;
+	infile = NULL;
+	free(fifo);
+	ut.fifo = NULL;
+	unlink(capture_path);
+	unlink(output_path);
+	rmdir(dir);
+}
+
+/* The whole second a host time written out as seconds was truncated to. */
+#define DUMP_TRUNCATION_NS 1000000000ull
+
+/* Whether a host time written out as whole seconds describes the moment
+ * reference_ns is: truncated, it lands at that moment or up to a second
+ * before it, never after. A window that allowed a second either way would
+ * pass a time a second late, which is the fault these cases are about.
+ * ANCHOR_SLACK_NS covers the same thing here as it does above: the moments
+ * between the clock reads being related. */
+static int is_the_truncation_of(uint64_t truncated_ns, uint64_t reference_ns)
+{
+	return truncated_ns <= reference_ns + ANCHOR_SLACK_NS &&
+	       reference_ns < truncated_ns + DUMP_TRUNCATION_NS + ANCHOR_SLACK_NS;
+}
+
+/* A host slow to reach its first record stores the time that record arrived
+ * in its dump, which is the time the capture written beside it gives the same
+ * packet. Stamped where the loop reached the record, the dump was the whole
+ * stall late while the capture was not, so the two outputs of one run
+ * disagreed. */
+MU_TEST(a_stalled_hosts_dump_and_capture_agree)
+{
+	uint32_t stored = 0, printed = 0;
+	uint64_t capture_ns = 0, arrived_ns = 0;
+
+	run_one_record(STAMPED_BASIC_RATE, 0, STALL_NS, 0, &stored, &printed,
+	               &capture_ns, &arrived_ns);
+
+	mu_assert_fatal(stored != 0, "the dump holds no record");
+	mu_assert_fatal(capture_ns != 0, "the capture holds no packet");
+	mu_assert_int_eq(stored, printed);
+	mu_assert(is_the_truncation_of(1000000000ull * stored, capture_ns),
+	          "the dump and the capture disagree about when the packet arrived");
+	mu_assert(is_the_truncation_of(1000000000ull * stored, arrived_ns),
+	          "the dump's host time is not where the record arrived");
+}
+
+/* The same of the low-energy callback, which stamps and dumps a record the
+ * same way. */
+MU_TEST(a_stalled_low_energy_dump_and_capture_agree)
+{
+	uint32_t stored = 0, printed = 0;
+	uint64_t capture_ns = 0, arrived_ns = 0;
+
+	run_one_record(STAMPED_LOW_ENERGY, 0, STALL_NS, 0, &stored, &printed,
+	               &capture_ns, &arrived_ns);
+
+	mu_assert_fatal(stored != 0, "the dump holds no record");
+	mu_assert_fatal(capture_ns != 0, "the capture holds no packet");
+	mu_assert(is_the_truncation_of(1000000000ull * stored, capture_ns),
+	          "the dump and the capture disagree about when the packet arrived");
+	mu_assert(is_the_truncation_of(1000000000ull * stored, arrived_ns),
+	          "the dump's host time is not where the record arrived");
+}
+
+/* A scan writes nothing out, so its systime= column is the whole of what it
+ * stamps: it too says where the record arrived, not where the loop reached
+ * it. */
+MU_TEST(a_stalled_scans_column_says_where_the_record_arrived)
+{
+	uint32_t stored = 0, printed = 0;
+	uint64_t capture_ns = 0, arrived_ns = 0;
+
+	run_one_record(STAMPED_SCAN, 0, STALL_NS, 0, &stored, &printed,
+	               &capture_ns, &arrived_ns);
+
+	mu_assert_int_eq(0, stored);
+	mu_assert_fatal(printed != 0, "the scan printed no packet line");
+	mu_assert(is_the_truncation_of(1000000000ull * printed, arrived_ns),
+	          "the scan's host time is not where the record arrived");
+}
+
+/* A host that was reading promptly is left as it was: its record arrived
+ * moments before the callback took it, so the dump holds the time read there,
+ * which is the normal case and the commonest one. */
+MU_TEST(a_prompt_hosts_dump_is_stamped_where_it_always_was)
+{
+	uint32_t stored = 0, printed = 0;
+	uint64_t capture_ns = 0, arrived_ns = 0;
+
+	run_one_record(STAMPED_BASIC_RATE, 0, 0, 0, &stored, &printed,
+	               &capture_ns, &arrived_ns);
+
+	mu_assert_fatal(stored != 0, "the dump holds no record");
+	mu_assert(is_the_truncation_of(1000000000ull * stored, arrived_ns),
+	          "a prompt capture's dump time moved");
+}
+
+/* Replaying a stalled host's dump puts the packet back where it arrived. The
+ * host time the record carries is the whole of what the live run handed on,
+ * so a dump stamped late replayed late too, and the replay disagreed with the
+ * capture of the live run it came from. */
+MU_TEST(a_replay_of_a_stalled_hosts_dump_lands_where_the_packet_arrived)
+{
+	uint32_t stored = 0, replayed = 0, printed = 0;
+	uint64_t live_ns = 0, replay_ns = 0;
+	uint64_t arrived_ns = 0, unused_ns = 0;
+
+	run_one_record(STAMPED_BASIC_RATE, 0, STALL_NS, 0, &stored, &printed,
+	               &live_ns, &arrived_ns);
+	mu_assert_fatal(stored != 0, "the dump holds no record");
+
+	run_one_record(STAMPED_BASIC_RATE, 1, 0, stored, &replayed, &printed,
+	               &replay_ns, &unused_ns);
+
+	/* A replay writes the recorded time back out unchanged, so a dump of a
+	 * replay is the dump it replayed. */
+	mu_assert_int_eq(stored, replayed);
+	mu_assert_fatal(replay_ns != 0, "the replay's capture holds no packet");
+	mu_assert(is_the_truncation_of(replay_ns, live_ns),
+	          "the replay does not land where the live capture did");
+	mu_assert(is_the_truncation_of(replay_ns, arrived_ns),
+	          "the replay does not land where the record arrived");
+}
+
 /* Which clock a mode stamps with is known only to the tool that starts it, so
  * this one reads ubertooth-btle's source: the branch that starts the
  * low-energy engine must say that its packets come from timer1. A capture run
@@ -1220,6 +1640,11 @@ int main(void)
 	MU_RUN(a_record_with_no_arrival_reading_is_anchored_where_it_is_read);
 	MU_RUN(an_arrival_reading_in_the_future_is_anchored_where_it_is_read);
 	MU_RUN(a_reading_that_cannot_place_a_record_leaves_the_host_time_alone);
+	MU_RUN(a_stalled_hosts_dump_and_capture_agree);
+	MU_RUN(a_stalled_low_energy_dump_and_capture_agree);
+	MU_RUN(a_stalled_scans_column_says_where_the_record_arrived);
+	MU_RUN(a_prompt_hosts_dump_is_stamped_where_it_always_was);
+	MU_RUN(a_replay_of_a_stalled_hosts_dump_lands_where_the_packet_arrived);
 	MU_RUN(the_low_energy_engine_is_started_with_its_own_period);
 	return mu_report();
 }
