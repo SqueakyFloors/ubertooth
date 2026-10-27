@@ -896,6 +896,11 @@ Fixes with no visible change in normal use.
   longer waits on a thread that was never created.
   [#431](https://github.com/SqueakyFloors/ubertooth/issues/431)
   [#564](https://github.com/SqueakyFloors/ubertooth/issues/564)
+- An `ubertooth-btbr` command the interpreter will not give a thread to says
+  so on standard error and leaves the prompt up with the board free. The
+  board was left claimed by a command nothing held, so every later command
+  was refused as still running and the tool ended in a traceback.
+  [#567](https://github.com/SqueakyFloors/ubertooth/issues/567)
 - Every packet the firmware writes into the radio's 32-byte packet buffer used
   to carry one stray byte on the end, from eight clock pulses sent after the
   data. A receiver ignores the tail, so the modes that transmit with the
