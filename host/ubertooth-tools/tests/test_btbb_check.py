@@ -7,18 +7,19 @@ older than the pinned commit got as far as the compiler and failed with "call
 to undeclared function" in the middle of libubertooth, naming neither libbtbb
 nor the commit to rebuild it at.
 
-This runs the real FindBTBB.cmake from a one-line project, twice:
+This runs the real FindBTBB.cmake from a one-line project, against:
 
-  * against the libbtbb this build found, where it must configure and must
-    have run the probe, so a check that stopped checking fails here;
-  * against a header with two of those functions renamed out of it, which is
-    what an older libbtbb looks like, where it must fail naming both functions
-    and the pinned commit;
-  * against this build's own header and a library that defines none of those
-    functions, compiled with -O2, where it must also fail. That case is the
-    library half of the probe rather than the header half, and optimisation is
-    what can erase it: a table of function addresses inside main() is folded
-    away at -O2, leaving a program that links against anything.
+  * the libbtbb this build found, where it must configure and must have run
+    the probe, so a check that stopped checking fails here;
+  * a header with two of those functions renamed out of it, which is what an
+    older libbtbb looks like, where it must fail naming both functions and
+    the pinned commit;
+  * this build's own header and a library that defines none of those
+    functions, at -O2 and again at -O2 -flto, where it must also fail. That
+    case is the library half of the probe rather than the header half, and
+    optimisation is what can erase it: a table of function addresses inside
+    main() is folded away at -O2, and one at file scope is dropped under
+    -flto, either way leaving a program that links against anything.
 
 Usage: test_btbb_check.py <cmake> <repository root> <include dir> <library>
 """
@@ -196,19 +197,34 @@ def main():
                  "which is what the reader has to check out:\n%s"
                  % (ref, output))
 
-        # The library half, under the optimisation that can erase it. The
+        # The library half, under the two optimisations that can erase it. The
         # header is this build's, so every function is declared and only the
-        # definitions are absent.
+        # definitions are absent. -flto is the harder of the two: it is what
+        # drops a probe the compiler alone would have kept.
         empty = empty_library(cmake, work)
-        status, output = configure(cmake, source, os.path.join(work, "empty-probe"),
-                                   include_dir, empty, c_flags="-O2")
-        if status == 0:
-            fail("a library defining none of these functions was accepted at "
-                 "-O2, so the probe is passing on the header alone:\n%s"
-                 % output)
-        if "does not build" not in output:
-            fail("the refusal does not say the program failed to link, so it "
-                 "was refused for the wrong reason:\n%s" % output)
+        for index, flags in enumerate(("-O2", "-O2 -flto")):
+            if "-flto" in flags:
+                # Against the good libbtbb first, so a compiler or linker that
+                # cannot do link-time optimisation is told apart from a probe
+                # that let the empty library through.
+                status, output = configure(
+                    cmake, source, os.path.join(work, "lto-support"),
+                    include_dir, library, c_flags=flags)
+                if status != 0:
+                    print("this toolchain cannot build with %s; not checking "
+                          "the probe under it" % flags)
+                    continue
+            status, output = configure(
+                cmake, source, os.path.join(work, "empty-probe-%d" % index),
+                include_dir, empty, c_flags=flags)
+            if status == 0:
+                fail("a library defining none of these functions was accepted "
+                     "with %s, so the probe is passing on the header alone:"
+                     "\n%s" % (flags, output))
+            if "does not build" not in output:
+                fail("the refusal with %s does not say the program failed to "
+                     "link, so it was refused for the wrong reason:\n%s"
+                     % (flags, output))
 
     print("PASS")
 

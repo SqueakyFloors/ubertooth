@@ -859,8 +859,12 @@ endforeach()
 # FindBTBB.cmake must refuse a libbtbb that does not have the functions these
 # tools call, naming them and the pinned commit, instead of letting the build
 # reach the compiler and fail there. Runs the real module from a one-line
-# project against this build's libbtbb and against a header with two of those
-# functions renamed out of it.
+# project against this build's libbtbb, against a header with two of those
+# functions renamed out of it, and against a library that defines none of
+# them under optimisation.
+# LIBBTBB_LIBRARIES is quoted: a path with a space in it, or two libraries in
+# it, would otherwise arrive as extra arguments and the test would report a
+# usage error instead of running.
 add_test(
 	NAME btbb-check
 	COMMAND ${Python3_EXECUTABLE}
@@ -868,8 +872,9 @@ add_test(
 		${CMAKE_COMMAND}
 		${CMAKE_CURRENT_SOURCE_DIR}/../../..
 		${LIBBTBB_INCLUDE_DIR}
-		${LIBBTBB_LIBRARIES})
-# Two configures of a project with one C file's worth of compiler detection in
-# it, plus the two probe compiles: about 7 s here. The limit has room for a
-# cold CI runner, where compiler detection alone takes seconds.
+		"${LIBBTBB_LIBRARIES}")
+# Five configures of a project with one C file's worth of compiler detection
+# in it, plus the probe compiles and the empty library's own build: 19 s here
+# on a loaded machine. The limit has room for a cold CI runner, where
+# compiler detection alone takes seconds.
 set_tests_properties(btbb-check PROPERTIES TIMEOUT 60)

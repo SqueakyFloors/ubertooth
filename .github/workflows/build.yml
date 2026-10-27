@@ -422,9 +422,11 @@ jobs:
       matrix:
         os: [ubuntu-24.04, macos-26]
     runs-on: ${{ matrix.os }}
-    # The two self-test steps below carry 6 minutes each, on top of the 6 the
-    # shellcheck install is allowed, so the job has to leave room for all of
-    # them to be slow at once.
+    # The steps below carry their own limits: 6 minutes for the shellcheck
+    # install and 6 for the api-version self-test, which compiles and runs
+    # fifty-odd throwaway repositories, and 2 for each of the two libbtbb list
+    # checks. The job's limit has to leave room for all of them to be slow at
+    # once.
     timeout-minutes: 20
     steps:
     - uses: actions/checkout@v4
@@ -488,6 +490,7 @@ jobs:
       # calls, and nothing in a build notices when it stops. Both platforms,
       # because the script is sed and awk and the two legs disagree about
       # those.
+      timeout-minutes: 2
       run: tools/check-btbb-symbols.sh
 
     - name: Check that the list check still catches a difference
@@ -495,10 +498,12 @@ jobs:
       # being read. Both directions: a name dropped from the list has to be
       # reported as a call the list is missing, and a name added to it that
       # nothing calls has to be reported as a function no installed libbtbb
-      # should be asked for. The output goes to the runner's temporary
-      # directory, so the checkout is left exactly as it was found whichever
-      # way this step ends.
+      # should be asked for. The step edits the module in place, so every exit
+      # path below puts the original back and the checkout is left as it was
+      # found; the check's own output goes to the runner's temporary directory
+      # rather than into the tree.
       shell: bash
+      timeout-minutes: 2
       run: |
         module=host/cmake/modules/FindBTBB.cmake
         out=$RUNNER_TEMP/btbb-symbols.out

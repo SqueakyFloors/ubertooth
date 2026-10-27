@@ -108,26 +108,32 @@ function(btbb_require_functions)
   # because the common case is that nothing is missing and that case has to
   # cost one compile.
   #
-  # The table is at file scope and has external linkage, and that is what makes
-  # the link half real. A table inside main() is a local the compiler may
-  # delete once it can see nothing depends on it: at -O2 it folds the addresses
-  # away and emits no relocation for any of them, so the program links against
-  # a library that defines none of these functions and the probe passes on the
-  # header alone. An object another translation unit could read has to be
-  # emitted with its initialisers, so every address in it stays a symbol the
-  # linker must resolve, whatever optimisation the user's CFLAGS ask for.
+  # Every address is handed to a call the compiler is not allowed to remove,
+  # and that is what makes the link half real. Anything it can follow to a
+  # dead end it deletes, and the addresses go with it: a table of them inside
+  # main() is folded away at -O2, a table at file scope survives the compiler
+  # but not -flto or a dead-stripping link, and each address compared against
+  # null folds too, because a function's address is never null. A call through
+  # a volatile function pointer has to be made, so every argument has to be
+  # materialised first, and each one is then a symbol the linker must resolve
+  # whatever optimisation the user's CFLAGS ask for.
   #
-  # The addresses are cast to a function pointer type rather than to void *.
-  # Converting a function pointer to an object pointer is not something C
-  # promises, and a user whose CFLAGS carry -Wpedantic -Werror would get a
-  # refusal that has nothing to do with their libbtbb. Casting between
-  # function pointer types is allowed.
-  set(body "#include <btbb.h>\ntypedef void (*btbb_probe_fn)(void);\n")
-  string(APPEND body "btbb_probe_fn btbb_probe_used[] = {\n")
+  # The addresses are passed as variadic arguments, so not one of them is
+  # cast. Casting a function pointer to void * is not something C promises,
+  # and casting it to another function pointer type is what
+  # -Wcast-function-type -Werror refuses: either would turn a correct libbtbb
+  # into a refusal that has nothing to do with it.
+  set(body "#include <btbb.h>\n")
+  string(APPEND body
+    "static int btbb_probe_sink(int n, ...) { (void)n; return 0; }\n"
+    "static int (*volatile btbb_probe_call)(int, ...) = btbb_probe_sink;\n"
+    "int main(int argc, char **argv) {\n"
+    "\t(void)argv;\n"
+    "\treturn btbb_probe_call(argc")
   foreach(function ${LIBBTBB_REQUIRED_FUNCTIONS})
-    string(APPEND body "\t(btbb_probe_fn)&${function},\n")
+    string(APPEND body ",\n\t\t&${function}")
   endforeach()
-  string(APPEND body "};\nint main(void) {\n\treturn 0;\n}\n")
+  string(APPEND body ");\n}\n")
 
   # Not cached: the installed libbtbb can change under a build directory that
   # configured successfully once, which is exactly the developer who built the
