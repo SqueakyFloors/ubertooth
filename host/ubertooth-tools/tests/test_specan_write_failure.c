@@ -40,6 +40,14 @@
  * below. */
 FILE* dumpfile;
 
+/* The library's stop route, in miniature, so a case can raise a real signal
+ * and see what the tool makes of it. fake_cleanup() below sets this flag and
+ * nothing else, and ubertooth_stopping() is the only place it reaches the
+ * handle: a sweep whose loop read the handle directly would not notice the
+ * interrupt here either. The handle's own flag still stops a sweep, which is
+ * what the callback and a dead stream use. */
+static volatile sig_atomic_t stop_requested;
+
 /* A block of samples the board could have sent, all inside 2402-2480 MHz so
  * none is dropped as left over from an earlier run. */
 static void fill_block(usb_pkt_rx* rx)
@@ -131,6 +139,44 @@ static void capture_stderr_end(char* err, size_t err_size)
 	fclose(captured);
 	close(capture_fd);
 	unlink(capture_path);
+}
+
+/* Standard output, redirected to a temp file for the runs that write samples
+ * to it ("-d -"). Only its size is read back: the samples are raw bytes, and
+ * what matters is that they reached the file rather than a stdio buffer the
+ * run never flushed. */
+static char out_path[] = "/tmp/specan-out-XXXXXX";
+static int out_fd = -1;
+static int out_saved = -1;
+
+static void capture_stdout_begin(void)
+{
+	char template[] = "/tmp/specan-out-XXXXXX";
+
+	memcpy(out_path, template, sizeof(template));
+	out_fd = mkstemp(out_path);
+	fflush(stdout);
+	out_saved = dup(fileno(stdout));
+	dup2(out_fd, fileno(stdout));
+}
+
+/* How many bytes of the run reached the file, with standard output put back.
+ * Nothing is flushed before the size is read: what the run left in a stdio
+ * buffer does not count, which is what makes this check main()'s own flush.
+ * Anything still buffered is then pushed into the temp file, before standard
+ * output goes back, so it cannot land in the test's own output. */
+static long capture_stdout_end(void)
+{
+	struct stat info;
+	long size;
+
+	size = fstat(out_fd, &info) == 0 ? (long)info.st_size : -1;
+	fflush(stdout);
+	dup2(out_saved, fileno(stdout));
+	close(out_saved);
+	close(out_fd);
+	unlink(out_path);
+	return size;
 }
 
 /* One capture, with dumpfile set to the stream given, and whatever the
@@ -350,6 +396,7 @@ static struct {
 static void reset_device(void)
 {
 	memset(&device, 0, sizeof(device));
+	stop_requested = 0;
 	device.blocks_to_sweep = 1;
 	device.ut.devh = (struct libusb_device_handle*)&device;
 }
@@ -372,13 +419,17 @@ int ubertooth_check_api(ubertooth_t* ut)
 	return device.check_api_rc;
 }
 
-/* The one the library installs stops the capture on Ctrl-C, which is how
- * every sweep ends in practice, so the fake does the same: a case can then
- * raise a real signal and check what the tool makes of it. */
 static void fake_cleanup(int sig)
 {
 	(void)sig;
-	device.ut.stop_ubertooth = 1;
+	stop_requested = 1;
+}
+
+int ubertooth_stopping(ubertooth_t* ut)
+{
+	if (stop_requested)
+		ut->stop_ubertooth = 1;
+	return ut->stop_ubertooth;
 }
 
 void register_cleanup_handler(ubertooth_t* ut, int do_exit)
@@ -652,8 +703,10 @@ MU_TEST(a_sweep_whose_stream_died_exits_one)
 	unlink(path);
 }
 
-/* A Ctrl-C is a user stopping a sweep that was working: it keeps exiting 0,
- * with the samples it captured. */
+/* A Ctrl-C is a user stopping a sweep that was working: the receive loop
+ * leaves at once, the run exits 0, and the samples it took are on disk rather
+ * than left in a buffer. A sweep that cannot be stopped has to be killed,
+ * which leaves the board in its mode for the next tool to clear. */
 MU_TEST(an_interrupted_sweep_still_exits_zero)
 {
 	char path[64];
@@ -668,10 +721,45 @@ MU_TEST(an_interrupted_sweep_still_exits_zero)
 
 	mu_assert_int_eq(0, RUN_SPECAN(err, "-d", path));
 	mu_assert(strcmp(err, "Ubertooth stopped\n") == 0, err);
+	/* Two blocks, not the fifty the fake would have supplied. */
 	mu_assert_int_eq(2, device.blocks);
+	/* The file is read after main() has returned and before the test closes
+	 * the stream, so what is here is what main() flushed. */
 	mu_assert_int_eq(0, stat(path, &info));
 	mu_assert(info.st_size > 0, "the samples up to the interrupt were written");
+	mu_assert_int_eq(0, (int)(info.st_size % 3));
 	unlink(path);
+	signal(SIGINT, SIG_DFL);
+}
+
+/* The same with "-d -", which writes the samples to standard output. It is
+ * the same output mode and the same receive loop as a named file, so it has
+ * to stop the same way; a run that reported stopping on one and not the other
+ * would be the difference showing up here. */
+MU_TEST(an_interrupted_sweep_to_stdout_still_exits_zero)
+{
+	char err[512];
+	long written;
+	int status;
+
+	reset_device();
+	device.interrupt_after = 2;
+	device.blocks_to_sweep = 50;
+
+	/* The samples are raw bytes, so this process's standard output is sent
+	 * to a temp file for the run: writing them to the test's own output
+	 * would mix them into the CTest log. */
+	capture_stdout_begin();
+	status = RUN_SPECAN(err, "-d", "-");
+	written = capture_stdout_end();
+
+	/* Nothing is asserted while standard output is the temp file: minunit
+	 * prints a failure there, and the file is gone by the time CTest looks. */
+	mu_assert_int_eq(0, status);
+	mu_assert(strcmp(err, "Ubertooth stopped\n") == 0, err);
+	mu_assert_int_eq(2, device.blocks);
+	mu_assert(written > 0, "the samples up to the interrupt were written");
+	mu_assert_int_eq(0, (int)(written % 3));
 	signal(SIGINT, SIG_DFL);
 }
 
@@ -705,6 +793,7 @@ int main(void)
 	MU_RUN(a_sweep_that_was_written_exits_zero);
 	MU_RUN(a_sweep_whose_stream_died_exits_one);
 	MU_RUN(an_interrupted_sweep_still_exits_zero);
+	MU_RUN(an_interrupted_sweep_to_stdout_still_exits_zero);
 	MU_RUN(a_refused_command_line_opens_no_device);
 	return mu_report();
 }

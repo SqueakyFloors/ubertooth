@@ -182,7 +182,7 @@ int main(int argc, char* argv[])
 	// TODO - send symbols to the bulk endpoint
 
 	// wait
-	while(!ut->stop_ubertooth)
+	while(!ubertooth_stopping(ut))
 		sleep(1);
 
 	ubertooth_stop(ut);

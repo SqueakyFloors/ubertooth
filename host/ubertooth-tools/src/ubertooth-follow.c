@@ -515,7 +515,7 @@ int main(int argc, char *argv[])
 	}
 
 	// receive and process each packet
-	while(!ut->stop_ubertooth) {
+	while(!ubertooth_stopping(ut)) {
 		ubertooth_bulk_receive(ut, cb_rx, pn);
 	}
 

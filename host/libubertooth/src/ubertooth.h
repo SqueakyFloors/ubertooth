@@ -69,10 +69,14 @@ typedef struct {
 	struct libusb_device_handle* devh;
 	struct libusb_transfer* rx_xfer;
 
-	/* Set to stop the capture. Written from a signal handler (Ctrl-C, the
-	 * -t alarm) and from the poll thread (a stream that died), and read by
-	 * the capture's own loop while both of those can run, so the loop has
-	 * to reload it rather than keep a copy of it. */
+	/* Set to stop the capture: by the poll thread when a stream dies, and
+	 * by a callback that cannot go on. Read by the capture's own loop while
+	 * the poll thread runs, so the loop has to reload it rather than keep a
+	 * copy of it.
+	 *
+	 * A signal handler must not write this; it sets a flag of its own, which
+	 * ubertooth_stopping() folds in here. Read it through that function, not
+	 * directly, or a loop will not notice a Ctrl-C. */
 	volatile uint8_t stop_ubertooth;
 	uint64_t abs_start_ns;
 	uint32_t start_clk100ns;
@@ -163,6 +167,21 @@ extern int max_ac_errors;
 
 void print_version();
 void register_cleanup_handler(ubertooth_t* ut, int do_exit);
+
+/* 1 once this capture should stop, which is how a receive loop asks. It covers
+ * both ways a run ends early: a signal (Ctrl-C, SIGTERM, the -t alarm), which
+ * the handler records in a flag of its own, and the handle's stop_ubertooth,
+ * which the poll thread and the callbacks set.
+ *
+ * It writes the handle, so call it from the thread running the capture. The
+ * poll thread reads the two flags instead. */
+int ubertooth_stopping(ubertooth_t* ut);
+
+/* Back to "keep going", for a handle that runs a second capture after the
+ * first has stopped (ubertooth-afh detects a map, then monitors it). Both the
+ * signal flag and the handle's are cleared, so the alarm that ended one phase
+ * does not end the next one before it starts. */
+void ubertooth_clear_stop(ubertooth_t* ut);
 ubertooth_t* ubertooth_init();
 /* True when UBERTOOTH_TEST_NO_DEVICES is "1", which makes every selection
  * below behave as if no Ubertooth were attached, without listing or opening
@@ -200,6 +219,9 @@ void ubertooth_stop(ubertooth_t* ut);
 void ubertooth_free(ubertooth_t* ut);
 int ubertooth_get_api(ubertooth_t *ut, uint16_t *version);
 int ubertooth_check_api(ubertooth_t *ut);
+/* Stops the capture after this many seconds, through the same flag Ctrl-C
+ * uses. The handle is not read: the alarm stops whichever capture is running,
+ * and a signal handler cannot follow a pointer to a handle. */
 void ubertooth_set_timeout(ubertooth_t* ut, int seconds);
 
 /* A timeout for the quiet read below, for the callers that would rather give

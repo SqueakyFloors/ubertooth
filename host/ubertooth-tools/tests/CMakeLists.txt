@@ -672,6 +672,24 @@ if(libubertooth_SOURCE_DIR)
 	# A handful of callback calls and one short capture: milliseconds. A
 	# capture that no longer stops would hang here; fail it instead.
 	set_tests_properties(keep-alive PROPERTIES TIMEOUT 10)
+
+	# How a signal stops a capture: the real library handlers, and the waits
+	# every receive loop makes. No device and no transfer; the fifo calls are
+	# the test's own (ubertooth_fifo.c is not linked, for the same reason as
+	# above).
+	add_executable(test-stop-on-signal
+		test_stop_on_signal.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_callback.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
+	target_include_directories(test-stop-on-signal PRIVATE
+		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+	target_link_libraries(test-stop-on-signal ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES}
+		Threads::Threads)
+	add_test(NAME stop-on-signal COMMAND test-stop-on-signal)
+	# Raising a signal and reading a flag: milliseconds. A wait that no
+	# longer notices the stop would hang here; fail it instead.
+	set_tests_properties(stop-on-signal PROPERTIES TIMEOUT 10)
 endif()
 
 # The same clock wrap through a replay, so the times a capture file carries are
