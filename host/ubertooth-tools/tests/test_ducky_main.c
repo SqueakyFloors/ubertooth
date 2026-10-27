@@ -208,6 +208,24 @@ MU_TEST(a_quack_the_board_took_sends_the_three_requests_and_exits_0)
 	mu_assert(strstr(r.err, "error: ") == NULL, r.err);
 }
 
+/* The three advertising channel indexes tune the three frequencies the
+ * Bluetooth Core specification gives them: 37 at the bottom of the band, 38 in
+ * the middle, 39 at the top. */
+MU_TEST(each_advertising_index_tunes_its_own_frequency)
+{
+	reset_fake();
+	mu_assert_int_eq(0, RUN("-q", "-A", "37").rc);
+	mu_assert_int_eq(2402, fake.last_channel);
+
+	reset_fake();
+	mu_assert_int_eq(0, RUN("-q", "-A", "38").rc);
+	mu_assert_int_eq(2426, fake.last_channel);
+
+	reset_fake();
+	mu_assert_int_eq(0, RUN("-q", "-A", "39").rc);
+	mu_assert_int_eq(2480, fake.last_channel);
+}
+
 /* Each refused request is named, in one line on standard error, and ends the
  * command there: it used to be ignored, so a board that refused one still
  * slept for two seconds and reported success. */
@@ -356,6 +374,7 @@ MU_TEST(every_exit_path_gives_the_device_back)
 int main(void)
 {
 	MU_RUN(a_quack_the_board_took_sends_the_three_requests_and_exits_0);
+	MU_RUN(each_advertising_index_tunes_its_own_frequency);
 	MU_RUN(a_refused_request_is_named_and_exits_1);
 	MU_RUN(the_bootloader_signal_is_checked_too);
 	MU_RUN(a_random_address_quack_is_checked_as_well);

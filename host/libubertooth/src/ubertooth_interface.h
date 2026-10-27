@@ -275,6 +275,19 @@ static inline const char *ubertooth_fw_info_result_string(int result)
 #define BT_FREQ_MIN 2402
 #define BT_FREQ_MAX (BT_FREQ_MIN + NUM_BREDR_CHANNELS - 1)
 
+/* The centre frequency of each low-energy advertising channel, named by the
+ * channel index the Bluetooth Core specification gives it. Index 37 sits at
+ * the bottom of the band and index 39 at the top, so that interference in the
+ * middle of the band cannot hide all three; index 38 sits in the middle, where
+ * the data channels leave a gap.
+ *
+ * Low energy and classic Bluetooth share the band, so 37 and 39 land on the
+ * same two frequencies as the classic edges above. That is why they are
+ * written as those constants: one band, named once. */
+#define BTLE_ADV_CHANNEL_37_MHZ BT_FREQ_MIN
+#define BTLE_ADV_CHANNEL_38_MHZ 2426
+#define BTLE_ADV_CHANNEL_39_MHZ BT_FREQ_MAX
+
 /*
  * CLK_TUNE_TIME is the duration in units of 100 ns that we reserve for tuning
  * the radio while frequency hopping.  We start the tuning process

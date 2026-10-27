@@ -316,11 +316,11 @@ int main(int argc, char *argv[])
 			adv_data[2+i] = uuid[15-i];
 
 		if (do_adv_index == 37)
-			channel = 2402;
+			channel = BTLE_ADV_CHANNEL_37_MHZ;
 		else if (do_adv_index == 38)
-			channel = 2426;
+			channel = BTLE_ADV_CHANNEL_38_MHZ;
 		else
-			channel = 2480;
+			channel = BTLE_ADV_CHANNEL_39_MHZ;
 
 		if (cmd_set_channel(ut->devh, channel) < 0)
 			return request_failed(ut, "set the advertising channel");

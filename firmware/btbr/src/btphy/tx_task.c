@@ -82,7 +82,7 @@ static int tx_prepare(uint8_t p1, uint8_t p2, uint16_t p3)
 
 	/* Hop & prepare TX (SFSON) */
 	chan = hop_channel(tx_clkn);
-	btphy_rf_tune_chan(2402+chan, 1);
+	btphy_rf_tune_chan(BT_FREQ_MIN+chan, 1);
 	cc2400_strobe(SFSON);
 	btphy_rf_cfg_tx();
 
