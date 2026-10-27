@@ -13,7 +13,12 @@ This runs the real FindBTBB.cmake from a one-line project, twice:
     have run the probe, so a check that stopped checking fails here;
   * against a header with two of those functions renamed out of it, which is
     what an older libbtbb looks like, where it must fail naming both functions
-    and the pinned commit.
+    and the pinned commit;
+  * against this build's own header and a library that defines none of those
+    functions, compiled with -O2, where it must also fail. That case is the
+    library half of the probe rather than the header half, and optimisation is
+    what can erase it: a table of function addresses inside main() is folded
+    away at -O2, leaving a program that links against anything.
 
 Usage: test_btbb_check.py <cmake> <repository root> <include dir> <library>
 """
@@ -34,13 +39,15 @@ def fail(message):
     sys.exit(1)
 
 
-def configure(cmake, source, build, include_dir, library):
+def configure(cmake, source, build, include_dir, library, c_flags=None):
     """Configure the test project, returning (status, output on one line)."""
+    command = [cmake, "-S", source, "-B", build,
+               "-DLIBBTBB_INCLUDE_DIR=%s" % include_dir,
+               "-DLIBBTBB_LIBRARIES=%s" % library]
+    if c_flags is not None:
+        command.append("-DCMAKE_C_FLAGS=%s" % c_flags)
     done = subprocess.run(
-        [cmake, "-S", source, "-B", build,
-         "-DLIBBTBB_INCLUDE_DIR=%s" % include_dir,
-         "-DLIBBTBB_LIBRARIES=%s" % library],
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     # CMake wraps and indents a message(FATAL_ERROR), so assertions on its
     # wording compare against one line.
     return done.returncode, " ".join(done.stdout.split())
@@ -103,6 +110,38 @@ def fake_header(real_include_dir, work, hidden):
     return include_dir
 
 
+def empty_library(cmake, work):
+    """A library with no symbols in it at all, built the way CMake would.
+
+    Stands in for an installed libbtbb whose header declares the functions and
+    whose library does not define them -- a header and a library from
+    different installs, or a stale library beside a new header. Built rather
+    than faked, so it is a real archive for this platform and compiler.
+    """
+    source = os.path.join(work, "empty")
+    os.mkdir(source)
+    with open(os.path.join(source, "empty.c"), "w", encoding="utf-8") as handle:
+        handle.write("/* deliberately defines nothing */\n"
+                     "int btbb_empty_library_marker;\n")
+    with open(os.path.join(source, "CMakeLists.txt"), "w",
+              encoding="utf-8") as handle:
+        handle.write("cmake_minimum_required(VERSION 3.5...3.27)\n"
+                     "project(btbb_empty C)\n"
+                     "add_library(btbb_empty STATIC empty.c)\n")
+    build = os.path.join(work, "empty-build")
+    for command in ([cmake, "-S", source, "-B", build],
+                    [cmake, "--build", build]):
+        done = subprocess.run(command, stdout=subprocess.PIPE,
+                              stderr=subprocess.STDOUT, text=True)
+        if done.returncode != 0:
+            fail("could not build the empty library:\n%s" % done.stdout)
+    for root, _, names in os.walk(build):
+        for name in names:
+            if name.startswith("libbtbb_empty.") or name == "btbb_empty.lib":
+                return os.path.join(root, name)
+    fail("the empty library was built but not found under %s" % build)
+
+
 def main():
     if len(sys.argv) != 5:
         fail("usage: test_btbb_check.py <cmake> <repository root> "
@@ -156,6 +195,20 @@ def main():
             fail("the refusal does not name the pinned libbtbb commit %s, "
                  "which is what the reader has to check out:\n%s"
                  % (ref, output))
+
+        # The library half, under the optimisation that can erase it. The
+        # header is this build's, so every function is declared and only the
+        # definitions are absent.
+        empty = empty_library(cmake, work)
+        status, output = configure(cmake, source, os.path.join(work, "empty-probe"),
+                                   include_dir, empty, c_flags="-O2")
+        if status == 0:
+            fail("a library defining none of these functions was accepted at "
+                 "-O2, so the probe is passing on the header alone:\n%s"
+                 % output)
+        if "does not build" not in output:
+            fail("the refusal does not say the program failed to link, so it "
+                 "was refused for the wrong reason:\n%s" % output)
 
     print("PASS")
 

@@ -18,7 +18,9 @@
 # Scope is the two directories whose code is shipped, host/libubertooth/src and
 # host/ubertooth-tools/src. The tests are left out: one of them defines a stub
 # of a libbtbb function, which no scan can tell from a call, and the configure
-# check exists for the tools a user builds.
+# check exists for the tools a user builds. So the tests are uncovered both
+# ways: a libbtbb function only a test calls is not required of an installed
+# libbtbb, and the test build is where its absence would turn up.
 #
 # What it does not catch, so the next reader knows: a call reached through a
 # function pointer or assembled from a macro, and a libbtbb function whose
@@ -65,9 +67,10 @@ fi
 # those as calls would demand them of every installed libbtbb.
 #
 # Strings are not stripped, so a "//" inside one ends the line early and a
-# "/*" inside one swallows the lines up to the next "*/". No source has
-# either, and the cost of one would be a missing candidate, which is reported
-# as a listed function nothing calls: loud, and never a build that breaks.
+# "/*" inside one swallows the lines up to the next "*/". A URL in a string
+# literal already does the first, and the cost is a missing candidate, which
+# is reported as a listed function nothing calls: loud, and never a build that
+# breaks. Nothing would be gained by lexing C to avoid it.
 # in_block is cleared at the start of each file, so one unterminated comment
 # cannot carry into the next.
 # shellcheck disable=SC2016  # $0 and FNR below belong to awk, not to the shell

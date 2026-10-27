@@ -97,28 +97,37 @@ set(LIBBTBB_REQUIRED_FUNCTIONS
 # caller's scope.
 function(btbb_require_functions)
   include(CheckCSourceCompiles)
-  set(CMAKE_REQUIRED_INCLUDES ${LIBBTBB_INCLUDE_DIR})
-  set(CMAKE_REQUIRED_LIBRARIES ${LIBBTBB_LIBRARIES})
+  # Quoted: a path with a space in it, or a LIBBTBB_LIBRARIES holding more
+  # than one library, would otherwise be split into separate arguments.
+  set(CMAKE_REQUIRED_INCLUDES "${LIBBTBB_INCLUDE_DIR}")
+  set(CMAKE_REQUIRED_LIBRARIES "${LIBBTBB_LIBRARIES}")
 
   # Taking the address of each function needs a declaration from btbb.h, and
-  # storing it needs a definition in the library, so one compile and link
-  # answers for the header and the library together. All of them at once,
+  # keeping that address needs a definition in the library, so one compile and
+  # link answers for the header and the library together. All of them at once,
   # because the common case is that nothing is missing and that case has to
   # cost one compile.
+  #
+  # The table is at file scope and has external linkage, and that is what makes
+  # the link half real. A table inside main() is a local the compiler may
+  # delete once it can see nothing depends on it: at -O2 it folds the addresses
+  # away and emits no relocation for any of them, so the program links against
+  # a library that defines none of these functions and the probe passes on the
+  # header alone. An object another translation unit could read has to be
+  # emitted with its initialisers, so every address in it stays a symbol the
+  # linker must resolve, whatever optimisation the user's CFLAGS ask for.
   #
   # The addresses are cast to a function pointer type rather than to void *.
   # Converting a function pointer to an object pointer is not something C
   # promises, and a user whose CFLAGS carry -Wpedantic -Werror would get a
   # refusal that has nothing to do with their libbtbb. Casting between
-  # function pointer types is allowed, and storing the result still needs the
-  # symbol at link time, which a comparison such as &f != 0 would not: the
-  # compiler folds that to 1 and references nothing.
+  # function pointer types is allowed.
   set(body "#include <btbb.h>\ntypedef void (*btbb_probe_fn)(void);\n")
-  string(APPEND body "int main(void) {\n\tbtbb_probe_fn used[] = {\n")
+  string(APPEND body "btbb_probe_fn btbb_probe_used[] = {\n")
   foreach(function ${LIBBTBB_REQUIRED_FUNCTIONS})
-    string(APPEND body "\t\t(btbb_probe_fn)&${function},\n")
+    string(APPEND body "\t(btbb_probe_fn)&${function},\n")
   endforeach()
-  string(APPEND body "\t};\n\treturn used[0] == 0;\n}\n")
+  string(APPEND body "};\nint main(void) {\n\treturn 0;\n}\n")
 
   # Not cached: the installed libbtbb can change under a build directory that
   # configured successfully once, which is exactly the developer who built the

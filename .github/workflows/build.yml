@@ -492,31 +492,65 @@ jobs:
 
     - name: Check that the list check still catches a difference
       # So the step above cannot pass because the list or the scan has stopped
-      # being read. Dropping a name has to be reported as a call the list is
-      # missing.
+      # being read. Both directions: a name dropped from the list has to be
+      # reported as a call the list is missing, and a name added to it that
+      # nothing calls has to be reported as a function no installed libbtbb
+      # should be asked for. The output goes to the runner's temporary
+      # directory, so the checkout is left exactly as it was found whichever
+      # way this step ends.
       shell: bash
       run: |
         module=host/cmake/modules/FindBTBB.cmake
+        out=$RUNNER_TEMP/btbb-symbols.out
         dropped=$(sed -n '/^set(LIBBTBB_REQUIRED_FUNCTIONS$/,/^)$/p' "$module" |
                   sed -n 's/^  \([a-z_][a-z0-9_]*\)$/\1/p' | head -1)
         : "${dropped:?no function name to drop from $module}"
+
+        # A name the list has and the sources call, taken out of the list.
         sed -i.bak "/^  $dropped\$/d" "$module"
         status=0
-        tools/check-btbb-symbols.sh > dropped.out 2>&1 || status=$?
-        # Put the file back before anything is asserted, so a failing run
-        # leaves the checkout as it found it.
+        tools/check-btbb-symbols.sh > "$out" 2>&1 || status=$?
         mv "$module.bak" "$module"
         if [ "$status" -eq 0 ]; then
           echo "the check passed with $dropped removed from $module" >&2
           exit 1
         fi
-        grep -q "^  $dropped\$" dropped.out || {
+        grep -q "^  $dropped\$" "$out" || {
           echo "the check failed, but did not report $dropped:" >&2
-          cat dropped.out >&2
+          cat "$out" >&2
           exit 1
         }
-        rm -f dropped.out
-        echo "The check catches a function dropped from the list."
+
+        # A name nothing calls, added to the list. btbb_ so it is scanned for
+        # the way a real one would be. Added with awk rather than sed, because
+        # sed's insert command is not written the same way on both of the
+        # platforms this job runs on; the check sorts the list itself, so the
+        # last line is as good a place as any.
+        added=btbb_not_a_real_function
+        cp "$module" "$module.bak"
+        awk -v add="  $added" '
+          $0 == ")" && inlist { print add; inlist = 0 }
+          /^set\(LIBBTBB_REQUIRED_FUNCTIONS$/ { inlist = 1 }
+          { print }
+        ' "$module.bak" > "$module"
+        grep -qx "  $added" "$module" || {
+          echo "could not add $added to $module" >&2
+          mv "$module.bak" "$module"
+          exit 1
+        }
+        status=0
+        tools/check-btbb-symbols.sh > "$out" 2>&1 || status=$?
+        mv "$module.bak" "$module"
+        if [ "$status" -eq 0 ]; then
+          echo "the check passed with $added added to $module" >&2
+          exit 1
+        fi
+        grep -q "^  $added\$" "$out" || {
+          echo "the check failed, but did not report $added:" >&2
+          cat "$out" >&2
+          exit 1
+        }
+        echo "The check catches a function dropped from the list and one added to it."
 
   # Issue and pull request numbers must not appear in source, tests or build
   # files (.kiro/steering/branch-and-review.md). A reviewer who happens to know
