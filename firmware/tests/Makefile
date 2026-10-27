@@ -149,6 +149,7 @@ $(BINDIR)/test_le_phy_logic: test_le_phy_logic.c minunit.h \
 		$(FW_RXTX)/bluetooth_le.c $(FW_RXTX)/bluetooth_le.h \
 		$(FW_COMMON)/lpc17.h $(FW_COMMON)/ubertooth.h \
 		$(FW_COMMON)/cc2400_wait.h $(FW_COMMON)/usb_irq.h \
+		$(FW_RXTX)/ubertooth_clock.h $(FW_RXTX)/ubertooth_dma.h \
 		$(HOST_LIB)/ubertooth_le_frag.c $(HOST_LIB)/ubertooth_le_frag.h \
 		| $(BINDIR)
 # Three kinds of noise come from compiling le_phy.c on a 64-bit host. It

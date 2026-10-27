@@ -837,7 +837,7 @@ static int scan_function(const char *path, const char *function,
  */
 static int scan_file_for_bulk_service(const char *path, int *lines)
 {
-	char line[512];
+	char line[SCAN_LINE_MAX];
 	int in_block = 0, hits = 0;
 	FILE *f = fopen(path, "r");
 
@@ -1420,14 +1420,22 @@ static int is_in_a_scanned_dir(const char *file)
  */
 static const char *source_list_name(const char *token)
 {
-	const char *close;
+	static const char libs[] = "$(LIBS_PATH)/";
 
 	if (strncmp(token, "$(TARGET)", 9) == 0)
 		return "bluetooth_rxtx.c";
 	if (token[0] != '$')
 		return token;
-	close = strstr(token, ")/");
-	return close == NULL ? token : close + 2;
+	/* The shared firmware directory, which is one of the scanned ones. */
+	if (strncmp(token, libs, sizeof(libs) - 1) == 0)
+		return token + sizeof(libs) - 1;
+	/*
+	 * Any other Make variable is a directory whose value this scan does
+	 * not know. Stripping the prefix and keeping the last component would
+	 * let a source in a directory nobody scans pass as the file of the
+	 * same name in one that is scanned, so say so instead of guessing.
+	 */
+	return NULL;
 }
 
 static int sources_listed;
@@ -1435,7 +1443,7 @@ static char unscanned_source[256];
 
 static void read_the_images_source_list(void)
 {
-	char path[512], line[512];
+	char path[512], line[SCAN_LINE_MAX];
 	int in_src = 0;
 	FILE *f;
 
@@ -1468,7 +1476,7 @@ static void read_the_images_source_list(void)
 				continue;
 			file = source_list_name(token);
 			sources_listed++;
-			if (!is_in_a_scanned_dir(file) &&
+			if ((file == NULL || !is_in_a_scanned_dir(file)) &&
 			    unscanned_source[0] == '\0')
 				snprintf(unscanned_source,
 				         sizeof(unscanned_source), "%s", token);
@@ -1488,9 +1496,11 @@ MU_TEST(every_source_the_image_compiles_is_scanned)
 	          FW_RXTX_DIR "/Makefile, so the check below passed for want of "
 	          "anything to look at");
 	snprintf(msg, sizeof(msg),
-	         "%s is compiled into this image and is in neither directory the "
-	         "scans read, so a mode in it would never be classified. Put it "
-	         "in one of them, or add its directory to scanned_dirs[]",
+	         "%s is compiled into this image and is not in a directory the "
+	         "scans read -- or is under a Make variable they cannot resolve, "
+	         "which is the same thing -- so a mode in it would never be "
+	         "classified. Put it in one of them, or add its directory to "
+	         "scanned_dirs[] and teach source_list_name() the variable",
 	         unscanned_source);
 	mu_assert(unscanned_source[0] == '\0', msg);
 }
@@ -1528,7 +1538,7 @@ static void resolve_producers(void)
  */
 static void scan_file_for_helper_callers(const char *dir, const char *file)
 {
-	char path[512], line[512], name[64], current[64];
+	char path[512], line[SCAN_LINE_MAX], name[64], current[64];
 	int in_block = 0;
 	size_t i, j;
 	FILE *f;
@@ -1715,7 +1725,7 @@ static int is_define_line(const char *line)
 
 static void check_file_for_enqueue_macro(const char *dir, const char *file)
 {
-	char path[512], line[512];
+	char path[512], line[SCAN_LINE_MAX];
 	int in_block = 0, in_define = 0;
 	FILE *f;
 
@@ -1794,7 +1804,7 @@ static int is_queue_name(const char *ident)
 
 static void collect_file_queue_names(const char *dir, const char *file)
 {
-	char path[512], line[512], ident[128];
+	char path[512], line[SCAN_LINE_MAX], ident[128];
 	int in_block = 0, n, called;
 	FILE *f;
 
@@ -1828,7 +1838,7 @@ static char queue_address_where[256];
 
 static void check_file_for_queue_address(const char *dir, const char *file)
 {
-	char path[512], line[512], ident[128];
+	char path[512], line[SCAN_LINE_MAX], ident[128];
 	int in_block = 0, n, called;
 	FILE *f;
 
@@ -1885,7 +1895,7 @@ static char stray_endpoint_where[256];
 
 static void check_file_for_endpoint_write(const char *dir, const char *file)
 {
-	char path[512], line[512];
+	char path[512], line[SCAN_LINE_MAX];
 	int in_block = 0;
 	FILE *f;
 
@@ -2089,7 +2099,6 @@ static void visit_dispatch_line(const char *line, int branched, void *ctx)
 	char name[64];
 	const char *p = line;
 
-	(void)branched;
 	(void)ctx;
 	dispatch_lines++;
 
@@ -2138,12 +2147,25 @@ static void visit_dispatch_line(const char *line, int branched, void *ctx)
 	}
 
 	/*
-	 * The case ends here, so the next label starts a new one. A `break` of
-	 * an inner loop would end it early and the calls after it would be
-	 * missed -- which shows up as the row no longer naming what its case
-	 * calls, rather than as a check quietly passing. No case has an inner
-	 * loop today.
+	 * The case ends at its `break`, so the next label starts a new one.
+	 *
+	 * The limit of reading it this way: a `break` belonging to a loop
+	 * inside the case ends the case here too, and every call after it is
+	 * missed. A case shaped
+	 *
+	 *	while (something()) { if (...) break; }
+	 *	the_real_loop();
+	 *
+	 * is therefore classified by something() and the_real_loop() is never
+	 * seen, which lets such a case reach the queue through a loop no row
+	 * describes. Telling the two kinds of `break` apart needs the depth
+	 * relative to the switch, which this scan does not track -- the
+	 * `branched` flag is relative to the function body, and every case is
+	 * already inside main()'s `while` and `switch`, so it is 1 throughout.
+	 * No case has an inner loop today; the scan does not stop one being
+	 * added.
 	 */
+	(void)branched;
 	if (contains_identifier(line, "break") ||
 	    contains_identifier(line, "return"))
 		pending_count = 0;
