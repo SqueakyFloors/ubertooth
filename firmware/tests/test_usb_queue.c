@@ -3219,6 +3219,11 @@ static const char *const foreign_label_shapes =
 /*
  * A nested switch's own labels, which are not in the dispatch and must not be
  * reported: they sit deeper than the dispatch's labels.
+ *
+ * Depth is the only thing that tells them apart, so a nested switch written
+ * without braces -- legal C that nobody writes -- puts its labels at the
+ * dispatch's own level and has them reported rather than read. That is the
+ * safe way round: the failure names the label and says to add the braces.
  */
 static const char *const nested_switch_shapes =
 	"int main(void)\n"
