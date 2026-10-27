@@ -20,6 +20,8 @@
 #include "ubertooth-btle.c"
 #undef main
 
+#include "run_main.h"
+
 /* ---- scripted device ---------------------------------------------------- */
 
 static struct {
@@ -334,75 +336,12 @@ void cb_btle(ubertooth_t *ut, void *args)
 
 /* ---- running the tool --------------------------------------------------- */
 
-struct run_result {
-	int rc;
-	/* Both hold the whole usage text, which a refusal prints on stderr
-	 * and -h on stdout; read_back() fails a run that did not fit. */
-	char out[4096];
-	char err[4096];
-};
-
-static void read_back(FILE *file, char *buffer, size_t size)
-{
-	size_t length;
-
-	fflush(file);
-	rewind(file);
-	length = fread(buffer, 1, size - 1, file);
-	buffer[length] = '\0';
-	/* A capture that did not fit must fail loudly instead of comparing a
-	 * prefix. */
-	mu_assert(fgetc(file) == EOF, "captured output was truncated");
-}
-
-static struct run_result run_btle(const char *const *args)
-{
-	struct run_result result;
-	char *argv[16];
-	int argc = 0;
-	int saved_out, saved_err;
-	FILE *out = tmpfile();
-	FILE *err = tmpfile();
-
-	memset(&result, 0, sizeof(result));
-	result.rc = -1; /* a failed capture must not look like a successful run */
-	mu_assert(out != NULL && err != NULL, "tmpfile failed");
-	if (out == NULL || err == NULL)
-		return result;
-	/* Copies, because a real argv is writable and the shared MAC parser
-	 * splits "<address>/<mask>" in place; the literals here are not. */
-	while (args[argc] != NULL && argc < 15) {
-		argv[argc] = strdup(args[argc]);
-		mu_assert(argv[argc] != NULL, "strdup failed");
-		argc++;
-	}
-	argv[argc] = NULL;
-
-	fflush(stdout);
-	fflush(stderr);
-	saved_out = dup(STDOUT_FILENO);
-	saved_err = dup(STDERR_FILENO);
-	dup2(fileno(out), STDOUT_FILENO);
-	dup2(fileno(err), STDERR_FILENO);
-	optind = 0; /* restart option parsing for each run */
-	result.rc = ubertooth_btle_main(argc, argv);
-	fflush(stdout);
-	fflush(stderr);
-	dup2(saved_out, STDOUT_FILENO);
-	dup2(saved_err, STDERR_FILENO);
-	close(saved_out);
-	close(saved_err);
-
-	read_back(out, result.out, sizeof(result.out));
-	read_back(err, result.err, sizeof(result.err));
-	fclose(out);
-	fclose(err);
-	while (argc > 0)
-		free(argv[--argc]);
-	return result;
-}
-
-#define RUN(...) run_btle((const char *const[]){ "ubertooth-btle", __VA_ARGS__, NULL })
+/* Nothing of this tool's own has to be set up or checked around a run, so the
+ * shared harness is called directly. */
+#define RUN(...)                                                     \
+	run_tool_main(ubertooth_btle_main,                               \
+	              (const char *const[]){ "ubertooth-btle",           \
+	                                     __VA_ARGS__, NULL })
 
 /* ---- tests -------------------------------------------------------------- */
 

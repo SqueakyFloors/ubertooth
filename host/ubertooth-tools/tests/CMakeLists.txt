@@ -347,6 +347,16 @@ add_test(NAME util-main COMMAND test-util-main)
 # takes well under a second (0.02-0.5 s locally and in CI).
 set_tests_properties(util-main PROPERTIES TIMEOUT 5)
 
+# run_main.h, the harness the tests above and below use to run a tool's
+# main() with both its streams captured. Its own cases drive a fake main(),
+# so no tool, no library and no getopt is linked in.
+add_executable(test-run-main test_run_main.c)
+
+add_test(NAME run-main COMMAND test-run-main)
+# Seven runs of a fake main() that returns at once, so the timeout only
+# catches a harness that waits on something.
+set_tests_properties(run-main PROPERTIES TIMEOUT 10)
+
 # The same approach for ubertooth-afh: its real main() against a scripted
 # detection phase, so what it reports and exits with is checked without a
 # board or a piconet. libbtbb is not linked: the test defines the piconet
