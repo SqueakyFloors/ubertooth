@@ -228,6 +228,7 @@ static const char *const watchdog_site_text[WATCHDOG_SITE_COUNT] = {
 	[WATCHDOG_SITE_FS_UNLOCK] = "waiting for the synthesizer to unlock",
 	[WATCHDOG_SITE_XOSC]      = "waiting for the 16 MHz crystal oscillator",
 	[WATCHDOG_SITE_FSM]       = "waiting on the radio's state machine",
+	[WATCHDOG_SITE_LE_RX]     = "waiting for a BLE packet or the next hop",
 };
 
 const char *util_watchdog_mode_name(unsigned mode)

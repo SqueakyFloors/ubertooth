@@ -40,8 +40,9 @@
  *
  *  - watchdog_usb_serviced(), called where a USB service pass has just
  *    finished: handle_usb() in the polled modes and the main loop, and the USB
- *    interrupt handler. Reaching it means the controller was driven and the
- *    host's requests were answered.
+ *    interrupt handler. A pass runs whether or not anything arrived, so what
+ *    reaching it proves is that a pass completed -- the controller was driven
+ *    and anything the host had asked would have been answered.
  *
  *  - watchdog_usb_ready(), called once per pass by the mode loops that service
  *    USB from the interrupt instead of polling it. Those modes get no service
@@ -55,6 +56,14 @@
  *
  * Nothing feeds it from a timer, which would only show that the CPU is
  * running.
+ *
+ * One thing this rests on: every interrupt in both images runs at the same
+ * priority, the reset default, because nothing sets one. A handler that stops
+ * returning therefore stops the USB handler with it, which is what makes "the
+ * board still answers USB" a test of the whole firmware rather than of the
+ * USB path alone. Give the USB interrupt a higher priority than the radio and
+ * timer handlers and this watchdog would keep feeding through exactly the
+ * wedge it exists to catch. test_watchdog.c pins that nothing sets a priority.
  */
 
 /* What the board is doing, for the breadcrumb. */
@@ -92,7 +101,7 @@ void watchdog_intent(uint8_t intent);
 void watchdog_boot(void);
 
 /* Arm the watchdog. Call it once USB is up and the first service pass is
- * about to happen, and not before: from here on, two seconds without a feed
+ * about to happen, and not before: from here on, three seconds without a feed
  * resets the board. */
 void watchdog_start(void);
 
@@ -106,8 +115,13 @@ void watchdog_usb_ready(void);
  * programmer (set_isp()) needs this: it keeps the chip running without a
  * reset, so the watchdog stays armed and would otherwise reset it mid-session.
  * The watchdog cannot be switched off again before a reset.
+ *
+ * watchdog_unstretch() puts the timeout and the intent back, for the case
+ * where that hand-over returns after all. Without it the board would run on
+ * unguarded, and the next wedge would be neither reset in time nor counted.
  */
 void watchdog_stretch(void);
+void watchdog_unstretch(void);
 
 /* Fill UBERTOOTH_GET_WATCHDOG's eight-byte reply. */
 void watchdog_report(uint8_t *data);

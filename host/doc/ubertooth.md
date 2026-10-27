@@ -164,8 +164,8 @@ says `warning: the receive transfer did not finish; the Ubertooth is left open
 and may still be capturing`, asks that board for nothing further, and exits 1:
 the capture lost its stream, so it holds less than was asked for. The
 board usually needs `ubertooth-util [-U <selector>] -S` or `-r` afterwards, and
-one that answers neither resets itself about two seconds later and comes back
-idle.
+one that answers neither resets itself about three seconds later and comes
+back idle.
 
 libubertooth follows the split already: it returns what it reads to the tool
 that called it and reports its own problems on standard error, so a library

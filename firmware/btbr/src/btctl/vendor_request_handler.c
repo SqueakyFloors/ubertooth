@@ -171,6 +171,10 @@ int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		watchdog_intent(WATCHDOG_INTENT_ISP);
 		watchdog_stretch();
 		set_isp();
+		/* As in bluetooth_rxtx.c: if the programmer ever returns, put the
+		 * timeout and the intent back rather than leave the board
+		 * unguarded. */
+		watchdog_unstretch();
 		*data_len = 0; /* should never return */
 		break;
 

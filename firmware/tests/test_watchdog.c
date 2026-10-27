@@ -212,6 +212,26 @@ MU_TEST(test_stretching_sets_the_longest_timeout_and_feeds)
 	mu_assert_int_eq(2, (int)fake_wdfeed_count);
 }
 
+/*
+ * And back. set_isp() is not meant to return, but if it ever does the board
+ * must not spend the next hour with a watchdog too slow to reset it and an
+ * intent that would excuse the next real wedge.
+ */
+MU_TEST(test_unstretching_puts_the_timeout_and_the_intent_back)
+{
+	boot_with(RSID_POR);
+	watchdog_start();
+	watchdog_intent(WATCHDOG_INTENT_ISP);
+	watchdog_stretch();
+	fake_wdfeed_count = 0;
+
+	watchdog_unstretch();
+
+	mu_assert_int_eq(UBERTOOTH_WATCHDOG_TIMEOUT_MS * 1000, (int)fake_wdtc);
+	mu_assert_int_eq(2, (int)fake_wdfeed_count);
+	mu_assert_int_eq(WATCHDOG_INTENT_RUNNING, watchdog_crumb.live_intent);
+}
+
 /* ---- the breadcrumb at boot ---- */
 
 /* Power-on: nothing in RAM is a breadcrumb, so the counters start at zero and
@@ -538,7 +558,7 @@ MU_TEST(test_every_usb_service_path_feeds)
  * The modes that service USB from the interrupt instead of polling it. They
  * get no service pass of their own while the host is quiet -- xmas mode waits
  * for a timer interrupt and nothing else -- so without a feed in their loops
- * a board sitting in one would reset itself every two seconds.
+ * a board sitting in one would reset itself on every pass through it.
  */
 MU_TEST(test_every_interrupt_driven_mode_loop_feeds)
 {
@@ -565,28 +585,142 @@ MU_TEST(test_every_interrupt_driven_mode_loop_feeds)
 }
 
 /*
- * How many of them there are. Three mode functions in bluetooth_rxtx.c enable
- * the USB interrupt for the duration of their mode; a fourth added without a
- * feed would be a mode that resets a working board when the host is quiet, so
- * the count of feeds is pinned to the count of those enables.
+ * Each of them, one at a time. A mode in bluetooth_rxtx.c takes USB off the
+ * interrupt by enabling it on the way in and disabling it on the way out, so
+ * the text between those two lines is that mode's own code. A mode that
+ * enables the interrupt and never feeds resets a working board as soon as the
+ * host goes quiet, so every such stretch has to contain a feed -- however
+ * many feeds a mode turns out to need.
  */
-MU_TEST(test_the_mode_loops_in_the_main_image_each_feed)
+MU_TEST(test_each_mode_that_enables_the_usb_interrupt_feeds)
 {
 	const char *path = FW_RXTX_DIR "/bluetooth_rxtx.c";
-	int feeds = 0, enables = 0;
-	char msg[320];
+	char line[512], msg[384];
+	int in_block = 0, lineno = 0, enabled_at = 0, feeds = 0, modes = 0;
+	FILE *f = fopen(path, "r");
 
-	mu_assert(source_has(path, "watchdog_usb_ready();", &feeds) >= 0,
-	          "cannot read bluetooth_rxtx.c");
-	mu_assert(source_has(path, "ISER0 = ISER0_ISE_USB;", &enables) >= 0,
-	          "cannot read bluetooth_rxtx.c");
+	mu_assert(f != NULL, "cannot read bluetooth_rxtx.c");
+
+	while (fgets(line, sizeof(line), f) != NULL) {
+		lineno++;
+		strip_comments(line, &in_block);
+
+		if (strstr(line, "ISER0 = ISER0_ISE_USB;") != NULL) {
+			enabled_at = lineno;
+			feeds = 0;
+			modes++;
+			continue;
+		}
+		if (enabled_at == 0)
+			continue;
+		if (strstr(line, "watchdog_usb_ready();") != NULL)
+			feeds++;
+		if (strstr(line, "ICER0 = ICER0_ICE_USB;") != NULL) {
+			snprintf(msg, sizeof(msg),
+			         "%s:%d: this mode runs USB off its interrupt "
+			         "until line %d and never feeds the watchdog, so "
+			         "it resets a working board once the host goes "
+			         "quiet", path, enabled_at, lineno);
+			mu_assert(feeds > 0, msg);
+			enabled_at = 0;
+		}
+	}
+	fclose(f);
+
+	/* A mode left with the interrupt on at the end of the file is a mode
+	 * whose stretch was never checked. */
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the USB interrupt is enabled here and never disabled, "
+	         "so there is no end to this mode's code to look for a feed in",
+	         path, enabled_at);
+	mu_assert(enabled_at == 0, msg);
+
+	snprintf(msg, sizeof(msg), "%s: no mode enables the USB interrupt, so "
+	         "the scan is not reading the source", path);
+	mu_assert(modes > 0, msg);
+}
+
+/*
+ * The two BLE waits that have no deadline of their own: one waits for a
+ * packet on a channel that may be silent, the other for the hop that ends a
+ * connection interval, which BLE allows to run to 4 s. Both are longer than
+ * the watchdog timeout, so both have to feed while they wait or a board
+ * following a slow connection resets itself for working correctly.
+ */
+MU_TEST(test_the_open_ended_ble_waits_feed)
+{
+	const char *path = FW_RXTX_DIR "/bluetooth_rxtx.c";
+	char line[512], msg[384];
+	int in_block = 0, lineno = 0, waits = 0, fed = 0, wait_line = 0;
+	FILE *f = fopen(path, "r");
+
+	mu_assert(f != NULL, "cannot read bluetooth_rxtx.c");
+
+	while (fgets(line, sizeof(line), f) != NULL) {
+		lineno++;
+		strip_comments(line, &in_block);
+
+		if (strstr(line, "while ((rx_tc == 0) && (rx_err == 0)") != NULL) {
+			waits++;
+			wait_line = lineno;
+			fed = 0;
+			continue;
+		}
+		if (wait_line == 0)
+			continue;
+		if (strstr(line, "watchdog_usb_ready();") != NULL)
+			fed = 1;
+		/* The wait ends where the site is put back. */
+		if (strstr(line, "watchdog_mark(site);") != NULL) {
+			snprintf(msg, sizeof(msg),
+			         "%s:%d: this wait for a BLE packet does not feed "
+			         "the watchdog, so a quiet channel or a long "
+			         "connection interval resets a working board",
+			         path, wait_line);
+			mu_assert(fed, msg);
+			wait_line = 0;
+		}
+	}
+	fclose(f);
 
 	snprintf(msg, sizeof(msg),
-	         "bluetooth_rxtx.c has %d modes that enable the USB interrupt "
-	         "and %d loops that feed the watchdog; a mode that enables it "
-	         "without feeding resets a working board when the host is "
-	         "quiet", enables, feeds);
-	mu_assert(enables > 0 && feeds == enables, msg);
+	         "%s: expected the two open-ended BLE waits, found %d",
+	         path, waits);
+	mu_assert(waits == 2, msg);
+}
+
+/*
+ * Nothing sets an interrupt priority in either image. The watchdog's whole
+ * argument is that a handler which stops returning stops the USB handler too,
+ * which only holds while they share a priority: a USB interrupt able to
+ * preempt a stuck radio handler would keep feeding through the wedge.
+ */
+MU_TEST(test_nothing_gives_an_interrupt_its_own_priority)
+{
+	static const char *const sources[] = {
+		FW_RXTX_DIR "/bluetooth_rxtx.c",
+		FW_RXTX_DIR "/le_phy.c",
+		FW_RXTX_DIR "/ubertooth_usb.c",
+		FW_COMMON_DIR "/ubertooth.c",
+		FW_COMMON_DIR "/usb_serial.c",
+		FW_BTBR_DIR "/src/btctl/main.c",
+	};
+	size_t i;
+
+	for (i = 0; i < sizeof(sources) / sizeof(sources[0]); i++) {
+		char msg[384];
+		int found = source_has(sources[i], "IPR", NULL);
+
+		snprintf(msg, sizeof(msg), "cannot read %s", sources[i]);
+		mu_assert(found >= 0, msg);
+
+		snprintf(msg, sizeof(msg),
+		         "%s writes an interrupt priority register. The watchdog "
+		         "relies on every handler sharing one priority, so that a "
+		         "stuck handler also stops the USB handler feeding",
+		         sources[i]);
+		mu_assert(found == 0, msg);
+	}
 }
 
 /*
@@ -738,6 +872,7 @@ int main(void)
 	MU_RUN(test_the_feed_holds_the_usb_interrupt_off);
 	MU_RUN(test_a_feed_before_arming_does_nothing);
 	MU_RUN(test_stretching_sets_the_longest_timeout_and_feeds);
+	MU_RUN(test_unstretching_puts_the_timeout_and_the_intent_back);
 	MU_RUN(test_power_on_starts_the_counters_again);
 	MU_RUN(test_brown_out_starts_the_counters_again);
 	MU_RUN(test_an_unrecognised_breadcrumb_is_started_again);
@@ -752,7 +887,9 @@ int main(void)
 	MU_RUN(test_the_reply_says_when_the_watchdog_is_not_armed);
 	MU_RUN(test_every_usb_service_path_feeds);
 	MU_RUN(test_every_interrupt_driven_mode_loop_feeds);
-	MU_RUN(test_the_mode_loops_in_the_main_image_each_feed);
+	MU_RUN(test_each_mode_that_enables_the_usb_interrupt_feeds);
+	MU_RUN(test_the_open_ended_ble_waits_feed);
+	MU_RUN(test_nothing_gives_an_interrupt_its_own_priority);
 	MU_RUN(test_no_interrupt_handler_but_the_usb_one_feeds);
 	MU_RUN(test_a_claimed_reset_is_claimed_where_it_happens);
 	return mu_report();

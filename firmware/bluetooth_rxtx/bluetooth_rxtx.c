@@ -512,6 +512,11 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		watchdog_intent(WATCHDOG_INTENT_ISP);
 		watchdog_stretch();
 		set_isp();
+		/* set_isp() is not supposed to come back -- it hands the chip to
+		 * code in ROM. If it ever does, the board must not be left running
+		 * for the next hour with a watchdog that cannot reset it and a
+		 * wedge that would not be counted. */
+		watchdog_unstretch();
 		*data_len = 0; /* should never return */
 		break;
 
@@ -1954,6 +1959,7 @@ void bt_generic_le(u8 active_mode)
 	u8 hold;
 	int i, j;
 	int8_t rssi, rssi_at_trigger;
+	uint8_t site;
 
 	modulation = MOD_BT_LOW_ENERGY;
 	mode = active_mode;
@@ -2009,8 +2015,15 @@ void bt_generic_le(u8 active_mode)
 		/* Wait for DMA. Meanwhile keep track of RSSI. */
 		rssi_reset();
 		rssi_at_trigger = INT8_MIN;
+		/* This wait has no deadline: on a quiet channel no packet ever
+		 * completes the transfer, so it can last as long as the capture
+		 * does. It feeds, because it is the mode loop's own code and runs
+		 * below every interrupt handler, exactly like the feed at the top
+		 * of the loop -- a handler that stops returning stops this too. */
+		site = watchdog_mark(WATCHDOG_SITE_LE_RX);
 		while ((rx_tc == 0) && (rx_err == 0))
 		{
+			watchdog_usb_ready();
 			rssi = (int8_t)(cc2400_get(RSSI) >> 8);
 			if (cs_trigger && (rssi_at_trigger == INT8_MIN)) {
 				rssi = MAX(rssi,(cs_threshold_cur+54));
@@ -2018,6 +2031,7 @@ void bt_generic_le(u8 active_mode)
 			}
 			rssi_add(rssi);
 		}
+		watchdog_mark(site);
 
 		if (rx_err) {
 			status |= DMA_ERROR;
@@ -2091,6 +2105,7 @@ void bt_le_sync(u8 active_mode)
 {
 	int i;
 	int8_t rssi;
+	uint8_t site;
 	static int restart_jamming = 0;
 
 	modulation = MOD_BT_LOW_ENERGY;
@@ -2134,8 +2149,15 @@ void bt_le_sync(u8 active_mode)
 
 		/* Wait for DMA. Meanwhile keep track of RSSI. */
 		rssi_reset();
+		/* Nothing bounds this wait: following a connection, the next thing
+		 * to end it is the hop at the end of the connection interval, which
+		 * BLE allows to be as long as 4 s. It feeds for the reason the wait
+		 * in bt_generic_le() does -- it is the mode loop running, below
+		 * every interrupt handler. */
+		site = watchdog_mark(WATCHDOG_SITE_LE_RX);
 		while ((rx_tc == 0) && (rx_err == 0) && (do_hop == 0) && requested_mode == active_mode)
-			;
+			watchdog_usb_ready();
+		watchdog_mark(site);
 
 		rssi = (int8_t)(cc2400_get(RSSI) >> 8);
 		rssi_min = rssi_max = rssi;

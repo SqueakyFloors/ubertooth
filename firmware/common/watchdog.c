@@ -151,12 +151,18 @@ void watchdog_boot(void)
 }
 
 /*
- * The feed is two writes to one register, 0xAA then 0x55, and the part treats
- * any other second write as a failed feed -- which, with the reset enabled, is
- * itself a reset. So nothing may write that register in between, and the USB
- * interrupt handler feeds too. Holding the USB interrupt off across the pair
- * is what keeps the two feed sites from breaking each other's sequence; it is
- * the only interrupt that feeds.
+ * The feed is two writes to the feed register, 0xAA then 0x55, and the part
+ * treats any other write to the watchdog registers in between as a failed
+ * feed -- which, with the reset enabled, is itself a reset (the watchdog
+ * chapter of the part's user manual, UM10360, under the feed sequence).
+ *
+ * Only this file writes those registers, and the only interrupt that reaches
+ * it is the USB one, which feeds from the handler. Holding that interrupt off
+ * across the pair is therefore enough to keep the two feed sites from
+ * breaking each other's sequence. Another interrupt landing between the two
+ * writes is harmless, because none of them touches the watchdog: widening the
+ * mask to all interrupts would cost the radio handlers their timing for
+ * nothing.
  */
 static void watchdog_feed(void)
 {
@@ -197,6 +203,13 @@ void watchdog_stretch(void)
 {
 	WDTC = WATCHDOG_TICKS_MAX;
 	watchdog_feed();
+}
+
+void watchdog_unstretch(void)
+{
+	WDTC = WATCHDOG_TICKS;
+	watchdog_feed();
+	watchdog_intent(WATCHDOG_INTENT_RUNNING);
 }
 
 void watchdog_report(uint8_t *data)

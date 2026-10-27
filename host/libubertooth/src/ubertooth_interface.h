@@ -396,11 +396,23 @@ enum operating_modes {
 };
 
 /*
- * How long the board may go without servicing USB before the watchdog resets
- * it. Comfortably longer than any gap the firmware leaves on purpose: the
- * longest is the repeater's turnaround delay, a few tens of milliseconds.
+ * How long the board may go without feeding the watchdog before it resets
+ * itself.
+ *
+ * The number has to clear the longest gap the firmware leaves on purpose,
+ * which is 1600 ms: xmas mode sleeps in a WFI until one of its three blink
+ * timers fires, and each is set up to 400 + 1200 ms ahead (xmas.c), so a run
+ * where all three land near the far end feeds only every 1600 ms. Identify
+ * mode waits the same way, on a 167 ms blink. The other long waits all feed
+ * while they wait: the repeater's 1000 ms turnaround services USB throughout
+ * (cc2400_rangetest.c), the BLE modes feed while they wait for a packet or
+ * the next hop, and the transmit loops feed once per burst. The second that
+ * reset() spends waiting to be reset is excused by the intent instead.
+ *
+ * So 3000 ms: nearly double the longest deliberate gap, and still fast enough
+ * that a wedged board is back before a person would reach for the cable.
  */
-#define UBERTOOTH_WATCHDOG_TIMEOUT_MS 2000
+#define UBERTOOTH_WATCHDOG_TIMEOUT_MS 3000
 
 /*
  * Why the board last started. The same bits as the part's reset source
@@ -425,6 +437,7 @@ enum watchdog_site {
 	WATCHDOG_SITE_FS_UNLOCK  = 3, /* waiting for it to unlock */
 	WATCHDOG_SITE_XOSC       = 4, /* waiting for the 16 MHz crystal oscillator */
 	WATCHDOG_SITE_FSM        = 5, /* waiting on the radio's state machine */
+	WATCHDOG_SITE_LE_RX      = 6, /* waiting for a BLE packet or the next hop */
 	WATCHDOG_SITE_COUNT
 };
 

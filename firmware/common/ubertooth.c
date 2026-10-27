@@ -669,10 +669,12 @@ void reset()
 	 * board is to let the watchdog run out. The timeout is set to the
 	 * smallest the counter accepts, 255 counts of the watchdog clock, which
 	 * is 255 microseconds -- and it is set here rather than left alone
-	 * because the application arms the watchdog with a two-second timeout
-	 * while it runs (watchdog.c). Without this write, a reset would wait two
-	 * seconds and this function would return first, leaving the caller
-	 * running on a board that was supposed to have reset.
+	 * because the application arms the watchdog with a three-second timeout
+	 * while it runs (watchdog.c). Without this write, a reset would wait out
+	 * that timeout and this function would return first, leaving the caller
+	 * running on a board that was supposed to have reset. Writing WDTC while
+	 * the watchdog is already running and feeding it afterwards is what makes
+	 * the new value take effect.
 	 *
 	 * The reset clears the enable bits again, so the bootloader this hands
 	 * over to runs with the watchdog off and no feed of its own to write.

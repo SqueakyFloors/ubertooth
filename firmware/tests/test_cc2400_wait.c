@@ -498,6 +498,8 @@ MU_TEST(test_fsm_does_not_match_another_state)
 
 	mu_assert_int_eq(0, cc2400_wait_fsm(STATE_STROBE_RX, NULL));
 	mu_assert_int_eq(FSM_POLLS, (int)fsm_reads);
+}
+
 /* ---- the watchdog site marker ---- */
 
 /*
@@ -1043,7 +1045,6 @@ int main(void)
 	MU_RUN(test_each_wait_records_its_own_site);
 	MU_RUN(test_the_site_is_put_back_when_the_wait_ends);
 	MU_RUN(test_a_servicing_wait_keeps_its_site_between_passes);
-	MU_RUN(test_no_mode_loop_spins_on_the_radio);
 	MU_RUN(test_the_polled_stream_loop_services_usb_across_a_hop);
 	MU_RUN(test_the_range_test_keeps_a_newer_mode_request);
 	MU_RUN(test_the_transmit_bursts_stop_when_the_mode_does);

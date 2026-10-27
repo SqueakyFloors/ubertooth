@@ -88,7 +88,7 @@ ISP or JTAG.
 - [ ] Reflash with `ubertooth-dfu -d <image>.dfu -r`, then `-w`
 - [ ] Confirm: the unrequested count is still 0 — a flash is not a wedge
 
-### 2e. Bootloader refuses a read-back past the end of flash
+### 2f. Bootloader refuses a read-back past the end of flash
 
 *Needs a board whose part is smaller than 512 KiB (`ubertooth-util -p` reports
 0x25011722 for the 128 KiB LPC1754) and ISP or JTAG: `ubertooth-dfu` cannot
@@ -103,9 +103,9 @@ write a bootloader.*
 - [ ] Confirm: the read-back still returns all 114688 bytes above the
       bootloader, and the board comes back running its application
 
-### 2f. Bootloader refuses an image past the end of flash
+### 2g. Bootloader refuses an image past the end of flash
 
-*Same board and the same ISP or JTAG requirement as 2e. `ubertooth-dfu -d`
+*Same board and the same ISP or JTAG requirement as 2f. `ubertooth-dfu -d`
 refuses an oversize image before it sends anything, so these steps send the
 requests directly.*
 
@@ -127,7 +127,7 @@ requests directly.*
       part the bootloader's table has no entry for. Every board shipped is
       built from a listed part
 
-### 2g. Flashing back off the btbr image
+### 2h. Flashing back off the btbr image
 
 *Needs a board that can be reached at the bench: a run that leaves it in the
 bootloader needs the entry pin or a power cycle.*

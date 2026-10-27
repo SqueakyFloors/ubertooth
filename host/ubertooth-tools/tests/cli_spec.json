@@ -507,9 +507,9 @@
 
     "ubertooth-util": {
       "man": "ubertooth-util.md",
-      "optstring": ":U:hnmeiIprsStvbl::a::C::c::d::q::z::VNxH",
+      "optstring": ":U:hnmeiIprsStvbwl::a::C::c::d::q::z::VNxH",
       "work_options": ["-n", "-m", "-e", "-i", "-I", "-p", "-r", "-s", "-S", "-t",
-                       "-v", "-b", "-l", "-a", "-C", "-c", "-d", "-q", "-z", "-V",
+                       "-v", "-b", "-w", "-l", "-a", "-C", "-c", "-d", "-q", "-z", "-V",
                        "-N", "-x", "-H"],
       "nothing_to_do": "error: nothing to do: give an option that reads or sets something, or -N to count the attached boards",
       "selector_only_error": "error: nothing to do: -U '%s' selects a device but no option asks anything of it",
@@ -528,6 +528,7 @@
         "-p": {"value": "none", "role": "query"},
         "-s": {"value": "none", "role": "query"},
         "-m": {"value": "none", "role": "query"},
+        "-w": {"value": "none", "role": "query"},
         "-S": {"value": "none", "role": "action"},
         "-r": {"value": "none", "role": "action"},
         "-n": {"value": "none", "role": "mode"},

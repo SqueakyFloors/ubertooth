@@ -241,7 +241,7 @@ Miscellaneous:
 
 ## WATCHDOG
 
-The firmware resets the board if it goes two seconds without servicing USB.
+The firmware resets the board if it goes three seconds without servicing USB.
 A board that stops answering the host is useless to it and cannot be recovered
 from it — the reset request travels over USB too — so the board recovers
 itself, re-enumerates, and comes back idle. What a capture used to see as a
@@ -254,7 +254,7 @@ was stuck:
 
     $ ubertooth-util -U <serial> -w
     Last boot cause: watchdog
-    Watchdog: armed; 2000 ms without USB being serviced resets the board
+    Watchdog: armed; 3000 ms without USB being serviced resets the board
     Unrequested watchdog resets since power-on: 2 (in 3 boots)
       the last was in BLE follow mode, waiting for the 16 MHz crystal oscillator
     Now in idle mode, not in a wait
