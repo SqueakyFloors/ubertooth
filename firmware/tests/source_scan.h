@@ -62,6 +62,38 @@ static inline int is_ident_char(char c)
 }
 
 /*
+ * Empty every string and character literal on a line, in place, leaving the
+ * quotes. A scan that reads literals as code takes the name in a diagnostic --
+ * `printf("service_usb() skipped\n")` -- for the call itself, so a scan whose
+ * answer has to be trusted empties them first. Run it after strip_comments(),
+ * which has already removed anything a quote could hide.
+ */
+static inline void strip_string_literals(char *line)
+{
+	char *r = line, *w = line;
+
+	while (*r != '\0') {
+		char quote = *r;
+
+		if (quote != '"' && quote != '\'') {
+			*w++ = *r++;
+			continue;
+		}
+		*w++ = *r++;
+		while (*r != '\0' && *r != quote) {
+			/* A backslash escapes the next character, including a
+			 * quote, so it cannot end the literal. */
+			if (*r == '\\' && r[1] != '\0')
+				r++;
+			r++;
+		}
+		if (*r == quote)
+			*w++ = *r++;
+	}
+	*w = '\0';
+}
+
+/*
  * Copy text into out with every run of whitespace turned into one space, and
  * no space at either end. A condition captured across several lines carries
  * the source's tabs and newlines, so a scan looking for a phrase in it has to
