@@ -782,6 +782,17 @@ void cb_btle(ubertooth_t* ut, void* args)
 		                          refAA, pkt);
 	}
 
+	/* A capture on "-" owns standard output: this process's own standard
+	 * output is /dev/null for the whole run, so the per-packet dump below
+	 * would reach nobody. Skipping it also keeps the terminal clean,
+	 * because the dump ends in lell_print(), which reports a field it
+	 * cannot read on standard error -- and standard error is not
+	 * redirected. */
+	if (opts != NULL && opts->capture_took_stdout) {
+		lell_packet_unref(pkt);
+		return;
+	}
+
 	// rollover
 	uint64_t rx_ts = le32toh( rx->clk100ns );
 	if (rx_ts < prev_ts)

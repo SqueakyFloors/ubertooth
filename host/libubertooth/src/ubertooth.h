@@ -165,6 +165,11 @@ typedef void (*rx_callback)(ubertooth_t* ut, void* args);
 
 typedef struct {
 	unsigned allowed_access_address_errors;
+	/* Set when a capture has taken the tool's standard output ("-q -",
+	 * "-c -"). That redirects the process's standard output to /dev/null
+	 * for the whole run, so the per-packet dump the callback writes there
+	 * reaches nobody, and the callback skips it. See cb_btle(). */
+	int capture_took_stdout;
 } btle_options;
 
 extern uint32_t systime;

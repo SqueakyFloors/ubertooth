@@ -164,7 +164,10 @@ Logging:
        ubertooth-btle -f -c - | wireshark -k -i -
 
    When stdout capture is selected, regular packet/status text is suppressed so
-   it cannot corrupt the binary stream; errors remain on stderr. The lines that
+   it cannot corrupt the binary stream; errors remain on stderr. Such a run
+   does not produce the per-packet dump at all, so the decoder's complaints
+   about an advertising field it could not read in one of those packets do not
+   reach stderr either. The lines that
    answer an option in the same command go to stderr rather than being
    suppressed with it: the `Access address:` line of `-a`, the `CRC:` line of
    `-v`, and the target lines of `-t`. The tool
@@ -285,10 +288,11 @@ check has passed.
 
 ## DIAGNOSTICS
 
-Standard output carries only what was asked for: the decoded packets, the
-capture data of `-q -` or `-c -`, and the lines that answer `-a`, `-v` and
-`-t`. With the capture on standard output those answer lines move to standard
-error, because standard output belongs to the capture for the whole run.
+Standard output carries only what was asked for: either the decoded packets or
+the capture data of `-q -` or `-c -`, plus the lines that answer `-a`, `-v` and
+`-t`. With the capture on standard output, standard output belongs to the
+capture for the whole run: the answer lines move to standard error, and the
+decoded packets are not printed at all.
 
 Errors, warnings and progress go to standard error, each error as one line
 starting `error: `, for example `error: USB poll failed` when the board stops
