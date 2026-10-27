@@ -56,17 +56,20 @@ void le_usb_reassembly_reset(le_usb_reassembly *state)
 }
 
 int le_usb_reassemble(le_usb_reassembly *state, const usb_pkt_rx *frame,
-                      const uint8_t **data, uint16_t *length,
-                      const usb_pkt_rx **metadata)
+                      uint64_t arrival_ns, const uint8_t **data,
+                      uint16_t *length, const usb_pkt_rx **metadata,
+                      uint64_t *metadata_arrival_ns)
 {
 	uint16_t total;
 
-	if (!state || !frame || !data || !length || !metadata)
+	if (!state || !frame || !data || !length || !metadata ||
+	    !metadata_arrival_ns)
 		return LE_REASSEMBLY_ERROR;
 
 	*data = NULL;
 	*length = 0;
 	*metadata = NULL;
+	*metadata_arrival_ns = 0;
 
 	if (frame->pkt_type == LE_PACKET) {
 		/* A whole packet in one record. It also means any chain that was
@@ -75,6 +78,7 @@ int le_usb_reassemble(le_usb_reassembly *state, const usb_pkt_rx *frame,
 		*data = frame->data;
 		*length = DMA_SIZE;
 		*metadata = frame;
+		*metadata_arrival_ns = arrival_ns;
 		return LE_REASSEMBLY_COMPLETE;
 	}
 
@@ -90,6 +94,10 @@ int le_usb_reassemble(le_usb_reassembly *state, const usb_pkt_rx *frame,
 			return LE_REASSEMBLY_ERROR;
 		}
 		state->metadata = *frame;
+		/* Kept with the record it belongs to, because the records that
+		 * follow this one arrive later and the packet's timestamp is
+		 * this one's. */
+		state->metadata_arrival_ns = arrival_ns;
 		/* The reassembled packet is handed on as an ordinary one, so it
 		 * carries neither a fragment type nor fragment metadata. */
 		state->metadata.pkt_type = LE_PACKET;
@@ -126,5 +134,6 @@ int le_usb_reassemble(le_usb_reassembly *state, const usb_pkt_rx *frame,
 	*data = state->data;
 	*length = state->expected;
 	*metadata = &state->metadata;
+	*metadata_arrival_ns = state->metadata_arrival_ns;
 	return LE_REASSEMBLY_COMPLETE;
 }

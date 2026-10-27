@@ -126,7 +126,7 @@ int main(int argc, char* argv[])
 	}
 
 	/* Allocated here rather than at the top of main(): every refusal above
-	 * returns without a device, and the handle carries a 64 MB fifo. */
+	 * returns without a device, and the handle carries a 72 MB fifo. */
 	ut = ubertooth_init();
 	if (ut == NULL)
 		return 1;

@@ -700,7 +700,13 @@ static void cb_xfer(struct libusb_transfer *xfer)
 		 * slot is kept instead, for the next real packet to read into. */
 		if (xfer->status == LIBUSB_TRANSFER_COMPLETED
 		    && xfer->actual_length == PKT_LEN) {
-			fifo_inc_write_ptr(ut->fifo);
+			/* When this packet arrived, stamped here because this is
+			 * the moment it did. The loop that drains the ring
+			 * buffer can be a long way behind: reading the clock
+			 * there instead measured when the loop got round to a
+			 * packet, which understated every gap a stalled loop
+			 * then caught up on. */
+			fifo_inc_write_ptr(ut->fifo, ubertooth_packet_arrival_ns());
 			xfer->buffer = (uint8_t*)fifo_get_write_element(ut->fifo);
 		}
 		r = libusb_submit_transfer(xfer);
@@ -994,7 +1000,11 @@ int stream_rx_file(ubertooth_t* ut, FILE* fp, rx_callback cb, void* cb_args)
 		nbytes = fread(buf, 1, PKT_LEN, fp);
 		if (nbytes != PKT_LEN)
 			return stream_rx_file_end(fp, sizeof(systime_be) + nbytes);
-		fifo_push(ut->fifo, (usb_pkt_rx*)buf);
+		/* The host time this record carries, read into systime just
+		 * above: that is what the arrival reading is for as long as
+		 * infile is set, which is how a replay gets here. */
+		fifo_push(ut->fifo, (usb_pkt_rx*)buf,
+		          ubertooth_packet_arrival_ns());
 		(*cb)(ut, cb_args);
 	}
 	return 0;

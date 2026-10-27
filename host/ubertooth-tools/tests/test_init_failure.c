@@ -27,7 +27,7 @@ static struct {
 
 /* ---- fifo fake ---------------------------------------------------------- */
 
-/* A real fifo_t is 64 MB, and nothing here reads one: this stands in for the
+/* A real fifo_t is 72 MB, and nothing here reads one: this stands in for the
  * ring buffer as an opaque, free()able pointer. */
 fifo_t* fifo_init()
 {
@@ -39,8 +39,11 @@ fifo_t* fifo_init()
 
 /* The rest of the fifo interface, for the library's other references. None of
  * it runs here: no capture is started. */
-void fifo_inc_write_ptr(fifo_t* fifo) { (void)fifo; }
-void fifo_push(fifo_t* fifo, const usb_pkt_rx* packet) { (void)fifo; (void)packet; }
+void fifo_inc_write_ptr(fifo_t* fifo, uint64_t arrival_ns)
+{ (void)fifo; (void)arrival_ns; }
+void fifo_push(fifo_t* fifo, const usb_pkt_rx* packet, uint64_t arrival_ns)
+{ (void)fifo; (void)packet; (void)arrival_ns; }
+uint64_t fifo_popped_arrival_ns(const fifo_t* fifo) { (void)fifo; return 0; }
 usb_pkt_rx fifo_pop(fifo_t* fifo) { usb_pkt_rx p; (void)fifo; memset(&p, 0, sizeof(p)); return p; }
 usb_pkt_rx* fifo_get_write_element(fifo_t* fifo) { (void)fifo; return NULL; }
 uint8_t fifo_empty(fifo_t* fifo) { (void)fifo; return 1; }

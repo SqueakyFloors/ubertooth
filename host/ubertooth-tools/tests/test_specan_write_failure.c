@@ -229,7 +229,7 @@ static void one_block(ubertooth_t* ut, FILE* out, uint8_t mode,
 	memset(ut, 0, sizeof(*ut));
 	ut->fifo = fifo_init();
 	fill_block(&rx);
-	fifo_push(ut->fifo, &rx);
+	fifo_push(ut->fifo, &rx, 0);
 	specan_args(args, mode);
 
 	output_failed = 0;
@@ -365,7 +365,7 @@ MU_TEST(a_keep_alive_writes_no_samples)
 	 * the block the keep-alive never replaced. */
 	fill_block(&ka);
 	ka.pkt_type = KEEP_ALIVE;
-	fifo_push(ut.fifo, &ka);
+	fifo_push(ut.fifo, &ka, 0);
 	specan_args(args, SPECAN_FILE);
 
 	output_failed = 0;
@@ -566,7 +566,7 @@ int ubertooth_bulk_receive(ubertooth_t* ut, rx_callback cb, void* cb_args)
 	usb_pkt_rx rx;
 
 	fill_block(&rx);
-	fifo_push(ut->fifo, &rx);
+	fifo_push(ut->fifo, &rx, 0);
 	cb(ut, cb_args);
 	device.blocks++;
 	if (device.stream_dies_after && device.blocks >= device.stream_dies_after) {

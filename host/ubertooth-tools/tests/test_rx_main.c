@@ -20,7 +20,7 @@
  *
  * main() is in ubertooth-rx.c, so that source is compiled in here with main()
  * renamed, as test_util_main.c does. Every libubertooth call is a fake below,
- * so no board is opened and no 64 MB ring buffer is allocated; libbtbb is the
+ * so no board is opened and no 72 MB ring buffer is allocated; libbtbb is the
  * real one, since the tool hands it the piconet and the survey.
  */
 #include <errno.h>

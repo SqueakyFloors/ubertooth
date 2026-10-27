@@ -17,7 +17,7 @@
  *
  * The real ubertooth.c, ubertooth_callback.c and ubertooth_control.c are
  * compiled in. No device is opened and no transfer is made: the ring buffer
- * is faked (a real one is 64 MB, and nothing here receives a real packet), so
+ * is faked (a real one is 72 MB, and nothing here receives a real packet), so
  * the signal and the stop are all that is under test.
  *
  * A loop that misses the stop does not fail, it waits forever, so this test
@@ -46,8 +46,11 @@ static usb_pkt_rx one_slot;
 fifo_t* fifo_init(void) { return (fifo_t*)malloc(1); }
 uint8_t fifo_empty(fifo_t* fifo) { (void)fifo; return blocks_queued == 0; }
 usb_pkt_rx* fifo_get_write_element(fifo_t* fifo) { (void)fifo; return &one_slot; }
-void fifo_inc_write_ptr(fifo_t* fifo) { (void)fifo; }
-void fifo_push(fifo_t* fifo, const usb_pkt_rx* packet) { (void)fifo; (void)packet; }
+void fifo_inc_write_ptr(fifo_t* fifo, uint64_t arrival_ns)
+{ (void)fifo; (void)arrival_ns; }
+void fifo_push(fifo_t* fifo, const usb_pkt_rx* packet, uint64_t arrival_ns)
+{ (void)fifo; (void)packet; (void)arrival_ns; }
+uint64_t fifo_popped_arrival_ns(const fifo_t* fifo) { (void)fifo; return 0; }
 usb_pkt_rx fifo_pop(fifo_t* fifo)
 {
 	usb_pkt_rx p;

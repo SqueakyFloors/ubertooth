@@ -19,7 +19,7 @@
  *
  * The real ubertooth.c, ubertooth_callback.c and ubertooth_control.c are
  * compiled in; the test defines the libusb calls and the fifo calls itself,
- * so no bulk endpoint, 64 MB ring buffer or board is involved.
+ * so no bulk endpoint, 72 MB ring buffer or board is involved.
  */
 #include <stdint.h>
 #include <stdio.h>
@@ -45,7 +45,7 @@
 /* ---- fifo fake ---------------------------------------------------------- */
 /* A ring of a few slots, so a case can see exactly which slots a capture
  * published and what was in them. The real ubertooth_fifo.c is not linked:
- * its ring is 64 MB. Nothing here fills the ring, so unlike the real one this
+ * its ring is 72 MB. Nothing here fills the ring, so unlike the real one this
  * fake always advances rather than refusing to when full. */
 
 #define FAKE_SLOTS 8
@@ -78,17 +78,18 @@ usb_pkt_rx* fifo_get_write_element(fifo_t* fifo)
 	return &ring.slots[ring.write_ptr];
 }
 
-void fifo_inc_write_ptr(fifo_t* fifo)
+void fifo_inc_write_ptr(fifo_t* fifo, uint64_t arrival_ns)
 {
 	(void)fifo;
+	(void)arrival_ns;
 	ring.published++;
 	ring.write_ptr = (ring.write_ptr + 1) % FAKE_SLOTS;
 }
 
-void fifo_push(fifo_t* fifo, const usb_pkt_rx* packet)
+void fifo_push(fifo_t* fifo, const usb_pkt_rx* packet, uint64_t arrival_ns)
 {
 	ring.slots[ring.write_ptr] = *packet;
-	fifo_inc_write_ptr(fifo);
+	fifo_inc_write_ptr(fifo, arrival_ns);
 }
 
 uint8_t fifo_empty(fifo_t* fifo)
@@ -101,6 +102,7 @@ uint8_t fifo_empty(fifo_t* fifo)
 	return 1;
 }
 
+uint64_t fifo_popped_arrival_ns(const fifo_t* fifo) { (void)fifo; return 0; }
 usb_pkt_rx fifo_pop(fifo_t* fifo)
 {
 	size_t selected = ring.read_ptr;
@@ -535,8 +537,8 @@ MU_TEST(a_dump_leaves_out_a_keep_alive_record)
 	/* A quiet spell, then a packet, as a capture file holds them. */
 	ka = keep_alive_record();
 	pkt = packet_record(23);
-	fifo_push(ut->fifo, &ka);
-	fifo_push(ut->fifo, &pkt);
+	fifo_push(ut->fifo, &ka, 0);
+	fifo_push(ut->fifo, &pkt, 0);
 	ring.stop_when_empty = 1;
 
 	capture_output();
@@ -592,8 +594,8 @@ MU_TEST(a_bitstream_dump_leaves_out_a_keep_alive)
 
 	ka = keep_alive_record();
 	pkt = packet_record(23);
-	fifo_push(ut->fifo, &ka);
-	fifo_push(ut->fifo, &pkt);
+	fifo_push(ut->fifo, &ka, 0);
+	fifo_push(ut->fifo, &pkt, 0);
 	ring.stop_when_empty = 1;
 
 	capture_output();

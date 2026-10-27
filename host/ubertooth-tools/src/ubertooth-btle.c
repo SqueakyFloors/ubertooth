@@ -595,7 +595,8 @@ int main(int argc, char *argv[])
 				break;
 			}
 			if (r == sizeof(usb_pkt_rx)) {
-				fifo_push(ut->fifo, &rx);
+				/* The packet cmd_poll() just handed back, so it arrived now. */
+				fifo_push(ut->fifo, &rx, ubertooth_packet_arrival_ns());
 				cb_btle(ut, &cb_opts);
 			}
 			usleep(500);

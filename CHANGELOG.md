@@ -767,6 +767,11 @@
   was read as time passing: 18,321 s, over five hours, where the mode before
   had run 200 periods.
   [#478](https://github.com/SqueakyFloors/ubertooth/issues/478)
+- A live capture whose host fell behind no longer drops the gap between its
+  first two packets from every later timestamp, and no longer loses a clock
+  wrap there. How much time passed between two packets is now read as each one
+  arrives rather than as the host gets round to it.
+  [#492](https://github.com/SqueakyFloors/ubertooth/issues/492)
 - `ubertooth-afh -t` stops on the first Ctrl-C. An interrupt during the
   detection phase was dropped along with the timeout that normally ends it, so
   monitoring started anyway and had to be interrupted a second time.
