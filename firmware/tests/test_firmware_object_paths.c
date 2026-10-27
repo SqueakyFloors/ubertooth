@@ -1,11 +1,11 @@
 /*
  * Tests that each firmware image compiles the shared sources under
- * firmware/common into its own directory, and that editing a compile flag
- * rebuilds the objects.
+ * firmware/common into its own directory, that editing a compile flag
+ * rebuilds the objects, and that editing a linker script relinks the image.
  *
- * Both are the same hazard: make compares timestamps, not command lines, so an
- * object compiled with other flags looks up to date and gets linked into an
- * image the makefile no longer describes.
+ * All three are the same hazard: make compares timestamps, not command lines
+ * or file contents, so output built from something that has since changed
+ * looks up to date and ends up in an image the makefile no longer describes.
  *
  * The images do not compile that shared code the same way -- btbr builds it at
  * -O3, the others at -Os -- so an object built for one image is wrong in
@@ -29,6 +29,12 @@
  * phrases it looks for are the ones the makefiles write today. Reformatting
  * one of those lines fails the scan, which is the right direction -- the test
  * says what it could not find rather than passing on nothing.
+ *
+ * A scan can only say the mechanism is there, never that it works: a compare
+ * the wrong way round would read the same. What builds the firmware for real,
+ * changes one thing and looks at what was rewritten is
+ * tools/check-firmware-rebuilds.sh, which CI runs in the job that has the ARM
+ * toolchain.
  */
 #include <dirent.h>
 #include <stdio.h>
@@ -207,6 +213,34 @@ static const char *const banned_flag_shape[] = {
 };
 
 /*
+ * The shape a makefile needs for an edit to a linker script to relink the
+ * image. The link passes the script by name and lets the linker find it in
+ * one of the -L directories, so the makefile runs that search itself to get a
+ * path, and the link rule depends on it.
+ */
+static const struct {
+	const char *needle;
+	const char *what;
+} link_script_shape[] = {
+	{ "LINKER_SCRIPT_DIRS = . $(EXTRALIBDIRS)", "the directories the linker searches for the script" },
+	{ "find_linker_script = $(firstword $(wildcard", "the search that turns the script's name into a path" },
+	{ "LINKER_SCRIPT_FOUND := $(call find_linker_script,$(LINKER_SCRIPT))", "the script's own path" },
+	/* The files the script pulls in with an INCLUDE line count as much as
+	 * the script: the memory map is spread over both. */
+	{ "$$1 == \"INCLUDE\"", "the files the script includes" },
+	{ "%.elf: $(OBJ) $(LINKER_SCRIPT_FILES)", "the link depending on the linker script files" },
+};
+
+/*
+ * With the scripts among the prerequisites, the link command has to name the
+ * objects: $^ is every prerequisite, so it would hand the linker scripts to
+ * gcc as if they were objects too, and the link would fail.
+ */
+static const char *const banned_link_shape[] = {
+	"-o $@ $^",
+};
+
+/*
  * The recorded flags are snapshotted with `:=`, which expands them where it
  * is written, so it has to come after the last line that sets a flag --
  * otherwise what is recorded is not what the compiler is given, and a change
@@ -275,6 +309,51 @@ static void check_flags_recorded_after_they_are_set(const char *path)
 	         "%d, so what it records is not what it compiles with",
 	         path, snapshot, set);
 	mu_assert(snapshot > set, why);
+}
+
+/*
+ * The resolved path has to be worked out above the link rule.
+ *
+ * make expands a rule's prerequisites as it reads the rule, so a path
+ * computed below it leaves the prerequisite list with an empty variable in it
+ * -- no error, no prerequisite, and an edit to a linker script relinks
+ * nothing again.
+ */
+static void check_link_script_resolved_before_the_rule(const char *path)
+{
+	int resolved = line_with(path, "LINKER_SCRIPT_FILES :=");
+	int rule = line_with(path, "%.elf: $(OBJ)");
+	char why[448];
+
+	/* A makefile missing either is reported by the shape scan. */
+	if (resolved == 0 || rule == 0)
+		return;
+	snprintf(why, sizeof(why),
+	         "%s links on line %d but works out where its linker script is "
+	         "on line %d, below it, so the link has no prerequisite on the "
+	         "script at all",
+	         path, rule, resolved);
+	mu_assert(rule > resolved, why);
+}
+
+static void check_link_script_tracking(const char *path)
+{
+	size_t i;
+	char why[320];
+
+	for (i = 0; i < sizeof(link_script_shape) / sizeof(link_script_shape[0]); i++) {
+		snprintf(why, sizeof(why), "%s is missing %s", path,
+		         link_script_shape[i].what);
+		mu_assert(file_has(path, link_script_shape[i].needle), why);
+	}
+	for (i = 0; i < sizeof(banned_link_shape) / sizeof(banned_link_shape[0]); i++) {
+		snprintf(why, sizeof(why),
+		         "%s links with `%s`, which hands the linker scripts to "
+		         "gcc as if they were objects",
+		         path, banned_link_shape[i]);
+		mu_assert(!file_has(path, banned_link_shape[i]), why);
+	}
+	check_link_script_resolved_before_the_rule(path);
 }
 
 static void check_flag_tracking(const char *path)
@@ -443,11 +522,23 @@ MU_TEST(test_flag_changes_invalidate_objects)
 	check_flag_tracking(BOOTLOADER_MK);
 }
 
+/*
+ * And the third form of the hazard: a linker script edit has to relink. Same
+ * two makefiles, scanned the same way and for the same reason -- showing it
+ * end to end needs the ARM toolchain, which these tests do not have.
+ */
+MU_TEST(test_linker_script_changes_relink)
+{
+	check_link_script_tracking(COMMON_MK);
+	check_link_script_tracking(BOOTLOADER_MK);
+}
+
 int main(void)
 {
-	printf("Firmware object path and compile-flag rebuild tests\n");
+	printf("Firmware object path and rebuild tests\n");
 	MU_RUN(test_object_paths_are_per_image);
 	MU_RUN(test_every_image_uses_a_scanned_makefile);
 	MU_RUN(test_flag_changes_invalidate_objects);
+	MU_RUN(test_linker_script_changes_relink);
 	return mu_report();
 }

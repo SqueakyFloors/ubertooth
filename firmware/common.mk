@@ -259,6 +259,38 @@ LDFLAGS += -lc -lg
 LDFLAGS += -lgcc -lm
 LDFLAGS += -Wl,--end-group
 
+# The linker script, as a path make can depend on.
+#
+# The link passes the script by name (-T) and leaves the linker to find it:
+# the linker looks in the directory the link runs in first, then in each -L
+# directory, which here is $(EXTRALIBDIRS) -- ../common, where the scripts
+# live. So $(LINKER_SCRIPT) on its own is a name, not a path, and a rule
+# cannot depend on it. Running the same search here turns it into a path, and
+# the link rule below takes that as a prerequisite. Without one, editing a
+# memory map or a section layout compiles nothing, links nothing and leaves
+# the previous image in place.
+#
+# Each script pulls in one more file with an INCLUDE line, which the linker
+# resolves through the same search, so those files are prerequisites too.
+# They are read out of the script rather than named here, so adding an
+# INCLUDE needs no change in this file. Only the script's own INCLUDE lines
+# are read, not those of the files it includes; no script in the tree nests
+# them further.
+#
+# Finding nothing means no searched directory holds the file. The prerequisite
+# list is then short by that file and the link fails with the linker's own
+# message about the missing script, which says more than make could about a
+# missing prerequisite.
+LINKER_SCRIPT_DIRS = . $(EXTRALIBDIRS)
+find_linker_script = $(firstword $(wildcard $(addsuffix /$(1),$(LINKER_SCRIPT_DIRS))))
+LINKER_SCRIPT_FOUND := $(call find_linker_script,$(LINKER_SCRIPT))
+# /dev/null leads awk's file list so that there is always a file to read: with
+# the script not found the list would otherwise be empty, and awk would wait
+# on standard input while make sat there expanding a variable.
+LINKER_SCRIPT_INCLUDED := $(shell awk '$$1 == "INCLUDE" { print $$2 }' /dev/null $(LINKER_SCRIPT_FOUND))
+LINKER_SCRIPT_FILES := $(LINKER_SCRIPT_FOUND) \
+	$(foreach f,$(LINKER_SCRIPT_INCLUDED),$(call find_linker_script,$(f)))
+
 #---------------- Programming Options ----------------
 LPCISP  ?= $(shell which lpc21isp)
 PROGDEV ?= /dev/ttyUSB0
@@ -461,12 +493,13 @@ $(OBJ): | $(VERSION_HEADER)
 # than is strictly needed, but it is correct and those change rarely.
 #
 # What is recorded is what reaches a compile or a link command line, and no
-# more. Three things outside that still want `make clean`: the compiler itself,
+# more. Two things outside that still want `make clean`: the compiler itself,
 # since a new arm-none-eabi-gcc with the same flags leaves the objects alone;
-# the contents of the linker script, since what is recorded here is its name
-# and the link has no prerequisite on the file; and the objcopy options that
-# turn the .elf into a .hex, .bin or .srec, since those run after the link and
-# their outputs do not depend on this file either.
+# and the objcopy options that turn the .elf into a .hex, .bin or .srec, since
+# those run after the link and their outputs do not depend on this file
+# either. The contents of the linker script are not among them: what is
+# recorded here is the script's name, but the link rule depends on the file --
+# see "Linker Options" above.
 #
 # A timestamp is a coarse signal, and on macOS a coarser one than it looks.
 # make rebuilds a target when a prerequisite is newer, and the make here (GNU
@@ -648,12 +681,17 @@ program: $(TARGET).hex
 	$(AR) $@ $(OBJ)
 
 # Link: create ELF output file from object files.
+#
+# The linker script files are prerequisites as well, so that editing one
+# relinks the image -- see "Linker Options" above. The command therefore lists
+# the objects itself instead of using $^, which would hand the scripts to gcc
+# as if they were objects too.
 .SECONDARY : $(TARGET).elf
 .PRECIOUS : $(OBJ)
-%.elf: $(OBJ)
+%.elf: $(OBJ) $(LINKER_SCRIPT_FILES)
 	@echo
 	@echo $(MSG_LINKING) $@
-	$(LD) $(LINKER_SCRIPT) $(ALL_CFLAGS_LINKER) $(LDFLAGS) -o $@ $^
+	$(LD) $(LINKER_SCRIPT) $(ALL_CFLAGS_LINKER) $(LDFLAGS) -o $@ $(OBJ)
 
 # The compile commands, written once.
 #

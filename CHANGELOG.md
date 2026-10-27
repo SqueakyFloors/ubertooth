@@ -919,6 +919,10 @@
 
 Fixes with no visible change in normal use.
 
+- Editing a firmware linker script relinks the image. Nothing told `make` that
+  the link depends on the script, so a change to a memory map or a section
+  layout used to leave the previous image in place until `make clean`.
+  [#568](https://github.com/SqueakyFloors/ubertooth/issues/568)
 - `ubertooth-follow` closes the local Bluetooth adapter it opens, on every path
   out, and once the clock reads are done rather than at the end of the run. It
   used to hold a handle on an adapter it had finished with for the whole
