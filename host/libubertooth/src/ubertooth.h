@@ -262,6 +262,14 @@ void ubertooth_stop(ubertooth_t* ut);
 void ubertooth_free(ubertooth_t* ut);
 int ubertooth_get_api(ubertooth_t *ut, uint16_t *version);
 int ubertooth_check_api(ubertooth_t *ut);
+/* Reports firmware the host tools were not built with: it names the version
+ * the board reports and the version these tools require, then says which side
+ * to replace (flash the firmware when the board is older, install matching
+ * host tools when it is newer). Only the message, so a caller that checks the
+ * version itself rather than through ubertooth_check_api() - ubertooth-util's
+ * -I, which must still talk to any firmware - prints the same lines as every
+ * other tool. */
+void ubertooth_report_api_mismatch(uint16_t version);
 /* Stops the capture after this many seconds, through the same flag Ctrl-C
  * uses. The handle is not read: the alarm stops whichever capture is running,
  * and a signal handler cannot follow a pointer to a handle. */

@@ -321,6 +321,10 @@ add_test(NAME util-reset-wait COMMAND test-util-reset-wait)
 # bundled getopt on platforms that use it.
 # The clock is faked in the test (util_clock.c is not linked), so a reset wait
 # runs instantly.
+# ubertooth_api_version.c is the real library source, not a fake, so the cases
+# pin the message -I actually prints; it only calls fprintf, so it opens no
+# device. Against an installed libubertooth there is no source to compile in,
+# and the test stubs the message instead.
 add_executable(test-util-main
 	test_util_main.c
 	../src/util_report.c
@@ -331,6 +335,9 @@ target_link_libraries(test-util-main opt-parse-for-tests)
 # The library headers of this source tree must win over any installed copy.
 if(libubertooth_SOURCE_DIR)
 	target_include_directories(test-util-main PRIVATE ${libubertooth_SOURCE_DIR}/src)
+	target_sources(test-util-main PRIVATE
+		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c)
+	target_compile_definitions(test-util-main PRIVATE UTIL_TEST_REAL_API_MESSAGE)
 else()
 	target_include_directories(test-util-main PRIVATE ${LIBUBERTOOTH_INCLUDE_DIR})
 endif()
@@ -556,6 +563,7 @@ if(libubertooth_SOURCE_DIR)
 	add_executable(test-init-failure
 		test_init_failure.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_callback.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
@@ -586,6 +594,7 @@ if(libubertooth_SOURCE_DIR)
 	add_executable(test-device-select
 		test_device_select.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_callback.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
@@ -605,6 +614,7 @@ if(libubertooth_SOURCE_DIR)
 	add_executable(test-select-quiet
 		test_select_quiet.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_callback.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
@@ -625,6 +635,7 @@ if(libubertooth_SOURCE_DIR)
 	add_executable(test-afh-requests
 		test_afh_requests.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_callback.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
@@ -644,6 +655,7 @@ if(libubertooth_SOURCE_DIR)
 	add_executable(test-clk100ns-wrap
 		test_clk100ns_wrap.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_fifo.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c)
@@ -673,6 +685,7 @@ if(libubertooth_SOURCE_DIR)
 	add_executable(test-le-decode-buffer
 		test_le_decode_buffer.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c)
 	target_include_directories(test-le-decode-buffer PRIVATE
@@ -691,6 +704,7 @@ if(libubertooth_SOURCE_DIR)
 	add_executable(test-stream-failure
 		test_stream_failure.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_callback.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
@@ -715,6 +729,7 @@ if(libubertooth_SOURCE_DIR)
 	add_executable(test-keep-alive
 		test_keep_alive.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_callback.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
@@ -735,6 +750,7 @@ if(libubertooth_SOURCE_DIR)
 	add_executable(test-btle-dump-streams
 		test_btle_dump_streams.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_callback.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
@@ -753,6 +769,7 @@ if(libubertooth_SOURCE_DIR)
 	add_executable(test-stop-on-signal
 		test_stop_on_signal.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_callback.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c)
