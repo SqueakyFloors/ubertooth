@@ -507,7 +507,7 @@
 
     "ubertooth-util": {
       "man": "ubertooth-util.md",
-      "optstring": ":U:hnmeiIprsStvbwl::a::C::c::d::q::z::VNxH",
+      "optstring": ":U:hn::meiIprsStvbwl::a::C::c::d::q::z::VNxH",
       "work_options": ["-n", "-m", "-e", "-i", "-I", "-p", "-r", "-s", "-S", "-t",
                        "-v", "-b", "-w", "-l", "-a", "-C", "-c", "-d", "-q", "-z", "-V",
                        "-N", "-x", "-H"],
@@ -535,7 +535,9 @@
         "-w": {"value": "none", "role": "query"},
         "-S": {"value": "none", "role": "action"},
         "-r": {"value": "none", "role": "action"},
-        "-n": {"value": "none", "role": "mode"},
+        "-n": {"value": "optional", "role": "mode", "valid": ["0", "5", "30"],
+               "doc": "seconds to wait for the repeater's reply; 0 waits forever",
+               "invalid": [["99999999999", "error: timeout must be a whole number of seconds, 0 for none (got 99999999999)"]]},
         "-e": {"value": "none", "role": "mode"},
         "-t": {"value": "none", "role": "mode"},
         "-x": {"value": "none", "role": "mode"},

@@ -4,6 +4,11 @@
 
 ### New features
 
+- **Script-visible change:** `ubertooth-util -n` now runs the range test
+  instead of only starting it: progress while it waits, then the result block
+  `-m` prints. Nothing answering within 10 seconds (`-n <seconds>` to choose
+  that wait, `-n 0` to wait forever) stops the test and exits 1.
+  [#649](https://github.com/SqueakyFloors/ubertooth/issues/649)
 - `ubertooth-follow -t <BD_ADDR>` names the whole target address, so a follow
   reaches a target whose address does not begin `00:00`. It gives the LAP and
   UAP to follow as well.
