@@ -118,6 +118,7 @@ new_repo() {
     # The seeded line is code rather than a comment, so a file the check
     # watches starts out with content it can see.
     for f in firmware/bluetooth_rxtx/bluetooth_rxtx.c firmware/bluetooth_rxtx/README \
+        firmware/bluetooth_rxtx/flash \
         firmware/bluetooth_rxtx/Makefile firmware/common/usb.c \
         firmware/common/lpcusb/target/usbhw_lpc.c \
         firmware/common/LPC17xx_Linker_Script_with_bootloader.ld \
@@ -398,6 +399,23 @@ want_status 1
 want_empty_stdout
 want_stderr "changes no firmware interface file"
 
+# The watched list says ".c", meaning a name ending in a dot and a c, and a
+# file called "flash" is not one: it ends in an s and an h. The distinction
+# matters because the list is read twice, once to compare two commits and once
+# for --list-watched, and the two have to agree. They did not: handing the
+# pattern to awk with -v turned every \. in it into a . that matches any
+# character, which is how "flash" came to be a watched file to one reader and
+# not to the other. A flashing helper beside the sources is a plausible file
+# to add, and asking it for a version would be a red about nothing.
+new_repo 0x0131
+edit "$repo" firmware/bluetooth_rxtx/flash
+set_version "$repo" 0x0132
+commit "$repo" "change a helper script beside the sources and bump"
+run "a dot in the watched list is a dot" "$repo" main
+want_status 1
+want_empty_stdout
+want_stderr "changes no firmware interface file"
+
 # The image's own Makefile is the list of the sources that go into it, so
 # adding or removing one of them is a change to the image.
 new_repo 0x0131
@@ -613,6 +631,7 @@ want_stdout firmware/bluetooth_rxtx/Makefile
 want_stdout firmware/common/usb.c
 want_stdout "$header_path"
 want_no_stdout firmware/bluetooth_rxtx/README
+want_no_stdout firmware/bluetooth_rxtx/flash
 want_no_stdout firmware/common.mk
 want_no_stdout firmware/Makefile
 want_no_stdout firmware/btbr/btbr.c

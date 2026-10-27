@@ -203,8 +203,15 @@ watched_at() {
     out=$2
     git --no-pager ls-tree -r "$rev" > "$work/raw" || return 1
     # mode, type, hash, tab, path -> hash, tab, path, watched paths only.
-    awk -F'\t' -v want="$watched_pattern" \
-        'NF > 1 && $2 ~ want { split($1, f, " "); print f[3] "\t" $2 }' \
+    #
+    # The pattern reaches awk through the environment rather than through -v,
+    # because -v processes escape sequences in the value: it turns the \. that
+    # means a literal dot into a plain . that matches any character, so this
+    # reading of the list and --list-watched's grep would quietly disagree.
+    # ENVIRON hands the string over untouched, which also keeps gawk from
+    # warning about the escape on standard error.
+    WATCHED_PATTERN="$watched_pattern" awk -F'\t' \
+        'NF > 1 && $2 ~ ENVIRON["WATCHED_PATTERN"] { split($1, f, " "); print f[3] "\t" $2 }' \
         "$work/raw" > "$work/named" || return 1
     sort "$work/named" > "$out" || return 1
     rm -f "$work/raw" "$work/named"
