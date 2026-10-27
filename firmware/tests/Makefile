@@ -19,6 +19,7 @@ FW_LPCUSB := ../common/lpcusb/target
 FW_BOOT := ../bootloader
 FW_DIR := ..
 HOST_DFU := ../../host/ubertooth-tools/src
+HOST_LIB := ../../host/libubertooth/src
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
 TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_le_phy_order test_le_frag_shape test_le_phy_logic test_grmdm_rx_generic test_tx_generic_bounds test_write_registers_bounds test_btbr_hop test_btbr_rx_deadline test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info
@@ -137,13 +138,19 @@ $(BINDIR)/test_le_frag_shape: test_le_frag_shape.c minunit.h source_scan.h \
 # bluetooth_le.c are pure logic and link as they are. -Istubs-lephy comes
 # first so its ubertooth.h and lpc17.h win, then stubs-usbq for the lpcusb
 # stand-in the queue needs.
+#
+# The host's reassembly (ubertooth_le_frag.c) is linked in as well, so a long
+# packet makes the whole round trip -- firmware fragments it, host puts it
+# back -- the way test_compile_info links the host's revision extractor.
 $(BINDIR)/test_le_phy_logic: test_le_phy_logic.c minunit.h \
 		stubs-lephy/ubertooth.h stubs-lephy/lpc17.h stubs-usbq/usbapi.h \
 		$(FW_RXTX)/le_phy.c $(FW_RXTX)/ubertooth_usb.c \
 		$(FW_RXTX)/ubertooth_usb.h $(FW_RXTX)/queue.c \
 		$(FW_RXTX)/bluetooth_le.c $(FW_RXTX)/bluetooth_le.h \
 		$(FW_COMMON)/lpc17.h $(FW_COMMON)/ubertooth.h \
-		$(FW_COMMON)/cc2400_wait.h $(FW_COMMON)/usb_irq.h | $(BINDIR)
+		$(FW_COMMON)/cc2400_wait.h $(FW_COMMON)/usb_irq.h \
+		$(HOST_LIB)/ubertooth_le_frag.c $(HOST_LIB)/ubertooth_le_frag.h \
+		| $(BINDIR)
 # Three kinds of noise come from compiling le_phy.c on a 64-bit host. It
 # drains the SSP into a variable it does not use, twice; it declares two
 # locals in the connection-request handler that nothing reads; and the DMA
@@ -154,7 +161,7 @@ $(BINDIR)/test_le_phy_logic: test_le_phy_logic.c minunit.h \
 		-I$(FW_COMMON) -DUBERTOOTH_ONE -DFW_HOST_TEST \
 		-Wno-unused-variable -Wno-pointer-to-int-cast \
 		-o $@ test_le_phy_logic.c $(FW_RXTX)/queue.c \
-		$(FW_RXTX)/bluetooth_le.c
+		$(FW_RXTX)/bluetooth_le.c $(HOST_LIB)/ubertooth_le_frag.c
 
 # grmdm_packet_mode() is a bit test in cc2400.h, so it runs here; the
 # rx_generic() that uses it is hardware code, so the same test scans

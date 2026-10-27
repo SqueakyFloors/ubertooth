@@ -17,7 +17,8 @@
  * firmware's, and the queue a packet is handed to is the real one:
  * ubertooth_usb.c is compiled into this translation unit, as it is in
  * test_usb_queue.c, and so is le_phy.c, because the functions under test are
- * static.
+ * static. The host's reassembly (ubertooth_le_frag.c) is linked in too, so a
+ * long packet makes the whole round trip with real code at both ends.
  *
  * What is NOT run here, and why:
  *
@@ -47,6 +48,11 @@
 #include "ubertooth_clock.h"
 #include "ubertooth_dma.h"
 #include "cc2400_wait.h"
+
+/* The host's side of the same path: what puts a chain of records back
+ * together into one packet. Linked in so the round trip below runs the real
+ * code on both ends. */
+#include "ubertooth_le_frag.h"
 
 /* ------------------------------------------------------------------ *
  * The hardware around the code under test
@@ -444,81 +450,172 @@ MU_TEST(a_field_is_read_least_significant_byte_first)
  * ------------------------------------------------------------------ */
 
 /*
- * What `ubertooth-btle -n` and `-f` read is one record per packet, collected
- * with UBERTOOTH_POLL. This drives the firmware's real usb_enqueue_le() into
- * the firmware's real ring and reads the record back out of it with
- * dequeue(), for every PDU length a packet can have.
+ * A record carries 50 bytes, so a long packet is sent as a chain of them and
+ * the host puts it back together. The two halves have to agree exactly: the
+ * record types that mark a chain, the total length packed into the two
+ * reserved bytes, and the order of the fragments.
+ *
+ * So this is the round trip, with the real code on both sides: a receive
+ * buffer through the firmware's usb_enqueue_le() into the firmware's ring,
+ * out of it with dequeue() -- the path UBERTOOTH_POLL takes -- and into the
+ * host's le_usb_reassemble(). What comes out has to be the packet that went
+ * in, for every PDU length a packet can have. Nothing is modelled here;
+ * test_le_frag_shape.c scanned both halves for the same agreement, and this
+ * runs them against each other.
  */
-MU_TEST(every_packet_length_reaches_the_host_record)
+static int round_trip(le_rx_t *buf, const uint8_t **data, uint16_t *length,
+                      const usb_pkt_rx **metadata, int *records)
+{
+	static le_usb_reassembly state;
+	usb_pkt_rx *record;
+	int result = LE_REASSEMBLY_WAIT;
+
+	le_usb_reassembly_reset(&state);
+	*records = 0;
+	if (!usb_enqueue_le(buf))
+		return -2;
+
+	while ((record = dequeue()) != NULL) {
+		(*records)++;
+		result = le_usb_reassemble(&state, record, data, length,
+		                           metadata);
+		if (result != LE_REASSEMBLY_WAIT)
+			break;
+	}
+	/* Nothing may be left over: the chain ends with the packet. */
+	if (dequeue() != NULL)
+		return -3;
+	return result;
+}
+
+MU_TEST(every_packet_length_survives_the_round_trip)
 {
 	unsigned pdu_len;
 
 	for (pdu_len = 0; pdu_len <= 255; pdu_len++) {
 		le_rx_t buf;
-		usb_pkt_rx *record;
-		char msg[192];
-		unsigned carried;
+		const uint8_t *data = NULL;
+		const usb_pkt_rx *metadata = NULL;
+		uint16_t length = 0;
+		unsigned total = 4 + pdu_len + 5;
+		unsigned expected;
+		int records = 0, result;
+		char msg[224];
 
 		start_fresh();
 		fill_packet(&buf, pdu_len, DATA_CHANNEL_MHZ);
 		buf.access_address = 0x12345678;
 		buf.rssi_sum = 46;       /* positive: see the test below */
 
-		snprintf(msg, sizeof(msg),
-		         "a %u-byte PDU was refused by the queue", pdu_len);
-		mu_assert(usb_enqueue_le(&buf) == 1, msg);
+		result = round_trip(&buf, &data, &length, &metadata, &records);
 
-		record = dequeue();
 		snprintf(msg, sizeof(msg),
-		         "no record came back for a %u-byte PDU", pdu_len);
-		mu_assert_fatal(record != NULL, msg);
+		         "a %u-byte PDU did not come back whole: the firmware put "
+		         "%d records in the ring and the host answered %d",
+		         pdu_len, records, result);
+		mu_assert_fatal(result == LE_REASSEMBLY_COMPLETE, msg);
 
-		mu_assert_int_eq(LE_PACKET, record->pkt_type);
-		mu_assert_int_eq(0, record->clkn_high);
-		mu_assert_int_eq(buf.timestamp, record->clk100ns);
-		mu_assert_int_eq(DATA_CHANNEL_MHZ - 2402, record->channel);
-		mu_assert_int_eq(buf.rssi_min, record->rssi_min);
-		mu_assert_int_eq(buf.rssi_max, record->rssi_max);
-		mu_assert_int_eq(0, record->rssi_count);
-		mu_assert_int_eq(0, record->status);
+		/* One record for a short packet, a chain of 50-byte fragments
+		 * for a long one. */
+		snprintf(msg, sizeof(msg),
+		         "a %u-byte PDU (%u bytes with the access address and CRC) "
+		         "was sent as %d records", pdu_len, total, records);
+		mu_assert((unsigned)records ==
+		          (total + DMA_SIZE - 1) / DMA_SIZE, msg);
+
+		/* A chain says how long the packet is, so the host hands back
+		 * exactly that. A single record carries no length -- it never
+		 * did -- so the host hands back all 50 of its bytes and the
+		 * decoder reads the length out of the packet itself. */
+		expected = records == 1 ? DMA_SIZE : total;
+		snprintf(msg, sizeof(msg),
+		         "a %u-byte PDU came back as %u bytes, not %u",
+		         pdu_len, length, expected);
+		mu_assert(length == expected, msg);
 
 		/* The access address the packet was received with comes first,
 		 * then the packet itself. */
-		mu_assert(memcmp(record->data, &buf.access_address, 4) == 0,
-		          "the record does not start with the access address");
-		carried = buf.size < DMA_SIZE - 4 ? buf.size : DMA_SIZE - 4;
+		mu_assert_fatal(data != NULL, "the host returned no packet");
+		mu_assert(memcmp(data, &buf.access_address, 4) == 0,
+		          "the packet does not start with the access address");
 		snprintf(msg, sizeof(msg),
-		         "the record's copy of a %u-byte PDU does not match the "
-		         "packet", pdu_len);
-		mu_assert(memcmp(record->data + 4, buf.data, carried) == 0, msg);
+		         "the bytes of a %u-byte PDU changed on the way", pdu_len);
+		mu_assert(memcmp(data + 4, buf.data, buf.size) == 0, msg);
 
-		mu_assert(dequeue() == NULL,
-		          "one packet put more than one record in the ring");
+		/* Records are reused, so whatever a short packet leaves over in
+		 * the one it travelled in is cleared rather than left as the
+		 * last packet's bytes. */
+		if (records == 1) {
+			unsigned i;
+			for (i = total; i < DMA_SIZE; i++) {
+				snprintf(msg, sizeof(msg),
+				         "byte %u after a %u-byte PDU was not cleared",
+				         i, pdu_len);
+				mu_assert(data[i] == 0, msg);
+			}
+		}
+
+		/* ...and the readings the host describes the packet with are the
+		 * ones taken while receiving it. */
+		mu_assert_fatal(metadata != NULL, "the host returned no metadata");
+		mu_assert_int_eq(0, metadata->clkn_high);
+		mu_assert_int_eq(buf.timestamp, metadata->clk100ns);
+		mu_assert_int_eq(DATA_CHANNEL_MHZ - 2402, metadata->channel);
+		mu_assert_int_eq(buf.rssi_min, metadata->rssi_min);
+		mu_assert_int_eq(buf.rssi_max, metadata->rssi_max);
+		mu_assert_int_eq(0, metadata->rssi_count);
+		mu_assert_int_eq(0, metadata->status);
 		mu_assert_int_eq(0, radio_touched);
 	}
 }
 
 /*
- * A record holds 50 bytes, four of which are the access address, so 46 bytes
- * of a packet reach the host and a longer packet is cut off there. That is a
- * limitation of the record, not of this engine -- the source says so where it
- * copies -- and it is pinned here because it decides what `ubertooth-btle`
- * can decode: everything past the 44th byte of the PDU is missing.
+ * The longest packet the chain can carry is 264 bytes, which is exactly the
+ * longest a receive buffer holds, so the engine's own packets always fit. A
+ * buffer claiming to be longer is refused rather than sent as a chain the
+ * host would reject half way through.
  */
-MU_TEST(a_packet_longer_than_the_record_is_cut_off)
+MU_TEST(a_packet_too_long_for_a_chain_is_refused)
 {
 	le_rx_t buf;
-	usb_pkt_rx *record;
 
 	start_fresh();
 	fill_packet(&buf, 255, DATA_CHANNEL_MHZ);
-	mu_assert_fatal(usb_enqueue_le(&buf) == 1, "the queue refused a packet");
-	record = dequeue();
-	mu_assert_fatal(record != NULL, "no record came back");
+	mu_assert_int_eq(LE_MAX_USB_PACKET_SIZE, 4 + buf.size);
 
-	mu_assert(memcmp(record->data + 4, buf.data, DMA_SIZE - 4) == 0,
-	          "the record does not carry the first 46 bytes of the packet");
-	mu_assert_int_eq(DMA_SIZE, sizeof(record->data));
+	buf.size += 1;
+	mu_assert_int_eq(0, usb_enqueue_le(&buf));
+	mu_assert(dequeue() == NULL,
+	          "a packet too long to send left records in the ring");
+}
+
+/*
+ * A chain is all or nothing. Half a packet is worse than none: the host drops
+ * the chain and the records that did fit are wasted, so a packet that cannot
+ * be sent whole is not started.
+ */
+MU_TEST(a_chain_that_does_not_fit_is_not_started)
+{
+	le_rx_t buf;
+	unsigned fragments, space;
+
+	start_fresh();
+	fill_packet(&buf, 255, DATA_CHANNEL_MHZ);
+	buf.rssi_sum = 46;
+	fragments = (4 + buf.size + DMA_SIZE - 1) / DMA_SIZE;
+
+	/* Fill the ring until one fragment less than the packet needs is left. */
+	while (usb_queue_space() > fragments - 1)
+		mu_assert_fatal(usb_enqueue() != NULL,
+		                "the queue refused a packet while it had room");
+	space = usb_queue_space();
+
+	mu_assert_int_eq(0, usb_enqueue_le(&buf));
+	mu_assert_int_eq(space, usb_queue_space());
+
+	/* One fragment more and the whole chain goes in. */
+	mu_assert_fatal(dequeue() != NULL, "the ring was expected to be full");
+	mu_assert_int_eq(1, usb_enqueue_le(&buf));
 }
 
 /*
@@ -1208,8 +1305,9 @@ int main(void)
 	MU_RUN(a_released_buffer_comes_back_clean);
 	MU_RUN(the_length_byte_is_dewhitened_the_same_way_as_the_rest);
 	MU_RUN(a_field_is_read_least_significant_byte_first);
-	MU_RUN(every_packet_length_reaches_the_host_record);
-	MU_RUN(a_packet_longer_than_the_record_is_cut_off);
+	MU_RUN(every_packet_length_survives_the_round_trip);
+	MU_RUN(a_packet_too_long_for_a_chain_is_refused);
+	MU_RUN(a_chain_that_does_not_fit_is_not_started);
 	MU_RUN(the_average_rssi_is_the_mean_only_while_the_sum_is_positive);
 	MU_RUN(a_full_ring_refuses_the_packet);
 	MU_RUN(a_connection_request_is_accepted_and_scheduled);
