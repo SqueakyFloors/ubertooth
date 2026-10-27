@@ -317,6 +317,16 @@ static const struct util_reset_follow_ops follow_ops = {
 #define RANGE_TEST_PROGRESS_MS 1000
 
 /*
+ * How many polls in a row may fail before -n gives up on the board.
+ *
+ * A board part-way through a mode stalls the odd control request: one poll in
+ * about twenty on the bench. The next one answers, so a single failed read is
+ * not the test failing, and the polls are quiet for that reason. A board that
+ * has stopped answering altogether still ends the wait, after three.
+ */
+#define RANGE_TEST_READ_FAILURES 3
+
+/*
  * The range test result block, which -m and -n both print, so a result reads
  * the same whichever asked for it.
  *
@@ -364,60 +374,15 @@ static int range_test_wait(ubertooth_t *ut, int timeout_s)
 {
 	uint64_t start = util_clock_now_ms();
 	uint64_t next_progress = RANGE_TEST_PROGRESS_MS;
-	int cleared = 0; /* the board has cleared the previous test's result */
-	int started = 0; /* ...and has been seen running this one */
+	int cleared = 0;  /* the board has cleared the previous test's result */
+	int started = 0;  /* ...and has been seen running this one */
+	int failures = 0; /* polls in a row that could not read the board */
 
 	for (;;) {
 		rangetest_result rr;
 		watchdog_info info;
-		uint64_t elapsed;
-		int r;
+		uint64_t elapsed = util_clock_now_ms() - start;
 
-		/*
-		 * The wait before the first read, not after it: the board has only
-		 * just been asked to start the test, so there is nothing to read
-		 * yet, and a read that lands in the moment the mode is starting is
-		 * the one the board has been seen to stall.
-		 */
-		util_clock_sleep_ms(RANGE_TEST_POLL_MS);
-		r = cmd_get_rangeresult(ut->devh, &rr);
-		if (r != 0)
-			return report_read_failed("range test result", r);
-		/*
-		 * The firmware clears the result as the test starts, and sets it
-		 * only at the end of a run, so a read that lands before the board
-		 * has entered the mode still answers with the previous test's
-		 * levels. Waiting for one empty read first means every result
-		 * below belongs to this test.
-		 */
-		if (rr.valid == 0)
-			cleared = 1;
-		else if (cleared)
-			return report_range_result(&rr);
-
-		r = cmd_get_watchdog(ut->devh, &info);
-		if (r < 0)
-			return report_read_failed("board mode", r);
-		if (info.mode == MODE_RANGE_TEST)
-			started = 1;
-		else if (started) {
-			/*
-			 * The test is over without a result in hand. The firmware
-			 * writes the result just before it leaves the mode, so read
-			 * once more: that settles whether the test finished between
-			 * the two reads above or was stopped from elsewhere.
-			 */
-			r = cmd_get_rangeresult(ut->devh, &rr);
-			if (r != 0)
-				return report_read_failed("range test result", r);
-			if (cleared && rr.valid != 0)
-				return report_range_result(&rr);
-			fprintf(stderr, "error: the range test was stopped before the "
-			        "repeater replied\n");
-			return 1;
-		}
-
-		elapsed = util_clock_now_ms() - start;
 		if (timeout_s > 0 && elapsed >= (uint64_t)timeout_s * 1000u) {
 			/*
 			 * The board is still listening, and would go on listening
@@ -443,6 +408,56 @@ static int range_test_wait(ubertooth_t *ut, int timeout_s)
 			        (unsigned)(elapsed / 1000u));
 			fflush(stdout);
 			next_progress = elapsed + RANGE_TEST_PROGRESS_MS;
+		}
+
+		/*
+		 * The wait before the read, so the first read is a poll interval
+		 * into the test: the board has only just been asked to start it,
+		 * so there is nothing to read yet, and a read that lands in the
+		 * moment the mode is starting is the one the board has been seen
+		 * to stall.
+		 */
+		util_clock_sleep_ms(RANGE_TEST_POLL_MS);
+		if (cmd_get_rangeresult_quiet(ut->devh, &rr) != 0) {
+			/* A poll that learned nothing; see RANGE_TEST_READ_FAILURES. */
+			if (++failures > RANGE_TEST_READ_FAILURES)
+				return util_report_read_failed(stderr,
+				        "range test result");
+			continue;
+		}
+		/*
+		 * The firmware clears the result as the test starts, and sets it
+		 * only at the end of a run, so a read that lands before the board
+		 * has entered the mode still answers with the previous test's
+		 * levels. Waiting for one empty read first means every result
+		 * below belongs to this test.
+		 */
+		if (rr.valid == 0)
+			cleared = 1;
+		else if (cleared)
+			return report_range_result(&rr);
+
+		if (cmd_get_watchdog_quiet(ut->devh, &info) != 0) {
+			if (++failures > RANGE_TEST_READ_FAILURES)
+				return util_report_read_failed(stderr, "board mode");
+			continue;
+		}
+		failures = 0;
+		if (info.mode == MODE_RANGE_TEST)
+			started = 1;
+		else if (started) {
+			/*
+			 * The test is over without a result in hand. The firmware
+			 * writes the result just before it leaves the mode, so read
+			 * once more: that settles whether the test finished between
+			 * the two reads above or was stopped from elsewhere.
+			 */
+			if (cmd_get_rangeresult_quiet(ut->devh, &rr) == 0 &&
+			    cleared && rr.valid != 0)
+				return report_range_result(&rr);
+			fprintf(stderr, "error: the range test was stopped before the "
+			        "repeater replied\n");
+			return 1;
 		}
 	}
 }

@@ -244,6 +244,20 @@ MU_TEST(short_reply_message_names_the_read_and_the_counts)
 	    "error: channel read failed: board returned 1 of 2 bytes\n") == 0, text);
 }
 
+static void poll_range_result(void)
+{
+	rangetest_result rr;
+
+	cmd_get_rangeresult_quiet(NULL, &rr);
+}
+
+static void poll_watchdog(void)
+{
+	watchdog_info info;
+
+	cmd_get_watchdog_quiet(NULL, &info);
+}
+
 static void set_channel_quiet(void) { cmd_set_channel_quiet(NULL, 2441); }
 static void set_channel(void) { cmd_set_channel(NULL, 2441); }
 static void set_bdaddr_quiet(void) { cmd_set_bdaddr_quiet(NULL, 0x112233); }
@@ -339,6 +353,59 @@ MU_TEST(range_result_needs_all_5_bytes)
 	script(4, 0x11);
 	mu_assert_int_eq(UBERTOOTH_ERROR_SHORT_REPLY, cmd_get_rangeresult(NULL, &rr));
 	mu_assert_int_eq(0x5a, rr.valid); /* left untouched */
+}
+
+/*
+ * The quiet forms of the two reads ubertooth-util -n polls with: the same
+ * answer, and not a word about a read that failed, since there the caller
+ * reads again rather than reporting.
+ */
+MU_TEST(the_polled_reads_report_nothing)
+{
+	rangetest_result rr;
+	watchdog_info info;
+	char text[512];
+
+	script(5, 0);
+	fake.reply[0] = 1;
+	fake.reply[2] = 9;
+	mu_assert_int_eq(0, cmd_get_rangeresult_quiet(NULL, &rr));
+	mu_assert_int_eq(1, rr.valid);
+	mu_assert_int_eq(9, rr.request_num);
+
+	script(UBERTOOTH_WATCHDOG_INFO_LEN, 0);
+	fake.reply[6] = MODE_RANGE_TEST;
+	mu_assert_int_eq(0, cmd_get_watchdog_quiet(NULL, &info));
+	mu_assert_int_eq(MODE_RANGE_TEST, info.mode);
+
+	/* a stalled request, a timed-out one and a short reply: all silent */
+	script(LIBUSB_ERROR_PIPE, 0);
+	run_captured(poll_range_result, text, sizeof(text));
+	mu_assert(text[0] == '\0', text);
+	script(LIBUSB_ERROR_PIPE, 0);
+	run_captured(poll_watchdog, text, sizeof(text));
+	mu_assert(text[0] == '\0', text);
+	script(LIBUSB_ERROR_TIMEOUT, 0);
+	run_captured(poll_range_result, text, sizeof(text));
+	mu_assert(text[0] == '\0', text);
+	script(4, 0);
+	run_captured(poll_range_result, text, sizeof(text));
+	mu_assert(text[0] == '\0', text);
+	script(UBERTOOTH_WATCHDOG_INFO_LEN - 1, 0);
+	run_captured(poll_watchdog, text, sizeof(text));
+	mu_assert(text[0] == '\0', text);
+
+	/* and the error is returned, so the caller can count it */
+	script(LIBUSB_ERROR_PIPE, 0);
+	mu_assert_int_eq(LIBUSB_ERROR_PIPE, cmd_get_rangeresult_quiet(NULL, &rr));
+	script(4, 0);
+	mu_assert_int_eq(UBERTOOTH_ERROR_SHORT_REPLY,
+	                 cmd_get_rangeresult_quiet(NULL, &rr));
+	script(LIBUSB_ERROR_PIPE, 0);
+	mu_assert_int_eq(LIBUSB_ERROR_PIPE, cmd_get_watchdog_quiet(NULL, &info));
+	script(UBERTOOTH_WATCHDOG_INFO_LEN - 1, 0);
+	mu_assert_int_eq(UBERTOOTH_ERROR_SHORT_REPLY,
+	                 cmd_get_watchdog_quiet(NULL, &info));
 }
 
 /*
@@ -535,6 +602,7 @@ int main(void)
 	MU_RUN(serial_needs_all_17_bytes);
 	MU_RUN(range_result_needs_all_5_bytes);
 	MU_RUN(watchdog_state_needs_all_8_bytes);
+	MU_RUN(the_polled_reads_report_nothing);
 	MU_RUN(short_reply_message_names_the_read_and_the_counts);
 	MU_RUN(the_quiet_set_forms_report_nothing);
 	MU_RUN(four_and_two_byte_reads_need_their_full_length);

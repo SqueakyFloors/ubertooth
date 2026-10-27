@@ -536,9 +536,18 @@ status 1:
 `-n <seconds>` chooses the wait, and `-n 0` waits forever, for a repeater
 being set up by hand at the other end. The board is left stopped only on the
 timeout; interrupting `-n` with Ctrl-C leaves the test running, and
-`ubertooth-util -S` stops it. A test stopped from elsewhere while `-n` is
-watching ends the wait too: `error: the range test was stopped before the
-repeater replied`, exit status 1.
+`ubertooth-util -S` stops it afterwards. (It has to be afterwards: `-n` holds
+the board for as long as it is watching, as every tool holds the board it is
+using, so another command cannot reach it meanwhile.)
+
+A board that leaves the test without a reply — it reset itself, or something
+else took it over — ends the wait at once rather than waiting out the deadline:
+`error: the range test was stopped before the repeater replied`, exit status 1.
+`-n` reads the board several times a second to see that, and a read that fails
+for three polls running ends the wait as well, as
+`error: range test result read failed` or `error: board mode read failed`. One
+failed read does not: a board part-way through a mode stalls the odd control
+request, and the next poll answers.
 
 ### -m, the last result
 

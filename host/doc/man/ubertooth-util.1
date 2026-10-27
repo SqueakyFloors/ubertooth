@@ -396,7 +396,9 @@ error: no reply from the repeater within 10 s: start one in range with ubertooth
 .fi
 .IP "" 0
 .P
-\fB\-n <seconds>\fR chooses the wait, and \fB\-n 0\fR waits forever, for a repeater being set up by hand at the other end\. The board is left stopped only on the timeout; interrupting \fB\-n\fR with Ctrl\-C leaves the test running, and \fBubertooth\-util \-S\fR stops it\. A test stopped from elsewhere while \fB\-n\fR is watching ends the wait too: \fBerror: the range test was stopped before the repeater replied\fR, exit status 1\.
+\fB\-n <seconds>\fR chooses the wait, and \fB\-n 0\fR waits forever, for a repeater being set up by hand at the other end\. The board is left stopped only on the timeout; interrupting \fB\-n\fR with Ctrl\-C leaves the test running, and \fBubertooth\-util \-S\fR stops it afterwards\. (It has to be afterwards: \fB\-n\fR holds the board for as long as it is watching, as every tool holds the board it is using, so another command cannot reach it meanwhile\.)
+.P
+A board that leaves the test without a reply \(em it reset itself, or something else took it over \(em ends the wait at once rather than waiting out the deadline: \fBerror: the range test was stopped before the repeater replied\fR, exit status 1\. \fB\-n\fR reads the board several times a second to see that, and a read that fails for three polls running ends the wait as well, as \fBerror: range test result read failed\fR or \fBerror: board mode read failed\fR\. One failed read does not: a board part\-way through a mode stalls the odd control request, and the next poll answers\.
 .SS "\-m, the last result"
 The result also stays on the board until the next test, so it can be read again at any time, and that is all \fB\-m\fR does:
 .IP "" 4

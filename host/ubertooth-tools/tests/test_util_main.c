@@ -40,6 +40,7 @@ static struct {
 	/* the scripted range test -n follows; see fake_range_reply_arrived() */
 	uint64_t range_started_ms, range_reply_after_ms, range_leaves_after_ms;
 	int range_reply_at_call;
+	int range_stall_calls, watchdog_stall_calls;
 	watchdog_info watchdog;
 	int watchdog_rc;
 	int watchdog_calls;
@@ -447,6 +448,30 @@ int cmd_get_watchdog(struct libusb_device_handle *h, watchdog_info *info)
 	if (fake.range_test_calls > 0)
 		info->mode = fake_range_mode_running() ? MODE_RANGE_TEST : MODE_IDLE;
 	return fake.watchdog_rc;
+}
+
+/*
+ * The quiet forms -n polls with. range_stall_calls and watchdog_stall_calls
+ * are the stall a board part-way through a mode answers one poll in twenty
+ * with: the first that many reads fail, and the rest answer.
+ */
+int cmd_get_rangeresult_quiet(struct libusb_device_handle *h,
+                              rangetest_result *rr)
+{
+	int r = cmd_get_rangeresult(h, rr);
+
+	if (r == 0 && fake.rangeresult_calls <= fake.range_stall_calls)
+		return -9;
+	return r;
+}
+
+int cmd_get_watchdog_quiet(struct libusb_device_handle *h, watchdog_info *info)
+{
+	int r = cmd_get_watchdog(h, info);
+
+	if (r == 0 && fake.watchdog_calls <= fake.watchdog_stall_calls)
+		return -9;
+	return r;
 }
 
 int cmd_reset(struct libusb_device_handle *h) { fake_use(h); fake.reset_calls++; return fake.reset_rc; }
@@ -1077,6 +1102,39 @@ MU_TEST(range_test_with_no_repeater_times_out_and_stops_the_board)
 	r = RUN("-n");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert_int_eq(0, fake.rangeresult_calls);
+
+	/* A board part-way through a mode stalls the odd poll. Three in a row
+	 * are polls that learned nothing, and the test still finishes; the
+	 * fourth ends the wait, naming the read. */
+	reset_fake();
+	fake.range_reply_after_ms = 1000;
+	fake.range_stall_calls = RANGE_TEST_READ_FAILURES;
+	r = RUN("-n");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.out, "reply number     : 4\n") != NULL, r.out);
+	mu_assert(strcmp(r.err, "Starting range test\n") == 0, r.err);
+
+	reset_fake();
+	fake.range_reply_after_ms = 1000;
+	fake.range_stall_calls = RANGE_TEST_READ_FAILURES + 1;
+	r = RUN("-n");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: range test result read failed\n") != NULL,
+	          r.err);
+
+	reset_fake();
+	fake.range_reply_after_ms = 1000;
+	fake.watchdog_stall_calls = RANGE_TEST_READ_FAILURES;
+	r = RUN("-n");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.out, "reply number     : 4\n") != NULL, r.out);
+
+	reset_fake();
+	fake.range_reply_after_ms = 0;
+	fake.watchdog_stall_calls = RANGE_TEST_READ_FAILURES + 1;
+	r = RUN("-n");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: board mode read failed\n") != NULL, r.err);
 
 	/* A stop the board refuses leaves the test running, and the message
 	 * says so rather than claiming otherwise. */
