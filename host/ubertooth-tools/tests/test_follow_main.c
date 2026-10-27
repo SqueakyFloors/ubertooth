@@ -385,8 +385,10 @@ MU_TEST(the_clock_is_set_before_the_receive_transfer)
 	          " a record from before the reset carries the period count from"
 	          " before it");
 	/* The whole order, so a request that moves anywhere is caught: address,
-	 * clock, receive transfer, poll thread, AFH map cleared, hopping. */
-	mu_assert(strcmp(fake.calls, "akipch") == 0, fake.calls);
+	 * clock, receive transfer, poll thread, hopping, AFH map cleared. The
+	 * map goes out after hopping has started because starting a mode forgets
+	 * it, so one sent first would be thrown away. */
+	mu_assert(strcmp(fake.calls, "akiphc") == 0, fake.calls);
 }
 
 /* The asynchronous requests are completed by the poll thread, so they stay
@@ -399,7 +401,7 @@ MU_TEST(the_asynchronous_requests_stay_after_the_poll_thread)
 	reset_fake();
 	r = RUN("-a", TARGET);
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(fake.calls, "akipmh") == 0, fake.calls);
+	mu_assert(strcmp(fake.calls, "akiphm") == 0, fake.calls);
 	mu_assert(call_at('p') < call_at('m'),
 	          "the AFH map was set before the poll thread was running");
 	mu_assert(call_at('p') < call_at('h'),
