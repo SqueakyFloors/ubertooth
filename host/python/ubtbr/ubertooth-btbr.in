@@ -114,14 +114,14 @@ class BTCtlPrompt(Cmd):
 			except RuntimeError as e:
 				# The interpreter can refuse a new thread, and that thread
 				# is what gives back the message handler the command claimed
-				# as it was built. Nothing holds the command now, so the
-				# claim is handed back here: left claimed, the board stays
-				# taken and every later command is refused as still running.
-				# Reported like any other command that could not run, so the
-				# user is left at the prompt and not in a traceback. A
-				# Ctrl-C noted above is dropped with it, which costs
-				# nothing: it would have stopped the command that is not
-				# running.
+				# as it was built. Nothing holds the command now, so
+				# release() hands the claim back; left claimed, the board
+				# stays taken and every later command is refused as still
+				# running. Reported like any other command that could not
+				# run, so the user is left at the prompt and not in a
+				# traceback. A Ctrl-C noted above is dropped with it, which
+				# costs nothing: it would have stopped the command that is
+				# not running.
 				cmd.release()
 				raise BTCtlError("could not start the command: %s"%e)
 			self._cmd = cmd

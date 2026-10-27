@@ -469,10 +469,10 @@ class BTCtlCmd(Thread):
 	def release(self):
 		"""Give the device's messages back, for a command that never ran.
 
-		The thread is what releases the handler claimed above, when it ends.
-		A command whose thread was never started therefore has to be undone
-		here: left claimed, the device refuses every later command and the
-		board stays taken for the rest of the session.
+		The thread is what releases the handler claimed above, when it ends,
+		so a command whose thread was never started has to be undone here.
+		Only call this on a command that did not start: on a running one it
+		would take the handler away from under its own thread.
 		"""
 		self._bt.unregister_msg_handler(self._put_msg)
 
@@ -613,11 +613,10 @@ class BTCtlSuperCmd(Thread):
 		try:
 			cmd.start()
 		except RuntimeError:
-			# The interpreter can refuse a new thread, and that thread is
-			# what gives back the message handler the command claimed as it
-			# was built, so the claim is handed back here. The command is
-			# left unheld too: there is no thread to stop or to join, and
-			# joining one that never ran raises in turn.
+			# The interpreter can refuse a new thread; release() is what
+			# hands the message handler back for a command that never ran.
+			# The command is left unheld too: there is no thread to stop or
+			# to join, and joining one that never ran raises in turn.
 			cmd.release()
 			raise
 		self._cmd = cmd
