@@ -40,12 +40,14 @@ carries, at a fixed offset just past the vector table, which says which image
 the file holds and which revision it was built from:
 
     Checking firmware signature
-    Image: bluetooth_rxtx git-ed30131d* (API:1.33)
+    Image: bluetooth_rxtx git-ed30131d* (API:<version>)
 
-The API version on that line comes from the block, so for `btbr` it reads
-1.33 while `ubertooth-util -v` reports that board as 1.06: the `btbr` image is
-built from this tree but reports a fixed USB `bcdDevice` of its own, which is
-what the other tools check.
+The API version on that line comes from the block, so for `btbr` it reads this
+tree's version while `ubertooth-util -v` reports that board as 1.06: the `btbr`
+image is built from this tree but reports a fixed USB `bcdDevice` of its own,
+which is what the other tools check. This tree's version moves with the
+firmware, so the samples here write it as `<version>`; `COMPATIBILITY.md` names
+the value this tree requires.
 
 A properly signed DFU file with no readable block there is not an image from
 this tree, so it is refused rather than written:
@@ -347,7 +349,7 @@ Everything else is on standard error, so a script reading that one line is not
 fed the progress of a flash that takes a few seconds:
 
     Checking firmware signature
-    Image: bluetooth_rxtx git-ed30131d (API:1.33)
+    Image: bluetooth_rxtx git-ed30131d (API:<version>)
     DFU expected revision: git-ed30131d
     The image needs 31488 bytes, 0x4000-0xbaff: part 0x25011722 (LPC1754) has 128 KiB of flash
     Switching selected device to DFU mode...

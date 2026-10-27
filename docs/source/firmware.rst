@@ -35,7 +35,7 @@ check which one is on there now, or that a switch worked:
 	.. code-block:: sh
 
 		$ ubertooth-util -U <serial> -v
-		Firmware version: bluetooth_rxtx git-26d4c11 (API:1.33)
+		Firmware version: bluetooth_rxtx git-26d4c11 (API:<version>)
 		$ ubertooth-util -U <serial> -v     # the same board, flashed with btbr
 		Firmware version: btbr git-26d4c11 (API:1.06)
 
@@ -47,11 +47,14 @@ is not an Ubertooth image is refused before the board is touched:
 
 		$ ubertooth-dfu -U <serial> -d firmware/btbr/btbr.dfu -r
 		Checking firmware signature
-		Image: btbr git-26d4c11 (API:1.33)
+		Image: btbr git-26d4c11 (API:<version>)
 
-The two API versions above are different numbers: the ``Image:`` line takes
-its version from the file, while ``-v`` reports the USB ``bcdDevice`` the
-running firmware answers with, which ``btbr`` fixes at 1.06. See
+The two API versions above are not the same: the ``Image:`` line takes its
+version from the file, so for ``btbr`` it reads this tree's version, while
+``-v`` reports the USB ``bcdDevice`` the running firmware answers with, which
+``btbr`` fixes at 1.06. The samples write this tree's version as ``<version>``,
+because it moves with the firmware; ``COMPATIBILITY.md`` names the value this
+tree requires. See
 :ref:`what-version-am-i-running` below, and ubertooth-util(1) and
 ubertooth-dfu(1).
 
@@ -70,7 +73,7 @@ hand, build the image with ``make -C firmware/bluetooth_rxtx`` and run the
 
 		$ ubertooth-dfu -d bluetooth_rxtx.dfu -r
 		Checking firmware signature
-		Image: bluetooth_rxtx git-ed30131d* (API:1.33)
+		Image: bluetooth_rxtx git-ed30131d* (API:<version>)
 		Switching selected device to DFU mode...
 		........................................
 		........................................
@@ -91,8 +94,8 @@ it fails rather than choosing one ambiguously.
 Every image built from this tree carries a firmware info block at a fixed
 offset, naming the image and the revision it was built from. The tool reads it
 out of the file before it writes anything, says what it is about to write
-(``Image: bluetooth_rxtx git-ed30131d* (API:1.33)``), and refuses a file that
-carries no such block, which includes every image built before the block
+(``Image: bluetooth_rxtx git-ed30131d* (API:<version>)``), and refuses a file
+that carries no such block, which includes every image built before the block
 existed.
 
 After flashing with ``-d ... -r``, the tool takes the expected revision from
@@ -148,7 +151,7 @@ In non-DFU mode, you can obtain firmware information with ``ubertooth-util -v``.
 	.. code-block:: sh
 
 		$ ubertooth-util -v
-		Firmware version: bluetooth_rxtx git-ed30131d* (API:1.33)
+		Firmware version: bluetooth_rxtx git-ed30131d* (API:<version>)
 		$ ubertooth-util -V
 		bluetooth_rxtx: ubertooth git-ed30131d* (builder@host) Tue Aug  7 15:33:06 PDT 2018
 

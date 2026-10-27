@@ -156,11 +156,11 @@
 - Every firmware image now carries a block naming the image and the revision
   it was built from, read the same way off a board and out of a file.
   `ubertooth-dfu -d` says which image a file holds before it writes it
-  (`Image: bluetooth_rxtx git-ed30131d* (API:1.33)`), and refuses a file that
-  carries no such block before erasing anything, which includes every image
-  built before this one. `ubertooth-util -v` and `-V` name the image a board is
-  running, and still read a board whose firmware has no block, showing its
-  revision alone.
+  (`Image: bluetooth_rxtx git-ed30131d* (API:<version>)`), and refuses a file
+  that carries no such block before erasing anything, which includes every
+  image built before this one. `ubertooth-util -v` and `-V` name the image a
+  board is running, and still read a board whose firmware has no block, showing
+  its revision alone.
   [#473](https://github.com/SqueakyFloors/ubertooth/issues/473)
 - `ubertooth-specan-ui` draws a slowly smoothed average of the max-hold trace
   as a cyan dotted line labelled "Avg: N dBm", shown with the other markers.

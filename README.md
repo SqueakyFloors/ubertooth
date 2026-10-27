@@ -160,12 +160,16 @@ as the revision, and answers whichever image is running:
 
 ```sh
 $ ubertooth-util -U <serial> -v
-Firmware version: bluetooth_rxtx git-26d4c11 (API:1.33)
+Firmware version: bluetooth_rxtx git-26d4c11 (API:<version>)
 ```
 
 `ubertooth-dfu` names what is in a firmware file before it writes anything
-(`Image: btbr git-26d4c11 (API:1.33)`), and refuses a file that is not an
+(`Image: btbr git-26d4c11 (API:<version>)`), and refuses a file that is not an
 Ubertooth image, so the wrong file is caught before the board is touched.
+
+The API version moves with the firmware, so these samples write it as
+`<version>`; [COMPATIBILITY.md](COMPATIBILITY.md) names the value this tree
+requires.
 
 See also the [Ubertooth overview man page](host/doc/ubertooth.md).
 

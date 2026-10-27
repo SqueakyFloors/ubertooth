@@ -61,10 +61,10 @@ If you pipe it into xxd, you should see various ones and zeros.  If you pipe it
 into dd, you can find out the transfer rate (should be 1 MB/s).  Timestamps are
 dumped to stderr.
 
-ubertooth-specan: ouputs signal strength data suitable for feeding into spectrum
+ubertooth-specan: outputs signal strength data suitable for feeding into spectrum
 analyser software. e.g.
 ```
-ubertooth-specan -G -q | feedgnuplot --stream 0.5 --domain --3d 
+ubertooth-specan -G | feedgnuplot --stream 0.5 --domain --3d
 ```
 
 will use feedgnuplot to drive gnuplot to draw a realtime animated 3D plot of the
