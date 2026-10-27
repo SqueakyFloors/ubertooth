@@ -24,6 +24,8 @@
  * cancellation is how a stream ends, and a Ctrl-C is a user stopping a
  * capture that was working.
  */
+#include <dlfcn.h>
+#include <errno.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdint.h>
@@ -61,6 +63,12 @@ static struct {
 	int frees;
 	int refuse_submit;        /* fail libusb_submit_transfer() */
 	int refuse_resubmit_after;/* ...from this submit on, so a stream starts */
+	/* The errno pthread_create() hands back, 0 to let a real thread start. */
+	int refuse_thread;
+	int threads_started;      /* pthread_create() calls */
+	int threads_created;      /* ...that really made a thread */
+	int threads_joined;       /* pthread_join() calls */
+	int control_requests;     /* control requests the library sent */
 	enum scripted_event event;
 	int events_delivered;
 } fake;
@@ -80,6 +88,11 @@ static void reset(void)
 	running_ut = NULL;
 	stop_after_polls = 0;
 	empty_polls = 0;
+	/* The library keeps "a stop was asked for" in a global, which the Ctrl-C
+	 * case below sets for real. Left set, it would end the next case's
+	 * receive loop at its first turn, so a case meant to run until something
+	 * stopped it would pass without ever proving that something did. */
+	ubertooth_reset_stop_signals();
 }
 
 /* ---- fifo fake ---------------------------------------------------------- */
@@ -117,6 +130,55 @@ usb_pkt_rx fifo_pop(fifo_t* fifo)
 	return p;
 }
 
+/* ---- pthread fakes ------------------------------------------------------ */
+
+/* Defined here, so they win over the C library's: every pthread_create() and
+ * pthread_join() in this program comes through them, including the pair
+ * libubertooth makes for the thread that collects a capture.
+ *
+ * A process only fails to create a thread when it is out of threads or
+ * memory, which a test cannot reach without putting the whole run at risk, so
+ * the failure is scripted instead. Anything the case has not asked to fail
+ * goes to the real call, looked up past this definition, so the streams that
+ * do run get a real thread.
+ */
+int pthread_create(pthread_t* thread, const pthread_attr_t* attr,
+                   void* (*start)(void*), void* arg)
+{
+	static int (*real_pthread_create)(pthread_t*, const pthread_attr_t*,
+	                                  void* (*)(void*), void*);
+
+	fake.threads_started++;
+	if (fake.refuse_thread != 0)
+		return fake.refuse_thread;
+	fake.threads_created++;
+	if (real_pthread_create == NULL)
+		real_pthread_create = (int (*)(pthread_t*, const pthread_attr_t*,
+		                               void* (*)(void*), void*))
+		                      dlsym(RTLD_NEXT, "pthread_create");
+	/* Nothing in this program could start a thread then, which the cases
+	 * that need one report as the failure it is. */
+	if (real_pthread_create == NULL)
+		return ENOSYS;
+	return real_pthread_create(thread, attr, start, arg);
+}
+
+/* Counted the same way, and passed through for the same reason: joining a
+ * pthread_t that was never filled in is undefined, so what a case has to be
+ * able to see is whether a join was attempted at all. */
+int pthread_join(pthread_t thread, void** retval)
+{
+	static int (*real_pthread_join)(pthread_t, void**);
+
+	fake.threads_joined++;
+	if (real_pthread_join == NULL)
+		real_pthread_join = (int (*)(pthread_t, void**))
+		                    dlsym(RTLD_NEXT, "pthread_join");
+	if (real_pthread_join == NULL)
+		return ESRCH;
+	return real_pthread_join(thread, retval);
+}
+
 /* ---- libusb fakes ------------------------------------------------------- */
 /* Defined here, so they win over the libusb library symbols. */
 
@@ -133,6 +195,9 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle* devh,
 	(void)wValue;
 	(void)wIndex;
 	(void)timeout;
+	pthread_mutex_lock(&fake_lock);
+	fake.control_requests++;
+	pthread_mutex_unlock(&fake_lock);
 	if (data != NULL && wLength > 0)
 		memset(data, 0, wLength);
 	return wLength;
@@ -588,6 +653,11 @@ MU_TEST(a_capture_that_was_stopped_is_not_a_failure)
 	mu_assert(!ubertooth_stream_failed(ut), "no failure recorded");
 	mu_assert(err[0] == '\0', err);
 	mu_assert(ut->rx_xfer == NULL, "the transfer was given back");
+	/* A real thread collected it and was joined on the way out, so the
+	 * scripted pthread_create() and pthread_join() above stand in for the C
+	 * library's rather than replacing them. */
+	mu_assert_int_eq(1, fake.threads_created);
+	mu_assert_int_eq(1, fake.threads_joined);
 
 	release_handle(ut);
 }
@@ -680,6 +750,84 @@ MU_TEST(a_capture_that_could_not_start_is_reported)
 	release_handle(ut);
 }
 
+/*
+ * A capture whose collecting thread could not be started. pthread_create()
+ * reports a failure as a positive errno, and a "< 0" test let that through:
+ * the capture was started with nobody to complete its transfers, so it waited
+ * forever with nothing arriving and said nothing about why. Both receive
+ * loops the library runs itself are covered, since each starts the thread.
+ *
+ * The capture is also scripted to stop after a few empty polls. Nothing here
+ * reaches that -- the capture is refused before its loop -- but it keeps a
+ * regression that ran the loop anyway from hanging the suite until its
+ * timeout.
+ */
+MU_TEST(a_capture_whose_collecting_thread_failed_is_reported)
+{
+	char expected[256];
+	size_t i;
+
+	snprintf(expected, sizeof(expected),
+	         "error: could not start the thread that collects the capture:"
+	         " %s\n", strerror(EAGAIN));
+
+	/* rx_dump() for stream_rx_usb(), which every ubertooth-dump and
+	 * ubertooth-afh capture goes through, and rx_afh_r() for the
+	 * one-line-per-second form, which has a receive loop of its own. */
+	for (i = 0; i < 2; i++) {
+		ubertooth_t* ut;
+		btbb_piconet* pn = NULL;
+		char err[256] = "";
+		char out[256] = "";
+		int r;
+
+		reset();
+		fake.refuse_thread = EAGAIN;
+		stop_after_polls = 3;
+		ut = new_handle();
+		mu_assert_fatal(ut != NULL, "a handle");
+		if (i == 1) {
+			pn = new_piconet();
+			mu_assert_fatal(pn != NULL, "a piconet");
+		}
+
+		capture_output();
+		r = i == 0 ? rx_dump(ut, 1) : rx_afh_r(ut, pn, 0);
+		release_output(out, sizeof(out), err, sizeof(err));
+
+		/* Negative, so the caller reads it as the failure it is: a
+		 * positive errno handed straight back would have read as the
+		 * normal end of a capture. */
+		mu_assert(r < 0, "the capture reports it could not start");
+		mu_assert(strcmp(err, expected) == 0, err);
+		/* The library never writes to standard output: that is the
+		 * capture's stream, and a tool may be piping it. */
+		mu_assert(out[0] == '\0', out);
+		mu_assert_int_eq(1, fake.threads_started);
+		mu_assert_int_eq(0, fake.threads_created);
+		/* No thread was created, so none was waited on: joining a
+		 * pthread_t pthread_create() never filled in is undefined. */
+		mu_assert_int_eq(0, fake.threads_joined);
+		/* Which holds for a caller that reaches the stop on its own, as
+		 * the Kismet plugin's teardown does. */
+		ubertooth_bulk_thread_stop();
+		mu_assert_int_eq(0, fake.threads_joined);
+		/* Nothing was left behind: the transfer the setup had put in
+		 * flight was given back rather than left for the next capture on
+		 * this handle to refuse. */
+		mu_assert(ut->rx_xfer == NULL, "the transfer was given back");
+		/* Nor was the board asked to send: with nobody to collect it, a
+		 * started mode would stream into a dead stream. The one request
+		 * the second case did send is rx_afh_r()'s band sweep, which it
+		 * sets before the capture is built. */
+		mu_assert_int_eq((int)i, fake.control_requests);
+
+		release_handle(ut);
+		if (pn != NULL)
+			btbb_piconet_unref(pn);
+	}
+}
+
 int main(void)
 {
 	/* Nothing here should look for a board; make sure of it. */
@@ -695,5 +843,6 @@ int main(void)
 	MU_RUN(an_interrupt_is_not_a_failure);
 	MU_RUN(a_detection_phase_that_lost_its_stream_is_not_a_quiet_piconet);
 	MU_RUN(a_capture_that_could_not_start_is_reported);
+	MU_RUN(a_capture_whose_collecting_thread_failed_is_reported);
 	return mu_report();
 }

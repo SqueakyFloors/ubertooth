@@ -277,7 +277,14 @@ int ubertooth_stream_failed(ubertooth_t* ut);
 int ubertooth_bulk_init(ubertooth_t* ut);
 void ubertooth_bulk_wait(ubertooth_t* ut);
 int ubertooth_bulk_receive(ubertooth_t* ut, rx_callback cb, void* cb_args);
+/* Starts the thread that completes the capture's USB transfers. Returns 0, or
+ * a positive errno, as pthread_create() does: test it for "!= 0", never for
+ * "< 0". Nothing else completes the transfers, so a capture started without
+ * the thread waits forever with nothing arriving. */
 int ubertooth_bulk_thread_start();
+/* Stops that thread and waits for it. Safe to call when no thread is running,
+ * so a teardown after a start that failed does not wait on a thread that was
+ * never created. */
 void ubertooth_bulk_thread_stop();
 
 /* One record of a saved capture (ubertooth-rx -d, ubertooth-dump -f): the
@@ -298,8 +305,9 @@ int rx_file_report(int result, const char* filename);
 #define UBERTOOTH_ERROR_STREAM_FAILED (-2001)
 
 /* Dumps received symbols until the capture is stopped. Returns 0 when it was
- * stopped normally, or the error, already reported, if the capture could not
- * be started or its stream died part-way. */
+ * stopped normally, or a negative error, already reported, if the capture
+ * could not be started -- including a collecting thread that could not be
+ * created -- or its stream died part-way. */
 int rx_dump(ubertooth_t* ut, int full);
 
 /* Returned by rx_afh() when the initial detection phase (-t) ended without a
@@ -318,8 +326,9 @@ int rx_dump(ubertooth_t* ut, int full);
  *
  * Returns 0 when the monitor was stopped normally, UBERTOOTH_AFH_NO_PACKETS
  * when the detection phase saw no packet (nothing is printed and monitoring is
- * not started), or a negative error: -1 if libbtbb could not be initialised,
- * the request or receive error, already reported, if a phase could not run, or
+ * not started), or a negative error: -1 if libbtbb could not be initialised or
+ * the collecting thread could not be created, the request or receive error,
+ * already reported, if a phase could not run, or
  * UBERTOOTH_ERROR_STREAM_FAILED if a phase's stream died part-way. A phase
  * that lost its stream is not a quiet piconet, so it is never reported as
  * "no packets". */
@@ -327,8 +336,9 @@ int rx_afh(ubertooth_t* ut, btbb_piconet* pn, int timeout);
 /* The one-line-per-second form of the above (ubertooth-afh -r), with its own
  * receive loop and no detection phase, so the timeout is unused. Returns 0
  * when it was stopped normally, or a negative error, already reported: -1 if
- * libbtbb could not be initialised, or the request or transfer error if the
- * receive could not be started. */
+ * libbtbb could not be initialised or the collecting thread could not be
+ * created, or the request or transfer error if the receive could not be
+ * started. */
 int rx_afh_r(ubertooth_t* ut, btbb_piconet* pn, int timeout);
 
 void ubertooth_unpack_symbols(const uint8_t* buf, char* unpacked);

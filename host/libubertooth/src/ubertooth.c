@@ -757,18 +757,43 @@ static void* poll_thread_main(void* arg __attribute__((unused)))
 	return NULL;
 }
 
+/* Whether poll_thread holds a thread that was really created. Waiting on a
+ * pthread_t that pthread_create() never filled in is undefined, and callers
+ * do reach the stop without a successful start: the Kismet plugin's teardown
+ * calls it on paths that set a capture up in a different order. */
+static int poll_thread_running;
+
 int ubertooth_bulk_thread_start()
 {
+	int r;
+
 	do_exit = 0;
 
-	return pthread_create(&poll_thread, NULL, poll_thread_main, NULL);
+	r = pthread_create(&poll_thread, NULL, poll_thread_main, NULL);
+	if (r == 0)
+		poll_thread_running = 1;
+	return r;
 }
 
 void ubertooth_bulk_thread_stop()
 {
 	do_exit = 1;
 
+	if (!poll_thread_running)
+		return;
+	poll_thread_running = 0;
 	pthread_join(poll_thread, NULL);
+}
+
+/* The one line for a capture the library was starting whose collecting thread
+ * could not be created. The host tools print the same wording from their own
+ * shared report (report_capture_thread_failure()); it is written out twice
+ * because nothing in libubertooth may link against the tools. Keep the two in
+ * step if either is reworded. */
+static void report_thread_failure(int error)
+{
+	fprintf(stderr, "error: could not start the thread that collects the "
+	        "capture: %s\n", strerror(error));
 }
 
 /* How long ubertooth_bulk_stop() waits for a cancelled receive transfer to
@@ -934,9 +959,14 @@ static int stream_rx_usb(ubertooth_t* ut, rx_callback cb, void* cb_args,
 		return r;
 
 	r = ubertooth_bulk_thread_start();
-	if (r < 0) {
+	if (r != 0) {
+		/* Not "< 0": pthread_create() reports a failure as a positive
+		 * errno, so one used to read as success here. The capture was then
+		 * started with nobody to complete its transfers and waited forever
+		 * with nothing arriving, and no line said why. */
+		report_thread_failure(r);
 		ubertooth_bulk_stop(ut);
-		return r;
+		return -1;
 	}
 
 	// tell ubertooth to send packets
@@ -1134,9 +1164,12 @@ int rx_afh_r(ubertooth_t* ut, btbb_piconet* pn, int timeout __attribute__((unuse
 		return r;
 
 	r = ubertooth_bulk_thread_start();
-	if (r < 0) {
+	if (r != 0) {
+		/* as in stream_rx_usb(): a positive errno, and a capture without
+		 * the thread waits forever */
+		report_thread_failure(r);
 		ubertooth_bulk_stop(ut);
-		return r;
+		return -1;
 	}
 
 	// tell ubertooth to send packets, in the AFH detection mode (see rx_afh)

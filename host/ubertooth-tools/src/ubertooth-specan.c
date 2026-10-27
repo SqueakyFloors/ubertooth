@@ -25,6 +25,7 @@
 #include <string.h>
 #include "ubertooth.h"
 #include "opt_parse.h"
+#include "request_report.h"
 #include "specan_options.h"
 #include "util_clock.h"
 
@@ -422,7 +423,12 @@ int main(int argc, char *argv[])
 	}
 
 	r = ubertooth_bulk_thread_start();
-	if (r < 0) {
+	if (r != 0) {
+		/* Not "< 0": this is pthread_create()'s errno, which is positive,
+		 * so a failure used to slip through and leave the sweep with
+		 * nobody to complete its transfers -- it then waited forever with
+		 * no samples arriving. */
+		report_capture_thread_failure(r);
 		ubertooth_stop(ut);
 		return 1;
 	}

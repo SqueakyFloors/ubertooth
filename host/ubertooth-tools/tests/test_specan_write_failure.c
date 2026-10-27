@@ -30,6 +30,7 @@
  * fall at times this file chooses rather than at whatever speed the machine
  * runs the fake sweep.
  */
+#include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <stdio.h>
@@ -759,6 +760,51 @@ MU_TEST(a_sweep_whose_stream_died_exits_one)
 	unlink(path);
 }
 
+/*
+ * The thread that collects a sweep could not be started. pthread_create()
+ * reports a failure as a positive errno, and a "< 0" test let that through:
+ * the sweep was then started with nobody to complete its transfers and waited
+ * forever with no samples arriving, and no line said why.
+ */
+MU_TEST(a_sweep_whose_collecting_thread_failed_exits_one)
+{
+	char path[64];
+	char err[512];
+	char expected[256];
+	struct stat info;
+	long written;
+
+	reset_device();
+	device.thread_start_rc = EAGAIN;
+	device.blocks_to_sweep = 50;
+	mu_assert_fatal(make_temp_file(path, sizeof(path)) == 0,
+	                "temp file created");
+
+	/* Captured only to prove the error went nowhere near the samples'
+	 * stream; this run writes them to the -d file. */
+	capture_stdout_begin();
+	mu_assert_int_eq(1, RUN_SPECAN(err, "-d", path));
+	written = capture_stdout_end();
+
+	snprintf(expected, sizeof(expected),
+	         "error: could not start the thread that collects the capture:"
+	         " %s\n", strerror(EAGAIN));
+	mu_assert(strcmp(err, expected) == 0, err);
+	mu_assert_int_eq(0, (int)written);
+	/* Nothing was started on top of the failure: the board was never asked
+	 * to sweep, so no block arrived and the run ended instead of waiting
+	 * out the fifty the fake would have supplied. The board is given back. */
+	mu_assert_int_eq(1, device.thread_starts);
+	mu_assert_int_eq(0, device.specan_calls);
+	mu_assert_int_eq(0, device.blocks);
+	mu_assert_int_eq(1, device.device_stops);
+	/* Not joined: there is no thread to join. */
+	mu_assert_int_eq(0, device.thread_stops);
+	mu_assert_int_eq(0, stat(path, &info));
+	mu_assert_int_eq(0, (int)info.st_size);
+	unlink(path);
+}
+
 /* A Ctrl-C is a user stopping a sweep that was working: the receive loop
  * leaves at once, the run exits 0, and the samples it took are on disk rather
  * than left in a buffer. A sweep that cannot be stopped has to be killed,
@@ -1030,6 +1076,7 @@ int main(void)
 	MU_RUN(a_sweep_that_could_not_be_written_exits_one);
 	MU_RUN(a_sweep_that_was_written_exits_zero);
 	MU_RUN(a_sweep_whose_stream_died_exits_one);
+	MU_RUN(a_sweep_whose_collecting_thread_failed_exits_one);
 	MU_RUN(an_interrupted_sweep_still_exits_zero);
 	MU_RUN(an_interrupted_sweep_to_stdout_still_exits_zero);
 	MU_RUN(verbose_reports_the_sweep_on_stderr);

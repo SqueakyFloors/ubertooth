@@ -151,13 +151,30 @@ static void cb_cap(ubertooth_t* ut, void* args)
 void* ubertooth_cap_thread(void* arg)
 {
 	PacketSource_Ubertooth* ubertooth = (PacketSource_Ubertooth*) arg;
+	int r;
 
 	cmd_rx_syms(ubertooth->ut->devh);
 
-	ubertooth_bulk_thread_start();
-
-	while (ubertooth->thread_active) {
-		ubertooth_bulk_receive(ubertooth->ut, cb_cap, ubertooth);
+	/* pthread_create()'s result, which is a positive errno on failure. That
+	 * thread is what completes the capture's USB transfers, so without it
+	 * the receive loop would spin forever with nothing arriving, and it is
+	 * skipped. The reason goes to thread_error, which FetchDescriptor()
+	 * reports before it closes the source. Unlike its sibling plugin this one
+	 * has already asked the board to stream by now; the close stops it.
+	 *
+	 * The failure must not park thread_active at 0 on its way out: 0 is what
+	 * tells CloseSource() there is nothing left to reap, and it would then
+	 * free the device and close the pipe underneath this thread. Leaving the
+	 * loop is the only way to the single -1 below. */
+	r = ubertooth_bulk_thread_start();
+	if (r == 0) {
+		while (ubertooth->thread_active) {
+			ubertooth_bulk_receive(ubertooth->ut, cb_cap, ubertooth);
+		}
+	} else {
+		ubertooth->thread_error = string("could not start the thread that "
+		                                 "collects the capture: ")
+		                          + strerror(r);
 	}
 
 	ubertooth->thread_active = -1;
@@ -203,7 +220,10 @@ int PacketSource_Ubertooth::OpenSource() {
 int PacketSource_Ubertooth::CloseSource() {
 	void *ret;
 
-	if (thread_active > 0) {
+	/* Not "> 0": a capture thread that ended on its own leaves -1 behind,
+	 * and it still has to be reaped and its mutex destroyed. Clearing the
+	 * flag first is what keeps a second close from joining it twice. */
+	if (thread_active != 0) {
 		// Tell the thread to die
 		thread_active = 0;
 

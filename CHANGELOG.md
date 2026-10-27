@@ -866,11 +866,13 @@ Fixes with no visible change in normal use.
   used to hold a handle on an adapter it had finished with for the whole
   capture, and never close it at all.
   [#506](https://github.com/SqueakyFloors/ubertooth/issues/506)
-- A `ubertooth-rx`, `ubertooth-scan` or `ubertooth-follow` capture whose
-  collecting thread could not be started says so and ends, rather than waiting
-  forever for packets nobody was there to deliver. The failure was reported as
-  a positive number and tested for a negative one. `ubertooth-specan` and
-  libubertooth still test it the old way.
+- A capture whose collecting thread could not be started says so and ends,
+  rather than waiting forever for packets nobody was there to deliver. The
+  failure is reported as a positive number and was tested for a negative one,
+  in every tool that starts a capture, in libubertooth, which is every
+  `ubertooth-dump` and `ubertooth-afh` capture, and in the Kismet plugins,
+  which did not look at it at all. A teardown that follows such a failure no
+  longer waits on a thread that was never created.
   [#431](https://github.com/SqueakyFloors/ubertooth/issues/431)
   [#564](https://github.com/SqueakyFloors/ubertooth/issues/564)
 - A revision string too long for the one-byte length the firmware reports it
