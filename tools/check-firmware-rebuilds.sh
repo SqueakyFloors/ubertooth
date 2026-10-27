@@ -283,7 +283,7 @@ fi
 restore "$common_mk"
 
 if [ "$failures" -ne 0 ]; then
-    printf '%s\n' "$failures of these checks failed" >&2
+    printf '%s\n' "error: $failures of these rebuild checks did not hold" >&2
     exit 1
 fi
 printf '%s\n' "Every rebuild check holds"
