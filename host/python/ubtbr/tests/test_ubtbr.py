@@ -698,11 +698,11 @@ sent = writes()
 # third one is printed by the read that takes that command, and the prompt
 # only gets there by way of the KeyboardInterrupt the signal raised. A line
 # written straight after the signal instead races it, and can be taken off
-# the pipe by the very read the signal interrupts: that read raises rather
-# than returning the line, which loses it the way Ctrl-C loses the line
-# being typed. The device cannot stand in for this, because the idle request
-# the interrupt sends is the same one "discoverable" sends every time it
-# swaps its two scans.
+# the pipe by the very read the signal interrupts: the interrupt then comes
+# out of that read in place of the line, which loses it the way Ctrl-C loses
+# the line being typed. The device cannot stand in for this, because the
+# idle request the interrupt sends is the same one "discoverable" sends
+# every time it swaps its two scans.
 seen = bytearray()
 
 
@@ -728,6 +728,10 @@ assert running.returncode == 0, (running.returncode, output, errors)
 assert "Traceback" not in errors, errors
 assert "Exception in thread" not in errors, errors
 assert "still running" not in errors, errors
+# the prompt took the command rather than refusing it, which is what it does
+# when the interrupt left the stopped command holding the message handler.
+# Checked separately, so that failure cannot be mistaken for a lost line.
+assert "Not idle" not in errors, errors
 assert INQUIRY_PACKET in writes()[len(sent):], (sent, writes())
 print("ubtbr: a command runs after Ctrl-C ended a discoverable")
 
