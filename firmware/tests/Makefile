@@ -271,6 +271,7 @@ $(BINDIR)/test_usb_queue: test_usb_queue.c minunit.h source_scan.h \
 		$(FW_RXTX)/ubertooth_usb.c $(FW_RXTX)/ubertooth_usb.h \
 		$(FW_RXTX)/bluetooth_rxtx.c $(FW_RXTX)/le_phy.c $(FW_RXTX)/ego.c \
 		$(FW_BTBR)/src/btctl/btctl.c \
+		$(FW_BTBR)/src/btctl/vendor_request_handler.c \
 		$(FW_BTBR)/src/drivers/ubertooth_usb.c \
 		$(FW_COMMON)/usb_irq.h | $(BINDIR)
 	$(CC) $(CFLAGS) -Istubs-usbq $(CPPFLAGS) -I$(FW_LPCUSB) \

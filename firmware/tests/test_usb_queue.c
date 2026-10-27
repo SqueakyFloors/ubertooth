@@ -2157,6 +2157,17 @@ struct dispatch_scan {
 	/* A label has been read and its body has not started, so a '{' now
 	 * opens that block of its own. */
 	int awaiting_body;
+	/* The statement that leaves the case has been read. The case closes at
+	 * the end of this line rather than here, so a call in that same
+	 * statement -- `return the_real_loop();` -- is still recorded. */
+	int leaving;
+	/* That statement was a `goto`, which may be going no further than a
+	 * label inside this same case. */
+	int resuming;
+	/* The run a `goto` left, kept until the next `case` label in case a
+	 * label inside the case takes it up again. */
+	int resumable[MAX_CASES_FOUND];
+	int resumable_count;
 	int lines;
 	int overflowed;
 	/*
@@ -2166,6 +2177,13 @@ struct dispatch_scan {
 	 * would appear in no table. The checks below fail on it instead.
 	 */
 	char unreadable[64];
+	/* A label at the same depth as the ones being read, carrying another
+	 * name. Walking past it would hide a case of the same switch. */
+	char foreign[64];
+	/* The depth the labels being read sit at, once one has been seen.
+	 * -1 until then, because a label met before any of this pass's own is
+	 * in some other switch. */
+	int switch_level;
 };
 
 /* What read_case_label() made of the text after a `case`. */
@@ -2180,16 +2198,36 @@ enum label_read {
 };
 
 /*
+ * A label this pass walked past that is at the same brace depth as the ones
+ * it is reading, so it is in the same `switch` and not in some other one. It
+ * is as invisible as an unreadable label and reported the same way.
+ */
+static const char *foreign_case_message(const char *text, const char *prefix)
+{
+	static char msg[384];
+
+	snprintf(msg, sizeof(msg),
+	         "the scan met `case %s:` in the same switch as the %s cases, "
+	         "and walked past it because of the name: its calls are "
+	         "recorded against the case above it and whatever it handles "
+	         "appears in no table here. Name it with the %s prefix, or "
+	         "give its switch a pass of its own", text, prefix, prefix);
+	return msg;
+}
+
+/*
  * The label a `case` names, when it carries the prefix this pass is reading.
  * `p` is left after the label; on anything else it is left where it was, so
  * the caller reads that text as ordinary code.
  *
- * A label that is not a bare identifier (`case (MODE_X):`, `case 3:`) and one
- * whose identifier is too long for `out` both come back LABEL_UNREADABLE,
- * with up to `size` of the text in `out` so the failure can quote it. Neither
- * shape appears in the two dispatches scanned here, where every case is a
- * bare prefixed name; one turning up means a case the pass would otherwise
- * walk straight past.
+ * A label that is not a bare identifier (`case (MODE_X):`) and one whose
+ * identifier is too long for `out` both come back LABEL_UNREADABLE, with up
+ * to `size` of the text in `out` so the failure can quote it. Neither shape
+ * appears in the dispatches scanned here, where every case is a bare prefixed
+ * name; one turning up at the depth the pass is reading means a case it would
+ * otherwise walk straight past. One deeper belongs to a nested switch -- a
+ * character literal reads as unreadable, since the literal is stripped before
+ * the scan sees the line -- and the caller ignores those.
  */
 static enum label_read read_case_label(const char **p, const char *prefix,
                                        char *out, size_t size)
@@ -2217,13 +2255,23 @@ static enum label_read read_case_label(const char **p, const char *prefix,
 		out[n] = '\0';
 		return LABEL_UNREADABLE;
 	}
+	memcpy(out, start, len);
+	out[len] = '\0';
 	if (strncmp(start, prefix, strlen(prefix)) != 0)
 		return LABEL_OTHER_PREFIX;
 
-	memcpy(out, start, len);
-	out[len] = '\0';
 	*p = q;
 	return LABEL_READ;
+}
+
+/* Start a pass. `switch_level` is -1 rather than 0 because 0 is a real brace
+ * depth, and until a label of this pass's own is seen there is no switch to
+ * compare another label against. */
+static void dispatch_scan_init(struct dispatch_scan *s, const char *prefix)
+{
+	memset(s, 0, sizeof(*s));
+	s->prefix = prefix;
+	s->switch_level = -1;
 }
 
 /* Record a call against every case whose body is still being read. */
@@ -2259,6 +2307,13 @@ static void add_case_label(struct dispatch_scan *s, const char *label,
 	memset(&s->cases[s->case_count], 0, sizeof(s->cases[0]));
 	snprintf(s->cases[s->case_count].label, sizeof(s->cases[0].label), "%s",
 	         label);
+	/* A new label means no label inside the previous case is coming, so
+	 * the run a `goto` left there is not resumed. */
+	s->resumable_count = 0;
+	/* The depth this switch's labels sit at, for telling a label of
+	 * another switch from one of this switch with another name. */
+	if (s->switch_level < 0)
+		s->switch_level = depth;
 	/* The first label of a fall-through run fixes the level; the rest of
 	 * the run share it, being labels on the same switch. */
 	if (s->pending_count == 0)
@@ -2288,6 +2343,30 @@ static int leaves_the_case(const char *word)
 {
 	return strcmp(word, "break") == 0 || strcmp(word, "return") == 0 ||
 	       strcmp(word, "goto") == 0;
+}
+
+/* Is `word` the first thing on its line? A label is written that way, and
+ * requiring it keeps the middle of a conditional expression (`a ? b : c`)
+ * from reading as one. */
+static int starts_the_line(const char *line, const char *word)
+{
+	const char *p = line;
+
+	while (p < word) {
+		if (*p != ' ' && *p != '\t')
+			return 0;
+		p++;
+	}
+	return 1;
+}
+
+/* Does a ':' follow, rather than anything else? Then the word before it named
+ * a label. A '::' cannot occur in C, so a single ':' is enough. */
+static int names_a_label(const char *after_word)
+{
+	while (*after_word == ' ' || *after_word == '\t')
+		after_word++;
+	return *after_word == ':';
 }
 
 /*
@@ -2387,16 +2466,38 @@ static void visit_dispatch_line(const char *line, const struct body_pos *pos,
 				add_case_label(s, label, depth);
 				break;
 			case LABEL_UNREADABLE:
-				if (s->unreadable[0] == '\0')
+				if (depth == s->switch_level &&
+				    s->unreadable[0] == '\0')
 					snprintf(s->unreadable,
 					         sizeof(s->unreadable), "%s",
 					         label);
 				break;
 			case LABEL_OTHER_PREFIX:
+				if (depth == s->switch_level &&
+				    s->foreign[0] == '\0')
+					snprintf(s->foreign,
+					         sizeof(s->foreign), "%s",
+					         label);
 				break;
 			}
 			continue;
 		}
+
+		/*
+		 * A plain label at the start of a line, which is where a
+		 * `goto` inside a case lands. Such a `goto` never left the
+		 * case, so the run it closed is taken up again and the work
+		 * below the label is recorded against it.
+		 */
+		if (s->pending_count == 0 && s->resumable_count > 0 &&
+		    starts_the_line(line, start) && strcmp(word, "default") != 0 &&
+		    names_a_label(p)) {
+			memcpy(s->pending, s->resumable,
+			       sizeof(s->pending[0]) * (size_t)s->resumable_count);
+			s->pending_count = s->resumable_count;
+			continue;
+		}
+
 		if (s->pending_count == 0)
 			continue;
 		if (leaves_the_case(word)) {
@@ -2416,9 +2517,37 @@ static void visit_dispatch_line(const char *line, const struct body_pos *pos,
 			 * while a case is open, so there is nothing else at
 			 * those levels to confuse it with. Anything deeper
 			 * belongs to a loop or a branch inside the case.
+			 *
+			 * `awaiting_body` overrides the condition because the
+			 * brace state remembers a `case` label as a branch --
+			 * which is right for the checks above, where a call in
+			 * a case body is a conditional call, and wrong here.
+			 * While no statement has started, the only thing open
+			 * is the label, so this is the case's own exit. Without
+			 * that, a case whose whole body is `break;` is never
+			 * ended and every later case's calls are folded into
+			 * it.
 			 */
-			if (depth <= s->case_level && !conditional)
-				s->pending_count = 0;
+			if (depth <= s->case_level &&
+			    (!conditional || s->awaiting_body)) {
+				/*
+				 * The statement that leaves can still carry the
+				 * call that does the work (`return work();`),
+				 * so the rest of the line is read before the
+				 * case closes.
+				 */
+				s->leaving = 1;
+				/*
+				 * A `goto` may be going no further than a
+				 * label inside this same case, which does not
+				 * leave it. Remember the run so such a label
+				 * can take it up again.
+				 */
+				if (strcmp(word, "goto") == 0)
+					s->resuming = 1;
+				else
+					s->resuming = 0;
+			}
 			s->awaiting_body = 0;
 			continue;
 		}
@@ -2436,6 +2565,20 @@ static void visit_dispatch_line(const char *line, const struct body_pos *pos,
 			after++;
 		if (*after == '(' && !is_not_a_function_name(word))
 			add_call_to_pending(s, word);
+	}
+
+	/* The line that leaves the case has been read to its end, so the case
+	 * can close now. */
+	if (s->leaving) {
+		s->leaving = 0;
+		s->resumable_count = 0;
+		if (s->resuming) {
+			memcpy(s->resumable, s->pending,
+			       sizeof(s->pending[0]) * (size_t)s->pending_count);
+			s->resumable_count = s->pending_count;
+			s->resuming = 0;
+		}
+		s->pending_count = 0;
 	}
 }
 
@@ -2520,8 +2663,8 @@ static const char *unreadable_case_message(const char *text, const char *prefix)
 	         "the scan met `case %s:`, which it cannot read as a %s name, "
 	         "so that case is invisible to it: its calls are recorded "
 	         "against the case above it and whatever it handles appears in "
-	         "no table here. Write the label as a bare name short enough "
-	         "for the scan, or teach the scan this shape", text, prefix);
+	         "no table here. Write it as a bare name, short enough for the "
+	         "scan, or teach the scan this shape", text, prefix);
 	return msg;
 }
 
@@ -2532,8 +2675,7 @@ static void scan_dispatch(void)
 	int c;
 
 	snprintf(path, sizeof(path), "%s/bluetooth_rxtx.c", FW_RXTX_DIR);
-	memset(&dispatch_found, 0, sizeof(dispatch_found));
-	dispatch_found.prefix = "MODE_";
+	dispatch_scan_init(&dispatch_found, "MODE_");
 	dispatch_scanned = read_function_body(path, "main", visit_dispatch_line,
 	                                      &dispatch_found) > 0;
 	if (!dispatch_scanned)
@@ -2578,6 +2720,8 @@ MU_TEST(the_dispatch_scan_read_every_case)
 	          "scan can hold");
 	mu_assert(dispatch_found.unreadable[0] == '\0', unreadable_case_message(
 	          dispatch_found.unreadable, "MODE_"));
+	mu_assert(dispatch_found.foreign[0] == '\0', foreign_case_message(
+	          dispatch_found.foreign, "MODE_"));
 	mu_assert(dispatch_found.lines > 50,
 	          "main() scanned as fewer than 50 lines, so the scan lost "
 	          "track of the function");
@@ -2728,14 +2872,24 @@ MU_TEST(a_mode_that_streams_runs_a_classified_loop)
  * of that shape being added. So the shapes are written here and the scan is
  * run on them.
  *
- * Four cases hide their work: below a loop's `break`, below a condition's,
- * inside a case body that is a block, and inside such a block whose `break`
- * is written after the closing brace -- a level above the statements it
- * follows. After each comes a case of its own, because the other half of
- * reading a case is still ending it: a scan that never ended one would find
- * every call in all four and quietly fold the rest of the switch into them.
- * The run of two labels and the case that leaves by `goto` are the two ways
- * out the firmware's own dispatches use.
+ * Each shape puts a case's work somewhere a simpler reading loses it:
+ *
+ *  - below a loop's own `break`, and below a bare condition's;
+ *  - inside a case body that is a block, with the `break` inside the block
+ *    and, separately, written after its closing brace -- a level above the
+ *    statements it follows;
+ *  - below a `goto` that lands on a label inside the same case, so it never
+ *    left it;
+ *  - in the statement that leaves (`return the_work();`);
+ *  - and one case that does nothing but `break`, whose body is a comment.
+ *    That one has no work to lose; it is here because a case with no
+ *    statement of its own is the shape most easily read as never ending.
+ *
+ * After each comes a case of its own, because the other half of reading a
+ * case is still ending it: a scan that never ended one would find every call
+ * in all of them and quietly fold the rest of the switch into the first. The
+ * run of two labels and the case that leaves by `goto` are the ways out the
+ * firmware's own dispatches use.
  */
 static const char *const dispatch_shapes =
 	"int main(void)\n"
@@ -2778,6 +2932,24 @@ static const char *const dispatch_shapes =
 	"		case MODE_GOTO_OUT:\n"
 	"			goto_out_work();\n"
 	"			goto done;\n"
+	"		case MODE_GOTO_INSIDE:\n"
+	"			preface();\n"
+	"			goto inside;\n"
+	"		inside:\n"
+	"			goto_inside_work();\n"
+	"			break;\n"
+	"		case MODE_AFTER_GOTO_INSIDE:\n"
+	"			after_goto_inside_work();\n"
+	"			break;\n"
+	"		case MODE_NOTHING_BUT_BREAK:\n"
+	"			/* a comment, and no statement of its own */\n"
+	"			break;\n"
+	"		case MODE_AFTER_NOTHING_BUT_BREAK:\n"
+	"			after_nothing_but_break_work();\n"
+	"			break;\n"
+	"		case MODE_RETURNS_THE_CALL:\n"
+	"			preface();\n"
+	"			return returns_the_call_work();\n"
 	"		case MODE_LAST:\n"
 	"			last_work();\n"
 	"			break;\n"
@@ -2787,7 +2959,7 @@ static const char *const dispatch_shapes =
 	"	return 0;\n"
 	"}\n";
 
-#define DISPATCH_SHAPE_COUNT 11
+#define DISPATCH_SHAPE_COUNT 16
 
 /* Run the case scan over a function written out as text. tmpfile() rather
  * than a path: the scans walk whole directories, so a C file left in one of
@@ -2804,8 +2976,7 @@ static int scan_dispatch_text(const char *text, struct dispatch_scan *out)
 		return 0;
 	}
 	rewind(f);
-	memset(out, 0, sizeof(*out));
-	out->prefix = "MODE_";
+	dispatch_scan_init(out, "MODE_");
 	lines = read_function_body_stream(f, "main", visit_dispatch_line, out);
 	fclose(f);
 	return lines > 0;
@@ -2855,7 +3026,16 @@ static const struct {
 	  "shared_work" },
 	{ "MODE_FALLS_THROUGH",        "shared_work",         "goto_out_work" },
 	{ "MODE_FALLEN_INTO",          "shared_work",         "goto_out_work" },
-	{ "MODE_GOTO_OUT",             "goto_out_work",       "last_work" },
+	{ "MODE_GOTO_OUT",             "goto_out_work",       "preface" },
+	{ "MODE_GOTO_INSIDE",          "goto_inside_work",
+	  "after_goto_inside_work" },
+	{ "MODE_AFTER_GOTO_INSIDE",    "after_goto_inside_work",
+	  "after_nothing_but_break_work" },
+	{ "MODE_NOTHING_BUT_BREAK",     NULL,
+	  "after_nothing_but_break_work" },
+	{ "MODE_AFTER_NOTHING_BUT_BREAK", "after_nothing_but_break_work",
+	  "returns_the_call_work" },
+	{ "MODE_RETURNS_THE_CALL",     "returns_the_call_work", "last_work" },
 	{ "MODE_LAST",                 "last_work",           NULL },
 };
 
@@ -2883,13 +3063,25 @@ MU_TEST(the_dispatch_scan_reads_each_case_to_its_own_break)
 		         dispatch_shape_cases[i].label);
 		mu_assert_fatal(c != NULL, msg);
 
-		snprintf(msg, sizeof(msg),
-		         "%s runs %s() and the scan did not see it, so a mode of "
-		         "that shape would be classified by the wrong call and "
-		         "could collect packets through a loop no row describes",
-		         dispatch_shape_cases[i].label,
-		         dispatch_shape_cases[i].own_work);
-		mu_assert(case_calls(c, dispatch_shape_cases[i].own_work), msg);
+		if (dispatch_shape_cases[i].own_work == NULL) {
+			/* A case that does nothing at all; the point of it is
+			 * that it still ends. */
+			snprintf(msg, sizeof(msg),
+			         "%s calls nothing and the scan recorded %d "
+			         "call(s) against it",
+			         dispatch_shape_cases[i].label, c->call_count);
+			mu_assert_int_eq(0, c->call_count);
+		} else {
+			snprintf(msg, sizeof(msg),
+			         "%s runs %s() and the scan did not see it, so a "
+			         "mode of that shape would be classified by the "
+			         "wrong call and could collect packets through a "
+			         "loop no row describes",
+			         dispatch_shape_cases[i].label,
+			         dispatch_shape_cases[i].own_work);
+			mu_assert(case_calls(c, dispatch_shape_cases[i].own_work),
+			          msg);
+		}
 
 		if (dispatch_shape_cases[i].next_work == NULL)
 			continue;
@@ -2915,8 +3107,50 @@ static const char *const unreadable_label_shapes =
 	"int main(void)\n"
 	"{\n"
 	"	switch (requested_mode) {\n"
+	"	case MODE_ORDINARY:\n"
+	"		ordinary_work();\n"
+	"		break;\n"
 	"	case (MODE_PARENTHESISED):\n"
 	"		parenthesised_work();\n"
+	"		break;\n"
+	"	}\n"
+	"	return 0;\n"
+	"}\n";
+
+/*
+ * A label in the same switch that simply is not spelled with the prefix. The
+ * pass walks past a label with another name because a nested switch may have
+ * its own, but one at the same depth as the labels being read is in the same
+ * switch, and walking past that hides a case.
+ */
+static const char *const foreign_label_shapes =
+	"int main(void)\n"
+	"{\n"
+	"	switch (requested_mode) {\n"
+	"	case MODE_ONE:\n"
+	"		one_work();\n"
+	"		break;\n"
+	"	case LEGACY_ALIAS:\n"
+	"		legacy_work();\n"
+	"		break;\n"
+	"	}\n"
+	"	return 0;\n"
+	"}\n";
+
+/*
+ * A nested switch's own labels, which are not in the dispatch and must not be
+ * reported: they sit deeper than the dispatch's labels.
+ */
+static const char *const nested_switch_shapes =
+	"int main(void)\n"
+	"{\n"
+	"	switch (requested_mode) {\n"
+	"	case MODE_ONE:\n"
+	"		switch (sub) {\n"
+	"		case 'a':\n"
+	"			one_work();\n"
+	"			break;\n"
+	"		}\n"
 	"		break;\n"
 	"	}\n"
 	"	return 0;\n"
@@ -2926,6 +3160,9 @@ static const char *const long_label_shapes =
 	"int main(void)\n"
 	"{\n"
 	"	switch (requested_mode) {\n"
+	"	case MODE_ORDINARY:\n"
+	"		ordinary_work();\n"
+	"		break;\n"
 	"	case MODE_A_NAME_TOO_LONG_FOR_THE_BUFFER_THE_SCAN_READS_IT_INTO:\n"
 	"		long_name_work();\n"
 	"		break;\n"
@@ -2940,7 +3177,7 @@ MU_TEST(a_case_label_the_scan_cannot_read_is_reported)
 	mu_assert_fatal(scan_dispatch_text(unreadable_label_shapes, &shapes),
 	                "cannot scan the written-out dispatch, so the checks "
 	                "below would pass for want of anything to look at");
-	mu_assert_int_eq(0, shapes.case_count);
+	mu_assert_int_eq(1, shapes.case_count);
 	mu_assert(shapes.unreadable[0] != '\0',
 	          "the scan walked past `case (MODE_PARENTHESISED):` without a "
 	          "word, so a case written that way is classified by nothing");
@@ -2948,11 +3185,30 @@ MU_TEST(a_case_label_the_scan_cannot_read_is_reported)
 	mu_assert_fatal(scan_dispatch_text(long_label_shapes, &shapes),
 	                "cannot scan the written-out dispatch, so the check "
 	                "below would pass for want of anything to look at");
-	mu_assert_int_eq(0, shapes.case_count);
+	mu_assert_int_eq(1, shapes.case_count);
 	mu_assert(shapes.unreadable[0] != '\0',
 	          "the scan walked past a MODE_ label too long for its buffer "
 	          "without a word, so a mode named that long is classified by "
 	          "nothing");
+
+	mu_assert_fatal(scan_dispatch_text(foreign_label_shapes, &shapes),
+	                "cannot scan the written-out dispatch, so the checks "
+	                "below would pass for want of anything to look at");
+	mu_assert_int_eq(1, shapes.case_count);
+	mu_assert(shapes.foreign[0] != '\0',
+	          "the scan walked past `case LEGACY_ALIAS:` in the dispatch's "
+	          "own switch without a word, so a case named that way is "
+	          "classified by nothing");
+
+	mu_assert_fatal(scan_dispatch_text(nested_switch_shapes, &shapes),
+	                "cannot scan the written-out dispatch, so the check "
+	                "below would pass for want of anything to look at");
+	mu_assert(shapes.foreign[0] == '\0',
+	          "the scan reported a nested switch's own label, which is not "
+	          "in the dispatch at all");
+	mu_assert(shapes.unreadable[0] == '\0',
+	          "the scan reported a nested switch's own label as one it "
+	          "cannot read, which is not in the dispatch at all");
 }
 
 /* ------------------------------------------------------------------ *
@@ -3033,8 +3289,7 @@ static void scan_btctl_requests(void)
 	size_t i;
 	int c;
 
-	memset(&btctl_found, 0, sizeof(btctl_found));
-	btctl_found.prefix = "BTCTL_";
+	dispatch_scan_init(&btctl_found, "BTCTL_");
 	btctl_scanned = read_function_body(path, "btctl_handle_msg",
 	                                   visit_dispatch_line,
 	                                   &btctl_found) > 0;
@@ -3071,6 +3326,8 @@ MU_TEST(the_br_edr_request_scan_read_every_case)
 	          "than this scan can hold");
 	mu_assert(btctl_found.unreadable[0] == '\0', unreadable_case_message(
 	          btctl_found.unreadable, "BTCTL_"));
+	mu_assert(btctl_found.foreign[0] == '\0', foreign_case_message(
+	          btctl_found.foreign, "BTCTL_"));
 	mu_assert(btctl_found.case_count >= (int)BTCTL_REQUEST_COUNT,
 	          "the scan found fewer request cases than the table lists, so "
 	          "it lost track of btctl_handle_msg()");
@@ -3110,6 +3367,101 @@ MU_TEST(every_br_edr_request_is_listed_with_its_handler)
 }
 
 /*
+ * The other half of "nothing polls", checked rather than asserted. The
+ * control requests this image answers are the board's own, and a request that
+ * handed a captured packet back in its control buffer would need none of the
+ * three names the next test guards -- so it would slip past that test
+ * entirely. Every request the handler has a case for is therefore listed
+ * here, and a new one fails this check: whoever adds it has to say whether it
+ * gives the host capture data, which would make this image's answer to "which
+ * transport" stop being one.
+ */
+static const char *const btbr_vendor_requests[] = {
+	"UBERTOOTH_PING",
+	"UBERTOOTH_GET_USRLED",   "UBERTOOTH_SET_USRLED",
+	"UBERTOOTH_GET_RXLED",    "UBERTOOTH_SET_RXLED",
+	"UBERTOOTH_GET_TXLED",    "UBERTOOTH_SET_TXLED",
+	"UBERTOOTH_GET_1V8",      "UBERTOOTH_SET_1V8",
+	"UBERTOOTH_GET_PARTNUM",
+	"UBERTOOTH_RESET",
+	"UBERTOOTH_GET_SERIAL",
+	"UBERTOOTH_GET_PAEN",     "UBERTOOTH_SET_PAEN",
+	"UBERTOOTH_GET_HGM",      "UBERTOOTH_SET_HGM",
+	"UBERTOOTH_GET_PALEVEL",  "UBERTOOTH_SET_PALEVEL",
+	"UBERTOOTH_SET_ISP",
+	"UBERTOOTH_FLASH",
+	"UBERTOOTH_GET_WATCHDOG",
+	"UBERTOOTH_GET_REV_NUM",
+	"UBERTOOTH_GET_COMPILE_INFO",
+	"UBERTOOTH_GET_FW_INFO",
+	"UBERTOOTH_GET_BOARD_ID",
+};
+
+#define BTBR_VENDOR_REQUEST_COUNT \
+	(sizeof(btbr_vendor_requests) / sizeof(btbr_vendor_requests[0]))
+
+static struct dispatch_scan btbr_vendor_found;
+static int btbr_vendor_scanned;
+
+static void scan_btbr_vendor_requests(void)
+{
+	const char *path = FW_BTBR_DIR "/src/btctl/vendor_request_handler.c";
+
+	dispatch_scan_init(&btbr_vendor_found, "UBERTOOTH_");
+	btbr_vendor_scanned = read_function_body(path, "vendor_request_handler",
+	                                         visit_dispatch_line,
+	                                         &btbr_vendor_found) > 0;
+}
+
+MU_TEST(every_br_edr_control_request_is_listed)
+{
+	size_t i;
+	int c;
+	char msg[512];
+
+	mu_assert_fatal(btbr_vendor_scanned,
+	                "cannot read vendor_request_handler() in " FW_BTBR_DIR
+	                "/src/btctl/vendor_request_handler.c, so the checks "
+	                "below would pass for want of anything to look at");
+	mu_assert(!btbr_vendor_found.overflowed,
+	          "the request handler has more cases, or a case more calls, "
+	          "than this scan can hold");
+	mu_assert(btbr_vendor_found.unreadable[0] == '\0',
+	          unreadable_case_message(btbr_vendor_found.unreadable,
+	                                  "UBERTOOTH_"));
+	mu_assert(btbr_vendor_found.foreign[0] == '\0',
+	          foreign_case_message(btbr_vendor_found.foreign,
+	                               "UBERTOOTH_"));
+
+	for (c = 0; c < btbr_vendor_found.case_count; c++) {
+		const char *label = btbr_vendor_found.cases[c].label;
+
+		for (i = 0; i < BTBR_VENDOR_REQUEST_COUNT; i++)
+			if (strcmp(btbr_vendor_requests[i], label) == 0)
+				break;
+		snprintf(msg, sizeof(msg),
+		         "the BR/EDR image answers %s and the list in this test "
+		         "does not have it. Add it, and say whether it gives the "
+		         "host captured data: if one ever does, this image has a "
+		         "second way to the host and the comment above is wrong",
+		         label);
+		mu_assert(i < BTBR_VENDOR_REQUEST_COUNT, msg);
+	}
+
+	for (i = 0; i < BTBR_VENDOR_REQUEST_COUNT; i++) {
+		for (c = 0; c < btbr_vendor_found.case_count; c++)
+			if (strcmp(btbr_vendor_found.cases[c].label,
+			           btbr_vendor_requests[i]) == 0)
+				break;
+		snprintf(msg, sizeof(msg),
+		         "the list names %s and the handler has no case for it, "
+		         "so the entry says nothing about anything",
+		         btbr_vendor_requests[i]);
+		mu_assert(c < btbr_vendor_found.case_count, msg);
+	}
+}
+
+/*
  * The claim the section above rests on, checked rather than assumed: this
  * image has one way to the host.
  *
@@ -3120,10 +3472,28 @@ MU_TEST(every_br_edr_request_is_listed_with_its_handler)
  * usb_work(), which is what a second transport looks like.
  *
  * The image's makefile compiles every .c under its src/, so walking that tree
- * covers the image as it is rather than as it was listed. The files it takes
- * from firmware/common are shared with the other image, and the scan above
- * reads those.
+ * covers the image as it is rather than as it was listed; the headers there
+ * are read too, since a `static inline` in one of them lands in the image
+ * through whichever source includes it. The files it takes from
+ * firmware/common are shared with the other image, and the scan above reads
+ * those.
+ *
+ * Every directory the walk should have reached is named below, so a subtree
+ * it failed to open is a failure rather than a smaller count nobody notices:
+ * src/btphy alone holds half the sources, and the capture states are there.
  */
+/*
+ * The directories under the image's src/ that the walk has to reach. A count
+ * of files cannot stand in for this: losing src/btphy, where the capture
+ * states live, still leaves enough files elsewhere to look healthy.
+ */
+static const char *const br_edr_dirs[] = {
+	"/src/btctl", "/src/btphy", "/src/codec", "/src/drivers", "/src/util",
+};
+
+#define BR_EDR_DIR_COUNT (sizeof(br_edr_dirs) / sizeof(br_edr_dirs[0]))
+
+static int br_edr_dir_seen[BR_EDR_DIR_COUNT];
 static int br_edr_files_read;
 static char br_edr_stray_write[256];
 static char br_edr_stray_dequeue[256];
@@ -3157,11 +3527,26 @@ static int file_calls(const char *path, const char *name)
 	return hits;
 }
 
+/* Does `path` sit directly in the directory ending `dir`? */
+static int path_is_in(const char *path, const char *dir)
+{
+	const char *slash = strrchr(path, '/');
+	size_t len = strlen(dir);
+
+	if (slash == NULL || (size_t)(slash - path) < len)
+		return 0;
+	return strncmp(slash - len, dir, len) == 0;
+}
+
 static void check_br_edr_file(const char *path)
 {
 	int is_shim = path_ends_with(path, "/src/drivers/ubertooth_usb.c");
+	size_t d;
 
 	br_edr_files_read++;
+	for (d = 0; d < BR_EDR_DIR_COUNT; d++)
+		if (path_is_in(path, br_edr_dirs[d]))
+			br_edr_dir_seen[d] = 1;
 
 	if (!is_shim) {
 		if (file_calls(path, "USBHwEPWrite") &&
@@ -3199,7 +3584,11 @@ static void walk_br_edr_sources(const char *path,
 		if (entry->d_name[0] == '.')
 			continue;
 		snprintf(child, sizeof(child), "%s/%s", path, entry->d_name);
-		if (len > 2 && strcmp(entry->d_name + len - 2, ".c") == 0) {
+		/* Headers as well as sources: a `static inline` in a header
+		 * that one of these sources includes puts its code in the
+		 * image just as a .c file would. */
+		if (len > 2 && (strcmp(entry->d_name + len - 2, ".c") == 0 ||
+		                strcmp(entry->d_name + len - 2, ".h") == 0)) {
 			visit(child);
 			continue;
 		}
@@ -3214,12 +3603,21 @@ static void walk_br_edr_sources(const char *path,
 MU_TEST(the_br_edr_image_has_one_way_to_the_host)
 {
 	char msg[512];
+	size_t d;
 
 	walk_br_edr_sources(FW_BTBR_DIR "/src", check_br_edr_file);
 
 	mu_assert(br_edr_files_read > 10,
 	          "no source read under " FW_BTBR_DIR "/src, so the checks "
 	          "below passed for want of anything to look at");
+
+	for (d = 0; d < BR_EDR_DIR_COUNT; d++) {
+		snprintf(msg, sizeof(msg),
+		         "the walk read nothing in " FW_BTBR_DIR "%s, so the "
+		         "checks below say nothing about what is there",
+		         br_edr_dirs[d]);
+		mu_assert(br_edr_dir_seen[d], msg);
+	}
 
 	snprintf(msg, sizeof(msg),
 	         "%s writes a USB endpoint, and only the image's USB shim may. "
@@ -3374,6 +3772,9 @@ int main(void)
 	scan_btctl_requests();
 	MU_RUN(the_br_edr_request_scan_read_every_case);
 	MU_RUN(every_br_edr_request_is_listed_with_its_handler);
+
+	scan_btbr_vendor_requests();
+	MU_RUN(every_br_edr_control_request_is_listed);
 	MU_RUN(the_br_edr_image_has_one_way_to_the_host);
 
 	MU_RUN(no_source_line_is_too_long_for_the_scans);
