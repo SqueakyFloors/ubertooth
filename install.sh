@@ -211,7 +211,9 @@ mkdir -p "$PREFIX" 2>/dev/null || as_installer mkdir -p "$PREFIX"
 [ -d "$PREFIX" ] && PREFIX="$(cd "$PREFIX" && pwd -P)"
 if [ "$PLATFORM" = macos ] && [ "$PREFIX" = "$(cd "$BREW_PREFIX" && pwd -P)" ]; then
 	# Homebrew core has its own ubertooth and libbtbb; installing over them in
-	# the Homebrew prefix would break both.
+	# the Homebrew prefix would break both. Each "brew list" takes about a
+	# second, so say what is happening: this is the script's first slow step.
+	info "Checking Homebrew for an ubertooth or libbtbb that would conflict"
 	for formula in ubertooth libbtbb; do
 		if brew list --formula --versions "$formula" >/dev/null 2>&1; then
 			die "Homebrew's $formula is installed in $BREW_PREFIX; run 'brew uninstall $formula' first, or install elsewhere with --prefix <path>"
@@ -290,6 +292,9 @@ flash_firmware() {
 # build. Only possible if ubertooth-util is already installed.
 if [ "$FLASH" -eq 1 ] && command -v ubertooth-util >/dev/null 2>&1; then
 	if [ "$FLASH_DEVICE" != "all" ] && [ -z "$FLASH_DEVICE" ]; then
+		# Two reads of the device list, and a device that is busy or wedged
+		# makes each one wait, so say so before it starts.
+		info "Looking for the Ubertooth to flash"
 		_devices="$(list_devices "$(command -v ubertooth-util)")"
 		_n="$(printf '%s\n' "$_devices" | grep -c . || true)"
 		[ "$_n" -le 1 ] || die "$(multi_device_msg "$_devices")"

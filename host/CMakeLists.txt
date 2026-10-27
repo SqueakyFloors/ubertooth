@@ -31,6 +31,23 @@ set(MINOR_VERSION 1 CACHE STRING "libUbertooth minor version number")
 set( VERSION ${MAJOR_VERSION}.${MINOR_VERSION} )
 add_definitions( -DVERSION="${VERSION}" )
 
+# Ask glibc for the interfaces these sources use. They need POSIX.1-2008
+# (clock_gettime, fdopen, fileno, open_memstream, strcasecmp) and two things
+# outside it: usleep(), dropped from POSIX in 2008, and the byte-order helpers
+# in <endian.h> (le32toh, htobe32, be32toh), which are a glibc extension.
+# _DEFAULT_SOURCE is the one macro that covers both: glibc's <features.h>
+# turns it into _POSIX_C_SOURCE 200809L plus the extensions, so there is no
+# need to set _POSIX_C_SOURCE as well.
+#
+# Without it, a strict standard (-std=c17, -std=c2x) hides all of the above
+# and the build fails; it only worked because gcc and clang default to a GNU
+# standard, which defines _DEFAULT_SOURCE for us. Other C libraries ignore the
+# macro: macOS declares these without being asked.
+#
+# This is set here, for every target below, rather than in the sources: the
+# library, the tools and the tests all use these interfaces.
+add_definitions( -D_DEFAULT_SOURCE )
+
 # Comment the following out for releases.
 set(CMAKE_C_FLAGS "$ENV{CFLAGS}" CACHE STRING "C Flags")
 

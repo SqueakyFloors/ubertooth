@@ -176,6 +176,15 @@
 
 ### Build and compatibility
 
+- The host tools build with a strict C standard (`-std=c17`, `-std=c2x`) on
+  Linux, instead of failing on `CLOCK_REALTIME`, `usleep()` and the byte-order
+  helpers. The build now asks glibc for the interfaces it uses rather than
+  relying on the compiler's default GNU standard.
+  [#648](https://github.com/SqueakyFloors/ubertooth/issues/648)
+- `install.sh` says it is checking Homebrew, and that it is looking for the
+  Ubertooth to flash, before those slow steps run; on macOS its first line
+  used to be a couple of seconds late, which looked like a hang.
+  [#640](https://github.com/SqueakyFloors/ubertooth/issues/640)
 - Removed the unmaintained Dockerfile.
   [#324](https://github.com/SqueakyFloors/ubertooth/issues/324)
 - A build no longer rewrites the committed man pages in `host/doc/man`, and
