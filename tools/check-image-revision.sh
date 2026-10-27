@@ -5,6 +5,7 @@
 #     tools/check-image-revision.sh <image>...
 #     tools/check-image-revision.sh --from <dir>
 #     tools/check-image-revision.sh --check-list [<tree>]
+#     tools/check-image-revision.sh --list-shipped
 #
 # `-r` checks, after the reset, that the board came back running the revision
 # that was just written, and it learns which revision to expect from the FILE:
@@ -33,12 +34,17 @@
 # a tree with a firmware directory that none of the lists below classifies, so
 # a new image has to be called shipped or bench-only before CI goes green.
 #
+# That list is the only one in the tree, and --list-shipped is how the other
+# check over built images (tools/check-dfu-package.sh) reads it rather than
+# keeping a second copy that could come to disagree. It checks the list first,
+# so a caller cannot be handed a list from a tree the classification refuses.
+#
 # The revision is all this checks. `ubertooth-dfu` validates the DFU suffix
-# first (dfu_image_check(): signature, CRC, vendor and product) and CI builds
-# no .dfu -- packaging one needs the host tool, which the firmware job does not
-# build. So a .bin that passes here is not a file the tool would accept as
-# given; it is an image whose revision the tool can read, which is the property
-# that regressed.
+# first (dfu_image_check(): signature, CRC, vendor and product), and a .bin
+# carries no suffix at all, so an image passing here is not yet a file the tool
+# would accept as given; it is an image whose revision the tool can read, which
+# is the property that regressed. The suffix on the packaged file is
+# tools/check-dfu-package.sh's question, and CI asks both.
 #
 # An image may be a .bin or a .dfu. A .dfu is the .bin with a 16-byte suffix
 # appended, and the block is read from a fixed offset near the start, so
@@ -80,6 +86,7 @@ usage() {
 usage: $self <image>...
        $self --from <dir>
        $self --check-list [<tree>]
+       $self --list-shipped
 
 Check that each shipped firmware image carries the revision
 ubertooth-dfu -r reads out of it.
@@ -89,6 +96,8 @@ ubertooth-dfu -r reads out of it.
   --check-list [<tree>]
                  check that the lists of images classify every directory
                  under <tree>/firmware, or this tree's own
+  --list-shipped print the images users flash, one a line, after checking
+                 the lists against this tree
   -h, --help     print this text
 EOF
 }
@@ -312,6 +321,23 @@ case ${1:-} in
     fi
     check_list "${2:-}"
     exit $?
+    ;;
+--list-shipped)
+    if [ $# -gt 1 ]; then
+        fail "--list-shipped takes nothing else"
+        exit 1
+    fi
+    # The names are what the caller asked for, so they go to standard output,
+    # one a line; the classification check's own line is status and goes to
+    # standard error. Nothing is printed at all when that check fails: a list
+    # from a tree holding an image nobody has classified is not a list to act
+    # on.
+    list_is_status=yes
+    check_list || exit 1
+    for image in $SHIPPED_IMAGES; do
+        printf '%s\n' "$image"
+    done
+    exit 0
     ;;
 --from)
     if [ $# -ne 2 ]; then

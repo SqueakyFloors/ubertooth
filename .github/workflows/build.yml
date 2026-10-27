@@ -482,6 +482,19 @@ jobs:
       # It needs no network. Around a minute: it is fifty-odd `git init`s.
       timeout-minutes: 6
       run: tools/check-api-version-selftest.sh
+    - name: Check that the DFU packaging check holds both ways
+      # Same split and the same bound as the step above. The dfu-package job
+      # below packages the real images with the real tool, which shows the
+      # check passing and says nothing about whether it would still refuse a
+      # .dfu the tool cannot flash -- and a release that broke packaging is
+      # exactly when nobody can ask CI to try it. This packages with
+      # stand-ins that write
+      # a wrong vendor or product, a wrong signature, a corrupted CRC, no
+      # firmware, no file at all, or other firmware than they were given, and
+      # asserts the status and the message for each. A C compiler and nothing
+      # else: no ARM toolchain, no host build, no board, no network.
+      timeout-minutes: 6
+      run: tools/check-dfu-package-selftest.sh
 
     - name: Check the libbtbb function list
       # FindBTBB.cmake probes the installed libbtbb for the functions the host
@@ -621,8 +634,8 @@ jobs:
   # The revision is all it checks. The firmware job builds no .dfu -- that
   # step shells out to the host tool it does not build -- so these are .bin
   # files, and `ubertooth-dfu` would refuse a .bin on the DFU suffix long
-  # before reading a block out of it. Checking the packaged file users
-  # actually flash is a separate gap, tracked on its own.
+  # before reading a block out of it. The suffix on the packaged file is the
+  # dfu-package job below.
   image-revision:
     # Every leg of the firmware matrix, so a toolchain that spoils the block
     # on one platform only is still caught. A firmware job that failed skips
@@ -722,6 +735,98 @@ jobs:
           echo "note: $BEFORE is not a commit here; comparing with HEAD~1" >&2
           tools/check-api-version.sh HEAD~1
         fi
+  # The .dfu is the file every install guide tells users to flash, and nothing
+  # outside a developer's own tree used to build one. The firmware build ends
+  # in a packaging step that shells out to `ubertooth-dfu -s`
+  # (firmware/common.mk: `%.dfu: %.bin`), which the firmware job cannot run
+  # because it builds no host tool, so the images CI produced were .bin files
+  # nobody packaged.
+  #
+  # `ubertooth-dfu -d` validates the DFU suffix before it reads anything else
+  # out of a file: the suffix length, the DFU version, the signature, a
+  # payload that is not empty, the CRC over the whole file, and the USB vendor
+  # and product the suffix names. A change that broke the packaging step or
+  # the suffix layout left every job green and surfaced the first time someone
+  # flashed a board. (A change to the two USB IDs themselves is the scripts
+  # job's self-test: packaging and check both read them from the same header,
+  # so only a test that spells the numbers out can see it.)
+  #
+  # So this packages the images the firmware job built with the real tool and
+  # runs each packaged file through the host's own dfu_image_check(). It is
+  # also the only job that builds a host tool against the firmware the same
+  # run produced.
+  #
+  # One Linux runner, where image-revision reads the .bin on every leg of the
+  # firmware matrix: a DFU suffix is bytes in a file, written by host code
+  # that the host job compiles and unit-tests on every supported platform, so
+  # a second runner here would package the same bytes again.
+  dfu-package:
+    # A firmware job that failed skips this one rather than reporting a
+    # second, derived failure.
+    needs: firmware
+    runs-on: ubuntu-24.04
+    # Above the sum of the bounded steps below -- ten minutes for the install
+    # and four for the download -- plus the two checkouts and the two cmake
+    # builds, so a slow package mirror fails the step that names it rather
+    # than being cancelled with the job and read as a broken build.
+    timeout-minutes: 22
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: actions/checkout@v4
+      name: Fetch libbtbb
+      with:
+        repository: ${{ env.LIBBTBB_REPO }}
+        ref: ${{ env.LIBBTBB_REF }}
+        path: 'libbtbb'
+
+    # libusb and libbtbb are what libubertooth needs; no BlueZ and no FFTW,
+    # because only ubertooth-dfu is built. Bounded and retried like the other
+    # package installs in this workflow.
+    - name: Install dependencies
+      timeout-minutes: 10
+      run: |
+        packages="libusb-1.0-0-dev"
+        apt_opts="-o Acquire::http::Timeout=30 -o Acquire::Retries=2"
+        sudo tools/retry.sh 180 sh -c \
+          "apt-get $apt_opts update && apt-get $apt_opts install -y -d $packages"
+        sudo apt-get install -y $packages
+
+    - name: (libbtbb) Build and install
+      shell: bash
+      # ENABLE_PYTHON=OFF as in the host job: only the C library is linked.
+      run: |
+        cmake -S libbtbb -B libbtbb/build -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
+          -DENABLE_PYTHON=OFF
+        cmake --build libbtbb/build --config $BUILD_TYPE
+        sudo cmake --install libbtbb/build --config $BUILD_TYPE
+
+    - name: Build ubertooth-dfu
+      shell: bash
+      # Only the packaging tool, not the whole tool set: the host job builds
+      # and tests all of them on every supported platform.
+      run: |
+        cmake -S host -B host/build -DCMAKE_BUILD_TYPE=$BUILD_TYPE
+        cmake --build host/build --target ubertooth-dfu
+
+    - name: Download the built firmware images
+      uses: actions/download-artifact@v4
+      # Its own limit, as in image-revision: the download is the one thing
+      # here that could stall, and the artifacts are a few hundred kilobytes.
+      timeout-minutes: 4
+      with:
+        pattern: firmware-*
+        path: images
+
+    - name: Package each shipped image and check the packaged file
+      # --from finds every shipped image under the downloaded artifacts and
+      # fails on one that is missing as well as on one whose .dfu the tool
+      # would refuse, so an image that stopped being built does not pass as
+      # nothing to do.
+      run: |
+        tools/check-dfu-package.sh \
+          --dfu-tool host/build/ubertooth-tools/src/ubertooth-dfu \
+          --from images
 
   # Ubuntu 20.04 is the oldest supported Linux. GitHub retired the hosted
   # ubuntu-20.04 runner, so run it in a container on a current runner. The
