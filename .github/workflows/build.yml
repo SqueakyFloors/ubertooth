@@ -422,7 +422,10 @@ jobs:
       matrix:
         os: [ubuntu-24.04, macos-26]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+    # The two self-test steps below carry 6 minutes each, on top of the 6 the
+    # shellcheck install is allowed, so the job has to leave room for all of
+    # them to be slow at once.
+    timeout-minutes: 20
     steps:
     - uses: actions/checkout@v4
 
@@ -466,6 +469,17 @@ jobs:
       # asserts the status and the message for each. It needs a C compiler and
       # nothing else: no ARM toolchain, no board, no network, under a minute.
       run: tools/check-image-revision-selftest.sh
+
+    - name: Check that the firmware API version check holds both ways
+      # The api-version job below runs that check against this branch, which
+      # says nothing about whether it would still refuse a bad one. This
+      # builds throwaway repositories in each of the shapes the rule names --
+      # a claimed version, a stray bump, a comment dressed up as a firmware
+      # change, a value that is not binary-coded decimal, a header it cannot
+      # read -- and asserts the status, the stream and the message for each.
+      # It needs no network. Around a minute: it is fifty-odd `git init`s.
+      timeout-minutes: 6
+      run: tools/check-api-version-selftest.sh
 
   # Issue and pull request numbers must not appear in source, tests or build
   # files (.kiro/steering/branch-and-review.md). A reviewer who happens to know
@@ -563,6 +577,75 @@ jobs:
       # lists classifies, so a new image has to be called shipped or
       # bench-only before this goes green.
       run: tools/check-image-revision.sh --from images
+
+  # A board is accepted only if it reports exactly UBERTOOTH_API_VERSION, so a
+  # branch that changes the firmware interface has to take a version main has
+  # not used. Two pull requests set it to the value main had just taken, and
+  # nothing noticed either time: the rule was checked by hand, with a command
+  # nobody ran. Runs on both tiers, like the check below, and needs nothing
+  # built. tools/check-api-version-selftest.sh, run by the scripts job above,
+  # is what shows the check still refuses a bad branch.
+  #
+  # This job only compares a branch with main, so it runs where there is a
+  # branch to compare: see the condition below.
+  api-version:
+    # Pull requests and pushes to main only. On the weekly schedule, a
+    # release or a manual run, HEAD is main's tip and the comparison below
+    # would be main against itself: a green that proves nothing, and a red
+    # weeks after the commit that nobody is going to fix.
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        # The branch's own tip, not the merge commit GitHub builds for a pull
+        # request. That commit already carries main, so its merge base with
+        # main is main's tip, and the version at the merge base -- half of
+        # what the rule compares -- would be main's rather than the branch's.
+        # refs/pull/<number>/head rather than the head commit's hash, because
+        # a pull request from a fork has that hash only in the fork. On a push
+        # the commit itself, so the result cannot be attributed to a commit it
+        # did not read: github.ref would be the branch as it is at clone time.
+        ref: ${{ github.event_name == 'pull_request' && format('refs/pull/{0}/head', github.event.pull_request.number) || github.sha }}
+        # The check reads the header at three commits and needs a merge base,
+        # so a shallow checkout is not enough. Every way of reading nothing is
+        # a failure in that script rather than a pass, so a checkout that went
+        # wrong here reports itself instead of going quietly green.
+        fetch-depth: 0
+
+    - name: Fetch main
+      # By name, because the check compares against main as it is now, not as
+      # the checkout above happened to leave it. Bounded and retried like
+      # every other network fetch in this workflow, so a slow moment at the
+      # remote does not red a gating job: 60 seconds an attempt, 2 minutes 30
+      # at worst.
+      if: github.event_name == 'pull_request'
+      run: tools/retry.sh 60 git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+
+    - name: Check the firmware API version against main
+      # On a push to main the commit being checked IS main, so the comparison
+      # is with what main was before the push. That is the backstop for the
+      # gap a pull request check cannot close: a branch whose check passed
+      # before another branch merged the same value is merged without
+      # re-running, and this catches it on the merge rather than in the next
+      # release's firmware.
+      #
+      # github.event.before covers the whole push rather than its last commit.
+      # It is all zeroes for the first push to a new branch, which main is not,
+      # and it can name a commit this clone does not have after a force-push:
+      # HEAD~1 in either case, which still checks the tip.
+      env:
+        BEFORE: ${{ github.event.before }}
+      run: |
+        if [ "${{ github.event_name }}" = "pull_request" ]; then
+          tools/check-api-version.sh origin/main
+        elif git rev-parse --verify --quiet "$BEFORE^{commit}" > /dev/null; then
+          tools/check-api-version.sh "$BEFORE"
+        else
+          echo "note: $BEFORE is not a commit here; comparing with HEAD~1" >&2
+          tools/check-api-version.sh HEAD~1
+        fi
 
   # Ubuntu 20.04 is the oldest supported Linux. GitHub retired the hosted
   # ubuntu-20.04 runner, so run it in a container on a current runner. The
