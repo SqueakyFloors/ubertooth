@@ -2142,9 +2142,14 @@ struct dispatch_case {
 	int listed;
 };
 
-/* Room for the cases the tables below list, plus the ones a change adds
- * before anyone lists them -- which is what the guards are for. */
-#define MAX_CASES_FOUND ((int)DISPATCH_COUNT + 8)
+/*
+ * Room for the cases the tables below list, plus the ones a change adds
+ * before anyone lists them -- which is what the guards are for. The
+ * written-out dispatch at the end of this file is larger than the real one,
+ * since it holds a case for every shape, so the headroom covers it too; a
+ * pass that runs out says so rather than losing a case.
+ */
+#define MAX_CASES_FOUND ((int)DISPATCH_COUNT + 20)
 
 /*
  * What one pass over a `switch` found, and where the reader has got to. The
@@ -3024,6 +3029,12 @@ MU_TEST(a_mode_that_streams_runs_a_classified_loop)
  *    produces and the one the brace-depth reading loses;
  *  - after a `continue`, which leaves the case by going round the loop the
  *    dispatch sits in;
+ *  - below a condition and its `break` written on one line, and below a loop
+ *    whose braces the case reaches after a statement of its own. Each of
+ *    those puts a keyword where the scan has to read it: without the first
+ *    the condition is missed, without the second the braces read as an
+ *    ordinary block, and the `for` header is there because its own
+ *    semicolons must not settle the loop it heads;
  *  - and one case that does nothing but `break`, whose body is a comment.
  *    That one has no work to lose; it is here because a case with no
  *    statement of its own is the shape most easily read as never ending.
@@ -3135,6 +3146,34 @@ static const char *const dispatch_shapes =
 	"		case MODE_AFTER_CONTINUES:\n"
 	"			after_continues_work();\n"
 	"			break;\n"
+	"		case MODE_SAME_LINE_CONDITION:\n"
+	"			same_line_prep();\n"
+	"			if (x) break;\n"
+	"			same_line_condition_work();\n"
+	"			break;\n"
+	"		case MODE_AFTER_SAME_LINE_CONDITION:\n"
+	"			after_same_line_condition_work();\n"
+	"			break;\n"
+	"		case MODE_STATEMENT_THEN_LOOP:\n"
+	"			statement_then_loop_prep();\n"
+	"			while (y) {\n"
+	"				break;\n"
+	"			}\n"
+	"			statement_then_loop_work();\n"
+	"			break;\n"
+	"		case MODE_AFTER_STATEMENT_THEN_LOOP:\n"
+	"			after_statement_then_loop_work();\n"
+	"			break;\n"
+	"		case MODE_FOR_HEADER:\n"
+	"			for_header_prep();\n"
+	"			for (i = 0; i < n; i++) {\n"
+	"				break;\n"
+	"			}\n"
+	"			for_header_work();\n"
+	"			break;\n"
+	"		case MODE_AFTER_FOR_HEADER:\n"
+	"			after_for_header_work();\n"
+	"			break;\n"
 	"		case MODE_LAST:\n"
 	"			last_work();\n"
 	"			break;\n"
@@ -3152,7 +3191,7 @@ static const char *const dispatch_shapes =
 	"	return 0;\n"
 	"}\n";
 
-#define DISPATCH_SHAPE_COUNT 25
+#define DISPATCH_SHAPE_COUNT 31
 
 /* Run the case scan over a function written out as text. tmpfile() rather
  * than a path: the scans walk whole directories, so a C file left in one of
@@ -3238,7 +3277,7 @@ static const struct {
 	{ "MODE_SCOPED_BLOCKS",        "scoped_blocks_work",
 	  "after_scoped_blocks_work" },
 	{ "MODE_AFTER_SCOPED_BLOCKS",  "after_scoped_blocks_work",
-	  "last_work" },
+	  "braced_if_work" },
 	{ "MODE_BRACED_IF",            "braced_if_work",
 	  "loop_plain_break_work" },
 	{ "MODE_LOOP_PLAIN_BREAK",     "loop_plain_break_work",
@@ -3246,6 +3285,18 @@ static const struct {
 	{ "MODE_CONTINUES",            "continues_work",
 	  "after_continues_work" },
 	{ "MODE_AFTER_CONTINUES",      "after_continues_work",
+	  "same_line_condition_work" },
+	{ "MODE_SAME_LINE_CONDITION",  "same_line_condition_work",
+	  "after_same_line_condition_work" },
+	{ "MODE_AFTER_SAME_LINE_CONDITION", "after_same_line_condition_work",
+	  "statement_then_loop_work" },
+	{ "MODE_STATEMENT_THEN_LOOP",  "statement_then_loop_work",
+	  "after_statement_then_loop_work" },
+	{ "MODE_AFTER_STATEMENT_THEN_LOOP", "after_statement_then_loop_work",
+	  "for_header_work" },
+	{ "MODE_FOR_HEADER",           "for_header_work",
+	  "after_for_header_work" },
+	{ "MODE_AFTER_FOR_HEADER",     "after_for_header_work",
 	  "last_work" },
 	{ "MODE_LAST",                 "last_work",
 	  "goto_out_last_work" },
@@ -3837,8 +3888,13 @@ static char br_edr_stray_sync[256];
 /*
  * The console's entry points -- every function firmware/common's usb_serial.c
  * offers a caller, its own setup included. Calling any of them brings the
- * console up or uses it. Its interrupt vector is not here: a vector is
- * reached by the hardware, not called, and this image provides its own.
+ * console up or uses it.
+ *
+ * The USB interrupt vector that the same file defines is not one of them, and
+ * this image does run it: it hands straight to the USB stack, which calls
+ * whichever endpoint handlers were registered. The console's handler is
+ * registered inside usb_serial_init() and nowhere else, so forbidding that
+ * call is what keeps the console out of this image.
  */
 static const char *const br_edr_console_names[] = {
 	"usb_serial_init", "VCOM_init", "VCOM_putchar", "VCOM_getchar",
