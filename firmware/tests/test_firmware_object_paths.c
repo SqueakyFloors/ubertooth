@@ -68,43 +68,15 @@ static int file_exists(const char *path)
 }
 
 /*
- * Which line of `path` first contains `needle` outside a comment? 0 for none.
+ * Which line of `path` contains `needle` outside a comment -- the first, or
+ * the last with want_last? 0 for none.
  *
  * make has one comment form, `#` to end of line. A `#` in a recipe is a
  * comment to the shell, which is what the makefiles' `@#` notes are, so
  * stripping those too is right: this scan is about what make does, not about
  * what it says.
  */
-static int line_with(const char *path, const char *needle)
-{
-	char line[MAX_LINE];
-	FILE *f = fopen(path, "r");
-	int number = 0;
-
-	if (f == NULL)
-		return 0;
-	while (fgets(line, sizeof(line), f) != NULL) {
-		char *hash = strchr(line, '#');
-
-		number++;
-		if (hash != NULL)
-			*hash = '\0';
-		if (strstr(line, needle) != NULL) {
-			fclose(f);
-			return number;
-		}
-	}
-	fclose(f);
-	return 0;
-}
-
-static int file_has(const char *path, const char *needle)
-{
-	return line_with(path, needle) != 0;
-}
-
-/* Which line of `path` LAST contains `needle` outside a comment? 0 for none. */
-static int last_line_with(const char *path, const char *needle)
+static int scan_for(const char *path, const char *needle, int want_last)
 {
 	char line[MAX_LINE];
 	FILE *f = fopen(path, "r");
@@ -119,11 +91,29 @@ static int last_line_with(const char *path, const char *needle)
 		number++;
 		if (hash != NULL)
 			*hash = '\0';
-		if (strstr(line, needle) != NULL)
+		if (strstr(line, needle) != NULL) {
 			found = number;
+			if (!want_last)
+				break;
+		}
 	}
 	fclose(f);
 	return found;
+}
+
+static int line_with(const char *path, const char *needle)
+{
+	return scan_for(path, needle, 0);
+}
+
+static int last_line_with(const char *path, const char *needle)
+{
+	return scan_for(path, needle, 1);
+}
+
+static int file_has(const char *path, const char *needle)
+{
+	return line_with(path, needle) != 0;
 }
 
 /*
@@ -214,20 +204,24 @@ static const char *const banned_flag_shape[] = {
 static void check_flags_recorded_after_they_are_set(const char *path)
 {
 	int snapshot = line_with(path, "BUILD_FLAGS_C :=");
-	int last_append = last_line_with(path, "FLAGS +=");
+	/* Both forms a flag is set with: `CFLAGS = ...` once and `CFLAGS +=
+	 * ...` thereafter. The snapshot has to come after the last of either. */
+	int set = last_line_with(path, "FLAGS =");
+	int appended = last_line_with(path, "FLAGS +=");
 	char why[448];
 
 	/* A makefile missing the snapshot is reported by the shape scan. */
 	if (snapshot == 0)
 		return;
-	snprintf(why, sizeof(why), "%s sets no compile flags with `FLAGS +=`",
-	         path);
-	mu_assert_fatal(last_append != 0, why);
+	if (appended > set)
+		set = appended;
+	snprintf(why, sizeof(why), "%s sets no compile flags at all", path);
+	mu_assert_fatal(set != 0, why);
 	snprintf(why, sizeof(why),
-	         "%s records its flags on line %d but still adds to them on "
-	         "line %d, so what it records is not what it compiles with",
-	         path, snapshot, last_append);
-	mu_assert(snapshot > last_append, why);
+	         "%s records its flags on line %d but still sets one on line "
+	         "%d, so what it records is not what it compiles with",
+	         path, snapshot, set);
+	mu_assert(snapshot > set, why);
 }
 
 static void check_flag_tracking(const char *path)

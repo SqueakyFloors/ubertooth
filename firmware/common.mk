@@ -456,13 +456,21 @@ $(OBJ): | $(VERSION_HEADER)
 # moves on a real flag change and on nothing else: change OPT and the objects
 # are rebuilt, change nothing and make still has nothing to do.
 #
-# The link flags are recorded in the same file, so changing the linker script
-# or a linker option recompiles as well as relinks. That is more than is
-# strictly needed, but it is correct and those change rarely.
+# The link flags are recorded in the same file, so changing a linker option,
+# or which linker script is named, recompiles as well as relinks. That is more
+# than is strictly needed, but it is correct and those change rarely.
 #
-# What this does not cover is the compiler itself: a new arm-none-eabi-gcc
-# with the same flags leaves the objects alone, so a toolchain upgrade still
-# wants `make clean`.
+# Two things this does not cover, both of which still want `make clean`: the
+# compiler itself, since a new arm-none-eabi-gcc with the same flags leaves the
+# objects alone; and the contents of the linker script, since what is recorded
+# here is its name and the link has no prerequisite on the file.
+#
+# One more limit, from make rather than from here: the make on macOS compares
+# mtimes to the whole second, so an object written in the same second as a flag
+# change can still look up to date. Editing a flag by hand cannot hit a
+# one-second window; a script that rebuilds the instant a build finished can,
+# and `make clean` is the answer there. Every mtime dependency in this makefile,
+# headers included, has the same window.
 #
 # The flags are snapshotted here with `:=`, so this has to stay below the last
 # line in this file that sets one. Snapshotting outside a recipe also leaves $<
@@ -490,11 +498,15 @@ $(BUILD_FLAGS_FILE): force-flags-check
 		'LD=$(LD)' \
 		'LINK=$(BUILD_FLAGS_LINK)' \
 		> $(BUILD_FLAGS_FILE).tmp
+	@# Nothing has changed on a first build, so the message is for a build
+	@# that had a previous record to compare against.
 	@if cmp -s $(BUILD_FLAGS_FILE).tmp $(BUILD_FLAGS_FILE); then \
 		rm -f $(BUILD_FLAGS_FILE).tmp; \
 	else \
+		if [ -f $(BUILD_FLAGS_FILE) ]; then \
+			echo "  build flags changed -- rebuilding objects"; \
+		fi; \
 		mv $(BUILD_FLAGS_FILE).tmp $(BUILD_FLAGS_FILE); \
-		echo "  build flags changed -- rebuilding objects"; \
 	fi
 
 # A real prerequisite, not an order-only one: the whole point is that this

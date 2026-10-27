@@ -19,9 +19,8 @@ By default the bluetooth-rxtx firmware has transmit capabilities.  If you wish
 to build firmware without the ability to transmit, you may do so by setting an
 envoronment variable called DISABLE_TX.  For example:
 
-    make clean
     DISABLE_TX=1 make bluetooth_rxtx
 
 The resulting firmware will still be named bluetooth_rxtx.bin.dfu but will be
-receive only.  It is advisable to make clean first, to clear up any artifacts 
-from previous builds that may have transmit functions enabled.
+receive only.  The build records the flags it compiled with, so turning
+DISABLE_TX on or off rebuilds the objects; make clean is not needed first.
