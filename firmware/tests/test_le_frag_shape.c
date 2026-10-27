@@ -33,6 +33,10 @@
 #include "minunit.h"
 #include "source_scan.h"
 #include "ubertooth_le_frag.h"
+/* For le_length_is_possible() and the two payload maximums, which are pure
+ * logic and run here. stubs/ubertooth.h stands in for the hardware header
+ * this one includes. */
+#include "bluetooth_le.h"
 
 #ifndef FW_RXTX_DIR
 #error "FW_RXTX_DIR must name firmware/bluetooth_rxtx"
@@ -262,17 +266,36 @@ MU_TEST(a_packet_whose_bytes_did_not_all_arrive_is_dropped)
 MU_TEST(an_impossible_length_is_not_waited_for)
 {
 	mu_assert(strstr(rxtx,
-	                 "unsigned max_payload = le.crc_verify ? LE_MAX_PAYLOAD :"
-	                 " LE_MAX_PAYLOAD_NO_DLE; if (p[5] > max_payload)"
+	                 "if (!le_length_is_possible(p[5], le.crc_verify))"
 	                 " goto rx_flush;") != NULL,
 	          "an impossible PDU length is waited for and sent on");
-	mu_assert(strstr(le_h, "#define LE_MAX_PAYLOAD 251") != NULL,
-	          "the specification's longest payload is not 251 bytes");
-	mu_assert(strstr(le_h, "#define LE_MAX_PAYLOAD_NO_DLE 37") != NULL,
-	          "the longest payload without Data Length Extension is not 37");
-	/* The larger of the two still fits a capture, so refusing a length is
-	 * about the time it costs and not about running past the buffer. */
-	mu_assert(4 + 2 + 251 + 3 <= LE_MAX_USB_PACKET_SIZE,
+
+	/* The decision itself is pure logic, so it runs here. Before the
+	 * connection's CRCInit is known, only a length that existed before Data
+	 * Length Extension is believed; after, the specification's maximum. */
+	mu_assert(le_length_is_possible(0, 0), "an empty PDU is refused");
+	mu_assert(le_length_is_possible(LE_MAX_PAYLOAD_LEGACY, 0),
+	          "the longest pre-extension length is refused without a CRC");
+	mu_assert(!le_length_is_possible(LE_MAX_PAYLOAD_LEGACY + 1, 0),
+	          "a long length is believed before there is a CRC to check it");
+	mu_assert(le_length_is_possible(LE_MAX_PAYLOAD_LEGACY + 1, 1),
+	          "a long length is refused even once the CRC can check it");
+	mu_assert(le_length_is_possible(LE_MAX_PAYLOAD, 1),
+	          "the specification's longest payload is refused");
+	mu_assert(!le_length_is_possible(LE_MAX_PAYLOAD + 1, 1),
+	          "a length the specification does not allow is believed");
+	mu_assert(!le_length_is_possible(255, 1),
+	          "the largest the length field can hold is believed");
+
+	/* The values themselves: 251 from Data Length Extension, and 37 from an
+	 * advertising PDU's 6-bit length field -- not a data channel PDU's lower
+	 * legacy maximum, because a mode following a host-supplied target starts
+	 * on the advertising access address. */
+	mu_assert_int_eq(251, LE_MAX_PAYLOAD);
+	mu_assert_int_eq(37, LE_MAX_PAYLOAD_LEGACY);
+	/* The larger still fits a capture, so refusing a length is about the
+	 * time it costs and not about running past the buffer. */
+	mu_assert(4 + 2 + LE_MAX_PAYLOAD + 3 <= LE_MAX_USB_PACKET_SIZE,
 	          "the longest allowed packet does not fit a capture");
 }
 
@@ -286,19 +309,28 @@ MU_TEST(an_impossible_length_is_not_waited_for)
  * can be lost. */
 MU_TEST(only_the_first_dma_item_interrupts)
 {
-	const char *arm = strstr(rxtx, "dma_init_le(le_rx.packet + 4,"
-	                               " LE_RX_PDU_MAX); dio_ssp_start();");
-	const char *clear = strstr(rxtx, "rx_tc = 0; rx_err = 0;");
+	const char *clear = strstr(dma, "rx_tc = 0; rx_err = 0;");
+	const char *arm = strstr(dma, "DMACC0SrcAddr = le_dma_lli[0].src;");
 
 	mu_assert(strstr(dma, "(i == 0 ? DMACCxControl_I : 0);") != NULL,
 	          "more than the first DMA item raises a terminal count");
 	mu_assert(strstr(dma, "const unsigned size[2] = { LE_DMA_HEAD,"
 	                      " len - LE_DMA_HEAD };") != NULL,
 	          "the chain is not the first bytes and then the rest");
-	mu_assert(clear != NULL, "the terminal count is never cleared");
-	mu_assert(arm != NULL, "the re-arming in the mode loop moved");
+
+	/* Clearing the count belongs to arming the channel, so every caller
+	 * gets it -- including the one that arms it on the way into the mode,
+	 * where the count left over from the half that ran before would
+	 * otherwise be read as a packet. */
+	mu_assert(clear != NULL,
+	          "arming the low-energy receive does not clear the count");
+	mu_assert(arm != NULL, "the channel setup in dma_init_le() moved");
 	mu_assert(clear < arm,
-	          "the terminal count is cleared after the receive is armed");
+	          "the count is cleared after the channel is armed");
+	mu_assert(strstr(rxtx, "rx_tc = 0; rx_err = 0;") == NULL ||
+	          strstr(rxtx, "void bt_le_sync(u8 active_mode)") >
+	          strstr(rxtx, "rx_tc = 0; rx_err = 0;"),
+	          "the follow half still clears the count itself");
 }
 
 /* The buffer is written by the controller, not by code the compiler can see,
@@ -308,8 +340,8 @@ MU_TEST(reads_of_the_receive_buffer_are_kept_after_the_waits)
 {
 	/* The scan strips string literals, so the barrier's operands are gone
 	 * from this text and only its shape is left to look for. */
-	mu_assert(strstr(rxtx, "static inline void le_rx_barrier(void) {"
-	                       " __asm__ volatile (") != NULL,
+	mu_assert(strstr(rxtx, "static inline void le_rx_barrier(void) { "
+	                       "__asm__ volatile (") != NULL,
 	          "there is no barrier between the wait and reading the buffer");
 	mu_assert(strstr(rxtx, "le_rx_barrier(); memcpy(p, &le.access_address, 4);")
 	          != NULL,

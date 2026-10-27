@@ -132,9 +132,9 @@ $(BINDIR)/test_le_phy_order: test_le_phy_order.c minunit.h source_scan.h \
 $(BINDIR)/test_le_frag_shape: test_le_frag_shape.c minunit.h source_scan.h \
 		$(FW_RXTX)/le_phy.c $(FW_RXTX)/bluetooth_rxtx.c \
 		$(FW_RXTX)/ubertooth_dma.c $(FW_RXTX)/bluetooth_le.h \
-		../../host/libubertooth/src/ubertooth_le_frag.h \
+		stubs/ubertooth.h ../../host/libubertooth/src/ubertooth_le_frag.h \
 		| $(BINDIR)
-	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
+	$(CC) $(CFLAGS) -Istubs $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
 		-o $@ test_le_frag_shape.c
 
 # The low-energy capture engine, run rather than scanned. stubs-lephy/ puts a

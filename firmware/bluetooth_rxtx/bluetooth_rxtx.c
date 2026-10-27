@@ -2150,7 +2150,11 @@ void bt_generic_le(u8 active_mode)
  */
 static inline void le_rx_barrier(void)
 {
-	__asm__ volatile ("" ::: "memory");
+	/* A data barrier, not only a compiler one: the waits are built from
+	 * reads of the controller's registers, which are device memory, and
+	 * ARMv7-M allows a read of ordinary memory to be reordered against
+	 * those. */
+	__asm__ volatile ("dmb" ::: "memory");
 }
 
 /*
@@ -2274,15 +2278,8 @@ void bt_le_sync(u8 active_mode)
 		 * longest packet takes about 2 ms to arrive -- blind time in which
 		 * the next connection event is missed.
 		 *
-		 * A length the specification does not allow is noise. And until
-		 * promisc_follow_cb() has worked out the connection's CRCInit there
-		 * is no CRC to check a packet against either; the empty data PDUs
-		 * it is looking for to get there are short, so a claimed Data
-		 * Length Extension payload in that window is refused rather than
-		 * waited for and shown to the user as a packet. */
-		unsigned max_payload = le.crc_verify ? LE_MAX_PAYLOAD
-		                                     : LE_MAX_PAYLOAD_NO_DLE;
-		if (p[5] > max_payload)
+		 * Which lengths those are is le_length_is_possible()'s to say. */
+		if (!le_length_is_possible(p[5], le.crc_verify))
 			goto rx_flush;
 
 		unsigned len = p[5] + 2;
@@ -2420,13 +2417,9 @@ void bt_le_sync(u8 active_mode)
 		if (do_hop)
 			hop(NULL);
 
-		/* Cleared before the receive is armed below, not after. Exactly one
-		 * terminal count is raised per packet, and it is what tells the
-		 * loop a packet has started, so a count raised between arming the
-		 * controller and clearing the counter would be lost and the loop
-		 * would wait for a packet it had already been handed. */
-		rx_tc = 0;
-		rx_err = 0;
+		/* The terminal count is cleared by dma_init_le() below, before it
+		 * arms the channel, so nothing clears it here: a count raised after
+		 * arming is this iteration's and has to be kept. */
 
 		// ♪ you can jam but you keep turning off the light ♪
 		if (le_jam_count > 0) {

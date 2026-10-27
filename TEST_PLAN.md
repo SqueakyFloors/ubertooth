@@ -255,12 +255,14 @@ nRF52840 DKs) plus one Ubertooth.*
 - [ ] Confirm: PCAPNG contains complete packets over 50 bytes, including the
       expected payload pattern and CRC (no truncation)
 - [ ] Confirm: short/legacy advertising packets remain unchanged
-- [ ] Repeat with `ubertooth-btle -p -r long-packets-promisc.pcapng` against
-      the same established connection, which is the other capture path in the
-      firmware and the one whose long-packet handling is covered only by unit
-      tests
-- [ ] Confirm: the same complete payloads, and that the promiscuous mode still
-      reports its access address, CRCInit and hop interval on the way in
+- [ ] Repeat with `ubertooth-btle -p -r long-packets-promisc.pcapng`, the
+      other capture path in the firmware and the one whose long-packet
+      handling is covered only by unit tests. `-p` cannot be pointed at a
+      connection: leave it running on the established connection and wait
+      while it finds the access address, CRCInit, hop interval and hop
+      increment, which it reports as it goes. Data PDUs appear only after
+      that, so allow a minute or two before expecting packets.
+- [ ] Confirm: the same complete payloads once it is following
 
 ---
 

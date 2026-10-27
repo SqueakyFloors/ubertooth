@@ -162,6 +162,14 @@ void dma_init_le(volatile uint8_t* dest, unsigned len) {
 				(i == 0 ? DMACCxControl_I : 0);
 	}
 
+	/* Before the channel is armed, as dma_init_rx_symbols() does. Exactly
+	 * one terminal count is raised per packet, and a mode loop reads it as
+	 * "a packet has started", so a count left over from whatever ran before
+	 * would be read as a packet that is not there -- and the buffer it would
+	 * be taken from holds something else entirely. */
+	rx_tc = 0;
+	rx_err = 0;
+
 	/* configure DMA channel 0 */
 	DMACC0SrcAddr = le_dma_lli[0].src;
 	DMACC0DestAddr = le_dma_lli[0].dest;
