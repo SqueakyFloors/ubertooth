@@ -164,9 +164,13 @@ change the host relies on**, in the PR that makes it.
   is not the rule, the paragraph above is. A firmware change the host relies
   on that touches nothing on that list still needs the bump by hand, and a
   change to a watched file that the host cannot observe is still asked for
-  one: if the check refuses a branch that changes nothing the host sees, say
-  so on the PR and raise it with the maintainer rather than editing the list
-  to suit one branch.
+  one. Code moved verbatim between two watched files is the false red seen in
+  practice.
+- So `api-version` is the one job in the gating set whose red is sometimes
+  wrong. If it refuses a branch that changes nothing the host sees, do NOT
+  bump the version to clear it and do NOT edit the watched list to suit one
+  branch: say on the PR which files it named and why none of them changes
+  what the host sees, and leave it for the maintainer to merge red.
 - A release moves it to the next major version to mark the break in
   host/firmware pairing; the first fork release takes `0x0200` (2.00). That is
   a release step, not a per-PR one (see `docs/source/release_procedure.rst`).

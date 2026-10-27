@@ -43,11 +43,21 @@
 # not a BCD digit at all and is refused, because 0x011a is the mistake that
 # increment invites.
 #
-# What it cannot catch, so the next reader knows: two open branches claiming
-# the same value, since neither is wrong until the other merges (the second
-# goes red as soon as the first lands); and a firmware change that does not
-# touch one of the files below. "Changes the interface" is approximated from
-# paths because CI cannot judge behaviour.
+# "Changes a firmware interface file" is an approximation, because CI cannot
+# judge behaviour: it is a change to the content of one of the files listed
+# below, comments and blank lines not counted. So the next reader knows which
+# way each half of it is wrong:
+#
+#   - It misses a firmware change the host relies on that is made somewhere
+#     else, firmware/common.mk above all (see over_image_sources below).
+#   - It calls some changes interface changes that are not, code moved
+#     verbatim between two watched files being the one seen in practice. That
+#     is a false red on a gating job, and the way out is the maintainer
+#     merging it red, not a version nobody needs; the message below says so.
+#   - It cannot see two open branches claiming the same value, since neither
+#     is wrong until the other merges. The second goes red as soon as the
+#     first lands, and the push-to-main leg of the job catches it even if the
+#     pull request was merged without re-running.
 
 set -u
 
@@ -66,74 +76,138 @@ exception: it takes the next major version on its own.
 main-ref is the commit to treat as main's tip, and defaults to the remote this
 checkout tracks main from, then origin/main.
 
---list-watched prints the files a change to which asks for a new version.
+--list-watched prints the files a change to which asks for a new version, and
+reads no commit, so it takes no main-ref.
 EOF
 }
 
 # Run a git command over what goes into the bluetooth_rxtx image: the sources
-# it compiles, the shared code it links (firmware/common, lpcusb included) and
-# its own Makefile, which is nothing but the list of those sources. One list,
-# so the check and --list-watched cannot drift apart.
+# it compiles, the shared code it links (firmware/common, lpcusb included),
+# the linker script it is laid out with, and its own Makefile, which is
+# nothing but the list of those sources. One list, so the check and
+# --list-watched cannot drift apart.
 #
-# Only files that are compiled, or that say which files are: a README under
-# one of those directories cannot change what the host sees, and counting it
-# would let a branch authorise its own bump by appending a line to one. A
-# pathspec wildcard here matches across directories, so firmware/common/*.c
-# reaches lpcusb too.
+# Only files that are compiled or linked, or that say which files are: a
+# README under one of those directories cannot change what the host sees, and
+# counting it would let a branch authorise its own bump by appending a line to
+# one. A pathspec wildcard here matches across directories, so
+# firmware/common/*.c reaches lpcusb too.
+#
+# The two linker scripts are named rather than matched, because firmware/common
+# holds four and this image uses two of them: common.mk's default,
+# LPC17xx_Linker_Script_with_bootloader.ld, and the sections.ld it INCLUDEs.
+# The other two belong to the bootloader and to assembly_test.
 #
 # Left out because it is not in this image: firmware/tests (host-compiled unit
 # tests), firmware/bootloader and firmware/btbr (separate images, each with a
 # bcdDevice of its own that this version says nothing about), the
 # development-only images (blinky, cc2400_test, clock_test, usb_test,
-# assembly_test, tc13badge), firmware/Makefile and ctags.mk (which pick which
-# images to build), and documentation.
+# assembly_test, tc13badge), firmware/Makefile (which picks which images to
+# build), and documentation.
 #
-# Left out although it is a real gap: firmware/common.mk, the shared build file
-# every image includes. It carries the compiler flags, -DTX_ENABLE and the
-# commented-out -fpack-struct among them, so a change there can alter what the
-# host sees with no source change at all. It is not watched because in the last
-# 34 merges its only change was where object files are written, which no host
-# can observe: watching it would have reded a pull request that could not have
-# moved the interface, and the only ways out of a red gating job are a version
-# bump that costs every user a reflash or an edit to this script. A check that
-# cries wolf gets ignored, which is worse than no check. Narrowing it to the
-# lines that set flags needs a hand-kept list of flag spellings, which is a
-# call for the maintainer rather than a decision for this script to make.
+# Left out although both are a real gap: firmware/common.mk, the shared build
+# file every image includes, and the firmware/ctags.mk it includes in turn.
+# common.mk carries the compiler flags, -DTX_ENABLE and the commented-out
+# -fpack-struct among them, so a change there can alter what the host sees with
+# no source change at all. Neither is watched because in the last 34 merges the
+# only change to either was where object files are written, which no host can
+# observe: watching them would have reded a pull request that could not have
+# moved the interface. Narrowing to the lines that set flags needs a hand-kept
+# list of flag spellings, which is a call for the maintainer rather than a
+# decision for this script to make.
+# Written as one pattern over whole paths, matched against a plain listing of
+# the tree, rather than as git pathspecs. Pathspec globbing is not the same
+# command to command -- the wildcards that select these files for `git diff`
+# select nothing for `git ls-tree` -- and a list that silently comes back
+# empty is the answer that asks for no bump.
 #
-# The interface header is not here: it is handled separately below, because
-# the version lives in it.
-over_image_sources() {
-    git --no-pager "$@" -- \
-        'firmware/bluetooth_rxtx/*.c' 'firmware/bluetooth_rxtx/*.h' \
-        'firmware/bluetooth_rxtx/*.S' 'firmware/bluetooth_rxtx/*.s' \
-        'firmware/bluetooth_rxtx/*.ld' 'firmware/bluetooth_rxtx/Makefile' \
-        'firmware/common/*.c' 'firmware/common/*.h' \
-        'firmware/common/*.S' 'firmware/common/*.s' 'firmware/common/*.ld'
+# firmware/common/ reaches lpcusb/target/ because the pattern does not stop at
+# a directory separator there, which is where the shared USB sources live.
+watched_pattern='^(firmware/bluetooth_rxtx/([^/]+\.(c|h|S|s|ld)|Makefile)|firmware/common/.*\.(c|h|S|s)|firmware/common/(LPC17xx_Linker_Script_with_bootloader|sections)\.ld|host/libubertooth/src/ubertooth_interface\.h)$'
+
+# One watched file with everything that is not interface taken out: whole-line
+# comments, blank lines, trailing space and the version define. What is left
+# is what can change the firmware the host talks to, so two commits whose
+# filtered files all agree have no interface change between them, and a branch
+# cannot buy itself a version by rewording a comment or appending prose.
+#
+# It drops a comment only when the comment is the whole line, not when it
+# follows code. That is the conservative way round twice over. A reworded
+# trailing comment is counted as a change, which costs a bump that was not
+# needed rather than missing one that was. And a /* inside a string literal,
+# which is never alone on its line, cannot be mistaken for the start of a
+# comment and go on swallowing real code until the next */.
+strip_noninterface() {
+    awk '
+    # Inside a block comment that began on an earlier line.
+    in_block {
+        pos = index($0, "*/")
+        if (pos == 0)
+            next
+        in_block = 0
+        # A line that closes the comment and then carries code is kept whole:
+        # filtering it further would mean lexing C.
+        rest = substr($0, pos + 2)
+        if (rest !~ /^[ \t]*$/)
+            print_line($0)
+        next
+    }
+    {
+        line = $0
+        sub(/^[ \t]+/, "", line)
+        # The version define is not the interface; moving it is what the rest
+        # of this script decides about.
+        if (line ~ /^#[ \t]*define[ \t]+UBERTOOTH_API_VERSION[ \t]/)
+            next
+        if (line ~ /^\/\//)
+            next
+        if (line ~ /^\/\*/) {
+            # A one-line /* ... */, or the start of a block.
+            if (line ~ /\*\/[ \t]*$/)
+                next
+            if (index(line, "*/") == 0) {
+                in_block = 1
+                next
+            }
+        }
+        print_line($0)
+    }
+    function print_line(s) {
+        sub(/[ \t]+$/, "", s)
+        if (s != "")
+            print s
+    }
+    '
 }
 
-# The interface header with everything that is not interface taken out: the
-# version define, comment lines and blank lines. Two commits whose headers
-# differ after that have a real interface change between them -- a request
-# added or renumbered, a shared struct altered -- and two whose headers agree
-# have only moved the version or reworded a comment.
+# That filtered text for one file at one commit, empty when the commit does
+# not have the file, so adding or removing one shows up as a difference. A
+# git show that fails is a failure rather than an empty answer: empty is the
+# answer that asks for no bump.
+interface_text() {
+    git cat-file -e "$1:$2" 2> /dev/null || return 0
+    text=$(git show "$1:$2") || return 1
+    printf '%s\n' "$text" | strip_noninterface
+}
+
+# Every file the check watches at one commit, as "<blob hash> <tab> <path>":
+# the image's sources, and the interface header the version lives in. The
+# hashes are what let the comparison below read only the few files that could
+# have changed, instead of filtering all forty-odd at two commits each.
 #
-# Comparing the file this way rather than reading `git diff` output is
-# deliberate. A diff is a display format: color.ui = always colorises it even
-# when nothing is a terminal, and diff.external replaces it altogether, either
-# of which would leave a line-matching filter finding no changes and reporting
-# the permissive answer. There is no format to get wrong here.
-#
-# The comment lines it recognises are the ones this header uses: a line whose
-# first character is / or *. A line inside a block comment that starts with
-# neither is read as code, which costs a bump that was not needed rather than
-# missing one that was.
-normalized_header() {
-    git show "$1:$header" | sed \
-        -e '/^[[:space:]]*#[[:space:]]*define[[:space:]][[:space:]]*UBERTOOTH_API_VERSION[[:space:]]/d' \
-        -e '/^[[:space:]]*\/\{1,2\}/d' \
-        -e '/^[[:space:]]*\*/d' \
-        -e 's/[[:space:]]*$//' \
-        -e '/^$/d'
+# ls-tree's default output is parsed rather than its --format, which needs a
+# git newer than some supported distributions ship. Its shape -- mode, type,
+# hash, tab, path -- has been fixed for the life of git.
+watched_at() {
+    rev=$1
+    out=$2
+    git --no-pager ls-tree -r "$rev" > "$work/raw" || return 1
+    # mode, type, hash, tab, path -> hash, tab, path, watched paths only.
+    awk -F'\t' -v want="$watched_pattern" \
+        'NF > 1 && $2 ~ want { split($1, f, " "); print f[3] "\t" $2 }' \
+        "$work/raw" > "$work/named" || return 1
+    sort "$work/named" > "$out" || return 1
+    rm -f "$work/raw" "$work/named"
 }
 
 # The decimal number a four-digit BCD value spells, or failure when one of its
@@ -223,6 +297,10 @@ while [ $# -gt 0 ]; do
             exit 0
             ;;
         --list-watched)
+            if [ "$list_watched" = yes ]; then
+                echo "error: --list-watched twice" >&2
+                exit 1
+            fi
             list_watched=yes
             shift
             continue
@@ -247,19 +325,27 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-top=$(git rev-parse --show-toplevel) || exit 1
-if [ -z "$top" ]; then
-    echo "error: not inside a git checkout" >&2
+# --list-watched reads no commit, so a ref with it is a command line that
+# cannot mean one thing; refusing it beats quietly doing one of the two.
+if [ "$list_watched" = yes ] && [ -n "$main_ref" ]; then
+    printf "error: --list-watched reads no commit, so '%s' cannot be checked\n" \
+        "$main_ref" >&2
+    printf '       at the same time\n' >&2
     exit 1
 fi
+
+top=$(git rev-parse --show-toplevel 2> /dev/null) || {
+    echo "error: not inside a git checkout, so there is no branch to check" >&2
+    exit 1
+}
 cd "$top" || exit 1
 
 # The files a change to which asks for a bump, so a reader -- and the
 # self-test -- can see what the check is watching rather than trust that the
 # pathspecs above still match anything.
 if [ "$list_watched" = yes ]; then
-    over_image_sources ls-files || exit 1
-    printf '%s\n' "$header"
+    tracked=$(git --no-pager ls-files) || exit 1
+    printf '%s\n' "$tracked" | grep -E "$watched_pattern" | sort
     exit 0
 fi
 
@@ -316,18 +402,55 @@ else
     free_value=$(next_bcd "$main_decimal")
 fi
 
+# Which watched files this branch really changes. Every one is compared by
+# content with the comments and blank lines taken out, rather than by whether
+# the branch touched its path, so a comment appended to a firmware source does
+# not read as the firmware change that would justify a bump.
+#
+# Comparing files this way rather than reading `git diff` output is also what
+# keeps the answer independent of this checkout's configuration. A diff is a
+# display format: color.ui = always colorises it even when nothing is a
+# terminal, and diff.external replaces it altogether, either of which would
+# leave a line-matching filter finding no changes and reporting the permissive
+# answer. There is no format to get wrong here.
+#
 # Everything in this script fails rather than guesses, this included: a git
-# command that went wrong must not come back as an empty list, which is the
-# answer that asks for no bump.
-changed=$(over_image_sources diff --no-color --name-only "$merge_base" "$head_commit") || {
-    echo "error: could not list the firmware sources this branch changes" >&2
+# command that went wrong must not come back as an empty list.
+work=$(mktemp -d) || exit 1
+trap 'rm -rf "$work"' EXIT HUP INT TERM
+
+watched_at "$merge_base" "$work/base.list" || {
+    echo "error: could not list the firmware sources at the merge base" >&2
     exit 1
 }
-base_header=$(normalized_header "$merge_base") || exit 1
-head_header=$(normalized_header "$head_commit") || exit 1
-if [ "$base_header" != "$head_header" ]; then
-    changed=$(printf '%s\n%s\n' "$changed" "$header" | grep .)
-fi
+watched_at "$head_commit" "$work/head.list" || {
+    echo "error: could not list the firmware sources at HEAD" >&2
+    exit 1
+}
+
+# The files worth filtering: those the two commits do not store as the same
+# blob. A file with the same hash at both cannot have changed, comments or
+# not, so there is nothing for the filter to decide about it. A file added or
+# removed appears on one side only and is read with an empty text for the
+# other, so it counts as a change unless it is all comments.
+comm -3 "$work/base.list" "$work/head.list" | sed 's/^[[:space:]]*//' |
+    cut -f2 | sort -u | grep . > "$work/paths" || :
+
+# Fed from a file rather than a pipe, so a failure below ends the script
+# instead of a subshell it cannot report from.
+: > "$work/changed"
+while IFS= read -r path; do
+    interface_text "$merge_base" "$path" > "$work/a" || {
+        printf 'error: could not read %s at the merge base\n' "$path" >&2
+        exit 1
+    }
+    interface_text "$head_commit" "$path" > "$work/b" || {
+        printf 'error: could not read %s at HEAD\n' "$path" >&2
+        exit 1
+    }
+    cmp -s "$work/a" "$work/b" || printf '%s\n' "$path" >> "$work/changed"
+done < "$work/paths"
+changed=$(cat "$work/changed")
 
 # What was compared, for the record: a log that only says "passed" cannot be
 # read later to see which main the answer was about.
@@ -364,9 +487,11 @@ if [ -n "$changed" ]; then
         echo "       The firmware interface files this branch changes:"
         printf '%s\n' "$changed" | sed 's/^/         /'
         echo ""
-        echo "       If none of them change what the host sees, say so on the pull"
-        echo "       request; the list of watched files is in"
-        echo "       tools/check-api-version.sh."
+        echo "       If none of them change what the host sees -- code moved"
+        echo "       between two of these files, say -- then this is a false red:"
+        echo "       say so on the pull request and let the maintainer merge with"
+        echo "       this job red, rather than taking a version nobody needs."
+        echo "       tools/check-api-version.sh --list-watched prints the list."
     } >&2
     exit 1
 fi
@@ -382,11 +507,25 @@ fi
 # version, with the minor digits at 00, to mark that its host tools and
 # firmware only work with each other -- whether or not the cycle changed the
 # firmware (docs/source/release_procedure.rst). Without this the release's own
-# pull request would be refused by a job it cannot satisfy. It stays narrow: a
-# single major up from the merge base, nothing below main, and no other value.
+# pull request would be refused by a job it cannot satisfy.
+#
+# It stays narrow, because a stray 0x0200 on an ordinary branch would refuse
+# every user's board until it was reflashed, which is the thing the host-only
+# half of the rule exists to prevent. So: a single major up from the merge
+# base, the minor digits at 00, nothing below main, and the three documents
+# that record the version moving with it, which a release changes and a slip
+# of the finger does not.
+release_doc_list=$(git --no-pager diff --name-only "$merge_base" "$head_commit" -- \
+    CHANGELOG.md COMPATIBILITY.md TEST_PLAN.md) || {
+    echo "error: could not tell whether this branch is a release" >&2
+    exit 1
+}
+# grep -c exits 1 on a count of 0, so its status is not read here.
+release_docs=$(printf '%s\n' "$release_doc_list" | sort -u | grep -c .)
 if [ "$(( cur_decimal % 100 ))" -eq 0 ] &&
     [ "$(( cur_decimal / 100 ))" -eq "$(( base_decimal / 100 + 1 ))" ] &&
-    [ "$cur_decimal" -ge "$main_decimal" ]; then
+    [ "$cur_decimal" -ge "$main_decimal" ] &&
+    [ "$release_docs" -eq 3 ]; then
     echo "check-api-version: no firmware interface file changed, and"
     echo "UBERTOOTH_API_VERSION moves to $cur_pretty, the next major version,"
     echo "which is a release's own bump."
@@ -409,7 +548,8 @@ fi
     echo "       firmware to pair with, so moving the version only makes boards"
     echo "       that are fine be refused until they are reflashed. The one"
     echo "       exception is a release, which takes the next major version"
-    echo "       (minor digits 00) on its own."
+    echo "       (minor digits 00) with CHANGELOG.md, COMPATIBILITY.md and"
+    echo "       TEST_PLAN.md moving with it."
     echo ""
     echo "       If this branch does change what the host sees, it changes it"
     echo "       somewhere tools/check-api-version.sh does not watch; say so on"

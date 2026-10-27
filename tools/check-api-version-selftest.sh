@@ -71,10 +71,29 @@ commit() {
     git -C "$1" commit -q -m "$2"
 }
 
-# A line appended to a file, enough to make a commit touch it. What the line
-# says does not matter: the check reads paths, not content.
+# A line of something that is not a comment appended to a file: a change the
+# check is meant to see. It need not be valid C, Makefile or linker script,
+# because the filter the check applies strips comments and blank lines and
+# reads whatever is left as content.
 edit() {
-    printf '/* changed */\n' >> "$1/$2"
+    printf 'CHANGED_%s = 1\n' "$((changes = changes + 1))" >> "$1/$2"
+}
+changes=0
+
+# A comment appended to a file: a change the check is meant to ignore,
+# whichever of the forms the tree uses.
+edit_comment() {
+    printf '/* a comment on one line */\n' >> "$1/$2"
+}
+
+edit_block_comment() {
+    printf '/*\n * a comment over several lines\n */\n' >> "$1/$2"
+}
+
+# The form the header normalisation used to miss: a block whose interior line
+# begins with neither / nor *.
+edit_prose_comment() {
+    printf '/*\nplain prose with no leading star\n*/\n' >> "$1/$2"
 }
 
 # A throwaway repository holding the paths the check cares about: main with the
@@ -83,22 +102,32 @@ new_repo() {
     repos=$((repos + 1))
     repo="$work/repo$repos"
     mkdir -p "$repo"
-    git init -q "$repo"
+    # An empty template, because the default one copies a directory of sample
+    # hooks into every one of these repositories and this script makes dozens.
+    git init -q --template= "$repo"
     # Named here rather than left to init.defaultBranch, which an older git
     # does not read.
     git -C "$repo" symbolic-ref HEAD refs/heads/main
     git -C "$repo" config user.name "api version selftest"
     git -C "$repo" config user.email "selftest@invalid"
     mkdir -p "$repo/host/libubertooth/src" "$repo/firmware/bluetooth_rxtx" \
-        "$repo/firmware/common" "$repo/firmware/btbr" "$repo/firmware/tests"
+        "$repo/firmware/common/lpcusb/target" "$repo/firmware/btbr" \
+        "$repo/firmware/tests"
     cp "$real_header" "$repo/$header_path"
     set_version "$repo" "$1"
+    # The seeded line is code rather than a comment, so a file the check
+    # watches starts out with content it can see.
     for f in firmware/bluetooth_rxtx/bluetooth_rxtx.c firmware/bluetooth_rxtx/README \
         firmware/bluetooth_rxtx/Makefile firmware/common/usb.c \
-        firmware/common/memory.ld firmware/common.mk firmware/Makefile \
+        firmware/common/lpcusb/target/usbhw_lpc.c \
+        firmware/common/LPC17xx_Linker_Script_with_bootloader.ld \
+        firmware/common/sections.ld \
+        firmware/common/LPC17xx_Linker_Script_bootloader.ld \
+        firmware/common.mk firmware/Makefile \
         firmware/btbr/btbr.c firmware/tests/test_firmware.c \
-        host/libubertooth/src/ubertooth.c; do
-        printf '/* %s */\n' "$f" > "$repo/$f"
+        host/libubertooth/src/ubertooth.c CHANGELOG.md COMPATIBILITY.md \
+        TEST_PLAN.md; do
+        printf 'SEEDED = %s\n' "$f" > "$repo/$f"
     done
     commit "$repo" "the tree as main has it"
     git -C "$repo" checkout -q -b work
@@ -389,11 +418,101 @@ run "the shared build file is a known gap" "$repo" main
 want_status 0
 want_stdout "no firmware interface file changed"
 
-# A linker script decides where things land, so it counts too.
+# The linker script the image is laid out with decides where things land, so
+# it counts, and so does the file it includes.
 new_repo 0x0131
-edit "$repo" firmware/common/memory.ld
+edit "$repo" firmware/common/LPC17xx_Linker_Script_with_bootloader.ld
 commit "$repo" "change the memory layout"
-run "a linker script is a firmware change" "$repo" main
+run "the image's linker script is a firmware change" "$repo" main
+want_status 1
+want_stderr "has to be above the one main carries"
+want_stderr "LPC17xx_Linker_Script_with_bootloader.ld"
+
+new_repo 0x0131
+edit "$repo" firmware/common/sections.ld
+commit "$repo" "change the sections the linker script includes"
+run "the included sections file is a firmware change" "$repo" main
+want_status 1
+want_stderr "has to be above the one main carries"
+
+# The bootloader's own linker script is not: firmware/common holds four and
+# this image uses two of them.
+new_repo 0x0131
+edit "$repo" firmware/common/LPC17xx_Linker_Script_bootloader.ld
+commit "$repo" "change the bootloader's memory layout"
+run "another image's linker script is not the interface" "$repo" main
+want_status 0
+want_stdout "no firmware interface file changed"
+
+# The shared USB code under lpcusb is linked into the image, two directories
+# down, so the watch has to reach it.
+new_repo 0x0131
+edit "$repo" firmware/common/lpcusb/target/usbhw_lpc.c
+commit "$repo" "change the shared USB code"
+run "the lpcusb sources are part of the image" "$repo" main
+want_status 1
+want_stderr "has to be above the one main carries"
+want_stderr "lpcusb/target/usbhw_lpc.c"
+
+# A comment appended to a firmware source is not a firmware change, in either
+# direction. This is the bypass one directory below the README: a comment in a
+# compiled file used to count as the change that justified its own bump.
+new_repo 0x0131
+edit_comment "$repo" firmware/bluetooth_rxtx/bluetooth_rxtx.c
+commit "$repo" "comment the firmware"
+run "a comment in a firmware source is not a change" "$repo" main
+want_status 0
+want_stdout "no firmware interface file changed"
+
+new_repo 0x0131
+edit_comment "$repo" firmware/bluetooth_rxtx/bluetooth_rxtx.c
+set_version "$repo" 0x0132
+commit "$repo" "comment the firmware and bump the version"
+run "a comment in a firmware source cannot buy a version" "$repo" main
+want_status 1
+want_empty_stdout
+want_stderr "changes no firmware interface file"
+
+# The same for a block comment, including the shape the normalisation used to
+# read as code: an interior line beginning with neither / nor *.
+new_repo 0x0131
+edit_block_comment "$repo" firmware/common/usb.c
+edit_prose_comment "$repo" firmware/bluetooth_rxtx/bluetooth_rxtx.c
+set_version "$repo" 0x0132
+commit "$repo" "comment two firmware files and bump the version"
+run "block and prose comments cannot buy a version" "$repo" main
+want_status 1
+want_stderr "changes no firmware interface file"
+
+new_repo 0x0131
+edit_prose_comment "$repo" "$header_path"
+set_version "$repo" 0x0132
+commit "$repo" "add prose to the interface header and bump the version"
+run "prose in the interface header cannot buy a version" "$repo" main
+want_status 1
+want_empty_stdout
+want_stderr "changes no firmware interface file"
+
+# A request added inside a comment is not a request, so it asks for nothing.
+new_repo 0x0131
+printf '/*\n#define UBERTOOTH_SOMETHING_NEW 99\n*/\n' >> "$repo/$header_path"
+commit "$repo" "add a request inside a comment"
+run "a request wrapped in a comment is not a request" "$repo" main
+want_status 0
+want_stdout "no firmware interface file changed"
+
+# Commenting an existing request out is a change to the interface, though: the
+# filter drops the lines, so the header it compares has lost them.
+new_repo 0x0131
+git -C "$repo" checkout -q main
+printf '#define UBERTOOTH_SOMETHING 98\n' >> "$repo/$header_path"
+commit "$repo" "a request main has"
+git -C "$repo" checkout -q -B work
+sed 's|^#define UBERTOOTH_SOMETHING 98|/*\n#define UBERTOOTH_SOMETHING 98\n*/|' \
+    "$repo/$header_path" > "$repo/h.new"
+mv "$repo/h.new" "$repo/$header_path"
+commit "$repo" "comment that request out"
+run "commenting a request out is an interface change" "$repo" main
 want_status 1
 want_stderr "has to be above the one main carries"
 
@@ -412,6 +531,9 @@ want_stdout "no firmware interface file changed"
 # could not satisfy.
 new_repo 0x0131
 edit "$repo" host/libubertooth/src/ubertooth.c
+edit "$repo" CHANGELOG.md
+edit "$repo" COMPATIBILITY.md
+edit "$repo" TEST_PLAN.md
 set_version "$repo" 0x0200
 commit "$repo" "cut a release"
 run "a release takes the next major version" "$repo" main
@@ -419,9 +541,13 @@ want_status 0
 want_empty_stderr
 want_stdout "the next major version"
 
-# And that carve-out stays narrow: one major up with the minor at 00, nothing
-# else. Two majors up is not a release, it is a typo.
+# And that carve-out stays narrow, because a stray 0x0200 on an ordinary
+# branch would refuse every board until it was reflashed. Two majors up is not
+# a release, it is a typo.
 new_repo 0x0131
+edit "$repo" CHANGELOG.md
+edit "$repo" COMPATIBILITY.md
+edit "$repo" TEST_PLAN.md
 set_version "$repo" 0x0300
 commit "$repo" "skip a major version"
 run "two majors up is not a release bump" "$repo" main
@@ -430,9 +556,33 @@ want_stderr "changes no firmware interface file"
 
 # Nor is a minor bump dressed up as one.
 new_repo 0x0131
+edit "$repo" CHANGELOG.md
+edit "$repo" COMPATIBILITY.md
+edit "$repo" TEST_PLAN.md
 set_version "$repo" 0x0201
 commit "$repo" "a major version with a minor digit"
 run "a major version with a minor digit is not a release bump" "$repo" main
+want_status 1
+want_stderr "changes no firmware interface file"
+
+# Nor is the right value on its own: a release moves the three documents that
+# record the version with it, and a slip of the finger does not.
+new_repo 0x0131
+edit "$repo" host/libubertooth/src/ubertooth.c
+set_version "$repo" 0x0200
+commit "$repo" "a host-only branch that happens to type the next major"
+run "the next major without the release documents" "$repo" main
+want_status 1
+want_empty_stdout
+want_stderr "changes no firmware interface file"
+want_stderr "CHANGELOG.md, COMPATIBILITY.md and"
+
+new_repo 0x0131
+edit "$repo" CHANGELOG.md
+edit "$repo" COMPATIBILITY.md
+set_version "$repo" 0x0200
+commit "$repo" "a release that forgot TEST_PLAN.md"
+run "a release bump with one document missing" "$repo" main
 want_status 1
 want_stderr "changes no firmware interface file"
 
@@ -538,6 +688,22 @@ want_stderr "error: unknown option '--plausible'"
 run "a lone -- ends the options" "$repo" -- main
 want_status 0
 want_stdout "no firmware interface file changed"
+
+# A combination that cannot mean one thing is refused rather than half done.
+run "a ref with --list-watched" "$repo" --list-watched main
+want_status 1
+want_empty_stdout
+want_stderr "--list-watched reads no commit"
+
+run "--list-watched after a ref" "$repo" main --list-watched
+want_status 1
+want_empty_stdout
+want_stderr "--list-watched reads no commit"
+
+run "--list-watched twice" "$repo" --list-watched --list-watched
+want_status 1
+want_empty_stdout
+want_stderr "error: --list-watched twice"
 
 run "the help option" "$repo" -h
 want_status 0
