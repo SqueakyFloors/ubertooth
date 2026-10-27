@@ -620,11 +620,16 @@ enum block_kind { BLOCK_PLAIN, BLOCK_LOOP, BLOCK_BRANCH };
  * by the keyword in front of it, which can be lines earlier when the
  * condition is wrapped -- bt_stream_rx()'s mode loop spans five lines -- so
  * the keyword is remembered until a '{' or a ';' settles it.
+ *
+ * The parentheses are counted because a `for` header carries two semicolons
+ * of its own, and those do not settle anything: only a ';' outside the
+ * parentheses ends the statement.
  */
 struct brace_state {
 	int depth;
 	enum block_kind kind[MAX_BLOCK_DEPTH];
 	enum block_kind pending;
+	int parens;
 };
 
 static int block_keyword(const char *word, enum block_kind *kind)
@@ -690,11 +695,47 @@ static void brace_state_advance(struct brace_state *b, const char *line)
 		} else if (*p == '}') {
 			if (b->depth > 0)
 				b->depth--;
-		} else if (*p == ';') {
+		} else if (*p == '(') {
+			b->parens++;
+		} else if (*p == ')') {
+			if (b->parens > 0)
+				b->parens--;
+		} else if (*p == ';' && b->parens == 0) {
 			b->pending = BLOCK_PLAIN;
 		}
 		p++;
 	}
+}
+
+/*
+ * Where in a function body one line sits, handed to the visitor with the line
+ * itself. The text alone cannot say whether a `break` ends a `switch` case or
+ * belongs to a loop inside it, which is what the dispatch scan at the end of
+ * this file has to know.
+ */
+struct body_pos {
+	/* Reached through a branch: a branch block open around this line, or a
+	 * condition that opened on an earlier line. */
+	int branched;
+	/* Brace depth at the start of the line, counting the function's own
+	 * body as 1. */
+	int depth;
+	/*
+	 * This line is the statement of an `if`, `while` or `for` that opened
+	 * on an earlier line and wrote no braces, so a `break` here belongs to
+	 * that statement rather than to the block around it.
+	 */
+	int continues_a_condition;
+};
+
+/* Where the next line to be read sits. Call it before advancing the brace
+ * state over that line, so the line is judged by the state it was reached
+ * in. */
+static void body_pos_at(const struct brace_state *b, struct body_pos *pos)
+{
+	pos->branched = inside_a_branch(b);
+	pos->depth = b->depth;
+	pos->continues_a_condition = b->pending != BLOCK_PLAIN;
 }
 
 /*
@@ -723,26 +764,26 @@ static int is_definition_line(const char *line, const char *function)
 }
 
 /*
- * Read one function's body out of a firmware source file, a line at a time,
- * with whether that line sits inside a branch. The body runs from the
- * definition's '{' until the braces balance again, so a definition that opens
- * and closes on one line is read rather than skipped.
+ * Read one function's body out of C source, a line at a time, with where in
+ * the body each line sits. The body runs from the definition's '{' until the
+ * braces balance again, so a definition that opens and closes on one line is
+ * read rather than skipped.
  *
- * Returns the number of body lines read, or -1 if the file could not be
- * opened. Zero means the file holds no such definition.
+ * Returns the number of body lines read. Zero means the source holds no such
+ * definition. Takes an open stream rather than a path so a test can hand it a
+ * function written for the occasion, which is how the scan's own reading of a
+ * `switch` is checked below.
  */
-static int read_function_body(const char *path, const char *function,
-                              void (*visit)(const char *line, int branched,
-                                            void *ctx),
-                              void *ctx)
+static int read_function_body_stream(FILE *f, const char *function,
+                                     void (*visit)(const char *line,
+                                                   const struct body_pos *pos,
+                                                   void *ctx),
+                                     void *ctx)
 {
 	char line[SCAN_LINE_MAX];
 	int in_block = 0, in_fn = 0, opened = 0, lines = 0;
 	struct brace_state braces;
-	FILE *f = fopen(path, "r");
-
-	if (f == NULL)
-		return -1;
+	struct body_pos pos;
 
 	memset(&braces, 0, sizeof(braces));
 
@@ -785,7 +826,8 @@ static int read_function_body(const char *path, const char *function,
 			body = strchr(line, '{');
 			if (body != NULL) {
 				lines++;
-				visit(body + 1, inside_a_branch(&braces), ctx);
+				body_pos_at(&braces, &pos);
+				visit(body + 1, &pos, ctx);
 			}
 			if (opened && braces.depth == 0)
 				in_fn = 0;
@@ -793,7 +835,8 @@ static int read_function_body(const char *path, const char *function,
 		}
 
 		lines++;
-		visit(line, inside_a_branch(&braces), ctx);
+		body_pos_at(&braces, &pos);
+		visit(line, &pos, ctx);
 
 		brace_state_advance(&braces, line);
 		if (braces.depth > 0)
@@ -802,11 +845,28 @@ static int read_function_body(const char *path, const char *function,
 			in_fn = 0;
 	}
 
+	return lines;
+}
+
+/* The same, for a source file. -1 if the file could not be opened. */
+static int read_function_body(const char *path, const char *function,
+                              void (*visit)(const char *line,
+                                            const struct body_pos *pos,
+                                            void *ctx),
+                              void *ctx)
+{
+	int lines;
+	FILE *f = fopen(path, "r");
+
+	if (f == NULL)
+		return -1;
+	lines = read_function_body_stream(f, function, visit, ctx);
 	fclose(f);
 	return lines;
 }
 
-static void visit_usb_service(const char *line, int branched, void *ctx)
+static void visit_usb_service(const char *line, const struct body_pos *pos,
+                              void *ctx)
 {
 	struct fn_usb *out = ctx;
 
@@ -832,14 +892,14 @@ static void visit_usb_service(const char *line, int branched, void *ctx)
 		 * it rules out a condition sharing that line; `branched` rules out
 		 * a condition several lines above it.
 		 */
-		if (!branched)
+		if (!pos->branched)
 			out->direct_every_turn++;
 	}
 	/* A call, for the same reason: naming the control service in a callback
 	 * the loop rarely reaches would not keep the host's requests answered. */
 	if (calls_unconditionally(line, "handle_usb_control")) {
 		out->control++;
-		if (!branched)
+		if (!pos->branched)
 			out->control_every_turn++;
 	}
 	if (is_assignment_to(line, "ISER0") &&
@@ -2058,50 +2118,81 @@ static struct dispatch_mode dispatch[] = {
  * its body calls. A case that falls through to the next shares the next
  * one's calls, which is how MODE_AFH runs bt_stream_rx(). */
 struct dispatch_case {
-	char mode[48];
+	char label[48];
 	char calls[MAX_CASE_CALLS][64];
 	int call_count;
 	int listed;
 };
 
-static struct dispatch_case cases_found[DISPATCH_COUNT + 8];
-static int cases_found_count;
-static int dispatch_lines;
-static int dispatch_overflowed;
-static char unlisted_case[64];
+/* Room for the cases the tables below list, plus the ones a change adds
+ * before anyone lists them -- which is what the guards are for. */
+#define MAX_CASES_FOUND ((int)DISPATCH_COUNT + 8)
 
-/* The MODE_* a `case` label names, if it names one. */
-static int case_label(const char *line, char *out, size_t size)
+/*
+ * What one pass over a `switch` found, and where the reader has got to. The
+ * state is a struct rather than file-scope variables so a second pass -- the
+ * fixture below, or the other image's request dispatch -- does not disturb the
+ * first, and so no test depends on another having run.
+ */
+struct dispatch_scan {
+	/* Which labels this pass is reading: "MODE_" for the mode dispatch,
+	 * "BTCTL_" for the other image's request dispatch. A label with
+	 * another prefix belongs to some other switch and is skipped. */
+	const char *prefix;
+	struct dispatch_case cases[MAX_CASES_FOUND];
+	int case_count;
+	/* The cases whose body is still being read: a run of them where one
+	 * label falls through to the next, and every call found is recorded
+	 * against all of them. */
+	int pending[MAX_CASES_FOUND];
+	int pending_count;
+	/*
+	 * The brace depth at which a `break` ends those cases. Anything deeper
+	 * belongs to a loop or a branch inside the case, and the case carries
+	 * on below it -- which is the whole reason the depth is tracked. It is
+	 * the depth of the label, or one deeper when the case body is a block
+	 * of its own (`case MODE_X: {`).
+	 */
+	int case_level;
+	/* A label has been read and its body has not started, so a '{' now
+	 * opens that block of its own. */
+	int awaiting_body;
+	int lines;
+	int overflowed;
+};
+
+/*
+ * The label a `case` names, when it carries the prefix this pass is reading.
+ * `p` is left after the label; on anything else it is left where it was, so
+ * the caller reads that text as ordinary code.
+ */
+static int read_case_label(const char **p, const char *prefix, char *out,
+                           size_t size)
 {
-	const char *p = line;
+	const char *q = *p;
 	const char *start;
 
-	while (*p == ' ' || *p == '\t')
-		p++;
-	if (strncmp(p, "case", 4) != 0 || is_ident_char(p[4]))
+	while (*q == ' ' || *q == '\t')
+		q++;
+	start = q;
+	while (is_ident_char(*q))
+		q++;
+	if (q == start || (size_t)(q - start) >= size ||
+	    strncmp(start, prefix, strlen(prefix)) != 0)
 		return 0;
-	p += 4;
-	while (*p == ' ' || *p == '\t')
-		p++;
-	start = p;
-	while (is_ident_char(*p))
-		p++;
-	if (p == start || (size_t)(p - start) >= size ||
-	    strncmp(start, "MODE_", 5) != 0)
-		return 0;
-	memcpy(out, start, (size_t)(p - start));
-	out[p - start] = '\0';
+	memcpy(out, start, (size_t)(q - start));
+	out[q - start] = '\0';
+	*p = q;
 	return 1;
 }
 
-/* Record a call against every case label still waiting for one. */
-static void add_call_to_pending(const int *pending, int pending_count,
-                                const char *name)
+/* Record a call against every case whose body is still being read. */
+static void add_call_to_pending(struct dispatch_scan *s, const char *name)
 {
 	int i, j;
 
-	for (i = 0; i < pending_count; i++) {
-		struct dispatch_case *c = &cases_found[pending[i]];
+	for (i = 0; i < s->pending_count; i++) {
+		struct dispatch_case *c = &s->cases[s->pending[i]];
 
 		for (j = 0; j < c->call_count; j++)
 			if (strcmp(c->calls[j], name) == 0)
@@ -2109,7 +2200,7 @@ static void add_call_to_pending(const int *pending, int pending_count,
 		if (j < c->call_count)
 			continue;
 		if (c->call_count >= MAX_CASE_CALLS) {
-			dispatch_overflowed = 1;
+			s->overflowed = 1;
 			continue;
 		}
 		snprintf(c->calls[c->call_count], sizeof(c->calls[0]), "%s",
@@ -2118,84 +2209,165 @@ static void add_call_to_pending(const int *pending, int pending_count,
 	}
 }
 
-static int pending_cases[DISPATCH_COUNT + 8];
-static int pending_count;
-
-static void visit_dispatch_line(const char *line, int branched, void *ctx)
+static void add_case_label(struct dispatch_scan *s, const char *label,
+                           int depth)
 {
-	char name[64];
-	const char *p = line;
-
-	(void)ctx;
-	dispatch_lines++;
-
-	if (case_label(line, name, sizeof(name))) {
-		if (cases_found_count >=
-		    (int)(sizeof(cases_found) / sizeof(cases_found[0]))) {
-			dispatch_overflowed = 1;
-			return;
-		}
-		memset(&cases_found[cases_found_count], 0,
-		       sizeof(cases_found[0]));
-		snprintf(cases_found[cases_found_count].mode,
-		         sizeof(cases_found[0].mode), "%s", name);
-		if (pending_count <
-		    (int)(sizeof(pending_cases) / sizeof(pending_cases[0])))
-			pending_cases[pending_count++] = cases_found_count;
-		cases_found_count++;
+	if (s->case_count >= MAX_CASES_FOUND) {
+		s->overflowed = 1;
 		return;
 	}
+	memset(&s->cases[s->case_count], 0, sizeof(s->cases[0]));
+	snprintf(s->cases[s->case_count].label, sizeof(s->cases[0].label), "%s",
+	         label);
+	/* The first label of a fall-through run fixes the level; the rest of
+	 * the run share it, being labels on the same switch. */
+	if (s->pending_count == 0)
+		s->case_level = depth;
+	s->pending[s->pending_count++] = s->case_count;
+	s->case_count++;
+	s->awaiting_body = 1;
+}
 
-	if (pending_count == 0)
-		return;
+/* A keyword that makes what comes after it conditional, so a `break` that
+ * follows it on the same line is not the one that ends the case. */
+static int opens_a_condition(const char *word)
+{
+	static const char *const words[] = {
+		"if", "else", "while", "for", "do", "switch",
+	};
+	size_t i;
 
-	/* Every call on the line, not only the first: a case that calls
-	 * something harmless before the function that does the work would
-	 * otherwise be read by its first call alone. */
+	for (i = 0; i < sizeof(words) / sizeof(words[0]); i++)
+		if (strcmp(word, words[i]) == 0)
+			return 1;
+	return 0;
+}
+
+/* A keyword that leaves the case, so the next label starts a new one. */
+static int leaves_the_case(const char *word)
+{
+	return strcmp(word, "break") == 0 || strcmp(word, "return") == 0 ||
+	       strcmp(word, "goto") == 0;
+}
+
+/*
+ * Read one line of a dispatch into the scan: the labels it opens, the
+ * functions it calls, and whether it ends the cases being read.
+ *
+ * A case ends at a `break`, `return` or `goto` of its own, which means one at
+ * the case's own brace depth and not under a condition. Both halves are
+ * needed. Reading the first `break` on any body line as the end of the case,
+ * as this used to, misreads a case shaped
+ *
+ *	while (something()) { if (...) break; }
+ *	the_real_loop();
+ *	break;
+ *
+ * as ending at the inner `break`: the_real_loop() is never recorded, the row
+ * for that mode is satisfied by something(), and the mode could then collect
+ * packets through a loop no row in the tables above describes. The same goes
+ * for a case whose first act is `if (...) break;` and whose real work is
+ * below it.
+ *
+ * The brace depth is what tells the two kinds of `break` apart. The
+ * `branched` flag cannot: it is relative to the function body, and every case
+ * here is already inside main()'s `while` and `switch`, so it is 1 throughout.
+ */
+static void visit_dispatch_line(const char *line, const struct body_pos *pos,
+                                void *ctx)
+{
+	struct dispatch_scan *s = ctx;
+	const char *p = line;
+	int depth = pos->depth;
+	int parens = 0;
+	/* A condition that opened on an earlier line reaches into this one. */
+	int conditional = pos->continues_a_condition;
+
+	s->lines++;
+
 	while (*p != '\0') {
+		char word[64];
 		const char *start, *after;
 
 		if (!is_ident_char(*p)) {
+			switch (*p) {
+			case '{':
+				depth++;
+				if (s->awaiting_body && s->pending_count > 0)
+					s->case_level = depth;
+				s->awaiting_body = 0;
+				break;
+			case '}':
+				depth--;
+				conditional = 0;
+				s->awaiting_body = 0;
+				break;
+			case '(':
+				parens++;
+				break;
+			case ')':
+				if (parens > 0)
+					parens--;
+				break;
+			case ';':
+				/* A `for` header's own semicolons do not end
+				 * the statement it heads. */
+				if (parens == 0)
+					conditional = 0;
+				break;
+			/* The label's own colon is not its body starting. */
+			case ':':
+			case ' ':
+			case '\t':
+			case '\n':
+			case '\r':
+				break;
+			default:
+				s->awaiting_body = 0;
+				break;
+			}
 			p++;
 			continue;
 		}
+
 		start = p;
 		while (is_ident_char(*p))
 			p++;
+		if ((size_t)(p - start) >= sizeof(word))
+			continue;
+		memcpy(word, start, (size_t)(p - start));
+		word[p - start] = '\0';
+
+		if (strcmp(word, "case") == 0) {
+			char label[sizeof(s->cases[0].label)];
+
+			if (read_case_label(&p, s->prefix, label, sizeof(label)))
+				add_case_label(s, label, depth);
+			continue;
+		}
+		if (s->pending_count == 0)
+			continue;
+		if (leaves_the_case(word)) {
+			if (depth == s->case_level && !conditional)
+				s->pending_count = 0;
+			s->awaiting_body = 0;
+			continue;
+		}
+		if (opens_a_condition(word)) {
+			conditional = 1;
+			s->awaiting_body = 0;
+			continue;
+		}
+		s->awaiting_body = 0;
+		/* Every call on the line, not only the first: a case that calls
+		 * something harmless before the function that does the work
+		 * would otherwise be read by its first call alone. */
 		after = p;
 		while (*after == ' ' || *after == '\t')
 			after++;
-		if (*after != '(' || (size_t)(p - start) >= sizeof(name))
-			continue;
-		memcpy(name, start, (size_t)(p - start));
-		name[p - start] = '\0';
-		if (!is_not_a_function_name(name))
-			add_call_to_pending(pending_cases, pending_count, name);
+		if (*after == '(' && !is_not_a_function_name(word))
+			add_call_to_pending(s, word);
 	}
-
-	/*
-	 * The case ends at its `break`, so the next label starts a new one.
-	 *
-	 * The limit of reading it this way: a `break` belonging to a loop
-	 * inside the case ends the case here too, and every call after it is
-	 * missed. A case shaped
-	 *
-	 *	while (something()) { if (...) break; }
-	 *	the_real_loop();
-	 *
-	 * is therefore classified by something() and the_real_loop() is never
-	 * seen, which lets such a case reach the queue through a loop no row
-	 * describes. Telling the two kinds of `break` apart needs the depth
-	 * relative to the switch, which this scan does not track -- the
-	 * `branched` flag is relative to the function body, and every case is
-	 * already inside main()'s `while` and `switch`, so it is 1 throughout.
-	 * No case has an inner loop today; the scan does not stop one being
-	 * added.
-	 */
-	(void)branched;
-	if (contains_identifier(line, "break") ||
-	    contains_identifier(line, "return"))
-		pending_count = 0;
 }
 
 /*
@@ -2214,12 +2386,13 @@ struct reach {
 	unsigned loops; /* bitmask of modes[] rows it runs */
 };
 
-static void visit_reach(const char *line, int branched, void *ctx)
+static void visit_reach(const char *line, const struct body_pos *pos,
+                        void *ctx)
 {
 	struct reach *r = ctx;
 	size_t i;
 
-	(void)branched;
+	(void)pos;
 	if (line_calls_enqueue(line))
 		r->producer = 1;
 	for (i = 0; i < PRODUCER_COUNT; i++)
@@ -2265,7 +2438,9 @@ static void function_reach(const char *name, struct reach *out)
 	}
 }
 
+static struct dispatch_scan dispatch_found;
 static int dispatch_scanned;
+static char unlisted_case[64];
 
 static void scan_dispatch(void)
 {
@@ -2274,35 +2449,36 @@ static void scan_dispatch(void)
 	int c;
 
 	snprintf(path, sizeof(path), "%s/bluetooth_rxtx.c", FW_RXTX_DIR);
-	cases_found_count = 0;
-	pending_count = 0;
-	dispatch_lines = 0;
-	dispatch_scanned =
-		read_function_body(path, "main", visit_dispatch_line, NULL) > 0;
+	memset(&dispatch_found, 0, sizeof(dispatch_found));
+	dispatch_found.prefix = "MODE_";
+	dispatch_scanned = read_function_body(path, "main", visit_dispatch_line,
+	                                      &dispatch_found) > 0;
 	if (!dispatch_scanned)
 		return;
 
 	/* Match the cases the scan found against the table, and resolve what
 	 * each case's calls lead to. */
-	for (c = 0; c < cases_found_count; c++) {
+	for (c = 0; c < dispatch_found.case_count; c++) {
+		struct dispatch_case *found_case = &dispatch_found.cases[c];
+
 		for (i = 0; i < DISPATCH_COUNT; i++) {
 			int k;
 
-			if (strcmp(dispatch[i].mode, cases_found[c].mode) != 0)
+			if (strcmp(dispatch[i].mode, found_case->label) != 0)
 				continue;
 			dispatch[i].found = 1;
-			cases_found[c].listed = 1;
-			for (k = 0; k < cases_found[c].call_count; k++) {
+			found_case->listed = 1;
+			for (k = 0; k < found_case->call_count; k++) {
 				struct reach r;
 
-				function_reach(cases_found[c].calls[k], &r);
+				function_reach(found_case->calls[k], &r);
 				dispatch[i].loops |= r.loops;
 				dispatch[i].reaches_queue |= r.producer;
 			}
 		}
-		if (!cases_found[c].listed && unlisted_case[0] == '\0')
+		if (!found_case->listed && unlisted_case[0] == '\0')
 			snprintf(unlisted_case, sizeof(unlisted_case), "%s",
-			         cases_found[c].mode);
+			         found_case->label);
 	}
 }
 
@@ -2314,13 +2490,13 @@ MU_TEST(the_dispatch_scan_read_every_case)
 	                "cannot read main() in " FW_RXTX_DIR
 	                "/bluetooth_rxtx.c, so the checks below would pass for "
 	                "want of anything to look at");
-	mu_assert(!dispatch_overflowed,
+	mu_assert(!dispatch_found.overflowed,
 	          "the dispatch has more cases, or a case more calls, than this "
 	          "scan can hold");
-	mu_assert(dispatch_lines > 50,
+	mu_assert(dispatch_found.lines > 50,
 	          "main() scanned as fewer than 50 lines, so the scan lost "
 	          "track of the function");
-	mu_assert(cases_found_count >= (int)DISPATCH_COUNT,
+	mu_assert(dispatch_found.case_count >= (int)DISPATCH_COUNT,
 	          "the scan found fewer dispatch cases than the table lists, so "
 	          "it lost track of main()");
 
@@ -2359,16 +2535,16 @@ MU_TEST(every_row_names_the_function_its_case_calls)
 		char msg[384];
 		int named = dispatch[i].runs == NULL, calls = 0;
 
-		for (c = 0; c < cases_found_count; c++) {
+		for (c = 0; c < dispatch_found.case_count; c++) {
+			const struct dispatch_case *f = &dispatch_found.cases[c];
 			int k;
 
-			if (strcmp(cases_found[c].mode, dispatch[i].mode) != 0)
+			if (strcmp(f->label, dispatch[i].mode) != 0)
 				continue;
-			calls += cases_found[c].call_count;
-			for (k = 0; k < cases_found[c].call_count; k++)
+			calls += f->call_count;
+			for (k = 0; k < f->call_count; k++)
 				if (dispatch[i].runs != NULL &&
-				    strcmp(cases_found[c].calls[k],
-				           dispatch[i].runs) == 0)
+				    strcmp(f->calls[k], dispatch[i].runs) == 0)
 					named = 1;
 		}
 
@@ -2453,6 +2629,466 @@ MU_TEST(a_mode_that_streams_runs_a_classified_loop)
 		         dispatch[i].runs ? dispatch[i].runs : "the case");
 		mu_assert(dispatch[i].loops != 0, msg);
 	}
+}
+
+/* ------------------------------------------------------------------ *
+ * The dispatch scan reads a case to its end
+ * ------------------------------------------------------------------ */
+
+/*
+ * Everything above rests on the scan finding the function each case really
+ * runs. No case in the firmware hides its work behind a `break` that is not
+ * its own, so nothing above would fail if the scan went back to ending a case
+ * at the first `break` on a body line -- it would simply stop noticing a case
+ * of that shape being added. So the shapes are written here and the scan is
+ * run on them.
+ *
+ * Three cases hide their work: below a loop's `break`, below a condition's,
+ * and inside a case body that is a block. After each comes a case of its own,
+ * because the other half of reading a case is still ending it: a scan that
+ * never ended one would find every call in all three and quietly fold the
+ * rest of the switch into them. The run of two labels and the case that leaves
+ * by `goto` are the two ways out the firmware's own dispatches use.
+ */
+static const char *const dispatch_shapes =
+	"int main(void)\n"
+	"{\n"
+	"	while (1) {\n"
+	"		switch (requested_mode) {\n"
+	"		case MODE_INNER_LOOP:\n"
+	"			while (waiting()) {\n"
+	"				if (requested_mode != MODE_INNER_LOOP)\n"
+	"					break;\n"
+	"			}\n"
+	"			inner_loop_work();\n"
+	"			break;\n"
+	"		case MODE_AFTER_INNER_LOOP:\n"
+	"			after_inner_loop_work();\n"
+	"			break;\n"
+	"		case MODE_BARE_CONDITION:\n"
+	"			if (!ready())\n"
+	"				break;\n"
+	"			bare_condition_work();\n"
+	"			break;\n"
+	"		case MODE_AFTER_BARE_CONDITION:\n"
+	"			after_bare_condition_work();\n"
+	"			break;\n"
+	"		case MODE_BLOCK_BODY: {\n"
+	"			block_body_work();\n"
+	"			break;\n"
+	"		}\n"
+	"		case MODE_FALLS_THROUGH:\n"
+	"		case MODE_FALLEN_INTO:\n"
+	"			shared_work();\n"
+	"			break;\n"
+	"		case MODE_GOTO_OUT:\n"
+	"			goto_out_work();\n"
+	"			goto done;\n"
+	"		case MODE_LAST:\n"
+	"			last_work();\n"
+	"			break;\n"
+	"		}\n"
+	"	}\n"
+	"done:\n"
+	"	return 0;\n"
+	"}\n";
+
+#define DISPATCH_SHAPE_COUNT 9
+
+/* Run the case scan over a function written out as text. tmpfile() rather
+ * than a path: the scans walk whole directories, so a C file left in one of
+ * them would be read as firmware by every other check in this file. */
+static int scan_dispatch_text(const char *text, struct dispatch_scan *out)
+{
+	int lines;
+	FILE *f = tmpfile();
+
+	if (f == NULL)
+		return 0;
+	if (fputs(text, f) == EOF) {
+		fclose(f);
+		return 0;
+	}
+	rewind(f);
+	memset(out, 0, sizeof(*out));
+	out->prefix = "MODE_";
+	lines = read_function_body_stream(f, "main", visit_dispatch_line, out);
+	fclose(f);
+	return lines > 0;
+}
+
+static const struct dispatch_case *scanned_case(const struct dispatch_scan *s,
+                                                const char *label)
+{
+	int i;
+
+	for (i = 0; i < s->case_count; i++)
+		if (strcmp(s->cases[i].label, label) == 0)
+			return &s->cases[i];
+	return NULL;
+}
+
+static int case_calls(const struct dispatch_case *c, const char *name)
+{
+	int i;
+
+	for (i = 0; i < c->call_count; i++)
+		if (strcmp(c->calls[i], name) == 0)
+			return 1;
+	return 0;
+}
+
+/* The work each case does, and the work of the case after it, which the case
+ * must not have absorbed. */
+static const struct {
+	const char *label;
+	const char *own_work;
+	const char *next_work;
+} dispatch_shape_cases[] = {
+	{ "MODE_INNER_LOOP",           "inner_loop_work",
+	  "after_inner_loop_work" },
+	{ "MODE_AFTER_INNER_LOOP",     "after_inner_loop_work",
+	  "bare_condition_work" },
+	{ "MODE_BARE_CONDITION",       "bare_condition_work",
+	  "after_bare_condition_work" },
+	{ "MODE_AFTER_BARE_CONDITION", "after_bare_condition_work",
+	  "block_body_work" },
+	{ "MODE_BLOCK_BODY",           "block_body_work",     "shared_work" },
+	{ "MODE_FALLS_THROUGH",        "shared_work",         "goto_out_work" },
+	{ "MODE_FALLEN_INTO",          "shared_work",         "goto_out_work" },
+	{ "MODE_GOTO_OUT",             "goto_out_work",       "last_work" },
+	{ "MODE_LAST",                 "last_work",           NULL },
+};
+
+MU_TEST(the_dispatch_scan_reads_each_case_to_its_own_break)
+{
+	/* Static rather than a local: the cases and their calls are a few tens
+	 * of kilobytes. */
+	static struct dispatch_scan shapes;
+	size_t i;
+
+	mu_assert_fatal(scan_dispatch_text(dispatch_shapes, &shapes),
+	                "cannot scan the written-out dispatch, so the checks "
+	                "below would pass for want of anything to look at");
+	mu_assert(!shapes.overflowed,
+	          "the written-out dispatch outgrew the scan's room for cases");
+	mu_assert_int_eq(DISPATCH_SHAPE_COUNT, shapes.case_count);
+
+	for (i = 0; i < sizeof(dispatch_shape_cases) /
+	                sizeof(dispatch_shape_cases[0]); i++) {
+		const struct dispatch_case *c =
+			scanned_case(&shapes, dispatch_shape_cases[i].label);
+		char msg[384];
+
+		snprintf(msg, sizeof(msg), "the scan found no case for %s",
+		         dispatch_shape_cases[i].label);
+		mu_assert_fatal(c != NULL, msg);
+
+		snprintf(msg, sizeof(msg),
+		         "%s runs %s() and the scan did not see it, so a mode of "
+		         "that shape would be classified by the wrong call and "
+		         "could collect packets through a loop no row describes",
+		         dispatch_shape_cases[i].label,
+		         dispatch_shape_cases[i].own_work);
+		mu_assert(case_calls(c, dispatch_shape_cases[i].own_work), msg);
+
+		if (dispatch_shape_cases[i].next_work == NULL)
+			continue;
+		snprintf(msg, sizeof(msg),
+		         "the scan read %s() into %s, which is the next case's "
+		         "work: the case was never ended, so every case after it "
+		         "is folded into this one",
+		         dispatch_shape_cases[i].next_work,
+		         dispatch_shape_cases[i].label);
+		mu_assert(!case_calls(c, dispatch_shape_cases[i].next_work), msg);
+	}
+}
+
+/* ------------------------------------------------------------------ *
+ * The BR/EDR image: one way to the host, and every request on it
+ * ------------------------------------------------------------------ */
+
+/*
+ * Everything above is about the bluetooth_rxtx image, where a host has two
+ * ways to collect packets -- reading the bulk IN endpoint, or asking for them
+ * with UBERTOOTH_POLL control requests -- and a mode wired to the wrong one
+ * loses them. That choice is why the tables above exist and why every row has
+ * to say which way its host uses.
+ *
+ * The btbr image shipped alongside it has no such choice. Before anything can
+ * be keyed on it, that has to be said plainly, because it is the reason this
+ * section has no transport column:
+ *
+ *  - Nothing polls. The control requests this image answers are the board's
+ *    own -- LEDs, serial number, revision, reset -- and none of them hands
+ *    over a captured packet. Taking a packet off the queue to the host is
+ *    what a polled read is, and only usb_work() does that here.
+ *  - Everything the image sends goes one way: btctl_tx_enqueue() puts a
+ *    message on the transmit queue, and usb_work() takes it off and writes
+ *    the bulk IN endpoint. The one other write is usb_send_sync(), which the
+ *    debug and fault printers use because the loop that would drain the queue
+ *    is not running by then.
+ *
+ * So the question the tables above ask -- which transport does this mode's
+ * host use -- has one answer here for every state the image can be in, and a
+ * table saying so for each would be inventing a distinction. What is worth
+ * checking is what those tables protect underneath: that a capture added
+ * later still goes through that one path rather than growing a send of its
+ * own, which would be past the queue's bound on a host that stops reading and
+ * past the framing the host puts messages back together with.
+ *
+ * This image is driven by host messages rather than by modes. btctl_handle_msg()
+ * is its dispatch, one case per BTCTL_* request, and a request that starts a
+ * capture hands over to a state machine that runs from the timer interrupt
+ * rather than from a loop of its own. The rows below are therefore keyed on
+ * the request, and a request added later fails the first check, which is
+ * where whoever adds it reads the paragraph above.
+ */
+struct btctl_request {
+	const char *request;  /* the BTCTL_* the dispatch has a case for */
+	const char *handler;  /* the function that case calls */
+	/* filled in by the scan */
+	int found;
+	int names_handler;
+};
+
+static struct btctl_request btctl_requests[] = {
+	{ "BTCTL_DEBUG",                 "btctl_handle_debug_req",              0, 0 },
+	{ "BTCTL_RESET_REQ",             "btctl_handle_reset_req",              0, 0 },
+	{ "BTCTL_IDLE_REQ",              "btctl_handle_idle_req",               0, 0 },
+	{ "BTCTL_SET_FREQ_OFF_REQ",      "btctl_handle_set_freq_off_req",       0, 0 },
+	{ "BTCTL_SET_MAX_AC_ERRORS_REQ", "btctl_handle_set_max_ac_errors_req",  0, 0 },
+	{ "BTCTL_SET_BDADDR_REQ",        "btctl_handle_set_bdaddr_req",         0, 0 },
+	{ "BTCTL_INQUIRY_REQ",           "btctl_handle_inquiry_req",            0, 0 },
+	{ "BTCTL_PAGING_REQ",            "btctl_handle_paging_req",             0, 0 },
+	{ "BTCTL_TX_ACL_REQ",            "btctl_handle_tx_acl_req",             0, 0 },
+	{ "BTCTL_INQUIRY_SCAN_REQ",      "btctl_handle_inquiry_scan_req",       0, 0 },
+	{ "BTCTL_PAGE_SCAN_REQ",         "btctl_handle_page_scan_req",          0, 0 },
+	{ "BTCTL_MONITOR_REQ",           "btctl_handle_monitor_req",            0, 0 },
+	{ "BTCTL_SET_EIR_REQ",           "btctl_handle_set_eir_req",            0, 0 },
+	{ "BTCTL_SET_AFH_REQ",           "btctl_handle_set_afh_req",            0, 0 },
+};
+
+#define BTCTL_REQUEST_COUNT \
+	(sizeof(btctl_requests) / sizeof(btctl_requests[0]))
+
+static struct dispatch_scan btctl_found;
+static int btctl_scanned;
+static char unlisted_btctl_request[64];
+
+static void scan_btctl_requests(void)
+{
+	const char *path = FW_BTBR_DIR "/src/btctl/btctl.c";
+	size_t i;
+	int c;
+
+	memset(&btctl_found, 0, sizeof(btctl_found));
+	btctl_found.prefix = "BTCTL_";
+	btctl_scanned = read_function_body(path, "btctl_handle_msg",
+	                                   visit_dispatch_line,
+	                                   &btctl_found) > 0;
+	if (!btctl_scanned)
+		return;
+
+	for (c = 0; c < btctl_found.case_count; c++) {
+		struct dispatch_case *found_case = &btctl_found.cases[c];
+
+		for (i = 0; i < BTCTL_REQUEST_COUNT; i++) {
+			if (strcmp(btctl_requests[i].request,
+			           found_case->label) != 0)
+				continue;
+			btctl_requests[i].found = 1;
+			found_case->listed = 1;
+			if (case_calls(found_case, btctl_requests[i].handler))
+				btctl_requests[i].names_handler = 1;
+		}
+		if (!found_case->listed && unlisted_btctl_request[0] == '\0')
+			snprintf(unlisted_btctl_request,
+			         sizeof(unlisted_btctl_request), "%s",
+			         found_case->label);
+	}
+}
+
+MU_TEST(the_br_edr_request_scan_read_every_case)
+{
+	mu_assert_fatal(btctl_scanned,
+	                "cannot read btctl_handle_msg() in " FW_BTBR_DIR
+	                "/src/btctl/btctl.c, so the checks below would pass "
+	                "for want of anything to look at");
+	mu_assert(!btctl_found.overflowed,
+	          "the request dispatch has more cases, or a case more calls, "
+	          "than this scan can hold");
+	mu_assert(btctl_found.case_count >= (int)BTCTL_REQUEST_COUNT,
+	          "the scan found fewer request cases than the table lists, so "
+	          "it lost track of btctl_handle_msg()");
+}
+
+/*
+ * A request the dispatch handles and this table does not list is the hole the
+ * tables above close for the other image: nothing says how the host collects
+ * what it produces.
+ */
+MU_TEST(every_br_edr_request_is_listed_with_its_handler)
+{
+	size_t i;
+	char msg[512];
+
+	snprintf(msg, sizeof(msg),
+	         "btctl_handle_msg() has a case for %s and the table in this "
+	         "test does not. Add it, and check that whatever it starts "
+	         "sends through btctl_tx_enqueue(): that queue is the only way "
+	         "to the host in this image",
+	         unlisted_btctl_request);
+	mu_assert(unlisted_btctl_request[0] == '\0', msg);
+
+	for (i = 0; i < BTCTL_REQUEST_COUNT; i++) {
+		snprintf(msg, sizeof(msg),
+		         "the table lists %s and btctl_handle_msg() has no case "
+		         "for it, so the row says nothing about anything",
+		         btctl_requests[i].request);
+		mu_assert(btctl_requests[i].found, msg);
+
+		snprintf(msg, sizeof(msg),
+		         "the table says %s is handled by %s(), which its case "
+		         "does not call. The row is stale",
+		         btctl_requests[i].request, btctl_requests[i].handler);
+		mu_assert(btctl_requests[i].names_handler, msg);
+	}
+}
+
+/*
+ * The claim the section above rests on, checked rather than assumed: this
+ * image has one way to the host.
+ *
+ * The shim owns both ends of it -- the transmit queue's dequeue and the write
+ * to the bulk IN endpoint -- so it is the one file allowed to name either. A
+ * state that wrote the endpoint itself would be past the queue; one that
+ * dequeued would be handing the host packets from somewhere other than
+ * usb_work(), which is what a second transport looks like.
+ *
+ * The image's makefile compiles every .c under its src/, so walking that tree
+ * covers the image as it is rather than as it was listed. The files it takes
+ * from firmware/common are shared with the other image, and the scan above
+ * reads those.
+ */
+static int br_edr_files_read;
+static char br_edr_stray_write[256];
+static char br_edr_stray_dequeue[256];
+static char br_edr_stray_sync[256];
+
+static int path_ends_with(const char *path, const char *tail)
+{
+	size_t p = strlen(path), t = strlen(tail);
+
+	return p >= t && strcmp(path + p - t, tail) == 0;
+}
+
+/* How many lines of one file call `name`. */
+static int file_calls(const char *path, const char *name)
+{
+	char line[SCAN_LINE_MAX];
+	int in_block = 0, hits = 0;
+	FILE *f = fopen(path, "r");
+
+	if (f == NULL)
+		return 0;
+
+	while (fgets(line, sizeof(line), f) != NULL) {
+		strip_comments(line, &in_block);
+		strip_string_literals(line);
+		if (calls_identifier(line, name))
+			hits++;
+	}
+
+	fclose(f);
+	return hits;
+}
+
+static void check_br_edr_file(const char *path)
+{
+	int is_shim = path_ends_with(path, "/src/drivers/ubertooth_usb.c");
+
+	br_edr_files_read++;
+
+	if (!is_shim) {
+		if (file_calls(path, "USBHwEPWrite") &&
+		    br_edr_stray_write[0] == '\0')
+			snprintf(br_edr_stray_write,
+			         sizeof(br_edr_stray_write), "%s", path);
+		if (file_calls(path, "btctl_tx_dequeue") &&
+		    br_edr_stray_dequeue[0] == '\0')
+			snprintf(br_edr_stray_dequeue,
+			         sizeof(br_edr_stray_dequeue), "%s", path);
+	}
+	/* The debug and fault printers are the synchronous send's callers, and
+	 * the shim holds its definition. */
+	if (!is_shim && !path_ends_with(path, "/src/util/debug.c") &&
+	    !path_ends_with(path, "/src/util/fault.c") &&
+	    file_calls(path, "usb_send_sync") && br_edr_stray_sync[0] == '\0')
+		snprintf(br_edr_stray_sync, sizeof(br_edr_stray_sync), "%s",
+		         path);
+}
+
+static void walk_br_edr_sources(const char *path,
+                                void (*visit)(const char *path))
+{
+	struct dirent *entry;
+	DIR *dir = opendir(path);
+
+	if (dir == NULL)
+		return;
+
+	while ((entry = readdir(dir)) != NULL) {
+		char child[512];
+		size_t len = strlen(entry->d_name);
+
+		/* "." and ".." would recurse here forever. */
+		if (entry->d_name[0] == '.')
+			continue;
+		snprintf(child, sizeof(child), "%s/%s", path, entry->d_name);
+		if (len > 2 && strcmp(entry->d_name + len - 2, ".c") == 0) {
+			visit(child);
+			continue;
+		}
+		/* A subdirectory, or a file that is not source: opening a file
+		 * as a directory fails and the call returns. */
+		walk_br_edr_sources(child, visit);
+	}
+
+	closedir(dir);
+}
+
+MU_TEST(the_br_edr_image_has_one_way_to_the_host)
+{
+	char msg[512];
+
+	walk_br_edr_sources(FW_BTBR_DIR "/src", check_br_edr_file);
+
+	mu_assert(br_edr_files_read > 10,
+	          "no source read under " FW_BTBR_DIR "/src, so the checks "
+	          "below passed for want of anything to look at");
+
+	snprintf(msg, sizeof(msg),
+	         "%s writes a USB endpoint, and only the image's USB shim may. "
+	         "A send of its own is past the transmit queue, so nothing "
+	         "bounds it on a host that stops reading and the host cannot "
+	         "put the message back together", br_edr_stray_write);
+	mu_assert(br_edr_stray_write[0] == '\0', msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s takes messages off the transmit queue, and only usb_work() "
+	         "in the image's USB shim may. Handing the host packets from "
+	         "anywhere else is a second transport, and then which one a "
+	         "capture uses has to be said somewhere",
+	         br_edr_stray_dequeue);
+	mu_assert(br_edr_stray_dequeue[0] == '\0', msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s calls usb_send_sync(), which is the debug and fault path: "
+	         "it writes the endpoint with the USB interrupt held off and "
+	         "drops the message if the host is not reading. A capture goes "
+	         "through btctl_tx_enqueue()", br_edr_stray_sync);
+	mu_assert(br_edr_stray_sync[0] == '\0', msg);
 }
 
 /* ------------------------------------------------------------------ *
@@ -2579,6 +3215,12 @@ int main(void)
 	MU_RUN(every_row_names_the_function_its_case_calls);
 	MU_RUN(a_mode_uses_the_transport_of_the_loop_it_runs);
 	MU_RUN(a_mode_that_streams_runs_a_classified_loop);
+	MU_RUN(the_dispatch_scan_reads_each_case_to_its_own_break);
+
+	scan_btctl_requests();
+	MU_RUN(the_br_edr_request_scan_read_every_case);
+	MU_RUN(every_br_edr_request_is_listed_with_its_handler);
+	MU_RUN(the_br_edr_image_has_one_way_to_the_host);
 
 	MU_RUN(no_source_line_is_too_long_for_the_scans);
 

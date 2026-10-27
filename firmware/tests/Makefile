@@ -262,15 +262,20 @@ $(BINDIR)/test_usbhw_wait: test_usbhw_wait.c minunit.h stubs-usb/lpc17.h \
 # dependency, so the real one is used.
 #
 # Its last cases scan the mode loops for which USB service each one calls, so
-# FW_RXTX_DIR points at those sources too.
+# FW_RXTX_DIR points at those sources too. The last section scans the btbr
+# image instead -- its request dispatch, and its whole src/ tree for a second
+# way to the host -- so FW_BTBR_DIR points at that image.
 $(BINDIR)/test_usb_queue: test_usb_queue.c minunit.h source_scan.h \
 		stubs-usbq/usbapi.h \
 		stubs-usbq/ubertooth.h stubs/ubertooth.h \
 		$(FW_RXTX)/ubertooth_usb.c $(FW_RXTX)/ubertooth_usb.h \
 		$(FW_RXTX)/bluetooth_rxtx.c $(FW_RXTX)/le_phy.c $(FW_RXTX)/ego.c \
+		$(FW_BTBR)/src/btctl/btctl.c \
+		$(FW_BTBR)/src/drivers/ubertooth_usb.c \
 		$(FW_COMMON)/usb_irq.h | $(BINDIR)
 	$(CC) $(CFLAGS) -Istubs-usbq $(CPPFLAGS) -I$(FW_LPCUSB) \
 		-I$(FW_COMMON) -DFW_HOST_TEST -DFW_RXTX_DIR='"$(FW_RXTX)"' \
+		-DFW_BTBR_DIR='"$(FW_BTBR)"' \
 		-DFW_COMMON_DIR='"$(FW_COMMON)"' \
 		-o $@ test_usb_queue.c
 
