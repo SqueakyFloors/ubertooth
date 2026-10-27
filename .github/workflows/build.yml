@@ -667,9 +667,11 @@ jobs:
   # `ubertooth-dfu -d` validates the DFU suffix before it reads anything else
   # out of a file: the suffix length, the DFU version, the signature, a
   # payload that is not empty, the CRC over the whole file, and the USB vendor
-  # and product the suffix names. A change that broke the packaging step, the
-  # suffix layout or those two IDs left every job green and surfaced the first
-  # time someone flashed a board.
+  # and product the suffix names. A change that broke the packaging step or
+  # the suffix layout left every job green and surfaced the first time someone
+  # flashed a board. (A change to the two USB IDs themselves is the scripts
+  # job's self-test: packaging and check both read them from the same header,
+  # so only a test that spells the numbers out can see it.)
   #
   # So this packages the images the firmware job built with the real tool and
   # runs each packaged file through the host's own dfu_image_check(). It is
@@ -685,9 +687,11 @@ jobs:
     # second, derived failure.
     needs: firmware
     runs-on: ubuntu-24.04
-    # The host build is the bulk of it (libbtbb, then one tool), above the
-    # bounded install and download steps below.
-    timeout-minutes: 15
+    # Above the sum of the bounded steps below -- ten minutes for the install
+    # and four for the download -- plus the two checkouts and the two cmake
+    # builds, so a slow package mirror fails the step that names it rather
+    # than being cancelled with the job and read as a broken build.
+    timeout-minutes: 22
     steps:
     - uses: actions/checkout@v4
 

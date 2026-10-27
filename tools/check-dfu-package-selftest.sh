@@ -440,6 +440,26 @@ run "--dfu-tool with no tool" --dfu-tool
 want_status 1
 want_stderr "takes the ubertooth-dfu to package with"
 
+# A repeated option is refused rather than quietly reconciled: two tools or
+# two directories in one command line is a mistake, and acting on one of them
+# hides it.
+run "--dfu-tool twice" --dfu-tool "$good" --dfu-tool "$wrong_product" "$image"
+want_status 1
+want_empty_stdout
+want_stderr "--dfu-tool twice"
+
+run "--from twice" --dfu-tool "$good" --from "$work" --from "$work"
+want_status 1
+want_empty_stdout
+want_stderr "--from twice"
+
+# An option after the images would be read as a file name, and the error would
+# name a missing image rather than the option that was ignored.
+run "an option after the images" --dfu-tool "$good" "$image" --from "$work"
+want_status 1
+want_empty_stdout
+want_stderr "comes after the images"
+
 run "--from with no directory" --from
 want_status 1
 want_stderr "takes one directory"

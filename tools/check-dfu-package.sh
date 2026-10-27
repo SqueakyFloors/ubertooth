@@ -14,9 +14,14 @@
 # `ubertooth-dfu -d` validates the DFU suffix before it reads anything else
 # out of the file: the suffix length, the DFU version, the UFD signature, a
 # payload that is not empty, the CRC over the whole file, and the USB vendor
-# and product the suffix names. A change that broke the packaging step, the
-# suffix layout or those two IDs would leave every .bin check green and show
-# up the first time someone flashed a board.
+# and product the suffix names. A change that broke the packaging step or the
+# suffix layout would leave every .bin check green and show up the first time
+# someone flashed a board.
+#
+# What this cannot see on its own is a change to the two USB IDs in
+# host/ubertooth-tools/src/dfu.h: the packaging and the check below both read
+# them from there, so they would agree on a new value. The self-test is what
+# catches that, because its stand-in packager spells the numbers out.
 #
 # So this packages each image with the real tool and runs the packaged file
 # through the tool's own check. Neither half is reimplemented here: the
@@ -56,7 +61,11 @@ revision_check="$here/check-image-revision.sh"
 # not tell a right answer from a wrong one.
 SUFFIX_LENGTH=16
 
-dfu_tool=ubertooth-dfu
+# The tool packaging is done with, and the name the usage text names as the
+# default: a separate constant, so `--dfu-tool X -h` still says what the
+# default is rather than reporting X as one.
+DEFAULT_DFU_TOOL=ubertooth-dfu
+dfu_tool=$DEFAULT_DFU_TOOL
 work=
 trap 'rm -rf "$work"' EXIT HUP INT TERM
 
@@ -70,7 +79,7 @@ packaged .dfu is a file ubertooth-dfu would accept.
 
   <image.bin>...   package and check the named images
   --from <dir>     find every shipped image under <dir> and check it
-  --dfu-tool <t>   the ubertooth-dfu to package with (default: $dfu_tool)
+  --dfu-tool <t>   the ubertooth-dfu to package with (default: $DEFAULT_DFU_TOOL)
   -h, --help       print this text
 EOF
 }
@@ -290,12 +299,23 @@ while [ $# -gt 0 ]; do
             fail "--dfu-tool takes the ubertooth-dfu to package with"
             exit 1
         fi
+        # A repeated option is refused rather than quietly reconciled, as
+        # every tool in this tree does: two tools named in one command line
+        # is a mistake, and acting on one of them hides it.
+        if [ "$dfu_tool" != "$DEFAULT_DFU_TOOL" ]; then
+            fail "--dfu-tool twice ($dfu_tool, then $2): name one tool"
+            exit 1
+        fi
         dfu_tool=$2
         shift 2
         ;;
     --from)
         if [ $# -lt 2 ]; then
             fail "--from takes one directory"
+            exit 1
+        fi
+        if [ -n "$from_directory" ]; then
+            fail "--from twice ($from_directory, then $2): name one directory"
             exit 1
         fi
         if [ ! -d "$2" ]; then
@@ -311,6 +331,19 @@ while [ $# -gt 0 ]; do
         ;;
     *)
         break
+        ;;
+    esac
+done
+
+# The loop above stops at the first image, so anything after it is a file
+# name. An option there would have been read as one, and the error would name
+# a missing image rather than the option that was ignored.
+for argument in "$@"; do
+    case $argument in
+    -?*)
+        fail "$argument comes after the images, where it reads as a file" \
+             "name: the options go first"
+        exit 1
         ;;
     esac
 done
