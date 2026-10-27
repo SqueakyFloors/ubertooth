@@ -28,6 +28,8 @@ check="$here/check-api-version.sh"
 top=$(git -C "$here" rev-parse --show-toplevel) || exit 1
 header_path=host/libubertooth/src/ubertooth_interface.h
 real_header="$top/$header_path"
+common_mk=firmware/common.mk
+real_common_mk="$top/$common_mk"
 
 if [ ! -x "$check" ]; then
     printf '%s\n' "error: $check is missing or not executable" >&2
@@ -36,6 +38,11 @@ fi
 if [ ! -f "$real_header" ]; then
     printf '%s\n' "error: $real_header is not there, so the cases below would" >&2
     printf '%s\n' "       read a header this tree does not use" >&2
+    exit 1
+fi
+if [ ! -f "$real_common_mk" ]; then
+    printf '%s\n' "error: $real_common_mk is not there, so the compile-flag cases" >&2
+    printf '%s\n' "       below would read a build file this tree does not use" >&2
     exit 1
 fi
 
@@ -96,6 +103,22 @@ edit_prose_comment() {
     printf '/*\nplain prose with no leading star\n*/\n' >> "$1/$2"
 }
 
+# Rewrite one line of the copied firmware/common.mk, from the line it has to
+# the line it should have. The check afterwards is the guard: a case whose
+# pattern no longer matches would change nothing and then pass for the wrong
+# reason, which is worse than a failure. The replacement is matched as a whole
+# line, so uncommenting a flag -- where the old line contains the new one --
+# is caught too.
+mk_edit() {
+    sed "s|^$2\$|$3|" "$1/$common_mk" > "$1/mk.new"
+    mv "$1/mk.new" "$1/$common_mk"
+    grep -qxF -- "$3" "$1/$common_mk" || {
+        printf '%s\n' "error: could not rewrite '$2' as '$3' in the copy of" >&2
+        printf '%s\n' "       $common_mk: that line has changed shape" >&2
+        exit 1
+    }
+}
+
 # A throwaway repository holding the paths the check cares about: main with the
 # given version, and a branch "work" cut from it, checked out.
 new_repo() {
@@ -114,6 +137,9 @@ new_repo() {
         "$repo/firmware/common/lpcusb/target" "$repo/firmware/btbr" \
         "$repo/firmware/tests"
     cp "$real_header" "$repo/$header_path"
+    # The real build file, so the compile-flag cases change the lines the tree
+    # actually has rather than lines written to suit them.
+    cp "$real_common_mk" "$repo/$common_mk"
     set_version "$repo" "$1"
     # The seeded line is code rather than a comment, so a file the check
     # watches starts out with content it can see.
@@ -124,7 +150,7 @@ new_repo() {
         firmware/common/LPC17xx_Linker_Script_with_bootloader.ld \
         firmware/common/sections.ld \
         firmware/common/LPC17xx_Linker_Script_bootloader.ld \
-        firmware/common.mk firmware/Makefile \
+        firmware/Makefile \
         firmware/btbr/btbr.c firmware/tests/test_firmware.c \
         host/libubertooth/src/ubertooth.c CHANGELOG.md COMPATIBILITY.md \
         TEST_PLAN.md; do
@@ -426,13 +452,90 @@ want_status 1
 want_stderr "has to be above the one main carries"
 want_stderr "firmware/bluetooth_rxtx/Makefile"
 
-# firmware/common.mk is a known gap rather than an oversight, so it is pinned
-# here: the reason it is not watched is in tools/check-api-version.sh, and a
-# case that fails if someone adds it without reading that reason is the point.
+# firmware/common.mk carries the compile flags, so a change to one of the few
+# that decide what the host sees is a firmware change with no source change at
+# all. The board define is the plainest: it sets the USB product ID the host
+# looks for and the BOARD_ID it reads back.
 new_repo 0x0131
-edit "$repo" firmware/common.mk
-commit "$repo" "change the shared build file"
-run "the shared build file is a known gap" "$repo" main
+mk_edit "$repo" "BOARD  ?= UBERTOOTH_ONE" "BOARD ?= UBERTOOTH_ZERO"
+commit "$repo" "build for the other board"
+run "a watched compile flag changed, version kept" "$repo" main
+want_status 1
+want_empty_stdout
+want_stderr "has to be above the one main carries"
+want_stderr "$common_mk"
+want_stderr "BOARD"
+
+# The same change with the bump it asks for.
+set_version "$repo" 0x0132
+commit "$repo" "take the next version"
+run "a watched compile flag changed, version bumped" "$repo" main
+want_status 0
+want_empty_stderr
+want_stdout "takes 1.32 (0x0132), above main's 1.31 (0x0131)"
+
+# Dropping -DTX_ENABLE takes UBERTOOTH_JAM_MODE away and makes UBERTOOTH_EGO
+# refuse its jamming modes, so the set of requests the board answers changes.
+new_repo 0x0131
+mk_edit "$repo" "ifeq (\$(DISABLE_TX), )" "ifneq (\$(DISABLE_TX), )"
+commit "$repo" "stop building transmission in"
+run "the transmission flag changed, version kept" "$repo" main
+want_status 1
+want_stderr "has to be above the one main carries"
+want_stderr "DISABLE_TX"
+
+# A flag that is commented out counts, because uncommenting it is the change.
+# -fpack-struct repacks the structs the host and the firmware both compile out
+# of ubertooth_interface.h, so the host would read every reply at the wrong
+# offsets.
+new_repo 0x0131
+mk_edit "$repo" "#CFLAGS += -fpack-struct" "CFLAGS += -fpack-struct"
+commit "$repo" "pack the structs"
+run "a commented-out flag turned on, version kept" "$repo" main
+want_status 1
+want_stderr "has to be above the one main carries"
+want_stderr "-fpack-struct"
+
+# Every other line of the file is ignored. The optimisation level is the shape
+# of the change this watch is narrowed for: the one merge that changed this
+# file rewrote where object files are written, which no host can observe, and
+# watching the whole file would have reded it.
+new_repo 0x0131
+mk_edit "$repo" "OPT = s" "OPT = 2"
+commit "$repo" "build at a different optimisation level"
+run "an unwatched line of the build file is not a change" "$repo" main
+want_status 0
+want_empty_stderr
+want_stdout "no firmware interface file changed"
+
+# And such a line cannot buy a version either, which is the other direction of
+# the same rule.
+new_repo 0x0131
+mk_edit "$repo" "OPT = s" "OPT = 2"
+set_version "$repo" 0x0132
+commit "$repo" "change the optimisation level and bump the version"
+run "an unwatched line of the build file cannot buy a version" "$repo" main
+want_status 1
+want_empty_stdout
+want_stderr "changes no firmware interface file"
+want_stderr "Put it back to 0x0131"
+
+# Reindenting a watched line is not a change to the flag it sets: the text
+# compared has its runs of blanks collapsed.
+new_repo 0x0131
+mk_edit "$repo" "CFLAGS += \$(CDEFS)" "CFLAGS   +=   \$(CDEFS)"
+commit "$repo" "line up a flag line with its neighbours"
+run "reindenting a watched line is not a change" "$repo" main
+want_status 0
+want_stdout "no firmware interface file changed"
+
+# A comment added to the build file is not a flag change either, so writing
+# down why something is the way it is costs nothing.
+new_repo 0x0131
+printf '# The optimisation level is left where it is: the capture path has room.\n' \
+    >> "$repo/$common_mk"
+commit "$repo" "write down why the optimisation level is what it is"
+run "a comment in the build file is not a flag change" "$repo" main
 want_status 0
 want_stdout "no firmware interface file changed"
 
@@ -675,9 +778,9 @@ want_stdout firmware/bluetooth_rxtx/bluetooth_rxtx.c
 want_stdout firmware/bluetooth_rxtx/Makefile
 want_stdout firmware/common/usb.c
 want_stdout "$header_path"
+want_stdout firmware/common.mk
 want_no_stdout firmware/bluetooth_rxtx/README
 want_no_stdout firmware/bluetooth_rxtx/flash
-want_no_stdout firmware/common.mk
 want_no_stdout firmware/Makefile
 want_no_stdout firmware/btbr/btbr.c
 want_no_stdout firmware/tests/test_firmware.c

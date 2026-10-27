@@ -161,15 +161,18 @@ change the host relies on**, in the PR that makes it.
   compares the **content** of a list of files, whole-line comments and blank
   lines not counted: the sources compiled into the `bluetooth_rxtx` image,
   that image's own Makefile and linker scripts, and the interface header
-  (`tools/check-api-version.sh --list-watched` prints the list). It is an
-  approximation, so it is not the rule, the paragraph above is. A firmware
-  change the host relies on that touches nothing on that list still needs the
-  bump by hand, `firmware/common.mk` above all, and a change to a watched file
-  that the host cannot observe is still asked for one. The false reds to
-  expect: a change to the BTBR or BTCTL half of the interface header, which
-  belongs to the separate `btbr` image; a change to one of the image's sources
-  the host never reads, such as the LED patterns or the debug UART; and code
-  moved verbatim between two watched files.
+  (`tools/check-api-version.sh --list-watched` prints the list). In
+  `firmware/common.mk` it compares only the lines that set one of a listed set
+  of compile flags -- the board define, `-DTX_ENABLE`, `-fpack-struct` and the
+  rest of the list in the script -- and ignores every other line of that file.
+  It is an approximation, so it is not the rule, the paragraph above is. A
+  firmware change the host relies on that touches nothing on that list still
+  needs the bump by hand, and a change to a watched file that the host cannot
+  observe is still asked for one. The false reds to expect: a change to the
+  BTBR or BTCTL half of the interface header, which belongs to the separate
+  `btbr` image; a change to one of the image's sources the host never reads,
+  such as the LED patterns or the debug UART; and code moved verbatim between
+  two watched files.
 - So `api-version` is the one job in the gating set whose red is sometimes
   wrong. If it refuses a branch that changes nothing the host sees, do NOT
   bump the version to clear it and do NOT edit the watched list to suit one
