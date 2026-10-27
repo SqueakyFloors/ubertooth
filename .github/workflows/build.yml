@@ -581,6 +581,11 @@ jobs:
   # built. tools/check-api-version-selftest.sh, run by the scripts job above,
   # is what shows the check still refuses a bad branch.
   api-version:
+    # Pull requests and pushes to main only. On the weekly schedule, a
+    # release or a manual run, HEAD is main's tip and the comparison below
+    # would be main against itself: a green that proves nothing, and a red
+    # weeks after the commit that nobody is going to fix.
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -600,13 +605,26 @@ jobs:
         fetch-depth: 0
 
     - name: Fetch main
-      # By name, because a run triggered by a push to main has no second
-      # branch to fetch it as a side effect, and the check compares against
-      # main as it is now, not as some earlier fetch left it.
-      run: git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+      # By name, because the check compares against main as it is now, not as
+      # the checkout above happened to leave it. Bounded and retried like
+      # every other network fetch in this workflow, so a slow moment at the
+      # remote does not red a gating job: 60 seconds an attempt, 2 minutes 30
+      # at worst.
+      if: github.event_name == 'pull_request'
+      run: tools/retry.sh 60 git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
 
     - name: Check the firmware API version against main
-      run: tools/check-api-version.sh origin/main
+      # On a push to main the commit being checked IS main, so the comparison
+      # is with the commit before it. That is the backstop for the gap a pull
+      # request check cannot close: a branch whose check passed before another
+      # branch merged the same value is merged without re-running, and this
+      # catches it on the merge rather than in the next release's firmware.
+      run: |
+        if [ "${{ github.event_name }}" = "pull_request" ]; then
+          tools/check-api-version.sh origin/main
+        else
+          tools/check-api-version.sh HEAD~1
+        fi
 
   # Ubuntu 20.04 is the oldest supported Linux. GitHub retired the hosted
   # ubuntu-20.04 runner, so run it in a container on a current runner. The

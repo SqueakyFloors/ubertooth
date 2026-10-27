@@ -93,7 +93,9 @@ new_repo() {
         "$repo/firmware/common" "$repo/firmware/btbr" "$repo/firmware/tests"
     cp "$real_header" "$repo/$header_path"
     set_version "$repo" "$1"
-    for f in firmware/bluetooth_rxtx/bluetooth_rxtx.c firmware/common/usb.c \
+    for f in firmware/bluetooth_rxtx/bluetooth_rxtx.c firmware/bluetooth_rxtx/README \
+        firmware/bluetooth_rxtx/Makefile firmware/common/usb.c \
+        firmware/common/memory.ld firmware/common.mk firmware/Makefile \
         firmware/btbr/btbr.c firmware/tests/test_firmware.c \
         host/libubertooth/src/ubertooth.c; do
         printf '/* %s */\n' "$f" > "$repo/$f"
@@ -136,6 +138,11 @@ want_empty_stdout() {
 
 want_empty_stderr() {
     [ ! -s "$work/err" ] || fail "wrote to standard error and should not have"
+}
+
+want_no_stdout() {
+    grep -qF -- "$1" "$work/out" && fail "standard output mentions '$1' and should not"
+    return 0
 }
 
 # A branch that changes the firmware interface and leaves the version where
@@ -317,6 +324,150 @@ run "a comment after the value" "$repo" main
 want_status 0
 want_stdout "takes 1.32 (0x0132)"
 
+# A capital X is as valid a hex literal to the compiler, so refusing it here
+# would be a red about nothing.
+new_repo 0x0131
+edit "$repo" firmware/bluetooth_rxtx/bluetooth_rxtx.c
+set_version "$repo" 0X0132
+commit "$repo" "change the firmware and write the value with a capital X"
+run "a capital X in the literal" "$repo" main
+want_status 0
+want_stdout "takes 1.32 (0x0132)"
+
+# A comment in the interface header is not the interface. Asking a typo fix
+# for a bump would be a false red, and a bump costs every user a reflash plus
+# CHANGELOG, COMPATIBILITY.md, TEST_PLAN.md and test-string churn.
+new_repo 0x0131
+printf '/* a clearer word for the same thing */\n' >> "$repo/$header_path"
+commit "$repo" "reword a comment in the interface header"
+run "a comment in the interface header is not a change to it" "$repo" main
+want_status 0
+want_stdout "no firmware interface file changed"
+
+# The other direction, and the bypass a reviewer found: a comment is not the
+# firmware change that would justify a bump, so a branch cannot authorise its
+# own by rewording one.
+new_repo 0x0131
+printf '/* a clearer word for the same thing */\n' >> "$repo/$header_path"
+set_version "$repo" 0x0132
+commit "$repo" "reword a comment and bump the version"
+run "a comment cannot authorise its own bump" "$repo" main
+want_status 1
+want_empty_stdout
+want_stderr "changes no firmware interface file"
+want_stderr "Put it back to 0x0131"
+
+# The same bypass through a file that merely sits in a watched directory. A
+# README cannot change what the host sees, so appending a line to one must not
+# buy a version.
+new_repo 0x0131
+edit "$repo" firmware/bluetooth_rxtx/README
+set_version "$repo" 0x0132
+commit "$repo" "document the firmware and bump the version"
+run "a README cannot authorise its own bump" "$repo" main
+want_status 1
+want_empty_stdout
+want_stderr "changes no firmware interface file"
+
+# The image's own Makefile is the list of the sources that go into it, so
+# adding or removing one of them is a change to the image.
+new_repo 0x0131
+edit "$repo" firmware/bluetooth_rxtx/Makefile
+commit "$repo" "change which sources the image is built from"
+run "the image's Makefile is a firmware change" "$repo" main
+want_status 1
+want_stderr "has to be above the one main carries"
+want_stderr "firmware/bluetooth_rxtx/Makefile"
+
+# firmware/common.mk is a known gap rather than an oversight, so it is pinned
+# here: the reason it is not watched is in tools/check-api-version.sh, and a
+# case that fails if someone adds it without reading that reason is the point.
+new_repo 0x0131
+edit "$repo" firmware/common.mk
+commit "$repo" "change the shared build file"
+run "the shared build file is a known gap" "$repo" main
+want_status 0
+want_stdout "no firmware interface file changed"
+
+# A linker script decides where things land, so it counts too.
+new_repo 0x0131
+edit "$repo" firmware/common/memory.ld
+commit "$repo" "change the memory layout"
+run "a linker script is a firmware change" "$repo" main
+want_status 1
+want_stderr "has to be above the one main carries"
+
+# firmware/Makefile picks which images to build, not how any of them is
+# compiled, so it is not the interface.
+new_repo 0x0131
+edit "$repo" firmware/Makefile
+commit "$repo" "change which images are built"
+run "the top firmware Makefile is not the interface" "$repo" main
+want_status 0
+want_stdout "no firmware interface file changed"
+
+# A release takes the next major version with the minor digits at 00, whether
+# or not the cycle changed the firmware (docs/source/release_procedure.rst).
+# Without this the release's own pull request would be refused by a job it
+# could not satisfy.
+new_repo 0x0131
+edit "$repo" host/libubertooth/src/ubertooth.c
+set_version "$repo" 0x0200
+commit "$repo" "cut a release"
+run "a release takes the next major version" "$repo" main
+want_status 0
+want_empty_stderr
+want_stdout "the next major version"
+
+# And that carve-out stays narrow: one major up with the minor at 00, nothing
+# else. Two majors up is not a release, it is a typo.
+new_repo 0x0131
+set_version "$repo" 0x0300
+commit "$repo" "skip a major version"
+run "two majors up is not a release bump" "$repo" main
+want_status 1
+want_stderr "changes no firmware interface file"
+
+# Nor is a minor bump dressed up as one.
+new_repo 0x0131
+set_version "$repo" 0x0201
+commit "$repo" "a major version with a minor digit"
+run "a major version with a minor digit is not a release bump" "$repo" main
+want_status 1
+want_stderr "changes no firmware interface file"
+
+# The answer must not depend on how this checkout happens to be configured to
+# display a diff. color.ui = always colorises even when nothing is a terminal
+# and diff.external replaces the format altogether, either of which would make
+# a line-matching filter see no change and report the permissive answer.
+for setting in "color.ui always" "diff.external /bin/echo" "diff.noprefix true"; do
+    new_repo 0x0131
+    # shellcheck disable=SC2086 # two words, a git config key and its value
+    git -C "$repo" config $setting
+    printf '#define UBERTOOTH_SOMETHING_NEW 99\n' >> "$repo/$header_path"
+    commit "$repo" "add a request to the interface"
+    run "an interface change is found with $setting set" "$repo" main
+    want_status 1
+    want_stderr "has to be above the one main carries"
+done
+
+# --list-watched prints what the check watches, so a reader does not have to
+# trust that the pathspecs still match anything. It lists the compiled sources
+# and the interface header, and not the documentation beside them.
+new_repo 0x0131
+run "the watched files can be listed" "$repo" --list-watched
+want_status 0
+want_empty_stderr
+want_stdout firmware/bluetooth_rxtx/bluetooth_rxtx.c
+want_stdout firmware/bluetooth_rxtx/Makefile
+want_stdout firmware/common/usb.c
+want_stdout "$header_path"
+want_no_stdout firmware/bluetooth_rxtx/README
+want_no_stdout firmware/common.mk
+want_no_stdout firmware/Makefile
+want_no_stdout firmware/btbr/btbr.c
+want_no_stdout firmware/tests/test_firmware.c
+
 # Every way of reading no value has to fail. A check that had stopped finding
 # the define would otherwise pass every branch, which is the failure mode that
 # makes a check worse than none.
@@ -381,6 +532,12 @@ run "an option the check does not know" "$repo" --plausible
 want_status 1
 want_empty_stdout
 want_stderr "error: unknown option '--plausible'"
+
+# A lone -- ends the options, so a ref whose name begins with a dash can still
+# be named (.kiro/steering/cli-output.md).
+run "a lone -- ends the options" "$repo" -- main
+want_status 0
+want_stdout "no firmware interface file changed"
 
 run "the help option" "$repo" -h
 want_status 0

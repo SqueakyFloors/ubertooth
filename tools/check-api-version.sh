@@ -56,48 +56,84 @@ header=host/libubertooth/src/ubertooth_interface.h
 usage() {
     cat <<'EOF'
 usage: tools/check-api-version.sh [main-ref]
+       tools/check-api-version.sh --list-watched
 
 Check UBERTOOTH_API_VERSION on this branch against main: a branch that changes
 the firmware interface must take a version above main's, and a branch that
-does not must leave it as the merge base had it.
+does not must leave it as the merge base had it. A release is the one
+exception: it takes the next major version on its own.
 
 main-ref is the commit to treat as main's tip, and defaults to the remote this
 checkout tracks main from, then origin/main.
+
+--list-watched prints the files a change to which asks for a new version.
 EOF
 }
 
-# The files whose change means the bluetooth_rxtx image's host-facing
-# interface may have moved. Deliberately narrower than all of firmware/:
+# Run a git command over what goes into the bluetooth_rxtx image: the sources
+# it compiles, the shared code it links (firmware/common, lpcusb included) and
+# its own Makefile, which is nothing but the list of those sources. One list,
+# so the check and --list-watched cannot drift apart.
 #
-#   - firmware/bluetooth_rxtx is the image that reports this version, and
-#     firmware/common is the shared code it links (its USB stack, clock and
-#     radio helpers), so a change to either can change what the host sees.
-#   - ubertooth_interface.h is the interface itself: the request numbers and
-#     the structs both sides share, as well as the version.
+# Only files that are compiled, or that say which files are: a README under
+# one of those directories cannot change what the host sees, and counting it
+# would let a branch authorise its own bump by appending a line to one. A
+# pathspec wildcard here matches across directories, so firmware/common/*.c
+# reaches lpcusb too.
 #
-# Left out on purpose, because none of it is in that image or that interface:
-# firmware/tests (host-compiled unit tests), firmware/bootloader and
-# firmware/btbr (separate images, each with a bcdDevice of its own that this
-# version says nothing about), the development-only images (blinky,
-# cc2400_test, clock_test, usb_test, assembly_test, tc13badge), and the
-# firmware build files and README. Including them made the check fire on
-# commits that could not have changed the interface, and a check that cries
-# wolf gets ignored.
+# Left out because it is not in this image: firmware/tests (host-compiled unit
+# tests), firmware/bootloader and firmware/btbr (separate images, each with a
+# bcdDevice of its own that this version says nothing about), the
+# development-only images (blinky, cc2400_test, clock_test, usb_test,
+# assembly_test, tc13badge), firmware/Makefile and ctags.mk (which pick which
+# images to build), and documentation.
 #
-# The version lives in that header, so a change to the define itself does not
-# count as a change to the interface. Counting it would let any branch certify
-# its own bump: moving the version would be the firmware change that justifies
-# moving the version, and the rule for a branch with no firmware change would
-# never apply to anything.
-watched_files() {
-    git diff --name-only "$1" "$2" -- firmware/bluetooth_rxtx firmware/common
-    # -U0 so only changed lines come back, not the context around them.
-    if git diff -U0 "$1" "$2" -- "$header" |
-        grep -E '^[-+]' |
-        grep -vE '^(\+\+\+|---)' |
-        grep -qvE '^[-+][[:space:]]*#[[:space:]]*define[[:space:]]+UBERTOOTH_API_VERSION[[:space:]]'; then
-        printf '%s\n' "$header"
-    fi
+# Left out although it is a real gap: firmware/common.mk, the shared build file
+# every image includes. It carries the compiler flags, -DTX_ENABLE and the
+# commented-out -fpack-struct among them, so a change there can alter what the
+# host sees with no source change at all. It is not watched because in the last
+# 34 merges its only change was where object files are written, which no host
+# can observe: watching it would have reded a pull request that could not have
+# moved the interface, and the only ways out of a red gating job are a version
+# bump that costs every user a reflash or an edit to this script. A check that
+# cries wolf gets ignored, which is worse than no check. Narrowing it to the
+# lines that set flags needs a hand-kept list of flag spellings, which is a
+# call for the maintainer rather than a decision for this script to make.
+#
+# The interface header is not here: it is handled separately below, because
+# the version lives in it.
+over_image_sources() {
+    git --no-pager "$@" -- \
+        'firmware/bluetooth_rxtx/*.c' 'firmware/bluetooth_rxtx/*.h' \
+        'firmware/bluetooth_rxtx/*.S' 'firmware/bluetooth_rxtx/*.s' \
+        'firmware/bluetooth_rxtx/*.ld' 'firmware/bluetooth_rxtx/Makefile' \
+        'firmware/common/*.c' 'firmware/common/*.h' \
+        'firmware/common/*.S' 'firmware/common/*.s' 'firmware/common/*.ld'
+}
+
+# The interface header with everything that is not interface taken out: the
+# version define, comment lines and blank lines. Two commits whose headers
+# differ after that have a real interface change between them -- a request
+# added or renumbered, a shared struct altered -- and two whose headers agree
+# have only moved the version or reworded a comment.
+#
+# Comparing the file this way rather than reading `git diff` output is
+# deliberate. A diff is a display format: color.ui = always colorises it even
+# when nothing is a terminal, and diff.external replaces it altogether, either
+# of which would leave a line-matching filter finding no changes and reporting
+# the permissive answer. There is no format to get wrong here.
+#
+# The comment lines it recognises are the ones this header uses: a line whose
+# first character is / or *. A line inside a block comment that starts with
+# neither is read as code, which costs a bump that was not needed rather than
+# missing one that was.
+normalized_header() {
+    git show "$1:$header" | sed \
+        -e '/^[[:space:]]*#[[:space:]]*define[[:space:]][[:space:]]*UBERTOOTH_API_VERSION[[:space:]]/d' \
+        -e '/^[[:space:]]*\/\{1,2\}/d' \
+        -e '/^[[:space:]]*\*/d' \
+        -e 's/[[:space:]]*$//' \
+        -e '/^$/d'
 }
 
 # The decimal number a four-digit BCD value spells, or failure when one of its
@@ -151,7 +187,7 @@ read_version() {
     value=$(printf '%s\n' "$text" |
         sed -n 's/^[[:space:]]*#[[:space:]]*define[[:space:]][[:space:]]*UBERTOOTH_API_VERSION[[:space:]][[:space:]]*//p' |
         sed 's/[[:space:]].*//')
-    if ! printf '%s\n' "$value" | grep -qE '^0x[0-9A-Fa-f]{4}$'; then
+    if ! printf '%s\n' "$value" | grep -qE '^0[xX][0-9A-Fa-f]{4}$'; then
         printf "error: UBERTOOTH_API_VERSION at %s (%s) is '%s', which is not a\n" \
             "$label" "$(short "$rev")" "$value" >&2
         printf '       four-digit hex value such as 0x0131\n' >&2
@@ -177,24 +213,37 @@ load_version() {
 }
 
 main_ref=
+list_watched=no
+end_of_options=no
 while [ $# -gt 0 ]; do
-    case $1 in
-    -h | --help)
-        usage
-        exit 0
-        ;;
-    -*)
-        printf "error: unknown option '%s'\n" "$1" >&2
-        exit 1
-        ;;
-    *)
-        if [ -n "$main_ref" ]; then
-            printf "error: one main-ref at most, and '%s' is a second\n" "$1" >&2
+    if [ "$end_of_options" = no ]; then
+        case $1 in
+        -h | --help)
+            usage
+            exit 0
+            ;;
+        --list-watched)
+            list_watched=yes
+            shift
+            continue
+            ;;
+        --)
+            # So a ref whose name begins with a dash can still be named.
+            end_of_options=yes
+            shift
+            continue
+            ;;
+        -*)
+            printf "error: unknown option '%s'\n" "$1" >&2
             exit 1
-        fi
-        main_ref=$1
-        ;;
-    esac
+            ;;
+        esac
+    fi
+    if [ -n "$main_ref" ]; then
+        printf "error: one main-ref at most, and '%s' is a second\n" "$1" >&2
+        exit 1
+    fi
+    main_ref=$1
     shift
 done
 
@@ -204,6 +253,15 @@ if [ -z "$top" ]; then
     exit 1
 fi
 cd "$top" || exit 1
+
+# The files a change to which asks for a bump, so a reader -- and the
+# self-test -- can see what the check is watching rather than trust that the
+# pathspecs above still match anything.
+if [ "$list_watched" = yes ]; then
+    over_image_sources ls-files || exit 1
+    printf '%s\n' "$header"
+    exit 0
+fi
 
 if [ -z "$main_ref" ]; then
     remote=$(git config --get branch.main.remote 2> /dev/null) || remote=
@@ -258,7 +316,18 @@ else
     free_value=$(next_bcd "$main_decimal")
 fi
 
-changed=$(watched_files "$merge_base" "$head_commit") || exit 1
+# Everything in this script fails rather than guesses, this included: a git
+# command that went wrong must not come back as an empty list, which is the
+# answer that asks for no bump.
+changed=$(over_image_sources diff --no-color --name-only "$merge_base" "$head_commit") || {
+    echo "error: could not list the firmware sources this branch changes" >&2
+    exit 1
+}
+base_header=$(normalized_header "$merge_base") || exit 1
+head_header=$(normalized_header "$head_commit") || exit 1
+if [ "$base_header" != "$head_header" ]; then
+    changed=$(printf '%s\n%s\n' "$changed" "$header" | grep .)
+fi
 
 # What was compared, for the record: a log that only says "passed" cannot be
 # read later to see which main the answer was about.
@@ -308,6 +377,22 @@ if [ "$cur_digits" = "$base_digits" ]; then
     echo "$compared; main has $main_pretty."
     exit 0
 fi
+
+# The one move allowed with no firmware change: a release takes the next major
+# version, with the minor digits at 00, to mark that its host tools and
+# firmware only work with each other -- whether or not the cycle changed the
+# firmware (docs/source/release_procedure.rst). Without this the release's own
+# pull request would be refused by a job it cannot satisfy. It stays narrow: a
+# single major up from the merge base, nothing below main, and no other value.
+if [ "$(( cur_decimal % 100 ))" -eq 0 ] &&
+    [ "$(( cur_decimal / 100 ))" -eq "$(( base_decimal / 100 + 1 ))" ] &&
+    [ "$cur_decimal" -ge "$main_decimal" ]; then
+    echo "check-api-version: no firmware interface file changed, and"
+    echo "UBERTOOTH_API_VERSION moves to $cur_pretty, the next major version,"
+    echo "which is a release's own bump."
+    echo "$compared; main has $main_pretty."
+    exit 0
+fi
 {
     echo "error: this branch changes no firmware interface file, so it has to"
     echo "       leave UBERTOOTH_API_VERSION as the merge base had it."
@@ -322,7 +407,9 @@ fi
     echo ""
     echo "       Put it back to 0x$base_digits. A host-only change has no new"
     echo "       firmware to pair with, so moving the version only makes boards"
-    echo "       that are fine be refused until they are reflashed."
+    echo "       that are fine be refused until they are reflashed. The one"
+    echo "       exception is a release, which takes the next major version"
+    echo "       (minor digits 00) on its own."
     echo ""
     echo "       If this branch does change what the host sees, it changes it"
     echo "       somewhere tools/check-api-version.sh does not watch; say so on"

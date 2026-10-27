@@ -75,14 +75,16 @@ or non-trivial operational documentation changes:
   on every push to `main` but on a PR only when `install.sh` changes; the
   `Man pages` job the same way, when anything under `host/doc` changes. The
   weekly schedule, a published release, and a manual run run the full matrix.
-  `issue-references`, `api-version` and the two `scripts` jobs run on both
-  tiers and need nothing built. `image-revision` runs on both tiers too, after
-  the firmware job, on the images that job built: it is the only check that
-  reads a built image's firmware info block the way `ubertooth-dfu` reads it,
-  rather than comparing the magic bytes. `libbtbb-pin` is its own workflow with
-  no path filter, so it runs on every change, documentation included: two of
-  the files that have to agree on the pin are `COMPATIBILITY.md` and the build
-  guides.
+  `issue-references` and the two `scripts` jobs run on both tiers and need
+  nothing built. `image-revision` runs on both tiers too, after the firmware
+  job, on the images that job built: it is the only check that reads a built
+  image's firmware info block the way `ubertooth-dfu` reads it, rather than
+  comparing the magic bytes. `api-version` runs on pull requests and pushes to
+  `main` only, because it compares a branch with `main` and on the other
+  triggers there is no branch to compare. `libbtbb-pin` is its own workflow
+  with no path filter, so it runs on every change, documentation included: two
+  of the files that have to agree on the pin are `COMPATIBILITY.md` and the
+  build guides.
   A branch with no open PR gets no CI; open a PR (a draft is enough) to get a
   run.
 - Before cutting a release, run the full tier manually and wait for it:
@@ -112,9 +114,9 @@ Speed matters. Do not wait for every job.
   `install.sh` need both `install-sh` jobs; changes under `host/doc` need the
   `Man pages` workflow, which `gh pr checks` prints under its job name,
   `refresh`. `issue-references`, `api-version`, `libbtbb-pin`,
-  `scripts (ubuntu-24.04)` and
-  `scripts (macos-26)` gate every change they run on, whatever the change
-  touches: they take seconds to a minute, need nothing built, and a red one
+  `scripts (ubuntu-24.04)` and `scripts (macos-26)` gate every change they
+  run on, whatever the change touches: they take seconds to a minute, need
+  nothing built, and a red one
   means the change itself broke the rule they check. A full-tier failure is
   followed up on `main`.
 - **Time budget**: wait at most 10 minutes for the gating set once the run has
@@ -153,15 +155,23 @@ change the host relies on**, in the PR that makes it.
   after a rebase.
 - The `api-version` CI job runs `tools/check-api-version.sh`, which compares
   the value on the branch with `main`'s tip and with their merge base and
-  applies the two halves of the rule above. Run it before pushing. It reads
-  paths to decide whether a branch changes the firmware interface
-  (`firmware/bluetooth_rxtx`, `firmware/common` and the interface header), so
-  a firmware change elsewhere that the host relies on still needs the bump by
-  hand; if it refuses a branch that changes none of what the host sees, say so
-  on the PR and narrow the list in that script.
+  applies the two halves of the rule above. Run it before pushing: a value
+  that was free when the branch was cut may not be free now.
+- That check reads paths to decide whether a branch changes the firmware
+  interface, which is an approximation: it watches the sources compiled into
+  the `bluetooth_rxtx` image, that image's own Makefile and the interface
+  header (`tools/check-api-version.sh --list-watched` prints the list). So it
+  is not the rule, the paragraph above is. A firmware change the host relies
+  on that touches nothing on that list still needs the bump by hand, and a
+  change to a watched file that the host cannot observe is still asked for
+  one: if the check refuses a branch that changes nothing the host sees, say
+  so on the PR and raise it with the maintainer rather than editing the list
+  to suit one branch.
 - A release moves it to the next major version to mark the break in
   host/firmware pairing; the first fork release takes `0x0200` (2.00). That is
   a release step, not a per-PR one (see `docs/source/release_procedure.rst`).
+  The check knows about it: one major up with the minor digits at `00` is
+  allowed with no firmware change, so the release's own PR is not refused.
 - Host tools and firmware built from the same commit always match, so after
   pulling, rebuild and reflash both from the same commit
   (`./install.sh --flash`).
