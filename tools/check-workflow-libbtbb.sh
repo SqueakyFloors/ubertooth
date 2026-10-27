@@ -161,15 +161,25 @@ fi
 # above are how a workflow names the directory it cloned into.
 reference='(^|[^A-Za-z0-9._$-])[A-Za-z0-9][A-Za-z0-9-]*/libbtbb([^A-Za-z0-9_-]|$)'
 
+# One grep a file, and its status read, rather than one grep over the whole
+# list through xargs: xargs reports a command that exited 1 as a failure of
+# its own (123 with GNU xargs, 1 with the BSD one), so a scan that simply
+# found nothing would be indistinguishable from a scan that went wrong -- and
+# the two have opposite answers here. A handful of workflow files, so the
+# extra processes cost nothing.
+#
 # grep's own errors are kept: a file listed but unreadable should be heard
-# about, not scanned silently as nothing.
-tr '\n' '\0' < "$work/files" |
-    xargs -0 grep -n -H -E -e "$reference" > "$work/hits"
-status=$?
-if [ "$status" -gt 1 ]; then
-    printf 'error: the scan itself failed (grep exited %s)\n' "$status" >&2
-    exit 1
-fi
+# about, not scanned silently as nothing. -H, so the name is printed for a
+# single file too.
+: > "$work/hits"
+while IFS= read -r file; do
+    grep -n -H -E -e "$reference" "$file" >> "$work/hits"
+    scan=$?
+    if [ "$scan" -gt 1 ]; then
+        printf 'error: could not scan %s (grep exited %s)\n' "$file" "$scan" >&2
+        exit 1
+    fi
+done < "$work/files"
 
 status=0
 found=0
