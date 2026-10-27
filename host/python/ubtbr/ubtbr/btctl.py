@@ -584,6 +584,11 @@ class BTCtlSuperCmd(Thread):
 		self._gave_up = False
 
 	def _start_cmd(self, cls, *args):
+		# Starting a command takes several steps, and an interrupt part way
+		# through them leaves nobody holding the command that claimed the
+		# device. The prompt has to keep a keyboard interrupt out of its own
+		# version of this; here there is nothing to keep out, because this
+		# runs on the super command's thread and signals reach the main one.
 		if self._cmd is not None:
 			log.info ("Not idle")
 			return

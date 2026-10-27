@@ -97,7 +97,9 @@ class BTCtlPrompt(Cmd):
 		# is the ordinary Ctrl-C with a command running that the prompt's
 		# handler knows how to stop. Nothing here waits on the device -- the
 		# command's first request goes out on its own thread -- so the
-		# interrupt waits a few instructions at most.
+		# interrupt waits a few instructions at most. This runs on the
+		# prompt's own thread, which is where an interrupt arrives and the
+		# only thread a handler can be installed from.
 		interrupted = False
 
 		def note_interrupt(signum, frame):

@@ -639,8 +639,17 @@ class InterruptedWhileClaimingCmd(btctl.BTCtlInquiryCmd):
         os.kill(os.getpid(), signal.SIGINT)
 
 
+class InterruptedAfterThreadCmd(btctl.BTCtlInquiryCmd):
+    """Interrupted once its thread runs, before the prompt is given it."""
+
+    def start(self):
+        super().start()
+        os.kill(os.getpid(), signal.SIGINT)
+
+
 for interrupted_cls in (InterruptedBeforeThreadCmd,
-                        InterruptedWhileClaimingCmd):
+                        InterruptedWhileClaimingCmd,
+                        InterruptedAfterThreadCmd):
     name = interrupted_cls.__name__
     device = SilentDevice()
     prompt = tool_module.BTCtlPrompt(device)
@@ -669,6 +678,25 @@ for interrupted_cls in (InterruptedBeforeThreadCmd,
     prompt.stop_cmd()
     assert prompt._cmd is None, (name, prompt._cmd)
 print("ubtbr: a Ctrl-C as a command starts returns to the prompt, board free")
+
+# and it comes out of the typed command the way a key press does: onecmd
+# catches what a command can raise, which the interrupt is not.
+device = SilentDevice()
+prompt = tool_module.BTCtlPrompt(device)
+typed = tool_module.BTCtlInquiryCmd
+tool_module.BTCtlInquiryCmd = InterruptedBeforeThreadCmd
+arrived = False
+try:
+    prompt.onecmd("inquiry")
+except KeyboardInterrupt:
+    arrived = True
+    prompt.do_idle()
+finally:
+    tool_module.BTCtlInquiryCmd = typed
+assert arrived, "onecmd swallowed the interrupt"
+assert prompt._cmd is None, prompt._cmd
+assert device.handler is None, "the board is still claimed"
+print("ubtbr: the interrupt comes out of the command that was typed")
 
 # ---- the tool, driven through its prompt ----------------------------------
 
