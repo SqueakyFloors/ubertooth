@@ -35,8 +35,25 @@ answers nothing at all usually needs a USB power cycle.
 application: the 16-byte DFU suffix and its length, the DFU version, the `UFD`
 signature, a non-empty payload, the suffix CRC, and the suffix `idVendor` and
 `idProduct`, which must name this device (`1d50:6003`) or be the `0xffff`
-wildcard. With `-r` the expected firmware revision is read from the image at
-the same time. A file that fails any of these is reported and the command ends
+wildcard. Then the firmware info block every image built from this tree
+carries, at a fixed offset just past the vector table, which says which image
+the file holds and which revision it was built from:
+
+    Checking firmware signature
+    Image: bluetooth_rxtx git-ed30131d* (API:1.33)
+
+The API version on that line comes from the block, so for `btbr` it reads
+1.33 while `ubertooth-util -v` reports that board as 1.06: the `btbr` image is
+built from this tree but reports a fixed USB `bcdDevice` of its own, which is
+what the other tools check.
+
+A properly signed DFU file with no readable block there is not an image from
+this tree, so it is refused rather than written:
+
+    error: other-device.dfu: there is no firmware info block here at offset 0x100
+    Not an Ubertooth firmware image, firmware will not be updated
+
+A file that fails any of these is reported and the command ends
 with exit status 1 without opening a device, so the board keeps running its
 firmware. If a later step fails once the board is already in DFU and `-r` was
 given, the tool detaches it anyway, reopening the DFU device on the same
@@ -100,10 +117,9 @@ If a transfer fails, in either direction, the tool closes the stale handle,
 reopens and claims the DFU device on the same physical path, restores its DFU
 state, and retries the whole transfer once from its first block. A transfer
 that fails twice ends the command with exit status 1. With `-d ... -r`,
-it extracts the expected revision from the image and does not return success
-until the application on that same path reports the exact revision. Images
-used with automatic verification must contain the normal
-`ubertooth <revision> (` compile-information marker.
+the revision from the image's firmware info block is what the board must
+report back: the run does not return success until the application on that
+same path reports exactly that revision.
 
 With multiple Ubertooths, flash them sequentially using `-U <serial>` and
 verify each device before starting the next. DFU mode does not expose a serial

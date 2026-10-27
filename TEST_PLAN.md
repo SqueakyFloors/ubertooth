@@ -40,8 +40,10 @@ Hardware required: Ubertooth One, Linux machine (Ubuntu 22.04+ preferred), a BLE
 
 ### 2a. Firmware version check
 - [ ] Run `ubertooth-util -v`
-- [ ] Confirm: returns `Firmware version: <revision> (API:1.32)` (firmware
-      built from this tree; the host tools refuse any other API version)
+- [ ] Confirm: returns `Firmware version: <image> <revision> (API:1.33)` (firmware
+      built from this tree; the host tools refuse any other API version, and a
+      board whose firmware has no info block shows the revision without an
+      image name)
 - [ ] Confirm: no `is in use by another program` or `claiming the USB
       interface` errors
 - [ ] Confirm: no timeout errors
@@ -59,9 +61,16 @@ Hardware required: Ubertooth One, Linux machine (Ubuntu 22.04+ preferred), a BLE
 - [ ] Confirm: the blink stops and all three LEDs end off (`-d` reads 0 0 0)
 - [ ] Run `ubertooth-util -I` then `ubertooth-util -x`
 - [ ] Confirm: identify gives way to the xmas pattern; `-S` ends that too
-- [ ] With firmware of another API version (for example 2020-12-R1): run
+- [ ] With firmware of another API version on the board: flash the `btbr`
+      image, which this tree builds and which reports a fixed 1.06
+      ([#497](https://github.com/SqueakyFloors/ubertooth/issues/497)), then run
       `ubertooth-util -I` and `ubertooth-specan`
 - [ ] Confirm: each prints an API version error and exits 1; nothing blinks
+- [ ] Flash `bluetooth_rxtx` again before the rest of the plan
+
+An older release such as `2020-12-R1` would do as well, but `ubertooth-dfu`
+refuses an image with no firmware info block, so putting one on a board needs
+ISP or JTAG.
 
 ### 2d. Hardware info
 - [ ] Run `ubertooth-util -b` (board ID)

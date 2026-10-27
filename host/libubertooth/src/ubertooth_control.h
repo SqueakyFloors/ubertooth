@@ -165,6 +165,19 @@ int cmd_get_firmware_revision(struct libusb_device_handle* devh, char *revision,
                               size_t size);
 int cmd_get_firmware_compile_info(struct libusb_device_handle* devh,
                                   char *compile_info, size_t size);
+/* Read the firmware info block: which image the board runs, the revision it
+ * was built from, and the firmware API version it reports (see
+ * ubertooth_interface.h). The same 64 bytes a firmware file carries, so a
+ * board and a file are described the same way. Returns 0 on success, or a
+ * negative value: the transfer error, UBERTOOTH_ERROR_SHORT_REPLY for a reply
+ * with fewer than 64 bytes in it, or LIBUSB_ERROR_IO for 64 bytes that are
+ * not a block this host can read. On error *info is zeroed.
+ *
+ * LIBUSB_ERROR_PIPE means the firmware does not implement the request, which
+ * is every image built before the block existed; it is the one failure this
+ * call leaves unreported, for the caller to handle or describe. */
+int cmd_get_firmware_info(struct libusb_device_handle* devh,
+                          struct ubertooth_fw_info *info);
 /* As above, but report a failure only as the text "error: <code>" in the
  * buffer; prefer the int-returning forms. */
 void cmd_get_rev_num(struct libusb_device_handle* devh, char *version, u8 len);

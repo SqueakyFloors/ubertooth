@@ -21,7 +21,7 @@ FW_DIR := ..
 HOST_DFU := ../../host/ubertooth-tools/src
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_le_phy_order test_le_frag_shape test_grmdm_rx_generic test_tx_generic_bounds test_write_registers_bounds test_btbr_hop test_btbr_rx_deadline test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths
+TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_le_phy_order test_le_frag_shape test_grmdm_rx_generic test_tx_generic_bounds test_write_registers_bounds test_btbr_hop test_btbr_rx_deadline test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info
 BINDIR  := bin
 
 .PHONY: all test clean
@@ -285,21 +285,31 @@ $(BINDIR)/test_btbr_usb_send: test_btbr_usb_send.c minunit.h \
 		-o $@ test_btbr_usb_send.c \
 		$(FW_BTBR)/src/drivers/ubertooth_usb.c $(FW_BTBR)/src/util/queue.c
 
-# The build string in both images is what ubertooth-dfu -r reads the expected
-# revision out of, so this test links the host's real extractor and scans both
-# images' definitions, the way test_bootloader_flash_bounds puts the
-# bootloader's part table against the host's copy. compile_info itself cannot
-# be compiled here: it is built from the generated version.h, which only exists
-# once an image has been built.
+# The build string both images carry: this test scans their definitions and
+# their request handlers as text, the way test_bootloader_flash_bounds puts
+# the bootloader's part table against the host's copy. compile_info itself
+# cannot be compiled here, because it is built from the generated version.h,
+# which only exists once an image has been built.
 $(BINDIR)/test_compile_info: test_compile_info.c minunit.h source_scan.h \
 		$(FW_RXTX)/bluetooth_rxtx.c \
-		$(FW_BTBR)/src/btctl/vendor_request_handler.c \
-		$(HOST_DFU)/dfu_recovery.c $(HOST_DFU)/dfu_recovery.h \
-		$(HOST_DFU)/dfu_transition.c | $(BINDIR)
-	$(CC) $(CFLAGS) -I$(HOST_DFU) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
-		-DFW_BTBR_DIR='"$(FW_BTBR)"' \
-		-o $@ test_compile_info.c $(HOST_DFU)/dfu_recovery.c \
-		$(HOST_DFU)/dfu_transition.c
+		$(FW_BTBR)/src/btctl/vendor_request_handler.c | $(BINDIR)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
+		-DFW_BTBR_DIR='"$(FW_BTBR)"' -o $@ test_compile_info.c
+
+# The firmware info block every image carries. ../common/fw_info.c is compiled
+# here with the host compiler, against the stub version.h in stubs-fwinfo/, so
+# the bytes the firmware builds can be handed to the host's own parser; the
+# rest of the test reads the linker script, the two request handlers and
+# common.mk as text, so FW_DIR points at the firmware tree as well.
+$(BINDIR)/test_fw_info: test_fw_info.c minunit.h source_scan.h \
+		stubs-fwinfo/version.h $(FW_COMMON)/fw_info.c \
+		$(FW_COMMON)/sections.ld ../common.mk \
+		$(FW_RXTX)/bluetooth_rxtx.c \
+		$(FW_BTBR)/src/btctl/vendor_request_handler.c | $(BINDIR)
+	$(CC) $(CFLAGS) -Istubs-fwinfo $(CPPFLAGS) \
+		-DFW_RXTX_DIR='"$(FW_RXTX)"' -DFW_BTBR_DIR='"$(FW_BTBR)"' \
+		-DFW_COMMON_DIR='"$(FW_COMMON)"' -DFW_DIR='".."' \
+		-o $@ test_fw_info.c $(FW_COMMON)/fw_info.c
 
 # The range test and the repeater are hardware loops, so this scans
 # cc2400_rangetest.c as text for the radio writes they need and for the shape

@@ -24,8 +24,11 @@ static struct {
 	int board_id, channel, palevel, squelch, usrled, rxled, txled;
 	uint32_t partnum;
 	int partnum_rc, serial_rc, api_rc, revision_rc, compile_info_rc;
+	/* the info block read on its own: LIBUSB_ERROR_PIPE is how firmware
+	 * older than the block answers it */
+	int fw_info_rc;
 	uint16_t api_version;
-	const char *revision, *compile_info;
+	const char *image, *revision, *compile_info;
 	/* results of commands that set state or start a mode */
 	int stop_rc, reset_rc, set_channel_rc, set_usrled_rc, set_rxled_rc;
 	int set_txled_rc, set_palevel_rc, set_squelch_rc, isp_rc;
@@ -102,6 +105,7 @@ static void reset_fake(void)
 	fake.squelch = 136; /* unsigned byte 0x88, printed as -120 */
 	fake.partnum = 0x25011723;
 	fake.api_version = UBERTOOTH_API_VERSION; /* firmware from this tree */
+	fake.image = "bluetooth_rxtx";
 	fake.revision = "git-test";
 	fake.compile_info = "compile-test";
 	fake.device_count = 1;
@@ -319,11 +323,44 @@ static int fake_text_read(struct libusb_device_handle *h, char *text,
 	return 0;
 }
 
+/* The firmware info block -v and -V take the image and the revision from. It
+ * fails where the revision read used to, so the tests that script a failed
+ * firmware read still script this one. */
+int cmd_get_firmware_info(struct libusb_device_handle *h,
+                          struct ubertooth_fw_info *info)
+{
+	fake_use(h);
+	memset(info, 0, sizeof(*info));
+	if (fake.fw_info_rc < 0)
+		return fake.fw_info_rc;
+	if (fake.current_index >= 0 &&
+	    fake.current_index == fake.revision_fail_index)
+		return LIBUSB_ERROR_TIMEOUT;
+	if (fake.revision_rc < 0)
+		return fake.revision_rc;
+	info->format_version = UBERTOOTH_FW_INFO_FORMAT;
+	info->api_version = fake.api_version;
+	snprintf(info->image, sizeof(info->image), "%s", fake.image);
+	snprintf(info->revision, sizeof(info->revision), "%s", fake.revision);
+	return 0;
+}
+
+/* The revision on its own, which every firmware answers: what -v reads when
+ * the board carries no info block. */
 int cmd_get_firmware_revision(struct libusb_device_handle *h, char *revision,
                               size_t size)
 {
-	return fake_text_read(h, revision, size, fake.revision, fake.revision_rc,
-	                      fake.revision_fail_index);
+	fake_use(h);
+	if (revision == NULL || size == 0)
+		return LIBUSB_ERROR_INVALID_PARAM;
+	revision[0] = '\0';
+	if (fake.current_index >= 0 &&
+	    fake.current_index == fake.revision_fail_index)
+		return LIBUSB_ERROR_TIMEOUT;
+	if (fake.revision_rc < 0)
+		return fake.revision_rc;
+	snprintf(revision, size, "%s", fake.revision);
+	return 0;
 }
 
 int cmd_get_firmware_compile_info(struct libusb_device_handle *h, char *info,
@@ -492,8 +529,8 @@ static struct run_result run_util(const char *const *args)
 /* Exact expected report lines, in the order ubertooth-util prints them. */
 #define BOARD_LINE "Board ID Number: 1 (Ubertooth One)\n"
 #define CHANNEL_LINE "Current frequency: 2441 MHz (Bluetooth channel 39)\n"
-#define FIRMWARE_LINE "Firmware version: git-test (API:1.32)\n"
-#define COMPILE_LINE "compile-test\n"
+#define FIRMWARE_LINE "Firmware version: bluetooth_rxtx git-test (API:1.33)\n"
+#define COMPILE_LINE "bluetooth_rxtx: compile-test\n"
 #define USRLED_LINE "USR LED status: 0\n"
 #define PALEVEL_LINE "PA Level: 7\n"
 #define PART_LINE "Part ID: 25011723\n"
@@ -638,6 +675,33 @@ MU_TEST(part_id_with_bit_31_set_is_reported_in_full)
 	          "full 32-bit part ID not printed");
 }
 
+/*
+ * Firmware built before the info block stalls the request for it, and this is
+ * the one tool that has to name a board whatever it is running. -v then
+ * prints the revision alone, the line it always printed, and -V the build
+ * string with no image name in front of it.
+ */
+MU_TEST(a_board_without_an_info_block_is_still_identified)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.fw_info_rc = LIBUSB_ERROR_PIPE;
+	r = RUN("-v", "-V");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "Firmware version: git-test (API:1.33)\n"
+	                        "compile-test\n") == 0, r.out);
+	mu_assert_int_eq(0, (long)strlen(r.err));
+
+	/* With nothing to fall back on it is still a failure, with no line. */
+	reset_fake();
+	fake.fw_info_rc = LIBUSB_ERROR_PIPE;
+	fake.revision_rc = LIBUSB_ERROR_TIMEOUT;
+	r = RUN("-v");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, (long)strlen(r.out));
+}
+
 MU_TEST(each_failing_report_makes_the_command_fail)
 {
 	struct run_result r;
@@ -659,7 +723,8 @@ MU_TEST(each_failing_report_makes_the_command_fail)
 	fake.api_rc = -1;
 	r = RUN("-v");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(r.out, "Firmware version: git-test\n") == 0, "firmware line without API");
+	mu_assert(strcmp(r.out, "Firmware version: bluetooth_rxtx git-test\n") == 0,
+	          "firmware line without API");
 
 	reset_fake();
 	fake.revision_rc = LIBUSB_ERROR_TIMEOUT;
@@ -2045,7 +2110,8 @@ MU_TEST(firmware_listing_with_several_devices_reports_each_device)
 	r = RUN("-v");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(r.out,
-	                 "0: git-test (API:1.32)\n1: git-test (API:1.32)\n") == 0,
+	                 "0: bluetooth_rxtx git-test (API:1.33)\n"
+	                 "1: bluetooth_rxtx git-test (API:1.33)\n") == 0,
 	          "per-device firmware lines");
 }
 
@@ -2067,8 +2133,10 @@ MU_TEST(each_identity_query_alone_lists_every_device_compactly)
 {
 	struct { const char *option; const char *expected; } cases[] = {
 		{ "-b", "0: 1 (Ubertooth One)\n1: 1 (Ubertooth One)\n" },
-		{ "-v", "0: git-test (API:1.32)\n1: git-test (API:1.32)\n" },
-		{ "-V", "0: compile-test\n1: compile-test\n" },
+		{ "-v", "0: bluetooth_rxtx git-test (API:1.33)\n"
+	                 "1: bluetooth_rxtx git-test (API:1.33)\n" },
+		{ "-V", "0: bluetooth_rxtx: compile-test\n"
+		         "1: bluetooth_rxtx: compile-test\n" },
 		{ "-p", "0: 25011723\n1: 25011723\n" },
 		{ "-s", "0: " SERIAL_VALUE "\n1: " SERIAL_VALUE "\n" },
 	};
@@ -2189,7 +2257,9 @@ MU_TEST(a_failed_read_on_one_device_is_reported_and_fails_the_listing)
 	fake.api_rc = -1;
 	r = RUN("-v");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(r.out, "0: git-test\n1: git-test\n") == 0, "revision without API");
+	mu_assert(strcmp(r.out,
+	                 "0: bluetooth_rxtx git-test\n1: bluetooth_rxtx git-test\n") == 0,
+	          "revision without API");
 
 	reset_fake();
 	fake.device_count = 2;
@@ -2197,7 +2267,8 @@ MU_TEST(a_failed_read_on_one_device_is_reported_and_fails_the_listing)
 	r = RUN("-v");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.out,
-	                 "0: <firmware read failed>\n1: git-test (API:1.32)\n") == 0,
+	                 "0: <firmware read failed>\n"
+	                 "1: bluetooth_rxtx git-test (API:1.33)\n") == 0,
 	          "failed revision read shown per device");
 
 	reset_fake();
@@ -2205,7 +2276,9 @@ MU_TEST(a_failed_read_on_one_device_is_reported_and_fails_the_listing)
 	fake.compile_info_fail_index = 1;
 	r = RUN("-V");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(r.out, "0: compile-test\n1: <compile info read failed>\n") == 0,
+	mu_assert(strcmp(r.out,
+	                 "0: bluetooth_rxtx: compile-test\n"
+	                 "1: <compile info read failed>\n") == 0,
 	          "failed compile info read shown per device");
 
 	reset_fake();
@@ -2800,6 +2873,7 @@ int main(void)
 	MU_RUN(composed_queries_print_in_the_documented_order_and_exit_zero);
 	MU_RUN(an_earlier_failure_is_not_masked_by_later_successes);
 	MU_RUN(part_id_with_bit_31_set_is_reported_in_full);
+	MU_RUN(a_board_without_an_info_block_is_still_identified);
 	MU_RUN(each_failing_report_makes_the_command_fail);
 	MU_RUN(all_leds_query_reports_each_led_and_fails_if_any_read_fails);
 	MU_RUN(range_result_is_reported_and_a_failed_read_fails);

@@ -29,8 +29,41 @@ U1_DFU_VENDORID = 0x1D50
 U1_DFU_PRODUCTID = 0x6003
 WILDCARD = 0xFFFF
 SUFFIX_LENGTH = 16
-# The firmware revision marker -r looks for in the image.
-PAYLOAD = b"ubertooth git-testing (builder@host) 2026-01-01\x00" + bytes(64)
+
+# The firmware info block every image from this tree carries, at the fixed
+# offset -d reads the image name and revision from
+# (host/libubertooth/src/ubertooth_interface.h).
+FW_INFO_OFFSET = 0x100
+FW_INFO_LENGTH = 64
+FW_INFO_MAGIC = b"UBTFINFO"
+FW_INFO_FORMAT = 1
+FW_INFO_API = 0x0133
+FW_IMAGE_NAME = b"bluetooth_rxtx"
+FW_REVISION = b"git-testing"
+
+
+def info_block(magic=FW_INFO_MAGIC, fmt=FW_INFO_FORMAT,
+               image_name=FW_IMAGE_NAME, revision=FW_REVISION):
+    block = bytearray(FW_INFO_LENGTH)
+    block[0:8] = magic
+    block[8:10] = fmt.to_bytes(2, "little")
+    block[10:12] = FW_INFO_API.to_bytes(2, "little")
+    block[16:16 + len(image_name)] = image_name
+    block[32:32 + len(revision)] = revision
+    return bytes(block)
+
+
+def firmware(block=None):
+    """A firmware payload: the build string, then the block where it lives."""
+    body = bytearray(b"\xff" * (FW_INFO_OFFSET + FW_INFO_LENGTH + 64))
+    marker = b"ubertooth git-testing (builder@host) 2026-01-01\x00"
+    body[0:len(marker)] = marker
+    if block is not None:
+        body[FW_INFO_OFFSET:FW_INFO_OFFSET + FW_INFO_LENGTH] = block
+    return bytes(body)
+
+
+PAYLOAD = firmware(info_block())
 
 
 def dfu_crc(data):
@@ -71,6 +104,19 @@ CASES = [
      False),
     ("wrong-vendor", image(vendor=0x1234), "vendor 0x1234", False),
     ("wrong-product", image(product=0x6004), "product 0x6004", False),
+    # A properly signed file for this device that is not an image from this
+    # tree: no firmware info block where every image carries one.
+    ("no-info-block", image(payload=firmware()),
+     "there is no firmware info block here at offset 0x100", False),
+    ("info-block-elsewhere",
+     image(payload=firmware()[:0x80] + info_block()
+           + firmware()[0x80 + FW_INFO_LENGTH:]),
+     "there is no firmware info block here at offset 0x100", False),
+    ("info-block-unknown-format", image(payload=firmware(info_block(fmt=99))),
+     "format this host does not know", False),
+    ("info-block-empty-image-name",
+     image(payload=firmware(info_block(image_name=b""))),
+     "no readable image name or revision", False),
 ]
 
 failures = []

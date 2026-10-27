@@ -40,9 +40,16 @@ static int report_get_board_id(void *context)
 	return cmd_get_board_id(((ubertooth_t*)context)->devh);
 }
 
-static int report_get_firmware_revision(void *context, char *revision, size_t size)
+static int report_get_firmware_info(void *context, struct ubertooth_fw_info *info)
 {
-	return cmd_get_firmware_revision(((ubertooth_t*)context)->devh, revision, size);
+	return cmd_get_firmware_info(((ubertooth_t*)context)->devh, info);
+}
+
+static int report_get_firmware_revision(void *context, char *revision,
+                                        size_t size)
+{
+	return cmd_get_firmware_revision(((ubertooth_t*)context)->devh, revision,
+	                                 size);
 }
 
 static int report_get_api_version(void *context, uint16_t *version)
@@ -67,6 +74,7 @@ static int report_get_serial(void *context, uint8_t serial[UTIL_SERIAL_BUFFER_LE
 
 static const struct util_report_ops report_ops = {
 	report_get_board_id,
+	report_get_firmware_info,
 	report_get_firmware_revision,
 	report_get_api_version,
 	report_get_compile_info,
@@ -218,6 +226,8 @@ static int list_identity_queries(const int requested[QUERY_COUNT], int count)
  */
 _Static_assert(UTIL_ERROR_SHORT_REPLY == UBERTOOTH_ERROR_SHORT_REPLY,
                "util_report.h must match libubertooth's short-reply code");
+_Static_assert(UTIL_ERROR_NO_FW_INFO == LIBUSB_ERROR_PIPE,
+               "util_report.h must match libusb's stall code");
 
 /* "error: <what> read failed" for a failed read, unless code is a short
  * reply, whose whole line libubertooth already printed. Returns 1. */
@@ -323,7 +333,7 @@ static void usage(FILE *output)
 	fprintf(output, "ubertooth-util - command line utility for Ubertooth Zero and Ubertooth One\n");
 	fprintf(output, "\n");
 	fprintf(output, "Common options:\n");
-	fprintf(output, "\t-v get firmware revision number\n");
+	fprintf(output, "\t-v get firmware image and revision\n");
 	fprintf(output, "\t-V get compile info\n");
 	fprintf(output, "\t-H, --host-version get host tools (libubertooth) version\n");
 	fprintf(output, "\t-I identify ubertooth device by flashing the USR, RX, and TX LEDs on the board, until -S or any mode option\n");

@@ -789,6 +789,42 @@ int cmd_get_firmware_compile_info(struct libusb_device_handle* devh,
 	                         compile_info, size);
 }
 
+int cmd_get_firmware_info(struct libusb_device_handle* devh,
+                          struct ubertooth_fw_info *info)
+{
+	u8 result[UBERTOOTH_FW_INFO_LENGTH];
+	int r, parsed;
+
+	if (info == NULL)
+		return LIBUSB_ERROR_INVALID_PARAM;
+	memset(info, 0, sizeof(*info));
+	r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_GET_FW_INFO, 0, 0,
+			result, sizeof(result), 1000);
+	/* A board stalls a request its firmware does not implement, so this is
+	 * how firmware built before the block answers. That is not a fault worth
+	 * a message of its own: a caller that can do without the block (see
+	 * ubertooth-util -v) reads the revision instead, and one that cannot
+	 * says what it needed the block for. */
+	if (r == LIBUSB_ERROR_PIPE)
+		return r;
+	if (r < 0) {
+		show_libusb_error(r);
+		return r;
+	}
+	if (r < UBERTOOTH_FW_INFO_LENGTH)
+		return short_reply("firmware info", r, UBERTOOTH_FW_INFO_LENGTH,
+		                   "bytes");
+	/* A reply of the right length that is not a block means the firmware and
+	 * this host disagree about the format, which no length check can catch. */
+	parsed = ubertooth_fw_info_parse(result, (size_t)r, info);
+	if (parsed != UBERTOOTH_FW_INFO_OK) {
+		fprintf(stderr, "error: %s\n",
+		        ubertooth_fw_info_result_string(parsed));
+		return LIBUSB_ERROR_IO;
+	}
+	return 0;
+}
+
 /* The void forms keep their old contract: on failure the buffer holds
  * "error: <code>" instead of the text, with a short reply reported as
  * LIBUSB_ERROR_IO (-1) as before. */

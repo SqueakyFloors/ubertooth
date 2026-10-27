@@ -6,6 +6,7 @@
 #include <stdio.h>
 
 #include "dfu_transition.h"
+#include "ubertooth_interface.h"
 
 /*
  * Waiting for the bootloader to reach DFU idle. Every wait is bounded: a
@@ -175,8 +176,16 @@ enum dfu_file_size_result dfu_image_size_check(FILE *file,
  * file -d still accepts. */
 unsigned long dfu_max_image_size(void);
 
-int dfu_extract_firmware_revision(FILE *image, char *revision,
-                                  size_t revision_size);
+/* Read the firmware info block an image carries into *info: which image the
+ * file holds, the revision it was built from, and the firmware API version it
+ * reports. It sits at UBERTOOTH_FW_INFO_OFFSET, so this reads 64 bytes from
+ * there rather than searching the file, and leaves the file position alone.
+ *
+ * A file with no readable block there is not an image from this tree, which
+ * is why ubertooth-dfu refuses it before erasing anything. Returns
+ * UBERTOOTH_FW_INFO_OK or a negative enum ubertooth_fw_info_result (see
+ * ubertooth_interface.h), with *info zeroed. */
+int dfu_read_image_info(FILE *image, struct ubertooth_fw_info *info);
 
 /* The result of checking a firmware image before it is flashed: OK, or the
  * reason the image is refused. The checks run in the order listed, so the

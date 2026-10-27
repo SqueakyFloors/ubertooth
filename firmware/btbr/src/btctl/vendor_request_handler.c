@@ -30,11 +30,11 @@
 #include <ubtbr/btctl_intf.h>
 
 /*
- * The build string, in the one layout the host can read back out of a firmware
- * file: "ubertooth ", the revision, then " (". ubertooth-dfu -r searches the
- * image for exactly that so it can check, after the reset, that the board came
- * back running what was just written; an image without it cannot be flashed
- * with -r at all. Keep this identical to the one in bluetooth_rxtx.c.
+ * The build string reported by UBERTOOTH_GET_COMPILE_INFO, which is what
+ * ubertooth-util -V prints: "ubertooth ", the revision, then who built it,
+ * where, and when. Keep this identical to the one in bluetooth_rxtx.c. The
+ * image name and revision a host matches against are in the firmware info
+ * block (../../../common/fw_info.c), not here.
  */
 const char compile_info[] =
 	"ubertooth " GIT_REVISION " (" COMPILE_BY "@" COMPILE_HOST ") " TIMESTAMP;
@@ -192,6 +192,14 @@ int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		data[0] = (u8)length;
 		memcpy(&data[1], compile_info, length);
 		*data_len = 1 + length;
+		break;
+
+	/* The same 64 bytes this image carries at a fixed offset, so a board and
+	 * a firmware file describe themselves in one format. Keep this identical
+	 * to the one in bluetooth_rxtx.c. */
+	case UBERTOOTH_GET_FW_INFO:
+		memcpy(data, &fw_info_block, UBERTOOTH_FW_INFO_LENGTH);
+		*data_len = UBERTOOTH_FW_INFO_LENGTH;
 		break;
 
 	case UBERTOOTH_GET_BOARD_ID:

@@ -1,6 +1,6 @@
 /*
- * Hardware-independent tests for the libubertooth firmware revision and
- * compile info commands.
+ * Hardware-independent tests for the libubertooth firmware revision, compile
+ * info and firmware info block commands.
  *
  * The real ubertooth_control.c is compiled into this test, and the test
  * defines libusb_control_transfer() itself so the library's calls resolve to a
@@ -11,6 +11,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include <btbb.h>
 
@@ -299,6 +300,116 @@ MU_TEST(void_wrappers_return_text_or_an_error_string)
 	mu_assert(text[0] == 'k', "zero-length buffer written");
 }
 
+/* ---- the firmware info block ------------------------------------------- */
+
+/* The 64 bytes the firmware returns for UBERTOOTH_GET_FW_INFO. */
+static void set_fw_info_reply(const char *magic, uint16_t format,
+                              uint16_t api, const char *image,
+                              const char *revision)
+{
+	memset(&fake, 0, sizeof(fake));
+	fake.rc = UBERTOOTH_FW_INFO_LENGTH;
+	memcpy(fake.reply + UBERTOOTH_FW_INFO_OFF_MAGIC, magic,
+	       UBERTOOTH_FW_INFO_MAGIC_LEN);
+	fake.reply[UBERTOOTH_FW_INFO_OFF_FORMAT] = (uint8_t)(format & 0xff);
+	fake.reply[UBERTOOTH_FW_INFO_OFF_FORMAT + 1] = (uint8_t)(format >> 8);
+	fake.reply[UBERTOOTH_FW_INFO_OFF_API] = (uint8_t)(api & 0xff);
+	fake.reply[UBERTOOTH_FW_INFO_OFF_API + 1] = (uint8_t)(api >> 8);
+	memcpy(fake.reply + UBERTOOTH_FW_INFO_OFF_IMAGE, image, strlen(image));
+	memcpy(fake.reply + UBERTOOTH_FW_INFO_OFF_REVISION, revision,
+	       strlen(revision));
+}
+
+MU_TEST(firmware_info_block_is_returned)
+{
+	struct ubertooth_fw_info info;
+
+	set_fw_info_reply(UBERTOOTH_FW_INFO_MAGIC, UBERTOOTH_FW_INFO_FORMAT,
+	                  0x0133, "btbr", "git-deadbee*");
+	mu_assert_int_eq(0, cmd_get_firmware_info(NULL, &info));
+	mu_assert_int_eq(UBERTOOTH_GET_FW_INFO, fake.last_request);
+	mu_assert_int_eq(UBERTOOTH_FW_INFO_LENGTH, fake.last_length);
+	mu_assert(strcmp(info.image, "btbr") == 0, "wrong image name");
+	mu_assert(strcmp(info.revision, "git-deadbee*") == 0, "wrong revision");
+	mu_assert_int_eq(0x0133, info.api_version);
+}
+
+MU_TEST(firmware_info_transfer_errors_are_returned_with_a_zeroed_block)
+{
+	struct ubertooth_fw_info info;
+
+	memset(&fake, 0, sizeof(fake));
+	fake.rc = LIBUSB_ERROR_TIMEOUT;
+	mu_assert_int_eq(LIBUSB_ERROR_TIMEOUT,
+	                 cmd_get_firmware_info(NULL, &info));
+	mu_assert(info.image[0] == '\0' && info.revision[0] == '\0',
+	          "a failed read left text behind");
+}
+
+/* A reply with fewer than 64 bytes in it is a short reply, as the other reads
+ * report one; a full-length reply that is not a block is a disagreement about
+ * the format that no length check can catch. */
+MU_TEST(a_short_or_unreadable_firmware_info_reply_is_an_error)
+{
+	struct ubertooth_fw_info info;
+
+	set_fw_info_reply(UBERTOOTH_FW_INFO_MAGIC, UBERTOOTH_FW_INFO_FORMAT,
+	                  0x0133, "btbr", "git-deadbee*");
+	fake.rc = UBERTOOTH_FW_INFO_LENGTH - 1;
+	mu_assert_int_eq(UBERTOOTH_ERROR_SHORT_REPLY,
+	                 cmd_get_firmware_info(NULL, &info));
+
+	set_fw_info_reply("NOTABLCK", UBERTOOTH_FW_INFO_FORMAT, 0x0133, "btbr",
+	                  "git-deadbee*");
+	mu_assert_int_eq(LIBUSB_ERROR_IO, cmd_get_firmware_info(NULL, &info));
+
+	set_fw_info_reply(UBERTOOTH_FW_INFO_MAGIC, 99, 0x0133, "btbr",
+	                  "git-deadbee*");
+	mu_assert_int_eq(LIBUSB_ERROR_IO, cmd_get_firmware_info(NULL, &info));
+
+	set_fw_info_reply(UBERTOOTH_FW_INFO_MAGIC, UBERTOOTH_FW_INFO_FORMAT,
+	                  0x0133, "", "git-deadbee*");
+	mu_assert_int_eq(LIBUSB_ERROR_IO, cmd_get_firmware_info(NULL, &info));
+}
+
+/* A board stalls a request its firmware does not implement, which is how
+ * every image built before the block answers this read. The code comes back
+ * for the caller to handle; unlike the other reads, this one says nothing,
+ * because ubertooth-util -v carries on from the revision instead. */
+MU_TEST(a_stalled_firmware_info_read_is_returned_without_a_message)
+{
+	struct ubertooth_fw_info info;
+	FILE *captured;
+	int saved, result;
+	long written;
+
+	memset(&fake, 0, sizeof(fake));
+	fake.rc = LIBUSB_ERROR_PIPE;
+	captured = tmpfile();
+	mu_assert(captured != NULL, "no temporary file to capture stderr in");
+	fflush(stderr);
+	saved = dup(STDERR_FILENO);
+	dup2(fileno(captured), STDERR_FILENO);
+	result = cmd_get_firmware_info(NULL, &info);
+	fflush(stderr);
+	dup2(saved, STDERR_FILENO);
+	close(saved);
+	fseek(captured, 0, SEEK_END);
+	written = ftell(captured);
+	fclose(captured);
+
+	mu_assert_int_eq(LIBUSB_ERROR_PIPE, result);
+	mu_assert_int_eq(0, written);
+}
+
+MU_TEST(firmware_info_rejects_a_missing_block_without_a_transfer)
+{
+	memset(&fake, 0, sizeof(fake));
+	mu_assert_int_eq(LIBUSB_ERROR_INVALID_PARAM,
+	                 cmd_get_firmware_info(NULL, NULL));
+	mu_assert_int_eq(0, fake.calls);
+}
+
 int main(void)
 {
 	MU_RUN(revision_string_is_returned);
@@ -313,5 +424,10 @@ int main(void)
 	MU_RUN(short_or_malformed_compile_info_reply_is_an_error);
 	MU_RUN(long_compile_info_is_truncated_and_missing_buffer_rejected);
 	MU_RUN(void_wrappers_return_text_or_an_error_string);
+	MU_RUN(firmware_info_block_is_returned);
+	MU_RUN(firmware_info_transfer_errors_are_returned_with_a_zeroed_block);
+	MU_RUN(a_short_or_unreadable_firmware_info_reply_is_an_error);
+	MU_RUN(a_stalled_firmware_info_read_is_returned_without_a_message);
+	MU_RUN(firmware_info_rejects_a_missing_block_without_a_transfer);
 	return mu_report();
 }

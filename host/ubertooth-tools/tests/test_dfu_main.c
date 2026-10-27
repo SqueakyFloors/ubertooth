@@ -496,14 +496,25 @@ static void remove_dump(void)
 #define IMAGE_PAYLOAD (3 * BLOCK_SIZE)
 #define IMAGE_BLOCKS 4
 
-/* A signed DFU file for this device whose compile-information marker names
- * revision, with payload bytes of firmware before the 16-byte suffix. -d
- * checks the whole image and -r reads the revision it expects out of it, so
- * these runs need a real one; sign() is the tool's own. */
-static void write_image_of(const char *path, const char *revision, long payload)
+#define IMAGE_NAME "bluetooth_rxtx"
+#define IMAGE_API 0x0133
+
+/* A signed DFU file for this device, laid out like a real image: the build
+ * string at the start, and the firmware info block at
+ * UBERTOOTH_FW_INFO_OFFSET, which is where -d reads the image name and the
+ * revision from. payload is the firmware length before the 16-byte suffix.
+ * sign() is the tool's own, so these are images the tool really accepts.
+ *
+ * block_format is the block's own format version, or 0 for a file with no
+ * block at all: either way, one the tool must refuse before it goes near the
+ * board. */
+static void write_image_with(const char *path, const char *image_name,
+                             const char *revision, long payload,
+                             unsigned block_format)
 {
 	FILE *payload_file = tmpfile();
 	FILE *image = fopen(path, "w+b");
+	uint8_t block[UBERTOOTH_FW_INFO_LENGTH];
 	char marker[128];
 	long i;
 	int length;
@@ -512,17 +523,45 @@ static void write_image_of(const char *path, const char *revision, long payload)
 		fprintf(stderr, "cannot create the test image\n");
 		exit(1);
 	}
+	if (payload < UBERTOOTH_FW_INFO_OFFSET + UBERTOOTH_FW_INFO_LENGTH) {
+		fprintf(stderr, "the test image is too short for an info block\n");
+		exit(1);
+	}
 	length = snprintf(marker, sizeof(marker), "ubertooth %s (tests) now",
 	                  revision);
 	fwrite(marker, 1, (size_t)length + 1, payload_file);
 	for (i = length + 1; i < payload; i++)
 		fputc(0xff, payload_file);
+	if (block_format != 0) {
+		memset(block, 0, sizeof(block));
+		memcpy(block + UBERTOOTH_FW_INFO_OFF_MAGIC,
+		       UBERTOOTH_FW_INFO_MAGIC, UBERTOOTH_FW_INFO_MAGIC_LEN);
+		block[UBERTOOTH_FW_INFO_OFF_FORMAT] = (uint8_t)(block_format & 0xff);
+		block[UBERTOOTH_FW_INFO_OFF_FORMAT + 1] = (uint8_t)(block_format >> 8);
+		block[UBERTOOTH_FW_INFO_OFF_API] = IMAGE_API & 0xff;
+		block[UBERTOOTH_FW_INFO_OFF_API + 1] = IMAGE_API >> 8;
+		memcpy(block + UBERTOOTH_FW_INFO_OFF_IMAGE, image_name,
+		       strlen(image_name));
+		memcpy(block + UBERTOOTH_FW_INFO_OFF_REVISION, revision,
+		       strlen(revision));
+		if (fseek(payload_file, UBERTOOTH_FW_INFO_OFFSET, SEEK_SET) != 0 ||
+		    fwrite(block, 1, sizeof(block), payload_file) != sizeof(block)) {
+			fprintf(stderr, "cannot write the test info block\n");
+			exit(1);
+		}
+	}
 	if (sign(payload_file, image, U1_DFU_VENDORID, U1_DFU_PRODUCTID) != 0) {
 		fprintf(stderr, "cannot sign the test image\n");
 		exit(1);
 	}
 	fclose(payload_file);
 	fclose(image);
+}
+
+static void write_image_of(const char *path, const char *revision, long payload)
+{
+	write_image_with(path, IMAGE_NAME, revision, payload,
+	                 UBERTOOTH_FW_INFO_FORMAT);
 }
 
 static void write_image(const char *revision)
@@ -765,6 +804,13 @@ static void assert_flash_passed(struct run_result *r)
 	          "the detach was not reported");
 	mu_assert(strstr(r->err, "Verified firmware revision: " IMAGE_REVISION)
 	          != NULL, "the flashed revision was not verified");
+	/* Read out of the image's firmware info block, not searched for, and a
+	 * note about the run, so on standard error. */
+	mu_assert(strstr(r->err,
+	                 "Image: " IMAGE_NAME " " IMAGE_REVISION " (API:1.33)\n")
+	          != NULL, "the image and revision the file carries were not named");
+	mu_assert(strstr(r->out, "Image: ") == NULL,
+	          "the image line took standard output");
 	mu_assert(strstr(r->err, "still in DFU") == NULL,
 	          "a board that left DFU was reported as still in it");
 	/* The board is out of the bootloader, so cleanup does not detach it a
@@ -1171,6 +1217,48 @@ MU_TEST(an_image_one_byte_past_the_part_is_refused)
 	          == NULL, "the refusal was reported as a device that would not open");
 }
 
+/* A file with a valid DFU suffix but no firmware info block is not an image
+ * from this tree: another device's image, or something that happens to carry
+ * a suffix. It is refused while the board is still running its application,
+ * so nothing is erased, and the message names the file. */
+MU_TEST(an_image_with_no_info_block_is_refused)
+{
+	struct run_result r;
+
+	board_in_application(PART_ID_128K, 128 * 1024);
+	write_image_with(sized_image_path, IMAGE_NAME, IMAGE_REVISION,
+	                 IMAGE_PAYLOAD, 0);
+	r = RUN("-U", "0", "-d", sized_image_path, "-r");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "there is no firmware info block here at offset "
+	                 "0x100") != NULL,
+	          "the refusal did not say the block is missing");
+	mu_assert(strstr(r.err, "Not an Ubertooth firmware image, firmware will "
+	                 "not be updated") != NULL,
+	          "the refusal did not say the firmware was left alone");
+	/* Nothing was opened, so nothing is erased and nothing needs detaching. */
+	mu_assert_int_eq(0, fake.part_id_calls);
+	mu_assert_int_eq(0, fake.flash_calls);
+	mu_assert_int_eq(0, fake.dnload_calls);
+	mu_assert_int_eq(0, fake.detach_calls);
+}
+
+/* A block in a format this host does not know: its fields may have moved, so
+ * nothing is read out of them and the file is refused the same way. */
+MU_TEST(an_image_with_an_unknown_block_format_is_refused)
+{
+	struct run_result r;
+
+	board_in_application(PART_ID_128K, 128 * 1024);
+	write_image_with(sized_image_path, IMAGE_NAME, IMAGE_REVISION,
+	                 IMAGE_PAYLOAD, UBERTOOTH_FW_INFO_FORMAT + 1);
+	r = RUN("-U", "0", "-d", sized_image_path, "-r");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "format this host does not know") != NULL,
+	          "the refusal did not name the format as the problem");
+	mu_assert_int_eq(0, fake.dnload_calls);
+}
+
 /* A part this host has no entry for has no flash size to check against, so
  * the image is written as it always was, with a line saying it was not
  * checked: the assumed size is not a floor, and refusing a valid image for a
@@ -1333,6 +1421,8 @@ int main(void)
 	MU_RUN(a_part_id_that_cannot_be_read_falls_back_to_the_assumed_flash);
 	MU_RUN(an_image_that_fills_the_part_is_written);
 	MU_RUN(an_image_one_byte_past_the_part_is_refused);
+	MU_RUN(an_image_with_no_info_block_is_refused);
+	MU_RUN(an_image_with_an_unknown_block_format_is_refused);
 	MU_RUN(an_unknown_part_warns_and_writes_the_image);
 	MU_RUN(an_image_too_large_for_one_part_fits_a_bigger_one);
 	MU_RUN(an_image_past_a_256_kib_part_is_refused_too);

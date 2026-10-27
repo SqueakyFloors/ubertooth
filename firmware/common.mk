@@ -302,8 +302,19 @@ MSG_CREATING_LIBRARY = Creating library:
 # Define all object files.
 OBJ = $(call per_image,$(SRC:%.c=%.o) $(CPPSRC:%.cpp=%.o) $(ASRC:%.S=%.o))
 
+# The firmware info block (../common/fw_info.c), which every image carries so
+# that ubertooth-dfu can name the image and revision a file holds. It is added
+# here rather than to each image's SRC so that an image cannot leave it out.
+# Like every shared source it builds into this image's own object, which
+# matters more here than elsewhere: the block bakes in FW_IMAGE_NAME, so one
+# object shared between images would claim the wrong image in all but one.
+FW_INFO_SRC = $(LIBS_PATH)/fw_info.c
+FW_INFO_OBJ = $(call per_image,$(FW_INFO_SRC:%.c=%.o))
+OBJ += $(FW_INFO_OBJ)
+
 # Define all listing files.
-LST = $(call per_image,$(SRC:%.c=%.lst) $(CPPSRC:%.cpp=%.lst) $(ASRC:%.S=%.lst))
+LST = $(call per_image,$(SRC:%.c=%.lst) $(CPPSRC:%.cpp=%.lst) $(ASRC:%.S=%.lst)) \
+	$(FW_INFO_OBJ:%.o=%.lst)
 
 # Compiler flags to generate dependency files.
 GENDEPFLAGS = -MMD -MP -MD
@@ -338,7 +349,8 @@ all: begin gccversion sizebefore build showtarget sizeafter end
 #    -v / -V. The standard fix is to record the current flags in a file that is
 #    rewritten only when they change, and make every object depend on it. Any
 #    flag change (not just the git hash) then correctly invalidates the objects.
-DEPFILES = $(call per_image,$(SRC:%.c=%.d) $(CPPSRC:%.cpp=%.d))
+DEPFILES = $(call per_image,$(SRC:%.c=%.d) $(CPPSRC:%.cpp=%.d)) \
+	$(FW_INFO_OBJ:%.o=%.d)
 -include $(DEPFILES)
 
 # Version identity tracking.
@@ -382,8 +394,10 @@ VERSION_HOST := $(shell hostname -s)
 # flashed firmware. Preserving the timestamp otherwise matters for A->B->A
 # switches: returning to A must keep A's original build time, not re-stamp it.
 # The identity is stored verbatim in a sidecar file (version.id) and compared
-# exactly, rather than parsed back out of the header.
-VERSION_ID := $(VERSION_NOW)|$(VERSION_BY)|$(VERSION_HOST)
+# exactly, rather than parsed back out of the header. The image name is part of
+# it because the header carries that too, and the firmware info block is built
+# from it.
+VERSION_ID := $(VERSION_NOW)|$(VERSION_BY)|$(VERSION_HOST)|$(TARGET)
 
 .PHONY: force-version-check
 $(VERSION_HEADER): force-version-check
@@ -404,6 +418,7 @@ $(VERSION_HEADER): force-version-check
 				echo '#define GIT_REVISION "$(VERSION_NOW)"'; \
 				echo '#define COMPILE_BY "$(VERSION_BY)"'; \
 				echo '#define COMPILE_HOST "$(VERSION_HOST)"'; \
+				echo '#define FW_IMAGE_NAME "$(TARGET)"'; \
 				echo '#define TIMESTAMP "'"`date`"'"'; \
 				echo '#endif'; \
 			} > $(VERSION_HEADER); \
@@ -417,6 +432,7 @@ $(VERSION_HEADER): force-version-check
 			echo '#define GIT_REVISION "git-unknown"'; \
 			echo '#define COMPILE_BY "$(VERSION_BY)"'; \
 			echo '#define COMPILE_HOST "$(VERSION_HOST)"'; \
+			echo '#define FW_IMAGE_NAME "$(TARGET)"'; \
 			echo '#define TIMESTAMP "'"`date`"'"'; \
 			echo '#endif'; \
 		} > $(VERSION_HEADER); \
@@ -488,10 +504,24 @@ program: $(TARGET).hex
 	@echo $(MSG_FLASH) $@
 	$(OBJCOPY) -O $(FORMAT) $< $@
 
+# The firmware info block has to be in the finished image: ubertooth-dfu
+# refuses a file without one, so an image that lost it cannot be flashed at
+# all. The ASSERTs in ../common/sections.ld cannot catch that on their own,
+# because they have to allow a zero-length block (the bootloader shares the
+# script and carries none), so check the bytes at the offset here. 256 is
+# UBERTOOTH_FW_INFO_OFFSET and UBTFINFO is UBERTOOTH_FW_INFO_MAGIC, both from
+# host/libubertooth/src/ubertooth_interface.h; firmware/tests/test_fw_info.c
+# checks that these two agree with it.
 %.bin: %.elf
 	@echo
 	@echo $(MSG_FLASH) $@
 	$(OBJCOPY) -O binary $< $(TARGET).bin
+	@magic=`dd if=$(TARGET).bin bs=1 skip=256 count=8 2>/dev/null`; \
+	if [ "$$magic" != "UBTFINFO" ]; then \
+		echo "$(TARGET).bin carries no firmware info block at offset 0x100," \
+		     "so ubertooth-dfu would refuse it" >&2; \
+		exit 1; \
+	fi
 
 %.srec: %.elf
 	@echo
