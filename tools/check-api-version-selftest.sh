@@ -604,6 +604,51 @@ run "a release bump with one document missing" "$repo" main
 want_status 1
 want_stderr "changes no firmware interface file"
 
+# And the release shape must not be a door around the collision the whole
+# check is about. Main has already released 0x0200; a second release-shaped
+# branch, cut before that landed or re-cut after it, claims the same value.
+# Everything else about it is a release: one major up from its merge base, the
+# minor digits at 00, the three documents moved. Only the comparison with main
+# refuses it, which is why that comparison is "above main" and not "not below
+# main". The push-to-main leg would not catch this one either: there the merge
+# base is main, so an equal value leaves through the unchanged exit.
+new_repo 0x0131
+git -C "$repo" checkout -q main
+edit "$repo" CHANGELOG.md
+edit "$repo" COMPATIBILITY.md
+edit "$repo" TEST_PLAN.md
+set_version "$repo" 0x0200
+commit "$repo" "main releases 2.00"
+git -C "$repo" checkout -q work
+edit "$repo" CHANGELOG.md
+edit "$repo" COMPATIBILITY.md
+edit "$repo" TEST_PLAN.md
+set_version "$repo" 0x0200
+commit "$repo" "a second release claiming the same value"
+run "a release cannot claim the version main released" "$repo" main
+want_status 1
+want_empty_stdout
+want_stderr "changes no firmware interface file"
+want_stderr "on main:       2.00 (0x0200)"
+
+# A source in a subdirectory of the image's own directory is still one of the
+# image's sources. The directory has none today, but the other firmware image
+# in this tree keeps its sources that way, and matching only direct children
+# would mean the Makefile edit that introduced a subdirectory was the last
+# thing the check ever saw there.
+new_repo 0x0131
+git -C "$repo" checkout -q main
+mkdir -p "$repo/firmware/bluetooth_rxtx/src"
+printf 'SEEDED = nested\n' > "$repo/firmware/bluetooth_rxtx/src/helper.c"
+commit "$repo" "move a source into a subdirectory"
+git -C "$repo" checkout -q -B work
+edit "$repo" firmware/bluetooth_rxtx/src/helper.c
+commit "$repo" "change the nested source, keep the version"
+run "a source in a subdirectory of the image counts" "$repo" main
+want_status 1
+want_stderr "has to be above the one main carries"
+want_stderr "firmware/bluetooth_rxtx/src/helper.c"
+
 # The answer must not depend on how this checkout happens to be configured to
 # display a diff. color.ui = always colorises even when nothing is a terminal
 # and diff.external replaces the format altogether, either of which would make

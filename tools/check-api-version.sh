@@ -49,17 +49,30 @@
 # way each half of it is wrong:
 #
 #   - It misses a firmware change the host relies on that is made somewhere
-#     else, firmware/common.mk above all (see over_image_sources below).
-#   - It calls some changes interface changes that are not, code moved
-#     verbatim between two watched files being the one seen in practice. That
-#     is a false red on a gating job, and the way out is the maintainer
-#     merging it red, not a version nobody needs; the message below says so.
+#     else, firmware/common.mk above all (see watched_pattern below).
+#   - It calls changes interface changes that are not. Three kinds, in
+#     rough order of how often they turn up: a change to the BTBR and BTCTL
+#     half of ubertooth_interface.h, which belongs to the btbr image and its
+#     own bcdDevice; a change to one of the image's sources that the host
+#     never reads, the LED patterns, the debug UART and tinyprintf among
+#     them; and code moved verbatim between two watched files. Each is a
+#     false red on a gating job, and the way out is the maintainer merging
+#     it red, not a version nobody needs; the message below says so.
 #   - It cannot see two open branches claiming the same value, since neither
 #     is wrong until the other merges. The second goes red as soon as the
 #     first lands, and the push-to-main leg of the job catches it even if the
 #     pull request was merged without re-running.
 
 set -u
+
+# Byte order, everywhere. The lists of watched files are built with sort and
+# then compared with comm, and comm refuses input it finds out of order: left
+# to the environment's collation the two can disagree about two paths, which
+# comm reports as a failure and some locales would make a daily occurrence.
+# It also keeps the path matching below about bytes rather than about what the
+# runner thinks a letter is.
+LC_ALL=C
+export LC_ALL
 
 header=host/libubertooth/src/ubertooth_interface.h
 
@@ -90,8 +103,7 @@ EOF
 # Only files that are compiled or linked, or that say which files are: a
 # README under one of those directories cannot change what the host sees, and
 # counting it would let a branch authorise its own bump by appending a line to
-# one. A pathspec wildcard here matches across directories, so
-# firmware/common/*.c reaches lpcusb too.
+# one.
 #
 # The two linker scripts are named rather than matched, because firmware/common
 # holds four and this image uses two of them: common.mk's default,
@@ -105,38 +117,62 @@ EOF
 # assembly_test, tc13badge), firmware/Makefile (which picks which images to
 # build), and documentation.
 #
-# Left out although both are a real gap: firmware/common.mk, the shared build
-# file every image includes, and the firmware/ctags.mk it includes in turn.
-# common.mk carries the compiler flags, -DTX_ENABLE and the commented-out
-# -fpack-struct among them, so a change there can alter what the host sees with
-# no source change at all. Neither is watched because in the last 34 merges the
-# only change to either was where object files are written, which no host can
-# observe: watching them would have reded a pull request that could not have
-# moved the interface. Narrowing to the lines that set flags needs a hand-kept
-# list of flag spellings, which is a call for the maintainer rather than a
-# decision for this script to make.
+# Left out although it is the one gap that can hide a real interface change:
+# firmware/common.mk, the shared build file every image includes. It carries
+# the compiler flags, -DTX_ENABLE and the commented-out -fpack-struct among
+# them, so a change there can alter what the host sees with no source change
+# at all. It also now holds part of the image's source list -- fw_info.c and
+# the FW_IMAGE_NAME the firmware info block bakes in -- so dropping that
+# source, which ubertooth-dfu requires, would trip nothing here. The
+# firmware/ctags.mk it includes in turn defines only the ctags and cscope
+# targets and cannot reach a compile or a link, so that one is no gap at all.
+#
+# Watching common.mk means accepting its false reds -- the two changes to it
+# in the last 35 merges were an object-directory move and the info block --
+# because the alternative, narrowing to the lines that set flags, needs a
+# hand-kept list of flag spellings. Which of those costs less is a call for
+# the maintainer rather than a decision for this script, and it is tracked
+# separately; this check lands with the narrow list that is certainly right.
+#
 # Written as one pattern over whole paths, matched against a plain listing of
 # the tree, rather than as git pathspecs. Pathspec globbing is not the same
 # command to command -- the wildcards that select these files for `git diff`
 # select nothing for `git ls-tree` -- and a list that silently comes back
 # empty is the answer that asks for no bump.
 #
-# firmware/common/ reaches lpcusb/target/ because the pattern does not stop at
-# a directory separator there, which is where the shared USB sources live.
-watched_pattern='^(firmware/bluetooth_rxtx/([^/]+\.(c|h|S|s|ld)|Makefile)|firmware/common/.*\.(c|h|S|s)|firmware/common/(LPC17xx_Linker_Script_with_bootloader|sections)\.ld|host/libubertooth/src/ubertooth_interface\.h)$'
+# Both source arms reach any depth, so neither stops at a directory
+# separator: firmware/common/ has to reach lpcusb/target/, where the shared
+# USB sources live, and firmware/bluetooth_rxtx/ holds no subdirectory today
+# but the btbr image already keeps its sources in src/ and include/. Were
+# this image to grow one, matching only its direct children would see the
+# Makefile edit that introduced the subdirectory and nothing in it ever
+# after, which is a silent pass rather than a visible red. The README and the
+# flash helper beside the sources are left out by the list of extensions, not
+# by the depth, so reaching further costs nothing.
+watched_pattern='^(firmware/bluetooth_rxtx/(.*\.(c|h|S|s|ld)|Makefile)|firmware/common/.*\.(c|h|S|s)|firmware/common/(LPC17xx_Linker_Script_with_bootloader|sections)\.ld|host/libubertooth/src/ubertooth_interface\.h)$'
 
 # One watched file with everything that is not interface taken out: whole-line
 # comments, blank lines, trailing space and the version define. What is left
 # is what can change the firmware the host talks to, so two commits whose
 # filtered files all agree have no interface change between them, and a branch
-# cannot buy itself a version by rewording a comment or appending prose.
+# whose only change is the bump itself, a whole-line comment or appended prose
+# cannot buy itself a version.
 #
-# It drops a comment only when the comment is the whole line, not when it
-# follows code. That is the conservative way round twice over. A reworded
-# trailing comment is counted as a change, which costs a bump that was not
-# needed rather than missing one that was. And a /* inside a string literal,
-# which is never alone on its line, cannot be mistaken for the start of a
-# comment and go on swallowing real code until the next */.
+# Only a whole-line comment, though. A comment that follows code, a comment
+# body whose /* opened after code on an earlier line, and a re-indentation all
+# read as content, so each counts as the firmware change that would justify a
+# bump. The cost runs both ways: a reworded trailing comment asks for a bump
+# nobody needed, and a branch that wanted one could take it by editing a
+# trailing comment in any watched file. Reading further would mean lexing C,
+# and a /* inside a string literal -- never alone on its line -- would then be
+# mistaken for the start of a comment and swallow real code until the next */.
+# Ignoring whitespace would retire the re-indentation half, but one of the
+# watched files is the image's Makefile, where a leading tab is what makes a
+# line a recipe, so whitespace there is content.
+#
+# What this does not weaken is the rule's point. The branch that has to be
+# refused is the one that changed the firmware and kept the version, and for
+# that the filter only has to notice real code changes, which it does.
 strip_noninterface() {
     awk '
     # Inside a block comment that began on an earlier line.
@@ -440,8 +476,29 @@ watched_at "$head_commit" "$work/head.list" || {
 # not, so there is nothing for the filter to decide about it. A file added or
 # removed appears on one side only and is read with an empty text for the
 # other, so it counts as a change unless it is all comments.
-comm -3 "$work/base.list" "$work/head.list" | sed 's/^[[:space:]]*//' |
-    cut -f2 | sort -u | grep . > "$work/paths" || :
+#
+# comm writes to a file and its status is read, rather than the two being one
+# pipeline ending in a tolerated failure. A pipeline's status is its last
+# command's, so a comm or sort that went wrong would have come back as an
+# empty list of changed files, which is the answer that asks for no bump --
+# the one shape of wrongness this script is meant not to have. comm exits
+# non-zero on input it finds out of order, which is a real possibility rather
+# than a theoretical one: that is what LC_ALL above is for, and if the two
+# ever disagree again this says so instead of passing the branch.
+comm -3 "$work/base.list" "$work/head.list" > "$work/differing" || {
+    echo "error: could not compare the firmware sources of the two commits" >&2
+    exit 1
+}
+# comm indents a line that is in the second list only, so the leading blank is
+# dropped before the path is cut out of "<hash> <tab> <path>".
+: > "$work/paths"
+if [ -s "$work/differing" ]; then
+    sed -e 's/^[[:space:]]*//' -e '/^$/d' "$work/differing" | cut -f2 |
+        sort -u > "$work/paths" || {
+        echo "error: could not read which firmware sources differ" >&2
+        exit 1
+    }
+fi
 
 # Fed from a file rather than a pipe, so a failure below ends the script
 # instead of a subshell it cannot report from.
@@ -494,10 +551,15 @@ if [ -n "$changed" ]; then
         echo "       The firmware interface files this branch changes:"
         printf '%s\n' "$changed" | sed 's/^/         /'
         echo ""
-        echo "       If none of them change what the host sees -- code moved"
-        echo "       between two of these files, say -- then this is a false red:"
-        echo "       say so on the pull request and let the maintainer merge with"
-        echo "       this job red, rather than taking a version nobody needs."
+        echo "       If none of them change what the host sees, this is a false"
+        echo "       red. The usual reasons: the file is the interface header but"
+        echo "       the change is to its BTBR or BTCTL half, which belongs to the"
+        echo "       separate btbr image; the file is compiled into the image but"
+        echo "       the host never reads it, such as the LED patterns or the"
+        echo "       debug UART; or the code was moved verbatim between two of"
+        echo "       these files. Say so on the pull request and let the"
+        echo "       maintainer merge with this job red, rather than taking a"
+        echo "       version nobody needs."
         echo "       tools/check-api-version.sh --list-watched prints the list."
     } >&2
     exit 1
@@ -519,9 +581,18 @@ fi
 # It stays narrow, because a stray 0x0200 on an ordinary branch would refuse
 # every user's board until it was reflashed, which is the thing the host-only
 # half of the rule exists to prevent. So: a single major up from the merge
-# base, the minor digits at 00, nothing below main, and the three documents
-# that record the version moving with it, which a release changes and a slip
-# of the finger does not.
+# base, the minor digits at 00, above main rather than merely not below it,
+# and the three documents that record the version moving with it, which a
+# release changes and a slip of the finger does not.
+#
+# Above main, because a value equal to main's is the collision this whole
+# check is about, and the release shape must not be a door around it: a
+# release branch that was cut before another release landed, or re-cut after
+# one, would otherwise claim a version whose firmware is already in the tree.
+# The push-to-main leg would not catch it either, since there the merge base
+# is main and an equal value leaves through the "unchanged" exit above. A
+# release rebased on main has its merge base at main's tip, so the value it
+# takes is above main's and this still passes.
 release_doc_list=$(git --no-pager diff --name-only "$merge_base" "$head_commit" -- \
     CHANGELOG.md COMPATIBILITY.md TEST_PLAN.md) || {
     echo "error: could not tell whether this branch is a release" >&2
@@ -531,7 +602,7 @@ release_doc_list=$(git --no-pager diff --name-only "$merge_base" "$head_commit" 
 release_docs=$(printf '%s\n' "$release_doc_list" | sort -u | grep -c .)
 if [ "$(( cur_decimal % 100 ))" -eq 0 ] &&
     [ "$(( cur_decimal / 100 ))" -eq "$(( base_decimal / 100 + 1 ))" ] &&
-    [ "$cur_decimal" -ge "$main_decimal" ] &&
+    [ "$cur_decimal" -gt "$main_decimal" ] &&
     [ "$release_docs" -eq 3 ]; then
     echo "check-api-version: no firmware interface file changed, and"
     echo "UBERTOOTH_API_VERSION moves to $cur_pretty, the next major version,"
