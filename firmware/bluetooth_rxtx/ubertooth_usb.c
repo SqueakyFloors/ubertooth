@@ -349,6 +349,97 @@ unsigned usb_queue_space(void)
 	return (head - tail - 1) & 0x7F;
 }
 
+/* The channel, clock and signal readings of the packet, copied from the
+ * caller's template onto every record that carries part of it. */
+static void fill_le_metadata(usb_pkt_rx *f, const le_pkt_meta *meta,
+                             uint8_t pkt_type)
+{
+	f->pkt_type = pkt_type;
+	f->status = meta->status;
+	f->channel = meta->channel;
+	f->clkn_high = meta->clkn_high;
+	f->clk100ns = meta->clk100ns;
+	f->rssi_max = meta->rssi_max;
+	f->rssi_min = meta->rssi_min;
+	f->rssi_avg = meta->rssi_avg;
+	f->rssi_count = meta->rssi_count;
+}
+
+/* Copies into one record's 50 data bytes the part of the captured packet that
+ * starts at byte `offset`. The captured packet is the 4-byte access address
+ * followed by `rest`, so only the first record straddles the two; the rest of
+ * the record is zeroed, because records are reused. */
+static void fill_le_chunk(usb_pkt_rx *f, const uint8_t *aa,
+                          const uint8_t *rest, unsigned offset, unsigned chunk)
+{
+	unsigned from_address = 0;
+
+	if (offset < 4) {
+		from_address = 4 - offset;
+		if (from_address > chunk)
+			from_address = chunk;
+		memcpy(f->data, aa + offset, from_address);
+	}
+	if (chunk > from_address)
+		memcpy(f->data + from_address, rest + offset + from_address - 4,
+		       chunk - from_address);
+	if (chunk < DMA_SIZE)
+		memset(f->data + chunk, 0, DMA_SIZE - chunk);
+}
+
+int usb_enqueue_le_packet(const le_pkt_meta *meta, const uint8_t *aa,
+                          const uint8_t *rest, unsigned rest_len)
+{
+	/* The whole captured packet: the access address, then the PDU header,
+	 * the payload and the CRC that rest_len counts. */
+	unsigned total = 4 + rest_len;
+	unsigned fragments, offset;
+	usb_pkt_rx *f;
+
+	if (total > LE_MAX_USB_PACKET_SIZE)
+		return 0;
+
+	/* One record holds a packet of 50 bytes or less, which is nearly all of
+	 * them, and is sent as it always was. */
+	if (total <= DMA_SIZE) {
+		f = usb_enqueue();
+		if (f == NULL)
+			return 0;
+		fill_le_metadata(f, meta, LE_PACKET);
+		f->reserved[0] = 0;
+		f->reserved[1] = 0;
+		fill_le_chunk(f, aa, rest, 0, total);
+		return 1;
+	}
+
+	/* Each fragment is one record carrying 50 bytes of the packet. The first
+	 * and continuation record types mark the chain; reserved[0] and bit 0 of
+	 * reserved[1] carry the total length, and bits 7..1 of reserved[1] a
+	 * fragment index that counts up from zero. */
+	fragments = (total + DMA_SIZE - 1) / DMA_SIZE;
+	if (usb_queue_space() < fragments)
+		return 0; /* all or nothing: half a packet is worse than none */
+
+	for (offset = 0; offset < total; offset += DMA_SIZE) {
+		unsigned chunk = total - offset;
+		if (chunk > DMA_SIZE)
+			chunk = DMA_SIZE;
+		/* The space check above means this cannot fail, so there is no
+		 * half-enqueued packet to undo. */
+		f = usb_enqueue();
+		if (f == NULL)
+			return 0;
+		fill_le_metadata(f, meta,
+			(offset == 0) ? LE_PACKET_START : LE_PACKET_CONT);
+		f->reserved[0] = total & 0xff;
+		f->reserved[1] = ((total >> 8) & LE_FRAG_TOTAL_HIGH_MASK) |
+			((offset / DMA_SIZE) << LE_FRAG_INDEX_SHIFT);
+		fill_le_chunk(f, aa, rest, offset, chunk);
+	}
+
+	return 1;
+}
+
 int dequeue_send(u32 clkn)
 {
 	usb_pkt_rx *pkt = dequeue();

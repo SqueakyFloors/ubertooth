@@ -106,6 +106,37 @@ void usb_queue_init();
 usb_pkt_rx *usb_enqueue();
 usb_pkt_rx *dequeue();
 unsigned usb_queue_space(void);
+
+/* What a record says about the packet it carries, apart from the packet
+ * itself: which channel it arrived on, when, and how strong it was. Every
+ * record of a long packet gets the same copy of this. */
+typedef struct {
+	uint8_t  status;
+	uint8_t  channel;
+	uint8_t  clkn_high;
+	uint32_t clk100ns;
+	int8_t   rssi_max;
+	int8_t   rssi_min;
+	int8_t   rssi_avg;
+	uint8_t  rssi_count;
+} le_pkt_meta;
+
+/* Queues one captured low-energy packet, splitting it across records when it
+ * is longer than the 50 bytes one record holds.
+ *
+ * The packet is the four bytes of the access address at `aa` followed by
+ * `rest_len` bytes at `rest` -- the PDU header, the payload and the CRC. The
+ * two are separate because the capture loops keep them apart: the access
+ * address is what the board synchronized on, not something it received.
+ *
+ * A long packet goes out as one LE_PACKET_START record and ordered
+ * LE_PACKET_CONT records, and all of them are queued or none: half a packet
+ * is worse than none, because the host throws an incomplete chain away.
+ * Returns 1 when the packet was queued, 0 when it was not -- a ring without
+ * room for every record, or a packet longer than the host can hold. */
+int usb_enqueue_le_packet(const le_pkt_meta *meta, const uint8_t *aa,
+                          const uint8_t *rest, unsigned rest_len);
+
 void handle_usb(u32 clkn);
 
 /* The control path on its own, for a mode whose host reads packets with

@@ -640,7 +640,7 @@ static struct run_result run_util(const char *const *args)
 /* Exact expected report lines, in the order ubertooth-util prints them. */
 #define BOARD_LINE "Board ID Number: 1 (Ubertooth One)\n"
 #define CHANNEL_LINE "Current frequency: 2441 MHz (Bluetooth channel 39)\n"
-#define FIRMWARE_LINE "Firmware version: bluetooth_rxtx git-test (API:1.36)\n"
+#define FIRMWARE_LINE "Firmware version: bluetooth_rxtx git-test (API:1.37)\n"
 #define COMPILE_LINE "bluetooth_rxtx: compile-test\n"
 #define USRLED_LINE "USR LED status: 0\n"
 #define PALEVEL_LINE "PA Level: 7\n"
@@ -800,7 +800,7 @@ MU_TEST(a_board_without_an_info_block_is_still_identified)
 	fake.fw_info_rc = LIBUSB_ERROR_PIPE;
 	r = RUN("-v", "-V");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(r.out, "Firmware version: git-test (API:1.36)\n"
+	mu_assert(strcmp(r.out, "Firmware version: git-test (API:1.37)\n"
 	                        "compile-test\n") == 0, r.out);
 	mu_assert_int_eq(0, (long)strlen(r.err));
 
@@ -2633,8 +2633,8 @@ MU_TEST(firmware_listing_with_several_devices_reports_each_device)
 	r = RUN("-v");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(r.out,
-	                 "0: bluetooth_rxtx git-test (API:1.36)\n"
-	                 "1: bluetooth_rxtx git-test (API:1.36)\n") == 0,
+	                 "0: bluetooth_rxtx git-test (API:1.37)\n"
+	                 "1: bluetooth_rxtx git-test (API:1.37)\n") == 0,
 	          "per-device firmware lines");
 }
 
@@ -2656,8 +2656,8 @@ MU_TEST(each_identity_query_alone_lists_every_device_compactly)
 {
 	struct { const char *option; const char *expected; } cases[] = {
 		{ "-b", "0: 1 (Ubertooth One)\n1: 1 (Ubertooth One)\n" },
-		{ "-v", "0: bluetooth_rxtx git-test (API:1.36)\n"
-	                 "1: bluetooth_rxtx git-test (API:1.36)\n" },
+		{ "-v", "0: bluetooth_rxtx git-test (API:1.37)\n"
+	                 "1: bluetooth_rxtx git-test (API:1.37)\n" },
 		{ "-V", "0: bluetooth_rxtx: compile-test\n"
 		         "1: bluetooth_rxtx: compile-test\n" },
 		{ "-p", "0: 25011723\n1: 25011723\n" },
@@ -2791,7 +2791,7 @@ MU_TEST(a_failed_read_on_one_device_is_reported_and_fails_the_listing)
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.out,
 	                 "0: <firmware read failed>\n"
-	                 "1: bluetooth_rxtx git-test (API:1.36)\n") == 0,
+	                 "1: bluetooth_rxtx git-test (API:1.37)\n") == 0,
 	          "failed revision read shown per device");
 
 	reset_fake();

@@ -43,7 +43,16 @@ void dma_poweron();
 void dma_poweroff();
 void dma_clear_interrupts(unsigned channel);
 void dma_init_rx_symbols();
-void dma_init_le();
+
+/* How many bytes the first item of the low-energy receive chain covers. Its
+ * terminal count is what wakes the mode loop, and by then the PDU header has
+ * arrived, so the loop can read how long the packet is going to be. */
+#define LE_DMA_HEAD 4
+
+/* Sets the low-energy receive DMA up to put `len` received bytes at `dest`,
+ * which must be at least LE_DMA_HEAD long. A whole packet fits in one go, so
+ * the mode loop never has to re-arm the controller mid-packet. */
+void dma_init_le(volatile uint8_t* dest, unsigned len);
 void dio_ssp_start();
 void dio_ssp_stop();
 

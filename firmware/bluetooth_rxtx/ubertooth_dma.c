@@ -46,7 +46,8 @@ typedef struct {
 dma_lli rx_dma_lli1;
 dma_lli rx_dma_lli2;
 
-dma_lli le_dma_lli[11]; // 11 x 4 bytes
+/* The low-energy receive chain: four bytes, then the rest of the packet. */
+dma_lli le_dma_lli[2];
 
 
 void dma_poweron(void) {
@@ -136,22 +137,29 @@ void dma_init_rx_symbols(void) {
 	DMACC0Config |= 1;
 }
 
-void dma_init_le(void) {
+void dma_init_le(volatile uint8_t* dest, unsigned len) {
 	int i;
+	/* The first four bytes on their own, then everything after them. */
+	const unsigned size[2] = { LE_DMA_HEAD, len - LE_DMA_HEAD };
 
 	dma_clear_interrupts(0);
 
-	for (i = 0; i < 11; ++i) {
+	for (i = 0; i < 2; ++i) {
 		le_dma_lli[i].src = (uint32_t)&(DIO_SSP_DR);
-		le_dma_lli[i].dest = (uint32_t)&rxbuf1[4 * i];
-		le_dma_lli[i].next_lli = i < 10 ? (uint32_t)&le_dma_lli[i+1] : 0;
-		le_dma_lli[i].control = 4 |
+		le_dma_lli[i].dest = (uint32_t)(dest + (i == 0 ? 0 : LE_DMA_HEAD));
+		le_dma_lli[i].next_lli = i == 0 ? (uint32_t)&le_dma_lli[1] : 0;
+		le_dma_lli[i].control = size[i] |
 				(1 << 12) |        /* source burst size = 4 */
 				(0 << 15) |        /* destination burst size = 1 */
 				(0 << 18) |        /* source width 8 bits */
 				(0 << 21) |        /* destination width 8 bits */
 				DMACCxControl_DI | /* destination increment */
-				DMACCxControl_I;   /* terminal count interrupt enable */
+				/* Only the first item interrupts: it is what tells the
+				 * mode loop that a packet has started and that its
+				 * length byte has arrived. The rest of the packet is
+				 * followed by reading DMACC0DestAddr, so an interrupt
+				 * per four bytes would buy nothing. */
+				(i == 0 ? DMACCxControl_I : 0);
 	}
 
 	/* configure DMA channel 0 */

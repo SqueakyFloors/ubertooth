@@ -22,7 +22,7 @@ HOST_DFU := ../../host/ubertooth-tools/src
 HOST_LIB := ../../host/libubertooth/src
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_le_phy_order test_le_frag_shape test_le_filter_bounds test_le_phy_logic test_grmdm_rx_generic test_tx_generic_bounds test_write_registers_bounds test_btbr_hop test_btbr_rx_deadline test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_watchdog
+TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_le_phy_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_grmdm_rx_generic test_tx_generic_bounds test_write_registers_bounds test_btbr_hop test_btbr_rx_deadline test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_watchdog
 BINDIR  := bin
 
 .PHONY: all test clean
@@ -125,12 +125,13 @@ $(BINDIR)/test_le_phy_order: test_le_phy_order.c minunit.h source_scan.h \
 	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
 		-o $@ test_le_phy_order.c
 
-# Splitting a long low-energy packet across records happens inside the capture
-# loop, so this scans le_phy.c as text too. It also includes the host's
-# reassembly header, so the constants both halves pack the metadata with are
-# the shared ones. ../../host/libubertooth/src is already on the include path.
+# Which capture loop hands a whole packet to the fragmenting enqueue, and how
+# each one gets the whole packet in the first place. Both loops are hardware
+# code, so this scans them as text; the split itself is pure logic and runs
+# for real in test_le_frag_enqueue. FW_RXTX_DIR points at both sources.
 $(BINDIR)/test_le_frag_shape: test_le_frag_shape.c minunit.h source_scan.h \
-		$(FW_RXTX)/le_phy.c ../../host/libubertooth/src/ubertooth_le_frag.h \
+		$(FW_RXTX)/le_phy.c $(FW_RXTX)/bluetooth_rxtx.c \
+		../../host/libubertooth/src/ubertooth_le_frag.h \
 		| $(BINDIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
 		-o $@ test_le_frag_shape.c
@@ -178,6 +179,22 @@ $(BINDIR)/test_le_filter_bounds: test_le_filter_bounds.c minunit.h \
 		source_scan.h $(FW_RXTX)/le_phy.c | $(BINDIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
 		-o $@ test_le_filter_bounds.c
+
+# The fragmenting enqueue is pure logic, so ubertooth_usb.c is compiled into
+# this test (as test_usb_queue.c does) and run for real, against the host's
+# reassembly linked in beside it. stubs-usbq/ stands in for ubertooth.h and
+# lpcusb's usbapi.h and comes first so it wins; usbhw_lpc.h is register
+# #defines and prototypes, so the real one is used.
+$(BINDIR)/test_le_frag_enqueue: test_le_frag_enqueue.c minunit.h \
+		stubs-usbq/usbapi.h stubs-usbq/ubertooth.h stubs/ubertooth.h \
+		$(FW_RXTX)/ubertooth_usb.c $(FW_RXTX)/ubertooth_usb.h \
+		$(FW_COMMON)/usb_irq.h \
+		../../host/libubertooth/src/ubertooth_le_frag.c \
+		../../host/libubertooth/src/ubertooth_le_frag.h | $(BINDIR)
+	$(CC) $(CFLAGS) -Istubs-usbq $(CPPFLAGS) -I$(FW_LPCUSB) \
+		-I$(FW_COMMON) -DFW_HOST_TEST \
+		-o $@ test_le_frag_enqueue.c \
+		../../host/libubertooth/src/ubertooth_le_frag.c
 
 # grmdm_packet_mode() is a bit test in cc2400.h, so it runs here; the
 # rx_generic() that uses it is hardware code, so the same test scans

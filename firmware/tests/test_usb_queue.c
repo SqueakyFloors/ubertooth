@@ -1173,10 +1173,15 @@ struct producer {
  * and the callbacks run under both of its loops. Both loops are rows above and
  * both are classified the same way, so naming either is accurate about how
  * those packets reach the host.
+ *
+ * usb_enqueue_le_packet() belongs to no single loop either: it is the one
+ * place a captured low-energy packet is turned into records, splitting a
+ * packet too long for one of them, and both low-energy capture paths call it.
  */
 static struct producer producers[] = {
 	{ FW_RXTX_DIR, "bluetooth_rxtx.c", "enqueue",              NULL,              0, 0, { 0 } },
 	{ FW_RXTX_DIR, "bluetooth_rxtx.c", "enqueue_with_ts",      NULL,              0, 0, { 0 } },
+	{ FW_RXTX_DIR, "ubertooth_usb.c", "usb_enqueue_le_packet", NULL,      0, 0, { 0 } },
 	{ FW_RXTX_DIR, "bluetooth_rxtx.c", "bt_stream_rx",         "bt_stream_rx",    0, 0, { 0 } },
 	{ FW_RXTX_DIR, "bluetooth_rxtx.c", "specan",               "specan",          0, 0, { 0 } },
 	{ FW_RXTX_DIR, "bluetooth_rxtx.c", "rx_generic_sync",      "rx_generic_sync", 0, 0, { 0 } },
