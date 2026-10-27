@@ -182,9 +182,9 @@ MU_TEST(test_gives_up_when_lock_never_clears)
 	mu_assert_int_eq(FS_UNLOCK_POLLS, (int)status_reads);
 }
 
-/* While waiting it re-asserts SRFOFF, so a strobe lost to SPI bus contention
- * (or a synthesizer an interrupt handler switched back on) is retried. Only
- * SRFOFF is ever strobed: the wait must not turn the synthesizer on. */
+/* While waiting it re-asserts SRFOFF, so a synthesizer an interrupt handler
+ * switched back on is pushed off again. Only SRFOFF is ever strobed: the wait
+ * must not turn the synthesizer on. */
 MU_TEST(test_restrobes_srfoff_while_waiting)
 {
 	const u8 seq[] = { FS_LOCK };
@@ -287,9 +287,9 @@ MU_TEST(test_lock_gives_up_when_lock_never_arrives)
 	mu_assert_int_eq(FS_LOCK_POLLS, (int)status_reads);
 }
 
-/* While waiting it re-asserts SFSON, so a strobe lost to SPI bus contention
- * is retried. Only SFSON is ever strobed: the wait must not turn the
- * synthesizer off. */
+/* While waiting it re-asserts SFSON, so a synthesizer an interrupt handler
+ * switched off is turned back on. Only SFSON is ever strobed: the wait must
+ * not turn the synthesizer off. */
 MU_TEST(test_lock_restrobes_sfson_while_waiting)
 {
 	const u8 seq[] = { 0x00 };

@@ -1166,11 +1166,10 @@ void le_phy_main(void) {
 	// RX. mode was still MODE_BT_FOLLOW_LE, so DMA_IRQHandler() kept
 	// dispatching arriving bytes into le_DMA_IRQHandler(), which strobes the
 	// synthesizer back on (SFSON) and reads RSSI over the CC2400's bit-banged
-	// SPI bus. cc2400_spi() holds CSN low across a transfer and does not mask
-	// interrupts, so those accesses corrupted -- and were corrupted by -- the
-	// cc2400_idle() the main loop runs next. Its FS_LOCK wait was unbounded,
-	// so the board could sit there forever with USB unserviced, and every
-	// later control request timed out (-7) or stalled (-9) until the board was
+	// SPI bus. So the handler kept switching the radio on under the
+	// cc2400_idle() the main loop runs next, whose FS_LOCK wait was unbounded:
+	// the board could sit there forever with USB unserviced, and every later
+	// control request timed out (-7) or stalled (-9) until the board was
 	// physically re-plugged.
 	//
 	// Order matters. Clearing le_phy_active first is what makes this safe: a

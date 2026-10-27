@@ -20,7 +20,7 @@ FW_BOOT := ../bootloader
 HOST_DFU := ../../host/ubertooth-tools/src
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_mode_dispatch test_le_phy_order test_grmdm_rx_generic test_tx_generic_bounds test_write_registers_bounds test_btbr_hop test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info
+TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_le_phy_order test_grmdm_rx_generic test_tx_generic_bounds test_write_registers_bounds test_btbr_hop test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info
 BINDIR  := bin
 
 .PHONY: all test clean
@@ -73,6 +73,15 @@ $(BINDIR)/test_cc2400_wait: test_cc2400_wait.c minunit.h source_scan.h \
 		$(FW_RXTX)/le_phy.c $(FW_RXTX)/cc2400_rangetest.c | $(BINDIR)
 	$(CC) $(CFLAGS) -Istubs-radio $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
 		-o $@ test_cc2400_wait.c $(FW_RXTX)/cc2400_wait.c
+
+# cc2400_spi() is GPIO register writes in a file that also configures the
+# clock, so it cannot run here; this test scans firmware/common as text, like
+# test_mode_dispatch does. FW_COMMON_DIR points it at the source.
+$(BINDIR)/test_cc2400_spi_atomic: test_cc2400_spi_atomic.c minunit.h \
+		source_scan.h $(FW_COMMON)/ubertooth.c $(FW_COMMON)/ubertooth.h \
+		| $(BINDIR)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_COMMON_DIR='"$(FW_COMMON)"' \
+		-o $@ test_cc2400_spi_atomic.c
 
 # The mode dispatch lives in main(), which cannot run here, so this test scans
 # bluetooth_rxtx.c as text (like test_frend's last case). FW_RXTX_DIR points it
