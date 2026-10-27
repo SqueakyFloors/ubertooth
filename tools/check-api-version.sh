@@ -53,17 +53,14 @@
 #     what the host sees are watched one by one (see watched_flags below), and
 #     the rest of that file -- where object files go, the warning flags, the
 #     rules -- is not.
-#   - It calls changes interface changes that are not. Four kinds, in
+#   - It calls changes interface changes that are not. Three kinds, in
 #     rough order of how often they turn up: a change to the BTBR and BTCTL
 #     half of ubertooth_interface.h, which belongs to the btbr image and its
 #     own bcdDevice; a change to one of the image's sources that the host
 #     never reads, the LED patterns, the debug UART and tinyprintf among
-#     them; code moved verbatim between two watched files; and a line of
-#     firmware/common.mk that carries a watched flag without setting it, the
-#     recipe that echoes the board name and the link command that uses
-#     LINKER_SCRIPT being the two in the file today. Each is a false red on a
-#     gating job, and the way out is the maintainer merging it red, not a
-#     version nobody needs; the message below says so.
+#     them; and code moved verbatim between two watched files. Each is a
+#     false red on a gating job, and the way out is the maintainer merging it
+#     red, not a version nobody needs; the message below says so.
 #   - It cannot see two open branches claiming the same value, since neither
 #     is wrong until the other merges. The second goes red as soon as the
 #     first lands, and the push-to-main leg of the job catches it even if the
@@ -98,7 +95,8 @@ checkout tracks main from, then origin/main.
 --list-watched prints the files a change to which asks for a new version, and
 reads no commit, so it takes no main-ref. One of them, firmware/common.mk, is
 read a line at a time: only the lines that set one of the compile flags listed
-in this script count, and every other line of it is ignored.
+in this script count -- an assignment to one, a -D or -U flag naming one, or a
+conditional on one -- and every other line of it is ignored.
 EOF
 }
 
@@ -160,19 +158,17 @@ common_mk=firmware/common.mk
 # like, which modes it has. A change to a line that sets one of these asks for a
 # new API version; every other line of the file is ignored.
 #
-# Each name below is matched as plain text anywhere on a line, so a flag is
-# found however the line that sets it is written, and a flag that is commented
-# out counts: uncommenting -fpack-struct is the change, not adding the text.
-# Reindenting a line is not a change, because the text compared has its runs of
-# blanks collapsed.
+# Each name below is matched as a whole name, and only where the line is
+# really setting it. name_pattern below says which lines those are; in short,
+# an assignment to that exact name, a -D or -U flag naming it, or a make
+# conditional testing it. A line that merely uses the name -- the link command
+# that passes $(LINKER_SCRIPT) to the linker, the recipe that echoes
+# $(BOARD) -- does not count, and neither does a longer name that starts with
+# a watched one, LINKER_SCRIPT_DIRS being the one that made this matter.
 #
-# Matching the whole line, rather than only the part of it that assigns, is
-# what keeps this list a list of names instead of a second grammar for
-# makefiles. Prose comments are dropped first, so a comment that mentions a
-# name is not read as a line that sets it. What is still matched more widely
-# than it sets anything is two recipe lines: the one that echoes the board
-# name, and the link command, which is where LINKER_SCRIPT is used. A change
-# to either is a false red, and the message below says how to clear one.
+# A flag that is commented out still counts, because uncommenting
+# -fpack-struct is the change rather than adding the text. Reindenting a line
+# is not a change, because the text compared has its runs of blanks collapsed.
 watched_flags() {
     # Lines beginning with # are the reasons; the rest are the names, which
     # come out with the indentation here taken off.
@@ -273,6 +269,99 @@ collapse_blanks() {
     sed 's/[[:space:]][[:space:]]*/ /g; s/^ //; s/ *$//'
 }
 
+# One string with its extended-regular-expression metacharacters escaped, so a
+# watched name is matched as the text it is. Nothing in the list needs it
+# today; it is here so that adding a name with a dot or a plus in it cannot
+# turn into a pattern that matches more than the name.
+regex_escape() {
+    printf '%s\n' "$1" | sed 's/[][\\^$.*+?(){}|]/\\&/g'
+}
+
+# One watched name, as the patterns that find a line of firmware/common.mk
+# setting it. They come out one per line, which is how grep -E reads a list of
+# patterns, so this is both what the filter below greps with and what names
+# the flags a branch changed.
+#
+# A watched name is matched as a whole name, and only where the line sets it.
+# Three shapes count:
+#
+#   - An assignment to that exact name: "LINKER_SCRIPT = x" and the other
+#     operators make has -- "+=", ":=", "?=", "!=", "::=", ":::=" -- with
+#     "override" or "export" allowed in front, and "define NAME" for the
+#     multi-line form.
+#   - A -D or -U flag naming it: "-DTX_ENABLE" and "-DTX_ENABLE=1" both count.
+#   - A make conditional testing it: "ifeq ($(DISABLE_TX), )", "ifdef
+#     DISABLE_TX". DISABLE_TX is assigned nowhere in the file -- the
+#     conditional on it is what decides whether -DTX_ENABLE is compiled in --
+#     so without this a branch could invert that line and take the jamming
+#     requests away with nothing noticing.
+#
+# A leading # is allowed throughout, because a setting someone turned off is
+# still a setting: uncommenting it is the change. Prose comments are dropped
+# before this ever runs.
+#
+# What no longer counts, now that a name has to be set rather than mentioned,
+# and what that costs:
+#
+#   - A line that only uses a watched variable. The link command passes
+#     $(LINKER_SCRIPT) to the linker and the showtarget recipe echoes
+#     $(BOARD); rewriting either used to be a false red on a gating job. The
+#     cost is that "CFLAGS += $(CDEFS)", the line that carries the -D options
+#     into the C compile, is no longer read either, so deleting it would pass
+#     unnoticed.
+#   - A longer name that begins with a watched one. LINKER_SCRIPT_DIRS,
+#     LINKER_SCRIPT_FOUND and LINKER_SCRIPT_FILES are three such names, and
+#     matching the watched name as plain text anywhere on a line is what made
+#     the check fail on a branch whose built image was byte-identical.
+#
+# Matching a flag is not quite matching a name. -D and -U take their macro
+# name attached, so they are found wherever one follows; every other flag is
+# matched whole, so -fpack-struct is not found inside -fpack-structure.
+name_pattern() {
+    pat=$(regex_escape "$1") || return 1
+    case $1 in
+    -D | -U)
+        printf '%s[A-Za-z_$]\n' "$pat"
+        ;;
+    -*)
+        printf '%s([^A-Za-z0-9_-]|$)\n' "$pat"
+        ;;
+    *)
+        printf '^[[:space:]#]*((override|export)[[:space:]]+)*%s[[:space:]]*([+?!:]?|::|:::)=\n' "$pat"
+        printf '^[[:space:]#]*((override|export)[[:space:]]+)*define[[:space:]]+%s([[:space:]]|$)\n' "$pat"
+        printf '^[[:space:]#]*(else[[:space:]]+)?(ifeq|ifneq|ifdef|ifndef)([^A-Za-z0-9_].*)?[^A-Za-z0-9_]%s([^A-Za-z0-9_]|$)\n' "$pat"
+        printf -- '-[DU]%s([^A-Za-z0-9_]|$)\n' "$pat"
+        ;;
+    esac
+}
+
+# Those patterns for every watched name, which is what the filter greps with.
+# Written to a file so that one grep answers for the whole list.
+name_patterns() {
+    while IFS= read -r watched; do
+        name_pattern "$watched" || return 1
+    done < "$work/flags"
+}
+
+# The watched names whose lines differ in $work/mk.diff, so a message can say
+# which settings a branch changed rather than only which lines. Each name is
+# tested with its own patterns, so a LINKER_SCRIPT_DIRS line is not reported
+# as a change to LINKER_SCRIPT.
+changed_names() {
+    sed 's/^[-+] //' "$work/mk.diff" > "$work/mk.lines" || return 1
+    while IFS= read -r watched; do
+        pattern=$(name_pattern "$watched") || return 1
+        # -e, because a flag's pattern begins with a dash and grep would read
+        # it as an option. The patterns come out one per line and grep reads
+        # a newline in a pattern as the separator between two, so one -e
+        # carries all of a name's shapes.
+        if grep -qE -e "$pattern" "$work/mk.lines"; then
+            printf '%s\n' "$watched"
+        fi
+    done < "$work/flags"
+    return 0
+}
+
 # One watched file with everything that is not interface taken out: whole-line
 # comments, blank lines, trailing space and the version define. What is left
 # is what can change the firmware the host talks to, so two commits whose
@@ -360,7 +449,7 @@ interface_text() {
         # above 1 is a real failure, an unreadable pattern file above all, and
         # must not pass as that answer: empty is what asks for no bump.
         printf '%s\n' "$text" | grep -v '^[[:space:]]*#[[:space:]]' |
-            collapse_blanks | grep -F -f "$work/flags"
+            collapse_blanks | grep -E -f "$work/patterns"
         matched=$?
         [ "$matched" -le 1 ] || return 1
         return 0
@@ -627,6 +716,16 @@ watched_flags > "$work/flags" || exit 1
     exit 1
 }
 
+# And the patterns that find each of them being set, written once for the same
+# reason. Empty is the answer that asks for no bump, so an empty pattern file
+# is a failure rather than a pass.
+name_patterns > "$work/patterns" || exit 1
+[ -s "$work/patterns" ] || {
+    echo "error: the watched flag list produced no patterns, so a change to a" >&2
+    echo "       compile flag in $common_mk would pass unnoticed" >&2
+    exit 1
+}
+
 watched_at "$merge_base" "$work/base.list" || {
     echo "error: could not list the firmware sources at the merge base" >&2
     exit 1
@@ -693,11 +792,13 @@ if grep -qxF "$common_mk" "$work/changed"; then
         exit 1
     }
     flag_lines=$(cat "$work/mk.diff")
-    # grep finds nothing only if a differing line sets no watched flag, which
+    # No name matches only if a differing line sets no watched flag, which
     # cannot happen: that is what put the line in the comparison. The message
     # below falls back to the lines alone if it ever does.
-    flag_names=$(sed 's/^[-+] //' "$work/mk.diff" |
-        grep -oF -f "$work/flags" | sort -u)
+    flag_names=$(changed_names | sort -u) || {
+        printf 'error: could not read which flags changed in %s\n' "$common_mk" >&2
+        exit 1
+    }
 fi
 
 # What was compared, for the record: a log that only says "passed" cannot be

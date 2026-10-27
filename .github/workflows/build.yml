@@ -496,6 +496,18 @@ jobs:
       timeout-minutes: 6
       run: tools/check-dfu-package-selftest.sh
 
+    - name: Check that the workflow libbtbb guard holds both ways
+      # The libbtbb-pin workflow runs that guard against this branch, which
+      # says nothing about whether it would still refuse a workflow that
+      # fetches a libbtbb of its own. This copies the real workflows into
+      # throwaway directories -- one with a job fetching upstream, one with a
+      # job cloning another fork, one with the pin-reading file drifted, and
+      # ones holding only the local libbtbb paths the real jobs write -- and
+      # asserts the status and the message for each. It reads files: no
+      # network, no build, a second or two.
+      timeout-minutes: 2
+      run: tools/check-workflow-libbtbb-selftest.sh
+
     - name: Check the libbtbb function list
       # FindBTBB.cmake probes the installed libbtbb for the functions the host
       # sources call, so an old one is refused by name at configure time. That

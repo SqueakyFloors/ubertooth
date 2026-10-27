@@ -6,6 +6,10 @@ name: libbtbb pin
 # pin now reports itself as a red check of its own rather than as a host build
 # failure.
 #
+# The job also refuses a workflow file that names a libbtbb repository of its
+# own rather than reading the pin, which is the other half of keeping one
+# libbtbb in the tree: see the first step below.
+#
 # Its own workflow, rather than a job in build.yml, because of what it reads.
 # Two of the files that have to agree on the pin are COMPATIBILITY.md and the
 # build guides under docs/, and build.yml skips documentation changes so that
@@ -35,6 +39,20 @@ jobs:
     timeout-minutes: 6
     steps:
     - uses: actions/checkout@v4
+
+    - name: Check that no workflow names its own libbtbb
+      # The step below requires every file that writes the pin out to name the
+      # pinned repository. It says nothing about a file naming a different
+      # libbtbb, because such a file is not claiming to use the pin -- which is
+      # how the Man pages job came to fetch upstream and block every
+      # documentation change. This closes that: no workflow but the two with a
+      # reason may name a libbtbb repository literally.
+      #
+      # Reads files and nothing else, so it goes first and costs nothing.
+      # tools/check-workflow-libbtbb-selftest.sh, run by build.yml's scripts
+      # job, is what shows it still refuses a workflow that writes its own.
+      timeout-minutes: 2
+      run: tools/check-workflow-libbtbb.sh
 
     - name: Check the libbtbb pin
       # Its own limit, above the clone's worst case of 2 minutes 30, so the
