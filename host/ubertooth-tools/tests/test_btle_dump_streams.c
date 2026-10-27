@@ -228,6 +228,7 @@ MU_TEST(a_capture_on_standard_output_prints_no_dump_and_no_complaint)
 	size_t out_len = 0;
 	char path[64];
 	int capture_fd, null_fd;
+	int ready;
 
 	mu_assert_fatal(ut != NULL, "a handle");
 	fifo_push(ut->fifo, &rx, 0);
@@ -235,23 +236,31 @@ MU_TEST(a_capture_on_standard_output_prints_no_dump_and_no_complaint)
 
 	/* What ubertooth-btle does for a bare "-": keep the descriptor the
 	 * capture is to be written to, then point standard output at
-	 * /dev/null. */
+	 * /dev/null.
+	 *
+	 * Nothing here is asserted until the streams are back, below: a check
+	 * that failed while standard error still went to a temporary file
+	 * would report an empty failure and leave the reader guessing that
+	 * /dev/fd or /dev/null was the problem. */
 	capture_fd = dup(fileno(stdout));
 	null_fd = open("/dev/null", O_WRONLY);
-	mu_assert_fatal(capture_fd >= 0 && null_fd >= 0, "the two descriptors");
-	fflush(stdout);
-	dup2(null_fd, fileno(stdout));
-	close(null_fd);
-	snprintf(path, sizeof(path), "/dev/fd/%d", capture_fd);
-	mu_assert_fatal(lell_pcap_create_file(path, &ut->h_pcap_le) == 0,
-	                "a capture on the saved descriptor");
-
-	cb_btle(ut, &opts);
-
-	lell_pcap_close(ut->h_pcap_le);
-	ut->h_pcap_le = NULL;
-	close(capture_fd);
+	ready = capture_fd >= 0 && null_fd >= 0;
+	if (ready) {
+		fflush(stdout);
+		dup2(null_fd, fileno(stdout));
+		close(null_fd);
+		snprintf(path, sizeof(path), "/dev/fd/%d", capture_fd);
+		ready = lell_pcap_create_file(path, &ut->h_pcap_le) == 0;
+	}
+	if (ready) {
+		cb_btle(ut, &opts);
+		lell_pcap_close(ut->h_pcap_le);
+		ut->h_pcap_le = NULL;
+	}
+	if (capture_fd >= 0)
+		close(capture_fd);
 	release_output(out, sizeof(out), &out_len, err, sizeof(err));
+	mu_assert_fatal(ready, "a capture on the saved descriptor");
 
 	/* The capture: a PCAP file holding more than its 24-byte header. */
 	mu_assert(out_len > 24, "the capture carries a packet");

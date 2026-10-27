@@ -167,7 +167,7 @@ Logging:
    it cannot corrupt the binary stream; errors remain on stderr. Such a run
    does not produce the per-packet dump at all, so the decoder's complaints
    about an advertising field it could not read in one of those packets do not
-   reach stderr either: a capture of ambient noise stays quiet. The lines that
+   reach stderr either. The lines that
    answer an option in the same command go to stderr rather than being
    suppressed with it: the `Access address:` line of `-a`, the `CRC:` line of
    `-v`, and the target lines of `-t`. The tool
