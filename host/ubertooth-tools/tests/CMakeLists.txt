@@ -205,6 +205,17 @@ if(EXISTS "${UBERTOOTH_INSTALL_SH}")
 			${CMAKE_CURRENT_SOURCE_DIR}/test_install_streams.py
 			${UBERTOOTH_INSTALL_SH})
 	set_tests_properties(install-streams PROPERTIES TIMEOUT 120)
+	# install.sh parses ubertooth-util's device listing, so the lines it is
+	# given here come from that tool's man page rather than from a fake of
+	# its own: a change to the listing then fails here instead of leaving
+	# every serial as "?".
+	add_test(
+		NAME install-devices
+		COMMAND ${Python3_EXECUTABLE}
+			${CMAKE_CURRENT_SOURCE_DIR}/test_install_devices.py
+			${UBERTOOTH_INSTALL_SH}
+			${CMAKE_CURRENT_SOURCE_DIR}/../../doc/ubertooth-util.md)
+	set_tests_properties(install-devices PROPERTIES TIMEOUT 60)
 endif()
 
 add_test(

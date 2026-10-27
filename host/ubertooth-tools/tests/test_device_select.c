@@ -1032,6 +1032,41 @@ MU_TEST(a_failed_open_says_why_in_a_phrase_a_report_can_use)
 	                 "no board matched that serial") == 0,
 	          ubertooth_open_failure_reason());
 
+	/* A bus whose boards cannot be opened at all is a permissions problem,
+	 * not a serial that is not there: no board's serial could be read, so
+	 * none could match. */
+	bus_with_two_serials();
+	fake.open_rc = LIBUSB_ERROR_ACCESS;
+	mu_assert(select_capturing("1cc0", msg, sizeof(msg)) == NULL, "no access");
+	mu_assert(strcmp(ubertooth_open_failure_reason(),
+	                 "the attached boards could not be opened") == 0,
+	          ubertooth_open_failure_reason());
+
+	/* By index, which is what the per-device listing uses, the same failure
+	 * is reported where the open happens. */
+	bus_with_ubertooths(2);
+	fake.open_rc = LIBUSB_ERROR_ACCESS;
+	mu_assert(select_capturing("1", msg, sizeof(msg)) == NULL, "no access by index");
+	mu_assert(strcmp(ubertooth_open_failure_reason(),
+	                 "access to the board was denied") == 0,
+	          ubertooth_open_failure_reason());
+
+	/* Nothing attached at all. */
+	bus_with_ubertooths(0);
+	mu_assert(select_capturing("0", msg, sizeof(msg)) == NULL, "empty bus");
+	mu_assert(strcmp(ubertooth_open_failure_reason(),
+	                 "no Ubertooth is attached") == 0,
+	          ubertooth_open_failure_reason());
+
+	/* Several attached and none selected. */
+	bus_with_ubertooths(2);
+	mu_assert(select_capturing(NULL, msg, sizeof(msg)) == NULL, "no selector");
+	mu_assert(strcmp(ubertooth_open_failure_reason(),
+	                 "more than one board is attached and none was selected") == 0,
+	          ubertooth_open_failure_reason());
+
+
+
 	/* An index with no board behind it. */
 	bus_with_ubertooths(1);
 	mu_assert(select_capturing("1", msg, sizeof(msg)) == NULL, "index past end");

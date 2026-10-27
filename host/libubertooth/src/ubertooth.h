@@ -288,14 +288,16 @@ void ubertooth_close(ubertooth_t* ut);
 void ubertooth_report_claim_failed(const char* board, int err);
 /*
  * Why the last open in this process failed, as a short phrase that reads after
- * "unavailable, " on a report line: "in use by another program", "no board
- * answered at that index", "it could not be opened" when nothing more precise
- * is known. The open paths have already put the matching error line on
- * standard error; this is for a tool that also has to say, on standard output,
- * why a board it was listing has no value.
+ * "unavailable, " on a report line: "in use by another program", "access to
+ * the board was denied", "no board answered at that index", and "it could not
+ * be opened" when nothing more precise is known. The open paths have already
+ * put the matching error line on standard error; this is for a tool that also
+ * has to say, on standard output, why a board it was listing has no value.
  *
- * Read it straight after an open returned NULL or a negative result: the next
- * open replaces it. The result is a string literal and is never freed.
+ * Read it straight after an open returned NULL or a negative result: every
+ * open clears it on the way in and sets it on each failure, so after one that
+ * succeeded it is the "nothing more precise" phrase. The result is a string
+ * literal and is never freed.
  */
 const char* ubertooth_open_failure_reason(void);
 /* ubertooth_close() plus a STOP request first, which ends the mode the board

@@ -91,6 +91,19 @@ NO_DEVICES = "error: no Ubertooth devices found"
 SERIALS = ("1ff0ff1967102caf8334fa5ac52000f5",
            "0b700017490c2cafa039ee5ac52000f5")
 
+# The shape of "ubertooth-util -U all -s", which is what the script parses.
+LISTING_ONE = "Serial No (0): %s\n"
+LISTING = LISTING_ONE + "Serial No (1): %s\n"
+
+# ubertooth-util's man page is the one place that shape is written down, and
+# the repository requires it to be updated with the tool. The lines it shows
+# are run through the script further down, so a change to the listing that
+# leaves this script's parser behind fails here instead of silently costing
+# Wireshark its capture interface.
+MAN_PAGE = os.path.join(os.path.dirname(os.path.abspath(SCRIPT)),
+                        os.pardir, os.pardir, "doc", "ubertooth-util.md")
+DOCUMENTED_LINE = re.compile(r'^ +(Serial No \(\d+\): [0-9a-f]{32})$', re.M)
+
 # A fake ubertooth-util: prints the lines the test asks for and records the
 # arguments it was called with, so no board is involved. It runs under the
 # interpreter running this test, which is the one CMake selected, not whatever
@@ -204,7 +217,7 @@ for option in sorted(named):
     assert option in ACCEPTED, (option, usage_line)
     value = ACCEPTED[option]
     argument = option if value is None else "%s=%s" % (option, value)
-    result = run((argument,), listing="0: %s\n" % SERIALS[0])
+    result = run((argument,), listing=LISTING_ONE % SERIALS[0])
     assert "not recognized" not in (result.stdout + result.stderr), \
         (argument, result)
     assert result.returncode != 2, (argument, result)
@@ -247,7 +260,7 @@ for version in (("--extcap-version=5.0",),
                 ("--extcap-version", "5.0"),
                 ("--extcap-version",)):
     result = run((*version, "--extcap-interfaces"),
-                 listing="0: %s\n" % SERIALS[0])
+                 listing=LISTING_ONE % SERIALS[0])
     assert result.returncode == 0, (version, result)
     assert "not recognized" not in result.stderr, (version, result)
     assert interfaces(result) == [
@@ -275,7 +288,7 @@ for stray, word in ((("--extcap-interfaces", "extra"), "extra"),
                     # must not reach it and report a word nobody typed
                     (("--", "--extcap-version"), "--extcap-version"),
                     (("--extcap-interfaces", "--", "extra"), "extra")):
-    result = run(stray, listing="0: %s\n" % SERIALS[0])
+    result = run(stray, listing=LISTING_ONE % SERIALS[0])
     assert result.returncode == 1, (stray, result)
     assert result.stdout == "", (stray, result)
     assert result.stderr == "error: unexpected argument '%s'\n" % word, \
@@ -321,7 +334,7 @@ print("btle-extcap: Wireshark's start-up options are accepted")
 
 # several boards: one line each, named and shown by the board's serial
 result = run(("--extcap-interfaces",),
-             listing="0: %s\n1: %s\n" % SERIALS)
+             listing=LISTING % SERIALS)
 assert result.returncode == 0, result
 assert interfaces(result) == [
     "interface {value=ubertooth%s}{display=Ubertooth One %s}" % ((SERIALS[0],) * 2),
@@ -332,7 +345,7 @@ with open(ARGS_FILE) as record:
         "the listing must be asked for explicitly with -U all"
 
 # one board: the same form, so there is one parser rather than two
-result = run(("--extcap-interfaces",), listing="0: %s\n" % SERIALS[0])
+result = run(("--extcap-interfaces",), listing=LISTING_ONE % SERIALS[0])
 assert interfaces(result) == [
     "interface {value=ubertooth%s}{display=Ubertooth One %s}" % ((SERIALS[0],) * 2),
 ], result
@@ -344,7 +357,8 @@ assert interfaces(result) == [
 # when it exits non-zero, so a board it can capture on must not be hidden by
 # one it cannot
 result = run(("--extcap-interfaces",),
-             listing="0: <unavailable>\n1: %s\n" % SERIALS[1],
+             listing="Serial No (0): unavailable, access to the board was "
+                     "denied\nSerial No (1): %s\n" % SERIALS[1],
              errors="could not open Ubertooth device\n", status=1)
 assert result.returncode == 0, result
 assert interfaces(result) == [
@@ -354,9 +368,23 @@ assert result.stderr == "could not open Ubertooth device\n", result
 
 # nothing that is not a listing line is taken for a serial
 result = run(("--extcap-interfaces",),
-             listing="ubertooth-util: command not found\n0:\n0: \n"
-                     "Serial No: %s\n" % SERIALS[0])
+             listing="ubertooth-util: command not found\nSerial No (0):\n"
+                     "Serial No (0): \n0: %s\nSerial No: %s\n"
+                     % (SERIALS[0], SERIALS[0]))
 assert interfaces(result) == [], result
+
+# the listing lines ubertooth-util's own man page shows, parsed by this script
+if os.path.exists(MAN_PAGE):
+    with open(MAN_PAGE) as page:
+        documented = DOCUMENTED_LINE.findall(page.read())
+    assert documented, \
+        "%s no longer shows a listing line; it is where the shape this " \
+        "script parses is written down" % MAN_PAGE
+    result = run(("--extcap-interfaces",),
+                 listing="".join(line + "\n" for line in documented))
+    assert len(interfaces(result)) == len(documented), (documented, result)
+    print("btle-extcap: the %d listing lines the man page shows are parsed"
+          % len(documented))
 
 print("btle-extcap: the interface listing reports each board's serial")
 
@@ -415,14 +443,14 @@ assert result.stderr == "error: ubertooth-util failed (killed by signal %d)\n" \
 
 # a silent failure that still listed a board is not reported as a failure: the
 # listing is the answer, and Wireshark keeps it
-result = run(("--extcap-interfaces",), listing="0: %s\n" % SERIALS[0],
+result = run(("--extcap-interfaces",), listing=LISTING_ONE % SERIALS[0],
              status=3)
 assert result.returncode == 0, result
 assert len(interfaces(result)) == 1 and result.stderr == "", result
 
 # a failure that still listed a board keeps the board and the reason, and is
 # not reported as a failed call, since that is what loses the board
-result = run(("--extcap-interfaces",), listing="0: %s\n" % SERIALS[0],
+result = run(("--extcap-interfaces",), listing=LISTING_ONE % SERIALS[0],
              errors="error: libusb_init failed\n", status=1)
 assert result.returncode == 0, result
 assert interfaces(result) == [
@@ -432,7 +460,7 @@ assert result.stderr == "error: libusb_init failed\n", result
 
 # a warning from a listing that worked reaches the user too, and is not a
 # failure
-result = run(("--extcap-interfaces",), listing="0: %s\n" % SERIALS[0],
+result = run(("--extcap-interfaces",), listing=LISTING_ONE % SERIALS[0],
              errors="warning: something to know\n")
 assert result.returncode == 0, result
 assert len(interfaces(result)) == 1, result

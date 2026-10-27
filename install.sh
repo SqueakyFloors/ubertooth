@@ -87,15 +87,17 @@ as_root() {
 
 # Print one "<index> <serial>" line per attached Ubertooth, in index order, with
 # "?" as the serial of a device that could not be read. The serials come from
-# `ubertooth-util -s` in any of its output forms ("<index>: <serial>" for
-# several devices, "Device <index>: Serial No: <serial>" from older tools, or a
-# single "Serial No: <serial>"); the device count comes from `ubertooth-util -N`,
-# so a board whose serial is missing is reported instead of dropped. Exit codes
-# are ignored on purpose.
+# `ubertooth-util -s` in any of its output forms ("Serial No (<index>):
+# <serial>" for several devices, "Device <index>: Serial No: <serial>" from
+# older tools, or a single "Serial No: <serial>"); the device count comes from
+# `ubertooth-util -N`, so a board whose serial is missing is reported instead
+# of dropped. A board the listing could not read says "unavailable, <reason>"
+# where its serial would be, which no expression here matches, so it keeps the
+# "?". Exit codes are ignored on purpose.
 list_devices() {
 	local parsed count i serial
 	parsed="$("$1" -s 2>&1 | sed -n \
-		-e 's/^\([0-9][0-9]*\): \([0-9a-f]\{32\}\)$/\1 \2/p' -e t \
+		-e 's/^Serial No (\([0-9][0-9]*\)): \([0-9a-f]\{32\}\)$/\1 \2/p' -e t \
 		-e 's/.*Device \([0-9][0-9]*\): Serial No: \([0-9a-f]\{32\}\).*/\1 \2/p' -e t \
 		-e 's/^Serial No: \([0-9a-f]\{32\}\).*/0 \1/p' || true)"
 	count="$("$1" -N 2>/dev/null || true)"
