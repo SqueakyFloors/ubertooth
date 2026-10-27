@@ -267,6 +267,10 @@
   blinks never gave you.
   [#239](https://github.com/SqueakyFloors/ubertooth/issues/239)
   [#509](https://github.com/SqueakyFloors/ubertooth/issues/509)
+- The `libusb -7` note names the fallback -- unplug the board or power-cycle its
+  hub port -- instead of only promising a self-reset, which a board whose USB
+  path alone has died, and a bootloader mid-flash, never get.
+  [#609](https://github.com/SqueakyFloors/ubertooth/issues/609)
 - A board another program is using says so (`error: Ubertooth <serial> is in
   use by another program (libusb -3)`) instead of reporting a libusb code, and
   no longer has a stop sent to it on the way out; a board that answers nothing

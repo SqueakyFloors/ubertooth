@@ -703,8 +703,9 @@ MU_TEST(a_whole_address_and_its_lap_and_uap_follow_the_same_piconet)
 	"error: could not " what \
 	": the board did not answer in time (libusb -7)\n" \
 	"note: if a mode is running, stop it with ubertooth-util -S; " \
-	"a board that does not answer at all resets itself within a few " \
-	"seconds, so run the command again\n"
+	"a board that does not answer at all usually resets itself within " \
+	"a few seconds, so run the command again, and unplug it or " \
+	"power-cycle its hub port if it stays silent\n"
 
 /* How many times a string occurs, for pinning that a refusal is reported once
  * rather than alongside a second line. */

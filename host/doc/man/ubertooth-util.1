@@ -172,7 +172,7 @@ get the watchdog state, and why the board last reset itself\. See \fIWATCHDOG\fR
 .SH "WATCHDOG"
 The firmware resets the board if it goes three seconds without servicing USB, or without its mode getting back round its own loop\. A board that stops answering the host is useless to it and cannot be recovered from it \(em the reset request travels over USB too \(em so the board recovers itself, re\-enumerates, and comes back idle\. What a capture used to see as a hang is now the board disappearing and coming back; the tools treat a board that has gone as lost and exit\.
 .P
-The loop half is the weaker of the two\. Six modes service USB from the interrupt rather than by polling, and get no service pass at all while the host is quiet, so for them the guard is that the mode loop is still turning\. A board in one of those whose USB path alone has died, with its loop still going round, is not reset\. Everything the lab soak caught was caught by the other half\.
+The loop half is the weaker of the two\. Six modes service USB from the interrupt rather than by polling, and get no service pass at all while the host is quiet, so for them the guard is that the mode loop is still turning\. A board in one of those whose USB path alone has died, with its loop still going round, keeps feeding the watchdog and is not reset: it has to be unplugged, or have its hub port power\-cycled, which is the fallback the tools' \fBlibusb \-7\fR note names\. The bootloader is the other case with no self\-reset, by design \(em it runs with the watchdog off \(em so a \fB\-7\fR mid\-flash needs the same\. Everything the lab soak caught was caught by the other half\.
 .P
 Before it resets, the firmware has already recorded what it was doing in a corner of RAM that a reset does not clear, so \fB\-w\fR can say where the board was stuck:
 .IP "" 4
@@ -187,6 +187,8 @@ Now in idle mode, not in a wait
 .IP "" 0
 .P
 \fBLast boot cause\fR is why the board started this time: \fBpower\-on\fR, \fBwatchdog\fR, \fBreset pin\fR, \fBbrown\-out\fR, or several of those joined with \fB+\fR\. A reset the firmware asked for \(em \fB\-r\fR, or entering the bootloader for ubertooth\-dfu(1) \(em is also a watchdog reset, because that is how this microcontroller resets itself; those are not counted and do not overwrite the last line, so the counter and the mode it names describe only the times the board stopped answering on its own\.
+.P
+A board running the \fBbtbr\fR image reads \fBNow in a mode the board does not report\fR: that image runs its own state machine rather than one of the modes above, so it records no mode instead of claiming to be idle\.
 .P
 Both counters are since power\-on and stop at 255\. Unplugging the board, or cutting power to its hub port, starts them again; \fB\-r\fR does not\.
 .P
