@@ -116,6 +116,10 @@ OBJDIR = .
 #
 # shared/ is reserved for build output: clean removes the whole tree, so no
 # image may keep sources in a directory of that name.
+#
+# It strips one leading ../, which is as far up as any image reaches today. A
+# source two levels up would keep its second ../ and land outside the image
+# directory, so one of those needs another line here.
 per_image = $(addprefix $(OBJDIR)/,$(patsubst ../%,shared/%,$(1)))
 
 # Optimization level, can be [0, 1, 2, 3, s].

@@ -15,8 +15,10 @@
  * scans the makefiles instead. It reads the two that decide where object files
  * go and checks every path runs through per_image, which puts the output of a
  * source above the image directory under the image's own shared/. It then
- * walks the image directories, so an image added later cannot quietly bring
- * its own object paths back.
+ * walks the image directories and checks each image takes its object paths
+ * from one of those two makefiles, so an image added later with object paths
+ * of its own is caught -- though where those paths lead is then only as
+ * checked as its own makefile makes it.
  *
  * It reads make the way a careful `grep` would: `#` starts a comment, and the
  * phrases it looks for are the ones the makefiles write today. Reformatting
@@ -156,13 +158,18 @@ static void check_depfiles_come_after_all(const char *path)
 	char why[448];
 
 	snprintf(why, sizeof(why), "%s has no `all: begin ...` rule", path);
-	mu_assert(all_line != 0, why);
+	mu_assert_fatal(all_line != 0, why);
+	/* A makefile with no include at all is reported by the shape scan
+	 * above, which says it is missing; saying "line 0" here as well would
+	 * only call a missing include a misplaced one. */
+	if (include_line == 0)
+		return;
 	snprintf(why, sizeof(why),
 	         "%s reads its depfiles on line %d, above the `all:` rule on "
 	         "line %d, which makes an object the default goal instead of "
 	         "the image",
 	         path, include_line, all_line);
-	mu_assert(all_line != 0 && include_line > all_line, why);
+	mu_assert(include_line > all_line, why);
 }
 
 static void check_one_makefile(const char *path)
@@ -200,9 +207,9 @@ MU_TEST(test_object_paths_are_per_image)
 
 /*
  * Every image that builds the shared sources takes its object paths from one
- * of those two makefiles: six include ../common.mk, and the bootloader has its
- * own because it is the one image written in C++. An image added later has to
- * do the same.
+ * of those two makefiles: seven include ../common.mk, and the bootloader has
+ * its own because it is the one image written in C++. An image added later has
+ * to do the same.
  *
  * A makefile that never mentions ../common is not part of this: firmware/
  * also holds the ToorCon badge, which is a different part with a different
