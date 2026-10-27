@@ -98,8 +98,9 @@ void print_version() {
 
 static ubertooth_t* cleanup_devh = NULL;
 
-/* 1 once a signal has asked the run to stop. Set by the handlers below and
- * by nothing else.
+/* 1 once the user has asked the run to stop: Ctrl-C, SIGTERM, SIGHUP,
+ * SIGQUIT, or an alarm set by something outside the tool. Set by the handlers
+ * below and by nothing else.
  *
  * A handler may touch very little: of the objects that outlive it, C17
  * 7.14.1.1p5 lets it assign to one declared volatile sig_atomic_t and read
@@ -110,6 +111,12 @@ static ubertooth_t* cleanup_devh = NULL;
  * the handle, on the run's own thread. */
 static volatile sig_atomic_t stop_requested;
 
+/* 1 once the -t timer has gone off. Kept apart from stop_requested above
+ * because the two are forgotten at different times: a run of two phases
+ * forgets the timer between them (see ubertooth_clear_timeout_stop()), and
+ * must not forget that the user asked it to stop. */
+static volatile sig_atomic_t timeout_expired;
+
 static void cleanup(int sig __attribute__((unused)))
 {
 	stop_requested = 1;
@@ -117,15 +124,21 @@ static void cleanup(int sig __attribute__((unused)))
 
 int ubertooth_stopping(ubertooth_t* ut)
 {
-	if (stop_requested)
+	if (stop_requested || timeout_expired)
 		ut->stop_ubertooth = 1;
 	return ut->stop_ubertooth;
 }
 
-void ubertooth_clear_stop(ubertooth_t* ut)
+void ubertooth_clear_timeout_stop(ubertooth_t* ut)
+{
+	timeout_expired = 0;
+	ut->stop_ubertooth = 0;
+}
+
+void ubertooth_reset_stop_signals(void)
 {
 	stop_requested = 0;
-	ut->stop_ubertooth = 0;
+	timeout_expired = 0;
 }
 
 /* Unreachable: no tool passes do_exit = 1 to register_cleanup_handler(), and
@@ -166,8 +179,11 @@ void register_cleanup_handler(ubertooth_t* ut, int do_exit) {
 	}
 }
 
+/* The -t timer, which is a phase of the run ending rather than the user
+ * asking the tool to stop: its own flag, so a two-phase run can tell them
+ * apart. */
 static void stop_transfers(int sig __attribute__((unused))) {
-	stop_requested = 1;
+	timeout_expired = 1;
 }
 
 /* The handle is not needed: the alarm stops whichever capture is running,
@@ -647,16 +663,17 @@ static void cb_xfer(struct libusb_transfer *xfer)
 	 * only signal that covers it: a teardown between the phases of a run
 	 * leaves stop_ubertooth clear.
 	 *
-	 * Both stop flags are read here rather than through
+	 * The stop flags are read here rather than through
 	 * ubertooth_stopping(), which writes the handle: this runs on the poll
 	 * thread, and the capture's own thread is the one that writes.
 	 *
 	 * Reading a flag a handler sets from a second thread is not something
 	 * the standard promises either; only an atomic would be. It is what the
 	 * old code did too, and it holds on the processors this fork builds
-	 * for, where either flag is one load. */
+	 * for, where each flag is one load. */
 	int wanted_back = ut->rx_xfer_state == RX_XFER_CANCELLING
-	                  || stop_requested || ut->stop_ubertooth;
+	                  || stop_requested || timeout_expired
+	                  || ut->stop_ubertooth;
 	/* The libusb status that ended the stream, or 0 if it has not ended. */
 	int failed = 0;
 	int r;
@@ -962,7 +979,10 @@ int stream_rx_file(ubertooth_t* ut, FILE* fp, rx_callback cb, void* cb_args)
 	uint8_t buf[PKT_LEN];
 	size_t nbytes;
 
-	while(1) {
+	/* A replay the user has asked to stop ends here rather than at the end
+	 * of the file, which can hold hours of packets. It reads as a clean end
+	 * of file, so the caller reports no error: the user asked for this. */
+	while(!ubertooth_stopping(ut)) {
 		uint32_t systime_be;
 		errno = 0;
 		nbytes = fread(&systime_be, 1, sizeof(systime_be), fp);
@@ -977,6 +997,7 @@ int stream_rx_file(ubertooth_t* ut, FILE* fp, rx_callback cb, void* cb_args)
 		fifo_push(ut->fifo, (usb_pkt_rx*)buf);
 		(*cb)(ut, cb_args);
 	}
+	return 0;
 }
 
 int rx_file_report(int result, const char* filename)
@@ -1042,14 +1063,10 @@ int rx_afh(ubertooth_t* ut, btbb_piconet* pn, int timeout)
 		 * monitor phase on such a handle refuses to start anyway. */
 		if (ut->rx_xfer == NULL)
 			cmd_stop(ut->devh);
-		/* The stop that ended the detection phase is cleared so the
-		 * monitoring phase below can start at all: the -t alarm that ends
-		 * detection would otherwise end monitoring before it began.
-		 *
-		 * The flag does not say which signal asked, so a Ctrl-C made during
-		 * detection is cleared with it and the user has to interrupt
-		 * monitoring as well. */
-		ubertooth_clear_stop(ut);
+		/* The timer that ended the detection phase is forgotten so the
+		 * monitoring phase below can start at all. A stop the user asked
+		 * for survives this, and is what the check below the map reads. */
+		ubertooth_clear_timeout_stop(ut);
 
 		/* A phase that could not even receive has not shown that the piconet
 		 * is quiet; stream_rx_usb() has already reported why. Whatever it
@@ -1069,6 +1086,13 @@ int rx_afh(ubertooth_t* ut, btbb_piconet* pn, int timeout)
 			return UBERTOOTH_AFH_NO_PACKETS;
 
 		btbb_print_afh_map(pn);
+
+		/* The user interrupted the detection phase: the run ends here,
+		 * with the map it managed to detect. Starting to monitor would
+		 * mean waiting for a second interrupt, which is what the user
+		 * asking once used to get. */
+		if (ubertooth_stopping(ut))
+			return 0;
 	}
 
 	/*

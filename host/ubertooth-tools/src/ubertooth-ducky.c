@@ -24,7 +24,6 @@
 #include "opt_parse.h"
 #include <ctype.h>
 #include <getopt.h>
-#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -35,12 +34,6 @@
 /* The BLE advertising channel indexes (Bluetooth Core spec: 37, 38, 39). */
 #define ADV_INDEX_MIN 37
 #define ADV_INDEX_MAX 39
-
-int running = 1;
-
-static void quit(int sig __attribute__((unused))) {
-	running = 0;
-}
 
 /* ubertooth-ducky's result is the advertisement it sends over the air, so
  * everything it prints is progress and goes to standard error. */
@@ -300,10 +293,10 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	// quit on ctrl-C
-	signal(SIGINT, quit);
-	signal(SIGQUIT, quit);
-	signal(SIGTERM, quit);
+	/* A handler for Ctrl-C and the rest, so the wait below is cut short and
+	 * the board is taken out of advertising on the way out rather than left
+	 * in it. The library's handlers, as every other tool uses. */
+	register_cleanup_handler(ut, 0);
 
 	if (do_quack) {
 		uint16_t channel;

@@ -29,15 +29,8 @@
 #include <string.h>
 #include <unistd.h>
 #include <stdlib.h>
-#include <signal.h>
 
 ubertooth_t* ut = NULL;
-int running = 1;
-
-void quit(int signo __attribute__((unused)))
-{
-	running = 0;
-}
 
 /* The library has already said why a request was refused; this names the
  * request, and leaves the board released rather than capturing with settings
@@ -201,10 +194,10 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	// quit on ctrl-C
-	signal(SIGINT, quit);
-	signal(SIGQUIT, quit);
-	signal(SIGTERM, quit);
+	/* Stop on Ctrl-C, and on the other signals that mean the run is over
+	 * (SIGTERM, SIGHUP, SIGQUIT, an alarm): the library's handlers, so the
+	 * capture loop below ends the way every other tool's does. */
+	register_cleanup_handler(ut, 0);
 
 	if (do_mode >= 0) {
 		usb_pkt_rx rx;
@@ -237,8 +230,7 @@ int main(int argc, char *argv[])
 			return 1;
 		}
 
-		// running set to 0 in signal handlers
-		while (running) {
+		while (!ubertooth_stopping(ut)) {
 			int r = cmd_poll(ut->devh, &rx);
 			if (r < 0) {
 				/* The capture stopped short, so the command did not do

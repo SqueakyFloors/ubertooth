@@ -712,6 +712,14 @@
   was read as time passing: 18,321 s, over five hours, where the mode before
   had run 200 periods.
   [#478](https://github.com/SqueakyFloors/ubertooth/issues/478)
+- `ubertooth-afh -t` stops on the first Ctrl-C. An interrupt during the
+  detection phase was dropped along with the timeout that normally ends it, so
+  monitoring started anyway and had to be interrupted a second time.
+  [#521](https://github.com/SqueakyFloors/ubertooth/issues/521)
+- Closing the terminal on `ubertooth-btle`, `ubertooth-ego` or
+  `ubertooth-ducky` takes the board out of its mode, as it already did for the
+  other tools; the board used to be left capturing or advertising.
+  [#515](https://github.com/SqueakyFloors/ubertooth/issues/515)
 
 ### Documentation
 
@@ -766,6 +774,11 @@ Fixes with no visible change in normal use.
   which a handler may not do and which left no guarantee that the receive loop
   would see the stop.
   [#499](https://github.com/SqueakyFloors/ubertooth/issues/499)
+- `ubertooth-btle`, `ubertooth-ego` and `ubertooth-ducky` stop through that
+  same flag, instead of each keeping one of its own that a signal handler was
+  not allowed to write. A replay of a saved capture can be stopped as well,
+  which no tool asks for today.
+  [#515](https://github.com/SqueakyFloors/ubertooth/issues/515)
 - A BLE packet whose length field claims more than the board captured reads
   zeros past the capture, instead of whatever followed it in memory; the
   Kismet plugins' access code search stays inside its bank too.

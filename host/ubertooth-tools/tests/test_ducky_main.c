@@ -9,6 +9,7 @@
  * is faked too: it is what a quack that went out waits in, so a case can
  * require that a refused one does not wait at all.
  */
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,6 +44,7 @@ static struct {
 	int frees;           /* and how many of them it gave back */
 	ubertooth_t *last_freed;
 	int sleeps;
+	int cleanup_handlers; /* register_cleanup_handler() calls */
 	/* Every device call in order, one letter each: c set channel,
 	 * a set advertising data, s start advertising as a slave. */
 	char calls[16];
@@ -72,6 +74,16 @@ ubertooth_t *ubertooth_init(void)
 {
 	fake.inits++;
 	return &fake_ut;
+}
+
+/* A quack installs the library's handlers so the advertising wait below can be
+ * cut short and the board taken out of advertising on the way out. Counted
+ * rather than put in fake.calls, which is the device's own calls. */
+void register_cleanup_handler(ubertooth_t *ut, int do_exit)
+{
+	(void)ut;
+	(void)do_exit;
+	fake.cleanup_handlers++;
 }
 
 /* Asserting here would print to the standard output a run has redirected, so
@@ -241,6 +253,9 @@ MU_TEST(a_quack_the_board_took_sends_the_three_requests_and_exits_0)
 	mu_assert_int_eq(0x66, fake.last_bd_addr[5]);
 	mu_assert_int_eq(1, fake.sleeps);
 	mu_assert_int_eq(1, fake.stops);
+	/* So a Ctrl-C during those two seconds cuts the wait short and the
+	 * board is taken out of advertising rather than left in it. */
+	mu_assert_int_eq(1, fake.cleanup_handlers);
 	mu_assert(r.out[0] == '\0', r.out);
 	mu_assert(strstr(r.err, "Quacking ") != NULL, r.err);
 	mu_assert(strstr(r.err, "error: ") == NULL, r.err);

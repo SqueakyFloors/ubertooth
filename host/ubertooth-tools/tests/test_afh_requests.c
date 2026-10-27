@@ -29,6 +29,7 @@
  * below pin a transfer's lifetime without a board and without a sanitizer.
  */
 #include <pthread.h>
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -112,6 +113,12 @@ static struct {
 static ubertooth_t* running_ut;
 static int empty_polls;
 
+/* How the faked fifo stops that loop: 0 writes the handle's flag, the way a
+ * dead stream or a callback does, and a signal number raises that signal, the
+ * way a user's Ctrl-C or the -t timer does. The two are not the same thing to
+ * a run of two phases, which is what the cases at the end are about. */
+static int stop_with_signal;
+
 /* Released here rather than by the faked free, so that a transfer freed while
  * libusb was holding it, or one used after it was freed, is still caught by
  * the case that did it. */
@@ -125,6 +132,7 @@ static void reset(void)
 	fake.main_thread = pthread_self();
 	running_ut = NULL;
 	empty_polls = 0;
+	stop_with_signal = 0;
 }
 
 /* ---- fifo fake ---------------------------------------------------------- */
@@ -144,8 +152,12 @@ fifo_t* fifo_init()
 uint8_t fifo_empty(fifo_t* fifo)
 {
 	(void)fifo;
-	if (++empty_polls >= 3 && running_ut != NULL)
-		running_ut->stop_ubertooth = 1;
+	if (++empty_polls >= 3 && running_ut != NULL) {
+		if (stop_with_signal != 0)
+			raise(stop_with_signal);
+		else
+			running_ut->stop_ubertooth = 1;
+	}
 	/* A case that needs the receive loop to stop with a packet in hand says
 	 * so: that is the path which cancels the transfer itself, so the
 	 * teardown's own cancel then meets a cancellation already under way. */
@@ -403,6 +415,16 @@ static ubertooth_t* new_handle(void)
  * the recorded sequence. */
 static void release_handle(ubertooth_t* ut)
 {
+	/* Back to the dispositions the test process started with, and to a
+	 * library that has had no signal, so a case that raised one cannot
+	 * leave the next one already stopping. */
+	alarm(0);
+	signal(SIGINT, SIG_DFL);
+	signal(SIGQUIT, SIG_DFL);
+	signal(SIGTERM, SIG_DFL);
+	signal(SIGHUP, SIG_DFL);
+	signal(SIGALRM, SIG_DFL);
+	ubertooth_reset_stop_signals();
 	if (ut == NULL)
 		return;
 	discard_xfer(ut->rx_xfer);
@@ -686,6 +708,120 @@ MU_TEST(the_r_format_loop_asks_for_afh)
 	assert_transfer_lifetimes();
 	release_handle(ut);
 	btbb_piconet_unref(pn);
+}
+
+/* What ends the detection phase decides whether monitoring follows. The -t
+ * timer is the phase ending, so monitoring starts: that is what -t means. */
+MU_TEST(the_timer_that_ends_detection_still_starts_the_monitor)
+{
+	static const uint8_t expected[] = {
+		UBERTOOTH_SET_CHANNEL, UBERTOOTH_AFH, UBERTOOTH_STOP, UBERTOOTH_AFH
+	};
+	char err[256] = "";
+	ubertooth_t* ut;
+	btbb_piconet* pn;
+	int r;
+
+	reset();
+	ut = new_handle();
+	pn = new_piconet();
+	mu_assert(ut != NULL && pn != NULL, "a handle and a piconet");
+	if (ut == NULL || pn == NULL)
+		return;
+	mark_a_channel_seen(pn);
+	/* rx_afh() installs the -t handler for this, so it is the timer going
+	 * off rather than the user asking. */
+	stop_with_signal = SIGALRM;
+
+	capture_output();
+	r = rx_afh(ut, pn, 30);
+	release_output(err, sizeof(err));
+
+	mu_assert_int_eq(0, r);
+	assert_requests(expected, ARRAY_LEN(expected));
+	mu_assert(err[0] == '\0', err);
+
+	assert_transfer_lifetimes();
+	release_handle(ut);
+	btbb_piconet_unref(pn);
+}
+
+/* A Ctrl-C during the detection phase is the user stopping the tool, so the
+ * map found so far is printed and the run ends there: no second AFH mode
+ * request, and no second interrupt needed. The stop used to be forgotten
+ * along with the timer's between the phases, so monitoring started anyway. */
+MU_TEST(an_interrupt_during_detection_ends_the_run)
+{
+	static const uint8_t expected[] = {
+		UBERTOOTH_SET_CHANNEL, UBERTOOTH_AFH, UBERTOOTH_STOP
+	};
+	char err[256] = "";
+	ubertooth_t* ut;
+	btbb_piconet* pn;
+	int r;
+
+	reset();
+	ut = new_handle();
+	pn = new_piconet();
+	mu_assert(ut != NULL && pn != NULL, "a handle and a piconet");
+	if (ut == NULL || pn == NULL)
+		return;
+	mark_a_channel_seen(pn);
+	/* The handlers ubertooth-afh installs before it calls rx_afh(), so the
+	 * interrupt below is caught rather than ending the test process. */
+	register_cleanup_handler(ut, 0);
+	stop_with_signal = SIGINT;
+
+	capture_output();
+	r = rx_afh(ut, pn, 30);
+	release_output(err, sizeof(err));
+
+	/* The run did what was asked, so the tool exits 0. */
+	mu_assert_int_eq(0, r);
+	assert_requests(expected, ARRAY_LEN(expected));
+	mu_assert_int_eq(1, fake.bulk_submits); /* the detection phase only */
+	mu_assert(err[0] == '\0', err);
+
+	assert_transfer_lifetimes();
+	release_handle(ut);
+	btbb_piconet_unref(pn);
+}
+
+/* A capture the -t timer has stopped keeps the packets it has rather than
+ * reading into another slot of a ring buffer nobody is draining, so a packet
+ * that arrives after the timer must not put the transfer back in flight. The
+ * poll thread reads the stop flags itself, and the timer's is one of them. */
+MU_TEST(a_packet_after_the_timer_does_not_re_arm_the_transfer)
+{
+	char err[1024] = "";
+	ubertooth_t* ut;
+
+	reset();
+	/* Completions are delivered on whichever thread asks, so the case can
+	 * hand one over itself instead of starting a poll thread. */
+	fake.poll_thread_idle = 1;
+	ut = new_handle();
+	mu_assert(ut != NULL, "a handle");
+	if (ut == NULL)
+		return;
+
+	capture_output();
+	mu_assert_int_eq(0, ubertooth_bulk_init(ut));
+	/* The -t handler, as rx_afh() installs it; the timer is never waited
+	 * for, so it only has to outlast the test. */
+	ubertooth_set_timeout(ut, 300);
+	raise(SIGALRM);
+	fake.complete_once = 1;
+	libusb_handle_events_timeout(NULL, NULL);
+	release_output(err, sizeof(err));
+
+	assert_transfer_lifetimes();
+	mu_assert_int_eq(1, fake.bulk_submits); /* not re-armed */
+	mu_assert_int_eq(1, fake.xfer_frees);
+	mu_assert(ut->rx_xfer == NULL, "the transfer was given up");
+	mu_assert(strstr(err, "error:") == NULL, err);
+
+	release_handle(ut);
 }
 
 /* The opposite case: a plain symbol capture does send UBERTOOTH_RX_SYMBOLS,
@@ -1373,6 +1509,9 @@ int main(void)
 	MU_RUN(the_monitor_phase_after_a_detected_map_asks_for_afh_again);
 	MU_RUN(the_monitor_alone_asks_for_afh);
 	MU_RUN(the_r_format_loop_asks_for_afh);
+	MU_RUN(the_timer_that_ends_detection_still_starts_the_monitor);
+	MU_RUN(an_interrupt_during_detection_ends_the_run);
+	MU_RUN(a_packet_after_the_timer_does_not_re_arm_the_transfer);
 	MU_RUN(a_symbol_capture_still_asks_for_symbols);
 	MU_RUN(a_refused_mode_request_joins_the_poll_thread);
 	MU_RUN(a_refused_band_sweep_ends_the_receive_phase);
