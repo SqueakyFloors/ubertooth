@@ -663,16 +663,21 @@ static void dio_ssp_start()
 
 /*
  * The waits on the radio below are bounded, as they are in the shipped images.
- * This image drives USB from its own loops, so a radio that never reports the
- * state a wait is after would leave the board enumerated and answering
- * nothing, which takes a re-plug to clear. A wait that gives up carries on:
- * the bound is there to end the loop, not to make the radio work, and what the
- * board reads from the radio next is then not a measurement.
+ * This image serves USB from its own loops, so a radio that never reports the
+ * state a wait is after left the board enumerated and answering nothing, which
+ * takes a re-plug to clear. A wait that gives up carries on: the bound is
+ * there to end the loop, not to make the radio work, so what the board reads
+ * from the radio next is not a measurement, and a transmit strobed after a
+ * lock wait that gave up goes out with the synthesizer in the wrong state.
+ * Nothing here reports a pass from such a read: the self-test and the range
+ * test only conclude on a packet whose checksum the radio verified, which a
+ * radio that is not running cannot produce.
  *
- * Nothing is serviced while they wait, where the shipped image passes its USB
- * poll in. The bounds are a few milliseconds each and every loop here polls
- * USB again as soon as the wait returns, which is close enough for a bench
- * image that a host is only checking the USB interface of.
+ * None of them passes a service callback, where the shipped image hands its
+ * USB poll in. The modes that poll USB -- bt_stream_rx() and specan() -- do so
+ * again as soon as the wait returns; the range test and the repeater never
+ * poll it at all, so a radio that has stopped advancing still costs them the
+ * host, just no longer forever.
  */
 
 /* start un-buffered rx */
@@ -951,8 +956,8 @@ void cc2400_repeater()
 			for (i = 0; i < 16; i++) {
 				buf[21] = i;
 				cc2400_wait_fsm(STATE_STROBE_FS_ON, NULL);
-					for (j = 0; j < len; j++)
-						cc2400_set8(FIFOREG, buf[j]);
+				for (j = 0; j < len; j++)
+					cc2400_set8(FIFOREG, buf[j]);
 				cc2400_strobe(STX);
 			}
 		}

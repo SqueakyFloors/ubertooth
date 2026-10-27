@@ -780,14 +780,20 @@ static int is_bare_radio_spin(const char *line)
 	return length > 0 && line[length - 1] == ';';
 }
 
-/* Is this line a bare spin waiting for a packet to arrive? That wait has no
- * deadline: nothing is late, a peer simply has not transmitted yet. The
- * shipped images give it a body that services USB and leaves when the host
- * stops the mode; the bench images have no mode to stop, so theirs stay as
- * they are and `allow_packet_wait` lets them past. */
-static int is_packet_wait(const char *line)
+/* Blank out the one wait the bench images keep: a bare spin on a packet
+ * arriving, which has no deadline -- nothing is late, a peer simply has not
+ * transmitted yet. The shipped images give it a body that services USB and
+ * leaves when the host stops the mode; the bench images have no mode to stop.
+ *
+ * It is taken out of the line rather than the line being skipped, so a line
+ * that carries this wait and a spin on radio state is still caught. */
+static void strip_packet_waits(char *line)
 {
-	return contains_identifier(line, "SYNC_RECEIVED");
+	static const char wait[] = "while (!(cc2400_status() & SYNC_RECEIVED));";
+	char *at;
+
+	while ((at = strstr(line, wait)) != NULL)
+		memset(at, ' ', sizeof(wait) - 1);
 }
 
 /* Count the bare radio spins in one file, printing each. */
@@ -804,8 +810,8 @@ static int count_bare_radio_spins(const char *path, int allow_packet_wait)
 	while (fgets(line, sizeof(line), source) != NULL) {
 		lineno++;
 		strip_comments(line, &in_block);
-		if (allow_packet_wait && is_packet_wait(line))
-			continue;
+		if (allow_packet_wait)
+			strip_packet_waits(line);
 		if (is_bare_radio_spin(line)) {
 			printf("  FAIL %s:%d spins on the radio: %s",
 			       path, lineno, line);
@@ -836,9 +842,10 @@ MU_TEST(test_no_radio_source_spins_on_the_radio)
 /*
  * The same check for the bench images, allowing the one wait they keep: a bare
  * spin on a packet arriving. Every wait on radio state in them goes through
- * the bounded waits above, so a dead radio stops them at a step with their
- * LEDs saying how far they got, rather than with a board that has to be
- * re-plugged before anything else can be tried.
+ * the bounded waits above, so a radio that stops advancing no longer costs the
+ * host the board for as long as it is plugged in. The two modes that then wait
+ * for a packet still wait for one forever, which is the wait with no deadline;
+ * what is gone is the spin on a state that was never coming.
  */
 MU_TEST(test_no_bench_image_spins_on_radio_state)
 {

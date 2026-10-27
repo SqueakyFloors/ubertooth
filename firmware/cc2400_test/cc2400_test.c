@@ -20,20 +20,23 @@
  */
 
 #include "ubertooth.h"
-#include "cc2400_wait.h"
 
 /*
  * Reads of AGCCTRL before this test gives up on the radio. The radio answers a
- * register read in a few microseconds once it is out of reset, and each read
- * here is one bit-banged 24-bit transfer, so a budget this large is only ever
- * reached by a part that is not answering at all. It is the same shape as the
- * bounds in firmware/common/cc2400_wait.h, which the shipped images wait
- * through.
+ * register read in a few microseconds once it is out of reset. This image never
+ * starts the PLL, so the processor runs on its 4 MHz internal oscillator, where
+ * each of these 24-bit transfers takes about 115 microseconds and the whole
+ * budget a little over a second: out of reach of a part that is answering at
+ * all, which is all the bound has to be.
  */
 #define AGCCTRL_READS 10000
 
-/* Milliseconds each half of the give-up blink lasts. */
-#define GIVE_UP_BLINK_MS 200
+/*
+ * Half the give-up blink. wait_ms() is calibrated for the 100 MHz clock this
+ * image never configures, so on the internal oscillator each half lasts about
+ * 25 times as long -- around half a second, which is what a blink wants anyway.
+ */
+#define GIVE_UP_BLINK_MS 20
 
 int main()
 {
@@ -47,9 +50,11 @@ int main()
 
 	cc2400_reset();
 	/*
-	 * The radio reads its reset value back, or this gives up. An unbounded
-	 * wait here left a board with a dead radio looking exactly like one
-	 * still starting up: two LEDs on, forever, with nothing to say which.
+	 * The radio reads its reset value back, or this gives up. A radio that
+	 * answers nothing at all never gets here: cc2400_reset() waits for its
+	 * own readback unbounded, as boot code in every image does. What the
+	 * bound covers is a part that answers the bus but never reports AGCCTRL
+	 * reset, which used to spin here forever.
 	 */
 	for (reads = 0; reads < AGCCTRL_READS; reads++)
 		if (cc2400_get(AGCCTRL) == 0xf700)
