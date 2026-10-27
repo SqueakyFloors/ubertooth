@@ -649,7 +649,12 @@ static void cb_xfer(struct libusb_transfer *xfer)
 	 *
 	 * Both stop flags are read here rather than through
 	 * ubertooth_stopping(), which writes the handle: this runs on the poll
-	 * thread, and the capture's own thread is the one that writes. */
+	 * thread, and the capture's own thread is the one that writes.
+	 *
+	 * Reading a flag a handler sets from a second thread is not something
+	 * the standard promises either; only an atomic would be. It is what the
+	 * old code did too, and it holds on the processors this fork builds
+	 * for, where either flag is one load. */
 	int wanted_back = ut->rx_xfer_state == RX_XFER_CANCELLING
 	                  || stop_requested || ut->stop_ubertooth;
 	/* The libusb status that ended the stream, or 0 if it has not ended. */

@@ -740,6 +740,7 @@ MU_TEST(an_interrupted_sweep_to_stdout_still_exits_zero)
 {
 	char err[512];
 	long written;
+	int status;
 
 	reset_device();
 	device.interrupt_after = 2;
@@ -749,9 +750,12 @@ MU_TEST(an_interrupted_sweep_to_stdout_still_exits_zero)
 	 * to a temp file for the run: writing them to the test's own output
 	 * would mix them into the CTest log. */
 	capture_stdout_begin();
-	mu_assert_int_eq(0, RUN_SPECAN(err, "-d", "-"));
+	status = RUN_SPECAN(err, "-d", "-");
 	written = capture_stdout_end();
 
+	/* Nothing is asserted while standard output is the temp file: minunit
+	 * prints a failure there, and the file is gone by the time CTest looks. */
+	mu_assert_int_eq(0, status);
 	mu_assert(strcmp(err, "Ubertooth stopped\n") == 0, err);
 	mu_assert_int_eq(2, device.blocks);
 	mu_assert(written > 0, "the samples up to the interrupt were written");
