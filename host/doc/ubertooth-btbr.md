@@ -34,10 +34,8 @@ and flash `bluetooth_rxtx.dfu` again to go back to the other tools:
 
     ubertooth-dfu -d firmware/bluetooth_rxtx/bluetooth_rxtx.dfu -r
 
-A board running `btbr` resets as it enters DFU rather than after answering the
-request, so flashing away from it with `-U <index|serial>` fails and leaves the
-board in the bootloader. Run the command above without `-U` instead: the
-bootloader is the only device in DFU, so it is flashed without ambiguity.
+Add `-U <index|serial>` to either command to pick one board of several; it
+works from both images.
 
 Starting `ubertooth-btbr` on a board running `bluetooth_rxtx` fails with
 `error: could not set up the Ubertooth: ...`, because that firmware takes none

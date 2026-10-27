@@ -149,12 +149,10 @@ ubertooth-dfu -d firmware/btbr/btbr.dfu -r                      # for ubertooth-
 ubertooth-dfu -d firmware/bluetooth_rxtx/bluetooth_rxtx.dfu -r  # for everything else
 ```
 
-A board running `btbr` resets as it enters DFU rather than after answering the
-request, so flashing it with `-U <index|serial>` fails and leaves it in the
-bootloader; flash it without `-U`, as above. A tool run against the wrong
-image is refused rather than left waiting: the other tools report a firmware
-API version they do not accept, and `ubertooth-btbr` says it could not set the
-Ubertooth up.
+Add `-U <index|serial>` to either command to pick one board of several; it
+works from both images. A tool run against the wrong image is refused rather
+than left waiting: the other tools report a firmware API version they do not
+accept, and `ubertooth-btbr` says it could not set the Ubertooth up.
 
 See also the [Ubertooth overview man page](host/doc/ubertooth.md).
 

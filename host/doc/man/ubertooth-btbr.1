@@ -30,7 +30,7 @@ ubertooth\-dfu \-d firmware/bluetooth_rxtx/bluetooth_rxtx\.dfu \-r
 .fi
 .IP "" 0
 .P
-A board running \fBbtbr\fR resets as it enters DFU rather than after answering the request, so flashing away from it with \fB\-U <index|serial>\fR fails and leaves the board in the bootloader\. Run the command above without \fB\-U\fR instead: the bootloader is the only device in DFU, so it is flashed without ambiguity\.
+Add \fB\-U <index|serial>\fR to either command to pick one board of several; it works from both images\.
 .P
 Starting \fBubertooth\-btbr\fR on a board running \fBbluetooth_rxtx\fR fails with \fBerror: could not set up the Ubertooth: \|\.\|\.\|\.\fR, because that firmware takes none of the requests this tool sends\.
 .SH "OPTIONS"
