@@ -170,15 +170,12 @@ int cmd_set_channel_quiet(struct libusb_device_handle* devh, u16 channel)
 	return fake.channel_rc;
 }
 
-int cmd_rx_syms(struct libusb_device_handle* devh)
+/* The quiet form: it prints nothing, so what the cases below see on standard
+ * error is the tool's own report. */
+int cmd_rx_syms_quiet(struct libusb_device_handle* devh)
 {
 	(void)devh;
 	record('s');
-	if (fake.rx_syms_rc == LIBUSB_ERROR_TIMEOUT)
-		/* The line the library prints for this one, so the case pins what
-		 * the user sees rather than a stub's wording. */
-		fprintf(stderr, "error: the Ubertooth did not answer in time "
-		        "(libusb %d)\n", LIBUSB_ERROR_TIMEOUT);
 	return fake.rx_syms_rc;
 }
 
@@ -452,8 +449,17 @@ MU_TEST(a_capture_that_cannot_be_set_up_exits_1_and_gives_everything_back)
 		{ "",  -1, 0, 0,
 		  "error: submitting the receive transfer failed (-4)\n" },
 		{ "",  0, EAGAIN, 0, NULL /* filled in below */ },
+		/* The capture request is named the way the sweep request is, so
+		 * the line carries the "error: " prefix rather than
+		 * libubertooth's own unprefixed "libUSB Error" wording. */
 		{ "s", 0, 0, LIBUSB_ERROR_TIMEOUT,
-		  "error: the Ubertooth did not answer in time (libusb -7)\n" },
+		  "error: could not start the capture: the board did not answer "
+		  "in time (libusb -7)\n"
+		  "note: if a mode is running, stop it with ubertooth-util -S; "
+		  "if the board does not answer at all, re-plug it\n" },
+		{ "s", 0, 0, LIBUSB_ERROR_PIPE,
+		  "error: could not start the capture: the board does not "
+		  "support this command (stalled) (libusb -9)\n" },
 	};
 	struct run_result r;
 	size_t i;

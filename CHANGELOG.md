@@ -256,7 +256,8 @@
   `ubertooth-rx`, `ubertooth-scan` and `ubertooth-follow`, instead of the
   negative libusb code a shell wrapped into 247 or 249; and both of
   `ubertooth-scan`'s BlueZ adapter failures go to standard error, one having
-  gone to standard output.
+  gone to standard output. A refused capture request names itself as one
+  `error: ` line, like the other requests that set a capture up.
   [#431](https://github.com/SqueakyFloors/ubertooth/issues/431)
   [#545](https://github.com/SqueakyFloors/ubertooth/issues/545)
 - `ubertooth-rx` and `ubertooth-scan` sweep the whole band on a board that a

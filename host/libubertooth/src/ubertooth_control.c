@@ -207,17 +207,24 @@ int cmd_ping(struct libusb_device_handle* devh)
 	return 0;
 }
 
-int cmd_rx_syms(struct libusb_device_handle* devh)
+int cmd_rx_syms_quiet(struct libusb_device_handle* devh)
 {
 	int r;
 
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_RX_SYMBOLS, 0, 0,
 			NULL, 0, 1000);
-	if (r < 0) {
-		show_libusb_error(r);
+	if (r < 0)
 		return r;
-	}
 	return 0;
+}
+
+int cmd_rx_syms(struct libusb_device_handle* devh)
+{
+	int r = cmd_rx_syms_quiet(devh);
+
+	if (r < 0)
+		show_libusb_error(r);
+	return r;
 }
 
 int cmd_tx_syms(struct libusb_device_handle* devh)

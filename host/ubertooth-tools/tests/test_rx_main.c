@@ -183,16 +183,13 @@ int cmd_set_channel_quiet(struct libusb_device_handle* devh, uint16_t channel)
 	return device.channel_rc;
 }
 
-int cmd_rx_syms(struct libusb_device_handle* devh)
+/* The quiet form: it prints nothing, so what the cases below see on standard
+ * error is the tool's own report. */
+int cmd_rx_syms_quiet(struct libusb_device_handle* devh)
 {
 	(void)devh;
 	record('s');
 	device.rx_syms_calls++;
-	if (device.rx_syms_rc == LIBUSB_ERROR_TIMEOUT)
-		/* The line the library prints for this one, so the case pins what
-		 * the user sees rather than a stub's wording. */
-		fprintf(stderr, "error: the Ubertooth did not answer in time "
-		        "(libusb %d)\n", LIBUSB_ERROR_TIMEOUT);
 	return device.rx_syms_rc;
 }
 
@@ -751,14 +748,23 @@ MU_TEST(a_capture_that_cannot_start_exits_one)
 	mu_assert_int_eq(0, device.blocks);
 	mu_assert_int_eq(1, device.stops);
 
-	/* The request that starts the mode, which libubertooth reports itself.
-	 * The poll thread is running by then, so it is joined on the way out. */
+	/* The request that starts the mode, named the way every other refused
+	 * setup request is. The poll thread is running by then, so it is joined
+	 * on the way out. */
 	reset_device();
 	device.rx_syms_rc = LIBUSB_ERROR_TIMEOUT;
 	r = RUN_RX("-t", "10");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(r.err, "error: the Ubertooth did not answer in time "
-	          "(libusb -7)\n") == 0, r.err);
+	mu_assert(strcmp(r.err, NO_ANSWER("start the capture")) == 0, r.err);
+
+	/* A code with no advice: still the one "error: " line, never
+	 * libubertooth's unprefixed "libUSB Error" wording. */
+	reset_device();
+	device.rx_syms_rc = LIBUSB_ERROR_PIPE;
+	r = RUN_RX("-t", "10");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, STALLED("start the capture")) == 0, r.err);
+	mu_assert(r.out[0] == '\0', r.out);
 	mu_assert(r.out[0] == '\0', r.out);
 	mu_assert_int_eq(1, device.rx_syms_calls);
 	mu_assert_int_eq(0, device.channels_set);

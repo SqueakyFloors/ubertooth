@@ -87,9 +87,11 @@ failed: the receive transfer libusb would not take, the host thread that
 collects the capture, or the request that puts the board in its capture mode.
 Standard output holds whatever a `-s` inquiry printed before that and nothing
 else; standard error carries the one `error: ` line for the step that failed.
-The status is 1 in every case, never the failing call's own return value: a
-negative libusb code handed to the exit status is wrapped into a byte, so
-`libusb -9` reached a script as 247.
+The capture request is named the way the sweep request below is, with the
+reason the board gave and the libusb code. The status is 1 in every case,
+never the failing call's own return value: a negative libusb code handed to
+the exit status is wrapped into a byte, so `libusb -9` reached a script as
+247.
 
 A board that refuses the request that puts it in sweep mode exits 1 as well.
 Standard output holds whatever a `-s` inquiry printed before that and nothing

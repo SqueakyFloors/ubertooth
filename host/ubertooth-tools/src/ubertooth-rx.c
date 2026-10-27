@@ -366,15 +366,13 @@ int main(int argc, char* argv[])
 		}
 
 		// tell ubertooth to send packets
-		r = cmd_rx_syms(ut->devh);
-		if (r < 0) {
-			/* libubertooth has named this one too. The poll thread is
-			 * running by now and nothing else joins it: ubertooth_stop()
-			 * frees the libusb context it polls. */
-			ubertooth_bulk_thread_stop();
-			ubertooth_stop(ut);
-			return 1;
-		}
+		/* The quiet form, so this failure reads as the one "error: " line
+		 * capture_failed() prints, like the channel request below. The
+		 * reporting form would print libubertooth's "libUSB Error" line
+		 * instead, which carries no "error: " prefix. */
+		r = cmd_rx_syms_quiet(ut->devh);
+		if (r < 0)
+			return capture_failed(ut, "start the capture", r);
 
 		/* Tell the board how to tune for this capture after asking for
 		 * the capture, not before. Starting a mode puts the board's hop
