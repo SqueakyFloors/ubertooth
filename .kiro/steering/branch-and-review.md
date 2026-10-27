@@ -204,8 +204,20 @@ change the host relies on**, in the PR that makes it.
 - A release moves it to the next major version to mark the break in
   host/firmware pairing; the first fork release takes `0x0200` (2.00). That is
   a release step, not a per-PR one (see `docs/source/release_procedure.rst`).
-  The check knows about it: one major up with the minor digits at `00` is
-  allowed with no firmware change, so the release's own PR is not refused.
+  The check knows about it: one major up with the minor digits at `00`, above
+  `main`, with `CHANGELOG.md`, `COMPATIBILITY.md` and `TEST_PLAN.md` moving
+  with it, is allowed with no firmware change, so the release's own PR is not
+  refused. **No other branch may take a major version**, whether or not it
+  changes the firmware: a board accepts only the exact value, so a `0x0200`
+  typed in place of `0x0135` would refuse every user's board until it was
+  reflashed, and it burns the value the release reserves.
+- On a pull request the job runs **`main`'s copy** of
+  `tools/check-api-version.sh`, not the branch's, so a branch cannot edit the
+  check that gates it. A branch's own changes to the script are reviewed and
+  are exercised by `tools/check-api-version-selftest.sh`, which runs from the
+  branch; they take effect for other branches once they are on `main`. The
+  job's own definition still comes from the branch, as GitHub reads workflow
+  files from the branch; branch protection is where that is answered.
 - Host tools and firmware built from the same commit always match, so after
   pulling, rebuild and reflash both from the same commit
   (`./install.sh --flash`).

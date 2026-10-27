@@ -738,16 +738,47 @@ jobs:
       # It is all zeroes for the first push to a new branch, which main is not,
       # and it can name a commit this clone does not have after a force-push:
       # HEAD~1 in either case, which still checks the tip.
+      #
+      # On a pull request the script that does the checking comes from main,
+      # not from the branch being checked. Everything else about this job --
+      # the condition above, which commit is read, the watched list inside the
+      # script -- used to come from the branch too, so a branch could edit the
+      # check that gates it and go green. Reading the script from main closes
+      # the script half of that: a branch's own edits to it are still reviewed
+      # and still exercised, by tools/check-api-version-selftest.sh in the
+      # scripts job, but they do not decide whether this job passes.
+      #
+      # The job-definition half cannot be closed from inside the workflow,
+      # because GitHub reads the workflow file from the branch. Branch
+      # protection is where that is answered.
+      #
+      # On a push to main the branch IS main, so there is nothing to read from
+      # elsewhere.
       env:
         BEFORE: ${{ github.event.before }}
       run: |
+        set -eu
+        : "${RUNNER_TEMP:?}"
+        check=tools/check-api-version.sh
         if [ "${{ github.event_name }}" = "pull_request" ]; then
-          tools/check-api-version.sh origin/main
+          # A main that does not have the script yet is the first pull request
+          # to add it, which has nothing to read from main: the branch's own
+          # copy is all there is.
+          if git cat-file -e "origin/main:$check" 2> /dev/null; then
+            from_main="$RUNNER_TEMP/check-api-version-from-main.sh"
+            git show "origin/main:$check" > "$from_main"
+            chmod +x "$from_main"
+            echo "note: running $check as origin/main has it" >&2
+            check=$from_main
+          else
+            echo "note: origin/main has no $check; running this branch's copy" >&2
+          fi
+          "$check" origin/main
         elif git rev-parse --verify --quiet "$BEFORE^{commit}" > /dev/null; then
-          tools/check-api-version.sh "$BEFORE"
+          "$check" "$BEFORE"
         else
           echo "note: $BEFORE is not a commit here; comparing with HEAD~1" >&2
-          tools/check-api-version.sh HEAD~1
+          "$check" HEAD~1
         fi
   # The .dfu is the file every install guide tells users to flash, and nothing
   # outside a developer's own tree used to build one. The firmware build ends

@@ -201,6 +201,11 @@ want_no_stdout() {
     return 0
 }
 
+want_no_stderr() {
+    grep -qF -- "$1" "$work/err" && fail "standard error mentions '$1' and should not"
+    return 0
+}
+
 # A branch that changes the firmware interface and leaves the version where
 # main already has it: the collision this check exists for.
 new_repo 0x0131
@@ -332,13 +337,21 @@ run "the next value rolls over" "$repo" main
 want_status 1
 want_stderr "next free: 0x0140"
 
-# And at the end of a major version, 1.99 is followed by 2.00.
+# And at the end of a major version, 1.99 is followed by 2.00. That is also
+# the one place the two rules meet: 0x0200 is a major version, which only a
+# release may take, so the branch has no value free. The check still names the
+# next value -- the arithmetic is worth seeing -- and then says this branch
+# cannot have it, rather than suggesting a value it would refuse.
 new_repo 0x0199
 edit "$repo" firmware/common/usb.c
 commit "$repo" "change shared firmware code, keep the version"
 run "the next value rolls into the next major version" "$repo" main
 want_status 1
 want_stderr "next free: 0x0200"
+want_stderr "0x0200 is a major version, which only a release may take"
+want_stderr "Ask the"
+# The advice that would be wrong here: it must not tell the branch to take it.
+want_no_stderr "Set it to 0x0200"
 
 # Firmware the bluetooth_rxtx image does not contain: the host-compiled
 # firmware tests, and the separate btbr image, whose own bcdDevice this
@@ -871,6 +884,92 @@ want_status 1
 want_empty_stdout
 want_stderr "changes no firmware interface file"
 want_stderr "on main:       2.00 (0x0200)"
+
+# The leg for a branch that DOES change the firmware used to ask only for a
+# value above main's, so the reserved major went through it: 0x0200 typed in
+# place of 0x0132 is above main, and the branch has a firmware change to pair
+# it with, so nothing refused it. It burns the value the first fork release
+# reserves and refuses every user's board until it is reflashed, which is the
+# harm the other leg already went to some trouble to prevent.
+new_repo 0x0131
+edit "$repo" firmware/bluetooth_rxtx/bluetooth_rxtx.c
+set_version "$repo" 0x0200
+commit "$repo" "change the firmware and fat-finger the major version"
+run "a firmware branch cannot take the reserved major" "$repo" main
+want_status 1
+want_empty_stdout
+want_stderr "a major version that a"
+want_stderr "release reserves"
+want_stderr "at HEAD:       2.00 (0x0200)"
+want_stderr "next free:     0x0132"
+# Not the message for a value that is too low: this one is above main.
+want_stderr "docs/source/release_procedure.rst"
+
+# Any major version, not only the next one. Three majors up is as reserved as
+# one, and it is the shape a stray keystroke makes.
+new_repo 0x0131
+edit "$repo" firmware/bluetooth_rxtx/bluetooth_rxtx.c
+set_version "$repo" 0x0400
+commit "$repo" "change the firmware and take a major version further out"
+run "a firmware branch cannot take a later major either" "$repo" main
+want_status 1
+want_stderr "a major version that a"
+want_stderr "at HEAD:       4.00 (0x0400)"
+
+# A release that also changed the firmware is still a release, and it goes
+# through the same leg: one major up from the merge base, above main, the
+# three documents moved. Refusing this would be refusing the release's own
+# pull request, which is what the carve-out exists to avoid.
+new_repo 0x0131
+edit "$repo" firmware/bluetooth_rxtx/bluetooth_rxtx.c
+edit "$repo" CHANGELOG.md
+edit "$repo" COMPATIBILITY.md
+edit "$repo" TEST_PLAN.md
+set_version "$repo" 0x0200
+commit "$repo" "cut a release that also changed the firmware"
+run "a release that changed the firmware is allowed the major" "$repo" main
+want_status 0
+want_empty_stderr
+want_stdout "changes the firmware interface"
+want_stdout "takes 2.00 (0x0200)"
+
+# And the new refusal must not reach a value with minor digits of its own: a
+# firmware branch taking the next minor is the ordinary case and stays green.
+new_repo 0x0199
+edit "$repo" firmware/bluetooth_rxtx/bluetooth_rxtx.c
+set_version "$repo" 0x0201
+commit "$repo" "change the firmware and take a minor of the next major"
+run "a value with minor digits is not a major version" "$repo" main
+want_status 0
+want_empty_stderr
+want_stdout "takes 2.01 (0x0201)"
+
+# The two notes meeting: a firmware branch at the x.99 end of a major version
+# that typed the major itself and did not move the release documents. There is
+# no value with minor digits of its own left to suggest, so the message must
+# not suggest one.
+new_repo 0x0199
+edit "$repo" firmware/bluetooth_rxtx/bluetooth_rxtx.c
+set_version "$repo" 0x0200
+commit "$repo" "change the firmware and take the major without the documents"
+run "the major version at the end of a cycle, without the documents" "$repo" main
+want_status 1
+want_empty_stdout
+want_stderr "a major version that a"
+want_stderr "0x0200 is a major version, which only a release may take"
+want_no_stderr "Otherwise take a value with minor"
+
+# A host-only branch at the same x.99 end of a major version gets the same
+# note, on the other leg's message: its "next free, if this is a firmware
+# change after all" would otherwise name the value a release reserves.
+new_repo 0x0199
+edit "$repo" host/libubertooth/src/ubertooth.c
+set_version "$repo" 0x0201
+commit "$repo" "a host-only change that bumps past the major boundary"
+run "the host-only message says the next major is not free" "$repo" main
+want_status 1
+want_stderr "changes no firmware interface file"
+want_stderr "0x0200 is a major version, which only a release may take"
 
 # A source in a subdirectory of the image's own directory is still one of the
 # image's sources. The directory has none today, but the other firmware image
