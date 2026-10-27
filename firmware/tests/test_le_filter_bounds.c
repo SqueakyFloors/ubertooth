@@ -297,19 +297,22 @@ static void load_le_phy(void)
  */
 MU_TEST(the_firmware_uses_the_modelled_bounds)
 {
-	mu_assert(strstr(source, "#define LE_HEADER_LEN 2") != NULL,
+	/* Each definition with the space that follows it, so a value of 3 is not
+	 * found inside one of 30. load_le_phy() puts a space after every line,
+	 * so the last definition on a line has one too. */
+	mu_assert(strstr(source, "#define LE_HEADER_LEN 2 ") != NULL,
 	          "le_phy.c does not define LE_HEADER_LEN as 2");
-	mu_assert(strstr(source, "#define LE_ADDR_LEN 6") != NULL,
+	mu_assert(strstr(source, "#define LE_ADDR_LEN 6 ") != NULL,
 	          "le_phy.c does not define LE_ADDR_LEN as 6");
-	mu_assert(strstr(source, "#define LE_CRC_LEN 3") != NULL,
+	mu_assert(strstr(source, "#define LE_CRC_LEN 3 ") != NULL,
 	          "le_phy.c does not define LE_CRC_LEN as 3");
 	mu_assert(strstr(source,
 	                 "#define LE_ONE_ADDR_SIZE (LE_HEADER_LEN + LE_ADDR_LEN +"
-	                 " LE_CRC_LEN)") != NULL,
+	                 " LE_CRC_LEN) ") != NULL,
 	          "le_phy.c's one-address bound is not header + address + CRC");
 	mu_assert(strstr(source,
 	                 "#define LE_TWO_ADDR_SIZE (LE_HEADER_LEN + 2 *"
-	                 " LE_ADDR_LEN + LE_CRC_LEN)") != NULL,
+	                 " LE_ADDR_LEN + LE_CRC_LEN) ") != NULL,
 	          "le_phy.c's two-address bound is not header + two addresses "
 	          "+ CRC");
 
