@@ -45,7 +45,9 @@ the file holds and which revision it was built from:
 The API version on that line comes from the block, so for `btbr` it reads this
 tree's version while `ubertooth-util -v` reports that board as 1.06: the `btbr`
 image is built from this tree but reports a fixed USB `bcdDevice` of its own,
-which is what the other tools check.
+which is what the other tools check. This tree's version moves with the
+firmware, so the samples here write it as `<version>`; `COMPATIBILITY.md` names
+the value this tree requires.
 
 A properly signed DFU file with no readable block there is not an image from
 this tree, so it is refused rather than written:

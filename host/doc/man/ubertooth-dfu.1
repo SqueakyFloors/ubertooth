@@ -27,7 +27,7 @@ Image: bluetooth_rxtx git\-ed30131d* (API:<version>)
 .fi
 .IP "" 0
 .P
-The API version on that line comes from the block, so for \fBbtbr\fR it reads this tree's version while \fBubertooth\-util \-v\fR reports that board as 1\.06: the \fBbtbr\fR image is built from this tree but reports a fixed USB \fBbcdDevice\fR of its own, which is what the other tools check\.
+The API version on that line comes from the block, so for \fBbtbr\fR it reads this tree's version while \fBubertooth\-util \-v\fR reports that board as 1\.06: the \fBbtbr\fR image is built from this tree but reports a fixed USB \fBbcdDevice\fR of its own, which is what the other tools check\. This tree's version moves with the firmware, so the samples here write it as \fB<version>\fR; \fBCOMPATIBILITY\.md\fR names the value this tree requires\.
 .P
 A properly signed DFU file with no readable block there is not an image from this tree, so it is refused rather than written:
 .IP "" 4

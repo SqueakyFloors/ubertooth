@@ -49,8 +49,8 @@ is not an Ubertooth image is refused before the board is touched:
 		Checking firmware signature
 		Image: btbr git-26d4c11 (API:<version>)
 
-The two API versions above are different numbers: the ``Image:`` line takes
-its version from the file, so for ``btbr`` it reads this tree's version, while
+The two API versions above are not the same: the ``Image:`` line takes its
+version from the file, so for ``btbr`` it reads this tree's version, while
 ``-v`` reports the USB ``bcdDevice`` the running firmware answers with, which
 ``btbr`` fixes at 1.06. The samples write this tree's version as ``<version>``,
 because it moves with the firmware; ``COMPATIBILITY.md`` names the value this
