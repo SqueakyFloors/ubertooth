@@ -100,6 +100,26 @@ add_test(NAME ubtbr
 		${UBTBR_WRAPPER})
 set_tests_properties(ubtbr PROPERTIES TIMEOUT 90)
 
+# ubertooth-btbr's command line, against the same contract as every other
+# installed tool (host/ubertooth-tools/tests/cli_spec.json). It is registered
+# here because the wrapper CMake configured is what gets run, and the spec and
+# the test live with the other tools, so both are named by relative path and
+# the entry appears only when they are there: host/python can be configured on
+# its own. The test gives the tool a usb1 that finds nothing, so no board is
+# opened. Two dozen runs of a few milliseconds each.
+set(UBERTOOTH_CLI_MATRIX
+	"${CMAKE_CURRENT_SOURCE_DIR}/../ubertooth-tools/tests/test_cli_matrix.py")
+set(UBERTOOTH_CLI_SPEC
+	"${CMAKE_CURRENT_SOURCE_DIR}/../ubertooth-tools/tests/cli_spec.json")
+if(EXISTS "${UBERTOOTH_CLI_MATRIX}" AND EXISTS "${UBERTOOTH_CLI_SPEC}")
+	add_test(NAME cli-matrix-ubertooth-btbr
+		COMMAND ${Python3_EXECUTABLE}
+			${UBERTOOTH_CLI_MATRIX}
+			${UBERTOOTH_CLI_SPEC}
+			${UBTBR_WRAPPER})
+	set_tests_properties(cli-matrix-ubertooth-btbr PROPERTIES TIMEOUT 60)
+endif()
+
 # Create uninstall target
 if(NOT ubertooth_all_SOURCE_DIR)
 	configure_file(
