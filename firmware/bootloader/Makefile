@@ -333,25 +333,24 @@ $(BUILD_FLAGS_FILE): force-flags-check
 		'LD=$(LD)' \
 		'LINK=$(BUILD_FLAGS_LINK)' \
 		> $(BUILD_FLAGS_FILE).tmp
-	@# Unchanged: leave the file alone so nothing rebuilds. Changed, with a
-	@# record to compare against: say so, and stamp the file into the next
-	@# whole second, because this make compares mtimes to the whole second.
-	@# First build: nothing has changed and there is nothing to invalidate.
+	@# Unchanged: leave the file alone so nothing rebuilds. Otherwise stamp
+	@# it into the next whole second, because this make compares mtimes to
+	@# the whole second and the objects beside it have to be invalidated.
+	@# Only a build with a record to compare against says anything.
 	@if cmp -s $(BUILD_FLAGS_FILE).tmp $(BUILD_FLAGS_FILE); then \
 		rm -f $(BUILD_FLAGS_FILE).tmp; \
-	elif [ -f $(BUILD_FLAGS_FILE) ]; then \
-		echo "  build flags changed -- rebuilding objects"; \
+	else \
+		if [ -f $(BUILD_FLAGS_FILE) ]; then \
+			echo "  build flags changed -- rebuilding objects"; \
+		fi; \
 		mv $(BUILD_FLAGS_FILE).tmp $(BUILD_FLAGS_FILE); \
 		sleep 1; \
 		touch $(BUILD_FLAGS_FILE); \
-	else \
-		mv $(BUILD_FLAGS_FILE).tmp $(BUILD_FLAGS_FILE); \
 	fi
 
 # A real prerequisite, not an order-only one: an order-only dependency would
 # create the file if it were missing and otherwise ignore its timestamp, and
-# the timestamp is the whole point. (The version header above it is order-only
-# for the opposite reason: the depfiles already carry it.)
+# the timestamp is the whole point.
 $(OBJ): $(BUILD_FLAGS_FILE)
 
 # Change the build target to build a HEX file or a library.

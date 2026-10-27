@@ -478,10 +478,11 @@ $(OBJ): | $(VERSION_HEADER)
 # prevent would come back -- rarely, and only for a build started within a
 # second of the last one, which is exactly what a script does.
 #
-# Hence the `sleep 1` below: when the flags have really changed, the record is
-# stamped into the next whole second, so it is unambiguously newer than
-# anything the previous build wrote. It costs a second on a flag change and
-# nothing at all on the builds in between, which never reach it.
+# Hence the `sleep 1` below: whenever the record is written, it is stamped into
+# the next whole second, so it is unambiguously newer than anything the
+# previous build wrote. That costs a second on a build that was about to
+# recompile everything anyway, and nothing at all on the builds in between,
+# which leave the file alone and never reach it.
 #
 # (Every other mtime dependency here, headers included, has the same
 # whole-second coarseness; this is the one place the makefile can fix it,
@@ -513,20 +514,21 @@ $(BUILD_FLAGS_FILE): force-flags-check
 		'LD=$(LD)' \
 		'LINK=$(BUILD_FLAGS_LINK)' \
 		> $(BUILD_FLAGS_FILE).tmp
-	@# Three cases: unchanged (leave the file alone, so its timestamp does
-	@# not move and nothing rebuilds); changed, with a record to compare
-	@# against (say so, and stamp the file into the next whole second so it
-	@# is newer than the objects beyond doubt); and a first build, where
-	@# nothing has changed and there are no objects of ours to invalidate.
+	@# Unchanged: leave the file alone, so its timestamp does not move and
+	@# nothing rebuilds. Otherwise the record is new or different, and the
+	@# objects beside it -- if any; a tree can keep objects and lose the
+	@# record -- have to be invalidated, so stamp it into the next whole
+	@# second. Only a build that had something to say about a change says
+	@# it, which is what keeps a first build quiet.
 	@if cmp -s $(BUILD_FLAGS_FILE).tmp $(BUILD_FLAGS_FILE); then \
 		rm -f $(BUILD_FLAGS_FILE).tmp; \
-	elif [ -f $(BUILD_FLAGS_FILE) ]; then \
-		echo "  build flags changed -- rebuilding objects"; \
+	else \
+		if [ -f $(BUILD_FLAGS_FILE) ]; then \
+			echo "  build flags changed -- rebuilding objects"; \
+		fi; \
 		mv $(BUILD_FLAGS_FILE).tmp $(BUILD_FLAGS_FILE); \
 		sleep 1; \
 		touch $(BUILD_FLAGS_FILE); \
-	else \
-		mv $(BUILD_FLAGS_FILE).tmp $(BUILD_FLAGS_FILE); \
 	fi
 
 # A real prerequisite, not an order-only one: the whole point is that this

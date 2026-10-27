@@ -223,10 +223,13 @@ static void check_flags_recorded_after_they_are_set(const char *path)
 	 * place. */
 	static const char *const setters[] = {
 		/* "FLAGS" catches CFLAGS, CPPFLAGS, ASFLAGS, LDFLAGS,
-		 * CPU_FLAGS and GENDEPFLAGS. The rest have to be named: note
-		 * that "CDEFS" does not appear inside "CPPDEFS". */
+		 * CPU_FLAGS and GENDEPFLAGS, but not CPU_FLAGS_ASM: the space
+		 * before the "=" is part of each needle. For the same reason
+		 * "CDEFS" does not appear inside "CPPDEFS". Every form a name
+		 * is assigned with has to be listed, `?=` included. */
 		"FLAGS =",  "FLAGS +=",
-		"OPT =",    "OPT +=",
+		"CPU_FLAGS_ASM =", "CPU_FLAGS_ASM +=",
+		"OPT =",    "OPT +=",    "OPT ?=",
 		"CDEFS =",  "CDEFS +=",
 		"CPPDEFS =", "CPPDEFS +=",
 		"ADEFS =",  "ADEFS +=",
@@ -237,7 +240,15 @@ static void check_flags_recorded_after_they_are_set(const char *path)
 		"EXTRAINCDIRS =", "EXTRAINCDIRS +=",
 		"EXTRALIBDIRS =", "EXTRALIBDIRS +=",
 		"CSTANDARD =", "DEBUG =",
-		"BOARD =",  "BOARD +=",
+		/* The processor and board settings reach the record through
+		 * -mcpu=, -$(CPU_MODE) and the -D sets. BOARD is written
+		 * `BOARD  ?=`, with two spaces, so it needs its own needles. */
+		"CPU =", "CPU ?=", "CPU_MODE =", "CPU_MODE ?=",
+		"LPCUSB_TARGET =", "LPCUSB_TARGET ?=",
+		"BOARD =",  "BOARD +=", "BOARD ?=", "BOARD  ?=",
+		/* -I$(OBJDIR) is in CFLAGS, so where objects go is recorded
+		 * as well. */
+		"OBJDIR =", "OBJDIR ?=",
 		/* The tool names are recorded too, so moving one below the
 		 * snapshot records the wrong compiler. */
 		"CROSS_COMPILE =", "CROSS_COMPILE ?=",
