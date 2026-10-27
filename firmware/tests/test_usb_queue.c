@@ -2212,6 +2212,15 @@ struct dispatch_scan {
 	int switch_level;
 };
 
+/* Does a ':' follow, rather than anything else? Then the word before it named
+ * a label. A '::' cannot occur in C, so a single ':' is enough. */
+static int names_a_label(const char *after_word)
+{
+	while (*after_word == ' ' || *after_word == '\t')
+		after_word++;
+	return *after_word == ':';
+}
+
 /* What read_case_label() made of the text after a `case`. */
 enum label_read {
 	/* A label carrying this pass's prefix; `out` holds it. */
@@ -2248,9 +2257,10 @@ static const char *foreign_case_message(const char *text, const char *prefix)
  * `p` is left after the label; on anything else it is left where it was, so
  * the caller reads that text as ordinary code.
  *
- * A label that is not a bare identifier (`case (MODE_X):`) and one whose
- * identifier is too long for `out` both come back LABEL_UNREADABLE, with up
- * to `size` of the text in `out` so the failure can quote it. Neither shape
+ * A label that is not a bare identifier (`case (MODE_X):`, `case MODE_X + 1:`)
+ * and one whose identifier is too long for `out` both come back
+ * LABEL_UNREADABLE, with up to `size` of the text in `out` so the failure can
+ * quote it. Neither shape
  * appears in the dispatches scanned here, where every case is a bare prefixed
  * name; one turning up at the depth the pass is reading means a case it would
  * otherwise walk straight past. One deeper belongs to a nested switch -- a
@@ -2270,6 +2280,15 @@ static enum label_read read_case_label(const char **p, const char *prefix,
 	while (is_ident_char(*q))
 		q++;
 	len = (size_t)(q - start);
+
+	/*
+	 * The label has to be the whole of what comes before the ':'. Without
+	 * that, `case MODE_X + 1:` reads as MODE_X and is recorded as that
+	 * case, so an expression label naming a different mode would be
+	 * classified as the one its first name happens to be.
+	 */
+	if (len > 0 && !names_a_label(q))
+		len = 0;
 
 	if (len == 0 || len >= size) {
 		/* Quote what is there, up to the first ':' or the end of the
@@ -2404,14 +2423,6 @@ static int starts_the_line(const char *line, const char *word)
 	return 1;
 }
 
-/* Does a ':' follow, rather than anything else? Then the word before it named
- * a label. A '::' cannot occur in C, so a single ':' is enough. */
-static int names_a_label(const char *after_word)
-{
-	while (*after_word == ' ' || *after_word == '\t')
-		after_word++;
-	return *after_word == ':';
-}
 
 /*
  * Read one line of a dispatch into the scan: the labels it opens, the
@@ -3261,6 +3272,25 @@ static const char *const nested_switch_shapes =
 	"	return 0;\n"
 	"}\n";
 
+/*
+ * A label that is an expression rather than a bare name. `case MODE_X + 1:`
+ * is valid C and names a different mode from MODE_X, so reading it as MODE_X
+ * would file that case under the wrong mode.
+ */
+static const char *const expression_label_shapes =
+	"int main(void)\n"
+	"{\n"
+	"	switch (requested_mode) {\n"
+	"	case MODE_ARITHMETIC + 1:\n"
+	"		arithmetic_work();\n"
+	"		break;\n"
+	"	case MODE_ORDINARY:\n"
+	"		ordinary_work();\n"
+	"		break;\n"
+	"	}\n"
+	"	return 0;\n"
+	"}\n";
+
 static const char *const long_label_shapes =
 	"int main(void)\n"
 	"{\n"
@@ -3295,6 +3325,15 @@ MU_TEST(a_case_label_the_scan_cannot_read_is_reported)
 	          "the scan walked past a MODE_ label too long for its buffer "
 	          "without a word, so a mode named that long is classified by "
 	          "nothing");
+
+	mu_assert_fatal(scan_dispatch_text(expression_label_shapes, &shapes),
+	                "cannot scan the written-out dispatch, so the checks "
+	                "below would pass for want of anything to look at");
+	mu_assert_int_eq(1, shapes.case_count);
+	mu_assert(shapes.unreadable[0] != '\0',
+	          "the scan read `case MODE_ARITHMETIC + 1:` as a bare name "
+	          "without a word, so a case labelled with an expression is "
+	          "filed under whichever mode its first name happens to be");
 
 	mu_assert_fatal(scan_dispatch_text(foreign_label_shapes, &shapes),
 	                "cannot scan the written-out dispatch, so the checks "
