@@ -76,7 +76,7 @@ running, so a board is always recoverable with an image from this tree.
 image the board is running:
 
     $ ubertooth-util -v
-    Firmware version: bluetooth_rxtx git-ed30131d* (API:1.33)
+    Firmware version: bluetooth_rxtx git-ed30131d* (API:<version>)
     $ ubertooth-util -V
     bluetooth_rxtx: ubertooth git-ed30131d* (builder@buildhost) Mon Oct 27 11:22:33 2025
 
@@ -93,9 +93,11 @@ from this tree.
 
 The API version beside the
 revision is not from the block: it is the USB `bcdDevice`, which is the number
-the other tools check a board against. The `btbr` image reports a fixed
-`bcdDevice` of 1.06 whatever it was built from, which is why every tool but
-this one and ubertooth-dfu(1) refuses a board running it.
+the other tools check a board against. The samples here write it as
+`<version>`, because it moves with the firmware; `COMPATIBILITY.md` names the
+value this tree requires. The `btbr` image reports a fixed `bcdDevice` of 1.06
+whatever it was built from, which is why every tool but this one and
+ubertooth-dfu(1) refuses a board running it.
 
 The API version is bumped whenever a firmware change affects the host, so a
 board flashed from an earlier commit is normally refused rather than used. It

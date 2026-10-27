@@ -156,6 +156,13 @@ change the host relies on**, in the PR that makes it.
   number is BCD, so after `0x0119` comes `0x0120`, not `0x011a`. Host-only PRs
   MUST NOT touch it. Take the value after whatever `main` carries, re-checking
   after a rebase.
+- That list is the whole list, because sample output in the man pages, the
+  README and `docs/` writes the version as `API:<version>` rather than a
+  number. Keep it that way: pinning a real value in a sample means every bump
+  has one more place to chase, and the ones that went stale were found by
+  review rather than by any check. A version a sample is making a point about
+  -- `btbr`'s fixed 1.06, or `2020-12-R1`'s 1.07 -- is a fixed number and
+  stays.
 - The `api-version` CI job runs `tools/check-api-version.sh`, which compares
   the value on the branch with `main`'s tip and with their merge base and
   applies the two halves of the rule above. Run it before pushing: a value

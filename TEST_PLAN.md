@@ -2,6 +2,7 @@
 
 Hardware required: Ubertooth One, Linux machine (Ubuntu 22.04+ preferred), a BLE device
 (phone, fitness tracker, etc.) and a classic Bluetooth device for BR/EDR tests.
+A second Ubertooth One for the range test (2i).
 
 ---
 
@@ -154,6 +155,52 @@ bootloader needs the entry pin or a power cycle.*
 - [ ] Flash `btbr.dfu` again, start `ubertooth-btbr`, and flash
       `bluetooth_rxtx.dfu` while it is capturing
 - [ ] Confirm: the same result, and the board does not stop answering
+
+### 2i. Two-board range test (issue #601)
+
+*Needs two Ubertooth boards a short distance apart, both running `bluetooth_rxtx`
+from this tree, so both are at the API version the host tools require. The
+packets carry no version of their own, so the two boards need not be built from
+the same revision. The exchange completes within a couple of seconds.*
+
+- [ ] Run `ubertooth-util -U <repeater> -e` (the repeater keeps running until
+      it is stopped)
+- [ ] Run `ubertooth-util -U <sender> -n`, then `ubertooth-util -U <sender> -m`
+- [ ] Confirm: `-m` prints a level in each direction, not `error: invalid range
+      test: mismatch on byte <n>`. With the antennas on, the lowest level gets
+      through first try in both directions:
+
+```
+request PA level : 0
+request number   : 0
+reply PA level   : 0
+reply number     : 0
+```
+
+- [ ] Weaken one direction (remove the sender's antenna, or move the boards
+      apart) and repeat `-n` then `-m`
+- [ ] Confirm: the levels still report, with a higher packet number on the
+      weaker link — more of the sixteen packets at that level were lost before
+      one got through:
+
+```
+request PA level : 0
+request number   : 15
+reply PA level   : 0
+reply number     : 4
+```
+
+- [ ] Swap the roles — `-e` on the board that was the sender, `-n` then `-m` on
+      the other — and confirm the same, so both boards are seen transmitting
+- [ ] Reset the sender (`ubertooth-util -U <sender> -r`), wait for it to come
+      back, and run `-m` on it again
+- [ ] Confirm: `no range test result yet` on standard output, exit 0 — a board
+      that has not completed a test since it started has no result, which is
+      not a failure
+- [ ] Run `-n` on the sender with no repeater answering (stop the repeater
+      first), then `ubertooth-util -U <sender> -S`
+- [ ] Confirm: `-n` returns at once and the board waits for a reply until `-S`
+      stops it; the board answers other commands (`-v`, `-b`) meanwhile
 
 ---
 
