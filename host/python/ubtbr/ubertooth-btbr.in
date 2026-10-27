@@ -1,5 +1,6 @@
 #!@Python3_EXECUTABLE@
 import os
+import signal
 import sys
 
 # Configured by CMake in the installed wrapper; see specan_ui's matching
@@ -83,8 +84,37 @@ class BTCtlPrompt(Cmd):
 		# Claiming the message handler is what can still refuse here, and it
 		# raises: nothing is assigned, so the prompt is left as it was and
 		# onecmd reports it.
-		self._cmd = cls(*args)
-		self._cmd.start()
+		#
+		# Starting a command takes three steps, and a Ctrl-C used to be able
+		# to land between any two of them: building the command claims the
+		# device's one message handler, its thread is what releases that
+		# handler again, and the assignment is what gives the prompt the
+		# handle its stop needs. Interrupted part way, the prompt held
+		# nothing while the device stayed claimed, or held a thread that
+		# never ran, which cannot be joined: that RuntimeError came out of
+		# main() as a traceback. So the interrupt is only noted while the
+		# three steps run, and raised below once they are all done, where it
+		# is the ordinary Ctrl-C with a command running that the prompt's
+		# handler knows how to stop. Nothing here waits on the device -- the
+		# command's first request goes out on its own thread -- so the
+		# interrupt waits a few instructions at most. This runs on the
+		# prompt's own thread, which is where an interrupt arrives and the
+		# only thread a handler can be installed from.
+		interrupted = False
+
+		def note_interrupt(signum, frame):
+			nonlocal interrupted
+			interrupted = True
+
+		previous = signal.signal(signal.SIGINT, note_interrupt)
+		try:
+			cmd = cls(*args)
+			cmd.start()
+			self._cmd = cmd
+		finally:
+			signal.signal(signal.SIGINT, previous)
+		if interrupted:
+			raise KeyboardInterrupt
 		return self._cmd
 
 	def stop_cmd(self):

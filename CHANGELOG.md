@@ -363,6 +363,10 @@
   start is unresolved.
   [#1](https://github.com/SqueakyFloors/ubertooth/issues/1)
   [#418](https://github.com/SqueakyFloors/ubertooth/issues/418)
+- A Ctrl-C in the instant an `ubertooth-btbr` command starts returns to the
+  prompt with the board free, instead of ending the tool in a traceback with
+  the board still claimed.
+  [#552](https://github.com/SqueakyFloors/ubertooth/issues/552)
 - **Script-visible change:** `ubertooth-btbr` exits 1 when a session ends with
   the board still held by a command that would not stop, refuses a `-f` or
   `-b` value outside 0-65535 before opening a board, and reports a bad

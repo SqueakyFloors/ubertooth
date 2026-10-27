@@ -25,6 +25,11 @@ What is checked:
     than joining forever, and leaves the device open: closing the handle
     under a read still running there turns an exit into a crash.
 
+  * a Ctrl-C in the instant a command starts leaves the prompt up with the
+    board released. It used to leave the prompt holding a thread that never
+    ran, and joining that thread ended the tool in a RuntimeError traceback
+    with the board still claimed.
+
   * the tool itself, driven through its prompt: "q" exits 0, where it used to
     raise TypeError because the handler for it was called without the line
     the user typed. A Ctrl-C with a command running returns to the prompt,
@@ -608,6 +613,90 @@ assert wait_until(lambda: device.inquiry_requests == 1), device.inquiry_requests
 prompt.stop_cmd()
 assert prompt._cmd is None, prompt._cmd
 print("ubtbr: the prompt recovers when a command it gave up on ends")
+
+# ---- a Ctrl-C in the instant a command starts -----------------------------
+
+# Starting a command claims the device, starts the thread that will release
+# it again, and hands the prompt the handle its stop needs. A Ctrl-C landing
+# between any two of those left the prompt holding nothing while the device
+# stayed claimed, or holding a thread that never ran, which cannot be joined:
+# that RuntimeError came out of main() as a traceback. The signal below is a
+# real one, sent from inside the command being started, so it arrives in that
+# window the way a key press does.
+class InterruptedBeforeThreadCmd(btctl.BTCtlInquiryCmd):
+    """Interrupted once it is built, before its thread runs."""
+
+    def start(self):
+        os.kill(os.getpid(), signal.SIGINT)
+        super().start()
+
+
+class InterruptedWhileClaimingCmd(btctl.BTCtlInquiryCmd):
+    """Interrupted as it claims the device's messages."""
+
+    def __init__(self, bt):
+        super().__init__(bt)
+        os.kill(os.getpid(), signal.SIGINT)
+
+
+class InterruptedAfterThreadCmd(btctl.BTCtlInquiryCmd):
+    """Interrupted once its thread runs, before the prompt is given it."""
+
+    def start(self):
+        super().start()
+        os.kill(os.getpid(), signal.SIGINT)
+
+
+for interrupted_cls in (InterruptedBeforeThreadCmd,
+                        InterruptedWhileClaimingCmd,
+                        InterruptedAfterThreadCmd):
+    name = interrupted_cls.__name__
+    device = SilentDevice()
+    prompt = tool_module.BTCtlPrompt(device)
+    arrived = False
+    try:
+        prompt.start_cmd(interrupted_cls)
+    except KeyboardInterrupt:
+        arrived = True
+        # What the prompt's own handler runs for a Ctrl-C.
+        try:
+            prompt.do_idle()
+        except RuntimeError as e:
+            raise AssertionError("%s: the interrupt handler raised: %s"
+                                 % (name, e))
+    assert arrived, (name, "the interrupt never arrived")
+    assert prompt._cmd is None, (name, prompt._cmd)
+    # and the board is let go of, rather than left claimed by a command
+    # nothing holds
+    assert device.handler is None, (name, "the board is still claimed")
+    assert device.idle_requests >= 1, (name, device.idle_requests)
+    # the prompt is where the user is left: it takes a command again
+    inquiries = device.inquiry_requests
+    assert prompt.start_cmd(btctl.BTCtlInquiryCmd) is not None, name
+    assert wait_until(lambda: device.inquiry_requests == inquiries + 1), \
+        (name, device.inquiry_requests)
+    prompt.stop_cmd()
+    assert prompt._cmd is None, (name, prompt._cmd)
+print("ubtbr: a Ctrl-C as a command starts returns to the prompt, board free")
+
+# and it comes out of the typed command the way a key press does: onecmd
+# catches what a command can raise, which the interrupt is not.
+device = SilentDevice()
+prompt = tool_module.BTCtlPrompt(device)
+typed = tool_module.BTCtlInquiryCmd
+tool_module.BTCtlInquiryCmd = InterruptedBeforeThreadCmd
+arrived = False
+try:
+    prompt.onecmd("inquiry")
+except KeyboardInterrupt:
+    arrived = True
+    prompt.do_idle()
+finally:
+    tool_module.BTCtlInquiryCmd = typed
+assert arrived, "onecmd swallowed the interrupt"
+assert prompt._cmd is None, prompt._cmd
+assert device.handler is None, "the board is still claimed"
+print("ubtbr: the interrupt comes out of the command that was typed")
 
 # ---- the tool, driven through its prompt ----------------------------------
 
