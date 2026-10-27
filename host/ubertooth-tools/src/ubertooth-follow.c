@@ -105,20 +105,36 @@ static void follow_cleanup(ubertooth_t* ut, int sock, uint16_t handle, int cc)
 	follow_release_adapter(sock, handle, cc);
 }
 
+/* Gives the board back along with the adapter, for a failure after the board
+ * was opened but before any mode has started. Without this the board stayed
+ * claimed until the process exited.
+ *
+ * It goes back without a STOP: there is no mode of ours to end, and a STOP to
+ * a board that has just refused a request would only add a second failure to
+ * the report. The same reasoning as ubertooth-rx's request_failed().
+ *
+ * It is closed only while it is still open, which is what tells the two
+ * firmware version failures apart: ubertooth_check_api() releases the board
+ * itself when the firmware reports a version this host will not drive, and
+ * releasing it twice is not safe, while a version it could not read at all
+ * leaves the board open, so closing it here is what frees it. ubertooth-scan
+ * tells them apart the same way. */
+static void follow_release_board(ubertooth_t* ut, int sock, uint16_t handle,
+                                 int cc)
+{
+	if (ut->devh != NULL)
+		ubertooth_close(ut);
+	follow_release_adapter(sock, handle, cc);
+}
+
 /* A board that refused one of the requests the follow is built on. One line
  * names the request, and the board and the adapter both go back, so a follow
- * that cannot be set up leaves nothing behind.
- *
- * Closed without a STOP: these requests go out before any mode has started,
- * so there is nothing to stop, and a STOP to a board that has just refused a
- * request would only add a second failure to the report. The same reasoning as
- * ubertooth-rx's request_failed(). */
+ * that cannot be set up leaves nothing behind. */
 static int follow_request_failed(ubertooth_t* ut, int sock, uint16_t handle,
                                  int cc, const char* what, int code)
 {
 	report_refused_request(what, code);
-	ubertooth_close(ut);
-	follow_release_adapter(sock, handle, cc);
+	follow_release_board(ut, sock, handle, cc);
 	return 1;
 }
 
@@ -516,24 +532,27 @@ int main(int argc, char *argv[])
 	register_cleanup_handler(ut, 0);
 
 	/* Fails when no board matches -U or it cannot be opened; the library
-	 * has already said why. Every failure from here to the receive loop
-	 * gives the adapter back on the way out, dropping the link to the
-	 * target with it; the receive thread is not running yet, so there is
-	 * nothing else to undo. */
+	 * has already said why, and has left nothing of its own open. Every
+	 * failure from here to the receive loop gives the board and the adapter
+	 * back on the way out, dropping the link to the target with it; the
+	 * receive thread is not running yet, so there is nothing else to undo. */
 	if (ubertooth_connect_select(ut, ubertooth_device) < 0) {
 		follow_release_adapter(sock, handle, cc);
 		return 1;
 	}
 
+	/* A firmware this host will not drive. The library has reported it. */
 	int r = ubertooth_check_api(ut);
 	if (r < 0) {
-		follow_release_adapter(sock, handle, cc);
+		follow_release_board(ut, sock, handle, cc);
 		return 1;
 	}
 
+	/* libbtbb refuses only a -e outside its own range, which the check on
+	 * -e above has already caught, and it says so itself. */
 	r = btbb_init(max_ac_errors);
 	if (r < 0) {
-		follow_release_adapter(sock, handle, cc);
+		follow_release_board(ut, sock, handle, cc);
 		return 1;
 	}
 
