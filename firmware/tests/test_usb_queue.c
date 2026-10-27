@@ -2408,11 +2408,15 @@ static int opens_a_condition(const char *word)
 	return 0;
 }
 
-/* A keyword that leaves the case, so the next label starts a new one. */
+/*
+ * A keyword that leaves the case, so the next label starts a new one.
+ * `continue` is one of them here because this dispatch is inside a loop of
+ * its own, so a case can end by going round it again.
+ */
 static int leaves_the_case(const char *word)
 {
 	return strcmp(word, "break") == 0 || strcmp(word, "return") == 0 ||
-	       strcmp(word, "goto") == 0;
+	       strcmp(word, "goto") == 0 || strcmp(word, "continue") == 0;
 }
 
 /* Is `word` the first thing on its line? A label is written that way, and
@@ -2435,10 +2439,9 @@ static int starts_the_line(const char *line, const char *word)
  * Read one line of a dispatch into the scan: the labels it opens, the
  * functions it calls, and whether it ends the cases being read.
  *
- * A case ends at a `break`, `return` or `goto` of its own, which means one at
- * the case's own brace depth and not under a condition. Both halves are
- * needed. Reading the first `break` on any body line as the end of the case,
- * as this used to, misreads a case shaped
+ * A case ends at a `break`, `return`, `goto` or `continue` of its own: one the
+ * case reaches every time it runs. Taking the first `break` on any body line
+ * for the end of the case misreads a case shaped
  *
  *	while (something()) { if (...) break; }
  *	the_real_loop();
@@ -2453,6 +2456,13 @@ static int starts_the_line(const char *line, const char *word)
  * The brace depth is what tells the two kinds of `break` apart. The
  * `branched` flag cannot: it is relative to the function body, and every case
  * here is already inside main()'s `while` and `switch`, so it is 1 throughout.
+ *
+ * Where the line sits is taken at its start, so the scan reads one statement
+ * per line -- the style the firmware is written in. A whole loop written on
+ * one line (`while (x) { prep(); break; }`) is read as ending the case after
+ * prep(), and a label and its statement sharing a line go together. The
+ * scans above read the sources the same way, which is why the check that no
+ * line is too long for them matters.
  */
 static void visit_dispatch_line(const char *line, const struct body_pos *pos,
                                 void *ctx)
@@ -2986,11 +2996,11 @@ MU_TEST(a_mode_that_streams_runs_a_classified_loop)
 
 /*
  * Everything above rests on the scan finding the function each case really
- * runs. No case in the firmware hides its work behind a `break` that is not
- * its own, so nothing above would fail if the scan went back to ending a case
- * at the first `break` on a body line -- it would simply stop noticing a case
- * of that shape being added. So the shapes are written here and the scan is
- * run on them.
+ * runs. No case in the firmware hides its work behind an exit that is not its
+ * own, so the checks above would all pass with a scan that could not read
+ * such a case -- it would simply stop noticing one being added. The shapes
+ * are therefore written out here and the scan is run over them, which is what
+ * makes each half of its reading fail when it is taken away.
  *
  * Each shape puts a case's work somewhere a simpler reading loses it:
  *
@@ -2998,17 +3008,22 @@ MU_TEST(a_mode_that_streams_runs_a_classified_loop)
  *  - inside a case body that is a block, with the `break` inside the block
  *    and, separately, written after its closing brace -- a level above the
  *    statements it follows;
- *  - below a `goto` that lands on a label inside the same case, so it never
- *    left it -- while a `goto` out of the switch lands below it, where the
- *    work belongs to no case, which is why the switch's last case is one
- *    that leaves that way and the label it lands on is inside plain blocks
- *    of its own, where counting depth alone would put it back in the case.
- *    One case jumps into a plain block and does its work there, which is
- *    still inside the case;
+ *  - below a `goto` that lands on a label inside the same case. Such a `goto`
+ *    never left the case. One case jumps into a plain block and works there,
+ *    which is still inside it;
+ *  - after a `goto` out of the switch, where the work belongs to no case. The
+ *    switch's last case leaves that way, and the label it lands on sits in
+ *    plain blocks of its own: counting depth alone would read that label as
+ *    the case carrying on;
  *  - in the statement that leaves (`return the_work();`);
  *  - inside plain `{ }` blocks opened to scope a variable, which look like a
  *    loop's braces by depth alone but which the case passes through every
  *    time it runs;
+ *  - below a `break` that belongs to a braced `if` or loop with nothing
+ *    conditional on the line itself, which is the shape ordinary style
+ *    produces and the one the brace-depth reading loses;
+ *  - after a `continue`, which leaves the case by going round the loop the
+ *    dispatch sits in;
  *  - and one case that does nothing but `break`, whose body is a comment.
  *    That one has no work to lose; it is here because a case with no
  *    statement of its own is the shape most easily read as never ending.
@@ -3101,6 +3116,25 @@ static const char *const dispatch_shapes =
 	"		case MODE_AFTER_SCOPED_BLOCKS:\n"
 	"			after_scoped_blocks_work();\n"
 	"			break;\n"
+	"		case MODE_BRACED_IF:\n"
+	"			if (x) {\n"
+	"				break;\n"
+	"			}\n"
+	"			braced_if_work();\n"
+	"			break;\n"
+	"		case MODE_LOOP_PLAIN_BREAK:\n"
+	"			while (y) {\n"
+	"				prep();\n"
+	"				break;\n"
+	"			}\n"
+	"			loop_plain_break_work();\n"
+	"			break;\n"
+	"		case MODE_CONTINUES:\n"
+	"			continues_work();\n"
+	"			continue;\n"
+	"		case MODE_AFTER_CONTINUES:\n"
+	"			after_continues_work();\n"
+	"			break;\n"
 	"		case MODE_LAST:\n"
 	"			last_work();\n"
 	"			break;\n"
@@ -3118,7 +3152,7 @@ static const char *const dispatch_shapes =
 	"	return 0;\n"
 	"}\n";
 
-#define DISPATCH_SHAPE_COUNT 21
+#define DISPATCH_SHAPE_COUNT 25
 
 /* Run the case scan over a function written out as text. tmpfile() rather
  * than a path: the scans walk whole directories, so a C file left in one of
@@ -3204,6 +3238,14 @@ static const struct {
 	{ "MODE_SCOPED_BLOCKS",        "scoped_blocks_work",
 	  "after_scoped_blocks_work" },
 	{ "MODE_AFTER_SCOPED_BLOCKS",  "after_scoped_blocks_work",
+	  "last_work" },
+	{ "MODE_BRACED_IF",            "braced_if_work",
+	  "loop_plain_break_work" },
+	{ "MODE_LOOP_PLAIN_BREAK",     "loop_plain_break_work",
+	  "continues_work" },
+	{ "MODE_CONTINUES",            "continues_work",
+	  "after_continues_work" },
+	{ "MODE_AFTER_CONTINUES",      "after_continues_work",
 	  "last_work" },
 	{ "MODE_LAST",                 "last_work",
 	  "goto_out_last_work" },
@@ -3761,6 +3803,11 @@ MU_TEST(every_br_edr_control_request_is_listed)
  * dequeued would be handing the host packets from somewhere other than
  * usb_work(), which is what a second transport looks like.
  *
+ * One file the image compiles is not under either tree: firmware/common's
+ * serial-over-USB console, which writes endpoints of its own. It is not a
+ * second way to the host here because nothing in this image starts it, and
+ * the last check below is what says so rather than leaving it to the comment.
+ *
  * The image's makefile compiles every .c under its src/, so walking that tree
  * covers the image as it is rather than as it was listed. Its include/ tree
  * is walked as well, and headers are read alongside sources, because a
@@ -3768,14 +3815,9 @@ MU_TEST(every_br_edr_control_request_is_listed)
  * includes it. The files it takes from firmware/common are shared with the
  * other image, and the scan above reads those.
  *
- * Every directory the walk should have reached is named below, so a subtree
- * it failed to open is a failure rather than a smaller count nobody notices:
- * src/btphy alone holds half the sources, and the capture states are there.
- */
-/*
- * The directories under the image's src/ that the walk has to reach. A count
- * of files cannot stand in for this: losing src/btphy, where the capture
- * states live, still leaves enough files elsewhere to look healthy.
+ * Every directory the walk should have reached is named below. A count of
+ * files cannot stand in for that: losing src/btphy, where the capture states
+ * live, still leaves enough files elsewhere to look healthy.
  */
 static const char *const br_edr_dirs[] = {
 	"/src/btctl", "/src/btphy", "/src/codec", "/src/drivers", "/src/util",
@@ -3791,6 +3833,17 @@ static char br_edr_path_too_long[1024];
 static char br_edr_stray_write[256];
 static char br_edr_stray_dequeue[256];
 static char br_edr_stray_sync[256];
+
+/* The console's entry points. Calling any of them starts it. */
+static const char *const br_edr_console_names[] = {
+	"VCOM_init", "VCOM_putchar", "VCOM_getchar",
+};
+
+#define BR_EDR_CONSOLE_COUNT \
+	(sizeof(br_edr_console_names) / sizeof(br_edr_console_names[0]))
+
+static char br_edr_console_caller[256];
+static const char *br_edr_console_called;
 
 static int path_ends_with(const char *path, const char *tail)
 {
@@ -3830,7 +3883,6 @@ static int line_is_continued(const char *line)
 }
 
 /*
- *
  * How many times one file names `name` somewhere that makes it reachable:
  * inside a function body, or in a macro.
  *
@@ -3946,6 +3998,14 @@ static void check_br_edr_file(const char *path)
 			snprintf(br_edr_stray_dequeue,
 			         sizeof(br_edr_stray_dequeue), "%s", path);
 	}
+	for (d = 0; d < BR_EDR_CONSOLE_COUNT; d++)
+		if (file_calls(path, br_edr_console_names[d]) &&
+		    br_edr_console_caller[0] == '\0') {
+			snprintf(br_edr_console_caller,
+			         sizeof(br_edr_console_caller), "%s", path);
+			br_edr_console_called = br_edr_console_names[d];
+		}
+
 	/* The debug and fault printers are the synchronous send's callers, and
 	 * the shim holds its definition. */
 	if (!is_shim && !path_ends_with(path, "/src/util/debug.c") &&
@@ -4141,6 +4201,14 @@ MU_TEST(the_br_edr_image_has_one_way_to_the_host)
 	         "drops the message if the host is not reading. A capture goes "
 	         "through btctl_tx_enqueue()", br_edr_stray_sync);
 	mu_assert(br_edr_stray_sync[0] == '\0', msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s calls %s(), which starts the serial-over-USB console that "
+	         "firmware/common holds. It writes endpoints of its own, so "
+	         "this image would have a second way to the host and which one "
+	         "a capture uses would have to be said somewhere",
+	         br_edr_console_caller, br_edr_console_called);
+	mu_assert(br_edr_console_caller[0] == '\0', msg);
 }
 
 /* ------------------------------------------------------------------ *
