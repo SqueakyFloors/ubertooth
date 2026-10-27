@@ -32,8 +32,7 @@ The API version on that line comes from the block, so for \fBbtbr\fR it reads 1\
 A properly signed DFU file with no readable block there is not an image from this tree, so it is refused rather than written:
 .IP "" 4
 .nf
-error: other\-device\.dfu: there is no firmware info block here at offset 0x100
-Not an Ubertooth firmware image, firmware will not be updated
+error: other\-device\.dfu: there is no firmware info block here at offset 0x100; firmware will not be updated
 .fi
 .IP "" 0
 .P
@@ -46,7 +45,7 @@ error: too\-big\.dfu needs 114944 bytes of flash; part 0x25011722 (LPC1754) has 
 .fi
 .IP "" 0
 .P
-An image that fits says so, in the same terms as the read\-back:
+An image that fits says so, in the same terms as the read\-back (progress, so on standard error, like every line quoted in this page except \fBVerified firmware revision\fR):
 .IP "" 4
 .nf
 The image needs 31488 bytes, 0x4000\-0xbaff: part 0x25011722 (LPC1754) has 128 KiB of flash
@@ -55,7 +54,7 @@ The image needs 31488 bytes, 0x4000\-0xbaff: part 0x25011722 (LPC1754) has 128 K
 .P
 The whole file is written, the 16\-byte DFU suffix included, and the last block is padded out, so the figure compared with the part's flash is the file rounded up to a whole 256\-byte block\. A part this host has no entry for, and one that will not report itself at all, which includes every board already in the bootloader, leave nothing to check against: both say so and write the image as before\.
 .P
-That check is the only one this tool can act on, because it never reads the board's answer after the stall\. A bootloader built from this tree refuses a block with no flash behind it, bounded the same way as the read\-back described under READING FLASH BACK below, so it stops at the top of the part's flash and says \fBERRADDRESS\fR for the blocks above it; older bootloaders have no upper bound and instead ask the microcontroller's programming interface to erase and program a sector the part does not have, which fails\. Either way everything sent before that point is already written, and all this tool sees of the refusal is the stall, which it reports as \fBcontrol message unsupported\fR: the board is left running an application missing its tail, after a message that says nothing about flash sizes\. It is the same cause as the read\-back bound: asking for flash the part has not got\.
+That check is the only one this tool can act on, because it never reads the board's answer after the stall\. A bootloader built from this tree refuses a block with no flash behind it, bounded the same way as the read\-back described under READING FLASH BACK below, so it stops at the top of the part's flash and says \fBERRADDRESS\fR for the blocks above it; older bootloaders have no upper bound and instead ask the microcontroller's programming interface to erase and program a sector the part does not have, which fails\. Either way everything sent before that point is already written, and all this tool sees of the refusal is the stall, which it reports as \fBerror: control message unsupported\fR: the board is left running an application missing its tail, after a message that says nothing about flash sizes\. It is the same cause as the read\-back bound: asking for flash the part has not got\.
 .P
 What the detach request returns says nothing about where the board ended up, in either direction\. It can fail because the bootloader resets while the request is still in flight, which on macOS is what every reset that worked looks like, and it can complete on a bootloader that acknowledges it and stays where it is\. So no status from that request is read as a verdict: the tool looks for the DFU device on the same physical path again, and reports the board as detached only once it has gone\. The run then carries on to the \fB\-d \|\.\|\.\|\. \-r\fR verification, which decides whether the flash succeeded\.
 .P
@@ -111,7 +110,7 @@ select the application\-mode Ubertooth by enumeration index or serial number; se
 .SH "READING FLASH BACK"
 \fB\-u <output\.bin>\fR is not the inverse of \fB\-d\fR: it writes a raw dump of the application flash region, from 0x4000 to the end of the part's flash, with no DFU suffix, so \fB\-d\fR refuses the result\. The dump holds the image that was written (its own suffix included, padded with 0xff to the next 256\-byte block), followed by whatever the rest of the region contains, normally 0xff\.
 .P
-How long that is depends on the part, which differs between boards, so the command says what it is about to read:
+How long that is depends on the part, which differs between boards, so the command says what it is about to read, on standard error with the rest of its progress:
 .IP "" 4
 .nf
 Reading back 114688 bytes, 0x4000\-0x1ffff: part 0x25011722 (LPC1754) has 128 KiB of flash
@@ -162,6 +161,36 @@ A file the tool cannot open, and an image it will not write, are each refused wi
 A command line with no function in it does nothing, so it is refused with \fBerror: nothing to do: give \-d to write an image, \-u to read one back, \-s to sign one, or \-r to reset\fR on standard error and exit status 1, before any device is opened; it used to exit 0 having said and done nothing\. A bare \fBubertooth\-dfu\fR, with no arguments at all, prints the usage text after that line; every other refused command line is the \fBerror:\fR line alone\.
 .P
 A refused command line creates and truncates nothing, and leaves no temporary file: \fB\-s\fR, \fB\-u\fR and \fB\-d\fR name their file while the command line is read, and the files are opened only once every check has passed\. The files that are only read, the \fB\-d\fR image and the \fB\-s\fR input, are opened and checked first, since they are the last things that can refuse the command; neither output file is created until they have passed\. Whether \fB\-s\fR was given a \fB\.bin\fR is a check on the name, so it is still reported alongside \fB\-h\fR\.
+.SH "EXIT STATUS"
+0 when the command did what was asked, including \fB\-h\fR: the image written and, with \fB\-r\fR, verified on the board that came back; the dump complete and in place; the signed \fB<file>\.dfu\fR written; the board out of the bootloader\.
+.P
+1 for everything else, and there is no other status\. That covers a command line the tool will not take or that has nothing to do, a file it cannot read or create, an image it refuses, a selected board that is missing or that something else is using, a bootloader that will not answer or will not become idle, a transfer that failed both its attempts, a reset that left the board in DFU, and a revision after the reset that is not the image's\.
+.SH "DIAGNOSTICS"
+Standard output carries the usage text for \fB\-h\fR, and otherwise one line, from \fB\-d <image> \-r\fR alone:
+.IP "" 4
+.nf
+Verified firmware revision: git\-ed30131d
+.fi
+.IP "" 0
+.P
+That is the revision the board reported once it was running the new firmware, which is the only thing this command reads back, so it is the result and a script can read it on its own\. Nothing else is ever written to standard output: the dump of \fB\-u\fR goes to the file it names, and the signed image of \fB\-s\fR to \fB<file>\.dfu\fR, and a run that only writes firmware or resets the board says nothing there at all\.
+.P
+Everything else is on standard error, so a script reading that one line is not fed the progress of a flash that takes a few seconds:
+.IP "" 4
+.nf
+Checking firmware signature
+Image: bluetooth_rxtx git\-ed30131d (API:1\.33)
+DFU expected revision: git\-ed30131d
+The image needs 31488 bytes, 0x4000\-0xbaff: part 0x25011722 (LPC1754) has 128 KiB of flash
+Switching selected device to DFU mode\|\.\|\.\|\.
+\|\.\|\.\|\.\|\.\|\.\|\.\|\.\|\.\|\.\|\.\|\.\|\.\|\.\|\.\|\.\|\.\|\.\|\.\|\.\|\.\|\.\|\.\|\.\|\.\|\.\|\.\|\.\|\.\|\.\|\.\|\.\|\.\|\.\|\.\|\.\|\.\|\.\|\.\|\.\.
+Detached
+.fi
+.IP "" 0
+.P
+\fB\-u\fR prints \fBReading back <n> bytes, \|\.\|\.\|\.\fR there in the same way, with one dot per 256\-byte block read, and \fBDFU +<seconds>s: <stage>\fR lines trace what the command spent its time on\.
+.P
+The errors this tool prints itself are one line each beginning \fBerror:\fR, for example \fBerror: detach failed: the board is still in DFU\fR, \fBerror: upload failed: block 164 was not read\fR, \fBerror: firmware update failed after 2 attempt(s): \|\.\|\.\|\.\fR and \fBerror: control message unsupported\fR; the lines about a part this host cannot identify begin \fBwarning:\fR\. Lines from elsewhere do not follow that yet: the libusb status reports (\fBlibUSB Error: \|\.\|\.\|\.\fR) and the libubertooth messages that have not been converted, such as \fBcould not open Ubertooth device\fR\.
 .SH "SEE ALSO"
 ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how option values are written
 .SH "AUTHOR"

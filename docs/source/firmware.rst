@@ -74,6 +74,12 @@ hand, build the image with ``make -C firmware/bluetooth_rxtx`` and run the
 		........................................
 		........................................
 		................
+		Detached
+		Verified firmware revision: git-ed30131d*
+
+All of that is progress and goes to standard error, except the last line: the
+revision read back from the board is the result, and it is the only thing on
+standard output. A script can read it on its own.
 
 The device will automatically enter DFU mode and flash the firmware. During the
 application-to-DFU transition, the tool checks the entry request, follows the
@@ -98,8 +104,9 @@ The reset request itself often fails, because the bootloader disconnects as it
 resets rather than acknowledging the request first. That is not a failure: the
 tool looks for the DFU device on the same physical USB path again, carries on
 when it has gone, and reports the board as still in DFU only when it is still
-there. A ``control message unsupported`` line now comes only from the DFU state
-queries, where it means the bootloader did not answer and the command fails.
+there. An ``error: control message unsupported`` line now comes only from the
+DFU state queries, where it means the bootloader did not answer and the
+command fails.
 The command returns success only after the expected application revision has
 been verified. If verification fails, use the reported stage and error details
 or the documented manual bootloader recovery path.

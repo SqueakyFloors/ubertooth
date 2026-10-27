@@ -49,8 +49,32 @@ static double operation_elapsed_seconds(void)
 	       (double)(now.tv_nsec - operation_started.tv_nsec) / 1000000000.0;
 }
 
+/* True while a row of progress dots is half-written, waiting for its
+ * newline. */
+static int progress_row_open;
+
+/* A dot of progress for one block transferred. */
+static void progress_dot(void)
+{
+	fputc('.', stderr);
+	progress_row_open = 1;
+}
+
+/* Finish a row of dots, if one is open. The dots share standard error with
+ * every message, so a line printed while a row is open would start in the
+ * middle of it ("....error: ..."), which no reader can match against the
+ * start of a line. Call this before printing anything else. */
+static void end_progress_row(void)
+{
+	if (progress_row_open) {
+		fputc('\n', stderr);
+		progress_row_open = 0;
+	}
+}
+
 static void log_dfu_stage(const char *stage)
 {
+	end_progress_row();
 	fprintf(stderr, "DFU +%.3fs: %s\n", operation_elapsed_seconds(), stage);
 	fflush(stderr);
 }
@@ -129,8 +153,11 @@ static int image_file_refused(const char* name, FILE* file,
  * image_file_refused(): that runs before any output exists, so a refused input
  * leaves nothing behind. outfile is the temporary file the caller renamed over
  * the target only once this returned 0, so a failure here leaves an earlier
- * file of that name as it was. */
-int sign(FILE* infile, FILE* outfile, uint16_t idVendor, uint16_t idProduct) {
+ * file of that name as it was. in_name and out_name are the paths the user
+ * gave, so every refusal here names the file it is about, as the man page
+ * says they all do. */
+int sign(const char* in_name, FILE* infile, const char* out_name,
+         FILE* outfile, uint16_t idVendor, uint16_t idProduct) {
 	uint8_t* suffix;
 	long file_length;
 	size_t data_length, buffer_length;
@@ -139,7 +166,7 @@ int sign(FILE* infile, FILE* outfile, uint16_t idVendor, uint16_t idProduct) {
 	fseek(infile, 0, SEEK_END);
 	file_length = ftell(infile);
 	if (file_length < 0) {
-		fprintf(stderr, "Cannot determine the size of the input file\n");
+		fprintf(stderr, "error: cannot determine the size of %s\n", in_name);
 		return 1;
 	}
 	/* The buffer is sized from this read rather than from the guard in
@@ -147,23 +174,24 @@ int sign(FILE* infile, FILE* outfile, uint16_t idVendor, uint16_t idProduct) {
 	 * growing cannot slip past between the two. */
 	if ((unsigned long)file_length > max_unsigned_image_size()) {
 		fprintf(stderr,
-		        "error: the input file is %ld bytes; the firmware in an "
+		        "error: %s is %ld bytes; the firmware in an "
 		        "Ubertooth image is at most %lu\n",
-		        file_length, max_unsigned_image_size());
+		        in_name, file_length, max_unsigned_image_size());
 		return 1;
 	}
 	buffer_length = (size_t)file_length + DFU_SUFFIX_LENGTH;
 	buffer = malloc(buffer_length);
 	if(buffer == NULL) {
-		fprintf(stderr, "Cannot allocate buffer to calculate CRC\n");
+		fprintf(stderr, "error: cannot allocate %zu bytes to sign %s\n",
+		        buffer_length, in_name);
 		return 1;
 	}
 
 	fseek(infile, 0, SEEK_SET);
 	data_length = fread(buffer, 1, (size_t)file_length, infile);
 	if (data_length != (size_t)file_length) {
-		fprintf(stderr, "error: read %zu of %ld byte(s) from the input file\n",
-		        data_length, file_length);
+		fprintf(stderr, "error: read %zu of %ld byte(s) from %s\n",
+		        data_length, file_length, in_name);
 		free(buffer);
 		return 1;
 	}
@@ -182,7 +210,7 @@ int sign(FILE* infile, FILE* outfile, uint16_t idVendor, uint16_t idProduct) {
 	           dfu_image_crc32(buffer, buffer_length - 4));
 
 	if (fwrite(buffer, 1, buffer_length, outfile) != buffer_length) {
-		fprintf(stderr, "error: could not write the whole signed file\n");
+		fprintf(stderr, "error: could not write the whole of %s\n", out_name);
 		free(buffer);
 		return 1;
 	}
@@ -227,11 +255,11 @@ static int check_download_image(const char* name, FILE* downfile,
 	 * anything is erased. */
 	found = dfu_read_image_info(downfile, info);
 	if (found != UBERTOOTH_FW_INFO_OK) {
-		fprintf(stderr, "error: %s: %s at offset 0x%x\n", name,
-		        ubertooth_fw_info_result_string(found),
+		/* One line, like the signature refusal above it: what is wrong with
+		 * the file, and that the board was left alone. */
+		fprintf(stderr, "error: %s: %s at offset 0x%x; firmware will not be "
+		        "updated\n", name, ubertooth_fw_info_result_string(found),
 		        UBERTOOTH_FW_INFO_OFFSET);
-		fprintf(stderr, "Not an Ubertooth firmware image, firmware will "
-		        "not be updated\n");
 		return 1;
 	}
 	/* What is about to be written: a note about the run, so standard error,
@@ -427,6 +455,7 @@ struct dfu_runtime_context {
 	FILE *download_file;
 	FILE *upload_file;
 	uint32_t upload_length;  /* bytes the read-back asks the bootloader for */
+	const char *upload_name;       /* the dump -u was given, for its messages */
 	const char *download_name;     /* the image -d was given */
 	unsigned long download_length; /* ...and the flash writing it covers */
 	int download_checked;    /* the image has been put against the part */
@@ -504,15 +533,16 @@ static int download_refused_for_part(struct dfu_runtime_context *runtime)
 		runtime->download_refused = 1;
 		return 1;
 	}
-	/* Said in the future tense: this runs before the board has been asked for
+	/* Progress, so standard error, next to the warning and the refusal above.
+	 * Said in the future tense: this runs before the board has been asked for
 	 * DFU, so an entry that then fails must not have claimed a write had
 	 * started. The read-back's line comes from plan_upload(), which runs
 	 * once the bootloader has answered. */
-	printf("The image needs %lu bytes, 0x%x-0x%lx: part 0x%08x (%s) has %u "
-	       "KiB of flash\n", runtime->download_length, address,
-	       (unsigned long)address + runtime->download_length - 1,
-	       runtime->part_id, part->name, part->flash_size / 1024);
-	fflush(stdout);
+	fprintf(stderr, "The image needs %lu bytes, 0x%x-0x%lx: part 0x%08x (%s) "
+	        "has %u KiB of flash\n", runtime->download_length, address,
+	        (unsigned long)address + runtime->download_length - 1,
+	        runtime->part_id, part->name, part->flash_size / 1024);
+	fflush(stderr);
 	return 0;
 }
 
@@ -576,8 +606,8 @@ static int request_dfu(void *context __attribute__((unused)), void *handle)
 	int result = cmd_flash(ut->devh);
 	if (result == 0) {
 		log_dfu_stage("DFU entry request accepted");
-		fprintf(stdout, "Switching selected device to DFU mode...\n");
-		fflush(stdout);
+		fprintf(stderr, "Switching selected device to DFU mode...\n");
+		fflush(stderr);
 	}
 	return result;
 }
@@ -646,7 +676,7 @@ int dfu_get_state(libusb_device_handle* devh) {
 	rv = libusb_control_transfer(devh, DFU_IN, REQ_GETSTATE, 0, 0, &state, 1, 1000);
 	if (rv < 0) {
 		if (rv == LIBUSB_ERROR_PIPE)
-			fprintf(stderr, "control message unsupported\n");
+			fprintf(stderr, "error: control message unsupported\n");
 		else
 			show_libusb_error(rv);
 		return rv;
@@ -659,7 +689,7 @@ int dfu_clear_status(libusb_device_handle* devh) {
 	rv = libusb_control_transfer(devh, DFU_OUT, REQ_CLRSTATUS, 0, 0, NULL, 0, 1000);
 	if (rv < 0) {
 		if (rv == LIBUSB_ERROR_PIPE)
-			fprintf(stderr, "control message unsupported\n");
+			fprintf(stderr, "error: control message unsupported\n");
 		else
 			show_libusb_error(rv);
 		return rv;
@@ -672,7 +702,7 @@ int dfu_abort(libusb_device_handle* devh) {
 	rv = libusb_control_transfer(devh, DFU_OUT, REQ_ABORT, 0, 0, NULL, 0, 1000);
 	if (rv < 0) {
 		if (rv == LIBUSB_ERROR_PIPE)
-			fprintf(stderr, "control message unsupported\n");
+			fprintf(stderr, "error: control message unsupported\n");
 		else
 			show_libusb_error(rv);
 		return rv;
@@ -718,7 +748,7 @@ int enter_dfu_mode(libusb_device_handle* devh) {
 
 	rv = dfu_reach_idle(&IDLE_OPS, NULL, devh, &config, &report);
 	if (rv != DFU_IDLE_OK) {
-		fprintf(stderr, "DFU gave up: %s (polls=%u, state=%d, usb_error=%d)\n",
+		fprintf(stderr, "error: DFU gave up: %s (polls=%u, state=%d, usb_error=%d)\n",
 		        dfu_idle_result_string(report.result), report.polls,
 		        report.last_state, report.operation_error);
 		return rv;
@@ -790,7 +820,7 @@ int detach(struct dfu_runtime_context* runtime, libusb_device_handle* devh,
 	int rv, presence;
 	rv = enter_dfu_mode(devh);
 	if(rv < 0) {
-		fprintf(stderr, "Detach failed: could not enter DFU mode\n");
+		fprintf(stderr, "error: detach failed: could not enter DFU mode\n");
 		return rv;
 	}
 	rv = libusb_control_transfer(devh, DFU_OUT, REQ_DETACH, 0, 0, NULL, 0, 1000);
@@ -806,10 +836,10 @@ int detach(struct dfu_runtime_context* runtime, libusb_device_handle* devh,
 		if (rv != LIBUSB_SUCCESS)
 			show_libusb_error(rv);
 		if (presence < 0)
-			fprintf(stderr, "Detach failed: could not tell whether the "
-			        "board left DFU (usb_error=%d)\n", presence);
+			fprintf(stderr, "error: detach failed: could not tell whether "
+			        "the board left DFU (usb_error=%d)\n", presence);
 		else
-			fprintf(stderr, "Detach failed: the board is still in DFU\n");
+			fprintf(stderr, "error: detach failed: the board is still in DFU\n");
 		/* A request that failed carries its own status. One the bootloader
 		 * accepted and ignored has none, so the failure comes from the probe:
 		 * why it could not answer, when it could not, and otherwise a code
@@ -819,7 +849,9 @@ int detach(struct dfu_runtime_context* runtime, libusb_device_handle* devh,
 		return presence < 0 ? presence : LIBUSB_ERROR_OTHER;
 	}
 	log_dfu_stage("the DFU device has gone: the board left the bootloader");
-	printf("Detached\n");
+	/* Progress: the reset the user asked for is work done, not something
+	 * read back, so it is reported where the rest of the trace is. */
+	fprintf(stderr, "Detached\n");
 	return 0;
 }
 
@@ -834,18 +866,18 @@ int upload(libusb_device_handle* devh, FILE* upfile, uint32_t length) {
 	block = address / BLOCK_SIZE;
 
 	if ((address & (BLOCK_SIZE - 1)) != 0) {
-		fprintf(stderr, "Upload failed: must start at block boundary\n");
+		fprintf(stderr, "error: upload failed: must start at block boundary\n");
 		return -1;
 	}
 	if (length == 0 || (length & (BLOCK_SIZE - 1)) != 0) {
-		fprintf(stderr, "Upload failed: %u bytes is not a whole number of "
-		        "%d-byte blocks\n", length, BLOCK_SIZE);
+		fprintf(stderr, "error: upload failed: %u bytes is not a whole number "
+		        "of %d-byte blocks\n", length, BLOCK_SIZE);
 		return -1;
 	}
 
 	rv = enter_dfu_mode(devh);
 	if(rv < 0) {
-		fprintf(stderr, "Upload failed: could not enter DFU mode\n");
+		fprintf(stderr, "error: upload failed: could not enter DFU mode\n");
 		return rv;
 	}
 
@@ -853,32 +885,34 @@ int upload(libusb_device_handle* devh, FILE* upfile, uint32_t length) {
 		rv = libusb_control_transfer(devh, DFU_IN, REQ_UPLOAD, block, 0,
 		                             buffer, BLOCK_SIZE, 1000);
 		if (rv < 0) {
+			end_progress_row();
 			if (rv == LIBUSB_ERROR_PIPE)
-				fprintf(stderr, "control message unsupported\n");
+				fprintf(stderr, "error: control message unsupported\n");
 			else
 				show_libusb_error(rv);
-			fprintf(stdout, "\n");
-			fprintf(stderr, "Upload failed: block %d was not read\n",
+			fprintf(stderr, "error: upload failed: block %d was not read\n",
 			        block);
 			return rv;
 		}
 		if(rv != BLOCK_SIZE) {
-			fprintf(stdout, "\n");
-			fprintf(stderr, "Upload failed: did not read full block\n");
+			end_progress_row();
+			fprintf(stderr, "error: upload failed: did not read full block\n");
 			return -1;
 		}
-		fprintf(stdout, ".");
+		/* A dot per block, on standard error with the rest of the progress:
+		 * the dump itself is the result and goes to the file. */
+		progress_dot();
 		/* A short write would be renamed over the target as a truncated
 		 * dump, so it ends the read-back too. */
 		if(fwrite(buffer, 1, BLOCK_SIZE, upfile) != BLOCK_SIZE) {
-			fprintf(stdout, "\n");
-			fprintf(stderr, "Upload failed: could not write the dump\n");
+			end_progress_row();
+			fprintf(stderr, "error: upload failed: could not write the dump\n");
 			return -1;
 		}
 		block++;
 		length -= BLOCK_SIZE;
 	}
-	fprintf(stdout, "\n");
+	end_progress_row();
 	return 0;
 }
 
@@ -887,8 +921,9 @@ int dfu_get_status(libusb_device_handle* devh) {
 	int rv;
 	rv = libusb_control_transfer(devh, DFU_IN, REQ_GETSTATUS, 0, 0, buffer, 6, 1000);
 	if (rv < 0) {
+		end_progress_row();
 		if (rv == LIBUSB_ERROR_PIPE)
-			fprintf(stderr, "control message unsupported\n");
+			fprintf(stderr, "error: control message unsupported\n");
 		else
 			show_libusb_error(rv);
 		/* The reply carries the state the next block depends on, so a
@@ -906,13 +941,13 @@ int download(libusb_device_handle* devh, FILE* downfile) {
 	fseek(downfile, 0, SEEK_SET);
 
 	if ((address & (SECTOR_SIZE - 1)) != 0) {
-		fprintf(stderr, "Download failed: must start at sector boundary\n");
+		fprintf(stderr, "error: download failed: must start at sector boundary\n");
 		return -1;
 	}
 
 	rv = enter_dfu_mode(devh);
 	if(rv < 0) {
-		fprintf(stderr, "Download failed: could not enter DFU mode\n");
+		fprintf(stderr, "error: download failed: could not enter DFU mode\n");
 		return rv;
 	}
 	while((length=fread(buffer, 1, BLOCK_SIZE, downfile))) {
@@ -921,8 +956,9 @@ int download(libusb_device_handle* devh, FILE* downfile) {
 		rv = libusb_control_transfer(devh, DFU_OUT, REQ_DNLOAD, block, 0,
 		                             buffer, BLOCK_SIZE, 1000);
 		if (rv < 0) {
+			end_progress_row();
 			if (rv == LIBUSB_ERROR_PIPE)
-				fprintf(stderr, "control message unsupported\n");
+				fprintf(stderr, "error: control message unsupported\n");
 			else
 				show_libusb_error(rv);
 			return rv;
@@ -930,15 +966,15 @@ int download(libusb_device_handle* devh, FILE* downfile) {
 		rv = dfu_get_status(devh);
 		if (rv < 0)
 			return rv;
-		fprintf(stdout, ".");
-		if(block_count % 40)
-			fflush(stdout);
-		else
-			fprintf(stdout, "\n");
+		/* A dot per block written, on standard error with the rest of the
+		 * progress, 40 to a row. */
+		progress_dot();
+		if (block_count % 40 == 0)
+			end_progress_row();
 		block++;
 		block_count++;
 	}
-	fprintf(stdout, "\n");
+	end_progress_row();
 	return 0;
 }
 
@@ -995,7 +1031,10 @@ static int runtime_upload(void *context, void *handle)
 	 * not stay in front of it. */
 	if (fseek(runtime->upload_file, 0, SEEK_SET) != 0 ||
 	    ftruncate(fileno(runtime->upload_file), 0) != 0) {
-		perror("upload file");
+		/* The temporary file is the one that would not rewind, but the name
+		 * the user gave is the one they can act on. */
+		fprintf(stderr, "error: %s: %s\n", runtime->upload_name,
+		        strerror(errno));
 		return -1;
 	}
 	return upload(handle, runtime->upload_file, runtime->upload_length);
@@ -1245,23 +1284,27 @@ static int plan_upload(struct dfu_runtime_context *runtime)
 	if (length == 0) {
 		/* No part in the table is this small, and the assumed size always
 		 * leaves a region, so this is defence rather than a path taken. */
-		fprintf(stderr, "Upload failed: %s has no flash above the "
+		fprintf(stderr, "error: upload failed: %s has no flash above the "
 		        "bootloader\n", part != NULL ? part->name : "this part");
 		return 1;
 	}
-	printf("Reading back %u bytes, 0x%x-0x%x: ", length, address,
-	       address + length - 1);
+	/* Progress, so standard error: what the dump is going to cover, printed
+	 * just before the dots that cover it. The dump itself is the result, and
+	 * it goes to the file the user named. */
+	fprintf(stderr, "Reading back %u bytes, 0x%x-0x%x: ", length, address,
+	        address + length - 1);
 	if (part != NULL)
-		printf("part 0x%08x (%s) has %u KiB of flash\n", runtime->part_id,
-		       part->name, part->flash_size / 1024);
+		fprintf(stderr, "part 0x%08x (%s) has %u KiB of flash\n",
+		        runtime->part_id, part->name, part->flash_size / 1024);
 	else if (runtime->part_id_read)
-		printf("part 0x%08x is not known here, so assuming the %u KiB part "
-		       "this firmware is linked for\n", runtime->part_id,
-		       DFU_ASSUMED_FLASH_SIZE / 1024);
+		fprintf(stderr, "part 0x%08x is not known here, so assuming the %u "
+		        "KiB part this firmware is linked for\n", runtime->part_id,
+		        DFU_ASSUMED_FLASH_SIZE / 1024);
 	else
-		printf("the part could not be read, so assuming the %u KiB part this "
-		       "firmware is linked for\n", DFU_ASSUMED_FLASH_SIZE / 1024);
-	fflush(stdout);
+		fprintf(stderr, "the part could not be read, so assuming the %u KiB "
+		        "part this firmware is linked for\n",
+		        DFU_ASSUMED_FLASH_SIZE / 1024);
+	fflush(stderr);
 	return 0;
 }
 
@@ -1484,8 +1527,8 @@ int main(int argc, char **argv) {
 	}
 
 	if(functions & FUNC_SIGN) {
-		exit_status = sign(infile, outfile, U1_DFU_VENDORID,
-		                   U1_DFU_PRODUCTID);
+		exit_status = sign(sign_name, infile, outfile_name, outfile,
+		                   U1_DFU_VENDORID, U1_DFU_PRODUCTID);
 		fclose(infile);
 		infile = NULL;
 		if (exit_status == 0) {
@@ -1524,13 +1567,14 @@ int main(int argc, char **argv) {
 	/* Both transfers are bounded by the part's flash size, so both ask the
 	 * application for its part ID; a bare reset has nothing to bound. */
 	runtime.want_part_id = (functions & (FUNC_UPLOAD|FUNC_DOWNLOAD)) != 0;
+	runtime.upload_name = upfile_name;
 	if (functions & FUNC_DOWNLOAD) {
 		runtime.download_name = downfile_name;
 		runtime.download_length = dfu_download_length(download_image_size);
 	}
 	r = libusb_init(&dfu_context);
 	if (r < 0) {
-		fprintf(stderr, "libusb_init failed: %d\n", r);
+		fprintf(stderr, "error: libusb_init failed: %d\n", r);
 		/* No context to unwind, and nothing has been opened on the bus, so
 		 * this ends like the option failures: through the one path that also
 		 * removes the temporary upload file. Not cleanup, which would call
@@ -1552,7 +1596,8 @@ int main(int argc, char **argv) {
 		r = 0;
 	if (r < 0) {
 		if (r == LIBUSB_ERROR_BUSY)
-			fprintf(stderr, "Multiple DFU devices found; leave only the intended device in DFU mode\n");
+			fprintf(stderr, "error: multiple DFU devices found; leave only the "
+			        "intended device in DFU mode\n");
 		else
 			show_libusb_error(r);
 		exit_status = 1;
@@ -1574,7 +1619,7 @@ int main(int argc, char **argv) {
 			 * own line would only report a device that would not open. */
 			if (!runtime.download_refused) {
 				log_dfu_stage("DFU entry failed");
-				fprintf(stderr, "%s (attempts=%u, polls=%u, usb_error=%d)\n",
+				fprintf(stderr, "error: %s (attempts=%u, polls=%u, usb_error=%d)\n",
 				        dfu_transition_result_string(report.result),
 				        report.attempts, report.polls,
 				        report.operation_error);
@@ -1650,7 +1695,8 @@ int main(int argc, char **argv) {
 		runtime.upload_file = NULL;
 		if(r != DFU_TRANSFER_OK) {
 			fprintf(stderr,
-			        "Firmware upload failed after %u attempt(s): result=%d transfer_error=%d usb_error=%d\n",
+			        "error: firmware upload failed after %u attempt(s): "
+			        "result=%d transfer_error=%d usb_error=%d\n",
 			        transfer_report.attempts, transfer_report.result,
 			        transfer_report.transfer_error,
 			        transfer_report.operation_error);
@@ -1694,7 +1740,8 @@ int main(int argc, char **argv) {
 		downfile = NULL;
 		if(r != DFU_TRANSFER_OK) {
 			fprintf(stderr,
-			        "Firmware update failed after %u attempt(s): result=%d transfer_error=%d usb_error=%d\n",
+			        "error: firmware update failed after %u attempt(s): "
+			        "result=%d transfer_error=%d usb_error=%d\n",
 			        transfer_report.attempts, transfer_report.result,
 			        transfer_report.transfer_error,
 			        transfer_report.operation_error);
@@ -1734,14 +1781,21 @@ int main(int argc, char **argv) {
 		                           &verify_config, &verify_report);
 		if (r != DFU_VERIFY_OK) {
 			fprintf(stderr,
-			        "Post-reset verification failed: result=%d expected=%s actual=%s usb_error=%d\n",
+			        "error: post-reset verification failed: result=%d expected=%s "
+			        "actual=%s usb_error=%d\n",
 			        verify_report.result, image_info.revision,
 			        verify_report.actual_revision,
 			        verify_report.operation_error);
 			exit_status = 1;
 			goto cleanup;
 		}
-		fprintf(stderr, "Verified firmware revision: %s\n", image_info.revision);
+		/* The one thing this command reads back and reports: the revision the
+		 * board now runs, read from the returned application. It is the
+		 * result, so standard output, where a script can take it. The
+		 * verification only passes when it matches the image's. */
+		printf("Verified firmware revision: %s\n",
+		       verify_report.actual_revision);
+		fflush(stdout);
 		log_dfu_stage("post-reset application verification completed");
 	}
 
