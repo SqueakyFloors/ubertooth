@@ -191,8 +191,10 @@ watched_flags() {
     # compile. A -D added here reaches every firmware source, so a new
     # conditional interface can appear with neither name above changing.
     UBERTOOTH_OPTS
-    # The second passthrough of -D options, handed in by an image's own
-    # Makefile and reaching both CDEFS and CPPDEFS: same reason.
+    # The second passthrough of -D options, which reaches both CDEFS and
+    # CPPDEFS. Nothing in this file sets it: an image's own Makefile does, and
+    # those are watched whole, so the entry is here for the day this file
+    # gives it a default of its own.
     COMPILE_OPTS
     # The line that assembles the -D options for C sources, where the two
     # variables above arrive. A flag added straight to it is as visible to the
@@ -324,11 +326,17 @@ regex_escape() {
 # other flag is matched whole, so -fpack-struct is not found inside
 # -fpack-structure. Either way the flag has to start a word, so a -D inside a
 # word -- "OBJDIR = build-Dir" -- is not one.
+#
+# What can begin the macro name after -D or -U: a letter, an underscore, a
+# make expansion, or a quote around either, since -D"FOO=1" is a define as
+# much as -DFOO=1 is.
+define_start="[A-Za-z_\$\"']"
+
 name_pattern() {
     pat=$(regex_escape "$1") || return 1
     case $1 in
     -D | -U)
-        printf '(^|[^A-Za-z0-9_])%s[[:space:]]*[A-Za-z_$]\n' "$pat"
+        printf '(^|[^A-Za-z0-9_])%s[[:space:]]*%s\n' "$pat" "$define_start"
         ;;
     -*)
         printf '(^|[^A-Za-z0-9_])%s([^A-Za-z0-9_-]|$)\n' "$pat"

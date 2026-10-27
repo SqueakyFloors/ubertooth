@@ -217,6 +217,47 @@ want_status 0
 want_empty_stderr
 want_stdout "check-workflow-libbtbb:"
 
+# A second name on the same line as the pinned one, a single space away. This
+# is the case that reading the names out one at a time cannot see: grep -o
+# consumes the character that ended the first match, which is the character
+# the second needs in front of it. In an allowed file, where the first name is
+# the pinned one, that would be a clean pass over a rogue one.
+new_tree
+edit_line manpages.yml "LIBBTBB_REPO: SqueakyFloors/libbtbb" \
+    "LIBBTBB_REPO: SqueakyFloors/libbtbb greatscottgadgets/libbtbb"
+run "a rogue name beside the pinned one" "$tree"
+want_status 1
+want_empty_stdout
+want_stderr "manpages.yml"
+want_stderr "names greatscottgadgets/libbtbb"
+
+# GitHub resolves a repository name whatever its case, so a guard that knew
+# only the lowercase spelling would wave the same library through.
+new_tree
+add_workflow rogue.yml <<'EOF'
+name: rogue
+on: [push]
+jobs:
+  rogue:
+    runs-on: ubuntu-24.04
+    steps:
+    - run: git clone https://github.com/GreatScottGadgets/LibBTBB.git
+EOF
+run "a rogue libbtbb spelled in another case" "$tree"
+want_status 1
+want_stderr "names the libbtbb repository GreatScottGadgets/LibBTBB"
+
+# The pin has to be an owner and a repository. A URL or a path is worth
+# refusing on its own, and it is also what lets the pinned name be taken out
+# of a line with no escaping.
+new_tree
+edit_line build.yml "LIBBTBB_REPO: SqueakyFloors/libbtbb" \
+    "LIBBTBB_REPO: https://github.com/SqueakyFloors/libbtbb"
+run "the pin is not an owner and a repository" "$tree"
+want_status 1
+want_empty_stdout
+want_stderr "which is not an"
+
 # A .yaml is a workflow too, so the scan has to reach one.
 new_tree
 add_workflow rogue.yaml <<'EOF'
@@ -317,6 +358,19 @@ run "two trees" "$top" "$top"
 want_status 1
 want_empty_stdout
 want_stderr "one tree at most"
+
+# An option after the tree is still an option, rather than a second tree.
+run "the help text after the tree" "$top" -h
+want_status 0
+want_empty_stderr
+want_stdout "usage: tools/check-workflow-libbtbb.sh"
+
+# A tree that is not there is an error line naming it, not the shell's own
+# message about a directory it could not change to.
+run "no such tree" /tmp/no-such-tree-for-the-selftest
+want_status 1
+want_empty_stdout
+want_stderr "is not a directory, so there is no tree to read"
 
 printf '\n'
 if [ "$failures" -ne 0 ]; then

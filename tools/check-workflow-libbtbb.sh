@@ -27,10 +27,14 @@
 # says on standard output what it scanned and exits 0. CI runs this same
 # script, so what fails there fails here.
 #
-# What it does not catch, so the next reader knows: a libbtbb fork under
-# another name. The pattern below is a repository called libbtbb, which is
+# What it does not catch, so the next reader knows. A libbtbb fork under
+# another name: the pattern below is a repository called libbtbb, which is
 # what a job reaching for the library writes, not a proof that no other
-# library can arrive.
+# library can arrive. And a file outside .github/workflows, a composite
+# action under .github/actions among them. The tree has none today, and
+# widening the scan to all of .github would put the issue templates and the
+# dependabot configuration under a rule about fetching a library, where a
+# repository named in prose would be a red about nothing.
 
 set -u
 
@@ -53,33 +57,33 @@ EOF
 }
 
 tree=
+end_of_options=no
 while [ $# -gt 0 ]; do
-    case $1 in
-    -h | --help)
-        usage
-        exit 0
-        ;;
-    --)
-        shift
-        break
-        ;;
-    -*)
-        printf "error: unknown option '%s'\n" "$1" >&2
+    if [ "$end_of_options" = no ]; then
+        case $1 in
+        -h | --help)
+            usage
+            exit 0
+            ;;
+        --)
+            # So a tree whose name begins with a dash can still be named.
+            end_of_options=yes
+            shift
+            continue
+            ;;
+        -*)
+            printf "error: unknown option '%s'\n" "$1" >&2
+            exit 1
+            ;;
+        esac
+    fi
+    if [ -n "$tree" ]; then
+        printf "error: one tree at most, and '%s' is a second\n" "$1" >&2
         exit 1
-        ;;
-    *)
-        break
-        ;;
-    esac
-done
-if [ $# -gt 0 ]; then
+    fi
     tree=$1
     shift
-fi
-if [ $# -gt 0 ]; then
-    printf "error: one tree at most, and '%s' is a second\n" "$1" >&2
-    exit 1
-fi
+done
 
 if [ -z "$tree" ]; then
     tree=$(git rev-parse --show-toplevel 2> /dev/null) || {
@@ -88,6 +92,12 @@ if [ -z "$tree" ]; then
         exit 1
     }
 fi
+# Tested rather than left to cd, so a tree that is not there is an error line
+# naming it rather than the shell's own message about a directory.
+[ -d "$tree" ] || {
+    printf "error: '%s' is not a directory, so there is no tree to read\n" "$tree" >&2
+    exit 1
+}
 cd "$tree" || exit 1
 
 workflows=.github/workflows
@@ -142,6 +152,18 @@ if [ "$pins" -ne 1 ]; then
     printf '       one pinned libbtbb to compare the others with\n' >&2
     exit 1
 fi
+# And it has to be an owner and a repository, the two things GitHub resolves,
+# rather than a path or a URL. A malformed pin is worth refusing on its own,
+# and it is also what lets the pinned name be taken out of a line below with
+# no escaping: an owner is letters, digits and hyphens, so this form carries
+# no character sed would read as a pattern.
+if ! printf '%s\n' "$pinned" |
+    grep -qE '^[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+$'; then
+    printf "error: %s pins LIBBTBB_REPO to '%s', which is not an\n" \
+        "$build" "$pinned" >&2
+    printf '       owner and a repository such as someone/libbtbb\n' >&2
+    exit 1
+fi
 
 # A libbtbb repository named literally: an owner and a repository called
 # libbtbb, as "owner/libbtbb" is written in a checkout's repository: input or
@@ -158,10 +180,25 @@ fi
 # What follows has to end the repository name, so "owner/libbtbb.git" counts
 # and "$RUNNER_TEMP/libbtbb-pin.git" does not.
 #
+# The greps below match it with -i, because GitHub resolves a repository name
+# whatever its case: someone/LibBTBB fetches the same library, and a guard
+# that only knew the lowercase spelling would wave it through. -i costs
+# nothing else here, since every other part of the pattern is a class holding
+# both cases already.
+#
 # A directory path whose last two components are something/libbtbb would be
 # read as a repository here. Nothing in these files writes one, and the forms
 # above are how a workflow names the directory it cloned into.
 reference='(^|[^A-Za-z0-9._$-])[A-Za-z0-9][A-Za-z0-9-]*/libbtbb([^A-Za-z0-9_-]|$)'
+
+# One repository name out of a line, as the pattern finds it: the character
+# the pattern needed in front and the one that ended the name are taken off
+# again, leaving owner/libbtbb. The trailing strip is by character class
+# rather than by name, so it works whatever the case of the name.
+first_reference() {
+    grep -oiE -e "$reference" |
+        sed -e 's/^[^A-Za-z0-9]*//' -e 's/[^A-Za-z0-9_-]*$//' | sed -n '1p'
+}
 
 # One grep a file, and its status read, rather than one grep over the whole
 # list through xargs: xargs reports a command that exited 1 as a failure of
@@ -175,7 +212,7 @@ reference='(^|[^A-Za-z0-9._$-])[A-Za-z0-9][A-Za-z0-9-]*/libbtbb([^A-Za-z0-9_-]|$
 # single file too.
 : > "$work/hits"
 while IFS= read -r file; do
-    grep -n -H -E -e "$reference" "$file" >> "$work/hits"
+    grep -n -H -iE -e "$reference" "$file" >> "$work/hits"
     scan=$?
     if [ "$scan" -gt 1 ]; then
         printf 'error: could not scan %s (grep exited %s)\n' "$file" "$scan" >&2
@@ -191,26 +228,38 @@ while IFS= read -r hit; do
     rest=${hit#*:}
     line=${rest%%:*}
     text=${rest#*:}
-    # One line can name more than one, so each is read out and judged on its
-    # own. The leading character the pattern needed and the one that ended the
-    # repository name are taken off again, leaving owner/libbtbb.
-    names=$(printf '%s\n' "$text" | grep -oE -e "$reference" |
-        sed -e 's/^[^A-Za-z0-9]*//' -e 's|/libbtbb.*|/libbtbb|' | sort -u)
-    for name in $names; do
-        found=$((found + 1))
-        case " $allowed " in
-        *" $file "*)
-            [ "$name" = "$pinned" ] && continue
-            printf '%s:%s names %s, and the pinned libbtbb is %s\n' \
-                "$file" "$line" "$name" "$pinned" >> "$work/reported"
-            ;;
-        *)
-            printf '%s:%s names the libbtbb repository %s\n' \
-                "$file" "$line" "$name" >> "$work/reported"
-            ;;
-        esac
-        status=1
-    done
+    found=$((found + 1))
+    case " $allowed " in
+    *" $file "*)
+        # An allowed file may name the pinned repository and nothing else.
+        #
+        # Decided by taking the pinned name out of the line and asking the
+        # pattern again, rather than by reading the names out one at a time.
+        # grep -o consumes the character that ended one match, and that is
+        # the character the next match needs in front of it, so a second name
+        # a single space away is never looked at -- which in an allowed file
+        # would be a clean pass over a rogue one. Nothing is read out of the
+        # line until a rogue name is known to be in it.
+        #
+        # The pinned name goes in unescaped, which is safe because it was
+        # checked above to be an owner and a repository: no character in that
+        # form means anything to sed. Taken out case-sensitively, so a
+        # case-variant spelling of the pin is reported rather than accepted:
+        # the libbtbb-pin check wants the one spelling in every file.
+        rogue=$(printf '%s\n' "$text" | sed "s|$pinned|PINNED|g" |
+            first_reference)
+        [ -n "$rogue" ] || continue
+        printf '%s:%s names %s, and the pinned libbtbb is %s\n' \
+            "$file" "$line" "$rogue" "$pinned" >> "$work/reported"
+        ;;
+    *)
+        # Not allowed to name one at all, so the first is enough to act on.
+        printf '%s:%s names the libbtbb repository %s\n' \
+            "$file" "$line" "$(printf '%s\n' "$text" | first_reference)" \
+            >> "$work/reported"
+        ;;
+    esac
+    status=1
 done < "$work/hits"
 
 # So this cannot pass by having stopped looking, which is how the gap it
@@ -226,9 +275,9 @@ if [ "$found" -eq 0 ]; then
 fi
 
 if [ "$status" -eq 0 ]; then
-    printf 'check-workflow-libbtbb: %s workflow files scanned, %s literal\n' \
+    printf 'check-workflow-libbtbb: %s workflow files scanned, %s lines\n' \
         "$scanned" "$found"
-    printf 'libbtbb repository names, all of them the pinned %s\n' "$pinned"
+    printf 'naming a libbtbb repository, all of them the pinned %s\n' "$pinned"
     printf 'and all of them in:\n'
     for f in $allowed; do
         printf '  %s\n' "$f"
@@ -258,7 +307,9 @@ is how the Man pages job came to fetch upstream, which is missing functions
 the host tools call, and block every documentation change.
 
 If a match is a local path rather than a repository, write it the way the
-other jobs do -- libbtbb/build, \$GITHUB_WORKSPACE/libbtbb.
+other jobs do -- libbtbb/build, \$GITHUB_WORKSPACE/libbtbb. If it is a comment
+rather than a command, this cannot tell the two apart: name the repository in
+words, as "upstream libbtbb", or leave the owner off.
 EOF
 } >&2
 exit 1

@@ -619,6 +619,36 @@ want_status 0
 want_empty_stderr
 want_stdout "no firmware interface file changed"
 
+# Every other watched name the real build file sets, one case each, so that a
+# name which has stopped being read announces itself here. The check's own
+# floor only refuses a file in which NO watched flag is found, and the
+# broadest entry alone accounts for five of the lines, so it would stay green
+# while a whole arm of the matching had broken. It is these cases rather than
+# the floor because a build file that legitimately stops setting one of these
+# must not red a gating job.
+#
+# mk_edit is the guard in each: it stops the run if the line it rewrites is no
+# longer in the file, so a case cannot quietly stop changing anything.
+for case_pair in \
+    "UBERTOOTH_OPTS = -D\$(BOARD)|UBERTOOTH_OPTS = -D\$(BOARD) -DEXTRA" \
+    "	UBERTOOTH_OPTS += -DTX_ENABLE|	UBERTOOTH_OPTS += -DTX_ENABLE -DMORE" \
+    "CDEFS  = -D\$(LPCUSB_TARGET) \$(UBERTOOTH_OPTS) \$(COMPILE_OPTS) -Wa,-a,-ad|CDEFS = -D\$(LPCUSB_TARGET) \$(UBERTOOTH_OPTS) -Wa,-a,-ad" \
+    "CPPDEFS = -D\$(BOARD) -D\$(LPCUSB_TARGET) \$(COMPILE_OPTS)|CPPDEFS = -D\$(BOARD) -D\$(LPCUSB_TARGET)" \
+    "LPCUSB_TARGET = LPC17xx|LPCUSB_TARGET = LPC23xx" \
+    "EXTRAINCDIRS = \$(LIBS_PATH) \$(LPCUSB_PATH) ../../host/libubertooth/src|EXTRAINCDIRS = \$(LIBS_PATH) \$(LPCUSB_PATH)" \
+    "#CFLAGS += -fshort-enums|CFLAGS += -fshort-enums"; do
+    old=${case_pair%%|*}
+    new=${case_pair#*|}
+    new_repo 0x0131
+    mk_edit "$repo" "$old" "$new"
+    commit "$repo" "change a watched compile flag"
+    run "a watched line is still read: $new" "$repo" main
+    want_status 1
+    want_empty_stdout
+    want_stderr "has to be above the one main carries"
+    want_stderr "$common_mk"
+done
+
 # And the floor under all of it: having patterns is not the same as their
 # matching anything, so a build file in which none of the watched flags is
 # found is a check that has stopped reading the file rather than a branch with
