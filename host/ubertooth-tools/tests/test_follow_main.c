@@ -54,6 +54,8 @@ int max_ac_errors = 2;
 /* ---- scripted device and adapter ---------------------------------------- */
 
 static struct {
+	int api_rc;           /* returned by ubertooth_check_api() */
+	int api_released;     /* whether that call released the board itself */
 	int bulk_init_rc;     /* returned by ubertooth_bulk_init() */
 	int bdaddr_rc;        /* returned by cmd_set_bdaddr_quiet() */
 	int clock_rc;         /* returned by cmd_set_clock_quiet() */
@@ -113,6 +115,10 @@ static void reset_fake(void)
 {
 	memset(&fake, 0, sizeof(fake));
 	memset(&fake_ut, 0, sizeof(fake_ut));
+	/* libbtbb is the real one here, so this is the value it is handed: in
+	 * range, and set again for every case because one of them hands it an
+	 * out-of-range value to make it refuse. */
+	max_ac_errors = 2;
 	fake.dev_fd = -1;
 	fake_ut.devh = (struct libusb_device_handle*)&fake_devh;
 	fake.blocks_to_end = 2;
@@ -226,9 +232,9 @@ ubertooth_t* ubertooth_init()
 	return &fake_ut;
 }
 
-/* No case here refuses a board or a firmware version: what the tool does with
- * those is checked against the real binary by board-not-found-ubertooth-follow
- * and by the output-stream cases. */
+/* No case here refuses the board itself: what the tool does when no board
+ * matches -U is checked against the real binary by
+ * board-not-found-ubertooth-follow and by the output-stream cases. */
 int ubertooth_connect_select(ubertooth_t* ut, const char* u_arg)
 {
 	(void)ut;
@@ -238,8 +244,13 @@ int ubertooth_connect_select(ubertooth_t* ut, const char* u_arg)
 
 int ubertooth_check_api(ubertooth_t* ut)
 {
-	(void)ut;
-	return 0;
+	/* The library releases the board itself when the firmware reports a
+	 * version this host will not drive, through the same ubertooth_stop()
+	 * faked below; a version it could not read at all leaves the board open
+	 * for the caller to close. */
+	if (fake.api_rc < 0 && fake.api_released)
+		ubertooth_stop(ut);
+	return fake.api_rc;
 }
 
 /* The real one folds the signal handler's own flag into the handle; the fake
@@ -337,7 +348,7 @@ int ubertooth_bulk_receive(ubertooth_t* ut, rx_callback cb, void* cb_args)
 
 void ubertooth_stop(ubertooth_t* ut)
 {
-	(void)ut;
+	ut->devh = NULL; /* as the library's cleanup leaves it */
 	fake.stops++;
 }
 
@@ -502,6 +513,56 @@ MU_TEST(a_follow_the_board_took_exits_0)
 	 * being held for the whole run. */
 	mu_assert(fake.dev_fd_closed_by_capture,
 	          "the adapter handle was still open when the capture started");
+	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
+}
+
+/* A firmware this host will not drive, and a libbtbb that refuses the decoder
+ * settings, are the two failures with the board already open and no mode
+ * started. Each gives the board back, rather than leaving it claimed until the
+ * process exits -- but not in the same way, and releasing it twice is not safe,
+ * so both halves are pinned here. */
+MU_TEST(a_firmware_the_tool_cannot_use_gives_the_board_back)
+{
+	struct run_result r;
+
+	/* A version mismatch: the library released the board itself, so the
+	 * tool must not close it again. */
+	reset_fake();
+	fake.api_rc = -1;
+	fake.api_released = 1;
+	r = RUN(TARGET);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(fake.calls[0] == '\0', fake.calls);
+	mu_assert_int_eq(0, fake.closes);
+	mu_assert_int_eq(1, fake.stops);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
+
+	/* A version that could not be read at all leaves the board open, so the
+	 * tool is what closes it. */
+	reset_fake();
+	fake.api_rc = -1;
+	r = RUN(TARGET);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(fake.calls[0] == '\0', fake.calls);
+	mu_assert_int_eq(1, fake.closes);
+	mu_assert_int_eq(0, fake.stops);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
+
+	/* libbtbb refusing the decoder settings is the other way out with the
+	 * board open. It is the real libbtbb here, so an out-of-range value is
+	 * what makes it refuse; it reports that itself, and the tool adds no
+	 * line of its own. */
+	reset_fake();
+	max_ac_errors = -1;
+	r = RUN(TARGET);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(fake.calls[0] == '\0', fake.calls);
+	mu_assert_int_eq(1, fake.closes);
+	mu_assert_int_eq(0, fake.stops);
+	mu_assert(strstr(r.err, "error:") == NULL, r.err);
+	mu_assert(r.out[0] == '\0', r.out);
 	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
 }
 
@@ -770,6 +831,7 @@ int main(void)
 	MU_RUN(the_clock_is_set_before_the_receive_transfer);
 	MU_RUN(the_asynchronous_requests_stay_after_the_poll_thread);
 	MU_RUN(a_follow_the_board_took_exits_0);
+	MU_RUN(a_firmware_the_tool_cannot_use_gives_the_board_back);
 	MU_RUN(a_stream_that_cannot_start_gives_the_board_back);
 	MU_RUN(an_adapter_that_cannot_be_used_exits_1_on_standard_error);
 	MU_RUN(a_whole_address_and_its_lap_and_uap_follow_the_same_piconet);

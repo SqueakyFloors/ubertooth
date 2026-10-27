@@ -871,6 +871,11 @@ Fixes with no visible change in normal use.
   used to hold a handle on an adapter it had finished with for the whole
   capture, and never close it at all.
   [#506](https://github.com/SqueakyFloors/ubertooth/issues/506)
+- `ubertooth-follow` gives the board back when it refuses the firmware version
+  or the decoder settings, instead of leaving it claimed until the process
+  exits.
+  [#577](https://github.com/SqueakyFloors/ubertooth/issues/577)
+  [#586](https://github.com/SqueakyFloors/ubertooth/issues/586)
 - A capture whose collecting thread could not be started says so and ends,
   rather than waiting forever for packets nobody was there to deliver. The
   failure is reported as a positive number and was tested for a negative one,
