@@ -144,6 +144,7 @@ $(BINDIR)/test_le_frag_shape: test_le_frag_shape.c minunit.h source_scan.h \
 # back -- the way test_compile_info links the host's revision extractor.
 $(BINDIR)/test_le_phy_logic: test_le_phy_logic.c minunit.h \
 		stubs-lephy/ubertooth.h stubs-lephy/lpc17.h stubs-usbq/usbapi.h \
+		stubs-usbq/watchdog.h \
 		$(FW_RXTX)/le_phy.c $(FW_RXTX)/ubertooth_usb.c \
 		$(FW_RXTX)/ubertooth_usb.h $(FW_RXTX)/queue.c \
 		$(FW_RXTX)/bluetooth_le.c $(FW_RXTX)/bluetooth_le.h \
