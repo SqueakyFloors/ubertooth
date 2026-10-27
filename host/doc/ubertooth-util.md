@@ -256,10 +256,11 @@ in one of those whose USB path alone has died, with its loop still going round,
 keeps feeding the watchdog and is not reset: it has to be unplugged, or have
 its hub port power-cycled, which is the fallback the tools' `libusb -7` note
 names. The `btbr` image feeds the watchdog from its loop in the same way, so it
-has the same gap. The bootloader has no self-reset either, by design — it runs
-with the watchdog off — so a `-7` mid-flash needs the same fallback, reported
-by ubertooth-dfu(1) rather than by that note. Everything the lab soak caught
-was caught by the other half.
+has the same gap. Everything the lab soak caught was caught by the other half.
+
+The bootloader has no self-reset at all, by design — it runs with the watchdog
+off — so a `-7` mid-flash needs the same fallback, reported by ubertooth-dfu(1)
+rather than by that note.
 
 Before it resets, the firmware has already recorded what it was doing in a
 corner of RAM that a reset does not clear, so `-w` can say where the board

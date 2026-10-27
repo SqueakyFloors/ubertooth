@@ -117,8 +117,9 @@ idle, so the fix is to run the command again. `ubertooth-util [-U <selector>]
 board was in the last time.
 
 Not every board gets that self-reset, and where it does not the fallback is
-always the same: unplug the board or power-cycle its hub port, which is what
-the note above names. Firmware without the watchdog, such as `2020-12-R1`, has
+always the same: unplug the board or power-cycle its hub port. That is what the
+`note: ` line the tools print after the error names (see ubertooth-rx(1),
+DIAGNOSTICS). Firmware without the watchdog, such as `2020-12-R1`, has
 no self-reset at all. Neither has anything that feeds the watchdog from its
 loop rather than from a USB service pass — the six modes that service USB from
 the interrupt, and the `btbr` image — because that loop keeps turning when the
