@@ -117,11 +117,17 @@ static uint64_t host_ns_at_arrival( uint64_t real_ns, uint64_t mono_ns,
 	return real_ns - waited_ns;
 }
 
-/* The host time a packet arrived: for a replay the host time stored with the
- * replayed record, so a capture written with -q/-r while replaying keeps the
- * recorded times, and for a live capture the current time less however long
- * the packet has been waiting. The first packet's is where a capture's
- * timestamps start.
+/* The host time a packet arrived, worked out from the reading the record it
+ * came from arrived with: for a replay the host time stored with that record,
+ * so a capture written with -q/-r while replaying keeps the recorded times,
+ * and for a live capture the current time less however long the packet has
+ * been waiting. The first packet's is where a capture's timestamps start.
+ *
+ * It is the reading passed in that decides, never the record the caller
+ * happens to be holding. A packet that arrived as a chain of records is
+ * placed where the chain started, and reassembly hands back that record's
+ * reading for it; a replay that read the host time of the chain's last record
+ * into systime must not move the packet to it.
  *
  * A live capture cannot simply read the clock here, because the poll thread
  * fills the ring buffer well ahead of the loop that drains it: a capture
@@ -135,8 +141,11 @@ static uint64_t packet_host_ns( uint64_t arrival_ns )
 {
 	uint64_t real_ns, mono_ns;
 
+	/* A replayed record's reading is the host time it was recorded with,
+	 * in nanoseconds: that is what ubertooth_packet_arrival_ns() pushed
+	 * into the ring buffer with it. */
 	if (infile != NULL)
-		return 1000000000ull * (uint64_t) systime;
+		return arrival_ns;
 	/* The host clock first, so the monotonic reading is the later of the
 	 * two and the wait is never understated: the error that leaves is a
 	 * packet time fractionally early, not late. */
@@ -709,11 +718,9 @@ void cb_btle(ubertooth_t* ut, void* args)
 	}
 
 	/* The host time this record arrived, which the dump below stores with
-	 * it. A replayed record keeps the one it was recorded with. Per record,
-	 * because that is what the dump stores: a packet that arrived as a
-	 * chain of records is printed with the arrival of the one that
-	 * completed it, while the capture below places it where the chain
-	 * started. */
+	 * it: per record, because that is what the dump's fixed-size format
+	 * holds. A replayed record keeps the one it was recorded with. The
+	 * packet's own time is set again once reassembly has the whole of it. */
 	systime = ubertooth_packet_systime( arrival_ns );
 
 	/* Sanity check */
@@ -741,6 +748,11 @@ void cb_btle(ubertooth_t* ut, void* args)
 	/* The channel, timestamp and signal readings of the packet as a whole,
 	 * which for a chain are the first record's. */
 	rx = le_metadata;
+
+	/* The host time of the packet, rather than of the record that completed
+	 * it: the first record of a chain, which is where the capture below
+	 * places the packet, so the column and the capture agree. */
+	systime = ubertooth_packet_systime( le_arrival_ns );
 
 	/* After reassembly, so the clock sees one timestamp per packet rather
 	 * than the same one once per record. The arrival reading is the one

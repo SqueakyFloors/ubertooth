@@ -47,7 +47,11 @@
  * The last few cases take that as far as the files a run writes. They drive
  * the real callbacks with a dump and a capture open at once and then replay
  * the dump, so the host time the dump carries and the time the capture gives
- * the same packet are compared as a user would compare them.
+ * the same packet are compared as a user would compare them. The last two go
+ * through a packet that arrived as a chain of records: a dump stores one host
+ * time per record, so a chain that crossed a whole second is stored with two
+ * different seconds, and a replay has to place the packet at the first of them
+ * as the live capture did.
  */
 #include <fcntl.h>
 #include <stdint.h>
@@ -1266,14 +1270,15 @@ static void basic_rate_record(usb_pkt_rx* rx)
 	}
 }
 
-/* The host time a dump record carries: a big-endian 32-bit value ahead of the
- * 64 bytes of the record itself. 0 where the dump holds no whole record. */
-static uint32_t dump_record_systime(FILE* dump)
+/* The host time the record at this position in a dump carries: a big-endian
+ * 32-bit value ahead of the 64 bytes of the record itself. 0 where the dump
+ * holds no whole record there. */
+static uint32_t dump_record_systime(FILE* dump, int position)
 {
 	uint8_t record[RX_FILE_RECORD_LEN];
 
-	rewind(dump);
-	if (fread(record, 1, sizeof(record), dump) != sizeof(record))
+	if (fseek(dump, (long) position * RX_FILE_RECORD_LEN, SEEK_SET) != 0 ||
+	    fread(record, 1, sizeof(record), dump) != sizeof(record))
 		return 0;
 	return ((uint32_t) record[0] << 24) | ((uint32_t) record[1] << 16) |
 	       ((uint32_t) record[2] << 8) | record[3];
@@ -1445,7 +1450,7 @@ static void run_one_record(enum stamped_mode mode, int replayed,
 		btbb_pcap_close(ut.h_pcap_bredr);
 		ut.h_pcap_bredr = NULL;
 	}
-	*stored = dump_record_systime(dump);
+	*stored = dump_record_systime(dump, 0);
 	*printed = printed_systime(output_path);
 	*capture_ns = first_capture_ns(capture_path);
 
@@ -1574,6 +1579,259 @@ MU_TEST(a_replay_of_a_stalled_hosts_dump_lands_where_the_packet_arrived)
 	          "the replay does not land where the record arrived");
 }
 
+/* ---- a packet that arrived as a chain of records ----------------------- */
+
+/* A low-energy packet too long for one record, so it arrives as two. Only the
+ * first ten bytes are a packet: the advertising access address, little endian,
+ * then an ADV_IND header whose length matches the six bytes of payload after
+ * it. The decoder reads no further than that header says, so the rest is
+ * padding, there to make the whole thing longer than the 50 bytes a record
+ * holds. */
+#define CHAINED_PACKET_LEN 60
+#define CHAINED_RECORDS    2
+
+static void chained_records(usb_pkt_rx chain[CHAINED_RECORDS])
+{
+	uint8_t packet[CHAINED_PACKET_LEN];
+	int position;
+
+	memset(packet, 0, sizeof(packet));
+	packet[0] = 0xd6;
+	packet[1] = 0xbe;
+	packet[2] = 0x89;
+	packet[3] = 0x8e;
+	packet[4] = 0x00;
+	packet[5] = 6;
+
+	for (position = 0; position < CHAINED_RECORDS; position++) {
+		uint16_t offset = (uint16_t) (position * DMA_SIZE);
+		uint16_t remaining = CHAINED_PACKET_LEN - offset;
+		usb_pkt_rx* rx = &chain[position];
+
+		memset(rx, 0, sizeof(*rx));
+		rx->pkt_type = position == 0 ? LE_PACKET_START : LE_PACKET_CONT;
+		rx->channel = 0;
+		rx->clk100ns = htole32((uint32_t) FIRST_TICKS);
+		/* Every record of a chain says how long the whole packet is and
+		 * where it sits in the chain. */
+		rx->reserved[0] = CHAINED_PACKET_LEN & 0xff;
+		rx->reserved[1] = ((CHAINED_PACKET_LEN >> 8) &
+		                   LE_FRAG_TOTAL_HIGH_MASK) |
+		                  (uint8_t) (position << LE_FRAG_INDEX_SHIFT);
+		memcpy(rx->data, packet + offset,
+		       remaining < DMA_SIZE ? remaining : DMA_SIZE);
+	}
+}
+
+/* A dump of these records, each with the host time given for it: the format
+ * `-d` writes, which a replay reads back. Rewound and ready to replay. */
+static FILE* dump_of(const usb_pkt_rx* records, const uint32_t* seconds,
+                     int count)
+{
+	FILE* dump = tmpfile();
+	int position;
+
+	if (dump == NULL)
+		return NULL;
+	for (position = 0; position < count; position++) {
+		uint32_t stored = htobe32(seconds[position]);
+
+		fwrite(&stored, sizeof(stored), 1, dump);
+		fwrite(&records[position], sizeof(records[position]), 1, dump);
+	}
+	fflush(dump);
+	rewind(dump);
+	return dump;
+}
+
+/* The files one run of the low-energy callback writes: a capture, and a file
+ * standing in for the terminal its packet lines go to. */
+struct chain_files {
+	char dir[sizeof("/tmp/ubertooth-chain-XXXXXX")];
+	char capture[sizeof("/tmp/ubertooth-chain-XXXXXX") + 16];
+	char output[sizeof("/tmp/ubertooth-chain-XXXXXX") + 16];
+	int saved_stdout;
+};
+
+/* Opens them, in a directory of its own per run so that a file left behind by
+ * an earlier run cannot be read back here by mistake. */
+static void open_chain_files(struct chain_files* files, ubertooth_t* ut)
+{
+	int output;
+
+	snprintf(files->dir, sizeof(files->dir), "/tmp/ubertooth-chain-XXXXXX");
+	mu_assert_fatal(mkdtemp(files->dir) != NULL,
+	                "cannot make a directory to write in");
+	snprintf(files->capture, sizeof(files->capture), "%s/capture.pcap",
+	         files->dir);
+	snprintf(files->output, sizeof(files->output), "%s/output", files->dir);
+	mu_assert_fatal(lell_pcap_create_file(files->capture,
+	                                     &ut->h_pcap_le) == 0,
+	                "cannot open a capture to write");
+	fflush(stdout);
+	files->saved_stdout = dup(fileno(stdout));
+	mu_assert_fatal(files->saved_stdout >= 0, "cannot set the output aside");
+	output = open(files->output, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+	mu_assert_fatal(output >= 0, "cannot open a file for the output");
+	dup2(output, fileno(stdout));
+	close(output);
+}
+
+/* Closes them again and reads back the systime= column of the packet line and
+ * the time the capture gave the packet. */
+static void close_chain_files(struct chain_files* files, ubertooth_t* ut,
+                              uint32_t* printed, uint64_t* capture_ns)
+{
+	fflush(stdout);
+	dup2(files->saved_stdout, fileno(stdout));
+	close(files->saved_stdout);
+	lell_pcap_close(ut->h_pcap_le);
+	ut->h_pcap_le = NULL;
+	*printed = printed_systime(files->output);
+	*capture_ns = first_capture_ns(files->capture);
+	unlink(files->capture);
+	unlink(files->output);
+	rmdir(files->dir);
+}
+
+/* A live capture of a chain, with a dump and a capture open at once: what
+ * `ubertooth-btle -d <dump> -q <capture>` leaves the callback with.
+ * arrival_ns[] is the monotonic reading each record arrived with, given
+ * outright, which is what the ring buffer carries with it.
+ *
+ * The dump the run wrote comes back as *dump, rewound and ready to replay,
+ * with the host time it stored for each record in stored[]. */
+static void capture_a_chain(const usb_pkt_rx* chain,
+                            const uint64_t* arrival_ns, int records,
+                            FILE** dump, uint32_t* stored, uint32_t* printed,
+                            uint64_t* capture_ns)
+{
+	struct chain_files files;
+	ubertooth_t ut;
+	int record;
+
+	memset(&ut, 0, sizeof(ut));
+	ut.clk100ns_period = CLK100NS_TIMER1_PERIOD;
+	ut.fifo = fifo_init();
+	mu_assert_fatal(ut.fifo != NULL, "cannot allocate the ring buffer");
+	*dump = tmpfile();
+	mu_assert_fatal(*dump != NULL, "cannot open a dump to write");
+	open_chain_files(&files, &ut);
+
+	infile = NULL;
+	systime = 0;
+	dumpfile = *dump;
+	for (record = 0; record < records; record++)
+		fifo_push(ut.fifo, &chain[record], arrival_ns[record]);
+	for (record = 0; record < records; record++)
+		cb_btle(&ut, NULL);
+
+	close_chain_files(&files, &ut, printed, capture_ns);
+	dumpfile = NULL;
+	for (record = 0; record < records; record++)
+		stored[record] = dump_record_systime(*dump, record);
+	rewind(*dump);
+	free(ut.fifo);
+}
+
+/* A replay of a dump, through the library's own reader and the same callback,
+ * with a capture open: `ubertooth-btle -i <dump> -q <capture>`. */
+static void replay_a_dump(FILE* dump, uint32_t* printed, uint64_t* capture_ns)
+{
+	struct chain_files files;
+	ubertooth_t ut;
+
+	memset(&ut, 0, sizeof(ut));
+	ut.clk100ns_period = CLK100NS_TIMER1_PERIOD;
+	ut.fifo = fifo_init();
+	mu_assert_fatal(ut.fifo != NULL, "cannot allocate the ring buffer");
+	open_chain_files(&files, &ut);
+
+	infile = dump;
+	dumpfile = NULL;
+	stream_rx_file(&ut, dump, cb_btle, NULL);
+
+	close_chain_files(&files, &ut, printed, capture_ns);
+	infile = NULL;
+	free(ut.fifo);
+}
+
+/* A dump holds one host time per record, so a packet that arrived as a chain
+ * that crossed a whole second is stored with two different seconds. Replayed,
+ * the packet belongs at the first of them: that is where the live capture of
+ * the same run put it, because the packet's time is the time its chain
+ * started. The reader overwrote the host time for every record it read, so
+ * the packet landed at the last record's second, a whole second away. */
+MU_TEST(a_replayed_chain_lands_at_the_first_records_second)
+{
+	usb_pkt_rx chain[CHAINED_RECORDS];
+	const uint32_t recorded[CHAINED_RECORDS] = { 1700000000, 1700000001 };
+	uint32_t printed = 0;
+	uint64_t capture_ns = 0;
+	FILE* dump;
+
+	chained_records(chain);
+	dump = dump_of(chain, recorded, CHAINED_RECORDS);
+	mu_assert_fatal(dump != NULL, "cannot write a dump to replay");
+	replay_a_dump(dump, &printed, &capture_ns);
+	fclose(dump);
+
+	mu_assert_fatal(capture_ns != 0, "the replay's capture holds no packet");
+	mu_assert_int_eq(recorded[0], capture_ns / 1000000000ull);
+	/* The printed column is the same time, so the two outputs of a replay
+	 * do not disagree either. */
+	mu_assert_int_eq(recorded[0], printed);
+}
+
+/* The whole of it as a user sees it: one live run writes a dump and a capture,
+ * and a replay of that dump writes a capture of its own. The chain's two
+ * records arrive 600 ms into one second and 400 ms into the next, so the dump
+ * stores two different seconds for the one packet, and the replay has to pick
+ * the same one the live capture did. */
+MU_TEST(a_replayed_chain_lands_where_the_live_capture_put_it)
+{
+	usb_pkt_rx chain[CHAINED_RECORDS];
+	uint64_t arrival_ns[CHAINED_RECORDS];
+	uint32_t stored[CHAINED_RECORDS] = { 0, 0 };
+	uint32_t printed = 0, replayed_printed = 0;
+	uint64_t live_ns = 0, replay_ns = 0;
+	/* The two clocks read together, so the readings below place each record
+	 * at a host time of this case's choosing however long the run then
+	 * takes: the callback relates the two clocks again itself, and both
+	 * have moved on by the same amount. */
+	uint64_t real_ns = clock_ns(CLOCK_REALTIME);
+	uint64_t mono_ns = clock_ns(CLOCK_MONOTONIC);
+	/* Where the second the test is running in began. */
+	uint64_t second_ns = real_ns - real_ns % 1000000000ull;
+	FILE* dump;
+
+	arrival_ns[0] = mono_ns - (real_ns - (second_ns - 1400000000ull));
+	arrival_ns[1] = mono_ns - (real_ns - (second_ns - 600000000ull));
+
+	chained_records(chain);
+	capture_a_chain(chain, arrival_ns, CHAINED_RECORDS, &dump, stored,
+	                &printed, &live_ns);
+
+	mu_assert_fatal(stored[0] != 0 && stored[1] != 0,
+	                "the dump does not hold both records");
+	mu_assert_int_eq(stored[0] + 1, stored[1]);
+	mu_assert_fatal(live_ns != 0, "the live capture holds no packet");
+	/* The live run places the packet where its chain started, and says so
+	 * in the column as well. */
+	mu_assert(is_the_truncation_of(1000000000ull * stored[0], live_ns),
+	          "the live capture does not place the packet at the chain's start");
+	mu_assert_int_eq(stored[0], printed);
+
+	replay_a_dump(dump, &replayed_printed, &replay_ns);
+	fclose(dump);
+
+	mu_assert_fatal(replay_ns != 0, "the replay's capture holds no packet");
+	mu_assert(is_the_truncation_of(replay_ns, live_ns),
+	          "the replay does not land where the live capture did");
+	mu_assert_int_eq(stored[0], replay_ns / 1000000000ull);
+	mu_assert_int_eq(stored[0], replayed_printed);
+}
+
 /* Which clock a mode stamps with is known only to the tool that starts it, so
  * this one reads ubertooth-btle's source: the branch that starts the
  * low-energy engine must say that its packets come from timer1. A capture run
@@ -1645,6 +1903,8 @@ int main(void)
 	MU_RUN(a_stalled_scans_column_says_where_the_record_arrived);
 	MU_RUN(a_prompt_hosts_dump_is_stamped_where_it_always_was);
 	MU_RUN(a_replay_of_a_stalled_hosts_dump_lands_where_the_packet_arrived);
+	MU_RUN(a_replayed_chain_lands_at_the_first_records_second);
+	MU_RUN(a_replayed_chain_lands_where_the_live_capture_put_it);
 	MU_RUN(the_low_energy_engine_is_started_with_its_own_period);
 	return mu_report();
 }

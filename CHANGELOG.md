@@ -243,6 +243,13 @@
 
 ### Reliability fixes
 
+- Replaying a dump puts a low-energy packet that arrived as several records
+  where the live capture of the same run put it, rather than up to a second
+  later.
+  [#643](https://github.com/SqueakyFloors/ubertooth/issues/643)
+- The note about firmware the host tools were not built with names the board
+  the message is about, instead of offering to reflash every board attached.
+  [#652](https://github.com/SqueakyFloors/ubertooth/issues/652)
 - `ubertooth-util -I` says what every other tool says about firmware it was not
   built with, so it no longer tells you to flash older firmware over a board
   that is the newer of the two.

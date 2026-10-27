@@ -211,6 +211,9 @@ ubertooth_t *ubertooth_start_select(const char *u_arg)
 		fake.loud_starts_after_reset++; /* would print errors and send STOP */
 	if (fake.fail_start_from && fake.start_calls >= fake.fail_start_from)
 		return NULL;
+	/* Like the library: the handle remembers the board the user named, so
+	 * a message about this one board can say which it is. */
+	fake_ut.selector = u_arg;
 	return &fake_ut;
 }
 
@@ -255,7 +258,11 @@ int ubertooth_get_api(ubertooth_t *ut, uint16_t *version)
 /* Built against an installed libubertooth, so there is no library source to
  * compile in: the message is a stub here, and the case below then checks only
  * that -I refuses the board. */
-void ubertooth_report_api_mismatch(uint16_t version) { (void)version; }
+void ubertooth_report_api_mismatch(uint16_t version, const char *selector)
+{
+	(void)version;
+	(void)selector;
+}
 #endif
 
 void print_version(void) { printf("libubertooth fake\n"); }
@@ -1361,6 +1368,45 @@ MU_TEST(identify_prints_the_librarys_mismatch_message)
 	mu_assert(strstr(r.err, "flash the firmware") == NULL,
 	          "and no backwards flash");
 	mu_assert_int_eq(0, fake.identify_calls);
+}
+
+/*
+ * The example command in that note reflashes the board the message is about.
+ * A user who named one board with -U and found only that one wrong was told
+ * "--flash-device all", which reflashes every board attached.
+ */
+MU_TEST(the_mismatch_note_names_the_board_it_is_about)
+{
+	const char *serial = "1cc001038088cb956c43ad61c52000f5";
+	struct run_result r;
+
+	reset_fake();
+	fake.api_version = UBERTOOTH_API_VERSION - 1;
+	r = RUN("-I", "-U", serial);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "./install.sh --flash-device "
+	                        "1cc001038088cb956c43ad61c52000f5\n") != NULL,
+	          r.err);
+	mu_assert(strstr(r.err, "--flash-device all") == NULL,
+	          "and reflashes no other board");
+
+	/* An index is named the same way: install.sh takes one after
+	 * --flash-device just as the tool takes one after -U. */
+	reset_fake();
+	fake.api_version = UBERTOOTH_API_VERSION - 1;
+	r = RUN("-I", "-U", "1");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "./install.sh --flash-device 1\n") != NULL, r.err);
+
+	/* No board named, so there is none to name: --flash takes the one that
+	 * is attached. */
+	reset_fake();
+	fake.api_version = UBERTOOTH_API_VERSION - 1;
+	r = RUN("-I");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "./install.sh --flash\n") != NULL, r.err);
+	mu_assert(strstr(r.err, "--flash-device") == NULL,
+	          "and asks for no board in particular");
 }
 #endif
 
@@ -3009,6 +3055,7 @@ int main(void)
 	MU_RUN(identify_refuses_firmware_of_another_api_version);
 #ifdef UTIL_TEST_REAL_API_MESSAGE
 	MU_RUN(identify_prints_the_librarys_mismatch_message);
+	MU_RUN(the_mismatch_note_names_the_board_it_is_about);
 #endif
 	MU_RUN(led_specan_uses_the_default_threshold_and_an_explicit_one);
 	MU_RUN(two_or_more_mode_options_are_rejected_before_opening_the_device);

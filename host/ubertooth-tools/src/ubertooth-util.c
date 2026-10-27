@@ -319,7 +319,7 @@ static int identify_check_api(ubertooth_t* ut)
 	if (result < 0)
 		return result;
 	if (version != UBERTOOTH_API_VERSION) {
-		ubertooth_report_api_mismatch(version);
+		ubertooth_report_api_mismatch(version, ut->selector);
 		return -1;
 	}
 	return 0;

@@ -1614,20 +1614,29 @@ static void report_no_index(const char* u_arg)
 ubertooth_t* ubertooth_start_select(const char* u_arg)
 {
 	int index = -1;
+	ubertooth_t* ut;
 
 	switch (classify_selector(u_arg, &index)) {
 	case SELECTOR_DEFAULT:
 		return ubertooth_start(-1);
 	case SELECTOR_INDEX:
-		return ubertooth_start(index);
+		ut = ubertooth_start(index);
+		break;
 	case SELECTOR_NO_INDEX:
 		report_no_index(u_arg);
 		return NULL;
 	case SELECTOR_SERIAL:
 	default:
 		/* cast away const: the serial path does not modify the string */
-		return ubertooth_start_serial((char*)u_arg);
+		ut = ubertooth_start_serial((char*)u_arg);
+		break;
 	}
+	/* Which board the user named, for the messages that are about this one
+	 * board. Only where they did name one: the default opens whichever
+	 * board is there. */
+	if (ut != NULL)
+		ut->selector = u_arg;
+	return ut;
 }
 
 /* Quiet variant of ubertooth_start_select(), for polling a device that may be
@@ -1688,12 +1697,16 @@ int ubertooth_connect_select(ubertooth_t* ut, const char* u_arg)
 	case SELECTOR_DEFAULT:
 		return ubertooth_connect(ut, -1);
 	case SELECTOR_INDEX:
+		/* As in ubertooth_start_select(): the board the user named, for
+		 * the messages that are about this one board. */
+		ut->selector = u_arg;
 		return ubertooth_connect(ut, index);
 	case SELECTOR_NO_INDEX:
 		report_no_index(u_arg);
 		return -1;
 	case SELECTOR_SERIAL:
 	default:
+		ut->selector = u_arg;
 		return ubertooth_connect_serial(ut, (char*)u_arg);
 	}
 }
@@ -1728,7 +1741,7 @@ int ubertooth_check_api(ubertooth_t *ut) {
 	 * newer, is refused rather than run with behaviour the host does not
 	 * expect. */
 	if (version != UBERTOOTH_API_VERSION) {
-		ubertooth_report_api_mismatch(version);
+		ubertooth_report_api_mismatch(version, ut->selector);
 		ubertooth_stop(ut);
 		return -1;
 	}
