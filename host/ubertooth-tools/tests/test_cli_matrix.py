@@ -72,6 +72,13 @@ SPEC_IDS_CASE = "cli_spec.json (the ids)"
 # every tool, so they are not written out per tool.
 GENERATED_QUESTIONS = {"Q-6", "Q-7"}
 
+# The role an option without one gets, and the roles this test acts on by
+# name: a help or report option ends the command, a selector selects a board,
+# and anything else only modifies the run. Every other role in the spec is a
+# label the pair rules match on.
+DEFAULT_ROLE = "modifier"
+ACTED_ON_ROLES = {"help", "report", "selector", DEFAULT_ROLE}
+
 ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1")
 # A Python tool runs under the interpreter CMake found, as every other Python
 # test here does, rather than under whatever its shebang resolves to.
@@ -127,9 +134,21 @@ if CONTRACT.get("devices_via") == "usb1":
         sys.exit("%s would import %s and could open a board"
                  % (TOOL, found.stdout.strip() or "the real usb1"))
 DEVICE_LOOKUP = tuple(message.lower() for message in SPEC["_device_lookup_messages"])
-# An open finding, as the cases it breaks and the complaint it produces. Every
-# case listed has to keep failing with that complaint: a finding half fixed,
-# or fixed for some of its cases, fails this test rather than passing quietly.
+# An open finding, as the cases it breaks and the complaints it produces.
+# Every case listed has to keep failing with all of them: a finding half
+# fixed, or fixed for some of its cases, fails this test rather than passing
+# quietly.
+for entry in SPEC["expected_failures"]:
+    # A string here would be read a character at a time, and each character
+    # matches nearly every complaint, so the entry would hold nothing. The
+    # whole file is checked, not just this tool's entries, because an entry
+    # for a tool that is not built here is the one nobody would look at.
+    reasons = entry.get("problem_contains")
+    if not isinstance(reasons, list) or not reasons \
+            or not all(isinstance(reason, str) for reason in reasons):
+        sys.exit("%s %s: problem_contains has to be a non-empty list of the "
+                 "complaints the cases produce, one per complaint, not %r"
+                 % (", ".join(entry["findings"]), entry["cases"][0], reasons))
 EXPECTED_FAILURES = [entry for entry in SPEC["expected_failures"]
                      if entry["tool"] == TOOL]
 
@@ -291,8 +310,13 @@ def check(case, result, created):
     if status not in allowed_statuses:
         complain("exit status %d is not one of %s"
                  % (status, sorted(allowed_statuses)))
+    # Whether this rule already reported the write, so the verdicts below do
+    # not report the same one again: one write, one complaint, so a finding
+    # does not have to claim the same fault twice.
+    said_standard_output = False
     if status != 0 and stdout and not stdout_allowed_on_failure(case.arguments):
         complain("standard output is not empty on a failure: %r" % stdout[:120])
+        said_standard_output = True
     # The usage text belongs on standard output only when the user asked for
     # it. That is the "help" verdict, and also a line that carries -h without
     # the verdict being decided -- -h beside -V, where which one wins is an
@@ -328,7 +352,9 @@ def check(case, result, created):
     elif case.verdict == "usage":
         if status != 1:
             complain("exited %d, not 1" % status)
-        if stdout:
+        # No exemption here, whatever the tool's stdout_on_failure says: a
+        # command line the tool would not take writes nothing of its own.
+        if stdout and not said_standard_output:
             complain("wrote to standard output: %r" % stdout[:120])
         first, _, rest = stderr.partition("\n")
         if case.error is not None and first != case.error:
@@ -342,7 +368,8 @@ def check(case, result, created):
     elif case.verdict == "refused":
         if status != 1:
             complain("exited %d, not 1" % status)
-        if stdout:
+        # As for "usage": no exemption, and nothing said twice.
+        if stdout and not said_standard_output:
             complain("wrote to standard output: %r" % stdout[:120])
         lines = error_lines(stderr)
         # A refusal is that one line and nothing else. Counting only the
@@ -511,6 +538,43 @@ def check_the_spec_lists_every_option():
         problems.append((SPEC_IDS_CASE,
                          "%s is in _questions, but no case names it" % asked))
 
+    # The roles, the same way: a role is what this test and the pair rules
+    # select options by, and a name nothing declares selects nothing. Spelling
+    # "selector" any other way does not fail anywhere on its own -- the option
+    # is quietly treated as a plain modifier instead -- so the names are
+    # checked against _roles, and _roles against the options.
+    declared = set(SPEC["_roles"]) - {"_about"}
+    carried = set()
+    for tool, contract in sorted(SPEC["tools"].items()):
+        for name, option in sorted(contract.get("options", {}).items()):
+            role = option.get("role", DEFAULT_ROLE)
+            carried.add(role)
+            if role not in declared:
+                problems.append((SPEC_IDS_CASE,
+                                 "%s %s has the role %r, which _roles does "
+                                 "not have" % (tool, name, role)))
+    for role in sorted(ACTED_ON_ROLES - declared):
+        problems.append((SPEC_IDS_CASE,
+                         "_roles does not have %r, which this test acts on"
+                         % role))
+    for role in sorted(declared - carried):
+        problems.append((SPEC_IDS_CASE,
+                         "_roles has %r, which no option carries" % role))
+    # A pair rule selects by role, so a side naming a role no option carries
+    # is a rule that can never match.
+    rules = [("_global_pair_rules", rule)
+             for rule in SPEC.get("_global_pair_rules", [])]
+    for tool, contract in sorted(SPEC["tools"].items()):
+        rules += [(tool, rule) for rule in contract.get("pair_rules", [])]
+    for where, rule in rules:
+        for side in (rule["a"], rule["b"]):
+            if side.startswith("role:") \
+                    and side[len("role:"):] not in carried:
+                problems.append((SPEC_IDS_CASE,
+                                 "the %s rule %s beside %s names a role no "
+                                 "option carries"
+                                 % (where, rule["a"], rule["b"])))
+
     # The man page the spec cites has to be there, and it has to list -h:
     # ten of them do not, which is finding F-09. It gets a case id of its own
     # so that finding can claim it like any other.
@@ -559,7 +623,15 @@ def check_the_spec_lists_every_option():
     if not os.path.exists(source) and CONTRACT.get("kind") == "python":
         source = BINARY
         pattern = r'getopt\(sys\.argv\[1:\],\s*"([^"]+)"\)'
-    if os.path.exists(source):
+    # A source that is not there is a failure, not a check to skip: the spec's
+    # copy of the option string would then be compared against nothing, and a
+    # file somebody renames or moves would drop the one check that keeps the
+    # two honest, silently and for as long as nobody noticed.
+    if not os.path.exists(source):
+        problems.append((SPEC_CASE,
+                         "%s is not there, so the option string in the spec "
+                         "is checked against nothing" % os.path.normpath(source)))
+    else:
         with open(source) as handle:
             text = handle.read()
         found = re.search(pattern, text)
@@ -608,7 +680,8 @@ def check_the_spec_lists_every_option():
                                from_optstring[name])))
     return problems
 
-ROLES = {name: option.get("role", "modifier") for name, option in OPTIONS.items()}
+ROLES = {name: option.get("role", DEFAULT_ROLE)
+         for name, option in OPTIONS.items()}
 HELP_OPTIONS = [name for name, role in ROLES.items() if role == "help"]
 REPORT_OPTIONS = [name for name, role in ROLES.items() if role == "report"]
 WORK_OPTIONS = CONTRACT.get("work_options")
@@ -1032,16 +1105,28 @@ def main():
             return
         known_cases += 1
         matched_findings.update(findings_of(claimed).split(", "))
+        # An entry names one reason per complaint its cases have to produce,
+        # and every one of them has to be there: a single reason would stand
+        # for whatever it happened to match, so a tool that broke the rule in
+        # one more way, or stopped breaking it in one of them, would read as
+        # unchanged. The reason that fits the fewest complaints is matched
+        # first, so a loose one cannot take the complaint a precise one is
+        # the only match for.
         left = list(problems)
-        for entry in claimed:
-            hit = [problem for problem in left
-                   if entry["problem_contains"] in problem]
-            if not hit:
+        wanted = [(entry, reason) for entry in claimed
+                  for reason in entry["problem_contains"]]
+        wanted.sort(key=lambda pair: (
+            sum(1 for problem in problems if pair[1] in problem),
+            -len(pair[1])))
+        for entry, reason in wanted:
+            hit = next((problem for problem in left if reason in problem),
+                       None)
+            if hit is None:
                 fixed.append("%s: %s no longer complains %r; it now says %s"
                              % (identifier, ", ".join(entry["findings"]),
-                                entry["problem_contains"], problems))
-            for problem in hit:
-                left.remove(problem)
+                                reason, problems))
+            else:
+                left.remove(hit)
         if left:
             failures.append((identifier, case, left, result))
 
