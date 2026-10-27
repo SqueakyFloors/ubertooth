@@ -693,16 +693,37 @@ running.stdin.write("discoverable\n")
 running.stdin.flush()
 assert wait_until(lambda: INQUIRY_SCAN_PACKET in writes()), writes()
 sent = writes()
+# The command below is typed only once the interrupt has been handled, which
+# is what the prompt the tool prints before each line it reads says: the
+# third one is printed by the read that takes that command, and the prompt
+# only gets there by way of the KeyboardInterrupt the signal raised. A line
+# written straight after the signal instead races it, and can be taken off
+# the pipe by the very read the signal interrupts: that read raises rather
+# than returning the line, which loses it the way Ctrl-C loses the line
+# being typed. The device cannot stand in for this, because the idle request
+# the interrupt sends is the same one "discoverable" sends every time it
+# swaps its two scans.
+seen = bytearray()
+
+
+def prompts_printed():
+    """How many lines the tool has asked for, as far as it has run."""
+    try:
+        seen.extend(os.read(running.stdout.fileno(), 4096))
+    except BlockingIOError:
+        pass
+    return seen.count(tool_module.BTCtlPrompt.prompt.encode())
+
+
+os.set_blocking(running.stdout.fileno(), False)
+assert wait_until(lambda: prompts_printed() >= 2), seen
 running.send_signal(signal.SIGINT)
-# the stop asks the device to go idle, which is how the interrupt is seen
-# from outside before anything more is typed. A line written straight after
-# the signal can be taken off the pipe by the very read the signal
-# interrupts, and that read raises instead of returning it: the line is lost
-# the way Ctrl-C loses the line being typed, and what this case is about is
-# the command typed after the prompt comes back.
-assert wait_until(lambda: IDLE_PACKET in writes()[len(sent):]), \
-    "the interrupt did not ask the device to go idle"
+assert wait_until(lambda: prompts_printed() >= 3), seen
+os.set_blocking(running.stdout.fileno(), True)
 output, errors = running.communicate("inquiry\nq\n", timeout=DEADLINE * 2)
+# whatever was read above to see the prompts, so a failure below still shows
+# everything the tool printed
+output = seen.decode() + output
 assert running.returncode == 0, (running.returncode, output, errors)
 assert "Traceback" not in errors, errors
 assert "Exception in thread" not in errors, errors
