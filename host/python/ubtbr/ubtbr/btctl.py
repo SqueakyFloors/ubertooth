@@ -466,6 +466,16 @@ class BTCtlCmd(Thread):
 		self._stopping = Event()
 		self._bt.register_msg_handler(self._put_msg)
 
+	def release(self):
+		"""Give the device's messages back, for a command that never ran.
+
+		The thread is what releases the handler claimed above, when it ends,
+		so a command whose thread was never started has to be undone here.
+		Only call this on a command that did not start: on a running one it
+		would take the handler away from under its own thread.
+		"""
+		self._bt.unregister_msg_handler(self._put_msg)
+
 	def _start(self):
 		pass
 
@@ -583,6 +593,11 @@ class BTCtlSuperCmd(Thread):
 		self._cmd = None
 		self._gave_up = False
 
+	def release(self):
+		# Nothing to give back: this one claims the device's messages only
+		# through the commands it runs, and each of those releases its own.
+		pass
+
 	def _start_cmd(self, cls, *args):
 		# Starting a command takes several steps, and an interrupt part way
 		# through them leaves nobody holding the command that claimed the
@@ -594,8 +609,17 @@ class BTCtlSuperCmd(Thread):
 			return
 		log.info("Starting %s"%cls.__name__)
 		args = [self._bt]+list(args)
-		self._cmd = cls(*args)
-		self._cmd.start()
+		cmd = cls(*args)
+		try:
+			cmd.start()
+		except RuntimeError:
+			# The interpreter can refuse a new thread; release() is what
+			# hands the message handler back for a command that never ran.
+			# The command is left unheld too: there is no thread to stop or
+			# to join, and joining one that never ran raises in turn.
+			cmd.release()
+			raise
+		self._cmd = cmd
 		return self._cmd
 
 	def _stop_cmd(self):

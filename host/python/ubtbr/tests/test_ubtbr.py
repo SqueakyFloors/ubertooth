@@ -30,6 +30,13 @@ What is checked:
     ran, and joining that thread ended the tool in a RuntimeError traceback
     with the board still claimed.
 
+  * a command whose thread the interpreter refuses is reported on standard
+    error and leaves the prompt able to take the next one. The thread is
+    what releases the board the command claimed as it was built, so a
+    refused thread used to leave the board claimed with nothing holding it:
+    every later command was refused as still running, and the tool ended in
+    a traceback.
+
   * the tool itself, driven through its prompt: "q" exits 0, where it used to
     raise TypeError because the handler for it was called without the line
     the user typed. A Ctrl-C with a command running returns to the prompt,
@@ -697,6 +704,120 @@ assert arrived, "onecmd swallowed the interrupt"
 assert prompt._cmd is None, prompt._cmd
 assert device.handler is None, "the board is still claimed"
 print("ubtbr: the interrupt comes out of the command that was typed")
+
+# ---- a command whose thread the interpreter refuses -----------------------
+
+# Building the command claims the device's one message handler, and its
+# thread is what gives that back. A thread the interpreter refuses to start
+# therefore left the board claimed with nothing holding it: the prompt held
+# no command, every later command was refused as still running, and the
+# RuntimeError came out of main() as a traceback.
+class RefusedThreadCmd(btctl.BTCtlInquiryCmd):
+    """A command the interpreter will not give a thread to."""
+
+    def start(self):
+        # Worded as the interpreter words it when it is out of threads.
+        raise RuntimeError("can't start new thread")
+
+
+class RefusedThreadSuperCmd(btctl.BTCtlSuperCmd):
+    """A super command the interpreter will not give a thread to.
+
+    It claims nothing of its own, so there is nothing to give back here: the
+    prompt still has to report it rather than let the RuntimeError out.
+    """
+
+    def start(self):
+        raise RuntimeError("can't start new thread")
+
+    def run_once(self):
+        self._wait(DEADLINE)
+
+
+for refused_cls in (RefusedThreadCmd, RefusedThreadSuperCmd):
+    name = refused_cls.__name__
+    device = SilentDevice()
+    prompt = tool_module.BTCtlPrompt(device)
+    try:
+        prompt.start_cmd(refused_cls)
+    except btctl.BTCtlError as e:
+        assert str(e) == "could not start the command: can't start new thread", \
+            (name, str(e))
+    except RuntimeError as e:
+        raise AssertionError("%s: raised past the prompt: %s" % (name, e))
+    else:
+        raise AssertionError("%s: the refused thread was not reported" % name)
+    assert prompt._cmd is None, (name, prompt._cmd)
+    # the board is let go of, rather than left claimed by a command nothing
+    # holds
+    assert device.handler is None, (name, "the board is still claimed")
+    # and the prompt is where the user is left: it takes a command again
+    assert prompt.start_cmd(btctl.BTCtlInquiryCmd) is not None, name
+    assert wait_until(lambda: device.inquiry_requests == 1), \
+        (name, device.inquiry_requests)
+    prompt.stop_cmd()
+    assert prompt._cmd is None, (name, prompt._cmd)
+print("ubtbr: a command whose thread is refused leaves the board free")
+
+# and the user gets one error line on standard error, with the prompt left
+# up: the refusal is reported the way any other command that could not run is
+device = SilentDevice()
+prompt = tool_module.BTCtlPrompt(device)
+typed = tool_module.BTCtlInquiryCmd
+tool_module.BTCtlInquiryCmd = RefusedThreadCmd
+refused, said = io.StringIO(), io.StringIO()
+try:
+    with contextlib.redirect_stderr(refused), contextlib.redirect_stdout(said):
+        assert prompt.onecmd("inquiry") is None, "a refused command must not exit"
+finally:
+    tool_module.BTCtlInquiryCmd = typed
+assert refused.getvalue() == \
+    "error: inquiry: could not start the command: can't start new thread\n", \
+    repr(refused.getvalue())
+assert said.getvalue() == "", said.getvalue()
+assert prompt._cmd is None, prompt._cmd
+assert device.handler is None, "the board is still claimed"
+# the next command typed runs, rather than being refused as still running
+assert prompt.start_cmd(btctl.BTCtlInquiryCmd) is not None
+assert wait_until(lambda: device.inquiry_requests == 1), device.inquiry_requests
+prompt.stop_cmd()
+print("ubtbr: a refused thread is one error line, and the prompt stays up")
+
+# the same from a command that runs commands of its own, where the refusal
+# lands on that command's thread: a traceback from in there is nobody's to
+# report, and the child's claim still has to go back
+class RefusedChildSuperCmd(btctl.BTCtlSuperCmd):
+    """A super command whose child will not get a thread."""
+
+    def run_once(self):
+        self._start_cmd(RefusedThreadCmd)
+        self._wait(DEADLINE)
+
+
+device = SilentDevice()
+super_command = RefusedChildSuperCmd(device)
+try:
+    super_command._start_cmd(RefusedThreadCmd)
+except RuntimeError:
+    pass
+else:
+    raise AssertionError("the refused thread was not reported")
+assert super_command._cmd is None, super_command._cmd
+assert device.handler is None, "the board is still claimed"
+
+records.messages.clear()
+device = SilentDevice()
+thrown = io.StringIO()
+with contextlib.redirect_stderr(thrown):
+    super_command = RefusedChildSuperCmd(device)
+    super_command.start()
+    super_command.join(DEADLINE)
+assert not super_command.is_alive(), "a super command with no child must end"
+assert "Exception in thread" not in thrown.getvalue(), thrown.getvalue()
+assert "Traceback" not in thrown.getvalue(), thrown.getvalue()
+assert records.said("RuntimeError: can't start new thread"), records.messages
+assert device.handler is None, "the board is still claimed"
+print("ubtbr: a child whose thread is refused is logged, not a traceback")
 
 # ---- the tool, driven through its prompt ----------------------------------
 
