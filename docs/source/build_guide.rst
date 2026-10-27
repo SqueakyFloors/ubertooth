@@ -119,6 +119,8 @@ Next the Bluetooth baseband library (libbtbb) needs to be built for the Ubertoot
 
 That is the commit CI tests against and `install.sh <https://github.com/SqueakyFloors/ubertooth/blob/main/install.sh>`__ builds, and a CI step fails if this page falls behind it. ``./install.sh`` does all of the above for you, and ``./install.sh --libbtbb-url``/``--libbtbb-ref`` build a different libbtbb; an older libbtbb, upstream's included, may need CMake options this guide does not pass.
 
+The Ubertooth tools' own configure step checks the libbtbb it finds for the functions they call, and refuses one that is missing any of them, naming them and the commit above. So if you built the tools once and come back to them later, you may need to rebuild libbtbb at the commit the tree now asks for before the tools will configure.
+
 
 
 Ubertooth Tools

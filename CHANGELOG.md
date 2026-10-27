@@ -219,6 +219,11 @@
   no `-DCMAKE_POLICY_VERSION_MINIMUM=3.5`; `install.sh --libbtbb-url`/`--libbtbb-ref`
   build a different one.
   [#320](https://github.com/SqueakyFloors/ubertooth/issues/320)
+- The configure step refuses an installed libbtbb that is missing functions the
+  host tools call, naming them and the commit to rebuild libbtbb at, instead of
+  letting the build reach the compiler and fail with `call to undeclared
+  function`.
+  [#585](https://github.com/SqueakyFloors/ubertooth/issues/585)
 - The host builds again on Ubuntu 20.04, this fork's declared minimum, where
   glibc still keeps the pthread calls out of libc: the libubertooth targets
   link pthread, so linking the library no longer leaves `pthread_create`

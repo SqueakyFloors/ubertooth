@@ -53,7 +53,7 @@ Next the Bluetooth baseband library (libbtbb) needs to be built for the Ubertoot
 		make
 		sudo make install
 
-This is this project's libbtbb fork, at the commit the Ubertooth tools are built and tested against; see :doc:`build_guide`.
+This is this project's libbtbb fork, at the commit the Ubertooth tools are built and tested against; see :doc:`build_guide`. The tools' configure step refuses a libbtbb that is missing a function they call, and names the commit to rebuild it at, so an older one fails there rather than part way through the build.
 
 **Linux users**: if you are installing for the first time, or you receive errors about finding the library, you should run:
 
