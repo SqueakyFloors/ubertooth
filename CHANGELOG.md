@@ -225,6 +225,12 @@
   a channel of its own.
   [#261](https://github.com/SqueakyFloors/ubertooth/issues/261)
   [#312](https://github.com/SqueakyFloors/ubertooth/issues/312)
+- `ubertooth-rx` and `ubertooth-scan` sweep the whole band on a board that a
+  killed `ubertooth-afh` or `ubertooth-follow` left capturing. They ask for the
+  capture first and state the sweep after it, where the mode start used to
+  forget a sweep stated before it: the capture sat on one channel with nothing
+  said, and the AFH map `ubertooth-scan` printed meant nothing.
+  [#490](https://github.com/SqueakyFloors/ubertooth/issues/490)
 - `ubertooth-follow` hops with the piconet when it starts on a board that was
   still in another mode, such as a spectrum scan that was never stopped. It
   used to sit on one channel and follow nothing. The same went for a transmit

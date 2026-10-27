@@ -118,6 +118,25 @@ Miscellaneous:
    select an Ubertooth by enumeration index or serial number; see
    ubertooth(7), SELECTING A DEVICE
 
+## HOW THE CHANNEL IS SET
+
+The capture is asked for first and the channel, or the band sweep that is the
+default, is stated to the board after it. A mode start resets the board's hop
+mode, so a sweep stated before the capture request was thrown away and the
+capture sat on one channel without saying so. See ubertooth-util(1),
+CARRY-OVER BETWEEN RUNS.
+
+A board that was already capturing — what a killed `ubertooth-afh` or
+`ubertooth-follow` leaves behind — does that reset while it takes the capture
+request, so the sweep stated after it survives. A board left in a mode that
+captures nothing, a spectrum scan say, resets as it leaves that mode, a moment
+after the capture request has been answered, and can still swallow the sweep:
+stop such a board with `ubertooth-util -S` before capturing.
+
+The board stays on whatever it was tuned to until the request arrives and the
+next hop acts on it, which takes up to 40 ms. Packets captured in that window
+are reported on the channel they were captured on, as every packet is.
+
 ## DISCOVERING UNDISCOVERABLE DEVICES
 
 Classic Bluetooth piconets are defined by the Lower Address Part (LAP)
@@ -259,22 +278,29 @@ ubertooth(7) describes rather than that error. A `-z` survey still prints the
 results it did get.
 
 A board that refuses the channel request, or the address request `-l` and `-u`
-together name, exits 1 as well, and the capture does not start, so a board
-that will not leave the channel it is on cannot be mistaken for one that is
-sweeping. Standard output stays empty. Standard error names the request, why
+together name, exits 1 as well, and nothing is captured, so a board that will
+not leave the channel it is on cannot be mistaken for one that is sweeping.
+The channel request is sent once the capture has been asked for (see HOW THE
+CHANNEL IS SET), so a board that refuses it has the capture stopped and is
+given back. Standard output stays empty. Standard error names the request, why
 the board refused it and the libusb code, and adds a note where there is
 something to try:
 
     error: could not set the channel: the board did not answer in time (libusb -7)
     note: if a mode is running, stop it with ubertooth-util -S; if the board does not answer at all, re-plug it
 
-That pair is the whole report: the request named as `set sweep mode` without
-`-c`, since the command then asks for the sweep across the whole band rather
-than for a channel, and as `set the Bluetooth address` for the address
-request. A request the board stalls (`libusb -9`) reads `the board does not
-support this command (stalled)` and carries no note, there being nothing to
-try. A board that took only part of the address gives the counts instead, as
-`error: Bluetooth address write failed: board took 8 of 16 bytes`.
+That pair is the report: the request named as `set sweep mode` without `-c`,
+since the command then asks for the sweep across the whole band rather than
+for a channel, and as `set the Bluetooth address` for the address request. A
+request the board stalls (`libusb -9`) reads `the board does not support this
+command (stalled)` and carries no note, there being nothing to try. A board
+that took only part of the address gives the counts instead, as `error:
+Bluetooth address write failed: board took 8 of 16 bytes`.
+
+A refused channel request is answered with the capture already running (see
+HOW THE CHANNEL IS SET), so the mode is stopped on the way out. A board that
+has stopped answering altogether can add a line of its own to the report as
+that is done.
 
 ## SEE ALSO
 

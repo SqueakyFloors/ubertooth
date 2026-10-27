@@ -79,6 +79,25 @@ static int request_failed(ubertooth_t* ut, const char* what, int code)
 	return 1;
 }
 
+/* The same report for a request refused once the capture is already running.
+ * The mode is stopped and the board given back, so a board the user has to
+ * rescue is not left streaming with settings they did not ask for.
+ *
+ * Unlike request_failed() above, which says nothing to a board that has not
+ * answered, this does send the STOP, and a board that has stopped answering
+ * can make it print a line of its own. A mode left running is worse than a
+ * second line in the report. Both man pages say so.
+ *
+ * The poll thread is running by now and nothing else joins it:
+ * ubertooth_stop() frees the libusb context it polls. */
+static int capture_failed(ubertooth_t* ut, const char* what, int code)
+{
+	report_refused_request(what, code);
+	ubertooth_bulk_thread_stop();
+	ubertooth_stop(ut);
+	return 1;
+}
+
 int main(int argc, char* argv[])
 {
 	int opt, have_lap = 0, have_uap = 0;
@@ -312,14 +331,6 @@ int main(int argc, char* argv[])
 	}
 
 	if (infile == NULL) {
-		/* A board that refused this would capture on whatever channel
-		 * it was left on, and say nothing about it, so the capture does
-		 * not start. */
-		r = cmd_set_channel_quiet(ut->devh, channel);
-		if (r < 0)
-			return request_failed(ut, have_channel ? "set the channel"
-			                                       : "set sweep mode", r);
-
 		/* Clean up on exit. */
 		register_cleanup_handler(ut, 0);
 
@@ -352,6 +363,35 @@ int main(int argc, char* argv[])
 			ubertooth_stop(ut);
 			return r;
 		}
+
+		/* Tell the board how to tune for this capture after asking for
+		 * the capture, not before. Starting a mode puts the board's hop
+		 * mode back to "no hopping", so a sweep stated first is thrown
+		 * away: the capture then ran on one channel while the user had
+		 * asked for the whole band, and nothing said so.
+		 *
+		 * A board already capturing symbols -- what a killed
+		 * ubertooth-afh or ubertooth-follow leaves behind -- does that
+		 * reset while it takes the request above, so a sweep stated
+		 * here survives it. A board left in a mode that captures
+		 * nothing, a spectrum scan say, resets a moment later instead,
+		 * as it leaves that mode, and can still swallow this request;
+		 * the board has to say when its mode has started before the
+		 * host can close that gap.
+		 *
+		 * The board stays on whatever it was tuned to until this
+		 * request arrives and the next hop acts on it, which takes up
+		 * to 40 ms. Blocks captured in that window carry the channel
+		 * they were captured on, as every block does, so they are
+		 * reported for what they are rather than mislabelled.
+		 *
+		 * A board that refused this would capture on a channel the user
+		 * did not ask for and say nothing about it, so the run ends
+		 * instead. */
+		r = cmd_set_channel_quiet(ut->devh, channel);
+		if (r < 0)
+			return capture_failed(ut, have_channel ? "set the channel"
+			                                       : "set sweep mode", r);
 
 		// receive and process each packet
 		while(!ubertooth_stopping(ut)) {

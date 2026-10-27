@@ -8,9 +8,9 @@
  * faked receive ends the capture loop on its first turn, so no case waits on a
  * board.
  *
- * BlueZ itself is only faked as far as finding and opening a local adapter,
- * which every run does before it reaches the Ubertooth: no case lets the tool
- * reach an inquiry, so no case needs a Bluetooth adapter on the machine
+ * BlueZ itself is faked as far as finding and opening a local adapter, which
+ * every run does before it reaches the Ubertooth, and the inquiry -s asks for,
+ * which finds nothing: no case needs a Bluetooth adapter on the machine
  * running the tests.
  */
 #include <errno.h>
@@ -40,6 +40,13 @@ static struct {
 	int stops;
 	int registrations;   /* register_cleanup_handler() */
 	int receives;        /* turns of the capture loop */
+	int inquiries;       /* BlueZ inquiries the run ran */
+	/* Returned by the three calls that set the capture up, so that each
+	 * failure path can be run: the transfer, the poll thread, the request
+	 * that starts the capture. */
+	int bulk_init_rc;
+	int thread_start_rc;
+	int rx_syms_rc;
 	char adapter[16];    /* the adapter name -b asked for */
 	int dev_fd;          /* the adapter handle the tool was given */
 	int dev_fd_closed;   /* whether the run gave it back */
@@ -90,6 +97,21 @@ int hci_open_dev(int dev_id)
 	return fake.dev_fd;
 }
 
+/* The inquiry -s runs, faked so that no case needs a Bluetooth adapter: it
+ * finds nothing, which is all this file asks of it. */
+int hci_inquiry(int dev_id, int len, int num_rsp, const uint8_t* lap,
+                inquiry_info** ii, long flags)
+{
+	(void)dev_id;
+	(void)len;
+	(void)num_rsp;
+	(void)lap;
+	(void)ii;
+	(void)flags;
+	fake.inquiries++;
+	return 0;
+}
+
 /* ---- faked Ubertooth ---------------------------------------------------- */
 
 ubertooth_t* ubertooth_start_select(const char* u_arg)
@@ -132,13 +154,11 @@ int cmd_set_channel_quiet(struct libusb_device_handle* devh, u16 channel)
 	return fake.channel_rc;
 }
 
-/* No case here refuses this request: what the tool does with a refused one is
- * its exit status, which has its own fix. */
 int cmd_rx_syms(struct libusb_device_handle* devh)
 {
 	(void)devh;
 	record('s');
-	return 0;
+	return fake.rx_syms_rc;
 }
 
 /* The real one folds the signal handler's own flag into the handle; the
@@ -164,12 +184,12 @@ void ubertooth_set_timeout(ubertooth_t* ut, int seconds)
 int ubertooth_bulk_init(ubertooth_t* ut)
 {
 	(void)ut;
-	return 0;
+	return fake.bulk_init_rc;
 }
 
 int ubertooth_bulk_thread_start()
 {
-	return 0;
+	return fake.thread_start_rc;
 }
 
 void ubertooth_bulk_thread_stop()
@@ -271,9 +291,14 @@ static struct run_result run_scan(const char* const* args)
 
 /* ---- tests -------------------------------------------------------------- */
 
-/* The scan the board took: one setup request, carrying a channel above the
- * band so the board sweeps, then the capture, then the results. Nothing goes
- * to standard error. */
+/* The scan the board took: the capture is asked for, then the sweep is stated
+ * with a channel above the band, then the results. Nothing goes to standard
+ * error.
+ *
+ * The order is the point. Stating the sweep first lost it whenever a mode was
+ * already running, because a mode start puts the board's hop mode back to "no
+ * hopping" -- so a scan after a killed tool listened to one channel and
+ * printed an AFH map that means nothing. */
 MU_TEST(a_scan_the_board_took_sweeps_and_exits_0)
 {
 	struct run_result r;
@@ -281,7 +306,7 @@ MU_TEST(a_scan_the_board_took_sweeps_and_exits_0)
 	reset_fake();
 	r = RUN("-t", "5");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(fake.calls, "cs") == 0, fake.calls);
+	mu_assert(strcmp(fake.calls, "sc") == 0, fake.calls);
 	mu_assert_int_eq(9999, fake.last_channel);
 	mu_assert_int_eq(5, fake.timeout);
 	mu_assert_int_eq(1, fake.registrations);
@@ -318,14 +343,17 @@ MU_TEST(a_refused_sweep_is_named_and_exits_1)
 	fake.channel_rc = -9; /* LIBUSB_ERROR_PIPE, how a board refuses one */
 	r = RUN("-t", "5");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(fake.calls, "c") == 0, fake.calls);
+	mu_assert(strcmp(fake.calls, "sc") == 0, fake.calls);
+	/* The capture had started, so it is stopped, which gives the board
+	 * back; the loop that would have gathered the results is never
+	 * reached. */
 	mu_assert_int_eq(0, fake.receives);
-	mu_assert_int_eq(0, fake.registrations);
-	/* Given back, and without a STOP: no mode had started, and a STOP to a
-	 * board that is not answering would add a second failure. */
-	mu_assert_int_eq(1, fake.closes);
-	mu_assert_int_eq(0, fake.stops);
+	mu_assert_int_eq(1, fake.stops);
+	mu_assert_int_eq(0, fake.closes);
 	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
+	/* Standard output stays empty: the heading the Ubertooth results go
+	 * under is printed once the board is sweeping, so a run that gathers no
+	 * results does not leave a heading over nothing. */
 	mu_assert(r.out[0] == '\0', r.out);
 	mu_assert(strcmp(r.err, STALLED) == 0, r.err);
 
@@ -348,9 +376,12 @@ MU_TEST(a_refused_sweep_is_named_and_exits_1)
 	          "error: could not set sweep mode (libusb -5)\n") == 0, r.err);
 }
 
-/* The sweep is set before either scan starts, so a refused sweep also leaves
- * the BlueZ inquiry of -s unrun: the tool reports nothing it did not gather. */
-MU_TEST(a_refused_sweep_leaves_the_bluez_scan_unrun)
+/* The sweep is now stated after the capture has been asked for, which is after
+ * the BlueZ inquiry of -s has run. A refused sweep therefore ends a scan that
+ * has already printed what BlueZ found: that half needs no Ubertooth, and what
+ * it reported is what it saw. The Ubertooth half still gathers nothing, and
+ * does not print its heading. */
+MU_TEST(a_refused_sweep_keeps_the_bluez_results)
 {
 	struct run_result r;
 
@@ -358,9 +389,50 @@ MU_TEST(a_refused_sweep_leaves_the_bluez_scan_unrun)
 	fake.channel_rc = -9;
 	r = RUN("-s", "-t", "5");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(r.out[0] == '\0', r.out);
-	mu_assert(strstr(r.out, "HCI scan") == NULL, r.out);
+	mu_assert_int_eq(1, fake.inquiries);
+	mu_assert(strstr(r.out, "HCI scan") != NULL, r.out);
+	mu_assert(strstr(r.out, "Ubertooth scan") == NULL, r.out);
+	mu_assert(strstr(r.out, "Scan results:") == NULL, r.out);
+	mu_assert_int_eq(0, fake.receives);
 	mu_assert(strcmp(r.err, STALLED) == 0, r.err);
+}
+
+/* Each of the three steps that set the capture up can fail, and each gives
+ * back both the board and the BlueZ adapter handle this tool holds alongside
+ * it. The handle is the one easily forgotten: the scan opens it before it
+ * touches the Ubertooth at all. */
+MU_TEST(a_capture_that_cannot_be_set_up_gives_everything_back)
+{
+	static const struct {
+		const char* calls;   /* the requests made before the failure */
+		int bulk_init_rc;
+		int thread_start_rc;
+		int rx_syms_rc;
+	} cases[] = {
+		{ "",  -1,  0,  0 },
+		{ "",   0, -1,  0 },
+		{ "s",  0,  0, -9 },
+	};
+	struct run_result r;
+	size_t i;
+
+	for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+		reset_fake();
+		fake.bulk_init_rc = cases[i].bulk_init_rc;
+		fake.thread_start_rc = cases[i].thread_start_rc;
+		fake.rx_syms_rc = cases[i].rx_syms_rc;
+		r = RUN("-t", "5");
+		mu_assert(r.rc != 0, "the run failed");
+		mu_assert(strcmp(fake.calls, cases[i].calls) == 0, fake.calls);
+		/* No sweep was stated, and no results were gathered. */
+		mu_assert_int_eq(0, fake.receives);
+		/* The board goes back with a STOP, since a mode may be
+		 * running by the time any of these fail. */
+		mu_assert_int_eq(1, fake.stops);
+		mu_assert_int_eq(0, fake.closes);
+		mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
+		mu_assert(r.out[0] == '\0', r.out);
+	}
 }
 
 /* A board that cannot be opened, and a firmware the host will not drive, each
@@ -419,7 +491,8 @@ int main(void)
 	 * rather than a silently real one. */
 	MU_RUN(a_scan_the_board_took_sweeps_and_exits_0);
 	MU_RUN(a_refused_sweep_is_named_and_exits_1);
-	MU_RUN(a_refused_sweep_leaves_the_bluez_scan_unrun);
+	MU_RUN(a_refused_sweep_keeps_the_bluez_results);
+	MU_RUN(a_capture_that_cannot_be_set_up_gives_everything_back);
 	MU_RUN(a_board_or_firmware_the_tool_cannot_use_exits_1);
 	MU_RUN(help_exits_0_on_standard_output);
 	return mu_report();

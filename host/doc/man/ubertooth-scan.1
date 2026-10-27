@@ -55,7 +55,7 @@ A scan that ran to its \fB\-t\fR timeout, or that was interrupted (Ctrl\-C), exi
 .P
 A scan whose USB stream fails part\-way also exits 1: the board stopped answering, or dropped off the bus, so the Ubertooth half of the scan stops there\. The results it did get are still printed, and the failure is reported on standard error as it happens, as \fBerror: receive transfer failed: <reason>\fR\. A board that never hands the transfer back at all exits 1 too, reported by the \fBwarning:\fR line ubertooth(7) describes rather than that error\.
 .P
-A board that refuses the request that puts it in sweep mode exits 1 as well\. Standard output stays empty\. Standard error names the request, why the board refused it and the libusb code, and adds a note where there is something to try:
+A board that refuses the request that puts it in sweep mode exits 1 as well\. Standard output holds whatever a \fB\-s\fR inquiry printed before that and nothing else, not even the heading the Ubertooth results would have gone under\. Standard error names the request, why the board refused it and the libusb code, and adds a note where there is something to try:
 .IP "" 4
 .nf
 error: could not set sweep mode: the board did not answer in time (libusb \-7)
@@ -63,7 +63,11 @@ note: if a mode is running, stop it with ubertooth\-util \-S; if the board does 
 .fi
 .IP "" 0
 .P
-That pair is the whole report\. A request the board stalls (\fBlibusb \-9\fR) reads \fBthe board does not support this command (stalled)\fR and carries no note, there being nothing to try\. The AFH map this tool prints is only meaningful while the board sweeps the whole band, so neither the BlueZ inquiry nor the Ubertooth scan starts after that\.
+That pair is the report\. A request the board stalls (\fBlibusb \-9\fR) reads \fBthe board does not support this command (stalled)\fR and carries no note, there being nothing to try\. The AFH map this tool prints is only meaningful while the board sweeps the whole band, so no scan results are printed after that\. The sweep is refused with the capture already running, so the mode is stopped on the way out, and a board that has stopped answering altogether can add a line of its own to the report as that is done\.
+.P
+The sweep is stated to the board after the capture has been asked for, because a mode start resets the board's hop mode and would throw away a sweep stated before it: without that, a scan listened to one channel and printed a map that meant nothing\. See ubertooth\-util(1), CARRY\-OVER BETWEEN RUNS\. A board that was already capturing \(em what a killed \fBubertooth\-afh\fR or \fBubertooth\-follow\fR leaves behind \(em does that reset while it takes the capture request, so the sweep stated after it survives\. A board left in a mode that captures nothing, a spectrum scan say, resets as it leaves that mode, a moment after the capture request has been answered, and can still swallow the sweep: stop such a board with \fBubertooth\-util \-S\fR before scanning\.
+.P
+A BlueZ inquiry asked for with \fB\-s\fR runs before the sweep is stated, so its results are printed even when the sweep is then refused: that half of the scan needs no Ubertooth, and what it reported is what it saw\.
 .SH "SEE ALSO"
 ubertooth\-util(1): sets the receive squelch (\fB\-z\fR); SQUELCH describes how long it lasts
 .P
