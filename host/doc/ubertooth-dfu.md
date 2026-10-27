@@ -70,7 +70,9 @@ refused there, before the board is asked for DFU:
 
     error: too-big.dfu needs 114944 bytes of flash; part 0x25011722 (LPC1754) has 114688 above the bootloader; firmware will not be updated
 
-An image that fits says so, in the same terms as the read-back:
+An image that fits says so, in the same terms as the read-back (progress, so
+on standard error, like every line quoted in this page except the one under
+[EXIT STATUS][]):
 
     The image needs 31488 bytes, 0x4000-0xbaff: part 0x25011722 (LPC1754) has 128 KiB of flash
 
@@ -89,7 +91,8 @@ says `ERRADDRESS` for the blocks above it; older bootloaders have no upper
 bound and instead ask the microcontroller's programming interface to erase and
 program a sector the part does not have, which fails. Either way everything
 sent before that point is already written, and all this tool sees of the
-refusal is the stall, which it reports as `control message unsupported`: the
+refusal is the stall, which it reports as
+`error: control message unsupported`: the
 board is left running an application missing its tail, after a message that
 says nothing about flash sizes. It is the same cause as the read-back bound:
 asking for flash the part has not got.
@@ -208,8 +211,9 @@ DFU suffix, so `-d` refuses the result. The dump holds the image that was
 written (its own suffix included, padded with 0xff to the next 256-byte
 block), followed by whatever the rest of the region contains, normally 0xff.
 
-How long that is depends on the part, which differs between boards, so the command
-says what it is about to read:
+How long that is depends on the part, which differs between boards, so the
+command says what it is about to read, on standard error with the rest of its
+progress:
 
     Reading back 114688 bytes, 0x4000-0x1ffff: part 0x25011722 (LPC1754) has 128 KiB of flash
 
@@ -312,6 +316,56 @@ read, the `-d` image and the `-s` input, are opened and checked first, since
 they are the last things that can refuse the command; neither output file is
 created until they have passed. Whether `-s` was given a `.bin` is a check on
 the name, so it is still reported alongside `-h`.
+
+## EXIT STATUS
+
+0 when the command did what was asked, including `-h`: the image written and,
+with `-r`, verified on the board that came back; the dump complete and in
+place; the signed `<file>.dfu` written; the board out of the bootloader.
+
+1 for everything else, and there is no other status. That covers a command
+line the tool will not take or that has nothing to do, a file it cannot read
+or create, an image it refuses, a selected board that is missing or that
+something else is using, a bootloader that will not answer or will not become
+idle, a transfer that failed both its attempts, a reset that left the board in
+DFU, and a revision after the reset that is not the image's.
+
+## DIAGNOSTICS
+
+Standard output carries the usage text for `-h`, and otherwise one line, from
+`-d <image> -r` alone:
+
+    Verified firmware revision: git-2671234
+
+That is the revision the board reported once it was running the new firmware,
+which is the only thing this command reads back, so it is the result and a
+script can read it on its own. Nothing else is ever written to standard
+output: the dump of `-u` goes to the file it names, and the signed image of
+`-s` to `<file>.dfu`, and a run that only writes firmware or resets the board
+says nothing there at all.
+
+Everything else is on standard error, so a script reading that one line is not
+fed the progress of a flash that takes a few seconds:
+
+    DFU expected revision: git-2671234
+    Checking firmware signature
+    Switching selected device to DFU mode...
+    The image needs 31488 bytes, 0x4000-0xbaff: part 0x25011722 (LPC1754) has 128 KiB of flash
+    ........................................
+    Detached
+
+`-u` prints `Reading back <n> bytes, ...` there in the same way, with one dot
+per 256-byte block read, and `DFU +<seconds>s: <stage>` lines trace what the
+command spent its time on.
+
+The errors this tool prints itself are one line each beginning `error: `, for
+example `error: detach failed: the board is still in DFU`,
+`error: upload failed: block 164 was not read`,
+`error: firmware update failed after 2 attempt(s): ...` and
+`error: control message unsupported`; the lines about a part this host cannot
+identify begin `warning: `. Lines from elsewhere do not follow that yet: the
+libusb status reports (`libUSB Error: ...`) and the libubertooth messages that
+have not been converted, such as `could not open Ubertooth device`.
 
 ## SEE ALSO
 

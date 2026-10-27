@@ -441,6 +441,15 @@ def check(case, result, created):
             complain("did not get past argument checking: %r" % stderr[:240])
         if usage_text(stderr):
             complain("printed the usage text")
+        # A command line the tool accepted still ends in a failure here, and
+        # that failure is the tool's own line. Where the spec names it, it has
+        # to be among the "error: " lines, not an unprefixed line beside them:
+        # that is how a tool whose device-side failures do not carry the
+        # prefix is caught, which the refusal cases cannot reach.
+        if case.contains is not None and \
+                not any(case.contains in line for line in error_lines(stderr)):
+            complain("no 'error: ' line contains %r: %r"
+                     % (case.contains, stderr[:240]))
 
     elif case.verdict == "count_only":
         if status != 0:

@@ -285,7 +285,13 @@
          "source": "ubertooth-dfu.md: an input it cannot read is refused"},
         {"args": ["-d", "IMAGE.dfu"], "verdict": "refused",
          "error_contains": "DFU suffix",
-         "source": "ubertooth-dfu.md: the whole image is checked before a device is opened, so a file that is not a DFU image ends the command there, naming what it could not read"}
+         "source": "ubertooth-dfu.md: the whole image is checked before a device is opened, so a file that is not a DFU image ends the command there, naming what it could not read"},
+        {"args": ["-r"], "verdict": "device",
+         "error_contains": "error: unable to open selected application device",
+         "source": "ubertooth-dfu.md DIAGNOSTICS: a command line this tool took still fails on a board it cannot open, and the failure it reports itself is one 'error: ' line"},
+        {"args": ["-u", "OUT.bin"], "verdict": "device",
+         "error_contains": "error: unable to open selected application device",
+         "source": "ubertooth-dfu.md DIAGNOSTICS: as for -r; the read-back reaches the same failure, and standard output stays empty"}
       ],
       "pair_rules": [
         {"a": "-d", "b": "any", "verdict": "refused", "error_contains": "DFU suffix",

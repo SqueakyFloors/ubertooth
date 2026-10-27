@@ -61,6 +61,7 @@ static struct {
 	int upload_fail_rc;
 	int upload_fail_once;   /* ...and then reads normally */
 	int dnload_calls;
+	int dnload_rc;          /* < 0: every block write fails with this */
 	int detach_calls;
 	int detach_rc;
 	int detach_resets;      /* the bootloader acts on REQ_DETACH and resets */
@@ -257,6 +258,8 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle *devh,
 		mu_assert(value >= FIRST_BLOCK,
 		          "DNLOAD wrote a block inside the bootloader");
 		fake.dnload_calls++;
+		if (fake.dnload_rc < 0)
+			return fake.dnload_rc;
 		return length;
 	case REQ_GETSTATUS:
 		fake.getstatus_calls++;
@@ -370,8 +373,10 @@ int cmd_get_firmware_revision(struct libusb_device_handle *devh, char *revision,
 
 struct run_result {
 	int rc;
-	char out[8192];
-	char err[4096];
+	char out[4096];
+	/* Holds a read-back: one dot per 256-byte block, so a 256 KiB part
+	 * is 960 of them, plus the stage trace around them. */
+	char err[16384];
 };
 
 static char dump_path[512];
@@ -457,6 +462,24 @@ static struct run_result run_dfu(const char *const *args)
 }
 
 #define RUN(...) run_dfu((const char *const[]){ "ubertooth-dfu", __VA_ARGS__, NULL })
+
+/* How many lines of a capture start with "error: ". Every failure this tool
+ * reports itself is one of those, so a run that failed has at least one and a
+ * run that worked has none. */
+static int error_lines(const char *text)
+{
+	const char *line = text;
+	int count = 0;
+
+	while (line != NULL && *line != '\0') {
+		if (strncmp(line, "error: ", 7) == 0)
+			count++;
+		line = strchr(line, '\n');
+		if (line != NULL)
+			line++;
+	}
+	return count;
+}
 
 /* The whole dump, compared with the region it came from. Returns its length,
  * or -1 when the file is not there. */
@@ -550,7 +573,8 @@ static void write_image_with(const char *path, const char *image_name,
 			exit(1);
 		}
 	}
-	if (sign(payload_file, image, U1_DFU_VENDORID, U1_DFU_PRODUCTID) != 0) {
+	if (sign("the test payload", payload_file, path, image,
+	         U1_DFU_VENDORID, U1_DFU_PRODUCTID) != 0) {
 		fprintf(stderr, "cannot sign the test image\n");
 		exit(1);
 	}
@@ -618,7 +642,7 @@ MU_TEST(a_read_back_with_reset_writes_the_dump_and_detaches)
 	mu_assert_int_eq(DUMP_LENGTH, dump_length_and_content(&content_ok));
 	mu_assert(content_ok, "the dump is not the region it read");
 	mu_assert_int_eq(1, fake.detach_calls);
-	mu_assert(strstr(r.out, "Detached\n") != NULL, "the detach was not reported");
+	mu_assert(strstr(r.err, "Detached\n") != NULL, "the detach was not reported");
 	remove_dump();
 }
 
@@ -637,7 +661,7 @@ MU_TEST(a_bootloader_that_never_reports_its_state_ends_the_read_back)
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strstr(r.err, "did not report its state") != NULL,
 	          "the failure does not say the state could not be read");
-	mu_assert(strstr(r.err, "Firmware upload failed after 2 attempt(s)") != NULL,
+	mu_assert(strstr(r.err, "error: firmware upload failed after 2 attempt(s)") != NULL,
 	          "the read-back failure was not reported");
 	/* Bounded: the two read-back attempts and the two detach attempts ask
 	 * once each, instead of until the user kills the command. */
@@ -655,7 +679,7 @@ MU_TEST(a_bootloader_that_never_reports_its_state_ends_a_bare_reset)
 	fake.get_state_rc = LIBUSB_ERROR_TIMEOUT;
 	r = RUN("-r");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strstr(r.err, "Detach failed: could not enter DFU mode") != NULL,
+	mu_assert(strstr(r.err, "error: detach failed: could not enter DFU mode") != NULL,
 	          "the detach failure was not reported");
 	mu_assert_int_eq(0, fake.detach_calls);
 	/* The detach, and cleanup's one further try with the same handle. */
@@ -709,9 +733,9 @@ MU_TEST(a_read_back_failing_part_way_still_detaches_with_reset)
 	/* The libusb status is reported, but the exit status is 1, not the
 	 * truncated negative code the original failure returned. */
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strstr(r.err, "Firmware upload failed after 2 attempt(s)") != NULL,
+	mu_assert(strstr(r.err, "error: firmware upload failed after 2 attempt(s)") != NULL,
 	          "the read-back failure was not reported");
-	mu_assert(strstr(r.err, "Upload failed: block 164 was not read") != NULL,
+	mu_assert(strstr(r.err, "error: upload failed: block 164 was not read") != NULL,
 	          "the failing block was not named");
 	/* -r was given, so the board is still returned to its application. */
 	mu_assert_int_eq(1, fake.detach_calls);
@@ -773,7 +797,7 @@ MU_TEST(a_refused_detach_fails_the_command)
 	fake.detach_resets = 0;
 	r = RUN("-u", dump_path, "-r");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strstr(r.err, "Detach failed: the board is still in DFU") != NULL,
+	mu_assert(strstr(r.err, "error: detach failed: the board is still in DFU") != NULL,
 	          "the refused detach was not reported");
 	/* The dump itself arrived, so it is kept. */
 	mu_assert_int_eq(DUMP_LENGTH, dump_length_and_content(&content_ok));
@@ -800,9 +824,9 @@ static void assert_flash_passed(struct run_result *r)
 {
 	mu_assert_int_eq(0, r->rc);
 	mu_assert_int_eq(IMAGE_BLOCKS, fake.dnload_calls);
-	mu_assert(strstr(r->out, "Detached\n") != NULL,
+	mu_assert(strstr(r->err, "Detached\n") != NULL,
 	          "the detach was not reported");
-	mu_assert(strstr(r->err, "Verified firmware revision: " IMAGE_REVISION)
+	mu_assert(strstr(r->out, "Verified firmware revision: " IMAGE_REVISION)
 	          != NULL, "the flashed revision was not verified");
 	/* Read out of the image's firmware info block, not searched for, and a
 	 * note about the run, so on standard error. */
@@ -866,9 +890,9 @@ MU_TEST(a_failed_detach_with_the_dfu_device_still_there_fails_the_command)
 	snprintf(fake.revision, sizeof(fake.revision), "%s", IMAGE_REVISION);
 	r = RUN("-d", image_path, "-r");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strstr(r.err, "Detach failed: the board is still in DFU") != NULL,
+	mu_assert(strstr(r.err, "error: detach failed: the board is still in DFU") != NULL,
 	          "a board left in DFU was not reported");
-	mu_assert(strstr(r.err, "Verified firmware revision") == NULL,
+	mu_assert(strstr(r.out, "Verified firmware revision") == NULL,
 	          "a board still in DFU was reported as verified");
 	mu_assert_int_eq(0, fake.revision_calls);
 	/* Cleanup still tries once more to get it out of the bootloader. */
@@ -886,7 +910,7 @@ MU_TEST(a_bare_reset_whose_detach_races_the_reset_passes)
 	r = RUN("-r");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert_int_eq(1, fake.detach_calls);
-	mu_assert(strstr(r.out, "Detached\n") != NULL,
+	mu_assert(strstr(r.err, "Detached\n") != NULL,
 	          "the detach was not reported");
 }
 
@@ -910,7 +934,7 @@ MU_TEST(a_detach_with_no_usb_path_says_it_could_not_tell)
 	mu_assert_int_eq(LIBUSB_ERROR_PIPE, r.rc);
 	mu_assert(strstr(r.err, "could not tell whether the board left DFU")
 	          != NULL, "the unanswerable detach was not reported");
-	mu_assert(strstr(r.out, "Detached\n") == NULL,
+	mu_assert(strstr(r.err, "Detached\n") == NULL,
 	          "a board that was not looked for was called detached");
 	mu_assert_int_eq(1, fake.detach_calls);
 }
@@ -929,9 +953,9 @@ MU_TEST(a_detach_that_is_accepted_and_ignored_fails_a_bare_reset)
 	fake.detach_resets = 0;
 	r = RUN("-r");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strstr(r.err, "Detach failed: the board is still in DFU") != NULL,
+	mu_assert(strstr(r.err, "error: detach failed: the board is still in DFU") != NULL,
 	          "a board left in DFU was not reported");
-	mu_assert(strstr(r.out, "Detached\n") == NULL,
+	mu_assert(strstr(r.err, "Detached\n") == NULL,
 	          "a board still in DFU was reported as detached");
 	/* Nothing failed, so nothing names a libusb status. */
 	mu_assert_int_eq(0, fake.libusb_errors);
@@ -951,7 +975,7 @@ MU_TEST(a_detach_that_is_accepted_and_ignored_fails_a_read_back)
 	fake.detach_resets = 0;
 	r = RUN("-u", dump_path, "-r");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strstr(r.err, "Detach failed: the board is still in DFU") != NULL,
+	mu_assert(strstr(r.err, "error: detach failed: the board is still in DFU") != NULL,
 	          "a board left in DFU was not reported");
 	mu_assert_int_eq(DUMP_LENGTH, dump_length_and_content(&content_ok));
 	mu_assert(content_ok, "the dump is not the region it read");
@@ -971,9 +995,9 @@ MU_TEST(a_detach_that_is_accepted_and_ignored_fails_before_verification)
 	r = RUN("-d", image_path, "-r");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert_int_eq(IMAGE_BLOCKS, fake.dnload_calls);
-	mu_assert(strstr(r.err, "Detach failed: the board is still in DFU") != NULL,
+	mu_assert(strstr(r.err, "error: detach failed: the board is still in DFU") != NULL,
 	          "a board left in DFU was not reported");
-	mu_assert(strstr(r.err, "Verified firmware revision") == NULL,
+	mu_assert(strstr(r.out, "Verified firmware revision") == NULL,
 	          "a board still in DFU was reported as verified");
 	mu_assert_int_eq(0, fake.revision_calls);
 }
@@ -1000,7 +1024,7 @@ MU_TEST(an_accepted_detach_with_no_usb_path_says_it_could_not_tell)
 	mu_assert_int_eq(LIBUSB_ERROR_INVALID_PARAM, r.rc);
 	mu_assert(strstr(r.err, "could not tell whether the board left DFU")
 	          != NULL, "the unanswerable detach was not reported");
-	mu_assert(strstr(r.out, "Detached\n") == NULL,
+	mu_assert(strstr(r.err, "Detached\n") == NULL,
 	          "a board that was not looked for was called detached");
 	mu_assert_int_eq(1, fake.detach_calls);
 }
@@ -1016,7 +1040,7 @@ MU_TEST(a_detach_race_followed_by_the_old_firmware_fails_the_command)
 	snprintf(fake.revision, sizeof(fake.revision), "git-0000000");
 	r = RUN("-d", image_path, "-r");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strstr(r.err, "Post-reset verification failed") != NULL,
+	mu_assert(strstr(r.err, "error: post-reset verification failed") != NULL,
 	          "the unchanged revision was not reported");
 	mu_assert_int_eq(1, fake.revision_calls);
 }
@@ -1066,9 +1090,9 @@ MU_TEST(a_board_already_in_dfu_reads_the_assumed_flash_only)
 	mu_assert_int_eq(DUMP_LENGTH, dump_length_and_content(&content_ok));
 	mu_assert(content_ok, "the dump is not the region it read");
 	mu_assert_int_eq(DUMP_LENGTH / BLOCK_SIZE, fake.upload_calls);
-	mu_assert(strstr(r.out, "Reading back 114688 bytes, 0x4000-0x1ffff: ")
+	mu_assert(strstr(r.err, "Reading back 114688 bytes, 0x4000-0x1ffff: ")
 	          != NULL, "the read-back did not say what it reads");
-	mu_assert(strstr(r.out, "the part could not be read") != NULL,
+	mu_assert(strstr(r.err, "the part could not be read") != NULL,
 	          "the read-back did not say why it assumed a size");
 	mu_assert_int_eq(0, fake.part_id_calls);
 	remove_dump();
@@ -1091,7 +1115,7 @@ MU_TEST(a_128_kib_part_is_read_to_the_end_of_its_flash)
 	mu_assert_int_eq(DUMP_LENGTH_FOR(128 * 1024),
 	                 dump_length_and_content(&content_ok));
 	mu_assert(content_ok, "the dump is not the region it read");
-	mu_assert(strstr(r.out,
+	mu_assert(strstr(r.err,
 	                 "Reading back 114688 bytes, 0x4000-0x1ffff: part "
 	                 "0x25011722 (LPC1754) has 128 KiB of flash") != NULL,
 	          "the part and its flash were not reported");
@@ -1115,7 +1139,7 @@ MU_TEST(a_256_kib_part_is_read_in_full)
 	mu_assert(content_ok, "the dump is not the region it read");
 	mu_assert_int_eq(DUMP_LENGTH_FOR(256 * 1024) / BLOCK_SIZE,
 	                 fake.upload_calls);
-	mu_assert(strstr(r.out,
+	mu_assert(strstr(r.err,
 	                 "Reading back 245760 bytes, 0x4000-0x3ffff: part "
 	                 "0x25011723 (LPC1756) has 256 KiB of flash") != NULL,
 	          "the part and its flash were not reported");
@@ -1135,7 +1159,7 @@ MU_TEST(an_unknown_part_id_falls_back_to_the_assumed_flash)
 	mu_assert_int_eq(0, r.rc);
 	mu_assert_int_eq(DUMP_LENGTH, dump_length_and_content(&content_ok));
 	mu_assert(content_ok, "the dump is not the region it read");
-	mu_assert(strstr(r.out, "part 0x12345678 is not known here") != NULL,
+	mu_assert(strstr(r.err, "part 0x12345678 is not known here") != NULL,
 	          "the unknown part ID was not reported");
 	remove_dump();
 }
@@ -1153,7 +1177,7 @@ MU_TEST(a_part_id_that_cannot_be_read_falls_back_to_the_assumed_flash)
 	mu_assert_int_eq(0, r.rc);
 	mu_assert_int_eq(DUMP_LENGTH, dump_length_and_content(&content_ok));
 	mu_assert(content_ok, "the dump is not the region it read");
-	mu_assert(strstr(r.out, "the part could not be read") != NULL,
+	mu_assert(strstr(r.err, "the part could not be read") != NULL,
 	          "the unreadable part ID was not reported");
 	remove_dump();
 }
@@ -1178,11 +1202,11 @@ MU_TEST(an_image_that_fills_the_part_is_written)
 	mu_assert_int_eq(0, r.rc);
 	mu_assert_int_eq(REGION_128K / BLOCK_SIZE, fake.dnload_calls);
 	mu_assert_int_eq(1, fake.part_id_calls);
-	mu_assert(strstr(r.out,
+	mu_assert(strstr(r.err,
 	                 "The image needs 114688 bytes, 0x4000-0x1ffff: part "
 	                 "0x25011722 (LPC1754) has 128 KiB of flash") != NULL,
 	          "the download did not say what flash it covers");
-	mu_assert(strstr(r.err, "Verified firmware revision: " IMAGE_REVISION)
+	mu_assert(strstr(r.out, "Verified firmware revision: " IMAGE_REVISION)
 	          != NULL, "the flashed revision was not verified");
 }
 
@@ -1293,7 +1317,7 @@ MU_TEST(an_image_too_large_for_one_part_fits_a_bigger_one)
 	r = RUN("-U", "0", "-d", sized_image_path, "-r");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert_int_eq((REGION_128K / BLOCK_SIZE) + 1, fake.dnload_calls);
-	mu_assert(strstr(r.out,
+	mu_assert(strstr(r.err,
 	                 "The image needs 114944 bytes, 0x4000-0x200ff: part "
 	                 "0x25011723 (LPC1756) has 256 KiB of flash") != NULL,
 	          "the download did not say what flash it covers");
@@ -1370,6 +1394,141 @@ MU_TEST(a_bare_reset_does_not_ask_for_the_part_id)
 	          "a reset reported something about the part ID");
 }
 
+/* ---- which stream each line is on ------------------------------------- */
+
+/* Standard output carries only what the user asked for. For a flash with a
+ * reset that is one line: the revision the board reports once it is running
+ * the new firmware, which is the only thing this command reads back. The
+ * programming trace -- the entry, what flash the image covers, a dot per
+ * block, the detach -- is progress, so it is on standard error. */
+MU_TEST(a_flash_with_reset_reports_the_revision_on_standard_output)
+{
+	struct run_result r;
+
+	board_in_application(PART_ID_128K, 128 * 1024);
+	snprintf(fake.revision, sizeof(fake.revision), "%s", IMAGE_REVISION);
+	r = RUN("-U", "0", "-d", image_path, "-r");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "Verified firmware revision: " IMAGE_REVISION "\n")
+	          == 0, r.out);
+	mu_assert(strstr(r.err, "Switching selected device to DFU mode...\n")
+	          != NULL, "the DFU entry was not reported on standard error");
+	mu_assert(strstr(r.err, "The image needs 1024 bytes, 0x4000-0x43ff: part "
+	                 "0x25011722 (LPC1754) has 128 KiB of flash") != NULL,
+	          "the flash the image covers was not reported on standard error");
+	mu_assert(strstr(r.err, "....\n") != NULL,
+	          "the programming dots were not on standard error");
+	mu_assert(strstr(r.err, "Detached\n") != NULL,
+	          "the detach was not reported on standard error");
+	mu_assert_int_eq(0, error_lines(r.err));
+}
+
+/* A read-back writes its dump to the file it was given, so nothing at all
+ * goes to standard output: not the line saying what it is about to read, and
+ * not the dots. */
+MU_TEST(a_read_back_says_nothing_on_standard_output)
+{
+	struct run_result r;
+	int content_ok;
+
+	board_in_application(PART_ID_128K, 128 * 1024);
+	remove_dump();
+	r = RUN("-U", "0", "-u", dump_path, "-r");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(DUMP_LENGTH_FOR(128 * 1024),
+	                 dump_length_and_content(&content_ok));
+	mu_assert(content_ok, "the dump is not the region it read");
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strstr(r.err, "Reading back 114688 bytes") != NULL,
+	          "the read-back plan was not on standard error");
+	mu_assert(strstr(r.err, "....\n") != NULL,
+	          "the read-back dots were not on standard error");
+	remove_dump();
+	mu_assert_int_eq(0, error_lines(r.err));
+}
+
+/* A reset only sets something, so it says nothing on standard output either. */
+MU_TEST(a_bare_reset_says_nothing_on_standard_output)
+{
+	struct run_result r;
+
+	board_in_application(PART_ID_256K, 256 * 1024);
+	r = RUN("-U", "0", "-r");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strstr(r.err, "Detached\n") != NULL,
+	          "the detach was not reported on standard error");
+}
+
+/* A programming transfer that fails: both attempts, the control-request
+ * failure under them and the line that gives up are all on standard error,
+ * each starting "error: ", and nothing is left on standard output. */
+MU_TEST(a_failed_flash_reports_errors_only_on_standard_error)
+{
+	struct run_result r;
+
+	board_in_application(PART_ID_128K, 128 * 1024);
+	fake.dnload_rc = LIBUSB_ERROR_PIPE;
+	snprintf(fake.revision, sizeof(fake.revision), "%s", IMAGE_REVISION);
+	r = RUN("-U", "0", "-d", image_path, "-r");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strstr(r.err, "error: control message unsupported\n") != NULL,
+	          "the refused block write was not reported as an error");
+	mu_assert(strstr(r.err, "error: firmware update failed after 2 "
+	                 "attempt(s)") != NULL,
+	          "giving up was not reported as an error");
+	/* -r still returns the board to its application, and that is progress. */
+	mu_assert(strstr(r.err, "Detached\n") != NULL,
+	          "the board was not returned to its application");
+}
+
+/* A block write that fails with anything other than a stall takes the other
+ * branch, where the status is named by libubertooth rather than by this tool.
+ * That line is still on standard error, standard output is still empty, and
+ * the line this tool prints to give up still begins "error: ". What it does
+ * not yet have is that prefix on the libubertooth line itself, which is the
+ * shared sink every tool goes through; converting it is #323's work, so this
+ * pins the stream and leaves the wording to that change. */
+MU_TEST(a_flash_failing_without_a_stall_still_keeps_standard_output_empty)
+{
+	struct run_result r;
+
+	board_in_application(PART_ID_128K, 128 * 1024);
+	fake.dnload_rc = LIBUSB_ERROR_IO;
+	snprintf(fake.revision, sizeof(fake.revision), "%s", IMAGE_REVISION);
+	r = RUN("-U", "0", "-d", image_path, "-r");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strstr(r.err, "control message unsupported") == NULL,
+	          "a plain transfer failure was reported as a stall");
+	mu_assert(strstr(r.err, "error: firmware update failed after 2 "
+	                 "attempt(s)") != NULL,
+	          "giving up was not reported as an error");
+	mu_assert(strstr(r.err, "Detached\n") != NULL,
+	          "the board was not returned to its application");
+}
+
+/* The bootloader not answering a state read, which is the other place
+ * "control message unsupported" comes from, ends the command the same way. */
+MU_TEST(a_bootloader_that_stalls_the_state_read_reports_one_error_per_line)
+{
+	struct run_result r;
+
+	board_in_dfu();
+	fake.get_state_rc = LIBUSB_ERROR_PIPE;
+	r = RUN("-r");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strstr(r.err, "error: control message unsupported\n") != NULL,
+	          "the stalled state read was not reported as an error");
+	mu_assert(strstr(r.err, "error: DFU gave up: the bootloader did not "
+	                 "report its state") != NULL,
+	          "giving up on the state read was not reported as an error");
+	mu_assert(strstr(r.err, "error: detach failed: could not enter DFU mode")
+	          != NULL, "the failed detach was not reported as an error");
+}
+
 int main(void)
 {
 	char directory[] = "/tmp/ubertooth-dfu-test.XXXXXX";
@@ -1429,6 +1588,12 @@ int main(void)
 	MU_RUN(a_part_that_cannot_be_read_warns_and_writes_the_image);
 	MU_RUN(a_board_already_in_dfu_warns_that_the_image_is_not_checked);
 	MU_RUN(a_bare_reset_does_not_ask_for_the_part_id);
+	MU_RUN(a_flash_with_reset_reports_the_revision_on_standard_output);
+	MU_RUN(a_read_back_says_nothing_on_standard_output);
+	MU_RUN(a_bare_reset_says_nothing_on_standard_output);
+	MU_RUN(a_failed_flash_reports_errors_only_on_standard_error);
+	MU_RUN(a_flash_failing_without_a_stall_still_keeps_standard_output_empty);
+	MU_RUN(a_bootloader_that_stalls_the_state_read_reports_one_error_per_line);
 
 	remove_dump();
 	unlink(image_path);
