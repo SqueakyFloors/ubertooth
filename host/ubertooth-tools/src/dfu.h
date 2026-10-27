@@ -57,8 +57,17 @@
 #define STATUS_ERR_UNKNOWN 0xE
 #define STATUS_ERR_STALLEDPKT 0xF
 
-#define U1_DFU_VENDORID    0x1d50
-#define U1_DFU_PRODUCTID   0x6003
+/* The bootloader's USB ids. Device selection needs them too, so that a board
+ * being flashed is not reported as a board that went away, and it has its own
+ * copy in libubertooth's ubertooth_control.h: that header declares libusb
+ * types, and this one has to compile without libusb, for the DFU tool's own
+ * sources and for the packaging check in tools/check-dfu-package.sh.
+ *
+ * Both copies reach ubertooth-dfu.c, which includes both headers, so changing
+ * one and not the other is a macro redefined with a different value: the
+ * compiler says so, and the two cannot drift apart in silence. */
+#define U1_DFU_VENDORID  0x1d50
+#define U1_DFU_PRODUCTID 0x6003
 
 /* A DFU 1.1 suffix carries idVendor/idProduct so a host can refuse firmware
  * meant for another device; 0xffff matches any device. */

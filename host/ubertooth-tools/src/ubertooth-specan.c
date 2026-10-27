@@ -376,8 +376,14 @@ int main(int argc, char *argv[])
 	}
 
 	r = ubertooth_check_api(ut);
-	if (r < 0)
+	if (r < 0) {
+		/* A refused version was released inside ubertooth_check_api(); one
+		 * it could not read at all leaves the board open. Closing covers
+		 * both, because closing a board already released does nothing. */
+		ubertooth_close(ut);
+		ubertooth_free(ut);
 		return 1;
+	}
 
 	/* The sweep as it will actually run, and where its samples go: the two
 	 * things a user comparing a specan run with what they asked for needs,
@@ -412,6 +418,7 @@ int main(int argc, char *argv[])
 	r = cmd_stop(ut->devh);
 	if (r < 0) {
 		ubertooth_stop(ut);
+		ubertooth_free(ut);
 		return 1;
 	}
 
@@ -419,6 +426,7 @@ int main(int argc, char *argv[])
 	r = ubertooth_bulk_init(ut);
 	if (r < 0) {
 		ubertooth_stop(ut);
+		ubertooth_free(ut);
 		return 1;
 	}
 
@@ -430,6 +438,7 @@ int main(int argc, char *argv[])
 		 * no samples arriving. */
 		report_capture_thread_failure(r);
 		ubertooth_stop(ut);
+		ubertooth_free(ut);
 		return 1;
 	}
 
@@ -438,6 +447,7 @@ int main(int argc, char *argv[])
 	if (r < 0) {
 		ubertooth_bulk_thread_stop();
 		ubertooth_stop(ut);
+		ubertooth_free(ut);
 		return 1;
 	}
 
@@ -465,6 +475,7 @@ int main(int argc, char *argv[])
 	 * the transfer can be what brings the failure out. libubertooth has
 	 * already printed what failed. */
 	stream_failed = ubertooth_stream_failed(ut);
+	ubertooth_free(ut);
 
 	fprintf(stderr, "Ubertooth stopped\n");
 	/* The samples a write accepted may still be sitting in a stdio buffer, so

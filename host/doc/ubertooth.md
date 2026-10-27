@@ -138,6 +138,15 @@ may be the board asked for:
 The remedy is by index there because a board whose serial could not be read
 cannot be selected by serial.
 
+A board in the DFU bootloader is named too, because it is not a board that
+went away: while it is being flashed it enumerates as the bootloader, which no
+tool but ubertooth-dfu(1) can open, so every selection finds nothing until the
+flash finishes. An interrupted flash leaves it there until the next one
+succeeds.
+
+    no Ubertooth found with serial matching '1cc'
+    note: a board is in the DFU bootloader, so no tool can open it: it is being flashed, or a flash left it there
+
 A board that cannot be *opened* at all is a different problem, usually file
 permissions: on Linux, install the udev rules shipped with this package (see
 ubertooth-util(1), SELECTING A DEVICE).

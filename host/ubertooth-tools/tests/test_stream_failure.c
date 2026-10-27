@@ -333,6 +333,9 @@ static ubertooth_t* new_handle(void)
 	if (ut == NULL)
 		return NULL;
 	ut->devh = (struct libusb_device_handle*)&fake_devh;
+	/* As ubertooth_connect() sets it: this handle is built by hand, and the
+	 * teardown ends the libusb session only of a handle that opened one. */
+	ut->usb_session_open = 1;
 	running_ut = ut;
 	return ut;
 }

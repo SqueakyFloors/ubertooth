@@ -177,6 +177,11 @@ int main(int argc, char* argv[])
 
 	r = ubertooth_check_api(ut);
 	if (r < 0) {
+		/* A refused version was released inside ubertooth_check_api(); one
+		 * it could not read at all leaves the board open. Closing covers
+		 * both, because closing a board already released does nothing. */
+		ubertooth_close(ut);
+		ubertooth_free(ut);
 		btbb_piconet_unref(pn);
 		return 1;
 	}
@@ -214,6 +219,7 @@ int main(int argc, char* argv[])
 	 * libubertooth has already printed what failed. */
 	if (ubertooth_stream_failed(ut))
 		status = 1;
+	ubertooth_free(ut);
 	/* The piconet outlives the receive phases, so it is given back here
 	 * rather than in them. */
 	btbb_piconet_unref(pn);

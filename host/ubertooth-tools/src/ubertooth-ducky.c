@@ -283,12 +283,11 @@ int main(int argc, char *argv[])
 	r = ubertooth_check_api(ut);
 	if (r < 0) {
 		/* On a version mismatch ubertooth_check_api() has released the
-		 * board and ended the libusb context itself, and ending that
-		 * context twice is not safe; where it could not even read the
-		 * version it has released nothing, so the board is closed here,
-		 * without a STOP for a firmware this host will not drive. */
-		if (ut->devh != NULL)
-			ubertooth_close(ut);
+		 * board itself; where it could not even read the version it has
+		 * released nothing. Closing covers both, because closing a
+		 * board already released does nothing, and it sends no STOP to
+		 * a firmware this host will not drive. */
+		ubertooth_close(ut);
 		ubertooth_free(ut);
 		return 1;
 	}

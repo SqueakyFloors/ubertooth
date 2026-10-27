@@ -48,6 +48,8 @@ static struct {
 	int closes;             /* libusb_close() calls */
 	int lists;              /* outstanding libusb_get_device_list() lists */
 	int list_calls;         /* libusb_get_device_list() calls, not freed again */
+	int usb_sessions;       /* libusb_init() minus libusb_exit() */
+	int usb_exits;          /* libusb_exit() calls */
 } fake;
 
 /* Put n Ubertooth One devices on the bus, preceded by one non-Ubertooth device
@@ -65,6 +67,21 @@ static void bus_with_ubertooths(int n)
 		fake.devs[1 + i].pid = U1_PRODUCTID;
 	}
 	fake.n = n + 1;
+	fake.list_rc = fake.n;
+}
+
+/* Put count boards in the DFU bootloader on the faked bus, after whatever
+ * bus_with_ubertooths() left there. The bootloader is a USB device of its own:
+ * no tool can open it, and it is what a board being flashed looks like. */
+static void bus_with_bootloaders(int count)
+{
+	int i;
+
+	for (i = 0; i < count; i++) {
+		fake.devs[fake.n].vid = U1_DFU_VENDORID;
+		fake.devs[fake.n].pid = U1_DFU_PRODUCTID;
+		fake.n++;
+	}
 	fake.list_rc = fake.n;
 }
 
@@ -143,12 +160,15 @@ uint8_t fifo_empty(fifo_t* fifo) { (void)fifo; return 1; }
 int LIBUSB_CALL libusb_init(libusb_context **ctx)
 {
 	(void)ctx;
+	fake.usb_sessions++;
 	return 0;
 }
 
 void LIBUSB_CALL libusb_exit(libusb_context *ctx)
 {
 	(void)ctx;
+	fake.usb_sessions--;
+	fake.usb_exits++;
 }
 
 ssize_t LIBUSB_CALL libusb_get_device_list(libusb_context *ctx,
@@ -1116,6 +1136,139 @@ MU_TEST(the_selections_used_the_faked_ring_buffer)
 	mu_assert(fifo_inits > 0, "fifo_init() came from this test");
 }
 
+/* A board in the DFU bootloader is being flashed, or a flash left it there.
+ * It is not an Ubertooth any tool can open, so the selection still finds
+ * nothing and still fails -- but it is not a board that went away either, and
+ * the two used to read alike: a "no Ubertooth found" line in an overnight
+ * regression log was the one event nobody could explain. */
+MU_TEST(a_board_in_the_bootloader_is_reported_as_such)
+{
+	char msg[512];
+
+	/* By serial, which is what a regression log selects with. */
+	bus_with_two_serials();
+	bus_with_bootloaders(1);
+	mu_assert(select_capturing("deadbeef", msg, sizeof(msg)) == NULL,
+	          "a serial no board has");
+	mu_assert(strcmp(msg,
+	    "no Ubertooth found with serial matching 'deadbeef'\n"
+	    "note: a board is in the DFU bootloader, so no tool can open it: "
+	    "it is being flashed, or a flash left it there\n") == 0, msg);
+
+	/* And by index, where the selection's own message comes from the
+	 * connect: the note follows it. */
+	bus_with_ubertooths(0);
+	bus_with_bootloaders(1);
+	mu_assert(select_capturing("0", msg, sizeof(msg)) == NULL, "-U0 of none");
+	mu_assert(strcmp(msg,
+	    "could not open Ubertooth device\n"
+	    "note: a board is in the DFU bootloader, so no tool can open it: "
+	    "it is being flashed, or a flash left it there\n") == 0, msg);
+
+	/* Several say how many. */
+	bus_with_ubertooths(0);
+	bus_with_bootloaders(2);
+	mu_assert(select_capturing(NULL, msg, sizeof(msg)) == NULL, "no -U");
+	mu_assert(strstr(msg, "note: 2 boards are in the DFU bootloader")
+	          != NULL, msg);
+
+	/* A board that is simply not attached reads as it always did. */
+	bus_with_two_serials();
+	mu_assert(select_capturing("deadbeef", msg, sizeof(msg)) == NULL,
+	          "a serial no board has");
+	mu_assert(strcmp(msg,
+	    "no Ubertooth found with serial matching 'deadbeef'\n") == 0, msg);
+
+	/* The note is extra information, not a board: a bootloader on the bus
+	 * does not become the device a selection opens. */
+	bus_with_ubertooths(0);
+	bus_with_bootloaders(1);
+	mu_assert(select_capturing(NULL, msg, sizeof(msg)) == NULL, "no -U");
+	mu_assert_int_eq(0, fake.opens);
+	mu_assert_int_eq(0, fake.lists);
+}
+
+/* Closing a handle twice does nothing the second time, so a tool does not
+ * have to work out whether the library has closed the board already -- which
+ * it does for a board whose firmware version it refused. The libusb session
+ * used to be ended outside the device check, so the second close ended a
+ * session that was no longer this handle's. */
+MU_TEST(closing_a_handle_twice_is_harmless)
+{
+	char msg[256];
+	ubertooth_t *ut;
+
+	bus_with_ubertooths(1);
+	ut = select_capturing("0", msg, sizeof(msg));
+	mu_assert_fatal(ut != NULL, "-U0 opens the only device");
+	mu_assert_int_eq(1, fake.usb_sessions);
+
+	ubertooth_close(ut);
+	mu_assert_int_eq(1, fake.closes);
+	mu_assert_int_eq(1, fake.usb_exits);
+	mu_assert_int_eq(0, fake.usb_sessions);
+
+	ubertooth_close(ut);
+	ubertooth_stop(ut);
+	mu_assert_int_eq(1, fake.closes); /* the device was closed once */
+	mu_assert_int_eq(1, fake.usb_exits); /* and the session ended once */
+	ubertooth_free(ut);
+
+	/* A handle that never opened a board ends no session at all: a replay
+	 * reads a file, and closing its handle used to end whatever session
+	 * another handle held. */
+	bus_with_ubertooths(1);
+	ut = ubertooth_init();
+	mu_assert_fatal(ut != NULL, "a handle");
+	ubertooth_close(ut);
+	ubertooth_stop(ut);
+	mu_assert_int_eq(0, fake.usb_exits);
+	mu_assert_int_eq(0, fake.closes);
+	ubertooth_free(ut);
+}
+
+/* Every selection that opens a board, and every one that fails, leaves the
+ * libusb session count where it started. */
+MU_TEST(a_selection_ends_every_session_it_starts)
+{
+	char msg[256];
+	ubertooth_t *ut;
+
+	bus_with_ubertooths(1);
+	ut = select_capturing("0", msg, sizeof(msg));
+	mu_assert_fatal(ut != NULL, msg);
+	ubertooth_stop(ut);
+	ubertooth_free(ut);
+	mu_assert_int_eq(0, fake.usb_sessions);
+
+	/* No board matches: the library gives the session back itself. */
+	bus_with_ubertooths(1);
+	mu_assert(select_capturing("7", msg, sizeof(msg)) == NULL, msg);
+	mu_assert_int_eq(0, fake.usb_sessions);
+
+	bus_with_two_serials();
+	mu_assert(select_capturing("deadbeef", msg, sizeof(msg)) == NULL, msg);
+	mu_assert_int_eq(0, fake.usb_sessions);
+
+	/* And a board that opens but cannot be claimed. */
+	bus_with_ubertooths(1);
+	fake.claim_rc = LIBUSB_ERROR_BUSY;
+	mu_assert(select_capturing("0", msg, sizeof(msg)) == NULL, msg);
+	mu_assert_int_eq(0, fake.usb_sessions);
+
+	/* The quiet selection the reset wait polls with, both ways. */
+	bus_with_ubertooths(1);
+	ut = ubertooth_start_select_quiet("0");
+	mu_assert_fatal(ut != NULL, "the quiet selection opens it");
+	ubertooth_stop(ut);
+	ubertooth_free(ut);
+	mu_assert_int_eq(0, fake.usb_sessions);
+
+	bus_with_ubertooths(1);
+	mu_assert(ubertooth_start_select_quiet("3") == NULL, "quiet -U3 of one");
+	mu_assert_int_eq(0, fake.usb_sessions);
+}
+
 int main(void)
 {
 	MU_RUN(an_index_in_range_opens_that_device);
@@ -1146,6 +1299,9 @@ int main(void)
 	MU_RUN(a_board_another_program_is_using_says_so);
 	MU_RUN(an_open_refused_as_busy_says_the_board_is_in_use);
 	MU_RUN(another_claim_failure_is_reported_as_itself);
+	MU_RUN(a_board_in_the_bootloader_is_reported_as_such);
+	MU_RUN(closing_a_handle_twice_is_harmless);
+	MU_RUN(a_selection_ends_every_session_it_starts);
 	MU_RUN(the_selections_used_the_faked_ring_buffer);
 	return mu_report();
 }

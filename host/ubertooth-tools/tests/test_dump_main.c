@@ -173,9 +173,10 @@ static void reset(void)
 
 /* ---- tests ------------------------------------------------------------ */
 
-/* A refused firmware version: the library has already closed the device, so
- * the tool frees the handle and must not close a second time. */
-MU_TEST(a_refused_firmware_version_frees_without_closing_again)
+/* A refused firmware version: the library has already closed the device. The
+ * tool closes and frees the handle on both of the check's failure paths,
+ * because closing a device that is already closed does nothing. */
+MU_TEST(a_refused_firmware_version_is_closed_and_freed)
 {
 	char* argv[] = { "ubertooth-dump", NULL };
 	struct run r;
@@ -187,7 +188,7 @@ MU_TEST(a_refused_firmware_version_frees_without_closing_again)
 	mu_assert_int_eq(1, r.rc);
 	mu_assert_int_eq(1, fake.api_checks);
 	mu_assert_int_eq(1, fake.library_closes);
-	mu_assert_int_eq(0, fake.closes);
+	mu_assert_int_eq(1, fake.closes); /* harmless: already released */
 	mu_assert_int_eq(1, fake.frees);
 	mu_assert_int_eq(0, fake.registrations);
 }
@@ -294,7 +295,7 @@ int main(void)
 	/* This binary does not link libubertooth: the fakes above are the
 	 * whole device, so any library call the tool grows becomes a link
 	 * error rather than a silently real one. */
-	MU_RUN(a_refused_firmware_version_frees_without_closing_again);
+	MU_RUN(a_refused_firmware_version_is_closed_and_freed);
 	MU_RUN(a_version_that_cannot_be_read_closes_and_frees);
 	MU_RUN(a_device_that_cannot_be_opened_frees_nothing);
 	MU_RUN(the_refusals_never_open_a_device);

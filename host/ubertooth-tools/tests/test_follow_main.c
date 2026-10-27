@@ -62,6 +62,7 @@ static struct {
 	int thread_start_rc;  /* returned by ubertooth_bulk_thread_start() */
 	int hopping_rc;       /* returned by cmd_start_hopping() */
 	int closes;           /* ubertooth_close() */
+	int frees;            /* ubertooth_free() */
 	int dev_fd;           /* the adapter handle the tool was given */
 	int dev_fd_closed;    /* whether the run gave it back */
 	/* Whether it was already back by the first turn of the capture loop,
@@ -388,6 +389,13 @@ void ubertooth_close(ubertooth_t* ut)
 	fake.closes++;
 }
 
+/* Counted rather than freeing: the handle above is this test's own static. */
+void ubertooth_free(ubertooth_t* ut)
+{
+	(void)ut;
+	fake.frees++;
+}
+
 int ubertooth_stream_failed(ubertooth_t* ut)
 {
 	(void)ut;
@@ -548,22 +556,23 @@ MU_TEST(a_follow_the_board_took_exits_0)
 
 /* A firmware this host will not drive, and a libbtbb that refuses the decoder
  * settings, are the two failures with the board already open and no mode
- * started. Each gives the board back, rather than leaving it claimed until the
- * process exits -- but not in the same way, and releasing it twice is not safe,
- * so both halves are pinned here. */
+ * started. Each gives the board and the handle back, rather than leaving them
+ * to process exit. One close covers both firmware failures, because closing a
+ * board the library has already released does nothing. */
 MU_TEST(a_firmware_the_tool_cannot_use_gives_the_board_back)
 {
 	struct run_result r;
 
-	/* A version mismatch: the library released the board itself, so the
-	 * tool must not close it again. */
+	/* A version mismatch: the library released the board itself, and the
+	 * tool's own close then does nothing. */
 	reset_fake();
 	fake.api_rc = -1;
 	fake.api_released = 1;
 	r = RUN(TARGET);
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(fake.calls[0] == '\0', fake.calls);
-	mu_assert_int_eq(0, fake.closes);
+	mu_assert_int_eq(1, fake.closes);
+	mu_assert_int_eq(1, fake.frees);
 	mu_assert_int_eq(1, fake.stops);
 	mu_assert(r.out[0] == '\0', r.out);
 	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
@@ -576,6 +585,7 @@ MU_TEST(a_firmware_the_tool_cannot_use_gives_the_board_back)
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(fake.calls[0] == '\0', fake.calls);
 	mu_assert_int_eq(1, fake.closes);
+	mu_assert_int_eq(1, fake.frees);
 	mu_assert_int_eq(0, fake.stops);
 	mu_assert(r.out[0] == '\0', r.out);
 	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
@@ -590,6 +600,7 @@ MU_TEST(a_firmware_the_tool_cannot_use_gives_the_board_back)
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(fake.calls[0] == '\0', fake.calls);
 	mu_assert_int_eq(1, fake.closes);
+	mu_assert_int_eq(1, fake.frees);
 	mu_assert_int_eq(0, fake.stops);
 	mu_assert(strstr(r.err, "error:") == NULL, r.err);
 	mu_assert(r.out[0] == '\0', r.out);
@@ -775,6 +786,7 @@ MU_TEST(a_refused_address_set_exits_1)
 	/* The board goes back without a STOP, since no mode has started, and
 	 * the adapter handle goes back with it. */
 	mu_assert_int_eq(1, fake.closes);
+	mu_assert_int_eq(1, fake.frees);
 	mu_assert_int_eq(0, fake.stops);
 	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
 
@@ -810,6 +822,7 @@ MU_TEST(a_refused_clock_set_exits_1)
 	mu_assert_int_eq(1, occurrences(r.err, "error:"));
 	mu_assert(r.out[0] == '\0', r.out);
 	mu_assert_int_eq(1, fake.closes);
+	mu_assert_int_eq(1, fake.frees);
 	mu_assert_int_eq(0, fake.stops);
 	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
 

@@ -51,12 +51,11 @@ enum board_ids {
  * has gone away, and both still have a callback to come.
  * RX_XFER_OURS is zero so a zeroed handle starts out owning nothing.
  *
- * This and rx_xfer are shared with the poll thread without a lock, which
- * works because only one thread touches them at a time: while a capture runs
- * they belong to the transfer's callback, which the poll thread calls, and
- * every teardown runs after that thread has been joined. Nothing on the
- * receive loop's side writes them or hands them to libusb. Keep it that way,
- * or give the transfer a lock. */
+ * This and rx_xfer are shared between the transfer's callback, which libusb
+ * runs on the poll thread, and the receive loop and teardown on the run's own
+ * thread. Inside the library a lock guards every read and write of the pair
+ * (see rx_xfer_lock in ubertooth.c); read them from outside it only where no
+ * capture is running. */
 enum rx_xfer_state {
 	RX_XFER_OURS = 0,   /* no transfer, or one libusb is not holding */
 	RX_XFER_IN_FLIGHT,  /* submitted: libusb owns it */
@@ -175,6 +174,18 @@ typedef struct {
 	 * on this handle was truncated". */
 	uint8_t short_xfer_warned;
 
+	/* 1 while this handle holds a libusb session: set where one was opened
+	 * for it, cleared by the teardown. It is what makes the teardown run
+	 * once, and only on a handle that has something to give back, so
+	 * ubertooth_close() ends it once, and ends none at all on a handle that
+	 * never opened a board -- a replay, which reads a file. */
+	uint8_t usb_session_open;
+
+	/* Whether the teardown has already reported a receive transfer that
+	 * libusb never handed back, so closing such a handle twice says it
+	 * once. */
+	uint8_t xfer_lost_warned;
+
 	/* The board the user named, as they wrote it after -U: an index or a
 	 * serial. NULL when they named none and the library opened whichever
 	 * board it found. A message about this one board can then say which it
@@ -205,6 +216,12 @@ extern int max_ac_errors;
 #define MAX_AC_ERRORS 5
 
 void print_version();
+/* Installs the library's signal handlers, so Ctrl-C, SIGTERM, SIGHUP, SIGQUIT
+ * and SIGALRM stop the capture instead of killing the tool with its mode still
+ * running on the board. Pass do_exit = 0: see cleanup_exit() in ubertooth.c.
+ *
+ * The library keeps ut until ubertooth_free() gives it back, so nothing the
+ * caller has to unregister: free the handle and the handlers let go of it. */
 void register_cleanup_handler(ubertooth_t* ut, int do_exit);
 
 /* 1 once this capture should stop, which is how a receive loop asks. It covers
@@ -251,6 +268,15 @@ int ubertooth_connect_select(ubertooth_t* ut, const char* u_arg);
  * polling a device that may be absent (for example while it re-enumerates
  * after a reset). Returns NULL if the selected device is not available. */
 ubertooth_t* ubertooth_start_select_quiet(const char* u_arg);
+/* Releases the board: finishes the receive transfer, releases the USB
+ * interface, closes the device and ends the libusb session this handle
+ * started. Nothing is asked of the board, so a mode it is running keeps
+ * running -- that is what ubertooth_stop() is for.
+ *
+ * Calling it on a handle that is already closed does nothing, so a caller
+ * that cannot tell (ubertooth_check_api() closes a board whose firmware it
+ * refused) may simply call it. The handle itself stays allocated:
+ * ubertooth_free() gives that back. */
 void ubertooth_close(ubertooth_t* ut);
 /* Reports a board that opened but could not be claimed, naming it as board
  * when the caller knows which one (NULL for "the Ubertooth"). On this path the
@@ -260,6 +286,10 @@ void ubertooth_close(ubertooth_t* ut);
  * libusb returns depends on the system, so neither is reported on its own. The
  * code is kept in parentheses for bug reports. */
 void ubertooth_report_claim_failed(const char* board, int err);
+/* ubertooth_close() plus a STOP request first, which ends the mode the board
+ * is running: what a tool that started a capture wants on its way out, so the
+ * board is not left capturing into nothing. Idempotent in the same way, and
+ * the handle likewise stays allocated for ubertooth_free(). */
 void ubertooth_stop(ubertooth_t* ut);
 /* Releases a handle ubertooth_stop() or ubertooth_close() has finished with.
  * A handle whose receive transfer libusb never gave back is left allocated
@@ -267,7 +297,21 @@ void ubertooth_stop(ubertooth_t* ut);
  * teardown reports such a handle as a warning, so a caller that keeps going
  * sees it; one that is about to exit can ignore it. */
 void ubertooth_free(ubertooth_t* ut);
+/* The firmware API version the board reports, as its USB bcdDevice. Returns 0
+ * and writes version, or a negative libusb error, already reported. The board
+ * is left open either way. */
 int ubertooth_get_api(ubertooth_t *ut, uint16_t *version);
+/* Whether the board's firmware is the version these host tools were built
+ * with, which is the version they require. Returns 0 when it is, or a
+ * negative error, already reported: a version this host will not drive, or a
+ * version that could not be read at all.
+ *
+ * A refused version is released here: the board is sent a STOP and closed, so
+ * a tool that returns after this one does not leave it claimed. A version
+ * that could not be read leaves the board open, because nothing is known
+ * about it. Either way the caller still owes the handle an
+ * ubertooth_close() -- which does nothing on a board already released -- and
+ * an ubertooth_free(). */
 int ubertooth_check_api(ubertooth_t *ut);
 /* Reports firmware the host tools were not built with: it names the version
  * the board reports and the version these tools require, then says which side

@@ -296,14 +296,15 @@ MU_TEST(a_board_or_firmware_the_tool_cannot_use_exits_1)
 	mu_assert(fake.calls[0] == '\0', fake.calls);
 
 	/* A version mismatch: the library has released the board and ended the
-	 * libusb context, so the tool gives back the memory and nothing else. */
+	 * libusb session. The tool closes it all the same, which does nothing on
+	 * a board already released, and gives the memory back. */
 	reset_fake();
 	fake.api_rc = -1;
 	fake.api_mismatch = 1;
 	r = RUN("-f");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert_int_eq(1, fake.frees);
-	mu_assert_int_eq(0, fake.closes);
+	mu_assert_int_eq(1, fake.closes);
 	mu_assert(fake.calls[0] == '\0', fake.calls);
 
 	/* A version it could not read at all leaves the board open, so the tool

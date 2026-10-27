@@ -313,10 +313,11 @@ MU_TEST(a_handle_that_cannot_be_allocated_stops_the_command)
 	mu_assert_int_eq(0, fake.frees);
 }
 
-/* A refused firmware version: the library has already closed the device, so
- * the tool must free the handle and must not close a second time, which would
- * exit libusb twice. */
-MU_TEST(a_refused_firmware_version_frees_without_closing_again)
+/* A refused firmware version: the library has already closed the device. The
+ * tool closes and frees the handle on both of the check's failure paths,
+ * because closing a device that is already closed does nothing -- it no
+ * longer exits libusb a second time. */
+MU_TEST(a_refused_firmware_version_is_closed_and_freed)
 {
 	char* argv[] = { "ubertooth-tx", "-l", "123456", "-u", "11", NULL };
 	struct run r;
@@ -330,7 +331,7 @@ MU_TEST(a_refused_firmware_version_frees_without_closing_again)
 	mu_assert_int_eq(1, r.rc);
 	mu_assert_int_eq(1, fake.api_checks);
 	mu_assert_int_eq(1, fake.library_closes);
-	mu_assert_int_eq(0, fake.closes);
+	mu_assert_int_eq(1, fake.closes); /* harmless: already released */
 	mu_assert_int_eq(1, fake.frees);
 }
 
@@ -382,7 +383,7 @@ int main(void)
 	MU_RUN(a_failed_connection_gives_the_handle_back);
 	MU_RUN(the_device_selector_is_passed_through);
 	MU_RUN(a_handle_that_cannot_be_allocated_stops_the_command);
-	MU_RUN(a_refused_firmware_version_frees_without_closing_again);
+	MU_RUN(a_refused_firmware_version_is_closed_and_freed);
 	MU_RUN(a_version_that_cannot_be_read_closes_and_frees);
 	MU_RUN(an_address_the_board_refuses_releases_it);
 	return mu_report();

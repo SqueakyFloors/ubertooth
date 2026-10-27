@@ -35,6 +35,7 @@ static struct {
 	int api_rc;          /* returned by ubertooth_check_api() */
 	int api_released;    /* whether that call released the board itself */
 	int closes;          /* ubertooth_close() */
+	int frees;           /* ubertooth_free() */
 	int channel_rc;      /* returned by cmd_set_channel_quiet() */
 	int last_channel;    /* the channel the capture was set to, in MHz */
 	int timeout;         /* seconds passed to ubertooth_set_timeout() */
@@ -163,6 +164,13 @@ void ubertooth_stop(ubertooth_t* ut)
 {
 	ut->devh = NULL; /* as the library's cleanup leaves it */
 	fake.stops++;
+}
+
+/* Counted rather than freeing: the handle above is this test's own static. */
+void ubertooth_free(ubertooth_t* ut)
+{
+	(void)ut;
+	fake.frees++;
 }
 
 int cmd_set_channel_quiet(struct libusb_device_handle* devh, u16 channel)
@@ -340,6 +348,9 @@ MU_TEST(a_scan_the_board_took_sweeps_and_exits_0)
 	mu_assert_int_eq(1, fake.registrations);
 	mu_assert_int_eq(1, fake.receives);
 	mu_assert_int_eq(1, fake.stops);
+	/* The handle and its 72 MB fifo go back, rather than being left to
+	 * process exit. */
+	mu_assert_int_eq(1, fake.frees);
 	mu_assert(strcmp(fake.adapter, "hci0") == 0, fake.adapter);
 	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
 	mu_assert(strstr(r.out, "Ubertooth scan") != NULL, r.out);
@@ -490,6 +501,7 @@ MU_TEST(a_capture_that_cannot_be_set_up_exits_1_and_gives_everything_back)
 		 * running by the time any of these fail. */
 		mu_assert_int_eq(1, fake.stops);
 		mu_assert_int_eq(0, fake.closes);
+		mu_assert_int_eq(1, fake.frees);
 		mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
 		mu_assert(r.out[0] == '\0', r.out);
 		mu_assert(strcmp(r.err, cases[i].message) == 0, r.err);
@@ -568,8 +580,9 @@ MU_TEST(a_board_or_firmware_the_tool_cannot_use_exits_1)
 	mu_assert(fake.calls[0] == '\0', fake.calls);
 	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
 
-	/* A version mismatch: the library has released the board, and releasing
-	 * it twice is not safe. */
+	/* A version mismatch: the library has released the board. The tool
+	 * closes it all the same, which does nothing on a board already
+	 * released, and gives the handle back. */
 	reset_fake();
 	fake.api_rc = -1;
 	fake.api_released = 1;
@@ -577,10 +590,11 @@ MU_TEST(a_board_or_firmware_the_tool_cannot_use_exits_1)
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(fake.calls[0] == '\0', fake.calls);
 	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
-	mu_assert_int_eq(0, fake.closes);
+	mu_assert_int_eq(1, fake.closes);
+	mu_assert_int_eq(1, fake.frees);
 
-	/* A version that could not be read at all leaves the board open, so the
-	 * tool closes it rather than leaving it claimed. */
+	/* A version that could not be read at all leaves the board open, so
+	 * this is the close that releases it. */
 	reset_fake();
 	fake.api_rc = -1;
 	r = RUN("-t", "5");
@@ -588,6 +602,7 @@ MU_TEST(a_board_or_firmware_the_tool_cannot_use_exits_1)
 	mu_assert(fake.calls[0] == '\0', fake.calls);
 	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
 	mu_assert_int_eq(1, fake.closes);
+	mu_assert_int_eq(1, fake.frees);
 }
 
 /* -h is what the user asked for, so it goes to standard output and exits 0,

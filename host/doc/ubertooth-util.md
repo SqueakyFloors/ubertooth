@@ -371,6 +371,12 @@ apart, and the message says so and points at `-U <index>` instead.
 A string that matches no attached board also exits non-zero, with
 `no Ubertooth found with serial matching '<string>'`.
 
+A `note: ` line follows that when a board is sitting in the DFU bootloader: a
+board being flashed enumerates as the bootloader, which this tool cannot open,
+so it is not among the boards a selection can match. The selection still fails
+the same way; the note only says why there is one board fewer than expected
+(see ubertooth(7)).
+
 A board that cannot be opened, or that does not answer the serial read, is
 skipped quietly while another board is being selected. It is reported with the
 result, because the string may well be that board's serial:

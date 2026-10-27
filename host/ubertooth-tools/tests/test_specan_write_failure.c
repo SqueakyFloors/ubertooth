@@ -419,6 +419,8 @@ enum break_output {
 static struct {
 	int start_calls, check_api_calls, cleanup_handlers, bulk_inits;
 	int thread_starts, thread_stops, specan_calls, stops, device_stops;
+	int device_closes;  /* ubertooth_close() calls */
+	int device_frees;   /* ubertooth_free() calls */
 	int blocks;            /* blocks handed to the callback */
 	int blocks_to_sweep;   /* ...before the fake ends the endless sweep */
 	int stream_dies_after; /* ...after which the stream fails, 0 for never */
@@ -591,6 +593,18 @@ void ubertooth_stop(ubertooth_t* ut)
 	device.device_stops++;
 }
 
+void ubertooth_close(ubertooth_t* ut)
+{
+	(void)ut;
+	device.device_closes++;
+}
+
+void ubertooth_free(ubertooth_t* ut)
+{
+	(void)ut;
+	device.device_frees++;
+}
+
 /* A fresh empty temp file for a -d value, with its name in path. mkstemp()
  * replaces the template in place, so each call needs the template written
  * back rather than the name the last one produced. */
@@ -695,6 +709,9 @@ MU_TEST(a_sweep_that_was_written_exits_zero)
 	mu_assert_int_eq(0, RUN_SPECAN(err, "-U", "0", "-d", path));
 	mu_assert(strcmp(err, "Ubertooth stopped\n") == 0, err);
 	mu_assert_int_eq(3, device.blocks);
+	/* The handle and its 72 MB fifo go back, rather than being left to
+	 * process exit. */
+	mu_assert_int_eq(1, device.device_frees);
 	/* Three bytes per sample, and the samples of three blocks arrived. */
 	mu_assert_int_eq(0, stat(path, &info));
 	mu_assert(info.st_size > 0, "the samples were written");

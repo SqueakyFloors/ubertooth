@@ -207,6 +207,22 @@ static void usage(FILE *out)
 	fprintf(out, "\nIn get/set mode no capture occurs.\n");
 }
 
+/* The tool's exit once the handle exists: the board and the handle both go
+ * back, as libubertooth asks of every tool.
+ *
+ * The close is unconditional because it is harmless: on a handle the capture
+ * block has already stopped, and on a board ubertooth_check_api() refused, it
+ * does nothing. On the paths that reach here with the board still open -- the
+ * queries, and a request that failed -- it is what releases the interface and
+ * closes the capture file. It sends no STOP, so a board left advertising by
+ * -s keeps advertising, as it did before. */
+static int release_handle(ubertooth_t* ut, int status)
+{
+	ubertooth_close(ut);
+	ubertooth_free(ut);
+	return status;
+}
+
 int main(int argc, char *argv[])
 {
 	int opt;
@@ -234,9 +250,10 @@ int main(int argc, char *argv[])
 	const char* pcapng_name = NULL;
 	const char* pcap_name = NULL;
 	int pcap_ppi = 0; /* the -c format rather than the -q one */
-	ubertooth_t* ut = ubertooth_init();
-	if (ut == NULL)
-		return 1;
+	/* Allocated once the whole command line has been accepted (below):
+	 * every refusal above returns without a board, and the handle carries a
+	 * 72 MB fifo. */
+	ubertooth_t* ut = NULL;
 
 	btle_options cb_opts = { .allowed_access_address_errors = 32 };
 
@@ -438,17 +455,23 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	/* Every check has passed, so the capture files can be opened: a refused
-	 * command line creates and truncates nothing. A bare "-" redirects this
-	 * process's stdout, which is why nothing may be printed to stdout after
-	 * this point except the capture itself, and why the lines that answer an
-	 * option go to report_stream rather than straight to stdout. */
+	/* Every check has passed, so the handle and its 72 MB fifo can be
+	 * allocated: the capture files below are kept on it. */
+	ut = ubertooth_init();
+	if (ut == NULL)
+		return 1;
+
+	/* And the capture files can be opened: a refused command line creates
+	 * and truncates nothing. A bare "-" redirects this process's stdout,
+	 * which is why nothing may be printed to stdout after this point except
+	 * the capture itself, and why the lines that answer an option go to
+	 * report_stream rather than straight to stdout. */
 	if (pcapng_name != NULL) {
 		if (lell_pcapng_create_file(pcapng_name, "Ubertooth",
 		                            &ut->h_pcapng_le)) {
 			fprintf(stderr, "error: %s: %s\n", pcapng_name,
 			        strerror(errno));
-			return 1;
+			return release_handle(ut, 1);
 		}
 	}
 	if (pcap_name != NULL) {
@@ -459,7 +482,7 @@ int main(int argc, char *argv[])
 		if (!file) {
 			if (saved_fd >= 0)
 				close(saved_fd);
-			return 1;
+			return release_handle(ut, 1);
 		}
 		create_result = pcap_ppi
 		        ? lell_pcap_ppi_create_file(file, 0, &ut->h_pcap_le)
@@ -479,18 +502,22 @@ int main(int argc, char *argv[])
 			 * "-" is opened through. */
 			fprintf(stderr, "error: %s: %s\n", pcap_name,
 			        strerror(errno));
-			return 1;
+			return release_handle(ut, 1);
 		}
 	}
 
 	r = ubertooth_connect_select(ut, ubertooth_device);
 	if (r < 0) {
-		return 1;
+		return release_handle(ut, 1);
 	}
 
 	r = ubertooth_check_api(ut);
-	if (r < 0)
-		return 1;
+	if (r < 0) {
+		/* release_handle() closes the board, which covers both of the
+		 * check's failures: it released a refused version itself, and a
+		 * version it could not read at all leaves the board open. */
+		return release_handle(ut, 1);
+	}
 
 	/* Stop on Ctrl-C, and on the other signals that mean the run is over
 	 * (SIGTERM, SIGHUP, SIGQUIT, an alarm): the library's handlers, so the
@@ -513,7 +540,7 @@ int main(int argc, char *argv[])
 			}
 		} else {
 			fprintf(stderr, "error: target set failed\n");
-			return 1;
+			return release_handle(ut, 1);
 		}
 	}
 
@@ -523,7 +550,7 @@ int main(int argc, char *argv[])
 		r = cmd_set_jam_mode(ut->devh, jam_mode);
 		if (jam_mode != JAM_NONE && r != 0) {
 			fprintf(stderr, "error: jamming not supported by this firmware\n");
-			return 1;
+			return release_handle(ut, 1);
 		}
 		/* A mode the board would not enter must not be followed by a
 		 * capture loop that reports a clean run, so each request below
@@ -534,7 +561,7 @@ int main(int argc, char *argv[])
 		if (cmd_set_modulation(ut->devh, MOD_BT_LOW_ENERGY) < 0) {
 			fprintf(stderr, "error: modulation set failed\n");
 			ubertooth_stop(ut);
-			return 1;
+			return release_handle(ut, 1);
 		}
 
 		if (do_follow || do_no_follow) {
@@ -546,13 +573,13 @@ int main(int argc, char *argv[])
 				report_request_failure(
 					"set the advertising channel");
 				ubertooth_stop(ut);
-				return 1;
+				return release_handle(ut, 1);
 			}
 			if (cmd_btle_sniffing(ut->devh, do_follow) < 0) {
 				fprintf(stderr, "error: could not start %sfollow"
 				        " mode\n", do_follow ? "" : "no-");
 				ubertooth_stop(ut);
-				return 1;
+				return release_handle(ut, 1);
 			}
 			/* This mode runs the low-energy physical-layer engine,
 			 * which stamps packets from timer1, so its clock starts
@@ -564,7 +591,7 @@ int main(int argc, char *argv[])
 				fprintf(stderr, "error: could not start"
 				        " promiscuous mode\n");
 				ubertooth_stop(ut);
-				return 1;
+				return release_handle(ut, 1);
 			}
 		}
 
@@ -579,7 +606,7 @@ int main(int argc, char *argv[])
 		// stops answering control requests in.
 		if (apply_crc_options(ut->devh, do_set_crc, do_get_crc) < 0) {
 			ubertooth_stop(ut);
-			return 1;
+			return release_handle(ut, 1);
 		}
 
 		while (!ubertooth_stopping(ut)) {
@@ -613,7 +640,7 @@ int main(int argc, char *argv[])
 			/* a short reply's whole error line is already printed */
 			if (r != UBERTOOTH_ERROR_SHORT_REPLY)
 				fprintf(stderr, "error: access address read failed\n");
-			return 1;
+			return release_handle(ut, 1);
 		}
 		fprintf(report_stream, "Access address: %08x\n", access_address);
 		/* carry on, so a -v in the same command still runs */
@@ -622,7 +649,7 @@ int main(int argc, char *argv[])
 	if (do_set_aa) {
 		if (cmd_set_access_address(ut->devh, access_address) < 0) {
 			fprintf(stderr, "error: access address set failed\n");
-			return 1;
+			return release_handle(ut, 1);
 		}
 		fprintf(report_stream, "access address set to: %08x\n", access_address);
 	}
@@ -630,7 +657,7 @@ int main(int argc, char *argv[])
 	// For sniffing modes this was already handled before the capture loop.
 	if (!(do_follow || do_no_follow || do_promisc)) {
 		if (apply_crc_options(ut->devh, do_set_crc, do_get_crc) < 0)
-			return 1;
+			return release_handle(ut, 1);
 	}
 
 	if (do_slave_mode) {
@@ -648,12 +675,12 @@ int main(int argc, char *argv[])
 		 * answering would only add a second failure to the report. */
 		if (cmd_set_channel(ut->devh, adv_channel(do_adv_index)) < 0) {
 			report_request_failure("set the advertising channel");
-			return 1;
+			return release_handle(ut, 1);
 		}
 		if (cmd_le_set_adv_data(ut->devh, adv_data,
 		                        sizeof(adv_data)) < 0) {
 			report_request_failure("set the advertising data");
-			return 1;
+			return release_handle(ut, 1);
 		}
 		/* The last one starts advertising, so it is stopped on the way
 		 * out, as the sniffing block stops its mode: the request may
@@ -664,9 +691,9 @@ int main(int argc, char *argv[])
 		if (cmd_btle_slave(ut->devh, mac_address) < 0) {
 			report_request_failure("start advertising");
 			ubertooth_stop(ut);
-			return 1;
+			return release_handle(ut, 1);
 		}
 	}
 
-	return status;
+	return release_handle(ut, status);
 }
