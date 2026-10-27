@@ -459,14 +459,34 @@ enum usb_service {
 	USB_BULK,      /* keeps the bulk IN endpoint loaded */
 	USB_CONTROL,   /* services control requests from the loop, nothing else */
 	USB_INTERRUPT, /* unmasks the USB interrupt and services USB there */
+	/* No host collects packets from this mode, because it produces none, so
+	 * it may service USB whichever way suits it. Only the dispatch table at
+	 * the end of this file uses it: every loop in modes[] streams. */
+	USB_NONE,
 };
+
+static const char *service_name(enum usb_service s)
+{
+	switch (s) {
+	case USB_BULK:      return "reads the bulk IN endpoint";
+	case USB_CONTROL:   return "polls, with the loop servicing control "
+	                           "requests";
+	case USB_INTERRUPT: return "polls, with USB serviced from its interrupt";
+	case USB_NONE:      return "collects no packets";
+	}
+	return "unknown";
+}
 
 /* What one function's body was found to name. */
 struct fn_usb {
 	int lines;
 	int bulk;     /* handle_usb or service_usb, named anywhere */
 	int direct;   /* ...called outright, rather than handed to something */
+	/* ...on a path the function always reaches: no branch on the call's own
+	 * line and none around it either. */
+	int direct_every_turn;
 	int control;  /* handle_usb_control, called */
+	int control_every_turn;
 	int unmask;   /* ISER0 = ISER0_ISE_USB */
 };
 
@@ -559,67 +579,221 @@ static int calls_unconditionally(const char *line, const char *name)
 }
 
 /*
- * Read one function's body out of a firmware source file. A definition is a
- * line that starts in column 1, names the function in front of its first '('
- * and does not end the statement, which is what tells it from a prototype or a
- * call; the body ends at the next closing brace in column 1.
+ * Which kind of block a '{' opens. A call inside a branch answers for the
+ * path the branch is on and no other; a call inside a loop is on the
+ * ordinary path of that loop, which for a streaming mode is the path that
+ * matters.
  */
-static int scan_function(const char *path, const char *function,
-                         struct fn_usb *out)
+enum block_kind { BLOCK_PLAIN, BLOCK_LOOP, BLOCK_BRANCH };
+
+#define MAX_BLOCK_DEPTH 32
+
+/*
+ * Where in a function's braces a line sits. The kind a '{' opens is decided
+ * by the keyword in front of it, which can be lines earlier when the
+ * condition is wrapped -- bt_stream_rx()'s mode loop spans five lines -- so
+ * the keyword is remembered until a '{' or a ';' settles it.
+ */
+struct brace_state {
+	int depth;
+	enum block_kind kind[MAX_BLOCK_DEPTH];
+	enum block_kind pending;
+};
+
+static int block_keyword(const char *word, enum block_kind *kind)
 {
-	char line[512], name[64];
-	int in_block = 0, in_fn = 0;
+	static const char *const branches[] = { "if", "else", "switch", "case" };
+	static const char *const loops[] = { "while", "for", "do" };
+	size_t i;
+
+	for (i = 0; i < sizeof(branches) / sizeof(branches[0]); i++)
+		if (strcmp(word, branches[i]) == 0) {
+			*kind = BLOCK_BRANCH;
+			return 1;
+		}
+	for (i = 0; i < sizeof(loops) / sizeof(loops[0]); i++)
+		if (strcmp(word, loops[i]) == 0) {
+			*kind = BLOCK_LOOP;
+			return 1;
+		}
+	return 0;
+}
+
+/* Is the line about to be read inside a branch? The blocks around it, plus a
+ * condition that has opened on an earlier line and not closed yet. */
+static int inside_a_branch(const struct brace_state *b)
+{
+	int i;
+
+	if (b->pending == BLOCK_BRANCH)
+		return 1;
+	for (i = 0; i < b->depth && i < MAX_BLOCK_DEPTH; i++)
+		if (b->kind[i] == BLOCK_BRANCH)
+			return 1;
+	return 0;
+}
+
+/* Carry the brace state across one line. Call it after reading the line, so
+ * the line itself is judged by the state it was reached in. */
+static void brace_state_advance(struct brace_state *b, const char *line)
+{
+	const char *p = line;
+
+	while (*p != '\0') {
+		if (is_ident_char(*p)) {
+			char word[32];
+			const char *start = p;
+			enum block_kind kind;
+
+			while (is_ident_char(*p))
+				p++;
+			if ((size_t)(p - start) < sizeof(word)) {
+				memcpy(word, start, (size_t)(p - start));
+				word[p - start] = '\0';
+				if (block_keyword(word, &kind))
+					b->pending = kind;
+			}
+			continue;
+		}
+		if (*p == '{') {
+			if (b->depth < MAX_BLOCK_DEPTH)
+				b->kind[b->depth] = b->pending;
+			b->depth++;
+			b->pending = BLOCK_PLAIN;
+		} else if (*p == '}') {
+			if (b->depth > 0)
+				b->depth--;
+		} else if (*p == ';') {
+			b->pending = BLOCK_PLAIN;
+		}
+		p++;
+	}
+}
+
+/*
+ * Is this line a function definition rather than a prototype or a call? It
+ * starts in column 1 and names the function in front of its first '('. A
+ * line that ends the statement is a declaration -- unless it also opens a
+ * body, because a definition whose body starts on the signature's line
+ * carries that body's semicolons too.
+ */
+static int is_definition_line(const char *line, const char *function)
+{
+	char name[64];
+
+	if (line[0] == ' ' || line[0] == '\t' || line[0] == '\0')
+		return 0;
+	if (strchr(line, ';') != NULL && strchr(line, '{') == NULL)
+		return 0;
+	return call_name(line, name, sizeof(name)) &&
+	       strcmp(name, function) == 0;
+}
+
+/*
+ * Read one function's body out of a firmware source file, a line at a time,
+ * with whether that line sits inside a branch. The body runs from the
+ * definition's '{' until the braces balance again, so a definition that opens
+ * and closes on one line is read rather than skipped.
+ *
+ * Returns the number of body lines read, or -1 if the file could not be
+ * opened. Zero means the file holds no such definition.
+ */
+static int read_function_body(const char *path, const char *function,
+                              void (*visit)(const char *line, int branched,
+                                            void *ctx),
+                              void *ctx)
+{
+	char line[SCAN_LINE_MAX];
+	int in_block = 0, in_fn = 0, opened = 0, lines = 0;
+	struct brace_state braces;
 	FILE *f = fopen(path, "r");
 
 	if (f == NULL)
-		return 0;
+		return -1;
 
-	memset(out, 0, sizeof(*out));
+	memset(&braces, 0, sizeof(braces));
 
 	while (fgets(line, sizeof(line), f) != NULL) {
 		strip_comments(line, &in_block);
 		strip_string_literals(line);
 
 		if (!in_fn) {
-			if (line[0] != ' ' && line[0] != '\t' &&
-			    strchr(line, ';') == NULL &&
-			    call_name(line, name, sizeof(name)) &&
-			    strcmp(name, function) == 0)
-				in_fn = 1;
+			if (!is_definition_line(line, function))
+				continue;
+			in_fn = 1;
+			opened = 0;
+			memset(&braces, 0, sizeof(braces));
+			/* The signature itself is not body, but it may open the
+			 * body -- and then it carries the body's first statement,
+			 * which the brace walk below accounts for. */
+			brace_state_advance(&braces, line);
+			if (braces.depth > 0)
+				opened = 1;
+			if (opened && braces.depth == 0)
+				in_fn = 0;
 			continue;
 		}
 
-		out->lines++;
-		/* handle_usb_control is a whole identifier of its own, so a match
-		 * on handle_usb is the bulk service and nothing else. */
-		if (contains_identifier(line, "handle_usb") ||
-		    contains_identifier(line, "service_usb"))
-			out->bulk++;
-		/*
-		 * A bare mention is not enough to keep a stream fed: the bounded
-		 * radio waits and hop() take service_usb as a callback, so a loop
-		 * could name it on a path it rarely takes -- hop() runs only when
-		 * the mode hops -- and never service USB on its ordinary one. What
-		 * answers for the ordinary path is a call the loop always makes.
-		 */
-		if (calls_unconditionally(line, "service_usb") ||
-		    calls_unconditionally(line, "handle_usb"))
-			out->direct++;
-		/* A call, for the same reason: naming the control service in a
-		 * callback the loop rarely reaches would not keep the host's
-		 * requests answered. */
-		if (calls_unconditionally(line, "handle_usb_control"))
-			out->control++;
-		if (is_assignment_to(line, "ISER0") &&
-		    contains_identifier(line, "ISER0_ISE_USB"))
-			out->unmask++;
+		lines++;
+		visit(line, inside_a_branch(&braces), ctx);
 
-		if (line[0] == '}')
+		brace_state_advance(&braces, line);
+		if (braces.depth > 0)
+			opened = 1;
+		if (opened && braces.depth == 0)
 			in_fn = 0;
 	}
 
 	fclose(f);
-	return 1;
+	return lines;
+}
+
+static void visit_usb_service(const char *line, int branched, void *ctx)
+{
+	struct fn_usb *out = ctx;
+
+	out->lines++;
+	/* handle_usb_control is a whole identifier of its own, so a match on
+	 * handle_usb is the bulk service and nothing else. */
+	if (contains_identifier(line, "handle_usb") ||
+	    contains_identifier(line, "service_usb"))
+		out->bulk++;
+	/*
+	 * A bare mention is not enough to keep a stream fed: the bounded radio
+	 * waits and hop() take service_usb as a callback, so a loop could name
+	 * it on a path it rarely takes -- hop() runs only when the mode hops --
+	 * and never service USB on its ordinary one. What answers for the
+	 * ordinary path is a call the loop always makes.
+	 */
+	if (calls_unconditionally(line, "service_usb") ||
+	    calls_unconditionally(line, "handle_usb")) {
+		out->direct++;
+		/*
+		 * ...and one it always reaches, not one inside a branch it rarely
+		 * takes. calls_unconditionally() reads the line the call is on, so
+		 * it rules out a condition sharing that line; `branched` rules out
+		 * a condition several lines above it.
+		 */
+		if (!branched)
+			out->direct_every_turn++;
+	}
+	/* A call, for the same reason: naming the control service in a callback
+	 * the loop rarely reaches would not keep the host's requests answered. */
+	if (calls_unconditionally(line, "handle_usb_control")) {
+		out->control++;
+		if (!branched)
+			out->control_every_turn++;
+	}
+	if (is_assignment_to(line, "ISER0") &&
+	    contains_identifier(line, "ISER0_ISE_USB"))
+		out->unmask++;
+}
+
+static int scan_function(const char *path, const char *function,
+                         struct fn_usb *out)
+{
+	memset(out, 0, sizeof(*out));
+	return read_function_body(path, function, visit_usb_service, out) >= 0;
 }
 
 /*
@@ -712,11 +886,13 @@ MU_TEST(a_bulk_read_mode_keeps_the_endpoint_loaded)
 			continue;
 		snprintf(msg, sizeof(msg),
 		         "%s: %s() no longer calls handle_usb() or service_usb() on "
-		         "its own path (%d mentions, %d calls), so nothing loads the "
-		         "bulk IN endpoint while it runs -- and %s", modes[i].file,
+		         "a path it always reaches (%d mentions, %d calls, %d of "
+		         "them outside any branch), so nothing loads the bulk IN "
+		         "endpoint while it runs -- and %s", modes[i].file,
 		         modes[i].function, modes[i].found.bulk,
-		         modes[i].found.direct, modes[i].host);
-		mu_assert(modes[i].found.direct > 0, msg);
+		         modes[i].found.direct, modes[i].found.direct_every_turn,
+		         modes[i].host);
+		mu_assert(modes[i].found.direct_every_turn > 0, msg);
 	}
 }
 
@@ -782,10 +958,13 @@ MU_TEST(a_polled_mode_still_services_control_requests)
 
 		if (modes[i].service == USB_CONTROL) {
 			snprintf(msg, sizeof(msg),
-			         "%s: %s() does not call handle_usb_control(), so "
-			         "nothing services USB while it runs", modes[i].file,
-			         modes[i].function);
-			mu_assert(modes[i].found.control > 0, msg);
+			         "%s: %s() does not call handle_usb_control() on a path "
+			         "it always reaches (%d calls, %d of them outside any "
+			         "branch), so the host's requests go unanswered on the "
+			         "loop's ordinary path", modes[i].file,
+			         modes[i].function, modes[i].found.control,
+			         modes[i].found.control_every_turn);
+			mu_assert(modes[i].found.control_every_turn > 0, msg);
 		}
 		if (modes[i].service == USB_INTERRUPT) {
 			snprintf(msg, sizeof(msg),
@@ -833,6 +1012,10 @@ MU_TEST(nothing_in_the_le_engine_feeds_the_endpoint)
  * listed fails the test, which is where the new mode gets classified.
  */
 struct producer {
+	/* Both halves of where it lives. A file name alone is not an identity:
+	 * the two directories scanned below could each hold a file of the same
+	 * name, and a row would then match a function in either of them. */
+	const char *dir;
 	const char *file;
 	const char *function;
 	/*
@@ -856,20 +1039,28 @@ struct producer {
  * those packets reach the host.
  */
 static struct producer producers[] = {
-	{ "bluetooth_rxtx.c", "enqueue",              NULL,              0, 0, { 0 } },
-	{ "bluetooth_rxtx.c", "enqueue_with_ts",      NULL,              0, 0, { 0 } },
-	{ "bluetooth_rxtx.c", "bt_stream_rx",         "bt_stream_rx",    0, 0, { 0 } },
-	{ "bluetooth_rxtx.c", "specan",               "specan",          0, 0, { 0 } },
-	{ "bluetooth_rxtx.c", "rx_generic_sync",      "rx_generic_sync", 0, 0, { 0 } },
-	{ "bluetooth_rxtx.c", "bt_le_sync",           "bt_le_sync",      0, 0, { 0 } },
-	{ "bluetooth_rxtx.c", "cb_follow_le",         "bt_le_sync",      0, 0, { 0 } },
-	{ "bluetooth_rxtx.c", "cb_le_promisc",        "bt_generic_le",   0, 0, { 0 } },
-	{ "bluetooth_rxtx.c", "le_promisc_state",     "bt_generic_le",   0, 0, { 0 } },
-	{ "le_phy.c",         "usb_enqueue_le",       NULL,              0, 0, { 0 } },
-	{ "le_phy.c",         "le_phy_main",          "le_phy_main",     0, 0, { 0 } },
-	{ "ego.c",            "cap_state",            "ego_main",        0, 0, { 0 } },
-	{ "ego.c",            "continuous_cap_state", "ego_main",        0, 0, { 0 } },
+	{ FW_RXTX_DIR, "bluetooth_rxtx.c", "enqueue",              NULL,              0, 0, { 0 } },
+	{ FW_RXTX_DIR, "bluetooth_rxtx.c", "enqueue_with_ts",      NULL,              0, 0, { 0 } },
+	{ FW_RXTX_DIR, "bluetooth_rxtx.c", "bt_stream_rx",         "bt_stream_rx",    0, 0, { 0 } },
+	{ FW_RXTX_DIR, "bluetooth_rxtx.c", "specan",               "specan",          0, 0, { 0 } },
+	{ FW_RXTX_DIR, "bluetooth_rxtx.c", "rx_generic_sync",      "rx_generic_sync", 0, 0, { 0 } },
+	{ FW_RXTX_DIR, "bluetooth_rxtx.c", "bt_le_sync",           "bt_le_sync",      0, 0, { 0 } },
+	{ FW_RXTX_DIR, "bluetooth_rxtx.c", "cb_follow_le",         "bt_le_sync",      0, 0, { 0 } },
+	{ FW_RXTX_DIR, "bluetooth_rxtx.c", "cb_le_promisc",        "bt_generic_le",   0, 0, { 0 } },
+	{ FW_RXTX_DIR, "bluetooth_rxtx.c", "le_promisc_state",     "bt_generic_le",   0, 0, { 0 } },
+	{ FW_RXTX_DIR, "le_phy.c",         "usb_enqueue_le",       NULL,              0, 0, { 0 } },
+	{ FW_RXTX_DIR, "le_phy.c",         "le_phy_main",          "le_phy_main",     0, 0, { 0 } },
+	{ FW_RXTX_DIR, "ego.c",            "cap_state",            "ego_main",        0, 0, { 0 } },
+	{ FW_RXTX_DIR, "ego.c",            "continuous_cap_state", "ego_main",        0, 0, { 0 } },
 };
+
+/* Is this the file a row names? Both halves, so a file of the same name in
+ * the other scanned directory is a different file. */
+static int producer_is_in(const struct producer *p, const char *dir,
+                          const char *file)
+{
+	return strcmp(p->dir, dir) == 0 && strcmp(p->file, file) == 0;
+}
 
 #define PRODUCER_COUNT (sizeof(producers) / sizeof(producers[0]))
 
@@ -1267,7 +1458,8 @@ static void resolve_producers(void)
 
 	for (i = 0; i < found_count; i++)
 		for (j = 0; j < PRODUCER_COUNT; j++)
-			if (strcmp(producers[j].file, found[i].file) == 0 &&
+			if (producer_is_in(&producers[j], found[i].dir,
+			                   found[i].file) &&
 			    strcmp(producers[j].function,
 			           found[i].function) == 0) {
 				producers[j].found = 1;
@@ -1330,7 +1522,10 @@ static void scan_file_for_helper_callers(const char *dir, const char *file)
 			if (!calls_identifier(line, producers[i].function))
 				continue;
 			for (j = 0; j < PRODUCER_COUNT; j++) {
-				if (strcmp(producers[j].function, current) != 0)
+				/* The caller's own file too: a function of this
+				 * name in another file is another function. */
+				if (!producer_is_in(&producers[j], dir, file) ||
+				    strcmp(producers[j].function, current) != 0)
 					continue;
 				listed = 1;
 				if (producers[j].mode_loop != NULL)
@@ -1719,6 +1914,509 @@ MU_TEST(every_producers_mode_loop_is_classified)
 	}
 }
 
+/* ------------------------------------------------------------------ *
+ * Every mode the dispatch runs, and the host that collects its packets
+ * ------------------------------------------------------------------ */
+
+/*
+ * modes[] is keyed on the firmware loop, and three modes share one loop:
+ * MODE_RX_SYMBOLS, MODE_BT_FOLLOW and MODE_AFH all run bt_stream_rx(). So
+ * everything above is a statement about a loop, not about a mode. A dispatch
+ * case added later could run that loop for a host that polls, and every check
+ * above would pass while the mode lost the first two packets of every session
+ * to the bulk IN endpoint -- the failure modes[] exists to stop.
+ *
+ * Which transport is used is a property of the (mode, host) pair, so this
+ * table is keyed on the mode. Each row is one case of main()'s dispatch: the
+ * function that case runs, and how that mode's host collects packets. A new
+ * case has to be added here, and what it may claim is then checked against
+ * the loop it actually runs.
+ */
+struct dispatch_mode {
+	const char *mode;          /* the MODE_* the dispatch has a case for */
+	/* The function the case calls, or NULL for a case that calls none. */
+	const char *runs;
+	enum usb_service service;
+	/* filled in by the scan */
+	int found;
+	unsigned loops;            /* modes[] rows reachable from this case */
+	int reaches_queue;
+};
+
+static struct dispatch_mode dispatch[] = {
+	{ "MODE_RESET",        "reset",            USB_NONE,      0, 0, 0 },
+	{ "MODE_AFH",          "bt_stream_rx",     USB_BULK,      0, 0, 0 },
+	{ "MODE_RX_SYMBOLS",   "bt_stream_rx",     USB_BULK,      0, 0, 0 },
+	{ "MODE_BT_FOLLOW",    "bt_stream_rx",     USB_BULK,      0, 0, 0 },
+	{ "MODE_TX_SYMBOLS",   "br_transmit",      USB_NONE,      0, 0, 0 },
+	{ "MODE_BT_FOLLOW_LE", "bt_follow_le",     USB_CONTROL,   0, 0, 0 },
+	{ "MODE_BT_PROMISC_LE","bt_promisc_le",    USB_INTERRUPT, 0, 0, 0 },
+	{ "MODE_BT_SLAVE_LE",  "bt_slave_le",      USB_NONE,      0, 0, 0 },
+	{ "MODE_TX_TEST",      "cc2400_txtest",    USB_NONE,      0, 0, 0 },
+	{ "MODE_RANGE_TEST",   "cc2400_rangetest", USB_NONE,      0, 0, 0 },
+	{ "MODE_REPEATER",     "cc2400_repeater",  USB_NONE,      0, 0, 0 },
+	{ "MODE_SPECAN",       "specan",           USB_BULK,      0, 0, 0 },
+	{ "MODE_LED_SPECAN",   "led_specan",       USB_NONE,      0, 0, 0 },
+	{ "MODE_EGO",          "ego_main",         USB_INTERRUPT, 0, 0, 0 },
+	{ "MODE_RX_GENERIC",   "rx_generic",       USB_BULK,      0, 0, 0 },
+	{ "MODE_TX_GENERIC",   "tx_generic",       USB_NONE,      0, 0, 0 },
+	{ "MODE_XMAS",         "xmas_main",        USB_NONE,      0, 0, 0 },
+	{ "MODE_IDENTIFY",     "identify_main",    USB_NONE,      0, 0, 0 },
+	{ "MODE_IDLE",         NULL,               USB_NONE,      0, 0, 0 },
+};
+
+#define DISPATCH_COUNT (sizeof(dispatch) / sizeof(dispatch[0]))
+
+#define MAX_CASE_CALLS 12
+
+/* What the scan read out of one dispatch case: its label and every function
+ * its body calls. A case that falls through to the next shares the next
+ * one's calls, which is how MODE_AFH runs bt_stream_rx(). */
+struct dispatch_case {
+	char mode[48];
+	char calls[MAX_CASE_CALLS][64];
+	int call_count;
+	int listed;
+};
+
+static struct dispatch_case cases_found[DISPATCH_COUNT + 8];
+static int cases_found_count;
+static int dispatch_lines;
+static int dispatch_overflowed;
+static char unlisted_case[64];
+
+/* The MODE_* a `case` label names, if it names one. */
+static int case_label(const char *line, char *out, size_t size)
+{
+	const char *p = line;
+	const char *start;
+
+	while (*p == ' ' || *p == '\t')
+		p++;
+	if (strncmp(p, "case", 4) != 0 || is_ident_char(p[4]))
+		return 0;
+	p += 4;
+	while (*p == ' ' || *p == '\t')
+		p++;
+	start = p;
+	while (is_ident_char(*p))
+		p++;
+	if (p == start || (size_t)(p - start) >= size ||
+	    strncmp(start, "MODE_", 5) != 0)
+		return 0;
+	memcpy(out, start, (size_t)(p - start));
+	out[p - start] = '\0';
+	return 1;
+}
+
+/* Record a call against every case label still waiting for one. */
+static void add_call_to_pending(const int *pending, int pending_count,
+                                const char *name)
+{
+	int i, j;
+
+	for (i = 0; i < pending_count; i++) {
+		struct dispatch_case *c = &cases_found[pending[i]];
+
+		for (j = 0; j < c->call_count; j++)
+			if (strcmp(c->calls[j], name) == 0)
+				break;
+		if (j < c->call_count)
+			continue;
+		if (c->call_count >= MAX_CASE_CALLS) {
+			dispatch_overflowed = 1;
+			continue;
+		}
+		snprintf(c->calls[c->call_count], sizeof(c->calls[0]), "%s",
+		         name);
+		c->call_count++;
+	}
+}
+
+static int pending_cases[DISPATCH_COUNT + 8];
+static int pending_count;
+
+static void visit_dispatch_line(const char *line, int branched, void *ctx)
+{
+	char name[64];
+	const char *p = line;
+
+	(void)branched;
+	(void)ctx;
+	dispatch_lines++;
+
+	if (case_label(line, name, sizeof(name))) {
+		if (cases_found_count >=
+		    (int)(sizeof(cases_found) / sizeof(cases_found[0]))) {
+			dispatch_overflowed = 1;
+			return;
+		}
+		memset(&cases_found[cases_found_count], 0,
+		       sizeof(cases_found[0]));
+		snprintf(cases_found[cases_found_count].mode,
+		         sizeof(cases_found[0].mode), "%s", name);
+		if (pending_count <
+		    (int)(sizeof(pending_cases) / sizeof(pending_cases[0])))
+			pending_cases[pending_count++] = cases_found_count;
+		cases_found_count++;
+		return;
+	}
+
+	if (pending_count == 0)
+		return;
+
+	/* Every call on the line, not only the first: a case that calls
+	 * something harmless before the function that does the work would
+	 * otherwise be read by its first call alone. */
+	while (*p != '\0') {
+		const char *start, *after;
+
+		if (!is_ident_char(*p)) {
+			p++;
+			continue;
+		}
+		start = p;
+		while (is_ident_char(*p))
+			p++;
+		after = p;
+		while (*after == ' ' || *after == '\t')
+			after++;
+		if (*after != '(' || (size_t)(p - start) >= sizeof(name))
+			continue;
+		memcpy(name, start, (size_t)(p - start));
+		name[p - start] = '\0';
+		if (!is_not_a_function_name(name))
+			add_call_to_pending(pending_cases, pending_count, name);
+	}
+
+	/*
+	 * The case ends here, so the next label starts a new one. A `break` of
+	 * an inner loop would end it early and the calls after it would be
+	 * missed -- which shows up as the row no longer naming what its case
+	 * calls, rather than as a check quietly passing. No case has an inner
+	 * loop today.
+	 */
+	if (contains_identifier(line, "break") ||
+	    contains_identifier(line, "return"))
+		pending_count = 0;
+}
+
+/*
+ * What one function leads to: whether its body reaches the packet queue, and
+ * which of the loops in modes[] it runs. One step is enough for the dispatch,
+ * because three of its cases call a function that picks a loop --
+ * bt_follow_le(), bt_promisc_le() and rx_generic() -- and the rest call a loop
+ * outright.
+ *
+ * A name that is not defined in either scanned directory is a library call or
+ * a compiler intrinsic, which cannot reach the queue:
+ * every_source_the_image_compiles_is_scanned above is what makes that true.
+ */
+struct reach {
+	int producer;   /* its body puts packets in the queue, or calls what does */
+	unsigned loops; /* bitmask of modes[] rows it runs */
+};
+
+static void visit_reach(const char *line, int branched, void *ctx)
+{
+	struct reach *r = ctx;
+	size_t i;
+
+	(void)branched;
+	if (line_calls_enqueue(line))
+		r->producer = 1;
+	for (i = 0; i < PRODUCER_COUNT; i++)
+		if (calls_identifier(line, producers[i].function))
+			r->producer = 1;
+	for (i = 0; i < MODE_COUNT; i++)
+		if (calls_identifier(line, modes[i].function))
+			r->loops |= 1u << i;
+}
+
+static void function_reach(const char *name, struct reach *out)
+{
+	struct dirent *entry;
+	size_t i;
+
+	memset(out, 0, sizeof(*out));
+
+	/* A name that is itself a loop or a producer answers for itself. */
+	for (i = 0; i < MODE_COUNT; i++)
+		if (strcmp(modes[i].function, name) == 0)
+			out->loops |= 1u << i;
+	for (i = 0; i < PRODUCER_COUNT; i++)
+		if (strcmp(producers[i].function, name) == 0)
+			out->producer = 1;
+
+	for (i = 0; i < SCANNED_DIR_COUNT; i++) {
+		DIR *dir = opendir(scanned_dirs[i]);
+
+		if (dir == NULL)
+			continue;
+		while ((entry = readdir(dir)) != NULL) {
+			char path[512];
+			size_t len = strlen(entry->d_name);
+
+			if (len < 3 ||
+			    strcmp(entry->d_name + len - 2, ".c") != 0)
+				continue;
+			snprintf(path, sizeof(path), "%s/%s", scanned_dirs[i],
+			         entry->d_name);
+			read_function_body(path, name, visit_reach, out);
+		}
+		closedir(dir);
+	}
+}
+
+static int dispatch_scanned;
+
+static void scan_dispatch(void)
+{
+	char path[512];
+	size_t i;
+	int c;
+
+	snprintf(path, sizeof(path), "%s/bluetooth_rxtx.c", FW_RXTX_DIR);
+	cases_found_count = 0;
+	pending_count = 0;
+	dispatch_lines = 0;
+	dispatch_scanned =
+		read_function_body(path, "main", visit_dispatch_line, NULL) > 0;
+	if (!dispatch_scanned)
+		return;
+
+	/* Match the cases the scan found against the table, and resolve what
+	 * each case's calls lead to. */
+	for (c = 0; c < cases_found_count; c++) {
+		for (i = 0; i < DISPATCH_COUNT; i++) {
+			int k;
+
+			if (strcmp(dispatch[i].mode, cases_found[c].mode) != 0)
+				continue;
+			dispatch[i].found = 1;
+			cases_found[c].listed = 1;
+			for (k = 0; k < cases_found[c].call_count; k++) {
+				struct reach r;
+
+				function_reach(cases_found[c].calls[k], &r);
+				dispatch[i].loops |= r.loops;
+				dispatch[i].reaches_queue |= r.producer;
+			}
+		}
+		if (!cases_found[c].listed && unlisted_case[0] == '\0')
+			snprintf(unlisted_case, sizeof(unlisted_case), "%s",
+			         cases_found[c].mode);
+	}
+}
+
+MU_TEST(the_dispatch_scan_read_every_case)
+{
+	size_t i;
+
+	mu_assert_fatal(dispatch_scanned,
+	                "cannot read main() in " FW_RXTX_DIR
+	                "/bluetooth_rxtx.c, so the checks below would pass for "
+	                "want of anything to look at");
+	mu_assert(!dispatch_overflowed,
+	          "the dispatch has more cases, or a case more calls, than this "
+	          "scan can hold");
+	mu_assert(dispatch_lines > 50,
+	          "main() scanned as fewer than 50 lines, so the scan lost "
+	          "track of the function");
+	mu_assert(cases_found_count >= (int)DISPATCH_COUNT,
+	          "the scan found fewer dispatch cases than the table lists, so "
+	          "it lost track of main()");
+
+	for (i = 0; i < DISPATCH_COUNT; i++) {
+		char msg[256];
+
+		snprintf(msg, sizeof(msg),
+		         "%s is in the table but main() has no case for it, so the "
+		         "row says nothing about anything", dispatch[i].mode);
+		mu_assert(dispatch[i].found, msg);
+	}
+}
+
+/* A mode the dispatch runs and nothing here classifies is the hole #434 came
+ * out of: the mode streams, and no test says which transport its host uses. */
+MU_TEST(every_mode_the_dispatch_runs_is_classified)
+{
+	char msg[384];
+
+	snprintf(msg, sizeof(msg),
+	         "main() has a case for %s and dispatch[] does not. Add it, and "
+	         "say how that mode's host collects packets: reading the bulk IN "
+	         "endpoint, or polling", unlisted_case);
+	mu_assert(unlisted_case[0] == '\0', msg);
+}
+
+/* ...and the row has to name the function the case really runs, or the checks
+ * below are reading a different mode's loop. */
+MU_TEST(every_row_names_the_function_its_case_calls)
+{
+	size_t i;
+	int c;
+
+	for (i = 0; i < DISPATCH_COUNT; i++) {
+		char msg[384];
+		int named = dispatch[i].runs == NULL, calls = 0;
+
+		for (c = 0; c < cases_found_count; c++) {
+			int k;
+
+			if (strcmp(cases_found[c].mode, dispatch[i].mode) != 0)
+				continue;
+			calls += cases_found[c].call_count;
+			for (k = 0; k < cases_found[c].call_count; k++)
+				if (dispatch[i].runs != NULL &&
+				    strcmp(cases_found[c].calls[k],
+				           dispatch[i].runs) == 0)
+					named = 1;
+		}
+
+		snprintf(msg, sizeof(msg),
+		         "dispatch[] says %s runs %s(), which main()'s case for it "
+		         "does not call (%d calls found). The row is stale",
+		         dispatch[i].mode,
+		         dispatch[i].runs ? dispatch[i].runs : "nothing", calls);
+		mu_assert(named, msg);
+
+		if (dispatch[i].runs == NULL) {
+			snprintf(msg, sizeof(msg),
+			         "dispatch[] says %s calls nothing, but main()'s case "
+			         "for it makes %d calls", dispatch[i].mode, calls);
+			mu_assert(calls == 0, msg);
+		}
+	}
+}
+
+/*
+ * The check the loop-keyed table above cannot make: a mode that runs one of
+ * those loops has to use the transport that loop provides. A new case running
+ * bt_stream_rx() for a host that polls is #434 again -- the loop hands packets
+ * to the bulk IN endpoint, which such a host never reads -- and this is what
+ * says so.
+ */
+MU_TEST(a_mode_uses_the_transport_of_the_loop_it_runs)
+{
+	size_t i, j;
+
+	for (i = 0; i < DISPATCH_COUNT; i++)
+		for (j = 0; j < MODE_COUNT; j++) {
+			char msg[512];
+
+			if (!(dispatch[i].loops & (1u << j)))
+				continue;
+			if (modes[j].service == dispatch[i].service)
+				continue;
+			snprintf(msg, sizeof(msg),
+			         "%s runs %s(), whose host %s, but dispatch[] says "
+			         "this mode's host %s. One of the two is wrong: a "
+			         "mode whose host polls loses to the bulk IN "
+			         "endpoint every packet the loop hands it, and a "
+			         "mode whose host reads that endpoint reads nothing "
+			         "if the loop never loads it",
+			         dispatch[i].mode, modes[j].function,
+			         service_name(modes[j].service),
+			         service_name(dispatch[i].service));
+			mu_assert(0, msg);
+		}
+}
+
+/*
+ * A mode that streams needs a loop the table above classifies. Without this,
+ * a new case could run a loop of its own that enqueues through an existing
+ * producer -- a call to le_promisc_state() names nothing with "enqueue" in it,
+ * so the producer scan does not see the new loop at all -- and claim any
+ * transport it liked.
+ */
+MU_TEST(a_mode_that_streams_runs_a_classified_loop)
+{
+	size_t i;
+
+	for (i = 0; i < DISPATCH_COUNT; i++) {
+		char msg[512];
+
+		if (dispatch[i].service == USB_NONE) {
+			snprintf(msg, sizeof(msg),
+			         "%s reaches the packet queue, so a host does collect "
+			         "its packets. Say which transport that host uses",
+			         dispatch[i].mode);
+			mu_assert(!dispatch[i].reaches_queue, msg);
+			continue;
+		}
+
+		snprintf(msg, sizeof(msg),
+		         "dispatch[] says %s's host %s, but %s() runs none of the "
+		         "loops in modes[], so nothing checks that the loop it does "
+		         "run keeps that promise. Add a row to modes[] for that "
+		         "loop", dispatch[i].mode,
+		         service_name(dispatch[i].service),
+		         dispatch[i].runs ? dispatch[i].runs : "the case");
+		mu_assert(dispatch[i].loops != 0, msg);
+	}
+}
+
+/* ------------------------------------------------------------------ *
+ * The scans can read what is there
+ * ------------------------------------------------------------------ */
+
+/*
+ * Every scan in this file reads a line at a time into a fixed buffer, and a
+ * longer line comes back split. A split that lands in the middle of a call
+ * hides that call: the mode using it would pass every check above by being
+ * invisible. So the sources have to stay narrower than the buffer, and this
+ * is what says so rather than assuming it.
+ */
+static int longest_line;
+static char longest_line_where[256];
+
+static void check_file_line_length(const char *dir, const char *file)
+{
+	char path[512];
+	int c, length = 0, lineno = 1;
+	FILE *f;
+
+	snprintf(path, sizeof(path), "%s/%s", dir, file);
+	f = fopen(path, "r");
+	if (f == NULL)
+		return;
+
+	while ((c = fgetc(f)) != EOF) {
+		if (c == '\n') {
+			lineno++;
+			length = 0;
+			continue;
+		}
+		length++;
+		if (length <= longest_line)
+			continue;
+		longest_line = length;
+		snprintf(longest_line_where, sizeof(longest_line_where),
+		         "%s/%s:%d", dir, file, lineno);
+	}
+
+	fclose(f);
+}
+
+MU_TEST(no_source_line_is_too_long_for_the_scans)
+{
+	char msg[384];
+
+	run_scan(1, check_file_line_length);
+
+	mu_assert(longest_line > 0,
+	          "no source was read, so this check passed for want of "
+	          "anything to look at");
+	/* The line plus its newline and the terminator have to fit. */
+	snprintf(msg, sizeof(msg),
+	         "%s is %d characters long and the scans read %d at a time, so "
+	         "that line comes back split and a call on it can be hidden "
+	         "from them. Wrap it, or widen SCAN_LINE_MAX in source_scan.h",
+	         longest_line_where, longest_line, SCAN_LINE_MAX);
+	mu_assert(longest_line + 2 <= SCAN_LINE_MAX, msg);
+}
+
 int main(void)
 {
 	MU_RUN(a_new_mode_reads_only_its_own_packets);
@@ -1750,6 +2448,15 @@ int main(void)
 	MU_RUN(every_producers_mode_loop_is_classified);
 	MU_RUN(every_scanned_directory_was_read);
 	MU_RUN(every_source_the_image_compiles_is_scanned);
+
+	scan_dispatch();
+	MU_RUN(the_dispatch_scan_read_every_case);
+	MU_RUN(every_mode_the_dispatch_runs_is_classified);
+	MU_RUN(every_row_names_the_function_its_case_calls);
+	MU_RUN(a_mode_uses_the_transport_of_the_loop_it_runs);
+	MU_RUN(a_mode_that_streams_runs_a_classified_loop);
+
+	MU_RUN(no_source_line_is_too_long_for_the_scans);
 
 	return mu_report();
 }

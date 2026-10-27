@@ -27,6 +27,14 @@
 #include <string.h>
 
 /*
+ * How much of a source line a scan reads. fgets() splits a longer line in
+ * two, and a split that lands in the middle of a call hides that call, so a
+ * scan that reads lines this long is only sound while the sources are
+ * narrower than this. test_usb_queue.c checks that they are.
+ */
+#define SCAN_LINE_MAX 512
+
+/*
  * Strip C comments from a line, in place, carrying block-comment state across
  * lines.
  */
