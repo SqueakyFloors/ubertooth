@@ -249,7 +249,7 @@ jobs:
     - name: Install dependencies (macOS)
       # Twelve minutes is well above what this step has ever legitimately
       # taken (four and a half on the oldest runner, where brew rebuilt a
-      # dependency from source), and well below the job's eighteen, so a brew
+      # dependency from source), and well below the job's twenty, so a brew
       # that never finishes fails here by name.
       timeout-minutes: 12
       run: |
@@ -322,17 +322,26 @@ jobs:
     - name: Restore the toolchain packages
       if: runner.os == 'Linux'
       uses: actions/cache@v4
+      # Its own limit, because restoring half a gigabyte from the cache
+      # service is the one network fetch here that tools/retry.sh does not
+      # wrap: a restore that stalls should fail a step that names it.
+      timeout-minutes: 8
       with:
         path: ${{ runner.temp }}/apt-archives
         # No runner label in the key. Two images that resolve the same .deb
         # files want the same cache, and ubuntu-latest is ubuntu-24.04 today,
         # so keying on the label would have stored half a gigabyte twice and
-        # left the canary with a cold run of its own.
+        # left the canary with a cold run of its own in every steady-state
+        # run. On the first run after a toolchain bump both miss together and
+        # only one of them saves, so the canary pays a cold run that once;
+        # the alternative is paying for a second copy forever.
         key: arm-toolchain-${{ steps.toolchain.outputs.key }}
 
     - name: Install dependencies (Ubuntu)
-      # Only the run that finds nothing cached gets this far, and one attempt
-      # has to fetch the whole 574 MB, because a killed apt keeps only the
+      # This step runs on every Linux run; it is the download inside it that
+      # only the run finding nothing cached pays for. That download is what
+      # the limit below is sized for, and one attempt has to fetch the whole
+      # 574 MB, because a killed apt keeps only the
       # packages it had finished: in a run measured here, attempt two still
       # needed 571 MB of the 574. Five minutes an attempt therefore wants
       # about 2 MB a second, which a healthy mirror beats several times over

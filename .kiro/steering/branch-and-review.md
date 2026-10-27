@@ -104,8 +104,9 @@ Speed matters. Do not wait for every job.
 - **Gating set: one Linux and one Mac.** A code change is good to merge once
   `host (ubuntu-24.04)` and `host (macos-26)` have passed and nothing has
   failed. Changes under `firmware/` also need both firmware jobs; changes to
-  `install.sh` need both `install-sh` jobs; changes under `host/doc` need
-  `Man pages`. `issue-references`, `libbtbb-pin`, `scripts (ubuntu-24.04)` and
+  `install.sh` need both `install-sh` jobs; changes under `host/doc` need the
+  `Man pages` workflow, which `gh pr checks` prints under its job name,
+  `refresh`. `issue-references`, `libbtbb-pin`, `scripts (ubuntu-24.04)` and
   `scripts (macos-26)` gate every change they run on, whatever the change
   touches: they take seconds to a minute, need nothing built, and a red one
   means the change itself broke the rule they check. A full-tier failure is

@@ -196,10 +196,12 @@ firmware flashing), not radio capture.
    only Ubuntu 24.04 and macOS 26, so the minimum versions are exercised by the
    weekly run, not on every PR. Pin explicit versions (not `-latest`) so the
    record is reproducible, and test the **minimum and the newest** of each
-   dimension. Two narrower workflows cover one thing each on their own
+   dimension. Three narrower workflows cover one thing each on their own
    triggers: `install-sh.yml` (Ubuntu 24.04 and macOS 15, when `install.sh`
-   changes) and `manpages.yml` (Ubuntu 24.04, when `host/doc` changes), which
-   installs the pinned ronn-ng and fails if the committed man pages no longer
-   match their Markdown.
+   changes), `libbtbb-pin.yml` (Ubuntu 24.04, on every change with no path
+   filter at all, since the files that must agree on the pin include this one
+   and the build guides) and `manpages.yml` (Ubuntu 24.04, when `host/doc`
+   changes), which installs the pinned ronn-ng and fails if the committed man
+   pages no longer match their Markdown.
 3. **Hardware-only claims** — anything about radio behaviour (BLE/BR-EDR
    capture) is only "tested" when run on a real Ubertooth per [TEST_PLAN.md](TEST_PLAN.md).
