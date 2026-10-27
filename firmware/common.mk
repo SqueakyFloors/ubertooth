@@ -99,6 +99,29 @@ ASRC =
 #     this an empty or blank macro!
 OBJDIR = .
 
+# Where this image's build output for one source file goes.
+#
+# Sources in the image's own directory compile beside themselves, under
+# $(OBJDIR). Sources above it -- $(LIBS_PATH) is ../common, which every image
+# shares -- must not, or ../common/ubertooth.c would compile to
+# ../common/ubertooth.o, in the directory the next image built in this tree
+# also looks in. make compares timestamps, not compiler flags, so that image
+# would take the object as up to date and link it, even though the images
+# compile the shared code differently (btbr at -O3, the others at -Os).
+#
+# Prefixing with shared/ keeps every output under the image's own directory:
+#   bluetooth.c           ->  ./bluetooth.o
+#   ../common/ubertooth.c ->  ./shared/common/ubertooth.o
+# Objects, listings and depfiles all go through here, so they stay together.
+#
+# shared/ is reserved for build output: clean removes the whole tree, so no
+# image may keep sources in a directory of that name.
+#
+# It strips one leading ../, which is as far up as any image reaches today. A
+# source two levels up would keep its second ../ and land outside the image
+# directory, so one of those needs another line here.
+per_image = $(addprefix $(OBJDIR)/,$(patsubst ../%,shared/%,$(1)))
+
 # Optimization level, can be [0, 1, 2, 3, s].
 #     0 = turn off optimization. s = optimize for size.
 #     (Note: 3 is not always the best optimization level. See libc FAQ.)
@@ -168,7 +191,7 @@ CFLAGS += -mfix-cortex-m3-ldrd
 #CFLAGS += -fno-unit-at-a-time
 #CFLAGS += -Wunreachable-code
 #CFLAGS += -Wsign-compare
-CFLAGS += -Wa,-alhms=$(<:%.c=$(OBJDIR)/%.lst)
+CFLAGS += -Wa,-alhms=$(call per_image,$(<:%.c=%.lst))
 CFLAGS += $(patsubst %,-I%,$(EXTRAINCDIRS))
 CFLAGS += $(CSTANDARD)
 # GIT_REVISION/COMPILE_*/TIMESTAMP now come from the generated version.h, not
@@ -196,7 +219,7 @@ CPPFLAGS += -Wall
 #CPPFLAGS += -Wstrict-prototypes
 #CPPFLAGS += -Wunreachable-code
 #CPPFLAGS += -Wsign-compare
-CPPFLAGS += -Wa,-alhms=$(<:%.cpp=$(OBJDIR)/%.lst)
+CPPFLAGS += -Wa,-alhms=$(call per_image,$(<:%.cpp=%.lst))
 CPPFLAGS += $(patsubst %,-I%,$(EXTRAINCDIRS))
 #CPPFLAGS += $(CSTANDARD)
 CPPFLAGS += -fno-exceptions
@@ -211,7 +234,7 @@ CPPFLAGS += -Weffc++
 #  -gstabs:   have the assembler create line number information
 #  -listing-cont-lines: Sets the maximum number of continuation lines of hex
 #       dump that will be displayed for a given single line of source input.
-ASFLAGS = -g$(DEBUG) $(ADEFS) -I.  -alhms=$(<:%.S=$(OBJDIR)/%.lst)
+ASFLAGS = -g$(DEBUG) $(ADEFS) -I.  -alhms=$(call per_image,$(<:%.S=%.lst))
 
 #---------------- Library Options ----------------
 
@@ -277,10 +300,10 @@ MSG_CLEANING = Cleaning project:
 MSG_CREATING_LIBRARY = Creating library:
 
 # Define all object files.
-OBJ = $(SRC:%.c=$(OBJDIR)/%.o) $(CPPSRC:%.cpp=$(OBJDIR)/%.o) $(ASRC:%.S=$(OBJDIR)/%.o)
+OBJ = $(call per_image,$(SRC:%.c=%.o) $(CPPSRC:%.cpp=%.o) $(ASRC:%.S=%.o))
 
 # Define all listing files.
-LST = $(SRC:%.c=$(OBJDIR)/%.lst) $(CPPSRC:%.cpp=$(OBJDIR)/%.lst) $(ASRC:%.S=$(OBJDIR)/%.lst)
+LST = $(call per_image,$(SRC:%.c=%.lst) $(CPPSRC:%.cpp=%.lst) $(ASRC:%.S=%.lst))
 
 # Compiler flags to generate dependency files.
 GENDEPFLAGS = -MMD -MP -MD
@@ -315,7 +338,7 @@ all: begin gccversion sizebefore build showtarget sizeafter end
 #    -v / -V. The standard fix is to record the current flags in a file that is
 #    rewritten only when they change, and make every object depend on it. Any
 #    flag change (not just the git hash) then correctly invalidates the objects.
-DEPFILES = $(SRC:%.c=$(OBJDIR)/%.d) $(CPPSRC:%.cpp=$(OBJDIR)/%.d)
+DEPFILES = $(call per_image,$(SRC:%.c=%.d) $(CPPSRC:%.cpp=%.d))
 -include $(DEPFILES)
 
 # Version identity tracking.
@@ -515,17 +538,47 @@ program: $(TARGET).hex
 	@echo $(MSG_LINKING) $@
 	$(LD) $(LINKER_SCRIPT) $(ALL_CFLAGS_LINKER) $(LDFLAGS) -o $@ $^
 
+# The compile commands, written once.
+#
+# Each kind of source needs two rules: one for a source in this directory, one
+# for a source above it, whose output $(per_image) puts under shared/. The two
+# differ only in the paths they match, so the commands live here and both
+# rules run them. mkdir is for the shared/ case, which has directories to
+# create; for the other it is a no-op on $(OBJDIR), which already exists.
+define compile_c
+@echo
+@echo $(MSG_COMPILING) $<
+@mkdir -p $(@D)
+$(CC) -c $(ALL_CFLAGS) $< -o $@
+endef
+
+define compile_cpp
+@echo
+@echo $(MSG_COMPILING_CPP) $<
+@mkdir -p $(@D)
+$(CC) -c $(ALL_CPPFLAGS) $< -o $@
+endef
+
+define assemble
+@echo
+@echo $(MSG_ASSEMBLING) $<
+@mkdir -p $(@D)
+$(AS) $< $(ALL_ASFLAGS) --MD $@.d -o $@
+endef
+
 # Compile: create object files from C source files.
 $(OBJDIR)/%.o : %.c
-	@echo
-	@echo $(MSG_COMPILING) $<
-	$(CC) -c $(ALL_CFLAGS) $< -o $@
+	$(compile_c)
+
+$(OBJDIR)/shared/%.o : ../%.c
+	$(compile_c)
 
 # Compile: create object files from C++ source files.
 $(OBJDIR)/%.o : %.cpp
-	@echo
-	@echo $(MSG_COMPILING_CPP) $<
-	$(CC) -c $(ALL_CPPFLAGS) $< -o $@
+	$(compile_cpp)
+
+$(OBJDIR)/shared/%.o : ../%.cpp
+	$(compile_cpp)
 
 # Compile: create assembler files from C source files.
 %.s : %.c
@@ -537,9 +590,10 @@ $(OBJDIR)/%.o : %.cpp
 
 # Assemble: create object files from assembler source files.
 $(OBJDIR)/%.o : %.S
-	@echo
-	@echo $(MSG_ASSEMBLING) $<
-	$(AS) $< $(ALL_ASFLAGS) --MD $(OBJDIR)/$(@F).d -o $@
+	$(assemble)
+
+$(OBJDIR)/shared/%.o : ../%.S
+	$(assemble)
 
 # Create preprocessed source for use in sending a bug report.
 %.i : %.c
@@ -560,20 +614,25 @@ clean_list:
 	$(REMOVE) $(TARGET).map
 	$(REMOVE) $(TARGET).sym
 	$(REMOVE) $(TARGET).lss
-	$(REMOVE) $(SRC:%.c=$(OBJDIR)/%.o)
-	$(REMOVE) $(CPPSRC:%.cpp=$(OBJDIR)/%.o)
-	$(REMOVE) $(SRC:%.c=$(OBJDIR)/%.lst)
-	$(REMOVE) $(CPPSRC:%.cpp=$(OBJDIR)/%.lst)
-	$(REMOVE) $(ASRC:%.S=$(OBJDIR)/%.lst)
-	$(REMOVE) $(ASRC:%.S=$(OBJDIR)/%.o)
-	$(REMOVE) $(ASRC:%.S=$(OBJDIR)/%.o.d)
+	@# Every object, listing and depfile this image builds, taken from the
+	@# same lists the build uses, so clean cannot drift from it.
+	$(REMOVE) $(OBJ)
+	$(REMOVE) $(LST)
+	$(REMOVE) $(call per_image,$(ASRC:%.S=%.o.d))
 	$(REMOVE) $(DEPFILES)
 	$(REMOVE) $(VERSION_HEADER) $(VERSION_IDFILE)
+	@# The shared/ tree the lines above emptied. addsuffix yields nothing at
+	@# all if OBJDIR is somehow blank, rather than a path at the root.
+	rm -rf $(addsuffix /shared,$(OBJDIR))
 	$(REMOVE) *.o.d
 	$(REMOVE) $(SRC:.c=.s)
 	$(REMOVE) $(SRC:.c=.d)
 	$(REMOVE) $(CPPSRC:.cpp=.d)
 	$(REMOVE) $(SRC:.c=.i)
+	@# Output left in ../common by a build from before the per-image layout.
+	@# Nothing reads it now, but leaving it would remove less than clean
+	@# always has, and it is what made the second image wrong.
+	$(REMOVE) $(SRC:.c=.o) $(SRC:.c=.lst) $(CPPSRC:.cpp=.o) $(CPPSRC:.cpp=.lst)
 	$(REMOVE) InvalidEvents.tmp
 	$(REMOVE) $(TARGET).bin
 	$(REMOVE) $(TARGET).dfu
