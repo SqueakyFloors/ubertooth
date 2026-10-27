@@ -422,12 +422,14 @@ jobs:
       matrix:
         os: [ubuntu-24.04, macos-26]
     runs-on: ${{ matrix.os }}
-    # The steps below carry their own limits: 6 minutes for the shellcheck
-    # install and 6 for the api-version self-test, which compiles and runs
-    # fifty-odd throwaway repositories, and 2 for each of the two libbtbb list
-    # checks. The job's limit has to leave room for all of them to be slow at
-    # once.
-    timeout-minutes: 20
+    # The steps below carry their own limits: 6 minutes each for the
+    # shellcheck install, the api-version self-test (which builds and reads
+    # seventy-odd throwaway repositories) and the DFU packaging self-test, and
+    # 2 each for the two libbtbb list checks and the workflow libbtbb guard's
+    # self-test. The job's limit has to leave room for all of them to be slow
+    # at once, which is 24 minutes of step limits plus the unbounded steps --
+    # the two quick self-tests and the issue-reference check -- so 30.
+    timeout-minutes: 30
     steps:
     - uses: actions/checkout@v4
 
@@ -495,6 +497,18 @@ jobs:
       # else: no ARM toolchain, no host build, no board, no network.
       timeout-minutes: 6
       run: tools/check-dfu-package-selftest.sh
+
+    - name: Check that the workflow libbtbb guard holds both ways
+      # The libbtbb-pin workflow runs that guard against this branch, which
+      # says nothing about whether it would still refuse a workflow that
+      # fetches a libbtbb of its own. This copies the real workflows into
+      # throwaway directories -- one with a job fetching upstream, one with a
+      # job cloning another fork, one with the pin-reading file drifted, and
+      # ones holding only the local libbtbb paths the real jobs write -- and
+      # asserts the status and the message for each. It reads files: no
+      # network, no build, a second or two.
+      timeout-minutes: 2
+      run: tools/check-workflow-libbtbb-selftest.sh
 
     - name: Check the libbtbb function list
       # FindBTBB.cmake probes the installed libbtbb for the functions the host

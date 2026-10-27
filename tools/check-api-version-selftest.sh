@@ -521,9 +521,12 @@ want_stderr "changes no firmware interface file"
 want_stderr "Put it back to 0x0131"
 
 # Reindenting a watched line is not a change to the flag it sets: the text
-# compared has its runs of blanks collapsed.
+# compared has its runs of blanks collapsed. The line reindented here is an
+# assignment, which is one of the shapes the check reads, so the case cannot
+# pass merely because the line went unwatched.
 new_repo 0x0131
-mk_edit "$repo" "CFLAGS += \$(CDEFS)" "CFLAGS   +=   \$(CDEFS)"
+mk_edit "$repo" "LINKER_SCRIPT ?= LPC17xx_Linker_Script_with_bootloader.ld" \
+    "LINKER_SCRIPT   ?=   LPC17xx_Linker_Script_with_bootloader.ld"
 commit "$repo" "line up a flag line with its neighbours"
 run "reindenting a watched line is not a change" "$repo" main
 want_status 0
@@ -589,6 +592,90 @@ commit "$repo" "compile another shared source into every image"
 run "a shared source added through the build file is a known gap" "$repo" main
 want_status 0
 want_stdout "no firmware interface file changed"
+
+# A watched name is matched as a whole name, and only where the line sets it.
+# This is the branch that made that matter: it adds three variables whose
+# names begin with LINKER_SCRIPT, a function that reads one of them, and a
+# link command that passes $(LINKER_SCRIPT) to the linker. None of it changes
+# which script the image is laid out with, and the built image was
+# byte-identical to main's, but the watched name LINKER_SCRIPT was found as
+# plain text on every one of those lines and the gating job went red.
+new_repo 0x0131
+tab=$(printf '\t')
+mk_edit "$repo" "%.elf: \$(OBJ)" "%.elf: \$(OBJ) \$(LINKER_SCRIPT_FILES)"
+mk_edit "$repo" \
+    "$tab\$(LD) \$(LINKER_SCRIPT) \$(ALL_CFLAGS_LINKER) \$(LDFLAGS) -o \$@ \$^" \
+    "$tab\$(LD) \$(LINKER_SCRIPT) \$(ALL_CFLAGS_LINKER) \$(LDFLAGS) -o \$@ \$(OBJ)"
+# shellcheck disable=SC2016 # makefile text, wanted literally, $(call ...) and all
+cat >> "$repo/$common_mk" <<'EOF'
+LINKER_SCRIPT_DIRS = . $(EXTRALIBDIRS)
+find_linker_script = $(firstword $(wildcard $(addsuffix /$(1),$(LINKER_SCRIPT_DIRS))))
+LINKER_SCRIPT_FOUND := $(call find_linker_script,$(LINKER_SCRIPT))
+LINKER_SCRIPT_FILES := $(LINKER_SCRIPT_FOUND)
+EOF
+commit "$repo" "depend on the linker script by path"
+run "names beginning with a watched one are not it" "$repo" main
+want_status 0
+want_empty_stderr
+want_stdout "no firmware interface file changed"
+
+# Every other watched name the real build file sets, one case each, so that a
+# name which has stopped being read announces itself here. The check's own
+# floor only refuses a file in which NO watched flag is found, and the
+# broadest entry alone accounts for five of the lines, so it would stay green
+# while a whole arm of the matching had broken. It is these cases rather than
+# the floor because a build file that legitimately stops setting one of these
+# must not red a gating job.
+#
+# mk_edit is the guard in each: it stops the run if the line it rewrites is no
+# longer in the file, so a case cannot quietly stop changing anything.
+for case_pair in \
+    "UBERTOOTH_OPTS = -D\$(BOARD)|UBERTOOTH_OPTS = -D\$(BOARD) -DEXTRA" \
+    "	UBERTOOTH_OPTS += -DTX_ENABLE|	UBERTOOTH_OPTS += -DTX_ENABLE -DMORE" \
+    "CDEFS  = -D\$(LPCUSB_TARGET) \$(UBERTOOTH_OPTS) \$(COMPILE_OPTS) -Wa,-a,-ad|CDEFS = -D\$(LPCUSB_TARGET) \$(UBERTOOTH_OPTS) -Wa,-a,-ad" \
+    "CPPDEFS = -D\$(BOARD) -D\$(LPCUSB_TARGET) \$(COMPILE_OPTS)|CPPDEFS = -D\$(BOARD) -D\$(LPCUSB_TARGET)" \
+    "LPCUSB_TARGET = LPC17xx|LPCUSB_TARGET = LPC23xx" \
+    "EXTRAINCDIRS = \$(LIBS_PATH) \$(LPCUSB_PATH) ../../host/libubertooth/src|EXTRAINCDIRS = \$(LIBS_PATH) \$(LPCUSB_PATH)" \
+    "#CFLAGS += -fshort-enums|CFLAGS += -fshort-enums"; do
+    old=${case_pair%%|*}
+    new=${case_pair#*|}
+    new_repo 0x0131
+    mk_edit "$repo" "$old" "$new"
+    commit "$repo" "change a watched compile flag"
+    run "a watched line is still read: $new" "$repo" main
+    want_status 1
+    want_empty_stdout
+    want_stderr "has to be above the one main carries"
+    want_stderr "$common_mk"
+done
+
+# And the floor under all of it: having patterns is not the same as their
+# matching anything, so a build file in which none of the watched flags is
+# found is a check that has stopped reading the file rather than a branch with
+# nothing to say. Left to the comparison it would pass, because an empty
+# filtered text at both commits compares equal.
+new_repo 0x0131
+printf 'OPT = s\nOBJDIR = .\nFORMAT = ihex\n' > "$repo/$common_mk"
+commit "$repo" "a build file with none of the watched flags in it"
+run "no watched flag is found in the build file" "$repo" main
+want_status 1
+want_empty_stdout
+want_stderr "sets any of the watched compile"
+want_stderr "have stopped matching"
+
+# The other direction, so the matching above cannot have narrowed to nothing:
+# changing which script the image is laid out with is still a firmware change,
+# and it is the one line of the four that assigns LINKER_SCRIPT itself.
+new_repo 0x0131
+mk_edit "$repo" "LINKER_SCRIPT ?= LPC17xx_Linker_Script_with_bootloader.ld" \
+    "LINKER_SCRIPT ?= LPC17xx_Linker_Script.ld"
+commit "$repo" "lay the image out without the bootloader"
+run "the linker script setting changed, version kept" "$repo" main
+want_status 1
+want_empty_stdout
+want_stderr "has to be above the one main carries"
+want_stderr "LINKER_SCRIPT"
+want_stderr "+ LINKER_SCRIPT ?= LPC17xx_Linker_Script.ld"
 
 # The linker script the image is laid out with decides where things land, so
 # it counts, and so does the file it includes.

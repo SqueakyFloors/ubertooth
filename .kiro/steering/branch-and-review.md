@@ -86,7 +86,12 @@ or non-trivial operational documentation changes:
   and on the other triggers there is no branch to compare. `libbtbb-pin` is its
   own workflow with no path filter, so it runs on every change, documentation
   included: two of the files that have to agree on the pin are
-  `COMPATIBILITY.md` and the build guides.
+  `COMPATIBILITY.md` and the build guides. It also runs
+  `tools/check-workflow-libbtbb.sh`, which refuses a workflow file naming a
+  libbtbb repository of its own: only `build.yml`, where the pin is decided,
+  and `manpages.yml`, which cannot read another workflow's env, may name one,
+  and both must name the pinned repository. A job that wants the library reads
+  the pin instead of writing a repository.
   A branch with no open PR gets no CI; open a PR (a draft is enough) to get a
   run.
 - Before cutting a release, run the full tier manually and wait for it:
@@ -178,15 +183,19 @@ change the host relies on**, in the PR that makes it.
   `firmware/common.mk` it compares only the lines that set one of a listed set
   of compile flags -- the board define, `-DTX_ENABLE`, `-fpack-struct` and the
   rest of the list in the script -- and ignores every other line of that file.
+  A watched name counts as a whole name and only where the line sets it: an
+  assignment to that exact name, a `-D` or `-U` flag naming it, or a
+  conditional on it. A line that merely uses one, such as the link command
+  that passes `$(LINKER_SCRIPT)` to the linker, and a longer name that begins
+  with a watched one, such as `LINKER_SCRIPT_DIRS`, do not count.
   It is an approximation, so it is not the rule, the paragraph above is. A
   firmware change the host relies on that touches nothing on that list still
   needs the bump by hand, and a change to a watched file that the host cannot
   observe is still asked for one. The false reds to expect: a change to the
   BTBR or BTCTL half of the interface header, which belongs to the separate
   `btbr` image; a change to one of the image's sources the host never reads,
-  such as the LED patterns or the debug UART; code moved verbatim between two
-  watched files; and a line of `firmware/common.mk` that carries a watched
-  flag without setting it, such as the recipe that echoes the board name.
+  such as the LED patterns or the debug UART; and code moved verbatim between
+  two watched files.
 - So `api-version` is the one job in the gating set whose red is sometimes
   wrong. If it refuses a branch that changes nothing the host sees, do NOT
   bump the version to clear it and do NOT edit the watched list to suit one
