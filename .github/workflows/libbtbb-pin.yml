@@ -61,12 +61,15 @@ jobs:
         # The pin is written out again in every file that builds libbtbb,
         # states which one this fork uses, or tells a user which one to go and
         # get. Fail here, naming the file, rather than let one of them drift to
-        # another libbtbb. FindBTBB.cmake is the last of those: when the host
-        # configure step refuses a libbtbb that is too old for the tree, the
-        # commit it tells the reader to rebuild at comes from there.
+        # another libbtbb. Two are worth knowing: FindBTBB.cmake, because when
+        # the host configure step refuses a libbtbb that is too old for the
+        # tree, the commit it tells the reader to rebuild at comes from there;
+        # and the Man pages workflow, which cannot read build.yml's env and so
+        # keeps its own copy of the pin.
         for f in install.sh COMPATIBILITY.md \
                  docs/source/build_guide.rst docs/source/building_from_git.rst \
-                 host/cmake/modules/FindBTBB.cmake; do
+                 host/cmake/modules/FindBTBB.cmake \
+                 .github/workflows/manpages.yml; do
           grep -q "$LIBBTBB_REF" "$f" || {
             echo "error: $f does not name the pinned libbtbb commit $LIBBTBB_REF" >&2
             status=1

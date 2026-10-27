@@ -27,6 +27,13 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  # The pinned libbtbb, decided in build.yml's env and repeated here because a
+  # workflow cannot read another's. The libbtbb-pin workflow reads both and
+  # fails until they agree, so this copy cannot quietly drift.
+  LIBBTBB_REPO: SqueakyFloors/libbtbb
+  LIBBTBB_REF: 2fd0d391d99e9b0620146f63f439c1ec74f79861
+
 jobs:
   refresh:
     runs-on: ubuntu-24.04
@@ -39,8 +46,14 @@ jobs:
 
     - uses: actions/checkout@v4
       name: Fetch libbtbb
+      # The same pinned fork commit every build.yml job fetches. Upstream
+      # master is missing functions the host tools call, so configuring the
+      # host tree against it fails outright. The pin is written out here as
+      # well as in build.yml's env, and the libbtbb-pin workflow reads both
+      # and fails if they disagree.
       with:
-        repository: 'greatscottgadgets/libbtbb'
+        repository: ${{ env.LIBBTBB_REPO }}
+        ref: ${{ env.LIBBTBB_REF }}
         path: 'libbtbb'
 
     - name: Install dependencies
