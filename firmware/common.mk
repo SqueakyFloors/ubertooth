@@ -468,16 +468,24 @@ $(OBJ): | $(VERSION_HEADER)
 # turn the .elf into a .hex, .bin or .srec, since those run after the link and
 # their outputs do not depend on this file either.
 #
-# One more limit, from make rather than from here: make rebuilds when a
-# prerequisite is newer than its target, so an object whose mtime is exactly
-# equal to this file's still looks up to date. How close two writes have to be
-# for that depends on the resolution make was built with: the make here (GNU
-# make 3.81 on macOS) compares whole nanoseconds, where an exact tie between a
-# compile and a later write does not happen in practice, while a make built
-# without sub-second support compares whole seconds, where a flag change in the
-# same second as the previous build's objects can be missed. `make clean` is
-# the answer if it ever is. Every mtime dependency here, headers included, has
-# the same property.
+# A timestamp is a coarse signal, and on macOS a coarser one than it looks.
+# make rebuilds a target when a prerequisite is newer, and the make here (GNU
+# make 3.81, as shipped by Apple) compares mtimes to the whole second: a
+# prerequisite written 0.8 s after its target, inside the same second, counts
+# as not newer. So writing this file is not enough on its own. If the previous
+# build's objects landed in the second this file is rewritten in, make would
+# call them up to date and the stale image this whole mechanism exists to
+# prevent would come back -- rarely, and only for a build started within a
+# second of the last one, which is exactly what a script does.
+#
+# Hence the `sleep 1` below: when the flags have really changed, the record is
+# stamped into the next whole second, so it is unambiguously newer than
+# anything the previous build wrote. It costs a second on a flag change and
+# nothing at all on the builds in between, which never reach it.
+#
+# (Every other mtime dependency here, headers included, has the same
+# whole-second coarseness; this is the one place the makefile can fix it,
+# because it is the one place that knows a change happened.)
 #
 # The flags are snapshotted here with `:=`, so this has to stay below the last
 # line in this file that sets one. Snapshotting outside a recipe also leaves $<
@@ -505,14 +513,19 @@ $(BUILD_FLAGS_FILE): force-flags-check
 		'LD=$(LD)' \
 		'LINK=$(BUILD_FLAGS_LINK)' \
 		> $(BUILD_FLAGS_FILE).tmp
-	@# Nothing has changed on a first build, so the message is for a build
-	@# that had a previous record to compare against.
+	@# Three cases: unchanged (leave the file alone, so its timestamp does
+	@# not move and nothing rebuilds); changed, with a record to compare
+	@# against (say so, and stamp the file into the next whole second so it
+	@# is newer than the objects beyond doubt); and a first build, where
+	@# nothing has changed and there are no objects of ours to invalidate.
 	@if cmp -s $(BUILD_FLAGS_FILE).tmp $(BUILD_FLAGS_FILE); then \
 		rm -f $(BUILD_FLAGS_FILE).tmp; \
+	elif [ -f $(BUILD_FLAGS_FILE) ]; then \
+		echo "  build flags changed -- rebuilding objects"; \
+		mv $(BUILD_FLAGS_FILE).tmp $(BUILD_FLAGS_FILE); \
+		sleep 1; \
+		touch $(BUILD_FLAGS_FILE); \
 	else \
-		if [ -f $(BUILD_FLAGS_FILE) ]; then \
-			echo "  build flags changed -- rebuilding objects"; \
-		fi; \
 		mv $(BUILD_FLAGS_FILE).tmp $(BUILD_FLAGS_FILE); \
 	fi
 

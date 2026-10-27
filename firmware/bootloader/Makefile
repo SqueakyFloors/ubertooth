@@ -333,17 +333,25 @@ $(BUILD_FLAGS_FILE): force-flags-check
 		'LD=$(LD)' \
 		'LINK=$(BUILD_FLAGS_LINK)' \
 		> $(BUILD_FLAGS_FILE).tmp
-	@# Nothing has changed on a first build, so the message is for a build
-	@# that had a previous record to compare against.
+	@# Unchanged: leave the file alone so nothing rebuilds. Changed, with a
+	@# record to compare against: say so, and stamp the file into the next
+	@# whole second, because this make compares mtimes to the whole second.
+	@# First build: nothing has changed and there is nothing to invalidate.
 	@if cmp -s $(BUILD_FLAGS_FILE).tmp $(BUILD_FLAGS_FILE); then \
 		rm -f $(BUILD_FLAGS_FILE).tmp; \
+	elif [ -f $(BUILD_FLAGS_FILE) ]; then \
+		echo "  build flags changed -- rebuilding objects"; \
+		mv $(BUILD_FLAGS_FILE).tmp $(BUILD_FLAGS_FILE); \
+		sleep 1; \
+		touch $(BUILD_FLAGS_FILE); \
 	else \
-		if [ -f $(BUILD_FLAGS_FILE) ]; then \
-			echo "  build flags changed -- rebuilding objects"; \
-		fi; \
 		mv $(BUILD_FLAGS_FILE).tmp $(BUILD_FLAGS_FILE); \
 	fi
 
+# A real prerequisite, not an order-only one: an order-only dependency would
+# create the file if it were missing and otherwise ignore its timestamp, and
+# the timestamp is the whole point. (The version header above it is order-only
+# for the opposite reason: the depfiles already carry it.)
 $(OBJ): $(BUILD_FLAGS_FILE)
 
 # Change the build target to build a HEX file or a library.

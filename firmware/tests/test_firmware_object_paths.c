@@ -186,6 +186,11 @@ static const struct {
 	/* Rewritten only when the contents change, so an unchanged tree still
 	 * rebuilds nothing. */
 	{ "cmp -s $(BUILD_FLAGS_FILE).tmp", "the compare that keeps an unchanged file untouched" },
+	/* make compares mtimes to the whole second here, so a record written
+	 * in the same second as the previous build's objects would not count
+	 * as newer than them. Stamping it into the next second is what makes
+	 * the dependency bite. */
+	{ "touch $(BUILD_FLAGS_FILE)", "the record being stamped past the second it shares with the objects" },
 	/* The dependency itself, and clean taking the file with the objects it
 	 * belongs to. */
 	{ "$(OBJ): $(BUILD_FLAGS_FILE)", "every object depending on the recorded flags" },
@@ -214,14 +219,29 @@ static void check_flags_recorded_after_they_are_set(const char *path)
 	 * The snapshot has to come after the last line that sets any of them.
 	 * "FLAGS" alone would miss the ones not named that way, and an OPT set
 	 * below the snapshot records one optimisation level while the compiler
-	 * is given another -- issue #544 over again, in a smaller place. */
+	 * is given another, which is the stale-flag bug again in a smaller
+	 * place. */
 	static const char *const setters[] = {
+		/* "FLAGS" catches CFLAGS, CPPFLAGS, ASFLAGS, LDFLAGS,
+		 * CPU_FLAGS and GENDEPFLAGS. The rest have to be named: note
+		 * that "CDEFS" does not appear inside "CPPDEFS". */
 		"FLAGS =",  "FLAGS +=",
 		"OPT =",    "OPT +=",
 		"CDEFS =",  "CDEFS +=",
+		"CPPDEFS =", "CPPDEFS +=",
+		"ADEFS =",  "ADEFS +=",
 		"COMPILE_OPTS =", "COMPILE_OPTS +=",
 		"LINKER_OPTS =",  "LINKER_OPTS +=",
+		"UBERTOOTH_OPTS =", "UBERTOOTH_OPTS +=",
+		"LINKER_SCRIPT =",  "LINKER_SCRIPT ?=",
+		"EXTRAINCDIRS =", "EXTRAINCDIRS +=",
+		"EXTRALIBDIRS =", "EXTRALIBDIRS +=",
+		"CSTANDARD =", "DEBUG =",
 		"BOARD =",  "BOARD +=",
+		/* The tool names are recorded too, so moving one below the
+		 * snapshot records the wrong compiler. */
+		"CROSS_COMPILE =", "CROSS_COMPILE ?=",
+		"CC =", "AS =", "LD =",
 	};
 	int snapshot = line_with(path, "BUILD_FLAGS_C :=");
 	int set = 0;
