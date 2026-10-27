@@ -85,32 +85,71 @@ static void determine_signal_and_noise( usb_pkt_rx *rx, int8_t * sig, int8_t * n
 	*noise = cc2400_rssi_to_dbm( rx->rssi_avg );
 }
 
-static uint64_t now_ns( void )
+static uint64_t clock_ns( clockid_t clock_id )
 {
 	struct timespec ts = { 0, 0 };
-	(void) clock_gettime( CLOCK_REALTIME, &ts );
+	(void) clock_gettime( clock_id, &ts );
 	return (1000000000ull*(uint64_t) ts.tv_sec) + (uint64_t) ts.tv_nsec;
 }
 
-/* The host time a packet arrived: the current time for a live capture, and
- * the host time stored with the replayed record for a replay, so a capture
- * written with -q/-r while replaying keeps the recorded times. The first
- * packet's is where a capture's timestamps start. */
-static uint64_t packet_host_ns( void )
+/* The host time a packet arrived, from the two clocks read together and the
+ * monotonic reading the packet itself arrived with: the time that has passed
+ * since the packet arrived, measured on the monotonic clock, taken off the
+ * current host time.
+ *
+ * Three readings are no use and give back the current host time instead: a
+ * packet with no arrival reading at all, one that claims to have arrived after
+ * the monotonic reading just taken, and one so far back that taking it off
+ * would land before the host clock's epoch. A host whose clock has never been
+ * set reaches that last one: its current time is only a few seconds past the
+ * epoch, while the monotonic clock has been counting since this boot, which
+ * happened earlier than that. */
+static uint64_t host_ns_at_arrival( uint64_t real_ns, uint64_t mono_ns,
+                                    uint64_t arrival_ns )
 {
+	uint64_t waited_ns;
+
+	if (arrival_ns == 0 || arrival_ns > mono_ns)
+		return real_ns;
+	waited_ns = mono_ns - arrival_ns;
+	if (waited_ns > real_ns)
+		return real_ns;
+	return real_ns - waited_ns;
+}
+
+/* The host time a packet arrived: for a replay the host time stored with the
+ * replayed record, so a capture written with -q/-r while replaying keeps the
+ * recorded times, and for a live capture the current time less however long
+ * the packet has been waiting. The first packet's is where a capture's
+ * timestamps start.
+ *
+ * A live capture cannot simply read the clock here, because the poll thread
+ * fills the ring buffer well ahead of the loop that drains it: a capture
+ * written to a pipe nothing is reading yet, or taken by a process that was
+ * descheduled, reaches its first packet long after the packet arrived, and
+ * the clock read here would start every timestamp in the capture that late.
+ * What says how long ago the packet arrived is the monotonic reading the ring
+ * buffer stamped it with as its transfer completed, and reading the two
+ * clocks together is what relates that reading to a host time. */
+static uint64_t packet_host_ns( uint64_t arrival_ns )
+{
+	uint64_t real_ns, mono_ns;
+
 	if (infile != NULL)
 		return 1000000000ull * (uint64_t) systime;
-	return now_ns( );
+	/* The host clock first, so the monotonic reading is the later of the
+	 * two and the wait is never understated: the error that leaves is a
+	 * packet time fractionally early, not late. */
+	real_ns = clock_ns( CLOCK_REALTIME );
+	mono_ns = clock_ns( CLOCK_MONOTONIC );
+	return host_ns_at_arrival( real_ns, mono_ns, arrival_ns );
 }
 
 uint64_t ubertooth_packet_arrival_ns( void )
 {
-	struct timespec ts = { 0, 0 };
-
 	if (infile != NULL)
 		return 1000000000ull * (uint64_t) systime;
-	(void) clock_gettime( CLOCK_MONOTONIC, &ts );
-	return (1000000000ull*(uint64_t) ts.tv_sec) + (uint64_t) ts.tv_nsec;
+	return clock_ns( CLOCK_MONOTONIC );
 }
 
 void ubertooth_capture_clock_reset( ubertooth_t* ut )
@@ -345,12 +384,16 @@ static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx,
  * falling in a gap longer than one period, or past the range of the count a
  * packet carries - leaves nothing in the capture to show it: the times simply
  * come out short from then on. The host clock does show it, because it kept
- * running, so it ends up ahead of the reconstructed times. Said once, and not
- * used to correct them: it says that time was lost, not where, and a host
- * clock that is stepped during a capture must not move packet times, which is
- * why the reading that decides a wrap above is taken from the monotonic clock
- * instead. A step is also why this message does not claim a lost wrap as the
- * cause: a host clock jumped forwards looks the same from here. */
+ * running, so it ends up ahead of the reconstructed times. What it is compared
+ * against is the host time this packet arrived, not the time the loop reached
+ * it, so a loop working through a backlog is not mistaken for lost time.
+ *
+ * Said once, and not used to correct them: it says that time was lost, not
+ * where, and a host clock that is stepped during a capture must not move
+ * packet times, which is why the reading that decides a wrap above is taken
+ * from the monotonic clock instead. A step is also why this message does not
+ * claim a lost wrap as the cause: a host clock jumped forwards looks the same
+ * from here. */
 static void warn_if_a_wrap_was_lost( ubertooth_t* ut, uint64_t packet_ns,
                                      uint64_t host_ns )
 {
@@ -386,15 +429,15 @@ static uint64_t clk100ns_extended( const ubertooth_t* ut, const usb_pkt_rx* rx )
 /* arrival_ns is when this packet arrived, read as its transfer completed and
  * carried with it through the ring buffer (fifo_popped_arrival_ns()). Reading
  * that clock here instead would say when this call was reached, which for a
- * packet taken from a backlog is no measure of the gap before it. */
+ * packet taken from a backlog is no measure of the gap before it, nor of when
+ * the capture itself began. */
 static uint64_t now_ns_from_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx,
                                       uint64_t arrival_ns )
 {
 	uint64_t packet_ns;
-	/* The time this packet is stamped with, read once and used both to
-	 * start the capture and to report a wrap that could not be told either
-	 * way. */
-	uint64_t host_ns = packet_host_ns( );
+	/* The host time this packet arrived, read once and used both to anchor
+	 * the capture and to report a wrap that could not be told either way. */
+	uint64_t host_ns = packet_host_ns( arrival_ns );
 
 	track_clk100ns( ut, rx, host_ns, arrival_ns );
 	/* The 100 ns ticks since the first packet, as nanoseconds: the whole

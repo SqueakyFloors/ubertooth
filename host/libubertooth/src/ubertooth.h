@@ -79,6 +79,11 @@ typedef struct {
 	 * ubertooth_stopping() folds in here. Read it through that function, not
 	 * directly, or a loop will not notice a Ctrl-C. */
 	volatile uint8_t stop_ubertooth;
+
+	/* The host time the capture's first packet arrived. Every timestamp in
+	 * the capture is an offset from it, so a reading taken where the loop
+	 * reached that packet rather than where it arrived would start the
+	 * whole capture late. */
 	uint64_t abs_start_ns;
 	uint32_t start_clk100ns;
 	uint64_t last_clk100ns;
