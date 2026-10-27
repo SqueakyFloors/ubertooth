@@ -289,8 +289,7 @@ int rx_file_report(int result, const char* filename);
  * stopped normally, or the error, already reported, if the capture could not
  * be started or its stream died part-way. */
 int rx_dump(ubertooth_t* ut, int full);
-void rx_btle(ubertooth_t* ut);
-int rx_btle_file(FILE* fp);
+
 /* Returned by rx_afh() when the initial detection phase (-t) ended without a
  * single packet from the piconet, so there is no map to report. */
 #define UBERTOOTH_AFH_NO_PACKETS (-2000)

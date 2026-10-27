@@ -1162,15 +1162,6 @@ int rx_afh_r(ubertooth_t* ut, btbb_piconet* pn, int timeout __attribute__((unuse
 	return 0;
 }
 
-int rx_btle_file(FILE* fp)
-{
-	ubertooth_t* ut = ubertooth_init();
-	if (ut == NULL)
-		return -ENOMEM;
-
-	return stream_rx_file(ut, fp, cb_btle, NULL);
-}
-
 void ubertooth_unpack_symbols(const uint8_t* buf, char* unpacked)
 {
 	int i, j;

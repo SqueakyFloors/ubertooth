@@ -204,8 +204,7 @@ static void usage(FILE *out)
 	fprintf(out, "\t-x <0-%d> allow n access address offenses (default %d)\n",
 	       AA_ERRORS_MAX, AA_ERRORS_MAX);
 
-	fprintf(out, "\nIf an input file is not specified, an Ubertooth device is used for live capture.\n");
-	fprintf(out, "In get/set mode no capture occurs.\n");
+	fprintf(out, "\nIn get/set mode no capture occurs.\n");
 }
 
 int main(int argc, char *argv[])

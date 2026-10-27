@@ -34,6 +34,7 @@
 
 #include "../../../firmware/tests/minunit.h"
 #include "ubertooth.h"
+#include "ubertooth_callback.h"
 #include "ubertooth_fifo.h"
 
 /* What a receive slot holds before anything is received into it: the stale
@@ -626,6 +627,7 @@ MU_TEST(a_replayed_keep_alive_is_not_decoded_or_recorded)
 	usb_pkt_rx ka = keep_alive_record();
 	usb_pkt_rx pkt = packet_record(11);
 	usb_pkt_rx written;
+	ubertooth_t* ut;
 	uint32_t when;
 	char err[512] = "";
 	char out[4096] = "";
@@ -635,6 +637,10 @@ MU_TEST(a_replayed_keep_alive_is_not_decoded_or_recorded)
 	int r;
 
 	reset();
+	/* Not new_handle(): a replay never opens a device, so this handle keeps
+	 * the NULL devh a replaying tool has. */
+	ut = ubertooth_init();
+	mu_assert_fatal(ut != NULL, "a handle");
 	replay = tmpfile();
 	dump = tmpfile();
 	mu_assert_fatal(replay != NULL && dump != NULL, "the two files");
@@ -646,7 +652,7 @@ MU_TEST(a_replayed_keep_alive_is_not_decoded_or_recorded)
 	dumpfile = dump;
 
 	capture_output();
-	r = rx_btle_file(replay);
+	r = stream_rx_file(ut, replay, cb_btle, NULL);
 	release_output(out, sizeof(out), err, sizeof(err));
 	infile = NULL;
 	dumpfile = NULL;
@@ -669,6 +675,7 @@ MU_TEST(a_replayed_keep_alive_is_not_decoded_or_recorded)
 
 	fclose(replay);
 	fclose(dump);
+	ubertooth_free(ut);
 }
 
 int main(void)

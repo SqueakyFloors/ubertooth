@@ -746,6 +746,10 @@
 - `ubertooth-ego -h` and its man page now say that `-r` without `-c` receives
   on 2418 MHz.
   [#413](https://github.com/SqueakyFloors/ubertooth/issues/413)
+- `ubertooth-btle -h` no longer says what happens when no input file is given.
+  The tool has no option that reads a capture back, so there was nothing to
+  choose: it always captures from a board.
+  [#534](https://github.com/SqueakyFloors/ubertooth/issues/534)
 - Help text, man pages and examples write option values as separate words
   (`-c 2440`), following the POSIX Utility Syntax Guidelines; the attached form
   (`-c2440`) still works. ubertooth(7), OPTION VALUES, explains the forms once.
