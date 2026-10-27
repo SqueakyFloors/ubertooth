@@ -694,6 +694,14 @@ running.stdin.flush()
 assert wait_until(lambda: INQUIRY_SCAN_PACKET in writes()), writes()
 sent = writes()
 running.send_signal(signal.SIGINT)
+# the stop asks the device to go idle, which is how the interrupt is seen
+# from outside before anything more is typed. A line written straight after
+# the signal can be taken off the pipe by the very read the signal
+# interrupts, and that read raises instead of returning it: the line is lost
+# the way Ctrl-C loses the line being typed, and what this case is about is
+# the command typed after the prompt comes back.
+assert wait_until(lambda: IDLE_PACKET in writes()[len(sent):]), \
+    "the interrupt did not ask the device to go idle"
 output, errors = running.communicate("inquiry\nq\n", timeout=DEADLINE * 2)
 assert running.returncode == 0, (running.returncode, output, errors)
 assert "Traceback" not in errors, errors
