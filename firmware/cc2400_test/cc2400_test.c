@@ -32,11 +32,12 @@
 #define AGCCTRL_READS 10000
 
 /*
- * Half the give-up blink. wait_ms() is calibrated for the 100 MHz clock this
- * image never configures, so on the internal oscillator each half lasts about
- * 25 times as long -- around half a second, which is what a blink wants anyway.
+ * Half the give-up blink, in milliseconds. wait_ms() is calibrated for the
+ * 4 MHz internal oscillator, which is the clock this image runs on -- it never
+ * starts the PLL -- so these are real milliseconds. Slow enough to read as a
+ * blink from across a bench rather than as a dim LED.
  */
-#define GIVE_UP_BLINK_MS 20
+#define GIVE_UP_BLINK_MS 500
 
 int main()
 {

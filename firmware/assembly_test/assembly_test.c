@@ -674,10 +674,15 @@ static void dio_ssp_start()
  * radio that is not running cannot produce.
  *
  * None of them passes a service callback, where the shipped image hands its
- * USB poll in. The modes that poll USB -- bt_stream_rx() and specan() -- do so
- * again as soon as the wait returns; the range test and the repeater never
- * poll it at all, so a radio that has stopped advancing still costs them the
- * host, just no longer forever.
+ * USB poll in, and what that costs differs by mode. specan() polls USB again
+ * as soon as the wait returns. bt_stream_rx() waits on its DMA transfer first,
+ * which a radio that is not receiving holds up as before. The range test and
+ * the repeater never poll USB at all, so for them the board is still away for
+ * the length of the mode -- but no longer forever, which is the difference
+ * between a board that comes back and one that has to be re-plugged.
+ *
+ * bt_test_rx() is the exception to all of it: it runs before
+ * ubertooth_usb_init(), so there is no host watching to lose.
  */
 
 /* start un-buffered rx */
@@ -1188,6 +1193,10 @@ int main()
 	waitms(200);
 	TXLED_CLR;
 	waitms(200);
+	/* One read, not a wait: cc2400_reset() has already waited for the radio
+	 * to answer, so a value other than the reset one here is a part that
+	 * answers wrong rather than late. Stopping is the report -- TXLED off at
+	 * this step says which check failed -- and nothing is armed yet. */
 	if (cc2400_get(AGCCTRL) != 0xf700)
 		while(1);
 	TXLED_SET;
