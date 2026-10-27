@@ -272,10 +272,16 @@
 
 ### Reliability fixes
 
+- `ubertooth-btle -f` keeps up with a connection parameter update. The board
+  kept the new transmit window in a field too narrow for it, so every window
+  was cut to a fraction of its length -- 2.5 ms came out as 16.8 microseconds
+  -- and the first connection event under the new parameters could end before a
+  packet late in the window arrived.
+  [#571](https://github.com/SqueakyFloors/ubertooth/issues/571)
 - The average RSSI of a captured Bluetooth low-energy packet is now the mean
   of the samples taken while it arrived. The board computed it in unsigned
   arithmetic, so the value in the per-packet header of a PCAP written by
-  `ubertooth-btle -r` was unrelated to the packet; the minimum and the maximum
+  `ubertooth-btle -c` was unrelated to the packet; the minimum and the maximum
   beside it were always right.
   [#570](https://github.com/SqueakyFloors/ubertooth/issues/570)
 - `ubertooth-follow -l <LAP> -u <UAP>` says what to do when its connection to

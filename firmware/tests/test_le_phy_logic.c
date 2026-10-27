@@ -676,7 +676,7 @@ MU_TEST(a_chain_that_does_not_fit_is_not_started)
  * The average RSSI in the record is the mean of the samples taken while the
  * packet arrived. The CC2400 reports RSSI as a negative number, so every real
  * capture has a negative sum and the division has to be a signed one. The
- * host puts the result in the per-packet header of a PCAP written with -r,
+ * host puts the result in the per-packet header of a PCAP written with -c,
  * between the minimum and the maximum of the same packet.
  */
 MU_TEST(the_average_rssi_is_the_mean_of_the_samples)
@@ -775,6 +775,8 @@ MU_TEST(a_connection_request_is_accepted_and_scheduled)
 	/* 1.25 ms in units of 100 ns is 12500. */
 	mu_assert_int_eq(24 * 12500, conn.conn_interval);
 	mu_assert_int_eq(0, conn.win_offset);
+	/* The window is kept scaled, like the offset and the interval. */
+	mu_assert_int_eq(1 * 12500, conn.win_size);
 	/* 10 ms in units of 100 ns is 100000. */
 	mu_assert_int_eq(10 * 100000, conn.supervision_timeout);
 	mu_assert_int_eq(37, conn.remapping.total_channels);
@@ -949,33 +951,91 @@ MU_TEST(a_connection_update_is_scheduled_for_its_instant)
 }
 
 /*
- * The transmit window size of an update does not survive being scaled. The
- * field it is kept in is one byte, and the handler multiplies the value on
- * the wire -- units of 1.25 ms -- into it, so anything above 2 keeps only the
- * low eight bits: a 2.5 ms window becomes 16.8 microseconds. The timer match
- * that waits out the update's transmit window is then short by nearly all of
- * it, so the capture can miss the first packets of the new parameters.
- *
- * As with the average RSSI above, this pins the behaviour rather than
- * endorsing it: the fix is a wider field in the firmware, and whoever makes
- * it has to come back here.
+ * The transmit window size of an update survives being scaled. The wire
+ * carries it in units of 1.25 ms, so the smallest window the specification
+ * allows is already 12500 units of 100 ns and the largest is 100000; the field
+ * has to be wide enough for all of them. The timer match that waits out the
+ * update's transmit window is built from this value, so a window kept short
+ * would leave the capture missing the first packets of the new parameters.
  */
-MU_TEST(an_updates_window_size_does_not_survive_being_scaled)
+MU_TEST(an_updates_window_size_survives_being_scaled)
 {
 	le_rx_t buf;
+	unsigned on_the_wire;
 
+	/* Every window size the specification allows: 1.25 ms to 10 ms. */
+	for (on_the_wire = 1; on_the_wire <= 8; on_the_wire++) {
+		char msg[128];
+
+		start_fresh();
+		fill_packet(&buf, 12, DATA_CHANNEL_MHZ);
+		memset(buf.data, 0, sizeof(buf.data));
+		buf.data[3] = (uint8_t) on_the_wire;
+
+		connection_update_handler(&buf);
+
+		snprintf(msg, sizeof(msg),
+		         "a window of %u units of 1.25 ms came out as %u units of "
+		         "100 ns", on_the_wire, (unsigned) conn.win_size);
+		mu_assert(conn.win_size == on_the_wire * 12500, msg);
+	}
+}
+
+/*
+ * At the instant an update takes effect, the engine waits out the transmit
+ * window offset and then gives the first connection event a timeout that
+ * spans the whole transmit window plus the longest packet. The master's first
+ * packet under the new parameters may arrive anywhere inside that window, so a
+ * timeout that expires earlier can close the event before the packet arrives,
+ * and the capture loses it.
+ */
+MU_TEST(the_first_event_after_an_update_waits_out_the_whole_window)
+{
+	struct connect_req r = valid_connect_req();
+	le_rx_t buf;
+	uint32_t expected_match;
+
+	/* A connection being followed, anchored, with one event behind it. */
 	start_fresh();
+	le.do_follow = 1;
+	build_connect_req(&buf, &r);
+	le_connect_handler(&buf);
+	mu_assert_fatal(conn.remapping.total_channels == 37,
+	                "the connection was not followed, so there is no update "
+	                "to apply");
+	conn.last_anchor = 1000000;
+	conn.anchor_set = 1;
+
+	/* An update to a 50 ms interval, a 3.75 ms window offset and a 2.5 ms
+	 * transmit window, at event 7. */
 	fill_packet(&buf, 12, DATA_CHANNEL_MHZ);
 	memset(buf.data, 0, sizeof(buf.data));
-	buf.data[3] = 2;              /* 2.5 ms, in units of 1.25 ms */
-
+	buf.data[3] = 2;
+	put_le(&buf.data[4], 3, 2);
+	put_le(&buf.data[6], 40, 2);
+	put_le(&buf.data[10], 20, 2);
+	put_le(&buf.data[12], 7, 2);
 	connection_update_handler(&buf);
 
-	mu_assert(sizeof(conn.win_size) < sizeof(uint32_t),
-	          "the update's window size is now kept in a field wide enough "
-	          "for the scaled value. If that was the fix, this test is what "
-	          "has to change: assert the scaled value instead");
-	mu_assert_int_eq((uint8_t)(2 * 12500), conn.win_size);
+	conn.conn_event_counter = 7;
+	le_phy_active = 1;
+
+	/* The instant arrives: the window offset is waited out first, on the old
+	 * interval, with the radio left alone. */
+	fake_t1ir = TIR_MR0_Interrupt;
+	TIMER1_IRQHandler();
+	expected_match = 1000000 + 24 * 12500 + 3 * 12500 - RX_WARMUP_TIME;
+	mu_assert_int_eq(expected_match, fake_t1mr0);
+
+	/* Then the event itself, on the new interval, with the whole window and
+	 * the longest packet to run in. */
+	fake_t1ir = TIR_MR0_Interrupt;
+	TIMER1_IRQHandler();
+	expected_match = 1000000 + 40 * 12500 + 3 * 12500 + 2 * 12500 +
+	                 USEC(2120);
+	mu_assert_int_eq(expected_match, fake_t1mr0);
+	mu_assert_int_eq(40 * 12500, conn.conn_interval);
+	mu_assert_int_eq(0, conn.conn_update_pending);
 }
 
 MU_TEST(a_channel_map_update_is_scheduled_for_its_instant)
@@ -1414,7 +1474,8 @@ int main(void)
 	MU_RUN(a_connection_request_of_the_wrong_length_is_left_alone);
 	MU_RUN(a_new_connection_clears_a_pending_cancel);
 	MU_RUN(a_connection_update_is_scheduled_for_its_instant);
-	MU_RUN(an_updates_window_size_does_not_survive_being_scaled);
+	MU_RUN(an_updates_window_size_survives_being_scaled);
+	MU_RUN(the_first_event_after_an_update_waits_out_the_whole_window);
 	MU_RUN(a_channel_map_update_is_scheduled_for_its_instant);
 	MU_RUN(only_the_packets_the_engine_knows_are_acted_on);
 	MU_RUN(a_target_filters_advertising_packets_only);

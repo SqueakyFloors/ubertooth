@@ -241,6 +241,8 @@ a fault in the tools. Repeat a run that ends that way.*
 - [ ] Run `ubertooth-btle -f -c capture.pcap` for 10 seconds
 - [ ] Confirm: `capture.pcap` file is created and non-empty
 - [ ] Open in Wireshark and confirm valid BLE packets visible
+- [ ] Confirm: in each packet's PPI header the average RSSI sits between the
+      minimum and the maximum of the same packet
 
 ### 3d. Data Length Extension packet capture
 *Requires: a DLE-capable BLE central and peripheral (recommended: two scripted
