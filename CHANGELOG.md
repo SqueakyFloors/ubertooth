@@ -232,6 +232,12 @@
   a payload up to its 251-byte maximum arrives as it was sent. The promiscuous
   mode, `-p`, uses a different capture path and still cuts at 50 bytes.
   [#4](https://github.com/SqueakyFloors/ubertooth/issues/4)
+- `ubertooth-follow` stops when the board refuses the target's address or the
+  clock reset, and says which of the two it was. It used to print a generic
+  line that named neither, and follow anyway: without the address the board
+  matched no packet, and without the reset it hopped on a clock the offset was
+  not measured from.
+  [#504](https://github.com/SqueakyFloors/ubertooth/issues/504)
 - A board another program is using says so (`error: Ubertooth <serial> is in
   use by another program (libusb -3)`) instead of reporting a libusb code, and
   no longer has a stop sent to it on the way out; a board that answers nothing
@@ -813,6 +819,11 @@
 
 Fixes with no visible change in normal use.
 
+- `ubertooth-follow` closes the local Bluetooth adapter it opens, on every path
+  out, and once the clock reads are done rather than at the end of the run. It
+  used to hold a handle on an adapter it had finished with for the whole
+  capture, and never close it at all.
+  [#506](https://github.com/SqueakyFloors/ubertooth/issues/506)
 - A revision string too long for the one-byte length the firmware reports it
   with is cut to 255 characters, rather than counted modulo 256. The revisions
   this tree builds are twelve characters, so nothing reached that.

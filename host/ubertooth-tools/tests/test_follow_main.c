@@ -18,6 +18,9 @@
  *
  * The cases below pin the whole order of requests, not only the two halves
  * that are required, so a request that moves anywhere is caught and looked at.
+ * They also pin what a board that refuses one of those two requests gets: a
+ * follow set up on neither the target's address nor a zeroed clock would
+ * follow something the user did not ask for, so the run stops and says so.
  * Clearing the AFH map, which is what a follow without -a does, is
  * synchronous and under no ordering requirement of its own.
  *
@@ -33,6 +36,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <errno.h>
+#include <fcntl.h>
 
 #include "../../../firmware/tests/minunit.h"
 
@@ -49,6 +54,15 @@ int max_ac_errors = 2;
 
 static struct {
 	int bulk_init_rc;     /* returned by ubertooth_bulk_init() */
+	int bdaddr_rc;        /* returned by cmd_set_bdaddr_quiet() */
+	int clock_rc;         /* returned by cmd_set_clock_quiet() */
+	int closes;           /* ubertooth_close() */
+	int dev_fd;           /* the adapter handle the tool was given */
+	int dev_fd_closed;    /* whether the run gave it back */
+	/* Whether it was already back by the first turn of the capture loop,
+	 * which is what says the handle goes back before the capture rather
+	 * than at the end of the run. */
+	int dev_fd_closed_by_capture;
 	int thread_starts;
 	int thread_stops;
 	int stops;
@@ -89,6 +103,7 @@ static void reset_fake(void)
 {
 	memset(&fake, 0, sizeof(fake));
 	memset(&fake_ut, 0, sizeof(fake_ut));
+	fake.dev_fd = -1;
 	fake_ut.devh = (struct libusb_device_handle*)&fake_devh;
 	fake.blocks_to_end = 2;
 	/* A target using AFH on every channel, so -a reaches the map set. */
@@ -104,12 +119,21 @@ int hci_devid(const char* str)
 	return 0;
 }
 
-/* Any non-negative number: every call the tool makes on the adapter is faked
- * below, and the tool never closes it, so no real descriptor is needed. */
+/* A real descriptor, so the tool's close() is a real close and giving the
+ * adapter handle back can be checked, but one that is not a Bluetooth socket:
+ * every call the tool makes on the adapter is faked below. */
 int hci_open_dev(int dev_id)
 {
 	(void)dev_id;
-	return 3;
+	fake.dev_fd = open("/dev/null", O_RDONLY);
+	if (fake.dev_fd < 0) {
+		/* Say the fixture broke, rather than letting the tool report a
+		 * missing adapter and a later case fail on something unrelated. */
+		fprintf(stderr, "fixture: cannot open /dev/null: %s\n",
+		        strerror(errno));
+		exit(1);
+	}
+	return fake.dev_fd;
 }
 
 int hci_devinfo(int dev_id, struct hci_dev_info* di)
@@ -212,20 +236,20 @@ void register_cleanup_handler(ubertooth_t* ut, int do_exit)
 	(void)do_exit;
 }
 
-int cmd_set_bdaddr(struct libusb_device_handle* devh, uint64_t address)
+int cmd_set_bdaddr_quiet(struct libusb_device_handle* devh, uint64_t address)
 {
 	(void)devh;
 	fake.bdaddr = address;
 	record('a');
-	return 0;
+	return fake.bdaddr_rc;
 }
 
-int cmd_set_clock(struct libusb_device_handle* devh, uint32_t clkn)
+int cmd_set_clock_quiet(struct libusb_device_handle* devh, uint32_t clkn)
 {
 	(void)devh;
 	(void)clkn;
 	record('k');
-	return 0;
+	return fake.clock_rc;
 }
 
 int cmd_set_afh_map(struct libusb_device_handle* devh, uint8_t* map)
@@ -279,6 +303,10 @@ int ubertooth_bulk_receive(ubertooth_t* ut, rx_callback cb, void* cb_args)
 {
 	(void)cb;
 	(void)cb_args;
+	if (fake.receives == 0)
+		fake.dev_fd_closed_by_capture = fake.dev_fd >= 0
+		        && fcntl(fake.dev_fd, F_GETFD) == -1
+		        && errno == EBADF;
 	fake.receives++;
 	if (fake.receives >= fake.blocks_to_end)
 		ut->stop_ubertooth = 1;
@@ -289,6 +317,12 @@ void ubertooth_stop(ubertooth_t* ut)
 {
 	(void)ut;
 	fake.stops++;
+}
+
+void ubertooth_close(ubertooth_t* ut)
+{
+	ut->devh = NULL;
+	fake.closes++;
 }
 
 int ubertooth_stream_failed(ubertooth_t* ut)
@@ -357,6 +391,10 @@ static struct run_result run_follow(const char* const* args)
 	dup2(fileno(err), STDERR_FILENO);
 	optind = 0; /* restart option parsing for each run */
 	result.rc = ubertooth_follow_main(argc, argv);
+	/* Read before anything else can take the descriptor's number back. */
+	fake.dev_fd_closed = fake.dev_fd >= 0
+	                     && fcntl(fake.dev_fd, F_GETFD) == -1
+	                     && errno == EBADF;
 	fflush(stdout);
 	fflush(stderr);
 	dup2(saved_out, STDOUT_FILENO);
@@ -437,6 +475,12 @@ MU_TEST(a_follow_the_board_took_exits_0)
 	 * follow the board took must not report is a failure. */
 	mu_assert(strstr(r.err, "error:") == NULL, r.err);
 	mu_assert(strstr(r.err, "warning:") == NULL, r.err);
+	/* The capture needs nothing more from the adapter once the clocks are
+	 * read, so the handle is back before the first block is read rather than
+	 * being held for the whole run. */
+	mu_assert(fake.dev_fd_closed_by_capture,
+	          "the adapter handle was still open when the capture started");
+	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
 }
 
 /* The board is configured before the stream is started, so a stream that
@@ -454,6 +498,7 @@ MU_TEST(a_stream_that_cannot_start_gives_the_board_back)
 	mu_assert_int_eq(0, fake.thread_starts);
 	mu_assert_int_eq(0, fake.receives);
 	mu_assert_int_eq(1, fake.stops);
+	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
 }
 
 /* -t names the whole address, and the board is told to follow the piconet
@@ -479,6 +524,135 @@ MU_TEST(a_whole_address_and_its_lap_and_uap_follow_the_same_piconet)
 	          "-t and -l with -u reached the board as different addresses");
 }
 
+/* The whole report for a refused request: one error line naming the request,
+ * why it failed and the libusb code, and a note only where there is something
+ * to try. */
+#define STALLED(what) \
+	"error: could not " what \
+	": the board does not support this command (stalled) (libusb -9)\n"
+#define NO_ANSWER(what) \
+	"error: could not " what \
+	": the board did not answer in time (libusb -7)\n" \
+	"note: if a mode is running, stop it with ubertooth-util -S; if the " \
+	"board does not answer at all, re-plug it\n"
+
+/* How many times a string occurs, for pinning that a refusal is reported once
+ * rather than alongside a second line. */
+static int occurrences(const char* haystack, const char* needle)
+{
+	int found = 0;
+	const char* at = haystack;
+
+	while ((at = strstr(at, needle)) != NULL) {
+		found++;
+		at += strlen(needle);
+	}
+	return found;
+}
+
+/* A board that refused the target's address has nothing to match packets
+ * against, so the follow stops rather than capturing from a board set to
+ * whatever it was left on. Standard error names the request; standard output
+ * stays empty, because nothing was captured. */
+MU_TEST(a_refused_address_set_exits_1)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.bdaddr_rc = -9; /* LIBUSB_ERROR_PIPE */
+	r = RUN(TARGET);
+	mu_assert_int_eq(1, r.rc);
+	/* The run stopped at the request: the clock was never set and the
+	 * receive transfer was never submitted. */
+	mu_assert(strcmp(fake.calls, "a") == 0, fake.calls);
+	mu_assert_int_eq(0, fake.thread_starts);
+	mu_assert_int_eq(0, fake.receives);
+	mu_assert(strstr(r.err, STALLED("set the Bluetooth address")) != NULL,
+	          r.err);
+	mu_assert_int_eq(1, occurrences(r.err, "error:"));
+	mu_assert(r.out[0] == '\0', r.out);
+	/* The board goes back without a STOP, since no mode has started, and
+	 * the adapter handle goes back with it. */
+	mu_assert_int_eq(1, fake.closes);
+	mu_assert_int_eq(0, fake.stops);
+	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
+
+	/* A board that took the request and said nothing is the case the note is
+	 * about. */
+	reset_fake();
+	fake.bdaddr_rc = -7; /* LIBUSB_ERROR_TIMEOUT */
+	r = RUN(TARGET);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, NO_ANSWER("set the Bluetooth address")) != NULL,
+	          r.err);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
+}
+
+/* A board that refused the clock reset keeps the clock it has been running
+ * since it was plugged in. Start-hopping adds its offset to that rather than
+ * replacing it, so the follow would hop on the wrong clock and every packet
+ * time would be out by however long the board had been up. */
+MU_TEST(a_refused_clock_set_exits_1)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.clock_rc = -9; /* LIBUSB_ERROR_PIPE */
+	r = RUN(TARGET);
+	mu_assert_int_eq(1, r.rc);
+	/* The address went out first and the run stopped at the clock. */
+	mu_assert(strcmp(fake.calls, "ak") == 0, fake.calls);
+	mu_assert_int_eq(0, fake.thread_starts);
+	mu_assert_int_eq(0, fake.receives);
+	mu_assert(strstr(r.err, STALLED("zero the board's clock")) != NULL, r.err);
+	mu_assert_int_eq(1, occurrences(r.err, "error:"));
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert_int_eq(1, fake.closes);
+	mu_assert_int_eq(0, fake.stops);
+	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
+
+	reset_fake();
+	fake.clock_rc = -7; /* LIBUSB_ERROR_TIMEOUT */
+	r = RUN(TARGET);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, NO_ANSWER("zero the board's clock")) != NULL,
+	          r.err);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
+}
+
+/* A board that took only part of a write is the third way one of these
+ * requests fails. libubertooth has already printed the whole line, naming the
+ * request and the counts, so the tool must stop and add nothing: one error
+ * line between the two of them, not two. */
+MU_TEST(a_truncated_write_stops_the_follow_and_adds_no_second_line)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.clock_rc = UBERTOOTH_ERROR_SHORT_REPLY;
+	r = RUN(TARGET);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(fake.calls, "ak") == 0, fake.calls);
+	mu_assert_int_eq(0, fake.receives);
+	/* The fake stands in for libubertooth, so it prints no line of its own:
+	 * what this pins is that the tool adds none either. */
+	mu_assert(strstr(r.err, "error:") == NULL, r.err);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert_int_eq(1, fake.closes);
+	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
+
+	reset_fake();
+	fake.bdaddr_rc = UBERTOOTH_ERROR_SHORT_REPLY;
+	r = RUN(TARGET);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(fake.calls, "a") == 0, fake.calls);
+	mu_assert(strstr(r.err, "error:") == NULL, r.err);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
+}
+
 int main(void)
 {
 	/* This binary does not link libubertooth: the fakes above are the whole
@@ -489,5 +663,8 @@ int main(void)
 	MU_RUN(a_follow_the_board_took_exits_0);
 	MU_RUN(a_stream_that_cannot_start_gives_the_board_back);
 	MU_RUN(a_whole_address_and_its_lap_and_uap_follow_the_same_piconet);
+	MU_RUN(a_refused_address_set_exits_1);
+	MU_RUN(a_refused_clock_set_exits_1);
+	MU_RUN(a_truncated_write_stops_the_follow_and_adds_no_second_line);
 	return mu_report();
 }

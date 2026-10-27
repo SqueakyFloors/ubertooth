@@ -791,7 +791,10 @@ if(LIBBLUETOOTH_FOUND)
 	# a board up in. The board's clock must be zeroed before the receive
 	# transfer is submitted, and the asynchronous requests must stay after
 	# the poll thread that completes them.
-	add_executable(test-follow-main test_follow_main.c ../src/follow_afh.c)
+	# request_report.c is the real one, so the cases pin the wording the tool
+	# prints rather than a stub's.
+	add_executable(test-follow-main test_follow_main.c ../src/follow_afh.c
+		../src/request_report.c)
 	target_link_libraries(test-follow-main opt-parse-for-tests
 		${LIBBTBB_LIBRARIES} ${LIBBLUETOOTH_LIBRARIES})
 	if(libubertooth_SOURCE_DIR)
