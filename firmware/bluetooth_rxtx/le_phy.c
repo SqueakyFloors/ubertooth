@@ -1082,10 +1082,23 @@ static void packet_handler(le_rx_t *buf) {
 	}
 }
 
+// What a capture's size counts: the two-byte PDU header, the payload, and the
+// three CRC bytes the radio hands over behind the payload. A length check on
+// size therefore has to include the CRC, or it accepts a payload three bytes
+// shorter than it meant to and the comparison below reads CRC bytes as the
+// tail of an address.
+#define LE_HEADER_LEN 2
+#define LE_ADDR_LEN   6
+#define LE_CRC_LEN    3
+
+// The shortest capture that carries the addresses the filter compares.
+#define LE_ONE_ADDR_SIZE (LE_HEADER_LEN + LE_ADDR_LEN + LE_CRC_LEN)
+#define LE_TWO_ADDR_SIZE (LE_HEADER_LEN + 2 * LE_ADDR_LEN + LE_CRC_LEN)
+
 // compare a BD addr against target with mask
 static int bd_addr_cmp(uint8_t *bd_addr) {
 	unsigned i;
-	for (i = 0; i < 6; ++i)
+	for (i = 0; i < LE_ADDR_LEN; ++i)
 		if ((bd_addr[i] & le.target_mask[i]) != le.target[i])
 			return 0;
 	return 1;
@@ -1105,21 +1118,19 @@ static int filter_match(le_rx_t *buf) {
 		case 0x02:
 		case 0x06:
 		case 0x04:
-			// header + one address
-			if (buf->size < 2 + 6)
+			if (buf->size < LE_ONE_ADDR_SIZE)
 				return 0;
-			return bd_addr_cmp(&buf->data[2]);
+			return bd_addr_cmp(&buf->data[LE_HEADER_LEN]);
 			break;
 
 		// ADV_DIRECT_IND, SCAN_REQ, CONNECT_REQ
 		case 0x01:
 		case 0x03:
 		case 0x05:
-			// header + two addresses
-			if (buf->size < 2 + 6 + 6)
+			if (buf->size < LE_TWO_ADDR_SIZE)
 				return 0;
-			return bd_addr_cmp(&buf->data[2]) ||
-				   bd_addr_cmp(&buf->data[8]);
+			return bd_addr_cmp(&buf->data[LE_HEADER_LEN]) ||
+				   bd_addr_cmp(&buf->data[LE_HEADER_LEN + LE_ADDR_LEN]);
 			break;
 
 		default:

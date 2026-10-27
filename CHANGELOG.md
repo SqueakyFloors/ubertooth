@@ -962,6 +962,11 @@ Fixes with no visible change in normal use.
   the link depends on the script, so a change to a memory map or a section
   layout used to leave the previous image in place until `make clean`.
   [#568](https://github.com/SqueakyFloors/ubertooth/issues/568)
+- A `ubertooth-btle -t` capture no longer matches an advertising packet too
+  short to hold an address against the target. Such a packet used to be kept
+  or dropped on three payload bytes and three bytes of CRC read as if they
+  were an address.
+  [#593](https://github.com/SqueakyFloors/ubertooth/issues/593)
 - `ubertooth-follow` closes the local Bluetooth adapter it opens, on every path
   out, and once the clock reads are done rather than at the end of the run. It
   used to hold a handle on an adapter it had finished with for the whole
