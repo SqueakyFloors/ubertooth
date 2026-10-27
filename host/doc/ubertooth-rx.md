@@ -112,7 +112,8 @@ Output options:
 Miscellaneous:
 
  - `-V` :
-   Version information
+   print the host tools version, as `Host tools version: libubertooth
+   <version> (<revision>), libbtbb <version> (<revision>)`
 
  - `-U <index|serial>` :
    select an Ubertooth by enumeration index or serial number; see

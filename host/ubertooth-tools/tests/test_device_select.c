@@ -1002,6 +1002,54 @@ MU_TEST(boards_that_cannot_be_opened_are_reported)
 	mu_assert(ubertooth_start_select_quiet("1cc") == NULL, "quiet no access");
 }
 
+/* The phrase a tool puts on standard output for a board it could not open,
+ * beside the library's own error line. */
+MU_TEST(a_failed_open_says_why_in_a_phrase_a_report_can_use)
+{
+	char msg[256];
+	ubertooth_t *ut;
+
+	/* The board opens but something else holds its interface. */
+	bus_with_two_serials();
+	fake.claim_rc = LIBUSB_ERROR_BUSY;
+	mu_assert(select_capturing("1cc", msg, sizeof(msg)) == NULL, "busy board");
+	mu_assert(strcmp(ubertooth_open_failure_reason(),
+	                 "in use by another program") == 0,
+	          ubertooth_open_failure_reason());
+
+	/* Any other claim failure is not blamed on another program. */
+	bus_with_two_serials();
+	fake.claim_rc = LIBUSB_ERROR_NO_DEVICE;
+	mu_assert(select_capturing("1cc", msg, sizeof(msg)) == NULL, "claim failed");
+	mu_assert(strcmp(ubertooth_open_failure_reason(),
+	                 "its USB interface could not be claimed") == 0,
+	          ubertooth_open_failure_reason());
+
+	/* No board matched the string at all. */
+	bus_with_two_serials();
+	mu_assert(select_capturing("deadbeef", msg, sizeof(msg)) == NULL, "no match");
+	mu_assert(strcmp(ubertooth_open_failure_reason(),
+	                 "no board matched that serial") == 0,
+	          ubertooth_open_failure_reason());
+
+	/* An index with no board behind it. */
+	bus_with_ubertooths(1);
+	mu_assert(select_capturing("1", msg, sizeof(msg)) == NULL, "index past end");
+	mu_assert(strcmp(ubertooth_open_failure_reason(),
+	                 "no board answered at that index") == 0,
+	          ubertooth_open_failure_reason());
+
+	/* An open that succeeded leaves no stale reason behind. */
+	bus_with_ubertooths(1);
+	ut = select_capturing("0", msg, sizeof(msg));
+	mu_assert_fatal(ut != NULL, "index 0 opened");
+	mu_assert(strcmp(ubertooth_open_failure_reason(),
+	                 "it could not be opened") == 0,
+	          ubertooth_open_failure_reason());
+	ubertooth_close(ut);
+	ubertooth_free(ut);
+}
+
 /* A bus that cannot be listed is not a serial that is not attached. */
 MU_TEST(a_bus_that_cannot_be_listed_is_not_reported_as_no_match)
 {
@@ -1293,6 +1341,7 @@ int main(void)
 	MU_RUN(a_board_that_does_not_answer_is_skipped_quietly);
 	MU_RUN(two_boards_with_one_serial_are_refused_without_bad_advice);
 	MU_RUN(boards_that_cannot_be_opened_are_reported);
+	MU_RUN(a_failed_open_says_why_in_a_phrase_a_report_can_use);
 	MU_RUN(a_bus_that_cannot_be_listed_is_not_reported_as_no_match);
 	MU_RUN(the_quiet_selection_matches_the_same_serials);
 	MU_RUN(the_test_switch_hides_every_device);

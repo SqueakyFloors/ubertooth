@@ -97,7 +97,7 @@ get the image and revision the firmware was built from; exits non\-zero if the r
 get compile info, named with the image it came from; exits non\-zero if the read fails
 .TP
 \fB\-H\fR, \fB\-\-host\-version\fR
-get host tools (libubertooth) version; works without a device
+get host tools (libubertooth and libbtbb) version, as \fBHost tools version: libubertooth <version> (<revision>), libbtbb <version> (<revision>)\fR; works without a device
 .TP
 \fB\-I\fR
 identify ubertooth device by flashing the USR, RX, and TX LEDs on the board; the command returns at once and the blink runs until \fB\-S\fR or any mode option ends it, leaving the LEDs off (see LEDs doc)
@@ -264,22 +264,27 @@ libUSB Error: Access denied (insufficient permissions)
 .P
 An all\-digits string is always an index, never a serial, even when it would match a serial: \fB\-U 05\fR asks for index 5, not for the board whose serial starts \fB05f0\fR\. Select that board by a longer prefix that includes a non\-digit (\fB\-U 05f\fR), or by its full serial\.
 .P
-With several Ubertooths attached and no \fB\-U\fR, the read\-only identity queries \fB\-s\fR (serial), \fB\-v\fR (firmware image and revision), \fB\-V\fR (compile info), \fB\-p\fR (part ID) and \fB\-b\fR (board ID) report every device, in enumeration order, instead of refusing to pick one\. A single query prints one \fB<index>: <value>\fR line per device:
+With several Ubertooths attached and no \fB\-U\fR, the read\-only identity queries \fB\-s\fR (serial), \fB\-v\fR (firmware image and revision), \fB\-V\fR (compile info), \fB\-p\fR (part ID) and \fB\-b\fR (board ID) report every device, in enumeration order, instead of refusing to pick one\. Each line is the label the single\-device report prints, with the device's index in it, so a line read on its own says both what it is and which board it came from:
 .IP "" 4
 .nf
 $ ubertooth\-util \-s
-0: 1cc001038088cb956c43ad61c52000f5
-1: 05f00014e380df95f4436562c32000f5
+Serial No (0): 1cc001038088cb956c43ad61c52000f5
+Serial No (1): 05f00014e380df95f4436562c32000f5
+$ ubertooth\-util \-v
+Firmware version (0): bluetooth_rxtx git\-747484c (API:1\.35)
+Firmware version (1): bluetooth_rxtx git\-747484c (API:1\.35)
 .fi
 .IP "" 0
 .P
-Several queries together (for example \fB\-vVspb\fR) print each report line prefixed with the device index\. A device that cannot be opened is shown as \fB<index>: <unavailable>\fR, a failed read as \fB<index>: <query read failed>\fR, and a query that reports an error as that error (for example \fB<error: unknown board ID 7>\fR)\. The other devices are still reported, and the command exits non\-zero if any device failed\. A failed \fB\-v\fR or \fB\-V\fR read is shown as \fB<index>: <firmware read failed>\fR or \fB<index>: <compile info read failed>\fR; a firmware version whose API version cannot be read is shown without it and also makes the command fail\. Listing does not stop a mode a device is running\. Any other option in the same command still needs \fB\-U\fR\.
+The build string \fB\-V\fR reports has no label of its own \-\- it starts with the image name \-\- so it keeps a bare \fB<index>:\fR prefix instead\. Several queries together (for example \fB\-vVspb\fR) print the same lines, grouped by device\.
 .P
-\fB\-U all\fR asks for the same listing explicitly\. It works with any number of attached devices, including one (\fB0: <value>\fR), and fails with \fBerror: no Ubertooth devices found\fR when none is attached:
+A device that cannot be opened is shown as \fBunavailable,\fR and the reason, for example \fBFirmware version (1): unavailable, in use by another program\fR, with a line per query asked for and libubertooth's own \fBerror:\fR line on standard error\. A failed read is shown as \fBread failed\fR (\fBFirmware version (0): read failed\fR), and a query that reports an error as that error without its \fBerror:\fR prefix (\fBBoard ID Number (0): unknown board ID 7\fR)\. The other devices are still reported, and the command exits non\-zero if any device failed\. A firmware version whose API version cannot be read is shown without it and also makes the command fail\. Listing does not stop a mode a device is running\. Any other option in the same command still needs \fB\-U\fR\.
+.P
+\fB\-U all\fR asks for the same listing explicitly\. It works with any number of attached devices, including one, and fails with \fBerror: no Ubertooth devices found\fR when none is attached:
 .IP "" 4
 .nf
 $ ubertooth\-util \-U all \-s
-0: 1cc001038088cb956c43ad61c52000f5
+Serial No (0): 1cc001038088cb956c43ad61c52000f5
 .fi
 .IP "" 0
 .P
@@ -303,8 +308,8 @@ error: \-U all needs one of the read\-only queries \-b, \-v, \-V, \-p or \-s to 
 .nf
 $ ubertooth\-util \-U all \-N \-s
 2
-0: 1cc001038088cb956c43ad61c52000f5
-1: 05f00014e380df95f4436562c32000f5
+Serial No (0): 1cc001038088cb956c43ad61c52000f5
+Serial No (1): 05f00014e380df95f4436562c32000f5
 .fi
 .IP "" 0
 .P

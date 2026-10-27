@@ -25,7 +25,8 @@ as a placeholder/experimental entry point. Do not rely on it.
    select an Ubertooth by enumeration index or serial number; see
    ubertooth(7), SELECTING A DEVICE
  - `-V` :
-   print version information.
+   print the host tools version, as `Host tools version: libubertooth
+   <version> (<revision>), libbtbb <version> (<revision>)`.
 
 ## TRANSMIT POWER
 

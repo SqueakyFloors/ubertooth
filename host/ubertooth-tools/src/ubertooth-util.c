@@ -93,15 +93,33 @@ enum identity_query {
 };
 
 static const struct {
-	const char *name;  /* shown as "<name read failed>" */
-	const char *label; /* dropped when a single query is listed */
+	const char *name;  /* names the query where no label does */
+	const char *label; /* the label the single-device report prints, without
+	                    * its ": "; "" for a report that has none */
 } identity_query_text[QUERY_COUNT] = {
-	{ UTIL_QUERY_BOARD_ID, "Board ID Number: " },
-	{ "firmware", "Firmware version: " },
+	{ UTIL_QUERY_BOARD_ID, "Board ID Number" },
+	{ "firmware", "Firmware version" },
 	{ "compile info", "" },
-	{ UTIL_QUERY_PART_ID, "Part ID: " },
-	{ UTIL_QUERY_SERIAL, "Serial No: " },
+	{ UTIL_QUERY_PART_ID, "Part ID" },
+	{ UTIL_QUERY_SERIAL, "Serial No" },
 };
+
+/*
+ * How a listed line starts: the report's own label with the board's index in
+ * it, "Firmware version (0): ", so a line read on its own says both what it
+ * is and which board it came from, and says it the same way whether one board
+ * or several were read.
+ *
+ * The build string -V reports has no label of its own -- the image name it
+ * starts with stands in for one -- so it keeps the bare "0: " prefix instead.
+ */
+static void print_listing_label(const char *label, int index)
+{
+	if (label[0] != '\0')
+		fprintf(stdout, "%s (%d): ", label, index);
+	else
+		fprintf(stdout, "%d: ", index);
+}
 
 /* Runs one identity report into buffers so its lines can be prefixed. */
 static int capture_identity_report(enum identity_query query, ubertooth_t *ut,
@@ -148,32 +166,40 @@ static int capture_identity_report(enum identity_query query, ubertooth_t *ut,
 
 /*
  * Reports the requested identity queries for every device, in enumeration
- * order. A single query prints "<index>: <value>"; several queries print each
- * report line prefixed with "<index>: ". A device that cannot be opened or a
- * failed read is shown on its own line and makes the result 1, but the other
- * devices are still reported. Devices are closed without sending STOP, so a
- * query does not change whatever mode a device is running.
+ * order. Every line is "<label> (<index>): <value>", the same label the
+ * single-device report prints (see print_listing_label()). A device that
+ * cannot be opened, or a read that failed, gets a line of its own per query
+ * and makes the result 1, but the other devices are still reported. Devices
+ * are closed without sending STOP, so a query does not change whatever mode a
+ * device is running.
  */
 static int list_identity_queries(const int requested[QUERY_COUNT], int count)
 {
 	int status = 0;
-	int queries = 0;
 	int i, q;
-
-	for (q = 0; q < QUERY_COUNT; q++)
-		queries += requested[q] ? 1 : 0;
 
 	for (i = 0; i < count; i++) {
 		ubertooth_t *uti = ubertooth_start(i);
 
 		if (uti == NULL) {
-			fprintf(stdout, "%d: <unavailable>\n", i);
+			/* One line per query, so a reader filtering for one of them
+			 * still sees this board. libubertooth has already put the
+			 * matching "error: " line on standard error. */
+			const char *reason = ubertooth_open_failure_reason();
+
+			for (q = 0; q < QUERY_COUNT; q++) {
+				if (!requested[q])
+					continue;
+				print_listing_label(identity_query_text[q].label, i);
+				fprintf(stdout, "unavailable, %s\n", reason);
+			}
 			status = 1;
 			continue;
 		}
 		for (q = 0; q < QUERY_COUNT; q++) {
 			char *text, *error, *line, *next;
 			const char *label = identity_query_text[q].label;
+			size_t label_len = strlen(label);
 
 			if (!requested[q])
 				continue;
@@ -181,17 +207,20 @@ static int list_identity_queries(const int requested[QUERY_COUNT], int count)
 			        capture_identity_report((enum identity_query)q, uti,
 			                                &text, &error));
 			if (text == NULL || text[0] == '\0') {
+				print_listing_label(label, i);
 				/* Show the report's own error (for example an unknown board
 				 * ID) when it gave one, otherwise say the read failed. The
-				 * report's "error: <query> read failed" line is shown in the
-				 * listing's shorter "<query read failed>" form. */
+				 * "error: " prefix belongs to standard error, and the label
+				 * has already named the query. */
 				if (error != NULL && error[0] != '\0' &&
 				    !util_is_read_failed_message(error,
 				            identity_query_text[q].name)) {
 					error[strcspn(error, "\n")] = '\0';
-					fprintf(stdout, "%d: <%s>\n", i, error);
+					fprintf(stdout, "%s\n", util_strip_error_prefix(error));
+				} else if (label_len > 0) {
+					fprintf(stdout, "read failed\n");
 				} else {
-					fprintf(stdout, "%d: <%s read failed>\n", i,
+					fprintf(stdout, "%s read failed\n",
 					        identity_query_text[q].name);
 				}
 				status = 1;
@@ -206,10 +235,17 @@ static int list_identity_queries(const int requested[QUERY_COUNT], int count)
 					*next++ = '\0';
 				else
 					next = line + strlen(line);
-				if (queries == 1 && label[0] != '\0' &&
-				    strncmp(line, label, strlen(label)) == 0)
-					line += strlen(label);
-				fprintf(stdout, "%d: %s\n", i, line);
+				/* The report's label moves into the listing's own, which
+				 * carries the index. A line that does not start with the
+				 * label keeps the bare index prefix, so nothing is ever
+				 * labelled as something it is not. */
+				if (label_len > 0 && strncmp(line, label, label_len) == 0 &&
+				    strncmp(line + label_len, ": ", 2) == 0) {
+					print_listing_label(label, i);
+					fprintf(stdout, "%s\n", line + label_len + 2);
+				} else {
+					fprintf(stdout, "%d: %s\n", i, line);
+				}
 			}
 			free(text);
 		}

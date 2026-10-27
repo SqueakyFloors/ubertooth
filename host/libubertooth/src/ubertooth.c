@@ -91,9 +91,11 @@ pthread_t poll_thread;
 
 unsigned int packet_counter_max;
 
+/* Labelled like every other version line a tool prints, so the host tools'
+ * version cannot be mistaken for a board's firmware revision. */
 void print_version() {
-	printf("libubertooth %s (%s), libbtbb %s (%s)\n", VERSION, RELEASE,
-	       btbb_get_version(), btbb_get_release());
+	printf("Host tools version: libubertooth %s (%s), libbtbb %s (%s)\n",
+	       VERSION, RELEASE, btbb_get_version(), btbb_get_release());
 }
 
 /* The handle register_cleanup_handler() was given, for cleanup_exit() below.
@@ -396,16 +398,34 @@ static const char* board_label(const char* serial, int index)
 	return label;
 }
 
+/*
+ * Why the last open failed, for ubertooth_open_failure_reason(). One phrase
+ * per failure the open paths below can report, set as each is taken and
+ * cleared when an open starts. A string literal, so there is nothing to free
+ * and nothing that goes stale while a caller holds it.
+ */
+static const char* open_failure_reason = NULL;
+
+/* Documented with the declaration in ubertooth.h. */
+const char* ubertooth_open_failure_reason(void)
+{
+	return open_failure_reason != NULL ? open_failure_reason
+	                                   : "it could not be opened";
+}
+
 void ubertooth_report_claim_failed(const char* board, int err)
 {
 	if (board == NULL)
 		board = "the Ubertooth";
-	if (err == LIBUSB_ERROR_BUSY || err == LIBUSB_ERROR_ACCESS)
+	if (err == LIBUSB_ERROR_BUSY || err == LIBUSB_ERROR_ACCESS) {
+		open_failure_reason = "in use by another program";
 		fprintf(stderr, "error: %s is in use by another program "
 		        "(libusb %d)\n", board, err);
-	else
+	} else {
+		open_failure_reason = "its USB interface could not be claimed";
 		fprintf(stderr, "error: claiming the USB interface of %s failed "
 		        "(libusb %d)\n", board, err);
+	}
 }
 
 /* Documented with the declaration in ubertooth.h. */
@@ -1632,8 +1652,12 @@ ubertooth_t* ubertooth_init()
 
 int ubertooth_connect(ubertooth_t* ut, int ubertooth_device)
 {
-	int r = libusb_init(NULL);
+	int r;
+
+	open_failure_reason = NULL;
+	r = libusb_init(NULL);
 	if (r < 0) {
+		open_failure_reason = "libusb could not be started";
 		fprintf(stderr, "error: libusb_init failed (got 1.0?)\n");
 		return -1;
 	}
@@ -1642,6 +1666,7 @@ int ubertooth_connect(ubertooth_t* ut, int ubertooth_device)
 
 	ut->devh = find_ubertooth_device(ubertooth_device);
 	if (ut->devh == NULL) {
+		open_failure_reason = "no board answered at that index";
 		fprintf(stderr, "could not open Ubertooth device\n");
 		note_dfu_bootloader();
 		ubertooth_stop(ut);
@@ -1683,8 +1708,12 @@ ubertooth_t* ubertooth_start(int ubertooth_device)
 int ubertooth_connect_serial(ubertooth_t* ut, char* serial_number)
 {
 	char matched[UBERTOOTH_SERIAL_STR_LEN] = "";
-	int r = libusb_init(NULL);
+	int r;
+
+	open_failure_reason = NULL;
+	r = libusb_init(NULL);
 	if (r < 0) {
+		open_failure_reason = "libusb could not be started";
 		fprintf(stderr, "error: libusb_init failed (got 1.0?)\n");
 		return -1;
 	}
@@ -1693,6 +1722,7 @@ int ubertooth_connect_serial(ubertooth_t* ut, char* serial_number)
 
 	ut->devh = find_ubertooth_device_serial(serial_number, matched);
 	if (ut->devh == NULL) {
+		open_failure_reason = "no board matched that serial";
 		ubertooth_stop(ut);
 		return -1;
 	}

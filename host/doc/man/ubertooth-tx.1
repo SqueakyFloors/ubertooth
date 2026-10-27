@@ -26,7 +26,7 @@ timeout; 0 means no timeout (default: 0)\.
 select an Ubertooth by enumeration index or serial number; see ubertooth(7), SELECTING A DEVICE
 .TP
 \fB\-V\fR
-print version information\.
+print the host tools version, as \fBHost tools version: libubertooth <version> (<revision>), libbtbb <version> (<revision>)\fR\.
 .SH "TRANSMIT POWER"
 Transmitting uses the CC2400 power level set with \fBubertooth\-util \-a\fR and leaves it unchanged\. A board that has not been given a level transmits at 7 (0 dBm), the CC2400's reset value\. These levels are at the CC2400 radio; the Ubertooth One's RF amplifier changes the actual output after that\.
 .SH "ARGUMENTS"

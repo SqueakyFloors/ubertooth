@@ -135,7 +135,9 @@ Common options:
    get compile info, named with the image it came from; exits non-zero if the
    read fails
  - `-H`, `--host-version` :
-   get host tools (libubertooth) version; works without a device
+   get host tools (libubertooth and libbtbb) version, as
+   `Host tools version: libubertooth <version> (<revision>), libbtbb <version>
+   (<revision>)`; works without a device
  - `-I` :
    identify ubertooth device by flashing the USR, RX, and TX LEDs on the board;
    the command returns at once and the blink runs until `-S` or any mode option
@@ -397,29 +399,38 @@ With several Ubertooths attached and no `-U`, the read-only identity queries
 `-s` (serial), `-v` (firmware image and revision), `-V` (compile info), `-p`
 (part ID) and
 `-b` (board ID) report every device, in enumeration order, instead of refusing
-to pick one. A single query prints one `<index>: <value>` line per device:
+to pick one. Each line is the label the single-device report prints, with the
+device's index in it, so a line read on its own says both what it is and which
+board it came from:
 
     $ ubertooth-util -s
-    0: 1cc001038088cb956c43ad61c52000f5
-    1: 05f00014e380df95f4436562c32000f5
+    Serial No (0): 1cc001038088cb956c43ad61c52000f5
+    Serial No (1): 05f00014e380df95f4436562c32000f5
+    $ ubertooth-util -v
+    Firmware version (0): bluetooth_rxtx git-747484c (API:1.35)
+    Firmware version (1): bluetooth_rxtx git-747484c (API:1.35)
 
-Several queries together (for example `-vVspb`) print each report line
-prefixed with the device index. A device that cannot be opened is shown as
-`<index>: <unavailable>`, a failed read as `<index>: <query read failed>`, and a
-query that reports an error as that error (for example `<error: unknown board
-ID 7>`). The other devices are still reported, and the command exits non-zero
-if any device failed. A failed `-v` or `-V` read is shown as
-`<index>: <firmware read failed>` or `<index>: <compile info read failed>`; a
-firmware version whose API version cannot be read is shown without it and also
-makes the command fail. Listing does not stop a mode a device is running. Any other
-option in the same command still needs `-U`.
+The build string `-V` reports has no label of its own -- it starts with the
+image name -- so it keeps a bare `<index>: ` prefix instead. Several queries
+together (for example `-vVspb`) print the same lines, grouped by device.
+
+A device that cannot be opened is shown as `unavailable, ` and the reason, for
+example `Firmware version (1): unavailable, in use by another program`, with a
+line per query asked for and libubertooth's own `error: ` line on standard
+error. A failed read is shown as `read failed`
+(`Firmware version (0): read failed`), and a query that reports an error as
+that error without its `error: ` prefix (`Board ID Number (0): unknown board
+ID 7`). The other devices are still reported, and the command exits non-zero
+if any device failed. A firmware version whose API version cannot be read is
+shown without it and also makes the command fail. Listing does not stop a mode
+a device is running. Any other option in the same command still needs `-U`.
 
 `-U all` asks for the same listing explicitly. It works with any number of
-attached devices, including one (`0: <value>`), and fails with `error: no
-Ubertooth devices found` when none is attached:
+attached devices, including one, and fails with `error: no Ubertooth devices
+found` when none is attached:
 
     $ ubertooth-util -U all -s
-    0: 1cc001038088cb956c43ad61c52000f5
+    Serial No (0): 1cc001038088cb956c43ad61c52000f5
 
 `-U all` only applies to the read-only queries `-b`, `-v`, `-V`, `-p` and `-s`.
 Combined with any other option (a setter, a mode such as `-x` or `-q`, `-r`,
@@ -438,8 +449,8 @@ the same enumeration:
 
     $ ubertooth-util -U all -N -s
     2
-    0: 1cc001038088cb956c43ad61c52000f5
-    1: 05f00014e380df95f4436562c32000f5
+    Serial No (0): 1cc001038088cb956c43ad61c52000f5
+    Serial No (1): 05f00014e380df95f4436562c32000f5
 
 `-U all -N` with no query asks only for the count, which comes from the bus and
 not from any device. There is nothing to list, so nothing is refused either: it
