@@ -2400,7 +2400,24 @@ static void visit_dispatch_line(const char *line, const struct body_pos *pos,
 		if (s->pending_count == 0)
 			continue;
 		if (leaves_the_case(word)) {
-			if (depth == s->case_level && !conditional)
+			/*
+			 * At the case's own level or shallower, and not under a
+			 * condition. Shallower counts because a case body that
+			 * is a block of its own can be left by a `break`
+			 * written after the closing brace, one level above the
+			 * statements it follows:
+			 *
+			 *	case MODE_X: {
+			 *		work();
+			 *	}
+			 *	break;
+			 *
+			 * Nothing shallower than the labels can be reached
+			 * while a case is open, so there is nothing else at
+			 * those levels to confuse it with. Anything deeper
+			 * belongs to a loop or a branch inside the case.
+			 */
+			if (depth <= s->case_level && !conditional)
 				s->pending_count = 0;
 			s->awaiting_body = 0;
 			continue;
@@ -2711,12 +2728,14 @@ MU_TEST(a_mode_that_streams_runs_a_classified_loop)
  * of that shape being added. So the shapes are written here and the scan is
  * run on them.
  *
- * Three cases hide their work: below a loop's `break`, below a condition's,
- * and inside a case body that is a block. After each comes a case of its own,
- * because the other half of reading a case is still ending it: a scan that
- * never ended one would find every call in all three and quietly fold the
- * rest of the switch into them. The run of two labels and the case that leaves
- * by `goto` are the two ways out the firmware's own dispatches use.
+ * Four cases hide their work: below a loop's `break`, below a condition's,
+ * inside a case body that is a block, and inside such a block whose `break`
+ * is written after the closing brace -- a level above the statements it
+ * follows. After each comes a case of its own, because the other half of
+ * reading a case is still ending it: a scan that never ended one would find
+ * every call in all four and quietly fold the rest of the switch into them.
+ * The run of two labels and the case that leaves by `goto` are the two ways
+ * out the firmware's own dispatches use.
  */
 static const char *const dispatch_shapes =
 	"int main(void)\n"
@@ -2745,6 +2764,13 @@ static const char *const dispatch_shapes =
 	"			block_body_work();\n"
 	"			break;\n"
 	"		}\n"
+	"		case MODE_BLOCK_THEN_BREAK: {\n"
+	"			block_then_break_work();\n"
+	"		}\n"
+	"		break;\n"
+	"		case MODE_AFTER_BLOCK_THEN_BREAK:\n"
+	"			after_block_then_break_work();\n"
+	"			break;\n"
 	"		case MODE_FALLS_THROUGH:\n"
 	"		case MODE_FALLEN_INTO:\n"
 	"			shared_work();\n"
@@ -2761,7 +2787,7 @@ static const char *const dispatch_shapes =
 	"	return 0;\n"
 	"}\n";
 
-#define DISPATCH_SHAPE_COUNT 9
+#define DISPATCH_SHAPE_COUNT 11
 
 /* Run the case scan over a function written out as text. tmpfile() rather
  * than a path: the scans walk whole directories, so a C file left in one of
@@ -2821,7 +2847,12 @@ static const struct {
 	  "after_bare_condition_work" },
 	{ "MODE_AFTER_BARE_CONDITION", "after_bare_condition_work",
 	  "block_body_work" },
-	{ "MODE_BLOCK_BODY",           "block_body_work",     "shared_work" },
+	{ "MODE_BLOCK_BODY",           "block_body_work",
+	  "block_then_break_work" },
+	{ "MODE_BLOCK_THEN_BREAK",     "block_then_break_work",
+	  "after_block_then_break_work" },
+	{ "MODE_AFTER_BLOCK_THEN_BREAK", "after_block_then_break_work",
+	  "shared_work" },
 	{ "MODE_FALLS_THROUGH",        "shared_work",         "goto_out_work" },
 	{ "MODE_FALLEN_INTO",          "shared_work",         "goto_out_work" },
 	{ "MODE_GOTO_OUT",             "goto_out_work",       "last_work" },
