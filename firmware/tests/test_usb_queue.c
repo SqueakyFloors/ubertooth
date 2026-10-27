@@ -769,7 +769,9 @@ struct producer {
 	 */
 	const char *mode_loop;
 	int found;
-	int classified_caller; /* filled in by the scan, for a helper */
+	/* both filled in by the scan, for a helper */
+	int classified_caller;
+	char unlisted_caller[128];
 };
 
 /*
@@ -779,19 +781,19 @@ struct producer {
  * those packets reach the host.
  */
 static struct producer producers[] = {
-	{ "bluetooth_rxtx.c", "enqueue",              NULL,              0, 0 },
-	{ "bluetooth_rxtx.c", "enqueue_with_ts",      NULL,              0, 0 },
-	{ "bluetooth_rxtx.c", "bt_stream_rx",         "bt_stream_rx",    0, 0 },
-	{ "bluetooth_rxtx.c", "specan",               "specan",          0, 0 },
-	{ "bluetooth_rxtx.c", "rx_generic_sync",      "rx_generic_sync", 0, 0 },
-	{ "bluetooth_rxtx.c", "bt_le_sync",           "bt_le_sync",      0, 0 },
-	{ "bluetooth_rxtx.c", "cb_follow_le",         "bt_le_sync",      0, 0 },
-	{ "bluetooth_rxtx.c", "cb_le_promisc",        "bt_generic_le",   0, 0 },
-	{ "bluetooth_rxtx.c", "le_promisc_state",     "bt_generic_le",   0, 0 },
-	{ "le_phy.c",         "usb_enqueue_le",       NULL,              0, 0 },
-	{ "le_phy.c",         "le_phy_main",          "le_phy_main",     0, 0 },
-	{ "ego.c",            "cap_state",            "ego_main",        0, 0 },
-	{ "ego.c",            "continuous_cap_state", "ego_main",        0, 0 },
+	{ "bluetooth_rxtx.c", "enqueue",              NULL,              0, 0, { 0 } },
+	{ "bluetooth_rxtx.c", "enqueue_with_ts",      NULL,              0, 0, { 0 } },
+	{ "bluetooth_rxtx.c", "bt_stream_rx",         "bt_stream_rx",    0, 0, { 0 } },
+	{ "bluetooth_rxtx.c", "specan",               "specan",          0, 0, { 0 } },
+	{ "bluetooth_rxtx.c", "rx_generic_sync",      "rx_generic_sync", 0, 0, { 0 } },
+	{ "bluetooth_rxtx.c", "bt_le_sync",           "bt_le_sync",      0, 0, { 0 } },
+	{ "bluetooth_rxtx.c", "cb_follow_le",         "bt_le_sync",      0, 0, { 0 } },
+	{ "bluetooth_rxtx.c", "cb_le_promisc",        "bt_generic_le",   0, 0, { 0 } },
+	{ "bluetooth_rxtx.c", "le_promisc_state",     "bt_generic_le",   0, 0, { 0 } },
+	{ "le_phy.c",         "usb_enqueue_le",       NULL,              0, 0, { 0 } },
+	{ "le_phy.c",         "le_phy_main",          "le_phy_main",     0, 0, { 0 } },
+	{ "ego.c",            "cap_state",            "ego_main",        0, 0, { 0 } },
+	{ "ego.c",            "continuous_cap_state", "ego_main",        0, 0, { 0 } },
 };
 
 #define PRODUCER_COUNT (sizeof(producers) / sizeof(producers[0]))
@@ -816,10 +818,11 @@ static int scan_overflowed;
  * them, this takes any identifier with "enqueue" in it, so a wrapper added
  * later is found too.
  */
-static int enqueue_identifier(const char *line, int must_call)
+static int enqueue_identifier_at(const char *line, int n, char *out,
+                                 size_t size, int *called)
 {
 	const char *p = line;
-	char ident[128];
+	int seen = 0;
 
 	while (*p != '\0') {
 		const char *start, *after;
@@ -831,31 +834,41 @@ static int enqueue_identifier(const char *line, int must_call)
 		start = p;
 		while (is_ident_char(*p))
 			p++;
-		if ((size_t)(p - start) >= sizeof(ident))
+		if ((size_t)(p - start) >= size)
 			continue;
-		memcpy(ident, start, (size_t)(p - start));
-		ident[p - start] = '\0';
-		if (strstr(ident, "enqueue") == NULL)
+		memcpy(out, start, (size_t)(p - start));
+		out[p - start] = '\0';
+		if (strstr(out, "enqueue") == NULL)
 			continue;
-		if (!must_call)
-			return 1;
+		if (seen++ != n)
+			continue;
+		/* Its own '(' right after the name is what makes the mention a
+		 * call, a prototype or a definition rather than a hand-over. */
 		after = p;
 		while (*after == ' ' || *after == '\t')
 			after++;
-		if (*after == '(')
-			return 1;
+		*called = *after == '(';
+		return 1;
 	}
+	out[0] = '\0';
+	return 0;
+}
+
+static int enqueue_identifier(const char *line, int must_call)
+{
+	char ident[128];
+	int n, called;
+
+	for (n = 0; enqueue_identifier_at(line, n, ident, sizeof(ident),
+	                                  &called); n++)
+		if (!must_call || called)
+			return 1;
 	return 0;
 }
 
 static int line_enqueues(const char *line)
 {
 	return enqueue_identifier(line, 0);
-}
-
-static int line_calls_enqueue(const char *line)
-{
-	return enqueue_identifier(line, 1);
 }
 
 /*
@@ -1068,6 +1081,11 @@ static void resolve_producers(void)
  * producer calls it. Without that, "helper" is the cheapest answer to the
  * failure above: a new loop could list its own enqueueing helper as one and
  * never reach the transport table. So find each helper's callers.
+ *
+ * Every one of them has to be in the table, not just one. A new mode that
+ * enqueues only through an existing helper names nothing with "enqueue" in it,
+ * so the scan above does not see the mode at all; what gives it away is that
+ * the helper is suddenly called from a function nobody has classified.
  */
 static void scan_file_for_helper_callers(const char *dir, const char *file)
 {
@@ -1105,14 +1123,25 @@ static void scan_file_for_helper_callers(const char *dir, const char *file)
 			continue;
 
 		for (i = 0; i < PRODUCER_COUNT; i++) {
+			int listed = 0;
+
 			if (producers[i].mode_loop != NULL)
 				continue;
 			if (!calls_identifier(line, producers[i].function))
 				continue;
-			for (j = 0; j < PRODUCER_COUNT; j++)
-				if (producers[j].mode_loop != NULL &&
-				    strcmp(producers[j].function, current) == 0)
+			for (j = 0; j < PRODUCER_COUNT; j++) {
+				if (strcmp(producers[j].function, current) != 0)
+					continue;
+				listed = 1;
+				if (producers[j].mode_loop != NULL)
 					producers[i].classified_caller = 1;
+			}
+			/* A caller that is itself a helper is listed too, and
+			 * answers for its own callers in the same way. */
+			if (!listed && producers[i].unlisted_caller[0] == '\0')
+				snprintf(producers[i].unlisted_caller,
+				         sizeof(producers[i].unlisted_caller),
+				         "%s/%s: %s()", dir, file, current);
 		}
 	}
 
@@ -1138,9 +1167,31 @@ MU_TEST(every_helper_is_called_by_a_classified_producer)
 		snprintf(msg, sizeof(msg),
 		         "%s: %s() is listed as a helper that belongs to no single "
 		         "mode, but no producer with a mode loop calls it. Name the "
-		         "loop whose host collects what it enqueues", 
+		         "loop whose host collects what it enqueues",
 		         producers[i].file, producers[i].function);
 		mu_assert(producers[i].classified_caller, msg);
+	}
+}
+
+/* ...and nobody outside the table calls a helper, which is how a mode that
+ * enqueues only through one still gets classified. */
+MU_TEST(every_caller_of_a_helper_is_accounted_for)
+{
+	size_t i;
+
+	for (i = 0; i < PRODUCER_COUNT; i++) {
+		char msg[384];
+
+		if (producers[i].mode_loop != NULL)
+			continue;
+		snprintf(msg, sizeof(msg),
+		         "%s calls %s(), which enqueues, and is not in producers[]. "
+		         "Add it, and say which mode loop collects what it "
+		         "enqueues -- if that loop is new, it also needs a row in "
+		         "modes[] saying whether its host reads the bulk IN "
+		         "endpoint or polls", producers[i].unlisted_caller,
+		         producers[i].function);
+		mu_assert(producers[i].unlisted_caller[0] == '\0', msg);
 	}
 }
 
@@ -1202,10 +1253,37 @@ MU_TEST(every_listed_producer_was_found)
 static int macro_enqueue_hits;
 static char macro_enqueue_where[256];
 
+/*
+ * `# define` with spaces after the '#' is the same directive and this tree
+ * already spells it that way, so read past the whitespace rather than matching
+ * one spelling.
+ */
+static int is_define_line(const char *line)
+{
+	const char *p = line;
+
+	if (*p != '#')
+		return 0;
+	p++;
+	while (*p == ' ' || *p == '\t')
+		p++;
+	return strncmp(p, "define", 6) == 0 && !is_ident_char(p[6]);
+}
+
+/* A line continued with a trailing backslash: the directive carries on. */
+static int line_continues(const char *line)
+{
+	size_t n = strlen(line);
+
+	while (n > 0 && (line[n - 1] == '\n' || line[n - 1] == '\r'))
+		n--;
+	return n > 0 && line[n - 1] == '\\';
+}
+
 static void check_file_for_enqueue_macro(const char *dir, const char *file)
 {
 	char path[512], line[512];
-	int in_block = 0;
+	int in_block = 0, in_define = 0;
 	FILE *f;
 
 	snprintf(path, sizeof(path), "%s/%s", dir, file);
@@ -1214,11 +1292,19 @@ static void check_file_for_enqueue_macro(const char *dir, const char *file)
 		return;
 
 	while (fgets(line, sizeof(line), f) != NULL) {
+		int continued;
+
 		strip_comments(line, &in_block);
-		if (strncmp(line, "#define", 7) != 0)
+		/* A macro body can run over several lines, and the call that
+		 * reaches the queue may sit on any of them. */
+		if (!in_define && !is_define_line(line))
 			continue;
-		if (!line_enqueues(line))
+		continued = line_continues(line);
+		if (!line_enqueues(line)) {
+			in_define = continued;
 			continue;
+		}
+		in_define = continued;
 		macro_enqueue_hits++;
 		if (macro_enqueue_where[0] == '\0')
 			snprintf(macro_enqueue_where,
@@ -1250,14 +1336,32 @@ MU_TEST(nothing_reaches_the_queue_through_a_macro)
  * to it. Every mention of the queue is a call, a prototype or a definition,
  * each of which has the name's own '(' right after it; taking the address does
  * not.
+ *
+ * Only the names that are functions count. "enqueue" in a name is what finds
+ * the wrappers without listing them, and an ordinary variable can carry it
+ * too, so the first pass collects the names seen with a '(' somewhere -- which
+ * a variable never is -- and the guard reports a bare mention of one of those.
  */
-static int queue_addresses_taken;
-static char queue_address_where[256];
+#define MAX_QUEUE_NAMES 32
 
-static void check_file_for_queue_address(const char *dir, const char *file)
+static char queue_names[MAX_QUEUE_NAMES][64];
+static int queue_name_count;
+static int queue_names_overflowed;
+
+static int is_queue_name(const char *ident)
 {
-	char path[512], line[512];
-	int in_block = 0;
+	int i;
+
+	for (i = 0; i < queue_name_count; i++)
+		if (strcmp(queue_names[i], ident) == 0)
+			return 1;
+	return 0;
+}
+
+static void collect_file_queue_names(const char *dir, const char *file)
+{
+	char path[512], line[512], ident[128];
+	int in_block = 0, n, called;
 	FILE *f;
 
 	snprintf(path, sizeof(path), "%s/%s", dir, file);
@@ -1267,15 +1371,49 @@ static void check_file_for_queue_address(const char *dir, const char *file)
 
 	while (fgets(line, sizeof(line), f) != NULL) {
 		strip_comments(line, &in_block);
-		if (!line_enqueues(line))
-			continue;
-		if (line_calls_enqueue(line))
-			continue;
-		queue_addresses_taken++;
-		if (queue_address_where[0] == '\0')
-			snprintf(queue_address_where,
-			         sizeof(queue_address_where), "%s/%s: %s", dir,
-			         file, line);
+		for (n = 0; enqueue_identifier_at(line, n, ident, sizeof(ident),
+		                                  &called); n++) {
+			if (!called || is_queue_name(ident))
+				continue;
+			if (queue_name_count >= MAX_QUEUE_NAMES) {
+				queue_names_overflowed = 1;
+				break;
+			}
+			snprintf(queue_names[queue_name_count],
+			         sizeof(queue_names[0]), "%s", ident);
+			queue_name_count++;
+		}
+	}
+
+	fclose(f);
+}
+
+static int queue_addresses_taken;
+static char queue_address_where[256];
+
+static void check_file_for_queue_address(const char *dir, const char *file)
+{
+	char path[512], line[512], ident[128];
+	int in_block = 0, n, called;
+	FILE *f;
+
+	snprintf(path, sizeof(path), "%s/%s", dir, file);
+	f = fopen(path, "r");
+	if (f == NULL)
+		return;
+
+	while (fgets(line, sizeof(line), f) != NULL) {
+		strip_comments(line, &in_block);
+		for (n = 0; enqueue_identifier_at(line, n, ident, sizeof(ident),
+		                                  &called); n++) {
+			if (called || !is_queue_name(ident))
+				continue;
+			queue_addresses_taken++;
+			if (queue_address_where[0] == '\0')
+				snprintf(queue_address_where,
+				         sizeof(queue_address_where),
+				         "%s/%s: %s", dir, file, line);
+		}
 	}
 
 	fclose(f);
@@ -1284,6 +1422,13 @@ static void check_file_for_queue_address(const char *dir, const char *file)
 MU_TEST(nothing_takes_the_queue_by_address)
 {
 	char msg[512];
+
+	run_scan(1, collect_file_queue_names);
+	mu_assert(queue_name_count > 0,
+	          "the scan read the sources and found no queue function to "
+	          "watch for");
+	mu_assert(!queue_names_overflowed,
+	          "more queue functions than this scan can hold");
 
 	run_scan(1, check_file_for_queue_address);
 
@@ -1403,6 +1548,7 @@ int main(void)
 	MU_RUN(every_packet_producer_is_accounted_for);
 	MU_RUN(every_listed_producer_was_found);
 	MU_RUN(every_helper_is_called_by_a_classified_producer);
+	MU_RUN(every_caller_of_a_helper_is_accounted_for);
 	MU_RUN(nothing_reaches_the_queue_through_a_macro);
 	MU_RUN(nothing_takes_the_queue_by_address);
 	MU_RUN(only_the_queue_writes_to_the_bulk_endpoint);
