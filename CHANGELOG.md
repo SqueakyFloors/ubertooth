@@ -671,6 +671,12 @@
   counts the capture clock's periods from the packets, which carry the count,
   and where they do not, a lost one is reported on standard error.
   [#229](https://github.com/SqueakyFloors/ubertooth/issues/229)
+- A capture whose first record reads ahead of the records after it is no longer
+  anchored 327.68 s late. Between a capture's first two records, where a record
+  left over from the mode before looks just like the capture clock starting
+  over, the host's own clock now settles which it was, so a file that begins
+  with such a record replays with its own times.
+  [#465](https://github.com/SqueakyFloors/ubertooth/issues/465)
 
 ### Documentation
 

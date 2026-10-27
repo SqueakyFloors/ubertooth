@@ -79,6 +79,11 @@ typedef struct {
 	uint64_t last_clk100ns;
 	uint64_t clk100ns_upper;
 
+	/* Where the host's own clock stood at the last packet this capture took
+	 * in. How much of it passes between two packets is what tells a capture
+	 * clock that has started over from a packet simply out of place. */
+	uint64_t last_elapsed_ns;
+
 	btbb_pcap_handle* h_pcap_bredr;
 	lell_pcap_handle* h_pcap_le;
 	btbb_pcapng_handle* h_pcapng_bredr;
@@ -109,6 +114,11 @@ typedef struct {
 	 * what makes the count rather than the clock reading lower the record of
 	 * how many periods have gone by. */
 	uint8_t clk100ns_counted;
+
+	/* Whether the capture's anchor may still move down to a lower clock
+	 * reading. Set by the first packet and cleared by the second, so the
+	 * anchor can only move while the packet it holds is the one in doubt. */
+	uint8_t clk100ns_anchor_open;
 
 	/* Whether the host clock running ahead of the reconstructed times has
 	 * already been reported, so it is said once per capture. */

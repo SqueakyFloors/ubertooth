@@ -10,7 +10,9 @@ A wrap is also lost when more than a whole period passes between two packets,
 because the clock then reads higher than it did and there is nothing to infer
 one from. A Classic packet carries the period count the firmware keeps, which
 covers such a gap; a capture whose packets carry none has the loss reported
-against the host time of each record instead. Both are replayed here.
+against the host time of each record instead. Both are replayed here, as is a
+capture whose first record reads ahead of the rest, which used to be taken for
+a wrap and anchor the whole capture 327.68 s late.
 
 The fixtures are built here, so no board and no saved capture is needed: a
 replay reads the record format ``ubertooth-rx -d`` writes (a big-endian 32-bit
@@ -130,6 +132,21 @@ def gap_ticks(periods):
 # no count to come out of.
 GAPS = (1, 2)
 
+# How far ahead the first record of such a capture reads, in seconds. A packet
+# left over from a mode whose clock was reset can read anywhere in the period,
+# so the whole range is replayed, not just a small lead.
+AHEAD_LEADS = (5, 30, 164, 200, 300, 320)
+
+
+def ahead_fixture(lead):
+    """A replay of three records carrying no count, as the first period of a
+    capture has: the first reads `lead` seconds into the clock and the next two
+    read 1 s and 2 s, so the first is out of place. The host times climb a
+    second at a time, as a real capture's do."""
+    ticks = (lead * 10_000_000, 1 * 10_000_000, 2 * 10_000_000)
+    return b"".join(record(BASE_TIME + i, t, 3 + 7 * i)
+                    for i, t in enumerate(ticks))
+
 
 def pcap_times(path):
     """Nanoseconds of each record in a nanosecond-resolution pcap."""
@@ -183,7 +200,7 @@ def offsets(times):
     return [t - times[0] for t in times]
 
 
-def replay(data, work):
+def replay(data, work, records=RECORDS):
     """Replays a fixture through ubertooth-rx and returns the run and the
     PCAP and PcapNG times it wrote, each relative to its first packet."""
     (work / "wrap.bin").write_bytes(data)
@@ -200,8 +217,8 @@ def replay(data, work):
     assert result.returncode == 0, result
     pcap = pcap_times(work / "wrap.pcap")
     pcapng = pcapng_times(work / "wrap.pcapng")
-    assert len(pcap) == RECORDS, (pcap, result)
-    assert len(pcapng) == RECORDS, (pcapng, result)
+    assert len(pcap) == records, (pcap, result)
+    assert len(pcapng) == records, (pcapng, result)
     return result, offsets(pcap), offsets(pcapng)
 
 
@@ -249,3 +266,16 @@ with tempfile.TemporaryDirectory() as workdir:
             result.stderr
         # Said once, not once a packet.
         assert result.stderr.count("warning:") == 1, result.stderr
+
+    # A first record out of place, however far ahead it reads. The capture is
+    # anchored on the earliest clock reading in it, so the two records that
+    # agree with each other land at the start of the capture a second apart,
+    # and nothing carries the 327.68 s a wrap would have added. Going by how
+    # far the clock dropped got the small leads right and the rest wrong, so
+    # every lead is replayed.
+    for lead in AHEAD_LEADS:
+        result, pcap, pcapng = replay(ahead_fixture(lead), work, records=3)
+        expected = [0, 0, 1_000_000_000]
+        assert pcap == expected, (lead, pcap, result)
+        assert pcapng == expected, (lead, pcapng, result)
+        assert "warning:" not in result.stderr, (lead, result.stderr)
