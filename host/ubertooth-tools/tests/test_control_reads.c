@@ -247,6 +247,8 @@ MU_TEST(short_reply_message_names_the_read_and_the_counts)
 static void set_channel_quiet(void) { cmd_set_channel_quiet(NULL, 2441); }
 static void set_channel(void) { cmd_set_channel(NULL, 2441); }
 static void set_bdaddr_quiet(void) { cmd_set_bdaddr_quiet(NULL, 0x112233); }
+static void set_clock_quiet(void) { cmd_set_clock_quiet(NULL, 0); }
+static void set_clock(void) { cmd_set_clock(NULL, 0); }
 
 /* A tool that names the request itself asks for the quiet form, so the whole
  * failure is the one line the tool prints. The reporting form keeps its own
@@ -278,6 +280,18 @@ MU_TEST(the_quiet_set_forms_report_nothing)
 	mu_assert(strcmp(text, "error: Bluetooth address write failed: "
 	    "board took 8 of 16 bytes\n") == 0, text);
 
+	script(LIBUSB_ERROR_TIMEOUT, 0);
+	mu_assert_int_eq(LIBUSB_ERROR_TIMEOUT, cmd_set_clock_quiet(NULL, 0));
+	run_captured(set_clock_quiet, text, sizeof(text));
+	mu_assert(text[0] == '\0', text);
+
+	script(2, 0);
+	mu_assert_int_eq(UBERTOOTH_ERROR_SHORT_REPLY,
+	                 cmd_set_clock_quiet(NULL, 0));
+	run_captured(set_clock_quiet, text, sizeof(text));
+	mu_assert(strcmp(text, "error: clock write failed: "
+	    "board took 2 of 4 bytes\n") == 0, text);
+
 	/* The reporting form still prints its own line for each. */
 	script(LIBUSB_ERROR_PIPE, 0);
 	run_captured(set_channel, text, sizeof(text));
@@ -289,10 +303,22 @@ MU_TEST(the_quiet_set_forms_report_nothing)
 	    "error: the Ubertooth did not answer in time (libusb -7)\n") == 0,
 	    text);
 
+	/* A truncated write is the one case the reporting form must stay quiet
+	 * about: the quiet form has already printed the whole line, so a second
+	 * generic one would contradict it. */
+	script(2, 0);
+	run_captured(set_clock, text, sizeof(text));
+	mu_assert(strcmp(text, "error: clock write failed: "
+	    "board took 2 of 4 bytes\n") == 0, text);
+
 	/* A request the board took says nothing either way. */
 	script(0, 0);
 	mu_assert_int_eq(0, cmd_set_channel_quiet(NULL, 2441));
 	run_captured(set_channel, text, sizeof(text));
+	mu_assert(text[0] == '\0', text);
+	script(4, 0);
+	mu_assert_int_eq(0, cmd_set_clock_quiet(NULL, 0));
+	run_captured(set_clock, text, sizeof(text));
 	mu_assert(text[0] == '\0', text);
 }
 

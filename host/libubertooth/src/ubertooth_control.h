@@ -193,7 +193,8 @@ int cmd_set_syncword(struct libusb_device_handle* devh, u64 syncword);
 int cmd_next_hop(struct libusb_device_handle* devh, u16 clk);
 int cmd_start_hopping(struct libusb_device_handle* devh, int clkn_offset, int clk100ns_offset);
 int cmd_set_clock(struct libusb_device_handle* devh, u32 clkn);
-/* See cmd_set_channel_quiet(). */
+/* See cmd_set_channel_quiet(). A transfer the board truncated carries its own
+ * complete line and returns UBERTOOTH_ERROR_SHORT_REPLY, as the reads do. */
 int cmd_set_clock_quiet(struct libusb_device_handle* devh, u32 clkn);
 uint32_t cmd_get_clock(struct libusb_device_handle* devh);
 int cmd_set_afh_map(struct libusb_device_handle* devh, u8* afh_map);

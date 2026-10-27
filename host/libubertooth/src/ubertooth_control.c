@@ -990,7 +990,7 @@ int cmd_set_clock(struct libusb_device_handle* devh, u32 clkn)
 
 	if (r == LIBUSB_ERROR_PIPE)
 		fprintf(stderr, "error: control message unsupported\n");
-	else if (r < 0)
+	else if (r < 0 && r != UBERTOOTH_ERROR_SHORT_REPLY)
 		show_libusb_error(r);
 	return r;
 }

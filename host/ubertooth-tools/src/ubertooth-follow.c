@@ -85,9 +85,9 @@ static void afh_hci_wait(void* ctx __attribute__((unused)))
 /* Gives the local adapter back. First it drops the link this command made to
  * the target, so a failure does not leave the target connected until its
  * controller times the link out, and then it closes the adapter handle, as
- * ubertooth-scan does: a handle on an adapter the tool is no longer using
- * keeps the adapter busy for nothing. cc says whether there is a link to
- * drop. Every path that opened the adapter comes through here. */
+ * ubertooth-scan does, rather than holding a handle on an adapter the tool has
+ * finished with. cc says whether there is a link to drop. Every path that
+ * opened the adapter comes through here. */
 static void follow_release_adapter(int sock, uint16_t handle, int cc)
 {
 	if (cc)
