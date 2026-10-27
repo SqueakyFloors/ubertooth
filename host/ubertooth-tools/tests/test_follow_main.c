@@ -197,6 +197,14 @@ int ubertooth_check_api(ubertooth_t* ut)
 	return 0;
 }
 
+/* The real one folds the signal handler's own flag into the handle; the fake
+ * ubertooth_bulk_receive() below sets the handle directly, so reading it is
+ * enough here. */
+int ubertooth_stopping(ubertooth_t* ut)
+{
+	return ut->stop_ubertooth;
+}
+
 void register_cleanup_handler(ubertooth_t* ut, int do_exit)
 {
 	(void)ut;
