@@ -796,6 +796,11 @@
   wrap there. How much time passed between two packets is now read as each one
   arrives rather than as the host gets round to it.
   [#492](https://github.com/SqueakyFloors/ubertooth/issues/492)
+- A live capture whose host was slow to start now carries the wall-clock times
+  its packets arrived at. Every timestamp used to be late by however long the
+  host took to reach its first packet, seconds where the capture was written to
+  a pipe nothing was reading yet or taken by a descheduled process.
+  [#589](https://github.com/SqueakyFloors/ubertooth/issues/589)
 - `ubertooth-afh -t` stops on the first Ctrl-C. An interrupt during the
   detection phase was dropped along with the timeout that normally ends it, so
   monitoring started anyway and had to be interrupted a second time.

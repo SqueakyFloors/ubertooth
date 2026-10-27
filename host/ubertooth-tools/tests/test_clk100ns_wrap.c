@@ -36,6 +36,13 @@
  * buffer carries, so a case can set when each packet arrived and then hand
  * them all to the reconstruction at once - which is what a host that stalled
  * before its first packet leaves behind.
+ *
+ * A stall also decides where the capture's wall-clock times start, and the
+ * live cases at the end check that: the host time the first record arrived,
+ * worked out from the two clocks read together, rather than the time the loop
+ * got round to it. Those cases read the real clocks of the machine running
+ * the test, because relating the two is the whole of what they check, and
+ * allow for the moments between the readings.
  */
 #include <stdint.h>
 #include <string.h>
@@ -55,6 +62,20 @@ static volatile uint32_t T0TC;
 #define FIRST_TICKS 100000000ull
 /* One second of the 100 ns clock, for the records near the start of it. */
 #define ONE_SECOND_TICKS 10000000ull
+
+/* How long the host stalled before reaching the capture's first record, in
+ * the anchor cases at the end. Far longer than a packet's latency, so a
+ * capture anchored where the loop reached the record is plainly late. */
+#define STALL_NS 5000000000ull
+
+/* How far the host time read next to the loop may be out as a measure of
+ * where the capture should be anchored. The work between the two readings is
+ * a couple of clock reads and a copy out of the ring buffer, microseconds at
+ * most, so this is almost all allowance for a loaded machine being
+ * descheduled in the middle. Kept this tight because the prompt-host case
+ * below is what would catch an anchor moved when it should not have been, and
+ * a wider window would let a whole second of that through. */
+#define ANCHOR_SLACK_NS 100000000ull
 
 /* Whether each packet is stamped with a host time taken from the tick count
  * given to the helpers below, which is the true elapsed time of the case. The
@@ -1003,6 +1024,136 @@ MU_TEST(a_leftover_first_record_is_found_on_a_live_capture)
 	mu_assert_int_eq(100 * ONE_SECOND_TICKS, times[2] - times[1]);
 }
 
+/* Captures one live record whose arrival reading the case gives outright, and
+ * reports the host time read either side of the loop taking it. Where the
+ * capture ended up anchored, ut.abs_start_ns, is then checked against those
+ * two readings: the loop ran between them, so they bracket the answer a
+ * capture anchored where the loop reached the record would give. */
+static void capture_one_record_arriving_at(ubertooth_t* ut, uint64_t arrival_ns,
+                                           uint64_t* before_ns,
+                                           uint64_t* after_ns)
+{
+	usb_pkt_rx rx, popped;
+
+	start_live_capture(ut, CLK100NS_PERIOD);
+	mu_assert_fatal(ut->fifo != NULL, "cannot allocate the ring buffer");
+	memset(&rx, 0, sizeof(rx));
+	rx.clk100ns = htole32((uint32_t) FIRST_TICKS);
+	fifo_push(ut->fifo, &rx, arrival_ns);
+	*before_ns = clock_ns(CLOCK_REALTIME);
+	popped = fifo_pop(ut->fifo);
+	now_ns_from_clk100ns(ut, &popped, fifo_popped_arrival_ns(ut->fifo));
+	*after_ns = clock_ns(CLOCK_REALTIME);
+	free(ut->fifo);
+	ut->fifo = NULL;
+}
+
+/* Whether the capture was anchored this far before the host time read next to
+ * the loop, within the slack above. */
+static int anchored_this_far_back(const ubertooth_t* ut, uint64_t read_ns,
+                                  uint64_t back_ns)
+{
+	int64_t measured = (int64_t) read_ns - (int64_t) ut->abs_start_ns;
+	int64_t apart = measured - (int64_t) back_ns;
+
+	return (apart < 0 ? -apart : apart) <= (int64_t) ANCHOR_SLACK_NS;
+}
+
+/* A host slow to reach its first record anchors the capture where that record
+ * arrived, not where it got round to it. A capture written to a pipe nothing
+ * is reading yet, or taken by a process that was descheduled, reaches its
+ * first record seconds after the record came in; anchored there, every
+ * wall-clock time in the capture is late by the whole of that delay, and
+ * nothing inside the capture shows it because the times stay consistent with
+ * each other. What places the record is the monotonic reading it arrived
+ * with, turned into a host time by reading both clocks together. */
+MU_TEST(a_stalled_host_anchors_the_capture_where_the_record_arrived)
+{
+	ubertooth_t ut;
+	uint64_t arrival_ns = clock_ns(CLOCK_MONOTONIC) - STALL_NS;
+	uint64_t before_ns, after_ns;
+
+	capture_one_record_arriving_at(&ut, arrival_ns, &before_ns, &after_ns);
+
+	/* A stall back from where the loop reached the record. Anchored where
+	 * the loop reached it, as it was, this would be the whole stall out. */
+	mu_assert(anchored_this_far_back(&ut, before_ns, STALL_NS),
+	          "the capture is not anchored where the record arrived");
+	mu_assert(ut.abs_start_ns < after_ns,
+	          "the anchor is not before the loop read the record");
+}
+
+/* A host that was reading promptly is left as it was: its first record
+ * arrived moments before the loop reached it, so the anchor stays where the
+ * host clock reads now, which is the normal case and the commonest one. */
+MU_TEST(a_prompt_host_anchors_the_capture_where_it_always_did)
+{
+	ubertooth_t ut;
+	uint64_t before_ns, after_ns;
+
+	capture_one_record_arriving_at(&ut, clock_ns(CLOCK_MONOTONIC),
+	                               &before_ns, &after_ns);
+
+	mu_assert(anchored_this_far_back(&ut, before_ns, 0),
+	          "a prompt capture's anchor moved");
+	mu_assert(ut.abs_start_ns <= after_ns,
+	          "the anchor is after the loop read the record");
+}
+
+/* A record with no arrival reading at all cannot be placed, so the capture is
+ * anchored at the host time read next to the loop, exactly as it was before.
+ * A slot nothing stamped reads back as zero, which is what a ring buffer
+ * holding records from a producer that does not stamp them would give. */
+MU_TEST(a_record_with_no_arrival_reading_is_anchored_where_it_is_read)
+{
+	ubertooth_t ut;
+	uint64_t before_ns, after_ns;
+
+	capture_one_record_arriving_at(&ut, 0, &before_ns, &after_ns);
+
+	mu_assert(ut.abs_start_ns >= before_ns && ut.abs_start_ns <= after_ns,
+	          "the capture is not anchored where the loop read the record");
+}
+
+/* Nor can a reading from after the monotonic reading just taken, which no
+ * record can honestly carry: taking it off would put the anchor in the
+ * future. Same fallback. */
+MU_TEST(an_arrival_reading_in_the_future_is_anchored_where_it_is_read)
+{
+	ubertooth_t ut;
+	uint64_t arrival_ns = clock_ns(CLOCK_MONOTONIC) + 10000000000ull;
+	uint64_t before_ns, after_ns;
+
+	capture_one_record_arriving_at(&ut, arrival_ns, &before_ns, &after_ns);
+
+	mu_assert(ut.abs_start_ns >= before_ns && ut.abs_start_ns <= after_ns,
+	          "the capture is not anchored where the loop read the record");
+}
+
+/* The arithmetic behind those cases, on readings the machine running the test
+ * cannot be made to produce. The last one is a host whose clock has never
+ * been set: its current time is a few seconds while the monotonic clock
+ * counts from a boot before that, so subtracting the wait would land before
+ * 1970. The host time read now is wrong by the stall, but it is at least a
+ * time within the run, so that is what a reading like this falls back to. */
+MU_TEST(a_reading_that_cannot_place_a_record_leaves_the_host_time_alone)
+{
+	const uint64_t real_ns = 1700000000000000000ull;
+	const uint64_t mono_ns = 86400000000000ull;   /* a day of uptime */
+
+	/* Placed by the two clocks together: the wait comes off. */
+	mu_assert_int_eq(real_ns - STALL_NS,
+	                 host_ns_at_arrival(real_ns, mono_ns,
+	                                    mono_ns - STALL_NS));
+
+	mu_assert_int_eq(real_ns, host_ns_at_arrival(real_ns, mono_ns, 0));
+	mu_assert_int_eq(real_ns, host_ns_at_arrival(real_ns, mono_ns,
+	                                             mono_ns + STALL_NS));
+	/* Ten seconds since the epoch, with a day of uptime behind it. */
+	mu_assert_int_eq(10000000000ull,
+	                 host_ns_at_arrival(10000000000ull, mono_ns, 1000ull));
+}
+
 /* Which clock a mode stamps with is known only to the tool that starts it, so
  * this one reads ubertooth-btle's source: the branch that starts the
  * low-energy engine must say that its packets come from timer1. A capture run
@@ -1064,6 +1215,11 @@ int main(void)
 	MU_RUN(a_wrap_the_host_was_not_reading_through_still_counts);
 	MU_RUN(a_stall_does_not_reject_a_counted_gap_at_the_start);
 	MU_RUN(a_leftover_first_record_is_found_on_a_live_capture);
+	MU_RUN(a_stalled_host_anchors_the_capture_where_the_record_arrived);
+	MU_RUN(a_prompt_host_anchors_the_capture_where_it_always_did);
+	MU_RUN(a_record_with_no_arrival_reading_is_anchored_where_it_is_read);
+	MU_RUN(an_arrival_reading_in_the_future_is_anchored_where_it_is_read);
+	MU_RUN(a_reading_that_cannot_place_a_record_leaves_the_host_time_alone);
 	MU_RUN(the_low_energy_engine_is_started_with_its_own_period);
 	return mu_report();
 }
