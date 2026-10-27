@@ -67,10 +67,12 @@ blinks a second, until it is stopped:
     ubertooth-util -U <serial> -I      # start blinking
     ubertooth-util -U <serial> -S      # stop; the LEDs end off
 
-`-I` needs firmware of this tree's API version and refuses any other, saying
-so. The other options are not gated on the API version, and ubertooth-dfu(1)
-reflashes a board whatever firmware it is running, so a board is always
-recoverable with an image from this tree.
+`-I` needs firmware of this tree's API version and refuses any other with the
+same message the rest of the tools print: both versions, then the side to
+replace, which is the firmware when the board is older and the host tools when
+the board is newer. The other options are not gated on the API version, and
+ubertooth-dfu(1) reflashes a board whatever firmware it is running, so a board
+is always recoverable with an image from this tree.
 
 `-v` and `-V` read the firmware info block described below, so they name the
 image the board is running:

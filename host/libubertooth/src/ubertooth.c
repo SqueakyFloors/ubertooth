@@ -1729,16 +1729,7 @@ int ubertooth_check_api(ubertooth_t *ut) {
 	 * newer, is refused rather than run with behaviour the host does not
 	 * expect. */
 	if (version != UBERTOOTH_API_VERSION) {
-		fprintf(stderr, "error: Ubertooth firmware API version %x.%02x found, libubertooth %s requires %x.%02x.\n",
-				(version>>8)&0xFF, version&0xFF, VERSION,
-				(UBERTOOTH_API_VERSION>>8)&0xFF, UBERTOOTH_API_VERSION&0xFF);
-		if (version < UBERTOOTH_API_VERSION)
-			fprintf(stderr, "note: flash the firmware built from the same "
-			        "source tree, for example: ./install.sh "
-			        "--flash-device all\n");
-		else
-			fprintf(stderr, "note: install the host tools built from the "
-			        "same source tree as the firmware\n");
+		ubertooth_report_api_mismatch(version);
 		ubertooth_stop(ut);
 		return -1;
 	}

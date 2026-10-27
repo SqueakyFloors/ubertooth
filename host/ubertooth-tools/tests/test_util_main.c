@@ -251,6 +251,13 @@ int ubertooth_get_api(ubertooth_t *ut, uint16_t *version)
 	return fake.api_rc;
 }
 
+#ifndef UTIL_TEST_REAL_API_MESSAGE
+/* Built against an installed libubertooth, so there is no library source to
+ * compile in: the message is a stub here, and the case below then checks only
+ * that -I refuses the board. */
+void ubertooth_report_api_mismatch(uint16_t version) { (void)version; }
+#endif
+
 void print_version(void) { printf("libubertooth fake\n"); }
 
 int cmd_get_board_id(struct libusb_device_handle *h)
@@ -1284,10 +1291,10 @@ MU_TEST(identify_refuses_firmware_of_another_api_version)
 		mu_assert(strstr(r.err, "is blinking") == NULL, "and claims no blink");
 		mu_assert_int_eq(0, fake.usrled_writes);
 		mu_assert_int_eq(0, fake.sleeps);
-		mu_assert(strstr(r.err, "error: -I needs firmware API version") != NULL,
-		          "says why");
-		mu_assert(strstr(r.err, "Flash the firmware built from the same source tree") != NULL,
-		          "says what to do");
+#ifdef UTIL_TEST_REAL_API_MESSAGE
+		mu_assert(strstr(r.err, "error: Ubertooth firmware API version") != NULL,
+		          "says why, in the library's words");
+#endif
 	}
 
 	reset_fake();
@@ -1297,6 +1304,56 @@ MU_TEST(identify_refuses_firmware_of_another_api_version)
 	mu_assert_int_eq(0, fake.identify_calls);
 	mu_assert_int_eq(0, fake.usrled_writes);
 }
+
+#ifdef UTIL_TEST_REAL_API_MESSAGE
+/*
+ * -I prints the library's mismatch message, from the library's own code: both
+ * versions, and the side to replace. Older firmware is the board's to fix,
+ * newer firmware means the host tools are the old ones.
+ */
+MU_TEST(identify_prints_the_librarys_mismatch_message)
+{
+	char expected[128];
+	struct run_result r;
+
+	snprintf(expected, sizeof(expected),
+	         "error: Ubertooth firmware API version %x.%02x found, libubertooth %s requires %x.%02x.\n",
+	         ((UBERTOOTH_API_VERSION - 1) >> 8) & 0xFF, (UBERTOOTH_API_VERSION - 1) & 0xFF,
+	         VERSION,
+	         (UBERTOOTH_API_VERSION >> 8) & 0xFF, UBERTOOTH_API_VERSION & 0xFF);
+
+	reset_fake();
+	fake.api_version = UBERTOOTH_API_VERSION - 1;
+	r = RUN("-I");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, expected) != NULL, "names both versions");
+	mu_assert(strstr(r.err, "note: flash the firmware built from the same "
+	                        "source tree") != NULL,
+	          "an older board is reflashed");
+	mu_assert(strstr(r.err, "install the host tools") == NULL,
+	          "and not told to replace the tools");
+	/* The option it was given is not what needs a version. */
+	mu_assert(strstr(r.err, "-I needs firmware") == NULL,
+	          "does not blame -I");
+
+	snprintf(expected, sizeof(expected),
+	         "error: Ubertooth firmware API version %x.%02x found, libubertooth %s requires %x.%02x.\n",
+	         ((UBERTOOTH_API_VERSION + 1) >> 8) & 0xFF, (UBERTOOTH_API_VERSION + 1) & 0xFF,
+	         VERSION,
+	         (UBERTOOTH_API_VERSION >> 8) & 0xFF, UBERTOOTH_API_VERSION & 0xFF);
+
+	reset_fake();
+	fake.api_version = UBERTOOTH_API_VERSION + 1;
+	r = RUN("-I");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, expected) != NULL, "names both versions");
+	mu_assert(strstr(r.err, "note: install the host tools built from the "
+	                        "same source tree as the firmware") != NULL,
+	          "a newer board needs newer tools");
+	mu_assert(strstr(r.err, "flash the firmware") == NULL,
+	          "and no backwards flash");
+}
+#endif
 
 MU_TEST(led_specan_uses_the_default_threshold_and_an_explicit_one)
 {
@@ -2941,6 +2998,9 @@ int main(void)
 	MU_RUN(a_failed_stop_before_a_mode_command_fails_the_command);
 	MU_RUN(identify_starts_the_blink_on_the_board_and_returns);
 	MU_RUN(identify_refuses_firmware_of_another_api_version);
+#ifdef UTIL_TEST_REAL_API_MESSAGE
+	MU_RUN(identify_prints_the_librarys_mismatch_message);
+#endif
 	MU_RUN(led_specan_uses_the_default_threshold_and_an_explicit_one);
 	MU_RUN(two_or_more_mode_options_are_rejected_before_opening_the_device);
 	MU_RUN(stray_arguments_are_rejected_before_any_device_action);

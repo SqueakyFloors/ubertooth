@@ -306,7 +306,8 @@ static const struct util_reset_follow_ops follow_ops = {
  * -I needs this tree's firmware. ubertooth-util does not call
  * ubertooth_check_api() (it must still read the version of, and reflash, any
  * firmware), so -I checks the version itself, before it prints or sends
- * anything: firmware of another API version is refused with a message.
+ * anything. Firmware of another API version is refused with the library's
+ * mismatch message, so -I says what every other tool says.
  *
  * Returns 0 if the firmware matches, or a negative error.
  */
@@ -318,11 +319,7 @@ static int identify_check_api(ubertooth_t* ut)
 	if (result < 0)
 		return result;
 	if (version != UBERTOOTH_API_VERSION) {
-		fprintf(stderr, "error: -I needs firmware API version %x.%02x; the "
-		        "board reports %x.%02x. Flash the firmware built from the "
-		        "same source tree (./install.sh --flash-device).\n",
-		        (UBERTOOTH_API_VERSION >> 8) & 0xFF, UBERTOOTH_API_VERSION & 0xFF,
-		        (version >> 8) & 0xFF, version & 0xFF);
+		ubertooth_report_api_mismatch(version);
 		return -1;
 	}
 	return 0;
