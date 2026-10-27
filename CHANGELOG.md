@@ -233,9 +233,10 @@
   mode, `-p`, uses a different capture path and still cuts at 50 bytes.
   [#4](https://github.com/SqueakyFloors/ubertooth/issues/4)
 - `ubertooth-follow` stops when the board refuses the target's address or the
-  clock reset, and says which it was. It used to follow anyway, with nothing
-  said: without the address the board matched no packet, and without the reset
-  it hopped on a clock the offset was not measured from.
+  clock reset, and says which of the two it was. It used to print a generic
+  line that named neither, and follow anyway: without the address the board
+  matched no packet, and without the reset it hopped on a clock the offset was
+  not measured from.
   [#504](https://github.com/SqueakyFloors/ubertooth/issues/504)
 - A board another program is using says so (`error: Ubertooth <serial> is in
   use by another program (libusb -3)`) instead of reporting a libusb code, and

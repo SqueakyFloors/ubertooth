@@ -530,13 +530,13 @@ int main(int argc, char *argv[])
 	 * anything is in flight; the asynchronous ones below cannot move up here,
 	 * because the poll thread is what completes them. Both results are
 	 * checked, as the AFH requests below are: a board that took neither
-	 * would follow nothing the user asked for, and say nothing about it. A
-	 * board without the address matches no packet, and a board whose CLKN
+	 * would follow nothing the user asked for. It used to carry on, having
+	 * printed only a generic line that did not say which request had failed.
+	 * A board without the address matches no packet, and a board whose CLKN
 	 * was never zeroed keeps the clock it has been running since it was
 	 * plugged in, which start-hopping adds its offset to rather than
 	 * replacing, so the follow hops on the wrong clock and every packet time
-	 * is out by however long the board had been up. Being synchronous, a
-	 * refusal here is the board's own answer to the request.
+	 * is out by however long the board had been up.
 	 *
 	 * What this costs is a slightly staler hop offset. Start-hopping adds its
 	 * offset to whatever CLKN has reached since the reset rather than
@@ -627,9 +627,9 @@ int main(int argc, char *argv[])
 	}
 
 	/* The clock reads are done, so the capture needs nothing more from the
-	 * adapter: the link to the target and the adapter handle both go back
-	 * here rather than after the capture, which runs until it is
-	 * interrupted. */
+	 * adapter. The link to the target was already dropped at this point; the
+	 * adapter handle now goes back with it, rather than being held for the
+	 * whole capture, which runs until it is interrupted. */
 	follow_release_adapter(sock, handle, cc);
 
 	// receive and process each packet

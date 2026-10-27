@@ -126,6 +126,13 @@ int hci_open_dev(int dev_id)
 {
 	(void)dev_id;
 	fake.dev_fd = open("/dev/null", O_RDONLY);
+	if (fake.dev_fd < 0) {
+		/* Say the fixture broke, rather than letting the tool report a
+		 * missing adapter and a later case fail on something unrelated. */
+		fprintf(stderr, "fixture: cannot open /dev/null: %s\n",
+		        strerror(errno));
+		exit(1);
+	}
 	return fake.dev_fd;
 }
 
@@ -615,6 +622,37 @@ MU_TEST(a_refused_clock_set_exits_1)
 	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
 }
 
+/* A board that took only part of a write is the third way one of these
+ * requests fails. libubertooth has already printed the whole line, naming the
+ * request and the counts, so the tool must stop and add nothing: one error
+ * line between the two of them, not two. */
+MU_TEST(a_truncated_write_stops_the_follow_and_adds_no_second_line)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.clock_rc = UBERTOOTH_ERROR_SHORT_REPLY;
+	r = RUN(TARGET);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(fake.calls, "ak") == 0, fake.calls);
+	mu_assert_int_eq(0, fake.receives);
+	/* The fake stands in for libubertooth, so it prints no line of its own:
+	 * what this pins is that the tool adds none either. */
+	mu_assert(strstr(r.err, "error:") == NULL, r.err);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert_int_eq(1, fake.closes);
+	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
+
+	reset_fake();
+	fake.bdaddr_rc = UBERTOOTH_ERROR_SHORT_REPLY;
+	r = RUN(TARGET);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(fake.calls, "a") == 0, fake.calls);
+	mu_assert(strstr(r.err, "error:") == NULL, r.err);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
+}
+
 int main(void)
 {
 	/* This binary does not link libubertooth: the fakes above are the whole
@@ -627,5 +665,6 @@ int main(void)
 	MU_RUN(a_whole_address_and_its_lap_and_uap_follow_the_same_piconet);
 	MU_RUN(a_refused_address_set_exits_1);
 	MU_RUN(a_refused_clock_set_exits_1);
+	MU_RUN(a_truncated_write_stops_the_follow_and_adds_no_second_line);
 	return mu_report();
 }
