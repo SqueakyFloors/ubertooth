@@ -24,7 +24,7 @@
 
 #include "ubertooth_control.h"
 
-// set fifo size to 1000000 elements or 64 MByte
+// set fifo size to 1000000 elements or 72 MByte
 #define FIFO_SIZE 1000000
 
 typedef struct {
@@ -58,7 +58,13 @@ usb_pkt_rx fifo_pop(fifo_t* fifo);
 
 /* When the record fifo_pop() returned last arrived. The ring keeps one
  * reading per slot, so call it for the record just popped: another pop
- * replaces the answer. */
+ * replaces the answer.
+ *
+ * Reading it after the pop rather than during it is safe because the ring
+ * always leaves one slot empty. Having popped slot R the consumer's read
+ * pointer is R+1, which is exactly the value that stops the producer
+ * publishing slot R, so nothing can replace that slot's reading until the
+ * consumer moves on. */
 uint64_t fifo_popped_arrival_ns(const fifo_t* fifo);
 
 usb_pkt_rx* fifo_get_write_element(fifo_t* fifo);

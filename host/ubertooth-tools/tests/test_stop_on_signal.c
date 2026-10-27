@@ -17,7 +17,7 @@
  *
  * The real ubertooth.c, ubertooth_callback.c and ubertooth_control.c are
  * compiled in. No device is opened and no transfer is made: the ring buffer
- * is faked (a real one is 64 MB, and nothing here receives a real packet), so
+ * is faked (a real one is 72 MB, and nothing here receives a real packet), so
  * the signal and the stop are all that is under test.
  *
  * A loop that misses the stop does not fail, it waits forever, so this test

@@ -136,7 +136,7 @@ static void reset(void)
 }
 
 /* ---- fifo fake ---------------------------------------------------------- */
-/* ubertooth_fifo.c is not linked: a real ring buffer is 64 MB and nothing
+/* ubertooth_fifo.c is not linked: a real ring buffer is 72 MB and nothing
  * here receives a packet. */
 
 static usb_pkt_rx one_slot;

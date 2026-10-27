@@ -567,7 +567,7 @@ if(libubertooth_SOURCE_DIR)
 	# list (the libusb device calls are defined in the test), so the
 	# multi-device -U cases are covered without attaching several boards.
 	# ubertooth_fifo.c is left out so the test can define the fifo calls: a
-	# real ring buffer is 64 MB per selection, allocated several times per
+	# real ring buffer is 72 MB per selection, allocated several times per
 	# case for a buffer no case reads a packet from.
 	add_executable(test-device-select
 		test_device_select.c

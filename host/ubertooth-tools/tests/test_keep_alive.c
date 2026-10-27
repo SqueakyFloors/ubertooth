@@ -19,7 +19,7 @@
  *
  * The real ubertooth.c, ubertooth_callback.c and ubertooth_control.c are
  * compiled in; the test defines the libusb calls and the fifo calls itself,
- * so no bulk endpoint, 64 MB ring buffer or board is involved.
+ * so no bulk endpoint, 72 MB ring buffer or board is involved.
  */
 #include <stdint.h>
 #include <stdio.h>
@@ -45,7 +45,7 @@
 /* ---- fifo fake ---------------------------------------------------------- */
 /* A ring of a few slots, so a case can see exactly which slots a capture
  * published and what was in them. The real ubertooth_fifo.c is not linked:
- * its ring is 64 MB. Nothing here fills the ring, so unlike the real one this
+ * its ring is 72 MB. Nothing here fills the ring, so unlike the real one this
  * fake always advances rather than refusing to when full. */
 
 #define FAKE_SLOTS 8

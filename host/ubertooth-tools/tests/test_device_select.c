@@ -8,7 +8,7 @@
  * ever be used to read past the end of the device list.
  *
  * The ring buffer is faked too (see fifo_init() below), so a selection does
- * not depend on 64 MB being free. An assertion about a handle the case then
+ * not depend on 72 MB being free. An assertion about a handle the case then
  * uses is fatal: a plain one would record the failure, return, and let the
  * case segfault on the NULL handle, which reports a crash instead of the
  * assertion that failed.
@@ -109,11 +109,11 @@ static void bus_with_shared_prefix(void)
 
 /* ---- fifo fake ---------------------------------------------------------- */
 /* ubertooth_fifo.c is not linked, so these are the fifo calls the library
- * gets. A real ring buffer is 64 MB (FIFO_SIZE packets) and every successful
+ * gets. A real ring buffer is 72 MB (FIFO_SIZE packets) and every successful
  * selection allocates one; the cases below make several selections each, and
  * on a loaded machine one of those allocations can fail even though the faked
  * bus is fine. Nothing here reads a packet, so a one-byte stand-in does, and
- * selection no longer depends on 64 MB being available.
+ * selection no longer depends on 72 MB being available.
  *
  * Counted, not reset between cases, so one case can check that selection
  * allocated through this fake at all. (Linking ubertooth_fifo.c again would
@@ -1039,7 +1039,7 @@ MU_TEST(another_claim_failure_is_reported_as_itself)
 }
 
 /* Selection still allocates a ring buffer, and it came from this fake rather
- * than from the library's 64 MB one. */
+ * than from the library's 72 MB one. */
 MU_TEST(the_selections_used_the_faked_ring_buffer)
 {
 	mu_assert(fifo_inits > 0, "fifo_init() came from this test");

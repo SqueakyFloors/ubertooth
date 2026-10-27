@@ -1000,8 +1000,9 @@ int stream_rx_file(ubertooth_t* ut, FILE* fp, rx_callback cb, void* cb_args)
 		nbytes = fread(buf, 1, PKT_LEN, fp);
 		if (nbytes != PKT_LEN)
 			return stream_rx_file_end(fp, sizeof(systime_be) + nbytes);
-		/* A replayed record's arrival is the host time it carries, read
-		 * into systime just above. */
+		/* The host time this record carries, read into systime just
+		 * above: that is what the arrival reading is for as long as
+		 * infile is set, which is how a replay gets here. */
 		fifo_push(ut->fifo, (usb_pkt_rx*)buf,
 		          ubertooth_packet_arrival_ns());
 		(*cb)(ut, cb_args);

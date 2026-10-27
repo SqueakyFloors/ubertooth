@@ -304,10 +304,12 @@ static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx,
 		 * clock; then the second reads lower not because the clock
 		 * started over but because the first was never part of this
 		 * capture. A packet out of place further in reads lower too,
-		 * and is still read as a wrap: settling that the same way needs
-		 * a count of how many wraps the gap holds rather than whether
-		 * it holds one, because a gap longer than a period leaves the
-		 * clock reading higher than it did and offers no drop to judge.
+		 * and is still read as a wrap. The gap each packet arrived
+		 * with, which settles the first two, is now known for every
+		 * packet; what is still missing further in is a count of how
+		 * many wraps a gap holds rather than whether it holds one,
+		 * because a gap longer than a period leaves the clock reading
+		 * higher than it did and offers no drop to judge at all.
 		 *
 		 * What separates the two is how much time passed. A wrap says
 		 * how much: the clock ran from where the first packet read,

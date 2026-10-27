@@ -113,24 +113,18 @@ static void start_capture(ubertooth_t* ut, uint64_t period)
 	host_time_follows_the_clock = 1;
 }
 
-/* The ring buffer the live cases below push their records through, allocated
- * once because a real one is 72 MB. Reset rather than reallocated per case. */
-static fifo_t* ring;
-
-/* A live capture that has seen no record yet: no replay, so the time each
+/* A live capture that has seen no record yet, with a ring buffer of its own:
+ * a fresh one per case, so a reading left behind by the case before cannot
+ * stand in for one this case should have stamped. No replay, so the time each
  * record is stamped with comes from the clock of the machine running the test
  * and only differences between the reconstructed times are checked. What the
  * cases do set is when each record arrived, which is what the gap between two
  * records is measured on. */
 static void start_live_capture(ubertooth_t* ut, uint64_t period)
 {
-	if (ring == NULL)
-		ring = fifo_init();
-	mu_assert_fatal(ring != NULL, "cannot allocate the ring buffer");
-	ring->read_ptr = ring->write_ptr = 0;
 	memset(ut, 0, sizeof(*ut));
 	ut->clk100ns_period = period;
-	ut->fifo = ring;
+	ut->fifo = fifo_init();
 	infile = NULL;
 	host_time_follows_the_clock = 0;
 }
@@ -156,6 +150,7 @@ static void capture_records(ubertooth_t* ut, uint64_t period, int records,
 	int record;
 
 	start_live_capture(ut, period);
+	mu_assert_fatal(ut->fifo != NULL, "cannot allocate the ring buffer");
 	for (record = 0; record < records; record++) {
 		usb_pkt_rx rx;
 
@@ -170,6 +165,8 @@ static void capture_records(ubertooth_t* ut, uint64_t period, int records,
 		times[record] = now_ns_from_clk100ns(ut, &popped,
 		                                     fifo_popped_arrival_ns(ut->fifo));
 	}
+	free(ut->fifo);
+	ut->fifo = NULL;
 }
 
 MU_TEST(the_period_is_the_clock_the_firmware_counts)

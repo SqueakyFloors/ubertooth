@@ -42,8 +42,9 @@ fifo_t* fifo_init()
 void fifo_inc_write_ptr(fifo_t* fifo, uint64_t arrival_ns)
 {
 	if (fifo->read_ptr != (fifo->write_ptr+1) % FIFO_SIZE) {
-		/* Stamped before the slot is published, so the consumer never
-		 * sees a record without the reading that belongs to it. */
+		/* Written with the record, before the advance that publishes
+		 * the slot, in the same order and on the same terms as the
+		 * record itself. */
 		fifo->arrival_ns[fifo->write_ptr] = arrival_ns;
 		fifo->write_ptr = (fifo->write_ptr+1) % FIFO_SIZE;
 	} else {

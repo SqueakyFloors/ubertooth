@@ -190,7 +190,7 @@ static void reset(void)
 /* ---- tests ------------------------------------------------------------ */
 
 /* The handle used to be allocated before the command line was read, so each of
- * these refusals left a handle and its 64 MB fifo outstanding. One case per
+ * these refusals left a handle and its 72 MB fifo outstanding. One case per
  * kind of refusal the tool has: an unknown option, an option whose value is
  * missing, an option whose value is refused, a stray word, and a required
  * option that was not given. */

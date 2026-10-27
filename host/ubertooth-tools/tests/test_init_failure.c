@@ -27,7 +27,7 @@ static struct {
 
 /* ---- fifo fake ---------------------------------------------------------- */
 
-/* A real fifo_t is 64 MB, and nothing here reads one: this stands in for the
+/* A real fifo_t is 72 MB, and nothing here reads one: this stands in for the
  * ring buffer as an opaque, free()able pointer. */
 fifo_t* fifo_init()
 {
