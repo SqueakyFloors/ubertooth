@@ -34,6 +34,8 @@ struct fake_recovery {
 	struct dfu_usb_identity app_identity;
 	const char *app_revision;
 	int revision_result;
+	const char *app_image;
+	int image_result;
 	unsigned app_close_calls;
 	void *app_handle;
 };
@@ -50,6 +52,7 @@ static struct fake_recovery make_fake(void)
 	fake.reopened_handle = (void *)(uintptr_t)0x2;
 	fake.app_handle = (void *)(uintptr_t)0x3;
 	fake.app_revision = "git-expected";
+	fake.app_image = "bluetooth_rxtx";
 	return fake;
 }
 
@@ -138,6 +141,17 @@ static int fake_get_revision(void *context, void *handle,
 	return 0;
 }
 
+static int fake_get_image(void *context, void *handle,
+                          char *image, size_t image_size)
+{
+	struct fake_recovery *fake = context;
+	mu_assert(handle == fake->app_handle, "image used wrong app handle");
+	if (fake->image_result != 0)
+		return fake->image_result;
+	snprintf(image, image_size, "%s", fake->app_image);
+	return 0;
+}
+
 static void fake_close_app(void *context, void *handle)
 {
 	struct fake_recovery *fake = context;
@@ -148,6 +162,7 @@ static void fake_close_app(void *context, void *handle)
 static const struct dfu_verify_ops VERIFY_OPS = {
 	.open_application = fake_open_app,
 	.get_revision = fake_get_revision,
+	.get_image = fake_get_image,
 	.close_application = fake_close_app,
 	.sleep_ms = fake_sleep,
 };
@@ -251,6 +266,7 @@ MU_TEST(test_verify_waits_for_same_app_and_exact_revision)
 	mu_assert_int_eq(DFU_VERIFY_OK,
 	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
 	                                        &fake.identity, "git-expected",
+	                                        "bluetooth_rxtx",
 	                                        &config, &report));
 	mu_assert_int_eq(2, report.polls);
 	mu_assert_int_eq(1, fake.app_close_calls);
@@ -267,6 +283,7 @@ MU_TEST(test_verify_rejects_wrong_physical_path)
 	mu_assert_int_eq(DFU_VERIFY_IDENTITY_MISMATCH,
 	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
 	                                        &fake.identity, "git-expected",
+	                                        "bluetooth_rxtx",
 	                                        &config, &report));
 	mu_assert_int_eq(1, fake.app_close_calls);
 }
@@ -281,10 +298,92 @@ MU_TEST(test_verify_rejects_wrong_revision)
 	mu_assert_int_eq(DFU_VERIFY_REVISION_MISMATCH,
 	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
 	                                        &fake.identity, "git-expected",
+	                                        "bluetooth_rxtx",
 	                                        &config, &report));
 	mu_assert(strcmp(report.actual_revision, "git-old") == 0,
 	          "actual revision not reported");
 	mu_assert_int_eq(1, fake.app_close_calls);
+}
+
+/* The gap the revision alone leaves: both images of one tree carry the same
+ * revision, so a write of one over the other that did not take passes a
+ * revision check. The image name is what separates them. */
+MU_TEST(test_verify_rejects_the_other_image_of_the_same_revision)
+{
+	struct fake_recovery fake = make_fake();
+	struct dfu_verify_config config = {1, 10};
+	struct dfu_verify_report report;
+	fake.app_image = "btbr";
+
+	mu_assert_int_eq(DFU_VERIFY_IMAGE_MISMATCH,
+	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
+	                                        &fake.identity, "git-expected",
+	                                        "bluetooth_rxtx",
+	                                        &config, &report));
+	mu_assert(strcmp(report.actual_image, "btbr") == 0,
+	          "actual image not reported");
+	mu_assert(strcmp(report.actual_revision, "git-expected") == 0,
+	          "the matching revision was not reported as well");
+	mu_assert_int_eq(1, fake.app_close_calls);
+}
+
+/* A board that answers the revision but not the info block leaves the image
+ * unknown, which is not the same as running the wrong one. */
+MU_TEST(test_verify_separates_an_unreadable_image_from_a_wrong_one)
+{
+	struct fake_recovery fake = make_fake();
+	struct dfu_verify_config config = {1, 10};
+	struct dfu_verify_report report;
+	fake.image_result = -9;
+
+	mu_assert_int_eq(DFU_VERIFY_IMAGE_FAILED,
+	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
+	                                        &fake.identity, "git-expected",
+	                                        "bluetooth_rxtx",
+	                                        &config, &report));
+	mu_assert_int_eq(-9, report.operation_error);
+	mu_assert_int_eq(1, fake.app_close_calls);
+}
+
+/* A revision that does not match is settled before the image is asked for:
+ * that case is the one that says the write did not take at all, and it reads
+ * the same whichever image answered. */
+MU_TEST(test_verify_does_not_ask_for_the_image_of_a_wrong_revision)
+{
+	struct fake_recovery fake = make_fake();
+	struct dfu_verify_config config = {1, 10};
+	struct dfu_verify_report report;
+	fake.app_revision = "git-old";
+	fake.image_result = -9;
+
+	mu_assert_int_eq(DFU_VERIFY_REVISION_MISMATCH,
+	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
+	                                        &fake.identity, "git-expected",
+	                                        "bluetooth_rxtx",
+	                                        &config, &report));
+	mu_assert_int_eq(0, report.operation_error);
+	mu_assert_int_eq(1, fake.app_close_calls);
+}
+
+/* A verification with no image to expect, or no way to read one, cannot run
+ * at all rather than passing on the revision alone. */
+MU_TEST(test_verify_needs_an_expected_image_and_a_way_to_read_it)
+{
+	struct fake_recovery fake = make_fake();
+	struct dfu_verify_config config = {1, 10};
+	struct dfu_verify_report report;
+	struct dfu_verify_ops without_image = VERIFY_OPS;
+
+	mu_assert_int_eq(DFU_VERIFY_INVALID_ARGUMENT,
+	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
+	                                        &fake.identity, "git-expected",
+	                                        NULL, &config, &report));
+	without_image.get_image = NULL;
+	mu_assert_int_eq(DFU_VERIFY_INVALID_ARGUMENT,
+	                 dfu_verify_application(&without_image, &fake, "serial",
+	                                        &fake.identity, "git-expected",
+	                                        "bluetooth_rxtx",
+	                                        &config, &report));
 }
 
 /* ---- the line each outcome is described by ------------------------------ */
@@ -307,10 +406,11 @@ MU_TEST(test_a_board_that_never_came_back_is_told_apart_from_a_failed_write)
 	mu_assert_int_eq(DFU_VERIFY_APP_TIMEOUT,
 	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
 	                                        &fake.identity, "git-expected",
+	                                        "bluetooth_rxtx",
 	                                        &config, &report));
 	mu_assert_int_eq(0, report.operation_error);
-	dfu_verify_describe_failure(&report, "git-expected", message,
-	                            sizeof(message));
+	dfu_verify_describe_failure(&report, "git-expected", "bluetooth_rxtx",
+	                            message, sizeof(message));
 	mu_assert(strstr(message, "the firmware was written") != NULL,
 	          "the line does not say the image reached the board");
 	mu_assert(strstr(message, "did not come back on USB") != NULL,
@@ -340,10 +440,11 @@ MU_TEST(test_a_board_that_will_not_open_is_not_a_board_that_stayed_away)
 	mu_assert_int_eq(DFU_VERIFY_APP_TIMEOUT,
 	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
 	                                        &fake.identity, "git-expected",
+	                                        "bluetooth_rxtx",
 	                                        &config, &report));
 	mu_assert_int_eq(-6, report.operation_error);
-	dfu_verify_describe_failure(&report, "git-expected", message,
-	                            sizeof(message));
+	dfu_verify_describe_failure(&report, "git-expected", "bluetooth_rxtx",
+	                            message, sizeof(message));
 	mu_assert(strstr(message, "the firmware was written") != NULL,
 	          "the line does not say the image reached the board");
 	mu_assert(strstr(message, "came back and would not open") != NULL,
@@ -373,9 +474,10 @@ MU_TEST(test_a_board_running_another_revision_is_described_as_a_failed_write)
 	mu_assert_int_eq(DFU_VERIFY_REVISION_MISMATCH,
 	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
 	                                        &fake.identity, "git-expected",
+	                                        "bluetooth_rxtx",
 	                                        &config, &report));
-	dfu_verify_describe_failure(&report, "git-expected", message,
-	                            sizeof(message));
+	dfu_verify_describe_failure(&report, "git-expected", "bluetooth_rxtx",
+	                            message, sizeof(message));
 	mu_assert(strstr(message, "running git-old, not git-expected") != NULL,
 	          "the line does not name both revisions");
 	mu_assert(strstr(message, "the firmware was not written") != NULL,
@@ -397,15 +499,72 @@ MU_TEST(test_a_board_that_will_not_report_its_revision_is_not_a_mismatch)
 	mu_assert_int_eq(DFU_VERIFY_REVISION_FAILED,
 	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
 	                                        &fake.identity, "git-expected",
+	                                        "bluetooth_rxtx",
 	                                        &config, &report));
-	dfu_verify_describe_failure(&report, "git-expected", message,
-	                            sizeof(message));
+	dfu_verify_describe_failure(&report, "git-expected", "bluetooth_rxtx",
+	                            message, sizeof(message));
 	mu_assert(strstr(message, "would not report its firmware revision")
 	          != NULL, "the line does not say what the board withheld");
 	mu_assert(strstr(message, "the flash was not checked") != NULL,
 	          "the line does not say the flash is unverified");
 	mu_assert(strstr(message, "not written") == NULL,
 	          "the line claims the write did not take");
+}
+
+/* A board running the other image of the same tree did not take the write
+ * either, and the line has to name both images: the revisions match, so
+ * naming those would say nothing. */
+MU_TEST(test_the_other_image_is_described_as_a_failed_write)
+{
+	struct fake_recovery fake = make_fake();
+	struct dfu_verify_config config = {1, 10};
+	struct dfu_verify_report report;
+	char message[256];
+	fake.app_image = "btbr";
+
+	mu_assert_int_eq(DFU_VERIFY_IMAGE_MISMATCH,
+	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
+	                                        &fake.identity, "git-expected",
+	                                        "bluetooth_rxtx",
+	                                        &config, &report));
+	dfu_verify_describe_failure(&report, "git-expected", "bluetooth_rxtx",
+	                            message, sizeof(message));
+	mu_assert(strstr(message, "running the btbr firmware, not the "
+	                 "bluetooth_rxtx image") != NULL,
+	          "the line does not name both images");
+	mu_assert(strstr(message, "the firmware was not written") != NULL,
+	          "the line does not say the write did not take");
+	mu_assert(strstr(message, "flash it again") != NULL,
+	          "the line does not say to flash the board again");
+	mu_assert(strchr(message, '\n') == NULL, "the line is more than one line");
+}
+
+/* The write took, and which image answered is unknown: that is unchecked, not
+ * a failed write. */
+MU_TEST(test_an_unreadable_image_is_described_as_unchecked)
+{
+	struct fake_recovery fake = make_fake();
+	struct dfu_verify_config config = {1, 10};
+	struct dfu_verify_report report;
+	char message[256];
+	fake.image_result = -9;
+
+	mu_assert_int_eq(DFU_VERIFY_IMAGE_FAILED,
+	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
+	                                        &fake.identity, "git-expected",
+	                                        "bluetooth_rxtx",
+	                                        &config, &report));
+	dfu_verify_describe_failure(&report, "git-expected", "bluetooth_rxtx",
+	                            message, sizeof(message));
+	mu_assert(strstr(message, "running git-expected") != NULL,
+	          "the line does not say the revision matched");
+	mu_assert(strstr(message, "would not say which firmware image it is")
+	          != NULL, "the line does not say what the board withheld");
+	mu_assert(strstr(message, "the flash was not checked") != NULL,
+	          "the line does not say the flash is unverified");
+	mu_assert(strstr(message, "not written") == NULL,
+	          "the line claims the write did not take");
+	mu_assert(strchr(message, '\n') == NULL, "the line is more than one line");
 }
 
 /* A device that answered on another path says nothing about the board that
@@ -421,9 +580,10 @@ MU_TEST(test_a_device_on_another_path_is_described_as_unchecked)
 	mu_assert_int_eq(DFU_VERIFY_IDENTITY_MISMATCH,
 	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
 	                                        &fake.identity, "git-expected",
+	                                        "bluetooth_rxtx",
 	                                        &config, &report));
-	dfu_verify_describe_failure(&report, "git-expected", message,
-	                            sizeof(message));
+	dfu_verify_describe_failure(&report, "git-expected", "bluetooth_rxtx",
+	                            message, sizeof(message));
 	mu_assert(strstr(message, "not on the flashed board's USB path") != NULL,
 	          "the line does not say which device answered");
 	mu_assert(strstr(message, "the flash was not checked") != NULL,
@@ -440,25 +600,32 @@ MU_TEST(test_describing_a_verification_survives_what_a_caller_passes)
 	memset(&report, 0, sizeof(report));
 	snprintf(report.actual_revision, sizeof(report.actual_revision),
 	         "git-expected");
-	dfu_verify_describe_failure(&report, "git-expected", message,
-	                            sizeof(message));
+	dfu_verify_describe_failure(&report, "git-expected", "bluetooth_rxtx",
+	                            message, sizeof(message));
 	mu_assert(strstr(message, "came back running git-expected") != NULL,
 	          "a passed verification is not described");
 
 	report.result = DFU_VERIFY_REVISION_MISMATCH;
-	dfu_verify_describe_failure(&report, NULL, message, sizeof(message));
+	dfu_verify_describe_failure(&report, NULL, NULL, message,
+	                            sizeof(message));
 	mu_assert(strstr(message, "running git-expected, not ") != NULL,
 	          "a missing expected revision was not left blank");
 
-	report.result = DFU_VERIFY_INVALID_ARGUMENT;
-	dfu_verify_describe_failure(&report, "git-expected", message,
+	report.result = DFU_VERIFY_IMAGE_MISMATCH;
+	dfu_verify_describe_failure(&report, "git-expected", NULL, message,
 	                            sizeof(message));
+	mu_assert(strstr(message, "not the  image that was written") != NULL,
+	          "a missing expected image name was not left blank");
+
+	report.result = DFU_VERIFY_INVALID_ARGUMENT;
+	dfu_verify_describe_failure(&report, "git-expected", "bluetooth_rxtx",
+	                            message, sizeof(message));
 	mu_assert(strcmp(message,
 	                 "the flash could not be checked after the reset") == 0,
 	          "a verification that did not run is not described");
 
-	dfu_verify_describe_failure(NULL, "git-expected", message,
-	                            sizeof(message));
+	dfu_verify_describe_failure(NULL, "git-expected", "bluetooth_rxtx",
+	                            message, sizeof(message));
 	mu_assert(strcmp(message,
 	                 "the flash could not be checked after the reset") == 0,
 	          "a missing report is not described");
@@ -466,8 +633,8 @@ MU_TEST(test_describing_a_verification_survives_what_a_caller_passes)
 	/* A value that is not one of the enumerators still gets a line, and the
 	 * line names it. */
 	report.result = (enum dfu_verify_result)42;
-	dfu_verify_describe_failure(&report, "git-expected", message,
-	                            sizeof(message));
+	dfu_verify_describe_failure(&report, "git-expected", "bluetooth_rxtx",
+	                            message, sizeof(message));
 	mu_assert(strcmp(message, "the flash could not be checked after the "
 	                 "reset (result 42)") == 0,
 	          "a result this host has no case for is not described");
@@ -476,10 +643,11 @@ MU_TEST(test_describing_a_verification_survives_what_a_caller_passes)
 	 * one is left alone. */
 	report.result = DFU_VERIFY_APP_TIMEOUT;
 	memset(small, 'x', sizeof(small));
-	dfu_verify_describe_failure(&report, "git-expected", small,
-	                            sizeof(small));
+	dfu_verify_describe_failure(&report, "git-expected", "bluetooth_rxtx",
+	                            small, sizeof(small));
 	mu_assert_int_eq((int)sizeof(small) - 1, (int)strlen(small));
-	dfu_verify_describe_failure(&report, "git-expected", small, 0);
+	dfu_verify_describe_failure(&report, "git-expected", "bluetooth_rxtx",
+	                            small, 0);
 	mu_assert_int_eq((int)sizeof(small) - 1, (int)strlen(small));
 }
 
@@ -1520,10 +1688,16 @@ int main(void)
 	MU_RUN(test_verify_waits_for_same_app_and_exact_revision);
 	MU_RUN(test_verify_rejects_wrong_physical_path);
 	MU_RUN(test_verify_rejects_wrong_revision);
+	MU_RUN(test_verify_rejects_the_other_image_of_the_same_revision);
+	MU_RUN(test_verify_separates_an_unreadable_image_from_a_wrong_one);
+	MU_RUN(test_verify_does_not_ask_for_the_image_of_a_wrong_revision);
+	MU_RUN(test_verify_needs_an_expected_image_and_a_way_to_read_it);
 	MU_RUN(test_a_board_that_never_came_back_is_told_apart_from_a_failed_write);
 	MU_RUN(test_a_board_that_will_not_open_is_not_a_board_that_stayed_away);
 	MU_RUN(test_a_board_running_another_revision_is_described_as_a_failed_write);
 	MU_RUN(test_a_board_that_will_not_report_its_revision_is_not_a_mismatch);
+	MU_RUN(test_the_other_image_is_described_as_a_failed_write);
+	MU_RUN(test_an_unreadable_image_is_described_as_unchecked);
 	MU_RUN(test_a_device_on_another_path_is_described_as_unchecked);
 	MU_RUN(test_describing_a_verification_survives_what_a_caller_passes);
 	MU_RUN(test_idle_stops_on_the_first_failed_state_read);

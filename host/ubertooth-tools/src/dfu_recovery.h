@@ -112,6 +112,8 @@ enum dfu_verify_result {
 	DFU_VERIFY_IDENTITY_MISMATCH = -3,
 	DFU_VERIFY_REVISION_FAILED = -4,
 	DFU_VERIFY_REVISION_MISMATCH = -5,
+	DFU_VERIFY_IMAGE_FAILED = -6,    /* it would not say which image it runs */
+	DFU_VERIFY_IMAGE_MISMATCH = -7,  /* it runs the other image of this tree */
 };
 
 struct dfu_verify_config {
@@ -128,6 +130,7 @@ struct dfu_verify_report {
 	 * so they are reported differently. */
 	int operation_error;
 	char actual_revision[64];
+	char actual_image[UBERTOOTH_FW_INFO_IMAGE_LEN + 1];
 };
 
 struct dfu_verify_ops {
@@ -139,20 +142,32 @@ struct dfu_verify_ops {
 	                        struct dfu_usb_identity *identity);
 	int (*get_revision)(void *context, void *handle,
 	                    char *revision, size_t revision_size);
+	/* The name of the image the board is running ("bluetooth_rxtx",
+	 * "btbr"), from its firmware info block. Returns 0, or a negative
+	 * transport error. */
+	int (*get_image)(void *context, void *handle,
+	                 char *image, size_t image_size);
 	void (*close_application)(void *context, void *handle);
 	void (*sleep_ms)(void *context, unsigned milliseconds);
 };
 
+/* Both images of one tree carry the same revision, so the revision alone
+ * cannot tell them apart: a write of btbr that did not take leaves a board
+ * running bluetooth_rxtx under the revision the file expects. The image name
+ * is therefore checked as well, and both come from the same firmware info
+ * block the image was read from. */
 int dfu_verify_application(const struct dfu_verify_ops *ops,
                            void *context,
                            const char *selector,
                            const struct dfu_usb_identity *expected_identity,
                            const char *expected_revision,
+                           const char *expected_image,
                            const struct dfu_verify_config *config,
                            struct dfu_verify_report *report);
 
 /* One line saying what the verification described by report found, and what
- * to do about it. expected_revision is the revision the image carries.
+ * to do about it. expected_revision is the revision the image carries, and
+ * expected_image its name.
  *
  * The outcomes mean different things to whoever is holding the board, and
  * only one of them says the write did not take: a board that never came back
@@ -163,6 +178,7 @@ int dfu_verify_application(const struct dfu_verify_ops *ops,
  * so call this only for a report whose result is not DFU_VERIFY_OK. */
 void dfu_verify_describe_failure(const struct dfu_verify_report *report,
                                  const char *expected_revision,
+                                 const char *expected_image,
                                  char *message, size_t message_size);
 
 /*

@@ -316,6 +316,17 @@
   image and then did not come back on USB is no longer reported as a failed
   flash and flashed again for nothing.
   [#579](https://github.com/SqueakyFloors/ubertooth/issues/579)
+- `ubertooth-dfu -r` no longer reports a board that reset straight back into
+  the bootloader as detached. The reset now has to leave the DFU device gone
+  on two checks in a row, and a board that is back names the two things that
+  put it there, the expansion-header bridge among them.
+  [#304](https://github.com/SqueakyFloors/ubertooth/issues/304)
+- `ubertooth-dfu -d <image> -r` also checks which image came back, not only
+  its revision, so a write of `btbr` over `bluetooth_rxtx` that did not take
+  no longer verifies clean: both images of one tree carry the same revision.
+  An image built for another firmware API version is written with a warning
+  first, since every other tool refuses the board afterwards.
+  [#557](https://github.com/SqueakyFloors/ubertooth/issues/557)
 - `ubertooth-btle -q -` and `-c -` no longer fill the terminal with the
   decoder's complaints about packets they do not print. A capture on standard
   output leaves no room for the per-packet dump, so that dump is not produced

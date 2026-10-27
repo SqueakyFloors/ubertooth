@@ -192,6 +192,7 @@ int dfu_verify_application(const struct dfu_verify_ops *ops,
                            const char *selector,
                            const struct dfu_usb_identity *expected_identity,
                            const char *expected_revision,
+                           const char *expected_image,
                            const struct dfu_verify_config *config,
                            struct dfu_verify_report *report)
 {
@@ -200,10 +201,11 @@ int dfu_verify_application(const struct dfu_verify_ops *ops,
 	if (report != NULL)
 		memset(report, 0, sizeof(*report));
 	if (ops == NULL || selector == NULL || expected_identity == NULL ||
-	    expected_revision == NULL || config == NULL || report == NULL ||
+	    expected_revision == NULL || expected_image == NULL ||
+	    config == NULL || report == NULL ||
 	    config->polls == 0 || ops->open_application == NULL ||
-	    ops->get_revision == NULL || ops->close_application == NULL ||
-	    ops->sleep_ms == NULL)
+	    ops->get_revision == NULL || ops->get_image == NULL ||
+	    ops->close_application == NULL || ops->sleep_ms == NULL)
 		return report == NULL ? DFU_VERIFY_INVALID_ARGUMENT :
 		       verify_fail(report, DFU_VERIFY_INVALID_ARGUMENT, 0);
 
@@ -231,11 +233,25 @@ int dfu_verify_application(const struct dfu_verify_ops *ops,
 		result = ops->get_revision(context, handle,
 		                           report->actual_revision,
 		                           sizeof(report->actual_revision));
+		if (result != 0) {
+			ops->close_application(context, handle);
+			return verify_fail(report, DFU_VERIFY_REVISION_FAILED, result);
+		}
+		/* The revision is asked first, because it is the question "did the
+		 * write take at all": a board still running what it had reports a
+		 * different one, and that is the case worth naming on its own. The
+		 * image name then separates the two images that share a revision. */
+		if (strcmp(report->actual_revision, expected_revision) != 0) {
+			ops->close_application(context, handle);
+			return verify_fail(report, DFU_VERIFY_REVISION_MISMATCH, 0);
+		}
+		result = ops->get_image(context, handle, report->actual_image,
+		                        sizeof(report->actual_image));
 		ops->close_application(context, handle);
 		if (result != 0)
-			return verify_fail(report, DFU_VERIFY_REVISION_FAILED, result);
-		if (strcmp(report->actual_revision, expected_revision) != 0)
-			return verify_fail(report, DFU_VERIFY_REVISION_MISMATCH, 0);
+			return verify_fail(report, DFU_VERIFY_IMAGE_FAILED, result);
+		if (strcmp(report->actual_image, expected_image) != 0)
+			return verify_fail(report, DFU_VERIFY_IMAGE_MISMATCH, 0);
 		report->result = DFU_VERIFY_OK;
 		return DFU_VERIFY_OK;
 	}
@@ -246,9 +262,11 @@ int dfu_verify_application(const struct dfu_verify_ops *ops,
 
 void dfu_verify_describe_failure(const struct dfu_verify_report *report,
                                  const char *expected_revision,
+                                 const char *expected_image,
                                  char *message, size_t message_size)
 {
 	const char *expected = expected_revision != NULL ? expected_revision : "";
+	const char *expected_name = expected_image != NULL ? expected_image : "";
 
 	if (message == NULL || message_size == 0)
 		return;
@@ -311,6 +329,24 @@ void dfu_verify_describe_failure(const struct dfu_verify_report *report,
 		         "the board came back running %s, not %s: the firmware was "
 		         "not written, so flash it again",
 		         report->actual_revision, expected);
+		break;
+	case DFU_VERIFY_IMAGE_FAILED:
+		/* The revision already matched, so the write took; what is missing
+		 * is which of this tree's images answered. */
+		snprintf(message, message_size,
+		         "the board came back running %s but would not say which "
+		         "firmware image it is, so the flash was not checked: read "
+		         "it with ubertooth-util -v",
+		         report->actual_revision);
+		break;
+	case DFU_VERIFY_IMAGE_MISMATCH:
+		/* Both images of one tree carry the same revision, so this is the
+		 * only thing that catches a write that did not take between them. */
+		snprintf(message, message_size,
+		         "the board came back running the %s firmware, not the %s "
+		         "image that was written: the firmware was not written, so "
+		         "flash it again",
+		         report->actual_image, expected_name);
 		break;
 	}
 }
