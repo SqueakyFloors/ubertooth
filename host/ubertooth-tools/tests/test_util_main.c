@@ -2733,8 +2733,8 @@ MU_TEST(an_unavailable_device_is_reported_and_fails_the_listing)
 	mu_assert_int_eq(0, fake.stop_calls);
 }
 
-/* #610: one board or several, the firmware version is labelled the same way,
- * and a board that cannot be read says so where its value would be. */
+/* One board or several, the firmware version is labelled the same way, and a
+ * board that cannot be read says so where its value would be. */
 MU_TEST(the_firmware_version_is_labelled_whether_one_board_or_several)
 {
 	struct run_result r;
