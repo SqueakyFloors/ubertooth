@@ -3830,12 +3830,18 @@ static int line_is_continued(const char *line)
 }
 
 /*
- * How many times one file calls `name` from inside a function body.
+ *
+ * How many times one file names `name` somewhere that makes it reachable:
+ * inside a function body, or in a macro.
  *
  * Inside a body is the whole point: a header declares the functions the
  * sources call, and `int btctl_tx_dequeue(...);` names one without calling
  * it. Braces tell the two apart -- a prototype sits outside any body, a call
  * inside one -- which also covers a `static inline` written on one line.
+ *
+ * Within a body the name counts wherever it appears, with no '(' required,
+ * because naming it without calling it is taking its address and a send
+ * reached through a pointer is a send.
  *
  * A `#define` counts as a body wherever it is written, braces or none, and in
  * any of its legal spellings. The text of a macro is code in whatever
@@ -3889,15 +3895,17 @@ static int file_calls(const char *path, const char *name)
 				while (*after == ' ' || *after == '\t')
 					after++;
 				/*
-				 * In a macro, naming it is enough: `#define
-				 * SEND USBHwEPWrite` makes every SEND(...) a
-				 * call to it, with no '(' next to the name
-				 * here. In code, a '(' has to follow, so a
-				 * function passed by address or declared is
-				 * not read as a call.
+				 * Naming it is enough, with no '(' needed. In
+				 * a macro because `#define SEND USBHwEPWrite`
+				 * makes every SEND(...) a call to it. In a
+				 * body because naming it without calling it is
+				 * taking its address, and a send reached
+				 * through a pointer is a send. What this does
+				 * not catch is a declaration, which is why
+				 * only bodies and macros are read at all.
 				 */
-				if (*after == '(' || in_macro)
-					hits++;
+				(void)after;
+				hits++;
 			}
 		}
 	}
