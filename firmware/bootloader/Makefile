@@ -306,6 +306,53 @@ all: begin gccversion sizebefore build showtarget sizeafter end
 DEPFILES = $(call per_image,$(SRC:%.c=%.d) $(CPPSRC:%.cpp=%.d))
 -include $(DEPFILES)
 
+# Compile-flag tracking: the flags are recorded in a file that is rewritten
+# only when they change, and every object depends on it, so editing a flag
+# rebuilds the objects instead of leaving an image built with the old ones.
+# Same mechanism and same reason as in ../common.mk, which explains it; this
+# image has its own makefile because it is the one written in C++.
+#
+# Snapshotted with `:=` outside a recipe, so this has to stay below the last
+# line that sets a flag.
+BUILD_FLAGS_FILE := $(OBJDIR)/build-flags
+BUILD_FLAGS_C := $(ALL_CFLAGS)
+BUILD_FLAGS_CPP := $(ALL_CPPFLAGS)
+BUILD_FLAGS_AS := $(ALL_ASFLAGS)
+BUILD_FLAGS_LINK := $(LINKER_SCRIPT) $(ALL_CFLAGS_LINKER) $(LDFLAGS)
+
+.PHONY: force-flags-check
+$(BUILD_FLAGS_FILE): force-flags-check
+	@mkdir -p $(OBJDIR)
+	@# One setting per line, so a diff of this file names what changed.
+	@printf '%s\n' \
+		'CC=$(CC)' \
+		'CFLAGS=$(BUILD_FLAGS_C)' \
+		'CPPFLAGS=$(BUILD_FLAGS_CPP)' \
+		'AS=$(AS)' \
+		'ASFLAGS=$(BUILD_FLAGS_AS)' \
+		'LD=$(LD)' \
+		'LINK=$(BUILD_FLAGS_LINK)' \
+		> $(BUILD_FLAGS_FILE).tmp
+	@# Unchanged: leave the file alone so nothing rebuilds. Otherwise stamp
+	@# it into the next whole second, because this make compares mtimes to
+	@# the whole second and the objects beside it have to be invalidated.
+	@# Only a build with a record to compare against says anything.
+	@if cmp -s $(BUILD_FLAGS_FILE).tmp $(BUILD_FLAGS_FILE); then \
+		rm -f $(BUILD_FLAGS_FILE).tmp; \
+	else \
+		if [ -f $(BUILD_FLAGS_FILE) ]; then \
+			echo "  build flags changed -- rebuilding objects"; \
+		fi; \
+		mv $(BUILD_FLAGS_FILE).tmp $(BUILD_FLAGS_FILE); \
+		sleep 1; \
+		touch $(BUILD_FLAGS_FILE); \
+	fi
+
+# A real prerequisite, not an order-only one: an order-only dependency would
+# create the file if it were missing and otherwise ignore its timestamp, and
+# the timestamp is the whole point.
+$(OBJ): $(BUILD_FLAGS_FILE)
+
 # Change the build target to build a HEX file or a library.
 build: elf hex bin srec lss sym
 #build: lib
@@ -486,6 +533,7 @@ clean_list:
 	$(REMOVE) $(LST)
 	$(REMOVE) $(call per_image,$(ASRC:%.S=%.o.d))
 	$(REMOVE) $(DEPFILES)
+	$(REMOVE) $(BUILD_FLAGS_FILE) $(BUILD_FLAGS_FILE).tmp
 	@# The shared/ tree the lines above emptied. addsuffix yields nothing at
 	@# all if OBJDIR is somehow blank, rather than a path at the root.
 	rm -rf $(addsuffix /shared,$(OBJDIR))

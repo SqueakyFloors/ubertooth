@@ -340,15 +340,15 @@ all: begin gccversion sizebefore build showtarget sizeafter end
 #    Those files are only useful if we include them, so do that here. Now
 #    editing a header rebuilds exactly the objects that include it.
 #
-# 2. Compile-flag dependencies. Several compile flags are computed at build
-#    time -- notably GIT_REVISION, COMPILE_BY/COMPILE_HOST and TIMESTAMP, which
-#    bake the firmware version string into the binary. make tracks file
-#    timestamps, not the command line, so when only the git revision changes it
-#    would consider every object up to date and leave a stale version string in
-#    the firmware -- making a good flash indistinguishable from a stale one via
-#    -v / -V. The standard fix is to record the current flags in a file that is
-#    rewritten only when they change, and make every object depend on it. Any
-#    flag change (not just the git hash) then correctly invalidates the objects.
+# 2. Compile-flag dependencies. make decides what to rebuild from file
+#    timestamps, so a changed command line is invisible to it: edit OPT, or
+#    DISABLE_TX, or BOARD, and every object still looks up to date. make would
+#    link the objects compiled with the old flags into an image the makefile no
+#    longer describes, and say nothing. The flags are therefore recorded in a
+#    file that is rewritten only when they change, and every object depends on
+#    that file -- see "Compile-flag tracking" below. (The firmware version
+#    string is not a flag: it comes from a generated header, so the depfiles of
+#    1 carry it -- see "Version identity tracking".)
 DEPFILES = $(call per_image,$(SRC:%.c=%.d) $(CPPSRC:%.cpp=%.d)) \
 	$(FW_INFO_OBJ:%.o=%.d)
 -include $(DEPFILES)
@@ -447,6 +447,93 @@ $(VERSION_HEADER): force-version-check
 # through the -MMD depfiles.
 CFLAGS += -I$(OBJDIR)
 $(OBJ): | $(VERSION_HEADER)
+
+# Compile-flag tracking.
+#
+# The flags that decide what the compiler and the linker produce are written
+# to a file, and every object depends on that file. The file is rewritten only
+# when its contents change (write a temp file, cmp, replace), so its timestamp
+# moves on a real flag change and on nothing else: change OPT and the objects
+# are rebuilt, change nothing and make still has nothing to do.
+#
+# The link flags are recorded in the same file, so changing a linker option,
+# or which linker script is named, recompiles as well as relinks. That is more
+# than is strictly needed, but it is correct and those change rarely.
+#
+# What is recorded is what reaches a compile or a link command line, and no
+# more. Three things outside that still want `make clean`: the compiler itself,
+# since a new arm-none-eabi-gcc with the same flags leaves the objects alone;
+# the contents of the linker script, since what is recorded here is its name
+# and the link has no prerequisite on the file; and the objcopy options that
+# turn the .elf into a .hex, .bin or .srec, since those run after the link and
+# their outputs do not depend on this file either.
+#
+# A timestamp is a coarse signal, and on macOS a coarser one than it looks.
+# make rebuilds a target when a prerequisite is newer, and the make here (GNU
+# make 3.81, as shipped by Apple) compares mtimes to the whole second: a
+# prerequisite written 0.8 s after its target, inside the same second, counts
+# as not newer. So writing this file is not enough on its own. If the previous
+# build's objects landed in the second this file is rewritten in, make would
+# call them up to date and the stale image this whole mechanism exists to
+# prevent would come back -- rarely, and only for a build started within a
+# second of the last one, which is exactly what a script does.
+#
+# Hence the `sleep 1` below: whenever the record is written, it is stamped into
+# the next whole second, so it is unambiguously newer than anything the
+# previous build wrote. That costs a second on a build that was about to
+# recompile everything anyway, and nothing at all on the builds in between,
+# which leave the file alone and never reach it.
+#
+# (Every other mtime dependency here, headers included, has the same
+# whole-second coarseness; this is the one place the makefile can fix it,
+# because it is the one place that knows a change happened.)
+#
+# The flags are snapshotted here with `:=`, so this has to stay below the last
+# line in this file that sets one. Snapshotting outside a recipe also leaves $<
+# empty, which keeps the per-source assembler listing path -- an output name,
+# not a flag -- out of the recorded text.
+#
+# Plain shell + cmp only, so this works on GNU make 3.81 (macOS); no
+# $(file ...) (that needs make >= 4.0).
+BUILD_FLAGS_FILE := $(OBJDIR)/build-flags
+BUILD_FLAGS_C := $(ALL_CFLAGS)
+BUILD_FLAGS_CPP := $(ALL_CPPFLAGS)
+BUILD_FLAGS_AS := $(ALL_ASFLAGS)
+BUILD_FLAGS_LINK := $(LINKER_SCRIPT) $(ALL_CFLAGS_LINKER) $(LDFLAGS)
+
+.PHONY: force-flags-check
+$(BUILD_FLAGS_FILE): force-flags-check
+	@mkdir -p $(OBJDIR)
+	@# One setting per line, so a diff of this file names what changed.
+	@printf '%s\n' \
+		'CC=$(CC)' \
+		'CFLAGS=$(BUILD_FLAGS_C)' \
+		'CPPFLAGS=$(BUILD_FLAGS_CPP)' \
+		'AS=$(AS)' \
+		'ASFLAGS=$(BUILD_FLAGS_AS)' \
+		'LD=$(LD)' \
+		'LINK=$(BUILD_FLAGS_LINK)' \
+		> $(BUILD_FLAGS_FILE).tmp
+	@# Unchanged: leave the file alone, so its timestamp does not move and
+	@# nothing rebuilds. Otherwise the record is new or different, and the
+	@# objects beside it -- if any; a tree can keep objects and lose the
+	@# record -- have to be invalidated, so stamp it into the next whole
+	@# second. Only a build that had something to say about a change says
+	@# it, which is what keeps a first build quiet.
+	@if cmp -s $(BUILD_FLAGS_FILE).tmp $(BUILD_FLAGS_FILE); then \
+		rm -f $(BUILD_FLAGS_FILE).tmp; \
+	else \
+		if [ -f $(BUILD_FLAGS_FILE) ]; then \
+			echo "  build flags changed -- rebuilding objects"; \
+		fi; \
+		mv $(BUILD_FLAGS_FILE).tmp $(BUILD_FLAGS_FILE); \
+		sleep 1; \
+		touch $(BUILD_FLAGS_FILE); \
+	fi
+
+# A real prerequisite, not an order-only one: the whole point is that this
+# file's timestamp invalidates the objects.
+$(OBJ): $(BUILD_FLAGS_FILE)
 #----------------------------------------------------------------------------
 
 # Change the build target to build a HEX file or a library.
@@ -651,6 +738,7 @@ clean_list:
 	$(REMOVE) $(call per_image,$(ASRC:%.S=%.o.d))
 	$(REMOVE) $(DEPFILES)
 	$(REMOVE) $(VERSION_HEADER) $(VERSION_IDFILE)
+	$(REMOVE) $(BUILD_FLAGS_FILE) $(BUILD_FLAGS_FILE).tmp
 	@# The shared/ tree the lines above emptied. addsuffix yields nothing at
 	@# all if OBJDIR is somehow blank, rather than a path at the root.
 	rm -rf $(addsuffix /shared,$(OBJDIR))
