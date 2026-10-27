@@ -3782,6 +3782,25 @@ static int path_ends_with(const char *path, const char *tail)
 	return p >= t && strcmp(path + p - t, tail) == 0;
 }
 
+/*
+ * Is this line a `#define`? The '#' may be indented and the directive may be
+ * separated from it by spaces -- `  #  define X` is the same directive as
+ * `#define X` -- so neither is taken for granted.
+ */
+static int line_defines_a_macro(const char *line)
+{
+	const char *p = line;
+
+	while (*p == ' ' || *p == '\t')
+		p++;
+	if (*p != '#')
+		return 0;
+	p++;
+	while (*p == ' ' || *p == '\t')
+		p++;
+	return strncmp(p, "define", 6) == 0 && !is_ident_char(p[6]);
+}
+
 /* Does this line end in a backslash, so the next one carries on from it? */
 static int line_is_continued(const char *line)
 {
@@ -3801,10 +3820,11 @@ static int line_is_continued(const char *line)
  * it. Braces tell the two apart -- a prototype sits outside any body, a call
  * inside one -- which also covers a `static inline` written on one line.
  *
- * A `#define` counts as a body wherever it is written, braces or none. The
- * text of a macro is code in whatever function expands it, so a send wrapped
- * in one is a send; and a macro is written at file scope, where the brace
- * rule would otherwise look straight past it.
+ * A `#define` counts as a body wherever it is written, braces or none, and in
+ * any of its legal spellings. The text of a macro is code in whatever
+ * function expands it, so a send wrapped in one is a send; and a macro is
+ * written at file scope, where the brace rule would otherwise look straight
+ * past it.
  */
 static int file_calls(const char *path, const char *name)
 {
@@ -3823,10 +3843,7 @@ static int file_calls(const char *path, const char *name)
 		strip_comments(line, &in_block);
 		strip_string_literals(line);
 
-		while (*p == ' ' || *p == '\t')
-			p++;
-		in_macro = in_macro_continuation ||
-		           strncmp(p, "#define", 7) == 0;
+		in_macro = in_macro_continuation || line_defines_a_macro(line);
 		/* A macro written over several lines carries on while each one
 		 * ends in a backslash. */
 		in_macro_continuation = in_macro && line_is_continued(line);
