@@ -247,6 +247,9 @@ flash_firmware() {
 		return 0
 	fi
 
+	# Reached with any selector, --flash-device <serial> included, and a
+	# device that is busy or wedged makes each read wait, so say so first.
+	info "Looking for the Ubertooth to flash"
 	devices="$(list_devices "$util")"
 	n="$(printf '%s\n' "$devices" | grep -c . || true)"
 	if [ "$FLASH_DEVICE" = "all" ]; then

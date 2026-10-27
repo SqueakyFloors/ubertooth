@@ -177,9 +177,10 @@
 ### Build and compatibility
 
 - The host tools build with a strict C standard (`-std=c17`, `-std=c2x`) on
-  Linux, instead of failing on `CLOCK_REALTIME`, `usleep()` and the byte-order
-  helpers. The build now asks glibc for the interfaces it uses rather than
-  relying on the compiler's default GNU standard.
+  Linux: the build asks glibc for the interfaces it uses instead of relying on
+  the compiler's default GNU standard, under which `CLOCK_REALTIME` was
+  undeclared and `usleep()`, `clock_gettime()` and the byte-order helpers were
+  declared implicitly.
   [#648](https://github.com/SqueakyFloors/ubertooth/issues/648)
 - `install.sh` says it is checking Homebrew, and that it is looking for the
   Ubertooth to flash, before those slow steps run; on macOS its first line

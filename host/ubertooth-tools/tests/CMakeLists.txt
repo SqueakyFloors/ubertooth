@@ -191,10 +191,12 @@ if(EXISTS "${UBERTOOTH_BTLE_EXTCAP}")
 	set_tests_properties(cli-matrix-btle-extcap PROPERTIES TIMEOUT 60)
 endif()
 
-# install.sh answers -h on standard output and refuses a bad command line on
-# standard error, installing nothing either way. The script sits above the host
-# build, so it is named by a relative path and the test is registered only when
-# it is actually there: host/ can be configured on its own.
+# install.sh answers -h on standard output, refuses a bad command line on
+# standard error, and announces each of its slow steps before running it. The
+# test installs nothing and touches no device: the runs that get that far have
+# brew, python3, git and the Ubertooth tools faked. The script sits above the
+# host build, so it is named by a relative path and the test is registered only
+# when it is actually there: host/ can be configured on its own.
 set(UBERTOOTH_INSTALL_SH "${CMAKE_CURRENT_SOURCE_DIR}/../../../install.sh")
 if(EXISTS "${UBERTOOTH_INSTALL_SH}")
 	add_test(
