@@ -138,21 +138,28 @@ DEVICE_LOOKUP = tuple(message.lower() for message in SPEC["_device_lookup_messag
 # Every case listed has to keep failing with all of them: a finding half
 # fixed, or fixed for some of its cases, fails this test rather than passing
 # quietly.
+ENTRY_SHAPE = {"tool": str, "findings": list, "cases": list,
+               "problem_contains": list}
 for entry in SPEC["expected_failures"]:
-    # A string here would be read a character at a time, and a blank reason
-    # is inside every complaint, so either one would hold the entry to
-    # nothing. The whole file is checked, not just this tool's entries,
-    # because an entry for a tool that is not built here is the one nobody
-    # would look at.
-    reasons = entry.get("problem_contains")
-    if not isinstance(reasons, list) or not reasons \
-            or not all(isinstance(reason, str) and reason.strip()
-                       for reason in reasons):
-        sys.exit("%s %s: problem_contains has to be a non-empty list of the "
-                 "complaints the cases produce, one per complaint, none of "
-                 "them blank, not %r"
-                 % (", ".join(entry.get("findings", ["an entry"])),
-                    (entry.get("cases") or ["with no cases"])[0], reasons))
+    # The keys the test reads, checked once, so a typo in one of them is
+    # named here rather than raising a KeyError somewhere further down. The
+    # whole file is checked, not just this tool's entries, because an entry
+    # for a tool that is not built here is the one nobody would look at.
+    wrong = [key for key, kind in ENTRY_SHAPE.items()
+             if not isinstance(entry.get(key), kind) or not entry[key]]
+    if wrong:
+        sys.exit("an expected_failures entry has no usable %s: %r"
+                 % (", ".join(sorted(wrong)), entry))
+    # A blank reason is inside every complaint, so it would hold the entry to
+    # nothing. (A string instead of a list was caught above, where it would
+    # otherwise have been read a character at a time.)
+    reasons = entry["problem_contains"]
+    if not all(isinstance(reason, str) and reason.strip()
+               for reason in reasons):
+        sys.exit("%s %s: problem_contains has to be a list of the complaints "
+                 "the cases produce, one per complaint, none of them blank, "
+                 "not %r"
+                 % (", ".join(entry["findings"]), entry["cases"][0], reasons))
 EXPECTED_FAILURES = [entry for entry in SPEC["expected_failures"]
                      if entry["tool"] == TOOL]
 
@@ -564,24 +571,32 @@ def check_the_spec_lists_every_option():
     for role in sorted(declared - carried):
         problems.append((SPEC_IDS_CASE,
                          "_roles has %r, which no option carries" % role))
-    # A pair rule selects by role, so a side naming a role that none of the
-    # options the rule applies to carries is a rule that can never match. A
-    # global rule applies to every tool, a tool's own rule only to its own
-    # options, so each is checked against the roles it could actually select.
-    rules = [("_global_pair_rules", rule, carried)
+    # A pair rule names each side either by role or by the option itself, so
+    # a side naming a role or an option that none of the options the rule
+    # applies to has is a rule that can never match. A global rule applies to
+    # every tool, a tool's own rule only to its own options, so each side is
+    # checked against what it could actually select.
+    every_option = {name for contract in SPEC["tools"].values()
+                    for name in contract.get("options", {})}
+    rules = [("_global_pair_rules", rule, carried, every_option)
              for rule in SPEC.get("_global_pair_rules", [])]
     for tool, contract in sorted(SPEC["tools"].items()):
-        its_own = {option.get("role", DEFAULT_ROLE)
-                   for option in contract.get("options", {}).values()}
-        rules += [(tool, rule, its_own)
+        its_roles = {option.get("role", DEFAULT_ROLE)
+                     for option in contract.get("options", {}).values()}
+        rules += [(tool, rule, its_roles, set(contract.get("options", {})))
                   for rule in contract.get("pair_rules", [])]
-    for where, rule, selectable in rules:
+    for where, rule, roles, options in rules:
         for side in (rule["a"], rule["b"]):
-            if side.startswith("role:") \
-                    and side[len("role:"):] not in selectable:
+            if side == "any":
+                continue
+            if side.startswith("role:"):
+                known = side[len("role:"):] in roles
+            else:
+                known = side in options
+            if not known:
                 problems.append((SPEC_IDS_CASE,
                                  "the %s rule %s beside %s names %s, which "
-                                 "no option it applies to carries"
+                                 "no option it applies to has"
                                  % (where, rule["a"], rule["b"], side)))
 
     # The man page the spec cites has to be there, and it has to list -h:
@@ -648,12 +663,12 @@ def check_the_spec_lists_every_option():
         if found is None:
             problems.append((SPEC_CASE,
                          "could not find the getopt string in %s"
-                            % os.path.basename(source)))
+                            % os.path.relpath(source, here)))
         elif found.group(1) != written:
             problems.append((SPEC_CASE,
                          "the spec says the option string is %r, but %s "
                             "passes %r to getopt"
-                            % (written, os.path.basename(source),
+                            % (written, os.path.relpath(source, here),
                                found.group(1))))
 
     # The option string, read the way getopt reads it: a letter, then one
