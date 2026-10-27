@@ -1,6 +1,7 @@
 /*
- * Monotonic clock and sleep for ubertooth-util, kept in their own file so the
- * main() tests can link a fake clock instead.
+ * Monotonic clock and sleep for the tools that wait or time something
+ * (ubertooth-util's reset wait, ubertooth-specan's -v summary lines), kept in
+ * their own file so the main() tests can link a fake clock instead.
  */
 #ifndef UBERTOOTH_UTIL_CLOCK_H
 #define UBERTOOTH_UTIL_CLOCK_H

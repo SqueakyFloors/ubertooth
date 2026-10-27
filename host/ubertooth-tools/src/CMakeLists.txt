@@ -130,7 +130,9 @@ else()
 endif()
 message(STATUS "")
 
-target_sources(ubertooth-specan PRIVATE specan_options.c)
+# util_clock.c is the monotonic clock the -v summary lines are timed by; its
+# own file so the main() tests can link a fake clock instead.
+target_sources(ubertooth-specan PRIVATE specan_options.c util_clock.c)
 target_sources(ubertooth-btle PRIVATE btle_options.c)
 target_sources(ubertooth-ego PRIVATE ego_options.c)
 

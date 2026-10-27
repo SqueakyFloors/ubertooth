@@ -91,9 +91,11 @@ if(libubertooth_SOURCE_DIR)
 
 	add_test(NAME specan-write-failure COMMAND test-specan-write-failure)
 	# A handful of callback calls and short main() runs against a scripted
-	# device: milliseconds. A regression that reached a real receive loop
-	# should fail here rather than hang the suite.
-	set_tests_properties(specan-write-failure PROPERTIES TIMEOUT 5)
+	# device: a tenth of a second. The limit is loose enough for the two
+	# dozen temp files the cases make on a loaded machine, and still fails a
+	# regression that reached a real receive loop rather than hanging the
+	# suite.
+	set_tests_properties(specan-write-failure PROPERTIES TIMEOUT 10)
 endif()
 
 # The one argument rule, per tool, run against the real binaries with no

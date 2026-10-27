@@ -52,6 +52,14 @@ reject(("-l", "bad"), "lower frequency")
 reject(("-u", "2481"), "upper frequency")
 reject(("-l", "2441", "-u", "2440"), "must not exceed")
 
+# There is one level of verbosity, so a second -v is a mistyped command line:
+# that one error: line on standard error, nothing on standard output, and no
+# device opened.
+result = run(("-v", "-v"))
+assert result.returncode == 1, result
+assert result.stdout == "", result
+assert result.stderr == "error: -v may be given only once\n", result
+
 # -d: only a bare "-" means stdout; every other value is a file name, even one
 # starting with "-". Each run stops at device selection, after the -d value
 # has been handled, so what it did with the value is visible on disk.

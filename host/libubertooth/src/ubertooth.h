@@ -227,7 +227,7 @@ void ubertooth_set_timeout(ubertooth_t* ut, int seconds);
 /* A timeout for the quiet read below, for the callers that would rather give
  * up than wait: long enough for a board that answers, short enough not to
  * stall a caller reading a board that may be absent, still starting or wedged.
- * Both of this tree's callers want exactly that. */
+ * Every caller in this tree wants exactly that. */
 #define UBERTOOTH_SERIAL_READ_QUIET_MS 200u
 
 /* Reads an open device's serial number into out as the hex string -s prints;
