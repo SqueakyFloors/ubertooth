@@ -876,7 +876,10 @@ MU_TEST(a_failed_page_to_the_guessed_address_asks_for_t)
 	/* The guessed address really is what was paged, so the advice is about
 	 * the address the user would have to change. */
 	mu_assert(strcmp(fake.paged, "00:00:44:11:22:33") == 0, fake.paged);
-	mu_assert(strcmp(r.err, expected) == 0, r.err);
+	/* strstr, not strcmp: standard error carries the tool's progress before
+	 * this, which the error-line count below is what pins. */
+	mu_assert(strstr(r.err, expected) != NULL, r.err);
+	mu_assert_int_eq(1, occurrences(r.err, "error:"));
 	mu_assert(r.out[0] == '\0', r.out);
 	/* The board was never opened, and the adapter handle went back. */
 	mu_assert_int_eq(0, fake.connects);
@@ -893,7 +896,8 @@ MU_TEST(a_failed_page_to_the_guessed_address_asks_for_t)
 	         "error: connecting to 00:00:44:11:22:33 failed: %s\n",
 	         strerror(EHOSTDOWN));
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(r.err, expected) == 0, r.err);
+	mu_assert(strstr(r.err, expected) != NULL, r.err);
+	mu_assert_int_eq(1, occurrences(r.err, "error:"));
 	mu_assert(r.out[0] == '\0', r.out);
 	mu_assert_int_eq(0, fake.connects);
 	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
@@ -905,8 +909,10 @@ MU_TEST(a_failed_page_to_the_guessed_address_asks_for_t)
 	fake.connect_fails = 1;
 	r = RUN(WHOLE_TARGET);
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(r.err,
-	          "error: connecting to 00:00:44:11:22:33 failed\n") == 0, r.err);
+	mu_assert(strstr(r.err,
+	          "error: connecting to 00:00:44:11:22:33 failed\n") != NULL,
+	          r.err);
+	mu_assert_int_eq(1, occurrences(r.err, "error:"));
 	mu_assert(r.out[0] == '\0', r.out);
 }
 
