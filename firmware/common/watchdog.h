@@ -70,7 +70,8 @@
  * it, never the other way round -- but it does mean a GPDMA handler that
  * stopped returning would keep being fed through. It is not the fault this
  * watchdog is for: the board would still be answering the host, so the host
- * would see wrong or missing capture data rather than the dead board of #239.
+ * would see wrong or missing capture data rather than a board that has gone
+ * silent.
  * test_watchdog.c pins both halves: nothing else sets a priority, and the one
  * that does sets the lowest.
  */
