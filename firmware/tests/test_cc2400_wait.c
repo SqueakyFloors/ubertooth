@@ -715,10 +715,8 @@ MU_TEST(test_service_runs_on_the_fsm_wait)
  * image waited through a macro defined there, and a macro puts the spin back
  * in all of its callers at once.
  *
- * The bench images (assembly_test, cc2400_test) are not here. They are
- * installed with a programmer, not shipped, and a stall at a step is what tells
- * whoever is running them that the radio did not answer, so their waits stay
- * as they are.
+ * The bench images are scanned separately, below: they wait for a packet with
+ * a bare spin, which has no deadline to bound.
  */
 static const char *const radio_sources[] = {
 	FW_RXTX_DIR "/bluetooth_rxtx.c",
@@ -730,6 +728,17 @@ static const char *const radio_sources[] = {
 	FW_BTBR_DIR "/src/btphy/rx_task.c",
 	FW_BTBR_DIR "/src/btphy/scan_task.c",
 	FW_BTBR_DIR "/src/btphy/tx_task.c",
+};
+
+/*
+ * The bench images. They are installed with a programmer rather than shipped,
+ * and they drive the radio the same way, so a bare spin stalls them the same
+ * way: assembly_test polls USB from its own loops, so a radio that never
+ * reports the state a wait is after leaves the board answering nothing.
+ */
+static const char *const bench_radio_sources[] = {
+	FW_DIR "/assembly_test/assembly_test.c",
+	FW_DIR "/cc2400_test/cc2400_test.c",
 };
 
 /*
@@ -771,8 +780,18 @@ static int is_bare_radio_spin(const char *line)
 	return length > 0 && line[length - 1] == ';';
 }
 
+/* Is this line a bare spin waiting for a packet to arrive? That wait has no
+ * deadline: nothing is late, a peer simply has not transmitted yet. The
+ * shipped images give it a body that services USB and leaves when the host
+ * stops the mode; the bench images have no mode to stop, so theirs stay as
+ * they are and `allow_packet_wait` lets them past. */
+static int is_packet_wait(const char *line)
+{
+	return contains_identifier(line, "SYNC_RECEIVED");
+}
+
 /* Count the bare radio spins in one file, printing each. */
-static int count_bare_radio_spins(const char *path)
+static int count_bare_radio_spins(const char *path, int allow_packet_wait)
 {
 	FILE *source = fopen(path, "r");
 	char line[512];
@@ -785,6 +804,8 @@ static int count_bare_radio_spins(const char *path)
 	while (fgets(line, sizeof(line), source) != NULL) {
 		lineno++;
 		strip_comments(line, &in_block);
+		if (allow_packet_wait && is_packet_wait(line))
+			continue;
 		if (is_bare_radio_spin(line)) {
 			printf("  FAIL %s:%d spins on the radio: %s",
 			       path, lineno, line);
@@ -809,7 +830,24 @@ MU_TEST(test_no_radio_source_spins_on_the_radio)
 	size_t f;
 
 	for (f = 0; f < sizeof(radio_sources) / sizeof(radio_sources[0]); ++f)
-		mu_assert_int_eq(0, count_bare_radio_spins(radio_sources[f]));
+		mu_assert_int_eq(0, count_bare_radio_spins(radio_sources[f], 0));
+}
+
+/*
+ * The same check for the bench images, allowing the one wait they keep: a bare
+ * spin on a packet arriving. Every wait on radio state in them goes through
+ * the bounded waits above, so a dead radio stops them at a step with their
+ * LEDs saying how far they got, rather than with a board that has to be
+ * re-plugged before anything else can be tried.
+ */
+MU_TEST(test_no_bench_image_spins_on_radio_state)
+{
+	size_t f;
+
+	for (f = 0; f < sizeof(bench_radio_sources) /
+	                sizeof(bench_radio_sources[0]); ++f)
+		mu_assert_int_eq(0, count_bare_radio_spins(
+			bench_radio_sources[f], 1));
 }
 
 /*
@@ -1040,6 +1078,7 @@ int main(void)
 	MU_RUN(test_service_runs_on_the_oscillator_wait);
 	MU_RUN(test_service_runs_on_the_fsm_wait);
 	MU_RUN(test_no_radio_source_spins_on_the_radio);
+	MU_RUN(test_no_bench_image_spins_on_radio_state);
 	MU_RUN(test_only_the_boot_path_still_spins_on_the_radio);
 	MU_RUN(test_the_scan_slot_ends_when_the_radio_is_not_receiving);
 	MU_RUN(test_each_wait_records_its_own_site);

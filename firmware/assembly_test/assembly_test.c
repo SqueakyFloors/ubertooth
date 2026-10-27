@@ -50,6 +50,7 @@
 
 #include "version.h"
 #include "ubertooth.h"
+#include "cc2400_wait.h"
 #include "usbapi.h"
 #include "usbhw_lpc.h"
 
@@ -660,6 +661,20 @@ static void dio_ssp_start()
 	DIO_SSEL_CLR;
 }
 
+/*
+ * The waits on the radio below are bounded, as they are in the shipped images.
+ * This image drives USB from its own loops, so a radio that never reports the
+ * state a wait is after would leave the board enumerated and answering
+ * nothing, which takes a re-plug to clear. A wait that gives up carries on:
+ * the bound is there to end the loop, not to make the radio work, and what the
+ * board reads from the radio next is then not a measurement.
+ *
+ * Nothing is serviced while they wait, where the shipped image passes its USB
+ * poll in. The bounds are a few milliseconds each and every loop here polls
+ * USB again as soon as the wait returns, which is close enough for a bench
+ * image that a host is only checking the USB interface of.
+ */
+
 /* start un-buffered rx */
 void cc2400_rx()
 {
@@ -681,9 +696,9 @@ void cc2400_rx()
 		/* oops */
 		return;
 	}
-	while (!(cc2400_status() & XOSC16M_STABLE));
+	cc2400_wait_xosc_stable(NULL);
 	cc2400_strobe(SFSON);
-	while (!(cc2400_status() & FS_LOCK));
+	cc2400_wait_fs(1, NULL);
 	cc2400_strobe(SRX);
 #ifdef UBERTOOTH_ONE
 	PAEN_SET;
@@ -710,9 +725,9 @@ void cc2400_txtest()
 		/* oops */
 		return;
 	}
-	while (!(cc2400_status() & XOSC16M_STABLE));
+	cc2400_wait_xosc_stable(NULL);
 	cc2400_strobe(SFSON);
-	while (!(cc2400_status() & FS_LOCK));
+	cc2400_wait_fs(1, NULL);
 	TXLED_SET;
 	cc2400_strobe(STX);
 #ifdef UBERTOOTH_ONE
@@ -800,9 +815,9 @@ void cc2400_rangetest()
 	cc2400_set(SYNCL,   0x1584);
 	cc2400_set(FREND,   8 | pa);
 	cc2400_set(MDMCTRL, 0x0029);
-	while (!(cc2400_status() & XOSC16M_STABLE));
+	cc2400_wait_xosc_stable(NULL);
 	cc2400_strobe(SFSON);
-	while (!(cc2400_status() & FS_LOCK));
+	cc2400_wait_fs(1, NULL);
 	TXLED_SET;
 #ifdef UBERTOOTH_ONE
 	PAEN_SET;
@@ -812,7 +827,7 @@ void cc2400_rangetest()
 		txbuf[18] = pa;
 		for (i = 0; i < 16; i++) {
 			txbuf[19] = i;
-			while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
+			cc2400_wait_fsm(STATE_STROBE_FS_ON, NULL);
 			// transmit a packet
 			for (j = 0; j < len; j++)
 				cc2400_set8(FIFOREG, txbuf[j]);
@@ -820,18 +835,21 @@ void cc2400_rangetest()
 		}
 	}
 	// sent packet, now look for repeated packet
-	while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
+	cc2400_wait_fsm(STATE_STROBE_FS_ON, NULL);
 	TXLED_CLR;
 	cc2400_strobe(SRFOFF);
-	while ((cc2400_status() & FS_LOCK));
+	cc2400_wait_fs_unlock();
 	cc2400_set(FSDIV, channel - 1);
-	while (!(cc2400_status() & XOSC16M_STABLE));
+	cc2400_wait_xosc_stable(NULL);
 	cc2400_strobe(SFSON);
-	while (!(cc2400_status() & FS_LOCK));
+	cc2400_wait_fs(1, NULL);
 	RXLED_SET;
 	while (1) {
-		while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
+		cc2400_wait_fsm(STATE_STROBE_FS_ON, NULL);
 		cc2400_strobe(SRX);
+		/* Waiting for a packet has no deadline, so this wait stays
+		 * unbounded: there is no state the radio is late reaching,
+		 * only a peer that has not transmitted yet. */
 		while (!(cc2400_status() & SYNC_RECEIVED));
 		USRLED_SET;
 		for (j = 0; j < len; j++)
@@ -842,9 +860,9 @@ void cc2400_rangetest()
 	}
 
 	// done
-	while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
+	cc2400_wait_fsm(STATE_STROBE_FS_ON, NULL);
 	cc2400_strobe(SRFOFF);
-	while ((cc2400_status() & FS_LOCK));
+	cc2400_wait_fs_unlock();
 #ifdef UBERTOOTH_ONE
 	PAEN_CLR;
 #endif
@@ -892,9 +910,9 @@ void cc2400_repeater()
 		cc2400_set(SYNCL,   0x1584);
 		cc2400_set(FREND,   0x0008); // minimum tx power
 		cc2400_set(MDMCTRL, 0x0029); // 160 kHz frequency deviation
-		while (!(cc2400_status() & XOSC16M_STABLE));
+		cc2400_wait_xosc_stable(NULL);
 		cc2400_strobe(SFSON);
-		while (!(cc2400_status() & FS_LOCK));
+		cc2400_wait_fs(1, NULL);
 		RXLED_SET;
 		TXLED_CLR;
 		USRLED_CLR;
@@ -902,9 +920,11 @@ void cc2400_repeater()
 		PAEN_SET;
 #endif
 		while (1) {
-			while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
+			cc2400_wait_fsm(STATE_STROBE_FS_ON, NULL);
 			USRLED_CLR;
 			cc2400_strobe(SRX);
+			/* Unbounded for the same reason as the wait in
+			 * cc2400_rangetest(): a packet has no deadline. */
 			while (!(cc2400_status() & SYNC_RECEIVED));
 			USRLED_SET;
 			for (i = 0; i < len; i++)
@@ -917,10 +937,10 @@ void cc2400_repeater()
 		USRLED_CLR;
 		RXLED_CLR;
 		cc2400_strobe(SRFOFF);
-		while ((cc2400_status() & FS_LOCK));
-		while (!(cc2400_status() & XOSC16M_STABLE));
+		cc2400_wait_fs_unlock();
+		cc2400_wait_xosc_stable(NULL);
 		cc2400_set(FSDIV, channel);
-		while (!(cc2400_status() & XOSC16M_STABLE));
+		cc2400_wait_xosc_stable(NULL);
 		cc2400_strobe(SFSON);
 		TXLED_SET;
 		buf[0] = len - 1; // length of data (rest of payload)
@@ -930,7 +950,7 @@ void cc2400_repeater()
 			buf[20] = pa;
 			for (i = 0; i < 16; i++) {
 				buf[21] = i;
-				while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
+				cc2400_wait_fsm(STATE_STROBE_FS_ON, NULL);
 					for (j = 0; j < len; j++)
 						cc2400_set8(FIFOREG, buf[j]);
 				cc2400_strobe(STX);
@@ -938,7 +958,7 @@ void cc2400_repeater()
 		}
 		TXLED_CLR;
 		cc2400_strobe(SRFOFF);
-		while ((cc2400_status() & FS_LOCK));
+		cc2400_wait_fs_unlock();
 	}
 #endif
 }
@@ -1014,14 +1034,14 @@ void specan()
 	cc2400_set(GRMDM,   0x0101); // un-buffered mode, GFSK
 	cc2400_set(MDMCTRL, 0x0029); // 160 kHz frequency deviation
 	//FIXME maybe set RSSI.RSSI_FILT
-	while (!(cc2400_status() & XOSC16M_STABLE));
-	while ((cc2400_status() & FS_LOCK));
+	cc2400_wait_xosc_stable(NULL);
+	cc2400_wait_fs_unlock();
 
 	while (requested_mode == MODE_SPECAN) {
 		for (f = low_freq; f < high_freq + 1; f++) {
 			cc2400_set(FSDIV, f - 1);
 			cc2400_strobe(SFSON);
-			while (!(cc2400_status() & FS_LOCK));
+			cc2400_wait_fs(1, NULL);
 			cc2400_strobe(SRX);
 
 			//u32 j = 100; while (--j); //FIXME crude delay
@@ -1043,7 +1063,7 @@ void specan()
 			}
 
 			cc2400_strobe(SRFOFF);
-			while ((cc2400_status() & FS_LOCK));
+			cc2400_wait_fs_unlock();
 		}
 	}
 	mode = MODE_IDLE;
