@@ -6,10 +6,11 @@ name: Man pages
 # that no longer matches its source. This job runs the refresh and fails if it
 # changes anything.
 #
-# Pull requests run it only when the documentation, this workflow, or the
-# build workflow it reads the libbtbb pin from changes, to keep them fast;
-# every push to main runs it, so a refresh missed on a branch is caught on the
-# merge. A manual run is for checking a ronn upgrade.
+# It runs, on a pull request and on a push to main alike, only when the
+# documentation, this workflow, or the build workflow it reads the libbtbb pin
+# from changes, to keep every other change fast: a refresh missed on a branch
+# is caught on the merge, because the merge touches the same paths. A manual
+# run is for checking a ronn upgrade.
 on:
   push:
     branches: [main]

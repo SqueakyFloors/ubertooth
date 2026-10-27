@@ -201,8 +201,8 @@ firmware flashing), not radio capture.
    triggers: `install-sh.yml` (Ubuntu 24.04 and macOS 15, when `install.sh`
    changes), `libbtbb-pin.yml` (Ubuntu 24.04, on every change with no path
    filter at all, since the files that must agree on the pin include this one
-   and the build guides) and `manpages.yml` (Ubuntu 24.04, when `host/doc`
-   changes), which installs the pinned ronn-ng and fails if the committed man
-   pages no longer match their Markdown.
+   and the build guides) and `manpages.yml` (Ubuntu 24.04, when `host/doc` or
+   `build.yml` changes), which installs the pinned ronn-ng and fails if the
+   committed man pages no longer match their Markdown.
 3. **Hardware-only claims** — anything about radio behaviour (BLE/BR-EDR
    capture) is only "tested" when run on a real Ubertooth per [TEST_PLAN.md](TEST_PLAN.md).

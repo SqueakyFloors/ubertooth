@@ -73,7 +73,9 @@ or non-trivial operational documentation changes:
 - CI has two tiers. Pull requests and pushes to `main` run the minimal tier:
   host and firmware on `ubuntu-24.04` and `macos-26`. The `install-sh` jobs run
   on every push to `main` but on a PR only when `install.sh` changes; the
-  `Man pages` job the same way, when anything under `host/doc` changes. The
+  `Man pages` job runs when anything under `host/doc` changes, and on a change
+  to `build.yml`, where it reads the libbtbb pin it builds against -- on a
+  pull request and on a push to `main` alike, since the paths are the same. The
   weekly schedule, a published release, and a manual run run the full matrix.
   `issue-references` and the two `scripts` jobs run on both tiers and need
   nothing built. `image-revision` and `dfu-package` run on both tiers too,
@@ -115,8 +117,9 @@ Speed matters. Do not wait for every job.
   `image-revision` and `dfu-package`, which read and package the images they
   built; a change to the host's DFU code needs `dfu-package` too, since it
   builds and runs the packaging tool; changes to `install.sh` need both
-  `install-sh` jobs; changes under `host/doc` need the `Man pages` workflow,
-  which `gh pr checks` prints under its job name, `refresh`.
+  `install-sh` jobs; changes under `host/doc`, and a change to `build.yml`,
+  need the `Man pages` workflow, which `gh pr checks` prints under its job
+  name, `refresh`.
   `issue-references`, `api-version`, `libbtbb-pin`, `scripts (ubuntu-24.04)`
   and `scripts (macos-26)` gate every change they run on, whatever the change
   touches: they take seconds to a minute, need nothing built, and a red one
