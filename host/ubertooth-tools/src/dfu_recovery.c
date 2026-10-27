@@ -291,7 +291,8 @@ void dfu_verify_describe_failure(const struct dfu_verify_report *report,
 			snprintf(message, message_size,
 			         "the firmware was written, but the board came back and "
 			         "would not open, so the flash was not checked: read its "
-			         "revision with ubertooth-util -v");
+			         "revision with ubertooth-util -v once nothing else is "
+			         "using it");
 		break;
 	case DFU_VERIFY_IDENTITY_MISMATCH:
 		snprintf(message, message_size,

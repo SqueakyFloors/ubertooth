@@ -1129,7 +1129,8 @@ MU_TEST(a_board_that_will_not_be_claimed_is_not_reported_as_missing)
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strstr(r.err, "error: the firmware was written, but the board "
 	                 "came back and would not open, so the flash was not "
-	                 "checked: read its revision with ubertooth-util -v\n")
+	                 "checked: read its revision with ubertooth-util -v once "
+	                 "nothing else is using it\n")
 	          != NULL,
 	          "the board that refused to open was not reported as such");
 	mu_assert(strstr(r.err, "did not come back on USB") == NULL,

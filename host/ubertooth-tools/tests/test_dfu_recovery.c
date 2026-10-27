@@ -348,6 +348,9 @@ MU_TEST(test_a_board_that_will_not_open_is_not_a_board_that_stayed_away)
 	          "the line does not say the image reached the board");
 	mu_assert(strstr(message, "came back and would not open") != NULL,
 	          "the line does not say the board refused to open");
+	mu_assert(strstr(message, "once nothing else is using it") != NULL,
+	          "the line sends the reader to a command that would be refused "
+	          "the same way");
 	mu_assert(strstr(message, "did not come back on USB") == NULL,
 	          "the line calls a board that is there missing");
 	mu_assert(strstr(message, "power-cycle") == NULL,
