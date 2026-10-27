@@ -17,10 +17,17 @@
  * which covers them, and a capture whose packets carry none has the loss
  * reported against the host clock instead.
  *
+ * A capture can also open with a record left over from the mode before, which
+ * carries that mode's clock reading and its period count. Either one read as
+ * this capture's set the times out by whole periods - as much as five hours
+ * from the count - so the cases here cover both, along with the legitimate
+ * disagreement between a count and its own record's reading that no check may
+ * reject.
+ *
  * Most cases check only differences between reconstructed times, so they hold
- * whatever the first packet's clock is. The cases about a first record reading
- * ahead of the rest are the exception: there the question is which record the
- * capture is anchored on.
+ * whatever the first packet's clock is. The cases about a first record out of
+ * place are the exception: there the question is which record the capture is
+ * anchored on.
  *
  * Every case here runs as a replay, so that the host time of each packet comes
  * from the case rather than from the clock of the machine running the test.
@@ -171,13 +178,14 @@ MU_TEST(a_timer1_wrap_adds_2_32)
 }
 
 /* Replays packets at the given clock readings, arriving at the given host
- * seconds from the start of the capture. The host time comes from the record,
- * as a replay's does, so the capture says when each packet arrived as well as
- * what the board's clock read, and the two can be made to disagree. The
- * reconstructed times come back in times[]. */
+ * seconds from the start of the capture, each carrying the period count in
+ * counts[] - NULL where the packets carry none. The host time comes from the
+ * record, as a replay's does, so the capture says when each packet arrived as
+ * well as what the board's clock read, and the two can be made to disagree.
+ * The reconstructed times come back in times[]. */
 static void replay_records(ubertooth_t* ut, uint64_t period, int records,
                            const uint64_t ticks[], const uint32_t host_s[],
-                           uint64_t times[])
+                           const uint8_t counts[], uint64_t times[])
 {
 	uint32_t base = 1700000000;
 	int packet;
@@ -186,7 +194,9 @@ static void replay_records(ubertooth_t* ut, uint64_t period, int records,
 	host_time_follows_the_clock = 0;
 	for (packet = 0; packet < records; packet++) {
 		systime = base + host_s[packet];
-		times[packet] = at_clock(ut, ticks[packet]);
+		times[packet] = at_clock_with_count(ut, ticks[packet],
+		                                    counts != NULL ?
+		                                    counts[packet] : 0);
 	}
 }
 
@@ -197,7 +207,7 @@ static void replay_a_second_apart(ubertooth_t* ut, uint64_t period,
 {
 	const uint32_t host_s[3] = { 0, 1, 2 };
 
-	replay_records(ut, period, 3, ticks, host_s, times);
+	replay_records(ut, period, 3, ticks, host_s, NULL, times);
 }
 
 /* A first record that reads ahead of every record after it. A packet left
@@ -285,7 +295,7 @@ MU_TEST(records_after_a_stale_first_one_keep_their_times)
 	const uint32_t host_s[4] = { 0, 1, 60, 210 };
 	uint64_t times[4];
 
-	replay_records(&ut, CLK100NS_PERIOD, 4, ticks, host_s, times);
+	replay_records(&ut, CLK100NS_PERIOD, 4, ticks, host_s, NULL, times);
 
 	mu_assert_int_eq(0, ut.clk100ns_upper);
 	mu_assert_int_eq(ut.abs_start_ns, times[1]);
@@ -308,6 +318,200 @@ MU_TEST(a_record_ahead_of_the_rest_does_not_add_a_timer1_period)
 	mu_assert_int_eq(0, ut.clk100ns_upper);
 	mu_assert_int_eq(ut.abs_start_ns, times[1]);
 	mu_assert_int_eq(100 * ONE_SECOND_TICKS, times[2] - times[1]);
+}
+
+/* A capture whose first record is one left over from the mode before, carrying
+ * that mode's period count as well as its clock: the leftover reads 30 s into
+ * the clock, and the capture's own two records read 1 s and 2 s a second apart
+ * and carry the zero the firmware's reset of CLKN left. */
+static void replay_after_a_leftover_count(ubertooth_t* ut, uint8_t count,
+                                          uint64_t times[3])
+{
+	const uint64_t ticks[3] = { 30 * ONE_SECOND_TICKS,
+	                             1 * ONE_SECOND_TICKS,
+	                             2 * ONE_SECOND_TICKS };
+	const uint32_t host_s[3] = { 0, 1, 2 };
+	uint8_t counts[3] = { 0, 0, 0 };
+
+	counts[0] = count;
+	replay_records(ut, CLK100NS_PERIOD, 3, ticks, host_s, counts, times);
+}
+
+/* The count a leftover record carries is whatever the mode before it ran to,
+ * 1 to 255 periods, and none of those is time this capture spent. Read as a
+ * difference from the capture's own zero, 200 is 56 periods forwards - 18,321 s,
+ * over five hours, into every time from there on - while 10 reads backwards,
+ * which left the stale count as the baseline, so every record after it was
+ * rejected too and no period of the capture was counted at all. */
+MU_TEST(a_leftover_first_record_does_not_add_its_period_count)
+{
+	static const uint8_t leftovers[] = { 1, 10, 128, 129, 200 };
+	ubertooth_t ut;
+	uint64_t times[3];
+	size_t leftover;
+
+	for (leftover = 0; leftover < sizeof(leftovers) / sizeof(leftovers[0]);
+	     leftover++) {
+		replay_after_a_leftover_count(&ut, leftovers[leftover], times);
+
+		mu_assert_int_eq(0, ut.clk100ns_upper);
+		/* The capture's own first record starts it, and the count it
+		 * carries is what the records after it are measured from. */
+		mu_assert_int_eq(0, ut.last_clkn_high);
+		mu_assert_int_eq(ut.abs_start_ns, times[1]);
+		mu_assert_int_eq(100 * ONE_SECOND_TICKS, times[2] - times[1]);
+	}
+}
+
+/* A leftover count exactly one period from the capture's own is the one shape
+ * that cannot be settled: that is as far as the firmware's two reads of CLKN
+ * can take a single record's count from its own clock reading, which is a
+ * legitimate disagreement (below). So it is still read as a period of time,
+ * and the capture still comes out 298.68 s late. Pinned here because it is the
+ * limit of what the host clock can decide, not an oversight. */
+MU_TEST(a_leftover_count_one_period_out_is_still_read_as_time)
+{
+	ubertooth_t ut;
+	uint64_t times[3];
+
+	replay_after_a_leftover_count(&ut, 255, times);
+
+	mu_assert_int_eq(1, ut.clk100ns_upper);
+}
+
+/* The other direction of that same unsettleable shape, where the leftover's
+ * count is one period above the capture's own rather than one below. The host
+ * clock cannot place it, so the stale count stays the baseline and the records
+ * whose counts read backwards from it are rejected - which is what used to let
+ * a leftover cost a whole capture. It costs one period and no more: once the
+ * capture's own count reaches the stale one the records are believed again, and
+ * from there the capture runs at the right rate, a period behind.
+ *
+ * The leftover reads 0.5 s with a count of 1, which is where the host clock
+ * runs out: the capture's own first record reads 1 s and carries 0, so the
+ * count going back a period while the reading climbs claims 327.18 s against
+ * the second the host saw - inside the period of latch slack. */
+MU_TEST(a_leftover_count_a_period_above_costs_a_period_not_the_capture)
+{
+	ubertooth_t ut;
+	const uint64_t ticks[5] = { ONE_SECOND_TICKS / 2,
+	                            1 * ONE_SECOND_TICKS,
+	                            300 * ONE_SECOND_TICKS,
+	                            (uint64_t) CLK100NS_PERIOD
+	                            + 10 * ONE_SECOND_TICKS,
+	                            2 * (uint64_t) CLK100NS_PERIOD
+	                            + 10 * ONE_SECOND_TICKS };
+	const uint32_t host_s[5] = { 0, 1, 300, 338, 665 };
+	const uint8_t counts[5] = { 1, 0, 0, 1, 2 };
+	uint64_t times[5];
+
+	replay_records(&ut, CLK100NS_PERIOD, 5, ticks, host_s, counts, times);
+
+	/* The capture's own first record still anchors it, and the records
+	 * before its count catches up with the stale one keep their times. */
+	mu_assert_int_eq(100 * 299 * ONE_SECOND_TICKS, times[2] - times[1]);
+	/* A period into the capture the times fall a period short - the cost
+	 * of this shape - and they stay exactly a period short after it. */
+	mu_assert_int_eq(100 * 9 * ONE_SECOND_TICKS, times[3] - times[1]);
+	mu_assert_int_eq(100 * (uint64_t) CLK100NS_PERIOD,
+	                 times[4] - times[3]);
+}
+
+/* The firmware latches a record's clock reading and its period count with two
+ * reads of CLKN, so the capture's first record can carry a count a period away
+ * from its own reading. That disagreement is legitimate and the count has to be
+ * believed through it: rejecting it would throw away a period that really did
+ * pass.
+ *
+ * Here the first record was caught just after the clock started over, with its
+ * count still latched in the period before: it reads 1 s into period 4 and
+ * carries 3. The next record, ten seconds on, carries the 4 its reading belongs
+ * to, so the count moves a period while the reading climbs. */
+MU_TEST(a_first_count_a_period_behind_its_reading_is_believed)
+{
+	ubertooth_t ut;
+	const uint64_t ticks[2] = { 4 * (uint64_t) CLK100NS_PERIOD
+	                            +  1 * ONE_SECOND_TICKS,
+	                            4 * (uint64_t) CLK100NS_PERIOD
+	                            + 11 * ONE_SECOND_TICKS };
+	const uint32_t host_s[2] = { 0, 10 };
+	const uint8_t counts[2] = { 3, 4 };
+	uint64_t times[2];
+
+	replay_records(&ut, CLK100NS_PERIOD, 2, ticks, host_s, counts, times);
+
+	mu_assert_int_eq(1, ut.clk100ns_upper);
+	mu_assert_int_eq(4, ut.last_clkn_high);
+	mu_assert_int_eq(ut.abs_start_ns, times[0]);
+	mu_assert_int_eq(100 * (CLK100NS_PERIOD + 10 * ONE_SECOND_TICKS),
+	                 times[1] - times[0]);
+}
+
+/* The other order of those two reads: the first record's count is already past
+ * the period its reading is in. It reads 320 s into period 3 and carries 4, and
+ * the record after it, taken once the clock had started over, carries the same
+ * 4. The count moves nowhere, and must still be believed. */
+MU_TEST(a_first_count_a_period_ahead_of_its_reading_is_believed)
+{
+	ubertooth_t ut;
+	const uint64_t ticks[2] = { 3 * (uint64_t) CLK100NS_PERIOD
+	                            + 320 * ONE_SECOND_TICKS,
+	                            4 * (uint64_t) CLK100NS_PERIOD
+	                            +   1 * ONE_SECOND_TICKS };
+	const uint32_t host_s[2] = { 0, 9 };
+	const uint8_t counts[2] = { 4, 4 };
+	uint64_t times[2];
+
+	replay_records(&ut, CLK100NS_PERIOD, 2, ticks, host_s, counts, times);
+
+	mu_assert_int_eq(0, ut.clk100ns_upper);
+	mu_assert_int_eq(4, ut.last_clkn_high);
+	/* That record is a period ahead of itself, so the one after it reads
+	 * before it, which the reconstruction's signed arithmetic allows. */
+	mu_assert_int_eq(100 * 319 * ONE_SECOND_TICKS, times[0] - times[1]);
+}
+
+/* A wrap that really did fall between the capture's first two records still
+ * counts: the count says a period passed and the host clock saw the time to
+ * match. 300 s into period 3, then 37.68 s later in period 4. */
+MU_TEST(a_wrap_between_the_first_two_counted_records_still_counts)
+{
+	ubertooth_t ut;
+	const uint64_t ticks[2] = { 3 * (uint64_t) CLK100NS_PERIOD
+	                            + 300 * ONE_SECOND_TICKS,
+	                            4 * (uint64_t) CLK100NS_PERIOD
+	                            +  10 * ONE_SECOND_TICKS };
+	const uint32_t host_s[2] = { 0, 38 };
+	const uint8_t counts[2] = { 3, 4 };
+	uint64_t times[2];
+
+	replay_records(&ut, CLK100NS_PERIOD, 2, ticks, host_s, counts, times);
+
+	mu_assert_int_eq(1, ut.clk100ns_upper);
+	mu_assert_int_eq(100 * (ticks[1] - ticks[0]), times[1] - times[0]);
+}
+
+/* Nor is there a ceiling on how far apart the capture's first two records may
+ * be: three whole periods and 10 s here, which the count says and the host
+ * clock agrees with. */
+MU_TEST(a_long_counted_gap_at_the_start_still_counts)
+{
+	ubertooth_t ut;
+	uint64_t gap = 3 * (uint64_t) CLK100NS_PERIOD + 10 * ONE_SECOND_TICKS;
+	const uint64_t ticks[2] = { 1 * (uint64_t) CLK100NS_PERIOD
+	                            + 10 * ONE_SECOND_TICKS,
+	                            1 * (uint64_t) CLK100NS_PERIOD
+	                            + 10 * ONE_SECOND_TICKS + 3
+	                            * (uint64_t) CLK100NS_PERIOD
+	                            + 10 * ONE_SECOND_TICKS };
+	const uint32_t host_s[2] = { 0, 993 };
+	const uint8_t counts[2] = { 1, 4 };
+	uint64_t times[2];
+
+	replay_records(&ut, CLK100NS_PERIOD, 2, ticks, host_s, counts, times);
+
+	mu_assert_int_eq(3, ut.clk100ns_upper);
+	mu_assert_int_eq(100 * gap, times[1] - times[0]);
 }
 
 /* Packets a step apart over several wraps, with no step of its own anywhere. */
@@ -519,14 +723,42 @@ MU_TEST(a_gap_of_a_whole_multiple_of_256_periods_is_reported_not_guessed)
 	replay_gap(&ut, CLK100NS_PERIOD, 1, first, gap, times,
 	           text, sizeof(text));
 
-	/* No periods counted, so the whole gap is missing from the times and
-	 * the second packet reads a step before the first rather than the
-	 * single period an inference would have added. */
+	/* No periods counted, so the whole gap is missing from the times. This
+	 * gap falls between the capture's first two packets, where the host
+	 * clock knows the count cannot be the time between them: the anchor
+	 * moves to the second packet, which starts the capture rather than
+	 * landing a step before the first. Either way nothing guesses at the
+	 * gap, and the report below is what says it went missing. */
 	mu_assert_int_eq(0, ut.clk100ns_upper);
-	mu_assert_int_eq(100 * STEP_TICKS, times[0] - times[1]);
+	mu_assert_int_eq(0, times[1] - times[0]);
 	mu_assert(strstr(text, "warning: packet times are behind the host clock "
 	                 "by more than half the capture clock's 327.68 s period")
 	          != NULL, text);
+}
+
+/* The same gap once the capture is under way. No packet is in doubt there, so
+ * the anchor stays put and the packet after the gap reads a step before the
+ * one before it, which is how far an uncountable gap can throw the times out
+ * without any wrap being guessed at. */
+MU_TEST(a_gap_of_256_periods_further_in_leaves_the_anchor_alone)
+{
+	ubertooth_t ut;
+	uint64_t gap = 256 * (uint64_t)CLK100NS_PERIOD - STEP_TICKS;
+	const uint64_t ticks[3] = { 3 * (uint64_t)CLK100NS_PERIOD + FIRST_TICKS,
+	                            3 * (uint64_t)CLK100NS_PERIOD + FIRST_TICKS
+	                            + STEP_TICKS,
+	                            3 * (uint64_t)CLK100NS_PERIOD + FIRST_TICKS
+	                            + STEP_TICKS + gap };
+	const uint32_t host_s[3] = { 0, 100,
+	                             (uint32_t)(100 + gap / ONE_SECOND_TICKS) };
+	const uint8_t counts[3] = { 3, 3, 3 };
+	uint64_t times[3];
+
+	replay_records(&ut, CLK100NS_PERIOD, 3, ticks, host_s, counts, times);
+
+	mu_assert_int_eq(0, ut.clk100ns_upper);
+	mu_assert_int_eq(ut.abs_start_ns, times[0]);
+	mu_assert_int_eq(100 * STEP_TICKS, times[1] - times[2]);
 }
 
 /* A count that reads lower than the last packet's is a record out of order or
@@ -673,6 +905,13 @@ int main(void)
 	MU_RUN(records_after_a_stale_first_one_keep_their_times);
 	MU_RUN(a_lower_reading_further_in_is_still_a_wrap);
 	MU_RUN(a_record_ahead_of_the_rest_does_not_add_a_timer1_period);
+	MU_RUN(a_leftover_first_record_does_not_add_its_period_count);
+	MU_RUN(a_leftover_count_one_period_out_is_still_read_as_time);
+	MU_RUN(a_leftover_count_a_period_above_costs_a_period_not_the_capture);
+	MU_RUN(a_first_count_a_period_behind_its_reading_is_believed);
+	MU_RUN(a_first_count_a_period_ahead_of_its_reading_is_believed);
+	MU_RUN(a_wrap_between_the_first_two_counted_records_still_counts);
+	MU_RUN(a_long_counted_gap_at_the_start_still_counts);
 	MU_RUN(several_wraps_stay_continuous);
 	MU_RUN(a_gap_longer_than_a_period_is_taken_from_the_packet);
 	MU_RUN(the_count_in_the_packet_wraps_without_losing_a_period);
@@ -681,6 +920,7 @@ int main(void)
 	MU_RUN(a_capture_that_keeps_up_reports_nothing);
 	MU_RUN(a_wrap_the_host_clock_agrees_with_still_counts);
 	MU_RUN(a_gap_of_a_whole_multiple_of_256_periods_is_reported_not_guessed);
+	MU_RUN(a_gap_of_256_periods_further_in_leaves_the_anchor_alone);
 	MU_RUN(a_count_that_reads_backwards_does_not_move_the_clock);
 	MU_RUN(a_count_latched_a_period_early_costs_only_its_own_packet);
 	MU_RUN(a_reused_handle_starts_the_next_capture_fresh);

@@ -677,6 +677,12 @@
   over, the host's own clock now settles which it was, so a file that begins
   with such a record replays with its own times.
   [#465](https://github.com/SqueakyFloors/ubertooth/issues/465)
+- A leftover first record no longer puts hours into every timestamp of a
+  `ubertooth-rx` or `ubertooth-follow` capture. Such a record also carries the
+  period count of the mode before, and the drop back to the capture's own count
+  was read as time passing: 18,321 s, over five hours, where the mode before
+  had run 200 periods.
+  [#478](https://github.com/SqueakyFloors/ubertooth/issues/478)
 
 ### Documentation
 

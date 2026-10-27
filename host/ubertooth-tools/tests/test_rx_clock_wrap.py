@@ -12,7 +12,9 @@ one from. A Classic packet carries the period count the firmware keeps, which
 covers such a gap; a capture whose packets carry none has the loss reported
 against the host time of each record instead. Both are replayed here, as is a
 capture whose first record reads ahead of the rest, which used to be taken for
-a wrap and anchor the whole capture 327.68 s late.
+a wrap and anchor the whole capture 327.68 s late, and one whose first record
+carries a period count from the mode before, which put as much as five hours
+into every timestamp.
 
 The fixtures are built here, so no board and no saved capture is needed: a
 replay reads the record format ``ubertooth-rx -d`` writes (a big-endian 32-bit
@@ -136,6 +138,24 @@ GAPS = (1, 2)
 # left over from a mode whose clock was reset can read anywhere in the period,
 # so the whole range is replayed, not just a small lead.
 AHEAD_LEADS = (5, 30, 164, 200, 300, 320)
+
+
+# The period counts a record left over from the mode before can carry. The
+# firmware resets CLKN when a mode starts, so that record holds however many
+# periods the mode that ended had run. Read as a difference from the capture's
+# own zero, 200 is 56 periods forwards - 18,321 s, over five hours - and 10
+# reads backwards, which stalled the count for the whole capture.
+LEFTOVER_COUNTS = (1, 10, 128, 129, 200)
+
+
+def leftover_fixture(count):
+    """A replay of three records whose first is one left over from the mode
+    before: it reads 30 s into the clock and carries `count`, and the capture's
+    own two records read 1 s and 2 s and carry the zero the reset left."""
+    ticks = (30 * 10_000_000, 1 * 10_000_000, 2 * 10_000_000)
+    counts = (count, 0, 0)
+    return b"".join(record(BASE_TIME + i, t, 3 + 7 * i, c)
+                    for i, (t, c) in enumerate(zip(ticks, counts)))
 
 
 def ahead_fixture(lead):
@@ -279,3 +299,15 @@ with tempfile.TemporaryDirectory() as workdir:
         assert pcap == expected, (lead, pcap, result)
         assert pcapng == expected, (lead, pcapng, result)
         assert "warning:" not in result.stderr, (lead, result.stderr)
+
+    # The same first record out of place, but carrying the period count of the
+    # mode before as well. The count is the authority once one has arrived, so
+    # the stale one put whole periods into every time from there on: the two
+    # records the capture does own still have to land at its start a second
+    # apart, whatever the leftover counted up to.
+    for count in LEFTOVER_COUNTS:
+        result, pcap, pcapng = replay(leftover_fixture(count), work, records=3)
+        expected = [0, 0, 1_000_000_000]
+        assert pcap == expected, (count, pcap, result)
+        assert pcapng == expected, (count, pcapng, result)
+        assert "warning:" not in result.stderr, (count, result.stderr)
