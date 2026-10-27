@@ -76,9 +76,12 @@ or non-trivial operational documentation changes:
   `Man pages` job the same way, when anything under `host/doc` changes. The
   weekly schedule, a published release, and a manual run run the full matrix.
   `issue-references` and the two `scripts` jobs run on both tiers and need
-  nothing built. `libbtbb-pin` is its own workflow with no path filter, so it
-  runs on every change, documentation included: two of the files that have to
-  agree on the pin are `COMPATIBILITY.md` and the build guides.
+  nothing built. `image-revision` runs on both tiers too, after the firmware
+  job, on the images that job built: it is the only check that reads a built
+  image's firmware info block the way `ubertooth-dfu` reads it, rather than
+  comparing the magic bytes. `libbtbb-pin` is its own workflow with no path
+  filter, so it runs on every change, documentation included: two of the files
+  that have to agree on the pin are `COMPATIBILITY.md` and the build guides.
   A branch with no open PR gets no CI; open a PR (a draft is enough) to get a
   run.
 - Before cutting a release, run the full tier manually and wait for it:
@@ -103,7 +106,8 @@ Speed matters. Do not wait for every job.
   for `libbtbb-pin`, which takes about five seconds.
 - **Gating set: one Linux and one Mac.** A code change is good to merge once
   `host (ubuntu-24.04)` and `host (macos-26)` have passed and nothing has
-  failed. Changes under `firmware/` also need both firmware jobs; changes to
+  failed. Changes under `firmware/` also need both firmware jobs and
+  `image-revision`, which reads the images they built; changes to
   `install.sh` need both `install-sh` jobs; changes under `host/doc` need the
   `Man pages` workflow, which `gh pr checks` prints under its job name,
   `refresh`. `issue-references`, `libbtbb-pin`, `scripts (ubuntu-24.04)` and
