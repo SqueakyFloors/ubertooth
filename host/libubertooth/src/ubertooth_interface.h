@@ -47,7 +47,7 @@
  * as 1.10), then 0x0111 (1.11), and so on to 0x0119 (1.19); after 0x0119
  * comes 0x0120, not 0x011a.
  */
-#define UBERTOOTH_API_VERSION 0x0131
+#define UBERTOOTH_API_VERSION 0x0132
 
 /*
  * The build string every image carries, reported by UBERTOOTH_GET_COMPILE_INFO
@@ -85,6 +85,17 @@
 #define UBERTOOTH_IDENTIFY_TOGGLE_MS 167
 
 #define DMA_SIZE 50
+
+/* The most bytes one captured low-energy packet can be: the access address
+ * (4), the PDU header (2), a payload as long as the header's 8-bit length
+ * field can claim (255) and the CRC (3).
+ *
+ * Bluetooth 4.2 Data Length Extension allows 251 payload bytes, so a valid
+ * packet is at most 260. The firmware captures whatever length the header
+ * claims, so the four bytes above that are carried too rather than cut off
+ * mid-record; the decoder then ignores them, because it clamps a payload to
+ * the 251 the specification allows. */
+#define LE_MAX_USB_PACKET_SIZE 264
 
 #define NUM_BREDR_CHANNELS 79
 
@@ -210,7 +221,19 @@ enum usb_pkt_types {
 	SPECAN     = 4,
 	LE_PROMISC = 5,
 	EGO_PACKET = 6,
+	/* A low-energy packet too long for one record: the first record and the
+	 * continuations that follow it, in order. See LE_FRAG_* below. */
+	LE_PACKET_START = 7,
+	LE_PACKET_CONT  = 8,
 };
+
+/* Where a fragment's own metadata sits in usb_pkt_rx.reserved, which no other
+ * record type uses. reserved[0] is the low 8 bits of the whole packet's
+ * length; bit 0 of reserved[1] is its 9th bit, and bits 7..1 are the
+ * fragment's position in the chain, counting up from zero. 264 bytes needs
+ * nine length bits and six positions, so both fit. */
+#define LE_FRAG_TOTAL_HIGH_MASK 0x01
+#define LE_FRAG_INDEX_SHIFT 1
 
 enum hop_mode {
 	HOP_NONE      = 0,

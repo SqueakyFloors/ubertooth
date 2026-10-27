@@ -24,6 +24,7 @@
 
 #include "ubertooth_control.h"
 #include "ubertooth_fifo.h"
+#include "ubertooth_le_frag.h"
 #include <btbb.h>
 
 /* specan output types
@@ -87,6 +88,8 @@ typedef struct {
 	 * in. How much of it passes between two packets is what tells a capture
 	 * clock that has started over from a packet simply out of place. */
 	uint64_t last_elapsed_ns;
+
+	le_usb_reassembly le_reassembly;
 
 	btbb_pcap_handle* h_pcap_bredr;
 	lell_pcap_handle* h_pcap_le;
@@ -320,27 +323,5 @@ int rx_afh(ubertooth_t* ut, btbb_piconet* pn, int timeout);
 int rx_afh_r(ubertooth_t* ut, btbb_piconet* pn, int timeout);
 
 void ubertooth_unpack_symbols(const uint8_t* buf, char* unpacked);
-
-/* How many bytes the decoder (libbtbb's lell_allocate_and_decode()) copies
- * out of the pointer it is handed: 64. It takes no length, so a caller has to
- * know that number. libbtbb keeps it in a private header, MAX_LE_SYMBOLS in
- * lib/src/bluetooth_le_packet.h, so the host has to repeat it here. A
- * received packet holds only 50 bytes (DMA_SIZE), which is why a buffer this
- * long is needed at all. */
-#define LE_SYM_LEN 64
-
-/* Copies a received packet into a 64-byte buffer for the decoder and zeroes
- * the 14 bytes the packet does not reach. The caller provides the buffer.
- *
- * The zeroing is the point. The decoder reads the PDU length from byte 5 and
- * then reads the payload and the CRC that follow it. A PDU whose length field
- * claims more than the board captured therefore reads past the 50 bytes that
- * arrived. Here it finds zeros there, not whatever memory sat behind the
- * packet. The capture is still only 50 bytes long; zeroing just stops the
- * decoder presenting the rest as packet data.
- *
- * The buffer is a pointer to an array rather than a plain uint8_t*, so the
- * compiler rejects a caller that passes something shorter. */
-void ubertooth_le_symbols(const usb_pkt_rx* rx, uint8_t (*symbols)[LE_SYM_LEN]);
 
 #endif /* __UBERTOOTH_H__ */

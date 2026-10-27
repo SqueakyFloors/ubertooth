@@ -59,4 +59,7 @@ The following may be possible:
 
 **Question: What is the max capture size of BLE packets?**
 
-**Answer:** 50 bytes. Longer BLE packets are truncated to 50 bytes by the Ubertooth firmware. 
+**Answer:** In ``ubertooth-btle -f`` and ``-n``, a whole packet, up to the
+251-byte payload Bluetooth 4.2 Data Length Extension allows. That is 260 bytes
+with the access address, the PDU header and the CRC. Older firmware cut every
+packet to 50 bytes, and the promiscuous mode, ``-p``, still does.
