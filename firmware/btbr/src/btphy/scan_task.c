@@ -121,7 +121,19 @@ static int scan_start(uint8_t p1, uint8_t p2, uint16_t p3)
 	cc2400_strobe(SFSON);
 	btphy_rf_cfg_rx();
 	btphy_rf_rx();
-	while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_RX);
+
+	/* The one wait in this image whose caller must not carry on. scan_wait()
+	 * below reads GIO6 as "a sync word arrived", and acts on it: it moves the
+	 * slave clock to where it thinks the packet was. With the radio not in
+	 * receive, GIO6 says nothing about this slot, so carrying on would hand
+	 * the scan a packet that never arrived. End the scan with no packet
+	 * instead, as rx_execute() does when it finds the radio not ready. */
+	if (!cc2400_wait_fsm(STATE_STROBE_RX, NULL))
+	{
+		cprintf("scanne: RF not rdy\n");
+		scan_finalize();
+		return 0;
+	}
 
 	scan_wait();
 

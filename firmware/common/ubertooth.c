@@ -556,6 +556,19 @@ u8 cc2400_strobe(u8 reg)
  */
 void cc2400_reset()
 {
+	/* These two waits, and the one for the oscillator in clock_start()
+	 * below, are the radio waits in this tree left unbounded on purpose.
+	 *
+	 * Every caller is boot code running on the internal oscillator, before
+	 * the USB controller is brought up, and nothing is armed that early, so
+	 * the contention that can stall a wait in a running mode cannot happen
+	 * here. The only way the readback never arrives is a radio that is not
+	 * answering at all -- and then there is nothing to carry on to. The
+	 * 16 MHz clock the rest of clock_start() needs comes from the CC2400,
+	 * so a bound here would only move the hang a few lines down, to the
+	 * wait for the main oscillator. Either way the board never enumerates,
+	 * which is a different failure from the one bounding fixes: a board
+	 * that enumerates and then answers nothing. */
 	cc2400_set(MAIN, 0x0000);
 	while (cc2400_get(MAIN) != 0x0000);
 	cc2400_set(MAIN, 0x8000);
@@ -588,12 +601,9 @@ void clock_start()
 	cc2400_reset();
 	cc2400_set(IOCFG, (GIO_CARRIER_SENSE_N << 9) | (GIO_CLK_16M << 3));
 	cc2400_strobe(SXOSCON);
-	/* The one radio wait in this file left unbounded. It runs from
-	 * clock_start() during boot, before the USB controller is brought up, so
-	 * a part that never reports its oscillator stable gives a board that
-	 * never enumerates -- not one that enumerates and answers nothing. There
-	 * is also nothing to carry on with: everything after this needs the
-	 * 16 MHz clock the CC2400 provides. */
+	/* Unbounded on purpose, for the reasons given at cc2400_reset() above:
+	 * this runs during boot, before the USB controller is brought up, and
+	 * everything after it needs the 16 MHz clock the CC2400 provides. */
 	while (!(cc2400_status() & XOSC16M_STABLE));
 
 	/* activate main oscillator */

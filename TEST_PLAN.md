@@ -40,7 +40,7 @@ Hardware required: Ubertooth One, Linux machine (Ubuntu 22.04+ preferred), a BLE
 
 ### 2a. Firmware version check
 - [ ] Run `ubertooth-util -v`
-- [ ] Confirm: returns `Firmware version: <revision> (API:1.29)` (firmware
+- [ ] Confirm: returns `Firmware version: <revision> (API:1.30)` (firmware
       built from this tree; the host tools refuse any other API version)
 - [ ] Confirm: no `is in use by another program` or `claiming the USB
       interface` errors
@@ -191,6 +191,17 @@ requests directly.*
       the BLE capture and no 3 (`KEEP_ALIVE`) at the head
 - [ ] Repeat about ten times: it used to show two `LE_PACKET` records at the
       head roughly one run in three
+
+### 4h. Modes still start after repeated starts and stops
+- [ ] Five times in a row: run `ubertooth-btle -n` for about 3 s, Ctrl+C, then
+      `ubertooth-util -S`
+- [ ] Five times in a row: run `ubertooth-specan -d -` for about 3 s, Ctrl+C,
+      then `ubertooth-util -S`
+- [ ] Confirm: every run produces data, and `ubertooth-util -v` still answers
+      after the last one
+- [ ] Why: the firmware's waits on the radio give up after a bound rather than
+      waiting forever, so a bound set too low would show here as a mode that
+      starts but produces nothing
 
 ---
 
