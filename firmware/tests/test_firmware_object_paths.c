@@ -176,7 +176,13 @@ static const struct {
 	{ "BUILD_FLAGS_C := $(ALL_CFLAGS)", "the C flags being recorded" },
 	{ "BUILD_FLAGS_CPP := $(ALL_CPPFLAGS)", "the C++ flags being recorded" },
 	{ "BUILD_FLAGS_AS := $(ALL_ASFLAGS)", "the assembler flags being recorded" },
-	{ "BUILD_FLAGS_LINK := $(LINKER_SCRIPT)", "the link flags being recorded" },
+	{ "BUILD_FLAGS_LINK := $(LINKER_SCRIPT) $(ALL_CFLAGS_LINKER) $(LDFLAGS)", "the link flags being recorded" },
+	/* The rule has to be reached on every build, or the file is written
+	 * once and a later flag change is never noticed. Only an always-stale
+	 * prerequisite does that, so the phony target and the rule that
+	 * depends on it are both part of the mechanism. */
+	{ ".PHONY: force-flags-check", "the always-stale prerequisite" },
+	{ "$(BUILD_FLAGS_FILE): force-flags-check", "the recorded flags being checked on every build" },
 	/* Rewritten only when the contents change, so an unchanged tree still
 	 * rebuilds nothing. */
 	{ "cmp -s $(BUILD_FLAGS_FILE).tmp", "the compare that keeps an unchanged file untouched" },

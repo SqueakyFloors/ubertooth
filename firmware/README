@@ -17,7 +17,7 @@ Ubertooth Zero, you must set the environment variable BOARD=UBERTOOTH_ZERO.
 
 By default the bluetooth-rxtx firmware has transmit capabilities.  If you wish
 to build firmware without the ability to transmit, you may do so by setting an
-envoronment variable called DISABLE_TX.  For example:
+environment variable called DISABLE_TX.  For example:
 
     DISABLE_TX=1 make bluetooth_rxtx
 

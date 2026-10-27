@@ -460,10 +460,13 @@ $(OBJ): | $(VERSION_HEADER)
 # or which linker script is named, recompiles as well as relinks. That is more
 # than is strictly needed, but it is correct and those change rarely.
 #
-# Two things this does not cover, both of which still want `make clean`: the
-# compiler itself, since a new arm-none-eabi-gcc with the same flags leaves the
-# objects alone; and the contents of the linker script, since what is recorded
-# here is its name and the link has no prerequisite on the file.
+# What is recorded is what reaches a compile or a link command line, and no
+# more. Three things outside that still want `make clean`: the compiler itself,
+# since a new arm-none-eabi-gcc with the same flags leaves the objects alone;
+# the contents of the linker script, since what is recorded here is its name
+# and the link has no prerequisite on the file; and the objcopy options that
+# turn the .elf into a .hex, .bin or .srec, since those run after the link and
+# their outputs do not depend on this file either.
 #
 # One more limit, from make rather than from here: the make on macOS compares
 # mtimes to the whole second, so an object written in the same second as a flag
