@@ -32,7 +32,7 @@ ubertooth\-dfu \-d firmware/bluetooth_rxtx/bluetooth_rxtx\.dfu \-r
 .P
 Add \fB\-U <index|serial>\fR to either command to pick one board of several; it works from both images\.
 .P
-Starting \fBubertooth\-btbr\fR on a board running \fBbluetooth_rxtx\fR fails with \fBerror: could not set up the Ubertooth: LIBUSB_ERROR_TIMEOUT [\-7]\fR, followed by a \fBnote:\fR naming the image to flash\. That firmware offers the endpoint this tool writes to but never reads it, so the tool's first requests sit there until the write times out\.
+Starting \fBubertooth\-btbr\fR on a board running \fBbluetooth_rxtx\fR fails with \fBerror: could not set up the Ubertooth: LIBUSB_ERROR_TIMEOUT [\-7]\fR, followed by a \fBnote:\fR naming that firmware and the image to flash\. \fBbluetooth_rxtx\fR offers the endpoint this tool writes to but never reads it, so the tool's first requests sit there until the write times out\.
 .SH "OPTIONS"
 .TP
 \fB\-f <0\-65535>\fR
@@ -112,7 +112,7 @@ An option value outside 0\-65535, or one that is not a number, is refused before
 .P
 Every other command line the tool will not take \(em an unknown option, a missing option value, a stray word, and \fB\-h\fR, which it does not have \(em prints the usage text on standard output with no \fBerror:\fR line and exits 1\. That is part of issue #410 \fIhttps://github\.com/SqueakyFloors/ubertooth/issues/410\fR as well\.
 .P
-With no Ubertooth attached the tool says \fBerror: no Ubertooth devices found\fR and exits 1\. A board that takes none of the requests the session opens with gets \fBerror: could not set up the Ubertooth: \|\.\|\.\|\.\fR and, when the request timed out, a \fBnote:\fR naming the image to flash, since that is a board carrying \fBbluetooth_rxtx\fR; see FIRMWARE\.
+With no Ubertooth attached the tool says \fBerror: no Ubertooth devices found\fR and exits 1\. A board that takes none of the requests the session opens with gets \fBerror: could not set up the Ubertooth: \|\.\|\.\|\.\fR and, when the request timed out, a \fBnote:\fR naming the image to flash: that is nearly always a board carrying \fBbluetooth_rxtx\fR, though a board already carrying \fBbtbr\fR that stopped answering times out the same way\. See FIRMWARE\.
 .SH "EXIT STATUS"
 0 when the session ended cleanly, which is \fBexit\fR, \fBq\fR, \fBx\fR or Ctrl\-D with nothing left running\. 1 for a command line the tool will not take, when no Ubertooth is found or it cannot be opened, when the board refuses the requests that set the session up, when Ctrl\-C ends the tool before the prompt is up, and when the session ends with a command that would not stop still holding the board\.
 .SH "SEE ALSO"

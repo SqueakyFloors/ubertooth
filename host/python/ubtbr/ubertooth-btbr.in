@@ -349,10 +349,13 @@ def main():
 			# The bluetooth_rxtx firmware offers the endpoint this tool
 			# writes to but never reads it, so a request sits there until the
 			# write times out. That is what every report of the tool hanging
-			# shortly after start has turned out to be, so say what to do
-			# about it rather than leaving a bare libusb error.
-			eprint("note: ubertooth-btbr needs the btbr firmware; flash it "
-				"with ubertooth-dfu -d firmware/btbr/btbr.dfu -r\n")
+			# shortly after start has turned out to be. A board already
+			# carrying btbr that stopped answering times out the same way,
+			# which is why this names what that firmware does rather than
+			# telling the user what their board has.
+			eprint("note: a board carrying bluetooth_rxtx never reads these "
+				"requests; flash btbr with "
+				"ubertooth-dfu -d firmware/btbr/btbr.dfu -r\n")
 		leave(bt, 1)
 	except KeyboardInterrupt:
 		# Interrupted anywhere before the prompt was up, which is the window

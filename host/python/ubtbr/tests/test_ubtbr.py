@@ -37,6 +37,10 @@ What is checked:
     every later command was refused as still running, and the tool ended in
     a traceback.
 
+  * a board that takes none of the requests the session opens with is reported
+    with the firmware that behaves that way named, whichever of those requests
+    it stops taking at, and a setup failure of another kind is not.
+
   * the tool itself, driven through its prompt: "q" exits 0, where it used to
     raise TypeError because the handler for it was called without the line
     the user typed. A Ctrl-C with a command running returns to the prompt,
@@ -874,27 +878,40 @@ print("ubtbr: q at the prompt exits 0")
 
 # a device that takes none of the requests: the tool says so on standard
 # error and exits 1, where the write used to wait forever. It also names the
-# firmware to flash, since a board carrying bluetooth_rxtx offers the endpoint
-# this tool writes to but never reads it, and that is what every report of the
-# tool hanging shortly after start has turned out to be.
+# firmware that behaves that way, since a board carrying bluetooth_rxtx offers
+# the endpoint this tool writes to but never reads it, and that is what every
+# report of the tool hanging shortly after start has turned out to be.
+WRONG_FIRMWARE = "note: a board carrying bluetooth_rxtx never reads these"
 running = tool(dict(ENVIRONMENT, UBTBR_FAKE_WRITE_FAILS_AFTER="0"))
 output, errors = running.communicate("", timeout=DEADLINE * 2)
 assert running.returncode == 1, (running.returncode, output, errors)
 assert output == "", output
 assert "error: could not set up the Ubertooth" in errors, errors
-assert "note: ubertooth-btbr needs the btbr firmware" in errors, errors
+assert WRONG_FIRMWARE in errors, errors
 assert "Traceback" not in errors, errors
 print("ubtbr: a device that takes no request is reported, not waited on")
 
-# a setup request that failed some other way is not a board waiting to be
-# reflashed, so it gets the error without that note
+# and the same when the requests stop being taken part way through the three
+# the session opens with, which is the shape a real board gives: the endpoint
+# it never reads holds the first of them, and the one that fills it waits.
+running = tool(dict(ENVIRONMENT, UBTBR_FAKE_WRITE_FAILS_AFTER="2"))
+output, errors = running.communicate("", timeout=DEADLINE * 2)
+assert running.returncode == 1, (running.returncode, output, errors)
+assert output == "", output
+assert "error: could not set up the Ubertooth" in errors, errors
+assert WRONG_FIRMWARE in errors, errors
+assert "Traceback" not in errors, errors
+print("ubtbr: the request that fills the endpoint is reported the same way")
+
+# a setup request that failed some other way is not a board to reflash, so it
+# gets the error without that note
 running = tool(dict(ENVIRONMENT, UBTBR_FAKE_WRITE_FAILS_AFTER="0",
                     UBTBR_FAKE_WRITE_ERROR="1"))
 output, errors = running.communicate("", timeout=DEADLINE * 2)
 assert running.returncode == 1, (running.returncode, output, errors)
 assert output == "", output
 assert "error: could not set up the Ubertooth" in errors, errors
-assert "btbr firmware" not in errors, errors
+assert "bluetooth_rxtx" not in errors, errors
 assert "Traceback" not in errors, errors
 print("ubtbr: a setup failure that is not a silent endpoint says only that")
 

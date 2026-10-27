@@ -82,7 +82,7 @@ not just sniffers. Minimum coverage:
 |--------------|---------|-----------|
 | BLE advertiser | spare phone, BLE dev board (nRF52 dongle), fitness band | `ubertooth-btle`, RSSI, specan |
 | BLE connection | two nRF52 boards running a known connection | `-f` follow mode, CRC filter (PR #550) |
-| Classic BR/EDR | old BT headset / BT-classic dongle | `ubertooth-rx`, `ubertooth-btbr` paging (PR #540, issue #520) |
+| Classic BR/EDR | old BT headset / BT-classic dongle | `ubertooth-rx`, `ubertooth-btbr` paging (PR #540) |
 | Controllable/scriptable | nRF52 + Zephyr, or a Linux host with BlueZ advertising | reproducible, scriptable traffic for CI assertions |
 
 Key point: for **repeatable automated assertions** you want a *scriptable*
@@ -99,7 +99,7 @@ relatively quiet RF area and treat counts as ranges, not exact values.
 ## 4. The 24-hour soak + data sampling
 
 Goal (from [TEST_PLAN.md](TEST_PLAN.md) section 8): run sniffers continuously, watch for
-memory growth (issues #542/#543), crashes, hangs (issue #520), and USB dropouts.
+memory growth (issues #542/#543), crashes, hangs, and USB dropouts.
 
 Design:
 

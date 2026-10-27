@@ -39,9 +39,9 @@ works from both images.
 
 Starting `ubertooth-btbr` on a board running `bluetooth_rxtx` fails with
 `error: could not set up the Ubertooth: LIBUSB_ERROR_TIMEOUT [-7]`, followed
-by a `note: ` naming the image to flash. That firmware offers the endpoint
-this tool writes to but never reads it, so the tool's first requests sit there
-until the write times out.
+by a `note: ` naming that firmware and the image to flash. `bluetooth_rxtx`
+offers the endpoint this tool writes to but never reads it, so the tool's
+first requests sit there until the write times out.
 
 ## OPTIONS
 
@@ -150,8 +150,9 @@ as well.
 With no Ubertooth attached the tool says `error: no Ubertooth devices found`
 and exits 1. A board that takes none of the requests the session opens with
 gets `error: could not set up the Ubertooth: ...` and, when the request timed
-out, a `note: ` naming the image to flash, since that is a board carrying
-`bluetooth_rxtx`; see FIRMWARE.
+out, a `note: ` naming the image to flash: that is nearly always a board
+carrying `bluetooth_rxtx`, though a board already carrying `btbr` that stopped
+answering times out the same way. See FIRMWARE.
 
 ## EXIT STATUS
 
