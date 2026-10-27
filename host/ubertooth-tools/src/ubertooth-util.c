@@ -322,7 +322,8 @@ static const struct util_reset_follow_ops follow_ops = {
  * A board part-way through a mode stalls the odd control request: one poll in
  * about twenty on the bench. The next one answers, so a single failed read is
  * not the test failing, and the polls are quiet for that reason. A board that
- * has stopped answering altogether still ends the wait, after three.
+ * has stopped answering altogether still ends the wait, on the third failure
+ * in a row.
  */
 #define RANGE_TEST_READ_FAILURES 3
 
@@ -370,6 +371,19 @@ static int report_range_result(const rangetest_result *rr)
  * deadline; timeout_s of 0 waits forever. Returns 0 when the test finished
  * and its result was printed, 1 otherwise.
  */
+/*
+ * Leaves the board idle at the end of a test that did not finish: it would
+ * otherwise listen forever, and the next command would find a board that
+ * looks busy. Returns the clause the caller's message ends with, so no
+ * message claims a stop that did not happen.
+ */
+static const char *range_test_stop(ubertooth_t *ut)
+{
+	if (cmd_stop(ut->devh) >= 0)
+		return "the range test has been stopped";
+	return "the range test has not been stopped; -S stops it";
+}
+
 static int range_test_wait(ubertooth_t *ut, int timeout_s)
 {
 	uint64_t start = util_clock_now_ms();
@@ -384,21 +398,20 @@ static int range_test_wait(ubertooth_t *ut, int timeout_s)
 		uint64_t elapsed = util_clock_now_ms() - start;
 
 		if (timeout_s > 0 && elapsed >= (uint64_t)timeout_s * 1000u) {
-			/*
-			 * The board is still listening, and would go on listening
-			 * forever, so stop it: the next command then finds an idle
-			 * board rather than one that looks busy. A stop that fails
-			 * leaves the board in the test, so say that instead of
-			 * claiming it was stopped.
-			 */
-			int stopped = cmd_stop(ut->devh) >= 0;
+			const char *left = range_test_stop(ut);
 
-			fprintf(stderr, "error: no reply from the repeater within %d s: "
-			        "start one in range with ubertooth-util -e, or wait "
-			        "longer with -n <seconds>. The range test has %s\n",
-			        timeout_s,
-			        stopped ? "been stopped"
-			                : "not been stopped; -S stops it");
+			/* The repeater is the only thing that answers a range test,
+			 * so it is the likely cause -- unless the board was never
+			 * seen running the test at all, which is not the repeater's
+			 * doing and would send the user looking in the wrong place. */
+			if (!started)
+				fprintf(stderr, "error: the board did not start the range "
+				        "test within %d s; %s\n", timeout_s, left);
+			else
+				fprintf(stderr, "error: no reply from the repeater within "
+				        "%d s: start one in range with ubertooth-util -e, "
+				        "or wait longer with -n <seconds>; %s\n",
+				        timeout_s, left);
 			return 1;
 		}
 		if (elapsed >= next_progress) {
@@ -419,10 +432,14 @@ static int range_test_wait(ubertooth_t *ut, int timeout_s)
 		 */
 		util_clock_sleep_ms(RANGE_TEST_POLL_MS);
 		if (cmd_get_rangeresult_quiet(ut->devh, &rr) != 0) {
-			/* A poll that learned nothing; see RANGE_TEST_READ_FAILURES. */
-			if (++failures > RANGE_TEST_READ_FAILURES)
+			/* A poll that learned nothing; see RANGE_TEST_READ_FAILURES.
+			 * Giving up stops the test as the deadline does: nobody is
+			 * watching it now. */
+			if (++failures >= RANGE_TEST_READ_FAILURES) {
+				(void)range_test_stop(ut);
 				return util_report_read_failed(stderr,
 				        "range test result");
+			}
 			continue;
 		}
 		/*
@@ -438,8 +455,10 @@ static int range_test_wait(ubertooth_t *ut, int timeout_s)
 			return report_range_result(&rr);
 
 		if (cmd_get_watchdog_quiet(ut->devh, &info) != 0) {
-			if (++failures > RANGE_TEST_READ_FAILURES)
+			if (++failures >= RANGE_TEST_READ_FAILURES) {
+				(void)range_test_stop(ut);
 				return util_report_read_failed(stderr, "board mode");
+			}
 			continue;
 		}
 		failures = 0;

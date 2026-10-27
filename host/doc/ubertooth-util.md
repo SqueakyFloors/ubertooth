@@ -470,6 +470,7 @@ A second Ubertooth (the sender) runs the range test:
 
     $ ubertooth-util -U <sender> -n
     Starting range test
+    waiting for the repeater... (1 s)
     request PA level : 0
     request number   : 0
     reply PA level   : 0
@@ -479,7 +480,8 @@ During the range test the sender transmits 16 packets at each of the power
 amplifier levels 0 to 7, from the lowest, and then listens for the repeater to
 send the same packet back the same way. The repeater answers the first request
 it decodes, so each direction is measured by the weakest transmission that got
-through it. Both boards check that the payload came back unchanged.
+through it. Both ends take only a packet whose CRC is good, and the sender also
+checks that the payload it gets back is the one it sent.
 
 `-n` follows the test to its end. While it runs it prints a line about once a
 second, so a test that is waiting looks different from one that has finished:
@@ -531,7 +533,7 @@ status 1:
     Starting range test
     waiting for the repeater... (1 s)
     ...
-    error: no reply from the repeater within 10 s: start one in range with ubertooth-util -e, or wait longer with -n <seconds>. The range test has been stopped
+    error: no reply from the repeater within 10 s: start one in range with ubertooth-util -e, or wait longer with -n <seconds>; the range test has been stopped
 
 `-n <seconds>` chooses the wait, and `-n 0` waits forever, for a repeater
 being set up by hand at the other end. The board is left stopped only on the
@@ -540,14 +542,21 @@ timeout; interrupting `-n` with Ctrl-C leaves the test running, and
 the board for as long as it is watching, as every tool holds the board it is
 using, so another command cannot reach it meanwhile.)
 
-A board that leaves the test without a reply — it reset itself, or something
-else took it over — ends the wait at once rather than waiting out the deadline:
-`error: the range test was stopped before the repeater replied`, exit status 1.
-`-n` reads the board several times a second to see that, and a read that fails
-for three polls running ends the wait as well, as
-`error: range test result read failed` or `error: board mode read failed`. One
-failed read does not: a board part-way through a mode stalls the odd control
-request, and the next poll answers.
+A board that leaves the test without a reply — something else took it over —
+ends the wait at once rather than waiting out the deadline: `error: the range
+test was stopped before the repeater replied`, exit status 1. A board that
+never entered the test says so instead of naming the repeater: `error: the
+board did not start the range test within <n> s`.
+
+`-n` reads the board twice a poll, ten polls a second, to follow all that.
+Three failed reads in a row end the wait, as `error: range test result read
+failed` or `error: board mode read failed`; one or two do not, since a board
+part-way through a mode stalls the odd control request and the next poll
+answers. A board that has stopped answering altogether therefore ends the
+command on those reads rather than on the deadline, which can take a few
+seconds longer than the wait asked for: each read has a timeout of its own.
+Every one of these endings leaves the board stopped, so the next command finds
+it idle.
 
 ### -m, the last result
 
@@ -566,9 +575,11 @@ Before a range test has completed since the board started, `-m` prints
 yet, which is not a failure. A test that ran but whose packets came back
 corrupted has no result to report either, so it is a diagnostic rather than a
 value, from `-n` as from `-m`: `error: invalid range test: mismatch on byte
-<n>` on standard error, with exit status 1 and nothing on standard output.
-That means a reply arrived whose payload is not the one that was sent, so the
-levels it carries cannot be trusted.
+<n>` on standard error, with exit status 1 and no result line on standard
+output. That means a reply arrived whose payload is not the one that was sent,
+so the levels it carries cannot be trusted. (`-m` writes nothing at all to
+standard output there; `-n` has already printed the progress lines of the test
+it was watching.)
 
 Note that the range test transmits the Cortex M3 microcontroller's
 serial number. If you do not wish to broadcast that information
@@ -647,9 +658,9 @@ exits 1. It exits with a nonzero status if any requested operation fails, even
 when a later operation in the same command succeeds.
 
 `-n` exits 0 when the range test finished and its result was printed. It
-exits 1 when nothing replied within the wait, when the test was stopped before
-a reply arrived, and when the reply came back corrupted (see [RANGE TEST][]).
-It also exits 1 if one of the two reads it follows the test with fails, as
+exits 1 when nothing replied within the wait, when the test ended or never
+started, and when the reply came back corrupted (see [RANGE TEST][]). It also
+exits 1 when three of the reads it follows the test with fail in a row, as
 `error: range test result read failed` or `error: board mode read failed`.
 
 A command line that asks for no operation at all is refused before any device
@@ -709,10 +720,11 @@ Everything else goes to standard error, so a script reading a value is not fed
 anything else.
 
 `-n` is the one operation whose running commentary is what it was asked for
-rather than a note about itself, so its `waiting for the repeater... (<n> s)`
-lines go to standard output with the result they lead to. `Starting range
-test`, which is about the command and not about the test, stays on standard
-error with the lines below.
+rather than a note about itself: the test is what the command is, so its
+`waiting for the repeater... (<n> s)` lines go to standard output with the
+result they lead to, and a script reading `-n` reads those lines as well as
+the four result lines `-m` gives. `Starting range test`, which is about the
+command and not about the test, stays on standard error with the lines below.
 
 That includes the progress lines for the operations that do something rather
 than report something: `Resetting ubertooth device <selector>`,

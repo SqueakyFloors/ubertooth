@@ -1049,7 +1049,7 @@ MU_TEST(range_test_with_no_repeater_times_out_and_stops_the_board)
 	                 "Starting range test\n"
 	                 "error: no reply from the repeater within 10 s: start "
 	                 "one in range with ubertooth-util -e, or wait longer "
-	                 "with -n <seconds>. The range test has been stopped\n")
+	                 "with -n <seconds>; the range test has been stopped\n")
 	          == 0, r.err);
 	/* the STOP before the test, and the one that leaves the board idle */
 	mu_assert_int_eq(2, fake.stop_calls);
@@ -1103,12 +1103,13 @@ MU_TEST(range_test_with_no_repeater_times_out_and_stops_the_board)
 	mu_assert_int_eq(1, r.rc);
 	mu_assert_int_eq(0, fake.rangeresult_calls);
 
-	/* A board part-way through a mode stalls the odd poll. Three in a row
-	 * are polls that learned nothing, and the test still finishes; the
-	 * fourth ends the wait, naming the read. */
+	/* A board part-way through a mode stalls the odd poll. Two in a row are
+	 * polls that learned nothing, and the test still finishes; the third
+	 * ends the wait, naming the read, and leaves the board stopped since
+	 * nobody is watching the test now. */
 	reset_fake();
 	fake.range_reply_after_ms = 1000;
-	fake.range_stall_calls = RANGE_TEST_READ_FAILURES;
+	fake.range_stall_calls = RANGE_TEST_READ_FAILURES - 1;
 	r = RUN("-n");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strstr(r.out, "reply number     : 4\n") != NULL, r.out);
@@ -1116,25 +1117,27 @@ MU_TEST(range_test_with_no_repeater_times_out_and_stops_the_board)
 
 	reset_fake();
 	fake.range_reply_after_ms = 1000;
-	fake.range_stall_calls = RANGE_TEST_READ_FAILURES + 1;
+	fake.range_stall_calls = RANGE_TEST_READ_FAILURES;
 	r = RUN("-n");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strstr(r.err, "error: range test result read failed\n") != NULL,
 	          r.err);
+	mu_assert_int_eq(2, fake.stop_calls);
 
 	reset_fake();
 	fake.range_reply_after_ms = 1000;
-	fake.watchdog_stall_calls = RANGE_TEST_READ_FAILURES;
+	fake.watchdog_stall_calls = RANGE_TEST_READ_FAILURES - 1;
 	r = RUN("-n");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strstr(r.out, "reply number     : 4\n") != NULL, r.out);
 
 	reset_fake();
 	fake.range_reply_after_ms = 0;
-	fake.watchdog_stall_calls = RANGE_TEST_READ_FAILURES + 1;
+	fake.watchdog_stall_calls = RANGE_TEST_READ_FAILURES;
 	r = RUN("-n");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strstr(r.err, "error: board mode read failed\n") != NULL, r.err);
+	mu_assert_int_eq(2, fake.stop_calls);
 
 	/* A stop the board refuses leaves the test running, and the message
 	 * says so rather than claiming otherwise. */
@@ -1143,15 +1146,29 @@ MU_TEST(range_test_with_no_repeater_times_out_and_stops_the_board)
 	fake.stop_rc = -1;
 	r = RUN("-n");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strstr(r.err, "The range test has not been stopped; -S stops "
+	mu_assert(strstr(r.err, "the range test has not been stopped; -S stops "
 	                 "it\n") != NULL, r.err);
+
+	/* A board that never entered the mode is not the repeater's fault, and
+	 * the deadline says so rather than naming it. */
+	reset_fake();
+	fake.range_reply_after_ms = 0;
+	fake.watchdog.mode = MODE_IDLE;
+	fake.range_leaves_after_ms = 1; /* never seen in range test mode */
+	r = RUN("-n");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: the board did not start the range test "
+	                 "within 10 s; the range test has been stopped\n")
+	          != NULL, r.err);
 }
 
 MU_TEST(a_range_test_stopped_from_elsewhere_ends_the_wait)
 {
 	struct run_result r;
 
-	/* Another command sends -S half a second in: the board leaves the mode
+	/* Something takes the board over half a second in -- a mode request
+	 * from another program, not a -S from another ubertooth-util, which
+	 * cannot reach a board this command holds. The board leaves the mode
 	 * with no result, which -n says rather than waiting out its deadline. */
 	reset_fake();
 	fake.range_reply_after_ms = 0;
