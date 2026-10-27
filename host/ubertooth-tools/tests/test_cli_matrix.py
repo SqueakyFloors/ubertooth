@@ -151,7 +151,8 @@ for entry in SPEC["expected_failures"]:
         sys.exit("%s %s: problem_contains has to be a non-empty list of the "
                  "complaints the cases produce, one per complaint, none of "
                  "them blank, not %r"
-                 % (", ".join(entry["findings"]), entry["cases"][0], reasons))
+                 % (", ".join(entry.get("findings", ["an entry"])),
+                    (entry.get("cases") or ["with no cases"])[0], reasons))
 EXPECTED_FAILURES = [entry for entry in SPEC["expected_failures"]
                      if entry["tool"] == TOOL]
 
@@ -563,20 +564,25 @@ def check_the_spec_lists_every_option():
     for role in sorted(declared - carried):
         problems.append((SPEC_IDS_CASE,
                          "_roles has %r, which no option carries" % role))
-    # A pair rule selects by role, so a side naming a role no option carries
-    # is a rule that can never match.
-    rules = [("_global_pair_rules", rule)
+    # A pair rule selects by role, so a side naming a role that none of the
+    # options the rule applies to carries is a rule that can never match. A
+    # global rule applies to every tool, a tool's own rule only to its own
+    # options, so each is checked against the roles it could actually select.
+    rules = [("_global_pair_rules", rule, carried)
              for rule in SPEC.get("_global_pair_rules", [])]
     for tool, contract in sorted(SPEC["tools"].items()):
-        rules += [(tool, rule) for rule in contract.get("pair_rules", [])]
-    for where, rule in rules:
+        its_own = {option.get("role", DEFAULT_ROLE)
+                   for option in contract.get("options", {}).values()}
+        rules += [(tool, rule, its_own)
+                  for rule in contract.get("pair_rules", [])]
+    for where, rule, selectable in rules:
         for side in (rule["a"], rule["b"]):
             if side.startswith("role:") \
-                    and side[len("role:"):] not in carried:
+                    and side[len("role:"):] not in selectable:
                 problems.append((SPEC_IDS_CASE,
-                                 "the %s rule %s beside %s names a role no "
-                                 "option carries"
-                                 % (where, rule["a"], rule["b"])))
+                                 "the %s rule %s beside %s names %s, which "
+                                 "no option it applies to carries"
+                                 % (where, rule["a"], rule["b"], side)))
 
     # The man page the spec cites has to be there, and it has to list -h:
     # ten of them do not, which is finding F-09. It gets a case id of its own
@@ -632,8 +638,9 @@ def check_the_spec_lists_every_option():
     # two honest, silently and for as long as nobody noticed.
     if not os.path.exists(source):
         problems.append((SPEC_CASE,
-                         "%s is not there, so the option string in the spec "
-                         "is checked against nothing" % os.path.normpath(source)))
+                         "%s is not there, so the option string in the "
+                         "spec is checked against nothing"
+                         % os.path.relpath(source, here)))
     else:
         with open(source) as handle:
             text = handle.read()
@@ -1040,6 +1047,39 @@ def findings_of(claimed):
                              for finding in entry["findings"]}))
 
 
+def pair_reasons_with_complaints(reasons, complaints):
+    """Pair each reason with one complaint it is inside.
+
+    Returns the reasons no pairing could place, by their position, and the
+    complaints left unpaired. The pairing is one to one because two reasons
+    that both fit the same complaint are two complaints the cases have to
+    produce, not one counted twice.
+
+    Pairing is searched rather than taken first-come: a loose reason would
+    otherwise take the only complaint a precise one fits, and the precise
+    one would be reported as gone while it is still there. Each reason tries
+    every complaint it fits, and a complaint already paired gives its reason
+    a chance to move elsewhere -- the standard augmenting search, which on a
+    handful of each costs nothing.
+    """
+    paired = {}                        # complaint position -> reason position
+
+    def claim(which, tried):
+        for spot, complaint in enumerate(complaints):
+            if reasons[which] in complaint and spot not in tried:
+                tried.add(spot)
+                if spot not in paired or claim(paired[spot], tried):
+                    paired[spot] = which
+                    return True
+        return False
+
+    gone = [which for which in range(len(reasons))
+            if not claim(which, set())]
+    left = [complaint for spot, complaint in enumerate(complaints)
+            if spot not in paired]
+    return gone, left
+
+
 def no_local_adapter(directory):
     """Does this machine lack the local Bluetooth adapter the tool opens?
 
@@ -1112,24 +1152,16 @@ def main():
         # and every one of them has to be there: a single reason would stand
         # for whatever it happened to match, so a tool that broke the rule in
         # one more way, or stopped breaking it in one of them, would read as
-        # unchanged. The reason that fits the fewest complaints is matched
-        # first, so a loose one cannot take the complaint a precise one is
-        # the only match for.
-        left = list(problems)
+        # unchanged.
         wanted = [(entry, reason) for entry in claimed
                   for reason in entry["problem_contains"]]
-        wanted.sort(key=lambda pair: (
-            sum(1 for problem in problems if pair[1] in problem),
-            -len(pair[1])))
-        for entry, reason in wanted:
-            hit = next((problem for problem in left if reason in problem),
-                       None)
-            if hit is None:
-                fixed.append("%s: %s no longer complains %r; it now says %s"
-                             % (identifier, ", ".join(entry["findings"]),
-                                reason, problems))
-            else:
-                left.remove(hit)
+        gone, left = pair_reasons_with_complaints(
+            [reason for _, reason in wanted], problems)
+        for which in gone:
+            entry, reason = wanted[which]
+            fixed.append("%s: %s no longer complains %r; it now says %s"
+                         % (identifier, ", ".join(entry["findings"]),
+                            reason, problems))
         if left:
             failures.append((identifier, case, left, result))
 
