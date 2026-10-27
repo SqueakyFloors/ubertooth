@@ -43,7 +43,7 @@ int8_t rssi_min;
 uint8_t rssi_count;
 
 int32_t rssi_sum;
-int16_t rssi_iir[79] = {0};
+int16_t rssi_iir[NUM_BREDR_CHANNELS] = {0};
 
 void rssi_reset(void)
 {
@@ -71,10 +71,10 @@ void rssi_iir_update(uint16_t channel)
 
 	/* Use array to track 79 Bluetooth channels, or just first slot
 	 * of array if the frequency is not a valid Bluetooth channel. */
-	if ( channel < 2402 || channel > 2480 )
-		channel = 2402;
+	if ( channel < BT_FREQ_MIN || channel > BT_FREQ_MAX )
+		channel = BT_FREQ_MIN;
 
-	int i = channel - 2402;
+	int i = channel - BT_FREQ_MIN;
 
 	// IIR using scaled int math (x256)
 	if (rssi_count != 0)
@@ -90,10 +90,10 @@ int8_t rssi_get_avg(uint16_t channel)
 {
 	/* Use array to track 79 Bluetooth channels, or just first slot
 	 * of array if the frequency is not a valid Bluetooth channel. */
-	if ( channel < 2402 || channel > 2480 )
-		channel = 2402;
+	if ( channel < BT_FREQ_MIN || channel > BT_FREQ_MAX )
+		channel = BT_FREQ_MIN;
 
-	return round_div(rssi_iir[channel-2402], 256);
+	return round_div(rssi_iir[channel - BT_FREQ_MIN], 256);
 }
 
 int rssi_threshold_n_valid(uint16_t n)

@@ -17,7 +17,7 @@
 
 /* Internal accumulators (non-static in the .c) so tests can set exact states. */
 extern int32_t rssi_sum;
-extern int16_t rssi_iir[79];
+extern int16_t rssi_iir[NUM_BREDR_CHANNELS];
 extern uint8_t rssi_count;
 
 /* Reference: round-half-away-from-zero, what the code should compute. */
@@ -211,6 +211,36 @@ MU_TEST(test_accepted_range_matches_the_host)
 	mu_assert(!rssi_threshold_n_valid(65535), "a 16-bit maximum must be refused");
 }
 
+/*
+ * The IIR keeps one slot per Bluetooth channel, found by subtracting the bottom
+ * of the band from the frequency, so the band edges must land in the first and
+ * last slots and nothing may fall off either end. A frequency outside the band
+ * shares the first slot, which is how the code has always handled a caller
+ * tuned somewhere the array cannot describe.
+ */
+MU_TEST(test_the_band_fills_the_array_and_outside_it_shares_slot_zero)
+{
+	mu_assert_int_eq(2402, BT_FREQ_MIN);
+	mu_assert_int_eq(2480, BT_FREQ_MAX);
+	mu_assert_int_eq(79, NUM_BREDR_CHANNELS);
+	mu_assert_int_eq(NUM_BREDR_CHANNELS, BT_FREQ_MAX - BT_FREQ_MIN + 1);
+
+	rssi_reset();
+	rssi_iir[0] = -10 * 256;
+	rssi_iir[NUM_BREDR_CHANNELS - 1] = -70 * 256;
+
+	mu_assert_int_eq(-10, rssi_get_avg(BT_FREQ_MIN));
+	mu_assert_int_eq(-70, rssi_get_avg(BT_FREQ_MAX));
+	mu_assert_int_eq(-10, rssi_get_avg(BT_FREQ_MIN - 1));
+	mu_assert_int_eq(-10, rssi_get_avg(BT_FREQ_MAX + 1));
+
+	/* An update outside the band writes slot zero. */
+	rssi_reset();
+	rssi_add(-50);
+	rssi_iir_update(BT_FREQ_MAX + 1);
+	mu_assert(rssi_iir[0] != 0, "an out-of-band update must land in slot zero");
+}
+
 int main(void)
 {
 	printf("RSSI rounding and LED specan threshold tests\n");
@@ -224,5 +254,6 @@ int main(void)
 	MU_RUN(test_insensitive_thresholds_still_discriminate);
 	MU_RUN(test_a_lit_reading_stays_lit_as_n_grows);
 	MU_RUN(test_accepted_range_matches_the_host);
+	MU_RUN(test_the_band_fills_the_array_and_outside_it_shares_slot_zero);
 	return mu_report();
 }

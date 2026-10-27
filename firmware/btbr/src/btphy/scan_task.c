@@ -111,7 +111,7 @@ static int scan_start(uint8_t p1, uint8_t p2, uint16_t p3)
 	chan = hop_channel(0);	// Assume clk1 = 0 = master tx
 
 	/* Tune to chan & start RX */
-	btphy_rf_tune_chan(2402+chan, 0);
+	btphy_rf_tune_chan(BT_FREQ_MIN+chan, 0);
 
 	scan_task.pkt_received = 0;
 	scan_task.pkt_time = 0;
