@@ -342,6 +342,11 @@
   from it in its PCAP output, and `ubertooth-specan -d` wrote samples read out
   of it. Replaying a capture file recorded before this skips such records.
   [#435](https://github.com/SqueakyFloors/ubertooth/issues/435)
+- A streaming capture that loses packets to a truncated USB transfer says so
+  once, on standard error, instead of dropping them in silence and looking like
+  a quiet board. The keep-alive is the only short transfer a board sends on
+  purpose.
+  [#448](https://github.com/SqueakyFloors/ubertooth/issues/448)
 - The two-board range test measures something at last: `ubertooth-util -n`
   against a `-e` repeater reports the power levels within a couple of seconds,
   in either direction, where it used to report nothing at all. Neither mode

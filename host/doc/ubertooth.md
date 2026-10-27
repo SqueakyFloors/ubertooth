@@ -178,6 +178,14 @@ board usually needs `ubertooth-util [-U <selector>] -S` or `-r` afterwards, and
 one that answers neither usually resets itself about three seconds later and
 comes back idle.
 
+A capture that is losing packets says so. A receive transfer that arrived with
+part of a packet cannot be read as a record, so it is dropped, and the capture
+reports it once per run, because such a fault usually repeats: `warning: a
+receive transfer arrived with 32 of a packet's 64 bytes and was dropped; the
+capture is losing packets`. The one short transfer a board sends on purpose is
+the keep-alive a quiet capture gets, a single byte, and that one is not
+reported.
+
 libubertooth follows the split already: it returns what it reads to the tool
 that called it and reports its own problems on standard error, so a library
 message does not land in the middle of a capture. The clock trim and AFH
