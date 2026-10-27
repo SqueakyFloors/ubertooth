@@ -467,6 +467,15 @@ jobs:
       # nothing else: no ARM toolchain, no board, no network, under a minute.
       run: tools/check-image-revision-selftest.sh
 
+    - name: Check that the firmware API version check holds both ways
+      # The api-version job below runs that check against this branch, which
+      # says nothing about whether it would still refuse a bad one. This
+      # builds throwaway repositories in each of the shapes the rule names --
+      # a claimed version, a stray bump, a value that is not binary-coded
+      # decimal, a header it cannot read -- and asserts the status and the
+      # message for each. It needs no network and takes a few seconds.
+      run: tools/check-api-version-selftest.sh
+
   # Issue and pull request numbers must not appear in source, tests or build
   # files (.kiro/steering/branch-and-review.md). A reviewer who happens to know
   # the rule is the only thing that caught the last ones, and only after they
@@ -563,6 +572,41 @@ jobs:
       # lists classifies, so a new image has to be called shipped or
       # bench-only before this goes green.
       run: tools/check-image-revision.sh --from images
+
+  # A board is accepted only if it reports exactly UBERTOOTH_API_VERSION, so a
+  # branch that changes the firmware interface has to take a version main has
+  # not used. Two pull requests set it to the value main had just taken, and
+  # nothing noticed either time: the rule was checked by hand, with a command
+  # nobody ran. Runs on both tiers, like the check below, and needs nothing
+  # built. tools/check-api-version-selftest.sh, run by the scripts job above,
+  # is what shows the check still refuses a bad branch.
+  api-version:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        # The branch's own tip, not the merge commit GitHub builds for a pull
+        # request. That commit already carries main, so its merge base with
+        # main is main's tip, and the version at the merge base -- half of
+        # what the rule compares -- would be main's rather than the branch's.
+        # refs/pull/<number>/head rather than the head commit's hash, because
+        # a pull request from a fork has that hash only in the fork.
+        ref: ${{ github.event_name == 'pull_request' && format('refs/pull/{0}/head', github.event.pull_request.number) || github.ref }}
+        # The check reads the header at three commits and needs a merge base,
+        # so a shallow checkout is not enough. Every way of reading nothing is
+        # a failure in that script rather than a pass, so a checkout that went
+        # wrong here reports itself instead of going quietly green.
+        fetch-depth: 0
+
+    - name: Fetch main
+      # By name, because a run triggered by a push to main has no second
+      # branch to fetch it as a side effect, and the check compares against
+      # main as it is now, not as some earlier fetch left it.
+      run: git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+
+    - name: Check the firmware API version against main
+      run: tools/check-api-version.sh origin/main
 
   # Ubuntu 20.04 is the oldest supported Linux. GitHub retired the hosted
   # ubuntu-20.04 runner, so run it in a container on a current runner. The
