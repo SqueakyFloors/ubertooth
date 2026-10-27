@@ -305,32 +305,39 @@ regex_escape() {
 #
 #   - A line that only uses a watched variable. The link command passes
 #     $(LINKER_SCRIPT) to the linker and the showtarget recipe echoes
-#     $(BOARD); rewriting either used to be a false red on a gating job. The
-#     cost is that "CFLAGS += $(CDEFS)", the line that carries the -D options
-#     into the C compile, is no longer read either, so deleting it would pass
-#     unnoticed.
+#     $(BOARD); rewriting either used to be a false red on a gating job.
+#     Five more lines of the file go with them, and four of those are the cost
+#     of this: the two that carry $(CDEFS) and $(CPPDEFS) into the compile
+#     flags, and the two that turn $(EXTRAINCDIRS) into the -I options.
+#     Deleting one would take the defines or the shared interface header off a
+#     compile command line with nothing noticing here, though not quietly: the
+#     compile itself then fails. The fifth, BUILD_FLAGS_LINK, records the link
+#     command so that changing it relinks, and costs nothing: it is a rebuild
+#     mechanism rather than anything the host sees.
 #   - A longer name that begins with a watched one. LINKER_SCRIPT_DIRS,
 #     LINKER_SCRIPT_FOUND and LINKER_SCRIPT_FILES are three such names, and
 #     matching the watched name as plain text anywhere on a line is what made
 #     the check fail on a branch whose built image was byte-identical.
 #
-# Matching a flag is not quite matching a name. -D and -U take their macro
-# name attached, so they are found wherever one follows; every other flag is
-# matched whole, so -fpack-struct is not found inside -fpack-structure.
+# Matching a flag is not quite matching a name. -D and -U take a macro name,
+# attached or after a blank, so they are found wherever one follows; every
+# other flag is matched whole, so -fpack-struct is not found inside
+# -fpack-structure. Either way the flag has to start a word, so a -D inside a
+# word -- "OBJDIR = build-Dir" -- is not one.
 name_pattern() {
     pat=$(regex_escape "$1") || return 1
     case $1 in
     -D | -U)
-        printf '%s[A-Za-z_$]\n' "$pat"
+        printf '(^|[^A-Za-z0-9_])%s[[:space:]]*[A-Za-z_$]\n' "$pat"
         ;;
     -*)
-        printf '%s([^A-Za-z0-9_-]|$)\n' "$pat"
+        printf '(^|[^A-Za-z0-9_])%s([^A-Za-z0-9_-]|$)\n' "$pat"
         ;;
     *)
         printf '^[[:space:]#]*((override|export)[[:space:]]+)*%s[[:space:]]*([+?!:]?|::|:::)=\n' "$pat"
         printf '^[[:space:]#]*((override|export)[[:space:]]+)*define[[:space:]]+%s([[:space:]]|$)\n' "$pat"
         printf '^[[:space:]#]*(else[[:space:]]+)?(ifeq|ifneq|ifdef|ifndef)([^A-Za-z0-9_].*)?[^A-Za-z0-9_]%s([^A-Za-z0-9_]|$)\n' "$pat"
-        printf -- '-[DU]%s([^A-Za-z0-9_]|$)\n' "$pat"
+        printf '(^|[^A-Za-z0-9_])-[DU]%s([^A-Za-z0-9_]|$)\n' "$pat"
         ;;
     esac
 }
@@ -725,6 +732,28 @@ name_patterns > "$work/patterns" || exit 1
     echo "       compile flag in $common_mk would pass unnoticed" >&2
     exit 1
 }
+
+# And a floor on what those patterns find, because having patterns is not the
+# same as their matching anything. The build file does set these flags, so a
+# pattern list that finds none of them has stopped reading the file -- and the
+# filtered text would then be empty at both commits, compare equal, and ask
+# for no bump. That is the one shape of wrongness this script is meant not to
+# have, so it says so instead.
+if git cat-file -e "$head_commit:$common_mk" 2> /dev/null; then
+    interface_text "$head_commit" "$common_mk" > "$work/mk.head" || {
+        printf 'error: could not read %s at HEAD\n' "$common_mk" >&2
+        exit 1
+    }
+    [ -s "$work/mk.head" ] || {
+        printf 'error: no line of %s at HEAD sets any of the watched compile\n' \
+            "$common_mk" >&2
+        echo "       flags, so a change to one of them would pass unnoticed: the" >&2
+        echo "       patterns in tools/check-api-version.sh have stopped matching" >&2
+        echo "       the file. tools/check-api-version.sh --list-watched prints" >&2
+        echo "       the watched files." >&2
+        exit 1
+    }
+fi
 
 watched_at "$merge_base" "$work/base.list" || {
     echo "error: could not list the firmware sources at the merge base" >&2

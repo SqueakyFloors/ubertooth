@@ -619,6 +619,20 @@ want_status 0
 want_empty_stderr
 want_stdout "no firmware interface file changed"
 
+# And the floor under all of it: having patterns is not the same as their
+# matching anything, so a build file in which none of the watched flags is
+# found is a check that has stopped reading the file rather than a branch with
+# nothing to say. Left to the comparison it would pass, because an empty
+# filtered text at both commits compares equal.
+new_repo 0x0131
+printf 'OPT = s\nOBJDIR = .\nFORMAT = ihex\n' > "$repo/$common_mk"
+commit "$repo" "a build file with none of the watched flags in it"
+run "no watched flag is found in the build file" "$repo" main
+want_status 1
+want_empty_stdout
+want_stderr "sets any of the watched compile"
+want_stderr "have stopped matching"
+
 # The other direction, so the matching above cannot have narrowed to nothing:
 # changing which script the image is laid out with is still a firmware change,
 # and it is the one line of the four that assigns LINKER_SCRIPT itself.

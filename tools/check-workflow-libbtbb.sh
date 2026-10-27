@@ -19,8 +19,9 @@
 #
 #     tools/check-workflow-libbtbb.sh [tree]
 #
-# tree is the checkout to read, and defaults to the one this script is in. The
-# self-test passes a copy with a workflow broken on purpose.
+# tree is the checkout to read, and defaults to the checkout the working
+# directory is in. The self-test passes a copy with a workflow broken on
+# purpose.
 #
 # It reports every match as file:line: text on standard error and exits 1, or
 # says on standard output what it scanned and exits 0. CI runs this same
@@ -46,7 +47,8 @@ Check that no workflow file names a libbtbb repository literally except the
 ones that have a reason to, and that those name the libbtbb pinned in
 .github/workflows/build.yml.
 
-tree is the checkout to read, and defaults to the one this script is in.
+tree is the checkout to read, and defaults to the checkout the working
+directory is in.
 EOF
 }
 

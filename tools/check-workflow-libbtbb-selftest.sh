@@ -277,6 +277,29 @@ want_status 1
 want_empty_stdout
 want_stderr "which cannot be right"
 
+# A listed file the scan cannot read is a failure rather than a file with no
+# matches in it, which is the half of that distinction an earlier version lost
+# by reading xargs's status instead of grep's.
+#
+# Not run as root, which can read a file whatever its mode: the case would
+# then pass as a clean tree and say nothing about the status it is pinning.
+if [ "$(id -u)" -eq 0 ]; then
+    printf '\n%s\n' "skipped: an unreadable workflow file (running as root)"
+else
+    new_tree
+    add_workflow unreadable.yml <<'EOF'
+name: unreadable
+on: [push]
+EOF
+    chmod 000 "$tree/$workflows/unreadable.yml"
+    run "a workflow file the scan cannot read" "$tree"
+    want_status 1
+    want_empty_stdout
+    want_stderr "could not scan"
+    want_stderr "unreadable.yml"
+    chmod 644 "$tree/$workflows/unreadable.yml"
+fi
+
 # The command line. Usage goes to standard output on -h and the exit status is
 # 0, because printing it is what was asked for; a refused command line is an
 # error on standard error.
