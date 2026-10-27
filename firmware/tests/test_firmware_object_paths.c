@@ -209,18 +209,34 @@ static const char *const banned_flag_shape[] = {
  */
 static void check_flags_recorded_after_they_are_set(const char *path)
 {
+	/* Every name whose value ends up in the recorded flags, in both forms
+	 * it is set with: `CFLAGS = ...` once and `CFLAGS += ...` thereafter.
+	 * The snapshot has to come after the last line that sets any of them.
+	 * "FLAGS" alone would miss the ones not named that way, and an OPT set
+	 * below the snapshot records one optimisation level while the compiler
+	 * is given another -- issue #544 over again, in a smaller place. */
+	static const char *const setters[] = {
+		"FLAGS =",  "FLAGS +=",
+		"OPT =",    "OPT +=",
+		"CDEFS =",  "CDEFS +=",
+		"COMPILE_OPTS =", "COMPILE_OPTS +=",
+		"LINKER_OPTS =",  "LINKER_OPTS +=",
+		"BOARD =",  "BOARD +=",
+	};
 	int snapshot = line_with(path, "BUILD_FLAGS_C :=");
-	/* Both forms a flag is set with: `CFLAGS = ...` once and `CFLAGS +=
-	 * ...` thereafter. The snapshot has to come after the last of either. */
-	int set = last_line_with(path, "FLAGS =");
-	int appended = last_line_with(path, "FLAGS +=");
+	int set = 0;
+	size_t i;
 	char why[448];
 
 	/* A makefile missing the snapshot is reported by the shape scan. */
 	if (snapshot == 0)
 		return;
-	if (appended > set)
-		set = appended;
+	for (i = 0; i < sizeof(setters) / sizeof(setters[0]); i++) {
+		int line = last_line_with(path, setters[i]);
+
+		if (line > set)
+			set = line;
+	}
 	snprintf(why, sizeof(why), "%s sets no compile flags at all", path);
 	mu_assert_fatal(set != 0, why);
 	snprintf(why, sizeof(why),
@@ -279,6 +295,31 @@ static void check_depfiles_come_after_all(const char *path)
 	mu_assert(include_line > all_line, why);
 }
 
+/*
+ * The flags rule has to sit below `all:` too, and for the same reason: it is
+ * a rule for a real file, so above `all:` the recorded flags become the
+ * default goal. Plain `make` then writes that one file, calls itself done and
+ * exits 0 without compiling or linking anything.
+ */
+static void check_flag_rule_comes_after_all(const char *path)
+{
+	int all_line = line_with(path, "all: begin");
+	int rule_line = line_with(path, "$(BUILD_FLAGS_FILE): force-flags-check");
+	char why[448];
+
+	snprintf(why, sizeof(why), "%s has no `all: begin ...` rule", path);
+	mu_assert_fatal(all_line != 0, why);
+	/* A missing rule is the shape scan's finding, not a misplaced one. */
+	if (rule_line == 0)
+		return;
+	snprintf(why, sizeof(why),
+	         "%s writes its recorded flags on line %d, above the `all:` "
+	         "rule on line %d, which makes that file the default goal "
+	         "instead of the image",
+	         path, rule_line, all_line);
+	mu_assert(rule_line > all_line, why);
+}
+
 static void check_one_makefile(const char *path)
 {
 	int readable = file_exists(path);
@@ -303,6 +344,7 @@ static void check_one_makefile(const char *path)
 		mu_assert(!file_has(path, banned_shape[i]), why);
 	}
 	check_depfiles_come_after_all(path);
+	check_flag_rule_comes_after_all(path);
 }
 
 /* The two makefiles that decide where object files go. */

@@ -468,12 +468,16 @@ $(OBJ): | $(VERSION_HEADER)
 # turn the .elf into a .hex, .bin or .srec, since those run after the link and
 # their outputs do not depend on this file either.
 #
-# One more limit, from make rather than from here: the make on macOS compares
-# mtimes to the whole second, so an object written in the same second as a flag
-# change can still look up to date. Editing a flag by hand cannot hit a
-# one-second window; a script that rebuilds the instant a build finished can,
-# and `make clean` is the answer there. Every mtime dependency in this makefile,
-# headers included, has the same window.
+# One more limit, from make rather than from here: make rebuilds when a
+# prerequisite is newer than its target, so an object whose mtime is exactly
+# equal to this file's still looks up to date. How close two writes have to be
+# for that depends on the resolution make was built with: the make here (GNU
+# make 3.81 on macOS) compares whole nanoseconds, where an exact tie between a
+# compile and a later write does not happen in practice, while a make built
+# without sub-second support compares whole seconds, where a flag change in the
+# same second as the previous build's objects can be missed. `make clean` is
+# the answer if it ever is. Every mtime dependency here, headers included, has
+# the same property.
 #
 # The flags are snapshotted here with `:=`, so this has to stay below the last
 # line in this file that sets one. Snapshotting outside a recipe also leaves $<
