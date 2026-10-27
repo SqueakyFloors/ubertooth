@@ -961,14 +961,27 @@ int cmd_start_hopping(struct libusb_device_handle* devh, int clkn_offset, int cl
 
 int cmd_set_clock_quiet(struct libusb_device_handle* devh, u32 clkn)
 {
-	int r;
+	int r, data_len;
 	u8 data[4];
-	for(r=0; r < 4; r++)
+	data_len = (int)sizeof(data);
+	for(r=0; r < data_len; r++)
 		data[r] = (clkn >> (8*r)) & 0xff;
 
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_SET_CLOCK, 0, 0,
-		data, 4, 1000);
-	return r < 0 ? r : 0;
+		data, data_len, 1000);
+	if (r < 0)
+		return r;
+	if (r < data_len) {
+		/* A board that took only part of the clock is left on some
+		 * other clock entirely, which a caller testing only for a
+		 * negative result would read as success. One complete line, and
+		 * UBERTOOTH_ERROR_SHORT_REPLY so the caller adds no second --
+		 * as cmd_set_bdaddr_quiet() does. */
+		fprintf(stderr, "error: clock write failed: board took %d of %d "
+		        "bytes\n", r, data_len);
+		return UBERTOOTH_ERROR_SHORT_REPLY;
+	}
+	return 0;
 }
 
 int cmd_set_clock(struct libusb_device_handle* devh, u32 clkn)

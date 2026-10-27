@@ -59,6 +59,10 @@ static struct {
 	int closes;           /* ubertooth_close() */
 	int dev_fd;           /* the adapter handle the tool was given */
 	int dev_fd_closed;    /* whether the run gave it back */
+	/* Whether it was already back by the first turn of the capture loop,
+	 * which is what says the handle goes back before the capture rather
+	 * than at the end of the run. */
+	int dev_fd_closed_by_capture;
 	int thread_starts;
 	int thread_stops;
 	int stops;
@@ -292,6 +296,10 @@ int ubertooth_bulk_receive(ubertooth_t* ut, rx_callback cb, void* cb_args)
 {
 	(void)cb;
 	(void)cb_args;
+	if (fake.receives == 0)
+		fake.dev_fd_closed_by_capture = fake.dev_fd >= 0
+		        && fcntl(fake.dev_fd, F_GETFD) == -1
+		        && errno == EBADF;
 	fake.receives++;
 	if (fake.receives >= fake.blocks_to_end)
 		ut->stop_ubertooth = 1;
@@ -461,8 +469,10 @@ MU_TEST(a_follow_the_board_took_exits_0)
 	mu_assert(strstr(r.err, "error:") == NULL, r.err);
 	mu_assert(strstr(r.err, "warning:") == NULL, r.err);
 	/* The capture needs nothing more from the adapter once the clocks are
-	 * read, so the handle goes back before the capture rather than being
-	 * held for the whole run. */
+	 * read, so the handle is back before the first block is read rather than
+	 * being held for the whole run. */
+	mu_assert(fake.dev_fd_closed_by_capture,
+	          "the adapter handle was still open when the capture started");
 	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
 }
 

@@ -818,9 +818,10 @@
 
 Fixes with no visible change in normal use.
 
-- `ubertooth-follow` gives the local Bluetooth adapter back on every path, and
-  before the capture starts rather than never: it used to hold a handle on an
-  adapter it had finished with for the whole run.
+- `ubertooth-follow` closes the local Bluetooth adapter it opens, on every path
+  out, and once the clock reads are done rather than at the end of the run. It
+  used to hold a handle on an adapter it had finished with for the whole
+  capture, and never close it at all.
   [#506](https://github.com/SqueakyFloors/ubertooth/issues/506)
 - A revision string too long for the one-byte length the firmware reports it
   with is cut to 255 characters, rather than counted modulo 256. The revisions

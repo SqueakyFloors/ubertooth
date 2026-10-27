@@ -173,12 +173,11 @@ A follow that was interrupted (Ctrl-C) exits 0 with whatever it captured, and
 so does `-h`. A refused command line exits 1 (see ARGUMENTS), as does a file
 that cannot be opened and a target the tool could not set up a follow on.
 
-A board that refuses one of the requests a follow is built on — the target's
-address, the clock reset, or the AFH map — exits 1 before the capture starts,
-with the request named on standard error. Following anyway would mean a board
-that is not set up for the piconet: without the target's address it matches no
-packet, and with its clock never zeroed it hops on a clock the offset was not
-measured from.
+A board that refuses the target's address or the clock reset exits 1 before the
+capture starts, with the request named on standard error. Following anyway
+would mean a board that is not set up for the piconet: without the target's
+address it matches no packet, and with its clock never zeroed it hops on a
+clock the offset was not measured from.
 
 A follow whose USB stream fails part-way also exits 1: the board stopped
 answering, or dropped off the bus, so the capture stops there and holds only
