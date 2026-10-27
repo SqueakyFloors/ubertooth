@@ -35,9 +35,9 @@
 #
 # make compares mtimes to the whole second (GNU make 3.81, which is what macOS
 # ships), so a build that changes something in the same second as the previous
-# build's output would see nothing to do. Every leg below therefore waits out
-# the current second before it changes anything -- the `sleep 1` in mark().
-# That is honest about the window rather than racing it.
+# build's output would see nothing to do. Every leg below therefore waits out a
+# second before it changes anything -- the `sleep 1` in mark(). That is honest
+# about the window rather than racing it.
 #
 # Exits 0 when every leg holds, 1 otherwise. Prints each leg as it runs, so a
 # failing run says which one failed without a rerun.
@@ -158,13 +158,20 @@ if [ -n "$nested" ]; then
     exit 1
 fi
 
-# Wait out the current second, then plant a marker. Everything a build writes
-# after this is newer than the marker and everything an earlier build wrote is
-# older, so `find -newer` below says exactly what the next build rewrote. The
-# wait is what makes that true where mtimes are whole seconds.
+# Plant a marker, then wait out the second. Everything a build writes after
+# this is newer than the marker and everything an earlier build wrote is not,
+# so `find -newer` below says exactly what the next build rewrote.
+#
+# The order matters where mtimes are whole seconds. `find -newer` is strict, so
+# a file sharing the marker's second counts as not newer, and this order puts
+# every tie on the safe side: the marker is planted in the same second as the
+# previous build's output, which must read as not rewritten, and the wait puts
+# the next build a whole second later, where what it rewrites must read as
+# rewritten. Planting the marker after the wait would reverse the second half
+# and let a rebuilt file read as untouched.
 mark() {
-    sleep 1
     touch "$work/marker" || exit 1
+    sleep 1
 }
 
 # The files matching $2 under the image directory $1 that were written since
@@ -197,6 +204,12 @@ build() {
 # Replace the one line of $1 that reads exactly $2 with $3. The count has to
 # be one: an edit that found nothing would leave the mechanism in place, and
 # the leg relying on it would pass for the wrong reason.
+#
+# The two strings reach awk through the environment, not through -v, which
+# expands backslash escapes in what it assigns: a makefile line ending in a
+# line continuation would then never match, awk would copy the file unchanged,
+# and the leg relying on the edit would pass for the wrong reason. The grep
+# above would not notice, since the match it counts is its own.
 replace_line() {
     count=$(grep -cxF -- "$2" "$1") || count=0
     if [ "$count" -ne 1 ]; then
@@ -204,7 +217,7 @@ replace_line() {
             "error: expected exactly one line '$2' in $1, found $count" >&2
         exit 1
     fi
-    awk -v want="$2" -v new="$3" '$0 == want { print new; next } { print }' \
+    want=$2 new=$3 awk '$0 == ENVIRON["want"] { print ENVIRON["new"]; next } { print }' \
         "$1" > "$1.edited" || exit 1
     mv "$1.edited" "$1" || exit 1
 }
@@ -245,25 +258,26 @@ check_image() {
         pass "$name: a build with nothing changed rebuilds nothing"
     fi
 
-    # A different optimisation level is a different compiler command line and
-    # the same sources, which is the change make cannot see for itself.
+    # An extra define is a different compiler command line and the same
+    # sources, which is the change make cannot see for itself.
     mark
-    build "$image" OPT=1
+    build "$image" $flag_change
     if [ -z "$(rewritten "$image" '*.o')" ]; then
-        fail "$name: changing OPT recompiled nothing, so the objects in the" \
-            "image were compiled with other flags"
+        fail "$name: changing a compile flag recompiled nothing, so the" \
+            "objects in the image were compiled with other flags"
     elif [ -z "$(rewritten "$image" "$elf")" ]; then
-        fail "$name: changing OPT recompiled the objects but left $elf alone"
+        fail "$name: changing a compile flag recompiled the objects but left" \
+            "$elf alone"
     else
-        pass "$name: changing OPT recompiles the objects and relinks"
+        pass "$name: changing a compile flag recompiles the objects and relinks"
     fi
 
     # The script decides the memory map, so editing it has to relink -- and
-    # only relink: it reaches no compile command line. OPT stays where the
+    # only relink: it reaches no compile command line. The flag stays where the
     # previous leg left it, so the only change here is the script's mtime.
     mark
     touch "$script" || exit 1
-    build "$image" OPT=1
+    build "$image" $flag_change
     if [ -z "$(rewritten "$image" "$elf")" ]; then
         fail "$name: touching $script_name left the previous $elf in place"
     elif [ -n "$(rewritten "$image" '*.o')" ]; then
@@ -277,13 +291,23 @@ check_image() {
     # the makefiles read out of the script rather than naming.
     mark
     touch "$included" || exit 1
-    build "$image" OPT=1
+    build "$image" $flag_change
     if [ -z "$(rewritten "$image" "$elf")" ]; then
         fail "$name: touching $included_name left the previous $elf in place"
+    elif [ -n "$(rewritten "$image" '*.o')" ]; then
+        fail "$name: touching $included_name recompiled objects, which no" \
+            "linker script change needs"
     else
         pass "$name: touching $included_name relinks"
     fi
 }
+
+# The compile-flag change every leg uses: a define nothing reads, so it reaches
+# the compile command line and changes nothing else. A different optimisation
+# level would do as well on its own, but it also changes how big the image is,
+# and the bootloader has to fit in 16 KiB -- a gating check should not spend
+# that headroom to make a point about dependencies.
+flag_change="COMPILE_OPTS=-DFIRMWARE_REBUILD_CHECK"
 
 printf '%s\n' "Firmware rebuild checks, in a copy of the tree at $tree"
 
@@ -306,9 +330,9 @@ check_image assembly_test assembly_test.elf \
 # The two legs that show the ones above are not vacuous, both against
 # firmware/common.mk and the blinky image it builds.
 #
-# They run in this order, and the first keeps OPT where check_image left it,
-# so that neither needs a build in between to settle: each changes exactly one
-# thing and asserts that nothing comes of it.
+# They run in this order, and the first keeps the compile flag where
+# check_image left it, so that neither needs a build in between to settle: each
+# changes exactly one thing and asserts that nothing comes of it.
 printf '%s\n' "Now with the mechanism broken on purpose, nothing may rebuild"
 
 common_mk=firmware/common.mk
@@ -318,7 +342,7 @@ common_mk=firmware/common.mk
 replace_line "$tree/$common_mk" '%.elf: $(OBJ) $(LINKER_SCRIPT_FILES)' '%.elf: $(OBJ)'
 mark
 touch "$tree/firmware/common/LPC17xx_Linker_Script_with_bootloader.ld" || exit 1
-build "$tree/firmware/blinky" OPT=1
+build "$tree/firmware/blinky" $flag_change
 if [ -n "$(rewritten "$tree/firmware/blinky" blinky.elf)" ]; then
     fail "with the link's prerequisite on the linker script removed, touching" \
         "the script still relinked, so that leg would pass either way"
@@ -327,19 +351,19 @@ else
 fi
 restore "$common_mk"
 
-# The flag record is rewritten whenever the flags change, whether or not the
-# objects depend on it, so this leg has to watch the objects and not the image:
-# the link's prerequisite on the script, restored above, relinks the image on
-# its own after the touch in the leg before.
+# This leg has to watch the objects and not the image: the link's prerequisite
+# on the script is restored above, and the script was touched in the leg
+# before, so the image relinks here whatever the objects do.
 # shellcheck disable=SC2016 # makefile text, as above
 replace_line "$tree/$common_mk" '$(OBJ): $(BUILD_FLAGS_FILE)' ''
 mark
 build "$tree/firmware/blinky"
 if [ -n "$(rewritten "$tree/firmware/blinky" '*.o')" ]; then
     fail "with the objects' dependency on the recorded flags removed," \
-        "changing OPT still recompiled, so that leg would pass either way"
+        "changing a compile flag still recompiled, so that leg would pass" \
+        "either way"
 else
-    pass "without the dependency, changing OPT recompiles nothing"
+    pass "without the dependency, changing a compile flag recompiles nothing"
 fi
 restore "$common_mk"
 

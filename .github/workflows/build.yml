@@ -250,7 +250,7 @@ jobs:
     - name: Install dependencies (macOS)
       # Twelve minutes is well above what this step has ever legitimately
       # taken (four and a half on the oldest runner, where brew rebuilt a
-      # dependency from source), and well below the job's twenty, so a brew
+      # dependency from source), and well below the job's own budget, so a brew
       # that never finishes fails here by name.
       timeout-minutes: 12
       run: |
@@ -426,10 +426,11 @@ jobs:
     - name: Check that a flag or linker-script change rebuilds the firmware
       working-directory: ${{github.workspace}}
       shell: bash
-      # Above its worst observed run by a wide margin but well under the job's
-      # own limit, so a check that hangs is reported as this step timing out
-      # rather than as the whole job running out.
-      timeout-minutes: 5
+      # Three times its worst observed run, and inside the slack the job has
+      # left once the install and build steps have spent their own budgets, so
+      # a check that hangs is reported as this step timing out and named,
+      # rather than as the whole job running out of time.
+      timeout-minutes: 3
       run: tools/check-firmware-rebuilds.sh
 
   # The scripts in tools/ are CI's own moving parts, and nothing used to lint

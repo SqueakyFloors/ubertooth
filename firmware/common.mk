@@ -270,6 +270,11 @@ LDFLAGS += -Wl,--end-group
 # memory map or a section layout compiles nothing, links nothing and leaves
 # the previous image in place.
 #
+# The search follows $(EXTRALIBDIRS) because that is where every -L in this
+# file comes from. An image that put a -L of its own into $(LINKER_OPTS) would
+# widen the linker's search and not this one, so a script found only there
+# would go untracked: add the directory to $(EXTRALIBDIRS) instead.
+#
 # Each script pulls in one more file with an INCLUDE line, which the linker
 # resolves through the same search, so those files are prerequisites too.
 # They are read out of the script rather than named here, so adding an
