@@ -51,6 +51,7 @@ static struct {
 	/* The two BlueZ failures: no adapter of that name, and one that is
 	 * there but will not open. Each is the errno the call leaves behind. */
 	int devid_fails;
+	int devid_errno;     /* 0 for a failure that left no errno behind */
 	int open_fails;
 	char adapter[16];    /* the adapter name -b asked for */
 	int dev_fd;          /* the adapter handle the tool was given */
@@ -91,7 +92,9 @@ int hci_devid(const char* str)
 {
 	snprintf(fake.adapter, sizeof(fake.adapter), "%s", str ? str : "");
 	if (fake.devid_fails) {
-		errno = ENODEV;
+		/* The tool clears errno before the call, so 0 here is a failure
+		 * that set none -- which BlueZ does not promise to do. */
+		errno = fake.devid_errno;
 		return -1;
 	}
 	return 0;
@@ -203,9 +206,10 @@ int ubertooth_bulk_init(ubertooth_t* ut)
 {
 	(void)ut;
 	if (fake.bulk_init_rc < 0)
-		/* As the library reports a transfer libusb would not take. */
+		/* As the library reports a transfer libusb would not take: the
+		 * libusb code in the line, -1 to the caller. */
 		fprintf(stderr, "error: submitting the receive transfer failed "
-		        "(%d)\n", fake.bulk_init_rc);
+		        "(%d)\n", LIBUSB_ERROR_NO_DEVICE);
 	return fake.bulk_init_rc;
 }
 
@@ -446,7 +450,7 @@ MU_TEST(a_capture_that_cannot_be_set_up_exits_1_and_gives_everything_back)
 		const char* message;
 	} cases[] = {
 		{ "",  -1, 0, 0,
-		  "error: submitting the receive transfer failed (-1)\n" },
+		  "error: submitting the receive transfer failed (-4)\n" },
 		{ "",  0, EAGAIN, 0, NULL /* filled in below */ },
 		{ "s", 0, 0, LIBUSB_ERROR_TIMEOUT,
 		  "error: the Ubertooth did not answer in time (libusb -7)\n" },
@@ -491,6 +495,7 @@ MU_TEST(a_bluez_failure_is_reported_on_standard_error)
 	/* No adapter of that name. */
 	reset_fake();
 	fake.devid_fails = 1;
+	fake.devid_errno = ENODEV;
 	r = RUN("-b", "hci7");
 	snprintf(expected, sizeof(expected),
 	         "error: Bluetooth device hci7 not found: %s\n",
@@ -501,6 +506,16 @@ MU_TEST(a_bluez_failure_is_reported_on_standard_error)
 	/* Nothing was opened: the adapter is found before the board. */
 	mu_assert(fake.calls[0] == '\0', fake.calls);
 	mu_assert_int_eq(0, fake.stops);
+
+	/* The same lookup failing without leaving an errno behind says what it
+	 * knows rather than printing "Undefined error: 0" as the reason. */
+	reset_fake();
+	fake.devid_fails = 1;
+	r = RUN("-b", "hci7");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strcmp(r.err,
+	          "error: Bluetooth device hci7 not found\n") == 0, r.err);
 
 	/* An adapter that is there but will not open. */
 	reset_fake();

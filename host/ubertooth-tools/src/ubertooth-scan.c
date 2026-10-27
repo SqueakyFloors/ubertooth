@@ -279,10 +279,18 @@ int main(int argc, char *argv[])
 	 * caller redirecting the scan results to a file collected it with them and
 	 * saw nothing on the terminal; the second was a perror() line with no
 	 * "error: " prefix. */
+	/* Cleared first, and a reason given only if there is one: BlueZ does not
+	 * promise an errno for every way the lookup can fail, and a leftover one
+	 * from an earlier call would be reported as this failure's cause. */
+	errno = 0;
 	dev_id = hci_devid(bt_dev);
 	if (dev_id < 0) {
-		fprintf(stderr, "error: Bluetooth device %s not found: %s\n",
-		        bt_dev, strerror(errno));
+		if (errno != 0)
+			fprintf(stderr, "error: Bluetooth device %s not found: %s\n",
+			        bt_dev, strerror(errno));
+		else
+			fprintf(stderr, "error: Bluetooth device %s not found\n",
+			        bt_dev);
 		return 1;
 	}
 
@@ -337,7 +345,15 @@ int main(int argc, char *argv[])
 		free(ii);
 	}
 
-	btbb_init(max_ac_errors);
+	/* libbtbb refuses only a -e out of its own range, which the check on -e
+	 * above has already caught, and it says so itself. The result was ignored
+	 * outright before, which would have left the scan decoding with a
+	 * syndrome map it never built. */
+	if (btbb_init(max_ac_errors) < 0) {
+		ubertooth_stop(ut);
+		close(dev_handle);
+		return 1;
+	}
 	btbb_init_survey();
 
 	if (timeout)

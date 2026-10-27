@@ -831,10 +831,13 @@ Fixes with no visible change in normal use.
   used to hold a handle on an adapter it had finished with for the whole
   capture, and never close it at all.
   [#506](https://github.com/SqueakyFloors/ubertooth/issues/506)
-- A capture whose collecting thread could not be started says so and ends,
-  rather than waiting forever for packets nobody was there to deliver. The
-  failure was reported as a positive number and tested for a negative one.
+- A `ubertooth-rx`, `ubertooth-scan` or `ubertooth-follow` capture whose
+  collecting thread could not be started says so and ends, rather than waiting
+  forever for packets nobody was there to deliver. The failure was reported as
+  a positive number and tested for a negative one. `ubertooth-specan` and
+  libubertooth still test it the old way.
   [#431](https://github.com/SqueakyFloors/ubertooth/issues/431)
+  [#564](https://github.com/SqueakyFloors/ubertooth/issues/564)
 - A revision string too long for the one-byte length the firmware reports it
   with is cut to 255 characters, rather than counted modulo 256. The revisions
   this tree builds are twelve characters, so nothing reached that.

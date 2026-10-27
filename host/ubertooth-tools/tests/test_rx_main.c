@@ -210,9 +210,10 @@ int ubertooth_bulk_init(ubertooth_t* ut)
 	(void)ut;
 	device.bulk_inits++;
 	if (device.bulk_init_rc < 0)
-		/* As the library reports a transfer libusb would not take. */
+		/* As the library reports a transfer libusb would not take: the
+		 * libusb code in the line, -1 to the caller. */
 		fprintf(stderr, "error: submitting the receive transfer failed "
-		        "(%d)\n", device.bulk_init_rc);
+		        "(%d)\n", LIBUSB_ERROR_NO_DEVICE);
 	return device.bulk_init_rc;
 }
 
@@ -721,7 +722,7 @@ MU_TEST(a_capture_that_cannot_start_exits_one)
 	r = RUN_RX("-t", "10");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.err, "error: submitting the receive transfer failed "
-	          "(-1)\n") == 0, r.err);
+	          "(-4)\n") == 0, r.err);
 	mu_assert(r.out[0] == '\0', r.out);
 	/* Nothing was started on top of it: no poll thread, no mode request, no
 	 * channel, no block. The board is given back. */

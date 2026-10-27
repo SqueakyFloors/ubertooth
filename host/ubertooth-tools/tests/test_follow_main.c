@@ -31,6 +31,7 @@
  * the clock reads, so no case needs a Bluetooth adapter on the machine running
  * the tests.
  */
+#include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -56,6 +57,8 @@ static struct {
 	int bulk_init_rc;     /* returned by ubertooth_bulk_init() */
 	int bdaddr_rc;        /* returned by cmd_set_bdaddr_quiet() */
 	int clock_rc;         /* returned by cmd_set_clock_quiet() */
+	int thread_start_rc;  /* returned by ubertooth_bulk_thread_start() */
+	int hopping_rc;       /* returned by cmd_start_hopping() */
 	int closes;           /* ubertooth_close() */
 	int dev_fd;           /* the adapter handle the tool was given */
 	int dev_fd_closed;    /* whether the run gave it back */
@@ -274,7 +277,7 @@ int cmd_start_hopping(struct libusb_device_handle* devh, int clkn_offset,
 	(void)clkn_offset;
 	(void)clk100ns_offset;
 	record('h');
-	return 0;
+	return fake.hopping_rc;
 }
 
 int ubertooth_bulk_init(ubertooth_t* ut)
@@ -284,11 +287,13 @@ int ubertooth_bulk_init(ubertooth_t* ut)
 	return fake.bulk_init_rc;
 }
 
+/* pthread_create() returns an errno, which is positive, and the tool has to
+ * read it that way: the fake hands back whatever the case asked for. */
 int ubertooth_bulk_thread_start()
 {
 	record('p');
 	fake.thread_starts++;
-	return 0;
+	return fake.thread_start_rc;
 }
 
 void ubertooth_bulk_thread_stop()
@@ -485,9 +490,13 @@ MU_TEST(a_follow_the_board_took_exits_0)
 
 /* The board is configured before the stream is started, so a stream that
  * cannot start has a configured board to give back: it is stopped, the poll
- * thread is never created, and no further request goes out. */
+ * thread is never created, and no further request goes out.
+ *
+ * Each of these exits 1, not the failing call's own return value, which a
+ * shell wraps into a byte a script cannot read. */
 MU_TEST(a_stream_that_cannot_start_gives_the_board_back)
 {
+	char expected[128];
 	struct run_result r;
 
 	reset_fake();
@@ -502,6 +511,30 @@ MU_TEST(a_stream_that_cannot_start_gives_the_board_back)
 	mu_assert_int_eq(0, fake.receives);
 	mu_assert_int_eq(1, fake.stops);
 	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
+
+	/* The thread that collects the capture. pthread_create() reports a
+	 * failure as a positive errno, which a "< 0" test let through: the
+	 * follow then had nobody to complete its transfers. */
+	reset_fake();
+	fake.thread_start_rc = EAGAIN;
+	r = RUN(TARGET);
+	snprintf(expected, sizeof(expected),
+	         "error: could not start the thread that collects the capture:"
+	         " %s\n", strerror(EAGAIN));
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, expected) != NULL, r.err);
+	mu_assert(strcmp(fake.calls, "akip") == 0, fake.calls);
+	mu_assert_int_eq(0, fake.receives);
+	mu_assert_int_eq(1, fake.stops);
+
+	/* The request that starts the hopping, which libubertooth reports
+	 * itself: the status is the tool's own 1. */
+	reset_fake();
+	fake.hopping_rc = -9;
+	r = RUN(TARGET);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, fake.receives);
+	mu_assert_int_eq(1, fake.stops);
 }
 
 /* -t names the whole address, and the board is told to follow the piconet
