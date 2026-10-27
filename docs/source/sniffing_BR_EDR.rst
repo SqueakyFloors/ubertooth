@@ -79,8 +79,8 @@ Choosing the tool and firmware
 ``bluetooth_rxtx`` is the standard firmware that every other tool, including
 ``ubertooth-btle``, needs. The ``btbr`` firmware is a separate image for
 ``ubertooth-btbr`` only. Flash it with
-``ubertooth-dfu -d btbr/btbr.dfu -r`` (see :doc:`firmware`), and flash
-``bluetooth_rxtx.dfu`` again afterwards to use the other tools.
+``ubertooth-dfu -d btbr/btbr.dfu -r`` (see :ref:`the-two-firmware-images`),
+and flash ``bluetooth_rxtx.dfu`` again afterwards to use the other tools.
 
 
 
@@ -187,5 +187,6 @@ Limitations:
   `#520 <https://github.com/greatscottgadgets/ubertooth/issues/520>`__); see
   `firmware/btbr/README.md <https://github.com/SqueakyFloors/ubertooth/blob/main/firmware/btbr/README.md>`__.
 
-`host/python/ubtbr/README.md <https://github.com/SqueakyFloors/ubertooth/blob/main/host/python/ubtbr/README.md>`__ lists the other ``ubertooth-btbr`` commands
-(``inquiry``, ``page``, ``inquiry_scan``, ``page_scan``, ``l2ping``).
+`ubertooth-btbr.md <https://github.com/SqueakyFloors/ubertooth/blob/main/host/doc/ubertooth-btbr.md>`__ documents the other prompt commands
+(``inquiry``, ``page``, ``inquiry_scan``, ``page_scan``, ``l2ping``,
+``bdaddr``, ``idle``), the two options, and the limitations.

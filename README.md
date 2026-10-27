@@ -114,6 +114,7 @@ Ubertooth ships a set of host command-line tools. Each links to its manual page.
 | [ubertooth-afh](host/doc/ubertooth-afh.md) | Passively recover a piconet's AFH channel map | an active piconet |
 | [ubertooth-follow](host/doc/ubertooth-follow.md) | Active clock discovery + follow a piconet for a target address | BlueZ + target |
 | [ubertooth-scan](host/doc/ubertooth-scan.md) | Active inquiry scan (uses a BlueZ dongle + Ubertooth) | BlueZ dongle |
+| [ubertooth-btbr](host/doc/ubertooth-btbr.md) | **Experimental**, and the only tool that needs the separate `btbr` firmware: take part in Classic BT — inquiry, paging, and `monitor` mode (capture a connection as it is set up) | the `btbr` image; a Classic BT peer |
 
 ### Signal / low-level
 | Tool | What it does | Needs |
@@ -135,6 +136,25 @@ Ubertooth ships a set of host command-line tools. Each links to its manual page.
 | [ubertooth-ducky](host/doc/ubertooth-ducky.md) | Drive an Uberducky BLE HID-injection gadget | Uberducky hardware |
 | [ubertooth-ego](host/doc/ubertooth-ego.md) | Sniff a Yuneec E-GO skateboard (niche) | Yuneec E-GO |
 | [ubertooth-tx](host/doc/ubertooth-tx.md) | Retransmit dumped symbols — **currently non-functional** | — |
+
+### Which firmware a tool needs
+
+There are two firmware images, and a board carries one at a time.
+`ubertooth-btbr` needs `btbr`; every other tool needs `bluetooth_rxtx`, the
+standard image that `./install.sh --flash-device` builds and writes. Switch a
+board to `btbr` and back with:
+
+```sh
+ubertooth-dfu -d firmware/btbr/btbr.dfu -r                      # for ubertooth-btbr
+ubertooth-dfu -d firmware/bluetooth_rxtx/bluetooth_rxtx.dfu -r  # for everything else
+```
+
+A board running `btbr` resets as it enters DFU rather than after answering the
+request, so flashing it with `-U <index|serial>` fails and leaves it in the
+bootloader; flash it without `-U`, as above. A tool run against the wrong
+image is refused rather than left waiting: the other tools report a firmware
+API version they do not accept, and `ubertooth-btbr` says it could not set the
+Ubertooth up.
 
 See also the [Ubertooth overview man page](host/doc/ubertooth.md).
 

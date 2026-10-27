@@ -23,6 +23,8 @@ Useful commands:
  - ubertooth-afh(1) : Detecting the AFH map of a Classic Bluetooth piconet
  - ubertooth-ego(1) : Yuneec E-Go electric skateboard sniffing
  - ubertooth-follow(1) : Active (BlueZ) clock discovery and piconet following
+ - ubertooth-btbr(1) : Experimental Classic Bluetooth connections and
+   monitoring; needs the separate `btbr` firmware image
 
 Utility commands:
 
