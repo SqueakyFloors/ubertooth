@@ -301,8 +301,15 @@ int main(int argc, char* argv[])
 	 * out as the exit status, which a shell wraps into a byte (-9 read as
 	 * 247), so a script could not tell a failure from anything else. */
 	r = btbb_init(max_ac_errors);
-	if (r < 0)
+	if (r < 0) {
+		/* A replay opened no board; a capture has one open and in
+		 * whatever mode an earlier command left it, so it is given back
+		 * here rather than left claimed, as ubertooth-scan does on the
+		 * same failure. */
+		if (ut->devh != NULL)
+			ubertooth_stop(ut);
 		return 1;
+	}
 
 	if(survey_mode) {
 		// auto-flush stdout so that wrapper scripts work
@@ -369,7 +376,7 @@ int main(int argc, char* argv[])
 		/* The quiet form, so this failure reads as the one "error: " line
 		 * capture_failed() prints, like the channel request below. The
 		 * reporting form would print libubertooth's "libUSB Error" line
-		 * instead, which carries no "error: " prefix. */
+		 * instead, which does not name the request that failed. */
 		r = cmd_rx_syms_quiet(ut->devh);
 		if (r < 0)
 			return capture_failed(ut, "start the capture", r);

@@ -756,15 +756,21 @@ MU_TEST(a_capture_that_cannot_start_exits_one)
 	r = RUN_RX("-t", "10");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.err, NO_ANSWER("start the capture")) == 0, r.err);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert_int_eq(1, device.rx_syms_calls);
+	mu_assert_int_eq(0, device.channels_set);
+	mu_assert_int_eq(0, device.blocks);
+	mu_assert_int_eq(1, device.thread_stops);
+	mu_assert_int_eq(1, device.stops);
 
 	/* A code with no advice: still the one "error: " line, never
-	 * libubertooth's unprefixed "libUSB Error" wording. */
+	 * libubertooth's own "libUSB Error" wording, which does not name the
+	 * request that failed. */
 	reset_device();
 	device.rx_syms_rc = LIBUSB_ERROR_PIPE;
 	r = RUN_RX("-t", "10");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.err, STALLED("start the capture")) == 0, r.err);
-	mu_assert(r.out[0] == '\0', r.out);
 	mu_assert(r.out[0] == '\0', r.out);
 	mu_assert_int_eq(1, device.rx_syms_calls);
 	mu_assert_int_eq(0, device.channels_set);

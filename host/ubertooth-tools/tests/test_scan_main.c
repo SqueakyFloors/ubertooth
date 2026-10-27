@@ -53,6 +53,7 @@ static struct {
 	int devid_fails;
 	int devid_errno;     /* 0 for a failure that left no errno behind */
 	int open_fails;
+	int open_errno;      /* likewise for the open */
 	char adapter[16];    /* the adapter name -b asked for */
 	int dev_fd;          /* the adapter handle the tool was given */
 	int dev_fd_closed;   /* whether the run gave it back */
@@ -106,7 +107,9 @@ int hci_open_dev(int dev_id)
 {
 	(void)dev_id;
 	if (fake.open_fails) {
-		errno = EPERM;
+		/* As above: the tool clears errno before the call, so 0 here is
+		 * a failure that set none. */
+		errno = fake.open_errno;
 		return -1;
 	}
 	fake.dev_fd = open("/dev/null", O_RDONLY);
@@ -526,6 +529,7 @@ MU_TEST(a_bluez_failure_is_reported_on_standard_error)
 	/* An adapter that is there but will not open. */
 	reset_fake();
 	fake.open_fails = 1;
+	fake.open_errno = EPERM;
 	r = RUN("-t", "5");
 	snprintf(expected, sizeof(expected),
 	         "error: cannot open Bluetooth device hci0: %s\n",
@@ -535,6 +539,16 @@ MU_TEST(a_bluez_failure_is_reported_on_standard_error)
 	mu_assert(strcmp(r.err, expected) == 0, r.err);
 	mu_assert(fake.calls[0] == '\0', fake.calls);
 	mu_assert_int_eq(0, fake.stops);
+
+	/* And the open failing without leaving an errno behind, which would
+	 * otherwise read "Undefined error: 0" as the reason. */
+	reset_fake();
+	fake.open_fails = 1;
+	r = RUN("-t", "5");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strcmp(r.err,
+	          "error: cannot open Bluetooth device hci0\n") == 0, r.err);
 }
 
 /* A board that cannot be opened, and a firmware the host will not drive, each

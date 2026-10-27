@@ -186,6 +186,19 @@ happens, as `error: receive transfer failed: <reason>`. A board that never
 hands the transfer back at all exits 1 too, reported by the `warning:` line
 ubertooth(7) describes rather than that error.
 
+A capture that could not be started at all exits 1 as well, whichever step
+failed: the receive transfer libusb would not take, the host thread that
+collects the capture, or the request that starts hopping. Standard error
+carries the one `error: ` line for that step, for example `error: could not
+start the thread that collects the capture: Resource temporarily unavailable`.
+The status is 1 in every case, never the failing call's own return value: a
+negative libusb code handed to the exit status is wrapped into a byte, so
+`libusb -9` reached a script as 247.
+
+An adapter `-b` names that does not exist, or that cannot be opened, exits 1
+with one `error: ` line naming it, the same wording ubertooth-scan(1) uses:
+`error: Bluetooth device hci7 not found: No such device`.
+
 ## SEE ALSO
 
 ubertooth-util(1): sets the receive squelch (`-z`); SQUELCH describes how

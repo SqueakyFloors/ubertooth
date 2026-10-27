@@ -278,10 +278,12 @@ int main(int argc, char *argv[])
 	 * which adapter and why. The first used to go to standard output, where a
 	 * caller redirecting the scan results to a file collected it with them and
 	 * saw nothing on the terminal; the second was a perror() line with no
-	 * "error: " prefix. */
-	/* Cleared first, and a reason given only if there is one: BlueZ does not
-	 * promise an errno for every way the lookup can fail, and a leftover one
-	 * from an earlier call would be reported as this failure's cause. */
+	 * "error: " prefix.
+	 *
+	 * Each call clears errno first and gives a reason only if there is one:
+	 * BlueZ does not promise an errno for every way these can fail, so a
+	 * leftover one from an earlier call would be reported as this failure's
+	 * cause, and a failure that set none would read "Undefined error: 0". */
 	errno = 0;
 	dev_id = hci_devid(bt_dev);
 	if (dev_id < 0) {
@@ -294,10 +296,15 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	errno = 0;
 	dev_handle = hci_open_dev( dev_id );
 	if (dev_handle < 0) {
-		fprintf(stderr, "error: cannot open Bluetooth device %s: %s\n",
-		        bt_dev, strerror(errno));
+		if (errno != 0)
+			fprintf(stderr, "error: cannot open Bluetooth device %s: %s\n",
+			        bt_dev, strerror(errno));
+		else
+			fprintf(stderr, "error: cannot open Bluetooth device %s\n",
+			        bt_dev);
 		return 1;
 	}
 
@@ -393,7 +400,7 @@ int main(int argc, char *argv[])
 	/* The quiet form, so this failure reads as the one "error: " line
 	 * report_refused_request() prints, like the sweep request below. The
 	 * reporting form would print libubertooth's "libUSB Error" line instead,
-	 * which carries no "error: " prefix. */
+	 * which does not name the request that failed. */
 	r = cmd_rx_syms_quiet(ut->devh);
 	if (r < 0) {
 		report_refused_request("start the capture", r);

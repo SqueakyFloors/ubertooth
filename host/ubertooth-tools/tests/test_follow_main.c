@@ -66,6 +66,13 @@ static struct {
 	 * which is what says the handle goes back before the capture rather
 	 * than at the end of the run. */
 	int dev_fd_closed_by_capture;
+	/* The two BlueZ failures: no adapter of that name, and one that is
+	 * there but will not open. Each errno is what the call leaves behind,
+	 * 0 for a failure that left none. */
+	int devid_fails;
+	int devid_errno;
+	int open_fails;
+	int open_errno;
 	int thread_starts;
 	int thread_stops;
 	int stops;
@@ -119,6 +126,12 @@ static void reset_fake(void)
 int hci_devid(const char* str)
 {
 	(void)str;
+	if (fake.devid_fails) {
+		/* The tool clears errno before the call, so 0 here is a failure
+		 * that set none -- which BlueZ does not promise to do. */
+		errno = fake.devid_errno;
+		return -1;
+	}
 	return 0;
 }
 
@@ -128,6 +141,10 @@ int hci_devid(const char* str)
 int hci_open_dev(int dev_id)
 {
 	(void)dev_id;
+	if (fake.open_fails) {
+		errno = fake.open_errno;
+		return -1;
+	}
 	fake.dev_fd = open("/dev/null", O_RDONLY);
 	if (fake.dev_fd < 0) {
 		/* Say the fixture broke, rather than letting the tool report a
@@ -537,6 +554,61 @@ MU_TEST(a_stream_that_cannot_start_gives_the_board_back)
 	mu_assert_int_eq(1, fake.stops);
 }
 
+/* The adapter -b names, reported the way ubertooth-scan reports the same two
+ * failures: one "error: " line on standard error, with a reason only when the
+ * call left one behind, and exit 1 before any board is opened. */
+MU_TEST(an_adapter_that_cannot_be_used_exits_1_on_standard_error)
+{
+	char expected[128];
+	struct run_result r;
+
+	reset_fake();
+	fake.devid_fails = 1;
+	fake.devid_errno = ENODEV;
+	r = RUN("-b", "hci7", TARGET);
+	snprintf(expected, sizeof(expected),
+	         "error: Bluetooth device hci7 not found: %s\n",
+	         strerror(ENODEV));
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strcmp(r.err, expected) == 0, r.err);
+	mu_assert(fake.calls[0] == '\0', fake.calls);
+	mu_assert_int_eq(0, fake.stops);
+
+	/* The same lookup failing without leaving an errno behind says what it
+	 * knows rather than printing "Undefined error: 0" as the reason. */
+	reset_fake();
+	fake.devid_fails = 1;
+	r = RUN("-b", "hci7", TARGET);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strcmp(r.err,
+	          "error: Bluetooth device hci7 not found\n") == 0, r.err);
+
+	/* An adapter that is there but will not open, with and without an
+	 * errno. */
+	reset_fake();
+	fake.open_fails = 1;
+	fake.open_errno = EPERM;
+	r = RUN("-b", "hci7", TARGET);
+	snprintf(expected, sizeof(expected),
+	         "error: cannot open Bluetooth device hci7: %s\n",
+	         strerror(EPERM));
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strcmp(r.err, expected) == 0, r.err);
+	mu_assert(fake.calls[0] == '\0', fake.calls);
+	mu_assert_int_eq(0, fake.stops);
+
+	reset_fake();
+	fake.open_fails = 1;
+	r = RUN("-b", "hci7", TARGET);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strcmp(r.err,
+	          "error: cannot open Bluetooth device hci7\n") == 0, r.err);
+}
+
 /* -t names the whole address, and the board is told to follow the piconet
  * inside it: the LAP and UAP. Naming the same piconet the other way, as -l and
  * -u, must reach the board as the same address. */
@@ -698,6 +770,7 @@ int main(void)
 	MU_RUN(the_asynchronous_requests_stay_after_the_poll_thread);
 	MU_RUN(a_follow_the_board_took_exits_0);
 	MU_RUN(a_stream_that_cannot_start_gives_the_board_back);
+	MU_RUN(an_adapter_that_cannot_be_used_exits_1_on_standard_error);
 	MU_RUN(a_whole_address_and_its_lap_and_uap_follow_the_same_piconet);
 	MU_RUN(a_refused_address_set_exits_1);
 	MU_RUN(a_refused_clock_set_exits_1);

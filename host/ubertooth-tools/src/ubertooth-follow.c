@@ -339,17 +339,33 @@ int main(int argc, char *argv[])
 	}
 
 	/* A named adapter that does not exist, or one that cannot be opened,
-	 * used to go unnoticed until a later HCI call worked on fd -1. */
+	 * used to go unnoticed until a later HCI call worked on fd -1.
+	 *
+	 * Each call clears errno first and gives a reason only if there is one,
+	 * the way ubertooth-scan reports the same two failures: BlueZ does not
+	 * promise an errno for every way these can fail, so a leftover one from
+	 * an earlier call would be reported as this failure's cause, and a
+	 * failure that set none would read "Undefined error: 0". */
+	errno = 0;
 	dev_id = hci_devid(bt_dev);
 	if (dev_id < 0) {
-		fprintf(stderr, "error: Bluetooth device %s not found: %s\n",
-		        bt_dev, strerror(errno));
+		if (errno != 0)
+			fprintf(stderr, "error: Bluetooth device %s not found: %s\n",
+			        bt_dev, strerror(errno));
+		else
+			fprintf(stderr, "error: Bluetooth device %s not found\n",
+			        bt_dev);
 		return 1;
 	}
+	errno = 0;
 	sock = hci_open_dev(dev_id);
 	if (sock < 0) {
-		fprintf(stderr, "error: cannot open Bluetooth device %s: %s\n",
-		        bt_dev, strerror(errno));
+		if (errno != 0)
+			fprintf(stderr, "error: cannot open Bluetooth device %s: %s\n",
+			        bt_dev, strerror(errno));
+		else
+			fprintf(stderr, "error: cannot open Bluetooth device %s\n",
+			        bt_dev);
 		return 1;
 	}
 
