@@ -35,6 +35,7 @@
 #include "opt_parse.h"
 #include "request_report.h"
 #include "follow_afh.h"
+#include "request_report.h"
 #include <btbb.h>
 #include <getopt.h>
 #include <limits.h>
@@ -338,17 +339,33 @@ int main(int argc, char *argv[])
 	}
 
 	/* A named adapter that does not exist, or one that cannot be opened,
-	 * used to go unnoticed until a later HCI call worked on fd -1. */
+	 * used to go unnoticed until a later HCI call worked on fd -1.
+	 *
+	 * Each call clears errno first and gives a reason only if there is one,
+	 * the way ubertooth-scan reports the same two failures: BlueZ does not
+	 * promise an errno for every way these can fail, so a leftover one from
+	 * an earlier call would be reported as this failure's cause, and a
+	 * failure that set none would read "Undefined error: 0". */
+	errno = 0;
 	dev_id = hci_devid(bt_dev);
 	if (dev_id < 0) {
-		fprintf(stderr, "error: Bluetooth device %s not found: %s\n",
-		        bt_dev, strerror(errno));
+		if (errno != 0)
+			fprintf(stderr, "error: Bluetooth device %s not found: %s\n",
+			        bt_dev, strerror(errno));
+		else
+			fprintf(stderr, "error: Bluetooth device %s not found\n",
+			        bt_dev);
 		return 1;
 	}
+	errno = 0;
 	sock = hci_open_dev(dev_id);
 	if (sock < 0) {
-		fprintf(stderr, "error: cannot open Bluetooth device %s: %s\n",
-		        bt_dev, strerror(errno));
+		if (errno != 0)
+			fprintf(stderr, "error: cannot open Bluetooth device %s: %s\n",
+			        bt_dev, strerror(errno));
+		else
+			fprintf(stderr, "error: cannot open Bluetooth device %s\n",
+			        bt_dev);
 		return 1;
 	}
 
@@ -555,23 +572,31 @@ int main(int argc, char *argv[])
 		                             "zero the board's clock", r);
 
 	// init USB transfer
+	/* Each of the three steps that set the capture up exits 1, like every
+	 * other failure here: the failing call's own return value used to go out
+	 * as the exit status, and a shell wraps that into a byte a script cannot
+	 * read. libubertooth has already said what failed in each case. */
 	r = ubertooth_bulk_init(ut);
 	if (r < 0) {
 		/* nothing is in flight, but the board is still open and in
 		 * whatever mode an earlier command left it */
 		ubertooth_stop(ut);
 		follow_release_adapter(sock, handle, cc);
-		return r;
+		return 1;
 	}
 
 	r = ubertooth_bulk_thread_start();
-	if (r < 0) {
+	if (r != 0) {
+		/* Not "< 0": this is pthread_create()'s errno, which is positive,
+		 * so a failure used to slip through and leave the capture with
+		 * nobody to complete its transfers. */
+		report_capture_thread_failure(r);
 		/* The receive transfer is in flight and the board is about to be
 		 * left in its mode: give both back. Not follow_cleanup(), which
 		 * would join a thread that was never created. */
 		ubertooth_stop(ut);
 		follow_release_adapter(sock, handle, cc);
-		return r;
+		return 1;
 	}
 
 	/* Read clocks here to ensure clock is closest to real value. Without a
@@ -603,7 +628,7 @@ int main(int argc, char *argv[])
 	r = cmd_start_hopping(ut->devh, btbb_piconet_get_clk_offset(pn), 0);
 	if (r < 0) {
 		follow_cleanup(ut, sock, handle, cc);
-		return r;
+		return 1;
 	}
 
 	/* Say what this follow wants of the board's AFH map, after the mode has

@@ -97,6 +97,10 @@ void cmd_trim_clock(struct libusb_device_handle* devh, uint16_t offset);
 void cmd_fix_clock_drift(struct libusb_device_handle* devh, int16_t ppm);
 int cmd_ping(struct libusb_device_handle* devh);
 int cmd_rx_syms(struct libusb_device_handle* devh);
+/* The capture-mode request without a report of its own; see
+ * cmd_set_channel_quiet() below. The tools that set a capture up name this
+ * request themselves, so they use this form and print the one line. */
+int cmd_rx_syms_quiet(struct libusb_device_handle* devh);
 int cmd_tx_syms(struct libusb_device_handle* devh);
 int cmd_specan(struct libusb_device_handle* devh, u16 low_freq, u16 high_freq);
 int cmd_led_specan(struct libusb_device_handle* devh, u16 rssi_threshold);

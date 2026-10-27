@@ -1,6 +1,7 @@
 /*
- * The one report for a control request the board refused, shared by the
- * ubertooth-* host tools that set a capture up.
+ * The reports for a capture that could not be started, shared by the
+ * ubertooth-* host tools that set one up: a control request the board
+ * refused, and the host thread that collects the capture.
  *
  * This file is part of Project Ubertooth.
  *
@@ -43,5 +44,17 @@
  * wording and the advice stay in one place.
  */
 void report_refused_request(const char *what, int code);
+
+/*
+ * Prints, on standard error, the one line for a capture whose host-side
+ * thread could not be started:
+ *
+ *     error: could not start the thread that collects the capture: Resource temporarily unavailable
+ *
+ * <error> is the errno value pthread_create() returned. That is where this
+ * differs from the report above: a thread that cannot be created is a host
+ * failure, with no libusb code and nothing the board did wrong.
+ */
+void report_capture_thread_failure(int error);
 
 #endif /* UBERTOOTH_REQUEST_REPORT_H */

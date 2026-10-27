@@ -21,7 +21,9 @@
  * Boston, MA 02110-1301, USA.
  */
 
+#include <errno.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include <stdio.h>
 
@@ -271,15 +273,38 @@ int main(int argc, char *argv[])
 		return 0;
 	}
 
+	/* Both adapter failures are reported the way ubertooth-follow, the other
+	 * BlueZ tool, reports them: one "error: " line on standard error, saying
+	 * which adapter and why. The first used to go to standard output, where a
+	 * caller redirecting the scan results to a file collected it with them and
+	 * saw nothing on the terminal; the second was a perror() line with no
+	 * "error: " prefix.
+	 *
+	 * Each call clears errno first and gives a reason only if there is one:
+	 * BlueZ does not promise an errno for every way these can fail, so a
+	 * leftover one from an earlier call would be reported as this failure's
+	 * cause, and a failure that set none would read "Undefined error: 0". */
+	errno = 0;
 	dev_id = hci_devid(bt_dev);
 	if (dev_id < 0) {
-		printf("error: Unable to find %s (%d)\n", bt_dev, dev_id);
+		if (errno != 0)
+			fprintf(stderr, "error: Bluetooth device %s not found: %s\n",
+			        bt_dev, strerror(errno));
+		else
+			fprintf(stderr, "error: Bluetooth device %s not found\n",
+			        bt_dev);
 		return 1;
 	}
 
+	errno = 0;
 	dev_handle = hci_open_dev( dev_id );
 	if (dev_handle < 0) {
-		perror("HCI device open failed");
+		if (errno != 0)
+			fprintf(stderr, "error: cannot open Bluetooth device %s: %s\n",
+			        bt_dev, strerror(errno));
+		else
+			fprintf(stderr, "error: cannot open Bluetooth device %s\n",
+			        bt_dev);
 		return 1;
 	}
 
@@ -327,40 +352,64 @@ int main(int argc, char *argv[])
 		free(ii);
 	}
 
-	btbb_init(max_ac_errors);
+	/* libbtbb refuses only a -e out of its own range, which the check on -e
+	 * above has already caught, and it says so itself. The result was ignored
+	 * outright before, which would have left the scan decoding with a
+	 * syndrome map it never built. */
+	if (btbb_init(max_ac_errors) < 0) {
+		ubertooth_stop(ut);
+		close(dev_handle);
+		return 1;
+	}
 	btbb_init_survey();
 
 	if (timeout)
 		ubertooth_set_timeout(ut, timeout);
 
+	/* Each of the three steps below exits 1, as every failure here does. The
+	 * failing call's own return value used to go out as the exit status, and a
+	 * shell wraps that into a byte (-9 read as 247, -7 as 249), so a script
+	 * could not tell a scan that failed from anything else. */
+
 	// init USB transfer
 	r = ubertooth_bulk_init(ut);
 	if (r < 0) {
 		/* nothing is in flight, but the board is still open and in
-		 * whatever mode an earlier command left it */
+		 * whatever mode an earlier command left it. libubertooth has
+		 * already said what failed, so the status is all this adds. */
 		ubertooth_stop(ut);
 		close(dev_handle);
-		return r;
+		return 1;
 	}
 
 	r = ubertooth_bulk_thread_start();
-	if (r < 0) {
+	if (r != 0) {
+		/* Not "< 0": this is pthread_create()'s errno, which is positive,
+		 * so a failure used to slip through and leave the capture with
+		 * nobody to complete its transfers -- it then waited forever with
+		 * nothing arriving. */
+		report_capture_thread_failure(r);
 		/* The receive transfer is in flight and the board is about to be
 		 * left in its mode: give both back before returning. */
 		ubertooth_stop(ut);
 		close(dev_handle);
-		return r;
+		return 1;
 	}
 
 	// tell ubertooth to send packets
-	r = cmd_rx_syms(ut->devh);
+	/* The quiet form, so this failure reads as the one "error: " line
+	 * report_refused_request() prints, like the sweep request below. The
+	 * reporting form would print libubertooth's "libUSB Error" line instead,
+	 * which does not name the request that failed. */
+	r = cmd_rx_syms_quiet(ut->devh);
 	if (r < 0) {
+		report_refused_request("start the capture", r);
 		/* The poll thread is running by now and nothing else joins it:
 		 * ubertooth_stop() frees the libusb context it polls. */
 		ubertooth_bulk_thread_stop();
 		ubertooth_stop(ut);
 		close(dev_handle);
-		return r;
+		return 1;
 	}
 
 	/* Sweep the whole band, which any channel above the Bluetooth band asks

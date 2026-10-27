@@ -55,6 +55,10 @@ A scan that ran to its \fB\-t\fR timeout, or that was interrupted (Ctrl\-C), exi
 .P
 A scan whose USB stream fails part\-way also exits 1: the board stopped answering, or dropped off the bus, so the Ubertooth half of the scan stops there\. The results it did get are still printed, and the failure is reported on standard error as it happens, as \fBerror: receive transfer failed: <reason>\fR\. A board that never hands the transfer back at all exits 1 too, reported by the \fBwarning:\fR line ubertooth(7) describes rather than that error\.
 .P
+A BlueZ adapter that is not there, or that is there but will not open, exits 1 with one \fBerror:\fR line on standard error naming the adapter and why, for example \fBerror: Bluetooth device hci7 not found: No such device\fR\. Nothing is printed on standard output, so a caller collecting the scan results in a file does not find the failure among them\.
+.P
+A capture that could not be started at all exits 1 as well, whichever step failed: the receive transfer libusb would not take, the host thread that collects the capture, or the request that puts the board in its capture mode\. Standard output holds whatever a \fB\-s\fR inquiry printed before that and nothing else; standard error carries the one \fBerror:\fR line for the step that failed\. The capture request is named the way the sweep request below is, with the reason the board gave and the libusb code\. The status is 1 in every case, never the failing call's own return value: a negative libusb code handed to the exit status is wrapped into a byte, so \fBlibusb \-9\fR reached a script as 247\.
+.P
 A board that refuses the request that puts it in sweep mode exits 1 as well\. Standard output holds whatever a \fB\-s\fR inquiry printed before that and nothing else, not even the heading the Ubertooth results would have gone under\. Standard error names the request, why the board refused it and the libusb code, and adds a note where there is something to try:
 .IP "" 4
 .nf

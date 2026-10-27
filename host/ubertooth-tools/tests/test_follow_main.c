@@ -31,6 +31,7 @@
  * the clock reads, so no case needs a Bluetooth adapter on the machine running
  * the tests.
  */
+#include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -56,6 +57,8 @@ static struct {
 	int bulk_init_rc;     /* returned by ubertooth_bulk_init() */
 	int bdaddr_rc;        /* returned by cmd_set_bdaddr_quiet() */
 	int clock_rc;         /* returned by cmd_set_clock_quiet() */
+	int thread_start_rc;  /* returned by ubertooth_bulk_thread_start() */
+	int hopping_rc;       /* returned by cmd_start_hopping() */
 	int closes;           /* ubertooth_close() */
 	int dev_fd;           /* the adapter handle the tool was given */
 	int dev_fd_closed;    /* whether the run gave it back */
@@ -63,6 +66,13 @@ static struct {
 	 * which is what says the handle goes back before the capture rather
 	 * than at the end of the run. */
 	int dev_fd_closed_by_capture;
+	/* The two BlueZ failures: no adapter of that name, and one that is
+	 * there but will not open. Each errno is what the call leaves behind,
+	 * 0 for a failure that left none. */
+	int devid_fails;
+	int devid_errno;
+	int open_fails;
+	int open_errno;
 	int thread_starts;
 	int thread_stops;
 	int stops;
@@ -116,6 +126,12 @@ static void reset_fake(void)
 int hci_devid(const char* str)
 {
 	(void)str;
+	if (fake.devid_fails) {
+		/* The tool clears errno before the call, so 0 here is a failure
+		 * that set none -- which BlueZ does not promise to do. */
+		errno = fake.devid_errno;
+		return -1;
+	}
 	return 0;
 }
 
@@ -125,6 +141,10 @@ int hci_devid(const char* str)
 int hci_open_dev(int dev_id)
 {
 	(void)dev_id;
+	if (fake.open_fails) {
+		errno = fake.open_errno;
+		return -1;
+	}
 	fake.dev_fd = open("/dev/null", O_RDONLY);
 	if (fake.dev_fd < 0) {
 		/* Say the fixture broke, rather than letting the tool report a
@@ -274,7 +294,7 @@ int cmd_start_hopping(struct libusb_device_handle* devh, int clkn_offset,
 	(void)clkn_offset;
 	(void)clk100ns_offset;
 	record('h');
-	return 0;
+	return fake.hopping_rc;
 }
 
 int ubertooth_bulk_init(ubertooth_t* ut)
@@ -284,11 +304,13 @@ int ubertooth_bulk_init(ubertooth_t* ut)
 	return fake.bulk_init_rc;
 }
 
+/* pthread_create() returns an errno, which is positive, and the tool has to
+ * read it that way: the fake hands back whatever the case asked for. */
 int ubertooth_bulk_thread_start()
 {
 	record('p');
 	fake.thread_starts++;
-	return 0;
+	return fake.thread_start_rc;
 }
 
 void ubertooth_bulk_thread_stop()
@@ -485,20 +507,106 @@ MU_TEST(a_follow_the_board_took_exits_0)
 
 /* The board is configured before the stream is started, so a stream that
  * cannot start has a configured board to give back: it is stopped, the poll
- * thread is never created, and no further request goes out. */
+ * thread is never created, and no further request goes out.
+ *
+ * Each of these exits 1, not the failing call's own return value, which a
+ * shell wraps into a byte a script cannot read. */
 MU_TEST(a_stream_that_cannot_start_gives_the_board_back)
 {
+	char expected[128];
 	struct run_result r;
 
 	reset_fake();
 	fake.bulk_init_rc = -1;
 	r = RUN(TARGET);
-	mu_assert(r.rc != 0, "a follow that never streamed must not exit 0");
+	/* 1, not the failing call's own return value: that used to go out as
+	 * the exit status, and a shell wraps it into a byte, so a script read
+	 * -1 as 255. */
+	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(fake.calls, "aki") == 0, fake.calls);
 	mu_assert_int_eq(0, fake.thread_starts);
 	mu_assert_int_eq(0, fake.receives);
 	mu_assert_int_eq(1, fake.stops);
 	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
+
+	/* The thread that collects the capture. pthread_create() reports a
+	 * failure as a positive errno, which a "< 0" test let through: the
+	 * follow then had nobody to complete its transfers. */
+	reset_fake();
+	fake.thread_start_rc = EAGAIN;
+	r = RUN(TARGET);
+	snprintf(expected, sizeof(expected),
+	         "error: could not start the thread that collects the capture:"
+	         " %s\n", strerror(EAGAIN));
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, expected) != NULL, r.err);
+	mu_assert(strcmp(fake.calls, "akip") == 0, fake.calls);
+	mu_assert_int_eq(0, fake.receives);
+	mu_assert_int_eq(1, fake.stops);
+
+	/* The request that starts the hopping, which libubertooth reports
+	 * itself: the status is the tool's own 1. */
+	reset_fake();
+	fake.hopping_rc = -9;
+	r = RUN(TARGET);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, fake.receives);
+	mu_assert_int_eq(1, fake.stops);
+}
+
+/* The adapter -b names, reported the way ubertooth-scan reports the same two
+ * failures: one "error: " line on standard error, with a reason only when the
+ * call left one behind, and exit 1 before any board is opened. */
+MU_TEST(an_adapter_that_cannot_be_used_exits_1_on_standard_error)
+{
+	char expected[128];
+	struct run_result r;
+
+	reset_fake();
+	fake.devid_fails = 1;
+	fake.devid_errno = ENODEV;
+	r = RUN("-b", "hci7", TARGET);
+	snprintf(expected, sizeof(expected),
+	         "error: Bluetooth device hci7 not found: %s\n",
+	         strerror(ENODEV));
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strcmp(r.err, expected) == 0, r.err);
+	mu_assert(fake.calls[0] == '\0', fake.calls);
+	mu_assert_int_eq(0, fake.stops);
+
+	/* The same lookup failing without leaving an errno behind says what it
+	 * knows rather than printing "Undefined error: 0" as the reason. */
+	reset_fake();
+	fake.devid_fails = 1;
+	r = RUN("-b", "hci7", TARGET);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strcmp(r.err,
+	          "error: Bluetooth device hci7 not found\n") == 0, r.err);
+
+	/* An adapter that is there but will not open, with and without an
+	 * errno. */
+	reset_fake();
+	fake.open_fails = 1;
+	fake.open_errno = EPERM;
+	r = RUN("-b", "hci7", TARGET);
+	snprintf(expected, sizeof(expected),
+	         "error: cannot open Bluetooth device hci7: %s\n",
+	         strerror(EPERM));
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strcmp(r.err, expected) == 0, r.err);
+	mu_assert(fake.calls[0] == '\0', fake.calls);
+	mu_assert_int_eq(0, fake.stops);
+
+	reset_fake();
+	fake.open_fails = 1;
+	r = RUN("-b", "hci7", TARGET);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strcmp(r.err,
+	          "error: cannot open Bluetooth device hci7\n") == 0, r.err);
 }
 
 /* -t names the whole address, and the board is told to follow the piconet
@@ -662,6 +770,7 @@ int main(void)
 	MU_RUN(the_asynchronous_requests_stay_after_the_poll_thread);
 	MU_RUN(a_follow_the_board_took_exits_0);
 	MU_RUN(a_stream_that_cannot_start_gives_the_board_back);
+	MU_RUN(an_adapter_that_cannot_be_used_exits_1_on_standard_error);
 	MU_RUN(a_whole_address_and_its_lap_and_uap_follow_the_same_piconet);
 	MU_RUN(a_refused_address_set_exits_1);
 	MU_RUN(a_refused_clock_set_exits_1);

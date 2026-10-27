@@ -252,6 +252,14 @@
   a channel of its own.
   [#261](https://github.com/SqueakyFloors/ubertooth/issues/261)
   [#312](https://github.com/SqueakyFloors/ubertooth/issues/312)
+- **Script-visible change:** a capture that cannot start exits 1 in
+  `ubertooth-rx`, `ubertooth-scan` and `ubertooth-follow`, instead of the
+  negative libusb code a shell wrapped into 247 or 249; and both of
+  `ubertooth-scan`'s BlueZ adapter failures go to standard error, one having
+  gone to standard output. A refused capture request names itself as one
+  `error: ` line, like the other requests that set a capture up.
+  [#431](https://github.com/SqueakyFloors/ubertooth/issues/431)
+  [#545](https://github.com/SqueakyFloors/ubertooth/issues/545)
 - `ubertooth-rx` and `ubertooth-scan` sweep the whole band on a board that a
   killed `ubertooth-afh` or `ubertooth-follow` left capturing. They ask for the
   capture first and state the sweep after it, where the mode start used to
@@ -824,6 +832,13 @@ Fixes with no visible change in normal use.
   used to hold a handle on an adapter it had finished with for the whole
   capture, and never close it at all.
   [#506](https://github.com/SqueakyFloors/ubertooth/issues/506)
+- A `ubertooth-rx`, `ubertooth-scan` or `ubertooth-follow` capture whose
+  collecting thread could not be started says so and ends, rather than waiting
+  forever for packets nobody was there to deliver. The failure was reported as
+  a positive number and tested for a negative one. `ubertooth-specan` and
+  libubertooth still test it the old way.
+  [#431](https://github.com/SqueakyFloors/ubertooth/issues/431)
+  [#564](https://github.com/SqueakyFloors/ubertooth/issues/564)
 - A revision string too long for the one-byte length the firmware reports it
   with is cut to 255 characters, rather than counted modulo 256. The revisions
   this tree builds are twelve characters, so nothing reached that.

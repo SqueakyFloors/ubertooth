@@ -295,9 +295,21 @@ int main(int argc, char* argv[])
 		}
 	}
 
+	/* libbtbb refuses only a -e out of its own range, which the check on -e
+	 * above has already caught, and it says so itself. The status is 1, as
+	 * every failure here is: the failing call's own return value used to go
+	 * out as the exit status, which a shell wraps into a byte (-9 read as
+	 * 247), so a script could not tell a failure from anything else. */
 	r = btbb_init(max_ac_errors);
-	if (r < 0)
-		return r;
+	if (r < 0) {
+		/* A replay opened no board; a capture has one open and in
+		 * whatever mode an earlier command left it, so it is given back
+		 * here rather than left claimed, as ubertooth-scan does on the
+		 * same failure. */
+		if (ut->devh != NULL)
+			ubertooth_stop(ut);
+		return 1;
+	}
 
 	if(survey_mode) {
 		// auto-flush stdout so that wrapper scripts work
@@ -341,28 +353,33 @@ int main(int argc, char* argv[])
 		r = ubertooth_bulk_init(ut);
 		if (r < 0) {
 			/* nothing is in flight, but the board is still open and in
-			 * whatever mode an earlier command left it */
+			 * whatever mode an earlier command left it. libubertooth has
+			 * already said what failed, so the status is all this adds. */
 			ubertooth_stop(ut);
-			return r;
+			return 1;
 		}
 
 		r = ubertooth_bulk_thread_start();
-		if (r < 0) {
+		if (r != 0) {
+			/* Not "< 0": this is pthread_create()'s errno, which is
+			 * positive, so a failure used to slip through and leave the
+			 * capture with nobody to complete its transfers -- it then
+			 * waited forever with nothing arriving. */
+			report_capture_thread_failure(r);
 			/* The receive transfer is in flight and the board is about to
 			 * be left in its mode: give both back before returning. */
 			ubertooth_stop(ut);
-			return r;
+			return 1;
 		}
 
 		// tell ubertooth to send packets
-		r = cmd_rx_syms(ut->devh);
-		if (r < 0) {
-			/* The poll thread is running by now and nothing else joins
-			 * it: ubertooth_stop() frees the libusb context it polls. */
-			ubertooth_bulk_thread_stop();
-			ubertooth_stop(ut);
-			return r;
-		}
+		/* The quiet form, so this failure reads as the one "error: " line
+		 * capture_failed() prints, like the channel request below. The
+		 * reporting form would print libubertooth's "libUSB Error" line
+		 * instead, which does not name the request that failed. */
+		r = cmd_rx_syms_quiet(ut->devh);
+		if (r < 0)
+			return capture_failed(ut, "start the capture", r);
 
 		/* Tell the board how to tune for this capture after asking for
 		 * the capture, not before. Starting a mode puts the board's hop
