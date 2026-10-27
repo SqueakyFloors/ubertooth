@@ -358,6 +358,29 @@ static int report_range_result(const rangetest_result *rr)
 }
 
 /*
+ * Leaves the board idle at the end of a test that did not finish: it would
+ * otherwise listen forever, and the next command would find a board that
+ * looks busy. Returns the clause the caller's message ends with, so no
+ * message claims a stop that did not happen.
+ */
+static const char *range_test_stop(ubertooth_t *ut)
+{
+	if (cmd_stop(ut->devh) >= 0)
+		return "the range test has been stopped";
+	return "the range test has not been stopped; -S stops it";
+}
+
+/* The end of a wait whose polls keep failing: the read that gave up, and what
+ * became of the test. Returns 1, the status the wait fails with. */
+static int range_test_read_failed(ubertooth_t *ut, const char *what)
+{
+	const char *left = range_test_stop(ut);
+
+	fprintf(stderr, "error: %s read failed; %s\n", what, left);
+	return 1;
+}
+
+/*
  * Follows the range test the board has just been started on, and reports it.
  *
  * The board transmits its burst and then listens for the repeater's reply.
@@ -371,19 +394,6 @@ static int report_range_result(const rangetest_result *rr)
  * deadline; timeout_s of 0 waits forever. Returns 0 when the test finished
  * and its result was printed, 1 otherwise.
  */
-/*
- * Leaves the board idle at the end of a test that did not finish: it would
- * otherwise listen forever, and the next command would find a board that
- * looks busy. Returns the clause the caller's message ends with, so no
- * message claims a stop that did not happen.
- */
-static const char *range_test_stop(ubertooth_t *ut)
-{
-	if (cmd_stop(ut->devh) >= 0)
-		return "the range test has been stopped";
-	return "the range test has not been stopped; -S stops it";
-}
-
 static int range_test_wait(ubertooth_t *ut, int timeout_s)
 {
 	uint64_t start = util_clock_now_ms();
@@ -435,11 +445,8 @@ static int range_test_wait(ubertooth_t *ut, int timeout_s)
 			/* A poll that learned nothing; see RANGE_TEST_READ_FAILURES.
 			 * Giving up stops the test as the deadline does: nobody is
 			 * watching it now. */
-			if (++failures >= RANGE_TEST_READ_FAILURES) {
-				(void)range_test_stop(ut);
-				return util_report_read_failed(stderr,
-				        "range test result");
-			}
+			if (++failures >= RANGE_TEST_READ_FAILURES)
+				return range_test_read_failed(ut, "range test result");
 			continue;
 		}
 		/*
@@ -455,10 +462,8 @@ static int range_test_wait(ubertooth_t *ut, int timeout_s)
 			return report_range_result(&rr);
 
 		if (cmd_get_watchdog_quiet(ut->devh, &info) != 0) {
-			if (++failures >= RANGE_TEST_READ_FAILURES) {
-				(void)range_test_stop(ut);
-				return util_report_read_failed(stderr, "board mode");
-			}
+			if (++failures >= RANGE_TEST_READ_FAILURES)
+				return range_test_read_failed(ut, "board mode");
 			continue;
 		}
 		failures = 0;
@@ -469,11 +474,21 @@ static int range_test_wait(ubertooth_t *ut, int timeout_s)
 			 * The test is over without a result in hand. The firmware
 			 * writes the result just before it leaves the mode, so read
 			 * once more: that settles whether the test finished between
-			 * the two reads above or was stopped from elsewhere.
+			 * the two reads above or ended without a reply.
 			 */
-			if (cmd_get_rangeresult_quiet(ut->devh, &rr) == 0 &&
-			    cleared && rr.valid != 0)
+			if (cmd_get_rangeresult_quiet(ut->devh, &rr) != 0) {
+				/* This read is the one deciding it, so a stall here is
+				 * not an answer: count it and look again, rather than
+				 * calling a finished test a stopped one. */
+				if (++failures >= RANGE_TEST_READ_FAILURES)
+					return range_test_read_failed(ut,
+					        "range test result");
+				continue;
+			}
+			if (cleared && rr.valid != 0)
 				return report_range_result(&rr);
+			/* No stop to send: the board has left the test by itself,
+			 * which is where the other endings have to put it. */
 			fprintf(stderr, "error: the range test was stopped before the "
 			        "repeater replied\n");
 			return 1;

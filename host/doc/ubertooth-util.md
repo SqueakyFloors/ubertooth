@@ -536,27 +536,32 @@ status 1:
     error: no reply from the repeater within 10 s: start one in range with ubertooth-util -e, or wait longer with -n <seconds>; the range test has been stopped
 
 `-n <seconds>` chooses the wait, and `-n 0` waits forever, for a repeater
-being set up by hand at the other end. The board is left stopped only on the
-timeout; interrupting `-n` with Ctrl-C leaves the test running, and
-`ubertooth-util -S` stops it afterwards. (It has to be afterwards: `-n` holds
+being set up by hand at the other end. Interrupting `-n` with Ctrl-C is the one
+ending that leaves the test running, and `ubertooth-util -S` stops it
+afterwards. (It has to be afterwards: `-n` holds
 the board for as long as it is watching, as every tool holds the board it is
 using, so another command cannot reach it meanwhile.)
 
-A board that leaves the test without a reply — something else took it over —
-ends the wait at once rather than waiting out the deadline: `error: the range
-test was stopped before the repeater replied`, exit status 1. A board that
-never entered the test says so instead of naming the repeater: `error: the
-board did not start the range test within <n> s`.
+A board that leaves the test without a reply ends the wait at once rather than
+waiting out the deadline: `error: the range test was stopped before the
+repeater replied`, exit status 1. A board that never entered the test says so
+instead of naming the repeater: `error: the board did not start the range test
+within <n> s`.
 
 `-n` reads the board twice a poll, ten polls a second, to follow all that.
-Three failed reads in a row end the wait, as `error: range test result read
-failed` or `error: board mode read failed`; one or two do not, since a board
-part-way through a mode stalls the odd control request and the next poll
-answers. A board that has stopped answering altogether therefore ends the
-command on those reads rather than on the deadline, which can take a few
-seconds longer than the wait asked for: each read has a timeout of its own.
-Every one of these endings leaves the board stopped, so the next command finds
-it idle.
+Three polls in a row that cannot read it end the wait, as `error: range test
+result read failed; <what became of the test>` or `error: board mode read
+failed; ...`; one or two do not, since a board part-way through a mode stalls
+the odd control request and the next poll answers. A board that has stopped
+answering altogether therefore ends the command on those reads rather than on
+the deadline, which can take a few seconds longer than the wait asked for:
+each read has a timeout of its own, and libubertooth reports the transfer
+itself on the line before.
+
+Every ending but a signal leaves the board out of the test, so the next
+command finds it idle: the ones above stop it, and a board that left the test
+by itself is already out of it. Each of those messages ends by saying so, and
+says instead that `-S` stops it if the stop itself was refused.
 
 ### -m, the last result
 
@@ -660,8 +665,9 @@ when a later operation in the same command succeeds.
 `-n` exits 0 when the range test finished and its result was printed. It
 exits 1 when nothing replied within the wait, when the test ended or never
 started, and when the reply came back corrupted (see [RANGE TEST][]). It also
-exits 1 when three of the reads it follows the test with fail in a row, as
-`error: range test result read failed` or `error: board mode read failed`.
+exits 1 when three polls in a row cannot read the board, as `error: range test
+result read failed; <what became of the test>` or
+`error: board mode read failed; ...`.
 
 A command line that asks for no operation at all is refused before any device
 is opened, rather than opening the selected board, doing nothing with it and

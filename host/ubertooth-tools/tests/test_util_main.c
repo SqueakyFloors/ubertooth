@@ -41,6 +41,8 @@ static struct {
 	uint64_t range_started_ms, range_reply_after_ms, range_leaves_after_ms;
 	int range_reply_at_call;
 	int range_stall_calls, watchdog_stall_calls;
+	int range_stale_reads;        /* reads answered with the test before */
+	rangetest_result range_stale; /* ...and what that one said */
 	watchdog_info watchdog;
 	int watchdog_rc;
 	int watchdog_calls;
@@ -433,7 +435,13 @@ int cmd_get_rangeresult(struct libusb_device_handle *h, rangetest_result *rr)
 {
 	fake_use(h);
 	fake.rangeresult_calls++;
-	if (fake.range_test_calls > 0 && !fake_range_reply_arrived())
+	/* range_stale_reads is the window before the board has entered the mode
+	 * and cleared the previous test: a read that lands there still answers
+	 * with that test's levels. */
+	if (fake.range_test_calls > 0 &&
+	    fake.rangeresult_calls <= fake.range_stale_reads)
+		*rr = fake.range_stale;
+	else if (fake.range_test_calls > 0 && !fake_range_reply_arrived())
 		memset(rr, 0, sizeof(*rr)); /* cleared while the test runs */
 	else
 		*rr = fake.range;
@@ -1015,14 +1023,23 @@ MU_TEST(range_test_reports_progress_and_then_the_result)
 	                        "reply PA level   : 3\n"
 	                        "reply number     : 4\n") == 0, r.out);
 
-	/* The result of this test, not of the one before it: the board clears
-	 * the previous levels as the test starts, and -n reports a result only
-	 * once it has seen them cleared. */
+	/* The result of this test, not of the one before it. A poll that lands
+	 * before the board has entered the mode still reads the previous test's
+	 * levels, so -n reports a result only once it has seen them cleared. */
 	reset_fake();
-	fake.range_reply_after_ms = 500;
+	fake.range_reply_after_ms = 1000;
+	fake.range_stale_reads = 3;
+	fake.range_stale.valid = 1;
+	fake.range_stale.request_pa = 7;
+	fake.range_stale.request_num = 9;
+	fake.range_stale.reply_pa = 7;
+	fake.range_stale.reply_num = 9;
 	r = RUN("-n");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(fake.rangeresult_calls > 1, "polled while the test ran");
+	mu_assert(strstr(r.out, "request number   : 9\n") == NULL,
+	          "reported the previous test's levels");
+	mu_assert(strstr(r.out, "request number   : 2\n") != NULL, r.out);
 
 	/* A reply whose payload did not match is a diagnostic, as it is for -m:
 	 * standard error, nothing on standard output, exit 1. */
@@ -1081,20 +1098,22 @@ MU_TEST(range_test_with_no_repeater_times_out_and_stops_the_board)
 	mu_assert(strstr(r.out, "waiting for the repeater... (29 s)\n") != NULL,
 	          "the whole wait is reported");
 
-	/* A read that fails mid-wait ends it, naming the read. */
+	/* A read that keeps failing mid-wait ends it, naming the read and
+	 * saying what became of the test. */
 	reset_fake();
 	fake.range_reply_after_ms = 0;
 	fake.rangeresult_rc = -7;
 	r = RUN("-n");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strstr(r.err, "error: range test result read failed\n") != NULL,
-	          r.err);
+	mu_assert(strstr(r.err, "error: range test result read failed; the range "
+	                 "test has been stopped\n") != NULL, r.err);
 	reset_fake();
 	fake.range_reply_after_ms = 0;
 	fake.watchdog_rc = -7;
 	r = RUN("-n");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strstr(r.err, "error: board mode read failed\n") != NULL, r.err);
+	mu_assert(strstr(r.err, "error: board mode read failed; the range test "
+	                 "has been stopped\n") != NULL, r.err);
 
 	/* A board that refuses to start the test is not waited for. */
 	reset_fake();
@@ -1120,9 +1139,21 @@ MU_TEST(range_test_with_no_repeater_times_out_and_stops_the_board)
 	fake.range_stall_calls = RANGE_TEST_READ_FAILURES;
 	r = RUN("-n");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strstr(r.err, "error: range test result read failed\n") != NULL,
-	          r.err);
+	mu_assert(strstr(r.err, "error: range test result read failed; the range "
+	                 "test has been stopped\n") != NULL, r.err);
 	mu_assert_int_eq(2, fake.stop_calls);
+
+	/* and when the stop is refused too, it says so rather than claiming the
+	 * board is idle */
+	reset_fake();
+	fake.range_reply_after_ms = 1000;
+	fake.range_stall_calls = RANGE_TEST_READ_FAILURES;
+	fake.stop_rc = -1;
+	r = RUN("-n");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: range test result read failed; the range "
+	                 "test has not been stopped; -S stops it\n") != NULL,
+	          r.err);
 
 	reset_fake();
 	fake.range_reply_after_ms = 1000;
@@ -1136,7 +1167,8 @@ MU_TEST(range_test_with_no_repeater_times_out_and_stops_the_board)
 	fake.watchdog_stall_calls = RANGE_TEST_READ_FAILURES;
 	r = RUN("-n");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strstr(r.err, "error: board mode read failed\n") != NULL, r.err);
+	mu_assert(strstr(r.err, "error: board mode read failed; the range test "
+	                 "has been stopped\n") != NULL, r.err);
 	mu_assert_int_eq(2, fake.stop_calls);
 
 	/* A stop the board refuses leaves the test running, and the message
