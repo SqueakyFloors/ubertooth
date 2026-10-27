@@ -3230,11 +3230,18 @@ MU_TEST(a_case_label_the_scan_cannot_read_is_reported)
  *    own -- LEDs, serial number, revision, reset -- and none of them hands
  *    over a captured packet. Taking a packet off the queue to the host is
  *    what a polled read is, and only usb_work() does that here.
- *  - Everything the image sends goes one way: btctl_tx_enqueue() puts a
- *    message on the transmit queue, and usb_work() takes it off and writes
- *    the bulk IN endpoint. The one other write is usb_send_sync(), which the
- *    debug and fault printers use because the loop that would drain the queue
- *    is not running by then.
+ *  - Every captured packet goes one way: btctl_tx_enqueue() puts a message on
+ *    the transmit queue, and usb_work() takes it off and writes the bulk IN
+ *    endpoint. The one other write of that endpoint is usb_send_sync(), which
+ *    the debug and fault printers use because the loop that would drain the
+ *    queue is not running by then.
+ *
+ *    Not everything the image sends: a control request's reply goes back to
+ *    the host on the control endpoint, which the USB stack writes from the
+ *    buffer the handler fills. That is a second way to the host in general,
+ *    and the reason it is not a second transport here is the point above --
+ *    no request carries capture data -- which is why the requests are listed
+ *    below rather than taken on trust.
  *
  * So the question the tables above ask -- which transport does this mode's
  * host use -- has one answer here for every state the image can be in, and a
@@ -3472,11 +3479,11 @@ MU_TEST(every_br_edr_control_request_is_listed)
  * usb_work(), which is what a second transport looks like.
  *
  * The image's makefile compiles every .c under its src/, so walking that tree
- * covers the image as it is rather than as it was listed; the headers there
- * are read too, since a `static inline` in one of them lands in the image
- * through whichever source includes it. The files it takes from
- * firmware/common are shared with the other image, and the scan above reads
- * those.
+ * covers the image as it is rather than as it was listed. Its include/ tree
+ * is walked as well, and headers are read alongside sources, because a
+ * `static inline` in a header lands in the image through whichever source
+ * includes it. The files it takes from firmware/common are shared with the
+ * other image, and the scan above reads those.
  *
  * Every directory the walk should have reached is named below, so a subtree
  * it failed to open is a failure rather than a smaller count nobody notices:
@@ -3489,6 +3496,7 @@ MU_TEST(every_br_edr_control_request_is_listed)
  */
 static const char *const br_edr_dirs[] = {
 	"/src/btctl", "/src/btphy", "/src/codec", "/src/drivers", "/src/util",
+	"/include/ubtbr",
 };
 
 #define BR_EDR_DIR_COUNT (sizeof(br_edr_dirs) / sizeof(br_edr_dirs[0]))
@@ -3506,21 +3514,56 @@ static int path_ends_with(const char *path, const char *tail)
 	return p >= t && strcmp(path + p - t, tail) == 0;
 }
 
-/* How many lines of one file call `name`. */
+/*
+ * How many times one file calls `name` from inside a function body.
+ *
+ * Inside a body is the whole point: a header declares the functions the
+ * sources call, and `int btctl_tx_dequeue(...);` names one without calling
+ * it. Braces tell the two apart -- a prototype sits outside any body, a call
+ * inside one -- which also covers a `static inline` written on one line.
+ */
 static int file_calls(const char *path, const char *name)
 {
 	char line[SCAN_LINE_MAX];
-	int in_block = 0, hits = 0;
+	int in_block = 0, hits = 0, depth = 0;
+	size_t len = strlen(name);
 	FILE *f = fopen(path, "r");
 
 	if (f == NULL)
 		return 0;
 
 	while (fgets(line, sizeof(line), f) != NULL) {
+		const char *p;
+
 		strip_comments(line, &in_block);
 		strip_string_literals(line);
-		if (calls_identifier(line, name))
-			hits++;
+
+		for (p = line; *p != '\0'; p++) {
+			if (*p == '{') {
+				depth++;
+				continue;
+			}
+			if (*p == '}') {
+				if (depth > 0)
+					depth--;
+				continue;
+			}
+			if (depth == 0 || !is_ident_char(*p))
+				continue;
+			/* Only at the start of an identifier, so a longer name
+			 * ending in this one does not match. */
+			if (p != line && is_ident_char(p[-1]))
+				continue;
+			if (strncmp(p, name, len) == 0 &&
+			    !is_ident_char(p[len])) {
+				const char *after = p + len;
+
+				while (*after == ' ' || *after == '\t')
+					after++;
+				if (*after == '(')
+					hits++;
+			}
+		}
 	}
 
 	fclose(f);
@@ -3606,10 +3649,14 @@ MU_TEST(the_br_edr_image_has_one_way_to_the_host)
 	size_t d;
 
 	walk_br_edr_sources(FW_BTBR_DIR "/src", check_br_edr_file);
+	/* The image's headers live in a tree of their own, and a `static
+	 * inline` in one of them is compiled into whichever source includes
+	 * it, so a send written there is as real as one in a .c file. */
+	walk_br_edr_sources(FW_BTBR_DIR "/include", check_br_edr_file);
 
 	mu_assert(br_edr_files_read > 10,
-	          "no source read under " FW_BTBR_DIR "/src, so the checks "
-	          "below passed for want of anything to look at");
+	          "nothing read under " FW_BTBR_DIR "/src or /include, so the "
+	          "checks below passed for want of anything to look at");
 
 	for (d = 0; d < BR_EDR_DIR_COUNT; d++) {
 		snprintf(msg, sizeof(msg),
