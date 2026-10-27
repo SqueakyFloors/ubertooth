@@ -346,8 +346,9 @@ says nothing there at all.
 Everything else is on standard error, so a script reading that one line is not
 fed the progress of a flash that takes a few seconds:
 
-    DFU expected revision: git-2671234
     Checking firmware signature
+    Image: bluetooth_rxtx git-2671234 (API:1.33)
+    DFU expected revision: git-2671234
     Switching selected device to DFU mode...
     The image needs 31488 bytes, 0x4000-0xbaff: part 0x25011722 (LPC1754) has 128 KiB of flash
     ........................................

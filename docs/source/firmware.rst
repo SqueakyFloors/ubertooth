@@ -75,7 +75,7 @@ hand, build the image with ``make -C firmware/bluetooth_rxtx`` and run the
 		........................................
 		................
 		Detached
-		Verified firmware revision: git-2671234
+		Verified firmware revision: git-ed30131d*
 
 All of that is progress and goes to standard error, except the last line: the
 revision read back from the board is the result, and it is the only thing on
