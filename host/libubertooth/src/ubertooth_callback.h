@@ -61,12 +61,14 @@ uint64_t ubertooth_packet_arrival_ns(void);
  *
  * Only the thread that drains the ring buffer may call this, the same
  * constraint and for the same reason as the routine above: it reads systime
- * and infile.
+ * and infile. For a replay it reads the host time out of systime and ignores
+ * the reading passed in, which holds because stream_rx_file() hands the
+ * callback one record at a time.
  *
- * Two readings that come from the same arrival are still placed by separate
- * clock reads, and a packet is stamped per record while a capture's times
- * count board ticks from one anchor, so the two drift apart over a long
- * capture and the agreement above is only ever to within that second. */
+ * A record's two times are placed by separate clock reads, microseconds
+ * apart, and a packet is stamped per record while a capture's times count
+ * board ticks from one anchor, so the two drift apart over a long capture:
+ * the agreement above is only ever to within that second. */
 uint32_t ubertooth_packet_systime(uint64_t arrival_ns);
 
 void cb_afh_initial(ubertooth_t* ut, void* args);
