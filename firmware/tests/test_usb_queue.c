@@ -2547,12 +2547,17 @@ static void visit_dispatch_line(const char *line, const struct body_pos *pos,
 		 * it closed is taken up again and the work below the label is
 		 * recorded against it.
 		 *
-		 * The level is what keeps this to the case: a `goto` out of the
-		 * switch lands on a label below it, shallower than this, and
-		 * the work there belongs to no case.
+		 * Two levels keep this to the case. The label has to be at or
+		 * below the level the case's own statements sit at, which a
+		 * label after the switch is not -- that is where a `goto` out
+		 * of the switch lands, and the work there belongs to no case.
+		 * And no loop or branch inside the case may enclose it, so a
+		 * plain `{ }` block opened to scope a variable still holds the
+		 * case's own labels.
 		 */
 		if (s->pending_count == 0 && s->resumable_count > 0 &&
-		    pos->depth == s->case_level &&
+		    pos->depth >= s->case_level &&
+		    pos->control_depth <= s->case_level &&
 		    starts_the_line(line, start) && strcmp(word, "default") != 0 &&
 		    names_a_label(p)) {
 			memcpy(s->pending, s->resumable,
@@ -2952,7 +2957,8 @@ MU_TEST(a_mode_that_streams_runs_a_classified_loop)
  *  - below a `goto` that lands on a label inside the same case, so it never
  *    left it -- while a `goto` out of the switch lands below it, where the
  *    work belongs to no case, which is why the switch's last case is one
- *    that leaves that way;
+ *    that leaves that way. One case jumps into a plain block and does its
+ *    work there, which is still inside the case;
  *  - in the statement that leaves (`return the_work();`);
  *  - inside plain `{ }` blocks opened to scope a variable, which look like a
  *    loop's braces by depth alone but which the case passes through every
@@ -3017,6 +3023,18 @@ static const char *const dispatch_shapes =
 	"		case MODE_AFTER_GOTO_INSIDE:\n"
 	"			after_goto_inside_work();\n"
 	"			break;\n"
+	"		case MODE_GOTO_INTO_SCOPE:\n"
+	"			preface();\n"
+	"			goto in_scope;\n"
+	"			{\n"
+	"				int scoped = 0;\n"
+	"			in_scope:\n"
+	"				goto_into_scope_work();\n"
+	"			}\n"
+	"			break;\n"
+	"		case MODE_AFTER_GOTO_INTO_SCOPE:\n"
+	"			after_goto_into_scope_work();\n"
+	"			break;\n"
 	"		case MODE_NOTHING_BUT_BREAK:\n"
 	"			/* a comment, and no statement of its own */\n"
 	"			break;\n"
@@ -3050,7 +3068,7 @@ static const char *const dispatch_shapes =
 	"	return 0;\n"
 	"}\n";
 
-#define DISPATCH_SHAPE_COUNT 19
+#define DISPATCH_SHAPE_COUNT 21
 
 /* Run the case scan over a function written out as text. tmpfile() rather
  * than a path: the scans walk whole directories, so a C file left in one of
@@ -3122,6 +3140,10 @@ static const struct {
 	{ "MODE_GOTO_INSIDE",          "goto_inside_work",
 	  "after_goto_inside_work" },
 	{ "MODE_AFTER_GOTO_INSIDE",    "after_goto_inside_work",
+	  "goto_into_scope_work" },
+	{ "MODE_GOTO_INTO_SCOPE",      "goto_into_scope_work",
+	  "after_goto_into_scope_work" },
+	{ "MODE_AFTER_GOTO_INTO_SCOPE", "after_goto_into_scope_work",
 	  "after_nothing_but_break_work" },
 	{ "MODE_NOTHING_BUT_BREAK",     NULL,
 	  "after_nothing_but_break_work" },
@@ -3660,6 +3682,17 @@ static int path_ends_with(const char *path, const char *tail)
 	return p >= t && strcmp(path + p - t, tail) == 0;
 }
 
+/* Does this line end in a backslash, so the next one carries on from it? */
+static int line_is_continued(const char *line)
+{
+	size_t n = strlen(line);
+
+	while (n > 0 && (line[n - 1] == '\n' || line[n - 1] == '\r' ||
+	                 line[n - 1] == ' ' || line[n - 1] == '\t'))
+		n--;
+	return n > 0 && line[n - 1] == '\\';
+}
+
 /*
  * How many times one file calls `name` from inside a function body.
  *
@@ -3667,11 +3700,16 @@ static int path_ends_with(const char *path, const char *tail)
  * sources call, and `int btctl_tx_dequeue(...);` names one without calling
  * it. Braces tell the two apart -- a prototype sits outside any body, a call
  * inside one -- which also covers a `static inline` written on one line.
+ *
+ * A `#define` counts as a body wherever it is written, braces or none. The
+ * text of a macro is code in whatever function expands it, so a send wrapped
+ * in one is a send; and a macro is written at file scope, where the brace
+ * rule would otherwise look straight past it.
  */
 static int file_calls(const char *path, const char *name)
 {
 	char line[SCAN_LINE_MAX];
-	int in_block = 0, hits = 0, depth = 0;
+	int in_block = 0, hits = 0, depth = 0, in_macro_continuation = 0;
 	size_t len = strlen(name);
 	FILE *f = fopen(path, "r");
 
@@ -3679,10 +3717,19 @@ static int file_calls(const char *path, const char *name)
 		return 0;
 
 	while (fgets(line, sizeof(line), f) != NULL) {
-		const char *p;
+		const char *p = line;
+		int in_macro;
 
 		strip_comments(line, &in_block);
 		strip_string_literals(line);
+
+		while (*p == ' ' || *p == '\t')
+			p++;
+		in_macro = in_macro_continuation ||
+		           strncmp(p, "#define", 7) == 0;
+		/* A macro written over several lines carries on while each one
+		 * ends in a backslash. */
+		in_macro_continuation = in_macro && line_is_continued(line);
 
 		for (p = line; *p != '\0'; p++) {
 			if (*p == '{') {
@@ -3694,7 +3741,7 @@ static int file_calls(const char *path, const char *name)
 					depth--;
 				continue;
 			}
-			if (depth == 0 || !is_ident_char(*p))
+			if ((depth == 0 && !in_macro) || !is_ident_char(*p))
 				continue;
 			/* Only at the start of an identifier, so a longer name
 			 * ending in this one does not match. */
