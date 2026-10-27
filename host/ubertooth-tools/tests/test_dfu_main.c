@@ -1177,14 +1177,11 @@ MU_TEST(a_board_that_comes_back_in_the_bootloader_fails_a_bare_reset)
 	          strstr(r.err, "expansion-header bridge"),
 	          "the bridge was suggested before the general causes");
 	mu_assert_int_eq(0, (int)strlen(r.out));
-	/* Cleanup tries once more to get the board out, so the failure is
-	 * reported twice, as a board left in DFU already was. The advice is
-	 * said once. */
-	mu_assert_int_eq(2, error_lines(r.err));
-	mu_assert_int_eq(2, fake.detach_calls);
-	mu_assert(strstr(strstr(r.err, "expansion-header bridge") + 1,
-	                 "expansion-header bridge") == NULL,
-	          "the advice was repeated");
+	/* The board reset once and came back, so cleanup does not reset it
+	 * again: that would land in the same place and say so in codes rather
+	 * than words. One error line, one diagnosis. */
+	mu_assert_int_eq(1, error_lines(r.err));
+	mu_assert_int_eq(1, fake.detach_calls);
 }
 
 /* The same under -u: the dump is kept, and the run still fails. */

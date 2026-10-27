@@ -59,7 +59,9 @@ with exit status 1 without opening a device, so the board keeps running its
 firmware. If a later step fails once the board is already in DFU and `-r` was
 given, the tool detaches it anyway, reopening the DFU device on the same
 physical path when the failure closed the handle, so the board returns to its
-application. A board that never answered in DFU at all cannot be detached, and
+application. A board whose reset already landed back in the bootloader is left
+where it is instead: it reset once and came back, so resetting it again would
+end in the same place. A board that never answered in DFU at all cannot be detached, and
 then needs another `ubertooth-dfu` run or a power cycle. A reset the bootloader
 refuses, one it accepts and then does not act on, and one that lands back in
 the bootloader are all reported and fail the command instead of exiting 0 with

@@ -485,9 +485,9 @@ struct dfu_runtime_context {
 	uint32_t upload_length;  /* bytes the read-back asks the bootloader for */
 	const char *upload_name;       /* the dump -u was given, for its messages */
 	const char *download_name;     /* the image -d was given */
-	/* Cleanup tries the detach once more, so a board left in the bootloader
-	 * is reported twice; the advice is only worth saying once. */
-	int bootloader_notes_said;
+	/* The reset left the board in the bootloader again, so cleanup has
+	 * nothing to add by resetting it a second time. */
+	int came_back_in_bootloader;
 	unsigned long download_length; /* ...and the flash writing it covers */
 	int download_checked;    /* the image has been put against the part */
 	int download_refused;    /* ...and does not fit the flash it has */
@@ -895,6 +895,7 @@ int detach(struct dfu_runtime_context* runtime, libusb_device_handle* devh,
 			fprintf(stderr, "error: detach failed: could not tell whether "
 			        "the board left DFU (usb_error=%d)\n", presence);
 		else if (presence == DFU_PRESENCE_RETURNED) {
+			runtime->came_back_in_bootloader = 1;
 			fprintf(stderr, "error: detach failed: the board reset and came "
 			        "back in the bootloader\n");
 			/* Why it is there. The bootloader runs instead of the
@@ -906,17 +907,13 @@ int detach(struct dfu_runtime_context* runtime, libusb_device_handle* devh,
 			 * header has to be told something that can be true of them; the
 			 * bridge follows, because it is the one that repeats on every
 			 * reset. */
-			if (!runtime->bootloader_notes_said) {
-				fprintf(stderr, "note: the bootloader runs instead of the "
-				        "application when something asks the board into DFU "
-				        "again, or when its bootloader entry pin reads "
-				        "grounded as the board resets\n");
-				fprintf(stderr, "note: if the expansion-header bridge is "
-				        "still fitted, remove it (pins 1 and 3 of P4 on an "
-				        "Ubertooth One), then unplug the board and plug it "
-				        "back in\n");
-				runtime->bootloader_notes_said = 1;
-			}
+			fprintf(stderr, "note: the bootloader runs instead of the "
+			        "application when something asks the board into DFU "
+			        "again, or when its bootloader entry pin reads grounded "
+			        "as the board resets\n");
+			fprintf(stderr, "note: if the expansion-header bridge is still "
+			        "fitted, remove it (pins 1 and 3 of P4 on an Ubertooth "
+			        "One), then unplug the board and plug it back in\n");
 		} else
 			fprintf(stderr, "error: detach failed: the board is still in DFU\n");
 		/* A request that failed carries its own status. One the bootloader
@@ -1935,9 +1932,14 @@ cleanup:
 	 * first; if DFU never answered at all there is nothing to detach.
 	 *
 	 * A board this run never claimed is left alone: something else has it,
-	 * and a detach is a reset aimed at whatever that is doing. */
+	 * and a detach is a reset aimed at whatever that is doing. So is a board
+	 * whose reset already landed back in the bootloader: it reset once and
+	 * came back, the handle it answered on is stale, and resetting it again
+	 * would end in the same place after two more error lines that say
+	 * nothing about it. */
 	if (exit_status != 0 && (functions & FUNC_RESET) &&
 	    selected_identity.port_count != 0 &&
+	    !runtime.came_back_in_bootloader &&
 	    (devh == NULL || interface_claimed)) {
 		if (devh == NULL)
 			reopen_dfu_for_detach(&runtime, &selected_identity, &devh,
