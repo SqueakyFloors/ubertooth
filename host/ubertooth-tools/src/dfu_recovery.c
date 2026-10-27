@@ -215,8 +215,11 @@ int dfu_verify_application(const struct dfu_verify_ops *ops,
 		memset(&identity, 0, sizeof(identity));
 		report->polls++;
 		result = ops->open_application(context, selector, &handle, &identity);
-		if (result != 0) {
-			report->operation_error = result;
+		if (result != 1) {
+			/* Each poll overwrites this, so what is left at the end is where
+			 * the last one stood: an error if a device was there and would
+			 * not open, 0 if there was nothing to open. */
+			report->operation_error = result < 0 ? result : 0;
 			if (poll + 1 < config->polls)
 				ops->sleep_ms(context, config->poll_interval_ms);
 			continue;
@@ -239,6 +242,77 @@ int dfu_verify_application(const struct dfu_verify_ops *ops,
 
 	return verify_fail(report, DFU_VERIFY_APP_TIMEOUT,
 	                   report->operation_error);
+}
+
+void dfu_verify_describe_failure(const struct dfu_verify_report *report,
+                                 const char *expected_revision,
+                                 char *message, size_t message_size)
+{
+	const char *expected = expected_revision != NULL ? expected_revision : "";
+
+	if (message == NULL || message_size == 0)
+		return;
+	if (report == NULL) {
+		snprintf(message, message_size,
+		         "the flash could not be checked after the reset");
+		return;
+	}
+	/* The switch covers every enumerator; this only catches a value that is
+	 * not one of them. */
+	snprintf(message, message_size,
+	         "the flash could not be checked after the reset (result %d)",
+	         (int)report->result);
+	switch (report->result) {
+	case DFU_VERIFY_OK:
+		snprintf(message, message_size, "the board came back running %s",
+		         report->actual_revision);
+		break;
+	case DFU_VERIFY_INVALID_ARGUMENT:
+		snprintf(message, message_size,
+		         "the flash could not be checked after the reset");
+		break;
+	case DFU_VERIFY_APP_TIMEOUT:
+		/* The write completed before the reset, so the board holds the new
+		 * firmware whether or not it answered afterwards. Saying so is the
+		 * point: the obvious reaction to a bare failure is to flash it
+		 * again, which is what this board does not need.
+		 *
+		 * Two boards end up here, and only one of them is missing. The other
+		 * is on the bus and will not open, because something else holds its
+		 * interface or this user may not have it, and telling that board to
+		 * power-cycle would be a wrong diagnosis of the same kind this line
+		 * exists to stop. */
+		if (report->operation_error == 0)
+			snprintf(message, message_size,
+			         "the firmware was written, but the board did not come "
+			         "back on USB: power-cycle it and read its revision with "
+			         "ubertooth-util -v before flashing it again");
+		else
+			snprintf(message, message_size,
+			         "the firmware was written, but the board came back and "
+			         "would not open, so the flash was not checked: read its "
+			         "revision with ubertooth-util -v once nothing else is "
+			         "using it");
+		break;
+	case DFU_VERIFY_IDENTITY_MISMATCH:
+		snprintf(message, message_size,
+		         "the device that came back is not on the flashed board's USB "
+		         "path, so the flash was not checked: read the board's "
+		         "revision with ubertooth-util -v");
+		break;
+	case DFU_VERIFY_REVISION_FAILED:
+		snprintf(message, message_size,
+		         "the board came back but would not report its firmware "
+		         "revision, so the flash was not checked: read it with "
+		         "ubertooth-util -v");
+		break;
+	case DFU_VERIFY_REVISION_MISMATCH:
+		snprintf(message, message_size,
+		         "the board came back running %s, not %s: the firmware was "
+		         "not written, so flash it again",
+		         report->actual_revision, expected);
+		break;
+	}
 }
 
 unsigned long dfu_max_image_size(void)

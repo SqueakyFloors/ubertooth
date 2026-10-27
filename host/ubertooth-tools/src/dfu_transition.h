@@ -54,6 +54,10 @@ struct dfu_transition_report {
 };
 
 struct dfu_transition_ops {
+	/* Return 0 when the application was opened and non-zero when it was not.
+	 * Note the verification's member of the same name and signature
+	 * (dfu_verify_ops in dfu_recovery.h) answers 1 for success, because it
+	 * also has to say whether the device was there at all. */
 	int (*open_application)(void *context, const char *selector,
 	                        void **handle,
 	                        struct dfu_usb_identity *identity);

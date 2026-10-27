@@ -1077,8 +1077,11 @@ static int verify_open_application(void *context,
 	log_dfu_stage(stage);
 	result = find_ubertooth_application_device(
 		runtime->usb_context, runtime->verify_identity, &devh);
+	/* Nothing there yet is not an error: the board is still re-enumerating,
+	 * or it will not come back at all. Either way it is not a device that
+	 * refused to open, and the two are reported differently. */
 	if (result == 0)
-		return LIBUSB_ERROR_NO_DEVICE;
+		return 0;
 	if (result < 0)
 		return result;
 	result = libusb_claim_interface(devh, 0);
@@ -1092,7 +1095,7 @@ static int verify_open_application(void *context,
 		return result;
 	}
 	*handle = devh;
-	return 0;
+	return 1;
 }
 
 static int verify_get_revision(void *context __attribute__((unused)),
@@ -1780,12 +1783,22 @@ int main(int argc, char **argv) {
 		                           &selected_identity, image_info.revision,
 		                           &verify_config, &verify_report);
 		if (r != DFU_VERIFY_OK) {
-			fprintf(stderr,
-			        "error: post-reset verification failed: result=%d expected=%s "
-			        "actual=%s usb_error=%d\n",
-			        verify_report.result, image_info.revision,
-			        verify_report.actual_revision,
-			        verify_report.operation_error);
+			char message[256];
+			char stage[256];
+
+			/* The raw codes go in the stage trace, which is where the rest
+			 * of this command's internals are reported; the line the user
+			 * reads says which outcome it was and what to do next. */
+			snprintf(stage, sizeof(stage),
+			         "post-reset application verification failed: result=%d "
+			         "polls=%u expected=%s actual=%s usb_error=%d",
+			         verify_report.result, verify_report.polls,
+			         image_info.revision, verify_report.actual_revision,
+			         verify_report.operation_error);
+			log_dfu_stage(stage);
+			dfu_verify_describe_failure(&verify_report, image_info.revision,
+			                            message, sizeof(message));
+			fprintf(stderr, "error: %s\n", message);
 			exit_status = 1;
 			goto cleanup;
 		}
