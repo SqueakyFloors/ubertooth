@@ -95,9 +95,12 @@ set_tests_properties(le-frag PROPERTIES TIMEOUT 5)
 # test_util_main.c does. The library's device functions are the fakes in the
 # test; only its fifo is the real one, so no device is opened.
 if(libubertooth_SOURCE_DIR)
+	# request_report.c is the real one, so the cases pin the wording the
+	# tool prints rather than a stub's.
 	add_executable(test-specan-write-failure
 		test_specan_write_failure.c
 		../src/specan_options.c
+		../src/request_report.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_fifo.c)
 	target_include_directories(test-specan-write-failure PRIVATE
 		../src ${libubertooth_SOURCE_DIR}/src
@@ -682,8 +685,11 @@ if(libubertooth_SOURCE_DIR)
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
 	target_include_directories(test-stream-failure PRIVATE
 		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+	# ${CMAKE_DL_LIBS} for dlsym(): the test defines pthread_create() so a
+	# case can refuse a capture's collecting thread, and looks the real one
+	# up past its own definition for the cases that need a thread.
 	target_link_libraries(test-stream-failure ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES}
-		Threads::Threads)
+		Threads::Threads ${CMAKE_DL_LIBS})
 	add_test(NAME stream-failure COMMAND test-stream-failure)
 	# Every event is delivered by the fake as soon as it is asked for, so a
 	# run takes milliseconds. A failure that no longer stops the receive loop

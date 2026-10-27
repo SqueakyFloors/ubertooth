@@ -139,6 +139,7 @@ target_sources(ubertooth-ego PRIVATE ego_options.c)
 # The shared wording for a capture that could not be started, for the tools
 # that check the requests and the thread setting one up.
 target_sources(ubertooth-rx PRIVATE request_report.c)
+target_sources(ubertooth-specan PRIVATE request_report.c)
 if ( ${LIBBLUETOOTH_FOUND} )
 	target_sources(ubertooth-scan PRIVATE request_report.c)
 	target_sources(ubertooth-follow PRIVATE request_report.c)
