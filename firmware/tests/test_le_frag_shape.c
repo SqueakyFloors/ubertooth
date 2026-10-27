@@ -228,10 +228,27 @@ MU_TEST(the_loop_waits_for_the_length_byte_and_then_for_the_packet)
 	/* A length field corrupted by noise can ask for the longest packet
 	 * there is, so the wait has to end on a mode change rather than hold
 	 * the mode open for bytes the radio has stopped sending. */
-	mu_assert(strstr(rxtx, "&& requested_mode == active_mode) ; "
-	                 "if (requested_mode != active_mode) goto cleanup;")
-	          != NULL,
+	mu_assert(strstr(rxtx, "&& requested_mode == active_mode) ; ") != NULL,
 	          "a stopped mode does not end the wait for a packet's bytes");
+	mu_assert(strstr(rxtx, "if (requested_mode != active_mode) goto cleanup;")
+	          != NULL,
+	          "a stopped mode does not end the mode after the wait");
+}
+
+/* The receive buffer is reused, so a packet whose bytes did not all arrive
+ * would be handed over padded with the previous packet's. It is dropped
+ * instead. */
+MU_TEST(a_packet_whose_bytes_did_not_all_arrive_is_dropped)
+{
+	mu_assert(strstr(rxtx,
+	                 "int whole = rx_err == 0 && DMACC0DestAddr >="
+	                 " (uint32_t)(p + 4) + want;") != NULL,
+	          "whether the whole packet arrived is not worked out");
+	mu_assert(strstr(rxtx, "if (!whole) goto rx_flush;") != NULL,
+	          "a packet that arrived in part is still handed over");
+	/* And the host hears about the error on the next record. */
+	mu_assert(strstr(rxtx, "if (rx_err) status |= DMA_ERROR;") != NULL,
+	          "a transfer error during a packet is not reported");
 }
 
 int main(void)
@@ -247,5 +264,6 @@ int main(void)
 	MU_RUN(only_one_half_of_the_mode_reads_symbols);
 	MU_RUN(the_shared_buffer_is_cleared_before_symbols_are_searched);
 	MU_RUN(the_loop_waits_for_the_length_byte_and_then_for_the_packet);
+	MU_RUN(a_packet_whose_bytes_did_not_all_arrive_is_dropped);
 	return mu_report();
 }

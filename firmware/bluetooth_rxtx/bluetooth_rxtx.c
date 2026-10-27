@@ -2258,9 +2258,19 @@ void bt_le_sync(u8 active_mode)
 		       && (DMACC0Config & DMACCxConfig_E) && rx_err == 0
 		       && requested_mode == active_mode)
 			;
+		/* Whether the whole packet arrived, which is why the wait ended.
+		 * The receive buffer is reused, so the bytes a packet cut short by
+		 * a transfer error is missing are the previous packet's: a record
+		 * built from those would be a packet that was never on the air. */
+		int whole = rx_err == 0 &&
+		            DMACC0DestAddr >= (uint32_t)(p + 4) + want;
 		if (requested_mode != active_mode)
 			goto cleanup;
+		if (rx_err)
+			status |= DMA_ERROR;
 		DIO_SSP_DMACR &= ~SSPDMACR_RXDMAE;
+		if (!whole)
+			goto rx_flush;
 
 		// strobe SFSON to allow the resync to occur while we process the packet
 		cc2400_strobe(SFSON);
