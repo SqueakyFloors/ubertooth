@@ -61,33 +61,39 @@ static int file_exists(const char *path)
 }
 
 /*
- * Does any line of `path` contain `needle` outside a comment?
+ * Which line of `path` first contains `needle` outside a comment? 0 for none.
  *
  * make has one comment form, `#` to end of line. A `#` in a recipe is a
  * comment to the shell, which is what the makefiles' `@#` notes are, so
  * stripping those too is right: this scan is about what make does, not about
  * what it says.
  */
-static int file_has(const char *path, const char *needle)
+static int line_with(const char *path, const char *needle)
 {
 	char line[MAX_LINE];
 	FILE *f = fopen(path, "r");
-	int found = 0;
+	int number = 0;
 
 	if (f == NULL)
 		return 0;
 	while (fgets(line, sizeof(line), f) != NULL) {
 		char *hash = strchr(line, '#');
 
+		number++;
 		if (hash != NULL)
 			*hash = '\0';
 		if (strstr(line, needle) != NULL) {
-			found = 1;
-			break;
+			fclose(f);
+			return number;
 		}
 	}
 	fclose(f);
-	return found;
+	return 0;
+}
+
+static int file_has(const char *path, const char *needle)
+{
+	return line_with(path, needle) != 0;
 }
 
 /*
@@ -135,6 +141,30 @@ static const char *const banned_shape[] = {
 	"=$(OBJDIR)/%.d",
 };
 
+/*
+ * The depfile include has to sit below the `all:` rule.
+ *
+ * make takes the first target it reads as the default goal, and a dependency
+ * file begins with one object's rule. Included above `all:`, plain `make`
+ * builds that one object, says it is up to date and stops -- no compile, no
+ * link, exit 0. Both makefiles say so in a comment; this is the check.
+ */
+static void check_depfiles_come_after_all(const char *path)
+{
+	int all_line = line_with(path, "all: begin");
+	int include_line = line_with(path, "-include $(DEPFILES)");
+	char why[448];
+
+	snprintf(why, sizeof(why), "%s has no `all: begin ...` rule", path);
+	mu_assert(all_line != 0, why);
+	snprintf(why, sizeof(why),
+	         "%s reads its depfiles on line %d, above the `all:` rule on "
+	         "line %d, which makes an object the default goal instead of "
+	         "the image",
+	         path, include_line, all_line);
+	mu_assert(all_line != 0 && include_line > all_line, why);
+}
+
 static void check_one_makefile(const char *path)
 {
 	int readable = file_exists(path);
@@ -158,6 +188,7 @@ static void check_one_makefile(const char *path)
 		         path, banned_shape[i]);
 		mu_assert(!file_has(path, banned_shape[i]), why);
 	}
+	check_depfiles_come_after_all(path);
 }
 
 /* The two makefiles that decide where object files go. */

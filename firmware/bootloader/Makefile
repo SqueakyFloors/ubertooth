@@ -284,12 +284,6 @@ LST = $(call per_image,$(SRC:%.c=%.lst) $(CPPSRC:%.cpp=%.lst) $(ASRC:%.S=%.lst))
 # Compiler flags to generate dependency files.
 GENDEPFLAGS = -MMD -MP -MD
 
-# Read those dependency files back, so editing a header rebuilds what includes
-# it. The compiler writes each one beside its object, so the paths come from
-# per_image too.
-DEPFILES = $(call per_image,$(SRC:%.c=%.d) $(CPPSRC:%.cpp=%.d))
--include $(DEPFILES)
-
 # Combine all necessary flags and optional flags.
 # Add target processor to flags.
 ALL_CFLAGS = -mcpu=$(CPU) -$(CPU_MODE) $(CPU_FLAGS) -I. $(CFLAGS) $(GENDEPFLAGS)
@@ -300,6 +294,17 @@ ALL_CFLAGS_LINKER = -mcpu=$(CPU) -$(CPU_MODE) $(CPU_FLAGS_ASM)
 
 # Default target.
 all: begin gccversion sizebefore build showtarget sizeafter end
+
+# Read the dependency files back, so editing a header rebuilds what includes
+# it. The compiler writes each one beside its object, so the paths come from
+# per_image too.
+#
+# This include comes AFTER `all:` on purpose, as the one in ../common.mk does:
+# the first target make reads becomes the default goal, and a dependency file
+# starts with an object's rule. Included above, plain `make` would build one
+# object and stop.
+DEPFILES = $(call per_image,$(SRC:%.c=%.d) $(CPPSRC:%.cpp=%.d))
+-include $(DEPFILES)
 
 # Change the build target to build a HEX file or a library.
 build: elf hex bin srec lss sym
