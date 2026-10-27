@@ -514,7 +514,10 @@
       "nothing_to_do": "error: nothing to do: give an option that reads or sets something, or -N to count the attached boards",
       "selector_only_error": "error: nothing to do: -U '%s' selects a device but no option asks anything of it",
       "stdout_on_failure": ["-N"],
-      "man_must_say": ["Watchdog: armed; {define:UBERTOOTH_WATCHDOG_TIMEOUT_MS} ms without USB being serviced resets the board"],
+      "man_must_say": ["Watchdog: armed; {define:UBERTOOTH_WATCHDOG_TIMEOUT_MS} ms without USB being serviced resets the board",
+                       "goes {words:UBERTOOTH_WATCHDOG_TIMEOUT_MS} without servicing USB",
+                       ["ubertooth.md", "resets about {words:UBERTOOTH_WATCHDOG_TIMEOUT_MS} after it stops servicing USB"],
+                       ["ubertooth.md", "resets itself about {words:UBERTOOTH_WATCHDOG_TIMEOUT_MS} later"]],
       "removed_options": ["-9", "-f"],
       "options": {
         "-h": {"value": "none", "role": "help"},

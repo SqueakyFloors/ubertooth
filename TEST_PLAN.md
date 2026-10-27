@@ -87,6 +87,14 @@ ISP or JTAG.
       the unrequested count is still 0
 - [ ] Reflash with `ubertooth-dfu -d <image>.dfu -r`, then `-w`
 - [ ] Confirm: the unrequested count is still 0 — a flash is not a wedge
+- [ ] Run `ubertooth-util -x`, leave it blinking for a minute, then `-S` and
+      `-w`. This is the tightest margin in the design: xmas mode waits up to
+      1600 ms between blinks against a three-second timeout, and it is one of
+      the modes whose loop feeds on its own rather than by answering the host.
+- [ ] Confirm: the LEDs blink for the whole minute and the unrequested count
+      is still 0 — a board working normally is never reset
+- [ ] Repeat with `ubertooth-util -I` (identify), which toggles every 167 ms
+- [ ] Confirm: the same
 
 ### 2f. Bootloader refuses a read-back past the end of flash
 

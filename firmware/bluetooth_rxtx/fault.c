@@ -33,6 +33,19 @@ static void flash_leds(int count) {
 	delay_30ms();
 }
 
+/*
+ * These four blink a code forever and never service USB. Since the watchdog is
+ * armed they now get about three seconds to blink before it resets the board,
+ * so a fault that recurs shows its code in bursts separated by a reboot rather
+ * than as one unbroken sequence. That is wanted: the board used to sit there
+ * answering nothing until someone unplugged it, and it now comes back usable.
+ * The code is still readable across the bursts, and ubertooth-util -w names the
+ * mode the board was in, which counting blinks never did.
+ *
+ * These run at a priority the USB interrupt cannot preempt -- HardFault above
+ * everything, the other three at the same 0 as USB -- so the USB handler's feed
+ * cannot keep a faulted board alive by accident.
+ */
 void HardFault_Handler(void) {
 	uint32_t val = SCB_HFSR;
 

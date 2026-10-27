@@ -61,7 +61,8 @@ static const char *hint(int code)
 		/* A board busy in a mode takes no new request until the mode
 		 * stops; one that answers nothing at all needs re-plugging. */
 		return "if a mode is running, stop it with ubertooth-util -S; "
-		       "if the board does not answer at all, re-plug it";
+		       "a board that does not answer at all resets itself within "
+		       "a few seconds, so run the command again";
 	case LIBUSB_ERROR_NO_DEVICE:
 		return "re-attach the board and run the command again";
 	default:

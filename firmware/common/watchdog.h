@@ -57,13 +57,22 @@
  * Nothing feeds it from a timer, which would only show that the CPU is
  * running.
  *
- * One thing this rests on: every interrupt in both images runs at the same
- * priority, the reset default, because nothing sets one. A handler that stops
- * returning therefore stops the USB handler with it, which is what makes "the
- * board still answers USB" a test of the whole firmware rather than of the
- * USB path alone. Give the USB interrupt a higher priority than the radio and
- * timer handlers and this watchdog would keep feeding through exactly the
- * wedge it exists to catch. test_watchdog.c pins that nothing sets a priority.
+ * One thing this rests on: no interrupt is allowed to preempt the USB handler.
+ * Almost all of them, the USB one included, keep the reset default priority of
+ * 0, because nothing sets one. A handler that stops returning therefore stops
+ * the USB handler with it, which is what makes "the board still answers USB" a
+ * test of the whole firmware rather than of the USB path alone. Give some
+ * radio or timer interrupt a priority above USB's and this watchdog would keep
+ * feeding through exactly the wedge it exists to catch.
+ *
+ * One interrupt does set a priority, in both images: dma_poweron() puts the
+ * GPDMA handler at 31, the lowest. That is the safe direction -- USB preempts
+ * it, never the other way round -- but it does mean a GPDMA handler that
+ * stopped returning would keep being fed through. It is not the fault this
+ * watchdog is for: the board would still be answering the host, so the host
+ * would see wrong or missing capture data rather than the dead board of #239.
+ * test_watchdog.c pins both halves: nothing else sets a priority, and the one
+ * that does sets the lowest.
  */
 
 /* What the board is doing, for the breadcrumb. */

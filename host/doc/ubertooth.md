@@ -104,8 +104,8 @@ The board took the request and sent nothing back:
 A board that has stopped answering control requests does this: it happens
 after some captures end, and a board left in a mode that keeps polling can do
 it too. Try `ubertooth-util [-U <selector>] -S` to stop a mode and
-`ubertooth-util -r` to reset the board; a board that answers neither has to be
-unplugged and plugged in again, or its hub port power-cycled. The line says
+`ubertooth-util -r` to reset the board; a board that answers neither resets
+itself, as the next paragraph describes. The line says
 only what happened, because what it means depends on what the command was
 doing: mid-flash, for instance, it is a bootloader that lost its place, and no
 mode is involved.

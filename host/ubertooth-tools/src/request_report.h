@@ -29,7 +29,7 @@
  * most one note on what to try next:
  *
  *     error: could not set the channel: the board did not answer in time (libusb -7)
- *     note: if a mode is running, stop it with ubertooth-util -S; if the board does not answer at all, re-plug it
+ *     note: if a mode is running, stop it with ubertooth-util -S; a board that does not answer at all resets itself within a few seconds, so run the command again
  *
  * <what> is the action the tool asked for, written to follow "could not", for
  * example "set the channel". <code> is the libusb error code the request came

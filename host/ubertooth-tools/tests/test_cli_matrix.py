@@ -222,28 +222,58 @@ class NotRun(object):
     stderr = ""
 
 
+# How the pages spell out a whole number of seconds. The prose drifts the
+# same way the digits do, and a reader cannot tell which of the two is
+# current, so {words:NAME} is checked as well as {define:NAME}. There is
+# deliberately no rule for turning a number into English here: a new timeout
+# has no entry, the check fails, and whoever changed it writes the word form
+# in alongside.
+SECOND_WORDS = {
+    1: "one second",
+    2: "two seconds",
+    3: "three seconds",
+    4: "four seconds",
+    5: "five seconds",
+}
+
+
 def resolve_defines(phrase, tests_dir):
-    """Fill {define:NAME} in a phrase from the firmware interface header.
+    """Fill {define:NAME} and {words:NAME} from the firmware interface header.
 
     A man page that quotes a number out of that header is only right until
     someone changes the header, and nothing otherwise connects the two. A
-    spec phrase written with the placeholder is checked against the value
-    the build actually uses.
+    spec phrase written with a placeholder is checked against the value
+    the build actually uses. {define:NAME} gives the digits, {words:NAME}
+    gives the same value in seconds spelled out.
     """
     header = os.path.join(tests_dir, "..", "..", "libubertooth", "src",
                           "ubertooth_interface.h")
     with open(header) as handle:
         text = handle.read()
 
-    def value_of(match):
-        name = match.group(1)
+    def digits_of(name):
         found = re.search(r"^#define\s+%s\s+(\S+)" % re.escape(name), text,
                           re.M)
         if found is None:
             raise AssertionError("%s does not define %s" % (header, name))
         return found.group(1)
 
-    return re.sub(r"\{define:(\w+)\}", value_of, phrase)
+    def value_of(match):
+        return digits_of(match.group(1))
+
+    def words_of(match):
+        name = match.group(1)
+        milliseconds = int(digits_of(name), 0)
+        seconds, remainder = divmod(milliseconds, 1000)
+        if remainder or seconds not in SECOND_WORDS:
+            raise AssertionError(
+                "%s is %d ms, which SECOND_WORDS in this file has no English "
+                "for. Add it, and say the new figure in the pages that spell "
+                "the timeout out." % (name, milliseconds))
+        return SECOND_WORDS[seconds]
+
+    phrase = re.sub(r"\{define:(\w+)\}", value_of, phrase)
+    return re.sub(r"\{words:(\w+)\}", words_of, phrase)
 
 
 def run(arguments, directory):
@@ -667,17 +697,36 @@ def check_the_spec_lists_every_option():
                                      "%s says %r: %s" % (page, phrase,
                                                          complaint)))
             # A number the page quotes from the firmware interface, written
-            # as a phrase with {define:NAME} where the value goes. The page
+            # as a phrase with {define:NAME} where the value goes, or
+            # {words:NAME} where the page spells it out in English. The page
             # and the header drift apart silently otherwise: a reader has no
             # way to tell that the timeout the page promises is last
             # release's.
-            for phrase in CONTRACT.get("man_must_say", []):
-                wanted = resolve_defines(phrase, here)
-                if " ".join(wanted.split()) not in flowed:
+            #
+            # An entry is either a phrase, checked against this tool's own
+            # page, or a [page, phrase] pair naming another page that quotes
+            # the same value. ubertooth(7) describes the watchdog to users and
+            # drifts just as easily, and no tool owns that page.
+            for entry in CONTRACT.get("man_must_say", []):
+                if isinstance(entry, str):
+                    target, target_text = page, flowed
+                else:
+                    target, phrase_source = entry[0], entry[1]
+                    other = os.path.join(here, "..", "..", "doc", target)
+                    if not os.path.exists(other):
+                        problems.append((MAN_PAGE_CASE,
+                                         "the spec cites %s, which is not "
+                                         "there" % target))
+                        continue
+                    with open(other) as handle:
+                        target_text = " ".join(handle.read().split())
+                    entry = phrase_source
+                wanted = resolve_defines(entry, here)
+                if " ".join(wanted.split()) not in target_text:
                     problems.append((MAN_PAGE_CASE,
                                      "%s does not say %r, which is what the "
                                      "header it quotes now says"
-                                     % (page, wanted)))
+                                     % (target, wanted)))
 
     written = CONTRACT.get("optstring")
     if written is None:

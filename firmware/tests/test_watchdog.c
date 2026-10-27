@@ -731,36 +731,87 @@ MU_TEST(test_the_open_ended_ble_waits_feed)
 }
 
 /*
- * Nothing sets an interrupt priority in either image. The watchdog's whole
- * argument is that a handler which stops returning stops the USB handler too,
- * which only holds while they share a priority: a USB interrupt able to
- * preempt a stuck radio handler would keep feeding through the wedge.
+ * Nothing may preempt the USB handler. The watchdog's whole argument is that a
+ * handler which stops returning stops the USB handler too, and that holds only
+ * while nothing outranks USB: an interrupt able to preempt a stuck radio
+ * handler would keep feeding through the wedge.
+ *
+ * The USB interrupt keeps the reset default priority of 0, the highest, so the
+ * check is that no source raises another interrupt to meet it. Both images do
+ * set exactly one priority -- dma_poweron() puts GPDMA at 31, the lowest -- so
+ * those two lines are named here rather than banned, and the test insists they
+ * stay at 31. The files that write a priority are the ones that most need
+ * reading, which is why both are in this list.
  */
-MU_TEST(test_nothing_gives_an_interrupt_its_own_priority)
+MU_TEST(test_nothing_is_raised_above_the_usb_interrupt)
 {
-	static const char *const sources[] = {
+	/* Each image's DMA driver, the only place a priority is set. */
+	static const char *const lowest[] = {
+		FW_RXTX_DIR "/ubertooth_dma.c",
+		FW_BTBR_DIR "/src/drivers/ubertooth_dma.c",
+	};
+	/* Everything that enables or handles an interrupt, and must set none. */
+	static const char *const none[] = {
 		FW_RXTX_DIR "/bluetooth_rxtx.c",
 		FW_RXTX_DIR "/le_phy.c",
 		FW_RXTX_DIR "/ubertooth_usb.c",
+		FW_RXTX_DIR "/xmas.c",
+		FW_RXTX_DIR "/identify.c",
+		FW_RXTX_DIR "/ego.c",
 		FW_COMMON_DIR "/ubertooth.c",
 		FW_COMMON_DIR "/usb_serial.c",
 		FW_BTBR_DIR "/src/btctl/main.c",
+		FW_BTBR_DIR "/src/drivers/ubertooth_usb.c",
 	};
 	size_t i;
 
-	for (i = 0; i < sizeof(sources) / sizeof(sources[0]); i++) {
+	for (i = 0; i < sizeof(none) / sizeof(none[0]); i++) {
 		char msg[384];
-		int found = source_has(sources[i], "IPR", NULL);
+		int found = source_has(none[i], "IPR", NULL);
 
-		snprintf(msg, sizeof(msg), "cannot read %s", sources[i]);
+		snprintf(msg, sizeof(msg), "cannot read %s", none[i]);
 		mu_assert(found >= 0, msg);
 
 		snprintf(msg, sizeof(msg),
 		         "%s writes an interrupt priority register. The watchdog "
-		         "relies on every handler sharing one priority, so that a "
-		         "stuck handler also stops the USB handler feeding",
-		         sources[i]);
+		         "relies on nothing outranking the USB interrupt, so that "
+		         "a stuck handler also stops the USB handler feeding",
+		         none[i]);
 		mu_assert(found == 0, msg);
+	}
+
+	for (i = 0; i < sizeof(lowest) / sizeof(lowest[0]); i++) {
+		char line[512], msg[384];
+		int in_block = 0, writes = 0, at_lowest = 0;
+		FILE *f = fopen(lowest[i], "r");
+
+		snprintf(msg, sizeof(msg), "cannot read %s", lowest[i]);
+		mu_assert(f != NULL, msg);
+
+		while (fgets(line, sizeof(line), f) != NULL) {
+			strip_comments(line, &in_block);
+			if (strstr(line, "IPR") == NULL)
+				continue;
+			writes++;
+			/* 31 is the lowest priority this part offers. */
+			if (strstr(line, "31") != NULL ||
+			    strstr(line, "IP_DMA") != NULL)
+				at_lowest++;
+		}
+		fclose(f);
+
+		snprintf(msg, sizeof(msg),
+		         "%s: expected one interrupt priority write, found %d",
+		         lowest[i], writes);
+		mu_assert(writes == 1, msg);
+
+		snprintf(msg, sizeof(msg),
+		         "%s sets an interrupt priority that is not the lowest. "
+		         "Only a priority below the USB interrupt's is safe: "
+		         "anything that can preempt it would let the watchdog be "
+		         "fed through the wedge it exists to catch",
+		         lowest[i]);
+		mu_assert(at_lowest == writes, msg);
 	}
 }
 
@@ -930,7 +981,7 @@ int main(void)
 	MU_RUN(test_every_interrupt_driven_mode_loop_feeds);
 	MU_RUN(test_each_mode_that_enables_the_usb_interrupt_feeds);
 	MU_RUN(test_the_open_ended_ble_waits_feed);
-	MU_RUN(test_nothing_gives_an_interrupt_its_own_priority);
+	MU_RUN(test_nothing_is_raised_above_the_usb_interrupt);
 	MU_RUN(test_no_interrupt_handler_but_the_usb_one_feeds);
 	MU_RUN(test_a_claimed_reset_is_claimed_where_it_happens);
 	return mu_report();

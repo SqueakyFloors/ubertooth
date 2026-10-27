@@ -211,6 +211,12 @@ void watchdog_unstretch(void)
 {
 	WDTC = WATCHDOG_TICKS;
 	watchdog_feed();
+	/*
+	 * Deliberately not symmetrical with watchdog_stretch(), which sets no
+	 * intent: the caller sets the intent for the hand-over it is about to
+	 * make, and getting here means that hand-over came back, so the board
+	 * is plainly running again and any later reset is a real wedge.
+	 */
 	watchdog_intent(WATCHDOG_INTENT_RUNNING);
 }
 
