@@ -823,6 +823,11 @@
   host took to reach its first packet, seconds where the capture was written to
   a pipe nothing was reading yet or taken by a descheduled process.
   [#589](https://github.com/SqueakyFloors/ubertooth/issues/589)
+- The `systime` of each packet line, and the host time a `-d` dump stores with
+  each record, come from the same reading. A stalled host's dump used to carry
+  every time late, replay that late, and disagree with the capture written
+  beside it in the same run.
+  [#612](https://github.com/SqueakyFloors/ubertooth/issues/612)
 - `ubertooth-afh -t` stops on the first Ctrl-C. An interrupt during the
   detection phase was dropped along with the timeout that normally ends it, so
   monitoring started anyway and had to be interrupted a second time.

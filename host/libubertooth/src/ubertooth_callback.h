@@ -48,6 +48,17 @@ void ubertooth_capture_clock_reset(ubertooth_t* ut);
  * because the one tool that sets it does so before any thread exists. */
 uint64_t ubertooth_packet_arrival_ns(void);
 
+/* The host time a record arrived, in whole seconds: what the systime= column
+ * prints, what a -d dump stores with the record, and what a replay of that
+ * dump anchors its capture on. Takes the reading the record arrived with, the
+ * one the ring buffer carries, and places it the same way the capture's own
+ * timestamps are placed, so a dump and a PCAP written side by side in one run
+ * agree about when the packets arrived. Reading the host clock here instead
+ * would carry however long the capture's loop took to reach the record into
+ * the column, into the dump, and into every time a replay of that dump
+ * reconstructs. A replayed record keeps the host time it was recorded with. */
+uint32_t ubertooth_packet_systime(uint64_t arrival_ns);
+
 void cb_afh_initial(ubertooth_t* ut, void* args);
 void cb_afh_monitor(ubertooth_t* ut, void* args);
 void cb_afh_r(ubertooth_t* ut, void* args);
