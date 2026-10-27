@@ -33,6 +33,7 @@
 #include "ubertooth.h"
 #include "ubertooth_callback.h"
 #include "opt_parse.h"
+#include "request_report.h"
 #include "follow_afh.h"
 #include <btbb.h>
 #include <getopt.h>
@@ -81,13 +82,17 @@ static void afh_hci_wait(void* ctx __attribute__((unused)))
 	usleep(FOLLOW_AFH_RETRY_DELAY_US);
 }
 
-/* Drops the link this command made to the target, so a failure does not leave
- * the target connected until its controller times the link out. cc says
- * whether there is a link to drop. */
-static void follow_disconnect(int sock, uint16_t handle, int cc)
+/* Gives the local adapter back. First it drops the link this command made to
+ * the target, so a failure does not leave the target connected until its
+ * controller times the link out, and then it closes the adapter handle, as
+ * ubertooth-scan does: a handle on an adapter the tool is no longer using
+ * keeps the adapter busy for nothing. cc says whether there is a link to
+ * drop. Every path that opened the adapter comes through here. */
+static void follow_release_adapter(int sock, uint16_t handle, int cc)
 {
 	if (cc)
 		hci_disconnect(sock, handle, HCI_OE_USER_ENDED_CONNECTION, 10000);
+	close(sock);
 }
 
 /* The same, for a failure once the receive thread is running: stop the thread
@@ -96,7 +101,24 @@ static void follow_cleanup(ubertooth_t* ut, int sock, uint16_t handle, int cc)
 {
 	ubertooth_bulk_thread_stop();
 	ubertooth_stop(ut);
-	follow_disconnect(sock, handle, cc);
+	follow_release_adapter(sock, handle, cc);
+}
+
+/* A board that refused one of the requests the follow is built on. One line
+ * names the request, and the board and the adapter both go back, so a follow
+ * that cannot be set up leaves nothing behind.
+ *
+ * Closed without a STOP: these requests go out before any mode has started,
+ * so there is nothing to stop, and a STOP to a board that has just refused a
+ * request would only add a second failure to the report. The same reasoning as
+ * ubertooth-rx's request_failed(). */
+static int follow_request_failed(ubertooth_t* ut, int sock, uint16_t handle,
+                                 int cc, const char* what, int code)
+{
+	report_refused_request(what, code);
+	ubertooth_close(ut);
+	follow_release_adapter(sock, handle, cc);
+	return 1;
 }
 
 static void usage()
@@ -368,6 +390,7 @@ int main(int argc, char *argv[])
 		if (hci_read_bd_addr(sock, &bdaddr, HCI_TIMEOUT_MS) < 0) {
 			fprintf(stderr, "error: reading the address of %s failed: %s\n",
 			        bt_dev, strerror(errno));
+			follow_release_adapter(sock, handle, cc);
 			return 1;
 		}
 		lap = bdaddr.b[0] | bdaddr.b[1] << 8 | bdaddr.b[2] << 16;
@@ -391,6 +414,7 @@ int main(int argc, char *argv[])
 		if (hci_devinfo(dev_id, &di) < 0) {
 			fprintf(stderr, "error: reading the settings of %s failed: %s\n",
 			        bt_dev, strerror(errno));
+			follow_release_adapter(sock, handle, cc);
 			return 1;
 		}
 
@@ -401,6 +425,7 @@ int main(int argc, char *argv[])
 					0, 0x01, &handle, 25000) < 0) {
 			fprintf(stderr, "error: connecting to %s failed: %s\n",
 			        addr, strerror(errno));
+			follow_release_adapter(sock, handle, cc);
 			return 1;
 		}
 		cc = 1;
@@ -427,6 +452,7 @@ int main(int argc, char *argv[])
 		refusal = follow_afh_handle_refusal(have_target, cc);
 		if (refusal != NULL) {
 			fprintf(stderr, "error: %s\n", refusal);
+			follow_release_adapter(sock, handle, cc);
 			return 1;
 		}
 
@@ -459,10 +485,10 @@ int main(int argc, char *argv[])
 			afh_enabled = 0;
 			break;
 		case FOLLOW_AFH_ACTION_FAIL:
-			/* No board has been opened yet, so only the link to the
-			 * target has to be dropped. */
+			/* No board has been opened yet, so the adapter is all
+			 * there is to give back. */
 			fprintf(stderr, "error: %s\n", line);
-			follow_disconnect(sock, handle, cc);
+			follow_release_adapter(sock, handle, cc);
 			return 1;
 		}
 	} else {
@@ -474,22 +500,23 @@ int main(int argc, char *argv[])
 
 	/* Fails when no board matches -U or it cannot be opened; the library
 	 * has already said why. Every failure from here to the receive loop
-	 * drops the link to the target on the way out; the receive thread is
-	 * not running yet, so there is nothing else to undo. */
+	 * gives the adapter back on the way out, dropping the link to the
+	 * target with it; the receive thread is not running yet, so there is
+	 * nothing else to undo. */
 	if (ubertooth_connect_select(ut, ubertooth_device) < 0) {
-		follow_disconnect(sock, handle, cc);
+		follow_release_adapter(sock, handle, cc);
 		return 1;
 	}
 
 	int r = ubertooth_check_api(ut);
 	if (r < 0) {
-		follow_disconnect(sock, handle, cc);
+		follow_release_adapter(sock, handle, cc);
 		return 1;
 	}
 
 	r = btbb_init(max_ac_errors);
 	if (r < 0) {
-		follow_disconnect(sock, handle, cc);
+		follow_release_adapter(sock, handle, cc);
 		return 1;
 	}
 
@@ -501,7 +528,15 @@ int main(int argc, char *argv[])
 	 * as 106 periods gone by and adds about 34,700 s to every later
 	 * timestamp. Both requests are synchronous, so the board has them before
 	 * anything is in flight; the asynchronous ones below cannot move up here,
-	 * because the poll thread is what completes them.
+	 * because the poll thread is what completes them. Both results are
+	 * checked, as the AFH requests below are: a board that took neither
+	 * would follow nothing the user asked for, and say nothing about it. A
+	 * board without the address matches no packet, and a board whose CLKN
+	 * was never zeroed keeps the clock it has been running since it was
+	 * plugged in, which start-hopping adds its offset to rather than
+	 * replacing, so the follow hops on the wrong clock and every packet time
+	 * is out by however long the board had been up. Being synchronous, a
+	 * refusal here is the board's own answer to the request.
 	 *
 	 * What this costs is a slightly staler hop offset. Start-hopping adds its
 	 * offset to whatever CLKN has reached since the reset rather than
@@ -509,8 +544,15 @@ int main(int argc, char *argv[])
 	 * clock, and the endpoint flush and the thread creation are now inside
 	 * that window: a few of the 312.5 us ticks that -w compensates, against
 	 * timestamps that were hours out. */
-	cmd_set_bdaddr(ut->devh, btbb_piconet_get_bdaddr(pn));
-	cmd_set_clock(ut->devh, 0);
+	r = cmd_set_bdaddr_quiet(ut->devh, btbb_piconet_get_bdaddr(pn));
+	if (r < 0)
+		return follow_request_failed(ut, sock, handle, cc,
+		                             "set the Bluetooth address", r);
+
+	r = cmd_set_clock_quiet(ut->devh, 0);
+	if (r < 0)
+		return follow_request_failed(ut, sock, handle, cc,
+		                             "zero the board's clock", r);
 
 	// init USB transfer
 	r = ubertooth_bulk_init(ut);
@@ -518,7 +560,7 @@ int main(int argc, char *argv[])
 		/* nothing is in flight, but the board is still open and in
 		 * whatever mode an earlier command left it */
 		ubertooth_stop(ut);
-		follow_disconnect(sock, handle, cc);
+		follow_release_adapter(sock, handle, cc);
 		return r;
 	}
 
@@ -528,7 +570,7 @@ int main(int argc, char *argv[])
 		 * left in its mode: give both back. Not follow_cleanup(), which
 		 * would join a thread that was never created. */
 		ubertooth_stop(ut);
-		follow_disconnect(sock, handle, cc);
+		follow_release_adapter(sock, handle, cc);
 		return r;
 	}
 
@@ -584,9 +626,11 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-    if (cc) {
-		hci_disconnect(sock, handle, HCI_OE_USER_ENDED_CONNECTION, 10000);
-	}
+	/* The clock reads are done, so the capture needs nothing more from the
+	 * adapter: the link to the target and the adapter handle both go back
+	 * here rather than after the capture, which runs until it is
+	 * interrupted. */
+	follow_release_adapter(sock, handle, cc);
 
 	// receive and process each packet
 	while(!ubertooth_stopping(ut)) {

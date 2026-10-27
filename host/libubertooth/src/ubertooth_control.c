@@ -959,7 +959,7 @@ int cmd_start_hopping(struct libusb_device_handle* devh, int clkn_offset, int cl
 	                           data, 6);
 }
 
-int cmd_set_clock(struct libusb_device_handle* devh, u32 clkn)
+int cmd_set_clock_quiet(struct libusb_device_handle* devh, u32 clkn)
 {
 	int r;
 	u8 data[4];
@@ -968,15 +968,18 @@ int cmd_set_clock(struct libusb_device_handle* devh, u32 clkn)
 
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_SET_CLOCK, 0, 0,
 		data, 4, 1000);
-	if (r < 0) {
-		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "error: control message unsupported\n");
-		} else {
-			show_libusb_error(r);
-		}
-		return r;
-	}
-	return 0;
+	return r < 0 ? r : 0;
+}
+
+int cmd_set_clock(struct libusb_device_handle* devh, u32 clkn)
+{
+	int r = cmd_set_clock_quiet(devh, clkn);
+
+	if (r == LIBUSB_ERROR_PIPE)
+		fprintf(stderr, "error: control message unsupported\n");
+	else if (r < 0)
+		show_libusb_error(r);
+	return r;
 }
 
 uint32_t cmd_get_clock(struct libusb_device_handle* devh)
