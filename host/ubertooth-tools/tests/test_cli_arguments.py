@@ -157,17 +157,40 @@ CASES = {
     ),
     "ubertooth-follow": STRAY + LAP_UAP + AC_ERRORS + (
         (("-w", "abc"), "error: usb delay must be a whole number of timeslots, 0 or more (got abc)"),
-        # -a reads the map from the target over a connection to it, so it
-        # needs the target address; refused before any device is opened
+        # -t is a whole address, all six bytes of it
+        (("-t", "11:22:33:44:55"),
+         "error: target address must be xx:xx:xx:xx:xx:xx (got 11:22:33:44:55)"),
+        (("-t", "11:22:33:44:55:GG"),
+         "error: target address must be xx:xx:xx:xx:xx:xx (got 11:22:33:44:55:gg)"),
+        (("-t", "112233445566"),
+         "error: target address must be xx:xx:xx:xx:xx:xx (got 112233445566)"),
+        # one answer per question: a doubled option is refused rather than
+        # one of the two being picked
+        (("-t", "11:22:33:44:55:66", "-t", "11:22:33:44:55:66"),
+         "error: give -t once"),
+        (("-l", "446688", "-l", "446688"), "error: give -l once"),
+        (("-u", "22", "-u", "22"), "error: give -u once"),
+        (("-l", "446688", "-l", "446688", "-u", "22"),
+         "error: give -l once"),
+        # -t and -l/-u are the same setting written two ways
+        (("-t", "11:22:33:44:55:66", "-l", "446688"),
+         "error: -t gives the whole target address"),
+        (("-t", "11:22:33:44:55:66", "-u", "22"),
+         "error: -t gives the whole target address"),
+        # a valid -t still reports the stray word
+        (("-t", "11:22:33:44:55:66", "extra"),
+         "error: unexpected argument 'extra'"),
+        # -a reads the map over a connection to the target, which needs the
+        # whole address: -l and -u are four of its six bytes. Refused
+        # before any device is opened.
         (("-a",), "error: -a reads the afh map over a bluetooth connection"),
         (("-a", "-l", "446688"),
          "error: -a reads the afh map over a bluetooth connection"),
         (("-a", "-u", "22"),
          "error: -a reads the afh map over a bluetooth connection"),
-        # a doubled -l leaves no single target either, and the message says
-        # "once" rather than asking for what was already given
+        (("-a", "-l", "446688", "-u", "22"), "give -t xx:xx:xx:xx:xx:xx"),
         (("-a", "-l", "446688", "-l", "446688", "-u", "22"),
-         "give -l once and -u once"),
+         "error: give -l once"),
     ),
     "ubertooth-rx": STRAY + VERSION_STRAY + LAP_UAP + AC_ERRORS + TIMEOUT_SECONDS + (
         (("-c", "79"), "error: channel must be 0-78 (got 79)"),

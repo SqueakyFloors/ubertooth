@@ -1,9 +1,9 @@
-# ubertooth-follow(1) -- active (BlueZ) CLK discovery and follow for a particular UAP/LAP
+# ubertooth-follow(1) -- active (BlueZ) CLK discovery and follow for a target address
 
 ## SYNOPSIS
 
-    ubertooth-follow [-l LAP] [-u UAP] [-U <index|serial>] [-r file]
-    [-q file] [-d file] [-e errors] [-a] [-b hciN] [-w delay]
+    ubertooth-follow [-t BD_ADDR] [-l LAP] [-u UAP] [-U <index|serial>]
+    [-r file] [-q file] [-d file] [-e errors] [-a] [-b hciN] [-w delay]
 
 ## DESCRIPTION
 
@@ -11,9 +11,28 @@ Follows a classic Bluetooth (BR/EDR) piconet for a given target address.
 It uses a local BlueZ Bluetooth device to assist with clock discovery and an
 Ubertooth to follow the piconet's frequency hopping.
 
-Both LAP and UAP identify the target. If they are not supplied, they are read
-from the local Bluetooth device — note this may yield the wrong address in some
-cases, so supplying the target LAP/UAP explicitly is recommended.
+Name the target one of two ways:
+
+ - `-t` is its whole address, `xx:xx:xx:xx:xx:xx`, in either case of hex
+   digit. That is what the tool connects to, and it gives the LAP and UAP the
+   board follows, so `-t` needs neither `-l` nor `-u`. Use `-t` for a real
+   target: it is the only form `-a` works with, and the only one that reaches
+   an address not beginning `00:00` (see AFH below).
+ - `-l` and `-u` together are the lower and upper address parts, which is what
+   `ubertooth-rx` reports for a piconet it has seen. They are four of the six
+   bytes of an address; the two missing ones are the non-significant address
+   part, which a sniffer never sees, and the tool fills them in as zero. So
+   the connection it makes to collect the clock offset only reaches a target
+   whose address begins `00:00`.
+
+One of `-l` and `-u` without the other names no piconet, and the tool does not
+refuse it today: it reads the address from the local Bluetooth device as if no
+target had been given, and follows that instead of what was asked for.
+
+`-t` with `-l` or `-u` is refused: the two are the same setting written two
+ways, and the tool does not reconcile them. With no target at all, the address
+is read from the local Bluetooth device — note this may yield the wrong
+address in some cases, so naming the target explicitly is recommended.
 
 The capture is gated by the board's squelch, which this tool does not set: it
 is the default -120 dBm unless `ubertooth-util -z` set another value while the
@@ -24,10 +43,14 @@ Requires BlueZ (Linux only).
 
 ## OPTIONS
 
+ - `-t <BD_ADDR>` :
+   the target's whole address, `xx:xx:xx:xx:xx:xx`, which gives the LAP and
+   UAP to follow as well as the address to connect to. Not with `-l` or `-u`,
+   and given once.
  - `-l <LAP>` :
-   target LAP (3 bytes / 6 hex digits).
+   target LAP (3 bytes / 6 hex digits), given once. Not with `-t`.
  - `-u <UAP>` :
-   target UAP (1 byte / 2 hex digits).
+   target UAP (1 byte / 2 hex digits), given once. Not with `-t`.
  - `-U <index|serial>` :
    select an Ubertooth by enumeration index or serial number; see
    ubertooth(7), SELECTING A DEVICE
@@ -40,8 +63,8 @@ Requires BlueZ (Linux only).
  - `-e <0-5>` :
    maximum access-code errors to tolerate (default: 2).
  - `-a` :
-   enable AFH (adaptive frequency hopping); experimental, and needs both `-l`
-   and `-u`. See AFH below.
+   enable AFH (adaptive frequency hopping); experimental, and needs `-t`. See
+   AFH below.
  - `-b <hciN>` :
    local Bluetooth device to use (default: hci0).
  - `-w <timeslots>` :
@@ -57,16 +80,17 @@ the piconet keyed on the target's LAP/UAP. The two are the same hop sequence
 only when the target is master of the piconet you want to follow, which
 `ubertooth-follow` cannot check. Treat a capture made with `-a` accordingly.
 
-Because the map is read over a connection to the target, `-a` needs the target
-named. `-a` without exactly one `-l` and one `-u` is refused before any file is
+Because the map is read over a connection to the target, `-a` needs the whole
+address, which only `-t` gives. `-a` without `-t` is refused before any file is
 created or device opened, with
-`error: -a reads the AFH map over a Bluetooth connection to the target, so it needs the target address: give -l once and -u once`.
+`error: -a reads the AFH map over a Bluetooth connection to the target, so it needs the whole target address: give -t xx:xx:xx:xx:xx:xx`.
 
-`-l` and `-u` are not a whole Bluetooth address: the tool connects to
-`00:00:<UAP>:<LAP>`, with the two most significant bytes zero, because a
-sniffer cannot see them. So `-a` reaches only a target whose address begins
-`00:00`. For any other target the connection fails and the command stops with
-`error: connecting to 00:00:...: failed`.
+A follow keyed on `-l` and `-u` instead connects to `00:00:<UAP>:<LAP>`, with
+the two most significant bytes zero, because a sniffer cannot see them. That
+reaches only a target whose address begins `00:00`; for any other target the
+connection fails and the command stops with
+`error: connecting to 00:00:...: failed`. Give the target as `-t` and the
+connection is made to the address as it is.
 
 The map that comes back is used only when it could be a hop sequence at all:
 
@@ -91,13 +115,20 @@ dropped on the way out.
 
 ## EXAMPLES
 
-Follow a target with a known LAP/UAP, writing a PCAP:
+Follow a target whose address you know, writing a PCAP:
 
-    ubertooth-follow -l 123456 -u 78 -q capture.pcap
+    ubertooth-follow -t 11:22:33:44:55:66 -q capture.pcap
 
 Follow the same target with an AFH map (see AFH above):
 
-    ubertooth-follow -l 123456 -u 78 -a
+    ubertooth-follow -t 11:22:33:44:55:66 -a
+
+Follow a piconet by the LAP and UAP `ubertooth-rx` reported for it. This
+connects to `00:00:33:44:55:66`, so it works only against a target whose
+address really does begin `00:00`; against any other it stops with
+`error: connecting to 00:00:33:44:55:66 failed`. Use `-t` for a real target:
+
+    ubertooth-follow -l 445566 -u 33 -q capture.pcap
 
 ## ARGUMENTS
 
@@ -115,7 +146,22 @@ An option whose value is missing reads `error: option '-l' requires a value`.
 
 An option value must be a whole value in its range, or it is refused the same
 way instead of being read as 0, for example
-`error: LAP must be 6 hex digits (got 4466)`.
+`error: LAP must be 6 hex digits (got 4466)` and
+`error: target address must be xx:xx:xx:xx:xx:xx (got 11:22:33:44:55)`.
+
+Two more kinds of command line are refused before any device is opened, each
+with its one line:
+
+ - `-t`, `-l` or `-u` given twice, `error: give -t once`, `error: give -l once`,
+   `error: give -u once`: the tool does not pick between two answers to the
+   same question;
+ - `-t` with `-l` or `-u`,
+   `error: -t gives the whole target address, so it cannot be combined with -l or -u`.
+
+What the tool is following — the target address, or the LAP and UAP it read
+from the local device — is reported on standard error, with the rest of the
+tool's progress. Standard output carries the decoded packets, and, with `-a`,
+the accepted channel map, which libbtbb prints itself.
 
 A refused command line creates and truncates nothing: `-r`, `-q` and `-d` name
 their file while the command line is read, and it is opened only once every

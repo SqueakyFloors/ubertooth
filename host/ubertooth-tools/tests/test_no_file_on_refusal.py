@@ -63,9 +63,10 @@ BAD_VALUE = {
     "ubertooth-btle": (("-A", "40"),),
     "ubertooth-dfu": (),
     "ubertooth-dump": (),
-    # -e 6 is out of range; -a without -l and -u cannot be carried out. Both
-    # are refused while the command line is read, so neither reaches the file.
-    "ubertooth-follow": (("-e", "6"), ("-a",)),
+    # -e 6 is out of range, -t is short of a whole address, and -a without -t
+    # cannot be carried out. All are refused while the command line is read,
+    # so none of them reaches the file.
+    "ubertooth-follow": (("-e", "6"), ("-t", "11:22:33:44:55"), ("-a",)),
     "ubertooth-rx": (("-e", "6"),),
     "ubertooth-specan": (("-l", "bad"),),
 }
@@ -87,9 +88,10 @@ def refused(arguments, directory):
         cwd=directory,
     )
     output = (result.stdout + result.stderr).lower()
-    # -h ends the command with the tool's own status, which is 0 for every
-    # tool converted to the output-stream rule so far and still 1 for
-    # ubertooth-dfu and ubertooth-follow; the other cases are errors.
+    # -h ends the command with the tool's own status, 0 for every tool
+    # converted to the output-stream rule. Either status passes here, because
+    # what this test is about is the file, not the status: test_output_streams
+    # pins -h to 0. The other cases are errors.
     expected = (0, 1) if "-h" in arguments else (1,)
     assert result.returncode in expected, (arguments, result)
     assert "no ubertooth" not in output, (arguments, result)

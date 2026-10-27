@@ -4,6 +4,16 @@
 
 ### New features
 
+- `ubertooth-follow -t <BD_ADDR>` names the whole target address, so a follow
+  reaches a target whose address does not begin `00:00`. It gives the LAP and
+  UAP to follow as well.
+  [#316](https://github.com/SqueakyFloors/ubertooth/issues/316)
+- **Script-visible change:** `ubertooth-follow -a` needs `-t` instead of `-l`
+  and `-u`; `-t`, `-l` or `-u` given twice is refused rather than one of the
+  two being used; and the tool's progress moved from standard output to
+  standard error.
+  [#316](https://github.com/SqueakyFloors/ubertooth/issues/316)
+  [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
 - **Script-visible change:** `ubertooth-btle` refuses `-i`/`-I` without `-f` or
   `-p`, and `-a`/`-s` alongside `-f`, `-n` or `-p`, before it opens a device.
   Those command lines, and a mode the board refuses to start, now exit 1 where

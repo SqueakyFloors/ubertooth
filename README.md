@@ -112,7 +112,7 @@ Ubertooth ships a set of host command-line tools. Each links to its manual page.
 |---|---|---|
 | [ubertooth-rx](host/doc/ubertooth-rx.md) | Passive Classic BT discovery/decode (finds piconets, LAP/UAP); saves raw captures (`-d`) and replays them without a device (`-i`) | a Classic BT peer |
 | [ubertooth-afh](host/doc/ubertooth-afh.md) | Passively recover a piconet's AFH channel map | an active piconet |
-| [ubertooth-follow](host/doc/ubertooth-follow.md) | Active clock discovery + follow a piconet for a UAP/LAP | BlueZ + target |
+| [ubertooth-follow](host/doc/ubertooth-follow.md) | Active clock discovery + follow a piconet for a target address | BlueZ + target |
 | [ubertooth-scan](host/doc/ubertooth-scan.md) | Active inquiry scan (uses a BlueZ dongle + Ubertooth) | BlueZ dongle |
 
 ### Signal / low-level

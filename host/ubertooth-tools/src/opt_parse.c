@@ -31,10 +31,6 @@
 #include <string.h>
 #include <unistd.h>
 
-/* Length of a BD_ADDR in bytes, and of its printed form "xx:xx:...:xx". */
-#define BD_ADDR_BYTES 6
-#define BD_ADDR_TEXT_LEN (BD_ADDR_BYTES * 3 - 1)
-
 int opt_parse_int(const char *text, long min, long max, int *value)
 {
 	char *end;
@@ -141,14 +137,14 @@ int opt_parse_access_address(const char *text, uint32_t *address)
 
 int opt_parse_bd_addr(const char *text, uint8_t *address)
 {
-	uint8_t bytes[BD_ADDR_BYTES];
+	uint8_t bytes[OPT_BD_ADDR_BYTES];
 	size_t i;
 
 	if (text == NULL || address == NULL)
 		return -1;
-	if (strlen(text) != BD_ADDR_TEXT_LEN)
+	if (strlen(text) != OPT_BD_ADDR_TEXT_LEN)
 		return -1;
-	for (i = 0; i < BD_ADDR_BYTES; i++) {
+	for (i = 0; i < OPT_BD_ADDR_BYTES; i++) {
 		char pair[3];
 		uint32_t byte;
 
@@ -162,6 +158,19 @@ int opt_parse_bd_addr(const char *text, uint8_t *address)
 		bytes[i] = (uint8_t)byte;
 	}
 	memcpy(address, bytes, sizeof(bytes));
+	return 0;
+}
+
+int opt_bd_addr_lap_uap(const uint8_t *address, uint32_t *lap, uint8_t *uap)
+{
+	if (address == NULL)
+		return -1;
+	/* "NN:NN:UU:LL:LL:LL", most significant byte first. */
+	if (uap != NULL)
+		*uap = address[2];
+	if (lap != NULL)
+		*lap = ((uint32_t)address[3] << 16) |
+		       ((uint32_t)address[4] << 8) | (uint32_t)address[5];
 	return 0;
 }
 

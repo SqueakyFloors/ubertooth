@@ -74,9 +74,25 @@ int opt_require_uap(const char *text, uint8_t *uap);
 /* A BLE access address: 1 to 8 hex digits ("12345" is 0x00012345). */
 int opt_parse_access_address(const char *text, uint32_t *address);
 
+/* Bytes in a BD_ADDR, and the length of its printed form
+ * "xx:xx:xx:xx:xx:xx" without the terminating NUL. */
+#define OPT_BD_ADDR_BYTES 6
+#define OPT_BD_ADDR_TEXT_LEN (OPT_BD_ADDR_BYTES * 3 - 1)
+
 /* A BD_ADDR / MAC address, "xx:xx:xx:xx:xx:xx", most significant byte first.
- * Exactly two hex digits per byte and exactly five colons. */
+ * Exactly two hex digits per byte and exactly five colons; either case of hex
+ * digit. Writes OPT_BD_ADDR_BYTES bytes. */
 int opt_parse_bd_addr(const char *text, uint8_t *address);
+
+/* The two parts of a BD_ADDR that identify a Bluetooth piconet: the lower
+ * address part (LAP), its three least significant bytes, and the upper
+ * address part (UAP), the byte above them. The two most significant bytes are
+ * the non-significant address part, which a sniffer never sees.
+ *
+ * address is OPT_BD_ADDR_BYTES bytes, most significant first, as
+ * opt_parse_bd_addr() writes them. Either output may be NULL. Returns 0, or
+ * -1 for a NULL address. */
+int opt_bd_addr_lap_uap(const uint8_t *address, uint32_t *lap, uint8_t *uap);
 
 /*
  * A bare "-" means standard output, which is only useful for a pipe or a

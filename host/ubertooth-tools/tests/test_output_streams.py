@@ -211,4 +211,41 @@ if refusal is not None:
     for message in DEVICE_ACCESS:
         assert message not in result.stderr.lower(), (message, result)
 
+# ---- refusals pinned to the exact line and stream --------------------------
+
+# Per tool: command lines whose whole answer is one named line on standard
+# error. test_cli_arguments.py checks the wording of many more, but reads the
+# two streams together, so a line on the wrong one would pass there.
+REFUSED_EXACTLY = {
+    "ubertooth-follow": (
+        (("-t", "11:22:33:44:55"),
+         "error: target address must be xx:xx:xx:xx:xx:xx (got 11:22:33:44:55)"),
+        # the refused address is quoted as the user wrote it, in their case
+        (("-t", "11:22:33:44:55:GG"),
+         "error: target address must be xx:xx:xx:xx:xx:xx "
+         "(got 11:22:33:44:55:GG)"),
+        (("-t", "11:22:33:44:55:66", "-t", "11:22:33:44:55:66"),
+         "error: give -t once"),
+        (("-l", "445566", "-l", "445566"), "error: give -l once"),
+        (("-u", "33", "-u", "33"), "error: give -u once"),
+        (("-t", "11:22:33:44:55:66", "-l", "445566"),
+         "error: -t gives the whole target address, so it cannot be combined "
+         "with -l or -u"),
+        (("-a",),
+         "error: -a reads the AFH map over a Bluetooth connection to the "
+         "target, so it needs the whole target address: "
+         "give -t xx:xx:xx:xx:xx:xx"),
+    ),
+}
+
+for arguments, expected in REFUSED_EXACTLY.get(TOOL, ()):
+    result = run(arguments)
+    assert result.returncode == 1, (arguments, result)
+    assert result.stdout == "", (arguments, result)
+    assert result.stderr == expected + "\n", (arguments, result)
+    for message in DEVICE_ACCESS:
+        assert message not in result.stderr.lower(), (arguments, message, result)
+if REFUSED_EXACTLY.get(TOOL):
+    checked.append("%d named refusals" % len(REFUSED_EXACTLY[TOOL]))
+
 print("%s: the rule holds for %s" % (TOOL, " and ".join(checked)))

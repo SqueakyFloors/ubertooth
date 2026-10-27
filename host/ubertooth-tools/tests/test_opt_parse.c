@@ -202,6 +202,51 @@ static void test_bd_addr(void)
 	CHECK(memcmp(address, untouched, sizeof(address)) == 0);
 }
 
+/* The LAP and UAP a whole address identifies a piconet by: what
+ * ubertooth-follow -t follows, and what it hands libbtbb and the board. */
+static void test_bd_addr_lap_uap(void)
+{
+	uint8_t address[OPT_BD_ADDR_BYTES];
+	uint32_t lap = 0xffffffff;
+	uint8_t uap = 0xff;
+
+	CHECK(opt_parse_bd_addr("11:22:33:44:55:66", address) == 0);
+	CHECK(opt_bd_addr_lap_uap(address, &lap, &uap) == 0);
+	/* The three least significant bytes are the LAP, the one above them
+	 * the UAP, and the two most significant are not part of either. */
+	CHECK(lap == 0x445566);
+	CHECK(uap == 0x33);
+
+	/* Either case of hex digit, and the same address written either way
+	 * gives the same piconet. */
+	CHECK(opt_parse_bd_addr("AA:BB:CC:DD:EE:FF", address) == 0);
+	CHECK(opt_bd_addr_lap_uap(address, &lap, &uap) == 0);
+	CHECK(lap == 0xddeeff && uap == 0xcc);
+	CHECK(opt_parse_bd_addr("aa:bb:cc:dd:ee:ff", address) == 0);
+	CHECK(opt_bd_addr_lap_uap(address, &lap, &uap) == 0);
+	CHECK(lap == 0xddeeff && uap == 0xcc);
+
+	/* An address that is all zeros but for its two most significant bytes:
+	 * the LAP and UAP are zero, and nothing above them leaks in. */
+	CHECK(opt_parse_bd_addr("ff:ff:00:00:00:00", address) == 0);
+	CHECK(opt_bd_addr_lap_uap(address, &lap, &uap) == 0);
+	CHECK(lap == 0 && uap == 0);
+
+	/* The two most significant bytes never reach the LAP, whatever they
+	 * are: the address the old code built had them zero. */
+	CHECK(opt_parse_bd_addr("00:00:33:44:55:66", address) == 0);
+	CHECK(opt_bd_addr_lap_uap(address, &lap, &uap) == 0);
+	CHECK(lap == 0x445566 && uap == 0x33);
+
+	/* Either output on its own, and neither. */
+	lap = 0;
+	uap = 0;
+	CHECK(opt_bd_addr_lap_uap(address, &lap, NULL) == 0 && lap == 0x445566);
+	CHECK(opt_bd_addr_lap_uap(address, NULL, &uap) == 0 && uap == 0x33);
+	CHECK(opt_bd_addr_lap_uap(address, NULL, NULL) == 0);
+	CHECK(opt_bd_addr_lap_uap(NULL, &lap, &uap) < 0);
+}
+
 static void test_value_checks(void)
 {
 	CHECK(opt_value_decimal("0"));
@@ -259,6 +304,7 @@ int main(void)
 	test_lap_and_uap();
 	test_access_address();
 	test_bd_addr();
+	test_bd_addr_lap_uap();
 	test_value_checks();
 	test_next_word_and_operands();
 	printf("opt_parse: %d checks, %d failures\n", checks, failures);

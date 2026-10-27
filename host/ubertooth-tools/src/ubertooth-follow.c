@@ -77,7 +77,7 @@ static void afh_hci_wait(void* ctx __attribute__((unused)))
 {
 	/* Each read waits up to a second for the controller, so say what the
 	 * pause is for rather than looking like a hang. */
-	printf("AFH map not usable yet, reading it again\n");
+	fputs("AFH map not usable yet, reading it again\n", stderr);
 	usleep(FOLLOW_AFH_RETRY_DELAY_US);
 }
 
@@ -101,21 +101,23 @@ static void follow_cleanup(ubertooth_t* ut, int sock, uint16_t handle, int cc)
 
 static void usage()
 {
-	printf("ubertooth-follow - active(bluez) CLK discovery and follow for a particular UAP/LAP\n");
+	printf("ubertooth-follow - active(bluez) CLK discovery and follow for a target address\n");
 	printf("Usage:\n");
 	printf("\t-h this help\n");
-	printf("\t-l <LAP> (3 bytes / 6 hex digits)\n");
-	printf("\t-u <UAP> (1 byte / 2 hex digits)\n");
+	printf("\t-t <BD_ADDR> target address (xx:xx:xx:xx:xx:xx), which gives the\n");
+	printf("\t   LAP and UAP to follow; once, not with -l or -u\n");
+	printf("\t-l <LAP> (3 bytes / 6 hex digits), once, not with -t\n");
+	printf("\t-u <UAP> (1 byte / 2 hex digits), once, not with -t\n");
 	fputs(OPT_USAGE_SELECT_DEVICE, stdout);
 	printf("\t-r <filename> capture packets to PCAPNG file\n");
 	printf("\t-q <filename> capture packets to PCAP file\n");
 	printf("\t-e max_ac_errors (default: %d, range: 0-%d)\n",
 	       max_ac_errors, MAX_AC_ERRORS);
 	printf("\t-d filename\n");
-	printf("\t-a Enable AFH (needs the target address: -l and -u)\n");
+	printf("\t-a Enable AFH (needs the whole target address: -t)\n");
 	printf("\t-b Bluetooth device (hci0)\n");
 	printf("\t-w USB delay in 625us timeslots (default:5)\n");
-	printf("\nLAP and UAP are both required, if not given they are read from the local device, in some cases this may give the incorrect address.\n");
+	printf("\nGive the target as -t, or as -l and -u together. With no target they are read from the local device, in some cases this may give the incorrect address.\n");
 //	printf("If an input file is not specified, an Ubertooth device is used for live capture.\n");
 }
 
@@ -131,6 +133,10 @@ int main(int argc, char *argv[])
         char* ubertooth_device = NULL;
 	char *bt_dev = "hci0";
 	char addr[19] = { 0 };
+	/* The whole target address from -t, and how many times -t was given:
+	 * more than once is refused, so below this is 0 or 1. */
+	uint8_t target[OPT_BD_ADDR_BYTES] = { 0 };
+	int have_target = 0;
 	/* Files named on the command line, opened after every check passes. */
 	const char* pcapng_name = NULL;
 	const char* pcap_name = NULL;
@@ -142,8 +148,10 @@ int main(int argc, char *argv[])
 	struct hci_dev_info di;
 	/* 1 once hci_create_connection() has given us a remote ACL handle. */
 	int cc = 0;
-	/* 1 when exactly one -l and one -u named a target to connect to. */
-	int have_target = 0;
+	/* 1 when exactly one -l and one -u named the piconet to follow. */
+	int have_lap_uap = 0;
+	/* 1 when the command line named a remote target, either way. */
+	int remote_target = 0;
 
 	ubertooth_t* ut = ubertooth_init();
 	if (ut == NULL)
@@ -154,8 +162,16 @@ int main(int argc, char *argv[])
 	 * see opt_report_bad_option(). The leading ':' makes a missing option
 	 * value distinguishable from an option getopt does not know. */
 	opterr = 0;
-	while ((opt=getopt(argc,argv,":hl:u:U:e:d:ab:w:r:q:")) != EOF) {
+	while ((opt=getopt(argc,argv,":hl:u:U:e:d:ab:w:r:q:t:")) != EOF) {
 		switch(opt) {
+		case 't':
+			if (opt_parse_bd_addr(optarg, target) < 0) {
+				fprintf(stderr, "error: target address must be "
+				        "xx:xx:xx:xx:xx:xx (got %s)\n", optarg);
+				return 1;
+			}
+			++have_target;
+			break;
 		case 'l': {
 			uint32_t value;
 			if (opt_require_lap(optarg, &value) < 0)
@@ -237,16 +253,44 @@ int main(int argc, char *argv[])
 		return 0;
 	}
 
-	/* One -l and one -u: the same condition the address handling below uses,
-	 * so the two cannot drift. */
-	have_target = (have_lap == 1) && (have_uap == 1);
+	/* An option given twice is two answers to one question, and the tool
+	 * does not pick between them. */
+	if (have_target > 1) {
+		fputs("error: give -t once\n", stderr);
+		return 1;
+	}
+	if (have_lap > 1) {
+		fputs("error: give -l once\n", stderr);
+		return 1;
+	}
+	if (have_uap > 1) {
+		fputs("error: give -u once\n", stderr);
+		return 1;
+	}
 
-	/* -a reads the map from the target over an ACL link, which only exists
-	 * when the target address was given. Refused here, with the rest of the
-	 * command line, so no file is created and no device opened. No link has
-	 * been attempted yet, so the handle is not what is in question. */
+	/* -t is the whole address and -l with -u is part of one: two ways to
+	 * write the same setting, which the tool does not reconcile. */
+	if (have_target > 0 && (have_lap > 0 || have_uap > 0)) {
+		fputs("error: -t gives the whole target address, so it cannot be "
+		      "combined with -l or -u\n", stderr);
+		return 1;
+	}
+
+	/* -l and -u name the piconet only together: a LAP without a UAP is not
+	 * a piconet. Either on its own therefore leaves no target, and the
+	 * address is read from the local device below, which is its own
+	 * long-standing problem rather than something this check decides. */
+	have_lap_uap = (have_lap > 0) && (have_uap > 0);
+	remote_target = have_target || have_lap_uap;
+
+	/* -a reads the map from the target over an ACL link, so it needs an
+	 * address a connection can be made to, which is all six bytes of it:
+	 * -l and -u are four. Refused here, with the rest of the command line,
+	 * so no file is created and no device opened. No link has been
+	 * attempted yet, so the handle is not what is in question. */
 	if (afh_enabled) {
-		const char* refusal = follow_afh_handle_refusal(have_target, 1);
+		const char* refusal =
+			follow_afh_handle_refusal(have_target, 1);
 		if (refusal != NULL) {
 			fprintf(stderr, "error: %s\n", refusal);
 			return 1;
@@ -286,8 +330,37 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	if (!have_target) {
-		printf("No address given, reading address from device\n");
+	/* What the follow is keyed on: the whole address from -t, the LAP and
+	 * UAP from -l and -u, or, with no target named, the local adapter's own
+	 * address. Only a target gets connected to; that connection is what
+	 * yields its clock offset. */
+	if (have_target) {
+		uint32_t target_lap;
+		uint8_t target_uap;
+
+		/* Only a NULL address fails, and target is an array. */
+		opt_bd_addr_lap_uap(target, &target_lap, &target_uap);
+		lap = (int)target_lap;
+		uap = target_uap;
+		snprintf(addr, sizeof(addr), "%02X:%02X:%02X:%02X:%02X:%02X",
+		         target[0], target[1], target[2],
+		         target[3], target[4], target[5]);
+	} else if (have_lap_uap) {
+		/* -l and -u are four bytes of the six, and a sniffer cannot see
+		 * the other two, so the connection can only be attempted to a
+		 * target whose address begins 00:00. -t reaches any other
+		 * target. */
+		snprintf(addr, sizeof(addr), "00:00:%02X:%02X:%02X:%02X",
+			uap,
+			(lap >> 16) & 0xFF,
+			(lap >> 8) & 0xFF,
+			lap & 0xFF
+		);
+	} else {
+		/* These lines say what the tool is doing, not what was asked
+		 * for, so they are on standard error, where the rest of the
+		 * tool's progress goes. */
+		fputs("No address given, reading address from device\n", stderr);
 		/* With a zero timeout BlueZ blocks in read() with nothing to
 		 * interrupt it, so a controller that never answers hangs instead
 		 * of failing. Every read here gives it a second, as the clock
@@ -298,22 +371,22 @@ int main(int argc, char *argv[])
 			return 1;
 		}
 		lap = bdaddr.b[0] | bdaddr.b[1] << 8 | bdaddr.b[2] << 16;
-		btbb_init_piconet(pn, lap);
 		uap = bdaddr.b[3];
-		btbb_piconet_set_uap(pn, uap);
-		printf("LAP=%06x UAP=%02x\n", lap, uap);
+	}
+
+	btbb_init_piconet(pn, lap);
+	btbb_piconet_set_uap(pn, uap);
+
+	if (!remote_target) {
+		fprintf(stderr, "LAP=%06x UAP=%02x\n", lap, uap);
 	} else {
-		btbb_init_piconet(pn, lap);
-		btbb_piconet_set_uap(pn, uap);
-		printf("Address given, assuming address is remote\n");
-		sprintf(addr, "00:00:%02X:%02X:%02X:%02X",
-			uap,
-			(lap >> 16) & 0xFF,
-			(lap >> 8) & 0xFF,
-			lap & 0xFF
-		);
+		if (have_target)
+			fprintf(stderr, "Target %s: LAP=%06x UAP=%02x\n",
+			        addr, lap, uap);
+		else
+			fprintf(stderr, "Address given, assuming address is remote\n"
+			        "Address: %s\n", addr);
 		str2ba(addr, &bdaddr);
-		printf("Address: %s\n", addr);
 
 		if (hci_devinfo(dev_id, &di) < 0) {
 			fprintf(stderr, "error: reading the settings of %s failed: %s\n",
@@ -376,12 +449,13 @@ int main(int argc, char *argv[])
 		switch (follow_afh_action_for(read_out.result)) {
 		case FOLLOW_AFH_ACTION_APPLY:
 			memcpy(afh_map, read_out.map, sizeof(afh_map));
-			printf("%s\n", line);
+			fprintf(stderr, "%s\n", line);
 			btbb_piconet_set_afh_map(pn, afh_map);
+			/* libbtbb prints the map itself, on standard output. */
 			btbb_print_afh_map(pn);
 			break;
 		case FOLLOW_AFH_ACTION_DISABLE:
-			printf("%s\n", line);
+			fprintf(stderr, "%s\n", line);
 			afh_enabled = 0;
 			break;
 		case FOLLOW_AFH_ACTION_FAIL:
@@ -392,7 +466,7 @@ int main(int argc, char *argv[])
 			return 1;
 		}
 	} else {
-		printf("Not use AFH\n");
+		fputs("Not use AFH\n", stderr);
 	}
 
 	/* Clean up on exit. */

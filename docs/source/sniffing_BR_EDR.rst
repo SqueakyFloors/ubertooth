@@ -69,7 +69,8 @@ Choosing the tool and firmware
     - Find undiscoverable devices with Ubertooth, then query them (name, version, features) with a normal BlueZ adapter. Linux only.
   * - ``ubertooth-follow``
     - ``bluetooth_rxtx``
-    - Follow a piconet using a BlueZ adapter to help recover the clock. Linux only.
+    - Follow a piconet, given the target's address (``-t``), using a BlueZ
+      adapter to help recover the clock. Linux only.
   * - ``ubertooth-btbr``
     - ``btbr``
     - Inquiry, paging, and *monitor* mode (capture a connection as it is set
@@ -129,7 +130,8 @@ Finding the Non-significant Address Part (NAP)
 
 The Non-significant Address Part (NAP) is never sent in normal packets, so
 ``ubertooth-rx`` cannot recover it.
-Usually you don't need it. Some ways to get it when you do:
+You need it wherever something connects to the target: ``ubertooth-follow -t``
+and its ``-a`` both do. Some ways to get it:
 
 - **Use any Non-significant Address Part (NAP) to connect.** Paging only uses
   the Lower Address Part (LAP)

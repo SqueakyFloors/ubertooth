@@ -56,6 +56,7 @@ static struct {
 	int blocks_to_end;    /* ...before the fake ends the capture */
 	uint8_t afh_mode;     /* what the target reports for AFH */
 	uint8_t afh_map[AFH_MAP_BYTES];
+	uint64_t bdaddr;      /* the address the board was told to follow */
 	/* Every device call in order, one letter each: a set the target's
 	 * address, k set the board's clock, i submitted the receive transfer,
 	 * p started the poll thread, m set the AFH map, c cleared it, h told
@@ -214,7 +215,7 @@ void register_cleanup_handler(ubertooth_t* ut, int do_exit)
 int cmd_set_bdaddr(struct libusb_device_handle* devh, uint64_t address)
 {
 	(void)devh;
-	(void)address;
+	fake.bdaddr = address;
 	record('a');
 	return 0;
 }
@@ -374,6 +375,10 @@ static struct run_result run_follow(const char* const* args)
 
 /* The whole setup a follow of a given target does, in order. */
 #define TARGET "-l", "112233", "-u", "44"
+/* The same piconet named as a whole address, which is what -a needs: the map
+ * is read over a connection to the target, and -l with -u is four of the six
+ * bytes. 00:00 is the address -l and -u imply. */
+#define WHOLE_TARGET "-t", "00:00:44:11:22:33"
 
 /* ---- tests -------------------------------------------------------------- */
 
@@ -407,7 +412,7 @@ MU_TEST(the_asynchronous_requests_stay_after_the_poll_thread)
 	struct run_result r;
 
 	reset_fake();
-	r = RUN("-a", TARGET);
+	r = RUN("-a", WHOLE_TARGET);
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(fake.calls, "akiphm") == 0, fake.calls);
 	mu_assert(call_at('p') < call_at('m'),
@@ -428,7 +433,10 @@ MU_TEST(a_follow_the_board_took_exits_0)
 	mu_assert_int_eq(1, fake.thread_stops);
 	mu_assert_int_eq(1, fake.stops);
 	mu_assert_int_eq(fake.blocks_to_end, fake.receives);
-	mu_assert(r.err[0] == '\0', r.err);
+	/* Standard error carries the tool's progress, so it is not empty; what a
+	 * follow the board took must not report is a failure. */
+	mu_assert(strstr(r.err, "error:") == NULL, r.err);
+	mu_assert(strstr(r.err, "warning:") == NULL, r.err);
 }
 
 /* The board is configured before the stream is started, so a stream that
@@ -448,6 +456,29 @@ MU_TEST(a_stream_that_cannot_start_gives_the_board_back)
 	mu_assert_int_eq(1, fake.stops);
 }
 
+/* -t names the whole address, and the board is told to follow the piconet
+ * inside it: the LAP and UAP. Naming the same piconet the other way, as -l and
+ * -u, must reach the board as the same address. */
+MU_TEST(a_whole_address_and_its_lap_and_uap_follow_the_same_piconet)
+{
+	struct run_result r;
+	uint64_t from_whole_address;
+
+	reset_fake();
+	r = RUN(WHOLE_TARGET);
+	mu_assert_int_eq(0, r.rc);
+	from_whole_address = fake.bdaddr;
+	/* LAP 112233 under UAP 44, which is what the address carries. */
+	mu_assert(from_whole_address == 0x44112233,
+	          "the board was told to follow a different piconet");
+
+	reset_fake();
+	r = RUN(TARGET);
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(fake.bdaddr == from_whole_address,
+	          "-t and -l with -u reached the board as different addresses");
+}
+
 int main(void)
 {
 	/* This binary does not link libubertooth: the fakes above are the whole
@@ -457,5 +488,6 @@ int main(void)
 	MU_RUN(the_asynchronous_requests_stay_after_the_poll_thread);
 	MU_RUN(a_follow_the_board_took_exits_0);
 	MU_RUN(a_stream_that_cannot_start_gives_the_board_back);
+	MU_RUN(a_whole_address_and_its_lap_and_uap_follow_the_same_piconet);
 	return mu_report();
 }
