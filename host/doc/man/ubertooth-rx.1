@@ -154,7 +154,7 @@ An option the tool does not know is refused the same way, as one line on standar
 .P
 An option value must be a whole value in its range, or it is refused the same way instead of being read as 0, for example \fBerror: channel must be 0\-78 (got 79)\fR\.
 .P
-An option combination the tool cannot carry out is refused there too, before any device is opened, so the message never depends on which boards are attached: \fB\-u\fR without \fB\-l\fR gives \fBerror: \-u <UAP> requires \-l <LAP>\fR\.
+An option combination the tool cannot carry out is refused there too, before any device is opened, so the message never depends on which boards are attached: \fB\-u\fR without \fB\-l\fR gives \fBerror: \-u <UAP> requires \-l <LAP>\fR, and an address beside survey mode gives \fBerror: survey mode (\-z) discovers addresses, so it cannot be given \-l or \-u\fR\.
 .P
 A refused command line creates and truncates nothing: \fB\-r\fR, \fB\-q\fR and \fB\-d\fR name their file while the command line is read, and it is opened only once every check has passed\.
 .SH "EXIT STATUS"

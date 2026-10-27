@@ -18,11 +18,10 @@ No device is opened in any of those cases, so nothing here depends on what is
 attached; UBERTOOTH_TEST_NO_DEVICES=1 hides any board that is, and a run that
 reached device selection is caught by the message that reports it.
 
--h and the bare command line are checked for every tool. The wording of a bad
-option is not: reporting one the shared way (opterr = 0, an option string
-starting with ':', opt_report_bad_option()) is a conversion the tools are
-going through one at a time, so those checks run for the tools in
-REPORTS_BAD_OPTIONS, and a tool that is not in it yet is reported as pending.
+Every check runs for every tool. A bad option used to be the exception, while
+the tools were converted one at a time to report one the shared way
+(opterr = 0, an option string starting with ':', opt_report_bad_option());
+they all do now, so there is no longer a list of the ones that do.
 """
 
 import os
@@ -34,34 +33,30 @@ BINARY = sys.argv[1]
 TOOL = os.path.basename(BINARY)
 ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1")
 
-# The tools that report a bad command line the shared way: opterr = 0, an
-# option string starting with ':', and opt_report_bad_option(). The rest still
-# leave an unknown option to getopt's own message, which names the whole path
-# of the binary and carries no prefix.
-REPORTS_BAD_OPTIONS = {
-    "ubertooth-afh",
-    "ubertooth-btle",
-    "ubertooth-ducky",
-    "ubertooth-dump",
-    "ubertooth-ego",
-    "ubertooth-rx",
-    "ubertooth-specan",
-    "ubertooth-tx",
-    "ubertooth-util",
-}
-
 # One option per tool that takes a required value, for the missing-value case.
 # ubertooth-ducky is left out because test_ducky_options.py already covers its
 # missing -U value, in the middle of the rest of its selector parsing.
 OPTION_NEEDING_A_VALUE = {
     "ubertooth-afh": "l",
     "ubertooth-btle": "A",
+    "ubertooth-debug": "r",
+    "ubertooth-dfu": "d",
     "ubertooth-dump": "d",
     "ubertooth-ego": "c",
+    "ubertooth-follow": "l",
     "ubertooth-rx": "l",
+    "ubertooth-scan": "t",
     "ubertooth-specan": "d",
     "ubertooth-tx": "l",
     "ubertooth-util": "U",
+}
+
+# One combination per tool that cannot be carried out, and the whole line it
+# is refused with: the "error: " line alone, with no usage text after it.
+REFUSED_COMBINATION = {
+    "ubertooth-rx": (["-l", "446688", "-z"],
+                     "error: survey mode (-z) discovers addresses, so it "
+                     "cannot be given -l or -u"),
 }
 
 # The tools whose empty command line has nothing to do, and the "error: " line
@@ -118,7 +113,7 @@ def usage_text(text):
 NO_SUCH_SERIAL = "ffffffffffffffffffffffffffffffff"
 
 
-# ---- a bad command line, for every tool that reports one the shared way ----
+# ---- a bad command line ----------------------------------------------------
 
 # Flags that are gone: dead, a documented no-op, a developer scratch hook, or
 # superseded by another tool. A removed flag is an option the tool does not
@@ -138,48 +133,56 @@ assert result.returncode == 0, result
 assert usage_text(result.stdout), result
 assert result.stderr == "", result
 
-if TOOL in REPORTS_BAD_OPTIONS:
-    # an option the tool does not know: the one "error: " line, and no usage
-    # text after it
-    result = run(["-Z"])
+# an option the tool does not know: the one "error: " line, and no usage
+# text after it
+result = run(["-Z"])
+assert result.returncode == 1, result
+# Nothing on stdout: a script reading the tool's output sees no usage text.
+assert result.stdout == "", result
+assert result.stderr == "error: unrecognized option '-Z'\n", result
+
+# A word starting with -- is quoted as the user wrote it: getopt rejects
+# its second '-', which would otherwise be reported as the option "--".
+result = run(["--bogus"])
+assert result.returncode == 1, result
+assert result.stdout == "", result
+assert result.stderr.startswith("error: unrecognized option '--bogus':"), result
+assert not usage_text(result.stderr), result
+
+# every option the tool used to have, refused the same way
+for removed in REMOVED_OPTIONS.get(TOOL, []):
+    result = run([removed])
+    assert result.returncode == 1, (removed, result)
+    assert result.stdout == "", (removed, result)
+    assert result.stderr == "error: unrecognized option '%s'\n" % removed, (
+        removed, result)
+
+# an option whose value is missing. With ':' leading the option string getopt
+# reports that as ':' rather than '?', so a tool that handles only '?' would
+# fall through silently: this is the check that catches it.
+option = OPTION_NEEDING_A_VALUE.get(TOOL)
+if option is not None:
+    result = run(["-" + option])
     assert result.returncode == 1, result
-    # Nothing on stdout: a script reading the tool's output sees no usage text.
     assert result.stdout == "", result
-    assert result.stderr == "error: unrecognized option '-Z'\n", result
+    assert result.stderr == "error: option '-%s' requires a value\n" % option, \
+        result
 
-    # A word starting with -- is quoted as the user wrote it: getopt rejects
-    # its second '-', which would otherwise be reported as the option "--".
-    result = run(["--bogus"])
+# a combination the tool cannot carry out: that one line and nothing else,
+# before any device is opened
+combination = REFUSED_COMBINATION.get(TOOL)
+if combination is not None:
+    arguments, refusal = combination
+    result = run(arguments)
     assert result.returncode == 1, result
     assert result.stdout == "", result
-    assert result.stderr.startswith("error: unrecognized option '--bogus':"), result
-    assert not usage_text(result.stderr), result
-
-    # every option the tool used to have, refused the same way
-    for removed in REMOVED_OPTIONS.get(TOOL, []):
-        result = run([removed])
-        assert result.returncode == 1, (removed, result)
-        assert result.stdout == "", (removed, result)
-        assert result.stderr == "error: unrecognized option '%s'\n" % removed, (
-            removed, result)
-
-    # an option whose value is missing
-    option = OPTION_NEEDING_A_VALUE.get(TOOL)
-    if option is not None:
-        result = run(["-" + option])
-        assert result.returncode == 1, result
-        assert result.stdout == "", result
-        assert result.stderr == "error: option '-%s' requires a value\n" % option, \
-            result
-elif REMOVED_OPTIONS.get(TOOL):
-    sys.exit("%s has removed options but does not report a bad option the "
-             "shared way" % TOOL)
+    assert result.stderr == refusal + "\n", result
+    for message in DEVICE_ACCESS:
+        assert message not in result.stderr.lower(), (message, result)
 
 # ---- a command line with nothing to do -------------------------------------
 
-checked = ["-h"]
-if TOOL in REPORTS_BAD_OPTIONS:
-    checked.append("a bad option")
+checked = ["-h", "a bad option"]
 
 refusal = NOTHING_TO_DO.get(TOOL)
 if refusal is not None:
@@ -209,6 +212,3 @@ if refusal is not None:
         assert message not in result.stderr.lower(), (message, result)
 
 print("%s: the rule holds for %s" % (TOOL, " and ".join(checked)))
-if TOOL not in REPORTS_BAD_OPTIONS:
-    print("%s: a bad option is still getopt's own message, not asserted"
-          % TOOL)

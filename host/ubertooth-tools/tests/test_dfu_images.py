@@ -91,6 +91,24 @@ with tempfile.TemporaryDirectory() as directory:
             failures.append(f"{name}: exit {result.returncode}, expected 1")
         if expected is not None and expected not in output:
             failures.append(f"{name}: {expected!r} not in the output")
+        # Nothing of this reaches standard output: the check's own progress
+        # line is progress, and the refusal is an error.
+        if result.stdout != "":
+            failures.append(f"{name}: wrote {result.stdout!r} to standard output")
+        if "Checking firmware signature" not in result.stderr:
+            failures.append(f"{name}: the progress line is not on standard error")
+        if not reaches_device:
+            # One line, prefixed, naming the file it is about: the path is
+            # the one the user wrote, so a script's own name for the image
+            # comes back to it.
+            lines = [line for line in result.stderr.splitlines()
+                     if line.startswith("error: ")]
+            if len(lines) != 1:
+                failures.append(f"{name}: {len(lines)} 'error: ' lines, "
+                                f"expected 1: {result.stderr!r}")
+            elif not lines[0].startswith(f"error: {path}: "):
+                failures.append(f"{name}: the refusal {lines[0]!r} does not "
+                                "name the image")
         selected = NOT_FOUND in output.lower()
         if reaches_device and not selected:
             failures.append(f"{name}: image was not accepted for writing")

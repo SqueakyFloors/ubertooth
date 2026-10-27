@@ -24,8 +24,7 @@ Every wait for the bootloader is bounded\. Before each operation the tool asks t
 \fB\-d\fR is bounded by the flash the board has as well\. The part identification number is read while the board is still running its application, as it is for \fB\-u\fR, and an image whose blocks would not all fit above the bootloader is refused there, before the board is asked for DFU:
 .IP "" 4
 .nf
-error: too\-big\.dfu needs 114944 bytes of flash; part 0x25011722 (LPC1754) has 114688 above the bootloader
-Image too large for the attached part, firmware will not be updated
+error: too\-big\.dfu needs 114944 bytes of flash; part 0x25011722 (LPC1754) has 114688 above the bootloader; firmware will not be updated
 .fi
 .IP "" 0
 .P
@@ -65,8 +64,7 @@ A command that gives both \fB\-s\fR and \fB\-d\fR checks both files it only read
 .nf
 $ ubertooth\-dfu \-s firmware\.bin \-d not\-an\-image\.dfu
 Checking firmware signature
-Unknown DFU suffix length: 115
-Signature check failed, firmware will not be updated
+error: not\-an\-image\.dfu: Unknown DFU suffix length: 115; firmware will not be updated
 .fi
 .IP "" 0
 .P
@@ -138,6 +136,10 @@ Remove the bridge before the final reset if you want the application firmware to
 \fBubertooth\-dfu\fR takes options only\. A word that is not an option, including a bare \fB\-\fR, is refused before any device is opened and named: \fBerror: unexpected argument '<word>'\fR, with exit status 1\.
 .P
 \fB\-h\fR ends the command only once the whole command line has parsed, so a stray word or a bad option value is reported even alongside it\. \fB\-h\fR is what the user asked for, so its usage text goes to standard output and it exits 0\.
+.P
+An option the tool does not know is refused the same way, as one line on standard error with no usage text after it: \fBerror: unrecognized option '\-Z'\fR\. An option whose value is missing reads \fBerror: option '\-d' requires a value\fR\.
+.P
+A file the tool cannot open, and an image it will not write, are each refused with one line on standard error, beginning \fBerror:\fR and naming the file\. The \fBChecking firmware signature\fR line that precedes an image refusal is progress, so it is on standard error as well and the two stay in order whatever either stream is piped into\.
 .P
 A command line with no function in it does nothing, so it is refused with \fBerror: nothing to do: give \-d to write an image, \-u to read one back, \-s to sign one, or \-r to reset\fR on standard error and exit status 1, before any device is opened; it used to exit 0 having said and done nothing\. A bare \fBubertooth\-dfu\fR, with no arguments at all, prints the usage text after that line; every other refused command line is the \fBerror:\fR line alone\.
 .P

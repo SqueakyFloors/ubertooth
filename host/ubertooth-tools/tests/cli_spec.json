@@ -202,7 +202,7 @@
 
     "ubertooth-debug": {
       "man": "ubertooth-debug.md",
-      "optstring": "hU:r:v:",
+      "optstring": ":hU:r:v:",
       "requires_all": ["-r"],
       "requires_all_error": "error: -r <reg>[,<reg>[,...]] is required: at least one register to read",
       "options": {
@@ -220,9 +220,11 @@
 
     "ubertooth-dfu": {
       "man": "ubertooth-dfu.md",
-      "optstring": "hd:u:s:rU:",
+      "optstring": ":hd:u:s:rU:",
       "work_options": ["-d", "-u", "-s", "-r"],
       "nothing_to_do": "error: nothing to do: give -d to write an image, -u to read one back, -s to sign one, or -r to reset",
+      "progress_before_refusal": ["Checking firmware signature"],
+      "_progress_before_refusal_why": "the whole -d image is read before the tool knows whether it will take it, so the line that says so is printed first and a refusal follows it; both are on standard error, which is where cli-output.md puts progress and errors alike",
       "options": {
         "-h": {"value": "none", "role": "help"},
         "-d": {"value": "required", "role": "work", "valid": ["IMAGE.dfu"],
@@ -543,7 +545,7 @@
 
     "ubertooth-follow": {
       "man": "ubertooth-follow.md",
-      "optstring": "hl:u:U:e:d:ab:w:r:q:",
+      "optstring": ":hl:u:U:e:d:ab:w:r:q:",
       "_built_when": "libbluetooth is installed (Linux)",
       "accepted_markers": ["error: Bluetooth device hci0 not found"],
       "_accepted_markers_why": "ubertooth-follow opens the local Bluetooth adapter before it looks for an Ubertooth, so on a machine without one an accepted command line stops there instead of at device lookup",
@@ -587,7 +589,7 @@
 
     "ubertooth-scan": {
       "man": "ubertooth-scan.md",
-      "optstring": "hU:t:e:xsb:",
+      "optstring": ":hU:t:e:xsb:",
       "_built_when": "libbluetooth is installed (Linux)",
       "accepted_markers": ["Unable to find hci"],
       "_accepted_markers_why": "ubertooth-scan opens the local Bluetooth adapter before it looks for an Ubertooth, so on a machine without one an accepted command line stops there instead of at device lookup",
@@ -699,10 +701,6 @@
       "finding fixed for some of its cases, or breaking differently, fails",
       "this test rather than passing quietly."
     ],
-    "F-01": "ubertooth-debug, ubertooth-dfu, ubertooth-follow and ubertooth-scan leave a bad option and a missing option value to getopt's own message: it names the binary's whole path, carries no 'error: ' prefix, and reports --bogus as \"invalid option -- '-'\". The rule wants one line: \"error: unrecognized option '-Z'\" and \"error: option '-U' requires a value\", which opt_report_bad_option() in opt_parse.c already produces for the other nine tools.",
-    "F-02": "ubertooth-dfu -d writes its progress line \"Checking firmware signature\" to standard output. Progress belongs on standard error.",
-    "F-03": "ubertooth-dfu reports a refused image and an unreadable -s input as plain lines with no 'error: ' prefix, and as two of them: \"Unknown DFU suffix length: 0\" then \"Signature check failed, firmware will not be updated\", and \"<file>: No such file or directory\". Its own man page shows the prefixed form for the too-big-for-the-part check, so the tool is inconsistent with itself.",
-    "F-04": "ubertooth-rx refuses -z beside -l or -u with \"No address should be specified for survey mode\": no 'error: ' prefix. The refusal itself is right and happens before any device is opened.",
     "F-05": "ubertooth-rx -r - creates a PcapNG file called '-' and carries on to device lookup. A PcapNG writer has to seek, so '-' cannot be its destination; ubertooth-btle -r - says so in one line (\"error: PCAPNG capture to stdout is not supported; use -q - or -c -\"). With a file called '-' already there, the message is \"ubertooth-rx: create_bredr_capture_file: : File exists\".",
     "F-06": "A lone '-' is written as a file name rather than standard output by ubertooth-rx (-q, -d), ubertooth-dump (-d) and ubertooth-follow (-q, -d, -r), against ubertooth(7) OPTION VALUES. ubertooth-btle and ubertooth-specan do take it as standard output.",
     "F-07": "ubertooth-scan writes its own error line to standard output: \"error: Unable to find hci0 (-1)\". Errors belong on standard error.",
@@ -773,91 +771,11 @@
     {"tool": "ubertooth-util", "findings": ["F-09"],
      "problem_contains": "does not list -h in its OPTIONS section",
      "cases": ["ubertooth-util (the man page)"]},
-    {"tool": "ubertooth-debug", "findings": ["F-01"],
-     "problem_contains": "invalid option --",
-     "cases": [
-       "ubertooth-debug --bogus",
-       "ubertooth-debug -Z",
-       "ubertooth-debug -h -Z"
-     ]},
-    {"tool": "ubertooth-debug", "findings": ["F-01"],
-     "problem_contains": "option requires an argument --",
-     "cases": [
-       "ubertooth-debug -U",
-       "ubertooth-debug -r",
-       "ubertooth-debug -v"
-     ]},
-    {"tool": "ubertooth-dfu", "findings": ["F-01"],
-     "problem_contains": "invalid option --",
-     "cases": [
-       "ubertooth-dfu --bogus",
-       "ubertooth-dfu -Z",
-       "ubertooth-dfu -h -Z"
-     ]},
-    {"tool": "ubertooth-dfu", "findings": ["F-01"],
-     "problem_contains": "option requires an argument --",
-     "cases": [
-       "ubertooth-dfu -U",
-       "ubertooth-dfu -d",
-       "ubertooth-dfu -s",
-       "ubertooth-dfu -u"
-     ]},
-    {"tool": "ubertooth-dfu", "findings": ["F-02"],
-     "problem_contains": "Checking firmware signature",
-     "cases": [
-       "ubertooth-dfu -U 0 -d IMAGE.dfu",
-       "ubertooth-dfu -d IMAGE.dfu",
-       "ubertooth-dfu -d IMAGE.dfu -U 0",
-       "ubertooth-dfu -d IMAGE.dfu -r",
-       "ubertooth-dfu -d IMAGE.dfu -s PLAIN.bin",
-       "ubertooth-dfu -d IMAGE.dfu -u OUT.bin",
-       "ubertooth-dfu -r -d IMAGE.dfu",
-       "ubertooth-dfu -s PLAIN.bin -d IMAGE.dfu",
-       "ubertooth-dfu -u OUT.bin -d IMAGE.dfu"
-     ]},
-    {"tool": "ubertooth-dfu", "findings": ["F-03"],
-     "problem_contains": "No such file or directory",
-     "cases": [
-       "ubertooth-dfu -s MISSING.bin"
-     ]},
-    {"tool": "ubertooth-dfu", "findings": ["F-03"],
-     "problem_contains": "Unknown DFU suffix length",
-     "cases": [
-       "ubertooth-dfu -U 0 -d IMAGE.dfu",
-       "ubertooth-dfu -d IMAGE.dfu",
-       "ubertooth-dfu -d IMAGE.dfu -U 0",
-       "ubertooth-dfu -d IMAGE.dfu -r",
-       "ubertooth-dfu -d IMAGE.dfu -s PLAIN.bin",
-       "ubertooth-dfu -d IMAGE.dfu -u OUT.bin",
-       "ubertooth-dfu -r -d IMAGE.dfu",
-       "ubertooth-dfu -s PLAIN.bin -d IMAGE.dfu",
-       "ubertooth-dfu -u OUT.bin -d IMAGE.dfu"
-     ]},
     {"tool": "ubertooth-dump", "findings": ["F-06"],
      "problem_contains": "wrote a file called '-'",
      "cases": [
        "ubertooth-dump -d -",
        "ubertooth-dump -d-"
-     ]},
-    {"tool": "ubertooth-follow", "findings": ["F-01"],
-     "problem_contains": "invalid option --",
-     "cases": [
-       "ubertooth-follow --bogus",
-       "ubertooth-follow -Z",
-       "ubertooth-follow -h -Z"
-     ]},
-    {"tool": "ubertooth-follow", "findings": ["F-01"],
-     "problem_contains": "option requires an argument --",
-     "cases": [
-       "ubertooth-follow -U",
-       "ubertooth-follow -b",
-       "ubertooth-follow -d",
-       "ubertooth-follow -e",
-       "ubertooth-follow -l",
-       "ubertooth-follow -q",
-       "ubertooth-follow -r",
-       "ubertooth-follow -u",
-       "ubertooth-follow -w"
      ]},
     {"tool": "ubertooth-follow", "findings": ["F-06"],
      "only_without_local_adapter": true,
@@ -869,14 +787,6 @@
        "ubertooth-follow -q-",
        "ubertooth-follow -r -",
        "ubertooth-follow -r-"
-     ]},
-    {"tool": "ubertooth-rx", "findings": ["F-04"],
-     "problem_contains": "No address should be specified for survey mode",
-     "cases": [
-       "ubertooth-rx -l 446688 -z",
-       "ubertooth-rx -u 22 -z",
-       "ubertooth-rx -z -l 446688",
-       "ubertooth-rx -z -u 22"
      ]},
     {"tool": "ubertooth-rx", "findings": ["F-05"],
      "problem_contains": "a refused command line created ['-']",
@@ -905,21 +815,6 @@
        "ubertooth-rx -q-",
        "ubertooth-rx -r -",
        "ubertooth-rx -r-"
-     ]},
-    {"tool": "ubertooth-scan", "findings": ["F-01"],
-     "problem_contains": "invalid option --",
-     "cases": [
-       "ubertooth-scan --bogus",
-       "ubertooth-scan -Z",
-       "ubertooth-scan -h -Z"
-     ]},
-    {"tool": "ubertooth-scan", "findings": ["F-01"],
-     "problem_contains": "option requires an argument --",
-     "cases": [
-       "ubertooth-scan -U",
-       "ubertooth-scan -b",
-       "ubertooth-scan -e",
-       "ubertooth-scan -t"
      ]},
     {"tool": "ubertooth-scan", "findings": ["F-07"],
      "only_without_local_adapter": true,

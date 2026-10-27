@@ -351,10 +351,16 @@ def check(case, result, created):
         # prefixed lines would let a tool add the right line in front of the
         # unprefixed ones it already printed and read as fixed.
         # A warning or a note beside the error line is allowed: cli-output.md
-        # puts all three on standard error. Anything else is a second line
-        # saying what went wrong, which is what the one-line rule is about.
+        # puts all three on standard error. So is a progress line the spec
+        # names in "progress_before_refusal", for a check that reports what it
+        # is doing before it can know the answer. Anything else is a second
+        # line saying what went wrong, which is what the one-line rule is
+        # about.
+        progress = CONTRACT.get("progress_before_refusal", [])
         said = [line for line in stderr.splitlines()
-                if line.strip() and not line.startswith(("warning: ", "note: "))]
+                if line.strip()
+                and not line.startswith(("warning: ", "note: "))
+                and line not in progress]
         if len(lines) != 1:
             complain("expected one 'error: ' line, got %d: %r"
                      % (len(lines), stderr[:240]))

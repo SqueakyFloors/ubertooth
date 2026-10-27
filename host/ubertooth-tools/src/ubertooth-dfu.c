@@ -196,20 +196,25 @@ int sign(FILE* infile, FILE* outfile, uint16_t idVendor, uint16_t idProduct) {
  * path *image_size is the length the check measured, which is what the flash
  * a write covers is worked out from; it is left alone when the image is
  * refused. */
-static int check_download_image(FILE* downfile, int want_revision,
+static int check_download_image(const char* name, FILE* downfile,
+                                int want_revision,
                                 char* revision, size_t revision_size,
                                 unsigned long* image_size)
 {
 	struct dfu_image_report image_report;
 	char message[160];
 
-	printf("Checking firmware signature\n");
-	fflush(stdout);  /* so it stays ahead of the failure on a pipe */
+	/* Progress, so standard error, where the refusal below goes too: the two
+	 * then stay in order whatever either stream is piped into. */
+	fputs("Checking firmware signature\n", stderr);
 	if (dfu_image_check(downfile, U1_DFU_VENDORID, U1_DFU_PRODUCTID,
 	                    &image_report) != DFU_IMAGE_OK) {
 		dfu_image_describe_failure(&image_report, message, sizeof(message));
-		fprintf(stderr, "%s\n", message);
-		fprintf(stderr, "Signature check failed, firmware will not be updated\n");
+		/* One line: what is wrong with the file, and that the board was
+		 * left alone. No device has been opened and no output file exists
+		 * yet. */
+		fprintf(stderr, "error: %s: %s; firmware will not be updated\n",
+		        name, message);
 		return 1;
 	}
 	/* The check has read the whole file, so its length is settled here and
@@ -217,7 +222,11 @@ static int check_download_image(FILE* downfile, int want_revision,
 	*image_size = (unsigned long)image_report.image_size;
 	if (want_revision &&
 	    dfu_extract_firmware_revision(downfile, revision, revision_size) != 0) {
-		fprintf(stderr, "Unable to determine expected firmware revision from image\n");
+		/* The revision may be absent, or the file may have failed to read;
+		 * either way -r has nothing to check the board against. */
+		fprintf(stderr, "error: %s: could not read a firmware revision from "
+		        "the image, which -r needs to check the board afterwards; "
+		        "firmware will not be updated\n", name);
 		return 1;
 	}
 	return 0;
@@ -475,12 +484,13 @@ static int download_refused_for_part(struct dfu_runtime_context *runtime)
 	}
 	region = dfu_upload_length(part->flash_size);
 	if (runtime->download_length > region) {
+		/* One line, like the image check: what does not fit, and that the
+		 * board was left alone. It has not been asked for DFU yet. */
 		fprintf(stderr, "error: %s needs %lu bytes of flash; part 0x%08x "
-		        "(%s) has %u above the bootloader\n", runtime->download_name,
+		        "(%s) has %u above the bootloader; firmware will not be "
+		        "updated\n", runtime->download_name,
 		        runtime->download_length, runtime->part_id, part->name,
 		        region);
-		fprintf(stderr, "Image too large for the attached part, firmware "
-		        "will not be updated\n");
 		runtime->download_refused = 1;
 		return 1;
 	}
@@ -1291,7 +1301,11 @@ int main(int argc, char **argv) {
 	char* ubertooth_device = NULL;
 	int r;
 
-	while ((opt=getopt(argc,argv,"hd:u:s:rU:")) != EOF) {
+	/* Report a bad option ourselves rather than letting getopt print it:
+	 * see opt_report_bad_option(). The leading ':' makes a missing option
+	 * value distinguishable from an option getopt does not know. */
+	opterr = 0;
+	while ((opt=getopt(argc,argv,":hd:u:s:rU:")) != EOF) {
 		switch(opt) {
 		/* -d, -u and -s are named here and acted on once the whole
 		 * command line has been accepted: the signed file used to be
@@ -1332,6 +1346,7 @@ int main(int argc, char **argv) {
 				first_exit_option = 'h';
 			break;
 		default:
+			opt_report_bad_option(opt, argc, argv);
 			exit_status = 1;
 			goto end_without_device;
 		}
@@ -1372,7 +1387,7 @@ int main(int argc, char **argv) {
 		/* Read-only: the image is never written to. */
 		downfile = fopen(downfile_name, "rb");
 		if (downfile == NULL) {
-			perror(downfile_name);
+			fprintf(stderr, "error: %s: %s\n", downfile_name, strerror(errno));
 			exit_status = 1;
 			goto end_without_device;
 		}
@@ -1389,7 +1404,8 @@ int main(int argc, char **argv) {
 	 * as it was, so -s ... -d <refused image> writes no signed file, and the
 	 * board keeps running its firmware. */
 	if (functions & FUNC_DOWNLOAD) {
-		if (check_download_image(downfile, (functions & FUNC_RESET) != 0,
+		if (check_download_image(downfile_name, downfile,
+		                         (functions & FUNC_RESET) != 0,
 		                         expected_revision,
 		                         sizeof(expected_revision),
 		                         &download_image_size) != 0) {
@@ -1409,7 +1425,7 @@ int main(int argc, char **argv) {
 	if (sign_name != NULL) {
 		infile = fopen(sign_name, "rb");
 		if (infile == NULL) {
-			perror(sign_name);
+			fprintf(stderr, "error: %s: %s\n", sign_name, strerror(errno));
 			exit_status = 1;
 			goto end_without_device;
 		}
@@ -1443,7 +1459,7 @@ int main(int argc, char **argv) {
 	if (upfile_name != NULL) {
 		upfile = open_output_temp(upfile_name, &upfile_temp);
 		if (upfile == NULL) {
-			perror(upfile_name);
+			fprintf(stderr, "error: %s: %s\n", upfile_name, strerror(errno));
 			exit_status = 1;
 			goto end_without_device;
 		}
@@ -1451,7 +1467,7 @@ int main(int argc, char **argv) {
 	if (sign_name != NULL) {
 		outfile = open_output_temp(outfile_name, &outfile_temp);
 		if (outfile == NULL) {
-			perror(outfile_name);
+			fprintf(stderr, "error: %s: %s\n", outfile_name, strerror(errno));
 			exit_status = 1;
 			goto end_without_device;
 		}
@@ -1466,7 +1482,8 @@ int main(int argc, char **argv) {
 			/* Buffered bytes can still fail to reach the file, so the close
 			 * is what settles whether the whole signed image was written. */
 			if (fclose(outfile) != 0) {
-				perror(outfile_name);
+				fprintf(stderr, "error: %s: %s\n", outfile_name,
+				        strerror(errno));
 				exit_status = 1;
 			}
 			outfile = NULL;
@@ -1477,7 +1494,7 @@ int main(int argc, char **argv) {
 		if (exit_status != 0)
 			goto end_without_device;
 		if (rename(outfile_temp, outfile_name) != 0) {
-			perror(outfile_name);
+			fprintf(stderr, "error: %s: %s\n", outfile_name, strerror(errno));
 			exit_status = 1;
 			goto end_without_device;
 		}
@@ -1634,7 +1651,7 @@ int main(int argc, char **argv) {
 			goto cleanup;
 		}
 		if (rename(upfile_temp, upfile_name) != 0) {
-			perror(upfile_name);
+			fprintf(stderr, "error: %s: %s\n", upfile_name, strerror(errno));
 			exit_status = 1;
 			goto cleanup;
 		}

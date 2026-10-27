@@ -109,6 +109,10 @@ bare `-`, is refused before any device is opened and named:
 parsed, so a stray word or a bad option value is reported even
 alongside it.
 
+An option the tool does not know is refused the same way, as one line on
+standard error with no usage text after it: `error: unrecognized option '-Z'`.
+An option whose value is missing reads `error: option '-l' requires a value`.
+
 An option value must be a whole value in its range, or it is refused the same
 way instead of being read as 0, for example
 `error: LAP must be 6 hex digits (got 4466)`.

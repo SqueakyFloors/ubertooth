@@ -150,7 +150,11 @@ int main(int argc, char *argv[])
 		return 1;
 	pn = btbb_piconet_new();
 
-	while ((opt=getopt(argc,argv,"hl:u:U:e:d:ab:w:r:q:")) != EOF) {
+	/* Report a bad option ourselves rather than letting getopt print it:
+	 * see opt_report_bad_option(). The leading ':' makes a missing option
+	 * value distinguishable from an option getopt does not know. */
+	opterr = 0;
+	while ((opt=getopt(argc,argv,":hl:u:U:e:d:ab:w:r:q:")) != EOF) {
 		switch(opt) {
 		case 'l': {
 			uint32_t value;
@@ -215,6 +219,7 @@ int main(int argc, char *argv[])
 				first_exit_option = 'h';
 			break;
 		default:
+			opt_report_bad_option(opt, argc, argv);
 			return 1;
 		}
 	}

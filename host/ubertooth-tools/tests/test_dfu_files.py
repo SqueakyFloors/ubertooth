@@ -133,6 +133,22 @@ with tempfile.TemporaryDirectory() as directory:
     check(not os.path.exists(os.path.join(directory, "firmware.dfu")),
           "-s wrote a .dfu for a name it refused")
 
+    # An input that is not there is the same shape of refusal: one prefixed
+    # line naming the file and what was wrong with it, on standard error.
+    print("\n### -s and -d name a file that is not there")
+    missing = os.path.join(directory, "missing.bin")
+    for option in ("-s", "-d"):
+        result = subprocess.run([BINARY, option, missing], capture_output=True,
+                                text=True, timeout=20, check=False,
+                                env=ENVIRONMENT)
+        print("$", BINARY, option, missing)
+        check(result.returncode == 1,
+              f"{option} on a missing file exited {result.returncode}")
+        check(result.stdout == "",
+              f"{option} put its refusal on standard output")
+        check(result.stderr == f"error: {missing}: No such file or directory\n",
+              f"{option} refusal was {result.stderr!r}")
+
     print("\n### -s refuses an already-suffixed .bin")
     suffixed = os.path.join(directory, "suffixed.bin")
     shutil.copyfile(signed, suffixed)
