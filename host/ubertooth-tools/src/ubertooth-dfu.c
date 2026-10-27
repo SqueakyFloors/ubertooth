@@ -49,8 +49,32 @@ static double operation_elapsed_seconds(void)
 	       (double)(now.tv_nsec - operation_started.tv_nsec) / 1000000000.0;
 }
 
+/* True while a row of progress dots is half-written, waiting for its
+ * newline. */
+static int progress_row_open;
+
+/* A dot of progress for one block transferred. */
+static void progress_dot(void)
+{
+	fputc('.', stderr);
+	progress_row_open = 1;
+}
+
+/* Finish a row of dots, if one is open. The dots share standard error with
+ * every message, so a line printed while a row is open would start in the
+ * middle of it ("....error: ..."), which no reader can match against the
+ * start of a line. Call this before printing anything else. */
+static void end_progress_row(void)
+{
+	if (progress_row_open) {
+		fputc('\n', stderr);
+		progress_row_open = 0;
+	}
+}
+
 static void log_dfu_stage(const char *stage)
 {
+	end_progress_row();
 	fprintf(stderr, "DFU +%.3fs: %s\n", operation_elapsed_seconds(), stage);
 	fflush(stderr);
 }
@@ -861,34 +885,34 @@ int upload(libusb_device_handle* devh, FILE* upfile, uint32_t length) {
 		rv = libusb_control_transfer(devh, DFU_IN, REQ_UPLOAD, block, 0,
 		                             buffer, BLOCK_SIZE, 1000);
 		if (rv < 0) {
+			end_progress_row();
 			if (rv == LIBUSB_ERROR_PIPE)
 				fprintf(stderr, "error: control message unsupported\n");
 			else
 				show_libusb_error(rv);
-			fprintf(stderr, "\n");
 			fprintf(stderr, "error: upload failed: block %d was not read\n",
 			        block);
 			return rv;
 		}
 		if(rv != BLOCK_SIZE) {
-			fprintf(stderr, "\n");
+			end_progress_row();
 			fprintf(stderr, "error: upload failed: did not read full block\n");
 			return -1;
 		}
 		/* A dot per block, on standard error with the rest of the progress:
 		 * the dump itself is the result and goes to the file. */
-		fprintf(stderr, ".");
+		progress_dot();
 		/* A short write would be renamed over the target as a truncated
 		 * dump, so it ends the read-back too. */
 		if(fwrite(buffer, 1, BLOCK_SIZE, upfile) != BLOCK_SIZE) {
-			fprintf(stderr, "\n");
+			end_progress_row();
 			fprintf(stderr, "error: upload failed: could not write the dump\n");
 			return -1;
 		}
 		block++;
 		length -= BLOCK_SIZE;
 	}
-	fprintf(stderr, "\n");
+	end_progress_row();
 	return 0;
 }
 
@@ -897,6 +921,7 @@ int dfu_get_status(libusb_device_handle* devh) {
 	int rv;
 	rv = libusb_control_transfer(devh, DFU_IN, REQ_GETSTATUS, 0, 0, buffer, 6, 1000);
 	if (rv < 0) {
+		end_progress_row();
 		if (rv == LIBUSB_ERROR_PIPE)
 			fprintf(stderr, "error: control message unsupported\n");
 		else
@@ -931,6 +956,7 @@ int download(libusb_device_handle* devh, FILE* downfile) {
 		rv = libusb_control_transfer(devh, DFU_OUT, REQ_DNLOAD, block, 0,
 		                             buffer, BLOCK_SIZE, 1000);
 		if (rv < 0) {
+			end_progress_row();
 			if (rv == LIBUSB_ERROR_PIPE)
 				fprintf(stderr, "error: control message unsupported\n");
 			else
@@ -941,16 +967,16 @@ int download(libusb_device_handle* devh, FILE* downfile) {
 		if (rv < 0)
 			return rv;
 		/* A dot per block written, on standard error with the rest of the
-		 * progress. */
-		fprintf(stderr, ".");
+		 * progress, 40 to a row. */
+		progress_dot();
 		if(block_count % 40)
 			fflush(stderr);
 		else
-			fprintf(stderr, "\n");
+			end_progress_row();
 		block++;
 		block_count++;
 	}
-	fprintf(stderr, "\n");
+	end_progress_row();
 	return 0;
 }
 

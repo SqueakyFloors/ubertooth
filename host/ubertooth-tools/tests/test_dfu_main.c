@@ -61,7 +61,10 @@ static struct {
 	int upload_fail_rc;
 	int upload_fail_once;   /* ...and then reads normally */
 	int dnload_calls;
-	int dnload_rc;          /* < 0: every block write fails with this */
+	int dnload_rc;          /* < 0: block writes fail with this */
+	int dnload_fail_after;  /* ...from this many blocks written on */
+	int getstatus_rc;       /* < 0: the status read fails with this */
+	int getstatus_fail_after; /* ...from this many blocks written on */
 	int detach_calls;
 	int detach_rc;
 	int detach_resets;      /* the bootloader acts on REQ_DETACH and resets */
@@ -258,11 +261,16 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle *devh,
 		mu_assert(value >= FIRST_BLOCK,
 		          "DNLOAD wrote a block inside the bootloader");
 		fake.dnload_calls++;
-		if (fake.dnload_rc < 0)
+		/* The failure starts once that many blocks have gone through, so a
+		 * test can let a row of dots build up before it. */
+		if (fake.dnload_rc < 0 && fake.dnload_calls > fake.dnload_fail_after)
 			return fake.dnload_rc;
 		return length;
 	case REQ_GETSTATUS:
 		fake.getstatus_calls++;
+		if (fake.getstatus_rc < 0 &&
+		    fake.getstatus_calls > fake.getstatus_fail_after)
+			return fake.getstatus_rc;
 		memset(data, 0, length);
 		return length;
 	case REQ_ABORT:
@@ -1486,10 +1494,10 @@ MU_TEST(a_failed_flash_reports_errors_only_on_standard_error)
 /* A block write that fails with anything other than a stall takes the other
  * branch, where the status is named by libubertooth rather than by this tool.
  * That line is still on standard error, standard output is still empty, and
- * the line this tool prints to give up still begins "error: ". What it does
- * not yet have is that prefix on the libubertooth line itself, which is the
- * shared sink every tool goes through; converting it is #323's work, so this
- * pins the stream and leaves the wording to that change. */
+ * the line this tool prints to give up still begins "error: ". The
+ * libubertooth line itself does not carry that prefix: it comes from the
+ * shared reporter every tool goes through, which is converted separately, so
+ * this test pins the stream and leaves the wording alone. */
 MU_TEST(a_flash_failing_without_a_stall_still_keeps_standard_output_empty)
 {
 	struct run_result r;
@@ -1527,6 +1535,65 @@ MU_TEST(a_bootloader_that_stalls_the_state_read_reports_one_error_per_line)
 	          "giving up on the state read was not reported as an error");
 	mu_assert(strstr(r.err, "error: detach failed: could not enter DFU mode")
 	          != NULL, "the failed detach was not reported as an error");
+}
+
+/* The dots of a flash share standard error with the error lines, so a
+ * failure part way through has to finish the row of dots first. Otherwise
+ * the error starts in the middle of it ("....error: ...") and nothing
+ * reading standard error can match it against the start of a line. */
+MU_TEST(a_flash_failing_part_way_finishes_its_row_of_dots_first)
+{
+	struct run_result r;
+
+	board_in_application(PART_ID_128K, 128 * 1024);
+	fake.dnload_rc = LIBUSB_ERROR_PIPE;
+	fake.dnload_fail_after = 2;
+	r = RUN("-U", "0", "-d", image_path, "-r");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strstr(r.err, "..\n") != NULL,
+	          "the row of dots was not finished");
+	mu_assert(strstr(r.err, ".error:") == NULL,
+	          "an error line started in the middle of the row of dots");
+	/* One stalled block write per attempt, and the line that gives up. */
+	mu_assert_int_eq(3, error_lines(r.err));
+}
+
+/* The status read after a block is the other failure that can land mid-row. */
+MU_TEST(a_status_read_failing_part_way_finishes_its_row_of_dots_first)
+{
+	struct run_result r;
+
+	board_in_application(PART_ID_128K, 128 * 1024);
+	fake.getstatus_rc = LIBUSB_ERROR_PIPE;
+	fake.getstatus_fail_after = 2;
+	r = RUN("-U", "0", "-d", image_path, "-r");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strstr(r.err, "..\n") != NULL,
+	          "the row of dots was not finished");
+	mu_assert(strstr(r.err, ".error:") == NULL,
+	          "an error line started in the middle of the row of dots");
+	mu_assert_int_eq(3, error_lines(r.err));
+}
+
+/* A read-back failing part way has the same rows of dots to finish. */
+MU_TEST(a_read_back_failing_part_way_finishes_its_row_of_dots_first)
+{
+	struct run_result r;
+
+	board_in_application(PART_ID_128K, 128 * 1024);
+	remove_dump();
+	fake.upload_fail_block = FIRST_BLOCK + 2;
+	fake.upload_fail_rc = LIBUSB_ERROR_PIPE;
+	r = RUN("-U", "0", "-u", dump_path, "-r");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strstr(r.err, "..\n") != NULL,
+	          "the row of dots was not finished");
+	mu_assert(strstr(r.err, ".error:") == NULL,
+	          "an error line started in the middle of the row of dots");
+	remove_dump();
 }
 
 int main(void)
@@ -1594,6 +1661,9 @@ int main(void)
 	MU_RUN(a_failed_flash_reports_errors_only_on_standard_error);
 	MU_RUN(a_flash_failing_without_a_stall_still_keeps_standard_output_empty);
 	MU_RUN(a_bootloader_that_stalls_the_state_read_reports_one_error_per_line);
+	MU_RUN(a_flash_failing_part_way_finishes_its_row_of_dots_first);
+	MU_RUN(a_status_read_failing_part_way_finishes_its_row_of_dots_first);
+	MU_RUN(a_read_back_failing_part_way_finishes_its_row_of_dots_first);
 
 	remove_dump();
 	unlink(image_path);

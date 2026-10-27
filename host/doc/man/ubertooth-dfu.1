@@ -167,14 +167,14 @@ A refused command line creates and truncates nothing, and leaves no temporary fi
 .P
 1 for everything else, and there is no other status\. That covers a command line the tool will not take or that has nothing to do, a file it cannot read or create, an image it refuses, a selected board that is missing or that something else is using, a bootloader that will not answer or will not become idle, a transfer that failed both its attempts, a reset that left the board in DFU, and a revision after the reset that is not the image's\.
 .SH "DIAGNOSTICS"
-Standard output carries one line, and only from \fB\-d <image> \-r\fR:
+Standard output carries the usage text for \fB\-h\fR, and otherwise one line, from \fB\-d <image> \-r\fR alone:
 .IP "" 4
 .nf
 Verified firmware revision: git\-2671234
 .fi
 .IP "" 0
 .P
-That is the revision the board reported once it was running the new firmware, which is the only thing this command reads back, so it is the result and a script can read it on its own\. \fB\-h\fR prints the usage text there too\. Nothing else is ever written to standard output: the dump of \fB\-u\fR goes to the file it names, and the signed image of \fB\-s\fR to \fB<file>\.dfu\fR, and a run that only writes firmware or resets the board says nothing there at all\.
+That is the revision the board reported once it was running the new firmware, which is the only thing this command reads back, so it is the result and a script can read it on its own\. Nothing else is ever written to standard output: the dump of \fB\-u\fR goes to the file it names, and the signed image of \fB\-s\fR to \fB<file>\.dfu\fR, and a run that only writes firmware or resets the board says nothing there at all\.
 .P
 Everything else is on standard error, so a script reading that one line is not fed the progress of a flash that takes a few seconds:
 .IP "" 4
