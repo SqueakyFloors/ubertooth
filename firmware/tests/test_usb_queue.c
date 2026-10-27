@@ -3841,7 +3841,8 @@ static int line_is_continued(const char *line)
  * any of its legal spellings. The text of a macro is code in whatever
  * function expands it, so a send wrapped in one is a send; and a macro is
  * written at file scope, where the brace rule would otherwise look straight
- * past it.
+ * past it. Inside one, naming the function is enough, because a macro that
+ * is just another name for it turns every use of that name into a call.
  */
 static int file_calls(const char *path, const char *name)
 {
@@ -3887,7 +3888,15 @@ static int file_calls(const char *path, const char *name)
 
 				while (*after == ' ' || *after == '\t')
 					after++;
-				if (*after == '(')
+				/*
+				 * In a macro, naming it is enough: `#define
+				 * SEND USBHwEPWrite` makes every SEND(...) a
+				 * call to it, with no '(' next to the name
+				 * here. In code, a '(' has to follow, so a
+				 * function passed by address or declared is
+				 * not read as a call.
+				 */
+				if (*after == '(' || in_macro)
 					hits++;
 			}
 		}
