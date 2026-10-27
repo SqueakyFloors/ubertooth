@@ -456,6 +456,17 @@ jobs:
       # running by hand: it is one of the tools/*.sh the step above covers.
       run: tools/retry-selftest.sh
 
+    - name: Check that the image revision check holds both ways
+      # The image-revision job below runs that check against the images this
+      # branch builds, which says nothing about whether it would still refuse
+      # an image the tool cannot read a revision out of. This writes throwaway
+      # images in each of the shapes that matter -- no info block, a format
+      # the host does not know, an empty or unprintable revision, a block
+      # naming another image, a shipped image that was not built -- and
+      # asserts the status and the message for each. It needs a C compiler and
+      # nothing else: no ARM toolchain, no board, no network, under a minute.
+      run: tools/check-image-revision-selftest.sh
+
   # Issue and pull request numbers must not appear in source, tests or build
   # files (.kiro/steering/branch-and-review.md). A reviewer who happens to know
   # the rule is the only thing that caught the last ones, and only after they
@@ -499,6 +510,59 @@ jobs:
         done
         rm -f planted.out
         echo "The check catches a planted reference in source and build files."
+
+  # `ubertooth-dfu -r` checks, after the reset, that the board came back
+  # running the revision just written, and it learns which revision to expect
+  # from the FILE: it reads the firmware info block the image carries. An
+  # image whose block it cannot read is refused before anything is erased, so
+  # the documented way to flash it stops working -- which happened to the btbr
+  # image, and was found at the bench rather than here.
+  #
+  # firmware/common.mk compares the eight magic bytes at the offset with dd,
+  # which catches a build that lost the block entirely. Everything else the
+  # tool's own parse insists on -- a format version it knows, an image name
+  # and a revision that are non-empty and printable -- is only checked by
+  # running that parse, and nothing ran it on a built image.
+  #
+  # This job runs it: the images the firmware job built, on every runner it
+  # built them on, handed to the host's own reader. It builds nothing itself,
+  # so it costs a checkout, a download and a few seconds of compiler.
+  #
+  # The revision is all it checks. The firmware job builds no .dfu -- that
+  # step shells out to the host tool it does not build -- so these are .bin
+  # files, and `ubertooth-dfu` would refuse a .bin on the DFU suffix long
+  # before reading a block out of it. Checking the packaged file users
+  # actually flash is a separate gap, tracked on its own.
+  image-revision:
+    # Every leg of the firmware matrix, so a toolchain that spoils the block
+    # on one platform only is still caught. A firmware job that failed skips
+    # this one rather than reporting a second, derived failure.
+    needs: firmware
+    runs-on: ubuntu-24.04
+    # Above the download's own four minutes plus the checkout, the compile and
+    # the check, so a download that nearly used its budget still fails on its
+    # own clock rather than this one.
+    timeout-minutes: 8
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Download the built firmware images
+      uses: actions/download-artifact@v4
+      # Its own limit: the download is the one thing here that could stall,
+      # and the artifacts are a few hundred kilobytes.
+      timeout-minutes: 4
+      with:
+        pattern: firmware-*
+        path: images
+
+    - name: Check that each shipped image carries a readable revision
+      # --from finds every shipped image under the downloaded artifacts and
+      # fails on one that is missing as well as on one whose block cannot be
+      # read, so an image that stopped being built does not pass as nothing
+      # to do. It also refuses a tree with a firmware directory none of its
+      # lists classifies, so a new image has to be called shipped or
+      # bench-only before this goes green.
+      run: tools/check-image-revision.sh --from images
 
   # Ubuntu 20.04 is the oldest supported Linux. GitHub retired the hosted
   # ubuntu-20.04 runner, so run it in a container on a current runner. The
