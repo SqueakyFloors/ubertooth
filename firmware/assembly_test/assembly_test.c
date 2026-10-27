@@ -674,15 +674,19 @@ static void dio_ssp_start()
  * radio that is not running cannot produce.
  *
  * None of them passes a service callback, where the shipped image hands its
- * USB poll in, and what that costs differs by mode. specan() polls USB again
- * as soon as the wait returns. bt_stream_rx() waits on its DMA transfer first,
- * which a radio that is not receiving holds up as before. The range test and
- * the repeater never poll USB at all, so for them the board is still away for
- * the length of the mode -- but no longer forever, which is the difference
- * between a board that comes back and one that has to be re-plugged.
+ * USB poll in, and what that is worth differs by mode. specan() reaches its
+ * USB poll every sixteenth frequency step, so waits that time out delay it by
+ * their bound rather than ending it. bt_stream_rx() waits on its DMA transfer
+ * next, which a radio that is not receiving holds up as before.
  *
- * bt_test_rx() is the exception to all of it: it runs before
- * ubertooth_usb_init(), so there is no host watching to lose.
+ * The range test and the repeater then wait for a packet, which a radio that
+ * never locked cannot bring, so for them a dead radio still ends in a wait
+ * with no end -- the following one, not these. Ending that one needs what the
+ * shipped image does with it: a body that polls USB and leaves when the host
+ * asks for another mode. These bounds do not reach that far.
+ *
+ * bt_test_rx() is outside all of it: it runs before ubertooth_usb_init(), so
+ * there is no host watching to lose.
  */
 
 /* start un-buffered rx */

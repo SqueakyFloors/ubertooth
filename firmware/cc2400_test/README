@@ -3,3 +3,7 @@ control interface to verify that the CC2400 responds with an expected default
 register value.
 
 On success all LEDs are illuminated.
+
+TX and RX blinking at about one hertz, with USR dark, means the radio answered
+the SPI bus but never reported its reset register value. A radio that answers
+nothing at all stops the test earlier, with TX and RX lit steadily.

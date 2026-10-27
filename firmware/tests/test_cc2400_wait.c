@@ -736,9 +736,16 @@ static const char *const radio_sources[] = {
  * way: assembly_test polls USB from its own loops, so a radio that never
  * reports the state a wait is after leaves the board answering nothing.
  */
-static const char *const bench_radio_sources[] = {
-	FW_DIR "/assembly_test/assembly_test.c",
-	FW_DIR "/cc2400_test/cc2400_test.c",
+static const struct {
+	const char *path;
+	/* Whether this file is allowed the wait with no deadline, the spin on a
+	 * packet arriving. Only the image that waits for packets is: the other
+	 * drives no receive, so a spin on the status byte there would be a new
+	 * one, not the wait this exception is for. */
+	int packet_waits;
+} bench_radio_sources[] = {
+	{ FW_DIR "/assembly_test/assembly_test.c", 1 },
+	{ FW_DIR "/cc2400_test/cc2400_test.c",     0 },
 };
 
 /*
@@ -780,10 +787,11 @@ static int is_bare_radio_spin(const char *line)
 	return length > 0 && line[length - 1] == ';';
 }
 
-/* Blank out the one wait the bench images keep: a bare spin on a packet
- * arriving, which has no deadline -- nothing is late, a peer simply has not
- * transmitted yet. The shipped images give it a body that services USB and
- * leaves when the host stops the mode; the bench images have no mode to stop.
+/* Blank out the wait the bench images keep: a bare spin on a packet arriving,
+ * which has no deadline -- nothing is late, a peer simply has not transmitted
+ * yet. The shipped images give it a body that polls USB and leaves when the
+ * host stops the mode, which is what would end it in these images too and is
+ * not what bounding the state waits did.
  *
  * It is taken out of the line rather than the line being skipped, so a line
  * that carries this wait and a spin on radio state is still caught. */
@@ -840,12 +848,11 @@ MU_TEST(test_no_radio_source_spins_on_the_radio)
 }
 
 /*
- * The same check for the bench images, allowing the one wait they keep: a bare
- * spin on a packet arriving. Every wait on radio state in them goes through
- * the bounded waits above, so a radio that stops advancing no longer costs the
- * host the board for as long as it is plugged in. The two modes that then wait
- * for a packet still wait for one forever, which is the wait with no deadline;
- * what is gone is the spin on a state that was never coming.
+ * The same check for the bench images, allowing the wait with no deadline: a
+ * bare spin on a packet arriving, in the image that receives packets. Every
+ * wait on radio state in them goes through the bounded waits above, so what is
+ * gone is the spin on a state that was never coming; the two modes that go on
+ * to wait for a packet still wait for one for as long as the mode runs.
  */
 MU_TEST(test_no_bench_image_spins_on_radio_state)
 {
@@ -854,7 +861,8 @@ MU_TEST(test_no_bench_image_spins_on_radio_state)
 	for (f = 0; f < sizeof(bench_radio_sources) /
 	                sizeof(bench_radio_sources[0]); ++f)
 		mu_assert_int_eq(0, count_bare_radio_spins(
-			bench_radio_sources[f], 1));
+			bench_radio_sources[f].path,
+			bench_radio_sources[f].packet_waits));
 }
 
 /*
