@@ -334,7 +334,7 @@ DFU, and a revision after the reset that is not the image's.
 Standard output carries the usage text for `-h`, and otherwise one line, from
 `-d <image> -r` alone:
 
-    Verified firmware revision: git-2671234
+    Verified firmware revision: git-ed30131d
 
 That is the revision the board reported once it was running the new firmware,
 which is the only thing this command reads back, so it is the result and a
@@ -347,10 +347,10 @@ Everything else is on standard error, so a script reading that one line is not
 fed the progress of a flash that takes a few seconds:
 
     Checking firmware signature
-    Image: bluetooth_rxtx git-2671234 (API:1.33)
-    DFU expected revision: git-2671234
-    Switching selected device to DFU mode...
+    Image: bluetooth_rxtx git-ed30131d (API:1.33)
+    DFU expected revision: git-ed30131d
     The image needs 31488 bytes, 0x4000-0xbaff: part 0x25011722 (LPC1754) has 128 KiB of flash
+    Switching selected device to DFU mode...
     ........................................
     Detached
 
