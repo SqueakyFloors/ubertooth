@@ -969,9 +969,7 @@ int download(libusb_device_handle* devh, FILE* downfile) {
 		/* A dot per block written, on standard error with the rest of the
 		 * progress, 40 to a row. */
 		progress_dot();
-		if(block_count % 40)
-			fflush(stderr);
-		else
+		if (block_count % 40 == 0)
 			end_progress_row();
 		block++;
 		block_count++;
@@ -1793,8 +1791,10 @@ int main(int argc, char **argv) {
 		}
 		/* The one thing this command reads back and reports: the revision the
 		 * board now runs, read from the returned application. It is the
-		 * result, so standard output, where a script can take it. */
-		printf("Verified firmware revision: %s\n", image_info.revision);
+		 * result, so standard output, where a script can take it. The
+		 * verification only passes when it matches the image's. */
+		printf("Verified firmware revision: %s\n",
+		       verify_report.actual_revision);
 		fflush(stdout);
 		log_dfu_stage("post-reset application verification completed");
 	}

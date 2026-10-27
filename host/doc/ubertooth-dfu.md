@@ -71,8 +71,8 @@ refused there, before the board is asked for DFU:
     error: too-big.dfu needs 114944 bytes of flash; part 0x25011722 (LPC1754) has 114688 above the bootloader; firmware will not be updated
 
 An image that fits says so, in the same terms as the read-back (progress, so
-on standard error, like every line quoted in this page except the one under
-[EXIT STATUS][]):
+on standard error, like every line quoted in this page except `Verified
+firmware revision`):
 
     The image needs 31488 bytes, 0x4000-0xbaff: part 0x25011722 (LPC1754) has 128 KiB of flash
 

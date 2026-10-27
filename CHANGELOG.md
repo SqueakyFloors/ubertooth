@@ -78,8 +78,9 @@
 - **Script-visible change:** the rest of `ubertooth-dfu`'s progress moved to
   standard error too: the DFU entry, the flash an image or a read-back covers,
   the dot per block, and `Detached`. Standard output now carries one line, the
-  revision `-d <image> -r` verified after the reset, and every failure the
-  tool reports itself begins `error: `.
+  revision `-d <image> -r` verified after the reset, which moved the other way
+  (it was on standard error), and every failure the tool reports itself begins
+  `error: `.
   [#502](https://github.com/SqueakyFloors/ubertooth/issues/502)
 - **Script-visible change:** `ubertooth-dfu` prints its `Checking firmware
   signature` progress line on standard error; it was on standard output. It
