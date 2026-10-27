@@ -84,7 +84,9 @@ FAKES = {
     "sysctl": 'echo 1',
     # The version check passes, pip fails: a warning, not a stop.
     "python3": 'case "$*" in *pip*) exit 1 ;; *) exit 0 ;; esac',
-    # No device attached, so neither flash path has anything to refuse.
+    # No device attached. A run that was told which device to flash goes
+    # ahead and flashes it anyway, which is how the named-device run below
+    # reaches the fake ubertooth-dfu; a run without a selector stops.
     "ubertooth-util": 'echo "ran: ubertooth-util $*" >> "$FAKE_LOG";'
                       ' [ "$1" = -N ] && echo 0; exit 0',
     # Reached only by a --flash run, which needs both of these on PATH.
