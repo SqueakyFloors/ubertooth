@@ -192,6 +192,7 @@ static int failures_from_read_back(FILE *file, char *buffer, size_t size)
 	int checks_before = mu_checks;
 	int fails_before = mu_fails;
 	int failures;
+	int restored;
 
 	if (sink == NULL || saved_out < 0) {
 		if (sink != NULL)
@@ -202,16 +203,22 @@ static int failures_from_read_back(FILE *file, char *buffer, size_t size)
 		return -1;
 	}
 	fflush(stdout);
-	dup2(fileno(sink), STDOUT_FILENO);
+	if (dup2(fileno(sink), STDOUT_FILENO) < 0) {
+		close(saved_out);
+		fclose(sink);
+		mu_assert(0, "the test's own output could not be held aside");
+		return -1;
+	}
 	read_back(file, buffer, size);
 	fflush(stdout);
-	dup2(saved_out, STDOUT_FILENO);
+	restored = dup2(saved_out, STDOUT_FILENO);
 	close(saved_out);
 	fclose(sink);
 
 	failures = mu_fails - fails_before;
 	mu_checks = checks_before;
 	mu_fails = fails_before;
+	mu_assert(restored >= 0, "the test's own output could not be put back");
 	return failures;
 }
 

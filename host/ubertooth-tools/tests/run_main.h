@@ -88,6 +88,28 @@ static void run_main_free_argv(char **argv, int argc)
 }
 
 /*
+ * Give back whatever a run that could not be set up had taken: the copies of
+ * its arguments, its two capture files, and the descriptors its streams were
+ * saved on. A NULL file or a negative descriptor is one it never got.
+ *
+ * mu_assert() counts a failure and carries on, so this matters: the rest of
+ * the test run would otherwise hold handles nothing can reach.
+ */
+static void run_main_give_back(char **argv, int argc, FILE *out, FILE *err,
+                               int saved_out, int saved_err)
+{
+	run_main_free_argv(argv, argc);
+	if (out != NULL)
+		fclose(out);
+	if (err != NULL)
+		fclose(err);
+	if (saved_out >= 0)
+		close(saved_out);
+	if (saved_err >= 0)
+		close(saved_err);
+}
+
+/*
  * Run tool_main() with args as its argv and both of its streams captured.
  *
  * args is NULL-terminated and starts with the tool's name. Each argument is
@@ -106,6 +128,7 @@ static struct run_result run_tool_main(run_main_fn tool_main,
 	char *argv[RUN_MAIN_MAX_ARGS + 1];
 	int argc = 0;
 	int saved_out, saved_err;
+	int restored_out, restored_err;
 	FILE *out = tmpfile();
 	FILE *err = tmpfile();
 
@@ -113,13 +136,7 @@ static struct run_result run_tool_main(run_main_fn tool_main,
 	result.rc = -1; /* a failed capture must not look like a successful run */
 	mu_assert(out != NULL && err != NULL, "tmpfile failed");
 	if (out == NULL || err == NULL) {
-		/* mu_assert() counts the failure and carries on, so the file
-		 * that did open has to be closed here: the rest of the test
-		 * run would otherwise hold a handle nothing can reach. */
-		if (out != NULL)
-			fclose(out);
-		if (err != NULL)
-			fclose(err);
+		run_main_give_back(argv, 0, out, err, -1, -1);
 		return result;
 	}
 
@@ -127,9 +144,7 @@ static struct run_result run_tool_main(run_main_fn tool_main,
 		argv[argc] = strdup(args[argc]);
 		mu_assert(argv[argc] != NULL, "strdup failed");
 		if (argv[argc] == NULL) {
-			run_main_free_argv(argv, argc);
-			fclose(out);
-			fclose(err);
+			run_main_give_back(argv, argc, out, err, -1, -1);
 			return result;
 		}
 		argc++;
@@ -144,27 +159,37 @@ static struct run_result run_tool_main(run_main_fn tool_main,
 	mu_assert(saved_out >= 0 && saved_err >= 0,
 	          "a standard stream could not be saved");
 	if (saved_out < 0 || saved_err < 0) {
-		if (saved_out >= 0)
-			close(saved_out);
-		if (saved_err >= 0)
-			close(saved_err);
-		run_main_free_argv(argv, argc);
-		fclose(out);
-		fclose(err);
+		run_main_give_back(argv, argc, out, err, saved_out, saved_err);
 		return result;
 	}
-	dup2(fileno(out), STDOUT_FILENO);
-	dup2(fileno(err), STDERR_FILENO);
+
+	if (dup2(fileno(out), STDOUT_FILENO) < 0 ||
+	    dup2(fileno(err), STDERR_FILENO) < 0) {
+		/* Whichever of the two did get redirected is put back, so the
+		 * rest of the test run keeps its own streams. Running the tool
+		 * with one stream uncaptured would compare the other against
+		 * assertions the run never had a chance to satisfy. */
+		dup2(saved_out, STDOUT_FILENO);
+		dup2(saved_err, STDERR_FILENO);
+		mu_assert(0, "a standard stream could not be redirected");
+		run_main_give_back(argv, argc, out, err, saved_out, saved_err);
+		return result;
+	}
 
 	optind = 0; /* restart option parsing for each run */
 	result.rc = tool_main(argc, argv);
 
 	fflush(stdout);
 	fflush(stderr);
-	dup2(saved_out, STDOUT_FILENO);
-	dup2(saved_err, STDERR_FILENO);
+	/* Both are put back before either is reported on, because a stream
+	 * left redirected would send the report into a capture file instead of
+	 * to whoever is running the test. */
+	restored_out = dup2(saved_out, STDOUT_FILENO);
+	restored_err = dup2(saved_err, STDERR_FILENO);
 	close(saved_out);
 	close(saved_err);
+	mu_assert(restored_out >= 0 && restored_err >= 0,
+	          "a standard stream could not be put back");
 
 	read_back(out, result.out, sizeof(result.out));
 	read_back(err, result.err, sizeof(result.err));
