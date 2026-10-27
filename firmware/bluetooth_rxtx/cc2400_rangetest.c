@@ -79,9 +79,9 @@ rangetest_result rr;
  *
  * The burst is 8 amplifier levels times 16 packets of 32 bytes on air at
  * 1 Mbit/s: 256 us of air time each, so about 33 ms. The rest of its length is
- * the sender writing 128 packets into the radio a bit-banged byte at a time,
- * waiting on the state machine between them and servicing USB as it goes, so
- * it varies with what the host is doing and is not measured here.
+ * the sender writing 128 packets into the radio, waiting on the state machine
+ * between them and servicing USB as it goes, so it varies with what the host
+ * is doing and is not measured here.
  *
  * Waiting too long costs nothing -- the sender listens until it is stopped --
  * and waiting too little costs the whole test: the reply lands while the

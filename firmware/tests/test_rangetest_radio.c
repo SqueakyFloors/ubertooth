@@ -275,7 +275,7 @@ static int scan_source(const char *path, struct scan *s)
 static int scan_spi_source(const char *spi_path, struct spi_scan *s)
 {
 	char line[512], name[128], current[128] = "";
-	int lineno = 0, in_block = 0, depth = 0;
+	int in_block = 0, depth = 0;
 	FILE *f = fopen(spi_path, "r");
 
 	if (f == NULL)
@@ -286,7 +286,6 @@ static int scan_spi_source(const char *spi_path, struct spi_scan *s)
 	while (fgets(line, sizeof(line), f) != NULL) {
 		const char *p;
 
-		lineno++;
 		strip_comments(line, &in_block);
 		if (depth == 0 && call_name(line, name, sizeof(name)))
 			snprintf(current, sizeof(current), "%s", name);

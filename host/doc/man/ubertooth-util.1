@@ -364,7 +364,7 @@ reply number     : 0
 .fi
 .IP "" 0
 .P
-Both boards must be running the same firmware revision\.
+Both boards must be running firmware of this tree's API version, which is what every host tool requires of the board it opens\. The range test packets carry no version of their own, so two boards at the same API version work together whichever revision each was built from\.
 .P
 Before a range test has completed since the board started, \fB\-m\fR prints \fBno range test result yet\fR on standard output and exits 0: there is no result yet, which is not a failure\. A test that ran but whose packets came back corrupted has no result to report either, so it is a diagnostic rather than a value: \fBerror: invalid range test: mismatch on byte <n>\fR on standard error, with exit status 1 and nothing on standard output\. That means a reply arrived whose payload is not the one that was sent, so the levels it carries cannot be trusted\.
 .P

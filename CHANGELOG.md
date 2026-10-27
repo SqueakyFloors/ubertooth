@@ -340,7 +340,7 @@
 - The two-board range test measures something at last: `ubertooth-util -n`
   against a `-e` repeater reports the power levels within a couple of seconds,
   in either direction, where it used to report nothing at all. Neither mode
-  held the radio's receive gain amplifier in reset, so both receivers reported
+  held the radio's receive gain amplifier out of reset, so both receivers reported
   a strong signal and never a sync word; the repeater answered before the
   sender had finished transmitting, because its delay was a loop the compiler
   deleted; it decoded requests only while the radio still held its reset
@@ -893,9 +893,11 @@ Fixes with no visible change in normal use.
   [#564](https://github.com/SqueakyFloors/ubertooth/issues/564)
 - Every packet the firmware writes into the radio's 32-byte packet buffer used
   to carry one stray byte on the end, from eight clock pulses sent after the
-  data. The modes that transmit with the radio's checksum turned off are
-  unaffected, because a receiver ignores the tail; the range test, which has it
-  on, could not work at all.
+  data. A receiver ignores the tail, so the modes that transmit with the
+  radio's checksum turned off still got their data across; the range test,
+  which has it on, could not work at all. The BLE transmit path fills the
+  buffer in chunks, and there the stray byte also cost it one byte of room per
+  chunk.
   [#483](https://github.com/SqueakyFloors/ubertooth/issues/483)
 - A revision string too long for the one-byte length the firmware reports it
   with is cut to 255 characters, rather than counted modulo 256. The revisions

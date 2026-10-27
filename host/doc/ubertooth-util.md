@@ -481,7 +481,10 @@ together with which of the sixteen packets at that level it was:
     reply PA level   : 0
     reply number     : 0
 
-Both boards must be running the same firmware revision.
+Both boards must be running firmware of this tree's API version, which is what
+every host tool requires of the board it opens. The range test packets carry no
+version of their own, so two boards at the same API version work together
+whichever revision each was built from.
 
 Before a range test has completed since the board started, `-m` prints
 `no range test result yet` on standard output and exits 0: there is no result
