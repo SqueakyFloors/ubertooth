@@ -147,11 +147,11 @@
   option stops it and leaves the LEDs off.
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
 - **Reflash required:** the firmware API version is now 1.35, last moved by the
-  range test reaching the radio's packet buffer, and the host tools require
-  firmware of exactly their own API version, older or newer. Host and firmware
-  come from the same tree: `ubertooth-dfu` reflashes a board whatever firmware
-  it is running, but only with an image built from this tree, and `2020-12-R1`
-  firmware is refused.
+  two low-energy capture fixes under Reliability fixes, and the host tools
+  require firmware of exactly their own API version, older or newer. Host and
+  firmware come from the same tree:
+  `ubertooth-dfu` reflashes a board whatever firmware it is running, but only
+  with an image built from this tree, and `2020-12-R1` firmware is refused.
   [#4](https://github.com/SqueakyFloors/ubertooth/issues/4)
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
@@ -163,6 +163,8 @@
   [#464](https://github.com/SqueakyFloors/ubertooth/issues/464)
   [#473](https://github.com/SqueakyFloors/ubertooth/issues/473)
   [#475](https://github.com/SqueakyFloors/ubertooth/issues/475)
+  [#570](https://github.com/SqueakyFloors/ubertooth/issues/570)
+  [#571](https://github.com/SqueakyFloors/ubertooth/issues/571)
 - Every firmware image now carries a block naming the image and the revision
   it was built from, read the same way off a board and out of a file.
   `ubertooth-dfu -d` says which image a file holds before it writes it
@@ -270,6 +272,12 @@
 
 ### Reliability fixes
 
+- The average RSSI of a captured Bluetooth low-energy packet is now the mean
+  of the samples taken while it arrived. The board computed it in unsigned
+  arithmetic, so the value in the per-packet header of a PCAP written by
+  `ubertooth-btle -r` was unrelated to the packet; the minimum and the maximum
+  beside it were always right.
+  [#570](https://github.com/SqueakyFloors/ubertooth/issues/570)
 - `ubertooth-follow -l <LAP> -u <UAP>` says what to do when its connection to
   the target fails: those four bytes leave the connection to be made to a
   guessed `00:00:<UAP>:<LAP>`, so the failure now asks for the whole address

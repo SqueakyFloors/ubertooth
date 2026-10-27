@@ -559,7 +559,7 @@ MU_TEST(every_packet_length_survives_the_round_trip)
 		dirty_the_ring();
 		fill_packet(&buf, pdu_len, DATA_CHANNEL_MHZ);
 		buf.access_address = 0x12345678;
-		buf.rssi_sum = 46;       /* positive: see the test below */
+		buf.rssi_sum = 46;       /* these cases are about the bytes */
 
 		result = round_trip(&buf, &data, &length, &metadata, &records);
 
@@ -673,22 +673,16 @@ MU_TEST(a_chain_that_does_not_fit_is_not_started)
 }
 
 /*
- * The average RSSI in the record is computed as rssi_sum / size, and size is
- * unsigned, so the sum is converted to unsigned before the division. Every
- * real capture has a negative sum -- the CC2400 reports RSSI as a negative
- * number -- which makes that division a very large positive one and the
- * average a value unrelated to the packet. The host puts it in the per-packet
- * header of a PCAP written with -r, where it is the only field this affects.
- *
- * This pins the behaviour rather than endorsing it: the fix belongs in the
- * firmware, and whoever makes it will have to come back here, which is the
- * point. The positive case is the arithmetic the code was meant to do.
+ * The average RSSI in the record is the mean of the samples taken while the
+ * packet arrived. The CC2400 reports RSSI as a negative number, so every real
+ * capture has a negative sum and the division has to be a signed one. The
+ * host puts the result in the per-packet header of a PCAP written with -r,
+ * between the minimum and the maximum of the same packet.
  */
-MU_TEST(the_average_rssi_is_the_mean_only_while_the_sum_is_positive)
+MU_TEST(the_average_rssi_is_the_mean_of_the_samples)
 {
 	le_rx_t buf;
 	usb_pkt_rx *record;
-	int8_t expected_if_signed;
 
 	start_fresh();
 	fill_packet(&buf, 5, DATA_CHANNEL_MHZ);   /* size 10 */
@@ -701,14 +695,25 @@ MU_TEST(the_average_rssi_is_the_mean_only_while_the_sum_is_positive)
 	start_fresh();
 	fill_packet(&buf, 5, DATA_CHANNEL_MHZ);
 	buf.rssi_sum = -200;
-	expected_if_signed = -20;
 	mu_assert_fatal(usb_enqueue_le(&buf) == 1, "the queue refused a packet");
 	record = dequeue();
 	mu_assert_fatal(record != NULL, "no record came back");
-	mu_assert(record->rssi_avg != expected_if_signed,
-	          "the average RSSI of a packet with a negative sum is now the "
-	          "mean. If that was deliberate, this test is what has to "
-	          "change: say so and assert the mean");
+	mu_assert_int_eq(-20, record->rssi_avg);
+
+	/* A real packet: every sample the same, so the mean is that value and
+	 * sits on the minimum and the maximum. */
+	start_fresh();
+	fill_packet(&buf, 5, DATA_CHANNEL_MHZ);
+	buf.rssi_sum = -70 * (int) buf.size;
+	buf.rssi_min = -70;
+	buf.rssi_max = -70;
+	mu_assert_fatal(usb_enqueue_le(&buf) == 1, "the queue refused a packet");
+	record = dequeue();
+	mu_assert_fatal(record != NULL, "no record came back");
+	mu_assert_int_eq(-70, record->rssi_avg);
+	mu_assert(record->rssi_avg >= record->rssi_min &&
+	          record->rssi_avg <= record->rssi_max,
+	          "the average RSSI is outside the minimum and the maximum");
 }
 
 /* A queue with no room left loses the packet rather than overwriting one the
@@ -1401,7 +1406,7 @@ int main(void)
 	MU_RUN(every_packet_length_survives_the_round_trip);
 	MU_RUN(a_packet_too_long_for_a_chain_is_refused);
 	MU_RUN(a_chain_that_does_not_fit_is_not_started);
-	MU_RUN(the_average_rssi_is_the_mean_only_while_the_sum_is_positive);
+	MU_RUN(the_average_rssi_is_the_mean_of_the_samples);
 	MU_RUN(a_full_ring_refuses_the_packet);
 	MU_RUN(a_connection_request_is_accepted_and_scheduled);
 	MU_RUN(a_connection_request_is_ignored_until_the_host_asks_to_follow);

@@ -866,7 +866,10 @@ static void usb_fill_le_metadata(usb_pkt_rx *f, const le_rx_t *packet,
 	f->channel = (uint8_t)((packet->channel - 2402) & 0xff);
 	f->clkn_high = 0;
 	f->clk100ns = packet->timestamp;
-	f->rssi_avg = packet->rssi_sum / packet->size;
+	/* The radio reports RSSI as a negative number, so the sum is negative and
+	 * the division has to be a signed one. Without the cast the unsigned size
+	 * would convert the sum to a huge positive value first. */
+	f->rssi_avg = packet->rssi_sum / (int) packet->size;
 	f->rssi_min = packet->rssi_min;
 	f->rssi_max = packet->rssi_max;
 	f->rssi_count = 0;
