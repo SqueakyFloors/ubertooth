@@ -157,7 +157,10 @@ read_version() {
         printf '       four-digit hex value such as 0x0131\n' >&2
         return 1
     fi
-    printf '%s\n' "${value#0x}"
+    # The four digits alone. Stripped with sed rather than with a shell prefix
+    # expansion, because the pattern that expansion needs reads as an issue
+    # reference to tools/check-issue-references.sh.
+    printf '%s\n' "$value" | sed 's/^0[xX]//'
 }
 
 # The digits and the number they spell, for one commit, refusing anything that
