@@ -637,7 +637,9 @@ MU_TEST(a_replayed_keep_alive_is_not_decoded_or_recorded)
 	int r;
 
 	reset();
-	ut = new_handle();
+	/* Not new_handle(): a replay never opens a device, so this handle keeps
+	 * the NULL devh a replaying tool has. */
+	ut = ubertooth_init();
 	mu_assert_fatal(ut != NULL, "a handle");
 	replay = tmpfile();
 	dump = tmpfile();
@@ -673,7 +675,7 @@ MU_TEST(a_replayed_keep_alive_is_not_decoded_or_recorded)
 
 	fclose(replay);
 	fclose(dump);
-	release_handle(ut);
+	ubertooth_free(ut);
 }
 
 int main(void)
