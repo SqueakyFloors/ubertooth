@@ -85,6 +85,13 @@ UBTBR_FAKE_CLAIMED a file created once it is in there. UBTBR_FAKE_WRITE_DELAY
 holds each write, which keeps the tool short of its prompt with the receive
 thread already running. UBTBR_FAKE_NO_DEVICE makes the context find nothing
 to open, and UBTBR_FAKE_CLOSED names a file created when the handle is closed.
+
+UBTBR_FAKE_SERIALS is the boards on the bus, in enumeration order, as
+comma-separated serial numbers; "?" stands for a board whose serial cannot be
+read, and "!" for one that answers neither the serial read nor an open, which
+is what a board another program holds looks like. Unset means one board.
+UBTBR_FAKE_OPENED names a file the serial of the board that was opened is
+written to, which is how a test tells which board a selection reached.
 """
 
 import os
@@ -133,13 +140,46 @@ class _Handle:
             open(marker, "w").close()
 
 
-class USBContext:
-    def openByVendorIDAndProductID(self, vendor, product,
-                                   skip_on_error=False):
-        if os.environ.get("UBTBR_FAKE_NO_DEVICE"):
-            return None
+class _Device:
+    """One board on the bus. The Ubertooth One ids, as ubtbr matches them."""
+
+    def __init__(self, serial):
+        self._serial = serial
+
+    def getVendorID(self):
+        return 0x1d50
+
+    def getProductID(self):
+        return 0x6002
+
+    def getSerialNumber(self):
+        # A board another program holds answers neither: reading the serial
+        # opens it too.
+        if self._serial in ("?", "!"):
+            raise USBError("serial unreadable")
+        return self._serial
+
+    def open(self):
+        if self._serial == "!":
+            raise USBError("busy")
+        marker = os.environ.get("UBTBR_FAKE_OPENED")
+        if marker:
+            with open(marker, "w") as opened:
+                opened.write(self._serial)
         return _Handle()
+
+
+class USBContext:
+    def getDeviceIterator(self, skip_on_error=False):
+        if os.environ.get("UBTBR_FAKE_NO_DEVICE"):
+            return iter(())
+        serials = os.environ.get("UBTBR_FAKE_SERIALS", ONE_BOARD)
+        return iter([_Device(serial) for serial in serials.split(",")])
 '''
+
+# The one board the fake puts on the bus unless a test says otherwise.
+ONE_BOARD = "1cc001038088cb956c43ad61c52000f5"
+FAKE_USB1 = FAKE_USB1.replace("ONE_BOARD", repr(ONE_BOARD))
 
 # Kept in a name of its own, so its finalizer removes the directory however
 # the test ends, including on a failed assertion.
@@ -850,14 +890,21 @@ assert os.path.dirname(found.stdout.strip()) == WORK.name, \
      found.stderr)
 
 
-def tool(environment=None):
+def tool(environment=None, arguments=()):
     if os.path.exists(WRITES_FILE):
         os.remove(WRITES_FILE)
     return subprocess.Popen(
-        [sys.executable, WRAPPER],
+        [sys.executable, WRAPPER] + list(arguments),
         stdin=subprocess.PIPE, stdout=subprocess.PIPE,
         stderr=subprocess.PIPE, text=True,
         env=environment or ENVIRONMENT)
+
+
+def ran(arguments=(), typed="", **fakes):
+    """Run the tool once and return (exit status, standard out, standard err)."""
+    running = tool(dict(ENVIRONMENT, **fakes), arguments)
+    output, errors = running.communicate(typed, timeout=DEADLINE * 2)
+    return running.returncode, output, errors
 
 
 # "q" at the prompt exits 0. It used to call the handler for it without the
@@ -1009,6 +1056,186 @@ assert running.returncode == 1, (running.returncode, output, errors)
 assert output == "", output
 assert errors == "error: no Ubertooth devices found\n", errors
 print("ubtbr: no Ubertooth is one error line and exit 1")
+
+# ---- which board the session gets -----------------------------------------
+#
+# The tool used to open whichever board libusb handed over first, with no way
+# to say which one to use. On a host with several boards it therefore reached
+# an arbitrary one: a user who had flashed btbr onto one board got a write
+# timeout from a different board still carrying bluetooth_rxtx, and a note
+# blaming the firmware of the board they had just flashed.
+
+OTHER_BOARD = "346001058088cb95345bad61c52000f5"
+TWO_BOARDS = ",".join((ONE_BOARD, OTHER_BOARD))
+OPENED_FILE = os.path.join(WORK.name, "opened")
+
+
+def opened():
+    """The serial of the board the last run opened, or None if it opened none."""
+    if not os.path.exists(OPENED_FILE):
+        return None
+    with open(OPENED_FILE) as marker:
+        return marker.read()
+
+
+def forget_which_board_was_opened():
+    if os.path.exists(OPENED_FILE):
+        os.remove(OPENED_FILE)
+
+
+def selecting(arguments, typed="", serials=TWO_BOARDS, **fakes):
+    forget_which_board_was_opened()
+    return ran(arguments, typed, UBTBR_FAKE_SERIALS=serials,
+               UBTBR_FAKE_OPENED=OPENED_FILE, **fakes)
+
+
+# several boards and no -U: refused, with the boards listed, and no board
+# opened. This is the case that made the tool unusable on a host with more
+# than one board.
+status, output, errors = selecting(())
+assert status == 1, (status, output, errors)
+assert output == "", output
+assert errors == ("error: multiple Ubertooth devices found; select one with "
+                  "-U <index|serial>\n"
+                  "  Device 0: %s\n"
+                  "  Device 1: %s\n" % (ONE_BOARD, OTHER_BOARD)), errors
+assert opened() is None, "a refused selection must not open a board"
+assert not writes(), writes()
+print("ubtbr: several boards with no -U are listed, not guessed between")
+
+# a serial reaches that board whatever its place in the enumeration order,
+# and the session then runs as it does with one board attached
+status, output, errors = selecting(("-U", OTHER_BOARD), "q\n")
+assert status == 0, (status, output, errors)
+assert opened() == OTHER_BOARD, opened()
+assert IDLE_PACKET in writes(), writes()
+print("ubtbr: -U <serial> reaches that board")
+
+# the first characters of a serial are enough, in either case. They have to
+# include a non-digit: an all-digits argument is an index, which is the rule
+# ubertooth(7) states and every tool follows.
+for prefix in ("1cc0", "1CC0", ONE_BOARD.upper()):
+    status, output, errors = selecting(("-U", prefix), "q\n")
+    assert status == 0, (prefix, status, output, errors)
+    assert opened() == ONE_BOARD, (prefix, opened())
+print("ubtbr: a serial prefix selects a board, in either case")
+
+# a prefix that starts both serials names neither
+status, output, errors = selecting(("-U", "1cc"),
+                                   serials=",".join((ONE_BOARD,
+                                                     "1cc0ffffffffffff")))
+assert status == 1, (status, output, errors)
+assert output == "", output
+assert errors == ("error: '1cc' matches 2 Ubertooth devices: %s, "
+                  "1cc0ffffffffffff\n"
+                  "select one of them by a longer prefix of its serial "
+                  "number\n" % ONE_BOARD), errors
+assert opened() is None, opened()
+print("ubtbr: a prefix matching two boards selects neither")
+
+# a serial nothing on the bus starts with
+status, output, errors = selecting(("-U", "zz"))
+assert status == 1, (status, output, errors)
+assert output == "", output
+assert errors == "error: no Ubertooth found with serial matching 'zz'\n", errors
+print("ubtbr: an unmatched serial is one error line")
+
+# an all-digits argument is an index into the enumeration order
+status, output, errors = selecting(("-U", "1"), "q\n")
+assert status == 0, (status, output, errors)
+assert opened() == OTHER_BOARD, opened()
+status, output, errors = selecting(("-U", "0"), "q\n")
+assert status == 0, (status, output, errors)
+assert opened() == ONE_BOARD, opened()
+print("ubtbr: -U <index> is a position in the enumeration order")
+
+# an index no board has, including a nonzero index with one board attached:
+# opening the only board for any index would hide that indexes renumber
+for serials, selector, attached in ((TWO_BOARDS, "9", 2),
+                                    (ONE_BOARD, "1", 1)):
+    status, output, errors = selecting(("-U", selector), serials=serials)
+    assert status == 1, (selector, status, output, errors)
+    assert output == "", (selector, output)
+    assert errors == ("error: no Ubertooth at index %s (%d attached)\n"
+                      "indexes change when boards are added or removed; "
+                      "select a board by serial with -U<serial>\n"
+                      % (selector, attached)), errors
+    assert opened() is None, opened()
+print("ubtbr: an index no board has is refused, and names the count")
+
+# a board whose serial cannot be read keeps its place in the list, so it can
+# still be chosen by index, and is listed as unreadable rather than left out
+status, output, errors = selecting(("-U", "1"), "q\n",
+                                   serials=",".join((ONE_BOARD, "?")))
+assert status == 0, (status, output, errors)
+assert opened() == "?", opened()
+status, output, errors = selecting((), serials=",".join((ONE_BOARD, "?")))
+assert status == 1, (status, output, errors)
+assert "  Device 1: serial unreadable\n" in errors, errors
+print("ubtbr: a board with no readable serial is still listed and indexable")
+
+# a board that cannot be opened at all, which is what another program holding
+# it looks like: reported as that board, not as a board that is not there
+status, output, errors = selecting(("-U", "0"), serials="!")
+assert status == 1, (status, output, errors)
+assert output == "", output
+assert errors == "error: could not open Ubertooth: busy\n", errors
+print("ubtbr: a board that cannot be opened is reported as that board")
+
+# the board a failed setup was talking to is named, so the wrong board is
+# told apart from a bad one
+status, output, errors = selecting(("-U", OTHER_BOARD),
+                                   UBTBR_FAKE_WRITE_FAILS_AFTER="0")
+assert status == 1, (status, output, errors)
+assert ("error: could not set up the Ubertooth %s: " % OTHER_BOARD) in errors, \
+    errors
+print("ubtbr: a setup that failed names the board it was talking to")
+
+# ---- the command line ------------------------------------------------------
+
+# -h prints the usage text on standard output and exits 0, having opened no
+# board. It used to be a parse failure: usage on standard output, exit 1.
+status, output, errors = selecting(("-h",))
+assert status == 0, (status, output, errors)
+assert output.startswith("Usage: ubertooth-btbr "), output
+assert "-U <index|serial>" in output, output
+assert errors == "", errors
+assert opened() is None, "-h must not open a board"
+print("ubtbr: -h prints the usage text on standard output and exits 0")
+
+# a command line the tool will not take: the one line that says what is wrong
+# goes to standard error, standard output stays empty, and no usage text
+# follows it
+for arguments, said in (
+        (("-z",), "error: unrecognized option '-z'\n"),
+        (("--bogus",), "error: unrecognized option '--bogus': the tools take "
+                       "single-letter options\n"),
+        (("-f",), "error: option '-f' requires a value\n"),
+        (("-U",), "error: option '-U' requires a value\n"),
+        (("stray",), "error: unexpected argument 'stray'\n"),
+        (("-U", "0", "-U", "1"), "error: give -U once\n"),
+        (("-f", "1", "-f", "2"), "error: give -f once\n"),
+        (("-b", "1", "-b", "2"), "error: give -b once\n")):
+    status, output, errors = selecting(arguments)
+    assert status == 1, (arguments, status, output, errors)
+    assert output == "", (arguments, output)
+    assert errors == said, (arguments, errors)
+    assert opened() is None, (arguments, opened())
+print("ubtbr: a command line the tool will not take is one error line")
+
+# -h ends the command only once the whole line has parsed, as in the other
+# tools, so a bad value or a stray word is reported even alongside it
+for arguments, said in ((("-h", "-f", "nine"),
+                         "error: -f must be 0-65535 (got nine)\n"),
+                        (("-h", "stray"), "error: unexpected argument "
+                                          "'stray'\n")):
+    status, output, errors = selecting(arguments)
+    assert status == 1, (arguments, status, output, errors)
+    assert output == "", (arguments, output)
+    assert errors == said, (arguments, errors)
+print("ubtbr: a bad command line is reported even alongside -h")
+
+forget_which_board_was_opened()
 
 # an option value that is not a number: one error line, not the traceback
 # out of int(). Refused before a board is opened, so a wrong command line

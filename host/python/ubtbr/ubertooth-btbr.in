@@ -15,7 +15,7 @@ if os.path.isdir(_module_dir) and _module_dir not in sys.path:
 import usb1
 from cmd import Cmd
 from ubtbr.btctl import *
-from getopt import getopt
+from getopt import getopt, GetoptError
 
 class BTCtlL2Ping(BTCtlPagingCmd):
 	def __init__(self, bt, bdaddr):
@@ -276,12 +276,36 @@ class BTCtlPrompt(Cmd):
 	do_EOF = do_exit
 	help_EOF = help_exit
 
+USAGE = ("Usage: ubertooth-btbr [-U <index|serial>] [-f <freq_offset>] "
+	"[-b <max_ac_errors>]\n"
+	"Options:\n"
+	"  -U <index|serial>: which Ubertooth to use\n"
+	"  -f freq_offset: Set MOD_OFFSET register\n"
+	"  -b max_ac_errors: Max bit errors in Syncword detection\n"
+	"  -h: print this help\n")
+
 def usage():
-	print ("Usage: ubertooth-btbr OPTIONS\n"
-		+ "Options:\n"
-		+ "  -f freq_offset: Set MOD_OFFSET register\n"
-		+ "  -b max_ac_errors: Max bit errors in Syncword detection"
-		)
+	"""The usage text for -h: standard output, and the tool is done."""
+	sys.stdout.write(USAGE)
+	sys.exit(0)
+
+def report_bad_option(error):
+	"""Report a command line getopt would not take, as the other tools do.
+
+	One line naming what is wrong, and no usage text: the user can run -h.
+	getopt's own messages name the option but not what the tools call the
+	problem, so they are rewritten here.
+	"""
+	# getopt says "option --name ..." for a word starting with two dashes
+	# and "option -c ..." for a single letter. No tool takes long options.
+	long_option = error.msg.startswith("option --")
+	if error.msg.endswith("requires argument"):
+		eprint("error: option '-%s' requires a value\n"%error.opt)
+	elif long_option:
+		eprint("error: unrecognized option '--%s': the tools take "
+			"single-letter options\n"%error.opt)
+	else:
+		eprint("error: unrecognized option '-%s'\n"%error.opt)
 	sys.exit(1)
 
 def leave(bt, status):
@@ -299,11 +323,9 @@ def leave(bt, status):
 
 def main():
 	try:
-		opt, args = getopt(sys.argv[1:], "f:b:")
-	except:
-		usage()
-	if args:
-		usage()
+		opt, args = getopt(sys.argv[1:], "f:b:U:h")
+	except GetoptError as e:
+		report_bad_option(e)
 
 	# Read before the device is opened, so a command line that is wrong is
 	# refused without touching a board, and says what is wrong with it rather
@@ -311,7 +333,18 @@ def main():
 	# Both go into a request as 16 bits, so a value outside that is refused
 	# here rather than reaching the packing and raising from there.
 	settings = []
+	selectors = []
+	help_wanted = False
 	for o, v in opt:
+		if o == '-h':
+			# Takes effect once the whole command line has parsed, as in the
+			# other tools, so a bad value or a stray word is still reported.
+			help_wanted = True
+			continue
+		if o == '-U':
+			# Checked for repeats below, where the other tools check theirs.
+			selectors.append(v)
+			continue
 		try:
 			value = int(v)
 		except ValueError:
@@ -320,10 +353,24 @@ def main():
 			eprint("error: %s must be 0-65535 (got %s)\n"%(o, v))
 			sys.exit(1)
 		settings.append((o, value))
+	if args:
+		eprint("error: unexpected argument '%s'\n"%args[0])
+		sys.exit(1)
+	if help_wanted:
+		usage()
+
+	# An option given twice is two answers to one question, and the tool does
+	# not pick between them.
+	given = ['-U'] * len(selectors) + [o for o, value in settings]
+	for o in ('-U', '-f', '-b'):
+		if given.count(o) > 1:
+			eprint("error: give %s once\n"%o)
+			sys.exit(1)
+	selector = selectors[0] if selectors else None
 
 	bt = None
 	try:
-		bt = BTCtl.find()
+		bt = BTCtl.find(selector)
 		bt.connect()
 
 		for o, value in settings:
@@ -344,7 +391,11 @@ def main():
 	except (usb1.USBError, BTCtlError) as e:
 		# A board running firmware other than ubtbr takes none of this, and
 		# used to leave the tool waiting on the write forever.
-		eprint("error: could not set up the Ubertooth: %s\n"%e)
+		#
+		# Named by serial, because the usual cause is the wrong board rather
+		# than a bad one: the serial says which board the session got, which
+		# the user can compare with the one they flashed btbr onto.
+		eprint("error: could not set up the %s: %s\n"%(bt.board(), e))
 		if isinstance(e, usb1.USBErrorTimeout):
 			# The bluetooth_rxtx firmware offers the endpoint this tool
 			# writes to but never reads it, so a request sits there until the

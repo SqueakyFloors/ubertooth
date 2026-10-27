@@ -882,6 +882,82 @@ class BTCtlMonitorCmd(BTCtlCmd):
 		role = "slave" if (pkt.clkn & 2) else "master"
 		log.info("RX L2CAP (%6s:%7x): %s"%(role,pkt.clkn,pkt))
 
+def board_label(serial):
+	"""How a message names a board: by serial, or not at all."""
+	if serial:
+		return "Ubertooth %s"%serial
+	return "Ubertooth"
+
+
+def attached_ubertooths(context):
+	"""Every Ubertooth on the bus, in enumeration order, as (device, serial).
+
+	The serial is None for a board whose serial number could not be read,
+	which is what a board another program already holds looks like: reading
+	the string descriptor opens the board. Such a board keeps its place in
+	the list, so it can still be chosen by index, as the other tools allow.
+	"""
+	found = []
+	for device in context.getDeviceIterator(skip_on_error=True):
+		if (device.getVendorID() != UBERTOOTH_VENDOR_ID
+				or device.getProductID() != UBERTOOTH_PRODUCT_ID):
+			continue
+		try:
+			serial = device.getSerialNumber()
+		except usb1.USBError:
+			serial = None
+		found.append((device, serial))
+	return found
+
+
+def select_ubertooth(selector, attached):
+	"""The one board a -U argument names.
+
+	`attached` is what attached_ubertooths() returned, and must not be empty.
+	Anything that does not name exactly one board raises
+	BTCtlNoDeviceError, with the wording libubertooth prints for the same
+	refusal, so one wording covers every tool.
+	"""
+	if not selector:
+		if len(attached) > 1:
+			listed = "".join("\n  Device %d: %s"
+				%(i, serial if serial else "serial unreadable")
+				for i, (device, serial) in enumerate(attached))
+			raise BTCtlNoDeviceError(
+				"multiple Ubertooth devices found; select one with "
+				"-U <index|serial>"+listed)
+		return attached[0]
+
+	# An all-digits argument is an index. Only these ten characters count:
+	# str.isdigit() also accepts digits of other scripts, some of which int()
+	# then refuses, and no serial contains any of them.
+	if all(character in "0123456789" for character in selector):
+		index = int(selector)
+		if index >= len(attached):
+			raise BTCtlNoDeviceError(
+				"no Ubertooth at index %d (%d attached)\n"
+				"indexes change when boards are added or removed; select a "
+				"board by serial with -U<serial>"%(index, len(attached)))
+		return attached[index]
+
+	# Serials differ in their leading characters and share their trailing
+	# ones, so only the start is matched. Case-insensitively, because a
+	# serial copied from elsewhere may be upper case.
+	matched = [(device, serial) for device, serial in attached
+		if serial is not None
+		and serial.lower().startswith(selector.lower())]
+	if not matched:
+		raise BTCtlNoDeviceError(
+			"no Ubertooth found with serial matching '%s'"%selector)
+	if len(matched) > 1:
+		raise BTCtlNoDeviceError(
+			"'%s' matches %d Ubertooth devices: %s\n"
+			"select one of them by a longer prefix of its serial number"
+			%(selector, len(matched),
+			  ", ".join(serial for device, serial in matched)))
+	return matched[0]
+
+
 class BTCtl:
 	DATA_IN = 0x82
 	DATA_OUT = 0x05
@@ -894,8 +970,12 @@ class BTCtl:
 	# inside a libusb call no keyboard interrupt can reach. Long enough that
 	# nothing working trips it.
 	WRITE_TIMEOUT = 2000
-	def __init__(self, usb):
+	def __init__(self, usb, serial=None):
 		self._usb = usb
+		# The serial of the board this handle is on, for a message to name it
+		# by. None when it could not be read, or when the caller built this
+		# from a handle of its own.
+		self._serial = serial
 		self._rx_thread = None
 		self._con = False
 		self._con_lock = Lock()
@@ -911,15 +991,44 @@ class BTCtl:
 		self._msg_handler = None
 
 	@staticmethod
-	def find():
+	def find(selector=None):
+		"""Open the Ubertooth a -U argument names.
+
+		Selection follows ubertooth(7), SELECTING A DEVICE, as the other
+		tools do: no argument takes the only attached board, an all-digits
+		argument is a position in the list of attached boards, and anything
+		else matches a whole serial number or its first characters, in
+		either case. Anything that does not name exactly one board is
+		refused, and so is a board that could not be opened. The only error
+		this raises is BTCtlNoDeviceError, so a caller has one thing to
+		report for everything that can go wrong before a board is open.
+
+		Refusing matters more here than the message does. This used to open
+		whichever board libusb handed over first, so on a host with several
+		boards the tool reached an arbitrary one: a user who had flashed
+		btbr onto one board got a write timeout from another board still
+		carrying bluetooth_rxtx, and a note blaming the firmware of the
+		board they had just flashed.
+		"""
 		context = usb1.USBContext()
-		handle = context.openByVendorIDAndProductID(
-			UBERTOOTH_VENDOR_ID, UBERTOOTH_PRODUCT_ID,
-			skip_on_error = True)
-		if handle is None:
+		try:
+			attached = attached_ubertooths(context)
+		except usb1.USBError as e:
+			# A bus that could not be listed is not the same as no board
+			# being attached, so it is not reported as one.
+			raise BTCtlNoDeviceError("could not list USB devices: %s"%e)
+		if not attached:
 			# The wording the other tools use for the same thing.
 			raise BTCtlNoDeviceError("no Ubertooth devices found")
-		return BTCtl(handle)
+		device, serial = select_ubertooth(selector, attached)
+		try:
+			handle = device.open()
+		except usb1.USBError as e:
+			# Nearly always another program holding the board, or missing
+			# permissions, which is how the other tools read it too.
+			raise BTCtlNoDeviceError("could not open %s: %s"
+				%(board_label(serial), e))
+		return BTCtl(handle, serial)
 
 	def register_msg_handler(self, h):
 		# There is one handler, so a command that outlived its stop still
@@ -1034,6 +1143,14 @@ class BTCtl:
 
 	def connected(self):
 		return self._con
+
+	def board(self):
+		"""How a message names this board: by serial, or not at all.
+
+		A failure early in a session is often the wrong board rather than a
+		bad one, so naming it is what tells the two apart.
+		"""
+		return board_label(self._serial)
 
 	def rx_error(self):
 		"""What ended the receive thread, when something other than a stop did."""

@@ -339,7 +339,11 @@ nRF52840 DKs) plus one Ubertooth.*
 
 ### 5b. Paging (PR #540 fix)
 *Requires: the board carrying the `btbr` image*
-- [ ] Run `ubertooth-btbr` targeting a known classic BT device BD_ADDR
+- [ ] Run `ubertooth-btbr -U <serial>` targeting a known classic BT device
+      BD_ADDR
+- [ ] Confirm: with two boards attached and no `-U`, the tool lists both and
+      opens neither (`error: multiple Ubertooth devices found; select one
+      with -U <index|serial>`)
 - [ ] Confirm: the `bt>` prompt appears within a couple of seconds
 - [ ] Confirm: packets captured after paging completes
 - [ ] Confirm: on a board carrying `bluetooth_rxtx` instead, the tool exits 1

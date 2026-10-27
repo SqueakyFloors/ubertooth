@@ -708,17 +708,22 @@
       "kind": "python",
       "devices_via": "usb1",
       "module_dir": "../../python/ubtbr",
-      "optstring": "f:b:",
-      "usage_marker": "Usage: ubertooth-btbr OPTIONS",
+      "optstring": "f:b:U:h",
+      "usage_marker": "Usage: ubertooth-btbr",
       "_shape": [
         "The installed wrapper host/python/ubtbr/ubertooth-btbr.in, built by",
-        "CMake. It has no -h and no man page, and it finds its board through",
-        "the Python usb1 module rather than libubertooth, so the matrix gives",
-        "it a usb1 that finds nothing instead of setting",
-        "UBERTOOTH_TEST_NO_DEVICES. Its interactive prompt is not a command",
-        "line and is covered by host/python/ubtbr/tests/test_ubtbr.py."
+        "CMake. It finds its board through the Python usb1 module rather than",
+        "libubertooth, so the matrix gives it a usb1 that finds nothing",
+        "instead of setting UBERTOOTH_TEST_NO_DEVICES; its -U selection is",
+        "the ubtbr module's own, checked against several fake boards by",
+        "host/python/ubtbr/tests/test_ubtbr.py. The man page is not wired up",
+        "here yet (issue #583). Its interactive prompt is not a command line",
+        "and is covered by the same test."
       ],
       "options": {
+        "-h": {"value": "none", "role": "help"},
+        "-U": {"value": "required", "role": "selector",
+               "valid": ["0"]},
         "-f": {"value": "required", "role": "modifier",
                "doc": "MOD_OFFSET register",
                "valid": ["0", "100", "65535"],
@@ -801,7 +806,6 @@
     "F-05": "ubertooth-rx -r - creates a PcapNG file called '-' and carries on to device lookup. A PcapNG writer has to seek, so '-' cannot be its destination; ubertooth-btle -r - says so in one line (\"error: PCAPNG capture to stdout is not supported; use -q - or -c -\"). With a file called '-' already there, the message is \"ubertooth-rx: create_bredr_capture_file: : File exists\".",
     "F-06": "A lone '-' is written as a file name rather than standard output by ubertooth-rx (-q, -d), ubertooth-dump (-d) and ubertooth-follow (-q, -d, -r), against ubertooth(7) OPTION VALUES. ubertooth-btle and ubertooth-specan do take it as standard output.",
     "F-08": "Documentation: ubertooth-specan.md says an unknown option and a missing option value are refused \"with the usage text after the 'error: ' line on standard error\". The tool prints the error line alone, which is what the rule asks for, so the page is what needs changing. Held by \"man_must_not_say\" on the page's own wording.",
-    "F-10": "ubertooth-btbr answers every command line it will not take -- an unknown option, a missing option value, a stray word -- with its usage text on standard output, no 'error: ' line and status 1. It also has no -h, so there is no way to ask for that usage text: the same text, on the same stream, is both the answer to -h and the answer to a mistake. usage() in ubertooth-btbr.in is the one place to change.",
     "F-09": "Documentation: eleven man pages do not list -h in their OPTIONS section (afh, debug, dfu, dump, ego, rx, scan, specan, specan-ui, tx, util), although every tool has it and the pages discuss it elsewhere. Each page is one case, so fixing one page closes its part and the rest stay held."
   },
 
@@ -837,21 +841,6 @@
      "problem_contains": ["a described error prints no usage text"],
      "cases": ["ubertooth-specan (the man page)"]},
 
-    {"tool": "ubertooth-btbr", "findings": ["F-10"],
-     "problem_contains": [
-       "standard output is not empty on a failure",
-       "the usage text is on standard output",
-       "expected one 'error: ' line, got 0"
-     ],
-     "cases": ["ubertooth-btbr -", "ubertooth-btbr --bogus",
-               "ubertooth-btbr -Z", "ubertooth-btbr -b",
-               "ubertooth-btbr -f", "ubertooth-btbr extra"]},
-    {"tool": "ubertooth-btbr", "findings": ["F-10"],
-     "problem_contains": [
-       "standard output is not empty on a failure",
-       "-h exited 1, not 0"
-     ],
-     "cases": ["ubertooth-btbr -h"]},
     {"tool": "ubertooth-tx", "findings": ["F-09"],
      "problem_contains": ["does not list -h in its OPTIONS section"],
      "cases": ["ubertooth-tx (the man page)"]},
