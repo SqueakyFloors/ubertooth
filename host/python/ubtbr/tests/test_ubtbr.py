@@ -74,7 +74,8 @@ UBTBR_FAKE_WRITES names a file every bulk write is appended to, as its bytes
 in hex and the timeout it was given, so a test can tell what the tool sent and
 how long it was prepared to wait. UBTBR_FAKE_WRITE_FAILS_AFTER is how many
 writes are taken before the rest time out, standing in for a device that stops
-draining the endpoint, and UBTBR_FAKE_SETUP_DELAY how long claiming the
+draining the endpoint, and UBTBR_FAKE_WRITE_ERROR makes those writes fail
+some other way instead. UBTBR_FAKE_SETUP_DELAY is how long claiming the
 interface takes, which holds the tool short of its prompt, with
 UBTBR_FAKE_CLAIMED a file created once it is in there. UBTBR_FAKE_WRITE_DELAY
 holds each write, which keeps the tool short of its prompt with the receive
@@ -113,6 +114,8 @@ class _Handle:
         time.sleep(float(os.environ.get("UBTBR_FAKE_WRITE_DELAY", "0")))
         taken = os.environ.get("UBTBR_FAKE_WRITE_FAILS_AFTER")
         if taken is not None and self.writes > int(taken):
+            if os.environ.get("UBTBR_FAKE_WRITE_ERROR"):
+                raise USBError("failed")
             raise USBErrorTimeout("timeout")
         return len(data)
 
@@ -870,14 +873,30 @@ for packet, timeout in recorded_writes():
 print("ubtbr: q at the prompt exits 0")
 
 # a device that takes none of the requests: the tool says so on standard
-# error and exits 1, where the write used to wait forever
+# error and exits 1, where the write used to wait forever. It also names the
+# firmware to flash, since a board carrying bluetooth_rxtx offers the endpoint
+# this tool writes to but never reads it, and that is what every report of the
+# tool hanging shortly after start has turned out to be.
 running = tool(dict(ENVIRONMENT, UBTBR_FAKE_WRITE_FAILS_AFTER="0"))
 output, errors = running.communicate("", timeout=DEADLINE * 2)
 assert running.returncode == 1, (running.returncode, output, errors)
 assert output == "", output
 assert "error: could not set up the Ubertooth" in errors, errors
+assert "note: ubertooth-btbr needs the btbr firmware" in errors, errors
 assert "Traceback" not in errors, errors
 print("ubtbr: a device that takes no request is reported, not waited on")
+
+# a setup request that failed some other way is not a board waiting to be
+# reflashed, so it gets the error without that note
+running = tool(dict(ENVIRONMENT, UBTBR_FAKE_WRITE_FAILS_AFTER="0",
+                    UBTBR_FAKE_WRITE_ERROR="1"))
+output, errors = running.communicate("", timeout=DEADLINE * 2)
+assert running.returncode == 1, (running.returncode, output, errors)
+assert output == "", output
+assert "error: could not set up the Ubertooth" in errors, errors
+assert "btbr firmware" not in errors, errors
+assert "Traceback" not in errors, errors
+print("ubtbr: a setup failure that is not a silent endpoint says only that")
 
 # a device that stops taking requests once the prompt is up: that command
 # fails, the prompt stays, and the tool still exits 0. The three writes taken

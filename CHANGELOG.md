@@ -425,7 +425,8 @@
 - `ubertooth-btbr` can be interrupted: Ctrl-C ends the running command and
   returns to the `bt>` prompt, `q` exits, and a board that will not answer is
   reported instead of hanging or ending in a traceback. The hang shortly after
-  start is unresolved.
+  start was a board carrying `bluetooth_rxtx`, which never reads the endpoint
+  this tool writes to; the tool now says which image to flash.
   [#1](https://github.com/SqueakyFloors/ubertooth/issues/1)
   [#418](https://github.com/SqueakyFloors/ubertooth/issues/418)
 - A Ctrl-C in the instant an `ubertooth-btbr` command starts returns to the

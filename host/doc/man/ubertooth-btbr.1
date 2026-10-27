@@ -32,7 +32,7 @@ ubertooth\-dfu \-d firmware/bluetooth_rxtx/bluetooth_rxtx\.dfu \-r
 .P
 Add \fB\-U <index|serial>\fR to either command to pick one board of several; it works from both images\.
 .P
-Starting \fBubertooth\-btbr\fR on a board running \fBbluetooth_rxtx\fR fails with \fBerror: could not set up the Ubertooth: \|\.\|\.\|\.\fR, because that firmware takes none of the requests this tool sends\.
+Starting \fBubertooth\-btbr\fR on a board running \fBbluetooth_rxtx\fR fails with \fBerror: could not set up the Ubertooth: LIBUSB_ERROR_TIMEOUT [\-7]\fR, followed by a \fBnote:\fR naming the image to flash\. That firmware offers the endpoint this tool writes to but never reads it, so the tool's first requests sit there until the write times out\.
 .SH "OPTIONS"
 .TP
 \fB\-f <0\-65535>\fR
@@ -80,7 +80,7 @@ list the commands, or describe one
 .P
 One command runs at a time\. Starting another while one is still running is refused with a \fBNot idle\fR line; \fBidle\fR or Ctrl\-C stops the running one first\.
 .P
-Ctrl\-C at the prompt stops the running command, as \fBidle\fR does, and leaves the prompt up; pressing it again while that command is stopping returns to the prompt\. Before the prompt is up, which includes the hang described under LIMITATIONS, Ctrl\-C ends the tool\.
+Ctrl\-C at the prompt stops the running command, as \fBidle\fR does, and leaves the prompt up; pressing it again while that command is stopping returns to the prompt\. Before the prompt is up, Ctrl\-C ends the tool\.
 .SH "MONITOR MODE"
 \fBmonitor\fR targets the paging phase of a connection, where the central sends the peripheral a Frequency Hop Synchronization (FHS) packet carrying its full address and clock\. If the Ubertooth receives that FHS before the real peripheral does, it joins the new piconet ahead of both devices and reports the packets they exchange, including the unencrypted LMP traffic that opens every connection\. An LMP packet that sets the Adaptive Frequency Hopping (AFH) map is followed, so the capture keeps up when the piconet narrows its channels\.
 .P
@@ -104,8 +104,6 @@ The link layer carries Asynchronous Connection\-Less (ACL) traffic only, and doe
 As the central, it polls the peripheral hard enough to drain its battery\.
 .IP "\(bu" 4
 \fBmonitor\fR is a race against the real peripheral and often takes several attempts\. Packets are lost: get closer, use a better antenna\.
-.IP "\(bu" 4
-The tool may hang shortly after starting, usually right after the EIR setup line (upstream issue #520 \fIhttps://github\.com/greatscottgadgets/ubertooth/issues/520\fR)\. The cause is unresolved\. Ctrl\-C ends it\.
 .IP "" 0
 .SH "DIAGNOSTICS"
 Standard output carries the prompt and the usage text\. Everything else, including the packets a command reports, goes to standard error as log lines of the form \fBHH:MM:SS | INFO | \|\.\|\.\|\.\fR, rather than the \fBerror:\fR and \fBnote:\fR lines the other tools use; this is a known deviation from ubertooth(7), OUTPUT AND DIAGNOSTICS, tracked as issue #410 \fIhttps://github\.com/SqueakyFloors/ubertooth/issues/410\fR\.
@@ -114,7 +112,7 @@ An option value outside 0\-65535, or one that is not a number, is refused before
 .P
 Every other command line the tool will not take \(em an unknown option, a missing option value, a stray word, and \fB\-h\fR, which it does not have \(em prints the usage text on standard output with no \fBerror:\fR line and exits 1\. That is part of issue #410 \fIhttps://github\.com/SqueakyFloors/ubertooth/issues/410\fR as well\.
 .P
-With no Ubertooth attached the tool says \fBerror: no Ubertooth devices found\fR and exits 1\.
+With no Ubertooth attached the tool says \fBerror: no Ubertooth devices found\fR and exits 1\. A board that takes none of the requests the session opens with gets \fBerror: could not set up the Ubertooth: \|\.\|\.\|\.\fR and, when the request timed out, a \fBnote:\fR naming the image to flash, since that is a board carrying \fBbluetooth_rxtx\fR; see FIRMWARE\.
 .SH "EXIT STATUS"
 0 when the session ended cleanly, which is \fBexit\fR, \fBq\fR, \fBx\fR or Ctrl\-D with nothing left running\. 1 for a command line the tool will not take, when no Ubertooth is found or it cannot be opened, when the board refuses the requests that set the session up, when Ctrl\-C ends the tool before the prompt is up, and when the session ends with a command that would not stop still holding the board\.
 .SH "SEE ALSO"
