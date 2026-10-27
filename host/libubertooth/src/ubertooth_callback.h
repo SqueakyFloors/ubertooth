@@ -60,10 +60,10 @@ uint64_t ubertooth_packet_arrival_ns(void);
  * the host time it was recorded with.
  *
  * Only the thread that drains the ring buffer may call this, the same
- * constraint and for the same reason as the routine above: it reads systime
- * and infile. For a replay it reads the host time out of systime and ignores
- * the reading passed in, which holds because stream_rx_file() hands the
- * callback one record at a time.
+ * constraint and for the same reason as the routine above: it reads infile.
+ * For a replay the reading passed in is itself the host time the record was
+ * recorded with, so a packet reassembled from several records is placed where
+ * its first record was, live and replayed alike.
  *
  * A record's two times are placed by separate clock reads, microseconds
  * apart, and a packet is stamped per record while a capture's times count

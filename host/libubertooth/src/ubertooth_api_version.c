@@ -35,17 +35,29 @@
 #define VERSION "unknown"
 #endif
 
-void ubertooth_report_api_mismatch(uint16_t version)
+void ubertooth_report_api_mismatch(uint16_t version, const char* selector)
 {
 	fprintf(stderr, "error: Ubertooth firmware API version %x.%02x found, libubertooth %s requires %x.%02x.\n",
 	        (version >> 8) & 0xFF, version & 0xFF, VERSION,
 	        (UBERTOOTH_API_VERSION >> 8) & 0xFF, UBERTOOTH_API_VERSION & 0xFF);
 	/* Whichever side is behind is the one to replace. */
-	if (version < UBERTOOTH_API_VERSION)
-		fprintf(stderr, "note: flash the firmware built from the same "
-		        "source tree, for example: ./install.sh "
-		        "--flash-device all\n");
-	else
+	if (version < UBERTOOTH_API_VERSION) {
+		/* The example reflashes the board this message is about and no
+		 * other: install.sh takes the same index or serial after
+		 * --flash-device as the tool took after -U. Where the user
+		 * named no board, --flash takes the one that is attached and
+		 * refuses when there is more than one, so neither form ever
+		 * reflashes a board nobody asked about. */
+		if (selector != NULL && selector[0] != '\0')
+			fprintf(stderr, "note: flash the firmware built from the "
+			        "same source tree, for example: ./install.sh "
+			        "--flash-device %s\n", selector);
+		else
+			fprintf(stderr, "note: flash the firmware built from the "
+			        "same source tree, for example: ./install.sh "
+			        "--flash\n");
+	} else {
 		fprintf(stderr, "note: install the host tools built from the "
 		        "same source tree as the firmware\n");
+	}
 }

@@ -174,6 +174,13 @@ typedef struct {
 	 * (ubertooth-afh detects a map, then monitors it) it means "a transfer
 	 * on this handle was truncated". */
 	uint8_t short_xfer_warned;
+
+	/* The board the user named, as they wrote it after -U: an index or a
+	 * serial. NULL when they named none and the library opened whichever
+	 * board it found. A message about this one board can then say which it
+	 * is. It points into the tool's own command line, which outlives the
+	 * handle, so nothing here copies or frees it. */
+	const char* selector;
 } ubertooth_t;
 
 typedef void (*rx_callback)(ubertooth_t* ut, void* args);
@@ -268,8 +275,11 @@ int ubertooth_check_api(ubertooth_t *ut);
  * host tools when it is newer). Only the message, so a caller that checks the
  * version itself rather than through ubertooth_check_api() - ubertooth-util's
  * -I, which must still talk to any firmware - prints the same lines as every
- * other tool. */
-void ubertooth_report_api_mismatch(uint16_t version);
+ * other tool.
+ *
+ * selector is the board the user named (ubertooth_t.selector), so the example
+ * command reflashes that board and no other; NULL where they named none. */
+void ubertooth_report_api_mismatch(uint16_t version, const char* selector);
 /* Stops the capture after this many seconds, through the same flag Ctrl-C
  * uses. The handle is not read: the alarm stops whichever capture is running,
  * and a signal handler cannot follow a pointer to a handle. */
