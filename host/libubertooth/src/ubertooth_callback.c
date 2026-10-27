@@ -782,18 +782,12 @@ void cb_btle(ubertooth_t* ut, void* args)
 		                          refAA, pkt);
 	}
 
-	/* The capture has what it needs. Everything below is the per-packet
-	 * dump, which goes to standard output -- and a capture on "-" has taken
-	 * that: this process's standard output is /dev/null for the whole run,
-	 * so the dump reaches nobody.
-	 *
-	 * Producing it anyway is not merely wasted work. lell_print() parses
-	 * the advertising data, and the decoder (libbtbb) reports a field it
-	 * cannot read on standard error, so that a dump redirected to a file
-	 * stays clean. Standard error is not redirected here, so those
-	 * complaints about a dump nobody sees were the one part of it that
-	 * arrived -- around 17 lines a second of ordinary ambient noise, into
-	 * the terminal of a user whose capture is fine. */
+	/* A capture on "-" owns standard output: this process's own standard
+	 * output is /dev/null for the whole run, so the per-packet dump below
+	 * would reach nobody. Skipping it also keeps the terminal clean,
+	 * because the dump ends in lell_print(), which reports a field it
+	 * cannot read on standard error -- and standard error is not
+	 * redirected. */
 	if (opts != NULL && opts->capture_took_stdout) {
 		lell_packet_unref(pkt);
 		return;

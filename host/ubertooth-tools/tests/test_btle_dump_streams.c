@@ -4,13 +4,10 @@
  *
  * `ubertooth-btle -q -` hands the capture the tool's standard output and
  * points the process's own standard output at /dev/null for the rest of the
- * run, so the file holds nothing but the capture. The callback still ran the
- * whole per-packet dump into /dev/null, and the last thing that dump does is
- * ask libbtbb to print the packet -- which parses the advertising data and
- * reports a field it cannot read on standard error, so that a dump redirected
- * to a file stays clean. Standard error is not redirected, so a capture of
- * ordinary noise filled the user's terminal with complaints about a dump
- * nobody could see.
+ * run, so the file holds nothing but the capture. The dump that goes to that
+ * /dev/null must not be produced at all: it ends in lell_print(), which
+ * reports a field it cannot read on standard error, and standard error still
+ * reaches the user.
  *
  * The real cb_btle() runs here, with the real decoder, over one crafted
  * packet whose advertising data claims more bytes than arrived. Only the ring
@@ -248,10 +245,13 @@ MU_TEST(a_capture_on_standard_output_prints_no_dump_and_no_complaint)
 	if (ready) {
 		fflush(stdout);
 		dup2(null_fd, fileno(stdout));
-		close(null_fd);
 		snprintf(path, sizeof(path), "/dev/fd/%d", capture_fd);
 		ready = lell_pcap_create_file(path, &ut->h_pcap_le) == 0;
 	}
+	/* dup2() above made its own descriptor, so this one has no further use
+	 * on either path. */
+	if (null_fd >= 0)
+		close(null_fd);
 	if (ready) {
 		cb_btle(ut, &opts);
 		lell_pcap_close(ut->h_pcap_le);
