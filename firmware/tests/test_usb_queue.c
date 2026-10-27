@@ -726,6 +726,14 @@ struct body_pos {
 	 * that statement rather than to the block around it.
 	 */
 	int continues_a_condition;
+	/*
+	 * The depth of the innermost loop or branch block around this line, or
+	 * 0 if there is none. A plain `{ }` block, opened to scope a variable,
+	 * does not count: what is reached inside one is reached whenever the
+	 * block is. The dispatch scan needs this to decide whether an exit it
+	 * meets is taken every time the case runs.
+	 */
+	int control_depth;
 };
 
 /* Where the next line to be read sits. Call it before advancing the brace
@@ -733,9 +741,19 @@ struct body_pos {
  * in. */
 static void body_pos_at(const struct brace_state *b, struct body_pos *pos)
 {
+	int i;
+
 	pos->branched = inside_a_branch(b);
 	pos->depth = b->depth;
 	pos->continues_a_condition = b->pending != BLOCK_PLAIN;
+
+	/* kind[i] is the block that depth i+1 opened, so the innermost loop or
+	 * branch around this line is the deepest such i, and the block itself
+	 * spans depth i+1. */
+	pos->control_depth = 0;
+	for (i = 0; i < b->depth && i < MAX_BLOCK_DEPTH; i++)
+		if (b->kind[i] != BLOCK_PLAIN)
+			pos->control_depth = i + 1;
 }
 
 /*
@@ -2218,8 +2236,10 @@ static const char *foreign_case_message(const char *text, const char *prefix)
 	         "the scan met `case %s:` in the same switch as the %s cases, "
 	         "and walked past it because of the name: its calls are "
 	         "recorded against the case above it and whatever it handles "
-	         "appears in no table here. Name it with the %s prefix, or "
-	         "give its switch a pass of its own", text, prefix, prefix);
+	         "appears in no table here. Name it with the %s prefix, or give "
+	         "its switch a pass of its own -- and if it is a nested switch, "
+	         "give it braces, which is how the scan tells one from the "
+	         "dispatch", text, prefix, prefix);
 	return msg;
 }
 
@@ -2528,21 +2548,28 @@ static void visit_dispatch_line(const char *line, const struct body_pos *pos,
 			continue;
 		if (leaves_the_case(word)) {
 			/*
-			 * At the case's own level or shallower, and not under a
-			 * condition. Shallower counts because a case body that
-			 * is a block of its own can be left by a `break`
-			 * written after the closing brace, one level above the
-			 * statements it follows:
+			 * This exit ends the case when the case takes it every
+			 * time it runs, which is true when no loop or branch
+			 * block inside the case encloses it and no condition
+			 * reaches into the line.
+			 *
+			 * Brace depth alone is not the test. A `break` inside
+			 * a loop in the case belongs to the loop, so the case
+			 * carries on below it -- the whole reason the depth is
+			 * tracked -- but a `break` inside a plain `{ }` block
+			 * opened to scope a variable still ends the case, and
+			 * so does one written after a case body block closes,
+			 * a level above the statements it follows:
 			 *
 			 *	case MODE_X: {
 			 *		work();
 			 *	}
 			 *	break;
 			 *
-			 * Nothing shallower than the labels can be reached
-			 * while a case is open, so there is nothing else at
-			 * those levels to confuse it with. Anything deeper
-			 * belongs to a loop or a branch inside the case.
+			 * So what matters is whether any loop or branch block
+			 * was opened at or below the case's own level, which
+			 * is what `control_depth` says. The switch's own block
+			 * sits at the case's level and does not count.
 			 *
 			 * `awaiting_body` overrides the condition because the
 			 * brace state remembers a `case` label as a branch --
@@ -2554,7 +2581,7 @@ static void visit_dispatch_line(const char *line, const struct body_pos *pos,
 			 * ended and every later case's calls are folded into
 			 * it.
 			 */
-			if (depth <= s->case_level &&
+			if (pos->control_depth <= s->case_level &&
 			    (!conditional || s->awaiting_body)) {
 				/*
 				 * The statement that leaves can still carry the
@@ -2908,6 +2935,9 @@ MU_TEST(a_mode_that_streams_runs_a_classified_loop)
  *  - below a `goto` that lands on a label inside the same case, so it never
  *    left it;
  *  - in the statement that leaves (`return the_work();`);
+ *  - inside plain `{ }` blocks opened to scope a variable, which look like a
+ *    loop's braces by depth alone but which the case passes through every
+ *    time it runs;
  *  - and one case that does nothing but `break`, whose body is a comment.
  *    That one has no work to lose; it is here because a case with no
  *    statement of its own is the shape most easily read as never ending.
@@ -2977,6 +3007,17 @@ static const char *const dispatch_shapes =
 	"		case MODE_RETURNS_THE_CALL:\n"
 	"			preface();\n"
 	"			return returns_the_call_work();\n"
+	"		case MODE_SCOPED_BLOCKS:\n"
+	"			{\n"
+	"				int scoped = 0;\n"
+	"				{\n"
+	"					scoped_blocks_work();\n"
+	"					break;\n"
+	"				}\n"
+	"			}\n"
+	"		case MODE_AFTER_SCOPED_BLOCKS:\n"
+	"			after_scoped_blocks_work();\n"
+	"			break;\n"
 	"		case MODE_LAST:\n"
 	"			last_work();\n"
 	"			break;\n"
@@ -2986,7 +3027,7 @@ static const char *const dispatch_shapes =
 	"	return 0;\n"
 	"}\n";
 
-#define DISPATCH_SHAPE_COUNT 16
+#define DISPATCH_SHAPE_COUNT 18
 
 /* Run the case scan over a function written out as text. tmpfile() rather
  * than a path: the scans walk whole directories, so a C file left in one of
@@ -3063,7 +3104,12 @@ static const struct {
 	  "after_nothing_but_break_work" },
 	{ "MODE_AFTER_NOTHING_BUT_BREAK", "after_nothing_but_break_work",
 	  "returns_the_call_work" },
-	{ "MODE_RETURNS_THE_CALL",     "returns_the_call_work", "last_work" },
+	{ "MODE_RETURNS_THE_CALL",     "returns_the_call_work",
+	  "scoped_blocks_work" },
+	{ "MODE_SCOPED_BLOCKS",        "scoped_blocks_work",
+	  "after_scoped_blocks_work" },
+	{ "MODE_AFTER_SCOPED_BLOCKS",  "after_scoped_blocks_work",
+	  "last_work" },
 	{ "MODE_LAST",                 "last_work",           NULL },
 };
 
@@ -3678,6 +3724,90 @@ static void walk_br_edr_sources(const char *path,
 	closedir(dir);
 }
 
+/*
+ * Inside the shim itself. Exempting the whole file is too coarse: a send
+ * added there and called from a capture state would be past the transmit
+ * queue just as one written in the state would, and the check above would
+ * pass it. So rather than counting the writes and pinning a number that goes
+ * stale, every write the file makes has to be in one of the two functions
+ * that are allowed to make one.
+ */
+static const char *counted_name;
+static int counted_hits;
+
+static void count_name(const char *line, const struct body_pos *pos, void *ctx)
+{
+	(void)pos;
+	(void)ctx;
+	if (calls_identifier(line, counted_name))
+		counted_hits++;
+}
+
+/* How many times `function` in `path` calls `name`, or -1 if the file or the
+ * function could not be read. */
+static int function_calls(const char *path, const char *function,
+                          const char *name)
+{
+	int lines;
+
+	counted_name = name;
+	counted_hits = 0;
+	lines = read_function_body(path, function, count_name, NULL);
+	if (lines <= 0)
+		return -1;
+	return counted_hits;
+}
+
+MU_TEST(only_two_functions_in_the_br_edr_shim_send)
+{
+	const char *shim = FW_BTBR_DIR "/src/drivers/ubertooth_usb.c";
+	/* `name`, and the functions that may call it. */
+	static const struct {
+		const char *name;
+		const char *in[2];
+	} allowed[] = {
+		{ "USBHwEPWrite",     { "usb_work", "usb_send_sync" } },
+		{ "btctl_tx_dequeue", { "usb_work", NULL } },
+	};
+	size_t i;
+	char msg[512];
+
+	for (i = 0; i < sizeof(allowed) / sizeof(allowed[0]); i++) {
+		int total = file_calls(shim, allowed[i].name), inside = 0;
+		size_t f;
+
+		snprintf(msg, sizeof(msg),
+		         "the shim does not call %s() at all, so this check "
+		         "passed for want of anything to look at",
+		         allowed[i].name);
+		mu_assert(total > 0, msg);
+
+		for (f = 0; f < 2 && allowed[i].in[f] != NULL; f++) {
+			int n = function_calls(shim, allowed[i].in[f],
+			                       allowed[i].name);
+
+			snprintf(msg, sizeof(msg),
+			         "cannot read %s() in the shim, so this check "
+			         "would pass for want of anything to look at",
+			         allowed[i].in[f]);
+			mu_assert_fatal(n >= 0, msg);
+			inside += n;
+		}
+
+		snprintf(msg, sizeof(msg),
+		         "the shim calls %s() %d time(s) and only %d of them "
+		         "are in %s%s%s. A send anywhere else in the shim is "
+		         "another way out of this image: a capture reaching it "
+		         "is past the transmit queue, so nothing bounds it on a "
+		         "host that stops reading and the host cannot put the "
+		         "message back together",
+		         allowed[i].name, total, inside, allowed[i].in[0],
+		         allowed[i].in[1] != NULL ? "() or " : "()",
+		         allowed[i].in[1] != NULL ? allowed[i].in[1] : "");
+		mu_assert_int_eq(total, inside);
+	}
+}
+
 MU_TEST(the_br_edr_image_has_one_way_to_the_host)
 {
 	char msg[512];
@@ -3867,6 +3997,7 @@ int main(void)
 	scan_btbr_vendor_requests();
 	MU_RUN(every_br_edr_control_request_is_listed);
 	MU_RUN(the_br_edr_image_has_one_way_to_the_host);
+	MU_RUN(only_two_functions_in_the_br_edr_shim_send);
 
 	MU_RUN(no_source_line_is_too_long_for_the_scans);
 
