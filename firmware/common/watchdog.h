@@ -30,9 +30,10 @@
  *
  * Why USB and not "the firmware is running": a board that answers nothing on
  * USB is useless to the host and cannot be recovered by it. The reset request
- * arrives on USB too, so it cannot reach a board in that state, and nothing on
- * the host recovers one -- only unplugging it or cutting power to its hub port
- * does. That is the fault this guards against.
+ * arrives on USB too, so it cannot reach a board in that state. Before this
+ * watchdog, such a board stayed that way until it was unplugged or its hub
+ * port was power-cycled. That is the fault this guards against: the board now
+ * resets itself instead.
  *
  * So the watchdog is fed from the two places USB is actually serviced, and
  * from one more that proves it could be:
@@ -67,14 +68,18 @@ uint8_t watchdog_mark(uint8_t site);
 
 /*
  * A reset this firmware asked for, so the breadcrumb does not count it as the
- * board having stopped answering. Set before the request handler resets the
- * board, enters the bootloader, or hands over to the on-chip programmer.
+ * board having stopped answering.
+ *
+ * Set it where the reset actually happens, not where the request arrives. A
+ * request can be dropped -- btbr queues its reset, and a full queue discards
+ * it -- and a board left running with the intent set would have its next real
+ * wedge excused. Entering the bootloader is a reset too, so it needs no
+ * intent of its own; the on-chip programmer does, because it never resets.
  */
 enum watchdog_intent {
 	WATCHDOG_INTENT_RUNNING = 0,
 	WATCHDOG_INTENT_RESET   = 1,
-	WATCHDOG_INTENT_FLASH   = 2,
-	WATCHDOG_INTENT_ISP     = 3,
+	WATCHDOG_INTENT_ISP     = 2,
 };
 
 void watchdog_intent(uint8_t intent);

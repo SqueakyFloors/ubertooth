@@ -32,6 +32,7 @@
 #include <ubtbr/inquiry_scan_state.h>
 #include <ubtbr/page_scan_state.h>
 #include <ubtbr/monitor_state.h>
+#include <watchdog.h>
 
 btctl_t btctl;
 
@@ -93,6 +94,13 @@ static void btctl_handle_reset_req(msg_t *msg)
 	start = MASTER_CLKN;
 	while ((uint32_t)(MASTER_CLKN - start) < RESET_DELAY_CLKN)
 		usb_work();
+
+	/* The watchdog time-out that reset() ends in is one this firmware asked
+	 * for, not the board having stopped answering. Said here, at the reset
+	 * itself, rather than where the request arrives: the request is queued,
+	 * and a queue that is full drops it, which would otherwise leave the
+	 * board running with a later real wedge excused. */
+	watchdog_intent(WATCHDOG_INTENT_RESET);
 	reset();
 }
 

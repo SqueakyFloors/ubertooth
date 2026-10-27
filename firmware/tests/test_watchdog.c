@@ -285,11 +285,12 @@ MU_TEST(test_a_wedge_is_counted_and_recorded)
  * A reset the firmware asked for ends in the same watchdog reset -- that is
  * how this part resets itself -- so without the intent every reset request and
  * every firmware flash would be recorded as a board that stopped answering.
+ * The on-chip programmer is the other way round: it never resets, so it says
+ * so to keep the stretched timeout from being read as a wedge.
  */
 MU_TEST(test_a_reset_the_firmware_asked_for_is_not_a_wedge)
 {
-	uint8_t intents[] = { WATCHDOG_INTENT_RESET, WATCHDOG_INTENT_FLASH,
-	                      WATCHDOG_INTENT_ISP };
+	uint8_t intents[] = { WATCHDOG_INTENT_RESET, WATCHDOG_INTENT_ISP };
 	size_t i;
 
 	for (i = 0; i < sizeof(intents) / sizeof(intents[0]); i++) {
@@ -653,6 +654,81 @@ MU_TEST(test_no_interrupt_handler_but_the_usb_one_feeds)
 	}
 }
 
+/*
+ * A reset is excused only where it happens. Saying "this reset was asked for"
+ * when the request merely arrives is wrong twice over: btbr queues its reset
+ * request and a full queue drops it, and either image could stop answering
+ * between the request and the reset. Both leave a board running with its next
+ * real wedge excused, which is the one thing the breadcrumb exists to catch.
+ *
+ * So every function that claims a reset must reset in that same function. The
+ * on-chip programmer is the exception the enum spells out: it never resets, so
+ * it is not checked here.
+ */
+MU_TEST(test_a_claimed_reset_is_claimed_where_it_happens)
+{
+	static const char *const sources[] = {
+		FW_RXTX_DIR "/bluetooth_rxtx.c",
+		FW_BTBR_DIR "/src/btctl/btctl.c",
+		FW_BTBR_DIR "/src/btctl/vendor_request_handler.c",
+	};
+	size_t i;
+	int claims = 0;
+
+	for (i = 0; i < sizeof(sources) / sizeof(sources[0]); i++) {
+		char line[512], msg[384], name[128] = "";
+		int in_block = 0, lineno = 0, name_line = 0;
+		int claimed = 0, resets = 0;
+		FILE *f = fopen(sources[i], "r");
+
+		snprintf(msg, sizeof(msg), "cannot read %s", sources[i]);
+		mu_assert(f != NULL, msg);
+
+		while (fgets(line, sizeof(line), f) != NULL) {
+			lineno++;
+			strip_comments(line, &in_block);
+			/* A function body starts at column zero and ends with a
+			 * closing brace there, as in the scans above. */
+			if (name[0] == '\0') {
+				if (line[0] != ' ' && line[0] != '\t' &&
+				    line[0] != '\n' && line[0] != '#' &&
+				    strchr(line, '(') != NULL &&
+				    strchr(line, ';') == NULL) {
+					snprintf(name, sizeof(name), "%s", line);
+					name_line = lineno;
+					claimed = resets = 0;
+				}
+				continue;
+			}
+			if (strstr(line, "watchdog_intent(WATCHDOG_INTENT_RESET)")
+			    != NULL)
+				claimed++;
+			if (strstr(line, "reset();") != NULL)
+				resets++;
+			if (line[0] != '}')
+				continue;
+
+			if (claimed > 0) {
+				claims++;
+				snprintf(msg, sizeof(msg),
+				         "%s:%d: this function says a reset was "
+				         "asked for but does not reset, so a "
+				         "board that stops answering before the "
+				         "reset arrives would not be counted as "
+				         "a wedge", sources[i], name_line);
+				mu_assert(resets > 0, msg);
+			}
+			name[0] = '\0';
+		}
+		fclose(f);
+	}
+
+	/* A floor, so the scan cannot pass by finding nothing: one claim in each
+	 * image. */
+	mu_assert(claims >= 2, "fewer than two reset claims found, so the scan "
+	          "is not reading the sources");
+}
+
 int main(void)
 {
 	printf("firmware watchdog tests\n");
@@ -678,5 +754,6 @@ int main(void)
 	MU_RUN(test_every_interrupt_driven_mode_loop_feeds);
 	MU_RUN(test_the_mode_loops_in_the_main_image_each_feed);
 	MU_RUN(test_no_interrupt_handler_but_the_usb_one_feeds);
+	MU_RUN(test_a_claimed_reset_is_claimed_where_it_happens);
 	return mu_report();
 }

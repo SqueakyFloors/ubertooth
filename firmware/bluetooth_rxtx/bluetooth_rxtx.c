@@ -516,9 +516,9 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		break;
 
 	case UBERTOOTH_FLASH:
-		/* The reset below is how the bootloader is reached, so the watchdog
-		 * reset it ends in is not the board having stopped answering. */
-		watchdog_intent(WATCHDOG_INTENT_FLASH);
+		/* The bootloader is reached by resetting, so MODE_RESET below is
+		 * what tells the watchdog the reset was asked for. Saying it here
+		 * instead would excuse a board that wedged before getting there. */
 		bootloader_ctrl = DFU_MODE;
 		requested_mode = MODE_RESET;
 		break;

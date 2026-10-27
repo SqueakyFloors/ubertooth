@@ -118,7 +118,6 @@ int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		break;
 
 	case UBERTOOTH_RESET:
-		watchdog_intent(WATCHDOG_INTENT_RESET);
 		request_reset();
 		break;
 
@@ -176,7 +175,6 @@ int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		break;
 
 	case UBERTOOTH_FLASH:
-		watchdog_intent(WATCHDOG_INTENT_FLASH);
 		bootloader_ctrl = DFU_MODE;
 		request_reset();
 		break;
