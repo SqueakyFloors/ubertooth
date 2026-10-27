@@ -49,15 +49,21 @@
 # way each half of it is wrong:
 #
 #   - It misses a firmware change the host relies on that is made somewhere
-#     else, firmware/common.mk above all (see watched_pattern below).
-#   - It calls changes interface changes that are not. Three kinds, in
+#     else. firmware/common.mk is half covered: the compile flags that decide
+#     what the host sees are watched one by one (see watched_flags below), and
+#     the rest of that file -- where object files go, the warning flags, the
+#     rules -- is not.
+#   - It calls changes interface changes that are not. Four kinds, in
 #     rough order of how often they turn up: a change to the BTBR and BTCTL
 #     half of ubertooth_interface.h, which belongs to the btbr image and its
 #     own bcdDevice; a change to one of the image's sources that the host
 #     never reads, the LED patterns, the debug UART and tinyprintf among
-#     them; and code moved verbatim between two watched files. Each is a
-#     false red on a gating job, and the way out is the maintainer merging
-#     it red, not a version nobody needs; the message below says so.
+#     them; code moved verbatim between two watched files; and a line of
+#     firmware/common.mk that carries a watched flag without setting it, the
+#     recipe that echoes the board name and the link command that uses
+#     LINKER_SCRIPT being the two in the file today. Each is a false red on a
+#     gating job, and the way out is the maintainer merging it red, not a
+#     version nobody needs; the message below says so.
 #   - It cannot see two open branches claiming the same value, since neither
 #     is wrong until the other merges. The second goes red as soon as the
 #     first lands, and the push-to-main leg of the job catches it even if the
@@ -90,20 +96,22 @@ main-ref is the commit to treat as main's tip, and defaults to the remote this
 checkout tracks main from, then origin/main.
 
 --list-watched prints the files a change to which asks for a new version, and
-reads no commit, so it takes no main-ref.
+reads no commit, so it takes no main-ref. One of them, firmware/common.mk, is
+read a line at a time: only the lines that set one of the compile flags listed
+in this script count, and every other line of it is ignored.
 EOF
 }
 
 # Run a git command over what goes into the bluetooth_rxtx image: the sources
 # it compiles, the shared code it links (firmware/common, lpcusb included),
-# the linker script it is laid out with, and its own Makefile, which is
-# nothing but the list of those sources. One list, so the check and
-# --list-watched cannot drift apart.
+# the linker script it is laid out with, its own Makefile, which is nothing but
+# the list of those sources, and the shared build file that sets the compile
+# flags. One list, so the check and --list-watched cannot drift apart.
 #
-# Only files that are compiled or linked, or that say which files are: a
-# README under one of those directories cannot change what the host sees, and
-# counting it would let a branch authorise its own bump by appending a line to
-# one.
+# Only files that are compiled or linked, that say which files are, or that
+# say how they are compiled: a README under one of those directories cannot
+# change what the host sees, and counting it would let a branch authorise its
+# own bump by appending a line to one.
 #
 # The two linker scripts are named rather than matched, because firmware/common
 # holds four and this image uses two of them: common.mk's default,
@@ -117,22 +125,15 @@ EOF
 # assembly_test, tc13badge), firmware/Makefile (which picks which images to
 # build), and documentation.
 #
-# Left out although it is the one gap that can hide a real interface change:
-# firmware/common.mk, the shared build file every image includes. It carries
-# the compiler flags, -DTX_ENABLE and the commented-out -fpack-struct among
-# them, so a change there can alter what the host sees with no source change
-# at all. It also now holds part of the image's source list -- fw_info.c and
-# the FW_IMAGE_NAME the firmware info block bakes in -- so dropping that
-# source, which ubertooth-dfu requires, would trip nothing here. The
-# firmware/ctags.mk it includes in turn defines only the ctags and cscope
-# targets and cannot reach a compile or a link, so that one is no gap at all.
-#
-# Watching common.mk means accepting its false reds -- the two changes to it
-# in the last 35 merges were an object-directory move and the info block --
-# because the alternative, narrowing to the lines that set flags, needs a
-# hand-kept list of flag spellings. Which of those costs less is a call for
-# the maintainer rather than a decision for this script, and it is tracked
-# separately; this check lands with the narrow list that is certainly right.
+# firmware/common.mk is watched, but only a few lines of it. It is the shared
+# build file every image includes and it carries the compile flags, so a change
+# there can alter what the host sees with no source change at all -- and most of
+# it cannot: its changes in main's recent history moved where object files are
+# written and which shared source every image compiles in, neither of which a
+# host can observe. So it is read through watched_flags below, which names the
+# flags that move the interface and ignores every other line.
+# firmware/ctags.mk, which it includes, is not watched at all: it builds editor
+# tag files.
 #
 # Written as one pattern over whole paths, matched against a plain listing of
 # the tree, rather than as git pathspecs. Pathspec globbing is not the same
@@ -149,7 +150,128 @@ EOF
 # after, which is a silent pass rather than a visible red. The README and the
 # flash helper beside the sources are left out by the list of extensions, not
 # by the depth, so reaching further costs nothing.
-watched_pattern='^(firmware/bluetooth_rxtx/(.*\.(c|h|S|s|ld)|Makefile)|firmware/common/.*\.(c|h|S|s)|firmware/common/(LPC17xx_Linker_Script_with_bootloader|sections)\.ld|host/libubertooth/src/ubertooth_interface\.h)$'
+watched_pattern='^(firmware/bluetooth_rxtx/(.*\.(c|h|S|s|ld)|Makefile)|firmware/common/.*\.(c|h|S|s)|firmware/common/(LPC17xx_Linker_Script_with_bootloader|sections)\.ld|firmware/common\.mk|host/libubertooth/src/ubertooth_interface\.h)$'
+
+# The one watched file that is read a line at a time rather than whole.
+common_mk=firmware/common.mk
+
+# The compile flags and make variables in firmware/common.mk that can move what
+# the host sees: which control requests the board answers, what its replies look
+# like, which modes it has. A change to a line that sets one of these asks for a
+# new API version; every other line of the file is ignored.
+#
+# Each name below is matched as plain text anywhere on a line, so a flag is
+# found however the line that sets it is written, and a flag that is commented
+# out counts: uncommenting -fpack-struct is the change, not adding the text.
+# Reindenting a line is not a change, because the text compared has its runs of
+# blanks collapsed.
+#
+# Matching the whole line, rather than only the part of it that assigns, is
+# what keeps this list a list of names instead of a second grammar for
+# makefiles. Prose comments are dropped first, so a comment that mentions a
+# name is not read as a line that sets it. What is still matched more widely
+# than it sets anything is two recipe lines: the one that echoes the board
+# name, and the link command, which is where LINKER_SCRIPT is used. A change
+# to either is a false red, and the message below says how to clear one.
+watched_flags() {
+    # Lines beginning with # are the reasons; the rest are the names, which
+    # come out with the indentation here taken off.
+    grep -v '^[[:space:]]*#' <<'EOF' | collapse_blanks | grep .
+    # -D$(BOARD), so -DUBERTOOTH_ONE or -DUBERTOOTH_ZERO. It picks the USB
+    # vendor and product ID the image reports (firmware/bluetooth_rxtx/
+    # ubertooth_usb.c), which is how the host finds a board at all, and the
+    # BOARD_ID the host reads back with UBERTOOTH_GET_BOARD_ID
+    # (firmware/common/ubertooth.h).
+    BOARD
+    # -DTX_ENABLE gates whole control requests: without it the board does not
+    # answer UBERTOOTH_JAM_MODE and refuses the jamming modes of UBERTOOTH_EGO
+    # (firmware/bluetooth_rxtx/bluetooth_rxtx.c). Which requests a board
+    # answers is the thing this version pairs a host with.
+    TX_ENABLE
+    # The variable that decides whether -DTX_ENABLE is set, so it moves the
+    # same interface under another name.
+    DISABLE_TX
+    # The variable that carries the board define and -DTX_ENABLE into the
+    # compile. A -D added here reaches every firmware source, so a new
+    # conditional interface can appear with neither name above changing.
+    UBERTOOTH_OPTS
+    # The second passthrough of -D options, handed in by an image's own
+    # Makefile and reaching both CDEFS and CPPDEFS: same reason.
+    COMPILE_OPTS
+    # The line that assembles the -D options for C sources, where the two
+    # variables above arrive. A flag added straight to it is as visible to the
+    # host as one added through them.
+    CDEFS
+    # The same line for C++ sources.
+    CPPDEFS
+    # Commented out today. It changes struct padding, and the packet structs in
+    # ubertooth_interface.h are compiled by both sides, so turning it on in the
+    # firmware alone would make the host read every reply at the wrong offsets.
+    -fpack-struct
+    # Commented out today. It changes how wide an enum is, which breaks the
+    # same way: an enum that crosses the USB boundary would be a different size
+    # on each side.
+    -fshort-enums
+    # -DLPC17xx: which chip's USB registers the shared lpcusb driver is built
+    # for (firmware/common/lpcusb/target/usbhw_lpc.c). The wrong one and the
+    # board does not enumerate.
+    LPCUSB_TARGET
+    # What puts host/libubertooth/src on the firmware's include path, so the
+    # firmware and the host compile the same ubertooth_interface.h. Drop it and
+    # the two can disagree about every request number.
+    EXTRAINCDIRS
+    # The default image layout. The with_bootloader script is what leaves the
+    # DFU bootloader in place, so an image laid out without it cannot be
+    # reflashed with ubertooth-dfu.
+    LINKER_SCRIPT
+    # Any -D option, wherever in the file it is written. The names above are
+    # where the defines are set today, but a -D added straight to a CFLAGS line
+    # reaches every firmware source just the same, and the file already does
+    # that with -D__thumb2__=1.
+    -D
+    # The same for -U, which takes a define away again.
+    -U
+EOF
+}
+
+# Left off the list, because bumping the API version is a remedy only where a
+# host and a firmware have to be paired:
+#
+#   - OPT and the warning flags. Optimisation changes how fast the firmware is,
+#     not which requests it answers or what a reply looks like. A timing
+#     regression shows up as fewer packets, and pairing the host with that
+#     firmware does not help.
+#   - The CPU and architecture flags (-mcpu, -march, -mthumb, -msoft-float,
+#     -mfix-cortex-m3-ldrd, -mapcs-frame, -mthumb-interwork), -fno-builtin,
+#     -fno-hosted, -ffunction-sections. Get one wrong and the image does not
+#     run, and the host cannot misread a board that never answers.
+#   - CSTANDARD. The C dialect does not decide the layout of the shared
+#     structs; the processor's ABI does. -D__thumb2__=1 belongs here for the
+#     same kind of reason, nothing in the tree reading it, but it is written
+#     as a -D and so the -D entry above watches its line anyway. That is a
+#     false red the entry is worth having, and a cheap one: the line has not
+#     changed in main's history.
+#   - LINKER_OPTS, the passthrough for linker options, which lay the image out
+#     rather than define anything: the previous point covers it.
+#   - OBJDIR, OUTDIR, FORMAT, per_image, DEBUG, the listing and depfile flags,
+#     CROSS_COMPILE, DFU_TOOL, LPCISP, PROGDEV, the message strings and every
+#     rule in the file: build and tooling plumbing.
+#   - ADEFS and ASFLAGS, the -D options and flags for assembler sources. The
+#     image has none (ASRC is empty), and a define added to either is caught by
+#     the -D entry above in any case.
+#   - OBJ, LST, DEPFILES and the shared sources added to them. A source added
+#     to every image here can be host-facing -- the firmware info block
+#     ubertooth-dfu reads arrived that way -- but the source itself is watched,
+#     because it lives in firmware/common. Only dropping such a line while
+#     leaving the file in the tree would pass unnoticed, and watching these
+#     names would bring back the plumbing churn this narrowing is for: the
+#     changes to this file in main's recent history move one of them.
+
+# One line of text with its runs of blanks collapsed to one space and the ends
+# trimmed, so reindenting a flag line is not a change to it.
+collapse_blanks() {
+    sed 's/[[:space:]][[:space:]]*/ /g; s/^ //; s/ *$//'
+}
 
 # One watched file with everything that is not interface taken out: whole-line
 # comments, blank lines, trailing space and the version define. What is left
@@ -223,7 +345,42 @@ strip_noninterface() {
 interface_text() {
     git cat-file -e "$1:$2" 2> /dev/null || return 0
     text=$(git show "$1:$2") || return 1
+    # firmware/common.mk is the one file read a line at a time: what counts as
+    # its interface is the lines that set a watched flag, nothing else.
+    if [ "$2" = "$common_mk" ]; then
+        # Comments that are prose go first, comments that are a setting
+        # someone turned off stay. The file tells the two apart by a blank
+        # after the #: prose is written "# Place -D or -U options here", a
+        # disabled setting "#CFLAGS += -fpack-struct". So uncommenting a flag
+        # is still a change, and rewording a comment that happens to mention
+        # one is not.
+        #
+        # grep exits 1 when nothing matched, and here that is an answer rather
+        # than a failure: this commit sets none of the watched flags. Anything
+        # above 1 is a real failure, an unreadable pattern file above all, and
+        # must not pass as that answer: empty is what asks for no bump.
+        printf '%s\n' "$text" | grep -v '^[[:space:]]*#[[:space:]]' |
+            collapse_blanks | grep -F -f "$work/flags"
+        matched=$?
+        [ "$matched" -le 1 ] || return 1
+        return 0
+    fi
     printf '%s\n' "$text" | strip_noninterface
+}
+
+# What the check sees change in firmware/common.mk between two commits, written
+# to $work/mk.diff as the differing lines with a leading - and +.
+#
+# It diffs exactly the text interface_text compared, rather than looking each
+# flag up again, so the message cannot name something other than what the
+# decision was made on. Two watched lines swapped is the case where the two
+# would part company: no flag's own setting changed, but the file the check
+# reads did, and the diff says which lines.
+common_mk_difference() {
+    interface_text "$1" "$common_mk" > "$work/mk.a" || return 1
+    interface_text "$2" "$common_mk" > "$work/mk.b" || return 1
+    diff "$work/mk.a" "$work/mk.b" |
+        sed -n 's/^< /- /p; s/^> /+ /p' > "$work/mk.diff"
 }
 
 # Every file the check watches at one commit, as "<blob hash> <tab> <path>":
@@ -462,6 +619,14 @@ fi
 work=$(mktemp -d) || exit 1
 trap 'rm -rf "$work"' EXIT HUP INT TERM
 
+# The watched flag names, written once, for the greps below to read.
+watched_flags > "$work/flags" || exit 1
+[ -s "$work/flags" ] || {
+    echo "error: the watched flag list is empty, so a change to a compile flag" >&2
+    echo "       in $common_mk would pass unnoticed" >&2
+    exit 1
+}
+
 watched_at "$merge_base" "$work/base.list" || {
     echo "error: could not list the firmware sources at the merge base" >&2
     exit 1
@@ -516,6 +681,25 @@ while IFS= read -r path; do
 done < "$work/paths"
 changed=$(cat "$work/changed")
 
+# When firmware/common.mk is one of the changed files, the lines of it that
+# differ and the flags they set, so a message can name them rather than send
+# the reader to diff a 600-line build file. Every differing line sets one of
+# the watched flags, because that is what put it in the comparison.
+flag_lines=
+flag_names=
+if grep -qxF "$common_mk" "$work/changed"; then
+    common_mk_difference "$merge_base" "$head_commit" || {
+        printf 'error: could not read %s to say which flags changed\n' "$common_mk" >&2
+        exit 1
+    }
+    flag_lines=$(cat "$work/mk.diff")
+    # grep finds nothing only if a differing line sets no watched flag, which
+    # cannot happen: that is what put the line in the comparison. The message
+    # below falls back to the lines alone if it ever does.
+    flag_names=$(sed 's/^[-+] //' "$work/mk.diff" |
+        grep -oF -f "$work/flags" | sort -u)
+fi
+
 # What was compared, for the record: a log that only says "passed" cannot be
 # read later to see which main the answer was about.
 compared=$(printf 'compared with %s (%s), merge base %s, which had %s' \
@@ -550,16 +734,34 @@ if [ -n "$changed" ]; then
         echo ""
         echo "       The firmware interface files this branch changes:"
         printf '%s\n' "$changed" | sed 's/^/         /'
+        if [ -n "$flag_names" ]; then
+            echo ""
+            echo "       In $common_mk only the lines that set one of a few"
+            echo "       compile flags are read, and this branch changes these:"
+            printf '%s\n' "$flag_names" | sed 's/^/         /'
+            echo ""
+            echo "       The lines, as the check reads them:"
+            printf '%s\n' "$flag_lines" | sed 's/^/         /'
+            # The same line on both sides is a line that moved. Saying so
+            # beats leaving the reader to wonder why a line is shown as both
+            # removed and added.
+            if [ -n "$(printf '%s\n' "$flag_lines" | sed 's/^[-+] //' |
+                sort | uniq -d)" ]; then
+                echo ""
+                echo "       A line shown on both sides moved rather than changed."
+            fi
+        fi
         echo ""
         echo "       If none of them change what the host sees, this is a false"
         echo "       red. The usual reasons: the file is the interface header but"
         echo "       the change is to its BTBR or BTCTL half, which belongs to the"
         echo "       separate btbr image; the file is compiled into the image but"
         echo "       the host never reads it, such as the LED patterns or the"
-        echo "       debug UART; or the code was moved verbatim between two of"
-        echo "       these files. Say so on the pull request and let the"
-        echo "       maintainer merge with this job red, rather than taking a"
-        echo "       version nobody needs."
+        echo "       debug UART; the code was moved verbatim between two of"
+        echo "       these files; or the line that changed in firmware/common.mk"
+        echo "       sets a flag the host cannot observe. Say so on the pull"
+        echo "       request and let the maintainer merge with this job red,"
+        echo "       rather than taking a version nobody needs."
         echo "       tools/check-api-version.sh --list-watched prints the list."
     } >&2
     exit 1
