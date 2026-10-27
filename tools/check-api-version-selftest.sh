@@ -530,12 +530,62 @@ want_status 0
 want_stdout "no firmware interface file changed"
 
 # A comment added to the build file is not a flag change either, so writing
-# down why something is the way it is costs nothing.
+# down why something is the way it is costs nothing -- including a comment
+# that mentions a watched flag, which the file's existing comments do. A
+# comment is told from a setting someone turned off by the blank after its #.
 new_repo 0x0131
-printf '# The optimisation level is left where it is: the capture path has room.\n' \
+printf '# Place -D or -U options for the capture path here, not above.\n' \
     >> "$repo/$common_mk"
-commit "$repo" "write down why the optimisation level is what it is"
+commit "$repo" "write down where a define belongs"
 run "a comment in the build file is not a flag change" "$repo" main
+want_status 0
+want_empty_stderr
+want_stdout "no firmware interface file changed"
+
+# A define added straight to a CFLAGS line reaches every firmware source, the
+# same as one added through CDEFS, and the file already does that with
+# -D__thumb2__=1. So the -D itself is watched, wherever it is written.
+new_repo 0x0131
+printf 'CFLAGS += -DEXTRA_HOST_FACING_REQUESTS\n' >> "$repo/$common_mk"
+commit "$repo" "define something for every firmware source"
+run "a define added straight to a flags line, version kept" "$repo" main
+want_status 1
+want_empty_stdout
+want_stderr "has to be above the one main carries"
+want_stderr "-D"
+# The message shows the lines it read, because a flag name on its own would
+# send the reader to diff a 600-line build file.
+want_stderr "+ CFLAGS += -DEXTRA_HOST_FACING_REQUESTS"
+
+# Two watched lines swapped changes no flag's own setting, but it does change
+# the file the check reads, so it is refused -- and the message has to say
+# which lines, which it can only do by reading what the check compared.
+new_repo 0x0131
+awk '/^#CFLAGS \+= -fpack-struct$/ { held = $0; next }
+     held != "" { print; print held; held = ""; next }
+     { print }' "$repo/$common_mk" > "$repo/mk.new"
+mv "$repo/mk.new" "$repo/$common_mk"
+cmp -s "$repo/$common_mk" "$real_common_mk" && {
+    printf '%s\n' "error: the swap case left $common_mk unchanged: the line it" >&2
+    printf '%s\n' "       moves has changed shape" >&2
+    exit 1
+}
+commit "$repo" "swap two flag lines"
+run "two watched lines swapped" "$repo" main
+want_status 1
+want_stderr "has to be above the one main carries"
+want_stderr "-fpack-struct"
+want_stderr "The lines, as the check reads them"
+want_stderr "moved rather than changed"
+
+# The gap this narrowing leaves, pinned so it cannot widen unnoticed: a source
+# added to every image through this file is not a flag, so adding one does not
+# ask for a version. The source itself is watched, because it lives in
+# firmware/common; only dropping the line while leaving the file would pass.
+new_repo 0x0131
+printf 'OBJ += $(call per_image,../common/extra.o)\n' >> "$repo/$common_mk"
+commit "$repo" "compile another shared source into every image"
+run "a shared source added through the build file is a known gap" "$repo" main
 want_status 0
 want_stdout "no firmware interface file changed"
 

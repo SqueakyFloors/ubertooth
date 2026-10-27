@@ -93,7 +93,9 @@ main-ref is the commit to treat as main's tip, and defaults to the remote this
 checkout tracks main from, then origin/main.
 
 --list-watched prints the files a change to which asks for a new version, and
-reads no commit, so it takes no main-ref.
+reads no commit, so it takes no main-ref. One of them, firmware/common.mk, is
+read a line at a time: only the lines that set one of the compile flags listed
+in this script count, and every other line of it is ignored.
 EOF
 }
 
@@ -164,12 +166,11 @@ common_mk=firmware/common.mk
 #
 # Matching the whole line, rather than only the part of it that assigns, is
 # what keeps this list a list of names instead of a second grammar for
-# makefiles. It does mean that prose in firmware/common.mk mentioning one of
-# these names would be read as a line that sets it; no comment in the file does
-# today, and if one is added the cost is a false red the message below tells
-# the reader how to clear. Two recipe lines match for the same reason: the one
-# that echoes the board name, and the link command, which is where
-# LINKER_SCRIPT is used.
+# makefiles. Prose comments are dropped first, so a comment that mentions a
+# name is not read as a line that sets it. What is still matched more widely
+# than it sets anything is two recipe lines: the one that echoes the board
+# name, and the link command, which is where LINKER_SCRIPT is used. A change
+# to either is a false red, and the message below says how to clear one.
 watched_flags() {
     # Lines beginning with # are the reasons; the rest are the names, which
     # come out with the indentation here taken off.
@@ -221,6 +222,13 @@ watched_flags() {
     # DFU bootloader in place, so an image laid out without it cannot be
     # reflashed with ubertooth-dfu.
     LINKER_SCRIPT
+    # Any -D option, wherever in the file it is written. The names above are
+    # where the defines are set today, but a -D added straight to a CFLAGS line
+    # reaches every firmware source just the same, and the file already does
+    # that with -D__thumb2__=1.
+    -D
+    # The same for -U, which takes a define away again.
+    -U
 EOF
 }
 
@@ -243,6 +251,9 @@ EOF
 #   - OBJDIR, OUTDIR, FORMAT, per_image, DEBUG, the listing and depfile flags,
 #     CROSS_COMPILE, DFU_TOOL, LPCISP, PROGDEV, the message strings and every
 #     rule in the file: build and tooling plumbing.
+#   - ADEFS and ASFLAGS, the -D options and flags for assembler sources. The
+#     image has none (ASRC is empty), and a define added to either is caught by
+#     the -D entry above in any case.
 #   - OBJ, LST, DEPFILES and the shared sources added to them. A source added
 #     to every image here can be host-facing -- the firmware info block
 #     ubertooth-dfu reads arrived that way -- but the source itself is watched,
@@ -332,26 +343,36 @@ interface_text() {
     # firmware/common.mk is the one file read a line at a time: what counts as
     # its interface is the lines that set a watched flag, nothing else.
     if [ "$2" = "$common_mk" ]; then
+        # Comments that are prose go first, comments that are a setting
+        # someone turned off stay. The file tells the two apart by a blank
+        # after the #: prose is written "# Place -D or -U options here", a
+        # disabled setting "#CFLAGS += -fpack-struct". So uncommenting a flag
+        # is still a change, and rewording a comment that happens to mention
+        # one is not.
+        #
         # grep exits 1 when nothing matched, and here that is an answer rather
         # than a failure: this commit sets none of the watched flags. Its
         # status is not read, as with the other greps in this script.
-        printf '%s\n' "$text" | collapse_blanks | grep -F -f "$work/flags" || :
+        printf '%s\n' "$text" | grep -v '^[[:space:]]*#[[:space:]]' |
+            collapse_blanks | grep -F -f "$work/flags" || :
         return 0
     fi
     printf '%s\n' "$text" | strip_noninterface
 }
 
-# The watched flags whose lines in firmware/common.mk differ between the two
-# commits, one per line, so the message can name them. A flag whose lines read
-# the same at both was not added, removed or changed by this branch.
-changed_flag_names() {
-    git show "$1:$common_mk" 2> /dev/null | collapse_blanks > "$work/mk.a" || :
-    git show "$2:$common_mk" 2> /dev/null | collapse_blanks > "$work/mk.b" || :
-    while IFS= read -r flag; do
-        before=$(grep -F -- "$flag" "$work/mk.a") || before=
-        after=$(grep -F -- "$flag" "$work/mk.b") || after=
-        [ "$before" = "$after" ] || printf '%s\n' "$flag"
-    done < "$work/flags"
+# What the check sees change in firmware/common.mk between two commits, written
+# to $work/mk.diff as the differing lines with a leading - and +.
+#
+# It diffs exactly the text interface_text compared, rather than looking each
+# flag up again, so the message cannot name something other than what the
+# decision was made on. Two watched lines swapped is the case where the two
+# would part company: no flag's own setting changed, but the file the check
+# reads did, and the diff says which lines.
+common_mk_difference() {
+    interface_text "$1" "$common_mk" > "$work/mk.a" || return 1
+    interface_text "$2" "$common_mk" > "$work/mk.b" || return 1
+    diff "$work/mk.a" "$work/mk.b" |
+        sed -n 's/^< /- /p; s/^> /+ /p' > "$work/mk.diff"
 }
 
 # Every file the check watches at one commit, as "<blob hash> <tab> <path>":
@@ -652,12 +673,20 @@ while IFS= read -r path; do
 done < "$work/paths"
 changed=$(cat "$work/changed")
 
-# When firmware/common.mk is one of the changed files, which of its watched
-# flags moved, so a message can name them rather than send the reader to diff
-# a 600-line build file.
-flags=
+# When firmware/common.mk is one of the changed files, the lines of it that
+# differ and the flags they set, so a message can name them rather than send
+# the reader to diff a 600-line build file. Every differing line sets one of
+# the watched flags, because that is what put it in the comparison.
+flag_lines=
+flag_names=
 if grep -qxF "$common_mk" "$work/changed"; then
-    flags=$(changed_flag_names "$merge_base" "$head_commit") || exit 1
+    common_mk_difference "$merge_base" "$head_commit" || {
+        printf 'error: could not read %s to say which flags changed\n' "$common_mk" >&2
+        exit 1
+    }
+    flag_lines=$(cat "$work/mk.diff")
+    flag_names=$(sed 's/^[-+] //' "$work/mk.diff" |
+        grep -oF -f "$work/flags" | sort -u) || flag_names=
 fi
 
 # What was compared, for the record: a log that only says "passed" cannot be
@@ -694,11 +723,22 @@ if [ -n "$changed" ]; then
         echo ""
         echo "       The firmware interface files this branch changes:"
         printf '%s\n' "$changed" | sed 's/^/         /'
-        if [ -n "$flags" ]; then
+        if [ -n "$flag_names" ]; then
             echo ""
-            echo "       In $common_mk only the lines that set these are read,"
-            echo "       and this branch changes them:"
-            printf '%s\n' "$flags" | sed 's/^/         /'
+            echo "       In $common_mk only the lines that set one of a few"
+            echo "       compile flags are read, and this branch changes these:"
+            printf '%s\n' "$flag_names" | sed 's/^/         /'
+            echo ""
+            echo "       The lines, as the check reads them:"
+            printf '%s\n' "$flag_lines" | sed 's/^/         /'
+            # The same line on both sides is a line that moved. Saying so
+            # beats leaving the reader to wonder why a line is shown as both
+            # removed and added.
+            if [ -n "$(printf '%s\n' "$flag_lines" | sed 's/^[-+] //' |
+                sort | uniq -d)" ]; then
+                echo ""
+                echo "       A line shown on both sides moved rather than changed."
+            fi
         fi
         echo ""
         echo "       If none of them change what the host sees, this is a false"
