@@ -695,6 +695,32 @@ MU_TEST(a_healthy_board_reports_no_last_reset)
 	free(text);
 }
 
+/*
+ * btbr runs its own state machine rather than one of the other image's modes,
+ * so it records none. Both lines that name a mode say that in words instead of
+ * reading as a mode called "not reported".
+ */
+MU_TEST(a_board_that_reports_no_mode_says_so)
+{
+	uint8_t info[UBERTOOTH_WATCHDOG_INFO_LEN] = {
+		WATCHDOG_RESET_WATCHDOG, 1, 1, 2,
+		MODE_UNKNOWN, WATCHDOG_SITE_XOSC,
+		MODE_UNKNOWN, WATCHDOG_SITE_USB,
+	};
+	int status = -1;
+	char *text = watchdog_text(info, sizeof(info), &status);
+
+	mu_assert(text != NULL, "no report");
+	mu_assert_int_eq(0, status);
+	mu_assert(strstr(text, "  the last was in a mode the board does not "
+	                 "report, waiting for the 16 MHz crystal oscillator\n")
+	          != NULL, text);
+	mu_assert(strstr(text, "Now in a mode the board does not report, "
+	                 "servicing USB\n") != NULL, text);
+	mu_assert(strstr(text, "not reported") == NULL, text);
+	free(text);
+}
+
 /* An unarmed watchdog is reported as unarmed, not as a guard the board does
  * not have. */
 MU_TEST(an_unarmed_watchdog_is_reported_as_such)
@@ -751,12 +777,13 @@ MU_TEST(every_mode_and_site_has_a_name)
 	for (i = 0; i <= MODE_IDENTIFY; i++) {
 		const char *name = util_watchdog_mode_name(i);
 
+		mu_assert(name != NULL, "a defined mode has no name");
 		mu_assert(strcmp(name, "unknown") != 0, name);
 	}
 	mu_assert(strcmp(util_watchdog_mode_name(MODE_IDENTIFY + 1),
 	                 "unknown") == 0, "an unnamed mode is not unknown");
-	mu_assert(strcmp(util_watchdog_mode_name(MODE_UNKNOWN),
-	                 "not reported") == 0, "btbr's mode is not reported");
+	mu_assert(util_watchdog_mode_name(MODE_UNKNOWN) == NULL,
+	          "a board that reports no mode was given a name");
 
 	for (i = 0; i < WATCHDOG_SITE_COUNT; i++)
 		mu_assert(strstr(util_watchdog_site_text(i), "does not know")
@@ -792,6 +819,7 @@ int main(void)
 	MU_RUN(a_wedged_board_reports_where_it_was_stuck);
 	MU_RUN(a_board_that_faulted_says_so);
 	MU_RUN(a_healthy_board_reports_no_last_reset);
+	MU_RUN(a_board_that_reports_no_mode_says_so);
 	MU_RUN(an_unarmed_watchdog_is_reported_as_such);
 	MU_RUN(causes_combine_and_a_short_reply_fails);
 	MU_RUN(every_mode_and_site_has_a_name);

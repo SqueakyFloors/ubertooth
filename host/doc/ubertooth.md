@@ -104,18 +104,29 @@ The board took the request and sent nothing back:
 A board that has stopped answering control requests does this: it happens
 after some captures end, and a board left in a mode that keeps polling can do
 it too. Try `ubertooth-util [-U <selector>] -S` to stop a mode and
-`ubertooth-util -r` to reset the board; a board that answers neither resets
-itself, as the next paragraph describes. The line says
+`ubertooth-util -r` to reset the board; a board that answers neither usually
+resets itself, as the next paragraphs describe. The line says
 only what happened, because what it means depends on what the command was
 doing: mid-flash, for instance, it is a bootloader that lost its place, and no
 mode is involved.
 
-A board running this tree's firmware recovers itself: it resets about three
-seconds after it stops servicing USB, drops off the bus and comes back idle, so
-the fix is to run the command again. `ubertooth-util [-U <selector>] -w` then
-says how often that has happened and which mode and which wait the board was in
-the last time. Only firmware without the watchdog, such as `2020-12-R1`, has to
-be unplugged or have its hub port power-cycled.
+A board running this tree's firmware usually recovers itself: it resets about
+three seconds after it stops servicing USB, drops off the bus and comes back
+idle, so the fix is to run the command again. `ubertooth-util [-U <selector>]
+-w` then says how often that has happened and which mode and which wait the
+board was in the last time.
+
+Not every board gets that self-reset, and where it does not the fallback is
+always the same: unplug the board or power-cycle its hub port. That is what the
+`note: ` line the tools print after the error names (see ubertooth-rx(1),
+DIAGNOSTICS). Firmware without the watchdog, such as `2020-12-R1`, has
+no self-reset at all. Neither has anything that feeds the watchdog from its
+loop rather than from a USB service pass — the six modes that service USB from
+the interrupt, and the `btbr` image — because that loop keeps turning when the
+USB path alone has died (see ubertooth-util(1), WATCHDOG). The bootloader runs
+with the watchdog off by design, so a `-7` mid-flash, where no mode is
+involved, waits for nothing either; ubertooth-dfu(1) reports that one in its
+own words, and its page says the same about a board that answers nothing.
 
 A serial-number selector names the reason, because a board it could not read
 may be the board asked for:
@@ -164,8 +175,8 @@ says `warning: the receive transfer did not finish; the Ubertooth is left open
 and may still be capturing`, asks that board for nothing further, and exits 1:
 the capture lost its stream, so it holds less than was asked for. The
 board usually needs `ubertooth-util [-U <selector>] -S` or `-r` afterwards, and
-one that answers neither resets itself about three seconds later and comes
-back idle.
+one that answers neither usually resets itself about three seconds later and
+comes back idle.
 
 libubertooth follows the split already: it returns what it reads to the tool
 that called it and reports its own problems on standard error, so a library

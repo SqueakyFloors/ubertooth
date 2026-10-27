@@ -532,8 +532,9 @@ MU_TEST(the_capture_is_asked_for_before_the_channel)
 	"error: could not " what \
 	": the board did not answer in time (libusb -7)\n" \
 	"note: if a mode is running, stop it with ubertooth-util -S; " \
-	"a board that does not answer at all resets itself within a few " \
-	"seconds, so run the command again\n"
+	"a board that does not answer at all usually resets itself within " \
+	"a few seconds, so run the command again, and unplug it or " \
+	"power-cycle its hub port if it stays silent\n"
 
 /* Each refused setup request is named, with the reason and what to try, on
  * standard error, and ends the command there, with nothing on standard output

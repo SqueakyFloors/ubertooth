@@ -59,10 +59,16 @@ static const char *hint(int code)
 	switch (code) {
 	case LIBUSB_ERROR_TIMEOUT:
 		/* A board busy in a mode takes no new request until the mode
-		 * stops; one that answers nothing at all needs re-plugging. */
+		 * stops. One that answers nothing at all usually resets itself,
+		 * but not always: a mode that services USB from the interrupt
+		 * keeps its loop turning, and so keeps feeding the watchdog,
+		 * even when its USB path alone has died. That board waits for a
+		 * reset that is not coming, so the note names the fallback. */
 		return "if a mode is running, stop it with ubertooth-util -S; "
-		       "a board that does not answer at all resets itself within "
-		       "a few seconds, so run the command again";
+		       "a board that does not answer at all usually resets "
+		       "itself within a few seconds, so run the command again, "
+		       "and unplug it or power-cycle its hub port if it stays "
+		       "silent";
 	case LIBUSB_ERROR_NO_DEVICE:
 		return "re-attach the board and run the command again";
 	default:

@@ -821,6 +821,18 @@ MU_TEST(the_watchdog_state_is_reported_and_a_failed_read_fails)
 	mu_assert(strstr(r.out, "BLE follow") != NULL, r.out);
 	mu_assert(strcmp(r.err, "") == 0, r.err);
 
+	/* btbr records no mode, and the line says so in words. */
+	reset_fake();
+	fake.watchdog.armed = 1;
+	fake.watchdog.boots = 1;
+	fake.watchdog.mode = MODE_UNKNOWN;
+	fake.watchdog.site = WATCHDOG_SITE_USB;
+	r = RUN("-w");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.out, "Now in a mode the board does not report, "
+	                 "servicing USB\n") != NULL, r.out);
+	mu_assert(strcmp(r.err, "") == 0, r.err);
+
 	reset_fake();
 	fake.watchdog_rc = -7;
 	r = RUN("-w");

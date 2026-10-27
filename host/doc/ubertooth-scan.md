@@ -100,7 +100,7 @@ Standard error names the request, why the board refused it and the libusb code,
 and adds a note where there is something to try:
 
     error: could not set sweep mode: the board did not answer in time (libusb -7)
-    note: if a mode is running, stop it with ubertooth-util -S; a board that does not answer at all resets itself within a few seconds, so run the command again
+    note: if a mode is running, stop it with ubertooth-util -S; a board that does not answer at all usually resets itself within a few seconds, so run the command again, and unplug it or power-cycle its hub port if it stays silent
 
 That pair is the report. A request the board stalls (`libusb -9`) reads `the
 board does not support this command (stalled)` and carries no note, there being

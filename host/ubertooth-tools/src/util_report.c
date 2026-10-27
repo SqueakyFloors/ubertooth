@@ -234,12 +234,27 @@ static const char *const watchdog_site_text[WATCHDOG_SITE_COUNT] = {
 
 const char *util_watchdog_mode_name(unsigned mode)
 {
+	/* btbr runs its own state machine rather than one of these modes, so it
+	 * records none; the report writes a clause for that instead of a name. */
 	if (mode == MODE_UNKNOWN)
-		return "not reported";
+		return NULL;
 	if (mode >= sizeof(watchdog_mode_names) / sizeof(watchdog_mode_names[0]) ||
 	    watchdog_mode_names[mode] == NULL)
 		return "unknown";
 	return watchdog_mode_names[mode];
+}
+
+/* The clause the report puts the mode in: "in idle mode", or "in a mode the
+ * board does not report" where there is no name. The names only read as
+ * English with "mode" after them, which a missing mode does not. */
+static void print_watchdog_mode(FILE *out, unsigned mode)
+{
+	const char *name = util_watchdog_mode_name(mode);
+
+	if (name == NULL)
+		fputs("in a mode the board does not report", out);
+	else
+		fprintf(out, "in %s mode", name);
 }
 
 const char *util_watchdog_site_text(unsigned site)
@@ -302,12 +317,13 @@ int util_report_watchdog(FILE *out, const uint8_t *info, size_t len)
 		fprintf(out, "Watchdog: not armed\n");
 	fprintf(out, "Unrequested watchdog resets since power-on: %u (in %u boot%s)\n",
 	        (unsigned)info[2], (unsigned)info[3], info[3] == 1 ? "" : "s");
-	if (info[2] > 0)
-		fprintf(out, "  the last was in %s mode, %s\n",
-		        util_watchdog_mode_name(info[4]),
-		        util_watchdog_site_text(info[5]));
-	fprintf(out, "Now in %s mode, %s\n",
-	        util_watchdog_mode_name(info[6]),
-	        util_watchdog_site_text(info[7]));
+	if (info[2] > 0) {
+		fputs("  the last was ", out);
+		print_watchdog_mode(out, info[4]);
+		fprintf(out, ", %s\n", util_watchdog_site_text(info[5]));
+	}
+	fputs("Now ", out);
+	print_watchdog_mode(out, info[6]);
+	fprintf(out, ", %s\n", util_watchdog_site_text(info[7]));
 	return 0;
 }

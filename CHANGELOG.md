@@ -258,15 +258,19 @@
   matched no packet, and without the reset it hopped on a clock the offset was
   not measured from.
   [#504](https://github.com/SqueakyFloors/ubertooth/issues/504)
-- A board that stops answering the host resets itself within about three
-  seconds and comes back idle, instead of staying on USB answering nothing
-  until it is unplugged or its hub port is power-cycled. A capture sees the
-  board disappear rather than hang. A board that hits one of the LED fault
+- A board that stops answering the host usually resets itself within about
+  three seconds and comes back idle, instead of staying on USB answering
+  nothing until it is unplugged or its hub port is power-cycled. A capture sees
+  the board disappear rather than hang. A board that hits one of the LED fault
   codes now reboots part-way through blinking it for the same reason, and says
   it was in a fault handler when `ubertooth-util -w` asks, which counting
   blinks never gave you.
   [#239](https://github.com/SqueakyFloors/ubertooth/issues/239)
   [#509](https://github.com/SqueakyFloors/ubertooth/issues/509)
+- The `libusb -7` note names the fallback -- unplug the board or power-cycle its
+  hub port -- as well as the self-reset, which a board whose loop keeps feeding
+  the watchdog never gets.
+  [#609](https://github.com/SqueakyFloors/ubertooth/issues/609)
 - A board another program is using says so (`error: Ubertooth <serial> is in
   use by another program (libusb -3)`) instead of reporting a libusb code, and
   no longer has a stop sent to it on the way out; a board that answers nothing
