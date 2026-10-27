@@ -371,8 +371,16 @@ static int range_test_wait(ubertooth_t *ut, int timeout_s)
 		rangetest_result rr;
 		watchdog_info info;
 		uint64_t elapsed;
-		int r = cmd_get_rangeresult(ut->devh, &rr);
+		int r;
 
+		/*
+		 * The wait before the first read, not after it: the board has only
+		 * just been asked to start the test, so there is nothing to read
+		 * yet, and a read that lands in the moment the mode is starting is
+		 * the one the board has been seen to stall.
+		 */
+		util_clock_sleep_ms(RANGE_TEST_POLL_MS);
+		r = cmd_get_rangeresult(ut->devh, &rr);
 		if (r != 0)
 			return report_read_failed("range test result", r);
 		/*
@@ -436,7 +444,6 @@ static int range_test_wait(ubertooth_t *ut, int timeout_s)
 			fflush(stdout);
 			next_progress = elapsed + RANGE_TEST_PROGRESS_MS;
 		}
-		util_clock_sleep_ms(RANGE_TEST_POLL_MS);
 	}
 }
 

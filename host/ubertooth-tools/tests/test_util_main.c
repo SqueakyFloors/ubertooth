@@ -1111,11 +1111,11 @@ MU_TEST(a_range_test_stopped_from_elsewhere_ends_the_wait)
 	/* The board writes the result just before it leaves the mode, so a
 	 * reply that lands after the result read of a poll but before its mode
 	 * read is still reported, rather than read as a test that was stopped.
-	 * The mode ends on the sixth poll, and the reply with it. */
+	 * The mode ends on the fifth poll, and the reply with it. */
 	reset_fake();
 	fake.range_reply_after_ms = 0;
 	fake.range_leaves_after_ms = 500;
-	fake.range_reply_at_call = 7;
+	fake.range_reply_at_call = 6;
 	r = RUN("-n");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strstr(r.out, "reply number     : 4\n") != NULL, r.out);
