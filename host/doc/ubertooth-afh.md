@@ -66,7 +66,10 @@ if this run is killed and leaves the board streaming. See ubertooth-util(1),
 CARRY-OVER BETWEEN RUNS.
 
 `-t <seconds>` only adds an initial detection phase: the tool listens for that
-many seconds, prints the map it found, and then starts monitoring. If that
+many seconds, prints the map it found, and then starts monitoring. Only the
+timeout moves it on to monitoring: interrupting the detection phase (Ctrl-C)
+ends the run there, printing the map detected so far, rather than starting to
+monitor something you have just asked the tool to stop. If that
 phase received no packet from the piconet there is no map to print, so the tool
 says so, does not start monitoring, and exits with status 2 instead of
 printing an all-zero map (which reads as a detected map whose piconet uses no

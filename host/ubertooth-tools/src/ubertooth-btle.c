@@ -38,17 +38,15 @@
 /* An access address is 32 bits, so at most 32 of its bits can be wrong. */
 #define AA_ERRORS_MAX 32
 
-int cancel_follow = 0;
+/* Set by the SIGUSR1 handler to cancel following an active connection. A
+ * signal handler may assign to one object that outlives it, and only one
+ * declared volatile sig_atomic_t; a plain int could also be read once by the
+ * loop below and the copy kept, which would never see the signal. Stopping
+ * the run is libubertooth's flag instead (ubertooth_stopping()). */
+static volatile sig_atomic_t cancel_follow;
 
-// send SIGUSR1 to cancel following an active connection
 static void cancel_follow_handler(int sig __attribute__((unused))) {
 	cancel_follow = 1;
-}
-
-int running = 1;
-
-static void quit(int sig __attribute__((unused))) {
-	running = 0;
 }
 
 /* Where the lines that answer an option go: the access address, the CRC verify
@@ -492,10 +490,10 @@ int main(int argc, char *argv[])
 	if (r < 0)
 		return 1;
 
-	// quit on ctrl-C
-	signal(SIGINT, quit);
-	signal(SIGQUIT, quit);
-	signal(SIGTERM, quit);
+	/* Stop on Ctrl-C, and on the other signals that mean the run is over
+	 * (SIGTERM, SIGHUP, SIGQUIT, an alarm): the library's handlers, so the
+	 * capture loop below ends the way every other tool's does. */
+	register_cleanup_handler(ut, 0);
 
 	// cancel following on USR1
 	signal(SIGUSR1, cancel_follow_handler);
@@ -582,8 +580,7 @@ int main(int argc, char *argv[])
 			return 1;
 		}
 
-		// running can be changed by signal handler
-		while (running) {
+		while (!ubertooth_stopping(ut)) {
 			if (cancel_follow) {
 				cmd_cancel_follow(ut->devh);
 				cancel_follow = 0;

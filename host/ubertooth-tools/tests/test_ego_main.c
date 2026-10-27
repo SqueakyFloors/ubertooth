@@ -9,6 +9,7 @@
  * receive loop is ended by the faked poll, so no case waits on a board and no
  * case can transmit.
  */
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -35,6 +36,8 @@ static struct {
 	int cap_len_rc;      /* returned by cmd_rfcat_subcmd(RFCAT_CAP_LEN) */
 	int ego_rc;          /* returned by cmd_ego() */
 	int poll_rc;         /* returned by cmd_poll() */
+	int interrupt_the_capture; /* cmd_poll() raises SIGINT instead of
+	                            * writing the handle */
 	int last_channel;    /* the channel the capture was set to, in MHz */
 	uint8_t last_access_code[8];
 	int last_access_code_len;
@@ -54,6 +57,33 @@ static struct {
 static ubertooth_t fake_ut;
 static int fake_devh;
 
+/* The library's stop route, in miniature, so a case can raise a real signal
+ * and see what the capture loop makes of it. fake_cleanup() sets this flag and
+ * nothing else, and ubertooth_stopping() is the only place it reaches the
+ * handle: a loop that read the handle directly would not notice an interrupt
+ * here either. */
+static volatile sig_atomic_t stop_requested;
+
+static void fake_cleanup(int sig)
+{
+	(void)sig;
+	stop_requested = 1;
+}
+
+int ubertooth_stopping(ubertooth_t *ut)
+{
+	if (stop_requested)
+		ut->stop_ubertooth = 1;
+	return ut->stop_ubertooth;
+}
+
+void register_cleanup_handler(ubertooth_t *ut, int do_exit)
+{
+	(void)ut;
+	(void)do_exit;
+	signal(SIGINT, fake_cleanup);
+}
+
 static void record(char call)
 {
 	size_t length = strlen(fake.calls);
@@ -69,6 +99,8 @@ static void reset_fake(void)
 	memset(&fake, 0, sizeof(fake));
 	memset(&fake_ut, 0, sizeof(fake_ut));
 	fake_ut.devh = (struct libusb_device_handle *)&fake_devh;
+	stop_requested = 0;
+	signal(SIGINT, SIG_DFL);
 }
 
 ubertooth_t *ubertooth_start_select(const char *u_arg)
@@ -146,12 +178,17 @@ int cmd_ego(struct libusb_device_handle *devh, int mode)
 }
 
 /* Ends the receive loop at once: a capture that read packets is covered by the
- * callback's own tests, and nothing here should wait on a board. */
+ * callback's own tests, and nothing here should wait on a board. A case that
+ * wants the signal path instead raises a real interrupt here, which only
+ * reaches the loop through the handler's flag. */
 int cmd_poll(struct libusb_device_handle *devh, usb_pkt_rx *p)
 {
 	(void)devh;
 	(void)p;
-	running = 0;
+	if (fake.interrupt_the_capture)
+		raise(SIGINT);
+	else
+		fake_ut.stop_ubertooth = 1;
 	return fake.poll_rc;
 }
 
@@ -215,7 +252,6 @@ static struct run_result run_ego(const char *const *args)
 	dup2(fileno(out), STDOUT_FILENO);
 	dup2(fileno(err), STDERR_FILENO);
 	optind = 0;  /* restart option parsing for each run */
-	running = 1; /* the previous run's faked poll left it at 0 */
 	result.rc = ubertooth_ego_main(argc, argv);
 	fflush(stdout);
 	fflush(stderr);
@@ -515,6 +551,23 @@ MU_TEST(help_wins_over_a_refused_combination)
 	mu_assert_int_eq(0, fake.inits);
 }
 
+/* A Ctrl-C ends a capture, with the board taken out of its mode and exit 0:
+ * the user stopped a run that was working. The loop used to read a plain int
+ * the handler wrote, which a compiler may read once and keep, so nothing
+ * guaranteed it would see the interrupt at all. */
+MU_TEST(an_interrupted_capture_stops_and_exits_zero)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.interrupt_the_capture = 1;
+	r = RUN("-f");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strstr(r.err, "error: ") == NULL, r.err);
+	mu_assert_int_eq(1, fake.stops);
+}
+
 /* A capture that stops short because a poll failed did not do what was asked,
  * so it says so and exits 1, which the man page's EXIT STATUS promises. */
 MU_TEST(a_failed_poll_ends_the_capture_with_1)
@@ -543,6 +596,7 @@ int main(void)
 	MU_RUN(a_channel_the_mode_cannot_use_is_refused);
 	MU_RUN(a_bare_command_line_is_refused_with_the_usage_text);
 	MU_RUN(help_wins_over_a_refused_combination);
+	MU_RUN(an_interrupted_capture_stops_and_exits_zero);
 	MU_RUN(a_failed_poll_ends_the_capture_with_1);
 	return mu_report();
 }

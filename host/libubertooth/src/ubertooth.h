@@ -169,19 +169,30 @@ void print_version();
 void register_cleanup_handler(ubertooth_t* ut, int do_exit);
 
 /* 1 once this capture should stop, which is how a receive loop asks. It covers
- * both ways a run ends early: a signal (Ctrl-C, SIGTERM, the -t alarm), which
+ * every way a run ends early: a signal (Ctrl-C, SIGTERM, the -t alarm), which
  * the handler records in a flag of its own, and the handle's stop_ubertooth,
  * which the poll thread and the callbacks set.
  *
  * It writes the handle, so call it from the thread running the capture. The
- * poll thread reads the two flags instead. */
+ * poll thread reads the flags instead. */
 int ubertooth_stopping(ubertooth_t* ut);
 
-/* Back to "keep going", for a handle that runs a second capture after the
- * first has stopped (ubertooth-afh detects a map, then monitors it). Both the
- * signal flag and the handle's are cleared, so the alarm that ended one phase
- * does not end the next one before it starts. */
-void ubertooth_clear_stop(ubertooth_t* ut);
+/* Forgets the stop the -t timer asked for, so a handle that captures twice can
+ * start its second phase (ubertooth-afh detects a map under -t, then monitors
+ * it): the timer that ended detection would otherwise end monitoring before it
+ * began.
+ *
+ * A stop the user asked for is deliberately left in place, so
+ * ubertooth_stopping() goes on reporting it. A caller that finds it still set
+ * is expected to return rather than start the next phase: the user has already
+ * said to stop. */
+void ubertooth_clear_timeout_stop(ubertooth_t* ut);
+
+/* Forgets every signal this process has had, so a run can start as if none
+ * had arrived. Nothing in a tool needs this -- a run the user has stopped is
+ * over -- but a test process runs many captures in turn, and one case must not
+ * leave the next already stopping. */
+void ubertooth_reset_stop_signals(void);
 ubertooth_t* ubertooth_init();
 /* True when UBERTOOTH_TEST_NO_DEVICES is "1", which makes every selection
  * below behave as if no Ubertooth were attached, without listing or opening
@@ -263,7 +274,8 @@ void ubertooth_bulk_thread_stop();
 
 /* Replays a saved capture, calling cb for each whole record. Returns 0 at a
  * clean end of file, minus an errno on a read error, and the number of bytes
- * of a last record that was cut short. */
+ * of a last record that was cut short. A replay the user has asked to stop
+ * also returns 0: it ends where it was asked to, which is not an error. */
 int stream_rx_file(ubertooth_t* ut,FILE* fp, rx_callback cb, void* cb_args);
 /* Reports a stream_rx_file() result on stderr, naming the file, and returns
  * the exit status the tool should use: 1 for anything but a clean end. */
@@ -288,6 +300,10 @@ int rx_btle_file(FILE* fp);
  * the map is printed before monitoring starts. pn must be a piconet whose map
  * is still empty, as btbb_piconet_new() leaves it: "no packet was received" is
  * read from the map after the detection phase.
+ *
+ * A user interrupt during the detection phase ends the whole run: the map
+ * found so far is printed and monitoring is not started. Only the timeout
+ * moves the run on to monitoring.
  *
  * Returns 0 when the monitor was stopped normally, UBERTOOTH_AFH_NO_PACKETS
  * when the detection phase saw no packet (nothing is printed and monitoring is

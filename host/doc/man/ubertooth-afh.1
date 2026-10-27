@@ -47,7 +47,7 @@ While it listens, the board hops across the channels the piconet has not been se
 .P
 The map lives on the board only while this run does\. Every mode start resets the board's hop mode and AFH map, so this run begins from an empty map, and the next capture \(em another \fBubertooth\-afh\fR, an \fBubertooth\-rx\fR, anything \(em hops across the whole channel set rather than on the map found here\. That holds even if this run is killed and leaves the board streaming\. See ubertooth\-util(1), CARRY\-OVER BETWEEN RUNS\.
 .P
-\fB\-t <seconds>\fR only adds an initial detection phase: the tool listens for that many seconds, prints the map it found, and then starts monitoring\. If that phase received no packet from the piconet there is no map to print, so the tool says so, does not start monitoring, and exits with status 2 instead of printing an all\-zero map (which reads as a detected map whose piconet uses no channel at all):
+\fB\-t <seconds>\fR only adds an initial detection phase: the tool listens for that many seconds, prints the map it found, and then starts monitoring\. Only the timeout moves it on to monitoring: interrupting the detection phase (Ctrl\-C) ends the run there, printing the map detected so far, rather than starting to monitor something you have just asked the tool to stop\. If that phase received no packet from the piconet there is no map to print, so the tool says so, does not start monitoring, and exits with status 2 instead of printing an all\-zero map (which reads as a detected map whose piconet uses no channel at all):
 .IP "" 4
 .nf
 $ ubertooth\-afh \-l 446688 \-u 22 \-t 3

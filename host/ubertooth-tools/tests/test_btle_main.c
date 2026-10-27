@@ -31,6 +31,8 @@ static struct {
 	int last_crc_set;
 	int poll_rc;         /* returned by cmd_poll(): < 0 fails the capture */
 	int polls;
+	int interrupt_the_capture; /* cmd_poll() raises SIGINT instead of
+	                            * writing the handle */
 	int stops;
 	int connects;        /* a refused command line must open no device */
 	int sniffing_calls;
@@ -64,6 +66,33 @@ static ubertooth_t fake_ut;
 static fifo_t fake_fifo;
 static int fake_devh;
 
+/* The library's stop route, in miniature, so a case can raise a real signal
+ * and see what the capture loop makes of it. fake_cleanup() sets this flag and
+ * nothing else, and ubertooth_stopping() is the only place it reaches the
+ * handle: a loop that read the handle directly would not notice an interrupt
+ * here either. */
+static volatile sig_atomic_t stop_requested;
+
+static void fake_cleanup(int sig)
+{
+	(void)sig;
+	stop_requested = 1;
+}
+
+int ubertooth_stopping(ubertooth_t *ut)
+{
+	if (stop_requested)
+		ut->stop_ubertooth = 1;
+	return ut->stop_ubertooth;
+}
+
+void register_cleanup_handler(ubertooth_t *ut, int do_exit)
+{
+	(void)ut;
+	(void)do_exit;
+	signal(SIGINT, fake_cleanup);
+}
+
 static void record(char call)
 {
 	size_t length = strlen(fake.calls);
@@ -84,9 +113,10 @@ static void reset_fake(void)
 	fake.get_crc_rc = -2; /* -2: report what the board holds */
 	fake.last_jam_mode = -1; /* -1: cmd_set_jam_mode was not called */
 	fake.access_address = 0x8e89bed6;
-	/* main() leaves these globals where a previous run put them. */
-	running = 1;
+	/* main() leaves these where a previous run put them. */
+	stop_requested = 0;
 	cancel_follow = 0;
+	signal(SIGINT, SIG_DFL);
 }
 
 ubertooth_t *ubertooth_init(void)
@@ -209,14 +239,19 @@ int cmd_btle_promisc(struct libusb_device_handle *devh)
 }
 
 /* One packetless poll, then the loop is asked to end, so a sniffing mode runs
- * through main() without waiting for a board. */
+ * through main() without waiting for a board. A case that wants the signal
+ * path instead raises a real interrupt here, which only reaches the loop
+ * through the handler's flag. */
 int cmd_poll(struct libusb_device_handle *devh, usb_pkt_rx *p)
 {
 	(void)devh;
 	(void)p;
 	record('p');
 	fake.polls++;
-	running = 0;
+	if (fake.interrupt_the_capture)
+		raise(SIGINT);
+	else
+		fake_ut.stop_ubertooth = 1;
 	return fake.poll_rc;
 }
 
@@ -613,6 +648,25 @@ MU_TEST(the_reports_move_to_stderr_when_the_capture_takes_stdout)
 	mu_assert(strcmp(fake.capture_file, "/dev/null") == 0, fake.capture_file);
 	mu_assert(strcmp(r.out, "Access address: 8e89bed6\n") == 0, r.out);
 	mu_assert(r.err[0] == '\0', r.err);
+}
+
+/* A Ctrl-C ends a sniffing capture, with the board taken out of its mode and
+ * exit 0: the user stopped a run that was working. The loop used to read a
+ * plain int the handler wrote, which a compiler may read once and keep, so
+ * nothing guaranteed it would see the interrupt at all. */
+MU_TEST(an_interrupted_capture_stops_and_exits_zero)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.interrupt_the_capture = 1;
+	r = RUN("-n");
+	mu_assert_int_eq(0, r.rc);
+	/* One poll, so the loop left as soon as the handler had run. */
+	mu_assert_int_eq(1, fake.polls);
+	mu_assert_int_eq(1, fake.stops);
+	mu_assert(r.err[0] == '\0', r.err);
+	mu_assert(r.out[0] == '\0', r.out);
 }
 
 /* A poll that fails ends the capture short, so it is an error on standard
@@ -1031,6 +1085,7 @@ int main(void)
 	MU_RUN(an_access_address_read_and_the_crc_options_all_run);
 	MU_RUN(the_target_report_is_on_standard_output);
 	MU_RUN(the_reports_move_to_stderr_when_the_capture_takes_stdout);
+	MU_RUN(an_interrupted_capture_stops_and_exits_zero);
 	MU_RUN(a_failed_poll_is_reported_on_stderr_and_exits_1);
 	MU_RUN(a_failed_target_set_and_jamming_are_reported_on_stderr);
 	MU_RUN(the_interference_options_are_refused_without_f_or_p);
