@@ -3841,7 +3841,9 @@ static int line_is_continued(const char *line)
  *
  * Within a body the name counts wherever it appears, with no '(' required,
  * because naming it without calling it is taking its address and a send
- * reached through a pointer is a send.
+ * reached through a pointer is a send. Outside a body the same mention counts
+ * for the same reason -- a file-scope pointer is initialised there -- while
+ * one with a '(' after it is the declaration and does not.
  *
  * A `#define` counts as a body wherever it is written, braces or none, and in
  * any of its legal spellings. The text of a macro is code in whatever
@@ -3882,7 +3884,7 @@ static int file_calls(const char *path, const char *name)
 					depth--;
 				continue;
 			}
-			if ((depth == 0 && !in_macro) || !is_ident_char(*p))
+			if (!is_ident_char(*p))
 				continue;
 			/* Only at the start of an identifier, so a longer name
 			 * ending in this one does not match. */
@@ -3895,17 +3897,16 @@ static int file_calls(const char *path, const char *name)
 				while (*after == ' ' || *after == '\t')
 					after++;
 				/*
-				 * Naming it is enough, with no '(' needed. In
-				 * a macro because `#define SEND USBHwEPWrite`
-				 * makes every SEND(...) a call to it. In a
-				 * body because naming it without calling it is
-				 * taking its address, and a send reached
-				 * through a pointer is a send. What this does
-				 * not catch is a declaration, which is why
-				 * only bodies and macros are read at all.
+				 * In a body or a macro, naming it is enough
+				 * either way. Outside both, only a mention
+				 * with no '(' after it counts: that is its
+				 * address being taken, and a send reached
+				 * through a pointer is a send. A mention with
+				 * a '(' there is the declaration the sources
+				 * are compiled against.
 				 */
-				(void)after;
-				hits++;
+				if (depth > 0 || in_macro || *after != '(')
+					hits++;
 			}
 		}
 	}
