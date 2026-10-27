@@ -3834,9 +3834,14 @@ static char br_edr_stray_write[256];
 static char br_edr_stray_dequeue[256];
 static char br_edr_stray_sync[256];
 
-/* The console's entry points. Calling any of them starts it. */
+/*
+ * The console's entry points -- every function firmware/common's usb_serial.c
+ * offers a caller, its own setup included. Calling any of them brings the
+ * console up or uses it. Its interrupt vector is not here: a vector is
+ * reached by the hardware, not called, and this image provides its own.
+ */
 static const char *const br_edr_console_names[] = {
-	"VCOM_init", "VCOM_putchar", "VCOM_getchar",
+	"usb_serial_init", "VCOM_init", "VCOM_putchar", "VCOM_getchar",
 };
 
 #define BR_EDR_CONSOLE_COUNT \
