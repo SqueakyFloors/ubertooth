@@ -559,6 +559,12 @@ MU_TEST(test_every_usb_service_path_feeds)
  * get no service pass of their own while the host is quiet -- xmas mode waits
  * for a timer interrupt and nothing else -- so without a feed in their loops
  * a board sitting in one would reset itself on every pass through it.
+ *
+ * What the feed has to be is the first thing a loop does. A call sitting
+ * anywhere else in the file would satisfy "this file feeds" while feeding
+ * once and never again, so the check is that the nearest line of code above
+ * each call opens a loop. Comments and a lone brace in between are skipped;
+ * anything else fails.
  */
 MU_TEST(test_every_interrupt_driven_mode_loop_feeds)
 {
@@ -572,15 +578,50 @@ MU_TEST(test_every_interrupt_driven_mode_loop_feeds)
 	size_t i;
 
 	for (i = 0; i < sizeof(sources) / sizeof(sources[0]); i++) {
-		char msg[320];
+		char line[512], msg[448], above[512] = "";
+		int in_block = 0, lineno = 0, above_line = 0, fed = 0;
+		FILE *f = fopen(sources[i], "r");
+
+		snprintf(msg, sizeof(msg), "cannot read %s", sources[i]);
+		mu_assert(f != NULL, msg);
+
+		while (fgets(line, sizeof(line), f) != NULL) {
+			char *p;
+
+			lineno++;
+			strip_comments(line, &in_block);
+
+			if (strstr(line, "watchdog_usb_ready();") != NULL) {
+				fed++;
+				snprintf(msg, sizeof(msg),
+				         "%s:%d: the feed's nearest line of code above is "
+				         "%s:%d, which opens no loop, so this mode feeds "
+				         "the watchdog once instead of once per pass",
+				         sources[i], lineno, sources[i], above_line);
+				mu_assert(strstr(above, "while (") != NULL ||
+				          strstr(above, "while(") != NULL ||
+				          strstr(above, "for (") != NULL ||
+				          strstr(above, "for(") != NULL ||
+				          strstr(above, "do {") != NULL, msg);
+				continue;
+			}
+
+			/* Remember the line above: skip blanks, what is left of a
+			 * comment, and a line that is nothing but an opening brace. */
+			for (p = line; *p == ' ' || *p == '\t'; p++)
+				;
+			if (*p == '\0' || *p == '\n' || strcmp(p, "{\n") == 0)
+				continue;
+			snprintf(above, sizeof(above), "%s", line);
+			above_line = lineno;
+		}
+		fclose(f);
 
 		snprintf(msg, sizeof(msg),
-		         "%s services USB from the USB interrupt but its loop "
-		         "never calls watchdog_usb_ready(), so a quiet host "
-		         "would have the watchdog reset a working board",
-		         sources[i]);
-		mu_assert(source_has(sources[i], "watchdog_usb_ready();",
-		                     NULL) == 1, msg);
+		         "%s services USB from the USB interrupt but never calls "
+		         "watchdog_usb_ready(), so a quiet host would have the "
+		         "watchdog reset a working board", sources[i]);
+		mu_assert(fed > 0, msg);
 	}
 }
 

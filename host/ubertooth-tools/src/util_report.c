@@ -283,6 +283,12 @@ int util_report_watchdog(FILE *out, const uint8_t *info, size_t len)
 {
 	char cause[64];
 
+	/* Unreachable from ubertooth-util, which passes a fixed-size array that
+	 * libubertooth has already refused if the board sent fewer bytes. It is
+	 * here so that a caller which skipped that check gets nothing rather
+	 * than a report half-filled from whatever the array held; that caller
+	 * has the reply length and is the one able to say what went wrong, which
+	 * is why nothing is printed here. */
 	if (info == NULL || len < UBERTOOTH_WATCHDOG_INFO_LEN)
 		return 1;
 

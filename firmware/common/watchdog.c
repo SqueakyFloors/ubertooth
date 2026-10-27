@@ -81,9 +81,11 @@ _Static_assert((int)WATCHDOG_RESET_POWER_ON == RSID_POR &&
 /*
  * Set once the watchdog is armed, and the one thing the feed checks. Before
  * that the feed does nothing, which is what makes this file safe to compile
- * into an image that never arms it: the bootloader links the USB hardware
- * layer, and a feed from there must not start writing to a watchdog the
- * bootloader is not running.
+ * into an image that never arms it. Two images are in that position: the
+ * test images usb_test and assembly_test link the USB service path, so they
+ * call the feed, but they have no main loop that would arm the watchdog
+ * first. Without this guard they would start writing to a watchdog that is
+ * not running.
  */
 static volatile uint8_t watchdog_armed = 0;
 

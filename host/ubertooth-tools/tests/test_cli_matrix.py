@@ -222,6 +222,30 @@ class NotRun(object):
     stderr = ""
 
 
+def resolve_defines(phrase, tests_dir):
+    """Fill {define:NAME} in a phrase from the firmware interface header.
+
+    A man page that quotes a number out of that header is only right until
+    someone changes the header, and nothing otherwise connects the two. A
+    spec phrase written with the placeholder is checked against the value
+    the build actually uses.
+    """
+    header = os.path.join(tests_dir, "..", "..", "libubertooth", "src",
+                          "ubertooth_interface.h")
+    with open(header) as handle:
+        text = handle.read()
+
+    def value_of(match):
+        name = match.group(1)
+        found = re.search(r"^#define\s+%s\s+(\S+)" % re.escape(name), text,
+                          re.M)
+        if found is None:
+            raise AssertionError("%s does not define %s" % (header, name))
+        return found.group(1)
+
+    return re.sub(r"\{define:(\w+)\}", value_of, phrase)
+
+
 def run(arguments, directory):
     """Run the tool in an empty directory, so a created file is visible."""
     resolved = [os.path.join(directory, argument)
@@ -642,6 +666,18 @@ def check_the_spec_lists_every_option():
                     problems.append((MAN_PAGE_CASE,
                                      "%s says %r: %s" % (page, phrase,
                                                          complaint)))
+            # A number the page quotes from the firmware interface, written
+            # as a phrase with {define:NAME} where the value goes. The page
+            # and the header drift apart silently otherwise: a reader has no
+            # way to tell that the timeout the page promises is last
+            # release's.
+            for phrase in CONTRACT.get("man_must_say", []):
+                wanted = resolve_defines(phrase, here)
+                if " ".join(wanted.split()) not in flowed:
+                    problems.append((MAN_PAGE_CASE,
+                                     "%s does not say %r, which is what the "
+                                     "header it quotes now says"
+                                     % (page, wanted)))
 
     written = CONTRACT.get("optstring")
     if written is None:
