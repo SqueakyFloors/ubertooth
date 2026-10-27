@@ -21,7 +21,7 @@ FW_DIR := ..
 HOST_DFU := ../../host/ubertooth-tools/src
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_le_phy_order test_le_frag_shape test_grmdm_rx_generic test_tx_generic_bounds test_write_registers_bounds test_btbr_hop test_btbr_rx_deadline test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info
+TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_le_phy_order test_le_frag_shape test_le_phy_logic test_grmdm_rx_generic test_tx_generic_bounds test_write_registers_bounds test_btbr_hop test_btbr_rx_deadline test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info
 BINDIR  := bin
 
 .PHONY: all test clean
@@ -128,6 +128,33 @@ $(BINDIR)/test_le_frag_shape: test_le_frag_shape.c minunit.h source_scan.h \
 		| $(BINDIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
 		-o $@ test_le_frag_shape.c
+
+# The low-energy capture engine, run rather than scanned. stubs-lephy/ puts a
+# fake register file under the firmware's own ubertooth.h, so the LED macros,
+# the pin numbers and the prototypes are the firmware's: see that header. The
+# real packet queue (ubertooth_usb.c) and the engine itself are included into
+# the test, because what is under test is static in both; queue.c and
+# bluetooth_le.c are pure logic and link as they are. -Istubs-lephy comes
+# first so its ubertooth.h and lpc17.h win, then stubs-usbq for the lpcusb
+# stand-in the queue needs.
+$(BINDIR)/test_le_phy_logic: test_le_phy_logic.c minunit.h \
+		stubs-lephy/ubertooth.h stubs-lephy/lpc17.h stubs-usbq/usbapi.h \
+		$(FW_RXTX)/le_phy.c $(FW_RXTX)/ubertooth_usb.c \
+		$(FW_RXTX)/ubertooth_usb.h $(FW_RXTX)/queue.c \
+		$(FW_RXTX)/bluetooth_le.c $(FW_RXTX)/bluetooth_le.h \
+		$(FW_COMMON)/lpc17.h $(FW_COMMON)/ubertooth.h \
+		$(FW_COMMON)/cc2400_wait.h $(FW_COMMON)/usb_irq.h | $(BINDIR)
+# Three kinds of noise come from compiling le_phy.c on a 64-bit host. It
+# drains the SSP into a variable it does not use, twice; it declares two
+# locals in the connection-request handler that nothing reads; and the DMA
+# descriptors it builds hold addresses as 32-bit words, which a host pointer
+# does not fit. None of that is what this tests, and none of it is this
+# change's. UBERTOOTH_ONE is the board the shipped image is built for.
+	$(CC) $(CFLAGS) -Istubs-lephy -Istubs-usbq $(CPPFLAGS) -I$(FW_LPCUSB) \
+		-I$(FW_COMMON) -DUBERTOOTH_ONE -DFW_HOST_TEST \
+		-Wno-unused-variable -Wno-pointer-to-int-cast \
+		-o $@ test_le_phy_logic.c $(FW_RXTX)/queue.c \
+		$(FW_RXTX)/bluetooth_le.c
 
 # grmdm_packet_mode() is a bit test in cc2400.h, so it runs here; the
 # rx_generic() that uses it is hardware code, so the same test scans
