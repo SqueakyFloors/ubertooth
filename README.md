@@ -154,6 +154,18 @@ works from both images. A tool run against the wrong image is refused rather
 than left waiting: the other tools report a firmware API version they do not
 accept, and `ubertooth-btbr` says it could not set the Ubertooth up.
 
+To see which image a board is carrying, ask it — `-v` names the image as well
+as the revision, and answers whichever image is running:
+
+```sh
+$ ubertooth-util -U <serial> -v
+Firmware version: bluetooth_rxtx git-26d4c11 (API:1.33)
+```
+
+`ubertooth-dfu` names what is in a firmware file before it writes anything
+(`Image: btbr git-26d4c11 (API:1.33)`), and refuses a file that is not an
+Ubertooth image, so the wrong file is caught before the board is touched.
+
 See also the [Ubertooth overview man page](host/doc/ubertooth.md).
 
 --------------------

@@ -81,6 +81,13 @@ Choosing the tool and firmware
 ``ubertooth-btbr`` only. Flash it with
 ``ubertooth-dfu -d btbr/btbr.dfu -r`` (see :ref:`the-two-firmware-images`),
 and flash ``bluetooth_rxtx.dfu`` again afterwards to use the other tools.
+``ubertooth-util -v`` says which image a board is carrying, so it confirms
+either switch:
+
+	.. code-block:: sh
+
+		$ ubertooth-util -U <serial> -v
+		Firmware version: btbr git-26d4c11 (API:1.06)
 
 
 

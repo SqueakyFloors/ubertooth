@@ -28,6 +28,32 @@ works from both images. A tool run against the wrong image is refused rather
 than left waiting: the other tools report a firmware API version they do not
 accept, and ``ubertooth-btbr`` says it could not set the Ubertooth up.
 
+``ubertooth-util -v`` names the image a board is carrying, so it is how you
+check which one is on there now, or that a switch worked:
+
+	.. code-block:: sh
+
+		$ ubertooth-util -U <serial> -v
+		Firmware version: bluetooth_rxtx git-26d4c11 (API:1.33)
+		$ ubertooth-util -U <serial> -v     # the same board, flashed with btbr
+		Firmware version: btbr git-26d4c11 (API:1.06)
+
+``ubertooth-dfu`` names what is in a firmware file before it writes anything,
+so the ``Image:`` line says which image is about to be flashed, and a file that
+is not an Ubertooth image is refused before the board is touched:
+
+	.. code-block:: sh
+
+		$ ubertooth-dfu -U <serial> -d firmware/btbr/btbr.dfu -r
+		Checking firmware signature
+		Image: btbr git-26d4c11 (API:1.33)
+
+The two API versions above are different numbers: the ``Image:`` line takes
+its version from the file, while ``-v`` reports the USB ``bcdDevice`` the
+running firmware answers with, which ``btbr`` fixes at 1.06. See
+:ref:`what-version-am-i-running` below, and ubertooth-util(1) and
+ubertooth-dfu(1).
+
 How To Update Firmware
 ~~~~~~~~~~~~~~~~~~~~~~
 
@@ -103,6 +129,8 @@ On Linux, verify the bootloader USB ID before flashing:
 Then run the DFU command immediately.
 
 
+
+.. _what-version-am-i-running:
 
 What Version Am I Running? 
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
