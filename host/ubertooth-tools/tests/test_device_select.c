@@ -448,6 +448,77 @@ MU_TEST(index_zero_and_no_index_open_the_only_device)
 	ubertooth_free(ut);
 }
 
+/* A handle remembers the board the user named, as they wrote it: that is what
+ * lets a message about this one board say which it is, rather than offering to
+ * reflash every board attached. Where they named none, there is no board to
+ * name, and the message says so instead of naming the one the library
+ * happened to open. */
+MU_TEST(a_handle_remembers_the_board_the_user_named)
+{
+	char msg[256];
+	ubertooth_t *ut;
+
+	bus_with_ubertooths(3);
+	ut = select_capturing("1", msg, sizeof(msg));
+	mu_assert_fatal(ut != NULL, "-U1 of three devices opens one");
+	mu_assert(ut->selector != NULL && strcmp(ut->selector, "1") == 0,
+	          "the index the user gave");
+	ubertooth_stop(ut);
+	ubertooth_free(ut);
+
+	bus_with_two_serials();
+	ut = select_capturing(SERIAL_A, msg, sizeof(msg));
+	mu_assert_fatal(ut != NULL, "a full serial opens that board");
+	mu_assert(ut->selector != NULL && strcmp(ut->selector, SERIAL_A) == 0,
+	          "the serial the user gave");
+	ubertooth_stop(ut);
+	ubertooth_free(ut);
+
+	bus_with_ubertooths(1);
+	ut = select_capturing(NULL, msg, sizeof(msg));
+	mu_assert_fatal(ut != NULL, "no -U opens the only device");
+	mu_assert(ut->selector == NULL, "no board was named");
+	ubertooth_stop(ut);
+	ubertooth_free(ut);
+
+	/* The other form of the same selection, for the tools that allocate a
+	 * handle and then connect it. */
+	bus_with_ubertooths(3);
+	ut = ubertooth_init();
+	mu_assert_fatal(ut != NULL, "cannot allocate a handle");
+	mu_assert(ubertooth_connect_select(ut, "2") >= 0, "-U2 of three connects");
+	mu_assert(ut->selector != NULL && strcmp(ut->selector, "2") == 0,
+	          "the index the user gave");
+	ubertooth_stop(ut);
+	ubertooth_free(ut);
+
+	/* A handle that has opened no device names no board. Nothing has set
+	 * the field at that point, so a message about "this one board" printed
+	 * from such a handle would print whatever the heap last held there. */
+	bus_with_ubertooths(1);
+	ut = ubertooth_init();
+	mu_assert_fatal(ut != NULL, "cannot allocate a handle");
+	mu_assert(ut->selector == NULL, "a fresh handle names no board");
+	ubertooth_free(ut);
+
+	/* And the quiet selection the reset wait polls with, which reopens the
+	 * board the user named. */
+	bus_with_two_serials();
+	ut = ubertooth_start_select_quiet(SERIAL_B);
+	mu_assert_fatal(ut != NULL, "the quiet selection opens that board");
+	mu_assert(ut->selector != NULL && strcmp(ut->selector, SERIAL_B) == 0,
+	          "the serial the user gave");
+	ubertooth_stop(ut);
+	ubertooth_free(ut);
+
+	bus_with_ubertooths(1);
+	ut = ubertooth_start_select_quiet(NULL);
+	mu_assert_fatal(ut != NULL, "the quiet selection opens the only board");
+	mu_assert(ut->selector == NULL, "no board was named");
+	ubertooth_stop(ut);
+	ubertooth_free(ut);
+}
+
 MU_TEST(the_error_names_the_index_and_the_count)
 {
 	char msg[256];
@@ -1053,6 +1124,7 @@ int main(void)
 	MU_RUN(the_largest_representable_index_is_an_ordinary_refusal);
 	MU_RUN(a_nonzero_index_with_one_device_opens_nothing);
 	MU_RUN(index_zero_and_no_index_open_the_only_device);
+	MU_RUN(a_handle_remembers_the_board_the_user_named);
 	MU_RUN(the_error_names_the_index_and_the_count);
 	MU_RUN(several_devices_with_no_index_still_list_them);
 	MU_RUN(no_device_attached_opens_nothing);

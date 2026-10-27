@@ -1432,7 +1432,11 @@ void ubertooth_free(ubertooth_t* ut)
 
 ubertooth_t* ubertooth_init()
 {
-	ubertooth_t* ut = (ubertooth_t*)malloc(sizeof(ubertooth_t));
+	/* Zeroed, so a field added to the handle starts at nothing rather than
+	 * at whatever the heap last held there. The assignments below are the
+	 * handle's resting state spelled out; only clk100ns_period is not zero.
+	 * The quiet selection below allocates the same way. */
+	ubertooth_t* ut = (ubertooth_t*)calloc(1, sizeof(ubertooth_t));
 	if(ut == NULL) {
 		fprintf(stderr, "error: unable to allocate memory\n");
 		return NULL;
@@ -1447,6 +1451,7 @@ ubertooth_t* ubertooth_init()
 	}
 
 	ut->devh = NULL;
+	ut->selector = NULL;
 	ut->rx_xfer = NULL;
 	ut->rx_xfer_state = RX_XFER_OURS;
 	ut->rx_stream_status = 0;
@@ -1683,6 +1688,10 @@ ubertooth_t* ubertooth_start_select_quiet(const char* u_arg)
 		return NULL;
 	}
 	ut->devh = devh;
+	/* As in ubertooth_start_select(): a reset wait reopens the board the
+	 * user named, and a message about it afterwards still names it. */
+	if (kind == SELECTOR_INDEX || kind == SELECTOR_SERIAL)
+		ut->selector = u_arg;
 	return ut;
 }
 
