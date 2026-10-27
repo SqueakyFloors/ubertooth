@@ -274,6 +274,18 @@ MU_TEST(every_record_carries_the_packets_readings)
  * The round trip: what the host makes of the records
  * ------------------------------------------------------------------ */
 
+/* These cases are about the bytes of a packet, not its timing, so they pass
+ * an arrival reading of zero and keep the one reported back out of the way. */
+static int reassemble(le_usb_reassembly *state, const usb_pkt_rx *frame,
+                      const uint8_t **data, uint16_t *length,
+                      const usb_pkt_rx **metadata)
+{
+	uint64_t ignored_arrival_ns;
+
+	return le_usb_reassemble(state, frame, 0, data, length, metadata,
+	                         &ignored_arrival_ns);
+}
+
 /* Hands every queued record to the host's reassembly and checks that the one
  * packet that comes out is the one that went in. */
 static void round_trip(unsigned total)
@@ -291,7 +303,7 @@ static void round_trip(unsigned total)
 	mu_assert_int_eq(1, queue_packet(total));
 
 	while ((r = dequeue()) != NULL) {
-		int result = le_usb_reassemble(&state, r, &data, &length, &metadata);
+		int result = reassemble(&state, r, &data, &length, &metadata);
 
 		mu_assert(result != LE_REASSEMBLY_ERROR,
 		          "the host refused a record the firmware sent");
@@ -337,8 +349,8 @@ MU_TEST(a_single_record_packet_is_handed_over_whole)
 	usb_queue_init();
 	mu_assert_int_eq(1, queue_packet(20));
 	mu_assert_int_eq(LE_REASSEMBLY_COMPLETE,
-	                 le_usb_reassemble(&state, dequeue(), &data, &length,
-	                                   &metadata));
+	                 reassemble(&state, dequeue(), &data, &length,
+	                            &metadata));
 	mu_assert_int_eq(DMA_SIZE, (int)length);
 	mu_assert(memcmp(data, whole, 20) == 0,
 	          "the record does not carry the packet");

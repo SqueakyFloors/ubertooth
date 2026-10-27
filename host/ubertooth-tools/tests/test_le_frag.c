@@ -277,26 +277,23 @@ MU_TEST(a_promiscuous_state_record_does_not_break_a_packet)
 
 	/* Between packets it is simply not a packet. */
 	mu_assert_int_eq(LE_REASSEMBLY_ERROR,
-	                 le_usb_reassemble(&state, &promisc, &data, &length,
-	                                   &metadata));
+	                 reassemble(&state, &promisc, &data, &length,
+	                            &metadata));
 
 	make_fragment(&frame, 120, packet, 0);
 	mu_assert_int_eq(LE_REASSEMBLY_WAIT,
-	                 le_usb_reassemble(&state, &frame, &data, &length,
-	                                   &metadata));
+	                 reassemble(&state, &frame, &data, &length, &metadata));
 	mu_assert_int_eq(LE_REASSEMBLY_ERROR,
-	                 le_usb_reassemble(&state, &promisc, &data, &length,
-	                                   &metadata));
+	                 reassemble(&state, &promisc, &data, &length,
+	                            &metadata));
 
 	/* And the packet still completes. */
 	make_fragment(&frame, 120, packet, 50);
 	mu_assert_int_eq(LE_REASSEMBLY_WAIT,
-	                 le_usb_reassemble(&state, &frame, &data, &length,
-	                                   &metadata));
+	                 reassemble(&state, &frame, &data, &length, &metadata));
 	make_fragment(&frame, 120, packet, 100);
 	mu_assert_int_eq(LE_REASSEMBLY_COMPLETE,
-	                 le_usb_reassemble(&state, &frame, &data, &length,
-	                                   &metadata));
+	                 reassemble(&state, &frame, &data, &length, &metadata));
 	mu_assert_int_eq(120, length);
 	mu_assert(memcmp(data, packet, 120) == 0,
 	          "a state record in the middle changed the packet");
