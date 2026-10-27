@@ -824,7 +824,8 @@
   a pipe nothing was reading yet or taken by a descheduled process.
   [#589](https://github.com/SqueakyFloors/ubertooth/issues/589)
 - The `systime` of each packet line, and the host time a `-d` dump stores with
-  each record, come from the same reading. A stalled host's dump used to carry
+  each record, now come from the reading the record arrived with, the same one
+  a capture's timestamps are anchored on. A stalled host's dump used to carry
   every time late, replay that late, and disagree with the capture written
   beside it in the same run.
   [#612](https://github.com/SqueakyFloors/ubertooth/issues/612)

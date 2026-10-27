@@ -53,10 +53,20 @@ uint64_t ubertooth_packet_arrival_ns(void);
  * dump anchors its capture on. Takes the reading the record arrived with, the
  * one the ring buffer carries, and places it the same way the capture's own
  * timestamps are placed, so a dump and a PCAP written side by side in one run
- * agree about when the packets arrived. Reading the host clock here instead
- * would carry however long the capture's loop took to reach the record into
- * the column, into the dump, and into every time a replay of that dump
- * reconstructs. A replayed record keeps the host time it was recorded with. */
+ * put the packet at the same moment, to within the whole second a dump
+ * stores. Reading the host clock here instead would carry however long the
+ * capture's loop took to reach the record into the column, into the dump, and
+ * into every time a replay of that dump reconstructs. A replayed record keeps
+ * the host time it was recorded with.
+ *
+ * Only the thread that drains the ring buffer may call this, the same
+ * constraint and for the same reason as the routine above: it reads systime
+ * and infile.
+ *
+ * Two readings that come from the same arrival are still placed by separate
+ * clock reads, and a packet is stamped per record while a capture's times
+ * count board ticks from one anchor, so the two drift apart over a long
+ * capture and the agreement above is only ever to within that second. */
 uint32_t ubertooth_packet_systime(uint64_t arrival_ns);
 
 void cb_afh_initial(ubertooth_t* ut, void* args);

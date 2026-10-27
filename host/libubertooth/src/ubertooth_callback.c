@@ -709,7 +709,11 @@ void cb_btle(ubertooth_t* ut, void* args)
 	}
 
 	/* The host time this record arrived, which the dump below stores with
-	 * it. A replayed record keeps the one it was recorded with. */
+	 * it. A replayed record keeps the one it was recorded with. Per record,
+	 * because that is what the dump stores: a packet that arrived as a
+	 * chain of records is printed with the arrival of the one that
+	 * completed it, while the capture below places it where the chain
+	 * started. */
 	systime = ubertooth_packet_systime( arrival_ns );
 
 	/* Sanity check */

@@ -1300,8 +1300,7 @@ static void cb_dump_full(ubertooth_t* ut, void* args __attribute__((unused)))
 		return;
 
 	fprintf(stderr, "rx block timestamp %u * 100 nanoseconds\n", rx->clk100ns);
-	/* The host time this record arrived. A replayed record keeps the one it
-	 * was recorded with, which stream_rx_file() left in systime. */
+	/* The host time this record arrived. */
 	systime = ubertooth_packet_systime(arrival_ns);
 	uint32_t time_be = htobe32(systime);
 	if (dumpfile == NULL) {
