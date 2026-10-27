@@ -299,9 +299,9 @@ MU_TEST(a_record_ahead_of_the_rest_does_not_add_a_period)
 /* Only between the capture's first two packets is a lower reading read any way
  * but as a wrap. Further in it is still read as one, as it always was, even
  * where the host times say otherwise. This pins where the decision stops, not
- * that a stray further in is beyond settling: settling that needs a count of
- * how many wraps a gap holds rather than whether it holds one, because a gap
- * longer than a period leaves the clock reading higher than it did. */
+ * that a stray further in is beyond settling: settling that needs the gap read
+ * as a number of wraps rather than as one wrap or none, because by then a
+ * capture can have been quiet for longer than a period. */
 MU_TEST(a_lower_reading_further_in_is_still_a_wrap)
 {
 	ubertooth_t ut;
@@ -981,7 +981,12 @@ MU_TEST(a_stall_does_not_reject_a_counted_gap_at_the_start)
  * records read 1 s and 2 s, so the second reads lower; what makes it a
  * leftover rather than a wrap is that it arrived a millisecond before the
  * record after it, with no room for the 298.68 s a wrap there would mean. The
- * capture is anchored on its own first record. */
+ * capture is anchored on its own first record.
+ *
+ * This case comes out the same whichever reading the gap is measured on, since
+ * a leftover record is one that arrived close to the record after it either
+ * way. What it covers is that the live path reaches the decision at all, which
+ * no case could check before. */
 MU_TEST(a_leftover_first_record_is_found_on_a_live_capture)
 {
 	ubertooth_t ut;

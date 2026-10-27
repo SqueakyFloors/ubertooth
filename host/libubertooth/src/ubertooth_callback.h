@@ -44,7 +44,8 @@ void ubertooth_capture_clock_reset(ubertooth_t* ut);
  * A live capture calls this from the thread its transfers complete on, which
  * is safe because a capture that has one is never a replay: infile is NULL for
  * the whole of it, so nothing here reads systime, which that thread does not
- * own. A replay has no such thread. */
+ * own. A replay has no such thread. Reading infile itself is safe either way,
+ * because the one tool that sets it does so before any thread exists. */
 uint64_t ubertooth_packet_arrival_ns(void);
 
 void cb_afh_initial(ubertooth_t* ut, void* args);
