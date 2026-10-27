@@ -46,6 +46,34 @@
 /* Maximum transmission size, for debug purpose */
 #define	WAIT_RX_MAX	1500 
 
+/* CLKN_OFFSET counts the slot clock in 100ns steps. The air carries one symbol
+ * per microsecond, so an air byte takes 8usec. */
+#define RX_CLKN_PER_USEC	(CLK100NS_SECOND/1000000)
+#define RX_CLKN_PER_AIR_BYTE	(8*RX_CLKN_PER_USEC)
+
+/* The radio's sync word register holds the low half of the 64-bit access code,
+ * so the packet strobe goes low with the high half still to come. Those four
+ * bytes land in the DMA buffer, where rx_buf_update() skips them, and they
+ * arrive after the strobe, not before it. */
+#define RX_SYNC_WORD_BYTES	4
+
+/* How much later than the air says a byte may still turn up. The radio's symbol
+ * timing is not exact, and the SSP FIFO sits between the radio and the DMA
+ * controller, so allow four bytes' worth. */
+#define RX_WAIT_SLACK_BYTES	4
+
+/* No wait may run past the end of the clkn tick, because the slot clock
+ * restarts there and a deadline beyond it would never be reached. Stop 10usec
+ * short of the restart, which still leaves the loop time to see the deadline
+ * pass, and is later than the last byte of the longest wait -- the first chunk
+ * of a payload -- is ever due.
+ *
+ * It assumes a tick of the usual length. btphy_adj_clkn_delay() can shorten one
+ * tick to move the slave clock onto a master's, and a wait in that tick would
+ * not see its deadline; the next tick is back to full length, so such a wait
+ * costs one more tick rather than running forever. */
+#define RX_WAIT_LATEST		(CLKN_OFFSET_RESET_VAL-100)
+
 /* Maximum size we can RX in WAIT_RX_MAX
  * (minus 2 bytes to avoid crashing in case we're unlucky.)
  */
@@ -85,9 +113,46 @@ static unsigned rx_buf_update(void)
 	rx_task.rx_offset = size;
 
 	/* Skip 32-bits of syncword*/
-	if (size > 4)
-		return size-4;
+	if (size > RX_SYNC_WORD_BYTES)
+		return size-RX_SYNC_WORD_BYTES;
 	return 0;
+}
+
+/*
+ * Wait until the DMA controller has `want` bytes of the packet, or until the
+ * slot clock says those bytes are overdue. Returns how many bytes are there,
+ * which is fewer than `want` if the deadline passed.
+ *
+ * Bytes only appear while the radio keeps clocking symbols into the SSP, so a
+ * radio that stops part-way through a packet, or a DMA transfer that never
+ * finishes, leaves nothing to end the wait. This runs from a slot task in
+ * TIMER0_IRQHandler, and USB in this image is served from an interrupt of the
+ * same priority, so a wait that never ends means the board answers the host
+ * nothing until it is re-plugged.
+ *
+ * The deadline is the slot clock, not a number of polls, because the bytes are
+ * due at a known time: the sync word was detected at pkt_time, and after that
+ * the air delivers one byte every 8usec. A poll count would wait for a
+ * different length of time on every change to this code or the clock speed.
+ */
+static unsigned rx_wait_bytes(unsigned want)
+{
+	/* pkt_time is the slot clock when the packet strobe went low. `want` is
+	 * what rx_buf_update() reports, so the DMA controller has to reach the
+	 * high half of the access code as well, and every one of those bytes is
+	 * still to come. */
+	unsigned due = rx_task.pkt_time
+			+ (want+RX_SYNC_WORD_BYTES+RX_WAIT_SLACK_BYTES)
+			  *RX_CLKN_PER_AIR_BYTE;
+	unsigned size;
+
+	if (due > RX_WAIT_LATEST)
+		due = RX_WAIT_LATEST;
+
+	while ((size=rx_buf_update()) < want && CLKN_OFFSET < due)
+		;
+
+	return size;
 }
 
 /* Stop RX and call user callback */
@@ -182,11 +247,16 @@ static int rx_prepare(uint8_t p1, uint8_t p2, uint16_t p3)
 
 static int rx_pkt_hdr_callback(void)
 {
-	unsigned size;
 	btctl_rx_pkt_t *pkt = rx_task.rx_pkt;
 
 	/* Wait for 32 bits sw + 4bits trailer + 54 bits header*/
-	while((size=rx_buf_update()) < NUM_PKT_HDR_BYTES);
+	if (rx_wait_bytes(NUM_PKT_HDR_BYTES) < NUM_PKT_HDR_BYTES)
+	{
+		/* The header is overdue, so there is nothing to decode. Report
+		 * it the way a header that fails to decode is reported: no
+		 * header flag on the packet. */
+		return -1;
+	}
 
 	/* Decode pkt's header (skipping 32-bits of syncword in the dma_buf) & configure codec */
 	if(bbcodec_decode_header(&rx_task.codec, &pkt->bb_hdr, rx_task.rx_dma_buf+4))
@@ -202,14 +272,26 @@ static int rx_pkt_hdr_callback(void)
 	return 0;
 }
 
-static void rx_data_hdr_callback(void)
+static int rx_data_hdr_callback(void)
 {
 	int rc;
 	unsigned size;
 	btctl_rx_pkt_t *pkt = rx_task.rx_pkt;
 
 	/* Wait for a full chunk */
-	while((size=rx_buf_update()) < NUM_DATA_HDR_BYTES);
+	size = rx_wait_bytes(NUM_DATA_HDR_BYTES);
+	if (size < NUM_DATA_HDR_BYTES)
+	{
+		/* Too little arrived to decode a chunk from. Take the header
+		 * flag back off the packet, which reports it as a receive that
+		 * produced nothing -- the same thing a header that fails to
+		 * decode reports. It also keeps rx_finalize() out of
+		 * bbcodec_decode_finalize(), which stops the firmware when it
+		 * is handed a part-decoded payload. The decoded header itself
+		 * is left alone: the flag is what every reader keys on. */
+		pkt->flags &= ~((1<<BBPKT_F_HAS_HDR)|(1<<BBPKT_F_HAS_CRC));
+		return -1;
+	}
 
 	/* Decode first data chunk, for the payload header */
 	if((rc=bbcodec_decode_chunk(&rx_task.codec, pkt->bt_data, &pkt->bb_hdr, rx_task.rx_dma_buf+4, size)))
@@ -220,6 +302,8 @@ static void rx_data_hdr_callback(void)
 			DIE("dec hdr %d: rc=%d\n", pkt->bb_hdr.type, rc);
 
 	}
+
+	return 0;
 }
 
 // 0
@@ -254,11 +338,9 @@ static int rx_execute(uint8_t p1, uint8_t p2, uint16_t p3)
 			/* If this packet kind has data in it */
 			if (rx_task.codec.t->payload_bytes)
 			{
-				/* Decode the data header */
-				rx_data_hdr_callback();
-
-				/* If the data is not fully decoded yet */
-				if (!rx_task.rx_done)
+				/* Decode the data header, and if the data is not
+				 * fully decoded yet, carry on in the next slot */
+				if (rx_data_hdr_callback() == 0 && !rx_task.rx_done)
 				{
 					/* Maximum decode count */
 					rx_task.slot_num = rx_task.codec.t->nslots*2-1;
