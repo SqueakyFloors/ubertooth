@@ -178,7 +178,11 @@ board usually needs `ubertooth-util [-U <selector>] -S` or `-r` afterwards, and
 one that answers neither usually resets itself about three seconds later and
 comes back idle.
 
-A capture that is losing packets says so. A receive transfer that arrived with
+A streaming capture that is losing packets says so. This is the path
+`ubertooth-dump`, `ubertooth-rx`, `ubertooth-afh`, `ubertooth-follow` and
+`ubertooth-specan` read through; `ubertooth-btle` and `ubertooth-ego` poll for
+their packets instead, and those two still drop a short reply without a word.
+A receive transfer that arrived with
 part of a packet cannot be read as a record, so it is dropped, and the capture
 reports it once per run, because such a fault usually repeats: `warning: a
 receive transfer arrived with 32 of a packet's 64 bytes and was dropped; the
