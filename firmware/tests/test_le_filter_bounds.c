@@ -15,6 +15,7 @@
  * the firmware's bounds are the modelled ones. A firmware bound that drifts
  * from the model fails the scan rather than passing unseen.
  */
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -312,29 +313,37 @@ MU_TEST(the_firmware_uses_the_modelled_bounds)
 	          "le_phy.c's two-address bound is not header + two addresses "
 	          "+ CRC");
 
-	mu_assert(strstr(source, "if (buf->size < LE_ONE_ADDR_SIZE) return 0;")
-	          != NULL,
-	          "a capture shorter than LE_ONE_ADDR_SIZE is not refused");
-	mu_assert(strstr(source, "if (buf->size < LE_TWO_ADDR_SIZE) return 0;")
-	          != NULL,
-	          "a capture shorter than LE_TWO_ADDR_SIZE is not refused");
-
-	/* The addresses are read from where the model reads them. */
-	mu_assert(strstr(source, "return bd_addr_cmp(&buf->data[LE_HEADER_LEN]);")
-	          != NULL,
-	          "the one address is not read from just past the header");
+	/* Each bound with the types it guards and the comparison it admits, as
+	 * one run of text: checking the guards on their own would still pass if
+	 * the two were swapped between the case groups. The type bytes are the
+	 * ones the model switches on, in the source's order. */
 	mu_assert(strstr(source,
-	                 "return bd_addr_cmp(&buf->data[LE_HEADER_LEN]) ||"
+	                 "case 0x00: case 0x02: case 0x06: case 0x04:"
+	                 " if (buf->size < LE_ONE_ADDR_SIZE) return 0;"
+	                 " return bd_addr_cmp(&buf->data[LE_HEADER_LEN]);")
+	          != NULL,
+	          "the one-address types do not refuse a capture shorter than "
+	          "LE_ONE_ADDR_SIZE and then compare the address behind the "
+	          "header");
+	mu_assert(strstr(source,
+	                 "case 0x01: case 0x03: case 0x05:"
+	                 " if (buf->size < LE_TWO_ADDR_SIZE) return 0;"
+	                 " return bd_addr_cmp(&buf->data[LE_HEADER_LEN]) ||"
 	                 " bd_addr_cmp(&buf->data[LE_HEADER_LEN + LE_ADDR_LEN]);")
 	          != NULL,
-	          "the two addresses are not read from just past the header");
+	          "the two-address types do not refuse a capture shorter than "
+	          "LE_TWO_ADDR_SIZE and then compare both addresses");
 	mu_assert(strstr(source, "for (i = 0; i < LE_ADDR_LEN; ++i)") != NULL,
 	          "an address is not compared over LE_ADDR_LEN bytes");
 
 	/* And a capture's size still counts all three parts, which is the whole
-	 * reason the CRC belongs in the bounds. */
+	 * reason the CRC belongs in the bounds. Either spelling: writing that
+	 * sum with these constants is the natural follow-up and is no change to
+	 * what it counts. */
 	mu_assert(is_assignment_of(source, "current_rxbuf->size",
-	                           "length + 2 + 3"),
+	                           "length + 2 + 3") ||
+	          is_assignment_of(source, "current_rxbuf->size",
+	                           "length + LE_HEADER_LEN + LE_CRC_LEN"),
 	          "a capture's size is no longer the payload plus header and CRC");
 }
 
