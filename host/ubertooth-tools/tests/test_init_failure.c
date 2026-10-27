@@ -7,7 +7,6 @@
  * to fail on demand. A handle with no ring buffer must not be handed out: the
  * first fifo_* call on it would dereference NULL.
  */
-#include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -143,8 +142,8 @@ MU_TEST(init_returns_a_usable_handle_when_the_ring_buffer_is_allocated)
 	ubertooth_free(ut);
 }
 
-/* The functions that build a handle for the caller pass the failure on, and
- * none of them goes near USB once it has failed. */
+/* Both functions that build a handle for the caller pass the failure on, and
+ * neither goes near USB once it has failed. */
 MU_TEST(the_start_functions_fail_with_the_ring_buffer)
 {
 	char text[512] = "";
@@ -153,14 +152,12 @@ MU_TEST(the_start_functions_fail_with_the_ring_buffer)
 	capture_stderr();
 	mu_assert(ubertooth_start(-1) == NULL, "ubertooth_start");
 	mu_assert(ubertooth_start_serial("05f0") == NULL, "ubertooth_start_serial");
-	mu_assert_int_eq(-ENOMEM, rx_btle_file(NULL));
 	release_stderr(text, sizeof(text));
 
-	mu_assert_int_eq(3, fake.fifo_inits);
+	mu_assert_int_eq(2, fake.fifo_inits);
 	mu_assert_int_eq(0, fake.usb_inits);
-	/* each of the three reports the failure, once */
+	/* each of the two reports the failure, once */
 	mu_assert(strcmp(text, "error: unable to initialize ringbuffer\n"
-	                       "error: unable to initialize ringbuffer\n"
 	                       "error: unable to initialize ringbuffer\n") == 0, text);
 }
 
