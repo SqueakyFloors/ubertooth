@@ -2210,6 +2210,13 @@ struct dispatch_scan {
 	 * -1 until then. A label deeper than this belongs to a nested
 	 * switch. */
 	int switch_level;
+	/*
+	 * A `switch` has been opened inside the case being read and has not
+	 * written its '{' yet. Its labels then sit at the same depth as the
+	 * dispatch's own, and nothing in the text says which switch they
+	 * belong to, so they are reported rather than guessed at.
+	 */
+	int nested_switch_pending;
 };
 
 /* Does a ':' follow, rather than anything else? Then the word before it named
@@ -2470,6 +2477,10 @@ static void visit_dispatch_line(const char *line, const struct body_pos *pos,
 				if (s->awaiting_body && s->pending_count > 0)
 					s->case_level = depth;
 				s->awaiting_body = 0;
+				/* The nested switch wrote its braces after
+				 * all, so its labels sit deeper and are told
+				 * apart by depth. */
+				s->nested_switch_pending = 0;
 				break;
 			case '}':
 				depth--;
@@ -2518,7 +2529,26 @@ static void visit_dispatch_line(const char *line, const struct body_pos *pos,
 			switch (read_case_label(&p, s->prefix, label,
 			                        sizeof(label))) {
 			case LABEL_READ:
-				add_case_label(s, label, depth);
+				if (s->nested_switch_pending) {
+					/* Carries the prefix, but sits where a
+					 * nested switch with no braces put it,
+					 * so which switch it is in cannot be
+					 * told from the text. */
+					if (s->unreadable[0] == '\0') {
+						snprintf(s->unreadable,
+						         sizeof(s->unreadable),
+						         "%s", label);
+						s->unreadable_level = depth;
+					}
+				} else if (s->switch_level >= 0 &&
+				           depth > s->switch_level) {
+					/* Deeper than the dispatch's own
+					 * labels: a nested switch of its own,
+					 * and none of this pass's business. */
+					break;
+				} else {
+					add_case_label(s, label, depth);
+				}
 				break;
 			case LABEL_UNREADABLE:
 				if (s->unreadable[0] == '\0') {
@@ -2628,6 +2658,8 @@ static void visit_dispatch_line(const char *line, const struct body_pos *pos,
 		}
 		if (opens_a_condition(word)) {
 			conditional = 1;
+			if (strcmp(word, "switch") == 0)
+				s->nested_switch_pending = 1;
 			s->awaiting_body = 0;
 			continue;
 		}
@@ -2646,6 +2678,7 @@ static void visit_dispatch_line(const char *line, const struct body_pos *pos,
 	 * can close now. */
 	if (s->leaving) {
 		s->leaving = 0;
+		s->nested_switch_pending = 0;
 		s->resumable_count = 0;
 		if (s->resuming) {
 			memcpy(s->resumable, s->pending,
@@ -3271,6 +3304,48 @@ static const char *const foreign_label_shapes =
 	"}\n";
 
 /*
+ * A nested switch written without braces, with a label carrying the
+ * dispatch's own prefix. Its labels sit at the dispatch's level, so nothing
+ * in the text says which switch they belong to, and taking it for a dispatch
+ * case would file whatever the outer case does under it. It is reported
+ * instead, and the failure says to add the braces.
+ */
+static const char *const unbraced_nested_switch_shapes =
+	"int main(void)\n"
+	"{\n"
+	"	switch (requested_mode) {\n"
+	"	case MODE_ONE:\n"
+	"		switch (sub) case MODE_NESTED_UNBRACED:\n"
+	"			one_work();\n"
+	"		break;\n"
+	"	case MODE_ORDINARY:\n"
+	"		ordinary_work();\n"
+	"		break;\n"
+	"	}\n"
+	"	return 0;\n"
+	"}\n";
+
+/*
+ * The same nested switch with braces, and its label carrying the prefix too.
+ * Depth tells it apart, so it is neither read as a dispatch case nor
+ * reported: it is simply not this pass's business.
+ */
+static const char *const braced_nested_prefix_shapes =
+	"int main(void)\n"
+	"{\n"
+	"	switch (requested_mode) {\n"
+	"	case MODE_ONE:\n"
+	"		switch (sub) {\n"
+	"		case MODE_NESTED_BRACED:\n"
+	"			one_work();\n"
+	"			break;\n"
+	"		}\n"
+	"		break;\n"
+	"	}\n"
+	"	return 0;\n"
+	"}\n";
+
+/*
  * A nested switch's own labels, which are not in the dispatch and must not be
  * reported: they sit deeper than the dispatch's labels.
  *
@@ -3365,6 +3440,29 @@ MU_TEST(a_case_label_the_scan_cannot_read_is_reported)
 	          "the scan walked past `case LEGACY_ALIAS:` in the dispatch's "
 	          "own switch without a word, so a case named that way is "
 	          "classified by nothing");
+
+	mu_assert_fatal(scan_dispatch_text(unbraced_nested_switch_shapes,
+	                                   &shapes),
+	                "cannot scan the written-out dispatch, so the checks "
+	                "below would pass for want of anything to look at");
+	mu_assert(shapes.unreadable[0] != '\0',
+	          "the scan took `case MODE_NESTED_UNBRACED:` for a dispatch "
+	          "case. It is a nested switch's label, written where braces "
+	          "would have put it deeper, so whatever the case around it "
+	          "does would be filed under it");
+	mu_assert_int_eq(2, shapes.case_count);
+
+	mu_assert_fatal(scan_dispatch_text(braced_nested_prefix_shapes,
+	                                   &shapes),
+	                "cannot scan the written-out dispatch, so the checks "
+	                "below would pass for want of anything to look at");
+	mu_assert_int_eq(1, shapes.case_count);
+	mu_assert(shapes.unreadable[0] == '\0',
+	          "the scan reported a braced nested switch's label, which "
+	          "depth already tells apart from the dispatch's own");
+	mu_assert(shapes.foreign[0] == '\0',
+	          "the scan reported a braced nested switch's label as one in "
+	          "the dispatch's own switch");
 
 	mu_assert_fatal(scan_dispatch_text(nested_switch_shapes, &shapes),
 	                "cannot scan the written-out dispatch, so the check "
