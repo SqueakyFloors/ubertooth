@@ -1,0 +1,129 @@
+.\" generated with Ronn-NG/v0.10.1
+.\" http://github.com/apjanke/ronn-ng/tree/0.10.1
+.TH "UBERTOOTH\-BTBR" "1" "October 2026" "Project Ubertooth" "User Commands"
+.SH "NAME"
+\fBubertooth\-btbr\fR \- experimental Classic Bluetooth connections and monitoring
+.SH "SYNOPSIS"
+.nf
+ubertooth\-btbr [\-f <freq_offset>] [\-b <max_ac_errors>]
+.fi
+.SH "DESCRIPTION"
+ubertooth\-btbr(1) takes part in Classic Bluetooth itself, rather than only listening: it can run an inquiry, answer one, page a device, be paged, and watch a connection being set up\. It opens an interactive prompt, \fBbt>\fR, and each command there starts one operation on the board; \fB?\fR lists them\.
+.P
+It is \fBexperimental\fR, and it needs the separate \fBbtbr\fR firmware image\. The other tools, including ubertooth\-rx(1) and ubertooth\-btle(1), need \fBbluetooth_rxtx\fR, so a board is set up for one or the other and switching means reflashing it\. See FIRMWARE below\.
+.P
+At startup the tool gives the board the address \fB11:22:33:44:55:66\fR and the local name \fBUbertooth\fR, which is what an inquiring device sees in the Extended Inquiry Response (EIR)\. Change the address with the \fBbdaddr\fR command\.
+.P
+The host side is the Python module \fBubtbr\fR, which also implements enough of the Link Manager Protocol (LMP) to set up an unencrypted connection\.
+.SH "FIRMWARE"
+Flash the \fBbtbr\fR image, from a build of \fBfirmware/btbr\fR or from a release archive:
+.IP "" 4
+.nf
+ubertooth\-dfu \-d firmware/btbr/btbr\.dfu \-r
+.fi
+.IP "" 0
+.P
+and flash \fBbluetooth_rxtx\.dfu\fR again to go back to the other tools:
+.IP "" 4
+.nf
+ubertooth\-dfu \-d firmware/bluetooth_rxtx/bluetooth_rxtx\.dfu \-r
+.fi
+.IP "" 0
+.P
+A board running \fBbtbr\fR resets as it enters DFU rather than after answering the request, so flashing away from it with \fB\-U <index|serial>\fR fails and leaves the board in the bootloader\. Run the command above without \fB\-U\fR instead: the bootloader is the only device in DFU, so it is flashed without ambiguity\.
+.P
+Starting \fBubertooth\-btbr\fR on a board running \fBbluetooth_rxtx\fR fails with \fBerror: could not set up the Ubertooth: \|\.\|\.\|\.\fR, because that firmware takes none of the requests this tool sends\.
+.SH "OPTIONS"
+.TP
+\fB\-f <0\-65535>\fR
+frequency offset, written to the radio's \fBMOD_OFFSET\fR register\. Sent to the board before the prompt opens, and only when given; a run without it leaves whatever the firmware set\.
+.TP
+\fB\-b <0\-65535>\fR
+how many bit errors a received access code may have and still count as a match\. A higher value finds more packets and more noise\.
+.P
+There is no \fB\-h\fR and no \fB\-U\fR: the tool opens whichever Ubertooth libusb hands it first, so on a machine with several boards it cannot be told which one to use\. See DIAGNOSTICS for what a command line it will not take does\.
+.SH "PROMPT COMMANDS"
+An address is written \fB11:22:33:44:55:66\fR or \fB112233445566\fR\.
+.TP
+\fBinquiry\fR
+discover nearby devices; each response is reported with its EIR
+.TP
+\fBinquiry_scan\fR
+answer inquiries, so nearby devices discover this board
+.TP
+\fBpage_scan\fR
+accept a connection from a device that pages this board
+.TP
+\fBdiscoverable\fR
+\fBinquiry_scan\fR and \fBpage_scan\fR together
+.TP
+\fBpage <BD_ADDR>\fR
+connect to a device as the central, and keep the connection up
+.TP
+\fBl2ping <BD_ADDR>\fR
+page a device and then exchange Logical Link Control and Adaptation Protocol (L2CAP) echo packets with it
+.TP
+\fBmonitor <BD_ADDR>\fR
+watch for a connection being set up to the given peripheral; see MONITOR MODE
+.TP
+\fBbdaddr <BD_ADDR>\fR
+set this board's address
+.TP
+\fBidle\fR
+stop the running command and return the board to standby
+.TP
+\fBexit\fR, \fBq\fR, \fBx\fR, Ctrl\-D
+leave the tool
+.TP
+\fB?\fR, \fB? <command>\fR
+list the commands, or describe one
+.P
+One command runs at a time\. Starting another while one is still running is refused with a \fBNot idle\fR line; \fBidle\fR or Ctrl\-C stops the running one first\.
+.P
+Ctrl\-C at the prompt stops the running command, as \fBidle\fR does, and leaves the prompt up; pressing it again while that command is stopping returns to the prompt\. Before the prompt is up, which includes the hang described under LIMITATIONS, Ctrl\-C ends the tool\.
+.SH "MONITOR MODE"
+\fBmonitor\fR targets the paging phase of a connection, where the central sends the peripheral a Frequency Hop Synchronization (FHS) packet carrying its full address and clock\. If the Ubertooth receives that FHS before the real peripheral does, it joins the new piconet ahead of both devices and reports the packets they exchange, including the unencrypted LMP traffic that opens every connection\. An LMP packet that sets the Adaptive Frequency Hopping (AFH) map is followed, so the capture keeps up when the piconet narrows its channels\.
+.P
+Give it the address of the peripheral being connected to, then make the connection from the other device:
+.IP "" 4
+.nf
+ubertooth\-btbr
+bt> monitor 11:22:33:44:55:66
+.fi
+.IP "" 0
+.P
+If no FHS appears, the peripheral won the race; try again\.
+.SH "LIMITATIONS"
+.IP "\(bu" 4
+The CC2400 radio demodulates Basic Rate only, so Enhanced Data Rate packets cannot be received\. The packet types handled are ID, NULL, POLL, FHS, DM and DH\.
+.IP "\(bu" 4
+Encryption is not implemented\. Packets sent after a connection turns encryption on are reported as raw data, and the AFH map stops being followed, because the LMP packet carrying it is encrypted too\.
+.IP "\(bu" 4
+The link layer carries Asynchronous Connection\-Less (ACL) traffic only, and does not do role switching or the LMP procedures around it\.
+.IP "\(bu" 4
+As the central, it polls the peripheral hard enough to drain its battery\.
+.IP "\(bu" 4
+\fBmonitor\fR is a race against the real peripheral and often takes several attempts\. Packets are lost: get closer, use a better antenna\.
+.IP "\(bu" 4
+The tool may hang shortly after starting, usually right after the EIR setup line (upstream issue #520 \fIhttps://github\.com/greatscottgadgets/ubertooth/issues/520\fR)\. The cause is unresolved\. Ctrl\-C ends it\.
+.IP "" 0
+.SH "DIAGNOSTICS"
+Standard output carries the prompt and the usage text\. Everything else, including the packets a command reports, goes to standard error as log lines of the form \fBHH:MM:SS | INFO | \|\.\|\.\|\.\fR, rather than the \fBerror:\fR and \fBnote:\fR lines the other tools use; this is a known deviation from ubertooth(7), OUTPUT AND DIAGNOSTICS, tracked as issue #410 \fIhttps://github\.com/SqueakyFloors/ubertooth/issues/410\fR\.
+.P
+An option value outside 0\-65535, or one that is not a number, is refused before the board is opened: \fBerror: \-f must be 0\-65535 (got bad)\fR, exit status 1\. An address the prompt will not take is one line, \fBerror: BD_ADDR must be xx:xx:xx:xx:xx:xx (got <word>)\fR, and leaves the prompt up\.
+.P
+Every other command line the tool will not take \(em an unknown option, a missing option value, a stray word, and \fB\-h\fR, which it does not have \(em prints the usage text on standard output with no \fBerror:\fR line and exits 1\. That is part of issue #410 \fIhttps://github\.com/SqueakyFloors/ubertooth/issues/410\fR as well\.
+.P
+With no Ubertooth attached the tool says \fBerror: no Ubertooth devices found\fR and exits 1\.
+.SH "EXIT STATUS"
+0 when the session ended cleanly, which is \fBexit\fR, \fBq\fR, \fBx\fR or Ctrl\-D with nothing left running\. 1 for a command line the tool will not take, when no Ubertooth is found or it cannot be opened, when the board refuses the requests that set the session up, when Ctrl\-C ends the tool before the prompt is up, and when the session ends with a command that would not stop still holding the board\.
+.SH "SEE ALSO"
+ubertooth\-rx(1): passive Classic Bluetooth discovery and following, on the \fBbluetooth_rxtx\fR firmware
+.P
+ubertooth\-dfu(1): flashing the firmware images
+.P
+ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how option values are written
+.P
+\fBfirmware/btbr/README\.md\fR and \fBhost/python/ubtbr/README\.md\fR in the source tree, and the Classic Bluetooth sniffing guide in \fBdocs/\fR\.
+.SH "COPYRIGHT"
+ubertooth\-btbr(1) and the \fBubtbr\fR module are Copyright (c) 2020 Etienne Helluy\-Lafont and are released under the GPLv2; the \fBbtbr\fR firmware is released under the GPLv3 (\fBfirmware/btbr/LICENSE\fR)\. Refer to COPYING \fIhttps://github\.com/SqueakyFloors/ubertooth/blob/main/COPYING\fR for further details\.

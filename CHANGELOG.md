@@ -775,6 +775,10 @@
 - Added the supported platform/toolchain matrix, missing per-tool pages, and
   an archived 2020-12-R1 release guide.
   [#12](https://github.com/SqueakyFloors/ubertooth/issues/12)
+- `ubertooth-btbr` has a man page, a row in the README tool catalog, and a
+  note saying which firmware image each tool needs and how to switch a board
+  between `bluetooth_rxtx` and `btbr`.
+  [#530](https://github.com/SqueakyFloors/ubertooth/issues/530)
 
 ### Under the hood
 

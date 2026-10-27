@@ -36,6 +36,11 @@ Ubertooth itself. Most tools also have a manual page under ``host/doc/``.
   target address. (Needs: BlueZ and a target.)
 - ``ubertooth-scan`` — Active inquiry scan using a BlueZ dongle plus Ubertooth.
   (Needs: a BlueZ Bluetooth dongle.)
+- ``ubertooth-btbr`` — Take part in Classic BT: inquiry, paging, and *monitor*
+  mode, which captures a connection as it is set up. **Experimental**, and the
+  only tool that needs the separate ``btbr`` firmware image rather than
+  ``bluetooth_rxtx`` (see :ref:`the-two-firmware-images` and
+  :doc:`sniffing_BR_EDR`). (Needs: the ``btbr`` image and a Classic BT peer.)
 
 **Signal / low-level**
 

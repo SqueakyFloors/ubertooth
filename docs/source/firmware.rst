@@ -2,6 +2,34 @@
 Firmware
 ========
 
+.. _the-two-firmware-images:
+
+The two firmware images
+~~~~~~~~~~~~~~~~~~~~~~~
+
+A board carries one firmware image at a time, and there are two:
+
+- ``bluetooth_rxtx`` — the standard image, needed by every host tool except
+  one, ``ubertooth-btle`` and ``ubertooth-rx`` included. Built in
+  ``firmware/bluetooth_rxtx``.
+- ``btbr`` — needed by ``ubertooth-btbr`` and nothing else. It implements part
+  of the Classic Bluetooth BR/EDR baseband, which the standard image does not.
+  Built in ``firmware/btbr``; see :doc:`sniffing_BR_EDR`.
+
+Switch a board from one to the other by flashing it:
+
+	.. code-block:: sh
+
+		ubertooth-dfu -d firmware/btbr/btbr.dfu -r                      # for ubertooth-btbr
+		ubertooth-dfu -d firmware/bluetooth_rxtx/bluetooth_rxtx.dfu -r  # for everything else
+
+A board running ``btbr`` resets as it enters DFU rather than after answering
+the request, so flashing it with ``-U <index|serial>`` fails and leaves it in
+the bootloader; flash it without ``-U``, as above. A tool run against the
+wrong image is refused rather than left waiting: the other tools report a
+firmware API version they do not accept, and ``ubertooth-btbr`` says it could
+not set the Ubertooth up.
+
 How To Update Firmware
 ~~~~~~~~~~~~~~~~~~~~~~
 
@@ -114,5 +142,8 @@ This will produce a file named bluetooth_rxtx.dfu which can be written to the Ub
 	.. code-block:: sh
 
 		ubertooth-dfu -d bluetooth_rxtx.dfu -r
+
+The ``btbr`` image is built the same way, in ``firmware/btbr``, and produces
+``btbr.dfu``.
 
 Although firmware source and binary images can be found in the release downloads, you will probably want fresh code from git if you are planning to modify the firmware.
