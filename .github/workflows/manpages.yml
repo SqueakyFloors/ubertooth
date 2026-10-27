@@ -6,19 +6,22 @@ name: Man pages
 # that no longer matches its source. This job runs the refresh and fails if it
 # changes anything.
 #
-# Pull requests run it only when the documentation or this workflow changes,
-# to keep them fast; every push to main runs it, so a refresh missed on a
-# branch is caught on the merge. A manual run is for checking a ronn upgrade.
+# Pull requests run it only when the documentation, this workflow, or the
+# build workflow it reads the libbtbb pin from changes, to keep them fast;
+# every push to main runs it, so a refresh missed on a branch is caught on the
+# merge. A manual run is for checking a ronn upgrade.
 on:
   push:
     branches: [main]
     paths:
       - 'host/doc/**'
       - '.github/workflows/manpages.yml'
+      - '.github/workflows/build.yml'
   pull_request:
     paths:
       - 'host/doc/**'
       - '.github/workflows/manpages.yml'
+      - '.github/workflows/build.yml'
   workflow_dispatch:
 
 # Same cancellation rule as build.yml: only an older run of the same PR is
@@ -37,10 +40,30 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    # The libbtbb this fork builds against is pinned in build.yml's env, and
+    # the host tree refuses a library that is missing what it calls. One
+    # workflow cannot read another's env, so the pin is read out of the file
+    # where it is decided, as the libbtbb-pin workflow does: a copy written
+    # here would be one more thing to keep in step, and this job fetching a
+    # different libbtbb than every other job is exactly the drift that broke
+    # it.
+    - name: Read the pinned libbtbb
+      id: pin
+      run: |
+        build=.github/workflows/build.yml
+        repo=$(sed -n 's/^  LIBBTBB_REPO: *//p' "$build")
+        ref=$(sed -n 's/^  LIBBTBB_REF: *//p' "$build")
+        : "${repo:?is not set in $build}"
+        : "${ref:?is not set in $build}"
+        echo "pinned in $build: $repo at $ref"
+        echo "repo=$repo" >> "$GITHUB_OUTPUT"
+        echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
     - uses: actions/checkout@v4
       name: Fetch libbtbb
       with:
-        repository: 'greatscottgadgets/libbtbb'
+        repository: ${{ steps.pin.outputs.repo }}
+        ref: ${{ steps.pin.outputs.ref }}
         path: 'libbtbb'
 
     - name: Install dependencies
