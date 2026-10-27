@@ -3125,8 +3125,9 @@ int main()
 	debug_uart_init(0);
 	debug_printf("\n\n****UBERTOOTH BOOT****\n%s\n", compile_info);
 
-	/* Last, because from here on two seconds without a USB service pass
-	 * resets the board, and the loop below is what makes those passes. */
+	/* Last, because from here on a board that goes the watchdog timeout
+	 * without a USB service pass resets itself, and the loop below is what
+	 * makes those passes. */
 	watchdog_start();
 
 	while (1) {

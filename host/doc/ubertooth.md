@@ -110,7 +110,7 @@ only what happened, because what it means depends on what the command was
 doing: mid-flash, for instance, it is a bootloader that lost its place, and no
 mode is involved.
 
-A board running this tree's firmware recovers itself: it resets about two
+A board running this tree's firmware recovers itself: it resets about three
 seconds after it stops servicing USB, drops off the bus and comes back idle, so
 the fix is to run the command again. `ubertooth-util [-U <selector>] -w` then
 says how often that has happened and which mode and which wait the board was in

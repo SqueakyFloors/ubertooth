@@ -170,14 +170,14 @@ get microcontroller serial number
 \fB\-w\fR
 get the watchdog state, and why the board last reset itself\. See \fIWATCHDOG\fR; exits non\-zero if the read fails
 .SH "WATCHDOG"
-The firmware resets the board if it goes two seconds without servicing USB\. A board that stops answering the host is useless to it and cannot be recovered from it \(em the reset request travels over USB too \(em so the board recovers itself, re\-enumerates, and comes back idle\. What a capture used to see as a hang is now the board disappearing and coming back; the tools treat a board that has gone as lost and exit\.
+The firmware resets the board if it goes three seconds without servicing USB\. A board that stops answering the host is useless to it and cannot be recovered from it \(em the reset request travels over USB too \(em so the board recovers itself, re\-enumerates, and comes back idle\. What a capture used to see as a hang is now the board disappearing and coming back; the tools treat a board that has gone as lost and exit\.
 .P
 Before it resets, the firmware has already recorded what it was doing in a corner of RAM that a reset does not clear, so \fB\-w\fR can say where the board was stuck:
 .IP "" 4
 .nf
 $ ubertooth\-util \-U <serial> \-w
 Last boot cause: watchdog
-Watchdog: armed; 2000 ms without USB being serviced resets the board
+Watchdog: armed; 3000 ms without USB being serviced resets the board
 Unrequested watchdog resets since power\-on: 2 (in 3 boots)
   the last was in BLE follow mode, waiting for the 16 MHz crystal oscillator
 Now in idle mode, not in a wait

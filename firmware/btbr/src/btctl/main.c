@@ -51,8 +51,8 @@ int main()
 	/* Initialize sync & phy */
 	btphy_init();
 
-	/* Last, as in the other image: from here on two seconds without a USB
-	 * service pass resets the board. */
+	/* Last, as in the other image: from here on a board that goes the
+	 * watchdog timeout without a USB service pass resets itself. */
 	watchdog_start();
 
 	while (1) {
