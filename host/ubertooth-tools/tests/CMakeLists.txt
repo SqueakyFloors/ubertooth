@@ -731,6 +731,34 @@ if(LIBBLUETOOTH_FOUND)
 	# at once; a regression that waits on an adapter or a board should fail
 	# instead of hanging the suite.
 	set_tests_properties(scan-main PROPERTIES TIMEOUT 10)
+
+	# The same for ubertooth-follow, the other BlueZ tool: the order it sets
+	# a board up in. The board's clock must be zeroed before the receive
+	# transfer is submitted, and the asynchronous requests must stay after
+	# the poll thread that completes them.
+	add_executable(test-follow-main test_follow_main.c ../src/follow_afh.c)
+	target_link_libraries(test-follow-main opt-parse-for-tests
+		${LIBBTBB_LIBRARIES} ${LIBBLUETOOTH_LIBRARIES})
+	if(libubertooth_SOURCE_DIR)
+		target_include_directories(test-follow-main PRIVATE
+			${libubertooth_SOURCE_DIR}/src)
+	else()
+		target_include_directories(test-follow-main PRIVATE
+			${LIBUBERTOOTH_INCLUDE_DIR})
+	endif()
+	target_include_directories(test-follow-main PRIVATE ../src
+		${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR}
+		${LIBBLUETOOTH_INCLUDE_DIR})
+	if(USE_OWN_GNU_GETOPT)
+		target_include_directories(test-follow-main BEFORE PRIVATE ../getopt)
+		target_link_libraries(test-follow-main libgetopt_static)
+	endif()
+
+	add_test(NAME follow-main COMMAND test-follow-main)
+	# Every adapter and board call is faked and the faked receive ends the
+	# capture loop after two turns, so a run takes milliseconds; a regression
+	# that waits on an adapter or a board should fail instead of hanging.
+	set_tests_properties(follow-main PROPERTIES TIMEOUT 10)
 endif()
 
 # The same approach for ubertooth-debug, -dump and -tx: their real main()
