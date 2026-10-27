@@ -61,9 +61,9 @@ static const char *hint(int code)
 		/* A board busy in a mode takes no new request until the mode
 		 * stops. One that answers nothing at all usually resets itself,
 		 * but not always: a mode that services USB from the interrupt
-		 * keeps its loop turning and so keeps feeding the watchdog even
-		 * when its USB path has died, and the bootloader runs with the
-		 * watchdog off, so the note names the fallback too. */
+		 * keeps its loop turning, and so keeps feeding the watchdog,
+		 * even when its USB path alone has died. That board waits for a
+		 * reset that is not coming, so the note names the fallback. */
 		return "if a mode is running, stop it with ubertooth-util -S; "
 		       "a board that does not answer at all usually resets "
 		       "itself within a few seconds, so run the command again, "

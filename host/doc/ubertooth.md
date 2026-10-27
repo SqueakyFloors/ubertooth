@@ -116,13 +116,16 @@ idle, so the fix is to run the command again. `ubertooth-util [-U <selector>]
 -w` then says how often that has happened and which mode and which wait the
 board was in the last time.
 
-Three cases get no self-reset, and the note the tools print names the fallback
-for them: unplug the board or power-cycle its hub port. Firmware without the
-watchdog, such as `2020-12-R1`, has never had one. A board in one of the six
-modes that service USB from the interrupt keeps its loop turning, and so keeps
-feeding the watchdog, even when its USB path alone has died (see
-ubertooth-util(1), WATCHDOG). And the bootloader runs with the watchdog off, so
-a `-7` mid-flash — where no mode is involved — waits for nothing.
+Not every board gets that self-reset, and where it does not the fallback is
+always the same: unplug the board or power-cycle its hub port, which is what
+the note above names. Firmware without the watchdog, such as `2020-12-R1`, has
+no self-reset at all. Neither has anything that feeds the watchdog from its
+loop rather than from a USB service pass — the six modes that service USB from
+the interrupt, and the `btbr` image — because that loop keeps turning when the
+USB path alone has died (see ubertooth-util(1), WATCHDOG). The bootloader runs
+with the watchdog off by design, so a `-7` mid-flash, where no mode is
+involved, waits for nothing either; ubertooth-dfu(1) reports that one in its
+own words, and its page says the same about a board that answers nothing.
 
 A serial-number selector names the reason, because a board it could not read
 may be the board asked for:
