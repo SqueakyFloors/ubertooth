@@ -80,8 +80,9 @@ $(BINDIR)/test_frend: test_frend.c minunit.h $(FW_COMMON)/cc2400.h \
 # wait on the radio, so -I$(FW_COMMON) comes last, after stubs-radio: the stub
 # must still win for "ubertooth.h".
 #
-# Its last cases scan the radio sources of both images as text, so FW_RXTX_DIR,
-# FW_BTBR_DIR and FW_COMMON_DIR point at them.
+# Its last cases scan the radio sources of both images, and of the two bench
+# images, as text, so FW_RXTX_DIR, FW_BTBR_DIR, FW_COMMON_DIR and FW_DIR point
+# at them.
 $(BINDIR)/test_cc2400_wait: test_cc2400_wait.c minunit.h source_scan.h \
 		stubs-radio/ubertooth.h stubs/ubertooth.h $(FW_COMMON)/cc2400_wait.c \
 		$(FW_COMMON)/cc2400_wait.h $(FW_COMMON)/ubertooth.c \
@@ -89,10 +90,12 @@ $(BINDIR)/test_cc2400_wait: test_cc2400_wait.c minunit.h source_scan.h \
 		$(FW_RXTX)/le_phy.c $(FW_RXTX)/cc2400_rangetest.c \
 		$(FW_BTBR)/src/btphy/rf.c $(FW_BTBR)/src/btphy/scan_task.c \
 		$(FW_BTBR)/src/btphy/rx_task.c $(FW_BTBR)/src/btphy/tx_task.c \
-		$(FW_BTBR)/include/ubtbr/rf.h | $(BINDIR)
+		$(FW_BTBR)/include/ubtbr/rf.h \
+		$(FW_DIR)/assembly_test/assembly_test.c \
+		$(FW_DIR)/cc2400_test/cc2400_test.c | $(BINDIR)
 	$(CC) $(CFLAGS) -Istubs-radio $(CPPFLAGS) -I$(FW_COMMON) \
 		-DFW_RXTX_DIR='"$(FW_RXTX)"' -DFW_BTBR_DIR='"$(FW_BTBR)"' \
-		-DFW_COMMON_DIR='"$(FW_COMMON)"' \
+		-DFW_COMMON_DIR='"$(FW_COMMON)"' -DFW_DIR='"$(FW_DIR)"' \
 		-o $@ test_cc2400_wait.c $(FW_COMMON)/cc2400_wait.c
 
 # cc2400_spi() is GPIO register writes in a file that also configures the
