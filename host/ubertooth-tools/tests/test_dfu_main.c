@@ -1263,11 +1263,11 @@ MU_TEST(an_image_with_no_info_block_is_refused)
 	r = RUN("-U", "0", "-d", sized_image_path, "-r");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strstr(r.err, "there is no firmware info block here at offset "
-	                 "0x100") != NULL,
-	          "the refusal did not say the block is missing");
-	mu_assert(strstr(r.err, "Not an Ubertooth firmware image, firmware will "
-	                 "not be updated") != NULL,
-	          "the refusal did not say the firmware was left alone");
+	                 "0x100; firmware will not be updated") != NULL,
+	          "the refusal did not say the block is missing and the board was "
+	          "left alone");
+	/* One line, not two, and it is the only error the run reports. */
+	mu_assert_int_eq(1, error_lines(r.err));
 	/* Nothing was opened, so nothing is erased and nothing needs detaching. */
 	mu_assert_int_eq(0, fake.part_id_calls);
 	mu_assert_int_eq(0, fake.flash_calls);

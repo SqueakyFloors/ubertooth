@@ -255,11 +255,11 @@ static int check_download_image(const char* name, FILE* downfile,
 	 * anything is erased. */
 	found = dfu_read_image_info(downfile, info);
 	if (found != UBERTOOTH_FW_INFO_OK) {
-		fprintf(stderr, "error: %s: %s at offset 0x%x\n", name,
-		        ubertooth_fw_info_result_string(found),
+		/* One line, like the signature refusal above it: what is wrong with
+		 * the file, and that the board was left alone. */
+		fprintf(stderr, "error: %s: %s at offset 0x%x; firmware will not be "
+		        "updated\n", name, ubertooth_fw_info_result_string(found),
 		        UBERTOOTH_FW_INFO_OFFSET);
-		fprintf(stderr, "Not an Ubertooth firmware image, firmware will "
-		        "not be updated\n");
 		return 1;
 	}
 	/* What is about to be written: a note about the run, so standard error,

@@ -50,8 +50,7 @@ what the other tools check.
 A properly signed DFU file with no readable block there is not an image from
 this tree, so it is refused rather than written:
 
-    error: other-device.dfu: there is no firmware info block here at offset 0x100
-    Not an Ubertooth firmware image, firmware will not be updated
+    error: other-device.dfu: there is no firmware info block here at offset 0x100; firmware will not be updated
 
 A file that fails any of these is reported and the command ends
 with exit status 1 without opening a device, so the board keeps running its
