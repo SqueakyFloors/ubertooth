@@ -345,6 +345,17 @@ def main():
 		# A board running firmware other than ubtbr takes none of this, and
 		# used to leave the tool waiting on the write forever.
 		eprint("error: could not set up the Ubertooth: %s\n"%e)
+		if isinstance(e, usb1.USBErrorTimeout):
+			# The bluetooth_rxtx firmware offers the endpoint this tool
+			# writes to but never reads it, so a request sits there until the
+			# write times out. That is what every report of the tool hanging
+			# shortly after start has turned out to be. A board already
+			# carrying btbr that stopped answering times out the same way,
+			# which is why this names what that firmware does rather than
+			# telling the user what their board has.
+			eprint("note: a board carrying bluetooth_rxtx never reads these "
+				"requests; flash btbr with "
+				"ubertooth-dfu -d firmware/btbr/btbr.dfu -r\n")
 		leave(bt, 1)
 	except KeyboardInterrupt:
 		# Interrupted anywhere before the prompt was up, which is the window

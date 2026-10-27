@@ -190,9 +190,13 @@ Limitations:
 
 - This is a race and often takes several attempts.
 - Packets sent after encryption is enabled are shown as raw data and cannot be decrypted.
-- ``ubertooth-btbr`` may hang shortly after starting (upstream issue
-  `#520 <https://github.com/greatscottgadgets/ubertooth/issues/520>`__); see
-  `firmware/btbr/README.md <https://github.com/SqueakyFloors/ubertooth/blob/main/firmware/btbr/README.md>`__.
+- ``ubertooth-btbr`` needs the ``btbr`` image. On a board carrying
+  ``bluetooth_rxtx`` it stops before its prompt with
+  ``error: could not set up the Ubertooth``, naming the image to flash: that
+  firmware never reads the endpoint the tool writes to, which is what the
+  reports of the tool hanging shortly after start (upstream issue
+  `#520 <https://github.com/greatscottgadgets/ubertooth/issues/520>`__) turned
+  out to be.
 
 `ubertooth-btbr.md <https://github.com/SqueakyFloors/ubertooth/blob/main/host/doc/ubertooth-btbr.md>`__ documents the other prompt commands
 (``inquiry``, ``page``, ``inquiry_scan``, ``page_scan``, ``l2ping``,

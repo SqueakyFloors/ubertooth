@@ -273,11 +273,16 @@ nRF52840 DKs) plus one Ubertooth.*
 - [ ] Confirm: no crash, some output
 
 ### 5b. Paging (PR #540 fix)
+*Requires: the board carrying the `btbr` image*
 - [ ] Run `ubertooth-btbr` targeting a known classic BT device BD_ADDR
-- [ ] Confirm: starts without hanging (tests issue #520 — if it still hangs, note it)
+- [ ] Confirm: the `bt>` prompt appears within a couple of seconds
 - [ ] Confirm: packets captured after paging completes
-- [ ] Confirm: Ctrl-C before the `bt>` prompt appears, which is where the hang
-      above sits, ends the tool with exit status 1
+- [ ] Confirm: on a board carrying `bluetooth_rxtx` instead, the tool exits 1
+      within a few seconds with `error: could not set up the Ubertooth` and a
+      `note: ` naming that firmware and the image to flash, rather than waiting
+      on the board
+- [ ] Confirm: Ctrl-C before the `bt>` prompt appears ends the tool with exit
+      status 1
 - [ ] Confirm: Ctrl-C with a command running returns to the `bt>` prompt, and
       `q` then exits
 
@@ -378,6 +383,5 @@ These branches exist in the repo but are NOT in master yet:
   nothing were attached; nothing else sets it, so normal use is unaffected.
   Everything below still needs real hardware.
 - Tests 3b, 5b, 6 directly exercise the cherry-picked fixes — these are the most important to run
-- If ubertooth-btbr still hangs (test 5b), open an issue — issue #520 is not yet fixed
 - Memory leak tests (8a) require extended time but are important for production use
 - Document any unexpected behavior as a new issue in the repo

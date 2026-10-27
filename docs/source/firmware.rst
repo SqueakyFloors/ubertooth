@@ -26,7 +26,8 @@ Switch a board from one to the other by flashing it:
 Add ``-U <index|serial>`` to either command to pick one board of several; it
 works from both images. A tool run against the wrong image is refused rather
 than left waiting: the other tools report a firmware API version they do not
-accept, and ``ubertooth-btbr`` says it could not set the Ubertooth up.
+accept, and ``ubertooth-btbr`` says it could not set the Ubertooth up, naming
+``bluetooth_rxtx`` and the image to flash.
 
 ``ubertooth-util -v`` names the image a board is carrying, so it is how you
 check which one is on there now, or that a switch worked:

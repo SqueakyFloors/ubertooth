@@ -38,8 +38,10 @@ Add `-U <index|serial>` to either command to pick one board of several; it
 works from both images.
 
 Starting `ubertooth-btbr` on a board running `bluetooth_rxtx` fails with
-`error: could not set up the Ubertooth: ...`, because that firmware takes none
-of the requests this tool sends.
+`error: could not set up the Ubertooth: LIBUSB_ERROR_TIMEOUT [-7]`, followed
+by a `note: ` naming that firmware and the image to flash. `bluetooth_rxtx`
+offers the endpoint this tool writes to but never reads it, so the tool's
+first requests sit there until the write times out.
 
 ## OPTIONS
 
@@ -90,8 +92,7 @@ refused with a `Not idle` line; `idle` or Ctrl-C stops the running one first.
 
 Ctrl-C at the prompt stops the running command, as `idle` does, and leaves the
 prompt up; pressing it again while that command is stopping returns to the
-prompt. Before the prompt is up, which includes the hang described under
-LIMITATIONS, Ctrl-C ends the tool.
+prompt. Before the prompt is up, Ctrl-C ends the tool.
 
 ## MONITOR MODE
 
@@ -124,10 +125,6 @@ If no FHS appears, the peripheral won the race; try again.
 - As the central, it polls the peripheral hard enough to drain its battery.
 - `monitor` is a race against the real peripheral and often takes several
   attempts. Packets are lost: get closer, use a better antenna.
-- The tool may hang shortly after starting, usually right after the EIR setup
-  line (upstream issue
-  [#520](https://github.com/greatscottgadgets/ubertooth/issues/520)). The cause
-  is unresolved. Ctrl-C ends it.
 
 ## DIAGNOSTICS
 
@@ -151,7 +148,11 @@ part of issue [#410](https://github.com/SqueakyFloors/ubertooth/issues/410)
 as well.
 
 With no Ubertooth attached the tool says `error: no Ubertooth devices found`
-and exits 1.
+and exits 1. A board that takes none of the requests the session opens with
+gets `error: could not set up the Ubertooth: ...` and, when the request timed
+out, a `note: ` naming `bluetooth_rxtx` and the image to flash: that is nearly
+always what such a board is carrying, though a board already carrying `btbr`
+that stopped answering times out the same way. See FIRMWARE.
 
 ## EXIT STATUS
 
