@@ -207,9 +207,11 @@ static char *posixly_correct;
 /* Avoid depending on library functions or files
    whose names are inconsistent.  */
 
-#ifndef getenv
+/* getenv().  The warning further up, that non-GNU C libraries must not get
+   stdlib.h because some of them declare getopt there too, does not apply:
+   _NO_PROTO, defined at the top of this file, is what tells those libraries
+   to leave getopt out.  */
 #include <stdlib.h>
-#endif
 
 static char *
 my_index (const char *str, int chr)
@@ -1002,9 +1004,7 @@ getopt (int argc, char *const *argv, const char *optstring)
    the above definition of `getopt'.  */
 
 int
-main (argc, argv)
-     int argc;
-     char **argv;
+main (int argc, char **argv)
 {
   int c;
   int digit_optind = 0;
