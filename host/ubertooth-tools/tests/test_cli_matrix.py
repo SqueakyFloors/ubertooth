@@ -139,15 +139,18 @@ DEVICE_LOOKUP = tuple(message.lower() for message in SPEC["_device_lookup_messag
 # fixed, or fixed for some of its cases, fails this test rather than passing
 # quietly.
 for entry in SPEC["expected_failures"]:
-    # A string here would be read a character at a time, and each character
-    # matches nearly every complaint, so the entry would hold nothing. The
-    # whole file is checked, not just this tool's entries, because an entry
-    # for a tool that is not built here is the one nobody would look at.
+    # A string here would be read a character at a time, and a blank reason
+    # is inside every complaint, so either one would hold the entry to
+    # nothing. The whole file is checked, not just this tool's entries,
+    # because an entry for a tool that is not built here is the one nobody
+    # would look at.
     reasons = entry.get("problem_contains")
     if not isinstance(reasons, list) or not reasons \
-            or not all(isinstance(reason, str) for reason in reasons):
+            or not all(isinstance(reason, str) and reason.strip()
+                       for reason in reasons):
         sys.exit("%s %s: problem_contains has to be a non-empty list of the "
-                 "complaints the cases produce, one per complaint, not %r"
+                 "complaints the cases produce, one per complaint, none of "
+                 "them blank, not %r"
                  % (", ".join(entry["findings"]), entry["cases"][0], reasons))
 EXPECTED_FAILURES = [entry for entry in SPEC["expected_failures"]
                      if entry["tool"] == TOOL]
