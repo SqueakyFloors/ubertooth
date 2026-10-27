@@ -583,6 +583,7 @@ want_stderr "moved rather than changed"
 # ask for a version. The source itself is watched, because it lives in
 # firmware/common; only dropping the line while leaving the file would pass.
 new_repo 0x0131
+# shellcheck disable=SC2016 # the makefile line is wanted literally, $(call ...) and all
 printf 'OBJ += $(call per_image,../common/extra.o)\n' >> "$repo/$common_mk"
 commit "$repo" "compile another shared source into every image"
 run "a shared source added through the build file is a known gap" "$repo" main
