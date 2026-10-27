@@ -12,6 +12,40 @@ suitable for Bluetooth experimentation. Ubertooth ships with a capable
 BLE (Bluetooth Smart) sniffer and can sniff some data from Basic Rate
 (BR) Bluetooth Classic connections.
 
+## What it is good for
+
+Ubertooth is a sniffer. Unlike a phone app such as nRF Connect or
+LightBlue, which sees only its own connection after the operating system
+has handled it, Ubertooth listens to the air and hears other devices'
+traffic.
+
+- **Passive BLE capture** of advertising and of connections between
+  other devices: link-layer packets, connection setup, channels and
+  timing, saved as PCAP for Wireshark.
+- **Spectrum analysis** of the 2.4 GHz band, to see what else is
+  transmitting and where.
+- **Bluetooth Classic discovery**: finding nearby piconets by address,
+  including devices that are not discoverable.
+- **Scriptable**: every feature is a command-line tool with defined output
+  and exit codes, so it fits test rigs and automation.
+- **Open**: the firmware and host tools can be changed for custom 2.4 GHz
+  radio experiments.
+
+## What it cannot do
+
+- **BLE on the 1M PHY only.** The CC2400 radio cannot receive the
+  Bluetooth 5 LE 2M or Coded (long-range) PHYs, so it cannot capture
+  extended-advertising data, and it loses a connection that switches to
+  2M. Most current phones, computers and peripherals switch to 2M right
+  after connecting.
+- **Classic Bluetooth: Basic Rate only.** EDR payloads, which carry most
+  audio and fast data, are not captured, and following a piconet is slow
+  and partial.
+- **No decryption** of encrypted links without their keys.
+
+To sniff Bluetooth 5 traffic, use a sniffer built on a Bluetooth 5 radio,
+for example Nordic's nRF Sniffer for Bluetooth LE on an nRF52840 dongle.
+
 The latest release is [2020-12-R1](https://github.com/greatscottgadgets/ubertooth/releases/tag/2020-12-R1).
 The latest firmware build can be found on the release page.
 
