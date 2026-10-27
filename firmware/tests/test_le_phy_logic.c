@@ -463,6 +463,38 @@ MU_TEST(a_field_is_read_least_significant_byte_first)
  * test_le_frag_shape.c scanned both halves for the same agreement, and this
  * runs them against each other.
  */
+/*
+ * Records are reused, so what a packet does not fill is whatever the last
+ * packet left there. This leaves the records a packet is about to land in
+ * full of 0xa5, so a test that reads a record back is reading the new
+ * packet's bytes and not the old ones.
+ */
+#define RING_RECORDS 128
+
+static void dirty_the_ring(void)
+{
+	le_rx_t filler;
+	unsigned i;
+
+	/* A packet of exactly 50 bytes with the access address, so one record
+	 * is filled end to end. */
+	fill_packet(&filler, 41, DATA_CHANNEL_MHZ);
+	mu_assert_int_eq(DMA_SIZE, 4 + filler.size);
+	memset(filler.data, 0xa5, sizeof(filler.data));
+	filler.access_address = 0xa5a5a5a5;
+	filler.rssi_sum = (int)filler.size;
+
+	/* Once around the whole ring, one record at a time, which leaves every
+	 * record full and the queue's read and write positions back where they
+	 * started. Re-initialising the queue instead would clear it. The result
+	 * is asserted once, so a caller in a loop counts one check, not 256. */
+	for (i = 0; i < RING_RECORDS; i++)
+		if (usb_enqueue_le(&filler) != 1 || dequeue() == NULL)
+			break;
+	mu_assert_fatal(i == RING_RECORDS,
+	                "the ring would not take the packets meant to dirty it");
+}
+
 static int round_trip(le_rx_t *buf, const uint8_t **data, uint16_t *length,
                       const usb_pkt_rx **metadata, int *records)
 {
@@ -503,6 +535,7 @@ MU_TEST(every_packet_length_survives_the_round_trip)
 		char msg[224];
 
 		start_fresh();
+		dirty_the_ring();
 		fill_packet(&buf, pdu_len, DATA_CHANNEL_MHZ);
 		buf.access_address = 0x12345678;
 		buf.rssi_sum = 46;       /* positive: see the test below */
