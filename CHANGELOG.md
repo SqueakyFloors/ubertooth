@@ -219,6 +219,11 @@
   second one the first's objects, built with the wrong flags, so a release or
   CI build could ship an image nobody had built from clean.
   [#486](https://github.com/SqueakyFloors/ubertooth/issues/486)
+- Editing a firmware compile flag, `OPT` or `DISABLE_TX` for example, rebuilds
+  the objects. The build records the flags it used, so `make` no longer takes
+  objects compiled with the old ones as up to date and links them into the
+  image.
+  [#544](https://github.com/SqueakyFloors/ubertooth/issues/544)
 
 ### Reliability fixes
 
