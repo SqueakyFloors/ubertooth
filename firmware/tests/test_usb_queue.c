@@ -2247,8 +2247,9 @@ MU_TEST(the_dispatch_scan_read_every_case)
 	}
 }
 
-/* A mode the dispatch runs and nothing here classifies is the hole #434 came
- * out of: the mode streams, and no test says which transport its host uses. */
+/* A mode the dispatch runs and nothing here classifies is the hole this table
+ * exists to close: the mode streams, and no test says which transport its host
+ * uses, so the mode can be wired to the wrong one and still pass. */
 MU_TEST(every_mode_the_dispatch_runs_is_classified)
 {
 	char msg[384];
@@ -2303,9 +2304,9 @@ MU_TEST(every_row_names_the_function_its_case_calls)
 /*
  * The check the loop-keyed table above cannot make: a mode that runs one of
  * those loops has to use the transport that loop provides. A new case running
- * bt_stream_rx() for a host that polls is #434 again -- the loop hands packets
- * to the bulk IN endpoint, which such a host never reads -- and this is what
- * says so.
+ * bt_stream_rx() for a host that polls captures nothing at all -- the loop
+ * hands packets to the bulk IN endpoint, which such a host never reads -- and
+ * this is what says so.
  */
 MU_TEST(a_mode_uses_the_transport_of_the_loop_it_runs)
 {
