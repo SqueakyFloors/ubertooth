@@ -2180,9 +2180,17 @@ struct dispatch_scan {
 	/* A label at the same depth as the ones being read, carrying another
 	 * name. Walking past it would hide a case of the same switch. */
 	char foreign[64];
+	/*
+	 * Both of those are kept with the depth they were met at and judged
+	 * when the pass ends, because which depth matters is only known once
+	 * a label of this pass's own has been seen -- and the label in
+	 * question may come first.
+	 */
+	int unreadable_level;
+	int foreign_level;
 	/* The depth the labels being read sit at, once one has been seen.
-	 * -1 until then, because a label met before any of this pass's own is
-	 * in some other switch. */
+	 * -1 until then. A label deeper than this belongs to a nested
+	 * switch. */
 	int switch_level;
 };
 
@@ -2272,6 +2280,22 @@ static void dispatch_scan_init(struct dispatch_scan *s, const char *prefix)
 	memset(s, 0, sizeof(*s));
 	s->prefix = prefix;
 	s->switch_level = -1;
+	s->unreadable_level = -1;
+	s->foreign_level = -1;
+}
+
+/*
+ * Finish a pass: drop a label that was met deeper than this pass's own, since
+ * it belongs to a nested switch. Only now is the depth of this pass's labels
+ * known, which is why the labels are judged here rather than where they were
+ * met: the one worth reporting may be the switch's first case.
+ */
+static void dispatch_scan_done(struct dispatch_scan *s)
+{
+	if (s->unreadable_level != s->switch_level)
+		s->unreadable[0] = '\0';
+	if (s->foreign_level != s->switch_level)
+		s->foreign[0] = '\0';
 }
 
 /* Record a call against every case whose body is still being read. */
@@ -2466,18 +2490,20 @@ static void visit_dispatch_line(const char *line, const struct body_pos *pos,
 				add_case_label(s, label, depth);
 				break;
 			case LABEL_UNREADABLE:
-				if (depth == s->switch_level &&
-				    s->unreadable[0] == '\0')
+				if (s->unreadable[0] == '\0') {
 					snprintf(s->unreadable,
 					         sizeof(s->unreadable), "%s",
 					         label);
+					s->unreadable_level = depth;
+				}
 				break;
 			case LABEL_OTHER_PREFIX:
-				if (depth == s->switch_level &&
-				    s->foreign[0] == '\0')
+				if (s->foreign[0] == '\0') {
 					snprintf(s->foreign,
 					         sizeof(s->foreign), "%s",
 					         label);
+					s->foreign_level = depth;
+				}
 				break;
 			}
 			continue;
@@ -2678,6 +2704,7 @@ static void scan_dispatch(void)
 	dispatch_scan_init(&dispatch_found, "MODE_");
 	dispatch_scanned = read_function_body(path, "main", visit_dispatch_line,
 	                                      &dispatch_found) > 0;
+	dispatch_scan_done(&dispatch_found);
 	if (!dispatch_scanned)
 		return;
 
@@ -2978,6 +3005,7 @@ static int scan_dispatch_text(const char *text, struct dispatch_scan *out)
 	rewind(f);
 	dispatch_scan_init(out, "MODE_");
 	lines = read_function_body_stream(f, "main", visit_dispatch_line, out);
+	dispatch_scan_done(out);
 	fclose(f);
 	return lines > 0;
 }
@@ -3107,11 +3135,11 @@ static const char *const unreadable_label_shapes =
 	"int main(void)\n"
 	"{\n"
 	"	switch (requested_mode) {\n"
-	"	case MODE_ORDINARY:\n"
-	"		ordinary_work();\n"
-	"		break;\n"
 	"	case (MODE_PARENTHESISED):\n"
 	"		parenthesised_work();\n"
+	"		break;\n"
+	"	case MODE_ORDINARY:\n"
+	"		ordinary_work();\n"
 	"		break;\n"
 	"	}\n"
 	"	return 0;\n"
@@ -3122,16 +3150,21 @@ static const char *const unreadable_label_shapes =
  * pass walks past a label with another name because a nested switch may have
  * its own, but one at the same depth as the labels being read is in the same
  * switch, and walking past that hides a case.
+ *
+ * Here and in the two shapes above, the odd label is the switch's first case,
+ * because that is the order that tells whether the pass judged it by depth
+ * at the end rather than when it was met: when it is met, the depth of this
+ * pass's own labels is not known yet.
  */
 static const char *const foreign_label_shapes =
 	"int main(void)\n"
 	"{\n"
 	"	switch (requested_mode) {\n"
-	"	case MODE_ONE:\n"
-	"		one_work();\n"
-	"		break;\n"
 	"	case LEGACY_ALIAS:\n"
 	"		legacy_work();\n"
+	"		break;\n"
+	"	case MODE_ORDINARY:\n"
+	"		ordinary_work();\n"
 	"		break;\n"
 	"	}\n"
 	"	return 0;\n"
@@ -3160,11 +3193,11 @@ static const char *const long_label_shapes =
 	"int main(void)\n"
 	"{\n"
 	"	switch (requested_mode) {\n"
-	"	case MODE_ORDINARY:\n"
-	"		ordinary_work();\n"
-	"		break;\n"
 	"	case MODE_A_NAME_TOO_LONG_FOR_THE_BUFFER_THE_SCAN_READS_IT_INTO:\n"
 	"		long_name_work();\n"
+	"		break;\n"
+	"	case MODE_ORDINARY:\n"
+	"		ordinary_work();\n"
 	"		break;\n"
 	"	}\n"
 	"	return 0;\n"
@@ -3300,6 +3333,7 @@ static void scan_btctl_requests(void)
 	btctl_scanned = read_function_body(path, "btctl_handle_msg",
 	                                   visit_dispatch_line,
 	                                   &btctl_found) > 0;
+	dispatch_scan_done(&btctl_found);
 	if (!btctl_scanned)
 		return;
 
@@ -3418,6 +3452,7 @@ static void scan_btbr_vendor_requests(void)
 	btbr_vendor_scanned = read_function_body(path, "vendor_request_handler",
 	                                         visit_dispatch_line,
 	                                         &btbr_vendor_found) > 0;
+	dispatch_scan_done(&btbr_vendor_found);
 }
 
 MU_TEST(every_br_edr_control_request_is_listed)
@@ -3703,14 +3738,11 @@ MU_TEST(the_br_edr_image_has_one_way_to_the_host)
 static int longest_line;
 static char longest_line_where[256];
 
-static void check_file_line_length(const char *dir, const char *file)
+static void measure_file_lines(const char *path)
 {
-	char path[512];
 	int c, length = 0, lineno = 1;
-	FILE *f;
+	FILE *f = fopen(path, "r");
 
-	snprintf(path, sizeof(path), "%s/%s", dir, file);
-	f = fopen(path, "r");
 	if (f == NULL)
 		return;
 
@@ -3725,10 +3757,18 @@ static void check_file_line_length(const char *dir, const char *file)
 			continue;
 		longest_line = length;
 		snprintf(longest_line_where, sizeof(longest_line_where),
-		         "%s/%s:%d", dir, file, lineno);
+		         "%s:%d", path, lineno);
 	}
 
 	fclose(f);
+}
+
+static void check_file_line_length(const char *dir, const char *file)
+{
+	char path[512];
+
+	snprintf(path, sizeof(path), "%s/%s", dir, file);
+	measure_file_lines(path);
 }
 
 MU_TEST(no_source_line_is_too_long_for_the_scans)
@@ -3736,6 +3776,10 @@ MU_TEST(no_source_line_is_too_long_for_the_scans)
 	char msg[384];
 
 	run_scan(1, check_file_line_length);
+	/* The BR/EDR trees are read through the same buffer, by the checks
+	 * further down, so they are held to the same width. */
+	walk_br_edr_sources(FW_BTBR_DIR "/src", measure_file_lines);
+	walk_br_edr_sources(FW_BTBR_DIR "/include", measure_file_lines);
 
 	mu_assert(longest_line > 0,
 	          "no source was read, so this check passed for want of "
