@@ -672,16 +672,22 @@ static void brace_state_advance(struct brace_state *b, const char *line)
 
 /*
  * Is this line a function definition rather than a prototype or a call? It
- * starts in column 1 and names the function in front of its first '('. A
- * line that ends the statement is a declaration -- unless it also opens a
- * body, because a definition whose body starts on the signature's line
- * carries that body's semicolons too.
+ * names the function in front of its first '('. A line that ends the
+ * statement is a declaration -- unless it also opens a body, because a
+ * definition whose body starts on the signature's line carries that body's
+ * semicolons too.
+ *
+ * The indentation says nothing: C lets a definition start in any column, so
+ * the caller decides what is file scope by the brace depth and leading
+ * whitespace is skipped here.
  */
 static int is_definition_line(const char *line, const char *function)
 {
 	char name[64];
 
-	if (line[0] == ' ' || line[0] == '\t' || line[0] == '\0')
+	while (*line == ' ' || *line == '\t')
+		line++;
+	if (*line == '\0' || *line == '\n' || *line == '#')
 		return 0;
 	if (strchr(line, ';') != NULL && strchr(line, '{') == NULL)
 		return 0;
@@ -719,9 +725,24 @@ static int read_function_body(const char *path, const char *function,
 
 		if (!in_fn) {
 			const char *body;
+			const char *text = line;
 
-			if (!is_definition_line(line, function))
+			while (*text == ' ' || *text == '\t')
+				text++;
+			/*
+			 * Track the depth between functions as well, because
+			 * only a definition at file scope is the one asked
+			 * for: the same text inside another function's body is
+			 * not. A directive's braces are not the code's, so a
+			 * '#' line is left out of the count.
+			 */
+			if (*text == '#')
 				continue;
+			if (braces.depth != 0 ||
+			    !is_definition_line(line, function)) {
+				brace_state_advance(&braces, line);
+				continue;
+			}
 			in_fn = 1;
 			opened = 0;
 			memset(&braces, 0, sizeof(braces));
@@ -1207,16 +1228,19 @@ static int definition_name(const char *line, char *out, size_t size)
 /*
  * Record every function in one file that enqueues, once each.
  *
- * Everything at file scope starts in column 1, so that is what tells one
- * function's body from the next. A definition names something in front of its
- * first '(' and does not end the statement; a line ending in ';' there is a
+ * What tells one function's body from the next is the brace depth, not the
+ * indentation: C allows a definition to start in any column, so a scan that
+ * reads column 1 as "file scope" can be evaded by indenting the definition by
+ * one space. At depth 0 a definition names something in front of its first
+ * '(' and does not end the statement; a line ending in ';' there is a
  * declaration, and a '}' is the end of a body, so both mean the lines that
  * follow belong to no function yet.
  */
 static void scan_file_for_producers(const char *dir, const char *file)
 {
-	char path[512], line[512], name[64], current[64];
+	char path[512], line[SCAN_LINE_MAX], name[64], current[64];
 	int in_block = 0, recorded = 0;
+	struct brace_state braces;
 	FILE *f;
 
 	snprintf(path, sizeof(path), "%s/%s", dir, file);
@@ -1226,35 +1250,48 @@ static void scan_file_for_producers(const char *dir, const char *file)
 
 	scanned_files++;
 	current[0] = '\0';
+	memset(&braces, 0, sizeof(braces));
 
 	while (fgets(line, sizeof(line), f) != NULL) {
+		const char *text;
+		int in_a_body = 1;
+
 		strip_comments(line, &in_block);
 		strip_string_literals(line);
 
-		if (line[0] != ' ' && line[0] != '\t' && line[0] != '\n' &&
-		    line[0] != '\0') {
-			/* The macro guard below is what covers these. */
-			if (line[0] == '#')
+		text = line;
+		while (*text == ' ' || *text == '\t')
+			text++;
+
+		if (braces.depth == 0) {
+			in_a_body = 0;
+			/* The macro guard below is what covers these, and a
+			 * directive's braces are not the code's. */
+			if (*text == '#')
 				continue;
 			/* A body opened on the signature's line is still a
 			 * definition, ';' and all. */
-			if (line[0] == '}' || (strchr(line, ';') != NULL &&
-			                       strchr(line, '{') == NULL)) {
+			if (*text == '}' || (strchr(text, ';') != NULL &&
+			                     strchr(text, '{') == NULL)) {
 				current[0] = '\0';
-				continue;
-			}
-			if (definition_name(line, name, sizeof(name))) {
+			} else if (definition_name(text, name, sizeof(name))) {
 				snprintf(current, sizeof(current), "%s", name);
 				recorded = 0;
-			} else {
-				continue;
+				/* ...and its first body line is this one. */
+				in_a_body = strchr(text, '{') != NULL;
 			}
-			/* ...and its first body line is this one. */
-			if (strchr(line, '{') == NULL)
-				continue;
+			/*
+			 * Anything else at file scope -- the brace that opens
+			 * the body on its own line, a continuation of the
+			 * signature -- leaves the name standing: the body it
+			 * belongs to has not been read yet.
+			 */
 		}
-		if (current[0] == '\0' || recorded || !line_calls_enqueue(line))
+		if (!in_a_body || current[0] == '\0' || recorded ||
+		    !line_calls_enqueue(line)) {
+			brace_state_advance(&braces, line);
 			continue;
+		}
 		if (found_count >= MAX_FOUND) {
 			scan_overflowed = 1;
 			break;
@@ -1267,6 +1304,7 @@ static void scan_file_for_producers(const char *dir, const char *file)
 		         sizeof(found[0].function), "%s", current);
 		found_count++;
 		recorded = 1;
+		brace_state_advance(&braces, line);
 	}
 
 	fclose(f);
