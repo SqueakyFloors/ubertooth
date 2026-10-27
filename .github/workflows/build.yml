@@ -481,6 +481,39 @@ jobs:
       timeout-minutes: 6
       run: tools/check-api-version-selftest.sh
 
+    - name: Check the libbtbb function list
+      # FindBTBB.cmake probes the installed libbtbb for the functions the host
+      # sources call, so an old one is refused by name at configure time. That
+      # only keeps answering for the whole tree while its list matches the
+      # calls, and nothing in a build notices when it stops. Both platforms,
+      # because the script is sed and awk and the two legs disagree about
+      # those.
+      run: tools/check-btbb-symbols.sh
+
+    - name: Check that the list check still catches a difference
+      # So the step above cannot pass because the list or the scan has stopped
+      # being read. Dropping a name has to be reported as a call the list is
+      # missing; the copy is thrown away with the runner.
+      shell: bash
+      run: |
+        module=host/cmake/modules/FindBTBB.cmake
+        dropped=$(sed -n '/^set(LIBBTBB_REQUIRED_FUNCTIONS$/,/^)$/p' "$module" |
+                  sed -n 's/^  \([a-z_][a-z0-9_]*\)$/\1/p' | head -1)
+        : "${dropped:?no function name to drop from $module}"
+        sed -i.bak "/^  $dropped\$/d" "$module"
+        if tools/check-btbb-symbols.sh > dropped.out 2>&1; then
+          echo "the check passed with $dropped removed from $module" >&2
+          exit 1
+        fi
+        grep -q "^  $dropped\$" dropped.out || {
+          echo "the check failed, but did not report $dropped:" >&2
+          cat dropped.out >&2
+          exit 1
+        }
+        mv "$module.bak" "$module"
+        rm -f dropped.out
+        echo "The check catches a function dropped from the list."
+
   # Issue and pull request numbers must not appear in source, tests or build
   # files (.kiro/steering/branch-and-review.md). A reviewer who happens to know
   # the rule is the only thing that caught the last ones, and only after they

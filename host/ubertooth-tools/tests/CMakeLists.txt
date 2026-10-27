@@ -855,3 +855,20 @@ foreach(tool debug dump tx)
 	# receive or transmit loop should fail instead of hanging the suite.
 	set_tests_properties(${tool}-main PROPERTIES TIMEOUT 10)
 endforeach()
+
+# FindBTBB.cmake must refuse a libbtbb that does not have the functions these
+# tools call, naming them and the pinned commit, instead of letting the build
+# reach the compiler and fail there. Runs the real module from a one-line
+# project against this build's libbtbb and against a header with two of those
+# functions renamed out of it.
+add_test(
+	NAME btbb-check
+	COMMAND ${Python3_EXECUTABLE}
+		${CMAKE_CURRENT_SOURCE_DIR}/test_btbb_check.py
+		${CMAKE_COMMAND}
+		${CMAKE_CURRENT_SOURCE_DIR}/../../..
+		${LIBBTBB_INCLUDE_DIR}
+		${LIBBTBB_LIBRARIES})
+# Two configures of a project with one C file's worth of compiler detection in
+# it: about 3 s here, most of it the two probe compiles.
+set_tests_properties(btbb-check PROPERTIES TIMEOUT 60)
