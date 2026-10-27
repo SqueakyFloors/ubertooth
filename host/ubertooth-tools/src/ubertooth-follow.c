@@ -35,7 +35,6 @@
 #include "opt_parse.h"
 #include "request_report.h"
 #include "follow_afh.h"
-#include "request_report.h"
 #include <btbb.h>
 #include <getopt.h>
 #include <limits.h>
@@ -144,8 +143,8 @@ static void usage()
 	printf("\t-h this help\n");
 	printf("\t-t <BD_ADDR> target address (xx:xx:xx:xx:xx:xx), which gives the\n");
 	printf("\t   LAP and UAP to follow; once, not with -l or -u\n");
-	printf("\t-l <LAP> (3 bytes / 6 hex digits), once, not with -t\n");
-	printf("\t-u <UAP> (1 byte / 2 hex digits), once, not with -t\n");
+	printf("\t-l <LAP> (3 bytes / 6 hex digits), once, with -u, not with -t\n");
+	printf("\t-u <UAP> (1 byte / 2 hex digits), once, with -l, not with -t\n");
 	fputs(OPT_USAGE_SELECT_DEVICE, stdout);
 	printf("\t-r <filename> capture packets to PCAPNG file\n");
 	printf("\t-q <filename> capture packets to PCAP file\n");
@@ -314,18 +313,16 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	/* -l and -u name the piconet only together: a LAP without a UAP is not
-	 * a piconet. Either on its own therefore leaves no target, and the
-	 * address is read from the local device below, which is its own
-	 * long-standing problem rather than something this check decides. */
 	have_lap_uap = (have_lap > 0) && (have_uap > 0);
-	remote_target = have_target || have_lap_uap;
 
 	/* -a reads the map from the target over an ACL link, so it needs an
 	 * address a connection can be made to, which is all six bytes of it:
 	 * -l and -u are four. Refused here, with the rest of the command line,
 	 * so no file is created and no device opened. No link has been
-	 * attempted yet, so the handle is not what is in question. */
+	 * attempted yet, so the handle is not what is in question.
+	 *
+	 * It is asked before the half-given pair below, because -a needs -t
+	 * whatever -l and -u say: completing the pair would not make -a work. */
 	if (afh_enabled) {
 		const char* refusal =
 			follow_afh_handle_refusal(have_target, 1);
@@ -334,6 +331,26 @@ int main(int argc, char *argv[])
 			return 1;
 		}
 	}
+
+	/* -l and -u name the piconet only together: a LAP identifies no piconet
+	 * without the UAP it belongs to, and a UAP alone identifies nothing. So
+	 * half the pair is a target the command cannot be carried out on, and
+	 * the missing half is named. The same refusal ubertooth-rx gives a -u
+	 * without its -l.
+	 *
+	 * Half a pair used to fall into the no-target path further down, which
+	 * says "No address given" -- untrue, one was given -- and follows the
+	 * local adapter's own address instead of the piconet the user named. */
+	if (have_lap > 0 && have_uap == 0) {
+		fputs("error: -l <LAP> requires -u <UAP>\n", stderr);
+		return 1;
+	}
+	if (have_uap > 0 && have_lap == 0) {
+		fputs("error: -u <UAP> requires -l <LAP>\n", stderr);
+		return 1;
+	}
+
+	remote_target = have_target || have_lap_uap;
 
 	/* Every check has passed, so the files can be opened: a refused command
 	 * line creates and truncates nothing. */
@@ -451,12 +468,30 @@ int main(int argc, char *argv[])
 		}
 
 		/* The handle this fills in is the only remote ACL handle the tool
-		 * ever has, so cc below is what says it is usable. */
+		 * ever has, so cc below is what says it is usable.
+		 *
+		 * A page keyed on -l and -u goes to a guessed address: the two
+		 * most significant bytes are not in any packet a sniffer sees,
+		 * so the tool sends 00:00 and the page reaches only a target
+		 * whose address really begins that way. The failure therefore
+		 * says what to do about it -- give the whole address with -t --
+		 * in the same terms as -a needing -t. The command stops either
+		 * way: without the target's clock offset there is nothing to
+		 * key the follow on. */
 		if (hci_create_connection(sock, &bdaddr,
 					htobs(di.pkt_type & ACL_PTYPE_MASK),
 					0, 0x01, &handle, 25000) < 0) {
-			fprintf(stderr, "error: connecting to %s failed: %s\n",
-			        addr, strerror(errno));
+			if (have_target)
+				fprintf(stderr, "error: connecting to %s failed: "
+				        "%s\n", addr, strerror(errno));
+			else
+				fprintf(stderr, "error: connecting to %s failed: "
+				        "%s; -l and -u give four of the six bytes "
+				        "of the target address, so the connection "
+				        "is made to 00:00:<UAP>:<LAP>: give the "
+				        "whole target address with "
+				        "-t xx:xx:xx:xx:xx:xx\n",
+				        addr, strerror(errno));
 			follow_release_adapter(sock, handle, cc);
 			return 1;
 		}

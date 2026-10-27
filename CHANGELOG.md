@@ -19,6 +19,11 @@
   standard error.
   [#316](https://github.com/SqueakyFloors/ubertooth/issues/316)
   [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
+- **Script-visible change:** `ubertooth-follow -l` without `-u`, or `-u`
+  without `-l`, is refused and names the missing half. It used to say "No
+  address given" and follow the local adapter's own address instead of the
+  piconet that was named.
+  [#529](https://github.com/SqueakyFloors/ubertooth/issues/529)
 - **Script-visible change:** `ubertooth-btle` refuses `-i`/`-I` without `-f` or
   `-p`, and `-a`/`-s` alongside `-f`, `-n` or `-p`, before it opens a device.
   Those command lines, and a mode the board refuses to start, now exit 1 where
@@ -257,6 +262,11 @@
 
 ### Reliability fixes
 
+- `ubertooth-follow -l <LAP> -u <UAP>` says what to do when its connection to
+  the target fails: those four bytes leave the connection to be made to a
+  guessed `00:00:<UAP>:<LAP>`, so the failure now asks for the whole address
+  with `-t`.
+  [#540](https://github.com/SqueakyFloors/ubertooth/issues/540)
 - Replaying a dump puts a low-energy packet that arrived as several records
   where the live capture of the same run put it, rather than up to a second
   later.
@@ -870,6 +880,10 @@
 
 ### Documentation
 
+- `ubertooth-follow`'s man page describes what a board that refuses one of the
+  follow's requests prints, including the note that says what to try, as
+  ubertooth-rx(1) and ubertooth-scan(1) already did.
+  [#617](https://github.com/SqueakyFloors/ubertooth/issues/617)
 - `ubertooth-ego -h` and its man page no longer call `630f9ffe` the default
   access code. A run without `-a` sends none, so it uses whichever one the
   board was last given; `630f9ffe` is only the firmware's value after a reset.

@@ -18,7 +18,7 @@ Name the target one of two ways:
 \fB\-l\fR and \fB\-u\fR together are the lower and upper address parts, which is what \fBubertooth\-rx\fR reports for a piconet it has seen\. They are four of the six bytes of an address; the two missing ones are the non\-significant address part, which a sniffer never sees, and the tool fills them in as zero\. So the connection it makes to collect the clock offset only reaches a target whose address begins \fB00:00\fR\.
 .IP "" 0
 .P
-One of \fB\-l\fR and \fB\-u\fR without the other names no piconet, and the tool does not refuse it today: it reads the address from the local Bluetooth device as if no target had been given, and follows that instead of what was asked for\.
+One of \fB\-l\fR and \fB\-u\fR without the other names no piconet, so it is refused and the missing half is named: \fBerror: \-l <LAP> requires \-u <UAP>\fR\. It used to be taken as no target at all, which read the address from the local Bluetooth device and followed that instead of what was asked for\.
 .P
 \fB\-t\fR with \fB\-l\fR or \fB\-u\fR is refused: the two are the same setting written two ways, and the tool does not reconcile them\. With no target at all, the address is read from the local Bluetooth device \(em note this may yield the wrong address in some cases, so naming the target explicitly is recommended\.
 .P
@@ -31,10 +31,10 @@ Requires BlueZ (Linux only)\.
 the target's whole address, \fBxx:xx:xx:xx:xx:xx\fR, which gives the LAP and UAP to follow as well as the address to connect to\. Not with \fB\-l\fR or \fB\-u\fR, and given once\.
 .TP
 \fB\-l <LAP>\fR
-target LAP (3 bytes / 6 hex digits), given once\. Not with \fB\-t\fR\.
+target LAP (3 bytes / 6 hex digits), given once, and with \fB\-u\fR\. Not with \fB\-t\fR\.
 .TP
 \fB\-u <UAP>\fR
-target UAP (1 byte / 2 hex digits), given once\. Not with \fB\-t\fR\.
+target UAP (1 byte / 2 hex digits), given once, and with \fB\-l\fR\. Not with \fB\-t\fR\.
 .TP
 \fB\-U <index|serial>\fR
 select an Ubertooth by enumeration index or serial number; see ubertooth(7), SELECTING A DEVICE
@@ -67,7 +67,14 @@ show help\.
 .P
 Because the map is read over a connection to the target, \fB\-a\fR needs the whole address, which only \fB\-t\fR gives\. \fB\-a\fR without \fB\-t\fR is refused before any file is created or device opened, with \fBerror: \-a reads the AFH map over a Bluetooth connection to the target, so it needs the whole target address: give \-t xx:xx:xx:xx:xx:xx\fR\.
 .P
-A follow keyed on \fB\-l\fR and \fB\-u\fR instead connects to \fB00:00:<UAP>:<LAP>\fR, with the two most significant bytes zero, because a sniffer cannot see them\. That reaches only a target whose address begins \fB00:00\fR; for any other target the connection fails and the command stops with \fBerror: connecting to 00:00:\|\.\|\.\|\.: failed\fR\. Give the target as \fB\-t\fR and the connection is made to the address as it is\.
+A follow keyed on \fB\-l\fR and \fB\-u\fR instead connects to \fB00:00:<UAP>:<LAP>\fR, with the two most significant bytes zero, because a sniffer cannot see them\. That reaches only a target whose address begins \fB00:00\fR; for any other target the connection fails and the command stops, saying what to do about it:
+.IP "" 4
+.nf
+error: connecting to 00:00:33:44:55:66 failed: Host is down; \-l and \-u give four of the six bytes of the target address, so the connection is made to 00:00:<UAP>:<LAP>: give the whole target address with \-t xx:xx:xx:xx:xx:xx
+.fi
+.IP "" 0
+.P
+Give the target as \fB\-t\fR and the connection is made to the address as it is, so that failure means the target itself did not answer; the line is then the reason alone, without the advice\.
 .P
 The map that comes back is used only when it could be a hop sequence at all:
 .IP "\(bu" 4
@@ -96,7 +103,7 @@ ubertooth\-follow \-t 11:22:33:44:55:66 \-a
 .fi
 .IP "" 0
 .P
-Follow a piconet by the LAP and UAP \fBubertooth\-rx\fR reported for it\. This connects to \fB00:00:33:44:55:66\fR, so it works only against a target whose address really does begin \fB00:00\fR; against any other it stops with \fBerror: connecting to 00:00:33:44:55:66 failed\fR\. Use \fB\-t\fR for a real target:
+Follow a piconet by the LAP and UAP \fBubertooth\-rx\fR reported for it\. This connects to \fB00:00:33:44:55:66\fR, so it works only against a target whose address really does begin \fB00:00\fR; against any other it stops and asks for the whole address (see AFH above)\. Use \fB\-t\fR for a real target:
 .IP "" 4
 .nf
 ubertooth\-follow \-l 445566 \-u 33 \-q capture\.pcap
@@ -111,11 +118,13 @@ An option the tool does not know is refused the same way, as one line on standar
 .P
 An option value must be a whole value in its range, or it is refused the same way instead of being read as 0, for example \fBerror: LAP must be 6 hex digits (got 4466)\fR and \fBerror: target address must be xx:xx:xx:xx:xx:xx (got 11:22:33:44:55)\fR\.
 .P
-Two more kinds of command line are refused before any device is opened, each with its one line:
+Three more kinds of command line are refused before any device is opened, each with its one line:
 .IP "\(bu" 4
 \fB\-t\fR, \fB\-l\fR or \fB\-u\fR given twice, \fBerror: give \-t once\fR, \fBerror: give \-l once\fR, \fBerror: give \-u once\fR: the tool does not pick between two answers to the same question;
 .IP "\(bu" 4
-\fB\-t\fR with \fB\-l\fR or \fB\-u\fR, \fBerror: \-t gives the whole target address, so it cannot be combined with \-l or \-u\fR\.
+\fB\-t\fR with \fB\-l\fR or \fB\-u\fR, \fBerror: \-t gives the whole target address, so it cannot be combined with \-l or \-u\fR;
+.IP "\(bu" 4
+one of \fB\-l\fR and \fB\-u\fR without the other, \fBerror: \-l <LAP> requires \-u <UAP>\fR or \fBerror: \-u <UAP> requires \-l <LAP>\fR: the two name a piconet only together\. \fB\-a\fR beside half a pair still reports \fB\-a\fR needing \fB\-t\fR, since completing the pair would not let \fB\-a\fR run\.
 .IP "" 0
 .P
 What the tool is following \(em the target address, or the LAP and UAP it read from the local device \(em is reported on standard error, with the rest of the tool's progress\. Standard output carries the decoded packets, and, with \fB\-a\fR, the accepted channel map, which libbtbb prints itself\.
@@ -124,7 +133,19 @@ A refused command line creates and truncates nothing: \fB\-r\fR, \fB\-q\fR and \
 .SH "EXIT STATUS"
 A follow that was interrupted (Ctrl\-C) exits 0 with whatever it captured, and so does \fB\-h\fR\. A refused command line exits 1 (see ARGUMENTS), as does a file that cannot be opened and a target the tool could not set up a follow on\.
 .P
+A page to the target that fails exits 1 as well, before any board is opened: without the target's clock offset there is nothing to key the follow on\. A follow keyed on \fB\-l\fR and \fB\-u\fR pages a guessed \fB00:00:<UAP>:<LAP>\fR, so that line also asks for the whole address with \fB\-t\fR (see AFH above)\.
+.P
 A board that refuses the target's address or the clock reset exits 1 before the capture starts, with the request named on standard error\. Following anyway would mean a board that is not set up for the piconet: without the target's address it matches no packet, and with its clock never zeroed it hops on a clock the offset was not measured from\.
+.P
+Standard output stays empty in that case, and standard error names the request, why the board refused it and the libusb code, adding a note where there is something to try:
+.IP "" 4
+.nf
+error: could not zero the board's clock: the board did not answer in time (libusb \-7)
+note: if a mode is running, stop it with ubertooth\-util \-S; a board that does not answer at all usually resets itself within a few seconds, so run the command again, and unplug it or power\-cycle its hub port if it stays silent
+.fi
+.IP "" 0
+.P
+That pair is the report, the same one ubertooth\-rx(1) and ubertooth\-scan(1) give: the request named as \fBset the Bluetooth address\fR for the address, and as \fBzero the board's clock\fR for the clock reset\. A request the board stalls (\fBlibusb \-9\fR) reads \fBthe board does not support this command (stalled)\fR and carries no note, there being nothing to try\. A board that took only part of either write gives the counts instead, as \fBerror: Bluetooth address write failed: board took 8 of 16 bytes\fR or \fBerror: clock write failed: board took 2 of 4 bytes\fR, and the follow stops on that one line\.
 .P
 A follow whose USB stream fails part\-way also exits 1: the board stopped answering, or dropped off the bus, so the capture stops there and holds only what arrived before it\. The failure is reported on standard error as it happens, as \fBerror: receive transfer failed: <reason>\fR\. A board that never hands the transfer back at all exits 1 too, reported by the \fBwarning:\fR line ubertooth(7) describes rather than that error\.
 .P

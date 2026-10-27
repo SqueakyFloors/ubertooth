@@ -177,6 +177,13 @@ CASES = {
          "error: -t gives the whole target address"),
         (("-t", "11:22:33:44:55:66", "-u", "22"),
          "error: -t gives the whole target address"),
+        # -l and -u name the piconet only together, so half the pair is
+        # refused and the missing half is named, rather than the tool
+        # following the local adapter's own address instead
+        (("-l", "446688"), "error: -l <lap> requires -u <uap>"),
+        (("-u", "22"), "error: -u <uap> requires -l <lap>"),
+        (("-l", "446688", "-U", NO_SUCH_SERIAL),
+         "error: -l <lap> requires -u <uap>"),
         # a valid -t still reports the stray word
         (("-t", "11:22:33:44:55:66", "extra"),
          "error: unexpected argument 'extra'"),

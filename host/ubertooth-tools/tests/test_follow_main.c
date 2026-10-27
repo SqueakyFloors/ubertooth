@@ -75,6 +75,11 @@ static struct {
 	int devid_errno;
 	int open_fails;
 	int open_errno;
+	/* The page to the target: whether it fails, and the errno it leaves. */
+	int connect_fails;
+	int connect_errno;
+	/* The address the page was sent to, as the tool spelled it. */
+	char paged[19];
 	int thread_starts;
 	int thread_stops;
 	int stops;
@@ -175,11 +180,21 @@ int hci_create_connection(int dd, const bdaddr_t* bdaddr, uint16_t ptype,
                           uint16_t* handle, int to)
 {
 	(void)dd;
-	(void)bdaddr;
 	(void)ptype;
 	(void)clkoffset;
 	(void)rswitch;
 	(void)to;
+	/* ba2str() is BlueZ's own and is not faked, so the address is spelled
+	 * out here: the byte order is the one str2ba() filled in, least
+	 * significant first. */
+	snprintf(fake.paged, sizeof(fake.paged),
+	         "%02X:%02X:%02X:%02X:%02X:%02X",
+	         bdaddr->b[5], bdaddr->b[4], bdaddr->b[3],
+	         bdaddr->b[2], bdaddr->b[1], bdaddr->b[0]);
+	if (fake.connect_fails) {
+		errno = fake.connect_errno;
+		return -1;
+	}
 	*handle = 42;
 	return 0;
 }
@@ -793,6 +808,85 @@ MU_TEST(a_refused_clock_set_exits_1)
 	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
 }
 
+/* Half of the -l/-u pair names no piconet, so the command cannot be carried
+ * out as written and is refused before the adapter is opened. It used to fall
+ * into the no-target path, which says "No address given" and follows the local
+ * adapter's own address instead of what was asked for. */
+MU_TEST(half_a_lap_uap_pair_is_refused)
+{
+	struct run_result r;
+
+	reset_fake();
+	r = RUN("-l", "112233");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, "error: -l <LAP> requires -u <UAP>\n") == 0,
+	          r.err);
+	mu_assert(r.out[0] == '\0', r.out);
+	/* Nothing was opened and nothing was followed: no adapter handle, no
+	 * board request, and not the local address the old path read. */
+	mu_assert_int_eq(-1, fake.dev_fd);
+	mu_assert(fake.calls[0] == '\0', fake.calls);
+
+	reset_fake();
+	r = RUN("-u", "44");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, "error: -u <UAP> requires -l <LAP>\n") == 0,
+	          r.err);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert_int_eq(-1, fake.dev_fd);
+	mu_assert(fake.calls[0] == '\0', fake.calls);
+
+	/* -a beside half a pair still reports -a needing -t: completing the
+	 * pair would not make -a work, so that is the refusal to answer with. */
+	reset_fake();
+	r = RUN("-a", "-l", "112233");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "-a reads the AFH map over a Bluetooth "
+	          "connection") != NULL, r.err);
+	reset_fake();
+	r = RUN("-u", "44", "-a");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "-a reads the AFH map over a Bluetooth "
+	          "connection") != NULL, r.err);
+}
+
+/* A follow keyed on -l and -u pages 00:00:<UAP>:<LAP>, because the two most
+ * significant address bytes are in no packet a sniffer sees. Against any other
+ * target the page fails, and the failure says to give the whole address with
+ * -t rather than leaving the user with a page to an address they never named. */
+MU_TEST(a_failed_page_to_the_guessed_address_asks_for_t)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.connect_fails = 1;
+	fake.connect_errno = EHOSTDOWN;
+	r = RUN(TARGET);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(fake.paged, "00:00:44:11:22:33") == 0, fake.paged);
+	mu_assert(strstr(r.err, "error: connecting to 00:00:44:11:22:33 "
+	          "failed:") != NULL, r.err);
+	mu_assert(strstr(r.err, strerror(EHOSTDOWN)) != NULL, r.err);
+	mu_assert(strstr(r.err, "-t xx:xx:xx:xx:xx:xx") != NULL, r.err);
+	mu_assert_int_eq(1, occurrences(r.err, "error:"));
+	mu_assert(r.out[0] == '\0', r.out);
+	/* No board was opened, and the adapter handle went back. */
+	mu_assert(fake.calls[0] == '\0', fake.calls);
+	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
+
+	/* The user who gave the whole address has nothing to change, so that
+	 * failure is reported without the hint. */
+	reset_fake();
+	fake.connect_fails = 1;
+	fake.connect_errno = EHOSTDOWN;
+	r = RUN(WHOLE_TARGET);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "-t xx:xx:xx:xx:xx:xx") == NULL, r.err);
+	mu_assert_int_eq(1, occurrences(r.err, "error:"));
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
+}
+
 /* A board that took only part of a write is the third way one of these
  * requests fails. libubertooth has already printed the whole line, naming the
  * request and the counts, so the tool must stop and add nothing: one error
@@ -836,6 +930,8 @@ int main(void)
 	MU_RUN(a_stream_that_cannot_start_gives_the_board_back);
 	MU_RUN(an_adapter_that_cannot_be_used_exits_1_on_standard_error);
 	MU_RUN(a_whole_address_and_its_lap_and_uap_follow_the_same_piconet);
+	MU_RUN(half_a_lap_uap_pair_is_refused);
+	MU_RUN(a_failed_page_to_the_guessed_address_asks_for_t);
 	MU_RUN(a_refused_address_set_exits_1);
 	MU_RUN(a_refused_clock_set_exits_1);
 	MU_RUN(a_truncated_write_stops_the_follow_and_adds_no_second_line);
