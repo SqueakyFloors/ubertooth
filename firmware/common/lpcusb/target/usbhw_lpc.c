@@ -488,10 +488,19 @@ int USBHwEPWrite(U8 bEP, U8 *pbBuf, U32 iLen)
         return (int)written;
     }
 
-    // select endpoint and validate buffer
-    USBHwCmd(CMD_EP_SELECT | idx);
-    USBHwCmd(CMD_EP_VALIDATE_BUFFER);
-    
+    /* Select the endpoint and validate the buffer -- the step that actually
+     * offers the packet to the host. Both are protocol engine commands, and
+     * either can give up on a controller that has stopped answering. That
+     * used to be reported as a complete write, which is the one answer the
+     * caller must not get: for a control transfer DataIn() would advance past
+     * a packet the host can never collect, and the reply would be lost with
+     * nothing left to send it. Report nothing taken instead, so the caller
+     * knows the packet is still owed; USBCtrl is written afresh on every call,
+     * which resets the buffer's write pointer, so writing it again starts from
+     * the beginning. */
+    if (!USBHwCmd(CMD_EP_SELECT | idx) || !USBHwCmd(CMD_EP_VALIDATE_BUFFER))
+        return 0;
+
     return iLen;
 }
 
@@ -783,16 +792,21 @@ DEBUG_LED_OFF(8);
                  * the two.
                  */
                 if (!Wait4DevInt(CDFULL)) {
-                    /* Only endpoint 0's interrupts are enabled, so the event
-                     * just lost is one of its own -- a setup packet, most
-                     * likely. The control state therefore no longer matches
-                     * what the host is doing, and a reply still owed from
-                     * the transfer before it must not be offered: the host
-                     * has moved on, and it would collect those bytes as the
-                     * data stage of the request whose setup packet this pass
-                     * dropped. Same reasoning as the bus reset in
-                     * usbinit.c. */
-                    USBControlInRetryCancel();
+                    /* An event on endpoint 0 that is lost here is most likely
+                     * a setup packet, so the control state no longer matches
+                     * what the host is doing: a reply still owed from the
+                     * transfer before it must not be offered, because the host
+                     * would collect those bytes as the data stage of the
+                     * request whose setup packet this pass dropped. Same
+                     * reasoning as the bus reset in usbinit.c.
+                     *
+                     * Endpoint 0 only. The other images enable interrupts on
+                     * endpoints of their own -- btbr on its bulk OUT, the
+                     * serial stack on more -- and losing one of those says
+                     * nothing about a control transfer, so cancelling then
+                     * would throw away a reply that is still wanted. */
+                    if (i <= 1)
+                        USBControlInRetryCancel();
                     continue;
                 }
                 bEPStat = USBCmdData;

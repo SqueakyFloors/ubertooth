@@ -377,8 +377,17 @@ MU_TEST(test_ep_write_of_zero_bytes_writes_nothing)
 	mu_assert_int_eq(0, (int)tx_words);
 }
 
-/* A write whose handshake stops answering still returns. */
-MU_TEST(test_ep_write_returns_when_the_engine_stops_answering)
+/*
+ * A write whose handshake stops answering still returns, and says nothing was
+ * taken.
+ *
+ * Selecting the endpoint and validating its buffer is the step that offers the
+ * packet to the host, and both are protocol engine commands that can give up.
+ * Reporting a complete write then is the one answer the caller must not get:
+ * for a control transfer DataIn() would advance past a packet the host can
+ * never collect, and the reply would be lost with nothing left to send it.
+ */
+MU_TEST(test_ep_write_reports_nothing_taken_when_the_engine_stops_answering)
 {
 	U8 buf[64];
 
@@ -388,7 +397,7 @@ MU_TEST(test_ep_write_returns_when_the_engine_stops_answering)
 	tx_wr_en_words = 16;
 	sie_answers = 0;
 
-	mu_assert_int_eq(64, USBHwEPWrite(0x82, buf, sizeof(buf)));
+	mu_assert_int_eq(0, USBHwEPWrite(0x82, buf, sizeof(buf)));
 	mu_assert(usbhw_timeouts > 0, "a wait that gave up must be counted");
 }
 
@@ -634,6 +643,33 @@ MU_TEST(test_a_refused_control_reply_is_offered_again)
 	mu_assert_int_eq(16, (int)tx_words);
 	mu_assert(last_command_validated_a_buffer(),
 	          "the retry must offer the whole packet to the host");
+}
+
+/* The same when the packet was written but the handshake that offers it to
+ * the host gave up: the host has nothing to collect, so the reply is still
+ * owed. */
+MU_TEST(test_a_reply_the_engine_would_not_validate_is_offered_again)
+{
+	control_test_setup();
+	handler_reply_len = 64;
+	queue_setup_packet_len(0x3a, 64);
+	tx_wr_en_words = 16;
+	/* the controller takes the words but will not answer the command that
+	 * offers the packet to the host */
+	sie_answers = 0;
+
+	USBHandleControlTransfer(0x00, EP_STATUS_SETUP);
+	mu_assert_int_eq(16, (int)tx_words);
+	mu_assert(!last_command_validated_a_buffer(),
+	          "a packet the engine would not validate is not the host's yet");
+
+	/* and once it answers again the host gets the reply */
+	sie_answers = 1;
+	tx_words = 0;
+	USBHwISR();
+	mu_assert_int_eq(16, (int)tx_words);
+	mu_assert(last_command_validated_a_buffer(),
+	          "the retry must offer the packet once the engine answers");
 }
 
 /* It keeps trying while the controller keeps refusing, rather than giving up
@@ -1123,7 +1159,7 @@ int main(void)
 	MU_RUN(test_ep_write_reports_a_short_write_and_does_not_validate_it);
 	MU_RUN(test_ep_write_of_one_byte_writes_one_word);
 	MU_RUN(test_ep_write_of_zero_bytes_writes_nothing);
-	MU_RUN(test_ep_write_returns_when_the_engine_stops_answering);
+	MU_RUN(test_ep_write_reports_nothing_taken_when_the_engine_stops_answering);
 	MU_RUN(test_a_readable_setup_packet_reaches_the_handler);
 	MU_RUN(test_an_unreadable_setup_packet_runs_nothing);
 	MU_RUN(test_a_short_setup_packet_runs_nothing);
@@ -1131,6 +1167,7 @@ int main(void)
 	MU_RUN(test_a_control_transfer_works_after_a_failed_setup_read);
 	MU_RUN(test_a_control_reply_the_controller_takes_is_sent_once);
 	MU_RUN(test_a_refused_control_reply_is_offered_again);
+	MU_RUN(test_a_reply_the_engine_would_not_validate_is_offered_again);
 	MU_RUN(test_a_refused_control_reply_is_retried_on_every_pass);
 	MU_RUN(test_a_refused_control_reply_resumes_at_the_same_offset);
 	MU_RUN(test_a_new_setup_packet_voids_a_refused_control_reply);
