@@ -219,12 +219,34 @@ def eprint(msg):
 	sys.stderr.flush()
 
 # Set once standard output has gone away, so the session can end with a
-# status that says the capture it was asked for is not all there.
+# status that says what was asked for was not all printed. A command runs on
+# its own thread and the prompt on another, so either can find it first.
 _output_gone = False
+_output_lock = Lock()
 
 def output_gone():
 	"""True if standard output went away while the session was running."""
 	return _output_gone
+
+def point_at_the_bin(stream):
+	"""Send a stream whose reader has gone to the bin, so writing it is safe.
+
+	A write to a pipe nobody reads raises, and the interpreter flushes both
+	streams as it exits, where no handler can reach the failure: that ends
+	the tool in status 120 and a message of its own. Pointing the descriptor
+	at the bin keeps whatever is written afterwards, including that last
+	flush, from failing.
+	"""
+	try:
+		nowhere = os.open(os.devnull, os.O_WRONLY)
+		try:
+			os.dup2(nowhere, stream.fileno())
+		finally:
+			os.close(nowhere)
+	except (OSError, ValueError, AttributeError):
+		# There is no such stream to point anywhere: it was closed before
+		# the tool started. Nothing is written to it either way.
+		pass
 
 def output_lost():
 	"""Note that standard output has gone away, and stop writing to it.
@@ -233,18 +255,22 @@ def output_lost():
 	pointed at the bin, so nothing written afterwards fails either --
 	including the flush the interpreter does as it exits, which no handler
 	can reach and which would end the tool in status 120 and a message of
-	its own. Said once, however many writes find the stream gone.
+	its own. Said once, however many writes find the stream gone, and from
+	whichever thread finds it first.
 	"""
 	global _output_gone
-	if _output_gone:
-		return
-	_output_gone = True
-	nowhere = os.open(os.devnull, os.O_WRONLY)
+	with _output_lock:
+		if _output_gone:
+			return
+		_output_gone = True
+	point_at_the_bin(sys.stdout)
 	try:
-		os.dup2(nowhere, sys.stdout.fileno())
-	finally:
-		os.close(nowhere)
-	error("standard output has gone away, the capture is lost")
+		error("standard output has gone away")
+	except OSError:
+		# Standard error is the same stream and has gone with it, as
+		# `ubertooth-btbr 2>&1 | head -1` leaves it. The exit status is then
+		# all there is to say it with.
+		point_at_the_bin(sys.stderr)
 
 def result(msg):
 	"""Report what a command decoded: a packet, or an inquiry response.

@@ -1361,6 +1361,10 @@ for typed in ("page_scan", "page 11:22:33:44:55:66"):
     assert time_prefixed(errors) == [], errors
 print("ubtbr: a connection's LMP packets go to standard output as well")
 
+# What the tool says when standard output has gone away, whichever write
+# found it gone.
+OUTPUT_GONE = "error: standard output has gone away\n"
+
 # standard output going away part way through a capture: reported once, the
 # prompt still ends the session, and the status says the capture is not all
 # there. The flush the interpreter does on the way out used to fail as well,
@@ -1394,8 +1398,7 @@ running.stdin.flush()
 running.stdin.close()
 errors = running.stderr.read()
 assert running.wait(timeout=DEADLINE) == 1, (running.returncode, errors)
-assert errors.count("error: standard output has gone away,"
-                    " the capture is lost\n") == 1, errors
+assert errors.count(OUTPUT_GONE) == 1, errors
 assert "Exception ignored" not in errors, errors
 assert "Traceback" not in errors, errors
 print("ubtbr: a capture whose reader went away is reported, and exits 1")
@@ -1412,11 +1415,31 @@ running.stdin.flush()
 running.stdin.close()
 errors = running.stderr.read()
 assert running.wait(timeout=DEADLINE) == 1, (running.returncode, errors)
-assert errors.count("error: standard output has gone away,"
-                    " the capture is lost\n") == 1, errors
+assert errors.count(OUTPUT_GONE) == 1, errors
 assert "Exception ignored" not in errors, errors
 assert "Traceback" not in errors, errors
 print("ubtbr: a reader that leaves before any packet is reported the same way")
+
+# the usage text has nowhere to go either: one line, and the 0 that -h would
+# have exited with becomes 1, because what was asked for was not printed
+running = tool(arguments=("-h",))
+running.stdout.close()
+errors = running.stderr.read()
+assert running.wait(timeout=DEADLINE) == 1, (running.returncode, errors)
+assert errors.count(OUTPUT_GONE) == 1, errors
+assert "Exception ignored" not in errors, errors
+print("ubtbr: -h whose usage text could not be printed exits 1")
+
+# and with both streams the same pipe, which is `2>&1 | head -1`, the status
+# is all that is left: the error line has nowhere to go either, and saying so
+# must not become an unhandled failure of its own.
+running = subprocess.Popen([sys.executable, WRAPPER, "-h"],
+                           stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, text=True,
+                           env=ENVIRONMENT)
+running.stdout.close()
+assert running.wait(timeout=DEADLINE) == 1, running.returncode
+print("ubtbr: both streams gone leaves the exit status to say it")
 
 # no Ubertooth at all: one error line, nothing on standard output, exit 1,
 # where the tool used to end in a traceback

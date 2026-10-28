@@ -329,8 +329,10 @@
   neither the time nor the level. A session holding a connection (`page`,
   `l2ping`, `page_scan`, `discoverable`) reports its LMP packets there too,
   which it printed nowhere a reader could see before, and those lines carry no
-  terminal color any more. A capture whose reader goes away, as
-  `ubertooth-btbr | head -5` does, says so once and exits 1.
+  terminal color any more, and `monitor` prints the payload of a packet that
+  failed its CRC as plain hex instead of a Python `b'...'` repr. A capture
+  whose reader goes away, as `ubertooth-btbr | head -5` does, says
+  `error: standard output has gone away` once and exits 1.
   [#735](https://github.com/SqueakyFloors/ubertooth/issues/735)
 
 ### Build and compatibility

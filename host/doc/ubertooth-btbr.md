@@ -231,10 +231,13 @@ and a request that failed some other way gives `error: <command> stopped:
 stop at all leaves the board claimed, which is reported on the way out (see
 EXIT STATUS).
 
-A capture piped into something that stops reading, as `ubertooth-btbr |
-head -5` does, says `error: standard output has gone away, the capture is
-lost` once. The session runs on, printing nothing further, and ends with
-exit 1 whenever the prompt is left (see EXIT STATUS).
+Standard output going away is one line, `error: standard output has gone
+away`, said once however many writes find it gone. A capture piped into
+something that stops reading, as `ubertooth-btbr | head -5` does, therefore
+leaves the prompt up with nothing more printed, and the session ends with
+exit 1; so does `-h` whose usage text could not be delivered. With standard
+error going the same way, as `2>&1 | head -5` leaves it, the exit status is
+all that is left to say it with.
 
 With no Ubertooth attached the tool says `error: no Ubertooth devices found`
 and exits 1. A selection that names no board, or more than one, is refused
@@ -255,9 +258,9 @@ same way. See FIRMWARE.
 ## EXIT STATUS
 
 0 for `-h`, and when the session ended cleanly, which is `exit`, `q`, `x` or
-Ctrl-D with nothing left running and the capture written in full. 1 for a
-command line the tool will not take, when standard output went away part way
-through a capture,
+Ctrl-D with nothing left running and everything asked for printed. 1 for a
+command line the tool will not take, when standard output went away before
+all that was asked for had been printed,
 when no Ubertooth is found, when `-U` names no board or more than one, when
 the one it names cannot be opened or is in use by another program, when the
 board refuses the requests
