@@ -256,10 +256,12 @@ NO_DEVICES = "error: no Ubertooth devices found"
 def list_interfaces():
     """List one interface per attached board, and report a failed listing.
 
-    Returns the exit status: 1 when ubertooth-util failed and there is
-    nothing to list, 0 otherwise. An empty listing used to be the answer to
-    a failure too, which to Wireshark looks exactly like "no Ubertooth
-    attached".
+    Returns the exit status: 1 when ubertooth-util failed, 0 when it did not
+    or when its only complaint was that no board is attached, which an empty
+    listing answers. A failure with nothing to list used to come out as an
+    empty listing and exit 0, which to Wireshark looks exactly like "no
+    Ubertooth attached"; a failure that still named a board used to exit 0 as
+    well, so Wireshark took the listing and the failure went unnoticed.
     """
     # -U all asks for the indexed listing explicitly, so one output form
     # covers one board and several. Each interface is named by the board's
@@ -293,17 +295,21 @@ def list_interfaces():
 
     # The boards that could be named are listed even when another one could
     # not be, which is what ubertooth-util itself does with a partial
-    # listing.
+    # listing. Where that listing goes with a non-zero status below, whoever
+    # runs this call by hand still sees it, and Wireshark does not.
     for serial in serials:
         print("interface {value=ubertooth%s}{display=Ubertooth One %s}"
               % (serial, serial))
 
-    # Wireshark throws away everything this call printed when it exits
-    # non-zero, so a board that could not be opened must not take the boards
-    # that could with it: a listing that named a board is a listing, whatever
-    # else went wrong. An empty one is a failure, unless ubertooth-util's only
-    # complaint was that there is no board.
-    if serials or no_devices or proc.returncode == 0:
+    # A partial failure is a failure, as it is for every other tool here: a
+    # board that could not be opened exits 1 even though some were listed.
+    # The cost is Wireshark's, and it is real: it throws away everything a
+    # call that failed printed, so one unopenable board - another capture
+    # already has it, say - leaves its capture list without the boards that
+    # were fine, until that board is freed or unplugged. The reason is on
+    # standard error either way. No board attached is not a failure of this
+    # kind: the empty listing is the answer to it.
+    if no_devices or proc.returncode == 0:
         return 0
     # Nothing was suppressed on this path, so whatever ubertooth-util wrote,
     # the user saw. Without a line that says something went wrong, the failure

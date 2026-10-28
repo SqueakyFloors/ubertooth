@@ -21,10 +21,11 @@ Two things are checked:
     libusb failure does. Its standard error used to be read and thrown away
     and its exit status never looked at, so a failure came out as an empty
     listing and exit 0, which to Wireshark is exactly "no Ubertooth
-    attached". No board attached is still that, since ubertooth-util exits 1
-    for it as well, and so is a listing that named a board but could not open
-    another: Wireshark throws away everything the call printed when it exits
-    non-zero, so exiting 1 there would hide the board it can capture on.
+    attached". A listing that named one board but could not open another is a
+    failure too, and exits 1: Wireshark throws away everything a failed call
+    printed, so its capture list is then without the boards that were fine,
+    which is the price of saying what happened. The one case that is not a
+    failure is no board attached, since the empty listing answers that.
 
     The line that tells no board apart from a failure is checked against the
     built ubertooth-util when CMake passes its path, so rewording it on the C
@@ -355,18 +356,38 @@ assert interfaces(result) == [
 # a board that could not be read has no serial to offer, so it is left out,
 # while the board that has one is still listed. ubertooth-util exits 1 for the
 # board it could not open, with the message libubertooth prints for one, and
-# the script still exits 0: Wireshark throws away everything the call printed
-# when it exits non-zero, so a board it can capture on must not be hidden by
-# one it cannot
+# the script exits 1 with it: a partial failure is a failure. The listing and
+# the reason are both still written, for whoever runs the call by hand
 result = run(("--extcap-interfaces",),
              listing="Serial No (0): unavailable, access to the board was "
                      "denied\nSerial No (1): %s\n" % SERIALS[1],
              errors="could not open Ubertooth device\n", status=1)
-assert result.returncode == 0, result
+assert result.returncode == 1, result
 assert interfaces(result) == [
     "interface {value=ubertooth%s}{display=Ubertooth One %s}" % ((SERIALS[1],) * 2),
 ], result
 assert result.stderr == "could not open Ubertooth device\n", result
+
+# the same listing with ubertooth-util exiting 0: nothing failed, so neither
+# does the script, the board without a serial is still left out, and no
+# diagnosis is added for it
+result = run(("--extcap-interfaces",),
+             listing="Serial No (0): unavailable, access to the board was "
+                     "denied\nSerial No (1): %s\n" % SERIALS[1])
+assert result.returncode == 0, result
+assert interfaces(result) == [
+    "interface {value=ubertooth%s}{display=Ubertooth One %s}" % ((SERIALS[1],) * 2),
+], result
+assert result.stderr == "", result
+
+# a partial listing whose tool was killed by a signal is a failure too, and
+# names the signal
+result = run(("--extcap-interfaces",), listing=LISTING_ONE % SERIALS[0],
+             kill_with=signal.SIGTERM)
+assert result.returncode == 1, result
+assert len(interfaces(result)) == 1, result
+assert result.stderr == "error: ubertooth-util failed (killed by signal %d)\n" \
+    % int(signal.SIGTERM), result
 
 # nothing that is not a listing line is taken for a serial
 result = run(("--extcap-interfaces",),
@@ -442,18 +463,19 @@ assert result.returncode == 1, result
 assert result.stderr == "error: ubertooth-util failed (killed by signal %d)\n" \
     % int(signal.SIGTERM), result
 
-# a silent failure that still listed a board is not reported as a failure: the
-# listing is the answer, and Wireshark keeps it
+# a failure that still listed a board is a failure, and one that said nothing
+# of itself still has to name the failure, exactly as an empty one does
 result = run(("--extcap-interfaces",), listing=LISTING_ONE % SERIALS[0],
              status=3)
-assert result.returncode == 0, result
-assert len(interfaces(result)) == 1 and result.stderr == "", result
+assert result.returncode == 1, result
+assert len(interfaces(result)) == 1, result
+assert result.stderr == "error: ubertooth-util failed (exit status 3)\n", result
 
-# a failure that still listed a board keeps the board and the reason, and is
-# not reported as a failed call, since that is what loses the board
+# a failure that still listed a board keeps both the board and the reason on
+# their streams, and exits 1
 result = run(("--extcap-interfaces",), listing=LISTING_ONE % SERIALS[0],
              errors="error: libusb_init failed\n", status=1)
-assert result.returncode == 0, result
+assert result.returncode == 1, result
 assert interfaces(result) == [
     "interface {value=ubertooth%s}{display=Ubertooth One %s}" % ((SERIALS[0],) * 2),
 ], result

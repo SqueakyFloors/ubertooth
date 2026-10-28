@@ -686,6 +686,13 @@
   `ubertooth-util` as an empty interface list: it passes the reason on and
   exits 1, and reports a tool missing from `PATH` instead of a traceback.
   [#362](https://github.com/SqueakyFloors/ubertooth/issues/362)
+- **Script-visible change:** `btle-extcap.py --extcap-interfaces` exits 1 when
+  a board could not be opened, even if it named others; it used to exit 0 so
+  that Wireshark kept the boards it could capture on. Wireshark discards a
+  failed call's output, so one board another capture is already holding now
+  leaves its capture list without the Ubertooths that were fine, until that
+  board is freed. The reason is on standard error as before.
+  [#386](https://github.com/SqueakyFloors/ubertooth/issues/386)
 - `btle-extcap.py -h` names the options the script accepts, not
   `--list-interfaces`, `--list-dlts` and `--config`, which it rejects.
   [#268](https://github.com/SqueakyFloors/ubertooth/issues/268)

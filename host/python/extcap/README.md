@@ -30,8 +30,8 @@ worth running by hand when a board does not appear in Wireshark.
    one `interface` line per attached board, named `ubertooth<serial>`. A
    board whose serial cannot be read is left out, since it has no name to
    offer, and the boards that could be named are still listed. No board
-   attached is an empty listing and exit 0; nothing to list because
-   `ubertooth-util` failed exits 1 and reports what it said
+   attached is an empty listing and exit 0; a listing `ubertooth-util` failed
+   on exits 1 and reports what it said, whether or not it named a board
  - `--extcap-interface=ubertooth<serial>` :
    the board every other call applies to. The serial is passed to
    `ubertooth-btle -U`, so a board keeps its interface across a reboot or a
@@ -86,12 +86,13 @@ and are refused like any other unknown option.
    because nothing is reading the fifo any more
  - `1` :
    a usage error, a board that could not be opened, a tool that could not be
-   run, or any other failure. `--extcap-interfaces` is the exception, because
-   Wireshark throws away everything that call printed when it exits non-zero:
-   a listing that named a board exits 0 even if another board could not be
-   opened, with the reason still on standard error, and so does an empty
-   listing when no board is attached. It exits 1 when `ubertooth-util` failed
-   and there is nothing to list
+   run, or any other failure. That includes a partial listing: if
+   `--extcap-interfaces` could not open one board it exits 1 even though it
+   named the others, with the reason on standard error. Wireshark throws away
+   everything a call that failed printed, so its capture list is then without
+   the boards that were fine until that board is freed or unplugged. The one
+   case that is not a failure is no board attached: the empty listing answers
+   that, and exits 0
  - anything else :
    `ubertooth-btle`'s own exit status, or `128` plus the number of the signal
    that killed it. Wireshark reads a non-zero exit of the `--capture` call as
