@@ -586,7 +586,7 @@ if(libubertooth_SOURCE_DIR)
 			test_api_mismatch.c
 			${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c)
 		target_include_directories(test-api-mismatch-${build} PRIVATE
-			${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR}
+			${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIRS}
 			${LIBBTBB_INCLUDE_DIR})
 		target_compile_definitions(test-api-mismatch-${build} PRIVATE
 			UBERTOOTH_RELEASE_BUILD=${release_build})

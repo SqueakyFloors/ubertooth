@@ -65,6 +65,13 @@ endif (LIBUSB_INCLUDE_DIR AND LIBUSB_LIBRARIES)
 # LIBUSB_INCLUDE_DIR every time the module runs, so a cache entry would only
 # be another copy to go stale, and one a user could not override. Every
 # directory that uses it calls find_package(USB1) of its own.
-get_filename_component(_libusb_include_parent "${LIBUSB_INCLUDE_DIR}" DIRECTORY)
-set(LIBUSB_INCLUDE_DIRS ${LIBUSB_INCLUDE_DIR} ${_libusb_include_parent})
-unset(_libusb_include_parent)
+#
+# Quoted, and only when libusb was found: an unquoted expansion would split a
+# path holding a semicolon into entries that are not directories, and deriving
+# the list from a failed search would hand a caller that did not ask for
+# REQUIRED the literal LIBUSB_INCLUDE_DIR-NOTFOUND as an include directory.
+if(LIBUSB_INCLUDE_DIR)
+  get_filename_component(_libusb_include_parent "${LIBUSB_INCLUDE_DIR}" DIRECTORY)
+  set(LIBUSB_INCLUDE_DIRS "${LIBUSB_INCLUDE_DIR}" "${_libusb_include_parent}")
+  unset(_libusb_include_parent)
+endif()

@@ -166,12 +166,13 @@ jobs:
       shell: bash
       working-directory: ${{github.workspace}}/host/build
       # No include flags of our own, on any runner. This is the plain configure
-      # the build guide gives, and on macOS it is also the one job that would
-      # notice a target left without libusb's include directory: Homebrew keeps
-      # libusb's header off the compiler's default search path, so such a
-      # target fails to compile here and nowhere else. An -I$(brew --prefix)/include
-      # for the whole build used to hide that, which is how a test target that
-      # could not compile reached main.
+      # the build guide gives, and on macOS it is also what notices a target
+      # left without libusb's include directory: Homebrew keeps libusb's header
+      # off the compiler's default search path, so such a target fails to
+      # compile on the macOS runners and nowhere else. (The C-standards sweep
+      # below passes no include flags either, so it notices too.) An
+      # -I$(brew --prefix)/include for the whole build used to hide that, which
+      # is how a test target that could not compile reached main.
       #
       # UBERTOOTH_RELEASE=ON in every CI configure that builds the tools for
       # use or test: a checkout here is not on a tag, so the tree would

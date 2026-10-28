@@ -90,8 +90,9 @@ def main():
         status, output = run([cmake, "-S", source, "-B", build,
                               "-DCMAKE_C_FLAGS="], work)
         if status != 0:
-            fail("the module did not find the libusb this build uses:\n%s"
-                 % output)
+            fail("configuring the one-line project failed, so the module did "
+                 "not report its directories (it may not have found libusb, "
+                 "or CMake found no usable compiler):\n%s" % output)
 
         with open(os.path.join(build, "include-dirs.txt"),
                   encoding="utf-8") as handle:

@@ -419,12 +419,11 @@ else
 	# libusb itself.
 	info "Building Ubertooth host tools"
 fi
-if [ -n "${CFLAGS:-}" ]; then
-	# CMake seeds its own C flags from CFLAGS only when a build directory is
-	# configured for the first time, and this script reuses one, so a second
-	# run with a different CFLAGS would otherwise build with the first run's.
-	CMAKE_ARGS+=("-DCMAKE_C_FLAGS=$CFLAGS")
-fi
+# Always passed, empty when the caller set no CFLAGS: CMake seeds its own C
+# flags from CFLAGS only when a build directory is configured for the first
+# time, and this script reuses one, so a run that left this out would build
+# with whatever an earlier run's CFLAGS put in the cache.
+CMAKE_ARGS+=("-DCMAKE_C_FLAGS=${CFLAGS:-}")
 # Build the Python tools for the interpreter that got the runtime deps.
 CMAKE_ARGS+=("-DPython3_EXECUTABLE=$(command -v "$PYTHON")")
 # Forget a libbtbb found by an earlier configure so this run's install is used.

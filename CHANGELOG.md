@@ -324,7 +324,9 @@
   `-DCMAKE_C_FLAGS="-I$(brew --prefix)/include"`, because Homebrew keeps
   libusb's header off the compiler's search path; the build now takes that
   directory from libusb, so no include flag of your own is needed and
-  `install.sh` passes none.
+  `install.sh` passes none. `install.sh` now also hands your `CFLAGS` to every
+  configure, on Linux as well as macOS, so a second run with different
+  `CFLAGS` builds with them rather than with the first run's.
   [#715](https://github.com/SqueakyFloors/ubertooth/issues/715)
   [#728](https://github.com/SqueakyFloors/ubertooth/issues/728)
 - Removed the unmaintained Dockerfile.
