@@ -376,7 +376,9 @@ done:
 }
 
 /* Return 1 when the application device on the expected path is opened, 0 when
- * absent, or a negative libusb error. */
+ * absent, DFU_OPEN_BUS_UNREADABLE when the bus could not be listed at all, or
+ * a negative libusb error for a device that is there and would not open. The
+ * three are reported differently, so they are kept apart here. */
 static int find_ubertooth_application_device(
 	libusb_context *ctx,
 	const struct dfu_usb_identity *expected_identity,
@@ -395,7 +397,7 @@ static int find_ubertooth_application_device(
 		return 0;
 	usb_devs = libusb_get_device_list(ctx, &usb_list);
 	if (usb_devs < 0)
-		return (int)usb_devs;
+		return DFU_OPEN_BUS_UNREADABLE;
 
 	result = 0;
 	for (i = 0; i < usb_devs; ++i) {
@@ -417,6 +419,12 @@ static int find_ubertooth_application_device(
 		result = libusb_open(usb_list[i], devh);
 		if (result == 0)
 			result = 1;
+		else if (result == LIBUSB_ERROR_NO_DEVICE)
+			/* The device left the bus between the listing above and this
+			 * open, so it is absent rather than one that would not open.
+			 * The caller polls, so a board still re-enumerating is looked
+			 * for again. */
+			result = 0;
 		goto done_app;
 	}
 	result = 0;
@@ -1220,10 +1228,9 @@ static int verify_open_application(void *context,
 		runtime->usb_context, runtime->verify_identity, &devh);
 	/* Nothing there yet is not an error: the board is still re-enumerating,
 	 * or it will not come back at all. Either way it is not a device that
-	 * refused to open, and the two are reported differently. */
-	if (result == 0)
-		return 0;
-	if (result < 0)
+	 * refused to open, and nor is a bus that could not be read; each is
+	 * reported differently, so each goes back as itself. */
+	if (result != 1)
 		return result;
 	result = libusb_claim_interface(devh, 0);
 	if (result < 0) {

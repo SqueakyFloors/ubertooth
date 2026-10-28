@@ -81,7 +81,10 @@ writes are taken before the rest time out, standing in for a device that stops
 draining the endpoint, and UBTBR_FAKE_WRITE_ERROR makes those writes fail
 some other way instead. UBTBR_FAKE_SETUP_DELAY is how long claiming the
 interface takes, which holds the tool short of its prompt, with
-UBTBR_FAKE_CLAIMED a file created once it is in there. UBTBR_FAKE_WRITE_DELAY
+UBTBR_FAKE_CLAIMED a file created once it is in there.
+UBTBR_FAKE_CLAIM_ERROR makes claiming the interface fail instead: "busy" and
+"access" are the two codes a board another program holds gives, on Linux and
+on macOS, and anything else is some other claim failure. UBTBR_FAKE_WRITE_DELAY
 holds each write, which keeps the tool short of its prompt with the receive
 thread already running. UBTBR_FAKE_NO_DEVICE makes the context find nothing
 to open, and UBTBR_FAKE_CLOSED names a file created when the handle is closed.
@@ -104,15 +107,20 @@ import time
 
 
 class USBError(Exception):
-    pass
+    # The libusb code, which usb1 keeps on the class as this does.
+    value = -1
 
 
 class USBErrorTimeout(USBError):
-    pass
+    value = -7
 
 
 class USBErrorAccess(USBError):
-    pass
+    value = -3
+
+
+class USBErrorBusy(USBError):
+    value = -6
 
 
 class _Handle:
@@ -120,6 +128,13 @@ class _Handle:
         self.writes = 0
 
     def claimInterface(self, interface):
+        failure = os.environ.get("UBTBR_FAKE_CLAIM_ERROR")
+        if failure == "busy":
+            raise USBErrorBusy()
+        if failure == "access":
+            raise USBErrorAccess()
+        if failure:
+            raise USBError()
         marker = os.environ.get("UBTBR_FAKE_CLAIMED")
         if marker:
             open(marker, "w").close()
@@ -1386,6 +1401,27 @@ status, output, errors = selecting(("-U", "1"),
 assert status == 1, (status, output, errors)
 assert "error: could not set up Ubertooth at index 1: " in errors, errors
 print("ubtbr: a setup that failed names the board it was talking to")
+
+# a board another program is using opens and answers the serial read, and
+# fails when its interface is claimed: reported in libubertooth's words for
+# that, not as a board that took none of the session's requests. BUSY is what
+# Linux gives and ACCESS what macOS gives, and neither is a permissions
+# problem here, because a board nobody may open never reaches the claim.
+for failure, code in (("busy", -6), ("access", -3)):
+    status, output, errors = selecting(("-U", ONE_BOARD),
+                                       UBTBR_FAKE_CLAIM_ERROR=failure)
+    assert status == 1, (failure, status, output, errors)
+    assert output == "", output
+    assert errors == ("error: Ubertooth %s is in use by another program "
+                      "(libusb %d)\n" % (ONE_BOARD, code)), errors
+    assert not writes(), writes()
+# any other claim failure is reported as itself
+status, output, errors = selecting(("-U", ONE_BOARD),
+                                   UBTBR_FAKE_CLAIM_ERROR="other")
+assert status == 1, (status, output, errors)
+assert errors == ("error: claiming the USB interface of Ubertooth %s failed "
+                  "(libusb -1)\n" % ONE_BOARD), errors
+print("ubtbr: a board another program is using is reported as in use")
 
 # ---- the command line ------------------------------------------------------
 

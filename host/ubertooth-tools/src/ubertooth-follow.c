@@ -51,6 +51,13 @@
  * bounded. */
 #define HCI_TIMEOUT_MS 1000
 
+/* -w is a number of Bluetooth timeslots, each 625 us. The clock the board
+ * hops on counts 312.5 us ticks, two to a slot, so a delay in slots is
+ * doubled before it is added to that clock. Without this each unit of -w
+ * compensated half of what it said, and the default set the board's hop clock
+ * a whole slot early -- on a hopping piconet, the wrong channel. */
+#define CLKN_TICKS_PER_SLOT 2
+
 /* One attempt at the AFH map of the link to the target, for
  * follow_afh_read_map(). */
 struct afh_hci {
@@ -661,7 +668,7 @@ int main(int argc, char *argv[])
 	 * offset to whatever CLKN has reached since the reset rather than
 	 * replacing it, so everything between the two is error in the followed
 	 * clock, and the endpoint flush and the thread creation are now inside
-	 * that window: a few of the 312.5 us ticks that -w compensates, against
+	 * that window: a few of the 312.5 us ticks the hop clock counts, against
 	 * timestamps that were hours out. */
 	r = cmd_set_bdaddr_quiet(ut->devh, btbb_piconet_get_bdaddr(pn));
 	if (r < 0)
@@ -724,7 +731,11 @@ int main(int argc, char *argv[])
 		}
 		clock += (offset<<2);   // Correct offset
 	}
-	btbb_piconet_set_clk_offset(pn, clock+delay);
+	/* The delay is counted in the clock's own ticks here, so a large -w
+	 * cannot overflow a signed multiplication on the way: the clock is a
+	 * 32-bit count the board wraps anyway. */
+	btbb_piconet_set_clk_offset(pn,
+		clock + (uint32_t)delay * CLKN_TICKS_PER_SLOT);
 	btbb_piconet_set_flag(pn, BTBB_FOLLOWING, 1);
 	btbb_piconet_set_flag(pn, BTBB_CLK27_VALID, 1);
 

@@ -129,14 +129,23 @@ struct dfu_verify_report {
 	 * bus to open. The two are different things to whoever holds the board,
 	 * so they are reported differently. */
 	int operation_error;
+	/* 1 when the last poll could not read the bus at all, so nothing was
+	 * looked at. A third thing again: the board may well be back, and
+	 * reporting it as one that would not open would name the wrong fault. */
+	int bus_unreadable;
 	char actual_revision[64];
 	char actual_image[UBERTOOTH_FW_INFO_IMAGE_LEN + 1];
 };
 
+/* What open_application() below returns when the host's USB bus could not be
+ * listed. Positive, because it is not a fault of the device: no device was
+ * reached to have one. */
+#define DFU_OPEN_BUS_UNREADABLE 2
+
 struct dfu_verify_ops {
 	/* Return 1 when the application was opened, 0 when no such device is on
-	 * the bus, and a negative transport error when a device is there but
-	 * would not open. */
+	 * the bus, DFU_OPEN_BUS_UNREADABLE when the bus could not be read, and a
+	 * negative transport error when a device is there but would not open. */
 	int (*open_application)(void *context, const char *selector,
 	                        void **handle,
 	                        struct dfu_usb_identity *identity);
