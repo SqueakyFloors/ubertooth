@@ -108,12 +108,18 @@ ISP or JTAG.
 0x25011722 for the 128 KiB LPC1754) and ISP or JTAG: `ubertooth-dfu` cannot
 write a bootloader.*
 
+*Attach only this board, and run the `ubertooth-dfu` steps below without `-U`:
+these steps put the board in DFU by hand first, and DFU mode exposes no serial
+number, so an explicit selector looks for an application device that is not
+there and the run ends at `DFU entry failed`. See
+[`ubertooth-dfu(1)`](host/doc/ubertooth-dfu.md).*
+
 - [ ] Install `firmware/bootloader/bootloader.hex` over ISP or JTAG
 - [ ] Put the board in DFU and send `REQ_UPLOAD` (class request 2) with wValue
       512, which is 0x20000, the first block past a 128 KiB part
 - [ ] Confirm: the request is refused and `REQ_GETSTATUS` reports status 0x08
       (`ERRADDRESS`); the board still answers `REQ_GETSTATE`
-- [ ] Send `REQ_CLRSTATUS`, then run `ubertooth-dfu -U <serial> -u <file> -r`
+- [ ] Send `REQ_CLRSTATUS`, then run `ubertooth-dfu -u <file> -r`
 - [ ] Confirm: the read-back still returns all 114688 bytes above the
       bootloader, and the board comes back running its application
 
@@ -121,7 +127,9 @@ write a bootloader.*
 
 *Same board and the same ISP or JTAG requirement as 2f. `ubertooth-dfu -d`
 refuses an oversize image before it sends anything, so these steps send the
-requests directly.*
+requests directly. The first step starts from the running application, so it
+can select the board by serial; the last one starts from DFU, so it must not,
+for the reason given in 2f.*
 
 - [ ] First, with nothing clever: flash the application with
       `ubertooth-dfu -U <serial> -d bluetooth_rxtx.dfu -r`
@@ -135,7 +143,8 @@ requests directly.*
       that block is flash the part has and will be programmed
 - [ ] Confirm: `REQ_GETSTATUS` reports status 0x08 (`ERRADDRESS`), and the
       board still answers `REQ_GETSTATE`
-- [ ] Send `REQ_CLRSTATUS`, then flash the application again
+- [ ] Send `REQ_CLRSTATUS`, then flash the application again with
+      `ubertooth-dfu -d bluetooth_rxtx.dfu -r`, with no `-U`
 - [ ] Confirm: it succeeds, so the refusal left the part usable
 - [ ] Not reachable on an Ubertooth: the sector probe, which only runs on a
       part the bootloader's table has no entry for. Every board shipped is
