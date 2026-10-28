@@ -143,8 +143,11 @@ int main(int argc, char* argv[])
 	/* The tool reports a bad option itself, in the usual one-line form:
 	 * see opt_report_bad_option(). The leading ':' makes a missing option
 	 * value distinguishable from an option getopt does not know. */
+	/* Named, so the loop below and opt_report_bad_option()
+	 * cannot be given different letters. */
+	const char options[] = ":hVi:l:u:U:d:e:r:sq:t:zc:";
 	opterr = 0;
-	while ((opt=getopt(argc,argv,":hVi:l:u:U:d:e:r:sq:t:zc:")) != EOF) {
+	while ((opt=getopt(argc, argv, options)) != EOF) {
 		/* No option may be given a value twice: see opt_check_once(). */
 		if (opt_check_once(&once, opt, optarg) < 0)
 			return 1;
@@ -225,7 +228,7 @@ int main(int argc, char* argv[])
 			 * reason goes to standard error and standard output
 			 * stays empty. The tool's other output lines are
 			 * converted separately. */
-			opt_report_bad_option(opt, argc, argv);
+			opt_report_bad_option(opt, argc, argv, options);
 			return 1;
 		}
 	}

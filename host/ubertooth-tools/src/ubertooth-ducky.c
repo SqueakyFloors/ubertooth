@@ -172,8 +172,11 @@ int main(int argc, char *argv[])
 	/* The tool reports a bad option itself, in the usual one-line form:
 	 * see opt_report_bad_option(). The leading ':' makes a missing option
 	 * value distinguishable from an option getopt does not know. */
+	/* Named, so the loop below and opt_report_bad_option()
+	 * cannot be given different letters. */
+	const char options[] = ":q::bA:a:hVsU:";
 	opterr = 0;
-	while ((opt=getopt(argc,argv,":q::bA:a:hVsU:")) != EOF) {
+	while ((opt=getopt(argc, argv, options)) != EOF) {
 		/* getopt only attaches an optional value (-q<uuid>); take a
 		 * following word that is not an option as the value too, so
 		 * "-q <uuid>" quacks that UUID rather than the default and
@@ -225,7 +228,7 @@ int main(int argc, char *argv[])
 				first_exit_option = 'h';
 			break;
 		default:
-			opt_report_bad_option(opt, argc, argv);
+			opt_report_bad_option(opt, argc, argv, options);
 			return 1;
 		}
 	}

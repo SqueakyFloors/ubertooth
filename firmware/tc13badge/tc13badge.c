@@ -37,6 +37,19 @@ static void wait()
 		asm("nop");
 }
 
+/*
+ * Wait for the radio to have the start of a packet in its FIFO, after it has
+ * reported a sync word. See FIFO_LEAD_POLLS for how long this is and why that
+ * is enough. The nop is what keeps the loop: it is a side effect the compiler
+ * may not drop, the way it would drop a count of a local.
+ */
+static void fifo_lead_delay(void)
+{
+	uint16_t i;
+	for (i = FIFO_LEAD_POLLS; i; i--)
+		asm("nop");
+}
+
 void cc2400_init()
 {
 	/* CSN (slave select) is active low */
@@ -179,6 +192,96 @@ void cc2400_set(uint8_t reg, uint16_t val)
 	/* end transaction by raising CSN */
 	//spi_delay();
 	CSN_SET;
+}
+
+/*
+ * Set the UART's clock divisor, which is the radio's SPI clock.
+ *
+ * The bit rate generator must not be written while a transfer is running, so
+ * both halves of the UART are switched off across the change. Nothing is lost
+ * by that: in clock synchronous serial mode the UART clocks only while a byte
+ * is being moved, and this is called between transactions.
+ */
+static void spi_clock(uint8_t divisor)
+{
+	u0c1.te = 0;
+	u0c1.re = 0;
+	u0brg = divisor;
+	u0c1.te = 1;
+	u0c1.re = 1;
+}
+
+/*
+ * Write bytes to the radio's FIFO as one transaction: the FIFO's address goes
+ * out once, the data follows while chip select stays low, and chip select is
+ * held low for a moment after the last clock.
+ *
+ * This replaced a loop of cc2400_set8(FIFOREG, byte). Each of those is a
+ * transaction of its own -- chip select drops, the address goes out, one byte
+ * follows, chip select rises -- which the radio does not take as FIFO data at
+ * all. The FIFO stayed empty, and every packet went out as preamble, sync
+ * word and checksum with nothing in between. Measured on a pair of
+ * Ubertooths, whose firmware had the same fault in the same range test.
+ *
+ * The hold at the end is the datasheet's t_ps, which it asks for on FIFO
+ * accesses only and gives as 300 nanoseconds. spi_delay() is far longer than
+ * that at any clock this part runs, which costs nothing here.
+ */
+void cc2400_fifo_write(uint8_t len, const uint8_t *data)
+{
+	uint8_t i;
+
+	/* start transaction by dropping CSN */
+	CSN_CLR;
+
+	cc2400_spi_byte(FIFOREG);
+	for (i = 0; i < len; i++)
+		cc2400_spi_byte(data[i]);
+
+	/* hold CSN low after the last clock, then end the transaction */
+	spi_delay();
+	CSN_SET;
+}
+
+/*
+ * Read bytes out of the radio's FIFO as one transaction, at a clock slow
+ * enough for the radio to answer.
+ *
+ * Like the write above, this replaced a loop of cc2400_get8(FIFOREG), which
+ * asked for the FIFO's address again for every byte. That was only half of
+ * what was wrong with it: a FIFO read clocked as fast as a register read
+ * comes back as wrong bytes whatever the framing, so the clock is dropped to
+ * SPI_BRG_FIFO_READ for the transfer and put back afterwards. On the
+ * Ubertooth, whose firmware had the same fault, the read came back as 22
+ * zeros.
+ *
+ * Those two faults hid behind the radio's checksum flag, which is why the
+ * range test reported passes it had not earned. STATUS_CRC_OK does not mean a
+ * good packet arrived: the datasheet defines it as the next two bytes in the
+ * FIFO equalling the CRC16 over the bytes already read out of it, and reading
+ * zeros out of an empty FIFO satisfies that.
+ */
+void cc2400_fifo_read(uint8_t len, uint8_t *buf)
+{
+	uint8_t i;
+
+	/* The whole transaction runs at the slower clock, the address byte
+	 * included: changing the divisor with chip select already low would
+	 * mean writing the bit rate generator in the middle of a transfer. */
+	spi_clock(SPI_BRG_FIFO_READ);
+
+	/* start transaction by dropping CSN */
+	CSN_CLR;
+
+	cc2400_spi_byte(FIFOREG | 0x80);
+	for (i = 0; i < len; i++)
+		buf[i] = cc2400_spi_byte(0);
+
+	/* hold CSN low after the last clock, then end the transaction */
+	spi_delay();
+	CSN_SET;
+
+	spi_clock(SPI_BRG_FAST);
 }
 
 /* read 8 bit value from a register */
@@ -387,7 +490,6 @@ void cc2400_register_test(void)
 int cc2400_range_test(void)
 {
 	int i;
-	int j;
 	int attempt;
 	int got_reply = 0;
 	int success = 1;
@@ -439,8 +541,7 @@ int cc2400_range_test(void)
 			txbuf[19] = i;
 			cc2400_wait_fsm(STATE_STROBE_FS_ON);
 			// transmit a packet
-			for (j = 0; j < len; j++)
-				cc2400_set8(FIFOREG, txbuf[j]);
+			cc2400_fifo_write(len, txbuf);
 			cc2400_strobe(STX);
 		}
 	}
@@ -473,8 +574,14 @@ int cc2400_range_test(void)
 		cc2400_strobe(SRX);
 		if (!cc2400_wait_sync_received())
 			break;
-		for (j = 0; j < len; j++)
-			rxbuf[j] = cc2400_get8(FIFOREG);
+		/* The radio raises its sync-word flag as the sync word ends,
+		 * which is before the first payload byte is in the FIFO, so a
+		 * read that starts there asks for a byte the radio has not
+		 * written yet and gets a wrong one back. On the Ubertooth, with
+		 * the same range test, that was a wrong byte 0 in about one run
+		 * in five. */
+		fifo_lead_delay();
+		cc2400_fifo_read(len, rxbuf);
 		if (cc2400_status() & STATUS_CRC_OK)
 			got_reply = 1;
 	}

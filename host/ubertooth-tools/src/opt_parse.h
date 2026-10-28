@@ -213,8 +213,19 @@ int opt_no_arguments(int argc);
  *
  * <opt> is what getopt returned: ':' for an option whose value is missing,
  * anything else for an option it does not know.
+ *
+ * <options> is the same option string the tool's own getopt call was given.
+ * A stray dash is reported with the word the user wrote it in, and finding
+ * that word means parsing the command line again, which needs the option
+ * letters: "-r-x" is an option word holding a dash, "-Ufoo-" is an attached
+ * option value holding one, and only the letters say which is which. Pass the
+ * tool's option string through a named constant used in both places, so the
+ * two cannot drift apart.
+ *
+ * This leaves getopt part-way through a command line of its own, so call it
+ * only where the tool gives up on the command line, as every caller does.
  */
-void opt_report_bad_option(int opt, int argc, char *argv[]);
+void opt_report_bad_option(int opt, int argc, char *argv[], const char *options);
 
 /*
  * The option letters a tool has seen, for opt_check_once(). Declare one

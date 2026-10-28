@@ -761,7 +761,12 @@ def check_the_spec_lists_every_option():
     # would only be checked against the spec, which is what it is meant to
     # keep honest.
     source = os.path.join(here, "..", "src", TOOL + ".c")
-    pattern = r'getopt\(argc,\s*argv,\s*"([^"]+)"\)'
+    # Written out, or the name of the constant the tool keeps it in, which is
+    # then looked up below: every C tool now names its option string, because
+    # opt_report_bad_option() is given the same one to find the word a stray
+    # dash was written in.
+    pattern = (r'getopt\(argc,\s*argv,\s*(?:"([^"]+)"'
+               r'|([A-Za-z_][A-Za-z_0-9]*))\)')
     if not os.path.exists(source) and CONTRACT.get("kind") == "python":
         source = BINARY
         # Written out, or the name of the constant the tool keeps it in, which
@@ -787,10 +792,15 @@ def check_the_spec_lists_every_option():
             passed = found.group(1)
             if passed is None:
                 # A named constant: the tool's own value for it, so the check
-                # still reads what getopt is given rather than a name.
-                named = re.search(r'^%s\s*=\s*"([^"]+)"'
-                                  % re.escape(found.group(2)), text,
+                # still reads what getopt is given rather than a name. Either
+                # a Python assignment at the left margin, or a C array
+                # declaration (`const char options[] = "..."`).
+                name = re.escape(found.group(2))
+                named = re.search(r'^%s\s*=\s*"([^"]+)"' % name, text,
                                   re.MULTILINE)
+                if named is None:
+                    named = re.search(r'\b%s\s*\[\s*\]\s*=\s*"([^"]+)"' % name,
+                                      text)
                 if named is None:
                     problems.append((SPEC_CASE,
                                      "%s passes %s to getopt and does not "

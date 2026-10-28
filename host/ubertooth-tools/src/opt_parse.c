@@ -341,52 +341,101 @@ int opt_no_arguments(int argc)
 	return argc <= 1;
 }
 
-/* The word a rejected '-' came from, so the message can quote what the user
- * wrote rather than a bare dash.
+/* Put getopt back at the start of a command line, so that another can be
+ * parsed from the beginning.
  *
- * getopt reads one letter at a time and stops at the dash, so where it got to
- * says which word that is. A dash with more of its word left to read, as in
- * "--bogus" or "-r-x", leaves optind on that word. A dash that ends the word,
- * as in "-v-", is the word's last letter, and getopt moves optind past the
- * word as it starts on that letter, so the word is the one before.
- *
- * The two are told apart by the word optind is on: an option word that holds
- * a dash of its own is the one being rejected, and anything else -- the
- * option after it, a stray word, the end of the command line -- means the
- * dash was the last letter of the word before.
- *
- * Which is right depends on the option letters, and those are not known here:
- * a word holding a dash can be the one that was rejected ("-r-x") or an
- * attached option value that happens to contain one ("-Uabc-"), and the word
- * optind is on wins either way. So a command line whose dash ends one word
- * and whose next word holds another ("-v- -r-x") names the second. Returns
- * NULL if neither word holds a dash.
+ * Setting optind to 0 is what the GNU getopt takes as "start over": it
+ * forgets how far into a word it had read, which setting optind to 1 does
+ * not. Every tool here uses a GNU getopt -- the platform's where it has one,
+ * and the copy in host/ubertooth-tools/getopt elsewhere (USE_OWN_GNU_GETOPT)
+ * -- so there is one rule to follow. The BSD getopt's optreset is not it, and
+ * assigning to that variable on macOS does nothing at all, because the tools
+ * there are linked against the bundled getopt and not the system one.
  */
-static const char *bad_option_word(int argc, char *argv[])
+static void getopt_restart(void)
 {
-	const char *word;
-	size_t length;
-
-	if (optind < argc && argv[optind] != NULL && argv[optind][0] == '-' &&
-	    strchr(argv[optind] + 1, '-') != NULL)
-		return argv[optind];
-	/* From argv[1] on: the guard below keeps argv[0], the program's own
-	 * path, out of a diagnostic about what the user typed. */
-	if (optind >= 2 && optind - 1 < argc && argv[optind - 1] != NULL) {
-		word = argv[optind - 1];
-		length = strlen(word);
-		if (length > 1 && word[0] == '-' && word[length - 1] == '-')
-			return word;
-	}
-	return NULL;
+	optind = 0;
 }
 
-void opt_report_bad_option(int opt, int argc, char *argv[])
+/* The word a rejected '-' came from, as the user wrote it, so the message can
+ * quote that rather than a bare dash.
+ *
+ * getopt names the letter it rejected and not the word that held it, and
+ * where it got to does not say either: it reads a word a letter at a time and
+ * has already moved past a word whose last letter it is on, so a dash that
+ * ends a word ("-v-") leaves optind on the word after, while a dash with more
+ * of its word to come ("-r-x") leaves optind on the word itself. Which of the
+ * two happened cannot be told from optind alone, and guessing it named the
+ * wrong word on a command line that holds both: "-v- -Ufoo-" blamed
+ * "-Ufoo-", where the dash is part of -U's value and nothing is wrong.
+ *
+ * Telling them apart needs the option letters, so this takes them and asks
+ * getopt again, one word longer each time. The shortest command line whose
+ * first refusal is the dash ends in the word that holds it. A refusal of
+ * another kind on the way -- an option whose value the next word would have
+ * supplied -- is not the one being reported, so the search carries on past
+ * it.
+ *
+ * getopt is left part-way through a command line of its own afterwards, so
+ * this may only be called where the tool is giving up: every caller of
+ * opt_report_bad_option() returns as soon as it has printed.
+ *
+ * Returns NULL when no prefix of the command line refuses a dash, which
+ * leaves the caller to name the dash on its own.
+ */
+static const char *dash_word(int argc, char *argv[], const char *options)
 {
+	const char *word = NULL;
+	char **prefix;
+	int words;
+
+	if (options == NULL || argv == NULL || argc < 2)
+		return NULL;
+
+	/* getopt is allowed to reorder the words it is given -- the GNU one
+	 * moves operands to the end -- so it is handed a copy. The caller's
+	 * argv then keeps the order the user wrote, and so does every pass
+	 * below, which is what makes "the word just added" mean anything. */
+	prefix = malloc((size_t)argc * sizeof(*prefix));
+	if (prefix == NULL)
+		return NULL;
+
+	/* From two words up: argv[0] is the program's own path, which a
+	 * diagnostic about what the user typed never names. */
+	for (words = 2; words <= argc && word == NULL; words++) {
+		int opt;
+
+		memcpy(prefix, argv, (size_t)words * sizeof(*prefix));
+		getopt_restart();
+		while ((opt = getopt(words, prefix, options)) != -1) {
+			/* getopt returns '?' for an option it does not know and
+			 * ':' for one whose value is missing; anything else is
+			 * an option it took. No tool has either as a letter. */
+			if (opt != '?' && opt != ':')
+				continue;
+			/* The first thing this prefix refuses. A dash means the
+			 * word just added is the one holding it; anything else
+			 * is a different mistake, and a longer prefix may still
+			 * reach the dash. */
+			if (optopt == '-')
+				word = argv[words - 1];
+			break;
+		}
+	}
+
+	free(prefix);
+	return word;
+}
+
+void opt_report_bad_option(int opt, int argc, char *argv[], const char *options)
+{
+	/* dash_word() parses again below, which overwrites optopt, so the
+	 * letter getopt rejected is read once here. */
+	const int letter = optopt;
 	const char *word;
 
-	if (opt == ':' && optopt != 0 && isprint((unsigned char)optopt)) {
-		fprintf(stderr, "error: option '-%c' requires a value\n", optopt);
+	if (opt == ':' && letter != 0 && isprint((unsigned char)letter)) {
+		fprintf(stderr, "error: option '-%c' requires a value\n", letter);
 		return;
 	}
 	if (opt == ':') {
@@ -395,8 +444,8 @@ void opt_report_bad_option(int opt, int argc, char *argv[])
 	}
 	/* A rejected '-' is a letter inside a word the user wrote, so the whole
 	 * word is quoted back. No tool takes long options. */
-	if (optopt == '-') {
-		word = bad_option_word(argc, argv);
+	if (letter == '-') {
+		word = dash_word(argc, argv, options);
 		if (word == NULL)
 			/* Neither word holds a dash, which the search above leaves
 			 * no way to reach. The dash alone, rather than the "--"

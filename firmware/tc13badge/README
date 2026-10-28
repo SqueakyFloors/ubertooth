@@ -2,3 +2,27 @@ This is code for the Renesas R5F212L4 microcontroller (R8C/2L) on the ToorCon
 13 badge.
 
 for more information: http://greatscottgadgets.com/tc13badge
+
+Nothing here is built or tested
+-------------------------------
+
+This image is in no build: it needs an m32c-elf toolchain that nobody working
+on this repository has, and nobody here has a badge to run it on. Its sources
+are kept in step with the rest of the firmware by review and by the source
+scans in firmware/tests, which read them as text. So every change to this
+directory is reasoned, never measured.
+
+Where a change rests on a number, the number is worked out from this part's
+clock or taken from a measurement made on the Ubertooth's own copy of the same
+code, and the comment beside it says which. The radio's SPI clock
+(SPI_BRG_FIFO_READ) and the wait before a FIFO read (FIFO_LEAD_POLLS) are both
+of that kind: the range test they are part of now frames its FIFO transfers the
+way the radio's datasheet asks for, as the Ubertooth firmware does, but neither
+figure has been on a scope.
+
+What that means for the range test's result: a pass can now be believed as far
+as the code goes, where before it could not be believed at all -- the FIFO was
+never written, the read came back as zeros, and the radio's checksum flag is
+set by reading zeros out of an empty FIFO, so the test reported a pass without
+either side having exchanged anything. Confirming a pass on a real badge still
+needs a badge.
