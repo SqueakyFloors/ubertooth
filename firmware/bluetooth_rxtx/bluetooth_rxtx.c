@@ -198,7 +198,7 @@ static int enqueue(uint8_t type, uint8_t* buf)
 	} else {
 		f->clkn_high = idle_buf_clkn_high;
 		f->clk100ns = idle_buf_clk100ns;
-		f->channel = (uint8_t)((idle_buf_channel - 2402) & 0xff);
+		f->channel = ubertooth_channel_byte(idle_buf_channel);
 		f->rssi_min = rssi_min;
 		f->rssi_max = rssi_max;
 		f->rssi_avg = rssi_get_avg(idle_buf_channel);
@@ -228,7 +228,7 @@ int enqueue_with_ts(uint8_t type, uint8_t* buf, uint32_t ts)
 	f->clkn_high = 0;
 	f->clk100ns = ts;
 
-	f->channel = (uint8_t)((channel - 2402) & 0xff);
+	f->channel = ubertooth_channel_byte(channel);
 	f->rssi_avg = 0;
 	f->rssi_count = 0;
 
@@ -742,14 +742,22 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 			return 0;
 		clk_drift_ppm += (int16_t)(data[0] << 8) | (data[1] << 0);
 
+		/* How many CLKN ticks apart the corrections go. A drift above
+		 * 320 PPM would divide to nothing, and a correction interval of
+		 * zero is how the handler below says "do not correct at all", so
+		 * floor it: the fastest this can correct is once every tick. */
 		// Too slow
 		if (clk_drift_ppm < 0) {
 			clk_drift_correction = 320 / (uint16_t)(-clk_drift_ppm);
+			if (clk_drift_correction == 0)
+				clk_drift_correction = 1;
 			clkn_next_drift_fix = clkn_last_drift_fix + clk_drift_correction;
 		}
 		// Too fast
 		else if (clk_drift_ppm > 0) {
 			clk_drift_correction = 320 / clk_drift_ppm;
+			if (clk_drift_correction == 0)
+				clk_drift_correction = 1;
 			clkn_next_drift_fix = clkn_last_drift_fix + clk_drift_correction;
 		}
 		// Don't trim
@@ -2434,7 +2442,7 @@ void bt_le_sync(u8 active_mode)
 
 		le_pkt_meta meta;
 		meta.status = status;
-		meta.channel = (uint8_t)((idle_buf_channel - 2402) & 0xff);
+		meta.channel = ubertooth_channel_byte(idle_buf_channel);
 		meta.clkn_high = idle_buf_clkn_high;
 		meta.clk100ns = idle_buf_clk100ns;
 		meta.rssi_min = rssi_min;
@@ -2692,7 +2700,11 @@ void connection_follow_cb(u8 *packet) {
 			le.crc_init = (packet[CRC_INIT+2] << 16)
 						| (packet[CRC_INIT+1] << 8)
 						|  packet[CRC_INIT+0];
-			le.crc_init_reversed = rbit(le.crc_init);
+			/* CRCInit is 24 bits wide. rbit() reverses all 32 bits of
+			 * the word, so the result has to come down by a byte to be
+			 * the reversal of the field: 0x123456 reverses to 0x6a2c48,
+			 * not 0x2c4800. */
+			le.crc_init_reversed = rbit(le.crc_init) >> 8;
 
 #define WIN_SIZE (2+4+6+6+4+3)
 			le.win_size = packet[WIN_SIZE];
@@ -2991,10 +3003,15 @@ void bt_promisc_le() {
 void bt_slave_le() {
 	u32 calc_crc;
 	int i;
-	uint8_t adv_ind[32] = { 0x00, };
-	uint8_t adv_ind_len;
+	/* Two header bytes, the six address bytes, the advertising data and the
+	 * three CRC bytes. LE_ADV_MAX_LEN (255) is the limit for extended
+	 * advertising, which this does not send: a legacy ADV_IND carries at
+	 * most ADV_IND_MAX_DATA bytes, so that is what the buffer has to hold
+	 * and what the length below is checked against. */
+	uint8_t adv_ind[2 + 6 + ADV_IND_MAX_DATA + 3] = { 0x00, };
+	unsigned adv_ind_len;
 
-	if (le_adv_len > LE_ADV_MAX_LEN) {
+	if (le_adv_len > ADV_IND_MAX_DATA) {
 		requested_mode = MODE_IDLE;
 		return;
 	}

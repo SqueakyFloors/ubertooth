@@ -1031,7 +1031,7 @@ static int usb_enqueue_le(le_rx_t *packet)
 	le_pkt_meta meta;
 
 	meta.status = 0;
-	meta.channel = (uint8_t)((packet->channel - 2402) & 0xff);
+	meta.channel = ubertooth_channel_byte(packet->channel);
 	meta.clkn_high = 0;
 	meta.clk100ns = packet->timestamp;
 	/* The radio reports RSSI as a negative number, so the sum is negative and
@@ -1049,12 +1049,15 @@ static int usb_enqueue_le(le_rx_t *packet)
 	                             packet->data, packet->size);
 }
 
-static unsigned extract_field(le_rx_t *buf, size_t offset, unsigned size) {
-	unsigned i, ret = 0;
+static uint32_t extract_field(le_rx_t *buf, size_t offset, unsigned size) {
+	unsigned i;
+	uint32_t ret = 0;
 
-	// this could just be replaced by memcpy... right?
+	/* The cast is what keeps the top byte of a four-byte field in range:
+	 * without it each byte is promoted to int, and shifting 0x80 or more
+	 * left by 24 runs past the largest int there is. */
 	for (i = 0; i < size; ++i)
-		ret |= buf->data[offset + i] << (i*8);
+		ret |= (uint32_t)buf->data[offset + i] << (i*8);
 
 	return ret;
 }

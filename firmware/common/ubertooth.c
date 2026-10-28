@@ -52,8 +52,16 @@ void wait_us(u32 us)
 	   0.011011011b. The loop also contains 6 instructions at -Os, so
 	   why this factor works is not at all related to the comment
 	   above ;-) */
-	wait_us_counter =
-		(us>>2) + (us>>3) + (us>>6) + (us>>7) + (us>>10) + (us>>11);
+	u32 count = (us>>2) + (us>>3) + (us>>6) + (us>>7) + (us>>10) + (us>>11);
+
+	/* Fewer than four microseconds shift away to nothing, and the loop
+	   below decrements before it tests: a count of zero would wrap and spin
+	   through all 2^32 of them, over an hour, with nothing feeding the
+	   watchdog. One pass is the shortest wait there is. */
+	if (count == 0)
+		count = 1;
+
+	wait_us_counter = count;
 	while(--wait_us_counter);
 }
 

@@ -227,7 +227,18 @@ private:
     mutable bool probe_walked;
     mutable uint32_t probe_walked_part_id;
 
+    /* The CPU clock in kHz. The In-Application Programming commands above
+     * are given it so the ROM can time a flash erase and program, so it has
+     * to be the clock the board actually runs at: the figure the PLL is set
+     * up for in firmware/common/ubertooth.h, where the ToorCon 13 badge runs
+     * at 30 MHz and every other board at 100 MHz. A clock 3.33 times the real
+     * one over-times both operations, which is the safe direction, but it is
+     * still the wrong figure. */
+#ifdef TC13BADGE
+    static const uint32_t cclk_khz = 30000;
+#else
     static const uint32_t cclk_khz = 100000;
+#endif
     
     /*
      * The top of flash on a part the table has no entry for, found by asking

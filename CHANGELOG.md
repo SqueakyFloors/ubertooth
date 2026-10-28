@@ -205,14 +205,9 @@
   those tools still cannot drive that image and now fail on the first request
   it does not answer.
   [#556](https://github.com/SqueakyFloors/ubertooth/issues/556)
-- **Reflash required:** the firmware API version is now 1.45, last moved by the
-  range test waiting for the radio to have a packet before it reads one, the
-  low-energy packet timestamps and the CRC check a followed connection's data
-  packets get, and a release build of the host tools refuses firmware of any
-  other API version, older or newer, while a development build warns about it.
-  Host and firmware come from the same tree: `ubertooth-dfu` reflashes a board
-  whatever firmware it is running, but only with an image built from this tree,
-  and `2020-12-R1` firmware is refused.
+- **Reflash required:** the firmware API version is now 1.46, last moved by two
+  requests refusing a value they used to accept and by a record naming no
+  channel when the board is tuned outside the band, and the host tools require
   [#4](https://github.com/SqueakyFloors/ubertooth/issues/4)
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
@@ -1459,6 +1454,11 @@ Fixes with no visible change in normal use.
   the end of the FIFO. How the radio frames a packet that long is a separate
   question, still open.
   [#395](https://github.com/SqueakyFloors/ubertooth/issues/395)
+- Sixteen buffers, bounds, timeouts and byte-order conversions that were wrong
+  but that nothing could reach are now right on their own, so a later change
+  cannot make one of them bite. No shipped tool behaves differently; what moved
+  is what a board does with values no tool sends.
+  [#656](https://github.com/SqueakyFloors/ubertooth/issues/656)
 
 _community fork, Fri, 23 Oct 2026 01:38:18 -0700_
 

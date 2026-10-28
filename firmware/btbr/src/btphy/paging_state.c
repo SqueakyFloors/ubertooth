@@ -166,8 +166,7 @@ end:
 
 static void paging_schedule(unsigned delay)
 {
-	/* FIXME: wrap */
-	if (btphy.master_clkn >= paging_state.clkn_start + PAGING_MAX_TICKS)
+	if (clkn_elapsed(btphy.master_clkn, paging_state.clkn_start, PAGING_MAX_TICKS))
 	{
 		cprintf("paging timeout\n");
 		btctl_set_state(BTCTL_STATE_STANDBY, BTCTL_REASON_TIMEOUT);

@@ -452,9 +452,17 @@ int rfcat_subcommand(uint16_t cmd, uint8_t *body, int body_len) {
 			access_code_len = body_len;
 			break;
 
-			// set length
+			/*
+			 * Set the capture length. do_rx() reads this many bytes
+			 * into a buffer of EGO_MAX_PACKET_LEN, so a longer length
+			 * has to be refused rather than written past the end. A
+			 * length of zero would capture nothing, which is not a
+			 * request worth honouring either.
+			 */
 		case RFCAT_CAP_LEN:
 			if (body_len != 1)
+				return 0;
+			if (body[0] == 0 || body[0] > EGO_MAX_PACKET_LEN)
 				return 0;
 			packet_len = body[0];
 			break;

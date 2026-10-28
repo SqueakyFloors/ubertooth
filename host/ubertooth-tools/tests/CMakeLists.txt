@@ -879,6 +879,21 @@ if(libubertooth_SOURCE_DIR)
 	# A few callback calls against a faked ring buffer: milliseconds.
 	set_tests_properties(le-decode-buffer PROPERTIES TIMEOUT 5)
 
+	# The channel a record claims, where the two AFH callbacks index a
+	# 79-entry array of per-channel counters with it. Same approach: the
+	# real callbacks run, with the ring buffer, the board's requests and
+	# libbtbb's access-code search faked in the test.
+	add_executable(test-afh-channel-bounds
+		test_afh_channel_bounds.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c)
+	target_include_directories(test-afh-channel-bounds PRIVATE
+		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+	target_link_libraries(test-afh-channel-bounds ${LIBUSB_LIBRARIES}
+		${LIBBTBB_LIBRARIES} Threads::Threads)
+	add_test(NAME afh-channel-bounds COMMAND test-afh-channel-bounds)
+	# Eight callback calls against a faked ring buffer: milliseconds.
+	set_tests_properties(afh-channel-bounds PROPERTIES TIMEOUT 5)
+
 	# What the library does when a capture's USB stream fails part-way: the
 	# transfer callback driven straight from the test, and whole streams
 	# driven through the faked poll loop. The libusb and fifo calls are the

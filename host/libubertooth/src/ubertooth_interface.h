@@ -54,7 +54,7 @@
  * as 1.10), then 0x0111 (1.11), and so on to 0x0119 (1.19); after 0x0119
  * comes 0x0120, not 0x011a.
  */
-#define UBERTOOTH_API_VERSION 0x0145
+#define UBERTOOTH_API_VERSION 0x0146
 
 /*
  * The bootloader's bcdDevice, which is fixed on purpose and is the one version
@@ -293,6 +293,30 @@ static inline const char *ubertooth_fw_info_result_string(int result)
 /* The Bluetooth band: channel 0 is 2402 MHz, channel 78 is 2480 MHz. */
 #define BT_FREQ_MIN 2402
 #define BT_FREQ_MAX (BT_FREQ_MIN + NUM_BREDR_CHANNELS - 1)
+
+/* What usb_pkt_rx.channel says when the board was tuned outside the Bluetooth
+ * band, where there is no channel to name. Every host path that indexes a
+ * per-channel array with the field drops a record carrying it, as it does any
+ * value above channel 78. */
+#define CHANNEL_NONE 0xff
+
+/* The channel a record reports, as the one-byte offset from 2402 MHz that
+ * usb_pkt_rx carries. That byte only reaches to channel 78, while the channel
+ * request accepts any frequency the radio tunes, 2268 to 2794 MHz: an
+ * out-of-band frequency subtracted and narrowed would land on some other
+ * channel's number, and 2658 to 2736 MHz would land inside the band, where the
+ * host would take it for a real channel and index its per-channel arrays with
+ * it. CHANNEL_NONE instead, which is outside the band like every value above
+ * 78, so the host's own range checks already drop it.
+ *
+ * Here rather than in one of the firmware images because both of them fill
+ * that field, from four places, and the field is defined here. */
+static inline uint8_t ubertooth_channel_byte(uint16_t freq)
+{
+	if (freq < BT_FREQ_MIN || freq > BT_FREQ_MAX)
+		return CHANNEL_NONE;
+	return (uint8_t)(freq - BT_FREQ_MIN);
+}
 
 /* The centre frequency of each low-energy advertising channel, named by the
  * channel index the Bluetooth Core specification gives it. Index 37 sits at
@@ -551,8 +575,15 @@ enum rfcat24_subcommands {
 	RFCAT_CAP_LEN                = 2,
 };
 
-// maximum adv data by the 5.0 specs 
+/* The most advertising data an extended advertising PDU can carry, and so the
+ * most UBERTOOTH_LE_SET_ADV_DATA accepts. */
 #define LE_ADV_MAX_LEN 255
+
+/* The most a legacy ADV_IND can carry, which is what the board transmits in
+ * MODE_BT_SLAVE_LE: its six-bit length field counts the six address bytes as
+ * well, and the specification caps AdvData at 31 bytes. */
+#define ADV_IND_MAX_DATA 31
+
 enum jam_modes {
 	JAM_NONE       = 0,
 	JAM_ONCE       = 1,

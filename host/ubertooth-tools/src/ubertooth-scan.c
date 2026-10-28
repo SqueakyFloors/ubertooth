@@ -107,7 +107,10 @@ void extra_info(int dd, int dev_id, bdaddr_t* bdaddr)
 		sleep(1);
 		cc = 1;
 	} else
-		handle = htobs(cr->conn_info->handle);
+		/* The kernel filled this in in host order, and every request
+		 * below converts the handle it is given, so converting here
+		 * would swap it twice. */
+		handle = cr->conn_info->handle;
 
 	ba2str(bdaddr, addr);
 	printf("\tBD Address:  %s\n", addr);

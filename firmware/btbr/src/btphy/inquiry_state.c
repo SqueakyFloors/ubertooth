@@ -89,8 +89,7 @@ static int inquiry_rx_cb(msg_t *msg, void *arg, int time_offset)
 
 static void inquiry_schedule(unsigned delay)
 {
-	/* FIXME: wrap */
-	if (btphy.master_clkn >= inquiry_state.clkn_start + INQ_MAX_TICKS)
+	if (clkn_elapsed(btphy.master_clkn, inquiry_state.clkn_start, INQ_MAX_TICKS))
 	{
 		cprintf("inquiry timeout\n");
 		btctl_set_state(BTCTL_STATE_STANDBY, BTCTL_REASON_TIMEOUT);

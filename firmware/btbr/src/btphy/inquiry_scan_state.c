@@ -98,7 +98,7 @@ static void inquiry_scan_rx_cb(int sw_detected, void *arg)
 
 static void inquiry_scan_schedule(unsigned delay)
 {
-	if (MASTER_CLKN >= inquiry_scan_state.clkn_start + INQ_SCAN_MAX_TICKS)
+	if (clkn_elapsed(MASTER_CLKN, inquiry_scan_state.clkn_start, INQ_SCAN_MAX_TICKS))
 	{
 		cprintf("inquiry scan timeout\n");
 		btctl_set_state(BTCTL_STATE_STANDBY, BTCTL_REASON_TIMEOUT);
