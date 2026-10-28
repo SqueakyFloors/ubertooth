@@ -127,9 +127,9 @@ state of lab work. `UBERTOOTH_ALLOW_API_MISMATCH` sets either answer whatever
 the build (`1` runs on, `0` refuses). During
 development the minor version is bumped in every pull request that changes
 firmware behaviour the host relies on, so a board carrying firmware from an
-earlier commit is normally refused rather than used with behaviour the tools
-no longer expect. The first fork release takes 2.00, to mark that its host
-tools and firmware only work with each other.
+earlier commit is reported rather than used silently: refused by a release
+build, warned about by a development build. The first fork release takes 2.00,
+to mark that its host tools and firmware only work with each other.
 
 The bootloader is not covered by that number. It reports a fixed `bcdDevice`
 of 1.00, no host tool checks it, and `./install.sh --flash` writes the

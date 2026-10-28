@@ -296,6 +296,23 @@ const char* ubertooth_open_failure_reason(void)
  * command is sent: an index that is not present, or several devices with no
  * index, simply return NULL (without listing serials, which would mean sending
  * a command to every device). */
+/* Keeps the board's firmware API version against the handle just opened, for
+ * the reports about requests that board refuses: they name the firmware that
+ * refused them. Done here, where every open happens, so a tool that never
+ * asks for the version still has it quoted -- ubertooth-util asks for it only
+ * under -I. The board reports the version as its USB device version, so this
+ * is the descriptor libusb has already read and the board is sent nothing. A
+ * descriptor that cannot be read leaves nothing recorded, and the reports
+ * then give only their own half. */
+static void note_opened_board_api(struct libusb_device_handle* devh,
+                                  libusb_device* dev)
+{
+	struct libusb_device_descriptor desc;
+
+	if (libusb_get_device_descriptor(dev, &desc) == 0)
+		ubertooth_note_api_version(devh, desc.bcdDevice);
+}
+
 static struct libusb_device_handle* find_ubertooth_device_opt(int ubertooth_device,
                                                               int quiet)
 {
@@ -346,6 +363,8 @@ static struct libusb_device_handle* find_ubertooth_device_opt(int ubertooth_devi
 	if (quiet) {
 		if (pick >= 0 && libusb_open(usb_list[ubertooth_devs[pick]], &devh) != 0)
 			devh = NULL;
+		else if (devh != NULL)
+			note_opened_board_api(devh, usb_list[ubertooth_devs[pick]]);
 		free(ubertooth_devs);
 		libusb_free_device_list(usb_list, 1);
 		return devh;
@@ -362,6 +381,8 @@ static struct libusb_device_handle* find_ubertooth_device_opt(int ubertooth_devi
 			show_libusb_error(ret);
 			devh = NULL;
 		}
+		else
+			note_opened_board_api(devh, usb_list[ubertooth_devs[pick]]);
 	}
 	else if (ut_ct == 0) {
 		/* nothing attached: the caller reports that it found no device */
@@ -651,11 +672,15 @@ static struct libusb_device_handle* find_ubertooth_device_serial_opt(
 				show_libusb_error(ret);
 			devh = NULL;
 		}
-		/* The whole serial of the board that was selected, so a later
-		 * failure names the board rather than the few characters of it the
-		 * user happened to type. */
-		else if (matched != NULL)
-			memcpy(matched, matched_serials[0], UBERTOOTH_SERIAL_STR_LEN);
+		else {
+			note_opened_board_api(devh, usb_list[matched_devs[0]]);
+			/* The whole serial of the board that was selected, so a later
+			 * failure names the board rather than the few characters of it
+			 * the user happened to type. */
+			if (matched != NULL)
+				memcpy(matched, matched_serials[0],
+				       UBERTOOTH_SERIAL_STR_LEN);
+		}
 	}
 	else if (matches > 1) {
 		note_open_failure("that serial matched more than one board");
