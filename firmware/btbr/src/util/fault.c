@@ -80,6 +80,8 @@
 #define FAULT_BLINK_MS 150
 #define FAULT_GAP_MS   600
 
+/* The longest code, which is the only one that can fail this. A code added
+ * below goes here too; test_btbr_fault_blink.c checks every one of them. */
 _Static_assert(FAULT_CODE_USAGE * 2 * FAULT_BLINK_MS + FAULT_GAP_MS <
                UBERTOOTH_WATCHDOG_TIMEOUT_MS,
                "a fault code must be blinked before the watchdog resets the board");
@@ -95,11 +97,9 @@ static void __attribute__((noreturn)) blink_fault_code(int code)
 
 void __attribute__((noreturn)) die (char *fmt, ...)
 {
-	int i;
 	char buf[64] = {0};
 	int len;
 	va_list ap;
-	void *ret;
 	irq_save_disable();
 
 	watchdog_mark(WATCHDOG_SITE_PANIC);
