@@ -214,6 +214,41 @@ MU_TEST(a_full_ring_discards_the_newest_record)
 	free(fifo);
 }
 
+/* The other way in: fifo_push() copies a record the caller already holds,
+ * rather than the caller filling the slot in place. That is the path a
+ * replayed dump takes, so a record it carried short or published before it
+ * finished copying would lose the tail of every replayed packet. */
+MU_TEST(a_pushed_record_comes_back_whole)
+{
+	fifo_t* fifo = fifo_init();
+	uint32_t i;
+
+	mu_assert_fatal(fifo != NULL, "cannot allocate the ring buffer");
+
+	for (i = 0; i < RING_RECORDS; i++) {
+		usb_pkt_rx record;
+
+		fill_record(&record, 5000 + i);
+		fifo_push(fifo, &record, 90000 + i);
+		/* Published, and the copy is complete: a publish that came
+		 * first would leave the record half written in the ring, which
+		 * the pops below read. */
+		mu_assert_int_eq(0, fifo_empty(fifo));
+	}
+
+	for (i = 0; i < RING_RECORDS; i++) {
+		usb_pkt_rx popped = fifo_pop(fifo);
+
+		mu_assert_int_eq(5000 + i, popped.clk100ns);
+		mu_assert(record_is_whole(&popped),
+		          "the pushed record came back short or torn");
+		mu_assert_int_eq(90000 + i, fifo_popped_arrival_ns(fifo));
+	}
+	mu_assert_int_eq(1, fifo_empty(fifo));
+
+	free(fifo);
+}
+
 /* Many laps of mixed publishing and draining, against a queue the case keeps
  * itself: every record comes back in order with its own reading, a publish is
  * refused exactly when the ring is full, and nothing changes across the wrap
@@ -235,8 +270,14 @@ MU_TEST(the_ring_behaves_as_a_queue_across_many_laps)
 
 	/* Publishing three and draining two each step walks the ring round
 	 * many times and fills it on the way, so every slot takes a turn at
-	 * being the one the ring leaves empty. */
-	for (step = 0; step < 200; step++) {
+	 * being the one the ring leaves empty.
+	 *
+	 * The step count is high because this is the case that would catch a
+	 * ring refusing a record it had room for, and a ring that did so only
+	 * now and then needs a long run to be caught at it. Sixty thousand
+	 * publishes take a few milliseconds: it is arithmetic and a memcpy of
+	 * 64 bytes each, with nothing to wait for. */
+	for (step = 0; step < 20000; step++) {
 		int i;
 
 		for (i = 0; i < 3; i++) {
@@ -275,12 +316,28 @@ MU_TEST(the_ring_behaves_as_a_queue_across_many_laps)
  * drains them. The producer runs far ahead of the consumer, so the ring is
  * full nearly all the time, which is where a slot handed to a transfer while
  * the consumer was still copying it out gave one corrupted record.
+ *
+ * This is a race detector, so it catches a regression often rather than
+ * always. Putting the pop's copy back after the slot is handed over -- the
+ * bug this ring was fixed for -- failed 19 runs in 20 here at a million
+ * records. Take a failure seriously on one run; do not read a single pass as
+ * proof.
+ *
+ * Two things it cannot show at all. One is the release and acquire ordering:
+ * on the strongly ordered processors this fork builds for, three of the four
+ * can each be weakened on their own and every run still passes, because the
+ * processor was already doing it, and on x86-64 the generated code does not
+ * even differ. That the ordering is there for the machines where it is not is
+ * argued in ubertooth_fifo.c rather than shown here. The other is whether the
+ * ring discards only when it is really full: that needs a reader that knows
+ * how full the ring was, which a racing consumer is not, so it is
+ * the_ring_behaves_as_a_queue_across_many_laps that asks.
  */
 
 /* Records the producer publishes. Large enough that the two threads
  * interleave at every point of the ring many times over; a run takes a
  * fraction of a second. */
-#define THREADED_RECORDS 200000
+#define THREADED_RECORDS 1000000
 
 struct run {
 	fifo_t* fifo;
@@ -307,8 +364,20 @@ static void* producer_main(void* argument)
 	struct run* run = (struct run*)argument;
 	uint32_t sequence;
 
-	for (sequence = 1; sequence <= THREADED_RECORDS; sequence++)
-		publish_in_place(run->fifo, sequence, sequence);
+	for (sequence = 1; sequence <= THREADED_RECORDS; sequence++) {
+		/* Both ways of publishing take a turn, so each is exposed to a
+		 * consumer draining the ring at the same time. Either one
+		 * publishing a slot before it had finished filling it would
+		 * show up as a torn record. */
+		if (sequence % 2 == 0) {
+			publish_in_place(run->fifo, sequence, sequence);
+		} else {
+			usb_pkt_rx record;
+
+			fill_record(&record, sequence);
+			fifo_push(run->fifo, &record, sequence);
+		}
+	}
 
 	atomic_store(&run->producer_done, 1);
 	return NULL;
@@ -399,7 +468,7 @@ MU_TEST(two_threads_never_see_a_half_written_record)
 	run.announced_discards = count_overflow_warnings(warnings);
 	fclose(warnings);
 
-	printf("  %u records through, %u discarded by a full ring\n",
+	printf("  %u records through, %u discarded\n",
 	       run.popped, run.discarded);
 	mu_assert_int_eq(0, run.torn);
 	mu_assert_int_eq(0, run.out_of_order);
@@ -407,9 +476,8 @@ MU_TEST(two_threads_never_see_a_half_written_record)
 	/* The run has to have carried records, or the three counters above are
 	 * all about nothing. */
 	mu_assert(run.popped > 0, "the consumer got nothing at all");
-	/* Nothing went missing quietly. Every record the consumer did not get
-	 * is one the ring said it was discarding, so a record dropped while
-	 * the ring had room for it fails here. */
+	/* Nothing went missing unannounced: every record the consumer did not
+	 * get is one the ring said it was discarding. */
 	mu_assert_int_eq(run.announced_discards, run.discarded);
 	/* Without discards the run never had a full ring, so it did not cover
 	 * the handover this case is here for. */
@@ -421,6 +489,7 @@ MU_TEST(two_threads_never_see_a_half_written_record)
 int main(void)
 {
 	MU_RUN(records_come_back_in_order);
+	MU_RUN(a_pushed_record_comes_back_whole);
 	MU_RUN(a_full_ring_discards_the_newest_record);
 	MU_RUN(the_ring_behaves_as_a_queue_across_many_laps);
 	MU_RUN(two_threads_never_see_a_half_written_record);

@@ -56,8 +56,9 @@
 
 fifo_t* fifo_init()
 {
-	/* Zeroed, so that a reading read back from a slot no record was ever
-	 * published into is 0 rather than whatever the allocation held. */
+	/* Zeroed rather than merely allocated: a slot read before any record
+	 * was published into it then reads as zeros, the same on every run,
+	 * instead of as whatever the allocation happened to hold. */
 	fifo_t* fifo = (fifo_t*)calloc(1, sizeof(fifo_t));
 
 	if (fifo == NULL)

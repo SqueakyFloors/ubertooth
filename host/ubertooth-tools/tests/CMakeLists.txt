@@ -692,9 +692,10 @@ if(libubertooth_SOURCE_DIR)
 	# libbtbb's include directory is listed although nothing here uses
 	# libbtbb, because that is what supplies the directory
 	# <libusb-1.0/libusb.h> is found under: LIBUSB_INCLUDE_DIR names the
-	# directory holding libusb.h itself, one level too deep. Every target
-	# in this file passes it, which is why this was the only one that did
-	# not build without -I$(brew --prefix)/include on macOS.
+	# directory holding libusb.h itself, one level too deep. Every other
+	# target that compiles a source reaching ubertooth_control.h passes
+	# it, which is why this was the only one that did not build without
+	# -I$(brew --prefix)/include on macOS. See #728.
 	add_executable(test-fifo-ring
 		test_fifo_ring.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_fifo.c)
