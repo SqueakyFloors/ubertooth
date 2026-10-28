@@ -89,9 +89,10 @@ through or report the signal that killed it.
 
  - `0` :
    the call did what was asked. For `--capture` that includes a capture that
-   was asked to stop, either way it ends: SIGTERM or SIGINT arrives, which
-   the script passes on to `ubertooth-btle`, or `ubertooth-btle` dies of
-   SIGPIPE because nothing is reading the fifo any more. It also includes
+   was asked to stop, either way it ends: SIGTERM or SIGINT arrives and the
+   script asks `ubertooth-btle` to stop with a SIGTERM, or `ubertooth-btle`
+   dies of SIGPIPE because nothing is reading the fifo any more. It also
+   includes
    Wireshark's capture-filter verification call, whose answer is its standard
    output and not its status: a non-zero exit there makes Wireshark discard
    the answer and report "Unable to check capture filter"
@@ -120,6 +121,11 @@ it, and 8 seconds of ambient advertising is some 560 kB. Its standard error
 is the script's, so a `ubertooth-btle` that fails still says why. Wireshark
 keeps the first 1024 bytes of the capture call's standard error and shows
 them for the interface when the call fails.
+
+`--fifo=-` is the one capture whose data is on standard output: it is the `-`
+every file option here takes, for a capture run by hand rather than one
+Wireshark asked for, and `ubertooth-btle` writes the PCAP data there and no
+decode.
 
 A command line the script will not take is refused before `ubertooth-btle`
 runs, so nothing is written to the fifo:

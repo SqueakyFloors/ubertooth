@@ -149,6 +149,11 @@ not the flash worked.
   there is one: `ubertooth-afh -t` exits `2` when no packet from the piconet
   arrived within the timeout. A usage error is never one of these; it is `1`.
 - A command that did nothing exits `1`, never `0`, and opens no device.
+- A call that answers a question did something, however short the answer:
+  `btle-extcap.py` verifying a capture filter for Wireshark exits `0` whether
+  the filter is good or not, and says which on standard output, because
+  Wireshark reads that output as the answer and throws away the output of a
+  call that exited non-zero.
 - Check command-line problems before opening a device or creating an output
   file, so a refused command touches nothing.
 

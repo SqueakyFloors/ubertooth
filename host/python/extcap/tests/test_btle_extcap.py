@@ -771,6 +771,27 @@ noisy = run(("--capture", "--extcap-interface=ubertooth" + SERIALS[0],
 assert noisy.returncode == 0, noisy
 assert noisy.stdout == "" and noisy.stderr == "", noisy
 
+# except for a fifo of "-", which is that standard output: ubertooth-btle
+# writes the capture there, so dropping it would throw the capture away, and
+# it prints no decode beside it. A capture run by hand, never one Wireshark
+# asked for.
+streamed = run(("--capture", "--extcap-interface=ubertooth" + SERIALS[0],
+                "--fifo=-"), listing="the capture data\n")
+assert streamed.returncode == 0, streamed
+assert streamed.stdout == "the capture data\n", streamed
+with open(ARGS_FILE) as record:
+    assert record.read().split("\n")[3:5] == ["-q", "-"], streamed
+
+# a filter beside a call that has work to do is not the verification call:
+# the work is done, and the filter is nothing to that call
+for operation, answer in (("--extcap-dlts", "dlt "),
+                          ("--extcap-config", "arg ")):
+    result = run((operation, "--extcap-interface=ubertooth" + SERIALS[0],
+                  "--extcap-capture-filter=btle"))
+    assert result.returncode == 0, (operation, result)
+    assert result.stdout.startswith(answer), (operation, result)
+    assert result.stderr == "", (operation, result)
+
 # the capture-filter verification call: the filter and an interface, with no
 # operation. Wireshark reads what this call writes to standard output as the
 # filter's problem and shows it in the filter box, in red, and an empty answer

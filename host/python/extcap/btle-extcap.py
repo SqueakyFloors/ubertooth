@@ -199,9 +199,13 @@ def verify_capture_filter(capture_filter):
 def sig_handler(sig, frame):
     global stop_signal
     stop_signal = sig
-    # The signal can arrive before there is a child to pass it on to, while
-    # the command line is still being read. capture() looks at stop_signal
-    # for that, so a capture that was stopped starts nothing.
+    # Whichever signal asked this script to stop, the child is asked with a
+    # SIGTERM: that is the one ubertooth-btle's cleanup handler is for, and
+    # Ctrl-C has already reached it through the process group anyway.
+    #
+    # The signal can arrive before there is a child to stop, while the
+    # command line is still being read. capture() looks at stop_signal for
+    # that, so a capture that was stopped starts nothing.
     if child is not None:
         child.terminate()
 
@@ -462,23 +466,32 @@ def capture(interface, fifo, channel):
     # bytes of it (extcap.c, STDERR_BUFFER_SIZE). ubertooth-btle's own
     # failures go to its standard error, which is this script's, so nothing
     # that explains a failure is lost.
+    #
+    # A fifo of "-" is the exception: it means this script's own standard
+    # output, which ubertooth-btle writes the capture to, so dropping that
+    # output would throw the capture away. It prints no decode there either,
+    # having taken the stream for the capture (capture_took_stdout in
+    # ubertooth-btle.c). Wireshark always names a real fifo; "-" is for a
+    # capture run by hand, where every file option here means standard output
+    # by it (host/doc/ubertooth.md).
     child = run_tool([
         "ubertooth-btle", "-f",
         "-U", interface,
         "-q", fifo,
         "-A", channel,
-    ], stdout=DEVNULL)
+    ], stdout=None if fifo == "-" else DEVNULL)
     if stop_signal is not None:
         # the signal arrived while the child was starting, so the handler
         # may have run before this name held the child: pass it on here
         child.terminate()
     status = child.wait()
     # Two endings are the capture ending rather than failing, and Wireshark
-    # ends a capture with both. This script was asked to stop and passed the
-    # signal on, so the capture ended as asked however the child reports it:
-    # ubertooth-btle catches the signal and leaves of its own accord, and one
-    # that is killed by it died of the stop. Or the child got SIGPIPE, which
-    # is what it gets when whoever was reading the fifo stopped reading.
+    # ends a capture with both. This script was asked to stop and asked the
+    # child to stop in turn, so the capture ended as asked however the child
+    # reports it: ubertooth-btle catches the SIGTERM and leaves of its own
+    # accord, and one that is killed by a signal died of the stop. Or the
+    # child got SIGPIPE, which is what it gets when whoever was reading the
+    # fifo stopped reading.
     if stop_signal is not None:
         return 0
     if status < 0 and -status == signal.SIGPIPE:
