@@ -1261,6 +1261,21 @@ MU_TEST(the_first_event_after_an_update_waits_out_the_whole_window)
 	mu_assert_int_eq(expected_match, fake_t1mr0);
 	mu_assert_int_eq(40 * 12500, conn.conn_interval);
 	mu_assert_int_eq(0, conn.conn_update_pending);
+
+	/* That branch supplied its own window, so the flag that would do it
+	 * again is spent: the next event is anchored and gets the longest
+	 * packet alone. A connection request sets the flag and this path never
+	 * opens the event the generic branch does, so without the clearing the
+	 * window would be added a second time, to an event that is due one
+	 * interval later and would still be open by then. */
+	mu_assert_int_eq(0, conn.first_conn_event);
+	conn.last_anchor = 2000000;
+	conn.anchor_set = 1;
+	reset_conn_event();
+	fake_t1ir = TIR_MR0_Interrupt;
+	TIMER1_IRQHandler();
+	expected_match = fake_t1tc + USEC(2120) + RX_WARMUP_TIME;
+	mu_assert_int_eq(expected_match, fake_t1mr0);
 }
 
 /*
