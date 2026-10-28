@@ -112,12 +112,7 @@ class USBErrorTimeout(USBError):
 
 
 class USBErrorAccess(USBError):
-    # python-libusb1 keeps the libusb code the class stands for here.
-    value = -3
-
-
-class USBErrorBusy(USBError):
-    value = -6
+    pass
 
 
 class _Handle:
@@ -183,8 +178,6 @@ class _Device:
         self._note("UBTBR_FAKE_OPENS")
         if self._serial == "!":
             raise USBErrorAccess("access denied")
-        if os.environ.get("UBTBR_FAKE_OPEN_BUSY"):
-            raise USBErrorBusy("busy")
         marker = os.environ.get("UBTBR_FAKE_OPENED")
         if marker:
             with open(marker, "w") as opened:
@@ -1305,14 +1298,6 @@ assert errors == ("error: could not open Ubertooth at index 0: access "
                   "note: a board that cannot be opened is usually a "
                   "permissions problem; on Linux install the udev rules "
                   "shipped with this package\n"), errors
-# a board whose interface another program holds is a different thing: it
-# opens, and libubertooth keeps "in use by another program" for that code
-status, output, errors = selecting(("-U", ONE_BOARD), serials=ONE_BOARD,
-                                   UBTBR_FAKE_OPEN_BUSY="1")
-assert status == 1, (status, output, errors)
-assert errors == ("error: could not open Ubertooth %s: busy\n"
-                  "note: the board is in use by another program\n"
-                  % ONE_BOARD), errors
 print("ubtbr: a board that cannot be opened is reported as that board")
 
 # the board a failed setup was talking to is named, so the wrong board is
@@ -1321,12 +1306,12 @@ print("ubtbr: a board that cannot be opened is reported as that board")
 status, output, errors = selecting(("-U", OTHER_BOARD),
                                    UBTBR_FAKE_WRITE_FAILS_AFTER="0")
 assert status == 1, (status, output, errors)
-assert ("error: could not set up the Ubertooth %s: " % OTHER_BOARD) in errors, \
+assert ("error: could not set up Ubertooth %s: " % OTHER_BOARD) in errors, \
     errors
 status, output, errors = selecting(("-U", "1"),
                                    UBTBR_FAKE_WRITE_FAILS_AFTER="0")
 assert status == 1, (status, output, errors)
-assert "error: could not set up the Ubertooth at index 1: " in errors, errors
+assert "error: could not set up Ubertooth at index 1: " in errors, errors
 print("ubtbr: a setup that failed names the board it was talking to")
 
 # ---- the command line ------------------------------------------------------

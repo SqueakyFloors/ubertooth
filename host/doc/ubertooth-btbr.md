@@ -39,7 +39,7 @@ Add `-U <index|serial>` to either command to pick one board of several; it
 works from both images.
 
 Starting `ubertooth-btbr` on a board running `bluetooth_rxtx` fails with
-`error: could not set up the Ubertooth <serial>: LIBUSB_ERROR_TIMEOUT [-7]`,
+`error: could not set up Ubertooth <serial>: LIBUSB_ERROR_TIMEOUT [-7]`,
 followed by a `note: ` naming that firmware and the image to flash.
 `bluetooth_rxtx` offers the endpoint this tool writes to but never reads it,
 so the tool's first requests sit there until the write times out. The serial
@@ -193,10 +193,10 @@ standard error with no usage text, and exit 1: `error: unrecognized option
 With no Ubertooth attached the tool says `error: no Ubertooth devices found`
 and exits 1. A selection that names no board, or more than one, is refused
 the same way; see SELECTING A DEVICE. A board that cannot be opened is
-`error: could not open Ubertooth <serial>: <reason>`, with a `note: ` naming
-the usual cause when the reason says one: file permissions for a refused
-open, another program for a busy board. A board that takes none of the requests
-the session opens with gets `error: could not set up the Ubertooth <serial>:
+`error: could not open Ubertooth <serial>: <reason>`, with a `note: ` about
+file permissions when the open was refused for want of them. A board that
+takes none of the requests
+the session opens with gets `error: could not set up Ubertooth <serial>:
 ...` and, when the request timed out, a `note: ` naming `bluetooth_rxtx` and
 the image to flash: that is nearly always what such a board is carrying,
 though a board already carrying `btbr` that stopped answering times out the

@@ -396,7 +396,7 @@ def main():
 		# Named by serial, because the usual cause is the wrong board rather
 		# than a bad one: the serial says which board the session got, which
 		# the user can compare with the one they flashed btbr onto.
-		eprint("error: could not set up the %s: %s\n"%(bt.board(), e))
+		eprint("error: could not set up %s: %s\n"%(bt.board(), e))
 		if isinstance(e, usb1.USBErrorTimeout):
 			# The bluetooth_rxtx firmware offers the endpoint this tool
 			# writes to but never reads it, so a request sits there until the

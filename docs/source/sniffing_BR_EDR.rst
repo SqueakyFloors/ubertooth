@@ -196,7 +196,8 @@ Limitations:
 - Packets sent after encryption is enabled are shown as raw data and cannot be decrypted.
 - ``ubertooth-btbr`` needs the ``btbr`` image. On a board carrying
   ``bluetooth_rxtx`` it stops before its prompt with
-  ``error: could not set up the Ubertooth``, naming the image to flash: that
+  ``error: could not set up``, naming the board it got and the image to
+  flash: that
   firmware never reads the endpoint the tool writes to, which is what the
   reports of the tool hanging shortly after start (upstream issue
   `#520 <https://github.com/greatscottgadgets/ubertooth/issues/520>`__) turned

@@ -899,16 +899,17 @@ def board_label(serial=None, index=None):
 	"""How a message names a board: by serial, by index, or not at all.
 
 	The index form is for a board chosen by index, whose serial was never
-	read -- see board_serial(). Without either, "Ubertooth" is as much as the
-	message can say, which is the case of a single attached board. The
-	article is left to the caller, so a message can read either "the
-	Ubertooth" or "Ubertooth 1cc0...".
+	read -- see board_serial(). Without either, "the Ubertooth" is as much as
+	the message can say, which is the case of a single attached board. Each
+	form carries its own article, as libubertooth's board_label() does, so a
+	message puts it straight after its verb: "could not open the Ubertooth",
+	"could not open Ubertooth 1cc0...".
 	"""
 	if serial:
 		return "Ubertooth %s"%serial
 	if index is not None:
 		return "Ubertooth at index %d"%index
-	return "Ubertooth"
+	return "the Ubertooth"
 
 
 def attached_ubertooths(context):
@@ -974,19 +975,19 @@ def unread_serials_note(serials):
 
 
 def open_failure_note(error):
-	"""The usual cause of an open that failed, where libusb's code says one.
+	"""The usual cause of an open that was refused.
 
-	libubertooth reports an open failure with libusb's own description too
-	(show_libusb_error()), and reserves "in use by another program" for the
-	busy code; a refused open is nearly always file permissions. So the code
-	picks the note rather than the message.
+	libubertooth reports an open failure with libusb's own description
+	(show_libusb_error()), so the message keeps that and the cause goes in a
+	note. There is one: libusb_open() refuses for want of permission, and on
+	Linux that is nearly always the udev rules not being installed. It does
+	not report a board another program is using -- that shows up later, when
+	the interface is claimed -- so nothing here says it does.
 	"""
 	if isinstance(error, usb1.USBErrorAccess):
 		return ("\nnote: a board that cannot be opened is usually a "
 			"permissions problem; on Linux install the udev rules shipped "
 			"with this package")
-	if isinstance(error, usb1.USBErrorBusy):
-		return "\nnote: the board is in use by another program"
 	return ""
 
 
@@ -994,10 +995,13 @@ def select_ubertooth(selector, attached):
 	"""The one board a -U argument names, and how a message should name it.
 
 	`attached` is what attached_ubertooths() returned, and must not be empty.
-	Anything that does not name exactly one board raises BTCtlNoDeviceError.
-	The wording is libubertooth's for the same refusal, so one wording covers
-	every tool; the one exception is the line for several boards and no -U,
-	which follows .kiro/steering/cli-output.md rather than the older C line.
+	Anything that does not name exactly one board raises BTCtlNoDeviceError,
+	in libubertooth's wording for the same refusal so that one wording covers
+	every tool. Two lines depart from it deliberately: the one for several
+	boards and no -U follows .kiro/steering/cli-output.md rather than the
+	older C line, and the note for a board that did not answer the serial
+	read gives the cause of a failed string-descriptor read rather than of
+	the vendor request the C tools use.
 	"""
 	if not selector:
 		if len(attached) > 1:

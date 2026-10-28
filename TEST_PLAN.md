@@ -347,7 +347,8 @@ nRF52840 DKs) plus one Ubertooth.*
 - [ ] Confirm: the `bt>` prompt appears within a couple of seconds
 - [ ] Confirm: packets captured after paging completes
 - [ ] Confirm: on a board carrying `bluetooth_rxtx` instead, the tool exits 1
-      within a few seconds with `error: could not set up the Ubertooth` and a
+      within a few seconds with `error: could not set up Ubertooth <serial>`
+      naming the board it was given, and a
       `note: ` naming that firmware and the image to flash, rather than waiting
       on the board
 - [ ] Confirm: Ctrl-C before the `bt>` prompt appears ends the tool with exit
