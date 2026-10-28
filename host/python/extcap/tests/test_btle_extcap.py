@@ -35,10 +35,17 @@ Two things are checked:
     traceback rather than an "error: " line.
 
   * --capture runs ubertooth-btle on the selected board, against a fake
-    ubertooth-btle that records its arguments, and reports how it ended: a
-    child that failed makes the script exit non-zero, which is the only way
-    Wireshark hears about a failed capture, while a capture Wireshark asked
-    to stop still exits 0.
+    ubertooth-btle that records its arguments, and reports how it ended: any
+    failure is exit 1, which is the only thing Wireshark needs to hear about
+    a failed capture, while a capture asked to stop exits 0. Both stop
+    signals are checked: Wireshark's SIGTERM and tshark's Ctrl-C, which
+    sends SIGINT to the process group and used to kill the script outright.
+
+  * each call as Wireshark itself writes it, including the capture-filter
+    verification call, which is the filter and an interface with no
+    operation. Wireshark reads that call's standard output as the filter's
+    problem, so answering with nothing left the user a filter box that
+    looked accepted and a capture with no filter applied.
 
   * the options Wireshark adds to its own calls. --extcap-version comes with
     the --extcap-interfaces call Wireshark makes at start-up, and used to end
@@ -96,6 +103,12 @@ NO_DEVICES = "error: no Ubertooth devices found"
 # What libubertooth says for a board it could not open, which is what a
 # partial listing reports beside the boards it could name.
 OPEN_REFUSED = "error: Access denied (insufficient permissions) (libusb -3)\n"
+# What the script answers Wireshark's capture-filter verification call with,
+# and repeats as a warning on a capture started with a filter anyway. Pinned
+# here so the two cannot drift apart: Wireshark shows this one sentence in the
+# capture filter box.
+NO_CAPTURE_FILTER = ("this interface does not apply capture filters;"
+                     " use a display filter")
 SERIALS = ("1ff0ff1967102caf8334fa5ac52000f5",
            "0b700017490c2cafa039ee5ac52000f5")
 
@@ -332,8 +345,7 @@ result = run(("--capture", "--extcap-interface=ubertooth" + SERIALS[0],
               "--fifo=" + fifo_path, "--extcap-capture-filter", "btle"))
 assert result.returncode == 0, result
 assert result.stdout == "", result
-assert result.stderr.startswith("warning: ") and "btle" in result.stderr, \
-    result
+assert result.stderr == "warning: %s (got btle)\n" % NO_CAPTURE_FILTER, result
 with open(ARGS_FILE) as record:
     assert record.read().split("\n")[:3] == ["-f", "-U", SERIALS[0]], result
 # an empty one is what Wireshark passes when the user typed no filter
@@ -616,17 +628,20 @@ for channel in ADVERTISING_CHANNELS:
             (channel, result)
 
 # a failed ubertooth-btle is a failed capture, which Wireshark only hears
-# about from a non-zero exit here
+# about from a non-zero exit here. Every failure is 1: Wireshark needs no
+# more than non-zero, and a wrapper does not invent exit statuses of its own
+# for a child's (.kiro/steering/cli-output.md). The child's status used to be
+# passed through, so a capture could end 42.
 for status in (1, 2, 42):
     result = run(("--capture", "--extcap-interface=ubertooth" + SERIALS[0],
                   "--fifo=" + fifo), status=status)
-    assert result.returncode == status, (status, result)
+    assert result.returncode == 1, (status, result)
 
-# a child killed by a signal nobody here sent is a failure too, reported the
-# way a shell reports it
+# a child killed by a signal nobody here sent is a failure too, and the same
+# 1 rather than 128 plus the signal's number
 result = run(("--capture", "--extcap-interface=ubertooth" + SERIALS[0],
               "--fifo=" + fifo), kill_with=signal.SIGKILL)
-assert result.returncode == 128 + int(signal.SIGKILL), result
+assert result.returncode == 1, result
 
 # except SIGPIPE: the child gets that when whoever was reading the fifo
 # stopped reading, which is one of the ways Wireshark ends a capture. Seen on
@@ -636,33 +651,40 @@ result = run(("--capture", "--extcap-interface=ubertooth" + SERIALS[0],
               "--fifo=" + fifo), kill_with=signal.SIGPIPE)
 assert result.returncode == 0, result
 
-# but a capture Wireshark stopped ended as it was asked to: the script passes
-# the SIGTERM on to ubertooth-btle, which dies of it, and the script still
-# exits 0 so Wireshark shows no error for a capture the user ended.
-with open(OUTPUT_FILE, "w") as output:
-    output.write("")
-if os.path.exists(ARGS_FILE):
-    os.remove(ARGS_FILE)
-stopped = subprocess.Popen(
-    [sys.executable, SCRIPT, "--capture",
-     "--extcap-interface=ubertooth" + SERIALS[0], "--fifo=" + fifo],
-    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-    env=dict(ENVIRONMENT, FAKE_UTIL_STATUS="0", FAKE_UTIL_SIGNAL="",
-             FAKE_UTIL_SLEEP="60"))
-# the child writes its arguments before it sleeps, so the file appearing means
-# it is running and the script has it to pass the signal on to
-deadline = time.monotonic() + 10
-while not os.path.exists(ARGS_FILE) and time.monotonic() < deadline:
-    time.sleep(0.05)
-if not os.path.exists(ARGS_FILE):
-    # nothing to stop, and the long-sleeping fake must not be left behind
-    stopped.kill()
-    stopped.wait(timeout=10)
-    raise AssertionError("the fake ubertooth-btle never started")
-stopped.terminate()
-output, errors = stopped.communicate(timeout=10)
-assert stopped.returncode == 0, (stopped.returncode, output, errors)
-assert output == "", output
+# but a capture that was asked to stop ended as it was asked to: the script
+# passes the signal on to ubertooth-btle, which dies of it, and the script
+# still exits 0 so Wireshark shows no error for a capture the user ended.
+# SIGTERM is what Wireshark stops a capture with; SIGINT is what tshark's
+# Ctrl-C sends to the whole process group, and the script used to die of it
+# with nothing to report, since only SIGTERM was handled.
+for stop_with in (signal.SIGTERM, signal.SIGINT):
+    with open(OUTPUT_FILE, "w") as output:
+        output.write("")
+    if os.path.exists(ARGS_FILE):
+        os.remove(ARGS_FILE)
+    stopped = subprocess.Popen(
+        [sys.executable, SCRIPT, "--capture",
+         "--extcap-interface=ubertooth" + SERIALS[0], "--fifo=" + fifo],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        env=dict(ENVIRONMENT, FAKE_UTIL_STATUS="0", FAKE_UTIL_SIGNAL="",
+                 FAKE_UTIL_SLEEP="60"))
+    # the child writes its arguments before it sleeps, so the file appearing
+    # means it is running and the script has it to pass the signal on to
+    deadline = time.monotonic() + 10
+    while not os.path.exists(ARGS_FILE) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    if not os.path.exists(ARGS_FILE):
+        # nothing to stop, and the long-sleeping fake must not be left behind
+        stopped.kill()
+        stopped.wait(timeout=10)
+        raise AssertionError("the fake ubertooth-btle never started")
+    stopped.send_signal(stop_with)
+    output, errors = stopped.communicate(timeout=10)
+    assert stopped.returncode == 0, \
+        (stop_with, stopped.returncode, output, errors)
+    assert output == "", (stop_with, output)
+    # no traceback either: the signal is handled, not left to kill Python
+    assert "Traceback" not in errors, (stop_with, errors)
 
 # a stop that arrives before ubertooth-btle does, while the command line is
 # still being read: the handler has no child to pass the signal on to, and
@@ -678,12 +700,111 @@ script = importlib.util.module_from_spec(
 # __pycache__ behind in it
 sys.dont_write_bytecode = True
 loader.exec_module(script)
-script.sig_handler(signal.SIGTERM, None)
-assert script.capture(SERIALS[0], fifo, ADVERTISING_CHANNELS[0]) == 0
-assert script.child is None, "a capture already stopped must start no child"
-assert not os.path.exists(ARGS_FILE), \
-    "a capture already stopped must start no child"
+for stop_with in (signal.SIGTERM, signal.SIGINT):
+    script.stop_signal = None
+    script.child = None
+    script.sig_handler(stop_with, None)
+    assert script.capture(SERIALS[0], fifo, ADVERTISING_CHANNELS[0]) == 0, \
+        stop_with
+    assert script.child is None, \
+        ("a capture already stopped must start no child", stop_with)
+    assert not os.path.exists(ARGS_FILE), \
+        ("a capture already stopped must start no child", stop_with)
 
 print("btle-extcap: --capture reports how ubertooth-btle ended")
+
+# ---- the calls Wireshark makes ---------------------------------------------
+
+# Each call as Wireshark writes it, values in the next word rather than
+# attached, in the order extcap.c appends them. All five answer on standard
+# output and exit 0: Wireshark throws away what a call that failed printed.
+listing_call = run(("--extcap-interfaces", "--extcap-version=5.0"),
+                   listing=LISTING_ONE % SERIALS[0])
+assert listing_call.returncode == 0, listing_call
+assert interfaces(listing_call) == [
+    "interface {value=ubertooth%s}{display=Ubertooth One %s}"
+    % ((SERIALS[0],) * 2)], listing_call
+
+dlts_call = run(("--extcap-dlts", "--extcap-interface",
+                 "ubertooth" + SERIALS[0]))
+assert dlts_call.returncode == 0, dlts_call
+assert dlts_call.stdout.startswith(
+    "dlt {number=256}{name=DLT_BLUETOOTH_LE_LL_WITH_PHDR}"), dlts_call
+assert dlts_call.stderr == "", dlts_call
+
+config_call = run(("--extcap-config", "--extcap-interface",
+                   "ubertooth" + SERIALS[0]))
+assert config_call.returncode == 0, config_call
+assert config_call.stderr == "", config_call
+config_lines = config_call.stdout.splitlines()
+assert config_lines[0] == \
+    "arg {number=0}{call=--channel}{display=Advertising Channel}" \
+    "{type=selector}", config_call
+# the channel --capture uses without --channel is the one offered first, and
+# it is the default Wireshark starts with
+assert config_lines[1:] == [
+    "value {arg=0}{value=%s}{display=%s}{default=%s}"
+    % (ch, ch, "true" if ch == ADVERTISING_CHANNELS[0] else "false")
+    for ch in ADVERTISING_CHANNELS], config_call
+
+# the capture call, with the configured channel as its own word
+capture_fifo = os.path.join(directory, "wireshark-fifo")
+capture_call = run(("--capture", "--extcap-interface",
+                    "ubertooth" + SERIALS[0], "--fifo", capture_fifo,
+                    "--channel", "39"))
+assert capture_call.returncode == 0, capture_call
+assert capture_call.stdout == "" and capture_call.stderr == "", capture_call
+with open(ARGS_FILE) as record:
+    assert record.read().split("\n") == \
+        ["-f", "-U", SERIALS[0], "-q", capture_fifo, "-A", "39"], capture_call
+
+# what ubertooth-btle writes to its own standard output is dropped: the data
+# this call asked for goes to the fifo, and its -f decode of every packet
+# would otherwise land on the script's standard output, where only the
+# listings belong. Passing it on to standard error instead would crowd out
+# the reason a failed capture gives there, of which Wireshark keeps 1024
+# bytes. The fake writes the listing to its standard output, so that is the
+# noise here.
+noisy = run(("--capture", "--extcap-interface=ubertooth" + SERIALS[0],
+             "--fifo=" + capture_fifo),
+            listing="a decode of a packet, 560 kB of them in 8 seconds\n")
+assert noisy.returncode == 0, noisy
+assert noisy.stdout == "" and noisy.stderr == "", noisy
+
+# the capture-filter verification call: the filter and an interface, with no
+# operation. Wireshark reads what this call writes to standard output as the
+# filter's problem and shows it in the filter box, in red, and an empty answer
+# as a filter that is good; it discards the output of a call that exited
+# non-zero and says "Unable to check capture filter" instead, so the call
+# exits 0 either way. It used to answer with an empty standard output, which
+# left the user with a filter box that looked accepted and an unfiltered
+# capture.
+for filter_call in (("--extcap-capture-filter", "btle",
+                     "--extcap-interface", "ubertooth" + SERIALS[0]),
+                    ("--extcap-interface=ubertooth" + SERIALS[0],
+                     "--extcap-capture-filter=ether host 00:11:22:33:44:55")):
+    result = run(filter_call)
+    assert result.returncode == 0, (filter_call, result)
+    assert result.stdout == NO_CAPTURE_FILTER + "\n", (filter_call, result)
+    assert result.stderr == "", (filter_call, result)
+    assert not os.path.exists(ARGS_FILE), \
+        ("verifying a filter must start nothing", filter_call, result)
+
+# the empty filter Wireshark verifies when the box is empty is good: nothing
+# on standard output is what says so
+for filter_call in (("--extcap-capture-filter", "",
+                     "--extcap-interface", "ubertooth" + SERIALS[0]),
+                    ("--extcap-interface=ubertooth" + SERIALS[0],
+                     "--extcap-capture-filter=")):
+    result = run(filter_call)
+    assert result.returncode == 0, (filter_call, result)
+    assert result.stdout == "" and result.stderr == "", (filter_call, result)
+
+# an interface with no operation and no filter is still a call that did
+# nothing, which fails rather than looking like a verified empty filter
+nothing = run(("--extcap-interface=ubertooth" + SERIALS[0],))
+assert nothing.returncode == 1 and nothing.stdout == "", nothing
+
+print("btle-extcap: every call Wireshark makes is answered on standard output")
 
 WORK.cleanup()

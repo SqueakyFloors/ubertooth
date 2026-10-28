@@ -830,7 +830,13 @@
          "error": "error: --capture needs --fifo=PATH"},
         {"args": ["--extcap-interface=ubertooth0", "--capture", "--fifo=/dev/null",
                   "--channel=40"], "verdict": "refused",
-         "error": "error: advertising channel index must be 37-39 (got 40)"}
+         "error": "error: advertising channel index must be 37-39 (got 40)"},
+        {"args": ["--extcap-interface=ubertooth0",
+                  "--extcap-capture-filter=btle"], "verdict": "report",
+         "why": "Wireshark verifying a capture filter: the filter and an interface, with no operation. What this call writes to standard output is the answer, which Wireshark shows in the capture filter box, so it goes there and the call exits 0; a non-zero exit would make Wireshark discard the answer."},
+        {"args": ["--extcap-interface=ubertooth0",
+                  "--extcap-capture-filter="], "verdict": "silent_success",
+         "why": "the empty filter Wireshark verifies when the box is empty is good, and an empty standard output is what says so"}
       ]
     },
 

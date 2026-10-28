@@ -956,6 +956,19 @@
 - `btle-extcap.py -h` names the options the script accepts, not
   `--list-interfaces`, `--list-dlts` and `--config`, which it rejects.
   [#268](https://github.com/SqueakyFloors/ubertooth/issues/268)
+- A capture filter typed for an Ubertooth interface in Wireshark now turns the
+  filter box red with `this interface does not apply capture filters; use a
+  display filter`. The box used to stay green and the capture ran unfiltered,
+  with the notice on an error output Wireshark shows only for a capture that
+  failed. An empty filter box is still accepted.
+  [#343](https://github.com/SqueakyFloors/ubertooth/issues/343)
+- **Script-visible change:** `btle-extcap.py --capture` exits 0 or 1 and
+  nothing else. It used to pass `ubertooth-btle`'s own exit status through, or
+  report 128 plus the number of the signal that killed it. It also handles
+  Ctrl-C, which `tshark` sends to the whole process group: the script used to
+  die of it and report nothing, where now a capture that was asked to stop
+  exits 0 as it does under Wireshark.
+  [#343](https://github.com/SqueakyFloors/ubertooth/issues/343)
 - A set and a read of the same `ubertooth-util` value in one command both run,
   the set first, so `-c2426 -c`, `-a5 -a`, `-l1 -l` and `-d1 -d` report the new
   value instead of dropping the set.
@@ -1402,6 +1415,13 @@ Fixes with no visible change in normal use.
   [#691](https://github.com/SqueakyFloors/ubertooth/issues/691)
 - A board selection that ran out of memory exited 1 with no line at all,
   whether it was asked for by index or by serial.
+- The `ubertooth-btle` that `btle-extcap.py` runs for a Wireshark capture no
+  longer writes its text decode of every packet, some 560 kB for 8 seconds of
+  advertising, onto the script's own output: the capture goes to Wireshark's
+  pipe, and the decode is dropped. Wireshark discarded it anyway, and keeping
+  it off the error output leaves room there for the reason a failed capture
+  gives.
+  [#343](https://github.com/SqueakyFloors/ubertooth/issues/343)
 - `ubertooth-dfu -d <image> -r` tells three things apart after the reset: a
   board that did not come back, a board that is back and will not open, and a
   host USB bus that could not be read at all. The last two both read as a
