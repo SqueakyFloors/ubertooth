@@ -320,7 +320,8 @@
   reset straight back into the bootloader as detached. The reset has to leave
   the DFU device gone on two checks in a row, the second 1.5 s after the
   first, and a board that is back exits 1 naming the two things that put it
-  there, the expansion-header bridge among them. Flashing with the bridge
+  there, and then the expansion-header bridge that is the usual cause of one
+  of them. Flashing with the bridge
   still fitted, which `ubertooth-dfu(1)` describes, now exits 1 where it could
   exit 0, and every reset spends about 1.5 s more.
   [#304](https://github.com/SqueakyFloors/ubertooth/issues/304)

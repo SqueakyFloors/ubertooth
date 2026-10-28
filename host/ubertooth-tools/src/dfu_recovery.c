@@ -331,15 +331,16 @@ void dfu_verify_describe_failure(const struct dfu_verify_report *report,
 		         report->actual_revision, expected);
 		break;
 	case DFU_VERIFY_IMAGE_FAILED:
-		/* The revision already matched, so the write took; what is missing
-		 * is which of this tree's images answered. No command can read that
-		 * back either -- ubertooth-util -v falls back to the revision on a
-		 * board that will not answer -- so the line says what is not known
-		 * rather than sending the reader somewhere that cannot say. */
+		/* The revision was read off the board and matched, so the write took
+		 * and the line must not say otherwise. What is missing is only which
+		 * of this tree's images answered, and no command can read that back
+		 * either: ubertooth-util -v falls back to the revision on a board
+		 * that will not answer the block. So the line says exactly what was
+		 * and was not established, and sends the reader nowhere. */
 		snprintf(message, message_size,
-		         "the board came back running %s but would not say which "
-		         "firmware image it is, so the flash was not checked: "
-		         "power-cycle it and flash it again if it misbehaves",
+		         "the board came back running %s, the revision that was "
+		         "written, but would not say which firmware image it is, so "
+		         "which of this tree's images it runs is unchecked",
 		         report->actual_revision);
 		break;
 	case DFU_VERIFY_IMAGE_MISMATCH:

@@ -556,16 +556,20 @@ MU_TEST(test_an_unreadable_image_is_described_as_unchecked)
 	                                        &config, &report));
 	dfu_verify_describe_failure(&report, "git-expected", "bluetooth_rxtx",
 	                            message, sizeof(message));
-	mu_assert(strstr(message, "running git-expected") != NULL,
+	mu_assert(strstr(message, "running git-expected, the revision that was "
+	                 "written") != NULL,
 	          "the line does not say the revision matched");
 	mu_assert(strstr(message, "would not say which firmware image it is")
 	          != NULL, "the line does not say what the board withheld");
-	mu_assert(strstr(message, "the flash was not checked") != NULL,
-	          "the line does not say the flash is unverified");
+	mu_assert(strstr(message, "is unchecked") != NULL,
+	          "the line does not say what is unverified");
 	/* No command can read the image back off a board that will not answer,
-	 * so the line must not send the reader to one. */
+	 * so the line must not send the reader to one, and the revision did
+	 * match, so it must not call the whole flash unchecked. */
 	mu_assert(strstr(message, "ubertooth-util") == NULL,
 	          "the line sends the reader to a command that cannot answer");
+	mu_assert(strstr(message, "the flash was not checked") == NULL,
+	          "the line calls a matching revision an unchecked flash");
 	mu_assert(strstr(message, "not written") == NULL,
 	          "the line claims the write did not take");
 	mu_assert(strchr(message, '\n') == NULL, "the line is more than one line");

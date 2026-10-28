@@ -130,9 +130,10 @@ expansion-header bridge described under MANUALLY ENTERING BOOTLOADER.
 The confirming wait is spent once per detach and only after the device has
 gone, so a board still in the bootloader is reported as promptly as before.
 The 1.5 s is measured against one board on one host, where it was back within
-630 ms of being asked to reset; a board slower than that, behind a hub or on a
-loaded host, is back on the bus after the confirming listing has already read
-it as gone, which is the answer this check gave before it existed.
+630 ms of being asked to reset. A board that takes longer than the whole 1.5 s,
+behind a hub or on a loaded host, is back on the bus after the confirming
+listing has already read it as gone, and is reported as detached, which is the
+answer this check gave before it existed.
 
 If a transfer fails, in either direction, the tool closes the stale handle,
 reopens and claims the DFU device on the same physical path, restores its DFU
@@ -366,9 +367,11 @@ Standard output carries the usage text for `-h`, and otherwise one line, from
 
     Verified firmware revision: git-ed30131d
 
-That is the revision the board reported once it was running the new firmware,
-which is the only thing this command reads back, so it is the result and a
-script can read it on its own. Nothing else is ever written to standard
+That is the revision the board reported once it was running the new firmware.
+It is the only thing this command reports back, so it is the result and a
+script can read it on its own; the image name the verification also reads is
+checked rather than printed, because the `Image: ...` line already said which
+one was written. Nothing else is ever written to standard
 output: the dump of `-u` goes to the file it names, and the signed image of
 `-s` to `<file>.dfu`, and a run that only writes firmware or resets the board
 says nothing there at all.
@@ -408,7 +411,7 @@ mean the same thing, so each has its own line:
     error: the board came back running git-0000000, not git-ed30131d: the firmware was not written, so flash it again
     error: the board came back running the btbr firmware, not the bluetooth_rxtx image that was written: the firmware was not written, so flash it again
     error: the board came back but would not report its firmware revision, so the flash was not checked: read it with ubertooth-util -v
-    error: the board came back running git-ed30131d but would not say which firmware image it is, so the flash was not checked: power-cycle it and flash it again if it misbehaves
+    error: the board came back running git-ed30131d, the revision that was written, but would not say which firmware image it is, so which of this tree's images it runs is unchecked
     error: the device that came back is not on the flashed board's USB path, so the flash was not checked: read the board's revision with ubertooth-util -v
 
 Two of those say the write did not take and ask for another flash: the one

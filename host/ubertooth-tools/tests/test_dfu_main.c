@@ -1278,9 +1278,26 @@ MU_TEST(a_confirming_listing_that_cannot_be_read_says_it_could_not_tell)
 	/* The gap was waited, so the trace says why the detach took that long,
 	 * as a whole line: it is built into a buffer, and a line cut short mid
 	 * word is how that buffer being too small shows up. */
-	mu_assert(strstr(r.err, "the DFU device has gone: looking again in 1 ms, "
-	                 "in case the board came back in the bootloader\n")
+	mu_assert(strstr(r.err, "the DFU device has gone: looking again in 1500 "
+	                 "ms, in case the board came back in the bootloader\n")
 	          != NULL, "the confirming wait is not in the stage trace");
+}
+
+/* A confirming listing that could not be read leaves the detach unsettled,
+ * and the board had still gone, so a request that failed as it reset says
+ * nothing about that either: no libusb status in front of this failure. */
+MU_TEST(a_board_that_went_names_no_libusb_status_when_the_bus_will_not_read)
+{
+	struct run_result r;
+
+	board_in_dfu();
+	fake.detach_rc = LIBUSB_ERROR_PIPE;
+	fake.list_rc_after_detach = LIBUSB_ERROR_NO_MEM;
+	r = RUN("-r");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "could not tell whether the board left DFU")
+	          != NULL, "the unsettled detach was not reported");
+	mu_assert_int_eq(0, fake.libusb_errors);
 }
 
 /* One confirming listing that cannot be read is not the answer either: it is
@@ -1394,9 +1411,9 @@ MU_TEST(a_board_that_will_not_name_its_image_fails_the_verification)
 	r = RUN("-d", image_path, "-r");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strstr(r.err, "error: the board came back running "
-	                 IMAGE_REVISION " but would not say which firmware image "
-	                 "it is, so the flash was not checked: power-cycle it "
-	                 "and flash it again if it misbehaves\n") != NULL,
+	                 IMAGE_REVISION ", the revision that was written, but "
+	                 "would not say which firmware image it is, so which of "
+	                 "this tree's images it runs is unchecked\n") != NULL,
 	          "the unreadable image was not reported as unchecked");
 	mu_assert(strstr(r.err, "not written") == NULL,
 	          "the line claims the write did not take");
@@ -2055,7 +2072,11 @@ int main(void)
 	 * to wait, so they do it in a few milliseconds. */
 	detach_gone_polls = 3;
 	detach_gone_interval_ms = 1;
-	detach_confirm_interval_ms = 1;
+	/* The confirming wait keeps its real length, because the stage line it
+	 * logs is built from that number and a shorter one would not fill the
+	 * buffer the way the shipped interval does. Sleeping costs nothing
+	 * here: nanosleep() above returns at once. */
+	detach_confirm_interval_ms = DETACH_CONFIRM_INTERVAL_MS;
 
 	MU_RUN(a_dfu_board_in_use_goes_through_the_shared_report_and_is_left_alone);
 	MU_RUN(a_read_back_with_reset_writes_the_dump_and_detaches);
@@ -2084,6 +2105,7 @@ int main(void)
 	MU_RUN(a_board_that_comes_back_in_the_bootloader_fails_before_verification);
 	MU_RUN(a_confirming_listing_that_cannot_be_read_says_it_could_not_tell);
 	MU_RUN(one_unreadable_confirming_listing_is_tried_again);
+	MU_RUN(a_board_that_went_names_no_libusb_status_when_the_bus_will_not_read);
 	MU_RUN(a_board_back_in_the_bootloader_names_no_libusb_status);
 	MU_RUN(an_image_for_another_api_version_is_warned_about_and_written);
 	MU_RUN(a_board_running_the_other_image_fails_the_verification);

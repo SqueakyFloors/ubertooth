@@ -816,14 +816,20 @@ int enter_dfu_mode(libusb_device_handle* devh) {
  * cannot tell a board that left from one that left and came straight back:
  * the bootloader is absent for as long as re-enumeration takes either way.
  * The confirming listing is far enough out that a board back in the
- * bootloader is answering again by then. */
+ * bootloader is answering again by then.
+ *
+ * *went says whether any listing found the device gone, which the caller
+ * needs on the error paths: once the device has left, the status of the
+ * detach request says nothing, however the rest of the wait turned out. */
 static int dfu_device_presence(struct dfu_runtime_context *runtime,
-                               const struct dfu_usb_identity *identity)
+                               const struct dfu_usb_identity *identity,
+                               int *went)
 {
 	int last_error = LIBUSB_ERROR_OTHER;
 	int seen = 0;
 	unsigned poll;
 
+	*went = 0;
 	/* Without a path there is nothing to look for, and no device matches an
 	 * empty one: say so rather than reporting a board that was never looked
 	 * for as gone. Both callers pass the path the command bound itself to,
@@ -847,6 +853,7 @@ static int dfu_device_presence(struct dfu_runtime_context *runtime,
 			unsigned confirm;
 			char stage[128];
 
+			*went = 1;
 			snprintf(stage, sizeof(stage),
 			         "the DFU device has gone: looking again in %u ms, in "
 			         "case the board came back in the bootloader",
@@ -904,7 +911,7 @@ static int dfu_device_presence(struct dfu_runtime_context *runtime,
  * is still in the bootloader or that could not be established. */
 int detach(struct dfu_runtime_context* runtime, libusb_device_handle* devh,
            const struct dfu_usb_identity* identity) {
-	int rv, presence;
+	int rv, presence, went;
 	rv = enter_dfu_mode(devh);
 	if(rv < 0) {
 		fprintf(stderr, "error: detach failed: could not enter DFU mode\n");
@@ -916,16 +923,15 @@ int detach(struct dfu_runtime_context* runtime, libusb_device_handle* devh,
 	              "whether the board left the bootloader" :
 	              "detach request did not complete: looking for the DFU "
 	              "device to see whether the board reset");
-	presence = dfu_device_presence(runtime, identity);
+	presence = dfu_device_presence(runtime, identity, &went);
 	if (presence != DFU_PRESENCE_GONE) {
 		/* A board that never left makes the status of the request
-		 * diagnostic after all, and so does a probe that could not say. A
-		 * board that reset and came back does not: the reset happened, and
-		 * the request failing while it was in flight is what a reset that
-		 * worked looks like on macOS. Naming a status there would put a
-		 * libusb line in front of a failure that has nothing to do with
-		 * it. */
-		if (rv != LIBUSB_SUCCESS && presence != DFU_PRESENCE_RETURNED)
+		 * diagnostic after all. Once a listing has found the device gone it
+		 * is not: the reset happened, and a request that failed while it was
+		 * in flight is what a reset that worked looks like on macOS. Naming
+		 * a status there would put a libusb line in front of a failure that
+		 * has nothing to do with it. */
+		if (rv != LIBUSB_SUCCESS && !went)
 			show_libusb_error(rv);
 		if (presence < 0)
 			fprintf(stderr, "error: detach failed: could not tell whether "
@@ -966,7 +972,7 @@ int detach(struct dfu_runtime_context* runtime, libusb_device_handle* devh,
 		 * accepted and ignored has none, so the failure comes from the probe:
 		 * why it could not answer, when it could not, and otherwise a code
 		 * that at least is not success. */
-		if (rv != LIBUSB_SUCCESS && presence != DFU_PRESENCE_RETURNED)
+		if (rv != LIBUSB_SUCCESS && !went)
 			return rv;
 		return presence < 0 ? presence : LIBUSB_ERROR_OTHER;
 	}

@@ -70,7 +70,7 @@ note: if the expansion\-header bridge is still fitted, remove it (pins 1 and 3 o
 .P
 The first note appears only when \fB\-d\fR had written the whole image\. The second names the bootloader's two entry conditions, which are all there are\. The third is what to do about the one of them that repeats on every reset: the expansion\-header bridge described under MANUALLY ENTERING BOOTLOADER\.
 .P
-The confirming wait is spent once per detach and only after the device has gone, so a board still in the bootloader is reported as promptly as before\. The 1\.5 s is measured against one board on one host, where it was back within 630 ms of being asked to reset; a board slower than that, behind a hub or on a loaded host, is back on the bus after the confirming listing has already read it as gone, which is the answer this check gave before it existed\.
+The confirming wait is spent once per detach and only after the device has gone, so a board still in the bootloader is reported as promptly as before\. The 1\.5 s is measured against one board on one host, where it was back within 630 ms of being asked to reset\. A board that takes longer than the whole 1\.5 s, behind a hub or on a loaded host, is back on the bus after the confirming listing has already read it as gone, and is reported as detached, which is the answer this check gave before it existed\.
 .P
 If a transfer fails, in either direction, the tool closes the stale handle, reopens and claims the DFU device on the same physical path, restores its DFU state, and retries the whole transfer once from its first block\. A transfer that fails twice ends the command with exit status 1\. With \fB\-d \|\.\|\.\|\. \-r\fR, the image name and revision from the image's firmware info block are what the board must report back: the run does not return success until the application on that same path reports exactly both\. The image name matters because both images built from one tree carry the same revision, so a write of \fBbtbr\fR over \fBbluetooth_rxtx\fR that did not take would otherwise pass on the revision alone\.
 .P
@@ -183,7 +183,7 @@ Verified firmware revision: git\-ed30131d
 .fi
 .IP "" 0
 .P
-That is the revision the board reported once it was running the new firmware, which is the only thing this command reads back, so it is the result and a script can read it on its own\. Nothing else is ever written to standard output: the dump of \fB\-u\fR goes to the file it names, and the signed image of \fB\-s\fR to \fB<file>\.dfu\fR, and a run that only writes firmware or resets the board says nothing there at all\.
+That is the revision the board reported once it was running the new firmware\. It is the only thing this command reports back, so it is the result and a script can read it on its own; the image name the verification also reads is checked rather than printed, because the \fBImage: \|\.\|\.\|\.\fR line already said which one was written\. Nothing else is ever written to standard output: the dump of \fB\-u\fR goes to the file it names, and the signed image of \fB\-s\fR to \fB<file>\.dfu\fR, and a run that only writes firmware or resets the board says nothing there at all\.
 .P
 Everything else is on standard error, so a script reading that one line is not fed the progress of a flash that takes a few seconds:
 .IP "" 4
@@ -210,7 +210,7 @@ error: the firmware was written, but the board came back and would not open, so 
 error: the board came back running git\-0000000, not git\-ed30131d: the firmware was not written, so flash it again
 error: the board came back running the btbr firmware, not the bluetooth_rxtx image that was written: the firmware was not written, so flash it again
 error: the board came back but would not report its firmware revision, so the flash was not checked: read it with ubertooth\-util \-v
-error: the board came back running git\-ed30131d but would not say which firmware image it is, so the flash was not checked: power\-cycle it and flash it again if it misbehaves
+error: the board came back running git\-ed30131d, the revision that was written, but would not say which firmware image it is, so which of this tree's images it runs is unchecked
 error: the device that came back is not on the flashed board's USB path, so the flash was not checked: read the board's revision with ubertooth\-util \-v
 .fi
 .IP "" 0
