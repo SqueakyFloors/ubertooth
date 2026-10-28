@@ -250,6 +250,13 @@ static const char *const watchdog_site_text[WATCHDOG_SITE_COUNT] = {
 	[WATCHDOG_SITE_LE_TIMER]    = "in the BLE engine's timer interrupt",
 	[WATCHDOG_SITE_UNHANDLED_IRQ] = "in an interrupt nothing handles",
 	[WATCHDOG_SITE_DEBUG_DMA]     = "stopped by a failed debug UART transfer",
+	[WATCHDOG_SITE_USB_BULK]    = "handing a capture packet to the bulk endpoint",
+	[WATCHDOG_SITE_USB_DEV]     = "handling a USB bus event",
+	[WATCHDOG_SITE_USB_EP]      = "reading an endpoint's status",
+	[WATCHDOG_SITE_USB_SETUP]   = "reading a control request",
+	[WATCHDOG_SITE_USB_REQUEST] = "running a control request",
+	[WATCHDOG_SITE_USB_REPLY]   = "writing a control reply",
+	[WATCHDOG_SITE_USB_REALIZE] = "waiting for an endpoint to be realized",
 };
 
 const char *util_watchdog_mode_name(unsigned mode)

@@ -527,11 +527,18 @@ void handle_usb(u32 clkn)
 
 	/* write queued packets to USB if possible */
 	epstat = USBHwEPGetStatus(BULK_IN_EP);
-	if (!(epstat & EPSTAT_B1FULL)) {
-		dequeue_send(clkn);
-	}
-	if (!(epstat & EPSTAT_B2FULL)) {
-		dequeue_send(clkn);
+	if (!(epstat & EPSTAT_B1FULL) || !(epstat & EPSTAT_B2FULL)) {
+		/* Handing a packet over is the one part of a pass that is not the
+		 * host's request, so it records itself separately: a capture that
+		 * stops answering while it is in here is a different fault from one
+		 * that stops answering a request. */
+		uint8_t step = watchdog_mark_inner(WATCHDOG_SITE_USB_BULK);
+
+		if (!(epstat & EPSTAT_B1FULL))
+			dequeue_send(clkn);
+		if (!(epstat & EPSTAT_B2FULL))
+			dequeue_send(clkn);
+		watchdog_unmark(step);
 	}
 
 	/* polled "interrupt" */

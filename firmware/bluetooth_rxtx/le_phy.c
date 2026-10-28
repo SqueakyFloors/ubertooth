@@ -406,7 +406,7 @@ void le_DMA_IRQHandler(void) {
 	 * microsecond, in the firmware's hottest interrupt -- in front of the
 	 * reading. */
 	uint32_t timestamp = NOW;
-	uint8_t site = watchdog_mark_handler(WATCHDOG_SITE_LE_DMA);
+	uint8_t site = watchdog_mark_inner(WATCHDOG_SITE_LE_DMA);
 
 	le_dma_interrupt(timestamp);
 
@@ -804,7 +804,7 @@ static void le_ssp_drain(void) {
 	// Say where the board is while this runs, so one that the watchdog
 	// resets in here says so instead of naming whatever the loop beneath
 	// was doing. The site recorded before is put back on the way out.
-	uint8_t site = watchdog_mark_handler(WATCHDOG_SITE_LE_SSP);
+	uint8_t site = watchdog_mark_inner(WATCHDOG_SITE_LE_SSP);
 	unsigned i;
 
 	for (i = 0; i < LE_SSP_DRAIN_READS; ++i) {
@@ -820,7 +820,7 @@ static void le_ssp_drain(void) {
 }
 
 void TIMER1_IRQHandler(void) {
-	uint8_t site = watchdog_mark_handler(WATCHDOG_SITE_LE_TIMER);
+	uint8_t site = watchdog_mark_inner(WATCHDOG_SITE_LE_TIMER);
 
 	timer1_interrupt();
 

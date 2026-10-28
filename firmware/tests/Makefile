@@ -306,6 +306,7 @@ $(BINDIR)/test_btbr_arithmetic: test_btbr_arithmetic.c minunit.h \
 # usbhw_lpc.c against it. -DLPC17xx picks that branch of the file; -Istubs-usb
 # comes first so its lpc17.h wins over firmware/common's.
 $(BINDIR)/test_usbhw_wait: test_usbhw_wait.c minunit.h stubs-usb/lpc17.h \
+		stubs-usb/watchdog.h \
 		$(FW_LPCUSB)/usbhw_lpc.c $(FW_LPCUSB)/usbhw_lpc.h \
 		$(FW_LPCUSB)/usbcontrol.c $(FW_COMMON)/usb_irq.h \
 		$(FW_RXTX)/ubertooth_usb.h \
@@ -460,6 +461,7 @@ $(BINDIR)/test_rangetest_radio: test_rangetest_radio.c minunit.h source_scan.h \
 # layer below it -- no register file needed, unlike test_usbhw_wait. The waits
 # themselves are hardware code, so both images' sources are scanned for them.
 $(BINDIR)/test_reset_order: test_reset_order.c minunit.h source_scan.h \
+		stubs-usb/watchdog.h \
 		$(FW_LPCUSB)/usbcontrol.c $(FW_RXTX)/bluetooth_rxtx.c \
 		$(FW_BTBR)/src/btctl/btctl.c \
 		$(FW_BTBR)/src/btctl/vendor_request_handler.c \
@@ -467,7 +469,11 @@ $(BINDIR)/test_reset_order: test_reset_order.c minunit.h source_scan.h \
 # With the debug macros off, usbcontrol.c's stall path builds a dump the
 # disabled DBG() would have printed and takes an endpoint status it then does
 # not use. Neither is what this tests.
-	$(CC) $(CFLAGS) -I$(FW_LPCUSB) $(CPPFLAGS) \
+#
+# -Istubs-usb is there for the breadcrumb marks usbcontrol.c makes: the real
+# watchdog.h reaches the part's registers, and nothing here has a register
+# file.
+	$(CC) $(CFLAGS) -Istubs-usb -I$(FW_LPCUSB) $(CPPFLAGS) \
 		-DFW_RXTX_DIR='"$(FW_RXTX)"' -DFW_BTBR_DIR='"$(FW_BTBR)"' \
 		-DFW_COMMON_DIR='"$(FW_COMMON)"' \
 		-Wno-unused-but-set-variable -Wno-unused-parameter \
@@ -495,6 +501,7 @@ $(BINDIR)/test_watchdog: test_watchdog.c minunit.h source_scan.h \
 		$(FW_COMMON)/watchdog.c $(FW_COMMON)/watchdog.h \
 		$(FW_COMMON)/usb_irq.h $(FW_COMMON)/sections.ld \
 		$(FW_RXTX)/ubertooth_usb.c $(FW_RXTX)/bluetooth_rxtx.c \
+		$(FW_LPCUSB)/usbhw_lpc.c $(FW_LPCUSB)/usbcontrol.c \
 		$(FW_RXTX)/ego.c $(FW_RXTX)/xmas.c $(FW_RXTX)/identify.c \
 		$(FW_RXTX)/fault.c $(FW_COMMON)/usb_serial.c \
 		$(FW_BTBR)/src/drivers/ubertooth_usb.c \

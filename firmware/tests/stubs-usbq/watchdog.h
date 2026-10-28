@@ -14,7 +14,7 @@
 #include <stdint.h>
 
 uint8_t watchdog_mark(uint8_t site);
-uint8_t watchdog_mark_handler(uint8_t site);
+uint8_t watchdog_mark_inner(uint8_t site);
 void watchdog_unmark(uint8_t site);
 void watchdog_usb_serviced(void);
 

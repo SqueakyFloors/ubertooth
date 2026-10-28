@@ -101,7 +101,7 @@ Follow mode: sniff connections as they are established
 No\-follow mode: log advertising packets but don't follow connections
 .TP
 \fB\-p\fR
-Promiscuous mode: sniff already\-established connections\. As it works a connection out it reports each parameter it has recovered: the access address, the CRC init value, the hop interval and the hop increment\. Those lines go to standard output, or to standard error once \fB\-q \-\fR or \fB\-c \-\fR has taken standard output, so a capture written to a file still says which connection it is of\.
+Promiscuous mode: sniff already\-established connections\. It sets no channel of its own: it listens on the one the board is holding, 2440 MHz unless \fBubertooth\-util \-c\fR left it on another even frequency\. As it works a connection out it reports each parameter it has recovered: the access address, the CRC init value, the hop interval and the hop increment\. Those lines go to standard output, or to standard error once \fB\-q \-\fR or \fB\-c \-\fR has taken standard output, so a capture written to a file still says which connection it is of\.
 .TP
 \fB\-s <BD ADDR>\fR
 Inject advertising packets using specified BD ADDR\. Like \fB\-a\fR, it does not go with \fB\-f\fR, \fB\-n\fR or \fB\-p\fR\. The value is one whole address and nothing else: a faux slave advertises from a single address, so the \fB/<bits>\fR mask and \fBnone\fR that \fB\-t\fR takes are refused here, each as the address it is not (\fBerror: faux slave address must be xx:xx:xx:xx:xx:xx (got none)\fR)\. Both used to be parsed and then dropped, so \fB\-s none\fR advertised from \fB00:00:00:00:00:00\fR\.
@@ -148,7 +148,7 @@ The times in a logged capture follow the board's capture clock, which starts ove
 Miscellaneous:
 .TP
 \fB\-A <37|38|39>\fR
-Which advertising channel to use in follow mode (default: 37)
+Which advertising channel to use in follow mode (\fB\-f\fR, \fB\-n\fR) and faux slave mode (\fB\-s\fR) (default: 37)\. Refused with \fB\-p\fR, which sets no channel of its own\.
 .TP
 \fB\-a [address]\fR
 Get (\fB\-a\fR) or set (\fB\-a <address>\fR) the access address used in promiscuous mode\. The address is 1 to 8 hex digits (\fB\-a 8e89bed6\fR); fewer than 8 means leading zeros (\fB\-a 12345\fR sets \fB00012345\fR)\. Anything else is refused before the device is opened\. Getting and setting in one command is refused; other options such as \fB\-v\fR still run after a get\. \fB\-a\fR does not go with a sniffing mode (\fB\-f\fR, \fB\-n\fR, \fB\-p\fR), which runs until it is interrupted; the combination is refused before any device is opened\.
