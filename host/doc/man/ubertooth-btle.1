@@ -226,6 +226,9 @@ A command line the tool will not take is reported as that one \fBerror:\fR line 
 1 as well when the board refuses the request that ends a capture: it is left in the capture mode, and no other tool can open it until it is reset or re\-plugged\. What was captured stays written out, and libubertooth names the refused request on standard error\.
 .P
 A \fB\-q\fR, \fB\-c\fR or \fB\-r\fR file is created once the board has been opened and its firmware accepted, not before, so a run refused for either reason leaves no empty capture behind\. A file the tool then cannot create is reported with the name the user gave, and the board is given back\.
+
+\fB\-V\fR reads the attached board, so it exits 1 when a board is attached and cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7), COMMON OPTIONS\.
+
 .SH "SEE ALSO"
 ubertooth\-util(1): sets the receive squelch (\fB\-z\fR); SQUELCH describes how long it lasts
 .P

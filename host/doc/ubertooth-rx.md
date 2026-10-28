@@ -410,6 +410,10 @@ no empty capture behind. A replay (`-i`) creates them once its input file has
 been opened, since it needs no board. A terminal on standard output is still
 refused while the command line is read.
 
+`-V` reads the attached board, so it exits 1 when a board is attached and
+cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7),
+COMMON OPTIONS.
+
 ## SEE ALSO
 
 ubertooth-util(1): sets the receive squelch (`-z`); SQUELCH describes how

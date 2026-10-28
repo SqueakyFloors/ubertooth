@@ -169,6 +169,8 @@ The \fB\-q\fR, \fB\-r\fR and \fB\-d\fR files are created once the board has been
 A capture that could not be started at all exits 1 as well, whichever step failed: the receive transfer libusb would not take, the host thread that collects the capture, or the request that starts hopping\. Standard error carries the one \fBerror:\fR line for that step, for example \fBerror: could not start the thread that collects the capture: Resource temporarily unavailable\fR\. The status is 1 in every case, never the failing call's own return value: a negative libusb code handed to the exit status is wrapped into a byte, so \fBlibusb \-9\fR reached a script as 247\.
 .P
 An adapter \fB\-b\fR names that does not exist, or that cannot be opened, exits 1 with one \fBerror:\fR line naming it, the same wording ubertooth\-scan(1) uses: \fBerror: Bluetooth device hci7 not found: No such device\fR\.
+.P
+\fB\-V\fR reads the attached board, so it exits 1 when a board is attached and cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7), COMMON OPTIONS\.
 .SH "SEE ALSO"
 ubertooth\-util(1): sets the receive squelch (\fB\-z\fR); SQUELCH describes how long it lasts, and CARRY\-OVER BETWEEN RUNS what else a board keeps from one command to the next
 .P

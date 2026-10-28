@@ -63,6 +63,9 @@ A command line the tool will not take is reported as that one \fBerror:\fR line 
 0 when the command did what was asked, including \fB\-h\fR: for \fB\-q\fR and \fB\-b\fR, when the board took every request the advertisement needs\. 1 for a command line the tool will not take or with nothing to do, for a UUID it cannot read, when the selected Ubertooth is not found or cannot be opened, and when the board refuses one of those requests\.
 .P
 1 as well when the board refuses the request that stops the advertisement at the end of the two seconds: the board is left advertising, and no other tool can open it until it is reset or re\-plugged\. libubertooth names the refused request on standard error\.
+
+\fB\-V\fR reads the attached board, so it exits 1 when a board is attached and cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7), COMMON OPTIONS\.
+
 .SH "SEE ALSO"
 ubertooth\-btle(1)
 .P

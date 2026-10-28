@@ -181,6 +181,8 @@ A refused command line creates and truncates nothing, and leaves no temporary fi
 0 when the command did what was asked, including \fB\-h\fR: the image written and, with \fB\-r\fR, verified on the board that came back; the dump complete and in place; the signed \fB<file>\.dfu\fR written; the board out of the bootloader\.
 .P
 1 for everything else, and there is no other status\. That covers a command line the tool will not take or that has nothing to do, a file it cannot read or create, an image it refuses, a selected board that is missing or that something else is using, a bootloader that will not answer or will not become idle, a transfer that failed both its attempts, a reset that left the board in DFU or brought it straight back into the bootloader, and a verification after the reset that did not end in the image's own name and revision\. That last one includes a board that did not come back on USB at all: the write had completed by then, but the command cannot say the board runs what was written, so it is not reported as a success\. The line it prints says which of those happened\.
+.P
+\fB\-V\fR reads the attached board, so it exits 1 when a board is attached and cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7), COMMON OPTIONS\.
 .SH "DIAGNOSTICS"
 Standard output carries the usage text for \fB\-h\fR, and otherwise one line, from \fB\-d <image> \-r\fR alone:
 .IP "" 4

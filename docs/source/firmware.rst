@@ -171,8 +171,10 @@ In non-DFU mode, you can obtain firmware information with ``ubertooth-util -V``.
 The ``Firmware version:`` line starts with the image the board is running,
 read from its firmware info block; a board running firmware from before the
 block shows the revision alone. The ``Firmware build:`` line is the build
-string the firmware reports, which both images spell ``ubertooth``. A firmware built from a git checkout reports its git revision
-as above, with a trailing ``*`` if the working tree had uncommitted changes; a
+string the firmware reports, which both images spell ``ubertooth``.
+
+A firmware built from a git checkout reports its git revision as above, with
+a trailing ``*`` if the working tree had uncommitted changes; a
 release build reports the release name instead. The version is
 generated into a ``version.h`` at build time and tracks the exact source it was
 built from, so ``-V`` always reflects the firmware actually running.

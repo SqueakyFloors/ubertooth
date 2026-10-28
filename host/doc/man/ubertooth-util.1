@@ -284,7 +284,7 @@ Firmware version (1): bluetooth_rxtx git\-747484c (API:<version>)
 .fi
 .IP "" 0
 .P
-Several queries together (for example \fB\-vspb\fR) print the same lines, grouped by device\. \fB\-V\fR is not one of them: it is the version command, and reports every attached board itself, indexed the same way\.
+Several queries together (for example \fB\-vspb\fR) print the same lines, grouped by device\. \fB\-V\fR is not one of them: it is the version command, and reports every attached board itself, indexed the same way where there is more than one\. With a single board it prints the unindexed form, which the listing here does not\.
 .P
 A device that cannot be opened is shown as \fBunavailable,\fR and the reason, for example \fBFirmware version (1): unavailable, in use by another program\fR, with a line per query asked for and libubertooth's own \fBerror:\fR line on standard error\. A failed read is shown as \fBread failed\fR (\fBFirmware version (0): read failed\fR), and a query that reports an error as that error without its \fBerror:\fR prefix (\fBBoard ID Number (0): unknown board ID 7\fR)\. The other devices are still reported, and the command exits non\-zero if any device failed\. A firmware version whose API version cannot be read is shown without it and also makes the command fail\. Listing does not stop a mode a device is running\. Any other option in the same command still needs \fB\-U\fR\.
 .P
@@ -508,6 +508,8 @@ A \fB\-N\fR count that succeeds does not affect the exit status: the number is p
 \fB\-w\fR makes two reads, and a failure in either prints \fBerror: watchdog state read failed\fR or \fBerror: radio wait timeouts read failed\fR on standard error, after any message from libubertooth, and makes the command exit 1\. The other read is still reported, so a board that cannot answer one still says what it can\.
 .P
 When a \fB\-b\fR, \fB\-c\fR, \fB\-a\fR, \fB\-z\fR, \fB\-l\fR, \fB\-d\fR, \fB\-p\fR, \fB\-s\fR or \fB\-m\fR read fails, no value line is printed on standard output, so an error code is never shown as a value; the other requested queries are still reported\. A failed \fB\-b\fR, \fB\-c\fR, \fB\-a\fR, \fB\-z\fR, \fB\-l\fR, \fB\-d\fR, \fB\-p\fR, \fB\-s\fR or \fB\-m\fR read also prints \fBerror: <query> read failed\fR (for example \fBerror: channel read failed\fR or \fBerror: board ID read failed\fR) on standard error, after any message from libubertooth\. When the board returns fewer bytes than the read needs, that is the only line, with the counts added, for example \fBerror: channel read failed: board returned 0 of 2 bytes\fR\.
+.P
+\fB\-V\fR reads the attached board, so it exits 1 when a board is attached and cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7), COMMON OPTIONS\.
 .SH "DIAGNOSTICS"
 Standard output carries only what was asked for: the values the queries read, the device listing, the range test \fB\-n\fR runs, and the usage text for \fB\-h\fR\. Everything else goes to standard error, so a script reading a value is not fed anything else\.
 .P

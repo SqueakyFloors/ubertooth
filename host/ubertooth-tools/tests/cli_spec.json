@@ -23,7 +23,7 @@
 
   "_verdicts": {
     "help": "the usage text on stdout, exit 0, stderr empty, no device looked for",
-    "report": "the answer on stdout, exit 0, stderr empty",
+    "report": "the answer on stdout, exit 0, stderr empty (-V notes a board in the DFU bootloader there, which no run of this test has)",
     "silent_success": "exit 0 and both streams empty: a command that only set something, which the codebase reports by saying nothing, or one whose answer is that it has nothing to say (btle-extcap.py verifying an empty capture filter)",
     "count_only": "a decimal count on stdout, exit 0, no device opened",
     "count_then_device": "the count on stdout first, then the rest of the command reaches device lookup",

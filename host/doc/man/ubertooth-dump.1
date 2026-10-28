@@ -57,6 +57,9 @@ Also 1 when the dump's USB stream fails part\-way: the board stopped answering o
 Also 1 when the board refuses the request that ends the dump: it is left in the capture mode, and no other tool can open it until it is reset or re\-plugged\. What was dumped stays written out, and libubertooth names the refused request on standard error\.
 .P
 A \fB\-d\fR file is opened once the board has been opened and its firmware accepted, not before, so a run refused for either reason leaves no empty file behind\. A terminal on standard output is still refused while the command line is read, with or without \fB\-d \-\fR, because that is a problem with the command rather than with the board\.
+
+\fB\-V\fR reads the attached board, so it exits 1 when a board is attached and cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7), COMMON OPTIONS\.
+
 .SH "SEE ALSO"
 ubertooth\-util(1): sets the receive squelch (\fB\-z\fR); SQUELCH describes how long it lasts
 .P

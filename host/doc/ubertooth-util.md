@@ -460,7 +460,9 @@ board it came from:
 
 Several queries together (for example `-vspb`) print the same lines, grouped
 by device. `-V` is not one of them: it is the version command, and reports
-every attached board itself, indexed the same way.
+every attached board itself, indexed the same way where there is more than
+one. With a single board it prints the unindexed form, which the listing here
+does not.
 
 A device that cannot be opened is shown as `unavailable, ` and the reason, for
 example `Firmware version (1): unavailable, in use by another program`, with a
@@ -827,6 +829,10 @@ libubertooth. When the board returns fewer bytes than the read needs, that is
 the only line, with the counts added, for example
 `error: channel read failed: board returned 0 of 2 bytes`.
 
+
+`-V` reads the attached board, so it exits 1 when a board is attached and
+cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7),
+COMMON OPTIONS.
 ## DIAGNOSTICS
 
 Standard output carries only what was asked for: the values the queries read,

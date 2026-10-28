@@ -208,6 +208,10 @@ because a poll failed.
 in the E-GO mode, and no other tool can open it until it is reset or
 re-plugged. libubertooth names the refused request on standard error.
 
+`-V` reads the attached board, so it exits 1 when a board is attached and
+cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7),
+COMMON OPTIONS.
+
 ## SEE ALSO
 
 ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how

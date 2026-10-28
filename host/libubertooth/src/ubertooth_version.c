@@ -93,8 +93,14 @@ int ubertooth_firmware_version_text(ubertooth_t *ut, char *text, size_t size)
 	used = strlen(text);
 	if (ubertooth_get_api(ut, &api_version) < 0)
 		return 1;
-	snprintf(text + used, size - used, " (API:%x.%02x)",
-	         (api_version >> 8) & 0xFF, api_version & 0xFF);
+	/* A revision long enough to fill the buffer would leave no room for the
+	 * API version. The line then carries what was read, and the caller is
+	 * told part of it is missing rather than being handed a version that
+	 * looks whole. */
+	if (snprintf(text + used, size - used, " (API:%x.%02x)",
+	             (api_version >> 8) & 0xFF, api_version & 0xFF)
+	    >= (int)(size - used))
+		return 1;
 	return 0;
 }
 
@@ -174,8 +180,9 @@ int ubertooth_print_versions(FILE *out, const char *selector)
 	}
 
 	/* One board, or the one the user named with -U: the single-board form,
-	 * with no index to disambiguate. */
-	if (selector != NULL || count == 1) {
+	 * with no index to disambiguate. An empty -U value names no board, as it
+	 * does in every other selection, so it lists them all. */
+	if ((selector != NULL && selector[0] != '\0') || count == 1) {
 		ut = ubertooth_start_select(selector);
 		if (ut == NULL) {
 			print_unavailable(out, -1);

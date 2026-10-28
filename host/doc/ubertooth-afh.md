@@ -226,6 +226,10 @@ until it is reset or re-plugged. The map the run detected is still printed,
 and libubertooth names the refused request on standard error. A quiet piconet
 is not reported as 2 in that case either.
 
+`-V` reads the attached board, so it exits 1 when a board is attached and
+cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7),
+COMMON OPTIONS.
+
 ## SEE ALSO
 
 ubertooth-util(1): sets the receive squelch (`-z`); SQUELCH describes how

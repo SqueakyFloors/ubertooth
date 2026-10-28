@@ -248,9 +248,12 @@ extern int max_ac_errors;
 #define MAX_AC_ERRORS 5
 
 /* The host tools' own version and the libbtbb this run loaded: the first
- * lines of the -V answer below, on the caller's stream. Tools call
- * ubertooth_print_versions() rather than this; print_version() is the older
- * spelling of it, on standard output. */
+ * lines of the -V answer below, on the caller's stream. Every tool here asks
+ * for the whole answer instead, through ubertooth_print_versions().
+ *
+ * print_version() is the older spelling, on standard output. Nothing in this
+ * tree calls it; it is kept because it is part of the installed library's
+ * interface, and programs built against it are not this tree's to change. */
 void ubertooth_print_host_version(FILE* out);
 void print_version(void);
 

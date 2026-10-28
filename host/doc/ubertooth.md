@@ -41,10 +41,11 @@ Less useful commands:
 
 ## COMMON OPTIONS
 
-Three options mean the same thing in every tool written in C, which is all of
+`-h` and `-V` mean the same thing in every tool written in C, which is all of
 them but ubertooth-btbr(1), `btle-extcap.py` and ubertooth-specan-ui(1). Those
 three take their command lines from getopt in Python, from Wireshark's extcap
-protocol and from `argparse`; each has `-h`, and none answers `-V`.
+protocol and from `argparse`; each has `-h`, and none answers `-V`. `-v` is
+not in every tool; the last paragraph here says what it means where it is.
 
 `-h` prints that tool's usage text on standard output and exits 0.
 
@@ -69,9 +70,12 @@ attached. With several boards attached and no `-U`, both lines are printed for
 each of them with its index in the label, as the identity queries of
 ubertooth-util(1) are: `Firmware version (0): ...`, `Firmware build (0): ...`.
 
-With no Ubertooth attached the host line is followed by `Firmware version: no
-Ubertooth attached` and the status is still 0: the host half of the answer
+With no Ubertooth attached the host lines are followed by `Firmware version:
+no Ubertooth attached` and the status is still 0: the host half of the answer
 needs no board, and nothing attached is an answer rather than a failure. A
+board sitting in the DFU bootloader is named in a `note:` on standard error
+there, because no tool can open one and that is the usual reason a board is
+not in the answer. A
 board that is attached but cannot be read -- in use by another program, or not
 answering -- has the reason on its own line (`Firmware version: unavailable,
 in use by another program`, or `Firmware version: read failed`) and the status
