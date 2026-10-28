@@ -845,7 +845,7 @@ static int dfu_device_presence(struct dfu_runtime_context *runtime,
 			 * the gap again: the one wait is what the answer needs, and the
 			 * retries keep a single failed listing from deciding it. */
 			unsigned confirm;
-			char stage[96];
+			char stage[128];
 
 			snprintf(stage, sizeof(stage),
 			         "the DFU device has gone: looking again in %u ms, in "

@@ -1267,8 +1267,11 @@ MU_TEST(a_confirming_listing_that_cannot_be_read_says_it_could_not_tell)
 	mu_assert(strstr(r.err, "error: detach failed: the board reset and came "
 	                 "back") == NULL,
 	          "an unsettled detach was reported as a board in the bootloader");
-	/* The gap was waited, so the trace says why the detach took that long. */
-	mu_assert(strstr(r.err, "the DFU device has gone: looking again in ")
+	/* The gap was waited, so the trace says why the detach took that long,
+	 * as a whole line: it is built into a buffer, and a line cut short mid
+	 * word is how that buffer being too small shows up. */
+	mu_assert(strstr(r.err, "the DFU device has gone: looking again in 1 ms, "
+	                 "in case the board came back in the bootloader\n")
 	          != NULL, "the confirming wait is not in the stage trace");
 }
 
