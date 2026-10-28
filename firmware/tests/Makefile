@@ -160,11 +160,10 @@ $(BINDIR)/test_le_phy_logic: test_le_phy_logic.c minunit.h \
 		$(FW_RXTX)/ubertooth_clock.h $(FW_RXTX)/ubertooth_dma.h \
 		$(HOST_LIB)/ubertooth_le_frag.c $(HOST_LIB)/ubertooth_le_frag.h \
 		| $(BINDIR)
-# Three kinds of noise come from compiling le_phy.c on a 64-bit host. It
-# drains the SSP into a variable it does not use, twice; it declares two
-# locals in the connection-request handler that nothing reads; and the DMA
-# descriptors it builds hold addresses as 32-bit words, which a host pointer
-# does not fit. None of that is what this tests, and none of it is this
+# Two kinds of noise come from compiling le_phy.c on a 64-bit host. It
+# declares two locals in the connection-request handler that nothing reads,
+# and the DMA descriptors it builds hold addresses as 32-bit words, which a
+# host pointer does not fit. Neither is what this tests, and neither is this
 # change's. UBERTOOTH_ONE is the board the shipped image is built for.
 	$(CC) $(CFLAGS) -Istubs-lephy -Istubs-usbq $(CPPFLAGS) -I$(FW_LPCUSB) \
 		-I$(FW_COMMON) -DUBERTOOTH_ONE -DFW_HOST_TEST \

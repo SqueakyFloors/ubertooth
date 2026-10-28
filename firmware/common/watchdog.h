@@ -86,6 +86,27 @@ void watchdog_mode(uint8_t mode);
 uint8_t watchdog_mark(uint8_t site);
 
 /*
+ * The same for an interrupt handler, which must leave the live outer site
+ * alone. That site is what a reply reports, and it is set so that a reply
+ * written from inside the USB service path names the wait the mode is really
+ * in. An interrupt handler is not a level of that nesting: it borrows the
+ * processor and gives it back. Were it to use watchdog_mark(), the handler
+ * would be left named as the outer site after returning -- and the low-energy
+ * engine's byte interrupt fires once per received byte, so during a capture
+ * that would be the usual reading rather than a rare one.
+ *
+ * This does not make every live reading right. A wait that marks itself from
+ * inside a handler still claims the outer site on the way out, which is the
+ * same wrong reading by another route; the polled modes mask only the USB
+ * interrupt, so a handler can land in the middle of a service pass.
+ *
+ * So the pair below records the site for the breadcrumb only. Use it in an
+ * interrupt handler; use watchdog_mark() in a wait.
+ */
+uint8_t watchdog_mark_handler(uint8_t site);
+void watchdog_unmark(uint8_t site);
+
+/*
  * A reset this firmware asked for, so the breadcrumb does not count it as the
  * board having stopped answering.
  *

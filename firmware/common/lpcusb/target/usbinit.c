@@ -49,6 +49,11 @@ static U8	abStdReqData[8];
 static void HandleUsbReset(U8 bDevStatus)
 {
 	if (bDevStatus & DEV_STATUS_RESET) {
+		/* The host has dropped whatever it was asking for, so a control
+		 * reply the controller had refused is no longer owed: without
+		 * this, every service pass between the reset and the host's
+		 * first setup packet would offer that packet again. */
+		USBControlInRetryCancel();
 		DBG("\n!");
 	}
 }

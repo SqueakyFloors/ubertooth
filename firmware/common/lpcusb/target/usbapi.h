@@ -112,6 +112,14 @@ BOOL USBHandleStandardRequest(TSetupPacket *pSetup, int *piLen, U8 **ppbData);
 /** Default EP0 handler */
 void USBHandleControlTransfer(U8 bEP, U8 bEPStat);
 
+/** Offer again a control IN packet the controller would not take. Call it
+    wherever USB is serviced, after USBHwISR(). */
+void USBControlInRetry(void);
+
+/** Forget a control IN packet that is still owed: a bus reset has ended the
+    transfer it belonged to. */
+void USBControlInRetryCancel(void);
+
 /** Descriptor handling */
 void USBRegisterDescriptors(U8 *pabDescriptors);
 BOOL USBGetDescriptor(U16 wTypeIndex, U16 wLangID, int *piLen, U8 **ppbData);

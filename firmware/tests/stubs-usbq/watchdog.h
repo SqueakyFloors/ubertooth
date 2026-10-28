@@ -14,6 +14,8 @@
 #include <stdint.h>
 
 uint8_t watchdog_mark(uint8_t site);
+uint8_t watchdog_mark_handler(uint8_t site);
+void watchdog_unmark(uint8_t site);
 void watchdog_usb_serviced(void);
 
 #endif /* UBERTOOTH_FW_TESTS_STUB_USBQ_WATCHDOG_H */

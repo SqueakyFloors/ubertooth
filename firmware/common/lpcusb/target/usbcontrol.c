@@ -67,6 +67,10 @@ static U8				*pbData;	/**< pointer to data buffer */
 static int				iResidue;	/**< remaining bytes in buffer */
 static int				iLen;		/**< total length of control transfer */
 
+/** Set when DataIn() had a packet the controller would not take, so the
+    transfer still owes the host that packet. See USBControlInRetry(). */
+static BOOL				fDataInOwed = FALSE;
+
 /** Array of installed request handler callbacks */
 static TFnHandleRequest *apfnReqHandlers[4] = {NULL, NULL, NULL, NULL};
 /** Array of installed request data pointers */
@@ -126,6 +130,11 @@ static void StallControlPipe(U8 bEPStat)
 	U8	*pb;
 	int	i;
 
+	/* The stall ends this transfer, so nothing is owed to the host any
+	 * more: a retry after it would offer a packet of a transfer the host
+	 * has been told to abandon. */
+	fDataInOwed = FALSE;
+
 	USBHwEPStall(0x80, TRUE);
 
 // dump setup packet
@@ -148,14 +157,52 @@ static void DataIn(void)
 	iChunk = MIN(MAX_PACKET_SIZE0, iResidue);
 	/*
 	 * Only move the transfer on for a packet the controller actually took.
-	 * A write that came up short has not been validated, so the host will
-	 * ask for this packet again; advancing here would answer that with the
-	 * next one and hand the host a reply assembled out of order.
+	 * A write that came up short has not been validated, so advancing here
+	 * would hand the host a reply assembled out of order. Remember that the
+	 * packet is still owed instead; USBControlInRetry() below offers it
+	 * again.
 	 */
-	if (USBHwEPWrite(0x80, pbData, iChunk) != iChunk)
+	if (USBHwEPWrite(0x80, pbData, iChunk) != iChunk) {
+		fDataInOwed = TRUE;
 		return;
+	}
+	fDataInOwed = FALSE;
 	pbData += iChunk;
 	iResidue -= iChunk;
+}
+
+
+/**
+	Offers again a control IN packet the controller would not take.
+
+	A device-to-host control request is answered from one place only: the
+	endpoint 0 interrupt that says the last packet has gone to the host. So a
+	packet the controller refuses ends the transfer -- the endpoint has
+	nothing validated for the host to collect, the host's IN tokens are
+	NAKed, no interrupt follows, and the request is never answered. The host
+	gives up after its own timeout, which for the Ubertooth tools is one
+	second; `ubertooth-btle` reads each packet with a control request, so one
+	refused write ended a capture that had been running for minutes.
+
+	Calling this from the loop that services USB turns that into a retry a
+	few microseconds later: a mode loop services USB thousands of times a
+	second, far inside the host's timeout. It does nothing unless a packet is
+	owed, so it costs one read of a variable on every other pass.
+ */
+void USBControlInRetry(void)
+{
+	if (fDataInOwed)
+		DataIn();
+}
+
+
+/**
+	Forget a control IN packet that is still owed, for a caller that knows
+	the host is no longer waiting for it: a bus reset.
+ */
+void USBControlInRetryCancel(void)
+{
+	fDataInOwed = FALSE;
 }
 
 
@@ -172,6 +219,12 @@ void USBHandleControlTransfer(U8 bEP, U8 bEPStat)
 	if (bEP == 0x00) {
 		// OUT transfer
 		if (bEPStat & EP_STATUS_SETUP) {
+			/* A setup packet starts a new transfer, so a packet the
+			 * previous one still owed the host is void: the host has
+			 * moved on, and offering it now would answer this request
+			 * with the last one's data. */
+			fDataInOwed = FALSE;
+
 			// setup packet, reset request message state machine
 			/*
 			 * A setup packet is eight bytes, always. Anything else is not a

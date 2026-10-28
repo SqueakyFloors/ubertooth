@@ -765,10 +765,36 @@ DEBUG_LED_OFF(8);
                 /* A handshake that gave up leaves USBCmdData holding some
                  * earlier command's answer. Acting on that could call the
                  * endpoint handler with, say, the setup bit of a transfer
-                 * that is long over, so skip the endpoint instead: the
-                 * interrupt bit is cleared, and the host retries. */
-                if (!Wait4DevInt(CDFULL))
+                 * that is long over, so skip the endpoint instead.
+                 *
+                 * The event is lost with it, and on endpoint 0 that is a
+                 * setup packet the host gets no answer to. Asking the
+                 * controller for the status again on a later pass would not
+                 * bring the event back: writing USBEpIntClr above is what
+                 * ran Select Endpoint and Clear Interrupt in the hardware,
+                 * so only the firmware's reading of the answer was late, and
+                 * a second read returns the endpoint's state as it is then.
+                 * On endpoint 0 that state no longer says a setup packet
+                 * arrived, and handling it as an ordinary data stage would
+                 * feed those eight bytes to whatever transfer was in
+                 * progress -- the stale-request hazard
+                 * USBHandleControlTransfer() exists to avoid. One
+                 * unanswered request the host times out on is the better of
+                 * the two.
+                 */
+                if (!Wait4DevInt(CDFULL)) {
+                    /* Only endpoint 0's interrupts are enabled, so the event
+                     * just lost is one of its own -- a setup packet, most
+                     * likely. The control state therefore no longer matches
+                     * what the host is doing, and a reply still owed from
+                     * the transfer before it must not be offered: the host
+                     * has moved on, and it would collect those bytes as the
+                     * data stage of the request whose setup packet this pass
+                     * dropped. Same reasoning as the bus reset in
+                     * usbinit.c. */
+                    USBControlInRetryCancel();
                     continue;
+                }
                 bEPStat = USBCmdData;
                 // convert EP pipe stat into something HW independent
                 bStat = ((bEPStat & EPSTAT_FE) ? EP_STATUS_DATA : 0) |
@@ -785,7 +811,31 @@ DEBUG_LED_OFF(10);
             }
         }
     }
-    
+
+    /* A control IN packet the controller refused is owed to the host, and
+       the endpoint 0 interrupt that would have carried the transfer on never
+       comes, because nothing was validated for the host to collect. Offer it
+       again here, at the end of every service pass, so the retry happens
+       microseconds later instead of the request going unanswered until the
+       host's timeout.
+
+       Here rather than in the service functions, so that no path which drives
+       USB has to remember it: this file already calls up into the layer above
+       through the registered handlers. What that reaches is every pass the
+       main loop and the polled modes make -- which includes the low-energy
+       engine, the mode whose host reads capture packets this way. It does not
+       help the six modes that service USB from the USB interrupt: with nothing
+       validated, no further endpoint interrupt arrives to bring us back here,
+       and neither frame nor NAK interrupts are enabled. Those modes do not
+       read packets with control requests.
+
+       A refusal that persists is counted in usbhw_timeouts once per pass
+       rather than once, so that counter reads as "passes spent owing a
+       packet" rather than "replies refused". Non-zero still means the
+       controller stopped answering at least once, which is all anything
+       reads it for. */
+    USBControlInRetry();
+
 DEBUG_LED_OFF(9);       
 }
 

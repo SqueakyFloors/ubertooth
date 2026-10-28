@@ -15,6 +15,7 @@
 #include "bluetooth_le.h"
 #include "cc2400_wait.h"
 #include "queue.h"
+#include "watchdog.h"
 
 // current time, from timer1
 #define NOW T1TC
@@ -37,6 +38,66 @@
 // observed connection anchor must be within ANCHOR_EPSILON of
 // calculated anchor
 #define ANCHOR_EPSILON USEC(3)
+
+// How long timer1 waits before looking at FS_LOCK again, and how many of
+// those re-checks keep the short interval.
+//
+// Every re-check runs in TIMER1_IRQHandler(), with the mode's loop underneath
+// it, and that loop is the only thing servicing USB while this mode runs. A
+// re-check costs a status read on the radio's bit-banged bus -- about 1.6
+// microseconds with interrupts masked -- plus the interrupt's own entry and
+// exit, so at a 3 microsecond interval the loop was left with well under half
+// the processor for as long as the synthesizer did not report locked, which
+// for a lock that never arrives is forever. The interval is armed from a
+// counter reading taken near the end of the handler, so the match is not armed
+// in the past and the loop does keep running; what it does not keep is enough
+// of the processor to be relied on.
+//
+// This is not what ends a live capture -- a bench run reproduces that with
+// these intervals in place, and the watchdog breadcrumb lands on the loop
+// inside its USB service pass rather than in this handler. It is worth not
+// leaving in place regardless.
+//
+// So the short interval is kept, because a healthy lock is found inside it and
+// the receiver has to be armed promptly, but only for as long as a healthy
+// lock could possibly take. A re-check and its interval together cost about 6
+// microseconds, so 512 of them span some three milliseconds -- several times
+// the few hundred microseconds the synthesizer needs. Past that the lock is
+// overdue and the interval becomes one no interrupt entry can outrun.
+//
+// The wait never gives up: retrying slowly keeps the capture alive and picks
+// the radio up again if it recovers, where giving up would leave the receiver
+// disarmed. Every sixteenth slow re-check strobes the synthesizer on again, in
+// case a handler switched it off between re-checks -- the same thing
+// cc2400_wait_fs() does, and at the same pace. Not on every re-check: a strobe
+// arriving while the synthesizer is on its way to a lock starts it over, so
+// strobing often enough would be a lock that never arrives.
+#define FS_LOCK_RECHECK         USEC(3)
+#define FS_LOCK_RECHECK_SLOW    USEC(100)
+#define FS_LOCK_FAST_RECHECKS   512
+#define FS_LOCK_SLOW_RESTROBE   16
+
+// Reads before emptying the symbol buffer gives up.
+//
+// The drains below empty the SSP's receive buffer after the radio has been
+// strobed off, so symbols that arrived before the strobe took effect are not
+// read back as the start of the next packet. All three run in an interrupt
+// handler: two directly in le_DMA_IRQHandler(), and one in change_channel(),
+// which both TIMER1_IRQHandler() and le_DMA_IRQHandler() reach -- the latter
+// through finish_conn_event(). The loop that services USB runs underneath
+// them, so a drain that never saw the buffer empty left the board answering
+// nothing. Like the overdue lock above, this is not what ends a live capture:
+// a board the watchdog resets in here now says so, and the bench runs that
+// reproduce the capture dying name the loop's USB service pass instead.
+//
+// The buffer holds eight frames, so a working SSP empties within a handful of
+// reads even while the receiver is still clocking symbols in at one byte every
+// eight microseconds. 64 is well past that; each read costs two register
+// accesses across the peripheral bus, so running the whole bound against an
+// SSP that has stopped answering is a few microseconds. Reaching it costs the
+// stale symbols at the head of one packet, which the sync word match drops
+// anyway.
+#define LE_SSP_DRAIN_READS 64
 
 
 //////////////////////
@@ -169,7 +230,11 @@ static void timer1_stop(void);
 static void timer1_set_match(uint32_t match);
 static void timer1_clear_match(void);
 static void timer1_wait_fs_lock(void);
+static void timer1_recheck_fs_lock(void);
 static void timer1_cancel_fs_lock(void);
+static void le_ssp_drain(void);
+static void le_dma_interrupt(uint32_t timestamp);
+static void timer1_interrupt(void);
 static void timer1_wait_buffer(void);
 static void timer1_cancel_wait_buffer(void);
 static void blink(int tx, int rx, int usr);
@@ -315,10 +380,35 @@ static void finish_conn_event(void) {
 // called once per byte. handles all incoming data, but only minimally
 // processes received data. at the end of a packet, it enqueues the
 // received packet, fetches a new buffer, and restarts RX.
+/*
+ * The two interrupt handlers below say so while they run, so a board the
+ * watchdog resets while one of them has the processor says which one.
+ *
+ * Without this the breadcrumb could not tell the two shapes of this wedge
+ * apart. The loop in le_phy_main() runs beneath both handlers and is the only
+ * thing servicing USB in this mode, so whenever a reset catches that loop it
+ * records "servicing USB" -- whether the loop was held up inside the USB
+ * service pass or simply never given the processor by a handler above it. That
+ * cost a long investigation of the wrong half of the firmware.
+ */
 void le_DMA_IRQHandler(void) {
+	/* The counter is read here, before anything else this function does,
+	 * because the body dates a packet by it and the PHY accepts a measured
+	 * connection anchor only within ANCHOR_EPSILON of its estimate. Marking
+	 * the site first would put a call and two writes -- some tenths of a
+	 * microsecond, in the firmware's hottest interrupt -- in front of the
+	 * reading. */
+	uint32_t timestamp = NOW;
+	uint8_t site = watchdog_mark_handler(WATCHDOG_SITE_LE_DMA);
+
+	le_dma_interrupt(timestamp);
+
+	watchdog_unmark(site);
+}
+
+static void le_dma_interrupt(uint32_t timestamp) {
 	unsigned pos;
 	int8_t rssi;
-	uint32_t timestamp = NOW; // sampled early for most accurate measurement
 
 	// Nothing to do once the PHY has been torn down: the radio is off, the
 	// buffers are no longer owned by this module, and touching the CC2400 here
@@ -352,10 +442,7 @@ void le_DMA_IRQHandler(void) {
 				DMACC0Config = 0;
 				DMACIntTCClear = (1 << 0);
 				DIO_SSP_DMACR &= ~SSPDMACR_RXDMAE;
-				while (SSP1SR & SSPSR_RNE) {
-					uint8_t tmp = (uint8_t)DIO_SSP_DR;
-					(void)tmp;
-				}
+				le_ssp_drain();
 				ICER0 = ICER0_ICE_DMA;
 
 				timer1_wait_buffer();
@@ -402,9 +489,7 @@ void le_DMA_IRQHandler(void) {
 				DMACIntTCClear = (1 << 0); // if we don't clear a second time, data is corrupt
 
 				DIO_SSP_DMACR &= ~SSPDMACR_RXDMAE;
-				while (SSP1SR & SSPSR_RNE) {
-					uint8_t tmp = (uint8_t)DIO_SSP_DR;
-				}
+				le_ssp_drain();
 
 				// XXX disable DMA interrupt as a workaround
 				ICER0 = ICER0_ICE_DMA;
@@ -573,9 +658,7 @@ static void change_channel(void) {
 
 	// stop DMA and flush SSP
 	DIO_SSP_DMACR &= ~SSPDMACR_RXDMAE;
-	while (SSP1SR & SSPSR_RNE) {
-		uint8_t tmp = (uint8_t)DIO_SSP_DR;
-	}
+	le_ssp_drain();
 
 	// current_rxbuf can be NULL when the buffer pool was exhausted at the end
 	// of a connection event. buffer_clear(NULL) faulted the CPU, so take a
@@ -657,8 +740,38 @@ static void timer1_clear_match(void) {
 	T1MCR &= ~TMCR_MR0I;
 }
 
+// Re-checks of FS_LOCK in the wait timer1 is running now: the short ones,
+// which stop being counted once the lock is overdue so the count cannot wrap
+// round into the short interval again, and the slow ones after that, which
+// only pace the strobe.
+//
+// Written wherever a wait starts -- the mode's entry, the byte interrupt and
+// the timer interrupt -- and from the timer interrupt as a wait runs. The two
+// are reset together, which is not atomic, and the byte interrupt sits at the
+// lowest interrupt priority so the timer interrupt can preempt it. Harmless
+// as the code stands, because MR2 is disarmed on every path that starts a
+// wait, so no re-check can fire part way through the reset.
+static volatile unsigned fs_lock_rechecks;
+static volatile unsigned fs_lock_slow_rechecks;
+
+// Start a wait for the synthesizer to lock, from the beginning: the first
+// re-checks get the short interval.
 static void timer1_wait_fs_lock(void) {
-	T1MR2 = NOW + USEC(3);
+	fs_lock_rechecks = 0;
+	fs_lock_slow_rechecks = 0;
+	timer1_recheck_fs_lock();
+}
+
+// Arm the next re-check of a wait already running. See FS_LOCK_RECHECK.
+static void timer1_recheck_fs_lock(void) {
+	if (fs_lock_rechecks < FS_LOCK_FAST_RECHECKS) {
+		++fs_lock_rechecks;
+		T1MR2 = NOW + FS_LOCK_RECHECK;
+	} else {
+		if (++fs_lock_slow_rechecks % FS_LOCK_SLOW_RESTROBE == 0)
+			cc2400_strobe(SFSON);
+		T1MR2 = NOW + FS_LOCK_RECHECK_SLOW;
+	}
 	T1MCR |= TMCR_MR2I;
 }
 
@@ -675,7 +788,35 @@ static void timer1_cancel_wait_buffer(void) {
 	T1MCR &= ~TMCR_MR3I;
 }
 
+// Empty the SSP's receive buffer, with a bound. See LE_SSP_DRAIN_READS.
+static void le_ssp_drain(void) {
+	// Say where the board is while this runs, so one that the watchdog
+	// resets in here says so instead of naming whatever the loop beneath
+	// was doing. The site recorded before is put back on the way out.
+	uint8_t site = watchdog_mark_handler(WATCHDOG_SITE_LE_SSP);
+	unsigned i;
+
+	for (i = 0; i < LE_SSP_DRAIN_READS; ++i) {
+		uint8_t discarded;
+
+		if (!(SSP1SR & SSPSR_RNE))
+			break;
+		discarded = (uint8_t)DIO_SSP_DR;
+		(void)discarded;
+	}
+
+	watchdog_unmark(site);
+}
+
 void TIMER1_IRQHandler(void) {
+	uint8_t site = watchdog_mark_handler(WATCHDOG_SITE_LE_TIMER);
+
+	timer1_interrupt();
+
+	watchdog_unmark(site);
+}
+
+static void timer1_interrupt(void) {
 	// timer1 belongs to this PHY; after teardown just acknowledge whatever is
 	// pending so a stale match cannot restart the radio or the DMA channel.
 	if (!le_phy_active) {
@@ -791,9 +932,9 @@ void TIMER1_IRQHandler(void) {
 			}
 		}
 
-		// if FS is not locked, check again in 3 us
+		// if FS is not locked, look again shortly
 		else {
-			timer1_wait_fs_lock();
+			timer1_recheck_fs_lock();
 		}
 	}
 
