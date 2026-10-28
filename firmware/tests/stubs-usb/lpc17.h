@@ -39,8 +39,8 @@ volatile uint32_t *fake_rxdata_reg(void);
 /*
  * Writing these three is how the firmware acknowledges an event, so a fake
  * that only stored the value could not tell an event the firmware handled
- * from one it dropped -- the question #714 turns on. Each write is staged and
- * applied at the next register access, which is the earliest moment the
+ * from one it dropped, which is the whole question here. Each write is staged
+ * and applied at the next register access, which is the earliest moment the
  * firmware could observe it, so one write never overtakes another.
  *
  * USBEpIntSt is a function for the same reason: it has to answer with the

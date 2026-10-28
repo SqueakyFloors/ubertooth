@@ -544,6 +544,22 @@ MU_TEST(test_ep_write_of_one_byte_writes_one_word)
 	mu_assert_int_eq(1, (int)tx_words);
 }
 
+/* A packet of no bytes that went through answers zero, and a write that could
+ * not commit answers less than that: a control transfer's status stage is a
+ * packet of no bytes, so a caller comparing the answer with the length it
+ * asked for has to be able to tell the two apart. */
+MU_TEST(test_a_zero_length_packet_that_went_through_is_not_a_failure)
+{
+	U8 buf[4] = { 0, 0, 0, 0 };
+
+	fake_reset();
+	mu_assert_int_eq(0, USBHwEPWrite(0x82, buf, 0));
+
+	fake_reset();
+	sie_fail_cmd = CMD_EP_VALIDATE_BUFFER;
+	mu_assert_int_eq(-1, USBHwEPWrite(0x82, buf, 0));
+}
+
 /* A zero-length packet writes no data at all. */
 MU_TEST(test_ep_write_of_zero_bytes_writes_nothing)
 {
@@ -559,7 +575,8 @@ MU_TEST(test_ep_write_of_zero_bytes_writes_nothing)
 
 /*
  * A write whose handshake stops answering still returns, and says nothing was
- * taken.
+ * taken -- as less than nothing, so a packet of no bytes that did go
+ * through can still answer zero.
  *
  * Selecting the endpoint and validating its buffer is the step that offers the
  * packet to the host, and both are protocol engine commands that can give up.
@@ -577,7 +594,7 @@ MU_TEST(test_ep_write_reports_nothing_taken_when_the_engine_stops_answering)
 	tx_wr_en_words = 16;
 	sie_answers = 0;
 
-	mu_assert_int_eq(0, USBHwEPWrite(0x82, buf, sizeof(buf)));
+	mu_assert_int_eq(-1, USBHwEPWrite(0x82, buf, sizeof(buf)));
 	mu_assert(usbhw_timeouts > 0, "a wait that gave up must be counted");
 }
 
@@ -597,7 +614,7 @@ MU_TEST(test_ep_write_reports_nothing_taken_when_the_select_gives_up)
 	tx_wr_en_words = 16;
 	sie_fail_cmd = CMD_EP_SELECT | 5;   /* endpoint 0x82 is index 5 */
 
-	mu_assert_int_eq(0, USBHwEPWrite(0x82, buf, sizeof(buf)));
+	mu_assert_int_eq(-1, USBHwEPWrite(0x82, buf, sizeof(buf)));
 	mu_assert_int_eq(16, (int)tx_words);
 	mu_assert(usbhw_timeouts > 0, "a wait that gave up must be counted");
 }
@@ -612,7 +629,7 @@ MU_TEST(test_ep_write_reports_nothing_taken_when_the_validation_gives_up)
 	tx_wr_en_words = 16;
 	sie_fail_cmd = CMD_EP_VALIDATE_BUFFER;
 
-	mu_assert_int_eq(0, USBHwEPWrite(0x82, buf, sizeof(buf)));
+	mu_assert_int_eq(-1, USBHwEPWrite(0x82, buf, sizeof(buf)));
 	mu_assert_int_eq(16, (int)tx_words);
 	mu_assert(usbhw_timeouts > 0, "a wait that gave up must be counted");
 }
@@ -813,8 +830,8 @@ MU_TEST(test_a_control_transfer_works_after_a_failed_setup_read)
  * that transfer never asks for it -- a reply shorter than the endpoint's
  * maximum has already ended its own data stage -- so it waited there until
  * some later request's IN token collected it, and that request came back with
- * no data, no stall and no error. #462 measured that at two reads in 2,350
- * during a mode.
+ * no data, no stall and no error. It was measured on a Mac at two reads in
+ * 2,350 during a mode.
  *
  * A zero-length packet is still needed where it means something: a reply
  * shorter than the host asked for whose bytes filled whole packets has
@@ -837,7 +854,7 @@ static int validated_a_packet_of(unsigned bytes)
 }
 
 /* A two-byte reply to a two-byte request: the shape of
- * UBERTOOTH_GET_CHANNEL, the request #462 was measured with. */
+ * UBERTOOTH_GET_CHANNEL, the request the zero-byte reply was measured with. */
 MU_TEST(test_a_complete_reply_leaves_nothing_on_the_endpoint)
 {
 	control_test_setup();
@@ -906,6 +923,50 @@ MU_TEST(test_a_reply_that_fills_whole_packets_is_ended_with_a_zero_length_one)
 	USBHandleControlTransfer(0x80, 0);
 	mu_assert(!last_command_validated_a_buffer(),
 	          "the terminating packet must be sent once");
+}
+
+/* A handler that offers nothing while the host asked for something: the
+ * reply is empty, which is shorter than the host asked for and a multiple of
+ * the endpoint's maximum, so the zero-length packet that ends the data stage
+ * is the only packet of the transfer -- and it comes from the setup branch,
+ * not the interrupt. */
+MU_TEST(test_a_reply_of_nothing_to_a_host_that_asked_for_some)
+{
+	control_test_setup();
+	handler_reply_len = 0;
+	queue_setup_packet_len(0x44, 8);
+	tx_wr_en_words = 16;
+
+	USBHandleControlTransfer(0x00, EP_STATUS_SETUP);
+	mu_assert(validated_a_packet_of(0),
+	          "an empty reply must still end its data stage");
+
+	fake_cmdcode = 0;
+	USBHandleControlTransfer(0x80, 0);
+	mu_assert(!last_command_validated_a_buffer(),
+	          "and the transfer owes nothing after that");
+}
+
+/* A reply longer than one packet: each packet goes as the host collects the
+ * one before it, and the last one is short, so nothing follows it. */
+MU_TEST(test_a_reply_longer_than_one_packet_ends_with_its_short_packet)
+{
+	control_test_setup();
+	handler_reply_len = 100;
+	queue_setup_packet_len(0x45, 100);
+	tx_wr_en_words = 64;
+
+	USBHandleControlTransfer(0x00, EP_STATUS_SETUP);
+	mu_assert(validated_a_packet_of(64), "the first packet is a full one");
+
+	fake_cmdcode = 0;
+	USBHandleControlTransfer(0x80, 0);
+	mu_assert(validated_a_packet_of(36), "the rest follows");
+
+	fake_cmdcode = 0;
+	USBHandleControlTransfer(0x80, 0);
+	mu_assert(!last_command_validated_a_buffer(),
+	          "a short last packet ends the data stage on its own");
 }
 
 /* A request with no data stage is answered with one zero-length packet: that
@@ -1735,6 +1796,7 @@ int main(void)
 	MU_RUN(test_ep_write_reports_a_short_write_and_does_not_validate_it);
 	MU_RUN(test_ep_write_of_one_byte_writes_one_word);
 	MU_RUN(test_ep_write_of_zero_bytes_writes_nothing);
+	MU_RUN(test_a_zero_length_packet_that_went_through_is_not_a_failure);
 	MU_RUN(test_ep_write_reports_nothing_taken_when_the_engine_stops_answering);
 	MU_RUN(test_ep_write_reports_nothing_taken_when_the_select_gives_up);
 	MU_RUN(test_ep_write_reports_nothing_taken_when_the_validation_gives_up);
@@ -1747,6 +1809,8 @@ int main(void)
 	MU_RUN(test_a_complete_reply_leaves_nothing_on_the_endpoint);
 	MU_RUN(test_a_reply_as_long_as_asked_for_leaves_nothing_on_the_endpoint);
 	MU_RUN(test_a_reply_that_fills_whole_packets_is_ended_with_a_zero_length_one);
+	MU_RUN(test_a_reply_of_nothing_to_a_host_that_asked_for_some);
+	MU_RUN(test_a_reply_longer_than_one_packet_ends_with_its_short_packet);
 	MU_RUN(test_a_request_with_no_data_stage_is_answered_once);
 	MU_RUN(test_a_control_reply_the_controller_takes_is_sent_once);
 	MU_RUN(test_a_refused_control_reply_is_offered_again);

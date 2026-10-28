@@ -304,6 +304,7 @@ static int scan_source(const char *path, struct scan *s)
 {
 	char line[SCAN_LINE_MAX], flat[SCAN_LINE_MAX];
 	int lineno = 0, in_block = 0, in_cap_len = 0, in_do_rx = 0;
+	int do_rx_depth = 0;
 	FILE *f = fopen(path, "r");
 
 	if (f == NULL)
@@ -325,8 +326,11 @@ static int scan_source(const char *path, struct scan *s)
 		if (strstr(flat, "static void do_rx(") != NULL) {
 			s->do_rx_line = lineno;
 			in_do_rx = 1;
+			do_rx_depth = 0;
 		}
 		if (in_do_rx) {
+			const char *c;
+
 			if (strstr(flat, "> EGO_MAX_PACKET_LEN ? EGO_MAX_PACKET_LEN") !=
 			    NULL)
 				s->do_rx_clamp = lineno;
@@ -334,8 +338,17 @@ static int scan_source(const char *path, struct scan *s)
 				s->do_rx_loop = lineno;
 			if (strstr(flat, "i < packet_len") != NULL)
 				s->unclamped_loop = lineno;
-			if (strcmp(flat, "}") == 0)
-				in_do_rx = 0;
+			/* The function ends when its own brace closes, counted
+			 * rather than taken as the first line that is a lone
+			 * '}': the loop inside it closes one too, and a window
+			 * that stopped there would miss anything added after
+			 * it. */
+			for (c = flat; *c != '\0'; c++) {
+				if (*c == '{')
+					do_rx_depth++;
+				else if (*c == '}' && --do_rx_depth == 0)
+					in_do_rx = 0;
+			}
 		}
 
 		if (strstr(flat, "case RFCAT_CAP_LEN:") != NULL) {

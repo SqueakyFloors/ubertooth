@@ -519,9 +519,16 @@ int USBHwEPWrite(U8 bEP, U8 *pbBuf, U32 iLen)
      * nothing left to send it. Report nothing taken instead, so the caller
      * knows the packet is still owed; USBCtrl is written afresh on every call,
      * which resets the buffer's write pointer, so writing it again starts from
-     * the beginning. */
+     * the beginning.
+     *
+     * Negative rather than zero, because zero is a packet of no bytes that
+     * went through: a control transfer's status stage is one of those, and so
+     * is the packet that ends a data stage early, and a caller comparing the
+     * answer with the length it asked for could not tell those from a
+     * failure. The short-write path above still answers with the count,
+     * which cannot be zero for a packet of no bytes. */
     if (!USBHwCmd(CMD_EP_SELECT | idx) || !USBHwCmd(CMD_EP_VALIDATE_BUFFER))
-        return 0;
+        return -1;
 
     return iLen;
 }
@@ -783,6 +790,12 @@ DEBUG_LED_ON(9);
         } else {
             dev_stat_retried = FALSE;
         }
+        /* A bus reset ends every transfer, so no endpoint event is waiting
+         * for a second chance any more. Leaving a one-shot used up would cost
+         * the next event on that endpoint its deferral, and on endpoint 0
+         * that event is a control request. */
+        if (bDevStat & RST)
+            ep_stat_retried = 0;
         if (bDevStat & (CON_CH | SUS_CH | RST)) {
             // convert device status into something HW independent
             bStat = ((bDevStat & CON) ? DEV_STATUS_CONNECT : 0) |
@@ -850,16 +863,25 @@ DEBUG_LED_OFF(8);
                         watchdog_unmark(site);
                         continue;
                     }
-                    ep_stat_retried &= ~dwIntBit;
 
                     /* Giving up means consuming the event, so this endpoint
-                     * cannot hold the loop. The write clears the interrupt in
-                     * hardware whether or not its answer arrives, and that
-                     * answer is of no use to us. */
+                     * cannot hold the loop. The write is what runs Select
+                     * Endpoint and Clear Interrupt in the hardware; the
+                     * status it leaves behind is of no use to us. */
                     USBDevIntClr = CDFULL;
                     USBEpIntClr = dwIntBit;
                     (void)Wait4DevInt(CDFULL);
                     watchdog_unmark(site);
+
+                    /* Arm the next event's deferral again -- but only once
+                     * the event really is gone. A controller that is not
+                     * acting on register writes either would otherwise have
+                     * this endpoint alternate between deferring and giving
+                     * up, putting EP_SLOW back each time, which in the modes
+                     * that service USB from the USB interrupt is this handler
+                     * re-entered without end. */
+                    if ((USBEpIntSt & dwIntBit) == 0)
+                        ep_stat_retried &= ~dwIntBit;
 
                     /* An event on endpoint 0 that is given up here is most
                      * likely a setup packet, so the control state no longer
