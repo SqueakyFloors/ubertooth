@@ -961,26 +961,39 @@ void cb_ego(ubertooth_t* ut, void* args)
  * million. It adds or removes one 100 ns tick every 320/PPM CLKN ticks, so
  * 320 PPM is one tick every tick; beyond that its division gives nothing,
  * which it reads as correcting on every tick and drives the board 320 PPM the
- * wrong way forever. */
+ * wrong way. This bounds each request, not the total: the firmware adds each
+ * one to a running figure of its own. */
 #define DRIFT_PPM_MAX PPM_PER_100NS_PER_CLKN
 
-/* The field to send for a clock correction in 100 ns ticks: positive delays
- * the board's clock, negative advances it. An advance goes out as one slot
- * less the amount, which is how the firmware reads the field, and a correction
- * larger than the field can carry is clamped - the next packet trims again
- * from wherever that leaves the clock.
+/* How far the board's clock has to move for the next packet's access code to
+ * arrive CLK_TUNE_TIME after a CLKN edge: positive to delay the clock,
+ * negative to advance it.
+ *
+ * The offset the packet was measured at runs through one slot and starts over,
+ * so an error of +3999 ticks and one of -2251 land the clock in the same
+ * place. The shorter way round is the one to take: it perturbs the clock less,
+ * and it is the only one of the two that the firmware's field can carry, which
+ * is why nothing here needs clamping. The result is always between one whole
+ * CLKN tick of advance and one tick less a 100 ns tick of delay. */
+static int32_t clock_correction_100ns( uint16_t clk_offset )
+{
+	int32_t error = (int32_t) clk_offset - CLK_TUNE_TIME;
+
+	if (error > CLOCK_TRIM_MAX_DELAY)
+		error -= CLK100NS_PER_SLOT;
+	return error;
+}
+
+/* The field to send for such a correction. An advance goes out as one slot
+ * less the amount, which is how the firmware reads the field.
  *
  * A negative correction used to be passed straight to the request's unsigned
  * parameter: -150 went out as 65386, which the firmware added to its tick
- * reload, so the next CLKN tick lasted 6.85 ms and the board's clock jumped
- * about 6.5 ms where it should have moved 15 µs. The other branch sent a value
- * above one slot in the same way. */
+ * reload, so that CLKN tick lasted 6.85 ms while the count advanced by three -
+ * leaving the clock 5.91 ms behind where it should have moved forward by
+ * 15 µs. The other branch sent a value above one slot in the same way. */
 static uint16_t clock_trim_field( int32_t correction_100ns )
 {
-	if (correction_100ns > CLOCK_TRIM_MAX_DELAY)
-		correction_100ns = CLOCK_TRIM_MAX_DELAY;
-	if (correction_100ns < -CLOCK_TRIM_MAX_ADVANCE)
-		correction_100ns = -CLOCK_TRIM_MAX_ADVANCE;
 	if (correction_100ns < 0)
 		return (uint16_t) (CLK100NS_PER_SLOT + correction_100ns);
 	return (uint16_t) correction_100ns;
@@ -1100,14 +1113,12 @@ void cb_rx(ubertooth_t* ut, void* args)
 	/* calibrate Ubertooth clock such that the first bit of the AC
 	 * arrives CLK_TUNE_TIME after the rising edge of CLKN */
 	if (pn != NULL && infile == NULL) {
-		/* How far the board's clock has to move for the next packet's
-		 * access code to arrive CLK_TUNE_TIME after a CLKN edge:
-		 * positive to delay the clock, negative to advance it. Its
-		 * sign, and nothing else, decides which form the trim takes.
-		 * The two were chosen by trim_counter instead, so a calibrated
-		 * follow reached the "delay" form with a correction that was
-		 * really an advance, and vice versa. */
-		int32_t correction = (int32_t) clk_offset - CLK_TUNE_TIME;
+		/* The correction this packet calls for. Its sign, and nothing
+		 * else, decides which form the trim takes; the two were chosen
+		 * by trim_counter instead, so a calibrated follow reached the
+		 * "delay" form with a correction that was really an advance,
+		 * and vice versa. */
+		int32_t correction = clock_correction_100ns( clk_offset );
 		/* Forward CLKN ticks since the last trim, masked because CLKN
 		 * starts over. */
 		uint32_t since_trim = (clkn - clkn_trim) & CLKN_MASK;
@@ -1116,7 +1127,7 @@ void cb_rx(ubertooth_t* ut, void* args)
 		    || trim_counter > CLOCK_TRIM_THRESHOLD
 		    || (correction != 0 && !calibrated)) {
 			fprintf(stderr, "note: offset %s CLK_TUNE_TIME\n",
-			        correction < 0 ? "<" : ">");
+			        clk_offset < CLK_TUNE_TIME ? "<" : ">");
 			fprintf(stderr, "note: CLK100ns trim: %d\n", correction);
 			cmd_trim_clock(ut->devh, clock_trim_field(correction));
 			trim_counter = 0;

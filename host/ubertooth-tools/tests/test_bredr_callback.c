@@ -303,14 +303,16 @@ MU_TEST(the_access_code_search_stops_short_of_the_end_of_the_bank)
 	fill_packet(&next_packets[0], 40000, 0, 10);
 	next_count = 1;
 	run_callback(cb_rx, NULL);
-	mu_assert_int_eq(BANK_LEN - AC_SYMBOLS, seen.find_ac_search_length);
+	/* 336, written out: the same expression as the code under test would
+	 * hold however AC_SYMBOLS were defined. */
+	mu_assert_int_eq(336, seen.find_ac_search_length);
 
 	reset_state();
 	fill_packet(&next_packets[0], 40000, 0, 10);
 	next_count = 1;
 	run_callback(cb_scan, NULL);
-	mu_assert_int_eq(BANK_LEN - AC_SYMBOLS, seen.find_ac_search_length);
-	mu_assert_int_eq(BANK_LEN, seen.set_data_length);
+	mu_assert_int_eq(336, seen.find_ac_search_length);
+	mu_assert_int_eq(400, seen.set_data_length);
 }
 
 /* ---- the CLKN a timestamp comes to -------------------------------------- */
@@ -467,41 +469,60 @@ MU_TEST(a_delay_goes_out_as_itself_and_an_advance_as_one_slot_less)
 	/* An advance: one slot less the amount, which is how the firmware
 	 * reads anything above its largest delay. -150 used to be handed
 	 * straight to the request's unsigned parameter as 65386, which the
-	 * firmware added to its tick reload: the next CLKN tick lasted 6.85 ms
-	 * and the board's clock jumped about 6.5 ms where 15 µs was wanted. */
+	 * firmware added to its tick reload: that CLKN tick lasted 6.85 ms
+	 * while the count advanced by three, leaving the clock 5.91 ms behind
+	 * where 15 µs forward was wanted. */
 	mu_assert_int_eq(CLK100NS_PER_SLOT - 1, clock_trim_field(-1));
 	mu_assert_int_eq(6100, clock_trim_field(-150));
 	mu_assert_int_eq(CLK100NS_PER_SLOT - CLOCK_TRIM_MAX_ADVANCE,
 	                 clock_trim_field(-CLOCK_TRIM_MAX_ADVANCE));
+}
 
-	/* Beyond what the field can carry, in either direction, it asks for as
-	 * much as the field holds; the next packet trims again from there. The
-	 * largest delay a measured offset can call for is 3999, which the
-	 * field would otherwise have carried as an advance of 2251 - a
-	 * correction a whole slot out in the other direction. */
-	mu_assert_int_eq(CLOCK_TRIM_MAX_DELAY, clock_trim_field(3999));
+MU_TEST(the_correction_takes_the_shorter_way_round_the_slot)
+{
+	uint32_t offset;
+
+	/* On target. */
+	mu_assert_int_eq(0, clock_correction_100ns(CLK_TUNE_TIME));
+
+	/* Early: the clock is behind the piconet and has to be advanced. */
+	mu_assert_int_eq(-150, clock_correction_100ns(2100));
+	mu_assert_int_eq(-CLK_TUNE_TIME, clock_correction_100ns(0));
+
+	/* Late, up to the largest delay the firmware's field holds. */
+	mu_assert_int_eq(150, clock_correction_100ns(2400));
 	mu_assert_int_eq(CLOCK_TRIM_MAX_DELAY,
-	                 clock_trim_field(CLOCK_TRIM_MAX_DELAY + 1));
-	mu_assert_int_eq(CLK100NS_PER_SLOT - CLOCK_TRIM_MAX_ADVANCE,
-	                 clock_trim_field(-CLOCK_TRIM_MAX_ADVANCE - 1));
+	                 clock_correction_100ns(CLK_TUNE_TIME +
+	                                        CLOCK_TRIM_MAX_DELAY));
 
-	/* Every field this can produce is one the firmware can read: a delay
-	 * up to its largest, or an advance from a value above that. */
-	{
-		int32_t c;
+	/* Later than that is sooner the other way: the offset runs through one
+	 * slot and starts over, so these land the clock in the same place as a
+	 * delay would and move it less. The largest a raw difference can be is
+	 * 3999, which is an advance of 2251. */
+	mu_assert_int_eq(-CLOCK_TRIM_MAX_ADVANCE,
+	                 clock_correction_100ns(CLK_TUNE_TIME +
+	                                        CLOCK_TRIM_MAX_DELAY + 1));
+	mu_assert_int_eq(-2251, clock_correction_100ns(CLK100NS_PER_SLOT - 1));
 
-		for (c = -4000; c <= 4000; c++) {
-			uint16_t f = clock_trim_field(c);
+	/* Every offset a packet can be measured at gives a correction the
+	 * firmware's field carries exactly, and one the firmware reads back
+	 * with the sign it was meant to have: a delay from a field at or below
+	 * its largest delay, an advance from one above it. */
+	for (offset = 0; offset < CLK100NS_PER_SLOT; offset++) {
+		int32_t c = clock_correction_100ns((uint16_t)offset);
+		uint16_t f = clock_trim_field(c);
 
-			mu_assert(f < CLK100NS_PER_SLOT,
-			          "the trim field is outside one slot");
-			if (c < 0)
-				mu_assert(f > CLOCK_TRIM_MAX_DELAY,
-				          "an advance went out as a delay");
-			else
-				mu_assert(f <= CLOCK_TRIM_MAX_DELAY,
-				          "a delay went out as an advance");
-		}
+		mu_assert(c >= -CLOCK_TRIM_MAX_ADVANCE &&
+		          c <= CLOCK_TRIM_MAX_DELAY,
+		          "the correction is outside what the field carries");
+		mu_assert(f < CLK100NS_PER_SLOT,
+		          "the trim field is outside one slot");
+		if (c < 0)
+			mu_assert((int32_t)f - CLK100NS_PER_SLOT == c,
+			          "the firmware would read a different advance");
+		else
+			mu_assert((int32_t)f == c,
+			          "the firmware would read a different delay");
 	}
 }
 
@@ -606,6 +627,7 @@ int main(void)
 	MU_RUN(the_first_packet_on_a_channel_reports_its_own_signal);
 	MU_RUN(the_level_is_the_strongest_of_a_channels_last_ten_packets);
 	MU_RUN(a_delay_goes_out_as_itself_and_an_advance_as_one_slot_less);
+	MU_RUN(the_correction_takes_the_shorter_way_round_the_slot);
 	MU_RUN(the_drift_keeps_its_sign_and_stays_inside_what_the_board_can_act_on);
 	/* These two run cb_rx() with a piconet, which keeps counters between
 	 * packets: they come last so nothing above is judged by them. */

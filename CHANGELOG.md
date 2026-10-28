@@ -410,8 +410,8 @@
 - A piconet follow's clock trim moves the board's clock towards the piconet
   rather than away from it. A correction that should have advanced the clock
   was sent as a large positive delay, which stretched one tick to 6.85 ms and
-  threw the clock about 6.5 ms where 15 µs was wanted, and the drift it
-  reported alongside was computed unsigned: a real 15 PPM came out as
+  left the clock 5.91 ms behind where 15 µs forward was wanted, and the drift
+  it reported alongside was computed unsigned: a real 15 PPM came out as
   1342162, was printed as that, and left the board being driven about 320 PPM
   fast for the rest of the run. So `ubertooth-rx -l`/`-u` and
   `ubertooth-follow` kept the hop sequence they had found.
