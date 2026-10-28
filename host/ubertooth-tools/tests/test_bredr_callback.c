@@ -1,11 +1,11 @@
 /*
  * The arithmetic in the Basic Rate receive callbacks: how many symbols the
  * decoder is told it has, the CLKN a packet's timestamp comes to, the signal
- * level a channel's first packets report, and the clock trim a piconet follow
- * sends to the board.
+ * level a channel's first packets report, the clock trim a piconet follow
+ * sends to the board, and which channels AFH detection marks used.
  *
  * Each of those was wrong in its own way, and none of them was reachable from
- * a test before, because all four live inside cb_rx() and cb_scan(). This test
+ * a test before, because they all live inside the callbacks. This test
  * compiles ubertooth_callback.c into itself, so the real callbacks and the
  * real helpers run, with the ring buffer, the symbol unpacking, the decoder
  * entry points and the control requests replaced by the fakes below. Nothing
@@ -61,6 +61,7 @@ static struct {
 	int drifts;
 	int16_t drift_ppm_sent;
 	int hopping_restarts;
+	int afh_maps_sent;
 } seen;
 
 /* What the faked access-code search reports: where in the bank it found one,
@@ -129,7 +130,7 @@ int cmd_start_hopping(struct libusb_device_handle* devh, int clkn_offset,
 }
 
 int cmd_set_afh_map(struct libusb_device_handle* devh, u8* afh_map)
-{ (void)devh; (void)afh_map; return 0; }
+{ (void)devh; (void)afh_map; seen.afh_maps_sent++; return 0; }
 
 int cmd_hop(struct libusb_device_handle* devh) { (void)devh; return 0; }
 
@@ -470,6 +471,120 @@ MU_TEST(the_level_is_the_strongest_of_a_channels_last_ten_packets)
 	mu_assert_int_eq(-82, sig);
 }
 
+/* ---- which channels AFH detection marks used ---------------------------- */
+
+/* A piconet whose map starts empty, with the LAP the faked access-code search
+ * is given. */
+static btbb_piconet* fresh_piconet(void)
+{
+	btbb_piconet* pn = btbb_piconet_new();
+
+	btbb_init_piconet(pn, 0x123456);
+	return pn;
+}
+
+/* How many of the 79 channels the map marks used. */
+static int channels_used(btbb_piconet* pn)
+{
+	int channel, used = 0;
+
+	for (channel = 0; channel < NUM_BREDR_CHANNELS; channel++)
+		if (btbb_piconet_get_channel_seen(pn, (uint8_t)channel))
+			used++;
+	return used;
+}
+
+/* Runs one packet on `channel` through the detection callback. */
+static void one_afh_packet(btbb_piconet* pn, uint8_t channel)
+{
+	reset_state();
+	fill_packet(&next_packets[0], 40000, 0, channel);
+	next_count = 1;
+	run_callback(cb_afh_initial, pn);
+}
+
+MU_TEST(a_lone_unused_channel_between_used_ones_is_marked_used)
+{
+	btbb_piconet* pn = fresh_piconet();
+
+	/* Channel 12 is known used, 11 is not, and a packet lands on 10: 11 is
+	 * a single gap in a used run, so detection fills it. */
+	btbb_piconet_set_channel_seen(pn, 12);
+	one_afh_packet(pn, 10);
+
+	mu_assert_int_eq(1, btbb_piconet_get_channel_seen(pn, 10));
+	mu_assert_int_eq(1, btbb_piconet_get_channel_seen(pn, 11));
+	mu_assert_int_eq(3, channels_used(pn));
+	mu_assert_int_eq(1, seen.afh_maps_sent);
+
+	/* And the same below the packet's channel. */
+	one_afh_packet(pn, 14);
+	mu_assert_int_eq(1, btbb_piconet_get_channel_seen(pn, 13));
+	mu_assert_int_eq(5, channels_used(pn));
+
+	/* A gap two channels wide is not filled: 16 and 17 are both unused, so
+	 * neither is evidence of the other. */
+	one_afh_packet(pn, 18);
+	mu_assert_int_eq(0, btbb_piconet_get_channel_seen(pn, 16));
+	mu_assert_int_eq(0, btbb_piconet_get_channel_seen(pn, 17));
+	mu_assert_int_eq(6, channels_used(pn));
+
+	btbb_piconet_unref(pn);
+}
+
+MU_TEST(the_channels_at_the_edges_of_the_band_need_a_packet_of_their_own)
+{
+	btbb_piconet* pn = fresh_piconet();
+
+	/* Basic Rate has channels 0 to 78. A packet on channel 1 asks about
+	 * channel -1, which has no evidence either way, so channel 0 stays
+	 * unused until a packet arrives on it. libbtbb reports a channel off
+	 * the end of the band as used, which used to be read as the far side
+	 * of a gap and marked channel 0 used on this packet alone. */
+	one_afh_packet(pn, 1);
+	mu_assert_int_eq(1, btbb_piconet_get_channel_seen(pn, 1));
+	mu_assert_int_eq(0, btbb_piconet_get_channel_seen(pn, 0));
+	mu_assert_int_eq(1, channels_used(pn));
+
+	/* The top of the band, where channel 79 does not exist either. */
+	one_afh_packet(pn, 77);
+	mu_assert_int_eq(1, btbb_piconet_get_channel_seen(pn, 77));
+	mu_assert_int_eq(0, btbb_piconet_get_channel_seen(pn, 78));
+	mu_assert_int_eq(2, channels_used(pn));
+
+	/* The outermost channels themselves mark only themselves. */
+	one_afh_packet(pn, 0);
+	mu_assert_int_eq(3, channels_used(pn));
+	one_afh_packet(pn, 78);
+	mu_assert_int_eq(4, channels_used(pn));
+
+	/* With a packet of its own on each side, the edge rule still fills a
+	 * gap that has evidence: 2 is used, so a packet on 4 fills 3. */
+	btbb_piconet_set_channel_seen(pn, 2);
+	one_afh_packet(pn, 4);
+	mu_assert_int_eq(1, btbb_piconet_get_channel_seen(pn, 3));
+
+	btbb_piconet_unref(pn);
+
+	/* The rule reaches inwards from the outermost channels themselves, the
+	 * direction the band does have: a packet on channel 0 fills channel 1
+	 * when channel 2 is used. */
+	pn = fresh_piconet();
+	btbb_piconet_set_channel_seen(pn, 2);
+	one_afh_packet(pn, 0);
+	mu_assert_int_eq(1, btbb_piconet_get_channel_seen(pn, 1));
+	mu_assert_int_eq(3, channels_used(pn));
+	btbb_piconet_unref(pn);
+
+	/* And the same at the top: a packet on 78 fills 77 when 76 is used. */
+	pn = fresh_piconet();
+	btbb_piconet_set_channel_seen(pn, 76);
+	one_afh_packet(pn, 78);
+	mu_assert_int_eq(1, btbb_piconet_get_channel_seen(pn, 77));
+	mu_assert_int_eq(3, channels_used(pn));
+	btbb_piconet_unref(pn);
+}
+
 /* ---- the clock trim a follow sends -------------------------------------- */
 
 MU_TEST(a_delay_goes_out_as_itself_and_an_advance_as_one_slot_less)
@@ -644,6 +759,8 @@ int main(void)
 	MU_RUN(the_callbacks_hand_the_decoder_that_clkn);
 	MU_RUN(the_first_packet_on_a_channel_reports_its_own_signal);
 	MU_RUN(the_level_is_the_strongest_of_a_channels_last_ten_packets);
+	MU_RUN(a_lone_unused_channel_between_used_ones_is_marked_used);
+	MU_RUN(the_channels_at_the_edges_of_the_band_need_a_packet_of_their_own);
 	MU_RUN(a_delay_goes_out_as_itself_and_an_advance_as_one_slot_less);
 	MU_RUN(the_correction_takes_the_shorter_way_round_the_slot);
 	MU_RUN(the_drift_keeps_its_sign_and_stays_inside_what_the_board_can_act_on);
