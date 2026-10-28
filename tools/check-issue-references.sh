@@ -98,11 +98,26 @@ reference='#[0-9]+|github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(issues|pull)/[0-
 
 # grep's own errors are kept: a tracked file missing from the worktree should
 # be heard about, not scanned silently as nothing.
+#
+# grep's status cannot be read through xargs, which reports a command that
+# exited 1 as a failure of its own (123 with GNU xargs, 1 with the BSD one),
+# so a scan that found nothing would read as a scan that went wrong. The
+# wrapper below turns grep's two ordinary answers -- 0 matched, 1 did not --
+# into success, and lets anything above that through as the failure it is.
+# A batch with no files at all is success too: without that, GNU xargs runs
+# the command once on empty input and a grep with no file arguments would
+# read the pipe it was fed from.
 printf '%s\n' "$files" | tr '\n' '\0' |
-    xargs -0 grep -n -H -E -- "$reference" > "$matches"
+    xargs -0 sh -c '
+        [ "$#" -gt 0 ] || exit 0
+        grep -n -H -E -- "$0" "$@"
+        status=$?
+        [ "$status" -le 1 ] && exit 0
+        exit "$status"
+    ' "$reference" > "$matches"
 status=$?
-if [ $status -gt 1 ]; then
-    echo "error: the scan itself failed (grep exited $status)" >&2
+if [ "$status" -ne 0 ]; then
+    echo "error: the scan itself failed (status $status)" >&2
     exit 1
 fi
 

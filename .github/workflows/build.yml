@@ -534,6 +534,21 @@ jobs:
       timeout-minutes: 2
       run: tools/check-workflow-libbtbb-selftest.sh
 
+    - name: Check that the issue-reference check holds both ways
+      # The step further down plants a reference and shows it is caught, which
+      # says nothing about the other direction: whether a tree with nothing to
+      # report is reported clean, and whether a scan that could not read a
+      # file says so instead of passing. Both are how the status of the scan
+      # was misread for as long as the check has existed. This builds
+      # throwaway repositories -- a clean one, ones with a reference in a
+      # source file, in a per-directory build file and as a full URL, one
+      # missing a tracked file, one with too few files in scope -- and asserts
+      # the status, the stream and the message for each. Both platforms,
+      # because the two xargs implementations disagree about exactly this.
+      # A few seconds of git init: no build, no network.
+      timeout-minutes: 3
+      run: tools/check-issue-references-selftest.sh
+
     - name: Check the libbtbb function list
       # FindBTBB.cmake probes the installed libbtbb for the functions the host
       # sources call, so an old one is refused by name at configure time. That
