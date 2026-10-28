@@ -213,7 +213,8 @@ the same way; see SELECTING A DEVICE. A board that cannot be opened is
 file permissions when the open was refused for want of them. A board another
 program is using opens, and is then refused when the session claims its USB
 interface: `error: Ubertooth <serial> is in use by another program (libusb
--6)`, the line every tool gives for that; see ubertooth(7), WHEN A BOARD
+-6)`, the line every tool gives for that. Which libusb code it carries depends
+on the system, `-6` on Linux and `-3` on macOS; see ubertooth(7), WHEN A BOARD
 CANNOT BE USED. A board that takes none of the requests
 the session opens with gets `error: could not set up Ubertooth <serial>:
 ...` and, when the request timed out, a `note: ` naming `bluetooth_rxtx` and

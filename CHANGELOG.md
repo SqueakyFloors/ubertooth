@@ -332,9 +332,9 @@
   [#672](https://github.com/SqueakyFloors/ubertooth/issues/672)
 - `ubertooth-btbr` reports a board another program is using as that, in the
   words every other tool uses: `error: Ubertooth <serial> is in use by another
-  program (libusb -6)`. It used to report it as a board that took none of the
-  session's requests, with a note about firmware that had nothing to do with
-  it.
+  program`, with the libusb code the system gives. It used to report it as a
+  board that took none of the session's requests, with a note about firmware
+  that had nothing to do with it.
   [#701](https://github.com/SqueakyFloors/ubertooth/issues/701)
 - A spectrum analyzer run measures through the radio front end a freshly
   booted board has, whichever mode ran before it. `ubertooth-specan` and
