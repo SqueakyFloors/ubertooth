@@ -16,18 +16,26 @@
  * which carrying on quietly otherwise hides.
  *
  * volatile because these waits run from interrupt handlers as well as from the
- * mode loops. A count can still be lost: the increment is a read and a write,
- * and a handler whose own wait times out in between overwrites the first. That
- * is left as it is -- there is no interrupt guard shared by both images here,
- * and a diagnostic counter that is occasionally one short still answers the
- * question it is for.
+ * mode loops. A count can still be lost that way: the update below is a read
+ * and a write, and a handler whose own wait times out in between is overwritten
+ * by the write. That is left as it is -- there is no interrupt guard shared by
+ * both images here, and a diagnostic counter that is occasionally one short
+ * still answers the question it is for.
  */
 static volatile uint16_t timeouts[CC2400_WAIT_SHAPE_COUNT];
 
 static void wait_timed_out(enum cc2400_wait_shape shape)
 {
-	if (timeouts[shape] != CC2400_WAIT_TIMEOUTS_MAX)
-		timeouts[shape]++;
+	/* One read, one write, and the write is at most one above what the read
+	 * saw, so an interrupt in between can cost a count but can never carry
+	 * the counter past its limit. Testing the array again instead of this
+	 * local would: a handler that reached the limit between the test and the
+	 * increment would leave the increment to wrap the counter to zero, and a
+	 * board that had been giving up for hours would read as a healthy one. */
+	uint16_t count = timeouts[shape];
+
+	if (count != CC2400_WAIT_TIMEOUTS_MAX)
+		timeouts[shape] = count + 1;
 }
 
 void cc2400_wait_report(uint8_t *data)

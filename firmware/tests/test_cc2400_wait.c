@@ -673,6 +673,37 @@ MU_TEST(test_a_wait_that_gives_up_is_counted)
 }
 
 /*
+ * A count that has reached its limit stays there. It must not wrap: a board
+ * that has been giving up for hours would then read as a healthy one.
+ *
+ * The limit is reached the only way the counter allows, by timing the wait out
+ * that many times, so what is checked is the counter the firmware runs and not
+ * a value written in from here. The unlock wait is the cheapest one: its bound
+ * is a tenth of the others'.
+ */
+MU_TEST(test_a_count_stops_at_its_limit)
+{
+	unsigned long attempts = 0;
+
+	fake_radio_reset();
+	fake_radio_status_sequence((const u8[]){ FS_LOCK }, 1);
+	while (reported_count(CC2400_WAIT_FS_UNLOCK) <
+	       CC2400_WAIT_TIMEOUTS_MAX) {
+		mu_assert_int_eq(0, cc2400_wait_fs_unlock());
+		/* A counter that wrapped would never arrive, so stop rather than
+		 * run forever, and let the check below say what happened. */
+		if (++attempts > (unsigned long)CC2400_WAIT_TIMEOUTS_MAX + 16)
+			break;
+	}
+	mu_assert_int_eq(CC2400_WAIT_TIMEOUTS_MAX,
+	                 (int)reported_count(CC2400_WAIT_FS_UNLOCK));
+
+	mu_assert_int_eq(0, cc2400_wait_fs_unlock());
+	mu_assert_int_eq(CC2400_WAIT_TIMEOUTS_MAX,
+	                 (int)reported_count(CC2400_WAIT_FS_UNLOCK));
+}
+
+/*
  * ...and the counts of the waits that did not give up stay where they were,
  * so one failing wait cannot be read as another.
  */
@@ -1402,6 +1433,7 @@ int main(void)
 	MU_RUN(test_fsm_does_not_match_another_state);
 	MU_RUN(test_a_wait_that_gives_up_is_counted);
 	MU_RUN(test_a_timeout_counts_only_its_own_shape);
+	MU_RUN(test_a_count_stops_at_its_limit);
 	MU_RUN(test_service_runs_between_every_poll);
 	MU_RUN(test_service_runs_on_the_unlock_side);
 	MU_RUN(test_service_not_run_when_wait_is_satisfied_at_once);
