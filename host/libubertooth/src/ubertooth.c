@@ -361,10 +361,13 @@ static struct libusb_device_handle* find_ubertooth_device_opt(int ubertooth_devi
 	pick = pick_ubertooth_device(ubertooth_device, ut_ct);
 
 	if (quiet) {
-		if (pick >= 0 && libusb_open(usb_list[ubertooth_devs[pick]], &devh) != 0)
-			devh = NULL;
-		else if (devh != NULL)
-			note_opened_board_api(devh, usb_list[ubertooth_devs[pick]]);
+		if (pick >= 0) {
+			if (libusb_open(usb_list[ubertooth_devs[pick]], &devh) != 0)
+				devh = NULL;
+			else
+				note_opened_board_api(devh,
+				                      usb_list[ubertooth_devs[pick]]);
+		}
 		free(ubertooth_devs);
 		libusb_free_device_list(usb_list, 1);
 		return devh;
@@ -1605,11 +1608,12 @@ static void ubertooth_cleanup(ubertooth_t* ut, int send_stop)
 			if (send_stop)
 				cmd_stop(ut->devh);
 			libusb_release_interface(ut->devh, 0);
-			libusb_close(ut->devh);
 			/* Any firmware API version read off this board goes with
 			 * it, so a report about the next board cannot quote this
-			 * one's. */
+			 * one's. Before the close, while the handle is still a
+			 * handle rather than a value of a closed object. */
 			ubertooth_forget_api_version(ut->devh);
+			libusb_close(ut->devh);
 			ut->devh = NULL;
 		}
 		/* Only the session this handle opened, and only once: this used to
@@ -1947,8 +1951,15 @@ ubertooth_t* ubertooth_start_select_quiet(const char* u_arg)
 	else
 		devh = find_ubertooth_device_serial_opt(u_arg, 1, NULL);
 	if (devh == NULL || libusb_claim_interface(devh, 0) < 0) {
-		if (devh != NULL)
+		if (devh != NULL) {
+			/* The open above recorded this board's firmware API
+			 * version; nothing is going to use the board, so the
+			 * version goes with it rather than waiting to be quoted
+			 * for another. A reset wait polls this path until the
+			 * board comes back, so it is walked over and over. */
+			ubertooth_forget_api_version(devh);
 			libusb_close(devh);
+		}
 		libusb_exit(NULL);
 		return NULL;
 	}
@@ -1959,6 +1970,7 @@ ubertooth_t* ubertooth_start_select_quiet(const char* u_arg)
 	if (ut == NULL || ut->fifo == NULL) {
 		free(ut);
 		libusb_release_interface(devh, 0);
+		ubertooth_forget_api_version(devh);
 		libusb_close(devh);
 		libusb_exit(NULL);
 		return NULL;
@@ -2003,20 +2015,16 @@ int ubertooth_get_api(ubertooth_t *ut, uint16_t *version) {
 	libusb_device* dev;
 	struct libusb_device_descriptor desc;
 	dev = libusb_get_device(ut->devh);
+	/* No request goes to the board: the descriptor is the one libusb read
+	 * when it enumerated, so this reads the copy it kept. Every open has
+	 * already put the version in note_opened_board_api(); this is for the
+	 * caller that wants to see it. */
 	result = libusb_get_device_descriptor(dev, &desc);
 	if (result < 0) {
-		if (result == LIBUSB_ERROR_PIPE) {
-			ubertooth_report_unsupported_request(
-				"read the firmware API version", result);
-		} else {
-			show_libusb_error(result);
-		}
+		show_libusb_error(result);
 		return result;
 	}
 	*version = desc.bcdDevice;
-	/* Kept against this board for the reports about requests it refuses:
-	 * they name the firmware that refused them. */
-	ubertooth_note_api_version(ut->devh, *version);
 	return 0;
 }
 

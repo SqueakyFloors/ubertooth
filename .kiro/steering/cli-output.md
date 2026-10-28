@@ -47,10 +47,11 @@ stream a line is on.
   one place: `ubertooth_report_api_mismatch()`.
 - A request the board's firmware has not got is reported by
   `ubertooth_report_unsupported_request()` and nowhere else, so there is one
-  wording for it: an `error: ` line naming the request, and a `note: ` with
-  the board's firmware API version beside the one these tools need. Do not
-  write a new line for a stalled request, and do not hand one to
-  `show_libusb_error()`.
+  wording for it: an `error: ` line naming the request, and, where a board's
+  firmware API version has been read, a `note: ` putting it beside the one
+  these tools need (ubertooth-dfu talks to the bootloader, which has no such
+  version, so it gets the line alone). Do not write another wording for a
+  stalled request, and do not hand one to `show_libusb_error()`.
 
 The three cases, with `ubertooth-ego`:
 

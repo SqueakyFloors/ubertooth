@@ -53,9 +53,16 @@
  *
  * The owner is kept so that this cannot become another board's version: it is
  * dropped when that board is released, so a process that works through
- * several boards in turn never quotes the one before. Before any board's
- * version has been read there is nothing to quote, and the report gives only
- * its own half. */
+ * several boards in turn -- which is what ubertooth-util's listing does --
+ * never quotes the one before. Before any board's version has been read there
+ * is nothing to quote, and the report gives only its own half.
+ *
+ * One board at a time, which is all any tool here opens: a process holding two
+ * at once would have the second board's version quoted for the first. The one
+ * slot is also why no lock is needed around it, even though the reports are
+ * written from the capture's poll thread as well: a board's version is
+ * recorded while it is being opened and dropped while it is being released,
+ * and the poll thread exists only between those two. */
 static const void* board_api_version_owner;
 static uint16_t board_api_version;
 

@@ -32,6 +32,15 @@ An Ubertooth release is not as simple as a standard GitHub release, there are a 
       the pinned strings in the host tests, and note the reflash in
       ``CHANGELOG.md``.
 
+    * Configure the host tools with ``-DUBERTOOTH_RELEASE=ON``. Without it the
+      build works the build type out from the tree: an archive with no ``.git``
+      is read as a release, which is what ``git archive`` gives, but a build
+      made in a checkout is read as a development build and only warns about
+      firmware of another API version instead of refusing it. Worse, CMake
+      decides this when it configures, so an existing build directory keeps
+      whatever it decided before the tag was checked out. Passing the flag
+      settles it.
+
     * Build binary firmware images for all board revs and all common firmware images.
 
     * At time of writing, these are only bluetooth_rxtx and bootloader for Ubertooth One.

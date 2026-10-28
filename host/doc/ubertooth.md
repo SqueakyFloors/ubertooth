@@ -174,16 +174,18 @@ versions disagree about may be the layout of a record, in which case the
 capture is decoded by the wrong rules and is wrong rather than empty. Where
 the firmware is simply missing a request, the command fails on it:
 
-    error: could not set the AFH map: the board's firmware does not support it (stalled, libusb -9)
+    error: could not set the channel: the board's firmware does not support it (stalled, libusb -9)
     note: the board reports firmware API version <version>, libubertooth 1.1 requires <version>
 
 That is the one wording for a request the board refuses, wherever the request
 came from. The board answers such a request by stalling it and says nothing
 else, so the line names the request that was refused, and the note puts the
 two versions beside each other: different versions name the reflash that
-fixes it, and equal versions say the version is not the problem. A board in
-the DFU bootloader runs no application firmware, so ubertooth-dfu(1) reports a
-refused request without the note.
+fixes it, and equal versions say the version is not the problem. The libusb
+code is there for a request sent and answered one at a time; a request sent
+without waiting for its answer has only the stall to report, so that line ends
+`(stalled)`. A board in the DFU bootloader runs no application firmware, so
+ubertooth-dfu(1) reports a refused request without the note.
 
 Which answer a build gives can be set either way with
 `UBERTOOTH_ALLOW_API_MISMATCH` (see ENVIRONMENT below).

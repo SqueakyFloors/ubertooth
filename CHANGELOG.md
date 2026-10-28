@@ -13,10 +13,10 @@
   [#636](https://github.com/SqueakyFloors/ubertooth/issues/636)
 - A request the board's firmware has not got is reported in one wording
   everywhere, naming the request and both firmware API versions: `error: could
-  not set the AFH map: the board's firmware does not support it (stalled,
+  not set the channel: the board's firmware does not support it (stalled,
   libusb -9)` with `note: the board reports firmware API version <version>,
-  libubertooth 1.1 requires <version>`. It replaces three different lines, one of
-  which said only `control message unsupported`.
+  libubertooth 1.1 requires <version>`. It replaces three different lines, one
+  of which said only `control message unsupported`.
   [#636](https://github.com/SqueakyFloors/ubertooth/issues/636)
 - **Script-visible change:** `ubertooth-util -n` now runs the range test
   instead of only starting it: progress while it waits, then the result block

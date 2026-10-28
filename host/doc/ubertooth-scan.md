@@ -106,11 +106,11 @@ That pair is the report. A sweep the board's firmware has not got is
 stalled, which reads `error: could not set sweep mode: the board's firmware
 does not support it (stalled, libusb -9)`, with a note naming the board's
 firmware API version and the one these tools need (see ubertooth(7), FIRMWARE
-OF ANOTHER API VERSION). The AFH map this tool prints is only meaningful while the board
-sweeps the whole band, so no scan results are printed after that. The sweep is
-refused with the capture already running, so the mode is stopped on the way
-out, and a board that has stopped answering altogether can add a line of its
-own to the report as that is done.
+OF ANOTHER API VERSION). The AFH map this tool prints is only meaningful while
+the board sweeps the whole band, so no scan results are printed after that.
+The sweep is refused with the capture already running, so the mode is stopped
+on the way out, and a board that has stopped answering altogether can add a
+line of its own to the report as that is done.
 
 The sweep is stated to the board after the capture has been asked for, because
 a mode start resets the board's hop mode and would throw away a sweep stated

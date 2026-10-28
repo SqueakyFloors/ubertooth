@@ -264,8 +264,9 @@ MU_TEST(an_unsupported_request_names_both_api_versions)
 {
 	char expected[256];
 
-	/* No version read yet: this case has to run before the others below,
-	 * which is what the suite order gives it. */
+	/* Nothing recorded, whatever has run before this. */
+	ubertooth_forget_api_version(&board_a);
+	ubertooth_forget_api_version(&board_b);
 	captured(report_unsupported);
 	mu_assert(strstr(err, "firmware API version") == NULL,
 	          "no version has been read, so none is quoted");
@@ -292,6 +293,8 @@ MU_TEST(an_unsupported_request_names_both_api_versions)
 	         UBERTOOTH_API_VERSION & 0xFF);
 	captured(report_unsupported);
 	mu_assert(strstr(err, expected) != NULL, err);
+
+	ubertooth_forget_api_version(&board_a);
 }
 
 /* A version belongs to the board it was read from, and goes when that board
