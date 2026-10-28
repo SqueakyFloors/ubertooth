@@ -41,7 +41,7 @@ A second Ubertooth One for the range test (2i).
 
 ### 2a. Firmware version check
 - [ ] Run `ubertooth-util -v`
-- [ ] Confirm: returns `Firmware version: <image> <revision> (API:1.35)` (firmware
+- [ ] Confirm: returns `Firmware version: <image> <revision> (API:1.36)` (firmware
       built from this tree; the host tools refuse any other API version, and a
       board whose firmware has no info block shows the revision without an
       image name)
@@ -241,6 +241,8 @@ a fault in the tools. Repeat a run that ends that way.*
 - [ ] Run `ubertooth-btle -f -c capture.pcap` for 10 seconds
 - [ ] Confirm: `capture.pcap` file is created and non-empty
 - [ ] Open in Wireshark and confirm valid BLE packets visible
+- [ ] Confirm: in each packet's PPI header the average RSSI sits between the
+      minimum and the maximum of the same packet
 
 ### 3d. Data Length Extension packet capture
 *Requires: a DLE-capable BLE central and peripheral (recommended: two scripted

@@ -115,8 +115,11 @@ typedef struct _le_conn_t {
 	uint32_t conn_interval; // in units of 100 ns
 	uint32_t supervision_timeout; // in units of 100 ns
 
-	uint8_t  win_size;
-	uint32_t win_offset; // in units of 100 ns
+	// both in units of 100 ns. win_size has to hold the scaled value: the
+	// wire carries it in units of 1.25 ms, so the 1.25 ms minimum is already
+	// 12500 of these, which does not fit in a byte.
+	uint32_t win_size;
+	uint32_t win_offset;
 
 	le_channel_remapping_t remapping;
 
@@ -866,7 +869,10 @@ static void usb_fill_le_metadata(usb_pkt_rx *f, const le_rx_t *packet,
 	f->channel = (uint8_t)((packet->channel - 2402) & 0xff);
 	f->clkn_high = 0;
 	f->clk100ns = packet->timestamp;
-	f->rssi_avg = packet->rssi_sum / packet->size;
+	/* The radio reports RSSI as a negative number, so the sum is negative and
+	 * the division has to be a signed one. Without the cast the unsigned size
+	 * would convert the sum to a huge positive value first. */
+	f->rssi_avg = packet->rssi_sum / (int) packet->size;
 	f->rssi_min = packet->rssi_min;
 	f->rssi_max = packet->rssi_max;
 	f->rssi_count = 0;
@@ -960,7 +966,7 @@ static unsigned extract_field(le_rx_t *buf, size_t offset, unsigned size) {
 
 static void le_connect_handler(le_rx_t *buf) {
 	uint32_t aa, crc_init;
-	uint32_t win_size, max_win_size;
+	uint32_t max_win_size;
 
 	if (!le.do_follow)
 		return;
@@ -993,11 +999,11 @@ static void le_connect_handler(le_rx_t *buf) {
 		goto err_out;
 
 	// win size is in range [1.25 ms, MIN(10 ms, conn_interval - 1.25 ms)]
-	win_size = conn.win_size * USEC(1250);
+	conn.win_size *= USEC(1250);
 	max_win_size = conn.conn_interval - USEC(1250);
 	if (max_win_size > MSEC(10))
 		max_win_size = MSEC(10);
-	if (win_size < USEC(1250) || win_size > max_win_size)
+	if (conn.win_size < USEC(1250) || conn.win_size > max_win_size)
 		goto err_out;
 
 	// The connSupervisionTimeout shall be a multiple of 10 ms in the
