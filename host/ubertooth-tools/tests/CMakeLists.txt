@@ -4,6 +4,29 @@
 # on whether this checkout happens to sit on a tag.
 remove_definitions(-DUBERTOOTH_RELEASE_BUILD=${UBERTOOTH_RELEASE_BUILD})
 
+# Most targets here compile a libubertooth source that reaches
+# ubertooth_control.h, which includes <libusb-1.0/libusb.h>, so libusb's
+# include directories are given to the whole directory, as the library's and
+# the tools' own CMakeLists.txt do for theirs. The targets that need no libusb
+# header are unharmed by having the directories, and a target added later
+# needs nothing: naming them one target at a time is what let a new target
+# arrive with libbtbb's directory and not libusb's, which on a Homebrew
+# install compiles by coincidence.
+#
+# This directory asks for libusb itself: the directories are a normal
+# variable, and src/ is a sibling rather than a parent, so neither its
+# find_package() nor its include_directories() reaches here.
+find_package(USB1 REQUIRED)
+if(USE_OWN_GNU_GETOPT)
+	# Ahead of libusb's directories, which on a Homebrew install are a
+	# prefix include directory holding whatever else is installed there: a
+	# getopt.h among it must not be taken for this project's own. The
+	# targets that link opt-parse-for-tests get this directory from it as
+	# well, but behind the ones granted here.
+	include_directories(BEFORE ../getopt)
+endif()
+include_directories(${LIBUSB_INCLUDE_DIRS})
+
 add_executable(test-dfu-transition
 	test_dfu_transition.c
 	../src/dfu_transition.c)
@@ -27,29 +50,6 @@ endif()
 target_include_directories(test-dfu-recovery PRIVATE ../src)
 
 add_test(NAME dfu-recovery COMMAND test-dfu-recovery)
-
-# Most targets here compile a libubertooth source that reaches
-# ubertooth_control.h, which includes <libusb-1.0/libusb.h>, so libusb's
-# include directories are given to the whole directory, as the library's and
-# the tools' own CMakeLists.txt do for theirs. The targets that need no libusb
-# header are unharmed by having the directories, and a target added later
-# needs nothing: naming them one target at a time is what let a new target
-# arrive with libbtbb's directory and not libusb's, which on a Homebrew
-# install compiles by coincidence.
-#
-# This directory asks for libusb itself: the directories are a normal
-# variable, and src/ is a sibling rather than a parent, so neither its
-# find_package() nor its include_directories() reaches here.
-find_package(USB1 REQUIRED)
-if(USE_OWN_GNU_GETOPT)
-	# Ahead of libusb's directories, which on a Homebrew install are a
-	# prefix include directory holding whatever else is installed there: a
-	# getopt.h among it must not be taken for this project's own. The
-	# targets that link opt-parse-for-tests get this directory from it as
-	# well, but behind the ones granted here.
-	include_directories(BEFORE ../getopt)
-endif()
-include_directories(${LIBUSB_INCLUDE_DIRS})
 
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 

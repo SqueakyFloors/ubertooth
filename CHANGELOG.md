@@ -1315,6 +1315,7 @@ Fixes with no visible change in normal use.
 - The `*` on a version string, which says the checkout had uncommitted
   changes, is about the checkout the tools were built from. It used to be
   about whichever tree you happened to be standing in when you ran `cmake`.
+  [#743](https://github.com/SqueakyFloors/ubertooth/issues/743)
 - `ubertooth-debug` prints the radio's modulation offset as the signed number
   of steps it is, so a negative offset no longer reads as a large positive
   frequency. The firmware leaves that field at zero, so a board running this

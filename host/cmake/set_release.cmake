@@ -70,9 +70,14 @@ if(NOT DEFINED RELEASE_STRING)
 			# A checkout with no commit in it has no hash to report.
 			set(RELEASE_STRING ${LATEST_RELEASE})
 		else()
+			# A git that cannot answer here leaves the flag off
+			# rather than printing to the configure output: the
+			# hash is already known, so the version string is
+			# right either way.
 			execute_process(
 				COMMAND git status -s --untracked-files=no
 				WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
+				ERROR_QUIET
 				OUTPUT_VARIABLE DIRTY
 			)
 			if(NOT "${DIRTY}" STREQUAL "")
