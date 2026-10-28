@@ -8,8 +8,8 @@
 # would otherwise have one more place to chase. What a bump does update is
 # TEST_PLAN.md's expected string and COMPATIBILITY.md's firmware row, which
 # state the requirement rather than illustrate output, and a version a sample
-# is making a point about -- btbr's fixed 1.06, or 2020-12-R1's 1.07 -- which
-# is a fixed number and stays.
+# is making a point about -- 2020-12-R1's 1.07 -- which is a fixed number and
+# stays.
 #
 # Nothing enforced that. The samples that went stale were found by a reviewer
 # two bumps later, so this script asks both halves of the rule:
@@ -105,13 +105,11 @@ allowlist=$work/allowlist
 matches=$work/matches
 reported=$work/reported
 grep -v '^#' > "$allowlist" <<'EOF'
-# The btbr image's bcdDevice is a fixed 1.06 that no bump moves, and a sample
-# showing btbr is making that point. The image name and its revision have to
-# sit directly before the version, so a sample of the image that does bump
-# cannot borrow 1.06 by naming btbr earlier in the line.
-:[0-9]+:.*btbr git(\\)?-[^ ]+ \(API:1(\\)?\.06\)
-# The 2020-12-R1 release's 1.07, likewise: the samples that show it are about
-# reading a board this tree did not build.
+# The 2020-12-R1 release's 1.07: the samples that show it are about reading a
+# board this tree did not build, so the number is fixed and stays. btbr's
+# 1.06 was a second such entry while that image reported a fixed bcdDevice;
+# it reports the tree's version now, and no sample writes 1.06, so nothing
+# excuses it.
 :[0-9]+:.*2020(\\)?-12(\\)?-R1 \(API:1(\\)?\.07\)
 # TEST_PLAN.md states the version a board must report, rather than
 # illustrating output, so it carries the real number -- and part 2 below
@@ -168,7 +166,7 @@ API:<version>, so that a bump has one place to change and not a dozen. Write
 the placeholder instead of the number.
 
 If a line is making a point about a particular version -- a release this tree
-did not build, or the btbr image's fixed value -- add it to the allowlist in
+did not build, say -- add it to the allowlist in
 tools/check-doc-api-version.sh, with the reason.
 EOF
     } >&2

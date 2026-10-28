@@ -149,19 +149,20 @@ run_check
 [ "$status" -eq 1 ] || fail "expected exit 1, got $status"
 grep -q "README.md:1:" "$err" || fail "the planted line is not reported"
 
-# ---- the four deliberate shapes stay green ------------------------------
+# ---- the deliberate shapes stay green -----------------------------------
 
-case_name="the btbr image's fixed 1.06 is excused"
+case_name="1.06 is no longer excused, in a btbr sample or any other"
+# btbr reported a fixed bcdDevice of 1.06 once; it reports the version the
+# tree carries now, and no sample writes 1.06, so neither spelling is
+# excused.
 new_repo
 add_doc docs/source/firmware.rst \
     "		Firmware version: btbr git-test (API:1.06)"
 run_check
-[ "$status" -eq 0 ] || fail "expected exit 0, got $status"
-[ -s "$err" ] && fail "wrote to standard error on an excused line"
+[ "$status" -eq 1 ] || fail "expected exit 1, got $status"
+grep -q "docs/source/firmware.rst:1:" "$err" ||
+    fail "a btbr sample at 1.06 was excused"
 
-case_name="1.06 in a bluetooth_rxtx sample is not excused"
-# The btbr entry is tied to the image name, so the number cannot be borrowed
-# by a sample of the image that does bump.
 new_repo
 add_doc docs/source/firmware.rst \
     "		Firmware version: bluetooth_rxtx git-test (API:1.06)"
@@ -169,17 +170,6 @@ run_check
 [ "$status" -eq 1 ] || fail "expected exit 1, got $status"
 grep -q "docs/source/firmware.rst:1:" "$err" ||
     fail "a bluetooth_rxtx sample at 1.06 was excused"
-
-case_name="1.06 is not excused by naming btbr earlier in the line"
-# The entry wants the image name and revision directly before the version, so
-# prose that mentions btbr cannot carry the number for a different image.
-new_repo
-add_doc docs/source/firmware.rst \
-    "	Unlike btbr it bumps: bluetooth_rxtx git-test (API:1.06)"
-run_check
-[ "$status" -eq 1 ] || fail "expected exit 1, got $status"
-grep -q "docs/source/firmware.rst:1:" "$err" ||
-    fail "btbr earlier in the line excused the number"
 
 case_name="the 2020-12-R1 release's 1.07 is excused, in Markdown and in roff"
 new_repo
