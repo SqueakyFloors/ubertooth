@@ -65,6 +65,9 @@ void __attribute__((noreturn)) die(char *fmt, ...);
  */
 static uint32_t fake_clock;
 static uint32_t fake_clock_step;
+/* Where the slot clock restarts, as TIMER0's match register holds it: one less
+ * than the tick's length. A test that shortens the tick writes this. */
+uint32_t fake_clock_match = CLKN_OFFSET_RESET_VAL - 1;
 static uint32_t fake_sync_clock;
 static unsigned fake_bytes_available;
 static unsigned fake_clock_reads;
@@ -424,9 +427,9 @@ MU_TEST(test_the_ceiling_leaves_room_for_the_longest_wait)
 	unsigned last_byte_due = latest_sync
 		+ (NUM_DATA_HDR_BYTES+RX_SYNC_WORD_BYTES)*RX_CLKN_PER_AIR_BYTE;
 
-	mu_assert(last_byte_due < RX_WAIT_LATEST,
+	mu_assert(last_byte_due < rf_wait_latest(),
 	          "the longest wait can be cut off before its bytes are due");
-	mu_assert(RX_WAIT_LATEST < CLKN_OFFSET_RESET_VAL,
+	mu_assert(rf_wait_latest() < CLKN_OFFSET_RESET_VAL,
 	          "the deadline ceiling is not inside the tick");
 }
 
@@ -692,11 +695,36 @@ MU_TEST(test_the_state_machine_wait_cannot_run_past_the_slot)
 
 	mu_assert_int_eq(0, btphy_rf_wait_fsm(STATE_IDLE,
 	                                      CLKN_OFFSET_RESET_VAL * 2));
-	mu_assert(fake_clock_peek() >= RF_WAIT_LATEST,
+	mu_assert(fake_clock_peek() >= rf_wait_latest(),
 	          "the wait ended before the end of the slot");
 	mu_assert(fake_clock_peek() < CLKN_OFFSET_RESET_VAL,
 	          "the wait ran past the slot restart, where its deadline\n"
 	          "could never be reached");
+}
+
+/*
+ * A shortened tick is still a tick the wait gets out of.
+ *
+ * btphy_adj_clkn_delay() shortens one tick, by writing the match register, to
+ * move the slave clock onto a master's. The hardware restarts the slot clock at
+ * that shorter value, and btphy_handler() puts the match back only on the next
+ * interrupt -- which cannot be taken while this wait is holding
+ * TIMER0_IRQHandler. So a ceiling taken from the tick's usual length would sit
+ * past a restart that keeps happening, and the wait would never see it: the
+ * unbounded wait again, in the place that holds the whole board.
+ */
+MU_TEST(test_a_shortened_tick_still_ends_the_wait)
+{
+	/* as short as scan_wait()'s largest adjustment makes it */
+	fake_clock_match = CLKN_OFFSET_RESET_VAL - 610 - 1;
+	a_wait_on(STATE_STROBE_RX, 0, 10);
+
+	mu_assert_int_eq(0, btphy_rf_wait_fsm(STATE_IDLE,
+	                                      CLKN_OFFSET_RESET_VAL - 100));
+	mu_assert(fake_clock_peek() < fake_clock_match,
+	          "the wait ran past the restart of a shortened tick, where its\n"
+	          "deadline could never be reached");
+	fake_clock_match = CLKN_OFFSET_RESET_VAL - 1;
 }
 
 /*
@@ -713,7 +741,7 @@ MU_TEST(test_every_wait_in_a_slot_task_takes_its_deadline_from_the_slot)
 	} sites[] = {
 		/* the retune, which every slot does */
 		{ FW_BTBR_DIR "/src/btphy/rf.c",
-		  "btphy_rf_wait_fsm(STATE_IDLE, RF_WAIT_LATEST)" },
+		  "btphy_rf_wait_fsm(STATE_IDLE, rf_wait_latest())" },
 		/* the scan, until this slot stops listening */
 		{ FW_BTBR_DIR "/src/btphy/scan_task.c",
 		  "btphy_rf_wait_fsm(STATE_STROBE_RX, SCAN_WAIT_SYNCWORD)" },
@@ -799,6 +827,7 @@ int main(void)
 	MU_RUN(test_the_state_machine_wait_gives_up_at_its_deadline);
 	MU_RUN(test_the_state_machine_wait_reads_once_past_its_deadline);
 	MU_RUN(test_the_state_machine_wait_cannot_run_past_the_slot);
+	MU_RUN(test_a_shortened_tick_still_ends_the_wait);
 	MU_RUN(test_every_wait_in_a_slot_task_takes_its_deadline_from_the_slot);
 	return mu_report();
 }

@@ -21,12 +21,29 @@
 
 #define RF_EXPECTED_RX_CLKN_OFFSET 610	// (29usec of rf warmup + 32usec of sw)
 
-/* No wait in a slot task may run past the end of the slot. The slot clock
- * restarts there, so a deadline beyond it would never be reached, and the task
- * has to be out of the timer interrupt by then in any case. Stop 10usec short
- * of the restart, as rx_task.c's own deadlines do, which still leaves the loop
- * time to see the deadline pass. */
-#define RF_WAIT_LATEST (CLKN_OFFSET_RESET_VAL-100)
+/* How far before the slot clock restarts a wait has to stop: 10usec, which
+ * leaves the loop time to see its deadline pass. */
+#define RF_WAIT_SLACK 100
+
+/*
+ * The latest point in this tick that a wait in a slot task may run to. No wait
+ * may run past the restart: the slot clock goes back to zero there, so a
+ * deadline beyond it would never be reached and the wait would be the
+ * unbounded one again.
+ *
+ * Where the restart is comes from the match register rather than from the
+ * tick's usual length, because btphy_adj_clkn_delay() can shorten one tick to
+ * move the slave clock onto a master's. btphy_handler() puts the match back on
+ * the next interrupt -- which cannot be taken while a wait is holding
+ * TIMER0_IRQHandler, so during such a wait the hardware keeps restarting the
+ * clock at the shorter value.
+ */
+static inline uint16_t rf_wait_latest(void)
+{
+	uint16_t restart = T0MR0;
+
+	return restart > RF_WAIT_SLACK ? restart - RF_WAIT_SLACK : 0;
+}
 
 /*
  * Wait for the radio's state machine to reach `state`, until the slot clock
@@ -47,7 +64,7 @@
  * a passed deadline is not reported as a radio that never answered.
  *
  * A wait that gives up counts as the same shape of give-up as
- * cc2400_wait_fsm(), so ubertooth-util -b reads the two together: what the
+ * cc2400_wait_fsm(), so ubertooth-util -w reads the two together: what the
  * count is for is whether the radio reached the states it was asked for, which
  * does not depend on which bound ended the wait.
  */
@@ -58,9 +75,10 @@ static inline int btphy_rf_wait_fsm(uint8_t state, uint16_t due)
 	 * watchdog_mark() records the site without claiming it as the one the
 	 * mode is in. */
 	uint8_t site = watchdog_mark(WATCHDOG_SITE_FSM);
+	uint16_t latest = rf_wait_latest();
 
-	if (due > RF_WAIT_LATEST)
-		due = RF_WAIT_LATEST;
+	if (due > latest)
+		due = latest;
 
 	do {
 		/* FSMSTATE's low five bits are the state; the rest is

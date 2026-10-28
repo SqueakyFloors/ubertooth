@@ -30,6 +30,12 @@ void cc2400_set(u8 reg, u16 val);
 uint32_t fake_clock_read(void);
 #define T0TC fake_clock_read()
 
+/* TIMER0's match register: where the slot clock restarts, one less than the
+ * tick's length. A plain variable, so a test can shorten the tick the way
+ * btphy_adj_clkn_delay() does. */
+extern uint32_t fake_clock_match;
+#define T0MR0 fake_clock_match
+
 /* The CC2400's packet strobe: 0 means a sync word was detected. */
 int fake_gio6(void);
 #define GIO6 fake_gio6()

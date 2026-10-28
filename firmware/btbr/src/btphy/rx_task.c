@@ -62,17 +62,9 @@
  * controller, so allow four bytes' worth. */
 #define RX_WAIT_SLACK_BYTES	4
 
-/* No wait may run past the end of the clkn tick, because the slot clock
- * restarts there and a deadline beyond it would never be reached. Stop 10usec
- * short of the restart, which still leaves the loop time to see the deadline
- * pass, and is later than the last byte of the longest wait -- the first chunk
- * of a payload -- is ever due.
- *
- * It assumes a tick of the usual length. btphy_adj_clkn_delay() can shorten one
- * tick to move the slave clock onto a master's, and a wait in that tick would
- * not see its deadline; the next tick is back to full length, so such a wait
- * costs one more tick rather than running forever. */
-#define RX_WAIT_LATEST		(CLKN_OFFSET_RESET_VAL-100)
+/* The ceiling on every deadline here is rf_wait_latest(), this tick's own
+ * restart less a little slack: see rf.h. It is later than the last byte of the
+ * longest wait -- the first chunk of a payload -- is ever due. */
 
 /* Maximum size we can RX in WAIT_RX_MAX
  * (minus 2 bytes to avoid crashing in case we're unlucky.)
@@ -145,9 +137,10 @@ static unsigned rx_wait_bytes(unsigned want)
 			+ (want+RX_SYNC_WORD_BYTES+RX_WAIT_SLACK_BYTES)
 			  *RX_CLKN_PER_AIR_BYTE;
 	unsigned size;
+	unsigned latest = rf_wait_latest();
 
-	if (due > RX_WAIT_LATEST)
-		due = RX_WAIT_LATEST;
+	if (due > latest)
+		due = latest;
 
 	while ((size=rx_buf_update()) < want && CLKN_OFFSET < due)
 		;

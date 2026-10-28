@@ -220,7 +220,7 @@ void btphy_rf_tune_chan(uint16_t channel, int tx)
 	 * a radio still not idle by then has lost the slot whatever the wait
 	 * does. Stopping just before the slot restarts also leaves the timer its
 	 * next match, so the piconet clock need not lose a count at all. */
-	btphy_rf_wait_fsm(STATE_IDLE, RF_WAIT_LATEST);
+	btphy_rf_wait_fsm(STATE_IDLE, rf_wait_latest());
 
 	/* Retune */
 #ifdef USE_TX_1MHZ_OFF
