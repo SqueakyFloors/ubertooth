@@ -133,10 +133,12 @@ static int print_board_versions(FILE *out, ubertooth_t *ut, int index)
 		status = 1;
 	print_label(out, UBERTOOTH_VERSION_LABEL_BUILD, index);
 	if (text[0] == '\0') {
-		/* Nothing to show, whether the read failed or the board answered an
-		 * empty string: the line and the status have to agree, or a script
-		 * reading one of them is misled by the other. */
-		fprintf(out, "read failed\n");
+		/* Nothing to show. The two reasons are told apart, because the line
+		 * is what a reader has: the read itself failed, or it succeeded and
+		 * the board had no build string to give. Either way the status is 1,
+		 * so the line and the status agree and a script reading one of them
+		 * is not misled by the other. */
+		fprintf(out, status != 0 ? "read failed\n" : "not reported\n");
 		return 1;
 	}
 	fprintf(out, "%s\n", text);

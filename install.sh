@@ -462,28 +462,40 @@ if [ ! -x "$PREFIX/bin/ubertooth-util" ]; then
 	# --no-sudo prints the steps that need root instead of running them, so
 	# there is nothing installed to ask.
 	info "Not checking which libbtbb is in use: $PREFIX/bin/ubertooth-util is not installed"
-# Its standard error is left alone rather than discarded: a tool that will not
-# run has said why there, and that is the thing to show.
-elif ! BTBB_IN_USE="$("$PREFIX/bin/ubertooth-util" -H)"; then
-	info "WARNING: the installed ubertooth-util would not run, so which libbtbb it uses is unknown"
 else
-	# Said to be the tool's own two lines, because they are quoted as it
-	# printed them rather than given the script's "==> " prefix.
-	info "What the installed tools report:"
-	printf '%s\n' "$BTBB_IN_USE" >&2
+	# -V answers the host part from the tool itself, so no Ubertooth need be
+	# attached. It exits 1 when a board is attached and cannot be read, and
+	# prints the host lines all the same, so what it printed is what decides
+	# here and its exit status is not looked at. Its standard error is left
+	# alone rather than discarded: a tool that will not run has said why
+	# there, and that is the thing to show.
+	BTBB_IN_USE="$("$PREFIX/bin/ubertooth-util" -V || true)"
 	case "$BTBB_IN_USE" in
-		*"libbtbb loaded from: $PREFIX/"*) ;;
-		# The loader would not say, so there is nothing to compare: say
-		# that rather than report a libbtbb somewhere else.
-		*"libbtbb loaded from: unknown"*)
-			info "The tools cannot say which libbtbb they loaded, so another install would not be noticed here" ;;
-		# The tool names itself, which a libbtbb linked into it and a
-		# build without position-independent code both do. Also not an
-		# answer about a second install.
-		*"libbtbb loaded from: $PREFIX/bin/"*)
-			info "The tools report themselves as the libbtbb in use, so another install would not be noticed here" ;;
-		*) info "WARNING: the tools load a libbtbb from outside $PREFIX; remove the other install if packets decode oddly" ;;
+		*"libbtbb loaded from: "*) UTIL_ANSWERED=1 ;;
+		*) UTIL_ANSWERED=0 ;;
 	esac
+	if [ "$UTIL_ANSWERED" -eq 0 ]; then
+		info "WARNING: the installed ubertooth-util would not run, so which libbtbb it uses is unknown"
+	else
+		# The lines below are the tool's own, quoted as it printed
+		# them rather than given the script's "==> " prefix.
+		info "What the installed tools report:"
+		printf '%s\n' "$BTBB_IN_USE" >&2
+		case "$BTBB_IN_USE" in
+			*"libbtbb loaded from: $PREFIX/"*) ;;
+			# The loader would not say, so there is nothing to
+			# compare: say that rather than report a libbtbb
+			# somewhere else.
+			*"libbtbb loaded from: unknown"*)
+				info "The tools cannot say which libbtbb they loaded, so another install would not be noticed here" ;;
+			# The tool names itself, which a libbtbb linked into it
+			# and a build without position-independent code both
+			# do. Also not an answer about a second install.
+			*"libbtbb loaded from: $PREFIX/bin/"*)
+				info "The tools report themselves as the libbtbb in use, so another install would not be noticed here" ;;
+			*) info "WARNING: the tools load a libbtbb from outside $PREFIX; remove the other install if packets decode oddly" ;;
+		esac
+	fi
 fi
 
 if [ -n "$PY_DEPS_WARNING" ]; then

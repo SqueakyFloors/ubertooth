@@ -421,7 +421,7 @@ MU_TEST(an_empty_selector_reports_every_board)
 
 /* A board that answers an empty build string has nothing to show, so the line
  * says the read failed and the status agrees with it. */
-MU_TEST(an_empty_build_string_is_a_failed_read)
+MU_TEST(an_empty_build_string_is_not_reported)
 {
 	struct run_result r;
 
@@ -431,7 +431,7 @@ MU_TEST(an_empty_build_string_is_a_failed_read)
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.out, HOST_LINE
 	                 "Firmware version: bluetooth_rxtx git-test (API:1.07)\n"
-	                 "Firmware build: read failed\n") == 0, r.out);
+	                 "Firmware build: not reported\n") == 0, r.out);
 }
 
 /* A bus that cannot be listed is a failure, not an empty one: the host line
@@ -462,7 +462,7 @@ int main(void)
 	MU_RUN(a_board_that_will_not_open_is_named_and_the_rest_reported);
 	MU_RUN(a_selected_board_is_reported_without_an_index);
 	MU_RUN(an_empty_selector_reports_every_board);
-	MU_RUN(an_empty_build_string_is_a_failed_read);
+	MU_RUN(an_empty_build_string_is_not_reported);
 	MU_RUN(a_bus_that_cannot_be_listed_fails_after_the_host_line);
 	return mu_report();
 }

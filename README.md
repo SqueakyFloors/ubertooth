@@ -149,10 +149,9 @@ does which step.
 `-h` prints a tool's usage text. `-V` prints the version, in the same words
 whichever tool you ask: the host tools' version and the libbtbb this run
 loaded, then the firmware version and build of the board `-U` names, or of
-each attached board. Both are in every
-tool written in C; the three written in Python — `ubertooth-btbr`,
-`btle-extcap.py` and `ubertooth-specan-ui` — have `-h` and no `-V`. `-v` is
-not in every tool: see below.
+each attached board. Both are in every tool written in C; the three written in
+Python — `ubertooth-btbr`, `btle-extcap.py` and `ubertooth-specan-ui` — have
+`-h` and no `-V`. `-v` is not in every tool: see below.
 
 ```sh
 $ ubertooth-util -V

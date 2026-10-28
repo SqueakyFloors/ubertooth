@@ -592,7 +592,7 @@
                        "goes {words:UBERTOOTH_WATCHDOG_TIMEOUT_MS} without servicing USB",
                        ["ubertooth.md", "resets about {words:UBERTOOTH_WATCHDOG_TIMEOUT_MS} after it stops servicing USB"],
                        ["ubertooth.md", "resets itself about {words:UBERTOOTH_WATCHDOG_TIMEOUT_MS} later"]],
-      "removed_options": ["-9", "-f"],
+      "removed_options": ["-9", "-f", "-H"],
       "options": {
         "-h": {"value": "none", "role": "help"},
         "-N": {"value": "none", "role": "count",

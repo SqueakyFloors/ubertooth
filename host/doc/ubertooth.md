@@ -83,10 +83,12 @@ is 1. So does a USB bus that cannot be listed at all, which is nothing known
 rather than nothing attached: `Firmware version: unavailable, the USB bus
 could not be listed`.
 
-Part of an answer can go missing on its own, and the status is 1 then too:
-a board that answered its version but not its build string prints
-`Firmware build: read failed` under a good version line, and one whose API
-version could not be read prints the version with no ` (API:...)` after it.
+Part of an answer can go missing on its own, and the status is 1 then too: a
+board that answered its version but not its build string prints `Firmware
+build: read failed` under a good version line, or `Firmware build: not
+reported` if the read worked and the board had no build string to give, and
+one whose API version could not be read prints the version with no
+` (API:...)` after it.
 So a script that cares about the whole answer should test the status, not
 only look for a reason in place of a version.
 

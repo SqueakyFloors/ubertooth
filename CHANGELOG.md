@@ -160,10 +160,9 @@
   [#332](https://github.com/SqueakyFloors/ubertooth/issues/332)
 - **Script-visible change:** every version line now says what it is. The host
   tools version (`-V`) reads `Host tools version: libubertooth ...`, and the
-  multi-board listing
-  keeps each report's label with the board's index in it
-  (`Firmware version (0): ...`) instead of a bare `0: ...`. A board that cannot
-  be read says why where its value would be
+  multi-board listing keeps each report's label with the board's index in it
+  (`Firmware version (0): ...`) instead of a bare `0: ...`. A board that
+  cannot be read says why where its value would be
   (`Firmware version (1): unavailable, in use by another program`).
   [#610](https://github.com/SqueakyFloors/ubertooth/issues/610)
 - `ubertooth-btle` and `ubertooth-ego` list their `-j`/`-J` jam aliases in `-h`.
@@ -368,9 +367,8 @@
   one `warning: ` or `error: ` line on standard error, as the other tools do,
   instead of a `HH:MM:SS | WARNING | ...` log line.
   [#410](https://github.com/SqueakyFloors/ubertooth/issues/410)
-- The host tools version (`ubertooth-util -H`, and `-V` in `ubertooth-rx`,
-  `ubertooth-tx` and `ubertooth-afh`) says which libbtbb the run loaded, on a
-  second line: `libbtbb loaded from: /usr/local/lib/libbtbb.so.1`. A machine
+- The host tools version (`-V`) says which libbtbb the run loaded, on a second
+  line: `libbtbb loaded from: /usr/local/lib/libbtbb.so.1`. A machine
   with a distribution or Homebrew libbtbb beside this fork's reports two
   versions that may be the same number, and the path is what tells them apart.
   `install.sh` ends by printing the same two lines, and warns if the tools it
@@ -411,10 +409,9 @@
   board: `-V` reports every attached board itself. The build string is no
   longer prefixed with the image name it came from (`bluetooth_rxtx: ubertooth
   git-...`): the line above it names the image, and the `Firmware build: `
-  label names the line. `-V` also ends the command,
-  as `-h` does, so `ubertooth-util -V -r` prints the version and does not
-  reset the board; it used to be a query that ran alongside the rest of the
-  command line.
+  label names the line. `-V` also ends the command, as `-h` does, so
+  `ubertooth-util -V -r` prints the version and does not reset the board; it
+  used to be a query that ran alongside the rest of the command line.
   [#542](https://github.com/SqueakyFloors/ubertooth/issues/542)
 - **Script-visible change:** `ubertooth-util -H` and `--host-version` are
   removed. `-V` prints the host lines, with no board needed, so nothing is
@@ -1237,7 +1234,7 @@
   upper address part (UAP) of 2, an access address of 1 to 8, and a Bluetooth
   address as `xx:xx:xx:xx:xx:xx`. Values that used to be read as 0 or
   truncated, such as `ubertooth-rx -c abc` or `-l zz3344`, are refused before
-  the device is opened. `ubertooth-btle -v` and `ubertooth-ducky -q` also take
+  the device is opened. `ubertooth-btle -k` and `ubertooth-ducky -q` also take
   their value as the next word.
   [#155](https://github.com/SqueakyFloors/ubertooth/issues/155)
 - Firmware no longer stops answering USB control
