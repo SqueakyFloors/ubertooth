@@ -534,23 +534,23 @@ MU_TEST(test_neither_request_handler_resets_in_place)
 }
 
 /*
- * The BR/EDR image masks interrupts across the hand-over to the on-chip
- * programmer, and puts them back if it ever returns.
+ * The hand-over to the on-chip programmer runs with interrupts masked, and
+ * puts them back if it ever returns.
  *
- * Without the mask the hand-over did not happen at all: the programmer runs
- * from ROM, and this image's timer interrupt -- every 312.5 microseconds --
- * vectored back into the image while the ROM was starting up, so set_isp()
- * came back and the board carried on answering the host as if nothing had been
- * asked. That was found on a board; nothing in the code says the guard is
- * load-bearing, which is what this case is for. The other image needs no mask:
- * its dispatch has stopped the clock and the running mode before it hands over.
+ * Without the mask the hand-over did not happen at all on the btbr image: the
+ * programmer runs from ROM, and that image's slot timer -- every 312.5
+ * microseconds -- vectored back into the firmware while the ROM was starting
+ * up, so set_isp() came back and the board carried on answering the host as if
+ * nothing had been asked. That was found on a board, and nothing in the code
+ * says the guard is load-bearing, which is what this case is for. It is
+ * checked in set_isp() because that is the one place both images share.
  */
-MU_TEST(test_the_br_edr_hand_over_masks_interrupts)
+MU_TEST(test_the_hand_over_masks_interrupts)
 {
-	const char *path = FW_BTBR_DIR "/src/btctl/btctl.c";
+	const char *path = FW_COMMON_DIR "/ubertooth.c";
 	char line[512], name[64], message[1024];
 	int lineno = 0, in_block = 0, in_region = 0;
-	int mask = 0, isp = 0, restore = 0;
+	int mask = 0, iap = 0, restore = 0;
 	FILE *file = fopen(path, "r");
 
 	snprintf(message, sizeof(message), "cannot open %s to scan", path);
@@ -560,15 +560,15 @@ MU_TEST(test_the_br_edr_hand_over_masks_interrupts)
 		lineno++;
 		strip_comments(line, &in_block);
 		if (!in_region) {
-			if (strstr(line, "btctl_handle_isp_req(msg_t *msg)") != NULL)
+			if (strstr(line, "void set_isp(void)") != NULL)
 				in_region = 1;
 			continue;
 		}
 		if (call_name(line, name, sizeof(name))) {
 			if (strcmp(name, "irq_save_disable") == 0 && mask == 0)
 				mask = lineno;
-			if (strcmp(name, "set_isp") == 0 && isp == 0)
-				isp = lineno;
+			if (strcmp(name, "iap_entry") == 0 && iap == 0)
+				iap = lineno;
 			if (strcmp(name, "irq_restore") == 0 && restore == 0)
 				restore = lineno;
 		}
@@ -578,23 +578,22 @@ MU_TEST(test_the_br_edr_hand_over_masks_interrupts)
 	fclose(file);
 
 	snprintf(message, sizeof(message),
-	         "%s: the scan did not find set_isp() in btctl_handle_isp_req(), "
+	         "%s: the scan did not find the programmer call in set_isp(), "
 	         "so the checks below would pass without reading anything", path);
-	mu_assert_fatal(isp > 0, message);
+	mu_assert_fatal(iap > 0, message);
 
 	snprintf(message, sizeof(message),
 	         "%s:%d: the hand-over to the on-chip programmer runs with "
-	         "interrupts live (no irq_save_disable() before it), so this "
-	         "image's timer interrupt preempts the ROM code and the board "
-	         "carries on running the firmware instead of handing over",
-	         path, isp);
-	mu_assert(mask > 0 && mask < isp, message);
+	         "interrupts live (no irq_save_disable() before it), so a timer "
+	         "interrupt preempts the ROM code and the board carries on "
+	         "running the firmware instead of handing over", path, iap);
+	mu_assert(mask > 0 && mask < iap, message);
 
 	snprintf(message, sizeof(message),
 	         "%s:%d: nothing puts the interrupts back after the hand-over, "
-	         "so a programmer that did return would leave the board running "
-	         "with every interrupt masked", path, isp);
-	mu_assert(restore > isp, message);
+	         "so a programmer that refused would leave the board running "
+	         "with every interrupt masked", path, iap);
+	mu_assert(restore > iap, message);
 }
 
 int main(void)
@@ -606,6 +605,6 @@ int main(void)
 	MU_RUN(test_both_images_wait_before_they_reset);
 	MU_RUN(test_btbrs_delay_outlasts_a_usb_frame);
 	MU_RUN(test_neither_request_handler_resets_in_place);
-	MU_RUN(test_the_br_edr_hand_over_masks_interrupts);
+	MU_RUN(test_the_hand_over_masks_interrupts);
 	return mu_report();
 }

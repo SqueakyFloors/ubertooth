@@ -3400,7 +3400,13 @@ int main()
 				 * cannot reset it and a wedge that would not be counted,
 				 * and it must still take a request: asking for the
 				 * programmer again with the board left in this mode would
-				 * be a silent no-op. */
+				 * be a silent no-op.
+				 *
+				 * cc2400_idle() had this same write removed for being able
+				 * to swallow a request that arrived while it ran. Here
+				 * nothing can: the case services no USB, so the only
+				 * request that could be lost is one arriving during
+				 * set_isp(), which does not return. */
 				watchdog_unstretch();
 				requested_mode = MODE_IDLE;
 				break;

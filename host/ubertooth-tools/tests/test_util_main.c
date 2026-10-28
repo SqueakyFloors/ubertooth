@@ -1548,8 +1548,8 @@ static const char *const mode_options[] = { "-i", "-q", "-n", "-e", "-t", "-x", 
  * cannot be dropped or reworded without a test saying so. */
 static const char *const mode_progress[MODE_COUNT] = {
 	/* -i */ "Entering flash programming (ISP) mode\n"
-	         "note: the board is in its on-chip programmer and answers "
-	         "nothing else until it is power-cycled\n",
+	         "note: the board hands itself to its on-chip "
+	         "programmer and answers nothing else until it is power-cycled\n",
 	/* -q */ "Entering LED specan mode (threshold -"
 	         MODE_STR(UBERTOOTH_LED_SPECAN_N_DEFAULT) " dBm)\n",
 	/* -n */ "Starting range test\n",

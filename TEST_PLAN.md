@@ -127,8 +127,8 @@ own way.*
 
 - [ ] Run `ubertooth-util -U <serial> -i`
 - [ ] Confirm: `Entering flash programming (ISP) mode`, then
-      `note: the board is in its on-chip programmer and answers nothing else
-      until it is power-cycled`, no `libusb -7`, and exit 0
+      `note: the board hands itself to its on-chip programmer and answers
+      nothing else until it is power-cycled`, no `libusb -7`, and exit 0
 - [ ] Wait a few seconds — the board answers until it hands over, about a
       second on `bluetooth_rxtx` — then run `ubertooth-util -U <serial> -v`
 - [ ] Confirm: the board no longer answers — it is in the programmer

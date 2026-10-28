@@ -101,8 +101,9 @@ static inline uint16_t frend_keep_pa_level(uint16_t frend)
 /*
  * MANAND: manual signal AND-override. Each bit is ANDed with the internal
  * signal it names, so a bit written 0 forces that signal low and a bit written
- * 1 leaves it alone. Every bit is 1 after a chip reset, which is this value:
- * nothing overridden.
+ * 1 leaves it alone. This is the value a reset board reads back -- every bit 1,
+ * nothing overridden -- taken from boards rather than from the datasheet, which
+ * is where the behaviour comes from anyway.
  *
  * It is what cc2400_idle() puts the register back to when a mode ends, so the
  * next mode starts from the radio state a freshly booted board has. A mode

@@ -480,7 +480,7 @@ It exits with 1, without opening a device, when two or more mode options are giv
 .P
 A \fB\-N\fR count that succeeds does not affect the exit status: the number is printed and the rest of the command decides it\. A count that cannot be read is a failed operation like any other: it prints no number and makes the command exit 1, and the rest of it still runs\.
 .P
-\fB\-w\fR makes two reads, and a failure in either prints \fBerror: watchdog state read failed\fR or \fBerror: radio wait timeouts read failed\fR on standard error and makes the command exit 1\. The other read is still reported, so a board that cannot answer one still says what it can\.
+\fB\-w\fR makes two reads, and a failure in either prints \fBerror: watchdog state read failed\fR or \fBerror: radio wait timeouts read failed\fR on standard error, after any message from libubertooth, and makes the command exit 1\. The other read is still reported, so a board that cannot answer one still says what it can\.
 .P
 When a \fB\-b\fR, \fB\-c\fR, \fB\-a\fR, \fB\-z\fR, \fB\-l\fR, \fB\-d\fR, \fB\-p\fR, \fB\-s\fR or \fB\-m\fR read fails, no value line is printed on standard output, so an error code is never shown as a value; the other requested queries are still reported\. A failed \fB\-b\fR, \fB\-c\fR, \fB\-a\fR, \fB\-z\fR, \fB\-l\fR, \fB\-d\fR, \fB\-p\fR, \fB\-s\fR or \fB\-m\fR read also prints \fBerror: <query> read failed\fR (for example \fBerror: channel read failed\fR or \fBerror: board ID read failed\fR) on standard error, after any message from libubertooth\. When the board returns fewer bytes than the read needs, that is the only line, with the counts added, for example \fBerror: channel read failed: board returned 0 of 2 bytes\fR\.
 .SH "DIAGNOSTICS"
@@ -490,7 +490,7 @@ Standard output carries only what was asked for: the values the queries read, th
 .P
 That includes the progress lines for the operations that do something rather than report something: \fBResetting ubertooth device <selector>\fR, \fBStopping ubertooth device <selector>\fR, \fBEntering flash programming (ISP) mode\fR, \fBEntering LED specan mode (threshold \-<n> dBm)\fR, \fBStarting range test\fR, \fBStarting repeater\fR and \fBStarting TX test\fR\. They were written to standard output before\.
 .P
-\fB\-i\fR adds a second line, because the first does not say what the board will do: \fBnote: the board is in its on\-chip programmer and answers nothing else until it is power\-cycled\fR\.
+\fB\-i\fR adds a second line, because the first does not say what the board will do: \fBnote: the board hands itself to its on\-chip programmer and answers nothing else until it is power\-cycled\fR\.
 .P
 Each operation says what it did once\. \fB\-I\fR reports the blink only through \fBnote: the board is blinking; stop it with ubertooth\-util [\-U <selector>] \-S or any mode option\fR, naming the selector so the command can be pasted; there is no separate line announcing the LEDs\. Setting the squelch with \fB\-z <n>\fR prints nothing, as \fB\-a\fR, \fB\-c\fR, \fB\-C\fR, \fB\-d\fR and \fB\-l\fR do not: the value \fB\-z\fR reads back afterwards (\fBSquelch set to <n>\fR) is the result and goes to standard output\. A set that fails is still reported, on standard error, and the command exits 1\. \fB\-x\fR has never had a line of its own\.
 .P

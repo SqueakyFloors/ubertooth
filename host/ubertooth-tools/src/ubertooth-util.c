@@ -1165,8 +1165,9 @@ int main(int argc, char *argv[])
 		 * several that only read something, and the board it is given to
 		 * by mistake looks broken. */
 		if (r >= 0)
-			fprintf(stderr, "note: the board is in its on-chip programmer "
-			        "and answers nothing else until it is power-cycled\n");
+			fprintf(stderr, "note: the board hands itself to its on-chip "
+			        "programmer and answers nothing else until it is "
+			        "power-cycled\n");
 		goto out;
 	}
 	if(do_led_specan >= 0) {

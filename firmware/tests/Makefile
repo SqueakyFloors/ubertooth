@@ -438,12 +438,14 @@ $(BINDIR)/test_rangetest_radio: test_rangetest_radio.c minunit.h source_scan.h \
 $(BINDIR)/test_reset_order: test_reset_order.c minunit.h source_scan.h \
 		$(FW_LPCUSB)/usbcontrol.c $(FW_RXTX)/bluetooth_rxtx.c \
 		$(FW_BTBR)/src/btctl/btctl.c \
-		$(FW_BTBR)/src/btctl/vendor_request_handler.c | $(BINDIR)
+		$(FW_BTBR)/src/btctl/vendor_request_handler.c \
+		$(FW_COMMON)/ubertooth.c | $(BINDIR)
 # With the debug macros off, usbcontrol.c's stall path builds a dump the
 # disabled DBG() would have printed and takes an endpoint status it then does
 # not use. Neither is what this tests.
 	$(CC) $(CFLAGS) -I$(FW_LPCUSB) $(CPPFLAGS) \
 		-DFW_RXTX_DIR='"$(FW_RXTX)"' -DFW_BTBR_DIR='"$(FW_BTBR)"' \
+		-DFW_COMMON_DIR='"$(FW_COMMON)"' \
 		-Wno-unused-but-set-variable -Wno-unused-parameter \
 		-o $@ test_reset_order.c $(FW_LPCUSB)/usbcontrol.c
 

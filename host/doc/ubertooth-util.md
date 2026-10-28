@@ -744,9 +744,9 @@ exit 1, and the rest of it still runs.
 
 `-w` makes two reads, and a failure in either prints
 `error: watchdog state read failed` or
-`error: radio wait timeouts read failed` on standard error and makes the
-command exit 1. The other read is still reported, so a board that cannot
-answer one still says what it can.
+`error: radio wait timeouts read failed` on standard error, after any message
+from libubertooth, and makes the command exit 1. The other read is still
+reported, so a board that cannot answer one still says what it can.
 
 When a `-b`, `-c`, `-a`, `-z`, `-l`, `-d`, `-p`, `-s` or `-m` read fails,
 no value line is printed on standard output, so an error code is never shown as
@@ -781,8 +781,8 @@ than report something: `Resetting ubertooth device <selector>`,
 output before.
 
 `-i` adds a second line, because the first does not say what the board will
-do: `note: the board is in its on-chip programmer and answers nothing else
-until it is power-cycled`.
+do: `note: the board hands itself to its on-chip programmer and
+answers nothing else until it is power-cycled`.
 
 Each operation says what it did once. `-I` reports the blink only through
 `note: the board is blinking; stop it with ubertooth-util [-U <selector>] -S

@@ -107,7 +107,7 @@ static void btctl_handle_reset_req(msg_t *msg)
 
 static void btctl_handle_isp_req(msg_t *msg)
 {
-	uint32_t start, flags;
+	uint32_t start;
 
 	/*
 	 * The on-chip programmer takes the board off the bus exactly as reset()
@@ -127,23 +127,17 @@ static void btctl_handle_isp_req(msg_t *msg)
 	watchdog_intent(WATCHDOG_INTENT_ISP);
 	watchdog_stretch();
 
-	/*
-	 * Interrupts off for the hand-over. The programmer lives in ROM, and a
-	 * handler that fires while it starts up vectors back into this image:
-	 * this one's timer interrupt fires every 312.5 microseconds, and with it
-	 * live the hand-over did not take at all on a board -- set_isp() came
-	 * back and the firmware carried on answering the host as if nothing had
-	 * been asked. The old call from inside the USB interrupt handler got
-	 * this for free, which is why it worked there and this needs it here.
-	 * The other image is quiet by the time it hands over: its dispatch has
-	 * already stopped the clock and the mode that was running.
-	 *
-	 * Put back if the programmer ever returns, so the board is not left
-	 * running with every interrupt masked.
-	 */
-	flags = irq_save_disable();
+	/* Nothing stops the radio on the way into the programmer, and the
+	 * programmer does not touch it: a board asked for it while a state was
+	 * transmitting would be left transmitting until its power is cut.
+	 * Standby above cancels the tasks; this turns the radio and the
+	 * amplifier off. The other image's dispatch does the same through
+	 * cc2400_idle(). */
+	btphy_rf_off();
+
+	/* set_isp() masks interrupts across the hand-over itself; see the
+	 * comment there for why that is needed and why it lives in common. */
 	set_isp();
-	irq_restore(flags);
 	/* set_isp() is not supposed to come back -- it hands the chip to code
 	 * in ROM. If it ever does, the board must not be left running for the
 	 * next hour with a watchdog that cannot reset it and a wedge that would
