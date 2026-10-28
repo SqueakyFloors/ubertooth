@@ -96,7 +96,7 @@ Standard output carries only the captured packets\. Errors, warnings and progres
 .P
 A capture that is losing packets says so\. This tool reads its packets one at a time, and a reply that held part of a record cannot be read as one, so it is dropped and reported once per run: \fBwarning: a poll reply arrived with 32 of a packet's 64 bytes and was dropped; the capture is losing packets\fR\. The capture runs on and ends as it otherwise would, so the warning is the only sign\.
 .P
-A poll the board does not answer is tried again, up to three attempts, before the capture gives up: a board busy elsewhere for a moment no longer ends a capture that has been running for hours\. A board that has left the bus ends it at once\.
+A poll the board does not answer is tried again, up to three attempts, before the capture gives up: a board busy elsewhere for a moment no longer ends a capture that has been running for hours\. A board that has left the bus ends it at once\. The retry saves the capture, not the packet: the board takes a packet out of its queue as it answers the poll, so the one a timed\-out poll was carrying is gone\.
 .P
 A request that sets the capture up and is refused by the board ends the command there, named in one line, for example \fBerror: could not set the channel\fR; libubertooth has already said why\. A refused request is not proof that the board never got it, so the message does not claim one way or the other\.
 .P

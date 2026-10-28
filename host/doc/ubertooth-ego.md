@@ -153,7 +153,9 @@ runs on and ends as it otherwise would, so the warning is the only sign.
 A poll the board does not answer is tried again, up to three attempts, before
 the capture gives up: a board busy elsewhere for a moment no longer ends a
 capture that has been running for hours. A board that has left the bus ends it
-at once.
+at once. The retry saves the capture, not the packet: the board takes a packet
+out of its queue as it answers the poll, so the one a timed-out poll was
+carrying is gone.
 
 A request that sets the capture up and is refused by the board ends the
 command there, named in one line, for example

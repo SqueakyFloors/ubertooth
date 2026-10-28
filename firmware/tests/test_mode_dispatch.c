@@ -1400,6 +1400,9 @@ MU_TEST(test_the_afh_map_request_keeps_a_copy_for_the_mode_starting)
 	         "after a mode request is lost when the mode start's reset "
 	         "clears it", path, s.afhmap_case);
 	mu_assert(s.afhmap_keep > s.afhmap_case, msg);
+}
+
+/*
  * A channel set reaches the channel the board tunes to, whatever mode is
  * running.
  *

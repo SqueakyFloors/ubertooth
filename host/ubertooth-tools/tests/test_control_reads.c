@@ -757,6 +757,17 @@ MU_TEST(a_poll_that_keeps_failing_gives_up_and_says_why)
 	mu_assert_int_eq(3, fake.calls);
 	mu_assert(strcmp(text, "error: the Ubertooth did not answer in time "
 	    "(libusb -7)\n") == 0, text);
+
+	/* A stall that survives all three attempts is reported too, in the
+	 * wording libubertooth gives every other failed request. It used to
+	 * return in silence: the loop had run out of attempts and said
+	 * nothing. */
+	script_attempts(LIBUSB_ERROR_PIPE, LIBUSB_ERROR_PIPE,
+	                LIBUSB_ERROR_PIPE);
+	run_captured(poll_once, text, sizeof(text));
+	mu_assert_int_eq(LIBUSB_ERROR_PIPE, poll_rc);
+	mu_assert_int_eq(3, fake.calls);
+	mu_assert(strstr(text, "-9") != NULL, text);
 }
 
 /*

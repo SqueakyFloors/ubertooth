@@ -346,12 +346,16 @@ such gaps there were: `warning: the capture has 3 gaps where the board's queue
 filled up and it dropped packets`. The count is of gaps, not of lost packets:
 one full queue can swallow several packets, and the board sends no number.
 Nothing says which packets are missing, so a capture with gaps is complete
-only between them.
+only between them. The board reports a gap on the first packet that gets
+through after it, so a capture that ends in the moment after a gap does not
+report that last one.
 
 A poll the board does not answer is tried again, up to three attempts, before
 the capture gives up: a board busy elsewhere for a moment no longer ends a
 capture that has been running for hours. A board that has left the bus ends it
-at once.
+at once. The retry saves the capture, not the packet: the board takes a packet
+out of its queue as it answers the poll, so the one a timed-out poll was
+carrying is gone.
 
 Each request that sets a mode up is named on its own, so the line says which
 one the board refused: `error: could not set the advertising channel`,

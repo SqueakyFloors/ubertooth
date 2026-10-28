@@ -294,7 +294,10 @@
   those tools still cannot drive that image and now fail on the first request
   it does not answer.
   [#556](https://github.com/SqueakyFloors/ubertooth/issues/556)
-- **Reflash required:** the firmware API version is now 1.51, last moved by the
+- **Reflash required:** the firmware API version is now 1.52, last moved by the
+  board reporting a low-energy packet it had to drop for want of queue room and
+  by a channel set reaching the board while it follows a connection, before
+  that by the
   E-GO mode request starting the mode it names on a board already running one,
   before that by the AFH map a mode start keeps, the bound on the clock drift
   the board accumulates and the generic receive's FIFO flush, before that by
@@ -1594,11 +1597,13 @@ Fixes with no visible change in normal use.
   it off the error output leaves room there for the reason a failed capture
   gives.
   [#343](https://github.com/SqueakyFloors/ubertooth/issues/343)
-- A channel set on a board that is following a low-energy connection takes
-  effect instead of being accepted and thrown away. The board kept its old
-  channel and still reported success, so a tool that set a channel on a board
-  left in that mode by a capture that did not stop cleanly then received on
-  whichever channel was there before, with nothing to say so.
+- A channel set on a board that is following a low-energy connection is kept
+  instead of being accepted and thrown away. The board went on reporting its
+  old channel and tuned the next mode to it, so a tool that set a channel on a
+  board left in that mode by a capture that did not stop cleanly then received
+  on whichever channel was there before, with nothing to say so. The connection
+  being followed is unaffected either way: that mode hops on the connection's
+  own channel map.
   [#440](https://github.com/SqueakyFloors/ubertooth/issues/440)
 - `ubertooth-dfu -d <image> -r` tells three things apart after the reset: a
   board that did not come back, a board that is back and will not open, and a
