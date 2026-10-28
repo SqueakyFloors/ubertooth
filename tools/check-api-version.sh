@@ -960,6 +960,19 @@ if [ -n "$changed" ]; then
                 echo ""
                 say_free_is_major
             fi
+            # The same list the message below prints, because the same escape
+            # applies: the branch may not need any bump at all, and a reader
+            # told only that the value is reserved would take the next minor
+            # instead of asking whether the red is real.
+            echo ""
+            echo "       The firmware interface files this branch changes:"
+            printf '%s\n' "$changed" | sed 's/^/         /'
+            echo ""
+            echo "       If none of them change what the host sees, this is a"
+            echo "       false red: put the version back to 0x$base_digits, say so on"
+            echo "       the pull request, and let the maintainer merge with this"
+            echo "       job red, rather than taking any new version."
+            echo "       tools/check-api-version.sh --list-watched prints the list."
         } >&2
         exit 1
     fi

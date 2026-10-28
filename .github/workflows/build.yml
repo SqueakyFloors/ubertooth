@@ -475,8 +475,10 @@ jobs:
       run: tools/check-image-revision-selftest.sh
 
     - name: Check that the firmware API version check holds both ways
-      # The api-version job below runs that check against this branch, which
-      # says nothing about whether it would still refuse a bad one. This
+      # The api-version job below runs main's copy of that check, so on a pull
+      # request this step is the only place the branch's own copy runs at all:
+      # it is what shows that a change to the check still refuses a bad
+      # branch, before that change reaches main and starts gating others. This
       # builds throwaway repositories in each of the shapes the rule names --
       # a claimed version, a stray bump, a comment dressed up as a firmware
       # change, a value that is not binary-coded decimal, a header it cannot
@@ -761,19 +763,25 @@ jobs:
         : "${RUNNER_TEMP:?}"
         check=tools/check-api-version.sh
         if [ "${{ github.event_name }}" = "pull_request" ]; then
-          # A main that does not have the script yet is the first pull request
-          # to add it, which has nothing to read from main: the branch's own
-          # copy is all there is.
-          if git cat-file -e "origin/main:$check" 2> /dev/null; then
-            from_main="$RUNNER_TEMP/check-api-version-from-main.sh"
-            git show "origin/main:$check" > "$from_main"
-            chmod +x "$from_main"
-            echo "note: running $check as origin/main has it" >&2
-            check=$from_main
-          else
-            echo "note: origin/main has no $check; running this branch's copy" >&2
+          # No fallback to the branch's own copy. main has the script, so the
+          # only way to get here is a branch that renamed or deleted it --
+          # $check comes from the branch too -- or an origin/main that did not
+          # resolve. Running the branch's copy then would quietly put the
+          # branch back in charge of the check that gates it, which is the
+          # whole point of reading it from main. A rename lands by merging it
+          # to main first.
+          if ! git cat-file -e "origin/main:$check" 2> /dev/null; then
+            echo "error: origin/main has no $check, so there is no copy of the" >&2
+            echo "       check to run that this branch did not write. Rename or" >&2
+            echo "       remove it on main first, and fetch main if that is what" >&2
+            echo "       is missing here." >&2
+            exit 1
           fi
-          "$check" origin/main
+          from_main="$RUNNER_TEMP/check-api-version-from-main.sh"
+          git show "origin/main:$check" > "$from_main"
+          chmod +x "$from_main"
+          echo "note: running $check as origin/main has it" >&2
+          "$from_main" origin/main
         elif git rev-parse --verify --quiet "$BEFORE^{commit}" > /dev/null; then
           "$check" "$BEFORE"
         else

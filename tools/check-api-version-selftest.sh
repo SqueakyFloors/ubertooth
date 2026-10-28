@@ -902,8 +902,13 @@ want_stderr "a major version that a"
 want_stderr "release reserves"
 want_stderr "at HEAD:       2.00 (0x0200)"
 want_stderr "next free:     0x0132"
-# Not the message for a value that is too low: this one is above main.
 want_stderr "docs/source/release_procedure.rst"
+# Not the message for a value that is too low: this one is above main.
+want_no_stderr "has to be above the one main carries"
+# The escape the other refusal on this leg carries: which files it named, and
+# that a false red is cleared by putting the version back, not by bumping.
+want_stderr "firmware/bluetooth_rxtx/bluetooth_rxtx.c"
+want_stderr "put the version back to 0x0131"
 
 # Any major version, not only the next one. Three majors up is as reserved as
 # one, and it is the shape a stray keystroke makes.

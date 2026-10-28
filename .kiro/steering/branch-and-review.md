@@ -204,10 +204,10 @@ change the host relies on**, in the PR that makes it.
 - A release moves it to the next major version to mark the break in
   host/firmware pairing; the first fork release takes `0x0200` (2.00). That is
   a release step, not a per-PR one (see `docs/source/release_procedure.rst`).
-  The check knows about it: one major up with the minor digits at `00`, above
-  `main`, with `CHANGELOG.md`, `COMPATIBILITY.md` and `TEST_PLAN.md` moving
-  with it, is allowed with no firmware change, so the release's own PR is not
-  refused. **No other branch may take a major version**, whether or not it
+  The check knows about it: one major up **from the merge base**, with the
+  minor digits at `00`, above `main`, and with `CHANGELOG.md`,
+  `COMPATIBILITY.md` and `TEST_PLAN.md` moving with it, is allowed with no
+  firmware change, so the release's own PR is not refused. **No other branch may take a major version**, whether or not it
   changes the firmware: a board accepts only the exact value, so a `0x0200`
   typed in place of `0x0135` would refuse every user's board until it was
   reflashed, and it burns the value the release reserves.
