@@ -38,6 +38,12 @@ fi
 work=$(mktemp -d) || exit 1
 trap 'rm -rf "$work"' EXIT HUP INT TERM
 
+# The number the cases plant, held in a variable because this script is itself
+# one of the shell scripts the check scans: a literal here would be a
+# reference of exactly the kind it refuses, and the check would fail on its own
+# self-test. The workflow's planting step holds it the same way.
+planted=4242
+
 failures=0
 case_name=
 repos=0
@@ -95,10 +101,10 @@ grep -q "no issue references" "$out" || fail "stdout does not report a clean tre
 
 case_name="a reference in a source file is caught"
 new_repo
-printf '/* see #%s */\n' 4242 >> "$repo/src/filler7.c"
+printf '/* see #%s */\n' "$planted" >> "$repo/src/filler7.c"
 run_check
 [ "$status" -eq 1 ] || fail "expected exit 1, got $status"
-grep -q "src/filler7.c:2: */\* see #4242" "$err" ||
+grep -q "src/filler7.c:2: */\* see #$planted" "$err" ||
     fail "the planted line is not named on standard error"
 [ -s "$out" ] && fail "wrote to standard output on a failure"
 
@@ -106,17 +112,17 @@ case_name="a reference in a per-directory build file is caught"
 # Its own pathspec in the check ('*/Makefile'), which has been wrong before.
 new_repo
 mkdir -p "$repo/firmware/image"
-printf '# see #%s\n' 4242 > "$repo/firmware/image/Makefile"
+printf '# see #%s\n' "$planted" > "$repo/firmware/image/Makefile"
 git -C "$repo" add -A
 git -C "$repo" commit -q -m "a build file"
 run_check
 [ "$status" -eq 1 ] || fail "expected exit 1, got $status"
-grep -q "firmware/image/Makefile:1: *# see #4242" "$err" ||
+grep -q "firmware/image/Makefile:1: *# see #$planted" "$err" ||
     fail "the planted line is not named on standard error"
 
 case_name="a full issue URL is caught as well as a bare number"
 new_repo
-printf '/* https://github.com/owner/repo/issues/%s */\n' 4242 \
+printf '/* https://github.com/owner/repo/issues/%s */\n' "$planted" \
     >> "$repo/src/filler9.c"
 run_check
 [ "$status" -eq 1 ] || fail "expected exit 1, got $status"

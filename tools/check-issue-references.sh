@@ -107,6 +107,7 @@ reference='#[0-9]+|github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(issues|pull)/[0-
 # A batch with no files at all is success too: without that, GNU xargs runs
 # the command once on empty input and a grep with no file arguments would
 # read the pipe it was fed from.
+# shellcheck disable=SC2016 # $0 and $@ below belong to that shell, not this one
 printf '%s\n' "$files" | tr '\n' '\0' |
     xargs -0 sh -c '
         [ "$#" -gt 0 ] || exit 0
