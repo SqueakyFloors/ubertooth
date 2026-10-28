@@ -555,7 +555,13 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		 * waits in the endpoint 0 buffer for the host's next IN token, up
 		 * to a whole 1 ms frame away. Going away from in here threw that
 		 * packet away, so `ubertooth-util -i` reported a board that had
-		 * timed out (-7) for a request the board had accepted. */
+		 * timed out (-7) for a request the board had accepted.
+		 *
+		 * The price is that the programmer is no longer reached from
+		 * inside the USB service pass: the running mode's loop has to
+		 * notice this and return to the dispatch, as it does for a reset
+		 * request. A loop that has stopped doing that is the wedge the
+		 * watchdog resets the board for. */
 		requested_mode = MODE_ISP;
 		break;
 

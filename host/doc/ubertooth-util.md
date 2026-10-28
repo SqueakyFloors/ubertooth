@@ -238,7 +238,8 @@ Miscellaneous:
 
  - `-i` :
    activate In-System Programming (ISP) mode. The board hands itself to the
-   on-chip programmer about a millisecond later and stays there, answering no
+   on-chip programmer once the host has collected its answer — about a second
+   later on `bluetooth_rxtx`, 10 ms on `btbr` — and stays there, answering no
    other request, until its power is cut: unplug it, or power-cycle its hub
    port. The command says so in a `note:` line of its own
  - `-b` :
@@ -286,7 +287,7 @@ was stuck:
     Unrequested watchdog resets since power-on: 2 (in 3 boots)
       the last was in BLE follow mode, waiting for the 16 MHz crystal oscillator
     Now in idle mode, not in a wait
-    Radio waits that gave up since power-on: synthesizer lock 0, unlock 0, oscillator 0, state machine 0
+    Radio waits that gave up since boot: synthesizer lock 0, unlock 0, oscillator 0, state machine 0
 
 `Last boot cause` is why the board started this time: `power-on`, `watchdog`,
 `reset pin`, `brown-out`, or several of those joined with `+`. A reset the

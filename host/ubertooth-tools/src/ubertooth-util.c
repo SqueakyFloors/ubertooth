@@ -1159,10 +1159,11 @@ int main(int argc, char *argv[])
 		r = cmd_set_isp(ut->devh);
 		status = util_status_after(status, r);
 		/* What the line above does not say: the board hands itself to the
-		 * programmer a millisecond later and stays there, answering no
-		 * other request, until its power is cut. This option is one
-		 * keystroke from several that only read something, and the board
-		 * it is given to by mistake looks broken. */
+		 * programmer shortly after answering this request -- about a
+		 * second on bluetooth_rxtx -- and stays there, answering nothing
+		 * else, until its power is cut. This option is one keystroke from
+		 * several that only read something, and the board it is given to
+		 * by mistake looks broken. */
 		if (r >= 0)
 			fprintf(stderr, "note: the board is in its on-chip programmer "
 			        "and answers nothing else until it is power-cycled\n");

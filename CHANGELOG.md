@@ -296,6 +296,15 @@
 
 ### Reliability fixes
 
+- A spectrum analyzer run measures through the radio front end a freshly
+  booted board has, whichever mode ran before it. `ubertooth-specan` and
+  `ubertooth-util -q` do not set the radio's manual signal overrides
+  themselves, and nothing put them back when a mode ended, so a sweep after a
+  low-energy capture was taken through that capture's front end and a sweep
+  after a reset was not. The write that was meant to set them at boot is gone
+  as well: the radio reset a few microseconds later undid it, so it never
+  reached a mode.
+  [#471](https://github.com/SqueakyFloors/ubertooth/issues/471)
 - `ubertooth-util -i` is reported as the success it is. The board used to go
   off the bus from inside the request handler, throwing away the answer the
   host was waiting for, so a board that had done exactly what was asked was
@@ -1066,12 +1075,6 @@
 
 Fixes with no visible change in normal use.
 
-- A mode starts with the radio's manual signal overrides back at the values a
-  freshly booted board has, so a spectrum analyzer run no longer measures
-  through the front end a low-energy capture left behind. The write that was
-  meant to set them at boot is gone: the radio reset a few microseconds later
-  undid it, so it never reached a mode.
-  [#471](https://github.com/SqueakyFloors/ubertooth/issues/471)
 - A packet captured by `ubertooth-btle -p` is timestamped a fixed moment after
   the board synchronized on it, rather than somewhere in the middle of the
   packet, so its time no longer drifts later the longer the packet is. Times

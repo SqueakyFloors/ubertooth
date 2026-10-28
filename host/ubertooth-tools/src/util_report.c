@@ -354,8 +354,13 @@ int util_report_radio_timeouts(FILE *out, const radio_timeouts *timeouts)
 	/* One line, in the order the reply carries them. A wait that gives up
 	 * leaves the radio in the wrong state and the firmware carries on, so a
 	 * count above zero is how a half-working radio tells itself apart from
-	 * a quiet channel. */
-	fprintf(out, "Radio waits that gave up since power-on: "
+	 * a quiet channel.
+	 *
+	 * "since boot", not since power-on as the watchdog counters above are:
+	 * these live in ordinary RAM, which every boot clears, so a reset -- one
+	 * the user asked for with -r, or one the watchdog made -- starts them
+	 * again. */
+	fprintf(out, "Radio waits that gave up since boot: "
 	        "synthesizer lock %u, unlock %u, oscillator %u, "
 	        "state machine %u\n",
 	        (unsigned)timeouts->fs_lock, (unsigned)timeouts->fs_unlock,

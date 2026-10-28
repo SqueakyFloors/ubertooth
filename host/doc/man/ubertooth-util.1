@@ -157,7 +157,7 @@ run a range test and report it: a progress line about once a second while it run
 Miscellaneous:
 .TP
 \fB\-i\fR
-activate In\-System Programming (ISP) mode\. The board hands itself to the on\-chip programmer about a millisecond later and stays there, answering no other request, until its power is cut: unplug it, or power\-cycle its hub port\. The command says so in a \fBnote:\fR line of its own
+activate In\-System Programming (ISP) mode\. The board hands itself to the on\-chip programmer once the host has collected its answer \(em about a second later on \fBbluetooth_rxtx\fR, 10 ms on \fBbtbr\fR \(em and stays there, answering no other request, until its power is cut: unplug it, or power\-cycle its hub port\. The command says so in a \fBnote:\fR line of its own
 .TP
 \fB\-b\fR
 get hardware board id number
@@ -186,7 +186,7 @@ Watchdog: armed; 3000 ms without USB being serviced or the mode looping resets t
 Unrequested watchdog resets since power\-on: 2 (in 3 boots)
   the last was in BLE follow mode, waiting for the 16 MHz crystal oscillator
 Now in idle mode, not in a wait
-Radio waits that gave up since power\-on: synthesizer lock 0, unlock 0, oscillator 0, state machine 0
+Radio waits that gave up since boot: synthesizer lock 0, unlock 0, oscillator 0, state machine 0
 .fi
 .IP "" 0
 .P

@@ -361,8 +361,12 @@ static int scan_source(const char *path, struct scan *s)
 			if (strstr(line, "rssi_iir_reset(") != NULL &&
 			    s->idle_fn_iir == 0)
 				s->idle_fn_iir = lineno;
+			/* The value as well as the register: a teardown that
+			 * wrote the override rather than the reset value would
+			 * leave exactly the carry-over this is about. */
 			if (contains_identifier(line, "cc2400_set") &&
 			    contains_identifier(line, "MANAND") &&
+			    contains_identifier(line, "MANAND_RESET_VALUE") &&
 			    s->idle_fn_manand == 0)
 				s->idle_fn_manand = lineno;
 			/* a closing brace in column 1 ends the function */
@@ -669,9 +673,10 @@ MU_TEST(test_leaving_a_mode_puts_the_radio_overrides_back)
 	char msg[512];
 
 	snprintf(msg, sizeof(msg),
-	         "%s: cc2400_idle() does not write MANAND, so a mode that does "
-	         "not write it itself -- specan(), led_specan() -- runs with "
-	         "whatever override the mode before it left", path);
+	         "%s: cc2400_idle() does not put MANAND back to "
+	         "MANAND_RESET_VALUE, so a mode that does not write the register "
+	         "itself -- specan(), led_specan() -- runs with whatever override "
+	         "the mode before it left", path);
 	mu_assert(s.idle_fn_manand > 0, msg);
 }
 

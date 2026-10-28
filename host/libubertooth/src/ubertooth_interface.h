@@ -426,7 +426,7 @@ enum operating_modes {
 	MODE_IDENTIFY      = 18,
 	/* Handing the chip to its on-chip programmer, which is a mode of its
 	 * own because the board answers the host first and goes off the bus a
-	 * millisecond later, the way MODE_RESET does. */
+	 * moment later, the way MODE_RESET does. */
 	MODE_ISP           = 19,
 	/* The btbr image has its own states and reports no mode at all. */
 	MODE_UNKNOWN       = 255,

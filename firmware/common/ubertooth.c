@@ -254,10 +254,10 @@ void cc2400_init()
 
 	/*
 	 * No radio register is written here, because nothing written here
-	 * survives. Every caller goes on to clock_start() (ubertooth_init()
-	 * does it directly), and that begins with cc2400_reset(), which takes
-	 * MAIN to 0 and back: a few microseconds after this returns, every
-	 * register is at its reset value again.
+	 * survives. Every caller goes on to cc2400_reset() -- directly, as the
+	 * two bench images do, or through clock_start(), as ubertooth_init()
+	 * does -- and that takes MAIN to 0 and back: a few microseconds after
+	 * this returns, every register is at its reset value again.
 	 *
 	 * A `cc2400_set(MANAND, 0x7fff)` used to sit here, meant to hold the
 	 * receive gain amplifier out of reset for the whole run. It was undone
