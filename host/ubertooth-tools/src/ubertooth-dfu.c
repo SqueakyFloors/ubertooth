@@ -485,7 +485,12 @@ static void close_dfu_device(libusb_device_handle *devh, int claimed)
 /* Held as values rather than used as constants so the hardware-independent
  * tests can shorten the wait: the cases where a detach fails would otherwise
  * sleep out the whole budget four times over, which is most of the time that
- * suite takes. Nothing in the tool changes them. */
+ * suite takes. Nothing in the tool changes them.
+ *
+ * The confirming interval is the exception: the tests keep it at the shipped
+ * value, because the stage line it is formatted into is only as long as it
+ * ships at when the number is. Sleeping it costs them nothing, since they
+ * replace the sleep itself. */
 static unsigned detach_gone_polls = DETACH_GONE_POLLS;
 static unsigned detach_gone_interval_ms = DETACH_GONE_INTERVAL_MS;
 static unsigned detach_confirm_interval_ms = DETACH_CONFIRM_INTERVAL_MS;

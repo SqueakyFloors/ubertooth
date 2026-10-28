@@ -129,7 +129,8 @@ third is what to do about the one of them that repeats on every reset: the
 expansion-header bridge described under MANUALLY ENTERING BOOTLOADER.
 
 The confirming wait is spent once per detach and only after the device has
-gone, so a board still in the bootloader is reported as promptly as before.
+gone, so a board that never left the bootloader is reported as promptly as
+before.
 The 1.5 s is measured against one board on one host, where it was back within
 630 ms of being asked to reset. A board that takes longer than the whole 1.5 s,
 behind a hub or on a loaded host, is back on the bus after the confirming
@@ -297,7 +298,8 @@ while keeping the bridge in place. Wait for the distinctive LED sequence or
 confirm that USB ID `1d50:6003` is present. The bootloader samples the entry pin
 only during reset, so once DFU is active you may remove the bridge without
 exiting DFU. Run `ubertooth-dfu` promptly because pin-entry DFU times out after
-a few seconds if no DFU request begins.
+a few seconds if no DFU request begins; the board then resets, and with the
+bridge still fitted that reset lands in the bootloader again.
 
 Remove the bridge before the final reset if you want the application firmware
 to boot. If it remains installed, the next reset will sample the entry pin
@@ -427,7 +429,7 @@ Whichever line is printed, the stage trace carries the raw codes behind it on
 its `post-reset application verification failed: ...` line.
 
 An image whose firmware info block reports an API version other than these
-tools' own is written, with a warning first: the tools and the board have to
+tools' own is not refused for that, only warned about: the tools and the board have to
 report the same one, and this command is the way back from a board that does
 not. It is a warning rather than a refusal for that reason.
 

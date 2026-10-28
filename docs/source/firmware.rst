@@ -107,7 +107,7 @@ remains in DFU, it reopens that same path and retries the complete image once
 from block zero.
 
 An image whose block reports a firmware API version other than these tools'
-own is written, with a warning first.
+own is not refused for that, only warned about.
 
 The reset request itself often fails, because the bootloader disconnects as it
 resets rather than acknowledging the request first. That is not a failure: the

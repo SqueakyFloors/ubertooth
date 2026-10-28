@@ -232,17 +232,21 @@ the same revision. The exchange completes within a couple of seconds.*
 five reports `mismatch on byte 0`, or does not finish. That is issue #686, not
 a fault in the tools. Repeat a run that ends that way.*
 
----
-
 ### 2j. Flashing with the bootloader entry pin still bridged (issue #304)
 
 *Needs a board at the bench: the entry pin has to be bridged by hand, and the
 board is left in the bootloader at the end. Nothing here can wedge it; it comes
 back by unplugging it with the bridge removed.*
 
-- [ ] Bridge pins 1 and 3 of the expansion header (P4) with the board
-      unplugged, then plug it in with the bridge in place, so the bootloader
-      runs. `lsusb` shows `1d50:6003`
+*The bridge goes on while the board is already up and running its application,
+not before it is plugged in. The pin is only sampled at reset, so the flash
+below still starts normally and the reset at the end of it is the one that
+lands in the bootloader. Fitting the bridge first would leave the board in DFU
+with no application to open, and `-U <serial>` never adopts a device that was
+already in DFU, so the run would end at `DFU entry failed` instead.*
+
+- [ ] With the board plugged in and running its application, bridge pins 1 and
+      3 of the expansion header (P4)
 - [ ] Leave the bridge fitted and run
       `ubertooth-dfu -U <serial> -d firmware/bluetooth_rxtx/bluetooth_rxtx.dfu -r`
 - [ ] Confirm: it exits 1 with
@@ -255,6 +259,8 @@ back by unplugging it with the bridge removed.*
       `ubertooth-util -U <serial> -v`
 - [ ] Confirm: it reports the image and revision that were written, so the
       flash the command reported as failed had in fact reached the flash
+
+---
 
 ## 3. BLE Sniffing (tests cherry-picked PR #550 — CRC fix)
 

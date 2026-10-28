@@ -170,9 +170,11 @@ int dfu_verify_application(const struct dfu_verify_ops *ops,
  * expected_image its name.
  *
  * The outcomes mean different things to whoever is holding the board, and
- * only one of them says the write did not take: a board that never came back
- * on USB has the new firmware in its flash already, so flashing it again is
- * the one thing it does not need. Each therefore gets its own line.
+ * only two of them say the write did not take: the board came back running
+ * another revision, or the other image of this tree. A board that never came
+ * back on USB has the new firmware in its flash already, so flashing it again
+ * is the one thing it does not need. Each outcome therefore gets its own
+ * line.
  *
  * A report that passed is described too ("the board came back running ..."),
  * so call this only for a report whose result is not DFU_VERIFY_OK. */

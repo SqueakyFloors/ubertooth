@@ -317,13 +317,11 @@
   flash and flashed again for nothing.
   [#579](https://github.com/SqueakyFloors/ubertooth/issues/579)
 - **Script-visible change:** `ubertooth-dfu -r` no longer reports a board that
-  reset straight back into the bootloader as detached. The reset has to leave
-  the DFU device gone on two checks in a row, the second 1.5 s after the
-  first, and a board that is back exits 1 naming the two things that put it
-  there, and then the expansion-header bridge that is the usual cause of one
-  of them. Flashing with the bridge
-  still fitted, which `ubertooth-dfu(1)` describes, now exits 1 where it could
-  exit 0, and every reset spends about 1.5 s more.
+  reset straight back into the bootloader as detached: the DFU device has to
+  be gone on two checks in a row, the second 1.5 s later, and a board that is
+  back exits 1 saying why. Flashing with the expansion-header bridge still
+  fitted now exits 1 where it could exit 0, and every reset that works spends
+  about 1.5 s more.
   [#304](https://github.com/SqueakyFloors/ubertooth/issues/304)
 - `ubertooth-dfu -d <image> -r` also checks which image came back, not only
   its revision, so a write of `btbr` over `bluetooth_rxtx` that did not take

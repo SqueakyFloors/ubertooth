@@ -1011,6 +1011,10 @@ MU_TEST(a_failed_detach_with_the_dfu_device_still_there_fails_the_command)
 	mu_assert_int_eq(0, fake.revision_calls);
 	/* Cleanup still tries once more to get it out of the bootloader. */
 	mu_assert_int_eq(2, fake.detach_calls);
+	/* The device never went, so the request's own status is evidence after
+	 * all and both attempts name it. This is the half of that rule the
+	 * cases above do not cover. */
+	mu_assert_int_eq(2, fake.libusb_errors);
 }
 
 /* With no -d there is no verification to fall back on, so the DFU device
