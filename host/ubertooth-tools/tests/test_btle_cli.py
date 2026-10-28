@@ -208,8 +208,12 @@ for arguments, expected in (
         # the mask is named after the option's own address
         (("-t", "11:22:33:44:55:66/99"),
          "error: target mask must be 0-48 (got 99)\n"),
+        # -s has no mask and no "none": each is refused as an address
         (("-s", "11:22:33:44:55:66/99"),
-         "error: faux slave mask must be 0-48 (got 99)\n"),
+         "error: faux slave address must be xx:xx:xx:xx:xx:xx"
+         " (got 11:22:33:44:55:66/99)\n"),
+        (("-s", "none"),
+         "error: faux slave address must be xx:xx:xx:xx:xx:xx (got none)\n"),
 ):
     result = subprocess.run([BINARY, *arguments], capture_output=True,
                             text=True, timeout=5, check=False,

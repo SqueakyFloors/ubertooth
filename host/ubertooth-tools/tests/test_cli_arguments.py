@@ -120,6 +120,12 @@ CASES = {
          "error: target mask must be 0-48 (got 49)"),
         (("-t", "11:22:33:44:55:66/abc"),
          "error: target mask must be 0-48 (got abc)"),
+        # a target's two spellings are not a faux slave's address
+        (("-s", "none"),
+         "error: faux slave address must be xx:xx:xx:xx:xx:xx (got none)"),
+        (("-s", "11:22:33:44:55:66/24"),
+         "error: faux slave address must be xx:xx:xx:xx:xx:xx"
+         " (got 11:22:33:44:55:66/24)"),
         # optional values as the next word: consumed, so "extra" is the stray
         (("-a", "8e89bed6", "extra"), "error: unexpected argument 'extra'"),
         (("-v", "1", "extra"), "error: unexpected argument 'extra'"),

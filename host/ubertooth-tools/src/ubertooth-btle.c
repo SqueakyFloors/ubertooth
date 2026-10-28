@@ -129,7 +129,8 @@ static void usage(FILE *out)
 	fprintf(out, "\t-p promiscuous: sniff active connections\n");
 	fprintf(out, "\n");
 	fprintf(out, "\t-a [address] get/set access address, 1-8 hex digits (example: -a 8e89bed6)\n");
-	fprintf(out, "\t-s <address> faux slave mode, using MAC addr (example: -s 22:44:66:88:aa:cc)\n");
+	fprintf(out, "\t-s <address> faux slave mode, advertising from one whole address\n");
+	fprintf(out, "\t       (example: -s 22:44:66:88:aa:cc; no /<bits> mask and no none)\n");
 	fprintf(out, "\t       -a and -s do not go with -f, -n or -p, which run until interrupted\n");
 	fprintf(out, "\t-t <address> set connection following target (example: -t 22:44:66:88:aa:cc/48)\n");
 	fprintf(out, "\t-t none unset connection following target\n");
@@ -212,15 +213,12 @@ int main(int argc, char *argv[])
 	 * address to advertise from, which are two different things. They
 	 * shared one pair of variables, so whichever option was written last
 	 * set both, and "-s <address> -t none" advertised from
-	 * 00:00:00:00:00:00 without a word. What each option accepts is
-	 * unchanged. */
+	 * 00:00:00:00:00:00 without a word. */
 	uint8_t target_address[OPT_BD_ADDR_BYTES] = { 0, };
 	uint8_t target_mask = 0;
+	/* -s takes a plain address: a faux slave advertises from one whole
+	 * address, so it has no mask of its own. */
 	uint8_t slave_address[OPT_BD_ADDR_BYTES] = { 0, };
-	/* -s takes the same spellings as -t, so it has a mask of its own to
-	 * parse into. Nothing reads it: a faux slave advertises from one whole
-	 * address. */
-	uint8_t slave_mask = 0;
 
 	/* Standard output until a capture takes it; see report_stream. */
 	report_stream = stdout;
@@ -314,8 +312,8 @@ int main(int argc, char *argv[])
 			break;
 		case 's':
 			do_slave_mode = 1;
-			r = convert_mac_address(optarg, "faux slave",
-			                        slave_address, &slave_mask);
+			r = convert_plain_mac_address(optarg, "faux slave",
+			                              slave_address);
 			if (!r)
 				return 1;
 			break;
