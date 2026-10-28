@@ -89,7 +89,7 @@ static void bbcodec_calc_payload_length(bbcodec_t *codec, uint8_t *payload)
 	if (t->has_crc)
 		codec->coded_total += 2;
 	if (t->has_fec23)
-		payload_bits = codec->coded_total*12;
+		payload_bits = BBCODEC_FEC23_AIR_BITS(codec->coded_total);
 	else
 		payload_bits = codec->coded_total*8;
 	codec->air_bytes = BYTE_ALIGN(58+payload_bits);
@@ -233,8 +233,21 @@ void bbcodec_encode_chunk(bbcodec_t *codec, uint8_t *air_data, bbhdr_t *in_hdr, 
 	/* Encode data in the air buffer */
 	if (t->has_fec23)
 	{
+		out_bitlen = BBCODEC_FEC23_AIR_BITS(byte_num);
+
+		/* A chunk that does not fill its last 10-bit group is padded
+		 * with zeros (Bluetooth Core, Vol 2 Part B 7.4). Only a byte
+		 * count that is not a multiple of 5 has such a group, and its
+		 * padding reaches at most 8 bits past the chunk -- the one
+		 * byte above it. Whitening wrote the chunk itself and no more,
+		 * so without this the pad bits are whatever the stack left in
+		 * the temporary. The chunk size is a multiple of 5, so a chunk
+		 * that needs padding is shorter than that and the byte above
+		 * it is inside the temporary. */
+		if (byte_num % 5 != 0)
+			tmp[byte_num] = 0;
+
 		fec23(air_data+(codec->air_off_b>>3), tmp, codec->air_off_b&7, byte_num*8);
-		out_bitlen = byte_num*12;
 	}
 	else
 	{
@@ -298,7 +311,7 @@ int bbcodec_decode_chunk(bbcodec_t *codec, uint8_t *out, bbhdr_t *in_hdr, uint8_
 
 	if (t->has_fec23)
 	{
-		in_bitlen = 12*byte_num;
+		in_bitlen = BBCODEC_FEC23_AIR_BITS(byte_num);
 		if (bit_av < in_bitlen)
 			return BBCODEC_SHORT;
 		/* TODO: return unfec23 error for pkt->flags ?

@@ -1422,6 +1422,16 @@
   as if nothing were known, and a reader could not check that packet's CRC -
   the packet the UAP was derived from being the one record that most needs it.
   [#767](https://github.com/SqueakyFloors/ubertooth/issues/767)
+- A Classic packet whose 2/3 FEC payload is not a multiple of five bytes long
+  now puts its last code group on the air whole, padded with zeros as the
+  Bluetooth specification asks. The `btbr` image counted that group as 12 bits
+  per byte rather than the 15 bits it occupies, so the transmitter stopped up
+  to 9 bits early and the receiver looked for the rest of the payload in the
+  wrong place: about one payload size in sixteen failed its checksum, and the
+  bits cut off the air were filled from whatever was on the stack rather than
+  with zeros. **Boards running an older build of the `btbr` image will not
+  interoperate with boards running this one, at those payload sizes.**
+  [#706](https://github.com/SqueakyFloors/ubertooth/issues/706)
 
 ### Documentation
 
@@ -1482,6 +1492,10 @@
   note saying which firmware image each tool needs and how to switch a board
   between `bluetooth_rxtx` and `btbr`.
   [#530](https://github.com/SqueakyFloors/ubertooth/issues/530)
+- ubertooth-afh(1) says what `-m` trades off. It counts packets rather than
+  time, so the default of 5 cannot settle the map of a piconet using the whole
+  band, and a value that does settle it is in the hundreds.
+  [#194](https://github.com/SqueakyFloors/ubertooth/issues/194)
 
 ### Under the hood
 

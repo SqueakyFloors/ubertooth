@@ -22,7 +22,7 @@ HOST_DFU := ../../host/ubertooth-tools/src
 HOST_LIB := ../../host/libubertooth/src
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS   := test_minunit test_rssi test_bluetooth_hop test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_promisc_hop_interval test_le_phy_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_grmdm_rx_generic test_tx_generic_bounds test_write_registers_bounds test_btbr_hop test_btbr_rx_deadline test_btbr_arithmetic test_btbr_fault_blink test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_watchdog test_latent_arithmetic
+TESTS   := test_minunit test_rssi test_bluetooth_hop test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_promisc_hop_interval test_le_phy_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_grmdm_rx_generic test_tx_generic_bounds test_write_registers_bounds test_btbr_hop test_btbr_rx_deadline test_btbr_arithmetic test_btbr_fault_blink test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_watchdog test_latent_arithmetic test_btbr_codec_fec23
 BINDIR  := bin
 
 .PHONY: all test clean
@@ -300,6 +300,24 @@ $(BINDIR)/test_btbr_arithmetic: test_btbr_arithmetic.c minunit.h \
 	$(CC) $(CFLAGS) -Istubs-btbr -I$(FW_BTBR)/include $(CPPFLAGS) \
 		-DFW_BTBR_DIR='"$(FW_BTBR)"' \
 		-o $@ test_btbr_arithmetic.c $(FW_BTBR)/src/codec/bitstream_proc.c
+
+# How many air bits a 2/3 FEC payload occupies, which transmit, receive and
+# the packet's air size all have to agree on. codec.c is the only btbr source
+# that holds all three, and it is pure logic, so the real one is linked here
+# on top of bitstream_proc.c and whole packets are encoded and decoded through
+# it. stubs-btbr/ supplies the diagnostics stand-in.
+$(BINDIR)/test_btbr_codec_fec23: test_btbr_codec_fec23.c minunit.h \
+		stubs-btbr/ubtbr/debug.h $(FW_BTBR)/src/codec/codec.c \
+		$(FW_BTBR)/src/codec/bitstream_proc.c \
+		$(FW_BTBR)/include/ubtbr/bb.h $(FW_BTBR)/include/ubtbr/codec.h \
+		$(FW_BTBR)/include/ubtbr/btphy.h | $(BINDIR)
+# codec.c takes the packet header in two calls that do not read it, and keeps
+# a decode pointer one branch does not use. Neither is what this tests, and
+# neither is this change's.
+	$(CC) $(CFLAGS) -Istubs-btbr -I$(FW_BTBR)/include $(CPPFLAGS) \
+		-Wno-unused-parameter -Wno-unused-variable \
+		-o $@ test_btbr_codec_fec23.c $(FW_BTBR)/src/codec/codec.c \
+		$(FW_BTBR)/src/codec/bitstream_proc.c
 
 # The USB hardware layer reaches the controller only through the register
 # macros in lpc17.h, so stubs-usb/ supplies a fake one and this links the real
