@@ -117,10 +117,14 @@ exercised here.
 
 ### Firmware API version: exact match, bumped per firmware change
 The host tools require firmware whose API version (`UBERTOOTH_API_VERSION`,
-reported as the USB `bcdDevice`) is exactly their own, and refuse any other —
-only `ubertooth-util` reading the version and `ubertooth-dfu` reflashing still
-work, and `ubertooth-dfu` only writes an image from this tree, since it refuses
-a file without a firmware info block. During
+reported as the USB `bcdDevice`) is exactly their own. A release build refuses
+any other — only `ubertooth-util` reading the version and `ubertooth-dfu`
+reflashing still work, and `ubertooth-dfu` only writes an image from this tree,
+since it refuses a file without a firmware info block. A build made from a git
+checkout that is not on a tag is a development build: it warns and runs the
+command, because host tools and firmware from different commits are the normal
+state of lab work. `UBERTOOTH_ALLOW_API_MISMATCH` sets either answer whatever
+the build (`1` runs on, `0` refuses); CI and the test harness use `0`. During
 development the minor version is bumped in every pull request that changes
 firmware behaviour the host relies on, so a board carrying firmware from an
 earlier commit is normally refused rather than used with behaviour the tools

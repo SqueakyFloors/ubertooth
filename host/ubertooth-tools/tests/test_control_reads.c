@@ -309,7 +309,8 @@ MU_TEST(the_quiet_set_forms_report_nothing)
 	/* The reporting form still prints its own line for each. */
 	script(LIBUSB_ERROR_PIPE, 0);
 	run_captured(set_channel, text, sizeof(text));
-	mu_assert(strcmp(text, "error: control message unsupported\n") == 0, text);
+	mu_assert(strcmp(text, "error: could not set the channel: the board's "
+	    "firmware does not support it (stalled, libusb -9)\n") == 0, text);
 
 	script(LIBUSB_ERROR_TIMEOUT, 0);
 	run_captured(set_channel, text, sizeof(text));

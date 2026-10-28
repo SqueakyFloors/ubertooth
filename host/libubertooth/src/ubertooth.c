@@ -714,6 +714,16 @@ static void rx_xfer_status(int status)
 {
 	char *error_name = "";
 
+	/* A stalled receive endpoint is the board refusing to send the capture
+	 * at all, which is what firmware without the mode the host asked for
+	 * looks like from here, so it gets the same report as a refused
+	 * request. The status is not a libusb error code, so there is none to
+	 * quote. */
+	if (status == LIBUSB_TRANSFER_STALL) {
+		ubertooth_report_unsupported_request("receive the capture", 0);
+		return;
+	}
+
 	switch (status) {
 		case LIBUSB_TRANSFER_ERROR:
 			error_name="Transfer error.";
@@ -721,9 +731,6 @@ static void rx_xfer_status(int status)
 		/* No LIBUSB_TRANSFER_TIMED_OUT or LIBUSB_TRANSFER_CANCELLED case:
 		 * both are ordinary parts of a capture, handled by the caller
 		 * before it reaches this. */
-		case LIBUSB_TRANSFER_STALL:
-			error_name="Halt condition detected, or control request not supported.";
-			break;
 		case LIBUSB_TRANSFER_NO_DEVICE:
 			error_name="Device disconnected.";
 			break;
@@ -1970,13 +1977,17 @@ int ubertooth_get_api(ubertooth_t *ut, uint16_t *version) {
 	result = libusb_get_device_descriptor(dev, &desc);
 	if (result < 0) {
 		if (result == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "error: control message unsupported\n");
+			ubertooth_report_unsupported_request(
+				"read the firmware API version", result);
 		} else {
 			show_libusb_error(result);
 		}
 		return result;
 	}
 	*version = desc.bcdDevice;
+	/* Kept for the reports about requests this board refuses: they name the
+	 * firmware that refused them. */
+	ubertooth_note_api_version(*version);
 	return 0;
 }
 
@@ -1988,11 +1999,13 @@ int ubertooth_check_api(ubertooth_t *ut) {
 		return result;
 	}
 
-	/* Host and firmware are released together: any other version, older or
-	 * newer, is refused rather than run with behaviour the host does not
-	 * expect. */
-	if (version != UBERTOOTH_API_VERSION) {
-		ubertooth_report_api_mismatch(version, ut->selector);
+	/* Host and firmware are released together, so a release build refuses
+	 * any other version rather than run with behaviour the host does not
+	 * expect. A development build reports it and goes on, because host
+	 * tools and firmware built from different commits are the normal state
+	 * of lab and debugging work. */
+	if (version != UBERTOOTH_API_VERSION
+	    && ubertooth_report_api_mismatch(version, ut->selector) < 0) {
 		ubertooth_stop(ut);
 		return -1;
 	}

@@ -307,8 +307,10 @@ something to try:
 That pair is the report: the request named as `set sweep mode` without `-c`,
 since the command then asks for the sweep across the whole band rather than
 for a channel, and as `set the Bluetooth address` for the address request. A
-request the board stalls (`libusb -9`) reads `the board does not support this
-command (stalled)` and carries no note, there being nothing to try. A board
+request the board's firmware has not got is stalled, which reads `error: could
+not set the channel: the board's firmware does not support it (stalled, libusb
+-9)`, with a note naming the board's firmware API version and the one these
+tools need (see ubertooth(7), FIRMWARE OF ANOTHER API VERSION). A board
 that took only part of the address gives the counts instead, as `error:
 Bluetooth address write failed: board took 8 of 16 bytes`.
 

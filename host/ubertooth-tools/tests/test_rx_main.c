@@ -525,12 +525,27 @@ MU_TEST(the_capture_is_asked_for_before_the_channel)
 	mu_assert(strcmp(device.calls, "bsc") == 0, device.calls);
 }
 
+#ifndef TEST_REAL_API_REPORTS
+/* Built against an installed libubertooth, so there is no library source to
+ * compile in: the report for a request the board's firmware has not got is a
+ * stub here, and STALLED below then expects no line from it. */
+void ubertooth_report_unsupported_request(const char* what, int code)
+{
+	(void)what;
+	(void)code;
+}
+#endif
+
 /* The whole report for a refused request: one error line naming the request,
  * why it failed and the libusb code, and a note only where there is something
  * to try. */
+#ifdef TEST_REAL_API_REPORTS
 #define STALLED(what) \
 	"error: could not " what \
-	": the board does not support this command (stalled) (libusb -9)\n"
+	": the board's firmware does not support it (stalled, libusb -9)\n"
+#else
+#define STALLED(what) ""
+#endif
 #define NO_ANSWER(what) \
 	"error: could not " what \
 	": the board did not answer in time (libusb -7)\n" \

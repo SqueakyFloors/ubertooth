@@ -23,6 +23,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <btbb.h>
+#include "ubertooth.h"
 #include "ubertooth_control.h"
 
 #define CTRL_IN     (LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_ENDPOINT_IN)
@@ -82,20 +83,117 @@ void show_libusb_error(int error_code)
 	fprintf(stderr,"libUSB Error: %s: %s (%d)\n", error_name, error_hint, error_code);
 }
 
-/* The commands ubertooth_cmd_async() submits, named for the completion
- * message below. NULL for anything else, which is then named by its request
- * number. */
-static const char* async_request_name(uint8_t request)
+/* What each control request asks the board to do, as a phrase that reads
+ * after "could not": "could not set the channel". Every report about a
+ * refused request names it from here, so the same request is called the same
+ * thing wherever it failed. NULL for a request this table does not know,
+ * which is then named by its number. */
+static const char* request_name(uint8_t request)
 {
 	switch (request) {
-		case UBERTOOTH_HOP:             return "hop";
-		case UBERTOOTH_TRIM_CLOCK:      return "clock trim";
-		case UBERTOOTH_FIX_CLOCK_DRIFT: return "clock drift correction";
-		case UBERTOOTH_CANCEL_FOLLOW:   return "cancel follow";
-		case UBERTOOTH_SET_AFHMAP:      return "AFH map";
-		case UBERTOOTH_START_HOPPING:   return "start hopping";
-		default:                        return NULL;
+		case UBERTOOTH_PING:               return "ping the board";
+		case UBERTOOTH_RX_SYMBOLS:         return "start the symbol capture";
+		case UBERTOOTH_TX_SYMBOLS:         return "start the symbol transmit";
+		case UBERTOOTH_GET_USRLED:         return "read the user LED";
+		case UBERTOOTH_SET_USRLED:         return "set the user LED";
+		case UBERTOOTH_GET_RXLED:          return "read the receive LED";
+		case UBERTOOTH_SET_RXLED:          return "set the receive LED";
+		case UBERTOOTH_GET_TXLED:          return "read the transmit LED";
+		case UBERTOOTH_SET_TXLED:          return "set the transmit LED";
+		case UBERTOOTH_GET_1V8:            return "read the 1.8 V regulator";
+		case UBERTOOTH_SET_1V8:            return "set the 1.8 V regulator";
+		case UBERTOOTH_GET_CHANNEL:        return "read the channel";
+		case UBERTOOTH_SET_CHANNEL:        return "set the channel";
+		case UBERTOOTH_RESET:              return "reset the board";
+		case UBERTOOTH_GET_SERIAL:         return "read the serial number";
+		case UBERTOOTH_GET_PARTNUM:        return "read the part number";
+		case UBERTOOTH_GET_PAEN:           return "read the amplifier setting";
+		case UBERTOOTH_SET_PAEN:           return "set the amplifier setting";
+		case UBERTOOTH_GET_HGM:            return "read the high gain setting";
+		case UBERTOOTH_SET_HGM:            return "set the high gain setting";
+		case UBERTOOTH_TX_TEST:            return "start the transmit test";
+		case UBERTOOTH_STOP:               return "stop the running mode";
+		case UBERTOOTH_GET_MOD:            return "read the modulation";
+		case UBERTOOTH_SET_MOD:            return "set the modulation";
+		case UBERTOOTH_SET_ISP:            return "enter the programmer";
+		case UBERTOOTH_FLASH:              return "start the firmware update";
+		case BOOTLOADER_FLASH:             return "start the bootloader update";
+		case UBERTOOTH_SPECAN:             return "start the spectrum analyser";
+		case UBERTOOTH_GET_PALEVEL:        return "read the transmit power level";
+		case UBERTOOTH_SET_PALEVEL:        return "set the transmit power level";
+		case UBERTOOTH_REPEATER:           return "start the repeater";
+		case UBERTOOTH_RANGE_TEST:         return "start the range test";
+		case UBERTOOTH_RANGE_CHECK:        return "read the range test result";
+		case UBERTOOTH_GET_REV_NUM:        return "read the firmware revision";
+		case UBERTOOTH_LED_SPECAN:         return "start the LED spectrum analyser";
+		case UBERTOOTH_GET_BOARD_ID:       return "read the board ID";
+		case UBERTOOTH_SET_SQUELCH:        return "set the squelch level";
+		case UBERTOOTH_GET_SQUELCH:        return "read the squelch level";
+		case UBERTOOTH_SET_BDADDR:         return "set the Bluetooth address";
+		case UBERTOOTH_START_HOPPING:      return "start hopping";
+		case UBERTOOTH_SET_CLOCK:          return "set the board's clock";
+		case UBERTOOTH_GET_CLOCK:          return "read the board's clock";
+		case UBERTOOTH_BTLE_SNIFFING:      return "start the BLE capture";
+		case UBERTOOTH_GET_ACCESS_ADDRESS: return "read the access address";
+		case UBERTOOTH_SET_ACCESS_ADDRESS: return "set the access address";
+		case UBERTOOTH_GET_CRC_VERIFY:     return "read the CRC check setting";
+		case UBERTOOTH_SET_CRC_VERIFY:     return "set the CRC check setting";
+		case UBERTOOTH_POLL:               return "poll for a packet";
+		case UBERTOOTH_BTLE_PROMISC:       return "start the promiscuous BLE capture";
+		case UBERTOOTH_SET_AFHMAP:         return "set the AFH map";
+		case UBERTOOTH_CLEAR_AFHMAP:       return "clear the AFH map";
+		case UBERTOOTH_READ_REGISTER:      return "read a CC2400 register";
+		case UBERTOOTH_WRITE_REGISTER:     return "write a CC2400 register";
+		case UBERTOOTH_READ_ALL_REGISTERS: return "read the CC2400 registers";
+		case UBERTOOTH_WRITE_REGISTERS:    return "write the CC2400 registers";
+		case UBERTOOTH_BTLE_SLAVE:         return "start advertising";
+		case UBERTOOTH_GET_COMPILE_INFO:   return "read the compile information";
+		case UBERTOOTH_BTLE_SET_TARGET:    return "set the BLE target address";
+		case UBERTOOTH_BTLE_PHY:           return "set the BLE physical layer";
+		case UBERTOOTH_JAM_MODE:           return "set the jam mode";
+		case UBERTOOTH_EGO:                return "start the E-Go mode";
+		case UBERTOOTH_AFH:                return "start the AFH detection";
+		case UBERTOOTH_HOP:                return "hop to the next channel";
+		case UBERTOOTH_TRIM_CLOCK:         return "trim the board's clock";
+		case UBERTOOTH_RX_GENERIC:         return "start the generic capture";
+		case UBERTOOTH_TX_GENERIC_PACKET:  return "transmit a packet";
+		case UBERTOOTH_FIX_CLOCK_DRIFT:    return "correct the clock drift";
+		case UBERTOOTH_CANCEL_FOLLOW:      return "cancel the follow";
+		case UBERTOOTH_LE_SET_ADV_DATA:    return "set the advertising data";
+		case UBERTOOTH_RFCAT_SUBCMD:       return "send the rfcat command";
+		case UBERTOOTH_XMAS:               return "start the Christmas lights";
+		case UBERTOOTH_IDENTIFY:           return "blink the board's LEDs";
+		case UBERTOOTH_GET_FW_INFO:        return "read the firmware information";
+		case UBERTOOTH_GET_WATCHDOG:       return "read the watchdog record";
+		default:                           return NULL;
 	}
+}
+
+/* request_name() with the fallback filled in, written into the caller's
+ * buffer so nothing is allocated on an error path. */
+static const char* request_text(uint8_t request, char* buf, size_t size)
+{
+	const char* name = request_name(request);
+
+	if (name != NULL)
+		return name;
+	snprintf(buf, size, "send control request %u", (unsigned int)request);
+	return buf;
+}
+
+/* One report for a synchronous request that failed. A stall is the board
+ * saying it has no such request, which the shared wording explains with the
+ * two firmware API versions; anything else is a transport failure and is left
+ * to show_libusb_error(). */
+static void report_request_failed(int code, uint8_t request)
+{
+	char buf[40];
+
+	if (code == LIBUSB_ERROR_PIPE)
+		ubertooth_report_unsupported_request(
+			request_text(request, buf, sizeof(buf)), code);
+	else
+		show_libusb_error(code);
 }
 
 /* A libusb_transfer_status in plain words. The host tools' shared
@@ -110,9 +208,9 @@ static const char* async_request_name(uint8_t request)
 static const char* transfer_status_text(int status)
 {
 	switch (status) {
-		case LIBUSB_TRANSFER_STALL:
-			/* How the board refuses a request it does not implement. */
-			return "the board does not support this command (stalled)";
+		/* No LIBUSB_TRANSFER_STALL case: that is the board saying it has
+		 * no such request, and the callback below reports it in the
+		 * shared wording, with the firmware API versions. */
 		case LIBUSB_TRANSFER_TIMED_OUT:
 			return "the board did not answer in time";
 		case LIBUSB_TRANSFER_NO_DEVICE:
@@ -141,9 +239,9 @@ static const char* transfer_status_text(int status)
  * command was refused. */
 static void callback(struct libusb_transfer* transfer)
 {
-	char name_text[32];
+	char name_text[40];
 	char why_text[32];
-	const char* name = NULL;
+	const char* name;
 	const char* why;
 
 	if (transfer->status == LIBUSB_TRANSFER_COMPLETED)
@@ -151,17 +249,18 @@ static void callback(struct libusb_transfer* transfer)
 
 	/* The setup packet this transfer carries: buffer[1] is bRequest. */
 	if (transfer->buffer != NULL
-	    && transfer->length >= (int)LIBUSB_CONTROL_SETUP_SIZE) {
-		uint8_t request = transfer->buffer[1];
+	    && transfer->length >= (int)LIBUSB_CONTROL_SETUP_SIZE)
+		name = request_text(transfer->buffer[1], name_text,
+		                    sizeof(name_text));
+	else
+		name = "send the control request";
 
-		name = async_request_name(request);
-		if (name == NULL) {
-			snprintf(name_text, sizeof(name_text), "control request %u",
-			         (unsigned int)request);
-			name = name_text;
-		}
-	} else {
-		name = "control request";
+	/* A stall gets the shared report, the same one a synchronous request
+	 * gets. The status is not a libusb error code, so there is none to
+	 * quote. */
+	if (transfer->status == LIBUSB_TRANSFER_STALL) {
+		ubertooth_report_unsupported_request(name, 0);
+		return;
 	}
 
 	why = transfer_status_text(transfer->status);
@@ -171,7 +270,7 @@ static void callback(struct libusb_transfer* transfer)
 		why = why_text;
 	}
 
-	fprintf(stderr, "error: %s failed: %s\n", name, why);
+	fprintf(stderr, "error: could not %s: %s\n", name, why);
 }
 
 void cmd_trim_clock(struct libusb_device_handle* devh, uint16_t offset)
@@ -393,11 +492,8 @@ int cmd_get_channel(struct libusb_device_handle* devh)
 	int r;
 	r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_GET_CHANNEL, 0, 0,
 			result, 2, 1000);
-	if (r == LIBUSB_ERROR_PIPE) {
-		fprintf(stderr, "error: control message unsupported\n");
-		return r;
-	} else if (r < 0) {
-		show_libusb_error(r);
+	if (r < 0) {
+		report_request_failed(r, UBERTOOTH_GET_CHANNEL);
 		return r;
 	}
 	r = check_reply_length(r, 2, "channel");
@@ -423,10 +519,8 @@ int cmd_set_channel(struct libusb_device_handle* devh, u16 channel)
 {
 	int r = cmd_set_channel_quiet(devh, channel);
 
-	if (r == LIBUSB_ERROR_PIPE)
-		fprintf(stderr, "error: control message unsupported\n");
-	else if (r < 0)
-		show_libusb_error(r);
+	if (r < 0)
+		report_request_failed(r, UBERTOOTH_SET_CHANNEL);
 	return r;
 }
 
@@ -510,11 +604,8 @@ int cmd_set_modulation(struct libusb_device_handle* devh, u16 mod)
 
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_SET_MOD, mod, 0,
 			NULL, 0, 1000);
-	if (r == LIBUSB_ERROR_PIPE) {
-		fprintf(stderr, "error: control message unsupported\n");
-		return r;
-	} else if (r < 0) {
-		show_libusb_error(r);
+	if (r < 0) {
+		report_request_failed(r, UBERTOOTH_SET_MOD);
 		return r;
 	}
 	return 0;
@@ -556,11 +647,8 @@ int cmd_stop(struct libusb_device_handle* devh)
 
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_STOP, 0, 0,
 			NULL, 0, 1000);
-	if (r == LIBUSB_ERROR_PIPE) {
-		fprintf(stderr, "error: control message unsupported\n");
-		return r;
-	} else if (r < 0) {
-		show_libusb_error(r);
+	if (r < 0) {
+		report_request_failed(r, UBERTOOTH_STOP);
 		return r;
 	}
 	return 0;
@@ -572,11 +660,8 @@ int cmd_set_paen(struct libusb_device_handle* devh, u16 state)
 
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_SET_PAEN, state, 0,
 			NULL, 0, 1000);
-	if (r == LIBUSB_ERROR_PIPE) {
-		fprintf(stderr, "error: control message unsupported\n");
-		return r;
-	} else if (r < 0) {
-		show_libusb_error(r);
+	if (r < 0) {
+		report_request_failed(r, UBERTOOTH_SET_PAEN);
 		return r;
 	}
 	return 0;
@@ -588,11 +673,8 @@ int cmd_set_hgm(struct libusb_device_handle* devh, u16 state)
 
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_SET_HGM, state, 0,
 			NULL, 0, 1000);
-	if (r == LIBUSB_ERROR_PIPE) {
-		fprintf(stderr, "error: control message unsupported\n");
-		return r;
-	} else if (r < 0) {
-		show_libusb_error(r);
+	if (r < 0) {
+		report_request_failed(r, UBERTOOTH_SET_HGM);
 		return r;
 	}
 	return 0;
@@ -604,11 +686,8 @@ int cmd_tx_test(struct libusb_device_handle* devh)
 
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_TX_TEST, 0, 0,
 			NULL, 0, 1000);
-	if (r == LIBUSB_ERROR_PIPE) {
-		fprintf(stderr, "error: control message unsupported\n");
-		return r;
-	} else if (r < 0) {
-		show_libusb_error(r);
+	if (r < 0) {
+		report_request_failed(r, UBERTOOTH_TX_TEST);
 		return r;
 	}
 	return 0;
@@ -651,11 +730,7 @@ int cmd_set_palevel(struct libusb_device_handle* devh, u16 level)
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_SET_PALEVEL, level, 0,
 			NULL, 0, 3000);
 	if (r != LIBUSB_SUCCESS) {
-		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "error: control message unsupported\n");
-		} else {
-			show_libusb_error(r);
-		}
+		report_request_failed(r, UBERTOOTH_SET_PALEVEL);
 		return r;
 	}
 	return 0;
@@ -674,11 +749,7 @@ static int rangeresult(struct libusb_device_handle* devh, rangetest_result *rr,
 	if (r < LIBUSB_SUCCESS) {
 		if (quiet)
 			return r;
-		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "error: control message unsupported\n");
-		} else {
-			show_libusb_error(r);
-		}
+		report_request_failed(r, UBERTOOTH_RANGE_CHECK);
 		return r;
 	}
 	if (r != (int)sizeof(result))
@@ -719,11 +790,7 @@ static int watchdog(struct libusb_device_handle* devh, watchdog_info *info,
 	if (r < LIBUSB_SUCCESS) {
 		if (quiet)
 			return r;
-		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "error: control message unsupported\n");
-		} else {
-			show_libusb_error(r);
-		}
+		report_request_failed(r, UBERTOOTH_GET_WATCHDOG);
 		return r;
 	}
 	if (r != (int)sizeof(result))
@@ -792,11 +859,7 @@ int cmd_range_test(struct libusb_device_handle* devh)
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_RANGE_TEST, 0, 0,
 			NULL, 0, 1000);
 	if (r != LIBUSB_SUCCESS) {
-		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "error: control message unsupported\n");
-		} else {
-			show_libusb_error(r);
-		}
+		report_request_failed(r, UBERTOOTH_RANGE_TEST);
 		return r;
 	}
 	return 0;
@@ -809,11 +872,7 @@ int cmd_repeater(struct libusb_device_handle* devh)
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_REPEATER, 0, 0,
 			NULL, 0, 1000);
 	if (r != LIBUSB_SUCCESS) {
-		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "error: control message unsupported\n");
-		} else {
-			show_libusb_error(r);
-		}
+		report_request_failed(r, UBERTOOTH_REPEATER);
 		return r;
 	}
 	return 0;
@@ -848,11 +907,8 @@ int cmd_get_firmware_revision(struct libusb_device_handle* devh, char *revision,
 	revision[0] = '\0';
 	r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_GET_REV_NUM, 0, 0,
 			result, sizeof(result), 1000);
-	if (r == LIBUSB_ERROR_PIPE) {
-		fprintf(stderr, "error: control message unsupported\n");
-		return r;
-	} else if (r < 0) {
-		show_libusb_error(r);
+	if (r < 0) {
+		report_request_failed(r, UBERTOOTH_GET_REV_NUM);
 		return r;
 	}
 
@@ -877,11 +933,8 @@ int cmd_get_firmware_compile_info(struct libusb_device_handle* devh,
 	compile_info[0] = '\0';
 	r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_GET_COMPILE_INFO, 0, 0,
 			result, sizeof(result), 1000);
-	if (r == LIBUSB_ERROR_PIPE) {
-		fprintf(stderr, "error: control message unsupported\n");
-		return r;
-	} else if (r < 0) {
-		show_libusb_error(r);
+	if (r < 0) {
+		report_request_failed(r, UBERTOOTH_GET_COMPILE_INFO);
 		return r;
 	}
 
@@ -957,11 +1010,8 @@ int cmd_get_board_id(struct libusb_device_handle* devh)
 	int r;
 	r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_GET_BOARD_ID, 0, 0,
 			&board_id, 1, 1000);
-	if (r == LIBUSB_ERROR_PIPE) {
-		fprintf(stderr, "error: control message unsupported\n");
-		return r;
-	} else if (r < 0) {
-		show_libusb_error(r);
+	if (r < 0) {
+		report_request_failed(r, UBERTOOTH_GET_BOARD_ID);
 		return r;
 	}
 	r = check_reply_length(r, 1, "board ID");
@@ -977,11 +1027,7 @@ int cmd_set_squelch(struct libusb_device_handle* devh, u16 level)
 
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_SET_SQUELCH, level, 0, NULL, 0, 3000);
 	if (r != LIBUSB_SUCCESS) {
-		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "error: control message unsupported\n");
-		} else {
-			show_libusb_error(r);
-		}
+		report_request_failed(r, UBERTOOTH_SET_SQUELCH);
 		return r;
 	}
 	return 0;
@@ -1039,10 +1085,8 @@ int cmd_set_bdaddr(struct libusb_device_handle* devh, u64 address)
 {
 	int r = cmd_set_bdaddr_quiet(devh, address);
 
-	if (r == LIBUSB_ERROR_PIPE)
-		fprintf(stderr, "error: control message unsupported\n");
-	else if (r < 0 && r != UBERTOOTH_ERROR_SHORT_REPLY)
-		show_libusb_error(r);
+	if (r < 0 && r != UBERTOOTH_ERROR_SHORT_REPLY)
+		report_request_failed(r, UBERTOOTH_SET_BDADDR);
 	return r;
 }
 
@@ -1090,10 +1134,8 @@ int cmd_set_clock(struct libusb_device_handle* devh, u32 clkn)
 {
 	int r = cmd_set_clock_quiet(devh, clkn);
 
-	if (r == LIBUSB_ERROR_PIPE)
-		fprintf(stderr, "error: control message unsupported\n");
-	else if (r < 0 && r != UBERTOOTH_ERROR_SHORT_REPLY)
-		show_libusb_error(r);
+	if (r < 0 && r != UBERTOOTH_ERROR_SHORT_REPLY)
+		report_request_failed(r, UBERTOOTH_SET_CLOCK);
 	return r;
 }
 
@@ -1123,11 +1165,7 @@ int cmd_btle_sniffing(struct libusb_device_handle* devh, uint8_t do_follow)
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_BTLE_SNIFFING, do_follow, 0,
 			NULL, 0, 1000);
 	if (r < 0) {
-		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "error: control message unsupported\n");
-		} else {
-			show_libusb_error(r);
-		}
+		report_request_failed(r, UBERTOOTH_BTLE_SNIFFING);
 		return r;
 	}
 	return 0;
@@ -1145,11 +1183,7 @@ int cmd_clear_afh_map(struct libusb_device_handle* devh)
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_CLEAR_AFHMAP, 0, 0,
 		NULL, 0, 1000);
 	if (r < 0) {
-		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "error: control message unsupported\n");
-		} else {
-			show_libusb_error(r);
-		}
+		report_request_failed(r, UBERTOOTH_CLEAR_AFHMAP);
 		return r;
 	}
 	return 0;
@@ -1196,11 +1230,7 @@ int cmd_set_access_address(struct libusb_device_handle* devh, u32 access_address
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_SET_ACCESS_ADDRESS, 0, 0,
 		data, 4, 1000);
 	if (r < 0) {
-		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "error: control message unsupported\n");
-		} else {
-			show_libusb_error(r);
-		}
+		report_request_failed(r, UBERTOOTH_SET_ACCESS_ADDRESS);
 		return r;
 	}
 	return 0;
@@ -1261,11 +1291,7 @@ int cmd_btle_promisc(struct libusb_device_handle* devh)
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_BTLE_PROMISC, 0, 0,
 			NULL, 0, 1000);
 	if (r < 0) {
-		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "error: control message unsupported\n");
-		} else {
-			show_libusb_error(r);
-		}
+		report_request_failed(r, UBERTOOTH_BTLE_PROMISC);
 		return r;
 	}
 	return 0;
@@ -1280,11 +1306,7 @@ int cmd_read_register(struct libusb_device_handle* devh, u8 reg)
 	r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_READ_REGISTER, reg, 0,
 			data, 2, 1000);
 	if (r < 0) {
-		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "error: control message unsupported\n");
-		} else {
-			show_libusb_error(r);
-		}
+		report_request_failed(r, UBERTOOTH_READ_REGISTER);
 		return r;
 	}
 	snprintf(what, sizeof(what), "register 0x%02x", reg);
@@ -1302,11 +1324,7 @@ int cmd_btle_slave(struct libusb_device_handle* devh, u8 *mac_address)
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_BTLE_SLAVE, 0, 0,
 			mac_address, 6, 1000);
 	if (r < 0) {
-		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "error: control message unsupported\n");
-		} else {
-			show_libusb_error(r);
-		}
+		report_request_failed(r, UBERTOOTH_BTLE_SLAVE);
 		return r;
 	}
 
@@ -1325,11 +1343,7 @@ int cmd_le_set_adv_data(struct libusb_device_handle* devh, uint8_t *data, unsign
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_LE_SET_ADV_DATA, 0, 0,
 			data, data_len, 1000);
 	if (r < 0) {
-		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "error: control message unsupported\n");
-		} else {
-			show_libusb_error(r);
-		}
+		report_request_failed(r, UBERTOOTH_LE_SET_ADV_DATA);
 		return r;
 	}
 
@@ -1347,11 +1361,7 @@ int cmd_btle_set_target(struct libusb_device_handle* devh, uint8_t *mac_address,
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_BTLE_SET_TARGET, 0, 0,
 			cmd_buf, 7, 1000);
 	if (r < 0) {
-		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "error: control message unsupported\n");
-		} else {
-			show_libusb_error(r);
-		}
+		report_request_failed(r, UBERTOOTH_BTLE_SET_TARGET);
 		return r;
 	}
 
@@ -1364,11 +1374,7 @@ int cmd_set_jam_mode(struct libusb_device_handle* devh, int mode) {
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_JAM_MODE, mode, 0,
 			NULL, 0, 1000);
 	if (r < 0) {
-		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "error: control message unsupported\n");
-		} else {
-			show_libusb_error(r);
-		}
+		report_request_failed(r, UBERTOOTH_JAM_MODE);
 		return r;
 	}
 
@@ -1382,11 +1388,7 @@ int cmd_ego(struct libusb_device_handle* devh, int mode)
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_EGO, mode, 0,
 			NULL, 0, 1000);
 	if (r < 0) {
-		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "error: control message unsupported\n");
-		} else {
-			show_libusb_error(r);
-		}
+		report_request_failed(r, UBERTOOTH_EGO);
 		return r;
 	}
 	return 0;
@@ -1399,11 +1401,7 @@ int cmd_afh(struct libusb_device_handle* devh)
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_AFH, 0, 0,
 			NULL, 0, 1000);
 	if (r < 0) {
-		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "error: control message unsupported\n");
-		} else {
-			show_libusb_error(r);
-		}
+		report_request_failed(r, UBERTOOTH_AFH);
 		return r;
 	}
 
@@ -1427,11 +1425,7 @@ int cmd_rfcat_subcmd(struct libusb_device_handle* devh, int cmd, uint8_t *body, 
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_RFCAT_SUBCMD, cmd, 0,
 			body, body_len, 1000);
 	if (r < 0) {
-		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "error: control message unsupported\n");
-		} else {
-			show_libusb_error(r);
-		}
+		report_request_failed(r, UBERTOOTH_RFCAT_SUBCMD);
 		return r;
 	}
 
@@ -1444,11 +1438,7 @@ int cmd_xmas(struct libusb_device_handle* devh) {
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_XMAS, 0, 0,
 			NULL, 0, 1000);
 	if (r < 0) {
-		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "error: control message unsupported\n");
-		} else {
-			show_libusb_error(r);
-		}
+		report_request_failed(r, UBERTOOTH_XMAS);
 		return r;
 	}
 
@@ -1483,11 +1473,7 @@ int ubertooth_cmd_sync(struct libusb_device_handle* devh,
 	r = libusb_control_transfer(devh, type, command, 0, 0,
 			data, size, 1000);
 	if (r < 0) {
-		if (r == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "error: control message unsupported\n");
-		} else {
-			show_libusb_error(r);
-		}
+		report_request_failed(r, command);
 		return r;
 	}
 

@@ -41,6 +41,15 @@ stream a line is on.
   tool is an exception.
 - libubertooth and libbtbb never write to standard output. Their diagnostics
   go to standard error (or are returned to the caller).
+- Firmware of another API version is an `error: ` in a release build, which
+  refuses the command, and the same line as a `warning: ` in a development
+  build, which runs it; a `note: ` then says what allowed that. One wording,
+  one place: `ubertooth_report_api_mismatch()`.
+- A request the board's firmware has not got is reported by
+  `ubertooth_report_unsupported_request()` and nowhere else, so there is one
+  wording for it: an `error: ` line naming the request, and a `note: ` with
+  the board's firmware API version beside the one these tools need. Do not
+  write a new line for a stalled request.
 
 The three cases, with `ubertooth-ego`:
 

@@ -536,10 +536,11 @@ static int range_test_wait(ubertooth_t *ut, int timeout_s)
  * -I needs this tree's firmware. ubertooth-util does not call
  * ubertooth_check_api() (it must still read the version of, and reflash, any
  * firmware), so -I checks the version itself, before it prints or sends
- * anything. Firmware of another API version is refused with the library's
- * mismatch message, so -I says what every other tool says.
+ * anything. Firmware of another API version goes through the library's
+ * mismatch message, which also decides whether the mode may run, so -I says
+ * and does what every other tool says and does.
  *
- * Returns 0 if the firmware matches, or a negative error.
+ * Returns 0 if the mode may run, or a negative error.
  */
 static int identify_check_api(ubertooth_t* ut)
 {
@@ -548,10 +549,8 @@ static int identify_check_api(ubertooth_t* ut)
 
 	if (result < 0)
 		return result;
-	if (version != UBERTOOTH_API_VERSION) {
-		ubertooth_report_api_mismatch(version, ut->selector);
-		return -1;
-	}
+	if (version != UBERTOOTH_API_VERSION)
+		return ubertooth_report_api_mismatch(version, ut->selector);
 	return 0;
 }
 

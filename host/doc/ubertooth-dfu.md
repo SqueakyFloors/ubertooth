@@ -95,9 +95,9 @@ bound and instead ask the microcontroller's programming interface to erase and
 program a sector the part does not have, which fails. Either way everything
 sent before that point is already written, and all this tool sees of the
 refusal is the stall, which it reports as
-`error: control message unsupported`: the
-board is left running an application missing its tail, after a message that
-says nothing about flash sizes. It is the same cause as the read-back bound:
+`error: could not write block 164: the board's firmware does not support it
+(stalled, libusb -9)`: the board is left running an application missing its
+tail, after a message that says nothing about flash sizes. It is the same cause as the read-back bound:
 asking for flash the part has not got.
 
 What the detach request returns says nothing about where the board ended up,
@@ -396,7 +396,11 @@ The errors this tool prints itself are one line each beginning `error: `, for
 example `error: detach failed: the board is still in DFU`,
 `error: upload failed: block 164 was not read`,
 `error: firmware update failed after 2 attempt(s): ...` and
-`error: control message unsupported`. Lines beginning `warning: ` are the ones
+`error: could not read the DFU state: the board's firmware does not support it
+(stalled, libusb -9)`. That last one is the shared wording for a request the
+board refused, and it comes without the firmware API version note described in
+ubertooth(7): the bootloader this tool talks to runs no application firmware
+to have a version. Lines beginning `warning: ` are the ones
 about a part this host cannot identify and about an image built for another
 API version; lines beginning `note: ` follow a failure the tool can say
 something more about, which today is a board that came back in the bootloader.

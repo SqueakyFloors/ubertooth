@@ -31,6 +31,55 @@ set(MINOR_VERSION 1 CACHE STRING "libUbertooth minor version number")
 set( VERSION ${MAJOR_VERSION}.${MINOR_VERSION} )
 add_definitions( -DVERSION="${VERSION}" )
 
+# Release build or development build. The host requires firmware of exactly
+# its own API version. A release build refuses anything else, as every build
+# used to: someone running a release has no reason to drive firmware these
+# tools were not written for. A development build warns and runs instead, so
+# host tools and firmware from different commits can be used together without
+# a reflash first.
+#
+# A build counts as a development build only where that can be established: a
+# git checkout whose HEAD is not a tag. Everything else -- a tag, a source
+# archive with no git history, a tree where git will not run -- is a release
+# build, so the guard is never dropped by accident.
+#
+# Pass -DUBERTOOTH_RELEASE=ON or OFF to decide it here instead of looking at
+# the tree; CI passes ON, so what CI builds always refuses a mismatch.
+if(NOT DEFINED UBERTOOTH_RELEASE)
+	execute_process(
+		COMMAND git rev-parse --git-dir
+		WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+		RESULT_VARIABLE GIT_DIR_ERROR
+		OUTPUT_QUIET
+		ERROR_QUIET
+	)
+	if(GIT_DIR_ERROR)
+		# No git history to read, so this is a release build.
+		set(UBERTOOTH_RELEASE ON)
+	else()
+		execute_process(
+			COMMAND git describe --tags --exact-match HEAD
+			WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+			RESULT_VARIABLE GIT_TAG_ERROR
+			OUTPUT_QUIET
+			ERROR_QUIET
+		)
+		if(GIT_TAG_ERROR)
+			set(UBERTOOTH_RELEASE OFF)
+		else()
+			set(UBERTOOTH_RELEASE ON)
+		endif()
+	endif()
+endif()
+if(UBERTOOTH_RELEASE)
+	set(UBERTOOTH_RELEASE_BUILD 1)
+	message(STATUS "Release build: firmware of another API version is refused")
+else()
+	set(UBERTOOTH_RELEASE_BUILD 0)
+	message(STATUS "Development build: firmware of another API version is a warning")
+endif()
+add_definitions( -DUBERTOOTH_RELEASE_BUILD=${UBERTOOTH_RELEASE_BUILD} )
+
 # Ask glibc for the interfaces these sources use. They need POSIX.1-2008
 # (clock_gettime, fdopen, fileno, open_memstream, strcasecmp) and two things
 # outside it: usleep(), dropped from POSIX in 2008, and the byte-order helpers

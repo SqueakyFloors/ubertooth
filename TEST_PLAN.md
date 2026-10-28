@@ -42,9 +42,9 @@ A second Ubertooth One for the range test (2i).
 ### 2a. Firmware version check
 - [ ] Run `ubertooth-util -v`
 - [ ] Confirm: returns `Firmware version: <image> <revision> (API:1.41)` (firmware
-      built from this tree; the host tools refuse any other API version, and a
-      board whose firmware has no info block shows the revision without an
-      image name)
+      built from this tree; a release build of the host tools refuses any other
+      API version and a development build warns about it, and a board whose
+      firmware has no info block shows the revision without an image name)
 - [ ] Confirm: no `is in use by another program` or `claiming the USB
       interface` errors
 - [ ] Confirm: no timeout errors
@@ -69,10 +69,31 @@ A second Ubertooth One for the range test (2i).
       answer, each on stderr with exit 1, and nothing blinks
 - [ ] Flash `bluetooth_rxtx` again before the rest of the plan
 
-The API version error itself has no board to run it against: both images this
-tree builds report its own version, and putting an older release such as
-`2020-12-R1` on a board needs ISP or JTAG, since `ubertooth-dfu` refuses an
-image with no firmware info block.
+### 2c-i. Firmware of another API version
+Needs a board carrying an older API version. Build `bluetooth_rxtx` from an
+earlier commit of this tree whose `UBERTOOTH_API_VERSION` is lower and flash
+that; it has a firmware info block, so `ubertooth-dfu` takes it. An older
+upstream release such as `2020-12-R1` cannot be used, because `ubertooth-dfu`
+refuses an image with no info block and putting one on a board needs ISP or
+JTAG.
+
+- [ ] Run any tool (`ubertooth-util -b`) with host tools configured
+      `-DUBERTOOTH_RELEASE=ON`
+- [ ] Confirm: `error: Ubertooth firmware API version ...`, the note naming the
+      reflash, nothing on stdout, exit 1
+- [ ] Run the same tool from host tools built from the checkout, with no
+      `-DUBERTOOTH_RELEASE`
+- [ ] Confirm: the same line as `warning:`, the note saying the command runs
+      on because this is a development build, the tool's own result after it,
+      exit 0
+- [ ] Run it again with `UBERTOOTH_ALLOW_API_MISMATCH=0`
+- [ ] Confirm: refused, as a release build refuses it
+- [ ] Run a mode the older firmware does not answer
+- [ ] Confirm: `error: could not <request>: the board's firmware does not
+      support it (stalled, libusb -9)` and `note: the board reports firmware
+      API version ..., libubertooth ... requires ...`
+- [ ] Reflash the board with this tree's `bluetooth_rxtx` before the rest of
+      the plan
 
 ### 2d. Hardware info
 - [ ] Run `ubertooth-util -b` (board ID)

@@ -529,7 +529,7 @@ struct dfu_runtime_context {
  * at the top of the part's flash rather than reporting a programming failure.
  * Either way the blocks below that are already written, and the board is left
  * with an application missing its tail: all the host sees of the refusal is
- * the stall, which it reports as "control message unsupported". Older
+ * the stall, which it reports as the block the board would not take. Older
  * bootloaders have no upper bound at all. That is why this is worth refusing
  * here, where the image and the part are both known, rather than reporting
  * whatever comes back from the board.
@@ -721,15 +721,35 @@ static const struct dfu_transition_ops TRANSITION_OPS = {
 #define DFU_IN LIBUSB_ENDPOINT_IN | LIBUSB_REQUEST_TYPE_CLASS | LIBUSB_RECIPIENT_INTERFACE
 #define DFU_OUT LIBUSB_REQUEST_TYPE_CLASS | LIBUSB_RECIPIENT_INTERFACE
 
+/* One report for a DFU request the bootloader refused. A stall is the only
+ * answer a refusal gives, and the shared wording names what was asked for;
+ * anything else is a transport failure and is left to show_libusb_error().
+ * No firmware API version comes with it: this tool talks to the bootloader,
+ * which runs no application firmware to have a version. */
+static void report_dfu_failure(const char* what, int code)
+{
+	if (code == LIBUSB_ERROR_PIPE)
+		ubertooth_report_unsupported_request(what, code);
+	else
+		show_libusb_error(code);
+}
+
+/* The same, for the requests that carry a block number: a refusal here is
+ * usually a block with no flash behind it, so the line has to say which. */
+static void report_dfu_block_failure(const char* what, int block, int code)
+{
+	char text[32];
+
+	snprintf(text, sizeof(text), "%s %d", what, block);
+	report_dfu_failure(text, code);
+}
+
 int dfu_get_state(libusb_device_handle* devh) {
 	int rv;
 	uint8_t state;
 	rv = libusb_control_transfer(devh, DFU_IN, REQ_GETSTATE, 0, 0, &state, 1, 1000);
 	if (rv < 0) {
-		if (rv == LIBUSB_ERROR_PIPE)
-			fprintf(stderr, "error: control message unsupported\n");
-		else
-			show_libusb_error(rv);
+		report_dfu_failure("read the DFU state", rv);
 		return rv;
 	}
 	return state;
@@ -739,10 +759,7 @@ int dfu_clear_status(libusb_device_handle* devh) {
 	int rv;
 	rv = libusb_control_transfer(devh, DFU_OUT, REQ_CLRSTATUS, 0, 0, NULL, 0, 1000);
 	if (rv < 0) {
-		if (rv == LIBUSB_ERROR_PIPE)
-			fprintf(stderr, "error: control message unsupported\n");
-		else
-			show_libusb_error(rv);
+		report_dfu_failure("clear the DFU status", rv);
 		return rv;
 	}
 	return 0;
@@ -752,10 +769,7 @@ int dfu_abort(libusb_device_handle* devh) {
 	int rv;
 	rv = libusb_control_transfer(devh, DFU_OUT, REQ_ABORT, 0, 0, NULL, 0, 1000);
 	if (rv < 0) {
-		if (rv == LIBUSB_ERROR_PIPE)
-			fprintf(stderr, "error: control message unsupported\n");
-		else
-			show_libusb_error(rv);
+		report_dfu_failure("abort the DFU operation", rv);
 		return rv;
 	}
 	return 0;
@@ -1021,10 +1035,7 @@ int upload(libusb_device_handle* devh, FILE* upfile, uint32_t length) {
 		                             buffer, BLOCK_SIZE, 1000);
 		if (rv < 0) {
 			end_progress_row();
-			if (rv == LIBUSB_ERROR_PIPE)
-				fprintf(stderr, "error: control message unsupported\n");
-			else
-				show_libusb_error(rv);
+			report_dfu_block_failure("read block", block, rv);
 			fprintf(stderr, "error: upload failed: block %d was not read\n",
 			        block);
 			return rv;
@@ -1057,10 +1068,7 @@ int dfu_get_status(libusb_device_handle* devh) {
 	rv = libusb_control_transfer(devh, DFU_IN, REQ_GETSTATUS, 0, 0, buffer, 6, 1000);
 	if (rv < 0) {
 		end_progress_row();
-		if (rv == LIBUSB_ERROR_PIPE)
-			fprintf(stderr, "error: control message unsupported\n");
-		else
-			show_libusb_error(rv);
+		report_dfu_failure("read the DFU status", rv);
 		/* The reply carries the state the next block depends on, so a
 		 * read that failed cannot be treated as status OK. */
 		return rv;
@@ -1092,10 +1100,7 @@ int download(libusb_device_handle* devh, FILE* downfile) {
 		                             buffer, BLOCK_SIZE, 1000);
 		if (rv < 0) {
 			end_progress_row();
-			if (rv == LIBUSB_ERROR_PIPE)
-				fprintf(stderr, "error: control message unsupported\n");
-			else
-				show_libusb_error(rv);
+			report_dfu_block_failure("write block", block, rv);
 			return rv;
 		}
 		rv = dfu_get_status(devh);
