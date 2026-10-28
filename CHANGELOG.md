@@ -1476,13 +1476,15 @@
   FHS packet being 20 bytes, which was already counted right.
   [#706](https://github.com/SqueakyFloors/ubertooth/issues/706)
 - A Classic capture record names the LAP of the packet it holds, and carries
-  that packet's own header once a followed piconet's clock has been worked out.
-  A capture taken without `-l` named no address at all, `ubertooth-rx -z`
-  included - reference LAP `ffffff` in every record of the mode whose job is
-  finding addresses - and the header went into the record as 18 zero bits until
-  the follow began, which a reader cannot tell from a NULL packet that was
-  never sent. A survey record still carries no reference UAP, and a record
-  written before any clock is known still has no header to carry.
+  that packet's own header once a followed piconet's UAP and clock bits are
+  known. A capture taken without `-l` named no address at all, `ubertooth-rx
+  -z` included - reference LAP `ffffff` in every record of the mode whose job
+  is finding addresses - and the header went into the record as 18 zero bits
+  until the follow began, which a reader cannot tell from a NULL packet that
+  was never sent. A survey record still carries no reference UAP; a record
+  written before the clock is settled still has no header, and still claims
+  the bytes left in it as the packet's payload. See WHAT A CAPTURE RECORD
+  HOLDS in ubertooth-rx(1).
   [#778](https://github.com/SqueakyFloors/ubertooth/issues/778)
   [#781](https://github.com/SqueakyFloors/ubertooth/issues/781)
 

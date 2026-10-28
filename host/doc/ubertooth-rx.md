@@ -292,15 +292,21 @@ one stream, so `-q -` and `-d -` in one command are refused:
 
 Every record of a `-q` or `-r` capture names the LAP of the packet it holds as
 its reference LAP, whichever mode wrote it: the reference address is what a
-reader checks a record's own fields against. The piconet's UAP joins it from
-the packet whose CRC settles that UAP onwards, and with it the packet's own
-18-bit header, whose check bits a reader can recompute from the reference UAP
-in the same record.
+reader checks a record's own fields against. The piconet's UAP joins it once
+the decoder has settled that UAP, and with it the packet's own 18-bit header.
 
-A record written before that carries no header. The header is whitened at the
-piconet's clock, so until one packet settles that clock there is nothing to
-unwhiten it with, and the record holds 18 zero bits instead. A survey (`-z`)
-follows no piconet, so its records name the LAP and no more.
+A reader checks that header by recomputing its check bits from the reference
+UAP in the same record, which is also how it tells a header this tool could
+not place -- a packet of another piconet whose access code matched, or one
+with too many bit errors -- from one that was really sent.
+
+A record written before the UAP is settled carries no header at all. The
+header is whitened at the piconet's clock, so until the decoder has worked
+that clock out there is nothing to unwhiten it with, and the record holds 18
+zero bits instead. So do the records of a survey (`-z`), which follows no
+piconet and names the LAP alone, and the one packet that completes the
+piconet's clock. A piconet whose UAP is `ff` records no reference UAP either,
+because that is the value the format uses for "none".
 
 ## CAPTURING TO STANDARD OUTPUT
 

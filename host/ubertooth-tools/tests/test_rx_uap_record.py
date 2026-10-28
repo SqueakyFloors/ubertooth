@@ -4,7 +4,10 @@
 Following a piconet means learning its upper address part (UAP) from the
 packets themselves: the decoder tries every clock value until one of them
 unwhitens a packet into a payload whose CRC is correct, and that packet is
-what settles the UAP. ubertooth-rx writes the UAP into every capture record
+what settles the UAP. (It also settles one by elimination, when only one
+clock candidate is left; the fixture here settles on a CRC, and the run's own
+report is checked to make sure of it.) ubertooth-rx writes the UAP into every
+capture record
 as the reference UAP, which is what a reader checks that record's CRC
 against. The settling packet's own record used to go out with no reference
 UAP at all -- the one record a reader most needs it on, because it is the

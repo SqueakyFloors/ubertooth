@@ -1309,30 +1309,24 @@ void cb_rx(ubertooth_t* ut, void* args)
 	if (pn && btbb_piconet_get_flag(pn, BTBB_UAP_VALID))
 		uap = btbb_piconet_get_uap(pn);
 
-	/* The packet's own 18-bit header, decoded here while the decoder is
-	 * still working the piconet's clock out.
+	/* The packet's own 18-bit header, for the capture record below. Nothing
+	 * else reads it while the decoder is still working the piconet's clock
+	 * out: the UAP search unwhitens the header into a scratch buffer, takes
+	 * the UAP out of its check bits and throws the header away.
 	 *
-	 * Until a follow starts, nothing writes the header into the packet: the
-	 * UAP search unwhitens it into a scratch buffer, reads the UAP out of
-	 * its check bits and throws it away. The record then went out with all
-	 * 18 header bits zero, which a reader cannot tell from a real header of
-	 * zeros -- an LT_ADDR of 0, a NULL packet type, and flow, ARQN and SEQN
-	 * all clear.
+	 * Reading it needs the piconet's clock rather than the Ubertooth's. The
+	 * two differ by the offset the UAP search worked out, in slots, until
+	 * the whole clock is known: from then on the firmware is told to apply
+	 * the offset itself, libbtbb reads the header, and the offset the
+	 * piconet reports counts in the clock's own ticks instead. Hence the
+	 * guard, which leaves those packets to the decoder.
 	 *
-	 * Decoding it needs the piconet's clock rather than the Ubertooth's.
-	 * The two differ by the offset the UAP search worked out, in slots,
-	 * until the whole clock is known: from then on the firmware is told to
-	 * apply the offset itself, libbtbb decodes the packet, and the offset
-	 * the piconet reports counts in the clock's own ticks instead. So this
-	 * is for the packets before that, the ones nothing else decodes.
-	 *
-	 * What a reader checks a recorded header with is its check bits, run
-	 * against the reference UAP in the same record. A header that does not
-	 * come out right for this piconet -- a packet of another one whose
-	 * access code matched, or one with too many bit errors -- is still
-	 * written into the packet by the decoder before it checks, so such a
-	 * record carries bits that fail that check instead of the zeros it used
-	 * to carry. */
+	 * A header that does not come out right for this piconet -- a packet of
+	 * another one whose access code matched, or one with too many bit
+	 * errors -- is written into the packet by the decoder before it checks,
+	 * and goes into the record. A reader finds it out the way it checks any
+	 * recorded header, by recomputing the check bits from the reference UAP
+	 * in the same record. */
 	if (pn && btbb_piconet_get_flag(pn, BTBB_UAP_VALID)
 	       && btbb_piconet_get_flag(pn, BTBB_CLK6_VALID)
 	       && !btbb_piconet_get_flag(pn, BTBB_CLK27_VALID)

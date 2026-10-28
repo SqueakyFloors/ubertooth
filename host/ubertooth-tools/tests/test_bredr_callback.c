@@ -62,6 +62,7 @@ static struct {
 	int16_t drift_ppm_sent;
 	int hopping_restarts;
 	int afh_maps_sent;
+	int header_decodes;
 } seen;
 
 /* What the faked access-code search reports: where in the bank it found one,
@@ -180,6 +181,26 @@ int btbb_process_packet(btbb_packet* pkt, btbb_piconet* pn)
 	return process_packet_result;
 }
 
+/* Whether the faked decoder says the packet has a header to read. The real
+ * one reads the symbols, which the faked btbb_packet_set_data() above does not
+ * write, so the case says what it wants here. */
+static int header_present_result;
+
+int btbb_header_present(const btbb_packet* pkt)
+{
+	(void)pkt;
+	return header_present_result;
+}
+
+/* Stands in for decoding the header, which is what the clock handed over
+ * above is for. It records that it was asked. */
+int btbb_decode_header(btbb_packet* pkt)
+{
+	(void)pkt;
+	seen.header_decodes++;
+	return 1;
+}
+
 /* ---- helpers ------------------------------------------------------------ */
 
 /* A Basic Rate record with the given timestamp, period count and channel. */
@@ -272,6 +293,7 @@ static void reset_state(void)
 	next_index = 0;
 	find_ac_offset = 0;
 	process_packet_result = 0;
+	header_present_result = 0;
 	infile = NULL;
 	dumpfile = NULL;
 }
@@ -899,6 +921,60 @@ MU_TEST(every_mode_counts_the_gaps_in_its_own_capture)
 		run_callback(cb_ego, &len);
 	}
 	mu_assert_int_eq(1, (int)last_ut.queue_gaps);
+	btbb_piconet_unref(pn);
+}
+
+MU_TEST(a_header_is_read_at_the_piconets_clock_until_the_whole_clock_is_known)
+{
+	btbb_piconet* pn = btbb_piconet_new();
+	/* How far the board's clock runs behind the piconet's, in slots. The
+	 * UAP search works this out, and one slot is two clock ticks. */
+	const int slots = 5;
+	uint32_t clk100ns = clk100ns_for_clk_offset(2100, 2);
+	uint32_t clkn = clkn_at_access_code(0, clk100ns, 0);
+
+	/* A replay, so no clock trim stands between the packet and the
+	 * decoder, following a piconet whose UAP and CLK1-6 are known but
+	 * whose whole clock is not: the window where nothing else reads the
+	 * packet's header. */
+	reset_state();
+	btbb_init_piconet(pn, 0x123456);
+	btbb_piconet_set_uap(pn, 0x5b);
+	btbb_piconet_set_flag(pn, BTBB_CLK6_VALID, 1);
+	btbb_piconet_set_clk_offset(pn, slots);
+	header_present_result = 1;
+	infile = stdin;
+	fill_packet(&next_packets[0], clk100ns, 0, 10);
+	next_count = 1;
+	run_callback(cb_rx, pn);
+
+	/* The header is read, and read at the piconet's clock rather than the
+	 * board's: the board's reading is what the decoder was given first.
+	 * Without the offset the header unwhitens at the wrong clock, and the
+	 * record carries bits that fail their own check. */
+	mu_assert_int_eq(1, seen.header_decodes);
+	mu_assert_int_eq(2, seen.set_data_calls);
+	mu_assert_int_eq((int)(clkn + 2 * slots), (int)seen.set_data_clkn);
+
+	/* A packet with no header to read is left alone, so an ID packet
+	 * records none. */
+	memset(&seen, 0, sizeof(seen));
+	header_present_result = 0;
+	next_index = 0;
+	run_callback(cb_rx, pn);
+	mu_assert_int_eq(0, seen.header_decodes);
+	mu_assert_int_eq(1, seen.set_data_calls);
+
+	/* Once the whole clock is known the decoder reads the header itself,
+	 * and the board has been told to close the gap, so the offset must not
+	 * be applied a second time: this packet is left alone too. */
+	memset(&seen, 0, sizeof(seen));
+	header_present_result = 1;
+	btbb_piconet_set_flag(pn, BTBB_CLK27_VALID, 1);
+	next_index = 0;
+	run_callback(cb_rx, pn);
+	mu_assert_int_eq(0, seen.header_decodes);
+	mu_assert_int_eq(1, seen.set_data_calls);
 
 	btbb_piconet_unref(pn);
 }
@@ -927,6 +1003,7 @@ int main(void)
 	/* These two run cb_rx() with a piconet, which keeps counters between
 	 * packets: they come last so nothing above is judged by them. */
 	MU_RUN(a_replay_and_a_capture_with_no_piconet_send_no_trim);
+	MU_RUN(a_header_is_read_at_the_piconets_clock_until_the_whole_clock_is_known);
 	MU_RUN(a_calibrated_follow_sends_the_trim_the_measured_offset_calls_for);
 	return mu_report();
 }
