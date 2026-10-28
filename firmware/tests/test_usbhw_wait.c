@@ -61,6 +61,16 @@ static int sie_fail_cmd;
 static uint32_t devintst_events;
 /* Endpoint events waiting, by their bit in USBEpIntSt. */
 static uint32_t ep_pending;
+/* The status the controller reports from the write that clears an endpoint's
+ * interrupt, when a test wants it to differ from the one Select Endpoint
+ * reported: that is an event arriving between the two commands. -1 for no
+ * change. */
+static int ep_status_at_clear;
+/* When set, the write that clears an endpoint's interrupt never reports its
+ * answer: the hardware still takes the event away, but the firmware's wait
+ * for the status gives up. */
+static int clear_answer_withheld;
+static unsigned clear_polls_left;
 /*
  * EP_SLOW as the controller latches it: set when an endpoint event arrives or
  * the firmware writes USBDevIntSet, cleared by a write to USBDevIntClr. The
@@ -103,8 +113,13 @@ static void fake_apply_writes(void)
 	case STAGED_EPINTCLR:
 		fake_epintclr = v;
 		/* The hardware's Select Endpoint/Clear Interrupt: the event is
-		 * consumed here and nowhere else. */
+		 * consumed here and nowhere else, and it answers with the
+		 * endpoint's state as it is now. */
 		ep_pending &= ~v;
+		if (ep_status_at_clear >= 0)
+			fake_cmddata = (uint32_t)ep_status_at_clear;
+		if (clear_answer_withheld)
+			clear_polls_left = USBHW_POLLS + 1;
 		break;
 	case STAGED_NONE:
 		break;
@@ -206,12 +221,19 @@ volatile uint32_t *fake_devintst(void)
 	 * endpoint or device-status event without pretending the engine answers. */
 	int answers = sie_answers;
 
+	uint32_t ready;
+
 	fake_apply_writes();
 	if (sie_fail_cmd >= 0
 	    && (int)((fake_cmdcode >> 16) & 0xffu) == sie_fail_cmd)
 		answers = 0;
-	devintst_value = devintst_events | devint_latch
-	               | (answers ? (CCEMTY | CDFULL | EP_RLZED) : 0u);
+	ready = answers ? (CCEMTY | CDFULL | EP_RLZED) : 0u;
+	/* The interrupt clear's own answer, withheld for one whole wait. */
+	if (clear_polls_left > 0) {
+		--clear_polls_left;
+		ready &= ~(uint32_t)CDFULL;
+	}
+	devintst_value = devintst_events | devint_latch | ready;
 	return &devintst_value;
 }
 
@@ -252,6 +274,9 @@ static void fake_reset(void)
 	sie_fail_cmd = -1;
 	devintst_events = 0;
 	ep_pending = 0;
+	ep_status_at_clear = -1;
+	clear_answer_withheld = 0;
+	clear_polls_left = 0;
 	devint_latch = 0;
 	staged_which = STAGED_NONE;
 	staged_value = 0;
@@ -1342,6 +1367,47 @@ MU_TEST(test_a_handled_endpoint_event_is_consumed)
 }
 
 /*
+ * An event that arrives between the two commands must not be dropped in
+ * favour of the older one.
+ *
+ * The status is read first so that a read which gives up loses nothing, but
+ * the write that clears the interrupt consumes every event waiting on that
+ * endpoint -- including one that arrived since the read. So the status that
+ * write reports is the one to dispatch: on endpoint 0 the later event is a
+ * fresh setup packet, and handling the earlier event's status instead would
+ * feed those eight bytes to whatever transfer was in progress.
+ */
+MU_TEST(test_an_event_arriving_before_the_interrupt_is_cleared_is_the_one_handled)
+{
+	isr_test_setup();
+	fake_raise_ep_event(EP82_BIT);
+	fake_cmddata = EPSTAT_FE;       /* the first event: data available */
+	ep_status_at_clear = EPSTAT_STP; /* a setup packet arrives in between */
+
+	USBHwISR();
+
+	mu_assert_int_eq(1, (int)ep_handler_calls);
+	mu_assert_int_eq(EP_STATUS_SETUP, ep_handler_last_status);
+}
+
+/* And when that write's answer does not arrive, the status read before it is
+ * dispatched rather than nothing: an older status for a real event beats an
+ * event thrown away. */
+MU_TEST(test_a_late_answer_from_the_clear_falls_back_to_the_status_read)
+{
+	isr_test_setup();
+	fake_raise_ep_event(EP82_BIT);
+	fake_cmddata = EPSTAT_FE;
+	clear_answer_withheld = 1;
+	ep_status_at_clear = EPSTAT_STP;  /* never read, because it is late */
+
+	USBHwISR();
+
+	mu_assert_int_eq(1, (int)ep_handler_calls);
+	mu_assert_int_eq(EP_STATUS_DATA, ep_handler_last_status);
+}
+
+/*
  * The status read gave up. Acting on what is in the register would dispatch
  * another endpoint's status as this one's -- a setup packet or a stall that
  * never happened -- so the endpoint is skipped.
@@ -1825,6 +1891,8 @@ int main(void)
 	MU_RUN(test_a_stall_voids_a_refused_control_reply);
 	MU_RUN(test_an_endpoint_event_reaches_its_handler);
 	MU_RUN(test_a_handled_endpoint_event_is_consumed);
+	MU_RUN(test_an_event_arriving_before_the_interrupt_is_cleared_is_the_one_handled);
+	MU_RUN(test_a_late_answer_from_the_clear_falls_back_to_the_status_read);
 	MU_RUN(test_an_endpoint_whose_status_cannot_be_read_is_skipped);
 	MU_RUN(test_an_endpoint_event_whose_status_read_gives_up_is_not_lost);
 	MU_RUN(test_a_failed_status_read_does_not_answer_the_next_one);

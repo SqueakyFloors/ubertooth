@@ -904,14 +904,20 @@ DEBUG_LED_OFF(8);
 
                 /* The status is in hand, so the event can be consumed. This
                  * write is what runs Select Endpoint and Clear Interrupt in
-                 * the hardware; the status it leaves in USBCmdData is a
-                 * second reading of what was just read and is discarded.
-                 * CDFULL is cleared first, the way USBHwCmd() does before a
-                 * command, and drained afterwards so the next command does
-                 * not see this one's flag. */
+                 * the hardware. CDFULL is cleared first, the way USBHwCmd()
+                 * does before a command.
+                 *
+                 * Take the status this one reports in preference to the one
+                 * read above: it is the endpoint's state at the moment the
+                 * event was taken away, so an event that arrived in between
+                 * -- a fresh setup packet on endpoint 0, say, which the clear
+                 * consumes along with the first -- is in it. The earlier read
+                 * is the fallback for an answer that does not arrive, which
+                 * is what keeps a late one from costing the event. */
                 USBDevIntClr = CDFULL;
                 USBEpIntClr = dwIntBit;
-                (void)Wait4DevInt(CDFULL);
+                if (Wait4DevInt(CDFULL))
+                    bEPStat = USBCmdData;
                 watchdog_unmark(site);
                 // convert EP pipe stat into something HW independent
                 bStat = ((bEPStat & EPSTAT_FE) ? EP_STATUS_DATA : 0) |
