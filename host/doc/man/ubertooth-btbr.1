@@ -129,10 +129,32 @@ As the central, it polls the peripheral hard enough to drain its battery\.
 .IP "\(bu" 4
 \fBmonitor\fR is a race against the real peripheral and often takes several attempts\. Packets are lost: get closer, use a better antenna\.
 .IP "" 0
-.SH "DIAGNOSTICS"
-Standard output carries the prompt and the usage text \fB\-h\fR prints\. Everything else goes to standard error\. A command line the tool will not take, a board it cannot select, open or set up, and anything that goes wrong during a session, are reported as the one\-line \fBerror:\fR, \fBwarning:\fR and \fBnote:\fR lines the other tools use\.
+.SH "OUTPUT"
+The packets a command decodes go to standard output, one to a line, each carrying the time it was printed:
+.IP "" 4
+.nf
+13:54:02 RX LMP (master:  3f2a1c): BBHdr(lt_addr=1, type=DM1, flags=A) | lmp_features_req
+.fi
+.IP "" 0
 .P
-The packets a command reports, and the progress it makes, are still log lines of the form \fBHH:MM:SS | INFO | \|\.\|\.\|\.\fR on standard error, which is a remaining deviation from ubertooth(7), OUTPUT AND DIAGNOSTICS: decoded packets belong on standard output\. Tracked as issue #735 \fIhttps://github\.com/SqueakyFloors/ubertooth/issues/735\fR\.
+That time is the only timing a session has\. An inquiry response is the response itself and the EIR fields under it, each as a timed line of its own:
+.IP "" 4
+.nf
+13:54:02 ACL(llid=L2CAP_START, flow=1, len=11): 0a 09 \|\.\|\.\|\.
+13:54:02 COMPLETE_LOCAL_NAME: '\|\.\|\.\|\.'
+.fi
+.IP "" 0
+.P
+The prompt is on standard output as well, and carries no newline of its own, so the first packet printed while the prompt is up lands on the end of it\. A session redirected to a file therefore holds the packets it decoded, with the prompts and whatever \fB?\fR printed, and nothing else: the progress a command makes is on standard error, as plain lines with neither a time nor a level in front of them\.
+.IP "" 4
+.nf
+Starting BTCtlInquiryCmd
+Inquiry state Ready
+Inquiry done
+.fi
+.IP "" 0
+.SH "DIAGNOSTICS"
+Standard output carries the packets a command decodes, the prompt, and the usage text \fB\-h\fR prints; see OUTPUT\. Everything else goes to standard error\. A command line the tool will not take, a board it cannot select, open or set up, and anything that goes wrong during a session, are reported as the one\-line \fBerror:\fR, \fBwarning:\fR and \fBnote:\fR lines the other tools use\.
 .P
 An option value outside 0\-65535, or one that is not a number, is refused before the board is opened: \fBerror: \-f must be 0\-65535 (got bad)\fR, exit status 1\. An address the prompt will not take is one line, \fBerror: BD_ADDR must be xx:xx:xx:xx:xx:xx (got <word>)\fR, and leaves the prompt up\.
 .P

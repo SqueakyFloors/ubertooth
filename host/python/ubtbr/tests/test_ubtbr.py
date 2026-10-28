@@ -41,6 +41,11 @@ What is checked:
     with the firmware that behaves that way named, whichever of those requests
     it stops taking at, and a setup failure of another kind is not.
 
+  * a packet a command decodes goes to standard output, with the time it
+    arrived in front of it, and the progress a command makes stays on
+    standard error as plain lines. Both used to be log lines on standard
+    error, so piping the tool into anything got nothing.
+
   * the tool itself, driven through its prompt: "q" exits 0, where it used to
     raise TypeError because the handler for it was called without the line
     the user typed. A Ctrl-C with a command running returns to the prompt,
@@ -55,6 +60,7 @@ import importlib.util
 import io
 import logging
 import os
+import re
 import signal
 import struct
 import subprocess
@@ -100,6 +106,12 @@ written to, which is how a test tells which board a selection reached.
 UBTBR_FAKE_SERIAL_READS and UBTBR_FAKE_OPENS name files every serial read and
 every open is appended to, which is how a test tells how many boards a
 selection touched.
+
+UBTBR_FAKE_READS names a file of packets the device sends, one per line in
+hex: each is handed to the next read, and the reads after them time out as
+usual. UBTBR_FAKE_READS_AFTER holds them back until that many writes have
+gone out, which is how a test has a packet arrive while a command is
+running rather than before the prompt is up.
 """
 
 import os
@@ -126,6 +138,7 @@ class USBErrorBusy(USBError):
 class _Handle:
     def __init__(self):
         self.writes = 0
+        self.reads = 0
 
     def claimInterface(self, interface):
         failure = os.environ.get("UBTBR_FAKE_CLAIM_ERROR")
@@ -155,6 +168,15 @@ class _Handle:
         return len(data)
 
     def bulkRead(self, endpoint, length, timeout=0):
+        canned = os.environ.get("UBTBR_FAKE_READS")
+        after = int(os.environ.get("UBTBR_FAKE_READS_AFTER", "0"))
+        if canned and self.writes >= after:
+            with open(canned) as pending:
+                packets = pending.read().split()
+            if self.reads < len(packets):
+                data = bytes.fromhex(packets[self.reads])
+                self.reads += 1
+                return data
         time.sleep(timeout / 1000.0)
         raise USBErrorTimeout("timeout")
 
@@ -261,11 +283,12 @@ NO_ANSWER = "did not go idle"
 class Recorder(logging.Handler):
     """Keeps what ubtbr reported, so a test can tell how a command ended.
 
-    Two channels reach it. The packets a command reports and the progress it
-    makes are still log lines, so it is a logging handler; a warning or a
-    failure is one `warning: ` or `error: ` line written straight to standard
-    error, so it also stands in for that stream. Both end up in the same
-    list, since what a test asks is what was said and not how.
+    Two channels reach it. The progress a command makes is a log line, so it
+    is a logging handler; a warning or a failure is one `warning: ` or
+    `error: ` line written straight to standard error, so it also stands in
+    for that stream. Both end up in the same list, since what a test asks is
+    what was said and not how. What a command decodes goes to standard
+    output instead, and is checked through the tool itself further down.
 
     Standing in for the stream is what pins these messages to standard error:
     a line that went to standard output instead would not be here. The real
@@ -1166,6 +1189,99 @@ assert "still running" not in errors, errors
 assert "Not idle" not in errors, errors
 assert INQUIRY_PACKET in writes()[len(sent):], (sent, writes())
 print("ubtbr: a command runs after Ctrl-C ended a discoverable")
+
+# ---- what goes to which stream --------------------------------------------
+#
+# A packet a command decodes used to be a log line on standard error, of the
+# form "HH:MM:SS | INFO | RX ...", so a session piped into anything got
+# nothing. It now goes to standard output with the time in front of it, and
+# the progress a command makes stays on standard error without one.
+
+READS_FILE = os.path.join(WORK.name, "reads")
+# The address the fake device reports, as the FHS packet carries it: the
+# lowest 24 bits are the LAP, then the UAP, then the NAP.
+FAKE_BDADDR = 0x112233445566
+
+
+def framed(code, body):
+    """One message from the device, as the packet carrying it, in hex."""
+    message = struct.pack("<I", code) + bytes(body)
+    return (b"S\x00" + struct.pack("<H", len(message)) + message).hex()
+
+
+def state_message(state, reason=0):
+    """The packet a device sends to report the state it is now in."""
+    return framed(btctl.BTCTL_STATE_RESP, (state, reason))
+
+
+def fhs_message(bdaddr):
+    """The packet a device sends for one received FHS packet, in hex."""
+    body = bytearray(18)
+    lap = bdaddr & 0xffffff
+    body[4] = (lap & 0x3f) << 2
+    body[5] = (lap >> 6) & 0xff
+    body[6] = (lap >> 14) & 0xff
+    body[7] = (lap >> 22) & 0x03
+    body[8] = (bdaddr >> 24) & 0xff
+    body[9] = (bdaddr >> 32) & 0xff
+    body[10] = (bdaddr >> 40) & 0xff
+    # btctl_rx_pkt_t: the clock and channel it was received on, the decode
+    # flags, the size of what follows, the baseband header, then the packet.
+    received = (struct.pack("<IBBH", 0, 39, 0, len(body))
+                + bytes((0, btctl.FHS, 0, 0)) + bytes(body))
+    return framed(btctl.BTCTL_RX_PKT, received)
+
+
+# The inquiry reports that it is running, which is what has a command take
+# packets at all, and then one packet arrives.
+with open(READS_FILE, "w") as canned:
+    canned.write(state_message(btctl.BTCTL_STATE_INQUIRY) + "\n")
+    canned.write(fhs_message(FAKE_BDADDR) + "\n")
+
+# Held back until the fourth write, which is the request "inquiry" sends:
+# the packets then arrive while that command is running and holds the
+# message handler, as those from a real board do.
+running = tool(dict(ENVIRONMENT, UBTBR_FAKE_READS=READS_FILE,
+                    UBTBR_FAKE_READS_AFTER="4"))
+running.stdin.write("inquiry\n")
+running.stdin.flush()
+printed = bytearray()
+
+
+def packet_printed():
+    """True once the decoded packet has reached standard output."""
+    try:
+        printed.extend(os.read(running.stdout.fileno(), 4096))
+    except BlockingIOError:
+        pass
+    return b"RX FHS" in printed
+
+
+# Waited for before "q" is typed, so the packet cannot race the stop. Read
+# leniently: these are raw pipe bytes, and a failure must not become a
+# decode error.
+os.set_blocking(running.stdout.fileno(), False)
+assert wait_until(packet_printed), (bytes(printed), running.poll())
+os.set_blocking(running.stdout.fileno(), True)
+output, errors = running.communicate("q\n", timeout=DEADLINE * 2)
+output = printed.decode(errors="replace") + output
+assert running.returncode == 0, (running.returncode, output, errors)
+decoded = [line for line in output.splitlines() if "RX FHS" in line]
+assert len(decoded) == 1, output
+# The prompt shares standard output and carries no newline of its own, so
+# the packet lands on the end of the last one printed.
+packet = decoded[0].split(tool_module.BTCtlPrompt.prompt)[-1]
+assert re.fullmatch(r"\d\d:\d\d:\d\d RX FHS: FHS: bdaddr=112233445566"
+                    r" parity=0 cls=0 ltaddr=0 clk=0", packet), decoded
+# nothing of the packet on standard error, and the progress there carries
+# neither a time nor a level
+assert "RX FHS" not in errors, errors
+assert "Inquiry state Ready\n" in errors, errors
+assert "Starting BTCtlInquiryCmd\n" in errors, errors
+assert "| INFO |" not in errors and "| DEBUG |" not in errors, errors
+for line in errors.splitlines():
+    assert not re.match(r"\d\d:\d\d:\d\d ", line), errors
+print("ubtbr: a decoded packet goes to standard output, progress to standard error")
 
 # no Ubertooth at all: one error line, nothing on standard output, exit 1,
 # where the tool used to end in a traceback

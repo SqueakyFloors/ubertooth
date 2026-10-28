@@ -169,19 +169,37 @@ If no FHS appears, the peripheral won the race; try again.
 - `monitor` is a race against the real peripheral and often takes several
   attempts. Packets are lost: get closer, use a better antenna.
 
+## OUTPUT
+
+The packets a command decodes go to standard output, one to a line, each
+carrying the time it was printed:
+
+    13:54:02 RX LMP (master:  3f2a1c): BBHdr(lt_addr=1, type=DM1, flags=A) | lmp_features_req
+
+That time is the only timing a session has. An inquiry response is the
+response itself and the EIR fields under it, each as a timed line of its own:
+
+    13:54:02 ACL(llid=L2CAP_START, flow=1, len=11): 0a 09 ...
+    13:54:02 COMPLETE_LOCAL_NAME: '...'
+
+The prompt is on standard output as well, and carries no newline of its own,
+so the first packet printed while the prompt is up lands on the end of it. A
+session redirected to a file therefore holds the packets it decoded, with the
+prompts and whatever `?` printed, and nothing else: the progress a command
+makes is on standard error, as plain lines with neither a time nor a level
+in front of them.
+
+    Starting BTCtlInquiryCmd
+    Inquiry state Ready
+    Inquiry done
+
 ## DIAGNOSTICS
 
-Standard output carries the prompt and the usage text `-h` prints. Everything
-else goes to standard error. A command line the tool will not take, a board it
-cannot select, open or set up, and anything that goes wrong during a session,
-are reported as the one-line `error: `, `warning: ` and `note: ` lines the
-other tools use.
-
-The packets a command reports, and the progress it makes, are still log lines
-of the form `HH:MM:SS | INFO | ...` on standard error, which is a remaining
-deviation from ubertooth(7), OUTPUT AND DIAGNOSTICS: decoded packets belong on
-standard output. Tracked as issue
-[#735](https://github.com/SqueakyFloors/ubertooth/issues/735).
+Standard output carries the packets a command decodes, the prompt, and the
+usage text `-h` prints; see OUTPUT. Everything else goes to standard error. A
+command line the tool will not take, a board it cannot select, open or set up,
+and anything that goes wrong during a session, are reported as the one-line
+`error: `, `warning: ` and `note: ` lines the other tools use.
 
 An option value outside 0-65535, or one that is not a number, is refused
 before the board is opened: `error: -f must be 0-65535 (got bad)`, exit

@@ -4,15 +4,18 @@ from binascii import hexlify, unhexlify
 from threading import Thread, Event, Lock
 from queue import Queue, Empty
 from struct import pack, unpack
-from time import monotonic, sleep
+from time import monotonic, sleep, strftime
 from ubtbr.lmp import *
 import logging
+# The progress a command makes: plain lines on standard error, carrying
+# neither a time nor a level, like every other tool's progress. What a
+# command decodes does not come through here; result() below writes that to
+# standard output.
 log = logging.getLogger("btctl")
 log.setLevel(logging.DEBUG)
 log_handler = logging.StreamHandler(sys.stderr)
 log_handler.setLevel(logging.DEBUG)
-log_formatter = logging.Formatter('%(asctime)s | %(levelname)s | %(message)s',
-	"%H:%M:%S")
+log_formatter = logging.Formatter('%(message)s')
 log_handler.setFormatter(log_formatter)
 log.addHandler(log_handler)
 
@@ -214,13 +217,29 @@ def eprint(msg):
 	sys.stderr.write(msg)
 	sys.stderr.flush()
 
+def result(msg):
+	"""Report what a command decoded: a packet, or an inquiry response.
+
+	On standard output, where ubertooth(7) puts decoded packets, so a session
+	can be piped or saved. Every line gets the time it was printed in front
+	of it, `HH:MM:SS `, which is the only timing a session has; a message of
+	several lines, such as an inquiry response and the EIR under it, is
+	therefore still one timed line per line. Blank lines are dropped, so what
+	a reader gets is packets and nothing else.
+	"""
+	now = strftime("%H:%M:%S")
+	for line in msg.splitlines():
+		if line:
+			sys.stdout.write("%s %s\n"%(now, line))
+	sys.stdout.flush()
+
 def warn(msg):
 	"""Report something the user should know about: one `warning: ` line.
 
 	On standard error, the way every other tool in this fork writes its
-	warnings. The logger above carries what a command reports -- the packets
-	it decodes and the progress it makes -- and a diagnostic about the tool
-	itself is not one of those, so it does not go through it.
+	warnings. The logger above carries the progress a command makes, and
+	result() above carries what it decoded; a diagnostic about the tool
+	itself is neither, so it goes through neither.
 	"""
 	eprint("warning: %s\n"%msg)
 
@@ -329,8 +348,8 @@ class BTCtlEIR:
 			l,t = buf[:2]
 			dat,buf = buf[2:1+l], buf[1+l:]
 			if (1+len(dat) != l):
-				# A library writes nothing to standard output, where the
-				# capture the user asked for goes.
+				# A warning is not part of the capture on standard output,
+				# so it goes to standard error like every other diagnostic.
 				warn("malformed EIR: a field runs past the end of the "
 					"response, so the rest of it is dropped")
 				break
@@ -539,16 +558,16 @@ class BTCtlCmd(Thread):
 		print_state(state, reason)
 
 	def _handle_fhs(self, pkt):
-		log.info("RX FHS: %s"%(pkt.bt_data))
+		result("RX FHS: %s"%(pkt.bt_data))
 
 	def _handle_lmp(self, pkt):
-		log.info("RX LMP: %s"%(pkt.bt_data))
+		result("RX LMP: %s"%(pkt.bt_data))
 
 	def _handle_l2cap(self, pkt):
-		log.info("RX L2CAP: %s"%pkt.bt_data)
+		result("RX L2CAP: %s"%pkt.bt_data)
 
 	def _handle_raw(self, pkt):
-		log.info("RX Raw: %s"%pkt)
+		result("RX Raw: %s"%pkt)
 
 	def _handle_pkt(self, pkt):
 		if pkt.bb_hdr.type == FHS:
@@ -735,7 +754,7 @@ class BTCtlInquiryCmd(BTCtlCmd):
 	def _handle_l2cap(self, pkt):
 		acl = pkt.bt_data
 		eir = BTCtlEIR.unpack(pkt.bt_data.data)
-		log.info("%s\n%s\n"%(acl,eir))
+		result("%s\n%s"%(acl,eir))
 
 class BTCtlInquiryScanCmd(BTCtlCmd):
 	def _start(self):
@@ -789,7 +808,7 @@ class BTCtlPageScanCmd(BTCtlCmd):
 
 	def _handle_l2cap(self, pkt):
 		acl = pkt.bt_data
-		log.info("RX L2CAP: %s"%acl)
+		result("RX L2CAP: %s"%acl)
 
 	def handle_setup_complete(self):
 		log.info("LMP setup complete")
@@ -882,7 +901,7 @@ class BTCtlMonitorCmd(BTCtlCmd):
 
 	def _handle_fhs(self, pkt):
 		role = "slave" if (pkt.clkn & 2) else "master"
-		log.info("RX FHS (%6s:%7x): %s"%(role,pkt.clkn,pkt.bt_data))
+		result("RX FHS (%6s:%7x): %s"%(role,pkt.clkn,pkt.bt_data))
 		self._uap = 0xff&(pkt.bt_data.bdaddr>>24)
 
 	def _handle_raw(self, pkt):
@@ -904,7 +923,7 @@ class BTCtlMonitorCmd(BTCtlCmd):
 
 	def _handle_bad(self, pkt):
 		role = "slave" if (pkt.clkn & 2) else "master"
-		log.info("RX Raw (%6s:%7x): %s | %s"%(role,pkt.clkn, pkt.bb_hdr, hexlify(pkt.bt_data.raw_data)))
+		result("RX Raw (%6s:%7x): %s | %s"%(role,pkt.clkn, pkt.bb_hdr, hexlify(pkt.bt_data.raw_data)))
 
 	def _handle_lmp(self, pkt):
 		pdu = pkt.bt_data.data
@@ -919,11 +938,11 @@ class BTCtlMonitorCmd(BTCtlCmd):
 			log.info("AFH req: instant=%d, (cur %d), mode=%d"%(
 				instant<<1, pkt.clkn, mode))
 		role = "slave" if (pkt.clkn & 2) else "master"
-		log.info("RX LMP (%6s:%7x): %s | %s"%(role,pkt.clkn, pkt.bb_hdr, pdu2str(pdu)))
+		result("RX LMP (%6s:%7x): %s | %s"%(role,pkt.clkn, pkt.bb_hdr, pdu2str(pdu)))
 
 	def _handle_l2cap(self, pkt):
 		role = "slave" if (pkt.clkn & 2) else "master"
-		log.info("RX L2CAP (%6s:%7x): %s"%(role,pkt.clkn,pkt))
+		result("RX L2CAP (%6s:%7x): %s"%(role,pkt.clkn,pkt))
 
 def board_label(serial=None, index=None):
 	"""How a message names a board: by serial, by index, or not at all.

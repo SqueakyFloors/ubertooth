@@ -44,7 +44,7 @@ class BTCtlL2Ping(BTCtlPagingCmd):
 
 	def _handle_l2cap(self, pkt):
 		acl = pkt.bt_data
-		log.info("RX L2CAP: %s"%acl)
+		result("RX L2CAP: %s"%acl)
 		self._send_l2cap_echo_req()
 
 class BTCtlPrompt(Cmd):
