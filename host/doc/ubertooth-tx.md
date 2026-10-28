@@ -26,7 +26,8 @@ as a placeholder/experimental entry point. Do not rely on it.
    ubertooth(7), SELECTING A DEVICE
  - `-V` :
    print the host tools version, as `Host tools version: libubertooth
-   <version> (<revision>), libbtbb <version> (<revision>)`.
+   <version> (<revision>), libbtbb <version> (<revision>)`, followed by
+   `libbtbb loaded from: <path>` naming the file this run reads libbtbb from.
  - `-h` :
    print the usage text on standard output and exit 0. It takes effect once
    the whole command line has parsed, so a bad option value, a stray word or

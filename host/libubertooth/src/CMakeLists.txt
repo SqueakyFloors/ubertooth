@@ -49,8 +49,11 @@ find_package(USB1 REQUIRED)
 find_package(Threads REQUIRED)
 
 include_directories(${LIBUSB_INCLUDE_DIRS} ${LIBBTBB_INCLUDE_DIR})
+# CMAKE_DL_LIBS is the loader library, which print_version() needs for
+# dladdr(): empty on macOS, where it is part of libc, and -ldl on a glibc
+# older than 2.34, which includes this fork's declared minimum (Ubuntu 20.04).
 LIST(APPEND LIBUBERTOOTH_LIBS ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES}
-     Threads::Threads)
+     Threads::Threads ${CMAKE_DL_LIBS})
 
 if( ${BUILD_SHARED_LIB} )
 	# Shared library

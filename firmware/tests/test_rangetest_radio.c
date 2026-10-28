@@ -54,6 +54,7 @@ struct scan {
 	int turnaround_mode;    /* it gives up when the mode is stopped */
 	int turnaround_call;    /* and the repeater calls it */
 
+	int turnaround_ms;      /* how long the reply is held, in ms */
 	int ticks_from_clkn;    /* the delay is converted from clkn's rate */
 	char ticks_text[256];   /* the conversion as written */
 
@@ -231,6 +232,12 @@ static int scan_source(const char *path, struct scan *s)
 		 * bare tick count: a plain number here is how a 1 s delay silently
 		 * becomes 300 us.
 		 */
+		if (s->turnaround_ms == 0) {
+			int n = defined_number(line, "REPEATER_TURNAROUND_MS");
+
+			if (n > 0)
+				s->turnaround_ms = n;
+		}
 		if (strstr(line, "define REPEATER_TURNAROUND_TICKS") != NULL) {
 			collapse_spaces(line, s->ticks_text, sizeof(s->ticks_text));
 			if (strstr(s->ticks_text, "3200") != NULL &&
@@ -439,10 +446,80 @@ static int scan_spi_source(const char *spi_path, struct spi_scan *s)
 	return 1;
 }
 
+/*
+ * What the scan of the badge's header records: how long the badge listens for
+ * the repeater's reply, and the numbers that decide it.
+ *
+ * The badge is the only thing that ever sends this range test a request, and
+ * the repeater above is the only thing that ever answers one, so the two
+ * budgets have to agree. They are built from different trees by different
+ * compilers and share no header, which is why the badge keeps its own copy of
+ * the delay and why this reads both.
+ */
+struct badge_scan {
+	int turnaround_ms;      /* the badge's copy of the delay above */
+	int poll_us;            /* the floor it sizes its budget with */
+	int window_from_turnaround; /* its window is sized from the delay */
+	char window_text[256];      /* as written */
+	int polls_from_window;      /* and its poll budget from the window */
+	char polls_text[256];       /* as written */
+};
+
+static int scan_badge_header(const char *badge_path, struct badge_scan *b)
+{
+	char line[SCAN_LINE_MAX];
+	int in_block = 0;
+	FILE *f = fopen(badge_path, "r");
+
+	if (f == NULL)
+		return 0;
+	memset(b, 0, sizeof(*b));
+	while (fgets(line, sizeof(line), f) != NULL) {
+		strip_comments(line, &in_block);
+		if (b->turnaround_ms == 0) {
+			int n = defined_number(line, "REPEATER_TURNAROUND_MS");
+
+			if (n > 0)
+				b->turnaround_ms = n;
+		}
+		if (b->poll_us == 0) {
+			int n = defined_number(line, "SYNC_POLL_US");
+
+			if (n > 0)
+				b->poll_us = n;
+		}
+		/*
+		 * Both of these are pinned as written, as the tick conversion
+		 * above is: nothing here can run them, and a plain number in
+		 * either place is how a window sized from the peer's delay
+		 * silently becomes a window sized from nothing.
+		 */
+		if (strstr(line, "define SYNC_RECEIVED_MS") != NULL) {
+			collapse_spaces(line, b->window_text,
+			                sizeof(b->window_text));
+			if (contains_identifier(b->window_text,
+			                        "REPEATER_TURNAROUND_MS"))
+				b->window_from_turnaround = 1;
+		}
+		if (strstr(line, "define SYNC_RECEIVED_POLLS") != NULL) {
+			collapse_spaces(line, b->polls_text,
+			                sizeof(b->polls_text));
+			if (contains_identifier(b->polls_text,
+			                        "SYNC_RECEIVED_MS") &&
+			    contains_identifier(b->polls_text, "SYNC_POLL_US"))
+				b->polls_from_window = 1;
+		}
+	}
+	fclose(f);
+	return 1;
+}
+
 static struct scan s;
 static struct spi_scan spi;
+static struct badge_scan badge;
 static const char *path = FW_RXTX_DIR "/cc2400_rangetest.c";
 static const char *spi_path = FW_COMMON_DIR "/ubertooth.c";
+static const char *badge_path = FW_DIR "/tc13badge/tc13badge.h";
 
 /*
  * The deafness. Without MANAND the demodulator never settles on a packet, so
@@ -888,6 +965,64 @@ static int count_copies(int *sources)
 	return found;
 }
 
+/*
+ * The badge listens long enough to hear the reply.
+ *
+ * The repeater holds its reply so that the sender has finished its burst and
+ * armed its receiver, and the badge is a sender with no host to tell it to
+ * keep waiting: a window shorter than the delay means the badge has given up
+ * before the reply is sent, and the test cannot pass however good the link
+ * is. The budget it had for years, 28561 polls, was about a ninth of the
+ * delay.
+ *
+ * Checked as three numbers and two definitions rather than as a duration,
+ * because none of it can run here: the delay is the same on both sides, the
+ * poll cost the badge sizes with is no longer than one poll really is, and
+ * each of the badge's two steps is written in terms of the step before it.
+ */
+MU_TEST(test_the_badge_listens_past_the_repeaters_turnaround)
+{
+	char why[512];
+
+	snprintf(why, sizeof(why),
+	         "%s does not define REPEATER_TURNAROUND_MS as a plain number",
+	         badge_path);
+	mu_assert_fatal(badge.turnaround_ms > 0, why);
+	snprintf(why, sizeof(why), "%s does not define SYNC_POLL_US",
+	         badge_path);
+	mu_assert_fatal(badge.poll_us > 0, why);
+
+	snprintf(why, sizeof(why),
+	         "%s holds the reply for %d ms but %s sizes its listening from "
+	         "%d ms, so the badge waits for a reply that is sent after it "
+	         "has given up",
+	         path, s.turnaround_ms, badge_path, badge.turnaround_ms);
+	mu_assert(badge.turnaround_ms == s.turnaround_ms, why);
+
+	/*
+	 * A poll of the radio's status is one byte on the badge's UART at
+	 * 2.5 MHz, so 3.2 us, and the chip-select writes and the loop add to
+	 * it. A larger figure here would make the budget fewer polls than the
+	 * window it is meant to be.
+	 */
+	snprintf(why, sizeof(why),
+	         "%s: SYNC_POLL_US is %d, longer than one poll of the radio's "
+	         "status takes, so the window is shorter than it says",
+	         badge_path, badge.poll_us);
+	mu_assert(badge.poll_us <= 3, why);
+
+	snprintf(why, sizeof(why),
+	         "%s: SYNC_RECEIVED_MS is `%s`, which is not written in terms "
+	         "of REPEATER_TURNAROUND_MS",
+	         badge_path, badge.window_text);
+	mu_assert(badge.window_from_turnaround, why);
+	snprintf(why, sizeof(why),
+	         "%s: SYNC_RECEIVED_POLLS is `%s`, which is not written in "
+	         "terms of SYNC_RECEIVED_MS and SYNC_POLL_US",
+	         badge_path, badge.polls_text);
+	mu_assert(badge.polls_from_window, why);
+}
+
 MU_TEST(test_the_range_test_has_one_copy)
 {
 	int sources = 0;
@@ -914,6 +1049,10 @@ int main(void)
 		printf("cannot open %s to scan\n", spi_path);
 		return 1;
 	}
+	if (!scan_badge_header(badge_path, &badge)) {
+		printf("cannot open %s to scan\n", badge_path);
+		return 1;
+	}
 
 	MU_RUN(test_both_modes_hold_the_gain_amplifier_out_of_reset);
 	MU_RUN(test_the_repeater_sets_the_packet_format);
@@ -924,6 +1063,7 @@ int main(void)
 	MU_RUN(test_the_read_waits_for_the_radio_to_have_the_packet);
 	MU_RUN(test_the_wait_is_a_few_bytes_of_air_time);
 	MU_RUN(test_the_shared_fifo_transfers_keep_their_shape);
+	MU_RUN(test_the_badge_listens_past_the_repeaters_turnaround);
 	MU_RUN(test_the_range_test_has_one_copy);
 	return mu_report();
 }

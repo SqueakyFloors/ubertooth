@@ -28,6 +28,8 @@
 #include "ubertooth-scan.c"
 #undef main
 
+#include "run_main.h"
+
 /* ---- scripted device ---------------------------------------------------- */
 
 static struct {
@@ -258,68 +260,15 @@ int ubertooth_stream_failed(ubertooth_t* ut)
 
 /* ---- running the tool --------------------------------------------------- */
 
-struct run_result {
-	int rc;
-	char out[4096];
-	char err[4096];
-};
-
-static void read_back(FILE* file, char* buffer, size_t size)
-{
-	size_t length;
-
-	fflush(file);
-	rewind(file);
-	length = fread(buffer, 1, size - 1, file);
-	buffer[length] = '\0';
-	/* A capture that did not fit must fail loudly instead of comparing a
-	 * prefix. */
-	mu_assert(fgetc(file) == EOF, "captured output was truncated");
-}
-
 static struct run_result run_scan(const char* const* args)
 {
-	struct run_result result;
-	char* argv[16];
-	int argc = 0;
-	int saved_out, saved_err;
-	FILE* out = tmpfile();
-	FILE* err = tmpfile();
+	struct run_result result = run_tool_main(ubertooth_scan_main, args);
 
-	memset(&result, 0, sizeof(result));
-	result.rc = -1; /* a failed capture must not look like a successful run */
-	mu_assert(out != NULL && err != NULL, "tmpfile failed");
-	if (out == NULL || err == NULL)
-		return result;
-	while (args[argc] != NULL && argc < 15) {
-		argv[argc] = (char*)args[argc];
-		argc++;
-	}
-	argv[argc] = NULL;
-
-	fflush(stdout);
-	fflush(stderr);
-	saved_out = dup(STDOUT_FILENO);
-	saved_err = dup(STDERR_FILENO);
-	dup2(fileno(out), STDOUT_FILENO);
-	dup2(fileno(err), STDERR_FILENO);
-	optind = 0; /* restart option parsing for each run */
-	result.rc = ubertooth_scan_main(argc, argv);
-	/* Read before anything else can take the descriptor's number back. */
+	/* Read as soon as the run is over, before this file opens anything
+	 * that could be given the descriptor's number. */
 	fake.dev_fd_closed = fake.dev_fd >= 0
 	                     && fcntl(fake.dev_fd, F_GETFD) == -1
 	                     && errno == EBADF;
-	fflush(stdout);
-	fflush(stderr);
-	dup2(saved_out, STDOUT_FILENO);
-	dup2(saved_err, STDERR_FILENO);
-	close(saved_out);
-	close(saved_err);
-
-	read_back(out, result.out, sizeof(result.out));
-	read_back(err, result.err, sizeof(result.err));
-	fclose(out);
-	fclose(err);
 	return result;
 }
 

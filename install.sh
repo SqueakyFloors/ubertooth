@@ -447,6 +447,27 @@ if [ "$WITH_FIRMWARE" -eq 1 ] && [ "$FLASHED" -eq 0 ]; then
 	flash_firmware
 fi
 
+# --- 8. say what was installed and which libbtbb it uses -------------------
+# A machine can have a distribution or Homebrew libbtbb beside this one, and
+# which one a tool loads is decided by its link path, not by what was built
+# last. So the tools just installed are asked, rather than this script
+# repeating what it built: an answer naming a libbtbb outside $PREFIX is the
+# one thing the user has to see here.
+#
+# Reported, not enforced: the install has already succeeded at this point, and
+# a mixed machine is something to tell the user about rather than a reason to
+# fail. A build of the host tools against the wrong libbtbb is refused earlier,
+# by the configure step.
+if ! BTBB_IN_USE="$("$PREFIX/bin/ubertooth-util" -H 2>/dev/null)"; then
+	info "WARNING: the installed ubertooth-util would not run, so which libbtbb it uses is unknown"
+else
+	printf '%s\n' "$BTBB_IN_USE" >&2
+	case "$BTBB_IN_USE" in
+		*"libbtbb loaded from: $PREFIX/"*) ;;
+		*) info "WARNING: the tools load a libbtbb from outside $PREFIX; remove the other install if packets decode oddly" ;;
+	esac
+fi
+
 if [ -n "$PY_DEPS_WARNING" ]; then
 	info "Done, but the Python tools (ubertooth-specan-ui, ubtbr) will not run: $PY_DEPS_WARNING"
 	info "Try: ubertooth-util -v"

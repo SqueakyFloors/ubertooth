@@ -306,10 +306,13 @@ int cc2400_wait_fsm(uint8_t state)
 }
 
 /* Wait for the radio to report that it has decoded a sync word, which is a
- * packet arriving. Returns 1 if one did, 0 if the wait gave up. */
+ * packet arriving. Returns 1 if one did, 0 if the wait gave up.
+ *
+ * The one wait here that counts in a uint32_t: its budget has to cover the
+ * repeater's turnaround, which is more polls than a uint16_t holds. */
 int cc2400_wait_sync_received(void)
 {
-	uint16_t i;
+	uint32_t i;
 
 	for (i = SYNC_RECEIVED_POLLS; i; i--)
 		if (cc2400_status() & SYNC_RECEIVED)
