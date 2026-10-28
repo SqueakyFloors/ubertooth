@@ -50,6 +50,11 @@ static struct {
 	int promisc_calls;
 	int follow_requested;
 	int target_rc;       /* returned by cmd_btle_set_target() */
+	/* The addresses the two requests carried, so a case can tell -t's
+	 * target from -s's advertising address. */
+	uint8_t last_target[OPT_BD_ADDR_BYTES];
+	uint8_t last_target_mask;
+	uint8_t last_slave[OPT_BD_ADDR_BYTES];
 	int jam_rc;          /* returned by cmd_set_jam_mode() */
 	int jam_mode_sets;
 	int last_jam_mode;
@@ -312,8 +317,8 @@ int cmd_btle_set_target(struct libusb_device_handle *devh, uint8_t *mac_address,
                         uint8_t mac_mask)
 {
 	(void)devh;
-	(void)mac_address;
-	(void)mac_mask;
+	memcpy(fake.last_target, mac_address, sizeof(fake.last_target));
+	fake.last_target_mask = mac_mask;
 	record('t');
 	return fake.target_rc;
 }
@@ -321,7 +326,7 @@ int cmd_btle_set_target(struct libusb_device_handle *devh, uint8_t *mac_address,
 int cmd_btle_slave(struct libusb_device_handle *devh, u8 *mac_address)
 {
 	(void)devh;
-	(void)mac_address;
+	memcpy(fake.last_slave, mac_address, sizeof(fake.last_slave));
 	record('S');
 	fake.slave_calls++;
 	return fake.mode_start_rc;
@@ -590,6 +595,71 @@ MU_TEST(the_target_report_is_on_standard_output)
 	mu_assert(strcmp(r.out, "target set to: 22:44:66:88:aa:cc/48\n") == 0,
 	          r.out);
 	mu_assert(r.err[0] == '\0', r.err);
+}
+
+/* -s and -t name two different things -- the address to advertise from and
+ * the connection to follow -- so one command can set both. They shared one
+ * address, so whichever option came last set both, and "-s <address> -t none"
+ * advertised from 00:00:00:00:00:00 without a word. */
+MU_TEST(the_faux_slave_and_target_addresses_are_separate)
+{
+	static const uint8_t slave[OPT_BD_ADDR_BYTES] = {
+		0x22, 0x44, 0x66, 0x88, 0xaa, 0xcc,
+	};
+	static const uint8_t target[OPT_BD_ADDR_BYTES] = {
+		0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+	};
+	static const uint8_t zeros[OPT_BD_ADDR_BYTES] = { 0, };
+	struct run_result r;
+
+	reset_fake();
+	r = RUN("-s", "22:44:66:88:aa:cc", "-t", "11:11:11:11:11:11");
+	mu_assert_int_eq(0, r.rc);
+	/* the target first, then advertising, as a target set before a mode */
+	mu_assert(strcmp(fake.calls, "tS") == 0, fake.calls);
+	mu_assert(memcmp(fake.last_target, target, sizeof(target)) == 0,
+	          "the target request carried the wrong address");
+	mu_assert(memcmp(fake.last_slave, slave, sizeof(slave)) == 0,
+	          "the faux slave advertised from the wrong address");
+	mu_assert(strcmp(r.out, "target set to: 11:11:11:11:11:11/48\n") == 0,
+	          r.out);
+
+	/* and in the other order, which used to be the one that worked */
+	reset_fake();
+	r = RUN("-t", "11:11:11:11:11:11", "-s", "22:44:66:88:aa:cc");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(memcmp(fake.last_target, target, sizeof(target)) == 0,
+	          "the target request carried the wrong address");
+	mu_assert(memcmp(fake.last_slave, slave, sizeof(slave)) == 0,
+	          "the faux slave advertised from the wrong address");
+
+	/* What -s accepts is unchanged: the target's spellings still parse,
+	 * and still mean nothing to a faux slave. "-s none" advertises from
+	 * the all-zero address, as it always has. */
+	reset_fake();
+	r = RUN("-s", "none");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(fake.calls, "S") == 0, fake.calls);
+	mu_assert(memcmp(fake.last_slave, zeros, sizeof(zeros)) == 0,
+	          "the faux slave advertised from the wrong address");
+
+	reset_fake();
+	r = RUN("-s", "22:44:66:88:aa:cc/24");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(memcmp(fake.last_slave, slave, sizeof(slave)) == 0,
+	          "the faux slave advertised from the wrong address");
+
+	/* clearing the target leaves the faux slave's address alone */
+	reset_fake();
+	r = RUN("-s", "22:44:66:88:aa:cc", "-tnone");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(fake.calls, "tS") == 0, fake.calls);
+	mu_assert(memcmp(fake.last_target, zeros, sizeof(zeros)) == 0,
+	          "the cleared target carried an address");
+	mu_assert_int_eq(0, fake.last_target_mask);
+	mu_assert(memcmp(fake.last_slave, slave, sizeof(slave)) == 0,
+	          "the faux slave advertised from the wrong address");
+	mu_assert(strcmp(r.out, "target cleared\n") == 0, r.out);
 }
 
 /* A capture on standard output ("-q -", "-c -") redirects this process's
@@ -1039,27 +1109,38 @@ MU_TEST(a_bad_command_line_is_reported_on_stderr)
 	mu_assert(strstr(r.err, "error: option '-A' requires a value\n") == r.err,
 	          r.err);
 
-	/* the three MAC value refusals, all from the shared parser, all on
-	 * stderr with nothing on stdout */
+	/* the address refusals, all from the shared parser, all on stderr with
+	 * nothing on stdout. One wording for a value that is not an address,
+	 * whatever is wrong with it, naming the address the option sets. */
 	reset_fake();
 	r = RUN("-t", "22:44:66:88:aa");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(r.out[0] == '\0', r.out);
-	mu_assert(strstr(r.err, "error: MAC address must be xx:xx:xx:xx:xx:xx"
-	                 " (got 22:44:66:88:aa)\n") == r.err, r.err);
+	mu_assert(strstr(r.err, "error: target address must be"
+	                 " xx:xx:xx:xx:xx:xx (got 22:44:66:88:aa)\n") == r.err,
+	          r.err);
 
 	reset_fake();
 	r = RUN("-s", "22:44:66:88:aa:zz");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(r.out[0] == '\0', r.out);
-	mu_assert(strstr(r.err, "error: MAC address must be hex digits and"
-	                 " colons (got 22:44:66:88:aa:zz)\n") == r.err, r.err);
+	mu_assert(strstr(r.err, "error: faux slave address must be"
+	                 " xx:xx:xx:xx:xx:xx (got 22:44:66:88:aa:zz)\n") == r.err,
+	          r.err);
 
+	/* The mask is named after the option's address too, so one value does
+	 * not read as two different things. */
 	reset_fake();
 	r = RUN("-t", "22:44:66:88:aa:cc/49");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(r.out[0] == '\0', r.out);
-	mu_assert(strstr(r.err, "error: MAC mask must be 0-48 (got 49)\n")
+	mu_assert(strstr(r.err, "error: target mask must be 0-48 (got 49)\n")
+	          == r.err, r.err);
+
+	reset_fake();
+	r = RUN("-s", "22:44:66:88:aa:cc/49");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: faux slave mask must be 0-48 (got 49)\n")
 	          == r.err, r.err);
 
 	/* a masked address is quoted whole, mask included, even though the
@@ -1068,9 +1149,9 @@ MU_TEST(a_bad_command_line_is_reported_on_stderr)
 	r = RUN("-t", "22:44:66:88:aa:zz/24");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(r.out[0] == '\0', r.out);
-	mu_assert(strstr(r.err, "error: MAC address must be hex digits and"
-	                 " colons (got 22:44:66:88:aa:zz/24)\n") == r.err,
-	          r.err);
+	mu_assert(strstr(r.err, "error: target address must be"
+	                 " xx:xx:xx:xx:xx:xx (got 22:44:66:88:aa:zz/24)\n")
+	          == r.err, r.err);
 
 	/* -q and -c write the same PCAP through one handle, so naming a file
 	 * with each of them is a warning rather than an error: the first one
@@ -1158,6 +1239,7 @@ int main(void)
 	MU_RUN(a_failure_in_a_sniffing_mode_still_stops_the_board);
 	MU_RUN(an_access_address_read_and_the_crc_options_all_run);
 	MU_RUN(the_target_report_is_on_standard_output);
+	MU_RUN(the_faux_slave_and_target_addresses_are_separate);
 	MU_RUN(the_reports_move_to_stderr_when_the_capture_takes_stdout);
 	MU_RUN(the_callback_reports_on_the_same_stream_as_the_tool);
 	MU_RUN(an_interrupted_capture_stops_and_exits_zero);

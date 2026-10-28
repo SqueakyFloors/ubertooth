@@ -202,6 +202,33 @@ static void test_bd_addr(void)
 	CHECK(memcmp(address, untouched, sizeof(address)) == 0);
 }
 
+/* opt_require_bd_addr(): the parser plus one wording for every option that
+ * takes an address. The message itself is checked by the per-tool CLI tests. */
+static void test_bd_addr_diagnostic(void)
+{
+	static const uint8_t untouched[OPT_BD_ADDR_BYTES] = {
+		1, 2, 3, 4, 5, 6,
+	};
+	uint8_t address[OPT_BD_ADDR_BYTES];
+
+	memset(address, 0, sizeof(address));
+	CHECK(opt_require_bd_addr("11:22:33:44:55:66", "target address", NULL,
+	                          address) == 0);
+	CHECK(address[0] == 0x11 && address[5] == 0x66);
+
+	/* refused, and the result is left alone */
+	memcpy(address, untouched, sizeof(address));
+	fprintf(stderr, "(three expected diagnostics follow)\n");
+	CHECK(opt_require_bd_addr("11:22:33:44:55", "target address", NULL,
+	                          address) < 0);
+	/* A caller that took the address out of a longer word gets the whole
+	 * word quoted back instead of the part it split off. */
+	CHECK(opt_require_bd_addr("11:22:33:44:55", "target address",
+	                          "11:22:33:44:55/24", address) < 0);
+	CHECK(opt_require_bd_addr(NULL, "Bluetooth address", NULL, address) < 0);
+	CHECK(memcmp(address, untouched, sizeof(address)) == 0);
+}
+
 /* The LAP and UAP a whole address identifies a piconet by: what
  * ubertooth-follow -t follows, and what it hands libbtbb and the board. */
 static void test_bd_addr_lap_uap(void)
@@ -347,6 +374,7 @@ int main(void)
 	test_lap_and_uap();
 	test_access_address();
 	test_bd_addr();
+	test_bd_addr_diagnostic();
 	test_bd_addr_lap_uap();
 	test_value_checks();
 	test_next_word_and_operands();

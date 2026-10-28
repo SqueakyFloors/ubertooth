@@ -64,6 +64,15 @@ instead. Standard output carries one stream, so two capture options cannot
 both have it, and the tool whose capture has it prints none of its own packet
 report there.
 
+Options can be written together behind one dash (`-f -n` is `-fn`), so a stray
+dash inside such a word is a letter the tools do not have. The refusal names
+the word it was written in rather than the dash on its own:
+`ubertooth-util -v-` and `ubertooth-util -r-x` both read
+`error: unrecognized option '-' in '<word>'`. The trailing form used to be
+blamed on `--`, or on the option after it (`ubertooth-util -v- -h` named
+`-h`), neither of which the user had written. A command line with more than
+one word holding a dash names one of them.
+
 An option may be given a value only once. `-l 446688 -l aabbcc` names two
 LAPs for one capture, so it is refused with `error: option '-l' given more
 than once` before any board is opened, rather than one of them being kept and

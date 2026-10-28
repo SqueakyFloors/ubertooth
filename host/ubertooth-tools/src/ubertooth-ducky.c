@@ -150,7 +150,7 @@ int main(int argc, char *argv[])
 	 * so no exit path has a string to give back. */
 	const char *uuid_str = NULL;
 	uint8_t uuid[16] = { 0, };
-	uint8_t bd_addr[6] = { 0, };
+	uint8_t bd_addr[OPT_BD_ADDR_BYTES] = { 0, };
 	uint8_t adv_data[16+2] = { 0, };
 	char* ubertooth_device = NULL;
 	ubertooth_t* ut = NULL;
@@ -196,11 +196,9 @@ int main(int argc, char *argv[])
 			break;
 
 		case 'a':
-			if (opt_parse_bd_addr(optarg, bd_addr) < 0) {
-				fprintf(stderr, "error: Bluetooth address must be "
-				        "xx:xx:xx:xx:xx:xx (got %s)\n", optarg);
+			if (opt_require_bd_addr(optarg, "Bluetooth address", NULL,
+			                        bd_addr) < 0)
 				return 1;
-			}
 			addr_set = 1;
 			break;
 

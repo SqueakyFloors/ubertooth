@@ -4,23 +4,27 @@
 #include <stdio.h>
 #include <string.h>
 
-/* The widest MAC mask: 6 bytes of 8 bits. */
-#define MAC_MASK_MAX 48
+/* The widest MAC mask: every bit of the address. */
+#define MAC_MASK_MAX (OPT_BD_ADDR_BYTES * 8)
 
-int convert_mac_address(char *text, uint8_t *address, uint8_t *mask_out)
+int convert_mac_address(char *text, const char *what, uint8_t *address,
+                        uint8_t *mask_out)
 {
 	/* The word as the user wrote it, for the diagnostics: splitting the
 	 * mask off below writes into text, which would otherwise make an
 	 * error quote only the part before the '/'. */
 	char given[80];
+	/* "<what> address", the name the refusals call this value. */
+	char label[48];
 	char *mask_text;
 	int mask = MAC_MASK_MAX;
 
 	if (text == NULL || address == NULL || mask_out == NULL)
 		return 0;
 	snprintf(given, sizeof(given), "%s", text);
+	snprintf(label, sizeof(label), "%s address", what);
 	if (strcmp(text, "none") == 0) {
-		memset(address, 0, 6);
+		memset(address, 0, OPT_BD_ADDR_BYTES);
 		*mask_out = 0;
 		return 1;
 	}
@@ -30,22 +34,14 @@ int convert_mac_address(char *text, uint8_t *address, uint8_t *mask_out)
 		*mask_text = '\0';
 		++mask_text;
 		if (opt_parse_int(mask_text, 0, MAC_MASK_MAX, &mask) < 0) {
-			fprintf(stderr, "error: MAC mask must be 0-%d (got %s)\n",
-			        MAC_MASK_MAX, mask_text);
+			fprintf(stderr, "error: %s mask must be 0-%d (got %s)\n",
+			        what, MAC_MASK_MAX, mask_text);
 			return 0;
 		}
 	}
 
-	if (strlen(text) != 6 * 2 + 5) {
-		fprintf(stderr, "error: MAC address must be"
-		        " xx:xx:xx:xx:xx:xx (got %s)\n", given);
+	if (opt_require_bd_addr(text, label, given, address) < 0)
 		return 0;
-	}
-	if (opt_parse_bd_addr(text, address) < 0) {
-		fprintf(stderr, "error: MAC address must be hex digits and"
-		        " colons (got %s)\n", given);
-		return 0;
-	}
 
 	*mask_out = (uint8_t)mask;
 	return 1;

@@ -201,12 +201,15 @@ else:
 # nothing on standard output: standard output can be a capture stream.
 for arguments, expected in (
         (("-s", "00:11"),
-         "error: MAC address must be xx:xx:xx:xx:xx:xx (got 00:11)\n"),
+         "error: faux slave address must be xx:xx:xx:xx:xx:xx (got 00:11)\n"),
         (("-t", "zz:zz:zz:zz:zz:zz"),
-         "error: MAC address must be hex digits and colons"
+         "error: target address must be xx:xx:xx:xx:xx:xx"
          " (got zz:zz:zz:zz:zz:zz)\n"),
+        # the mask is named after the option's own address
+        (("-t", "11:22:33:44:55:66/99"),
+         "error: target mask must be 0-48 (got 99)\n"),
         (("-s", "11:22:33:44:55:66/99"),
-         "error: MAC mask must be 0-48 (got 99)\n"),
+         "error: faux slave mask must be 0-48 (got 99)\n"),
 ):
     result = subprocess.run([BINARY, *arguments], capture_output=True,
                             text=True, timeout=5, check=False,

@@ -60,8 +60,10 @@ static void usage(FILE *file)
 	fprintf(file, "\t-c <%d-%d> set channel in MHz (continuous rx only,"
 	        " default: %d)\n",
 	        BT_FREQ_MIN, BT_FREQ_MAX, EGO_DEFAULT_CHANNEL);
-	fprintf(file, "\t-l <%d-%d> capture length as a decimal integer (default: 18)\n",
-	        EGO_PACKET_LENGTH_MIN, EGO_PACKET_LENGTH_MAX);
+	fprintf(file, "\t-l <%d-%d> capture length as a decimal integer"
+	        " (receiving modes only, default: %d)\n",
+	        EGO_PACKET_LENGTH_MIN, EGO_PACKET_LENGTH_MAX,
+	        EGO_DEFAULT_PACKET_LENGTH);
 	fprintf(file, "\t-a <access_code> access code, 2, 4, 6 or 8 hex digits\n");
 	fprintf(file, "\t       (the board keeps the last code it was given; 630f9ffe\n");
 	fprintf(file, "\t       after a reset)\n");
@@ -82,7 +84,8 @@ int main(int argc, char *argv[])
 	int do_channel = EGO_DEFAULT_CHANNEL;
 	int have_channel = 0;
 	char* ubertooth_device = NULL;
-	uint8_t len = 18;
+	uint8_t len = EGO_DEFAULT_PACKET_LENGTH;
+	int have_length = 0;
 	int have_access_code = 0;
 	uint8_t access_code[EGO_ACCESS_CODE_BYTES];
 	int access_code_len = 0;
@@ -148,6 +151,7 @@ int main(int argc, char *argv[])
 				        EGO_PACKET_LENGTH_MIN, EGO_PACKET_LENGTH_MAX, optarg);
 				return 1;
 			}
+			have_length = 1;
 			break;
 		case 'h':
 			if (!first_exit_option)
@@ -191,6 +195,20 @@ int main(int argc, char *argv[])
 	if (have_channel && do_mode != EGO_MODE_CONTINUOUS_RX) {
 		fprintf(stderr, "error: -c cannot be combined with -%c; only "
 		        "continuous receive (-r) uses a channel\n", mode_option);
+		return 1;
+	}
+
+	/* The capture length says how much of each packet to keep, which only
+	 * the two modes that read a packet do: interference waits for the sync
+	 * word and transmits. So -l there used to be parsed, range-checked and
+	 * then set a firmware value the mode never read, without a word.
+	 * Refused beside the mode check above, for the same reasons. The
+	 * default is still sent in every mode, so what a later receiving run
+	 * inherits from the board is unchanged. */
+	if (have_length && do_mode == EGO_MODE_JAM) {
+		fprintf(stderr, "error: -l cannot be combined with -%c; only the "
+		        "receiving modes (-f, -r) read a capture length\n",
+		        mode_option);
 		return 1;
 	}
 

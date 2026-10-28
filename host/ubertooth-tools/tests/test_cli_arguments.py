@@ -107,15 +107,18 @@ CASES = {
         (("-azzzz",), "error: access address must be 1-8 hex digits (got zzzz)"),
         (("-a", "zzzz"), "error: access address must be 1-8 hex digits (got zzzz)"),
         (("-s", "11:22:33:44:55:GG"),
-         "error: mac address must be hex digits and colons"
+         "error: faux slave address must be xx:xx:xx:xx:xx:xx"
          " (got 11:22:33:44:55:gg)"),
         (("-s", "11:22:33:44:55"),
-         "error: mac address must be xx:xx:xx:xx:xx:xx"
+         "error: faux slave address must be xx:xx:xx:xx:xx:xx"
+         " (got 11:22:33:44:55)"),
+        (("-t", "11:22:33:44:55"),
+         "error: target address must be xx:xx:xx:xx:xx:xx"
          " (got 11:22:33:44:55)"),
         (("-t", "11:22:33:44:55:66/49"),
-         "error: mac mask must be 0-48 (got 49)"),
+         "error: target mask must be 0-48 (got 49)"),
         (("-t", "11:22:33:44:55:66/abc"),
-         "error: mac mask must be 0-48 (got abc)"),
+         "error: target mask must be 0-48 (got abc)"),
         # optional values as the next word: consumed, so "extra" is the stray
         (("-a", "8e89bed6", "extra"), "error: unexpected argument 'extra'"),
         (("-v", "1", "extra"), "error: unexpected argument 'extra'"),
@@ -159,6 +162,13 @@ CASES = {
         (("-a", "630f9ff"), "error: access code must be 2, 4, 6 or 8 hex digits"),
         (("-a", "630f9ffe9"), "error: access code must be 2, 4, 6 or 8 hex digits"),
         (("-l", "49"), "error: capture length must be 1-48 (got 49)"),
+        # only the modes that read a packet read a capture length
+        (("-i", "-l", "18"),
+         "error: -l cannot be combined with -i; only the receiving modes"
+         " (-f, -r) read a capture length"),
+        (("-l", "18", "-j"),
+         "error: -l cannot be combined with -j; only the receiving modes"
+         " (-f, -r) read a capture length"),
     ),
     "ubertooth-follow": STRAY + LAP_UAP + AC_ERRORS + (
         (("-w", "abc"), "error: usb delay must be a whole number of timeslots, 0 or more (got abc)"),
@@ -230,6 +240,18 @@ CASES = {
     "ubertooth-util": STRAY + (
         (("-c", "2500"), "error: frequency must be 2402-2480 mhz (got 2500)"),
         (("-c", "24x"), "error: unexpected argument '24x'"),
+        # A stray dash is named with the word it was written in, wherever in
+        # the word it is. The matrix generates these for every tool; these two
+        # are the forms the option parser reports a word late.
+        (("-v-",), "error: unrecognized option '-' in '-v-'"),
+        (("-v-", "-h"), "error: unrecognized option '-' in '-v-'"),
+        # Two words holding a dash: the parser stops on the second, and
+        # which of the two is the wrong one depends on option letters the
+        # shared reporter is not given, so the word it stopped on is named.
+        # The second case is the one that reads worst, because the dash there
+        # is part of -U's value and nothing in that word is wrong.
+        (("-v-", "-r-x"), "error: unrecognized option '-' in '-r-x'"),
+        (("-v-", "-Ufoo-"), "error: unrecognized option '-' in '-ufoo-'"),
     ),
 }
 

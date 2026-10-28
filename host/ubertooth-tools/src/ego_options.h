@@ -8,6 +8,11 @@
 #define EGO_PACKET_LENGTH_MIN 1
 #define EGO_PACKET_LENGTH_MAX 48
 
+/* The capture length a run without -l uses, in bytes: an E-GO packet. The
+ * tool always sends it, so a run without -l keeps the length it asked for
+ * rather than whatever the board was last given. */
+#define EGO_DEFAULT_PACKET_LENGTH 18
+
 /* RFCAT_SET_AA takes a 1 to 4 byte access code (firmware rfcat_subcommand()). */
 #define EGO_ACCESS_CODE_BYTES 4
 

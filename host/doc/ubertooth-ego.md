@@ -48,8 +48,12 @@ Options:
    `ubertooth-ego -r` on its own receives on 2418 MHz rather than on whatever
    channel the board was left on.
  - `-l <1-48>` :
-   Packet length to use. The value must be a complete decimal integer from 1
-   through 48; invalid values fail before the Ubertooth is opened.
+   How much of each packet to keep, in bytes (default: 18). The value must be
+   a complete decimal integer from 1 through 48; invalid values fail before
+   the Ubertooth is opened. Only the modes that read a packet use it, so `-l`
+   with `-i` or `-j` is refused rather than ignored: interference waits for
+   the sync word and transmits. The default is sent in every mode, so what a
+   later receiving run inherits from the board is the same either way.
  - `-a <access_code>` :
    Access code to use, given as 2, 4, 6 or 8 hex digits (1 to 4 whole
    bytes). A code shorter than four bytes becomes the most significant bytes
@@ -118,6 +122,10 @@ naming the mode as it was spelled: `error: -c cannot be combined with -f; only
 continuous receive (-r) uses a channel`, with no usage text after it (see
 DIAGNOSTICS). It used to be accepted and then dropped silently in those modes.
 
+`-l` with interference is refused the same way: `error: -l cannot be combined
+with -i; only the receiving modes (-f, -r) read a capture length`. It used to
+set a firmware value the mode never reads.
+
 ## DIAGNOSTICS
 
 Standard output carries only the captured packets. Errors, warnings and
@@ -140,11 +148,11 @@ A command line the tool will not take is refused before any device is opened,
 with exit status 1 and one `error: ` line on standard error and nothing after
 it: an option the tool does not know (`error: unrecognized option '-Z'`), one
 whose value is missing (`error: option '-c' requires a value`), a bad option
-value, a stray word, `-c` outside continuous receive, and a command line that
-said something but has nothing to do. The line describes the problem, so the
-usage text is left to `-h`. A bare `ubertooth-ego`, with no arguments at all,
-is the one refusal the usage text does follow, on standard error with the
-`error: ` line.
+value, a stray word, `-c` outside continuous receive, `-l` with interference,
+and a command line that said something but has nothing to do. The line
+describes the problem, so the usage text is left to `-h`. A bare
+`ubertooth-ego`, with no arguments at all, is the one refusal the usage text
+does follow, on standard error with the `error: ` line.
 
 `-h` is what the user asked for, so the usage text goes to standard output and
 nothing goes to standard error.

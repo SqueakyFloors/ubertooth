@@ -419,6 +419,48 @@ MU_TEST(interfering_sets_only_the_capture_length)
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(fake.calls, "le") == 0, fake.calls);
 	mu_assert_int_eq(2, fake.last_ego_mode);
+	/* The default length, which every mode sends: refusing -l here does
+	 * not change what a later receiving run inherits from the board. */
+	mu_assert_int_eq(18, fake.last_cap_len);
+}
+
+/* Only the modes that read a packet read a capture length, so -l with
+ * interference is refused before a board is opened, naming the mode option as
+ * the user spelled it. It used to set a firmware value the mode never looks
+ * at and say nothing. */
+MU_TEST(a_capture_length_the_mode_cannot_use_is_refused)
+{
+	static const char *const modes[] = { "-i", "-j", NULL };
+	struct run_result r;
+	size_t i;
+
+	for (i = 0; modes[i] != NULL; i++) {
+		char expected[128];
+
+		snprintf(expected, sizeof(expected),
+		         "error: -l cannot be combined with %s; only the "
+		         "receiving modes (-f, -r) read a capture length\n",
+		         modes[i]);
+		reset_fake();
+		r = RUN(modes[i], "-l", "24");
+		mu_assert_int_eq(1, r.rc);
+		mu_assert(r.out[0] == '\0', r.out);
+		mu_assert(strcmp(r.err, expected) == 0, r.err);
+		mu_assert_int_eq(0, fake.inits);
+
+		/* and in the other order, which names the same mode */
+		reset_fake();
+		r = RUN("-l", "24", modes[i]);
+		mu_assert_int_eq(1, r.rc);
+		mu_assert(strcmp(r.err, expected) == 0, r.err);
+		mu_assert_int_eq(0, fake.inits);
+	}
+
+	/* The modes that do read it take it. */
+	reset_fake();
+	r = RUN("-f", "-l", "24");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(24, fake.last_cap_len);
 }
 
 /* A channel the chosen mode never sends is refused, naming the mode option as
@@ -613,6 +655,7 @@ int main(void)
 	MU_RUN(a_firmware_without_ego_is_still_reported);
 	MU_RUN(interfering_sets_only_the_capture_length);
 	MU_RUN(a_channel_the_mode_cannot_use_is_refused);
+	MU_RUN(a_capture_length_the_mode_cannot_use_is_refused);
 	MU_RUN(a_bare_command_line_is_refused_with_the_usage_text);
 	MU_RUN(help_wins_over_a_refused_combination);
 	MU_RUN(an_interrupted_capture_stops_and_exits_zero);
