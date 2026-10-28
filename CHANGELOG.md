@@ -166,7 +166,7 @@
   those tools still cannot drive that image and now fail on the first request
   it does not answer.
   [#556](https://github.com/SqueakyFloors/ubertooth/issues/556)
-- **Reflash required:** the firmware API version is now 1.40, last moved by the
+- **Reflash required:** the firmware API version is now 1.41, last moved by the
   radio wait counts `-w` reads, and the host tools require firmware of exactly
   their own API version, older or newer. Host and firmware come from the same
   tree: `ubertooth-dfu` reflashes a board whatever firmware it is running, but
