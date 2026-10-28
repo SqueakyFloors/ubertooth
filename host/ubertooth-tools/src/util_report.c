@@ -244,6 +244,9 @@ static const char *const watchdog_site_text[WATCHDOG_SITE_COUNT] = {
 	[WATCHDOG_SITE_FAULT_BUS]   = "in the bus fault handler",
 	[WATCHDOG_SITE_FAULT_USAGE] = "in the usage fault handler",
 	[WATCHDOG_SITE_PANIC]       = "stopped by the firmware itself",
+	[WATCHDOG_SITE_LE_SSP]      = "emptying the BLE engine's symbol buffer",
+	[WATCHDOG_SITE_LE_DMA]      = "in the BLE engine's received-byte interrupt",
+	[WATCHDOG_SITE_LE_TIMER]    = "in the BLE engine's timer interrupt",
 };
 
 const char *util_watchdog_mode_name(unsigned mode)

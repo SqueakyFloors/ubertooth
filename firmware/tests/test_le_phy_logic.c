@@ -161,6 +161,8 @@ void get_device_serial(uint8_t *buffer, int *len)
  * died. Nothing here is about that, so these only have to exist; what the
  * firmware does with them is tested in test_watchdog.c and test_usb_queue.c. */
 uint8_t watchdog_mark(uint8_t site) { (void)site; return WATCHDOG_SITE_NONE; }
+uint8_t watchdog_mark_handler(uint8_t site) { (void)site; return WATCHDOG_SITE_NONE; }
+void watchdog_unmark(uint8_t site) { (void)site; }
 void watchdog_usb_serviced(void) {}
 
 /* ------------------------------------------------------------------ *
@@ -1455,6 +1457,90 @@ MU_TEST(a_torn_down_phy_ignores_a_timer_match)
 	mu_assert_int_eq(0, fake_t1mr0);
 }
 
+/*
+ * Neither of the two waits below may hold an interrupt handler for long. The
+ * loop in le_phy_main() is the only thing servicing USB while this mode runs,
+ * and it runs beneath both handlers, so a wait that does not end leaves the
+ * board answering no control request at all: a live `ubertooth-btle -n`
+ * capture died with "USB poll failed" after a few minutes, and the watchdog
+ * then reset the board.
+ *
+ * Note what a test for a wait that used to be unbounded can and cannot do: if
+ * the bound is taken away the binary hangs rather than reporting a failure,
+ * the way test_cc2400_wait.c's do.
+ */
+
+/* The receive buffer never empties -- an SSP that has stopped answering, or a
+ * radio that kept clocking symbols in because the strobe that should have
+ * stopped it was lost. The drain has to end anyway. */
+MU_TEST(emptying_the_symbol_buffer_gives_up_rather_than_spinning)
+{
+	start_fresh();
+	fake_ssp1sr = SSPSR_RNE;
+
+	le_ssp_drain();
+
+	mu_assert(fake_ssp1sr == (uint32_t)SSPSR_RNE,
+	          "the drain is expected to leave the status register alone");
+}
+
+/*
+ * The wait for the synthesizer to lock keeps its short interval while a
+ * healthy lock would arrive, then backs off to one no interrupt entry can
+ * outrun, so the loop underneath gets its time back. It also re-asserts the
+ * strobe once it has backed off, as cc2400_wait_fs() does, in case a handler
+ * switched the synthesizer off between re-checks.
+ *
+ * cc2400_status() returns 0 in this file, so the lock never arrives.
+ */
+MU_TEST(an_overdue_synthesizer_lock_backs_off_and_strobes_again)
+{
+	unsigned i;
+
+	start_fresh();
+	fake_t1tc = 5000;
+
+	timer1_wait_fs_lock();
+	mu_assert_int_eq(5000 + USEC(3), (int)fake_t1mr2);
+	mu_assert(fake_t1mcr & TMCR_MR2I, "the re-check must be armed");
+
+	/* Every re-check inside the window keeps the short interval and does
+	 * not touch the radio. */
+	radio_touched = 0;
+	for (i = 1; i < FS_LOCK_FAST_RECHECKS; ++i)
+		timer1_recheck_fs_lock();
+	mu_assert_int_eq(5000 + USEC(3), (int)fake_t1mr2);
+	mu_assert_int_eq(0, radio_touched);
+
+	/* Past the window the interval is the long one, and it stays that way
+	 * rather than counting round to the short one again. */
+	for (i = 0; i < FS_LOCK_SLOW_RESTROBE * 3; ++i)
+		timer1_recheck_fs_lock();
+	mu_assert_int_eq(5000 + USEC(100), (int)fake_t1mr2);
+
+	/* The strobe comes every sixteenth slow re-check, not every one: a
+	 * strobe arriving while the synthesizer is on its way to a lock starts
+	 * it over. */
+	mu_assert_int_eq(3, radio_touched);
+}
+
+/* A fresh wait starts over, so one overdue lock does not make the next
+ * channel's lock slow to be noticed. */
+MU_TEST(a_new_wait_for_a_lock_starts_with_the_short_interval)
+{
+	unsigned i;
+
+	start_fresh();
+	fake_t1tc = 5000;
+	timer1_wait_fs_lock();
+	for (i = 0; i < FS_LOCK_FAST_RECHECKS + FS_LOCK_SLOW_RESTROBE; ++i)
+		timer1_recheck_fs_lock();
+	mu_assert_int_eq(5000 + USEC(100), (int)fake_t1mr2);
+
+	timer1_wait_fs_lock();
+	mu_assert_int_eq(5000 + USEC(3), (int)fake_t1mr2);
+}
+
 int main(void)
 {
 	printf("le_phy capture path tests\n");
@@ -1485,6 +1571,9 @@ int main(void)
 	MU_RUN(the_first_event_takes_its_anchor_from_the_packet);
 	MU_RUN(a_torn_down_phy_ignores_a_dma_interrupt);
 	MU_RUN(a_torn_down_phy_ignores_a_timer_match);
+	MU_RUN(emptying_the_symbol_buffer_gives_up_rather_than_spinning);
+	MU_RUN(an_overdue_synthesizer_lock_backs_off_and_strobes_again);
+	MU_RUN(a_new_wait_for_a_lock_starts_with_the_short_interval);
 
 	return mu_report();
 }

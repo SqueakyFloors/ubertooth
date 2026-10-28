@@ -54,7 +54,7 @@
  * as 1.10), then 0x0111 (1.11), and so on to 0x0119 (1.19); after 0x0119
  * comes 0x0120, not 0x011a.
  */
-#define UBERTOOTH_API_VERSION 0x0138
+#define UBERTOOTH_API_VERSION 0x0139
 
 /*
  * The bootloader's bcdDevice, which is fixed on purpose and is the one version
@@ -487,6 +487,12 @@ enum watchdog_site {
 	/* The btbr image's die(): firmware that found a state it cannot go on
 	 * from, such as a message it cannot parse. Not a processor fault. */
 	WATCHDOG_SITE_PANIC       = 11,
+	/* Inside the low-energy engine's own interrupt handlers, which is not the
+	 * same as the mode loop being held up in its USB service pass: before
+	 * these, both read as "servicing USB". */
+	WATCHDOG_SITE_LE_SSP      = 12, /* emptying the BLE engine's symbol buffer */
+	WATCHDOG_SITE_LE_DMA      = 13, /* in the BLE engine's received-byte interrupt */
+	WATCHDOG_SITE_LE_TIMER    = 14, /* in the BLE engine's timer interrupt */
 	WATCHDOG_SITE_COUNT
 };
 

@@ -112,6 +112,15 @@ BOOL USBHandleStandardRequest(TSetupPacket *pSetup, int *piLen, U8 **ppbData);
 /** Default EP0 handler */
 void USBHandleControlTransfer(U8 bEP, U8 bEPStat);
 
+/** Offer again a control IN packet the controller would not take. Called from
+    the end of USBHwISR(), so that every path which services USB reaches it. */
+void USBControlInRetry(void);
+
+/** Forget a control IN packet that is still owed, for a caller that knows the
+    host is no longer waiting for it: a bus reset, or an endpoint 0 event the
+    firmware had to skip. */
+void USBControlInRetryCancel(void);
+
 /** Descriptor handling */
 void USBRegisterDescriptors(U8 *pabDescriptors);
 BOOL USBGetDescriptor(U16 wTypeIndex, U16 wLangID, int *piLen, U8 **ppbData);

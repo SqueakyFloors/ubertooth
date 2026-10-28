@@ -160,9 +160,10 @@
   those tools still cannot drive that image and now fail on the first request
   it does not answer.
   [#556](https://github.com/SqueakyFloors/ubertooth/issues/556)
-- **Reflash required:** the firmware API version is now 1.38, last moved by the
-  `btbr` image reporting it, and the host tools require firmware of exactly
-  their own API version, older or newer. Host and firmware come from the same
+- **Reflash required:** the firmware API version is now 1.39, last moved by the
+  low-energy engine's waits being bounded and named, and the host tools require
+  firmware of exactly their own API version, older or newer. Host and firmware
+  come from the same
   tree: `ubertooth-dfu` reflashes a board whatever firmware it is running, but
   only with an image built from this tree, and `2020-12-R1` firmware is
   refused.
@@ -179,6 +180,7 @@
   [#475](https://github.com/SqueakyFloors/ubertooth/issues/475)
   [#570](https://github.com/SqueakyFloors/ubertooth/issues/570)
   [#571](https://github.com/SqueakyFloors/ubertooth/issues/571)
+  [#505](https://github.com/SqueakyFloors/ubertooth/issues/505)
 - Every firmware image now carries a block naming the image and the revision
   it was built from, read the same way off a board and out of a file.
   `ubertooth-dfu -d` says which image a file holds before it writes it
@@ -305,6 +307,11 @@
   `ubertooth-btle -c` was unrelated to the packet; the minimum and the maximum
   beside it were always right.
   [#570](https://github.com/SqueakyFloors/ubertooth/issues/570)
+- `ubertooth-util -w` names three more places a board can stop answering in:
+  the low-energy engine's two interrupt handlers and its symbol buffer. A
+  reset caught in one of those handlers used to be reported as the mode's loop
+  servicing USB, which is also what a reset caught in the loop itself reports.
+  [#505](https://github.com/SqueakyFloors/ubertooth/issues/505)
 - `ubertooth-follow -l <LAP> -u <UAP>` says what to do when its connection to
   the target fails: those four bytes leave the connection to be made to a
   guessed `00:00:<UAP>:<LAP>`, so the failure now asks for the whole address
@@ -1051,6 +1058,20 @@ Fixes with no visible change in normal use.
   or dropped on three payload bytes and three bytes of CRC read as if they
   were an address.
   [#593](https://github.com/SqueakyFloors/ubertooth/issues/593)
+- The low-energy engine's three drains of its symbol buffer are bounded. All
+  three run in one of its interrupt handlers, and the loop that services USB
+  runs beneath both of those, so a drain that never saw the buffer empty
+  stopped the board answering anything.
+  [#505](https://github.com/SqueakyFloors/ubertooth/issues/505)
+- The low-energy engine's wait for the synthesizer to lock no longer holds most
+  of the processor while the synthesizer is silent: it backs off once the lock
+  is overdue, instead of looking again every three microseconds for as long as
+  it takes.
+  [#505](https://github.com/SqueakyFloors/ubertooth/issues/505)
+- A control reply the USB controller would not take is offered again on the
+  next service pass, instead of being dropped with nothing left to carry that
+  transfer on.
+  [#505](https://github.com/SqueakyFloors/ubertooth/issues/505)
 - `ubertooth-follow` closes the local Bluetooth adapter it opens, on every path
   out, and once the clock reads are done rather than at the end of the run. It
   used to hold a handle on an adapter it had finished with for the whole

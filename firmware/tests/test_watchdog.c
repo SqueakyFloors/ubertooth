@@ -406,6 +406,37 @@ MU_TEST(test_a_mark_returns_the_site_it_replaced)
 	mu_assert_int_eq(WATCHDOG_SITE_FS_LOCK, watchdog_crumb.live_site);
 }
 
+/*
+ * An interrupt handler that marks itself has to leave without claiming the
+ * outer site, which is what the reply reports. watchdog_mark() would leave the
+ * handler named there after it had returned, so a reply written next would say
+ * the board is in a handler it has left -- and the low-energy engine's byte
+ * interrupt fires once per received byte, so that would be the usual reading
+ * during a capture.
+ */
+MU_TEST(test_leaving_a_site_does_not_claim_it_as_the_outer_one)
+{
+	boot_with(RSID_POR);
+	watchdog_boot();
+
+	/* the mode's loop, then its USB service pass */
+	(void)watchdog_mark(WATCHDOG_SITE_NONE);
+	uint8_t usb = watchdog_mark(WATCHDOG_SITE_USB);
+
+	/* an interrupt lands in the middle of it and returns */
+	uint8_t inner = watchdog_mark_handler(WATCHDOG_SITE_LE_DMA);
+	mu_assert_int_eq(WATCHDOG_SITE_LE_DMA, watchdog_crumb.live_site);
+	watchdog_unmark(inner);
+
+	mu_assert_int_eq(WATCHDOG_SITE_USB, watchdog_crumb.live_site);
+	mu_assert_int_eq(WATCHDOG_SITE_NONE, watchdog_crumb.live_outer_site);
+
+	/* and the service pass still leaves the way it always did */
+	watchdog_mark(usb);
+	mu_assert_int_eq(WATCHDOG_SITE_USB, watchdog_crumb.live_outer_site);
+}
+
+
 /* ---- the reply ---- */
 
 /* The eight bytes, in the order ubertooth_interface.h gives them: the host
@@ -1218,6 +1249,28 @@ MU_TEST(test_every_path_that_never_returns_marks_where_it_was)
 	}
 }
 
+/*
+ * A mark made inside an interrupt handler has to be given back, because the
+ * code it interrupted is still in whatever wait it was in: leaving the
+ * handler's site behind would make -w name a wait the board has left.
+ *
+ * So every site marked inside an interrupt handler has to be left with
+ * watchdog_unmark(). Today that is the three the low-energy engine marks.
+ */
+MU_TEST(test_the_ble_engine_leaves_its_sites_without_claiming_them)
+{
+	const char *path = FW_RXTX_DIR "/le_phy.c";
+	int marks = 0, unmarks = 0;
+
+	mu_assert_int_eq(1, source_has(path, "watchdog_mark_handler(", &marks));
+	mu_assert_int_eq(1, source_has(path, "watchdog_unmark(", &unmarks));
+	mu_assert_int_eq(3, marks);
+	mu_assert_int_eq(unmarks, marks);
+	/* and none of them uses the wait's mark, which would claim the outer
+	 * site */
+	mu_assert_int_eq(0, source_has(path, "watchdog_mark(WATCHDOG_SITE_", NULL));
+}
+
 int main(void)
 {
 	printf("firmware watchdog tests\n");
@@ -1238,6 +1291,8 @@ int main(void)
 	MU_RUN(test_the_time_out_flag_is_cleared);
 	MU_RUN(test_the_counters_stop_at_their_largest_value);
 	MU_RUN(test_a_mark_returns_the_site_it_replaced);
+	MU_RUN(test_leaving_a_site_does_not_claim_it_as_the_outer_one);
+	MU_RUN(test_the_ble_engine_leaves_its_sites_without_claiming_them);
 	MU_RUN(test_the_reply_is_the_documented_eight_bytes);
 	MU_RUN(test_the_reply_says_the_wait_the_mode_is_in_not_the_usb_path);
 	MU_RUN(test_the_reply_says_when_the_watchdog_is_not_armed);

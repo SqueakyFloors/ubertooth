@@ -111,6 +111,19 @@ uint8_t watchdog_mark(uint8_t site)
 	return previous;
 }
 
+uint8_t watchdog_mark_handler(uint8_t site)
+{
+	uint8_t previous = watchdog_crumb.live_site;
+
+	watchdog_crumb.live_site = site;
+	return previous;
+}
+
+void watchdog_unmark(uint8_t site)
+{
+	watchdog_crumb.live_site = site;
+}
+
 void watchdog_intent(uint8_t intent)
 {
 	watchdog_crumb.live_intent = intent;

@@ -377,8 +377,17 @@ MU_TEST(test_ep_write_of_zero_bytes_writes_nothing)
 	mu_assert_int_eq(0, (int)tx_words);
 }
 
-/* A write whose handshake stops answering still returns. */
-MU_TEST(test_ep_write_returns_when_the_engine_stops_answering)
+/*
+ * A write whose handshake stops answering still returns, and says nothing was
+ * taken.
+ *
+ * Selecting the endpoint and validating its buffer is the step that offers the
+ * packet to the host, and both are protocol engine commands that can give up.
+ * Reporting a complete write then is the one answer the caller must not get:
+ * for a control transfer DataIn() would advance past a packet the host can
+ * never collect, and the reply would be lost with nothing left to send it.
+ */
+MU_TEST(test_ep_write_reports_nothing_taken_when_the_engine_stops_answering)
 {
 	U8 buf[64];
 
@@ -388,7 +397,7 @@ MU_TEST(test_ep_write_returns_when_the_engine_stops_answering)
 	tx_wr_en_words = 16;
 	sie_answers = 0;
 
-	mu_assert_int_eq(64, USBHwEPWrite(0x82, buf, sizeof(buf)));
+	mu_assert_int_eq(0, USBHwEPWrite(0x82, buf, sizeof(buf)));
 	mu_assert(usbhw_timeouts > 0, "a wait that gave up must be counted");
 }
 
@@ -408,6 +417,10 @@ MU_TEST(test_ep_write_returns_when_the_engine_stops_answering)
 static unsigned handler_calls;
 static U8 handler_last_request;
 static U8 handler_data[64];
+/* How many bytes of reply the handler offers. Zero is a request with no data
+ * stage; 64 is the shape of UBERTOOTH_POLL, which is how ubertooth-btle reads
+ * every captured packet. */
+static int handler_reply_len;
 
 static BOOL fake_request_handler(TSetupPacket *pSetup, int *piLen,
                                  U8 **ppbData)
@@ -415,7 +428,7 @@ static BOOL fake_request_handler(TSetupPacket *pSetup, int *piLen,
 	(void)ppbData;
 	++handler_calls;
 	handler_last_request = pSetup->bRequest;
-	*piLen = 0;
+	*piLen = handler_reply_len;
 	return TRUE;
 }
 
@@ -428,17 +441,19 @@ BOOL USBFilterOsVendorMessage(TSetupPacket *pSetup, BOOL *pfSuccess,
 	return FALSE;
 }
 
-/* A vendor IN request with no data stage, as the host sends it. Bigger than a
- * setup packet so a read the firmware takes further than eight bytes stays
- * inside the buffer. */
-static void queue_setup_packet(U8 request)
+/* A vendor IN request asking for wLength bytes, as the host sends it. The
+ * buffer is bigger than a setup packet so a read the firmware takes further
+ * than eight bytes stays inside it. */
+static void queue_setup_packet_len(U8 request, U16 wLength)
 {
 	static U8 setup[64];
 
 	memset(setup, 0, sizeof(setup));
 	setup[0] = 0xC0;     /* IN, vendor, device */
 	setup[1] = request;
-	/* wValue, wIndex and wLength all zero */
+	/* wValue and wIndex zero */
+	setup[6] = wLength & 0xFF;
+	setup[7] = wLength >> 8;
 
 	fake_setup_bytes = setup;
 	packet_ready = 1;
@@ -447,11 +462,18 @@ static void queue_setup_packet(U8 request)
 	rx_words = 0;
 }
 
+/* A vendor IN request with no data stage. */
+static void queue_setup_packet(U8 request)
+{
+	queue_setup_packet_len(request, 0);
+}
+
 static void control_test_setup(void)
 {
 	fake_reset();
 	handler_calls = 0;
 	handler_last_request = 0;
+	handler_reply_len = 0;
 	USBRegisterRequestHandler(REQTYPE_TYPE_VENDOR, fake_request_handler,
 	                          handler_data);
 }
@@ -542,6 +564,269 @@ MU_TEST(test_a_control_transfer_works_after_a_failed_setup_read)
 
 	mu_assert_int_eq(1, (int)handler_calls);
 	mu_assert_int_eq(0x22, handler_last_request);
+}
+
+/* ---- a control reply the controller would not take ---- */
+
+/*
+ * A device-to-host control request is answered from one place: the endpoint 0
+ * interrupt that says the last packet has reached the host. So a packet the
+ * controller refuses used to end the transfer in silence -- nothing validated
+ * for the host to collect, no interrupt to carry the transfer on, and the
+ * request never answered. The host waits out its own timeout, one second for
+ * the Ubertooth tools; `ubertooth-btle` reads every captured packet with a
+ * control request, so one refused write ended a capture that had run for
+ * minutes.
+ *
+ * The packet is now owed, and every USB service pass offers it again.
+ *
+ * `tx_words` counts words handed to the controller, so sixteen is one 64-byte
+ * packet; the protocol engine command register holding a buffer validation is
+ * what says the host can have it.
+ */
+
+#define VALIDATE_BUFFER_CMD (0x00000500u | ((uint32_t)CMD_EP_VALIDATE_BUFFER << 16))
+
+static int last_command_validated_a_buffer(void)
+{
+	return fake_cmdcode == VALIDATE_BUFFER_CMD;
+}
+
+/* Ask for a 64-byte reply with the controller refusing after four words. */
+static void refused_control_in(U8 request)
+{
+	control_test_setup();
+	handler_reply_len = 64;
+	queue_setup_packet_len(request, 64);
+	fake_ctrl = WR_EN;
+	tx_wr_en_words = 4;
+	USBHandleControlTransfer(0x00, EP_STATUS_SETUP);
+}
+
+/* The normal path, so the tests below mean something: a reply the controller
+ * takes whole goes to the host, and no service pass sends it twice. */
+MU_TEST(test_a_control_reply_the_controller_takes_is_sent_once)
+{
+	control_test_setup();
+	handler_reply_len = 64;
+	queue_setup_packet_len(0x30, 64);
+	fake_ctrl = 0;
+	tx_wr_en_words = 16;
+
+	USBHandleControlTransfer(0x00, EP_STATUS_SETUP);
+	mu_assert_int_eq(16, (int)tx_words);
+	mu_assert(last_command_validated_a_buffer(),
+	          "a whole packet must be offered to the host");
+
+	/* a service pass with nothing owed */
+	fake_cmdcode = 0;
+	USBHwISR();
+	mu_assert_int_eq(16, (int)tx_words);
+	mu_assert(fake_cmdcode == 0, "a reply already sent must not be sent again");
+}
+
+/* The regression: a refused packet is offered again on the next service pass,
+ * and reaches the host once the controller takes it. */
+MU_TEST(test_a_refused_control_reply_is_offered_again)
+{
+	refused_control_in(0x31);
+	mu_assert_int_eq(4, (int)tx_words);
+	mu_assert(!last_command_validated_a_buffer(),
+	          "a packet the controller would not take whole must not be offered");
+
+	/* the controller takes it on the next pass */
+	tx_words = 0;
+	fake_ctrl = WR_EN;
+	tx_wr_en_words = 16;
+	USBHwISR();
+
+	mu_assert_int_eq(16, (int)tx_words);
+	mu_assert(last_command_validated_a_buffer(),
+	          "the retry must offer the whole packet to the host");
+}
+
+/* The same when the packet was written but the handshake that offers it to
+ * the host gave up: the host has nothing to collect, so the reply is still
+ * owed. */
+MU_TEST(test_a_reply_the_engine_would_not_validate_is_offered_again)
+{
+	control_test_setup();
+	handler_reply_len = 64;
+	queue_setup_packet_len(0x3a, 64);
+	tx_wr_en_words = 16;
+	/* the controller takes the words but will not answer the command that
+	 * offers the packet to the host */
+	sie_answers = 0;
+
+	USBHandleControlTransfer(0x00, EP_STATUS_SETUP);
+	mu_assert_int_eq(16, (int)tx_words);
+	mu_assert(!last_command_validated_a_buffer(),
+	          "a packet the engine would not validate is not the host's yet");
+
+	/* and once it answers again the host gets the reply */
+	sie_answers = 1;
+	tx_words = 0;
+	USBHwISR();
+	mu_assert_int_eq(16, (int)tx_words);
+	mu_assert(last_command_validated_a_buffer(),
+	          "the retry must offer the packet once the engine answers");
+}
+
+/* It keeps trying while the controller keeps refusing, rather than giving up
+ * after one attempt: a mode loop services USB thousands of times a second, so
+ * a transient refusal is retried far inside the host's one-second timeout. */
+MU_TEST(test_a_refused_control_reply_is_retried_on_every_pass)
+{
+	int i;
+
+	refused_control_in(0x32);
+
+	for (i = 0; i < 5; ++i) {
+		tx_words = 0;
+		USBHwISR();
+		mu_assert_int_eq(4, (int)tx_words);
+	}
+
+	tx_words = 0;
+	tx_wr_en_words = 16;
+	USBHwISR();
+	mu_assert_int_eq(16, (int)tx_words);
+	mu_assert(last_command_validated_a_buffer(),
+	          "the host must get its reply as soon as the controller takes it");
+}
+
+/* The retry must not reorder a reply longer than one packet: the refused
+ * packet is sent again at the offset it was refused at, not the next one. */
+MU_TEST(test_a_refused_control_reply_resumes_at_the_same_offset)
+{
+	unsigned i;
+
+	control_test_setup();
+	handler_reply_len = 64;
+	for (i = 0; i < sizeof(handler_data); ++i)
+		handler_data[i] = (U8)i;
+	queue_setup_packet_len(0x33, 64);
+	fake_ctrl = WR_EN;
+	tx_wr_en_words = 2;
+
+	USBHandleControlTransfer(0x00, EP_STATUS_SETUP);
+	mu_assert_int_eq(2, (int)tx_words);
+
+	/* The retry writes the packet from its start again: all sixteen words,
+	 * ending at byte 63 of the reply. A transfer the refused write had
+	 * advanced would resume sixteen bytes in, so it would write twelve
+	 * words and end somewhere else. */
+	tx_words = 0;
+	tx_wr_en_words = 16;
+	USBHwISR();
+	mu_assert_int_eq(16, (int)tx_words);
+	mu_assert_int_eq(0x3F3E3D3C, (int)txdata_value);
+}
+
+/* A new setup packet voids the debt: the host has moved on, and answering its
+ * new request with the old one's data is worse than not answering at all. */
+MU_TEST(test_a_new_setup_packet_voids_a_refused_control_reply)
+{
+	refused_control_in(0x34);
+
+	/* the host gives up and asks for something else, with no data stage */
+	handler_reply_len = 0;
+	queue_setup_packet_len(0x35, 0);
+	fake_ctrl = 0;
+	tx_wr_en_words = 16;
+	USBHandleControlTransfer(0x00, EP_STATUS_SETUP);
+	mu_assert_int_eq(0x35, handler_last_request);
+
+	tx_words = 0;
+	USBHwISR();
+	mu_assert_int_eq(0, (int)tx_words);
+}
+
+/* And so does a bus reset: the host has dropped the request, so offering the
+ * packet again between the reset and its first setup packet would put a reply
+ * on the endpoint that nothing is waiting for. */
+MU_TEST(test_a_bus_reset_voids_a_refused_control_reply)
+{
+	refused_control_in(0x37);
+
+	USBControlInRetryCancel();
+
+	tx_words = 0;
+	tx_wr_en_words = 16;
+	USBHwISR();
+	mu_assert_int_eq(0, (int)tx_words);
+}
+
+/*
+ * The setup-path clear, on the one request shape where nothing else would do
+ * it: a host-to-device request with a data stage. Its setup packet does not
+ * call DataIn() at all -- the stack waits for the data first -- so without the
+ * clear the owed packet from the transfer before would still be offered, and
+ * the host would collect it as the reply to a request that asked for nothing.
+ */
+MU_TEST(test_a_setup_packet_with_an_out_data_stage_voids_a_refused_reply)
+{
+	static U8 setup[64];
+
+	refused_control_in(0x3b);
+
+	/* OUT, vendor, device, wLength 8: data from the host follows */
+	memset(setup, 0, sizeof(setup));
+	setup[0] = 0x40;
+	setup[1] = 0x3c;
+	setup[6] = 8;
+	fake_setup_bytes = setup;
+	packet_ready = 1;
+	packet_valid = 1;
+	packet_len = 8;
+	rx_words = 0;
+	USBHandleControlTransfer(0x00, EP_STATUS_SETUP);
+
+	tx_words = 0;
+	tx_wr_en_words = 16;
+	USBHwISR();
+	mu_assert_int_eq(0, (int)tx_words);
+}
+
+/* And so does an endpoint event the firmware had to skip. Only endpoint 0's
+ * interrupts are enabled, so the event lost is one of its own -- a setup
+ * packet, most likely -- and the host would collect the owed reply as the data
+ * stage of the request whose setup packet was dropped. */
+MU_TEST(test_a_skipped_endpoint_event_voids_a_refused_control_reply)
+{
+	refused_control_in(0x38);
+
+	/* a pass in which the engine will not report an endpoint's status */
+	devintst_events = EP_SLOW;
+	fake_epintst = 1 << 0;
+	sie_answers = 0;
+	USBHwISR();
+
+	/* the engine answers again, and the owed packet must be gone */
+	sie_answers = 1;
+	devintst_events = 0;
+	fake_epintst = 0;
+	tx_words = 0;
+	tx_wr_en_words = 16;
+	USBHwISR();
+	mu_assert_int_eq(0, (int)tx_words);
+}
+
+/* And so does a stall, which is how the firmware ends a transfer it cannot
+ * serve. */
+MU_TEST(test_a_stall_voids_a_refused_control_reply)
+{
+	refused_control_in(0x36);
+
+	/* the next setup packet cannot be read, so the pipe is stalled */
+	packet_ready = 0;
+	USBHandleControlTransfer(0x00, EP_STATUS_SETUP);
+	mu_assert(last_command_stalled_ep0(), "an unreadable setup packet must stall");
+
+	tx_words = 0;
+	tx_wr_en_words = 16;
+	USBHwISR();
+	mu_assert_int_eq(0, (int)tx_words);
 }
 
 /* ---- the interrupt handler ---- */
@@ -840,6 +1125,25 @@ MU_TEST(test_no_unbounded_waits_on_usb_registers_remain)
  * would wait on a handshake completion the winner consumed. This keeps the
  * guarantee here, where it can be checked.
  */
+/*
+ * The retry has to be reached from every path that drives USB: the main loop,
+ * every polled mode, the bounded radio waits, the USB interrupt in the six
+ * modes that use it, and both images. It is called from the end of USBHwISR()
+ * for that reason -- one site that all of them already go through -- so the
+ * count is one, in the file under test and nowhere else.
+ */
+MU_TEST(test_every_usb_service_pass_offers_an_owed_control_packet_again)
+{
+	mu_assert_int_eq(1, count_lines_with(FW_LPCUSB_DIR "/usbhw_lpc.c",
+	                                     "USBControlInRetry();", NULL, NULL));
+	mu_assert_int_eq(0, count_lines_with(FW_RXTX_DIR "/ubertooth_usb.c",
+	                                     "USBControlInRetry", NULL, NULL));
+	/* And the bus reset handler, which this test cannot reach because
+	 * usbinit.c is not linked here, drops an owed packet. */
+	mu_assert_int_eq(1, count_lines_with(FW_LPCUSB_DIR "/usbinit.c",
+	                                     "USBControlInRetryCancel", NULL, NULL));
+}
+
 MU_TEST(test_handle_usb_holds_the_usb_interrupt_off)
 {
 	const char *path = FW_RXTX_DIR "/ubertooth_usb.c";
@@ -886,12 +1190,22 @@ int main(void)
 	MU_RUN(test_ep_write_reports_a_short_write_and_does_not_validate_it);
 	MU_RUN(test_ep_write_of_one_byte_writes_one_word);
 	MU_RUN(test_ep_write_of_zero_bytes_writes_nothing);
-	MU_RUN(test_ep_write_returns_when_the_engine_stops_answering);
+	MU_RUN(test_ep_write_reports_nothing_taken_when_the_engine_stops_answering);
 	MU_RUN(test_a_readable_setup_packet_reaches_the_handler);
 	MU_RUN(test_an_unreadable_setup_packet_runs_nothing);
 	MU_RUN(test_a_short_setup_packet_runs_nothing);
 	MU_RUN(test_a_failed_setup_leaves_no_transfer_to_resume);
 	MU_RUN(test_a_control_transfer_works_after_a_failed_setup_read);
+	MU_RUN(test_a_control_reply_the_controller_takes_is_sent_once);
+	MU_RUN(test_a_refused_control_reply_is_offered_again);
+	MU_RUN(test_a_reply_the_engine_would_not_validate_is_offered_again);
+	MU_RUN(test_a_refused_control_reply_is_retried_on_every_pass);
+	MU_RUN(test_a_refused_control_reply_resumes_at_the_same_offset);
+	MU_RUN(test_a_new_setup_packet_voids_a_refused_control_reply);
+	MU_RUN(test_a_bus_reset_voids_a_refused_control_reply);
+	MU_RUN(test_a_setup_packet_with_an_out_data_stage_voids_a_refused_reply);
+	MU_RUN(test_a_skipped_endpoint_event_voids_a_refused_control_reply);
+	MU_RUN(test_a_stall_voids_a_refused_control_reply);
 	MU_RUN(test_an_endpoint_event_reaches_its_handler);
 	MU_RUN(test_an_endpoint_whose_status_cannot_be_read_is_skipped);
 	MU_RUN(test_a_failed_status_read_does_not_answer_the_next_one);
@@ -899,6 +1213,7 @@ int main(void)
 	MU_RUN(test_a_failed_device_status_read_is_retried_once);
 	MU_RUN(test_a_dropped_device_status_event_leaves_the_next_one_its_retry);
 	MU_RUN(test_no_unbounded_waits_on_usb_registers_remain);
+	MU_RUN(test_every_usb_service_pass_offers_an_owed_control_packet_again);
 	MU_RUN(test_handle_usb_holds_the_usb_interrupt_off);
 	MU_RUN(test_the_usb_interrupt_hold_synchronises);
 	return mu_report();
