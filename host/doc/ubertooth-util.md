@@ -161,7 +161,17 @@ Common options:
    order changed across the reset. If the serial cannot be read, the `-U`
    argument is waited for instead; unless it is a serial, or the only board
    attached is this one, a warning on stderr says later options may reach a
-   different board
+   different board.
+
+   A board that answers nothing has its USB connection reset first, because it
+   would refuse the reset request as it refuses every other request: that is
+   the re-plug done in software, and it is what recovers such a board. `-r`
+   says `Ubertooth device <selector> is not answering; resetting its USB
+   connection` and then resets the board as usual, so it comes back idle.
+   Select such a board by index: its serial cannot be read, so it cannot be
+   selected by serial. A board that answers nothing even after that exits
+   non-zero with `error: Ubertooth device <selector> is still not answering
+   after its USB connection was reset; power-cycle the board`
  - `-U <index|serial>` :
    select which Ubertooth to use, either by USB enumeration index or by its
    serial number string. See SELECTING A DEVICE.
@@ -272,10 +282,17 @@ The loop half is the weaker of the two. Six modes service USB from the
 interrupt rather than by polling, and get no service pass at all while the host
 is quiet, so for them the guard is that the mode loop is still turning. A board
 in one of those whose USB path alone has died, with its loop still going round,
-keeps feeding the watchdog and is not reset: it has to be unplugged, or have
-its hub port power-cycled, which is the fallback the tools' `libusb -7` note
-names. The `btbr` image feeds the watchdog from its loop in the same way, so it
-has the same gap. Everything the lab soak caught was caught by the other half.
+keeps feeding the watchdog and is not reset: `-r` on that board resets its USB
+connection, and failing that it has to be unplugged or have its hub port
+power-cycled, which is the fallback the tools' `libusb -7` note names. The
+`btbr` image feeds the watchdog from its loop in the same way, so it has the
+same gap. Everything the lab soak caught was caught by the other half.
+
+A board the watchdog did reset can still answer nothing afterwards. It
+re-enumerates in a few hundred milliseconds, which the host does not always
+notice as the board leaving and coming back, and until it does every request to
+that board is refused (`libusb -9`). `-r` on it resets the USB connection,
+which is what the host needed to see, and the board answers again.
 
 The bootloader has no self-reset at all, by design — it runs with the watchdog
 off — so a `-7` mid-flash needs the same fallback, reported by ubertooth-dfu(1)

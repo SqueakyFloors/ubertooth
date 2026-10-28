@@ -966,7 +966,8 @@ MU_TEST(an_all_digits_string_is_still_an_index)
  * selected -- but it does change what "no match" means, so it is counted. */
 MU_TEST(a_board_that_does_not_answer_is_skipped_quietly)
 {
-	char msg[256];
+	/* 512: the note that goes with this report is a long line. */
+	char msg[512];
 	ubertooth_t *ut;
 
 	bus_with_two_serials();
@@ -987,7 +988,8 @@ MU_TEST(a_board_that_does_not_answer_is_skipped_quietly)
 	    "1 attached Ubertooth device did not answer the serial read\n"
 	    "note: a board that does not answer may be in use by another "
 	    "program, or busy in a mode; stop a mode with "
-	    "ubertooth-util -U <index> -S\n") == 0,
+	    "ubertooth-util -U <index> -S, or reset a board that answers "
+	    "nothing with -r\n") == 0,
 	    msg);
 
 	bus_with_two_serials();

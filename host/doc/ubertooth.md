@@ -152,10 +152,14 @@ may be the board asked for:
 
     no Ubertooth found with serial matching '1cc'
     1 attached Ubertooth device did not answer the serial read
-    note: a board that does not answer may be in use by another program, or busy in a mode; stop a mode with ubertooth-util -U <index> -S
+    note: a board that does not answer may be in use by another program, or busy in a mode; stop a mode with ubertooth-util -U <index> -S, or reset a board that answers nothing with -r
 
 The remedy is by index there because a board whose serial could not be read
-cannot be selected by serial.
+cannot be selected by serial. `-r` on a board that answers nothing resets its
+USB connection before it asks the board to reset itself, because the board
+would refuse that request as it refuses every other one; the connection reset
+is what recovers it, and the board is then reset like any other. See
+ubertooth-util(1).
 
 A board in the DFU bootloader is named too, because it is not a board that
 went away: while it is being flashed it enumerates as the bootloader, which no

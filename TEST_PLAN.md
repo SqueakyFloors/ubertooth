@@ -550,6 +550,22 @@ in a row show whether the board is hopping and over which channels.*
 - [ ] Unplug and replug Ubertooth
 - [ ] Confirm: tool detects disconnect and exits cleanly (rather than hanging)
 
+### 8c. Recovering a board that answers nothing (issues #731, #239)
+A board that stops answering control requests is reached by killing a capture
+mid-stream; about one run in ten does it, so this may take several tries.
+- [ ] Run `ubertooth-btle -U <serial> -n`, kill it with `SIGKILL` after a few
+      seconds, then run `ubertooth-util -U <serial> -v`
+- [ ] Repeat until the version read fails with `1 attached Ubertooth device did
+      not answer the serial read`
+- [ ] Run `ubertooth-util -U <index> -r` on that board, by index: its serial
+      cannot be read, so it cannot be selected by serial
+- [ ] Confirm: `Ubertooth device <index> is not answering; resetting its USB
+      connection`, then the reset, and `-r` exits 0
+- [ ] Run `ubertooth-util -U <serial> -v`, `-b` and a capture
+      (`ubertooth-rx -U <serial> -l <LAP> -u <UAP> -t 20`)
+- [ ] Confirm: the board answers again and captures, with no re-plug and no
+      hub port power cycle
+
 ---
 
 ## 9. Deferred / Untested PRs
