@@ -1247,7 +1247,13 @@ MU_TEST(test_every_path_that_never_returns_marks_where_it_was)
 		         paths[i].path, paths[i].function, paths[i].site);
 		mu_assert(marked, msg);
 	}
+}
 
+/*
+ * A mark made inside an interrupt handler has to be given back, because the
+ * code it interrupted is still in whatever wait it was in: leaving the
+ * handler's site behind would make -w name a wait the board has left.
+ *
  * So every site marked inside an interrupt handler has to be left with
  * watchdog_unmark(). Today that is the three the low-energy engine marks.
  */
