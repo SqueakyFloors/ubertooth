@@ -233,8 +233,9 @@ jobs:
         os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'release' || github.event_name == 'workflow_dispatch') && '["ubuntu-22.04","ubuntu-24.04","macos-14","macos-15","macos-26","ubuntu-latest"]' || '["ubuntu-24.04","macos-26"]') }}
     runs-on: ${{ matrix.os }}
     # Above the install step below plus the build, as in the host job. The
-    # cold-run install step may take fourteen of these minutes on its own.
-    timeout-minutes: 20
+    # cold-run install step may take fourteen of these minutes on its own, and
+    # the rebuild check at the end wants another two.
+    timeout-minutes: 22
 
     steps:
     - uses: actions/checkout@v4
@@ -249,7 +250,7 @@ jobs:
     - name: Install dependencies (macOS)
       # Twelve minutes is well above what this step has ever legitimately
       # taken (four and a half on the oldest runner, where brew rebuilt a
-      # dependency from source), and well below the job's twenty, so a brew
+      # dependency from source), and well below the job's own budget, so a brew
       # that never finishes fails here by name.
       timeout-minutes: 12
       run: |
@@ -410,6 +411,27 @@ jobs:
           ${{github.workspace}}/firmware/*/*.bin
           ${{github.workspace}}/firmware/*/*.elf
         if-no-files-found: error
+
+    # The makefiles rebuild the objects when a compile flag changes and relink
+    # when a linker script changes, so that a build after such an edit is not
+    # the previous image. The firmware unit tests above can only read the
+    # makefiles as text, which says the lines are there, not that they work.
+    # This builds three images in a copy of the tree, changes one thing at a
+    # time and looks at what was rewritten, which needs the ARM toolchain --
+    # already installed for this job. Around a minute, most of it the builds
+    # and the whole seconds the check has to wait out.
+    #
+    # After the upload on purpose, so a failure here still leaves the images
+    # this job built to download, and still feeds the image-revision job.
+    - name: Check that a flag or linker-script change rebuilds the firmware
+      working-directory: ${{github.workspace}}
+      shell: bash
+      # Three times its worst observed run, and inside the slack the job has
+      # left once the install and build steps have spent their own budgets, so
+      # a check that hangs is reported as this step timing out and named,
+      # rather than as the whole job running out of time.
+      timeout-minutes: 3
+      run: tools/check-firmware-rebuilds.sh
 
   # The scripts in tools/ are CI's own moving parts, and nothing used to lint
   # or test them: a mistake in one surfaced as a confusing failure in whatever

@@ -239,6 +239,21 @@ LDFLAGS += -lc -lg -lstdc++ -lsupc++
 LDFLAGS += -lgcc -lm
 LDFLAGS += -Wl,--end-group
 
+# The linker script, as a path make can depend on, so that editing it relinks
+# the image instead of leaving the previous one in place. The link passes the
+# script by name (-T) and the linker finds it in one of the -L directories, so
+# the same search is run here to get a path a rule can depend on. Same
+# mechanism and same reason as in ../common.mk, which explains it; this image
+# has its own makefile because it is the one written in C++.
+LINKER_SCRIPT_DIRS = . $(EXTRALIBDIRS)
+find_linker_script = $(firstword $(wildcard $(addsuffix /$(1),$(LINKER_SCRIPT_DIRS))))
+LINKER_SCRIPT_FOUND := $(call find_linker_script,$(LINKER_SCRIPT))
+# /dev/null leads awk's file list so that there is always a file to read, even
+# when the script was not found; otherwise awk would wait on standard input.
+LINKER_SCRIPT_INCLUDED := $(shell awk '$$1 == "INCLUDE" { print $$2 }' /dev/null $(LINKER_SCRIPT_FOUND))
+LINKER_SCRIPT_FILES := $(LINKER_SCRIPT_FOUND) \
+	$(foreach f,$(LINKER_SCRIPT_INCLUDED),$(call find_linker_script,$(f)))
+
 #---------------- Programming Options ----------------
 LPCISP  ?= $(shell which lpc21isp)
 PROGDEV ?= /dev/ttyUSB0
@@ -444,12 +459,16 @@ program: $(TARGET).hex
 	$(AR) $@ $(OBJ)
 
 # Link: create ELF output file from object files.
+#
+# The linker script files are prerequisites as well, so the command lists the
+# objects itself instead of using $^, which would hand the scripts to gcc as
+# if they were objects too.
 .SECONDARY : $(TARGET).elf
 .PRECIOUS : $(OBJ)
-%.elf: $(OBJ)
+%.elf: $(OBJ) $(LINKER_SCRIPT_FILES)
 	@echo
 	@echo $(MSG_LINKING) $@
-	$(LD) $(LINKER_SCRIPT) $(ALL_CFLAGS_LINKER) $(LDFLAGS) -o $@ $^
+	$(LD) $(LINKER_SCRIPT) $(ALL_CFLAGS_LINKER) $(LDFLAGS) -o $@ $(OBJ)
 
 # The compile commands, written once.
 #
