@@ -228,9 +228,11 @@ def result(msg):
 	a reader gets is packets and nothing else.
 	"""
 	now = strftime("%H:%M:%S")
-	for line in msg.splitlines():
-		if line:
-			sys.stdout.write("%s %s\n"%(now, line))
+	# Written in one go, because the prompt is on this stream too and runs on
+	# another thread: a message of several lines would otherwise be broken
+	# apart by a prompt landing between them.
+	sys.stdout.write("".join("%s %s\n"%(now, line)
+		for line in msg.splitlines() if line))
 	sys.stdout.flush()
 
 def warn(msg):
@@ -803,8 +805,12 @@ class BTCtlPageScanCmd(BTCtlCmd):
 			self._done = True
 
 	def _handle_lmp(self, pkt):
-		acl = pkt.bt_data
-		self._lmp.receive(pkt.clkn, acl.data)
+		# Reported like any other packet this session decoded, before the
+		# link manager is given it: the state machine traces the same PDU by
+		# name on standard error, and that trace is a debug line rather than
+		# the packet the user asked for.
+		super()._handle_lmp(pkt)
+		self._lmp.receive(pkt.clkn, pkt.bt_data.data)
 
 	def _handle_l2cap(self, pkt):
 		acl = pkt.bt_data
@@ -852,8 +858,10 @@ class BTCtlPagingCmd(BTCtlCmd):
 		log.info("LMP setup complete")
 
 	def _handle_lmp(self, pkt):
-		acl = pkt.bt_data
-		self._lmp.receive(pkt.clkn, acl.data)
+		# As in BTCtlPageScanCmd above: the packet first, then the link
+		# manager.
+		super()._handle_lmp(pkt)
+		self._lmp.receive(pkt.clkn, pkt.bt_data.data)
 
 class BTCtlDiscoverableCmd(BTCtlSuperCmd):
 	# How long each of the two scans runs before the other takes its turn.

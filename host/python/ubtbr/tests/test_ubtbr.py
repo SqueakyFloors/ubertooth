@@ -41,8 +41,8 @@ What is checked:
     with the firmware that behaves that way named, whichever of those requests
     it stops taking at, and a setup failure of another kind is not.
 
-  * a packet a command decodes goes to standard output, with the time it
-    arrived in front of it, and the progress a command makes stays on
+  * a packet a command decodes goes to standard output, with the time it was
+    printed in front of it, and the progress a command makes stays on
     standard error as plain lines. Both used to be log lines on standard
     error, so piping the tool into anything got nothing.
 
@@ -1214,6 +1214,25 @@ def state_message(state, reason=0):
     return framed(btctl.BTCTL_STATE_RESP, (state, reason))
 
 
+def received_message(flags, bb_hdr, body):
+    """The packet a device sends for one packet it received.
+
+    btctl_rx_pkt_t: the clock and channel it was received on, the decode
+    flags, the size of what follows, the baseband header, then the packet.
+    """
+    received = (struct.pack("<IBBH", 0, 39, flags, len(body))
+                + bytes(bb_hdr) + bytes(body))
+    return framed(btctl.BTCTL_RX_PKT, received)
+
+
+def acl_message(llid, data):
+    """The packet a device sends for one received ACL packet of good CRC."""
+    # The payload header a DM1 carries: the length, the flow bit, the LLID.
+    header = bytes(((len(data) << 3) | (1 << 2) | llid,))
+    return received_message(1 << btctl.BBPKT_F_GOOD_CRC,
+                            (1, btctl.DM1, 0, 0), header + bytes(data))
+
+
 def fhs_message(bdaddr):
     """The packet a device sends for one received FHS packet, in hex."""
     body = bytearray(18)
@@ -1225,63 +1244,110 @@ def fhs_message(bdaddr):
     body[8] = (bdaddr >> 24) & 0xff
     body[9] = (bdaddr >> 32) & 0xff
     body[10] = (bdaddr >> 40) & 0xff
-    # btctl_rx_pkt_t: the clock and channel it was received on, the decode
-    # flags, the size of what follows, the baseband header, then the packet.
-    received = (struct.pack("<IBBH", 0, 39, 0, len(body))
-                + bytes((0, btctl.FHS, 0, 0)) + bytes(body))
-    return framed(btctl.BTCTL_RX_PKT, received)
+    return received_message(0, (0, btctl.FHS, 0, 0), body)
 
 
-# The inquiry reports that it is running, which is what has a command take
-# packets at all, and then one packet arrives.
-with open(READS_FILE, "w") as canned:
-    canned.write(state_message(btctl.BTCTL_STATE_INQUIRY) + "\n")
-    canned.write(fhs_message(FAKE_BDADDR) + "\n")
-
-# Held back until the fourth write, which is the request "inquiry" sends:
-# the packets then arrive while that command is running and holds the
-# message handler, as those from a real board do.
-running = tool(dict(ENVIRONMENT, UBTBR_FAKE_READS=READS_FILE,
-                    UBTBR_FAKE_READS_AFTER="4"))
-running.stdin.write("inquiry\n")
-running.stdin.flush()
-printed = bytearray()
+def lmp_message(opcode):
+    """The packet a device sends for one received LMP PDU, 17 bytes long."""
+    return acl_message(btctl.LLID_LMP, bytes((opcode << 1,)) + bytes(16))
 
 
-def packet_printed():
-    """True once the decoded packet has reached standard output."""
-    try:
-        printed.extend(os.read(running.stdout.fileno(), 4096))
-    except BlockingIOError:
-        pass
-    return b"RX FHS" in printed
+def canned_session(typed, packets, until):
+    """Drive one session that is handed packets, and return the two streams.
+
+    The packets are held back until the four writes a session opens with and
+    the command typed here have gone out, so they arrive while that command
+    is running and holds the message handler, as those from a real board do.
+    "q" is typed only once `until` has been printed, so the stop cannot race
+    the last of them.
+    """
+    with open(READS_FILE, "w") as canned:
+        canned.write("".join(packet + "\n" for packet in packets))
+    running = tool(dict(ENVIRONMENT, UBTBR_FAKE_READS=READS_FILE,
+                        UBTBR_FAKE_READS_AFTER="4"))
+    running.stdin.write(typed + "\n")
+    running.stdin.flush()
+    printed = bytearray()
+
+    def arrived():
+        try:
+            printed.extend(os.read(running.stdout.fileno(), 4096))
+        except BlockingIOError:
+            pass
+        return until.encode() in printed
+
+    os.set_blocking(running.stdout.fileno(), False)
+    waited = wait_until(arrived)
+    os.set_blocking(running.stdout.fileno(), True)
+    output, errors = running.communicate("q\n", timeout=DEADLINE * 2)
+    # Decoded leniently because the part read above is raw pipe bytes, and a
+    # failure must not turn into a decode error.
+    output = printed.decode(errors="replace") + output
+    assert waited, (output, errors, running.poll())
+    assert running.returncode == 0, (running.returncode, output, errors)
+    return output, errors
 
 
-# Waited for before "q" is typed, so the packet cannot race the stop. Read
-# leniently: these are raw pipe bytes, and a failure must not become a
-# decode error.
-os.set_blocking(running.stdout.fileno(), False)
-assert wait_until(packet_printed), (bytes(printed), running.poll())
-os.set_blocking(running.stdout.fileno(), True)
-output, errors = running.communicate("q\n", timeout=DEADLINE * 2)
-output = printed.decode(errors="replace") + output
-assert running.returncode == 0, (running.returncode, output, errors)
-decoded = [line for line in output.splitlines() if "RX FHS" in line]
-assert len(decoded) == 1, output
-# The prompt shares standard output and carries no newline of its own, so
-# the packet lands on the end of the last one printed.
-packet = decoded[0].split(tool_module.BTCtlPrompt.prompt)[-1]
+def timed_lines(output, text):
+    """The lines of standard output holding the text, without the prompt.
+
+    The prompt shares standard output and carries no newline of its own, so
+    the first line printed while it is up lands on the end of it.
+    """
+    return [line.split(tool_module.BTCtlPrompt.prompt)[-1]
+            for line in output.splitlines() if text in line]
+
+
+def unprefixed(errors):
+    """The lines of standard error that start with a time of day."""
+    return [line for line in errors.splitlines()
+            if re.match(r"\d\d:\d\d:\d\d ", line)]
+
+
+# An inquiry: the state response is what has a command take packets at all,
+# then an FHS packet and a response carrying an EIR arrive. The response is
+# two lines, and each of them is timed.
+EIR_NAME = bytes((10, 9)) + b"Ubertooth"
+output, errors = canned_session("inquiry", [
+    state_message(btctl.BTCTL_STATE_INQUIRY),
+    fhs_message(FAKE_BDADDR),
+    acl_message(btctl.LLID_L2CAP_START, EIR_NAME),
+], until="COMPLETE_LOCAL_NAME")
+assert len(timed_lines(output, "RX FHS")) == 1, output
 assert re.fullmatch(r"\d\d:\d\d:\d\d RX FHS: FHS: bdaddr=112233445566"
-                    r" parity=0 cls=0 ltaddr=0 clk=0", packet), decoded
-# nothing of the packet on standard error, and the progress there carries
+                    r" parity=0 cls=0 ltaddr=0 clk=0",
+                    timed_lines(output, "RX FHS")[0]), output
+assert re.fullmatch(r"\d\d:\d\d:\d\d ACL\(llid=L2CAP_START, flow=1, len=11\):"
+                    r" 0a 09 55 62 65 72 74 6f 6f 74 68",
+                    timed_lines(output, "ACL(")[0]), output
+assert re.fullmatch(r"\d\d:\d\d:\d\d COMPLETE_LOCAL_NAME: 'Ubertooth'",
+                    timed_lines(output, "COMPLETE_LOCAL_NAME")[0]), output
+# nothing of the packets on standard error, and the progress there carries
 # neither a time nor a level
-assert "RX FHS" not in errors, errors
+assert "RX FHS" not in errors and "COMPLETE_LOCAL_NAME" not in errors, errors
 assert "Inquiry state Ready\n" in errors, errors
 assert "Starting BTCtlInquiryCmd\n" in errors, errors
 assert "| INFO |" not in errors and "| DEBUG |" not in errors, errors
-for line in errors.splitlines():
-    assert not re.match(r"\d\d:\d\d:\d\d ", line), errors
+assert unprefixed(errors) == [], errors
 print("ubtbr: a decoded packet goes to standard output, progress to standard error")
+
+# a session holding a connection reports the LMP packets it decodes the same
+# way. The link manager traces the same exchange by name on standard error,
+# which is a diagnostic and was for a while the only place those packets
+# appeared at all.
+CONNECTED_LT_ADDR_1 = (btctl.BTCTL_STATE_CONNECTED,
+                       (1 << 5) | btctl.BTCTL_REASON_SUCCESS)
+output, errors = canned_session("page_scan", [
+    state_message(*CONNECTED_LT_ADDR_1),
+    lmp_message(btctl.LMP_NAME_REQ),
+], until="RX LMP")
+assert re.fullmatch(r"\d\d:\d\d:\d\d RX LMP: ACL\(llid=LMP, flow=1, len=17\):"
+                    r" 02( 00){16}", timed_lines(output, "RX LMP")[0]), output
+assert "RX LMP" not in errors, errors
+assert "Connection ready, lt_addr=1\n" in errors, errors
+assert "lmp_rx" in errors, errors
+assert unprefixed(errors) == [], errors
+print("ubtbr: a connection's LMP packets go to standard output as well")
 
 # no Ubertooth at all: one error line, nothing on standard output, exit 1,
 # where the tool used to end in a traceback

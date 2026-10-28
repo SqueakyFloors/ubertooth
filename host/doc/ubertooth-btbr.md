@@ -186,12 +186,18 @@ The prompt is on standard output as well, and carries no newline of its own,
 so the first packet printed while the prompt is up lands on the end of it. A
 session redirected to a file therefore holds the packets it decoded, with the
 prompts and whatever `?` printed, and nothing else: the progress a command
-makes is on standard error, as plain lines with neither a time nor a level
-in front of them.
+makes is on standard error, as plain lines carrying neither the time nor a
+level.
 
     Starting BTCtlInquiryCmd
     Inquiry state Ready
     Inquiry done
+
+A session that holds a connection -- `page`, `l2ping`, `page_scan`,
+`discoverable` -- reports each LMP packet it decodes on standard output like
+any other, and traces the same exchange on standard error, where the link
+manager names the packet and counts the seconds since the connection came
+up. That trace is a diagnostic: the capture is what standard output holds.
 
 ## DIAGNOSTICS
 
@@ -224,6 +230,11 @@ and a request that failed some other way gives `error: <command> stopped:
 <type>: ...`. The prompt stays up in every case, and a command that will not
 stop at all leaves the board claimed, which is reported on the way out (see
 EXIT STATUS).
+
+A standard output that has gone away is reported the same way: a capture
+piped into something that stops reading, as `ubertooth-btbr | head -5` does,
+ends with `error: <command> stopped: BrokenPipeError: ...` and leaves the
+prompt up.
 
 With no Ubertooth attached the tool says `error: no Ubertooth devices found`
 and exits 1. A selection that names no board, or more than one, is refused
