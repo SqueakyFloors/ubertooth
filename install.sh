@@ -458,9 +458,13 @@ fi
 # a mixed machine is something to tell the user about rather than a reason to
 # fail. A build of the host tools against the wrong libbtbb is refused earlier,
 # by the configure step.
+if [ ! -x "$PREFIX/bin/ubertooth-util" ]; then
+	# --no-sudo prints the steps that need root instead of running them, so
+	# there is nothing installed to ask.
+	info "Not checking which libbtbb is in use: $PREFIX/bin/ubertooth-util is not installed"
 # Its standard error is left alone rather than discarded: a tool that will not
 # run has said why there, and that is the thing to show.
-if ! BTBB_IN_USE="$("$PREFIX/bin/ubertooth-util" -H)"; then
+elif ! BTBB_IN_USE="$("$PREFIX/bin/ubertooth-util" -H)"; then
 	info "WARNING: the installed ubertooth-util would not run, so which libbtbb it uses is unknown"
 else
 	# Said to be the tool's own two lines, because they are quoted as it
@@ -469,6 +473,10 @@ else
 	printf '%s\n' "$BTBB_IN_USE" >&2
 	case "$BTBB_IN_USE" in
 		*"libbtbb loaded from: $PREFIX/"*) ;;
+		# The loader would not say, so there is nothing to compare: say
+		# that rather than report a libbtbb somewhere else.
+		*"libbtbb loaded from: unknown"*)
+			info "The tools cannot say which libbtbb they loaded, so another install would not be noticed here" ;;
 		*) info "WARNING: the tools load a libbtbb from outside $PREFIX; remove the other install if packets decode oddly" ;;
 	esac
 fi

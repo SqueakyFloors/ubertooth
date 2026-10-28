@@ -161,9 +161,9 @@
  * REPEATER_TURNAROUND_MS so that the sender has finished its burst and armed
  * its receiver. A window shorter than that cannot succeed at all: the badge
  * gives up before the reply is sent. That is what the 28561 polls this budget
- * was for years came to -- about 110 ms, a ninth of the wait -- so it is sized
- * from the turnaround now, with half of it again for the reply's air time and
- * for the two sides' clocks being whatever they are.
+ * was for years came to -- about 90 ms against a 1000 ms wait -- so it is
+ * sized from the turnaround now, with half of it again for the reply's air
+ * time and for the two sides' clocks being whatever they are.
  *
  * The listening has to be one stretch: the radio is receiving throughout it,
  * and a wait that gave up and started another would first have to wait out
@@ -191,7 +191,7 @@
  * all: the state the wait above needs has been reached.
  *
  * A retry listens again from the full budget, so the worst case is this many
- * times SYNC_RECEIVED_POLLS, which is now about half a minute of a badge that
+ * times SYNC_RECEIVED_POLLS, which is now about twenty seconds of a badge that
  * does nothing else. Reaching it takes thirteen packets in a row whose
  * checksum failed, and the trade is deliberate: a retry only happens after a
  * packet actually arrived, and a listen that gets the whole budget is the

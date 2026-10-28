@@ -1353,7 +1353,7 @@ Fixes with no visible change in normal use.
   tree always read it right.
   [#732](https://github.com/SqueakyFloors/ubertooth/issues/732)
 - The ToorCon 13 badge's range test listens long enough to hear the reply.
-  Its window was about a ninth of the second the Ubertooth repeater holds the
+  Its window was about 90 ms of the second the Ubertooth repeater holds the
   reply for, so the badge gave up before the reply was sent and the test could
   not pass at all. The window is sized from that delay now. Untested: nobody
   here has a badge.

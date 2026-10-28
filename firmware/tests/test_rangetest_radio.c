@@ -972,8 +972,8 @@ static int count_copies(int *sources)
  * armed its receiver, and the badge is a sender with no host to tell it to
  * keep waiting: a window shorter than the delay means the badge has given up
  * before the reply is sent, and the test cannot pass however good the link
- * is. The budget it had for years, 28561 polls, was about a ninth of the
- * delay.
+ * is. The budget it had for years, 28561 polls, came to about 90 ms of a
+ * 1000 ms delay.
  *
  * Checked as three numbers and two definitions rather than as a duration,
  * because none of it can run here: the delay is the same on both sides, the

@@ -33,22 +33,24 @@ touches code:
 | `Build` / `image-revision` | Every shipped firmware image carries a readable revision |
 | `Build` / `api-version` | The firmware API version against `main`, using `main`'s copy of the check |
 | `Build` / `dfu-package` | Each shipped image can be packaged and the packaged file reads back |
-| `install.sh` / `install-sh` | Runs the installer end to end (only when `install.sh` changes) |
+| `install.sh` / `install-sh` | Runs the installer end to end (on a pull request, only when `install.sh` or its own workflow file changes) |
 | `libbtbb pin` / `libbtbb-pin` | The pinned libbtbb commit is the same in every file that repeats it |
 | `Man pages` / `refresh` | The committed roff man pages match their Markdown sources (only when `host/doc/` changes) |
 
-`host`, `firmware`, `scripts` and `install-sh` run on an Ubuntu and a macOS
-runner, and report once per runner: `host (ubuntu-24.04)`, `host (macos-26)`.
-The three jobs that build on older or other distributions
-(`host-ubuntu-20_04`, `firmware-ubuntu-20_04`, `host-fedora`) are skipped on a
-pull request and run weekly, on a release, or on request.
+On a pull request, `host`, `firmware`, `scripts` and `install-sh` run on one
+Ubuntu and one macOS runner and report once per runner: `host (ubuntu-24.04)`,
+`host (macos-26)`. The weekly, release and on-request runs are a fuller tier:
+those jobs cover more runners, and three more jobs
+(`host-ubuntu-20_04`, `firmware-ubuntu-20_04`, `host-fedora`) build on the
+oldest supported Ubuntu and on Fedora. None of the extra tier gates a pull
+request.
 
-A change to documentation only skips `Build` and `install.sh`, which both
-ignore `**.md`, `docs/` and `.kiro/`. Two still run: `libbtbb pin` has no path
-filter at all, because the commit it checks is written down in
-`COMPATIBILITY.md` and the build guides as well as in the build files, and
-`Man pages` runs whenever `host/doc/` changes, which is where the man page
-sources live.
+A change to documentation only runs two of them. `Build` ignores `**.md`,
+`docs/` and `.kiro/`, and `install.sh` asks for its own two paths and so is
+not reached either. `libbtbb pin` has no path filter at all, because the
+commit it checks is written down in `COMPATIBILITY.md` and the build guides as
+well as in the build files; `Man pages` runs whenever `host/doc/` changes,
+which is where the man page sources live.
 
 ### Nothing enforces them
 
