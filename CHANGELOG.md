@@ -439,8 +439,8 @@
   live or replayed from a capture. Its search for an access code now stops
   where the other capture paths do, at the last position whose whole access
   code was captured, so a capture run at a high `-e` reports somewhat fewer
-  packets: nearly all the positions that are gone could only ever have matched
-  symbols that never arrived.
+  packets: the positions that are gone could only ever have matched symbols
+  that never arrived.
   [#666](https://github.com/SqueakyFloors/ubertooth/issues/666)
   [#792](https://github.com/SqueakyFloors/ubertooth/issues/792)
 - A Classic packet's signal level is its own from the first packet on a

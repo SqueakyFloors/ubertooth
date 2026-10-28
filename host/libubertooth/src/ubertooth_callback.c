@@ -37,11 +37,8 @@ extern unsigned int packet_counter_max;
 /* How many start positions a search for an access code may try, which is what
  * libbtbb's btbb_find_ac() takes as its search length: it tries positions 0 to
  * search_length - 1. The last position whose whole access code lies inside the
- * bank begins AC_SYMBOLS symbols before the bank's end, and counting from zero
- * to that position inclusive is one more than the difference between them. A
- * search length of BANK_LEN - AC_SYMBOLS therefore stops one position short
- * and never finds an access code that starts there, although all 64 of its
- * symbols were captured: one in 337 positions, in every bank. */
+ * bank begins AC_SYMBOLS symbols before the bank's end, so counting from zero
+ * to that position inclusive is one more than the difference between them. */
 #define AC_SEARCH_POSITIONS (BANK_LEN - AC_SYMBOLS + 1)
 
 /* How long a bank of symbols is in the 100 ns ticks the firmware stamps it
