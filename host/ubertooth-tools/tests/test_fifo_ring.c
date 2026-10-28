@@ -31,6 +31,14 @@
 /* Records the ring can hold at once: it always leaves one slot empty. */
 #define RING_RECORDS (FIFO_SIZE - 1)
 
+/* Every arrival reading these cases use is this plus something small, so that
+ * all of them are past 2^32. A real reading is: the monotonic clock a live
+ * capture reads passes 2^32 nanoseconds after four seconds of uptime, and a
+ * replayed dump's is a whole second in nanoseconds, around 1.8e18. A reading
+ * truncated to 32 bits anywhere on its way through the ring would otherwise
+ * come back unchanged. */
+#define ARRIVAL_BASE 0x1234567890abull
+
 /* ---- records -------------------------------------------------------------
  * clk100ns holds the whole sequence number, and that is what a record is
  * known by: record_is_whole() reads it back and what it is matched against
@@ -166,7 +174,7 @@ MU_TEST(records_come_back_in_order)
 	mu_assert_int_eq(1, fifo_empty(fifo));
 
 	for (i = 0; i < RING_RECORDS; i++)
-		publish_in_place(fifo, i + 1, 1000 + i);
+		publish_in_place(fifo, i + 1, ARRIVAL_BASE + 1000 + i);
 
 	mu_assert_int_eq(0, fifo_empty(fifo));
 
@@ -175,7 +183,8 @@ MU_TEST(records_come_back_in_order)
 
 		mu_assert_int_eq(i + 1, popped.clk100ns);
 		mu_assert(record_is_whole(&popped), "the record came back torn");
-		mu_assert_int_eq(1000 + i, fifo_popped_arrival_ns(fifo));
+		mu_assert_int_eq(ARRIVAL_BASE + 1000 + i,
+		                 fifo_popped_arrival_ns(fifo));
 	}
 
 	mu_assert_int_eq(1, fifo_empty(fifo));
@@ -196,13 +205,13 @@ MU_TEST(a_full_ring_discards_the_newest_record)
 	mu_assert_fatal(warnings != NULL, "tmpfile failed");
 
 	for (i = 0; i < RING_RECORDS; i++)
-		publish_in_place(fifo, i + 1, 1000 + i);
+		publish_in_place(fifo, i + 1, ARRIVAL_BASE + 1000 + i);
 
 	redirect_stderr_to(fileno(warnings));
 	/* Twice, so that a refusal that advanced the write pointer by one each
 	 * time would be caught by the records read back below. */
-	publish_in_place(fifo, 0xee, 9999);
-	publish_in_place(fifo, 0xef, 9998);
+	publish_in_place(fifo, 0xee, ARRIVAL_BASE + 9999);
+	publish_in_place(fifo, 0xef, ARRIVAL_BASE + 9998);
 	restore_stderr();
 
 	for (i = 0; i < RING_RECORDS; i++) {
@@ -210,7 +219,8 @@ MU_TEST(a_full_ring_discards_the_newest_record)
 
 		mu_assert_int_eq(i + 1, popped.clk100ns);
 		mu_assert(record_is_whole(&popped), "the record came back torn");
-		mu_assert_int_eq(1000 + i, fifo_popped_arrival_ns(fifo));
+		mu_assert_int_eq(ARRIVAL_BASE + 1000 + i,
+		                 fifo_popped_arrival_ns(fifo));
 	}
 	mu_assert_int_eq(1, fifo_empty(fifo));
 
@@ -223,9 +233,10 @@ MU_TEST(a_full_ring_discards_the_newest_record)
 	free(fifo);
 }
 
-/* Sequence numbers for the pushed records. Each of the four bytes of these
- * is non-zero, so every position of the record discriminates, not only the
- * last: a byte matching one the ring never wrote proves nothing. */
+/* Sequence numbers for the pushed records. The three low bytes are non-zero,
+ * and sequence_byte() supplies the fourth, so every position of a pushed
+ * record carries a non-zero byte: a position whose byte is zero proves
+ * nothing, because the ring is allocated zeroed. */
 #define PUSHED_FIRST_SEQUENCE 0x00412001u
 
 /* The other way in: fifo_push() copies a record the caller already holds,
@@ -247,7 +258,7 @@ MU_TEST(a_pushed_record_comes_back_whole)
 		usb_pkt_rx record;
 
 		fill_record(&record, PUSHED_FIRST_SEQUENCE + i);
-		fifo_push(fifo, &record, 90000 + i);
+		fifo_push(fifo, &record, ARRIVAL_BASE + 90000 + i);
 		mu_assert_int_eq(0, fifo_empty(fifo));
 	}
 
@@ -257,7 +268,8 @@ MU_TEST(a_pushed_record_comes_back_whole)
 		mu_assert_int_eq(PUSHED_FIRST_SEQUENCE + i, popped.clk100ns);
 		mu_assert(record_is_whole(&popped),
 		          "the pushed record came back short or torn");
-		mu_assert_int_eq(90000 + i, fifo_popped_arrival_ns(fifo));
+		mu_assert_int_eq(ARRIVAL_BASE + 90000 + i,
+		                 fifo_popped_arrival_ns(fifo));
 	}
 	mu_assert_int_eq(1, fifo_empty(fifo));
 
@@ -285,7 +297,9 @@ MU_TEST(the_ring_behaves_as_a_queue_across_many_laps)
 
 	/* Publishing three and draining two each step walks the ring round
 	 * many times and fills it on the way, so every slot takes a turn at
-	 * being the one the ring leaves empty.
+	 * being the one the ring leaves empty. One of the three goes in with
+	 * fifo_push() and two by filling the slot in place, so neither way in
+	 * escapes the queue below.
 	 *
 	 * The step count is high because this is the case that would catch a
 	 * ring refusing a record it had room for, and a ring that did so only
@@ -296,7 +310,19 @@ MU_TEST(the_ring_behaves_as_a_queue_across_many_laps)
 		int i;
 
 		for (i = 0; i < 3; i++) {
-			publish_in_place(fifo, next_sequence, next_sequence);
+			/* Both ways of publishing are held to the same
+			 * queue, so a ring that refused a record either way
+			 * with room to spare fails here. */
+			if (i == 0) {
+				usb_pkt_rx record;
+
+				fill_record(&record, next_sequence);
+				fifo_push(fifo, &record,
+				          ARRIVAL_BASE + next_sequence);
+			} else {
+				publish_in_place(fifo, next_sequence,
+				                 ARRIVAL_BASE + next_sequence);
+			}
 			if (held < RING_RECORDS)
 				expected[held++] = next_sequence;
 			else
@@ -307,7 +333,7 @@ MU_TEST(the_ring_behaves_as_a_queue_across_many_laps)
 			usb_pkt_rx popped = fifo_pop(fifo);
 
 			mu_assert_int_eq(expected[0], popped.clk100ns);
-			mu_assert_int_eq(expected[0],
+			mu_assert_int_eq(ARRIVAL_BASE + expected[0],
 			                 fifo_popped_arrival_ns(fifo));
 			mu_assert(record_is_whole(&popped),
 			          "the record came back torn");
@@ -328,9 +354,14 @@ MU_TEST(the_ring_behaves_as_a_queue_across_many_laps)
 
 /* ---- the two threads -----------------------------------------------------
  * The real arrangement: one thread fills slots and publishes them, the other
- * drains them. The producer runs far ahead of the consumer, so the ring is
- * full nearly all the time, which is where a slot handed to a transfer while
- * the consumer was still copying it out gave one corrupted record.
+ * drains them. A slot handed to a transfer while the consumer was still
+ * copying it out gave one corrupted record, and that can only happen with the
+ * ring full.
+ *
+ * The consumer pauses now and then, and the producer races ahead while it
+ * does, so the ring fills in bursts: a few per cent of the records published
+ * are discarded for want of room, and the rest of the time the ring is nearly
+ * empty. Those bursts are the window this case exists for.
  *
  * This is a race detector, so it catches a regression often rather than
  * always. Putting the pop's copy back after the slot is handed over -- the
@@ -338,15 +369,18 @@ MU_TEST(the_ring_behaves_as_a_queue_across_many_laps)
  * records. Take a failure seriously on one run; do not read a single pass as
  * proof.
  *
- * Two things it cannot show at all. One is the release and acquire ordering.
- * Weakened one at a time, three of the four still pass every run of this case
- * on an unoptimised build here, and two of the four do at -O2; on x86-64 the
- * generated code for a release store and a relaxed one does not differ at
- * all. So a green run says nothing about whether the ordering is needed --
- * that is argued in ubertooth_fifo.c rather than shown here. The other is
- * whether the ring discards only when it is really full: that needs a reader
- * that knows how full the ring was, which a racing consumer is not, so it is
- * the_ring_behaves_as_a_queue_across_many_laps that asks.
+ * A plain run says little about the release and acquire ordering: weakened
+ * one at a time, three of the four still pass every run here, and on x86-64
+ * the generated code for a release store and a relaxed one does not differ at
+ * all. What does pin them is the same case built with a thread sanitizer,
+ * which the build registers as a second test where the compiler has one
+ * (fifo-ring-tsan): weakening any of the four is reported there, and the ring
+ * as it stands is clean.
+ *
+ * What no run here asks is whether the ring discards only when it is really
+ * full. That needs a reader that knows how full the ring was, which a racing
+ * consumer is not, so it is the_ring_behaves_as_a_queue_across_many_laps that
+ * asks.
  */
 
 /* Records the producer publishes. Large enough that the two threads
@@ -385,12 +419,14 @@ static void* producer_main(void* argument)
 		 * publishing a slot before it had finished filling it would
 		 * show up as a torn record. */
 		if (sequence % 2 == 0) {
-			publish_in_place(run->fifo, sequence, sequence);
+			publish_in_place(run->fifo, sequence,
+			                 ARRIVAL_BASE + sequence);
 		} else {
 			usb_pkt_rx record;
 
 			fill_record(&record, sequence);
-			fifo_push(run->fifo, &record, sequence);
+			fifo_push(run->fifo, &record,
+			          ARRIVAL_BASE + sequence);
 		}
 	}
 
@@ -428,7 +464,7 @@ static void* consumer_main(void* argument)
 		else
 			run->discarded +=
 				popped.clk100ns - run->last_sequence - 1;
-		if (reading != popped.clk100ns)
+		if (reading != ARRIVAL_BASE + popped.clk100ns)
 			run->reading_mismatch++;
 		run->last_sequence = popped.clk100ns;
 		run->popped++;

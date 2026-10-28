@@ -707,10 +707,48 @@ if(libubertooth_SOURCE_DIR)
 
 	add_test(NAME fifo-ring COMMAND test-fifo-ring)
 	# The threaded case publishes a million records through an eight-slot
-	# ring with the consumer kept behind it, and the queue case sixty
-	# thousand more: half a second here and in CI. The limit only catches a
-	# run whose threads do not finish.
+	# ring, the queue case sixty thousand more: half a second here and in
+	# CI. The limit only catches a run whose threads do not finish.
 	set_tests_properties(fifo-ring PROPERTIES TIMEOUT 30)
+
+	# The same source again under a thread sanitizer, which is what pins
+	# the ring's release and acquire ordering: a plain run passes with
+	# three of the four weakened, because the processor or the compiler
+	# was doing it anyway, while the sanitizer reports any of the four.
+	#
+	# Only where the compiler has one. GCC needs libtsan installed to
+	# link, so the check compiles and links a program rather than only
+	# testing the flag, and the test is simply absent where it fails.
+	include(CheckCSourceCompiles)
+	set(CMAKE_REQUIRED_FLAGS -fsanitize=thread)
+	set(CMAKE_REQUIRED_LINK_OPTIONS -fsanitize=thread)
+	check_c_source_compiles("int main(void) { return 0; }"
+		HAVE_THREAD_SANITIZER)
+	unset(CMAKE_REQUIRED_FLAGS)
+	unset(CMAKE_REQUIRED_LINK_OPTIONS)
+
+	if(HAVE_THREAD_SANITIZER)
+		add_executable(test-fifo-ring-tsan
+			test_fifo_ring.c
+			${libubertooth_SOURCE_DIR}/src/ubertooth_fifo.c)
+		target_include_directories(test-fifo-ring-tsan PRIVATE
+			${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR}
+			${LIBBTBB_INCLUDE_DIR})
+		target_compile_definitions(test-fifo-ring-tsan PRIVATE
+			UBERTOOTH_FIFO_SLOTS_FOR_TESTS=8)
+		target_compile_options(test-fifo-ring-tsan PRIVATE
+			-fsanitize=thread -g)
+		target_link_options(test-fifo-ring-tsan PRIVATE
+			-fsanitize=thread)
+		target_link_libraries(test-fifo-ring-tsan Threads::Threads)
+
+		add_test(NAME fifo-ring-tsan COMMAND test-fifo-ring-tsan)
+		# A sanitized run of the same records takes a few seconds
+		# rather than half of one. A reported race exits non-zero.
+		set_tests_properties(fifo-ring-tsan PROPERTIES
+			TIMEOUT 120
+			ENVIRONMENT "TSAN_OPTIONS=halt_on_error=1:exitcode=66")
+	endif()
 
 	# What the low-energy callback hands libbtbb's decoder: the captured
 	# bytes and how many of them there are, never more.
