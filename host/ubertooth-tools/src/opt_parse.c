@@ -341,12 +341,14 @@ int opt_no_arguments(int argc)
  * The two are told apart by the word optind is on: an option word that holds
  * a dash of its own is the one being rejected, and anything else -- the
  * option after it, a stray word, the end of the command line -- means the
- * dash was the last letter of the word before. A command line with a stray
- * dash in two words running ("-v- -r-x") cannot be told apart from an
- * attached option value that ends in one ("-Uabc- --bogus"), because the
- * option letters are not known here; the word optind is on wins, which names
- * a word the user wrote either way. Returns NULL if neither word holds a
- * dash, which leaves the caller its own wording.
+ * dash was the last letter of the word before.
+ *
+ * Which is right depends on the option letters, and those are not known here:
+ * a word holding a dash can be the one that was rejected ("-r-x") or an
+ * attached option value that happens to contain one ("-Uabc-"), and the word
+ * optind is on wins either way. So a command line whose dash ends one word
+ * and whose next word holds another ("-v- -r-x") names the second. Returns
+ * NULL if neither word holds a dash.
  */
 static const char *bad_option_word(int argc, char *argv[])
 {
@@ -380,10 +382,15 @@ void opt_report_bad_option(int opt, int argc, char *argv[])
 		return;
 	}
 	/* A rejected '-' is a letter inside a word the user wrote, so the whole
-	 * word is quoted back: a bare "-" would name an option nobody typed,
-	 * and so would the word after it. No tool takes long options. */
-	if (optopt == '-' && (word = bad_option_word(argc, argv)) != NULL) {
-		if (strncmp(word, "--", 2) == 0 && word[2] != '\0')
+	 * word is quoted back. No tool takes long options. */
+	if (optopt == '-') {
+		word = bad_option_word(argc, argv);
+		if (word == NULL)
+			/* Neither word holds a dash, which the search above leaves
+			 * no way to reach. The dash alone, rather than the "--"
+			 * that naming it as an option would print. */
+			fputs("error: unrecognized option '-'\n", stderr);
+		else if (strncmp(word, "--", 2) == 0 && word[2] != '\0')
 			fprintf(stderr, "error: unrecognized option '%s': the tools take "
 			        "single-letter options\n", word);
 		else

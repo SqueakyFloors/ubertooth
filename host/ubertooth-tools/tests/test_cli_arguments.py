@@ -245,10 +245,13 @@ CASES = {
         # are the forms the option parser reports a word late.
         (("-v-",), "error: unrecognized option '-' in '-v-'"),
         (("-v-", "-h"), "error: unrecognized option '-' in '-v-'"),
-        # Two words holding a stray dash: the parser stops on the second, and
-        # it cannot be told from an attached value ending in a dash, so that
-        # is the word named. Either way it is a word the user wrote.
+        # Two words holding a dash: the parser stops on the second, and
+        # which of the two is the wrong one depends on option letters the
+        # shared reporter is not given, so the word it stopped on is named.
+        # The second case is the one that reads worst, because the dash there
+        # is part of -U's value and nothing in that word is wrong.
         (("-v-", "-r-x"), "error: unrecognized option '-' in '-r-x'"),
+        (("-v-", "-Ufoo-"), "error: unrecognized option '-' in '-ufoo-'"),
     ),
 }
 

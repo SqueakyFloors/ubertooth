@@ -764,7 +764,11 @@ def check_the_spec_lists_every_option():
     pattern = r'getopt\(argc,\s*argv,\s*"([^"]+)"\)'
     if not os.path.exists(source) and CONTRACT.get("kind") == "python":
         source = BINARY
-        pattern = r'getopt\(sys\.argv\[1:\],\s*"([^"]+)"\)'
+        # Written out, or the name of the constant the tool keeps it in, which
+        # is then looked up below: a tool that reads its option string in more
+        # than one place keeps one copy of it.
+        pattern = (r'getopt\(sys\.argv\[1:\],\s*(?:"([^"]+)"'
+                   r'|([A-Z_][A-Z_0-9]*))\)')
     # A source that is not there is a failure, not a check to skip: the spec's
     # copy of the option string would then be compared against nothing, and a
     # file somebody renames or moves would drop the one check that keeps the
@@ -778,16 +782,33 @@ def check_the_spec_lists_every_option():
         with open(source) as handle:
             text = handle.read()
         found = re.search(pattern, text)
+        passed = None
+        if found is not None:
+            passed = found.group(1)
+            if passed is None:
+                # A named constant: the tool's own value for it, so the check
+                # still reads what getopt is given rather than a name.
+                named = re.search(r'^%s\s*=\s*"([^"]+)"'
+                                  % re.escape(found.group(2)), text,
+                                  re.MULTILINE)
+                if named is None:
+                    problems.append((SPEC_CASE,
+                                     "%s passes %s to getopt and does not "
+                                     "set it to an option string"
+                                     % (os.path.relpath(source, here),
+                                        found.group(2))))
+                else:
+                    passed = named.group(1)
         if found is None:
             problems.append((SPEC_CASE,
                          "could not find the getopt string in %s"
                             % os.path.relpath(source, here)))
-        elif found.group(1) != written:
+        elif passed is not None and passed != written:
             problems.append((SPEC_CASE,
                          "the spec says the option string is %r, but %s "
                             "passes %r to getopt"
                             % (written, os.path.relpath(source, here),
-                               found.group(1))))
+                               passed)))
 
     # The option string, read the way getopt reads it: a letter, then one
     # colon for a required value or two for an optional one. A leading colon

@@ -276,6 +276,11 @@ class BTCtlPrompt(Cmd):
 	do_EOF = do_exit
 	help_EOF = help_exit
 
+# The options the tool takes, in getopt's form: a ':' marks one that takes a
+# value. report_bad_option() reads the same string to find the word a stray
+# dash came from, so there is one copy for the two of them.
+SHORT_OPTIONS = "f:b:U:h"
+
 USAGE = ("Usage: ubertooth-btbr [-U <index|serial>] [-f <freq_offset>] "
 	"[-b <max_ac_errors>]\n"
 	"Options:\n"
@@ -350,9 +355,9 @@ def leave(bt, status):
 
 def main():
 	try:
-		opt, args = getopt(sys.argv[1:], "f:b:U:h")
+		opt, args = getopt(sys.argv[1:], SHORT_OPTIONS)
 	except GetoptError as e:
-		report_bad_option(e, "f:b:U:h")
+		report_bad_option(e, SHORT_OPTIONS)
 
 	# Read before the device is opened, so a command line that is wrong is
 	# refused without touching a board, and says what is wrong with it rather

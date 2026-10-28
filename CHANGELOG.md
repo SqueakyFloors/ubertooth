@@ -4,6 +4,17 @@
 
 ### New features
 
+- **Script-visible change:** `ubertooth-btle -s` and `-t` each have their own
+  address, so `-s A -t B` advertises from A and follows B, which is what it
+  reads like. They shared one address, so whichever option was written last
+  set both, and `-s <address> -t none` advertised from `00:00:00:00:00:00`
+  without a word. What each of the two accepts is unchanged.
+  [#383](https://github.com/SqueakyFloors/ubertooth/issues/383)
+- **Script-visible change:** `ubertooth-ego -l` with interference (`-i`, `-j`)
+  is refused, naming the mode as it was spelled: only the modes that read a
+  packet read a capture length, so it used to set a firmware value the mode
+  never looks at and said nothing.
+  [#411](https://github.com/SqueakyFloors/ubertooth/issues/411)
 - Host tools built from a git checkout that is not on a tag warn about
   firmware of another API version and run the command anyway, instead of
   refusing it, so host tools and firmware from different commits can be used
@@ -396,17 +407,6 @@
   the re-plug done in software -- and then resets the board as usual, so it
   comes back idle. Select it by index: its serial cannot be read.
   [#731](https://github.com/SqueakyFloors/ubertooth/issues/731)
-- **Script-visible change:** `ubertooth-btle -s` and `-t` each have their own
-  address, so `-s A -t B` advertises from A and follows B, which is what it
-  reads like. They shared one address, so whichever option was written last
-  set both, and `-s <address> -t none` advertised from `00:00:00:00:00:00`
-  without a word. What each of the two accepts is unchanged.
-  [#383](https://github.com/SqueakyFloors/ubertooth/issues/383)
-- **Script-visible change:** `ubertooth-ego -l` with interference (`-i`, `-j`)
-  is refused, naming the mode as it was spelled: only the modes that read a
-  packet read a capture length, so it used to set a firmware value the mode
-  never looks at and said nothing.
-  [#411](https://github.com/SqueakyFloors/ubertooth/issues/411)
 - A stray dash after an option is named with the word it was written in:
   `ubertooth-util -v-` reads `error: unrecognized option '-' in '-v-'`. It
   used to be blamed on `--`, which nobody typed, or on the next word, so
