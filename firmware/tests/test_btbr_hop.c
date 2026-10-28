@@ -25,13 +25,13 @@
  * The one thing the test shares with the firmware is the order the butterfly
  * stages run in, which only the specification's figure shows; see PERM5 below.
  *
- * On top of those, the whole of the specification's own published hop sample
- * data is run through this image: 7680 connection-state vectors through
- * hop_basic() and 192 page scan and inquiry scan vectors through
- * hop_inquiry(), from Vol 2, Part G, Section 2, in spec_hop_vectors.h.  The
- * hand-picked vectors above stay because they name the rule each one is there
- * for, and because they cover addresses, clock values and channel maps Part G
- * does not print.
+ * On top of those, the specification's own published hop sample data is run
+ * through this image: 7680 connection-state vectors through hop_basic(), and
+ * 192 page scan and inquiry scan vectors through hop_inquiry() with the phase
+ * the spec gives for those substates.  Both come from Vol 2, Part G, Section
+ * 2, in spec_hop_vectors.h.  The hand-picked vectors above stay because they
+ * name the rule each one is there for, and because they cover addresses, clock
+ * values and channel maps Part G does not print.
  */
 #include <stdarg.h>
 #include <stdio.h>
@@ -439,10 +439,10 @@ MU_TEST(test_spec_sample_data_connection_state)
 		const struct spec_hop_conn_vector *v = &SPEC_HOP_CONN[set];
 		uint8_t map[10];
 
-		if (v->used_channels == NULL) {
+		if (v->printed_afh_map == NULL) {
 			follow_setup(v->ulap, NULL);
 		} else {
-			spec_hop_afh_map(v->used_channels, map);
+			spec_hop_afh_map(v->printed_afh_map, map);
 			follow_setup(v->ulap, map);
 		}
 
@@ -457,11 +457,12 @@ MU_TEST(test_spec_sample_data_connection_state)
 			bad++;
 			/* Enough to name the failing vector, not a flood. */
 			if (reported++ < 4)
-				printf("  address %07x, %s, CLK 0x%03x: "
+				printf("  address %08x, %s, CLK 0x%03x: "
 					"channel %d, the spec says %d\n",
 					v->ulap,
-					v->used_channels ? v->used_channels
-							 : "basic sequence",
+					v->printed_afh_map
+						? v->printed_afh_map
+						: "basic sequence",
 					clk, got, want);
 		}
 	}
@@ -469,11 +470,18 @@ MU_TEST(test_spec_sample_data_connection_state)
 }
 
 /*
- * The published page scan and inquiry scan sample data.  In those substates
- * Table 2.2 makes the kernel's X input CLKN16-12 and its F input 0, so the
- * table is reproduced by setting the phase hop_inquiry() reads and calling it.
- * How the phase is chosen is the scan task's business, not hop.c's: this
- * image sweeps it to search for a device whose clock it does not know.
+ * The published page scan and inquiry scan sample data, run through
+ * hop_inquiry().  In those substates Table 2.2 makes the kernel's X input
+ * CLKN16-12 and its F input 0, so the table is reproduced by putting that X in
+ * the phase hop_inquiry() reads and calling it.
+ *
+ * What this pins is hop_inquiry() for a given phase: the kernel inputs, F = 0
+ * and the basic table lookup.  It does not pin where the phase comes from.
+ * That is the scan task's business, and this image does not derive it from
+ * CLKN at all -- it sweeps the phase to search for a device whose clock it
+ * does not know (see calc_iterate_slave_page_scan_phase() in
+ * include/ubtbr/hop.h), so the published table is not the sequence the board
+ * transmits on.
  */
 MU_TEST(test_spec_sample_data_page_and_inquiry_scan)
 {
@@ -505,8 +513,14 @@ MU_TEST(test_spec_sample_data_page_and_inquiry_scan)
 	mu_assert_int_eq(0, bad);
 }
 
-/* The four substates that hop this way all reach it through hop_channel(). */
-MU_TEST(test_spec_scan_data_through_every_inquiry_mode)
+/*
+ * Four of btphy's modes hop through hop_inquiry(), and hop_channel() is what
+ * routes them there.  This checks the routing, by giving each mode the same
+ * phase and clock and expecting the same channel hop_inquiry() gave above.
+ * The four substates do not share a phase in real operation, so this says
+ * nothing about which channel each one ends up on.
+ */
+MU_TEST(test_every_inquiry_mode_routes_to_hop_inquiry)
 {
 	static const uint8_t MODES[] = {
 		BT_MODE_INQUIRY, BT_MODE_INQUIRY_SCAN,
@@ -517,7 +531,7 @@ MU_TEST(test_spec_scan_data_through_every_inquiry_mode)
 	int entry, bad = 0;
 
 	follow_setup(v->ulap, NULL);
-	for (mode = 0; mode < sizeof(MODES); mode++) {
+	for (mode = 0; mode < sizeof(MODES) / sizeof(MODES[0]); mode++) {
 		btphy.mode = MODES[mode];
 		for (entry = 0; entry < SPEC_HOP_SCAN_ENTRIES; entry++) {
 			uint32_t clkn = SPEC_HOP_SCAN_FIRST_CLKN +
@@ -536,7 +550,7 @@ int main(void)
 	printf("btbr hop selection tests\n");
 	MU_RUN(test_spec_sample_data_connection_state);
 	MU_RUN(test_spec_sample_data_page_and_inquiry_scan);
-	MU_RUN(test_spec_scan_data_through_every_inquiry_mode);
+	MU_RUN(test_every_inquiry_mode_routes_to_hop_inquiry);
 	MU_RUN(test_perm5_lookup_table_matches_spec);
 	MU_RUN(test_basic_bank_is_even_then_odd_channels);
 	MU_RUN(test_basic_hops_match_reference);

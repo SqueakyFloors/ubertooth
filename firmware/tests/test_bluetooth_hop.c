@@ -88,12 +88,14 @@ static int map_marks_used(const u8 *map, u16 mhz)
 	return chan < NUM_BREDR_CHANNELS && ((map[chan / 8] >> (chan % 8)) & 1);
 }
 
-/* Apply the map in the order ubertooth-follow uses: address, then map. */
-static void follow_setup(const u8 *map)
+/* Apply the map in the order a host does: address, then map. */
+static void follow_setup(u32 address, const u8 *map)
 {
 	reset_state();
+	target.address = address;
 	precalc();
-	bluetooth_set_afh_map(map);
+	if (map != NULL)
+		bluetooth_set_afh_map(map);
 }
 
 MU_TEST(test_basic_hops_match_reference)
@@ -114,7 +116,7 @@ MU_TEST(test_afh_mapping_table_is_used_channels_even_then_odd)
 		73, 75, 77,
 	};
 	size_t i;
-	follow_setup(AFH_MAP);
+	follow_setup(TEST_ADDRESS, AFH_MAP);
 	mu_assert_int_eq(sizeof(expected), used_channels);
 	for (i = 0; i < sizeof(expected); i++)
 		mu_assert_int_eq(expected[i], afh_bank[i]);
@@ -126,7 +128,7 @@ MU_TEST(test_afh_mapping_table_is_used_channels_even_then_odd)
 MU_TEST(test_afh_hops_match_reference)
 {
 	size_t i;
-	follow_setup(AFH_MAP);
+	follow_setup(TEST_ADDRESS, AFH_MAP);
 	for (i = 0; i < NUM_VECTORS; i++)
 		mu_assert_int_eq(HOP_VECTORS[i].afh, next_hop(HOP_VECTORS[i].clock));
 }
@@ -149,7 +151,7 @@ MU_TEST(test_map_update_while_hopping_takes_effect)
 		0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f
 	};
 	size_t i;
-	follow_setup(full_map);
+	follow_setup(TEST_ADDRESS, full_map);
 	mu_assert_int_eq(79, used_channels);
 	mu_assert_int_eq(HOP_VECTORS[0].basic, next_hop(0x2));
 	/* A new map from the host replaces it without resetting the address. */
@@ -162,7 +164,7 @@ MU_TEST(test_afh_hops_stay_on_used_channels)
 {
 	u32 clock;
 	int off_map = 0, slot_mismatch = 0, kept = 0, mismatched_kept = 0;
-	follow_setup(AFH_MAP);
+	follow_setup(TEST_ADDRESS, AFH_MAP);
 	/* Every central slot across 2^20 slots, plus its peripheral slot. */
 	for (clock = 0; clock < (UINT32_C(1) << 22); clock += 4) {
 		u16 afh = next_hop(clock);
@@ -191,7 +193,7 @@ MU_TEST(test_afh_hops_stay_on_used_channels)
 MU_TEST(test_clearing_afh_restores_basic_hopping)
 {
 	size_t i;
-	follow_setup(AFH_MAP);
+	follow_setup(TEST_ADDRESS, AFH_MAP);
 	/* What UBERTOOTH_CLEAR_AFHMAP does, without re-sending the address. */
 	memset(afh_map, 0, sizeof(afh_map));
 	afh_enabled = 0;
@@ -204,7 +206,7 @@ MU_TEST(test_too_few_used_channels_falls_back_to_basic)
 	/* Channels 0-18: one short of the spec minimum of 20. */
 	static const u8 small_map[10] = {0xff, 0xff, 0x07};
 	size_t i;
-	follow_setup(small_map);
+	follow_setup(TEST_ADDRESS, small_map);
 	mu_assert_int_eq(19, used_channels);
 	for (i = 0; i < NUM_VECTORS; i++)
 		mu_assert_int_eq(HOP_VECTORS[i].basic, next_hop(HOP_VECTORS[i].clock));
@@ -215,7 +217,7 @@ MU_TEST(test_reserved_map_bit_is_not_counted)
 	u8 map[10];
 	memcpy(map, AFH_MAP, sizeof(map));
 	map[9] |= 0x80;	/* bit 79 is reserved; there is no channel 79 */
-	follow_setup(map);
+	follow_setup(TEST_ADDRESS, map);
 	mu_assert_int_eq(34, used_channels);
 }
 
@@ -232,12 +234,11 @@ MU_TEST(test_spec_sample_data_connection_state)
 		const struct spec_hop_conn_vector *v = &SPEC_HOP_CONN[set];
 		u8 map[10];
 
-		reset_state();
-		target.address = v->ulap;
-		precalc();
-		if (v->used_channels != NULL) {
-			spec_hop_afh_map(v->used_channels, map);
-			bluetooth_set_afh_map(map);
+		if (v->printed_afh_map == NULL) {
+			follow_setup(v->ulap, NULL);
+		} else {
+			spec_hop_afh_map(v->printed_afh_map, map);
+			follow_setup(v->ulap, map);
 		}
 
 		for (entry = 0; entry < SPEC_HOP_CONN_ENTRIES; entry++) {
@@ -251,11 +252,12 @@ MU_TEST(test_spec_sample_data_connection_state)
 			bad++;
 			/* Enough to name the failing vector, not a flood. */
 			if (reported++ < 4)
-				printf("  address %07x, %s, CLK 0x%03x: "
+				printf("  address %08x, %s, CLK 0x%03x: "
 					"channel %d, the spec says %d\n",
 					v->ulap,
-					v->used_channels ? v->used_channels
-							 : "basic sequence",
+					v->printed_afh_map
+						? v->printed_afh_map
+						: "basic sequence",
 					clk, got, want);
 		}
 	}

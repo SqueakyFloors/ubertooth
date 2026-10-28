@@ -3,9 +3,11 @@
  * as C tables, shared by the hop tests of both firmware images.
  *
  * Source: Bluetooth Core Specification v5.4, Vol 2, Part G, Section 2
- * ("Frequency hopping sample data"), transcribed from the published tables.
- * libbtbb's tests/test_spec_hop.c carries the same connection-state tables and
- * agrees with this transcription entry for entry.
+ * ("Frequency hopping sample data"), which the Bluetooth SIG publishes on
+ * bluetooth.com; these tables are transcribed from the published ones.  As a
+ * check on the transcription, the connection-state tables were compared entry
+ * for entry with the separate transcription in tests/test_spec_hop.c of the
+ * libbtbb fork at github.com/SqueakyFloors/libbtbb; the two agree.
  *
  * Part G prints three sets, one per address.  Each set gives the hop sequence
  * for the page scan and inquiry scan substates, for the page and inquiry
@@ -22,8 +24,10 @@
  *  - the page scan and inquiry scan tables, 64 clock values each.  In those
  *    substates Table 2.2 gives the kernel's X input as CLKN16-12 and its F
  *    input as 0, which is all that is needed to reproduce the table, so these
- *    drive the btbr image's hop_inquiry().  The bluetooth_rxtx image has no
- *    page or inquiry hopping.
+ *    drive the btbr image's hop_inquiry() with that X.  They pin the kernel
+ *    behind it, not where the X comes from: that is the scan task's, and btbr
+ *    sweeps it rather than reading it off CLKN.  The bluetooth_rxtx image has
+ *    no page or inquiry hopping.
  *
  * Not transcribed: the page and inquiry substate tables and the two page
  * response tables.  Those are indexed by the paging phase (Xp, and Xprm/Xprs
@@ -623,8 +627,14 @@ static const uint8_t SPEC_HOP_CONN_14[SPEC_HOP_CONN_ENTRIES] = {
  * other.
  */
 struct spec_hop_conn_vector {
-	uint32_t ulap;			/* UAP3-0 and the LAP: 28 bits */
-	const char *used_channels;	/* as printed; NULL for the basic sequence */
+	/*
+	 * The address as Part G prints it under "ULAP".  Only bits 27-0 reach
+	 * the selection kernel, which is why two of the three printed values
+	 * carry bits above that: the kernel ignores them.
+	 */
+	uint32_t ulap;
+	/* the channel map as printed; NULL for the basic sequence */
+	const char *printed_afh_map;
 	const uint8_t *channels;
 };
 
@@ -673,7 +683,7 @@ static const uint8_t SPEC_HOP_SCAN_2[SPEC_HOP_SCAN_ENTRIES] = {
 };
 
 struct spec_hop_scan_vector {
-	uint32_t ulap;
+	uint32_t ulap;			/* as above */
 	const uint8_t *channels;
 };
 
