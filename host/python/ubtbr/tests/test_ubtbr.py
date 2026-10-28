@@ -107,6 +107,11 @@ UBTBR_FAKE_SERIAL_READS and UBTBR_FAKE_OPENS name files every serial read and
 every open is appended to, which is how a test tells how many boards a
 selection touched.
 
+UBTBR_FAKE_LIST_ERROR makes listing the bus raise something the tool does not
+expect, which is how a test reaches the way out of a failure nobody handled.
+That is a bug's way out, so the tool is allowed its traceback there; what a
+test asks is what else comes with it.
+
 UBTBR_FAKE_READS names a file of packets the device sends, one per line in
 hex: each is handed to the next read, and the reads after them time out as
 usual. UBTBR_FAKE_READS_AFTER holds them back until that many writes have
@@ -242,6 +247,8 @@ def _described(entry):
 
 class USBContext:
     def getDeviceIterator(self, skip_on_error=False):
+        if os.environ.get("UBTBR_FAKE_LIST_ERROR"):
+            raise RuntimeError("listing the bus failed")
         if os.environ.get("UBTBR_FAKE_NO_DEVICE"):
             return iter(())
         serials = os.environ.get("UBTBR_FAKE_SERIALS", ONE_BOARD)
@@ -1442,6 +1449,21 @@ running.stdout.close()
 running.stdin.close()
 assert running.wait(timeout=DEADLINE) == 1, running.returncode
 print("ubtbr: both streams gone leaves the exit status to say it")
+
+# a failure nobody handled, leaving past a standard output that has gone
+# away, ends in the traceback that failure deserves and nothing else: the
+# last flush is taken whichever way the session ends, so the interpreter is
+# never the one to find the stream gone. Nothing had been printed by then, so
+# there is nothing to report lost; what this pins is that the way out is the
+# tool's and not status 120 with a message of the interpreter's own.
+running = tool(dict(ENVIRONMENT, UBTBR_FAKE_LIST_ERROR="1"))
+running.stdout.close()
+running.stdin.close()
+errors = running.stderr.read()
+assert running.wait(timeout=DEADLINE) == 1, (running.returncode, errors)
+assert "RuntimeError: listing the bus failed" in errors, errors
+assert "Exception ignored" not in errors, errors
+print("ubtbr: an unhandled failure does not leave the last flush to the exit")
 
 # no Ubertooth at all: one error line, nothing on standard output, exit 1,
 # where the tool used to end in a traceback
