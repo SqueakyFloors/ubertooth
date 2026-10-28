@@ -461,6 +461,63 @@ MU_TEST(test_a_board_that_will_not_open_is_not_a_board_that_stayed_away)
 	mu_assert(strchr(message, '\n') == NULL, "the line is more than one line");
 }
 
+/* A bus that could not be read is a third thing again: nothing was looked at,
+ * so the board may be back and running the new firmware. It used to be
+ * reported as a board that came back and would not open, which names a fault
+ * of the board and sends the reader to wait for whatever is holding it. */
+MU_TEST(test_a_bus_that_could_not_be_read_is_not_a_board_that_would_not_open)
+{
+	struct fake_recovery fake = make_fake();
+	struct dfu_verify_config config = {2, 10};
+	struct dfu_verify_report report;
+	char message[256];
+	/* A board that refused to open, then a bus that could not be read: the
+	 * last poll is what is described. */
+	int opens[] = {-6, DFU_OPEN_BUS_UNREADABLE};
+	memcpy(fake.app_open_results, opens, sizeof(opens));
+	fake.app_open_count = ARRAY_LEN(opens);
+
+	mu_assert_int_eq(DFU_VERIFY_APP_TIMEOUT,
+	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
+	                                        &fake.identity, "git-expected",
+	                                        "bluetooth_rxtx",
+	                                        &config, &report));
+	mu_assert_int_eq(1, report.bus_unreadable);
+	mu_assert_int_eq(0, report.operation_error);
+	dfu_verify_describe_failure(&report, "git-expected", "bluetooth_rxtx",
+	                            message, sizeof(message));
+	mu_assert(strstr(message, "the firmware was written") != NULL,
+	          "the line does not say the image reached the board");
+	mu_assert(strstr(message, "USB bus could not be read") != NULL,
+	          "the line does not say the bus could not be read");
+	mu_assert(strstr(message, "would not open") == NULL,
+	          "the line blames a board that was never looked at");
+	mu_assert(strstr(message, "did not come back on USB") == NULL,
+	          "the line calls a board that was never looked for missing");
+	mu_assert(strstr(message, "ubertooth-util -v") != NULL,
+	          "the line does not say how to read the board's revision");
+	mu_assert(strchr(message, '\n') == NULL, "the line is more than one line");
+}
+
+/* A bus that could not be read on one poll and read on the next is not
+ * reported at all: the flag describes the poll the report ends on. */
+MU_TEST(test_a_bus_that_could_be_read_on_the_next_poll_is_not_reported)
+{
+	struct fake_recovery fake = make_fake();
+	struct dfu_verify_config config = {2, 10};
+	struct dfu_verify_report report;
+	int opens[] = {DFU_OPEN_BUS_UNREADABLE, 1};
+	memcpy(fake.app_open_results, opens, sizeof(opens));
+	fake.app_open_count = ARRAY_LEN(opens);
+
+	mu_assert_int_eq(DFU_VERIFY_OK,
+	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
+	                                        &fake.identity, "git-expected",
+	                                        "bluetooth_rxtx",
+	                                        &config, &report));
+	mu_assert_int_eq(0, report.bus_unreadable);
+}
+
 /* A board running something else did not take the write, and this is the one
  * outcome that asks for another flash. */
 MU_TEST(test_a_board_running_another_revision_is_described_as_a_failed_write)
@@ -1702,6 +1759,8 @@ int main(void)
 	MU_RUN(test_verify_needs_an_expected_image_and_a_way_to_read_it);
 	MU_RUN(test_a_board_that_never_came_back_is_told_apart_from_a_failed_write);
 	MU_RUN(test_a_board_that_will_not_open_is_not_a_board_that_stayed_away);
+	MU_RUN(test_a_bus_that_could_not_be_read_is_not_a_board_that_would_not_open);
+	MU_RUN(test_a_bus_that_could_be_read_on_the_next_poll_is_not_reported);
 	MU_RUN(test_a_board_running_another_revision_is_described_as_a_failed_write);
 	MU_RUN(test_a_board_that_will_not_report_its_revision_is_not_a_mismatch);
 	MU_RUN(test_the_other_image_is_described_as_a_failed_write);

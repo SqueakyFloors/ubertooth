@@ -1021,6 +1021,22 @@ def open_failure_note(failure):
 	return ""
 
 
+def claim_failure_message(board, error):
+	"""Why the board's USB interface could not be claimed.
+
+	The wording of libubertooth's ubertooth_report_claim_failed(), so one
+	wording covers every tool. A board another program is using gets through
+	the open and fails here, which is the whole point of the line: BUSY on
+	Linux and ACCESS on macOS both mean that program, not a permissions
+	problem, because a board nobody may open never reached the claim.
+	"""
+	if isinstance(error, (usb1.USBErrorBusy, usb1.USBErrorAccess)):
+		return ("%s is in use by another program (libusb %s)"
+			%(board, error.value))
+	return ("claiming the USB interface of %s failed (libusb %s)"
+		%(board, error.value))
+
+
 def select_ubertooth(selector, attached):
 	"""The one board a -U argument names, and how a message should name it.
 
@@ -1254,7 +1270,15 @@ class BTCtl:
 		if self.connected():
 			warn("the device is already open")
 			return
-		self._usb.claimInterface(0)
+		try:
+			self._usb.claimInterface(0)
+		except usb1.USBError as e:
+			# Raised as the refusals in find() are, because it says the same
+			# thing: this board cannot be used, and nothing was asked of it
+			# yet. Reported as a failed set-up it reached the generic line
+			# for a board that took none of the session's requests, with a
+			# note about firmware that has nothing to do with it.
+			raise BTCtlNoDeviceError(claim_failure_message(self._board, e))
 		self._rx_stopped.clear()
 		self._rx_error = None
 		# Daemon, so a receive loop stuck in libusb cannot hold up an

@@ -210,8 +210,12 @@ With no Ubertooth attached the tool says `error: no Ubertooth devices found`
 and exits 1. A selection that names no board, or more than one, is refused
 the same way; see SELECTING A DEVICE. A board that cannot be opened is
 `error: could not open Ubertooth <serial>: <reason>`, with a `note: ` about
-file permissions when the open was refused for want of them. A board that
-takes none of the requests
+file permissions when the open was refused for want of them. A board another
+program is using opens, and is then refused when the session claims its USB
+interface: `error: Ubertooth <serial> is in use by another program (libusb
+-6)`, the line every tool gives for that. Which libusb code it carries depends
+on the system, `-6` on Linux and `-3` on macOS; see ubertooth(7), WHEN A BOARD
+CANNOT BE USED. A board that takes none of the requests
 the session opens with gets `error: could not set up Ubertooth <serial>:
 ...` and, when the request timed out, a `note: ` naming `bluetooth_rxtx` and
 the image to flash: that is nearly always what such a board is carrying,
@@ -223,7 +227,8 @@ same way. See FIRMWARE.
 0 for `-h`, and when the session ended cleanly, which is `exit`, `q`, `x` or
 Ctrl-D with nothing left running. 1 for a command line the tool will not take,
 when no Ubertooth is found, when `-U` names no board or more than one, when
-the one it names cannot be opened, when the board refuses the requests
+the one it names cannot be opened or is in use by another program, when the
+board refuses the requests
 that set the session up, when Ctrl-C ends the tool before the prompt is up,
 and when the session ends with a command that would not stop still holding the
 board.

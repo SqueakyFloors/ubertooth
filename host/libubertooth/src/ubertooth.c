@@ -452,6 +452,10 @@ static const char* board_label(const char* serial, int index)
 	return label;
 }
 
+/* Documented with the declaration in ubertooth.h. Why ACCESS is another
+ * program here and a permissions problem in show_libusb_error(): the call. A
+ * board nobody may open fails at the open and never reaches a claim, so by
+ * this point the interface exists and belongs to somebody else. */
 void ubertooth_report_claim_failed(const char* board, int err)
 {
 	if (board == NULL)

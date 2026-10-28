@@ -324,6 +324,19 @@
 
 ### Reliability fixes
 
+- `ubertooth-follow -w` compensates the delay it says it does. The option
+  counts 625 us timeslots, and the clock the board hops on counts 312.5 us
+  ticks; the delay was added tick for tick, so every value compensated half of
+  what it said -- 1562.5 us of the default's 3125 us, leaving the board
+  hopping on a clock more than two slots out, which on a hopping piconet is
+  the wrong channel.
+  [#672](https://github.com/SqueakyFloors/ubertooth/issues/672)
+- `ubertooth-btbr` reports a board another program is using as that, in the
+  words every other tool uses: `error: Ubertooth <serial> is in use by another
+  program`, with the libusb code the system gives. It used to report it as a
+  board that took none of the session's requests, with a note about firmware
+  that had nothing to do with it.
+  [#701](https://github.com/SqueakyFloors/ubertooth/issues/701)
 - A spectrum analyzer run measures through the radio front end a freshly
   booted board has, whichever mode ran before it. `ubertooth-specan` and
   `ubertooth-util -q` do not set the radio's manual signal overrides
@@ -1110,6 +1123,11 @@
 
 Fixes with no visible change in normal use.
 
+- `ubertooth-dfu -d <image> -r` tells three things apart after the reset: a
+  board that did not come back, a board that is back and will not open, and a
+  host USB bus that could not be read at all. The last two both read as a
+  board that would not open, which named a fault the board may not have had.
+  [#676](https://github.com/SqueakyFloors/ubertooth/issues/676)
 - A packet captured by `ubertooth-btle -p` is timestamped a fixed moment after
   the board synchronized on it, rather than somewhere in the middle of the
   packet, so its time no longer drifts later the longer the packet is. Times

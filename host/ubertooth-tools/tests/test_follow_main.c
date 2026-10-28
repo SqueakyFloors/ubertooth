@@ -61,6 +61,7 @@ static struct {
 	int clock_rc;         /* returned by cmd_set_clock_quiet() */
 	int thread_start_rc;  /* returned by ubertooth_bulk_thread_start() */
 	int hopping_rc;       /* returned by cmd_start_hopping() */
+	int clkn_offset;      /* the clock offset the board was told to hop on */
 	int closes;           /* ubertooth_close() */
 	int frees;            /* ubertooth_free() */
 	int dev_fd;           /* the adapter handle the tool was given */
@@ -333,8 +334,8 @@ int cmd_start_hopping(struct libusb_device_handle* devh, int clkn_offset,
                       int clk100ns_offset)
 {
 	(void)devh;
-	(void)clkn_offset;
 	(void)clk100ns_offset;
+	fake.clkn_offset = clkn_offset;
 	record('h');
 	return fake.hopping_rc;
 }
@@ -994,6 +995,33 @@ MU_TEST(a_truncated_write_stops_the_follow_and_adds_no_second_line)
 	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
 }
 
+/* -w counts 625 us timeslots, and the clock the board hops on counts 312.5 us
+ * ticks, so the offset it is given is twice the delay. It used to be added
+ * tick for tick, which compensated half of what the option said and left the
+ * default a whole slot early. */
+MU_TEST(the_usb_delay_is_given_to_the_board_in_clock_ticks)
+{
+	struct run_result r;
+
+	/* The faked adapter reads a clock of 1000 ticks, with no offset to the
+	 * target, so the offset the board gets is 1000 plus the delay. */
+	reset_fake();
+	r = RUN(TARGET, "-w", "0");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1000, fake.clkn_offset);
+
+	reset_fake();
+	r = RUN(TARGET, "-w", "5");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1010, fake.clkn_offset);
+
+	/* The default is the same five slots. */
+	reset_fake();
+	r = RUN(TARGET);
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1010, fake.clkn_offset);
+}
+
 int main(void)
 {
 	/* This binary does not link libubertooth: the fakes above are the whole
@@ -1011,5 +1039,6 @@ int main(void)
 	MU_RUN(a_refused_address_set_exits_1);
 	MU_RUN(a_refused_clock_set_exits_1);
 	MU_RUN(a_truncated_write_stops_the_follow_and_adds_no_second_line);
+	MU_RUN(the_usb_delay_is_given_to_the_board_in_clock_ticks);
 	return mu_report();
 }

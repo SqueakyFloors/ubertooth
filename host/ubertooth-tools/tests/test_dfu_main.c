@@ -93,6 +93,7 @@ static struct {
 	int detach_resets;      /* the bootloader acts on REQ_DETACH and resets */
 	int detach_drops_off_bus; /* ...and the board then leaves USB entirely */
 	int claim_rc_after_detach; /* what claiming the returned board returns */
+	int open_rc_after_detach;  /* ...and what opening it returns */
 	int detach_returns_to_dfu; /* ...and the bootloader runs again */
 	int absent_lists;       /* this many listings find nothing on the bus */
 	int list_rc;            /* < 0: a device listing fails with this */
@@ -103,6 +104,7 @@ static struct {
 	char image[32];         /* ...and which image its info block names */
 	int info_calls;
 	int abort_calls, clrstatus_calls, getstatus_calls;
+	int open_rc;            /* < 0: opening the device fails with this */
 	int opens, closes, claims, releases, claim_rc;
 	int claim_reports;            /* ubertooth_report_claim_failed() calls */
 	int claim_report_err;         /* the code it was given */
@@ -235,6 +237,11 @@ libusb_device *LIBUSB_CALL libusb_get_device(libusb_device_handle *devh)
 int LIBUSB_CALL libusb_open(libusb_device *dev, libusb_device_handle **devh)
 {
 	mu_assert(dev == FAKE_DEVICE, "opened an unknown device");
+	/* A device that was listed and then would not open, counted before the
+	 * handle exists: NO_DEVICE is the one a case asks for most, and it means
+	 * the device left the bus between the listing and the open. */
+	if (fake.open_rc < 0)
+		return fake.open_rc;
 	fake.opens++;
 	*devh = FAKE_HANDLE;
 	return 0;
@@ -369,6 +376,11 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle *devh,
 			 * the download to happen at all. */
 			if (fake.claim_rc_after_detach != 0)
 				fake.claim_rc = fake.claim_rc_after_detach;
+			/* The same for an open that fails only once the board is back:
+			 * the opens before the reset had to work for the download to
+			 * happen at all. */
+			if (fake.open_rc_after_detach != 0)
+				fake.open_rc = fake.open_rc_after_detach;
 		}
 		return fake.detach_rc;
 	default:
@@ -1468,6 +1480,84 @@ MU_TEST(a_board_that_does_not_come_back_says_the_firmware_was_written)
 	mu_assert_int_eq(0, fake.revision_calls);
 }
 
+/* The search for the returned application tells its three outcomes apart,
+ * because the line the user reads differs for each: a board that is not
+ * there, a bus that could not be read at all, and a device that is there and
+ * would not open. The first two used to come back as the third. */
+MU_TEST(the_search_for_the_returned_application_tells_its_outcomes_apart)
+{
+	struct dfu_usb_identity identity;
+	libusb_device_handle *devh = FAKE_HANDLE;
+	int bus_error = -1;
+
+	board_in_dfu();
+	/* The application device on the path the flashed board was on. */
+	fake.vid = U1_VENDORID;
+	fake.pid = U1_PRODUCTID;
+	mu_assert_int_eq(0, get_usb_identity(FAKE_DEVICE, &identity));
+
+	mu_assert_int_eq(1, find_ubertooth_application_device(
+		(libusb_context *)&fake, &identity, &devh, &bus_error));
+	mu_assert(devh == FAKE_HANDLE, "the opened handle was not returned");
+	mu_assert_int_eq(0, bus_error);
+
+	/* Nothing on the bus: absent, and the caller polls again. */
+	fake.present = 0;
+	mu_assert_int_eq(0, find_ubertooth_application_device(
+		(libusb_context *)&fake, &identity, &devh, &bus_error));
+	mu_assert(devh == NULL, "a search that found nothing returned a handle");
+	mu_assert_int_eq(0, bus_error);
+
+	/* The bus itself could not be read, so no device was looked at: its own
+	 * outcome, not a device that refused to open. The libusb code comes back
+	 * separately, for the stage trace. */
+	fake.present = 1;
+	fake.list_rc = LIBUSB_ERROR_NO_MEM;
+	mu_assert_int_eq(DFU_OPEN_BUS_UNREADABLE,
+	                 find_ubertooth_application_device(
+		(libusb_context *)&fake, &identity, &devh, &bus_error));
+	mu_assert(devh == NULL, "an unreadable bus returned a handle");
+	mu_assert_int_eq(LIBUSB_ERROR_NO_MEM, bus_error);
+
+	/* Listed, then gone by the time it was opened: an absent board, which
+	 * is what the caller polls for, and not one that would not open. */
+	fake.list_rc = 0;
+	fake.open_rc = LIBUSB_ERROR_NO_DEVICE;
+	mu_assert_int_eq(0, find_ubertooth_application_device(
+		(libusb_context *)&fake, &identity, &devh, &bus_error));
+	mu_assert_int_eq(0, bus_error);
+
+	/* A device that is there and will not open is reported as itself. */
+	fake.open_rc = LIBUSB_ERROR_ACCESS;
+	mu_assert_int_eq(LIBUSB_ERROR_ACCESS,
+	                 find_ubertooth_application_device(
+		(libusb_context *)&fake, &identity, &devh, &bus_error));
+	mu_assert_int_eq(0, bus_error);
+	mu_assert_int_eq(0, fake.lists);
+}
+
+/* The same three outcomes, end to end: a board that keeps leaving the bus
+ * between the listing and the open is a board that did not come back, so the
+ * line must not blame something holding its interface. */
+MU_TEST(a_board_that_goes_between_the_listing_and_the_open_is_reported_as_absent)
+{
+	struct run_result r;
+
+	board_in_dfu();
+	fake.open_rc_after_detach = LIBUSB_ERROR_NO_DEVICE;
+	r = RUN("-d", image_path, "-r");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: the firmware was written, but the board "
+	                 "did not come back on USB: power-cycle it and read its "
+	                 "revision with ubertooth-util -v before flashing it "
+	                 "again\n") != NULL,
+	          "a board that was gone by the open was not reported as absent");
+	mu_assert(strstr(r.err, "would not open") == NULL,
+	          "a board that had gone was reported as one that would not open");
+	mu_assert_int_eq(1, error_lines(r.err));
+	mu_assert_int_eq(0, (int)strlen(r.out));
+}
+
 /* The board came back, and the interface would not be claimed: something else
  * is using it, or this user may not have it. The write still completed, but
  * the board is there, so neither "it did not come back" nor a power cycle
@@ -2150,6 +2240,8 @@ int main(void)
 	MU_RUN(a_board_running_the_other_image_fails_the_verification);
 	MU_RUN(a_board_that_will_not_name_its_image_fails_the_verification);
 	MU_RUN(a_board_that_does_not_come_back_says_the_firmware_was_written);
+	MU_RUN(the_search_for_the_returned_application_tells_its_outcomes_apart);
+	MU_RUN(a_board_that_goes_between_the_listing_and_the_open_is_reported_as_absent);
 	MU_RUN(a_board_that_will_not_be_claimed_is_not_reported_as_missing);
 	MU_RUN(a_board_that_will_not_report_its_revision_says_the_flash_is_unchecked);
 	MU_RUN(asking_past_the_end_of_flash_takes_the_bootloader_down);
