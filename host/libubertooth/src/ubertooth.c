@@ -19,10 +19,15 @@
  * Boston, MA 02110-1301, USA.
  */
 
-/* dladdr(), which print_version() uses to say where libbtbb was loaded from.
- * glibc declares it only for this macro; macOS and the BSDs declare it
- * whatever is asked for. It has to come before the first header, because that
- * is where glibc reads it. */
+/* dladdr() and RTLD_DEFAULT, which print_version() uses to say where libbtbb
+ * was loaded from. glibc declares both only for this macro; macOS and the BSDs
+ * declare them whatever is asked for. It has to come before the first header,
+ * because that is where glibc reads it.
+ *
+ * Here rather than beside _DEFAULT_SOURCE in host/CMakeLists.txt, where the
+ * other feature macro is set for every target: _GNU_SOURCE changes what the
+ * standard headers declare, strerror_r's return type among it, so it is asked
+ * for in the one file that needs it. */
 #define _GNU_SOURCE
 
 #include <dlfcn.h>
@@ -110,17 +115,35 @@ unsigned int packet_counter_max;
  */
 static const char* loaded_libbtbb_path(void)
 {
-	/* A function pointer, written to the member it fits and read from the
-	 * other: converting one to void* directly is not something C promises,
-	 * and -Wpedantic says so. */
-	union {
-		const char* (*function)(void);
-		const void* address;
-	} probe;
+	/*
+	 * The loader is asked for the symbol by name, rather than handed the
+	 * address of the call this file would make. In a program built without
+	 * position-independent code, the address of a function that lives in a
+	 * shared library is the program's own entry for it, and dladdr() would
+	 * answer with the program -- naming the tool itself as the libbtbb in
+	 * use. A lookup here returns the definition the loader resolved, which
+	 * is the file wanted.
+	 */
+	const void* address = dlsym(RTLD_DEFAULT, "btbb_get_version");
 	Dl_info info;
 
-	probe.function = btbb_get_version;
-	if (dladdr(probe.address, &info) == 0)
+	if (address == NULL) {
+		/* No dynamic definition: a build that linked libbtbb into the
+		 * program. Its own call site is then the honest answer, and
+		 * dladdr() names the program. A function pointer is written to
+		 * the member it fits and read from the other, because
+		 * converting one to void* directly is not something C promises
+		 * and -Wpedantic says so. */
+		union {
+			const char* (*function)(void);
+			const void* address;
+		} probe;
+
+		probe.function = btbb_get_version;
+		address = probe.address;
+	}
+
+	if (dladdr(address, &info) == 0)
 		return NULL;
 	if (info.dli_fname == NULL || info.dli_fname[0] == '\0')
 		return NULL;
@@ -130,7 +153,7 @@ static const char* loaded_libbtbb_path(void)
 /* Labelled like every other version line a tool prints, so the host tools'
  * version cannot be mistaken for a board's firmware revision, and one line
  * per thing asked about so each can be grepped for on its own. */
-void print_version() {
+void print_version(void) {
 	const char* btbb_path = loaded_libbtbb_path();
 
 	printf("Host tools version: libubertooth %s (%s), libbtbb %s (%s)\n",

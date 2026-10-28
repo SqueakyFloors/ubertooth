@@ -24,21 +24,31 @@ Before you start:
 Everything below runs from `.github/workflows/`, on every pull request that
 touches code:
 
-| Check | What it is for |
+| Workflow / job | What it is for |
 | --- | --- |
-| `Build / host` | Builds the host tools on Ubuntu and macOS and runs the host test suite, a strict-C-standard build, and a smoke test of each binary |
-| `Build / firmware` | Builds every firmware image on both runners, runs the firmware test suite, and checks that a flag or linker-script change rebuilds the images |
-| `Build / scripts` | shellcheck, plus a self-test of each `tools/check-*.sh` that proves the check still catches what it is for |
-| `Build / issue-references` | No issue or pull request number in source, tests or build files: the reason for a line belongs in its comment, the link in the commit message or the pull request |
-| `Build / image-revision` | Every shipped firmware image carries a readable revision |
-| `Build / api-version` | The firmware API version against `main`, using `main`'s copy of the check |
-| `Build / dfu-package` | Each shipped image can be packaged and the packaged file reads back |
-| `install.sh` | Runs the installer end to end on both runners (only when `install.sh` changes) |
-| `libbtbb pin` | The pinned libbtbb commit is the same in every file that repeats it |
-| `Man pages` | The committed roff man pages match their Markdown sources (only when `host/doc/` changes) |
+| `Build` / `host` | Builds the host tools and runs the host test suite, a strict-C-standard build, and a smoke test of each binary |
+| `Build` / `firmware` | Builds the ARM firmware images and the bootloader, runs the firmware test suite, and checks that a flag or linker-script change rebuilds the images. The ToorCon 13 badge (`firmware/tc13badge`, a Renesas R8C part) is not among them: nothing here builds it, so a change to it is checked by reading the source |
+| `Build` / `scripts` | shellcheck, plus a self-test of each `tools/check-*.sh` that proves the check still catches what it is for |
+| `Build` / `issue-references` | No issue or pull request number in source, tests or build files: the reason for a line belongs in its comment, the link in the commit message or the pull request |
+| `Build` / `image-revision` | Every shipped firmware image carries a readable revision |
+| `Build` / `api-version` | The firmware API version against `main`, using `main`'s copy of the check |
+| `Build` / `dfu-package` | Each shipped image can be packaged and the packaged file reads back |
+| `install.sh` / `install-sh` | Runs the installer end to end (only when `install.sh` changes) |
+| `libbtbb pin` / `libbtbb-pin` | The pinned libbtbb commit is the same in every file that repeats it |
+| `Man pages` / `refresh` | The committed roff man pages match their Markdown sources (only when `host/doc/` changes) |
 
-A change to documentation only (`**.md`, `docs/`, `.kiro/`) runs none of
-these, by the `paths-ignore` in each workflow.
+`host`, `firmware`, `scripts` and `install-sh` run on an Ubuntu and a macOS
+runner, and report once per runner: `host (ubuntu-24.04)`, `host (macos-26)`.
+The three jobs that build on older or other distributions
+(`host-ubuntu-20_04`, `firmware-ubuntu-20_04`, `host-fedora`) are skipped on a
+pull request and run weekly, on a release, or on request.
+
+A change to documentation only skips `Build` and `install.sh`, which both
+ignore `**.md`, `docs/` and `.kiro/`. Two still run: `libbtbb pin` has no path
+filter at all, because the commit it checks is written down in
+`COMPATIBILITY.md` and the build guides as well as in the build files, and
+`Man pages` runs whenever `host/doc/` changes, which is where the man page
+sources live.
 
 ### Nothing enforces them
 

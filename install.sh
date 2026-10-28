@@ -458,9 +458,14 @@ fi
 # a mixed machine is something to tell the user about rather than a reason to
 # fail. A build of the host tools against the wrong libbtbb is refused earlier,
 # by the configure step.
-if ! BTBB_IN_USE="$("$PREFIX/bin/ubertooth-util" -H 2>/dev/null)"; then
+# Its standard error is left alone rather than discarded: a tool that will not
+# run has said why there, and that is the thing to show.
+if ! BTBB_IN_USE="$("$PREFIX/bin/ubertooth-util" -H)"; then
 	info "WARNING: the installed ubertooth-util would not run, so which libbtbb it uses is unknown"
 else
+	# Said to be the tool's own two lines, because they are quoted as it
+	# printed them rather than given the script's "==> " prefix.
+	info "What the installed tools report:"
 	printf '%s\n' "$BTBB_IN_USE" >&2
 	case "$BTBB_IN_USE" in
 		*"libbtbb loaded from: $PREFIX/"*) ;;

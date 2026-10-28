@@ -128,10 +128,11 @@
 /*
  * How many times each wait on CC2400 state polls the radio before it gives up.
  *
- * These are poll counts, not times, which at the cost above makes the five
- * below between 4 and 40 ms. Each is out of reach of a radio that is working
- * at all, which is all it has to be -- the states being waited for are reached
- * in well under a millisecond.
+ * These are poll counts, not times, which at the floor above makes the
+ * shortest of the five below 3 ms and the longest 30 ms, and somewhat more in
+ * practice. Each is out of reach of a radio that is working at all, which is
+ * all it has to be -- the states being waited for are reached in well under a
+ * millisecond.
  *
  * The wait for an unlock is deliberately the shortest, as it is in the
  * Ubertooth firmware: it is asked for on the way out of a measurement, where

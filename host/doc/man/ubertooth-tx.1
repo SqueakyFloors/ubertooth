@@ -27,6 +27,9 @@ select an Ubertooth by enumeration index or serial number; see ubertooth(7), SEL
 .TP
 \fB\-V\fR
 print the host tools version, as \fBHost tools version: libubertooth <version> (<revision>), libbtbb <version> (<revision>)\fR, followed by \fBlibbtbb loaded from: <path>\fR naming the file this run reads libbtbb from\.
+.TP
+\fB\-h\fR
+print the usage text on standard output and exit 0\. It takes effect once the whole command line has parsed, so a bad option value, a stray word or an option given twice is still reported\.
 .SH "TRANSMIT POWER"
 Transmitting uses the CC2400 power level set with \fBubertooth\-util \-a\fR and leaves it unchanged\. A board that has not been given a level transmits at 7 (0 dBm), the CC2400's reset value\. These levels are at the CC2400 radio; the Ubertooth One's RF amplifier changes the actual output after that\.
 .SH "ARGUMENTS"
