@@ -72,6 +72,20 @@ new_repo() {
         "$current" > "$repo/TEST_PLAN.md"
     printf '| **Ubertooth firmware (API)** | %s (this tree), exactly |\n' \
         "$current" > "$repo/COMPATIBILITY.md"
+    # Two release sections, so a case can plant a number in either and the
+    # cases about "only the top section is read" have something below it.
+    cat > "$repo/CHANGELOG.md" <<EOF
+# Changelog
+
+## 2020-12-R1+modern1
+
+- **Reflash required:** the firmware API version is now $current, and the
+  host tools require firmware of exactly their own.
+
+## 2020-12-R1
+
+- USB API version bumped to 1.07
+EOF
     git -C "$repo" init -q
     git -C "$repo" config user.email selftest@example.invalid
     git -C "$repo" config user.name "Self test"
@@ -245,6 +259,78 @@ run_check
 [ "$status" -eq 1 ] || fail "expected exit 1, got $status"
 grep -q "TEST_PLAN.md expects an API version this tree does not carry" "$err" ||
     fail "a second version on the same line was not reported"
+
+# ---- the CHANGELOG's top section, which says the version in words -------
+
+case_name="a stale version in the CHANGELOG's top section is caught"
+new_repo
+sed "s/is now $current/is now $stale/" "$repo/CHANGELOG.md" > "$repo/c" &&
+    mv "$repo/c" "$repo/CHANGELOG.md"
+git -C "$repo" add CHANGELOG.md
+run_check
+[ "$status" -eq 1 ] || fail "expected exit 1, got $status"
+grep -q "top section states an API version this" "$err" ||
+    fail "a stale version in the top section was not reported"
+grep -q "the CHANGELOG:  $stale" "$err" || fail "the stale value is not named"
+
+case_name="a top section that says nothing about the version is caught"
+# The sentence is the only statement of the version in words, so a bump that
+# dropped it would leave this check with nothing to compare -- and a check
+# with nothing to compare passes.
+new_repo
+sed "s/the firmware API version is now $current/the firmware interface moved/" \
+    "$repo/CHANGELOG.md" > "$repo/c" && mv "$repo/c" "$repo/CHANGELOG.md"
+git -C "$repo" add CHANGELOG.md
+run_check
+[ "$status" -eq 1 ] || fail "expected exit 1, got $status"
+grep -q "does not say what the" "$err" ||
+    fail "a top section with no version statement was not reported"
+
+case_name="an earlier release's own version is left alone"
+# Everything below the top heading is history: the 2020-12-R1 section says
+# 1.07 because that is what it shipped, and a bump must not have to edit it.
+new_repo
+cat >> "$repo/CHANGELOG.md" <<EOF
+- the firmware API version is now $stale
+- requires API version $stale
+EOF
+git -C "$repo" add CHANGELOG.md
+run_check
+[ "$status" -eq 0 ] || fail "expected exit 0, got $status"
+[ -s "$err" ] && fail "wrote to standard error about a section below the top"
+
+case_name="the words followed straight by a stale number are caught too"
+# "requires API version 1.33" states the current requirement in a second
+# wording, so the top section has to be right in that one as well.
+new_repo
+# Into the top section, above the heading of the release below it.
+awk -v stale="$stale" '
+    /^## 2020-12-R1$/ && !done { print "- requires API version " stale " to run"; print ""; done = 1 }
+    { print }
+' "$repo/CHANGELOG.md" > "$repo/c" && mv "$repo/c" "$repo/CHANGELOG.md"
+git -C "$repo" add CHANGELOG.md
+run_check
+[ "$status" -eq 1 ] || fail "expected exit 1, got $status"
+grep -q "top section states an API version this" "$err" ||
+    fail "a second wording with a stale number was not reported"
+
+case_name="a CHANGELOG the check cannot find is a failure, not a pass"
+new_repo
+rm "$repo/CHANGELOG.md"
+git -C "$repo" rm -q --cached CHANGELOG.md
+run_check
+[ "$status" -eq 1 ] || fail "expected exit 1, got $status"
+grep -q "CHANGELOG.md is missing" "$err" ||
+    fail "a missing CHANGELOG was not reported"
+
+case_name="a CHANGELOG with no release heading is a failure, not a pass"
+new_repo
+printf '# Changelog\n\nNothing released yet.\n' > "$repo/CHANGELOG.md"
+git -C "$repo" add CHANGELOG.md
+run_check
+[ "$status" -eq 1 ] || fail "expected exit 1, got $status"
+grep -q "has no '## ' release heading" "$err" ||
+    fail "a CHANGELOG with no release heading was not reported"
 
 # ---- the version the check reads itself ---------------------------------
 

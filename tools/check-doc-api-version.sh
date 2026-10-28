@@ -18,7 +18,9 @@
 #      the allowlist below says it is deliberate;
 #   2. where it is deliberate because the document states the requirement --
 #      TEST_PLAN.md and COMPATIBILITY.md -- the value is the one this tree
-#      carries, so allowlisting those two files cannot hide a stale number.
+#      carries, so allowlisting those two files cannot hide a stale number;
+#   3. the CHANGELOG's top section, which says in words what the version is
+#      now, says this tree's.
 #
 # Run it from anywhere in a checkout:
 #
@@ -28,10 +30,16 @@
 # or says on standard output that the documentation is clean and exits 0. CI
 # runs this same script, so what fails there fails here.
 #
-# What it does not catch, so the next reader knows: a version written in words
-# ("API version 1.35", "firmware 1.35"), and a number in a file kind the scope
-# below does not name. It is a net for the spelling the tools print, which is
-# the one that gets copied into a sample.
+# What parts 1 and 2 do not catch is a version written in words, because the
+# number alone appears in prose that is about an older version on purpose: a
+# note about the 2020-12-R1 release should go on saying 1.07 forever. So there
+# is no rule that could be applied to the whole of a document. Part 3 asks the
+# one question that has a single right answer -- what is the version now? --
+# of the one place that answers it, the CHANGELOG's top section.
+#
+# Still not caught, so the next reader knows: a bare number in prose
+# ("requires firmware 1.35"), a version named in a release section below the
+# top one, and a number in a file kind the scope below does not name.
 
 set -u
 
@@ -233,9 +241,80 @@ else
     fi
 fi
 
+# Part 3: the CHANGELOG's top section says what the version is now, in words,
+# so the samples rule above cannot reach it. Only the top section is read:
+# everything below it is the history of earlier releases, where an old version
+# is the right thing to say.
+changelog=CHANGELOG.md
+top=$work/top
+if [ ! -f "$changelog" ]; then
+    {
+        echo "error: $changelog is missing."
+        echo ""
+        echo "       Its top section states the firmware API version in words,"
+        echo "       which is the one place a bump has to say the number out"
+        echo "       loud, so a check that could not find the file would pass"
+        echo "       any version at all."
+    } >&2
+    problems=$((problems + 1))
+else
+    # The top section: its heading and every line down to the next release
+    # heading. Line numbers are carried along so a problem can be pointed at.
+    awk '
+        /^## / { sections++; if (sections > 1) exit }
+        sections == 1 { print FNR ": " $0 }
+    ' "$changelog" > "$top"
+    if [ ! -s "$top" ]; then
+        {
+            echo "error: $changelog has no '## ' release heading, so it has no"
+            echo "       top section to read the version from."
+        } >&2
+        problems=$((problems + 1))
+    else
+        # The sentence the rule asks a bump to write, and the stricter
+        # spelling where the words are followed straight by the number
+        # ("requires API version 1.35"). Both are collected: the top section
+        # describes one release, so every version it states as current has to
+        # be this one.
+        stated=$({
+            sed -n 's/.*firmware API version is now \([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' "$top"
+            sed -n 's/.*API version \([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' "$top"
+        } | sort -u)
+        if [ -z "$stated" ]; then
+            {
+                echo "error: $changelog's top section does not say what the"
+                echo "       firmware API version is now."
+                echo ""
+                echo "         this tree: $version ($header)"
+                echo ""
+                echo "       .kiro/steering/branch-and-review.md asks a bump to"
+                echo "       write that line, in the form 'the firmware API"
+                echo "       version is now $version'. Without it a reader has"
+                echo "       no statement of the version to go stale -- and"
+                echo "       this check would pass a tree that had dropped it."
+            } >&2
+            problems=$((problems + 1))
+        elif [ "$stated" != "$version" ]; then
+            {
+                echo "error: $changelog's top section states an API version this"
+                echo "       tree does not carry."
+                echo ""
+                echo "         this tree:      $version ($header)"
+                echo "         the CHANGELOG:  $(printf '%s' "$stated" | tr '\n' ' ')"
+                echo ""
+                echo "       A bump moves that line with it. Sections below the"
+                echo "       top one are not read: an earlier release's note"
+                echo "       keeps the version it shipped."
+                grep -E 'API version' "$top" | sed 's/^/         /'
+            } >&2
+            problems=$((problems + 1))
+        fi
+    fi
+fi
+
 if [ "$problems" -ne 0 ]; then
     exit 1
 fi
 
-echo "check-doc-api-version: $count documentation files scanned, no pinned version; TEST_PLAN.md and COMPATIBILITY.md are at $version."
+echo "check-doc-api-version: $count documentation files scanned, no pinned version; TEST_PLAN.md, COMPATIBILITY.md and CHANGELOG.md are at $version."
 exit 0
