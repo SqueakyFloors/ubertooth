@@ -430,8 +430,8 @@ MU_TEST(a_capture_that_cannot_be_set_up_exits_1_and_gives_everything_back)
 		  "error: submitting the receive transfer failed (-4)\n" },
 		{ "",  0, EAGAIN, 0, NULL /* filled in below */ },
 		/* The capture request is named the way the sweep request is, so
-		 * the line carries the "error: " prefix rather than
-		 * libubertooth's own unprefixed "libUSB Error" wording. */
+		 * the line names the request rather than leaving it to
+		 * libubertooth's shared sink, which names none. */
 		{ "s", 0, 0, LIBUSB_ERROR_TIMEOUT,
 		  "error: could not start the capture: the board did not answer "
 		  "in time (libusb -7)\n"

@@ -399,7 +399,7 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle *devh,
 void show_libusb_error(int error_code)
 {
 	fake.libusb_errors++;
-	fprintf(stderr, "libUSB Error: fake: (%d)\n", error_code);
+	fprintf(stderr, "error: fake (libusb %d)\n", error_code);
 }
 
 /* Stands in for the library's reporter, which the other tools share, so no

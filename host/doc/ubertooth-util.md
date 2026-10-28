@@ -379,7 +379,6 @@ exits non-zero:
     $ ubertooth-util -U 2 -s
     error: no Ubertooth at index 2 (2 attached)
     indexes change when boards are added or removed; select a board by serial with -U<serial>
-    could not open Ubertooth device
 
 Indexes are positions in the list of boards attached when the command runs:
 unplugging `-U 0` makes the old `-U 1` the new `-U 0`. To keep targeting the same
@@ -388,11 +387,10 @@ long as no other attached board's serial starts the same way).
 
 This includes a nonzero index with a single Ubertooth attached (`-U 1` of one
 device is refused; use `-U 0`, or no `-U` at all). With no Ubertooth attached,
-any `-U <n>` reports that no device could be opened.
+any `-U <n>` says `error: no Ubertooth devices found`.
 
 A digit string too large to be a device index at all is refused before the
-device list is read, naming it as given. That is the whole message, without the
-`could not open Ubertooth device` line, because no device was looked for:
+device list is read, naming it as given:
 
     $ ubertooth-util -U 4294967296 -s
     error: no Ubertooth at index 4294967296 (2 attached)
@@ -420,7 +418,7 @@ If the matching boards report the *same* serial, no longer string can tell them
 apart, and the message says so and points at `-U <index>` instead.
 
 A string that matches no attached board also exits non-zero, with
-`no Ubertooth found with serial matching '<string>'`.
+`error: no Ubertooth found with serial matching '<string>'`.
 
 A `note: ` line follows that when a board is sitting in the DFU bootloader: a
 board being flashed enumerates as the bootloader, which this tool cannot open,
@@ -433,9 +431,9 @@ skipped quietly while another board is being selected. It is reported with the
 result, because the string may well be that board's serial:
 
     $ ubertooth-util -U 1cc0 -s
-    no Ubertooth found with serial matching '1cc0'
+    error: no Ubertooth found with serial matching '1cc0'
     2 attached Ubertooth devices could not be opened
-    libUSB Error: Access denied (insufficient permissions)
+    note: Access denied (insufficient permissions) (libusb -3)
 
 (On Linux, that usually means the udev rules are not installed.)
 
@@ -844,12 +842,13 @@ standard output. A set that fails is still reported, on standard error, and
 the command exits 1. `-x` has never had a line of its own.
 
 The errors this tool prints itself are one line starting `error: `; its
-warnings and notes start `warning: ` and `note: `. Some lines from elsewhere
-do not follow that yet: the unknown-option line from the option parser, and
-the libubertooth messages that have not been converted, such as `could not
-open Ubertooth device`. Those that have carry the prefix, for example
-`error: Ubertooth <serial> is in use by another program (libusb -3)`; see
-ubertooth(7), WHEN A BOARD CANNOT BE USED.
+warnings and notes start `warning: ` and `note: `. libubertooth's lines read
+the same way, for example `error: Ubertooth <serial> is in use by another
+program (libusb -3)` and `error: no Ubertooth devices found`; see
+ubertooth(7), WHEN A BOARD CANNOT BE USED. A refusal can run to more than
+one line: the boards listed after `error: multiple Ubertooth devices found;
+select one with -U <index|serial>`, and the counts and reason after a serial
+that matched nothing.
 
 ## SEE ALSO
 

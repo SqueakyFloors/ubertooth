@@ -1087,6 +1087,97 @@ MU_TEST(a_text_format_writes_into_the_file_d_named)
 	unlink(path);
 }
 
+/*
+ * The text formats check every write too, now that -d can send them to a
+ * file. Each one used to fprintf() without looking: a full disk was noticed
+ * only at the closing flush, so the whole sweep ran and the report was the
+ * vaguer "could not flush the samples".
+ */
+MU_TEST(a_failed_text_write_ends_the_run)
+{
+	static const uint8_t modes[] = {
+		SPECAN_STDOUT, SPECAN_GNUPLOT_NORMAL, SPECAN_GNUPLOT_3D
+	};
+	ubertooth_t ut;
+	FILE* unwritable;
+	char err[512];
+	unsigned m;
+
+	for (m = 0; m < sizeof(modes) / sizeof(modes[0]); m++) {
+		/* Unbuffered, so the write goes straight to a descriptor that is
+		 * gone and fails as it is made. */
+		unwritable = broken_stream(0);
+		mu_assert_fatal(unwritable != NULL, "the unbuffered stream opened");
+
+		one_block(&ut, unwritable, modes[m], err, sizeof(err));
+		fclose(unwritable);
+
+		mu_assert_int_eq(1, output_failed);
+		mu_assert_int_eq(1, ut.stop_ubertooth);
+		mu_assert(strstr(err, "error: writing samples failed: could not "
+		                 "write the sample (") == err, err);
+		mu_assert(strchr(err, '\n') == strrchr(err, '\n'), "said once");
+	}
+}
+
+/* And the run a user sees: a text format into a -d file that cannot be
+ * written ends at the first block and exits 1, rather than sweeping to the
+ * end and reporting only the flush. */
+MU_TEST(a_text_sweep_that_could_not_be_written_exits_one)
+{
+	char path[64];
+	char err[512];
+
+	reset_device();
+	device.break_output = OUTPUT_FAILS_AT_THE_WRITE;
+	device.blocks_to_sweep = 10;
+	mu_assert_fatal(make_temp_file(path, sizeof(path)) == 0,
+	                "temp file created");
+
+	mu_assert_int_eq(1, RUN_SPECAN(err, "-d", path, "-g"));
+	mu_assert(strstr(err, "error: writing samples failed: could not write "
+	                 "the sample (") != NULL, err);
+	/* One block, not the ten the fake would have supplied. */
+	mu_assert_int_eq(1, device.blocks);
+	unlink(path);
+}
+
+/* The two gnuplot formats end a pass over the range with a blank line, which
+ * is written and checked with the sample before it. Every other case here
+ * sweeps the whole band, where the fake block never reaches the upper
+ * frequency, so this is the one that reaches that branch. */
+MU_TEST(a_gnuplot_sweep_ends_each_pass_with_a_blank_line)
+{
+	char path[64];
+	char err[512];
+	char text[4096] = {0};
+	FILE *written;
+	size_t n;
+
+	reset_device();
+	device.blocks_to_sweep = 2;
+	mu_assert_fatal(make_temp_file(path, sizeof(path)) == 0,
+	                "temp file created");
+
+	/* 2402-2410 MHz: the fake block holds 2402-2417, so every block
+	 * completes a pass over that range and ends a record. */
+	mu_assert_int_eq(0, RUN_SPECAN(err, "-g", "-l", "2402", "-u", "2410",
+	                               "-d", path));
+	written = fopen(path, "r");
+	mu_assert_fatal(written != NULL, "the file opens for reading");
+	n = fread(text, 1, sizeof(text) - 1, written);
+	text[n] = '\0';
+	fclose(written);
+	unlink(path);
+
+	/* The last sample of a pass is the upper frequency, and a blank line
+	 * follows it. */
+	mu_assert(strstr(text, "2410 -70\n\n") != NULL, text);
+	/* Two passes arrived, so there are two of them. */
+	mu_assert(strstr(strstr(text, "2410 -70\n\n") + 1, "2410 -70\n\n")
+	          != NULL, text);
+}
+
 /* There is one level of verbosity, so a second -v is a mistyped command line
  * rather than a request for more: that one error: line, and nothing opened. */
 MU_TEST(a_second_verbose_is_refused)
@@ -1128,6 +1219,9 @@ int main(void)
 	MU_RUN(a_sweep_that_could_not_be_written_exits_one);
 	MU_RUN(a_sweep_that_was_written_exits_zero);
 	MU_RUN(a_text_format_writes_into_the_file_d_named);
+	MU_RUN(a_failed_text_write_ends_the_run);
+	MU_RUN(a_text_sweep_that_could_not_be_written_exits_one);
+	MU_RUN(a_gnuplot_sweep_ends_each_pass_with_a_blank_line);
 	MU_RUN(a_sweep_whose_stream_died_exits_one);
 	MU_RUN(a_sweep_whose_collecting_thread_failed_exits_one);
 	MU_RUN(an_interrupted_sweep_still_exits_zero);

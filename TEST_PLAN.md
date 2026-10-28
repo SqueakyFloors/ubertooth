@@ -31,7 +31,8 @@ A second Ubertooth One for the range test (2i).
 - [ ] `brew install cmake libusb pkg-config`
 - [ ] Build libbtbb with local prefix
 - [ ] Build host tools
-- [ ] Confirm: binaries run (even without device attached — "could not open Ubertooth" is OK)
+- [ ] Confirm: binaries run (even without a device attached — `error: no
+      Ubertooth devices found` is the expected refusal)
 
 ---
 
@@ -48,6 +49,22 @@ A second Ubertooth One for the range test (2i).
 - [ ] Confirm: no `is in use by another program` or `claiming the USB
       interface` errors
 - [ ] Confirm: no timeout errors
+
+### 2a-1. Choosing a board, and choosing none
+*Requires: two or more Ubertooths attached*
+- [ ] Run `ubertooth-util -S` with no `-U`
+- [ ] Confirm: it exits 1 with one `error: multiple Ubertooth devices found;
+      select one with -U <index|serial>` on standard error, then a
+      `  Device <n>: <serial>` line per board, nothing on standard output, and
+      no further line after the list
+- [ ] Run `ubertooth-util -U 99 -s`
+- [ ] Confirm: `error: no Ubertooth at index 99 (<n> attached)` and the line
+      about indexes shifting, and nothing after them
+- [ ] Run `ubertooth-util -U ffffffffffffffff -s`
+- [ ] Confirm: `error: no Ubertooth found with serial matching
+      'ffffffffffffffff'`
+- [ ] Unplug every board and run `ubertooth-util -s`
+- [ ] Confirm: `error: no Ubertooth devices found`, exit 1
 
 ### 2b. Compile info
 - [ ] Run `ubertooth-util -V`
@@ -303,7 +320,7 @@ already in DFU, so the run would end at `DFU entry failed` instead.*
       `error: detach failed: the board reset and came back in the bootloader`,
       then the `note:` lines saying the firmware was written, naming the
       bootloader's two entry conditions, and telling you to remove the bridge.
-      No `libUSB Error:` line in front of them, and no second copy of the
+      No bare libusb status line in front of them, and no second copy of the
       failure from cleanup
 - [ ] Unplug the board, remove the bridge, plug it back in, and run
       `ubertooth-util -U <serial> -v`
@@ -375,6 +392,19 @@ nRF52840 DKs) plus one Ubertooth.*
 - [ ] Run `ubertooth-specan`
 - [ ] Confirm: starts without Python errors
 - [ ] Confirm: outputs spectrum data
+
+### 4a-1. A sweep that cannot be written
+*Linux only: `/dev/full` stands in for a full disk*
+- [ ] Run `ubertooth-specan -U <serial> -l 2402 -u 2410 -v -d /dev/full`, then
+      the same with `-g` and with `-G`
+- [ ] Confirm: each ends within a second, exits 1, and says
+      `error: writing samples failed: ...` once -- `wrote <n> of 3 bytes` for the
+      raw form, `could not write the sample` for `-g` and `-G`, both naming
+      `No space left on device`. A run that swept for seconds before reporting
+      `could not flush the samples` is the fault to report
+- [ ] Run the same three into a file on a disk with room
+- [ ] Confirm: each exits 0 on Ctrl-C and the file holds the samples, as text
+      for `-g`/`-G` and as 3-byte records without them
 
 ### 4b. Spectrum analyzer UI
 - [ ] Run `ubertooth-specan-ui`

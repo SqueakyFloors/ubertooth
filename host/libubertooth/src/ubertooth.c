@@ -273,6 +273,9 @@ void ubertooth_set_timeout(ubertooth_t* ut __attribute__((unused)), int seconds)
 	alarm(seconds);
 }
 
+/* Set once ubertooth_count() has reported a bus it could not list. */
+static int list_failure_said;
+
 int ubertooth_count(void) {
 	struct libusb_device **usb_list = NULL;
 	struct libusb_device_descriptor desc;
@@ -289,11 +292,30 @@ int ubertooth_count(void) {
 	}
 
 	usb_devs = libusb_get_device_list(NULL, &usb_list);
+	/* Cleared on a list that worked, so a bus that comes back and then fails
+	 * again is reported again rather than once per process. */
+	if (usb_devs >= 0)
+		list_failure_said = 0;
+	if (usb_devs < 0) {
+		/* Not an empty bus: reported as itself, and as a count the caller
+		 * can tell from zero, which is what the "no Ubertooth" reports
+		 * read. Said once per run, because this count is polled -- every
+		 * 100 ms while ubertooth-util -r waits for a board to come back --
+		 * and a bus that cannot be listed stays that way. */
+		if (!list_failure_said) {
+			list_failure_said = 1;
+			fprintf(stderr, "error: could not list USB devices: %s "
+			        "(libusb %d)\n", libusb_strerror(usb_devs), usb_devs);
+		}
+		libusb_exit(NULL);
+		return -1;
+	}
 
 	for(i = 0 ; i < usb_devs ; ++i) {
 		r = libusb_get_device_descriptor(usb_list[i], &desc);
 		if(r < 0) {
-			fprintf(stderr, "couldn't get usb descriptor for dev #%d!\n", i);
+			fprintf(stderr, "warning: could not read the USB descriptor of "
+			        "device %d, so it is not counted\n", i);
 			continue; /* desc was not filled in */
 		}
 		if ((desc.idVendor == TC13_VENDORID && desc.idProduct == TC13_PRODUCTID)
@@ -304,8 +326,7 @@ int ubertooth_count(void) {
 		}
 	}
 
-	if (usb_devs >= 0)
-		libusb_free_device_list(usb_list,1);
+	libusb_free_device_list(usb_list,1);
 	/* Balance the libusb_init() above: the count may be polled many times. */
 	libusb_exit(NULL);
 	return ubertooth_device_count;
@@ -345,6 +366,18 @@ const char* ubertooth_open_failure_reason(void)
 	                                   : "it could not be opened";
 }
 
+/* The refusal for a selection that found no board at all, in the wording
+ * every tool uses for it: ubertooth-util -U all and ubertooth-btbr say the
+ * same line. The caller used to print "could not open Ubertooth device"
+ * instead, after whatever the selection had already said, so a bad index or
+ * several attached boards got a second line with no prefix that named no
+ * cause of its own.
+ */
+static void report_no_devices(void)
+{
+	fprintf(stderr, "error: no Ubertooth devices found\n");
+}
+
 /* Opens the Ubertooth at enumeration index ubertooth_device, or the only one
  * when ubertooth_device is negative. When quiet, nothing is printed and no
  * command is sent: an index that is not present, or several devices with no
@@ -376,20 +409,39 @@ static struct libusb_device_handle* find_ubertooth_device_opt(int ubertooth_devi
 	int usb_devs, i, r, ret, pick, ut_ct = 0;
 	int *ubertooth_devs = NULL;
 
-	/* Hidden devices: the same outcome as nothing attached, which this
-	 * function reports by returning NULL without a message. */
-	if (devices_hidden(!quiet))
+	/* Hidden devices: the same outcome as nothing attached, and reported as
+	 * that, so a test run reads like a bench with no board on it. */
+	if (devices_hidden(!quiet)) {
+		note_open_failure("no Ubertooth is attached");
+		if (!quiet)
+			report_no_devices();
 		return NULL;
+	}
 
 	usb_devs = libusb_get_device_list(NULL, &usb_list);
 	if (usb_devs <= 0) {
 		if (usb_devs == 0)
 			libusb_free_device_list(usb_list, 1);
+		/* A bus that could not be listed is not an empty bus, so it says
+		 * what happened rather than "no Ubertooth". */
+		if (usb_devs < 0) {
+			note_open_failure("the USB devices could not be listed");
+			if (!quiet)
+				fprintf(stderr, "error: could not list USB devices: %s "
+				        "(libusb %d)\n", libusb_strerror(usb_devs), usb_devs);
+		} else {
+			note_open_failure("no Ubertooth is attached");
+			if (!quiet)
+				report_no_devices();
+		}
 		return NULL;
 	}
 	ubertooth_devs = calloc(usb_devs, sizeof(int));
 	if (ubertooth_devs == NULL) {
 		libusb_free_device_list(usb_list, 1);
+		note_open_failure("the host ran out of memory");
+		if (!quiet)
+			fprintf(stderr, "error: out of memory listing the USB devices\n");
 		return NULL;
 	}
 
@@ -399,7 +451,8 @@ static struct libusb_device_handle* find_ubertooth_device_opt(int ubertooth_devi
 			/* desc was not filled in: skip this device rather than test
 			 * whatever the previous iteration left in it. */
 			if (!quiet)
-				fprintf(stderr, "couldn't get usb descriptor for dev #%d!\n", i);
+				fprintf(stderr, "warning: could not read the USB descriptor "
+				        "of device %d, so it is skipped\n", i);
 			continue;
 		}
 		if ((desc.idVendor == TC13_VENDORID && desc.idProduct == TC13_PRODUCTID)
@@ -442,31 +495,38 @@ static struct libusb_device_handle* find_ubertooth_device_opt(int ubertooth_devi
 			note_opened_board_api(devh, usb_list[ubertooth_devs[pick]]);
 	}
 	else if (ut_ct == 0) {
-		/* nothing attached: the caller reports that it found no device */
 		note_open_failure("no Ubertooth is attached");
+		report_no_devices();
 	}
 	else if (ubertooth_device < 0) {
-		fprintf(stderr, "multiple Ubertooth devices found! Use '-U' to specify device number\n");
-		uint8_t serial[17], sr;
+		/* One line that says what to do, then the boards, so the list is
+		 * something to read and not part of the refusal. -U takes a serial
+		 * or the first characters of one as well as an index, which the
+		 * old "Use '-U' to specify device number" did not say. The wording
+		 * is ubertooth-btbr's, so every tool refuses this the same way. */
+		fprintf(stderr, "error: multiple Ubertooth devices found; select one "
+		        "with -U <index|serial>\n");
 		for(i = 0 ; i < ut_ct ; ++i) {
-			libusb_get_device_descriptor(usb_list[ubertooth_devs[i]], &desc);
+			char serial_c[UBERTOOTH_SERIAL_STR_LEN] = {0};
+
 			ret = libusb_open(usb_list[ubertooth_devs[i]], &devh);
 			if (ret) {
-				/* Self-contained, because show_libusb_error() now reports
-				 * some codes as a whole line of their own, and libusb's own
+				/* Self-contained, because show_libusb_error() reports some
+				 * codes as a whole line of their own, and libusb's own
 				 * naming is the useful part here: the usual cause of an open
 				 * that fails is missing permissions. */
 				fprintf(stderr, "  Device %d: could not be opened: %s "
 				        "(libusb %d)\n", i, libusb_strerror(ret), ret);
+				continue;
 			}
-			else {
-				sr = cmd_get_serial(devh, serial);
-				if(sr==0) {
-					fprintf(stderr, "  Device %d: ", i);
-					print_serial(serial, stderr);
-				}
-				libusb_close(devh);
-			}
+			/* cmd_get_serial()'s own timeout, which the loud serial scan
+			 * below uses as well. */
+			if (ubertooth_read_serial_string(devh, serial_c, sizeof(serial_c),
+			                                 1000) == 0)
+				fprintf(stderr, "  Device %d: %s\n", i, serial_c);
+			else
+				fprintf(stderr, "  Device %d: serial unreadable\n", i);
+			libusb_close(devh);
 		}
 		devh = NULL;
 		note_open_failure("more than one board is attached and none was "
@@ -570,8 +630,13 @@ static void report_unscanned(int unopened, int open_err, int unread)
 	if (unopened) {
 		fprintf(stderr, "%d attached Ubertooth device%s could not be opened\n",
 		        unopened, unopened == 1 ? "" : "s");
+		/* A note, not a second error: the refusal is the line above, and
+		 * this says why one of the boards it counted could not be read.
+		 * libusb supplies the words; the usual cause of a refused open is
+		 * missing permissions, which on Linux is the udev rules. */
 		if (open_err)
-			show_libusb_error(open_err);
+			fprintf(stderr, "note: %s (libusb %d)\n",
+			        libusb_strerror(open_err), open_err);
 	}
 	if (unread) {
 		fprintf(stderr, "%d attached Ubertooth device%s did not answer the "
@@ -658,6 +723,7 @@ static struct libusb_device_handle* find_ubertooth_device_serial_opt(
 	if (usb_devs < 0) {
 		/* A bus that could not be listed is not the same as a serial that is
 		 * not attached, so do not report it as one. */
+		note_open_failure("the USB devices could not be listed");
 		if (!quiet) {
 			fprintf(stderr, "error: could not list USB devices: %s "
 			        "(libusb %d)\n", libusb_strerror(usb_devs), usb_devs);
@@ -666,9 +732,10 @@ static struct libusb_device_handle* find_ubertooth_device_serial_opt(
 	}
 	if (usb_devs == 0) {
 		libusb_free_device_list(usb_list, 1);
+		note_open_failure("no Ubertooth is attached");
 		if (!quiet)
-			fprintf(stderr, "no Ubertooth found with serial matching '%s'\n",
-			        serial_number);
+			fprintf(stderr, "error: no Ubertooth found with serial "
+			        "matching '%s'\n", serial_number);
 		return NULL;
 	}
 	matched_devs = calloc(usb_devs, sizeof(int));
@@ -677,6 +744,11 @@ static struct libusb_device_handle* find_ubertooth_device_serial_opt(
 		free(matched_devs);
 		free(matched_serials);
 		libusb_free_device_list(usb_list, 1);
+		/* As the index path does: the caller reports nothing of its own, so
+		 * a silent NULL would exit 1 with no line at all. */
+		note_open_failure("the host ran out of memory");
+		if (!quiet)
+			fprintf(stderr, "error: out of memory listing the USB devices\n");
 		return NULL;
 	}
 
@@ -776,8 +848,8 @@ static struct libusb_device_handle* find_ubertooth_device_serial_opt(
 		                  ? "the attached boards could not be opened"
 		                  : "no board matched that serial");
 		if (!quiet) {
-			fprintf(stderr, "no Ubertooth found with serial matching '%s'\n",
-			        serial_number);
+			fprintf(stderr, "error: no Ubertooth found with serial "
+			        "matching '%s'\n", serial_number);
 			report_unscanned(unopened, open_err, unread);
 			note_dfu_bootloader();
 		}
@@ -1822,11 +1894,10 @@ int ubertooth_connect(ubertooth_t* ut, int ubertooth_device)
 	ut->usb_session_open = 1;
 
 	/* The finder has said why it found nothing, in more detail than this
-	 * site could: no board at that index, access denied, several attached
-	 * with none selected. */
+	 * site could: no board attached, no board at that index, access denied,
+	 * several attached with none selected. */
 	ut->devh = find_ubertooth_device(ubertooth_device);
 	if (ut->devh == NULL) {
-		fprintf(stderr, "could not open Ubertooth device\n");
 		note_dfu_bootloader();
 		ubertooth_stop(ut);
 		return -1;

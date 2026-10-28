@@ -103,6 +103,16 @@ attached)`) and the tool exits non-zero. Indexes are positions in the list of
 boards attached when the command runs, so they shift when a board is added or
 removed; to keep targeting the same board, select it by serial.
 
+With several attached and no `-U`, no board is selected: the tools refuse the
+command and then list the boards, so the next command can name one. Reading
+those serials opens each board briefly, and none is kept open.
+
+    error: multiple Ubertooth devices found; select one with -U <index|serial>
+      Device 0: 1cc001038088cb956c43ad61c52000f5
+      Device 1: 05f00014e380df95f4436562c32000f5
+
+With none attached, every tool says `error: no Ubertooth devices found`.
+
 A serial may be shortened to its first few characters, in either case, so
 `-U 1cc0` and `-U 1CC0` select the same board. If those characters start more
 than one attached board's serial, the tool lists the matching serials and
@@ -167,7 +177,7 @@ own words, and its page says the same about a board that answers nothing.
 A serial-number selector names the reason, because a board it could not read
 may be the board asked for:
 
-    no Ubertooth found with serial matching '1cc'
+    error: no Ubertooth found with serial matching '1cc'
     1 attached Ubertooth device did not answer the serial read
     note: a board that does not answer may be in use by another program, or busy in a mode; stop a mode with ubertooth-util -U <index> -S, or reset a board that answers nothing with -r
 
@@ -184,7 +194,7 @@ tool but ubertooth-dfu(1) can open, so every selection finds nothing until the
 flash finishes. An interrupted flash leaves it there until the next one
 succeeds.
 
-    no Ubertooth found with serial matching '1cc'
+    error: no Ubertooth found with serial matching '1cc'
     note: a board is in the DFU bootloader, so no tool can open it: it is being flashed, or a flash left it there
 
 A board that cannot be *opened* at all is a different problem, usually file
@@ -289,7 +299,9 @@ channel notes raised while following a piconet are `note: ` lines on standard
 error. What the library still writes to standard output is the calling tool's
 result — the decoded packet reports, the AFH map, the version line — which is
 the right stream for them, whichever layer prints them. Its device-selection
-messages are on standard error but do not all carry a prefix yet.
+messages are `error: ` lines on standard error, each with whatever detail it
+needs under it: the boards listed after a refusal for several attached, and
+the counts and reason after a serial that matched nothing.
 
 ## ENVIRONMENT
 

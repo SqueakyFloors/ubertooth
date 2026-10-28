@@ -59,6 +59,17 @@ For the same reason, two options that cannot both run are refused with one \fBer
 .SH "SELECTING A DEVICE"
 With a single Ubertooth attached, the tools find it automatically\. With more than one attached, every tool takes \fB\-U <index|serial>\fR to choose one: an index is a position in the list of attached Ubertooths (\fB\-U 0\fR is the first), and a serial\-number string selects that board whatever the enumeration order\. An index that is not attached is refused (\fBerror: no Ubertooth at index 2 (2 attached)\fR) and the tool exits non\-zero\. Indexes are positions in the list of boards attached when the command runs, so they shift when a board is added or removed; to keep targeting the same board, select it by serial\.
 .P
+With several attached and no \fB\-U\fR, no board is selected: the tools refuse the command and then list the boards, so the next command can name one\. Reading those serials opens each board briefly, and none is kept open\.
+.IP "" 4
+.nf
+error: multiple Ubertooth devices found; select one with \-U <index|serial>
+  Device 0: 1cc001038088cb956c43ad61c52000f5
+  Device 1: 05f00014e380df95f4436562c32000f5
+.fi
+.IP "" 0
+.P
+With none attached, every tool says \fBerror: no Ubertooth devices found\fR\.
+.P
 A serial may be shortened to its first few characters, in either case, so \fB\-U 1cc0\fR and \fB\-U 1CC0\fR select the same board\. If those characters start more than one attached board's serial, the tool lists the matching serials and selects neither\. An all\-digits string is read as an index, so include a non\-digit (\fB\-U 05f\fR rather than \fB\-U 05\fR)\. See ubertooth\-util(1), SELECTING A DEVICE, for the full description and for listing the attached devices\.
 .SH "WHEN A BOARD CANNOT BE USED"
 A board can be attached and still be unavailable, because only one program at a time can use it and because a mode keeps running on the board until it is stopped\. Both cases are reported in words, with the libusb code in parentheses for a bug report\.
@@ -96,7 +107,7 @@ Not every board gets that self\-reset, and where it does not the fallback is alw
 A serial\-number selector names the reason, because a board it could not read may be the board asked for:
 .IP "" 4
 .nf
-no Ubertooth found with serial matching '1cc'
+error: no Ubertooth found with serial matching '1cc'
 1 attached Ubertooth device did not answer the serial read
 note: a board that does not answer may be in use by another program, or busy in a mode; stop a mode with ubertooth\-util \-U <index> \-S, or reset a board that answers nothing with \-r
 .fi
@@ -107,7 +118,7 @@ The remedy is by index there because a board whose serial could not be read cann
 A board in the DFU bootloader is named too, because it is not a board that went away: while it is being flashed it enumerates as the bootloader, which no tool but ubertooth\-dfu(1) can open, so every selection finds nothing until the flash finishes\. An interrupted flash leaves it there until the next one succeeds\.
 .IP "" 4
 .nf
-no Ubertooth found with serial matching '1cc'
+error: no Ubertooth found with serial matching '1cc'
 note: a board is in the DFU bootloader, so no tool can open it: it is being flashed, or a flash left it there
 .fi
 .IP "" 0
@@ -155,7 +166,7 @@ One warning is worth knowing on sight\. When a capture ends, the USB transfer it
 .P
 A capture that is losing packets says so, whichever way it reads them\. A receive transfer that arrived with part of a packet cannot be read as a record, so it is dropped, and the capture reports it once per run, because such a fault usually repeats: \fBwarning: a receive transfer arrived with 32 of a packet's 64 bytes and was dropped; the capture is losing packets\fR\. That is the path \fBubertooth\-dump\fR, \fBubertooth\-rx\fR, \fBubertooth\-afh\fR, \fBubertooth\-follow\fR and \fBubertooth\-specan\fR read through\. \fBubertooth\-btle\fR and \fBubertooth\-ego\fR poll for their packets one at a time instead, and report the same fault in the same way: \fBwarning: a poll reply arrived with 32 of a packet's 64 bytes and was dropped; the capture is losing packets\fR\. The short replies a board sends on purpose are not reported: the keep\-alive a quiet streaming capture gets, a single byte, and the one\-byte "nothing queued" answer every poll of a quiet capture gets\. The capture runs on and ends as it otherwise would, so the warning is the only sign: it says packets were lost, it does not fail the run\.
 .P
-libubertooth follows the split already: it returns what it reads to the tool that called it and reports its own problems on standard error, so a library message does not land in the middle of a capture\. The clock trim and AFH channel notes raised while following a piconet are \fBnote:\fR lines on standard error\. What the library still writes to standard output is the calling tool's result \(em the decoded packet reports, the AFH map, the version line \(em which is the right stream for them, whichever layer prints them\. Its device\-selection messages are on standard error but do not all carry a prefix yet\.
+libubertooth follows the split already: it returns what it reads to the tool that called it and reports its own problems on standard error, so a library message does not land in the middle of a capture\. The clock trim and AFH channel notes raised while following a piconet are \fBnote:\fR lines on standard error\. What the library still writes to standard output is the calling tool's result \(em the decoded packet reports, the AFH map, the version line \(em which is the right stream for them, whichever layer prints them\. Its device\-selection messages are \fBerror:\fR lines on standard error, each with whatever detail it needs under it: the boards listed after a refusal for several attached, and the counts and reason after a serial that matched nothing\.
 .SH "ENVIRONMENT"
 \fBUBERTOOTH_ALLOW_API_MISMATCH\fR decides what a tool does about firmware of another API version, whatever the build it came from\. \fB1\fR warns and runs the command, which is how a release build is made to talk to firmware from another commit for debugging; \fB0\fR refuses it, which is how a development build is made strict, for a test harness that wants a refusal rather than a warning\. Only those two exact values decide: unset, empty or anything else leaves the build's own answer, so a typo cannot turn the guard off\. See FIRMWARE OF ANOTHER API VERSION above\.
 .P

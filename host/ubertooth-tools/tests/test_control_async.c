@@ -265,7 +265,7 @@ MU_TEST(a_failed_submit_frees_the_transfer_and_the_buffer)
 	mu_assert_int_eq(1, fake.freed);
 	mu_assert_int_eq(fake.allocated, fake.freed);
 	mu_assert(fake.freed_buffer != NULL, "the buffer is freed too");
-	mu_assert(strstr(text, "libUSB Error") != NULL, text);
+	mu_assert(strstr(text, "(libusb -4)") != NULL, text);
 }
 
 MU_TEST(a_message_longer_than_a_control_packet_is_refused)
@@ -394,7 +394,7 @@ static void submit_and_fail(uint8_t request, int status, char* text, size_t len)
 /* A stall is how the board refuses a request it does not implement, and it
  * arrives here, at completion, not as a submit failure. The message used to
  * be show_libusb_error(LIBUSB_TRANSFER_STALL), which read the status as a
- * libusb_error code and printed "libUSB Error: Other error:  (4)" --
+ * libusb_error code and printed "error: Other error (libusb 4)" --
  * libusb_strerror()'s answer for any positive code, naming neither the
  * command nor what happened. */
 MU_TEST(a_stalled_command_is_named_and_reported_as_unsupported)
@@ -413,7 +413,6 @@ MU_TEST(a_stalled_command_is_named_and_reported_as_unsupported)
 	          == 0, text);
 
 	/* nothing is left of the old, meaningless line */
-	mu_assert(strstr(text, "libUSB Error") == NULL, text);
 	mu_assert(strstr(text, "Other error") == NULL, text);
 }
 

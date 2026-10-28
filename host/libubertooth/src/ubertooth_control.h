@@ -146,7 +146,6 @@ int cmd_get_partnum(struct libusb_device_handle* devh);
 /* That number as the lowercase hex string -s prints and -U matches: two hex
  * digits per byte, plus the NUL. */
 #define UBERTOOTH_SERIAL_STR_LEN 33
-void print_serial(u8 *serial, FILE *fileptr);
 /* serial must hold UBERTOOTH_SERIAL_LEN bytes. */
 int cmd_get_serial(struct libusb_device_handle* devh, u8 *serial);
 int cmd_set_modulation(struct libusb_device_handle* devh, u16 mod);

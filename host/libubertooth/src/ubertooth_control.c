@@ -80,7 +80,14 @@ void show_libusb_error(int error_code)
 	}
 #endif
 
-	fprintf(stderr,"libUSB Error: %s: %s (%d)\n", error_name, error_hint, error_code);
+	/* libusb's own description is the whole of this line, because nothing
+	 * here knows what the request was: the two failures above are the ones
+	 * that can be put in plain words without it. It used to read
+	 * "libUSB Error: Input/Output Error:  (-1)" -- no prefix, and a colon
+	 * before the hint that is empty on every current libusb. */
+	fprintf(stderr, "error: %s (libusb %d)\n", error_name, error_code);
+	if (error_hint[0] != '\0')
+		fprintf(stderr, "note: %s\n", error_hint);
 }
 
 /* What each control request asks the board to do, as a phrase that reads
@@ -565,18 +572,6 @@ int cmd_get_partnum(struct libusb_device_handle* devh)
 		return LIBUSB_ERROR_OVERFLOW;
 	}
 	return (int)part_id;
-}
-
-void print_serial(u8 *serial, FILE *fileptr)
-{
-	int i;
-	if(fileptr == NULL)
-		fileptr = stdout;
-
-	fprintf(fileptr, "Serial No: ");
-	for(i=1; i<UBERTOOTH_SERIAL_LEN; i++)
-		fprintf(fileptr, "%02x", serial[i]);
-	fprintf(fileptr, "\n");
 }
 
 int cmd_get_serial(struct libusb_device_handle* devh, u8 *serial)

@@ -158,6 +158,26 @@
   error, `-h` exits 0, and a command line with nothing to do is refused. A
   file a tool cannot open is reported as `error: <file>: <reason>`.
   [#323](https://github.com/SqueakyFloors/ubertooth/issues/323)
+- **Script-visible change:** the lines every tool prints while choosing a
+  board now read like the rest. With none attached they say `error: no
+  Ubertooth devices found`, in place of `could not open Ubertooth device`;
+  with several attached and no `-U`, `error: multiple Ubertooth devices
+  found; select one with -U <index|serial>` and then the boards, in place of
+  `multiple Ubertooth devices found! Use '-U' to specify device number`,
+  which did not say that `-U` takes a serial as well. Each board on that list
+  is now `  Device <n>: <serial>`, without the `Serial No: ` the old line
+  carried, and a board whose serial could not be read is listed as
+  `  Device <n>: serial unreadable` instead of being left out. A refused index
+  or serial no longer gets a second line after it that named no cause of its
+  own, and a serial that matches nothing says `error: no Ubertooth found with
+  serial matching '<string>'`. A libusb failure that cannot be put in words
+  reads `error: Input/Output Error (libusb -1)`, in place of `libUSB Error:
+  Input/Output Error:  (-1)`.
+  [#323](https://github.com/SqueakyFloors/ubertooth/issues/323)
+- A bus the host could not list is reported as that, rather than as a bench
+  with no board on it: the tools say `error: could not list USB devices`, and
+  `ubertooth-util -N` answers non-zero instead of counting 0.
+  [#323](https://github.com/SqueakyFloors/ubertooth/issues/323)
 - **Script-visible change:** `ubertooth-util` refuses a command line that asks
   for nothing, `-U 0` on its own included: it used to open the board, do
   nothing and exit 0.
@@ -444,6 +464,12 @@
   `ubertooth-btle` had a second wording for a bad hex digit and called the
   mask of `-t` and `-s` a `MAC mask` beside it.
   [#541](https://github.com/SqueakyFloors/ubertooth/issues/541)
+- `ubertooth-specan` checks every write of its text formats, so a sweep into
+  a `-d` file that cannot be written ends where the writing failed and names
+  it: `error: writing samples failed: could not write the sample (No space
+  left on device)`. Only the raw records were checked, so a text sweep ran to
+  the end and reported the vaguer `could not flush the samples`.
+  [#655](https://github.com/SqueakyFloors/ubertooth/issues/655)
 - `ubertooth-follow -w` compensates the delay it says it does. The option
   counts 625 us timeslots, and the clock the board hops on counts 312.5 us
   ticks; the delay was added tick for tick, so every value compensated half of
@@ -1366,6 +1392,8 @@ Fixes with no visible change in normal use.
   not pass at all. The window is sized from that delay now. Untested: nobody
   here has a badge.
   [#691](https://github.com/SqueakyFloors/ubertooth/issues/691)
+- A board selection that ran out of memory exited 1 with no line at all,
+  whether it was asked for by index or by serial.
 - `ubertooth-dfu -d <image> -r` tells three things apart after the reset: a
   board that did not come back, a board that is back and will not open, and a
   host USB bus that could not be read at all. The last two both read as a

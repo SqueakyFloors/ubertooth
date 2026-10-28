@@ -86,12 +86,13 @@ After 1\.0 s: 12 sweeps, 948 samples, 0 out of range
 .P
 \fBsweeps\fR counts the passes over the range that completed, \fBsamples\fR the samples inside the range, and \fBout of range\fR the ones dropped because they were left over from an earlier run, still queued on the board\. The line is printed whether samples arrived or not, so a board that has stopped sending shows up within a second as counters that stop moving\.
 .SH "DIAGNOSTICS"
-Standard output carries only the samples \(em whatever \fB\-d\fR has not sent to a file, as text or, with no \fB\-g\fR or \fB\-G\fR, as the raw records \(em and the usage text for \fB\-h\fR\. Errors, warnings and progress, including \fBUbertooth stopped\fR, go to standard error\. The errors this tool prints itself are one line starting \fBerror:\fR, for example \fBerror: /no/such/dir/samples\.bin: No such file or directory\fR for a \fB\-d\fR file that cannot be opened\. One kind of line does not follow that yet: libubertooth's own messages, such as \fBcould not open Ubertooth device\fR\.
+Standard output carries only the samples \(em whatever \fB\-d\fR has not sent to a file, as text or, with no \fB\-g\fR or \fB\-G\fR, as the raw records \(em and the usage text for \fB\-h\fR\. Errors, warnings and progress, including \fBUbertooth stopped\fR, go to standard error\. The errors this tool prints itself are one line starting \fBerror:\fR, for example \fBerror: /no/such/dir/samples\.bin: No such file or directory\fR for a \fB\-d\fR file that cannot be opened\. libubertooth's own messages read the same way, for example \fBerror: no Ubertooth devices found\fR; a refusal from it can run to more than one line, the lines after the first being its detail (see ubertooth(7))\.
 .P
-If the samples cannot be written, \fBubertooth\-specan\fR says so once and exits 1, rather than reporting every failed write and then exiting 0\. A write that fails while the sweep is running ends it there, since a full disk does not come back:
+If the samples cannot be written, \fBubertooth\-specan\fR says so once and exits 1, rather than reporting every failed write and then exiting 0\. A write that fails while the sweep is running ends it there, since a full disk does not come back\. Every write is checked, the raw records and the text formats alike, because \fB\-d\fR sends either of them to a file:
 .IP "" 4
 .nf
 error: writing samples failed: wrote 0 of 3 bytes (<reason>)
+error: writing samples failed: could not write the sample (<reason>)
 .fi
 .IP "" 0
 .P

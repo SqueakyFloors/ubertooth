@@ -224,15 +224,14 @@ An index must be one that is actually attached: it is a position in the list of 
 $ ubertooth\-util \-U 2 \-s
 error: no Ubertooth at index 2 (2 attached)
 indexes change when boards are added or removed; select a board by serial with \-U<serial>
-could not open Ubertooth device
 .fi
 .IP "" 0
 .P
 Indexes are positions in the list of boards attached when the command runs: unplugging \fB\-U 0\fR makes the old \fB\-U 1\fR the new \fB\-U 0\fR\. To keep targeting the same board, select it by serial number, in full or by its first few characters (as long as no other attached board's serial starts the same way)\.
 .P
-This includes a nonzero index with a single Ubertooth attached (\fB\-U 1\fR of one device is refused; use \fB\-U 0\fR, or no \fB\-U\fR at all)\. With no Ubertooth attached, any \fB\-U <n>\fR reports that no device could be opened\.
+This includes a nonzero index with a single Ubertooth attached (\fB\-U 1\fR of one device is refused; use \fB\-U 0\fR, or no \fB\-U\fR at all)\. With no Ubertooth attached, any \fB\-U <n>\fR says \fBerror: no Ubertooth devices found\fR\.
 .P
-A digit string too large to be a device index at all is refused before the device list is read, naming it as given\. That is the whole message, without the \fBcould not open Ubertooth device\fR line, because no device was looked for:
+A digit string too large to be a device index at all is refused before the device list is read, naming it as given:
 .IP "" 4
 .nf
 $ ubertooth\-util \-U 4294967296 \-s
@@ -256,7 +255,7 @@ select one of them by a longer prefix of its serial number
 .P
 If the matching boards report the \fIsame\fR serial, no longer string can tell them apart, and the message says so and points at \fB\-U <index>\fR instead\.
 .P
-A string that matches no attached board also exits non\-zero, with \fBno Ubertooth found with serial matching '<string>'\fR\.
+A string that matches no attached board also exits non\-zero, with \fBerror: no Ubertooth found with serial matching '<string>'\fR\.
 .P
 A \fBnote:\fR line follows that when a board is sitting in the DFU bootloader: a board being flashed enumerates as the bootloader, which this tool cannot open, so it is not among the boards a selection can match\. The selection still fails the same way; the note only says why there is one board fewer than expected (see ubertooth(7))\.
 .P
@@ -264,9 +263,9 @@ A board that cannot be opened, or that does not answer the serial read, is skipp
 .IP "" 4
 .nf
 $ ubertooth\-util \-U 1cc0 \-s
-no Ubertooth found with serial matching '1cc0'
+error: no Ubertooth found with serial matching '1cc0'
 2 attached Ubertooth devices could not be opened
-libUSB Error: Access denied (insufficient permissions)
+note: Access denied (insufficient permissions) (libusb \-3)
 .fi
 .IP "" 0
 .P
@@ -513,7 +512,7 @@ That includes the progress lines for the operations that do something rather tha
 .P
 Each operation says what it did once\. \fB\-I\fR reports the blink only through \fBnote: the board is blinking; stop it with ubertooth\-util [\-U <selector>] \-S or any mode option\fR, naming the selector so the command can be pasted; there is no separate line announcing the LEDs\. Setting the squelch with \fB\-z <n>\fR prints nothing, as \fB\-a\fR, \fB\-c\fR, \fB\-C\fR, \fB\-d\fR and \fB\-l\fR do not: the value \fB\-z\fR reads back afterwards (\fBSquelch set to <n>\fR) is the result and goes to standard output\. A set that fails is still reported, on standard error, and the command exits 1\. \fB\-x\fR has never had a line of its own\.
 .P
-The errors this tool prints itself are one line starting \fBerror:\fR; its warnings and notes start \fBwarning:\fR and \fBnote:\fR\. Some lines from elsewhere do not follow that yet: the unknown\-option line from the option parser, and the libubertooth messages that have not been converted, such as \fBcould not open Ubertooth device\fR\. Those that have carry the prefix, for example \fBerror: Ubertooth <serial> is in use by another program (libusb \-3)\fR; see ubertooth(7), WHEN A BOARD CANNOT BE USED\.
+The errors this tool prints itself are one line starting \fBerror:\fR; its warnings and notes start \fBwarning:\fR and \fBnote:\fR\. libubertooth's lines read the same way, for example \fBerror: Ubertooth <serial> is in use by another program (libusb \-3)\fR and \fBerror: no Ubertooth devices found\fR; see ubertooth(7), WHEN A BOARD CANNOT BE USED\. A refusal can run to more than one line: the boards listed after \fBerror: multiple Ubertooth devices found; select one with \-U <index|serial>\fR, and the counts and reason after a serial that matched nothing\.
 .SH "SEE ALSO"
 ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how option values are written
 .SH "AUTHOR"

@@ -579,7 +579,7 @@ MU_TEST(no_read_writes_to_standard_output)
 }
 
 /* A read that times out is a board that did not answer. Say that, in one
- * line, instead of "libUSB Error: Operation timed out:  (-7)", and keep the
+ * line, instead of libusb's own "Operation timed out", and keep the
  * code for bug reports. What a silent board means depends on the caller, so
  * this does not guess; the paths that know add it. On standard error, with
  * nothing on standard output. (The other code with wording of its own,
@@ -618,14 +618,20 @@ MU_TEST(other_libusb_errors_keep_their_own_report)
 	release_both(out, sizeof(out), err, sizeof(err));
 
 	mu_assert(out[0] == '\0', out);
-	mu_assert(strstr(err, "libUSB Error") != NULL, err);
+	/* libusb supplies the words, and they are localizable, so only this
+	 * project's half of the line is pinned: the prefix and the code. The
+	 * plain wordings are this project's own text, so a code they do not fit
+	 * getting one is still checked for. */
+	mu_assert(strncmp(err, "error: ", 7) == 0, err);
+	mu_assert(strstr(err, "(libusb -1)\n") != NULL, err);
 	mu_assert(strstr(err, "in use by another program") == NULL, err);
+	mu_assert(strstr(err, "did not answer in time") == NULL, err);
 }
 
 /* A stall is the board saying it has no such request, and every read says so
  * in the one shared wording -- including the ones that used to hand a stall
- * straight to the libusb naming, where it read as "libUSB Error: Pipe error"
- * and named neither the request nor the firmware. */
+ * straight to the libusb naming, where it read as "Pipe error" and named
+ * neither the request nor the firmware. */
 MU_TEST(a_stalled_read_is_reported_as_unsupported)
 {
 	char out[512], err[1024];
@@ -642,7 +648,6 @@ MU_TEST(a_stalled_read_is_reported_as_unsupported)
 	mu_assert(strcmp(err, "error: could not read the squelch level: the "
 	    "board's firmware does not support it (stalled, libusb -9)\n") == 0,
 	    err);
-	mu_assert(strstr(err, "libUSB Error") == NULL, err);
 }
 
 int main(void)

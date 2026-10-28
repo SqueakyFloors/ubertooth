@@ -325,6 +325,32 @@ static ubertooth_t *select_capturing(const char *u_arg, char *msg, size_t len)
 	return select_capturing_opt(u_arg, 0, msg, len);
 }
 
+/* ubertooth_count(), with whatever it printed returned in msg. */
+static int count_capturing(char *msg, size_t len)
+{
+	FILE *capture = tmpfile();
+	int saved = dup(fileno(stderr));
+	size_t n;
+	int count;
+
+	msg[0] = '\0';
+	if (capture == NULL || saved < 0) {
+		mu_assert(0, "capture stderr");
+		return 0;
+	}
+	fflush(stderr);
+	dup2(fileno(capture), fileno(stderr));
+	count = ubertooth_count();
+	fflush(stderr);
+	dup2(saved, fileno(stderr));
+	close(saved);
+	rewind(capture);
+	n = fread(msg, 1, len - 1, capture);
+	msg[n] = '\0';
+	fclose(capture);
+	return count;
+}
+
 /* Run the shared report for a refused request with stderr captured, to see
  * which board's firmware API version it names. */
 static void report_capturing(char *msg, size_t len)
@@ -477,8 +503,7 @@ MU_TEST(the_largest_representable_index_is_an_ordinary_refusal)
 	mu_assert(select_capturing("2147483647", msg, sizeof(msg)) == NULL, msg);
 	mu_assert(strcmp(msg,
 	    "error: no Ubertooth at index 2147483647 (2 attached)\n"
-	    "indexes change when boards are added or removed; select a board by serial with -U<serial>\n"
-	    "could not open Ubertooth device\n") == 0, msg);
+	    "indexes change when boards are added or removed; select a board by serial with -U<serial>\n") == 0, msg);
 
 	/* Leading zeros are still just digits. */
 	bus_with_ubertooths(2);
@@ -607,17 +632,50 @@ MU_TEST(the_error_names_the_index_and_the_count)
 	mu_assert(select_capturing("7", msg, sizeof(msg)) == NULL, "-U7 of two");
 	mu_assert(strcmp(msg,
 	    "error: no Ubertooth at index 7 (2 attached)\n"
-	    "indexes change when boards are added or removed; select a board by serial with -U<serial>\n"
-	    "could not open Ubertooth device\n") == 0, msg);
+	    "indexes change when boards are added or removed; select a board by serial with -U<serial>\n") == 0, msg);
 }
 
+/*
+ * Several boards and no -U: one error: line saying what to do, then the
+ * boards, so the list is something to read rather than part of the refusal.
+ * It used to be "multiple Ubertooth devices found! Use '-U' to specify device
+ * number" -- no prefix, and no mention that -U takes a serial as well -- and
+ * the connect added a second unprefixed line, "could not open Ubertooth
+ * device", that named no cause of its own.
+ */
 MU_TEST(several_devices_with_no_index_still_list_them)
 {
 	char msg[512];
 
-	bus_with_ubertooths(2);
+	bus_with_two_serials();
 	mu_assert(select_capturing(NULL, msg, sizeof(msg)) == NULL, "no -U of two");
-	mu_assert(strstr(msg, "multiple Ubertooth devices found") != NULL, msg);
+	mu_assert(strcmp(msg,
+	    "error: multiple Ubertooth devices found; select one with "
+	    "-U <index|serial>\n"
+	    "  Device 0: " SERIAL_A "\n"
+	    "  Device 1: " SERIAL_B "\n") == 0, msg);
+
+	/* A board whose serial could not be read is still on the list, because
+	 * it is still a board the next command has to choose between: it is
+	 * named by its index, which is how it can be selected. */
+	bus_with_two_serials();
+	fake.devs[1].serial_fails = 1; /* the first Ubertooth on the bus */
+	mu_assert(select_capturing(NULL, msg, sizeof(msg)) == NULL, "no -U of two");
+	mu_assert(strcmp(msg,
+	    "error: multiple Ubertooth devices found; select one with "
+	    "-U <index|serial>\n"
+	    "  Device 0: serial unreadable\n"
+	    "  Device 1: " SERIAL_B "\n") == 0, msg);
+
+	/* A board that would not open at all is listed with libusb's reason,
+	 * because that is the useful part: on Linux it is usually the udev
+	 * rules not being installed. */
+	bus_with_two_serials();
+	fake.open_rc = LIBUSB_ERROR_ACCESS;
+	mu_assert(select_capturing(NULL, msg, sizeof(msg)) == NULL, "no -U of two");
+	mu_assert(strstr(msg, "\n  Device 0: could not be opened: ") != NULL, msg);
+	mu_assert(strstr(msg, "(libusb -3)\n") != NULL, msg);
+	mu_assert(strstr(msg + 7, "error: ") == NULL, msg);
 }
 
 MU_TEST(no_device_attached_opens_nothing)
@@ -627,7 +685,7 @@ MU_TEST(no_device_attached_opens_nothing)
 	bus_with_ubertooths(0); /* the hub only */
 	mu_assert(select_capturing("0", msg, sizeof(msg)) == NULL, "-U0 of none");
 	mu_assert_int_eq(0, fake.opens);
-	mu_assert(strstr(msg, "could not open Ubertooth device") != NULL, msg);
+	mu_assert(strstr(msg, "error: no Ubertooth devices found") != NULL, msg);
 
 	bus_with_ubertooths(0);
 	mu_assert(select_capturing(NULL, msg, sizeof(msg)) == NULL, "no -U of none");
@@ -646,9 +704,36 @@ MU_TEST(an_empty_or_failing_bus_is_refused)
 	mu_assert(select_capturing("0", msg, sizeof(msg)) == NULL, "empty bus");
 	mu_assert_int_eq(0, fake.lists);
 
+	/* A bus that could not be listed is not an empty one, and used to be
+	 * reported as one -- or, by index, as nothing at all. */
 	bus_with_ubertooths(0);
 	fake.list_rc = LIBUSB_ERROR_IO;
 	mu_assert(select_capturing("0", msg, sizeof(msg)) == NULL, "failed list");
+	mu_assert_int_eq(0, fake.lists);
+	mu_assert(strstr(msg, "error: could not list USB devices") == msg, msg);
+	mu_assert(strstr(msg, "no Ubertooth") == NULL, msg);
+
+	/* The serial path says the same thing, and records the same reason. */
+	bus_with_ubertooths(0);
+	fake.list_rc = LIBUSB_ERROR_IO;
+	mu_assert(select_capturing("1cc0", msg, sizeof(msg)) == NULL, "failed list");
+	mu_assert_int_eq(0, fake.lists);
+	mu_assert(strstr(msg, "error: could not list USB devices") == msg, msg);
+	mu_assert(strstr(msg, "no Ubertooth") == NULL, msg);
+	mu_assert(strcmp(ubertooth_open_failure_reason(),
+	                 "the USB devices could not be listed") == 0,
+	          ubertooth_open_failure_reason());
+
+	/* And the count is one the caller can tell from an empty bus. It used to
+	 * be 0, so -U all said "no Ubertooth devices found" for a bus nobody
+	 * could read. The line is said once: this count is polled every 100 ms
+	 * while ubertooth-util -r waits for a board, and the failure persists. */
+	bus_with_ubertooths(0);
+	fake.list_rc = LIBUSB_ERROR_IO;
+	mu_assert_int_eq(-1, count_capturing(msg, sizeof(msg)));
+	mu_assert(strstr(msg, "error: could not list USB devices") == msg, msg);
+	mu_assert_int_eq(-1, count_capturing(msg, sizeof(msg)));
+	mu_assert(msg[0] == '\0', msg);
 	mu_assert_int_eq(0, fake.lists);
 
 	bus_with_ubertooths(2);
@@ -669,7 +754,8 @@ MU_TEST(a_device_without_a_descriptor_is_skipped)
 	mu_assert_fatal(ut != NULL, "-U0 opens the Ubertooth that answered");
 	mu_assert(fake.opened == &fake.devs[2], "and it is the second one");
 	mu_assert(strcmp(msg,
-	    "couldn't get usb descriptor for dev #1!\n") == 0, msg);
+	    "warning: could not read the USB descriptor of device 1, so it is "
+	    "skipped\n") == 0, msg);
 	ubertooth_stop(ut);
 	ubertooth_free(ut);
 
@@ -738,7 +824,7 @@ MU_TEST(the_test_switch_hides_every_device)
 	mu_assert_int_eq(0, fake.opens);
 	mu_assert_int_eq(0, fake.list_calls);
 	mu_assert(strstr(msg, "UBERTOOTH_TEST_NO_DEVICES is set") != NULL, msg);
-	mu_assert(strstr(msg, "could not open Ubertooth device") != NULL, msg);
+	mu_assert(strstr(msg, "error: no Ubertooth devices found") != NULL, msg);
 
 	bus_with_ubertooths(2);
 	mu_assert_int_eq(0, ubertooth_count());
@@ -748,7 +834,7 @@ MU_TEST(the_test_switch_hides_every_device)
 	mu_assert(select_capturing("1", msg, sizeof(msg)) == NULL, "-U1");
 	mu_assert_int_eq(0, fake.opens);
 	mu_assert_int_eq(0, fake.list_calls);
-	mu_assert(strstr(msg, "could not open Ubertooth device") != NULL, msg);
+	mu_assert(strstr(msg, "error: no Ubertooth devices found") != NULL, msg);
 
 	/* A serial is matched by opening each board and reading its serial; with
 	 * the switch set, none is opened and the report is unchanged. */
@@ -756,8 +842,8 @@ MU_TEST(the_test_switch_hides_every_device)
 	mu_assert(select_capturing("c52000f5", msg, sizeof(msg)) == NULL, "-U serial");
 	mu_assert_int_eq(0, fake.opens);
 	mu_assert_int_eq(0, fake.list_calls);
-	mu_assert(strstr(msg, "no Ubertooth found with serial matching 'c52000f5'")
-	          != NULL, msg);
+	mu_assert(strstr(msg, "error: no Ubertooth found with serial matching "
+	          "'c52000f5'") != NULL, msg);
 
 	/* Only "1" turns it on: a user whose environment holds the name for some
 	 * other reason still gets their board. The switch is restored before each
@@ -833,7 +919,7 @@ MU_TEST(a_prefix_of_a_serial_opens_that_board)
 	mu_assert(select_capturing("c52000f5", msg, sizeof(msg)) == NULL,
 	          "the end of a serial is not matched");
 	mu_assert(strcmp(msg,
-	    "no Ubertooth found with serial matching 'c52000f5'\n") == 0, msg);
+	    "error: no Ubertooth found with serial matching 'c52000f5'\n") == 0, msg);
 	mu_assert_int_eq(fake.opens, fake.closes);
 }
 
@@ -900,7 +986,7 @@ MU_TEST(a_serial_that_matches_nothing_is_refused)
 	mu_assert(select_capturing("deadbeef", msg, sizeof(msg)) == NULL,
 	          "a serial no board has");
 	mu_assert(strcmp(msg,
-	    "no Ubertooth found with serial matching 'deadbeef'\n") == 0, msg);
+	    "error: no Ubertooth found with serial matching 'deadbeef'\n") == 0, msg);
 	mu_assert_int_eq(fake.opens, fake.closes);
 	mu_assert_int_eq(0, fake.lists);
 
@@ -908,8 +994,8 @@ MU_TEST(a_serial_that_matches_nothing_is_refused)
 	bus_with_two_serials();
 	mu_assert(select_capturing("8088cb95", msg, sizeof(msg)) == NULL,
 	          "the middle of a serial");
-	mu_assert(strstr(msg, "no Ubertooth found with serial matching") != NULL,
-	          msg);
+	mu_assert(strstr(msg, "error: no Ubertooth found with serial matching")
+	          != NULL, msg);
 
 	/* A string longer than a serial cannot match one. */
 	bus_with_two_serials();
@@ -927,7 +1013,7 @@ MU_TEST(a_serial_that_matches_nothing_is_refused)
 	fake.list_rc = 0;
 	mu_assert(select_capturing("1cc", msg, sizeof(msg)) == NULL, "empty bus");
 	mu_assert(strcmp(msg,
-	    "no Ubertooth found with serial matching '1cc'\n") == 0, msg);
+	    "error: no Ubertooth found with serial matching '1cc'\n") == 0, msg);
 	mu_assert_int_eq(0, fake.lists);
 }
 
@@ -984,7 +1070,7 @@ MU_TEST(a_board_that_does_not_answer_is_skipped_quietly)
 	mu_assert(select_capturing("1cc", msg, sizeof(msg)) == NULL,
 	          "the serial of the silent board");
 	mu_assert(strcmp(msg,
-	    "no Ubertooth found with serial matching '1cc'\n"
+	    "error: no Ubertooth found with serial matching '1cc'\n"
 	    "1 attached Ubertooth device did not answer the serial read\n"
 	    "note: a board that does not answer may be in use by another "
 	    "program, or busy in a mode; stop a mode with "
@@ -1046,9 +1132,13 @@ MU_TEST(boards_that_cannot_be_opened_are_reported)
 	fake.open_rc = LIBUSB_ERROR_ACCESS;
 	mu_assert(select_capturing("1cc", msg, sizeof(msg)) == NULL, "no access");
 	mu_assert(strstr(msg,
-	    "no Ubertooth found with serial matching '1cc'\n"
+	    "error: no Ubertooth found with serial matching '1cc'\n"
 	    "2 attached Ubertooth devices could not be opened\n") != NULL, msg);
+	/* Why one of those boards could not be opened, in libusb's words, as a
+	 * note rather than a second error: the refusal is the first line. */
+	mu_assert(strstr(msg, "\nnote: ") != NULL, msg);
 	mu_assert(strstr(msg, "Access denied") != NULL, msg); /* the libusb error */
+	mu_assert(strstr(msg + 7, "error: ") == NULL, msg);
 	mu_assert_int_eq(0, fake.lists);
 
 	/* One board unreadable and one unopenable: both are reported. */
@@ -1249,7 +1339,10 @@ MU_TEST(an_open_refused_as_busy_says_the_board_is_in_use)
 	fake.open_rc = LIBUSB_ERROR_ACCESS;
 	mu_assert(select_capturing("1", msg, sizeof(msg)) == NULL, msg);
 	mu_assert(strstr(msg, "in use by another program") == NULL, msg);
-	mu_assert(strstr(msg, "libUSB Error") != NULL, msg);
+	/* libusb's own words for it, which are localizable, so only the prefix
+	 * and the code are pinned. */
+	mu_assert(strstr(msg, "error: ") == msg, msg);
+	mu_assert(strstr(msg, "(libusb -3)") != NULL, msg);
 }
 
 /* Any other claim failure is still reported as itself, naming the board, so
@@ -1294,7 +1387,7 @@ MU_TEST(a_board_in_the_bootloader_is_reported_as_such)
 	mu_assert(select_capturing("deadbeef", msg, sizeof(msg)) == NULL,
 	          "a serial no board has");
 	mu_assert(strcmp(msg,
-	    "no Ubertooth found with serial matching 'deadbeef'\n"
+	    "error: no Ubertooth found with serial matching 'deadbeef'\n"
 	    "note: a board is in the DFU bootloader, so no tool can open it: "
 	    "it is being flashed, or a flash left it there\n") == 0, msg);
 
@@ -1304,7 +1397,7 @@ MU_TEST(a_board_in_the_bootloader_is_reported_as_such)
 	bus_with_bootloaders(1);
 	mu_assert(select_capturing("0", msg, sizeof(msg)) == NULL, "-U0 of none");
 	mu_assert(strcmp(msg,
-	    "could not open Ubertooth device\n"
+	    "error: no Ubertooth devices found\n"
 	    "note: a board is in the DFU bootloader, so no tool can open it: "
 	    "it is being flashed, or a flash left it there\n") == 0, msg);
 
@@ -1320,7 +1413,7 @@ MU_TEST(a_board_in_the_bootloader_is_reported_as_such)
 	mu_assert(select_capturing("deadbeef", msg, sizeof(msg)) == NULL,
 	          "a serial no board has");
 	mu_assert(strcmp(msg,
-	    "no Ubertooth found with serial matching 'deadbeef'\n") == 0, msg);
+	    "error: no Ubertooth found with serial matching 'deadbeef'\n") == 0, msg);
 
 	/* The note is extra information, not a board: a bootloader on the bus
 	 * does not become the device a selection opens. */
