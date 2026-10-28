@@ -1127,19 +1127,24 @@ MU_TEST(test_a_claimed_reset_is_claimed_where_it_happens)
 }
 
 /*
- * Every path that ends in a loop nothing feeds says where it was first.
+ * The fault paths say where they were before they stop.
  *
- * Those paths are the four fault handlers in both images and btbr's die().
- * None of them returns and none feeds, so the watchdog resets the board a few
- * seconds later and the breadcrumb is what the host reads once it comes back.
- * A path that marks nothing leaves the record naming whatever the firmware was
- * doing before it -- "not in a wait" from the main loop, or "servicing USB"
- * for a fault inside the USB path -- so the fault reads as something it was
- * not.
+ * Those paths are the four processor fault handlers in both images and btbr's
+ * die(). None of them returns and none feeds, so the watchdog resets the board
+ * a few seconds later and the breadcrumb is what the host reads once it comes
+ * back. A path that marks nothing leaves the record naming whatever the
+ * firmware was doing before it -- "not in a wait" from the main loop, or
+ * "servicing USB" for a fault inside the USB path -- so the fault reads as
+ * something it was not.
  *
  * A site each rather than one shared "a fault" site: counting the handler's
  * blink code used to say which of the four it was, and the watchdog cuts that
  * code off part-way.
+ *
+ * Not every never-returning loop in the firmware is here, so this is a list
+ * rather than a sweep: the shared Default_Handler, which NMI, SVC, PendSV,
+ * SysTick and every unhandled peripheral interrupt alias, and the debug-UART
+ * DMA error path both still spin without marking anything.
  *
  * No fault handler can run here, so the two sources are read as text.
  */

@@ -43,10 +43,9 @@ the file holds and which revision it was built from:
     Image: bluetooth_rxtx git-ed30131d* (API:<version>)
 
 The API version on that line comes from the block, and the USB `bcdDevice`
-`ubertooth-util -v` reads off a running board carries the same value, for
-either image. This tree's version moves with the firmware, so the samples here
-write it as `<version>`; `COMPATIBILITY.md` names
-the value this tree requires.
+`ubertooth-util -v` reads off a running board carries the same value, for either
+image. This tree's version moves with the firmware, so the samples here write it
+as `<version>`; `COMPATIBILITY.md` names the value this tree requires.
 
 A properly signed DFU file with no readable block there is not an image from
 this tree, so it is refused rather than written:

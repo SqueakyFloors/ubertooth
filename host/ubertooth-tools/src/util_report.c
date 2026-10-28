@@ -232,18 +232,18 @@ static const char *const watchdog_mode_names[] = {
 };
 
 static const char *const watchdog_site_text[WATCHDOG_SITE_COUNT] = {
-	[WATCHDOG_SITE_NONE]      = "not in a wait",
-	[WATCHDOG_SITE_USB]       = "servicing USB",
-	[WATCHDOG_SITE_FS_LOCK]   = "waiting for the synthesizer to lock",
-	[WATCHDOG_SITE_FS_UNLOCK] = "waiting for the synthesizer to unlock",
-	[WATCHDOG_SITE_XOSC]      = "waiting for the 16 MHz crystal oscillator",
-	[WATCHDOG_SITE_FSM]       = "waiting on the radio's state machine",
-	[WATCHDOG_SITE_LE_RX]     = "waiting for a BLE packet or the next hop",
+	[WATCHDOG_SITE_NONE]        = "not in a wait",
+	[WATCHDOG_SITE_USB]         = "servicing USB",
+	[WATCHDOG_SITE_FS_LOCK]     = "waiting for the synthesizer to lock",
+	[WATCHDOG_SITE_FS_UNLOCK]   = "waiting for the synthesizer to unlock",
+	[WATCHDOG_SITE_XOSC]        = "waiting for the 16 MHz crystal oscillator",
+	[WATCHDOG_SITE_FSM]         = "waiting on the radio's state machine",
+	[WATCHDOG_SITE_LE_RX]       = "waiting for a BLE packet or the next hop",
 	[WATCHDOG_SITE_FAULT_HARD]  = "in the hard fault handler",
 	[WATCHDOG_SITE_FAULT_MEM]   = "in the memory management fault handler",
 	[WATCHDOG_SITE_FAULT_BUS]   = "in the bus fault handler",
 	[WATCHDOG_SITE_FAULT_USAGE] = "in the usage fault handler",
-	[WATCHDOG_SITE_PANIC]     = "stopped by the firmware itself",
+	[WATCHDOG_SITE_PANIC]       = "stopped by the firmware itself",
 };
 
 const char *util_watchdog_mode_name(unsigned mode)

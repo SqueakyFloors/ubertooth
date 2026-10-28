@@ -480,13 +480,13 @@ enum watchdog_site {
 	 * watchdog now cuts that code off part-way, so the breadcrumb carries
 	 * what the blinks did.
 	 */
-	WATCHDOG_SITE_FAULT_HARD  = 7, /* hard fault */
-	WATCHDOG_SITE_FAULT_MEM   = 8, /* memory management fault */
-	WATCHDOG_SITE_FAULT_BUS   = 9, /* bus fault */
+	WATCHDOG_SITE_FAULT_HARD  = 7,  /* hard fault */
+	WATCHDOG_SITE_FAULT_MEM   = 8,  /* memory management fault */
+	WATCHDOG_SITE_FAULT_BUS   = 9,  /* bus fault */
 	WATCHDOG_SITE_FAULT_USAGE = 10, /* usage fault */
 	/* The btbr image's die(): firmware that found a state it cannot go on
 	 * from, such as a message it cannot parse. Not a processor fault. */
-	WATCHDOG_SITE_PANIC      = 11,
+	WATCHDOG_SITE_PANIC       = 11,
 	WATCHDOG_SITE_COUNT
 };
 
