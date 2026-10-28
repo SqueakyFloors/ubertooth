@@ -1170,12 +1170,16 @@ static void connection_update_handler(le_rx_t *buf) {
 	timing.conn_interval       = extract_field(buf, 6, 2);
 	timing.supervision_timeout = extract_field(buf, 10, 2);
 
-	// An update the specification does not allow ends the follow here,
-	// which is the engine's own terms rather than some impossibly long
-	// supervision timeout's. The connection event that closes next sees the
-	// cleared state and puts the radio back on the advertising channels.
+	// An update the specification does not allow ends the follow, on the
+	// engine's own terms rather than at some impossibly long supervision
+	// timeout. It is cancelled the way the host's own cancel works, rather
+	// than cleared here: this runs in le_phy_main()'s loop, and
+	// finish_conn_event() is where a connection is dropped and the radio
+	// put back on the advertising channels, in the interrupt that owns
+	// them. The parameters stay as they were until then, so the connection
+	// event already in flight is still captured.
 	if (!le_scale_conn_timing(&timing)) {
-		reset_conn();
+		cancel_follow = 1;
 		return;
 	}
 

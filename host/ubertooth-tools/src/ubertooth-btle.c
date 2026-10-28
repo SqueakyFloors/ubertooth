@@ -263,10 +263,8 @@ int main(int argc, char *argv[])
 	uint8_t mac_address[6] = { 0, };
 	uint8_t mac_mask = 0;
 
-	/* Standard output until a capture takes it; see report_stream. The
-	 * callback reports on the same stream. */
+	/* Standard output until a capture takes it; see report_stream. */
 	report_stream = stdout;
-	cb_opts.report_stream = report_stream;
 	do_follow = do_no_follow = do_promisc = 0;
 	do_get_aa = do_set_aa = 0;
 	do_set_crc = -1;
@@ -503,7 +501,6 @@ int main(int argc, char *argv[])
 			 * option go to standard error instead, and the callback
 			 * leaves out the per-packet dump that would go nowhere. */
 			report_stream = stderr;
-			cb_opts.report_stream = report_stream;
 			cb_opts.capture_took_stdout = 1;
 			close(saved_fd);
 		}
@@ -619,6 +616,12 @@ int main(int argc, char *argv[])
 			ubertooth_stop(ut);
 			return release_handle(ut, 1);
 		}
+
+		/* The callback reports on the same stream the tool does, so the
+		 * lines promiscuous mode writes stay visible when a capture has
+		 * taken standard output. Taken here, after everything that could
+		 * move the stream, so there is one source for it. */
+		cb_opts.report_stream = report_stream;
 
 		while (!ubertooth_stopping(ut)) {
 			if (cancel_follow) {

@@ -1084,6 +1084,13 @@ MU_TEST(a_connection_update_is_scheduled_for_its_instant)
  * that waits out the first event under the new parameters, and a supervision
  * timeout of hours would be all that ended the chase.
  *
+ * The follow is cancelled rather than cleared on the spot, because this
+ * handler runs in the mode's own loop: the connection is dropped and the
+ * radio put back on the advertising channels by the next
+ * finish_conn_event(), in the interrupt that owns them. So each case below
+ * checks that the update was refused and then that the event which closes
+ * next really does end the connection.
+ *
  * One case per field, each one value past the boundary, so a check removed or
  * a comparison turned round fails here.
  */
@@ -1146,14 +1153,35 @@ MU_TEST(a_connection_update_outside_the_specification_is_refused)
 		build_conn_update(&buf, &cases[i].u);
 		connection_update_handler(&buf);
 
-		snprintf(msg, sizeof(msg),
-		         "%s was accepted, so the capture would chase a "
-		         "connection whose parameters cannot be right",
-		         cases[i].what);
-		mu_assert(connection_was_reset(), msg);
 		snprintf(msg, sizeof(msg), "%s was still scheduled",
 		         cases[i].what);
 		mu_assert(conn.conn_update_pending == 0, msg);
+		snprintf(msg, sizeof(msg),
+		         "%s did not end the follow, so the capture would chase a "
+		         "connection whose parameters cannot be right",
+		         cases[i].what);
+		mu_assert(cancel_follow == 1, msg);
+		/* ...and the live parameters are untouched, so the connection
+		 * event already in flight still has its deadlines. */
+		snprintf(msg, sizeof(msg),
+		         "%s was written into the live connection before it was "
+		         "refused", cases[i].what);
+		mu_assert(conn.conn_interval == 24 * 12500 &&
+		          conn.win_size == 1 * 12500, msg);
+
+		/* The event that closes next is where the connection is dropped
+		 * and the radio goes back to the advertising channels. */
+		conn.last_anchor = 1000000;
+		conn.anchor_set = 1;
+		conn.last_packet_ts = NOW;
+		le_phy_active = 1;
+		finish_conn_event();
+
+		snprintf(msg, sizeof(msg),
+		         "after %s the next connection event left the connection "
+		         "in place", cases[i].what);
+		mu_assert(connection_was_reset(), msg);
+		mu_assert_int_eq(0, cancel_follow);
 	}
 }
 

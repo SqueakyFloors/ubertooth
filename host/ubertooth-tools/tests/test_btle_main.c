@@ -38,6 +38,8 @@ static struct {
 	 * no packet, and dropping it in silence looked like a quiet board. */
 	int short_reply_reports;
 	int last_short_reply_len;
+	/* The stream the capture loop handed the callback. */
+	FILE *callback_report_stream;
 	int interrupt_the_capture; /* cmd_poll() raises SIGINT instead of
 	                            * writing the handle */
 	int stops;
@@ -349,8 +351,13 @@ uint64_t ubertooth_packet_arrival_ns(void)
 
 void cb_btle(ubertooth_t *ut, void *args)
 {
+	btle_options *opts = (btle_options *)args;
+
 	(void)ut;
-	(void)args;
+	/* The stream the tool told the callback to report on, which is what
+	 * decides whether the promiscuous mode's lines stay visible once a
+	 * capture has taken standard output. */
+	fake.callback_report_stream = opts != NULL ? opts->report_stream : NULL;
 }
 
 void ubertooth_warn_if_poll_reply_short(ubertooth_t *ut, int len)
@@ -620,6 +627,32 @@ MU_TEST(the_reports_move_to_stderr_when_the_capture_takes_stdout)
 	mu_assert(strcmp(fake.capture_file, "/dev/null") == 0, fake.capture_file);
 	mu_assert(strcmp(r.out, "Access address: 8e89bed6\n") == 0, r.out);
 	mu_assert(r.err[0] == '\0', r.err);
+}
+
+/* The callback reports on the same stream, which is what keeps the lines
+ * promiscuous mode writes visible when a capture has taken standard output:
+ * they are the only way such a capture says which connection it is of. The
+ * tool is what tells the callback, so this pins that it does. */
+MU_TEST(the_callback_reports_on_the_same_stream_as_the_tool)
+{
+	struct run_result r;
+
+	/* A whole record, so the capture loop reaches the callback. */
+	reset_fake();
+	fake.poll_rc = (int)sizeof(usb_pkt_rx);
+	r = RUN("-p");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(fake.callback_report_stream == stdout,
+	          "an ordinary run: the callback was not given standard output");
+
+	reset_fake();
+	fake.poll_rc = (int)sizeof(usb_pkt_rx);
+	r = RUN("-p", "-q", "-");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(fake.capture_file, "/fd/") != NULL, fake.capture_file);
+	mu_assert(fake.callback_report_stream == stderr,
+	          "the capture took standard output, but the callback was still "
+	          "given it, so the promiscuous lines would go to /dev/null");
 }
 
 /* A Ctrl-C ends a sniffing capture, with the board taken out of its mode and
@@ -1126,6 +1159,7 @@ int main(void)
 	MU_RUN(an_access_address_read_and_the_crc_options_all_run);
 	MU_RUN(the_target_report_is_on_standard_output);
 	MU_RUN(the_reports_move_to_stderr_when_the_capture_takes_stdout);
+	MU_RUN(the_callback_reports_on_the_same_stream_as_the_tool);
 	MU_RUN(an_interrupted_capture_stops_and_exits_zero);
 	MU_RUN(a_failed_poll_is_reported_on_stderr_and_exits_1);
 	MU_RUN(a_short_poll_reply_is_reported);

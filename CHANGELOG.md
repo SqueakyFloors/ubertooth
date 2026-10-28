@@ -417,7 +417,7 @@
   of one packet instead of the whole window, so every connection whose window
   was longer than the 1.25 ms minimum lost its opening packets.
   [#625](https://github.com/SqueakyFloors/ubertooth/issues/625)
-- **Reflash required:** every packet in a `ubertooth-btle` capture is
+- Every packet in a `ubertooth-btle` capture is
   timestamped 8 microseconds earlier, which is where its preamble really
   started. The board back-dated the reading to the preamble but left out the
   header byte that had also arrived by then, so air times measured from a
