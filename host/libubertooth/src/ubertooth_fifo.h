@@ -39,8 +39,8 @@
  * in the binary agrees on the size of a fifo_t. A program built against the
  * installed library must not set it: the library it links against is built
  * for 1000000 slots, so the two would disagree about the size of every ring
- * the program is handed. No header can enforce that, which is why it is said
- * here, and why the macro is named for this library rather than taking a
+ * the program is handed. Nothing here enforces that, which is why it is said
+ * instead, and why the macro is named for this library rather than taking a
  * plain name a build might set for its own reasons. */
 #ifdef UBERTOOTH_FIFO_SLOTS_FOR_TESTS
 #define FIFO_SIZE UBERTOOTH_FIFO_SLOTS_FOR_TESTS

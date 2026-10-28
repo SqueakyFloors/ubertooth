@@ -6,7 +6,8 @@
  * The ring is built small here (the build sets UBERTOOTH_FIFO_SLOTS_FOR_TESTS),
  * because the shipped 1000000 slots put the full-ring paths out of reach of a
  * test: a case would have to produce a million records faster than it drains
- * them. Six usable slots reach them on every lap.
+ * them. The build's size leaves six usable slots, which reach them on every
+ * lap.
  *
  * One thing is deliberately not tested: that fifo_popped_arrival_ns() is kept
  * rather than read back out of the slot the record came from. No case can
@@ -36,7 +37,9 @@
  * capture reads passes 2^32 nanoseconds after four seconds of uptime, and a
  * replayed dump's is a whole second in nanoseconds, around 1.8e18. A reading
  * truncated to 32 bits anywhere on its way through the ring would otherwise
- * come back unchanged. */
+ * come back unchanged. The comparisons go through mu_assert_int_eq(), which
+ * casts to long, so this oracle wants a 64-bit long -- every platform this
+ * fork supports has one. */
 #define ARRIVAL_BASE 0x1234567890abull
 
 /* ---- records -------------------------------------------------------------
@@ -541,6 +544,11 @@ MU_TEST(two_threads_never_see_a_half_written_record)
 
 int main(void)
 {
+	/* A line at a time, so that a sanitizer's report, which goes straight
+	 * to the same stream unbuffered, lands under the case that produced it
+	 * rather than ahead of everything. */
+	setvbuf(stdout, NULL, _IOLBF, 0);
+
 	MU_RUN(records_come_back_in_order);
 	MU_RUN(a_pushed_record_comes_back_whole);
 	MU_RUN(a_full_ring_discards_the_newest_record);

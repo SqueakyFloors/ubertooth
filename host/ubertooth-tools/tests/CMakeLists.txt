@@ -690,7 +690,9 @@ if(libubertooth_SOURCE_DIR)
 	# every full-ring path is on the other side of it. Seven slots, not
 	# eight: a size that is not a power of two, so replacing the ring's
 	# wrap with a bitmask -- which would work at every size the test used
-	# and at none that ships -- fails here.
+	# and at none that ships -- fails here. One variable for it, because
+	# the sanitized target below has to agree.
+	set(fifo_test_slots 7)
 	#
 	# libbtbb's include directory is listed although nothing here uses
 	# libbtbb, because that is what supplies the directory
@@ -705,7 +707,7 @@ if(libubertooth_SOURCE_DIR)
 	target_include_directories(test-fifo-ring PRIVATE
 		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
 	target_compile_definitions(test-fifo-ring PRIVATE
-		UBERTOOTH_FIFO_SLOTS_FOR_TESTS=7)
+		UBERTOOTH_FIFO_SLOTS_FOR_TESTS=${fifo_test_slots})
 	target_link_libraries(test-fifo-ring Threads::Threads)
 
 	add_test(NAME fifo-ring COMMAND test-fifo-ring)
@@ -739,11 +741,14 @@ if(libubertooth_SOURCE_DIR)
 			${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR}
 			${LIBBTBB_INCLUDE_DIR})
 		target_compile_definitions(test-fifo-ring-tsan PRIVATE
-			UBERTOOTH_FIFO_SLOTS_FOR_TESTS=7)
+			UBERTOOTH_FIFO_SLOTS_FOR_TESTS=${fifo_test_slots})
 		target_compile_options(test-fifo-ring-tsan PRIVATE
 			-fsanitize=thread -g)
-		target_link_options(test-fifo-ring-tsan PRIVATE
-			-fsanitize=thread)
+		# LINK_FLAGS rather than target_link_options(), which wants
+		# CMake 3.13 and would stop a configure at this project's
+		# declared floor of 3.5 with an unknown command.
+		set_target_properties(test-fifo-ring-tsan PROPERTIES
+			LINK_FLAGS -fsanitize=thread)
 		target_link_libraries(test-fifo-ring-tsan Threads::Threads)
 
 		add_test(NAME fifo-ring-tsan COMMAND test-fifo-ring-tsan)
