@@ -23,7 +23,7 @@ import getopt
 import re
 import signal
 import sys
-from subprocess import Popen, PIPE
+from subprocess import Popen, DEVNULL, PIPE
 
 child = None
 # The signal that asked this script to stop, if one arrived. A capture that
@@ -39,13 +39,21 @@ NOTHING_TO_DO = ("error: nothing to do: give --extcap-interfaces,"
 
 ADVERTISING_CHANNELS = ("37", "38", "39")
 
+# Why no capture filter can be applied here. Wireshark shows this in the
+# filter box when it verifies a filter, and a capture started with one anyway
+# repeats it as a warning, so the user reads the same sentence either way.
+NO_CAPTURE_FILTER = ("this interface does not apply capture filters;"
+                     " use a display filter")
+
 # Options Wireshark adds to the calls it makes, which this script accepts
 # rather than refuse the call they came with. Only the ones Wireshark passes
 # to every extcap program are here: --extcap-version carries the calling
 # Wireshark's version, added to the --extcap-interfaces call by Wireshark 2.9
 # and later, and nothing here behaves differently for different versions;
 # --extcap-capture-filter carries a capture filter the user typed, which
-# ubertooth-btle cannot apply, so the capture starts and says so.
+# ubertooth-btle cannot apply: on its own it is Wireshark's verification call,
+# answered with NO_CAPTURE_FILTER, and alongside --capture the capture starts
+# and warns.
 #
 # The rest of what Wireshark can pass (--extcap-reload-option,
 # --extcap-control-in, --extcap-control-out, --extcap-config-option-name and
@@ -171,18 +179,37 @@ def report_bad_option(refusal):
     sys.exit(1)
 
 
+def verify_capture_filter(capture_filter):
+    """Answer Wireshark's capture-filter verification call.
+
+    Wireshark reads this call's standard output as the filter's problem and
+    shows it in the capture filter box, in red; an empty answer means the
+    filter is good (extcap.c, cb_verify_filter). The exit status is not part
+    of the answer: a non-zero one makes Wireshark discard the output and say
+    "Unable to check capture filter" instead, so this exits 0 whichever way
+    it answers. No filter can be applied here, so any filter the user typed
+    is reported, and the empty filter Wireshark verifies when the box is
+    empty is good.
+    """
+    if capture_filter:
+        print(NO_CAPTURE_FILTER)
+    return 0
+
+
 def sig_handler(sig, frame):
     global stop_signal
     stop_signal = sig
-    # The signal can arrive before there is a child to pass it on to, while
-    # the command line is still being read. capture() looks at stop_signal
-    # for that, so a capture that was stopped starts nothing.
+    # Whichever signal asked this script to stop, the child is asked with a
+    # SIGTERM: that is the one ubertooth-btle's cleanup handler is for, and
+    # Ctrl-C has already reached it through the process group anyway.
+    #
+    # The signal can arrive in the moment between this handler being set and
+    # the child being there to stop. capture() looks at stop_signal for that,
+    # so a capture that was stopped starts nothing.
     if child is not None:
         child.terminate()
 
 def main():
-    signal.signal(signal.SIGTERM, sig_handler)
-
     # A bare call has said nothing for a message about the command line to
     # answer, so the usage line is the answer, on standard error since it was
     # not asked for. Every other refusal is its one "error: " line alone
@@ -217,7 +244,10 @@ def main():
     interface = ''
     fifo = None
     channel = ADVERTISING_CHANNELS[0]
-    capture_filter = ''
+    # None until --extcap-capture-filter arrives: the option with no operation
+    # beside it is Wireshark's verification call, which an empty filter makes
+    # too, so whether it was given has to be told from what it carried.
+    capture_filter = None
     do_list_dlts = False
     do_config = False
     do_capture = False
@@ -276,10 +306,21 @@ def main():
                      channel), file=sys.stderr)
             sys.exit(1)
         if capture_filter:
-            print("warning: this interface applies no capture filter; "
-                  "filter the packets in Wireshark instead (got %s)"
-                  % capture_filter, file=sys.stderr)
+            print("warning: %s (got %s)" % (NO_CAPTURE_FILTER, capture_filter),
+                  file=sys.stderr)
+        # A stop is only a capture's to report, so the handlers go up here and
+        # not at the top of the command: every other call keeps the default,
+        # where a signal ends it rather than being noted and ignored.
+        # Wireshark stops a capture with SIGTERM; tshark's Ctrl-C sends SIGINT
+        # to the whole process group, and the script used to die of it with
+        # nothing to report, so both arrive here.
+        signal.signal(signal.SIGTERM, sig_handler)
+        signal.signal(signal.SIGINT, sig_handler)
         sys.exit(capture(interface, fifo, channel))
+    elif capture_filter is not None:
+        # a capture filter and nothing to do with it: Wireshark verifying the
+        # filter the user typed, before it starts a capture with it
+        sys.exit(verify_capture_filter(capture_filter))
     else:
         # An interface and nothing to do with it: the call used to exit 0
         # having done nothing, which Wireshark reads as a call that worked.
@@ -404,39 +445,61 @@ def config():
 
 
 def capture(interface, fifo, channel):
-    """Capture on one board, and report how ubertooth-btle ended.
+    """Capture on one board, and report whether the capture ended as asked.
 
-    Wireshark reads a non-zero exit of the capture call as a failed capture
-    and shows the error for it, so the child's failure has to reach it.
+    Returns 0 when it did and 1 when anything failed, including a child that
+    failed or was killed. Wireshark reads a non-zero exit of the capture call
+    as a failed capture and shows the error for it, so the child's failure has
+    to reach it; it needs nothing finer than non-zero, so the child's own
+    status is not passed through (.kiro/steering/cli-output.md).
     """
     global child
     if stop_signal is not None:
         # stopped before the capture began: there is nothing to start, and
         # nothing failed
         return 0
+    # ubertooth-btle -f writes a text decode of every packet to its standard
+    # output even with the PCAP data going to the fifo, which nobody asked
+    # this call for: 8 seconds of ambient advertising is some 560 kB of it.
+    # So it is dropped. Standard output here carries the listings alone, and
+    # passing it on to standard error instead would crowd out the reason a
+    # failed capture has to give there: Wireshark keeps only the first 1024
+    # bytes of it (extcap.c, STDERR_BUFFER_SIZE). ubertooth-btle's own
+    # failures go to its standard error, which is this script's, so nothing
+    # that explains a failure is lost.
+    #
+    # A fifo of "-" is the exception: it means this script's own standard
+    # output, which ubertooth-btle writes the capture to, so dropping that
+    # output would throw the capture away. It prints no decode there either,
+    # having taken the stream for the capture (capture_took_stdout in
+    # ubertooth-btle.c). Wireshark always names a real fifo; "-" is for a
+    # capture run by hand, where every file option here means standard output
+    # by it (host/doc/ubertooth.md).
     child = run_tool([
         "ubertooth-btle", "-f",
         "-U", interface,
         "-q", fifo,
         "-A", channel,
-    ])
+    ], stdout=None if fifo == "-" else DEVNULL)
     if stop_signal is not None:
         # the signal arrived while the child was starting, so the handler
         # may have run before this name held the child: pass it on here
         child.terminate()
     status = child.wait()
-    if status < 0:
-        # Killed by a signal, reported as -N. Two cases mean the capture
-        # ended rather than failed, and Wireshark ends a capture with both:
-        # this script was asked to stop and passed the signal on, so the
-        # child's death is that stop whichever signal finished it off; or
-        # the child got SIGPIPE because whoever was reading the fifo stopped
-        # reading it. Any other signal is a failure, reported the way a
-        # shell reports it.
-        if stop_signal is not None or -status == signal.SIGPIPE:
-            return 0
-        return 128 - status
-    return status
+    # Two endings are the capture ending rather than failing, and Wireshark
+    # ends a capture with both. This script was asked to stop and asked the
+    # child to stop in turn, so the capture ended as asked however the child
+    # reports it: ubertooth-btle catches the SIGTERM and leaves of its own
+    # accord, and one that is killed by a signal died of the stop. Or the
+    # child got SIGPIPE, which is what it gets when whoever was reading the
+    # fifo stopped reading.
+    if stop_signal is not None:
+        return 0
+    if status < 0 and -status == signal.SIGPIPE:
+        return 0
+    # Anything else that is not a clean exit failed: a child that failed or
+    # was killed (reported as -N), reported to Wireshark as a failed capture.
+    return 0 if status == 0 else 1
 
 if __name__ == "__main__":
     main()
