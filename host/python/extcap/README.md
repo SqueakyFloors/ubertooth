@@ -86,12 +86,13 @@ and are refused like any other unknown option.
    because nothing is reading the fifo any more
  - `1` :
    a usage error, a board that could not be opened, a tool that could not be
-   run, or any other failure. `--extcap-interfaces` is the exception, because
-   Wireshark throws away everything that call printed when it exits non-zero:
-   a listing that named a board exits 0 even if another board could not be
-   opened, with the reason still on standard error, and so does an empty
-   listing when no board is attached. It exits 1 when `ubertooth-util` failed
-   and there is nothing to list
+   run, or any other failure. That includes a partial listing: if
+   `--extcap-interfaces` could not open one board it exits 1 even though it
+   named the others, with the reason on standard error. Wireshark throws away
+   everything a call that failed printed, so its capture list is then without
+   the boards that were fine until that board is freed or unplugged. The one
+   case that is not a failure is no board attached: the empty listing answers
+   that, and exits 0
  - anything else :
    `ubertooth-btle`'s own exit status, or `128` plus the number of the signal
    that killed it. Wireshark reads a non-zero exit of the `--capture` call as
