@@ -96,6 +96,9 @@ struct scan {
 	int idle_fn_mode;     /* `mode = ...` inside cc2400_idle() */
 	int idle_fn_request;  /* `requested_mode = ...` inside cc2400_idle() */
 	int idle_fn_clear;    /* usb_queue_init() inside cc2400_idle() */
+	int iir_call;         /* rssi_iir_reset() in the dispatch */
+	int iir_calls;        /* how many */
+	int idle_fn_iir;      /* rssi_iir_reset() inside cc2400_idle() */
 
 	/* The modes the dispatch runs by calling bt_stream_rx(), and the
 	 * condition of the loop that is meant to run them. Room for more modes
@@ -332,6 +335,9 @@ static int scan_source(const char *path, struct scan *s)
 			if (strstr(line, "usb_queue_init(") != NULL &&
 			    s->idle_fn_clear == 0)
 				s->idle_fn_clear = lineno;
+			if (strstr(line, "rssi_iir_reset(") != NULL &&
+			    s->idle_fn_iir == 0)
+				s->idle_fn_iir = lineno;
 			/* a closing brace in column 1 ends the function */
 			if (line[0] == '}')
 				in_idle_fn = 0;
@@ -356,6 +362,11 @@ static int scan_source(const char *path, struct scan *s)
 			s->clear_calls++;
 			if (s->clear_call == 0)
 				s->clear_call = lineno;
+		}
+		if (strstr(line, "rssi_iir_reset(") != NULL) {
+			s->iir_calls++;
+			if (s->iir_call == 0)
+				s->iir_call = lineno;
 		}
 		if (strstr(line, "usb_irq_hold(") != NULL && s->irq_hold == 0)
 			s->irq_hold = lineno;
@@ -523,6 +534,41 @@ MU_TEST(test_cc2400_idle_does_not_drop_queued_packets)
 	         "and from inside a mode, so the drop would not mean a capture "
 	         "had ended", path, s.idle_fn_clear);
 	mu_assert(s.idle_fn_clear == 0, msg);
+}
+
+/*
+ * Leaving a mode also forgets every channel's running average. Those averages
+ * take hundreds of packets to build, so they are the one piece of RSSI state
+ * the per-packet reset must not touch; this is where they are dropped, beside
+ * the queued packets and for the same reason. Clearing them per packet instead
+ * left the filter one packet old forever, which rounds to zero for every
+ * reading in the useful range: every Classic record reported the same noise
+ * figure, -54 dBm, whatever the radio heard.
+ */
+MU_TEST(test_leaving_a_mode_forgets_the_channel_averages)
+{
+	char msg[512];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the dispatch loop calls rssi_iir_reset() %d times; it "
+	         "calls it once, on the way out of whatever mode was running",
+	         path, s.iir_calls);
+	mu_assert(s.iir_calls == 1, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: rssi_iir_reset() is called at or after the `mode =` at "
+	         "line %d, so the old mode's averages would be dropped after the "
+	         "new mode was already recorded", path, s.iir_call,
+	         s.mode_assign);
+	mu_assert(s.iir_call > 0 && s.mode_assign > 0 &&
+	          s.iir_call < s.mode_assign, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: cc2400_idle() clears the channel averages, but it also "
+	         "runs at boot and from inside bt_generic_le() and bt_le_sync(), "
+	         "so the filter would keep restarting under a running capture",
+	         path, s.idle_fn_iir);
+	mu_assert(s.idle_fn_iir == 0, msg);
 }
 
 /*
@@ -769,6 +815,7 @@ int main(void)
 	MU_RUN(test_mode_is_recorded_before_the_cases);
 	MU_RUN(test_leaving_a_mode_idles_once_first);
 	MU_RUN(test_leaving_a_mode_drops_what_it_queued);
+	MU_RUN(test_leaving_a_mode_forgets_the_channel_averages);
 	MU_RUN(test_the_queue_clear_holds_the_usb_interrupt_off);
 	MU_RUN(test_cc2400_idle_does_not_choose_the_mode);
 	MU_RUN(test_cc2400_idle_does_not_drop_queued_packets);

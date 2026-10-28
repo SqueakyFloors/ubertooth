@@ -29,7 +29,14 @@ extern int8_t rssi_max;
 extern int8_t rssi_min;
 extern uint8_t rssi_count;
 
+/* Start a new packet: the minimum, maximum, sum and count only. The
+ * per-channel average has to survive this, because it is built from hundreds
+ * of packets; rssi_iir_reset() is what clears it. */
 void rssi_reset(void);
+
+/* Forget every channel's running average, where a capture ends. */
+void rssi_iir_reset(void);
+
 void rssi_add(int8_t v);
 void rssi_iir_update(uint16_t channel);
 int8_t rssi_get_avg(uint16_t channel);

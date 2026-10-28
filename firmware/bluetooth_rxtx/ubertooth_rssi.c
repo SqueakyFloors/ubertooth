@@ -45,14 +45,34 @@ uint8_t rssi_count;
 int32_t rssi_sum;
 int16_t rssi_iir[NUM_BREDR_CHANNELS] = {0};
 
+/*
+ * Start a new packet's readings. The mode loops call this once per DMA bank,
+ * so only the four per-packet figures belong here.
+ *
+ * The per-channel average does not: it is an infinite impulse response filter
+ * that blends 3/256 of each bank's average into the channel's running value,
+ * so it needs hundreds of banks to reach what the radio is hearing. Clearing
+ * it here left it one bank old forever, and 3/256 of one bank rounds to zero
+ * dBm for every reading from -96 to -12 dBm -- the whole useful range. Every
+ * Classic record therefore carried the same noise figure, -54 dBm, whatever
+ * the radio heard. rssi_iir_reset() clears it where a capture ends instead.
+ */
 void rssi_reset(void)
 {
-	memset(rssi_iir, 0, sizeof(rssi_iir));
-
 	rssi_count = 0;
 	rssi_sum = 0;
 	rssi_max = INT8_MIN;
 	rssi_min = INT8_MAX;
+}
+
+/*
+ * Forget what the band sounded like. The averages describe the channels of one
+ * capture, so the mode dispatch runs this where a mode ends, and the next
+ * capture's first banks build the filter up again from silence.
+ */
+void rssi_iir_reset(void)
+{
+	memset(rssi_iir, 0, sizeof(rssi_iir));
 }
 
 void rssi_add(int8_t v)

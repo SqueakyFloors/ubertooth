@@ -2694,7 +2694,7 @@ void promisc_recover_hop_interval(u8 *packet) {
 
 	u32 cur_clk = CLK100NS;
 	if (cur_clk < prev_clk)
-		cur_clk += 3267800000; // handle rollover
+		cur_clk += CLK100NS_PERIOD; // handle rollover
 	u32 clk_diff = cur_clk - prev_clk;
 	u16 obsv_hop_interval; // observed hop interval
 
@@ -3316,6 +3316,16 @@ int main()
 			u32 usb_irq;
 
 			cc2400_idle();
+			/*
+			 * The per-channel averages go with the queued packets, and for
+			 * the same reason: they describe the band during a capture that
+			 * has ended. This is the one place that is true, which is why
+			 * the clear is here and not in cc2400_idle() -- that runs at
+			 * boot and in the middle of the two low-energy modes, and a
+			 * clear there would keep restarting the filter under a running
+			 * capture.
+			 */
+			rssi_iir_reset();
 			usb_irq = usb_irq_hold();
 			usb_queue_init();
 			usb_irq_release(usb_irq);

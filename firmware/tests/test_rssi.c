@@ -35,6 +35,7 @@ static int ref_round_div(int n, int d)
 MU_TEST(test_get_avg_negative_rounding)
 {
 	rssi_reset();
+	rssi_iir_reset();
 
 	/* -384 scaled = -1.5 dBm -> nearest is -2 (biased code gives -1). */
 	rssi_iir[0] = -384;
@@ -56,6 +57,7 @@ MU_TEST(test_get_avg_negative_rounding)
 MU_TEST(test_get_avg_positive_unchanged)
 {
 	rssi_reset();
+	rssi_iir_reset();
 
 	/* Positive rounding must be unaffected by the fix. */
 	rssi_iir[0] = 384;   /* +1.5 -> +2 */
@@ -78,6 +80,7 @@ MU_TEST(test_iir_converges_to_negative_average)
 {
 	int i;
 	rssi_reset();
+	rssi_iir_reset();
 
 	/* Feed a constant -50 dBm. After enough updates the IIR should settle to
 	 * -50, not -49 (which upward bias would produce). */
@@ -98,6 +101,7 @@ MU_TEST(test_iir_converges_to_negative_average)
 MU_TEST(test_sum_count_rounding_negative)
 {
 	rssi_reset();
+	rssi_iir_reset();
 	/* Three samples: -40, -41, -41  -> mean -40.666.. dBm -> nearest -41. */
 	rssi_add(-40);
 	rssi_add(-41);
@@ -112,6 +116,159 @@ MU_TEST(test_sum_count_rounding_negative)
 		int dbm = ref_round_div(avg_scaled, 256);
 		mu_assert_int_eq(-41, dbm);
 	}
+}
+
+/*
+ * The per-channel average, as the mode loops build it.
+ *
+ * One DMA bank: start a packet, sample the radio while the transfer runs, then
+ * blend the packet's average into the channel's running value. bt_stream_rx(),
+ * bt_generic_le() and bt_le_sync() all do exactly this, once per bank.
+ */
+static void a_bank(uint16_t channel, int8_t raw, int samples)
+{
+	int i;
+
+	rssi_reset();
+	for (i = 0; i < samples; i++)
+		rssi_add(raw);
+	rssi_iir_update(channel);
+}
+
+/* Banks of one steady reading, which is what a quiet channel gives. */
+static void banks(uint16_t channel, int8_t raw, int count)
+{
+	int i;
+
+	for (i = 0; i < count; i++)
+		a_bank(channel, raw, 20);
+}
+
+/*
+ * The filter has to survive the per-packet reset, or it never gets anywhere.
+ *
+ * It blends 3/256 of each bank into the channel's value, so one bank from
+ * silence moves it 3/256 of the way -- and 3/256 of any reading from -42 to 42
+ * raw (-96 to -12 dBm, the whole useful range) rounds back to 0 dBm. Clearing
+ * the filter with the per-packet figures left every bank looking like the
+ * first, so every Classic record reported the same noise figure, which the
+ * host turns into -54 dBm. Hundreds of banks is what it takes to arrive.
+ */
+MU_TEST(test_the_channel_average_accumulates_across_banks)
+{
+	rssi_iir_reset();
+
+	/* One bank of a steady -30 raw: the filter has barely moved, and still
+	 * reads 0. This was every record's noise figure. */
+	banks(2402, -30, 1);
+	mu_assert_int_eq(-90, rssi_iir[0]);
+	mu_assert_int_eq(0, rssi_get_avg(2402));
+
+	/* A hundred more and it is part of the way there: below 0, not yet -30.
+	 * This is the step the per-bank clear made unreachable. */
+	banks(2402, -30, 100);
+	mu_assert(rssi_get_avg(2402) < 0, "the average must move off zero");
+	mu_assert(rssi_get_avg(2402) > -30, "100 banks is not yet the whole way");
+
+	/* Given the few hundred banks the filter needs, it reads what the radio
+	 * heard: -30 raw, which the host reports as -84 dBm. */
+	banks(2402, -30, 500);
+	mu_assert_int_eq(-30, rssi_get_avg(2402));
+
+	/* It follows the channel down as well as up. */
+	banks(2402, -70, 1000);
+	mu_assert_int_eq(-70, rssi_get_avg(2402));
+}
+
+/* Each channel arrives at its own value, which is the point of a sweep: the
+ * record for a packet on one channel must not carry another channel's noise. */
+MU_TEST(test_each_channel_arrives_at_its_own_average)
+{
+	rssi_iir_reset();
+
+	/* A sweep's banks interleave across the band. */
+	{
+		int i;
+
+		for (i = 0; i < 1000; i++) {
+			a_bank(2402, -20, 20);
+			a_bank(2441, -45, 20);
+			a_bank(2480, -70, 20);
+		}
+	}
+
+	mu_assert_int_eq(-20, rssi_get_avg(2402));
+	mu_assert_int_eq(-45, rssi_get_avg(2441));
+	mu_assert_int_eq(-70, rssi_get_avg(2480));
+}
+
+/*
+ * The four per-packet figures do still start again for every packet: they
+ * describe the symbols of one packet, and the record carries all four.
+ */
+MU_TEST(test_the_per_packet_figures_start_again_every_packet)
+{
+	rssi_iir_reset();
+
+	/* A loud packet. */
+	rssi_reset();
+	rssi_add(-60);
+	rssi_add(-20);
+	rssi_add(-40);
+	mu_assert_int_eq(-20, rssi_max);
+	mu_assert_int_eq(-60, rssi_min);
+	mu_assert_int_eq(3, rssi_count);
+	mu_assert_int_eq(-120 * 256, rssi_sum);
+	rssi_iir_update(2402);
+
+	/* The next packet, quieter: none of the loud one's figures survive. */
+	rssi_reset();
+	mu_assert_int_eq(INT8_MIN, rssi_max);
+	mu_assert_int_eq(INT8_MAX, rssi_min);
+	mu_assert_int_eq(0, rssi_count);
+	mu_assert_int_eq(0, rssi_sum);
+
+	rssi_add(-80);
+	rssi_add(-75);
+	mu_assert_int_eq(-75, rssi_max);
+	mu_assert_int_eq(-80, rssi_min);
+	mu_assert_int_eq(2, rssi_count);
+}
+
+/* ...and starting a packet leaves the channel averages alone. That is the
+ * whole of the fix: the two resets are on different clocks. */
+MU_TEST(test_starting_a_packet_leaves_the_channel_averages_alone)
+{
+	int i;
+
+	rssi_iir_reset();
+	for (i = 0; i < NUM_BREDR_CHANNELS; i++)
+		rssi_iir[i] = (int16_t)(-(20 + i) * 256);
+
+	rssi_add(-10);
+	rssi_reset();
+
+	for (i = 0; i < NUM_BREDR_CHANNELS; i++)
+		mu_assert_int_eq(-(20 + i) * 256, rssi_iir[i]);
+	mu_assert_int_eq(-20, rssi_get_avg(BT_FREQ_MIN));
+	mu_assert_int_eq(-98, rssi_get_avg(BT_FREQ_MAX));
+}
+
+/* Where a capture ends, every channel is forgotten: the averages describe the
+ * band during that capture, and the next one starts from silence. */
+MU_TEST(test_ending_a_capture_forgets_every_channel)
+{
+	int i;
+
+	for (i = 0; i < NUM_BREDR_CHANNELS; i++)
+		rssi_iir[i] = (int16_t)(-40 * 256);
+
+	rssi_iir_reset();
+
+	for (i = 0; i < NUM_BREDR_CHANNELS; i++)
+		mu_assert_int_eq(0, rssi_iir[i]);
+	mu_assert_int_eq(0, rssi_get_avg(BT_FREQ_MIN));
+	mu_assert_int_eq(0, rssi_get_avg(BT_FREQ_MAX));
 }
 
 /*
@@ -226,6 +383,7 @@ MU_TEST(test_the_band_fills_the_array_and_outside_it_shares_slot_zero)
 	mu_assert_int_eq(NUM_BREDR_CHANNELS, BT_FREQ_MAX - BT_FREQ_MIN + 1);
 
 	rssi_reset();
+	rssi_iir_reset();
 	rssi_iir[0] = -10 * 256;
 	rssi_iir[NUM_BREDR_CHANNELS - 1] = -70 * 256;
 
@@ -236,6 +394,7 @@ MU_TEST(test_the_band_fills_the_array_and_outside_it_shares_slot_zero)
 
 	/* An update outside the band writes slot zero. */
 	rssi_reset();
+	rssi_iir_reset();
 	rssi_add(-50);
 	rssi_iir_update(BT_FREQ_MAX + 1);
 	mu_assert(rssi_iir[0] != 0, "an out-of-band update must land in slot zero");
@@ -248,6 +407,11 @@ int main(void)
 	MU_RUN(test_get_avg_positive_unchanged);
 	MU_RUN(test_iir_converges_to_negative_average);
 	MU_RUN(test_sum_count_rounding_negative);
+	MU_RUN(test_the_channel_average_accumulates_across_banks);
+	MU_RUN(test_each_channel_arrives_at_its_own_average);
+	MU_RUN(test_the_per_packet_figures_start_again_every_packet);
+	MU_RUN(test_starting_a_packet_leaves_the_channel_averages_alone);
+	MU_RUN(test_ending_a_capture_forgets_every_channel);
 	MU_RUN(test_threshold_from_n_does_not_wrap);
 	MU_RUN(test_threshold_is_monotonic_over_the_whole_range);
 	MU_RUN(test_default_and_most_sensitive_thresholds);
