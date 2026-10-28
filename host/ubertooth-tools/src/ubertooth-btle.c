@@ -24,7 +24,6 @@
 #include "btle_options.h"
 #include "opt_parse.h"
 #include <errno.h>
-#include <fcntl.h>
 #include <getopt.h>
 #include <string.h>
 #include <unistd.h>

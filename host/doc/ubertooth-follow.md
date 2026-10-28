@@ -201,10 +201,15 @@ line, and leaves nothing this tool can trust.
 
 `-q -` writes the PCAP capture to standard output and `-d -` the raw symbols,
 for a pipe into another program. Either way the capture owns standard output
-for the whole run, so the decoded packets that normally go there are not
-printed at all: the capture is the only thing on that stream. What the tool is
+for the whole run, so nothing else is printed there: not the decoded packets,
+and not the lines libbtbb prints about a clock it recovered. What the tool is
 following, the notes and the failures are on standard error and still arrive,
 and so is the `AFH map:` line of `-a`, which is the answer to that option.
+
+Redirect standard output to a new file or a pipe, not to one being appended
+to: on Linux the capture is opened again through `/proc/self/fd`, which
+truncates, so `ubertooth-follow -q - >> capture.pcap` loses what the file
+held.
 
 Binary on a terminal is a mistake rather than a stream anyone reads, so it is
 refused: `error: stdout is a tty, refusing to write binary capture data to

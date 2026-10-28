@@ -171,7 +171,9 @@ A refused command line creates and truncates nothing: \fB\-r\fR, \fB\-q\fR and \
 .P
 \fB\-\fR means standard output only as the whole value of \fB\-q\fR or \fB\-d\fR (ubertooth(7), OPTION VALUES)\. Any other value is a file name, including one that starts with \fB\-\fR: \fB\-q \-x\fR writes the file \fB\-x\fR\. Standard output carries one stream, so \fB\-q \-\fR and \fB\-d \-\fR in one command are refused: \fBerror: \-q and \-d cannot both write to standard output\fR\.
 .SH "CAPTURING TO STANDARD OUTPUT"
-\fB\-q \-\fR writes the PCAP capture to standard output and \fB\-d \-\fR the raw records, for a pipe into another program\. Either way the capture owns standard output for the whole run, so the per\-packet report the tool normally prints there is not printed at all: the capture is the only thing on that stream\. Notes, warnings and failures are on standard error and still arrive, and so do the survey results of \fB\-z\fR, which is what that mode was asked for\.
+\fB\-q \-\fR writes the PCAP capture to standard output and \fB\-d \-\fR the raw records, for a pipe into another program\. Either way the capture owns standard output for the whole run, so nothing else is printed there: not the per\-packet report, and not the lines libbtbb prints when it recovers a UAP or a clock (\fBCorrect CRC! UAP = 0x22 found after 31 total packets\.\fR)\. Notes, warnings and failures are on standard error and still arrive, and so do the survey results of \fB\-z\fR, which is what that mode was asked for\.
+.P
+Redirect standard output to a new file or a pipe, not to one being appended to: on Linux the capture is opened again through \fB/proc/self/fd\fR, which truncates, so \fBubertooth\-rx \-q \- >> capture\.pcap\fR loses what the file held\.
 .P
 Binary on a terminal is a mistake rather than a stream anyone reads, so it is refused: \fBerror: stdout is a tty, refusing to write binary capture data to it\fR, exit 1\. Redirect or pipe standard output instead\.
 .SH "EXIT STATUS"

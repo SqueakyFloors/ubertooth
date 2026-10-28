@@ -251,10 +251,10 @@ char *opt_capture_path(const char *filename, const char *what, int *saved_fd)
 	 * the saved standard output is named as one: /dev/fd works on macOS and
 	 * Linux, and /proc/self/fd is the fallback where /dev/fd is not
 	 * mounted. Opening that path is a fresh open on Linux and a second
-	 * descriptor on the same open file on macOS, so a capture appended to a
-	 * file (">> dump.pcap") starts at the beginning there and at the end
-	 * here. A pipe, which is what "-" is for, behaves the same either
-	 * way. */
+	 * descriptor on the same open file on macOS, so a capture whose
+	 * standard output was appended to a file (">> capture.pcap") truncates
+	 * that file on Linux and appends to it on macOS. A pipe, which is what
+	 * "-" is for, behaves the same either way. */
 	snprintf(path, sizeof(path), "/dev/fd/%d", *saved_fd);
 	if (access(path, W_OK) != 0) {
 		snprintf(path, sizeof(path), "/proc/self/fd/%d", *saved_fd);

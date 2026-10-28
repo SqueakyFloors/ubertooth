@@ -125,8 +125,12 @@ def report_bad_option(refusal):
     """
     # getopt says "option --name ..." for a word with two dashes and
     # "option -c ..." for a single letter, and names the option without them.
-    # The name is the one getopt matched, so an abbreviation is reported in
-    # full: "--fi" reads as "--fifo".
+    # For a value that is missing or not wanted, the name is the one getopt
+    # matched, so an abbreviation is reported in full and "--fi" reads as
+    # "--fifo": the option the user meant, rather than what they typed, which
+    # is the one place here that does not quote the command line as given.
+    # For an abbreviation that matches two options there is nothing to expand
+    # it to, so that one is quoted as typed.
     option = ("--" if refusal.msg.startswith("option --") else "-") \
         + refusal.opt
     if refusal.msg.endswith("requires argument"):

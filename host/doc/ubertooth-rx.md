@@ -290,10 +290,15 @@ one stream, so `-q -` and `-d -` in one command are refused:
 
 `-q -` writes the PCAP capture to standard output and `-d -` the raw records,
 for a pipe into another program. Either way the capture owns standard output
-for the whole run, so the per-packet report the tool normally prints there is
-not printed at all: the capture is the only thing on that stream. Notes,
-warnings and failures are on standard error and still arrive, and so do the
-survey results of `-z`, which is what that mode was asked for.
+for the whole run, so nothing else is printed there: not the per-packet
+report, and not the lines libbtbb prints when it recovers a UAP or a clock
+(`Correct CRC! UAP = 0x22 found after 31 total packets.`). Notes, warnings and failures are
+on standard error and still arrive, and so do the survey results of `-z`,
+which is what that mode was asked for.
+
+Redirect standard output to a new file or a pipe, not to one being appended
+to: on Linux the capture is opened again through `/proc/self/fd`, which
+truncates, so `ubertooth-rx -q - >> capture.pcap` loses what the file held.
 
 Binary on a terminal is a mistake rather than a stream anyone reads, so it is
 refused: `error: stdout is a tty, refusing to write binary capture data to

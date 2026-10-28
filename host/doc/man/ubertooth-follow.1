@@ -133,7 +133,9 @@ What the tool is following \(em the target address, or the LAP and UAP it read f
 .P
 A refused command line creates and truncates nothing: \fB\-r\fR, \fB\-q\fR and \fB\-d\fR name their file while the command line is read, and it is opened only once every check has passed\. A file that cannot be created is one \fBerror:\fR line naming it, for example \fBerror: /no/such/dir/dump\.bin: No such file or directory\fR, and exit 1\. For a \fB\-q\fR file the line carries no reason, \fBerror: CAPTURE\.pcap: could not be created\fR: the PCAP writer in libbtbb prints the reason itself, above that line, and leaves nothing this tool can trust\.
 .SH "CAPTURING TO STANDARD OUTPUT"
-\fB\-q \-\fR writes the PCAP capture to standard output and \fB\-d \-\fR the raw symbols, for a pipe into another program\. Either way the capture owns standard output for the whole run, so the decoded packets that normally go there are not printed at all: the capture is the only thing on that stream\. What the tool is following, the notes and the failures are on standard error and still arrive, and so is the \fBAFH map:\fR line of \fB\-a\fR, which is the answer to that option\.
+\fB\-q \-\fR writes the PCAP capture to standard output and \fB\-d \-\fR the raw symbols, for a pipe into another program\. Either way the capture owns standard output for the whole run, so nothing else is printed there: not the decoded packets, and not the lines libbtbb prints about a clock it recovered\. What the tool is following, the notes and the failures are on standard error and still arrive, and so is the \fBAFH map:\fR line of \fB\-a\fR, which is the answer to that option\.
+.P
+Redirect standard output to a new file or a pipe, not to one being appended to: on Linux the capture is opened again through \fB/proc/self/fd\fR, which truncates, so \fBubertooth\-follow \-q \- >> capture\.pcap\fR loses what the file held\.
 .P
 Binary on a terminal is a mistake rather than a stream anyone reads, so it is refused: \fBerror: stdout is a tty, refusing to write binary capture data to it\fR, exit 1\. Redirect or pipe standard output instead\.
 .SH "EXIT STATUS"
