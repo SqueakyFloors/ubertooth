@@ -299,9 +299,8 @@ const uint8_t hec_tbl[32] = {
 void null_decode(uint8_t *out, uint8_t *in, unsigned in_of, unsigned byte_count)
 {
 	unsigned i;
-	uint8_t b;
 	/* A long payload's chunks start well past air bit 2048, so this byte
-	 * offset does not fit in a byte: a DH5's 26th chunk starts at byte 257. */
+	 * offset does not fit in a byte: a DH5 reaches byte 347. */
 	unsigned byte_of;
 
 	if (byte_count == 0)
@@ -327,7 +326,6 @@ void null_decode(uint8_t *out, uint8_t *in, unsigned in_of, unsigned byte_count)
 void null_encode(uint8_t *out, uint8_t *in, unsigned out_of, unsigned byte_count)
 {
 	unsigned i;
-	uint8_t b;
 	/* Same width as in null_decode() above: an offset of 2048 bits or more
 	 * is a byte offset of 256 or more. */
 	unsigned byte_of;
@@ -467,7 +465,6 @@ static inline uint16_t unfec23_10bits(uint16_t in)
 int unfec23_10bytes(uint8_t *out, uint8_t *in)
 {
 	uint16_t in1, in2, in3, in4, in5, in6, in7, in8;
-	int rc = 0;
 
 	in1 = unfec23_10bits(EXTRACT15_2(in));
 	in2 = unfec23_10bits(EXTRACT15_1(in+2));

@@ -279,10 +279,8 @@ $(BINDIR)/test_btbr_arithmetic: test_btbr_arithmetic.c minunit.h \
 		$(FW_BTBR)/include/ubtbr/bb.h $(FW_BTBR)/include/ubtbr/codec.h \
 		$(FW_BTBR)/include/ubtbr/btphy.h $(FW_BTBR)/include/ubtbr/rf.h \
 		| $(BINDIR)
-# null_decode() and null_encode() each carry a local the codec never reads,
-# which is not what this tests and is not this change's.
 	$(CC) $(CFLAGS) -Istubs-btbr -I$(FW_BTBR)/include $(CPPFLAGS) \
-		-DFW_BTBR_DIR='"$(FW_BTBR)"' -Wno-unused-variable \
+		-DFW_BTBR_DIR='"$(FW_BTBR)"' \
 		-o $@ test_btbr_arithmetic.c $(FW_BTBR)/src/codec/bitstream_proc.c
 
 # The USB hardware layer reaches the controller only through the register

@@ -9,8 +9,9 @@
  * offsets a real packet reaches:
  *
  *  - the receive side decodes CODEC_RX_CHUNK_SIZE (10) bytes at a time from
- *    air bit 58 onwards, so chunk 26 of a long payload starts at air bit
- *    2058, which is byte 257 -- past what a byte can hold;
+ *    air bit 58 onwards, so chunk 25 of a long payload starts at air bit
+ *    2058, which is byte 257 -- past what a byte can hold. Chunks are
+ *    numbered from 0 here and below, as the codec counts them;
  *  - the transmit side encodes CODEC_TX_CHUNK_SIZE (80) bytes at a time, so
  *    fec23() is called with 640 input bits, from an 80-byte temporary.
  *
@@ -115,8 +116,8 @@ MU_TEST(test_null_decode_reads_the_first_chunk)
 }
 
 /* Chunk 25 of a long payload starts at air bit 2058, so the byte offset is
- * 257. Truncated to a byte that is 1, and the chunk is decoded from the start
- * of the air buffer instead. */
+ * 257. Truncated to a byte that is 1, and the chunk is decoded 256 bytes
+ * earlier in the air buffer. */
 MU_TEST(test_null_decode_crosses_air_bit_2048)
 {
 	uint8_t air[512], out[CODEC_RX_CHUNK_SIZE], want[CODEC_RX_CHUNK_SIZE];
@@ -148,21 +149,24 @@ MU_TEST(test_null_decode_crosses_air_bit_2048)
 
 /*
  * The very last chunk of the longest payload, which is where the offset gets
- * as big as it ever does. A DH5 carries a 2-byte payload header and 339
- * payload bytes, so the codec decodes 341 bytes in 35 chunks: the last is
- * chunk 34, one byte, at air bit 2778 -- byte 347.
+ * as big as it ever does. A DH5 carries a 2-byte payload header, 339 payload
+ * bytes and a 2-byte checksum, all of which the codec counts: 343 bytes in 35
+ * chunks of 10, so the last chunk is chunk 34, three bytes, starting at air
+ * bit 2778 -- byte 347.
  */
 MU_TEST(test_null_decode_reaches_the_end_of_the_longest_payload)
 {
-	uint8_t air[512], out[1], want[1];
+	uint8_t air[512], out[3], want[3];
 	unsigned of = RX_CHUNK_AIR_BIT(34);
 	unsigned byte = of / 8;
+	unsigned i;
 
 	mu_assert_int_eq(2778, (int)of);
 	mu_assert_int_eq(347, (int)byte);
 	fill_pattern(air, sizeof(air), 0x51c07);
 	memset(out, 0, sizeof(out));
-	want[0] = (uint8_t)((air[byte] >> 2) | (air[byte + 1] << 6));
+	for (i = 0; i < sizeof(want); i++)
+		want[i] = (uint8_t)((air[byte + i] >> 2) | (air[byte + i + 1] << 6));
 
 	null_decode(out, air, of, sizeof(out));
 	mu_assert(memcmp(out, want, sizeof(out)) == 0,

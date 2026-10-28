@@ -294,15 +294,17 @@
   in it lands on the plot, are no longer 2 MHz low.
   [#673](https://github.com/SqueakyFloors/ubertooth/issues/673)
 - `ubertooth-btbr` receives a long Classic payload whole. Past the first 256
-  bytes of the air buffer it decoded from the start of the buffer instead, so a
-  DH5 payload longer than about 250 bytes, the largest a Classic packet
-  carries, always failed its checksum.
+  bytes of the air buffer it decoded from 256 bytes earlier instead, so a DH5
+  payload of 247 bytes or more, the largest a Classic packet carries, always
+  failed its checksum.
   [#667](https://github.com/SqueakyFloors/ubertooth/issues/667)
-- `ubertooth-btbr` transmits the data it was given for a payload of 77 bytes or
+- `ubertooth-btbr` no longer corrupts every Classic transmit of 77 bytes or
   more. The 2/3 FEC encoder ran half again as many groups as the payload had,
-  so the packet went out with corrupt data and a checksum over bits the
-  receiver never saw.
+  writing the surplus over the air buffer, so everything after the first
+  chunk went out corrupt. Some payload sizes are still corrupted by an older,
+  narrower fault in the same encoder's last group.
   [#668](https://github.com/SqueakyFloors/ubertooth/issues/668)
+  [#706](https://github.com/SqueakyFloors/ubertooth/issues/706)
 - Page scan, inquiry scan and the paging monitor watch for a packet through
   nearly the whole 312.5-microsecond slot, as their own comment says, rather
   than the first 25 microseconds of it. The window was set in microseconds
