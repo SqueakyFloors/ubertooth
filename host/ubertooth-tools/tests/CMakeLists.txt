@@ -28,16 +28,27 @@ target_include_directories(test-dfu-recovery PRIVATE ../src)
 
 add_test(NAME dfu-recovery COMMAND test-dfu-recovery)
 
-# Every target here that compiles a libubertooth source reaches
+# Most targets here compile a libubertooth source that reaches
 # ubertooth_control.h, which includes <libusb-1.0/libusb.h>, so libusb's
 # include directories are given to the whole directory, as the library's and
-# the tools' own CMakeLists.txt do. A target added later needs nothing: it was
-# a target naming libbtbb and not libusb, which on a Homebrew install compiles
-# by coincidence, that this arrangement replaces.
+# the tools' own CMakeLists.txt do for theirs. The targets that need no libusb
+# header are unharmed by having the directories, and a target added later
+# needs nothing: naming them one target at a time is what let a new target
+# arrive with libbtbb's directory and not libusb's, which on a Homebrew
+# install compiles by coincidence.
 #
-# Asked for here rather than relying on another directory having found libusb
-# first: FindUSB1.cmake reports LIBUSB_INCLUDE_DIRS as a normal variable.
+# This directory asks for libusb itself: the directories are a normal
+# variable, and src/ is a sibling rather than a parent, so neither its
+# find_package() nor its include_directories() reaches here.
 find_package(USB1 REQUIRED)
+if(USE_OWN_GNU_GETOPT)
+	# Ahead of libusb's directories, which on a Homebrew install are a
+	# prefix include directory holding whatever else is installed there: a
+	# getopt.h among it must not be taken for this project's own. The
+	# targets that link opt-parse-for-tests get this directory from it as
+	# well, but behind the ones granted here.
+	include_directories(BEFORE ../getopt)
+endif()
 include_directories(${LIBUSB_INCLUDE_DIRS})
 
 find_package(Python3 COMPONENTS Interpreter REQUIRED)

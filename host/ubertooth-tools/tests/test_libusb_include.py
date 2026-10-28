@@ -25,10 +25,15 @@ dropped from the environment, because any of them carrying
 check on the list below holds whatever the environment, which is what makes
 the test meaningful on a machine with one of those set in a shell profile.
 
+It also reads every build file under host/ and refuses one that names the
+singular LIBUSB_INCLUDE_DIR, because the three lines that ask for libusb's
+directories are each on a line that would compile anyway on both CI runners.
+
 Usage: test_libusb_include.py <cmake> <repository root>
 """
 
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -69,11 +74,65 @@ def run(command, work):
     return done.returncode, done.stdout
 
 
+def check_build_files(repo_root):
+    """No build file may name the singular LIBUSB_INCLUDE_DIR.
+
+    Three directories ask for libusb's include directories, one call each, and
+    each has to ask for the plural: the singular is only the directory holding
+    libusb.h, and on a Homebrew install a source including
+    <libusb-1.0/libusb.h> does not compile with it. Neither CI runner would
+    catch the singular on those lines, because each of them also passes
+    libbtbb's include directory, which on Homebrew is the prefix include
+    directory that happens to hold a libusb-1.0 symlink -- the coincidence
+    this whole arrangement removes -- and on Linux the parent is searched
+    anyway.
+
+    It reads files and nothing else, so it runs before the project below:
+    where that cannot be configured, this is still checked.
+    """
+    singular = re.compile(r"\$\{LIBUSB_INCLUDE_DIR\}")
+    plural = re.compile(r"\$\{LIBUSB_INCLUDE_DIRS\}")
+    module = os.path.join("host", "cmake", "modules", "FindUSB1.cmake")
+    offenders = []
+    uses = 0
+    scanned = 0
+    for root, _, names in os.walk(os.path.join(repo_root, "host")):
+        for name in names:
+            if name != "CMakeLists.txt" and not name.endswith(".cmake"):
+                continue
+            path = os.path.join(root, name)
+            relative = os.path.relpath(path, repo_root)
+            if relative == module:
+                continue
+            scanned += 1
+            with open(path, encoding="utf-8", errors="replace") as handle:
+                for number, line in enumerate(handle, 1):
+                    if singular.search(line):
+                        offenders.append("%s:%d: %s"
+                                         % (relative, number, line.strip()))
+                    uses += len(plural.findall(line))
+    if scanned < 5:
+        fail("only %d build file under host/ was scanned, which cannot be "
+             "right: this checked next to nothing and passed" % scanned)
+    if not uses:
+        fail("no build file under host/ names ${LIBUSB_INCLUDE_DIRS}, so "
+             "either the variable was renamed and this check no longer knows "
+             "the name, or nothing asks libusb for its include directories")
+    if offenders:
+        fail("a build file names ${LIBUSB_INCLUDE_DIR}, which is only the "
+             "directory holding libusb.h and not the one above it that "
+             "<libusb-1.0/libusb.h> needs. Use ${LIBUSB_INCLUDE_DIRS}, or "
+             "nothing at all where the directory already asked for it:\n  %s"
+             % "\n  ".join(offenders))
+
+
 def main():
     if len(sys.argv) != 3:
         fail("usage: test_libusb_include.py <cmake> <repository root>")
     cmake, repo_root = sys.argv[1:]
     modules = os.path.join(repo_root, "host", "cmake", "modules")
+
+    check_build_files(repo_root)
 
     with tempfile.TemporaryDirectory() as work:
         source = os.path.join(work, "project")
