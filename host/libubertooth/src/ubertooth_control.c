@@ -165,6 +165,7 @@ static const char* request_name(uint8_t request)
 		case UBERTOOTH_IDENTIFY:           return "blink the board's LEDs";
 		case UBERTOOTH_GET_FW_INFO:        return "read the firmware information";
 		case UBERTOOTH_GET_WATCHDOG:       return "read the watchdog record";
+		case UBERTOOTH_GET_RADIO_TIMEOUTS: return "read the radio wait timeouts";
 		default:                           return NULL;
 	}
 }
@@ -832,10 +833,7 @@ int cmd_get_radio_timeouts(struct libusb_device_handle* devh,
 	r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_GET_RADIO_TIMEOUTS,
 			0, 0, result, sizeof(result), 1000);
 	if (r < LIBUSB_SUCCESS) {
-		if (r == LIBUSB_ERROR_PIPE)
-			fprintf(stderr, "error: control message unsupported\n");
-		else
-			show_libusb_error(r);
+		report_request_failed(r, UBERTOOTH_GET_RADIO_TIMEOUTS);
 		return r;
 	}
 	if (r != (int)sizeof(result))
