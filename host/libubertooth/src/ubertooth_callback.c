@@ -1317,22 +1317,32 @@ void cb_rx(ubertooth_t* ut, void* args)
 	 * its check bits and throws it away. The record then went out with all
 	 * 18 header bits zero, which a reader cannot tell from a real header of
 	 * zeros -- an LT_ADDR of 0, a NULL packet type, and flow, ARQN and SEQN
-	 * all clear -- and with the payload left by whichever clock candidate
-	 * the search happened to try last.
+	 * all clear.
 	 *
 	 * Decoding it needs the piconet's clock rather than the Ubertooth's.
 	 * The two differ by the offset the UAP search worked out, in slots,
 	 * until the whole clock is known: from then on the firmware is told to
 	 * apply the offset itself, libbtbb decodes the packet, and the offset
 	 * the piconet reports counts in the clock's own ticks instead. So this
-	 * is for the packets before that, the ones nothing else decodes. */
-	if (pn && uap != UAP_ANY
+	 * is for the packets before that, the ones nothing else decodes.
+	 *
+	 * What a reader checks a recorded header with is its check bits, run
+	 * against the reference UAP in the same record. A header that does not
+	 * come out right for this piconet -- a packet of another one whose
+	 * access code matched, or one with too many bit errors -- is still
+	 * written into the packet by the decoder before it checks, so such a
+	 * record carries bits that fail that check instead of the zeros it used
+	 * to carry. */
+	if (pn && btbb_piconet_get_flag(pn, BTBB_UAP_VALID)
 	       && btbb_piconet_get_flag(pn, BTBB_CLK6_VALID)
 	       && !btbb_piconet_get_flag(pn, BTBB_CLK27_VALID)
 	       && btbb_header_present(pkt)) {
 		/* One slot is two clock ticks, which is what the offset has to
 		 * be scaled by to move this packet's clock reading into the
-		 * piconet's time. */
+		 * piconet's time. Setting the data again is what carries that
+		 * clock into the packet, and leaves it there: the capture
+		 * writers below do not read it, and the Ubertooth's own reading
+		 * has already been printed. */
 		uint32_t piconet_clkn = (clkn + 2 * (uint32_t)
 		        btbb_piconet_get_clk_offset(pn)) & CLKN_MASK;
 
@@ -1340,11 +1350,7 @@ void cb_rx(ubertooth_t* ut, void* args)
 		btbb_packet_set_flag(pkt, BTBB_CLK6_VALID, 1);
 		btbb_packet_set_data(pkt, syms + offset, BANK_LEN - offset,
 		                     rx->channel, piconet_clkn);
-		/* The header's check bits confirm the clock and the UAP, so a
-		 * header that decodes is one whose payload is worth decoding at
-		 * the same clock: that is what the record carries. */
-		if (btbb_decode_header(pkt))
-			btbb_decode_payload(pkt);
+		btbb_decode_header(pkt);
 	}
 
 	/* Dump to PCAP/PCAPNG if specified */

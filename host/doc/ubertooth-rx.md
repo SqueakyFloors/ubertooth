@@ -288,6 +288,20 @@ that starts with `-`: `-q -x` writes the file `-x`. Standard output carries
 one stream, so `-q -` and `-d -` in one command are refused:
 `error: -q and -d cannot both write to standard output`.
 
+## WHAT A CAPTURE RECORD HOLDS
+
+Every record of a `-q` or `-r` capture names the LAP of the packet it holds as
+its reference LAP, whichever mode wrote it: the reference address is what a
+reader checks a record's own fields against. The piconet's UAP joins it from
+the packet whose CRC settles that UAP onwards, and with it the packet's own
+18-bit header, whose check bits a reader can recompute from the reference UAP
+in the same record.
+
+A record written before that carries no header. The header is whitened at the
+piconet's clock, so until one packet settles that clock there is nothing to
+unwhiten it with, and the record holds 18 zero bits instead. A survey (`-z`)
+follows no piconet, so its records name the LAP and no more.
+
 ## CAPTURING TO STANDARD OUTPUT
 
 `-q -` writes the PCAP capture to standard output and `-d -` the raw records,

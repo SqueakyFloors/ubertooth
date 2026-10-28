@@ -1475,12 +1475,14 @@
   warns you about a mixed pair: reflash both boards. Paging is unaffected, its
   FHS packet being 20 bytes, which was already counted right.
   [#706](https://github.com/SqueakyFloors/ubertooth/issues/706)
-- A Classic capture record carries the packet's own header once the piconet's
-  clock is known, and every record a survey (`ubertooth-rx -z`) writes names
-  the LAP it was found under. The header went into the record as 18 zero bits
-  until a follow began, which a reader cannot tell from a NULL packet that was
-  never sent, and a survey capture named no address at all - in the mode whose
-  job is finding addresses.
+- A Classic capture record names the LAP of the packet it holds, and carries
+  that packet's own header once a followed piconet's clock has been worked out.
+  A capture taken without `-l` named no address at all, `ubertooth-rx -z`
+  included - reference LAP `ffffff` in every record of the mode whose job is
+  finding addresses - and the header went into the record as 18 zero bits until
+  the follow began, which a reader cannot tell from a NULL packet that was
+  never sent. A survey record still carries no reference UAP, and a record
+  written before any clock is known still has no header to carry.
   [#778](https://github.com/SqueakyFloors/ubertooth/issues/778)
   [#781](https://github.com/SqueakyFloors/ubertooth/issues/781)
 

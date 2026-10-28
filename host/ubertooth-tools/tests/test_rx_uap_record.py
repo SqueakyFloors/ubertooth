@@ -73,14 +73,19 @@ DH1 = 4                         # the packet type of the settling packet
 LT_ADDR = 3                     # which member of the piconet sent it
 PAYLOAD_BODY = b"\x01\x02\x03\x04"
 
-# The clocks the two DH1 records are captured at, chosen so that each
-# packet's own CLK1-6 is 0: the clock they are whitened at, so the fixture is
-# the capture a real board would have made. ubertooth-rx derives CLKN from the
-# reading and the access code's position, which is why the numbers are not
-# round ones. Both land on the same CLK1-6, which is what lets the decoder
-# carry its clock candidates from the first packet to the second.
-UNSETTLED_CLK100NS = 3800 + 1152 * 3125
-SETTLING_CLK100NS = 3800 + 1280 * 3125
+# The clocks the two DH1 records are captured at. ubertooth-rx derives CLKN
+# from the reading and the access code's position, which is why the numbers
+# are not round ones. Both land on the same CLK1-6, which is what lets the
+# decoder carry its clock candidates from the first packet to the second.
+#
+# That CLK1-6 is 5 while the packets are whitened at 0, which is the ordinary
+# case: a board hears a piconet on its own clock, and the two run a fixed
+# number of slots apart until the follow starts and the board is told to
+# close the gap. The tool has to apply that offset to read a header, so the
+# fixture would not notice it being dropped if the two clocks agreed.
+PICONET_CLK_OFFSET = 5          # slots between the board's clock and the air
+UNSETTLED_CLK100NS = 3800 + (1152 + 2 * PICONET_CLK_OFFSET) * 3125
+SETTLING_CLK100NS = 3800 + (1280 + 2 * PICONET_CLK_OFFSET) * 3125
 ID_CLK100NS = (1_000_000, 9_000_000)
 
 # Where the reference LAP and UAP, the packet header and the flags sit in a
@@ -91,7 +96,9 @@ REF_LAP_UAP_AT = 12
 BT_HEADER_AT = 16
 FLAGS_AT = 20
 PAYLOAD_AT = 22
+BREDR_DEWHITENED = 0x0001
 BREDR_REFLAP_VALID = 0x0010
+BREDR_PAYLOAD_PRESENT = 0x0020
 BREDR_REFUAP_VALID = 0x0080
 LAP_ANY = 0xFFFFFF              # what a record with no reference LAP carries
 UAP_ANY = 0xFF                  # what a record with no reference UAP carries
@@ -407,12 +414,25 @@ with tempfile.TemporaryDirectory() as workdir:
         assert records[2].header & 0x7 == LT_ADDR, (name, records)
         assert (records[2].header >> 3) & 0xF == DH1, (name, records)
 
-        # The records with no header of their own carry none. Two of them are
-        # ID packets, which have no header on air at all; the third is the
-        # DH1 whose clock was still unknown when it was written, and without
-        # a clock there is nothing to unwhiten the header with.
+        # The other three records carry no header. The DH1 at index 1 was
+        # written while the clock was still unknown, and a header is
+        # whitened at the clock, so there was nothing to unwhiten it with;
+        # the two ID packets have no header on air at all.
         for index in (0, 1, 3):
             assert records[index].header == 0, (name, records)
+
+        # That mid-acquisition record is still wrong about its payload, and
+        # the same lack of a clock is why: it carries whatever bytes the
+        # last clock candidate left behind, under flags that say they are
+        # dewhitened payload data. They are not the payload that was sent,
+        # which is what its own CRC says -- the record of a packet nothing
+        # decoded should carry no payload at all. Pinned here because the
+        # flags are assembled inside libbtbb, which is where that half has
+        # to be put right.
+        assert records[1].flags & BREDR_DEWHITENED, (name, records)
+        assert records[1].flags & BREDR_PAYLOAD_PRESENT, (name, records)
+        assert records[1].payload, (name, records)
+        assert not crc_recomputes(records[1].payload, UAP), (name, records)
 
         # The reference UAP outlives the packet that settled it, which is all
         # that ever worked.
@@ -441,7 +461,7 @@ with tempfile.TemporaryDirectory() as workdir:
             assert rec.lap == LAP, (name, records)
             assert rec.flags & BREDR_REFLAP_VALID, (name, records)
 
-        # The UAP the survey settles is still missing from the records, and
+        # The UAP a survey settles is still missing from the records, and
         # so is the header that needs its clock: the piconets a survey keeps
         # are the decoder's own, one per LAP, and it hands out no way to read
         # one without destroying the survey. Pinned here so that whoever
@@ -449,3 +469,15 @@ with tempfile.TemporaryDirectory() as workdir:
         for rec in records:
             assert rec.uap == UAP_ANY, (name, records)
             assert rec.header == 0, (name, records)
+
+    # And the same fixture with neither option, which reads every packet it
+    # can and works no piconet out. Those records name their LAP too, for
+    # the same reason: it comes from the packet, not from a piconet.
+    result, captures = replay(work, "plain")
+    for name, records in captures:
+        assert len(records) == 4, (name, records)
+        show(name, records)
+        for rec in records:
+            assert rec.lap == LAP, (name, records)
+            assert rec.flags & BREDR_REFLAP_VALID, (name, records)
+            assert rec.uap == UAP_ANY, (name, records)
