@@ -313,6 +313,14 @@
   instead of a `HH:MM:SS | WARNING | ...` log line. The packets a command
   reports are still log lines.
   [#410](https://github.com/SqueakyFloors/ubertooth/issues/410)
+- The host tools version (`ubertooth-util -H`, and `-V` in `ubertooth-rx`,
+  `ubertooth-tx` and `ubertooth-afh`) says which libbtbb the run loaded, on a
+  second line: `libbtbb loaded from: /usr/local/lib/libbtbb.so.1`. A machine
+  with a distribution or Homebrew libbtbb beside this fork's reports two
+  versions that may be the same number, and the path is what tells them apart.
+  `install.sh` ends by printing the same two lines, and warns if the tools it
+  installed load a libbtbb from somewhere else.
+  [#337](https://github.com/SqueakyFloors/ubertooth/issues/337)
 
 ### Build and compatibility
 
@@ -1277,6 +1285,11 @@
   it: eleven of them only mentioned it elsewhere. ubertooth-specan(1) no
   longer promises the usage text after a bad option, which no tool prints.
   [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
+- `CONTRIBUTING.md` says what a change to this fork needs: the tests to run,
+  the CI checks a pull request has to pass and what each is for, and that
+  nothing in the repository enforces them, so a reviewer has to read a change
+  to `.github/workflows/` as carefully as the code.
+  [#700](https://github.com/SqueakyFloors/ubertooth/issues/700)
 - `ubertooth-follow`'s man page describes what a board that refuses one of the
   follow's requests prints, including the note that says what to try, as
   ubertooth-rx(1) and ubertooth-scan(1) already did.
@@ -1339,6 +1352,12 @@ Fixes with no visible change in normal use.
   frequency. The firmware leaves that field at zero, so a board running this
   tree always read it right.
   [#732](https://github.com/SqueakyFloors/ubertooth/issues/732)
+- The ToorCon 13 badge's range test listens long enough to hear the reply.
+  Its window was about 90 ms of the second the Ubertooth repeater holds the
+  reply for, so the badge gave up before the reply was sent and the test could
+  not pass at all. The window is sized from that delay now. Untested: nobody
+  here has a badge.
+  [#691](https://github.com/SqueakyFloors/ubertooth/issues/691)
 - `ubertooth-dfu -d <image> -r` tells three things apart after the reset: a
   board that did not come back, a board that is back and will not open, and a
   host USB bus that could not be read at all. The last two both read as a

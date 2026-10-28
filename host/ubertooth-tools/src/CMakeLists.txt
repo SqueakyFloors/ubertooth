@@ -53,7 +53,10 @@ endif()
 
 include_directories(${LIBUSB_INCLUDE_DIRS} ${LIBBTBB_INCLUDE_DIR})
 
-LIST(APPEND TOOLS_LINK_LIBS ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES})
+# CMAKE_DL_LIBS for libubertooth's dladdr() call: a tool linked against the
+# static libubertooth has to name the loader library itself.
+LIST(APPEND TOOLS_LINK_LIBS ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES}
+     ${CMAKE_DL_LIBS})
 
 if(USE_OWN_GNU_GETOPT)
 	LIST(APPEND TOOLS_LINK_LIBS libgetopt_static)

@@ -697,7 +697,7 @@ static void usage(FILE *output)
 	fprintf(output, "Common options:\n");
 	fprintf(output, "\t-v get firmware image and revision\n");
 	fprintf(output, "\t-V get compile info\n");
-	fprintf(output, "\t-H, --host-version get host tools (libubertooth) version\n");
+	fprintf(output, "\t-H, --host-version get host tools version and the libbtbb in use\n");
 	fprintf(output, "\t-I identify ubertooth device by flashing the USR, RX, and TX LEDs on the board, until -S or any mode option\n");
 	fprintf(output, "\t-d [0-1] get/set all LEDs\n");
 	fprintf(output, "\t-l [0-1] get/set USR LED\n");

@@ -36,6 +36,8 @@
 #include "ubertooth-rx.c"
 #undef main
 
+#include "run_main.h"
+
 /* The libubertooth globals ubertooth-rx uses. They live in ubertooth.c, which
  * is not linked here. */
 FILE* infile;
@@ -295,65 +297,19 @@ int rx_file_report(int result, const char* filename)
 
 /* ---- running the tool --------------------------------------------------- */
 
-struct run_result {
-	int rc;
-	char out[4096];
-	char err[4096];
-};
-
-static void read_back(FILE* file, char* buffer, size_t size)
-{
-	size_t length;
-
-	fflush(file);
-	rewind(file);
-	length = fread(buffer, 1, size - 1, file);
-	buffer[length] = '\0';
-	mu_assert(fgetc(file) == EOF, "captured output was truncated");
-}
-
 static struct run_result run_rx(const char* const* args)
 {
 	struct run_result result;
-	char* argv[16];
-	int argc = 0;
-	FILE* out = tmpfile();
-	FILE* err = tmpfile();
-	int saved_out = dup(fileno(stdout));
-	int saved_err = dup(fileno(stderr));
 
-	memset(&result, 0, sizeof(result));
-	result.rc = -1; /* a failed capture must not look like a successful run */
-	mu_assert(out != NULL && err != NULL && saved_out >= 0 && saved_err >= 0,
-	          "capture output");
-	if (out == NULL || err == NULL || saved_out < 0 || saved_err < 0)
-		return result;
-	while (args[argc] != NULL && argc < 15) {
-		argv[argc] = (char*)args[argc];
-		argc++;
-	}
-	argv[argc] = NULL;
-
+	/* The two file globals the tool leaves behind: a run that opened one
+	 * would otherwise hand the next run a stale handle. */
 	infile = NULL;
 	dumpfile = NULL;
-	optind = 0; /* restart option parsing for each run */
 
-	fflush(stdout);
-	fflush(stderr);
-	dup2(fileno(out), fileno(stdout));
-	dup2(fileno(err), fileno(stderr));
-	result.rc = ubertooth_rx_main(argc, argv);
-	fflush(stdout);
-	fflush(stderr);
-	dup2(saved_out, fileno(stdout));
-	dup2(saved_err, fileno(stderr));
-	close(saved_out);
-	close(saved_err);
+	result = run_tool_main(ubertooth_rx_main, args);
 
-	read_back(out, result.out, sizeof(result.out));
-	read_back(err, result.err, sizeof(result.err));
-	fclose(out);
-	fclose(err);
+	/* A run that was interrupted leaves this tool's own SIGINT handler
+	 * installed, and the rest of the test run must not be caught by it. */
 	signal(SIGINT, SIG_DFL);
 	return result;
 }

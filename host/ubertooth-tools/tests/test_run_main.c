@@ -31,6 +31,8 @@ static struct {
 	int rc;               /* what the fake tool returns */
 	size_t out_bytes;     /* this many 'o' bytes on standard output */
 	int write_to_argv;    /* overwrite argv[1], as a tool parsing in place does */
+	int replace_argv_pointer; /* swap argv[1] for a literal, as a tool
+	                           * rewriting a long option does */
 } tool;
 
 static void reset_tool(void)
@@ -54,6 +56,10 @@ static int fake_tool_main(int argc, char *argv[])
 	 * cannot run off the end of it. */
 	if (tool.write_to_argv && argc > 1)
 		snprintf(argv[1], strlen(argv[1]) + 1, "written");
+	/* A pointer swapped for a string literal, rather than a write through
+	 * it: what ubertooth-util does to "--host-version". */
+	if (tool.replace_argv_pointer && argc > 1)
+		argv[1] = (char *)"-H";
 
 	/* Recorded after the write above, so a case can see what the tool left
 	 * in its own argv. */
@@ -140,6 +146,30 @@ MU_TEST(the_tool_may_write_to_its_argv)
 	run_tool_main(fake_tool_main, args);
 	mu_assert(strcmp(tool.argv[1], "-t22:44:66:88:aa:cc") == 0,
 	          tool.argv[1]);
+}
+
+/*
+ * A tool may also replace a pointer in its argv instead of writing through
+ * it, which ubertooth-util does: it rewrites "--host-version" to "-H",
+ * because getopt only knows the short form. So the copies given back when the
+ * run is over are a list the harness kept, not the argv the tool was handed --
+ * that one no longer holds only what was allocated for it, and free() on a
+ * string literal aborted the whole test binary when this case was written.
+ *
+ * The run completing is most of the check; the assertions say the replacement
+ * really happened and that what the case passed is untouched.
+ */
+MU_TEST(the_tool_may_replace_a_pointer_in_its_argv)
+{
+	static const char *const args[] = { "a-tool", "--host-version", NULL };
+	struct run_result r;
+
+	reset_tool();
+	tool.replace_argv_pointer = 1;
+	r = run_tool_main(fake_tool_main, args);
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(tool.argv[1], "-H") == 0, tool.argv[1]);
+	mu_assert(strcmp(args[1], "--host-version") == 0, args[1]);
 }
 
 /* Each run starts with empty captures, so what one run printed cannot turn up
@@ -304,6 +334,7 @@ int main(void)
 	MU_RUN(the_arguments_arrive_as_a_real_argv);
 	MU_RUN(option_parsing_restarts_for_each_run);
 	MU_RUN(the_tool_may_write_to_its_argv);
+	MU_RUN(the_tool_may_replace_a_pointer_in_its_argv);
 	MU_RUN(a_run_does_not_see_what_the_run_before_it_printed);
 	MU_RUN(the_test_gets_its_own_streams_back);
 	MU_RUN(a_capture_that_did_not_fit_is_reported);

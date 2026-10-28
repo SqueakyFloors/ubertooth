@@ -109,11 +109,28 @@
 #define R8C_ACK_CLR (p0.b0 = 0)
 
 /*
+ * The shortest one poll of the radio can take, in microseconds.
+ *
+ * A poll is an SPI transaction through the badge's UART, so its cost is set by
+ * that UART's clock. In clock synchronous serial mode the bit rate is
+ * f1 / (2 * (u0brg + 1)); r8c_init() runs f1 at 20 MHz off the high-speed
+ * on-chip oscillator, and uart_init() sets u0brg = 3, so the clock is 2.5 MHz
+ * and a byte of it takes 3.2 us. A status read is one byte, a register read
+ * three, and dropping and raising chip select and going round the loop add to
+ * both. So 3 us is a floor and nothing here is faster: a budget sized from it
+ * lasts at least as long as it is meant to.
+ *
+ * Worked out from the clock, not measured: no badge has been on a scope for
+ * this.
+ */
+#define SYNC_POLL_US 3
+
+/*
  * How many times each wait on CC2400 state polls the radio before it gives up.
  *
- * These are poll counts, not times: one poll is one SPI transaction through
- * the badge's UART, so how long a budget lasts depends on the UART's clock.
- * Each is sized to be out of reach of a radio that is working at all, which is
+ * These are poll counts, not times, which at the floor above makes the
+ * shortest of the five below 3 ms and the longest 30 ms, and somewhat more in
+ * practice. Each is out of reach of a radio that is working at all, which is
  * all it has to be -- the states being waited for are reached in well under a
  * millisecond.
  *
@@ -121,10 +138,9 @@
  * Ubertooth firmware: it is asked for on the way out of a measurement, where
  * carrying on costs nothing.
  *
- * All but the first are the Ubertooth's values, which were sized against its
- * own SPI and are more than this part needs; what a poll costs here has not
- * been measured. Raising one has a ceiling: the waits count in a uint16_t,
- * because a counter wider than a word costs this 16-bit part real
+ * These are the Ubertooth's values, sized against its own SPI and more than
+ * this part needs. Raising one has a ceiling: these five waits count in a
+ * uint16_t, because a counter wider than a word costs this 16-bit part real
  * instructions, so a budget above 65535 is taken modulo 65536 -- a far shorter
  * wait than asked for, and no wait at all on an exact multiple.
  */
@@ -140,18 +156,32 @@
  * transmitted. The range test gives up on it all the same, because the badge
  * has no host to ask it to stop.
  *
- * 28561 polls, which is what the range test has always spent listening, in one
- * stretch. It has to be one stretch: the radio is receiving throughout it, and
- * a wait that gave up and started another would first have to wait out
+ * How long it has to wait is set by the peer. The only peer this range test
+ * has is an Ubertooth running cc2400_repeater(), which holds its reply for
+ * REPEATER_TURNAROUND_MS so that the sender has finished its burst and armed
+ * its receiver. A window shorter than that cannot succeed at all: the badge
+ * gives up before the reply is sent. That is what the 28561 polls this budget
+ * was for years came to -- about 90 ms against a 1000 ms wait -- so it is
+ * sized from the turnaround now, with half of it again for the reply's air
+ * time and for the two sides' clocks being whatever they are.
+ *
+ * The listening has to be one stretch: the radio is receiving throughout it,
+ * and a wait that gave up and started another would first have to wait out
  * FSM_POLLS with the radio still in receive, so a reply arriving in that gap
  * would be missed. A wait that finds no packet is therefore the end of the
  * test.
  *
- * Whether 28561 polls is long enough is a separate question, which needs a
- * badge to answer: the only peer this range test has is an Ubertooth running
- * cc2400_repeater(), which waits a second before it replies.
+ * This many polls does not fit a uint16_t, so cc2400_wait_sync_received() is
+ * the one wait here that counts in a uint32_t.
+ *
+ * The turnaround is written out rather than shared: it belongs to another
+ * image, in another language dialect, built by another compiler. The firmware
+ * tests keep the two copies equal and check that this window is sized from
+ * them.
  */
-#define SYNC_RECEIVED_POLLS 28561
+#define REPEATER_TURNAROUND_MS 1000
+#define SYNC_RECEIVED_MS (REPEATER_TURNAROUND_MS + (REPEATER_TURNAROUND_MS / 2))
+#define SYNC_RECEIVED_POLLS ((SYNC_RECEIVED_MS * 1000UL) / SYNC_POLL_US)
 
 /*
  * How many packets with a failed checksum the range test takes before it gives
@@ -161,10 +191,11 @@
  * all: the state the wait above needs has been reached.
  *
  * A retry listens again from the full budget, so the worst case is this many
- * times SYNC_RECEIVED_POLLS. That is longer than the one shared count the test
- * used to spend across its retries, and the trade is deliberate: a retry only
- * happens after a packet actually arrived, and a listen that gets the whole
- * budget is the thing worth keeping.
+ * times SYNC_RECEIVED_POLLS, which is now about twenty seconds of a badge that
+ * does nothing else. Reaching it takes thirteen packets in a row whose
+ * checksum failed, and the trade is deliberate: a retry only happens after a
+ * packet actually arrived, and a listen that gets the whole budget is the
+ * thing worth keeping.
  */
 #define BAD_CRC_RETRIES 13
 

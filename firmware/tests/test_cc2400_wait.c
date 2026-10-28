@@ -1148,6 +1148,29 @@ MU_TEST(test_the_badge_waits_count_their_polls)
 }
 
 /*
+ * The wait for a packet is the one badge wait whose budget does not fit a
+ * uint16_t: it has to cover the second the repeater holds its reply for, which
+ * is hundreds of thousands of polls. A counter too narrow for its budget takes
+ * the budget modulo 65536, so the wait is far shorter than it says and on an
+ * exact multiple there is no wait at all.
+ */
+MU_TEST(test_the_badge_packet_wait_counts_wide_enough)
+{
+	const char *path = FW_DIR "/tc13badge/tc13badge.c";
+	char body[4096];
+	char why[448];
+
+	snprintf(why, sizeof(why),
+	         "%s does not define cc2400_wait_sync_received()", path);
+	mu_assert_fatal(read_function_body(path, "cc2400_wait_sync_received",
+	                                   body, sizeof(body)), why);
+	snprintf(why, sizeof(why),
+	         "%s: cc2400_wait_sync_received() does not count in a uint32_t, "
+	         "so its budget is taken modulo 65536", path);
+	mu_assert(strstr(body, "uint32_t i;") != NULL, why);
+}
+
+/*
  * The badge's range test listens for the repeated packet in a counted loop.
  *
  * It used to be `while (1)`, with one poll budget shared across its passes,
@@ -1446,6 +1469,7 @@ int main(void)
 	MU_RUN(test_no_radio_source_spins_on_the_radio);
 	MU_RUN(test_no_unshipped_image_spins_on_radio_state);
 	MU_RUN(test_the_badge_waits_count_their_polls);
+	MU_RUN(test_the_badge_packet_wait_counts_wide_enough);
 	MU_RUN(test_the_badge_range_test_counts_its_attempts);
 	MU_RUN(test_only_the_boot_path_still_spins_on_the_radio);
 	MU_RUN(test_the_scan_slot_ends_when_the_radio_is_not_receiving);

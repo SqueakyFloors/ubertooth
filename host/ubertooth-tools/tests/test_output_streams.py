@@ -202,16 +202,25 @@ HOST_VERSION_ARGUMENTS = {
 # The line names what it is, as every other version line does, so it cannot be
 # read as a board's firmware revision.
 HOST_VERSION_PREFIX = "Host tools version: libubertooth "
+# And the libbtbb the run loaded gets a labelled line of its own, because a
+# machine can have a distribution or Homebrew libbtbb beside this fork's and
+# the version alone does not say which one is being used.
+BTBB_PATH_PREFIX = "libbtbb loaded from: "
 
 for arguments in HOST_VERSION_ARGUMENTS.get(TOOL, ()):
     result = run(arguments)
     assert result.returncode == 0, (arguments, result)
     assert result.stderr == "", (arguments, result)
     assert result.stdout.startswith(HOST_VERSION_PREFIX), (arguments, result)
-    # One line, with libbtbb's version on it too, so it answers "which
-    # libraries am I running?" on its own.
-    assert result.stdout.count("\n") == 1, (arguments, result)
-    assert "libbtbb " in result.stdout, (arguments, result)
+    # Two lines: the versions, then where libbtbb came from. Both are
+    # labelled, so either can be grepped for on its own.
+    lines = result.stdout.splitlines()
+    assert len(lines) == 2, (arguments, result)
+    assert "libbtbb " in lines[0], (arguments, result)
+    assert lines[1].startswith(BTBB_PATH_PREFIX), (arguments, result)
+    # A path, not an empty label: the fallback when the loader cannot say is
+    # the word "unknown".
+    assert lines[1][len(BTBB_PATH_PREFIX):].strip() != "", (arguments, result)
 
 # ---- a command line with nothing to do -------------------------------------
 

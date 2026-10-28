@@ -221,7 +221,7 @@ extern int max_ac_errors;
  * documents as 5. Anything larger needs a syndrome table of several GB. */
 #define MAX_AC_ERRORS 5
 
-void print_version();
+void print_version(void);
 /* Installs the library's signal handlers, so Ctrl-C, SIGTERM, SIGHUP, SIGQUIT
  * and SIGALRM stop the capture instead of killing the tool with its mode still
  * running on the board. Pass do_exit = 0: see cleanup_exit() in ubertooth.c.

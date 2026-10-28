@@ -38,6 +38,12 @@ int nanosleep(const struct timespec *requested, struct timespec *remaining)
 #include "ubertooth-dfu.c"
 #undef main
 
+/* A read-back prints one dot per 256-byte block, so a 256 KiB part is 960 of
+ * them, plus the stage trace around them: more standard error than the shared
+ * harness keeps room for by default. */
+#define RUN_RESULT_ERR_SIZE 16384
+#include "run_main.h"
+
 /* The flash region -u reads back. Its length follows the part: these runs
  * reach the bootloader without an application to ask, so they get the size
  * the host assumes. */
@@ -487,90 +493,34 @@ int cmd_get_firmware_info(struct libusb_device_handle *devh,
 
 /* ---- running main() and capturing what it prints ------------------------ */
 
-struct run_result {
-	int rc;
-	char out[4096];
-	/* Holds a read-back: one dot per 256-byte block, so a 256 KiB part
-	 * is 960 of them, plus the stage trace around them. */
-	char err[16384];
-};
-
 static char dump_path[512];
 static char image_path[512];
 /* A second image, written per case, for the sizes the flash bound is about. */
 static char sized_image_path[512];
 
-static void read_back(FILE *file, char *buffer, size_t size)
-{
-	size_t length;
-
-	fflush(file);
-	rewind(file);
-	length = fread(buffer, 1, size - 1, file);
-	buffer[length] = '\0';
-	/* A capture that did not fit must fail loudly instead of comparing a
-	 * prefix. The dots of a read-back are most of it. */
-	mu_assert(fgetc(file) == EOF, "captured output was truncated");
-}
-
-/* The two streams of one run, held aside while it prints into temporary
- * files. A read-back prints a dot per block, so nothing here is left on the
- * test's own output. */
-static struct {
-	FILE *out, *err;
-	int saved_out, saved_err;
-} capture;
+/* The capture a case puts around a call it makes itself, rather than around a
+ * run of the tool. One case is running at a time, so one of these is enough.
+ */
+static struct run_capture capture;
 
 static void begin_capture(void)
 {
-	capture.out = tmpfile();
-	capture.err = tmpfile();
 	/* mu_assert() counts a failure and carries on, which here would mean
-	 * dup2(fileno(NULL), ...): stop instead. */
-	if (capture.out == NULL || capture.err == NULL) {
-		fprintf(stderr, "tmpfile failed\n");
+	 * making the call with its output going to whoever is running the
+	 * tests and nothing reading it back: stop instead. */
+	if (run_capture_begin(&capture) < 0)
 		exit(1);
-	}
-	fflush(stdout);
-	fflush(stderr);
-	capture.saved_out = dup(STDOUT_FILENO);
-	capture.saved_err = dup(STDERR_FILENO);
-	dup2(fileno(capture.out), STDOUT_FILENO);
-	dup2(fileno(capture.err), STDERR_FILENO);
 }
 
 static void end_capture(struct run_result *result)
 {
-	fflush(stdout);
-	fflush(stderr);
-	dup2(capture.saved_out, STDOUT_FILENO);
-	dup2(capture.saved_err, STDERR_FILENO);
-	close(capture.saved_out);
-	close(capture.saved_err);
-	read_back(capture.out, result->out, sizeof(result->out));
-	read_back(capture.err, result->err, sizeof(result->err));
-	fclose(capture.out);
-	fclose(capture.err);
+	run_capture_end(&capture, result);
 }
 
 static struct run_result run_dfu(const char *const *args)
 {
-	struct run_result result;
-	char *argv[16];
-	int argc = 0;
+	struct run_result result = run_tool_main(ubertooth_dfu_main, args);
 
-	memset(&result, 0, sizeof(result));
-	result.rc = -1; /* a failed capture must not look like a successful run */
-	while (args[argc] != NULL && argc < 15) {
-		argv[argc] = (char *)args[argc];
-		argc++;
-	}
-	argv[argc] = NULL;
-
-	begin_capture();
-	optind = 0; /* restart option parsing for each run */
-	result.rc = ubertooth_dfu_main(argc, argv);
-	end_capture(&result);
 	/* Every handle opened must have been closed, and every list freed. */
 	mu_assert_int_eq(fake.opens, fake.closes);
 	mu_assert_int_eq(0, fake.lists);

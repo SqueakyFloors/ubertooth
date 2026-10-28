@@ -19,6 +19,18 @@
  * Boston, MA 02110-1301, USA.
  */
 
+/* dladdr(), which print_version() uses to say where libbtbb was loaded from.
+ * glibc declares it only for this macro; macOS and the BSDs declare it
+ * whatever is asked for. It has to come before the first header, because that
+ * is where glibc reads it.
+ *
+ * Here rather than beside _DEFAULT_SOURCE in host/CMakeLists.txt, where the
+ * other feature macro is set for every target: _GNU_SOURCE changes what the
+ * standard headers declare, strerror_r's return type among it, so it is asked
+ * for in the one file that needs it. */
+#define _GNU_SOURCE
+
+#include <dlfcn.h>
 #include <errno.h>
 #include <limits.h>
 #include <pthread.h>
@@ -91,11 +103,53 @@ pthread_t poll_thread;
 
 unsigned int packet_counter_max;
 
+/*
+ * The file this run reads libbtbb from, or NULL if the loader cannot say.
+ *
+ * Asked of the loader rather than recorded when the tools were built, because
+ * the question a machine with two libbtbb installs asks is which one is being
+ * used now: a build directory configured against one, and a run that finds
+ * another first, are the same program with different packet decoding.
+ *
+ * Two builds answer with the program instead of a library, and both answers
+ * are honest. One linked libbtbb into the program. The other was built
+ * without position-independent code, where the program's own entry for the
+ * function is its canonical address and the program exports it, so every way
+ * of asking -- this one and a dlsym() by name -- resolves inside the program.
+ * Every toolchain this fork supports builds position-independent by default.
+ */
+static const char* loaded_libbtbb_path(void)
+{
+	/* A function pointer, written to the member it fits and read from the
+	 * other: converting one to void* directly is not something C promises,
+	 * and -Wpedantic says so. */
+	union {
+		const char* (*function)(void);
+		const void* address;
+	} probe;
+	Dl_info info;
+
+	probe.function = btbb_get_version;
+	if (dladdr(probe.address, &info) == 0)
+		return NULL;
+	if (info.dli_fname == NULL || info.dli_fname[0] == '\0')
+		return NULL;
+	return info.dli_fname;
+}
+
 /* Labelled like every other version line a tool prints, so the host tools'
- * version cannot be mistaken for a board's firmware revision. */
-void print_version() {
+ * version cannot be mistaken for a board's firmware revision, and one line
+ * per thing asked about so each can be grepped for on its own. */
+void print_version(void) {
+	const char* btbb_path = loaded_libbtbb_path();
+
 	printf("Host tools version: libubertooth %s (%s), libbtbb %s (%s)\n",
 	       VERSION, RELEASE, btbb_get_version(), btbb_get_release());
+	/* Which libbtbb, not just which version of it: a distribution or
+	 * Homebrew package beside this fork's build reports a version too, and
+	 * the path is the only thing that tells the two apart. */
+	printf("libbtbb loaded from: %s\n",
+	       btbb_path != NULL ? btbb_path : "unknown");
 }
 
 /* The handle register_cleanup_handler() was given, for cleanup_exit() below.

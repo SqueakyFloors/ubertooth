@@ -117,7 +117,8 @@ Miscellaneous:
 
  - `-V` :
    print the host tools version, as `Host tools version: libubertooth
-   <version> (<revision>), libbtbb <version> (<revision>)`
+   <version> (<revision>), libbtbb <version> (<revision>)`, followed by
+   `libbtbb loaded from: <path>` naming the file this run reads libbtbb from
 
  - `-U <index|serial>` :
    select an Ubertooth by enumeration index or serial number; see

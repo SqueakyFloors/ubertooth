@@ -18,6 +18,8 @@
 #include "ubertooth-util.c"
 #undef main
 
+#include "run_main.h"
+
 /* ---- scripted device -------------------------------------------------- */
 
 static struct {
@@ -658,64 +660,12 @@ int cmd_led_specan(struct libusb_device_handle *h, u16 rssi)
 
 /* ---- running main() and capturing what it prints ---------------------- */
 
-struct run_result {
-	int rc;
-	char out[4096];
-	char err[2048];
-};
-
-static void read_back(FILE *file, char *buffer, size_t size)
-{
-	size_t length;
-
-	fflush(file);
-	rewind(file);
-	length = fread(buffer, 1, size - 1, file);
-	buffer[length] = '\0';
-	/* A capture that did not fit must fail loudly instead of comparing a prefix. */
-	mu_assert(fgetc(file) == EOF, "captured output was truncated");
-}
-
+/* Nothing of this tool's own has to be set up or checked around a run, so
+ * this is the shared harness and nothing else. The cases that build their own
+ * argument list call it rather than the macro below. */
 static struct run_result run_util(const char *const *args)
 {
-	struct run_result result;
-	char *argv[32];
-	int argc = 0;
-	int saved_out, saved_err;
-	FILE *out = tmpfile();
-	FILE *err = tmpfile();
-
-	memset(&result, 0, sizeof(result));
-	result.rc = -1; /* a failed capture must not look like a successful run */
-	mu_assert(out != NULL && err != NULL, "tmpfile failed");
-	if (out == NULL || err == NULL)
-		return result;
-	while (args[argc] != NULL && argc < 31) {
-		argv[argc] = (char *)args[argc];
-		argc++;
-	}
-	argv[argc] = NULL;
-
-	fflush(stdout);
-	fflush(stderr);
-	saved_out = dup(STDOUT_FILENO);
-	saved_err = dup(STDERR_FILENO);
-	dup2(fileno(out), STDOUT_FILENO);
-	dup2(fileno(err), STDERR_FILENO);
-	optind = 0; /* restart option parsing for each run */
-	result.rc = ubertooth_util_main(argc, argv);
-	fflush(stdout);
-	fflush(stderr);
-	dup2(saved_out, STDOUT_FILENO);
-	dup2(saved_err, STDERR_FILENO);
-	close(saved_out);
-	close(saved_err);
-
-	read_back(out, result.out, sizeof(result.out));
-	read_back(err, result.err, sizeof(result.err));
-	fclose(out);
-	fclose(err);
-	return result;
+	return run_tool_main(ubertooth_util_main, args);
 }
 
 #define RUN(...) run_util((const char *const[]){ "ubertooth-util", __VA_ARGS__, NULL })
