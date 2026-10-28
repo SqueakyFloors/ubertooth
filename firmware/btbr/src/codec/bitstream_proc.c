@@ -299,7 +299,9 @@ const uint8_t hec_tbl[32] = {
 void null_decode(uint8_t *out, uint8_t *in, unsigned in_of, unsigned byte_count)
 {
 	unsigned i;
-	uint8_t b, byte_of;
+	/* A long payload's chunks start well past air bit 2048, so this byte
+	 * offset does not fit in a byte: a DH5 reaches byte 347. */
+	unsigned byte_of;
 
 	if (byte_count == 0)
 		return;
@@ -324,7 +326,9 @@ void null_decode(uint8_t *out, uint8_t *in, unsigned in_of, unsigned byte_count)
 void null_encode(uint8_t *out, uint8_t *in, unsigned out_of, unsigned byte_count)
 {
 	unsigned i;
-	uint8_t b, byte_of;
+	/* Same width as in null_decode() above: an offset of 2048 bits or more
+	 * is a byte offset of 256 or more. */
+	unsigned byte_of;
 
 	if (byte_count == 0)
 		return;
@@ -383,11 +387,12 @@ void whiten(uint8_t* output, uint8_t* input, int length, uint8_t *statep)
 int fec23(uint8_t *out, uint8_t *in, unsigned out_of, unsigned nbits)
 {
 	unsigned in_bit_pos, byte_pos, out_bit_pos, data;
-	unsigned nout = ((nbits+9)/10)*15;
 
-	// 10 bits in -> 15 output bits
+	/* 10 bits in -> 15 output bits. in_bit_pos walks the input, so the
+	 * input size bounds it: bounding it with the 15/10 larger output size
+	 * would read half again as many groups, past the end of the input. */
 	for(in_bit_pos=0, out_bit_pos=out_of
-		; in_bit_pos<nout
+		; in_bit_pos<nbits
 		; in_bit_pos+=10, out_bit_pos+=15)
 	{
 		byte_pos =in_bit_pos>>3;
@@ -460,7 +465,6 @@ static inline uint16_t unfec23_10bits(uint16_t in)
 int unfec23_10bytes(uint8_t *out, uint8_t *in)
 {
 	uint16_t in1, in2, in3, in4, in5, in6, in7, in8;
-	int rc = 0;
 
 	in1 = unfec23_10bits(EXTRACT15_2(in));
 	in2 = unfec23_10bits(EXTRACT15_1(in+2));

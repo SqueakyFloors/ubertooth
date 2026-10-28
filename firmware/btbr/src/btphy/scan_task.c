@@ -30,7 +30,10 @@
 #include <ubtbr/scan_task.h>
 
 #define SCAN_MAX_SLOTS	8
-#define	SCAN_WAIT_SYNCWORD	250	// Wait 250usec max
+/* CLKN_OFFSET counts the slot clock in 100ns steps, so one 312.5usec slot is
+ * 3125 of them. A scan does not know where in the slot the packet will land,
+ * so it watches nearly the whole slot. */
+#define	SCAN_WAIT_SYNCWORD	2500	// Wait 250usec max
 
 static struct {
 	/* Arguments */
