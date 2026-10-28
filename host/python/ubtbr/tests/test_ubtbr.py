@@ -1400,6 +1400,24 @@ assert "Exception ignored" not in errors, errors
 assert "Traceback" not in errors, errors
 print("ubtbr: a capture whose reader went away is reported, and exits 1")
 
+# and the same when the reader leaves with no packet left to print, which is
+# `ubertooth-btbr | head -1`: the prompt and the intro are on that stream
+# too, and the write that finds it gone is then the session's last flush.
+# CPython's input() hides the failure while printing the prompt, so nothing
+# on the way noticed it.
+running = tool()
+running.stdout.close()
+running.stdin.write("q\n")
+running.stdin.flush()
+running.stdin.close()
+errors = running.stderr.read()
+assert running.wait(timeout=DEADLINE) == 1, (running.returncode, errors)
+assert errors.count("error: standard output has gone away,"
+                    " the capture is lost\n") == 1, errors
+assert "Exception ignored" not in errors, errors
+assert "Traceback" not in errors, errors
+print("ubtbr: a reader that leaves before any packet is reported the same way")
+
 # no Ubertooth at all: one error line, nothing on standard output, exit 1,
 # where the tool used to end in a traceback
 running = tool(dict(ENVIRONMENT, UBTBR_FAKE_NO_DEVICE="1"))

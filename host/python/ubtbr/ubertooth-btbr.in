@@ -449,11 +449,6 @@ def main():
 		leave(bt, 1)
 	prompt = BTCtlPrompt(bt)
 	prompt.cmdloop()
-	if output_gone():
-		# Whatever was reading the capture stopped part way through it, so
-		# the session did not deliver all it was asked for. Reported where it
-		# happened; this is only the status.
-		sys.exit(1)
 	if prompt.abandoned():
 		# The session ended with the device still claimed by a command that
 		# would not stop, so it did not do all it was asked. Out without the
@@ -464,4 +459,27 @@ def main():
 		sys.stderr.flush()
 		os._exit(1)
 
-if __name__ == '__main__': main()
+if __name__ == '__main__':
+	try:
+		main()
+	except BrokenPipeError:
+		# A write that was not a packet: the prompt, the intro, the usage
+		# text or what `?` prints all go to standard output too, and
+		# result() is the only one that notices the stream going away by
+		# itself.
+		output_lost()
+	finally:
+		# The last word on that stream, while a handler can still reach the
+		# failure: the interpreter flushes it as it exits, outside any
+		# handler, and a flush that fails there ends the tool in status 120
+		# and a message of its own. CPython's input() hides the same failure
+		# while printing the prompt, so a session whose reader left can get
+		# this far with the break unnoticed.
+		try:
+			sys.stdout.flush()
+		except BrokenPipeError:
+			output_lost()
+	# Nothing reached this if the session ended on a status of its own, which
+	# includes the command that would not stop (above) and every refusal
+	# before the prompt.
+	sys.exit(1 if output_gone() else 0)

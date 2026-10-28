@@ -226,6 +226,26 @@ def output_gone():
 	"""True if standard output went away while the session was running."""
 	return _output_gone
 
+def output_lost():
+	"""Note that standard output has gone away, and stop writing to it.
+
+	Called from wherever a write to that stream failed. The descriptor is
+	pointed at the bin, so nothing written afterwards fails either --
+	including the flush the interpreter does as it exits, which no handler
+	can reach and which would end the tool in status 120 and a message of
+	its own. Said once, however many writes find the stream gone.
+	"""
+	global _output_gone
+	if _output_gone:
+		return
+	_output_gone = True
+	nowhere = os.open(os.devnull, os.O_WRONLY)
+	try:
+		os.dup2(nowhere, sys.stdout.fileno())
+	finally:
+		os.close(nowhere)
+	error("standard output has gone away, the capture is lost")
+
 def result(msg):
 	"""Report what a command decoded: a packet, or an inquiry response.
 
@@ -236,7 +256,6 @@ def result(msg):
 	therefore still one timed line per line. Blank lines are dropped, so what
 	a reader gets is packets and nothing else.
 	"""
-	global _output_gone
 	now = strftime("%H:%M:%S")
 	try:
 		# Written in one go, because the prompt is on this stream too and
@@ -247,16 +266,8 @@ def result(msg):
 		sys.stdout.flush()
 	except BrokenPipeError:
 		# Whatever was reading the capture has stopped, which is what
-		# `ubertooth-btbr | head -5` does. Point the file descriptor at the
-		# bin, so that neither the prompt nor the flush the interpreter does
-		# on the way out fails as well: an unflushable standard output at
-		# exit ends the tool in status 120 and a message nobody asked for.
-		# Reported once, and the session ends non-zero, because the capture
-		# it was asked for stopped being written.
-		if not _output_gone:
-			_output_gone = True
-			os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
-			error("standard output has gone away, the capture is lost")
+		# `ubertooth-btbr | head -5` does.
+		output_lost()
 
 def warn(msg):
 	"""Report something the user should know about: one `warning: ` line.
@@ -958,7 +969,8 @@ class BTCtlMonitorCmd(BTCtlCmd):
 
 	def _handle_bad(self, pkt):
 		role = "slave" if (pkt.clkn & 2) else "master"
-		result("RX Raw (%6s:%7x): %s | %s"%(role,pkt.clkn, pkt.bb_hdr, hexlify(pkt.bt_data.raw_data)))
+		result("RX Raw (%6s:%7x): %s | %s"%(role,pkt.clkn, pkt.bb_hdr,
+			hexlify(pkt.bt_data.raw_data).decode()))
 
 	def _handle_lmp(self, pkt):
 		pdu = pkt.bt_data.data
