@@ -95,6 +95,18 @@ void watchdog_mode(uint8_t mode)
 	watchdog_crumb.live_mode = mode;
 }
 
+/*
+ * Is this running inside an interrupt handler?
+ *
+ * The low nine bits of the interrupt control and state register are the
+ * exception the processor is in -- zero in thread mode, the exception number
+ * otherwise (the Cortex-M3 chapter of the part's user manual, UM10360).
+ */
+static int in_interrupt_handler(void)
+{
+	return (SCB_ICSR & 0x1ffu) != 0;
+}
+
 uint8_t watchdog_mark(uint8_t site)
 {
 	uint8_t previous = watchdog_crumb.live_site;
@@ -109,6 +121,29 @@ uint8_t watchdog_mark(uint8_t site)
 	watchdog_crumb.live_outer_site = previous;
 	watchdog_crumb.live_site = site;
 	return previous;
+}
+
+uint8_t watchdog_mark_wait(uint8_t site)
+{
+	/*
+	 * A wait may be reached from a mode loop or from inside an interrupt
+	 * handler -- the crystal-oscillator wait is reached from both low-energy
+	 * handlers, on every channel hop. A handler is not a level of the nesting
+	 * above: it borrows the processor and gives it back, so the code under it
+	 * is still in whatever wait it was in, and a wait that claimed the outer
+	 * site there would leave -w naming a wait the board has left.
+	 */
+	if (in_interrupt_handler())
+		return watchdog_mark_handler(site);
+	return watchdog_mark(site);
+}
+
+void watchdog_leave_wait(uint8_t site)
+{
+	if (in_interrupt_handler())
+		watchdog_unmark(site);
+	else
+		watchdog_mark(site);
 }
 
 uint8_t watchdog_mark_handler(uint8_t site)

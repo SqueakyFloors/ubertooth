@@ -1104,6 +1104,12 @@ void DMA_IRQHandler(void) {
 			DMACIntErrClr = (1 << 7);
 			// FIXME do something better here
 			USRLED_SET;
+			/* This loop never returns and never services USB, so the
+			 * watchdog resets the board a few seconds later. The mark
+			 * is what says so afterwards: without it,
+			 * ubertooth-util -w names whatever the board was doing
+			 * before the transfer failed. */
+			watchdog_mark(WATCHDOG_SITE_DEBUG_DMA);
 			while (1) { }
 		}
 	}

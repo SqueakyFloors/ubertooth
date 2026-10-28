@@ -54,7 +54,7 @@
  * as 1.10), then 0x0111 (1.11), and so on to 0x0119 (1.19); after 0x0119
  * comes 0x0120, not 0x011a.
  */
-#define UBERTOOTH_API_VERSION 0x0146
+#define UBERTOOTH_API_VERSION 0x0147
 
 /*
  * The bootloader's bcdDevice, which is fixed on purpose and is the one version
@@ -522,6 +522,20 @@ enum watchdog_site {
 	WATCHDOG_SITE_LE_SSP      = 12, /* emptying the BLE engine's symbol buffer */
 	WATCHDOG_SITE_LE_DMA      = 13, /* in the BLE engine's received-byte interrupt */
 	WATCHDOG_SITE_LE_TIMER    = 14, /* in the BLE engine's timer interrupt */
+	/*
+	 * Two loops that never return and are not waits at all.
+	 *
+	 * The first is the shared default interrupt handler, which NMI, SVC,
+	 * PendSV, SysTick and every peripheral interrupt the firmware does not
+	 * handle are aliases of. Reaching it means an interrupt fired that
+	 * nothing was written for, so it is worth saying rather than leaving
+	 * the record naming whatever the board was doing before.
+	 *
+	 * The second is the debug UART's transfer error path, which stops the
+	 * board with the user LED on.
+	 */
+	WATCHDOG_SITE_UNHANDLED_IRQ = 15, /* an interrupt nothing handles fired */
+	WATCHDOG_SITE_DEBUG_DMA     = 16, /* the debug UART's transfer failed */
 	WATCHDOG_SITE_COUNT
 };
 

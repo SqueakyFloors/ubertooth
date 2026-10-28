@@ -248,6 +248,8 @@ static const char *const watchdog_site_text[WATCHDOG_SITE_COUNT] = {
 	[WATCHDOG_SITE_LE_SSP]      = "emptying the BLE engine's symbol buffer",
 	[WATCHDOG_SITE_LE_DMA]      = "in the BLE engine's received-byte interrupt",
 	[WATCHDOG_SITE_LE_TIMER]    = "in the BLE engine's timer interrupt",
+	[WATCHDOG_SITE_UNHANDLED_IRQ] = "in an interrupt nothing handles",
+	[WATCHDOG_SITE_DEBUG_DMA]     = "stopped by a failed debug UART transfer",
 };
 
 const char *util_watchdog_mode_name(unsigned mode)

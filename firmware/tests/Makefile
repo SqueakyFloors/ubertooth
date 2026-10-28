@@ -499,6 +499,7 @@ $(BINDIR)/test_watchdog: test_watchdog.c minunit.h source_scan.h \
 		$(FW_RXTX)/fault.c $(FW_COMMON)/usb_serial.c \
 		$(FW_BTBR)/src/drivers/ubertooth_usb.c \
 		$(FW_BTBR)/src/util/fault.c \
+		$(FW_COMMON)/LPC17xx_Interrupts.c \
 		$(FW_BTBR)/src/btctl/main.c | $(BINDIR)
 	$(CC) $(CFLAGS) -Istubs-watchdog -I$(FW_COMMON) $(CPPFLAGS) \
 		-DFW_HOST_TEST -DFW_RXTX_DIR='"$(FW_RXTX)"' \

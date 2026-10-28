@@ -46,6 +46,7 @@ uint32_t fake_wdclksel;
 uint32_t fake_rsid;
 uint32_t fake_iser0;
 uint32_t fake_icer0;
+uint32_t fake_scb_icsr;
 
 uint32_t fake_wdfeed_writes[FAKE_WDFEED_MAX];
 unsigned fake_wdfeed_count;
@@ -75,6 +76,9 @@ static void boot_with(uint32_t cause)
 	fake_rsid = cause;
 	fake_iser0 = 0;
 	fake_icer0 = 0;
+	/* Thread mode: no exception active. A test that is about a handler sets
+	 * this itself. */
+	fake_scb_icsr = 0;
 	fake_wdfeed_count = 0;
 	/* .bss is zeroed on every boot, armed flag included. */
 	watchdog_armed = 0;
@@ -434,6 +438,64 @@ MU_TEST(test_leaving_a_site_does_not_claim_it_as_the_outer_one)
 	/* and the service pass still leaves the way it always did */
 	watchdog_mark(usb);
 	mu_assert_int_eq(WATCHDOG_SITE_USB, watchdog_crumb.live_outer_site);
+}
+
+/*
+ * The same for a wait reached from inside a handler, which is the other route
+ * to the same wrong reading: the crystal-oscillator wait is reached from both
+ * low-energy handlers, and a hop can land in the middle of a USB service pass.
+ * A wait cannot tell from its own source which it is, so watchdog_mark_wait()
+ * asks the processor: in a handler it records the site and leaves the outer one
+ * alone.
+ */
+MU_TEST(test_a_wait_inside_a_handler_claims_no_outer_site)
+{
+	uint8_t site;
+
+	boot_with(RSID_POR);
+	watchdog_boot();
+
+	/* the mode's loop, then its USB service pass */
+	(void)watchdog_mark(WATCHDOG_SITE_NONE);
+	(void)watchdog_mark(WATCHDOG_SITE_USB);
+
+	/* an interrupt lands in the middle of the pass and waits on the radio */
+	fake_scb_icsr = 40; /* the USB exception number, as the part reports it */
+	site = watchdog_mark_wait(WATCHDOG_SITE_XOSC);
+	mu_assert_int_eq(WATCHDOG_SITE_XOSC, watchdog_crumb.live_site);
+	watchdog_leave_wait(site);
+	fake_scb_icsr = 0;
+
+	/* back in the service pass, and the reply still names the mode's loop */
+	mu_assert_int_eq(WATCHDOG_SITE_USB, watchdog_crumb.live_site);
+	mu_assert_int_eq(WATCHDOG_SITE_NONE, watchdog_crumb.live_outer_site);
+}
+
+/*
+ * The USB interrupt is the exception to that, and has to stay one: for the six
+ * modes that do not poll USB it is the only place a reply is written, and the
+ * reply reads the outer site. Were it to leave that site alone like the
+ * handlers above, those modes would report whatever the main loop's last
+ * service pass left -- "servicing USB" -- for as long as the mode ran. So the
+ * USB service path uses watchdog_mark() wherever it runs from.
+ */
+MU_TEST(test_the_usb_interrupt_still_names_what_it_interrupted)
+{
+	uint8_t site;
+
+	boot_with(RSID_POR);
+	watchdog_boot();
+
+	/* a mode that services USB from the interrupt, waiting for a packet */
+	watchdog_mode(MODE_BT_FOLLOW_LE);
+	(void)watchdog_mark(WATCHDOG_SITE_LE_RX);
+
+	fake_scb_icsr = 40;
+	site = watchdog_mark(WATCHDOG_SITE_USB);
+	/* the reply is written here, and has to name the mode's wait */
+	mu_assert_int_eq(WATCHDOG_SITE_LE_RX, watchdog_crumb.live_outer_site);
+	watchdog_mark(site);
+	fake_scb_icsr = 0;
 }
 
 
@@ -1172,12 +1234,17 @@ MU_TEST(test_a_claimed_reset_is_claimed_where_it_happens)
  * blink code used to say which of the four it was, and the watchdog cuts that
  * code off part-way.
  *
- * Not every never-returning loop in the firmware is here, so this is a list
- * rather than a sweep: the shared Default_Handler, which NMI, SVC, PendSV,
- * SysTick and every unhandled peripheral interrupt alias, and the debug-UART
- * DMA error path both still spin without marking anything.
+ * Two more loops are here that are not faults: the shared Default_Handler,
+ * which NMI, SVC, PendSV, SysTick and every unhandled peripheral interrupt
+ * alias, and the debug UART's transfer error path. Both stop the board the
+ * same way, so both need a site of their own.
  *
- * No fault handler can run here, so the two sources are read as text.
+ * This is still a list rather than a sweep over every never-returning loop in
+ * the two images: the mode loops and the main loops never return either, and
+ * they are right not to mark anything, so a sweep needs a rule for telling
+ * them apart.
+ *
+ * Nothing here can be run, so the sources are read as text.
  */
 MU_TEST(test_every_path_that_never_returns_marks_where_it_was)
 {
@@ -1204,6 +1271,10 @@ MU_TEST(test_every_path_that_never_returns_marks_where_it_was)
 		  "WATCHDOG_SITE_FAULT_USAGE" },
 		{ FW_BTBR_DIR "/src/util/fault.c", "die",
 		  "WATCHDOG_SITE_PANIC" },
+		{ FW_COMMON_DIR "/LPC17xx_Interrupts.c", "Default_Handler",
+		  "WATCHDOG_SITE_UNHANDLED_IRQ" },
+		{ FW_RXTX_DIR "/bluetooth_rxtx.c", "DMA_IRQHandler",
+		  "WATCHDOG_SITE_DEBUG_DMA" },
 	};
 	size_t i;
 
@@ -1243,7 +1314,7 @@ MU_TEST(test_every_path_that_never_returns_marks_where_it_was)
 		snprintf(msg, sizeof(msg),
 		         "%s: %s() never returns and does not mark %s, so "
 		         "ubertooth-util -w names whatever the board was doing "
-		         "before the fault instead",
+		         "before it got there instead",
 		         paths[i].path, paths[i].function, paths[i].site);
 		mu_assert(marked, msg);
 	}
@@ -1271,6 +1342,56 @@ MU_TEST(test_the_ble_engine_leaves_its_sites_without_claiming_them)
 	mu_assert_int_eq(0, source_has(path, "watchdog_mark(WATCHDOG_SITE_", NULL));
 }
 
+/*
+ * Which pair each kind of caller uses, in the sources.
+ *
+ * The distinction is not visible at the call: a wait reached from a handler and
+ * a wait reached from a mode loop are the same lines of code, which is why
+ * watchdog_mark_wait() asks the processor. A wait left on watchdog_mark() would
+ * claim the outer site from inside a handler; a USB service path moved to
+ * watchdog_mark_wait() would stop naming what it interrupted, and the six modes
+ * that answer the host from the USB interrupt would report "servicing USB" for
+ * as long as they ran.
+ */
+MU_TEST(test_each_caller_uses_the_pair_for_what_it_is)
+{
+	static const struct {
+		const char *path;
+		const char *wanted;
+		const char *unwanted;
+	} callers[] = {
+		/* the bounded waits */
+		{ FW_COMMON_DIR "/cc2400_wait.c", "watchdog_mark_wait(",
+		  "watchdog_mark(" },
+		{ FW_BTBR_DIR "/include/ubtbr/rf.h", "watchdog_mark_wait(",
+		  "watchdog_mark(" },
+		/* the USB service paths, polled and interrupt-driven */
+		{ FW_COMMON_DIR "/usb_serial.c", "watchdog_mark(",
+		  "watchdog_mark_wait(" },
+		{ FW_RXTX_DIR "/ubertooth_usb.c", "watchdog_mark(",
+		  "watchdog_mark_wait(" },
+		{ FW_BTBR_DIR "/src/drivers/ubertooth_usb.c", "watchdog_mark(",
+		  "watchdog_mark_wait(" },
+	};
+	size_t i;
+
+	for (i = 0; i < sizeof(callers) / sizeof(callers[0]); i++) {
+		int found = 0, wrong = 0;
+		char msg[512];
+
+		mu_assert_int_eq(1, source_has(callers[i].path,
+		                               callers[i].wanted, &found));
+		snprintf(msg, sizeof(msg), "%s: no %s", callers[i].path,
+		         callers[i].wanted);
+		mu_assert(found > 0, msg);
+
+		(void)source_has(callers[i].path, callers[i].unwanted, &wrong);
+		snprintf(msg, sizeof(msg), "%s: %s where it should not be",
+		         callers[i].path, callers[i].unwanted);
+		mu_assert(wrong == 0, msg);
+	}
+}
+
 int main(void)
 {
 	printf("firmware watchdog tests\n");
@@ -1292,6 +1413,8 @@ int main(void)
 	MU_RUN(test_the_counters_stop_at_their_largest_value);
 	MU_RUN(test_a_mark_returns_the_site_it_replaced);
 	MU_RUN(test_leaving_a_site_does_not_claim_it_as_the_outer_one);
+	MU_RUN(test_a_wait_inside_a_handler_claims_no_outer_site);
+	MU_RUN(test_the_usb_interrupt_still_names_what_it_interrupted);
 	MU_RUN(test_the_ble_engine_leaves_its_sites_without_claiming_them);
 	MU_RUN(test_the_reply_is_the_documented_eight_bytes);
 	MU_RUN(test_the_reply_says_the_wait_the_mode_is_in_not_the_usb_path);
@@ -1305,5 +1428,6 @@ int main(void)
 	MU_RUN(test_the_breadcrumb_is_linked_where_a_reset_cannot_clear_it);
 	MU_RUN(test_a_claimed_reset_is_claimed_where_it_happens);
 	MU_RUN(test_every_path_that_never_returns_marks_where_it_was);
+	MU_RUN(test_each_caller_uses_the_pair_for_what_it_is);
 	return mu_report();
 }

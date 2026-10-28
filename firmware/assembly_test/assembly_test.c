@@ -670,7 +670,8 @@ static void dio_ssp_start()
  * USB poll in, and what that is worth differs by mode. specan() reaches its
  * USB poll every sixteenth frequency step, so waits that time out delay it by
  * their bound rather than ending it. bt_stream_rx() waits on its DMA transfer
- * next, which a radio that is not receiving holds up as before.
+ * next, which is bounded too: see the wait itself for what a transfer that did
+ * not arrive does.
  *
  * No wait left in this image waits for a packet. The two that did belonged to
  * the range test and the repeater, which are gone from here, and a packet is
@@ -744,10 +745,20 @@ void cc2400_txtest()
 #endif
 }
 
+/*
+ * Polls before the wait for a DMA transfer gives up. Each poll reads two
+ * volatile counters, a few tens of nanoseconds, so a million of them is some
+ * tens of milliseconds: far longer than the 400 microseconds a 50-byte
+ * transfer takes at one symbol per microsecond, and reached only by a radio
+ * that has stopped clocking symbols in at all.
+ */
+#define RX_DMA_POLLS 1000000
+
 void bt_stream_rx()
 {
 	u8 *tmp = NULL;
 	u8 epstat;
+	unsigned polls;
 	int i;
 
 	RXLED_SET;
@@ -759,8 +770,29 @@ void bt_stream_rx()
 	cc2400_rx();
 
 	while (rx_pkts) {
-		/* wait for DMA transfer */
-		while ((rx_tc == 0) && (rx_err == 0));
+		/*
+		 * Wait for the DMA transfer, with a bound.
+		 *
+		 * Symbols only arrive while the radio is receiving, so a radio
+		 * that is not receiving leaves this wait nothing to end it, and
+		 * nothing in it services USB. The board stayed enumerated and
+		 * answered no control request -- not even the one that stops the
+		 * mode -- until it was re-plugged.
+		 *
+		 * A transfer that did not arrive ends the mode rather than being
+		 * carried on with. Carrying on would hand the host the buffer
+		 * that still holds the previous transfer's symbols, as if they
+		 * had just been received. Ending the mode is the honest reading:
+		 * the stream stops, and the return to the main loop services USB
+		 * again, so the board can be asked for something else.
+		 */
+		for (polls = RX_DMA_POLLS; polls; polls--)
+			if (rx_tc || rx_err)
+				break;
+		if (!polls) {
+			rx_pkts = 0;
+			break;
+		}
 		if (rx_tc % 2) {
 			/* swap buffers */
 			tmp = active_rxbuf;
