@@ -11,6 +11,11 @@ handheld remote. This handheld remote uses a custom protocol implemented
 in 2.4 GHz RF. ubertooth-ego(1) can sniff this protocol and interfere
 with its operation.
 
+Each run captures in the mode it asks for, even on a board left in another
+E-GO mode by a run that was killed rather than interrupted: the next run takes
+that board over and starts its own mode, on the channel and with the access
+code it states. See ubertooth-util(1), CARRY-OVER BETWEEN RUNS.
+
 ## EXAMPLES
 
 Sniff the connection between an E-Go and its remote:

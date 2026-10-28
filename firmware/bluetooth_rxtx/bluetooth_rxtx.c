@@ -77,6 +77,9 @@ volatile uint8_t mode = MODE_IDLE;
 volatile uint8_t requested_mode = MODE_IDLE;
 volatile uint8_t jam_mode = JAM_NONE;
 volatile uint8_t ego_mode = EGO_FOLLOW;
+/* Set by UBERTOOTH_EGO, read and cleared by ego_main(): a mode start for the
+ * running E-GO loop, which the mode dispatch never sees. */
+volatile uint8_t ego_restart = 0;
 
 volatile uint8_t modulation = MOD_BT_BASIC_RATE;
 
@@ -290,6 +293,24 @@ static int streams_symbols(uint8_t m)
 }
 
 /*
+ * The hopping a mode start forgets: the hop mode, a hop the clock asked for
+ * and has not been served, a channel a fixed-channel hop would return to, and
+ * the AFH map with its enable flag and used-channel count.
+ *
+ * cc2400_idle() does this for a mode start that reaches the dispatch; the two
+ * callers below are the mode starts that do not, so the rule holds wherever a
+ * mode starts. The channel is not part of it: one set while no mode was
+ * running belongs to the mode about to start.
+ */
+static void forget_hop_state(void)
+{
+	hop_mode = HOP_NONE;
+	do_hop = 0;
+	hop_direct_channel = 0;
+	clear_afh_map();
+}
+
+/*
  * Reset what a mode start resets, for a mode request the running stream
  * absorbs.
  *
@@ -333,10 +354,7 @@ static void reset_absorbed_mode_state(uint8_t requested)
 	    !streams_symbols(requested))
 		return;
 
-	hop_mode = HOP_NONE;
-	do_hop = 0;
-	hop_direct_channel = 0;
-	clear_afh_map();
+	forget_hop_state();
 }
 
 /*
@@ -1111,21 +1129,47 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 #endif
 
 	case UBERTOOTH_EGO:
-#ifndef TX_ENABLE
-		if (request_params[0] == EGO_JAM)
-			return 0;
+		/*
+		 * Checked before anything is stored, so a refused request
+		 * leaves no mode behind for a later run to start in: asking to
+		 * interfere on a firmware built without transmit is refused
+		 * here, and ego_main() has no state machine for a mode it does
+		 * not know.
+		 */
+		switch (request_params[0]) {
+		case EGO_FOLLOW:
+		case EGO_CONTINUOUS_RX:
+#ifdef TX_ENABLE
+		case EGO_JAM:
 #endif
+			break;
+		default:
+			return 0;
+		}
+
+		ego_mode = request_params[0];
+
 		/*
 		 * A board left capturing by a killed ubertooth-ego absorbs this
 		 * request, the way the symbol captures absorb theirs: its loop
-		 * carries on, so no mode starts and the reset the dispatch runs
-		 * never does. Reset the access code here instead, so the next
-		 * run does not capture with the code the killed one was given.
-		 * The mode re-reads it, so the radio follows within a hop.
+		 * runs while MODE_EGO is the mode asked for, so no mode starts
+		 * and the reset the dispatch runs never does. Do that mode
+		 * start's work here instead: put the access code back to the
+		 * one ubertooth-ego(1) documents, forget the hopping, and tell
+		 * the loop to start its state machine over.
+		 *
+		 * The last of those is what makes this a mode start at all.
+		 * Without it the state machine the first run entered carried
+		 * on, and the mode stored above was never read: an
+		 * `ubertooth-ego -r` after a killed `-f` captured in follow
+		 * mode. The flag is set after the mode, because the loop reads
+		 * the mode only once it has seen the flag.
 		 */
-		if (mode == MODE_EGO && requested_mode == MODE_EGO)
+		if (mode == MODE_EGO && requested_mode == MODE_EGO) {
 			ego_access_code_reset();
-		ego_mode = request_params[0];
+			forget_hop_state();
+			ego_restart = 1;
+		}
 		requested_mode = MODE_EGO;
 		break;
 
@@ -1409,7 +1453,11 @@ static void cc2400_idle()
 
 	/* operation mode */
 	jam_mode = JAM_NONE;
-	ego_mode = EGO_FOLLOW;
+
+	/* Not ego_mode. This teardown runs between the request that stores it
+	 * and the dispatch that reads it, so resetting it here would throw
+	 * away the mode that request asked for. Nothing else writes it, and
+	 * MODE_EGO is only ever asked for by that request. */
 
 	modulation = MOD_BT_BASIC_RATE;
 
@@ -3892,7 +3940,7 @@ int main()
 				led_specan();
 				break;
 			case MODE_EGO:
-				ego_main(ego_mode);
+				ego_main();
 				break;
 			case MODE_RX_GENERIC:
 				rx_generic();

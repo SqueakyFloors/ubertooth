@@ -294,10 +294,11 @@
   those tools still cannot drive that image and now fail on the first request
   it does not answer.
   [#556](https://github.com/SqueakyFloors/ubertooth/issues/556)
-- **Reflash required:** the firmware API version is now 1.50, last moved by the
-  AFH map a mode start keeps, the bound on the clock drift the board
-  accumulates and the generic receive's FIFO flush, before that by the channel
-  a mode start keeps and the E-GO access code
+- **Reflash required:** the firmware API version is now 1.51, last moved by the
+  E-GO mode request starting the mode it names on a board already running one,
+  before that by the AFH map a mode start keeps, the bound on the clock drift
+  the board accumulates and the generic receive's FIFO flush, before that by
+  the channel a mode start keeps and the E-GO access code
   it resets, by the finer breadcrumb sites inside USB service that
   `ubertooth-util -w` reads, by the breadcrumb gaining two more places a board
   can stop, by two requests refusing a value they used to accept, and by a
@@ -329,6 +330,7 @@
   [#395](https://github.com/SqueakyFloors/ubertooth/issues/395)
   [#429](https://github.com/SqueakyFloors/ubertooth/issues/429)
   [#686](https://github.com/SqueakyFloors/ubertooth/issues/686)
+  [#757](https://github.com/SqueakyFloors/ubertooth/issues/757)
 - Every firmware image now carries a block naming the image and the revision
   it was built from, read the same way off a board and out of a file.
   `ubertooth-dfu -d` says which image a file holds before it writes it
@@ -486,6 +488,15 @@
 
 ### Reliability fixes
 
+- `ubertooth-ego` captures in the mode its command line asks for, on a board
+  left in another E-GO mode by a run that was interrupted without stopping it:
+  `ubertooth-ego -r -c 2418` after a killed `-f` used to go on hopping across
+  the E-GO channel list, and its capture looked like a continuous receive that
+  found nothing. A second run of the same mode starts over too, so it receives
+  on the channel it was given rather than the one before it. `ubertooth-ego
+  -r` and `-i` after any other interrupted capture, such as a killed
+  `ubertooth-specan`, also used to start in follow mode.
+  [#757](https://github.com/SqueakyFloors/ubertooth/issues/757)
 - `ubertooth-follow` hops on the piconet's channels after a run that captured
   nothing. The board now keeps an AFH channel map stated after the mode
   request, as it already kept a channel: on a board left in a mode that
