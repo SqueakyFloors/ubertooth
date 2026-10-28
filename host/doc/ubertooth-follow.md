@@ -98,7 +98,7 @@ connection fails and the command stops, saying what to do about it:
 Give the target as `-t` and the connection is made to the address as it is, so
 that failure means the target itself did not answer; the line is then the
 reason alone, without the advice. A page that fails without leaving a reason
-behind says only `error: connecting to 00:00:33:44:55:66 failed`.
+behind drops the `: <reason>` from whichever of the two lines it is.
 
 The map that comes back is used only when it could be a hop sequence at all:
 

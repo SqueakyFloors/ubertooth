@@ -75,9 +75,16 @@ static struct {
 	int devid_errno;
 	int open_fails;
 	int open_errno;
-	/* The page to the target: whether it fails, and the errno it leaves. */
+	/* The page to the target: whether it fails, and the errno it leaves.
+	 * connect_keeps_errno is the case BlueZ does not promise against: the
+	 * call fails and leaves errno as the last one to touch it left it,
+	 * which dirty_errno below is what puts there. */
 	int connect_fails;
 	int connect_errno;
+	int connect_keeps_errno;
+	/* An errno left behind by an earlier call, set by the fake hci_devinfo()
+	 * so a later failure that sets none has something stale to report. */
+	int dirty_errno;
 	int connects;         /* ubertooth_connect_select(): the board opened */
 	/* The address the page was sent to, as the tool spelled it. */
 	char paged[19];
@@ -173,6 +180,11 @@ int hci_devinfo(int dev_id, struct hci_dev_info* di)
 	(void)dev_id;
 	memset(di, 0, sizeof(*di));
 	di->pkt_type = 0xffff;
+	/* This is the last call before the page, so it is where a stale errno
+	 * comes from. A real BlueZ call can leave one behind even when it
+	 * succeeds. */
+	if (fake.dirty_errno != 0)
+		errno = fake.dirty_errno;
 	return 0;
 }
 
@@ -193,7 +205,8 @@ int hci_create_connection(int dd, const bdaddr_t* bdaddr, uint16_t ptype,
 	         bdaddr->b[5], bdaddr->b[4], bdaddr->b[3],
 	         bdaddr->b[2], bdaddr->b[1], bdaddr->b[0]);
 	if (fake.connect_fails) {
-		errno = fake.connect_errno;
+		if (!fake.connect_keeps_errno)
+			errno = fake.connect_errno;
 		return -1;
 	}
 	*handle = 42;
@@ -903,15 +916,21 @@ MU_TEST(a_failed_page_to_the_guessed_address_asks_for_t)
 	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
 
 	/* A page that fails without leaving an errno behind says what it knows,
-	 * rather than printing "Undefined error: 0" as the reason, which is how
-	 * the two adapter failures above already report themselves. */
+	 * rather than reporting an earlier call's errno as its cause, which is
+	 * how the two adapter failures above already report themselves. The
+	 * fake leaves ENOTTY behind from the call before the page and then fails
+	 * the page without touching errno, so a tool that did not clear errno
+	 * first would print "Inappropriate ioctl for device" as the reason. */
 	reset_fake();
+	fake.dirty_errno = ENOTTY;
 	fake.connect_fails = 1;
+	fake.connect_keeps_errno = 1;
 	r = RUN(WHOLE_TARGET);
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strstr(r.err,
 	          "error: connecting to 00:00:44:11:22:33 failed\n") != NULL,
 	          r.err);
+	mu_assert(strstr(r.err, strerror(ENOTTY)) == NULL, r.err);
 	mu_assert_int_eq(1, occurrences(r.err, "error:"));
 	mu_assert(r.out[0] == '\0', r.out);
 }
