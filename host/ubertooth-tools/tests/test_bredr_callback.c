@@ -143,6 +143,13 @@ int btbb_find_ac(char* stream, int search_length, uint32_t lap,
 	seen.find_ac_search_length = search_length;
 	if (find_ac_offset < 0)
 		return find_ac_offset;
+	/* The real search tries start positions 0 to search_length - 1 and
+	 * reports nothing outside them, so a position the caller's bound does
+	 * not reach has to come back as not found here too. Without this, a
+	 * bound that is too small still passes every test that places an
+	 * access code near the end of the bank. */
+	if (find_ac_offset >= search_length)
+		return -1;
 	*pkt = btbb_packet_new();
 	return find_ac_offset;
 }
@@ -271,16 +278,18 @@ MU_TEST(the_decoder_is_told_only_the_symbols_the_record_holds)
 
 MU_TEST(the_decoder_is_given_the_symbols_from_the_access_code_on)
 {
-	/* An access code found at the last offset the search can report. */
+	/* An access code found at the last offset the search can report: the
+	 * one whose 64th symbol is the bank's last. */
 	reset_state();
 	fill_packet(&next_packets[0], 40000, 0, 10);
 	next_count = 1;
-	find_ac_offset = BANK_LEN - AC_SYMBOLS - 1;
+	find_ac_offset = BANK_LEN - AC_SYMBOLS;
 	run_callback(cb_rx, NULL);
 
-	mu_assert_int_eq(BANK_LEN - find_ac_offset, seen.set_data_length);
+	/* 64 symbols: the access code and nothing after it. */
+	mu_assert_int_eq(AC_SYMBOLS, seen.set_data_length);
 	mu_assert_int_eq(0, seen.set_data_zero_symbols);
-	mu_assert_int_eq(SYM_ODD, seen.set_data_first_symbol);
+	mu_assert_int_eq(SYM_EVEN, seen.set_data_first_symbol);
 
 	/* And at the first. */
 	reset_state();
@@ -294,25 +303,32 @@ MU_TEST(the_decoder_is_given_the_symbols_from_the_access_code_on)
 	mu_assert_int_eq(SYM_ODD, seen.set_data_first_symbol);
 }
 
-MU_TEST(the_access_code_search_stops_short_of_the_end_of_the_bank)
+MU_TEST(the_access_code_search_reaches_the_last_position_in_the_bank)
 {
-	/* 64 symbols short, in both callbacks: a correlator allowed to run to
-	 * the end reads 64 symbols past what was captured. cb_rx() used to
-	 * pass the whole bank. */
+	/* Every start position whose whole access code was captured, and not
+	 * one more: a correlator allowed to run to the end of the bank reads
+	 * 64 symbols past what arrived, and a bound of BANK_LEN - AC_SYMBOLS
+	 * misses the last position that did arrive whole. cb_rx() used to pass
+	 * the whole bank. */
 	reset_state();
 	fill_packet(&next_packets[0], 40000, 0, 10);
 	next_count = 1;
 	run_callback(cb_rx, NULL);
-	/* 336, written out: the same expression as the code under test would
+	/* 337, written out: the same expression as the code under test would
 	 * hold however AC_SYMBOLS were defined. */
-	mu_assert_int_eq(336, seen.find_ac_search_length);
+	mu_assert_int_eq(337, seen.find_ac_search_length);
 
 	reset_state();
 	fill_packet(&next_packets[0], 40000, 0, 10);
 	next_count = 1;
 	run_callback(cb_scan, NULL);
-	mu_assert_int_eq(336, seen.find_ac_search_length);
+	mu_assert_int_eq(337, seen.find_ac_search_length);
 	mu_assert_int_eq(400, seen.set_data_length);
+
+	/* The three AFH callbacks pass the same constant and have no fake to
+	 * run them through here, so the constant itself is pinned: that covers
+	 * every call site at once, including any added later. */
+	mu_assert_int_eq(337, AC_SEARCH_POSITIONS);
 }
 
 /* ---- the CLKN a timestamp comes to -------------------------------------- */
@@ -621,7 +637,7 @@ int main(void)
 {
 	MU_RUN(the_decoder_is_told_only_the_symbols_the_record_holds);
 	MU_RUN(the_decoder_is_given_the_symbols_from_the_access_code_on);
-	MU_RUN(the_access_code_search_stops_short_of_the_end_of_the_bank);
+	MU_RUN(the_access_code_search_reaches_the_last_position_in_the_bank);
 	MU_RUN(a_timestamp_at_the_start_of_the_clock_gives_clkn_zero);
 	MU_RUN(a_timestamp_inside_the_first_bank_does_not_jump_the_clock_forwards);
 	MU_RUN(the_clkn_counts_from_the_access_code_not_the_bank);
