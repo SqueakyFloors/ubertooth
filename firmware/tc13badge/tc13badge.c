@@ -87,9 +87,11 @@ void cc2400_off(void)
  * status byte and the registers are read through here: with every bit clear,
  * the radio reads as not stable, not locked, and in no state a wait is after,
  * so the waits for those give up rather than returning at once as though the
- * radio were ready. The one wait that reads a success from it is the wait for
- * the synthesizer to go off, which all-zero says it has; that is the harmless
- * direction, and its callers only want the radio quiet.
+ * radio were ready. Two waits do read a success from all-zero -- the wait for
+ * the synthesizer to go off, and the first half of a reset, which waits for
+ * MAIN to read zero -- and both are the harmless direction: the first caller
+ * only wants the radio quiet, and the second half of that reset waits for
+ * MAIN to read 0x8000 and still gives up.
  */
 uint8_t cc2400_spi_byte(uint8_t data)
 {

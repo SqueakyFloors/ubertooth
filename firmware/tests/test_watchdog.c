@@ -486,13 +486,14 @@ MU_TEST(test_the_usb_interrupt_still_names_what_it_interrupted)
 	boot_with(RSID_POR);
 	watchdog_boot();
 
-	/* a mode that services USB from the interrupt: its loop is in no wait */
+	/* a mode that services USB from the interrupt, waiting for a packet */
 	watchdog_mode(MODE_BT_FOLLOW_LE);
+	(void)watchdog_mark(WATCHDOG_SITE_LE_RX);
 
 	fake_scb_icsr = 40;
 	site = watchdog_mark(WATCHDOG_SITE_USB);
-	/* the reply is written here */
-	mu_assert_int_eq(WATCHDOG_SITE_NONE, watchdog_crumb.live_outer_site);
+	/* the reply is written here, and has to name the mode's wait */
+	mu_assert_int_eq(WATCHDOG_SITE_LE_RX, watchdog_crumb.live_outer_site);
 	watchdog_mark(site);
 	fake_scb_icsr = 0;
 }

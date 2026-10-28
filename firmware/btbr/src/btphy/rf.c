@@ -218,8 +218,10 @@ void btphy_rf_tune_chan(uint16_t channel, int tx)
 	 * The deadline is the end of this slot, which is the most a retune can
 	 * cost: the radio is strobed for this slot's packet after the retune, so
 	 * a radio still not idle by then has lost the slot whatever the wait
-	 * does. Stopping just before the slot restarts also leaves the timer its
-	 * next match, so the piconet clock need not lose a count at all. */
+	 * does. A wait that runs that long still overruns the next match by the
+	 * register writes after it, and TIMER0_IRQHandler throws a match that
+	 * arrived while it was busy away -- so the piconet clock loses that one
+	 * count, and only that one, where it used to lose about 28. */
 	btphy_rf_wait_fsm(STATE_IDLE, rf_wait_latest());
 
 	/* Retune */

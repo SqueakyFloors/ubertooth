@@ -88,12 +88,17 @@ void watchdog_mode(uint8_t mode);
 uint8_t watchdog_mark(uint8_t site);
 
 /*
- * The same for an interrupt handler that is not servicing USB, which must
- * leave the live outer site alone. That site is what a reply reports. Were
- * such a handler to claim it, the handler would be left named there after
- * returning -- and the low-energy engine's byte interrupt fires once per
- * received byte, so during a capture that would be the usual reading rather
- * than a rare one.
+ * The same for an interrupt handler that returns and is not servicing USB,
+ * which must leave the live outer site alone. That site is what a reply
+ * reports. Were such a handler to claim it, the handler would be left named
+ * there after returning -- and the low-energy engine's byte interrupt fires
+ * once per received byte, so during a capture that would be the usual reading
+ * rather than a rare one.
+ *
+ * A handler that never returns has nothing to leave behind, so the ones that
+ * stop the board -- the processor faults, the default handler every unhandled
+ * interrupt aliases, the debug UART's error path -- use watchdog_mark() and
+ * only the site they record is ever read, by watchdog_boot().
  */
 uint8_t watchdog_mark_handler(uint8_t site);
 void watchdog_unmark(uint8_t site);

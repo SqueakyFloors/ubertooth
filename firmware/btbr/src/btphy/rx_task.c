@@ -62,9 +62,11 @@
  * controller, so allow four bytes' worth. */
 #define RX_WAIT_SLACK_BYTES	4
 
-/* The ceiling on every deadline here is rf_wait_latest(), this tick's own
- * restart less a little slack: see rf.h. It is later than the last byte of the
- * longest wait -- the first chunk of a payload -- is ever due. */
+/* The wait for a packet's bytes takes its ceiling from rf_wait_latest(), this
+ * tick's own restart less a little slack: see rf.h. It is later than the last
+ * byte of the longest wait -- the first chunk of a payload -- is ever due. The
+ * two fixed deadlines above are inside the shortest tick this image ever asks
+ * for, so they need no ceiling. */
 
 /* Maximum size we can RX in WAIT_RX_MAX
  * (minus 2 bytes to avoid crashing in case we're unlucky.)
