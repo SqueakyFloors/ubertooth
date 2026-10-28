@@ -309,7 +309,8 @@ MU_TEST(the_quiet_set_forms_report_nothing)
 	/* The reporting form still prints its own line for each. */
 	script(LIBUSB_ERROR_PIPE, 0);
 	run_captured(set_channel, text, sizeof(text));
-	mu_assert(strcmp(text, "error: control message unsupported\n") == 0, text);
+	mu_assert(strcmp(text, "error: could not set the channel: the board's "
+	    "firmware does not support it (stalled, libusb -9)\n") == 0, text);
 
 	script(LIBUSB_ERROR_TIMEOUT, 0);
 	run_captured(set_channel, text, sizeof(text));
@@ -612,13 +613,36 @@ MU_TEST(other_libusb_errors_keep_their_own_report)
 		mu_assert(0, "could not capture both streams");
 		return;
 	}
-	script(LIBUSB_ERROR_PIPE, 0);
-	mu_assert_int_eq(LIBUSB_ERROR_PIPE, cmd_get_squelch(NULL));
+	script(LIBUSB_ERROR_IO, 0);
+	mu_assert_int_eq(LIBUSB_ERROR_IO, cmd_get_squelch(NULL));
 	release_both(out, sizeof(out), err, sizeof(err));
 
 	mu_assert(out[0] == '\0', out);
 	mu_assert(strstr(err, "libUSB Error") != NULL, err);
 	mu_assert(strstr(err, "in use by another program") == NULL, err);
+}
+
+/* A stall is the board saying it has no such request, and every read says so
+ * in the one shared wording -- including the ones that used to hand a stall
+ * straight to the libusb naming, where it read as "libUSB Error: Pipe error"
+ * and named neither the request nor the firmware. */
+MU_TEST(a_stalled_read_is_reported_as_unsupported)
+{
+	char out[512], err[1024];
+
+	if (!capture_both()) {
+		mu_assert(0, "could not capture both streams");
+		return;
+	}
+	script(LIBUSB_ERROR_PIPE, 0);
+	mu_assert_int_eq(LIBUSB_ERROR_PIPE, cmd_get_squelch(NULL));
+	release_both(out, sizeof(out), err, sizeof(err));
+
+	mu_assert(out[0] == '\0', out);
+	mu_assert(strcmp(err, "error: could not read the squelch level: the "
+	    "board's firmware does not support it (stalled, libusb -9)\n") == 0,
+	    err);
+	mu_assert(strstr(err, "libUSB Error") == NULL, err);
 }
 
 int main(void)
@@ -639,5 +663,6 @@ int main(void)
 	MU_RUN(no_read_writes_to_standard_output);
 	MU_RUN(a_board_that_does_not_answer_is_reported_in_words);
 	MU_RUN(other_libusb_errors_keep_their_own_report);
+	MU_RUN(a_stalled_read_is_reported_as_unsupported);
 	return mu_report();
 }

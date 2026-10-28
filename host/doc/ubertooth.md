@@ -151,6 +151,45 @@ A board that cannot be *opened* at all is a different problem, usually file
 permissions: on Linux, install the udev rules shipped with this package (see
 ubertooth-util(1), SELECTING A DEVICE).
 
+## FIRMWARE OF ANOTHER API VERSION
+
+These tools drive the firmware built from the same source tree, which both
+run-time images report as their USB device version. A release build refuses
+anything else, naming both versions and which side to replace:
+
+    error: Ubertooth firmware API version <version> found, libubertooth 1.1 requires <version>.
+    note: flash the firmware built from the same source tree, for example: ./install.sh --flash-device 1cc0
+
+A build made from a git checkout that is not on a tag is a development build,
+and says the same thing as a warning and carries on, because host tools and
+firmware from different commits are the normal state of lab work and
+debugging:
+
+    warning: Ubertooth firmware API version <version> found, libubertooth 1.1 requires <version>.
+    note: flash the firmware built from the same source tree, for example: ./install.sh --flash-device 1cc0
+    note: this is a development build, so the command runs on; what it reports may be wrong, and a request this firmware has not got will fail
+
+Both notes are worth reading before the output is trusted. What the two
+versions disagree about may be the layout of a record, in which case the
+capture is decoded by the wrong rules and is wrong rather than empty. Where
+the firmware is simply missing a request, the command fails on it:
+
+    error: could not set the channel: the board's firmware does not support it (stalled, libusb -9)
+    note: the board reports firmware API version <version>, libubertooth 1.1 requires <version>
+
+That is the one wording for a request the board refuses, wherever the request
+came from. The board answers such a request by stalling it and says nothing
+else, so the line names the request that was refused, and the note puts the
+two versions beside each other: different versions name the reflash that
+fixes it, and equal versions say the version is not the problem. The libusb
+code is there for a request sent and answered one at a time; a request sent
+without waiting for its answer has only the stall to report, so that line ends
+`(stalled)`. A board in the DFU bootloader runs no application firmware, so
+ubertooth-dfu(1) reports a refused request without the note.
+
+Which answer a build gives can be set either way with
+`UBERTOOTH_ALLOW_API_MISMATCH` (see ENVIRONMENT below).
+
 ## OUTPUT AND DIAGNOSTICS
 
 This is the split the tools are being brought to, tool by tool. Each tool's
@@ -210,6 +249,15 @@ the right stream for them, whichever layer prints them. Its device-selection
 messages are on standard error but do not all carry a prefix yet.
 
 ## ENVIRONMENT
+
+`UBERTOOTH_ALLOW_API_MISMATCH` decides what a tool does about firmware of
+another API version, whatever the build it came from. `1` warns and runs the
+command, which is how a release build is made to talk to firmware from
+another commit for debugging; `0` refuses it, which is how a development
+build is made strict, for a test harness that wants a refusal rather than a
+warning. Only those two exact values decide: unset, empty or anything else leaves the
+build's own answer, so a typo cannot turn the guard off. See FIRMWARE OF
+ANOTHER API VERSION above.
 
 `UBERTOOTH_TEST_NO_DEVICES=1` makes every tool behave as if no Ubertooth were
 attached: nothing is listed or opened on the USB bus, and the tool reports that

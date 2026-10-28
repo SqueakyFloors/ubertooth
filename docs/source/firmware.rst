@@ -115,9 +115,9 @@ tool looks for the DFU device on the same physical USB path again and reports
 the board as detached once it has gone and stayed gone, which takes two
 listings 1.5 s apart. A board that is back on that path by the second listing
 reset into the bootloader rather than into its application, and the command
-fails saying so. An ``error: control message unsupported`` line now comes only
-from the DFU state queries, where it means the bootloader did not answer and
-the command fails.
+fails saying so. A line reading ``error: could not read the DFU state: the
+board's firmware does not support it (stalled, libusb -9)`` means the
+bootloader stalled a state query, and the command fails.
 The command returns success only after the expected application image and
 revision have been verified. If verification fails, use the reported stage and
 error details or the documented manual bootloader recovery path.

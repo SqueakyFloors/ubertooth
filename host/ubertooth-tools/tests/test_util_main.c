@@ -281,10 +281,11 @@ int ubertooth_get_api(ubertooth_t *ut, uint16_t *version)
 /* Built against an installed libubertooth, so there is no library source to
  * compile in: the message is a stub here, and the case below then checks only
  * that -I refuses the board. */
-void ubertooth_report_api_mismatch(uint16_t version, const char *selector)
+int ubertooth_report_api_mismatch(uint16_t version, const char *selector)
 {
 	(void)version;
 	(void)selector;
+	return -1;
 }
 #endif
 
@@ -1688,6 +1689,10 @@ MU_TEST(identify_starts_the_blink_on_the_board_and_returns)
  * Firmware that is not this tree's API version, older or newer, is refused:
  * no request is sent and nothing is blinked from the host. So is firmware
  * whose version cannot be read.
+ *
+ * Whether a mismatch is refused or only warned about depends on the build, so
+ * main() pins it to refusing for every case here; the one case that wants the
+ * other answer asks for it and puts this one back.
  */
 MU_TEST(identify_refuses_firmware_of_another_api_version)
 {
@@ -1776,6 +1781,31 @@ MU_TEST(identify_prints_the_librarys_mismatch_message)
 	mu_assert(strstr(r.err, "flash the firmware") == NULL,
 	          "and no backwards flash");
 	mu_assert_int_eq(0, fake.identify_calls);
+}
+
+/*
+ * A mismatch that is allowed -- a development build, or the override set --
+ * warns instead of refusing, and the mode runs: this is what makes host tools
+ * and firmware from different commits usable together. The warning says what
+ * allowed it, so a capture made this way is not read as trustworthy by
+ * accident.
+ */
+MU_TEST(identify_runs_on_when_a_mismatch_is_allowed)
+{
+	struct run_result r;
+
+	setenv(UBERTOOTH_ALLOW_API_MISMATCH_VAR, "1", 1);
+	reset_fake();
+	fake.api_version = UBERTOOTH_API_VERSION - 1;
+	r = RUN("-I");
+	setenv(UBERTOOTH_ALLOW_API_MISMATCH_VAR, "0", 1);
+
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, fake.identify_calls); /* the mode did run */
+	mu_assert(strstr(r.err, "warning: Ubertooth firmware API version")
+	          != NULL, r.err);
+	mu_assert(strstr(r.err, "error:") == NULL, "nothing is refused");
+	mu_assert(strstr(r.err, "so the command runs on") != NULL, r.err);
 }
 
 /*
@@ -3509,6 +3539,13 @@ MU_TEST(the_handle_reopened_after_a_reset_is_released)
 
 int main(void)
 {
+#ifdef UTIL_TEST_REAL_API_MESSAGE
+	/* A development build warns about a mismatch and runs on, a release
+	 * build refuses it. The cases below want one answer whichever build
+	 * this is, so they ask for the refusal. */
+	setenv(UBERTOOTH_ALLOW_API_MISMATCH_VAR, "0", 1);
+#endif
+
 	MU_RUN(nonzero_query_values_are_not_exit_statuses);
 	MU_RUN(every_known_board_id_exits_zero);
 	MU_RUN(unknown_board_id_fails_without_indexing_the_name_table);
@@ -3533,6 +3570,7 @@ int main(void)
 	MU_RUN(identify_refuses_firmware_of_another_api_version);
 #ifdef UTIL_TEST_REAL_API_MESSAGE
 	MU_RUN(identify_prints_the_librarys_mismatch_message);
+	MU_RUN(identify_runs_on_when_a_mismatch_is_allowed);
 	MU_RUN(the_mismatch_note_names_the_board_it_is_about);
 #endif
 	MU_RUN(led_specan_uses_the_default_threshold_and_an_explicit_one);

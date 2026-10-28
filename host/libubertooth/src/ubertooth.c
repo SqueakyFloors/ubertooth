@@ -296,6 +296,23 @@ const char* ubertooth_open_failure_reason(void)
  * command is sent: an index that is not present, or several devices with no
  * index, simply return NULL (without listing serials, which would mean sending
  * a command to every device). */
+/* Keeps the board's firmware API version against the handle just opened, for
+ * the reports about requests that board refuses: they name the firmware that
+ * refused them. Done here, where every open happens, so a tool that never
+ * asks for the version still has it quoted -- ubertooth-util asks for it only
+ * under -I. The board reports the version as its USB device version, so this
+ * is the descriptor libusb has already read and the board is sent nothing. A
+ * descriptor that cannot be read leaves nothing recorded, and the reports
+ * then give only their own half. */
+static void note_opened_board_api(struct libusb_device_handle* devh,
+                                  libusb_device* dev)
+{
+	struct libusb_device_descriptor desc;
+
+	if (libusb_get_device_descriptor(dev, &desc) == 0)
+		ubertooth_note_api_version(devh, desc.bcdDevice);
+}
+
 static struct libusb_device_handle* find_ubertooth_device_opt(int ubertooth_device,
                                                               int quiet)
 {
@@ -344,8 +361,13 @@ static struct libusb_device_handle* find_ubertooth_device_opt(int ubertooth_devi
 	pick = pick_ubertooth_device(ubertooth_device, ut_ct);
 
 	if (quiet) {
-		if (pick >= 0 && libusb_open(usb_list[ubertooth_devs[pick]], &devh) != 0)
-			devh = NULL;
+		if (pick >= 0) {
+			if (libusb_open(usb_list[ubertooth_devs[pick]], &devh) != 0)
+				devh = NULL;
+			else
+				note_opened_board_api(devh,
+				                      usb_list[ubertooth_devs[pick]]);
+		}
 		free(ubertooth_devs);
 		libusb_free_device_list(usb_list, 1);
 		return devh;
@@ -362,6 +384,8 @@ static struct libusb_device_handle* find_ubertooth_device_opt(int ubertooth_devi
 			show_libusb_error(ret);
 			devh = NULL;
 		}
+		else
+			note_opened_board_api(devh, usb_list[ubertooth_devs[pick]]);
 	}
 	else if (ut_ct == 0) {
 		/* nothing attached: the caller reports that it found no device */
@@ -651,11 +675,15 @@ static struct libusb_device_handle* find_ubertooth_device_serial_opt(
 				show_libusb_error(ret);
 			devh = NULL;
 		}
-		/* The whole serial of the board that was selected, so a later
-		 * failure names the board rather than the few characters of it the
-		 * user happened to type. */
-		else if (matched != NULL)
-			memcpy(matched, matched_serials[0], UBERTOOTH_SERIAL_STR_LEN);
+		else {
+			note_opened_board_api(devh, usb_list[matched_devs[0]]);
+			/* The whole serial of the board that was selected, so a later
+			 * failure names the board rather than the few characters of it
+			 * the user happened to type. */
+			if (matched != NULL)
+				memcpy(matched, matched_serials[0],
+				       UBERTOOTH_SERIAL_STR_LEN);
+		}
 	}
 	else if (matches > 1) {
 		note_open_failure("that serial matched more than one board");
@@ -714,6 +742,16 @@ static void rx_xfer_status(int status)
 {
 	char *error_name = "";
 
+	/* A stalled receive endpoint is the board refusing to send the capture
+	 * at all, which is what firmware without the mode the host asked for
+	 * looks like from here, so it gets the same report as a refused
+	 * request. The status is not a libusb error code, so there is none to
+	 * quote. */
+	if (status == LIBUSB_TRANSFER_STALL) {
+		ubertooth_report_unsupported_request("receive the capture", 0);
+		return;
+	}
+
 	switch (status) {
 		case LIBUSB_TRANSFER_ERROR:
 			error_name="Transfer error.";
@@ -721,9 +759,6 @@ static void rx_xfer_status(int status)
 		/* No LIBUSB_TRANSFER_TIMED_OUT or LIBUSB_TRANSFER_CANCELLED case:
 		 * both are ordinary parts of a capture, handled by the caller
 		 * before it reaches this. */
-		case LIBUSB_TRANSFER_STALL:
-			error_name="Halt condition detected, or control request not supported.";
-			break;
 		case LIBUSB_TRANSFER_NO_DEVICE:
 			error_name="Device disconnected.";
 			break;
@@ -1573,6 +1608,11 @@ static void ubertooth_cleanup(ubertooth_t* ut, int send_stop)
 			if (send_stop)
 				cmd_stop(ut->devh);
 			libusb_release_interface(ut->devh, 0);
+			/* Any firmware API version read off this board goes with
+			 * it, so a report about the next board cannot quote this
+			 * one's. Before the close, while the handle is still a
+			 * handle rather than a value of a closed object. */
+			ubertooth_forget_api_version(ut->devh);
 			libusb_close(ut->devh);
 			ut->devh = NULL;
 		}
@@ -1911,8 +1951,15 @@ ubertooth_t* ubertooth_start_select_quiet(const char* u_arg)
 	else
 		devh = find_ubertooth_device_serial_opt(u_arg, 1, NULL);
 	if (devh == NULL || libusb_claim_interface(devh, 0) < 0) {
-		if (devh != NULL)
+		if (devh != NULL) {
+			/* The open above recorded this board's firmware API
+			 * version; nothing is going to use the board, so the
+			 * version goes with it rather than waiting to be quoted
+			 * for another. A reset wait polls this path until the
+			 * board comes back, so it is walked over and over. */
+			ubertooth_forget_api_version(devh);
 			libusb_close(devh);
+		}
 		libusb_exit(NULL);
 		return NULL;
 	}
@@ -1923,6 +1970,7 @@ ubertooth_t* ubertooth_start_select_quiet(const char* u_arg)
 	if (ut == NULL || ut->fifo == NULL) {
 		free(ut);
 		libusb_release_interface(devh, 0);
+		ubertooth_forget_api_version(devh);
 		libusb_close(devh);
 		libusb_exit(NULL);
 		return NULL;
@@ -1967,13 +2015,13 @@ int ubertooth_get_api(ubertooth_t *ut, uint16_t *version) {
 	libusb_device* dev;
 	struct libusb_device_descriptor desc;
 	dev = libusb_get_device(ut->devh);
+	/* No request goes to the board: the descriptor is the one libusb read
+	 * when it enumerated, so this reads the copy it kept. Every open has
+	 * already put the version in note_opened_board_api(); this is for the
+	 * caller that wants to see it. */
 	result = libusb_get_device_descriptor(dev, &desc);
 	if (result < 0) {
-		if (result == LIBUSB_ERROR_PIPE) {
-			fprintf(stderr, "error: control message unsupported\n");
-		} else {
-			show_libusb_error(result);
-		}
+		show_libusb_error(result);
 		return result;
 	}
 	*version = desc.bcdDevice;
@@ -1988,11 +2036,13 @@ int ubertooth_check_api(ubertooth_t *ut) {
 		return result;
 	}
 
-	/* Host and firmware are released together: any other version, older or
-	 * newer, is refused rather than run with behaviour the host does not
-	 * expect. */
-	if (version != UBERTOOTH_API_VERSION) {
-		ubertooth_report_api_mismatch(version, ut->selector);
+	/* Host and firmware are released together, so a release build refuses
+	 * any other version rather than run with behaviour the host does not
+	 * expect. A development build reports it and goes on, because host
+	 * tools and firmware built from different commits are the normal state
+	 * of lab and debugging work. */
+	if (version != UBERTOOTH_API_VERSION
+	    && ubertooth_report_api_mismatch(version, ut->selector) < 0) {
 		ubertooth_stop(ut);
 		return -1;
 	}

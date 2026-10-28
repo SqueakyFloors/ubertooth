@@ -1,3 +1,9 @@
+# The tree's release-or-development setting does not come into the tests: a
+# case that cares compiles the library source itself with the value it wants,
+# or asks for the behaviour through the environment, so no test result depends
+# on whether this checkout happens to sit on a tag.
+remove_definitions(-DUBERTOOTH_RELEASE_BUILD=${UBERTOOTH_RELEASE_BUILD})
+
 add_executable(test-dfu-transition
 	test_dfu_transition.c
 	../src/dfu_transition.c)
@@ -101,7 +107,8 @@ if(libubertooth_SOURCE_DIR)
 		test_specan_write_failure.c
 		../src/specan_options.c
 		../src/request_report.c
-		${libubertooth_SOURCE_DIR}/src/ubertooth_fifo.c)
+		${libubertooth_SOURCE_DIR}/src/ubertooth_fifo.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c)
 	target_include_directories(test-specan-write-failure PRIVATE
 		../src ${libubertooth_SOURCE_DIR}/src
 		${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
@@ -431,6 +438,11 @@ add_executable(test-rx-main test_rx_main.c ../src/request_report.c)
 target_link_libraries(test-rx-main opt-parse-for-tests ${LIBBTBB_LIBRARIES})
 if(libubertooth_SOURCE_DIR)
 	target_include_directories(test-rx-main PRIVATE ${libubertooth_SOURCE_DIR}/src)
+	# The real report for a request the board refused, so the cases pin the
+	# library's wording rather than a stub's.
+	target_sources(test-rx-main PRIVATE
+		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c)
+	target_compile_definitions(test-rx-main PRIVATE TEST_REAL_API_REPORTS)
 else()
 	target_include_directories(test-rx-main PRIVATE ${LIBUBERTOOTH_INCLUDE_DIR})
 endif()
@@ -509,6 +521,11 @@ add_executable(test-dfu-main
 target_link_libraries(test-dfu-main opt-parse-for-tests)
 if(libubertooth_SOURCE_DIR)
 	target_include_directories(test-dfu-main PRIVATE ${libubertooth_SOURCE_DIR}/src)
+	# The real report for a request the bootloader refused, so the cases pin
+	# the library's wording rather than a stub's.
+	target_sources(test-dfu-main PRIVATE
+		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c)
+	target_compile_definitions(test-dfu-main PRIVATE TEST_REAL_API_REPORTS)
 else()
 	target_include_directories(test-dfu-main PRIVATE ${LIBUBERTOOTH_INCLUDE_DIR})
 endif()
@@ -539,9 +556,35 @@ if(libubertooth_SOURCE_DIR)
 	# builds none of these, does not require it.
 	find_package(Threads REQUIRED)
 
+	# What the host does about firmware of another API version. The decision
+	# differs between a release build and a build from a working checkout, so
+	# the real library source is compiled once for each, and each copy
+	# asserts what its own build should do.
+	foreach(build release development)
+		if(build STREQUAL release)
+			set(release_build 1)
+		else()
+			set(release_build 0)
+		endif()
+		add_executable(test-api-mismatch-${build}
+			test_api_mismatch.c
+			${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c)
+		target_include_directories(test-api-mismatch-${build} PRIVATE
+			${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR}
+			${LIBBTBB_INCLUDE_DIR})
+		target_compile_definitions(test-api-mismatch-${build} PRIVATE
+			UBERTOOTH_RELEASE_BUILD=${release_build})
+
+		add_test(NAME api-mismatch-${build}
+			COMMAND test-api-mismatch-${build})
+		# Formatting a few lines into a temporary file: milliseconds.
+		set_tests_properties(api-mismatch-${build} PROPERTIES TIMEOUT 5)
+	endforeach()
+
 	add_executable(test-control-partnum
 		test_control_partnum.c
-		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
+		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c)
 	target_include_directories(test-control-partnum PRIVATE
 		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
 	target_link_libraries(test-control-partnum ${LIBUSB_LIBRARIES})
@@ -550,7 +593,8 @@ if(libubertooth_SOURCE_DIR)
 	# The same approach for the fixed-size read commands (short replies).
 	add_executable(test-control-reads
 		test_control_reads.c
-		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
+		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c)
 	target_include_directories(test-control-reads PRIVATE
 		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
 	target_link_libraries(test-control-reads ${LIBUSB_LIBRARIES})
@@ -561,7 +605,8 @@ if(libubertooth_SOURCE_DIR)
 	# libusb, and what it frees, without a board.
 	add_executable(test-control-async
 		test_control_async.c
-		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
+		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c)
 	target_include_directories(test-control-async PRIVATE
 		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
 	target_link_libraries(test-control-async ${LIBUSB_LIBRARIES})
@@ -590,7 +635,8 @@ if(libubertooth_SOURCE_DIR)
 	# The same approach for the firmware revision and compile info commands.
 	add_executable(test-control-text
 		test_control_text.c
-		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
+		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c)
 	target_include_directories(test-control-text PRIVATE
 		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
 	target_link_libraries(test-control-text ${LIBUSB_LIBRARIES})
@@ -927,6 +973,11 @@ if(LIBBLUETOOTH_FOUND)
 	if(libubertooth_SOURCE_DIR)
 		target_include_directories(test-scan-main PRIVATE
 			${libubertooth_SOURCE_DIR}/src)
+		# The real report for a request the board refused, so the cases
+		# pin the library's wording rather than a stub's.
+		target_sources(test-scan-main PRIVATE
+			${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c)
+		target_compile_definitions(test-scan-main PRIVATE TEST_REAL_API_REPORTS)
 	else()
 		target_include_directories(test-scan-main PRIVATE
 			${LIBUBERTOOTH_INCLUDE_DIR})
@@ -958,6 +1009,11 @@ if(LIBBLUETOOTH_FOUND)
 	if(libubertooth_SOURCE_DIR)
 		target_include_directories(test-follow-main PRIVATE
 			${libubertooth_SOURCE_DIR}/src)
+		# The real report for a request the board refused, so the cases
+		# pin the library's wording rather than a stub's.
+		target_sources(test-follow-main PRIVATE
+			${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c)
+		target_compile_definitions(test-follow-main PRIVATE TEST_REAL_API_REPORTS)
 	else()
 		target_include_directories(test-follow-main PRIVATE
 			${LIBUBERTOOTH_INCLUDE_DIR})

@@ -478,8 +478,16 @@ MU_TEST(a_failed_transfer_is_reported_and_recorded)
 		mu_assert_int_eq(failures[i], ut->rx_stream_status);
 		/* The capture's loop watches this, so it ends at once. */
 		mu_assert_int_eq(1, ut->stop_ubertooth);
-		mu_assert(strncmp(err, "error: receive transfer failed: ", 32) == 0,
-		          err);
+		/* A stalled receive endpoint is the board refusing to send the
+		 * capture at all, so it gets the shared report for a request the
+		 * firmware has not got, which names what was asked for. */
+		if (failures[i] == LIBUSB_TRANSFER_STALL)
+			mu_assert(strcmp(err, "error: could not receive the capture: "
+			          "the board's firmware does not support it "
+			          "(stalled)\n") == 0, err);
+		else
+			mu_assert(strncmp(err, "error: receive transfer failed: ", 32)
+			          == 0, err);
 		mu_assert(strchr(err, '\n') == strrchr(err, '\n'), "said once");
 		/* The library never writes to standard output: that is the
 		 * capture's stream, and a tool may be piping it. */

@@ -403,12 +403,14 @@ MU_TEST(a_stalled_command_is_named_and_reported_as_unsupported)
 
 	submit_and_fail(UBERTOOTH_START_HOPPING, LIBUSB_TRANSFER_STALL,
 	                text, sizeof(text));
-	mu_assert(strcmp(text, "error: start hopping failed: the board does not "
-	                       "support this command (stalled)\n") == 0, text);
+	mu_assert(strcmp(text, "error: could not start hopping: the board's "
+	                       "firmware does not support it (stalled)\n") == 0,
+	          text);
 
 	submit_and_fail(UBERTOOTH_HOP, LIBUSB_TRANSFER_STALL, text, sizeof(text));
-	mu_assert(strcmp(text, "error: hop failed: the board does not support "
-	                       "this command (stalled)\n") == 0, text);
+	mu_assert(strcmp(text, "error: could not hop to the next channel: the "
+	                       "board's firmware does not support it (stalled)\n")
+	          == 0, text);
 
 	/* nothing is left of the old, meaningless line */
 	mu_assert(strstr(text, "libUSB Error") == NULL, text);
@@ -422,12 +424,12 @@ MU_TEST(each_async_command_names_itself)
 		uint8_t request;
 		const char* name;
 	} commands[] = {
-		{ UBERTOOTH_HOP,                "hop" },
-		{ UBERTOOTH_TRIM_CLOCK,         "clock trim" },
-		{ UBERTOOTH_FIX_CLOCK_DRIFT,    "clock drift correction" },
-		{ UBERTOOTH_CANCEL_FOLLOW,      "cancel follow" },
-		{ UBERTOOTH_SET_AFHMAP,         "AFH map" },
-		{ UBERTOOTH_START_HOPPING,      "start hopping" },
+		{ UBERTOOTH_HOP,             "hop to the next channel" },
+		{ UBERTOOTH_TRIM_CLOCK,      "trim the board's clock" },
+		{ UBERTOOTH_FIX_CLOCK_DRIFT, "correct the clock drift" },
+		{ UBERTOOTH_CANCEL_FOLLOW,   "cancel the follow" },
+		{ UBERTOOTH_SET_AFHMAP,      "set the AFH map" },
+		{ UBERTOOTH_START_HOPPING,   "start hopping" },
 	};
 	char text[256], expected[256];
 	size_t i;
@@ -436,8 +438,8 @@ MU_TEST(each_async_command_names_itself)
 		submit_and_fail(commands[i].request, LIBUSB_TRANSFER_STALL,
 		                text, sizeof(text));
 		snprintf(expected, sizeof(expected),
-		         "error: %s failed: the board does not support this command "
-		         "(stalled)\n", commands[i].name);
+		         "error: could not %s: the board's firmware does not "
+		         "support it (stalled)\n", commands[i].name);
 		mu_assert(strcmp(text, expected) == 0, text);
 	}
 }
@@ -462,7 +464,8 @@ MU_TEST(each_completion_status_says_what_happened)
 
 	for (i = 0; i < sizeof(statuses) / sizeof(statuses[0]); i++) {
 		submit_and_fail(UBERTOOTH_HOP, statuses[i].status, text, sizeof(text));
-		snprintf(expected, sizeof(expected), "error: hop failed: %s\n",
+		snprintf(expected, sizeof(expected),
+		         "error: could not hop to the next channel: %s\n",
 		         statuses[i].why);
 		mu_assert(strcmp(text, expected) == 0, text);
 	}
@@ -476,12 +479,13 @@ MU_TEST(an_unknown_status_or_request_is_reported_as_a_number)
 	char text[256] = "";
 
 	submit_and_fail(UBERTOOTH_HOP, 99, text, sizeof(text));
-	mu_assert(strcmp(text, "error: hop failed: transfer status 99\n") == 0,
-	          text);
+	mu_assert(strcmp(text, "error: could not hop to the next channel: "
+	                       "transfer status 99\n") == 0, text);
 
 	submit_and_fail(200, LIBUSB_TRANSFER_STALL, text, sizeof(text));
-	mu_assert(strcmp(text, "error: control request 200 failed: the board does "
-	                       "not support this command (stalled)\n") == 0, text);
+	mu_assert(strcmp(text, "error: could not send control request 200: the "
+	                       "board's firmware does not support it (stalled)\n")
+	          == 0, text);
 }
 
 /* The completion that libusb reports for a transfer that worked says

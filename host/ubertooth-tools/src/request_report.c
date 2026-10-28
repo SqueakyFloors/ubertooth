@@ -26,6 +26,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "ubertooth.h"
 #include "ubertooth_control.h"
 
 /* Why the request failed, in plain words. The same wording libubertooth uses
@@ -37,9 +38,9 @@ static const char *reason(int code)
 	switch (code) {
 	case LIBUSB_ERROR_TIMEOUT:
 		return "the board did not answer in time";
-	case LIBUSB_ERROR_PIPE:
-		/* How a board refuses a request it does not implement. */
-		return "the board does not support this command (stalled)";
+	/* No LIBUSB_ERROR_PIPE case: a stall is the board saying it has no such
+	 * request, which report_refused_request() hands to the library's shared
+	 * wording so that the firmware API versions come with it. */
 	case LIBUSB_ERROR_NO_DEVICE:
 		return "the board is no longer attached";
 	case LIBUSB_ERROR_OVERFLOW:
@@ -52,8 +53,7 @@ static const char *reason(int code)
 }
 
 /* What to try next, for the failures the user can do something about. NULL
- * where there is nothing honest to suggest: a stalled request is the board
- * rejecting the command outright, which re-plugging it does not change. */
+ * where there is nothing honest to suggest. */
 static const char *hint(int code)
 {
 	switch (code) {
@@ -85,6 +85,14 @@ void report_refused_request(const char *what, int code)
 	 * board truncated, naming the request and the counts. */
 	if (code == UBERTOOTH_ERROR_SHORT_REPLY)
 		return;
+
+	/* A request the board's firmware has not got is reported in one wording
+	 * wherever it was sent from, with the board's firmware API version
+	 * beside the one these tools need. */
+	if (code == LIBUSB_ERROR_PIPE) {
+		ubertooth_report_unsupported_request(what, code);
+		return;
+	}
 
 	if (why != NULL)
 		fprintf(stderr, "error: could not %s: %s (libusb %d)\n",

@@ -887,7 +887,7 @@ MU_TEST(a_refused_mode_request_joins_the_poll_thread)
 	assert_requests(expected, ARRAY_LEN(expected));
 	mu_assert_int_eq(1, do_exit); /* the poll thread was stopped */
 	/* the library reports the refusal; the caller adds nothing */
-	mu_assert(strstr(err, "control message unsupported") != NULL, err);
+	mu_assert(strstr(err, "firmware does not support it (stalled") != NULL, err);
 
 	release_handle(ut);
 
@@ -945,7 +945,7 @@ MU_TEST(a_refused_band_sweep_ends_the_receive_phase)
 	mu_assert_int_eq(AFH_DETECTION_CHANNEL, fake.values[0]);
 	mu_assert_int_eq(0, fake.bulk_submits);
 	/* the library reports the refusal; the caller adds nothing */
-	mu_assert(strstr(err, "control message unsupported") != NULL, err);
+	mu_assert(strstr(err, "firmware does not support it (stalled") != NULL, err);
 
 	assert_transfer_lifetimes();
 	release_handle(ut);
@@ -967,7 +967,7 @@ MU_TEST(a_refused_band_sweep_ends_the_receive_phase)
 	mu_assert_int_eq(LIBUSB_ERROR_PIPE, r);
 	assert_requests(expected, ARRAY_LEN(expected));
 	mu_assert_int_eq(0, fake.bulk_submits);
-	mu_assert(strstr(err, "control message unsupported") != NULL, err);
+	mu_assert(strstr(err, "firmware does not support it (stalled") != NULL, err);
 
 	assert_transfer_lifetimes();
 	release_handle(ut);

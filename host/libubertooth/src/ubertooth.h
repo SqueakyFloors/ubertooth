@@ -316,9 +316,13 @@ void ubertooth_free(ubertooth_t* ut);
  * is left open either way. */
 int ubertooth_get_api(ubertooth_t *ut, uint16_t *version);
 /* Whether the board's firmware is the version these host tools were built
- * with, which is the version they require. Returns 0 when it is, or a
- * negative error, already reported: a version this host will not drive, or a
- * version that could not be read at all.
+ * with, which is the version they require. Returns 0 when the command may go
+ * on, or a negative error, already reported: a version this host refuses to
+ * drive, or a version that could not be read at all.
+ *
+ * A release build refuses any other version. A development build reports it
+ * and returns 0, so host tools and firmware from different commits can be
+ * used together; see ubertooth_report_api_mismatch().
  *
  * A refused version is released here: the board is sent a STOP and closed, so
  * a tool that returns after this one does not leave it claimed. A version
@@ -327,17 +331,48 @@ int ubertooth_get_api(ubertooth_t *ut, uint16_t *version);
  * ubertooth_close() -- which does nothing on a board already released -- and
  * an ubertooth_free(). */
 int ubertooth_check_api(ubertooth_t *ut);
+/* The environment variable that overrides what the build decides about
+ * firmware of another API version: exactly "1" runs on, exactly "0" refuses,
+ * and anything else -- including unset and empty -- leaves the build's own
+ * answer. Named here so the library and the tests cannot drift apart. */
+#define UBERTOOTH_ALLOW_API_MISMATCH_VAR "UBERTOOTH_ALLOW_API_MISMATCH"
 /* Reports firmware the host tools were not built with: it names the version
  * the board reports and the version these tools require, then says which side
  * to replace (flash the firmware when the board is older, install matching
- * host tools when it is newer). Only the message, so a caller that checks the
- * version itself rather than through ubertooth_check_api() - ubertooth-util's
- * -I, which must still talk to any firmware - prints the same lines as every
- * other tool.
+ * host tools when it is newer).
+ *
+ * Returns -1 when the command must stop, having said so as an error, and 0
+ * when it may go on, having said so as a warning and named what allowed it.
+ * A release build stops; a build from a working checkout goes on, which is
+ * what makes lab and debugging work possible without a reflash first. Setting
+ * UBERTOOTH_ALLOW_API_MISMATCH to 1 goes on whatever the build, and to 0
+ * stops whatever the build.
+ *
+ * It only reports and decides, so a caller that checks the version itself
+ * rather than through ubertooth_check_api() - ubertooth-util's -I, which must
+ * still talk to any firmware - behaves as every other tool does.
  *
  * selector is the board the user named (ubertooth_t.selector), so the example
  * command reflashes that board and no other; NULL where they named none. */
-void ubertooth_report_api_mismatch(uint16_t version, const char* selector);
+int ubertooth_report_api_mismatch(uint16_t version, const char* selector);
+/* Records the firmware API version read from a board, so that a later report
+ * about a request that board refused can quote it. board identifies the board
+ * it came from (its USB handle), and the version is dropped when that board
+ * is released, so a process that opens several boards in turn never quotes
+ * the one before. ubertooth_get_api() and ubertooth_close() call these; no
+ * tool needs to. */
+void ubertooth_note_api_version(const void* board, uint16_t version);
+void ubertooth_forget_api_version(const void* board);
+/* Reports a request the board's firmware does not implement, which it refuses
+ * by stalling. what names the request and reads after "could not" ("set the
+ * channel"). code is the libusb error code to quote, or 0 where the stall
+ * arrived as a transfer status and there is no libusb code for it.
+ *
+ * The report names the board's firmware API version alongside the one these
+ * tools require, where a version has been read: firmware from another commit
+ * is the usual reason a request is missing, and the reflash is the usual fix.
+ */
+void ubertooth_report_unsupported_request(const char* what, int code);
 /* Stops the capture after this many seconds, through the same flag Ctrl-C
  * uses. The handle is not read: the alarm stops whichever capture is running,
  * and a signal handler cannot follow a pointer to a handle. */

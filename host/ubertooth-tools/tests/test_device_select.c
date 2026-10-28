@@ -31,6 +31,7 @@
  * handle the library may open. */
 struct fake_dev {
 	uint16_t vid, pid;
+	uint16_t bcd;       /* the firmware API version the board reports */
 	uint8_t serial[16]; /* the 16 bytes -s prints as 32 hex digits */
 	int serial_fails;   /* set to fail this device's serial read */
 	int handle; /* opaque body for the handle the fake libusb_open() hands out */
@@ -65,6 +66,9 @@ static void bus_with_ubertooths(int n)
 	for (i = 0; i < n; i++) {
 		fake.devs[1 + i].vid = U1_VENDORID;
 		fake.devs[1 + i].pid = U1_PRODUCTID;
+		/* One version behind this tree, the state a development build
+		 * exists for. */
+		fake.devs[1 + i].bcd = UBERTOOTH_API_VERSION - 1;
 	}
 	fake.n = n + 1;
 	fake.list_rc = fake.n;
@@ -211,6 +215,7 @@ int LIBUSB_CALL libusb_get_device_descriptor(libusb_device *dev,
 	memset(desc, 0, sizeof(*desc));
 	desc->idVendor = fd->vid;
 	desc->idProduct = fd->pid;
+	desc->bcdDevice = fd->bcd;
 	return 0;
 }
 
@@ -320,7 +325,62 @@ static ubertooth_t *select_capturing(const char *u_arg, char *msg, size_t len)
 	return select_capturing_opt(u_arg, 0, msg, len);
 }
 
+/* Run the shared report for a refused request with stderr captured, to see
+ * which board's firmware API version it names. */
+static void report_capturing(char *msg, size_t len)
+{
+	FILE *capture = tmpfile();
+	int saved = dup(fileno(stderr));
+	size_t n;
+
+	msg[0] = '\0';
+	if (capture == NULL || saved < 0) {
+		mu_assert(0, "capture stderr");
+		return;
+	}
+	fflush(stderr);
+	dup2(fileno(capture), fileno(stderr));
+	ubertooth_report_unsupported_request("set the channel", -9);
+	fflush(stderr);
+	dup2(saved, fileno(stderr));
+	close(saved);
+	rewind(capture);
+	n = fread(msg, 1, len - 1, capture);
+	msg[n] = '\0';
+	fclose(capture);
+}
+
 /* ---- tests -------------------------------------------------------------- */
+
+/* Opening a board keeps its firmware API version, so a report about a request
+ * that board refuses can name it -- including from a tool that never asks for
+ * the version, which ubertooth-util is for every option but -I. The version
+ * is the board's USB device version, which libusb has already read, so no
+ * request is sent to get it. Releasing the board takes it away again. */
+MU_TEST(an_open_keeps_the_boards_api_version_for_later_reports)
+{
+	char msg[256], expected[128];
+	ubertooth_t *ut;
+	uint16_t board = UBERTOOTH_API_VERSION - 1;
+
+	snprintf(expected, sizeof(expected),
+	         "note: the board reports firmware API version %x.%02x,",
+	         (board >> 8) & 0xFF, board & 0xFF);
+
+	bus_with_ubertooths(1);
+	ut = select_capturing(NULL, msg, sizeof(msg));
+	mu_assert_fatal(ut != NULL, "the only device opens");
+
+	report_capturing(msg, sizeof(msg));
+	mu_assert(strstr(msg, expected) != NULL, msg);
+
+	ubertooth_stop(ut);
+	ubertooth_free(ut);
+
+	report_capturing(msg, sizeof(msg));
+	mu_assert(strstr(msg, "firmware API version") == NULL,
+	          "the released board's version is still being quoted");
+}
 
 MU_TEST(an_index_in_range_opens_that_device)
 {
@@ -1359,6 +1419,7 @@ int main(void)
 	MU_RUN(a_nonzero_index_with_one_device_opens_nothing);
 	MU_RUN(index_zero_and_no_index_open_the_only_device);
 	MU_RUN(a_handle_remembers_the_board_the_user_named);
+	MU_RUN(an_open_keeps_the_boards_api_version_for_later_reports);
 	MU_RUN(the_error_names_the_index_and_the_count);
 	MU_RUN(several_devices_with_no_index_still_list_them);
 	MU_RUN(no_device_attached_opens_nothing);

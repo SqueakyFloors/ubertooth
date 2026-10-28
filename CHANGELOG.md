@@ -4,6 +4,20 @@
 
 ### New features
 
+- Host tools built from a git checkout that is not on a tag warn about
+  firmware of another API version and run the command anyway, instead of
+  refusing it, so host tools and firmware from different commits can be used
+  together without a reflash first. A release build still refuses it.
+  `UBERTOOTH_ALLOW_API_MISMATCH=1` runs on whatever the build was, and `0`
+  refuses whatever the build was.
+  [#636](https://github.com/SqueakyFloors/ubertooth/issues/636)
+- A request the board's firmware has not got is reported in one wording
+  everywhere, naming the request and both firmware API versions: `error: could
+  not set the channel: the board's firmware does not support it (stalled,
+  libusb -9)` with `note: the board reports firmware API version <version>,
+  libubertooth 1.1 requires <version>`. It replaces three different lines, one
+  of which said only `control message unsupported`.
+  [#636](https://github.com/SqueakyFloors/ubertooth/issues/636)
 - **Script-visible change:** `ubertooth-util -n` now runs the range test
   instead of only starting it: progress while it waits, then the result block
   `-m` prints. Nothing answering within 10 seconds (`-n <seconds>` to choose
