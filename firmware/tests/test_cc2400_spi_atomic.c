@@ -1,5 +1,6 @@
 /*
- * Tests that every CC2400 register transfer runs with interrupts masked.
+ * Tests that every CC2400 transfer -- registers and the FIFO -- runs with
+ * interrupts masked.
  *
  * The CC2400's configuration bus is bit-banged over three GPIO lines, and
  * cc2400_spi() in firmware/common/ubertooth.c is the only code that drives
@@ -222,6 +223,95 @@ MU_TEST(test_nothing_slow_inside_the_guard)
 	free(body);
 }
 
+/* ---- the two FIFO transfers ---- */
+
+/*
+ * The FIFO transfers bit-bang the same three lines themselves instead of going
+ * through cc2400_spi(), so each needs a guard of its own, and it has to cover
+ * the whole time CSN is low for the same reason: a handler that began its own
+ * transfer part-way through would corrupt both.
+ *
+ * They are checked by the same scan and for the same shape as cc2400_spi(),
+ * with one difference: these two do call spi_delay() inside the guard. They
+ * have to -- the datasheet's hold before CSN rises is part of the transfer,
+ * and the read's bit timing is made of those delays -- which is why they mask
+ * for tens to hundreds of microseconds rather than a couple, and why the read
+ * costs the Bluetooth clock a tick. The comment above them in the firmware
+ * says which modes pay that.
+ */
+MU_TEST(test_the_fifo_transfers_are_masked_from_before_csn_to_after_csn)
+{
+	static const char *fifo[] = { "cc2400_fifo_write", "cc2400_fifo_read" };
+	unsigned i;
+
+	for (i = 0; i < sizeof(fifo) / sizeof(fifo[0]); i++) {
+		char *body = read_function(UBERTOOTH_C, fifo[i]);
+		char flat[8192];
+		char msg[200];
+		int disable, csn_clr, csn_set, restore, ret;
+		const char *p;
+		int clears = 0, sets = 0;
+
+		snprintf(msg, sizeof(msg), "cannot read %s() from the firmware source",
+		         fifo[i]);
+		mu_assert_fatal(body != NULL, msg);
+
+		disable = offset_of(body, "irq_save_disable()");
+		csn_clr = offset_of(body, "CSN_CLR");
+		csn_set = offset_of(body, "CSN_SET");
+		restore = offset_of(body, "irq_restore(");
+
+		snprintf(msg, sizeof(msg), "%s() does not mask interrupts, so an "
+		         "interrupt handler that drives the radio can start its own "
+		         "transfer inside this one", fifo[i]);
+		mu_assert_fatal(disable >= 0, msg);
+		snprintf(msg, sizeof(msg), "%s() does not restore the interrupt mask",
+		         fifo[i]);
+		mu_assert_fatal(restore >= 0, msg);
+		snprintf(msg, sizeof(msg), "%s() no longer drives CSN; this test needs "
+		         "rewriting", fifo[i]);
+		mu_assert_fatal(csn_clr >= 0 && csn_set >= 0, msg);
+
+		snprintf(msg, sizeof(msg), "%s() drops CSN before masking interrupts, "
+		         "so the opening of every transfer is exposed", fifo[i]);
+		mu_assert(disable < csn_clr, msg);
+		snprintf(msg, sizeof(msg), "%s() restores the interrupt mask before "
+		         "raising CSN", fifo[i]);
+		mu_assert(csn_set < restore, msg);
+
+		/* One transfer per call, as in cc2400_spi(): a second CSN pair
+		 * would share the one guard and this scan would say nothing
+		 * about it. */
+		for (p = body; (p = strstr(p, "CSN_CLR")) != NULL; p += 7)
+			clears++;
+		for (p = body; (p = strstr(p, "CSN_SET")) != NULL; p += 7)
+			sets++;
+		snprintf(msg, sizeof(msg), "%s() drives CSN more than once", fifo[i]);
+		mu_assert(clears == 1 && sets == 1, msg);
+
+		/* The mask that goes back is the one that was in force, so the
+		 * pair nests and is safe inside a handler. */
+		collapse_spaces(body, flat, sizeof(flat));
+		snprintf(msg, sizeof(msg), "%s() does not keep what "
+		         "irq_save_disable() returned", fifo[i]);
+		mu_assert(strstr(flat, "primask = irq_save_disable()") != NULL, msg);
+		snprintf(msg, sizeof(msg), "%s() does not restore the mask "
+		         "irq_save_disable() returned", fifo[i]);
+		mu_assert(strstr(flat, "irq_restore(primask)") != NULL, msg);
+
+		/* No way out with interrupts still off. */
+		for (p = body + disable; (p = strstr(p, "return")) != NULL; p += 6) {
+			ret = (int)(p - body);
+			if (ret > restore)
+				break;
+			snprintf(msg, sizeof(msg), "%s() returns with interrupts still "
+			         "masked", fifo[i]);
+			mu_assert(0, msg);
+		}
+		free(body);
+	}
+}
+
 /* ---- the one guard has to cover every register access ---- */
 
 /*
@@ -268,15 +358,14 @@ MU_TEST(test_accessors_go_through_cc2400_spi)
  * and MOSI pairs. CSN_SET on its own is not one of them, because cc2400_init()
  * raises CSN once to idle the bus without making a transfer.
  *
- * cc2400_spi() is guarded; the two FIFO transfers are not, because they hold
- * the bus for hundreds of microseconds and masking across one would cost a
- * clkn tick.
- * Pinning the list here means a new bus function in this file has to have that
+ * All three are guarded, and the tests above check each one's guard. Pinning
+ * the list here means a new bus function in this file has to have that
  * decision made for it.
  *
  * It covers this file only. The btbr image has its own bit-banged FIFO write
- * in firmware/btbr/src/btphy/rf.c, which is unguarded for the same reason the
- * two here are.
+ * in firmware/btbr/src/btphy/rf.c, which is unguarded: there it runs from the
+ * slot scheduler inside the timer interrupt, and no handler in that image can
+ * preempt another.
  */
 MU_TEST(test_the_list_of_bus_functions_is_pinned)
 {
@@ -332,8 +421,8 @@ MU_TEST(test_the_list_of_bus_functions_is_pinned)
 		for (j = 0; j < sizeof(expected) / sizeof(expected[0]); j++)
 			if (strcmp(seen[i], expected[j]) == 0)
 				known = 1;
-		snprintf(msg, sizeof(msg), "%s() drives the CC2400 bus; decide whether "
-		         "it masks interrupts and add it to this test", seen[i]);
+		snprintf(msg, sizeof(msg), "%s() drives the CC2400 bus; give it an "
+		         "interrupt guard and add it to this test", seen[i]);
 		mu_assert(known, msg);
 	}
 	mu_assert_int_eq(3, (int)seen_count);
@@ -412,6 +501,7 @@ int main(void)
 	MU_RUN(test_restore_puts_back_the_saved_mask);
 	MU_RUN(test_no_return_while_masked);
 	MU_RUN(test_nothing_slow_inside_the_guard);
+	MU_RUN(test_the_fifo_transfers_are_masked_from_before_csn_to_after_csn);
 	MU_RUN(test_accessors_go_through_cc2400_spi);
 	MU_RUN(test_the_list_of_bus_functions_is_pinned);
 	MU_RUN(test_primask_is_read_before_it_is_set);

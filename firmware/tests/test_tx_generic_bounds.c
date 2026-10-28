@@ -9,9 +9,15 @@
  * then went to the radio's FIFO write unchecked as well. No host tool sends
  * the request, but any program on the bus can.
  *
+ * The radio's own bound is separate and is here too: its FIFO holds
+ * CC2400_FIFO_SIZE bytes, a quarter less than a packet may carry, so the
+ * payload has to go in a piece at a time while the radio sends what it has.
+ * The one write tx_generic() used to make pushed the last 18 bytes of a
+ * 50-byte packet past the end of the FIFO.
+ *
  * The handler and tx_generic() are hardware code that cannot run here, so the
  * fakes below are the shape of both -- the request buffer, the packet with the
- * globals behind it as a guard region, and the FIFO write -- and the last
+ * globals behind it as a guard region, and the FIFO writes -- and the last
  * tests scan the firmware source, the way test_frend.c scans the transmit
  * paths, so the fakes cannot drift away from what the firmware does.
  */
@@ -20,6 +26,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "cc2400.h"
 #include "minunit.h"
 #include "source_scan.h"
 #include "ubertooth_interface.h"
@@ -48,9 +55,15 @@ static struct {
 
 static uint8_t request[VENDOR_REQ_BUF];
 
-/* The CC2400's FIFO, written over SPI on real hardware. */
+/*
+ * What reached the radio, written over SPI on real hardware: every byte in the
+ * order it went out, and the size of each write, since the FIFO's own limit is
+ * on one write rather than on the total.
+ */
 static uint8_t fifo[VENDOR_REQ_BUF * 2];
 static unsigned fifo_len;
+static uint8_t writes[VENDOR_REQ_BUF];
+static unsigned write_count;
 
 static void reset_state(void)
 {
@@ -58,6 +71,8 @@ static void reset_state(void)
 	memset(request, 0, sizeof(request));
 	memset(fifo, 0, sizeof(fifo));
 	fifo_len = 0;
+	memset(writes, 0, sizeof(writes));
+	write_count = 0;
 }
 
 /*
@@ -94,12 +109,27 @@ static void cc2400_fifo_write(uint8_t len, uint8_t *data)
 {
 	memcpy(fifo + fifo_len, data, len);
 	fifo_len += len;
+	if (write_count < sizeof(writes))
+		writes[write_count] = len;
+	write_count++;
 }
 
-/* The one write tx_generic() makes to the radio. */
+/*
+ * The writes tx_generic() makes to the radio: the payload in FIFO-sized
+ * pieces, each one after the radio has sent the last. The wait between them is
+ * on the radio and is not modelled; what is modelled is how the payload is
+ * cut up, which is what the FIFO's size bounds.
+ */
 static void tx_generic(void)
 {
-	cc2400_fifo_write(MIN(globals.pkt.length, DMA_SIZE), globals.pkt.data);
+	uint8_t len = MIN(globals.pkt.length, DMA_SIZE);
+	uint8_t sent = 0, chunk;
+
+	do {
+		chunk = MIN(len - sent, CC2400_FIFO_SIZE);
+		cc2400_fifo_write(chunk, globals.pkt.data + sent);
+		sent += chunk;
+	} while (sent < len);
 }
 
 /* Is the guard region still as it was, i.e. did the copy stay in the packet? */
@@ -247,6 +277,113 @@ MU_TEST(test_tx_generic_never_writes_more_than_dma_size)
 }
 
 /*
+ * No single write is larger than the FIFO, for any length the packet can
+ * hold. This is the bound the radio imposes, and it is on one write: the
+ * total may be larger, because the radio has sent the earlier pieces by the
+ * time the later ones go in.
+ */
+MU_TEST(test_no_write_is_larger_than_the_fifo)
+{
+	unsigned length, i;
+
+	for (length = 0; length <= 0xff; length++) {
+		char msg[200];
+
+		reset_state();
+		globals.pkt.length = (uint8_t)length;
+		tx_generic();
+
+		for (i = 0; i < write_count; i++) {
+			snprintf(msg, sizeof(msg),
+			         "a packet of %u bytes: write %u is %u bytes, more "
+			         "than the radio's %d-byte FIFO holds",
+			         length, i, writes[i], CC2400_FIFO_SIZE);
+			mu_assert(writes[i] <= CC2400_FIFO_SIZE, msg);
+		}
+	}
+}
+
+/* Cut into pieces, not dropped: every payload byte reaches the radio, once
+ * and in order. */
+MU_TEST(test_the_whole_payload_reaches_the_radio_in_order)
+{
+	unsigned length, i;
+
+	for (length = 0; length <= DMA_SIZE; length++) {
+		char msg[200];
+
+		reset_state();
+		globals.pkt.length = (uint8_t)length;
+		for (i = 0; i < length; i++)
+			globals.pkt.data[i] = (uint8_t)(i + 1);
+		tx_generic();
+
+		snprintf(msg, sizeof(msg),
+		         "a packet of %u bytes: %u bytes reached the radio",
+		         length, fifo_len);
+		mu_assert_int_eq((int)length, (int)fifo_len);
+		for (i = 0; i < length; i++) {
+			snprintf(msg, sizeof(msg),
+			         "a packet of %u bytes: byte %u reached the radio as "
+			         "0x%02x, not 0x%02x", length, i, fifo[i],
+			         (uint8_t)(i + 1));
+			mu_assert(fifo[i] == (uint8_t)(i + 1), msg);
+		}
+	}
+}
+
+/*
+ * The shape of the two cases that matter: the longest packet goes out as a
+ * full FIFO and the remaining 18 bytes, and a packet that fits goes out whole.
+ * A zero-length packet is still one write, which is what it was before --
+ * the radio sends the preamble and sync word with no payload.
+ */
+MU_TEST(test_the_longest_packet_goes_out_as_two_pieces)
+{
+	reset_state();
+	globals.pkt.length = DMA_SIZE;
+	tx_generic();
+	mu_assert_int_eq(2, (int)write_count);
+	mu_assert_int_eq(CC2400_FIFO_SIZE, writes[0]);
+	mu_assert_int_eq(DMA_SIZE - CC2400_FIFO_SIZE, writes[1]);
+
+	reset_state();
+	globals.pkt.length = CC2400_FIFO_SIZE;
+	tx_generic();
+	mu_assert_int_eq(1, (int)write_count);
+	mu_assert_int_eq(CC2400_FIFO_SIZE, writes[0]);
+
+	reset_state();
+	globals.pkt.length = CC2400_FIFO_SIZE + 1;
+	tx_generic();
+	mu_assert_int_eq(2, (int)write_count);
+	mu_assert_int_eq(CC2400_FIFO_SIZE, writes[0]);
+	mu_assert_int_eq(1, writes[1]);
+
+	reset_state();
+	globals.pkt.length = 0;
+	tx_generic();
+	mu_assert_int_eq(1, (int)write_count);
+	mu_assert_int_eq(0, writes[0]);
+}
+
+/*
+ * What the single write this replaces did, so the tests above are checking
+ * something: a 50-byte packet went into the FIFO as one 50-byte write, 18
+ * bytes past its end.
+ */
+MU_TEST(test_the_old_single_write_overran_the_fifo)
+{
+	reset_state();
+	globals.pkt.length = DMA_SIZE;
+	cc2400_fifo_write(MIN(globals.pkt.length, DMA_SIZE), globals.pkt.data);
+	mu_assert_int_eq(1, (int)write_count);
+	mu_assert(writes[0] > CC2400_FIFO_SIZE,
+	          "the write this replaces should have been larger than the "
+	          "FIFO, so the bound the tests above check means something");
+}
+
+/*
  * The fakes above are only worth something if the firmware has the same shape,
  * and neither the handler nor tx_generic() can run here. So: find the handler's
  * case, and check that it refuses a request before it copies anything, that the
@@ -263,8 +400,12 @@ struct scan {
 	int copies;           /* how many memcpy's into tx_pkt the file has */
 	int last_return;      /* the last refusal before the copy */
 	int header_define;    /* where TX_GENERIC_HEADER_LEN is defined */
-	int fifo_write;       /* the FIFO write in tx_generic() */
-	int fifo_clamped;     /* ...with the length clamped */
+	int fifo_write;       /* the FIFO write in tx_generic(), of one piece */
+	int fifo_writes;      /* how many FIFO writes tx_generic() makes */
+	int length_clamped;   /* the payload length clamped to DMA_SIZE */
+	int chunked;          /* a piece bounded by the FIFO's size */
+	int drain_wait;       /* the wait for the radio between pieces */
+	int loop_end;         /* the loop that keeps going while bytes are left */
 };
 
 static int scan_source(const char *path, struct scan *s)
@@ -294,12 +435,22 @@ static int scan_source(const char *path, struct scan *s)
 				s->copy = lineno;
 		}
 
-		if (strstr(flat, "cc2400_fifo_write(") != NULL &&
-		    strstr(flat, "tx_pkt.length") != NULL) {
+		if (strstr(flat, "len = MIN(tx_pkt.length, DMA_SIZE)") != NULL)
+			s->length_clamped = lineno;
+		if (strstr(flat, "chunk = MIN(len - sent, CC2400_FIFO_SIZE)") != NULL)
+			s->chunked = lineno;
+		if (strstr(flat, "cc2400_fifo_write(chunk, tx_pkt.data + sent)") !=
+		    NULL) {
 			s->fifo_write = lineno;
-			if (strstr(flat, "MIN(tx_pkt.length, DMA_SIZE)") != NULL)
-				s->fifo_clamped = lineno;
+			s->fifo_writes++;
 		}
+		/* The first one after the clamp, so this is tx_generic()'s and
+		 * not le_transmit()'s, which comes earlier in the file. */
+		if (strstr(flat, "fifo_wait_empty()") != NULL &&
+		    s->length_clamped != 0 && s->drain_wait == 0)
+			s->drain_wait = lineno;
+		if (strstr(flat, "} while (sent < len);") != NULL)
+			s->loop_end = lineno;
 
 		if (strstr(flat, "case UBERTOOTH_TX_GENERIC_PACKET:") != NULL) {
 			s->case_line = lineno;
@@ -396,19 +547,43 @@ MU_TEST(test_the_handler_refuses_before_it_copies)
 	          s.last_return < s.copy, msg);
 }
 
-MU_TEST(test_the_fifo_write_is_clamped)
+MU_TEST(test_the_fifo_write_is_clamped_and_chunked)
 {
 	char msg[640];
 
 	snprintf(msg, sizeof(msg),
-	         "%s: the scan did not find tx_generic()'s FIFO write", path);
+	         "%s: the scan did not find tx_generic()'s FIFO write, so the "
+	         "checks below would pass without reading anything", path);
 	mu_assert(s.fifo_write > 0, msg);
 
 	snprintf(msg, sizeof(msg),
-	         "%s:%d: tx_generic() hands tx_pkt.length to the radio without "
-	         "clamping it to DMA_SIZE, so a length the handler did not set "
-	         "would read past tx_pkt.data", path, s.fifo_write);
-	mu_assert(s.fifo_clamped == s.fifo_write, msg);
+	         "%s: tx_generic() must write the payload in one place, so the "
+	         "bound below covers every byte that reaches the radio; the scan "
+	         "found %d writes", path, s.fifo_writes);
+	mu_assert(s.fifo_writes == 1, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: tx_generic() hands the radio a length it has not clamped to "
+	         "DMA_SIZE, so a length the handler did not set would read past "
+	         "tx_pkt.data", path);
+	mu_assert(s.length_clamped > 0 && s.length_clamped < s.fifo_write, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: tx_generic() does not bound each piece it writes by "
+	         "CC2400_FIFO_SIZE, so a packet longer than the radio's FIFO is "
+	         "pushed past the end of it", path, s.fifo_write);
+	mu_assert(s.chunked > 0 && s.chunked < s.fifo_write, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: tx_generic() writes the next piece without waiting for "
+	         "the radio to have sent the last one", path, s.fifo_write);
+	mu_assert(s.drain_wait > 0 && s.drain_wait < s.chunked, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the write is not in a loop that runs until the whole "
+	         "payload has gone out, so a packet longer than the FIFO loses "
+	         "its tail", path, s.fifo_write);
+	mu_assert(s.loop_end > s.fifo_write, msg);
 }
 
 int main(void)
@@ -423,12 +598,16 @@ int main(void)
 	MU_RUN(test_a_request_shorter_than_the_header_is_refused);
 	MU_RUN(test_the_old_unchecked_copy_ran_past_the_packet);
 	MU_RUN(test_tx_generic_never_writes_more_than_dma_size);
+	MU_RUN(test_no_write_is_larger_than_the_fifo);
+	MU_RUN(test_the_whole_payload_reaches_the_radio_in_order);
+	MU_RUN(test_the_longest_packet_goes_out_as_two_pieces);
+	MU_RUN(test_the_old_single_write_overran_the_fifo);
 
 	/* Scanned once here rather than from the first of the three tests
 	 * below, which would leave them depending on the order they run in. */
 	scanned = scan_source(path, &s);
 	MU_RUN(test_source_was_scanned);
 	MU_RUN(test_the_handler_refuses_before_it_copies);
-	MU_RUN(test_the_fifo_write_is_clamped);
+	MU_RUN(test_the_fifo_write_is_clamped_and_chunked);
 	return mu_report();
 }

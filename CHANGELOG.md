@@ -206,12 +206,12 @@
   it does not answer.
   [#556](https://github.com/SqueakyFloors/ubertooth/issues/556)
 - **Reflash required:** the firmware API version is now 1.42, last moved by the
-  CRC check a followed connection's data packets get, and the host tools
-  require firmware of exactly their own API version, older or newer. Host and
-  firmware come from the same tree: `ubertooth-dfu` reflashes a board whatever
-  firmware it is running, but
-  only with an image built from this tree, and `2020-12-R1` firmware is
-  refused.
+  radio's FIFO transfers running with interrupts masked and a generic transmit
+  packet going into the FIFO a piece at a time, and the host tools require
+  firmware of exactly their own API version, older or newer. Host and firmware
+  come from the same tree: `ubertooth-dfu` reflashes a board whatever firmware
+  it is running, but only with an image built from this tree, and `2020-12-R1`
+  firmware is refused.
   [#4](https://github.com/SqueakyFloors/ubertooth/issues/4)
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
@@ -231,6 +231,8 @@
   [#658](https://github.com/SqueakyFloors/ubertooth/issues/658)
   [#657](https://github.com/SqueakyFloors/ubertooth/issues/657)
   [#660](https://github.com/SqueakyFloors/ubertooth/issues/660)
+  [#395](https://github.com/SqueakyFloors/ubertooth/issues/395)
+  [#429](https://github.com/SqueakyFloors/ubertooth/issues/429)
 - Every firmware image now carries a block naming the image and the revision
   it was built from, read the same way off a board and out of a file.
   `ubertooth-dfu -d` says which image a file holds before it writes it
@@ -1352,6 +1354,20 @@ Fixes with no visible change in normal use.
 - Corrected firmware signal-strength channel bounds. Credit: Gabriele
   Gristina ([@matrix](https://github.com/matrix)).
   [upstream #481](https://github.com/greatscottgadgets/ubertooth/pull/481)
+- The radio's data FIFO is written and read with interrupts masked, as its
+  registers already were. A control request arriving from the host while the
+  board was writing a packet into the radio could take over the bus part-way
+  through and corrupt both transfers.
+  [#429](https://github.com/SqueakyFloors/ubertooth/issues/429)
+- A generic transmit packet longer than the radio's 32-byte FIFO goes in a
+  piece at a time, waiting for the radio to send each one. The whole packet
+  used to be written at once, so a packet of 33 to 50 bytes was pushed past
+  the end of the FIFO and what went on the air was undefined.
+  [#395](https://github.com/SqueakyFloors/ubertooth/issues/395)
+- A transmit that waits for the radio to empty its FIFO gives up instead of
+  waiting forever, so a radio that stops sending no longer leaves the board
+  answering nothing until it is re-plugged.
+  [#395](https://github.com/SqueakyFloors/ubertooth/issues/395)
 
 _community fork, Fri, 23 Oct 2026 01:38:18 -0700_
 
