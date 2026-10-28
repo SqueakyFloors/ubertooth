@@ -756,6 +756,35 @@ int cmd_get_watchdog_quiet(struct libusb_device_handle* devh,
 	return watchdog(devh, info, 1);
 }
 
+int cmd_get_radio_timeouts(struct libusb_device_handle* devh,
+		radio_timeouts *timeouts)
+{
+	u8 result[UBERTOOTH_RADIO_TIMEOUTS_LEN];
+	int r;
+
+	r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_GET_RADIO_TIMEOUTS,
+			0, 0, result, sizeof(result), 1000);
+	if (r < LIBUSB_SUCCESS) {
+		if (r == LIBUSB_ERROR_PIPE)
+			fprintf(stderr, "error: control message unsupported\n");
+		else
+			show_libusb_error(r);
+		return r;
+	}
+	if (r != (int)sizeof(result))
+		return check_reply_length(r, (int)sizeof(result),
+		                         "radio wait timeouts");
+
+	/* Byte by byte, low byte first, in the order ubertooth_interface.h
+	 * gives: the reply is a byte string, not this struct's memory. */
+	timeouts->fs_lock   = (uint16_t)(result[0] | (result[1] << 8));
+	timeouts->fs_unlock = (uint16_t)(result[2] | (result[3] << 8));
+	timeouts->xosc      = (uint16_t)(result[4] | (result[5] << 8));
+	timeouts->fsm       = (uint16_t)(result[6] | (result[7] << 8));
+
+	return 0;
+}
+
 int cmd_range_test(struct libusb_device_handle* devh)
 {
 	int r;

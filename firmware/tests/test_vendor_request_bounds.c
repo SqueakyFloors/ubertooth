@@ -575,6 +575,7 @@ static int writes_the_reply_through_data(const char *text)
 		"get_part_num(data,",
 		"get_device_serial(data,",
 		"watchdog_report(data)",
+		"cc2400_wait_report(data)",
 	};
 	size_t i;
 

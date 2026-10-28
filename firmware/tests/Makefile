@@ -111,11 +111,13 @@ $(BINDIR)/test_cc2400_spi_atomic: test_cc2400_spi_atomic.c minunit.h \
 
 # The mode dispatch lives in main(), which cannot run here, so this test scans
 # bluetooth_rxtx.c as text (like test_frend's last case). FW_RXTX_DIR points it
-# at the source; it links nothing from the firmware.
+# at the source; it links nothing from the firmware. FW_COMMON_DIR is for the
+# one case that reads cc2400_init(), where a radio register write would be
+# undone by the reset in clock_start().
 $(BINDIR)/test_mode_dispatch: test_mode_dispatch.c minunit.h source_scan.h \
-		$(FW_RXTX)/bluetooth_rxtx.c | $(BINDIR)
+		$(FW_RXTX)/bluetooth_rxtx.c $(FW_COMMON)/ubertooth.c | $(BINDIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
-		-o $@ test_mode_dispatch.c
+		-DFW_COMMON_DIR='"$(FW_COMMON)"' -o $@ test_mode_dispatch.c
 
 # The connection-interval estimator reads the clock registers, so this models
 # it and takes the rollover period and LE_BASECLK out of the source, the same

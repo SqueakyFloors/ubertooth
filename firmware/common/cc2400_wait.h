@@ -152,6 +152,32 @@ int cc2400_wait_fs_unlock(void);
  */
 #define FSM_POLLS 2000
 
+/*
+ * The four shapes of wait, and the order their give-up counts are reported in.
+ *
+ * Giving up keeps the board answering, which is the point, but it is silent:
+ * a radio that is half working reads as a quiet channel. So each shape counts
+ * the times it ran to its bound, and UBERTOOTH_GET_RADIO_TIMEOUTS hands the
+ * four counts to the host in this order (see UBERTOOTH_RADIO_TIMEOUTS_LEN in
+ * ubertooth_interface.h, which is the byte layout). Add a shape at the end:
+ * inserting one would change what an older host reads each count as.
+ */
+enum cc2400_wait_shape {
+	CC2400_WAIT_FS_LOCK   = 0, /* the synthesizer never locked */
+	CC2400_WAIT_FS_UNLOCK = 1, /* it never went back off */
+	CC2400_WAIT_XOSC      = 2, /* the 16 MHz crystal never reported stable */
+	CC2400_WAIT_FSM       = 3, /* the state machine never reached a state */
+	CC2400_WAIT_SHAPE_COUNT
+};
+
+/* Each count stops here rather than wrapping, so a board that has been giving
+ * up for hours still reads as "a great many" and not as a small number. */
+#define CC2400_WAIT_TIMEOUTS_MAX 0xffff
+
+/* Fill UBERTOOTH_GET_RADIO_TIMEOUTS's reply: the counts above, each as two
+ * bytes, low byte first. */
+void cc2400_wait_report(uint8_t *data);
+
 /* Wait, with a bound, for the CC2400's state machine to report `state`: one of
  * the STATE_* values, compared against the low five bits of FSMSTATE. Calls
  * `service`, if it is not NULL, between reads, for the same reason

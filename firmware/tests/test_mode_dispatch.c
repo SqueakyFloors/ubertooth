@@ -49,7 +49,7 @@
 /* How many `case MODE_...:` labels the dispatch has today, so a scan that
  * silently matched nothing cannot pass. Update it when a mode is added or
  * removed. */
-#define DISPATCH_CASES 19
+#define DISPATCH_CASES 20
 
 /* How many modes the dispatch runs by calling bt_stream_rx() itself. Same
  * purpose: update it when one is added or removed. MODE_RX_GENERIC is not one
@@ -103,6 +103,7 @@ struct scan {
 	 * clears the channel averages. */
 	int absorbed_reset_fn;
 	int absorbed_reset_fn_iir;
+	int idle_fn_manand;   /* cc2400_set(MANAND, ...) inside cc2400_idle() */
 
 	/* The modes the dispatch runs by calling bt_stream_rx(), and the
 	 * condition of the loop that is meant to run them. Room for more modes
@@ -360,6 +361,10 @@ static int scan_source(const char *path, struct scan *s)
 			if (strstr(line, "rssi_iir_reset(") != NULL &&
 			    s->idle_fn_iir == 0)
 				s->idle_fn_iir = lineno;
+			if (contains_identifier(line, "cc2400_set") &&
+			    contains_identifier(line, "MANAND") &&
+			    s->idle_fn_manand == 0)
+				s->idle_fn_manand = lineno;
 			/* a closing brace in column 1 ends the function */
 			if (line[0] == '}')
 				in_idle_fn = 0;
@@ -642,6 +647,82 @@ MU_TEST(test_cc2400_idle_does_not_choose_the_mode)
 	mu_assert(s.idle_fn_request == 0, msg);
 }
 
+/* ------------------------------------------------------------------ *
+ * The radio state a mode starts from
+ * ------------------------------------------------------------------ */
+
+/*
+ * MANAND overrides the radio's internal signals, and a mode that writes it
+ * leaves that override behind: the LE PHY forces the low-noise amplifier and
+ * mixers on, the receive paths hold the receive gain amplifier out of reset.
+ * The two spectrum analyzers do not write the register at all, so what they
+ * measure is whatever the mode before them left -- unless the teardown puts it
+ * back, which is what this checks.
+ *
+ * Boot cannot stand in for the teardown. cc2400_init() ran a MANAND write of
+ * its own, and clock_start() resets the radio a few microseconds later, so
+ * that write never reached a mode; the next case pins that nothing has moved
+ * back there.
+ */
+MU_TEST(test_leaving_a_mode_puts_the_radio_overrides_back)
+{
+	char msg[512];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: cc2400_idle() does not write MANAND, so a mode that does "
+	         "not write it itself -- specan(), led_specan() -- runs with "
+	         "whatever override the mode before it left", path);
+	mu_assert(s.idle_fn_manand > 0, msg);
+}
+
+/*
+ * And nothing writes a radio register at boot, where the reset in
+ * clock_start() would wipe it. A write there looks like initialisation and is
+ * dead: on a board that has just booted, MANAND read 0xffff, the chip's reset
+ * value, never the 0x7fff cc2400_init() wrote.
+ */
+MU_TEST(test_the_boot_path_writes_no_radio_register)
+{
+	const char *init_path = FW_COMMON_DIR "/ubertooth.c";
+	char line[SCAN_LINE_MAX], msg[512], found[SCAN_LINE_MAX] = "";
+	int lineno = 0, in_block = 0, in_init = 0, read_lines = 0, found_line = 0;
+	FILE *f = fopen(init_path, "r");
+
+	snprintf(msg, sizeof(msg), "cannot open %s to scan", init_path);
+	mu_assert_fatal(f != NULL, msg);
+
+	while (fgets(line, sizeof(line), f) != NULL) {
+		lineno++;
+		strip_comments(line, &in_block);
+		if (!in_init) {
+			if (strstr(line, "void cc2400_init(") != NULL)
+				in_init = 1;
+			continue;
+		}
+		read_lines++;
+		if ((contains_identifier(line, "cc2400_set") ||
+		     contains_identifier(line, "cc2400_set8") ||
+		     contains_identifier(line, "cc2400_strobe")) &&
+		    found_line == 0) {
+			found_line = lineno;
+			collapse_spaces(line, found, sizeof(found));
+		}
+		if (line[0] == '}')
+			break;
+	}
+	fclose(f);
+
+	mu_assert(read_lines > 10, "cc2400_init()'s body scanned as fewer than "
+	                           "10 lines, so the check below would pass "
+	                           "without reading anything");
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: cc2400_init() writes a radio register (%s), and "
+	         "clock_start() resets the radio straight afterwards, so the "
+	         "write is undone before any mode sees it", init_path,
+	         found_line, found);
+	mu_assert(found_line == 0, msg);
+}
+
 /*
  * A dispatched mode has to be one the loop it lands in runs for. bt_stream_rx()
  * is shared by several cases and picks them out of requested_mode by name, so
@@ -869,6 +950,8 @@ int main(void)
 	MU_RUN(test_the_queue_clear_holds_the_usb_interrupt_off);
 	MU_RUN(test_cc2400_idle_does_not_choose_the_mode);
 	MU_RUN(test_cc2400_idle_does_not_drop_queued_packets);
+	MU_RUN(test_leaving_a_mode_puts_the_radio_overrides_back);
+	MU_RUN(test_the_boot_path_writes_no_radio_register);
 	MU_RUN(test_the_stream_loop_runs_every_mode_dispatched_to_it);
 	MU_RUN(test_the_stream_loop_keeps_the_indirect_mode_apart);
 	MU_RUN(test_leaving_a_mode_forgets_the_afh_map);

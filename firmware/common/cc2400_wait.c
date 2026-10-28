@@ -8,6 +8,40 @@
 #include "cc2400_wait.h"
 #include "watchdog.h"
 
+/*
+ * How many times each shape of wait has given up since the board started.
+ *
+ * Read with UBERTOOTH_GET_RADIO_TIMEOUTS, so that comparing a run against a
+ * known-good one says whether the radio reached the states it was asked for,
+ * which carrying on quietly otherwise hides.
+ *
+ * volatile because these waits run from interrupt handlers as well as from the
+ * mode loops. A count can still be lost: the increment is a read and a write,
+ * and a handler whose own wait times out in between overwrites the first. That
+ * is left as it is -- there is no interrupt guard shared by both images here,
+ * and a diagnostic counter that is occasionally one short still answers the
+ * question it is for.
+ */
+static volatile uint16_t timeouts[CC2400_WAIT_SHAPE_COUNT];
+
+static void wait_timed_out(enum cc2400_wait_shape shape)
+{
+	if (timeouts[shape] != CC2400_WAIT_TIMEOUTS_MAX)
+		timeouts[shape]++;
+}
+
+void cc2400_wait_report(uint8_t *data)
+{
+	unsigned i;
+
+	for (i = 0; i < CC2400_WAIT_SHAPE_COUNT; ++i) {
+		uint16_t count = timeouts[i];
+
+		data[2 * i]     = count & 0xff;
+		data[2 * i + 1] = (count >> 8) & 0xff;
+	}
+}
+
 int cc2400_wait_fs(int locked, void (*service)(void))
 {
 	unsigned polls    = locked ? FS_LOCK_POLLS : FS_UNLOCK_POLLS;
@@ -37,6 +71,7 @@ int cc2400_wait_fs(int locked, void (*service)(void))
 			cc2400_strobe(strobe);
 	}
 
+	wait_timed_out(locked ? CC2400_WAIT_FS_LOCK : CC2400_WAIT_FS_UNLOCK);
 	watchdog_mark(site);
 	return 0;
 }
@@ -61,6 +96,7 @@ int cc2400_wait_xosc_stable(void (*service)(void))
 			service();
 	}
 
+	wait_timed_out(CC2400_WAIT_XOSC);
 	watchdog_mark(site);
 	return 0;
 }
@@ -82,6 +118,7 @@ int cc2400_wait_fsm(u8 state, void (*service)(void))
 			service();
 	}
 
+	wait_timed_out(CC2400_WAIT_FSM);
 	watchdog_mark(site);
 	return 0;
 }

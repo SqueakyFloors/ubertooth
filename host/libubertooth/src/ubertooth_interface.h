@@ -396,6 +396,7 @@ enum ubertooth_usb_commands {
 	UBERTOOTH_IDENTIFY           = 74,
 	UBERTOOTH_GET_FW_INFO        = 75,
 	UBERTOOTH_GET_WATCHDOG       = 76,
+	UBERTOOTH_GET_RADIO_TIMEOUTS = 77,
 };
 
 /*
@@ -423,6 +424,10 @@ enum operating_modes {
 	MODE_TX_GENERIC    = 16,
 	MODE_XMAS          = 17,
 	MODE_IDENTIFY      = 18,
+	/* Handing the chip to its on-chip programmer, which is a mode of its
+	 * own because the board answers the host first and goes off the bus a
+	 * millisecond later, the way MODE_RESET does. */
+	MODE_ISP           = 19,
 	/* The btbr image has its own states and reports no mode at all. */
 	MODE_UNKNOWN       = 255,
 };
@@ -506,6 +511,28 @@ enum watchdog_site {
  * last time the board stopped servicing USB on its own.
  */
 #define UBERTOOTH_WATCHDOG_INFO_LEN 8
+
+/*
+ * UBERTOOTH_GET_RADIO_TIMEOUTS's reply: how many times each shape of wait on
+ * the CC2400 has given up since the board started, in this order, each as two
+ * bytes with the low byte first.
+ *
+ * The waits are bounded so that a radio which never reports the state it was
+ * asked for cannot hold the board (firmware/common/cc2400_wait.c). Carrying on
+ * is deliberate and silent, though: a half-working radio reads as a quiet
+ * channel. These counts are what says which it was. Each stops at 65535 rather
+ * than wrapping.
+ *
+ * Both images answer the request, since both wait on the radio the same way.
+ */
+#define UBERTOOTH_RADIO_TIMEOUTS_LEN 8
+
+typedef struct {
+	uint16_t fs_lock;   /* the synthesizer never locked */
+	uint16_t fs_unlock; /* it never went back off */
+	uint16_t xosc;      /* the 16 MHz crystal never reported stable */
+	uint16_t fsm;       /* the state machine never reached a state */
+} radio_timeouts;
 
 typedef struct {
 	uint8_t reset_cause; /* why the board last started: watchdog_reset_cause bits */
@@ -682,6 +709,9 @@ typedef enum {
 	BTCTL_SET_EIR_REQ	= 30,// in a btctl_tx_pkt_t
 	BTCTL_SET_AFH_REQ	= 31,
 	BTCTL_MONITOR_REQ	= 32,
+	/* Hand the chip to its on-chip programmer, queued so that the control
+	 * transfer that asked for it is answered first; see BTCTL_RESET_REQ. */
+	BTCTL_ISP_REQ		= 33,
 	/* Device -> Host */
 	BTCTL_RX_PKT		= 40,
 	BTCTL_STATE_RESP	= 41

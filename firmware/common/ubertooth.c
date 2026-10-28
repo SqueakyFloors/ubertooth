@@ -252,8 +252,20 @@ void cc2400_init()
 	/* activate 3V3 supply for CC2400 IO */
 	CC3V3_SET;
 
-	/* initialise various cc2400 settings - see datasheet pg63 */
-	cc2400_set(MANAND,  0x7fff);
+	/*
+	 * No radio register is written here, because nothing written here
+	 * survives. Every caller goes on to clock_start() (ubertooth_init()
+	 * does it directly), and that begins with cc2400_reset(), which takes
+	 * MAIN to 0 and back: a few microseconds after this returns, every
+	 * register is at its reset value again.
+	 *
+	 * A `cc2400_set(MANAND, 0x7fff)` used to sit here, meant to hold the
+	 * receive gain amplifier out of reset for the whole run. It was undone
+	 * that way, so a board that had just booted read MANAND as 0xffff and
+	 * no mode ever saw it. Each mode writes the registers it needs when it
+	 * starts, MANAND included, and cc2400_idle() puts MANAND back when a
+	 * mode ends.
+	 */
 }
 
 /*

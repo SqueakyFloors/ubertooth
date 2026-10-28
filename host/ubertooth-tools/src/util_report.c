@@ -229,6 +229,7 @@ static const char *const watchdog_mode_names[] = {
 	[MODE_TX_GENERIC]    = "generic tx",
 	[MODE_XMAS]          = "xmas",
 	[MODE_IDENTIFY]      = "identify",
+	[MODE_ISP]           = "ISP",
 };
 
 static const char *const watchdog_site_text[WATCHDOG_SITE_COUNT] = {
@@ -342,5 +343,22 @@ int util_report_watchdog(FILE *out, const uint8_t *info, size_t len)
 	fputs("Now ", out);
 	print_watchdog_mode(out, info[6]);
 	fprintf(out, ", %s\n", util_watchdog_site_text(info[7]));
+	return 0;
+}
+
+int util_report_radio_timeouts(FILE *out, const radio_timeouts *timeouts)
+{
+	if (timeouts == NULL)
+		return 1;
+
+	/* One line, in the order the reply carries them. A wait that gives up
+	 * leaves the radio in the wrong state and the firmware carries on, so a
+	 * count above zero is how a half-working radio tells itself apart from
+	 * a quiet channel. */
+	fprintf(out, "Radio waits that gave up since power-on: "
+	        "synthesizer lock %u, unlock %u, oscillator %u, "
+	        "state machine %u\n",
+	        (unsigned)timeouts->fs_lock, (unsigned)timeouts->fs_unlock,
+	        (unsigned)timeouts->xosc, (unsigned)timeouts->fsm);
 	return 0;
 }

@@ -54,8 +54,9 @@ static void btctl_handle_debug_req(msg_t *msg)
 	cprintf("debug req: %s\n", (char*)hdr->data);
 }
 
-/* The board stays up this long before it resets: ten times the 1 ms USB frame
- * the host's next token can be away. */
+/* The board stays on the bus this long before it goes away -- a reset, or the
+ * hand-over to the on-chip programmer: ten times the 1 ms USB frame the host's
+ * next token can be away. */
 #define RESET_DELAY_CLKN (CLKN_RATE/100)
 
 static void btctl_handle_reset_req(msg_t *msg)
@@ -102,6 +103,35 @@ static void btctl_handle_reset_req(msg_t *msg)
 	 * board running with a later real wedge excused. */
 	watchdog_intent(WATCHDOG_INTENT_RESET);
 	reset();
+}
+
+static void btctl_handle_isp_req(msg_t *msg)
+{
+	uint32_t start;
+
+	/*
+	 * The on-chip programmer takes the board off the bus exactly as reset()
+	 * does, so the host is given the same time to collect its answer, spent
+	 * the same way: standby first, then usb_work() until the time is up.
+	 * btctl_handle_reset_req() above says why each part of that is needed.
+	 */
+	btctl.state = BTCTL_STATE_STANDBY;
+	start = MASTER_CLKN;
+	while ((uint32_t)(MASTER_CLKN - start) < RESET_DELAY_CLKN)
+		usb_work();
+
+	/* The programmer keeps the chip running without a reset, so the
+	 * watchdog stays armed and nothing in there feeds it. It cannot be
+	 * switched off before a reset, so the timeout is stretched to the
+	 * longest the counter holds instead. */
+	watchdog_intent(WATCHDOG_INTENT_ISP);
+	watchdog_stretch();
+	set_isp();
+	/* set_isp() is not supposed to come back -- it hands the chip to code
+	 * in ROM. If it ever does, the board must not be left running for the
+	 * next hour with a watchdog that cannot reset it and a wedge that would
+	 * not be counted. */
+	watchdog_unstretch();
 }
 
 static void btctl_handle_idle_req(msg_t *msg)
@@ -229,6 +259,9 @@ static void btctl_handle_msg(msg_t *msg)
 		break;
 	case BTCTL_RESET_REQ:
 		btctl_handle_reset_req(msg);
+		break;
+	case BTCTL_ISP_REQ:
+		btctl_handle_isp_req(msg);
 		break;
 	case BTCTL_IDLE_REQ:
 		btctl_handle_idle_req(msg);

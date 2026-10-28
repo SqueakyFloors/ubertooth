@@ -548,19 +548,15 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		break;
 
 	case UBERTOOTH_SET_ISP:
-		/* The on-chip programmer takes over without a chip reset, so the
-		 * watchdog stays armed and nothing in there feeds it. It cannot be
-		 * switched off before a reset, so the timeout is stretched to the
-		 * longest the counter holds instead. */
-		watchdog_intent(WATCHDOG_INTENT_ISP);
-		watchdog_stretch();
-		set_isp();
-		/* set_isp() is not supposed to come back -- it hands the chip to
-		 * code in ROM. If it ever does, the board must not be left running
-		 * for the next hour with a watchdog that cannot reset it and a
-		 * wedge that would not be counted. */
-		watchdog_unstretch();
-		*data_len = 0; /* should never return */
+		/* Handed to the mode dispatch rather than done here, for the
+		 * reason UBERTOOTH_RESET is: the on-chip programmer takes the
+		 * board off the bus, and this transfer is not finished when this
+		 * handler returns -- its status stage is written afterwards and
+		 * waits in the endpoint 0 buffer for the host's next IN token, up
+		 * to a whole 1 ms frame away. Going away from in here threw that
+		 * packet away, so `ubertooth-util -i` reported a board that had
+		 * timed out (-7) for a request the board had accepted. */
+		requested_mode = MODE_ISP;
 		break;
 
 	case UBERTOOTH_FLASH:
@@ -574,6 +570,11 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 	case UBERTOOTH_GET_WATCHDOG:
 		watchdog_report(data);
 		*data_len = UBERTOOTH_WATCHDOG_INFO_LEN;
+		break;
+
+	case UBERTOOTH_GET_RADIO_TIMEOUTS:
+		cc2400_wait_report(data);
+		*data_len = UBERTOOTH_RADIO_TIMEOUTS_LEN;
 		break;
 
 	case UBERTOOTH_SPECAN:
@@ -1155,6 +1156,20 @@ static void cc2400_idle()
 {
 	cc2400_strobe(SRFOFF);
 	cc2400_wait_fs_unlock();
+
+	/*
+	 * Drop the manual signal overrides the mode that is ending may have
+	 * written, so the next mode starts with the radio front end a freshly
+	 * booted board has.
+	 *
+	 * Nothing used to do this. The LE PHY forces the low-noise amplifier
+	 * and mixers on (MANAND 0x7ffe, le_phy.c) and the receive paths hold
+	 * the receive gain amplifier out of reset (0x7fff), and a mode that
+	 * writes MANAND itself was unaffected -- but the two spectrum
+	 * analyzers do not, so what they measured depended on which mode had
+	 * run before them on that board.
+	 */
+	cc2400_set(MANAND, MANAND_RESET_VALUE);
 
 #ifdef UBERTOOTH_ONE
 	PAEN_CLR;
@@ -3361,6 +3376,27 @@ int main()
 				/* Allow time for the USB command to return correctly */
 				wait(1);
 				reset();
+				break;
+			case MODE_ISP:
+				/* The on-chip programmer takes over without a chip reset,
+				 * so the watchdog stays armed and nothing in there feeds
+				 * it. It cannot be switched off before a reset, so the
+				 * timeout is stretched to the longest the counter holds
+				 * instead. */
+				watchdog_intent(WATCHDOG_INTENT_ISP);
+				watchdog_stretch();
+				/* Allow time for the USB command to return correctly */
+				wait(1);
+				set_isp();
+				/* set_isp() is not supposed to come back -- it hands the
+				 * chip to code in ROM. If it ever does, the board must not
+				 * be left running for the next hour with a watchdog that
+				 * cannot reset it and a wedge that would not be counted,
+				 * and it must still take a request: asking for the
+				 * programmer again with the board left in this mode would
+				 * be a silent no-op. */
+				watchdog_unstretch();
+				requested_mode = MODE_IDLE;
 				break;
 			case MODE_AFH:
 				/*

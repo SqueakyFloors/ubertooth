@@ -9,9 +9,9 @@
  *
  *   - Neither mode held the CC2400's receive gain amplifier out of reset
  *     (MANAND). Both receivers reported a strong signal and hundreds of valid
- *     RSSI readings, and neither saw one sync word. The write at boot does not
- *     survive: ubertooth_init() writes MANAND and then calls clock_start(),
- *     which resets the radio.
+ *     RSSI readings, and neither saw one sync word. There was no write at boot
+ *     to fall back on: cc2400_init() made one and clock_start() reset the
+ *     radio straight afterwards, which is why that write is gone.
  *   - The repeater never wrote GRMDM, so it decoded requests only while the
  *     radio still held its reset value -- which happens to be the packet
  *     format the sender uses. After any mode that writes GRMDM it decoded

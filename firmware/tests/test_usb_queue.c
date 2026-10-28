@@ -2113,6 +2113,7 @@ struct dispatch_mode {
 
 static struct dispatch_mode dispatch[] = {
 	{ "MODE_RESET",        "reset",            USB_NONE,      0, 0, 0 },
+	{ "MODE_ISP",          "set_isp",          USB_NONE,      0, 0, 0 },
 	{ "MODE_AFH",          "bt_stream_rx",     USB_BULK,      0, 0, 0 },
 	{ "MODE_RX_SYMBOLS",   "bt_stream_rx",     USB_BULK,      0, 0, 0 },
 	{ "MODE_BT_FOLLOW",    "bt_stream_rx",     USB_BULK,      0, 0, 0 },
@@ -3648,6 +3649,7 @@ struct btctl_request {
 static struct btctl_request btctl_requests[] = {
 	{ "BTCTL_DEBUG",                 "btctl_handle_debug_req",              0, 0 },
 	{ "BTCTL_RESET_REQ",             "btctl_handle_reset_req",              0, 0 },
+	{ "BTCTL_ISP_REQ",               "btctl_handle_isp_req",                0, 0 },
 	{ "BTCTL_IDLE_REQ",              "btctl_handle_idle_req",               0, 0 },
 	{ "BTCTL_SET_FREQ_OFF_REQ",      "btctl_handle_set_freq_off_req",       0, 0 },
 	{ "BTCTL_SET_MAX_AC_ERRORS_REQ", "btctl_handle_set_max_ac_errors_req",  0, 0 },
@@ -3778,6 +3780,7 @@ static const char *const btbr_vendor_requests[] = {
 	"UBERTOOTH_SET_ISP",
 	"UBERTOOTH_FLASH",
 	"UBERTOOTH_GET_WATCHDOG",
+	"UBERTOOTH_GET_RADIO_TIMEOUTS",
 	"UBERTOOTH_GET_REV_NUM",
 	"UBERTOOTH_GET_COMPILE_INFO",
 	"UBERTOOTH_GET_FW_INFO",

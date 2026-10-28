@@ -98,6 +98,19 @@ static inline uint16_t frend_keep_pa_level(uint16_t frend)
 	return FREND_RESERVED_ONE | (frend & FREND_PA_LEVEL);
 }
 
+/*
+ * MANAND: manual signal AND-override. Each bit is ANDed with the internal
+ * signal it names, so a bit written 0 forces that signal low and a bit written
+ * 1 leaves it alone. Every bit is 1 after a chip reset, which is this value:
+ * nothing overridden.
+ *
+ * It is what cc2400_idle() puts the register back to when a mode ends, so the
+ * next mode starts from the radio state a freshly booted board has. A mode
+ * that needs an override writes one itself -- the receive paths clear
+ * VGA_RESET_N (bit 15), the LE PHY also forces the LNA and mixers on (bit 0).
+ */
+#define MANAND_RESET_VALUE 0xffff
+
 /* GRMDM: generic radio modem control */
 /* PACKET_MODE (bit 10): the modem frames packets itself -- preamble, sync
  * word and the FIFO -- instead of handing over a raw symbol stream. Bit 11

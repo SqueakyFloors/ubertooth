@@ -182,6 +182,11 @@ int cmd_get_rangeresult_quiet(struct libusb_device_handle* devh,
                               rangetest_result *rr);
 int cmd_get_watchdog_quiet(struct libusb_device_handle* devh,
                            watchdog_info *info);
+/* Read how many times each shape of wait on the radio has given up since the
+ * board started. The waits are bounded and carry on quietly, so these counts
+ * are what tells a half-working radio from a quiet channel. */
+int cmd_get_radio_timeouts(struct libusb_device_handle* devh,
+                           radio_timeouts *timeouts);
 int cmd_range_test(struct libusb_device_handle* devh);
 int cmd_repeater(struct libusb_device_handle* devh);
 /* Read the firmware revision string / compile info string into a buffer of

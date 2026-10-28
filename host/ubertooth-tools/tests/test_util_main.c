@@ -46,6 +46,9 @@ static struct {
 	watchdog_info watchdog;
 	int watchdog_rc;
 	int watchdog_calls;
+	radio_timeouts timeouts;
+	int timeouts_rc;
+	int timeouts_calls;
 	/* bookkeeping */
 	int device_count;
 	int count_calls; /* ubertooth_count() calls */
@@ -493,6 +496,15 @@ int cmd_get_watchdog_quiet(struct libusb_device_handle *h, watchdog_info *info)
 	return r;
 }
 
+int cmd_get_radio_timeouts(struct libusb_device_handle *h,
+                           radio_timeouts *timeouts)
+{
+	fake_use(h);
+	fake.timeouts_calls++;
+	*timeouts = fake.timeouts;
+	return fake.timeouts_rc;
+}
+
 int cmd_reset(struct libusb_device_handle *h) { fake_use(h); fake.reset_calls++; return fake.reset_rc; }
 int cmd_stop(struct libusb_device_handle *h)
 {
@@ -934,11 +946,18 @@ MU_TEST(the_watchdog_state_is_reported_and_a_failed_read_fails)
 	fake.watchdog.reset_site = WATCHDOG_SITE_XOSC;
 	fake.watchdog.mode = MODE_IDLE;
 	fake.watchdog.site = WATCHDOG_SITE_NONE;
+	fake.timeouts.fs_lock = 3;
+	fake.timeouts.fsm = 65535;
 	r = RUN("-w");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert_int_eq(1, fake.watchdog_calls);
 	mu_assert(strstr(r.out, "Last boot cause: watchdog\n") != NULL, r.out);
 	mu_assert(strstr(r.out, "BLE follow") != NULL, r.out);
+	/* The radio wait counts come with it, in the reply's order. */
+	mu_assert_int_eq(1, fake.timeouts_calls);
+	mu_assert(strstr(r.out, "Radio waits that gave up since power-on: "
+	                 "synthesizer lock 3, unlock 0, oscillator 0, "
+	                 "state machine 65535\n") != NULL, r.out);
 	mu_assert(strcmp(r.err, "") == 0, r.err);
 
 	/* btbr records no mode, and the line says so in words. */
@@ -957,8 +976,20 @@ MU_TEST(the_watchdog_state_is_reported_and_a_failed_read_fails)
 	fake.watchdog_rc = -7;
 	r = RUN("-w");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(r.out, "") == 0, r.out);
+	/* The watchdog read failed and the counts still arrived: the two are
+	 * read separately so that one board that cannot answer the first still
+	 * reports the second. */
+	mu_assert(strstr(r.out, "Radio waits that gave up") != NULL, r.out);
 	mu_assert(strstr(r.err, "watchdog state read failed") != NULL, r.err);
+
+	/* And the other way round. */
+	reset_fake();
+	fake.timeouts_rc = -7;
+	r = RUN("-w");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.out, "Last boot cause") != NULL, r.out);
+	mu_assert(strstr(r.out, "Radio waits that gave up") == NULL, r.out);
+	mu_assert(strstr(r.err, "radio wait timeouts read failed") != NULL, r.err);
 }
 
 MU_TEST(range_result_is_reported_and_a_failed_read_fails)
@@ -1516,7 +1547,9 @@ static const char *const mode_options[] = { "-i", "-q", "-n", "-e", "-t", "-x", 
  * -U that succeeds. Pinned by text, not just by "stdout is empty", so a line
  * cannot be dropped or reworded without a test saying so. */
 static const char *const mode_progress[MODE_COUNT] = {
-	/* -i */ "Entering flash programming (ISP) mode\n",
+	/* -i */ "Entering flash programming (ISP) mode\n"
+	         "note: the board is in its on-chip programmer and answers "
+	         "nothing else until it is power-cycled\n",
 	/* -q */ "Entering LED specan mode (threshold -"
 	         MODE_STR(UBERTOOTH_LED_SPECAN_N_DEFAULT) " dBm)\n",
 	/* -n */ "Starting range test\n",

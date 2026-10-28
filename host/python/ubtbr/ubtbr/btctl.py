@@ -54,6 +54,10 @@ BTCTL_PAGE_SCAN_REQ	= 29
 BTCTL_SET_EIR_REQ	= 30
 BTCTL_SET_AFH_REQ	= 31
 BTCTL_MONITOR_REQ	= 32
+# Nothing here sends this one: the board is asked for its on-chip programmer
+# over USB (ubertooth-util -i), and the number is kept in step with
+# ubertooth_interface.h so it is not given to something else.
+BTCTL_ISP_REQ		= 33
 # Device -> Host 
 BTCTL_RX_PKT		= 40
 BTCTL_STATE_RESP	= 41
