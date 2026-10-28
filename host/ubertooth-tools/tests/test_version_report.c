@@ -5,7 +5,7 @@
  *
  * libubertooth's ubertooth_version.c is compiled into this test and the
  * device calls it makes are the fakes below, so the real answer runs without
- * a board on the bus. print_version() is faked too: it reads the versions the
+ * a board on the bus. The host line is faked too: it carries the versions the
  * build was configured with, which say nothing about this answer's shape.
  */
 #include <stdint.h>
@@ -67,9 +67,9 @@ static struct fake_board *current_board(void)
 
 /* ---- the library calls the answer makes -------------------------------- */
 
-void print_version(void)
+void ubertooth_print_host_version(FILE *out)
 {
-	fputs(HOST_LINE, stdout);
+	fputs(HOST_LINE, out);
 }
 
 int ubertooth_devices_hidden(void)
@@ -195,7 +195,8 @@ int cmd_get_firmware_compile_info(struct libusb_device_handle *devh, char *info,
  * the -U argument, and no argument means none was given. */
 static int version_main(int argc, char *argv[])
 {
-	return ubertooth_print_versions(argc > 1 ? argv[1] : NULL);
+	/* Standard output, as every tool passes, so run_main.h captures it. */
+	return ubertooth_print_versions(stdout, argc > 1 ? argv[1] : NULL);
 }
 
 static struct run_result run_versions(const char *const *args)

@@ -87,9 +87,9 @@ enum identity_query {
 };
 
 static const struct {
-	const char *name;  /* names the query where no label does */
+	const char *name;  /* the query, for the line that reports a failed read */
 	const char *label; /* the label the single-device report prints, without
-	                    * its ": "; "" for a report that has none */
+	                    * its ": " */
 } identity_query_text[QUERY_COUNT] = {
 	{ UTIL_QUERY_BOARD_ID, "Board ID Number" },
 	{ "firmware", UBERTOOTH_VERSION_LABEL_FIRMWARE },
@@ -102,16 +102,10 @@ static const struct {
  * it, "Firmware version (0): ", so a line read on its own says both what it
  * is and which board it came from, and says it the same way whether one board
  * or several were read.
- *
- * The build string -V reports has no label of its own -- the image name it
- * starts with stands in for one -- so it keeps the bare "0: " prefix instead.
  */
 static void print_listing_label(const char *label, int index)
 {
-	if (label[0] != '\0')
-		fprintf(stdout, "%s (%d): ", label, index);
-	else
-		fprintf(stdout, "%d: ", index);
+	fprintf(stdout, "%s (%d): ", label, index);
 }
 
 /* Runs one identity report into buffers so its lines can be prefixed. */
@@ -207,11 +201,8 @@ static int list_identity_queries(const int requested[QUERY_COUNT], int count)
 				            identity_query_text[q].name)) {
 					error[strcspn(error, "\n")] = '\0';
 					fprintf(stdout, "%s\n", util_strip_error_prefix(error));
-				} else if (label_len > 0) {
-					fprintf(stdout, "read failed\n");
 				} else {
-					fprintf(stdout, "%s read failed\n",
-					        identity_query_text[q].name);
+					fprintf(stdout, "read failed\n");
 				}
 				status = 1;
 				free(text);
@@ -229,7 +220,7 @@ static int list_identity_queries(const int requested[QUERY_COUNT], int count)
 				 * carries the index. A line that does not start with the
 				 * label keeps the bare index prefix, so nothing is ever
 				 * labelled as something it is not. */
-				if (label_len > 0 && strncmp(line, label, label_len) == 0 &&
+				if (strncmp(line, label, label_len) == 0 &&
 				    strncmp(line + label_len, ": ", 2) == 0) {
 					print_listing_label(label, i);
 					fprintf(stdout, "%s\n", line + label_len + 2);
@@ -960,7 +951,7 @@ int main(int argc, char *argv[])
 	 * -V reads the board named with -U, or every board for "-U all", which
 	 * is what it does with no -U anyway. */
 	if (do_version)
-		version_status = ubertooth_print_versions(
+		version_status = ubertooth_print_versions(stdout,
 		        (ubertooth_device != NULL &&
 		         strcmp(ubertooth_device, "all") == 0) ? NULL
 		                                              : ubertooth_device);

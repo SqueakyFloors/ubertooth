@@ -426,7 +426,7 @@ if(libubertooth_SOURCE_DIR)
 		test_version_report.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_version.c)
 	target_include_directories(test-version-report PRIVATE
-		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR}
+		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIRS}
 		${LIBBTBB_INCLUDE_DIR})
 	add_test(NAME version-report COMMAND test-version-report)
 	# A few lines into a temporary file, ten times over: milliseconds.

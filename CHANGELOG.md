@@ -395,11 +395,11 @@
   `ubertooth-btbr | head -5` does. It used to end in status 120 and a message
   from the interpreter.
   [#735](https://github.com/SqueakyFloors/ubertooth/issues/735)
-- `-V` is the version command in every tool, and prints the same three
-  labelled lines whichever tool you ask: `Host tools version: ...`,
+- `-V` is the version command in every tool, and prints the same labelled
+  lines whichever tool you ask: the two host lines above, then
   `Firmware version: ...` and `Firmware build: ...` for the board `-U` names,
   or for each attached board, indexed as the other per-board lines are. With
-  no Ubertooth attached it prints the host line and `Firmware version: no
+  no Ubertooth attached it prints the host lines and `Firmware version: no
   Ubertooth attached` and still exits 0, so it answers "which tools am I
   running?" on its own; a board that is attached but cannot be read says why
   on its line and the command exits 1. It was only in `ubertooth-rx`,
@@ -408,13 +408,16 @@
 - **Script-visible change:** `ubertooth-util -V` now prints that same
   three-line answer. It used to print the firmware build string alone, which
   is the third line of it now, and `-U all -V` no longer lists that string per
-  board: `-V` reports every attached board itself. `-V` also ends the command,
+  board: `-V` reports every attached board itself. The build string is no
+  longer prefixed with the image name it came from (`bluetooth_rxtx: ubertooth
+  git-...`): the line above it names the image, and the `Firmware build: `
+  label names the line. `-V` also ends the command,
   as `-h` does, so `ubertooth-util -V -r` prints the version and does not
   reset the board; it used to be a query that ran alongside the rest of the
   command line.
   [#542](https://github.com/SqueakyFloors/ubertooth/issues/542)
 - **Script-visible change:** `ubertooth-util -H` and `--host-version` are
-  removed. `-V` prints the host line, with no board needed, so nothing is
+  removed. `-V` prints the host lines, with no board needed, so nothing is
   lost; they were added in this fork and have never been in a release.
   [#542](https://github.com/SqueakyFloors/ubertooth/issues/542)
 - `ubertooth-util -v` is deprecated in favour of `-V`. It keeps printing the

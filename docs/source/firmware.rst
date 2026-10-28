@@ -39,6 +39,7 @@ you are running, and the build line below it when that image was built:
 
 		$ ubertooth-util -U <serial> -V
 		Host tools version: libubertooth <version> (git-26d4c11), libbtbb <version> (git-2fd0d39)
+		libbtbb loaded from: /usr/local/lib/libbtbb.so.1
 		Firmware version: bluetooth_rxtx git-26d4c11 (API:<version>)
 		Firmware build: ubertooth git-26d4c11 (builder@buildhost) Mon Oct 27 11:22:33 2025
 		$ ubertooth-util -U <serial> -V | grep '^Firmware version:'   # flashed with btbr
@@ -163,12 +164,14 @@ In non-DFU mode, you can obtain firmware information with ``ubertooth-util -V``.
 
 		$ ubertooth-util -V
 		Host tools version: libubertooth <version> (git-ed30131d*), libbtbb <version> (git-2fd0d39)
+		libbtbb loaded from: /usr/local/lib/libbtbb.so.1
 		Firmware version: bluetooth_rxtx git-ed30131d* (API:<version>)
 		Firmware build: ubertooth git-ed30131d* (builder@host) Tue Aug  7 15:33:06 PDT 2018
 
-Both firmware lines start with the image the board is running, read from its
-firmware info block; a board running firmware from before the block shows the
-revision alone. A firmware built from a git checkout reports its git revision
+The ``Firmware version:`` line starts with the image the board is running,
+read from its firmware info block; a board running firmware from before the
+block shows the revision alone. The ``Firmware build:`` line is the build
+string the firmware reports, which both images spell ``ubertooth``. A firmware built from a git checkout reports its git revision
 as above, with a trailing ``*`` if the working tree had uncommitted changes; a
 release build reports the release name instead. The version is
 generated into a ``version.h`` at build time and tracks the exact source it was

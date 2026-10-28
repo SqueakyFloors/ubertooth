@@ -81,6 +81,7 @@ below, so they name the image the board is running:
 
     $ ubertooth-util -V
     Host tools version: libubertooth <version> (git-ed30131d*), libbtbb <version> (git-2fd0d39)
+    libbtbb loaded from: /usr/local/lib/libbtbb.so.1
     Firmware version: bluetooth_rxtx git-ed30131d* (API:<version>)
     Firmware build: ubertooth git-ed30131d* (builder@buildhost) Mon Oct 27 11:22:33 2025
     $ ubertooth-util -v

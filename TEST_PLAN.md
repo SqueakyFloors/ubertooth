@@ -66,9 +66,13 @@ A second Ubertooth One for the range test (2i).
 - [ ] Unplug every board and run `ubertooth-util -s`
 - [ ] Confirm: `error: no Ubertooth devices found`, exit 1
 
-### 2b. Compile info
+### 2b. The version answer
 - [ ] Run `ubertooth-util -V`
-- [ ] Confirm: returns compile info without crashing
+- [ ] Confirm: four lines -- `Host tools version:`, `libbtbb loaded from:`,
+      `Firmware version:` and `Firmware build:` -- and exit 0
+- [ ] Run `ubertooth-util -V` with no board attached
+- [ ] Confirm: the two host lines, then
+      `Firmware version: no Ubertooth attached`, and exit 0
 
 ### 2c. LED test (identify)
 - [ ] Run `ubertooth-util -I` (flash all LEDs)

@@ -423,10 +423,10 @@ void ubertooth_report_queue_gaps(ubertooth_t *ut)
 /* The -V answer, which libubertooth gives in every tool: faked here, so this
  * test stays about the tool's own command-line handling. The answer's own
  * cases are in test_version_report.c. */
-int ubertooth_print_versions(const char *selector)
+int ubertooth_print_versions(FILE *out, const char *selector)
 {
 	(void)selector;
-	printf("version (test)\n");
+	fprintf(out, "version (test)\n");
 	return 0;
 }
 

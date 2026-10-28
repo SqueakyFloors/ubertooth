@@ -51,18 +51,21 @@ Three options mean the same thing in every tool written in C, which is all of th
 .P
 \fB\-h\fR prints that tool's usage text on standard output and exits 0\.
 .P
-\fB\-V\fR prints the version on standard output, and is the way to ask what is installed and what a board is running\. It exits 0, except for a board that is attached and cannot be read, which is the one case below that fails\. Every tool answers it in the same words, one labelled line each, so a script can take the line it wants whichever tool it ran:
+\fB\-V\fR prints the version on standard output, and is the way to ask what is installed and what a board is running\. It exits 0, except for the two failures below: a board that is attached and cannot be read, and a USB bus that cannot be listed at all\. Every tool answers it in the same words, one labelled line each, so a script can take the line it wants whichever tool it ran:
 .IP "" 4
 .nf
 Host tools version: libubertooth <version> (<revision>), libbtbb <version> (<revision>)
+libbtbb loaded from: <path>
 Firmware version: <image> <revision> (API:<version>)
 Firmware build: <build string the board reports>
 .fi
 .IP "" 0
 .P
+The first two lines are the host's and need no board: the versions these tools were built from, and which libbtbb this run loaded, which is what tells a distribution or Homebrew build apart from this fork's\.
+.P
 The two firmware lines describe the board \fB\-U\fR names, or the only board attached\. With several boards attached and no \fB\-U\fR, both lines are printed for each of them with its index in the label, as the identity queries of ubertooth\-util(1) are: \fBFirmware version (0): \|\.\|\.\|\.\fR, \fBFirmware build (0): \|\.\|\.\|\.\fR\.
 .P
-With no Ubertooth attached the host line is followed by \fBFirmware version: no Ubertooth attached\fR and the status is still 0: the host half of the answer needs no board, and nothing attached is an answer rather than a failure\. A board that is attached but cannot be read \-\- in use by another program, or not answering \-\- has the reason on its own line (\fBFirmware version: unavailable, in use by another program\fR, or \fBFirmware version: read failed\fR) and the status is 1\.
+With no Ubertooth attached the host line is followed by \fBFirmware version: no Ubertooth attached\fR and the status is still 0: the host half of the answer needs no board, and nothing attached is an answer rather than a failure\. A board that is attached but cannot be read \-\- in use by another program, or not answering \-\- has the reason on its own line (\fBFirmware version: unavailable, in use by another program\fR, or \fBFirmware version: read failed\fR) and the status is 1\. So does a USB bus that cannot be listed at all, which is nothing known rather than nothing attached: \fBFirmware version: unavailable, the USB bus could not be listed\fR\.
 .P
 Asking for the version does not disturb a board: it is not told to stop, so a mode running on it keeps running, and any firmware is read whatever API version it reports, which is what makes \fB\-V\fR the way to identify an unknown board\.
 .P

@@ -247,8 +247,11 @@ extern int max_ac_errors;
  * documents as 5. Anything larger needs a syndrome table of several GB. */
 #define MAX_AC_ERRORS 5
 
-/* The host tools' own version, the first lines of the -V answer below.
- * Tools call ubertooth_print_versions() rather than this. */
+/* The host tools' own version and the libbtbb this run loaded: the first
+ * lines of the -V answer below, on the caller's stream. Tools call
+ * ubertooth_print_versions() rather than this; print_version() is the older
+ * spelling of it, on standard output. */
+void ubertooth_print_host_version(FILE* out);
 void print_version(void);
 
 /* The labels the version lines carry, so a tool that prints one of them on
@@ -261,8 +264,9 @@ void print_version(void);
  * those are read into a buffer of this size and truncated to fit. */
 #define UBERTOOTH_VERSION_TEXT_LEN 255
 
-/* The whole answer to -V, on standard output, which is the same in every
- * tool: the host tools' version, then the firmware version and build of the
+/* The whole answer to -V, which is the same in every tool, written to the
+ * caller's stream -- the tools pass their standard output, where the user
+ * asked for it: the host tools' version, then the firmware version and build of the
  * board the user named with -U, or of the only board attached. With several
  * boards and no -U, those two lines per board, indexed. With no board
  * attached, "Firmware version: no Ubertooth attached".
@@ -277,7 +281,7 @@ void print_version(void);
  * not be read -- that board's line says why, and the library has already put
  * the reason on standard error.
  */
-int ubertooth_print_versions(const char *selector);
+int ubertooth_print_versions(FILE *out, const char *selector);
 
 /* The firmware version of an open board as the text the line above carries:
  * "<image> <revision> (API:<x.yy>)", or the revision alone plus the API

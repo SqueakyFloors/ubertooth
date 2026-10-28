@@ -16,7 +16,7 @@ Tell us what happens instead
 
 **libbtbb version:**
 
-**Ubertooth firmware version (ubertooth-util -v):**
+**Ubertooth version (ubertooth-util -V), which gives the host tools' version as well:**
 
 If you are reporting a problem that involves third party software 
 (Wireshark/Kismet/etc), please report the version here.

@@ -412,7 +412,7 @@ int main(int argc, char *argv[])
 	 * them. A command line with both prints both, and the usage text comes
 	 * last so the version is not scrolled off the screen by it. */
 	if (do_version)
-		version_status = ubertooth_print_versions(ubertooth_device);
+		version_status = ubertooth_print_versions(stdout, ubertooth_device);
 	if (do_help)
 		usage(stdout);
 	if (do_version || do_help)

@@ -1628,7 +1628,7 @@ int main(int argc, char **argv) {
 	 * them. A command line with both prints both, and the usage text comes
 	 * last so the version is not scrolled off the screen by it. */
 	if (do_version)
-		exit_status = ubertooth_print_versions(ubertooth_device);
+		exit_status = ubertooth_print_versions(stdout, ubertooth_device);
 	if (first_exit_option == 'h')
 		usage(stdout);
 	if (do_version || first_exit_option == 'h')

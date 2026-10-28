@@ -49,14 +49,20 @@ protocol and from `argparse`; each has `-h`, and none answers `-V`.
 `-h` prints that tool's usage text on standard output and exits 0.
 
 `-V` prints the version on standard output, and is the way to ask what is
-installed and what a board is running. It exits 0, except for a board that is
-attached and cannot be read, which is the one case below that fails. Every tool answers it in the
-same words, one labelled line each, so a script can take the line it wants
-whichever tool it ran:
+installed and what a board is running. It exits 0, except for the two
+failures below: a board that is attached and cannot be read, and a USB bus
+that cannot be listed at all. Every tool answers it in the same words, one
+labelled line each, so a script can take the line it wants whichever tool it
+ran:
 
     Host tools version: libubertooth <version> (<revision>), libbtbb <version> (<revision>)
+    libbtbb loaded from: <path>
     Firmware version: <image> <revision> (API:<version>)
     Firmware build: <build string the board reports>
+
+The first two lines are the host's and need no board: the versions these tools
+were built from, and which libbtbb this run loaded, which is what tells a
+distribution or Homebrew build apart from this fork's.
 
 The two firmware lines describe the board `-U` names, or the only board
 attached. With several boards attached and no `-U`, both lines are printed for
@@ -69,7 +75,9 @@ needs no board, and nothing attached is an answer rather than a failure. A
 board that is attached but cannot be read -- in use by another program, or not
 answering -- has the reason on its own line (`Firmware version: unavailable,
 in use by another program`, or `Firmware version: read failed`) and the status
-is 1.
+is 1. So does a USB bus that cannot be listed at all, which is nothing known
+rather than nothing attached: `Firmware version: unavailable, the USB bus
+could not be listed`.
 
 Asking for the version does not disturb a board: it is not told to stop, so a
 mode running on it keeps running, and any firmware is read whatever API

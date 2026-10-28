@@ -139,18 +139,24 @@ static const char* loaded_libbtbb_path(void)
 
 /* Labelled like every other version line a tool prints, so the host tools'
  * version cannot be mistaken for a board's firmware revision, and one line
- * per thing asked about so each can be grepped for on its own. */
-void print_version(void) {
+ * per thing asked about so each can be grepped for on its own. The stream is
+ * the caller's: the tools pass their standard output, where the user asked
+ * for it. */
+void ubertooth_print_host_version(FILE* out) {
 	const char* btbb_path = loaded_libbtbb_path();
 
-	printf(UBERTOOTH_VERSION_LABEL_HOST ": libubertooth %s (%s), "
-	       "libbtbb %s (%s)\n",
-	       VERSION, RELEASE, btbb_get_version(), btbb_get_release());
+	fprintf(out, UBERTOOTH_VERSION_LABEL_HOST ": libubertooth %s (%s), "
+	        "libbtbb %s (%s)\n",
+	        VERSION, RELEASE, btbb_get_version(), btbb_get_release());
 	/* Which libbtbb, not just which version of it: a distribution or
 	 * Homebrew package beside this fork's build reports a version too, and
 	 * the path is the only thing that tells the two apart. */
-	printf("libbtbb loaded from: %s\n",
-	       btbb_path != NULL ? btbb_path : "unknown");
+	fprintf(out, "libbtbb loaded from: %s\n",
+	        btbb_path != NULL ? btbb_path : "unknown");
+}
+
+void print_version(void) {
+	ubertooth_print_host_version(stdout);
 }
 
 /* The handle register_cleanup_handler() was given, for cleanup_exit() below.
@@ -708,10 +714,18 @@ void ubertooth_note_dfu_bootloader(void)
 
 	if (ubertooth_devices_hidden())
 		return;
+	/* A session of its own, because this is called from both sides: from a
+	 * selection that failed, which still holds one, and from -V with no
+	 * board, where the count has already given its own back -- and listing
+	 * devices without a session is undefined (it crashed). libusb counts
+	 * sessions, so the caller that holds one keeps it. */
+	if (libusb_init(NULL) < 0)
+		return;
 	usb_devs = libusb_get_device_list(NULL, &usb_list);
 	if (usb_devs <= 0) {
 		if (usb_devs == 0)
 			libusb_free_device_list(usb_list, 1);
+		libusb_exit(NULL);
 		return;
 	}
 	for (i = 0; i < usb_devs; ++i) {
@@ -722,6 +736,7 @@ void ubertooth_note_dfu_bootloader(void)
 			boards++;
 	}
 	libusb_free_device_list(usb_list, 1);
+	libusb_exit(NULL);
 
 	if (boards == 0)
 		return;

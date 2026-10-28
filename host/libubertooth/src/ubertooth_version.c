@@ -139,12 +139,12 @@ static void print_unavailable(FILE *out, int index)
 	fprintf(out, "unavailable, %s\n", ubertooth_open_failure_reason());
 }
 
-int ubertooth_print_versions(const char *selector)
+int ubertooth_print_versions(FILE *out, const char *selector)
 {
 	ubertooth_t *ut;
 	int count, status = 0, i;
 
-	print_version();
+	ubertooth_print_host_version(out);
 	/*
 	 * The test switch is read here rather than left to ubertooth_count(),
 	 * which announces it: that note belongs to a command that wanted a
@@ -155,16 +155,16 @@ int ubertooth_print_versions(const char *selector)
 	if (count < 0) {
 		/* The bus could not be listed, so nothing is known about what is
 		 * attached. libusb's own error is already on standard error. */
-		print_label(stdout, UBERTOOTH_VERSION_LABEL_FIRMWARE, -1);
-		fprintf(stdout, "unavailable, the USB bus could not be listed\n");
+		print_label(out, UBERTOOTH_VERSION_LABEL_FIRMWARE, -1);
+		fprintf(out, "unavailable, the USB bus could not be listed\n");
 		return 1;
 	}
 	/* Nothing attached is an answer, not a failure: -V is the one command
 	 * that has to work with no board on the bus, because it is how a user
 	 * reports which host tools they are running. */
 	if (count == 0) {
-		print_label(stdout, UBERTOOTH_VERSION_LABEL_FIRMWARE, -1);
-		fprintf(stdout, "no Ubertooth attached\n");
+		print_label(out, UBERTOOTH_VERSION_LABEL_FIRMWARE, -1);
+		fprintf(out, "no Ubertooth attached\n");
 		/* A board in the bootloader is not counted, and answers nothing, so
 		 * the line above is true -- but it is also the one thing the user
 		 * would want to know here, and -V is how an unknown board is
@@ -178,10 +178,10 @@ int ubertooth_print_versions(const char *selector)
 	if (selector != NULL || count == 1) {
 		ut = ubertooth_start_select(selector);
 		if (ut == NULL) {
-			print_unavailable(stdout, -1);
+			print_unavailable(out, -1);
 			return 1;
 		}
-		status = print_board_versions(stdout, ut, -1);
+		status = print_board_versions(out, ut, -1);
 		/* Closed without a STOP, so asking a board its version does not end
 		 * the mode it is running. */
 		ubertooth_close(ut);
@@ -195,11 +195,11 @@ int ubertooth_print_versions(const char *selector)
 	for (i = 0; i < count; i++) {
 		ut = ubertooth_start(i);
 		if (ut == NULL) {
-			print_unavailable(stdout, i);
+			print_unavailable(out, i);
 			status = 1;
 			continue;
 		}
-		if (print_board_versions(stdout, ut, i) != 0)
+		if (print_board_versions(out, ut, i) != 0)
 			status = 1;
 		ubertooth_close(ut);
 		ubertooth_free(ut);

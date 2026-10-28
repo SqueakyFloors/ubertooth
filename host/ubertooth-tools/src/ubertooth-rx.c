@@ -241,7 +241,7 @@ int main(int argc, char* argv[])
 	 * text comes last so the version is not scrolled off the screen by
 	 * it; the order they were written in does not matter. */
 	if (do_version)
-		version_status = ubertooth_print_versions(ubertooth_device);
+		version_status = ubertooth_print_versions(stdout, ubertooth_device);
 	if (do_help)
 		usage(stdout);
 	if (do_version || do_help)

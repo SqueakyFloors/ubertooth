@@ -366,7 +366,9 @@ int ubertooth_report_api_mismatch(uint16_t version, const char *selector)
 }
 #endif
 
-void print_version(void) { printf("libubertooth fake\n"); }
+/* The host line of the version answer: faked, so the cases pin the shape of
+ * the answer rather than the versions this build was configured with. */
+void ubertooth_print_host_version(FILE *out) { fprintf(out, "libubertooth fake\n"); }
 
 int cmd_get_board_id(struct libusb_device_handle *h)
 {
