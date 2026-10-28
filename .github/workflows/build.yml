@@ -475,8 +475,10 @@ jobs:
       run: tools/check-image-revision-selftest.sh
 
     - name: Check that the firmware API version check holds both ways
-      # The api-version job below runs that check against this branch, which
-      # says nothing about whether it would still refuse a bad one. This
+      # The api-version job below runs main's copy of that check, so on a pull
+      # request this step is the only place the branch's own copy runs at all:
+      # it is what shows that a change to the check still refuses a bad
+      # branch, before that change reaches main and starts gating others. This
       # builds throwaway repositories in each of the shapes the rule names --
       # a claimed version, a stray bump, a comment dressed up as a firmware
       # change, a value that is not binary-coded decimal, a header it cannot
@@ -738,16 +740,53 @@ jobs:
       # It is all zeroes for the first push to a new branch, which main is not,
       # and it can name a commit this clone does not have after a force-push:
       # HEAD~1 in either case, which still checks the tip.
+      #
+      # On a pull request the script that does the checking comes from main,
+      # not from the branch being checked. Everything else about this job --
+      # the condition above, which commit is read, the watched list inside the
+      # script -- used to come from the branch too, so a branch could edit the
+      # check that gates it and go green. Reading the script from main closes
+      # the script half of that: a branch's own edits to it are still reviewed
+      # and still exercised, by tools/check-api-version-selftest.sh in the
+      # scripts job, but they do not decide whether this job passes.
+      #
+      # The job-definition half cannot be closed from inside the workflow,
+      # because GitHub reads the workflow file from the branch. Branch
+      # protection is where that is answered.
+      #
+      # On a push to main the branch IS main, so there is nothing to read from
+      # elsewhere.
       env:
         BEFORE: ${{ github.event.before }}
       run: |
+        set -eu
+        : "${RUNNER_TEMP:?}"
+        check=tools/check-api-version.sh
         if [ "${{ github.event_name }}" = "pull_request" ]; then
-          tools/check-api-version.sh origin/main
+          # No fallback to the branch's own copy. main has the script, so the
+          # only way to get here is a branch that renamed or deleted it --
+          # $check comes from the branch too -- or an origin/main that did not
+          # resolve. Running the branch's copy then would quietly put the
+          # branch back in charge of the check that gates it, which is the
+          # whole point of reading it from main. A rename lands by merging it
+          # to main first.
+          if ! git cat-file -e "origin/main:$check" 2> /dev/null; then
+            echo "error: origin/main has no $check, so there is no copy of the" >&2
+            echo "       check to run that this branch did not write. Rename or" >&2
+            echo "       remove it on main first, and fetch main if that is what" >&2
+            echo "       is missing here." >&2
+            exit 1
+          fi
+          from_main="$RUNNER_TEMP/check-api-version-from-main.sh"
+          git show "origin/main:$check" > "$from_main"
+          chmod +x "$from_main"
+          echo "note: running $check as origin/main has it" >&2
+          "$from_main" origin/main
         elif git rev-parse --verify --quiet "$BEFORE^{commit}" > /dev/null; then
-          tools/check-api-version.sh "$BEFORE"
+          "$check" "$BEFORE"
         else
           echo "note: $BEFORE is not a commit here; comparing with HEAD~1" >&2
-          tools/check-api-version.sh HEAD~1
+          "$check" HEAD~1
         fi
   # The .dfu is the file every install guide tells users to flash, and nothing
   # outside a developer's own tree used to build one. The firmware build ends

@@ -37,6 +37,13 @@
 #     no new firmware to pair with, so moving the version only refuses boards
 #     that are fine.
 #
+# Either way, a value whose minor digits are 00 is a major version, which only
+# a release may take: the release procedure reserves 0x0200 for the first fork
+# release, and a board accepts only the exact value, so a major version on an
+# ordinary branch refuses every user's board until it is reflashed. Both legs
+# ask the same question about it (release_shaped below), so a typo is refused
+# whether or not the branch also changed the firmware.
+#
 # The value is binary-coded decimal, so comparing the raw 16-bit numbers
 # orders it correctly and nothing here has to decode it to compare. The next
 # value is not cur + 1, though: after 0x0119 comes 0x0120. A nibble above 9 is
@@ -86,8 +93,9 @@ usage: tools/check-api-version.sh [main-ref]
 
 Check UBERTOOTH_API_VERSION on this branch against main: a branch that changes
 the firmware interface must take a version above main's, and a branch that
-does not must leave it as the merge base had it. A release is the one
-exception: it takes the next major version on its own.
+does not must leave it as the merge base had it. Neither may take a major
+version (minor digits 00), which a release reserves; a release is the one
+exception, and it takes the next major on its own.
 
 main-ref is the commit to treat as main's tip, and defaults to the remote this
 checkout tracks main from, then origin/main.
@@ -844,12 +852,129 @@ compared=$(printf 'compared with %s (%s), merge base %s, which had %s' \
     "$main_ref" "$(git rev-parse --short "$main_commit")" \
     "$(git rev-parse --short "$merge_base")" "$base_pretty")
 
+# Whether this branch is the release that is allowed to take a major version.
+# A release takes the next major with the minor digits at 00, to mark that its
+# host tools and firmware only work with each other
+# (docs/source/release_procedure.rst).
+#
+# Four conditions, and the branch has to meet all four: a single major up from
+# the merge base, the minor digits at 00, above main rather than merely not
+# below it, and the three documents that record the version moving with it,
+# which a release changes and a slip of the finger does not.
+#
+# Above main, because a value equal to main's is the collision this whole
+# check is about, and the release shape must not be a door around it: a
+# release branch cut before another release landed, or re-cut after one, would
+# otherwise claim a version whose firmware is already in the tree. The
+# push-to-main leg would not catch it either, since there the merge base is
+# main and an equal value leaves through the "unchanged" exit below. A release
+# rebased on main has its merge base at main's tip, so the value it takes is
+# above main's and this still holds.
+#
+# Both legs ask this, which is what makes them agree about a major version.
+# Before they did, only the leg for a branch with no firmware change refused
+# one: a firmware branch needed nothing but a value above main's, so 0x0200
+# typed in place of 0x0135 passed, burned the value the first fork release
+# reserves, and would have refused every user's board until it was reflashed.
+release_doc_list=$(git --no-pager diff --name-only "$merge_base" "$head_commit" -- \
+    CHANGELOG.md COMPATIBILITY.md TEST_PLAN.md) || {
+    echo "error: could not tell whether this branch is a release" >&2
+    exit 1
+}
+# grep -c exits 1 on a count of 0, so its status is not read here.
+release_docs=$(printf '%s\n' "$release_doc_list" | sort -u | grep -c .)
+release_shaped=no
+if [ "$(( cur_decimal % 100 ))" -eq 0 ] &&
+    [ "$(( cur_decimal / 100 ))" -eq "$(( base_decimal / 100 + 1 ))" ] &&
+    [ "$cur_decimal" -gt "$main_decimal" ] &&
+    [ "$release_docs" -eq 3 ]; then
+    release_shaped=yes
+fi
+
+# Whether the next value after main's is a major version, which no ordinary
+# branch may take: main at x.99 is the one place the two rules meet, and the
+# suggestion below would otherwise name a value this check then refuses.
+free_is_major=no
+if [ "$main_decimal" -lt 9999 ] && [ "$(( (main_decimal + 1) % 100 ))" -eq 0 ]; then
+    free_is_major=yes
+fi
+
+# What the two legs tell a branch that typed a major version it may not have.
+# Written once, because a message that differs between the legs would read as
+# two different rules.
+say_major_reserved() {
+    echo "       The minor digits 00 mark a release: a release takes the next"
+    echo "       major version to say that its host tools and firmware only"
+    echo "       work with each other, and docs/source/release_procedure.rst"
+    echo "       reserves 0x0200 for the first fork release. A board is"
+    echo "       accepted only if it reports exactly this version, so a major"
+    echo "       version on an ordinary branch refuses every user's board"
+    echo "       until it is reflashed."
+    echo ""
+    echo "       If this branch IS the release, it also moves CHANGELOG.md,"
+    echo "       COMPATIBILITY.md and TEST_PLAN.md, and takes one major up"
+    echo "       from its merge base."
+    # Only where one exists. At main x.99 the next value is itself a major, so
+    # there is none, and say_free_is_major below says so instead.
+    if [ "$free_is_major" = no ]; then
+        echo "       Otherwise take a value with minor digits of its own."
+    fi
+}
+
+say_free_is_major() {
+    echo "       $free_value is a major version, which only a release may take,"
+    echo "       so there is no value free for an ordinary branch: main is at"
+    echo "       $main_pretty and the cycle has used every minor digit. Ask the"
+    echo "       maintainer, who decides between cutting the release and"
+    echo "       renumbering."
+}
+
 if [ -n "$changed" ]; then
-    if [ "$(( 0x$cur_digits ))" -gt "$(( 0x$main_digits ))" ]; then
+    if [ "$(( 0x$cur_digits ))" -gt "$(( 0x$main_digits ))" ] &&
+        { [ "$(( cur_decimal % 100 ))" -ne 0 ] || [ "$release_shaped" = yes ]; }; then
         echo "check-api-version: this branch changes the firmware interface and"
         echo "takes $cur_pretty, above main's $main_pretty."
         echo "$compared."
         exit 0
+    fi
+    # A value above main's whose minor digits are 00, on a branch that is not
+    # shaped like a release. It is the one refusal on this leg that is not
+    # about the value being too low, so it gets its own message rather than a
+    # "has to be above main" that the branch already satisfies.
+    if [ "$(( 0x$cur_digits ))" -gt "$(( 0x$main_digits ))" ]; then
+        {
+            echo "error: this branch takes $cur_pretty, a major version that a"
+            echo "       release reserves, and it is not shaped like a release."
+            echo ""
+            echo "         at HEAD:       $cur_pretty"
+            echo "         at merge base: $base_pretty"
+            echo "         on main:       $main_pretty"
+            if [ "$free_is_major" = no ]; then
+                echo "         next free:     $free_value"
+            fi
+            echo ""
+            echo "       main here is $main_ref."
+            echo ""
+            say_major_reserved
+            if [ "$free_is_major" = yes ]; then
+                echo ""
+                say_free_is_major
+            fi
+            # The same list the message below prints, because the same escape
+            # applies: the branch may not need any bump at all, and a reader
+            # told only that the value is reserved would take the next minor
+            # instead of asking whether the red is real.
+            echo ""
+            echo "       The firmware interface files this branch changes:"
+            printf '%s\n' "$changed" | sed 's/^/         /'
+            echo ""
+            echo "       If none of them change what the host sees, this is a"
+            echo "       false red: put the version back to 0x$base_digits, say so on"
+            echo "       the pull request, and let the maintainer merge with this"
+            echo "       job red, rather than taking any new version."
+            echo "       tools/check-api-version.sh --list-watched prints the list."
+        } >&2
+        exit 1
     fi
     {
         echo "error: this branch changes the firmware interface, so"
@@ -861,11 +986,16 @@ if [ -n "$changed" ]; then
         echo ""
         echo "       main here is $main_ref."
         echo ""
-        echo "       Set it to $free_value in"
-        echo "       $header, and move"
-        echo "       CHANGELOG.md, COMPATIBILITY.md, TEST_PLAN.md and the pinned"
-        echo "       strings in the tests with it."
-        echo ""
+        if [ "$free_is_major" = yes ]; then
+            say_free_is_major
+            echo ""
+        else
+            echo "       Set it to $free_value in"
+            echo "       $header, and move"
+            echo "       CHANGELOG.md, COMPATIBILITY.md, TEST_PLAN.md and the pinned"
+            echo "       strings in the tests with it."
+            echo ""
+        fi
         echo "       A board is accepted only if it reports exactly this version,"
         echo "       so reusing one main has already shipped lets tools built from"
         echo "       this branch accept a board carrying the older image."
@@ -913,37 +1043,10 @@ if [ "$cur_digits" = "$base_digits" ]; then
 fi
 
 # The one move allowed with no firmware change: a release takes the next major
-# version, with the minor digits at 00, to mark that its host tools and
-# firmware only work with each other -- whether or not the cycle changed the
-# firmware (docs/source/release_procedure.rst). Without this the release's own
-# pull request would be refused by a job it cannot satisfy.
-#
-# It stays narrow, because a stray 0x0200 on an ordinary branch would refuse
-# every user's board until it was reflashed, which is the thing the host-only
-# half of the rule exists to prevent. So: a single major up from the merge
-# base, the minor digits at 00, above main rather than merely not below it,
-# and the three documents that record the version moving with it, which a
-# release changes and a slip of the finger does not.
-#
-# Above main, because a value equal to main's is the collision this whole
-# check is about, and the release shape must not be a door around it: a
-# release branch that was cut before another release landed, or re-cut after
-# one, would otherwise claim a version whose firmware is already in the tree.
-# The push-to-main leg would not catch it either, since there the merge base
-# is main and an equal value leaves through the "unchanged" exit above. A
-# release rebased on main has its merge base at main's tip, so the value it
-# takes is above main's and this still passes.
-release_doc_list=$(git --no-pager diff --name-only "$merge_base" "$head_commit" -- \
-    CHANGELOG.md COMPATIBILITY.md TEST_PLAN.md) || {
-    echo "error: could not tell whether this branch is a release" >&2
-    exit 1
-}
-# grep -c exits 1 on a count of 0, so its status is not read here.
-release_docs=$(printf '%s\n' "$release_doc_list" | sort -u | grep -c .)
-if [ "$(( cur_decimal % 100 ))" -eq 0 ] &&
-    [ "$(( cur_decimal / 100 ))" -eq "$(( base_decimal / 100 + 1 ))" ] &&
-    [ "$cur_decimal" -gt "$main_decimal" ] &&
-    [ "$release_docs" -eq 3 ]; then
+# version, whether or not the cycle changed the firmware. Without this the
+# release's own pull request would be refused by a job it cannot satisfy. What
+# counts as release-shaped, and why it stays narrow, is above.
+if [ "$release_shaped" = yes ]; then
     echo "check-api-version: no firmware interface file changed, and"
     echo "UBERTOOTH_API_VERSION moves to $cur_pretty, the next major version,"
     echo "which is a release's own bump."
@@ -962,6 +1065,10 @@ fi
     echo ""
     echo "       main here is $main_ref."
     echo ""
+    if [ "$free_is_major" = yes ]; then
+        say_free_is_major
+        echo ""
+    fi
     echo "       Put it back to 0x$base_digits. A host-only change has no new"
     echo "       firmware to pair with, so moving the version only makes boards"
     echo "       that are fine be refused until they are reflashed. The one"
