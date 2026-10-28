@@ -44,7 +44,7 @@ class BTCtlL2Ping(BTCtlPagingCmd):
 
 	def _handle_l2cap(self, pkt):
 		acl = pkt.bt_data
-		log.info("RX L2CAP: %s"%acl)
+		result("RX L2CAP: %s"%acl)
 		self._send_l2cap_echo_req()
 
 class BTCtlPrompt(Cmd):
@@ -459,4 +459,45 @@ def main():
 		sys.stderr.flush()
 		os._exit(1)
 
-if __name__ == '__main__': main()
+if __name__ == '__main__':
+	# What main() decided, kept so that a standard output found gone below
+	# can still raise it: -h and the refusals all leave through sys.exit().
+	status = 0
+	try:
+		main()
+	except SystemExit as leaving:
+		status = leaving.code or 0
+	except BrokenPipeError:
+		# A write that was not a packet: the prompt, the intro, the usage
+		# text and what `?` prints all go to standard output too, and
+		# result() is the only one that notices the stream going away by
+		# itself. A command line the tool refuses is the reachable case,
+		# since it writes before anything else does.
+		output_lost()
+		# Out without the interpreter's own teardown, for the reason the
+		# command that would not stop takes that way out: the receive thread
+		# may be inside libusb, and taking the library down under it is what
+		# turns an exit into an abort. Whatever is still buffered for the
+		# stream that failed goes with it, which is where it was headed.
+		sys.stderr.flush()
+		os._exit(1)
+	finally:
+		# The last word on that stream, while a handler can still reach the
+		# failure: the interpreter flushes it as it exits, outside any
+		# handler, and a flush that fails there ends the tool in status 120
+		# and a message of its own. Under `finally`, so that an exception on
+		# the way out of main() does not leave that flush to the
+		# interpreter. CPython's input() hides the same failure while
+		# printing the prompt, so a session whose reader left can get this
+		# far with the break unnoticed.
+		try:
+			sys.stdout.flush()
+		except BrokenPipeError:
+			output_lost()
+		except (AttributeError, ValueError):
+			# There is no standard output to flush: a descriptor closed
+			# before the tool started leaves the interpreter without one.
+			pass
+	# A standard output that went away means what was asked for was not all
+	# printed, whatever main() made of the rest.
+	sys.exit(1 if output_gone() else status)

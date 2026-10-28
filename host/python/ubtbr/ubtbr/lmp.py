@@ -216,8 +216,10 @@ def pdu2str(pdu):
 		opstr = LMP_OPEXT2STR.get(op)
 	else:
 		opstr = LMP_OP2STR.get(opcode)
-	opstr = "\x1b[33;1m%s\x1b[0m"%opstr
-	return ("(tid %d) %-40s | %s"%(tid, opstr, hexlify(pdu)))
+	# Plain text, no terminal color: this goes into the packets a capture
+	# holds on standard output, where escapes are something for a reader of
+	# that capture to strip.
+	return ("(tid %d) %-40s | %s"%(tid, opstr, hexlify(pdu).decode()))
 
 class LMP:
 	# Features supported (Core v5.2 | Vol 2, Part C, table 3.2 p585)

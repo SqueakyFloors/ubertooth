@@ -1,18 +1,22 @@
 import usb1
+import os
 import sys
 from binascii import hexlify, unhexlify
 from threading import Thread, Event, Lock
 from queue import Queue, Empty
 from struct import pack, unpack
-from time import monotonic, sleep
+from time import monotonic, sleep, strftime
 from ubtbr.lmp import *
 import logging
+# The progress a command makes: plain lines on standard error, carrying
+# neither a time nor a level, like every other tool's progress. What a
+# command decodes does not come through here; result() below writes that to
+# standard output.
 log = logging.getLogger("btctl")
 log.setLevel(logging.DEBUG)
 log_handler = logging.StreamHandler(sys.stderr)
 log_handler.setLevel(logging.DEBUG)
-log_formatter = logging.Formatter('%(asctime)s | %(levelname)s | %(message)s',
-	"%H:%M:%S")
+log_formatter = logging.Formatter('%(message)s')
 log_handler.setFormatter(log_formatter)
 log.addHandler(log_handler)
 
@@ -214,13 +218,90 @@ def eprint(msg):
 	sys.stderr.write(msg)
 	sys.stderr.flush()
 
+# Set once standard output has gone away, so the session can end with a
+# status that says what was asked for was not all printed. A command runs on
+# its own thread and the prompt on another, so either can find it first.
+_output_gone = False
+_output_lock = Lock()
+
+def output_gone():
+	"""True if standard output went away while the session was running."""
+	return _output_gone
+
+def point_at_the_bin(stream):
+	"""Send a stream whose reader has gone to the bin, so writing it is safe.
+
+	A write to a pipe nobody reads raises, and the interpreter flushes both
+	streams as it exits, where no handler can reach the failure: that ends
+	the tool in status 120 and a message of its own. Pointing the descriptor
+	at the bin keeps whatever is written afterwards, including that last
+	flush, from failing.
+	"""
+	try:
+		nowhere = os.open(os.devnull, os.O_WRONLY)
+		try:
+			os.dup2(nowhere, stream.fileno())
+		finally:
+			os.close(nowhere)
+	except (OSError, ValueError, AttributeError):
+		# There is no such stream to point anywhere: it was closed before
+		# the tool started. Nothing is written to it either way.
+		pass
+
+def output_lost():
+	"""Note that standard output has gone away, and stop writing to it.
+
+	Called from wherever a write to that stream failed. The descriptor is
+	pointed at the bin, so nothing written afterwards fails either --
+	including the flush the interpreter does as it exits, which no handler
+	can reach and which would end the tool in status 120 and a message of
+	its own. Said once, however many writes find the stream gone, and from
+	whichever thread finds it first.
+	"""
+	global _output_gone
+	with _output_lock:
+		if _output_gone:
+			return
+		_output_gone = True
+	point_at_the_bin(sys.stdout)
+	try:
+		error("standard output has gone away")
+	except (BrokenPipeError, AttributeError, ValueError):
+		# Standard error went the same way, which is what `2>&1` into a
+		# reader that left leaves, or a descriptor closed before the tool
+		# started. The exit status is then all there is to say it with.
+		point_at_the_bin(sys.stderr)
+
+def result(msg):
+	"""Report what a command decoded: a packet, or an inquiry response.
+
+	On standard output, where ubertooth(7) puts decoded packets, so a session
+	can be piped or saved. Every line gets the time it was printed in front
+	of it, `HH:MM:SS `, which is the only timing a session has; a message of
+	several lines, such as an inquiry response and the EIR under it, is
+	therefore still one timed line per line. Blank lines are dropped, so what
+	a reader gets is packets and nothing else.
+	"""
+	now = strftime("%H:%M:%S")
+	try:
+		# Written in one go, because the prompt is on this stream too and
+		# runs on another thread: a message of several lines would otherwise
+		# be broken apart by a prompt landing between them.
+		sys.stdout.write("".join("%s %s\n"%(now, line)
+			for line in msg.splitlines() if line))
+		sys.stdout.flush()
+	except BrokenPipeError:
+		# Whatever was reading the capture has stopped, which is what
+		# `ubertooth-btbr | head -5` does.
+		output_lost()
+
 def warn(msg):
 	"""Report something the user should know about: one `warning: ` line.
 
 	On standard error, the way every other tool in this fork writes its
-	warnings. The logger above carries what a command reports -- the packets
-	it decodes and the progress it makes -- and a diagnostic about the tool
-	itself is not one of those, so it does not go through it.
+	warnings. The logger above carries the progress a command makes, and
+	result() above carries what it decoded; a diagnostic about the tool
+	itself is neither, so it goes through neither.
 	"""
 	eprint("warning: %s\n"%msg)
 
@@ -329,8 +410,8 @@ class BTCtlEIR:
 			l,t = buf[:2]
 			dat,buf = buf[2:1+l], buf[1+l:]
 			if (1+len(dat) != l):
-				# A library writes nothing to standard output, where the
-				# capture the user asked for goes.
+				# A warning is not part of the capture on standard output,
+				# so it goes to standard error like every other diagnostic.
 				warn("malformed EIR: a field runs past the end of the "
 					"response, so the rest of it is dropped")
 				break
@@ -539,16 +620,16 @@ class BTCtlCmd(Thread):
 		print_state(state, reason)
 
 	def _handle_fhs(self, pkt):
-		log.info("RX FHS: %s"%(pkt.bt_data))
+		result("RX FHS: %s"%(pkt.bt_data))
 
 	def _handle_lmp(self, pkt):
-		log.info("RX LMP: %s"%(pkt.bt_data))
+		result("RX LMP: %s"%(pkt.bt_data))
 
 	def _handle_l2cap(self, pkt):
-		log.info("RX L2CAP: %s"%pkt.bt_data)
+		result("RX L2CAP: %s"%pkt.bt_data)
 
 	def _handle_raw(self, pkt):
-		log.info("RX Raw: %s"%pkt)
+		result("RX Raw: %s"%pkt)
 
 	def _handle_pkt(self, pkt):
 		if pkt.bb_hdr.type == FHS:
@@ -735,7 +816,7 @@ class BTCtlInquiryCmd(BTCtlCmd):
 	def _handle_l2cap(self, pkt):
 		acl = pkt.bt_data
 		eir = BTCtlEIR.unpack(pkt.bt_data.data)
-		log.info("%s\n%s\n"%(acl,eir))
+		result("%s\n%s"%(acl,eir))
 
 class BTCtlInquiryScanCmd(BTCtlCmd):
 	def _start(self):
@@ -784,12 +865,19 @@ class BTCtlPageScanCmd(BTCtlCmd):
 			self._done = True
 
 	def _handle_lmp(self, pkt):
-		acl = pkt.bt_data
-		self._lmp.receive(pkt.clkn, acl.data)
+		# The packet reaches standard output like every other command's, in
+		# the shape monitor uses: the baseband header, then the PDU named
+		# and in hex, so a piped capture of a connection reads on its own.
+		# The link manager traces the same PDU again on standard error, with
+		# the state it was in and the seconds since the connection came up;
+		# that trace is a diagnostic, not the capture.
+		pdu = pkt.bt_data.data
+		result("RX LMP: %s | %s"%(pkt.bb_hdr, pdu2str(pdu)))
+		self._lmp.receive(pkt.clkn, pdu)
 
 	def _handle_l2cap(self, pkt):
 		acl = pkt.bt_data
-		log.info("RX L2CAP: %s"%acl)
+		result("RX L2CAP: %s"%acl)
 
 	def handle_setup_complete(self):
 		log.info("LMP setup complete")
@@ -833,8 +921,11 @@ class BTCtlPagingCmd(BTCtlCmd):
 		log.info("LMP setup complete")
 
 	def _handle_lmp(self, pkt):
-		acl = pkt.bt_data
-		self._lmp.receive(pkt.clkn, acl.data)
+		# As in BTCtlPageScanCmd above: the packet on standard output, then
+		# the link manager.
+		pdu = pkt.bt_data.data
+		result("RX LMP: %s | %s"%(pkt.bb_hdr, pdu2str(pdu)))
+		self._lmp.receive(pkt.clkn, pdu)
 
 class BTCtlDiscoverableCmd(BTCtlSuperCmd):
 	# How long each of the two scans runs before the other takes its turn.
@@ -882,7 +973,7 @@ class BTCtlMonitorCmd(BTCtlCmd):
 
 	def _handle_fhs(self, pkt):
 		role = "slave" if (pkt.clkn & 2) else "master"
-		log.info("RX FHS (%6s:%7x): %s"%(role,pkt.clkn,pkt.bt_data))
+		result("RX FHS (%6s:%7x): %s"%(role,pkt.clkn,pkt.bt_data))
 		self._uap = 0xff&(pkt.bt_data.bdaddr>>24)
 
 	def _handle_raw(self, pkt):
@@ -904,7 +995,8 @@ class BTCtlMonitorCmd(BTCtlCmd):
 
 	def _handle_bad(self, pkt):
 		role = "slave" if (pkt.clkn & 2) else "master"
-		log.info("RX Raw (%6s:%7x): %s | %s"%(role,pkt.clkn, pkt.bb_hdr, hexlify(pkt.bt_data.raw_data)))
+		result("RX Raw (%6s:%7x): %s | %s"%(role,pkt.clkn, pkt.bb_hdr,
+			hexlify(pkt.bt_data.raw_data).decode()))
 
 	def _handle_lmp(self, pkt):
 		pdu = pkt.bt_data.data
@@ -919,11 +1011,11 @@ class BTCtlMonitorCmd(BTCtlCmd):
 			log.info("AFH req: instant=%d, (cur %d), mode=%d"%(
 				instant<<1, pkt.clkn, mode))
 		role = "slave" if (pkt.clkn & 2) else "master"
-		log.info("RX LMP (%6s:%7x): %s | %s"%(role,pkt.clkn, pkt.bb_hdr, pdu2str(pdu)))
+		result("RX LMP (%6s:%7x): %s | %s"%(role,pkt.clkn, pkt.bb_hdr, pdu2str(pdu)))
 
 	def _handle_l2cap(self, pkt):
 		role = "slave" if (pkt.clkn & 2) else "master"
-		log.info("RX L2CAP (%6s:%7x): %s"%(role,pkt.clkn,pkt))
+		result("RX L2CAP (%6s:%7x): %s"%(role,pkt.clkn,pkt))
 
 def board_label(serial=None, index=None):
 	"""How a message names a board: by serial, by index, or not at all.

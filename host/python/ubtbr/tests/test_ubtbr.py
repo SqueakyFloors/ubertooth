@@ -41,6 +41,11 @@ What is checked:
     with the firmware that behaves that way named, whichever of those requests
     it stops taking at, and a setup failure of another kind is not.
 
+  * a packet a command decodes goes to standard output, with the time it was
+    printed in front of it, and the progress a command makes stays on
+    standard error as plain lines. Both used to be log lines on standard
+    error, so piping the tool into anything got nothing.
+
   * the tool itself, driven through its prompt: "q" exits 0, where it used to
     raise TypeError because the handler for it was called without the line
     the user typed. A Ctrl-C with a command running returns to the prompt,
@@ -55,6 +60,7 @@ import importlib.util
 import io
 import logging
 import os
+import re
 import signal
 import struct
 import subprocess
@@ -100,6 +106,19 @@ written to, which is how a test tells which board a selection reached.
 UBTBR_FAKE_SERIAL_READS and UBTBR_FAKE_OPENS name files every serial read and
 every open is appended to, which is how a test tells how many boards a
 selection touched.
+
+UBTBR_FAKE_LIST_ERROR makes listing the bus raise something the tool does not
+expect, which is how a test reaches the way out of a failure nobody handled.
+That is a bug's way out, so the tool is allowed its traceback there; what a
+test asks is what else comes with it.
+
+UBTBR_FAKE_READS names a file of packets the device sends, one per line in
+hex: each is handed to the next read, and the reads after them time out as
+usual. UBTBR_FAKE_READS_AFTER holds them back until that many writes have
+gone out, which is how a test has a packet arrive while a command is
+running rather than before the prompt is up, and UBTBR_FAKE_READ_DELAY holds
+each of them, which spreads them over a session instead of handing them all
+over at once.
 """
 
 import os
@@ -126,6 +145,7 @@ class USBErrorBusy(USBError):
 class _Handle:
     def __init__(self):
         self.writes = 0
+        self.reads = 0
 
     def claimInterface(self, interface):
         failure = os.environ.get("UBTBR_FAKE_CLAIM_ERROR")
@@ -155,6 +175,16 @@ class _Handle:
         return len(data)
 
     def bulkRead(self, endpoint, length, timeout=0):
+        canned = os.environ.get("UBTBR_FAKE_READS")
+        after = int(os.environ.get("UBTBR_FAKE_READS_AFTER", "0"))
+        if canned and self.writes >= after:
+            with open(canned) as pending:
+                packets = pending.read().split()
+            if self.reads < len(packets):
+                data = bytes.fromhex(packets[self.reads])
+                self.reads += 1
+                time.sleep(float(os.environ.get("UBTBR_FAKE_READ_DELAY", "0")))
+                return data
         time.sleep(timeout / 1000.0)
         raise USBErrorTimeout("timeout")
 
@@ -217,6 +247,8 @@ def _described(entry):
 
 class USBContext:
     def getDeviceIterator(self, skip_on_error=False):
+        if os.environ.get("UBTBR_FAKE_LIST_ERROR"):
+            raise RuntimeError("listing the bus failed")
         if os.environ.get("UBTBR_FAKE_NO_DEVICE"):
             return iter(())
         serials = os.environ.get("UBTBR_FAKE_SERIALS", ONE_BOARD)
@@ -261,11 +293,12 @@ NO_ANSWER = "did not go idle"
 class Recorder(logging.Handler):
     """Keeps what ubtbr reported, so a test can tell how a command ended.
 
-    Two channels reach it. The packets a command reports and the progress it
-    makes are still log lines, so it is a logging handler; a warning or a
-    failure is one `warning: ` or `error: ` line written straight to standard
-    error, so it also stands in for that stream. Both end up in the same
-    list, since what a test asks is what was said and not how.
+    Two channels reach it. The progress a command makes is a log line, so it
+    is a logging handler; a warning or a failure is one `warning: ` or
+    `error: ` line written straight to standard error, so it also stands in
+    for that stream. Both end up in the same list, since what a test asks is
+    what was said and not how. What a command decodes goes to standard
+    output instead, and is checked through the tool itself further down.
 
     Standing in for the stream is what pins these messages to standard error:
     a line that went to standard output instead would not be here. The real
@@ -1166,6 +1199,271 @@ assert "still running" not in errors, errors
 assert "Not idle" not in errors, errors
 assert INQUIRY_PACKET in writes()[len(sent):], (sent, writes())
 print("ubtbr: a command runs after Ctrl-C ended a discoverable")
+
+# ---- what goes to which stream --------------------------------------------
+#
+# A packet a command decodes used to be a log line on standard error, of the
+# form "HH:MM:SS | INFO | RX ...", so a session piped into anything got
+# nothing. It now goes to standard output with the time in front of it, and
+# the progress a command makes stays on standard error without one.
+
+READS_FILE = os.path.join(WORK.name, "reads")
+# The address the fake device reports, as the FHS packet carries it: the
+# lowest 24 bits are the LAP, then the UAP, then the NAP.
+FAKE_BDADDR = 0x112233445566
+
+
+def framed(code, body):
+    """One message from the device, as the packet carrying it, in hex."""
+    message = struct.pack("<I", code) + bytes(body)
+    return (b"S\x00" + struct.pack("<H", len(message)) + message).hex()
+
+
+def state_message(state, reason=0):
+    """The packet a device sends to report the state it is now in."""
+    return framed(btctl.BTCTL_STATE_RESP, (state, reason))
+
+
+def received_message(flags, bb_hdr, body):
+    """The packet a device sends for one packet it received.
+
+    btctl_rx_pkt_t: the clock and channel it was received on, the decode
+    flags, the size of what follows, the baseband header, then the packet.
+    """
+    received = (struct.pack("<IBBH", 0, 39, flags, len(body))
+                + bytes(bb_hdr) + bytes(body))
+    return framed(btctl.BTCTL_RX_PKT, received)
+
+
+def acl_message(llid, data):
+    """The packet a device sends for one received ACL packet of good CRC."""
+    # The payload header a DM1 carries: the length, the flow bit, the LLID.
+    header = bytes(((len(data) << 3) | (1 << 2) | llid,))
+    return received_message(1 << btctl.BBPKT_F_GOOD_CRC,
+                            (1, btctl.DM1, 0, 0), header + bytes(data))
+
+
+def fhs_message(bdaddr):
+    """The packet a device sends for one received FHS packet, in hex."""
+    body = bytearray(18)
+    lap = bdaddr & 0xffffff
+    body[4] = (lap & 0x3f) << 2
+    body[5] = (lap >> 6) & 0xff
+    body[6] = (lap >> 14) & 0xff
+    body[7] = (lap >> 22) & 0x03
+    body[8] = (bdaddr >> 24) & 0xff
+    body[9] = (bdaddr >> 32) & 0xff
+    body[10] = (bdaddr >> 40) & 0xff
+    return received_message(0, (0, btctl.FHS, 0, 0), body)
+
+
+def lmp_message(opcode):
+    """The packet a device sends for one received LMP PDU, 17 bytes long."""
+    return acl_message(btctl.LLID_LMP, bytes((opcode << 1,)) + bytes(16))
+
+
+def canned_session(typed, packets, until):
+    """Drive one session that is handed packets, and return the two streams.
+
+    The packets are held back until the four writes a session opens with and
+    the command typed here have gone out, so they arrive while that command
+    is running and holds the message handler, as those from a real board do.
+    "q" is typed only once `until` has been printed, so the stop cannot race
+    the last of them.
+    """
+    with open(READS_FILE, "w") as canned:
+        canned.write("".join(packet + "\n" for packet in packets))
+    running = tool(dict(ENVIRONMENT, UBTBR_FAKE_READS=READS_FILE,
+                        UBTBR_FAKE_READS_AFTER="4"))
+    running.stdin.write(typed + "\n")
+    running.stdin.flush()
+    printed = bytearray()
+
+    def arrived():
+        try:
+            printed.extend(os.read(running.stdout.fileno(), 4096))
+        except BlockingIOError:
+            pass
+        return until.encode() in printed
+
+    os.set_blocking(running.stdout.fileno(), False)
+    waited = wait_until(arrived)
+    os.set_blocking(running.stdout.fileno(), True)
+    output, errors = running.communicate("q\n", timeout=DEADLINE * 2)
+    # Decoded leniently because the part read above is raw pipe bytes, and a
+    # failure must not turn into a decode error.
+    output = printed.decode(errors="replace") + output
+    assert waited, (output, errors, running.poll())
+    assert running.returncode == 0, (running.returncode, output, errors)
+    return output, errors
+
+
+def timed_lines(output, text):
+    """The lines of standard output holding the text, without the prompt.
+
+    The prompt shares standard output and carries no newline of its own, so
+    the first line printed while it is up lands on the end of it.
+    """
+    return [line.split(tool_module.BTCtlPrompt.prompt)[-1]
+            for line in output.splitlines() if text in line]
+
+
+def time_prefixed(errors):
+    """The lines of standard error that start with a time of day.
+
+    None should: the time belongs to the packets on standard output.
+    """
+    return [line for line in errors.splitlines()
+            if re.match(r"\d\d:\d\d:\d\d ", line)]
+
+
+# An inquiry: the state response is what has a command take packets at all,
+# then an FHS packet and a response carrying an EIR arrive. The response is
+# two lines, and each of them is timed.
+EIR_NAME = bytes((10, 9)) + b"Ubertooth"
+output, errors = canned_session("inquiry", [
+    state_message(btctl.BTCTL_STATE_INQUIRY),
+    fhs_message(FAKE_BDADDR),
+    acl_message(btctl.LLID_L2CAP_START, EIR_NAME),
+], until="COMPLETE_LOCAL_NAME")
+assert len(timed_lines(output, "RX FHS")) == 1, output
+assert re.fullmatch(r"\d\d:\d\d:\d\d RX FHS: FHS: bdaddr=112233445566"
+                    r" parity=0 cls=0 ltaddr=0 clk=0",
+                    timed_lines(output, "RX FHS")[0]), output
+assert re.fullmatch(r"\d\d:\d\d:\d\d ACL\(llid=L2CAP_START, flow=1, len=11\):"
+                    r" 0a 09 55 62 65 72 74 6f 6f 74 68",
+                    timed_lines(output, "ACL(")[0]), output
+assert re.fullmatch(r"\d\d:\d\d:\d\d COMPLETE_LOCAL_NAME: 'Ubertooth'",
+                    timed_lines(output, "COMPLETE_LOCAL_NAME")[0]), output
+# nothing of the packets on standard error, and the progress there carries
+# neither a time nor a level
+assert "RX FHS" not in errors and "COMPLETE_LOCAL_NAME" not in errors, errors
+assert "Inquiry state Ready\n" in errors, errors
+assert "Starting BTCtlInquiryCmd\n" in errors, errors
+assert "| INFO |" not in errors and "| DEBUG |" not in errors, errors
+assert time_prefixed(errors) == [], errors
+print("ubtbr: a decoded packet goes to standard output, progress to standard error")
+
+# a session holding a connection reports the LMP packets it decodes the same
+# way, named and in hex, so a capture of a connection reads on its own. The
+# link manager traces the same exchange on standard error, which is a
+# diagnostic and was for a while the only place those packets appeared at
+# all. Both commands that hold a connection are checked, because each has
+# its own handler.
+CONNECTED_LT_ADDR_1 = (btctl.BTCTL_STATE_CONNECTED,
+                       (1 << 5) | btctl.BTCTL_REASON_SUCCESS)
+NAME_REQ = (r"\d\d:\d\d:\d\d RX LMP: BBHdr\(lt_addr=1, type=DM1, flags=\)"
+            r" \| \(tid 0\) LMP_NAME_REQ +\| 02(00){16}")
+for typed in ("page_scan", "page 11:22:33:44:55:66"):
+    output, errors = canned_session(typed, [
+        state_message(*CONNECTED_LT_ADDR_1),
+        lmp_message(btctl.LMP_NAME_REQ),
+    ], until="RX LMP")
+    assert re.fullmatch(NAME_REQ, timed_lines(output, "RX LMP")[0]), output
+    # and in plain text: a capture carries no terminal color
+    assert "\x1b" not in output, output
+    assert "RX LMP" not in errors, errors
+    assert "Connection ready, lt_addr=1\n" in errors, errors
+    assert "lmp_rx" in errors, errors
+    assert time_prefixed(errors) == [], errors
+print("ubtbr: a connection's LMP packets go to standard output as well")
+
+# What the tool says when standard output has gone away, whichever write
+# found it gone.
+OUTPUT_GONE = "error: standard output has gone away\n"
+
+# standard output going away part way through a capture: reported once, the
+# prompt still ends the session, and the status says the capture is not all
+# there. The flush the interpreter does on the way out used to fail as well,
+# which ended the tool in status 120 and a message of its own.
+with open(READS_FILE, "w") as canned:
+    canned.write(state_message(btctl.BTCTL_STATE_INQUIRY) + "\n")
+    for _ in range(100):
+        canned.write(fhs_message(FAKE_BDADDR) + "\n")
+running = tool(dict(ENVIRONMENT, UBTBR_FAKE_READS=READS_FILE,
+                    UBTBR_FAKE_READS_AFTER="4", UBTBR_FAKE_READ_DELAY="0.05"))
+running.stdin.write("inquiry\n")
+running.stdin.flush()
+read = bytearray()
+
+
+def capture_started():
+    """True once packets are being printed, so there is one to lose."""
+    try:
+        read.extend(os.read(running.stdout.fileno(), 4096))
+    except BlockingIOError:
+        pass
+    return read.count(b"RX FHS") >= 2
+
+
+os.set_blocking(running.stdout.fileno(), False)
+assert wait_until(capture_started), (bytes(read), running.poll())
+# What `ubertooth-btbr | head -2` does: the reader stops reading and goes.
+running.stdout.close()
+running.stdin.write("q\n")
+running.stdin.flush()
+running.stdin.close()
+errors = running.stderr.read()
+assert running.wait(timeout=DEADLINE) == 1, (running.returncode, errors)
+assert errors.count(OUTPUT_GONE) == 1, errors
+assert "Exception ignored" not in errors, errors
+assert "Traceback" not in errors, errors
+print("ubtbr: a capture whose reader went away is reported, and exits 1")
+
+# and the same when the reader leaves with no packet left to print, which is
+# `ubertooth-btbr | head -1`: the prompt and the intro are on that stream
+# too, and the write that finds it gone is then the session's last flush.
+# CPython's input() hides the failure while printing the prompt, so nothing
+# on the way noticed it.
+running = tool()
+running.stdout.close()
+running.stdin.write("q\n")
+running.stdin.flush()
+running.stdin.close()
+errors = running.stderr.read()
+assert running.wait(timeout=DEADLINE) == 1, (running.returncode, errors)
+assert errors.count(OUTPUT_GONE) == 1, errors
+assert "Exception ignored" not in errors, errors
+assert "Traceback" not in errors, errors
+print("ubtbr: a reader that leaves before any packet is reported the same way")
+
+# the usage text has nowhere to go either: one line, and the 0 that -h would
+# have exited with becomes 1, because what was asked for was not printed
+running = tool(arguments=("-h",))
+running.stdout.close()
+errors = running.stderr.read()
+assert running.wait(timeout=DEADLINE) == 1, (running.returncode, errors)
+assert errors.count(OUTPUT_GONE) == 1, errors
+assert "Exception ignored" not in errors, errors
+assert "Traceback" not in errors, errors
+print("ubtbr: -h whose usage text could not be printed exits 1")
+
+# and with both streams the same pipe, which is `2>&1 | head -1`, the status
+# is all that is left: the error line has nowhere to go either, and saying so
+# must not become an unhandled failure of its own.
+running = subprocess.Popen([sys.executable, WRAPPER, "-h"],
+                           stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, text=True,
+                           env=ENVIRONMENT)
+running.stdout.close()
+running.stdin.close()
+assert running.wait(timeout=DEADLINE) == 1, running.returncode
+print("ubtbr: both streams gone leaves the exit status to say it")
+
+# a failure nobody handled, leaving past a standard output that has gone
+# away, ends in the traceback that failure deserves and nothing else: the
+# last flush is taken whichever way the session ends, so the interpreter is
+# never the one to find the stream gone. Nothing had been printed by then, so
+# there is nothing to report lost; what this pins is that the way out is the
+# tool's and not status 120 with a message of the interpreter's own.
+running = tool(dict(ENVIRONMENT, UBTBR_FAKE_LIST_ERROR="1"))
+running.stdout.close()
+running.stdin.close()
+errors = running.stderr.read()
+assert running.wait(timeout=DEADLINE) == 1, (running.returncode, errors)
+assert "RuntimeError: listing the bus failed" in errors, errors
+assert "Exception ignored" not in errors, errors
+print("ubtbr: an unhandled failure does not leave the last flush to the exit")
 
 # no Ubertooth at all: one error line, nothing on standard output, exit 1,
 # where the tool used to end in a traceback

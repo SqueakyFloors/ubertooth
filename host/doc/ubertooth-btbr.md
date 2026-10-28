@@ -169,19 +169,43 @@ If no FHS appears, the peripheral won the race; try again.
 - `monitor` is a race against the real peripheral and often takes several
   attempts. Packets are lost: get closer, use a better antenna.
 
+## OUTPUT
+
+The packets a command decodes go to standard output, one to a line, each
+carrying the time it was printed:
+
+    19:18:58 RX FHS: FHS: bdaddr=112233445566 parity=6c38a7bd cls=5a020c ltaddr=0 clk=365c
+
+That time is the only timing a session has. An inquiry response is the
+response itself and the EIR fields under it, each as a timed line of its own:
+
+    19:19:03 ACL(llid=L2CAP_START, flow=1, len=11): 0a 09 55 62 65 72 74 6f 6f 74 68
+    19:19:03 COMPLETE_LOCAL_NAME: 'Ubertooth'
+
+A session holding a connection -- `page`, `l2ping`, `page_scan`,
+`discoverable` -- reports each LMP packet the same way, with the baseband
+header and the PDU named and in hex. It also traces the same exchange on
+standard error, where the link manager adds the state it was in and the
+seconds since the connection came up; that trace is a diagnostic, and the
+capture is what standard output holds.
+
+The prompt, the `Type ? to list commands` line and whatever `?` prints are on
+standard output as well, and the prompt carries no newline of its own, so the
+first packet printed while the prompt is up lands on the end of it. The
+progress a command makes is on standard error, as plain lines carrying
+neither the time nor a level:
+
+    Starting BTCtlInquiryCmd
+    Inquiry state Ready
+    Inquiry done
+
 ## DIAGNOSTICS
 
-Standard output carries the prompt and the usage text `-h` prints. Everything
-else goes to standard error. A command line the tool will not take, a board it
-cannot select, open or set up, and anything that goes wrong during a session,
-are reported as the one-line `error: `, `warning: ` and `note: ` lines the
-other tools use.
-
-The packets a command reports, and the progress it makes, are still log lines
-of the form `HH:MM:SS | INFO | ...` on standard error, which is a remaining
-deviation from ubertooth(7), OUTPUT AND DIAGNOSTICS: decoded packets belong on
-standard output. Tracked as issue
-[#735](https://github.com/SqueakyFloors/ubertooth/issues/735).
+Standard output carries the packets a command decodes, the prompt, and the
+usage text `-h` prints; see OUTPUT. Everything else goes to standard error. A
+command line the tool will not take, a board it cannot select, open or set up,
+and anything that goes wrong during a session, are reported as the one-line
+`error: `, `warning: ` and `note: ` lines the other tools use.
 
 An option value outside 0-65535, or one that is not a number, is refused
 before the board is opened: `error: -f must be 0-65535 (got bad)`, exit
@@ -207,6 +231,14 @@ and a request that failed some other way gives `error: <command> stopped:
 stop at all leaves the board claimed, which is reported on the way out (see
 EXIT STATUS).
 
+Standard output going away is one line, `error: standard output has gone
+away`, said once however many writes find it gone. A capture piped into
+something that stops reading, as `ubertooth-btbr | head -5` does, therefore
+leaves the prompt up with nothing more printed, and the session ends with
+exit 1; so does a `-h` whose usage text could not be delivered. If standard
+error has gone the same way, the exit status is all that is left to say it
+with.
+
 With no Ubertooth attached the tool says `error: no Ubertooth devices found`
 and exits 1. A selection that names no board, or more than one, is refused
 the same way; see SELECTING A DEVICE. A board that cannot be opened is
@@ -226,7 +258,9 @@ same way. See FIRMWARE.
 ## EXIT STATUS
 
 0 for `-h`, and when the session ended cleanly, which is `exit`, `q`, `x` or
-Ctrl-D with nothing left running. 1 for a command line the tool will not take,
+Ctrl-D with nothing left running and everything asked for printed. 1 for a
+command line the tool will not take, when standard output went away before
+all that was asked for had been printed,
 when no Ubertooth is found, when `-U` names no board or more than one, when
 the one it names cannot be opened or is in use by another program, when the
 board refuses the requests
