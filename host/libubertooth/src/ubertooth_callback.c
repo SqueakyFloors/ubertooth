@@ -1321,13 +1321,18 @@ void cb_rx(ubertooth_t* ut, void* args)
 	 * the search happened to try last.
 	 *
 	 * Decoding it needs the piconet's clock rather than the Ubertooth's.
-	 * The two differ by the offset the UAP search worked out, which the
-	 * firmware only applies once it is told to follow; after that libbtbb
-	 * decodes the packet itself, so this is for the packets before it. */
+	 * The two differ by the offset the UAP search worked out, in slots,
+	 * until the whole clock is known: from then on the firmware is told to
+	 * apply the offset itself, libbtbb decodes the packet, and the offset
+	 * the piconet reports counts in the clock's own ticks instead. So this
+	 * is for the packets before that, the ones nothing else decodes. */
 	if (pn && uap != UAP_ANY
 	       && btbb_piconet_get_flag(pn, BTBB_CLK6_VALID)
-	       && !btbb_piconet_get_flag(pn, BTBB_FOLLOWING)
+	       && !btbb_piconet_get_flag(pn, BTBB_CLK27_VALID)
 	       && btbb_header_present(pkt)) {
+		/* One slot is two clock ticks, which is what the offset has to
+		 * be scaled by to move this packet's clock reading into the
+		 * piconet's time. */
 		uint32_t piconet_clkn = (clkn + 2 * (uint32_t)
 		        btbb_piconet_get_clk_offset(pn)) & CLKN_MASK;
 
