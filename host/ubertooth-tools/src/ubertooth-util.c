@@ -342,10 +342,10 @@ static const struct util_reset_follow_ops follow_ops = {
  * Whether the board answers a control request at all, which is what decides
  * how -r resets it.
  *
- * The quiet serial read, the one -r makes anyway. Tried twice: one transfer
- * that times out on a board which is merely slow must not read as a board
- * that answers nothing, and the second read costs a millisecond on a board
- * that is there.
+ * The quiet serial read, the one -r makes anyway. A failed read is tried once
+ * more, so that a single transfer which times out on a board that is merely
+ * slow does not read as a board answering nothing; a board that answers costs
+ * one read, as before.
  */
 static int board_answers(ubertooth_t *ut)
 {
@@ -370,9 +370,11 @@ static int board_answers(ubertooth_t *ut)
  * Such a board refuses the reset request like every other request, so sending
  * it leaves the board exactly as it was -- and -r then waited ten seconds and
  * reported that the board never came back. What does bring it back is the host
- * resetting the USB connection, which is the re-plug the user would otherwise
- * have to do by hand: on the bench a board that had answered nothing since a
- * capture was killed answered its first control request straight after one.
+ * resetting the USB connection, which stands in for the re-plug the user would
+ * otherwise have to do by hand -- the board keeps its power, so this is the
+ * connection being made afresh rather than the board being restarted. On the
+ * bench a board that had answered nothing since a capture was killed answered
+ * its first control request straight after one.
  *
  * This runs before the reset request rather than instead of it, so -r still
  * means a full reset whichever way it went.
@@ -408,7 +410,10 @@ static int reset_usb_connection(ubertooth_t *ut, const char *u_arg,
 			*handle_alive = 1;
 			return 0;
 		}
-		util_clock_sleep_ms(UTIL_USB_RESET_POLL_MS);
+		/* Between the asks only: a sleep after the last one would delay the
+		 * report by a poll for nothing. */
+		if (i + 1 < UTIL_USB_RESET_POLLS)
+			util_clock_sleep_ms(UTIL_USB_RESET_POLL_MS);
 	}
 	/* The reset went through, this handle is still the board's, and it
 	 * answers nothing: that is as far as the host can take it, and what is
@@ -1155,8 +1160,12 @@ int main(int argc, char *argv[])
 			if (ut == NULL)
 				return 1;
 			/* It is back, so the count the next wait compares against is
-			 * the whole bus again. */
+			 * the whole bus again -- and its serial can be read now, which
+			 * the wait above had to do without. */
 			wait.count_before = ubertooth_count();
+			util_reset_follow_init(&follow, &follow_ops, ut, ubertooth_device,
+			                       wait.count_before);
+			wait.select_needs_count = follow.select_needs_count;
 		}
 		ut = reset_and_reopen(ut, ubertooth_device, follow.selector, &wait, 1,
 		                      &status);
