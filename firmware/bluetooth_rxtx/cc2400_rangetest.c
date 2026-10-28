@@ -159,8 +159,8 @@ rangetest_result rr;
  * Timer 0 counts 100 ns ticks and resets every CLK100NS_PER_CLKN of them --
  * 312.5 us, one clkn tick -- so this adds up the steps it sees rather than
  * comparing against a deadline the reset would carry it past. Both callers
- * start the timer with clkn_start() before they receive, which is also what
- * stops this being a wait that could never end.
+ * start that timer with clkn_start() before they receive, which is also what
+ * keeps a stopped counter from leaving this waiting forever.
  *
  * Tens of microseconds is far too short to service USB in, and far too short
  * for the host to notice.
@@ -455,12 +455,10 @@ void cc2400_repeater(volatile u16 *chan_ptr)
 			if (requested_mode != MODE_REPEATER)
 				break;
 			USRLED_SET;
-			/* The same wait the sender needs. The repeater overwrites byte
-			 * 0 of the request before it replies, so a wrong one here was
-			 * not what the sender reported -- but bytes 2 to 17 are the
-			 * sender's serial number, copied from this read into the
-			 * reply, and they are only right because the read trails the
-			 * air once it is a byte behind. */
+			/* The same wait the sender needs. A wrong byte 0 here is not
+			 * what the sender reported -- the repeater writes its own
+			 * byte 0 into the reply -- but bytes 2 to 17 are the sender's
+			 * serial number, which this read copies into that reply. */
 			rangetest_wait_for_fifo();
 			cc2400_fifo_read(len, buf);
 			if (cc2400_status() & STATUS_CRC_OK)
