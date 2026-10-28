@@ -1129,11 +1129,14 @@ static void connection_update_handler(le_rx_t *buf) {
 	conn.conn_update_pending = 1;
 }
 
+// Is every channel in a 37-bit channel map clear? The five bytes carry
+// channels 0 to 36, so the top three bits of the last one are reserved and
+// le_parse_channel_map() ignores them; this reads the same bits it does.
+static int channel_map_is_empty(const uint8_t *map) {
+	return (map[0] | map[1] | map[2] | map[3] | (map[4] & 0x1f)) == 0;
+}
+
 static void channel_map_update_handler(le_rx_t *buf) {
-	le_channel_remapping_t remapping;
-
-	le_parse_channel_map(&buf->data[3], &remapping);
-
 	// A map with no channels in it is refused, as le_connect_handler() refuses
 	// the same field in a CONNECT_IND. The remapping divides by the number of
 	// channels in use, and the processor's divide-by-zero trap is off at its
@@ -1144,14 +1147,17 @@ static void channel_map_update_handler(le_rx_t *buf) {
 	// Nothing conformant sends an empty map, so a packet asking for one has
 	// bit errors (CRC verification is off by default). Keep following the
 	// connection on the map it already has.
-	if (remapping.total_channels == 0)
+	//
+	// Checked on the packet's own bytes rather than on a parsed copy, because
+	// a second le_channel_remapping_t is nearly 200 bytes and this engine's
+	// stack is under a kilobyte. Returning here also leaves an update that is
+	// already waiting for its instant untouched.
+	if (channel_map_is_empty(&buf->data[3]))
 		return;
 
-	// Only now, so a corrupted update cannot overwrite a good one that is
-	// still waiting for its instant.
-	conn.pending_remapping = remapping;
 	conn.channel_map_update_pending = 1;
 	conn.channel_map_update_instant = extract_field(buf, 8, 2);
+	le_parse_channel_map(&buf->data[3], &conn.pending_remapping);
 }
 
 static void packet_handler(le_rx_t *buf) {

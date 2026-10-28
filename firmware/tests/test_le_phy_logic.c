@@ -1145,6 +1145,37 @@ MU_TEST(a_channel_map_update_with_no_channels_is_refused)
 
 	/* The map being followed now is untouched either way. */
 	mu_assert_int_eq(37, conn.remapping.total_channels);
+
+	/*
+	 * The map's last byte carries channels 32 to 36; its top three bits are
+	 * reserved. A map with nothing but one of those set is empty too -- and
+	 * this is what keeps the quick emptiness test and the parse, which walk
+	 * the same 37 bits separately, agreeing.
+	 */
+	fill_packet(&buf, 8, DATA_CHANNEL_MHZ);
+	memset(buf.data, 0, sizeof(buf.data));
+	buf.data[7] = 0x20;                 /* the fifth map byte */
+	put_le(&buf.data[8], 4321, 2);
+	channel_map_update_handler(&buf);
+	mu_assert_int_eq(1234, conn.channel_map_update_instant);
+	mu_assert_int_eq(2, conn.pending_remapping.total_channels);
+
+	{
+		le_channel_remapping_t parsed;
+
+		le_parse_channel_map(&buf.data[3], &parsed);
+		mu_assert_int_eq(0, parsed.total_channels);
+	}
+
+	/* Channel 36, the last real one, is a map the update is taken from. */
+	fill_packet(&buf, 8, DATA_CHANNEL_MHZ);
+	memset(buf.data, 0, sizeof(buf.data));
+	buf.data[7] = 0x10;
+	put_le(&buf.data[8], 5555, 2);
+	channel_map_update_handler(&buf);
+	mu_assert_int_eq(5555, conn.channel_map_update_instant);
+	mu_assert_int_eq(1, conn.pending_remapping.total_channels);
+	mu_assert_int_eq(36, conn.pending_remapping.remapping_index[0]);
 }
 
 /*
