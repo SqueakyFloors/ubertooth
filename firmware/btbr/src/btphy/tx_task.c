@@ -157,8 +157,10 @@ static int tx_execute(uint8_t p1, uint8_t p2, uint16_t p3)
 #define	TX_MAX_WAIT 1500
 static int tx_finalize(uint8_t p1, uint8_t p2, uint16_t p3)
 {
-	/* Wait end of transmission .. */
-	while (CLKN_OFFSET < TX_MAX_WAIT && (cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
+	/* Wait for the end of the transmission, until 150usec into the slot.
+	 * The radio is stopped either way: a transmit still going at the
+	 * deadline is one the radio never reported the end of. */
+	btphy_rf_wait_fsm(STATE_STROBE_FS_ON, TX_MAX_WAIT);
 	
 	/* Stop phy TX */ 
 	btphy_rf_idle();

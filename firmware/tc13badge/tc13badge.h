@@ -151,6 +151,18 @@
 #define FSM_POLLS         2000
 
 /*
+ * How many times each half of cc2400_spi_byte() polls its UART flag before it
+ * gives up. This one is a level below the waits above: they poll the radio
+ * through it, so a byte that never completes holds them all.
+ *
+ * One poll is a bit test on a peripheral register, a couple of instructions,
+ * and a byte at any clock this part runs the UART at completes in a few
+ * microseconds. 10000 of them is therefore milliseconds -- out of reach of a
+ * UART that is running, and reached only by one that was left switched off.
+ */
+#define SPI_BYTE_POLLS    10000
+
+/*
  * Waiting for a packet is the one wait that is not about the radio being late:
  * nothing is wrong when no packet comes, the other end has simply not
  * transmitted. The range test gives up on it all the same, because the badge

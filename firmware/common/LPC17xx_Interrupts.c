@@ -46,13 +46,37 @@
 */
 
 
+#include "watchdog.h"
+
 /* Reset_Handler variables defined in linker script */
 extern unsigned long _StackTop;
 
 extern void Reset_Handler(void);
 
-/* Default interrupt handler */
-static void Default_Handler(void) { while(1) {;} }
+/*
+ * watchdog.h declares this; the attribute says the images that do not link
+ * watchdog.c -- blinky, clock_test, cc2400_test and the bootloader -- still
+ * link, with the symbol left null for the test below to find.
+ */
+extern uint8_t watchdog_mark(uint8_t site) __attribute__((weak));
+
+/*
+ * Default interrupt handler: an interrupt fired that nothing was written for.
+ *
+ * NMI, SVC, PendSV, SysTick and every peripheral interrupt the firmware does
+ * not handle are weak aliases of this, so arriving here means one of them was
+ * taken unexpectedly. That is not a processor fault and not a wait, so the
+ * breadcrumb gets a site of its own: the loop below never returns and never
+ * services USB, so the watchdog resets the board a few seconds later, and
+ * without the mark ubertooth-util -w would name whatever the board was doing
+ * before the interrupt instead.
+ */
+static void Default_Handler(void)
+{
+	if (watchdog_mark)
+		watchdog_mark(WATCHDOG_SITE_UNHANDLED_IRQ);
+	while(1) {;}
+}
 
 /* Empty handlers aliased to the default handler */
 void NMI_Handler(void) __attribute__ ((weak, alias ("Default_Handler")));

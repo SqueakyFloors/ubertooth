@@ -1058,6 +1058,11 @@ static const struct {
 	 * an unlock, and has to stay that rather than grow a loop. */
 	{ "cc2400_wait_fs_unlock",
 	  "return cc2400_wait_fs(0);", 0 },
+	/* A level below the others: every wait above polls the radio through
+	 * this, so a byte that never completes holds them all. Two loops of
+	 * the same shape, one per UART flag, and both have to be counted. */
+	{ "cc2400_spi_byte",
+	  "for (i = SPI_BYTE_POLLS; i; i--)", 2 },
 };
 
 /* How many times `needle` appears in `text`. */
@@ -1304,13 +1309,16 @@ MU_TEST(test_the_scan_slot_ends_when_the_radio_is_not_receiving)
 	mu_assert(source != NULL, path);
 	while (fgets(line, sizeof(line), source) != NULL) {
 		strip_comments(line, &in_block);
-		if (strstr(line, "cc2400_wait_fsm") == NULL) {
+		/* Either wait on the state machine: the one bounded by a poll
+		 * count, or the one a slot task uses, bounded by the slot
+		 * clock. */
+		if (strstr(line, "wait_fsm") == NULL) {
 			/* The slot has to end before the GIO6 read in scan_wait(). */
 			if (guarded && strstr(line, "scan_finalize()") != NULL)
 				ends_the_slot = 1;
 			continue;
 		}
-		if (strstr(line, "if (!cc2400_wait_fsm") != NULL)
+		if (strstr(line, "if (!btphy_rf_wait_fsm") != NULL)
 			guarded = 1;
 		else
 			unguarded = 1;

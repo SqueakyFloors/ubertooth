@@ -22,6 +22,11 @@ extern uint32_t fake_rsid;
 extern uint32_t fake_iser0;
 extern uint32_t fake_icer0;
 
+/* The interrupt control and state register, whose low nine bits say which
+ * exception the processor is in. A test sets it to put the code under test in
+ * an interrupt handler. */
+extern uint32_t fake_scb_icsr;
+
 /* Every write to the feed register, in order: the pair 0xAA, 0x55 is what the
  * part accepts, and the test checks that is what it gets. */
 #define FAKE_WDFEED_MAX 64
@@ -35,6 +40,7 @@ void fake_wdfeed_write(uint32_t value);
 #define RSID     fake_rsid
 #define ISER0    fake_iser0
 #define ICER0    fake_icer0
+#define SCB_ICSR fake_scb_icsr
 
 #define WDFEED_SEQUENCE fake_wdfeed_write(0xAA); fake_wdfeed_write(0x55)
 

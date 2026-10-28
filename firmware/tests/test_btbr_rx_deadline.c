@@ -143,14 +143,41 @@ u8 cc2400_status(void) { return 0; }
 u8 cc2400_strobe(u8 reg) { (void)reg; return 0; }
 void cc2400_set(u8 reg, u16 val) { (void)reg; (void)val; }
 
-/* The radio's state machine: the receive task only checks that the radio is
- * receiving, which it is for every test here. The deadline is about the bytes
- * after that, not about getting there. */
+/*
+ * The radio's state machine. The receive task only checks that the radio is
+ * receiving, which it is by default, so the deadline tests below see the state
+ * they expect without saying so; the tests for the state machine wait set it
+ * themselves, and count the reads.
+ */
+static u16 fake_fsm_state = STATE_STROBE_RX;
+static unsigned fake_fsm_reads;
+
 u16 cc2400_get(u8 reg)
 {
-	if (reg == FSMSTATE)
-		return STATE_STROBE_RX;
+	if (reg == FSMSTATE) {
+		fake_fsm_reads++;
+		return fake_fsm_state;
+	}
 	return 0;
+}
+
+/* The breadcrumb and the give-up counts, which the state machine wait writes.
+ * Both are kept here so a test can read back what it recorded. */
+static uint8_t fake_live_site;
+static unsigned fake_fsm_timeouts;
+
+uint8_t watchdog_mark(uint8_t site)
+{
+	uint8_t previous = fake_live_site;
+
+	fake_live_site = site;
+	return previous;
+}
+
+void cc2400_wait_count_timeout(enum cc2400_wait_shape shape)
+{
+	if (shape == CC2400_WAIT_FSM)
+		fake_fsm_timeouts++;
 }
 
 void btphy_rf_tune_chan(uint16_t channel, int tx) { (void)channel; (void)tx; }
@@ -582,6 +609,172 @@ MU_TEST(test_the_receive_task_does_not_spin_on_the_dma_buffer)
 	mu_assert_int_eq(0, found);
 }
 
+/* ---- the wait on the radio's state machine ---- */
+
+/*
+ * The other thing a slot task waits on is the radio's state machine, and it is
+ * bounded the same way: by a position in the slot, not by a number of tries.
+ * A poll count cannot serve a slot task. These waits run inside
+ * TIMER0_IRQHandler, which fires every 312.5usec and counts one slot per
+ * interrupt, so the shared FSM_POLLS budget -- about 9ms -- held the handler
+ * for around 28 slots and the piconet clock lost every one of those counts.
+ *
+ * btphy_rf_wait_fsm() is an inline in rf.h, which this file already includes,
+ * so these call it against the same fake clock.
+ */
+static void a_wait_on(u16 state, uint32_t clock_now, uint32_t step)
+{
+	fake_clock = clock_now;
+	fake_clock_step = step;
+	fake_clock_reads = 0;
+	fake_fsm_state = state;
+	fake_fsm_reads = 0;
+	fake_fsm_timeouts = 0;
+	fake_live_site = WATCHDOG_SITE_NONE;
+}
+
+/* The state is there, so the wait ends on its first read and counts nothing. */
+MU_TEST(test_the_state_machine_wait_returns_when_the_state_is_reached)
+{
+	a_wait_on(STATE_IDLE, 0, 1);
+
+	mu_assert_int_eq(1, btphy_rf_wait_fsm(STATE_IDLE, 1500));
+	mu_assert_int_eq(1, (int)fake_fsm_reads);
+	mu_assert_int_eq(0, (int)fake_fsm_timeouts);
+	/* and it left the breadcrumb as it found it */
+	mu_assert_int_eq(WATCHDOG_SITE_NONE, fake_live_site);
+}
+
+/* The state never arrives: the slot clock is what ends the wait, and the
+ * give-up is counted so ubertooth-util -b can show it. */
+MU_TEST(test_the_state_machine_wait_gives_up_at_its_deadline)
+{
+	a_wait_on(STATE_STROBE_RX, 0, 10);
+
+	mu_assert_int_eq(0, btphy_rf_wait_fsm(STATE_IDLE, 1500));
+	mu_assert(fake_clock_peek() >= 1500,
+	          "the wait ended before its deadline");
+	/* within one step of the deadline, so it is the deadline that ended it
+	 * and not some other limit */
+	mu_assert(fake_clock_peek() <= 1500 + 10,
+	          "something other than the deadline ended the wait");
+	mu_assert_int_eq(1, (int)fake_fsm_timeouts);
+	mu_assert_int_eq(WATCHDOG_SITE_NONE, fake_live_site);
+}
+
+/*
+ * A task that gets here with the deadline already behind it still reads the
+ * radio once. Otherwise a radio that is in the state would be reported as one
+ * that never answered, and the give-up count -- which is about the radio, not
+ * about the scheduling -- would climb on a board whose radio is fine.
+ */
+MU_TEST(test_the_state_machine_wait_reads_once_past_its_deadline)
+{
+	a_wait_on(STATE_IDLE, 3000, 10);
+	mu_assert_int_eq(1, btphy_rf_wait_fsm(STATE_IDLE, 1500));
+	mu_assert_int_eq(1, (int)fake_fsm_reads);
+	mu_assert_int_eq(0, (int)fake_fsm_timeouts);
+
+	a_wait_on(STATE_STROBE_RX, 3000, 10);
+	mu_assert_int_eq(0, btphy_rf_wait_fsm(STATE_IDLE, 1500));
+	mu_assert_int_eq(1, (int)fake_fsm_reads);
+	mu_assert_int_eq(1, (int)fake_fsm_timeouts);
+}
+
+/*
+ * No deadline runs past the end of the slot, however late a caller asks for:
+ * the slot clock restarts there, so a deadline beyond it would never be
+ * reached and the wait would be the unbounded one again.
+ */
+MU_TEST(test_the_state_machine_wait_cannot_run_past_the_slot)
+{
+	a_wait_on(STATE_STROBE_RX, 0, 10);
+
+	mu_assert_int_eq(0, btphy_rf_wait_fsm(STATE_IDLE,
+	                                      CLKN_OFFSET_RESET_VAL * 2));
+	mu_assert(fake_clock_peek() >= RF_WAIT_LATEST,
+	          "the wait ended before the end of the slot");
+	mu_assert(fake_clock_peek() < CLKN_OFFSET_RESET_VAL,
+	          "the wait ran past the slot restart, where its deadline\n"
+	          "could never be reached");
+}
+
+/*
+ * And the slot tasks are the callers that use it. The two waits outside the
+ * slot machinery -- the radio being set up at boot, and the mode being torn
+ * down -- keep the poll count, which is why this names the call rather than
+ * scanning for the absence of the other one.
+ */
+MU_TEST(test_every_wait_in_a_slot_task_takes_its_deadline_from_the_slot)
+{
+	static const struct {
+		const char *path;
+		const char *call;
+	} sites[] = {
+		/* the retune, which every slot does */
+		{ FW_BTBR_DIR "/src/btphy/rf.c",
+		  "btphy_rf_wait_fsm(STATE_IDLE, RF_WAIT_LATEST)" },
+		/* the scan, until this slot stops listening */
+		{ FW_BTBR_DIR "/src/btphy/scan_task.c",
+		  "btphy_rf_wait_fsm(STATE_STROBE_RX, SCAN_WAIT_SYNCWORD)" },
+		/* the end of a transmit */
+		{ FW_BTBR_DIR "/src/btphy/tx_task.c",
+		  "btphy_rf_wait_fsm(STATE_STROBE_FS_ON, TX_MAX_WAIT)" },
+	};
+	size_t i;
+
+	for (i = 0; i < sizeof(sites) / sizeof(sites[0]); i++) {
+		FILE *source = fopen(sites[i].path, "r");
+		char line[512], why[512];
+		int in_block = 0, found = 0;
+
+		snprintf(why, sizeof(why), "cannot read %s", sites[i].path);
+		mu_assert_fatal(source != NULL, why);
+		while (fgets(line, sizeof(line), source) != NULL) {
+			strip_comments(line, &in_block);
+			if (strstr(line, sites[i].call) != NULL)
+				found = 1;
+		}
+		fclose(source);
+
+		snprintf(why, sizeof(why),
+		         "%s: no `%s`, so this per-slot wait does not take its "
+		         "deadline from the slot clock",
+		         sites[i].path, sites[i].call);
+		mu_assert(found, why);
+	}
+
+	/* No slot task may be left on the poll count. Those two files have no
+	 * wait outside a slot task, so naming it at all is the mistake. */
+	{
+		static const char *const slot_only[] = {
+			FW_BTBR_DIR "/src/btphy/scan_task.c",
+			FW_BTBR_DIR "/src/btphy/tx_task.c",
+		};
+		size_t f;
+
+		for (f = 0; f < sizeof(slot_only) / sizeof(slot_only[0]); f++) {
+			FILE *source = fopen(slot_only[f], "r");
+			char line[512], why[512];
+			int in_block = 0, found = 0;
+
+			snprintf(why, sizeof(why), "cannot read %s", slot_only[f]);
+			mu_assert_fatal(source != NULL, why);
+			while (fgets(line, sizeof(line), source) != NULL) {
+				strip_comments(line, &in_block);
+				if (calls_identifier(line, "cc2400_wait_fsm"))
+					found = 1;
+			}
+			fclose(source);
+
+			snprintf(why, sizeof(why),
+			         "%s: calls cc2400_wait_fsm(), whose bound is a "
+			         "poll count, from a slot task", slot_only[f]);
+			mu_assert(!found, why);
+		}
+	}
+}
+
 int main(void)
 {
 	printf("BR/EDR receive deadline tests\n");
@@ -602,5 +795,10 @@ int main(void)
 	MU_RUN(test_an_overdue_payload_takes_the_header_flag_back);
 	MU_RUN(test_a_payload_that_arrives_is_decoded);
 	MU_RUN(test_the_receive_task_does_not_spin_on_the_dma_buffer);
+	MU_RUN(test_the_state_machine_wait_returns_when_the_state_is_reached);
+	MU_RUN(test_the_state_machine_wait_gives_up_at_its_deadline);
+	MU_RUN(test_the_state_machine_wait_reads_once_past_its_deadline);
+	MU_RUN(test_the_state_machine_wait_cannot_run_past_the_slot);
+	MU_RUN(test_every_wait_in_a_slot_task_takes_its_deadline_from_the_slot);
 	return mu_report();
 }

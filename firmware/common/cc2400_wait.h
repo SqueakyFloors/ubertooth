@@ -135,20 +135,20 @@ int cc2400_wait_fs_unlock(void);
  *
  * The states callers wait for are reached in well under a millisecond: the
  * longest is the end of a transmit, and the longest packet any caller sends is
- * the range test's 22 bytes, 176 microseconds at 1 Mbit. The BR/EDR image's
- * waits are shorter still -- the state machine reaching idle after a strobe
- * off, or receive after a strobe to receive. So the bound is out of reach of a
- * radio that is working at all, which is all it has to be.
+ * the range test's 22 bytes, 176 microseconds at 1 Mbit. So the bound is out
+ * of reach of a radio that is working at all, which is all it has to be.
  *
- * Running to the bound is not free, and it costs the BR/EDR image most: its
+ * Running to the bound is not free. It cost the BR/EDR image most, because its
  * waits run inside TIMER0_IRQHandler, which fires every 312.5 microseconds,
- * and btphy_handler() counts one slot per interrupt. Nine milliseconds in the
- * handler means around 28 matches the timer cannot latch, so the piconet clock
- * loses that many counts and stays off by them. A bound sized to the slot,
- * the way tx_task.c's own wait is, would hold the damage to one slot -- but
- * the state after a strobe to receive needs the synthesizer locked first, so
- * how short is safe has to be measured on a board before it is tightened. The
- * alternative this replaces was overrunning every slot from then on.
+ * and btphy_handler() counts one slot per interrupt: nine milliseconds in the
+ * handler meant around 28 matches the timer could not latch, so the piconet
+ * clock lost that many counts and stayed off by them. The waits that run per
+ * slot take their deadline from the slot clock instead -- see
+ * btphy_rf_wait_fsm() in the BR/EDR image's rf.h -- which holds that to one
+ * slot at worst. What is left here is the bluetooth_rxtx image's wait for the
+ * end of a transmit, which runs from a mode loop and has no slot clock to
+ * work with, and the BR/EDR image's two waits outside the slot machinery: the
+ * radio being set up at boot, and the mode being torn down.
  */
 #define FSM_POLLS 2000
 
@@ -173,6 +173,15 @@ enum cc2400_wait_shape {
 /* Each count stops here rather than wrapping, so a board that has been giving
  * up for hours still reads as "a great many" and not as a small number. */
 #define CC2400_WAIT_TIMEOUTS_MAX 0xffff
+
+/* Count one wait of `shape` as having given up.
+ *
+ * The waits below call this themselves. It is declared here for a wait that
+ * has the same shape but a bound of its own: the BR/EDR image's wait on the
+ * state machine takes its deadline from the slot clock (btphy_rf_wait_fsm()),
+ * and a board that gives up there has to read the same way to the host as one
+ * that gives up here. */
+void cc2400_wait_count_timeout(enum cc2400_wait_shape shape);
 
 /* Fill UBERTOOTH_GET_RADIO_TIMEOUTS's reply: the counts above, each as two
  * bytes, low byte first. */

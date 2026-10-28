@@ -71,14 +71,42 @@ void cc2400_off(void)
 }
 
 /*
- * one byte of a SPI transaction
- * caller must drop CSN
+ * One byte of a SPI transaction, with a bound on each of its two waits. The
+ * caller must drop CSN.
+ *
+ * Every read and write the badge makes to the radio comes through here, so the
+ * bare spins these replace were under all the bounded waits below: a UART that
+ * stops raising its transmit-ready or receive-complete flag froze the badge
+ * inside one poll, before any of those bounds could be reached. The flags are
+ * the R8C's own peripheral rather than the radio, so what it takes is a UART
+ * left disabled -- uart_off() switches both halves off, and sleep() and
+ * r8c_takeover() call it -- and the radio reached after that without
+ * uart_init().
+ *
+ * A byte that never arrived reads as zero. Zero rather than 0xff because the
+ * status byte and the registers are read through here: with every bit clear,
+ * the radio reads as not stable, not locked and in no state a wait is after,
+ * so the waits below run their budgets and give up. All ones would have them
+ * return at once as though the radio were ready.
  */
 uint8_t cc2400_spi_byte(uint8_t data)
 {
-	while (!u0c1.ti);
+	uint16_t i;
+
+	for (i = SPI_BYTE_POLLS; i; i--)
+		if (u0c1.ti)
+			break;
+	if (!i)
+		return 0;
+
 	u0tbl = data;
-	while (!u0c1.ri);
+
+	for (i = SPI_BYTE_POLLS; i; i--)
+		if (u0c1.ri)
+			break;
+	if (!i)
+		return 0;
+
 	return u0rb;
 }
 

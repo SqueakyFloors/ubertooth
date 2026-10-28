@@ -30,7 +30,7 @@ static volatile uint16_t timeouts[CC2400_WAIT_SHAPE_COUNT];
 typedef char radio_timeouts_reply_holds_every_shape[
 	(2 * CC2400_WAIT_SHAPE_COUNT == UBERTOOTH_RADIO_TIMEOUTS_LEN) ? 1 : -1];
 
-static void wait_timed_out(enum cc2400_wait_shape shape)
+void cc2400_wait_count_timeout(enum cc2400_wait_shape shape)
 {
 	/* One read, one write, and the write is at most one above what the read
 	 * saw, so an interrupt in between can cost a count but can never carry
@@ -85,7 +85,7 @@ int cc2400_wait_fs(int locked, void (*service)(void))
 			cc2400_strobe(strobe);
 	}
 
-	wait_timed_out(locked ? CC2400_WAIT_FS_LOCK : CC2400_WAIT_FS_UNLOCK);
+	cc2400_wait_count_timeout(locked ? CC2400_WAIT_FS_LOCK : CC2400_WAIT_FS_UNLOCK);
 	watchdog_mark(site);
 	return 0;
 }
@@ -110,7 +110,7 @@ int cc2400_wait_xosc_stable(void (*service)(void))
 			service();
 	}
 
-	wait_timed_out(CC2400_WAIT_XOSC);
+	cc2400_wait_count_timeout(CC2400_WAIT_XOSC);
 	watchdog_mark(site);
 	return 0;
 }
@@ -132,7 +132,7 @@ int cc2400_wait_fsm(u8 state, void (*service)(void))
 			service();
 	}
 
-	wait_timed_out(CC2400_WAIT_FSM);
+	cc2400_wait_count_timeout(CC2400_WAIT_FSM);
 	watchdog_mark(site);
 	return 0;
 }

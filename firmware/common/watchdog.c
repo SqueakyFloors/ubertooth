@@ -95,6 +95,18 @@ void watchdog_mode(uint8_t mode)
 	watchdog_crumb.live_mode = mode;
 }
 
+/*
+ * Is this running inside an interrupt handler?
+ *
+ * The low nine bits of the interrupt control and state register are the
+ * exception the processor is in -- zero in thread mode, the exception number
+ * otherwise (the Cortex-M3 chapter of the part's user manual, UM10360).
+ */
+static int in_interrupt_handler(void)
+{
+	return (SCB_ICSR & 0x1ffu) != 0;
+}
+
 uint8_t watchdog_mark(uint8_t site)
 {
 	uint8_t previous = watchdog_crumb.live_site;
@@ -105,8 +117,17 @@ uint8_t watchdog_mark(uint8_t site)
 	 * a reply is written from inside the USB service path, which has marked
 	 * itself by then, so live_site always reads back as "servicing USB". One
 	 * level out is the wait the mode was really in when the request arrived.
+	 *
+	 * An interrupt handler is not a level of that nesting: it borrows the
+	 * processor and gives it back, so the code under it is still in whatever
+	 * wait it was in. A mark taken in a handler -- including one taken by a
+	 * wait the handler called, which is how the crystal-oscillator wait is
+	 * reached from the low-energy handlers -- would otherwise leave its own
+	 * site named as the outer one after returning, and -w would report a wait
+	 * the board has left. So in a handler this records the site only.
 	 */
-	watchdog_crumb.live_outer_site = previous;
+	if (!in_interrupt_handler())
+		watchdog_crumb.live_outer_site = previous;
 	watchdog_crumb.live_site = site;
 	return previous;
 }

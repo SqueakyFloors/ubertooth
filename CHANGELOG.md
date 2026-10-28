@@ -255,9 +255,14 @@
   those tools still cannot drive that image and now fail on the first request
   it does not answer.
   [#556](https://github.com/SqueakyFloors/ubertooth/issues/556)
-- **Reflash required:** the firmware API version is now 1.46, last moved by two
-  requests refusing a value they used to accept and by a record naming no
-  channel when the board is tuned outside the band, and the host tools require
+- **Reflash required:** the firmware API version is now 1.47, last moved by the
+  breadcrumb gaining two more places a board can stop, by two requests
+  refusing a value they used to accept, and by a record naming no channel when
+  the board is tuned outside the band. A release build of the host tools
+  refuses firmware of any other API version, older or newer, while a
+  development build warns about it. Host and firmware come from the same tree:
+  `ubertooth-dfu` reflashes a board whatever firmware it is running, but only
+  with an image built from this tree, and `2020-12-R1` firmware is refused.
   [#4](https://github.com/SqueakyFloors/ubertooth/issues/4)
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
@@ -591,6 +596,16 @@
   reset caught in one of those handlers used to be reported as the mode's loop
   servicing USB, which is also what a reset caught in the loop itself reports.
   [#505](https://github.com/SqueakyFloors/ubertooth/issues/505)
+- `ubertooth-util -w` names two more: an interrupt the firmware does not
+  handle, and a failed debug UART transfer. Both stop the board in a loop that
+  marked nothing, so the report named whatever the board had been doing before
+  it got there.
+  [#723](https://github.com/SqueakyFloors/ubertooth/issues/723)
+- `ubertooth-util -w`'s line for what the board is doing now no longer names a
+  wait the board has already left. A wait reached from inside an interrupt
+  handler used to claim that line on its way out, and the crystal-oscillator
+  wait is reached that way on every BLE channel hop.
+  [#730](https://github.com/SqueakyFloors/ubertooth/issues/730)
 - A Classic capture's noise figure and signal-to-noise ratio are what the radio
   heard, instead of a fixed -55 dBm in every record. The per-channel average
   behind them was cleared once per packet, so it never built up. A positive
@@ -1398,6 +1413,17 @@ Fixes with no visible change in normal use.
   or dropped on three payload bytes and three bytes of CRC read as if they
   were an address.
   [#593](https://github.com/SqueakyFloors/ubertooth/issues/593)
+- The BR/EDR image's per-slot waits on the radio's state machine give up at a
+  point in the slot rather than after a fixed number of tries. A radio that
+  was late used to hold the timer interrupt for about nine milliseconds, and
+  the piconet clock lost every slot it spent there, around 28 of them; now it
+  loses at most the slot it is in.
+  [#496](https://github.com/SqueakyFloors/ubertooth/issues/496)
+- The ToorCon badge's transfers to the radio give up rather than waiting
+  forever for the part's UART. Every read and write the badge makes goes
+  through that wait, so a UART left switched off froze the badge underneath all
+  of its bounded waits on the radio.
+  [#681](https://github.com/SqueakyFloors/ubertooth/issues/681)
 - The low-energy engine's three drains of its symbol buffer are bounded. All
   three run in one of its interrupt handlers, and the loop that services USB
   runs beneath both of those, so a drain that never saw the buffer empty
