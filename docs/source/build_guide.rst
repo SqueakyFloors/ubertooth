@@ -85,11 +85,10 @@ For the spectrum analyzer user interface's (UI) Python dependencies
 ``ubertooth-scan`` and ``ubertooth-follow`` need BlueZ (Linux only), so they are
 not built on macOS. The host tools in this repository need no CMake options of
 their own, and neither does the pinned libbtbb. The archived host source below
-is older and needs two, under CMake 4 (which current Homebrew installs):
-``-DCMAKE_POLICY_VERSION_MINIMUM=3.5``, and
-``-DCMAKE_C_FLAGS="-I$(brew --prefix)/include"`` because it looks for
-Homebrew's libusb headers in one place only and that is not where the compiler
-searches.
+needs two: ``-DCMAKE_POLICY_VERSION_MINIMUM=3.5`` under CMake 4, which current
+Homebrew installs, and ``-DCMAKE_C_FLAGS="-I$(brew --prefix)/include"`` on any
+Homebrew install, because it looks for libusb's headers in one place only and
+that is not where the compiler searches.
 
 
 

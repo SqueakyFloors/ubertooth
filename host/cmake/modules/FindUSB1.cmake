@@ -15,8 +15,12 @@
 
 if (LIBUSB_INCLUDE_DIR AND LIBUSB_LIBRARIES)
 
-  # in cache already
+  # in cache already. USB1_FOUND as well as LIBUSB_FOUND: USB1 is the name
+  # find_package() is called with, and it is USB1_FOUND that a REQUIRED call
+  # reads, so a configure after the first would otherwise find the answer in
+  # the cache and still report nothing found.
   set(LIBUSB_FOUND TRUE)
+  set(USB1_FOUND TRUE)
 
 else (LIBUSB_INCLUDE_DIR AND LIBUSB_LIBRARIES)
   IF (NOT WIN32)
@@ -43,6 +47,9 @@ else (LIBUSB_INCLUDE_DIR AND LIBUSB_LIBRARIES)
   # REQUIRED with nothing to stop a configure on, and a tree with no libusb
   # gets as far as the compiler.
   FIND_PACKAGE_HANDLE_STANDARD_ARGS(USB1 DEFAULT_MSG LIBUSB_LIBRARIES LIBUSB_INCLUDE_DIR)
+  # The name this module has always reported, kept in step with the one
+  # find_package() reads.
+  set(LIBUSB_FOUND ${USB1_FOUND})
 
   MARK_AS_ADVANCED(LIBUSB_INCLUDE_DIR LIBUSB_LIBRARIES)
 

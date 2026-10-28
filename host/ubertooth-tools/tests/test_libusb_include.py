@@ -18,9 +18,9 @@ anyway, Linux for example, both compile either way, so the list itself is
 checked too: it must name the directory holding libusb.h and that directory's
 parent, and nothing it reports may be missing.
 
-It then reads every build file under host/ and refuses one that passes the
-singular LIBUSB_INCLUDE_DIR to a target, which is the mistake above written
-back into the tree.
+It also reads every build file under host/ and refuses one that names the
+singular LIBUSB_INCLUDE_DIR, which is the mistake above written back into the
+tree.
 
 The include path the project is given is meant to be the module's and nothing
 else: CMAKE_C_FLAGS is set empty, and CFLAGS, CPATH and C_INCLUDE_PATH are
@@ -75,7 +75,12 @@ def run(command, work):
 
 
 def check_call_sites(repo_root):
-    """No build file may pass the singular LIBUSB_INCLUDE_DIR to a target.
+    """No build file under host/ may name the singular LIBUSB_INCLUDE_DIR.
+
+    A target passing it is the mistake; the scan is wider than that and
+    refuses the name anywhere in a build file, a message() or an if()
+    included, because telling those apart means parsing CMake. Nothing in the
+    tree wants the singular for anything else.
 
     The whole-tree build with no include flags only catches a target given
     neither variable. A target that copies ${LIBUSB_INCLUDE_DIR} and
@@ -113,7 +118,7 @@ def check_call_sites(repo_root):
              "either the variable was renamed and this check no longer knows "
              "the name, or nothing asks libusb for its include directories")
     if offenders:
-        fail("a build file passes ${LIBUSB_INCLUDE_DIR}, which names only the "
+        fail("a build file names ${LIBUSB_INCLUDE_DIR}, which is only the "
              "directory holding libusb.h and not the one above it that "
              "<libusb-1.0/libusb.h> needs. Use ${LIBUSB_INCLUDE_DIRS}:\n  %s"
              % "\n  ".join(offenders))
@@ -124,6 +129,11 @@ def main():
         fail("usage: test_libusb_include.py <cmake> <repository root>")
     cmake, repo_root = sys.argv[1:]
     modules = os.path.join(repo_root, "host", "cmake", "modules")
+
+    # First, because it reads files and nothing else: on a machine where the
+    # probe project below cannot be configured, the tree rule is still
+    # checked rather than lost behind a failure about libusb.
+    check_call_sites(repo_root)
 
     with tempfile.TemporaryDirectory() as work:
         source = os.path.join(work, "project")
@@ -169,7 +179,6 @@ def main():
                  "the directories FindUSB1.cmake reports (%s):\n%s"
                  % (", ".join(dirs), output))
 
-    check_call_sites(repo_root)
     print("PASS")
 
 
