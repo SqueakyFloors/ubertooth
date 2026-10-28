@@ -499,9 +499,8 @@ jobs:
       # twice, so the lint is the Linux leg's and the macOS leg is here for
       # the self-test below.
       #
-      # ci-scripts/ is left out on purpose: those four scripts belong to
-      # upstream's retired Jenkins build, nothing in this fork runs them, and
-      # linting them would mean fixing scripts nobody can test.
+      # These two patterns are every shell script in the tree, so a new script
+      # anywhere else is unlinted until it is added here.
       if: runner.os == 'Linux'
       timeout-minutes: 6
       run: |

@@ -41,15 +41,6 @@ u8 bank[NUM_BREDR_CHANNELS];
  */
 u8 afh_bank[NUM_BREDR_CHANNELS];
 
-/* count the number of 1 bits in a uint64_t */
-static uint8_t count_bits(uint64_t n)
-{
-	uint8_t i = 0;
-	for (i = 0; n != 0; i++)
-		n &= n - 1;
-	return i;
-}
-
 /* nonzero if the AFH channel map marks this channel (0-78) as used */
 static u8 channel_used(u8 chan)
 {
@@ -207,42 +198,4 @@ u16 next_hop(u32 clock)
 	}
 	return (BT_FREQ_MIN + next_channel);
 
-}
-
-/*
- * Software access-code (AC) search over one demodulated symbol buffer of
- * DMA_SIZE bytes, most significant bit of each byte first. Slides a 64-bit
- * window one symbol at a time and returns the bit offset just past the first
- * window within MAX_SYNCWORD_ERRS of target.syncword, or -1. Windows ending in
- * the last 64 symbols are not tested, leaving room for the packet header.
- *
- * Nothing currently calls this: live capture lets the CC2400 detect the sync
- * word in hardware. It is kept as a reference correlator.
- *
- * Each call searches only the buffer it is given, using a local window seeded
- * from that buffer's first 64 bits. An earlier version kept the window in a
- * file-scope variable and reseeded it only when it was zero, so later calls
- * compared bits left over from an earlier buffer. That carry was not a
- * working streaming
- * design: the window stopped 64 bits short of the previous buffer's end, the
- * buffers it was used on were not contiguous (the radio hops between them),
- * and the returned offset had no consistent origin. That version also
- * skipped the ninth byte of each buffer.
- */
-int find_access_code(u8 *idle_rxbuf)
-{
-	u64 window = 0;
-	int count;
-
-	for (count = 0; count < 8; count++)
-		window = (window << 8) | idle_rxbuf[count];
-
-	for (count = 64; count < ((8 * DMA_SIZE) - 64); count++) {
-		if (count_bits(window ^ target.syncword) < MAX_SYNCWORD_ERRS)
-			return count;
-
-		window = (window << 1) |
-			((idle_rxbuf[count / 8] >> (7 - (count % 8))) & 1);
-	}
-	return -1;
 }
