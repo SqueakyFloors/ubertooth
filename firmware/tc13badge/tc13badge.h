@@ -108,6 +108,66 @@
 #define R8C_ACK_SET (p0.b0 = 1)
 #define R8C_ACK_CLR (p0.b0 = 0)
 
+/*
+ * How many times each wait on CC2400 state polls the radio before it gives up.
+ *
+ * These are poll counts, not times: one poll is one SPI transaction through
+ * the badge's UART, so how long a budget lasts depends on the UART's clock.
+ * Each is sized to be out of reach of a radio that is working at all, which is
+ * all it has to be -- the states being waited for are reached in well under a
+ * millisecond.
+ *
+ * The wait for an unlock is deliberately the shortest, as it is in the
+ * Ubertooth firmware: it is asked for on the way out of a measurement, where
+ * carrying on costs nothing.
+ *
+ * All but the first are the Ubertooth's values, which were sized against its
+ * own SPI and are more than this part needs; what a poll costs here has not
+ * been measured. Raising one has a ceiling: the waits count in a uint16_t,
+ * because a counter wider than a word costs this 16-bit part real
+ * instructions, so a budget above 65535 is taken modulo 65536 -- a far shorter
+ * wait than asked for, and no wait at all on an exact multiple.
+ */
+#define MAIN_POLLS        1000
+#define XOSC_STABLE_POLLS 10000
+#define FS_LOCK_POLLS     10000
+#define FS_UNLOCK_POLLS   1000
+#define FSM_POLLS         2000
+
+/*
+ * Waiting for a packet is the one wait that is not about the radio being late:
+ * nothing is wrong when no packet comes, the other end has simply not
+ * transmitted. The range test gives up on it all the same, because the badge
+ * has no host to ask it to stop.
+ *
+ * 28561 polls, which is what the range test has always spent listening, in one
+ * stretch. It has to be one stretch: the radio is receiving throughout it, and
+ * a wait that gave up and started another would first have to wait out
+ * FSM_POLLS with the radio still in receive, so a reply arriving in that gap
+ * would be missed. A wait that finds no packet is therefore the end of the
+ * test.
+ *
+ * Whether 28561 polls is long enough is a separate question, which needs a
+ * badge to answer: the only peer this range test has is an Ubertooth running
+ * cc2400_repeater(), which waits a second before it replies.
+ */
+#define SYNC_RECEIVED_POLLS 28561
+
+/*
+ * How many packets with a failed checksum the range test takes before it gives
+ * up. It used to take them forever, so a radio handing over one bad packet
+ * after another kept the badge in the test. Each retry starts from a radio
+ * that has just received a packet, which is why a retry is worth making at
+ * all: the state the wait above needs has been reached.
+ *
+ * A retry listens again from the full budget, so the worst case is this many
+ * times SYNC_RECEIVED_POLLS. That is longer than the one shared count the test
+ * used to spend across its retries, and the trade is deliberate: a retry only
+ * happens after a packet actually arrived, and a listen that gets the whole
+ * budget is the thing worth keeping.
+ */
+#define BAD_CRC_RETRIES 13
+
 void cc2400_init(void);
 void cc2400_off(void);
 uint8_t cc2400_spi_byte(uint8_t data);
@@ -117,8 +177,14 @@ uint8_t cc2400_get8(uint8_t reg);
 void cc2400_set8(uint8_t reg, uint8_t val);
 uint8_t cc2400_status(void);
 uint8_t cc2400_strobe(uint8_t reg);
+int cc2400_wait_main(uint16_t value);
+int cc2400_wait_xosc_stable(void);
+int cc2400_wait_fs(int locked);
+int cc2400_wait_fs_unlock(void);
+int cc2400_wait_fsm(uint8_t state);
+int cc2400_wait_sync_received(void);
 void cc2400_reset(void);
-void cc2400_clock_start(void);
+int cc2400_clock_start(void);
 void cc2400_register_test(void);
 int cc2400_range_test(void);
 void init_button(void);

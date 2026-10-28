@@ -86,8 +86,6 @@ u8 rxbuf2[DMA_SIZE];
 u8 *active_rxbuf = &rxbuf1[0];
 u8 *idle_rxbuf = &rxbuf2[0];
 
-rangetest_result rr;
-
 volatile u32 mode = MODE_IDLE;
 volatile uint8_t requested_mode = MODE_IDLE;
 volatile u32 modulation = MOD_BT_BASIC_RATE;
@@ -424,23 +422,18 @@ static BOOL usb_vendor_request_handler(TSetupPacket *pSetup, int *piLen, u8 **pp
 		}
 		break;
 
-	case UBERTOOTH_RANGE_TEST:
-		requested_mode = MODE_RANGE_TEST;
-		break;
-
-	case UBERTOOTH_REPEATER:
-		requested_mode = MODE_REPEATER;
-		break;
 #endif
 
-	case UBERTOOTH_RANGE_CHECK:
-		pbData[0] = rr.valid;
-		pbData[1] = rr.request_pa;
-		pbData[2] = rr.request_num;
-		pbData[3] = rr.reply_pa;
-		pbData[4] = rr.reply_num;
-		*piLen = 5;
-		break;
+	/*
+	 * The range test and the repeater are not in this image, and nor is the
+	 * request that reads a range test's result: they belong to the shipped
+	 * image, which is the one that has them. This image is the board's
+	 * assembly test, and its procedure (see README) does not use them, so
+	 * the copy that used to be here was only a copy -- years behind the
+	 * shipped one, never built against a working peer, and unreachable from
+	 * any step of the test. The requests are refused like any other request
+	 * this image does not implement.
+	 */
 
 	case UBERTOOTH_STOP:
 		requested_mode = MODE_IDLE;
@@ -669,9 +662,9 @@ static void dio_ssp_start()
  * there to end the loop, not to make the radio work, so what the board reads
  * from the radio next is not a measurement, and a transmit strobed after a
  * lock wait that gave up goes out with the synthesizer in the wrong state.
- * Nothing here reports a pass from such a read: the self-test and the range
- * test only conclude on a packet whose checksum the radio verified, which a
- * radio that is not running cannot produce.
+ * Nothing here reports a pass from such a read: the self-test only concludes
+ * on a packet whose checksum the radio verified, which a radio that is not
+ * running cannot produce.
  *
  * None of them passes a service callback, where the shipped image hands its
  * USB poll in, and what that is worth differs by mode. specan() reaches its
@@ -679,11 +672,11 @@ static void dio_ssp_start()
  * their bound rather than ending it. bt_stream_rx() waits on its DMA transfer
  * next, which a radio that is not receiving holds up as before.
  *
- * The range test and the repeater then wait for a packet, which a radio that
- * never locked cannot bring, so for them a dead radio still ends in a wait
- * with no end -- the following one, not these. Ending that one needs what the
- * shipped image does with it: a body that polls USB and leaves when the host
- * asks for another mode. These bounds do not reach that far.
+ * No wait left in this image waits for a packet. The two that did belonged to
+ * the range test and the repeater, which are gone from here, and a packet is
+ * the one thing a bound cannot help with: nothing is late, a peer simply has
+ * not transmitted, so ending that wait needs the mode to be stoppable, which
+ * is what the shipped image does with it.
  *
  * bt_test_rx() is outside all of it: it runs before ubertooth_usb_init(), so
  * there is no host watching to lose.
@@ -748,232 +741,6 @@ void cc2400_txtest()
 	PAEN_SET;
 #endif
 	mode = MODE_TX_TEST;
-#endif
-}
-
-/*
- * This range test transmits a Bluetooth-like (but not Bluetooth compatible)
- * packet to a repeater and then receives the repeated packet.  It is only
- * useful if another device is running cc2400_repeater() some distance away.
- *
- * The outgoing packet is transmitted at each power amplifier (PA) level from
- * lowest to highest.  It is sent several times at each level.  The repeater
- * takes the first packet to be received correctly and repeats it in a similar
- * manner.  The result should indicate the lowest successful PA level in each
- * direction.
- *
- * The range test packet consists of:
- *   preamble: 4 bytes
- *   sync word: 4 bytes
- *   payload:
- *     length: 1 byte (21)
- *     packet type: 1 byte (0 = request; 1 = reply)
- *     LPC17xx serial number: 16 bytes
- *     request pa: 1 byte
- *     request number: 1 byte
- *     reply pa: 1 byte
- *     reply number: 1 byte
- *   crc: 2 bytes
- */
-
-void cc2400_rangetest()
-{
-#ifdef TX_ENABLE
-	u32 command[5];
-	u32 result[5];
-	int i;
-	int j;
-	u8 len = 22;
-	u8 pa = 0;
-	u8 txbuf[len];
-	u8 rxbuf[len];
-
-	mode = MODE_RANGE_TEST;
-
-	txbuf[0] = len - 1; // length of data (rest of payload)
-	txbuf[1] = 0; // request
-
-	// read device serial number
-	command[0] = 58;
-	iap_entry(command, result);
-	if ((result[0] & 0xFF) != 0) //status check
-		return;
-	txbuf[2] = (result[1] >> 24) & 0xFF;
-	txbuf[3] = (result[1] >> 16) & 0xFF;
-	txbuf[4] = (result[1] >> 8) & 0xFF;
-	txbuf[5] = result[1] & 0xFF;
-	txbuf[6] = (result[2] >> 24) & 0xFF;
-	txbuf[7] = (result[2] >> 16) & 0xFF;
-	txbuf[8] = (result[2] >> 8) & 0xFF;
-	txbuf[9] = result[2] & 0xFF;
-	txbuf[10] = (result[3] >> 24) & 0xFF;
-	txbuf[11] = (result[3] >> 16) & 0xFF;
-	txbuf[12] = (result[3] >> 8) & 0xFF;
-	txbuf[13] = result[3] & 0xFF;
-	txbuf[14] = (result[4] >> 24) & 0xFF;
-	txbuf[15] = (result[4] >> 16) & 0xFF;
-	txbuf[16] = (result[4] >> 8) & 0xFF;
-	txbuf[17] = result[4] & 0xFF;
-
-	txbuf[18] = pa; // request pa
-	txbuf[19] = 0; // request number
-	txbuf[20] = 0xff; // reply pa
-	txbuf[21] = 0xff; // reply number
-
-	// Bluetooth-like modulation
-	cc2400_set(MANAND,  0x7fff);
-	cc2400_set(LMTST,   0x2b22);
-	cc2400_set(MDMTST0, 0x134b);
-	cc2400_set(FSDIV,   channel);
-	cc2400_set(SYNCH,   0xf9ae);
-	cc2400_set(SYNCL,   0x1584);
-	cc2400_set(FREND,   8 | pa);
-	cc2400_set(MDMCTRL, 0x0029);
-	cc2400_wait_xosc_stable(NULL);
-	cc2400_strobe(SFSON);
-	cc2400_wait_fs(1, NULL);
-	TXLED_SET;
-#ifdef UBERTOOTH_ONE
-	PAEN_SET;
-#endif
-	for (pa = 0; pa < 8; pa++) {
-		cc2400_set(FREND, 8 | pa);
-		txbuf[18] = pa;
-		for (i = 0; i < 16; i++) {
-			txbuf[19] = i;
-			cc2400_wait_fsm(STATE_STROBE_FS_ON, NULL);
-			// transmit a packet
-			for (j = 0; j < len; j++)
-				cc2400_set8(FIFOREG, txbuf[j]);
-			cc2400_strobe(STX);
-		}
-	}
-	// sent packet, now look for repeated packet
-	cc2400_wait_fsm(STATE_STROBE_FS_ON, NULL);
-	TXLED_CLR;
-	cc2400_strobe(SRFOFF);
-	cc2400_wait_fs_unlock();
-	cc2400_set(FSDIV, channel - 1);
-	cc2400_wait_xosc_stable(NULL);
-	cc2400_strobe(SFSON);
-	cc2400_wait_fs(1, NULL);
-	RXLED_SET;
-	while (1) {
-		cc2400_wait_fsm(STATE_STROBE_FS_ON, NULL);
-		cc2400_strobe(SRX);
-		/* Waiting for a packet has no deadline, so this wait stays
-		 * unbounded: there is no state the radio is late reaching,
-		 * only a peer that has not transmitted yet. */
-		while (!(cc2400_status() & SYNC_RECEIVED));
-		USRLED_SET;
-		for (j = 0; j < len; j++)
-			rxbuf[j] = cc2400_get8(FIFOREG);
-		if (cc2400_status() & STATUS_CRC_OK)
-			break;
-		USRLED_CLR;
-	}
-
-	// done
-	cc2400_wait_fsm(STATE_STROBE_FS_ON, NULL);
-	cc2400_strobe(SRFOFF);
-	cc2400_wait_fs_unlock();
-#ifdef UBERTOOTH_ONE
-	PAEN_CLR;
-#endif
-	RXLED_CLR;
-
-	// get test result
-	rr.valid       = 1;
-	rr.request_pa  = rxbuf[18];
-	rr.request_num = rxbuf[19];
-	rr.reply_pa    = rxbuf[20];
-	rr.reply_num   = rxbuf[21];
-
-	// make sure rx packet is as expected
-	txbuf[1] = 1; // expected value in rxbuf
-	for (i = 0; i < 18; i++)
-		if (rxbuf[i] != txbuf[i])
-			rr.valid = 0;
-
-	USRLED_CLR;
-	mode = MODE_IDLE;
-	if (requested_mode == MODE_RANGE_TEST)
-		requested_mode = MODE_IDLE;
-#endif
-}
-
-/* This is the repeater implementation to be used with cc2400_rangetest(). */
-void cc2400_repeater()
-{
-#ifdef TX_ENABLE
-	int i;
-	int j;
-	u8 len = 22;
-	u8 pa = 0;
-	u8 buf[len];
-
-	mode = MODE_REPEATER;
-
-	//FIXME allow to be turned off
-	while (1) {
-		cc2400_set(MANAND,  0x7fff);
-		cc2400_set(LMTST,   0x2b22);
-		cc2400_set(MDMTST0, 0x134b);
-		cc2400_set(FSDIV,   channel - 1);
-		cc2400_set(SYNCH,   0xf9ae);
-		cc2400_set(SYNCL,   0x1584);
-		cc2400_set(FREND,   0x0008); // minimum tx power
-		cc2400_set(MDMCTRL, 0x0029); // 160 kHz frequency deviation
-		cc2400_wait_xosc_stable(NULL);
-		cc2400_strobe(SFSON);
-		cc2400_wait_fs(1, NULL);
-		RXLED_SET;
-		TXLED_CLR;
-		USRLED_CLR;
-#ifdef UBERTOOTH_ONE
-		PAEN_SET;
-#endif
-		while (1) {
-			cc2400_wait_fsm(STATE_STROBE_FS_ON, NULL);
-			USRLED_CLR;
-			cc2400_strobe(SRX);
-			/* Unbounded for the same reason as the wait in
-			 * cc2400_rangetest(): a packet has no deadline. */
-			while (!(cc2400_status() & SYNC_RECEIVED));
-			USRLED_SET;
-			for (i = 0; i < len; i++)
-				buf[i] = cc2400_get8(FIFOREG);
-			if (cc2400_status() & STATUS_CRC_OK)
-				break;
-		}
-		// got packet, now repeat it
-		i = 2000000; while (--i); // allow time for requester to switch to rx
-		USRLED_CLR;
-		RXLED_CLR;
-		cc2400_strobe(SRFOFF);
-		cc2400_wait_fs_unlock();
-		cc2400_wait_xosc_stable(NULL);
-		cc2400_set(FSDIV, channel);
-		cc2400_wait_xosc_stable(NULL);
-		cc2400_strobe(SFSON);
-		TXLED_SET;
-		buf[0] = len - 1; // length of data (rest of payload)
-		buf[1] = 1; // reply
-		for (pa = 0; pa < 8; pa++) {
-			cc2400_set(FREND, 8 | pa);
-			buf[20] = pa;
-			for (i = 0; i < 16; i++) {
-				buf[21] = i;
-				cc2400_wait_fsm(STATE_STROBE_FS_ON, NULL);
-				for (j = 0; j < len; j++)
-					cc2400_set8(FIFOREG, buf[j]);
-				cc2400_strobe(STX);
-			}
-		}
-		TXLED_CLR;
-		cc2400_strobe(SRFOFF);
-		cc2400_wait_fs_unlock();
-	}
 #endif
 }
 
@@ -1232,10 +999,6 @@ int main()
 			bt_stream_rx();
 		else if (requested_mode == MODE_TX_TEST && mode != MODE_TX_TEST)
 			cc2400_txtest();
-		else if (requested_mode == MODE_RANGE_TEST && mode != MODE_RANGE_TEST)
-			cc2400_rangetest();
-		else if (requested_mode == MODE_REPEATER && mode != MODE_REPEATER)
-			cc2400_repeater();
 		else if (requested_mode == MODE_SPECAN && mode != MODE_SPECAN)
 			specan();
 		//FIXME do other modes like this

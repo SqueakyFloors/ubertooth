@@ -177,8 +177,10 @@ inline void sweep(uint8_t low, uint8_t high, uint16_t base, uint8_t* store)
 		//while ((cc2400_status() & FS_LOCK));
 		cc2400_set(FSDIV, channel - 1); // tune 1 MHz below because of 1 MHz IF
 		cc2400_strobe(SFSON);
-		while (!(cc2400_status() & FS_LOCK));
-			//cc2400_strobe(SFSON);
+		/* A lock that does not come leaves this channel's reading
+		 * meaningless, and the display shows one bar's worth of
+		 * nonsense. It used to stop the badge instead. */
+		cc2400_wait_fs(1);
 		cc2400_strobe(SRX);
 		delay(1);
 		rssi = cc2400_get(RSSI) >> 8;
@@ -260,9 +262,9 @@ void led_specan(void)
 			/* measure signal strength on 13 channels */
 			uart_init();
 			cc2400_strobe(SXOSCON);
-			while (!(cc2400_status() & XOSC16M_STABLE));
+			cc2400_wait_xosc_stable();
 			sweep(0, 13, base+j, &pwm[0]);
-			while ((cc2400_status() & FS_LOCK));
+			cc2400_wait_fs_unlock();
 			cc2400_strobe(SXOSCOFF);
 			uart_off();
 		}
@@ -308,6 +310,14 @@ void post(void)
 	uart_init();
 	pulse_leds(++tests_completed); // LED7
 
+	/*
+	 * The self-test's waits on the radio have no bound, unlike the ones
+	 * the badge uses once it is running. Stopping at a step is how this
+	 * test reports: each step that passes pulses one more LED and then
+	 * leaves them all off, so a badge that stops has shown the count for
+	 * the last step it passed and nothing since. There is nothing after a
+	 * step that fails worth carrying on to.
+	 */
 	cc2400_set(MAIN, 0x0000);
 	while (cc2400_get(MAIN) != 0x0000) delay(13);
 	pulse_leds(++tests_completed); // LED8
@@ -319,7 +329,12 @@ void post(void)
 	cc2400_register_test();
 	pulse_leds(++tests_completed); // LED10
 
-	cc2400_clock_start();
+	/* The oscillator wait is bounded, so this step reports by stopping
+	 * here rather than inside the wait. Same thing for the person
+	 * watching: the badge has pulsed ten LEDs, and goes dark without ever
+	 * pulsing eleven. */
+	if (!cc2400_clock_start())
+		while (1);
 	pulse_leds(++tests_completed); // LED11
 
 	/* only run the range test if requested by user pressing the button */

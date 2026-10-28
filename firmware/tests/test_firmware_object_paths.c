@@ -63,6 +63,20 @@
 /* Longer than any makefile line in the tree, with room to spare. */
 #define MAX_LINE 512
 
+/* How many times `needle` appears in `text`. */
+static int count_of(const char *text, const char *needle)
+{
+	size_t length = strlen(needle);
+	const char *at = text;
+	int found = 0;
+
+	while ((at = strstr(at, needle)) != NULL) {
+		found++;
+		at += length;
+	}
+	return found;
+}
+
 static int file_exists(const char *path)
 {
 	FILE *f = fopen(path, "r");
@@ -575,6 +589,220 @@ MU_TEST(test_linker_script_changes_relink)
 	check_link_script_tracking(BOOTLOADER_MK);
 }
 
+/*
+ * The badge's makefile, the one in the tree that the checks above leave alone:
+ * it builds a Renesas R8C part with a different compiler and shares no source
+ * with the Ubertooth images, so it has a link rule of its own.
+ *
+ * That rule has the same hazard those two had before they were fixed. make
+ * only rebuilds a target when something it lists as a prerequisite is newer,
+ * so a link rule that does not list the linker script leaves the previous
+ * .elf in place when the script is edited -- the memory map changes and the
+ * image does not. The script cannot be found by searching either: it is passed
+ * to the compiler inside a -T option, stuck to the file name.
+ *
+ * Naming it brings the other half of the hazard with it. The rule linked `$^`,
+ * every prerequisite, so adding the script to the list would hand it to the
+ * compiler as though it were an object file. The command has to name its
+ * objects instead.
+ *
+ * Checked by reading the makefile because nobody here has the compiler it
+ * calls, so the rule cannot be run.
+ */
+#define BADGE_MK FW_DIR "/tc13badge/Makefile"
+#define BADGE_LINKER_SCRIPT "R5F212L4.ld"
+
+/*
+ * One rule of a makefile, found by a phrase in its target line: that target
+ * line, and the whole recipe below it -- every line that begins with a tab,
+ * which is every line make runs. Each is an empty string when there is none.
+ *
+ * The recipe is all of it, not its first line: a check on what a rule runs is
+ * answered by the commands it runs, and a second line is where a command the
+ * first one no longer carries would reappear.
+ *
+ * Reading one rule rather than the whole file is what keeps a check about this
+ * rule from being answered by another: `$^` in the archive rule above is
+ * nothing to do with how the image is linked.
+ */
+static void read_rule(const char *path, const char *needle, char *target,
+                      size_t target_size, char *recipe, size_t recipe_size)
+{
+	char line[MAX_LINE];
+	FILE *f = fopen(path, "r");
+	size_t length = 0;
+	int in_rule = 0;
+
+	target[0] = '\0';
+	recipe[0] = '\0';
+	if (f == NULL)
+		return;
+	while (fgets(line, sizeof(line), f) != NULL) {
+		char *hash = strchr(line, '#');
+
+		if (!in_rule) {
+			/* A comment that quotes the rule is not the rule. */
+			if (hash != NULL && hash == line)
+				continue;
+			if (strstr(line, needle) == NULL)
+				continue;
+			in_rule = 1;
+			snprintf(target, target_size, "%s", line);
+			continue;
+		}
+		if (line[0] != '\t')
+			break;
+		length += (size_t)snprintf(recipe + length, recipe_size - length,
+		                           "%s", line);
+		if (length >= recipe_size - 1)
+			break;
+	}
+	fclose(f);
+}
+
+static void target_line_of(const char *path, const char *needle, char *out,
+                           size_t size)
+{
+	char recipe[MAX_LINE];
+
+	read_rule(path, needle, out, size, recipe, sizeof(recipe));
+}
+
+static void recipe_of(const char *path, const char *needle, char *out,
+                      size_t size)
+{
+	char target[MAX_LINE];
+
+	read_rule(path, needle, target, sizeof(target), out, size);
+}
+
+MU_TEST(test_the_badge_relinks_when_its_linker_script_changes)
+{
+	char target[MAX_LINE];
+	char recipe[MAX_LINE];
+	char why[448];
+
+	/* The script has to be in the list; where in it does not matter, so
+	 * reordering the prerequisites is not a failure. */
+	target_line_of(BADGE_MK, "%.elf :", target, sizeof(target));
+	snprintf(why, sizeof(why), "%s has no `%%.elf :` rule", BADGE_MK);
+	mu_assert_fatal(target[0] != '\0', why);
+	snprintf(why, sizeof(why),
+	         "%s links its image without %s among the prerequisites, so "
+	         "editing the script leaves the previous image in place: %s",
+	         BADGE_MK, BADGE_LINKER_SCRIPT, target);
+	mu_assert(strstr(target, BADGE_LINKER_SCRIPT) != NULL, why);
+
+	/* Only this rule's own command: `$^` elsewhere in the makefile is
+	 * fine, and the archive rule above uses it. */
+	recipe_of(BADGE_MK, "%.elf :", recipe, sizeof(recipe));
+	snprintf(why, sizeof(why),
+	         "%s has no command under its `%%.elf :` rule", BADGE_MK);
+	mu_assert_fatal(recipe[0] != '\0', why);
+	snprintf(why, sizeof(why),
+	         "%s links `$^`, which with the linker script among the "
+	         "prerequisites hands the script to the compiler as an object: "
+	         "%s", BADGE_MK, recipe);
+	mu_assert(strstr(recipe, "$^") == NULL, why);
+}
+
+/*
+ * The rule one below, for the same reason. The badge keeps its compile
+ * settings and its radio register names in headers, and the poll budgets its
+ * bounded waits count in another, so a rule that does not list them leaves the
+ * objects alone when one is edited and the image keeps the previous compile.
+ *
+ * This makefile has no dependency-file machinery, so the headers have to be
+ * named. r8c2l.h is among them and is generated from r8c2l.io, which is how an
+ * edit to the register description reaches the objects at all.
+ */
+MU_TEST(test_the_badge_recompiles_when_a_header_changes)
+{
+	static const struct {
+		const char *rule;
+		const char *prerequisite;
+	} compiles[] = {
+		/* The C sources, through the one pattern rule that builds
+		 * them: the four headers they include between them. */
+		{ "%.o : %.c", "tc13badge.h" },
+		{ "%.o : %.c", "cc2400.h" },
+		{ "%.o : %.c", "bitmaps.h" },
+		{ "%.o : %.c", "r8c2l.h" },
+		/* The assembler source, which make's own rule builds and which
+		 * reads the other generated file. */
+		{ "init.o :", "r8c2l.inc" },
+		/*
+		 * And the rule that writes both of those, which has to be a
+		 * pattern rule: make holds one of those responsible for all
+		 * its targets, where an explicit rule with two targets is two
+		 * rules sharing a recipe. As two rules, `make -j` can run
+		 * mkports twice at once over the same files, and either file
+		 * missing on its own is "made" by a run that was not asked for
+		 * it -- or, with an empty recipe standing in, not made at all.
+		 */
+	};
+	char recipe[MAX_LINE];
+	char target[MAX_LINE];
+	size_t i;
+	char why[448];
+
+	for (i = 0; i < sizeof(compiles) / sizeof(compiles[0]); i++) {
+		target_line_of(BADGE_MK, compiles[i].rule, target,
+		               sizeof(target));
+		snprintf(why, sizeof(why), "%s has no `%s` rule", BADGE_MK,
+		         compiles[i].rule);
+		mu_assert_fatal(target[0] != '\0', why);
+		snprintf(why, sizeof(why),
+		         "%s compiles without %s among the prerequisites, so "
+		         "editing it rebuilds nothing: %s",
+		         BADGE_MK, compiles[i].prerequisite, target);
+		mu_assert(strstr(target, compiles[i].prerequisite) != NULL,
+		          why);
+	}
+
+	/*
+	 * And the rule that writes both generated files, which has to be a
+	 * pattern rule: make holds one of those responsible for all its
+	 * targets, where an explicit rule with two targets is two rules
+	 * sharing a recipe. As two rules, `make -j` can run mkports twice at
+	 * once over the same files, and either file missing on its own is
+	 * "made" by a run that was not asked for it -- or, with an empty
+	 * recipe standing in, not made at all.
+	 *
+	 * Either order of the two targets is the same rule, so this looks for
+	 * the recipe under whichever is written.
+	 */
+	target_line_of(BADGE_MK, "%.h %.inc :", target, sizeof(target));
+	if (target[0] == '\0')
+		target_line_of(BADGE_MK, "%.inc %.h :", target, sizeof(target));
+	snprintf(why, sizeof(why),
+	         "%s has no `%%.h %%.inc :` pattern rule, so the two files "
+	         "mkports writes are not one rule's responsibility", BADGE_MK);
+	mu_assert_fatal(target[0] != '\0', why);
+	snprintf(why, sizeof(why),
+	         "%s generates its register files from a rule that does not "
+	         "run mkports: %s", BADGE_MK, target);
+	mu_assert(strstr(target, "mkports") != NULL, why);
+
+	/*
+	 * And the compile writes one object, its own. The recipe used to name
+	 * tc13badge.c after `$*.c`, so building either object wrote both --
+	 * harmless while nothing could make the two stale together, and a race
+	 * once the prerequisites above can: `make -j` then runs two compiles
+	 * that write tc13badge.o at the same time.
+	 */
+	recipe_of(BADGE_MK, "%.o : %.c", recipe, sizeof(recipe));
+	snprintf(why, sizeof(why), "%s has no command under its `%%.o : %%.c` "
+	                           "rule", BADGE_MK);
+	mu_assert_fatal(recipe[0] != '\0', why);
+	snprintf(why, sizeof(why),
+	         "%s names %d C sources in the command that compiles one "
+	         "object, so building either object writes both and `make -j` "
+	         "writes one of them twice at once: %s",
+	         BADGE_MK, count_of(recipe, ".c"), recipe);
+	mu_assert(count_of(recipe, ".c") == 1, why);
+}
+
 int main(void)
 {
 	printf("Firmware object path and rebuild tests\n");
@@ -582,5 +810,7 @@ int main(void)
 	MU_RUN(test_every_image_uses_a_scanned_makefile);
 	MU_RUN(test_flag_changes_invalidate_objects);
 	MU_RUN(test_linker_script_changes_relink);
+	MU_RUN(test_the_badge_relinks_when_its_linker_script_changes);
+	MU_RUN(test_the_badge_recompiles_when_a_header_changes);
 	return mu_report();
 }

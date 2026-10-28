@@ -30,6 +30,10 @@
 #include "minunit.h"
 #include "source_scan.h"
 
+#ifndef FW_DIR
+#define FW_DIR ".."
+#endif
+
 struct scan {
 	int rangetest_manand;   /* cc2400_set(MANAND, ...) in the range test */
 	int repeater_manand;    /* and in the repeater */
@@ -513,6 +517,145 @@ MU_TEST(test_the_shared_fifo_transfers_keep_their_shape)
 	mu_assert(spi.read_delays >= 3, msg);
 }
 
+/*
+ * One copy of the range test.
+ *
+ * The assembly_test image carried a twin of these two functions, copied long
+ * before and never kept up. Everything the tests above pin was fixed here and
+ * not there -- the gain amplifier write, the FIFO going through the helpers,
+ * the turnaround delay a compiler does not delete -- and no step of the
+ * assembly test procedure reached it, so nothing would have noticed. It is
+ * gone, and this walks firmware/ so another cannot arrive unnoticed.
+ *
+ * The ToorCon badge is skipped. Its cc2400_range_test() is a different
+ * function for a different part, with its own register map and its own
+ * compiler, and shares no source with this image, so it is not a copy of this
+ * one and could not be merged into it.
+ */
+static const char *const copied_functions[] = {
+	"cc2400_rangetest",
+	"cc2400_repeater",
+};
+
+/* Directories under firmware/ that hold no image of this part: the badge, for
+ * the reason above, and the host-compiled tests, which name these functions in
+ * strings and in lists like the one above. */
+static const char *const not_an_image[] = { "tc13badge", "tests" };
+
+/* Is the last thing on this line a semicolon? A declaration of one of these
+ * functions ends that way and a definition does not, so this is what keeps a
+ * prototype from being reported as a second copy. */
+static int ends_in_semicolon(const char *line)
+{
+	size_t length = strlen(line);
+
+	while (length > 0 && isspace((unsigned char)line[length - 1]))
+		length--;
+	return length > 0 && line[length - 1] == ';';
+}
+
+/* How many of these definitions one C source has, printing each. */
+static int copies_in(const char *file)
+{
+	FILE *source = fopen(file, "r");
+	char line[512];
+	int in_block = 0, lineno = 0, found = 0;
+
+	if (source == NULL)
+		return 0;
+	while (fgets(line, sizeof(line), source) != NULL) {
+		size_t i;
+
+		lineno++;
+		strip_comments(line, &in_block);
+		/* A definition, not a call, a declaration or an include: these
+		 * are all written with the return type in the first column and
+		 * the parameter list on the same line, every call to one is
+		 * inside a function and so indented, and a declaration ends in
+		 * a semicolon. */
+		if (isspace((unsigned char)line[0]) || line[0] == '#' ||
+		    strchr(line, '(') == NULL || ends_in_semicolon(line))
+			continue;
+		for (i = 0; i < sizeof(copied_functions) /
+		                sizeof(copied_functions[0]); ++i) {
+			if (!contains_identifier(line, copied_functions[i]))
+				continue;
+			printf("  FAIL %s:%d is a second copy of %s(): %s",
+			       file, lineno, copied_functions[i], line);
+			found++;
+		}
+	}
+	fclose(source);
+	return found;
+}
+
+/*
+ * The C sources the walk covers, as a shell pattern: every one under
+ * firmware/, at any depth, other than the two directories above. find is used
+ * rather than a directory walk of its own because btbr keeps its sources three
+ * levels down, and telling a directory from a file portably is more code than
+ * this test is worth.
+ */
+#define FIND_SOURCES "find " FW_DIR " -name '*.c'"
+
+/* Sources the tree has today. The walk checks it found at least this many, so
+ * one that stopped finding them fails rather than passing on nothing. */
+#define SOURCES_EXPECTED 60
+
+/*
+ * Count the definitions in every one of those sources other than this image's
+ * own, and say how many were read. -1 if the listing cannot be run.
+ */
+static int count_copies(int *sources)
+{
+	char command[1024];
+	char file[512];
+	FILE *listing;
+	size_t i;
+	int found = 0;
+
+	snprintf(command, sizeof(command), "%s", FIND_SOURCES);
+	for (i = 0; i < sizeof(not_an_image) / sizeof(not_an_image[0]); ++i) {
+		char clause[128];
+
+		snprintf(clause, sizeof(clause), " -not -path '%s/%s/*'",
+		         FW_DIR, not_an_image[i]);
+		strncat(command, clause, sizeof(command) - strlen(command) - 1);
+	}
+
+	*sources = 0;
+	listing = popen(command, "r");
+	if (listing == NULL)
+		return -1;
+	while (fgets(file, sizeof(file), listing) != NULL) {
+		size_t length = strlen(file);
+
+		while (length > 0 && file[length - 1] == '\n')
+			file[--length] = '\0';
+		(*sources)++;
+		if (strcmp(file, path) == 0)
+			continue;
+		found += copies_in(file);
+	}
+	if (pclose(listing) != 0)
+		return -1;
+	return found;
+}
+
+MU_TEST(test_the_range_test_has_one_copy)
+{
+	int sources = 0;
+	int copies = count_copies(&sources);
+	char why[256];
+
+	mu_assert_fatal(copies >= 0, "cannot list the sources under " FW_DIR);
+	snprintf(why, sizeof(why),
+	         "the walk read %d C sources under " FW_DIR ", fewer than the "
+	         "%d the tree has", sources, SOURCES_EXPECTED);
+	mu_assert_fatal(sources >= SOURCES_EXPECTED, why);
+	mu_assert_int_eq(0, copies);
+}
+
 int main(void)
 {
 	printf("range test radio setup tests\n");
@@ -533,5 +676,6 @@ int main(void)
 	MU_RUN(test_the_result_is_cleared_before_the_test_can_return_early);
 	MU_RUN(test_the_fifo_is_reached_through_the_helpers);
 	MU_RUN(test_the_shared_fifo_transfers_keep_their_shape);
+	MU_RUN(test_the_range_test_has_one_copy);
 	return mu_report();
 }

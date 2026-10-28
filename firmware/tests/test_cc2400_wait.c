@@ -715,8 +715,7 @@ MU_TEST(test_service_runs_on_the_fsm_wait)
  * image waited through a macro defined there, and a macro puts the spin back
  * in all of its callers at once.
  *
- * The bench images are scanned separately, below: they wait for a packet with
- * a bare spin, which has no deadline to bound.
+ * The images that are not shipped are scanned separately, below.
  */
 static const char *const radio_sources[] = {
 	FW_RXTX_DIR "/bluetooth_rxtx.c",
@@ -731,21 +730,57 @@ static const char *const radio_sources[] = {
 };
 
 /*
- * The bench images. They are installed with a programmer rather than shipped,
- * and they drive the radio the same way, so a bare spin stalls them the same
- * way: assembly_test polls USB from its own loops, so a radio that never
- * reports the state a wait is after leaves the board answering nothing.
+ * The images that are not shipped: the two bench images, installed with a
+ * programmer rather than through DFU, and the ToorCon badge. They drive the
+ * same radio the same way, so a bare spin stalls them the same way.
+ *
+ * What a stall costs differs. assembly_test polls USB from its own loops, so a
+ * radio that never reports the state a wait is after leaves the board
+ * enumerated and answering nothing until it is re-plugged. The badge has no
+ * host at all; a stall there stops its display and its button until the
+ * battery comes out.
+ *
+ * The badge's own waits are its own code -- it is a Renesas R8C part and
+ * cannot compile firmware/common/cc2400_wait.c -- so this says only that no
+ * wait in it is a bare spin, which is what the scan can say about any of them.
+ */
+static const char *const unshipped_radio_sources[] = {
+	FW_DIR "/assembly_test/assembly_test.c",
+	FW_DIR "/cc2400_test/cc2400_test.c",
+	FW_DIR "/tc13badge/tc13badge.c",
+	FW_DIR "/tc13badge/toorcon.c",
+};
+
+/*
+ * The waits the scan above would otherwise report, each kept unbounded on
+ * purpose and each saying so where it is written.
+ *
+ * All of them are power-on self-test steps on the badge. That test counts
+ * itself off in LEDs -- each step that passes pulses one more -- and the badge
+ * goes dark where it stops, so stopping at a step is the result, and there is
+ * no host to keep answering for.
+ *
+ * Each is matched by its own text in its own file, so the same line copied
+ * anywhere else, the badge's other source included, is still caught.
+ *
+ * These are the self-test's waits that read the radio. It has one more stop
+ * that does not: post() runs `while (1);` when cc2400_clock_start() reports
+ * the oscillator never started, which is the same report moved out of a wait
+ * that is bounded now. Nothing here matches it, because a scan for spins on
+ * the radio is the wrong place to look for it.
  */
 static const struct {
 	const char *path;
-	/* Whether this file is allowed the wait with no deadline, the spin on a
-	 * packet arriving. Only the image that waits for packets is: the other
-	 * drives no receive, so a spin on the status byte there would be a new
-	 * one, not the wait this exception is for. */
-	int packet_waits;
-} bench_radio_sources[] = {
-	{ FW_DIR "/assembly_test/assembly_test.c", 1 },
-	{ FW_DIR "/cc2400_test/cc2400_test.c",     0 },
+	const char *spin;
+} self_test_spins[] = {
+	/* cc2400_register_test(): the radio does not answer a register read. */
+	{ FW_DIR "/tc13badge/tc13badge.c",
+	  "while (cc2400_get(MANFIDL) != 0x133D) wait();" },
+	/* post(): the radio does not come out of, or go into, reset. */
+	{ FW_DIR "/tc13badge/toorcon.c",
+	  "while (cc2400_get(MAIN) != 0x0000) delay(13);" },
+	{ FW_DIR "/tc13badge/toorcon.c",
+	  "while (cc2400_get(MAIN) != 0x8000) delay(13);" },
 };
 
 /*
@@ -787,25 +822,33 @@ static int is_bare_radio_spin(const char *line)
 	return length > 0 && line[length - 1] == ';';
 }
 
-/* Blank out the wait the bench images keep: a bare spin on a packet arriving,
- * which has no deadline -- nothing is late, a peer simply has not transmitted
- * yet. The shipped images give it a body that polls USB and leaves when the
- * host stops the mode, which is what would end it in these images too and is
- * not what bounding the state waits did.
+/*
+ * Blank out the self-test waits listed above, so the scan does not report the
+ * ones that are meant to be there.
  *
- * It is taken out of the line rather than the line being skipped, so a line
- * that carries this wait and a spin on radio state is still caught. */
-static void strip_packet_waits(char *line)
+ * Each is taken out of the line rather than the line being skipped, so a line
+ * that carries one of them and a second wait is still caught. A `wait()` or
+ * `delay()` body does not count as bounding anything, which is why these need
+ * naming at all: the scan is right to call them spins.
+ */
+static void strip_self_test_spins(const char *path, char *line)
 {
-	static const char wait[] = "while (!(cc2400_status() & SYNC_RECEIVED));";
-	char *at;
+	size_t i;
 
-	while ((at = strstr(line, wait)) != NULL)
-		memset(at, ' ', sizeof(wait) - 1);
+	for (i = 0; i < sizeof(self_test_spins) / sizeof(self_test_spins[0]); ++i) {
+		size_t length;
+		char *at;
+
+		if (strcmp(self_test_spins[i].path, path) != 0)
+			continue;
+		length = strlen(self_test_spins[i].spin);
+		while ((at = strstr(line, self_test_spins[i].spin)) != NULL)
+			memset(at, ' ', length);
+	}
 }
 
 /* Count the bare radio spins in one file, printing each. */
-static int count_bare_radio_spins(const char *path, int allow_packet_wait)
+static int count_bare_radio_spins(const char *path)
 {
 	FILE *source = fopen(path, "r");
 	char line[512];
@@ -818,8 +861,7 @@ static int count_bare_radio_spins(const char *path, int allow_packet_wait)
 	while (fgets(line, sizeof(line), source) != NULL) {
 		lineno++;
 		strip_comments(line, &in_block);
-		if (allow_packet_wait)
-			strip_packet_waits(line);
+		strip_self_test_spins(path, line);
 		if (is_bare_radio_spin(line)) {
 			printf("  FAIL %s:%d spins on the radio: %s",
 			       path, lineno, line);
@@ -844,25 +886,222 @@ MU_TEST(test_no_radio_source_spins_on_the_radio)
 	size_t f;
 
 	for (f = 0; f < sizeof(radio_sources) / sizeof(radio_sources[0]); ++f)
-		mu_assert_int_eq(0, count_bare_radio_spins(radio_sources[f], 0));
+		mu_assert_int_eq(0, count_bare_radio_spins(radio_sources[f]));
 }
 
 /*
- * The same check for the bench images, allowing the wait with no deadline: a
- * bare spin on a packet arriving, in the image that receives packets. Every
- * wait on radio state in them goes through the bounded waits above, so what is
- * gone is the spin on a state that was never coming; the two modes that go on
- * to wait for a packet still wait for one for as long as the mode runs.
+ * The same check for the images that are not shipped, with the badge's
+ * self-test waits allowed. Nothing else in them waits on the radio without a
+ * bound: the bench images use the waits above, and the badge its own.
+ *
+ * assembly_test used to be allowed one more, a bare spin on a packet arriving
+ * in its own copy of the range test. The copy is gone -- the shipped image is
+ * the only one that has a range test now -- and with it the last wait for a
+ * packet in that image. It is not the last way a dead radio holds that board:
+ * bt_stream_rx() still waits on its DMA transfer with no bound, which a radio
+ * that is not receiving never completes. That wait reads no radio register, so
+ * it is outside this scan either way; it is tracked separately.
  */
-MU_TEST(test_no_bench_image_spins_on_radio_state)
+MU_TEST(test_no_unshipped_image_spins_on_radio_state)
 {
 	size_t f;
 
-	for (f = 0; f < sizeof(bench_radio_sources) /
-	                sizeof(bench_radio_sources[0]); ++f)
+	for (f = 0; f < sizeof(unshipped_radio_sources) /
+	                sizeof(unshipped_radio_sources[0]); ++f)
 		mu_assert_int_eq(0, count_bare_radio_spins(
-			bench_radio_sources[f].path,
-			bench_radio_sources[f].packet_waits));
+			unshipped_radio_sources[f]));
+}
+
+/*
+ * The badge's waits are its own functions, so this says each one exists and
+ * counts its own polls. Deleting one and writing the loop back inline is
+ * caught by the scan above; replacing a budget with a loop that counts nothing
+ * is caught here.
+ *
+ * Read one function body at a time, with the comments stripped. A search over
+ * the whole file would be answered by any other wait's budget, or by a comment
+ * that named one, which is how this check first passed on a function whose
+ * budget it never saw.
+ */
+static const struct {
+	const char *name;
+	/* The loop this body has to contain, as it is written. Naming the
+	 * budget is not enough: a body that sets a counter from the budget and
+	 * then loops on something else names it and counts nothing, which is
+	 * what this check used to let through. Pinning the loop means the
+	 * budget is the thing that ends it. */
+	const char *loop;
+	/* How many `for (` this body has. One for each wait that loops, none
+	 * for the one that delegates; anything else is a second loop, which is
+	 * where an unbounded one would go. */
+	int loops;
+} badge_waits[] = {
+	{ "cc2400_wait_main",
+	  "for (i = MAIN_POLLS; i; i--)", 1 },
+	{ "cc2400_wait_xosc_stable",
+	  "for (i = XOSC_STABLE_POLLS; i; i--)", 1 },
+	/* Two budgets, picked between: a body that named one would be
+	 * unbounded in the other direction. */
+	{ "cc2400_wait_fs",
+	  "for (i = locked ? FS_LOCK_POLLS : FS_UNLOCK_POLLS; i; i--)", 1 },
+	{ "cc2400_wait_fsm",
+	  "for (i = FSM_POLLS; i; i--)", 1 },
+	{ "cc2400_wait_sync_received",
+	  "for (i = SYNC_RECEIVED_POLLS; i; i--)", 1 },
+	/* This one counts nothing of its own: it is the wait above asked for
+	 * an unlock, and has to stay that rather than grow a loop. */
+	{ "cc2400_wait_fs_unlock",
+	  "return cc2400_wait_fs(0);", 0 },
+};
+
+/* How many times `needle` appears in `text`. */
+static int occurrences(const char *text, const char *needle)
+{
+	size_t length = strlen(needle);
+	const char *at = text;
+	int found = 0;
+
+	while ((at = strstr(at, needle)) != NULL) {
+		found++;
+		at += length;
+	}
+	return found;
+}
+
+/*
+ * The body of a function defined in `path`, comments stripped. A definition is
+ * a line in the first column that names the function and opens its parameter
+ * list; the body runs to the next line in the first column that is nothing but
+ * a closing brace, which is how every function in this file is written.
+ *
+ * 0 if there is no such definition.
+ */
+static int read_function_body(const char *path, const char *name, char *out,
+                              size_t size)
+{
+	FILE *source = fopen(path, "r");
+	char line[512], call[128];
+	int in_block = 0, in_body = 0;
+	size_t length = 0;
+
+	out[0] = '\0';
+	if (source == NULL)
+		return 0;
+	while (fgets(line, sizeof(line), source) != NULL) {
+		strip_comments(line, &in_block);
+		if (!in_body) {
+			if (isspace((unsigned char)line[0]))
+				continue;
+			if (!call_name(line, call, sizeof(call)) ||
+			    strcmp(call, name) != 0)
+				continue;
+			in_body = 1;
+			continue;
+		}
+		if (line[0] == '}')
+			break;
+		length += (size_t)snprintf(out + length, size - length, "%s",
+		                           line);
+		if (length >= size - 1)
+			break;
+	}
+	fclose(source);
+	return in_body;
+}
+
+MU_TEST(test_the_badge_waits_count_their_polls)
+{
+	const char *path = FW_DIR "/tc13badge/tc13badge.c";
+	char body[4096];
+	size_t i;
+	char why[448];
+
+	for (i = 0; i < sizeof(badge_waits) / sizeof(badge_waits[0]); ++i) {
+		snprintf(why, sizeof(why), "%s does not define %s()", path,
+		         badge_waits[i].name);
+		mu_assert_fatal(read_function_body(path, badge_waits[i].name,
+		                                   body, sizeof(body)), why);
+		snprintf(why, sizeof(why),
+		         "%s: %s() does not contain `%s`, so what ends it is "
+		         "not its poll budget",
+		         path, badge_waits[i].name, badge_waits[i].loop);
+		mu_assert(strstr(body, badge_waits[i].loop) != NULL, why);
+		snprintf(why, sizeof(why),
+		         "%s: %s() has %d `for (` where it should have %d, so "
+		         "it has a loop its budget does not end",
+		         path, badge_waits[i].name, occurrences(body, "for ("),
+		         badge_waits[i].loops);
+		mu_assert(occurrences(body, "for (") == badge_waits[i].loops,
+		          why);
+		snprintf(why, sizeof(why),
+		         "%s: %s() contains a `while`, which none of these "
+		         "waits needs and is where an unbounded one would go",
+		         path, badge_waits[i].name);
+		mu_assert(occurrences(body, "while") == 0, why);
+	}
+}
+
+/*
+ * The badge's range test listens for the repeated packet in a counted loop.
+ *
+ * It used to be `while (1)`, with one poll budget shared across its passes,
+ * and the first attempt at bounding it left the loop on a wait that found no
+ * packet -- which cut the listening window to a thirteenth of what it had been
+ * while the comment said the budget was unchanged. Neither mistake is a bare
+ * spin, so the scan above says nothing about either; this names the loop.
+ */
+MU_TEST(test_the_badge_range_test_counts_its_attempts)
+{
+	const char *path = FW_DIR "/tc13badge/tc13badge.c";
+	static const char loop[] =
+		"for (attempt = BAD_CRC_RETRIES; attempt && !got_reply; attempt--)";
+	char body[8192];
+	char why[448];
+
+	snprintf(why, sizeof(why), "%s does not define cc2400_range_test()",
+	         path);
+	mu_assert_fatal(read_function_body(path, "cc2400_range_test", body,
+	                                   sizeof(body)), why);
+	snprintf(why, sizeof(why),
+	         "%s: cc2400_range_test() does not listen in `%s`, so how many "
+	         "packets with a failed checksum it takes is not bounded",
+	         path, loop);
+	mu_assert(strstr(body, loop) != NULL, why);
+	snprintf(why, sizeof(why),
+	         "%s: cc2400_range_test() contains a `while`, so it has a loop "
+	         "nothing counts", path);
+	mu_assert(occurrences(body, "while") == 0, why);
+	/*
+	 * The listening has to be one stretch. A pass that gave up on the
+	 * packet wait and came back round would wait out cc2400_wait_fsm()'s
+	 * budget with the radio still receiving, and a reply arriving in that
+	 * gap would be missed -- so a wait that finds no packet ends the test
+	 * rather than starting another pass. `continue` here was the first
+	 * attempt at bounding this loop and is the mistake being guarded.
+	 */
+	snprintf(why, sizeof(why),
+	         "%s: cc2400_range_test() does not end the test when the wait "
+	         "for a packet finds none, so its listening is broken into "
+	         "stretches with gaps that hear nothing",
+	         path);
+	mu_assert(strstr(body, "if (!cc2400_wait_sync_received())\n"
+	                       "\t\t\tbreak;") != NULL, why);
+	/*
+	 * And the test says it failed when it heard nothing. success is 1 from
+	 * the top of the function and only the comparison against the sent
+	 * packet clears it, so this return is the one thing between a listen
+	 * that heard nothing and a reported pass -- the hazard the shipped
+	 * image has test_the_result_is_cleared_before_the_test_can_return_early
+	 * for.
+	 */
+	snprintf(why, sizeof(why),
+	         "%s: cc2400_range_test() does not report a failure when no "
+	         "reply arrived, so a listen that heard nothing reads as a pass",
+	         path);
+	mu_assert(strstr(body, "if (!got_reply) {\n"
+	                       "\t\tsuccess = 0;\n"
+	                       "\t\treturn success;\n"
+	                       "\t}") != NULL, why);
 }
 
 /*
@@ -1093,7 +1332,9 @@ int main(void)
 	MU_RUN(test_service_runs_on_the_oscillator_wait);
 	MU_RUN(test_service_runs_on_the_fsm_wait);
 	MU_RUN(test_no_radio_source_spins_on_the_radio);
-	MU_RUN(test_no_bench_image_spins_on_radio_state);
+	MU_RUN(test_no_unshipped_image_spins_on_radio_state);
+	MU_RUN(test_the_badge_waits_count_their_polls);
+	MU_RUN(test_the_badge_range_test_counts_its_attempts);
 	MU_RUN(test_only_the_boot_path_still_spins_on_the_radio);
 	MU_RUN(test_the_scan_slot_ends_when_the_radio_is_not_receiving);
 	MU_RUN(test_each_wait_records_its_own_site);
