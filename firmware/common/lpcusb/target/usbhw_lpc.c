@@ -879,7 +879,13 @@ DEBUG_LED_OFF(8);
                      * this endpoint alternate between deferring and giving
                      * up, putting EP_SLOW back each time, which in the modes
                      * that service USB from the USB interrupt is this handler
-                     * re-entered without end. */
+                     * re-entered without end.
+                     *
+                     * Those three -- a later successful read, a clear that
+                     * took, and the bus reset above -- are the only ways the
+                     * bit is cleared, and nothing else takes an endpoint's
+                     * interrupt away, so a deferral cannot leave the one-shot
+                     * spent with the event gone. */
                     if ((USBEpIntSt & dwIntBit) == 0)
                         ep_stat_retried &= ~dwIntBit;
 

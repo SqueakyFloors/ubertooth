@@ -306,9 +306,9 @@
   `ubertooth-util -w` reads, by the breadcrumb gaining two more places a board
   can stop, by two requests refusing a value they used to accept, and by a
   record naming no channel when the board is tuned outside the band. A release
-  build of the host
-  tools refuses firmware of any other API version, older or newer, while a
-  development build warns about it. Host and firmware come from the same tree:
+  build of the host tools refuses firmware of any other API version, older or
+  newer, while a development build warns about it. Host and firmware come from
+  the same tree:
   `ubertooth-dfu` reflashes a board whatever firmware it is running, but only
   with an image built from this tree, and `2020-12-R1` firmware is refused.
   [#4](https://github.com/SqueakyFloors/ubertooth/issues/4)
@@ -599,6 +599,26 @@
   left on device)`. Only the raw records were checked, so a text sweep ran to
   the end and reported the vaguer `could not flush the samples`.
   [#655](https://github.com/SqueakyFloors/ubertooth/issues/655)
+- A control request the board's USB controller was briefly too slow to report
+  is now answered microseconds later instead of going unanswered. The firmware
+  read the controller's answer before it could tell whether one had arrived,
+  and a reply that came late was dropped along with the request that was
+  waiting -- a one-second wait on the host, and the end of a `ubertooth-btle`
+  capture, which reads every captured packet with a control request.
+  [#714](https://github.com/SqueakyFloors/ubertooth/issues/714)
+- A control request can no longer be answered with the leftovers of the one
+  before it. Every reply used to be followed by a zero-length packet that was
+  offered to the host and left on the endpoint, because a reply shorter than
+  64 bytes has already ended its own data stage and nothing collects it; a
+  later request's read took it instead and came back with no data, no error
+  and no stall.
+  [#462](https://github.com/SqueakyFloors/ubertooth/issues/462)
+- Every e-go record carried two bytes of its own timestamp at the end of its
+  data, because the receive buffer was two bytes shorter than the record it
+  goes out in. The capture length a program can set over USB is bounded to the
+  1 to 48 bytes `ubertooth-ego` already offers as well: a longer one made the
+  receive write past that buffer and down the stack.
+  [#749](https://github.com/SqueakyFloors/ubertooth/issues/749)
 - `ubertooth-follow -w` compensates the delay it says it does. The option
   counts 625 us timeslots, and the clock the board hops on counts 312.5 us
   ticks; the delay was added tick for tick, so every value compensated half of
@@ -1611,6 +1631,12 @@ Fixes with no visible change in normal use.
   being followed is unaffected either way: that mode hops on the connection's
   own channel map.
   [#440](https://github.com/SqueakyFloors/ubertooth/issues/440)
+- A USB packet the board's controller would not take, or would not release
+  once read, is reported to the firmware as such instead of as a packet that
+  went through. The firmware could act on a received packet the hardware still
+  held and might hand over again, which on a control request means running the
+  request twice.
+  [#358](https://github.com/SqueakyFloors/ubertooth/issues/358)
 - `ubertooth-dfu -d <image> -r` tells three things apart after the reset: a
   board that did not come back, a board that is back and will not open, and a
   host USB bus that could not be read at all. The last two both read as a

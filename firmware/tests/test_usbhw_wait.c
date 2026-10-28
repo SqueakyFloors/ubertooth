@@ -1563,6 +1563,43 @@ MU_TEST(test_a_given_up_endpoint_event_leaves_the_next_one_its_retry)
 	mu_assert_int_eq(1, (int)ep_handler_calls);
 }
 
+/* A bus reset ends every transfer, so it arms every endpoint's deferral
+ * again: an event deferred when the reset arrived is gone with it, and the
+ * next event on that endpoint -- a control request, on endpoint 0 -- must
+ * still get its second chance. */
+MU_TEST(test_a_bus_reset_arms_every_endpoints_deferral_again)
+{
+	isr_test_setup();
+	fake_cmddata = EPSTAT_FE;
+
+	/* an event the engine never answers: deferred once, then given up */
+	fake_raise_ep_event(EP82_BIT);
+	sie_answers = 0;
+	USBHwISR();
+	USBHwISR();
+	mu_assert(!fake_ep_event_pending(EP82_BIT), "the event must be given up");
+
+	/* a bus reset, read cleanly */
+	sie_answers = 1;
+	devintst_events = DEV_STAT;
+	fake_cmddata = RST | CON;
+	USBHwISR();
+	mu_assert_int_eq(1, (int)dev_handler_calls);
+	devintst_events = 0;
+	fake_cmddata = EPSTAT_FE;
+
+	/* the next event's read fails once, and must be deferred */
+	fake_raise_ep_event(EP82_BIT);
+	sie_answers = 0;
+	USBHwISR();
+	mu_assert(fake_ep_event_pending(EP82_BIT),
+	          "a bus reset must leave the next event its deferral");
+
+	sie_answers = 1;
+	USBHwISR();
+	mu_assert_int_eq(1, (int)ep_handler_calls);
+}
+
 /*
  * Several endpoints, one failing. btbr enables interrupts on its bulk OUT
  * endpoint as well as endpoint 0, so the one-shot has to be per endpoint: a
@@ -1898,6 +1935,7 @@ int main(void)
 	MU_RUN(test_a_failed_status_read_does_not_answer_the_next_one);
 	MU_RUN(test_an_endpoint_event_is_given_up_after_one_retry);
 	MU_RUN(test_a_given_up_endpoint_event_leaves_the_next_one_its_retry);
+	MU_RUN(test_a_bus_reset_arms_every_endpoints_deferral_again);
 	MU_RUN(test_each_endpoints_event_has_its_own_retry);
 	MU_RUN(test_a_device_status_event_reaches_its_handler);
 	MU_RUN(test_a_failed_device_status_read_is_retried_once);
