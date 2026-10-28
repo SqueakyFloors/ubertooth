@@ -183,6 +183,8 @@ class _Device:
         self._note("UBTBR_FAKE_OPENS")
         if self._serial == "!":
             raise USBErrorAccess("access denied")
+        if os.environ.get("UBTBR_FAKE_OPEN_BUSY"):
+            raise USBErrorBusy("busy")
         marker = os.environ.get("UBTBR_FAKE_OPENED")
         if marker:
             with open(marker, "w") as opened:
@@ -1212,7 +1214,8 @@ print("ubtbr: an empty -U takes the only attached board")
 # for because atoi() would wrap it into a real index.
 for serials, selector, attached in ((TWO_BOARDS, "9", 2),
                                     (ONE_BOARD, "1", 1),
-                                    (TWO_BOARDS, "4294967296", 2)):
+                                    (TWO_BOARDS, "4294967296", 2),
+                                    (TWO_BOARDS, "9" * 5000, 2)):
     status, output, errors = selecting(("-U", selector), serials=serials)
     assert status == 1, (selector, status, output, errors)
     assert output == "", (selector, output)
@@ -1239,12 +1242,20 @@ print("ubtbr: a board with no readable serial is still listed and indexable")
 status, output, errors = selecting(("-U", "abcd"),
                                    serials=",".join((ONE_BOARD, "?")))
 assert status == 1, (status, output, errors)
+UNREAD_NOTE = ("1 attached Ubertooth device did not answer the serial read\n"
+               "note: a board nobody may open, or one that has left the bus, "
+               "reads as having no serial; select it by index with "
+               "-U<index>\n")
 assert errors == ("error: no Ubertooth found with serial matching 'abcd'\n"
-                  "1 attached Ubertooth device did not answer the serial "
-                  "read\n"
-                  "note: such a board may be in use by another program, or "
-                  "busy in a mode; stop a mode with ubertooth-util -U "
-                  "<index> -S\n"), errors
+                  + UNREAD_NOTE), errors
+# and so does a prefix that matched more than one, for the same reason: the
+# quiet board's serial could have been the one the user meant
+status, output, errors = selecting(("-U", "1cc"),
+                                   serials=",".join((ONE_BOARD,
+                                                     "1cc0ffffffffffff",
+                                                     "?")))
+assert status == 1, (status, output, errors)
+assert errors.endswith(UNREAD_NOTE), errors
 print("ubtbr: a serial refusal says when a board did not answer the read")
 
 # boards reporting one serial cannot be told apart by a longer prefix, so
@@ -1289,8 +1300,19 @@ print("ubtbr: every board the C tools recognize is listed, and nothing else")
 status, output, errors = selecting(("-U", "0"), serials="!")
 assert status == 1, (status, output, errors)
 assert output == "", output
-assert errors == ("error: Ubertooth at index 0 is in use by another program "
-                  "(libusb -3)\n"), errors
+assert errors == ("error: could not open Ubertooth at index 0: access "
+                  "denied\n"
+                  "note: a board that cannot be opened is usually a "
+                  "permissions problem; on Linux install the udev rules "
+                  "shipped with this package\n"), errors
+# a board whose interface another program holds is a different thing: it
+# opens, and libubertooth keeps "in use by another program" for that code
+status, output, errors = selecting(("-U", ONE_BOARD), serials=ONE_BOARD,
+                                   UBTBR_FAKE_OPEN_BUSY="1")
+assert status == 1, (status, output, errors)
+assert errors == ("error: could not open Ubertooth %s: busy\n"
+                  "note: the board is in use by another program\n"
+                  % ONE_BOARD), errors
 print("ubtbr: a board that cannot be opened is reported as that board")
 
 # the board a failed setup was talking to is named, so the wrong board is

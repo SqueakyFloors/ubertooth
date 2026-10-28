@@ -94,9 +94,12 @@ host reached an arbitrary one: a board flashed with `btbr` could be ignored
 in favour of one still carrying `bluetooth_rxtx`, whose write timeout then
 looked like the `btbr` board failing.
 
-A board whose serial number cannot be read — which is what a board another
-program is holding looks like — is listed as `serial unreadable` and can
-still be chosen by index.
+A board whose serial number cannot be read is listed as `serial unreadable`
+and can still be chosen by index. Reading it means opening the board, so what
+makes it fail is an open that fails — on Linux, usually the udev rules not
+being installed — or a board that has left the bus. A board whose interface
+another program has claimed reads its serial normally and fails later, when
+the session starts.
 
 ## PROMPT COMMANDS
 
@@ -189,10 +192,10 @@ standard error with no usage text, and exit 1: `error: unrecognized option
 
 With no Ubertooth attached the tool says `error: no Ubertooth devices found`
 and exits 1. A selection that names no board, or more than one, is refused
-the same way; see SELECTING A DEVICE. A board that cannot be opened because
-another program holds it, or because the permissions are missing, is
-`error: Ubertooth <serial> is in use by another program (libusb -3)`, as in
-the other tools. A board that takes none of the requests
+the same way; see SELECTING A DEVICE. A board that cannot be opened is
+`error: could not open Ubertooth <serial>: <reason>`, with a `note: ` naming
+the usual cause when the reason says one: file permissions for a refused
+open, another program for a busy board. A board that takes none of the requests
 the session opens with gets `error: could not set up the Ubertooth <serial>:
 ...` and, when the request timed out, a `note: ` naming `bluetooth_rxtx` and
 the image to flash: that is nearly always what such a board is carrying,
