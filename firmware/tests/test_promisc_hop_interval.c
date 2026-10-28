@@ -59,9 +59,22 @@ struct scan {
 	 * it is. */
 	int static_in_function;  /* a `static` stamp inside the estimator */
 	int stamp_in_state;      /* the stamp, in le_promisc_state_t */
-	/* Whether bt_promisc_le() clears the mode's state at each pass. The
-	 * stamp being a member of that state only helps if it does. */
+	/* Whether bt_promisc_le() clears the mode's state at each pass, and
+	 * whether that clearing is a whole-struct wipe. The stamp being a
+	 * member of that state only helps if both hold: a reset rewritten
+	 * field by field could miss it and every model here would still
+	 * pass. */
 	int reset_in_promisc_loop;
+	int reset_wipes_whole_state;
+	/* The estimator's two moves that a model cannot see: returning on the
+	 * first packet of a pass instead of measuring from a cleared stamp,
+	 * and storing the clock reading rather than the value a rollover was
+	 * undone on. */
+	int guard_returns_on_first_packet;
+	int stores_the_reading;
+	/* The hop-increment stamp, which had the same fault as prev_clk. */
+	int increment_static_in_function;
+	int increment_stamp_in_state;
 	/* Where the access address is announced to the host. The record is
 	 * dropped unless it is queued after bt_le_sync() has emptied the
 	 * queue, and announcing it twice would print the line twice. */
@@ -140,7 +153,7 @@ static int scan_sources(struct scan *out)
 {
 	char line[SCAN_LINE_MAX];
 	char target[48], token[64], fn[64] = "", name[64];
-	int in_block = 0, lineno = 0, in_state_struct = 0;
+	int in_block = 0, lineno = 0, in_state_struct = 0, saw_guard = 0;
 	FILE *f = fopen(path, "r");
 
 	memset(out, 0, sizeof(*out));
@@ -164,6 +177,8 @@ static int scan_sources(struct scan *out)
 				out->stamp_in_state = 1;
 			if (contains_identifier(line, "seen_a_packet"))
 				out->flag_in_state = 1;
+			if (contains_identifier(line, "first_ts"))
+				out->increment_stamp_in_state = 1;
 		}
 		if (strcmp(fn, "promisc_recover_hop_interval") == 0 &&
 		    strstr(line, "static") != NULL &&
@@ -173,6 +188,29 @@ static int scan_sources(struct scan *out)
 		if (strcmp(fn, "bt_promisc_le") == 0 &&
 		    strstr(line, "reset_le_promisc()") != NULL)
 			out->reset_in_promisc_loop = 1;
+		if (strcmp(fn, "reset_le_promisc") == 0 &&
+		    strstr(line, "memset(&le_promisc, 0, sizeof(le_promisc))")
+		        != NULL)
+			out->reset_wipes_whole_state = 1;
+
+		/* The guard: nothing is measured until a packet of this pass has
+		 * set the flag, so the branch that sees it unset returns. */
+		if (strcmp(fn, "promisc_recover_hop_interval") == 0) {
+			if (strstr(line, "!le_promisc.seen_a_packet") != NULL)
+				saw_guard = 1;
+			else if (saw_guard && strstr(line, "return") != NULL) {
+				out->guard_returns_on_first_packet = 1;
+				saw_guard = 0;
+			}
+			/* `le_promisc.prev_clk = cur_clk;`, not `= measured;`. */
+			if (strstr(line, "le_promisc.prev_clk = cur_clk") != NULL)
+				out->stores_the_reading = 1;
+		}
+
+		if (strcmp(fn, "promisc_recover_hop_increment") == 0 &&
+		    strstr(line, "static") != NULL &&
+		    contains_identifier(line, "first_ts"))
+			out->increment_static_in_function = 1;
 
 		/* `le_promisc_state(0, ...)`: the record type that carries the
 		 * access address. The other types carry the parameters the
@@ -304,8 +342,6 @@ static uint16_t a_packet_at(struct estimator *e, uint32_t now, uint32_t period)
 	e->prev_clk = cur_clk;
 	return e->conn_interval;
 }
-
-
 
 /* How long a connection of this interval takes to come back to one channel. */
 static uint32_t round_the_channels(int conn_interval)
@@ -534,6 +570,47 @@ MU_TEST(test_the_stamp_belongs_to_the_mode_not_to_the_function)
 	         "%s: bt_promisc_le() does not call reset_le_promisc(), so the "
 	         "state the stamp lives in is not cleared at a pass", path);
 	mu_assert(s.reset_in_promisc_loop, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: reset_le_promisc() does not wipe the whole of "
+	         "le_promisc, so a member added to it is not cleared by being "
+	         "there", path);
+	mu_assert(s.reset_wipes_whole_state, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: promisc_recover_hop_increment() keeps the sighting it "
+	         "counts from in a static, the fault this change removed from "
+	         "the estimator beside it", path);
+	mu_assert(!s.increment_static_in_function, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: le_promisc_state_t has no first_ts, so the hop "
+	         "increment's stamp is not cleared at a pass either", path);
+	mu_assert(s.increment_stamp_in_state, msg);
+}
+
+/*
+ * The two moves a model of the estimator cannot see, because a model that did
+ * not make them would not be a model of this code: the first packet of a pass
+ * returns instead of measuring, and what a sighting leaves behind is the clock
+ * reading. Undo either in the firmware and the models above still pass.
+ */
+MU_TEST(test_the_estimator_itself_guards_and_stores_a_reading)
+{
+	char msg[512];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: promisc_recover_hop_interval() does not return on the "
+	         "first packet of a pass, so it measures a gap from a cleared "
+	         "stamp -- the whole time since the clock restarted", path);
+	mu_assert(s.guard_returns_on_first_packet, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: promisc_recover_hop_interval() does not store the clock "
+	         "reading; a stamp with a rollover undone on it is above the "
+	         "clock's range, so the next gap is measured from a time the "
+	         "clock never shows", path);
+	mu_assert(s.stores_the_reading, msg);
 }
 
 /*
@@ -646,6 +723,7 @@ int main(void)
 	MU_RUN(test_an_ordinary_gap_is_untouched);
 	MU_RUN(test_packets_from_one_connection_event_are_ignored);
 	MU_RUN(test_the_stamp_belongs_to_the_mode_not_to_the_function);
+	MU_RUN(test_the_estimator_itself_guards_and_stores_a_reading);
 	MU_RUN(test_the_access_address_is_announced_once_and_late_enough);
 	MU_RUN(test_a_pass_does_not_measure_from_the_pass_before_it);
 	MU_RUN(test_the_stamp_left_behind_is_a_clock_reading);

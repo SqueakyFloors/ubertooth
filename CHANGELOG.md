@@ -794,12 +794,15 @@
   half of the mode that follows the connection. The CRC init value, hop
   interval and hop increment were unaffected.
   [#237](https://github.com/SqueakyFloors/ubertooth/issues/237)
-- `ubertooth-btle -p` no longer measures its first connection interval from the
-  previous run. The board timed how long the connection took to come back to
-  the channel it was listening on, keeping the smallest gap, but kept the last
-  sighting in a place no restart cleared: the first gap of a run was the time
-  since whenever the run before it last saw a packet, and a too-small one was
-  reported for the rest of the run.
+- `ubertooth-btle -p` no longer measures its first connection interval against
+  a clock reading left by an earlier attempt. The board times how long the
+  connection takes to come back to the channel it is listening on and keeps the
+  smallest gap, but it kept the last sighting where nothing cleared it, and the
+  capture clock is stopped and zeroed between attempts: the first gap was
+  measured from a reading of a clock that had since restarted, so it was an
+  arbitrary number, and whenever it came out small it was the interval reported
+  for the rest of the attempt. The stamp the hop increment is counted from had
+  the same fault.
   [#713](https://github.com/SqueakyFloors/ubertooth/issues/713)
 - `ubertooth-follow -l <LAP> -u <UAP>` says what to do when its connection to
   the target fails: those four bytes leave the connection to be made to a

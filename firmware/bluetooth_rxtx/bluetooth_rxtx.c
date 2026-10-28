@@ -133,11 +133,17 @@ typedef struct _le_promisc_state_t {
 	/* When a packet of the connection was last seen on the channel being
 	 * listened to, and whether one has been. The estimator times how long
 	 * the connection takes to come back and keeps the smallest gap, so it
-	 * must have no stamp to measure from when a pass starts: the time
-	 * since the pass before it is not a connection interval, and one
-	 * too-small gap is reported for the rest of the pass. */
+	 * must have no stamp to measure from when a pass starts: the mode's
+	 * teardown stops the capture clock and zeroes it, so a stamp left by
+	 * an earlier pass is a reading of a clock that has since restarted,
+	 * and the gap computed from it is an arbitrary one that gets reported
+	 * for the rest of the pass whenever it comes out small. */
 	u32 prev_clk;
 	u8 seen_a_packet;
+
+	/* The sighting on 2404 MHz that the hop increment is counted from,
+	 * which is the same kind of stamp and wants the same clearing. */
+	u32 first_ts;
 } le_promisc_state_t;
 le_promisc_state_t le_promisc;
 #define AA_LIST_SIZE (int)(sizeof(le_promisc.active_aa) / sizeof(le_promisc_active_aa_t))
@@ -150,8 +156,8 @@ int le_jam_count = 0;
 static void le_set_access_address(u32 aa);
 
 /* Tell the host one parameter of the connection promiscuous mode has worked
- * out. bt_le_sync() reports the access address, which is further up the file
- * than this is defined. */
+ * out. The access address is reported by bt_le_sync(), which is further up the
+ * file than this definition. */
 void le_promisc_state(u8 type, void *data, unsigned len);
 
 typedef int (*data_cb_t)(char *);
@@ -2553,14 +2559,18 @@ void bt_le_sync(u8 active_mode)
 	dma_init_le(le_rx.packet + 4, LE_RX_PDU_MAX);
 	dio_ssp_start();
 
-	/* The access address promiscuous mode is about to follow, reported
-	 * from here because this is the first point at which the host can be
-	 * told: the two places that used to announce it both ran before the
-	 * line above, which empties the queue their record went into, so the
-	 * one line that says which connection a capture is of was lost. This
-	 * is the only announcement, so a record that did escape one of them
-	 * early cannot be reported a second time. Both ways into the mode come
-	 * through here, the host-given access address included. */
+	/* The access address promiscuous mode is about to follow. Here is the
+	 * first point at which the host can be told: the two places that used
+	 * to announce it both ran before the line above, which empties the
+	 * queue their record went into, so the one line that says which
+	 * connection a capture is of was lost. Both ways into the mode come
+	 * through here, the host-given access address included, and this being
+	 * the only announcement is what keeps a record that escaped one of
+	 * those two early from printing the address twice.
+	 *
+	 * The clock is stopped and the channel registers are clear at this
+	 * point, so the record is stamped channel 0 at clock 0; the host
+	 * prints the state line and returns before it reads either. */
 	if (active_mode == MODE_BT_PROMISC_LE)
 		le_promisc_state(0, &le.access_address, 4);
 
@@ -3019,17 +3029,16 @@ void le_promisc_state(u8 type, void *data, unsigned len) {
 #define DIVIDE_ROUND(N, D) ((N) + (D)/2) / (D)
 
 void promisc_recover_hop_increment(u8 *packet) {
-	static u32 first_ts = 0;
 	if (channel == 2404) {
-		first_ts = CLK100NS;
+		le_promisc.first_ts = CLK100NS;
 		hop_direct_channel = 2406;
 		do_hop = 1;
 	} else if (channel == 2406) {
 		u32 second_ts = CLK100NS;
-		if (second_ts < first_ts)
+		if (second_ts < le_promisc.first_ts)
 			second_ts += CLK100NS_PERIOD; // handle rollover
 		// Number of channels hopped between previous and current timestamp.
-		u32 channels_hopped = DIVIDE_ROUND(second_ts - first_ts,
+		u32 channels_hopped = DIVIDE_ROUND(second_ts - le_promisc.first_ts,
 										   le.conn_interval * LE_BASECLK);
 		if (channels_hopped < 37) {
 			// Get the hop increment based on the number of channels hopped.
