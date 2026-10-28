@@ -272,6 +272,13 @@
 
 ### Reliability fixes
 
+- `ubertooth-debug` prints each CC2400 field's whole value. Fourteen fields
+  were read with a mask narrower than the field the dump draws beside them, so
+  a field holding 64 read as 0, and two more took their value from a
+  neighbour's bits: `FSMTC`'s `TC_TXEND2PAOFF` drew the field above it, and
+  `FSTST3`'s `PD_DELAY` reported `CHP_DISABLE`. Register `0x15` also answers to
+  `%MDMTST1` now; it carried `0x14`'s name, so no name of its own reached it.
+  [#671](https://github.com/SqueakyFloors/ubertooth/issues/671)
 - `ubertooth-btle -f` keeps up with a connection parameter update. The board
   kept the new transmit window in a field too narrow for it, so every window
   was cut to a fraction of its length -- 2.5 ms came out as 16.8 microseconds

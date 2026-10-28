@@ -221,7 +221,7 @@ cc2400_fsmtc (unsigned short v)
   sprintf (description, "%d us", (v >> 3) & 0x7);
   bits (5, 3, "END2SWITCH", "RW", description);
   sprintf (description, "%d us", v & 0x7);
-  bits (5, 3, "TC_TXEND2PAOFF", "RW", description);
+  bits (2, 0, "TC_TXEND2PAOFF", "RW", description);
 }
 
 static void
@@ -257,9 +257,12 @@ cc2400_manand (unsigned short v)
 static void
 cc2400_fsmstate (unsigned short v)
 {
+  char description[64];
+
   bits (15, 13, "-", "W0", "");
+  sprintf (description, "state %d", (v >> 8) & 0x1F);
   bits (12, 8, "FSM_STATE_BKPT", "RW",
-	((v >> 8) & 0xF) == 0 ? "disabled" : "");
+	((v >> 8) & 0x1F) == 0 ? "disabled" : description);
   bits (7, 5, "-", "W0", "");
   bits (4, 0, "FSM_CUR_STATE", "RO", "");
 }
@@ -270,10 +273,10 @@ cc2400_adctst (unsigned short v)
   char description[64];
 
   bits (15, 15, "-", "W0", "");
-  sprintf (description, "%d", (v >> 8) & 0x3F);
+  sprintf (description, "%d", (v >> 8) & 0x7F);
   bits (14, 8, "ADC_I", "RO", description);
   bits (7, 7, "-", "W0", "");
-  sprintf (description, "%d", v & 0x3F);
+  sprintf (description, "%d", v & 0x7F);
   bits (6, 0, "ADC_Q", "RO", description);
 }
 
@@ -447,7 +450,7 @@ cc2400_agctst0 (unsigned short v)
   bits(10,7,"AGC_SETTLE_PEAK","RW",description);
   sprintf(description,"%d",(v>>3)&0xF);
   bits(6,3,"AGC_SETTLE_ADC","RW",description);
-  sprintf(description,"%d",(v)&0x3);
+  sprintf(description,"%d",v&0x7);
   bits(2,0,"AGC_ATTEMPTS","RW",description);
 }
 static void
@@ -462,9 +465,9 @@ cc2400_agctst1 (unsigned short v)
     sprintf(description,"%d * 8 MHz clock cycles",(v>>11)&7);
   bits(13,11,"AGC_SETTLE_BLANK_UP","RW",description);
   bits(10,10,"PEAKDET_CUR_BOOST","RW","");
-  sprintf(description,"%d",(v>>6)&7);
+  sprintf(description,"%d",(v>>6)&0xF);
   bits(9,6,"AGC_MULT_SLOW","RW",description);
-  sprintf(description,"%d",(v>>2)&7);
+  sprintf(description,"%d",(v>>2)&0xF);
   bits(5,2,"AGC_SETTLE_FIXED","RW",description);
   sprintf(description,"%d",v&3);
   bits(1,0,"AGC_SETTLE_VAR","RW",description);
@@ -498,9 +501,9 @@ cc2400_fstst0 (unsigned short v)
   bits(13,12,"TXMIXBUF_CUR","RW",rxmixbuf[(v>>12)&3]);
   bits(11,11,"VCO_ARRAY_SETTLE_LONG","RW","");
   bits(10,10,"VCO_ARRAY_OE","RW","");
-  sprintf(description,"%d",(v>>5)&0xF);
+  sprintf(description,"%d",(v>>5)&0x1F);
   bits(9,5,"VCO_ARRAY_O","RW",description);
-  sprintf(description,"%d",v&0xF);
+  sprintf(description,"%d",v&0x1F);
   bits(4,0,"VCO_ARRAY_RES","RO",description);
 }
 static void
@@ -514,8 +517,8 @@ cc2400_fstst1 (unsigned short v)
   sprintf(description,"%d",(v>>4)&0x3F);
   bits(9,4,"VCO_CURRENT_K","RW",description);
   bits(3,3,"VCO_DAC_EN","RW","");
-  sprintf(description,"%d",v&0x3);
-  bits(2,0,"VCO_DAC_VAL","RW","");
+  sprintf(description,"%d",v&0x7);
+  bits(2,0,"VCO_DAC_VAL","RW",description);
 }
 static void
 cc2400_fstst2 (unsigned short v)
@@ -539,7 +542,7 @@ cc2400_fstst3 (unsigned short v)
   bits(13,13,"CHP_TEST_UP","RW","");
   bits(12,12,"CHP_TEST_DN","RW","");
   bits(11,11,"CHP_DISABLE","RW","");
-  bits(10,10,"PD_DELAY","RW",((v>>11)&1)?"Long":"Short");
+  bits(10,10,"PD_DELAY","RW",((v>>10)&1)?"Long":"Short");
   bits(9,8,"CHP_STEP_PERIOD","RW",period[(v>>8)&3]);
   sprintf(description,"%d",(v>>4)&0xF);
   bits(7,4,"STOP_CHP_CURRENT","RW",description);
@@ -642,7 +645,7 @@ cc2400_res24 (unsigned short v)
   bits(13,10,"-","RW",description);
   sprintf(description,"%d",(v>>7)&0x7);
   bits(9,7,"-","RW",description);
-  sprintf(description,"%d",v&0x3F);
+  sprintf(description,"%d",v&0x7F);
   bits(6,0,"-","RW",description);
 }
 static void
@@ -659,7 +662,7 @@ cc2400_res26 (unsigned short v)
   char description[64];
   sprintf(description,"%d",(v>>10)&0x3F);
   bits(15,10,"-","RW",description);
-  sprintf(description,"%d",v&0x1FF);
+  sprintf(description,"%d",v&0x3FF);
   bits(9,0,"-","RW",description);
 }
 static void
@@ -668,7 +671,7 @@ cc2400_res27 (unsigned short v)
   char description[64];
   sprintf(description,"%d",(v>>8)&0xFF);
   bits(15,8,"-","RO",description);
-  sprintf(description,"%d",(v>>3)&0xF);
+  sprintf(description,"%d",(v>>3)&0x1F);
   bits(7,3,"-","RW",description);
   sprintf(description,"%d",v&7);
   bits(2,0,"-","RW",description);
@@ -682,7 +685,7 @@ cc2400_res28 (unsigned short v)
   bits(14,13,"-","RW",description);
   sprintf(description,"%d",(v>>7)&0x3F);
   bits(12,7,"-","RW",description);
-  sprintf(description,"%d",v&0x3F);
+  sprintf(description,"%d",v&0x7F);
   bits(6,0,"-","RW",description);
 }
 static void
@@ -711,7 +714,7 @@ cc2400_res2b (unsigned short v)
   bits(15,14,"-","W0","");
   bits(13,13,"-","RW","");
   bits(12,12,"-","RO","");
-  sprintf(description,"%d",v&0x7FF);
+  sprintf(description,"%d",v&0xFFF);
   bits(11,0,"-","RO",description);
 }
 static struct reg_t cc2400[] = {
@@ -735,7 +738,7 @@ static struct reg_t cc2400[] = {
   {0x12, "%LMTST", cc2400_lmtst},
   {0x13, "%MANOR", cc2400_manor},
   {0x14, "%MDMTST0", cc2400_mdmtst0},
-  {0x15, "%MDMTST0", cc2400_mdmtst1},
+  {0x15, "%MDMTST1", cc2400_mdmtst1},
   {0x16, "%DACTST", cc2400_dactst},
   {0x17, "%AGCTST0", cc2400_agctst0},
   {0x18, "%AGCTST1", cc2400_agctst1},
