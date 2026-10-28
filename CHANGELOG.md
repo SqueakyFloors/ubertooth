@@ -316,6 +316,19 @@
   image and then did not come back on USB is no longer reported as a failed
   flash and flashed again for nothing.
   [#579](https://github.com/SqueakyFloors/ubertooth/issues/579)
+- **Script-visible change:** `ubertooth-dfu -r` no longer reports a board that
+  reset straight back into the bootloader as detached: the DFU device has to
+  be gone on two checks in a row, the second 1.5 s later, and a board that is
+  back exits 1 saying why. Flashing with the expansion-header bridge still
+  fitted now exits 1 where it could exit 0, and every reset that works spends
+  about 1.5 s more.
+  [#304](https://github.com/SqueakyFloors/ubertooth/issues/304)
+- `ubertooth-dfu -d <image> -r` also checks which image came back, not only
+  its revision, so a write of `btbr` over `bluetooth_rxtx` that did not take
+  no longer verifies clean: both images of one tree carry the same revision.
+  An image whose firmware info block reports a firmware API version other than
+  these tools' own is written with a warning first.
+  [#557](https://github.com/SqueakyFloors/ubertooth/issues/557)
 - `ubertooth-btle -q -` and `-c -` no longer fill the terminal with the
   decoder's complaints about packets they do not print. A capture on standard
   output leaves no room for the per-packet dump, so that dump is not produced
@@ -706,8 +719,8 @@
   [#267](https://github.com/SqueakyFloors/ubertooth/issues/267)
 - `ubertooth-dfu -r` no longer exits 0 with the board still in the bootloader
   when the bootloader acknowledges the reset request and then ignores it: the
-  board is reported as detached only once its DFU device has left the bus,
-  whatever the request returned.
+  board is reported as detached only once its DFU device has left the bus and
+  stayed off it, whatever the request returned.
   [#283](https://github.com/SqueakyFloors/ubertooth/issues/283)
 - `ubertooth-dfu -s` writes `<file>.dfu` only once the whole signed image is
   ready, and checks a `-d` image given in the same command first, so a signing

@@ -59,10 +59,14 @@ with exit status 1 without opening a device, so the board keeps running its
 firmware. If a later step fails once the board is already in DFU and `-r` was
 given, the tool detaches it anyway, reopening the DFU device on the same
 physical path when the failure closed the handle, so the board returns to its
-application. A board that never answered in DFU at all cannot be detached, and
+application. A board whose DFU device was seen to leave the bus is left where
+it is instead: the reset happened, so the handle it answered on is stale and
+driving it again would report the handle rather than the board. A board that
+never answered in DFU at all cannot be detached, and
 then needs another `ubertooth-dfu` run or a power cycle. A reset the bootloader
-refuses, and one it accepts and then does not act on, are both reported and
-fail the command instead of exiting 0 with the board still in DFU.
+refuses, one it accepts and then does not act on, and one that lands back in
+the bootloader are all reported and fail the command instead of exiting 0 with
+the board still in DFU.
 
 `-d` is bounded by the flash the board has as well. The part identification
 number is read while the board is still running its application, as it is for
@@ -107,23 +111,42 @@ looks for the DFU device on the same physical path again, and reports the
 board as detached only once it has gone. The run then carries on to the
 `-d ... -r` verification, which decides whether the flash succeeded.
 
-The question that check asks is whether the device left its path, not where it
-ended up, so it has a blind spot.
+One listing that does not find the DFU device is not enough, because the
+bootloader is absent while the board comes up again whether it left or not. So
+every absence is confirmed by a second listing 1.5 s later, and the board
+counts as detached only when both agree. A board that is back on its path by
+then reset into the bootloader rather than into its application, and that is a
+failure:
 
-A board that resets straight back into the bootloader, with the
-expansion-header bridge described under MANUALLY ENTERING BOOTLOADER still in
-place, may be reported as detached: whether the gap in which it is absent falls
-inside one of the 50 ms polls decides the answer. With `-d ... -r` the
-verification that follows catches it, because no application comes back on the
-expected revision; a bare `-r` or `-u ... -r` has only this check.
+    error: detach failed: the board reset and came back in the bootloader
+    note: the firmware was written, so the board holds it; it is in the bootloader rather than running it
+    note: the bootloader runs instead of the application when something asks the board into DFU again, or when its bootloader entry pin reads grounded as the board resets
+    note: if the expansion-header bridge is still fitted, remove it (pins 1 and 3 of P4 on an Ubertooth One), then unplug the board and plug it back in
+
+The first note appears only when `-d` had written the whole image. The second
+names the bootloader's two entry conditions, which are all there are. The
+third is what to do about the one of them that repeats on every reset: the
+expansion-header bridge described under MANUALLY ENTERING BOOTLOADER.
+
+The confirming wait is spent once per detach and only after the device has
+gone, so a board that never left the bootloader is reported as promptly as
+before.
+The 1.5 s is measured against one board on one host, where it was back within
+630 ms of being asked to reset. A board that takes longer than the whole 1.5 s,
+behind a hub or on a loaded host, is back on the bus after the confirming
+listing has already read it as gone, and is reported as detached, which is the
+answer this check gave before it existed.
 
 If a transfer fails, in either direction, the tool closes the stale handle,
 reopens and claims the DFU device on the same physical path, restores its DFU
 state, and retries the whole transfer once from its first block. A transfer
-that fails twice ends the command with exit status 1. With `-d ... -r`,
-the revision from the image's firmware info block is what the board must
-report back: the run does not return success until the application on that
-same path reports exactly that revision.
+that fails twice ends the command with exit status 1. With `-d ... -r`, the
+image name and revision from the image's firmware info block are what the
+board must report back: the run does not return success until the application
+on that same path reports exactly both. The image name matters because both
+images built from one tree carry the same revision, so a write of `btbr` over
+`bluetooth_rxtx` that did not take would otherwise pass on the revision
+alone.
 
 With multiple Ubertooths, flash them sequentially using `-U <serial>` and
 verify each device before starting the next. DFU mode does not expose a serial
@@ -275,12 +298,16 @@ while keeping the bridge in place. Wait for the distinctive LED sequence or
 confirm that USB ID `1d50:6003` is present. The bootloader samples the entry pin
 only during reset, so once DFU is active you may remove the bridge without
 exiting DFU. Run `ubertooth-dfu` promptly because pin-entry DFU times out after
-a few seconds if no DFU request begins.
+a few seconds if no DFU request begins; the board then resets, and with the
+bridge still fitted that reset lands in the bootloader again.
 
 Remove the bridge before the final reset if you want the application firmware
 to boot. If it remains installed, the next reset will sample the entry pin
-again and return to the bootloader. If removing a live bridge is inconvenient,
-finish the flash, unplug the device, remove the bridge, and reconnect it.
+again and return to the bootloader, and `-r` fails with
+`error: detach failed: the board reset and came back in the bootloader`: the
+image is written, and the board is in DFU rather than running it. If removing
+a live bridge is inconvenient, finish the flash, unplug the device, remove the
+bridge, and reconnect it; `ubertooth-util -v` then reports the new firmware.
 
 ## ARGUMENTS
 
@@ -329,7 +356,8 @@ line the tool will not take or that has nothing to do, a file it cannot read
 or create, an image it refuses, a selected board that is missing or that
 something else is using, a bootloader that will not answer or will not become
 idle, a transfer that failed both its attempts, a reset that left the board in
-DFU, and a verification after the reset that did not end in the image's own
+DFU or brought it straight back into the bootloader, and a verification after
+the reset that did not end in the image's own name and
 revision. That last one includes a board that did not come back on USB at all:
 the write had completed by then, but the command cannot say the board runs
 what was written, so it is not reported as a success. The line it prints says
@@ -342,9 +370,11 @@ Standard output carries the usage text for `-h`, and otherwise one line, from
 
     Verified firmware revision: git-ed30131d
 
-That is the revision the board reported once it was running the new firmware,
-which is the only thing this command reads back, so it is the result and a
-script can read it on its own. Nothing else is ever written to standard
+That is the revision the board reported once it was running the new firmware.
+It is the only thing this command reports back, so it is the result and a
+script can read it on its own; the image name the verification also reads is
+checked rather than printed, because the `Image: ...` line already said which
+one was written. Nothing else is ever written to standard
 output: the dump of `-u` goes to the file it names, and the signed image of
 `-s` to `<file>.dfu`, and a run that only writes firmware or resets the board
 says nothing there at all.
@@ -368,8 +398,11 @@ The errors this tool prints itself are one line each beginning `error: `, for
 example `error: detach failed: the board is still in DFU`,
 `error: upload failed: block 164 was not read`,
 `error: firmware update failed after 2 attempt(s): ...` and
-`error: control message unsupported`; the lines about a part this host cannot
-identify begin `warning: `. Lines from elsewhere do not follow that yet: the
+`error: control message unsupported`. Lines beginning `warning: ` are the ones
+about a part this host cannot identify and about an image built for another
+API version; lines beginning `note: ` follow a failure the tool can say
+something more about, which today is a board that came back in the bootloader.
+Lines from elsewhere do not follow that yet: the
 libusb status reports (`libUSB Error: ...`) and the libubertooth messages that
 have not been converted, such as `could not open Ubertooth device`.
 
@@ -379,17 +412,33 @@ mean the same thing, so each has its own line:
     error: the firmware was written, but the board did not come back on USB: power-cycle it and read its revision with ubertooth-util -v before flashing it again
     error: the firmware was written, but the board came back and would not open, so the flash was not checked: read its revision with ubertooth-util -v once nothing else is using it
     error: the board came back running git-0000000, not git-ed30131d: the firmware was not written, so flash it again
+    error: the board came back running the btbr firmware, not the bluetooth_rxtx image that was written: the firmware was not written, so flash it again
     error: the board came back but would not report its firmware revision, so the flash was not checked: read it with ubertooth-util -v
+    error: the board came back running git-ed30131d, the revision that was written, but would not say which firmware image it is, so which of this tree's images it runs is unchecked
     error: the device that came back is not on the flashed board's USB path, so the flash was not checked: read the board's revision with ubertooth-util -v
 
-Only the third of those says the write did not take. The first two are boards
-whose flash already holds the new firmware: the whole image went in and the
-board was reset before it stopped answering, so what they need is a
-`ubertooth-util -v`, not another flash. The second is a board that is on the
-bus and will not open, usually because something else is using it or this user
-has no permission to it, so a power cycle is not what it is waiting for.
+Two of those say the write did not take and ask for another flash: the one
+that names another revision, and the one that names the other image. The first
+two lines are boards whose flash already holds the new firmware: the whole
+image went in and the board was reset before it stopped answering, so what
+they need is a `ubertooth-util -v`, not another flash. The second of them is a
+board that is on the bus and will not open, usually because something else is
+using it or this user has no permission to it, so a power cycle is not what it
+is waiting for. The rest leave the flash unchecked rather than failed.
 Whichever line is printed, the stage trace carries the raw codes behind it on
 its `post-reset application verification failed: ...` line.
+
+An image whose firmware info block reports an API version other than these
+tools' own is not refused for that, only warned about: the tools and the board have to
+report the same one, and this command is the way back from a board that does
+not. It is a warning rather than a refusal for that reason.
+
+    warning: older.dfu: this image reports API version 1.07 in its firmware info block, and these tools report <version>; the tools and the board have to report the same one
+
+What the warning reports is what the file says about itself. The other tools
+read the board's USB `bcdDevice` rather than this block, and the two are not
+the same number in every image, so the warning does not promise what they will
+make of the board afterwards.
 
 ## SEE ALSO
 

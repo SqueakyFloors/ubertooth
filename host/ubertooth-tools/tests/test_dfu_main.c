@@ -50,6 +50,14 @@ int nanosleep(const struct timespec *requested, struct timespec *remaining)
 #define PART_ID_256K 0x25011723u  /* LPC1756 */
 #define PART_ID_UNKNOWN 0x12345678u
 
+/* What the test images say about themselves in their firmware info block. The
+ * API version is the host's own, as a real image from this tree carries: an
+ * image that reports another one is warned about, which one case below asks
+ * for on purpose. */
+#define IMAGE_REVISION "git-2671234"
+#define IMAGE_NAME "bluetooth_rxtx"
+#define IMAGE_API UBERTOOTH_API_VERSION
+
 /* What the faked flash holds at an address, so a dump can be checked byte for
  * byte against the region it claims to be. */
 static uint8_t flash_byte(uint32_t address)
@@ -85,8 +93,15 @@ static struct {
 	int detach_resets;      /* the bootloader acts on REQ_DETACH and resets */
 	int detach_drops_off_bus; /* ...and the board then leaves USB entirely */
 	int claim_rc_after_detach; /* what claiming the returned board returns */
+	int detach_returns_to_dfu; /* ...and the bootloader runs again */
+	int absent_lists;       /* this many listings find nothing on the bus */
+	int list_rc;            /* < 0: a device listing fails with this */
+	int list_rc_after_detach; /* ...from the reset on */
+	int list_rc_lists;      /* ...for this many listings, or 0 for all */
 	char revision[64];      /* what the returned application reports, if any */
 	int revision_calls;
+	char image[32];         /* ...and which image its info block names */
+	int info_calls;
 	int abort_calls, clrstatus_calls, getstatus_calls;
 	int opens, closes, claims, releases, claim_rc;
 	int claim_reports;            /* ubertooth_report_claim_failed() calls */
@@ -115,6 +130,9 @@ static void board_in_dfu(void)
 	fake.state = STATE_DFU_IDLE;
 	fake.upload_fail_block = -1;
 	fake.detach_resets = 1;
+	/* The image the returned application names, which is the one the test
+	 * images carry: a case that wants the other one says so. */
+	snprintf(fake.image, sizeof(fake.image), "%s", IMAGE_NAME);
 }
 
 /* A board running its application, which -U opens and switches into DFU: the
@@ -148,7 +166,28 @@ ssize_t LIBUSB_CALL libusb_get_device_list(libusb_context *ctx,
 	*list = calloc(2, sizeof(libusb_device *));
 	if (*list == NULL)
 		return LIBUSB_ERROR_NO_MEM;
+	/* A listing that cannot be read at all, which is not the same as one
+	 * that found nothing. It returns no list, so the caller frees nothing
+	 * and this one is not counted. */
+	if (fake.list_rc < 0 && fake.absent_lists == 0) {
+		int rc = fake.list_rc;
+
+		/* A case that asks for a given number of failures gets them and
+		 * then a bus that reads normally again. */
+		if (fake.list_rc_lists > 0 && --fake.list_rc_lists == 0)
+			fake.list_rc = 0;
+		free(*list);
+		*list = NULL;
+		return rc;
+	}
 	fake.lists++;
+	/* A board that is off the bus while it comes up again: the listings in
+	 * that gap find nothing, and the one after it finds whatever the case
+	 * left on fake.vid/fake.pid. */
+	if (fake.absent_lists > 0) {
+		fake.absent_lists--;
+		return 0;
+	}
 	if (!fake.present)
 		return 0;
 	(*list)[0] = FAKE_DEVICE;
@@ -308,6 +347,18 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle *devh,
 		if (fake.detach_resets) {
 			fake.vid = U1_VENDORID;
 			fake.pid = U1_PRODUCTID;
+			/* A board that resets back into the bootloader: it is off the
+			 * bus while it comes up, and then the DFU device is there again
+			 * on the same path. */
+			if (fake.detach_returns_to_dfu) {
+				fake.vid = U1_DFU_VENDORID;
+				fake.pid = U1_DFU_PRODUCTID;
+				fake.absent_lists = 1;
+			}
+			if (fake.list_rc_after_detach != 0) {
+				fake.absent_lists = 1;
+				fake.list_rc = fake.list_rc_after_detach;
+			}
 			/* A board that does not re-enumerate is simply not on the bus
 			 * any more: the DFU device has gone, which is what the detach
 			 * check asks, and no application arrives in its place. */
@@ -402,6 +453,24 @@ int cmd_get_firmware_revision(struct libusb_device_handle *devh, char *revision,
 		return -1;
 	snprintf(revision, revision_size, "%s", fake.revision);
 	return (int)strlen(revision);
+}
+
+/* The info block the returned application reports, which is where the
+ * verification reads the image name. A case that clears the image name has a
+ * board that stalls the request, as firmware built before the block does. */
+int cmd_get_firmware_info(struct libusb_device_handle *devh,
+                          struct ubertooth_fw_info *info)
+{
+	(void)devh;
+	fake.info_calls++;
+	memset(info, 0, sizeof(*info));
+	if (fake.image[0] == '\0')
+		return LIBUSB_ERROR_PIPE;
+	info->format_version = UBERTOOTH_FW_INFO_FORMAT;
+	info->api_version = IMAGE_API;
+	snprintf(info->image, sizeof(info->image), "%s", fake.image);
+	snprintf(info->revision, sizeof(info->revision), "%s", fake.revision);
+	return 0;
 }
 
 /* ---- running main() and capturing what it prints ------------------------ */
@@ -548,14 +617,10 @@ static void remove_dump(void)
 
 /* ---- an image for -d to write ------------------------------------------ */
 
-#define IMAGE_REVISION "git-2671234"
 /* Three blocks of payload, so a download sends several blocks and the suffix
  * falls into a fourth. */
 #define IMAGE_PAYLOAD (3 * BLOCK_SIZE)
 #define IMAGE_BLOCKS 4
-
-#define IMAGE_NAME "bluetooth_rxtx"
-#define IMAGE_API 0x0134
 
 /* A signed DFU file for this device, laid out like a real image: the build
  * string at the start, and the firmware info block at
@@ -568,7 +633,7 @@ static void remove_dump(void)
  * board. */
 static void write_image_with(const char *path, const char *image_name,
                              const char *revision, long payload,
-                             unsigned block_format)
+                             unsigned block_format, unsigned api_version)
 {
 	FILE *payload_file = tmpfile();
 	FILE *image = fopen(path, "w+b");
@@ -596,8 +661,8 @@ static void write_image_with(const char *path, const char *image_name,
 		       UBERTOOTH_FW_INFO_MAGIC, UBERTOOTH_FW_INFO_MAGIC_LEN);
 		block[UBERTOOTH_FW_INFO_OFF_FORMAT] = (uint8_t)(block_format & 0xff);
 		block[UBERTOOTH_FW_INFO_OFF_FORMAT + 1] = (uint8_t)(block_format >> 8);
-		block[UBERTOOTH_FW_INFO_OFF_API] = IMAGE_API & 0xff;
-		block[UBERTOOTH_FW_INFO_OFF_API + 1] = IMAGE_API >> 8;
+		block[UBERTOOTH_FW_INFO_OFF_API] = (uint8_t)(api_version & 0xff);
+		block[UBERTOOTH_FW_INFO_OFF_API + 1] = (uint8_t)(api_version >> 8);
 		memcpy(block + UBERTOOTH_FW_INFO_OFF_IMAGE, image_name,
 		       strlen(image_name));
 		memcpy(block + UBERTOOTH_FW_INFO_OFF_REVISION, revision,
@@ -620,7 +685,7 @@ static void write_image_with(const char *path, const char *image_name,
 static void write_image_of(const char *path, const char *revision, long payload)
 {
 	write_image_with(path, IMAGE_NAME, revision, payload,
-	                 UBERTOOTH_FW_INFO_FORMAT);
+	                 UBERTOOTH_FW_INFO_FORMAT, IMAGE_API);
 }
 
 static void write_image(const char *revision)
@@ -855,6 +920,17 @@ static struct run_result flash_with_detach_error(int detach_rc)
 	return RUN("-d", image_path, "-r");
 }
 
+/* The "Image: ..." line a test image produces, built from the host's API
+ * version rather than pinned to a number that goes stale on every bump. */
+static const char *expected_image_line(void)
+{
+	static char line[128];
+
+	snprintf(line, sizeof(line), "Image: %s %s (API:%x.%02x)\n", IMAGE_NAME,
+	         IMAGE_REVISION, (IMAGE_API >> 8) & 0xFF, IMAGE_API & 0xFF);
+	return line;
+}
+
 static void assert_flash_passed(struct run_result *r)
 {
 	mu_assert_int_eq(0, r->rc);
@@ -865,9 +941,12 @@ static void assert_flash_passed(struct run_result *r)
 	          != NULL, "the flashed revision was not verified");
 	/* Read out of the image's firmware info block, not searched for, and a
 	 * note about the run, so on standard error. */
-	mu_assert(strstr(r->err,
-	                 "Image: " IMAGE_NAME " " IMAGE_REVISION " (API:1.34)\n")
-	          != NULL, "the image and revision the file carries were not named");
+	mu_assert(strstr(r->err, expected_image_line()) != NULL,
+	          "the image and revision the file carries were not named");
+	/* The image carries the host's own API version, so that is not warned
+	 * about. */
+	mu_assert(strstr(r->err, "API version") == NULL,
+	          "a matching image was warned about");
 	mu_assert(strstr(r->out, "Image: ") == NULL,
 	          "the image line took standard output");
 	mu_assert(strstr(r->err, "still in DFU") == NULL,
@@ -932,6 +1011,10 @@ MU_TEST(a_failed_detach_with_the_dfu_device_still_there_fails_the_command)
 	mu_assert_int_eq(0, fake.revision_calls);
 	/* Cleanup still tries once more to get it out of the bootloader. */
 	mu_assert_int_eq(2, fake.detach_calls);
+	/* The device never went, so the request's own status is evidence after
+	 * all and both attempts name it. This is the half of that rule the
+	 * cases above do not cover. */
+	mu_assert_int_eq(2, fake.libusb_errors);
 }
 
 /* With no -d there is no verification to fall back on, so the DFU device
@@ -1082,7 +1165,276 @@ MU_TEST(a_detach_race_followed_by_the_old_firmware_fails_the_command)
 	mu_assert_int_eq(1, fake.revision_calls);
 }
 
+/* ---- a board that resets straight back into the bootloader -------------- */
+
+/* The reset happened, and the board is in the bootloader again. One listing
+ * cannot tell this from a board that left, because the bootloader is absent
+ * while it comes up either way; the confirming listing can, and a bare reset
+ * has nothing else behind it. */
+MU_TEST(a_board_that_comes_back_in_the_bootloader_fails_a_bare_reset)
+{
+	struct run_result r;
+
+	board_in_dfu();
+	fake.detach_returns_to_dfu = 1;
+	r = RUN("-r");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: detach failed: the board reset and came "
+	                 "back in the bootloader\n") != NULL,
+	          "the board back in the bootloader was not reported");
+	/* The causes any board can be in, before the one that needs the header:
+	 * a user who never fitted a bridge has to be told something true. */
+	mu_assert(strstr(r.err, "note: the bootloader runs instead of the "
+	                 "application when something asks the board into DFU "
+	                 "again, or when its bootloader entry pin reads grounded "
+	                 "as the board resets\n") != NULL,
+	          "the general causes were not named");
+	mu_assert(strstr(r.err, "note: if the expansion-header bridge is still "
+	                 "fitted, remove it (pins 1 and 3 of P4 on an Ubertooth "
+	                 "One), then unplug the board and plug it back in\n")
+	          != NULL, "the bridge was not suggested");
+	/* Nothing was written, so nothing claims it was. */
+	mu_assert(strstr(r.err, "the firmware was written") == NULL,
+	          "a bare reset claimed to have written firmware");
+	mu_assert(strstr(r.err, "Detached\n") == NULL,
+	          "a board back in the bootloader was reported as detached");
+	mu_assert(strstr(r.err, "still in DFU") == NULL,
+	          "a board that did reset was reported as never having left");
+	/* The general causes come before the bridge. */
+	mu_assert(strstr(r.err, "something asks the board into DFU") <
+	          strstr(r.err, "expansion-header bridge"),
+	          "the bridge was suggested before the general causes");
+	mu_assert_int_eq(0, (int)strlen(r.out));
+	/* The board reset once and came back, so cleanup does not reset it
+	 * again: that would land in the same place and say so in codes rather
+	 * than words. One error line, one diagnosis. */
+	mu_assert_int_eq(1, error_lines(r.err));
+	mu_assert_int_eq(1, fake.detach_calls);
+}
+
+/* The same under -u: the dump is kept, and the run still fails. */
+MU_TEST(a_board_that_comes_back_in_the_bootloader_fails_a_read_back)
+{
+	struct run_result r;
+	int content_ok;
+
+	board_in_dfu();
+	remove_dump();
+	fake.detach_returns_to_dfu = 1;
+	r = RUN("-u", dump_path, "-r");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "came back in the bootloader") != NULL,
+	          "the board back in the bootloader was not reported");
+	mu_assert_int_eq(DUMP_LENGTH, dump_length_and_content(&content_ok));
+	mu_assert(content_ok, "the dump is not the region it read");
+	remove_dump();
+}
+
+/* A flash whose board comes back in the bootloader fails at the detach, so
+ * the message says where the board is rather than waiting out the
+ * verification to report an application that was never coming. */
+MU_TEST(a_board_that_comes_back_in_the_bootloader_fails_before_verification)
+{
+	struct run_result r;
+
+	board_in_dfu();
+	fake.detach_returns_to_dfu = 1;
+	snprintf(fake.revision, sizeof(fake.revision), "%s", IMAGE_REVISION);
+	r = RUN("-d", image_path, "-r");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(IMAGE_BLOCKS, fake.dnload_calls);
+	mu_assert(strstr(r.err, "came back in the bootloader") != NULL,
+	          "the board back in the bootloader was not reported");
+	/* The image is in the flash, so the line that would otherwise send the
+	 * reader back to write it again says so first. */
+	mu_assert(strstr(r.err, "note: the firmware was written, so the board "
+	                 "holds it; it is in the bootloader rather than running "
+	                 "it\n") != NULL,
+	          "the completed write was not reported");
+	mu_assert(strstr(r.err, "the firmware was written") <
+	          strstr(r.err, "the bootloader runs instead"),
+	          "the causes came before what is known about the flash");
+	mu_assert(strstr(r.out, "Verified firmware revision") == NULL,
+	          "a board in the bootloader was reported as verified");
+	mu_assert_int_eq(0, fake.revision_calls);
+}
+
+/* The confirming listing is what settles the detach, so a bus that cannot be
+ * listed after the device went leaves it unsettled. It is retried a few times
+ * first, and then said rather than guessed either way. */
+MU_TEST(a_confirming_listing_that_cannot_be_read_says_it_could_not_tell)
+{
+	struct run_result r;
+
+	board_in_dfu();
+	fake.list_rc_after_detach = LIBUSB_ERROR_NO_MEM;
+	fake.list_rc_lists = 0; /* every listing after the reset */
+	r = RUN("-r");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: detach failed: could not tell whether "
+	                 "the board left DFU (usb_error=-11)\n") != NULL,
+	          "the unanswerable confirming listing was not reported");
+	mu_assert(strstr(r.err, "Detached\n") == NULL,
+	          "an unsettled detach was reported as detached");
+	mu_assert(strstr(r.err, "error: detach failed: the board reset and came "
+	                 "back") == NULL,
+	          "an unsettled detach was reported as a board in the bootloader");
+	/* The device had gone before the confirming listings failed, so the
+	 * handle is stale: cleanup does not reset the board again through it,
+	 * and the failure is reported once. */
+	mu_assert_int_eq(1, fake.detach_calls);
+	mu_assert_int_eq(1, error_lines(r.err));
+	/* The gap was waited, so the trace says why the detach took that long,
+	 * as a whole line: it is built into a buffer, and a line cut short mid
+	 * word is how that buffer being too small shows up. */
+	mu_assert(strstr(r.err, "the DFU device has gone: looking again in 1500 "
+	                 "ms, in case the board came back in the bootloader\n")
+	          != NULL, "the confirming wait is not in the stage trace");
+}
+
+/* A confirming listing that could not be read leaves the detach unsettled,
+ * and the board had still gone, so a request that failed as it reset says
+ * nothing about that either: no libusb status in front of this failure. */
+MU_TEST(a_board_that_went_names_no_libusb_status_when_the_bus_will_not_read)
+{
+	struct run_result r;
+
+	board_in_dfu();
+	fake.detach_rc = LIBUSB_ERROR_PIPE;
+	fake.list_rc_after_detach = LIBUSB_ERROR_NO_MEM;
+	r = RUN("-r");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "could not tell whether the board left DFU")
+	          != NULL, "the unsettled detach was not reported");
+	mu_assert_int_eq(0, fake.libusb_errors);
+	/* The device had gone, so the handle is stale and cleanup does not
+	 * reset the board again through it. */
+	mu_assert_int_eq(1, fake.detach_calls);
+	mu_assert_int_eq(1, error_lines(r.err));
+}
+
+/* One confirming listing that cannot be read is not the answer either: it is
+ * tried again, and the next one settles it. */
+MU_TEST(one_unreadable_confirming_listing_is_tried_again)
+{
+	struct run_result r;
+
+	board_in_dfu();
+	fake.detach_returns_to_dfu = 1;
+	fake.list_rc_after_detach = LIBUSB_ERROR_NO_MEM;
+	fake.list_rc_lists = 1;
+	r = RUN("-r");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: detach failed: the board reset and came "
+	                 "back in the bootloader\n") != NULL,
+	          "the retried confirming listing did not settle the detach");
+	mu_assert(strstr(r.err, "could not tell") == NULL,
+	          "one unreadable listing decided the detach");
+}
+
+/* The detach request failing while the board resets is what a reset that
+ * worked looks like on macOS, so a board that came back in the bootloader
+ * must not have a libusb status put in front of its failure. */
+MU_TEST(a_board_back_in_the_bootloader_names_no_libusb_status)
+{
+	struct run_result r;
+
+	board_in_dfu();
+	fake.detach_returns_to_dfu = 1;
+	fake.detach_rc = LIBUSB_ERROR_PIPE;
+	r = RUN("-r");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: detach failed: the board reset and came "
+	                 "back in the bootloader\n") != NULL,
+	          "the board back in the bootloader was not reported");
+	mu_assert_int_eq(0, fake.libusb_errors);
+	mu_assert_int_eq(1, error_lines(r.err));
+}
+
+/* ---- what the image says about itself ---------------------------------- */
+
+/* An image built for another API version leaves a board every other tool
+ * refuses, so it is warned about. It is still written: this command is the
+ * way back from such a board, so it has to be able to write any valid image.
+ */
+MU_TEST(an_image_for_another_api_version_is_warned_about_and_written)
+{
+	struct run_result r;
+
+	board_in_dfu();
+	write_image_with(sized_image_path, IMAGE_NAME, IMAGE_REVISION,
+	                 IMAGE_PAYLOAD, UBERTOOTH_FW_INFO_FORMAT, 0x0107);
+	snprintf(fake.revision, sizeof(fake.revision), "%s", IMAGE_REVISION);
+	r = RUN("-d", sized_image_path, "-r");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.err, "warning: ") != NULL,
+	          "the API version mismatch was not warned about");
+	mu_assert(strstr(r.err, "this image reports API version 1.07 in its "
+	                 "firmware info block, and these tools report ") != NULL,
+	          "the warning does not name both API versions");
+	mu_assert(strstr(r.err, "have to report the same one") != NULL,
+	          "the warning does not say the two have to match");
+	/* What the file says, not what the other tools will make of the board:
+	 * they read the USB bcdDevice, which is a different field. */
+	mu_assert(strstr(r.err, "will refuse") == NULL,
+	          "the warning promises what the other tools will do");
+	/* A warning, not a refusal: the image is written and verified. */
+	mu_assert_int_eq(IMAGE_BLOCKS, fake.dnload_calls);
+	mu_assert(strstr(r.out, "Verified firmware revision: " IMAGE_REVISION)
+	          != NULL, "the image was not written after the warning");
+	mu_assert(strstr(r.err, "error: ") == NULL,
+	          "the warning was also reported as an error");
+}
+
 /* ---- which of the post-reset outcomes it was ---------------------------- */
+
+/* Both images of this tree carry the same revision, so a write of one over
+ * the other that did not take passes a revision check. The image name is
+ * what catches it. */
+MU_TEST(a_board_running_the_other_image_fails_the_verification)
+{
+	struct run_result r;
+
+	board_in_dfu();
+	snprintf(fake.revision, sizeof(fake.revision), "%s", IMAGE_REVISION);
+	snprintf(fake.image, sizeof(fake.image), "btbr");
+	r = RUN("-d", image_path, "-r");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: the board came back running the btbr "
+	                 "firmware, not the " IMAGE_NAME " image that was "
+	                 "written: the firmware was not written, so flash it "
+	                 "again\n") != NULL,
+	          "the other image was not reported as a failed write");
+	mu_assert(strstr(r.out, "Verified firmware revision") == NULL,
+	          "a board running the other image was reported as verified");
+	mu_assert_int_eq(1, fake.info_calls);
+	mu_assert_int_eq(1, error_lines(r.err));
+	mu_assert_int_eq(0, (int)strlen(r.out));
+}
+
+/* A board that answers its revision but not its info block leaves the image
+ * unknown. That is an unchecked flash, not a failed one. */
+MU_TEST(a_board_that_will_not_name_its_image_fails_the_verification)
+{
+	struct run_result r;
+
+	board_in_dfu();
+	snprintf(fake.revision, sizeof(fake.revision), "%s", IMAGE_REVISION);
+	fake.image[0] = '\0';
+	r = RUN("-d", image_path, "-r");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: the board came back running "
+	                 IMAGE_REVISION ", the revision that was written, but "
+	                 "would not say which firmware image it is, so which of "
+	                 "this tree's images it runs is unchecked\n") != NULL,
+	          "the unreadable image was not reported as unchecked");
+	mu_assert(strstr(r.err, "not written") == NULL,
+	          "the line claims the write did not take");
+	/* The faked board stalls the request, which is the one failure the
+	 * library keeps quiet about, so this line is the only error. Its other
+	 * failures report themselves first. */
+	mu_assert_int_eq(1, error_lines(r.err));
+}
 
 /* The board took the whole image and then left the bus, so its flash holds
  * the new firmware and nothing came back to say so. The line has to tell that
@@ -1106,8 +1458,9 @@ MU_TEST(a_board_that_does_not_come_back_says_the_firmware_was_written)
 	/* The raw codes are still there for anyone debugging the tool, in the
 	 * stage trace rather than in the line the user reads. */
 	mu_assert(strstr(r.err, "post-reset application verification failed: "
-	                 "result=-2 polls=20 expected=" IMAGE_REVISION
-	                 " actual= usb_error=") != NULL,
+	                 "result=-2 polls=20 expected_image=" IMAGE_NAME
+	                 " expected_revision=" IMAGE_REVISION
+	                 " actual_image= actual_revision= usb_error=") != NULL,
 	          "the stage trace lost the verification's own result");
 	mu_assert_int_eq(1, error_lines(r.err));
 	mu_assert_int_eq(0, (int)strlen(r.out));
@@ -1136,8 +1489,9 @@ MU_TEST(a_board_that_will_not_be_claimed_is_not_reported_as_missing)
 	mu_assert(strstr(r.err, "did not come back on USB") == NULL,
 	          "a board that is on the bus was reported as missing");
 	mu_assert(strstr(r.err, "post-reset application verification failed: "
-	                 "result=-2 polls=20 expected=" IMAGE_REVISION
-	                 " actual= usb_error=-6") != NULL,
+	                 "result=-2 polls=20 expected_image=" IMAGE_NAME
+	                 " expected_revision=" IMAGE_REVISION
+	                 " actual_image= actual_revision= usb_error=-6") != NULL,
 	          "the stage trace lost the error that stopped the open");
 	mu_assert_int_eq(1, error_lines(r.err));
 	mu_assert_int_eq(0, (int)strlen(r.out));
@@ -1374,7 +1728,7 @@ MU_TEST(an_image_with_no_info_block_is_refused)
 
 	board_in_application(PART_ID_128K, 128 * 1024);
 	write_image_with(sized_image_path, IMAGE_NAME, IMAGE_REVISION,
-	                 IMAGE_PAYLOAD, 0);
+	                 IMAGE_PAYLOAD, 0, IMAGE_API);
 	r = RUN("-U", "0", "-d", sized_image_path, "-r");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strstr(r.err, "there is no firmware info block here at offset "
@@ -1398,7 +1752,7 @@ MU_TEST(an_image_with_an_unknown_block_format_is_refused)
 
 	board_in_application(PART_ID_128K, 128 * 1024);
 	write_image_with(sized_image_path, IMAGE_NAME, IMAGE_REVISION,
-	                 IMAGE_PAYLOAD, UBERTOOTH_FW_INFO_FORMAT + 1);
+	                 IMAGE_PAYLOAD, UBERTOOTH_FW_INFO_FORMAT + 1, IMAGE_API);
 	r = RUN("-U", "0", "-d", sized_image_path, "-r");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strstr(r.err, "format this host does not know") != NULL,
@@ -1731,6 +2085,11 @@ int main(void)
 	 * to wait, so they do it in a few milliseconds. */
 	detach_gone_polls = 3;
 	detach_gone_interval_ms = 1;
+	/* The confirming wait keeps its real length, because the stage line it
+	 * logs is built from that number and a shorter one would not fill the
+	 * buffer the way the shipped interval does. Sleeping costs nothing
+	 * here: nanosleep() above returns at once. */
+	detach_confirm_interval_ms = DETACH_CONFIRM_INTERVAL_MS;
 
 	MU_RUN(a_dfu_board_in_use_goes_through_the_shared_report_and_is_left_alone);
 	MU_RUN(a_read_back_with_reset_writes_the_dump_and_detaches);
@@ -1754,6 +2113,16 @@ int main(void)
 	MU_RUN(a_detach_that_is_accepted_and_ignored_fails_before_verification);
 	MU_RUN(an_accepted_detach_with_no_usb_path_says_it_could_not_tell);
 	MU_RUN(a_detach_race_followed_by_the_old_firmware_fails_the_command);
+	MU_RUN(a_board_that_comes_back_in_the_bootloader_fails_a_bare_reset);
+	MU_RUN(a_board_that_comes_back_in_the_bootloader_fails_a_read_back);
+	MU_RUN(a_board_that_comes_back_in_the_bootloader_fails_before_verification);
+	MU_RUN(a_confirming_listing_that_cannot_be_read_says_it_could_not_tell);
+	MU_RUN(one_unreadable_confirming_listing_is_tried_again);
+	MU_RUN(a_board_that_went_names_no_libusb_status_when_the_bus_will_not_read);
+	MU_RUN(a_board_back_in_the_bootloader_names_no_libusb_status);
+	MU_RUN(an_image_for_another_api_version_is_warned_about_and_written);
+	MU_RUN(a_board_running_the_other_image_fails_the_verification);
+	MU_RUN(a_board_that_will_not_name_its_image_fails_the_verification);
 	MU_RUN(a_board_that_does_not_come_back_says_the_firmware_was_written);
 	MU_RUN(a_board_that_will_not_be_claimed_is_not_reported_as_missing);
 	MU_RUN(a_board_that_will_not_report_its_revision_says_the_flash_is_unchecked);

@@ -157,10 +157,13 @@ bootloader needs the entry pin or a power cycle.*
 
 - [ ] Run `ubertooth-dfu -U <serial> -d firmware/btbr/btbr.dfu -r`
 - [ ] Run `ubertooth-dfu -U <serial> -d firmware/bluetooth_rxtx/bluetooth_rxtx.dfu -r`
-- [ ] Confirm: the second flash exits 0, with no `DFU entry failed`; the board
-      comes back and `ubertooth-util -v` reports the revision just written
-      (`-r` reads the revision off the board directly, so `btbr`'s fixed
-      `bcdDevice` of 1.06 does not get in the way)
+- [ ] Confirm: each flash exits 0, with no `DFU entry failed`; the board comes
+      back and `ubertooth-util -v` reports the image and revision just
+      written, `btbr` for the first and `bluetooth_rxtx` for the second
+      (`-r` reads both off the board directly, so `btbr`'s fixed `bcdDevice`
+      of 1.06 does not get in the way). The image name is what makes this
+      step a real check: both images carry the same revision, so a write that
+      did not take between them would pass on the revision alone
 - [ ] Flash `btbr.dfu` again, start `ubertooth-btbr`, and flash
       `bluetooth_rxtx.dfu` while it is capturing
 - [ ] Confirm: the same result, and the board does not stop answering
@@ -228,6 +231,34 @@ the same revision. The exchange completes within a couple of seconds.*
 *The range test itself is flaky run to run on some boards: about one run in
 five reports `mismatch on byte 0`, or does not finish. That is issue #686, not
 a fault in the tools. Repeat a run that ends that way.*
+
+### 2j. Flashing with the bootloader entry pin still bridged (issue #304)
+
+*Needs a board at the bench: the entry pin has to be bridged by hand, and the
+board is left in the bootloader at the end. Nothing here can wedge it; it comes
+back by unplugging it with the bridge removed.*
+
+*The bridge goes on while the board is already up and running its application,
+not before it is plugged in. The pin is only sampled at reset, so the flash
+below still starts normally and the reset at the end of it is the one that
+lands in the bootloader. Fitting the bridge first would leave the board in DFU
+with no application to open, and `-U <serial>` never adopts a device that was
+already in DFU, so the run would end at `DFU entry failed` instead.*
+
+- [ ] With the board plugged in and running its application, bridge pins 1 and
+      3 of the expansion header (P4)
+- [ ] Leave the bridge fitted and run
+      `ubertooth-dfu -U <serial> -d firmware/bluetooth_rxtx/bluetooth_rxtx.dfu -r`
+- [ ] Confirm: it exits 1 with
+      `error: detach failed: the board reset and came back in the bootloader`,
+      then the `note:` lines saying the firmware was written, naming the
+      bootloader's two entry conditions, and telling you to remove the bridge.
+      No `libUSB Error:` line in front of them, and no second copy of the
+      failure from cleanup
+- [ ] Unplug the board, remove the bridge, plug it back in, and run
+      `ubertooth-util -U <serial> -v`
+- [ ] Confirm: it reports the image and revision that were written, so the
+      flash the command reported as failed had in fact reached the flash
 
 ---
 

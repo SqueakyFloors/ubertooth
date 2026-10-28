@@ -98,22 +98,29 @@ out of the file before it writes anything, says what it is about to write
 that carries no such block, which includes every image built before the block
 existed.
 
-After flashing with ``-d ... -r``, the tool takes the expected revision from
-that block, waits for the application to return on the same physical USB path,
-and requires the revision the board reports to match before returning success.
-If a programming transfer fails while the device remains in DFU, it reopens
-that same path and retries the complete image once from block zero.
+After flashing with ``-d ... -r``, the tool takes the expected image name and
+revision from that block, waits for the application to return on the same
+physical USB path, and requires the board to report both before returning
+success. Both images built from one tree carry the same revision, so the name
+is what tells them apart. If a programming transfer fails while the device
+remains in DFU, it reopens that same path and retries the complete image once
+from block zero.
+
+An image whose block reports a firmware API version other than these tools'
+own is not refused for that, only warned about.
 
 The reset request itself often fails, because the bootloader disconnects as it
 resets rather than acknowledging the request first. That is not a failure: the
-tool looks for the DFU device on the same physical USB path again, carries on
-when it has gone, and reports the board as still in DFU only when it is still
-there. An ``error: control message unsupported`` line now comes only from the
-DFU state queries, where it means the bootloader did not answer and the
-command fails.
-The command returns success only after the expected application revision has
-been verified. If verification fails, use the reported stage and error details
-or the documented manual bootloader recovery path.
+tool looks for the DFU device on the same physical USB path again and reports
+the board as detached once it has gone and stayed gone, which takes two
+listings 1.5 s apart. A board that is back on that path by the second listing
+reset into the bootloader rather than into its application, and the command
+fails saying so. An ``error: control message unsupported`` line now comes only
+from the DFU state queries, where it means the bootloader did not answer and
+the command fails.
+The command returns success only after the expected application image and
+revision have been verified. If verification fails, use the reported stage and
+error details or the documented manual bootloader recovery path.
 
 Troubleshooting:
 
@@ -128,7 +135,7 @@ If your Ubertooth One has no firmware or broken firmware and doesn't show up whe
 
 	.. image:: ../images/u1_roadmap.png
 
-Wait for the distinctive LED sequence or USB ID ``1d50:6003``, then remove the bridge and immediately run ``ubertooth-dfu``. The entry pin is sampled only during reset, so removing the bridge after DFU starts does not exit the bootloader. Remove it before the final reset; otherwise the next boot returns to DFU. If removing the live bridge is inconvenient, finish flashing, unplug the device, remove the bridge, and reconnect it.
+Wait for the distinctive LED sequence or USB ID ``1d50:6003``, then remove the bridge and immediately run ``ubertooth-dfu``. The entry pin is sampled only during reset, so removing the bridge after DFU starts does not exit the bootloader. Remove it before the final reset; otherwise the next boot returns to DFU and ``-r`` fails with ``error: detach failed: the board reset and came back in the bootloader``, with the image written and the board in DFU rather than running it. If removing the live bridge is inconvenient, finish flashing, unplug the device, remove the bridge, and reconnect it; ``ubertooth-util -v`` then reports the new firmware.
 
 On Linux, verify the bootloader USB ID before flashing:
 

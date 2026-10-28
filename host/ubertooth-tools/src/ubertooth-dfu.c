@@ -267,6 +267,24 @@ static int check_download_image(const char* name, FILE* downfile,
 	fprintf(stderr, "Image: %s %s (API:%x.%02x)\n", info->image,
 	        info->revision, (info->api_version >> 8) & 0xFF,
 	        info->api_version & 0xFF);
+	/* The tools and the board have to report the same API version, so an
+	 * image built for another one is worth saying out loud. It is a warning
+	 * and not a refusal: this command has to be able to write any valid
+	 * image, including the one that undoes such a flash.
+	 *
+	 * What the warning reports is what the file says about itself. It does
+	 * not promise what the other tools will do with the board afterwards,
+	 * because they read the USB bcdDevice rather than this block, and the
+	 * two are not the same number in every image (the btbr image reports a
+	 * fixed 1.06 as its bcdDevice). */
+	if (info->api_version != UBERTOOTH_API_VERSION)
+		fprintf(stderr, "warning: %s: this image reports API version "
+		        "%x.%02x in its firmware info block, and these tools report "
+		        "%x.%02x; the tools and the board have to report the same "
+		        "one\n", name,
+		        (info->api_version >> 8) & 0xFF, info->api_version & 0xFF,
+		        (UBERTOOTH_API_VERSION >> 8) & 0xFF,
+		        UBERTOOTH_API_VERSION & 0xFF);
 	return 0;
 }
 
@@ -443,12 +461,39 @@ static void close_dfu_device(libusb_device_handle *devh, int claimed)
 #define DETACH_GONE_POLLS 20
 #define DETACH_GONE_INTERVAL_MS 50
 
+/* One listing that does not find the DFU device is not enough to call the
+ * board detached, so every absence is confirmed by a second listing this long
+ * afterwards.
+ *
+ * A board whose bootloader entry pin is still bridged resets straight back
+ * into the bootloader, and is off the bus only for as long as it takes to
+ * come up and be enumerated again: a confirming listing one ordinary poll
+ * later would still land inside that gap and read the same as a board that
+ * left. Four flashes on a lab board had the board back on the bus 400-630 ms
+ * after it was asked to reset, so 1.5 s is about two and a half times the
+ * slowest of them. It is spent once per detach, and only once the device has
+ * gone, so a flash pays it and a board still in the bootloader does not.
+ *
+ * The confirming listing is tried this many times, at the ordinary poll
+ * interval, so one listing that cannot answer does not decide it. The gap is
+ * waited once however many of these it takes: the wait is what the answer
+ * needs, and repeating it would be the only thing in here that is not
+ * bounded by a listing. */
+#define DETACH_CONFIRM_INTERVAL_MS 1500
+#define DETACH_CONFIRM_POLLS 3
+
 /* Held as values rather than used as constants so the hardware-independent
  * tests can shorten the wait: the cases where a detach fails would otherwise
  * sleep out the whole budget four times over, which is most of the time that
- * suite takes. Nothing in the tool changes them. */
+ * suite takes. Nothing in the tool changes them.
+ *
+ * The confirming interval is the exception: the tests keep it at the shipped
+ * value, because the stage line it is formatted into is only as long as it
+ * ships at when the number is. Sleeping it costs them nothing, since they
+ * replace the sleep itself. */
 static unsigned detach_gone_polls = DETACH_GONE_POLLS;
 static unsigned detach_gone_interval_ms = DETACH_GONE_INTERVAL_MS;
+static unsigned detach_confirm_interval_ms = DETACH_CONFIRM_INTERVAL_MS;
 
 struct dfu_runtime_context {
 	libusb_context *usb_context;
@@ -457,6 +502,12 @@ struct dfu_runtime_context {
 	uint32_t upload_length;  /* bytes the read-back asks the bootloader for */
 	const char *upload_name;       /* the dump -u was given, for its messages */
 	const char *download_name;     /* the image -d was given */
+	/* A detach saw the DFU device leave the bus, so the reset happened and
+	 * the handle it answered on is stale. Cleanup has nothing to add by
+	 * resetting the board again: it would drive a handle the board no longer
+	 * has, and report the same thing a second time. */
+	int board_left_the_bus;
+	int download_completed;  /* the whole image reached the flash */
 	unsigned long download_length; /* ...and the flash writing it covers */
 	int download_checked;    /* the image has been put against the part */
 	int download_refused;    /* ...and does not fit the flash it has */
@@ -756,18 +807,36 @@ int enter_dfu_mode(libusb_device_handle* devh) {
 	return 0;
 }
 
-/* Is the DFU device still on the path it was asked to leave? Returns 0 once
- * it has gone, 1 when it was there for the whole wait, or a negative libusb
- * error when no poll could tell. A reset takes a moment to reach the bus, so
- * this waits for the device to disappear rather than reading one list, and a
- * listing that fails costs that poll rather than the answer. */
+/* What a look for the DFU device on the path it was asked to leave found.
+ * Anything negative is a libusb error, so these are not negative. */
+#define DFU_PRESENCE_GONE 0      /* absent on two listings in a row */
+#define DFU_PRESENCE_STAYED 1    /* there for the whole wait */
+#define DFU_PRESENCE_RETURNED 2  /* it went, and the bootloader came back */
+
+/* Is the DFU device still on the path it was asked to leave? Returns one of
+ * the three above, or a negative libusb error when no listing could tell. A
+ * reset takes a moment to reach the bus, so this waits for the device to
+ * disappear rather than reading one list, and a listing that fails costs that
+ * poll rather than the answer.
+ *
+ * Absence is only believed when a second listing confirms it. One listing
+ * cannot tell a board that left from one that left and came straight back:
+ * the bootloader is absent for as long as re-enumeration takes either way.
+ * The confirming listing is far enough out that a board back in the
+ * bootloader is answering again by then.
+ *
+ * *went says whether any listing found the device gone, which the caller
+ * needs on the error paths: once the device has left, the status of the
+ * detach request says nothing, however the rest of the wait turned out. */
 static int dfu_device_presence(struct dfu_runtime_context *runtime,
-                               const struct dfu_usb_identity *identity)
+                               const struct dfu_usb_identity *identity,
+                               int *went)
 {
 	int last_error = LIBUSB_ERROR_OTHER;
 	int seen = 0;
 	unsigned poll;
 
+	*went = 0;
 	/* Without a path there is nothing to look for, and no device matches an
 	 * empty one: say so rather than reporting a board that was never looked
 	 * for as gone. Both callers pass the path the command bound itself to,
@@ -777,16 +846,49 @@ static int dfu_device_presence(struct dfu_runtime_context *runtime,
 	for (poll = 0; poll < detach_gone_polls; poll++) {
 		int result = find_ubertooth_dfu_device(runtime->usb_context, identity,
 		                                       NULL);
-		if (result == 0)
-			return 0;
 		if (result == 1)
 			seen = 1;
-		else
+		else if (result < 0)
 			last_error = result;
+		if (result == 0) {
+			/* Gone once. What settles it is the listing after the gap a
+			 * re-entering board would be back from, so the wait happens
+			 * here and the answer is whatever is on the path afterwards. A
+			 * listing that fails is retried a few times rather than waiting
+			 * the gap again: the one wait is what the answer needs, and the
+			 * retries keep a single failed listing from deciding it. */
+			unsigned confirm;
+			char stage[128];
+
+			*went = 1;
+			snprintf(stage, sizeof(stage),
+			         "the DFU device has gone: looking again in %u ms, in "
+			         "case the board came back in the bootloader",
+			         detach_confirm_interval_ms);
+			log_dfu_stage(stage);
+			transition_sleep_ms(runtime, detach_confirm_interval_ms);
+			for (confirm = 0; confirm < DETACH_CONFIRM_POLLS; confirm++) {
+				result = find_ubertooth_dfu_device(runtime->usb_context,
+				                                   identity, NULL);
+				if (result == 0)
+					return DFU_PRESENCE_GONE;
+				/* One listing is enough the other way round: a device that
+				 * never went away cannot turn up in a list it was missing
+				 * from, so finding it here means it really did leave and
+				 * come back. */
+				if (result == 1)
+					return DFU_PRESENCE_RETURNED;
+				last_error = result;
+				if (confirm + 1 < DETACH_CONFIRM_POLLS)
+					transition_sleep_ms(runtime, detach_gone_interval_ms);
+			}
+			/* No listing after the gap could tell, so nothing here can. */
+			return last_error;
+		}
 		if (poll + 1 < detach_gone_polls)
 			transition_sleep_ms(runtime, detach_gone_interval_ms);
 	}
-	return seen ? 1 : last_error;
+	return seen ? DFU_PRESENCE_STAYED : last_error;
 }
 
 /* Ask the board to leave the bootloader and run its application again.
@@ -805,19 +907,18 @@ static int dfu_device_presence(struct dfu_runtime_context *runtime,
  * That holds for the Ubertooth USB identities, where the application and the
  * bootloader are told apart by their IDs. It does not hold for the
  * unprogrammed-EEPROM prototype ID, which both device searches match in
- * either mode: such a board always looks as if it is still in DFU, so it
- * cannot be reported as detached at all. On macOS it could not before this
- * either, because the request fails on every reset that worked and the probe
- * was already what settled those; on a host where the request completes, this
- * is where such a board stops being able to pass -r. The limitation is the
- * probe's, and telling the two identities apart would be the fix, but nothing
- * here can do that from a bus and port path alone.
+ * either mode: such a board matches the search again as soon as it is back on
+ * the bus, whichever mode it came up in, so a reset that worked reads as a
+ * board that came back in the bootloader and -r cannot pass. The limitation
+ * is the probe's, and telling the two identities apart would be the fix, but
+ * nothing here can do that from a bus and port path alone. Such a board is a
+ * prototype this fork does not support.
  *
  * Returns 0 once the DFU device has gone, and a negative error when the board
  * is still in the bootloader or that could not be established. */
 int detach(struct dfu_runtime_context* runtime, libusb_device_handle* devh,
            const struct dfu_usb_identity* identity) {
-	int rv, presence;
+	int rv, presence, went;
 	rv = enter_dfu_mode(devh);
 	if(rv < 0) {
 		fprintf(stderr, "error: detach failed: could not enter DFU mode\n");
@@ -829,22 +930,56 @@ int detach(struct dfu_runtime_context* runtime, libusb_device_handle* devh,
 	              "whether the board left the bootloader" :
 	              "detach request did not complete: looking for the DFU "
 	              "device to see whether the board reset");
-	presence = dfu_device_presence(runtime, identity);
-	if (presence != 0) {
-		/* The board did not leave, so the status of the request is
-		 * diagnostic after all. */
-		if (rv != LIBUSB_SUCCESS)
+	presence = dfu_device_presence(runtime, identity, &went);
+	if (presence != DFU_PRESENCE_GONE) {
+		/* A board that never left makes the status of the request
+		 * diagnostic after all. Once a listing has found the device gone it
+		 * is not: the reset happened, and a request that failed while it was
+		 * in flight is what a reset that worked looks like on macOS. Naming
+		 * a status there would put a libusb line in front of a failure that
+		 * has nothing to do with it. */
+		if (rv != LIBUSB_SUCCESS && !went)
 			show_libusb_error(rv);
+		runtime->board_left_the_bus = went;
 		if (presence < 0)
 			fprintf(stderr, "error: detach failed: could not tell whether "
 			        "the board left DFU (usb_error=%d)\n", presence);
-		else
+		else if (presence == DFU_PRESENCE_RETURNED) {
+			fprintf(stderr, "error: detach failed: the board reset and came "
+			        "back in the bootloader\n");
+			/* The flash already holds the image, so say it before the
+			 * causes: the reader's next move after a bare failure is to
+			 * write it again, which is the one thing this board does not
+			 * need. */
+			if (runtime->download_completed)
+				fprintf(stderr, "note: the firmware was written, so the "
+				        "board holds it; it is in the bootloader rather "
+				        "than running it\n");
+			/* Why it is there. The bootloader runs instead of the
+			 * application in exactly two cases
+			 * (firmware/bootloader/bootloader.cpp, main()): the word a tool
+			 * sets to ask for DFU is set in the memory that survives a
+			 * reset, or the entry pin reads grounded as the board comes up.
+			 * The bootloader clears that word on its way out, so for it to
+			 * be the cause here something has to have set it again, which is
+			 * how the note puts it. The next line is the remedy for the
+			 * other condition, which is the one that repeats on every
+			 * reset. */
+			fprintf(stderr, "note: the bootloader runs instead of the "
+			        "application when something asks the board into DFU "
+			        "again, or when its bootloader entry pin reads grounded "
+			        "as the board resets\n");
+			fprintf(stderr, "note: if the expansion-header bridge is still "
+			        "fitted, remove it (pins 1 and 3 of P4 on an Ubertooth "
+			        "One), then unplug the board and plug it back in\n");
+		} else
 			fprintf(stderr, "error: detach failed: the board is still in DFU\n");
-		/* A request that failed carries its own status. One the bootloader
+		/* A request that failed carries its own status, except where that
+		 * status is the reset it asked for racing it. One the bootloader
 		 * accepted and ignored has none, so the failure comes from the probe:
 		 * why it could not answer, when it could not, and otherwise a code
 		 * that at least is not success. */
-		if (rv != LIBUSB_SUCCESS)
+		if (rv != LIBUSB_SUCCESS && !went)
 			return rv;
 		return presence < 0 ? presence : LIBUSB_ERROR_OTHER;
 	}
@@ -1105,6 +1240,26 @@ static int verify_get_revision(void *context __attribute__((unused)),
 	return cmd_get_firmware_revision(handle, revision, revision_size) < 0 ? -1 : 0;
 }
 
+/* Which image the board is running, from the firmware info block it reports.
+ * The revision above comes from its own request, which any firmware answers;
+ * this one needs the block, so it is read separately and only once the
+ * revision has already matched. */
+static int verify_get_image(void *context __attribute__((unused)),
+                            void *handle, char *image, size_t image_size)
+{
+	struct ubertooth_fw_info info;
+	int r;
+
+	if (image == NULL || image_size == 0)
+		return LIBUSB_ERROR_INVALID_PARAM;
+	image[0] = '\0';
+	r = cmd_get_firmware_info(handle, &info);
+	if (r < 0)
+		return r;
+	snprintf(image, image_size, "%s", info.image);
+	return 0;
+}
+
 static void verify_close_application(void *context __attribute__((unused)),
                                      void *handle)
 {
@@ -1115,6 +1270,7 @@ static void verify_close_application(void *context __attribute__((unused)),
 static const struct dfu_verify_ops VERIFY_OPS = {
 	.open_application = verify_open_application,
 	.get_revision = verify_get_revision,
+	.get_image = verify_get_image,
 	.close_application = verify_close_application,
 	.sleep_ms = transition_sleep_ms,
 };
@@ -1752,6 +1908,10 @@ int main(int argc, char **argv) {
 			goto cleanup;
 		}
 		log_dfu_stage("firmware programming completed");
+		/* The whole image is in the flash from here, whatever the reset
+		 * does next. A failure after this point has to say so, or the
+		 * reader's next move is to flash a board that does not need it. */
+		runtime.download_completed = 1;
 	}
 
 	if(functions & FUNC_RESET) {
@@ -1781,22 +1941,27 @@ int main(int argc, char **argv) {
 		runtime.verify_identity = &selected_identity;
 		r = dfu_verify_application(&VERIFY_OPS, &runtime, selector,
 		                           &selected_identity, image_info.revision,
+		                           image_info.image,
 		                           &verify_config, &verify_report);
 		if (r != DFU_VERIFY_OK) {
 			char message[256];
-			char stage[256];
+			char stage[320];
 
 			/* The raw codes go in the stage trace, which is where the rest
 			 * of this command's internals are reported; the line the user
 			 * reads says which outcome it was and what to do next. */
 			snprintf(stage, sizeof(stage),
 			         "post-reset application verification failed: result=%d "
-			         "polls=%u expected=%s actual=%s usb_error=%d",
+			         "polls=%u expected_image=%s expected_revision=%s "
+			         "actual_image=%s actual_revision=%s usb_error=%d",
 			         verify_report.result, verify_report.polls,
-			         image_info.revision, verify_report.actual_revision,
+			         image_info.image, image_info.revision,
+			         verify_report.actual_image,
+			         verify_report.actual_revision,
 			         verify_report.operation_error);
 			log_dfu_stage(stage);
 			dfu_verify_describe_failure(&verify_report, image_info.revision,
+			                            image_info.image,
 			                            message, sizeof(message));
 			fprintf(stderr, "error: %s\n", message);
 			exit_status = 1;
@@ -1830,9 +1995,13 @@ cleanup:
 	 * first; if DFU never answered at all there is nothing to detach.
 	 *
 	 * A board this run never claimed is left alone: something else has it,
-	 * and a detach is a reset aimed at whatever that is doing. */
+	 * and a detach is a reset aimed at whatever that is doing. So is a board
+	 * that already left the bus once: the reset happened, the handle it
+	 * answered on is stale, and driving that handle again would add error
+	 * lines about the handle instead of anything about the board. */
 	if (exit_status != 0 && (functions & FUNC_RESET) &&
 	    selected_identity.port_count != 0 &&
+	    !runtime.board_left_the_bus &&
 	    (devh == NULL || interface_claimed)) {
 		if (devh == NULL)
 			reopen_dfu_for_detach(&runtime, &selected_identity, &devh,
