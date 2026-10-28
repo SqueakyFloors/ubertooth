@@ -25,9 +25,10 @@ Name the target one of two ways:
    the connection it makes to collect the clock offset only reaches a target
    whose address begins `00:00`.
 
-One of `-l` and `-u` without the other names no piconet, and the tool does not
-refuse it today: it reads the address from the local Bluetooth device as if no
-target had been given, and follows that instead of what was asked for.
+One of `-l` and `-u` without the other names no piconet, so it is refused and
+the missing half is named: `error: -l <LAP> requires -u <UAP>`. It used to be
+taken as no target at all, which read the address from the local Bluetooth
+device and followed that instead of what was asked for.
 
 `-t` with `-l` or `-u` is refused: the two are the same setting written two
 ways, and the tool does not reconcile them. With no target at all, the address
@@ -48,9 +49,11 @@ Requires BlueZ (Linux only).
    UAP to follow as well as the address to connect to. Not with `-l` or `-u`,
    and given once.
  - `-l <LAP>` :
-   target LAP (3 bytes / 6 hex digits), given once. Not with `-t`.
+   target LAP (3 bytes / 6 hex digits), given once, and with `-u`. Not with
+   `-t`.
  - `-u <UAP>` :
-   target UAP (1 byte / 2 hex digits), given once. Not with `-t`.
+   target UAP (1 byte / 2 hex digits), given once, and with `-l`. Not with
+   `-t`.
  - `-U <index|serial>` :
    select an Ubertooth by enumeration index or serial number; see
    ubertooth(7), SELECTING A DEVICE
@@ -88,9 +91,14 @@ created or device opened, with
 A follow keyed on `-l` and `-u` instead connects to `00:00:<UAP>:<LAP>`, with
 the two most significant bytes zero, because a sniffer cannot see them. That
 reaches only a target whose address begins `00:00`; for any other target the
-connection fails and the command stops with
-`error: connecting to 00:00:...: failed`. Give the target as `-t` and the
-connection is made to the address as it is.
+connection fails and the command stops, saying what to do about it:
+
+    error: connecting to 00:00:33:44:55:66 failed: Host is down; -l and -u give four of the six bytes of the target address, so 00:00 is a guess: give the whole target address with -t xx:xx:xx:xx:xx:xx
+
+Give the target as `-t` and the connection is made to the address as it is, so
+that failure means the target itself did not answer; the line is then the
+reason alone, without the advice. A page that fails without leaving a reason
+behind drops the `: <reason>` from whichever of the two lines it is.
 
 The map that comes back is used only when it could be a hop sequence at all:
 
@@ -125,8 +133,8 @@ Follow the same target with an AFH map (see AFH above):
 
 Follow a piconet by the LAP and UAP `ubertooth-rx` reported for it. This
 connects to `00:00:33:44:55:66`, so it works only against a target whose
-address really does begin `00:00`; against any other it stops with
-`error: connecting to 00:00:33:44:55:66 failed`. Use `-t` for a real target:
+address really does begin `00:00`; against any other it stops and asks for the
+whole address (see AFH above). Use `-t` for a real target:
 
     ubertooth-follow -l 445566 -u 33 -q capture.pcap
 
@@ -149,14 +157,19 @@ way instead of being read as 0, for example
 `error: LAP must be 6 hex digits (got 4466)` and
 `error: target address must be xx:xx:xx:xx:xx:xx (got 11:22:33:44:55)`.
 
-Two more kinds of command line are refused before any device is opened, each
+Three more kinds of command line are refused before any device is opened, each
 with its one line:
 
  - `-t`, `-l` or `-u` given twice, `error: give -t once`, `error: give -l once`,
    `error: give -u once`: the tool does not pick between two answers to the
    same question;
  - `-t` with `-l` or `-u`,
-   `error: -t gives the whole target address, so it cannot be combined with -l or -u`.
+   `error: -t gives the whole target address, so it cannot be combined with -l or -u`;
+ - one of `-l` and `-u` without the other,
+   `error: -l <LAP> requires -u <UAP>` or
+   `error: -u <UAP> requires -l <LAP>`: the two name a piconet only together.
+   `-a` beside half a pair still reports `-a` needing `-t`, since completing
+   the pair would not let `-a` run.
 
 What the tool is following — the target address, or the LAP and UAP it read
 from the local device — is reported on standard error, with the rest of the
@@ -173,11 +186,33 @@ A follow that was interrupted (Ctrl-C) exits 0 with whatever it captured, and
 so does `-h`. A refused command line exits 1 (see ARGUMENTS), as does a file
 that cannot be opened and a target the tool could not set up a follow on.
 
+A page to the target that fails exits 1 as well, before any board is opened:
+the page is what yields the target's clock offset, and a follow of a named
+target without it would hop on the local device's clock instead. A follow keyed
+on `-l` and `-u` pages a guessed `00:00:<UAP>:<LAP>`, so that line also asks
+for the whole address with `-t` (see AFH above).
+
 A board that refuses the target's address or the clock reset exits 1 before the
 capture starts, with the request named on standard error. Following anyway
 would mean a board that is not set up for the piconet: without the target's
 address it matches no packet, and with its clock never zeroed it hops on a
 clock the offset was not measured from.
+
+Standard output stays empty in that case, and standard error names the request,
+why the board refused it and the libusb code, adding a note where there is
+something to try:
+
+    error: could not zero the board's clock: the board did not answer in time (libusb -7)
+    note: if a mode is running, stop it with ubertooth-util -S; a board that does not answer at all usually resets itself within a few seconds, so run the command again, and unplug it or power-cycle its hub port if it stays silent
+
+That pair is the report, the same one ubertooth-rx(1) and ubertooth-scan(1)
+give: the request named as `set the Bluetooth address` for the address, and as
+`zero the board's clock` for the clock reset. A request the board stalls
+(`libusb -9`) reads `the board does not support this command (stalled)` and
+carries no note, there being nothing to try. A board that took only part of
+either write gives the counts instead, as `error: Bluetooth address write
+failed: board took 8 of 16 bytes` or `error: clock write failed: board took 2
+of 4 bytes`, and the follow stops on that one line.
 
 A follow whose USB stream fails part-way also exits 1: the board stopped
 answering, or dropped off the bus, so the capture stops there and holds only

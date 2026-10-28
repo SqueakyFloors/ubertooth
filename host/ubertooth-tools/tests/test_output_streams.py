@@ -231,6 +231,8 @@ REFUSED_EXACTLY = {
         (("-t", "11:22:33:44:55:66", "-l", "445566"),
          "error: -t gives the whole target address, so it cannot be combined "
          "with -l or -u"),
+        (("-l", "445566"), "error: -l <LAP> requires -u <UAP>"),
+        (("-u", "33"), "error: -u <UAP> requires -l <LAP>"),
         (("-a",),
          "error: -a reads the AFH map over a Bluetooth connection to the "
          "target, so it needs the whole target address: "
