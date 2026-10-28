@@ -23,11 +23,11 @@ on:
     types: [published]
   workflow_dispatch:
 
-# Same cancellation rule as build.yml: only an older run of the same PR is
-# cancelled.
+# Same cancellation rule as build.yml: a newer commit cancels the run it
+# supersedes, on a pull request or on main.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || (github.event_name == 'push' && github.ref) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
 jobs:
   install-sh:
