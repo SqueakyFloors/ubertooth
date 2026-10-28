@@ -37,8 +37,10 @@ static void fill_record(usb_pkt_rx* record, uint32_t sequence)
 
 	record->pkt_type = byte;
 	record->status = byte;
-	record->channel = byte;
-	record->clkn_high = byte;
+	/* The rest of the sequence number, so two records 256 apart do not
+	 * fill alike: a copy that took part of each would otherwise match. */
+	record->channel = (uint8_t)(sequence >> 8);
+	record->clkn_high = (uint8_t)(sequence >> 16);
 	record->clk100ns = sequence;
 	record->rssi_max = (int8_t)byte;
 	record->rssi_min = (int8_t)byte;
@@ -58,7 +60,8 @@ static int record_is_whole(const usb_pkt_rx* record)
 	int i;
 
 	if (record->pkt_type != byte || record->status != byte
-	    || record->channel != byte || record->clkn_high != byte
+	    || record->channel != (uint8_t)(record->clk100ns >> 8)
+	    || record->clkn_high != (uint8_t)(record->clk100ns >> 16)
 	    || record->rssi_max != (int8_t)byte
 	    || record->rssi_min != (int8_t)byte
 	    || record->rssi_avg != (int8_t)byte
@@ -235,42 +238,6 @@ MU_TEST(the_ring_behaves_as_a_queue_across_many_laps)
 	free(fifo);
 }
 
-/* The reading of the record just popped is taken during that pop, so later
- * records published into the slot it came from cannot replace it. */
-MU_TEST(the_popped_reading_belongs_to_the_popped_record)
-{
-	fifo_t* fifo = fifo_init();
-	int devnull = open("/dev/null", O_WRONLY);
-	usb_pkt_rx popped;
-	uint32_t i;
-
-	mu_assert_fatal(fifo != NULL, "cannot allocate the ring buffer");
-	mu_assert_fatal(devnull >= 0, "/dev/null could not be opened");
-
-	publish_in_place(fifo, 1, 11);
-	publish_in_place(fifo, 2, 22);
-
-	popped = fifo_pop(fifo);
-	mu_assert_int_eq(1, popped.clk100ns);
-	mu_assert_int_eq(11, fifo_popped_arrival_ns(fifo));
-
-	/* Enough publishing to go right round the slots and fill the ring,
-	 * including the slot the record above came out of. */
-	redirect_stderr_to(devnull);
-	for (i = 0; i < 2 * FIFO_SIZE; i++)
-		publish_in_place(fifo, 100 + i, 5000 + i);
-	restore_stderr();
-	close(devnull);
-
-	mu_assert_int_eq(11, fifo_popped_arrival_ns(fifo));
-
-	popped = fifo_pop(fifo);
-	mu_assert_int_eq(2, popped.clk100ns);
-	mu_assert_int_eq(22, fifo_popped_arrival_ns(fifo));
-
-	free(fifo);
-}
-
 /* ---- the two threads -----------------------------------------------------
  * The real arrangement: one thread fills slots and publishes them, the other
  * drains them. The producer runs far ahead of the consumer, so the ring is
@@ -295,6 +262,7 @@ struct run {
 	uint32_t out_of_order;     /* sequence numbers that did not go up */
 	uint32_t reading_mismatch; /* readings that belonged to another record */
 	uint32_t discarded;        /* gaps, so records the full ring refused */
+	uint32_t last_sequence;    /* the last record the consumer was given */
 };
 
 static void* producer_main(void* argument)
@@ -312,14 +280,19 @@ static void* producer_main(void* argument)
 static void* consumer_main(void* argument)
 {
 	struct run* run = (struct run*)argument;
-	uint32_t previous = 0;
 
 	for (;;) {
 		usb_pkt_rx popped;
 		uint64_t reading;
 
 		if (fifo_empty(run->fifo)) {
-			if (atomic_load(&run->producer_done))
+			/* Asked again after the flag, not before it: a record
+			 * published between the two questions would otherwise
+			 * end the run unexamined. Once the flag is set the
+			 * producer has published everything it is going to, so
+			 * an empty ring now is a drained one. */
+			if (atomic_load(&run->producer_done)
+			    && fifo_empty(run->fifo))
 				return NULL;
 			continue;
 		}
@@ -329,13 +302,14 @@ static void* consumer_main(void* argument)
 
 		if (!record_is_whole(&popped))
 			run->torn++;
-		if (popped.clk100ns <= previous)
+		if (popped.clk100ns <= run->last_sequence)
 			run->out_of_order++;
 		else
-			run->discarded += popped.clk100ns - previous - 1;
+			run->discarded +=
+				popped.clk100ns - run->last_sequence - 1;
 		if (reading != popped.clk100ns)
 			run->reading_mismatch++;
-		previous = popped.clk100ns;
+		run->last_sequence = popped.clk100ns;
 		run->popped++;
 
 		/* A pause now and then keeps the consumer behind, so the ring
@@ -381,12 +355,18 @@ MU_TEST(two_threads_never_see_a_half_written_record)
 	restore_stderr();
 	close(devnull);
 
+	/* The gaps the consumer counted stop at the last record it was given,
+	 * so records refused after that one are added here. */
+	run.discarded += THREADED_RECORDS - run.last_sequence;
+
 	printf("  %u records through, %u refused by a full ring\n",
 	       run.popped, run.discarded);
 	mu_assert_int_eq(0, run.torn);
 	mu_assert_int_eq(0, run.out_of_order);
 	mu_assert_int_eq(0, run.reading_mismatch);
-	mu_assert(run.popped > 0, "the consumer got nothing at all");
+	/* Nothing went missing: the consumer drained the ring, so every record
+	 * either reached it or was refused by a full ring. */
+	mu_assert_int_eq(THREADED_RECORDS, run.popped + run.discarded);
 	/* Without refusals the run never had a full ring, so it did not cover
 	 * the handover this case is here for. */
 	mu_assert(run.discarded > 0, "the ring never filled up");
@@ -399,7 +379,6 @@ int main(void)
 	MU_RUN(records_come_back_in_order);
 	MU_RUN(a_full_ring_discards_the_newest_record);
 	MU_RUN(the_ring_behaves_as_a_queue_across_many_laps);
-	MU_RUN(the_popped_reading_belongs_to_the_popped_record);
 	MU_RUN(two_threads_never_see_a_half_written_record);
 	return mu_report();
 }

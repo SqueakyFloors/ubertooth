@@ -687,13 +687,15 @@ if(libubertooth_SOURCE_DIR)
 	# The ring buffer itself, including the two threads that share it. Only
 	# ubertooth_fifo.c is linked, so the ring can be built small: the
 	# shipped 1000000 slots put a full ring out of a test's reach, and
-	# every full-ring path is on the other side of it.
+	# every full-ring path is on the other side of it. libbtbb's include
+	# directory is here for the same reason as in the targets above: it is
+	# the parent of libusb's, which is what <libusb-1.0/libusb.h> needs.
 	add_executable(test-fifo-ring
 		test_fifo_ring.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_fifo.c)
 	target_include_directories(test-fifo-ring PRIVATE
-		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR})
-	target_compile_definitions(test-fifo-ring PRIVATE FIFO_SIZE=8)
+		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+	target_compile_definitions(test-fifo-ring PRIVATE FIFO_SLOTS_FOR_TESTS=8)
 	target_link_libraries(test-fifo-ring Threads::Threads)
 
 	add_test(NAME fifo-ring COMMAND test-fifo-ring)
