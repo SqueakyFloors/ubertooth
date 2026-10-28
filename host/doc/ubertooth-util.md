@@ -407,8 +407,8 @@ board it came from:
     Serial No (0): 1cc001038088cb956c43ad61c52000f5
     Serial No (1): 05f00014e380df95f4436562c32000f5
     $ ubertooth-util -v
-    Firmware version (0): bluetooth_rxtx git-747484c (API:1.35)
-    Firmware version (1): bluetooth_rxtx git-747484c (API:1.35)
+    Firmware version (0): bluetooth_rxtx git-747484c (API:<version>)
+    Firmware version (1): bluetooth_rxtx git-747484c (API:<version>)
 
 The build string `-V` reports has no label of its own -- it starts with the
 image name -- so it keeps a bare `<index>: ` prefix instead. Several queries
