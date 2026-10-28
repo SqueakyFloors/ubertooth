@@ -187,7 +187,8 @@ $(BINDIR)/test_le_filter_bounds: test_le_filter_bounds.c minunit.h \
 # lpcusb's usbapi.h and comes first so it wins; usbhw_lpc.h is register
 # #defines and prototypes, so the real one is used.
 $(BINDIR)/test_le_frag_enqueue: test_le_frag_enqueue.c minunit.h \
-		stubs-usbq/usbapi.h stubs-usbq/ubertooth.h stubs/ubertooth.h \
+		stubs-usbq/usbapi.h stubs-usbq/ubertooth.h stubs-usbq/watchdog.h \
+		stubs/ubertooth.h \
 		$(FW_RXTX)/ubertooth_usb.c $(FW_RXTX)/ubertooth_usb.h \
 		$(FW_COMMON)/usb_irq.h \
 		../../host/libubertooth/src/ubertooth_le_frag.c \

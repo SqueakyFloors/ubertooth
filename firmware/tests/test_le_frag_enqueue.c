@@ -64,6 +64,12 @@ uint32_t fake_icer0;
 /* The sender under test, compiled in so the ring's statics are reachable. */
 #include "ubertooth_usb.c"
 
+/* Every USB service pass tells the watchdog it is running and feeds it when the
+ * pass is done. Neither call matters here, and what the firmware does with them
+ * is tested in test_watchdog.c and test_usb_queue.c. */
+uint8_t watchdog_mark(uint8_t site) { (void)site; return WATCHDOG_SITE_NONE; }
+void watchdog_usb_serviced(void) {}
+
 /* The receiver under test. */
 #include "ubertooth_le_frag.h"
 
