@@ -236,6 +236,10 @@
   [#640](https://github.com/SqueakyFloors/ubertooth/issues/640)
 - Removed the unmaintained Dockerfile.
   [#324](https://github.com/SqueakyFloors/ubertooth/issues/324)
+- Removed `Jenkinsfile` and `ci-scripts/`, which described a Jenkins build
+  nobody runs here and switched two USB hubs that are not this project's. CI
+  for this fork is the GitHub Actions workflows.
+  [#349](https://github.com/SqueakyFloors/ubertooth/issues/349)
 - A build no longer rewrites the committed man pages in `host/doc/man`, and
   installs the same pages with or without ronn. Refresh them after editing a
   `host/doc/*.md`: `cmake --build <build dir> --target refresh-manpages`; CI
