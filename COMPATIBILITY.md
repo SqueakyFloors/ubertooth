@@ -70,6 +70,15 @@ code should build on Intel (the Homebrew include path uses `$(brew --prefix)`,
 which resolves to `/usr/local` on Intel), but this is unverified. Test locally
 if you build on an Intel Mac.
 
+### The host library needs C11 atomics
+`libubertooth` uses `<stdatomic.h>` for the two pointers of the capture ring
+buffer, which one thread advances and the other reads. Every compiler in the
+table above has them, and the default standard of GCC and clang (`gnu17`) is
+past C11, so a normal build is unaffected; a `CFLAGS` of `-std=c99` or older is
+not supported. C++ code that includes `ubertooth.h` is unaffected: the header
+declares those two fields as the plain integer they are built on, and nothing
+outside the library touches them.
+
 ### `install.sh` platforms
 `install.sh` supports Debian/Ubuntu (`apt`) and macOS with Homebrew. On macOS it
 installs into the Homebrew prefix without `sudo`, builds without BlueZ (no
