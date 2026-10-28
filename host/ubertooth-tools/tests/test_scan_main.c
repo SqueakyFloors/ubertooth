@@ -369,15 +369,15 @@ void ubertooth_report_unsupported_request(const char* what, int code)
 }
 #endif
 
-/* The whole report for a refused sweep: one error line naming the request,
+/* The whole report for a refused request: one error line naming the request,
  * why it failed and the libusb code, and a note only where there is something
  * to try. */
 #ifdef TEST_REAL_API_REPORTS
-#define STALLED \
-	"error: could not set sweep mode" \
+#define STALLED(what) \
+	"error: could not " what \
 	": the board's firmware does not support it (stalled, libusb -9)\n"
 #else
-#define STALLED ""
+#define STALLED(what) ""
 #endif
 #define NO_ANSWER \
 	"error: could not set sweep mode" \
@@ -411,7 +411,7 @@ MU_TEST(a_refused_sweep_is_named_and_exits_1)
 	 * under is printed once the board is sweeping, so a run that gathers no
 	 * results does not leave a heading over nothing. */
 	mu_assert(r.out[0] == '\0', r.out);
-	mu_assert(strcmp(r.err, STALLED) == 0, r.err);
+	mu_assert(strcmp(r.err, STALLED("set sweep mode")) == 0, r.err);
 
 	/* A board that took the request and said nothing is the case the note
 	 * is about. */
@@ -450,7 +450,7 @@ MU_TEST(a_refused_sweep_keeps_the_bluez_results)
 	mu_assert(strstr(r.out, "Ubertooth scan") == NULL, r.out);
 	mu_assert(strstr(r.out, "Scan results:") == NULL, r.out);
 	mu_assert_int_eq(0, fake.receives);
-	mu_assert(strcmp(r.err, STALLED) == 0, r.err);
+	mu_assert(strcmp(r.err, STALLED("set sweep mode")) == 0, r.err);
 }
 
 /* Each of the three steps that set the capture up can fail. Each exits 1 with
@@ -490,9 +490,7 @@ MU_TEST(a_capture_that_cannot_be_set_up_exits_1_and_gives_everything_back)
 		  "a board that does not answer at all usually resets itself "
 		  "within a few seconds, so run the command again, and unplug "
 		  "it or power-cycle its hub port if it stays silent\n" },
-		{ "s", 0, 0, LIBUSB_ERROR_PIPE,
-		  "error: could not start the capture: the board does not "
-		  "support this command (stalled) (libusb -9)\n" },
+		{ "s", 0, 0, LIBUSB_ERROR_PIPE, STALLED("start the capture") },
 	};
 	struct run_result r;
 	size_t i;
