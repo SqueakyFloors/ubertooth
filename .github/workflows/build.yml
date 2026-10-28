@@ -499,8 +499,10 @@ jobs:
       # twice, so the lint is the Linux leg's and the macOS leg is here for
       # the self-test below.
       #
-      # These two patterns are every shell script in the tree, so a new script
-      # anywhere else is unlinted until it is added here.
+      # The list comes from git rather than two fixed patterns, so a script
+      # added in a new directory is linted without anyone remembering to widen
+      # a glob here. An empty list fails the step, as it should: it would mean
+      # the pathspec had stopped matching.
       if: runner.os == 'Linux'
       timeout-minutes: 6
       run: |
@@ -514,12 +516,12 @@ jobs:
             "apt-get $apt_opts update && apt-get $apt_opts install -y -d shellcheck"
           sudo apt-get install -y shellcheck
         fi
-        shellcheck tools/*.sh install.sh
+        git ls-files '*.sh' | xargs shellcheck
 
     - name: Check that retry.sh bounds, retries and reports
       # Not inline here, unlike the issue-reference check below, because the
       # self-test is long enough to want linting itself and to be worth
-      # running by hand: it is one of the tools/*.sh the step above covers.
+      # running by hand: it is one of the scripts the step above covers.
       run: tools/retry-selftest.sh
 
     - name: Check that the image revision check holds both ways
