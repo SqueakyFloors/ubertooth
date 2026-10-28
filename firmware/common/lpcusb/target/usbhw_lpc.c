@@ -723,6 +723,8 @@ void USBHwISR(void)
      * step can put it back. */
     uint8_t site;
     BOOL fRead;
+    /* Whether this endpoint's event is being left for a later pass. */
+    BOOL fDefer;
 
 // LED9 monitors total time in interrupt routine
 DEBUG_LED_ON(9);
@@ -848,31 +850,55 @@ DEBUG_LED_OFF(8);
                  * handler below runs unmarked, as it did before.
                  */
                 site = watchdog_mark_inner(WATCHDOG_SITE_USB_EP);
-                if (!USBHwCmdReadChecked(CMD_EP_SELECT | i, &bEPStat)) {
-                    /*
-                     * Once per event, for the same reason the device status
-                     * read above retries only once: against an engine that
-                     * has stopped answering forever, re-arming EP_SLOW in the
-                     * six modes that service USB from the USB interrupt would
-                     * re-enter this handler endlessly. The first failure is
-                     * deferred, the second gives the event up.
-                     */
-                    if (!(ep_stat_retried & dwIntBit)) {
-                        ep_stat_retried |= dwIntBit;
-                        USBDevIntSet = EP_SLOW;
-                        watchdog_unmark(site);
-                        continue;
-                    }
+                fRead = USBHwCmdReadChecked(CMD_EP_SELECT | i, &bEPStat);
 
-                    /* Giving up means consuming the event, so this endpoint
-                     * cannot hold the loop. The write is what runs Select
-                     * Endpoint and Clear Interrupt in the hardware; the
-                     * status it leaves behind is of no use to us. */
+                /*
+                 * A read that gave up is deferred once per event, for the
+                 * same reason the device status read above retries only once:
+                 * against an engine that has stopped answering forever,
+                 * re-arming EP_SLOW in the six modes that service USB from
+                 * the USB interrupt would re-enter this handler endlessly.
+                 * The first failure is deferred, the second gives the event
+                 * up.
+                 */
+                fDefer = !fRead && !(ep_stat_retried & dwIntBit);
+                if (fDefer) {
+                    ep_stat_retried |= dwIntBit;
+                    USBDevIntSet = EP_SLOW;
+                } else {
+                    /* The event is consumed either way now: its status is in
+                     * hand, or it has been given up twice and this endpoint
+                     * must not hold the loop. The write is what runs Select
+                     * Endpoint and Clear Interrupt in the hardware, and
+                     * CDFULL is cleared first, the way USBHwCmd() does before
+                     * a command.
+                     *
+                     * On a read that worked, take the status this clear
+                     * reports in preference to the one read above: it is the
+                     * endpoint's state at the moment the event was taken
+                     * away, so an event that arrived in between -- a fresh
+                     * setup packet on endpoint 0, say, which the clear
+                     * consumes along with the first -- is in it. The earlier
+                     * read is the fallback for an answer that does not
+                     * arrive, which is what keeps a late one from costing the
+                     * event. After a give-up there is no status worth having,
+                     * and none is used. */
+                    if (fRead)
+                        ep_stat_retried &= ~dwIntBit;
                     USBDevIntClr = CDFULL;
                     USBEpIntClr = dwIntBit;
-                    (void)Wait4DevInt(CDFULL);
-                    watchdog_unmark(site);
+                    if (Wait4DevInt(CDFULL) && fRead)
+                        bEPStat = USBCmdData;
+                }
+                /* Out of the handshakes: what follows reads registers and
+                 * calls up into the layer above, which the pass's own site
+                 * covers. */
+                watchdog_unmark(site);
 
+                if (fDefer)
+                    continue;
+
+                if (!fRead) {
                     /* Arm the next event's deferral again -- but only once
                      * the event really is gone. A controller that is not
                      * acting on register writes either would otherwise have
@@ -906,25 +932,6 @@ DEBUG_LED_OFF(8);
                         USBControlInRetryCancel();
                     continue;
                 }
-                ep_stat_retried &= ~dwIntBit;
-
-                /* The status is in hand, so the event can be consumed. This
-                 * write is what runs Select Endpoint and Clear Interrupt in
-                 * the hardware. CDFULL is cleared first, the way USBHwCmd()
-                 * does before a command.
-                 *
-                 * Take the status this one reports in preference to the one
-                 * read above: it is the endpoint's state at the moment the
-                 * event was taken away, so an event that arrived in between
-                 * -- a fresh setup packet on endpoint 0, say, which the clear
-                 * consumes along with the first -- is in it. The earlier read
-                 * is the fallback for an answer that does not arrive, which
-                 * is what keeps a late one from costing the event. */
-                USBDevIntClr = CDFULL;
-                USBEpIntClr = dwIntBit;
-                if (Wait4DevInt(CDFULL))
-                    bEPStat = USBCmdData;
-                watchdog_unmark(site);
                 // convert EP pipe stat into something HW independent
                 bStat = ((bEPStat & EPSTAT_FE) ? EP_STATUS_DATA : 0) |
                         ((bEPStat & EPSTAT_ST) ? EP_STATUS_STALLED : 0) |
