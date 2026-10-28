@@ -4,9 +4,10 @@
 #
 #     tools/check-doc-api-version-selftest.sh
 #
-# The check it exercises has two halves that pull against each other: it
-# refuses a version pinned into a sample, and it excuses four shapes where a
-# number is deliberate. An allowlist that is too wide passes the stale samples
+# The check it exercises has parts that pull against each other: it refuses a
+# version pinned into a sample, it excuses the shapes where a number is
+# deliberate, and it reads one sentence of the CHANGELOG's top section for the
+# version as it stands. An allowlist that is too wide passes the stale samples
 # this check exists to find, and one that is too narrow goes red on the fixed
 # numbers in the real tree. So the cases below plant a number in each shape --
 # excused and not -- and assert which way the check answers.
@@ -51,10 +52,11 @@ fail() {
 }
 
 # A repository shaped like this one as far as the check can tell: 80 filler
-# pages with nothing pinned in them, the firmware header, and TEST_PLAN.md and
-# COMPATIBILITY.md both at the current version -- 82 files in the check's
-# scope, since the two documents are Markdown. Raising the check's floor past
-# 82 fails every case here at once, which is the right way round to find out.
+# pages with nothing pinned in them, the firmware header, and TEST_PLAN.md,
+# COMPATIBILITY.md and CHANGELOG.md all at the current version -- 83 files in
+# the check's scope, since those three are Markdown. Raising the check's floor
+# past 83 fails every case here at once, which is the right way round to find
+# out.
 new_repo() {
     repos=$((repos + 1))
     repo="$work/repo$repos"
@@ -100,6 +102,18 @@ add_doc() {
     mkdir -p "$repo/$(dirname "$path")" || exit 1
     printf '%s\n' "$text" > "$repo/$path"
     git -C "$repo" add -- "$path"
+}
+
+# Put lines inside the CHANGELOG's top section, just above the heading of the
+# release below it, so a case can plant a number where the check reads.
+insert_in_top() {
+    {
+        sed '/^## 2020-12-R1$/,$d' "$repo/CHANGELOG.md"
+        printf '%s\n' "$@"
+        printf '\n'
+        sed -n '/^## 2020-12-R1$/,$p' "$repo/CHANGELOG.md"
+    } > "$repo/c" && mv "$repo/c" "$repo/CHANGELOG.md"
+    git -C "$repo" add CHANGELOG.md
 }
 
 # Run the check inside the repository and report its status and streams.
@@ -299,24 +313,79 @@ run_check
 [ "$status" -eq 0 ] || fail "expected exit 0, got $status"
 [ -s "$err" ] && fail "wrote to standard error about a section below the top"
 
-case_name="the words followed straight by a stale number are caught too"
-# "requires API version 1.33" states the current requirement in a second
-# wording, so the top section has to be right in that one as well.
+case_name="a version the top section mentions for another reason is left alone"
+# The real top section says btbr once reported a fixed 1.06, and that
+# 2020-12-R1 firmware is refused. Those numbers are right and must stay, so
+# only the sentence that states the version as it stands is read -- which is
+# also why that sentence has to be written in so many words.
 new_repo
-# Into the top section, above the heading of the release below it.
+insert_in_top "- firmware at API version 1.07 is refused, and the \`btbr\` image" \
+    "  reported a fixed $stale that never moved."
+run_check
+[ "$status" -eq 0 ] || fail "expected exit 0, got $status"
+[ -s "$err" ] && fail "wrote to standard error about a deliberate old version"
+
+case_name="another wording alone does not satisfy the sentence"
+# Dropping the sentence and stating the version some other way leaves nothing
+# for a bump to move, so it is the missing-sentence failure, not a pass.
+new_repo
+sed "s/the firmware API version is now $current, and the/the tools require API version $current of the/" \
+    "$repo/CHANGELOG.md" > "$repo/c" && mv "$repo/c" "$repo/CHANGELOG.md"
+git -C "$repo" add CHANGELOG.md
+run_check
+[ "$status" -eq 1 ] || fail "expected exit 1, got $status"
+grep -q "does not say what the" "$err" ||
+    fail "a section with only another wording was not reported"
+
+case_name="a stale version beside the current one on the same line is caught"
+# Reading only the last match on a line would see the current number and
+# stop, which is the hole the TEST_PLAN case above exists to forbid.
+new_repo
+insert_in_top \
+    "- the firmware API version is now $stale, up from the firmware API version is now $current"
+run_check
+[ "$status" -eq 1 ] || fail "expected exit 1, got $status"
+grep -q "the CHANGELOG:  $stale $current" "$err" ||
+    fail "both versions on one line were not read"
+
+case_name="the sentence wrapped across a line, or emphasised, still reads"
+# The file wraps at about 78 columns, so the number lands on either side of
+# the break depending on the sentence -- and a bullet may put it in bold.
+new_repo
+sed "s/the firmware API version is now $current, and the/the firmware API version\\
+  is now **$current**, and the/" "$repo/CHANGELOG.md" > "$repo/c" &&
+    mv "$repo/c" "$repo/CHANGELOG.md"
+git -C "$repo" add CHANGELOG.md
+run_check
+[ "$status" -eq 0 ] || fail "expected exit 0, got $status"
+[ -s "$err" ] && fail "a wrapped, emphasised sentence was not read"
+
+case_name="a heading inside a fenced sample does not become the top section"
+# A sample showing how to write an entry would otherwise be read as the
+# release at the top of the file, and the real section below it ignored.
+new_repo
 awk -v stale="$stale" '
-    /^## 2020-12-R1$/ && !done { print "- requires API version " stale " to run"; print ""; done = 1 }
+    /^## 2020-12-R1\+modern1$/ && !done {
+        print "```"
+        print "## 2020-12-R1+example"
+        print "- the firmware API version is now " stale
+        print "```"
+        print ""
+        done = 1
+    }
     { print }
 ' "$repo/CHANGELOG.md" > "$repo/c" && mv "$repo/c" "$repo/CHANGELOG.md"
 git -C "$repo" add CHANGELOG.md
 run_check
-[ "$status" -eq 1 ] || fail "expected exit 1, got $status"
-grep -q "top section states an API version this" "$err" ||
-    fail "a second wording with a stale number was not reported"
+[ "$status" -eq 0 ] || fail "expected exit 0, got $status"
+[ -s "$err" ] && fail "a fenced heading was read as a release heading"
 
 case_name="a CHANGELOG the check cannot find is a failure, not a pass"
 new_repo
 rm "$repo/CHANGELOG.md"
+# Untracked as well as removed: part 1 scans every tracked file, so a tracked
+# file missing from the worktree would fail the scan first and this case would
+# assert the wrong branch.
 git -C "$repo" rm -q --cached CHANGELOG.md
 run_check
 [ "$status" -eq 1 ] || fail "expected exit 1, got $status"

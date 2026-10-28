@@ -35,11 +35,13 @@
 # note about the 2020-12-R1 release should go on saying 1.07 forever. So there
 # is no rule that could be applied to the whole of a document. Part 3 asks the
 # one question that has a single right answer -- what is the version now? --
-# of the one place that answers it, the CHANGELOG's top section.
+# of the one sentence that answers it, in the CHANGELOG's top section.
 #
-# Still not caught, so the next reader knows: a bare number in prose
-# ("requires firmware 1.35"), a version named in a release section below the
-# top one, and a number in a file kind the scope below does not name.
+# Still not caught, so the next reader knows: a version stated in any other
+# wording ("requires API version 1.35", "requires firmware 1.35"), a version
+# named in a release section below the top one, and a number in a file kind
+# the scope below does not name. Part 3 reads one sentence on purpose: the
+# comment above it says why.
 
 set -u
 
@@ -245,8 +247,16 @@ fi
 # so the samples rule above cannot reach it. Only the top section is read:
 # everything below it is the history of earlier releases, where an old version
 # is the right thing to say.
+#
+# Only the one sentence a bump is asked to write is read, not every mention of
+# a version. The top section talks about other versions on purpose -- btbr's
+# fixed 1.06 that never moved, 2020-12-R1 firmware being refused -- so a rule
+# that fired on any number near the words "API version" would go red on prose
+# that is correct, with nothing to do about it but reword the prose.
 changelog=CHANGELOG.md
-top=$work/top
+# Not $top, which is the repository root above.
+section=$work/section
+stream=$work/section-stream
 if [ ! -f "$changelog" ]; then
     {
         echo "error: $changelog is missing."
@@ -260,26 +270,36 @@ if [ ! -f "$changelog" ]; then
 else
     # The top section: its heading and every line down to the next release
     # heading. Line numbers are carried along so a problem can be pointed at.
+    #
+    # Headings inside a fenced code block are text, not headings: a sample
+    # showing how to write an entry would otherwise become the top section,
+    # and one inside the top section would end it early and hide the rest.
+    # Only backtick fences are tracked, which is what this file uses.
     awk '
-        /^## / { sections++; if (sections > 1) exit }
+        /^[ \t]*```/ { fence = !fence }
+        !fence && /^## / { sections++; if (sections > 1) exit }
         sections == 1 { print FNR ": " $0 }
-    ' "$changelog" > "$top"
-    if [ ! -s "$top" ]; then
+    ' "$changelog" > "$section"
+    if [ ! -s "$section" ]; then
         {
             echo "error: $changelog has no '## ' release heading, so it has no"
             echo "       top section to read the version from."
         } >&2
         problems=$((problems + 1))
     else
-        # The sentence the rule asks a bump to write, and the stricter
-        # spelling where the words are followed straight by the number
-        # ("requires API version 1.35"). Both are collected: the top section
-        # describes one release, so every version it states as current has to
-        # be this one.
-        stated=$({
-            sed -n 's/.*firmware API version is now \([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' "$top"
-            sed -n 's/.*API version \([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' "$top"
-        } | sort -u)
+        # The section as one line, so a sentence that wraps still reads as a
+        # sentence: this file wraps at about 78 columns, and the number can
+        # land on either side of the break. Runs of whitespace collapse to one
+        # space for the same reason, and the line numbers come off.
+        sed 's/^[0-9]*: //' "$section" | tr '\n\t' '  ' | tr -s ' ' > "$stream"
+        # Every version the section states as the current one. grep -o rather
+        # than a sed substitution, which would keep only the last match on the
+        # line and so miss a stale number sitting beside a current one -- the
+        # hole part 2 above has a case for. The number may be wrapped in
+        # emphasis or backticks.
+        stated=$(grep -o -E 'firmware API version is now [*`]*[0-9]+\.[0-9]+' \
+                     "$stream" |
+                 grep -o -E '[0-9]+\.[0-9]+$' | sort -u)
         if [ -z "$stated" ]; then
             {
                 echo "error: $changelog's top section does not say what the"
@@ -292,6 +312,12 @@ else
                 echo "       version is now $version'. Without it a reader has"
                 echo "       no statement of the version to go stale -- and"
                 echo "       this check would pass a tree that had dropped it."
+                echo ""
+                echo "       Only that wording is read. A version the section"
+                echo "       mentions for another reason -- a release this tree"
+                echo "       did not build, an old value that never moved -- is"
+                echo "       left alone, so the sentence has to be there in so"
+                echo "       many words."
             } >&2
             problems=$((problems + 1))
         elif [ "$stated" != "$version" ]; then
@@ -305,7 +331,8 @@ else
                 echo "       A bump moves that line with it. Sections below the"
                 echo "       top one are not read: an earlier release's note"
                 echo "       keeps the version it shipped."
-                grep -E 'API version' "$top" | sed 's/^/         /'
+                grep -E 'firmware API version is now' "$section" |
+                    sed "s|^|         $changelog:|"
             } >&2
             problems=$((problems + 1))
         fi
