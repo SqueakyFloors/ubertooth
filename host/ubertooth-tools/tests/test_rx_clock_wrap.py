@@ -158,6 +158,20 @@ def leftover_fixture(count):
                     for i, (t, c) in enumerate(zip(ticks, counts)))
 
 
+def two_leftover_fixture(count, counted=True):
+    """A replay of four records whose first two are left over from the mode
+    before: they read 30 s and 30.5 s into that mode's clock and carry
+    `count`, and the capture's own two records read 1 s and 2 s and carry the
+    zero the reset left. The two leftovers share a host time, as records that
+    reached the host in one burst do, and they agree with each other, so it is
+    the capture's own first record that contradicts them."""
+    ticks = (30 * 10_000_000, 305 * 1_000_000, 1 * 10_000_000, 2 * 10_000_000)
+    counts = (count, count, 0, 0) if counted else (0, 0, 0, 0)
+    hosts = (0, 0, 1, 2)
+    return b"".join(record(BASE_TIME + h, t, 3 + 7 * i, c)
+                    for i, (h, t, c) in enumerate(zip(hosts, ticks, counts)))
+
+
 def ahead_fixture(lead):
     """A replay of three records carrying no count, as the first period of a
     capture has: the first reads `lead` seconds into the clock and the next two
@@ -311,3 +325,20 @@ with tempfile.TemporaryDirectory() as workdir:
         assert pcap == expected, (count, pcap, result)
         assert pcapng == expected, (count, pcapng, result)
         assert "warning:" not in result.stderr, (count, result.stderr)
+
+    # Two records left over from the mode before, which is what a mode that
+    # left its queue filled leaves at the head of a file. They agree with each
+    # other, so one record of doubt was spent on them and the capture was
+    # still anchored on that mode: its own records then read against that
+    # mode's count, hours out. The capture's own two records have to land at
+    # its start a second apart here too, with the leftovers' own times no
+    # further out than the half second they read apart.
+    for count in LEFTOVER_COUNTS:
+        for counted in (True, False):
+            result, pcap, pcapng = replay(two_leftover_fixture(count, counted),
+                                          work, records=4)
+            expected = [0, 500_000_000, 0, 1_000_000_000]
+            assert pcap == expected, (count, counted, pcap, result)
+            assert pcapng == expected, (count, counted, pcapng, result)
+            assert "warning:" not in result.stderr, (count, counted,
+                                                     result.stderr)

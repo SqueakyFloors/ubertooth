@@ -201,18 +201,25 @@ clock's 327.68 s period: a quiet gap lost a clock wrap, or the host clock was
 stepped forwards`. Both causes look the same from here, which is why the
 message names each.
 
-Files recorded with older firmware can begin with a record out of place.
+Files recorded with older firmware can begin with records out of place.
 Firmware from before this fork's first release, 2020-12-R1+modern1, and
-upstream firmware up to 2020-12-R1, could begin a capture with a record left
+upstream firmware up to 2020-12-R1, could begin a capture with records left
 over from the mode before it, holding that mode's clock reading and its count
-of periods. The second record then reads lower, which used to be taken for the
+of periods. The next record then reads lower, which used to be taken for the
 capture clock starting over and put 327.68 s into every time after it, and the
 count dropping back to the new mode's used to be read as whole periods of time
 passing: 18,321 s, over five hours, where the mode before had run 200 periods.
 A replay now compares both against the host times the records carry: a clock
 that started over, or periods that really went by, account for the time between
-the two records, and a leftover record does not, so the capture is anchored on
-the second record instead and the times that follow are its own. What cannot be
+two records, and a leftover record does not, so the capture is anchored on the
+first record that is its own and the times that follow are its own too.
+
+That decision runs on while the records arrive within a couple of seconds of
+each other, which is how a whole queue of leftovers reaches the host, and
+closes for the rest of the file once a record has arrived a real gap after the
+one before it. It drops at most 127 records from the front of a capture, which
+is as many as the firmware's queue holds, so a file that opens with more
+records out of place than that keeps the ones past the limit. What cannot be
 told apart is a leftover within a couple of seconds of a whole period of the
 capture's own reading or count, which looks exactly like a wrap that late, or
 of two periods of its count. The capture's times then come out one or two

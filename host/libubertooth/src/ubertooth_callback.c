@@ -176,7 +176,7 @@ void ubertooth_capture_clock_reset( ubertooth_t* ut )
 	ut->clk100ns_started = 0;
 	ut->clk100ns_counted = 0;
 	ut->last_arrival_ns = 0;
-	ut->clk100ns_anchor_open = 0;
+	ut->clk100ns_anchor_records = 0;
 	ut->clk100ns_gap_warned = 0;
 }
 
@@ -197,8 +197,24 @@ void ubertooth_capture_clock_reset( ubertooth_t* ut )
  * says so, because that report only looks for times behind the host clock. */
 #define CLK100NS_WRAP_SLACK_NS 2000000000ull
 
-/* Whether the period count the capture's first packet carried belonged to the
- * mode before it, that packet being one left over from it. The firmware resets
+/* How many packets a capture is willing to drop from its front as records
+ * left over from the mode before. Each of those packets arrived within the
+ * slack above of the one after it, so nothing in their arrival times says
+ * where the leftovers end and the capture begins; this is what stops a
+ * capture whose packets all arrive that close together from being re-anchored
+ * on and on, silently discarding its own start if the slack is ever wrong.
+ *
+ * The firmware's queue is the limit worth allowing: the mode before can have
+ * left it full and nothing more, so a capture that opens with more records
+ * than it holds did not get them from the mode before. */
+#define CLK100NS_LEFTOVER_RECORDS_MAX USB_QUEUE_RECORDS
+
+/* Whether the period count the capture is anchored on belonged to the mode
+ * before it, the packet carrying it being one left over from it. A mode can
+ * leave several records waiting, all carrying its count, so the packet in
+ * doubt is whichever one the capture is anchored on rather than the capture's
+ * first alone: two leftovers agree with each other, and it is the capture's
+ * own first packet that contradicts them. The firmware resets
  * CLKN when a mode starts, so the capture's own first count drops to whatever
  * the new mode has reached; read as a difference from the leftover's, the drop
  * is time that never passed. Where the mode before had run 200 periods that
@@ -279,13 +295,13 @@ static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx,
 	 * wrap here would account for. The latter is only meaningful where the
 	 * clock reads lower than it did. */
 	uint64_t wrap_ns, since_last_ns;
-	/* Whether this is the packet right after the capture's first, the only
-	 * one where what the record says has a rival reading: the packet before
-	 * it can be one left over from the mode before. Taken once and cleared
-	 * here, so no later packet is judged that way. */
-	uint8_t anchor_open = ut->clk100ns_anchor_open;
-
-	ut->clk100ns_anchor_open = 0;
+	/* Whether what this packet's record says has a rival reading: the packet
+	 * the capture is anchored on can be one left over from the mode before.
+	 * It is open while every packet of the capture so far arrived within
+	 * moments of the next, so a mode that left several records waiting is
+	 * judged record by record, and it closes for the rest of the capture as
+	 * soon as real time has passed between two of them. */
+	uint8_t anchor_open = ut->clk100ns_anchor_records > 0;
 
 	/* A count has to arrive before it can be believed: a mode that sends
 	 * none leaves the field zero, which is also what the first period of a
@@ -300,12 +316,23 @@ static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx,
 		ut->last_clkn_high = periods;
 		ut->abs_start_ns = host_ns;
 		ut->last_arrival_ns = arrival_ns;
-		ut->clk100ns_anchor_open = 1;
+		ut->clk100ns_anchor_records = CLK100NS_LEFTOVER_RECORDS_MAX;
 		return;
 	}
 
 	since_last_ns = (arrival_ns > ut->last_arrival_ns) ?
 	                arrival_ns - ut->last_arrival_ns : 0;
+
+	/* Whether the packet after this one may still be judged the same way.
+	 * The packets a mode left waiting all reach the host in one burst, so
+	 * they arrive within moments of each other; a packet that arrived a
+	 * real gap after the one before it was captured by this mode, which
+	 * leaves nothing before it to drop. The decision below still uses the
+	 * window as it stood when this packet arrived. */
+	if (anchor_open && since_last_ns <= CLK100NS_WRAP_SLACK_NS)
+		ut->clk100ns_anchor_records--;
+	else
+		ut->clk100ns_anchor_records = 0;
 
 	if (ut->clk100ns_counted) {
 		/* The count is one byte, read as a difference from the last
@@ -351,21 +378,20 @@ static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx,
 		 * reading lower than it did, which misses one that falls in a
 		 * gap longer than a single period.
 		 *
-		 * Between the capture's first two packets, and only there, that
-		 * inference has a rival. The first packet of a capture can be
-		 * one left over from the mode before, carrying that mode's
-		 * clock; then the second reads lower not because the clock
-		 * started over but because the first was never part of this
-		 * capture. A packet out of place further in reads lower too,
-		 * and is still read as a wrap. The gap each packet arrived
-		 * with, which is what settles the first two, is known for
-		 * every packet; what the same test still lacks further in is a
-		 * way to read that gap as a number of wraps rather than as one
-		 * wrap or none, because by then a capture can have been quiet
-		 * for longer than a period.
+		 * While the capture's packets have all arrived within moments
+		 * of each other, that inference has a rival. A packet at the
+		 * head of a capture can be one left over from the mode before,
+		 * carrying that mode's clock; then the packet after it reads
+		 * lower not because the clock started over but because the one
+		 * before it was never part of this capture. Once a packet has
+		 * arrived a real gap after the one before it, a lower reading
+		 * is read as a wrap again, as it always was: what the test
+		 * lacks by then is a way to read a gap as a number of wraps
+		 * rather than as one wrap or none, because a capture can have
+		 * been quiet for longer than a period.
 		 *
 		 * What separates the two is how much time passed. A wrap says
-		 * how much: the clock ran from where the first packet read,
+		 * how much: the clock ran from where the packet before read,
 		 * round the end of its range, to where this one reads. A
 		 * leftover packet was taken in moments before this one, so
 		 * hardly any time passed. The host's own clock, which kept
