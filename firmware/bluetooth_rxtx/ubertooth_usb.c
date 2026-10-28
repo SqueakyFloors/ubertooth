@@ -281,7 +281,14 @@ int ubertooth_usb_init(VendorRequestHandler *vendor_req_handler)
 	return 0;
 }
 
-usb_pkt_rx fifo[128];
+/* One entry more than the queue holds records: the spare entry is what tells
+ * a full queue from an empty one. The host reads the same depth as the most
+ * leftover records a capture can open with. */
+usb_pkt_rx fifo[USB_QUEUE_RECORDS + 1];
+/* The index masks below wrap at the end of the ring, so its length has to be
+ * a power of two and the depth one less than that. */
+_Static_assert(USB_QUEUE_RECORDS == 0x7F,
+               "the ring's 0x7F index masks assume 128 entries");
 
 volatile u32 head = 0;
 volatile u32 tail = 0;

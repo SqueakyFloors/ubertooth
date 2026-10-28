@@ -970,6 +970,12 @@
   was read as time passing: 18,321 s, over five hours, where the mode before
   had run 200 periods.
   [#478](https://github.com/SqueakyFloors/ubertooth/issues/478)
+- A capture that opens with more than one leftover record replays with its own
+  times too. Two leftovers agree with each other, so the single record of
+  doubt was spent on them and the capture was still anchored on the mode
+  before, hours out. A capture now drops as many records from its front as the
+  firmware's queue can have left waiting, and no more.
+  [#493](https://github.com/SqueakyFloors/ubertooth/issues/493)
 - A live capture whose host fell behind no longer drops the gap between its
   first two packets from every later timestamp, and no longer loses a clock
   wrap there. How much time passed between two packets is now read as each one

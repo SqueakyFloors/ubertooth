@@ -72,6 +72,9 @@ static volatile uint32_t T0TC;
 #define FIRST_TICKS 100000000ull
 /* One second of the 100 ns clock, for the records near the start of it. */
 #define ONE_SECOND_TICKS 10000000ull
+/* One millisecond of it, which is about how far apart the records a mode left
+ * waiting arrive: the whole queue of them reaches the host in one burst. */
+#define ONE_MS_TICKS 10000ull
 
 /* How long the host stalled before reaching the capture's first record, in
  * the anchor cases at the end. Far longer than a packet's latency, so a
@@ -327,21 +330,24 @@ MU_TEST(a_record_ahead_of_the_rest_does_not_add_a_period)
 	mu_assert_int_eq(ut.abs_start_ns, times[0]);
 }
 
-/* Only between the capture's first two packets is a lower reading read any way
- * but as a wrap. Further in it is still read as one, as it always was, even
- * where the host times say otherwise. This pins where the decision stops, not
- * that a stray further in is beyond settling: settling that needs the gap read
- * as a number of wraps rather than as one wrap or none, because by then a
- * capture can have been quiet for longer than a period. */
+/* Once a record has arrived a real gap after the one before it, a lower
+ * reading is read as a wrap, as it always was, even where the host times say
+ * otherwise. The records here are five seconds apart, so the capture was
+ * plainly running by the third one and nothing before it can be a record left
+ * over from the mode before. This pins where the decision stops, not that a
+ * stray further in is beyond settling: settling that needs the gap read as a
+ * number of wraps rather than as one wrap or none, because by then a capture
+ * can have been quiet for longer than a period. */
 MU_TEST(a_lower_reading_further_in_is_still_a_wrap)
 {
 	ubertooth_t ut;
 	const uint64_t ticks[3] = { 10 * ONE_SECOND_TICKS,
 	                            12 * ONE_SECOND_TICKS,
 	                             5 * ONE_SECOND_TICKS };
+	const uint32_t host_s[3] = { 0, 5, 10 };
 	uint64_t times[3];
 
-	replay_a_second_apart(&ut, CLK100NS_PERIOD, ticks, times);
+	replay_records(&ut, CLK100NS_PERIOD, 3, ticks, host_s, NULL, times);
 
 	mu_assert_int_eq(1, ut.clk100ns_upper);
 	mu_assert_int_eq(ut.abs_start_ns, times[0]);
@@ -452,6 +458,60 @@ MU_TEST(a_leftover_first_record_does_not_add_its_period_count)
 		mu_assert_int_eq(ut.abs_start_ns, times[1]);
 		mu_assert_int_eq(100 * ONE_SECOND_TICKS, times[2] - times[1]);
 	}
+}
+
+/* A capture that opens with two records left over from the mode before, which
+ * is what a mode that left its queue filled leaves behind. Both leftovers
+ * carry that mode's count of 200 periods and read 30 s and 30.5 s into its
+ * clock, so they agree with each other and neither says anything about the
+ * other; the capture's own first record, reading 1 s with the zero the
+ * firmware's reset of CLKN left, is what contradicts them. The two leftovers
+ * arrived in the same recorded second, which is what keeps the decision open
+ * until it does: anchored on the second leftover, this capture read its own
+ * records against that mode's count and came out 18,321 s - over five hours -
+ * ahead of itself. */
+MU_TEST(two_leftover_records_do_not_anchor_the_capture)
+{
+	ubertooth_t ut;
+	const uint64_t ticks[4] = { 30 * ONE_SECOND_TICKS,
+	                            30 * ONE_SECOND_TICKS
+	                            + ONE_SECOND_TICKS / 2,
+	                             1 * ONE_SECOND_TICKS,
+	                             2 * ONE_SECOND_TICKS };
+	const uint32_t host_s[4] = { 0, 0, 1, 2 };
+	const uint8_t counts[4] = { 200, 200, 0, 0 };
+	uint64_t times[4];
+
+	replay_records(&ut, CLK100NS_PERIOD, 4, ticks, host_s, counts, times);
+
+	mu_assert_int_eq(0, ut.clk100ns_upper);
+	/* The capture's own first record anchors it, and its count is what the
+	 * records after it are measured from. */
+	mu_assert_int_eq(0, ut.last_clkn_high);
+	mu_assert_int_eq(ut.abs_start_ns, times[2]);
+	mu_assert_int_eq(100 * ONE_SECOND_TICKS, times[3] - times[2]);
+}
+
+/* The same two leftovers where the records carry no count, so the only
+ * evidence is the clock reading dropping from 30.5 s to 1 s. A wrap there
+ * would mean 298.18 s passed; the records arrived in the same recorded
+ * second, so it is the second leftover that goes. */
+MU_TEST(two_leftover_records_without_counts_do_not_anchor_the_capture)
+{
+	ubertooth_t ut;
+	const uint64_t ticks[4] = { 30 * ONE_SECOND_TICKS,
+	                            30 * ONE_SECOND_TICKS
+	                            + ONE_SECOND_TICKS / 2,
+	                             1 * ONE_SECOND_TICKS,
+	                             2 * ONE_SECOND_TICKS };
+	const uint32_t host_s[4] = { 0, 0, 1, 2 };
+	uint64_t times[4];
+
+	replay_records(&ut, CLK100NS_PERIOD, 4, ticks, host_s, NULL, times);
+
+	mu_assert_int_eq(0, ut.clk100ns_upper);
+	mu_assert_int_eq(ut.abs_start_ns, times[2]);
+	mu_assert_int_eq(100 * ONE_SECOND_TICKS, times[3] - times[2]);
 }
 
 /* A leftover count exactly one period from the capture's own is the one shape
@@ -929,7 +989,7 @@ MU_TEST(a_reused_handle_starts_the_next_capture_fresh)
 	mu_assert_int_eq(0, ut.clk100ns_counted);
 	mu_assert_int_eq(0, ut.last_clkn_high);
 	mu_assert_int_eq(0, ut.last_arrival_ns);
-	mu_assert_int_eq(0, ut.clk100ns_anchor_open);
+	mu_assert_int_eq(0, ut.clk100ns_anchor_records);
 	mu_assert_int_eq(0, ut.clk100ns_gap_warned);
 
 	/* The second capture is anchored on its own first packet, which starts
@@ -1032,6 +1092,94 @@ MU_TEST(a_leftover_first_record_is_found_on_a_live_capture)
 	mu_assert_int_eq(0, ut.clk100ns_upper);
 	mu_assert_int_eq(ut.abs_start_ns, times[1]);
 	mu_assert_int_eq(100 * ONE_SECOND_TICKS, times[2] - times[1]);
+}
+
+/* How many records a capture is willing to drop from its front, and what
+ * happens to the ones past that. The mode before can have left the firmware's
+ * queue full and nothing more, so its depth is the limit.
+ *
+ * Here every record arrives a millisecond after the one before it and reads a
+ * second lower, which is the leftover shape over and over: nothing in the
+ * arrival times says where a run like this ends, so without a limit the
+ * anchor would keep moving and the capture would discard as much of its own
+ * start as the run went on for. The capture ends up anchored on the record
+ * after the queue's depth of them, and the records past that are read as the
+ * clock starting over, as any record is once the decision has closed. */
+MU_TEST(a_run_of_leftovers_is_dropped_only_to_the_queues_depth)
+{
+#define LEFTOVER_RUN_RECORDS (USB_QUEUE_RECORDS + 3)
+	ubertooth_t ut;
+	uint64_t ticks[LEFTOVER_RUN_RECORDS], arrived_ns[LEFTOVER_RUN_RECORDS];
+	uint64_t times[LEFTOVER_RUN_RECORDS];
+	int record;
+
+	for (record = 0; record < LEFTOVER_RUN_RECORDS; record++) {
+		ticks[record] = (uint64_t) (300 - record) * ONE_SECOND_TICKS;
+		arrived_ns[record] = (uint64_t) record * 1000000ull;
+	}
+
+	capture_records(&ut, CLK100NS_PERIOD, LEFTOVER_RUN_RECORDS, ticks,
+	                arrived_ns, NULL, times);
+
+	/* The anchor stopped on the record after the last one it was allowed
+	 * to drop, and the capture starts there. */
+	mu_assert_int_eq((300 - USB_QUEUE_RECORDS) * ONE_SECOND_TICKS,
+	                 ut.start_clk100ns);
+	mu_assert_int_eq(ut.abs_start_ns, times[USB_QUEUE_RECORDS]);
+	/* The two records past the limit are read as wraps instead. */
+	mu_assert_int_eq(2, ut.clk100ns_upper);
+	mu_assert_int_eq(0, ut.clk100ns_anchor_records);
+#undef LEFTOVER_RUN_RECORDS
+}
+
+/* The decision closes for the rest of the capture as soon as a record arrives
+ * a real gap after the one before it: that record was caught by this mode, so
+ * nothing before it was waiting. Two leftovers here, then the capture's own
+ * first record five seconds later - which is still judged against the second
+ * leftover, and still moves the anchor - and then a record a millisecond on
+ * that reads lower, which is the capture's clock starting over and is counted
+ * as one. */
+MU_TEST(a_record_after_a_real_gap_settles_the_anchor)
+{
+	ubertooth_t ut;
+	const uint64_t ticks[4] = { 30 * ONE_SECOND_TICKS,
+	                            30 * ONE_SECOND_TICKS
+	                            + ONE_SECOND_TICKS / 2,
+	                             1 * ONE_SECOND_TICKS,
+	                            ONE_SECOND_TICKS / 2 };
+	const uint64_t arrived_ns[4] = { 0, 1000000ull,
+	                                 5000000000ull,
+	                                 5001000000ull };
+	uint64_t times[4];
+
+	capture_records(&ut, CLK100NS_PERIOD, 4, ticks, arrived_ns, NULL, times);
+
+	mu_assert_int_eq(0, ut.clk100ns_anchor_records);
+	mu_assert_int_eq(1, ut.clk100ns_upper);
+	mu_assert_int_eq(ut.abs_start_ns, times[2]);
+	mu_assert_int_eq(100 * (CLK100NS_PERIOD - ONE_SECOND_TICKS / 2),
+	                 times[3] - times[2]);
+}
+
+/* A wrap early in a busy capture, where the records do arrive within moments
+ * of each other and the decision is still open. The clock drops by almost the
+ * whole period, so a wrap accounts for the millisecond that passed and
+ * stands; a record left over from the mode before reads nowhere near that far
+ * down, and claims hundreds of seconds the host never saw. */
+MU_TEST(a_wrap_early_in_a_busy_capture_still_counts)
+{
+	ubertooth_t ut;
+	const uint64_t ticks[4] = { CLK100NS_PERIOD - 2 * ONE_MS_TICKS,
+	                            CLK100NS_PERIOD - 1 * ONE_MS_TICKS,
+	                            (uint64_t) CLK100NS_PERIOD,
+	                            (uint64_t) CLK100NS_PERIOD + ONE_MS_TICKS };
+	const uint64_t arrived_ns[4] = { 0, 1000000ull, 2000000ull, 3000000ull };
+	uint64_t times[4];
+
+	capture_records(&ut, CLK100NS_PERIOD, 4, ticks, arrived_ns, NULL, times);
+
+	mu_assert_int_eq(1, ut.clk100ns_upper);
+	mu_assert_int_eq(100 * 3 * ONE_MS_TICKS, times[3] - times[0]);
 }
 
 /* Captures one live record whose arrival reading the case gives outright, and
@@ -1871,6 +2019,8 @@ int main(void)
 	MU_RUN(a_lower_reading_further_in_is_still_a_wrap);
 	MU_RUN(a_record_ahead_of_the_rest_does_not_add_a_timer1_period);
 	MU_RUN(a_leftover_first_record_does_not_add_its_period_count);
+	MU_RUN(two_leftover_records_do_not_anchor_the_capture);
+	MU_RUN(two_leftover_records_without_counts_do_not_anchor_the_capture);
 	MU_RUN(a_leftover_count_one_period_out_is_still_read_as_time);
 	MU_RUN(a_leftover_count_a_period_above_costs_a_period_not_the_capture);
 	MU_RUN(a_first_count_a_period_behind_its_reading_is_believed);
@@ -1893,6 +2043,9 @@ int main(void)
 	MU_RUN(a_wrap_the_host_was_not_reading_through_still_counts);
 	MU_RUN(a_stall_does_not_reject_a_counted_gap_at_the_start);
 	MU_RUN(a_leftover_first_record_is_found_on_a_live_capture);
+	MU_RUN(a_run_of_leftovers_is_dropped_only_to_the_queues_depth);
+	MU_RUN(a_record_after_a_real_gap_settles_the_anchor);
+	MU_RUN(a_wrap_early_in_a_busy_capture_still_counts);
 	MU_RUN(a_stalled_host_anchors_the_capture_where_the_record_arrived);
 	MU_RUN(a_prompt_host_anchors_the_capture_where_it_always_did);
 	MU_RUN(a_record_with_no_arrival_reading_is_anchored_where_it_is_read);
