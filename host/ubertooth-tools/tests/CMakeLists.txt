@@ -258,6 +258,17 @@ add_test(
 		$<TARGET_FILE:ubertooth-rx>)
 set_tests_properties(rx-replay PROPERTIES TIMEOUT 30)
 
+# The reference UAP in the capture records of a replay, on a fixture the test
+# builds itself: an ID packet, then a DH1 whose payload CRC settles the UAP,
+# then another ID packet. The settling packet's own record is the one that
+# used to go out with no reference UAP. One run, well under a second.
+add_test(
+	NAME rx-uap-record
+	COMMAND ${Python3_EXECUTABLE}
+		${CMAKE_CURRENT_SOURCE_DIR}/test_rx_uap_record.py
+		$<TARGET_FILE:ubertooth-rx>)
+set_tests_properties(rx-uap-record PROPERTIES TIMEOUT 30)
+
 add_executable(test-btle-options
 	test_btle_options.c
 	../src/btle_options.c)
