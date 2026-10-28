@@ -158,9 +158,15 @@ rangetest_result rr;
  *
  * Timer 0 counts 100 ns ticks and resets every CLK100NS_PER_CLKN of them --
  * 312.5 us, one clkn tick -- so this adds up the steps it sees rather than
- * comparing against a deadline the reset would carry it past. Both callers
- * start that timer with clkn_start() before they receive, which is also what
- * keeps a stopped counter from leaving this waiting forever.
+ * comparing against a deadline the reset would carry it past. Each step is
+ * taken modulo that period, which is what makes a step across the reset come
+ * out as the time it was: `now - last` alone would be a huge unsigned number
+ * there and end the wait at once. The modulo also bounds the step if the
+ * period is not the usual one, which it briefly is not after the low-energy
+ * modes' clock drift correction moves the timer's match value for one tick.
+ *
+ * Both callers start the timer with clkn_start() before they receive, which is
+ * what keeps a stopped counter from leaving this waiting forever.
  *
  * Tens of microseconds is far too short to service USB in, and far too short
  * for the host to notice.
@@ -173,8 +179,7 @@ static void rangetest_wait_for_fifo(void)
 	while (waited < RANGETEST_LEAD_100NS) {
 		u32 now = T0TC;
 
-		waited += (now >= last) ? now - last
-		                        : CLK100NS_PER_CLKN - last + now;
+		waited += (now + CLK100NS_PER_CLKN - last) % CLK100NS_PER_CLKN;
 		last = now;
 	}
 }

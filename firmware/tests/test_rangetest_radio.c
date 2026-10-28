@@ -68,10 +68,11 @@ struct scan {
 
 	int fifo_wait_fn;        /* rangetest_wait_for_fifo() definition */
 	int fifo_wait_timer;     /* it reads timer 0's 100 ns counter */
-	int fifo_wait_reset;     /* and allows for that counter's reset */
-	int fifo_wait_length;    /* its length is RANGETEST_FIFO_LEAD_100NS */
+	int fifo_wait_step;      /* the step it adds up, as written */
+	char fifo_wait_text[256];
+	int fifo_wait_length;    /* its length is RANGETEST_LEAD_100NS */
 	int byte_100ns;          /* RANGETEST_BYTE_100NS as written */
-	int lead_bytes;          /* RANGETEST_FIFO_LEAD_BYTES as written */
+	int lead_bytes;          /* RANGETEST_LEAD_BYTES as written */
 	int lead_from_byte;      /* the lead is that many byte times */
 	char lead_text[256];     /* as written */
 
@@ -269,10 +270,22 @@ static int scan_source(const char *path, struct scan *s)
 		if (in_fifo_wait) {
 			if (contains_identifier(line, "T0TC"))
 				s->fifo_wait_timer = 1;
-			if (contains_identifier(line, "CLK100NS_PER_CLKN"))
-				s->fifo_wait_reset = 1;
 			if (contains_identifier(line, "RANGETEST_LEAD_100NS"))
 				s->fifo_wait_length = 1;
+			/*
+			 * The one piece of arithmetic in the change, pinned as
+			 * written: nothing here could run it, and its operands the
+			 * other way round still compiles, still looks like a
+			 * wrap-around step, and ends the wait early.
+			 */
+			if (strstr(line, "waited +=") != NULL) {
+				collapse_spaces(line, s->fifo_wait_text,
+				                sizeof(s->fifo_wait_text));
+				if (strcmp(s->fifo_wait_text,
+				           "waited += (now + CLK100NS_PER_CLKN - last) % "
+				           "CLK100NS_PER_CLKN;") == 0)
+					s->fifo_wait_step = 1;
+			}
 		}
 
 		if (in_turnaround) {
@@ -613,11 +626,14 @@ MU_TEST(test_the_read_waits_for_the_radio_to_have_the_packet)
 	mu_assert(s.fifo_wait_timer, msg);
 
 	snprintf(msg, sizeof(msg),
-	         "%s:%d: rangetest_wait_for_fifo() does not mention "
-	         "CLK100NS_PER_CLKN, so it does not allow for T0TC being reset "
-	         "every clkn tick: a wait that straddles one of those resets "
-	         "ends early or never", path, s.fifo_wait_fn);
-	mu_assert(s.fifo_wait_reset, msg);
+	         "%s:%d: rangetest_wait_for_fifo() adds up `%s`. It has to be "
+	         "`waited += (now + CLK100NS_PER_CLKN - last) %% "
+	         "CLK100NS_PER_CLKN;`, which is what makes a step across T0TC's "
+	         "reset come out as the time it was: those operands the other way "
+	         "round over-count the step and end the wait early, which is the "
+	         "bug this wait is here to fix",
+	         path, s.fifo_wait_fn, s.fifo_wait_text);
+	mu_assert(s.fifo_wait_step, msg);
 
 	snprintf(msg, sizeof(msg),
 	         "%s:%d: rangetest_wait_for_fifo() does not wait "
@@ -640,20 +656,25 @@ MU_TEST(test_the_read_waits_for_the_radio_to_have_the_packet)
 	mu_assert(s.repeater_wait > s.repeater_sync_poll &&
 	          s.repeater_wait < s.repeater_fifo_read, msg);
 
-	/* The counter the wait reads only advances once the timer is enabled, so
-	 * a mode that forgot this would wait in it forever. */
+	/*
+	 * The counter the wait reads only advances once the timer is enabled, so
+	 * a mode that forgot this would wait in it forever. Checked against the
+	 * sync poll rather than the wait, so this says what it means when the
+	 * wait itself is the thing that has gone missing.
+	 */
 	snprintf(msg, sizeof(msg),
-	         "%s: cc2400_rangetest() does not call clkn_start(), so T0TC does "
-	         "not advance and the wait at line %d never ends",
-	         path, s.rangetest_wait);
-	mu_assert(s.rangetest_clkn > 0 && s.rangetest_clkn < s.rangetest_wait,
-	          msg);
+	         "%s: cc2400_rangetest() does not call clkn_start() before the "
+	         "receive loop at line %d, so T0TC does not advance and the wait "
+	         "before the FIFO read never ends", path, s.rangetest_sync_poll);
+	mu_assert(s.rangetest_clkn > 0 &&
+	          s.rangetest_clkn < s.rangetest_sync_poll, msg);
 
 	snprintf(msg, sizeof(msg),
 	         "%s: cc2400_repeater() does not call clkn_start() before the "
-	         "wait at line %d, so T0TC does not advance and the wait never "
-	         "ends", path, s.repeater_wait);
-	mu_assert(s.repeater_clkn > 0 && s.repeater_clkn < s.repeater_wait, msg);
+	         "receive loop at line %d, so T0TC does not advance and the wait "
+	         "before the FIFO read never ends", path, s.repeater_sync_poll);
+	mu_assert(s.repeater_clkn > 0 && s.repeater_clkn < s.repeater_sync_poll,
+	          msg);
 }
 
 /*
@@ -674,11 +695,18 @@ MU_TEST(test_the_wait_is_a_few_bytes_of_air_time)
 	         "byte takes at 1 Mbit/s", path, s.byte_100ns, byte_100ns);
 	mu_assert(s.byte_100ns == byte_100ns, msg);
 
+	/*
+	 * The upper bound is a quarter of the radio's 32-byte FIFO. Every byte
+	 * waited for is a byte of the sender's burst sitting in that FIFO while
+	 * the packet is read out of it, and the read is only safe while the FIFO
+	 * does not fill.
+	 */
 	snprintf(msg, sizeof(msg),
 	         "%s: RANGETEST_LEAD_BYTES is %d. It needs at least the one byte "
 	         "the radio has not written yet when it reports the sync word, "
-	         "and fewer than the %d-byte packet, which the FIFO is holding "
-	         "while it is read out", path, s.lead_bytes, 22);
+	         "and no more than 8, a quarter of the radio's 32-byte FIFO, "
+	         "which is holding the burst while the packet is read out",
+	         path, s.lead_bytes);
 	mu_assert(s.lead_bytes >= 1 && s.lead_bytes <= 8, msg);
 
 	snprintf(msg, sizeof(msg),
