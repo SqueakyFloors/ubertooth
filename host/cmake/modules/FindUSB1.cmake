@@ -38,7 +38,11 @@ else (LIBUSB_INCLUDE_DIR AND LIBUSB_LIBRARIES)
     PATHS ${PC_LIBUSB_LIBDIR} ${PC_LIBUSB_LIBRARY_DIRS})
 
   include(FindPackageHandleStandardArgs)
-  FIND_PACKAGE_HANDLE_STANDARD_ARGS(LIBUSB DEFAULT_MSG LIBUSB_LIBRARIES LIBUSB_INCLUDE_DIR)
+  # USB1, the name find_package() is called with: it is USB1_FOUND that
+  # find_package(USB1 REQUIRED) reads, so naming anything else here leaves
+  # REQUIRED with nothing to stop a configure on, and a tree with no libusb
+  # gets as far as the compiler.
+  FIND_PACKAGE_HANDLE_STANDARD_ARGS(USB1 DEFAULT_MSG LIBUSB_LIBRARIES LIBUSB_INCLUDE_DIR)
 
   MARK_AS_ADVANCED(LIBUSB_INCLUDE_DIR LIBUSB_LIBRARIES)
 
