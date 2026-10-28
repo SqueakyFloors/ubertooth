@@ -130,8 +130,8 @@ before the rest has parsed.
 
 Whatever `ubertooth-util` and `ubertooth-btle` write to standard error is
 passed on, including
-`error: no Ubertooth found with serial matching '<serial>'` for a board
-that has been unplugged since the listing. Wireshark shows what the `--capture` call wrote
+`error: no Ubertooth found with serial matching '<serial>'` for a board that
+has been unplugged since the listing. Wireshark shows what the `--capture` call wrote
 there for the interface when the call fails; for the other calls it reads only
 standard output, so those lines land on Wireshark's own error output, which is
 also what someone running the call by hand sees.

@@ -414,7 +414,8 @@ something more about, which today is a board that came back in the bootloader.
 libubertooth's own lines read the same way, including the ones it ends up
 printing for a libusb failure nothing could name (`error: Input/Output Error
 (libusb -1)`) and for a selection that found nothing (`error: no Ubertooth
-devices found`).
+devices found`). A refusal from it can run to more than one line, the lines
+after the first being its detail; see ubertooth(7).
 
 The `-d ... -r` verification has more than one way not to pass, and they do not
 mean the same thing, so each has its own line:

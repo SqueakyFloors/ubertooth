@@ -325,6 +325,32 @@ static ubertooth_t *select_capturing(const char *u_arg, char *msg, size_t len)
 	return select_capturing_opt(u_arg, 0, msg, len);
 }
 
+/* ubertooth_count(), with whatever it printed returned in msg. */
+static int count_capturing(char *msg, size_t len)
+{
+	FILE *capture = tmpfile();
+	int saved = dup(fileno(stderr));
+	size_t n;
+	int count;
+
+	msg[0] = '\0';
+	if (capture == NULL || saved < 0) {
+		mu_assert(0, "capture stderr");
+		return 0;
+	}
+	fflush(stderr);
+	dup2(fileno(capture), fileno(stderr));
+	count = ubertooth_count();
+	fflush(stderr);
+	dup2(saved, fileno(stderr));
+	close(saved);
+	rewind(capture);
+	n = fread(msg, 1, len - 1, capture);
+	msg[n] = '\0';
+	fclose(capture);
+	return count;
+}
+
 /* Run the shared report for a refused request with stderr captured, to see
  * which board's firmware API version it names. */
 static void report_capturing(char *msg, size_t len)
@@ -668,9 +694,36 @@ MU_TEST(an_empty_or_failing_bus_is_refused)
 	mu_assert(select_capturing("0", msg, sizeof(msg)) == NULL, "empty bus");
 	mu_assert_int_eq(0, fake.lists);
 
+	/* A bus that could not be listed is not an empty one, and used to be
+	 * reported as one -- or, by index, as nothing at all. */
 	bus_with_ubertooths(0);
 	fake.list_rc = LIBUSB_ERROR_IO;
 	mu_assert(select_capturing("0", msg, sizeof(msg)) == NULL, "failed list");
+	mu_assert_int_eq(0, fake.lists);
+	mu_assert(strstr(msg, "error: could not list USB devices") == msg, msg);
+	mu_assert(strstr(msg, "no Ubertooth") == NULL, msg);
+
+	/* The serial path says the same thing, and records the same reason. */
+	bus_with_ubertooths(0);
+	fake.list_rc = LIBUSB_ERROR_IO;
+	mu_assert(select_capturing("1cc0", msg, sizeof(msg)) == NULL, "failed list");
+	mu_assert_int_eq(0, fake.lists);
+	mu_assert(strstr(msg, "error: could not list USB devices") == msg, msg);
+	mu_assert(strstr(msg, "no Ubertooth") == NULL, msg);
+	mu_assert(strcmp(ubertooth_open_failure_reason(),
+	                 "the USB devices could not be listed") == 0,
+	          ubertooth_open_failure_reason());
+
+	/* And the count is one the caller can tell from an empty bus. It used to
+	 * be 0, so -U all said "no Ubertooth devices found" for a bus nobody
+	 * could read. The line is said once: this count is polled every 100 ms
+	 * while ubertooth-util -r waits for a board, and the failure persists. */
+	bus_with_ubertooths(0);
+	fake.list_rc = LIBUSB_ERROR_IO;
+	mu_assert_int_eq(-1, count_capturing(msg, sizeof(msg)));
+	mu_assert(strstr(msg, "error: could not list USB devices") == msg, msg);
+	mu_assert_int_eq(-1, count_capturing(msg, sizeof(msg)));
+	mu_assert(msg[0] == '\0', msg);
 	mu_assert_int_eq(0, fake.lists);
 
 	bus_with_ubertooths(2);
@@ -1272,8 +1325,10 @@ MU_TEST(an_open_refused_as_busy_says_the_board_is_in_use)
 	fake.open_rc = LIBUSB_ERROR_ACCESS;
 	mu_assert(select_capturing("1", msg, sizeof(msg)) == NULL, msg);
 	mu_assert(strstr(msg, "in use by another program") == NULL, msg);
-	mu_assert(strstr(msg, "error: Access denied (insufficient permissions) "
-	          "(libusb -3)") != NULL, msg);
+	/* libusb's own words for it, which are localizable, so only the prefix
+	 * and the code are pinned. */
+	mu_assert(strstr(msg, "error: ") == msg, msg);
+	mu_assert(strstr(msg, "(libusb -3)") != NULL, msg);
 }
 
 /* Any other claim failure is still reported as itself, naming the board, so

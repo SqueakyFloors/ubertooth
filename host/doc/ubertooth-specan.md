@@ -135,7 +135,9 @@ Errors, warnings and progress, including `Ubertooth stopped`, go to standard
 error. The errors this tool prints itself are one line starting `error: `, for
 example `error: /no/such/dir/samples.bin: No such file or directory` for a
 `-d` file that cannot be opened. libubertooth's own messages read the same
-way, for example `error: no Ubertooth devices found`.
+way, for example `error: no Ubertooth devices found`; a refusal from it can
+run to more than one line, the lines after the first being its detail (see
+ubertooth(7)).
 
 If the samples cannot be written, `ubertooth-specan` says so once and exits 1,
 rather than reporting every failed write and then exiting 0. A write that

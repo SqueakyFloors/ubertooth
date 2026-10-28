@@ -174,6 +174,11 @@
   reads `error: Input/Output Error (libusb -1)`, in place of `libUSB Error:
   Input/Output Error:  (-1)`.
   [#323](https://github.com/SqueakyFloors/ubertooth/issues/323)
+- A bus the host could not list is reported as that, rather than as a bench
+  with no board on it: the tools say `error: could not list USB devices`, and
+  `ubertooth-util -N` answers non-zero instead of counting 0. A selection that
+  ran out of memory used to exit 1 with no line at all.
+  [#323](https://github.com/SqueakyFloors/ubertooth/issues/323)
 - **Script-visible change:** `ubertooth-util` refuses a command line that asks
   for nothing, `-U 0` on its own included: it used to open the board, do
   nothing and exit 0.

@@ -41,6 +41,7 @@ DEVICE_ACCESS = (
     "no ubertooth devices found",
     "no ubertooth found",
     "multiple ubertooth devices found",
+    "no board is selected",
     "usb descriptor",
 )
 

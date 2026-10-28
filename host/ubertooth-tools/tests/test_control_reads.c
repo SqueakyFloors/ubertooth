@@ -618,8 +618,10 @@ MU_TEST(other_libusb_errors_keep_their_own_report)
 	release_both(out, sizeof(out), err, sizeof(err));
 
 	mu_assert(out[0] == '\0', out);
-	mu_assert(strcmp(err, "error: Input/Output Error (libusb -1)\n") == 0,
-	    err);
+	/* libusb supplies the words, and they are localizable, so only this
+	 * project's half of the line is pinned: the prefix and the code. */
+	mu_assert(strncmp(err, "error: ", 7) == 0, err);
+	mu_assert(strstr(err, "(libusb -1)\n") != NULL, err);
 }
 
 /* A stall is the board saying it has no such request, and every read says so

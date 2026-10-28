@@ -273,6 +273,9 @@ void ubertooth_set_timeout(ubertooth_t* ut __attribute__((unused)), int seconds)
 	alarm(seconds);
 }
 
+/* Set once ubertooth_count() has reported a bus it could not list. */
+static int list_failure_said;
+
 int ubertooth_count(void) {
 	struct libusb_device **usb_list = NULL;
 	struct libusb_device_descriptor desc;
@@ -292,9 +295,14 @@ int ubertooth_count(void) {
 	if (usb_devs < 0) {
 		/* Not an empty bus: reported as itself, and as a count the caller
 		 * can tell from zero, which is what the "no Ubertooth" reports
-		 * read. */
-		fprintf(stderr, "error: could not list USB devices: %s (libusb %d)\n",
-		        libusb_strerror(usb_devs), usb_devs);
+		 * read. Said once per run, because this count is polled -- every
+		 * 100 ms while ubertooth-util -r waits for a board to come back --
+		 * and a bus that cannot be listed stays that way. */
+		if (!list_failure_said) {
+			list_failure_said = 1;
+			fprintf(stderr, "error: could not list USB devices: %s "
+			        "(libusb %d)\n", libusb_strerror(usb_devs), usb_devs);
+		}
 		libusb_exit(NULL);
 		return -1;
 	}
@@ -314,8 +322,7 @@ int ubertooth_count(void) {
 		}
 	}
 
-	if (usb_devs >= 0)
-		libusb_free_device_list(usb_list,1);
+	libusb_free_device_list(usb_list,1);
 	/* Balance the libusb_init() above: the count may be polled many times. */
 	libusb_exit(NULL);
 	return ubertooth_device_count;
@@ -508,6 +515,8 @@ static struct libusb_device_handle* find_ubertooth_device_opt(int ubertooth_devi
 				        "(libusb %d)\n", i, libusb_strerror(ret), ret);
 				continue;
 			}
+			/* cmd_get_serial()'s own timeout, which the loud serial scan
+			 * below uses as well. */
 			if (ubertooth_read_serial_string(devh, serial_c, sizeof(serial_c),
 			                                 1000) == 0)
 				fprintf(stderr, "  Device %d: %s\n", i, serial_c);
@@ -705,6 +714,7 @@ static struct libusb_device_handle* find_ubertooth_device_serial_opt(
 	if (usb_devs < 0) {
 		/* A bus that could not be listed is not the same as a serial that is
 		 * not attached, so do not report it as one. */
+		note_open_failure("the USB devices could not be listed");
 		if (!quiet) {
 			fprintf(stderr, "error: could not list USB devices: %s "
 			        "(libusb %d)\n", libusb_strerror(usb_devs), usb_devs);
@@ -724,6 +734,11 @@ static struct libusb_device_handle* find_ubertooth_device_serial_opt(
 		free(matched_devs);
 		free(matched_serials);
 		libusb_free_device_list(usb_list, 1);
+		/* As the index path does: the caller reports nothing of its own, so
+		 * a silent NULL would exit 1 with no line at all. */
+		note_open_failure("the host ran out of memory");
+		if (!quiet)
+			fprintf(stderr, "error: out of memory listing the USB devices\n");
 		return NULL;
 	}
 

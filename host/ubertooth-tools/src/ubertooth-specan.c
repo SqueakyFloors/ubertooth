@@ -164,6 +164,10 @@ static int specan_output_flushed(FILE *stream)
  */
 static int specan_write_sample(ubertooth_t* ut, int end_of_sweep,
                                const char* format, ...)
+	__attribute__((format(printf, 3, 4)));
+
+static int specan_write_sample(ubertooth_t* ut, int end_of_sweep,
+                               const char* format, ...)
 {
 	char detail[128];
 	va_list arguments;

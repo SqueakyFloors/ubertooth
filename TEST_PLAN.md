@@ -31,7 +31,8 @@ A second Ubertooth One for the range test (2i).
 - [ ] `brew install cmake libusb pkg-config`
 - [ ] Build libbtbb with local prefix
 - [ ] Build host tools
-- [ ] Confirm: binaries run (even without device attached — "could not open Ubertooth" is OK)
+- [ ] Confirm: binaries run (even without a device attached — `error: no
+      Ubertooth devices found` is the expected refusal)
 
 ---
 
@@ -397,7 +398,7 @@ nRF52840 DKs) plus one Ubertooth.*
 - [ ] Run `ubertooth-specan -U <serial> -l 2402 -u 2410 -v -d /dev/full`, then
       the same with `-g` and with `-G`
 - [ ] Confirm: each ends within a second, exits 1, and says
-      `error: writing samples failed: ...` once -- `wrote 1 of 3 bytes` for the
+      `error: writing samples failed: ...` once -- `wrote <n> of 3 bytes` for the
       raw form, `could not write the sample` for `-g` and `-G`, both naming
       `No space left on device`. A run that swept for seconds before reporting
       `could not flush the samples` is the fault to report
