@@ -238,9 +238,11 @@ def usage(out=sys.stdout):
           file=out)
 
 
-# One "<index>: <serial>" line per attached board, which is what
-# "ubertooth-util -U all -s" prints for any number of boards.
-INTERFACE_LINE = re.compile(r'(\d+): ([0-9a-fA-F]+)$')
+# One "Serial No (<index>): <serial>" line per attached board, which is what
+# "ubertooth-util -U all -s" prints for any number of boards. A board it could
+# not read says "unavailable, <reason>" there instead, which this does not
+# match.
+INTERFACE_LINE = re.compile(r'Serial No \((\d+)\): ([0-9a-fA-F]+)$')
 
 # What "ubertooth-util -U all -s" says when no board is attached. It exits 1
 # for that as it does for a real failure, so this line is the only thing that
@@ -264,8 +266,8 @@ def list_interfaces():
     # serial, which --capture passes to "ubertooth-btle -U <serial>": an index
     # can change when boards are re-plugged between listing and capture, a
     # serial cannot. A board whose serial could not be read is shown by
-    # ubertooth-util as "<index>: <unavailable>" and has no serial to offer,
-    # so it is left out.
+    # ubertooth-util as "Serial No (<index>): unavailable, <reason>" and has
+    # no serial to offer, so it is left out.
     proc = run_tool(['ubertooth-util', '-U', 'all', '-s'],
                     stdout=PIPE, stderr=PIPE, universal_newlines=True)
     out, errors = proc.communicate()

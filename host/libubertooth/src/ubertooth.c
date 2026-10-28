@@ -91,9 +91,11 @@ pthread_t poll_thread;
 
 unsigned int packet_counter_max;
 
+/* Labelled like every other version line a tool prints, so the host tools'
+ * version cannot be mistaken for a board's firmware revision. */
 void print_version() {
-	printf("libubertooth %s (%s), libbtbb %s (%s)\n", VERSION, RELEASE,
-	       btbb_get_version(), btbb_get_release());
+	printf("Host tools version: libubertooth %s (%s), libbtbb %s (%s)\n",
+	       VERSION, RELEASE, btbb_get_version(), btbb_get_release());
 }
 
 /* The handle register_cleanup_handler() was given, for cleanup_exit() below.
@@ -269,6 +271,26 @@ static int pick_ubertooth_device(int ubertooth_device, int ut_ct)
 	return (ubertooth_device < ut_ct) ? ubertooth_device : -1;
 }
 
+/*
+ * Why the last open failed, for ubertooth_open_failure_reason(). One phrase
+ * per failure the open paths below can report, set as each is taken and
+ * cleared when an open starts. A string literal, so there is nothing to free
+ * and nothing that goes stale while a caller holds it.
+ */
+static const char* open_failure_reason = NULL;
+
+static void note_open_failure(const char* reason)
+{
+	open_failure_reason = reason;
+}
+
+/* Documented with the declaration in ubertooth.h. */
+const char* ubertooth_open_failure_reason(void)
+{
+	return open_failure_reason != NULL ? open_failure_reason
+	                                   : "it could not be opened";
+}
+
 /* Opens the Ubertooth at enumeration index ubertooth_device, or the only one
  * when ubertooth_device is negative. When quiet, nothing is printed and no
  * command is sent: an index that is not present, or several devices with no
@@ -331,12 +353,19 @@ static struct libusb_device_handle* find_ubertooth_device_opt(int ubertooth_devi
 	if (pick >= 0) {
 		ret = libusb_open(usb_list[ubertooth_devs[pick]], &devh);
 		if (ret) {
+			/* The usual cause on Linux is that the udev rules are not
+			 * installed, which a report saying "no board" would send the
+			 * user looking for the wrong thing. */
+			note_open_failure(ret == LIBUSB_ERROR_ACCESS
+			                  ? "access to the board was denied"
+			                  : "it could not be opened");
 			show_libusb_error(ret);
 			devh = NULL;
 		}
 	}
 	else if (ut_ct == 0) {
 		/* nothing attached: the caller reports that it found no device */
+		note_open_failure("no Ubertooth is attached");
 	}
 	else if (ubertooth_device < 0) {
 		fprintf(stderr, "multiple Ubertooth devices found! Use '-U' to specify device number\n");
@@ -362,8 +391,11 @@ static struct libusb_device_handle* find_ubertooth_device_opt(int ubertooth_devi
 			}
 		}
 		devh = NULL;
+		note_open_failure("more than one board is attached and none was "
+		                  "selected");
 	}
 	else {
+		note_open_failure("no board answered at that index");
 		fprintf(stderr, "error: no Ubertooth at index %d (%d attached)\n"
 		        INDEX_SHIFT_HINT, ubertooth_device, ut_ct);
 	}
@@ -400,12 +432,15 @@ void ubertooth_report_claim_failed(const char* board, int err)
 {
 	if (board == NULL)
 		board = "the Ubertooth";
-	if (err == LIBUSB_ERROR_BUSY || err == LIBUSB_ERROR_ACCESS)
+	if (err == LIBUSB_ERROR_BUSY || err == LIBUSB_ERROR_ACCESS) {
+		note_open_failure("in use by another program");
 		fprintf(stderr, "error: %s is in use by another program "
 		        "(libusb %d)\n", board, err);
-	else
+	} else {
+		note_open_failure("its USB interface could not be claimed");
 		fprintf(stderr, "error: claiming the USB interface of %s failed "
 		        "(libusb %d)\n", board, err);
+	}
 }
 
 /* Documented with the declaration in ubertooth.h. */
@@ -607,6 +642,11 @@ static struct libusb_device_handle* find_ubertooth_device_serial_opt(
 	if (matches == 1) {
 		ret = libusb_open(usb_list[matched_devs[0]], &devh);
 		if (ret) {
+			/* The board matched, so it is there: the selector was right and
+			 * the open was not allowed. */
+			note_open_failure(ret == LIBUSB_ERROR_ACCESS
+			                  ? "access to the board was denied"
+			                  : "it could not be opened");
 			if (!quiet)
 				show_libusb_error(ret);
 			devh = NULL;
@@ -617,31 +657,43 @@ static struct libusb_device_handle* find_ubertooth_device_serial_opt(
 		else if (matched != NULL)
 			memcpy(matched, matched_serials[0], UBERTOOTH_SERIAL_STR_LEN);
 	}
-	else if (!quiet && matches > 1) {
-		int same = 1;
+	else if (matches > 1) {
+		note_open_failure("that serial matched more than one board");
+		if (!quiet) {
+			int same = 1;
 
-		fprintf(stderr, "error: '%s' matches %d Ubertooth devices:",
-		        serial_number, matches);
-		for (i = 0; i < matches; ++i) {
-			fprintf(stderr, "%s %s", i ? "," : "", matched_serials[i]);
-			if (strcmp(matched_serials[0], matched_serials[i]) != 0)
-				same = 0;
+			fprintf(stderr, "error: '%s' matches %d Ubertooth devices:",
+			        serial_number, matches);
+			for (i = 0; i < matches; ++i) {
+				fprintf(stderr, "%s %s", i ? "," : "", matched_serials[i]);
+				if (strcmp(matched_serials[0], matched_serials[i]) != 0)
+					same = 0;
+			}
+			/* A longer string can only help while the matching serials
+			 * differ: boards reporting one serial cannot be told apart by
+			 * this selector. */
+			if (same)
+				fprintf(stderr, "\nthese Ubertooth devices report the same "
+				        "serial number; select one by index with -U<index>\n");
+			else
+				fprintf(stderr, "\nselect one of them by a longer prefix of "
+				        "its serial number\n");
+			report_unscanned(unopened, open_err, unread);
 		}
-		/* A longer string can only help while the matching serials differ:
-		 * boards reporting one serial cannot be told apart by this selector. */
-		if (same)
-			fprintf(stderr, "\nthese Ubertooth devices report the same serial "
-			        "number; select one by index with -U<index>\n");
-		else
-			fprintf(stderr, "\nselect one of them by a longer prefix of its "
-			        "serial number\n");
-		report_unscanned(unopened, open_err, unread);
 	}
-	else if (!quiet) {
-		fprintf(stderr, "no Ubertooth found with serial matching '%s'\n",
-		        serial_number);
-		report_unscanned(unopened, open_err, unread);
-		note_dfu_bootloader();
+	else {
+		/* A board whose serial could not be read cannot be matched, so a
+		 * bus where none could be opened is not "that serial is not here":
+		 * on Linux the usual cause is that the udev rules are missing. */
+		note_open_failure(unopened > 0 && matches == 0 && unread == 0
+		                  ? "the attached boards could not be opened"
+		                  : "no board matched that serial");
+		if (!quiet) {
+			fprintf(stderr, "no Ubertooth found with serial matching '%s'\n",
+			        serial_number);
+			report_unscanned(unopened, open_err, unread);
+			note_dfu_bootloader();
+		}
 	}
 	free(matched_devs);
 	free(matched_serials);
@@ -1632,14 +1684,21 @@ ubertooth_t* ubertooth_init()
 
 int ubertooth_connect(ubertooth_t* ut, int ubertooth_device)
 {
-	int r = libusb_init(NULL);
+	int r;
+
+	note_open_failure(NULL);
+	r = libusb_init(NULL);
 	if (r < 0) {
+		note_open_failure("libusb could not be started");
 		fprintf(stderr, "error: libusb_init failed (got 1.0?)\n");
 		return -1;
 	}
 	/* The session this handle has to end again, whatever happens below. */
 	ut->usb_session_open = 1;
 
+	/* The finder has said why it found nothing, in more detail than this
+	 * site could: no board at that index, access denied, several attached
+	 * with none selected. */
 	ut->devh = find_ubertooth_device(ubertooth_device);
 	if (ut->devh == NULL) {
 		fprintf(stderr, "could not open Ubertooth device\n");
@@ -1665,8 +1724,12 @@ int ubertooth_connect(ubertooth_t* ut, int ubertooth_device)
 ubertooth_t* ubertooth_start(int ubertooth_device)
 {
 	ubertooth_t* ut = ubertooth_init();
-	if (ut == NULL)
+	/* Before ubertooth_connect() has run, so this path sets the reason
+	 * itself rather than leaving the one an earlier open did. */
+	if (ut == NULL) {
+		note_open_failure("the host ran out of memory");
 		return NULL;
+	}
 
 	int r = ubertooth_connect(ut, ubertooth_device);
 	if (r < 0) {
@@ -1683,14 +1746,20 @@ ubertooth_t* ubertooth_start(int ubertooth_device)
 int ubertooth_connect_serial(ubertooth_t* ut, char* serial_number)
 {
 	char matched[UBERTOOTH_SERIAL_STR_LEN] = "";
-	int r = libusb_init(NULL);
+	int r;
+
+	note_open_failure(NULL);
+	r = libusb_init(NULL);
 	if (r < 0) {
+		note_open_failure("libusb could not be started");
 		fprintf(stderr, "error: libusb_init failed (got 1.0?)\n");
 		return -1;
 	}
 	/* as in ubertooth_connect() */
 	ut->usb_session_open = 1;
 
+	/* The finder has said why it found nothing: no board matched, a board
+	 * matched but would not open, or the serial matched several. */
 	ut->devh = find_ubertooth_device_serial(serial_number, matched);
 	if (ut->devh == NULL) {
 		ubertooth_stop(ut);
@@ -1714,8 +1783,11 @@ int ubertooth_connect_serial(ubertooth_t* ut, char* serial_number)
 ubertooth_t* ubertooth_start_serial(char* serial_number)
 {
 	ubertooth_t* ut = ubertooth_init();
-	if (ut == NULL)
+	/* as in ubertooth_start(): before the reason is cleared */
+	if (ut == NULL) {
+		note_open_failure("the host ran out of memory");
 		return NULL;
+	}
 
 	int r = ubertooth_connect_serial(ut, serial_number);
 	if (r < 0) {
@@ -1792,6 +1864,7 @@ ubertooth_t* ubertooth_start_select(const char* u_arg)
 		ut = ubertooth_start(index);
 		break;
 	case SELECTOR_NO_INDEX:
+		note_open_failure("no board can have that index");
 		report_no_index(u_arg);
 		return NULL;
 	case SELECTOR_SERIAL:
@@ -1822,6 +1895,9 @@ ubertooth_t* ubertooth_start_select_quiet(const char* u_arg)
 	enum selector_kind kind;
 	int index = -1;
 
+	/* Cleared here as the loud paths do, so a caller that reads the reason
+	 * after this never gets one left by an earlier open. */
+	note_open_failure(NULL);
 	kind = classify_selector(u_arg, &index);
 	if (kind == SELECTOR_NO_INDEX)
 		return NULL; /* quiet: no message, and nothing to open */
@@ -1876,6 +1952,7 @@ int ubertooth_connect_select(ubertooth_t* ut, const char* u_arg)
 		ut->selector = u_arg;
 		return ubertooth_connect(ut, index);
 	case SELECTOR_NO_INDEX:
+		note_open_failure("no board can have that index");
 		report_no_index(u_arg);
 		return -1;
 	case SELECTOR_SERIAL:

@@ -67,6 +67,9 @@ static struct {
 	/* multi-device listing */
 	int current_index;     /* device opened by ubertooth_start(), or -1 */
 	int unavailable_index; /* ubertooth_start() fails for this index */
+	/* why that open failed, as the library would say it (NULL: the
+	 * library's own fallback phrase) */
+	const char *open_failure_reason;
 	int board_fail_index;  /* the board ID read fails on this device */
 	int board_fail_rc;     /* ...with this code (0: -1) */
 	int revision_fail_index;     /* the firmware revision read fails here */
@@ -210,6 +213,14 @@ ubertooth_t *ubertooth_start(int ubertooth_device)
 		return NULL;
 	fake.current_index = ubertooth_device;
 	return &fake_ut;
+}
+
+/* The library's phrase for the open that just failed. The real one classifies
+ * the libusb result; the listing only has to put it on the line. */
+const char *ubertooth_open_failure_reason(void)
+{
+	return fake.open_failure_reason != NULL ? fake.open_failure_reason
+	                                        : "it could not be opened";
 }
 
 ubertooth_t *ubertooth_start_select(const char *u_arg)
@@ -649,6 +660,15 @@ static struct run_result run_util(const char *const *args)
  * it across a reset. */
 #define FAKE_SERIAL "a1a2a3a4a5a6a7a8a9aaabacadaeafb0"
 #define SERIAL_LINE "Serial No: " FAKE_SERIAL "\n"
+
+/* The same lines as the multi-device listing prints them: the report's own
+ * label with the board's index in it. i is the index, as a string. -V's build
+ * string has no label, so it keeps the bare index prefix. */
+#define LISTED_BOARD(i)    "Board ID Number (" i "): 1 (Ubertooth One)\n"
+#define LISTED_FIRMWARE(i) "Firmware version (" i "): bluetooth_rxtx git-test (API:1.37)\n"
+#define LISTED_COMPILE(i)  i ": bluetooth_rxtx: compile-test\n"
+#define LISTED_PART(i)     "Part ID (" i "): 25011723\n"
+#define LISTED_SERIAL(i)   "Serial No (" i "): " FAKE_SERIAL "\n"
 
 /* ---- successful queries exit 0 even when the value is nonzero --------- */
 
@@ -2089,7 +2109,7 @@ MU_TEST(short_reply_gets_one_error_line_from_the_library_only)
 	fake.board_fail_rc = UBERTOOTH_ERROR_SHORT_REPLY;
 	r = RUN("-b");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(r.out, "0: <board ID read failed>\n1: 1 (Ubertooth One)\n") == 0,
+	mu_assert(strcmp(r.out, "Board ID Number (0): read failed\n" LISTED_BOARD("1")) == 0,
 	          "listing still names the failed read");
 }
 
@@ -2414,7 +2434,7 @@ MU_TEST(number_combines_with_the_multi_device_listings)
 	fake.device_count = 2;
 	r = RUN("-U", "all", "-N", "-s");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(r.out, "2\n0: " FAKE_SERIAL "\n1: " FAKE_SERIAL "\n") == 0, r.out);
+	mu_assert(strcmp(r.out, "2\n" LISTED_SERIAL("0") LISTED_SERIAL("1")) == 0, r.out);
 	mu_assert_int_eq(2, fake.indexed_starts);
 	mu_assert_int_eq(0, fake.start_calls); /* no single-device selection */
 
@@ -2422,7 +2442,7 @@ MU_TEST(number_combines_with_the_multi_device_listings)
 	fake.device_count = 2;
 	r = RUN("-N", "-s", "-U", "all");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(r.out, "2\n0: " FAKE_SERIAL "\n1: " FAKE_SERIAL "\n") == 0, r.out);
+	mu_assert(strcmp(r.out, "2\n" LISTED_SERIAL("0") LISTED_SERIAL("1")) == 0, r.out);
 
 	/* and the same listing without -U, which several boards and a read-only
 	 * query reach on their own */
@@ -2430,7 +2450,7 @@ MU_TEST(number_combines_with_the_multi_device_listings)
 	fake.device_count = 2;
 	r = RUN("-N", "-s");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(r.out, "2\n0: " FAKE_SERIAL "\n1: " FAKE_SERIAL "\n") == 0, r.out);
+	mu_assert(strcmp(r.out, "2\n" LISTED_SERIAL("0") LISTED_SERIAL("1")) == 0, r.out);
 	mu_assert_int_eq(0, fake.start_calls);
 
 	/* a device the listing cannot open still fails the command, with the
@@ -2440,7 +2460,8 @@ MU_TEST(number_combines_with_the_multi_device_listings)
 	fake.unavailable_index = 1;
 	r = RUN("-N", "-U", "all", "-b");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(r.out, "2\n0: 1 (Ubertooth One)\n1: <unavailable>\n") == 0, r.out);
+	mu_assert(strcmp(r.out, "2\n" LISTED_BOARD("0")
+	          "Board ID Number (1): unavailable, it could not be opened\n") == 0, r.out);
 
 	/* no board attached: the count is 0 on standard output, then -U all
 	 * says what it could not list, and the command fails */
@@ -2632,9 +2653,7 @@ MU_TEST(firmware_listing_with_several_devices_reports_each_device)
 	fake.device_count = 2;
 	r = RUN("-v");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(r.out,
-	                 "0: bluetooth_rxtx git-test (API:1.37)\n"
-	                 "1: bluetooth_rxtx git-test (API:1.37)\n") == 0,
+	mu_assert(strcmp(r.out, LISTED_FIRMWARE("0") LISTED_FIRMWARE("1")) == 0,
 	          "per-device firmware lines");
 }
 
@@ -2646,8 +2665,8 @@ MU_TEST(serial_listing_with_several_devices_exits_zero)
 	fake.device_count = 2;
 	r = RUN("-s");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strstr(r.out, "0: a1a2a3a4a5a6a7a8a9aaabacadaeafb0\n") != NULL, "first serial");
-	mu_assert(strstr(r.out, "1: a1a2a3a4a5a6a7a8a9aaabacadaeafb0\n") != NULL, "second serial");
+	mu_assert(strstr(r.out, LISTED_SERIAL("0")) != NULL, "first serial");
+	mu_assert(strstr(r.out, LISTED_SERIAL("1")) != NULL, "second serial");
 }
 
 #define SERIAL_VALUE "a1a2a3a4a5a6a7a8a9aaabacadaeafb0"
@@ -2655,13 +2674,11 @@ MU_TEST(serial_listing_with_several_devices_exits_zero)
 MU_TEST(each_identity_query_alone_lists_every_device_compactly)
 {
 	struct { const char *option; const char *expected; } cases[] = {
-		{ "-b", "0: 1 (Ubertooth One)\n1: 1 (Ubertooth One)\n" },
-		{ "-v", "0: bluetooth_rxtx git-test (API:1.37)\n"
-	                 "1: bluetooth_rxtx git-test (API:1.37)\n" },
-		{ "-V", "0: bluetooth_rxtx: compile-test\n"
-		         "1: bluetooth_rxtx: compile-test\n" },
-		{ "-p", "0: 25011723\n1: 25011723\n" },
-		{ "-s", "0: " SERIAL_VALUE "\n1: " SERIAL_VALUE "\n" },
+		{ "-b", LISTED_BOARD("0") LISTED_BOARD("1") },
+		{ "-v", LISTED_FIRMWARE("0") LISTED_FIRMWARE("1") },
+		{ "-V", LISTED_COMPILE("0") LISTED_COMPILE("1") },
+		{ "-p", LISTED_PART("0") LISTED_PART("1") },
+		{ "-s", LISTED_SERIAL("0") LISTED_SERIAL("1") },
 	};
 	size_t i;
 
@@ -2690,10 +2707,10 @@ MU_TEST(combined_identity_queries_list_every_line_for_every_device)
 	r = RUN("-vVspb");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(r.out,
-	                 "0: " BOARD_LINE "0: " FIRMWARE_LINE "0: " COMPILE_LINE
-	                 "0: " PART_LINE "0: " SERIAL_LINE
-	                 "1: " BOARD_LINE "1: " FIRMWARE_LINE "1: " COMPILE_LINE
-	                 "1: " PART_LINE "1: " SERIAL_LINE) == 0,
+	                 LISTED_BOARD("0") LISTED_FIRMWARE("0") LISTED_COMPILE("0")
+	                 LISTED_PART("0") LISTED_SERIAL("0")
+	                 LISTED_BOARD("1") LISTED_FIRMWARE("1") LISTED_COMPILE("1")
+	                 LISTED_PART("1") LISTED_SERIAL("1")) == 0,
 	          "per-device report lines in report order");
 }
 
@@ -2704,13 +2721,75 @@ MU_TEST(an_unavailable_device_is_reported_and_fails_the_listing)
 	reset_fake();
 	fake.device_count = 3;
 	fake.unavailable_index = 1;
+	fake.open_failure_reason = "in use by another program";
 	r = RUN("-b");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.out,
-	                 "0: 1 (Ubertooth One)\n1: <unavailable>\n2: 1 (Ubertooth One)\n") == 0,
+	                 LISTED_BOARD("0")
+	                 "Board ID Number (1): unavailable, in use by another program\n"
+	                 LISTED_BOARD("2")) == 0,
 	          "other devices still listed");
 	mu_assert_int_eq(2, fake.closes);
 	mu_assert_int_eq(0, fake.stop_calls);
+}
+
+/* One board or several, the firmware version is labelled the same way, and a
+ * board that cannot be read says so where its value would be. */
+MU_TEST(the_firmware_version_is_labelled_whether_one_board_or_several)
+{
+	struct run_result r;
+
+	/* one board: the label, no index -- there is nothing to tell apart */
+	reset_fake();
+	fake.device_count = 1;
+	r = RUN("-v");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, FIRMWARE_LINE) == 0, r.out);
+
+	/* the same, with the board named by -U */
+	reset_fake();
+	fake.device_count = 2;
+	r = RUN("-U", FAKE_SERIAL, "-v");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, FIRMWARE_LINE) == 0, r.out);
+
+	/* several boards, one of them held by another program: the same label
+	 * with the index in it, and the reason where the value would be */
+	reset_fake();
+	fake.device_count = 2;
+	fake.unavailable_index = 1;
+	fake.open_failure_reason = "in use by another program";
+	r = RUN("-v");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out,
+	                 LISTED_FIRMWARE("0")
+	                 "Firmware version (1): unavailable, in use by another program\n")
+	          == 0, r.out);
+
+	/* Every requested query gets its own line for that board, so a reader
+	 * filtering for one of them still sees it. */
+	reset_fake();
+	fake.device_count = 2;
+	fake.unavailable_index = 0;
+	fake.open_failure_reason = "in use by another program";
+	r = RUN("-vs");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out,
+	                 "Firmware version (0): unavailable, in use by another program\n"
+	                 "Serial No (0): unavailable, in use by another program\n"
+	                 LISTED_FIRMWARE("1") LISTED_SERIAL("1")) == 0, r.out);
+
+	/* -V's build string has no label of its own, so it keeps the index
+	 * prefix, there and in the unavailable line. */
+	reset_fake();
+	fake.device_count = 2;
+	fake.unavailable_index = 1;
+	fake.open_failure_reason = "in use by another program";
+	r = RUN("-V");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out,
+	                 LISTED_COMPILE("0")
+	                 "1: unavailable, in use by another program\n") == 0, r.out);
 }
 
 MU_TEST(a_failed_read_on_one_device_is_reported_and_fails_the_listing)
@@ -2722,7 +2801,7 @@ MU_TEST(a_failed_read_on_one_device_is_reported_and_fails_the_listing)
 	fake.board_fail_index = 0;
 	r = RUN("-b");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(r.out, "0: <board ID read failed>\n1: 1 (Ubertooth One)\n") == 0,
+	mu_assert(strcmp(r.out, "Board ID Number (0): read failed\n" LISTED_BOARD("1")) == 0,
 	          "failed read line");
 	/* The report's stderr line is captured into the listing, not repeated. */
 	mu_assert_int_eq(0, (long)strlen(r.err));
@@ -2732,16 +2811,17 @@ MU_TEST(a_failed_read_on_one_device_is_reported_and_fails_the_listing)
 	fake.board_fail_index = 1;
 	r = RUN("-b", "-s");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strstr(r.out, "1: <board ID read failed>\n") != NULL, "failed read line");
-	mu_assert(strstr(r.out, "1: " SERIAL_LINE) != NULL, "later query still reported");
+	mu_assert(strstr(r.out, "Board ID Number (1): read failed\n") != NULL,
+	          "failed read line");
+	mu_assert(strstr(r.out, LISTED_SERIAL("1")) != NULL, "later query still reported");
 
 	reset_fake();
 	fake.device_count = 2;
 	fake.serial_rc = 1;
 	r = RUN("-s");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(r.out, "0: <serial read failed>\n1: <serial read failed>\n") == 0,
-	          "serial read failure text is unchanged");
+	mu_assert(strcmp(r.out, "Serial No (0): read failed\nSerial No (1): read failed\n") == 0,
+	          "serial read failure named by its label");
 	mu_assert_int_eq(0, (long)strlen(r.err));
 
 	reset_fake();
@@ -2749,7 +2829,7 @@ MU_TEST(a_failed_read_on_one_device_is_reported_and_fails_the_listing)
 	fake.partnum_rc = -1;
 	r = RUN("-p");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(r.out, "0: <part ID read failed>\n1: <part ID read failed>\n") == 0,
+	mu_assert(strcmp(r.out, "Part ID (0): read failed\nPart ID (1): read failed\n") == 0,
 	          "part ID read failure shown per device");
 	mu_assert_int_eq(0, (long)strlen(r.err));
 
@@ -2760,8 +2840,10 @@ MU_TEST(a_failed_read_on_one_device_is_reported_and_fails_the_listing)
 	r = RUN("-b", "-p", "-s");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.out,
-	                 "0: <board ID read failed>\n0: <part ID read failed>\n0: " SERIAL_LINE
-	                 "1: " BOARD_LINE "1: <part ID read failed>\n1: " SERIAL_LINE) == 0,
+	                 "Board ID Number (0): read failed\nPart ID (0): read failed\n"
+	                 LISTED_SERIAL("0")
+	                 LISTED_BOARD("1") "Part ID (1): read failed\n"
+	                 LISTED_SERIAL("1")) == 0,
 	          "combined listing with failed reads");
 	mu_assert_int_eq(0, (long)strlen(r.err));
 
@@ -2771,7 +2853,8 @@ MU_TEST(a_failed_read_on_one_device_is_reported_and_fails_the_listing)
 	r = RUN("-b");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.out,
-	                 "0: <error: unknown board ID 7>\n1: <error: unknown board ID 7>\n") == 0,
+	                 "Board ID Number (0): unknown board ID 7\n"
+	                 "Board ID Number (1): unknown board ID 7\n") == 0,
 	          "unknown board ID shown per device");
 	mu_assert_int_eq(0, (long)strlen(r.err));
 
@@ -2781,7 +2864,8 @@ MU_TEST(a_failed_read_on_one_device_is_reported_and_fails_the_listing)
 	r = RUN("-v");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.out,
-	                 "0: bluetooth_rxtx git-test\n1: bluetooth_rxtx git-test\n") == 0,
+	                 "Firmware version (0): bluetooth_rxtx git-test\n"
+	                 "Firmware version (1): bluetooth_rxtx git-test\n") == 0,
 	          "revision without API");
 
 	reset_fake();
@@ -2790,8 +2874,8 @@ MU_TEST(a_failed_read_on_one_device_is_reported_and_fails_the_listing)
 	r = RUN("-v");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.out,
-	                 "0: <firmware read failed>\n"
-	                 "1: bluetooth_rxtx git-test (API:1.37)\n") == 0,
+	                 "Firmware version (0): read failed\n"
+	                 LISTED_FIRMWARE("1")) == 0,
 	          "failed revision read shown per device");
 
 	reset_fake();
@@ -2800,8 +2884,8 @@ MU_TEST(a_failed_read_on_one_device_is_reported_and_fails_the_listing)
 	r = RUN("-V");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.out,
-	                 "0: bluetooth_rxtx: compile-test\n"
-	                 "1: <compile info read failed>\n") == 0,
+	                 LISTED_COMPILE("0")
+	                 "1: compile info read failed\n") == 0,
 	          "failed compile info read shown per device");
 
 	reset_fake();
@@ -2811,8 +2895,9 @@ MU_TEST(a_failed_read_on_one_device_is_reported_and_fails_the_listing)
 	r = RUN("-U", "all", "-vV");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.out,
-	                 "0: " FIRMWARE_LINE "0: " COMPILE_LINE
-	                 "1: <firmware read failed>\n1: <compile info read failed>\n") == 0,
+	                 LISTED_FIRMWARE("0") LISTED_COMPILE("0")
+	                 "Firmware version (1): read failed\n"
+	                 "1: compile info read failed\n") == 0,
 	          "-U all shows both failed reads and keeps the good device");
 }
 
@@ -2877,7 +2962,7 @@ MU_TEST(u_all_lists_every_device_even_when_only_one_is_attached)
 	fake.device_count = 1;
 	r = RUN("-U", "all", "-s");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(r.out, "0: " SERIAL_VALUE "\n") == 0, "single device listed");
+	mu_assert(strcmp(r.out, LISTED_SERIAL("0")) == 0, "single device listed");
 	mu_assert_int_eq(1, fake.indexed_starts);
 	mu_assert_int_eq(1, fake.closes);
 	mu_assert_int_eq(0, fake.start_calls); /* no single-device selection */
@@ -2888,10 +2973,10 @@ MU_TEST(u_all_lists_every_device_even_when_only_one_is_attached)
 	r = RUN("-Uall", "-vVspb");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(r.out,
-	                 "0: " BOARD_LINE "0: " FIRMWARE_LINE "0: " COMPILE_LINE
-	                 "0: " PART_LINE "0: " SERIAL_LINE
-	                 "1: " BOARD_LINE "1: " FIRMWARE_LINE "1: " COMPILE_LINE
-	                 "1: " PART_LINE "1: " SERIAL_LINE) == 0,
+	                 LISTED_BOARD("0") LISTED_FIRMWARE("0") LISTED_COMPILE("0")
+	                 LISTED_PART("0") LISTED_SERIAL("0")
+	                 LISTED_BOARD("1") LISTED_FIRMWARE("1") LISTED_COMPILE("1")
+	                 LISTED_PART("1") LISTED_SERIAL("1")) == 0,
 	          "same listing as the implicit multi-device form");
 	mu_assert_int_eq(0, fake.start_calls);
 	mu_assert_int_eq(0, fake.stop_calls);
@@ -2901,7 +2986,7 @@ MU_TEST(u_all_lists_every_device_even_when_only_one_is_attached)
 	fake.device_count = 2;
 	r = RUN("-b", "-U", "all");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(r.out, "0: 1 (Ubertooth One)\n1: 1 (Ubertooth One)\n") == 0,
+	mu_assert(strcmp(r.out, LISTED_BOARD("0") LISTED_BOARD("1")) == 0,
 	          "listing with -U all last");
 
 	/* a failure on one device still fails the command */
@@ -2910,7 +2995,9 @@ MU_TEST(u_all_lists_every_device_even_when_only_one_is_attached)
 	fake.unavailable_index = 0;
 	r = RUN("-U", "all", "-b");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(r.out, "0: <unavailable>\n1: 1 (Ubertooth One)\n") == 0,
+	mu_assert(strcmp(r.out,
+	                 "Board ID Number (0): unavailable, it could not be opened\n"
+	                 LISTED_BOARD("1")) == 0,
 	          "unavailable device line");
 }
 
@@ -3435,6 +3522,7 @@ int main(void)
 	MU_RUN(each_identity_query_alone_lists_every_device_compactly);
 	MU_RUN(combined_identity_queries_list_every_line_for_every_device);
 	MU_RUN(an_unavailable_device_is_reported_and_fails_the_listing);
+	MU_RUN(the_firmware_version_is_labelled_whether_one_board_or_several);
 	MU_RUN(a_failed_read_on_one_device_is_reported_and_fails_the_listing);
 	MU_RUN(listing_is_not_used_with_a_selector_one_device_or_other_operations);
 	MU_RUN(u_all_lists_every_device_even_when_only_one_is_attached);

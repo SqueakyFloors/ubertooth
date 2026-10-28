@@ -7,6 +7,8 @@ The rule:
 
   * -h is what the user asked for: the usage text goes to standard output,
     nothing goes to standard error, and the status is 0;
+  * so is the host tools version, for the tools that print one: the same
+    stream and status, and the one line says what it is;
   * a bare command line -- no arguments at all -- gets one "error: " line and
     then the usage text, both on standard error, nothing on standard output,
     and the status is 1;
@@ -180,9 +182,37 @@ if combination is not None:
     for message in DEVICE_ACCESS:
         assert message not in result.stderr.lower(), (message, result)
 
+# ---- the host tools version ------------------------------------------------
+
+# Every way a tool can be asked for the host tools version. Like -h it is what
+# the user asked for, so it goes to standard output with nothing on standard
+# error, and it needs no device.
+HOST_VERSION_ARGUMENTS = {
+    "ubertooth-util": (["-H"], ["--host-version"]),
+    "ubertooth-afh": (["-V"],),
+    "ubertooth-rx": (["-V"],),
+    "ubertooth-tx": (["-V"],),
+}
+
+# The line names what it is, as every other version line does, so it cannot be
+# read as a board's firmware revision.
+HOST_VERSION_PREFIX = "Host tools version: libubertooth "
+
+for arguments in HOST_VERSION_ARGUMENTS.get(TOOL, ()):
+    result = run(arguments)
+    assert result.returncode == 0, (arguments, result)
+    assert result.stderr == "", (arguments, result)
+    assert result.stdout.startswith(HOST_VERSION_PREFIX), (arguments, result)
+    # One line, with libbtbb's version on it too, so it answers "which
+    # libraries am I running?" on its own.
+    assert result.stdout.count("\n") == 1, (arguments, result)
+    assert "libbtbb " in result.stdout, (arguments, result)
+
 # ---- a command line with nothing to do -------------------------------------
 
 checked = ["-h", "a bad option"]
+if HOST_VERSION_ARGUMENTS.get(TOOL):
+    checked.append("the host tools version")
 
 refusal = NOTHING_TO_DO.get(TOOL)
 if refusal is not None:

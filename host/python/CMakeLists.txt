@@ -53,7 +53,12 @@ add_test(NAME btle-extcap
 	COMMAND ${Python3_EXECUTABLE}
 		${CMAKE_CURRENT_SOURCE_DIR}/extcap/tests/test_btle_extcap.py
 		${CMAKE_CURRENT_SOURCE_DIR}/extcap/btle-extcap.py
-		$<TARGET_FILE:ubertooth-util>)
+		$<TARGET_FILE:ubertooth-util>
+		# The script parses ubertooth-util's device listing, so the listing
+		# lines it is given come from that tool's man page rather than from
+		# a fake of its own: a change to the listing then fails here instead
+		# of costing Wireshark its capture interface unnoticed.
+		${CMAKE_CURRENT_SOURCE_DIR}/../doc/ubertooth-util.md)
 # Under ten seconds on an idle machine, dominated by interpreter start-up for
 # each of some eighty runs, and seen at three times that on a loaded one,
 # which is what the old thirty-second limit tripped over.

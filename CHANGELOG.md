@@ -51,6 +51,14 @@
 - **Script-visible change:** `ubertooth-util -N` prints the device count and
   then runs the rest of the command, instead of dropping it.
   [#332](https://github.com/SqueakyFloors/ubertooth/issues/332)
+- **Script-visible change:** every version line now says what it is. The host
+  tools version (`ubertooth-util -H`, `-V` in `ubertooth-rx`, `-tx` and `-afh`)
+  reads `Host tools version: libubertooth ...`, and the multi-board listing
+  keeps each report's label with the board's index in it
+  (`Firmware version (0): ...`) instead of a bare `0: ...`. A board that cannot
+  be read says why where its value would be
+  (`Firmware version (1): unavailable, in use by another program`).
+  [#610](https://github.com/SqueakyFloors/ubertooth/issues/610)
 - `ubertooth-btle` and `ubertooth-ego` list their `-j`/`-J` jam aliases in `-h`.
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
 - `ubertooth-rx` lists `-s` in `-h` as the explicit form of its default channel

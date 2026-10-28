@@ -62,6 +62,15 @@ int util_report_read_error(FILE *err, const char *what, int code)
 	return util_report_read_failed(err, what);
 }
 
+const char *util_strip_error_prefix(const char *message)
+{
+	size_t prefix = strlen(READ_FAILED_PREFIX);
+
+	if (strncmp(message, READ_FAILED_PREFIX, prefix) == 0)
+		return message + prefix;
+	return message;
+}
+
 int util_is_read_failed_message(const char *message, const char *what)
 {
 	size_t prefix = strlen(READ_FAILED_PREFIX), length = strlen(what);

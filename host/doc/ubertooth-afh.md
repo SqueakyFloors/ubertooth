@@ -42,7 +42,8 @@ Other options:
  - `-e <0-5>` :
    maximum access code errors (default: 2, range: 0-5)
  - `-V` :
-   print version information
+   print the host tools version, as `Host tools version: libubertooth
+   <version> (<revision>), libbtbb <version> (<revision>)`
  - `-U <index|serial>` :
    select an Ubertooth by enumeration index or serial number; see
    ubertooth(7), SELECTING A DEVICE

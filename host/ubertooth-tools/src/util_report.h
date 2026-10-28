@@ -84,6 +84,12 @@ int util_report_read_error(FILE *err, const char *what, int code);
  * what (so a caller that captured it can show its own read-failed text). */
 int util_is_read_failed_message(const char *message, const char *what);
 
+/* message without its leading "error: ", for a caller that captured a
+ * report's error line and is putting it on standard output, where the prefix
+ * does not belong. Returns message itself when it has no such prefix. The
+ * result points into message. */
+const char *util_strip_error_prefix(const char *message);
+
 int util_report_board_id(const struct util_report_ops *ops, void *context,
                          FILE *out, FILE *err);
 int util_report_firmware(const struct util_report_ops *ops, void *context,
