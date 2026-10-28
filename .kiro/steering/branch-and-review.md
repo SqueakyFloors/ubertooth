@@ -171,6 +171,12 @@ change the host relies on**, in the PR that makes it.
   places that state the requirement rather than illustrate output. A version a
   sample is making a point about -- `2020-12-R1`'s 1.07, say -- is a fixed
   number and stays.
+- The `scripts` jobs run `tools/check-doc-api-version.sh`, which asks both
+  halves of that: no documentation file writes `API:` followed by a digit
+  except the shapes its allowlist names, and `TEST_PLAN.md` and
+  `COMPATIBILITY.md` -- which are excused because they state the requirement
+  -- carry the version this tree carries. Run it before pushing; it reads
+  files and takes a second.
 - The `api-version` CI job runs `tools/check-api-version.sh`, which compares
   the value on the branch with `main`'s tip and with their merge base and
   applies the two halves of the rule above. Run it before pushing: a value

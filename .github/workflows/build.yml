@@ -74,8 +74,9 @@ jobs:
     # Above the bounded install step below plus the build and the tests, so a
     # step that overruns fails itself and names what stalled rather than being
     # cancelled along with the job. The libbtbb pin check used to run here and
-    # wanted 4 of these minutes; it is its own job now.
-    timeout-minutes: 16
+    # wanted 4 of these minutes; it is its own job now. It was 16 before the
+    # strict-standard step at the end, which compiles the tree twice more.
+    timeout-minutes: 22
 
     steps:
     - uses: actions/checkout@v4
@@ -224,6 +225,36 @@ jobs:
       run: |
         python3 -c "import sys; sys.path.insert(0, '$GITHUB_WORKSPACE/host/python/specan_ui'); import specan"
         python3 -c "import sys; sys.path.insert(0, '$GITHUB_WORKSPACE/host/python/ubtbr'); import ubtbr"
+
+    - name: Build with a strict C standard
+      shell: bash
+      # COMPATIBILITY.md claims the host tools build with -std=c17 and
+      # -std=c2x on this pair of runners, and nothing made that true: the
+      # build above uses the compiler's default, which is a GNU standard, and
+      # a GNU standard defines _DEFAULT_SOURCE for us. On glibc that macro is
+      # what declares usleep() and the <endian.h> byte-order helpers, so a
+      # strict standard hid them and the build failed until host/CMakeLists.txt
+      # asked for the macro by name. The next GNU-only call would reintroduce
+      # exactly that, and only a user with CFLAGS of their own would find out.
+      #
+      # A separate build tree per standard, so neither can be answered by an
+      # object file the default build left behind. Compiling is the whole
+      # point here, so these are built in parallel and their tests are not
+      # run: the suite above already ran them once, and running it twice more
+      # would cost minutes to tell us what the first run told us.
+      run: |
+        EXTRA_C_FLAGS=""
+        if [ "${{ runner.os }}" = "macOS" ]; then
+          EXTRA_C_FLAGS="-I$(brew --prefix)/include"
+        fi
+        for std in c17 c2x; do
+          dir="$GITHUB_WORKSPACE/host/build-$std"
+          cmake -E make_directory "$dir"
+          cmake -S "$GITHUB_WORKSPACE/host" -B "$dir" \
+            -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
+            -DCMAKE_C_FLAGS="-std=$std $EXTRA_C_FLAGS"
+          cmake --build "$dir" --config $BUILD_TYPE --parallel
+        done
 
   firmware:
     strategy:
@@ -548,6 +579,33 @@ jobs:
       # A few seconds of git init: no build, no network.
       timeout-minutes: 3
       run: tools/check-issue-references-selftest.sh
+
+    - name: Check the documentation does not pin the API version
+      # Sample output writes the version as API:<version>, so that a bump has
+      # one place to change; TEST_PLAN.md and COMPATIBILITY.md carry the real
+      # number, so this also asks whether those two are at the version the
+      # tree carries. Before this step the rule was kept by review, and the
+      # samples that went stale were found two bumps later. It reads files:
+      # no build, no network, a second or two.
+      timeout-minutes: 2
+      run: tools/check-doc-api-version.sh
+
+    - name: Check that the doc API version check holds both ways
+      # The step above runs the check against this branch, which says nothing
+      # about whether it would still refuse a pinned version, or still excuse
+      # the numbers that are deliberate -- btbr's fixed 1.06, the 2020-12-R1
+      # release's 1.07, and the two documents that state the requirement. An
+      # allowlist too wide passes the stale samples the check exists to find.
+      # This builds throwaway repositories in each of those shapes -- pinned
+      # in the README, in a man page's Markdown, in a hand-maintained roff
+      # page, 1.06 borrowed by a bluetooth_rxtx sample, a stale TEST_PLAN.md,
+      # a COMPATIBILITY.md that never mentions the version, a header the
+      # version cannot be read from -- and asserts the status, the stream and
+      # the message for each. Both platforms, because the two xargs and sed
+      # implementations disagree about exactly this kind of work.
+      # A few seconds of git init: no build, no network.
+      timeout-minutes: 3
+      run: tools/check-doc-api-version-selftest.sh
 
     - name: Check the libbtbb function list
       # FindBTBB.cmake probes the installed libbtbb for the functions the host
