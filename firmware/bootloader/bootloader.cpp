@@ -107,7 +107,10 @@ static uint8_t dfu_descriptors[] = {
 	MAX_PACKET_SIZE0,  		// bMaxPacketSize
 	LE_WORD(ID_VENDOR),		// idVendor
 	LE_WORD(ID_PRODUCT),	// idProduct
-	LE_WORD(0x0100),		// bcdDevice
+	/* Fixed on purpose, and the one version here that never moves: nothing
+	 * checks it, because ubertooth-dfu has to work against any board.
+	 * See UBERTOOTH_BOOTLOADER_API_VERSION. */
+	LE_WORD(UBERTOOTH_BOOTLOADER_API_VERSION), // bcdDevice
 	0x01,              		// iManufacturer
 	0x02,              		// iProduct
 	0x00,              		// iSerialNumber

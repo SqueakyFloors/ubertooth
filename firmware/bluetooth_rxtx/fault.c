@@ -44,9 +44,10 @@ static void flash_leds(int count) {
  * Three seconds is not enough to blink a whole code: delay_30ms() is a rough
  * busy loop, nearer 150 ms than 30, so a burst is cut off part-way and counting
  * blinks no longer tells you which fault it was. Each handler therefore records
- * the fault in the breadcrumb before it starts blinking, and ubertooth-util -w
- * reads it back together with the mode the board was in -- which counting
- * blinks never gave you.
+ * its own fault in the breadcrumb before it starts blinking, and
+ * ubertooth-util -w reads it back together with the mode the board was in --
+ * which counting blinks never gave you. A site each rather than one shared
+ * "a fault" site, so -w says which of the four it was.
  *
  * These run at a priority the USB interrupt cannot preempt -- HardFault above
  * everything, the other three at the same 0 as USB -- so the USB handler's feed
@@ -55,7 +56,7 @@ static void flash_leds(int count) {
 void HardFault_Handler(void) {
 	uint32_t val = SCB_HFSR;
 
-	watchdog_mark(WATCHDOG_SITE_FAULT);
+	watchdog_mark(WATCHDOG_SITE_FAULT_HARD);
 
 	while (1) {
 		flash_leds(2);
@@ -77,7 +78,7 @@ void MemManagement_Handler(void) {
 	int offset[5] = { 7, 4, 3, 1, 0 };
 	uint8_t mmsr = SCB_MMSR;
 
-	watchdog_mark(WATCHDOG_SITE_FAULT);
+	watchdog_mark(WATCHDOG_SITE_FAULT_MEM);
 
 	while (1) {
 		flash_leds(3);
@@ -100,7 +101,7 @@ void BusFault_Handler(void) {
 	int offset[6] = { 7, 4, 3, 2, 1, 0 };
 	uint8_t bfsr = SCB_BFSR;
 
-	watchdog_mark(WATCHDOG_SITE_FAULT);
+	watchdog_mark(WATCHDOG_SITE_FAULT_BUS);
 
 	while (1) {
 		flash_leds(4);
@@ -123,7 +124,7 @@ void UsageFault_Handler(void) {
 	int offset[6] = { 9, 8, 3, 2, 1, 0 };
 	uint16_t ufsr = SCB_UFSR;
 
-	watchdog_mark(WATCHDOG_SITE_FAULT);
+	watchdog_mark(WATCHDOG_SITE_FAULT_USAGE);
 
 	while (1) {
 		flash_leds(5);

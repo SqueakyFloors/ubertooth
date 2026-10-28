@@ -391,16 +391,20 @@ $(BINDIR)/test_compile_info: test_compile_info.c minunit.h source_scan.h \
 # The firmware info block every image carries. ../common/fw_info.c is compiled
 # here with the host compiler, against the stub version.h in stubs-fwinfo/, so
 # the bytes the firmware builds can be handed to the host's own parser; the
-# rest of the test reads the linker script, the two request handlers and
-# common.mk as text, so FW_DIR points at the firmware tree as well.
+# rest of the test reads the linker script, the two request handlers, the three
+# USB descriptors and common.mk as text, so FW_DIR and FW_BOOTLOADER_DIR point
+# at the firmware tree as well.
 $(BINDIR)/test_fw_info: test_fw_info.c minunit.h source_scan.h \
 		stubs-fwinfo/version.h $(FW_COMMON)/fw_info.c \
 		$(FW_COMMON)/sections.ld ../common.mk \
-		$(FW_RXTX)/bluetooth_rxtx.c \
-		$(FW_BTBR)/src/btctl/vendor_request_handler.c | $(BINDIR)
+		$(FW_RXTX)/bluetooth_rxtx.c $(FW_RXTX)/ubertooth_usb.c \
+		$(FW_BTBR)/src/btctl/vendor_request_handler.c \
+		$(FW_BTBR)/src/drivers/ubertooth_usb.c \
+		$(FW_BOOT)/bootloader.cpp | $(BINDIR)
 	$(CC) $(CFLAGS) -Istubs-fwinfo $(CPPFLAGS) \
 		-DFW_RXTX_DIR='"$(FW_RXTX)"' -DFW_BTBR_DIR='"$(FW_BTBR)"' \
 		-DFW_COMMON_DIR='"$(FW_COMMON)"' -DFW_DIR='".."' \
+		-DFW_BOOTLOADER_DIR='"$(FW_BOOT)"' \
 		-o $@ test_fw_info.c $(FW_COMMON)/fw_info.c
 
 # The range test and the repeater are hardware loops, so this scans
@@ -447,16 +451,18 @@ $(BINDIR)/test_firmware_object_paths: test_firmware_object_paths.c minunit.h \
 # stubs-watchdog/ubertooth.h replaces them with variables and the test drives
 # them. It includes watchdog.c into its own translation unit, because the
 # breadcrumb is a linker-placed object on the board and an ordinary one here.
-# Its last cases scan both images for the places the feed is called from, so
-# FW_RXTX_DIR, FW_BTBR_DIR and FW_COMMON_DIR point at them.
+# Its last cases scan both images for the places the feed is called from, and
+# for the fault paths that mark where they were, so FW_RXTX_DIR, FW_BTBR_DIR
+# and FW_COMMON_DIR point at them.
 $(BINDIR)/test_watchdog: test_watchdog.c minunit.h source_scan.h \
 		stubs-watchdog/ubertooth.h stubs/ubertooth.h \
 		$(FW_COMMON)/watchdog.c $(FW_COMMON)/watchdog.h \
 		$(FW_COMMON)/usb_irq.h $(FW_COMMON)/sections.ld \
 		$(FW_RXTX)/ubertooth_usb.c $(FW_RXTX)/bluetooth_rxtx.c \
 		$(FW_RXTX)/ego.c $(FW_RXTX)/xmas.c $(FW_RXTX)/identify.c \
-		$(FW_COMMON)/usb_serial.c \
+		$(FW_RXTX)/fault.c $(FW_COMMON)/usb_serial.c \
 		$(FW_BTBR)/src/drivers/ubertooth_usb.c \
+		$(FW_BTBR)/src/util/fault.c \
 		$(FW_BTBR)/src/btctl/main.c | $(BINDIR)
 	$(CC) $(CFLAGS) -Istubs-watchdog -I$(FW_COMMON) $(CPPFLAGS) \
 		-DFW_HOST_TEST -DFW_RXTX_DIR='"$(FW_RXTX)"' \

@@ -30,6 +30,12 @@
  * The host tools require firmware with exactly this version
  * (ubertooth_check_api()), so host and firmware are released together.
  *
+ * Both run-time images report it: bluetooth_rxtx and btbr ship from the same
+ * commit and answer the same shared requests, so they carry the same number.
+ * btbr used to report a literal 1.06 instead, which nothing bumped and which
+ * made every tool but ubertooth-util -v refuse a board running that image,
+ * whatever revision it was built from.
+ *
  * During development it is bumped in every pull request that changes firmware
  * behaviour the host relies on: a new, removed or changed request, or a
  * changed behaviour of an existing one. Host-only changes leave it alone, so
@@ -48,7 +54,20 @@
  * as 1.10), then 0x0111 (1.11), and so on to 0x0119 (1.19); after 0x0119
  * comes 0x0120, not 0x011a.
  */
-#define UBERTOOTH_API_VERSION 0x0137
+#define UBERTOOTH_API_VERSION 0x0138
+
+/*
+ * The bootloader's bcdDevice, which is fixed on purpose and is the one version
+ * in the tree that may never move.
+ *
+ * ubertooth-dfu has to work against any board, whatever it was flashed with,
+ * because reflashing is how a board running the wrong firmware is put right.
+ * So nothing checks this number, and raising it with every release would only
+ * give some future tool something to refuse a working bootloader over. It is
+ * named here so that it is clear it was left behind deliberately rather than
+ * forgotten, which is what the bare 0x0100 in bootloader.cpp looked like.
+ */
+#define UBERTOOTH_BOOTLOADER_API_VERSION 0x0100
 
 /*
  * The build string every image carries, reported by UBERTOOTH_GET_COMPILE_INFO
@@ -451,7 +470,23 @@ enum watchdog_site {
 	WATCHDOG_SITE_XOSC       = 4, /* waiting for the 16 MHz crystal oscillator */
 	WATCHDOG_SITE_FSM        = 5, /* waiting on the radio's state machine */
 	WATCHDOG_SITE_LE_RX      = 6, /* waiting for a BLE packet or the next hop */
-	WATCHDOG_SITE_FAULT      = 7, /* in a processor fault handler, blinking a code */
+	/*
+	 * The four processor faults, one site each. A fault handler never
+	 * returns, so the board is reset by the watchdog a few seconds later
+	 * and these are read back after it reconnects.
+	 *
+	 * One site for all four would say no more than "a fault". Counting the
+	 * handler's blink code used to tell you which fault it was, and the
+	 * watchdog now cuts that code off part-way, so the breadcrumb carries
+	 * what the blinks did.
+	 */
+	WATCHDOG_SITE_FAULT_HARD  = 7,  /* hard fault */
+	WATCHDOG_SITE_FAULT_MEM   = 8,  /* memory management fault */
+	WATCHDOG_SITE_FAULT_BUS   = 9,  /* bus fault */
+	WATCHDOG_SITE_FAULT_USAGE = 10, /* usage fault */
+	/* The btbr image's die(): firmware that found a state it cannot go on
+	 * from, such as a message it cannot parse. Not a processor fault. */
+	WATCHDOG_SITE_PANIC       = 11,
 	WATCHDOG_SITE_COUNT
 };
 

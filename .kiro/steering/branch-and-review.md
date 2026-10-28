@@ -169,16 +169,16 @@ change the host relies on**, in the PR that makes it.
   `TEST_PLAN.md`'s expected `API:` string, `COMPATIBILITY.md`'s firmware row,
   the pinned strings in the tests and the CHANGELOG's reflash note -- the
   places that state the requirement rather than illustrate output. A version a
-  sample is making a point about -- `btbr`'s fixed 1.06, or `2020-12-R1`'s
-  1.07 -- is a fixed number and stays.
+  sample is making a point about -- `2020-12-R1`'s 1.07, say -- is a fixed
+  number and stays.
 - The `api-version` CI job runs `tools/check-api-version.sh`, which compares
   the value on the branch with `main`'s tip and with their merge base and
   applies the two halves of the rule above. Run it before pushing: a value
   that was free when the branch was cut may not be free now.
 - To decide whether a branch changes the firmware interface, that check
   compares the **content** of a list of files, whole-line comments and blank
-  lines not counted: the sources compiled into the `bluetooth_rxtx` image,
-  that image's own Makefile and linker scripts, and the interface header
+  lines not counted: the sources compiled into the two run-time images,
+  their own Makefiles and linker scripts, and the interface header
   (`tools/check-api-version.sh --list-watched` prints the list). In
   `firmware/common.mk` it compares only the lines that set one of a listed set
   of compile flags -- the board define, `-DTX_ENABLE`, `-fpack-struct` and the
@@ -191,11 +191,11 @@ change the host relies on**, in the PR that makes it.
   It is an approximation, so it is not the rule, the paragraph above is. A
   firmware change the host relies on that touches nothing on that list still
   needs the bump by hand, and a change to a watched file that the host cannot
-  observe is still asked for one. The false reds to expect: a change to the
-  BTBR or BTCTL half of the interface header, which belongs to the separate
-  `btbr` image; a change to one of the image's sources the host never reads,
-  such as the LED patterns or the debug UART; and code moved verbatim between
-  two watched files.
+  observe is still asked for one. The false reds to expect: a change to one of
+  the images' sources the host never reads, such as the LED patterns or the
+  debug UART, and code moved verbatim between two watched files. The interface
+  header's BTBR and BTCTL half is not one of them: `btbr` reports this same
+  version, so a change there is as real an interface change as any other.
 - So `api-version` is the one job in the gating set whose red is sometimes
   wrong. If it refuses a branch that changes nothing the host sees, do NOT
   bump the version to clear it and do NOT edit the watched list to suit one

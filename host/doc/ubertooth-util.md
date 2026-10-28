@@ -96,9 +96,9 @@ The API version beside the
 revision is not from the block: it is the USB `bcdDevice`, which is the number
 the other tools check a board against. The samples here write it as
 `<version>`, because it moves with the firmware; `COMPATIBILITY.md` names the
-value this tree requires. The `btbr` image reports a fixed `bcdDevice` of 1.06
-whatever it was built from, which is why every tool but this one and
-ubertooth-dfu(1) refuses a board running it.
+value this tree requires. Both images report it, so a `btbr` board is not
+refused over its version; the other tools still cannot drive that image, and
+fail on the first request it does not answer.
 
 The API version is bumped whenever a firmware change affects the host, so a
 board flashed from an earlier commit is normally refused rather than used. It

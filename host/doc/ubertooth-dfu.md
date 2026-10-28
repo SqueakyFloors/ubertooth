@@ -42,12 +42,10 @@ the file holds and which revision it was built from:
     Checking firmware signature
     Image: bluetooth_rxtx git-ed30131d* (API:<version>)
 
-The API version on that line comes from the block, so for `btbr` it reads this
-tree's version while `ubertooth-util -v` reports that board as 1.06: the `btbr`
-image is built from this tree but reports a fixed USB `bcdDevice` of its own,
-which is what the other tools check. This tree's version moves with the
-firmware, so the samples here write it as `<version>`; `COMPATIBILITY.md` names
-the value this tree requires.
+The API version on that line comes from the block, and the USB `bcdDevice`
+`ubertooth-util -v` reads off a running board carries the same value, for either
+image. This tree's version moves with the firmware, so the samples here write it
+as `<version>`; `COMPATIBILITY.md` names the value this tree requires.
 
 A properly signed DFU file with no readable block there is not an image from
 this tree, so it is refused rather than written:
@@ -436,9 +434,10 @@ not. It is a warning rather than a refusal for that reason.
     warning: older.dfu: this image reports API version 1.07 in its firmware info block, and these tools report <version>; the tools and the board have to report the same one
 
 What the warning reports is what the file says about itself. The other tools
-read the board's USB `bcdDevice` rather than this block, and the two are not
-the same number in every image, so the warning does not promise what they will
-make of the board afterwards.
+read the board's USB `bcdDevice` rather than this block, so the warning does
+not promise what they will make of the board afterwards. Both images this tree
+builds put the same version in both places, so the two agree today; nothing in
+the format makes them have to.
 
 ## SEE ALSO
 
