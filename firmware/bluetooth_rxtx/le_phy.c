@@ -865,6 +865,10 @@ static void timer1_interrupt(void) {
 				conn.conn_interval = conn.conn_update_pending_interval;
 				conn.supervision_timeout = conn.conn_update_pending_supervision_timeout;
 				conn.conn_update_pending = 0;
+				// This branch gives the event below its own window-long
+				// deadline, so the flag that would do it again is spent
+				// here rather than left for a later, anchored event.
+				conn.first_conn_event = 0;
 
 				// timeout after conn window + max packet length
 				timer1_set_match(conn.last_anchor + conn.conn_interval +
@@ -895,6 +899,12 @@ static void timer1_interrupt(void) {
 			// connection whose window is longer than the minimum. Later
 			// events are anchored to within a few microseconds of where
 			// their packet is due, so they need no window.
+			//
+			// At the shortest interval the specification allows, 7.5 ms,
+			// the longest legal window plus a packet runs about 8.7 ms, so
+			// this deadline can fall after the next event was due. It only
+			// does so when nothing arrived in the whole window, which is
+			// already the case the FIXME in finish_conn_event() covers.
 			if (conn.first_conn_event) {
 				conn.first_conn_event = 0;
 				window = conn.win_size;
@@ -1170,18 +1180,22 @@ static void connection_update_handler(le_rx_t *buf) {
 	timing.conn_interval       = extract_field(buf, 6, 2);
 	timing.supervision_timeout = extract_field(buf, 10, 2);
 
-	// An update the specification does not allow ends the follow, on the
-	// engine's own terms rather than at some impossibly long supervision
-	// timeout. It is cancelled the way the host's own cancel works, rather
-	// than cleared here: this runs in le_phy_main()'s loop, and
-	// finish_conn_event() is where a connection is dropped and the radio
-	// put back on the advertising channels, in the interrupt that owns
-	// them. The parameters stay as they were until then, so the connection
-	// event already in flight is still captured.
-	if (!le_scale_conn_timing(&timing)) {
-		cancel_follow = 1;
+	// An update the specification does not allow is refused, as
+	// le_connect_handler() refuses the same fields in a CONNECT_IND. Taken
+	// on trust, a transmit window of 255 steps would put 319 ms into the
+	// wait for the first event under the new parameters, and the
+	// supervision timeout it came with would be all that ended the chase.
+	//
+	// Nothing conformant sends such a value, so a packet asking for one has
+	// bit errors (CRC verification is off by default), and this handler is
+	// reached by any data packet whose first bytes happen to look like a
+	// connection update. Keep following the connection on the parameters it
+	// already has, which are in range and end it at its real supervision
+	// timeout: ending the follow here would let one bit flip stop a healthy
+	// capture. This is what channel_map_update_handler() does with an empty
+	// channel map, for the same reason.
+	if (!le_scale_conn_timing(&timing))
 		return;
-	}
 
 	conn.win_size            = timing.win_size;
 	conn.win_offset          = timing.win_offset;

@@ -1222,10 +1222,11 @@ Fixes with no visible change in normal use.
   in a `-p` capture move earlier by up to about a third of a millisecond.
   [#546](https://github.com/SqueakyFloors/ubertooth/issues/546)
 - A connection update is checked against the ranges the specification allows,
-  the way a connection request already was, and one outside them ends the
-  follow instead of being taken on trust. A window size of 255 put 319 ms into
-  the wait for the first event under the new parameters, and a supervision
-  timeout of hours was then all that ended the chase.
+  the way a connection request already was, and one outside them is ignored
+  instead of being taken on trust: the capture keeps following the connection
+  on the parameters it has. A window size of 255 used to put 319 ms into the
+  wait for the first event under the new parameters, and a supervision timeout
+  of hours was then all that ended the chase.
   [#624](https://github.com/SqueakyFloors/ubertooth/issues/624)
 - A capture's ring buffer hands records between its two threads properly: a
   record and the time it arrived are both complete before the capture can see

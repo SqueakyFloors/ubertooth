@@ -771,9 +771,6 @@ MU_TEST(the_average_rssi_is_the_mean_of_the_samples)
 	          "the average RSSI is outside the minimum and the maximum");
 }
 
-/* A queue with no room left loses the packet rather than overwriting one the
- * host has not collected, and says so, which is what the engine's caller
- * would act on if it ever did. */
 /*
  * A packet is stamped with the time its preamble started, which is what the
  * host writes into a capture file and what a reader measures air time from.
@@ -809,6 +806,9 @@ MU_TEST(a_packets_timestamp_is_back_dated_to_the_start_of_the_preamble)
 	mu_assert_int_eq(interrupt_at - USEC(48), buf->timestamp);
 }
 
+/* A queue with no room left loses the packet rather than overwriting one the
+ * host has not collected, and says so, which is what the engine's caller
+ * would act on if it ever did. */
 MU_TEST(a_full_ring_refuses_the_packet)
 {
 	le_rx_t buf;
@@ -958,7 +958,7 @@ MU_TEST(a_connection_request_outside_the_specification_is_refused)
 	struct bad_case {
 		const char *what;
 		struct connect_req r;
-	} cases[8];
+	} cases[9];
 
 	memset(cases, 0, sizeof(cases));
 
@@ -986,6 +986,12 @@ MU_TEST(a_connection_request_outside_the_specification_is_refused)
 	r = valid_connect_req(); memset(r.channel_map, 0, sizeof(r.channel_map));
 	cases[7].what = "a channel map with no channel in it";
 	cases[7].r = r;
+	/* 43000 steps of 10 ms is 430 s, which is 4.3e9 units of 100 ns: past
+	 * what a 32-bit count holds, so scaling before the range check wraps it
+	 * to half a second and it passes. */
+	r = valid_connect_req(); r.supervision_timeout = 43000;
+	cases[8].what = "a supervision timeout that overflows the scaled count";
+	cases[8].r = r;
 
 	for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
 		char msg[256];
@@ -1084,12 +1090,13 @@ MU_TEST(a_connection_update_is_scheduled_for_its_instant)
  * that waits out the first event under the new parameters, and a supervision
  * timeout of hours would be all that ended the chase.
  *
- * The follow is cancelled rather than cleared on the spot, because this
- * handler runs in the mode's own loop: the connection is dropped and the
- * radio put back on the advertising channels by the next
- * finish_conn_event(), in the interrupt that owns them. So each case below
- * checks that the update was refused and then that the event which closes
- * next really does end the connection.
+ * The connection it is already following is kept, on the parameters it
+ * already has: nothing conformant sends such a value, so the packet has bit
+ * errors, and any data packet whose first bytes look like a connection update
+ * reaches this handler. Ending the follow would let one bit flip stop a
+ * healthy capture, and the parameters in place are in range and end the
+ * connection at its real supervision timeout. channel_map_update_handler()
+ * treats an empty channel map the same way.
  *
  * One case per field, each one value past the boundary, so a check removed or
  * a comparison turned round fails here.
@@ -1156,32 +1163,17 @@ MU_TEST(a_connection_update_outside_the_specification_is_refused)
 		snprintf(msg, sizeof(msg), "%s was still scheduled",
 		         cases[i].what);
 		mu_assert(conn.conn_update_pending == 0, msg);
+		/* The live parameters are untouched, so the connection carries on
+		 * with the ones the connection request set. */
 		snprintf(msg, sizeof(msg),
-		         "%s did not end the follow, so the capture would chase a "
-		         "connection whose parameters cannot be right",
-		         cases[i].what);
-		mu_assert(cancel_follow == 1, msg);
-		/* ...and the live parameters are untouched, so the connection
-		 * event already in flight still has its deadlines. */
-		snprintf(msg, sizeof(msg),
-		         "%s was written into the live connection before it was "
-		         "refused", cases[i].what);
+		         "%s was written into the live connection", cases[i].what);
 		mu_assert(conn.conn_interval == 24 * 12500 &&
-		          conn.win_size == 1 * 12500, msg);
-
-		/* The event that closes next is where the connection is dropped
-		 * and the radio goes back to the advertising channels. */
-		conn.last_anchor = 1000000;
-		conn.anchor_set = 1;
-		conn.last_packet_ts = NOW;
-		le_phy_active = 1;
-		finish_conn_event();
-
+		          conn.win_size == 1 * 12500 &&
+		          conn.supervision_timeout == 10 * 100000, msg);
 		snprintf(msg, sizeof(msg),
-		         "after %s the next connection event left the connection "
-		         "in place", cases[i].what);
-		mu_assert(connection_was_reset(), msg);
-		mu_assert_int_eq(0, cancel_follow);
+		         "%s ended the follow, so one bit flip in a data packet "
+		         "would stop a healthy capture", cases[i].what);
+		mu_assert(!connection_was_reset() && cancel_follow == 0, msg);
 	}
 }
 
