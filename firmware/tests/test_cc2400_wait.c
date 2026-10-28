@@ -524,6 +524,19 @@ uint8_t watchdog_mark(uint8_t site)
 	return previous;
 }
 
+/* The pair a wait uses. Nothing here runs in an interrupt handler, so they are
+ * the plain mark: what the handler case does is watchdog.c's, and
+ * test_watchdog.c has it. */
+uint8_t watchdog_mark_wait(uint8_t site)
+{
+	return watchdog_mark(site);
+}
+
+void watchdog_leave_wait(uint8_t site)
+{
+	watchdog_mark(site);
+}
+
 static void mark_reset(uint8_t outer)
 {
 	mark_site = outer;

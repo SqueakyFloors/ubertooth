@@ -66,13 +66,13 @@ int cc2400_wait_fs(int locked, void (*service)(void))
 	 * says where it was stuck and not only which mode it was in. The site
 	 * that was recorded before is put back on the way out: these waits nest
 	 * inside a mode that may itself have recorded one. */
-	uint8_t site = watchdog_mark(locked ? WATCHDOG_SITE_FS_LOCK
-	                                    : WATCHDOG_SITE_FS_UNLOCK);
+	uint8_t site = watchdog_mark_wait(locked ? WATCHDOG_SITE_FS_LOCK
+	                                         : WATCHDOG_SITE_FS_UNLOCK);
 	unsigned i;
 
 	for (i = 0; i < polls; ++i) {
 		if (!!(cc2400_status() & FS_LOCK) == !!locked) {
-			watchdog_mark(site);
+			watchdog_leave_wait(site);
 			return 1;
 		}
 
@@ -86,7 +86,7 @@ int cc2400_wait_fs(int locked, void (*service)(void))
 	}
 
 	cc2400_wait_count_timeout(locked ? CC2400_WAIT_FS_LOCK : CC2400_WAIT_FS_UNLOCK);
-	watchdog_mark(site);
+	watchdog_leave_wait(site);
 	return 0;
 }
 
@@ -97,12 +97,12 @@ int cc2400_wait_fs_unlock(void)
 
 int cc2400_wait_xosc_stable(void (*service)(void))
 {
-	uint8_t site = watchdog_mark(WATCHDOG_SITE_XOSC);
+	uint8_t site = watchdog_mark_wait(WATCHDOG_SITE_XOSC);
 	unsigned i;
 
 	for (i = 0; i < XOSC_STABLE_POLLS; ++i) {
 		if (cc2400_status() & XOSC16M_STABLE) {
-			watchdog_mark(site);
+			watchdog_leave_wait(site);
 			return 1;
 		}
 
@@ -111,20 +111,20 @@ int cc2400_wait_xosc_stable(void (*service)(void))
 	}
 
 	cc2400_wait_count_timeout(CC2400_WAIT_XOSC);
-	watchdog_mark(site);
+	watchdog_leave_wait(site);
 	return 0;
 }
 
 int cc2400_wait_fsm(u8 state, void (*service)(void))
 {
-	uint8_t site = watchdog_mark(WATCHDOG_SITE_FSM);
+	uint8_t site = watchdog_mark_wait(WATCHDOG_SITE_FSM);
 	unsigned i;
 
 	for (i = 0; i < FSM_POLLS; ++i) {
 		/* FSMSTATE's low five bits are the state; the rest is breakpoint
 		 * configuration. */
 		if ((cc2400_get(FSMSTATE) & 0x1f) == state) {
-			watchdog_mark(site);
+			watchdog_leave_wait(site);
 			return 1;
 		}
 
@@ -133,6 +133,6 @@ int cc2400_wait_fsm(u8 state, void (*service)(void))
 	}
 
 	cc2400_wait_count_timeout(CC2400_WAIT_FSM);
-	watchdog_mark(site);
+	watchdog_leave_wait(site);
 	return 0;
 }

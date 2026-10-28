@@ -15,5 +15,7 @@
 #include <stdint.h>
 
 uint8_t watchdog_mark(uint8_t site);
+uint8_t watchdog_mark_wait(uint8_t site);
+void watchdog_leave_wait(uint8_t site);
 
 #endif /* UBERTOOTH_FW_TESTS_STUB_RADIO_WATCHDOG_H */

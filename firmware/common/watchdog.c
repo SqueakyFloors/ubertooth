@@ -117,19 +117,33 @@ uint8_t watchdog_mark(uint8_t site)
 	 * a reply is written from inside the USB service path, which has marked
 	 * itself by then, so live_site always reads back as "servicing USB". One
 	 * level out is the wait the mode was really in when the request arrived.
-	 *
-	 * An interrupt handler is not a level of that nesting: it borrows the
-	 * processor and gives it back, so the code under it is still in whatever
-	 * wait it was in. A mark taken in a handler -- including one taken by a
-	 * wait the handler called, which is how the crystal-oscillator wait is
-	 * reached from the low-energy handlers -- would otherwise leave its own
-	 * site named as the outer one after returning, and -w would report a wait
-	 * the board has left. So in a handler this records the site only.
 	 */
-	if (!in_interrupt_handler())
-		watchdog_crumb.live_outer_site = previous;
+	watchdog_crumb.live_outer_site = previous;
 	watchdog_crumb.live_site = site;
 	return previous;
+}
+
+uint8_t watchdog_mark_wait(uint8_t site)
+{
+	/*
+	 * A wait may be reached from a mode loop or from inside an interrupt
+	 * handler -- the crystal-oscillator wait is reached from both low-energy
+	 * handlers, on every channel hop. A handler is not a level of the nesting
+	 * above: it borrows the processor and gives it back, so the code under it
+	 * is still in whatever wait it was in, and a wait that claimed the outer
+	 * site there would leave -w naming a wait the board has left.
+	 */
+	if (in_interrupt_handler())
+		return watchdog_mark_handler(site);
+	return watchdog_mark(site);
+}
+
+void watchdog_leave_wait(uint8_t site)
+{
+	if (in_interrupt_handler())
+		watchdog_unmark(site);
+	else
+		watchdog_mark(site);
 }
 
 uint8_t watchdog_mark_handler(uint8_t site)

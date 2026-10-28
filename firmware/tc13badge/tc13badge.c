@@ -85,9 +85,11 @@ void cc2400_off(void)
  *
  * A byte that never arrived reads as zero. Zero rather than 0xff because the
  * status byte and the registers are read through here: with every bit clear,
- * the radio reads as not stable, not locked and in no state a wait is after,
- * so the waits below run their budgets and give up. All ones would have them
- * return at once as though the radio were ready.
+ * the radio reads as not stable, not locked, and in no state a wait is after,
+ * so the waits for those give up rather than returning at once as though the
+ * radio were ready. The one wait that reads a success from it is the wait for
+ * the synthesizer to go off, which all-zero says it has; that is the harmless
+ * direction, and its callers only want the radio quiet.
  */
 uint8_t cc2400_spi_byte(uint8_t data)
 {

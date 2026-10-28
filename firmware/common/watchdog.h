@@ -79,35 +79,33 @@
 /* What the board is doing, for the breadcrumb. */
 void watchdog_mode(uint8_t mode);
 
-/* Record that this wait is starting, and return the site that was recorded
- * before, for the caller to put back when the wait is over. A wait that
- * services USB while it polls nests that way, so the inner USB pass does not
- * hide the wait the board is really in.
- *
- * Called inside an interrupt handler, this records the site for the breadcrumb
- * only and leaves the live outer site alone. An interrupt handler is not a
- * level of that nesting: it borrows the processor and gives it back, so the
- * code under it is still in the wait it was in. That holds for a wait the
- * handler called as well -- the crystal-oscillator wait is reached from both
- * low-energy handlers -- which is why the rule is enforced here rather than
- * left to each caller to get right. */
+/* Record that this site is being entered, and return the site that was
+ * recorded before, for the caller to put back when it leaves. The USB service
+ * path nests inside whatever the mode is doing this way, so the inner USB pass
+ * does not hide the wait the board is really in -- including when that pass is
+ * the USB interrupt, which is how the six modes that do not poll USB answer
+ * the host at all. */
 uint8_t watchdog_mark(uint8_t site);
 
 /*
- * The same, without the test: for an interrupt handler, which must leave the
- * live outer site alone. That site is what a reply reports, and it is set so
- * that a reply written from inside the USB service path names the wait the
- * mode is really in. Were a handler to claim it, the handler would be left
- * named there after returning -- and the low-energy engine's byte interrupt
- * fires once per received byte, so during a capture that would be the usual
- * reading rather than a rare one.
- *
- * Use this in an interrupt handler, where it says so plainly and costs no
- * register read; use watchdog_mark() in a wait, which may be reached from a
- * handler or from a mode loop and does the right thing either way.
+ * The same for an interrupt handler that is not servicing USB, which must
+ * leave the live outer site alone. That site is what a reply reports. Were
+ * such a handler to claim it, the handler would be left named there after
+ * returning -- and the low-energy engine's byte interrupt fires once per
+ * received byte, so during a capture that would be the usual reading rather
+ * than a rare one.
  */
 uint8_t watchdog_mark_handler(uint8_t site);
 void watchdog_unmark(uint8_t site);
+
+/*
+ * For a wait, which may be reached from a mode loop or from inside an
+ * interrupt handler and cannot tell which by reading the source: these pick
+ * between the two pairs above by asking the processor whether an exception is
+ * active. Every bounded wait uses them.
+ */
+uint8_t watchdog_mark_wait(uint8_t site);
+void watchdog_leave_wait(uint8_t site);
 
 /*
  * A reset this firmware asked for, so the breadcrumb does not count it as the

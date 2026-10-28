@@ -38,16 +38,16 @@
  * TIMER0_IRQHandler, so during such a wait the hardware keeps restarting the
  * clock at the shorter value.
  */
-static inline uint16_t rf_wait_latest(void)
+static inline uint32_t rf_wait_latest(void)
 {
-	uint16_t restart = T0MR0;
+	uint32_t restart = T0MR0;
 
 	return restart > RF_WAIT_SLACK ? restart - RF_WAIT_SLACK : 0;
 }
 
 /*
  * Wait for the radio's state machine to reach `state`, until the slot clock
- * reaches `due` -- a position in the slot in 100ns steps, as tx_task.c and
+ * reaches `due` -- a position in the tick in 100ns steps, as tx_task.c and
  * rx_task.c write their deadlines. Returns 1 if the state was reached, 0 if
  * the deadline passed first.
  *
@@ -68,14 +68,13 @@ static inline uint16_t rf_wait_latest(void)
  * count is for is whether the radio reached the states it was asked for, which
  * does not depend on which bound ended the wait.
  */
-static inline int btphy_rf_wait_fsm(uint8_t state, uint16_t due)
+static inline int btphy_rf_wait_fsm(uint8_t state, uint32_t due)
 {
 	/* Says which wait this is while it runs, so a board the watchdog resets
-	 * says where it was stuck. These run in an interrupt handler, where
-	 * watchdog_mark() records the site without claiming it as the one the
-	 * mode is in. */
-	uint8_t site = watchdog_mark(WATCHDOG_SITE_FSM);
-	uint16_t latest = rf_wait_latest();
+	 * says where it was stuck. These run in the timer interrupt, where the
+	 * mark records the site without claiming it as the one the mode is in. */
+	uint8_t site = watchdog_mark_wait(WATCHDOG_SITE_FSM);
+	uint32_t latest = rf_wait_latest();
 
 	if (due > latest)
 		due = latest;
@@ -84,13 +83,13 @@ static inline int btphy_rf_wait_fsm(uint8_t state, uint16_t due)
 		/* FSMSTATE's low five bits are the state; the rest is
 		 * breakpoint configuration. */
 		if ((cc2400_get(FSMSTATE) & 0x1f) == state) {
-			watchdog_mark(site);
+			watchdog_leave_wait(site);
 			return 1;
 		}
 	} while (CLKN_OFFSET < due);
 
 	cc2400_wait_count_timeout(CC2400_WAIT_FSM);
-	watchdog_mark(site);
+	watchdog_leave_wait(site);
 	return 0;
 }
 

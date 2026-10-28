@@ -169,12 +169,17 @@ u16 cc2400_get(u8 reg)
 static uint8_t fake_live_site;
 static unsigned fake_fsm_timeouts;
 
-uint8_t watchdog_mark(uint8_t site)
+uint8_t watchdog_mark_wait(uint8_t site)
 {
 	uint8_t previous = fake_live_site;
 
 	fake_live_site = site;
 	return previous;
+}
+
+void watchdog_leave_wait(uint8_t site)
+{
+	fake_live_site = site;
 }
 
 void cc2400_wait_count_timeout(enum cc2400_wait_shape shape)
@@ -649,7 +654,7 @@ MU_TEST(test_the_state_machine_wait_returns_when_the_state_is_reached)
 }
 
 /* The state never arrives: the slot clock is what ends the wait, and the
- * give-up is counted so ubertooth-util -b can show it. */
+ * give-up is counted so ubertooth-util -w can show it. */
 MU_TEST(test_the_state_machine_wait_gives_up_at_its_deadline)
 {
 	a_wait_on(STATE_STROBE_RX, 0, 10);
