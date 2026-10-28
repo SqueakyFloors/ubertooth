@@ -1152,7 +1152,10 @@ void cb_rx(ubertooth_t* ut, void* args)
 	uint16_t clk_offset;
 	uint32_t clkn;
 	int r;
-	uint32_t lap = LAP_ANY;
+	/* The LAP the access-code search looks for, which is the followed
+	 * piconet's LAP or any LAP at all. The reference LAP a record carries
+	 * is a different thing, read from the packet that was found. */
+	uint32_t search_lap = LAP_ANY;
 	uint8_t uap = UAP_ANY;
 
 	static int trim_counter = 0;
@@ -1194,14 +1197,22 @@ void cb_rx(ubertooth_t* ut, void* args)
 	/* Look for packets with specified LAP, if given. Otherwise
 	 * search for any packet. */
 	if (pn) {
-		lap = btbb_piconet_get_flag(pn, BTBB_LAP_VALID) ? btbb_piconet_get_lap(pn) : LAP_ANY;
+		search_lap = btbb_piconet_get_flag(pn, BTBB_LAP_VALID) ? btbb_piconet_get_lap(pn) : LAP_ANY;
 	}
 
 	/* Pass packet-pointer-pointer so that
 	 * packet can be created in libbtbb. */
-	offset = btbb_find_ac(syms, AC_SEARCH_POSITIONS, lap, max_ac_errors, &pkt);
+	offset = btbb_find_ac(syms, AC_SEARCH_POSITIONS, search_lap, max_ac_errors, &pkt);
 	if (offset < 0)
 		goto out;
+
+	/* The reference LAP the capture records with this packet, which is what
+	 * a reader checks its access code against: the LAP of the packet that
+	 * was found, either the one searched for or the one the search
+	 * recovered. Reading it from the piconet instead left every record of a
+	 * survey capture -- a survey is given no piconet -- with no reference
+	 * address at all, in the mode whose job is finding addresses. */
+	uint32_t lap = btbb_packet_get_lap(pkt);
 
 	/* calculate the offset between the first bit of the AC and the rising edge of CLKN */
 	clk_offset = (le32toh(rx->clk100ns) + offset*10 +
@@ -1297,6 +1308,39 @@ void cb_rx(ubertooth_t* ut, void* args)
 	 * nothing to check it against. */
 	if (pn && btbb_piconet_get_flag(pn, BTBB_UAP_VALID))
 		uap = btbb_piconet_get_uap(pn);
+
+	/* The packet's own 18-bit header, decoded here while the decoder is
+	 * still working the piconet's clock out.
+	 *
+	 * Until a follow starts, nothing writes the header into the packet: the
+	 * UAP search unwhitens it into a scratch buffer, reads the UAP out of
+	 * its check bits and throws it away. The record then went out with all
+	 * 18 header bits zero, which a reader cannot tell from a real header of
+	 * zeros -- an LT_ADDR of 0, a NULL packet type, and flow, ARQN and SEQN
+	 * all clear -- and with the payload left by whichever clock candidate
+	 * the search happened to try last.
+	 *
+	 * Decoding it needs the piconet's clock rather than the Ubertooth's.
+	 * The two differ by the offset the UAP search worked out, which the
+	 * firmware only applies once it is told to follow; after that libbtbb
+	 * decodes the packet itself, so this is for the packets before it. */
+	if (pn && uap != UAP_ANY
+	       && btbb_piconet_get_flag(pn, BTBB_CLK6_VALID)
+	       && !btbb_piconet_get_flag(pn, BTBB_FOLLOWING)
+	       && btbb_header_present(pkt)) {
+		uint32_t piconet_clkn = (clkn + 2 * (uint32_t)
+		        btbb_piconet_get_clk_offset(pn)) & CLKN_MASK;
+
+		btbb_packet_set_uap(pkt, uap);
+		btbb_packet_set_flag(pkt, BTBB_CLK6_VALID, 1);
+		btbb_packet_set_data(pkt, syms + offset, BANK_LEN - offset,
+		                     rx->channel, piconet_clkn);
+		/* The header's check bits confirm the clock and the UAP, so a
+		 * header that decodes is one whose payload is worth decoding at
+		 * the same clock: that is what the record carries. */
+		if (btbb_decode_header(pkt))
+			btbb_decode_payload(pkt);
+	}
 
 	/* Dump to PCAP/PCAPNG if specified */
 	if (ut->h_pcap_bredr) {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify the capture record of the packet that settles the UAP carries it.
+"""Verify what a BR/EDR capture record says about the piconet it came from.
 
 Following a piconet means learning its upper address part (UAP) from the
 packets themselves: the decoder tries every clock value until one of them
@@ -9,6 +9,17 @@ as the reference UAP, which is what a reader checks that record's CRC
 against. The settling packet's own record used to go out with no reference
 UAP at all -- the one record a reader most needs it on, because it is the
 first evidence the UAP was derived from.
+
+Three things each record is checked for here:
+
+* the reference UAP, from the settling packet on;
+* the packet's own 18-bit header, whose check bits have to recompute from
+  the reference UAP the same record carries. The clock the UAP search
+  settled on is what makes the header readable, and the record used to go
+  out with all 18 bits zero, which a reader cannot tell from a real header
+  of zeros;
+* the reference LAP, which a survey capture (-z) used to leave out of every
+  record, in the mode whose job is finding addresses.
 
 The fixture is a replay of four records built from scratch here, so no board
 and no saved capture is needed: an ID packet with no header, a DH1 whose CRC
@@ -25,6 +36,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections import namedtuple
 from pathlib import Path
 
 BINARY = sys.argv[1]
@@ -71,15 +83,21 @@ UNSETTLED_CLK100NS = 3800 + 1152 * 3125
 SETTLING_CLK100NS = 3800 + 1280 * 3125
 ID_CLK100NS = (1_000_000, 9_000_000)
 
-# Where the reference LAP and UAP, and the flags, sit in a
-# LINKTYPE_BLUETOOTH_BREDR_BB record, and the flag that says the reference
-# UAP in it is there to be used.
+# Where the reference LAP and UAP, the packet header and the flags sit in a
+# LINKTYPE_BLUETOOTH_BREDR_BB record, and the flags that say the reference
+# address in it is there to be used.
 DLT_BLUETOOTH_BREDR_BB = 255
 REF_LAP_UAP_AT = 12
+BT_HEADER_AT = 16
 FLAGS_AT = 20
 PAYLOAD_AT = 22
+BREDR_REFLAP_VALID = 0x0010
 BREDR_REFUAP_VALID = 0x0080
+LAP_ANY = 0xFFFFFF              # what a record with no reference LAP carries
 UAP_ANY = 0xFF                  # what a record with no reference UAP carries
+
+# What one capture record says, of the fields this test is about.
+Record = namedtuple("Record", "lap uap flags header payload")
 
 
 def sync_word(lap):
@@ -203,8 +221,18 @@ def record(host_time, clk100ns, channel, symbols):
     return struct.pack(">I", host_time) + header + data
 
 
+def read_record(order, body):
+    """The fields this test reads out of one basic-rate baseband record."""
+    reference = struct.unpack_from(order + "I", body, REF_LAP_UAP_AT)[0]
+    return Record(lap=reference & 0xFFFFFF,
+                  uap=reference >> 24,
+                  flags=struct.unpack_from(order + "H", body, FLAGS_AT)[0],
+                  header=struct.unpack_from(order + "I", body, BT_HEADER_AT)[0],
+                  payload=body[PAYLOAD_AT:])
+
+
 def capture_records(path):
-    """Each record of a capture: reference LAP, reference UAP, flags, payload.
+    """Each record of a capture, as a Record.
 
     The field offsets below are those of the basic-rate baseband link type, so
     the link type in the file header is checked rather than assumed: another
@@ -222,10 +250,7 @@ def capture_records(path):
     while offset + 16 <= len(data):
         length = struct.unpack_from(order + "I", data, offset + 8)[0]
         body = data[offset + 16:offset + 16 + length]
-        reference = struct.unpack_from(order + "I", body, REF_LAP_UAP_AT)[0]
-        flags = struct.unpack_from(order + "H", body, FLAGS_AT)[0]
-        out.append((reference & 0xFFFFFF, reference >> 24, flags,
-                    body[PAYLOAD_AT:]))
+        out.append(read_record(order, body))
         offset += 16 + length
     return out
 
@@ -251,13 +276,21 @@ def pcapng_records(path):
             # captured bytes. The block is padded to a multiple of four, so
             # the captured length is what bounds the record.
             captured = struct.unpack_from(order + "I", data, offset + 20)[0]
-            body = data[offset + 28:offset + 28 + captured]
-            reference = struct.unpack_from(order + "I", body, REF_LAP_UAP_AT)[0]
-            flags = struct.unpack_from(order + "H", body, FLAGS_AT)[0]
-            out.append((reference & 0xFFFFFF, reference >> 24, flags,
-                        body[PAYLOAD_AT:]))
+            out.append(read_record(order, data[offset + 28:offset + 28 + captured]))
         offset += length
     return out
+
+
+def hec_recomputes(header, uap):
+    """Whether a record's packet header passes its own check under this UAP.
+
+    The record carries the 18 header bits as they were sent: 10 bits of
+    header data and the 8-bit check that is seeded with the UAP. Running the
+    check forwards over the data has to give those 8 bits back, which is what
+    a reader does with the reference UAP the record gives it -- and it comes
+    out right for one UAP only.
+    """
+    return hec(header & 0x3FF, uap) == (header >> 10) & 0xFF
 
 
 def crc_recomputes(payload, uap):
@@ -287,12 +320,15 @@ FIXTURE = b"".join([
     record(BASE_TIME + 3, ID_CLK100NS[1], 40, id_symbols(LAP)),
 ])
 
-with tempfile.TemporaryDirectory() as workdir:
-    work = Path(workdir)
-    (work / "piconet.bin").write_bytes(FIXTURE)
+def replay(work, prefix, *options):
+    """Replay the fixture with these options, and both captures it wrote.
+
+    The capture files are named after the run, because a tool that is asked
+    to write a capture over a file that exists refuses to start.
+    """
     result = subprocess.run(
-        [BINARY, "-i", "piconet.bin", "-l", "%06x" % LAP,
-         "-q", "capture.pcap", "-r", "capture.pcapng"],
+        [BINARY, "-i", "piconet.bin", *options,
+         "-q", prefix + ".pcap", "-r", prefix + ".pcapng"],
         capture_output=True, text=True, timeout=10, check=False, cwd=work,
         # A replay opens no device; the switch keeps it that way if this run
         # ever reaches device selection.
@@ -300,6 +336,27 @@ with tempfile.TemporaryDirectory() as workdir:
     )
     assert result.returncode == 0, result
     assert "error" not in result.stderr, result
+    # Both capture formats are written from the same fields, and both are
+    # checked: libbtbb assembles each one's flags separately.
+    return result, ((prefix + " pcap",
+                     capture_records(work / (prefix + ".pcap"))),
+                    (prefix + " pcapng",
+                     pcapng_records(work / (prefix + ".pcapng"))))
+
+
+def show(name, records):
+    """Print what each record says, so a run by hand shows the capture."""
+    for index, rec in enumerate(records):
+        print("%s record %d: reference LAP=%06x UAP=%02x flags=0x%04x "
+              "header=0x%05x payload=%s"
+              % (name, index, rec.lap, rec.uap, rec.flags, rec.header,
+                 rec.payload.hex() or "none"))
+
+
+with tempfile.TemporaryDirectory() as workdir:
+    work = Path(workdir)
+    (work / "piconet.bin").write_bytes(FIXTURE)
+    result, captures = replay(work, "follow", "-l", "%06x" % LAP)
     # The decoder says which packet settled the UAP and how, so a fixture that
     # stopped settling it on a CRC -- by settling it some other way, or not at
     # all -- is a plain failure rather than a quiet one. It takes two packets:
@@ -307,25 +364,23 @@ with tempfile.TemporaryDirectory() as workdir:
     assert ("Correct CRC! UAP = 0x%x found after 2 total packets" % UAP
             in result.stdout), result
 
-    # Both capture formats are written from the same reference UAP, so both
-    # are checked: libbtbb assembles the flags separately for each.
-    for name, records in (("pcap", capture_records(work / "capture.pcap")),
-                          ("pcapng", pcapng_records(work / "capture.pcapng"))):
+    for name, records in captures:
         assert len(records) == 4, (name, records)
-        # What each record says, so that running this by hand shows the
-        # capture the assertions below are about.
-        for index, (lap, uap, flags, payload) in enumerate(records):
-            print("%s record %d: reference LAP=%06x UAP=%02x flags=0x%04x "
-                  "payload=%s" % (name, index, lap, uap, flags,
-                                  payload.hex() or "none"))
+        show(name, records)
+
+        # Every record names the piconet the packet came from, which is the
+        # LAP this run was told to follow.
+        for rec in records:
+            assert rec.lap == LAP, (name, records)
+            assert rec.flags & BREDR_REFLAP_VALID, (name, records)
 
         # The first two records are written before the UAP is known: one with
         # no header to learn it from, one whose header the decoder has but
         # whose CRC left every clock candidate alive. Neither carries a
         # reference UAP, and neither claims to.
         for index in (0, 1):
-            assert records[index][:2] == (LAP, UAP_ANY), (name, records)
-            assert not records[index][2] & BREDR_REFUAP_VALID, (name, records)
+            assert records[index].uap == UAP_ANY, (name, records)
+            assert not records[index].flags & BREDR_REFUAP_VALID, (name, records)
 
         # The packet that settles the UAP carries it, flag and all: this
         # record is the first evidence the UAP came from, and it used to go
@@ -333,11 +388,64 @@ with tempfile.TemporaryDirectory() as workdir:
         # record gives and under no other, which is the check the reference
         # UAP is recorded for and the one this record could not be put
         # through before.
-        assert records[2][:2] == (LAP, UAP), (name, records)
-        assert records[2][2] & BREDR_REFUAP_VALID, (name, records)
-        assert crc_recomputes(records[2][3], records[2][1]), (name, records)
-        assert not crc_recomputes(records[2][3], UAP ^ 1), (name, records)
+        assert records[2].uap == UAP, (name, records)
+        assert records[2].flags & BREDR_REFUAP_VALID, (name, records)
+        assert crc_recomputes(records[2].payload, records[2].uap), (name, records)
+        assert not crc_recomputes(records[2].payload, UAP ^ 1), (name, records)
 
-        # So does every record after it, which is all that ever worked.
-        assert records[3][:2] == (LAP, UAP), (name, records)
-        assert records[3][2] & BREDR_REFUAP_VALID, (name, records)
+        # The same record carries the packet's own header, and its check bits
+        # recompute from the reference UAP the record gives -- from that one
+        # and no other, the same way as the payload's CRC. The clock the UAP
+        # settled on is what makes the header readable; the record used to
+        # carry 18 zero bits, which read as an LT_ADDR of 0 and a NULL packet
+        # type that were never sent.
+        assert records[2].header != 0, (name, records)
+        assert hec_recomputes(records[2].header, records[2].uap), (name, records)
+        assert not hec_recomputes(records[2].header, UAP ^ 1), (name, records)
+        # The whole header, as the fixture sent it: this member of the
+        # piconet, a DH1 carrying data, flow and ARQN set and SEQN clear.
+        assert records[2].header & 0x7 == LT_ADDR, (name, records)
+        assert (records[2].header >> 3) & 0xF == DH1, (name, records)
+
+        # The records with no header of their own carry none. Two of them are
+        # ID packets, which have no header on air at all; the third is the
+        # DH1 whose clock was still unknown when it was written, and without
+        # a clock there is nothing to unwhiten the header with.
+        for index in (0, 1, 3):
+            assert records[index].header == 0, (name, records)
+
+        # The reference UAP outlives the packet that settled it, which is all
+        # that ever worked.
+        assert records[3].uap == UAP, (name, records)
+        assert records[3].flags & BREDR_REFUAP_VALID, (name, records)
+
+    # The same fixture surveyed instead of followed. A survey is given no
+    # piconet to follow and discovers the addresses itself, and it used to
+    # write no reference address at all: reference LAP ffffff, reference UAP
+    # ff, in the mode whose job is finding addresses.
+    result, captures = replay(work, "survey", "-z")
+    assert ("Correct CRC! UAP = 0x%x found after 2 total packets" % UAP
+            in result.stdout), result
+    # The survey reports the address it found, so the records below are
+    # written by a run that knew it.
+    assert "??:??:%02X:%02X:%02X:%02X" % (UAP, (LAP >> 16) & 0xFF,
+                                          (LAP >> 8) & 0xFF, LAP & 0xFF) \
+        in result.stdout, result
+
+    for name, records in captures:
+        assert len(records) == 4, (name, records)
+        show(name, records)
+
+        # Every record names the LAP the survey found it under.
+        for rec in records:
+            assert rec.lap == LAP, (name, records)
+            assert rec.flags & BREDR_REFLAP_VALID, (name, records)
+
+        # The UAP the survey settles is still missing from the records, and
+        # so is the header that needs its clock: the piconets a survey keeps
+        # are the decoder's own, one per LAP, and it hands out no way to read
+        # one without destroying the survey. Pinned here so that whoever
+        # gives it one sees these two lines fail.
+        for rec in records:
+            assert rec.uap == UAP_ANY, (name, records)
+            assert rec.header == 0, (name, records)

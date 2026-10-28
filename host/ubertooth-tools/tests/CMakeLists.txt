@@ -281,11 +281,12 @@ add_test(
 		$<TARGET_FILE:ubertooth-rx>)
 set_tests_properties(rx-replay PROPERTIES TIMEOUT 30)
 
-# The reference UAP in the capture records of a replay, on a fixture the test
-# builds itself: an ID packet, a DH1 whose CRC leaves every clock candidate
-# alive, the DH1 whose CRC settles the UAP, then another ID packet. The
-# settling packet's own record is the one that used to go out with no
-# reference UAP. One run, well under a second.
+# What the capture records of a replay say about the piconet they came from:
+# the reference UAP, the packet's own header and the reference LAP. The fixture
+# is built by the test itself -- an ID packet, a DH1 whose CRC leaves every
+# clock candidate alive, the DH1 whose CRC settles the UAP, then another ID
+# packet -- and is replayed twice, once followed and once surveyed. Two runs,
+# well under a second each.
 add_test(
 	NAME rx-uap-record
 	COMMAND ${Python3_EXECUTABLE}
