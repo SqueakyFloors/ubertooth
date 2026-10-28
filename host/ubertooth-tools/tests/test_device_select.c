@@ -666,6 +666,16 @@ MU_TEST(several_devices_with_no_index_still_list_them)
 	    "-U <index|serial>\n"
 	    "  Device 0: serial unreadable\n"
 	    "  Device 1: " SERIAL_B "\n") == 0, msg);
+
+	/* A board that would not open at all is listed with libusb's reason,
+	 * because that is the useful part: on Linux it is usually the udev
+	 * rules not being installed. */
+	bus_with_two_serials();
+	fake.open_rc = LIBUSB_ERROR_ACCESS;
+	mu_assert(select_capturing(NULL, msg, sizeof(msg)) == NULL, "no -U of two");
+	mu_assert(strstr(msg, "\n  Device 0: could not be opened: ") != NULL, msg);
+	mu_assert(strstr(msg, "(libusb -3)\n") != NULL, msg);
+	mu_assert(strstr(msg + 7, "error: ") == NULL, msg);
 }
 
 MU_TEST(no_device_attached_opens_nothing)
@@ -1124,7 +1134,11 @@ MU_TEST(boards_that_cannot_be_opened_are_reported)
 	mu_assert(strstr(msg,
 	    "error: no Ubertooth found with serial matching '1cc'\n"
 	    "2 attached Ubertooth devices could not be opened\n") != NULL, msg);
+	/* Why one of those boards could not be opened, in libusb's words, as a
+	 * note rather than a second error: the refusal is the first line. */
+	mu_assert(strstr(msg, "\nnote: ") != NULL, msg);
 	mu_assert(strstr(msg, "Access denied") != NULL, msg); /* the libusb error */
+	mu_assert(strstr(msg + 7, "error: ") == NULL, msg);
 	mu_assert_int_eq(0, fake.lists);
 
 	/* One board unreadable and one unopenable: both are reported. */

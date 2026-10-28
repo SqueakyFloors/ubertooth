@@ -619,9 +619,13 @@ MU_TEST(other_libusb_errors_keep_their_own_report)
 
 	mu_assert(out[0] == '\0', out);
 	/* libusb supplies the words, and they are localizable, so only this
-	 * project's half of the line is pinned: the prefix and the code. */
+	 * project's half of the line is pinned: the prefix and the code. The
+	 * plain wordings are this project's own text, so a code they do not fit
+	 * getting one is still checked for. */
 	mu_assert(strncmp(err, "error: ", 7) == 0, err);
 	mu_assert(strstr(err, "(libusb -1)\n") != NULL, err);
+	mu_assert(strstr(err, "in use by another program") == NULL, err);
+	mu_assert(strstr(err, "did not answer in time") == NULL, err);
 }
 
 /* A stall is the board saying it has no such request, and every read says so

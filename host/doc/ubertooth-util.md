@@ -433,7 +433,7 @@ result, because the string may well be that board's serial:
     $ ubertooth-util -U 1cc0 -s
     error: no Ubertooth found with serial matching '1cc0'
     2 attached Ubertooth devices could not be opened
-    error: Access denied (insufficient permissions) (libusb -3)
+    note: Access denied (insufficient permissions) (libusb -3)
 
 (On Linux, that usually means the udev rules are not installed.)
 

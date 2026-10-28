@@ -59,7 +59,7 @@ For the same reason, two options that cannot both run are refused with one \fBer
 .SH "SELECTING A DEVICE"
 With a single Ubertooth attached, the tools find it automatically\. With more than one attached, every tool takes \fB\-U <index|serial>\fR to choose one: an index is a position in the list of attached Ubertooths (\fB\-U 0\fR is the first), and a serial\-number string selects that board whatever the enumeration order\. An index that is not attached is refused (\fBerror: no Ubertooth at index 2 (2 attached)\fR) and the tool exits non\-zero\. Indexes are positions in the list of boards attached when the command runs, so they shift when a board is added or removed; to keep targeting the same board, select it by serial\.
 .P
-With several attached and no \fB\-U\fR, no board is opened: the tools refuse the command and then list the boards, so the next command can name one\.
+With several attached and no \fB\-U\fR, no board is selected: the tools refuse the command and then list the boards, so the next command can name one\. Reading those serials opens each board briefly, and none is kept open\.
 .IP "" 4
 .nf
 error: multiple Ubertooth devices found; select one with \-U <index|serial>

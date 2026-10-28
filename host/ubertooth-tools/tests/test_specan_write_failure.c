@@ -1142,6 +1142,42 @@ MU_TEST(a_text_sweep_that_could_not_be_written_exits_one)
 	unlink(path);
 }
 
+/* The two gnuplot formats end a pass over the range with a blank line, which
+ * is written and checked with the sample before it. Every other case here
+ * sweeps the whole band, where the fake block never reaches the upper
+ * frequency, so this is the one that reaches that branch. */
+MU_TEST(a_gnuplot_sweep_ends_each_pass_with_a_blank_line)
+{
+	char path[64];
+	char err[512];
+	char text[4096] = {0};
+	FILE *written;
+	size_t n;
+
+	reset_device();
+	device.blocks_to_sweep = 2;
+	mu_assert_fatal(make_temp_file(path, sizeof(path)) == 0,
+	                "temp file created");
+
+	/* 2402-2410 MHz: the fake block holds 2402-2417, so every block
+	 * completes a pass over that range and ends a record. */
+	mu_assert_int_eq(0, RUN_SPECAN(err, "-g", "-l", "2402", "-u", "2410",
+	                               "-d", path));
+	written = fopen(path, "r");
+	mu_assert_fatal(written != NULL, "the file opens for reading");
+	n = fread(text, 1, sizeof(text) - 1, written);
+	text[n] = '\0';
+	fclose(written);
+	unlink(path);
+
+	/* The last sample of a pass is the upper frequency, and a blank line
+	 * follows it. */
+	mu_assert(strstr(text, "2410 -70\n\n") != NULL, text);
+	/* Two passes arrived, so there are two of them. */
+	mu_assert(strstr(strstr(text, "2410 -70\n\n") + 1, "2410 -70\n\n")
+	          != NULL, text);
+}
+
 /* There is one level of verbosity, so a second -v is a mistyped command line
  * rather than a request for more: that one error: line, and nothing opened. */
 MU_TEST(a_second_verbose_is_refused)
@@ -1185,6 +1221,7 @@ int main(void)
 	MU_RUN(a_text_format_writes_into_the_file_d_named);
 	MU_RUN(a_failed_text_write_ends_the_run);
 	MU_RUN(a_text_sweep_that_could_not_be_written_exits_one);
+	MU_RUN(a_gnuplot_sweep_ends_each_pass_with_a_blank_line);
 	MU_RUN(a_sweep_whose_stream_died_exits_one);
 	MU_RUN(a_sweep_whose_collecting_thread_failed_exits_one);
 	MU_RUN(an_interrupted_sweep_still_exits_zero);

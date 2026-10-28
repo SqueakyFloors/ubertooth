@@ -103,8 +103,9 @@ attached)`) and the tool exits non-zero. Indexes are positions in the list of
 boards attached when the command runs, so they shift when a board is added or
 removed; to keep targeting the same board, select it by serial.
 
-With several attached and no `-U`, no board is opened: the tools refuse the
-command and then list the boards, so the next command can name one.
+With several attached and no `-U`, no board is selected: the tools refuse the
+command and then list the boards, so the next command can name one. Reading
+those serials opens each board briefly, and none is kept open.
 
     error: multiple Ubertooth devices found; select one with -U <index|serial>
       Device 0: 1cc001038088cb956c43ad61c52000f5

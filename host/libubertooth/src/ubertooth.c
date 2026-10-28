@@ -292,6 +292,10 @@ int ubertooth_count(void) {
 	}
 
 	usb_devs = libusb_get_device_list(NULL, &usb_list);
+	/* Cleared on a list that worked, so a bus that comes back and then fails
+	 * again is reported again rather than once per process. */
+	if (usb_devs >= 0)
+		list_failure_said = 0;
 	if (usb_devs < 0) {
 		/* Not an empty bus: reported as itself, and as a count the caller
 		 * can tell from zero, which is what the "no Ubertooth" reports
@@ -626,8 +630,13 @@ static void report_unscanned(int unopened, int open_err, int unread)
 	if (unopened) {
 		fprintf(stderr, "%d attached Ubertooth device%s could not be opened\n",
 		        unopened, unopened == 1 ? "" : "s");
+		/* A note, not a second error: the refusal is the line above, and
+		 * this says why one of the boards it counted could not be read.
+		 * libusb supplies the words; the usual cause of a refused open is
+		 * missing permissions, which on Linux is the udev rules. */
 		if (open_err)
-			show_libusb_error(open_err);
+			fprintf(stderr, "note: %s (libusb %d)\n",
+			        libusb_strerror(open_err), open_err);
 	}
 	if (unread) {
 		fprintf(stderr, "%d attached Ubertooth device%s did not answer the "
@@ -723,6 +732,7 @@ static struct libusb_device_handle* find_ubertooth_device_serial_opt(
 	}
 	if (usb_devs == 0) {
 		libusb_free_device_list(usb_list, 1);
+		note_open_failure("no Ubertooth is attached");
 		if (!quiet)
 			fprintf(stderr, "error: no Ubertooth found with serial "
 			        "matching '%s'\n", serial_number);

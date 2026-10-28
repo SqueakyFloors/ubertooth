@@ -176,8 +176,7 @@
   [#323](https://github.com/SqueakyFloors/ubertooth/issues/323)
 - A bus the host could not list is reported as that, rather than as a bench
   with no board on it: the tools say `error: could not list USB devices`, and
-  `ubertooth-util -N` answers non-zero instead of counting 0. A selection that
-  ran out of memory used to exit 1 with no line at all.
+  `ubertooth-util -N` answers non-zero instead of counting 0.
   [#323](https://github.com/SqueakyFloors/ubertooth/issues/323)
 - **Script-visible change:** `ubertooth-util` refuses a command line that asks
   for nothing, `-U 0` on its own included: it used to open the board, do
@@ -1393,6 +1392,8 @@ Fixes with no visible change in normal use.
   not pass at all. The window is sized from that delay now. Untested: nobody
   here has a badge.
   [#691](https://github.com/SqueakyFloors/ubertooth/issues/691)
+- A board selection that ran out of memory exited 1 with no line at all,
+  whether it was asked for by index or by serial.
 - `ubertooth-dfu -d <image> -r` tells three things apart after the reset: a
   board that did not come back, a board that is back and will not open, and a
   host USB bus that could not be read at all. The last two both read as a
