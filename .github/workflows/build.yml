@@ -23,13 +23,15 @@ on:
     types: [published]
   workflow_dispatch:
 
-# A newer commit on the same pull request cancels that PR's older run. Pushes
-# to main and the weekly schedule get a unique group (the run id), so they are
-# never cancelled or replaced and each main commit keeps its result. The group
-# uses the PR number, so same-named branches from forks cannot collide.
+# A newer commit cancels the older run it supersedes: on a pull request, that
+# PR's older run; on main, the run of the previous main commit, so when several
+# merges land close together only the newest main commit is built (each PR head
+# was already built before it merged). The weekly schedule, releases and manual
+# runs get a unique group (the run id) and are never cancelled. The group uses
+# the PR number, so same-named branches from forks cannot collide.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || (github.event_name == 'push' && github.ref) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
 # Two tiers, to keep pull requests fast and cheap:
 # - Minimal (pull requests, pushes to main): host and firmware on one Linux
@@ -62,7 +64,43 @@ env:
     libstdc++-arm-none-eabi-newlib
 
 jobs:
+  # What a pull request touches, so the host and firmware jobs run only when
+  # their side changed. Every other event (main, schedule, release, manual)
+  # runs both. Conservative on purpose: the host jobs are skipped only when
+  # every changed file is under firmware/, and the firmware jobs only when no
+  # file under firmware/, no workflow and not the shared USB interface header
+  # changed. A skipped job counts as passed for a merge.
+  changes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      host: ${{ steps.diff.outputs.host }}
+      firmware: ${{ steps.diff.outputs.firmware }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT" != pull_request ]; then
+            echo "host=true" >> "$GITHUB_OUTPUT"; echo "firmware=true" >> "$GITHUB_OUTPUT"
+            echo "not a pull request: running everything"; exit 0
+          fi
+          files=$(git diff --name-only "$(git merge-base "$BASE" "$HEAD")" "$HEAD")
+          echo "$files"
+          host=false; firmware=false
+          if echo "$files" | grep -qv '^firmware/'; then host=true; fi
+          if echo "$files" | grep -qE '^firmware/|^\.github/|^host/libubertooth/src/ubertooth_interface\.h$'; then firmware=true; fi
+          echo "host=$host" >> "$GITHUB_OUTPUT"; echo "firmware=$firmware" >> "$GITHUB_OUTPUT"
+          echo "host jobs: $host, firmware jobs: $firmware"
+
   host:
+    needs: changes
+    if: needs.changes.outputs.host == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -265,6 +303,8 @@ jobs:
         done
 
   firmware:
+    needs: changes
+    if: needs.changes.outputs.firmware == 'true'
     strategy:
       fail-fast: false
       matrix:
