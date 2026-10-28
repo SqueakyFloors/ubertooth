@@ -157,7 +157,7 @@ These tools drive the firmware built from the same source tree, which both
 run-time images report as their USB device version. A release build refuses
 anything else, naming both versions and which side to replace:
 
-    error: Ubertooth firmware API version 1.19 found, libubertooth 1.1 requires 1.20.
+    error: Ubertooth firmware API version <version> found, libubertooth 1.1 requires <version>.
     note: flash the firmware built from the same source tree, for example: ./install.sh --flash-device 1cc0
 
 A build made from a git checkout that is not on a tag is a development build,
@@ -165,7 +165,7 @@ and says the same thing as a warning and carries on, because host tools and
 firmware from different commits are the normal state of lab work and
 debugging:
 
-    warning: Ubertooth firmware API version 1.19 found, libubertooth 1.1 requires 1.20.
+    warning: Ubertooth firmware API version <version> found, libubertooth 1.1 requires <version>.
     note: flash the firmware built from the same source tree, for example: ./install.sh --flash-device 1cc0
     note: this is a development build, so the command runs on; what it reports may be wrong, and a request this firmware has not got will fail
 
@@ -175,7 +175,7 @@ capture is decoded by the wrong rules and is wrong rather than empty. Where
 the firmware is simply missing a request, the command fails on it:
 
     error: could not set the AFH map: the board's firmware does not support it (stalled, libusb -9)
-    note: the board reports firmware API version 1.19, libubertooth 1.1 requires 1.20
+    note: the board reports firmware API version <version>, libubertooth 1.1 requires <version>
 
 That is the one wording for a request the board refuses, wherever the request
 came from. The board answers such a request by stalling it and says nothing
@@ -252,8 +252,8 @@ messages are on standard error but do not all carry a prefix yet.
 another API version, whatever the build it came from. `1` warns and runs the
 command, which is how a release build is made to talk to firmware from
 another commit for debugging; `0` refuses it, which is how a development
-build is made strict, and is what this project's CI and its test harness use.
-Only those two exact values decide: unset, empty or anything else leaves the
+build is made strict, for a test harness that wants a refusal rather than a
+warning. Only those two exact values decide: unset, empty or anything else leaves the
 build's own answer, so a typo cannot turn the guard off. See FIRMWARE OF
 ANOTHER API VERSION above.
 

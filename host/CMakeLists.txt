@@ -41,10 +41,16 @@ add_definitions( -DVERSION="${VERSION}" )
 # A build counts as a development build only where that can be established: a
 # git checkout whose HEAD is not a tag. Everything else -- a tag, a source
 # archive with no git history, a tree where git will not run -- is a release
-# build, so the guard is never dropped by accident.
+# build, so nothing that ships with no history to read loses the guard. The
+# probe is not proof: a clone made without tags reads a tagged commit as a
+# development build. Nothing here does that -- a release goes out through git
+# archive, with no .git at all -- and -DUBERTOOTH_RELEASE settles it where it
+# matters.
 #
 # Pass -DUBERTOOTH_RELEASE=ON or OFF to decide it here instead of looking at
-# the tree; CI passes ON, so what CI builds always refuses a mismatch.
+# the tree; CI passes ON, so what CI builds always refuses a mismatch. It is
+# not an option(), which would define the variable on the first configure and
+# leave the probe below with nothing to decide.
 if(NOT DEFINED UBERTOOTH_RELEASE)
 	execute_process(
 		COMMAND git rev-parse --git-dir

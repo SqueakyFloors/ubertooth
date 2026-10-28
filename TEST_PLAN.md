@@ -77,11 +77,12 @@ upstream release such as `2020-12-R1` cannot be used, because `ubertooth-dfu`
 refuses an image with no info block and putting one on a board needs ISP or
 JTAG.
 
-- [ ] Run any tool (`ubertooth-util -b`) with host tools configured
-      `-DUBERTOOTH_RELEASE=ON`
+- [ ] Run `ubertooth-util -I` with host tools configured
+      `-DUBERTOOTH_RELEASE=ON` (`-I` is the one ubertooth-util option that
+      checks the version; `ubertooth-rx` and the other tools all do)
 - [ ] Confirm: `error: Ubertooth firmware API version ...`, the note naming the
       reflash, nothing on stdout, exit 1
-- [ ] Run the same tool from host tools built from the checkout, with no
+- [ ] Run the same command from host tools built from the checkout, with no
       `-DUBERTOOTH_RELEASE`
 - [ ] Confirm: the same line as `warning:`, the note saying the command runs
       on because this is a development build, the tool's own result after it,

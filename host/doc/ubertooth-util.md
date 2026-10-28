@@ -68,10 +68,12 @@ blinks a second, until it is stopped:
     ubertooth-util -U <serial> -I      # start blinking
     ubertooth-util -U <serial> -S      # stop; the LEDs end off
 
-`-I` needs firmware of this tree's API version and refuses any other with the
-same message the rest of the tools print. The other options are not gated on
-the API version, and ubertooth-dfu(1) reflashes a board whatever firmware it is
-running, so a board is always recoverable with an image from this tree.
+`-I` needs firmware of this tree's API version, and treats any other the way
+the rest of the tools do: a release build refuses it, a development build warns
+and blinks anyway (see ubertooth(7), FIRMWARE OF ANOTHER API VERSION). The
+other options are not gated on the API version, and ubertooth-dfu(1) reflashes
+a board whatever firmware it is running, so a board is always recoverable with
+an image from this tree.
 
 `-v` and `-V` read the firmware info block described below, so they name the
 image the board is running:
@@ -101,7 +103,8 @@ refused over its version; the other tools still cannot drive that image, and
 fail on the first request it does not answer.
 
 The API version is bumped whenever a firmware change affects the host, so a
-board flashed from an earlier commit is normally refused rather than used. It
+release build normally refuses a board flashed from an earlier commit rather
+than using it, and a development build warns about it. It
 still does not pin down a commit, since several commits share one number: the
 firmware revision shown by `-v` beside the API version is what identifies the
 build. Flash the firmware from the commit the tools were built from

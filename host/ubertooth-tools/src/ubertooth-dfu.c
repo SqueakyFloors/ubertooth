@@ -724,8 +724,9 @@ static const struct dfu_transition_ops TRANSITION_OPS = {
 /* One report for a DFU request the bootloader refused. A stall is the only
  * answer a refusal gives, and the shared wording names what was asked for;
  * anything else is a transport failure and is left to show_libusb_error().
- * No firmware API version comes with it: this tool talks to the bootloader,
- * which runs no application firmware to have a version. */
+ * No firmware API version comes with it: the firmware refusing the request is
+ * the bootloader, which is not the application image an API version belongs
+ * to, so there is none to quote. */
 static void report_dfu_failure(const char* what, int code)
 {
 	if (code == LIBUSB_ERROR_PIPE)

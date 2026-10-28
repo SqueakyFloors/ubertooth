@@ -170,11 +170,13 @@ jobs:
       # the compiler's default search path, so `#include <libusb-1.0/libusb.h>`
       # fails even though cmake finds the library via pkg-config.
       #
-      # UBERTOOTH_RELEASE=ON in every CI configure below: a checkout here is
-      # not on a tag, so the tree would otherwise be read as a development
-      # build, where firmware of another API version is only a warning. CI
-      # refuses it, as a release does, so nothing passes here on firmware the
-      # host was not built for.
+      # UBERTOOTH_RELEASE=ON in every CI configure that builds the tools for
+      # use or test: a checkout here is not on a tag, so the tree would
+      # otherwise be read as a development build, where firmware of another
+      # API version is only a warning. CI refuses it, as a release does, so
+      # nothing passes here on firmware the host was not built for. The
+      # compile-only configures (the C-standards sweep below, and the man-page
+      # workflow) are left alone: nothing they build is run against a board.
       run: |
         EXTRA_C_FLAGS=""
         if [ "${{ runner.os }}" = "macOS" ]; then

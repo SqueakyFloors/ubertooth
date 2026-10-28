@@ -300,7 +300,7 @@ int cmd_ping(struct libusb_device_handle* devh)
 	r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_PING, 0, 0,
 			NULL, 0, 1000);
 	if (r < 0) {
-		show_libusb_error(r);
+		report_request_failed(r, UBERTOOTH_PING);
 		return r;
 	}
 	return 0;
@@ -322,7 +322,7 @@ int cmd_rx_syms(struct libusb_device_handle* devh)
 	int r = cmd_rx_syms_quiet(devh);
 
 	if (r < 0)
-		show_libusb_error(r);
+		report_request_failed(r, UBERTOOTH_RX_SYMBOLS);
 	return r;
 }
 
@@ -338,7 +338,7 @@ int cmd_specan(struct libusb_device_handle* devh, u16 low_freq, u16 high_freq)
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_SPECAN,
 			low_freq, high_freq, NULL, 0, 1000);
 	if (r < 0) {
-		show_libusb_error(r);
+		report_request_failed(r, UBERTOOTH_SPECAN);
 		return r;
 	}
 	return 0;
@@ -351,7 +351,7 @@ int cmd_led_specan(struct libusb_device_handle* devh, u16 rssi_threshold)
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_LED_SPECAN,
 			rssi_threshold, 0, NULL, 0, 1000);
 	if (r < 0) {
-		show_libusb_error(r);
+		report_request_failed(r, UBERTOOTH_LED_SPECAN);
 		return r;
 	}
 	return 0;
@@ -364,7 +364,7 @@ int cmd_set_usrled(struct libusb_device_handle* devh, u16 state)
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_SET_USRLED, state, 0,
 			NULL, 0, 1000);
 	if (r < 0) {
-		show_libusb_error(r);
+		report_request_failed(r, UBERTOOTH_SET_USRLED);
 		return r;
 	}
 	return 0;
@@ -399,7 +399,7 @@ int cmd_get_usrled(struct libusb_device_handle* devh)
 	r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_GET_USRLED, 0, 0,
 			&state, 1, 1000);
 	if (r < 0) {
-		show_libusb_error(r);
+		report_request_failed(r, UBERTOOTH_GET_USRLED);
 		return r;
 	}
 	r = check_reply_length(r, 1, "USR LED");
@@ -415,7 +415,7 @@ int cmd_set_rxled(struct libusb_device_handle* devh, u16 state)
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_SET_RXLED, state, 0,
 			NULL, 0, 1000);
 	if (r < 0) {
-		show_libusb_error(r);
+		report_request_failed(r, UBERTOOTH_SET_RXLED);
 		return r;
 	}
 	return 0;
@@ -429,7 +429,7 @@ int cmd_get_rxled(struct libusb_device_handle* devh)
 	r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_GET_RXLED, 0, 0,
 			&state, 1, 1000);
 	if (r < 0) {
-		show_libusb_error(r);
+		report_request_failed(r, UBERTOOTH_GET_RXLED);
 		return r;
 	}
 	r = check_reply_length(r, 1, "RX LED");
@@ -445,7 +445,7 @@ int cmd_set_txled(struct libusb_device_handle* devh, u16 state)
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_SET_TXLED, state, 0,
 			NULL, 0, 1000);
 	if (r < 0) {
-		show_libusb_error(r);
+		report_request_failed(r, UBERTOOTH_SET_TXLED);
 		return r;
 	}
 	return 0;
@@ -459,7 +459,7 @@ int cmd_get_txled(struct libusb_device_handle* devh)
 	r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_GET_TXLED, 0, 0,
 			&state, 1, 1000);
 	if (r < 0) {
-		show_libusb_error(r);
+		report_request_failed(r, UBERTOOTH_GET_TXLED);
 		return r;
 	}
 	r = check_reply_length(r, 1, "TX LED");
@@ -476,7 +476,7 @@ int cmd_get_modulation(struct libusb_device_handle* devh)
 	r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_GET_MOD, 0, 0,
 			&modulation, 1, 1000);
 	if (r < 0) {
-		show_libusb_error(r);
+		report_request_failed(r, UBERTOOTH_GET_MOD);
 		return r;
 	}
 	r = check_reply_length(r, 1, "modulation");
@@ -532,7 +532,7 @@ int cmd_get_part_id(struct libusb_device_handle* devh, u32 *part_id)
 	r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_GET_PARTNUM, 0, 0,
 			result, 5, 1000);
 	if (r < 0) {
-		show_libusb_error(r);
+		report_request_failed(r, UBERTOOTH_GET_PARTNUM);
 		return r;
 	}
 	r = check_reply_length(r, 5, "part ID");
@@ -584,7 +584,7 @@ int cmd_get_serial(struct libusb_device_handle* devh, u8 *serial)
 	r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_GET_SERIAL, 0, 0,
 			serial, UBERTOOTH_SERIAL_LEN, 1000);
 	if (r < 0) {
-		show_libusb_error(r);
+		report_request_failed(r, UBERTOOTH_GET_SERIAL);
 		return r;
 	}
 	r = check_reply_length(r, UBERTOOTH_SERIAL_LEN, "serial");
@@ -700,7 +700,7 @@ int cmd_flash(struct libusb_device_handle* devh)
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_FLASH, 0, 0,
 			NULL, 0, 1000);
 	if (r != LIBUSB_SUCCESS) {
-		show_libusb_error(r);
+		report_request_failed(r, UBERTOOTH_FLASH);
 		return r;
 	}
 	return 0;
@@ -714,7 +714,7 @@ int cmd_get_palevel(struct libusb_device_handle* devh)
 	r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_GET_PALEVEL, 0, 0,
 			&level, 1, 3000);
 	if (r < 0) {
-		show_libusb_error(r);
+		report_request_failed(r, UBERTOOTH_GET_PALEVEL);
 		return r;
 	}
 	r = check_reply_length(r, 1, "PA level");
@@ -1041,7 +1041,7 @@ int cmd_get_squelch(struct libusb_device_handle* devh)
 	r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_GET_SQUELCH, 0, 0,
 			&level, 1, 3000);
 	if (r < 0) {
-		show_libusb_error(r);
+		report_request_failed(r, UBERTOOTH_GET_SQUELCH);
 		return r;
 	}
 	r = check_reply_length(r, 1, "squelch");
@@ -1148,7 +1148,7 @@ uint32_t cmd_get_clock(struct libusb_device_handle* devh)
 	r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_GET_CLOCK, 0, 0,
 			data, 4, 3000);
 	if (r < 0) {
-		show_libusb_error(r);
+		report_request_failed(r, UBERTOOTH_GET_CLOCK);
 		return r;
 	}
 	r = check_reply_length(r, 4, "clock");
@@ -1200,7 +1200,7 @@ int cmd_read_access_address(struct libusb_device_handle* devh, u32 *access_addre
 	r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_GET_ACCESS_ADDRESS, 0, 0,
 			data, 4, 3000);
 	if (r < 0) {
-		show_libusb_error(r);
+		report_request_failed(r, UBERTOOTH_GET_ACCESS_ADDRESS);
 		return r;
 	}
 	r = check_reply_length(r, 4, "access address");
@@ -1244,7 +1244,7 @@ int cmd_get_crc_verify(struct libusb_device_handle* devh)
 	r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_GET_CRC_VERIFY, 0, 0,
 			&verify, 1, 1000);
 	if (r < 0) {
-		show_libusb_error(r);
+		report_request_failed(r, UBERTOOTH_GET_CRC_VERIFY);
 		return r;
 	}
 	r = check_reply_length(r, 1, "CRC verify");
@@ -1260,7 +1260,7 @@ int cmd_set_crc_verify(struct libusb_device_handle* devh, int verify)
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_SET_CRC_VERIFY, verify, 0,
 			NULL, 0, 1000);
 	if (r < 0) {
-		show_libusb_error(r);
+		report_request_failed(r, UBERTOOTH_SET_CRC_VERIFY);
 		return r;
 	}
 	return 0;

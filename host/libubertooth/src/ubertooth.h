@@ -356,9 +356,13 @@ int ubertooth_check_api(ubertooth_t *ut);
  * command reflashes that board and no other; NULL where they named none. */
 int ubertooth_report_api_mismatch(uint16_t version, const char* selector);
 /* Records the firmware API version read from a board, so that a later report
- * about a request that board refused can quote it. ubertooth_get_api() and
- * ubertooth_report_api_mismatch() call this; no tool needs to. */
-void ubertooth_note_api_version(uint16_t version);
+ * about a request that board refused can quote it. board identifies the board
+ * it came from (its USB handle), and the version is dropped when that board
+ * is released, so a process that opens several boards in turn never quotes
+ * the one before. ubertooth_get_api() and ubertooth_close() call these; no
+ * tool needs to. */
+void ubertooth_note_api_version(const void* board, uint16_t version);
+void ubertooth_forget_api_version(const void* board);
 /* Reports a request the board's firmware does not implement, which it refuses
  * by stalling. what names the request and reads after "could not" ("set the
  * channel"). code is the libusb error code to quote, or 0 where the stall

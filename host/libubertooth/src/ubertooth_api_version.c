@@ -47,14 +47,17 @@
 
 #define ALLOW_VAR UBERTOOTH_ALLOW_API_MISMATCH_VAR
 
-/* The firmware API version last read from a board, and whether one has been
- * read at all. A request a board refuses is reported with both versions
- * beside each other, because firmware from another commit is the usual
- * reason, and the usual fix. Nothing has been read before the first board is
- * opened, which is the one case where the report has only its own half to
- * give. */
+/* The firmware API version of the open board, and which board it came from. A
+ * request a board refuses is reported with both versions beside each other,
+ * because firmware from another commit is the usual reason, and the usual fix.
+ *
+ * The owner is kept so that this cannot become another board's version: it is
+ * dropped when that board is released, so a process that works through
+ * several boards in turn never quotes the one before. Before any board's
+ * version has been read there is nothing to quote, and the report gives only
+ * its own half. */
+static const void* board_api_version_owner;
 static uint16_t board_api_version;
-static int board_api_version_known;
 
 /* The two halves of an API version as the tools print it: 0x0119 is 1.19.
  * The firmware reports it as its USB bcdDevice, which is binary-coded
@@ -62,19 +65,25 @@ static int board_api_version_known;
 #define API_MAJOR(v) (((v) >> 8) & 0xFF)
 #define API_MINOR(v) ((v) & 0xFF)
 
-void ubertooth_note_api_version(uint16_t version)
+void ubertooth_note_api_version(const void* board, uint16_t version)
 {
+	board_api_version_owner = board;
 	board_api_version = version;
-	board_api_version_known = 1;
+}
+
+void ubertooth_forget_api_version(const void* board)
+{
+	if (board_api_version_owner == board)
+		board_api_version_owner = NULL;
 }
 
 /* Whether a mismatch may be run through rather than refused, and, where it
  * may, the phrase that says what allowed it. The environment variable decides
  * when it is set to exactly "1" (run on) or "0" (refuse), so either behaviour
  * can be asked for whatever the build is -- the override a release build
- * needs for debugging, and the strictness CI and the test harness want from a
- * build made out of a checkout. Anything else, including unset and empty,
- * leaves the build's own default. */
+ * needs for debugging, and the strictness a test harness wants from a build
+ * made out of a checkout. Anything else, including unset and empty, leaves
+ * the build's own default. */
 static int mismatch_allowed(const char** why)
 {
 	const char* setting = getenv(ALLOW_VAR);
@@ -96,8 +105,6 @@ int ubertooth_report_api_mismatch(uint16_t version, const char* selector)
 {
 	const char* why = NULL;
 	int allowed = mismatch_allowed(&why);
-
-	ubertooth_note_api_version(version);
 
 	fprintf(stderr, "%s: Ubertooth firmware API version %x.%02x found, libubertooth %s requires %x.%02x.\n",
 	        allowed ? "warning" : "error",
@@ -152,7 +159,7 @@ void ubertooth_report_unsupported_request(const char* what, int code)
 		fprintf(stderr, "error: could not %s: the board's firmware does "
 		        "not support it (stalled)\n", what);
 
-	if (board_api_version_known)
+	if (board_api_version_owner != NULL)
 		fprintf(stderr, "note: the board reports firmware API version "
 		        "%x.%02x, libubertooth %s requires %x.%02x\n",
 		        API_MAJOR(board_api_version), API_MINOR(board_api_version),

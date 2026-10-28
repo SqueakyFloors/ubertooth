@@ -74,6 +74,11 @@ static void captured(void (*call)(void))
 	fclose(cap_out);
 }
 
+/* Stand-ins for two boards' USB handles: the report keeps a version against
+ * the board it was read from. */
+static int board_a;
+static int board_b;
+
 /* The handful of one-call wrappers captured() needs, with what they report
  * passed through a file-scope variable. */
 static uint16_t call_version;
@@ -265,7 +270,7 @@ MU_TEST(an_unsupported_request_names_both_api_versions)
 	mu_assert(strstr(err, "firmware API version") == NULL,
 	          "no version has been read, so none is quoted");
 
-	ubertooth_note_api_version(OLDER);
+	ubertooth_note_api_version(&board_a, OLDER);
 	snprintf(expected, sizeof(expected),
 	         "note: the board reports firmware API version %x.%02x, "
 	         "libubertooth %s requires %x.%02x\n",
@@ -277,7 +282,7 @@ MU_TEST(an_unsupported_request_names_both_api_versions)
 
 	/* Firmware that does match still gets both versions, which is how the
 	 * reader learns the version is not the problem. */
-	ubertooth_note_api_version(UBERTOOTH_API_VERSION);
+	ubertooth_note_api_version(&board_a, UBERTOOTH_API_VERSION);
 	snprintf(expected, sizeof(expected),
 	         "note: the board reports firmware API version %x.%02x, "
 	         "libubertooth %s requires %x.%02x\n",
@@ -289,27 +294,25 @@ MU_TEST(an_unsupported_request_names_both_api_versions)
 	mu_assert(strstr(err, expected) != NULL, err);
 }
 
-/* Reporting a mismatch is itself a version read, so the request report that
- * follows a warned-through mismatch carries the board's version. That is the
- * case the development build exists for: the command ran on, and then hit a
- * request the older firmware has not got. */
-MU_TEST(a_warned_mismatch_leaves_the_version_for_the_next_report)
+/* A version belongs to the board it was read from, and goes when that board
+ * is released. A process that works through several boards in turn -- which
+ * is what ubertooth-util's listing does -- must not quote the board before
+ * for a request the board in hand refused. */
+MU_TEST(a_released_boards_version_is_not_quoted_for_the_next_board)
 {
-	char expected[256];
+	ubertooth_note_api_version(&board_a, OLDER);
+	ubertooth_forget_api_version(&board_a);
 
-	setenv(UBERTOOTH_ALLOW_API_MISMATCH_VAR, "1", 1);
-	run_mismatch(OLDER, NULL);
-	mu_assert_int_eq(0, call_result);
-	unsetenv(UBERTOOTH_ALLOW_API_MISMATCH_VAR);
-
-	snprintf(expected, sizeof(expected),
-	         "note: the board reports firmware API version %x.%02x, "
-	         "libubertooth %s requires %x.%02x\n",
-	         (OLDER >> 8) & 0xFF, OLDER & 0xFF, VERSION,
-	         (UBERTOOTH_API_VERSION >> 8) & 0xFF,
-	         UBERTOOTH_API_VERSION & 0xFF);
 	captured(report_unsupported);
-	mu_assert(strstr(err, expected) != NULL, err);
+	mu_assert(strstr(err, "firmware API version") == NULL,
+	          "the released board's version is still being quoted");
+
+	/* Releasing another board leaves this one's alone. */
+	ubertooth_note_api_version(&board_a, OLDER);
+	ubertooth_forget_api_version(&board_b);
+	captured(report_unsupported);
+	mu_assert(strstr(err, "firmware API version") != NULL, err);
+	ubertooth_forget_api_version(&board_a);
 }
 
 int main(void)
@@ -320,6 +323,6 @@ int main(void)
 	MU_RUN(any_other_value_leaves_the_builds_own_answer);
 	MU_RUN(the_note_names_the_side_to_replace_and_the_board);
 	MU_RUN(an_unsupported_request_is_named_with_the_stall);
-	MU_RUN(a_warned_mismatch_leaves_the_version_for_the_next_report);
+	MU_RUN(a_released_boards_version_is_not_quoted_for_the_next_board);
 	return mu_report();
 }

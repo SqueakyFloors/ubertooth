@@ -49,7 +49,8 @@ stream a line is on.
   `ubertooth_report_unsupported_request()` and nowhere else, so there is one
   wording for it: an `error: ` line naming the request, and a `note: ` with
   the board's firmware API version beside the one these tools need. Do not
-  write a new line for a stalled request.
+  write a new line for a stalled request, and do not hand one to
+  `show_libusb_error()`.
 
 The three cases, with `ubertooth-ego`:
 

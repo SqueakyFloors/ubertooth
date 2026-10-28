@@ -1581,6 +1581,10 @@ static void ubertooth_cleanup(ubertooth_t* ut, int send_stop)
 				cmd_stop(ut->devh);
 			libusb_release_interface(ut->devh, 0);
 			libusb_close(ut->devh);
+			/* Any firmware API version read off this board goes with
+			 * it, so a report about the next board cannot quote this
+			 * one's. */
+			ubertooth_forget_api_version(ut->devh);
 			ut->devh = NULL;
 		}
 		/* Only the session this handle opened, and only once: this used to
@@ -1985,9 +1989,9 @@ int ubertooth_get_api(ubertooth_t *ut, uint16_t *version) {
 		return result;
 	}
 	*version = desc.bcdDevice;
-	/* Kept for the reports about requests this board refuses: they name the
-	 * firmware that refused them. */
-	ubertooth_note_api_version(*version);
+	/* Kept against this board for the reports about requests it refuses:
+	 * they name the firmware that refused them. */
+	ubertooth_note_api_version(ut->devh, *version);
 	return 0;
 }
 

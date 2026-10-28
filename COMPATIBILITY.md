@@ -124,7 +124,7 @@ since it refuses a file without a firmware info block. A build made from a git
 checkout that is not on a tag is a development build: it warns and runs the
 command, because host tools and firmware from different commits are the normal
 state of lab work. `UBERTOOTH_ALLOW_API_MISMATCH` sets either answer whatever
-the build (`1` runs on, `0` refuses); CI and the test harness use `0`. During
+the build (`1` runs on, `0` refuses). During
 development the minor version is bumped in every pull request that changes
 firmware behaviour the host relies on, so a board carrying firmware from an
 earlier commit is normally refused rather than used with behaviour the tools
