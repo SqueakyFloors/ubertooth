@@ -60,8 +60,11 @@ endif (LIBUSB_INCLUDE_DIR AND LIBUSB_LIBRARIES)
 # libusb-1.0 symlink: the libusb path came from another library by
 # coincidence, and the one target that had no reason to name libbtbb did not
 # build.
-if (LIBUSB_INCLUDE_DIR)
-  get_filename_component(LIBUSB_INCLUDE_PARENT_DIR "${LIBUSB_INCLUDE_DIR}" DIRECTORY)
-  set(LIBUSB_INCLUDE_DIRS "${LIBUSB_INCLUDE_DIR};${LIBUSB_INCLUDE_PARENT_DIR}"
-    CACHE INTERNAL "libusb include directories, for either spelling of its header")
-endif (LIBUSB_INCLUDE_DIR)
+#
+# A normal variable, as a find module's output is: it is derived from
+# LIBUSB_INCLUDE_DIR every time the module runs, so a cache entry would only
+# be another copy to go stale, and one a user could not override. Every
+# directory that uses it calls find_package(USB1) of its own.
+get_filename_component(_libusb_include_parent "${LIBUSB_INCLUDE_DIR}" DIRECTORY)
+set(LIBUSB_INCLUDE_DIRS ${LIBUSB_INCLUDE_DIR} ${_libusb_include_parent})
+unset(_libusb_include_parent)

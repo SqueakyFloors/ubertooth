@@ -416,8 +416,14 @@ if [ "$PLATFORM" = debian ]; then
 else
 	# No BlueZ on macOS, so REQUIRE_ALL is not used. Nothing to add for
 	# Homebrew's libusb headers either: the build takes their directory from
-	# libusb itself, and a CFLAGS of the caller's is read from the environment.
+	# libusb itself.
 	info "Building Ubertooth host tools"
+fi
+if [ -n "${CFLAGS:-}" ]; then
+	# CMake seeds its own C flags from CFLAGS only when a build directory is
+	# configured for the first time, and this script reuses one, so a second
+	# run with a different CFLAGS would otherwise build with the first run's.
+	CMAKE_ARGS+=("-DCMAKE_C_FLAGS=$CFLAGS")
 fi
 # Build the Python tools for the interpreter that got the runtime deps.
 CMAKE_ARGS+=("-DPython3_EXECUTABLE=$(command -v "$PYTHON")")

@@ -28,6 +28,10 @@ target_include_directories(test-dfu-recovery PRIVATE ../src)
 
 add_test(NAME dfu-recovery COMMAND test-dfu-recovery)
 
+# The targets below are given libusb's include directories, so this directory
+# asks for them rather than relying on another one having found libusb first.
+find_package(USB1 REQUIRED)
+
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
 # ubertooth-dfu checks the image before it opens a device, so the whole
@@ -1127,6 +1131,8 @@ add_test(
 		${CMAKE_CURRENT_SOURCE_DIR}/test_libusb_include.py
 		${CMAKE_COMMAND}
 		${CMAKE_CURRENT_SOURCE_DIR}/../../..)
-# One configure of a two-file project and its build: 5 s here. The limit has
-# room for a cold runner, where compiler detection alone takes seconds.
-set_tests_properties(libusb-include PROPERTIES TIMEOUT 30)
+# One configure of a two-file project and its build: 5 s here, 27 s on a
+# loaded machine, where compiler detection is most of it. The same limit as
+# btbb-check above, which does five configures, so this one has room to spare
+# and still catches a configure that hangs.
+set_tests_properties(libusb-include PROPERTIES TIMEOUT 60)

@@ -18,9 +18,12 @@ anyway, Linux for example, both compile either way, so the list itself is
 checked too: it must name the directory holding libusb.h and that directory's
 parent, and nothing it reports may be missing.
 
-No include flags reach the project: CMAKE_C_FLAGS is set empty and CFLAGS is
-dropped from the environment, because either one carrying
--I/opt/homebrew/include would hide exactly the gap this test is here for.
+The include path the project is given is meant to be the module's and nothing
+else: CMAKE_C_FLAGS is set empty, and CFLAGS, CPATH and C_INCLUDE_PATH are
+dropped from the environment, because any of them carrying
+-I/opt/homebrew/include would hide exactly the gap this test is here for. The
+check on the list below holds whatever the environment, which is what makes
+the test meaningful on a machine with one of those set in a shell profile.
 
 Usage: test_libusb_include.py <cmake> <repository root>
 """
@@ -33,7 +36,9 @@ import tempfile
 PROJECT = """\
 cmake_minimum_required(VERSION 3.5...3.27)
 project(libusb_include_test C)
-set(CMAKE_MODULE_PATH "%s")
+# A bracket argument, so a checkout path holding a semicolon, a quote or a
+# backslash reaches CMake as itself.
+set(CMAKE_MODULE_PATH [[%s]])
 find_package(USB1 REQUIRED)
 file(WRITE "${CMAKE_BINARY_DIR}/include-dirs.txt" "${LIBUSB_INCLUDE_DIRS}")
 add_library(both_spellings OBJECT subdirectory.c plain.c)
@@ -56,7 +61,8 @@ def fail(message):
 def run(command, work):
     """Run a command with no include flags of its own, returning its output."""
     environment = dict(os.environ)
-    environment.pop("CFLAGS", None)
+    for name in ("CFLAGS", "CPATH", "C_INCLUDE_PATH"):
+        environment.pop(name, None)
     done = subprocess.run(command, cwd=work, env=environment,
                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                           text=True)
