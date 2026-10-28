@@ -210,23 +210,140 @@ uint8_t cc2400_strobe(uint8_t reg)
 	return status;
 }
 
+/*
+ * Bounded waits on CC2400 state.
+ *
+ * Every loop below used to be a bare spin: a radio that stopped reporting the
+ * state the loop was waiting for froze the badge with its lights stopped, and
+ * only pulling the battery cleared it. Each of these gives up after a fixed
+ * number of polls and returns, so the caller carries on and the badge comes
+ * back by itself.
+ *
+ * It comes back slowly. None of these hands in a service callback, where the
+ * Ubertooth's waits hand in their USB poll, because the badge has nothing to
+ * service -- but it also means a wait that runs to its bound does nothing else
+ * for its whole length. With a dead radio, one sweep of led_specan()'s
+ * thirteen channels spends thirteen lock waits in a row with the LEDs off;
+ * led_specan() makes thirteen of those sweeps before it returns, and main()
+ * does not look at the button until it does. So what these buy is a badge that
+ * recovers rather than one that has to be opened, not a badge that behaves
+ * normally with a broken radio.
+ *
+ * Giving up does not make the radio work. What the caller reads from it next
+ * is not a measurement, and a transmit strobed after a lock wait that gave up
+ * goes out with the synthesizer in the wrong state. The bound is there to end
+ * the loop, which is the same trade the Ubertooth firmware makes in
+ * firmware/common/cc2400_wait.c.
+ *
+ * This is a second set of them rather than that file because the badge cannot
+ * compile it: the badge is a Renesas R8C part with its own register map, its
+ * own SPI through a UART and no watchdog driver, and that file is written
+ * against the Ubertooth's LPC17xx. The names and the shape are kept the same
+ * so the two read alike.
+ *
+ * None of these re-strobes the radio part-way through, where the Ubertooth's
+ * waits do. That is for an interrupt handler putting the synthesizer back the
+ * other way under the poll, and no handler on this part touches the radio.
+ *
+ * The power-on self-test keeps its own unbounded waits, in
+ * cc2400_register_test() and in post(): see the comment on the first.
+ */
+
+/* Wait for the MAIN register to read back `value`, which is how a reset is
+ * confirmed. Returns 1 if it did, 0 if the wait gave up. */
+int cc2400_wait_main(uint16_t value)
+{
+	uint16_t i;
+
+	for (i = MAIN_POLLS; i; i--)
+		if (cc2400_get(MAIN) == value)
+			return 1;
+	return 0;
+}
+
+/* Wait for the CC2400 to report its 16 MHz crystal oscillator stable.
+ * Returns 1 if it did, 0 if the wait gave up. */
+int cc2400_wait_xosc_stable(void)
+{
+	uint16_t i;
+
+	for (i = XOSC_STABLE_POLLS; i; i--)
+		if (cc2400_status() & XOSC16M_STABLE)
+			return 1;
+	return 0;
+}
+
+/* Wait for the synthesizer to reach `locked`: 1 after a SFSON strobe, 0 after
+ * SRFOFF. Returns 1 if it did, 0 if the wait gave up. */
+int cc2400_wait_fs(int locked)
+{
+	uint16_t i;
+
+	for (i = locked ? FS_LOCK_POLLS : FS_UNLOCK_POLLS; i; i--)
+		if (!!(cc2400_status() & FS_LOCK) == !!locked)
+			return 1;
+	return 0;
+}
+
+/* cc2400_wait_fs(0), which is what most callers want. */
+int cc2400_wait_fs_unlock(void)
+{
+	return cc2400_wait_fs(0);
+}
+
+/* Wait for the radio's state machine to report `state`, one of the STATE_*
+ * values. Returns 1 if it did, 0 if the wait gave up. */
+int cc2400_wait_fsm(uint8_t state)
+{
+	uint16_t i;
+
+	for (i = FSM_POLLS; i; i--)
+		/* FSMSTATE's low five bits are the state; the rest is
+		 * breakpoint configuration. */
+		if ((cc2400_get(FSMSTATE) & 0x1f) == state)
+			return 1;
+	return 0;
+}
+
+/* Wait for the radio to report that it has decoded a sync word, which is a
+ * packet arriving. Returns 1 if one did, 0 if the wait gave up. */
+int cc2400_wait_sync_received(void)
+{
+	uint16_t i;
+
+	for (i = SYNC_RECEIVED_POLLS; i; i--)
+		if (cc2400_status() & SYNC_RECEIVED)
+			return 1;
+	return 0;
+}
+
 void cc2400_reset()
 {
 	cc2400_set(MAIN, 0x0000);
-	while (cc2400_get(MAIN) != 0x0000);
+	cc2400_wait_main(0x0000);
 	cc2400_set(MAIN, 0x8000);
-	while (cc2400_get(MAIN) != 0x8000);
+	cc2400_wait_main(0x8000);
 }
 
-/* activate the CC2400's 16 MHz oscillator */
-void cc2400_clock_start()
+/* Activate the CC2400's 16 MHz oscillator. Returns 1 if it reported stable,
+ * 0 if it did not: the one caller that has something to say about that is the
+ * self-test. */
+int cc2400_clock_start()
 {
 	cc2400_reset();
 	cc2400_strobe(SXOSCON);
-	while (!(cc2400_status() & XOSC16M_STABLE));
+	return cc2400_wait_xosc_stable();
 }
 
-/* check to see if we can read a register */
+/* Check to see if we can read a register.
+ *
+ * This wait has no bound, on purpose. It is a step of the power-on self-test,
+ * which counts itself off in LEDs: each step that passes pulses one more of
+ * them (see pulse_leds()), and the badge then goes dark where it stops. Nine
+ * steps have passed when this one runs, so a badge that stops here has shown
+ * nine pulsing LEDs and nothing since, which says the radio does not answer a
+ * register read -- and there is no host to keep answering for, nor anything
+ * after this step a badge whose radio does not answer could do. */
 void cc2400_register_test(void)
 {
 	while (cc2400_get(MANFIDL) != 0x133D) wait();
@@ -236,7 +353,8 @@ int cc2400_range_test(void)
 {
 	int i;
 	int j;
-	int tries = 28561;
+	int attempt;
+	int got_reply = 0;
 	int success = 1;
 	const uint8_t len = 22;
 	const uint16_t channel = 2441;
@@ -276,15 +394,15 @@ int cc2400_range_test(void)
 	cc2400_set(SYNCL,   0x1584);
 	cc2400_set(FREND,   8 | pa);
 	cc2400_set(MDMCTRL, 0x0029);
-	while (!(cc2400_status() & XOSC16M_STABLE));
+	cc2400_wait_xosc_stable();
 	cc2400_strobe(SFSON);
-	while (!(cc2400_status() & FS_LOCK));
+	cc2400_wait_fs(1);
 	for (pa = 0; pa < 5; pa++) { // could go to 7, but hard on battery
 		cc2400_set(FREND, 8 | pa);
 		txbuf[18] = pa;
 		for (i = 0; i < 4; i++) {
 			txbuf[19] = i;
-			while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
+			cc2400_wait_fsm(STATE_STROBE_FS_ON);
 			// transmit a packet
 			for (j = 0; j < len; j++)
 				cc2400_set8(FIFOREG, txbuf[j]);
@@ -292,31 +410,52 @@ int cc2400_range_test(void)
 		}
 	}
 	// sent packet, now look for repeated packet
-	while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
+	cc2400_wait_fsm(STATE_STROBE_FS_ON);
 	cc2400_strobe(SRFOFF);
-	while ((cc2400_status() & FS_LOCK));
+	cc2400_wait_fs_unlock();
 	cc2400_set(FSDIV, channel - 1);
-	while (!(cc2400_status() & XOSC16M_STABLE));
+	cc2400_wait_xosc_stable();
 	cc2400_strobe(SFSON);
-	while (!(cc2400_status() & FS_LOCK));
-	while (1) {
-		while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
+	cc2400_wait_fs(1);
+	/*
+	 * Listen for the repeated packet, going round again on one whose
+	 * checksum did not check out.
+	 *
+	 * Only on that. A wait that found no packet at all ends the test,
+	 * because the listening has to be one stretch: on the way back round,
+	 * cc2400_wait_fsm() would wait out its whole budget with the radio
+	 * still in receive -- the state machine is at STATE_STROBE_RX, not the
+	 * STATE_STROBE_FS_ON it is after -- and a reply arriving in that gap
+	 * would be missed. A retry after a bad checksum does not have that
+	 * problem: the radio has received a packet and is back at
+	 * STATE_STROBE_FS_ON.
+	 *
+	 * This was `while (1)`, which is what kept the badge here while a
+	 * radio handed over bad packet after bad packet.
+	 */
+	for (attempt = BAD_CRC_RETRIES; attempt && !got_reply; attempt--) {
+		cc2400_wait_fsm(STATE_STROBE_FS_ON);
 		cc2400_strobe(SRX);
-		while ((!(cc2400_status() & SYNC_RECEIVED)) && --tries);
-		if (!tries) {
-			success = 0;
+		if (!cc2400_wait_sync_received())
 			break;
-		}
 		for (j = 0; j < len; j++)
 			rxbuf[j] = cc2400_get8(FIFOREG);
 		if (cc2400_status() & STATUS_CRC_OK)
-			break;
+			got_reply = 1;
 	}
 
 	// done
-	//while ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_FS_ON);
 	cc2400_strobe(SRFOFF);
-	while ((cc2400_status() & FS_LOCK));
+	cc2400_wait_fs_unlock();
+
+	/* No reply, no result. This is the only thing between a listen that
+	 * heard nothing and a reported pass -- success is 1 until the
+	 * comparison below clears it, and that comparison reads an rxbuf
+	 * nothing has filled. */
+	if (!got_reply) {
+		success = 0;
+		return success;
+	}
 
 	// make sure rx packet is as expected
 	txbuf[1] = 1; // expected value in rxbuf

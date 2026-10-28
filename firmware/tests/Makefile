@@ -92,7 +92,9 @@ $(BINDIR)/test_cc2400_wait: test_cc2400_wait.c minunit.h source_scan.h \
 		$(FW_BTBR)/src/btphy/rx_task.c $(FW_BTBR)/src/btphy/tx_task.c \
 		$(FW_BTBR)/include/ubtbr/rf.h \
 		$(FW_DIR)/assembly_test/assembly_test.c \
-		$(FW_DIR)/cc2400_test/cc2400_test.c | $(BINDIR)
+		$(FW_DIR)/cc2400_test/cc2400_test.c \
+		$(FW_DIR)/tc13badge/tc13badge.c \
+		$(FW_DIR)/tc13badge/toorcon.c | $(BINDIR)
 	$(CC) $(CFLAGS) -Istubs-radio $(CPPFLAGS) -I$(FW_COMMON) \
 		-DFW_RXTX_DIR='"$(FW_RXTX)"' -DFW_BTBR_DIR='"$(FW_BTBR)"' \
 		-DFW_COMMON_DIR='"$(FW_COMMON)"' -DFW_DIR='"$(FW_DIR)"' \
@@ -360,10 +362,14 @@ $(BINDIR)/test_fw_info: test_fw_info.c minunit.h source_scan.h \
 # cc2400_rangetest.c as text for the radio writes they need and for the shape
 # of the repeater's turnaround delay, the way test_mode_dispatch.c scans the
 # dispatch. It links nothing from the firmware.
+# It also walks the firmware tree for a second copy of the range test, so
+# FW_DIR points at firmware/ as well.
 $(BINDIR)/test_rangetest_radio: test_rangetest_radio.c minunit.h source_scan.h \
-		$(FW_RXTX)/cc2400_rangetest.c $(FW_COMMON)/ubertooth.c | $(BINDIR)
+		$(FW_RXTX)/cc2400_rangetest.c $(FW_COMMON)/ubertooth.c \
+		$(FW_DIR)/assembly_test/assembly_test.c | $(BINDIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
-		-DFW_COMMON_DIR='"$(FW_COMMON)"' -o $@ test_rangetest_radio.c
+		-DFW_COMMON_DIR='"$(FW_COMMON)"' -DFW_DIR='"$(FW_DIR)"' \
+		-o $@ test_rangetest_radio.c
 
 # A control transfer is only answered after its handler has returned, which is
 # why a reset has to be deferred and waited for. The real control transfer
@@ -387,7 +393,8 @@ $(BINDIR)/test_reset_order: test_reset_order.c minunit.h source_scan.h \
 # images in both orders and comparing them needs the ARM toolchain and several
 # minutes. FW_DIR points it at firmware/, which it also walks for images.
 $(BINDIR)/test_firmware_object_paths: test_firmware_object_paths.c minunit.h \
-		$(FW_DIR)/common.mk $(FW_BOOT)/Makefile | $(BINDIR)
+		$(FW_DIR)/common.mk $(FW_BOOT)/Makefile \
+		$(FW_DIR)/tc13badge/Makefile | $(BINDIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_DIR='"$(FW_DIR)"' \
 		-o $@ test_firmware_object_paths.c
 
