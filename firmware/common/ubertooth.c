@@ -463,10 +463,11 @@ static void spi_delay() {
  * interrupt while the main loop writes the FIFO: the vendor request handler
  * writes radio registers for SET_PALEVEL, SET_CHANNEL, SET_SQUELCH and
  * WRITE_REGISTER(S), and bt_slave_le() writes an advertising packet into the
- * FIFO from its loop with that interrupt enabled. Nothing else can land
- * inside a transfer, because every interrupt in this image keeps the reset
- * priority of 0 except the GPDMA handler, so one handler cannot preempt
- * another -- only the main loop can be cut into.
+ * FIFO from its loop with that interrupt enabled. Every FIFO transfer in this
+ * image is made from a mode loop rather than from a handler, so the main loop
+ * being cut into is the whole of it -- but the guard covers a handler reaching
+ * a transfer too, which is what it would take for the LE PHY's handlers to
+ * share the bus with one.
  *
  * These two hold the bus far longer than a register transfer, so the guard
  * costs more here than it does in cc2400_spi().
@@ -492,15 +493,20 @@ static void spi_delay() {
  * Who pays those ticks: only the two modes that read the FIFO, the generic
  * receive (rx_generic_sync()) and the range test. The generic receive stamps
  * each packet it enqueues with clkn, so its timestamps fall further behind
- * the more packets it captures; the range test uses clkn only for a
- * one-second turnaround. No shipped tool asks for either mode. The capture modes whose
- * timestamps a user reads -- BR/EDR receive and the LE PHY -- take their data
- * over DMA and never touch the FIFO, so they are unaffected.
+ * the more packets it captures, and no shipped tool asks for that mode. The
+ * range test does ship -- `ubertooth-util -n` and `-e` -- and reads the FIFO
+ * for every packet it exchanges, but it uses clkn only to time a one-second
+ * turnaround, which a tick either way does not change. The capture modes
+ * whose timestamps a user reads -- BR/EDR receive and the LE PHY -- take
+ * their data over DMA and never touch the FIFO, so they are unaffected.
  *
  * The btbr image has its own bit-banged FIFO write, in
  * firmware/btbr/src/btphy/rf.c, which is not masked. There it only ever runs
- * from the slot scheduler inside the timer interrupt, which no other handler
- * can preempt, so it has nothing to be cut into by.
+ * from the slot scheduler inside the timer interrupt. A handler can be
+ * preempted only by one of a higher priority, and in both images every
+ * handler keeps the reset priority of 0 except GPDMA, which dma_poweron()
+ * puts at the lowest -- so that write runs to its end with nothing able to
+ * reach the bus in the middle of it.
  */
 
 /* write multiple bytes to SPI */

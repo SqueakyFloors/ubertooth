@@ -364,8 +364,9 @@ MU_TEST(test_accessors_go_through_cc2400_spi)
  *
  * It covers this file only. The btbr image has its own bit-banged FIFO write
  * in firmware/btbr/src/btphy/rf.c, which is unguarded: there it runs from the
- * slot scheduler inside the timer interrupt, and no handler in that image can
- * preempt another.
+ * slot scheduler inside the timer interrupt, and the only handler in that
+ * image with a priority of its own -- GPDMA -- has the lowest, so nothing can
+ * preempt it.
  */
 MU_TEST(test_the_list_of_bus_functions_is_pinned)
 {

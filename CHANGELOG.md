@@ -373,6 +373,12 @@
   board that took none of the session's requests, with a note about firmware
   that had nothing to do with it.
   [#701](https://github.com/SqueakyFloors/ubertooth/issues/701)
+- A board that is advertising (`ubertooth-btle -s`, `ubertooth-ducky`) keeps
+  answering the host if its radio stops sending. The wait for the radio to
+  empty its transmit buffer had no end, and that wait sits in the loop that
+  services USB, so a radio that stopped draining left the board answering
+  nothing until it was unplugged and plugged back in.
+  [#395](https://github.com/SqueakyFloors/ubertooth/issues/395)
 - A spectrum analyzer run measures through the radio front end a freshly
   booted board has, whichever mode ran before it. `ubertooth-specan` and
   `ubertooth-util -q` do not set the radio's manual signal overrides
@@ -1362,11 +1368,8 @@ Fixes with no visible change in normal use.
 - A generic transmit packet longer than the radio's 32-byte FIFO goes in a
   piece at a time, waiting for the radio to send each one. The whole packet
   used to be written at once, so a packet of 33 to 50 bytes was pushed past
-  the end of the FIFO and what went on the air was undefined.
-  [#395](https://github.com/SqueakyFloors/ubertooth/issues/395)
-- A transmit that waits for the radio to empty its FIFO gives up instead of
-  waiting forever, so a radio that stops sending no longer leaves the board
-  answering nothing until it is re-plugged.
+  the end of the FIFO. How the radio frames a packet that long is a separate
+  question, still open.
   [#395](https://github.com/SqueakyFloors/ubertooth/issues/395)
 
 _community fork, Fri, 23 Oct 2026 01:38:18 -0700_

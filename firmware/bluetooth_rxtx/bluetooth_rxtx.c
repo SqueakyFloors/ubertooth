@@ -1587,11 +1587,13 @@ void le_transmit(u32 aa, u8 len, u8 *data)
 		cc2400_fifo_write(tx_len, txbuf + i);
 		cc2400_strobe(STX);
 		i += tx_len;
-		// Half a FIFO for every piece after the first. The wait above is
-		// on the FIFO being empty, so a whole FIFO would fit; this keeps
-		// to the sizes the advertising path has always written. An
-		// advertising packet is at most CC2400_FIFO_SIZE bytes anyway, so
-		// the loop runs once and this line only matters if that changes.
+		// Half a FIFO for every piece after the first, which is what the
+		// advertising path has always written. The wait above is on the
+		// FIFO being empty, so a whole FIFO would fit; the sizes are left
+		// as they were, because the only way an advertising packet gets
+		// long enough to reach a second pass is advertising data longer
+		// than the buffer bt_slave_le() builds the packet in, which that
+		// function has to refuse before it comes to this loop.
 		fifo_space = CC2400_FIFO_SIZE / 2;
 	}
 	cc2400_wait_fsm(STATE_STROBE_FS_ON, NULL);
@@ -3155,8 +3157,17 @@ void tx_generic(u8 prev_mode) {
 	 * le_transmit() does. The FIFO holds CC2400_FIFO_SIZE bytes and a
 	 * generic transmit packet may carry up to DMA_SIZE, so the one write
 	 * this used to make pushed the last 18 bytes of a 50-byte packet past
-	 * the end of the FIFO: what went on the air was undefined and nothing
-	 * reported a problem.
+	 * the end of the FIFO, and nothing reported a problem.
+	 *
+	 * This bounds what the radio is handed. What it does not settle is how
+	 * a packet longer than the FIFO is framed: the wait is for the FIFO to
+	 * be empty, and the modem takes bytes out of it at the air rate, so it
+	 * has nothing to send while the next piece is written. Whether the
+	 * radio carries the packet on or frames the rest as a second
+	 * transmission has not been measured. Refilling at FIFO_THRESHOLD
+	 * instead, before the FIFO runs dry, is the alternative; le_transmit()
+	 * still writes a threshold into INT that nothing reads, from when the
+	 * loop there was meant to work that way.
 	 *
 	 * The length is clamped as well as chunked, because this is where a
 	 * length reaches the radio: the vendor request already refuses a longer

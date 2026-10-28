@@ -439,6 +439,8 @@ struct scan {
 	int chunked;          /* a piece bounded by the FIFO's size */
 	int drain_wait;       /* the wait for the radio between pieces */
 	int drain_wait_used;  /* ...with its result acted on */
+	int bare_gio6_spin;   /* an unbounded wait on GIO6, anywhere in the file */
+	int bare_gio6_line;
 	int loop_end;         /* the loop that keeps going while bytes are left */
 };
 
@@ -487,6 +489,19 @@ static int scan_source(const char *path, struct scan *s)
 		}
 		if (strstr(flat, "} while (sent < len);") != NULL)
 			s->loop_end = lineno;
+
+		/* The wait this file must not spin on. `while (!GIO6);` is how
+		 * both transmit loops waited for the radio to empty its FIFO,
+		 * and it has no end: the loop it sits in is the one that answers
+		 * the host. test_cc2400_wait.c's scan for unbounded radio spins
+		 * does not see this one, because it looks for the names of the
+		 * register reads (cc2400_status(), FSMSTATE) rather than a GPIO. */
+		if (strstr(flat, "while (!GIO6)") != NULL ||
+		    strstr(flat, "while(!GIO6)") != NULL) {
+			s->bare_gio6_spin++;
+			if (s->bare_gio6_line == 0)
+				s->bare_gio6_line = lineno;
+		}
 
 		if (strstr(flat, "case UBERTOOTH_TX_GENERIC_PACKET:") != NULL) {
 			s->case_line = lineno;
@@ -626,6 +641,13 @@ MU_TEST(test_the_fifo_write_is_clamped_and_chunked)
 	         "payload has gone out, so a packet longer than the FIFO loses "
 	         "its tail", path, s.fifo_write);
 	mu_assert(s.loop_end > s.fifo_write, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: a wait on GIO6 with no end (%d in the file); the loop it "
+	         "is in is the one that answers the host, so a radio that stops "
+	         "draining its FIFO stops the board until it is re-plugged -- use "
+	         "fifo_wait_empty()", path, s.bare_gio6_line, s.bare_gio6_spin);
+	mu_assert(s.bare_gio6_spin == 0, msg);
 }
 
 int main(void)
