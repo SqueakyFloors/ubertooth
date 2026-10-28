@@ -214,6 +214,24 @@ def eprint(msg):
 	sys.stderr.write(msg)
 	sys.stderr.flush()
 
+def warn(msg):
+	"""Report something the user should know about: one `warning: ` line.
+
+	On standard error, the way every other tool in this fork writes its
+	warnings. The logger above carries what a command reports -- the packets
+	it decodes and the progress it makes -- and a diagnostic about the tool
+	itself is not one of those, so it does not go through it.
+	"""
+	eprint("warning: %s\n"%msg)
+
+def error(msg):
+	"""Report a failure: one `error: ` line on standard error.
+
+	Used where there is nobody above to raise to. A command runs on its own
+	thread, so anything let out of there is a traceback nobody can report.
+	"""
+	eprint("error: %s\n"%msg)
+
 def data_to_str(data):
 	return " ".join("%02x"%b for b in data)
 
@@ -310,7 +328,8 @@ class BTCtlEIR:
 			if (1+len(dat) != l):
 				# A library writes nothing to standard output, where the
 				# capture the user asked for goes.
-				log.warning("Malformed EIR")
+				warn("malformed EIR: a field runs past the end of the "
+					"response, so the rest of it is dropped")
 				break
 			fields.append((t,dat))
 		return BTCtlEIR(fields)
@@ -508,7 +527,7 @@ class BTCtlCmd(Thread):
 			# Raising here would come out of whoever asked for the stop,
 			# which is the keyboard interrupt handler among others. The
 			# command ends on its own below either way.
-			log.warning("Could not ask the device to go idle: %s"%e)
+			warn("could not ask the device to go idle: %s"%e)
 
 	def _handle_state(self, state, reason):
 		print_state(state, reason)
@@ -550,7 +569,7 @@ class BTCtlCmd(Thread):
 				if deadline is None:
 					deadline = monotonic() + self.STOP_GRACE
 				elif monotonic() >= deadline:
-					log.warning("%s: the device did not go idle, "
+					warn("%s: the device did not go idle, "
 						"stopping anyway"%self)
 					return
 			try:
@@ -561,11 +580,12 @@ class BTCtlCmd(Thread):
 				self._handle_state(*msg)
 			elif t == BTCTL_RX_PKT:
 				if not self._ready:
-					log.warning("Not ready for msg %d %s"%(t,msg))
+					warn("message %d arrived before %s was ready: %s"
+						%(t,self,msg))
 				else:
 					self._handle_pkt(msg)
 			else:
-				log.warning("nyi msg %d %s"%(t,msg))
+				warn("message %d is not handled yet: %s"%(t,msg))
 
 	def run(self):
 		try:
@@ -576,7 +596,7 @@ class BTCtlCmd(Thread):
 			# to report it: anything let out here comes out as a thread
 			# traceback, and the finally below is what frees the device for
 			# the next command. Named by type, so a bug still reads as one.
-			log.error("%s stopped: %s: %s"%(self, type(e).__name__, e))
+			error("%s stopped: %s: %s"%(self, type(e).__name__, e))
 		finally:
 			# Whatever ended the loop, the command is over: say so before
 			# releasing the handler, so the next command can be started.
@@ -588,7 +608,7 @@ class BTCtlCmd(Thread):
 				# Nothing can swap the handler underneath a command, so this
 				# is only here so that no path out of this thread is a
 				# traceback.
-				log.error("%s could not let the device go: %s"%(self, e))
+				error("%s could not let the device go: %s"%(self, e))
 
 	def done(self):
 		return self._done
@@ -650,7 +670,7 @@ class BTCtlSuperCmd(Thread):
 			# It still holds the message handler, so no other command can be
 			# started: keep the handle and give up rather than start one and
 			# trip over it.
-			log.error("%s did not stop"%self._cmd)
+			error("%s did not stop"%self._cmd)
 			self._gave_up = True
 			self.stop()
 			return
@@ -684,7 +704,7 @@ class BTCtlSuperCmd(Thread):
 			# Its own thread too, so the same applies as for BTCtlCmd: the
 			# commands it starts can refuse, and a traceback from in here is
 			# nobody's to report.
-			log.error("%s stopped: %s: %s"
+			error("%s stopped: %s: %s"
 				%(self.__class__.__name__, type(e).__name__, e))
 			self.stop()
 		finally:
@@ -978,7 +998,7 @@ def unread_serials_note(serials):
 		%(unread, "" if unread == 1 else "s"))
 
 
-def open_failure_note(error):
+def open_failure_note(failure):
 	"""The usual cause of an open that was refused.
 
 	libubertooth reports an open failure with libusb's own description
@@ -988,7 +1008,7 @@ def open_failure_note(error):
 	not report a board another program is using -- that shows up later, when
 	the interface is claimed -- so nothing here says it does.
 	"""
-	if isinstance(error, usb1.USBErrorAccess):
+	if isinstance(failure, usb1.USBErrorAccess):
 		return ("\nnote: a board that cannot be opened is usually a "
 			"permissions problem; on Linux install the udev rules shipped "
 			"with this package")
@@ -1218,7 +1238,7 @@ class BTCtl:
 			# Ending silently would leave the tool waiting for messages that
 			# can no longer arrive, so keep the reason for close() to report.
 			self._rx_error = e
-			log.error("Rx thread stopped: %s: %s"%(type(e).__name__, e))
+			error("the receive thread stopped: %s: %s"%(type(e).__name__, e))
 		finally:
 			# Tells a reader of the flag that nothing is reading the device
 			# any more, however this thread ended.
@@ -1226,7 +1246,7 @@ class BTCtl:
 
 	def connect(self):
 		if self.connected():
-			log.warning("Already connected")
+			warn("the device is already open")
 			return
 		self._usb.claimInterface(0)
 		self._rx_stopped.clear()
@@ -1268,19 +1288,19 @@ class BTCtl:
 		the session did not finish what it was asked.
 		"""
 		if not self.connected():
-			log.warning("Not connected")
+			warn("the device is not open")
 			return not self._open
 		self._con = False
 		try:
 			self.send_idle_cmd()
 		except (usb1.USBError, BTCtlError) as e:
-			log.warning("Could not ask the device to go idle: %s"%e)
+			warn("could not ask the device to go idle: %s"%e)
 		if self.rx_error() is not None:
-			log.warning("Receive thread had already stopped: %s"%self.rx_error())
+			warn("the receive thread had already stopped: %s"%self.rx_error())
 		self._rx_stopped.set()
 		self._rx_thread.join(self.JOIN_TIMEOUT)
 		if self._rx_thread.is_alive():
-			log.error("Receive thread did not stop; leaving the device open")
+			error("the receive thread did not stop; leaving the device open")
 			return False
 		if self._msg_handler is not None:
 			# A command still owns the messages, so it is still running and
@@ -1288,7 +1308,7 @@ class BTCtl:
 			# a command that runs commands of its own can give up on a child
 			# and then end itself, leaving nobody holding the child. This is
 			# the check that covers every such route.
-			log.error("A command is still running; leaving the device open")
+			error("a command is still running; leaving the device open")
 			return False
 		self._usb.close()
 		self._open = False

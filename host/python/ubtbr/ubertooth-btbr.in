@@ -66,7 +66,7 @@ class BTCtlPrompt(Cmd):
 			pass
 		if bdaddr is None or bdaddr < 0 or bdaddr >= (1<<48):
 			# A diagnostic, so not on standard output.
-			eprint("error: BD_ADDR must be xx:xx:xx:xx:xx:xx (got %s)\n"%inp)
+			error("BD_ADDR must be xx:xx:xx:xx:xx:xx (got %s)"%inp)
 		else:
 			return bdaddr
 
@@ -150,7 +150,7 @@ class BTCtlPrompt(Cmd):
 			# than tripping over the one still holding the message handler.
 			# The prompt itself stays usable, and exiting is never blocked by
 			# it.
-			log.error("%s did not stop"%self._cmd)
+			error("%s did not stop"%self._cmd)
 			self._gave_up = True
 			return
 		self._cmd = None
@@ -180,7 +180,7 @@ class BTCtlPrompt(Cmd):
 			# leave. A command that runs commands of its own reaches the
 			# second case, since it can give up on a child and then end
 			# cleanly itself, leaving the child holding the handler.
-			eprint("error: %s: %s\n"%(line, e))
+			error("%s: %s"%(line, e))
 
 	def default(self, inp):
 		if inp in ('x','q'):
@@ -191,7 +191,7 @@ class BTCtlPrompt(Cmd):
 		# device the close below took away.
 		self.stop_cmd()
 		if self._cmd is not None:
-			log.error("Leaving the device open: %s is still running"
+			error("leaving the device open: %s is still running"
 				%self._cmd)
 			self._abandoned = True
 		elif not self._bt.close():
@@ -290,7 +290,7 @@ def usage():
 	sys.stdout.write(USAGE)
 	sys.exit(0)
 
-def report_bad_option(error):
+def report_bad_option(refusal):
 	"""Report a command line getopt would not take, as the other tools do.
 
 	One line naming what is wrong, and no usage text: the user can run -h.
@@ -299,14 +299,14 @@ def report_bad_option(error):
 	"""
 	# getopt says "option --name ..." for a word starting with two dashes
 	# and "option -c ..." for a single letter. No tool takes long options.
-	long_option = error.msg.startswith("option --")
-	if error.msg.endswith("requires argument"):
-		eprint("error: option '-%s' requires a value\n"%error.opt)
+	long_option = refusal.msg.startswith("option --")
+	if refusal.msg.endswith("requires argument"):
+		error("option '-%s' requires a value"%refusal.opt)
 	elif long_option:
-		eprint("error: unrecognized option '--%s': the tools take "
-			"single-letter options\n"%error.opt)
+		error("unrecognized option '--%s': the tools take "
+			"single-letter options"%refusal.opt)
 	else:
-		eprint("error: unrecognized option '-%s'\n"%error.opt)
+		error("unrecognized option '-%s'"%refusal.opt)
 	sys.exit(1)
 
 def leave(bt, status):
@@ -351,11 +351,11 @@ def main():
 		except ValueError:
 			value = None
 		if value is None or value < 0 or value > 0xffff:
-			eprint("error: %s must be 0-65535 (got %s)\n"%(o, v))
+			error("%s must be 0-65535 (got %s)"%(o, v))
 			sys.exit(1)
 		settings.append((o, value))
 	if args:
-		eprint("error: unexpected argument '%s'\n"%args[0])
+		error("unexpected argument '%s'"%args[0])
 		sys.exit(1)
 	if help_wanted:
 		usage()
@@ -365,7 +365,7 @@ def main():
 	given = ['-U'] * len(selectors) + [o for o, value in settings]
 	for o in ('-U', '-f', '-b'):
 		if given.count(o) > 1:
-			eprint("error: give %s once\n"%o)
+			error("give %s once"%o)
 			sys.exit(1)
 	selector = selectors[0] if selectors else None
 
@@ -387,7 +387,7 @@ def main():
 		bt.send_set_eir_cmd(eir.pack())
 		sleep(0.02)
 	except BTCtlNoDeviceError as e:
-		eprint("error: %s\n"%e)
+		error(e)
 		sys.exit(1)
 	except (usb1.USBError, BTCtlError) as e:
 		# A board running firmware other than ubtbr takes none of this, and
@@ -396,7 +396,7 @@ def main():
 		# Named by serial, because the usual cause is the wrong board rather
 		# than a bad one: the serial says which board the session got, which
 		# the user can compare with the one they flashed btbr onto.
-		eprint("error: could not set up %s: %s\n"%(bt.board(), e))
+		error("could not set up %s: %s"%(bt.board(), e))
 		if isinstance(e, usb1.USBErrorTimeout):
 			# The bluetooth_rxtx firmware offers the endpoint this tool
 			# writes to but never reads it, so a request sits there until the
