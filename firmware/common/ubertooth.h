@@ -291,6 +291,16 @@ extern volatile uint8_t requested_mode;
 #define MSEL1 34
 #define PSEL1 0
 
+/*
+ * The CPU clock the settings above produce, in hertz, for code that has to
+ * count core clocks: PLL0 runs at twice the main oscillator times M over N,
+ * and the CPU divider divides that. 100 MHz on a normal board, 30 MHz on the
+ * badge, which is why it is worked out from the settings rather than written
+ * as a number.
+ */
+#define MAIN_OSC_HZ 16000000u
+#define CCLK_HZ (2u * (MSEL0 + 1u) * MAIN_OSC_HZ / (NSEL0 + 1u) / (CCLKSEL + 1u))
+
 /* flash accelerator configuration */
 #define FLASHTIM 0x4 /* up to 100 MHz CPU clock */
 

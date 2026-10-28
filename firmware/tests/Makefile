@@ -22,7 +22,7 @@ HOST_DFU := ../../host/ubertooth-tools/src
 HOST_LIB := ../../host/libubertooth/src
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS   := test_minunit test_rssi test_bluetooth_hop test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_promisc_hop_interval test_le_phy_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_grmdm_rx_generic test_tx_generic_bounds test_write_registers_bounds test_btbr_hop test_btbr_rx_deadline test_btbr_arithmetic test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_watchdog test_latent_arithmetic
+TESTS   := test_minunit test_rssi test_bluetooth_hop test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_promisc_hop_interval test_le_phy_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_grmdm_rx_generic test_tx_generic_bounds test_write_registers_bounds test_btbr_hop test_btbr_rx_deadline test_btbr_arithmetic test_btbr_fault_blink test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_watchdog test_latent_arithmetic
 BINDIR  := bin
 
 .PHONY: all test clean
@@ -207,7 +207,7 @@ $(BINDIR)/test_le_frag_enqueue: test_le_frag_enqueue.c minunit.h \
 # bluetooth_rxtx.c for the shape.
 $(BINDIR)/test_grmdm_rx_generic: test_grmdm_rx_generic.c minunit.h \
 		source_scan.h $(FW_COMMON)/cc2400.h $(FW_RXTX)/bluetooth_rxtx.c \
-		| $(BINDIR)
+		$(HOST_LIB)/ubertooth_interface.h | $(BINDIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -I$(FW_COMMON) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
 		-o $@ test_grmdm_rx_generic.c
 
@@ -279,6 +279,15 @@ $(BINDIR)/test_btbr_rx_deadline: test_btbr_rx_deadline.c minunit.h \
 # headers supply the chunk sizes and the slot clock. The last cases read the
 # two syncword windows out of the scan and receive tasks as text -- both are
 # hardware files -- so FW_BTBR_DIR points at the image.
+# The fault handlers write the board's LEDs and active_msleep() writes the
+# system timer, so both files are read as text (see the test's header comment).
+$(BINDIR)/test_btbr_fault_blink: test_btbr_fault_blink.c minunit.h \
+		source_scan.h $(FW_BTBR)/src/util/fault.c \
+		$(FW_BTBR)/src/util/debug.c \
+		$(HOST_LIB)/ubertooth_interface.h | $(BINDIR)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_BTBR_DIR='"$(FW_BTBR)"' \
+		-o $@ test_btbr_fault_blink.c
+
 $(BINDIR)/test_btbr_arithmetic: test_btbr_arithmetic.c minunit.h \
 		source_scan.h stubs-btbr/ubtbr/debug.h \
 		$(FW_BTBR)/src/codec/bitstream_proc.c \
