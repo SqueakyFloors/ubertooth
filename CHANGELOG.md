@@ -411,11 +411,14 @@
   `FSTST3`'s `PD_DELAY` reported `CHP_DISABLE`. Register `0x15` also answers to
   `%MDMTST1` now; it carried `0x14`'s name, so no name of its own reached it.
   [#671](https://github.com/SqueakyFloors/ubertooth/issues/671)
-- `ubertooth-btle -f` captures the first packets of a connection. A connection
-  request names a transmit window, and the master's first packet may arrive
-  anywhere inside it, but the board gave that first connection event the time
-  of one packet instead of the whole window, so every connection whose window
-  was longer than the 1.25 ms minimum lost its opening packets.
+- `ubertooth-btle -f` waits out a connection's whole transmit window before
+  giving up on its first connection event. A connection request names that
+  window, and the master's first packet may arrive anywhere inside it, but the
+  board allowed the time of one packet, so a window longer than the 1.25 ms
+  minimum could expire unwatched. A separate fault still loses the opening
+  events of most connections
+  ([#774](https://github.com/SqueakyFloors/ubertooth/issues/774)), so this is
+  not yet the whole of "the capture starts where the connection does".
   [#625](https://github.com/SqueakyFloors/ubertooth/issues/625)
 - Every packet in a `ubertooth-btle` capture is
   timestamped 8 microseconds earlier, which is where its preamble really

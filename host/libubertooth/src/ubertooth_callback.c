@@ -695,9 +695,17 @@ void cb_btle(ubertooth_t* ut, void* args)
 		/* These four lines are what promiscuous mode is for: a capture
 		 * written to a file has no other way to say which connection it
 		 * is of. So they go to the stream the tool reports on, which is
-		 * standard error once a capture has taken standard output. */
-		FILE* out = (opts != NULL && opts->report_stream != NULL)
-		          ? opts->report_stream : stdout;
+		 * standard error once a capture has taken standard output.
+		 *
+		 * A caller that sets no stream gets standard output, which is
+		 * where a plain run wants them -- unless that caller also said a
+		 * capture had taken standard output, in which case standard
+		 * output is /dev/null and these lines would reach nobody. */
+		FILE* out = stdout;
+
+		if (opts != NULL)
+			out = opts->report_stream != NULL ? opts->report_stream
+			    : opts->capture_took_stdout  ? stderr : stdout;
 
 		fprintf(out, "--------------------\n");
 		fprintf(out, "LE Promisc - ");

@@ -1084,11 +1084,10 @@ MU_TEST(a_connection_update_is_scheduled_for_its_instant)
 
 /*
  * The parameters of an update are checked against the same ranges a
- * connection request's are, and an update outside them ends the follow rather
- * than being taken on trust. The engine then has no connection to chase: a
- * transmit window of 255 steps would otherwise put 319 ms into the timeout
- * that waits out the first event under the new parameters, and a supervision
- * timeout of hours would be all that ended the chase.
+ * connection request's are, and an update outside them is ignored rather than
+ * taken on trust: a transmit window of 255 steps would otherwise put 319 ms
+ * into the timeout that waits out the first event under the new parameters,
+ * and the supervision timeout it came with would be all that ended the chase.
  *
  * The connection it is already following is kept, on the parameters it
  * already has: nothing conformant sends such a value, so the packet has bit
@@ -1101,7 +1100,7 @@ MU_TEST(a_connection_update_is_scheduled_for_its_instant)
  * One case per field, each one value past the boundary, so a check removed or
  * a comparison turned round fails here.
  */
-MU_TEST(a_connection_update_outside_the_specification_is_refused)
+MU_TEST(a_connection_update_outside_the_specification_is_ignored)
 {
 	le_rx_t buf;
 	size_t i;
@@ -1952,7 +1951,7 @@ int main(void)
 	MU_RUN(a_connection_request_of_the_wrong_length_is_left_alone);
 	MU_RUN(a_new_connection_clears_a_pending_cancel);
 	MU_RUN(a_connection_update_is_scheduled_for_its_instant);
-	MU_RUN(a_connection_update_outside_the_specification_is_refused);
+	MU_RUN(a_connection_update_outside_the_specification_is_ignored);
 	MU_RUN(an_updates_window_size_survives_being_scaled);
 	MU_RUN(the_first_event_after_an_update_waits_out_the_whole_window);
 	MU_RUN(the_first_event_of_a_connection_waits_out_the_whole_window);
