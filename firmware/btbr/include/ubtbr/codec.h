@@ -71,6 +71,18 @@ static inline void bbcodec_init(bbcodec_t *codec,
  * them cuts the last group short.
  */
 #define BBCODEC_FEC23_AIR_BITS(nbytes)	((((nbytes)*8u + 9u) / 10u) * 15u)
+
+/* Both chunk sizes above have to be whole numbers of 10-bit groups, which for
+ * a byte count means a multiple of 5. Two things rest on that: only the last
+ * chunk of a payload can end in a part group, so the chunked air size adds up
+ * to the whole payload's; and the transmit side zeroes the pad byte above a
+ * part chunk, which is inside its chunk-sized buffer only while a chunk that
+ * needs padding is shorter than the buffer. */
+_Static_assert(CODEC_TX_CHUNK_SIZE % 5 == 0,
+	"a transmit chunk must be a whole number of 10-bit groups");
+_Static_assert(CODEC_RX_CHUNK_SIZE % 5 == 0,
+	"a receive chunk must be a whole number of 10-bit groups");
+
 #define BBCODEC_DONE  1
 #define BBCODEC_SHORT 2
 

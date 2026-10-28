@@ -79,16 +79,33 @@ void __attribute__((noreturn)) die(char *fmt, ...)
  * carries, so the sizes below come from it. */
 extern const bbcodec_types_t bbcodec_acl_types[16];
 
-/* The 2/3 FEC payload types, with the payload lengths each one can carry. */
+/*
+ * Every 2/3 FEC payload type, with the payload lengths each one can carry.
+ *
+ * FHS carries no payload header, so its length is fixed at the one the type
+ * says and min and max are the same. It is the type paging uses, and the only
+ * one this change leaves alone: 18 payload bytes and a 2-byte checksum are 20,
+ * a multiple of 5, so its air size was already right. That is why a board
+ * running an older image can still be paged by one running this code, and it
+ * is pinned here so a change to the FHS size does not quietly take that away.
+ */
 static const struct {
 	const char *name;
 	unsigned type;
+	unsigned min_payload;
 	unsigned max_payload;
 } fec23_types[] = {
-	{ "DM1", BB_TYPE_DM1, 17 },
-	{ "DM3", BB_TYPE_DM3, 121 },
-	{ "DM5", BB_TYPE_DM5, 224 },
+	{ "FHS", BB_TYPE_FHS, 18, 18 },
+	{ "DM1", BB_TYPE_DM1,  0,  17 },
+	{ "DM3", BB_TYPE_DM3,  0, 121 },
+	{ "DM5", BB_TYPE_DM5,  0, 224 },
 };
+
+/* Every type and every length it can carry, as the cases below walk them. */
+#define FOR_EVERY_PAYLOAD(i, length) \
+	for ((i) = 0; (i) < sizeof(fec23_types) / sizeof(fec23_types[0]); (i)++) \
+		for ((length) = fec23_types[i].min_payload; \
+		     (length) <= fec23_types[i].max_payload; (length)++)
 
 /* The air bits a 2/3 FEC payload of this many bytes occupies, counted here
  * from the group size rather than from the codec's macro, so the two are
@@ -163,12 +180,13 @@ static void encode_packet(bbcodec_t *codec, uint8_t *air, uint8_t *data,
  * until the codec says it has the whole payload. in_length is how many air
  * bytes the receiver has, which here is the whole buffer -- the radio keeps
  * delivering after the packet ends, and the bytes past the packet are noise.
- * The flags bbcodec_decode_finalize() reports come back in *flags, and the
- * assertions here are fatal, so a case stops rather than reading a payload
- * that was never decoded.
+ * in_length is how many air bytes the receiver has. Returns what the last
+ * chunk said: BBCODEC_DONE for a whole payload, or BBCODEC_SHORT when the
+ * bytes ran out. On BBCODEC_DONE the flags bbcodec_decode_finalize() reports
+ * come back in *flags.
  */
-static void decode_packet(bbcodec_t *codec, uint8_t *air, uint8_t *out,
-                          uint16_t *out_size, uint8_t *flags)
+static int decode_packet(bbcodec_t *codec, uint8_t *air, unsigned in_length,
+                         uint8_t *out, uint16_t *out_size, uint8_t *flags)
 {
 	bbhdr_t hdr;
 	int rc;
@@ -176,14 +194,18 @@ static void decode_packet(bbcodec_t *codec, uint8_t *air, uint8_t *out,
 	memset(&hdr, 0, sizeof(hdr));
 	memset(out, 0, DATA_BUF_SIZE);
 	bbcodec_init(codec, TEST_WHITEN, TEST_UAP, 1, 0);
-	mu_assert_fatal(bbcodec_decode_header(codec, &hdr, air) == 0,
-		"the packet header did not decode");
+	if (bbcodec_decode_header(codec, &hdr, air) != 0) {
+		/* Not mu_assert_fatal: that returns from the function it is in,
+		 * which here is a helper rather than the test body. */
+		mu_assert(0, "the packet header did not decode");
+		return BBCODEC_SHORT;
+	}
 	do {
-		rc = bbcodec_decode_chunk(codec, out, &hdr, air, AIR_BUF_SIZE);
-		mu_assert_fatal(rc != BBCODEC_SHORT,
-			"the decoder ran out of air bytes");
+		rc = bbcodec_decode_chunk(codec, out, &hdr, air, in_length);
 	} while (rc == 0);
-	*flags = bbcodec_decode_finalize(codec, out, out_size);
+	if (rc == BBCODEC_DONE)
+		*flags = bbcodec_decode_finalize(codec, out, out_size);
+	return rc;
 }
 
 /* ---- the air size of a packet ---- */
@@ -198,25 +220,23 @@ MU_TEST(test_air_size_counts_the_part_group_whole)
 {
 	unsigned i, length;
 
-	for (i = 0; i < sizeof(fec23_types) / sizeof(fec23_types[0]); i++) {
-		for (length = 0; length <= fec23_types[i].max_payload; length++) {
-			uint8_t air[AIR_BUF_SIZE], data[DATA_BUF_SIZE];
-			bbcodec_t codec;
-			unsigned total, want;
-			char message[96];
+	FOR_EVERY_PAYLOAD(i, length) {
+		uint8_t air[AIR_BUF_SIZE], data[DATA_BUF_SIZE];
+		bbcodec_t codec;
+		unsigned total, want;
+		char message[96];
 
-			total = build_payload(data, fec23_types[i].type, length,
-				0x1b3d7 + length);
-			encode_packet(&codec, air, data, fec23_types[i].type);
+		total = build_payload(data, fec23_types[i].type, length,
+			0x1b3d7 + length);
+		encode_packet(&codec, air, data, fec23_types[i].type);
 
-			mu_assert_int_eq((int)total, (int)codec.coded_total);
-			want = BYTE_ALIGN(58 + reference_air_bits(total));
-			snprintf(message, sizeof(message),
-				"%s payload %u: air size %u, not %u",
-				fec23_types[i].name, length, codec.air_bytes,
-				want);
-			mu_assert(codec.air_bytes == want, message);
-		}
+		mu_assert_int_eq((int)total, (int)codec.coded_total);
+		want = BYTE_ALIGN(58 + reference_air_bits(total));
+		snprintf(message, sizeof(message),
+			"%s payload %u: air size %u, not %u",
+			fec23_types[i].name, length, codec.air_bytes,
+			want);
+		mu_assert(codec.air_bytes == want, message);
 	}
 }
 
@@ -230,26 +250,24 @@ MU_TEST(test_the_encoder_fills_the_air_it_asks_for)
 {
 	unsigned i, length;
 
-	for (i = 0; i < sizeof(fec23_types) / sizeof(fec23_types[0]); i++) {
-		for (length = 0; length <= fec23_types[i].max_payload; length++) {
-			uint8_t air[AIR_BUF_SIZE], data[DATA_BUF_SIZE];
-			bbcodec_t codec;
-			unsigned total;
-			char message[96];
+	FOR_EVERY_PAYLOAD(i, length) {
+		uint8_t air[AIR_BUF_SIZE], data[DATA_BUF_SIZE];
+		bbcodec_t codec;
+		unsigned total;
+		char message[96];
 
-			total = build_payload(data, fec23_types[i].type, length,
-				0x5c10b + length);
-			encode_packet(&codec, air, data, fec23_types[i].type);
+		total = build_payload(data, fec23_types[i].type, length,
+			0x5c10b + length);
+		encode_packet(&codec, air, data, fec23_types[i].type);
 
-			snprintf(message, sizeof(message),
-				"%s payload %u: encoder stopped at bit %u",
-				fec23_types[i].name, length, codec.air_off_b);
-			mu_assert(codec.air_off_b ==
-					58 + reference_air_bits(total), message);
-			/* Which is what the air size holds. */
-			mu_assert(codec.air_bytes == BYTE_ALIGN(codec.air_off_b),
-				message);
-		}
+		snprintf(message, sizeof(message),
+			"%s payload %u: encoder stopped at bit %u",
+			fec23_types[i].name, length, codec.air_off_b);
+		mu_assert(codec.air_off_b ==
+				58 + reference_air_bits(total), message);
+		/* Which is what the air size holds. */
+		mu_assert(codec.air_bytes == BYTE_ALIGN(codec.air_off_b),
+			message);
 	}
 }
 
@@ -266,44 +284,106 @@ MU_TEST(test_every_payload_length_survives_the_round_trip)
 {
 	unsigned i, length;
 
-	for (i = 0; i < sizeof(fec23_types) / sizeof(fec23_types[0]); i++) {
-		for (length = 0; length <= fec23_types[i].max_payload; length++) {
-			uint8_t air[AIR_BUF_SIZE], data[DATA_BUF_SIZE];
-			uint8_t sent[DATA_BUF_SIZE], out[DATA_BUF_SIZE];
-			bbcodec_t enc, dec;
-			unsigned total;
-			uint16_t out_size = 0;
-			uint8_t flags = 0;
-			char message[96];
+	FOR_EVERY_PAYLOAD(i, length) {
+		uint8_t air[AIR_BUF_SIZE], data[DATA_BUF_SIZE];
+		uint8_t sent[DATA_BUF_SIZE], out[DATA_BUF_SIZE];
+		bbcodec_t enc, dec;
+		unsigned total;
+		uint16_t out_size = 0;
+		uint8_t flags = 0;
+		char message[96];
+		int rc;
 
-			total = build_payload(data, fec23_types[i].type, length,
-				0x2a74f + length);
-			encode_packet(&enc, air, data, fec23_types[i].type);
-			/* What went out, checksum included: the encoder writes
-			 * the checksum into the caller's buffer. */
-			memcpy(sent, data, total);
+		total = build_payload(data, fec23_types[i].type, length,
+			0x2a74f + length);
+		encode_packet(&enc, air, data, fec23_types[i].type);
+		/* What went out, checksum included: the encoder writes
+		 * the checksum into the caller's buffer. */
+		memcpy(sent, data, total);
 
-			/* Noise past the point the transmitter stops at. */
-			fill_pattern(air + enc.air_bytes,
-				AIR_BUF_SIZE - enc.air_bytes, 0x7e3b1 + length);
+		/* Noise past the point the transmitter stops at. */
+		fill_pattern(air + enc.air_bytes,
+			AIR_BUF_SIZE - enc.air_bytes, 0x7e3b1 + length);
 
-			decode_packet(&dec, air, out, &out_size, &flags);
+		rc = decode_packet(&dec, air, AIR_BUF_SIZE, out, &out_size,
+			&flags);
 
-			snprintf(message, sizeof(message),
-				"%s payload %u: bad checksum",
-				fec23_types[i].name, length);
-			mu_assert(flags & (1 << BBPKT_F_GOOD_CRC), message);
+		snprintf(message, sizeof(message),
+			"%s payload %u: not decoded (rc %d)",
+			fec23_types[i].name, length, rc);
+		mu_assert(rc == BBCODEC_DONE, message);
 
-			snprintf(message, sizeof(message),
-				"%s payload %u: wrong payload size %u",
-				fec23_types[i].name, length, out_size);
-			mu_assert(out_size == total - 2, message);
+		snprintf(message, sizeof(message),
+			"%s payload %u: bad checksum",
+			fec23_types[i].name, length);
+		mu_assert(flags & (1 << BBPKT_F_GOOD_CRC), message);
 
-			snprintf(message, sizeof(message),
-				"%s payload %u: payload changed",
-				fec23_types[i].name, length);
-			mu_assert(memcmp(sent, out, total) == 0, message);
-		}
+		snprintf(message, sizeof(message),
+			"%s payload %u: wrong payload size %u",
+			fec23_types[i].name, length, out_size);
+		mu_assert(out_size == total - 2, message);
+
+		snprintf(message, sizeof(message),
+			"%s payload %u: payload changed",
+			fec23_types[i].name, length);
+		mu_assert(memcmp(sent, out, total) == 0, message);
+	}
+}
+
+/*
+ * A capture one byte short of the packet is reported short, not decoded.
+ *
+ * This is the other half of the air size: the decoder compares the bytes it
+ * has against the bits the next chunk needs, and that need is the group count
+ * too. A chunk whose bits are not all there has to say BBCODEC_SHORT and wait
+ * for the rest, because the alternative is decoding a group from bytes the
+ * radio has not delivered. One byte less than the packet is short for the
+ * last chunk at every payload size, so every size is a case here.
+ */
+MU_TEST(test_a_capture_a_byte_short_is_reported_short)
+{
+	unsigned i, length;
+
+	FOR_EVERY_PAYLOAD(i, length) {
+		uint8_t air[AIR_BUF_SIZE], data[DATA_BUF_SIZE];
+		uint8_t out[DATA_BUF_SIZE];
+		bbcodec_t enc, dec;
+		uint16_t out_size = 0;
+		uint8_t flags = 0;
+		char message[96];
+		int rc;
+
+		build_payload(data, fec23_types[i].type, length,
+			0x4d9e3 + length);
+		encode_packet(&enc, air, data, fec23_types[i].type);
+
+		rc = decode_packet(&dec, air, enc.air_bytes - 1, out,
+			&out_size, &flags);
+
+		snprintf(message, sizeof(message),
+			"%s payload %u: %u air bytes of %u decoded as whole",
+			fec23_types[i].name, length, enc.air_bytes - 1,
+			enc.air_bytes);
+		mu_assert(rc == BBCODEC_SHORT, message);
+
+		/* And the whole packet is not short, so the byte that was
+		 * missing is the only reason above.
+		 *
+		 * Except for a packet smaller than one receive chunk: the
+		 * receive side decodes a whole CODEC_RX_CHUNK_SIZE first,
+		 * before it knows the payload length, so such a packet is
+		 * short on its own air size. A real receiver has the bytes
+		 * anyway, because the radio goes on delivering after the
+		 * packet ends, which is what the round trip above gives it. */
+		if (enc.air_bytes <
+		    BYTE_ALIGN(58 + BBCODEC_FEC23_AIR_BITS(CODEC_RX_CHUNK_SIZE)))
+			continue;
+		rc = decode_packet(&dec, air, enc.air_bytes, out, &out_size,
+			&flags);
+		snprintf(message, sizeof(message),
+			"%s payload %u: %u air bytes reported short",
+			fec23_types[i].name, length, enc.air_bytes);
+		mu_assert(rc == BBCODEC_DONE, message);
 	}
 }
 
@@ -335,46 +415,44 @@ MU_TEST(test_the_pad_bits_are_zeros)
 {
 	unsigned i, length;
 
-	for (i = 0; i < sizeof(fec23_types) / sizeof(fec23_types[0]); i++) {
-		for (length = 0; length <= fec23_types[i].max_payload; length++) {
-			uint8_t air[AIR_BUF_SIZE], data[DATA_BUF_SIZE];
-			uint8_t decoded[DATA_BUF_SIZE];
-			bbcodec_t enc;
-			unsigned total, whole, last, groups, pad, start, bit;
-			char message[96];
+	FOR_EVERY_PAYLOAD(i, length) {
+		uint8_t air[AIR_BUF_SIZE], data[DATA_BUF_SIZE];
+		uint8_t decoded[DATA_BUF_SIZE];
+		bbcodec_t enc;
+		unsigned total, whole, last, groups, pad, start, bit;
+		char message[96];
 
-			total = build_payload(data, fec23_types[i].type, length,
-				0x6f281 + length);
-			dirty_the_stack(0xff);
-			encode_packet(&enc, air, data, fec23_types[i].type);
+		total = build_payload(data, fec23_types[i].type, length,
+			0x6f281 + length);
+		dirty_the_stack(0xff);
+		encode_packet(&enc, air, data, fec23_types[i].type);
 
-			/* Where the last transmit chunk is. The chunks before
-			 * it are whole ones, and a whole chunk is a whole
-			 * number of groups. */
-			whole = (total - 1) / CODEC_TX_CHUNK_SIZE;
-			last = total - whole * CODEC_TX_CHUNK_SIZE;
-			start = 58 + whole *
-				BBCODEC_FEC23_AIR_BITS(CODEC_TX_CHUNK_SIZE);
+		/* Where the last transmit chunk is. The chunks before
+		 * it are whole ones, and a whole chunk is a whole
+		 * number of groups. */
+		whole = (total - 1) / CODEC_TX_CHUNK_SIZE;
+		last = total - whole * CODEC_TX_CHUNK_SIZE;
+		start = 58 + whole *
+			BBCODEC_FEC23_AIR_BITS(CODEC_TX_CHUNK_SIZE);
 
-			groups = (last * 8 + 9) / 10;
-			pad = groups * 10 - last * 8;
-			if (pad == 0)
-				continue;
+		groups = (last * 8 + 9) / 10;
+		pad = groups * 10 - last * 8;
+		if (pad == 0)
+			continue;
 
-			/* Decoding the chunk gives back its groups, so the
-			 * bits above the payload are the pad bits. unfec23()
-			 * ORs its output in and clears only as far as the
-			 * payload, so the buffer is cleared here. */
-			memset(decoded, 0, sizeof(decoded));
-			unfec23(decoded, air, start, last * 8);
+		/* Decoding the chunk gives back its groups, so the
+		 * bits above the payload are the pad bits. unfec23()
+		 * ORs its output in and clears only as far as the
+		 * payload, so the buffer is cleared here. */
+		memset(decoded, 0, sizeof(decoded));
+		unfec23(decoded, air, start, last * 8);
 
-			snprintf(message, sizeof(message),
-				"%s payload %u: %u pad bits are not zeros",
-				fec23_types[i].name, length, pad);
-			for (bit = last * 8; bit < groups * 10; bit++)
-				mu_assert((decoded[bit / 8] >> (bit % 8) & 1) == 0,
-					message);
-		}
+		snprintf(message, sizeof(message),
+			"%s payload %u: %u pad bits are not zeros",
+			fec23_types[i].name, length, pad);
+		for (bit = last * 8; bit < groups * 10; bit++)
+			mu_assert((decoded[bit / 8] >> (bit % 8) & 1) == 0,
+				message);
 	}
 }
 
@@ -384,6 +462,7 @@ int main(void)
 	MU_RUN(test_air_size_counts_the_part_group_whole);
 	MU_RUN(test_the_encoder_fills_the_air_it_asks_for);
 	MU_RUN(test_every_payload_length_survives_the_round_trip);
+	MU_RUN(test_a_capture_a_byte_short_is_reported_short);
 	MU_RUN(test_the_pad_bits_are_zeros);
 	return mu_report();
 }

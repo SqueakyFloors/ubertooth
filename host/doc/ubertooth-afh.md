@@ -31,7 +31,7 @@ carries over from an earlier capture. See ubertooth-util(1), SQUELCH.
  - `-m <int>` :
    threshold for channel removal: a channel is marked unused once this many packets
    arrive without it being seen; 1 or more (default: 5). It counts packets, not
-   seconds; see THE REMOVAL THRESHOLD, which the default of 5 is low for
+   seconds, and the default of 5 is at the low end; see THE REMOVAL THRESHOLD
  - `-r` :
    print AFH channel map once every second (default: print on update)
 

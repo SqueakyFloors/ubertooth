@@ -35,7 +35,7 @@
 #define NUM_PKT_HDR_BYTES BYTE_ALIGN(4+54)
 
 /* Data header should fit in a fec23 encoded codec chunk */
-#define NUM_DATA_HDR_BYTES BYTE_ALIGN(4+54+12*CODEC_RX_CHUNK_SIZE)
+#define NUM_DATA_HDR_BYTES BYTE_ALIGN(4+54+BBCODEC_FEC23_AIR_BITS(CODEC_RX_CHUNK_SIZE))
 
 /* The receiver must listen for at least 426usec. (BT Vol B, part 2, fig 2.3)
  * Reception deadline is setup_time + sym_count + 28usec of lag
