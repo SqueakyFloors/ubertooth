@@ -62,7 +62,25 @@ without `-t`.
 While it listens, the board hops across the channels the piconet has not been
 seen on, and the tool tells the board to stop visiting a channel once a packet
 from the piconet has arrived there. That is how the map fills in: a channel is
-reported used only when a packet is received on it.
+reported used when a packet is received on it.
+
+The one exception is a single unused channel between two used ones. The tool
+guesses that such a channel is one no packet has landed on yet rather than one
+the piconet left out, so when a packet arrives on a channel whose next-but-one
+neighbor is already used, the channel between them is marked used too, with a
+note on standard error:
+
+    note: activating additional channel 37
+
+Nothing in the specification stops a piconet from leaving out one channel on
+its own, so a map reported by this tool can name a channel the piconet does not
+use. Only a packet is evidence.
+
+Basic Rate has 79 channels, 0 to 78, and the rule needs a real channel on the
+far side of the gap, so it never reaches past either end of the band: channels
+0 and 78 are reported used only once a packet arrives on them. Channel 1 is
+still filled by a packet on channel 0 when channel 2 is used, and channel 77 by
+a packet on channel 78 when channel 76 is.
 
 The map lives on the board only while this run does. Every mode start resets
 the board's hop mode and AFH map, so this run begins from an empty map, and the

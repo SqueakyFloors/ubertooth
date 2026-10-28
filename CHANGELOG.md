@@ -426,6 +426,14 @@
   lost, in every bank, in `ubertooth-rx` and its `-z` survey, `ubertooth-scan`
   and the three AFH detection paths.
   [#792](https://github.com/SqueakyFloors/ubertooth/issues/792)
+- `ubertooth-afh` no longer reports the two channels at the edges of the band
+  as used without having seen a packet on them. Detection fills a single
+  unused channel between used ones, and off the end of the band -- Basic Rate
+  has channels 0 to 78 -- it read a channel that does not exist as used, so a
+  packet on channel 1 marked channel 0 used and one on channel 77 marked
+  channel 78. Both went into the printed map and into the map sent to the
+  board.
+  [#756](https://github.com/SqueakyFloors/ubertooth/issues/756)
 - `ubertooth-util -r` recovers a board that answers nothing, which used to
   need a re-plug or a hub port power cycle. Such a board refuses the reset
   request like every other request, so `-r` resets its USB connection first --

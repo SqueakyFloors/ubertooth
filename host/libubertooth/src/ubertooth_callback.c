@@ -610,11 +610,42 @@ out:
 		btbb_packet_unref(pkt);
 }
 
+/* Fills a single unused channel next to one a packet just arrived on. This is
+ * a guess, not a deduction: nothing stops a piconet from leaving out one
+ * channel on its own, but a lone gap in a run of used channels is more often a
+ * channel no packet has landed on yet. `neighbor` is the channel either side
+ * of the packet's, `past` the one beyond it, and the gap counts as single only
+ * when `past` is already marked used.
+ *
+ * Both have to name a real channel. Basic Rate has 79 of them, 0 to 78, so
+ * looking outwards from a packet on channel 1 there is no channel below 0 to
+ * judge the gap by, and from one on channel 77 no channel above 78: there the
+ * rule has nothing to work from and does not apply. The bounds matter because
+ * libbtbb reports a channel off the end of the band as used, which read as
+ * evidence of a gap and marked channel 0 used on a packet from channel 1, and
+ * channel 78 used on one from channel 77, with no packet ever seen on
+ * either. */
+static void afh_fill_single_gap(btbb_piconet* pn, int neighbor, int past)
+{
+	if (neighbor < 0 || neighbor > NUM_BREDR_CHANNELS - 1)
+		return;
+	if (past < 0 || past > NUM_BREDR_CHANNELS - 1)
+		return;
+
+	if (btbb_piconet_get_channel_seen(pn, (uint8_t)neighbor))
+		return;
+	if (!btbb_piconet_get_channel_seen(pn, (uint8_t)past))
+		return;
+
+	fprintf(stderr, "note: activating additional channel %d\n", neighbor);
+	btbb_piconet_set_channel_seen(pn, (uint8_t)neighbor);
+}
+
 void cb_afh_initial(ubertooth_t* ut, void* args)
 {
 	btbb_piconet* pn = (btbb_piconet*)args;
 	btbb_packet* pkt = NULL;
-	uint8_t channel;
+	int channel;
 
 	usb_pkt_rx usb = fifo_pop(ut->fifo);
 	usb_pkt_rx* rx = &usb;
@@ -632,23 +663,10 @@ void cb_afh_initial(ubertooth_t* ut, void* args)
 	 * set current channel as used channel and send updated AFH
 	 * map to ubertooth */
 	channel = rx->channel;
-	if(btbb_piconet_set_channel_seen(pn, channel)) {
+	if(btbb_piconet_set_channel_seen(pn, (uint8_t)channel)) {
 
-		/* Don't allow single unused channels */
-		if (!btbb_piconet_get_channel_seen(pn, channel+1) &&
-		    btbb_piconet_get_channel_seen(pn, channel+2))
-		{
-			fprintf(stderr, "note: activating additional channel %d\n",
-			        channel+1);
-		    btbb_piconet_set_channel_seen(pn, channel+1);
-		}
-		if (!btbb_piconet_get_channel_seen(pn, channel-1) &&
-		    btbb_piconet_get_channel_seen(pn, channel-2))
-		{
-			fprintf(stderr, "note: activating additional channel %d\n",
-			        channel-1);
-			btbb_piconet_set_channel_seen(pn, channel-1);
-		}
+		afh_fill_single_gap(pn, channel+1, channel+2);
+		afh_fill_single_gap(pn, channel-1, channel-2);
 
 		cmd_set_afh_map(ut->devh, btbb_piconet_get_afh_map(pn));
 		btbb_print_afh_map(pn);
