@@ -8,8 +8,16 @@
   address, so `-s A -t B` advertises from A and follows B, which is what it
   reads like. They shared one address, so whichever option was written last
   set both, and `-s <address> -t none` advertised from `00:00:00:00:00:00`
-  without a word. What each of the two accepts is unchanged.
+  without a word.
   [#383](https://github.com/SqueakyFloors/ubertooth/issues/383)
+- **Script-visible change:** `ubertooth-btle -s` takes one whole address and
+  nothing else. The `/<bits>` mask and `none` that `-t` takes are refused with
+  `error: faux slave address must be xx:xx:xx:xx:xx:xx (got none)` and exit 1,
+  where they used to be parsed, dropped and the command run anyway: a faux
+  slave advertises from a single address, so there is nothing for a mask to
+  narrow or for `none` to clear. A script that gave either one now gets a
+  failure instead of exit 0.
+  [#779](https://github.com/SqueakyFloors/ubertooth/issues/779)
 - **Script-visible change:** `ubertooth-ego -l` with interference (`-i`, `-j`)
   is refused, naming the mode as it was spelled: only the modes that read a
   packet read a capture length, so it used to set a firmware value the mode

@@ -46,3 +46,20 @@ int convert_mac_address(char *text, const char *what, uint8_t *address,
 	*mask_out = (uint8_t)mask;
 	return 1;
 }
+
+int convert_plain_mac_address(const char *text, const char *what,
+                              uint8_t *address)
+{
+	/* "<what> address", the name the refusal calls this value. */
+	char label[48];
+
+	if (text == NULL || address == NULL)
+		return 0;
+	snprintf(label, sizeof(label), "%s address", what);
+	/* No mask is split off and "none" is not a word here, so the whole
+	 * value goes to the address parser -- a mask or "none" is refused as
+	 * the address it is not -- and there is no separate word to quote. */
+	if (opt_require_bd_addr(text, label, NULL, address) < 0)
+		return 0;
+	return 1;
+}

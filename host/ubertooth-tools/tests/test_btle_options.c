@@ -59,6 +59,31 @@ static void test_invalid_targets(void)
 	CHECK(convert_mac_address(invalid_mask, "target", address, &mask) == 0);
 }
 
+/* A faux slave's address is one whole address: the two spellings a target can
+ * use are refused here, because there is nothing to narrow or clear. */
+static void test_plain_addresses(void)
+{
+	uint8_t address[OPT_BD_ADDR_BYTES] = {0};
+	const uint8_t expected[] = {0x11, 0x22, 0x33, 0x44, 0x55, 0x66};
+
+	CHECK(convert_plain_mac_address("11:22:33:44:55:66", "faux slave",
+	                                address) == 1);
+	CHECK(memcmp(address, expected, sizeof(address)) == 0);
+
+	CHECK(convert_plain_mac_address("none", "faux slave", address) == 0);
+	CHECK(convert_plain_mac_address("11:22:33:44:55:66/24", "faux slave",
+	                                address) == 0);
+	CHECK(convert_plain_mac_address("11:22", "faux slave", address) == 0);
+	CHECK(convert_plain_mac_address(NULL, "faux slave", address) == 0);
+	/* A refused value leaves the address it was given alone. An address of
+	 * the right length with one bad byte is the case that shows it: the
+	 * parser reads the five bytes before the bad one, so a parser that
+	 * wrote them straight into the caller's address would be caught here. */
+	CHECK(convert_plain_mac_address("11:22:33:44:55:GG", "faux slave",
+	                                address) == 0);
+	CHECK(memcmp(address, expected, sizeof(address)) == 0);
+}
+
 int main(void)
 {
 	/* The access address parser moved to opt_parse.c; its cases live in
@@ -66,6 +91,7 @@ int main(void)
 	test_clear_target();
 	test_full_and_masked_targets();
 	test_invalid_targets();
+	test_plain_addresses();
 	printf("btle options: %d checks, %d failures\n", checks, failures);
 	return failures ? 1 : 0;
 }
