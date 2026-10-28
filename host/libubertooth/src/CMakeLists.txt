@@ -48,7 +48,7 @@ find_package(USB1 REQUIRED)
 # fails without it.
 find_package(Threads REQUIRED)
 
-include_directories(${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+include_directories(${LIBUSB_INCLUDE_DIRS} ${LIBBTBB_INCLUDE_DIR})
 LIST(APPEND LIBUBERTOOTH_LIBS ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES}
      Threads::Threads)
 

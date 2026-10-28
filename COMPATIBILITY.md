@@ -66,9 +66,10 @@ host tools under Linux (native or VM). Documented as a hard non-goal.
 CI covers Apple-Silicon (arm64) macOS 14/15/26. Intel macOS is not tested in CI:
 GitHub's `macos-13` (last Intel) runners are capacity-constrained and queue
 unreliably, so an Intel CI job stalls rather than giving a timely signal. The
-code should build on Intel (the Homebrew include path uses `$(brew --prefix)`,
-which resolves to `/usr/local` on Intel), but this is unverified. Test locally
-if you build on an Intel Mac.
+code should build on Intel (nothing in the build names a Homebrew prefix: the
+configure step takes libusb's include directories from libusb, wherever
+Homebrew put it), but this is unverified. Test locally if you build on an
+Intel Mac.
 
 ### The host library needs C11 atomics
 `libubertooth` uses `<stdatomic.h>` for the two pointers of the capture ring

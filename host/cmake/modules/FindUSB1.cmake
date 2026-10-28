@@ -2,7 +2,9 @@
 # Once done this defines
 #
 #  LIBUSB_FOUND - system has libusb
-#  LIBUSB_INCLUDE_DIR - the libusb include directory
+#  LIBUSB_INCLUDE_DIR - the directory holding libusb.h
+#  LIBUSB_INCLUDE_DIRS - the directories to compile with: both the one holding
+#                        libusb.h and the one above it
 #  LIBUSB_LIBRARIES - Link these to use libusb
 
 # Copyright (c) 2006, 2008  Laurent Montel, <montel@kde.org>
@@ -41,3 +43,25 @@ else (LIBUSB_INCLUDE_DIR AND LIBUSB_LIBRARIES)
   MARK_AS_ADVANCED(LIBUSB_INCLUDE_DIR LIBUSB_LIBRARIES)
 
 endif (LIBUSB_INCLUDE_DIR AND LIBUSB_LIBRARIES)
+
+# Two directories, because the sources spell the header both ways. libusb's
+# own <libusb.h> resolves against the directory libusb.h sits in, which is
+# what LIBUSB_INCLUDE_DIR names; ubertooth_control.h includes
+# <libusb-1.0/libusb.h>, which resolves against the directory above that. A
+# Homebrew install keeps the header a level below the prefix include
+# directory (/opt/homebrew/Cellar/libusb/1.0.30/include/libusb-1.0/libusb.h),
+# so there the two are different places and a target given only
+# LIBUSB_INCLUDE_DIR cannot compile <libusb-1.0/libusb.h>. On Linux the
+# header is under /usr/include, which the compiler searches anyway.
+#
+# Reporting both is what lets a target ask libusb for libusb's header. Before
+# this, every target also passed libbtbb's include directory, which on a
+# Homebrew install is the prefix include directory and so happens to hold a
+# libusb-1.0 symlink: the libusb path came from another library by
+# coincidence, and the one target that had no reason to name libbtbb did not
+# build.
+if (LIBUSB_INCLUDE_DIR)
+  get_filename_component(LIBUSB_INCLUDE_PARENT_DIR "${LIBUSB_INCLUDE_DIR}" DIRECTORY)
+  set(LIBUSB_INCLUDE_DIRS "${LIBUSB_INCLUDE_DIR};${LIBUSB_INCLUDE_PARENT_DIR}"
+    CACHE INTERNAL "libusb include directories, for either spelling of its header")
+endif (LIBUSB_INCLUDE_DIR)

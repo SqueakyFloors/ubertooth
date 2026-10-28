@@ -111,7 +111,7 @@ if(libubertooth_SOURCE_DIR)
 		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c)
 	target_include_directories(test-specan-write-failure PRIVATE
 		../src ${libubertooth_SOURCE_DIR}/src
-		${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+		${LIBUSB_INCLUDE_DIRS} ${LIBBTBB_INCLUDE_DIR})
 	target_link_libraries(test-specan-write-failure opt-parse-for-tests)
 	if(USE_OWN_GNU_GETOPT)
 		target_include_directories(test-specan-write-failure BEFORE PRIVATE ../getopt)
@@ -374,7 +374,7 @@ else()
 	target_include_directories(test-util-main PRIVATE ${LIBUBERTOOTH_INCLUDE_DIR})
 endif()
 target_include_directories(test-util-main PRIVATE ../src
-	${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+	${LIBUSB_INCLUDE_DIRS} ${LIBBTBB_INCLUDE_DIR})
 if(USE_OWN_GNU_GETOPT)
 	target_include_directories(test-util-main BEFORE PRIVATE ../getopt)
 	target_link_libraries(test-util-main libgetopt_static)
@@ -409,7 +409,7 @@ else()
 	target_include_directories(test-afh-main PRIVATE ${LIBUBERTOOTH_INCLUDE_DIR})
 endif()
 target_include_directories(test-afh-main PRIVATE ../src
-	${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+	${LIBUSB_INCLUDE_DIRS} ${LIBBTBB_INCLUDE_DIR})
 if(USE_OWN_GNU_GETOPT)
 	target_include_directories(test-afh-main BEFORE PRIVATE ../getopt)
 	target_link_libraries(test-afh-main libgetopt_static)
@@ -435,7 +435,7 @@ else()
 	target_include_directories(test-btle-main PRIVATE ${LIBUBERTOOTH_INCLUDE_DIR})
 endif()
 target_include_directories(test-btle-main PRIVATE ../src
-	${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+	${LIBUSB_INCLUDE_DIRS} ${LIBBTBB_INCLUDE_DIR})
 if(USE_OWN_GNU_GETOPT)
 	target_include_directories(test-btle-main BEFORE PRIVATE ../getopt)
 	target_link_libraries(test-btle-main libgetopt_static)
@@ -459,7 +459,7 @@ else()
 	target_include_directories(test-rx-main PRIVATE ${LIBUBERTOOTH_INCLUDE_DIR})
 endif()
 target_include_directories(test-rx-main PRIVATE ../src
-	${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+	${LIBUSB_INCLUDE_DIRS} ${LIBBTBB_INCLUDE_DIR})
 if(USE_OWN_GNU_GETOPT)
 	target_include_directories(test-rx-main BEFORE PRIVATE ../getopt)
 	target_link_libraries(test-rx-main libgetopt_static)
@@ -488,7 +488,7 @@ else()
 	target_include_directories(test-ducky-main PRIVATE ${LIBUBERTOOTH_INCLUDE_DIR})
 endif()
 target_include_directories(test-ducky-main PRIVATE ../src
-	${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+	${LIBUSB_INCLUDE_DIRS} ${LIBBTBB_INCLUDE_DIR})
 if(USE_OWN_GNU_GETOPT)
 	target_include_directories(test-ducky-main BEFORE PRIVATE ../getopt)
 	target_link_libraries(test-ducky-main libgetopt_static)
@@ -512,7 +512,7 @@ else()
 	target_include_directories(test-ego-main PRIVATE ${LIBUBERTOOTH_INCLUDE_DIR})
 endif()
 target_include_directories(test-ego-main PRIVATE ../src
-	${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+	${LIBUSB_INCLUDE_DIRS} ${LIBBTBB_INCLUDE_DIR})
 if(USE_OWN_GNU_GETOPT)
 	target_include_directories(test-ego-main BEFORE PRIVATE ../getopt)
 	target_link_libraries(test-ego-main libgetopt_static)
@@ -542,7 +542,7 @@ else()
 	target_include_directories(test-dfu-main PRIVATE ${LIBUBERTOOTH_INCLUDE_DIR})
 endif()
 target_include_directories(test-dfu-main PRIVATE ../src
-	${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+	${LIBUSB_INCLUDE_DIRS} ${LIBBTBB_INCLUDE_DIR})
 target_link_libraries(test-dfu-main ${LIBUSB_LIBRARIES})
 if(USE_OWN_GNU_GETOPT)
 	target_include_directories(test-dfu-main BEFORE PRIVATE ../getopt)
@@ -598,7 +598,7 @@ if(libubertooth_SOURCE_DIR)
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c)
 	target_include_directories(test-control-partnum PRIVATE
-		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIRS} ${LIBBTBB_INCLUDE_DIR})
 	target_link_libraries(test-control-partnum ${LIBUSB_LIBRARIES})
 	add_test(NAME control-partnum COMMAND test-control-partnum)
 
@@ -608,7 +608,7 @@ if(libubertooth_SOURCE_DIR)
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c)
 	target_include_directories(test-control-reads PRIVATE
-		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIRS} ${LIBBTBB_INCLUDE_DIR})
 	target_link_libraries(test-control-reads ${LIBUSB_LIBRARIES})
 	add_test(NAME control-reads COMMAND test-control-reads)
 
@@ -620,7 +620,7 @@ if(libubertooth_SOURCE_DIR)
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c)
 	target_include_directories(test-control-async PRIVATE
-		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIRS} ${LIBBTBB_INCLUDE_DIR})
 	target_link_libraries(test-control-async ${LIBUSB_LIBRARIES})
 	add_test(NAME control-async COMMAND test-control-async)
 	# Every transfer is faked: a run takes milliseconds.
@@ -636,7 +636,7 @@ if(libubertooth_SOURCE_DIR)
 		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
 	target_include_directories(test-init-failure PRIVATE
-		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIRS} ${LIBBTBB_INCLUDE_DIR})
 	target_link_libraries(test-init-failure ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES}
 		Threads::Threads)
 	add_test(NAME init-failure COMMAND test-init-failure)
@@ -650,7 +650,7 @@ if(libubertooth_SOURCE_DIR)
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c)
 	target_include_directories(test-control-text PRIVATE
-		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIRS} ${LIBBTBB_INCLUDE_DIR})
 	target_link_libraries(test-control-text ${LIBUSB_LIBRARIES})
 	add_test(NAME control-text COMMAND test-control-text)
 
@@ -668,7 +668,7 @@ if(libubertooth_SOURCE_DIR)
 		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
 	target_include_directories(test-device-select PRIVATE
-		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIRS} ${LIBBTBB_INCLUDE_DIR})
 	target_link_libraries(test-device-select ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES}
 		Threads::Threads)
 	add_test(NAME device-select COMMAND test-device-select)
@@ -688,7 +688,7 @@ if(libubertooth_SOURCE_DIR)
 		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
 	target_include_directories(test-select-quiet PRIVATE
-		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIRS} ${LIBBTBB_INCLUDE_DIR})
 	target_link_libraries(test-select-quiet ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES}
 		Threads::Threads)
 	add_test(NAME select-quiet COMMAND test-select-quiet)
@@ -709,7 +709,7 @@ if(libubertooth_SOURCE_DIR)
 		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
 	target_include_directories(test-afh-requests PRIVATE
-		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIRS} ${LIBBTBB_INCLUDE_DIR})
 	target_link_libraries(test-afh-requests ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES}
 		Threads::Threads)
 	add_test(NAME afh-requests COMMAND test-afh-requests)
@@ -729,7 +729,7 @@ if(libubertooth_SOURCE_DIR)
 		${libubertooth_SOURCE_DIR}/src/ubertooth_fifo.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c)
 	target_include_directories(test-clk100ns-wrap PRIVATE
-		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIRS} ${LIBBTBB_INCLUDE_DIR})
 	target_link_libraries(test-clk100ns-wrap ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES}
 		Threads::Threads)
 	# One case reads ubertooth-btle's source, which starts the mode whose
@@ -752,18 +752,16 @@ if(libubertooth_SOURCE_DIR)
 	# the sanitized target below has to agree.
 	set(fifo_test_slots 7)
 	#
-	# libbtbb's include directory is listed although nothing here uses
-	# libbtbb, because that is what supplies the directory
-	# <libusb-1.0/libusb.h> is found under: LIBUSB_INCLUDE_DIR names the
-	# directory holding libusb.h itself, one level too deep. Every other
-	# target that compiles a source reaching ubertooth_control.h passes
-	# it, which is why this was the only one that did not build without
-	# -I$(brew --prefix)/include on macOS.
+	# No libbtbb include directory here, because nothing in this target
+	# uses libbtbb: FindUSB1.cmake reports every directory libusb's
+	# header needs, including the one <libusb-1.0/libusb.h> is found
+	# under, so libusb's path no longer arrives by way of another
+	# library's.
 	add_executable(test-fifo-ring
 		test_fifo_ring.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_fifo.c)
 	target_include_directories(test-fifo-ring PRIVATE
-		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIRS})
 	target_compile_definitions(test-fifo-ring PRIVATE
 		UBERTOOTH_FIFO_SLOTS_FOR_TESTS=${fifo_test_slots})
 	target_link_libraries(test-fifo-ring Threads::Threads)
@@ -796,8 +794,7 @@ if(libubertooth_SOURCE_DIR)
 			test_fifo_ring.c
 			${libubertooth_SOURCE_DIR}/src/ubertooth_fifo.c)
 		target_include_directories(test-fifo-ring-tsan PRIVATE
-			${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR}
-			${LIBBTBB_INCLUDE_DIR})
+			${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIRS})
 		target_compile_definitions(test-fifo-ring-tsan PRIVATE
 			UBERTOOTH_FIFO_SLOTS_FOR_TESTS=${fifo_test_slots})
 		target_compile_options(test-fifo-ring-tsan PRIVATE
@@ -872,7 +869,7 @@ if(libubertooth_SOURCE_DIR)
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c)
 	target_include_directories(test-le-decode-buffer PRIVATE
-		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIRS} ${LIBBTBB_INCLUDE_DIR})
 	target_link_libraries(test-le-decode-buffer ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES}
 		Threads::Threads)
 	add_test(NAME le-decode-buffer COMMAND test-le-decode-buffer)
@@ -892,7 +889,7 @@ if(libubertooth_SOURCE_DIR)
 		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
 	target_include_directories(test-stream-failure PRIVATE
-		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIRS} ${LIBBTBB_INCLUDE_DIR})
 	# ${CMAKE_DL_LIBS} for dlsym(): the test defines pthread_create() so a
 	# case can refuse a capture's collecting thread, and looks the real one
 	# up past its own definition for the cases that need a thread.
@@ -917,7 +914,7 @@ if(libubertooth_SOURCE_DIR)
 		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
 	target_include_directories(test-keep-alive PRIVATE
-		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIRS} ${LIBBTBB_INCLUDE_DIR})
 	target_link_libraries(test-keep-alive ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES}
 		Threads::Threads)
 	add_test(NAME keep-alive COMMAND test-keep-alive)
@@ -938,7 +935,7 @@ if(libubertooth_SOURCE_DIR)
 		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
 	target_include_directories(test-btle-dump-streams PRIVATE
-		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIRS} ${LIBBTBB_INCLUDE_DIR})
 	target_link_libraries(test-btle-dump-streams ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES}
 		Threads::Threads)
 	add_test(NAME btle-dump-streams COMMAND test-btle-dump-streams)
@@ -957,7 +954,7 @@ if(libubertooth_SOURCE_DIR)
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c)
 	target_include_directories(test-stop-on-signal PRIVATE
-		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIRS} ${LIBBTBB_INCLUDE_DIR})
 	target_link_libraries(test-stop-on-signal ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES}
 		Threads::Threads)
 	add_test(NAME stop-on-signal COMMAND test-stop-on-signal)
@@ -1016,7 +1013,7 @@ if(LIBBLUETOOTH_FOUND)
 			${LIBUBERTOOTH_INCLUDE_DIR})
 	endif()
 	target_include_directories(test-scan-main PRIVATE ../src
-		${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR}
+		${LIBUSB_INCLUDE_DIRS} ${LIBBTBB_INCLUDE_DIR}
 		${LIBBLUETOOTH_INCLUDE_DIR})
 	if(USE_OWN_GNU_GETOPT)
 		target_include_directories(test-scan-main BEFORE PRIVATE ../getopt)
@@ -1052,7 +1049,7 @@ if(LIBBLUETOOTH_FOUND)
 			${LIBUBERTOOTH_INCLUDE_DIR})
 	endif()
 	target_include_directories(test-follow-main PRIVATE ../src
-		${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR}
+		${LIBUSB_INCLUDE_DIRS} ${LIBBTBB_INCLUDE_DIR}
 		${LIBBLUETOOTH_INCLUDE_DIR})
 	if(USE_OWN_GNU_GETOPT)
 		target_include_directories(test-follow-main BEFORE PRIVATE ../getopt)
@@ -1085,7 +1082,7 @@ foreach(tool debug dump tx)
 			${LIBUBERTOOTH_INCLUDE_DIR})
 	endif()
 	target_include_directories(test-${tool}-main PRIVATE ../src
-		${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+		${LIBUSB_INCLUDE_DIRS} ${LIBBTBB_INCLUDE_DIR})
 	if(USE_OWN_GNU_GETOPT)
 		target_include_directories(test-${tool}-main BEFORE PRIVATE ../getopt)
 		target_link_libraries(test-${tool}-main libgetopt_static)
@@ -1118,3 +1115,18 @@ add_test(
 # on a loaded machine. The limit has room for a cold CI runner, where
 # compiler detection alone takes seconds.
 set_tests_properties(btbb-check PROPERTIES TIMEOUT 60)
+
+# FindUSB1.cmake must report every directory a source needs for libusb's
+# header, so a target asks libusb for it rather than depending on where
+# another library happens to be installed. Runs the real module from a
+# one-line project and compiles both spellings of the include with nothing but
+# the directories it reports.
+add_test(
+	NAME libusb-include
+	COMMAND ${Python3_EXECUTABLE}
+		${CMAKE_CURRENT_SOURCE_DIR}/test_libusb_include.py
+		${CMAKE_COMMAND}
+		${CMAKE_CURRENT_SOURCE_DIR}/../../..)
+# One configure of a two-file project and its build: 5 s here. The limit has
+# room for a cold runner, where compiler detection alone takes seconds.
+set_tests_properties(libusb-include PROPERTIES TIMEOUT 30)
