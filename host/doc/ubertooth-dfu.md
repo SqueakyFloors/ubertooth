@@ -434,9 +434,10 @@ not. It is a warning rather than a refusal for that reason.
     warning: older.dfu: this image reports API version 1.07 in its firmware info block, and these tools report <version>; the tools and the board have to report the same one
 
 What the warning reports is what the file says about itself. The other tools
-read the board's USB `bcdDevice` rather than this block, and the two are not
-the same number in every image, so the warning does not promise what they will
-make of the board afterwards.
+read the board's USB `bcdDevice` rather than this block, so the warning does
+not promise what they will make of the board afterwards. Both images this tree
+builds put the same version in both places, so the two agree today; nothing in
+the format makes them have to.
 
 ## SEE ALSO
 
