@@ -480,17 +480,20 @@ static void spi_delay() {
  * The read waits out spi_delay() twice per bit, about 0.85 microseconds each,
  * so a bit costs about 1.8 microseconds and a 32-byte read runs to roughly
  * 460 microseconds. That is longer than one clkn period and shorter than two,
- * so a read costs the Bluetooth clock exactly one tick: an interrupt raised
- * while masked is latched and runs as soon as the mask comes off, but two
- * matches of the same timer coalesce into the one pending bit. The timer
- * itself reloads in hardware and keeps time; it is the count clkn keeps in
- * software that falls 312.5 microseconds behind.
+ * so a read costs the Bluetooth clock at most one tick. An interrupt raised
+ * while masked is not lost: it is latched and runs as soon as the mask comes
+ * off, so a span holding one timer match only delays the handler. A tick goes
+ * only when two matches fall inside the span, because they coalesce into the
+ * one pending bit -- which happens when the read begins within about 150
+ * microseconds of a match, a little under half the time. The timer itself
+ * reloads in hardware and keeps time; it is the count clkn keeps in software
+ * that falls 312.5 microseconds behind when that happens.
  *
- * Who pays that tick: only the two modes that read the FIFO, the generic
+ * Who pays those ticks: only the two modes that read the FIFO, the generic
  * receive (rx_generic_sync()) and the range test. The generic receive stamps
- * each packet it enqueues with clkn, so its timestamps fall one tick further
- * behind per packet captured; the range test uses clkn only for a one-second
- * turnaround. No shipped tool asks for either mode. The capture modes whose
+ * each packet it enqueues with clkn, so its timestamps fall further behind
+ * the more packets it captures; the range test uses clkn only for a
+ * one-second turnaround. No shipped tool asks for either mode. The capture modes whose
  * timestamps a user reads -- BR/EDR receive and the LE PHY -- take their data
  * over DMA and never touch the FIFO, so they are unaffected.
  *

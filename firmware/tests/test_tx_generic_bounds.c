@@ -65,6 +65,10 @@ static unsigned fifo_len;
 static uint8_t writes[VENDOR_REQ_BUF];
 static unsigned write_count;
 
+/* 1 when the radio empties its FIFO between pieces, 0 when the wait for it
+ * gives up, which is what fifo_wait_empty() returns. */
+static int fifo_drains = 1;
+
 static void reset_state(void)
 {
 	memset(&globals, 0, sizeof(globals));
@@ -73,6 +77,7 @@ static void reset_state(void)
 	fifo_len = 0;
 	memset(writes, 0, sizeof(writes));
 	write_count = 0;
+	fifo_drains = 1;
 }
 
 /*
@@ -126,6 +131,8 @@ static void tx_generic(void)
 	uint8_t sent = 0, chunk;
 
 	do {
+		if (sent != 0 && !fifo_drains)
+			break;
 		chunk = MIN(len - sent, CC2400_FIFO_SIZE);
 		cc2400_fifo_write(chunk, globals.pkt.data + sent);
 		sent += chunk;
@@ -368,6 +375,32 @@ MU_TEST(test_the_longest_packet_goes_out_as_two_pieces)
 }
 
 /*
+ * A radio that never empties its FIFO ends the packet where it is. Carrying on
+ * would write the next piece into a FIFO the radio still holds data in, which
+ * is the overrun the loop exists to avoid: the packet is lost either way, and
+ * this way nothing goes past the FIFO to lose it.
+ */
+MU_TEST(test_a_radio_that_does_not_drain_ends_the_packet)
+{
+	unsigned length;
+
+	for (length = CC2400_FIFO_SIZE; length <= DMA_SIZE; length++) {
+		char msg[200];
+
+		reset_state();
+		globals.pkt.length = (uint8_t)length;
+		fifo_drains = 0;
+		tx_generic();
+
+		snprintf(msg, sizeof(msg),
+		         "a packet of %u bytes with a radio that never empties its "
+		         "FIFO: %u writes, %u bytes", length, write_count, fifo_len);
+		mu_assert(write_count == 1, msg);
+		mu_assert(fifo_len == CC2400_FIFO_SIZE, msg);
+	}
+}
+
+/*
  * What the single write this replaces did, so the tests above are checking
  * something: a 50-byte packet went into the FIFO as one 50-byte write, 18
  * bytes past its end.
@@ -405,6 +438,7 @@ struct scan {
 	int length_clamped;   /* the payload length clamped to DMA_SIZE */
 	int chunked;          /* a piece bounded by the FIFO's size */
 	int drain_wait;       /* the wait for the radio between pieces */
+	int drain_wait_used;  /* ...with its result acted on */
 	int loop_end;         /* the loop that keeps going while bytes are left */
 };
 
@@ -447,8 +481,10 @@ static int scan_source(const char *path, struct scan *s)
 		/* The first one after the clamp, so this is tx_generic()'s and
 		 * not le_transmit()'s, which comes earlier in the file. */
 		if (strstr(flat, "fifo_wait_empty()") != NULL &&
-		    s->length_clamped != 0 && s->drain_wait == 0)
+		    s->length_clamped != 0 && s->drain_wait == 0) {
 			s->drain_wait = lineno;
+			s->drain_wait_used = strstr(flat, "!fifo_wait_empty()") != NULL;
+		}
 		if (strstr(flat, "} while (sent < len);") != NULL)
 			s->loop_end = lineno;
 
@@ -580,6 +616,12 @@ MU_TEST(test_the_fifo_write_is_clamped_and_chunked)
 	mu_assert(s.drain_wait > 0 && s.drain_wait < s.chunked, msg);
 
 	snprintf(msg, sizeof(msg),
+	         "%s:%d: tx_generic() ignores what the wait returned, so a radio "
+	         "that never empties its FIFO gets the next piece written past "
+	         "the end of it anyway", path, s.drain_wait);
+	mu_assert(s.drain_wait_used, msg);
+
+	snprintf(msg, sizeof(msg),
 	         "%s:%d: the write is not in a loop that runs until the whole "
 	         "payload has gone out, so a packet longer than the FIFO loses "
 	         "its tail", path, s.fifo_write);
@@ -601,6 +643,7 @@ int main(void)
 	MU_RUN(test_no_write_is_larger_than_the_fifo);
 	MU_RUN(test_the_whole_payload_reaches_the_radio_in_order);
 	MU_RUN(test_the_longest_packet_goes_out_as_two_pieces);
+	MU_RUN(test_a_radio_that_does_not_drain_ends_the_packet);
 	MU_RUN(test_the_old_single_write_overran_the_fifo);
 
 	/* Scanned once here rather than from the first of the three tests

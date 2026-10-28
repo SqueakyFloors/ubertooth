@@ -1412,12 +1412,15 @@ static void cc2400_rx_sync(u32 sync)
  * was lost -- held the transmit loop forever, and that loop is what services
  * USB, so the board answered no control request until it was re-plugged.
  *
- * A caller that times out writes the rest of the packet anyway, as the other
- * bounded radio waits carry on: that packet goes out malformed and the
- * receiver drops it, which is what every alternative costs too, and the board
- * keeps answering the host. These timeouts are not among the counts
- * UBERTOOTH_GET_RADIO_TIMEOUTS reports, because adding a shape to that reply
- * changes what an older host reads each of the counts as.
+ * A caller that times out stops writing and lets the packet end there, rather
+ * than carrying on the way the other bounded radio waits do: the radio still
+ * holds what it was given, so the next piece would go past the end of the
+ * FIFO. The packet goes out short and the receiver drops it, which is what
+ * every alternative costs too, and the board keeps answering the host.
+ *
+ * These timeouts are not among the counts UBERTOOTH_GET_RADIO_TIMEOUTS
+ * reports, because adding a shape to that reply changes what an older host
+ * reads each of the counts as.
  *
  * Returns 1 if the FIFO emptied, 0 if the wait timed out.
  */
@@ -1567,7 +1570,11 @@ void le_transmit(u32 aa, u8 len, u8 *data)
 		// so a radio that stops draining no longer takes the board with
 		// it; before the first piece there is nothing to drain and GIO6
 		// already reads high, so this returns at once.
-		fifo_wait_empty();
+		//
+		// A wait that gives up ends the packet rather than writing the
+		// next piece past the end of a FIFO the radio has not emptied.
+		if (!fifo_wait_empty())
+			break;
 		// Decide how much we should send in this iteration
 		if (len >= fifo_space) {
 			len -= fifo_space;
@@ -3163,9 +3170,15 @@ void tx_generic(u8 prev_mode) {
 	sent = 0;
 	do {
 		/* Nothing to wait for before the first piece: the radio has not
-		 * been strobed to transmit, so the FIFO cannot be draining. */
-		if (sent != 0)
-			fifo_wait_empty();
+		 * been strobed to transmit, so the FIFO cannot be draining.
+		 *
+		 * A wait that gives up ends the packet here instead of writing
+		 * the rest. The radio still has what it was given, so the next
+		 * piece would go past the end of the FIFO -- which is the thing
+		 * this loop exists to avoid. Either way this packet is lost;
+		 * this way nothing is written past the FIFO to lose it. */
+		if (sent != 0 && !fifo_wait_empty())
+			break;
 
 		chunk = MIN(len - sent, CC2400_FIFO_SIZE);
 		cc2400_fifo_write(chunk, tx_pkt.data + sent);
