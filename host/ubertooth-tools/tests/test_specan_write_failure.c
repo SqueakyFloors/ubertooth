@@ -1114,8 +1114,8 @@ MU_TEST(a_failed_text_write_ends_the_run)
 
 		mu_assert_int_eq(1, output_failed);
 		mu_assert_int_eq(1, ut.stop_ubertooth);
-		mu_assert(strncmp(err, "error: writing samples failed: could not "
-		                  "write the sample (", 58) == 0, err);
+		mu_assert(strstr(err, "error: writing samples failed: could not "
+		                 "write the sample (") == err, err);
 		mu_assert(strchr(err, '\n') == strrchr(err, '\n'), "said once");
 	}
 }

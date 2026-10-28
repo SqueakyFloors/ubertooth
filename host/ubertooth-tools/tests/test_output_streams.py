@@ -97,7 +97,7 @@ SAID_SOMETHING = {
 # Anything libubertooth prints once a tool starts looking for a device: a
 # command with nothing to do must be refused before that happens.
 DEVICE_ACCESS = (
-    "could not open ubertooth",
+    "no ubertooth devices found",
     "no ubertooth found",
     "no board is selected",
     "usb descriptor",

@@ -164,8 +164,11 @@
   with several attached and no `-U`, `error: multiple Ubertooth devices
   found; select one with -U <index|serial>` and then the boards, in place of
   `multiple Ubertooth devices found! Use '-U' to specify device number`,
-  which did not say that `-U` takes a serial as well. A refused index or
-  serial no longer gets a second line after it that named no cause of its
+  which did not say that `-U` takes a serial as well. Each board on that list
+  is now `  Device <n>: <serial>`, without the `Serial No: ` the old line
+  carried, and a board whose serial could not be read is listed as
+  `  Device <n>: serial unreadable` instead of being left out. A refused index
+  or serial no longer gets a second line after it that named no cause of its
   own, and a serial that matches nothing says `error: no Ubertooth found with
   serial matching '<string>'`. A libusb failure that cannot be put in words
   reads `error: Input/Output Error (libusb -1)`, in place of `libUSB Error:

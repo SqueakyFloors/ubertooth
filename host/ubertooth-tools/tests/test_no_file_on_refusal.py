@@ -95,7 +95,7 @@ def refused(arguments, directory):
     expected = (0, 1) if "-h" in arguments else (1,)
     assert result.returncode in expected, (arguments, result)
     assert "no ubertooth" not in output, (arguments, result)
-    assert "could not open ubertooth" not in output, (arguments, result)
+    assert "no board is selected" not in output, (arguments, result)
     return result
 
 

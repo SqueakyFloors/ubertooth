@@ -623,14 +623,23 @@ MU_TEST(several_devices_with_no_index_still_list_them)
 
 	bus_with_two_serials();
 	mu_assert(select_capturing(NULL, msg, sizeof(msg)) == NULL, "no -U of two");
-	mu_assert(strncmp(msg, "error: multiple Ubertooth devices found; select "
-	          "one with -U <index|serial>\n", 74) == 0, msg);
-	/* Each board on a line of its own, by serial, which is what -U wants. */
-	mu_assert(strstr(msg, "\n  Device 0: ") != NULL, msg);
-	mu_assert(strstr(msg, "\n  Device 1: ") != NULL, msg);
-	mu_assert(strstr(msg, "could not open") == NULL, msg);
-	/* One error: line for the whole refusal. */
-	mu_assert(strstr(msg + 7, "error: ") == NULL, msg);
+	mu_assert(strcmp(msg,
+	    "error: multiple Ubertooth devices found; select one with "
+	    "-U <index|serial>\n"
+	    "  Device 0: " SERIAL_A "\n"
+	    "  Device 1: " SERIAL_B "\n") == 0, msg);
+
+	/* A board whose serial could not be read is still on the list, because
+	 * it is still a board the next command has to choose between: it is
+	 * named by its index, which is how it can be selected. */
+	bus_with_two_serials();
+	fake.devs[1].serial_fails = 1; /* the first Ubertooth on the bus */
+	mu_assert(select_capturing(NULL, msg, sizeof(msg)) == NULL, "no -U of two");
+	mu_assert(strcmp(msg,
+	    "error: multiple Ubertooth devices found; select one with "
+	    "-U <index|serial>\n"
+	    "  Device 0: serial unreadable\n"
+	    "  Device 1: " SERIAL_B "\n") == 0, msg);
 }
 
 MU_TEST(no_device_attached_opens_nothing)

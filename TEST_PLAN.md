@@ -49,6 +49,22 @@ A second Ubertooth One for the range test (2i).
       interface` errors
 - [ ] Confirm: no timeout errors
 
+### 2a-1. Choosing a board, and choosing none
+*Requires: two or more Ubertooths attached*
+- [ ] Run `ubertooth-util -S` with no `-U`
+- [ ] Confirm: it exits 1 with one `error: multiple Ubertooth devices found;
+      select one with -U <index|serial>` on standard error, then a
+      `  Device <n>: <serial>` line per board, nothing on standard output, and
+      no further line after the list
+- [ ] Run `ubertooth-util -U 99 -s`
+- [ ] Confirm: `error: no Ubertooth at index 99 (<n> attached)` and the line
+      about indexes shifting, and nothing after them
+- [ ] Run `ubertooth-util -U ffffffffffffffff -s`
+- [ ] Confirm: `error: no Ubertooth found with serial matching
+      'ffffffffffffffff'`
+- [ ] Unplug every board and run `ubertooth-util -s`
+- [ ] Confirm: `error: no Ubertooth devices found`, exit 1
+
 ### 2b. Compile info
 - [ ] Run `ubertooth-util -V`
 - [ ] Confirm: returns compile info without crashing
@@ -375,6 +391,19 @@ nRF52840 DKs) plus one Ubertooth.*
 - [ ] Run `ubertooth-specan`
 - [ ] Confirm: starts without Python errors
 - [ ] Confirm: outputs spectrum data
+
+### 4a-1. A sweep that cannot be written
+*Linux only: `/dev/full` stands in for a full disk*
+- [ ] Run `ubertooth-specan -U <serial> -l 2402 -u 2410 -v -d /dev/full`, then
+      the same with `-g` and with `-G`
+- [ ] Confirm: each ends within a second, exits 1, and says
+      `error: writing samples failed: ...` once -- `wrote 1 of 3 bytes` for the
+      raw form, `could not write the sample` for `-g` and `-G`, both naming
+      `No space left on device`. A run that swept for seconds before reporting
+      `could not flush the samples` is the fault to report
+- [ ] Run the same three into a file on a disk with room
+- [ ] Confirm: each exits 0 on Ctrl-C and the file holds the samples, as text
+      for `-g`/`-G` and as 3-byte records without them
 
 ### 4b. Spectrum analyzer UI
 - [ ] Run `ubertooth-specan-ui`

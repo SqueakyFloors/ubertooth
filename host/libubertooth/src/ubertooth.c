@@ -289,6 +289,15 @@ int ubertooth_count(void) {
 	}
 
 	usb_devs = libusb_get_device_list(NULL, &usb_list);
+	if (usb_devs < 0) {
+		/* Not an empty bus: reported as itself, and as a count the caller
+		 * can tell from zero, which is what the "no Ubertooth" reports
+		 * read. */
+		fprintf(stderr, "error: could not list USB devices: %s (libusb %d)\n",
+		        libusb_strerror(usb_devs), usb_devs);
+		libusb_exit(NULL);
+		return -1;
+	}
 
 	for(i = 0 ; i < usb_devs ; ++i) {
 		r = libusb_get_device_descriptor(usb_list[i], &desc);

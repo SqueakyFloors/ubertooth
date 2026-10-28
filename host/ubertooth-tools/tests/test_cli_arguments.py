@@ -38,7 +38,7 @@ ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1")
 
 # Anything libubertooth prints once a tool starts looking for a device.
 DEVICE_ACCESS = (
-    "could not open ubertooth device",
+    "no ubertooth devices found",
     "no ubertooth found",
     "multiple ubertooth devices found",
     "usb descriptor",

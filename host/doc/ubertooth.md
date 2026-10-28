@@ -298,9 +298,9 @@ channel notes raised while following a piconet are `note: ` lines on standard
 error. What the library still writes to standard output is the calling tool's
 result — the decoded packet reports, the AFH map, the version line — which is
 the right stream for them, whichever layer prints them. Its device-selection
-messages are `error: ` lines on standard error; what follows one of them is
-the detail it needs, such as the boards listed after a refusal for several
-attached, and carries no prefix of its own.
+messages are `error: ` lines on standard error, each with whatever detail it
+needs under it: the boards listed after a refusal for several attached, and
+the counts and reason after a serial that matched nothing.
 
 ## ENVIRONMENT
 

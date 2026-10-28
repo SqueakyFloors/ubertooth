@@ -574,18 +574,6 @@ int cmd_get_partnum(struct libusb_device_handle* devh)
 	return (int)part_id;
 }
 
-void print_serial(u8 *serial, FILE *fileptr)
-{
-	int i;
-	if(fileptr == NULL)
-		fileptr = stdout;
-
-	fprintf(fileptr, "Serial No: ");
-	for(i=1; i<UBERTOOTH_SERIAL_LEN; i++)
-		fprintf(fileptr, "%02x", serial[i]);
-	fprintf(fileptr, "\n");
-}
-
 int cmd_get_serial(struct libusb_device_handle* devh, u8 *serial)
 {
 	int r;

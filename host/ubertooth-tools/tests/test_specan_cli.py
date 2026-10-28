@@ -134,7 +134,7 @@ assert result.returncode == 1, result
 assert result.stdout == "", result
 assert result.stderr == \
     "error: /no/such/dir/samples.bin: No such file or directory\n", result
-# refused before the device was opened
-assert "could not open ubertooth" not in result.stderr.lower(), result
+# refused before the device was looked for
+assert "no ubertooth" not in result.stderr.lower(), result
 
 print("ubertooth-specan: a -d file that cannot be opened says error: on stderr")

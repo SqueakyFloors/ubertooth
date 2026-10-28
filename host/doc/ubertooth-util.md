@@ -845,10 +845,10 @@ The errors this tool prints itself are one line starting `error: `; its
 warnings and notes start `warning: ` and `note: `. libubertooth's lines read
 the same way, for example `error: Ubertooth <serial> is in use by another
 program (libusb -3)` and `error: no Ubertooth devices found`; see
-ubertooth(7), WHEN A BOARD CANNOT BE USED. What follows one of them is its
-detail and carries no prefix of its own: the boards listed after `error:
-multiple Ubertooth devices found; select one with -U <index|serial>`, and the
-counts of boards a serial scan could not read.
+ubertooth(7), WHEN A BOARD CANNOT BE USED. A refusal can run to more than
+one line: the boards listed after `error: multiple Ubertooth devices found;
+select one with -U <index|serial>`, and the counts and reason after a serial
+that matched nothing.
 
 ## SEE ALSO
 
