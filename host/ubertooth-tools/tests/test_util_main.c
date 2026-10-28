@@ -70,6 +70,7 @@ static struct {
 	int usb_reset_leaves_it_silent;
 	/* ...or answers only once this many polls have passed */
 	int usb_reset_answers_after_polls;
+	uint64_t reset_at_ms; /* the clock when the reset request was sent */
 	int last_channel_set, last_squelch_set, last_led_specan_arg;
 	int last_palevel_set, last_usrled_set;
 	/* LED writes: -I must not blink from the host */
@@ -154,10 +155,20 @@ static void reset_fake(void)
 	fake_ut_reset.devh = (struct libusb_device_handle *)&fake_devh_reset;
 }
 
+/* Whether a reset that re-enumerates the board has been made: the request it
+ * answered, or a USB connection reset that reported the device gone. */
+static int fake_board_was_reset(void)
+{
+	return (fake.reset_calls > 0 && fake.reset_rc >= 0) ||
+	       (fake.usb_resets > 0 &&
+	        (fake.usb_reset_rc == LIBUSB_ERROR_NOT_FOUND ||
+	         fake.usb_reset_rc == LIBUSB_ERROR_NO_DEVICE));
+}
+
 /* The reset device is missing from the count while it re-enumerates. */
 static int fake_reset_device_absent(void)
 {
-	return fake.reset_calls > 0 && fake.reset_rc >= 0 &&
+	return fake_board_was_reset() &&
 	       fake.now_ms >= fake.leaves_at_ms && fake.now_ms < fake.returns_at_ms;
 }
 
@@ -532,7 +543,14 @@ int cmd_get_radio_timeouts(struct libusb_device_handle *h,
 	return fake.timeouts_rc;
 }
 
-int cmd_reset(struct libusb_device_handle *h) { fake_use(h); fake.reset_calls++; return fake.reset_rc; }
+int cmd_reset(struct libusb_device_handle *h)
+{
+	fake_use(h);
+	fake.reset_calls++;
+	/* When it was sent, so a case can pin that the board was back by then. */
+	fake.reset_at_ms = fake.now_ms;
+	return fake.reset_rc;
+}
 int cmd_stop(struct libusb_device_handle *h)
 {
 	fake_use(h);
@@ -3635,6 +3653,12 @@ MU_TEST(a_usb_reset_that_re_enumerated_the_board_waits_then_resets_it)
 		mu_assert_int_eq(1, fake.reset_calls);
 		mu_assert_int_eq(0, fake.first_used_after_release);
 		mu_assert(fake.quiet_starts >= 2, "waited for, reset, waited again");
+		/* The board really was off the bus for that first wait -- an index
+		 * selection waits for the count rather than polling while it is
+		 * gone -- and the request went out only once it was back. */
+		mu_assert(fake.now_ms >= fake.returns_at_ms, "waited for it to return");
+		mu_assert(fake.reset_at_ms >= fake.returns_at_ms,
+		          "the request waited for the board to come back");
 		mu_assert(strcmp(r.err, "Ubertooth device 1 is not answering; "
 		                 "resetting its USB connection\n"
 		                 "Resetting ubertooth device 1\n") == 0, r.err);

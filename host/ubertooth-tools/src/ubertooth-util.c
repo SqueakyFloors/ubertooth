@@ -358,8 +358,9 @@ static int board_answers(ubertooth_t *ut)
 
 /* How long -r gives a board to answer again after its USB connection was
  * reset, and how often it asks. The bench answer came back on the first ask;
- * the rest of the window, about three seconds counting each read's own
- * timeout, is for a board whose firmware is still starting up. */
+ * the rest of the window -- up to about five seconds, because each ask is two
+ * reads that can take their 200 ms timeout -- is for a board whose firmware
+ * is still starting up. */
 #define UTIL_USB_RESET_POLLS 10u
 #define UTIL_USB_RESET_POLL_MS 100u
 

@@ -156,8 +156,10 @@ may be the board asked for:
 
 The remedy is by index there because a board whose serial could not be read
 cannot be selected by serial. `-r` on a board that answers nothing resets its
-USB connection rather than asking the board to reset itself, which is what
-recovers it; see ubertooth-util(1).
+USB connection before it asks the board to reset itself, because the board
+would refuse that request as it refuses every other one; the connection reset
+is what recovers it, and the board is then reset like any other. See
+ubertooth-util(1).
 
 A board in the DFU bootloader is named too, because it is not a board that
 went away: while it is being flashed it enumerates as the bootloader, which no
