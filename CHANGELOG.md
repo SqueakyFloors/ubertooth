@@ -1085,11 +1085,11 @@ Fixes with no visible change in normal use.
   packet, so its time no longer drifts later the longer the packet is. Times
   in a `-p` capture move earlier by up to about a third of a millisecond.
   [#546](https://github.com/SqueakyFloors/ubertooth/issues/546)
-- A capture's ring buffer hands a record over properly: the record and the
-  time it arrived are now published together, and a slot is not given back to
-  the board until the capture has finished copying out of it. A capture far
-  enough behind to fill the ring could read one record while the next arrival
-  wrote over it.
+- A capture's ring buffer hands records between its two threads properly: a
+  record and the time it arrived are both complete before the capture can see
+  either, and a slot goes back to the board only once the capture has copied
+  the record out of it. A capture far enough behind to fill the ring could
+  read one record while the next arrival wrote over it.
   [#576](https://github.com/SqueakyFloors/ubertooth/issues/576)
 - Editing a firmware linker script relinks the image. Nothing told `make` that
   the link depends on the script, so a change to a memory map or a section

@@ -3,10 +3,19 @@
  * a full ring does, and that a producer thread and a consumer thread cannot
  * see each other's half-written work.
  *
- * The ring is built small here (FIFO_SIZE comes from the build), because the
- * shipped 1000000 slots put the full-ring paths out of reach of a test: a
- * case would have to produce a million records faster than it drains them.
- * Seven usable slots reach them on every lap.
+ * The ring is built small here (the build sets UBERTOOTH_FIFO_SLOTS_FOR_TESTS),
+ * because the shipped 1000000 slots put the full-ring paths out of reach of a
+ * test: a case would have to produce a million records faster than it drains
+ * them. The build's size leaves six usable slots, which reach them on every
+ * lap.
+ *
+ * One thing is deliberately not tested: that fifo_popped_arrival_ns() is kept
+ * rather than read back out of the slot the record came from. No case can
+ * tell the two apart. Publishing into that slot again needs the read pointer
+ * to have moved a whole lap past it, and every pop on the way replaces the
+ * answer, so a read-back gives the same reading as a kept copy. The reading
+ * is kept because it makes the handover one rule rather than two, not because
+ * reading it back was wrong.
  */
 #include <fcntl.h>
 #include <pthread.h>
@@ -23,50 +32,81 @@
 /* Records the ring can hold at once: it always leaves one slot empty. */
 #define RING_RECORDS (FIFO_SIZE - 1)
 
+/* Every arrival reading these cases use is this plus something small, so that
+ * all of them are past 2^32. A real reading is: the monotonic clock a live
+ * capture reads passes 2^32 nanoseconds after four seconds of uptime, and a
+ * replayed dump's is a whole second in nanoseconds, around 1.8e18. A reading
+ * truncated to 32 bits anywhere on its way through the ring would otherwise
+ * come back unchanged. The comparisons go through mu_assert_int_eq(), which
+ * casts to long, so this oracle wants a 64-bit long -- every platform this
+ * fork supports has one. */
+#define ARRIVAL_BASE 0x1234567890abull
+
 /* ---- records -------------------------------------------------------------
- * A record is filled with one repeated byte, every named field of it, so a
- * copy that picked up part of another record shows as a byte that does not
- * match the rest. clk100ns carries the whole sequence number, so a record can
- * also be matched against the arrival reading published with it.
+ * clk100ns holds the whole sequence number, and that is what a record is
+ * known by: record_is_whole() reads it back and what it is matched against
+ * the arrival reading published with it. Every other byte of the record
+ * carries one byte of that number, the four of them repeating from the start
+ * of the record to the end. No two sequence numbers fill a record alike, so a
+ * copy that took part of one record and part of another shows a byte that
+ * does not belong where it sits.
  */
+
+/* Set in the top byte of every sequence number before the pattern is taken
+ * from it, so that the byte belonging at the last position of a record is
+ * never zero. The ring is allocated zeroed, so a zero in the pattern matches
+ * a byte the ring never wrote, and a copy that fell short of the end of a
+ * record would read back as whole. The sequence numbers these cases use are
+ * all well under 2^24, so this byte is free. */
+#define PATTERN_TOP_BYTE 0xa5000000u
+
+/* The byte that belongs at `position` bytes into a record of this sequence
+ * number. */
+static uint8_t sequence_byte(uint32_t sequence, int position)
+{
+	return (uint8_t)((sequence | PATTERN_TOP_BYTE)
+	                 >> ((position % 4) * 8));
+}
 
 static void fill_record(usb_pkt_rx* record, uint32_t sequence)
 {
-	uint8_t byte = (uint8_t)sequence;
 	int i;
 
-	record->pkt_type = byte;
-	record->status = byte;
-	record->channel = byte;
-	record->clkn_high = byte;
+	record->pkt_type = sequence_byte(sequence, 0);
+	record->status = sequence_byte(sequence, 1);
+	record->channel = sequence_byte(sequence, 2);
+	record->clkn_high = sequence_byte(sequence, 3);
 	record->clk100ns = sequence;
-	record->rssi_max = (int8_t)byte;
-	record->rssi_min = (int8_t)byte;
-	record->rssi_avg = (int8_t)byte;
-	record->rssi_count = byte;
-	record->reserved[0] = byte;
-	record->reserved[1] = byte;
+	record->rssi_max = (int8_t)sequence_byte(sequence, 8);
+	record->rssi_min = (int8_t)sequence_byte(sequence, 9);
+	record->rssi_avg = (int8_t)sequence_byte(sequence, 10);
+	record->rssi_count = sequence_byte(sequence, 11);
+	record->reserved[0] = sequence_byte(sequence, 12);
+	record->reserved[1] = sequence_byte(sequence, 13);
 	for (i = 0; i < DMA_SIZE; i++)
-		record->data[i] = byte;
+		record->data[i] = sequence_byte(sequence, 14 + i);
 }
 
-/* Whether every byte of the record still carries the one value fill_record()
- * wrote, that of its own sequence number. */
+/* Whether every byte of the record is still the one that belongs there for
+ * the sequence number the record itself carries. */
 static int record_is_whole(const usb_pkt_rx* record)
 {
-	uint8_t byte = (uint8_t)record->clk100ns;
+	uint32_t sequence = record->clk100ns;
 	int i;
 
-	if (record->pkt_type != byte || record->status != byte
-	    || record->channel != byte || record->clkn_high != byte
-	    || record->rssi_max != (int8_t)byte
-	    || record->rssi_min != (int8_t)byte
-	    || record->rssi_avg != (int8_t)byte
-	    || record->rssi_count != byte
-	    || record->reserved[0] != byte || record->reserved[1] != byte)
+	if (record->pkt_type != sequence_byte(sequence, 0)
+	    || record->status != sequence_byte(sequence, 1)
+	    || record->channel != sequence_byte(sequence, 2)
+	    || record->clkn_high != sequence_byte(sequence, 3)
+	    || record->rssi_max != (int8_t)sequence_byte(sequence, 8)
+	    || record->rssi_min != (int8_t)sequence_byte(sequence, 9)
+	    || record->rssi_avg != (int8_t)sequence_byte(sequence, 10)
+	    || record->rssi_count != sequence_byte(sequence, 11)
+	    || record->reserved[0] != sequence_byte(sequence, 12)
+	    || record->reserved[1] != sequence_byte(sequence, 13))
 		return 0;
 	for (i = 0; i < DMA_SIZE; i++)
-		if (record->data[i] != byte)
+		if (record->data[i] != sequence_byte(sequence, 14 + i))
 			return 0;
 	return 1;
 }
@@ -109,6 +149,21 @@ static void restore_stderr(void)
 	saved_stderr = -1;
 }
 
+/* How many records the ring said it discarded, counted from the warnings it
+ * wrote while a case had standard error. Call it once standard error is back,
+ * so nothing is still writing to the file. */
+static uint32_t count_overflow_warnings(FILE* warnings)
+{
+	char line[256];
+	uint32_t count = 0;
+
+	rewind(warnings);
+	while (fgets(line, sizeof(line), warnings) != NULL)
+		if (strstr(line, "FIFO overflow") != NULL)
+			count++;
+	return count;
+}
+
 /* ---- cases --------------------------------------------------------------- */
 
 /* Up to a ring's worth of records come back in the order they went in, each
@@ -122,7 +177,7 @@ MU_TEST(records_come_back_in_order)
 	mu_assert_int_eq(1, fifo_empty(fifo));
 
 	for (i = 0; i < RING_RECORDS; i++)
-		publish_in_place(fifo, i + 1, 1000 + i);
+		publish_in_place(fifo, i + 1, ARRIVAL_BASE + 1000 + i);
 
 	mu_assert_int_eq(0, fifo_empty(fifo));
 
@@ -131,7 +186,8 @@ MU_TEST(records_come_back_in_order)
 
 		mu_assert_int_eq(i + 1, popped.clk100ns);
 		mu_assert(record_is_whole(&popped), "the record came back torn");
-		mu_assert_int_eq(1000 + i, fifo_popped_arrival_ns(fifo));
+		mu_assert_int_eq(ARRIVAL_BASE + 1000 + i,
+		                 fifo_popped_arrival_ns(fifo));
 	}
 
 	mu_assert_int_eq(1, fifo_empty(fifo));
@@ -152,13 +208,13 @@ MU_TEST(a_full_ring_discards_the_newest_record)
 	mu_assert_fatal(warnings != NULL, "tmpfile failed");
 
 	for (i = 0; i < RING_RECORDS; i++)
-		publish_in_place(fifo, i + 1, 1000 + i);
+		publish_in_place(fifo, i + 1, ARRIVAL_BASE + 1000 + i);
 
 	redirect_stderr_to(fileno(warnings));
 	/* Twice, so that a refusal that advanced the write pointer by one each
 	 * time would be caught by the records read back below. */
-	publish_in_place(fifo, 0xee, 9999);
-	publish_in_place(fifo, 0xef, 9998);
+	publish_in_place(fifo, 0xee, ARRIVAL_BASE + 9999);
+	publish_in_place(fifo, 0xef, ARRIVAL_BASE + 9998);
 	restore_stderr();
 
 	for (i = 0; i < RING_RECORDS; i++) {
@@ -166,7 +222,8 @@ MU_TEST(a_full_ring_discards_the_newest_record)
 
 		mu_assert_int_eq(i + 1, popped.clk100ns);
 		mu_assert(record_is_whole(&popped), "the record came back torn");
-		mu_assert_int_eq(1000 + i, fifo_popped_arrival_ns(fifo));
+		mu_assert_int_eq(ARRIVAL_BASE + 1000 + i,
+		                 fifo_popped_arrival_ns(fifo));
 	}
 	mu_assert_int_eq(1, fifo_empty(fifo));
 
@@ -176,6 +233,49 @@ MU_TEST(a_full_ring_discards_the_newest_record)
 	mu_assert(strstr(line, "warning: FIFO overflow, packet discarded")
 	          != NULL, "the refusal was reported in other words");
 	fclose(warnings);
+	free(fifo);
+}
+
+/* Sequence numbers for the pushed records. The three low bytes are non-zero,
+ * and sequence_byte() supplies the fourth, so every position of a pushed
+ * record carries a non-zero byte: a position whose byte is zero proves
+ * nothing, because the ring is allocated zeroed. */
+#define PUSHED_FIRST_SEQUENCE 0x00412001u
+
+/* The other way in: fifo_push() copies a record the caller already holds,
+ * rather than the caller filling the slot in place. That is the path a
+ * replayed dump takes, so a record it carried short would lose the tail of
+ * every replayed packet.
+ *
+ * Whether the copy finishes before the slot is published is not a question
+ * one thread can ask -- the copy is complete by the time anything here pops.
+ * The threaded case below is what catches a publish that came first. */
+MU_TEST(a_pushed_record_comes_back_whole)
+{
+	fifo_t* fifo = fifo_init();
+	uint32_t i;
+
+	mu_assert_fatal(fifo != NULL, "cannot allocate the ring buffer");
+
+	for (i = 0; i < RING_RECORDS; i++) {
+		usb_pkt_rx record;
+
+		fill_record(&record, PUSHED_FIRST_SEQUENCE + i);
+		fifo_push(fifo, &record, ARRIVAL_BASE + 90000 + i);
+		mu_assert_int_eq(0, fifo_empty(fifo));
+	}
+
+	for (i = 0; i < RING_RECORDS; i++) {
+		usb_pkt_rx popped = fifo_pop(fifo);
+
+		mu_assert_int_eq(PUSHED_FIRST_SEQUENCE + i, popped.clk100ns);
+		mu_assert(record_is_whole(&popped),
+		          "the pushed record came back short or torn");
+		mu_assert_int_eq(ARRIVAL_BASE + 90000 + i,
+		                 fifo_popped_arrival_ns(fifo));
+	}
+	mu_assert_int_eq(1, fifo_empty(fifo));
+
 	free(fifo);
 }
 
@@ -200,12 +300,32 @@ MU_TEST(the_ring_behaves_as_a_queue_across_many_laps)
 
 	/* Publishing three and draining two each step walks the ring round
 	 * many times and fills it on the way, so every slot takes a turn at
-	 * being the one the ring leaves empty. */
-	for (step = 0; step < 200; step++) {
+	 * being the one the ring leaves empty. One of the three goes in with
+	 * fifo_push() and two by filling the slot in place, so neither way in
+	 * escapes the queue below.
+	 *
+	 * The step count is high because this is the case that would catch a
+	 * ring refusing a record it had room for, and a ring that did so only
+	 * now and then needs a long run to be caught at it. Sixty thousand
+	 * publishes take a few milliseconds: it is arithmetic and a memcpy of
+	 * 64 bytes each, with nothing to wait for. */
+	for (step = 0; step < 20000; step++) {
 		int i;
 
 		for (i = 0; i < 3; i++) {
-			publish_in_place(fifo, next_sequence, next_sequence);
+			/* Both ways of publishing are held to the same
+			 * queue, so a ring that refused a record either way
+			 * with room to spare fails here. */
+			if (i == 0) {
+				usb_pkt_rx record;
+
+				fill_record(&record, next_sequence);
+				fifo_push(fifo, &record,
+				          ARRIVAL_BASE + next_sequence);
+			} else {
+				publish_in_place(fifo, next_sequence,
+				                 ARRIVAL_BASE + next_sequence);
+			}
 			if (held < RING_RECORDS)
 				expected[held++] = next_sequence;
 			else
@@ -216,7 +336,7 @@ MU_TEST(the_ring_behaves_as_a_queue_across_many_laps)
 			usb_pkt_rx popped = fifo_pop(fifo);
 
 			mu_assert_int_eq(expected[0], popped.clk100ns);
-			mu_assert_int_eq(expected[0],
+			mu_assert_int_eq(ARRIVAL_BASE + expected[0],
 			                 fifo_popped_arrival_ns(fifo));
 			mu_assert(record_is_whole(&popped),
 			          "the record came back torn");
@@ -235,53 +355,43 @@ MU_TEST(the_ring_behaves_as_a_queue_across_many_laps)
 	free(fifo);
 }
 
-/* The reading of the record just popped is taken during that pop, so later
- * records published into the slot it came from cannot replace it. */
-MU_TEST(the_popped_reading_belongs_to_the_popped_record)
-{
-	fifo_t* fifo = fifo_init();
-	int devnull = open("/dev/null", O_WRONLY);
-	usb_pkt_rx popped;
-	uint32_t i;
-
-	mu_assert_fatal(fifo != NULL, "cannot allocate the ring buffer");
-	mu_assert_fatal(devnull >= 0, "/dev/null could not be opened");
-
-	publish_in_place(fifo, 1, 11);
-	publish_in_place(fifo, 2, 22);
-
-	popped = fifo_pop(fifo);
-	mu_assert_int_eq(1, popped.clk100ns);
-	mu_assert_int_eq(11, fifo_popped_arrival_ns(fifo));
-
-	/* Enough publishing to go right round the slots and fill the ring,
-	 * including the slot the record above came out of. */
-	redirect_stderr_to(devnull);
-	for (i = 0; i < 2 * FIFO_SIZE; i++)
-		publish_in_place(fifo, 100 + i, 5000 + i);
-	restore_stderr();
-	close(devnull);
-
-	mu_assert_int_eq(11, fifo_popped_arrival_ns(fifo));
-
-	popped = fifo_pop(fifo);
-	mu_assert_int_eq(2, popped.clk100ns);
-	mu_assert_int_eq(22, fifo_popped_arrival_ns(fifo));
-
-	free(fifo);
-}
-
 /* ---- the two threads -----------------------------------------------------
  * The real arrangement: one thread fills slots and publishes them, the other
- * drains them. The producer runs far ahead of the consumer, so the ring is
- * full nearly all the time, which is where a slot handed to a transfer while
- * the consumer was still copying it out gave one corrupted record.
+ * drains them. A slot handed to a transfer while the consumer was still
+ * copying it out gave one corrupted record, and that can only happen with the
+ * ring full.
+ *
+ * The consumer pauses now and then, and the producer races ahead while it
+ * does, so the ring fills in bursts: between a few per cent and a third of
+ * the records published are discarded for want of room, depending on the
+ * machine and on whether the run is sanitized, and the rest of the time the
+ * ring is nearly empty. Those bursts are the window this case exists for.
+ *
+ * This is a race detector, so it catches a regression often rather than
+ * always. Putting the pop's copy back after the slot is handed over -- the
+ * bug this ring was fixed for -- failed 19 runs in 20 here at a million
+ * records. Take a failure seriously on one run; do not read a single pass as
+ * proof.
+ *
+ * A plain run says little about the release and acquire ordering: weakened
+ * one at a time, two or three of the four still pass every run, depending on
+ * the optimisation level, and on x86-64 the generated code for a release
+ * store and a relaxed one does not differ at all. What does pin them is the
+ * same case built with a thread sanitizer,
+ * which the build registers as a second test where the compiler has one
+ * (fifo-ring-tsan): weakening any of the four is reported there, and the ring
+ * as it stands is clean.
+ *
+ * What no run here asks is whether the ring discards only when it is really
+ * full. That needs a reader that knows how full the ring was, which a racing
+ * consumer is not, so it is the_ring_behaves_as_a_queue_across_many_laps that
+ * asks.
  */
 
 /* Records the producer publishes. Large enough that the two threads
  * interleave at every point of the ring many times over; a run takes a
  * fraction of a second. */
-#define THREADED_RECORDS 200000
+#define THREADED_RECORDS 1000000
 
 struct run {
 	fifo_t* fifo;
@@ -294,7 +404,13 @@ struct run {
 	uint32_t torn;             /* records that came back part another's */
 	uint32_t out_of_order;     /* sequence numbers that did not go up */
 	uint32_t reading_mismatch; /* readings that belonged to another record */
-	uint32_t discarded;        /* gaps, so records the full ring refused */
+	uint32_t discarded;        /* gaps in what the consumer was given */
+	uint32_t last_sequence;    /* the last record the consumer was given */
+	/* How many records the ring itself said it was throwing away, read
+	 * back from its warnings once the threads have finished. The gaps
+	 * above are held against this: a record that went missing without the
+	 * ring discarding it leaves a gap nothing accounts for. */
+	uint32_t announced_discards;
 };
 
 static void* producer_main(void* argument)
@@ -302,8 +418,22 @@ static void* producer_main(void* argument)
 	struct run* run = (struct run*)argument;
 	uint32_t sequence;
 
-	for (sequence = 1; sequence <= THREADED_RECORDS; sequence++)
-		publish_in_place(run->fifo, sequence, sequence);
+	for (sequence = 1; sequence <= THREADED_RECORDS; sequence++) {
+		/* Both ways of publishing take a turn, so each is exposed to a
+		 * consumer draining the ring at the same time. Either one
+		 * publishing a slot before it had finished filling it would
+		 * show up as a torn record. */
+		if (sequence % 2 == 0) {
+			publish_in_place(run->fifo, sequence,
+			                 ARRIVAL_BASE + sequence);
+		} else {
+			usb_pkt_rx record;
+
+			fill_record(&record, sequence);
+			fifo_push(run->fifo, &record,
+			          ARRIVAL_BASE + sequence);
+		}
+	}
 
 	atomic_store(&run->producer_done, 1);
 	return NULL;
@@ -312,14 +442,19 @@ static void* producer_main(void* argument)
 static void* consumer_main(void* argument)
 {
 	struct run* run = (struct run*)argument;
-	uint32_t previous = 0;
 
 	for (;;) {
 		usb_pkt_rx popped;
 		uint64_t reading;
 
 		if (fifo_empty(run->fifo)) {
-			if (atomic_load(&run->producer_done))
+			/* Asked again after the flag, not before it: a record
+			 * published between the two questions would otherwise
+			 * end the run unexamined. Once the flag is set the
+			 * producer has published everything it is going to, so
+			 * an empty ring now is a drained one. */
+			if (atomic_load(&run->producer_done)
+			    && fifo_empty(run->fifo))
 				return NULL;
 			continue;
 		}
@@ -329,13 +464,14 @@ static void* consumer_main(void* argument)
 
 		if (!record_is_whole(&popped))
 			run->torn++;
-		if (popped.clk100ns <= previous)
+		if (popped.clk100ns <= run->last_sequence)
 			run->out_of_order++;
 		else
-			run->discarded += popped.clk100ns - previous - 1;
-		if (reading != popped.clk100ns)
+			run->discarded +=
+				popped.clk100ns - run->last_sequence - 1;
+		if (reading != ARRIVAL_BASE + popped.clk100ns)
 			run->reading_mismatch++;
-		previous = popped.clk100ns;
+		run->last_sequence = popped.clk100ns;
 		run->popped++;
 
 		/* A pause now and then keeps the consumer behind, so the ring
@@ -348,21 +484,23 @@ static void* consumer_main(void* argument)
 MU_TEST(two_threads_never_see_a_half_written_record)
 {
 	struct run run;
-	int devnull = open("/dev/null", O_WRONLY);
+	/* The refusals go here rather than to /dev/null: counting them is how
+	 * the gaps the consumer saw are checked against what the ring says it
+	 * threw away. A ring this small refuses a record on nearly every lap,
+	 * so there are thousands of them. */
+	FILE* warnings = tmpfile();
 	pthread_t producer, consumer;
 
 	memset(&run, 0, sizeof(run));
 	atomic_init(&run.producer_done, 0);
 	run.fifo = fifo_init();
 	mu_assert_fatal(run.fifo != NULL, "cannot allocate the ring buffer");
-	mu_assert_fatal(devnull >= 0, "/dev/null could not be opened");
-	/* The producer refuses a record on nearly every lap of a ring this
-	 * small, and each refusal prints a line. */
-	redirect_stderr_to(devnull);
+	mu_assert_fatal(warnings != NULL, "tmpfile failed");
+	redirect_stderr_to(fileno(warnings));
 
 	if (pthread_create(&producer, NULL, producer_main, &run) != 0) {
 		restore_stderr();
-		close(devnull);
+		fclose(warnings);
 		free(run.fifo);
 		mu_assert_fatal(0, "the producer thread could not be started");
 	}
@@ -371,7 +509,7 @@ MU_TEST(two_threads_never_see_a_half_written_record)
 		 * it writes the ring this thread is about to free. */
 		pthread_join(producer, NULL);
 		restore_stderr();
-		close(devnull);
+		fclose(warnings);
 		free(run.fifo);
 		mu_assert_fatal(0, "the consumer thread could not be started");
 	}
@@ -379,15 +517,25 @@ MU_TEST(two_threads_never_see_a_half_written_record)
 	pthread_join(producer, NULL);
 	pthread_join(consumer, NULL);
 	restore_stderr();
-	close(devnull);
 
-	printf("  %u records through, %u refused by a full ring\n",
+	/* The gaps the consumer counted stop at the last record it was given,
+	 * so anything missing after that one is added here. */
+	run.discarded += THREADED_RECORDS - run.last_sequence;
+	run.announced_discards = count_overflow_warnings(warnings);
+	fclose(warnings);
+
+	printf("  %u records through, %u discarded\n",
 	       run.popped, run.discarded);
 	mu_assert_int_eq(0, run.torn);
 	mu_assert_int_eq(0, run.out_of_order);
 	mu_assert_int_eq(0, run.reading_mismatch);
+	/* The run has to have carried records, or the three counters above are
+	 * all about nothing. */
 	mu_assert(run.popped > 0, "the consumer got nothing at all");
-	/* Without refusals the run never had a full ring, so it did not cover
+	/* Nothing went missing unannounced: every record the consumer did not
+	 * get is one the ring said it was discarding. */
+	mu_assert_int_eq(run.announced_discards, run.discarded);
+	/* Without discards the run never had a full ring, so it did not cover
 	 * the handover this case is here for. */
 	mu_assert(run.discarded > 0, "the ring never filled up");
 
@@ -396,10 +544,15 @@ MU_TEST(two_threads_never_see_a_half_written_record)
 
 int main(void)
 {
+	/* A line at a time, so that a sanitizer's report, which goes straight
+	 * to the same stream unbuffered, lands under the case that produced it
+	 * rather than ahead of everything. */
+	setvbuf(stdout, NULL, _IOLBF, 0);
+
 	MU_RUN(records_come_back_in_order);
+	MU_RUN(a_pushed_record_comes_back_whole);
 	MU_RUN(a_full_ring_discards_the_newest_record);
 	MU_RUN(the_ring_behaves_as_a_queue_across_many_laps);
-	MU_RUN(the_popped_reading_belongs_to_the_popped_record);
 	MU_RUN(two_threads_never_see_a_half_written_record);
 	return mu_report();
 }

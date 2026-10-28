@@ -25,14 +25,26 @@
 #include "ubertooth_control.h"
 
 #ifndef __cplusplus
+#if defined(__STDC_NO_ATOMICS__)
+#error "libubertooth needs C11 atomics for the capture ring buffer"
+#endif
 #include <stdatomic.h>
 #endif
 
-/* Slots in the ring, 1000000 of them or 72 MB. A test can build the ring
- * small instead (-DFIFO_SIZE=8), which is the only way a unit test reaches
- * the full-ring paths; every source linked into one binary must then be
- * built with the same value, because this is the size of fifo_t. */
-#ifndef FIFO_SIZE
+/* Slots in the ring, 1000000 of them or 72 MB.
+ *
+ * UBERTOOTH_FIFO_SLOTS_FOR_TESTS builds the ring small instead, which is the
+ * only way a unit test reaches the full-ring paths. It is for this project's
+ * own tests, which compile ubertooth_fifo.c themselves so that every source
+ * in the binary agrees on the size of a fifo_t. A program built against the
+ * installed library must not set it: the library it links against is built
+ * for 1000000 slots, so the two would disagree about the size of every ring
+ * the program is handed. Nothing here enforces that, which is why it is said
+ * instead, and why the macro is named for this library rather than taking a
+ * plain name a build might set for its own reasons. */
+#ifdef UBERTOOTH_FIFO_SLOTS_FOR_TESTS
+#define FIFO_SIZE UBERTOOTH_FIFO_SLOTS_FOR_TESTS
+#else
 #define FIFO_SIZE 1000000
 #endif
 
@@ -61,10 +73,10 @@ typedef struct {
 	 * the stall. A reading per record does not drift that way.
 	 *
 	 * Only a slot that has been published carries a reading, which is why
-	 * the two calls that publish one take it and fifo_pop() does not have
-	 * to: a record nothing stamped would silently carry the reading of
-	 * whichever record held the slot a whole ring ago. Reading it back is
-	 * optional, because a consumer that does not need it loses nothing. */
+	 * the two calls that publish one are the two that take a reading: a
+	 * record nothing stamped would silently carry the reading of whichever
+	 * record held the slot a whole ring ago. A consumer that does not need
+	 * the reading can ignore it and loses nothing. */
 	uint64_t arrival_ns[FIFO_SIZE];
 	/* The reading of the record fifo_pop() returned last, copied out of
 	 * the ring while that slot was still the consumer's. */
@@ -82,9 +94,14 @@ void fifo_inc_write_ptr(fifo_t* fifo, uint64_t arrival_ns);
 void fifo_push(fifo_t* fifo, const usb_pkt_rx* packet, uint64_t arrival_ns);
 
 /* The oldest record waiting, as a copy, and its slot goes back to the
- * producer. Ask fifo_empty() first: a pop of an empty ring returns whatever
- * the next slot holds, and that question is also what makes a record the
- * producer has just published visible to this thread. */
+ * producer.
+ *
+ * Ask fifo_empty() first. That question is what makes a record the producer
+ * has just published visible to this thread, and a pop of an empty ring is
+ * worse than a stale record: it takes the slot a transfer is reading into and
+ * moves the read pointer past the write pointer, so the two are out of step.
+ * The consumer then gets a ring's worth of records nothing published before
+ * the pointers meet again. */
 usb_pkt_rx fifo_pop(fifo_t* fifo);
 
 /* When the record fifo_pop() returned last arrived. The answer is taken

@@ -72,12 +72,15 @@ if you build on an Intel Mac.
 
 ### The host library needs C11 atomics
 `libubertooth` uses `<stdatomic.h>` for the two pointers of the capture ring
-buffer, which one thread advances and the other reads. Every compiler in the
-table above has them, and the default standard of GCC and clang (`gnu17`) is
-past C11, so a normal build is unaffected; a `CFLAGS` of `-std=c99` or older is
-not supported. C++ code that includes `ubertooth.h` is unaffected: the header
-declares those two fields as the plain integer they are built on, and nothing
-outside the library touches them.
+buffer, which one thread advances and the other reads. The header is a public
+one, so the C11 floor applies to any C program that includes `ubertooth.h`, not
+only to this project's own build. Every compiler in the table above has
+atomics, and the default standard of GCC and clang (`gnu17`) is past C11, so a
+normal build is unaffected; a `CFLAGS` of `-std=c99` or older is not supported,
+and an implementation that defines `__STDC_NO_ATOMICS__` is refused with a
+message. C++ code that includes the header is unaffected: it sees those two
+fields as the plain integer they are built on, and nothing outside the library
+touches them.
 
 ### `install.sh` platforms
 `install.sh` supports Debian/Ubuntu (`apt`) and macOS with Homebrew. On macOS it
