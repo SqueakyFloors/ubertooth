@@ -497,9 +497,11 @@ struct dfu_runtime_context {
 	uint32_t upload_length;  /* bytes the read-back asks the bootloader for */
 	const char *upload_name;       /* the dump -u was given, for its messages */
 	const char *download_name;     /* the image -d was given */
-	/* The reset left the board in the bootloader again, so cleanup has
-	 * nothing to add by resetting it a second time. */
-	int came_back_in_bootloader;
+	/* A detach saw the DFU device leave the bus, so the reset happened and
+	 * the handle it answered on is stale. Cleanup has nothing to add by
+	 * resetting the board again: it would drive a handle the board no longer
+	 * has, and report the same thing a second time. */
+	int board_left_the_bus;
 	int download_completed;  /* the whole image reached the flash */
 	unsigned long download_length; /* ...and the flash writing it covers */
 	int download_checked;    /* the image has been put against the part */
@@ -933,11 +935,11 @@ int detach(struct dfu_runtime_context* runtime, libusb_device_handle* devh,
 		 * has nothing to do with it. */
 		if (rv != LIBUSB_SUCCESS && !went)
 			show_libusb_error(rv);
+		runtime->board_left_the_bus = went;
 		if (presence < 0)
 			fprintf(stderr, "error: detach failed: could not tell whether "
 			        "the board left DFU (usb_error=%d)\n", presence);
 		else if (presence == DFU_PRESENCE_RETURNED) {
-			runtime->came_back_in_bootloader = 1;
 			fprintf(stderr, "error: detach failed: the board reset and came "
 			        "back in the bootloader\n");
 			/* The flash already holds the image, so say it before the
@@ -1989,13 +1991,12 @@ cleanup:
 	 *
 	 * A board this run never claimed is left alone: something else has it,
 	 * and a detach is a reset aimed at whatever that is doing. So is a board
-	 * whose reset already landed back in the bootloader: it reset once and
-	 * came back, the handle it answered on is stale, and resetting it again
-	 * would end in the same place after two more error lines that say
-	 * nothing about it. */
+	 * that already left the bus once: the reset happened, the handle it
+	 * answered on is stale, and driving that handle again would add error
+	 * lines about the handle instead of anything about the board. */
 	if (exit_status != 0 && (functions & FUNC_RESET) &&
 	    selected_identity.port_count != 0 &&
-	    !runtime.came_back_in_bootloader &&
+	    !runtime.board_left_the_bus &&
 	    (devh == NULL || interface_claimed)) {
 		if (devh == NULL)
 			reopen_dfu_for_detach(&runtime, &selected_identity, &devh,

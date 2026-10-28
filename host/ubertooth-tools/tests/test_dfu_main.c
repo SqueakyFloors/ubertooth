@@ -1275,6 +1275,11 @@ MU_TEST(a_confirming_listing_that_cannot_be_read_says_it_could_not_tell)
 	mu_assert(strstr(r.err, "error: detach failed: the board reset and came "
 	                 "back") == NULL,
 	          "an unsettled detach was reported as a board in the bootloader");
+	/* The device had gone before the confirming listings failed, so the
+	 * handle is stale: cleanup does not reset the board again through it,
+	 * and the failure is reported once. */
+	mu_assert_int_eq(1, fake.detach_calls);
+	mu_assert_int_eq(1, error_lines(r.err));
 	/* The gap was waited, so the trace says why the detach took that long,
 	 * as a whole line: it is built into a buffer, and a line cut short mid
 	 * word is how that buffer being too small shows up. */
@@ -1298,6 +1303,10 @@ MU_TEST(a_board_that_went_names_no_libusb_status_when_the_bus_will_not_read)
 	mu_assert(strstr(r.err, "could not tell whether the board left DFU")
 	          != NULL, "the unsettled detach was not reported");
 	mu_assert_int_eq(0, fake.libusb_errors);
+	/* The device had gone, so the handle is stale and cleanup does not
+	 * reset the board again through it. */
+	mu_assert_int_eq(1, fake.detach_calls);
+	mu_assert_int_eq(1, error_lines(r.err));
 }
 
 /* One confirming listing that cannot be read is not the answer either: it is
