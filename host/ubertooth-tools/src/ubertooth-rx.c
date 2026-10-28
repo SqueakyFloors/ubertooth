@@ -293,7 +293,7 @@ int main(int argc, char* argv[])
 	errno = 0;
 	if (pcapng_name != NULL &&
 	    btbb_pcapng_create_file(pcapng_name, "Ubertooth", &ut->h_pcapng_bredr)) {
-		opt_report_create_failure(pcapng_name);
+		opt_report_create_failure(pcapng_name, errno);
 		ubertooth_close(ut);
 		ubertooth_free(ut);
 		return 1;
@@ -326,8 +326,10 @@ int main(int argc, char* argv[])
 		free(file);
 		if (failed) {
 			/* The name the user gave, not the /dev/fd path a lone
-			 * "-" is opened through. */
-			opt_report_create_failure(pcap_name);
+			 * "-" is opened through, and no reason: the PCAP writer
+			 * prints the real one itself and leaves errno holding
+			 * whatever it last set. */
+			opt_report_create_failure(pcap_name, 0);
 			ubertooth_close(ut);
 			ubertooth_free(ut);
 			return 1;

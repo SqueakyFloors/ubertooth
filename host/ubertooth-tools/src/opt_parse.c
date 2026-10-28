@@ -269,13 +269,10 @@ char *opt_capture_path(const char *filename, const char *what, int *saved_fd)
 	return copy_name(path);
 }
 
-void opt_report_create_failure(const char *filename)
+void opt_report_create_failure(const char *filename, int reason)
 {
-	/* A writer that fails without setting errno would otherwise be reported
-	 * as whatever the last failed call left there, or as "Undefined error:
-	 * 0". The caller clears errno before the create for this. */
 	fprintf(stderr, "error: %s: %s\n", filename == NULL ? "" : filename,
-	        errno != 0 ? strerror(errno) : "could not be created");
+	        reason != 0 ? strerror(reason) : "could not be created");
 }
 
 FILE *opt_open_dump_file(const char *filename, const char *what)

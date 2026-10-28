@@ -191,7 +191,10 @@ A refused command line creates and truncates nothing: `-r`, `-q` and `-d` name
 their file while the command line is read, and it is opened only once every
 check has passed. A file that cannot be created is one `error: ` line naming
 it, for example
-`error: /no/such/dir/capture.pcap: No such file or directory`, and exit 1.
+`error: /no/such/dir/dump.bin: No such file or directory`, and exit 1. For a
+`-q` file the line carries no reason, `error: CAPTURE.pcap: could not be
+created`: the PCAP writer in libbtbb prints the reason itself, above that
+line, and leaves nothing this tool can trust.
 
 ## CAPTURING TO STANDARD OUTPUT
 

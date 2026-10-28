@@ -133,11 +133,16 @@ FILE *opt_open_dump_file(const char *filename, const char *what);
 
 /*
  * The one line for a capture file a writer would not create: the name the
- * user gave and the reason, or "could not be created" where the writer set
- * none. Clear errno before the create, so a reason left by an earlier failed
- * call is not reported as this one's.
+ * user gave, and the reason when there is a trustworthy one.
+ *
+ * Pass errno where the writer sets it, having cleared errno before the
+ * create so that a reason left by an earlier failed call is not reported as
+ * this one's. Pass 0 where it does not, and the line reads "<file>: could not
+ * be created": libbtbb's PCAP writer prints the real reason itself and leaves
+ * errno holding whatever its last internal call set, which on Linux is
+ * EINVAL for a path that does not exist.
  */
-void opt_report_create_failure(const char *filename);
+void opt_report_create_failure(const char *filename, int reason);
 
 /*
  * The one argument rule.

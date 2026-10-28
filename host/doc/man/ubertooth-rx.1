@@ -151,7 +151,9 @@ a file that cannot be read, for example a directory
 a last record cut short
 \fBerror: <file> ends in a partial record: 58 of 68 bytes, ignored\fR
 .P
-A file that cannot be opened at all is reported the same way, before anything is decoded: \fBerror: <file>: No such file or directory\fR, exit 1\. So is a \fB\-d\fR dump file that cannot be created\.
+A file that cannot be opened at all is reported the same way, before anything is decoded: \fBerror: <file>: No such file or directory\fR, exit 1\. So is a \fB\-d\fR dump file that cannot be created, and a \fB\-r\fR capture file\.
+.P
+A \fB\-q\fR capture file that cannot be created is the same line without a reason, \fBerror: CAPTURE\.pcap: could not be created\fR: the PCAP writer in libbtbb prints the reason itself, above that line, and leaves nothing this tool can trust\.
 .SH "ARGUMENTS"
 \fBubertooth\-rx\fR takes options only\. A word that is not an option, including a bare \fB\-\fR, is refused before any device is opened and named: \fBerror: unexpected argument '<word>'\fR, with exit status 1\.
 .P

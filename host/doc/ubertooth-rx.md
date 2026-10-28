@@ -241,7 +241,11 @@ was decoded:
 
 A file that cannot be opened at all is reported the same way, before anything
 is decoded: `error: <file>: No such file or directory`, exit 1. So is a `-d`
-dump file that cannot be created.
+dump file that cannot be created, and a `-r` capture file.
+
+A `-q` capture file that cannot be created is the same line without a reason,
+`error: CAPTURE.pcap: could not be created`: the PCAP writer in libbtbb prints
+the reason itself, above that line, and leaves nothing this tool can trust.
 
 ## ARGUMENTS
 
