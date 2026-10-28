@@ -907,7 +907,7 @@ if(libubertooth_SOURCE_DIR)
 		test_afh_channel_bounds.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c)
 	target_include_directories(test-afh-channel-bounds PRIVATE
-		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIRS} ${LIBBTBB_INCLUDE_DIR})
 	target_link_libraries(test-afh-channel-bounds ${LIBUSB_LIBRARIES}
 		${LIBBTBB_LIBRARIES} Threads::Threads)
 	add_test(NAME afh-channel-bounds COMMAND test-afh-channel-bounds)
