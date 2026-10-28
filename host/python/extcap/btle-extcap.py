@@ -203,20 +203,13 @@ def sig_handler(sig, frame):
     # SIGTERM: that is the one ubertooth-btle's cleanup handler is for, and
     # Ctrl-C has already reached it through the process group anyway.
     #
-    # The signal can arrive before there is a child to stop, while the
-    # command line is still being read. capture() looks at stop_signal for
-    # that, so a capture that was stopped starts nothing.
+    # The signal can arrive in the moment between this handler being set and
+    # the child being there to stop. capture() looks at stop_signal for that,
+    # so a capture that was stopped starts nothing.
     if child is not None:
         child.terminate()
 
 def main():
-    # SIGINT is handled like SIGTERM: Wireshark stops a capture with SIGTERM,
-    # while tshark's Ctrl-C sends SIGINT to the whole process group. Both mean
-    # the capture was asked to stop, so both have to reach the handler, or the
-    # script would die of the signal with nothing to report.
-    signal.signal(signal.SIGTERM, sig_handler)
-    signal.signal(signal.SIGINT, sig_handler)
-
     # A bare call has said nothing for a message about the command line to
     # answer, so the usage line is the answer, on standard error since it was
     # not asked for. Every other refusal is its one "error: " line alone
@@ -315,6 +308,14 @@ def main():
         if capture_filter:
             print("warning: %s (got %s)" % (NO_CAPTURE_FILTER, capture_filter),
                   file=sys.stderr)
+        # A stop is only a capture's to report, so the handlers go up here and
+        # not at the top of the command: every other call keeps the default,
+        # where a signal ends it rather than being noted and ignored.
+        # Wireshark stops a capture with SIGTERM; tshark's Ctrl-C sends SIGINT
+        # to the whole process group, and the script used to die of it with
+        # nothing to report, so both arrive here.
+        signal.signal(signal.SIGTERM, sig_handler)
+        signal.signal(signal.SIGINT, sig_handler)
         sys.exit(capture(interface, fifo, channel))
     elif capture_filter is not None:
         # a capture filter and nothing to do with it: Wireshark verifying the

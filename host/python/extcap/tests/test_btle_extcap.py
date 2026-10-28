@@ -318,8 +318,7 @@ assert result.stdout.startswith("dlt "), result
 # a word that is not an option and not the value of one is a mistake: no call
 # here takes an operand, so it is refused rather than silently ignored, the
 # same way the other tools refuse one. A bare "-" is a stray word too: it
-# names standard output only as the value of a file option, which this script
-# has none of.
+# names standard output as the value of --fifo, not on its own.
 for stray, word in ((("--extcap-interfaces", "extra"), "extra"),
                     (("--extcap-version", "-", "--extcap-interfaces"), "-"),
                     # -h does not excuse a stray word: it ends the command
@@ -685,6 +684,30 @@ for stop_with in (signal.SIGTERM, signal.SIGINT):
     assert output == "", (stop_with, output)
     # no traceback either: the signal is handled, not left to kill Python
     assert "Traceback" not in errors, (stop_with, errors)
+
+# a call that is not a capture keeps the default disposition, where a stop
+# signal ends the command: only --capture has a stop to report, so that is
+# the only call that handles one. Handling them for every call left a stop
+# noted and ignored, so a listing waiting on ubertooth-util carried on and
+# exited 0.
+with open(OUTPUT_FILE, "w") as output:
+    output.write("")
+if os.path.exists(ARGS_FILE):
+    os.remove(ARGS_FILE)
+listing = subprocess.Popen(
+    [sys.executable, SCRIPT, "--extcap-interfaces"],
+    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    env=dict(ENVIRONMENT, FAKE_UTIL_STATUS="0", FAKE_UTIL_SIGNAL="",
+             # long enough to be stopped part-way, short enough that the fake
+             # is gone by the end of the test however the stop lands
+             FAKE_UTIL_SLEEP="3"))
+deadline = time.monotonic() + 10
+while not os.path.exists(ARGS_FILE) and time.monotonic() < deadline:
+    time.sleep(0.05)
+listing.terminate()
+output, errors = listing.communicate(timeout=10)
+assert listing.returncode == -int(signal.SIGTERM), \
+    (listing.returncode, output, errors)
 
 # a stop that arrives before ubertooth-btle does, while the command line is
 # still being read: the handler has no child to pass the signal on to, and

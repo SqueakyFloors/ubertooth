@@ -45,7 +45,8 @@ worth running by hand when a board does not appear in Wireshark.
    the configurable arguments, which is the advertising channel
  - `--capture --fifo=PATH [--channel=37|38|39]` :
    run `ubertooth-btle` on the selected board and write the capture into
-   `PATH` (default channel 37)
+   `PATH` (default channel 37). Wireshark names the fifo it opened; `--fifo=-`
+   is standard output, for a capture run by hand
  - `-h`, `--help` :
    the usage line, on standard output
 
@@ -92,15 +93,14 @@ through or report the signal that killed it.
    was asked to stop, either way it ends: SIGTERM or SIGINT arrives and the
    script asks `ubertooth-btle` to stop with a SIGTERM, or `ubertooth-btle`
    dies of SIGPIPE because nothing is reading the fifo any more. It also
-   includes
-   Wireshark's capture-filter verification call, whose answer is its standard
-   output and not its status: a non-zero exit there makes Wireshark discard
-   the answer and report "Unable to check capture filter"
+   includes Wireshark's capture-filter verification call, whose answer is its
+   standard output and not its status: a non-zero exit there makes Wireshark
+   discard the answer and report "Unable to check capture filter"
  - `1` :
    a usage error, a board that could not be opened, a tool that could not be
    run, a `ubertooth-btle` that failed or was killed, or any other failure.
-   That includes a partial listing: if
-   `--extcap-interfaces` could not open one board it exits 1 even though it
+   That includes a partial listing: if `--extcap-interfaces` could not open
+   one board it exits 1 even though it
    named the others, with the reason on standard error. Wireshark throws away
    everything a call that failed printed, so its capture list is then without
    the boards that were fine until that board is freed or unplugged. The one

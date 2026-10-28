@@ -151,9 +151,10 @@ not the flash worked.
 - A command that did nothing exits `1`, never `0`, and opens no device.
 - A call that answers a question did something, however short the answer:
   `btle-extcap.py` verifying a capture filter for Wireshark exits `0` whether
-  the filter is good or not, and says which on standard output, because
-  Wireshark reads that output as the answer and throws away the output of a
-  call that exited non-zero.
+  the filter is good or not. What is wrong with the filter goes on standard
+  output and nothing at all means it is good, because Wireshark reads that
+  output as the answer and throws away the output of a call that exited
+  non-zero.
 - Check command-line problems before opening a device or creating an output
   file, so a refused command touches nothing.
 
