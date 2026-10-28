@@ -35,8 +35,7 @@
 
 set -u
 
-top=$(git rev-parse --show-toplevel) || exit 1
-if [ -z "$top" ]; then
+if ! top=$(git rev-parse --show-toplevel 2> /dev/null) || [ -z "$top" ]; then
     echo "error: not inside a git checkout" >&2
     exit 1
 fi
@@ -100,15 +99,17 @@ fi
 # arrives as "2020\-12\-R1" and "1.07" as "1\.07". The entries below allow
 # that backslash where one can appear rather than carrying two spellings of
 # each line.
-allowlist=$(mktemp) || exit 1
-matches=$(mktemp) || exit 1
-reported=$(mktemp) || exit 1
-trap 'rm -f "$allowlist" "$matches" "$reported"' EXIT HUP INT TERM
+work=$(mktemp -d) || exit 1
+trap 'rm -rf "$work"' EXIT HUP INT TERM
+allowlist=$work/allowlist
+matches=$work/matches
+reported=$work/reported
 grep -v '^#' > "$allowlist" <<'EOF'
 # The btbr image's bcdDevice is a fixed 1.06 that no bump moves, and a sample
-# showing btbr is making that point. Tied to the image name, so the number
-# cannot be excused in a bluetooth_rxtx sample.
-:[0-9]+:.*btbr .*\(API:1(\\)?\.06\)
+# showing btbr is making that point. The image name and its revision have to
+# sit directly before the version, so a sample of the image that does bump
+# cannot borrow 1.06 by naming btbr earlier in the line.
+:[0-9]+:.*btbr git(\\)?-[^ ]+ \(API:1(\\)?\.06\)
 # The 2020-12-R1 release's 1.07, likewise: the samples that show it are about
 # reading a board this tree did not build.
 :[0-9]+:.*2020(\\)?-12(\\)?-R1 \(API:1(\\)?\.07\)
@@ -178,8 +179,8 @@ fi
 # tree's. Each is allowlisted above, so without this they could hold a version
 # two bumps old and nothing would say so -- which is how the samples went
 # stale in the first place.
-plan_versions=$(sed -n 's/.*(API:\([0-9][0-9]*\.[0-9][0-9]*\)).*/\1/p' TEST_PLAN.md |
-                sort -u)
+plan_versions=$(grep -o -E 'API:[0-9]+\.[0-9]+' TEST_PLAN.md |
+                sed 's/^API://' | sort -u)
 if [ -z "$plan_versions" ]; then
     {
         echo "error: TEST_PLAN.md states no expected API: version at all."
@@ -202,14 +203,36 @@ elif [ "$plan_versions" != "$version" ]; then
     problems=$((problems + 1))
 fi
 
-if ! grep -q -F "$version" COMPATIBILITY.md; then
+# The row's second cell is the version a board must report. Matching the whole
+# file would pass a row whose required value is two bumps old but whose prose
+# mentions this one: that row names several versions on purpose.
+compat_row=$(grep -n '^|[ ]*\*\*Ubertooth firmware (API)\*\*[ ]*|' COMPATIBILITY.md |
+             head -1)
+if [ -z "$compat_row" ]; then
     {
-        echo "error: COMPATIBILITY.md does not mention API version $version."
+        echo "error: COMPATIBILITY.md has no '**Ubertooth firmware (API)**' row."
         echo ""
-        echo "       Its firmware row states the version a board must report,"
-        echo "       so a bump moves that row with it."
+        echo "       That row states the version a board must report, and this"
+        echo "       check reads its required value, so a check that stopped"
+        echo "       finding the row would pass anything."
     } >&2
     problems=$((problems + 1))
+else
+    required=$(printf '%s' "$compat_row" | awk -F'|' '{ print $3 }')
+    escaped=$(printf '%s' "$version" | sed 's/\./\\./g')
+    if ! printf '%s' "$required" |
+         grep -q -E "(^|[^0-9.])$escaped([^0-9.]|\$)"; then
+        {
+            echo "error: COMPATIBILITY.md's firmware row requires an API version"
+            echo "       this tree does not carry."
+            echo ""
+            echo "         this tree:         $version ($header)"
+            echo "         COMPATIBILITY.md: $required"
+            echo ""
+            echo "       A bump moves that row's required value with it."
+        } >&2
+        problems=$((problems + 1))
+    fi
 fi
 
 if [ "$problems" -ne 0 ]; then

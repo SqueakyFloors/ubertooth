@@ -237,6 +237,11 @@ jobs:
       # asked for the macro by name. The next GNU-only call would reintroduce
       # exactly that, and only a user with CFLAGS of their own would find out.
       #
+      # A hidden declaration is a hard error here, not a warning: that is how
+      # a missing usleep() or be32toh() shows up, and macOS declares both
+      # whatever the standard, so without this the Linux leg would warn and
+      # the macOS leg would say nothing at all.
+      #
       # A separate build tree per standard, so neither can be answered by an
       # object file the default build left behind. Compiling is the whole
       # point here, so these are built in parallel and their tests are not
@@ -252,7 +257,7 @@ jobs:
           cmake -E make_directory "$dir"
           cmake -S "$GITHUB_WORKSPACE/host" -B "$dir" \
             -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
-            -DCMAKE_C_FLAGS="-std=$std $EXTRA_C_FLAGS"
+            -DCMAKE_C_FLAGS="-std=$std -Werror=implicit-function-declaration $EXTRA_C_FLAGS"
           cmake --build "$dir" --config $BUILD_TYPE --parallel
         done
 
@@ -477,12 +482,14 @@ jobs:
     runs-on: ${{ matrix.os }}
     # The steps below carry their own limits: 6 minutes each for the
     # shellcheck install, the api-version self-test (which builds and reads
-    # seventy-odd throwaway repositories) and the DFU packaging self-test, and
-    # 2 each for the two libbtbb list checks and the workflow libbtbb guard's
-    # self-test. The job's limit has to leave room for all of them to be slow
-    # at once, which is 24 minutes of step limits plus the unbounded steps --
-    # the two quick self-tests and the issue-reference check -- so 30.
-    timeout-minutes: 30
+    # seventy-odd throwaway repositories) and the DFU packaging self-test, 3
+    # each for the issue-reference and documentation-version self-tests (which
+    # build throwaway repositories too), and 2 each for the two libbtbb list
+    # checks, the workflow libbtbb guard's self-test and the documentation
+    # version check. The job's limit has to leave room for all of them to be
+    # slow at once, which is 32 minutes of step limits plus the unbounded
+    # steps -- the two quick self-tests and the issue-reference check -- so 38.
+    timeout-minutes: 38
     steps:
     - uses: actions/checkout@v4
 

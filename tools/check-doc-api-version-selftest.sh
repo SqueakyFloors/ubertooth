@@ -50,11 +50,11 @@ fail() {
     failures=$((failures + 1))
 }
 
-# A repository shaped like this one as far as the check can tell: 80
-# documentation files with nothing pinned in them, the firmware header, and
-# TEST_PLAN.md and COMPATIBILITY.md both at the current version. Raising the
-# check's floor past 80 fails every case here at once, which is the right way
-# round to find out.
+# A repository shaped like this one as far as the check can tell: 80 filler
+# pages with nothing pinned in them, the firmware header, and TEST_PLAN.md and
+# COMPATIBILITY.md both at the current version -- 82 files in the check's
+# scope, since the two documents are Markdown. Raising the check's floor past
+# 82 fails every case here at once, which is the right way round to find out.
 new_repo() {
     repos=$((repos + 1))
     repo="$work/repo$repos"
@@ -170,6 +170,17 @@ run_check
 grep -q "docs/source/firmware.rst:1:" "$err" ||
     fail "a bluetooth_rxtx sample at 1.06 was excused"
 
+case_name="1.06 is not excused by naming btbr earlier in the line"
+# The entry wants the image name and revision directly before the version, so
+# prose that mentions btbr cannot carry the number for a different image.
+new_repo
+add_doc docs/source/firmware.rst \
+    "	Unlike btbr it bumps: bluetooth_rxtx git-test (API:1.06)"
+run_check
+[ "$status" -eq 1 ] || fail "expected exit 1, got $status"
+grep -q "docs/source/firmware.rst:1:" "$err" ||
+    fail "btbr earlier in the line excused the number"
+
 case_name="the 2020-12-R1 release's 1.07 is excused, in Markdown and in roff"
 new_repo
 add_doc host/doc/ubertooth-util.md \
@@ -209,8 +220,41 @@ printf '| **Ubertooth firmware (API)** | %s (this tree), exactly |\n' "$stale" \
 git -C "$repo" add COMPATIBILITY.md
 run_check
 [ "$status" -eq 1 ] || fail "expected exit 1, got $status"
-grep -q "COMPATIBILITY.md does not mention API version $current" "$err" ||
+grep -q "firmware row requires an API version" "$err" ||
     fail "a stale firmware row was not reported"
+
+case_name="a firmware row whose required value is stale but whose prose is current"
+# The real row names several versions on purpose -- the one required, the ones
+# refused, the one last verified -- so asking whether the file mentions this
+# version anywhere would pass a row that requires a version two bumps old.
+new_repo
+printf '| **Ubertooth firmware (API)** | %s (this tree), exactly | verified at %s |\n' \
+    "$stale" "$current" > "$repo/COMPATIBILITY.md"
+git -C "$repo" add COMPATIBILITY.md
+run_check
+[ "$status" -eq 1 ] || fail "expected exit 1, got $status"
+grep -q "firmware row requires an API version" "$err" ||
+    fail "a stale required value beside current prose was not reported"
+
+case_name="a firmware row the check cannot find is a failure, not a pass"
+new_repo
+printf '| firmware | %s |\n' "$current" > "$repo/COMPATIBILITY.md"
+git -C "$repo" add COMPATIBILITY.md
+run_check
+[ "$status" -eq 1 ] || fail "expected exit 1, got $status"
+grep -q "has no" "$err" || fail "a missing firmware row was not reported"
+
+case_name="a plan line carrying a stale version beside the current one is caught"
+# One line, two versions: reading one version per line would see the current
+# one and stop.
+new_repo
+printf -- '- [ ] Confirm: was (API:%s), this tree reports (API:%s)\n' \
+    "$stale" "$current" > "$repo/TEST_PLAN.md"
+git -C "$repo" add TEST_PLAN.md
+run_check
+[ "$status" -eq 1 ] || fail "expected exit 1, got $status"
+grep -q "TEST_PLAN.md expects an API version this tree does not carry" "$err" ||
+    fail "a second version on the same line was not reported"
 
 # ---- the version the check reads itself ---------------------------------
 
