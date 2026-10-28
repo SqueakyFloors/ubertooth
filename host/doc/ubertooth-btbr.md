@@ -227,7 +227,8 @@ same way. See FIRMWARE.
 0 for `-h`, and when the session ended cleanly, which is `exit`, `q`, `x` or
 Ctrl-D with nothing left running. 1 for a command line the tool will not take,
 when no Ubertooth is found, when `-U` names no board or more than one, when
-the one it names cannot be opened, when the board refuses the requests
+the one it names cannot be opened or is in use by another program, when the
+board refuses the requests
 that set the session up, when Ctrl-C ends the tool before the prompt is up,
 and when the session ends with a command that would not stop still holding the
 board.

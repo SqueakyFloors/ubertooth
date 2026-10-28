@@ -1972,7 +1972,7 @@ int main(int argc, char **argv) {
 		                           &verify_config, &verify_report);
 		if (r != DFU_VERIFY_OK) {
 			char message[256];
-			char stage[320];
+			char stage[384];
 
 			/* The raw codes go in the stage trace, which is where the rest
 			 * of this command's internals are reported; the line the user

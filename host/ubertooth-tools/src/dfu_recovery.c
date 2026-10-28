@@ -217,13 +217,15 @@ int dfu_verify_application(const struct dfu_verify_ops *ops,
 		memset(&identity, 0, sizeof(identity));
 		report->polls++;
 		result = ops->open_application(context, selector, &handle, &identity);
+		/* Written by every poll, including one that opened the board, so it
+		 * always describes the poll the report ends on. */
+		report->bus_unreadable = result == DFU_OPEN_BUS_UNREADABLE;
 		if (result != 1) {
 			/* Each poll overwrites these, so what is left at the end is
 			 * where the last one stood: an error if a device was there and
 			 * would not open, a bus that could not be read, or neither,
 			 * which means there was nothing to open. */
 			report->operation_error = result < 0 ? result : 0;
-			report->bus_unreadable = result == DFU_OPEN_BUS_UNREADABLE;
 			if (poll + 1 < config->polls)
 				ops->sleep_ms(context, config->poll_interval_ms);
 			continue;

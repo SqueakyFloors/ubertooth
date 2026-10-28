@@ -413,6 +413,7 @@ mean the same thing, so each has its own line:
 
     error: the firmware was written, but the board did not come back on USB: power-cycle it and read its revision with ubertooth-util -v before flashing it again
     error: the firmware was written, but the board came back and would not open, so the flash was not checked: read its revision with ubertooth-util -v once nothing else is using it
+    error: the firmware was written, but the host's USB bus could not be read, so the flash was not checked: read the board's revision with ubertooth-util -v
     error: the board came back running git-0000000, not git-ed30131d: the firmware was not written, so flash it again
     error: the board came back running the btbr firmware, not the bluetooth_rxtx image that was written: the firmware was not written, so flash it again
     error: the board came back but would not report its firmware revision, so the flash was not checked: read it with ubertooth-util -v
@@ -421,12 +422,14 @@ mean the same thing, so each has its own line:
 
 Two of those say the write did not take and ask for another flash: the one
 that names another revision, and the one that names the other image. The first
-two lines are boards whose flash already holds the new firmware: the whole
+three lines are boards whose flash already holds the new firmware: the whole
 image went in and the board was reset before it stopped answering, so what
 they need is a `ubertooth-util -v`, not another flash. The second of them is a
 board that is on the bus and will not open, usually because something else is
 using it or this user has no permission to it, so a power cycle is not what it
-is waiting for. The rest leave the flash unchecked rather than failed.
+is waiting for; the third is a board that was never looked at, because the
+host's own USB bus could not be listed. The rest leave the flash unchecked
+rather than failed.
 Whichever line is printed, the stage trace carries the raw codes behind it on
 its `post-reset application verification failed: ...` line.
 

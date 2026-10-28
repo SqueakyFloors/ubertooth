@@ -54,8 +54,9 @@
 /* -w is a number of Bluetooth timeslots, each 625 us. The clock the board
  * hops on counts 312.5 us ticks, two to a slot, so a delay in slots is
  * doubled before it is added to that clock. Without this each unit of -w
- * compensated half of what it said, and the default set the board's hop clock
- * a whole slot early -- on a hopping piconet, the wrong channel. */
+ * compensated half of what it said: at the default -w 5, 1562.5 us of the
+ * 3125 us it asks for, which leaves the board hopping on a clock more than
+ * two slots out -- on a hopping piconet, the wrong channel. */
 #define CLKN_TICKS_PER_SLOT 2
 
 /* One attempt at the AFH map of the link to the target, for

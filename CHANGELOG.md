@@ -327,8 +327,9 @@
 - `ubertooth-follow -w` compensates the delay it says it does. The option
   counts 625 us timeslots, and the clock the board hops on counts 312.5 us
   ticks; the delay was added tick for tick, so every value compensated half of
-  what it said and the default left the board's hop clock a whole slot early
-  -- on a hopping piconet, the wrong channel.
+  what it said -- 1562.5 us of the default's 3125 us, leaving the board
+  hopping on a clock more than two slots out, which on a hopping piconet is
+  the wrong channel.
   [#672](https://github.com/SqueakyFloors/ubertooth/issues/672)
 - `ubertooth-btbr` reports a board another program is using as that, in the
   words every other tool uses: `error: Ubertooth <serial> is in use by another

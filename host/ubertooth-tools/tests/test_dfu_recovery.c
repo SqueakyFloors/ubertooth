@@ -499,6 +499,25 @@ MU_TEST(test_a_bus_that_could_not_be_read_is_not_a_board_that_would_not_open)
 	mu_assert(strchr(message, '\n') == NULL, "the line is more than one line");
 }
 
+/* A bus that could not be read on one poll and read on the next is not
+ * reported at all: the flag describes the poll the report ends on. */
+MU_TEST(test_a_bus_that_could_be_read_on_the_next_poll_is_not_reported)
+{
+	struct fake_recovery fake = make_fake();
+	struct dfu_verify_config config = {2, 10};
+	struct dfu_verify_report report;
+	int opens[] = {DFU_OPEN_BUS_UNREADABLE, 1};
+	memcpy(fake.app_open_results, opens, sizeof(opens));
+	fake.app_open_count = ARRAY_LEN(opens);
+
+	mu_assert_int_eq(DFU_VERIFY_OK,
+	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
+	                                        &fake.identity, "git-expected",
+	                                        "bluetooth_rxtx",
+	                                        &config, &report));
+	mu_assert_int_eq(0, report.bus_unreadable);
+}
+
 /* A board running something else did not take the write, and this is the one
  * outcome that asks for another flash. */
 MU_TEST(test_a_board_running_another_revision_is_described_as_a_failed_write)
@@ -1741,6 +1760,7 @@ int main(void)
 	MU_RUN(test_a_board_that_never_came_back_is_told_apart_from_a_failed_write);
 	MU_RUN(test_a_board_that_will_not_open_is_not_a_board_that_stayed_away);
 	MU_RUN(test_a_bus_that_could_not_be_read_is_not_a_board_that_would_not_open);
+	MU_RUN(test_a_bus_that_could_be_read_on_the_next_poll_is_not_reported);
 	MU_RUN(test_a_board_running_another_revision_is_described_as_a_failed_write);
 	MU_RUN(test_a_board_that_will_not_report_its_revision_is_not_a_mismatch);
 	MU_RUN(test_the_other_image_is_described_as_a_failed_write);

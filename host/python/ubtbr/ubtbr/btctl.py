@@ -1031,9 +1031,9 @@ def claim_failure_message(board, error):
 	problem, because a board nobody may open never reached the claim.
 	"""
 	if isinstance(error, (usb1.USBErrorBusy, usb1.USBErrorAccess)):
-		return ("%s is in use by another program (libusb %d)"
+		return ("%s is in use by another program (libusb %s)"
 			%(board, error.value))
-	return ("claiming the USB interface of %s failed (libusb %d)"
+	return ("claiming the USB interface of %s failed (libusb %s)"
 		%(board, error.value))
 
 
