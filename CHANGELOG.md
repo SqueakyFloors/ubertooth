@@ -1197,6 +1197,12 @@
   `ubertooth-ducky` takes the board out of its mode, as it already did for the
   other tools; the board used to be left capturing or advertising.
   [#515](https://github.com/SqueakyFloors/ubertooth/issues/515)
+- A Classic capture records the reference UAP on the packet that settles it.
+  `ubertooth-rx` read the piconet's UAP before handing the packet to the
+  decoder, so the one packet whose CRC settled that UAP went into the capture
+  as if nothing were known, and a reader could not check that packet's CRC -
+  the packet the UAP was derived from being the one record that most needs it.
+  [#767](https://github.com/SqueakyFloors/ubertooth/issues/767)
 
 ### Documentation
 

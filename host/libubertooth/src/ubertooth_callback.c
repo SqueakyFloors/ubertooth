@@ -1092,7 +1092,6 @@ void cb_rx(ubertooth_t* ut, void* args)
 	 * search for any packet. */
 	if (pn) {
 		lap = btbb_piconet_get_flag(pn, BTBB_LAP_VALID) ? btbb_piconet_get_lap(pn) : LAP_ANY;
-		uap = btbb_piconet_get_flag(pn, BTBB_UAP_VALID) ? btbb_piconet_get_uap(pn) : UAP_ANY;
 	}
 
 	/* Pass packet-pointer-pointer so that
@@ -1185,6 +1184,16 @@ void cb_rx(ubertooth_t* ut, void* args)
 	}
 
 	r = btbb_process_packet(pkt, pn);
+
+	/* The reference upper address part (UAP) the capture records alongside
+	 * this packet, read now that the decoder has had the packet. A packet
+	 * whose CRC is what finally settles the piconet's UAP settles it inside
+	 * the call above, so reading it beforehand left that one packet -- the
+	 * first evidence a reader has for the UAP, and the record that most
+	 * needs it -- written as if nothing was known, with its CRC left with
+	 * nothing to check it against. */
+	if (pn && btbb_piconet_get_flag(pn, BTBB_UAP_VALID))
+		uap = btbb_piconet_get_uap(pn);
 
 	/* Dump to PCAP/PCAPNG if specified */
 	if (ut->h_pcap_bredr) {
