@@ -109,7 +109,7 @@ A board that cannot be \fIopened\fR at all is a different problem, usually file 
 These tools drive the firmware built from the same source tree, which both run\-time images report as their USB device version\. A release build refuses anything else, naming both versions and which side to replace:
 .IP "" 4
 .nf
-error: Ubertooth firmware API version 1\.19 found, libubertooth 1\.1 requires 1\.20\.
+error: Ubertooth firmware API version <version> found, libubertooth 1\.1 requires <version>\.
 note: flash the firmware built from the same source tree, for example: \./install\.sh \-\-flash\-device 1cc0
 .fi
 .IP "" 0
@@ -117,7 +117,7 @@ note: flash the firmware built from the same source tree, for example: \./instal
 A build made from a git checkout that is not on a tag is a development build, and says the same thing as a warning and carries on, because host tools and firmware from different commits are the normal state of lab work and debugging:
 .IP "" 4
 .nf
-warning: Ubertooth firmware API version 1\.19 found, libubertooth 1\.1 requires 1\.20\.
+warning: Ubertooth firmware API version <version> found, libubertooth 1\.1 requires <version>\.
 note: flash the firmware built from the same source tree, for example: \./install\.sh \-\-flash\-device 1cc0
 note: this is a development build, so the command runs on; what it reports may be wrong, and a request this firmware has not got will fail
 .fi
@@ -127,7 +127,7 @@ Both notes are worth reading before the output is trusted\. What the two version
 .IP "" 4
 .nf
 error: could not set the AFH map: the board's firmware does not support it (stalled, libusb \-9)
-note: the board reports firmware API version 1\.19, libubertooth 1\.1 requires 1\.20
+note: the board reports firmware API version <version>, libubertooth 1\.1 requires <version>
 .fi
 .IP "" 0
 .P
@@ -149,7 +149,7 @@ A streaming capture that is losing packets says so\. This is the path \fBubertoo
 .P
 libubertooth follows the split already: it returns what it reads to the tool that called it and reports its own problems on standard error, so a library message does not land in the middle of a capture\. The clock trim and AFH channel notes raised while following a piconet are \fBnote:\fR lines on standard error\. What the library still writes to standard output is the calling tool's result \(em the decoded packet reports, the AFH map, the version line \(em which is the right stream for them, whichever layer prints them\. Its device\-selection messages are on standard error but do not all carry a prefix yet\.
 .SH "ENVIRONMENT"
-\fBUBERTOOTH_ALLOW_API_MISMATCH\fR decides what a tool does about firmware of another API version, whatever the build it came from\. \fB1\fR warns and runs the command, which is how a release build is made to talk to firmware from another commit for debugging; \fB0\fR refuses it, which is how a development build is made strict, and is what this project's CI and its test harness use\. Only those two exact values decide: unset, empty or anything else leaves the build's own answer, so a typo cannot turn the guard off\. See FIRMWARE OF ANOTHER API VERSION above\.
+\fBUBERTOOTH_ALLOW_API_MISMATCH\fR decides what a tool does about firmware of another API version, whatever the build it came from\. \fB1\fR warns and runs the command, which is how a release build is made to talk to firmware from another commit for debugging; \fB0\fR refuses it, which is how a development build is made strict, for a test harness that wants a refusal rather than a warning\. Only those two exact values decide: unset, empty or anything else leaves the build's own answer, so a typo cannot turn the guard off\. See FIRMWARE OF ANOTHER API VERSION above\.
 .P
 \fBUBERTOOTH_TEST_NO_DEVICES=1\fR makes every tool behave as if no Ubertooth were attached: nothing is listed or opened on the USB bus, and the tool reports that it found no device\. It exists for the project's own test suite, which runs the tools while boards may be in use elsewhere, and it is the only setting that changes device selection\. Only the exact value \fB1\fR turns it on; unset, empty or any other value leaves device selection alone\. A tool that finds no board because of it says so: \fBnote: UBERTOOTH_TEST_NO_DEVICES is set, so no board is selected\fR\.
 .SH "SUPPORT"
