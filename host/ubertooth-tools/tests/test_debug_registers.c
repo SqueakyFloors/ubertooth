@@ -191,6 +191,21 @@ MU_TEST(a_field_draws_the_bits_it_reports)
 	mu_assert(has_line(out, "....1... ........ (RW) CHP_DISABLE"), out);
 }
 
+/*
+ * The ADC readings run 0 to 127, so the top of the range is 127 and not -1.
+ * The radio's signed measurements sit in the registers either side of this
+ * one, which is why it is worth pinning: the datasheet names the format of
+ * every signed field and names neither of these two.
+ */
+MU_TEST(the_adc_readings_are_unsigned)
+{
+	char out[4096];
+
+	decode(0x0f, 0x7f7f, out, sizeof(out));
+	mu_assert(has_line(out, ".1111111 ........ (RO) ADC_I (127)"), out);
+	mu_assert(has_line(out, "........ .1111111 (RO) ADC_Q (127)"), out);
+}
+
 /* Register 0x15 is MDMTST1; it used to carry 0x14's name, so no name of its
  * own reached it and -r MDMTST1 could not name it. */
 MU_TEST(every_register_name_in_the_table_is_its_own)
@@ -208,6 +223,7 @@ int main(void)
 	MU_RUN(a_field_is_printed_from_the_bits_its_picture_draws);
 	MU_RUN(a_breakpoint_state_with_its_top_bit_set_is_not_disabled);
 	MU_RUN(a_field_draws_the_bits_it_reports);
+	MU_RUN(the_adc_readings_are_unsigned);
 	MU_RUN(every_register_name_in_the_table_is_its_own);
 	return mu_report();
 }

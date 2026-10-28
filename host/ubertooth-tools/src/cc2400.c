@@ -269,6 +269,13 @@ cc2400_fsmstate (unsigned short v)
   bits (4, 0, "FSM_CUR_STATE", "RO", "");
 }
 
+/* Both ADC readings are printed unsigned, unlike the measurements in
+ * cc2400_rssi() and cc2400_frequest(). The datasheet names the format of
+ * every field that holds a signed number -- RSSI_VAL, RSSI_CS_THRES,
+ * RX_FREQ_OFFSET and MOD_OFFSET all say two's complement, and MOD_DEV says
+ * unsigned -- and it says neither of ADC_I and ADC_Q, which it describes only
+ * as the current value of the I and Q branch. So an idle board reading 64 for
+ * each is the middle of the 0-127 range, not -64. */
 static void
 cc2400_adctst (unsigned short v)
 {
