@@ -274,9 +274,9 @@ static int check_download_image(const char* name, FILE* downfile,
 	 *
 	 * What the warning reports is what the file says about itself. It does
 	 * not promise what the other tools will do with the board afterwards,
-	 * because they read the USB bcdDevice rather than this block, and the
-	 * two are not the same number in every image (the btbr image reports a
-	 * fixed 1.06 as its bcdDevice). */
+	 * because they read the USB bcdDevice rather than this block. Both
+	 * images this tree builds put the same version in both places, so the
+	 * two agree today; nothing in the format makes them have to. */
 	if (info->api_version != UBERTOOTH_API_VERSION)
 		fprintf(stderr, "warning: %s: this image reports API version "
 		        "%x.%02x in its firmware info block, and these tools report "
