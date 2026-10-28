@@ -153,9 +153,10 @@ int ubertooth_print_versions(const char *selector)
 	 */
 	count = ubertooth_devices_hidden() ? 0 : ubertooth_count();
 	if (count < 0) {
-		/* The bus could not be listed; libusb's error is already reported. */
+		/* The bus could not be listed, so nothing is known about what is
+		 * attached. libusb's own error is already on standard error. */
 		print_label(stdout, UBERTOOTH_VERSION_LABEL_FIRMWARE, -1);
-		fprintf(stdout, "read failed\n");
+		fprintf(stdout, "unavailable, the USB bus could not be listed\n");
 		return 1;
 	}
 	/* Nothing attached is an answer, not a failure: -V is the one command
@@ -164,6 +165,11 @@ int ubertooth_print_versions(const char *selector)
 	if (count == 0) {
 		print_label(stdout, UBERTOOTH_VERSION_LABEL_FIRMWARE, -1);
 		fprintf(stdout, "no Ubertooth attached\n");
+		/* A board in the bootloader is not counted, and answers nothing, so
+		 * the line above is true -- but it is also the one thing the user
+		 * would want to know here, and -V is how an unknown board is
+		 * identified. The selection paths note it for the same reason. */
+		ubertooth_note_dfu_bootloader();
 		return 0;
 	}
 

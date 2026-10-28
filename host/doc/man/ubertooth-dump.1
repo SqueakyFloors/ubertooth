@@ -36,7 +36,7 @@ print the usage text on standard output and exit 0\. It takes effect once the wh
 .SH "ARGUMENTS"
 \fBubertooth\-dump\fR takes options only\. A word that is not an option, including a bare \fB\-\fR, is refused before any device is opened and named: \fBerror: unexpected argument '<word>'\fR, with exit status 1\.
 .P
-\fB\-h\fR ends the command only once the whole command line has parsed, so a stray word or a bad option value is reported even alongside it\.
+\fB\-h\fR and \fB\-V\fR end the command only once the whole command line has parsed, so a stray word or a bad option value is reported even alongside them\. Both answer on standard output, so a command line with both prints both, the usage text last; the order they were written in makes no difference\.
 .P
 The board demodulates one modulation at a time, so \fB\-c\fR and \fB\-l\fR in one command are refused before any device is opened: \fBerror: \-l cannot be combined with \-c; a capture uses one modulation\fR\. The second one used to be the one used, and the other was dropped without a word\.
 .P

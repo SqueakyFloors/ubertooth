@@ -59,6 +59,8 @@ static void usage()
 	printf("        and Extended Inquiry Scan.\n");
 	printf("\n");
 	printf("Options:\n");
+	printf("\t-h this help\n");
+	printf("\t-V print version information\n");
 	printf("\t-s hci Scan - use BlueZ to scan for discoverable devices\n");
 	printf("\t-x eXtended scan - retrieve additional information about target devices\n");
 	printf("\t-t scan Time (seconds) - length of time to sniff packets. [Default: 20s]\n");
@@ -66,7 +68,6 @@ static void usage()
 	       max_ac_errors, MAX_AC_ERRORS);
 	printf("\t-b Bluetooth device (hci0)\n");
 	fputs(OPT_USAGE_SELECT_DEVICE, stdout);
-	printf("\t-V print version information\n");
 }
 
 

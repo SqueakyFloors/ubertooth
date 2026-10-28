@@ -869,6 +869,39 @@ MU_TEST(the_test_switch_hides_every_device)
 	ubertooth_free(ut);
 }
 
+/* A bus that could not be listed is not an empty bus: the count says so and
+ * fails, instead of reporting that no board is attached. -V reads the count to
+ * decide how many boards to report, so counting zero here would have it claim
+ * no Ubertooth is attached on a host whose USB stack could not be read. */
+MU_TEST(a_bus_that_cannot_be_listed_fails_the_count)
+{
+	char msg[256];
+	int count;
+	FILE *capture = tmpfile();
+	int saved = dup(fileno(stderr));
+	size_t n;
+
+	bus_with_ubertooths(2);
+	fake.list_rc = LIBUSB_ERROR_NO_MEM;
+	msg[0] = '\0';
+	mu_assert_fatal(capture != NULL && saved >= 0, "capture stderr");
+	fflush(stderr);
+	dup2(fileno(capture), fileno(stderr));
+	count = ubertooth_count();
+	fflush(stderr);
+	dup2(saved, fileno(stderr));
+	close(saved);
+	rewind(capture);
+	n = fread(msg, 1, sizeof(msg) - 1, capture);
+	msg[n] = '\0';
+	fclose(capture);
+
+	mu_assert_int_eq(-1, count);
+	mu_assert(strstr(msg, "could not list USB devices") != NULL, msg);
+	/* The libusb session the count opened is given back even on this path. */
+	mu_assert_int_eq(0, fake.usb_sessions);
+}
+
 /* ---- selecting by serial number ----------------------------------------- */
 
 MU_TEST(a_full_serial_opens_that_board)
@@ -1521,6 +1554,7 @@ int main(void)
 	MU_RUN(an_empty_or_failing_bus_is_refused);
 	MU_RUN(a_device_without_a_descriptor_is_skipped);
 	MU_RUN(the_quiet_selection_refuses_the_same_indices);
+	MU_RUN(a_bus_that_cannot_be_listed_fails_the_count);
 	MU_RUN(a_full_serial_opens_that_board);
 	MU_RUN(a_prefix_of_a_serial_opens_that_board);
 	MU_RUN(a_serial_matches_in_upper_case);

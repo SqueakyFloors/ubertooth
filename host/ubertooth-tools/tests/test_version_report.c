@@ -40,6 +40,7 @@ static struct {
 	/* bookkeeping: a handle opened and not given back is a leak, and a
 	 * STOP would end a mode the user is running */
 	int opens, closes, frees, stops;
+	int dfu_notes;    /* ubertooth_note_dfu_bootloader() calls */
 	int current;      /* the board the open handle belongs to */
 	ubertooth_t handle;
 } fake;
@@ -79,6 +80,11 @@ int ubertooth_devices_hidden(void)
 int ubertooth_count(void)
 {
 	return fake.count_rc < 0 ? fake.count_rc : fake.count;
+}
+
+void ubertooth_note_dfu_bootloader(void)
+{
+	fake.dfu_notes++;
 }
 
 static ubertooth_t *open_board(int index)
@@ -220,6 +226,9 @@ MU_TEST(no_board_is_an_answer_not_a_failure)
 	          "the no-board answer changed");
 	mu_assert_int_eq(0, (long)strlen(r.err));
 	mu_assert_int_eq(0, fake.opens);
+	/* A board in the bootloader is what "no Ubertooth attached" most often
+	 * means, so the library's note is asked for on this path. */
+	mu_assert_int_eq(1, fake.dfu_notes);
 }
 
 /* The switch the project's tests set must not turn -V's answer into a note on
@@ -251,6 +260,8 @@ MU_TEST(one_board_prints_the_three_lines)
 	                 "Firmware build: compile-test\n") == 0,
 	          "the single-board answer changed");
 	mu_assert_int_eq(1, fake.opens);
+	/* The note is for the paths that found no board at all. */
+	mu_assert_int_eq(0, fake.dfu_notes);
 }
 
 /* Firmware built before the info block existed stalls the request for it. The
@@ -390,7 +401,8 @@ MU_TEST(a_bus_that_cannot_be_listed_fails_after_the_host_line)
 	fake.count_rc = -1;
 	r = RUN_PLAIN();
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(r.out, HOST_LINE "Firmware version: read failed\n") == 0,
+	mu_assert(strcmp(r.out, HOST_LINE "Firmware version: unavailable, the USB "
+	                 "bus could not be listed\n") == 0,
 	          "the answer for a bus that cannot be listed changed");
 	mu_assert_int_eq(0, fake.opens);
 }

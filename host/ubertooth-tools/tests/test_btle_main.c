@@ -526,15 +526,32 @@ MU_TEST(the_older_spelling_of_crc_verify_warns_and_still_works)
 	mu_assert_int_eq(0, r.rc);
 	mu_assert_int_eq(0, (long)strlen(r.err));
 
+	/* Both spellings in one command line: the refusal names them as they
+	 * were written, and says nothing else -- not even the deprecation
+	 * warning, which belongs to a command line that runs. */
 	reset_fake();
 	r = RUN("-k", "-v");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.out, "") == 0, r.out);
-	mu_assert(strcmp(r.err, "error: -k cannot be combined with -v; they are "
+	mu_assert(strcmp(r.err, "error: -v cannot be combined with -k; they are "
 	                 "the same CRC verify setting written two ways\n") == 0,
 	          r.err);
 	mu_assert_int_eq(0, fake.crc_sets);
 	mu_assert_int_eq(0, fake.crc_gets);
+
+	reset_fake();
+	r = RUN("-v", "-k");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, "error: -k cannot be combined with -v; they are "
+	                 "the same CRC verify setting written two ways\n") == 0,
+	          r.err);
+
+	/* A command line that is refused for another reason gets that line
+	 * alone, with no warning in front of it. */
+	reset_fake();
+	r = RUN("-v", "-i");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "warning:") == NULL, r.err);
 }
 
 /* A set on its own, and a read on its own, are unchanged. */

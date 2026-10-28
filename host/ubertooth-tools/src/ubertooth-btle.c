@@ -319,8 +319,9 @@ int main(int argc, char *argv[])
 			 * written two ways: a command line that gives both is refused
 			 * rather than one of them being dropped. */
 			if (crc_option != 0 && crc_option != opt) {
-				fprintf(stderr, "error: -k cannot be combined with -v; they "
-				        "are the same CRC verify setting written two ways\n");
+				fprintf(stderr, "error: -%c cannot be combined with -%c; they"
+				        " are the same CRC verify setting written two ways\n",
+				        opt, crc_option);
 				return 1;
 			}
 			crc_option = opt;
@@ -402,14 +403,6 @@ int main(int argc, char *argv[])
 	if (do_version || first_exit_option == 'h')
 		return version_status;
 
-	/* -v named the CRC verify setting, which is -k now: -v means verbose in
-	 * every other tool, and will here too. Said once, however many times -v
-	 * was written, and only for a command line that goes on to use the
-	 * setting -- -h and -V have ended the command above, and neither has
-	 * anything to do with it. */
-	if (crc_option == 'v')
-		fprintf(stderr, "warning: -v for the CRC verify setting is deprecated "
-		        "and will be removed; use -k\n");
 
 	/* -a reads and -a<address> sets; one command cannot do both (the read
 	 * used to win and the set was dropped). */
@@ -481,6 +474,14 @@ int main(int argc, char *argv[])
 	 * the file is created. */
 	if (opt_check_capture_destination(pcap_name, "capture data") < 0)
 		return 1;
+
+	/* -v named the CRC verify setting, which is -k now: -v means verbose in
+	 * every other tool, and will here too. Said once, however many times -v
+	 * was written, and only for a command line that is going to run: -h and
+	 * -V end the command above, and a refused one is its error line alone. */
+	if (crc_option == 'v')
+		fprintf(stderr, "warning: -v for the CRC verify setting is deprecated "
+		        "and will be removed; use -k\n");
 
 	/* Every check has passed, so the handle and its 72 MB fifo can be
 	 * allocated: the capture files further down are kept on it. */

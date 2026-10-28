@@ -5,17 +5,17 @@
 \fBubertooth\-util\fR \- general purpose Ubertooth utility
 .SH "SYNOPSIS"
 .nf
-ubertooth\-util [\-v] [\-V] [\-H] [\-\-host\-version] [\-I] [\-d [0\-1]] [\-l [0\-1]]
+ubertooth\-util [\-V] [\-v] [\-I] [\-d [0\-1]] [\-l [0\-1]]
 [\-S] [\-r] [\-U <index|serial|all>] [\-a [0\-7]] [\-c [2402\-2480]] [\-C [0\-78]]
 [\-q [20\-120]] [\-t] [\-z [\-128\.\.127]] [\-e] [\-m] [\-n [seconds]] [\-i] [\-b]
 [\-p] [\-s]
 [\-w] [\-N] [\-x] [\-h]
 .fi
 .SH "DESCRIPTION"
-ubertooth\-util(1) is a catch\-all tool for doing generally useful things with, to, and about Ubertooth\. To get firmware revision and compile information, run:
+ubertooth\-util(1) is a catch\-all tool for doing generally useful things with, to, and about Ubertooth\. To get the host tools' version and the firmware version and build of each attached board, run:
 .IP "" 4
 .nf
-ubertooth\-util \-vV
+ubertooth\-util \-V
 .fi
 .IP "" 0
 .P
@@ -56,17 +56,19 @@ ubertooth\-util \-U <serial> \-S      # stop; the LEDs end off
 .P
 \fB\-I\fR needs firmware of this tree's API version, and treats any other the way the rest of the tools do: a release build refuses it, a development build warns and blinks anyway (see ubertooth(7), FIRMWARE OF ANOTHER API VERSION)\. The other options are not gated on the API version, and ubertooth\-dfu(1) reflashes a board whatever firmware it is running, so a board is always recoverable with an image from this tree\.
 .P
-\fB\-v\fR and \fB\-V\fR read the firmware info block described below, so they name the image the board is running:
+\fB\-V\fR is the version command, the same in every tool (ubertooth(7), COMMON OPTIONS)\. Its firmware lines, and \fB\-v\fR, read the firmware info block described below, so they name the image the board is running:
 .IP "" 4
 .nf
+$ ubertooth\-util \-V
+Host tools version: libubertooth <version> (git\-ed30131d*), libbtbb <version> (git\-2fd0d39)
+Firmware version: bluetooth_rxtx git\-ed30131d* (API:<version>)
+Firmware build: ubertooth git\-ed30131d* (builder@buildhost) Mon Oct 27 11:22:33 2025
 $ ubertooth\-util \-v
 Firmware version: bluetooth_rxtx git\-ed30131d* (API:<version>)
-$ ubertooth\-util \-V
-bluetooth_rxtx: ubertooth git\-ed30131d* (builder@buildhost) Mon Oct 27 11:22:33 2025
 .fi
 .IP "" 0
 .P
-Every image built from this tree carries that block at a fixed offset, which is also where ubertooth\-dfu(1) reads it out of a firmware file, so a board and the file it was flashed from are named in the same terms\. Firmware built before the block existed has none to read, and both options then report what it does answer: the revision alone, with no image name in front of it\. Identifying an unknown board is what these two options are for, so neither needs firmware from this tree\.
+Every image built from this tree carries that block at a fixed offset, which is also where ubertooth\-dfu(1) reads it out of a firmware file, so a board and the file it was flashed from are named in the same terms\. Firmware built before the block existed has none to read, and both options then report what it does answer: the revision alone, with no image name in front of it\. Identifying an unknown board is what these options are for, so neither needs firmware from this tree\.
 .IP "" 4
 .nf
 $ ubertooth\-util \-v        # a board running 2020\-12\-R1
@@ -90,14 +92,11 @@ To put a board into the DFU bootloader and reflash it, use ubertooth\-dfu(1), wh
 .SH "OPTIONS"
 Common options:
 .TP
-\fB\-v\fR
-get the image and revision the firmware was built from; exits non\-zero if the read fails
-.TP
 \fB\-V\fR
-get compile info, named with the image it came from; exits non\-zero if the read fails
+print the version and end the command: the host tools, then the firmware version and build of the board \fB\-U\fR names, or of each attached board\. The same answer every tool gives, including with no board attached; see ubertooth(7), COMMON OPTIONS
 .TP
-\fB\-H\fR, \fB\-\-host\-version\fR
-get host tools (libubertooth and libbtbb) version, as \fBHost tools version: libubertooth <version> (<revision>), libbtbb <version> (<revision>)\fR, followed by \fBlibbtbb loaded from: <path>\fR naming the file this run reads libbtbb from, which answers "which libbtbb am I running?" on a machine that has more than one\. It is the tool's own path when libbtbb was linked into it, and \fBunknown\fR if the loader cannot say; works without a device
+\fB\-v\fR
+get the image and revision the firmware was built from, as the \fBFirmware version:\fR line alone; exits non\-zero if the read fails\. \fBDeprecated\fR: use \fB\-V\fR, which prints that line among the others\. \fB\-v\fR keeps working, and prints no warning, so scripts that parse it are left alone
 .TP
 \fB\-I\fR
 identify ubertooth device by flashing the USR, RX, and TX LEDs on the board; the command returns at once and the blink runs until \fB\-S\fR or any mode option ends it, leaving the LEDs off (see LEDs doc)
@@ -120,10 +119,10 @@ A board that answers nothing has its USB connection reset first, because it woul
 select which Ubertooth to use, either by USB enumeration index or by its serial number string\. See SELECTING A DEVICE\.
 .TP
 \fB\-U all\fR
-report the read\-only queries \fB\-b\fR, \fB\-v\fR, \fB\-V\fR, \fB\-p\fR and \fB\-s\fR for every attached Ubertooth; refused with any other option, \fB\-N\fR excepted, and refused with no query to list, \fB\-N\fR included: a count is not something the listing can show\. See SELECTING A DEVICE\.
+report the read\-only queries \fB\-b\fR, \fB\-v\fR, \fB\-p\fR and \fB\-s\fR for every attached Ubertooth; refused with any other option, \fB\-N\fR excepted, and refused with no query to list, \fB\-N\fR included: a count is not something the listing can show\. \fB\-h\fR and \fB\-V\fR end the command before any of that, as they do before every other option\. See SELECTING A DEVICE\.
 .TP
 \fB\-N\fR
-print the number of attached Ubertooths, as a single decimal number on standard output, then run the rest of the command\. The number comes from the USB device list, so it needs no board and opens none, and it is taken before any device is opened: it is printed first, ahead of anything the other options report\. \fB\-N\fR is neither a selector nor a per\-device query, so it combines with everything else, in either order \(em reads, setters, modes, \fB\-r\fR, \fB\-S\fR, \fB\-U <index|serial>\fR and the \fB\-U all\fR listing \(em and a count that succeeds leaves the exit status to the rest of the command\. On its own it prints the count, opens no device and exits 0, unless the count itself fails\. A \fB\-U\fR selector and nothing else beside it is refused, because \fB\-N\fR asks nothing of the board the selector names: \fBerror: nothing to do: \-U '0' selects a device but no option asks anything of it\fR, and \fB\-U all\fR with only \fB\-N\fR beside it has nothing to list\. A command line refused before anything runs (two modes, \fB\-z\fR with a mode, \fB\-U all\fR with an option it does not support, a bad option value, an unknown option or a stray word) prints no count, and \fB\-h\fR, \fB\-H\fR and \fB\-\-host\-version\fR end the command before it, as they do before every other option\.
+print the number of attached Ubertooths, as a single decimal number on standard output, then run the rest of the command\. The number comes from the USB device list, so it needs no board and opens none, and it is taken before any device is opened: it is printed first, ahead of anything the other options report\. \fB\-N\fR is neither a selector nor a per\-device query, so it combines with everything else, in either order \(em reads, setters, modes, \fB\-r\fR, \fB\-S\fR, \fB\-U <index|serial>\fR and the \fB\-U all\fR listing \(em and a count that succeeds leaves the exit status to the rest of the command\. On its own it prints the count, opens no device and exits 0, unless the count itself fails\. A \fB\-U\fR selector and nothing else beside it is refused, because \fB\-N\fR asks nothing of the board the selector names: \fBerror: nothing to do: \-U '0' selects a device but no option asks anything of it\fR, and \fB\-U all\fR with only \fB\-N\fR beside it has nothing to list\. A command line refused before anything runs (two modes, \fB\-z\fR with a mode, \fB\-U all\fR with an option it does not support, a bad option value, an unknown option or a stray word) prints no count, and \fB\-h\fR and \fB\-V\fR end the command before it, as they do before every other option\.
 .P
 Radio options:
 .TP
@@ -273,7 +272,7 @@ note: Access denied (insufficient permissions) (libusb \-3)
 .P
 An all\-digits string is always an index, never a serial, even when it would match a serial: \fB\-U 05\fR asks for index 5, not for the board whose serial starts \fB05f0\fR\. Select that board by a longer prefix that includes a non\-digit (\fB\-U 05f\fR), or by its full serial\.
 .P
-With several Ubertooths attached and no \fB\-U\fR, the read\-only identity queries \fB\-s\fR (serial), \fB\-v\fR (firmware image and revision), \fB\-V\fR (compile info), \fB\-p\fR (part ID) and \fB\-b\fR (board ID) report every device, in enumeration order, instead of refusing to pick one\. Each line is the label the single\-device report prints, with the device's index in it, so a line read on its own says both what it is and which board it came from:
+With several Ubertooths attached and no \fB\-U\fR, the read\-only identity queries \fB\-s\fR (serial), \fB\-v\fR (firmware image and revision), \fB\-p\fR (part ID) and \fB\-b\fR (board ID) report every device, in enumeration order, instead of refusing to pick one\. Each line is the label the single\-device report prints, with the device's index in it, so a line read on its own says both what it is and which board it came from:
 .IP "" 4
 .nf
 $ ubertooth\-util \-s
@@ -285,9 +284,9 @@ Firmware version (1): bluetooth_rxtx git\-747484c (API:<version>)
 .fi
 .IP "" 0
 .P
-The build string \fB\-V\fR reports has no label of its own \-\- it starts with the image name \-\- so it keeps a bare \fB<index>:\fR prefix instead\. Several queries together (for example \fB\-vVspb\fR) print the same lines, grouped by device\.
+Several queries together (for example \fB\-vspb\fR) print the same lines, grouped by device\. \fB\-V\fR is not one of them: it is the version command, and reports every attached board itself, indexed the same way\.
 .P
-A device that cannot be opened is shown as \fBunavailable,\fR and the reason, for example \fBFirmware version (1): unavailable, in use by another program\fR, with a line per query asked for and libubertooth's own \fBerror:\fR line on standard error\. A failed read is shown as \fBread failed\fR (\fBFirmware version (0): read failed\fR), and a query that reports an error as that error without its \fBerror:\fR prefix (\fBBoard ID Number (0): unknown board ID 7\fR)\. \fB\-V\fR, having no label to name it, says which read failed in the line instead (\fB1: compile info read failed\fR, \fB1: unavailable, in use by another program\fR)\. The other devices are still reported, and the command exits non\-zero if any device failed\. A firmware version whose API version cannot be read is shown without it and also makes the command fail\. Listing does not stop a mode a device is running\. Any other option in the same command still needs \fB\-U\fR\.
+A device that cannot be opened is shown as \fBunavailable,\fR and the reason, for example \fBFirmware version (1): unavailable, in use by another program\fR, with a line per query asked for and libubertooth's own \fBerror:\fR line on standard error\. A failed read is shown as \fBread failed\fR (\fBFirmware version (0): read failed\fR), and a query that reports an error as that error without its \fBerror:\fR prefix (\fBBoard ID Number (0): unknown board ID 7\fR)\. The other devices are still reported, and the command exits non\-zero if any device failed\. A firmware version whose API version cannot be read is shown without it and also makes the command fail\. Listing does not stop a mode a device is running\. Any other option in the same command still needs \fB\-U\fR\.
 .P
 \fB\-U all\fR asks for the same listing explicitly\. It works with any number of attached devices, including one, and fails with \fBerror: no Ubertooth devices found\fR when none is attached:
 .IP "" 4
@@ -297,10 +296,10 @@ Serial No (0): 1cc001038088cb956c43ad61c52000f5
 .fi
 .IP "" 0
 .P
-\fB\-U all\fR only applies to the read\-only queries \fB\-b\fR, \fB\-v\fR, \fB\-V\fR, \fB\-p\fR and \fB\-s\fR\. Combined with any other option (a setter, a mode such as \fB\-x\fR or \fB\-q\fR, \fB\-r\fR, \fB\-S\fR, or another read such as \fB\-c\fR) it is refused before any device is opened:
+\fB\-U all\fR only applies to the read\-only queries \fB\-b\fR, \fB\-v\fR, \fB\-p\fR and \fB\-s\fR\. Combined with any other option (a setter, a mode such as \fB\-x\fR or \fB\-q\fR, \fB\-r\fR, \fB\-S\fR, or another read such as \fB\-c\fR) it is refused before any device is opened:
 .IP "" 4
 .nf
-error: \-U all only supports the read\-only queries \-b, \-v, \-V, \-p and \-s; select one device with \-U<index|serial> for other options
+error: \-U all only supports the read\-only queries \-b, \-v, \-p and \-s; select one device with \-U<index|serial> for other options
 .fi
 .IP "" 0
 .P
@@ -308,7 +307,7 @@ Given with no query at all there is nothing to list, and the refusal says so:
 .IP "" 4
 .nf
 $ ubertooth\-util \-U all
-error: \-U all needs one of the read\-only queries \-b, \-v, \-V, \-p or \-s to list
+error: \-U all needs one of the read\-only queries \-b, \-v, \-p or \-s to list
 .fi
 .IP "" 0
 .P
@@ -322,11 +321,13 @@ Serial No (1): 05f00014e380df95f4436562c32000f5
 .fi
 .IP "" 0
 .P
+\fB\-h\fR and \fB\-V\fR are not refused either, because they end the command before the listing is reached; \fB\-V\fR then reports every attached board itself\.
+.P
 \fB\-U all \-N\fR with no query has nothing to list, so it is refused like \fB\-U all\fR on its own: the count is not a per\-device query, and a listing is what \fB\-U all\fR asks for\.
 .IP "" 4
 .nf
 $ ubertooth\-util \-U all \-N
-error: \-U all needs one of the read\-only queries \-b, \-v, \-V, \-p or \-s to list
+error: \-U all needs one of the read\-only queries \-b, \-v, \-p or \-s to list
 .fi
 .IP "" 0
 .P
@@ -494,9 +495,9 @@ error: nothing to do: \-U '0' selects a device but no option asks anything of it
 .fi
 .IP "" 0
 .P
-\fB\-U\fR only says which board the rest of the command line acts on, so it is not an operation of its own; \fB\-N\fR, \fB\-h\fR, \fB\-H\fR and \fB\-\-host\-version\fR are, and each works on its own\. The usage text follows the \fBerror:\fR line on standard error, and the exit status is 1\.
+\fB\-U\fR only says which board the rest of the command line acts on, so it is not an operation of its own; \fB\-N\fR, \fB\-h\fR and \fB\-V\fR are, and each works on its own\. The usage text follows the \fBerror:\fR line on standard error, and the exit status is 1\.
 .P
-\fB\-h\fR and \fB\-H\fR both end the command and both answer on standard output, so a command line with both prints both, the version first and the usage text last; the order they were written in makes no difference\. The first one used to win and the other was dropped\.
+\fB\-h\fR and \fB\-V\fR both end the command and both answer on standard output, so a command line with both prints both, the version first and the usage text last; the order they were written in makes no difference\. The first one used to win and the other was dropped\.
 .P
 \fB\-c\fR and \fB\-C\fR are the same channel setting written two ways, so a command line that gives a value to both names two channels for one setting and is refused before any device is opened: \fBerror: \-C cannot be combined with \-c; they are the same channel setting written two ways\fR\. The second one used to be the one sent\. A value written one way and a read written the other is still one setting and one read, so \fB\-C 24 \-c\fR sets the channel and then reports it\.
 .P

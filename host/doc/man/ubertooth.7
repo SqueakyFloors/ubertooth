@@ -47,11 +47,11 @@ ubertooth\-debug(1) : Peeking and poking registers on the CC2400
 ubertooth\-specan(1) : Raw RSSI values used by graphical specan
 .IP "" 0
 .SH "COMMON OPTIONS"
-Three options mean the same thing in every tool\.
+Three options mean the same thing in every tool written in C, which is all of them but ubertooth\-btbr(1), \fBbtle\-extcap\.py\fR and ubertooth\-specan\-ui(1)\. Those three take their command lines from getopt in Python, from Wireshark's extcap protocol and from \fBargparse\fR; each has \fB\-h\fR, and none answers \fB\-V\fR\.
 .P
 \fB\-h\fR prints that tool's usage text on standard output and exits 0\.
 .P
-\fB\-V\fR prints the version, on standard output, exits 0, and is the way to ask what is installed and what a board is running\. Every tool answers it in the same words, one labelled line each, so a script can take the line it wants whichever tool it ran:
+\fB\-V\fR prints the version on standard output, and is the way to ask what is installed and what a board is running\. It exits 0, except for a board that is attached and cannot be read, which is the one case below that fails\. Every tool answers it in the same words, one labelled line each, so a script can take the line it wants whichever tool it ran:
 .IP "" 4
 .nf
 Host tools version: libubertooth <version> (<revision>), libbtbb <version> (<revision>)

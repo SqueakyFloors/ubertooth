@@ -699,7 +699,7 @@ static void report_unscanned(int unopened, int open_err, int unread)
  *
  * It enumerates the bus itself rather than counting during the scan above,
  * because this runs once, on the path where nothing was found. */
-static void note_dfu_bootloader(void)
+void ubertooth_note_dfu_bootloader(void)
 {
 	struct libusb_device** usb_list = NULL;
 	struct libusb_device_descriptor desc;
@@ -885,7 +885,7 @@ static struct libusb_device_handle* find_ubertooth_device_serial_opt(
 			fprintf(stderr, "error: no Ubertooth found with serial "
 			        "matching '%s'\n", serial_number);
 			report_unscanned(unopened, open_err, unread);
-			note_dfu_bootloader();
+			ubertooth_note_dfu_bootloader();
 		}
 	}
 	free(matched_devs);
@@ -1952,7 +1952,7 @@ int ubertooth_connect(ubertooth_t* ut, int ubertooth_device)
 	 * several attached with none selected. */
 	ut->devh = find_ubertooth_device(ubertooth_device);
 	if (ut->devh == NULL) {
-		note_dfu_bootloader();
+		ubertooth_note_dfu_bootloader();
 		ubertooth_stop(ut);
 		return -1;
 	}

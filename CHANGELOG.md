@@ -408,7 +408,10 @@
 - **Script-visible change:** `ubertooth-util -V` now prints that same
   three-line answer. It used to print the firmware build string alone, which
   is the third line of it now, and `-U all -V` no longer lists that string per
-  board: `-V` reports every attached board itself.
+  board: `-V` reports every attached board itself. `-V` also ends the command,
+  as `-h` does, so `ubertooth-util -V -r` prints the version and does not
+  reset the board; it used to be a query that ran alongside the rest of the
+  command line.
   [#542](https://github.com/SqueakyFloors/ubertooth/issues/542)
 - **Script-visible change:** `ubertooth-util -H` and `--host-version` are
   removed. `-V` prints the host line, with no board needed, so nothing is

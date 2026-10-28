@@ -183,7 +183,8 @@ Common options:
    report the read-only queries `-b`, `-v`, `-p` and `-s` for every
    attached Ubertooth; refused with any other option, `-N` excepted, and
    refused with no query to list, `-N` included: a count is not something the
-   listing can show. See SELECTING A DEVICE.
+   listing can show. `-h` and `-V` end the command before any of that, as
+   they do before every other option. See SELECTING A DEVICE.
  - `-N` :
    print the number of attached Ubertooths, as a single decimal number on
    standard output, then run the rest of the command. The number comes from
@@ -499,6 +500,9 @@ the same enumeration:
     Serial No (0): 1cc001038088cb956c43ad61c52000f5
     Serial No (1): 05f00014e380df95f4436562c32000f5
 
+`-h` and `-V` are not refused either, because they end the command before the
+listing is reached; `-V` then reports every attached board itself.
+
 `-U all -N` with no query has nothing to list, so it is refused like `-U all`
 on its own: the count is not a per-device query, and a listing is what `-U all`
 asks for.
@@ -769,8 +773,9 @@ exiting 0:
     error: nothing to do: -U '0' selects a device but no option asks anything of it
 
 `-U` only says which board the rest of the command line acts on, so it is not
-an operation of its own; `-N`, `-h` and `-V` are, and each works on its own. The usage text follows the `error: ` line on standard error,
-and the exit status is 1.
+an operation of its own; `-N`, `-h` and `-V` are, and each works on its own.
+The usage text follows the `error: ` line on standard error, and the exit
+status is 1.
 
 `-h` and `-V` both end the command and both answer on standard output, so a
 command line with both prints both, the version first and the usage text

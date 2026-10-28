@@ -237,8 +237,8 @@
       ],
       "pair_rules": [
         {"a": "-k", "b": "-v", "verdict": "refused",
-         "error": "error: -k cannot be combined with -v; they are the same CRC verify setting written two ways",
-         "source": "ubertooth-btle.md OPTIONS, -k: -v is its older spelling, so a command line that gives both names one setting twice"},
+         "error_contains": "cannot be combined with", "names_the_other": true,
+         "source": "ubertooth-btle.md OPTIONS, -k: -v is its older spelling, so a command line that gives both names one setting twice, and the refusal names them as they were written"},
         {"a": "role:major_mode", "b": "role:major_mode", "verdict": "refused",
          "error": "error: choose one of -f, -n or -p",
          "source": "ubertooth-btle.md ARGUMENTS"},

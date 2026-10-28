@@ -41,12 +41,16 @@ Less useful commands:
 
 ## COMMON OPTIONS
 
-Three options mean the same thing in every tool.
+Three options mean the same thing in every tool written in C, which is all of
+them but ubertooth-btbr(1), `btle-extcap.py` and ubertooth-specan-ui(1). Those
+three take their command lines from getopt in Python, from Wireshark's extcap
+protocol and from `argparse`; each has `-h`, and none answers `-V`.
 
 `-h` prints that tool's usage text on standard output and exits 0.
 
-`-V` prints the version, on standard output, exits 0, and is the way to ask
-what is installed and what a board is running. Every tool answers it in the
+`-V` prints the version on standard output, and is the way to ask what is
+installed and what a board is running. It exits 0, except for a board that is
+attached and cannot be read, which is the one case below that fails. Every tool answers it in the
 same words, one labelled line each, so a script can take the line it wants
 whichever tool it ran:
 

@@ -168,7 +168,7 @@ Remove the bridge before the final reset if you want the application firmware to
 .SH "ARGUMENTS"
 \fBubertooth\-dfu\fR takes options only\. A word that is not an option, including a bare \fB\-\fR, is refused before any device is opened and named: \fBerror: unexpected argument '<word>'\fR, with exit status 1\.
 .P
-\fB\-h\fR ends the command only once the whole command line has parsed, so a stray word or a bad option value is reported even alongside it\. \fB\-h\fR is what the user asked for, so its usage text goes to standard output and it exits 0\.
+\fB\-h\fR and \fB\-V\fR end the command only once the whole command line has parsed, so a stray word or a bad option value is reported even alongside them\. Both answer on standard output, so a command line with both prints both, the usage text last; the order they were written in makes no difference\. \fB\-h\fR is what the user asked for, so its usage text goes to standard output and it exits 0\.
 .P
 An option the tool does not know is refused the same way, as one line on standard error with no usage text after it: \fBerror: unrecognized option '\-Z'\fR\. An option whose value is missing reads \fBerror: option '\-d' requires a value\fR\.
 .P

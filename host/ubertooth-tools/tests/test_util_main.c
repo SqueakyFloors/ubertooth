@@ -87,7 +87,6 @@ static struct {
 	int board_fail_index;  /* the board ID read fails on this device */
 	int board_fail_rc;     /* ...with this code (0: -1) */
 	int revision_fail_index;     /* the firmware revision read fails here */
-	int compile_info_fail_index; /* the compile info read fails here */
 	int indexed_starts, closes, frees;
 	/* -r: the handle opened before the reset (the first select) */
 	int first_closes, first_frees, first_stops; /* STOP sent to that handle */
@@ -151,7 +150,6 @@ static void reset_fake(void)
 	fake.unavailable_index = -1;
 	fake.board_fail_index = -1;
 	fake.revision_fail_index = -1;
-	fake.compile_info_fail_index = -1;
 	fake.now_ms = 1000;
 	fake.leaves_at_ms = 1050;  /* soon after the reset... */
 	fake.returns_at_ms = 1600; /* ...and back after about half a second */
@@ -182,6 +180,12 @@ static int fake_reset_device_absent(void)
 {
 	return fake_board_was_reset() &&
 	       fake.now_ms >= fake.leaves_at_ms && fake.now_ms < fake.returns_at_ms;
+}
+
+void ubertooth_note_dfu_bootloader(void)
+{
+	/* The library's note for a bus with no Ubertooth on it but a board in the
+	 * bootloader; this test scripts no bootloader board. */
 }
 
 int ubertooth_devices_hidden(void)
@@ -490,7 +494,7 @@ int cmd_get_firmware_compile_info(struct libusb_device_handle *h, char *info,
                                   size_t size)
 {
 	return fake_text_read(h, info, size, fake.compile_info,
-	                      fake.compile_info_rc, fake.compile_info_fail_index);
+	                      fake.compile_info_rc, -1);
 }
 
 /*
@@ -2891,7 +2895,6 @@ MU_TEST(the_firmware_version_is_labelled_whether_one_board_or_several)
 	                 "Firmware version (0): unavailable, in use by another program\n"
 	                 "Serial No (0): unavailable, in use by another program\n"
 	                 LISTED_FIRMWARE("1") LISTED_SERIAL("1")) == 0, r.out);
-
 }
 
 MU_TEST(a_failed_read_on_one_device_is_reported_and_fails_the_listing)

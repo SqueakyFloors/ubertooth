@@ -340,9 +340,9 @@ already in DFU, so the run would end at `DFU entry failed` instead.*
 
 ### 3b. CRC verification mode (the PR #550 fix)
 - [ ] Run `ubertooth-btle -k1 -f` for 10 seconds
-- [ ] Confirm: fewer packets than without `-v1` (bad-CRC packets are now filtered)
+- [ ] Confirm: fewer packets than without `-k1` (bad-CRC packets are now filtered)
 - [ ] Confirm: no crash
-- [ ] Compare packet count with and without `-v1` — `-v1` should be equal or fewer
+- [ ] Compare packet count with and without `-k1` — `-k1` should be equal or fewer
 
 ### 3b-2. CRC verification on a followed connection
 *Requires: a BLE central and peripheral that connect and keep exchanging data
