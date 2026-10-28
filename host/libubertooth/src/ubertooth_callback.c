@@ -197,17 +197,24 @@ void ubertooth_capture_clock_reset( ubertooth_t* ut )
  * says so, because that report only looks for times behind the host clock. */
 #define CLK100NS_WRAP_SLACK_NS 2000000000ull
 
-/* How many packets a capture is willing to drop from its front as records
- * left over from the mode before. Each of those packets arrived within the
- * slack above of the one after it, so nothing in their arrival times says
- * where the leftovers end and the capture begins; this is what stops a
- * capture whose packets all arrive that close together from being re-anchored
- * on and on, silently discarding its own start if the slack is ever wrong.
+/* How many packets a capture is willing to drop from its front as records left
+ * over from the mode before. Each of those packets arrived within the slack
+ * above of the one after it, so nothing in their arrival times says where the
+ * leftovers end and the capture begins; this is what stops a capture whose
+ * packets all arrive that close together from being re-anchored on and on,
+ * silently discarding its own start if the slack is ever wrong.
  *
- * The firmware's queue is the limit worth allowing: the mode before can have
- * left it full and nothing more, so a capture that opens with more records
- * than it holds did not get them from the mode before. */
-#define CLK100NS_LEFTOVER_RECORDS_MAX USB_QUEUE_RECORDS
+ * The firmware's queue of captured records is the limit worth allowing: the
+ * mode before can have left it full and nothing more. It holds 128 records,
+ * one entry of which is always left empty so a full queue can be told from an
+ * empty one (fifo[] and usb_queue_space() in
+ * firmware/bluetooth_rxtx/ubertooth_usb.c), so 127 is its depth. Only the
+ * firmware's own ring arithmetic depends on that number; here it is a cap, so
+ * a firmware that one day queued more records would cost a capture the
+ * leftovers past it rather than anything worse. */
+#define CLK100NS_LEFTOVER_RECORDS_MAX 127
+_Static_assert(CLK100NS_LEFTOVER_RECORDS_MAX <= UINT8_MAX,
+               "the countdown it is loaded into is one byte");
 
 /* Whether the period count the capture is anchored on belonged to the mode
  * before it, the packet carrying it being one left over from it. A mode can
@@ -326,9 +333,11 @@ static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx,
 	/* Whether the packet after this one may still be judged the same way.
 	 * The packets a mode left waiting all reach the host in one burst, so
 	 * they arrive within moments of each other; a packet that arrived a
-	 * real gap after the one before it was captured by this mode, which
-	 * leaves nothing before it to drop. The decision below still uses the
-	 * window as it stood when this packet arrived. */
+	 * real gap after the one before it was captured by this mode, so it is
+	 * the last one that can have a leftover behind it. This packet itself
+	 * is judged either way, by the decision below, which reads the window
+	 * as it stood when it arrived: what settles it is the host clock, and
+	 * the window only bounds how far into a capture that is asked. */
 	if (anchor_open && since_last_ns <= CLK100NS_WRAP_SLACK_NS)
 		ut->clk100ns_anchor_records--;
 	else

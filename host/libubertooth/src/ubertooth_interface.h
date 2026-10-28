@@ -615,16 +615,6 @@ typedef struct {
 	uint8_t  data[DMA_SIZE];
 } usb_pkt_rx;
 
-/* How many of those records the firmware can have waiting for the host at
- * once: its queue holds 128, one of which is always left empty so a full
- * queue can be told from an empty one (usb_queue_space(),
- * firmware/bluetooth_rxtx/ubertooth_usb.c).
- *
- * The host reads it as the most records of the mode before a capture can
- * open with, which is what bounds how many of them the real-time
- * reconstruction will drop from the front of a capture. */
-#define USB_QUEUE_RECORDS 127
-
 typedef struct {
 	uint64_t address;
 	uint64_t syncword;

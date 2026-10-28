@@ -130,19 +130,19 @@ typedef struct {
 	 * how many periods have gone by. */
 	uint8_t clk100ns_counted;
 
-	/* How many more times the capture's anchor may move forward to the next
-	 * packet's clock reading, and its period count baseline to that
-	 * packet's count. Each move leaves the packet it moved off as one left
-	 * over from the mode before, so this is how many packets the capture
-	 * may still drop from its front.
+	/* How many more packets may be judged against the packet the capture is
+	 * anchored on, which is what can move the anchor forward to the newer
+	 * packet's clock reading and its period count baseline to that packet's
+	 * count. Each such move leaves the packet it moved off as one left over
+	 * from the mode before, so this bounds how many packets the capture can
+	 * drop from its front.
 	 *
 	 * The capture's first packet sets it to the depth of the firmware's
 	 * record queue, which is as many packets as the mode before can have
-	 * left waiting. Every packet after that spends one of them while the
-	 * packets so far all arrived within moments of each other, which is
-	 * what says they were all waiting before this capture started, and
-	 * zeroes it as soon as one did not: once real time has passed, the
-	 * packet before it was this capture's own and the anchor is settled. */
+	 * left waiting. Every packet after that spends one, and a packet that
+	 * arrived a real gap after the one before it zeroes what is left: that
+	 * packet is itself still judged, because it can be the capture's own
+	 * first, but nothing after it is. */
 	uint8_t clk100ns_anchor_records;
 
 	/* Whether the host clock running ahead of the reconstructed times has

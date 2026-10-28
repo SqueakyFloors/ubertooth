@@ -1107,7 +1107,7 @@ MU_TEST(a_leftover_first_record_is_found_on_a_live_capture)
  * clock starting over, as any record is once the decision has closed. */
 MU_TEST(a_run_of_leftovers_is_dropped_only_to_the_queues_depth)
 {
-#define LEFTOVER_RUN_RECORDS (USB_QUEUE_RECORDS + 3)
+#define LEFTOVER_RUN_RECORDS (CLK100NS_LEFTOVER_RECORDS_MAX + 3)
 	ubertooth_t ut;
 	uint64_t ticks[LEFTOVER_RUN_RECORDS], arrived_ns[LEFTOVER_RUN_RECORDS];
 	uint64_t times[LEFTOVER_RUN_RECORDS];
@@ -1123,9 +1123,9 @@ MU_TEST(a_run_of_leftovers_is_dropped_only_to_the_queues_depth)
 
 	/* The anchor stopped on the record after the last one it was allowed
 	 * to drop, and the capture starts there. */
-	mu_assert_int_eq((300 - USB_QUEUE_RECORDS) * ONE_SECOND_TICKS,
+	mu_assert_int_eq((300 - CLK100NS_LEFTOVER_RECORDS_MAX) * ONE_SECOND_TICKS,
 	                 ut.start_clk100ns);
-	mu_assert_int_eq(ut.abs_start_ns, times[USB_QUEUE_RECORDS]);
+	mu_assert_int_eq(ut.abs_start_ns, times[CLK100NS_LEFTOVER_RECORDS_MAX]);
 	/* The two records past the limit are read as wraps instead. */
 	mu_assert_int_eq(2, ut.clk100ns_upper);
 	mu_assert_int_eq(0, ut.clk100ns_anchor_records);
@@ -1159,6 +1159,45 @@ MU_TEST(a_record_after_a_real_gap_settles_the_anchor)
 	mu_assert_int_eq(ut.abs_start_ns, times[2]);
 	mu_assert_int_eq(100 * (CLK100NS_PERIOD - ONE_SECOND_TICKS / 2),
 	                 times[3] - times[2]);
+}
+
+/* What a record out of place costs while the decision is still open, which is
+ * the other side of letting it run on. A capture whose records all arrive a
+ * millisecond apart is open to it for its first 127 records, and a record
+ * there that reads lower is dropped, as a leftover would be, rather than read
+ * as the clock starting over: the records in front of it land at the start of
+ * the capture instead of keeping their own times. Both readings are wrong -
+ * read as a wrap it is 327.68 s into every later time, which is the costlier
+ * of the two - and settling which it is needs the gap read as a number of
+ * wraps. Pinned so the cost is watched.
+ *
+ * Here the fourth record of a dense capture reads 7 s below the third. */
+MU_TEST(a_record_out_of_place_in_the_opening_burst_is_dropped)
+{
+	ubertooth_t ut;
+	const uint64_t ticks[5] = { 10 * ONE_SECOND_TICKS,
+	                            11 * ONE_SECOND_TICKS,
+	                            12 * ONE_SECOND_TICKS,
+	                             5 * ONE_SECOND_TICKS,
+	                             6 * ONE_SECOND_TICKS };
+	const uint64_t arrived_ns[5] = { 0, 1000000ull, 2000000ull,
+	                                 3000000ull, 4000000ull };
+	uint64_t times[5];
+
+	capture_records(&ut, CLK100NS_PERIOD, 5, ticks, arrived_ns, NULL, times);
+
+	/* No wrap counted, and the capture starts at the record out of place. */
+	mu_assert_int_eq(0, ut.clk100ns_upper);
+	mu_assert_int_eq(5 * ONE_SECOND_TICKS, ut.start_clk100ns);
+	mu_assert_int_eq(ut.abs_start_ns, times[3]);
+	mu_assert_int_eq(100 * ONE_SECOND_TICKS, times[4] - times[3]);
+	/* The three records in front of it were timed before the anchor moved,
+	 * so they keep their spacing from the start of the capture and overlap
+	 * the records after it - seconds of overlap, where reading the record
+	 * as a wrap would have put 327.68 s between the two groups. */
+	mu_assert_int_eq(ut.abs_start_ns, times[0]);
+	mu_assert_int_eq(100 * ONE_SECOND_TICKS, times[1] - times[0]);
+	mu_assert_int_eq(100 * 2 * ONE_SECOND_TICKS, times[2] - times[0]);
 }
 
 /* A wrap early in a busy capture, where the records do arrive within moments
@@ -2045,6 +2084,7 @@ int main(void)
 	MU_RUN(a_leftover_first_record_is_found_on_a_live_capture);
 	MU_RUN(a_run_of_leftovers_is_dropped_only_to_the_queues_depth);
 	MU_RUN(a_record_after_a_real_gap_settles_the_anchor);
+	MU_RUN(a_record_out_of_place_in_the_opening_burst_is_dropped);
 	MU_RUN(a_wrap_early_in_a_busy_capture_still_counts);
 	MU_RUN(a_stalled_host_anchors_the_capture_where_the_record_arrived);
 	MU_RUN(a_prompt_host_anchors_the_capture_where_it_always_did);

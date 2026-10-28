@@ -217,12 +217,15 @@ first record that is its own and the times that follow are its own too.
 That decision runs on while the records arrive within a couple of seconds of
 each other, which is how a whole queue of leftovers reaches the host, and
 closes for the rest of the file once a record has arrived a real gap after the
-one before it. It drops at most 127 records from the front of a capture, which
-is as many as the firmware's queue holds, so a file that opens with more
-records out of place than that keeps the ones past the limit. What cannot be
-told apart is a leftover within a couple of seconds of a whole period of the
-capture's own reading or count, which looks exactly like a wrap that late, or
-of two periods of its count. The capture's times then come out one or two
+one before it. While it is open, a record out of place among those first
+records is dropped rather than read as a wrap, so the records in front of it
+land at the start of the capture. It drops at most 127 records, as many as the
+firmware's queue holds, and a record out of place past that limit or after a
+real gap is read as a wrap as it always was: the 327.68 s that costs goes into
+every time from there on. What cannot be told apart is a leftover within a
+couple of seconds of a whole period of the capture's own reading or count,
+which looks exactly like a wrap that late, or of two periods of its count.
+The capture's times then come out one or two
 periods early for the whole of it, and the warning above reports it; record
 again with current firmware if a file's times still look wrong.
 
