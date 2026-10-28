@@ -212,7 +212,10 @@ passing: 18,321 s, over five hours, where the mode before had run 200 periods.
 A replay now compares both against the host times the records carry: a clock
 that started over, or periods that really went by, account for the time between
 the two records, and a leftover record does not, so the capture is anchored on
-the second record instead and the times that follow are its own. What cannot be
+the second record instead and the times that follow are its own. Only one
+leftover is handled this way: a file that begins with two or more can still
+come out 327.68 s, or a whole number of periods, late for the whole capture.
+What cannot be
 told apart is a leftover within a couple of seconds of a whole period of the
 capture's own reading or count, which looks exactly like a wrap that late, or
 of two periods of its count. The capture's times then come out one or two
