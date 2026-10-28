@@ -1259,6 +1259,11 @@
 
 Fixes with no visible change in normal use.
 
+- `ubertooth-debug` prints the radio's modulation offset as the signed number
+  of steps it is, so a negative offset no longer reads as a large positive
+  frequency. The firmware leaves that field at zero, so a board running this
+  tree always read it right.
+  [#732](https://github.com/SqueakyFloors/ubertooth/issues/732)
 - `ubertooth-dfu -d <image> -r` tells three things apart after the reset: a
   board that did not come back, a board that is back and will not open, and a
   host USB bus that could not be read at all. The last two both read as a
