@@ -205,7 +205,7 @@
   those tools still cannot drive that image and now fail on the first request
   it does not answer.
   [#556](https://github.com/SqueakyFloors/ubertooth/issues/556)
-- **Reflash required:** the firmware API version is now 1.42, last moved by the
+- **Reflash required:** the firmware API version is now 1.43, last moved by the
   radio's FIFO transfers running with interrupts masked and a generic transmit
   packet going into the FIFO a piece at a time, and the host tools require
   firmware of exactly their own API version, older or newer. Host and firmware
