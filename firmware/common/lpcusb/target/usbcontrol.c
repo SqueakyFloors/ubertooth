@@ -55,6 +55,9 @@
 
 #include "usbstruct.h"
 #include "usbapi.h"
+/* The breadcrumb marks below. A control transfer runs inside a USB service
+ * pass, so its steps record themselves separately from the pass. */
+#include "watchdog.h"
 
 
 
@@ -98,6 +101,11 @@ BOOL USBFilterOsVendorMessage(TSetupPacket *pSetup, BOOL *pfSuccess, int *piLen,
  */
 static BOOL _HandleRequest(TSetupPacket *pSetup, int *piLen, U8 **ppbData)
 {
+	/* The firmware's own handler for the request runs from here, inside the
+	 * USB service pass, so it marks itself: a request that takes seconds to
+	 * answer looks exactly like a USB handshake that does. */
+	uint8_t site;
+	BOOL fHandled;
 	TFnHandleRequest *pfnHandler;
 	int iType;
 	
@@ -116,7 +124,10 @@ static BOOL _HandleRequest(TSetupPacket *pSetup, int *piLen, U8 **ppbData)
 		return FALSE;
 	}
 
-	return pfnHandler(pSetup, piLen, ppbData);
+	site = watchdog_mark_inner(WATCHDOG_SITE_USB_REQUEST);
+	fHandled = pfnHandler(pSetup, piLen, ppbData);
+	watchdog_unmark(site);
+	return fHandled;
 }
 
 
@@ -148,11 +159,32 @@ static void StallControlPipe(U8 bEPStat)
 
 
 /**
+	Reads from the control endpoint, marked as a step of the USB service pass.
+
+	Every control request comes in through here: the setup packet, the data
+	stage of a host-to-device request, and the zero-length status stage. The
+	wait for the packet inside it is bounded to a few milliseconds, so a read
+	that holds the board for seconds is worth being able to tell apart from
+	the rest of the pass.
+ */
+static int ControlEPRead(U8 *pbBuf, int iMaxLen)
+{
+	uint8_t site = watchdog_mark_inner(WATCHDOG_SITE_USB_SETUP);
+	int iRead = USBHwEPRead(0x00, pbBuf, iMaxLen);
+
+	watchdog_unmark(site);
+	return iRead;
+}
+
+
+/**
 	Sends next chunk of data (possibly 0 bytes) to host
  */
 static void DataIn(void)
 {
 	int iChunk;
+	int iWritten;
+	uint8_t site;
 
 	iChunk = MIN(MAX_PACKET_SIZE0, iResidue);
 	/*
@@ -162,7 +194,10 @@ static void DataIn(void)
 	 * packet is still owed instead; USBControlInRetry() below offers it
 	 * again.
 	 */
-	if (USBHwEPWrite(0x80, pbData, iChunk) != iChunk) {
+	site = watchdog_mark_inner(WATCHDOG_SITE_USB_REPLY);
+	iWritten = USBHwEPWrite(0x80, pbData, iChunk);
+	watchdog_unmark(site);
+	if (iWritten != iChunk) {
 		fDataInOwed = TRUE;
 		return;
 	}
@@ -241,7 +276,7 @@ void USBHandleControlTransfer(U8 bEP, U8 bEPStat)
 			 * state machine and stall instead; a stalled control transfer is
 			 * something the host retries.
 			 */
-			if (USBHwEPRead(0x00, (U8 *)&Setup, sizeof(Setup)) != (int)sizeof(Setup)) {
+			if (ControlEPRead((U8 *)&Setup, sizeof(Setup)) != (int)sizeof(Setup)) {
 				memset(&Setup, 0, sizeof(Setup));
 				pbData = NULL;
 				iResidue = 0;
@@ -275,7 +310,7 @@ void USBHandleControlTransfer(U8 bEP, U8 bEPStat)
 		else {		
 			if (iResidue > 0) {
 				// store data
-				iChunk = USBHwEPRead(0x00, pbData, iResidue);
+				iChunk = ControlEPRead(pbData, iResidue);
 				if (iChunk < 0) {
 					StallControlPipe(bEPStat);
 					return;
@@ -297,7 +332,7 @@ void USBHandleControlTransfer(U8 bEP, U8 bEPStat)
 			}
 			else {
 				// absorb zero-length status message
-				iChunk = USBHwEPRead(0x00, NULL, 0);
+				iChunk = ControlEPRead(NULL, 0);
 				DBG(iChunk > 0 ? "?" : "");
 			}
 		}

@@ -134,7 +134,7 @@ uint8_t watchdog_mark_wait(uint8_t site)
 	 * site there would leave -w naming a wait the board has left.
 	 */
 	if (in_interrupt_handler())
-		return watchdog_mark_handler(site);
+		return watchdog_mark_inner(site);
 	return watchdog_mark(site);
 }
 
@@ -146,7 +146,7 @@ void watchdog_leave_wait(uint8_t site)
 		watchdog_mark(site);
 }
 
-uint8_t watchdog_mark_handler(uint8_t site)
+uint8_t watchdog_mark_inner(uint8_t site)
 {
 	uint8_t previous = watchdog_crumb.live_site;
 

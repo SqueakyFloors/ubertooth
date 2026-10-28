@@ -88,20 +88,53 @@ void watchdog_mode(uint8_t mode);
 uint8_t watchdog_mark(uint8_t site);
 
 /*
- * The same for an interrupt handler that returns and is not servicing USB,
- * which must leave the live outer site alone. That site is what a reply
- * reports. Were such a handler to claim it, the handler would be left named
- * there after returning -- and the low-energy engine's byte interrupt fires
- * once per received byte, so during a capture that would be the usual reading
- * rather than a rare one.
+ * The same, for a mark that must leave the live outer site alone. Two kinds
+ * of caller need that:
+ *
+ *  - an interrupt handler, which borrows the processor and gives it back, so
+ *    it is not a level of the nesting at all. Were it to use watchdog_mark(),
+ *    the handler would be left named as the outer site after returning -- and
+ *    the low-energy engine's byte interrupt fires once per received byte, so
+ *    during a capture that would be the usual reading rather than a rare one.
+ *
+ *  - a step inside a pass that has already marked itself, such as the parts
+ *    of a USB service pass. The outer site is what a reply reports, and it is
+ *    set so that a reply written from inside the USB service path names the
+ *    wait the mode is really in. A step of that pass claiming it would put a
+ *    part of the USB path there instead, which is the one thing the outer site
+ *    exists not to say.
+ *
+ * So the pair below records the site for the breadcrumb only. Use it in an
+ * interrupt handler, or for a step of a pass; use watchdog_mark_wait() in a
+ * wait.
  *
  * A handler that never returns has nothing to leave behind, so the ones that
  * stop the board -- the processor faults, the default handler every unhandled
  * interrupt aliases, the debug UART's error path -- use watchdog_mark() and
  * only the site they record is ever read, by watchdog_boot().
  */
-uint8_t watchdog_mark_handler(uint8_t site);
+#ifdef UBERTOOTH_NO_WATCHDOG
+/*
+ * The bootloader links the shared USB stack but not watchdog.c, and it must
+ * not write to the breadcrumb even if it could: it runs after every reset,
+ * before the firmware has read what the last run left there, so a mark from
+ * here would erase the very site the breadcrumb is for. The marks in the
+ * shared USB files compile to nothing there.
+ */
+static inline uint8_t watchdog_mark_inner(uint8_t site)
+{
+	(void)site;
+	return WATCHDOG_SITE_NONE;
+}
+
+static inline void watchdog_unmark(uint8_t site)
+{
+	(void)site;
+}
+#else
+uint8_t watchdog_mark_inner(uint8_t site);
 void watchdog_unmark(uint8_t site);
+#endif
 
 /*
  * For a wait, which may be reached from a mode loop or from inside an

@@ -428,7 +428,7 @@ MU_TEST(test_leaving_a_site_does_not_claim_it_as_the_outer_one)
 	uint8_t usb = watchdog_mark(WATCHDOG_SITE_USB);
 
 	/* an interrupt lands in the middle of it and returns */
-	uint8_t inner = watchdog_mark_handler(WATCHDOG_SITE_LE_DMA);
+	uint8_t inner = watchdog_mark_inner(WATCHDOG_SITE_LE_DMA);
 	mu_assert_int_eq(WATCHDOG_SITE_LE_DMA, watchdog_crumb.live_site);
 	watchdog_unmark(inner);
 
@@ -1321,25 +1321,56 @@ MU_TEST(test_every_path_that_never_returns_marks_where_it_was)
 }
 
 /*
- * A mark made inside an interrupt handler has to be given back, because the
- * code it interrupted is still in whatever wait it was in: leaving the
- * handler's site behind would make -w name a wait the board has left.
+ * An inner mark has to be given back, because the code around it is still in
+ * whatever wait it was in: leaving the inner site behind would make -w name a
+ * wait the board has left. Two kinds of code make one -- an interrupt
+ * handler, which borrows the processor, and a step of a USB service pass,
+ * which is inside a site the pass has already marked -- and both have to
+ * unmark as often as they mark.
  *
- * So every site marked inside an interrupt handler has to be left with
- * watchdog_unmark(). Today that is the three the low-energy engine marks.
+ * The counts are pinned so that a new mark has to be thought about rather
+ * than slipped in: add one and this test says where.
  */
-MU_TEST(test_the_ble_engine_leaves_its_sites_without_claiming_them)
+MU_TEST(test_every_inner_mark_is_given_back)
 {
-	const char *path = FW_RXTX_DIR "/le_phy.c";
-	int marks = 0, unmarks = 0;
+	static const struct { const char *path; int marks; const char *what; } files[] = {
+		{ FW_RXTX_DIR "/le_phy.c", 3,
+		  "the low-energy engine's interrupt handlers" },
+		{ FW_RXTX_DIR "/ubertooth_usb.c", 1,
+		  "handing a capture packet to the bulk endpoint" },
+		{ FW_COMMON_DIR "/lpcusb/target/usbhw_lpc.c", 4,
+		  "the device event, the two endpoint status reads and the "
+		  "wait for an endpoint to be realized" },
+		{ FW_COMMON_DIR "/lpcusb/target/usbcontrol.c", 3,
+		  "reading a control request, running it, writing the reply" },
+	};
+	char msg[256];
+	size_t i;
 
-	mu_assert_int_eq(1, source_has(path, "watchdog_mark_handler(", &marks));
-	mu_assert_int_eq(1, source_has(path, "watchdog_unmark(", &unmarks));
-	mu_assert_int_eq(3, marks);
-	mu_assert_int_eq(unmarks, marks);
-	/* and none of them uses the wait's mark, which would claim the outer
-	 * site */
-	mu_assert_int_eq(0, source_has(path, "watchdog_mark(WATCHDOG_SITE_", NULL));
+	for (i = 0; i < sizeof(files) / sizeof(files[0]); i++) {
+		int marks = 0, unmarks = 0;
+
+		mu_assert_int_eq(1, source_has(files[i].path,
+		                               "watchdog_mark_inner(", &marks));
+		mu_assert_int_eq(1, source_has(files[i].path,
+		                               "watchdog_unmark(", &unmarks));
+		snprintf(msg, sizeof(msg),
+		         "%s marks %s: expected %d of them, found %d",
+		         files[i].path, files[i].what, files[i].marks, marks);
+		mu_assert(marks == files[i].marks, msg);
+		snprintf(msg, sizeof(msg),
+		         "%s marks %d inner sites and gives back %d, so -w can name "
+		         "a site the board has left",
+		         files[i].path, marks, unmarks);
+		mu_assert(unmarks == marks, msg);
+	}
+
+	/* The engine's handlers must not use the wait's mark, which would claim
+	 * the outer site -- the one thing a handler's site must never be. The
+	 * USB files are not in this check: the pass itself marks that way, which
+	 * is how the outer site comes to name the mode's own wait. */
+	mu_assert_int_eq(0, source_has(FW_RXTX_DIR "/le_phy.c",
+	                               "watchdog_mark(WATCHDOG_SITE_", NULL));
 }
 
 /*
@@ -1415,7 +1446,7 @@ int main(void)
 	MU_RUN(test_leaving_a_site_does_not_claim_it_as_the_outer_one);
 	MU_RUN(test_a_wait_inside_a_handler_claims_no_outer_site);
 	MU_RUN(test_the_usb_interrupt_still_names_what_it_interrupted);
-	MU_RUN(test_the_ble_engine_leaves_its_sites_without_claiming_them);
+	MU_RUN(test_every_inner_mark_is_given_back);
 	MU_RUN(test_the_reply_is_the_documented_eight_bytes);
 	MU_RUN(test_the_reply_says_the_wait_the_mode_is_in_not_the_usb_path);
 	MU_RUN(test_the_reply_says_when_the_watchdog_is_not_armed);

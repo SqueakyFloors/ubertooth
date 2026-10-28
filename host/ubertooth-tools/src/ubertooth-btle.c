@@ -146,7 +146,8 @@ static void usage(FILE *out)
 	fprintf(out, "\t-r <filename> capture packets to PCAPNG file\n");
 	fprintf(out, "\t-q <filename> capture packets to PCAP file (DLT_BLUETOOTH_LE_LL_WITH_PHDR)\n");
 	fprintf(out, "\t-c <filename> capture packets to PCAP file (DLT_PPI + DLT_BLUETOOTH_LE_LL)\n");
-	fprintf(out, "\t-A <%d-%d> advertising channel index (default %d)\n",
+	fprintf(out, "\t-A <%d-%d> advertising channel index (default %d);"
+	       " not with -p\n",
 	       ADV_INDEX_MIN, ADV_INDEX_MAX, ADV_INDEX_MIN);
 	fprintf(out, "\t-v [01] verify CRC mode, read status (-v) or enable/disable (-v 1, -v 0);\n");
 	fprintf(out, "\t       both in one command sets first, then reports the new value\n");
@@ -186,6 +187,9 @@ int main(int argc, char *argv[])
 	 * only and -v -v1 set only, dropping the other half with exit 0. */
 	int do_set_crc, do_get_crc;
 	int do_adv_index;
+	/* Whether -A was written, as against left at its default: the default
+	 * is harmless with any mode, an explicit one is refused with -p. */
+	int do_adv_index_given;
 	int do_slave_mode;
 	int do_target;
 	enum jam_modes jam_mode = JAM_NONE;
@@ -227,6 +231,7 @@ int main(int argc, char *argv[])
 	do_set_crc = -1;
 	do_get_crc = 0;
 	do_adv_index = 37;
+	do_adv_index_given = 0;
 	do_slave_mode = do_target = 0;
 
 	/* The tool reports a bad option itself, in the usual one-line form:
@@ -309,6 +314,7 @@ int main(int argc, char *argv[])
 			                    "advertising channel index", "",
 			                    &do_adv_index) < 0)
 				return 1;
+			do_adv_index_given = 1;
 			break;
 		case 's':
 			do_slave_mode = 1;
@@ -419,6 +425,16 @@ int main(int argc, char *argv[])
 		        " (-f, -n or -p), or -a, -v, -s or -t\n");
 		if (opt_no_arguments(argc))
 			usage(stderr);
+		return 1;
+	}
+
+	/* Promiscuous mode sets no channel: it listens on the one the board is
+	 * already holding. So -A was taken and then never sent, and the command
+	 * looked like it had chosen a channel. Use ubertooth-util -c to choose
+	 * one, which is what the board keeps. */
+	if (do_adv_index_given && do_promisc) {
+		fprintf(stderr, "error: -A does not go with -p: promiscuous mode"
+		        " listens on the channel the board is holding\n");
 		return 1;
 	}
 

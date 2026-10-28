@@ -120,6 +120,17 @@
 - `ubertooth-btle -i` on its own says `error: -i needs -f or -p`, the message
   its man page promises, rather than listing every major mode.
   [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
+- `ubertooth-util -w` on a board that reset itself says which part of its USB
+  work it stopped in: handing a capture packet over, reading a request,
+  running one, writing the reply, or one of the handshakes with the USB
+  controller. It used to report all of those as "servicing USB".
+  [#239](https://github.com/SqueakyFloors/ubertooth/issues/239)
+  [#505](https://github.com/SqueakyFloors/ubertooth/issues/505)
+- **Script-visible change:** `ubertooth-btle -A` is refused alongside `-p` and
+  exits 1. Promiscuous mode listens on the channel the board is holding and
+  sets none of its own, so the advertising channel index was taken and then
+  never sent.
+  [#237](https://github.com/SqueakyFloors/ubertooth/issues/237)
 - **Script-visible change:** `ubertooth-btle` refuses `-i`/`-I` without `-f` or
   `-p`, and `-a`/`-s` alongside `-f`, `-n` or `-p`, before it opens a device.
   Those command lines, and a mode the board refuses to start, now exit 1 where
@@ -283,11 +294,12 @@
   those tools still cannot drive that image and now fail on the first request
   it does not answer.
   [#556](https://github.com/SqueakyFloors/ubertooth/issues/556)
-- **Reflash required:** the firmware API version is now 1.47, last moved by the
-  breadcrumb gaining two more places a board can stop, by two requests
-  refusing a value they used to accept, and by a record naming no channel when
-  the board is tuned outside the band. A release build of the host tools
-  refuses firmware of any other API version, older or newer, while a
+- **Reflash required:** the firmware API version is now 1.48, last moved by the
+  finer breadcrumb sites inside USB service that `ubertooth-util -w` reads, and
+  before that by the breadcrumb gaining two more places a board can stop, by
+  two requests refusing a value they used to accept, and by a record naming no
+  channel when the board is tuned outside the band. A release build of the host
+  tools refuses firmware of any other API version, older or newer, while a
   development build warns about it. Host and firmware come from the same tree:
   `ubertooth-dfu` reflashes a board whatever firmware it is running, but only
   with an image built from this tree, and `2020-12-R1` firmware is refused.

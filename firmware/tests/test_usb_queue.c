@@ -44,6 +44,8 @@
 static unsigned watchdog_feeds;
 static uint8_t watchdog_site;
 static uint8_t watchdog_site_during_pass;
+/* The site recorded while a packet was being handed to the endpoint. */
+static uint8_t watchdog_site_during_write;
 
 uint8_t watchdog_mark(uint8_t site)
 {
@@ -53,6 +55,21 @@ uint8_t watchdog_mark(uint8_t site)
 	if (site == WATCHDOG_SITE_USB)
 		watchdog_site_during_pass = site;
 	return previous;
+}
+
+/* The steps of the pass mark themselves with this one, which leaves the site
+ * the pass reports to the host alone. */
+uint8_t watchdog_mark_inner(uint8_t site)
+{
+	uint8_t previous = watchdog_site;
+
+	watchdog_site = site;
+	return previous;
+}
+
+void watchdog_unmark(uint8_t site)
+{
+	watchdog_site = site;
 }
 
 void watchdog_usb_serviced(void)
@@ -112,6 +129,7 @@ int USBHwEPWrite(U8 bEP, U8 *pbBuf, U32 iLen)
 	int i;
 
 	(void)bEP;
+	watchdog_site_during_write = watchdog_site;
 	for (i = 0; i < EP_BUFFERS; i++) {
 		if (ep[i].full)
 			continue;
@@ -4374,6 +4392,24 @@ MU_TEST(a_usb_service_pass_feeds_the_watchdog)
 	mu_assert_int_eq(2, (int)watchdog_feeds);
 }
 
+/*
+ * Handing a queued packet to the endpoint is marked as its own step, so a
+ * board the watchdog resets in there says that rather than "servicing USB",
+ * which covers the whole pass. The step puts the pass's own site back.
+ */
+MU_TEST(handing_a_packet_over_marks_its_own_step)
+{
+	start_fresh();
+	capture(LE_PACKET, 1);
+	watchdog_site = WATCHDOG_SITE_LE_RX;
+	watchdog_site_during_write = WATCHDOG_SITE_NONE;
+
+	handle_usb(0);
+
+	mu_assert_int_eq(WATCHDOG_SITE_USB_BULK, watchdog_site_during_write);
+	mu_assert_int_eq(WATCHDOG_SITE_LE_RX, watchdog_site);
+}
+
 int main(void)
 {
 	MU_RUN(a_new_mode_reads_only_its_own_packets);
@@ -4393,6 +4429,7 @@ int main(void)
 	MU_RUN(a_polled_mode_still_services_control_requests);
 	MU_RUN(nothing_in_the_le_engine_feeds_the_endpoint);
 	MU_RUN(a_usb_service_pass_feeds_the_watchdog);
+	MU_RUN(handing_a_packet_over_marks_its_own_step);
 
 	scan_producers();
 	MU_RUN(the_producer_scan_read_the_sources);

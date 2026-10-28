@@ -166,7 +166,7 @@ void get_device_serial(uint8_t *buffer, int *len)
  * died. Nothing here is about that, so these only have to exist; what the
  * firmware does with them is tested in test_watchdog.c and test_usb_queue.c. */
 uint8_t watchdog_mark(uint8_t site) { (void)site; return WATCHDOG_SITE_NONE; }
-uint8_t watchdog_mark_handler(uint8_t site) { (void)site; return WATCHDOG_SITE_NONE; }
+uint8_t watchdog_mark_inner(uint8_t site) { (void)site; return WATCHDOG_SITE_NONE; }
 void watchdog_unmark(uint8_t site) { (void)site; }
 void watchdog_usb_serviced(void) {}
 

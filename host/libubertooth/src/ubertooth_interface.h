@@ -54,7 +54,7 @@
  * as 1.10), then 0x0111 (1.11), and so on to 0x0119 (1.19); after 0x0119
  * comes 0x0120, not 0x011a.
  */
-#define UBERTOOTH_API_VERSION 0x0147
+#define UBERTOOTH_API_VERSION 0x0148
 
 /*
  * The bootloader's bcdDevice, which is fixed on purpose and is the one version
@@ -536,6 +536,37 @@ enum watchdog_site {
 	 */
 	WATCHDOG_SITE_UNHANDLED_IRQ = 15, /* an interrupt nothing handles fired */
 	WATCHDOG_SITE_DEBUG_DMA     = 16, /* the debug UART's transfer failed */
+	/*
+	 * Steps of a USB service pass. A board that stops answering stops inside
+	 * that pass, and WATCHDOG_SITE_USB alone covers the whole of it: the
+	 * handshakes with the USB controller, the control request the pass is
+	 * carrying, and the firmware's own handler for that request. Each of
+	 * those is bounded to a few milliseconds on paper, so a pass that holds
+	 * the board for three seconds is one of them costing far more than its
+	 * bound -- or the time going somewhere none of them accounts for.
+	 *
+	 * These say which. WATCHDOG_SITE_USB stays the reading for the rest of
+	 * the pass: scanning the endpoints for one that needs service, and the
+	 * register reads around that.
+	 */
+	WATCHDOG_SITE_USB_BULK    = 17, /* handing a capture packet to the bulk endpoint */
+	WATCHDOG_SITE_USB_DEV     = 18, /* handling a USB bus event: reset, suspend, resume */
+	WATCHDOG_SITE_USB_EP      = 19, /* reading an endpoint's status */
+	WATCHDOG_SITE_USB_SETUP   = 20, /* reading a control request */
+	/*
+	 * Running a control request: the firmware's own handler for it. For
+	 * Ubertooth's own requests that means code which reaches the radio and
+	 * never the USB controller, which is what makes this site worth telling
+	 * apart from the ones above. Realizing an endpoint is the exception and
+	 * has a site of its own below, so it is not counted here.
+	 */
+	WATCHDOG_SITE_USB_REQUEST = 21,
+	WATCHDOG_SITE_USB_REPLY   = 22, /* writing a control reply */
+	/* Waiting for the controller to realize an endpoint: the longest wait
+	 * there is on it, and the only one a control request can reach. The
+	 * stack asks for it at startup and from SET_CONFIGURATION, which the
+	 * host sends as it opens the device and after a bus reset. */
+	WATCHDOG_SITE_USB_REALIZE = 23,
 	WATCHDOG_SITE_COUNT
 };
 

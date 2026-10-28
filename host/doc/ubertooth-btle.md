@@ -127,7 +127,9 @@ Major modes:
  - `-n` :
    No-follow mode: log advertising packets but don't follow connections
  - `-p` :
-   Promiscuous mode: sniff already-established connections. As it works a
+   Promiscuous mode: sniff already-established connections. It sets no channel
+   of its own: it listens on the one the board is holding, 2440 MHz unless
+   `ubertooth-util -c` left it on another even frequency. As it works a
    connection out it reports each parameter it has recovered: the access
    address, the CRC init value, the hop interval and the hop increment. Those
    lines go to standard output, or to standard error once `-q -` or `-c -` has
@@ -204,7 +206,9 @@ each.
 Miscellaneous:
 
  - `-A <37|38|39>` :
-   Which advertising channel to use in follow mode (default: 37)
+   Which advertising channel to use in follow mode (`-f`, `-n`) and faux slave
+   mode (`-s`) (default: 37). Refused with `-p`, which sets no channel of its
+   own.
  - `-a [address]` :
    Get (`-a`) or set (`-a <address>`) the access address used in promiscuous
    mode. The address is 1 to 8 hex digits (`-a 8e89bed6`); fewer than 8 means

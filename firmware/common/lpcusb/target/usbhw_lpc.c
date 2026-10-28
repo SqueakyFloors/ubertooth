@@ -44,6 +44,9 @@
 #endif
 #include "usbhw_lpc.h"
 #include "usbapi.h"
+/* The breadcrumb marks below. A board that stops answering stops inside a USB
+ * service pass, so the parts of that pass record themselves separately. */
+#include "watchdog.h"
 
 
 #ifdef DEBUG
@@ -255,8 +258,17 @@ static void USBHwEPRealize(int idx, U16 wMaxPSize)
      * a bound of its own, well clear of the others. A false timeout would
      * leave an endpoint unrealized, which is a board that enumerates and does
      * nothing, so this bound exists only to stop a dead controller hanging
-     * the firmware, not to catch a slow one. */
+     * the firmware, not to catch a slow one.
+     *
+     * It gets a site of its own for the same reason. The only path that
+     * reaches it after the board is up is the stack's SET_CONFIGURATION
+     * handler, which runs inside a control request -- so without this the
+     * longest wait on the USB controller would be recorded as "running a
+     * control request", next to the firmware's own requests, which reach the
+     * radio and never the controller. */
+    uint8_t site = watchdog_mark_inner(WATCHDOG_SITE_USB_REALIZE);
     Wait4DevIntBounded(EP_RLZED, USBHW_REALIZE_POLLS);
+    watchdog_unmark(site);
 }
 
 
@@ -412,8 +424,14 @@ void USBHwNakIntEnable(U8 bIntBits)
 U8  USBHwEPGetStatus(U8 bEP)
 {
     int idx = EP2IDX(bEP);
+    /* Marked for the breadcrumb, as the same read inside USBHwISR() is: this
+       is the first thing a service pass does in the modes whose host reads
+       the bulk endpoint, and it is two handshakes with the USB controller. */
+    uint8_t site = watchdog_mark_inner(WATCHDOG_SITE_USB_EP);
+    U8 status = USBHwCmdRead(CMD_EP_SELECT | idx);
 
-    return USBHwCmdRead(CMD_EP_SELECT | idx);
+    watchdog_unmark(site);
+    return status;
 }
 
 
@@ -680,6 +698,10 @@ void USBHwISR(void)
     U8  bEPStat, bDevStat, bStat;
     int i;
     U16 wFrame;
+    /* The site this pass was in before each step of it marked itself, so the
+     * step can put it back. */
+    uint8_t site;
+    BOOL fRead;
 
 // LED9 monitors total time in interrupt routine
 DEBUG_LED_ON(9);
@@ -730,7 +752,13 @@ DEBUG_LED_ON(9);
          * possibly minutes later, no retry at all, and lose exactly the bus
          * reset this is here to keep.
          */
-        if (!USBHwCmdReadChecked(CMD_DEV_STATUS, &bDevStat)) {
+        /* The mark covers acting on the event too, not just reading it: the
+         * handler for a bus reset, a suspend or a resume is firmware called
+         * from inside this pass, so a board held up in there should say so
+         * rather than read as the pass itself. */
+        site = watchdog_mark_inner(WATCHDOG_SITE_USB_DEV);
+        fRead = USBHwCmdReadChecked(CMD_DEV_STATUS, &bDevStat);
+        if (!fRead) {
             if (!dev_stat_retried) {
                 dev_stat_retried = TRUE;
                 USBDevIntSet = DEV_STAT;
@@ -753,6 +781,7 @@ DEBUG_LED_ON(8);
 DEBUG_LED_OFF(8);       
             }
         }
+        watchdog_unmark(site);
     }
     
     // endpoint interrupt
@@ -768,6 +797,7 @@ DEBUG_LED_OFF(8);
                  * without going through it, so a flag left over from
                  * anywhere else would make the read below return the wrong
                  * endpoint's status. */
+                site = watchdog_mark_inner(WATCHDOG_SITE_USB_EP);
                 USBDevIntClr = CDFULL;
                 // clear int (and retrieve status)
                 USBEpIntClr = dwIntBit;
@@ -791,7 +821,9 @@ DEBUG_LED_OFF(8);
                  * unanswered request the host times out on is the better of
                  * the two.
                  */
-                if (!Wait4DevInt(CDFULL)) {
+                fRead = Wait4DevInt(CDFULL);
+                watchdog_unmark(site);
+                if (!fRead) {
                     /* An event on endpoint 0 that is lost here is most likely
                      * a setup packet, so the control state no longer matches
                      * what the host is doing: a reply still owed from the
