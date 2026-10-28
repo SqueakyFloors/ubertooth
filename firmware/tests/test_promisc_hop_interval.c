@@ -77,9 +77,16 @@ struct scan {
 	int increment_stamp_in_state;
 	/* Where the access address is announced to the host. The record is
 	 * dropped unless it is queued after bt_le_sync() has emptied the
-	 * queue, and announcing it twice would print the line twice. */
+	 * queue, and announcing it twice would print the line twice. Being
+	 * inside bt_le_sync() is not enough on its own: above the queue reset
+	 * is where the record used to be lost, so the line number matters,
+	 * and without the mode test the other two sniffing modes would
+	 * announce an access address of their own. */
 	int announce_sites;
 	int announce_in_sync;
+	int announce_line;
+	int queue_init_line;
+	int announce_guarded_by_mode;
 	int flag_in_state;       /* and the flag that says it is set */
 };
 
@@ -154,6 +161,7 @@ static int scan_sources(struct scan *out)
 	char line[SCAN_LINE_MAX];
 	char target[48], token[64], fn[64] = "", name[64];
 	int in_block = 0, lineno = 0, in_state_struct = 0, saw_guard = 0;
+	int saw_mode_test = 0;
 	FILE *f = fopen(path, "r");
 
 	memset(out, 0, sizeof(*out));
@@ -212,14 +220,24 @@ static int scan_sources(struct scan *out)
 		    contains_identifier(line, "first_ts"))
 			out->increment_static_in_function = 1;
 
+		if (strcmp(fn, "bt_le_sync") == 0 &&
+		    strstr(line, "usb_queue_init()") != NULL)
+			out->queue_init_line = lineno;
+
 		/* `le_promisc_state(0, ...)`: the record type that carries the
 		 * access address. The other types carry the parameters the
 		 * mode recovers afterwards. */
 		if (strstr(line, "le_promisc_state(0,") != NULL) {
 			out->announce_sites++;
-			if (strcmp(fn, "bt_le_sync") == 0)
+			if (strcmp(fn, "bt_le_sync") == 0) {
 				out->announce_in_sync = 1;
+				out->announce_line = lineno;
+				if (saw_mode_test)
+					out->announce_guarded_by_mode = 1;
+			}
 		}
+		saw_mode_test = strstr(line, "active_mode == MODE_BT_PROMISC_LE")
+		                != NULL;
 
 		/* Whose body the lines below are: a definition starts in column 1
 		 * and is not a statement. */
@@ -634,6 +652,24 @@ MU_TEST(test_the_access_address_is_announced_once_and_late_enough)
 	         "%s: the access address is not announced from bt_le_sync(), "
 	         "so it is queued before the queue the host reads exists", path);
 	mu_assert(s.announce_in_sync, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: bt_le_sync() has no usb_queue_init(), so there is no "
+	         "queue reset for the announcement to be placed after", path);
+	mu_assert(s.queue_init_line > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the access address is announced at line %d, before the "
+	         "queue reset at line %d: the record goes into a queue that "
+	         "reset then empties, which is the whole of the fault",
+	         path, s.announce_line, s.queue_init_line);
+	mu_assert(s.announce_line > s.queue_init_line, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the announcement is not guarded by the mode, so -f and "
+	         "-n would report an access address as a promiscuous-mode "
+	         "state line", path);
+	mu_assert(s.announce_guarded_by_mode, msg);
 }
 
 /*

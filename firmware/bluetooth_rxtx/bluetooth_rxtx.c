@@ -2559,14 +2559,11 @@ void bt_le_sync(u8 active_mode)
 	dma_init_le(le_rx.packet + 4, LE_RX_PDU_MAX);
 	dio_ssp_start();
 
-	/* The access address promiscuous mode is about to follow. Here is the
-	 * first point at which the host can be told: the two places that used
-	 * to announce it both ran before the line above, which empties the
-	 * queue their record went into, so the one line that says which
-	 * connection a capture is of was lost. Both ways into the mode come
-	 * through here, the host-given access address included, and this being
-	 * the only announcement is what keeps a record that escaped one of
-	 * those two early from printing the address twice.
+	/* The access address promiscuous mode is about to follow, announced
+	 * here because the queue reset above empties anything queued earlier:
+	 * this is the first point at which the host can be told, and the only
+	 * place it is told, so the line cannot arrive twice. Both ways into
+	 * the mode come through here, the host-given access address included.
 	 *
 	 * The clock is stopped and the channel registers are clear at this
 	 * point, so the record is stamped channel 0 at clock 0; the host
