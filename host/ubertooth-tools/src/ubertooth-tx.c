@@ -141,13 +141,12 @@ int main(int argc, char* argv[])
 
 	r = ubertooth_check_api(ut);
 	if (r < 0) {
-		/* A refused version was stopped and closed inside
-		 * ubertooth_check_api(), which has already sent STOP; a
-		 * version that could not be read was not. So close only a
-		 * handle still holding a device, because closing twice would
-		 * exit libusb twice. What is not added here is a second STOP. */
-		if (ut->devh != NULL)
-			ubertooth_close(ut);
+		/* A refused version was released inside ubertooth_check_api(),
+		 * which has already sent STOP; one it could not read at all
+		 * leaves the board open. Closing covers both, because closing a
+		 * board already released does nothing. What is not added here is
+		 * a second STOP. */
+		ubertooth_close(ut);
 		ubertooth_free(ut);
 		return 1;
 	}
@@ -176,8 +175,11 @@ int main(int argc, char* argv[])
 
 	// tell ubertooth to send packets
 	r = cmd_tx_syms(ut->devh);
-	if (r < 0)
+	if (r < 0) {
+		ubertooth_stop(ut);
+		ubertooth_free(ut);
 		return 1;
+	}
 
 	// TODO - send symbols to the bulk endpoint
 
@@ -186,6 +188,7 @@ int main(int argc, char* argv[])
 		sleep(1);
 
 	ubertooth_stop(ut);
+	ubertooth_free(ut);
 
 	return 0;
 }

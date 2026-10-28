@@ -293,6 +293,10 @@
   rather than 2482, so the band it sweeps for that channel, and where a signal
   in it lands on the plot, are no longer 2 MHz low.
   [#673](https://github.com/SqueakyFloors/ubertooth/issues/673)
+- A selection that finds nothing says so when a board is in the DFU
+  bootloader, which is what a board being flashed looks like. "no Ubertooth
+  found" read the same as a board that had been unplugged.
+  [#580](https://github.com/SqueakyFloors/ubertooth/issues/580)
 - `ubertooth-btbr` receives a long Classic payload whole. Past the first 256
   bytes of the air buffer it decoded from 256 bytes earlier instead, so a DH5
   payload of 247 bytes or more, the largest a Classic packet carries, always
@@ -1139,11 +1143,19 @@ Fixes with no visible change in normal use.
   start one.
   [#307](https://github.com/SqueakyFloors/ubertooth/issues/307)
   [#370](https://github.com/SqueakyFloors/ubertooth/issues/370)
-- `ubertooth-afh`, `ubertooth-ducky` and `ubertooth-ego` give back everything
-  they allocate before they exit.
+- Every tool gives back everything it allocates before it exits, and the ones
+  that capture no longer take a 72 MB buffer before they have read the command
+  line. Releasing a board twice is harmless now, so a tool no longer has to
+  work out whether the library has already done it.
   [#366](https://github.com/SqueakyFloors/ubertooth/issues/366)
   [#381](https://github.com/SqueakyFloors/ubertooth/issues/381)
+  [#387](https://github.com/SqueakyFloors/ubertooth/issues/387)
   [#388](https://github.com/SqueakyFloors/ubertooth/issues/388)
+  [#399](https://github.com/SqueakyFloors/ubertooth/issues/399)
+  [#407](https://github.com/SqueakyFloors/ubertooth/issues/407)
+- The receive transfer the poll thread and the receive loop share is read and
+  written under a lock.
+  [#385](https://github.com/SqueakyFloors/ubertooth/issues/385)
 - `ubertooth-scan` no longer leaks connection information after failed probes.
   [#3](https://github.com/SqueakyFloors/ubertooth/issues/3)
   [upstream #542](https://github.com/greatscottgadgets/ubertooth/issues/542)

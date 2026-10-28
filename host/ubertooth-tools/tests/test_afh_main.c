@@ -31,6 +31,8 @@ static struct {
 	int rx_afh_r_calls;
 	int last_timeout; /* timeout passed to the detection phase */
 	int stops;
+	int closes;       /* ubertooth_close() calls */
+	int frees;        /* ubertooth_free() calls */
 	int no_device;    /* no board matches -U */
 	int check_api_rc; /* returned by ubertooth_check_api() */
 	int stream_failed;/* the receive stream died part-way */
@@ -150,6 +152,18 @@ void ubertooth_stop(ubertooth_t *ut)
 	fake.stops++;
 	if (fake.fails_at_stop)
 		fake.stream_failed = 1;
+}
+
+void ubertooth_close(ubertooth_t *ut)
+{
+	(void)ut;
+	fake.closes++;
+}
+
+void ubertooth_free(ubertooth_t *ut)
+{
+	(void)ut;
+	fake.frees++;
 }
 
 void print_version(void) { printf("test\n"); }
@@ -430,9 +444,46 @@ MU_TEST(a_bare_command_line_is_refused_with_the_usage_text)
 	mu_assert_int_eq(0, fake.rx_afh_calls);
 }
 
+/* The handle and its 72 MB fifo go back on every exit once the board has been
+ * opened: the tool used to leave them to process exit. */
+MU_TEST(every_exit_path_gives_the_handle_back)
+{
+	struct run_result r;
+
+	reset_fake();
+	r = RUN("-l", "446688", "-u", "22");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, fake.frees);
+
+	/* A firmware version the host will not drive: the library has released
+	 * a board whose version it refused, and closing a board already
+	 * released does nothing, so the tool closes either way. */
+	reset_fake();
+	fake.check_api_rc = -1;
+	r = RUN("-l", "446688", "-u", "22");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, fake.closes);
+	mu_assert_int_eq(1, fake.frees);
+
+	/* A receive that could not be started. */
+	reset_fake();
+	fake.rx_afh_rc = -1;
+	r = RUN("-l", "446688", "-u", "22");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, fake.frees);
+
+	/* No board matches -U: there is no handle to give back. */
+	reset_fake();
+	fake.no_device = 1;
+	r = RUN("-l", "446688", "-u", "22");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, fake.frees);
+}
+
 int main(void)
 {
 	MU_RUN(no_packets_in_the_detection_phase_is_reported_and_exits_2);
+	MU_RUN(every_exit_path_gives_the_handle_back);
 	MU_RUN(the_message_names_the_piconet_and_the_timeout);
 	MU_RUN(a_detected_map_still_exits_0_with_no_message);
 	MU_RUN(no_timeout_runs_the_monitor_as_before);

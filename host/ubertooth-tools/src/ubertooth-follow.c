@@ -82,6 +82,20 @@ static void afh_hci_wait(void* ctx __attribute__((unused)))
 	usleep(FOLLOW_AFH_RETRY_DELAY_US);
 }
 
+/* err(3) ends the process, so the handle it leaves behind costs nothing -- but
+ * a capture file already created on that handle is not written out. Close and
+ * free it first, keeping the errno err() is about to report, which free() is
+ * allowed to change. libbtbb leaves the handle it could not create NULL, so
+ * only files that were created are closed. */
+static void release_before_err(ubertooth_t* ut)
+{
+	int failure = errno;
+
+	ubertooth_close(ut);
+	ubertooth_free(ut);
+	errno = failure;
+}
+
 /* Gives the local adapter back. First it drops the link this command made to
  * the target, so a failure does not leave the target connected until its
  * controller times the link out, and then it closes the adapter handle, as
@@ -101,6 +115,7 @@ static void follow_cleanup(ubertooth_t* ut, int sock, uint16_t handle, int cc)
 {
 	ubertooth_bulk_thread_stop();
 	ubertooth_stop(ut);
+	ubertooth_free(ut);
 	follow_release_adapter(sock, handle, cc);
 }
 
@@ -111,17 +126,19 @@ static void follow_cleanup(ubertooth_t* ut, int sock, uint16_t handle, int cc)
  * a board that has just refused a request would only add a second failure to
  * the report. The same reasoning as ubertooth-rx's request_failed().
  *
- * It is closed only while it is still open, which is what tells the two
- * firmware version failures apart: ubertooth_check_api() releases the board
- * itself when the firmware reports a version this host will not drive, and
- * releasing it twice is not safe, while a version it could not read at all
- * leaves the board open, so closing it here is what frees it. ubertooth-scan
- * guards its own check_api() failure the same way. */
+ * The failures before the board is opened use this too: closing a handle that
+ * never opened one does nothing, and the handle is allocated with the capture
+ * files, well before the board, so there is always one to give back.
+ *
+ * One close covers both firmware version failures: ubertooth_check_api()
+ * releases the board itself when the firmware reports a version this host
+ * will not drive, and a version it could not read at all leaves the board
+ * open, so closing a board that is already released does nothing. */
 static void follow_release_board(ubertooth_t* ut, int sock, uint16_t handle,
                                  int cc)
 {
-	if (ut->devh != NULL)
-		ubertooth_close(ut);
+	ubertooth_close(ut);
+	ubertooth_free(ut);
 	follow_release_adapter(sock, handle, cc);
 }
 
@@ -189,10 +206,13 @@ int main(int argc, char *argv[])
 	int have_lap_uap = 0;
 	/* 1 when the command line named a remote target, either way. */
 	int remote_target = 0;
+	int status;
 
-	ubertooth_t* ut = ubertooth_init();
-	if (ut == NULL)
-		return 1;
+	/* Allocated once the whole command line has been accepted (below):
+	 * every refusal above returns without a board, and the handle carries a
+	 * 72 MB fifo. */
+	ubertooth_t* ut = NULL;
+
 	pn = btbb_piconet_new();
 
 	/* Report a bad option ourselves rather than letting getopt print it:
@@ -351,20 +371,34 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	/* Every check has passed, so the files can be opened: a refused command
-	 * line creates and truncates nothing. */
+	/* Every check has passed, so the handle and its 72 MB fifo can be
+	 * allocated: the capture files below are kept on it. */
+	ut = ubertooth_init();
+	if (ut == NULL)
+		return 1;
+
+	/* And the files can be opened: a refused command line creates and
+	 * truncates nothing. */
 	if (pcapng_name != NULL &&
 	    btbb_pcapng_create_file(pcapng_name, "Ubertooth", &ut->h_pcapng_bredr)) {
+		release_before_err(ut);
 		err(1, "create_bredr_capture_file: ");
 	}
 	if (pcap_name != NULL &&
 	    btbb_pcap_create_file(pcap_name, &ut->h_pcap_bredr)) {
+		release_before_err(ut);
 		err(1, "btbb_pcap_create_file: ");
 	}
 	if (dump_name != NULL) {
 		dumpfile = fopen(dump_name, "w");
 		if (dumpfile == NULL) {
 			perror(dump_name);
+			/* The capture files are on the handle, so the close is
+			 * what gets them written out and shut; no board has
+			 * been opened yet, and the close does nothing to a
+			 * handle that has none. */
+			ubertooth_close(ut);
+			ubertooth_free(ut);
 			return 1;
 		}
 	}
@@ -386,6 +420,8 @@ int main(int argc, char *argv[])
 		else
 			fprintf(stderr, "error: Bluetooth device %s not found\n",
 			        bt_dev);
+		ubertooth_close(ut); /* the capture files, as above */
+		ubertooth_free(ut);
 		return 1;
 	}
 	errno = 0;
@@ -397,6 +433,8 @@ int main(int argc, char *argv[])
 		else
 			fprintf(stderr, "error: cannot open Bluetooth device %s\n",
 			        bt_dev);
+		ubertooth_close(ut); /* the capture files, as above */
+		ubertooth_free(ut);
 		return 1;
 	}
 
@@ -438,7 +476,7 @@ int main(int argc, char *argv[])
 		if (hci_read_bd_addr(sock, &bdaddr, HCI_TIMEOUT_MS) < 0) {
 			fprintf(stderr, "error: reading the address of %s failed: %s\n",
 			        bt_dev, strerror(errno));
-			follow_release_adapter(sock, handle, cc);
+			follow_release_board(ut, sock, handle, cc);
 			return 1;
 		}
 		lap = bdaddr.b[0] | bdaddr.b[1] << 8 | bdaddr.b[2] << 16;
@@ -462,7 +500,7 @@ int main(int argc, char *argv[])
 		if (hci_devinfo(dev_id, &di) < 0) {
 			fprintf(stderr, "error: reading the settings of %s failed: %s\n",
 			        bt_dev, strerror(errno));
-			follow_release_adapter(sock, handle, cc);
+			follow_release_board(ut, sock, handle, cc);
 			return 1;
 		}
 
@@ -503,7 +541,7 @@ int main(int argc, char *argv[])
 				        "a guess: give the whole target address "
 				        "with -t xx:xx:xx:xx:xx:xx\n",
 				        addr, reason);
-			follow_release_adapter(sock, handle, cc);
+			follow_release_board(ut, sock, handle, cc);
 			return 1;
 		}
 		cc = 1;
@@ -530,7 +568,7 @@ int main(int argc, char *argv[])
 		refusal = follow_afh_handle_refusal(have_target, cc);
 		if (refusal != NULL) {
 			fprintf(stderr, "error: %s\n", refusal);
-			follow_release_adapter(sock, handle, cc);
+			follow_release_board(ut, sock, handle, cc);
 			return 1;
 		}
 
@@ -566,7 +604,7 @@ int main(int argc, char *argv[])
 			/* No board has been opened yet, so the adapter is all
 			 * there is to give back. */
 			fprintf(stderr, "error: %s\n", line);
-			follow_release_adapter(sock, handle, cc);
+			follow_release_board(ut, sock, handle, cc);
 			return 1;
 		}
 	} else {
@@ -582,7 +620,7 @@ int main(int argc, char *argv[])
 	 * back on the way out, dropping the link to the target with it; the
 	 * receive thread is not running yet, so there is nothing else to undo. */
 	if (ubertooth_connect_select(ut, ubertooth_device) < 0) {
-		follow_release_adapter(sock, handle, cc);
+		follow_release_board(ut, sock, handle, cc);
 		return 1;
 	}
 
@@ -645,6 +683,7 @@ int main(int argc, char *argv[])
 		/* nothing is in flight, but the board is still open and in
 		 * whatever mode an earlier command left it */
 		ubertooth_stop(ut);
+		ubertooth_free(ut);
 		follow_release_adapter(sock, handle, cc);
 		return 1;
 	}
@@ -659,6 +698,7 @@ int main(int argc, char *argv[])
 		 * left in its mode: give both back. Not follow_cleanup(), which
 		 * would join a thread that was never created. */
 		ubertooth_stop(ut);
+		ubertooth_free(ut);
 		follow_release_adapter(sock, handle, cc);
 		return 1;
 	}
@@ -735,5 +775,7 @@ int main(int argc, char *argv[])
 	 * from a Ctrl-C. The handle is read after the teardown, because
 	 * cancelling the transfer can be what brings the failure out.
 	 * libubertooth has already printed what failed. */
-	return ubertooth_stream_failed(ut) ? 1 : 0;
+	status = ubertooth_stream_failed(ut) ? 1 : 0;
+	ubertooth_free(ut);
+	return status;
 }

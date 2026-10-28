@@ -329,6 +329,42 @@ MU_TEST(a_run_nothing_interrupted_keeps_going)
 	release_handle(ut);
 }
 
+/* A tool may give its handle back while the library's handlers are still
+ * installed, which is what every tool does on its way out now that it frees
+ * the handle. This pins the part of that a test can see: the handlers survive
+ * it, so a run started afterwards still stops on a signal.
+ *
+ * What it cannot see is the reason ubertooth_free() lets go of the handle. The
+ * handler these tools install only sets a flag; the one that would dereference
+ * the freed handle is cleanup_exit(), which ubertooth.c installs for
+ * register_cleanup_handler(ut, 1) and which no tool asks for. So this case
+ * passes either way, and the read-after-free it guards against would need a
+ * tool that passed 1 and a sanitizer to catch. */
+MU_TEST(a_freed_handle_is_let_go_of)
+{
+	ubertooth_t* ut = new_handle();
+	int i;
+
+	mu_assert_fatal(ut != NULL, "a handle");
+	/* Freed with the handlers still installed, as a tool leaves it. */
+	ubertooth_free(ut);
+
+	for (i = 0; i < 5; i++)
+		raise(SIGINT);
+	raise(SIGTERM);
+	raise(SIGALRM);
+
+	/* The handlers are still the library's, and still work: a run started
+	 * after all that stops on the next signal rather than running on. */
+	ubertooth_reset_stop_signals();
+	ut = new_handle();
+	mu_assert_fatal(ut != NULL, "a second handle");
+	mu_assert_int_eq(0, ubertooth_stopping(ut));
+	raise(SIGINT);
+	mu_assert_int_eq(1, ubertooth_stopping(ut));
+	release_handle(ut);
+}
+
 int main(void)
 {
 	MU_RUN(every_caught_signal_stops_the_run);
@@ -339,5 +375,6 @@ int main(void)
 	MU_RUN(a_replay_reads_the_whole_file);
 	MU_RUN(a_replay_stops_when_the_user_asks);
 	MU_RUN(a_run_nothing_interrupted_keeps_going);
+	MU_RUN(a_freed_handle_is_let_go_of);
 	return mu_report();
 }

@@ -69,6 +69,7 @@ static struct {
 	int api_rc;          /* returned by ubertooth_check_api() */
 	int api_released;    /* whether that call released the board itself */
 	int closes;          /* ubertooth_close() */
+	int frees;           /* ubertooth_free() */
 	int last_channel;    /* the channel the capture was set to, in MHz */
 	int timeout_set;
 	int blocks;          /* blocks handed to the callback */
@@ -109,9 +110,11 @@ ubertooth_t* ubertooth_init(void)
 	return &device.ut;
 }
 
+/* Counted rather than freeing: the handle above is this test's own. */
 void ubertooth_free(ubertooth_t* ut)
 {
 	(void)ut;
+	device.frees++;
 }
 
 int ubertooth_connect_select(ubertooth_t* ut, const char* u_arg)
@@ -677,9 +680,10 @@ MU_TEST(a_refused_sweep_leaves_survey_mode_with_no_results)
 }
 
 /* A firmware this host will not drive ends the command before any setup
- * request, with the board released whichever way the check failed: the library
- * releases it itself on a version mismatch, and the tool closes it when the
- * version could not be read at all. */
+ * request, with the board released whichever way the check failed. The tool
+ * closes it either way: the library has already released a board whose
+ * version it refused, and closing a board that is already released does
+ * nothing. */
 MU_TEST(a_firmware_the_tool_cannot_use_exits_one)
 {
 	struct run_result r;
@@ -693,7 +697,7 @@ MU_TEST(a_firmware_the_tool_cannot_use_exits_one)
 	mu_assert_int_eq(0, device.rx_syms_calls);
 	mu_assert_int_eq(0, device.cleanup_handlers);
 	mu_assert_int_eq(1, device.stops);
-	mu_assert_int_eq(0, device.closes); /* releasing it twice is not safe */
+	mu_assert_int_eq(1, device.closes); /* harmless: it is already released */
 
 	reset_device();
 	device.api_rc = -1;
@@ -805,12 +809,62 @@ MU_TEST(a_replay_sends_no_setup_request)
 	mu_assert(r.err[0] == '\0', r.err);
 }
 
+/* The handle and its 72 MB fifo go back on every exit once it exists. They
+ * were left to process exit, and were allocated before the command line had
+ * been read, so even a refused command took 72 MB. */
+MU_TEST(every_exit_path_gives_the_handle_back)
+{
+	struct run_result r;
+
+	reset_device();
+	r = RUN_RX("-t", "30");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, device.frees);
+
+	/* A firmware version the host will not drive, both ways round: the
+	 * library releases a board whose version it refused, and closing a
+	 * board already released does nothing. */
+	reset_device();
+	device.api_rc = -1;
+	device.api_released = 1;
+	r = RUN_RX("-t", "30");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, device.frees);
+
+	reset_device();
+	device.api_rc = -1;
+	r = RUN_RX("-t", "30");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, device.frees);
+
+	/* A capture that could not be set up. */
+	reset_device();
+	device.bulk_init_rc = -1;
+	r = RUN_RX("-t", "30");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, device.frees);
+
+	/* No board matches -U: the handle exists by then and still goes back. */
+	reset_device();
+	device.connect_fails = 1;
+	r = RUN_RX("-t", "30");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, device.frees);
+
+	/* A refused command line never allocates one. */
+	reset_device();
+	r = RUN_RX("-h");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0, device.frees);
+}
+
 int main(void)
 {
 	/* Nothing here should look for a board; make sure of it. */
 	setenv("UBERTOOTH_TEST_NO_DEVICES", "1", 1);
 
 	MU_RUN(a_capture_whose_stream_died_exits_one);
+	MU_RUN(every_exit_path_gives_the_handle_back);
 	MU_RUN(a_bounded_capture_still_exits_zero);
 	MU_RUN(an_interrupted_capture_still_exits_zero);
 	MU_RUN(a_survey_whose_stream_died_still_prints_its_results);

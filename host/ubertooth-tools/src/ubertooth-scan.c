@@ -318,13 +318,13 @@ int main(int argc, char *argv[])
 	}
 	rv = ubertooth_check_api(ut);
 	if (rv < 0) {
-		/* On a version mismatch ubertooth_check_api() has released the
-		 * board itself, and releasing it twice is not safe; where it
-		 * could not even read the version it has released nothing, so
-		 * the board is closed here, without a STOP for a firmware this
-		 * host will not drive. */
-		if (ut->devh != NULL)
-			ubertooth_close(ut);
+		/* A refused version was released inside ubertooth_check_api();
+		 * one it could not read at all leaves the board open. Closing
+		 * covers both, because closing a board already released does
+		 * nothing, and it sends no STOP to a firmware this host will
+		 * not drive. */
+		ubertooth_close(ut);
+		ubertooth_free(ut);
 		close(dev_handle);
 		return 1;
 	}
@@ -358,6 +358,7 @@ int main(int argc, char *argv[])
 	 * syndrome map it never built. */
 	if (btbb_init(max_ac_errors) < 0) {
 		ubertooth_stop(ut);
+		ubertooth_free(ut);
 		close(dev_handle);
 		return 1;
 	}
@@ -378,6 +379,7 @@ int main(int argc, char *argv[])
 		 * whatever mode an earlier command left it. libubertooth has
 		 * already said what failed, so the status is all this adds. */
 		ubertooth_stop(ut);
+		ubertooth_free(ut);
 		close(dev_handle);
 		return 1;
 	}
@@ -392,6 +394,7 @@ int main(int argc, char *argv[])
 		/* The receive transfer is in flight and the board is about to be
 		 * left in its mode: give both back before returning. */
 		ubertooth_stop(ut);
+		ubertooth_free(ut);
 		close(dev_handle);
 		return 1;
 	}
@@ -408,6 +411,7 @@ int main(int argc, char *argv[])
 		 * ubertooth_stop() frees the libusb context it polls. */
 		ubertooth_bulk_thread_stop();
 		ubertooth_stop(ut);
+		ubertooth_free(ut);
 		close(dev_handle);
 		return 1;
 	}
@@ -443,6 +447,7 @@ int main(int argc, char *argv[])
 		report_refused_request("set sweep mode", rv);
 		ubertooth_bulk_thread_stop();
 		ubertooth_stop(ut);
+		ubertooth_free(ut);
 		close(dev_handle);
 		return 1;
 	}
@@ -469,6 +474,7 @@ int main(int argc, char *argv[])
 	 * failure out. libubertooth has already printed what failed. */
 	if (ubertooth_stream_failed(ut))
 		exit_status = 1;
+	ubertooth_free(ut);
 
 	printf("\nScan results:\n");
 	while((pn=btbb_next_survey_result()) != NULL) {

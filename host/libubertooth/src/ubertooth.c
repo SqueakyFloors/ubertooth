@@ -96,7 +96,24 @@ void print_version() {
 	       btbb_get_version(), btbb_get_release());
 }
 
+/* The handle register_cleanup_handler() was given, for cleanup_exit() below.
+ * It is the only handle the library keeps of its own, and a tool cannot reach
+ * it, so ubertooth_free() clears it: a signal arriving after a tool gave its
+ * handle back must not find a pointer to freed memory. */
 static ubertooth_t* cleanup_devh = NULL;
+
+/* Forgets a handle the library was holding for its signal handlers, so the
+ * caller may free it. Done inside ubertooth_free() rather than asked of each
+ * tool: the handlers are the library's, so keeping track of them is too.
+ *
+ * Storing a pointer is one instruction on the processors this fork builds
+ * for, so a signal arriving here finds either the handle or nothing, never
+ * half of either. */
+static void forget_registered_handle(ubertooth_t* ut)
+{
+	if (cleanup_devh == ut)
+		cleanup_devh = NULL;
+}
 
 /* 1 once the user has asked the run to stop: Ctrl-C, SIGTERM, SIGHUP,
  * SIGQUIT, or an alarm set by something outside the tool. Set by the handlers
@@ -453,6 +470,56 @@ static void report_unscanned(int unopened, int open_err, int unread)
 	}
 }
 
+/* One extra line after a selection that found no Ubertooth, when a board is
+ * sitting in the DFU bootloader. Such a board is being flashed, or a flash
+ * left it there, which is not the same as a board that is not attached -- and
+ * the two read alike: "no Ubertooth found" in an overnight regression log was
+ * the one event nobody could explain until it turned out another process was
+ * flashing the board at that moment.
+ *
+ * Only the message changes. The selection still found nothing, and the caller
+ * still fails as it did before.
+ *
+ * It enumerates the bus itself rather than counting during the scan above,
+ * because this runs once, on the path where nothing was found. */
+static void note_dfu_bootloader(void)
+{
+	struct libusb_device** usb_list = NULL;
+	struct libusb_device_descriptor desc;
+	ssize_t usb_devs;
+	int i, boards = 0;
+
+	if (ubertooth_devices_hidden())
+		return;
+	usb_devs = libusb_get_device_list(NULL, &usb_list);
+	if (usb_devs <= 0) {
+		if (usb_devs == 0)
+			libusb_free_device_list(usb_list, 1);
+		return;
+	}
+	for (i = 0; i < usb_devs; ++i) {
+		if (libusb_get_device_descriptor(usb_list[i], &desc) < 0)
+			continue; /* desc was not filled in: skip this device */
+		if (desc.idVendor == U1_DFU_VENDORID
+		    && desc.idProduct == U1_DFU_PRODUCTID)
+			boards++;
+	}
+	libusb_free_device_list(usb_list, 1);
+
+	if (boards == 0)
+		return;
+	/* The bootloader reports no serial number, so the note cannot say which
+	 * board it is; the count is all there is to give. */
+	if (boards == 1)
+		fprintf(stderr, "note: a board is in the DFU bootloader, so no tool "
+		        "can open it: it is being flashed, or a flash left it "
+		        "there\n");
+	else
+		fprintf(stderr, "note: %d boards are in the DFU bootloader, so no "
+		        "tool can open them: they are being flashed, or a flash "
+		        "left them there\n", boards);
+}
+
 /* Find an Ubertooth by serial-number string (hex, as printed by -s), matched
  * by serial_matches(). Every attached device is read before one is chosen, so
  * a string that matches several is refused with the matching serials instead
@@ -574,6 +641,7 @@ static struct libusb_device_handle* find_ubertooth_device_serial_opt(
 		fprintf(stderr, "no Ubertooth found with serial matching '%s'\n",
 		        serial_number);
 		report_unscanned(unopened, open_err, unread);
+		note_dfu_bootloader();
 	}
 	free(matched_devs);
 	free(matched_serials);
@@ -640,13 +708,71 @@ int ubertooth_stream_failed(ubertooth_t* ut)
 	return ut != NULL && ut->rx_stream_status != 0;
 }
 
-/* Gives up a transfer nothing is holding any more. rx_xfer is cleared before
- * the state, so a teardown looking at this handle sees either a transfer it
- * may not touch or no transfer at all, never one it may free twice. */
+/* Guards every read and write of ubertooth_t.rx_xfer and rx_xfer_state, the
+ * receive transfer and who owns it. Two threads reach them: the transfer's
+ * callback, which libusb runs on the poll thread, and the receive loop and
+ * teardown on the run's own thread. Without a lock that is a data race, and a
+ * compiler may keep either field in a register across the calls that read it,
+ * however well the generated code happened to behave.
+ *
+ * One lock for the library, not one per handle. It is held for a couple of
+ * assignments at a time and a process runs one capture, so there is nothing
+ * to win by splitting it -- and a handle a caller zeroed itself would carry a
+ * mutex that was never initialised.
+ *
+ * Nothing calls libusb while holding it. libusb runs the callback with its
+ * own locks held, so a thread that held this one and then waited for libusb
+ * could deadlock against the callback waiting for this one. */
+static pthread_mutex_t rx_xfer_lock = PTHREAD_MUTEX_INITIALIZER;
+
+/* The transfer and, when state is not NULL, who owns it: read together, so a
+ * caller cannot see one field from before a change and the other from after. */
+static struct libusb_transfer* rx_xfer_peek(ubertooth_t* ut, uint8_t* state)
+{
+	struct libusb_transfer* xfer;
+
+	pthread_mutex_lock(&rx_xfer_lock);
+	xfer = ut->rx_xfer;
+	if (state != NULL)
+		*state = ut->rx_xfer_state;
+	pthread_mutex_unlock(&rx_xfer_lock);
+	return xfer;
+}
+
+/* Records which transfer this handle has and who owns it. Written together,
+ * so the other thread never sees a transfer paired with the state of the one
+ * before it. */
+static void rx_xfer_store(ubertooth_t* ut, struct libusb_transfer* xfer,
+                          uint8_t state)
+{
+	pthread_mutex_lock(&rx_xfer_lock);
+	ut->rx_xfer = xfer;
+	ut->rx_xfer_state = state;
+	pthread_mutex_unlock(&rx_xfer_lock);
+}
+
+/* Says that xfer's cancellation is on its way, for as long as xfer is still
+ * this handle's transfer. Only the state is written, and only after checking
+ * that: the callback may have given the transfer up and freed it between the
+ * cancel being accepted and this call, and storing the pointer back would
+ * leave the teardown looking at freed memory and reporting a good run as a
+ * transfer that never came back. */
+static void rx_xfer_mark_cancelling(ubertooth_t* ut,
+                                    const struct libusb_transfer* xfer)
+{
+	pthread_mutex_lock(&rx_xfer_lock);
+	if (ut->rx_xfer == xfer && ut->rx_xfer_state == RX_XFER_IN_FLIGHT)
+		ut->rx_xfer_state = RX_XFER_CANCELLING;
+	pthread_mutex_unlock(&rx_xfer_lock);
+}
+
+/* Gives up a transfer nothing is holding any more. The handle lets go of it
+ * before it is freed, so a teardown looking at this handle sees either a
+ * transfer it may not touch or no transfer at all, never one it may free
+ * twice. The free itself is outside the lock, as every libusb call is. */
 static void rx_xfer_release(ubertooth_t* ut, struct libusb_transfer* xfer)
 {
-	ut->rx_xfer = NULL;
-	ut->rx_xfer_state = RX_XFER_OURS;
+	rx_xfer_store(ut, NULL, RX_XFER_OURS);
 	libusb_free_transfer(xfer);
 }
 
@@ -686,15 +812,22 @@ static void warn_if_transfer_was_truncated(ubertooth_t* ut,
 static void cb_xfer(struct libusb_transfer *xfer)
 {
 	ubertooth_t* ut = (ubertooth_t*)xfer->user_data;
-	/* Whether something is waiting for this transfer rather than for more
-	 * packets: a teardown that has cancelled it, or a capture that is
-	 * stopping. Read before anything below changes the state, because a
-	 * cancelled transfer can come back as a bulk timeout -- libusb reports
-	 * that when the timeout expired before the cancellation took effect --
-	 * and putting that one back in flight leaves the teardown waiting for a
-	 * completion that is no longer on its way. The teardown's cancel is the
-	 * only signal that covers it: a teardown between the phases of a run
-	 * leaves stop_ubertooth clear.
+	/* Who owns this transfer, and whether something is waiting for it
+	 * rather than for more packets. */
+	uint8_t state;
+	int wanted_back;
+	/* The libusb status that ended the stream, or 0 if it has not ended. */
+	int failed = 0;
+	int r;
+
+	/* Something is waiting for this transfer when a teardown has cancelled
+	 * it, or when the capture is stopping. Read before anything below
+	 * changes the state, because a cancelled transfer can come back as a
+	 * bulk timeout -- libusb reports that when the timeout expired before
+	 * the cancellation took effect -- and putting that one back in flight
+	 * leaves the teardown waiting for a completion that is no longer on its
+	 * way. The teardown's cancel is the only signal that covers it: a
+	 * teardown between the phases of a run leaves stop_ubertooth clear.
 	 *
 	 * The stop flags are read here rather than through
 	 * ubertooth_stopping(), which writes the handle: this runs on the poll
@@ -704,12 +837,10 @@ static void cb_xfer(struct libusb_transfer *xfer)
 	 * the standard promises either; only an atomic would be. It is what the
 	 * old code did too, and it holds on the processors this fork builds
 	 * for, where each flag is one load. */
-	int wanted_back = ut->rx_xfer_state == RX_XFER_CANCELLING
-	                  || stop_requested || timeout_expired
-	                  || ut->stop_ubertooth;
-	/* The libusb status that ended the stream, or 0 if it has not ended. */
-	int failed = 0;
-	int r;
+	rx_xfer_peek(ut, &state);
+	wanted_back = state == RX_XFER_CANCELLING
+	              || stop_requested || timeout_expired
+	              || ut->stop_ubertooth;
 
 	/* libusb hands the transfer back for the duration of this callback. The
 	 * state is cleared only by rx_xfer_release() below, so nothing can free
@@ -861,27 +992,33 @@ static void report_thread_failure(int error)
  * start instead. */
 static void ubertooth_bulk_stop(ubertooth_t* ut)
 {
+	struct libusb_transfer* xfer;
+	uint8_t state;
 	int i;
 
-	if (ut->rx_xfer == NULL)
+	xfer = rx_xfer_peek(ut, &state);
+	if (xfer == NULL)
 		return;
 
-	if (ut->rx_xfer_state == RX_XFER_IN_FLIGHT
-	    && libusb_cancel_transfer(ut->rx_xfer) == 0)
-		ut->rx_xfer_state = RX_XFER_CANCELLING;
+	if (state == RX_XFER_IN_FLIGHT && libusb_cancel_transfer(xfer) == 0)
+		rx_xfer_mark_cancelling(ut, xfer);
 
-	for (i = 0; i < XFER_CANCEL_WAITS && ut->rx_xfer != NULL
-	     && ut->rx_xfer_state != RX_XFER_OURS; i++) {
+	for (i = 0; i < XFER_CANCEL_WAITS; i++) {
 		struct timeval tv = { 0, XFER_CANCEL_WAIT_US };
 
+		if (rx_xfer_peek(ut, &state) == NULL || state == RX_XFER_OURS)
+			break;
+		/* Outside the lock: this is where the cancellation completes, so
+		 * it can run the callback on this very thread. */
 		if (libusb_handle_events_timeout(NULL, &tv) < 0)
 			break;
 	}
 
-	if (ut->rx_xfer == NULL || ut->rx_xfer_state != RX_XFER_OURS)
+	xfer = rx_xfer_peek(ut, &state);
+	if (xfer == NULL || state != RX_XFER_OURS)
 		return;
 
-	rx_xfer_release(ut, ut->rx_xfer);
+	rx_xfer_release(ut, xfer);
 }
 
 int ubertooth_bulk_init(ubertooth_t* ut)
@@ -894,7 +1031,7 @@ int ubertooth_bulk_init(ubertooth_t* ut)
 	 * dropped: overwriting the pointer leaked the transfer, and one that is
 	 * still in flight must not be replaced while libusb writes to it. */
 	ubertooth_bulk_stop(ut);
-	if (ut->rx_xfer != NULL) {
+	if (rx_xfer_peek(ut, NULL) != NULL) {
 		fprintf(stderr, "error: the previous receive transfer did not "
 		        "finish\n");
 		return -1;
@@ -932,24 +1069,26 @@ int ubertooth_bulk_init(ubertooth_t* ut)
 		fprintf(stderr, "warning: could not clear the receive endpoint "
 		        "(%d); the capture may start with packets from before\n", r);
 
-	ut->rx_xfer = libusb_alloc_transfer(0);
-	if (ut->rx_xfer == NULL) {
+	xfer = libusb_alloc_transfer(0);
+	if (xfer == NULL) {
 		fprintf(stderr, "error: allocating the receive transfer failed\n");
 		return -1;
 	}
-	ut->rx_xfer_state = RX_XFER_OURS;
-	libusb_fill_bulk_transfer(ut->rx_xfer, ut->devh, DATA_IN, (uint8_t*)fifo_get_write_element(ut->fifo), PKT_LEN, cb_xfer, ut, TIMEOUT);
+	libusb_fill_bulk_transfer(xfer, ut->devh, DATA_IN, (uint8_t*)fifo_get_write_element(ut->fifo), PKT_LEN, cb_xfer, ut, TIMEOUT);
+	/* On the handle before it is submitted: once libusb has it, its callback
+	 * can run on the poll thread and look this handle's transfer up. */
+	rx_xfer_store(ut, xfer, RX_XFER_OURS);
 
-	r = libusb_submit_transfer(ut->rx_xfer);
+	r = libusb_submit_transfer(xfer);
 	if (r < 0) {
 		fprintf(stderr, "error: submitting the receive transfer failed "
 		        "(%d)\n", r);
 		/* It was never in flight, so it is freed here; leaving it in place
 		 * would refuse the next ubertooth_bulk_init() on this handle. */
-		rx_xfer_release(ut, ut->rx_xfer);
+		rx_xfer_release(ut, xfer);
 		return -1;
 	}
-	ut->rx_xfer_state = RX_XFER_IN_FLIGHT;
+	rx_xfer_store(ut, xfer, RX_XFER_IN_FLIGHT);
 	return 0;
 }
 
@@ -1140,7 +1279,7 @@ int rx_afh(ubertooth_t* ut, btbb_piconet* pn, int timeout)
 		 * reason ubertooth_cleanup() gives: with no status for the lost
 		 * transfer, the board cannot be known to be there to answer. A
 		 * monitor phase on such a handle refuses to start anyway. */
-		if (ut->rx_xfer == NULL)
+		if (rx_xfer_peek(ut, NULL) == NULL)
 			cmd_stop(ut->devh);
 		/* The timer that ended the detection phase is forgotten so the
 		 * monitoring phase below can start at all. A stop the user asked
@@ -1331,7 +1470,7 @@ static void ubertooth_cleanup(ubertooth_t* ut, int send_stop)
 	 * Cancelling it and closing anyway, as this did, left the transfer
 	 * allocated for the rest of the process. */
 	ubertooth_bulk_stop(ut);
-	if (ut->rx_xfer != NULL) {
+	if (rx_xfer_peek(ut, NULL) != NULL) {
 		/* The transfer never came back, so libusb may still be holding this
 		 * device and this session. Closing them underneath it, or ending the
 		 * session, is worse than leaving both: a capture ends here, so the
@@ -1355,9 +1494,17 @@ static void ubertooth_cleanup(ubertooth_t* ut, int send_stop)
 		 *
 		 * The warning covers every one of those boards: it says this one
 		 * may still be capturing, and ubertooth(7) names ubertooth-util -S
-		 * for a board that is. */
-		fprintf(stderr, "warning: the receive transfer did not finish; the "
-		        "Ubertooth is left open and may still be capturing\n");
+		 * for a board that is.
+		 *
+		 * Said once per handle, because a handle left in this state is
+		 * closed again by a tool that cleans up on two paths, and the
+		 * board is in no worse a state the second time. */
+		if (!ut->xfer_lost_warned) {
+			ut->xfer_lost_warned = 1;
+			fprintf(stderr, "warning: the receive transfer did not finish; "
+			        "the Ubertooth is left open and may still be "
+			        "capturing\n");
+		}
 		/* The run is a failure all the same, so a caller can tell it from a
 		 * capture that finished: this one lost its stream, and left a board
 		 * that may still be sending. The message stays a warning because it
@@ -1377,7 +1524,16 @@ static void ubertooth_cleanup(ubertooth_t* ut, int send_stop)
 			libusb_close(ut->devh);
 			ut->devh = NULL;
 		}
-		libusb_exit(NULL);
+		/* Only the session this handle opened, and only once: this used to
+		 * run outside the check above, so closing a handle twice ended a
+		 * libusb session that was no longer this handle's, and a handle
+		 * that never opened one (a replay, which reads a file) ended a
+		 * session it had never started. That is why a tool had to guard
+		 * its close with a look at ut->devh. */
+		if (ut->usb_session_open) {
+			ut->usb_session_open = 0;
+			libusb_exit(NULL);
+		}
 	}
 
 	if (ut->h_pcap_bredr) {
@@ -1424,8 +1580,11 @@ void ubertooth_free(ubertooth_t* ut)
 	 * and reads into this ring buffer, so both outlive the run rather than
 	 * being freed under it. The teardown has already said the transfer did
 	 * not finish; a process ending here gives the memory back anyway. */
-	if (ut->rx_xfer != NULL)
+	if (rx_xfer_peek(ut, NULL) != NULL)
 		return;
+	/* The library's signal handlers let go of this handle before it is
+	 * freed, so a signal arriving next cannot reach freed memory. */
+	forget_registered_handle(ut);
 	free(ut->fifo);
 	free(ut);
 }
@@ -1478,10 +1637,13 @@ int ubertooth_connect(ubertooth_t* ut, int ubertooth_device)
 		fprintf(stderr, "error: libusb_init failed (got 1.0?)\n");
 		return -1;
 	}
+	/* The session this handle has to end again, whatever happens below. */
+	ut->usb_session_open = 1;
 
 	ut->devh = find_ubertooth_device(ubertooth_device);
 	if (ut->devh == NULL) {
 		fprintf(stderr, "could not open Ubertooth device\n");
+		note_dfu_bootloader();
 		ubertooth_stop(ut);
 		return -1;
 	}
@@ -1526,6 +1688,8 @@ int ubertooth_connect_serial(ubertooth_t* ut, char* serial_number)
 		fprintf(stderr, "error: libusb_init failed (got 1.0?)\n");
 		return -1;
 	}
+	/* as in ubertooth_connect() */
+	ut->usb_session_open = 1;
 
 	ut->devh = find_ubertooth_device_serial(serial_number, matched);
 	if (ut->devh == NULL) {
@@ -1688,6 +1852,7 @@ ubertooth_t* ubertooth_start_select_quiet(const char* u_arg)
 		return NULL;
 	}
 	ut->devh = devh;
+	ut->usb_session_open = 1;
 	/* As in ubertooth_start_select(): a reset wait reopens the board the
 	 * user named, and a message about it afterwards still names it. */
 	if (kind == SELECTOR_INDEX || kind == SELECTOR_SERIAL)

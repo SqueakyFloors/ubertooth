@@ -59,7 +59,7 @@ int main(int argc, char *argv[])
 	const char* dump_name = NULL; /* -d value, opened after every check */
 
 	ubertooth_t* ut = NULL;
-	int r;
+	int r, status;
 
 	/* The tool reports a bad option itself, in the usual one-line form:
 	 * see opt_report_bad_option(). The leading ':' makes a missing option
@@ -125,13 +125,12 @@ int main(int argc, char *argv[])
 
 	r = ubertooth_check_api(ut);
 	if (r < 0) {
-		/* As in ubertooth-tx: a refused version was already stopped and
-		 * closed inside ubertooth_check_api(), a version that could not
-		 * be read was not, and closing twice would exit libusb twice.
+		/* A refused version was released inside ubertooth_check_api(); one
+		 * it could not read at all leaves the board open. Closing covers
+		 * both, because closing a board already released does nothing.
 		 * The dump file is left to process exit, as on every other exit
 		 * of this tool: libubertooth owns that global, not the tool. */
-		if (ut->devh != NULL)
-			ubertooth_close(ut);
+		ubertooth_close(ut);
 		ubertooth_free(ut);
 		return 1;
 	}
@@ -148,5 +147,7 @@ int main(int argc, char *argv[])
 	r = rx_dump(ut, bitstream);
 
 	ubertooth_stop(ut);
-	return (r < 0 || ubertooth_stream_failed(ut)) ? 1 : 0;
+	status = (r < 0 || ubertooth_stream_failed(ut)) ? 1 : 0;
+	ubertooth_free(ut);
+	return status;
 }

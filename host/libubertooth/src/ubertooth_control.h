@@ -55,6 +55,18 @@
 #define TC13_VENDORID  0xffff
 #define TC13_PRODUCTID 0x0004
 
+/* What an Ubertooth One enumerates as while it sits in the DFU bootloader,
+ * which is where a flash puts it. Device selection needs these so that a
+ * board being flashed is not reported as a board that went away.
+ *
+ * ubertooth-tools/src/dfu.h spells them out again for the DFU tool, which
+ * must compile without libusb and so cannot include this header. Both copies
+ * reach ubertooth-dfu.c, which includes both headers, so changing one and not
+ * the other is a macro redefined with a different value: the compiler says
+ * so, and the two cannot drift apart in silence. */
+#define U1_DFU_VENDORID  0x1d50
+#define U1_DFU_PRODUCTID 0x6003
+
 #define DATA_IN     (0x82 | LIBUSB_ENDPOINT_IN)
 #define DATA_OUT    (0x05 | LIBUSB_ENDPOINT_OUT)
 #define TIMEOUT     20000

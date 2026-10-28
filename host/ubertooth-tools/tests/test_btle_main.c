@@ -36,6 +36,8 @@ static struct {
 	int interrupt_the_capture; /* cmd_poll() raises SIGINT instead of
 	                            * writing the handle */
 	int stops;
+	int closes;       /* ubertooth_close() calls */
+	int frees;        /* ubertooth_free() calls */
 	int connects;        /* a refused command line must open no device */
 	int sniffing_calls;
 	int promisc_calls;
@@ -177,6 +179,18 @@ void ubertooth_stop(ubertooth_t *ut)
 {
 	(void)ut;
 	fake.stops++;
+}
+
+void ubertooth_close(ubertooth_t *ut)
+{
+	(void)ut;
+	fake.closes++;
+}
+
+void ubertooth_free(ubertooth_t *ut)
+{
+	(void)ut;
+	fake.frees++;
 }
 
 int cmd_set_crc_verify(struct libusb_device_handle *devh, int verify)
@@ -1019,9 +1033,39 @@ MU_TEST(the_jam_aliases_select_the_same_mode_as_interfere)
 	mu_assert_int_eq(JAM_CONTINUOUS, fake.last_jam_mode);
 }
 
+/* The handle and its 72 MB fifo go back on every exit once it exists. They
+ * were left to process exit, and were allocated before the command line had
+ * been read, so even a refused command took 72 MB. */
+MU_TEST(every_exit_path_gives_the_handle_back)
+{
+	struct run_result r;
+
+	reset_fake();
+	r = RUN("-v");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, fake.frees);
+
+	reset_fake();
+	r = RUN("-n");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, fake.frees);
+
+	/* A refused command line never allocates one. */
+	reset_fake();
+	r = RUN("-h");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0, fake.frees);
+
+	reset_fake();
+	r = RUN("-Z");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, fake.frees);
+}
+
 int main(void)
 {
 	MU_RUN(a_set_and_a_read_of_crc_verify_both_run_set_first);
+	MU_RUN(every_exit_path_gives_the_handle_back);
 	MU_RUN(a_set_alone_and_a_read_alone_are_unchanged);
 	MU_RUN(a_failed_set_is_reported_and_the_read_does_not_run);
 	MU_RUN(a_failed_read_is_reported_once);

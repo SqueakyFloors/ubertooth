@@ -65,6 +65,20 @@ static void usage(FILE *file)
 	fputs(OPT_USAGE_SELECT_DEVICE, file);
 }
 
+/* err(3) ends the process, so the handle it leaves behind costs nothing -- but
+ * a capture file already created on that handle is not written out. Close and
+ * free it first, keeping the errno err() is about to report, which free() is
+ * allowed to change. libbtbb leaves the handle it could not create NULL, so
+ * only files that were created are closed. */
+static void release_before_err(ubertooth_t* ut)
+{
+	int failure = errno;
+
+	ubertooth_close(ut);
+	ubertooth_free(ut);
+	errno = failure;
+}
+
 /* Names the request the board refused, says why and what to try, and gives the
  * board back rather than capturing with settings the user did not ask for.
  * Closed without a STOP: no mode has started yet, so there is nothing to stop,
@@ -76,6 +90,7 @@ static int request_failed(ubertooth_t* ut, const char* what, int code)
 {
 	report_refused_request(what, code);
 	ubertooth_close(ut);
+	ubertooth_free(ut);
 	return 1;
 }
 
@@ -95,6 +110,7 @@ static int capture_failed(ubertooth_t* ut, const char* what, int code)
 	report_refused_request(what, code);
 	ubertooth_bulk_thread_stop();
 	ubertooth_stop(ut);
+	ubertooth_free(ut);
 	return 1;
 }
 
@@ -123,9 +139,10 @@ int main(int argc, char* argv[])
 	 * whole band": the default when no -c names a fixed channel. */
 	uint16_t channel = 9999;
 
-	ubertooth_t* ut = ubertooth_init();
-	if (ut == NULL)
-		return 1;
+	/* Allocated once the whole command line has been accepted (below):
+	 * every refusal above returns without a board, and the handle carries a
+	 * 72 MB fifo. */
+	ubertooth_t* ut = NULL;
 
 	/* The tool reports a bad option itself, in the usual one-line form:
 	 * see opt_report_bad_option(). The leading ':' makes a missing option
@@ -246,8 +263,14 @@ int main(int argc, char* argv[])
 		return 1;
 	}
 
-	/* Every check has passed, so the files can be opened: a refused command
-	 * line creates and truncates nothing. */
+	/* Every check has passed, so the handle and its 72 MB fifo can be
+	 * allocated: the capture files below are kept on it. */
+	ut = ubertooth_init();
+	if (ut == NULL)
+		return 1;
+
+	/* And the files can be opened: a refused command line creates and
+	 * truncates nothing. */
 	if (infile_name != NULL) {
 		infile = fopen(infile_name, "r");
 		if (infile == NULL) {
@@ -256,15 +279,18 @@ int main(int argc, char* argv[])
 			 * shape as the other file-open failures. */
 			fprintf(stderr, "error: %s: %s\n",
 			        infile_name, strerror(errno));
+			ubertooth_free(ut);
 			return 1;
 		}
 	}
 	if (pcapng_name != NULL &&
 	    btbb_pcapng_create_file(pcapng_name, "Ubertooth", &ut->h_pcapng_bredr)) {
+		release_before_err(ut);
 		err(1, "create_bredr_capture_file: ");
 	}
 	if (pcap_name != NULL &&
 	    btbb_pcap_create_file(pcap_name, &ut->h_pcap_bredr)) {
+		release_before_err(ut);
 		err(1, "btbb_pcap_create_file: ");
 	}
 	if (dump_name != NULL) {
@@ -272,6 +298,12 @@ int main(int argc, char* argv[])
 		if (dumpfile == NULL) {
 			fprintf(stderr, "error: %s: %s\n",
 			        dump_name, strerror(errno));
+			/* The capture files are on the handle, so the close is
+			 * what gets them written out and shut; it opened no
+			 * board yet, and does nothing on a handle that has
+			 * none. */
+			ubertooth_close(ut);
+			ubertooth_free(ut);
 			return 1;
 		}
 	}
@@ -279,18 +311,23 @@ int main(int argc, char* argv[])
 	if (infile == NULL) {
 		r = ubertooth_connect_select(ut, ubertooth_device);
 		if (r < 0) {
+			/* The library has closed whatever it opened; this is
+			 * what shuts the capture files on the handle. */
+			ubertooth_close(ut);
+			ubertooth_free(ut);
 			return 1;
 		}
 
 		r = ubertooth_check_api(ut);
 		if (r < 0) {
-			/* A version mismatch has already released the board, and
-			 * releasing it twice is not safe; a version the library
-			 * could not read at all leaves it open, so it is closed
-			 * here, without a STOP for a firmware this host will
-			 * not drive. */
-			if (ut->devh != NULL)
-				ubertooth_close(ut);
+			/* A refused version was released inside
+			 * ubertooth_check_api(); one it could not read at all
+			 * leaves the board open. Closing covers both, because
+			 * closing a board already released does nothing, and it
+			 * sends no STOP to a firmware this host will not
+			 * drive. */
+			ubertooth_close(ut);
+			ubertooth_free(ut);
 			return 1;
 		}
 	}
@@ -302,12 +339,12 @@ int main(int argc, char* argv[])
 	 * 247), so a script could not tell a failure from anything else. */
 	r = btbb_init(max_ac_errors);
 	if (r < 0) {
-		/* A replay opened no board; a capture has one open and in
-		 * whatever mode an earlier command left it, so it is given back
-		 * here rather than left claimed, as ubertooth-scan does on the
-		 * same failure. */
-		if (ut->devh != NULL)
-			ubertooth_stop(ut);
+		/* A capture has a board open, in whatever mode an earlier
+		 * command left it, so it is given back here rather than left
+		 * claimed, as ubertooth-scan does on the same failure. A replay
+		 * opened none, and the stop then does nothing. */
+		ubertooth_stop(ut);
+		ubertooth_free(ut);
 		return 1;
 	}
 
@@ -356,6 +393,7 @@ int main(int argc, char* argv[])
 			 * whatever mode an earlier command left it. libubertooth has
 			 * already said what failed, so the status is all this adds. */
 			ubertooth_stop(ut);
+			ubertooth_free(ut);
 			return 1;
 		}
 
@@ -369,6 +407,7 @@ int main(int argc, char* argv[])
 			/* The receive transfer is in flight and the board is about to
 			 * be left in its mode: give both back before returning. */
 			ubertooth_stop(ut);
+			ubertooth_free(ut);
 			return 1;
 		}
 
@@ -453,6 +492,10 @@ int main(int argc, char* argv[])
 	}
 	if(dumpfile != NULL)
 		fclose(dumpfile);
+	/* The capture files the handle holds, for a replay as for a capture:
+	 * the close does nothing to a handle that opened no board. */
+	ubertooth_close(ut);
+	ubertooth_free(ut);
 
 	return exit_status;
 }
