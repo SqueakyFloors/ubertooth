@@ -501,8 +501,10 @@ jobs:
       #
       # The list comes from git rather than two fixed patterns, so a script
       # added in a new directory is linted without anyone remembering to widen
-      # a glob here. An empty list fails the step, as it should: it would mean
-      # the pathspec had stopped matching.
+      # a glob here. It is every tracked `*.sh`, which is every shell script
+      # the tree has; one named some other way, or with no extension, would
+      # still need adding. An empty list fails the step, as it should: it
+      # would mean the pathspec had stopped matching.
       if: runner.os == 'Linux'
       timeout-minutes: 6
       run: |
@@ -516,7 +518,7 @@ jobs:
             "apt-get $apt_opts update && apt-get $apt_opts install -y -d shellcheck"
           sudo apt-get install -y shellcheck
         fi
-        git ls-files '*.sh' | xargs shellcheck
+        git ls-files -z '*.sh' | xargs -0 shellcheck
 
     - name: Check that retry.sh bounds, retries and reports
       # Not inline here, unlike the issue-reference check below, because the
