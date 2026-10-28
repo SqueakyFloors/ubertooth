@@ -403,9 +403,9 @@ MU_TEST(the_first_packet_on_a_channel_reports_its_own_signal)
 	/* Raw -40 is -91 dBm. The table used to start zeroed except for its
 	 * very first entry, and the level is the largest of a channel's ten,
 	 * so raw 0 - about -55 dBm - won for the first ten packets on every
-	 * channel. The signal-to-noise ratio that decides whether a packet is
-	 * dropped, and the signal field of the record written to a capture
-	 * file, were out by the same 36 dB. */
+	 * channel. The signal field of the record written to a capture file,
+	 * and the signal-to-noise ratio printed beside it, were out by the
+	 * same 36 dB. */
 	fill_packet(&rx, 40000, 0, 0);
 	determine_signal_and_noise(&rx, &sig, &noise);
 	mu_assert_int_eq(-91, sig);

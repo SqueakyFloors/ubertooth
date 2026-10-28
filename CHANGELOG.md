@@ -387,10 +387,14 @@
   Each now waits for the radio to have the start of the packet.
   [#686](https://github.com/SqueakyFloors/ubertooth/issues/686)
 - A Classic packet longer than one 400 µs bank is reported as what was
-  captured. `ubertooth-rx` told the decoder it had 4000 symbols where 400 had
+  captured, and a piconet follow runs to the end instead of dying partway.
+  `ubertooth-rx` told the decoder it had 4000 symbols where 400 had
   arrived, so a DH5's payload and its CRC verdict were decoded out of about
   2700 bytes of zeros, on screen and in the payload written to a capture file,
-  with nothing marking it as incomplete. Its search for an access code stops
+  with nothing marking it as incomplete. Reading past the symbols also walked
+  off the end of the buffer they sit in: `ubertooth-rx -l` aborted with
+  `double free or corruption` on about the thirty-sixth packet of a piconet,
+  live or replayed from a capture. Its search for an access code stops
   64 symbols short of the end of the captured symbols as well, as the other
   capture paths already did, so a capture run at a high `-e` reports somewhat
   fewer packets: the positions that are gone could only ever have matched the
