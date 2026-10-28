@@ -38,7 +38,8 @@ $(BINDIR)/test_rssi: test_rssi.c minunit.h $(FW_RXTX)/ubertooth_rssi.c $(FW_RXTX
 	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ test_rssi.c $(FW_RXTX)/ubertooth_rssi.c
 
 # bluetooth.h includes "ubertooth.h"; stubs/ supplies a hardware-free one.
-$(BINDIR)/test_bluetooth_hop: test_bluetooth_hop.c minunit.h stubs/ubertooth.h \
+$(BINDIR)/test_bluetooth_hop: test_bluetooth_hop.c minunit.h spec_hop_vectors.h \
+		stubs/ubertooth.h \
 		$(FW_RXTX)/bluetooth.c $(FW_RXTX)/bluetooth.h | $(BINDIR)
 	$(CC) $(CFLAGS) -Istubs $(CPPFLAGS) -o $@ test_bluetooth_hop.c $(FW_RXTX)/bluetooth.c
 
@@ -239,7 +240,8 @@ $(BINDIR)/test_write_registers_bounds: test_write_registers_bounds.c minunit.h \
 # stubs-btbr/ supplies a hardware-free stand-in. -Istubs-btbr comes first so
 # it wins. perm5.c is the pre-computed PERM5 table and nothing else, so it
 # links as is; the test supplies the btphy state.
-$(BINDIR)/test_btbr_hop: test_btbr_hop.c minunit.h stubs-btbr/ubtbr/debug.h \
+$(BINDIR)/test_btbr_hop: test_btbr_hop.c minunit.h spec_hop_vectors.h \
+		stubs-btbr/ubtbr/debug.h \
 		$(FW_BTBR)/src/btphy/hop.c $(FW_BTBR)/src/codec/perm5.c \
 		$(FW_BTBR)/include/ubtbr/hop.h $(FW_BTBR)/include/ubtbr/btphy.h \
 		| $(BINDIR)
