@@ -67,7 +67,9 @@
   piped, because its writer seeks back over what it has written, so
   `ubertooth-rx -r -` and `ubertooth-follow -r -` are refused with
   `error: PCAPNG capture to stdout is not supported; use -q -` instead of
-  writing a file called `-` and capturing into it.
+  writing a file called `-` and capturing into it. `ubertooth-dfu -u -` is
+  refused for the same reason, since the read-back is written through a
+  temporary file and rewound if the read has to be retried.
   [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
 - **Script-visible change:** `ubertooth-util -U <index|serial> -N` and
   `-U all -N` are refused: `-N` counts the boards on the USB bus and asks

@@ -288,7 +288,8 @@ one stream, so `-q -` and `-d -` in one command are refused:
 for a pipe into another program. Either way the capture owns standard output
 for the whole run, so the per-packet report the tool normally prints there is
 not printed at all: the capture is the only thing on that stream. Notes,
-warnings and failures are on standard error and still arrive.
+warnings and failures are on standard error and still arrive, and so do the
+survey results of `-z`, which is what that mode was asked for.
 
 Binary on a terminal is a mistake rather than a stream anyone reads, so it is
 refused: `error: stdout is a tty, refusing to write binary capture data to

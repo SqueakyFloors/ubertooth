@@ -1565,6 +1565,16 @@ int main(int argc, char **argv) {
 			functions |= FUNC_DOWNLOAD;
 			break;
 		case 'u':
+			/* The read-back is written through a temporary file that is
+			 * renamed over the name given, and a retry rewinds it to block
+			 * zero: neither is possible on a pipe, so a lone "-" is refused
+			 * here rather than taken as the file name "-". */
+			if (strcmp(optarg, "-") == 0) {
+				fputs("error: -u cannot write the read-back to stdout; "
+				      "give a file name\n", stderr);
+				exit_status = 1;
+				goto end_without_device;
+			}
 			upfile_name = optarg;
 			functions |= FUNC_UPLOAD;
 			break;

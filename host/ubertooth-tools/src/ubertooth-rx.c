@@ -132,6 +132,12 @@ int main(int argc, char* argv[])
 	 * 72 MB fifo. */
 	ubertooth_t* ut = NULL;
 
+	/* Where the survey results go: standard output, unless a capture on "-"
+	 * has taken it, in which case they would go to /dev/null with the rest
+	 * of this process's standard output. The survey is what -z was asked
+	 * for, so it is printed on standard error rather than lost. */
+	FILE* report_stream = stdout;
+
 	/* The tool reports a bad option itself, in the usual one-line form:
 	 * see opt_report_bad_option(). The leading ':' makes a missing option
 	 * value distinguishable from an option getopt does not know. */
@@ -309,8 +315,12 @@ int main(int argc, char* argv[])
 			return 1;
 		}
 		failed = btbb_pcap_create_file(file, &ut->h_pcap_bredr);
-		if (saved_fd >= 0)
+		if (saved_fd >= 0) {
+			/* The capture has standard output, which is /dev/null for
+			 * this process from here on. */
+			report_stream = stderr;
 			close(saved_fd);
+		}
 		free(file);
 		if (failed) {
 			/* The name the user gave, not the /dev/fd path a lone
@@ -323,6 +333,8 @@ int main(int argc, char* argv[])
 	}
 	if (dump_name != NULL) {
 		dumpfile = opt_open_dump_file(dump_name, "dump data");
+		if (dumpfile != NULL && strcmp(dump_name, "-") == 0)
+			report_stream = stderr;
 		if (dumpfile == NULL) {
 			/* The capture files are on the handle, so the close is
 			 * what gets them written out and shut; it opened no
@@ -502,17 +514,17 @@ int main(int argc, char* argv[])
 	}
 
 	if(survey_mode) {
-		printf("Survey Results\n");
+		fprintf(report_stream, "Survey Results\n");
 		while((pn=btbb_next_survey_result()) != NULL) {
 			lap = btbb_piconet_get_lap(pn);
 			if (btbb_piconet_get_flag(pn, BTBB_UAP_VALID)) {
 				uap = btbb_piconet_get_uap(pn);
 				/* Printable version showing that the NAP is unknown */
-				printf("??:??:%02X:%02X:%02X:%02X\n", uap,
+				fprintf(report_stream, "??:??:%02X:%02X:%02X:%02X\n", uap,
 						(lap >> 16) & 0xFF, (lap >> 8) & 0xFF, lap & 0xFF);
 			} else
-				printf("??:??:??:%02X:%02X:%02X\n", (lap >> 16) & 0xFF,
-					   (lap >> 8) & 0xFF, lap & 0xFF);
+				fprintf(report_stream, "??:??:??:%02X:%02X:%02X\n",
+					   (lap >> 16) & 0xFF, (lap >> 8) & 0xFF, lap & 0xFF);
 			//btbb_print_afh_map(pn);
 		}
 	}

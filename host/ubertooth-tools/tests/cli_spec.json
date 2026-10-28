@@ -275,6 +275,7 @@
         "-d": {"value": "required", "role": "work", "valid": ["IMAGE.dfu"],
                "doc": "write an image; the whole image is checked before a device is opened, so a file that is not a DFU image is refused there, as is a signed file with no firmware info block at the fixed offset"},
         "-u": {"value": "required", "role": "work", "valid": ["OUT.bin"],
+               "stdout_value": false,
                "doc": "read the application flash region back"},
         "-s": {"value": "required", "role": "work", "valid": ["PLAIN.bin"],
                "doc": "add a DFU suffix to a binary; a local operation that opens no device"},
@@ -294,6 +295,9 @@
         {"args": ["-r"], "verdict": "device",
          "error_contains": "error: unable to open selected application device",
          "source": "ubertooth-dfu.md DIAGNOSTICS: a command line this tool took still fails on a board it cannot open, and the failure it reports itself is one 'error: ' line"},
+        {"args": ["-u", "-"], "verdict": "refused",
+         "error": "error: -u cannot write the read-back to stdout; give a file name",
+         "source": "ubertooth-dfu.md OPTIONS, -u: the dump is written through a temporary file and rewound if the read is retried, and a pipe allows neither"},
         {"args": ["-u", "OUT.bin"], "verdict": "device",
          "error_contains": "error: unable to open selected application device",
          "source": "ubertooth-dfu.md DIAGNOSTICS: as for -r; the read-back reaches the same failure, and standard output stays empty"}

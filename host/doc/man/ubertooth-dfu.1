@@ -105,7 +105,7 @@ Major modes:
 Download \- write DFU file to device
 .TP
 \fB\-u <output\.bin>\fR
-Upload \- read the application flash region, as much of it as the part has, into a raw file (see \fIREADING FLASH BACK\fR)
+Upload \- read the application flash region, as much of it as the part has, into a raw file (see \fIREADING FLASH BACK\fR)\. A lone \fB\-\fR is refused (\fBerror: \-u cannot write the read\-back to stdout; give a file name\fR): the dump is written through a temporary file and rewound if the read has to be retried, and a pipe allows neither
 .TP
 \fB\-r\fR
 Reset device after performing operation
