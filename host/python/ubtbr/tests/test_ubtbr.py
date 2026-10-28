@@ -226,7 +226,7 @@ sys.path.insert(0, MODULE_DIR)
 sys.path.insert(0, WORK.name)
 import usb1
 assert os.path.dirname(usb1.__file__) == WORK.name, usb1.__file__
-from ubtbr import btctl
+from ubtbr import btctl, lmp
 
 
 def request_packet(code):
@@ -448,6 +448,19 @@ assert not command.is_alive(), "a command that could not start must end"
 assert failed.getvalue() == ("error: BTCtlInquiryCmd stopped: "
                              "USBErrorTimeout: timeout\n"), \
     repr(failed.getvalue())
+assert said.getvalue() == "", said.getvalue()
+
+# and the LMP decoder's one warning, which reaches warn() through an import
+# inside the function: btctl imports lmp, so lmp cannot import it back at
+# module scope, and a test is what catches that import going wrong.
+link_manager = lmp.LMPMaster(None)
+unknown, said = io.StringIO(), io.StringIO()
+with contextlib.redirect_stderr(unknown), contextlib.redirect_stdout(said):
+    # Opcode 0, which no state handles.
+    assert link_manager.receive(0, b"\x00") is False
+assert unknown.getvalue() == \
+    "warning: LMP opcode 0x0 is not handled in state 1\n", \
+    repr(unknown.getvalue())
 assert said.getvalue() == "", said.getvalue()
 print("ubtbr: a warning and a failure are each one line on standard error")
 

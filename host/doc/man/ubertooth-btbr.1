@@ -138,7 +138,16 @@ An option value outside 0\-65535, or one that is not a number, is refused before
 .P
 Every other command line the tool will not take is one \fBerror:\fR line on standard error with no usage text, and exit 1: \fBerror: unrecognized option '\-Z'\fR, \fBerror: option '\-f' requires a value\fR, \fBerror: unexpected argument '<word>'\fR, and \fBerror: give \-U once\fR for an option given twice\.
 .P
-During a session, a board that stops answering is reported and the running command ends rather than waiting: \fBwarning: BTCtlInquiryCmd: the device did not go idle, stopping anyway\fR when a stop went unanswered, and \fBerror: BTCtlInquiryCmd stopped: USBErrorTimeout: timeout\fR when a request failed\. The prompt stays up in both cases, and a command that will not stop at all leaves the board claimed, which is reported on the way out (see EXIT STATUS)\.
+During a session, a board that stops answering is reported and the running command ends rather than waiting\. A board that left the bus mid\-command gives
+.IP "" 4
+.nf
+error: the receive thread stopped: USBErrorPipe: LIBUSB_ERROR_PIPE [\-9]
+warning: could not ask the device to go idle: LIBUSB_ERROR_NO_DEVICE [\-4]
+warning: BTCtlInquiryCmd: the device did not go idle, stopping anyway
+.fi
+.IP "" 0
+.P
+and a request that failed some other way gives \fBerror: <command> stopped: <type>: \|\.\|\.\|\.\fR\. The prompt stays up in every case, and a command that will not stop at all leaves the board claimed, which is reported on the way out (see EXIT STATUS)\.
 .P
 With no Ubertooth attached the tool says \fBerror: no Ubertooth devices found\fR and exits 1\. A selection that names no board, or more than one, is refused the same way; see SELECTING A DEVICE\. A board that cannot be opened is \fBerror: could not open Ubertooth <serial>: <reason>\fR, with a \fBnote:\fR about file permissions when the open was refused for want of them\. A board that takes none of the requests the session opens with gets \fBerror: could not set up Ubertooth <serial>: \|\.\|\.\|\.\fR and, when the request timed out, a \fBnote:\fR naming \fBbluetooth_rxtx\fR and the image to flash: that is nearly always what such a board is carrying, though a board already carrying \fBbtbr\fR that stopped answering times out the same way\. See FIRMWARE\.
 .SH "EXIT STATUS"

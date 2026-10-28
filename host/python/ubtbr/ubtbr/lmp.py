@@ -1,6 +1,5 @@
 from time import time
 import logging
-import sys
 from binascii import unhexlify, hexlify
 from struct import pack, unpack
 log = logging.getLogger("btctl")
@@ -255,13 +254,13 @@ class LMP:
 		fsm = self._FSM[self._state]
 		reg = fsm.get(op)
 		if reg is None:
-			# One line on standard error, as the rest of the tree reports
-			# its warnings. Written out here rather than through btctl's
-			# warn(): btctl imports this module, so this module cannot
-			# import it back.
-			sys.stderr.write("warning: LMP opcode 0x%x is not handled "
-				"in state %d\n"%(op, self._state))
-			sys.stderr.flush()
+			# Imported here rather than at the top of the file: btctl
+			# imports this module, so importing it back at module scope
+			# would be a cycle. Going through its warn() anyway keeps one
+			# spelling of a `warning: ` line in the package.
+			from ubtbr.btctl import warn
+			warn("LMP opcode 0x%x is not handled in state %d"
+				%(op, self._state))
 			return False
 		else:
 			handler = reg[0]

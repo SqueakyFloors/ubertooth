@@ -195,11 +195,16 @@ standard error with no usage text, and exit 1: `error: unrecognized option
 '<word>'`, and `error: give -U once` for an option given twice.
 
 During a session, a board that stops answering is reported and the running
-command ends rather than waiting: `warning: BTCtlInquiryCmd: the device did
-not go idle, stopping anyway` when a stop went unanswered, and `error:
-BTCtlInquiryCmd stopped: USBErrorTimeout: timeout` when a request failed. The
-prompt stays up in both cases, and a command that will not stop at all leaves
-the board claimed, which is reported on the way out (see EXIT STATUS).
+command ends rather than waiting. A board that left the bus mid-command gives
+
+    error: the receive thread stopped: USBErrorPipe: LIBUSB_ERROR_PIPE [-9]
+    warning: could not ask the device to go idle: LIBUSB_ERROR_NO_DEVICE [-4]
+    warning: BTCtlInquiryCmd: the device did not go idle, stopping anyway
+
+and a request that failed some other way gives `error: <command> stopped:
+<type>: ...`. The prompt stays up in every case, and a command that will not
+stop at all leaves the board claimed, which is reported on the way out (see
+EXIT STATUS).
 
 With no Ubertooth attached the tool says `error: no Ubertooth devices found`
 and exits 1. A selection that names no board, or more than one, is refused
