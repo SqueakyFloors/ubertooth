@@ -41,7 +41,7 @@ A second Ubertooth One for the range test (2i).
 
 ### 2a. Firmware version check
 - [ ] Run `ubertooth-util -v`
-- [ ] Confirm: returns `Firmware version: <image> <revision> (API:1.43)` (firmware
+- [ ] Confirm: returns `Firmware version: <image> <revision> (API:1.44)` (firmware
       built from this tree; a release build of the host tools refuses any other
       API version and a development build warns about it, and a board whose
       firmware has no info block shows the revision without an image name)
@@ -281,10 +281,6 @@ the same revision. The exchange completes within a couple of seconds.*
 - [ ] Swap the two roles — `-e` on the board that was the sender, `-n` on the
       other — and confirm the first two results again, so each board is seen
       transmitting
-
-*The range test itself is flaky run to run on some boards: about one run in
-five reports `mismatch on byte 0`, or does not finish. That is issue #686, not
-a fault in the tools. Repeat a run that ends that way.*
 
 ### 2j. Flashing with the bootloader entry pin still bridged (issue #304)
 

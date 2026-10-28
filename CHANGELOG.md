@@ -205,10 +205,10 @@
   those tools still cannot drive that image and now fail on the first request
   it does not answer.
   [#556](https://github.com/SqueakyFloors/ubertooth/issues/556)
-- **Reflash required:** the firmware API version is now 1.43, last moved by the
-  radio's FIFO transfers running with interrupts masked and a generic transmit
-  packet going into the FIFO a piece at a time, and the host tools require
-  firmware of exactly their own API version, older or newer. Host and firmware
+- **Reflash required:** the firmware API version is now 1.44, last moved by the
+  range test waiting for the radio to have a packet before it reads one, and a
+  release build of the host tools refuses firmware of any other API version,
+  older or newer, while a development build warns about it. Host and firmware
   come from the same tree: `ubertooth-dfu` reflashes a board whatever firmware
   it is running, but only with an image built from this tree, and `2020-12-R1`
   firmware is refused.
@@ -233,6 +233,7 @@
   [#660](https://github.com/SqueakyFloors/ubertooth/issues/660)
   [#395](https://github.com/SqueakyFloors/ubertooth/issues/395)
   [#429](https://github.com/SqueakyFloors/ubertooth/issues/429)
+  [#686](https://github.com/SqueakyFloors/ubertooth/issues/686)
 - Every firmware image now carries a block naming the image and the revision
   it was built from, read the same way off a board and out of a file.
   `ubertooth-dfu -d` says which image a file holds before it writes it
@@ -378,6 +379,13 @@
   empty its transmit buffer had no end, and that wait sits in the loop that
   services USB, so a radio that stopped draining left the board answering
   nothing until it was unplugged and plugged back in.
+- The two-board range test reports a result every run, instead of
+  `invalid range test: mismatch on byte 0` every five to ten runs. Both boards
+  started reading a packet out of the radio the moment it reported the sync
+  word, which is before the radio has written the first byte, so byte 0 came
+  back wrong -- and only byte 0, because the read trails the air from there on.
+  Each now waits for the radio to have the start of the packet.
+  [#686](https://github.com/SqueakyFloors/ubertooth/issues/686)
 - A spectrum analyzer run measures through the radio front end a freshly
   booted board has, whichever mode ran before it. `ubertooth-specan` and
   `ubertooth-util -q` do not set the radio's manual signal overrides
