@@ -154,7 +154,7 @@ Which advertising channel to use in follow mode (default: 37)
 Get (\fB\-a\fR) or set (\fB\-a <address>\fR) the access address used in promiscuous mode\. The address is 1 to 8 hex digits (\fB\-a 8e89bed6\fR); fewer than 8 means leading zeros (\fB\-a 12345\fR sets \fB00012345\fR)\. Anything else is refused before the device is opened\. Getting and setting in one command is refused; other options such as \fB\-v\fR still run after a get\. \fB\-a\fR does not go with a sniffing mode (\fB\-f\fR, \fB\-n\fR, \fB\-p\fR), which runs until it is interrupted; the combination is refused before any device is opened\.
 .TP
 \fB\-v [01]\fR
-Read (\fB\-v\fR) or set (\fB\-v 0\fR or \fB\-v 1\fR) CRC verification (default: 0)\. Any other value is refused\. A set and a read in one command both happen, the set first, so the read reports the new value, in whichever order they are written; two sets keep the last one\. In a sniffing mode both run once the mode has started, because entering a mode clears the setting, and the firmware then turns verification on and off itself as it recovers a connection\.
+Read (\fB\-v\fR) or set (\fB\-v 0\fR or \fB\-v 1\fR) CRC verification (default: 0)\. Any other value is refused\. A set and a read in one command both happen, the set first, so the read reports the new value, in whichever order they are written; two sets are refused, as two values for one setting are everywhere (ubertooth(7), OPTION VALUES)\. In a sniffing mode both run once the mode has started, because entering a mode clears the setting, and the firmware then turns verification on and off itself as it recovers a connection\.
 .TP
 \fB\-x <0\-32>\fR
 Allow n access address violations (default: 32)\. Filtering occurs on host\.
@@ -189,7 +189,9 @@ An option combination the tool cannot carry out is refused there too, before any
 .P
 \fB\-i\fR or \fB\-I\fR without \fB\-f\fR or \fB\-p\fR gives \fBerror: \-i needs \-f or \-p: there is no connection to interfere with otherwise\fR, naming the spelling that was used (\fB\-j\fR and \fB\-J\fR included)\.
 .P
-A command line with no work in it is refused the same way\. \fB\-U\fR, \fB\-A\fR, \fB\-x\fR, \fB\-i\fR/\fB\-I\fR (and their older spellings \fB\-j\fR/\fB\-J\fR) and the capture options only shape work another option asks for, so a command made up of those alone, or a bare \fBubertooth\-btle\fR, gives \fBerror: nothing to do: choose a major mode (\-f, \-n or \-p), or \-a, \-v, \-s or \-t\fR, on standard error with nothing on standard output\. A bare \fBubertooth\-btle\fR is the one refusal the usage text follows, also on standard error; every other refused command line is the \fBerror:\fR line alone, and \fB\-h\fR prints the usage text on standard output\.
+That includes \fB\-i\fR on its own: it says more than listing every major mode would, because only two of them can carry interference\.
+.P
+A command line with no work in it is refused the same way\. \fB\-U\fR, \fB\-A\fR, \fB\-x\fR and the capture options only shape work another option asks for, so a command made up of those alone, or a bare \fBubertooth\-btle\fR, gives \fBerror: nothing to do: choose a major mode (\-f, \-n or \-p), or \-a, \-v, \-s or \-t\fR, on standard error with nothing on standard output\. A bare \fBubertooth\-btle\fR is the one refusal the usage text follows, also on standard error; every other refused command line is the \fBerror:\fR line alone, and \fB\-h\fR prints the usage text on standard output\.
 .P
 A refused command line creates and truncates nothing: \fB\-r\fR, \fB\-q\fR and \fB\-c\fR name their file while the command line is read, and it is opened only once every check has passed\.
 .SH "DIAGNOSTICS"

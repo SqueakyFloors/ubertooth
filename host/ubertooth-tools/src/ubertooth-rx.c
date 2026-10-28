@@ -127,8 +127,10 @@ int main(int argc, char* argv[])
 	const char* pcapng_name = NULL;
 	const char* pcap_name = NULL;
 	const char* dump_name = NULL;
-	/* -h / -V: the first one given ends the command (see below). */
-	int first_exit_option = 0;
+	/* -h and -V both end the command once the whole command line has
+	 * parsed, and a command line with both prints both (see below). */
+	int do_help = 0, do_version = 0;
+	opt_once once = {0};
 	int r;
 	int timeout = 0;
 	char* ubertooth_device = NULL;
@@ -149,6 +151,9 @@ int main(int argc, char* argv[])
 	 * value distinguishable from an option getopt does not know. */
 	opterr = 0;
 	while ((opt=getopt(argc,argv,":hVi:l:u:U:d:e:r:sq:t:zc:")) != EOF) {
+		/* No option may be given a value twice: see opt_check_once(). */
+		if (opt_check_once(&once, opt, optarg) < 0)
+			return 1;
 		switch(opt) {
 		case 'i':
 			infile_name = optarg;
@@ -170,16 +175,10 @@ int main(int argc, char* argv[])
 		 * whole command line has been accepted, so a refused command
 		 * leaves the filesystem alone. */
 		case 'r':
-			if (pcapng_name == NULL)
-				pcapng_name = optarg;
-			else
-				fprintf(stderr, "Ignoring extra capture file: %s\n", optarg);
+			pcapng_name = optarg;
 			break;
 		case 'q':
-			if (pcap_name == NULL)
-				pcap_name = optarg;
-			else
-				fprintf(stderr, "Ignoring extra capture file: %s\n", optarg);
+			pcap_name = optarg;
 			break;
 		case 'd':
 			dump_name = optarg;
@@ -213,12 +212,10 @@ int main(int argc, char* argv[])
 			break;
 		}
 		case 'V':
-			if (!first_exit_option)
-				first_exit_option = 'V';
+			do_version = 1;
 			break;
 		case 'h':
-			if (!first_exit_option)
-				first_exit_option = 'h';
+			do_help = 1;
 			break;
 		default:
 			/* A command line the tool will not take: the one-line
@@ -237,15 +234,15 @@ int main(int argc, char* argv[])
 
 	/* -h and -V end the command, but only once the whole command line
 	 * has parsed: a bad option value or a stray word is reported even
-	 * alongside them. The first of the two given wins, as before. */
-	if (first_exit_option == 'V') {
+	 * alongside them. A command line with both prints both, and the usage
+	 * text comes last so the version is not scrolled off the screen by
+	 * it; the order they were written in does not matter. */
+	if (do_version)
 		print_version();
-		return 0;
-	}
-	if (first_exit_option == 'h') {
+	if (do_help)
 		usage(stdout);
+	if (do_version || do_help)
 		return 0;
-	}
 
 	if(survey_mode && (have_lap || have_uap)) {
 		fprintf(stderr, "error: survey mode (-z) discovers addresses, so it"

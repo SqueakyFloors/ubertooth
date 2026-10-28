@@ -178,6 +178,7 @@ static void usage()
 int main(int argc, char *argv[])
 {
 	int opt, sock, dev_id, lap = 0, uap = 0, delay = 5;
+	opt_once once = {0};
 	int have_lap = 0;
 	/* -h ends the command once the whole command line has parsed (see below). */
 	int first_exit_option = 0;
@@ -187,8 +188,8 @@ int main(int argc, char *argv[])
         char* ubertooth_device = NULL;
 	char *bt_dev = "hci0";
 	char addr[19] = { 0 };
-	/* The whole target address from -t, and how many times -t was given:
-	 * more than once is refused, so below this is 0 or 1. */
+	/* The whole target address from -t. opt_check_once() refuses a second
+	 * -t, so have_target is 0 or 1. */
 	uint8_t target[OPT_BD_ADDR_BYTES] = { 0 };
 	int have_target = 0;
 	/* Files named on the command line, opened after every check passes. */
@@ -220,6 +221,9 @@ int main(int argc, char *argv[])
 	 * value distinguishable from an option getopt does not know. */
 	opterr = 0;
 	while ((opt=getopt(argc,argv,":hl:u:U:e:d:ab:w:r:q:t:")) != EOF) {
+		/* No option may be given a value twice: see opt_check_once(). */
+		if (opt_check_once(&once, opt, optarg) < 0)
+			return 1;
 		switch(opt) {
 		case 't':
 			if (opt_parse_bd_addr(optarg, target) < 0) {
@@ -252,16 +256,10 @@ int main(int argc, char *argv[])
 		 * whole command line has been accepted, so a refused command
 		 * leaves the filesystem alone. */
 		case 'r':
-			if (pcapng_name == NULL)
-				pcapng_name = optarg;
-			else
-				fprintf(stderr, "Ignoring extra capture file: %s\n", optarg);
+			pcapng_name = optarg;
 			break;
 		case 'q':
-			if (pcap_name == NULL)
-				pcap_name = optarg;
-			else
-				fprintf(stderr, "Ignoring extra capture file: %s\n", optarg);
+			pcap_name = optarg;
 			break;
 		case 'e':
 			if (opt_require_int(optarg, 0, MAX_AC_ERRORS,
@@ -308,21 +306,6 @@ int main(int argc, char *argv[])
 	if (first_exit_option == 'h') {
 		usage();
 		return 0;
-	}
-
-	/* An option given twice is two answers to one question, and the tool
-	 * does not pick between them. */
-	if (have_target > 1) {
-		fputs("error: give -t once\n", stderr);
-		return 1;
-	}
-	if (have_lap > 1) {
-		fputs("error: give -l once\n", stderr);
-		return 1;
-	}
-	if (have_uap > 1) {
-		fputs("error: give -u once\n", stderr);
-		return 1;
 	}
 
 	/* -t is the whole address and -l with -u is part of one: two ways to

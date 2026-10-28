@@ -79,6 +79,8 @@ An option value must be a whole value in its range, or it is refused the same wa
 .P
 A major mode is the work, so a command line without \fB\-f\fR, \fB\-r\fR or \fB\-i\fR is refused before any device is opened: \fBerror: nothing to do: choose a major mode (\-f, \-r or \-i)\fR\. It used to open the selected board, check its firmware, do nothing and exit 0\.
 .P
+Each major mode runs until it is interrupted, so only one of them can run: two in one command are refused before any device is opened, naming both as they were spelled, \fBerror: \-r cannot be combined with \-f; choose one of \-f, \-r or \-i\fR\. \fB\-i\fR and \fB\-j\fR are two spellings of the jamming mode, so they clash too\. The last mode written used to be the one that ran, and the others were dropped without a word\.
+.P
 \fB\-c\fR outside continuous receive is refused before any device is opened too, naming the mode as it was spelled: \fBerror: \-c cannot be combined with \-f; only continuous receive (\-r) uses a channel\fR, with no usage text after it (see DIAGNOSTICS)\. It used to be accepted and then dropped silently in those modes\.
 .SH "DIAGNOSTICS"
 Standard output carries only the captured packets\. Errors, warnings and progress go to standard error, each error as one line starting \fBerror:\fR, for example \fBerror: E\-GO not supported by this firmware\fR\.

@@ -59,8 +59,8 @@ one `btbr` was flashed onto.
    match. A higher value finds more packets and more noise.
  - `-h` :
    print the usage text on standard output and exit 0. It takes effect once
-   the whole command line has parsed, so a bad option value or a stray word
-   is still reported.
+   the whole command line has parsed, so a bad option value, a stray word or
+   an option given twice is still reported.
 
 Each option may be given once. See DIAGNOSTICS for what a command line it
 will not take does.
@@ -192,7 +192,8 @@ prompt up.
 Every other command line the tool will not take is one `error: ` line on
 standard error with no usage text, and exit 1: `error: unrecognized option
 '-Z'`, `error: option '-f' requires a value`, `error: unexpected argument
-'<word>'`, and `error: give -U once` for an option given twice.
+'<word>'`, and `error: option '-U' given more than once` for an option given
+twice, the line every tool uses (see ubertooth(7), OPTION VALUES).
 
 During a session, a board that stops answering is reported and the running
 command ends rather than waiting. A board that left the bus mid-command gives

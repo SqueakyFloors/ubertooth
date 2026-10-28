@@ -41,6 +41,11 @@ bare `-`, is refused before any device is opened and named:
 parsed, so a stray word or a bad option value is reported even
 alongside it.
 
+The board demodulates one modulation at a time, so `-c` and `-l` in one
+command are refused before any device is opened:
+`error: -l cannot be combined with -c; a capture uses one modulation`. The
+second one used to be the one used, and the other was dropped without a word.
+
 A refused command line creates and truncates nothing: `-d` names its file while
 the command line is read, and it is opened only once every check has passed.
 

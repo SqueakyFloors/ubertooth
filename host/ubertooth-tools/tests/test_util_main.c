@@ -1438,19 +1438,33 @@ MU_TEST(a_set_and_a_read_of_the_same_value_both_run_set_first)
 	mu_assert(strcmp(r.err, "") == 0,
 	          "once: the read-back is the result, the set says nothing");
 
-	/* two sets of the same value keep the last one */
+	/* Two values for one setting are refused, before any board is
+	 * touched: the last one used to win and the other was dropped
+	 * without a word. */
 	reset_fake();
 	r = RUN("-c2426", "-c2440", "-c");
-	mu_assert_int_eq(0, r.rc);
-	mu_assert_int_eq(2440, fake.last_channel_set);
-	mu_assert(strcmp(r.out, "Current frequency: 2440 MHz (Bluetooth channel 38)\n") == 0,
-	          "the last channel set wins");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, "") == 0, r.out);
+	mu_assert(strcmp(r.err, "error: option '-c' given more than once\n") == 0,
+	          r.err);
+	mu_assert_int_eq(0, fake.start_calls);
 
 	reset_fake();
 	r = RUN("-a3", "-a5", "-a");
-	mu_assert_int_eq(0, r.rc);
-	mu_assert_int_eq(5, fake.last_palevel_set);
-	mu_assert(strcmp(r.out, "PA Level: 5\n") == 0, "the last PA level set wins");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, "error: option '-a' given more than once\n") == 0,
+	          r.err);
+	mu_assert_int_eq(0, fake.start_calls);
+
+	/* The same setting written both ways: -c is MHz and -C a channel
+	 * number, so two values clash even spelled differently. */
+	reset_fake();
+	r = RUN("-C24", "-c2440");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, "error: -c cannot be combined with -C; they are "
+	                        "the same channel setting written two ways\n") == 0,
+	          r.err);
+	mu_assert_int_eq(0, fake.start_calls);
 
 	/* a failed set is reported, and the read still runs */
 	reset_fake();
@@ -1940,20 +1954,33 @@ MU_TEST(stray_arguments_are_rejected_before_any_device_action)
 	mu_assert(strcmp(r.out, "libubertooth fake\n") == 0, "version only");
 	mu_assert_int_eq(0, fake.start_calls);
 
-	/* the first of -h and -H wins, and --host-version wins anywhere, as
-	 * before */
+	/* -h beside -H prints both, the version first and the usage text last,
+	 * whichever order they were written in. The first one used to win and
+	 * the other was dropped. */
 	reset_fake();
 	r = RUN("-H", "-h");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(r.out, "libubertooth fake\n") == 0, "-H first: version");
+	mu_assert(strncmp(r.out, "libubertooth fake\n",
+	                  strlen("libubertooth fake\n")) == 0,
+	          "-H -h: the version first");
+	mu_assert(strstr(r.out, "command line utility") != NULL,
+	          "-H -h: the usage text after it");
 	reset_fake();
 	r = RUN("-h", "-H");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strstr(r.out, "command line utility") != NULL, "-h first: usage");
+	mu_assert(strncmp(r.out, "libubertooth fake\n",
+	                  strlen("libubertooth fake\n")) == 0,
+	          "-h -H: the version first here too");
+	mu_assert(strstr(r.out, "command line utility") != NULL,
+	          "-h -H: the usage text after it");
 	reset_fake();
 	r = RUN("-h", "--host-version");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(r.out, "libubertooth fake\n") == 0, "--host-version wins");
+	mu_assert(strncmp(r.out, "libubertooth fake\n",
+	                  strlen("libubertooth fake\n")) == 0,
+	          "--host-version is -H: the version first");
+	mu_assert(strstr(r.out, "command line utility") != NULL,
+	          "and the usage text after it");
 
 	/* after "--", --host-version is an operand, reported as typed */
 	reset_fake();
@@ -3191,12 +3218,15 @@ MU_TEST(only_the_exact_word_all_selects_every_device)
 	mu_assert(strcmp(fake.selector, "ALL") == 0, "selector passed to the library");
 	mu_assert_int_eq(0, fake.indexed_starts);
 
-	/* the last -U wins, as before */
+	/* Two selectors name two different boards for one command, so the
+	 * command line is refused: the last -U used to win silently. */
 	reset_fake();
 	fake.device_count = 2;
 	r = RUN("-U", "all", "-U", "1", "-c");
-	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(fake.selector, "1") == 0, "later selector used");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, "error: option '-U' given more than once\n") == 0,
+	          r.err);
+	mu_assert_int_eq(0, fake.start_calls);
 }
 
 /* ---- a failed read prints no value line ------------------------------- */

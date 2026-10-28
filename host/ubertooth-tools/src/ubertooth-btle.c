@@ -226,6 +226,7 @@ static int release_handle(ubertooth_t* ut, int status)
 int main(int argc, char *argv[])
 {
 	int opt;
+	opt_once once = {0};
 	/* -h ends the command once the whole command line has parsed (see below). */
 	int first_exit_option = 0;
 	int do_follow, do_no_follow, do_promisc;
@@ -276,14 +277,21 @@ int main(int argc, char *argv[])
 	 * value distinguishable from an option getopt does not know. */
 	opterr = 0;
 	while ((opt=getopt(argc,argv,":a::r:hfnpU:v::A:s:t:x:c:q:jJiI")) != EOF) {
+		/* getopt only attaches an optional value (-a8e89bed6, -v1); take
+		 * a following word that could be the value as the value too, so
+		 * "-a 8e89bed6" sets and "-a zzzz" is refused rather than
+		 * silently reading. ubertooth-btle takes no other operands.
+		 * Resolved before the check below, which only counts an option
+		 * that came with a value. */
+		if (optarg == NULL && (opt == 'a' || opt == 'v'))
+			optarg = opt_separate_value(argc, argv,
+			                            opt == 'a' ? opt_value_not_option
+			                                       : opt_value_decimal);
+		/* No option may be given a value twice: see opt_check_once(). */
+		if (opt_check_once(&once, opt, optarg) < 0)
+			return 1;
 		switch(opt) {
 		case 'a':
-			/* getopt only attaches an optional value (-a8e89bed6); take
-			 * a following word that is not an option as the value too,
-			 * so "-a 8e89bed6" sets and "-a zzzz" is refused rather than
-			 * silently reading. ubertooth-btle takes no other operands. */
-			if (optarg == NULL)
-				optarg = opt_separate_value(argc, argv, opt_value_not_option);
 			if (optarg == NULL) {
 				do_get_aa = 1;
 			} else {
@@ -331,9 +339,7 @@ int main(int argc, char *argv[])
 			break;
 		case 'v':
 			/* -v reads the CRC verify setting; -v0 / -v1 sets it, written
-			 * attached or as the next word. */
-			if (optarg == NULL)
-				optarg = opt_separate_value(argc, argv, opt_value_decimal);
+			 * attached or as the next word (taken above). */
 			if (optarg) {
 				if (opt_require_int(optarg, 0, 1, "CRC verify mode", "",
 				                    &do_set_crc) < 0)
@@ -429,29 +435,31 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	/* Interference acts on a connection, so it needs the mode that has one:
+	 * -n only logs advertising packets. Refused here, before a device is
+	 * opened, like the other combination checks above. It comes before the
+	 * "nothing to do" check below so that -i on its own gets this message
+	 * too: the page promises it for "-i or -I without -f or -p", and
+	 * naming the two modes that can carry interference says more than
+	 * listing every major mode. */
+	if (jam_mode != JAM_NONE && !(do_follow || do_promisc)) {
+		fprintf(stderr, "error: -%c needs -f or -p: there is no"
+		        " connection to interfere with otherwise\n", jam_option);
+		return 1;
+	}
+
 	/* A command line with no work in it: refused here, before a device is
 	 * opened and before any capture file is created. It used to open the
 	 * selected board, check its API version, send nothing, print the usage
 	 * text on stdout and exit 0, so a command that did nothing needed a
-	 * board and looked like one that had worked. -A, -x, -i/-I and the
-	 * capture options only shape the work the options below ask for, as do
-	 * -j/-J, the older spellings of -i/-I. */
+	 * board and looked like one that had worked. -A, -x and the capture
+	 * options only shape the work the options below ask for. */
 	if (!(do_follow || do_no_follow || do_promisc || do_get_aa || do_set_aa ||
 	      do_set_crc >= 0 || do_get_crc || do_slave_mode || do_target)) {
 		fprintf(stderr, "error: nothing to do: choose a major mode"
 		        " (-f, -n or -p), or -a, -v, -s or -t\n");
 		if (opt_no_arguments(argc))
 			usage(stderr);
-		return 1;
-	}
-
-	/* Interference acts on a connection, so it needs the mode that has one:
-	 * -n only logs advertising packets. Refused here, before a device is
-	 * opened, like the other combination checks above; -i on its own is the
-	 * "nothing to do" case, which is why that check comes first. */
-	if (jam_mode != JAM_NONE && !(do_follow || do_promisc)) {
-		fprintf(stderr, "error: -%c needs -f or -p: there is no"
-		        " connection to interfere with otherwise\n", jam_option);
 		return 1;
 	}
 

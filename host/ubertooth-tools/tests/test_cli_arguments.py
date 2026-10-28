@@ -127,8 +127,13 @@ CASES = {
         ((), "error: nothing to do"),
         (("-A", "38"), "error: nothing to do"),
         (("-x", "4"), "error: nothing to do"),
-        (("-i",), "error: nothing to do"),
         (("-U", NO_SUCH_SERIAL), "error: nothing to do"),
+        # Interference on its own: the page promises this message for "-i or
+        # -I without -f or -p", so the bare case gets it too. The check below
+        # lowercases the output, so this cannot tell -i from -I; that is what
+        # test_btle_cli.py pins, one case per spelling.
+        (("-i",), "needs -f or -p: there is no connection to interfere with"),
+        (("-I",), "needs -f or -p: there is no connection to interfere with"),
     ),
     "ubertooth-debug": STRAY + (
         (("-v", "3"), "error: verbosity must be 0-2 (got 3)"),
@@ -164,14 +169,17 @@ CASES = {
          "error: target address must be xx:xx:xx:xx:xx:xx (got 11:22:33:44:55:gg)"),
         (("-t", "112233445566"),
          "error: target address must be xx:xx:xx:xx:xx:xx (got 112233445566)"),
-        # one answer per question: a doubled option is refused rather than
-        # one of the two being picked
+        # one answer per question: an option given a value twice is refused
+        # rather than one of the two being picked, with the line every tool
+        # uses (ubertooth(7), OPTION VALUES)
         (("-t", "11:22:33:44:55:66", "-t", "11:22:33:44:55:66"),
-         "error: give -t once"),
-        (("-l", "446688", "-l", "446688"), "error: give -l once"),
-        (("-u", "22", "-u", "22"), "error: give -u once"),
+         "error: option '-t' given more than once"),
+        (("-l", "446688", "-l", "446688"),
+         "error: option '-l' given more than once"),
+        (("-u", "22", "-u", "22"),
+         "error: option '-u' given more than once"),
         (("-l", "446688", "-l", "446688", "-u", "22"),
-         "error: give -l once"),
+         "error: option '-l' given more than once"),
         # -t and -l/-u are the same setting written two ways
         (("-t", "11:22:33:44:55:66", "-l", "446688"),
          "error: -t gives the whole target address"),
@@ -197,7 +205,7 @@ CASES = {
          "error: -a reads the afh map over a bluetooth connection"),
         (("-a", "-l", "446688", "-u", "22"), "give -t xx:xx:xx:xx:xx:xx"),
         (("-a", "-l", "446688", "-l", "446688", "-u", "22"),
-         "error: give -l once"),
+         "error: option '-l' given more than once"),
     ),
     "ubertooth-rx": STRAY + VERSION_STRAY + LAP_UAP + AC_ERRORS + TIMEOUT_SECONDS + (
         (("-c", "79"), "error: channel must be 0-78 (got 79)"),

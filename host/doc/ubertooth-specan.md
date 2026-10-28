@@ -24,12 +24,13 @@ Options:
    upper frequency in MHz (default 2480); the value is required when `-u` is used
    and must not be lower than the selected lower frequency
  - `-g` :
-   format output for feedgnuplot
+   write the samples as text for feedgnuplot
  - `-G` :
-   format output for 3D feedgnuplot
+   write them as text for 3D feedgnuplot
  - `-d <filename>` :
-   write the binary samples to `<filename>`; `-d -` writes them to standard
-   output, which must not be a terminal. See ARGUMENTS
+   write them to `<filename>` instead of the screen; `-d -` writes them to
+   standard output. Without `-g` or `-G` they are the raw 3-byte records, so
+   standard output must not be a terminal. See ARGUMENTS
  - `-v` :
    report the sweep on standard error; see VERBOSE OUTPUT. Give it at most
    once: a second `-v` is refused with
@@ -72,12 +73,23 @@ file name, including one that starts with `-`: `-d -x` writes the file `-x`, and
 a forgotten file name such as `-d -v` writes a file called `-v` rather than
 streaming samples to the terminal and dropping the `-v`.
 
-`-d -` is for a pipe or a redirect. The samples are raw 3-byte records, which
-fill a terminal with control characters and can leave it in a strange state, so
-a terminal is refused before any device is opened:
+`-d` chooses where the samples go and `-g` or `-G` how they are written, so
+the two do separate jobs and go together, in either order: `-g -d out.dat`
+writes the gnuplot text into `out.dat`, and `-d out.bin` on its own writes the
+raw records. `-d` used to create the file and leave it empty while a later
+`-g` took the samples to the screen instead.
+
+One sweep is written one way, so `-g` and `-G` in one command are refused
+before any device is opened: `error: -G cannot be combined with -g; a sweep is
+written in one format`. The second one used to be the one used.
+
+`-d -` is for a pipe or a redirect when the samples are the raw records, which
+fill a terminal with control characters and can leave it in a strange state,
+so a terminal is refused before any device is opened:
 `error: stdout is a tty, refusing to write binary samples to it`, with exit
 status 1. ubertooth-btle(1) refuses its binary capture to a terminal the same
-way.
+way. With `-g` or `-G` the samples are text, and a terminal is welcome to
+them.
 
 A refused command line creates and truncates nothing: `-d` names its file while
 the command line is read, and it is opened only once every check has passed.
@@ -112,8 +124,9 @@ shows up within a second as counters that stop moving.
 
 ## DIAGNOSTICS
 
-Standard output carries only the samples — the text lines in the default, `-g`
-and `-G` modes, or the raw records with `-d -` — and the usage text for `-h`.
+Standard output carries only the samples — whatever `-d` has not sent to a
+file, as text or, with no `-g` or `-G`, as the raw records — and the usage text
+for `-h`.
 Errors, warnings and progress, including `Ubertooth stopped`, go to standard
 error. The errors this tool prints itself are one line starting `error: `, for
 example `error: /no/such/dir/samples.bin: No such file or directory` for a

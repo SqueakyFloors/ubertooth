@@ -399,13 +399,14 @@ MU_TEST(a_set_and_a_read_of_crc_verify_both_run_set_first)
 	mu_assert_int_eq(0, fake.last_crc_set);
 	mu_assert(strcmp(r.out, "CRC: DO NOT verify\n") == 0, r.out);
 
-	/* two sets keep the last one, and the read reports it */
+	/* Two values for one setting are refused: the last one used to win and
+	 * the other was dropped without a word. */
 	reset_fake();
 	r = RUN("-v1", "-v0", "-v");
-	mu_assert_int_eq(0, r.rc);
-	mu_assert_int_eq(1, fake.crc_sets);
-	mu_assert_int_eq(0, fake.last_crc_set);
-	mu_assert(strcmp(r.out, "CRC: DO NOT verify\n") == 0, r.out);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, "") == 0, r.out);
+	mu_assert(strcmp(r.err, "error: option '-v' given more than once\n") == 0,
+	          r.err);
 }
 
 /* A set on its own, and a read on its own, are unchanged. */
@@ -996,14 +997,23 @@ MU_TEST(a_bad_command_line_is_reported_on_stderr)
 	                 " colons (got 22:44:66:88:aa:zz/24)\n") == r.err,
 	          r.err);
 
-	/* a second capture file is a warning, not an error: the first one wins
-	 * and the run carries on */
+	/* -q and -c write the same PCAP through one handle, so naming a file
+	 * with each of them is a warning rather than an error: the first one
+	 * wins and the run carries on. The same option twice is refused
+	 * instead, because it is one option with two values. */
 	reset_fake();
-	r = RUN("-f", "-q", "/dev/null", "-q", "/dev/zero");
+	r = RUN("-f", "-q", "/dev/null", "-c", "/dev/zero");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(fake.capture_file, "/dev/null") == 0, fake.capture_file);
 	mu_assert(strcmp(r.err, "warning: ignoring extra capture file:"
 	                 " /dev/zero\n") == 0, r.err);
+
+	reset_fake();
+	r = RUN("-f", "-q", "/dev/null", "-q", "/dev/zero");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strcmp(r.err, "error: option '-q' given more than once\n") == 0,
+	          r.err);
 }
 
 /* -j and -J are the original jam spellings of -i and -I: each selects the same

@@ -243,7 +243,9 @@ bare `-`, is refused before any device is opened and named:
 
 `-h` and `-V` end the command only once the whole command line has
 parsed, so a stray word or a bad option value is reported even
-alongside them.
+alongside them. Both answer on standard output, so a command line with both
+prints both, the usage text last; the order they were written in makes no
+difference.
 
 An option the tool does not know is refused the same way, as one line on
 standard error with no usage text after it: `error: unrecognized option '-Z'`.

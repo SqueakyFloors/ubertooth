@@ -141,6 +141,7 @@ static void usage(FILE *file) {
 int main(int argc, char *argv[])
 {
 	int opt;
+	opt_once once = {0};
 	/* -h ends the command once the whole command line has parsed (see below). */
 	int first_exit_option = 0;
 	int do_quack, do_adv_index;
@@ -166,14 +167,18 @@ int main(int argc, char *argv[])
 	 * value distinguishable from an option getopt does not know. */
 	opterr = 0;
 	while ((opt=getopt(argc,argv,":q::bA:a:hsU:")) != EOF) {
+		/* getopt only attaches an optional value (-q<uuid>); take a
+		 * following word that is not an option as the value too, so
+		 * "-q <uuid>" quacks that UUID rather than the default and
+		 * leaving the UUID as a stray word. Resolved before the check
+		 * below, which only counts an option that came with a value. */
+		if (optarg == NULL && opt == 'q')
+			optarg = opt_separate_value(argc, argv, opt_value_not_option);
+		/* No option may be given a value twice: see opt_check_once(). */
+		if (opt_check_once(&once, opt, optarg) < 0)
+			return 1;
 		switch(opt) {
 		case 'q':
-			/* getopt only attaches an optional value (-q<uuid>); take a
-			 * following word that is not an option as the value too, so
-			 * "-q <uuid>" quacks that UUID rather than the default and
-			 * leaving the UUID as a stray word. */
-			if (optarg == NULL)
-				optarg = opt_separate_value(argc, argv, opt_value_not_option);
 			do_quack = 1;
 			uuid_str = optarg ? optarg : DEFAULT_UUID;
 			break;

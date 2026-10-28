@@ -28,9 +28,8 @@
   UAP to follow as well.
   [#316](https://github.com/SqueakyFloors/ubertooth/issues/316)
 - **Script-visible change:** `ubertooth-follow -a` needs `-t` instead of `-l`
-  and `-u`; `-t`, `-l` or `-u` given twice is refused rather than one of the
-  two being used; and the tool's progress moved from standard output to
-  standard error.
+  and `-u`, and the tool's progress moved from standard output to standard
+  error.
   [#316](https://github.com/SqueakyFloors/ubertooth/issues/316)
   [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
 - **Script-visible change:** `ubertooth-follow -l` without `-u`, or `-u`
@@ -38,6 +37,32 @@
   address given" and follow the local adapter's own address instead of the
   piconet that was named.
   [#529](https://github.com/SqueakyFloors/ubertooth/issues/529)
+- **Script-visible change:** every tool now refuses a command line that says
+  two things and means one, with its one `error: ` line and before it opens a
+  board: an option given a value twice (`-l 446688 -l aabbcc`), two major
+  modes (`ubertooth-ego -f -r`), two modulations for one capture
+  (`ubertooth-dump -c -l`), two output formats for one sweep
+  (`ubertooth-specan -g -G`), and the same channel written two ways
+  (`ubertooth-util -c 2440 -C 24`). One of the two used to win and the other
+  was dropped silently. `ubertooth-util -c 2426 -c` still sets the channel and
+  reads it back. `ubertooth-debug -r` takes the whole register list in one
+  value, `-r %main,0x02-0x05`, where a second `-r` used to replace the first
+  one's registers without a word. The tools that said it their own way now say
+  that same line: `ubertooth-btbr` used to say `give -U once`, and
+  `ubertooth-follow` `give -t once`, `give -l once` and `give -u once`.
+  [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
+- **Script-visible change:** `ubertooth-specan -d` now only chooses where the
+  samples go, and `-g`/`-G` how they are written, so `-g -d out.dat` writes
+  the gnuplot text into the file the man page always promised. `-d` used to
+  create the file and leave it empty while a later `-g` took the samples to
+  the screen.
+  [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
+- `-h` beside `-V`, `-H` or `--host-version` prints both answers, the usage
+  text last, instead of only whichever was written first.
+  [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
+- `ubertooth-btle -i` on its own says `error: -i needs -f or -p`, the message
+  its man page promises, rather than listing every major mode.
+  [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
 - **Script-visible change:** `ubertooth-btle` refuses `-i`/`-I` without `-f` or
   `-p`, and `-a`/`-s` alongside `-f`, `-n` or `-p`, before it opens a device.
   Those command lines, and a mode the board refuses to start, now exit 1 where

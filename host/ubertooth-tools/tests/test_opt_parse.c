@@ -295,6 +295,49 @@ static void test_next_word_and_operands(void)
 	CHECK(opt_check_no_operands(argc, argv) < 0);
 }
 
+/* The one-value-each rule: an option may carry a value only once. */
+static void test_check_once(void)
+{
+	opt_once once = {0};
+
+	/* The first value is remembered and the second refused. */
+	CHECK(opt_check_once(&once, 'l', "446688") == 0);
+	fprintf(stderr, "(one expected diagnostic follows)\n");
+	CHECK(opt_check_once(&once, 'l', "aabbcc") < 0);
+	/* A different option is unaffected by it. */
+	CHECK(opt_check_once(&once, 'u', "22") == 0);
+
+	/* An option with no value is not an answer, however often it is given:
+	 * a tool that wants to refuse its own does it itself. */
+	CHECK(opt_check_once(&once, 'h', NULL) == 0);
+	CHECK(opt_check_once(&once, 'h', NULL) == 0);
+	/* So the valued form of the same letter is still counted from zero,
+	 * which is what makes "-c 2426 -c" (a set, then a read) work. */
+	CHECK(opt_check_once(&once, 'c', NULL) == 0);
+	CHECK(opt_check_once(&once, 'c', "2426") == 0);
+	fprintf(stderr, "(one expected diagnostic follows)\n");
+	CHECK(opt_check_once(&once, 'c', "2440") < 0);
+
+	/* What getopt returns for an option it would not take: ':' for a
+	 * missing value and '?' for one it does not know. Neither is an
+	 * option the user chose, so neither is counted; opt_report_bad_option()
+	 * answers both. */
+	CHECK(opt_check_once(&once, ':', "x") == 0);
+	CHECK(opt_check_once(&once, ':', "x") == 0);
+	CHECK(opt_check_once(&once, '?', "x") == 0);
+	CHECK(opt_check_once(&once, '?', "x") == 0);
+
+	/* Out of range or unprintable: nothing to name in a message, so
+	 * nothing is refused rather than indexing past the table. */
+	CHECK(opt_check_once(&once, -1, "x") == 0);
+	CHECK(opt_check_once(&once, UCHAR_MAX + 1, "x") == 0);
+	CHECK(opt_check_once(&once, '\n', "x") == 0);
+	CHECK(opt_check_once(&once, '\n', "x") == 0);
+
+	/* No state to keep it in. */
+	CHECK(opt_check_once(NULL, 'l', "446688") == 0);
+}
+
 int main(void)
 {
 	test_decimal();
@@ -307,6 +350,7 @@ int main(void)
 	test_bd_addr_lap_uap();
 	test_value_checks();
 	test_next_word_and_operands();
+	test_check_once();
 	printf("opt_parse: %d checks, %d failures\n", checks, failures);
 	return failures ? 1 : 0;
 }

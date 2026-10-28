@@ -357,16 +357,19 @@ def main():
 	if args:
 		error("unexpected argument '%s'"%args[0])
 		sys.exit(1)
-	if help_wanted:
-		usage()
 
-	# An option given twice is two answers to one question, and the tool does
-	# not pick between them.
+	# An option given a value twice is two answers to one question, and the
+	# tool does not pick between them. The wording is the one every tool
+	# uses, from opt_check_once() in the C tools. Checked before -h ends the
+	# command, like the other faults above: the C tools refuse the repeat as
+	# they read the command line, so -h does not excuse it there either.
 	given = ['-U'] * len(selectors) + [o for o, value in settings]
 	for o in ('-U', '-f', '-b'):
 		if given.count(o) > 1:
-			error("give %s once"%o)
+			error("option '%s' given more than once"%o)
 			sys.exit(1)
+	if help_wanted:
+		usage()
 	selector = selectors[0] if selectors else None
 
 	bt = None

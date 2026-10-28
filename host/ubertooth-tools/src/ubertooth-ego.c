@@ -71,6 +71,7 @@ static void usage(FILE *file)
 int main(int argc, char *argv[])
 {
 	int opt;
+	opt_once once = {0};
 	/* -h ends the command once the whole command line has parsed (see below). */
 	int first_exit_option = 0;
 	int do_mode = -1;
@@ -92,19 +93,36 @@ int main(int argc, char *argv[])
 	 * value distinguishable from an option getopt does not know. */
 	opterr = 0;
 	while ((opt=getopt(argc,argv,":frijc:U:a:l:h")) != EOF) {
+		/* No option may be given a value twice: see opt_check_once(). */
+		if (opt_check_once(&once, opt, optarg) < 0)
+			return 1;
 		switch(opt) {
 		case 'f':
-			do_mode = EGO_MODE_FOLLOW;
-			mode_option = opt;
-			break;
 		case 'r':
-			do_mode = EGO_MODE_CONTINUOUS_RX;
-			mode_option = opt;
-			break;
 		case 'i':
 		case 'j':
-			do_mode = EGO_MODE_JAM;
+			/* One major mode per command: each one runs until it is
+			 * interrupted, so two of them used to mean whichever came
+			 * last, with the others silently dropped. -i and -j are two
+			 * spellings of the jamming mode, so they clash too.
+			 * ubertooth-btle and ubertooth-util refuse two modes the
+			 * same way. */
+			/* The same letter twice says the same thing twice, so
+			 * only a different mode clashes (ubertooth(7),
+			 * OPTION VALUES). */
+			if (mode_option != 0 && mode_option != opt) {
+				fprintf(stderr, "error: -%c cannot be combined with -%c;"
+				        " choose one of -f, -r or -i\n",
+				        opt, mode_option);
+				return 1;
+			}
 			mode_option = opt;
+			if (opt == 'f')
+				do_mode = EGO_MODE_FOLLOW;
+			else if (opt == 'r')
+				do_mode = EGO_MODE_CONTINUOUS_RX;
+			else
+				do_mode = EGO_MODE_JAM;
 			break;
 		case 'c':
 			if (opt_require_int(optarg, BT_FREQ_MIN, BT_FREQ_MAX,

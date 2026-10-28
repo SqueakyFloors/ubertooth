@@ -1409,9 +1409,9 @@ for arguments, said in (
         (("-f",), "error: option '-f' requires a value\n"),
         (("-U",), "error: option '-U' requires a value\n"),
         (("stray",), "error: unexpected argument 'stray'\n"),
-        (("-U", "0", "-U", "1"), "error: give -U once\n"),
-        (("-f", "1", "-f", "2"), "error: give -f once\n"),
-        (("-b", "1", "-b", "2"), "error: give -b once\n")):
+        (("-U", "0", "-U", "1"), "error: option '-U' given more than once\n"),
+        (("-f", "1", "-f", "2"), "error: option '-f' given more than once\n"),
+        (("-b", "1", "-b", "2"), "error: option '-b' given more than once\n")):
     status, output, errors = selecting(arguments)
     assert status == 1, (arguments, status, output, errors)
     assert output == "", (arguments, output)
@@ -1424,7 +1424,9 @@ print("ubtbr: a command line the tool will not take is one error line")
 for arguments, said in ((("-h", "-f", "nine"),
                          "error: -f must be 0-65535 (got nine)\n"),
                         (("-h", "stray"), "error: unexpected argument "
-                                          "'stray'\n")):
+                                          "'stray'\n"),
+                        (("-U", "0", "-U", "1", "-h"),
+                         "error: option '-U' given more than once\n")):
     status, output, errors = selecting(arguments)
     assert status == 1, (arguments, status, output, errors)
     assert output == "", (arguments, output)

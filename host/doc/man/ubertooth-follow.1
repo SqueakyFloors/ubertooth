@@ -120,7 +120,7 @@ An option value must be a whole value in its range, or it is refused the same wa
 .P
 Three more kinds of command line are refused before any device is opened, each with its one line:
 .IP "\(bu" 4
-\fB\-t\fR, \fB\-l\fR or \fB\-u\fR given twice, \fBerror: give \-t once\fR, \fBerror: give \-l once\fR, \fBerror: give \-u once\fR: the tool does not pick between two answers to the same question;
+any option given a value twice, \fBerror: option '\-t' given more than once\fR: the tool does not pick between two answers to the same question\. This is the rule for every tool; see ubertooth(7), OPTION VALUES;
 .IP "\(bu" 4
 \fB\-t\fR with \fB\-l\fR or \fB\-u\fR, \fBerror: \-t gives the whole target address, so it cannot be combined with \-l or \-u\fR;
 .IP "\(bu" 4

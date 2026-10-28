@@ -102,6 +102,13 @@ refused before any device is opened: `error: nothing to do: choose a major
 mode (-f, -r or -i)`. It used to open the selected board, check its firmware,
 do nothing and exit 0.
 
+Each major mode runs until it is interrupted, so only one of them can run: two
+in one command are refused before any device is opened, naming both as they
+were spelled, `error: -r cannot be combined with -f; choose one of -f, -r or
+-i`. `-i` and `-j` are two spellings of the jamming mode, so they clash too.
+The last mode written used to be the one that ran, and the others were dropped
+without a word.
+
 `-c` outside continuous receive is refused before any device is opened too,
 naming the mode as it was spelled: `error: -c cannot be combined with -f; only
 continuous receive (-r) uses a channel`, with no usage text after it (see

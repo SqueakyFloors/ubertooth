@@ -20,6 +20,10 @@ Options:
  - `-r <start>-<end>` :
    Read a consecutive set of registers from the CC2400 on Ubertooth. Either
    end may be a `%name` (`-r %main-%fsdiv`)
+ - one `-r` takes the whole list, so give it once: a second `-r` is refused
+   with `error: option '-r' given more than once`, because it used to replace
+   the first one's registers without a word. Write them together instead,
+   `-r %main,0x02-0x05` (ubertooth(7), OPTION VALUES)
  - `-v <0-2>` :
    Sets the level of verbosity, default is 1.
  - `-U <index|serial>` :

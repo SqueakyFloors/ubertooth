@@ -160,9 +160,9 @@ way instead of being read as 0, for example
 Three more kinds of command line are refused before any device is opened, each
 with its one line:
 
- - `-t`, `-l` or `-u` given twice, `error: give -t once`, `error: give -l once`,
-   `error: give -u once`: the tool does not pick between two answers to the
-   same question;
+ - any option given a value twice, `error: option '-t' given more than once`:
+   the tool does not pick between two answers to the same question. This is
+   the rule for every tool; see ubertooth(7), OPTION VALUES;
  - `-t` with `-l` or `-u`,
    `error: -t gives the whole target address, so it cannot be combined with -l or -u`;
  - one of `-l` and `-u` without the other,

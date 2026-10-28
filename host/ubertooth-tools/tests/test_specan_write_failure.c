@@ -1039,16 +1039,51 @@ MU_TEST(verbose_names_the_output_the_options_chose)
 	mu_assert(strstr(err, "Writing 3D feedgnuplot text to standard output\n")
 	          != NULL, err);
 
-	/* The case report_output_target() exists for: -g took the samples away
-	 * from the file -d named, so -v names standard output, not the file. */
+	/* The case report_output_target() exists for: -d chose the file and -g
+	 * the format, so -v names both, and the samples really do go there. */
 	mu_assert_int_eq(0, make_temp_file(path, sizeof(path)));
 	reset_device();
 	capture_stdout_begin();
 	mu_assert_int_eq(0, RUN_SPECAN(err, "-v", "-d", path, "-g"));
 	capture_stdout_end();
-	mu_assert(strstr(err, "Writing feedgnuplot text to standard output\n")
-	          != NULL, err);
-	mu_assert(strstr(err, path) == NULL, err);
+	mu_assert(strstr(err, "Writing feedgnuplot text to ") != NULL, err);
+	mu_assert(strstr(err, path) != NULL, err);
+	mu_assert(strstr(err, "to standard output") == NULL, err);
+	unlink(path);
+}
+
+/* -d chooses where the samples go and -g how they are written, so the text
+ * lands in the file rather than on the screen. The file used to be created
+ * and left empty while -g took the samples to standard output. */
+MU_TEST(a_text_format_writes_into_the_file_d_named)
+{
+	char path[64];
+	char err[512];
+	char first[256] = {0};
+	struct stat info;
+	FILE *written;
+
+	reset_device();
+	device.blocks_to_sweep = 3;
+	mu_assert_fatal(make_temp_file(path, sizeof(path)) == 0,
+	                "temp file created");
+
+	capture_stdout_begin();
+	mu_assert_int_eq(0, RUN_SPECAN(err, "-d", path, "-g"));
+	capture_stdout_end();
+
+	/* The file holds the samples, and as text: a gnuplot line is a
+	 * frequency and a level, so the first character is a digit rather
+	 * than one of the raw record's bytes. */
+	mu_assert_int_eq(0, stat(path, &info));
+	mu_assert(info.st_size > 0, "the samples were written to the file");
+	written = fopen(path, "r");
+	mu_assert_fatal(written != NULL, "the file opens for reading");
+	mu_assert(fgets(first, sizeof(first), written) != NULL, "a first line");
+	fclose(written);
+	mu_assert(first[0] >= '0' && first[0] <= '9', first);
+	mu_assert(strchr(first, ' ') != NULL, first);
+	mu_assert(strchr(first, '\n') != NULL, first);
 	unlink(path);
 }
 
@@ -1092,6 +1127,7 @@ int main(void)
 	MU_RUN(an_output_mode_that_is_not_one_of_ours_ends_the_run);
 	MU_RUN(a_sweep_that_could_not_be_written_exits_one);
 	MU_RUN(a_sweep_that_was_written_exits_zero);
+	MU_RUN(a_text_format_writes_into_the_file_d_named);
 	MU_RUN(a_sweep_whose_stream_died_exits_one);
 	MU_RUN(a_sweep_whose_collecting_thread_failed_exits_one);
 	MU_RUN(an_interrupted_sweep_still_exits_zero);
