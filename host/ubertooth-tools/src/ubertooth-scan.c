@@ -430,13 +430,11 @@ int main(int argc, char *argv[])
 	 * and printed an AFH map that means nothing, since the map only says
 	 * which channels a piconet uses if the board listened to all of them.
 	 *
-	 * A board already capturing symbols -- what a killed ubertooth-afh or
-	 * ubertooth-follow leaves behind -- does that reset while it takes the
-	 * request above, so a sweep stated here survives it. A board left in a
-	 * mode that captures nothing, a spectrum scan say, resets a moment
-	 * later instead, as it leaves that mode, and can still swallow this
-	 * request; the board has to say when its mode has started before the
-	 * host can close that gap.
+	 * The board keeps what arrives after the request for the mode it is
+	 * starting, whatever it was doing before. A board left in a mode that
+	 * captures nothing -- a killed ubertooth-specan say -- used to lose
+	 * this request, because it runs the reset a moment after this one has
+	 * been answered, on the way out of that mode.
 	 *
 	 * A board that refused this would print such a map, so the scan ends
 	 * here. A BlueZ inquiry asked for with -s has run by then and has

@@ -340,6 +340,134 @@ static void reset_absorbed_mode_state(uint8_t requested)
 }
 
 /*
+ * Tune to a channel, or sweep the band, as UBERTOOTH_SET_CHANNEL asks.
+ *
+ * A frequency above the band's top asks for the band sweep rather than for a
+ * channel, and one inside it for a fixed channel, which the hop modes read as
+ * they run. The mode dispatch calls this too, to re-apply a channel the host
+ * stated after its mode request; see below.
+ */
+static void set_channel_request(uint16_t requested)
+{
+	requested_channel = requested;
+	/* bluetooth band sweep mode, start at channel 2402 */
+	if (requested_channel > MAX_FREQ) {
+		hop_mode = HOP_SWEEP;
+		requested_channel = 2402;
+	}
+	/* fixed channel mode, can be outside bluetooth band */
+	else {
+		hop_mode = HOP_NONE;
+		requested_channel = MAX(requested_channel, MIN_FREQ);
+		requested_channel = MIN(requested_channel, MAX_FREQ);
+	}
+
+	le_adv_channel = requested_channel;
+	if (mode != MODE_BT_FOLLOW_LE) {
+		channel = requested_channel;
+		requested_channel = 0;
+
+		/* CS threshold is mode-dependent. Update it after
+		 * possible mode change. TODO - kludgy. */
+		cs_threshold_calc_and_set(channel);
+	}
+}
+
+/*
+ * What the host stated after its mode request, kept for the mode that is
+ * starting.
+ *
+ * A mode start resets the board's mode state, so that one run cannot capture
+ * with what another left behind: the hop mode, the channel, the AFH map and
+ * the E-GO access code all go back to their defaults. A tool therefore states
+ * its channel -- or its band sweep, or its access code -- after the request
+ * that starts its mode, not before.
+ *
+ * That only worked on a board that had been left capturing symbols, where the
+ * reset runs inside the request handler, while the request is answered, so
+ * anything stated afterwards survives it. A board left in a mode that captures
+ * no symbols -- a killed ubertooth-specan, -btle or -ego -- resets later: that
+ * mode's loop notices the request, returns, and the dispatch in main() runs
+ * the reset on the way out of it, by which time the channel stated straight
+ * after the request has usually arrived and is thrown away. The capture then
+ * ran on 2441 MHz, the channel the reset leaves behind, while the user had
+ * asked for the whole band, and nothing said so.
+ *
+ * So the two requests that state one of these keep a copy, and the dispatch
+ * applies it again after the reset. The copy names the mode request it
+ * followed, and is only applied to that mode: one left behind by a run the
+ * host has moved on from is dropped rather than carried into whatever starts
+ * next, which is the carry-over the reset exists to prevent.
+ */
+#define STATED_CHANNEL     (1 << 0)
+#define STATED_ACCESS_CODE (1 << 1)
+
+static volatile uint8_t  stated_what;       /* STATED_* bits, 0 for nothing */
+static volatile uint8_t  stated_for_mode;   /* the mode request it followed */
+static volatile uint16_t stated_channel;    /* as the host asked for it */
+static volatile uint32_t stated_access_code;
+static volatile int      stated_access_code_len;
+
+/*
+ * Note which mode request this setting followed. A copy kept for an earlier
+ * request is replaced, not added to: that request's mode is not the one
+ * starting.
+ *
+ * Only the value is recorded, not the state it leaves behind, so applying it
+ * again runs the same code the request ran -- with `mode` naming the mode that
+ * has started by then, which is what a channel request reads.
+ */
+static void stated_for_starting_mode(uint8_t what)
+{
+	if (stated_for_mode != requested_mode)
+		stated_what = 0;
+	stated_for_mode = requested_mode;
+	stated_what |= what;
+}
+
+/*
+ * Apply what was stated after the request for the mode now starting.
+ *
+ * Called from the dispatch after the reset, and before the mode's own setup,
+ * which still wins: a follow or an AFH detection asks for its hop mode there,
+ * as it has to, since the reset clears that too.
+ *
+ * A copy for another mode is dropped, unless that mode is still the one the
+ * host is waiting for -- its mode start is yet to come. The dispatch reads the
+ * request once on its way in and the reset takes a while, so a second tool's
+ * request and its setting can both be answered in between: the mode starting
+ * here is then the first tool's, and dropping the second tool's copy would
+ * leave its capture on the reset defaults.
+ */
+static void apply_stated_settings(uint8_t starting_mode)
+{
+	uint8_t what;
+
+	if (stated_what == 0)
+		return;
+
+	if (stated_for_mode != starting_mode) {
+		/* Still pending: leave it for the mode start it was stated for.
+		 * Otherwise it belongs to a run that is over, and keeping it
+		 * would carry that run's channel into a later mode -- the
+		 * carry-over the reset exists to prevent. */
+		if (stated_for_mode != requested_mode)
+			stated_what = 0;
+		return;
+	}
+
+	what = stated_what;
+	stated_what = 0;
+
+	if (what & STATED_CHANNEL)
+		set_channel_request(stated_channel);
+	if (what & STATED_ACCESS_CODE) {
+		access_code = stated_access_code;
+		access_code_len = stated_access_code_len;
+	}
+}
+
+/*
  * Returning 0 stalls the request. `data` is the buffer the USB stack filled
  * from the request's data stage and `data_in_len` how many bytes the host
  * actually sent with it, so a case that reads `data` refuses a request
@@ -523,27 +651,10 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		break;
 
 	case UBERTOOTH_SET_CHANNEL:
-		requested_channel = request_params[0];
-		/* bluetooth band sweep mode, start at channel 2402 */
-		if (requested_channel > MAX_FREQ) {
-			hop_mode = HOP_SWEEP;
-			requested_channel = 2402;
-		}
-		/* fixed channel mode, can be outside bluetooth band */
-		else {
-			hop_mode = HOP_NONE;
-			requested_channel = MAX(requested_channel, MIN_FREQ);
-			requested_channel = MIN(requested_channel, MAX_FREQ);
-		}
-
-		le_adv_channel = requested_channel;
-		if (mode != MODE_BT_FOLLOW_LE) {
-			channel = requested_channel;
-			requested_channel = 0;
-
-			/* CS threshold is mode-dependent. Update it after
-			 * possible mode change. TODO - kludgy. */
-			cs_threshold_calc_and_set(channel);
+		set_channel_request(request_params[0]);
+		if (requested_mode != mode) {
+			stated_channel = request_params[0];
+			stated_for_starting_mode(STATED_CHANNEL);
 		}
 		break;
 
@@ -954,16 +1065,35 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 #endif
 
 	case UBERTOOTH_EGO:
-		ego_mode = request_params[0];
 #ifndef TX_ENABLE
-		if (ego_mode == EGO_JAM)
+		if (request_params[0] == EGO_JAM)
 			return 0;
 #endif
+		/*
+		 * A board left capturing by a killed ubertooth-ego absorbs this
+		 * request, the way the symbol captures absorb theirs: its loop
+		 * carries on, so no mode starts and the reset the dispatch runs
+		 * never does. Reset the access code here instead, so the next
+		 * run does not capture with the code the killed one was given.
+		 * The mode re-reads it, so the radio follows within a hop.
+		 */
+		if (mode == MODE_EGO && requested_mode == MODE_EGO)
+			ego_access_code_reset();
+		ego_mode = request_params[0];
 		requested_mode = MODE_EGO;
 		break;
 
 	case UBERTOOTH_RFCAT_SUBCMD:
-		return rfcat_subcommand(request_params[0], data, data_in_len);
+		if (!rfcat_subcommand(request_params[0], data, data_in_len))
+			return 0;
+		/* An access code stated after the mode request belongs to the
+		 * capture that is starting, and the mode start puts the code
+		 * back to its default: keep a copy for it. */
+		if (request_params[0] == RFCAT_SET_AA && requested_mode != mode) {
+			stated_access_code = access_code;
+			stated_access_code_len = access_code_len;
+			stated_for_starting_mode(STATED_ACCESS_CODE);
+		}
 		break;
 
 	case UBERTOOTH_XMAS:
@@ -3449,6 +3579,7 @@ int main()
 
 	while (1) {
 		u8 next_mode, prev_mode;
+		u32 usb_irq;
 
 		handle_usb(clkn);
 
@@ -3508,8 +3639,6 @@ int main()
 		 * one register read.
 		 */
 		if (prev_mode != MODE_IDLE) {
-			u32 usb_irq;
-
 			cc2400_idle();
 			usb_irq = usb_irq_hold();
 			usb_queue_init();
@@ -3528,6 +3657,17 @@ int main()
 			 */
 			rssi_iir_reset();
 			usb_irq_release(usb_irq);
+
+			/*
+			 * The E-GO access code goes back to the one
+			 * ubertooth-ego(1) documents, for the reason the AFH map
+			 * is forgotten above: it belongs to the capture that
+			 * asked for it. It used to be set once at boot and kept
+			 * until the board was reset, so an `ubertooth-ego -a
+			 * 11223344` left 11223344 behind and the next run
+			 * captured with it while reporting nothing.
+			 */
+			ego_access_code_reset();
 		}
 
 		/*
@@ -3536,8 +3676,26 @@ int main()
 		 * so stopping the mode it was running found requested_mode == mode
 		 * and no reset ran at all; and an unknown request kept `mode`
 		 * unchanged forever, spinning this loop at full rate.
+		 *
+		 * Put back what the host stated after this mode's request too, which
+		 * the reset above would otherwise have thrown away. After `mode`,
+		 * because a channel request reads it, and before the cases below,
+		 * whose own setup wins.
+		 *
+		 * Both with the USB interrupt held off, as the queue clear above is,
+		 * and against the same kind of race: the two requests that state a
+		 * setting run from that interrupt. One arriving in the middle of
+		 * this would have its own copy dropped by the read-then-clear here,
+		 * or leave the channel from its request and the hop mode from the
+		 * copy. Recording `mode` inside the hold is what ends the window:
+		 * a request that arrives after it keeps nothing, because no mode
+		 * start is coming for it.
 		 */
+		usb_irq = usb_irq_hold();
 		mode = next_mode;
+		apply_stated_settings(next_mode);
+		usb_irq_release(usb_irq);
+
 		/* The breadcrumb's record of what the board was doing. This is the
 		 * one place a mode changes, so it is the one place that needs it. */
 		watchdog_mode(mode);

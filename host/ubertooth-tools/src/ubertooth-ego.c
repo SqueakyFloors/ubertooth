@@ -64,9 +64,10 @@ static void usage(FILE *file)
 	        " (receiving modes only, default: %d)\n",
 	        EGO_PACKET_LENGTH_MIN, EGO_PACKET_LENGTH_MAX,
 	        EGO_DEFAULT_PACKET_LENGTH);
-	fprintf(file, "\t-a <access_code> access code, 2, 4, 6 or 8 hex digits\n");
-	fprintf(file, "\t       (the board keeps the last code it was given; 630f9ffe\n");
-	fprintf(file, "\t       after a reset)\n");
+	/* The default is the firmware's, from the shared header, so this line
+	 * cannot drift from what a run without -a actually captures with. */
+	fprintf(file, "\t-a <access_code> access code, 2, 4, 6 or 8 hex digits"
+	        " (default: %08x)\n", EGO_DEFAULT_ACCESS_CODE);
 	fputs(OPT_USAGE_SELECT_DEVICE, file);
 }
 
@@ -237,17 +238,6 @@ int main(int argc, char *argv[])
 	if (do_mode >= 0) {
 		usb_pkt_rx rx;
 
-		if (do_mode == EGO_MODE_CONTINUOUS_RX) {
-			if (cmd_set_channel(ut->devh, do_channel) < 0)
-				return request_failed("set the channel");
-		}
-
-		if (have_access_code) {
-			if (cmd_rfcat_subcmd(ut->devh, RFCAT_SET_AA, access_code,
-			                     access_code_len) < 0)
-				return request_failed("set the access code");
-		}
-
 		if (cmd_rfcat_subcmd(ut->devh, RFCAT_CAP_LEN, &len, sizeof(len)) < 0)
 			return request_failed("set the capture length");
 
@@ -263,6 +253,26 @@ int main(int argc, char *argv[])
 			ubertooth_stop(ut);
 			ubertooth_free(ut);
 			return 1;
+		}
+
+		/*
+		 * The channel and the access code are stated after the request
+		 * that starts the mode, not before: a mode start puts both back
+		 * to their defaults, so a board left in another mode by a killed
+		 * tool threw away anything stated first. The board keeps what
+		 * arrives after the request for the mode it is starting, and
+		 * continuous receive re-tunes if it arrives once the capture is
+		 * under way, which costs the first millisecond of it.
+		 */
+		if (do_mode == EGO_MODE_CONTINUOUS_RX) {
+			if (cmd_set_channel(ut->devh, do_channel) < 0)
+				return request_failed("set the channel");
+		}
+
+		if (have_access_code) {
+			if (cmd_rfcat_subcmd(ut->devh, RFCAT_SET_AA, access_code,
+			                     access_code_len) < 0)
+				return request_failed("set the access code");
 		}
 
 		while (!ubertooth_stopping(ut)) {

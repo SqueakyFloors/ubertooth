@@ -35,6 +35,9 @@ static struct {
 	int api_mismatch;
 	int closes;          /* ubertooth_close(): released without a STOP */
 	int channel_rc;      /* returned by cmd_set_channel() */
+	/* Returned by the channel request made after advertising has started,
+	 * which is the one a mode start cannot throw away. */
+	int restated_channel_rc;
 	int adv_data_rc;     /* returned by cmd_le_set_adv_data() */
 	int slave_rc;        /* returned by cmd_btle_slave() */
 	int last_channel;    /* the channel the quack was set to, in MHz */
@@ -124,10 +127,12 @@ void ubertooth_close(ubertooth_t *ut)
 
 int cmd_set_channel(struct libusb_device_handle *devh, u16 channel)
 {
+	int after_slave = strchr(fake.calls, 's') != NULL;
+
 	(void)devh;
 	record('c');
 	fake.last_channel = channel;
-	return fake.channel_rc;
+	return after_slave ? fake.restated_channel_rc : fake.channel_rc;
 }
 
 int cmd_le_set_adv_data(struct libusb_device_handle *devh, uint8_t *data,
@@ -178,9 +183,16 @@ static struct run_result run_ducky(const char *const *args)
 
 /* ---- tests -------------------------------------------------------------- */
 
-/* A quack the board took: the three requests in order, the advertisement the
- * tool has always sent, and nothing on standard output. */
-MU_TEST(a_quack_the_board_took_sends_the_three_requests_and_exits_0)
+/* A quack the board took: the requests in order, the advertisement the tool
+ * has always sent, and nothing on standard output.
+ *
+ * The channel is stated twice. Advertising starts with the mode, so the board
+ * has to be on the channel before the mode request -- and a mode start puts
+ * the channel back to 2441 MHz, which a board left in another mode by a killed
+ * tool does after that request has been answered, so the first statement was
+ * thrown away and the quack went out on 2441 MHz whatever -A asked for. The
+ * second is the one such a board keeps. */
+MU_TEST(a_quack_the_board_took_sends_its_requests_and_exits_0)
 {
 	static const uint8_t UUID_LAST_BYTE_FIRST[] = { 0x0c, 0xc8, 0x2d, 0x7d };
 	struct run_result r;
@@ -188,7 +200,7 @@ MU_TEST(a_quack_the_board_took_sends_the_three_requests_and_exits_0)
 	reset_fake();
 	r = RUN("-q", "-a", "11:22:33:44:55:66");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(fake.calls, "cas") == 0, fake.calls);
+	mu_assert(strcmp(fake.calls, "casc") == 0, fake.calls);
 	mu_assert_int_eq(2426, fake.last_channel); /* advertising index 38 */
 	mu_assert_int_eq(18, fake.last_adv_len);
 	mu_assert_int_eq(0x11, fake.last_adv_data[0]);
@@ -232,12 +244,16 @@ MU_TEST(each_advertising_index_tunes_its_own_frequency)
 MU_TEST(a_refused_request_is_named_and_exits_1)
 {
 	static const struct {
-		const char *calls;   /* the requests made before the refusal */
+		const char *calls;   /* every request up to and including it */
 		const char *message;
 	} cases[] = {
-		{ "c",   "error: could not set the advertising channel\n" },
-		{ "ca",  "error: could not set the advertising data\n" },
-		{ "cas", "error: could not start advertising\n" },
+		{ "c",    "error: could not set the advertising channel\n" },
+		{ "ca",   "error: could not set the advertising data\n" },
+		{ "cas",  "error: could not start advertising\n" },
+		/* The channel restated once advertising has started: the board
+		 * is advertising on a channel the user did not ask for, so the
+		 * command ends there rather than quacking from it. */
+		{ "casc", "error: could not set the advertising channel\n" },
 	};
 	struct run_result r;
 	size_t i;
@@ -252,8 +268,10 @@ MU_TEST(a_refused_request_is_named_and_exits_1)
 			fake.channel_rc = -9;
 		else if (i == 1)
 			fake.adv_data_rc = -9;
-		else
+		else if (i == 2)
 			fake.slave_rc = -9;
+		else
+			fake.restated_channel_rc = -9;
 
 		r = RUN("-q", "-a", "11:22:33:44:55:66");
 		mu_assert_int_eq(1, r.rc);
@@ -271,8 +289,8 @@ MU_TEST(a_refused_request_is_named_and_exits_1)
 	}
 }
 
-/* -b signals the bootloader through the same three requests, so it is checked
- * the same way. */
+/* -b signals the bootloader through the same requests, so it is checked the
+ * same way. */
 MU_TEST(the_bootloader_signal_is_checked_too)
 {
 	struct run_result r;
@@ -374,7 +392,7 @@ MU_TEST(every_exit_path_gives_the_device_back)
 
 int main(void)
 {
-	MU_RUN(a_quack_the_board_took_sends_the_three_requests_and_exits_0);
+	MU_RUN(a_quack_the_board_took_sends_its_requests_and_exits_0);
 	MU_RUN(each_advertising_index_tunes_its_own_frequency);
 	MU_RUN(a_refused_request_is_named_and_exits_1);
 	MU_RUN(the_bootloader_signal_is_checked_too);

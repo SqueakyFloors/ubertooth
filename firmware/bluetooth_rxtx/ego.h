@@ -30,7 +30,18 @@ typedef enum _ego_mode_t {
 	EGO_JAM,
 } ego_mode_t;
 
+/* How many bytes of EGO_DEFAULT_ACCESS_CODE (ubertooth_interface.h) the host
+ * is treated as having given: all four. */
+#define EGO_DEFAULT_ACCESS_CODE_LEN 4
+
+/* The sync word the radio is told, and how many bytes of it the host gave.
+ * The mode dispatch keeps a copy across a mode start, so a code stated after
+ * the mode request is not thrown away by the reset. */
+extern volatile uint32_t access_code;
+extern volatile int access_code_len;
+
 void ego_main(ego_mode_t mode);
 int rfcat_subcommand(uint16_t cmd, uint8_t *body, int body_len);
+void ego_access_code_reset(void);
 
 #endif /* __EGO_H */

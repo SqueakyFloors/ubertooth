@@ -70,17 +70,24 @@ Options:
 
 ## ACCESS CODE
 
-`-a` sets the access code on the board, which keeps it until the board is
-reset or reflashed. A run without `-a` sends no access code at all, so it uses
-whichever one the board was last given, not a default of its own:
+`-a` sets the access code for the run that asks for it. A run without `-a`
+receives with `630f9ffe`: a mode start puts the code back to that default, so
+one run's `-a` does not reach the next.
 
-    ubertooth-ego -r -c 2418 -a 11223344   # sets the board's access code
-    ubertooth-ego -r -c 2418               # still receives with 11223344
+    ubertooth-ego -r -c 2418 -a 11223344   # receives with 11223344
+    ubertooth-ego -r -c 2418               # receives with 630f9ffe
 
-`630f9ffe` is the firmware's value after a reset, so it is what a run without
-`-a` uses only on a board that has not been given another. Pass `-a` when a
-run has to be reproducible, or reset the board (`ubertooth-util -r`) first.
-All three modes use the access code.
+The code is stated just after the request that starts the mode, which is what
+keeps a board left in another mode from throwing it away as it leaves it; see
+ubertooth-util(1), CARRY-OVER BETWEEN RUNS. Continuous receive tunes once, so
+a code that arrives after the capture has started costs its first
+millisecond, while `-f`, `-i` and `-j` pick one up on their next hop. All
+three modes use the access code.
+
+A program driving the board by hand can still set a code of its own and have
+the capture that follows use it, as it can with a channel: a mode started on
+an idle board resets nothing, because no earlier mode's code can be there to
+reset.
 
 ## TRANSMIT POWER
 

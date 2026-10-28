@@ -42,11 +42,41 @@ extern u8 afh_bank[NUM_BREDR_CHANNELS];
 /* The channel a fixed-channel capture is left on by the idle reset. */
 #define IDLE_CHANNEL 2441
 
+/* And the advertising channel the idle reset leaves behind: 37, the first of
+ * the three. */
+#define IDLE_ADV_CHANNEL 2402
+
+/* What ubertooth-rx and ubertooth-scan send to ask for the band sweep: any
+ * channel above the band. */
+#define SWEEP_REQUEST 9999
+
+/* The access code ubertooth-ego(1) documents, which the firmware and the tool
+ * both take from EGO_DEFAULT_ACCESS_CODE in ubertooth_interface.h. The literal
+ * here is the pin, under a name of its own so it cannot be the header's. */
+#define DOCUMENTED_ACCESS_CODE 0x630f9ffeu
+
 /* The board state the firmware keeps in bluetooth_rxtx.c. */
 static u8 mode;
 static u8 requested_mode;
 static u8 hop_mode;
 static u16 channel;
+/* The channel low-energy follow mode tunes to, which UBERTOOTH_SET_CHANNEL
+ * sets alongside the channel. */
+static u16 le_adv_channel;
+/* The E-GO sync word, in ego.c. */
+static u32 access_code;
+
+/*
+ * What the host stated after its mode request, which a mode start keeps: the
+ * copy the two requests leave, and the mode request it followed.
+ */
+#define STATED_CHANNEL     (1 << 0)
+#define STATED_ACCESS_CODE (1 << 1)
+
+static u8 stated_what;
+static u8 stated_for_mode;
+static u16 stated_channel;
+static u32 stated_access_code;
 /* Whether bt_stream_rx()'s loop is running, which is what absorbs a request. */
 static int streaming;
 /* Each channel's running average of what the radio heard there, the figure a
@@ -76,7 +106,70 @@ static void cc2400_idle(void)
 {
 	hop_mode = HOP_NONE;
 	channel = IDLE_CHANNEL;
+	le_adv_channel = IDLE_ADV_CHANNEL;
 	clear_afh_map();
+}
+
+/* ego_access_code_reset() */
+static void ego_access_code_reset(void)
+{
+	access_code = DOCUMENTED_ACCESS_CODE;
+}
+
+/*
+ * set_channel_request(): a channel above the band asks for the sweep.
+ *
+ * The advertising channel goes with it, and in low-energy follow mode it is
+ * the whole of it: that mode tunes from le_adv_channel, and the radio is left
+ * where it is. So which of the two a request sets depends on the mode running
+ * when it arrives -- and the dispatch applies a copy with `mode` already
+ * naming the mode that is starting, which is the point of recording the value
+ * rather than what it wrote.
+ */
+static void set_channel_request(u16 requested)
+{
+	if (requested > 2480) {
+		hop_mode = HOP_SWEEP;
+		requested = 2402;
+	} else {
+		hop_mode = HOP_NONE;
+	}
+
+	le_adv_channel = requested;
+	if (mode != MODE_BT_FOLLOW_LE)
+		channel = requested;
+}
+
+/* stated_for_starting_mode() */
+static void stated_for_starting_mode(u8 what)
+{
+	if (stated_for_mode != requested_mode)
+		stated_what = 0;
+	stated_for_mode = requested_mode;
+	stated_what |= what;
+}
+
+/* apply_stated_settings(), which the dispatch runs after the reset. */
+static void apply_stated_settings(u8 starting_mode)
+{
+	u8 what;
+
+	if (stated_what == 0)
+		return;
+
+	if (stated_for_mode != starting_mode) {
+		if (stated_for_mode != requested_mode)
+			stated_what = 0;
+		return;
+	}
+
+	what = stated_what;
+	stated_what = 0;
+
+	if (what & STATED_CHANNEL)
+		set_channel_request(stated_channel);
+	if (what & STATED_ACCESS_CODE)
+		access_code = stated_access_code;
 }
 
 /* rssi_iir_reset(), which the dispatch runs on its way out of a mode. Each
@@ -113,10 +206,16 @@ static void reset_absorbed_mode_state(u8 requested)
 	clear_afh_map();
 }
 
-/* One turn of main()'s loop: the dispatch, for a request that reaches it. */
-static void dispatch(void)
+/*
+ * One turn of main()'s loop: the dispatch, for a request that reaches it.
+ *
+ * The request is a parameter rather than a read of requested_mode, because the
+ * firmware reads it once on its way in and the reset it runs next takes long
+ * enough for another request to be answered in the middle of it. Everything
+ * below that point works on the mode this read found.
+ */
+static void dispatch_with(u8 next_mode)
 {
-	u8 next_mode = requested_mode;
 	u8 prev_mode = mode;
 
 	if (next_mode == prev_mode)
@@ -124,8 +223,10 @@ static void dispatch(void)
 	if (prev_mode != MODE_IDLE) {
 		cc2400_idle();
 		rssi_iir_reset();
+		ego_access_code_reset();
 	}
 	mode = next_mode;
+	apply_stated_settings(next_mode);
 
 	switch (next_mode) {
 	case MODE_AFH:
@@ -141,15 +242,54 @@ static void dispatch(void)
 	streaming = streams_symbols(next_mode);
 }
 
+static void dispatch(void)
+{
+	dispatch_with(requested_mode);
+}
+
+/*
+ * A mode that captures no symbols does not reach the dispatch the moment a
+ * request is answered: its loop looks at requested_mode once a pass, returns,
+ * and the dispatch resets on the way out of it -- long enough for the host's
+ * next request to arrive first, which is the order a tool states its channel
+ * in. A test that needs that order holds the dispatch while it sends the
+ * requests and then lets the loop return.
+ */
+static int dispatch_held;
+
 /*
  * Where the board is after a request: the running stream absorbs a request for
  * one of its three modes, and anything else goes through the dispatch.
  */
 static void board_poll(void)
 {
+	if (dispatch_held)
+		return;
 	if (streaming && streams_symbols(mode) && streams_symbols(requested_mode))
 		return;
 	dispatch();
+}
+
+static void the_old_mode_loop_returns(void)
+{
+	dispatch_held = 0;
+	board_poll();
+}
+
+/*
+ * The same, for the window inside the dispatch: it has read the request and is
+ * running the reset, and `arriving` is what another tool gets answered while
+ * that happens. The mode the dispatch read starts first, then the one that
+ * arrived.
+ */
+static void the_old_mode_loop_returns_while(void (*arriving)(void))
+{
+	u8 next_mode = requested_mode;  /* the dispatch's one read */
+
+	arriving();                     /* answered during the reset */
+	dispatch_held = 0;
+	dispatch_with(next_mode);
+	board_poll();
 }
 
 /* UBERTOOTH_RX_SYMBOLS */
@@ -187,21 +327,53 @@ static void request_specan(void)
 	board_poll();
 }
 
-/* UBERTOOTH_SET_CHANNEL, fixed-channel form */
-static void request_set_channel(u16 mhz)
+/* UBERTOOTH_SET_CHANNEL. A channel above the band asks for the band sweep
+ * instead, which is how ubertooth-rx and ubertooth-scan ask for one. */
+static void request_channel(u16 requested)
 {
-	hop_mode = HOP_NONE;
-	channel = mhz;
+	set_channel_request(requested);
+	if (requested_mode != mode) {
+		stated_channel = requested;
+		stated_for_starting_mode(STATED_CHANNEL);
+	}
 	board_poll();
 }
 
-/* UBERTOOTH_SET_CHANNEL, sweep form: a channel above the band asks for the
- * band sweep instead, which is how ubertooth-rx and ubertooth-scan ask for
- * one. */
-static void request_set_channel_sweep(void)
+/* UBERTOOTH_RFCAT_SUBCMD, RFCAT_SET_AA */
+static void request_set_access_code(u32 code)
 {
-	hop_mode = HOP_SWEEP;
-	channel = 2402;
+	access_code = code;
+	if (requested_mode != mode) {
+		stated_access_code = code;
+		stated_for_starting_mode(STATED_ACCESS_CODE);
+	}
+	board_poll();
+}
+
+/* UBERTOOTH_EGO: a mode that captures no symbols, and whose own loop absorbs a
+ * second request for it, so that request resets the access code itself. */
+static void request_ego(void)
+{
+	if (mode == MODE_EGO && requested_mode == MODE_EGO)
+		ego_access_code_reset();
+	requested_mode = MODE_EGO;
+	board_poll();
+}
+
+/* UBERTOOTH_BTLE_PROMISC: another mode that captures no symbols, and asks for
+ * no hopping of its own. */
+static void request_btle_promisc(void)
+{
+	hop_mode = HOP_NONE;
+	requested_mode = MODE_BT_PROMISC_LE;
+	board_poll();
+}
+
+/* UBERTOOTH_BTLE_SNIFFING: low-energy follow, which tunes from the
+ * advertising channel rather than from the channel. */
+static void request_btle_follow(void)
+{
+	requested_mode = MODE_BT_FOLLOW_LE;
 	board_poll();
 }
 
@@ -284,8 +456,12 @@ static void board_reset(void)
 	mode = MODE_IDLE;
 	requested_mode = MODE_IDLE;
 	streaming = 0;
+	dispatch_held = 0;
+	stated_what = 0;
+	stated_for_mode = MODE_IDLE;
 	cc2400_idle();
 	rssi_iir_reset();
+	ego_access_code_reset();
 
 	target.address = TEST_ADDRESS;
 	precalc();
@@ -433,7 +609,7 @@ MU_TEST(a_channel_set_on_its_own_is_kept_for_the_next_mode)
 {
 	board_reset();
 
-	request_set_channel(2412);
+	request_channel(2412);
 	mu_assert_int_eq(2412, channel);
 	/* Reading it back, twice, with no mode in between: still there. */
 	board_poll();
@@ -464,7 +640,7 @@ MU_TEST(a_mode_started_from_idle_keeps_what_was_set_for_it)
 {
 	board_reset();
 
-	request_set_channel_sweep();
+	request_channel(SWEEP_REQUEST);
 	request_rx_symbols();
 
 	mu_assert_int_eq(MODE_RX_SYMBOLS, mode);
@@ -521,7 +697,7 @@ MU_TEST(an_absorbed_request_leaves_the_channel_alone)
 	request_afh();
 	request_set_afh_map(AFH_MAP_20);
 
-	request_set_channel(2420);
+	request_channel(2420);
 	request_rx_symbols();
 
 	mu_assert_int_eq(2420, channel);
@@ -548,6 +724,232 @@ MU_TEST(a_dispatched_follow_still_hops)
 	mu_assert_int_eq(NUM_BREDR_CHANNELS, channels_visited());
 }
 
+/*
+ * The case the rule exists for: a board left in a mode that captures nothing.
+ * Its loop notices the capture request, returns, and the dispatch resets on
+ * the way out of it -- after the request has been answered, so the sweep the
+ * tool states next used to be thrown away and every packet came back on
+ * 2441 MHz while the user had asked for the band. The board now keeps what
+ * was stated after the request for the mode it is starting.
+ */
+MU_TEST(a_sweep_stated_after_the_capture_request_survives_a_slow_mode_exit)
+{
+	board_reset();
+	request_specan();
+
+	dispatch_held = 1;
+	request_rx_symbols();
+	request_channel(SWEEP_REQUEST);
+	the_old_mode_loop_returns();
+
+	mu_assert_int_eq(MODE_RX_SYMBOLS, mode);
+	mu_assert_int_eq(HOP_SWEEP, hop_mode);
+	mu_assert(channels_visited() > 1, "the capture sweeps the band");
+}
+
+/* The same for a channel the command line named. */
+MU_TEST(a_channel_stated_after_the_capture_request_survives_too)
+{
+	board_reset();
+	request_specan();
+
+	dispatch_held = 1;
+	request_rx_symbols();
+	request_channel(2412);
+	the_old_mode_loop_returns();
+
+	mu_assert_int_eq(2412, channel);
+	mu_assert_int_eq(HOP_NONE, hop_mode);
+	mu_assert_int_eq(1, channels_visited());
+}
+
+/*
+ * It is kept for that mode and no other. A tool that died between its mode
+ * request and its mode starting leaves a channel behind; the mode another tool
+ * then asks for starts from the reset, not on that channel. Promiscuous
+ * low-energy capture is the case that would notice: it asks for no hopping,
+ * and a sweep carried into it would hop it across the band.
+ */
+MU_TEST(a_channel_stated_for_a_mode_that_never_started_is_dropped)
+{
+	board_reset();
+	request_specan();
+
+	dispatch_held = 1;
+	request_rx_symbols();
+	request_channel(SWEEP_REQUEST);
+	/* That run is gone before its capture started. The next tool asks for
+	 * a mode of its own. */
+	request_btle_promisc();
+	the_old_mode_loop_returns();
+
+	mu_assert_int_eq(MODE_BT_PROMISC_LE, mode);
+	mu_assert_int_eq(IDLE_CHANNEL, channel);
+	mu_assert_int_eq(HOP_NONE, hop_mode);
+}
+
+/*
+ * The advertising channel `ubertooth-btle -A` asks for goes the same way, and
+ * is the setting that mode actually tunes from. It used to be put back to
+ * channel 37 as the old mode was left, so a follow asked for channel 38 or 39
+ * listened on 37 -- quietly, because 37 carries advertisements too.
+ *
+ * The copy is applied with the new mode already recorded, so the request runs
+ * its low-energy branch: the advertising channel is set and the radio is left
+ * where the reset put it, which is what that mode expects.
+ */
+MU_TEST(an_advertising_channel_stated_after_the_follow_request_survives)
+{
+	board_reset();
+	request_specan();
+
+	dispatch_held = 1;
+	request_btle_follow();
+	request_channel(2426);
+	the_old_mode_loop_returns();
+
+	mu_assert_int_eq(MODE_BT_FOLLOW_LE, mode);
+	mu_assert_int_eq(2426, le_adv_channel);
+	mu_assert_int_eq(IDLE_CHANNEL, channel);
+}
+
+/*
+ * `ubertooth-util -S -c 2440` states its channel after the stop, while the
+ * mode it is stopping is still running, so the reset on the way out of that
+ * mode used to throw it away: the standalone set the man page promises raced
+ * the mode it followed. The copy covers it, because a stop is a mode request
+ * like any other.
+ */
+MU_TEST(a_channel_stated_after_a_stop_is_kept)
+{
+	board_reset();
+	request_afh();
+	mu_assert(streaming, "AFH detection streams");
+
+	dispatch_held = 1;
+	request_stop();
+	request_channel(2440);
+	the_old_mode_loop_returns();
+
+	mu_assert_int_eq(MODE_IDLE, mode);
+	mu_assert_int_eq(2440, channel);
+}
+
+/*
+ * An access code set with no mode running is kept, and the capture that
+ * follows uses it -- the same exception the channel has, and for the same
+ * reason: a mode started on an idle board resets nothing, because no earlier
+ * mode's code can be there to reset. A program driving the board by hand is
+ * the only thing that reaches this: ubertooth-ego states its code after its
+ * mode request.
+ */
+MU_TEST(an_access_code_set_with_no_mode_running_is_kept)
+{
+	board_reset();
+
+	request_set_access_code(0x11223344);
+	request_ego();
+	mu_assert_int_eq(MODE_EGO, mode);
+	mu_assert_int_eq(0x11223344, access_code);
+
+	/* And it goes no further than that capture: the run ends, and the next
+	 * mode starts from the documented default. */
+	request_stop();
+	mu_assert_int_eq(DOCUMENTED_ACCESS_CODE, access_code);
+}
+
+/* What the second tool in the test below asks the board for. */
+static void an_ego_run_with_an_access_code(void)
+{
+	request_ego();
+	request_set_access_code(0x11223344);
+}
+
+/*
+ * Two tools inside one teardown. The dispatch reads the request once on its
+ * way in, so the first tool's mode is the one that starts even if a second
+ * tool's request and its setting are both answered while the reset runs. The
+ * second tool's copy has to survive that mode start: the mode start it was
+ * stated for is the one after it.
+ *
+ * A copy consumed at every mode start, whether or not it was applied, lost
+ * this one, and the second run captured with the reset defaults.
+ */
+MU_TEST(a_setting_stated_for_a_mode_still_to_start_survives)
+{
+	board_reset();
+	request_specan();
+
+	dispatch_held = 1;
+	/* The first tool's request is answered, and that run dies there. */
+	request_rx_symbols();
+	the_old_mode_loop_returns_while(an_ego_run_with_an_access_code);
+
+	mu_assert_int_eq(MODE_EGO, mode);
+	mu_assert_int_eq(0x11223344, access_code);
+}
+
+/*
+ * The E-GO access code goes with the capture that asked for it. It used to be
+ * set once at boot and kept until the board was reset, so `ubertooth-ego -a
+ * 11223344` left 11223344 behind and the next run captured with it while the
+ * tool called 630f9ffe the default.
+ */
+MU_TEST(a_mode_start_puts_the_access_code_back)
+{
+	board_reset();
+	mu_assert_int_eq(DOCUMENTED_ACCESS_CODE, access_code);
+
+	/* A run with -a, which states its code after the mode request. */
+	request_ego();
+	request_set_access_code(0x11223344);
+	mu_assert_int_eq(0x11223344, access_code);
+
+	/* The run ends, and the next one sends no code of its own. */
+	request_stop();
+	request_ego();
+	mu_assert_int_eq(DOCUMENTED_ACCESS_CODE, access_code);
+}
+
+/* And a code stated after the mode request survives the reset that mode start
+ * runs, the way a channel does. */
+MU_TEST(an_access_code_stated_after_the_mode_request_survives)
+{
+	board_reset();
+	request_specan();
+
+	dispatch_held = 1;
+	request_ego();
+	request_set_access_code(0x11223344);
+	the_old_mode_loop_returns();
+
+	mu_assert_int_eq(MODE_EGO, mode);
+	mu_assert_int_eq(0x11223344, access_code);
+}
+
+/*
+ * A killed E-GO run leaves the board capturing, and its own loop absorbs the
+ * next run's request: no mode starts, so the dispatch's reset never runs. The
+ * request resets the code itself, as the absorbed symbol captures reset their
+ * hopping, so the second run does not capture with the first run's code.
+ */
+MU_TEST(an_absorbed_ego_request_resets_the_access_code)
+{
+	board_reset();
+	request_ego();
+	request_set_access_code(0x11223344);
+
+	/* No stop: the next run asks for E-GO again. */
+	request_ego();
+
+	mu_assert_int_eq(MODE_EGO, mode);
+	mu_assert_int_eq(DOCUMENTED_ACCESS_CODE, access_code);
+
+	/* A second run that does pass -a still gets what it asked for. */
+	request_set_access_code(0x55667788);
+	mu_assert_int_eq(0x55667788, access_code);
+}
+
 int main(void)
 {
 	printf("mode state carry-over tests\n");
@@ -563,5 +965,15 @@ int main(void)
 	MU_RUN(a_dispatched_mode_start_forgets_the_channel_averages);
 	MU_RUN(an_absorbed_request_keeps_the_channel_averages);
 	MU_RUN(a_dispatched_follow_still_hops);
+	MU_RUN(a_sweep_stated_after_the_capture_request_survives_a_slow_mode_exit);
+	MU_RUN(a_channel_stated_after_the_capture_request_survives_too);
+	MU_RUN(a_channel_stated_for_a_mode_that_never_started_is_dropped);
+	MU_RUN(an_advertising_channel_stated_after_the_follow_request_survives);
+	MU_RUN(a_setting_stated_for_a_mode_still_to_start_survives);
+	MU_RUN(an_access_code_set_with_no_mode_running_is_kept);
+	MU_RUN(a_channel_stated_after_a_stop_is_kept);
+	MU_RUN(a_mode_start_puts_the_access_code_back);
+	MU_RUN(an_access_code_stated_after_the_mode_request_survives);
+	MU_RUN(an_absorbed_ego_request_resets_the_access_code);
 	return mu_report();
 }

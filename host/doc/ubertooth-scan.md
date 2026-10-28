@@ -119,13 +119,11 @@ line of its own to the report as that is done.
 The sweep is stated to the board after the capture has been asked for, because
 a mode start resets the board's hop mode and would throw away a sweep stated
 before it: without that, a scan listened to one channel and printed a map that
-meant nothing. See ubertooth-util(1), CARRY-OVER BETWEEN RUNS. A board that was
-already capturing — what a killed `ubertooth-afh` or `ubertooth-follow` leaves
-behind — does that reset while it takes the capture request, so the sweep
-stated after it survives. A board left in a mode that captures nothing, a
-spectrum scan say, resets as it leaves that mode, a moment after the capture
-request has been answered, and can still swallow the sweep: stop such a board
-with `ubertooth-util -S` before scanning.
+meant nothing. See ubertooth-util(1), CARRY-OVER BETWEEN RUNS. The board keeps
+a sweep stated after the capture request whatever it was doing before, so
+nothing has to be stopped first; a board left in a mode that captures nothing,
+a killed spectrum scan say, used to swallow it and the map was built from one
+channel.
 
 A BlueZ inquiry asked for with `-s` runs before the sweep is stated, so its
 results are printed even when the sweep is then refused: that half of the scan

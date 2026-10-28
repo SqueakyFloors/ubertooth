@@ -294,9 +294,10 @@
   those tools still cannot drive that image and now fail on the first request
   it does not answer.
   [#556](https://github.com/SqueakyFloors/ubertooth/issues/556)
-- **Reflash required:** the firmware API version is now 1.48, last moved by the
-  finer breadcrumb sites inside USB service that `ubertooth-util -w` reads, and
-  before that by the breadcrumb gaining two more places a board can stop, by
+- **Reflash required:** the firmware API version is now 1.49, last moved by the
+  channel a mode start keeps and the E-GO access code it resets, and before
+  that by the finer breadcrumb sites inside USB service that `ubertooth-util
+  -w` reads, by the breadcrumb gaining two more places a board can stop, by
   two requests refusing a value they used to accept, and by a record naming no
   channel when the board is tuned outside the band. A release build of the host
   tools refuses firmware of any other API version, older or newer, while a
@@ -586,6 +587,23 @@
   `ubertooth-rx -l`/`-u` and `ubertooth-follow` keep the hop sequence they
   have found.
   [#663](https://github.com/SqueakyFloors/ubertooth/issues/663)
+- A capture gets the channel, or the whole-band sweep, its command line asked
+  for, whatever the board was doing before. A tool states its channel just
+  after the request that starts its mode, and a board left in a mode that
+  captures nothing -- a killed `ubertooth-specan`, `-btle` or `-ego` -- threw
+  that channel away as it left the old mode, a moment later. Every packet then
+  came back on 2441 MHz while the user had asked for the band, an
+  `ubertooth-scan` AFH map was built from one channel, and `ubertooth-ducky`
+  advertised on 2441 MHz, which is not an advertising channel at all, whatever
+  `-A` asked for. The board now keeps a channel or sweep stated after the mode
+  request, and `ubertooth-btle`, `-ducky` and `-ego` state theirs there.
+  [#543](https://github.com/SqueakyFloors/ubertooth/issues/543)
+- `ubertooth-ego` captures with the access code the run asked for.
+  `-a <code>` used to stay on the board until it was reset or reflashed, so the
+  next run captured with the previous run's code while `-h` and the man page
+  called `630f9ffe` the default. A mode start now puts the documented default
+  back, and `-a` is stated for the run that asks for it.
+  [#397](https://github.com/SqueakyFloors/ubertooth/issues/397)
 - A spectrum analyzer run measures through the radio front end a freshly
   booted board has, whichever mode ran before it. `ubertooth-specan` and
   `ubertooth-util -q` do not set the radio's manual signal overrides
@@ -1480,6 +1498,10 @@ Fixes with no visible change in normal use.
   host USB bus that could not be read at all. The last two both read as a
   board that would not open, which named a fault the board may not have had.
   [#676](https://github.com/SqueakyFloors/ubertooth/issues/676)
+- A firmware without transmit refuses a request to interfere with an E-GO
+  connection without storing the mode it refused, so the board is left as it
+  was. No shipped tool can reach it: `ubertooth-ego -i` stops on the refusal.
+  [#397](https://github.com/SqueakyFloors/ubertooth/issues/397)
 - A packet captured by `ubertooth-btle -p` is timestamped a fixed moment after
   the board synchronized on it, rather than somewhere in the middle of the
   packet, so its time no longer drifts later the longer the packet is. Times

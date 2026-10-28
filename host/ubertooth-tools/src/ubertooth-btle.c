@@ -550,7 +550,20 @@ int main(int argc, char *argv[])
 		if (do_follow || do_no_follow) {
 			/* Checked one at a time, so the report names the
 			 * request that failed rather than the mode it was
-			 * part of. */
+			 * part of.
+			 *
+			 * The advertising channel is stated twice, before the
+			 * mode request and again after it. Listening starts
+			 * with the mode, and the engine reads the channel as
+			 * it starts and then only when it leaves a connection,
+			 * so the board has to be on the channel beforehand --
+			 * but a mode start puts it back to 2402 MHz, and a
+			 * board left in another mode by a killed tool does
+			 * that after the mode request has been answered, which
+			 * threw the first statement away: the follow listened
+			 * on channel 37 whatever -A asked for, quietly,
+			 * because 37 does carry advertisements. The second is
+			 * the one such a board keeps. */
 			if (cmd_set_channel(ut->devh,
 			                    adv_channel(do_adv_index)) < 0) {
 				report_request_failure(
@@ -561,6 +574,13 @@ int main(int argc, char *argv[])
 			if (cmd_btle_sniffing(ut->devh, do_follow) < 0) {
 				fprintf(stderr, "error: could not start %sfollow"
 				        " mode\n", do_follow ? "" : "no-");
+				ubertooth_stop(ut);
+				return release_handle(ut, 1);
+			}
+			if (cmd_set_channel(ut->devh,
+			                    adv_channel(do_adv_index)) < 0) {
+				report_request_failure(
+					"set the advertising channel");
 				ubertooth_stop(ut);
 				return release_handle(ut, 1);
 			}
@@ -659,9 +679,10 @@ int main(int argc, char *argv[])
 		uint8_t adv_data[] = { 0x02, 0x01, 0x05 };
 
 		/* Checked one at a time, so the report names the request that
-		 * failed: all three had to work for the board to advertise,
-		 * and "could not start faux slave mode" did not say which of
-		 * them the board refused.
+		 * failed: every one of them had to work for the board to
+		 * advertise on the channel asked for, and "could not start
+		 * faux slave mode" did not say which of them the board
+		 * refused.
 		 *
 		 * The first two set something up and start nothing, so a
 		 * failure leaves the board idle and it is left alone, as
@@ -684,6 +705,18 @@ int main(int argc, char *argv[])
 		 * success path deliberately leaves it advertising. */
 		if (cmd_btle_slave(ut->devh, slave_address) < 0) {
 			report_request_failure("start advertising");
+			ubertooth_stop(ut);
+			return release_handle(ut, 1);
+		}
+		/* And again now the mode has started. Advertising begins with
+		 * it, so the channel has to be on the board beforehand -- but a
+		 * mode start puts it back to 2441 MHz, and a board left in
+		 * another mode by a killed tool does that after this request
+		 * has been answered, which threw the channel away. The board
+		 * keeps a channel stated after the request for the mode it is
+		 * starting, and reads it again for every advertisement. */
+		if (cmd_set_channel(ut->devh, adv_channel(do_adv_index)) < 0) {
+			report_request_failure("set the advertising channel");
 			ubertooth_stop(ut);
 			return release_handle(ut, 1);
 		}
