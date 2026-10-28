@@ -1391,8 +1391,52 @@ static void cc2400_rx_sync(u32 sync)
 #endif
 }
 
-/* start buffered tx */
 #ifdef TX_ENABLE
+/* Polls before the wait for the radio's FIFO to empty gives up. The loop
+ * compiles to five instructions, about 80 nanoseconds at 100 MHz, so this is
+ * on the order of fifteen milliseconds -- far longer than the 256 microseconds
+ * a full FIFO takes to go out at 1 megabit per second, and so out of reach of
+ * a radio that is transmitting at all. */
+#define FIFO_EMPTY_POLLS 200000
+
+/*
+ * Wait, with a bound, for the radio to have sent what is in its FIFO, so the
+ * next piece of a packet longer than the FIFO can go in.
+ *
+ * GIO6 has to be configured as the radio's FIFO_EMPTY signal for this to mean
+ * anything; both callers do that before they start writing and put IOCFG back
+ * when the packet is out.
+ *
+ * The bound is what the bare `while (!GIO6);` this replaces lacked: a radio
+ * that stops draining -- the synthesizer dropped out, or the transmit strobe
+ * was lost -- held the transmit loop forever, and that loop is what services
+ * USB, so the board answered no control request until it was re-plugged.
+ *
+ * A caller that times out stops writing and lets the packet end there, rather
+ * than carrying on the way the other bounded radio waits do: the radio still
+ * holds what it was given, so the next piece would go past the end of the
+ * FIFO. The packet goes out short and the receiver drops it, which is what
+ * every alternative costs too, and the board keeps answering the host.
+ *
+ * These timeouts are not among the counts UBERTOOTH_GET_RADIO_TIMEOUTS
+ * reports, so a board that keeps truncating packets reads as a quiet one.
+ * Appending a shape to that reply is the way to count them -- cc2400_wait.h
+ * says so -- but it changes the reply's length and the host that reads it,
+ * which is more than this change needs.
+ *
+ * Returns 1 if the FIFO emptied, 0 if the wait timed out.
+ */
+static int fifo_wait_empty(void)
+{
+	unsigned polls;
+
+	for (polls = FIFO_EMPTY_POLLS; polls != 0; polls--)
+		if (GIO6)
+			return 1;
+	return 0;
+}
+
+/* start buffered tx */
 static void cc2400_tx_sync(uint32_t sync)
 {
 	// Bluetooth-like modulation
@@ -1496,7 +1540,9 @@ void le_transmit(u32 aa, u8 len, u8 *data)
 	cc2400_set(SYNCL,   sync & 0xffff);
 	cc2400_set(SYNCH,   (sync >> 16) & 0xffff);
 
-	// set GIO to FIFO_FULL
+	// GIO6 reports the radio's FIFO empty, which is what the write loop
+	// below waits on. The comment here used to say FIFO_FULL, which is a
+	// different signal and the opposite sense.
 	gio_save = cc2400_get(IOCFG);
 	cc2400_set(IOCFG, (GIO_FIFO_EMPTY << 9) | (gio_save & 0x1ff));
 
@@ -1512,18 +1558,28 @@ void le_transmit(u32 aa, u8 len, u8 *data)
 #endif
 	cc2400_wait_fsm(STATE_STROBE_FS_ON, NULL);
 	/*
-		This is the correct way of talking to the CC2400 FIFO, the algorithm is as follows:
-	 	While i need to send more data:
-	 		1. Wait for FIFO to drain according to FIFO_THRESHOLD, (or if first iteration immediately)
-	 		2. Fill the FIFO with the correct amount of data to send (fifo_space is an indicator for how much data has "drained" from the fifo and is now available for us to fill up again)
-	 		3. Signal FIFO to send data
-	*/
-	fifo_space = 32; // We start at 32, because the C2400 FIFO overall size is 32 bytes.
+	 * The radio's FIFO holds CC2400_FIFO_SIZE bytes, so a longer packet
+	 * goes in a piece at a time: wait for the radio to have sent what it
+	 * has, write the next piece, strobe it out, repeat. A single longer
+	 * write pushes past the end of the FIFO and what goes on the air is
+	 * undefined.
+	 */
+	fifo_space = CC2400_FIFO_SIZE; // the FIFO is empty to start with
 	i = 0;
 	while (len != 0)
 	{
-		// Wait for the FIFO to drain (when FIFO_FULL is false)	
-		while (!GIO6);
+		// Wait for the radio to have sent what is in the FIFO. Bounded,
+		// so a radio that stops draining no longer takes the board with
+		// it; before the first piece there is nothing to drain, so on an
+		// Ubertooth One GIO6 already reads high and this returns at once.
+		// On an Ubertooth Zero the GIO6 macro reads the wrong port, so
+		// it runs to the bound instead and the packet is not sent -- the
+		// board that pin belongs to is not one anybody here has.
+		//
+		// A wait that gives up ends the packet rather than writing the
+		// next piece past the end of a FIFO the radio has not emptied.
+		if (!fifo_wait_empty())
+			break;
 		// Decide how much we should send in this iteration
 		if (len >= fifo_space) {
 			len -= fifo_space;
@@ -1536,8 +1592,15 @@ void le_transmit(u32 aa, u8 len, u8 *data)
 		cc2400_fifo_write(tx_len, txbuf + i);
 		cc2400_strobe(STX);
 		i += tx_len;
-		// From now on, we only get interrupt on GIO6, which means that we work according to FIFO_THRESHOLD now, the fifo is only half full.
-		fifo_space = 16;
+		// Half a FIFO for every piece after the first, which is what the
+		// advertising path has always written. The wait above is on the
+		// FIFO being empty, so a whole FIFO would fit; the sizes are left
+		// as they were. The only way an advertising packet gets long
+		// enough to reach a second pass is advertising data longer than
+		// the buffer bt_slave_le() builds the packet in, which that
+		// function does not refuse and should: such a packet has already
+		// overrun that buffer by the time it arrives here.
+		fifo_space = CC2400_FIFO_SIZE / 2;
 	}
 	cc2400_wait_fsm(STATE_STROBE_FS_ON, NULL);
 	TXLED_CLR;
@@ -3056,12 +3119,15 @@ void rx_generic(void) {
  * because the dispatch records the mode it is entering for every mode alike.
  */
 void tx_generic(u8 prev_mode) {
-	u16 synch, syncl, frend;
+	u16 synch, syncl, frend, gio_save;
+	u8 len, sent, chunk;
 
-	// Save existing syncword and amplifier level
+	// Save the syncword, the amplifier level and what GIO6 reports, all of
+	// which this puts back when the packet is out
 	synch = cc2400_get(SYNCH);
 	syncl = cc2400_get(SYNCL);
 	frend = cc2400_get(FREND);
+	gio_save = cc2400_get(IOCFG);
 
 	cc2400_set(SYNCH, tx_pkt.synch);
 	cc2400_set(SYNCL, tx_pkt.syncl);
@@ -3076,6 +3142,9 @@ void tx_generic(u8 prev_mode) {
 	 * `ubertooth-util -a` is put back below.
 	 */
 	cc2400_set(FREND, FREND_RESERVED_ONE | (tx_pkt.pa_level & FREND_PA_LEVEL));
+	/* GIO6 reports the radio's FIFO empty, which is what the write loop
+	 * below waits on. */
+	cc2400_set(IOCFG, (GIO_FIFO_EMPTY << 9) | (gio_save & 0x1ff));
 
 	/* Bounded without a service callback, as in le_transmit(): one packet,
 	 * then back to the mode loop that services USB. */
@@ -3089,12 +3158,50 @@ void tx_generic(u8 prev_mode) {
 	cc2400_wait_fsm(STATE_STROBE_FS_ON, NULL);
 
 	/*
-	 * The vendor request already refuses a longer packet; clamped again
-	 * here because this is where a length reaches the radio, and the FIFO
-	 * write would read past tx_pkt.data.
+	 * The payload goes into the radio's FIFO a FIFO's worth at a time,
+	 * waiting for the radio to send what it has between pieces, as
+	 * le_transmit() does. The FIFO holds CC2400_FIFO_SIZE bytes and a
+	 * generic transmit packet may carry up to DMA_SIZE, so the one write
+	 * this used to make pushed the last 18 bytes of a 50-byte packet past
+	 * the end of the FIFO, and nothing reported a problem.
+	 *
+	 * This bounds what the radio is handed. What it does not settle is how
+	 * a packet longer than the FIFO is framed: the wait is for the FIFO to
+	 * be empty, and the modem takes bytes out of it at the air rate, so it
+	 * has nothing to send while the next piece is written. Whether the
+	 * radio carries the packet on or frames the rest as a second
+	 * transmission has not been measured. Refilling at FIFO_THRESHOLD
+	 * instead, before the FIFO runs dry, is the alternative; le_transmit()
+	 * still writes a threshold into INT that nothing reads, from when the
+	 * loop there was meant to work that way.
+	 *
+	 * The length is clamped as well as chunked, because this is where a
+	 * length reaches the radio: the vendor request already refuses a longer
+	 * packet, and a write of tx_pkt.length on its own would read past
+	 * tx_pkt.data.
+	 *
+	 * A zero-length packet still strobes once, which is what it did before:
+	 * the radio sends the preamble and sync word with no payload.
 	 */
-	cc2400_fifo_write(MIN(tx_pkt.length, DMA_SIZE), tx_pkt.data);
-	cc2400_strobe(STX);
+	len = MIN(tx_pkt.length, DMA_SIZE);
+	sent = 0;
+	do {
+		/* Nothing to wait for before the first piece: the radio has not
+		 * been strobed to transmit, so the FIFO cannot be draining.
+		 *
+		 * A wait that gives up ends the packet here instead of writing
+		 * the rest. The radio still has what it was given, so the next
+		 * piece would go past the end of the FIFO -- which is the thing
+		 * this loop exists to avoid. Either way this packet is lost;
+		 * this way nothing is written past the FIFO to lose it. */
+		if (sent != 0 && !fifo_wait_empty())
+			break;
+
+		chunk = MIN(len - sent, CC2400_FIFO_SIZE);
+		cc2400_fifo_write(chunk, tx_pkt.data + sent);
+		cc2400_strobe(STX);
+		sent += chunk;
+	} while (sent < len);
 
 	cc2400_wait_fsm(STATE_STROBE_FS_ON, NULL);
 	TXLED_CLR;
@@ -3110,6 +3217,7 @@ void tx_generic(u8 prev_mode) {
 	cc2400_set(SYNCH, synch);
 	cc2400_set(SYNCL, syncl);
 	cc2400_set(FREND, frend_keep_pa_level(frend));
+	cc2400_set(IOCFG, gio_save);
 	requested_mode = prev_mode;
 }
 #endif

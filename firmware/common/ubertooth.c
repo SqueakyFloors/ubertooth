@@ -453,26 +453,61 @@ static void spi_delay() {
 
 /*
  * The two FIFO transfers below drive the same CSN/SCLK/MOSI lines by hand
- * instead of going through cc2400_spi(), so they are open to the same
- * corruption by an interrupt handler that drives the radio, and they are not
- * masked. Neither is the btbr image's own copy of the FIFO write, in
- * firmware/btbr/src/btphy/rf.c.
+ * instead of going through cc2400_spi(), so they need the same guard, and now
+ * they have it: interrupts are masked from before CSN drops until after it
+ * rises. Without it a handler that drives the radio could begin its own
+ * transfer with CSN already low, and both would then read or write a corrupt
+ * word, or lose a strobe.
  *
- * They are left unmasked because they hold the bus far longer than a register
- * transfer does, and for the read that is long enough to break the clock. The
- * read waits out a delay loop twice per bit; one delay is about 0.85
- * microseconds, so a bit costs about 1.8 and a 32-byte read runs to roughly
- * 460 microseconds, past the clkn timer interrupt's 312.5 microsecond period,
- * so masking across one would cost the capture timestamps a tick. The write
- * has no delay loops and a 50-byte write takes roughly 50 microseconds, which
- * is inside a tick but still ten times a register transfer, so masking it
- * would add that much to every handler's latency.
+ * The exposure that exists today is a control request arriving from the USB
+ * interrupt while the main loop writes the FIFO: the vendor request handler
+ * writes radio registers for SET_PALEVEL, SET_CHANNEL, SET_SQUELCH and
+ * WRITE_REGISTER(S), and bt_slave_le() writes an advertising packet into the
+ * FIFO from its loop with that interrupt enabled. Every FIFO transfer in this
+ * image is made from a mode loop rather than from a handler, so the main loop
+ * being cut into is the whole of it -- but the guard covers a handler reaching
+ * a transfer too, which is what it would take for the LE PHY's handlers to
+ * share the bus with one.
  *
- * Fixing either needs a way to hold the bus that does not stop the clock, or
- * a mask narrowed to the handlers that drive the radio. That is a separate
- * piece of work; until then a control request arriving from the USB interrupt
- * can still cut into a FIFO transfer, which is what the modes that transmit
- * from their loop are exposed to.
+ * These two hold the bus far longer than a register transfer, so the guard
+ * costs more here than it does in cc2400_spi().
+ *
+ * The write has no delay loops, about 1 microsecond a byte: the longest write
+ * any caller makes is one FIFO's worth, 32 bytes, so it masks for roughly 32
+ * microseconds. That is ten times a register transfer and still well inside
+ * the clkn timer interrupt's 312.5 microsecond period, so no tick is lost --
+ * the handlers simply run that much later.
+ *
+ * The read waits out spi_delay() twice per bit, about 0.85 microseconds each,
+ * so a bit costs about 1.8 microseconds and a 32-byte read runs to roughly
+ * 460 microseconds. That is longer than one clkn period and shorter than two,
+ * so a read costs the Bluetooth clock at most one tick. An interrupt raised
+ * while masked is not lost: it is latched and runs as soon as the mask comes
+ * off, so a span holding one timer match only delays the handler. A tick goes
+ * only when two matches fall inside the span, because they coalesce into the
+ * one pending bit -- which happens when the read begins within about 150
+ * microseconds of a match, a little under half the time. The timer itself
+ * reloads in hardware and keeps time; it is the count clkn keeps in software
+ * that falls 312.5 microseconds behind when that happens.
+ *
+ * Who pays those ticks: only the two modes that read the FIFO, the generic
+ * receive (rx_generic_sync()) and the range test. The generic receive stamps
+ * each packet it enqueues with clkn, so its timestamps fall further behind
+ * the more packets it captures, and no shipped tool asks for that mode. The
+ * range test does ship -- `ubertooth-util -n` and `-e` -- and reads the FIFO
+ * for every packet it exchanges, but it uses clkn only to time a one-second
+ * turnaround, which a tick either way does not change. The capture modes
+ * whose timestamps a user reads -- BR/EDR receive and the LE PHY -- take
+ * their data over DMA and never touch the FIFO, so they are unaffected.
+ *
+ * The btbr image has its own bit-banged FIFO write, in
+ * firmware/btbr/src/btphy/rf.c, which is not masked. There it runs only from
+ * interrupt handlers -- the slot scheduler in the timer interrupt, and the
+ * refill the GIO6 interrupt calls -- and a handler can be preempted only by
+ * one of a higher priority. In both images every handler keeps the reset
+ * priority of 0 except GPDMA, which dma_poweron() puts at the lowest, so
+ * each of those writes runs to its end with nothing able to reach the bus in
+ * the middle of it.
  */
 
 /* write multiple bytes to SPI */
@@ -480,6 +515,7 @@ void cc2400_fifo_write(u8 len, u8 *data) {
 	u8 msb = 1 << 7;
 	u8 reg = FIFOREG;
 	u8 i, j, temp;
+	u32 primask = irq_save_disable();
 
 	/* start transaction by dropping CSN */
 	CSN_CLR;
@@ -527,14 +563,19 @@ void cc2400_fifo_write(u8 len, u8 *data) {
 	spi_delay();
 	/* end transaction by raising CSN */
 	CSN_SET;
+
+	irq_restore(primask);
 }
 
 /* read multiple bytes from SPI */
 void cc2400_fifo_read(u8 len, u8 *buf) {
 	u8 msb = 1 << 7;
 	u8 i, j, temp, reg;
+	u32 primask;
 	// Set first bit because it's a read
 	reg = 0x80 | FIFOREG;
+
+	primask = irq_save_disable();
 
 	/* start transaction by dropping CSN */
 	CSN_CLR;
@@ -566,6 +607,8 @@ void cc2400_fifo_read(u8 len, u8 *buf) {
 	/* end transaction by raising CSN */
 	spi_delay();
 	CSN_SET;
+
+	irq_restore(primask);
 }
 
 /* get the status */

@@ -72,6 +72,12 @@
 #define SXOSCOFF  0x65 /* Command strobe register: Turn off XOSC */
 #define FIFOREG   0x70 /* Write and read data to and from the 32 byte FIFO */
 
+/* How many bytes the radio's one FIFO holds, in either direction. A packet
+ * longer than this has to be written in pieces, each one as the radio drains
+ * the last: a single longer write pushes past the end of the FIFO and what
+ * goes on the air is undefined. */
+#define CC2400_FIFO_SIZE 32
+
 /* status byte */
 #define XOSC16M_STABLE       (1 << 6)
 #define CS_ABOVE_THRESHOLD_N (1 << 5)
