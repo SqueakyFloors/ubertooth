@@ -52,9 +52,12 @@
  * same numbers as the other image, so a code means the same thing whichever
  * image a board is running.
  *
- * The codes used to be 2, 4, 8 and 8 blinks, with bus and usage faults sharing
- * one, and they were blinked through a sleep that did not sleep, so all four
- * looked alike.
+ * The codes used to be a run of long blinks and then a run of short ones --
+ * 2 and 25, 4 and 12, 8 and 6, 8 and 6 -- which is one code for a bus fault
+ * and a usage fault both. None of them was readable anyway: they were blinked
+ * through a sleep that did not sleep, and even with a working one they took
+ * longer than the watchdog allows. The second run carried nothing the first
+ * did not; the register dump above is where the detail is.
  */
 #define FAULT_CODE_PANIC  1
 #define FAULT_CODE_HARD   2

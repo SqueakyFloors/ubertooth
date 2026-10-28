@@ -6,9 +6,8 @@
  * resets it a few seconds later. So a code has to be readable, which needs two
  * things this file checks.
  *
- * It has to be distinct. The four processor faults blinked 2, 4, 8 and 8
- * blinks, so bus and usage faults shared a code, and the panic path shared one
- * with the fault below it.
+ * It has to be distinct. The four processor faults asked for 2, 4, 8 and 8
+ * long blinks, so a bus fault and a usage fault blinked the same code.
  *
  * And it has to be blinked before the watchdog resets the board, because a
  * count cut off part-way is a different count.

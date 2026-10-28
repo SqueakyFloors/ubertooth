@@ -1489,21 +1489,14 @@ Fixes with no visible change in normal use.
   Credit: [@Kielukel](https://github.com/Kielukel) and Piotr Wasylów.
   https://github.com/Kielukel/ubertooth
 - A record the board sends no longer ends in bytes of whatever was on its
-  stack. The board copies a fixed 50 bytes into every record it queues, and
-  the generic radio receive built its record in a 36-byte buffer, so 14 bytes
-  past the end of that buffer went to the host every time. The spectrum
-  analyzer and the low-energy promiscuous mode each left a couple of bytes of
-  their record unwritten, which went out the same way.
+  stack: the generic radio receive built its record in a buffer shorter than
+  the fixed 50 bytes that are sent, and the spectrum analyzer left its last
+  two bytes unwritten.
   [#661](https://github.com/SqueakyFloors/ubertooth/issues/661)
 - A board running `btbr` that hits a processor fault blinks a code that can be
-  read. The pause between blinks did not pause -- it was an empty loop a
-  compiler may delete -- so all four faults looked like one flicker, and a bus
-  fault and a usage fault asked for the same number of blinks anyway. The
-  pause now counts the processor's own clock, and the four codes are the ones
-  the other image uses: two blinks for a hard fault, three for a memory
-  management fault, four for a bus fault, five for a usage fault, and one for
-  a panic the firmware raised itself. Each code is short enough to finish
-  before the board resets itself.
+  read: the pause between blinks did not pause, two of the four faults shared
+  a count, and no code finished before the board reset itself. See the LEDs
+  doc for what each one means.
   [#670](https://github.com/SqueakyFloors/ubertooth/issues/670)
 - Corrected firmware signal-strength channel bounds. Credit: Gabriele
   Gristina ([@matrix](https://github.com/matrix)).

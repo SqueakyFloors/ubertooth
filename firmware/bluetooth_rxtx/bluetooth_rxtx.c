@@ -3080,6 +3080,12 @@ void rx_generic_sync(void) {
 	u8 buf[DMA_SIZE] = { 0 };
 	u16 reg_val;
 
+	/* The size the buffer has to be, which is not the same question as the
+	 * one above: a 36-byte buffer satisfies that assert, and a 36-byte
+	 * buffer is what sent the stack bytes. */
+	_Static_assert(sizeof(buf) >= DMA_SIZE,
+	               "enqueue() copies DMA_SIZE bytes out of this buffer");
+
 	/* Put syncword at start of buffer
 	 * DGS: fix this later, we don't know number of syncword bytes, etc
 	 */
