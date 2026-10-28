@@ -82,6 +82,10 @@ struct util_reset_follow {
 	int select_needs_count;
 	/* Backs selector when the serial was read, empty otherwise. */
 	char serial[UTIL_RESET_SERIAL_STR_LEN];
+	/* Whether the board answered the serial read. A board that answers
+	 * nothing refuses the reset request too, so the caller resets it at the
+	 * USB level instead. */
+	int answered;
 };
 
 /*

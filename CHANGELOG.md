@@ -349,6 +349,12 @@
 
 ### Reliability fixes
 
+- `ubertooth-util -r` recovers a board that answers nothing, which used to
+  need a re-plug or a hub port power cycle. Such a board refuses the reset
+  request like every other request, so `-r` resets its USB connection first --
+  the re-plug done in software -- and then resets the board as usual, so it
+  comes back idle. Select it by index: its serial cannot be read.
+  [#731](https://github.com/SqueakyFloors/ubertooth/issues/731)
 - `ubertooth-follow -w` compensates the delay it says it does. The option
   counts 625 us timeslots, and the clock the board hops on counts 312.5 us
   ticks; the delay was added tick for tick, so every value compensated half of

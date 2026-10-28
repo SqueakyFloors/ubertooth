@@ -529,7 +529,8 @@ static void report_unscanned(int unopened, int open_err, int unread)
 		 * be read cannot be selected by serial; the index path reads none. */
 		fprintf(stderr, "note: a board that does not answer may be in use by "
 		        "another program, or busy in a mode; stop a mode with "
-		        "ubertooth-util -U <index> -S\n");
+		        "ubertooth-util -U <index> -S, or reset a board that "
+		        "answers nothing with -r\n");
 	}
 }
 

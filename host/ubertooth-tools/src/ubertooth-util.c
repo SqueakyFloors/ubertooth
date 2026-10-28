@@ -338,6 +338,70 @@ static const struct util_reset_follow_ops follow_ops = {
 	follow_warn_no_serial,
 };
 
+/* How long -r gives a board to answer again after its USB connection was
+ * reset, and how often it asks. The bench answer came back on the first ask;
+ * a second is there for a board whose firmware is still starting up. */
+#define UTIL_USB_RESET_POLLS 10u
+#define UTIL_USB_RESET_POLL_MS 100u
+
+/*
+ * Resets the board's USB connection, for -r on a board that answers nothing.
+ *
+ * Such a board refuses the reset request like every other request, so sending
+ * it leaves the board exactly as it was -- and -r then waited ten seconds and
+ * reported that the board never came back. What does bring it back is the host
+ * resetting the USB connection, which is the re-plug the user would otherwise
+ * have to do by hand: on the bench a board that had answered nothing since a
+ * capture was killed answered its first control request straight after one.
+ *
+ * This runs before the reset request rather than instead of it, so -r still
+ * means a full reset: the board that answers again is then reset like any
+ * other and comes back idle.
+ *
+ * libusb keeps this handle usable across a reset it could carry out, which is
+ * what `answers_again` says. A board that came back as a different USB device
+ * gives LIBUSB_ERROR_NOT_FOUND instead; nothing is wrong with it, but this
+ * handle is dead, so there is nothing to send the reset request on and the
+ * caller goes straight to waiting for the board to come back.
+ */
+static int reset_usb_connection(ubertooth_t *ut, const char *u_arg,
+                                int *answers_again)
+{
+	char serial[UTIL_RESET_SERIAL_STR_LEN];
+	unsigned i;
+	int r;
+
+	*answers_again = 0;
+	fprintf(stderr, "Ubertooth device %s is not answering; resetting its USB "
+	        "connection\n", u_arg ? u_arg : "0");
+	r = libusb_reset_device(ut->devh);
+	if (r == LIBUSB_ERROR_NOT_FOUND)
+		return 0;
+	if (r < 0) {
+		fprintf(stderr, "error: resetting the USB connection of Ubertooth "
+		        "device %s failed (libusb %d)\n", u_arg ? u_arg : "0", r);
+		return -1;
+	}
+
+	/* The board answers once its firmware has its USB stack back, which on
+	 * the bench was before the reset returned. The polls are for one that
+	 * takes a moment longer. */
+	for (i = 0; i < UTIL_USB_RESET_POLLS; ++i) {
+		if (follow_get_serial(ut, serial, sizeof(serial)) == 0) {
+			*answers_again = 1;
+			return 0;
+		}
+		util_clock_sleep_ms(UTIL_USB_RESET_POLL_MS);
+	}
+	/* The reset went through and the board still answers nothing, so this is
+	 * as far as the host can take it: what is left is the board's own power,
+	 * which on a hub means its port and otherwise means unplugging it. */
+	fprintf(stderr, "error: Ubertooth device %s is still not answering after "
+	        "its USB connection was reset; power-cycle the board\n",
+	        u_arg ? u_arg : "0");
+	return -1;
+}
+
 /*
  * How long -n waits for the repeater's reply before it gives up, how often it
  * asks the board how the test is going, and how often it says so.
@@ -987,6 +1051,9 @@ int main(int argc, char *argv[])
 		};
 		struct util_reset_follow follow;
 		int libusb_held;
+		/* Whether there is still a board on this handle to send the reset
+		 * request to. Only a USB reset that took the handle with it says no. */
+		int send_request = 1;
 
 		/* Counted before the reset, so the wait can see the device leave and,
 		 * where the selection is by index, not open another board while it is
@@ -999,8 +1066,24 @@ int main(int argc, char *argv[])
 		util_reset_follow_init(&follow, &follow_ops, ut, ubertooth_device,
 		                       wait.count_before);
 		wait.select_needs_count = follow.select_needs_count;
-		fprintf(stderr, "Resetting ubertooth device %s\n", ubertooth_device ? ubertooth_device : "0");
-		status = util_status_after(status, cmd_reset(ut->devh));
+		/* A board that answered the serial read answers the reset request
+		 * too. One that answered nothing has its USB connection reset
+		 * first, which is what recovers it; the request then resets it like
+		 * any other board, unless that reset has already taken this handle
+		 * with it. */
+		if (!follow.answered) {
+			if (reset_usb_connection(ut, ubertooth_device, &send_request) < 0) {
+				/* Closed without a STOP: a board that answers nothing
+				 * refuses that request too. */
+				ubertooth_close(ut);
+				ubertooth_free(ut);
+				return 1;
+			}
+		}
+		if (send_request) {
+			fprintf(stderr, "Resetting ubertooth device %s\n", ubertooth_device ? ubertooth_device : "0");
+			status = util_status_after(status, cmd_reset(ut->devh));
+		}
 		/* The device re-enumerates after a reset, so this handle is about
 		 * to go dead: release it without sending STOP (if the reset failed
 		 * the device is still there, but a STOP is not wanted either), then
