@@ -267,7 +267,7 @@ add_test(
 	COMMAND ${Python3_EXECUTABLE}
 		${CMAKE_CURRENT_SOURCE_DIR}/test_rx_uap_record.py
 		$<TARGET_FILE:ubertooth-rx>)
-set_tests_properties(rx-uap-record PROPERTIES TIMEOUT 30)
+set_tests_properties(rx-uap-record PROPERTIES TIMEOUT 10)
 
 add_executable(test-btle-options
 	test_btle_options.c

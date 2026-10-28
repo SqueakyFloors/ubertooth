@@ -5,7 +5,7 @@ Following a piconet means learning its upper address part (UAP) from the
 packets themselves: the decoder tries every clock value until one of them
 unwhitens a packet into a payload whose CRC is correct, and that packet is
 what settles the UAP. ubertooth-rx writes the UAP into every capture record
-as the reference UAP, which is what a reader checks the HEC and the CRC
+as the reference UAP, which is what a reader checks that record's CRC
 against. The settling packet's own record used to go out with no reference
 UAP at all -- the one record a reader most needs it on, because it is the
 evidence the UAP was derived from.
@@ -72,6 +72,7 @@ ID_CLK100NS = (1_000_000, 9_000_000)
 # UAP in it is there to be used.
 REF_LAP_UAP_AT = 12
 FLAGS_AT = 20
+PAYLOAD_AT = 22
 BREDR_REFUAP_VALID = 0x0080
 UAP_ANY = 0xFF                  # what a record with no reference UAP carries
 
@@ -191,7 +192,7 @@ def record(host_time, clk100ns, channel, symbols):
 
 
 def capture_records(path):
-    """(reference LAP, reference UAP, flags) of each record of a capture."""
+    """Each record of a capture: reference LAP, reference UAP, flags, payload."""
     data = path.read_bytes()
     assert len(data) > 24, f"capture is only {len(data)} bytes"
     out = []
@@ -201,9 +202,50 @@ def capture_records(path):
         body = data[offset + 16:offset + 16 + length]
         reference = struct.unpack_from("<I", body, REF_LAP_UAP_AT)[0]
         flags = struct.unpack_from("<H", body, FLAGS_AT)[0]
-        out.append((reference & 0xFFFFFF, reference >> 24, flags))
+        out.append((reference & 0xFFFFFF, reference >> 24, flags,
+                    body[PAYLOAD_AT:]))
         offset += 16 + length
     return out
+
+
+def pcapng_records(path):
+    """The same, from the enhanced packet blocks of a pcapng."""
+    data = path.read_bytes()
+    order = "<" if data[8:12] == bytes.fromhex("4d3c2b1a") else ">"
+    out = []
+    offset = 0
+    while offset + 12 <= len(data):
+        block, length = struct.unpack_from(order + "2I", data, offset)
+        if length < 12 or offset + length > len(data):
+            break
+        if block == 6:
+            # interface, two words of time, captured and original length,
+            # then that many bytes of the record itself. The block is padded
+            # to a multiple of four, so the length is what bounds it.
+            captured = struct.unpack_from(order + "I", data, offset + 24)[0]
+            body = data[offset + 28:offset + 28 + captured]
+            reference = struct.unpack_from(order + "I", body, REF_LAP_UAP_AT)[0]
+            flags = struct.unpack_from(order + "H", body, FLAGS_AT)[0]
+            out.append((reference & 0xFFFFFF, reference >> 24, flags,
+                        body[PAYLOAD_AT:]))
+        offset += length
+    return out
+
+
+def crc_recomputes(payload, uap):
+    """Whether a record's payload passes its own CRC under this UAP.
+
+    The payload a record carries is dewhitened, so the CRC over all but its
+    last two bytes has to come back as those two bytes. This is the check a
+    reader makes with the reference UAP the record gives it, which is the
+    whole point of recording one.
+    """
+    bits = []
+    for byte in payload:
+        bits += air_order(byte, 8)
+    body, check = bits[:-16], bits[-16:]
+    return payload_crc(body, uap) == sum(bit << i
+                                        for i, bit in enumerate(check))
 
 
 BASE_TIME = int(time.time()) - AGE_S
@@ -218,8 +260,9 @@ with tempfile.TemporaryDirectory() as workdir:
     work = Path(workdir)
     (work / "piconet.bin").write_bytes(FIXTURE)
     result = subprocess.run(
-        [BINARY, "-i", "piconet.bin", "-l", "%06x" % LAP, "-q", "capture.pcap"],
-        capture_output=True, text=True, timeout=30, check=False, cwd=work,
+        [BINARY, "-i", "piconet.bin", "-l", "%06x" % LAP,
+         "-q", "capture.pcap", "-r", "capture.pcapng"],
+        capture_output=True, text=True, timeout=10, check=False, cwd=work,
         # A replay opens no device; the switch keeps it that way if this run
         # ever reaches device selection.
         env=dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1"),
@@ -230,24 +273,32 @@ with tempfile.TemporaryDirectory() as workdir:
     # settling it would be a plain failure rather than a quiet one.
     assert "UAP = 0x%x found" % UAP in result.stdout, result
 
-    records = capture_records(work / "capture.pcap")
-    assert len(records) == 3, records
-    # What each record says, so that running this by hand shows the capture
-    # the assertions below are about.
-    for index, (lap, uap, flags) in enumerate(records):
-        print("record %d: reference LAP=%06x UAP=%02x flags=%#06x"
-              % (index, lap, uap, flags))
+    # Both capture formats are written from the same reference UAP, so both
+    # are checked: libbtbb assembles the flags separately for each.
+    for name, records in (("pcap", capture_records(work / "capture.pcap")),
+                          ("pcapng", pcapng_records(work / "capture.pcapng"))):
+        assert len(records) == 3, (name, records)
+        # What each record says, so that running this by hand shows the
+        # capture the assertions below are about.
+        for index, (lap, uap, flags, payload) in enumerate(records):
+            print("%s record %d: reference LAP=%06x UAP=%02x flags=0x%04x "
+                  "payload=%s" % (name, index, lap, uap, flags,
+                                  payload.hex() or "none"))
 
-    # Before the UAP is known there is nothing to record, so the first record
-    # carries no reference UAP and does not claim to.
-    assert records[0] == (LAP, UAP_ANY, records[0][2]), records
-    assert not records[0][2] & BREDR_REFUAP_VALID, records
+        # Before the UAP is known there is nothing to record, so the first
+        # record carries no reference UAP and does not claim to.
+        assert records[0][:2] == (LAP, UAP_ANY), (name, records)
+        assert not records[0][2] & BREDR_REFUAP_VALID, (name, records)
 
-    # The packet that settles the UAP carries it, flag and all: this record is
-    # the evidence the UAP came from, and it used to go out saying nothing.
-    assert records[1][:2] == (LAP, UAP), records
-    assert records[1][2] & BREDR_REFUAP_VALID, records
+        # The packet that settles the UAP carries it, flag and all: this
+        # record is the evidence the UAP came from, and it used to go out
+        # saying nothing. Its payload passes its own CRC under the UAP the
+        # record gives, which is the check the reference UAP is recorded for
+        # and the one this record could not be put through before.
+        assert records[1][:2] == (LAP, UAP), (name, records)
+        assert records[1][2] & BREDR_REFUAP_VALID, (name, records)
+        assert crc_recomputes(records[1][3], records[1][1]), (name, records)
 
-    # So does every record after it, which is all that ever worked.
-    assert records[2][:2] == (LAP, UAP), records
-    assert records[2][2] & BREDR_REFUAP_VALID, records
+        # So does every record after it, which is all that ever worked.
+        assert records[2][:2] == (LAP, UAP), (name, records)
+        assert records[2][2] & BREDR_REFUAP_VALID, (name, records)

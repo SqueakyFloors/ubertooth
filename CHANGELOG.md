@@ -1200,8 +1200,8 @@
 - A Classic capture records the reference UAP on the packet that settles it.
   `ubertooth-rx` read the piconet's UAP before handing the packet to the
   decoder, so the one packet whose CRC settled that UAP went into the capture
-  as if nothing were known, and a reader could not check its HEC or CRC - the
-  packet the UAP was derived from being the one record that most needs it.
+  as if nothing were known, and a reader could not check that packet's CRC -
+  the packet the UAP was derived from being the one record that most needs it.
   [#767](https://github.com/SqueakyFloors/ubertooth/issues/767)
 
 ### Documentation

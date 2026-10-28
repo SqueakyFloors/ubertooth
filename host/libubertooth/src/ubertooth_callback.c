@@ -1190,7 +1190,7 @@ void cb_rx(ubertooth_t* ut, void* args)
 	 * whose CRC is what finally settles the piconet's UAP settles it inside
 	 * the call above, so reading it beforehand left that one packet -- the
 	 * only evidence a reader has for the UAP -- recorded as if nothing was
-	 * known. */
+	 * known, and its CRC with nothing to check it against. */
 	if (pn && btbb_piconet_get_flag(pn, BTBB_UAP_VALID))
 		uap = btbb_piconet_get_uap(pn);
 
