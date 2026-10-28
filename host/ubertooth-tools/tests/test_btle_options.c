@@ -75,7 +75,12 @@ static void test_plain_addresses(void)
 	                                address) == 0);
 	CHECK(convert_plain_mac_address("11:22", "faux slave", address) == 0);
 	CHECK(convert_plain_mac_address(NULL, "faux slave", address) == 0);
-	/* a refused value leaves the address it was given alone */
+	/* A refused value leaves the address it was given alone. An address of
+	 * the right length with one bad byte is the case that shows it: the
+	 * parser reads the five bytes before the bad one, so a parser that
+	 * wrote them straight into the caller's address would be caught here. */
+	CHECK(convert_plain_mac_address("11:22:33:44:55:GG", "faux slave",
+	                                address) == 0);
 	CHECK(memcmp(address, expected, sizeof(address)) == 0);
 }
 

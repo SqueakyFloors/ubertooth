@@ -57,9 +57,9 @@ int convert_plain_mac_address(const char *text, const char *what,
 		return 0;
 	snprintf(label, sizeof(label), "%s address", what);
 	/* No mask is split off and "none" is not a word here, so the whole
-	 * value goes to the address parser: a mask or "none" is refused as the
-	 * address it is not. */
-	if (opt_require_bd_addr(text, label, text, address) < 0)
+	 * value goes to the address parser -- a mask or "none" is refused as
+	 * the address it is not -- and there is no separate word to quote. */
+	if (opt_require_bd_addr(text, label, NULL, address) < 0)
 		return 0;
 	return 1;
 }

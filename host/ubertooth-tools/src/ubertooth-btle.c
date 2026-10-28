@@ -130,7 +130,7 @@ static void usage(FILE *out)
 	fprintf(out, "\n");
 	fprintf(out, "\t-a [address] get/set access address, 1-8 hex digits (example: -a 8e89bed6)\n");
 	fprintf(out, "\t-s <address> faux slave mode, advertising from one whole address\n");
-	fprintf(out, "\t       (example: -s 22:44:66:88:aa:cc; no /<bits> mask and no none)\n");
+	fprintf(out, "\t       (example: -s 22:44:66:88:aa:cc; no \"/<bits>\" mask, no \"none\")\n");
 	fprintf(out, "\t       -a and -s do not go with -f, -n or -p, which run until interrupted\n");
 	fprintf(out, "\t-t <address> set connection following target (example: -t 22:44:66:88:aa:cc/48)\n");
 	fprintf(out, "\t-t none unset connection following target\n");
