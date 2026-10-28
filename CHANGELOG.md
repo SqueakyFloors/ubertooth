@@ -1429,8 +1429,11 @@
   to 9 bits early and the receiver looked for the rest of the payload in the
   wrong place: about one payload size in sixteen failed its checksum, and the
   bits cut off the air were filled from whatever was on the stack rather than
-  with zeros. **Boards running an older build of the `btbr` image will not
-  interoperate with boards running this one, at those payload sizes.**
+  with zeros. **A board running an older build of the `btbr` image will not
+  interoperate with a board running this one, for the DM1, DM3 and DM5 sizes
+  this changes**, and the firmware API version does not move for it, so nothing
+  warns you about a mixed pair: reflash both boards. Paging is unaffected, its
+  FHS packet being 20 bytes, which was already counted right.
   [#706](https://github.com/SqueakyFloors/ubertooth/issues/706)
 
 ### Documentation
