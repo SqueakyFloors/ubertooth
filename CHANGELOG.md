@@ -267,6 +267,10 @@
   guessed `00:00:<UAP>:<LAP>`, so the failure now asks for the whole address
   with `-t`.
   [#540](https://github.com/SqueakyFloors/ubertooth/issues/540)
+- `ubertooth-specan-ui --wifi 14` places the channel on 2484 MHz, where it is,
+  rather than 2482, so the band it sweeps and the channel it draws are no
+  longer 2 MHz low.
+  [#673](https://github.com/SqueakyFloors/ubertooth/issues/673)
 - Replaying a dump puts a low-energy packet that arrived as several records
   where the live capture of the same run put it, rather than up to a second
   later.

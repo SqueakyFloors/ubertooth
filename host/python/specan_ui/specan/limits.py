@@ -29,9 +29,10 @@ def convert_wifi(channel):
     if channel < MIN_WIFI_CHANNEL or channel > MAX_WIFI_CHANNEL:
         _refuse("channel " + str(channel) + " is not a valid wifi channel")
 
-    # Channel 14 does not follow the 5 MHz spacing of 1-13.
+    # Channels 1-13 are spaced 5 MHz apart. Channel 14 is the exception: it
+    # sits 12 MHz above channel 13's 2472 MHz, not 5.
     if channel == MAX_WIFI_CHANNEL:
-        return 2482
+        return 2484
     return channel * 5 + 2407
 
 

@@ -77,6 +77,16 @@ for call in (lambda: limits.parse_wifi_range("1-11"),
 print("specan/limits.py: %d refusals, each one line on stderr" % len(CASES))
 
 
+# The centre frequency of each channel, with both ends of the evenly spaced
+# run and the one channel that breaks the spacing: 14 is 12 MHz above 13.
+CENTRES = ((1, 2412), (6, 2437), (11, 2462), (13, 2472), (14, 2484))
+for channel, centre in CENTRES:
+    assert limits.convert_wifi(channel) == centre, (channel, centre,
+                                                    limits.convert_wifi(channel))
+
+print("specan/limits.py: %d channel centre frequencies" % len(CENTRES))
+
+
 # ---- and the same cases through the script, where it can run --------------
 
 if SCRIPT is None:
