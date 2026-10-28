@@ -119,6 +119,7 @@ run_check
 [ "$status" -eq 1 ] || fail "expected exit 1, got $status"
 grep -q "firmware/image/Makefile:1: *# see #$planted" "$err" ||
     fail "the planted line is not named on standard error"
+[ -s "$out" ] && fail "wrote to standard output on a failure"
 
 case_name="a full issue URL is caught as well as a bare number"
 new_repo
@@ -127,6 +128,7 @@ printf '/* https://github.com/owner/repo/issues/%s */\n' "$planted" \
 run_check
 [ "$status" -eq 1 ] || fail "expected exit 1, got $status"
 grep -q "src/filler9.c:2:" "$err" || fail "the planted URL is not reported"
+[ -s "$out" ] && fail "wrote to standard output on a failure"
 
 # ---- a scan that really did go wrong still says so ----------------------
 # The wrapper the fix adds must pass grep's own errors through: a file git
@@ -140,6 +142,7 @@ run_check
 [ "$status" -eq 1 ] || fail "expected exit 1, got $status"
 grep -q "the scan itself failed" "$err" ||
     fail "a missing tracked file was not reported as a failed scan"
+[ -s "$out" ] && fail "reported a file count on a failed scan"
 
 # ---- the floor on how few files may be in scope -------------------------
 
@@ -157,14 +160,21 @@ run_check
 [ "$status" -eq 1 ] || fail "expected exit 1, got $status"
 grep -q "files in scope, which cannot be right" "$err" ||
     fail "the floor did not fire"
+[ -s "$out" ] && fail "wrote to standard output on a failure"
 
 # ---- outside a checkout -------------------------------------------------
 
+# The wording here is git's, not the check's: `git rev-parse` fails and the
+# check exits on that, so what reaches the user is "not a git repository".
+# The check's own "not inside a git checkout" line is for the other way out,
+# a rev-parse that answers with nothing.
 case_name="outside a git checkout it says so"
 repo="$work/not-a-repo"
 mkdir -p "$repo"
 run_check
 [ "$status" -eq 1 ] || fail "expected exit 1, got $status"
+[ -s "$err" ] || fail "said nothing about not being in a checkout"
+[ -s "$out" ] && fail "wrote to standard output on a failure"
 
 printf '\n'
 if [ "$failures" -eq 0 ]; then
