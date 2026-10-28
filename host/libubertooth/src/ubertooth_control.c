@@ -661,8 +661,10 @@ int cmd_set_palevel(struct libusb_device_handle* devh, u16 level)
 	return 0;
 }
 
-int cmd_get_rangeresult(struct libusb_device_handle* devh,
-		rangetest_result *rr)
+/* The range test result read, in both forms: quiet returns the error and
+ * prints nothing. See cmd_get_rangeresult_quiet(). */
+static int rangeresult(struct libusb_device_handle* devh, rangetest_result *rr,
+		int quiet)
 {
 	u8 result[5];
 	int r;
@@ -670,6 +672,8 @@ int cmd_get_rangeresult(struct libusb_device_handle* devh,
 	r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_RANGE_CHECK, 0, 0,
 			result, sizeof(result), 3000);
 	if (r < LIBUSB_SUCCESS) {
+		if (quiet)
+			return r;
 		if (r == LIBUSB_ERROR_PIPE) {
 			fprintf(stderr, "error: control message unsupported\n");
 		} else {
@@ -677,9 +681,10 @@ int cmd_get_rangeresult(struct libusb_device_handle* devh,
 		}
 		return r;
 	}
-	r = check_reply_length(r, 5, "range test result");
-	if (r < 0)
-		return r;
+	if (r != (int)sizeof(result))
+		return quiet ? UBERTOOTH_ERROR_SHORT_REPLY
+		             : check_reply_length(r, sizeof(result),
+		                                  "range test result");
 
 	rr->valid       = result[0];
 	rr->request_pa  = result[1];
@@ -690,7 +695,21 @@ int cmd_get_rangeresult(struct libusb_device_handle* devh,
 	return 0;
 }
 
-int cmd_get_watchdog(struct libusb_device_handle* devh, watchdog_info *info)
+int cmd_get_rangeresult(struct libusb_device_handle* devh,
+		rangetest_result *rr)
+{
+	return rangeresult(devh, rr, 0);
+}
+
+int cmd_get_rangeresult_quiet(struct libusb_device_handle* devh,
+		rangetest_result *rr)
+{
+	return rangeresult(devh, rr, 1);
+}
+
+/* The watchdog read, in both forms; see cmd_get_watchdog_quiet(). */
+static int watchdog(struct libusb_device_handle* devh, watchdog_info *info,
+		int quiet)
 {
 	u8 result[UBERTOOTH_WATCHDOG_INFO_LEN];
 	int r;
@@ -698,6 +717,8 @@ int cmd_get_watchdog(struct libusb_device_handle* devh, watchdog_info *info)
 	r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_GET_WATCHDOG, 0, 0,
 			result, sizeof(result), 1000);
 	if (r < LIBUSB_SUCCESS) {
+		if (quiet)
+			return r;
 		if (r == LIBUSB_ERROR_PIPE) {
 			fprintf(stderr, "error: control message unsupported\n");
 		} else {
@@ -705,9 +726,10 @@ int cmd_get_watchdog(struct libusb_device_handle* devh, watchdog_info *info)
 		}
 		return r;
 	}
-	r = check_reply_length(r, UBERTOOTH_WATCHDOG_INFO_LEN, "watchdog state");
-	if (r < 0)
-		return r;
+	if (r != (int)sizeof(result))
+		return quiet ? UBERTOOTH_ERROR_SHORT_REPLY
+		             : check_reply_length(r, UBERTOOTH_WATCHDOG_INFO_LEN,
+		                                  "watchdog state");
 
 	/* Byte by byte, in the order ubertooth_interface.h gives: the reply is a
 	 * byte string, not this struct's memory. */
@@ -721,6 +743,17 @@ int cmd_get_watchdog(struct libusb_device_handle* devh, watchdog_info *info)
 	info->site        = result[7];
 
 	return 0;
+}
+
+int cmd_get_watchdog(struct libusb_device_handle* devh, watchdog_info *info)
+{
+	return watchdog(devh, info, 0);
+}
+
+int cmd_get_watchdog_quiet(struct libusb_device_handle* devh,
+		watchdog_info *info)
+{
+	return watchdog(devh, info, 1);
 }
 
 int cmd_range_test(struct libusb_device_handle* devh)

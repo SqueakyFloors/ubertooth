@@ -303,6 +303,200 @@ static const struct util_reset_follow_ops follow_ops = {
 };
 
 /*
+ * How long -n waits for the repeater's reply before it gives up, how often it
+ * asks the board how the test is going, and how often it says so.
+ *
+ * Ten seconds is the whole exchange with room to spare: the sender's burst
+ * takes about a second, the repeater waits another second before it answers so
+ * the sender is listening by then, and the reply burst is a second more. A
+ * missing repeater is therefore reported in ten seconds rather than never.
+ * -n 0 waits forever, for a test being set up by hand at the far end.
+ */
+#define RANGE_TEST_TIMEOUT_S 10
+#define RANGE_TEST_POLL_MS 100
+#define RANGE_TEST_PROGRESS_MS 1000
+
+/*
+ * How many polls in a row may fail before -n gives up on the board.
+ *
+ * A board part-way through a mode stalls the odd control request: one poll in
+ * about twenty on the bench. The next one answers, so a single failed read is
+ * not the test failing, and the polls are quiet for that reason. A board that
+ * has stopped answering altogether still ends the wait, on the third failure
+ * in a row.
+ */
+#define RANGE_TEST_READ_FAILURES 3
+
+/*
+ * The range test result block, which -m and -n both print, so a result reads
+ * the same whichever asked for it.
+ *
+ * Returns 0 when a result (or the absence of one) was reported, 1 when the
+ * test ran but its reply came back corrupted: that is a diagnostic rather
+ * than a value, so it goes to standard error and the command fails.
+ */
+static int report_range_result(const rangetest_result *rr)
+{
+	if (rr->valid == 1) {
+		fprintf(stdout, "request PA level : %d\n", rr->request_pa);
+		fprintf(stdout, "request number   : %d\n", rr->request_num);
+		fprintf(stdout, "reply PA level   : %d\n", rr->reply_pa);
+		fprintf(stdout, "reply number     : %d\n", rr->reply_num);
+		return 0;
+	}
+	if (rr->valid > 1) {
+		/* A reply arrived whose payload is not the one that was sent, so
+		 * the levels it carries cannot be trusted. */
+		fprintf(stderr, "error: invalid range test: mismatch on byte %d\n",
+		        rr->valid - 2);
+		return 1;
+	}
+	/* valid is 0 until a range test completes once: there is no result yet,
+	 * which is not an error. */
+	fprintf(stdout, "no range test result yet\n");
+	return 0;
+}
+
+/*
+ * Leaves the board idle at the end of a test that did not finish: it would
+ * otherwise listen forever, and the next command would find a board that
+ * looks busy. Returns the clause the caller's message ends with, so no
+ * message claims a stop that did not happen.
+ */
+static const char *range_test_stop(ubertooth_t *ut)
+{
+	if (cmd_stop(ut->devh) >= 0)
+		return "the range test has been stopped";
+	return "the range test has not been stopped; -S stops it";
+}
+
+/* The end of a wait whose polls keep failing: the read that gave up, and what
+ * became of the test. Returns 1, the status the wait fails with. */
+static int range_test_read_failed(ubertooth_t *ut, const char *what)
+{
+	const char *left = range_test_stop(ut);
+
+	fprintf(stderr, "error: %s read failed; %s\n", what, left);
+	return 1;
+}
+
+/*
+ * Follows the range test the board has just been started on, and reports it.
+ *
+ * The board transmits its burst and then listens for the repeater's reply.
+ * Two reads say how that is going: the range test result, which stays empty
+ * until a reply arrives, and the mode the board is in, which the watchdog
+ * breadcrumb reports. Polling them turns -n from "the test has been started"
+ * into the test itself -- a progress line about once a second, then the same
+ * result block -m prints.
+ *
+ * With no repeater in range the board listens forever, so the wait has a
+ * deadline; timeout_s of 0 waits forever. Returns 0 when the test finished
+ * and its result was printed, 1 otherwise.
+ */
+static int range_test_wait(ubertooth_t *ut, int timeout_s)
+{
+	uint64_t start = util_clock_now_ms();
+	uint64_t next_progress = RANGE_TEST_PROGRESS_MS;
+	int cleared = 0;  /* the board has cleared the previous test's result */
+	int started = 0;  /* ...and has been seen running this one */
+	int failures = 0; /* polls in a row that could not read the board */
+
+	for (;;) {
+		rangetest_result rr;
+		watchdog_info info;
+		uint64_t elapsed = util_clock_now_ms() - start;
+
+		if (timeout_s > 0 && elapsed >= (uint64_t)timeout_s * 1000u) {
+			const char *left = range_test_stop(ut);
+
+			/* The repeater is the only thing that answers a range test,
+			 * so it is the likely cause -- unless the board was never
+			 * seen running the test at all, which is not the repeater's
+			 * doing and would send the user looking in the wrong place. */
+			if (!started)
+				fprintf(stderr, "error: the board did not start the range "
+				        "test within %d s; %s\n", timeout_s, left);
+			else
+				fprintf(stderr, "error: no reply from the repeater within "
+				        "%d s: start one in range with ubertooth-util -e, "
+				        "or wait longer with -n <seconds>; %s\n",
+				        timeout_s, left);
+			return 1;
+		}
+		if (elapsed >= next_progress) {
+			/* Flushed, so the line appears as it is printed and not when
+			 * a pipe's buffer fills. */
+			fprintf(stdout, "waiting for the repeater... (%u s)\n",
+			        (unsigned)(elapsed / 1000u));
+			fflush(stdout);
+			next_progress = elapsed + RANGE_TEST_PROGRESS_MS;
+		}
+
+		/*
+		 * The wait before the read, so the first read is a poll interval
+		 * into the test: the board has only just been asked to start it,
+		 * so there is nothing to read yet, and a read that lands in the
+		 * moment the mode is starting is the one the board has been seen
+		 * to stall.
+		 */
+		util_clock_sleep_ms(RANGE_TEST_POLL_MS);
+		if (cmd_get_rangeresult_quiet(ut->devh, &rr) != 0) {
+			/* A poll that learned nothing; see RANGE_TEST_READ_FAILURES.
+			 * Giving up stops the test as the deadline does: nobody is
+			 * watching it now. */
+			if (++failures >= RANGE_TEST_READ_FAILURES)
+				return range_test_read_failed(ut, "range test result");
+			continue;
+		}
+		/*
+		 * The firmware clears the result as the test starts, and sets it
+		 * only at the end of a run, so a read that lands before the board
+		 * has entered the mode still answers with the previous test's
+		 * levels. Waiting for one empty read first means every result
+		 * below belongs to this test.
+		 */
+		if (rr.valid == 0)
+			cleared = 1;
+		else if (cleared)
+			return report_range_result(&rr);
+
+		if (cmd_get_watchdog_quiet(ut->devh, &info) != 0) {
+			if (++failures >= RANGE_TEST_READ_FAILURES)
+				return range_test_read_failed(ut, "board mode");
+			continue;
+		}
+		failures = 0;
+		if (info.mode == MODE_RANGE_TEST)
+			started = 1;
+		else if (started) {
+			/*
+			 * The test is over without a result in hand. The firmware
+			 * writes the result just before it leaves the mode, so read
+			 * once more: that settles whether the test finished between
+			 * the two reads above or ended without a reply.
+			 */
+			if (cmd_get_rangeresult_quiet(ut->devh, &rr) != 0) {
+				/* This read is the one deciding it, so a stall here is
+				 * not an answer: count it and look again, rather than
+				 * calling a finished test a stopped one. */
+				if (++failures >= RANGE_TEST_READ_FAILURES)
+					return range_test_read_failed(ut,
+					        "range test result");
+				continue;
+			}
+			if (cleared && rr.valid != 0)
+				return report_range_result(&rr);
+			/* No stop to send: the board has left the test by itself,
+			 * which is where the other endings have to put it. */
+			fprintf(stderr, "error: the range test was stopped before the "
+			        "repeater replied\n");
+			return 1;
+		}
+	}
+}
+
+/*
  * -I needs this tree's firmware. ubertooth-util does not call
  * ubertooth_check_api() (it must still read the version of, and reflash, any
  * firmware), so -I checks the version itself, before it prints or sends
@@ -356,7 +550,9 @@ static void usage(FILE *output)
 	fprintf(output, "Range test:\n");
 	fprintf(output, "\t-e start repeater mode\n");
 	fprintf(output, "\t-m display range test result\n");
-	fprintf(output, "\t-n initiate range test\n");
+	fprintf(output, "\t-n [seconds] run a range test, reporting its progress and result\n");
+	fprintf(output, "\t   waits this long for the repeater's reply (default: %d; 0 waits forever)\n",
+	        RANGE_TEST_TIMEOUT_S);
 	fprintf(output, "\n");
 	fprintf(output, "Miscellaneous:\n");
 	fprintf(output, "\t-i activate In-System Programming (ISP) mode\n");
@@ -392,6 +588,7 @@ int main(int argc, char *argv[])
 	int do_compile_info;
 	int first_exit_option, long_host_version; /* -h / -H / --host-version */
 	int do_number, do_xmas, do_watchdog;
+	int range_test_timeout = RANGE_TEST_TIMEOUT_S; /* -n's value, in seconds */
 	char* ubertooth_device = NULL;
 	int requested[QUERY_COUNT]; /* identity queries, for the per-device listing */
 	int any_query, list_all;
@@ -430,10 +627,10 @@ int main(int argc, char *argv[])
 	 * see opt_report_bad_option(). The leading ':' makes a missing option
 	 * value distinguishable from an option getopt does not know. */
 	opterr = 0;
-	while ((opt=getopt(argc,argv,":U:hnmeiIprsStvbwl::a::C::c::d::q::z::VNxH")) != EOF) {
+	while ((opt=getopt(argc,argv,":U:hn::meiIprsStvbwl::a::C::c::d::q::z::VNxH")) != EOF) {
 		/* An optional value may also be the next word: -c 2440, -z -90. Only
 		 * -z takes a negative value (a signed RSSI threshold). */
-		if (optarg == NULL && strchr("lacCdqz", opt) != NULL)
+		if (optarg == NULL && strchr("lacCdqzn", opt) != NULL)
 			optarg = opt_separate_value(argc, argv,
 			                            opt == 'z' ? opt_value_signed_decimal
 			                                       : opt_value_decimal);
@@ -526,6 +723,11 @@ int main(int argc, char *argv[])
 			break;
 		case 'n':
 			do_range_test= 0;
+			/* bare -n keeps the default deadline */
+			if (optarg &&
+			    opt_require_count(optarg, 0, "timeout", "seconds",
+			                      "0 for none", &range_test_timeout) < 0)
+				return 1;
 			break;
 		case 'm':
 			do_range_result= 0;
@@ -840,28 +1042,11 @@ int main(int argc, char *argv[])
 		        util_report_part_id(&report_ops, ut, stdout, stderr));
 	if(do_range_result == 0) {
 		int rr_status = cmd_get_rangeresult(ut->devh, &rr);
-		if (rr_status != 0) {
-			status = util_status_merge(status, report_read_failed("range test result", rr_status));
-		} else {
-			if (rr.valid==1) {
-				fprintf(stdout, "request PA level : %d\n", rr.request_pa);
-				fprintf(stdout, "request number   : %d\n", rr.request_num);
-				fprintf(stdout, "reply PA level   : %d\n", rr.reply_pa);
-				fprintf(stdout, "reply number     : %d\n", rr.reply_num);
-			} else if (rr.valid>1) {
-				/* The test ran but the data came back corrupted: a
-				 * diagnostic rather than a result, so it is not a value a
-				 * script can read off standard output, and the command
-				 * failed. */
-				fprintf(stderr, "error: invalid range test: mismatch on byte %d\n",
-				        rr.valid-2);
-				status = util_status_merge(status, 1);
-			} else {
-				/* valid is 0 until a range test completes once: there is
-				 * no result yet, which is not an error. */
-				fprintf(stdout, "no range test result yet\n");
-			}
-		}
+		if (rr_status != 0)
+			status = util_status_merge(status,
+			        report_read_failed("range test result", rr_status));
+		else
+			status = util_status_merge(status, report_range_result(&rr));
 	}
 
 	if(do_serial == 0)
@@ -926,9 +1111,17 @@ int main(int argc, char *argv[])
 		goto out;
 	}
 	if(do_range_test == 0) {
+		int started;
+
 		fprintf(stderr, "Starting range test\n");
 		status = util_status_after(status, cmd_stop(ut->devh)); /* leave any prior mode before starting */
-		status = util_status_after(status, cmd_range_test(ut->devh));
+		started = cmd_range_test(ut->devh);
+		status = util_status_after(status, started);
+		/* Only follow a test that started: a request the board refused
+		 * leaves nothing running to report on. */
+		if (started >= 0)
+			status = util_status_merge(status,
+			        range_test_wait(ut, range_test_timeout));
 		goto out;
 	}
 	if(do_repeater == 0) {

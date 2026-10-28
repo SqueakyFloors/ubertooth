@@ -165,18 +165,22 @@ the same revision. The exchange completes within a couple of seconds.*
 
 - [ ] Run `ubertooth-util -U <repeater> -e`; it keeps running until
       `ubertooth-util -U <repeater> -S` stops it
-- [ ] Run `ubertooth-util -U <sender> -n`, then `ubertooth-util -U <sender> -m`
-- [ ] Confirm: `-m` prints a level in each direction, not `error: invalid range
-      test: mismatch on byte <n>`. Close together, the lowest level gets
-      through first try both ways:
+- [ ] Run `ubertooth-util -U <sender> -n`
+- [ ] Confirm: it prints a `waiting for the repeater... (<n> s)` line about
+      once a second while the exchange runs, then a level in each direction,
+      and exits 0 — not `error: invalid range test: mismatch on byte <n>`.
+      Close together, the lowest level gets through first try both ways:
 
+      waiting for the repeater... (1 s)
       request PA level : 0
       request number   : 0
       reply PA level   : 0
       reply number     : 0
 
-- [ ] Weaken the link — move the boards apart, or attenuate one — and repeat
-      `-n` then `-m`
+- [ ] Run `ubertooth-util -U <sender> -m`
+- [ ] Confirm: the same four lines, read back from the board
+- [ ] Weaken the link — move the boards apart, or attenuate one — and run `-n`
+      again
 - [ ] Confirm: the levels still report, with a higher packet number than
       before: more of the sixteen packets at that level were lost before one
       got through. The level itself may rise too, since the firmware moves up
@@ -193,13 +197,28 @@ the same revision. The exchange completes within a couple of seconds.*
 - [ ] Confirm: `no range test result yet` on standard output, exit 0 — a board
       that has not completed a test since it started has no result, which is
       not a failure
-- [ ] Stop the repeater (`ubertooth-util -U <repeater> -S`), run `-n` on the
-      sender with nothing answering it, then `ubertooth-util -U <sender> -S`
-- [ ] Confirm: `-n` returns at once and the board waits for a reply until `-S`
-      stops it; the board answers other commands (`-v`, `-b`) meanwhile
-- [ ] Swap the two roles — `-e` on the board that was the sender, `-n` then
-      `-m` on the other — and confirm the first two results again, so each
-      board is seen transmitting
+- [ ] Stop the repeater (`ubertooth-util -U <repeater> -S`) and run `-n` on the
+      sender with nothing answering it
+- [ ] Confirm: a waiting line a second for ten seconds, then one line on
+      standard error — `error: no reply from the repeater within 10 s: ...;
+      the range test has been stopped` — and exit 1. `-m` afterwards says
+      `no range test result yet`, and the board is idle: `-w` reads
+      `Now in idle mode`
+- [ ] Run `ubertooth-util -U <sender> -n 3` with nothing answering
+- [ ] Confirm: the same, after three seconds, with `within 3 s` in the message
+- [ ] Run `ubertooth-util -U <sender> -n 0` with nothing answering, let it
+      print a few waiting lines, and stop it with Ctrl+C
+- [ ] Confirm: `-n 0` waits with no deadline, and an interrupted run leaves
+      the test going — `-w` reads `Now in range test mode` — until
+      `ubertooth-util -U <sender> -S`, after which `-w` reads
+      `Now in idle mode`
+- [ ] Swap the two roles — `-e` on the board that was the sender, `-n` on the
+      other — and confirm the first two results again, so each board is seen
+      transmitting
+
+*The range test itself is flaky run to run on some boards: about one run in
+five reports `mismatch on byte 0`, or does not finish. That is issue #686, not
+a fault in the tools. Repeat a run that ends that way.*
 
 ---
 

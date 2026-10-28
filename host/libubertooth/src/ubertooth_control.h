@@ -161,6 +161,15 @@ int cmd_get_rangeresult(struct libusb_device_handle* devh, rangetest_result *rr)
  * why the board last started, how many times it has reset itself without
  * being asked to, and the mode and wait it was in when it last did. */
 int cmd_get_watchdog(struct libusb_device_handle* devh, watchdog_info *info);
+/* The same two reads without a report of their own: they return 0, or a
+ * negative error, and print nothing. A board part-way through a mode stalls
+ * the odd control request, and ubertooth-util -n makes both of these reads
+ * several times a second while a range test runs, so one failed read there is
+ * a poll that learned nothing rather than a failure to report. */
+int cmd_get_rangeresult_quiet(struct libusb_device_handle* devh,
+                              rangetest_result *rr);
+int cmd_get_watchdog_quiet(struct libusb_device_handle* devh,
+                           watchdog_info *info);
 int cmd_range_test(struct libusb_device_handle* devh);
 int cmd_repeater(struct libusb_device_handle* devh);
 /* Read the firmware revision string / compile info string into a buffer of

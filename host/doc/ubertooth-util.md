@@ -4,7 +4,8 @@
 
     ubertooth-util [-v] [-V] [-H] [--host-version] [-I] [-d [0-1]] [-l [0-1]]
     [-S] [-r] [-U <index|serial|all>] [-a [0-7]] [-c [2402-2480]] [-C [0-78]]
-    [-q [20-120]] [-t] [-z [-128..127]] [-e] [-m] [-n] [-i] [-b] [-p] [-s]
+    [-q [20-120]] [-t] [-z [-128..127]] [-e] [-m] [-n [seconds]] [-i] [-b]
+    [-p] [-s]
     [-w] [-N] [-x] [-h]
 
 ## DESCRIPTION
@@ -53,13 +54,13 @@ Operations that put the device into a continuous mode — `-I` (identify),
 `-e` (repeater) — first stop any operation already running on that device, so
 each starts from a known idle state. Stopping a mode, with `-S` or normally by
 starting another, puts the board back to idle: LEDs off, channel 2441 MHz and
-squelch -120 dBm. The power amplifier level set with `-a` is kept. Each of
-them runs on the board and `ubertooth-util` returns immediately, so the board
-stays usable from other commands meanwhile. `-I`, `-q`, `-x`, `-t` and `-e` keep
-running until `-S` stops them or another mode replaces them; `-n` (range test)
-ends by itself when the test finishes, and waits for a reply until `-S` stops
-it if no repeater answers. `-S` stops either of the range test pair at any
-point.
+squelch -120 dBm. The power amplifier level set with `-a` is kept. `-I`, `-q`,
+`-x`, `-t` and `-e` run on the board and the command returns immediately, so
+the board stays usable from other commands meanwhile, and they keep running
+until `-S` stops them or another mode replaces them. `-n` (range test) is the
+one that does not return at once: the test it starts ends by itself, so `-n`
+follows it and reports it, as [RANGE TEST][] describes. `-S` stops either of
+the range test pair at any point.
 
 `-I` (identify) blinks the USR, RX and TX LEDs together, about three on-off
 blinks a second, until it is stopped:
@@ -222,9 +223,14 @@ Range test:
  - `-e` :
    start repeater mode
  - `-m` :
-   display range test result
- - `-n` :
-   initiate range test
+   display the result of the last range test
+ - `-n [seconds]` :
+   run a range test and report it: a progress line about once a second while
+   it runs, then the same result block `-m` prints, both on standard output.
+   The value is how long to wait for the repeater's reply, 10 seconds by
+   default; `-n 0` waits forever. Nothing answering within that time is an
+   error on standard error, and the board is left stopped. See
+   [RANGE TEST][].
 
 Miscellaneous:
 
@@ -458,30 +464,111 @@ For a stable identity across reboots, select a device by its serial number
 Using two Ubertooth devices it is possible to perform a range test. One
 Ubertooth acts as a repeater by running:
 
-    ubertooth-util -e
+    ubertooth-util -U <repeater> -e
 
-A second Ubertooth (the sender) initiates the range test by running:
+A second Ubertooth (the sender) runs the range test:
 
-    ubertooth-util -n
-
-During the range test the sender Ubertooth will transmit data packets at
-increasing power level, listening for repeats from the repeater
-Ubertooth. The receiving Ubertooth will validate that the received data
-was not corrupted in flight.
-
-The range test results can be displayed on the sender Ubertooth's system
-by running:
-
-    ubertooth-util -m
-
-With a repeater in range the exchange completes within a couple of seconds,
-and `-m` prints the lowest power level that got through in each direction
-together with which of the sixteen packets at that level it was:
-
+    $ ubertooth-util -U <sender> -n
+    Starting range test
+    waiting for the repeater... (1 s)
     request PA level : 0
-    request number   : 3
+    request number   : 0
     reply PA level   : 0
     reply number     : 0
+
+During the range test the sender transmits 16 packets at each of the power
+amplifier levels 0 to 7, from the lowest, and then listens for the repeater to
+send the same packet back the same way. The repeater answers the first request
+it decodes, so each direction is measured by the weakest transmission that got
+through it. Both ends take only a packet whose CRC is good, and the sender also
+checks that the payload it gets back is the one it sent.
+
+`-n` follows the test to its end. While it runs it prints a line about once a
+second, so a test that is waiting looks different from one that has finished:
+
+    waiting for the repeater... (1 s)
+    waiting for the repeater... (2 s)
+
+and when the reply arrives it prints the result block below and exits 0. The
+exchange normally takes two or three seconds: the sender's burst, then a
+second during which the repeater holds off so the sender is listening by the
+time the answer comes, then the reply burst.
+
+### Reading the result
+
+Each direction has a level and a number. The level is the lowest power the
+other end heard, 0 (-25 dBm) to 7 (0 dBm). The number is which of the 16
+packets sent at that level was the one that got through, 0 to 15, so a higher
+number means more packets at that level were lost before one arrived. Together
+they say how much margin the link has: level 0 and number 0 is the strongest
+result there is, the very first packet at the lowest power decoded first time,
+and a climbing number, then a climbing level, is a link with less and less to
+spare. "request" is the sender to the repeater, "reply" the repeater back.
+
+Two boards a short distance apart, both with their antennas on, report the
+strongest result in both directions:
+
+    request PA level : 0
+    request number   : 0
+    reply PA level   : 0
+    reply number     : 0
+
+Taking the antenna off one of them costs that link most of its margin, and the
+numbers say so while the levels are still 0 — 15 packets lost on the way out
+and 4 on the way back before one got through:
+
+    request PA level : 0
+    request number   : 15
+    reply PA level   : 0
+    reply number     : 4
+
+### When nothing answers
+
+The repeater is the only thing that answers a range test, so with none in
+range the sender listens and nothing comes back. `-n` waits 10 seconds by
+default, then stops the test and says so on standard error, with exit
+status 1:
+
+    $ ubertooth-util -U <sender> -n
+    Starting range test
+    waiting for the repeater... (1 s)
+    ...
+    error: no reply from the repeater within 10 s: start one in range with ubertooth-util -e, or wait longer with -n <seconds>; the range test has been stopped
+
+`-n <seconds>` chooses the wait, and `-n 0` waits forever, for a repeater
+being set up by hand at the other end. Interrupting `-n` with Ctrl-C is the one
+ending that leaves the test running, and `ubertooth-util -S` stops it
+afterwards. (It has to be afterwards: `-n` holds
+the board for as long as it is watching, as every tool holds the board it is
+using, so another command cannot reach it meanwhile.)
+
+A board that leaves the test without a reply ends the wait at once rather than
+waiting out the deadline: `error: the range test was stopped before the
+repeater replied`, exit status 1. A board that never entered the test says so
+instead of naming the repeater: `error: the board did not start the range test
+within <n> s`.
+
+`-n` reads the board twice a poll, ten polls a second, to follow all that.
+Three polls in a row that cannot read it end the wait, as `error: range test
+result read failed; <what became of the test>` or `error: board mode read
+failed; ...`; one or two do not, since a board part-way through a mode stalls
+the odd control request and the next poll answers. A board that has stopped
+answering altogether therefore ends the command on those reads rather than on
+the deadline, which can take a few seconds longer than the wait asked for:
+each read has a timeout of its own, and libubertooth reports the transfer
+itself on the line before.
+
+Every ending but a signal leaves the board out of the test, so the next
+command finds it idle: the ones above stop it, and a board that left the test
+by itself is already out of it. Each of those messages ends by saying so, and
+says instead that `-S` stops it if the stop itself was refused.
+
+### -m, the last result
+
+The result also stays on the board until the next test, so it can be read
+again at any time, and that is all `-m` does:
+
+    ubertooth-util -U <sender> -m
 
 Both boards must be running firmware of this tree's API version, which is what
 every host tool requires of the board it opens. The range test packets carry no
@@ -492,10 +579,12 @@ Before a range test has completed since the board started, `-m` prints
 `no range test result yet` on standard output and exits 0: there is no result
 yet, which is not a failure. A test that ran but whose packets came back
 corrupted has no result to report either, so it is a diagnostic rather than a
-value: `error: invalid range test: mismatch on byte <n>` on standard error,
-with exit status 1 and nothing on standard output. That means a reply arrived
-whose payload is not the one that was sent, so the levels it carries cannot be
-trusted.
+value, from `-n` as from `-m`: `error: invalid range test: mismatch on byte
+<n>` on standard error, with exit status 1 and no result line on standard
+output. That means a reply arrived whose payload is not the one that was sent,
+so the levels it carries cannot be trusted. (`-m` writes nothing at all to
+standard output there; `-n` has already printed the progress lines of the test
+it was watching.)
 
 Note that the range test transmits the Cortex M3 microcontroller's
 serial number. If you do not wish to broadcast that information
@@ -573,6 +662,13 @@ queries that report a nonzero value such as `-b` (board ID), `-c` (channel), or
 exits 1. It exits with a nonzero status if any requested operation fails, even
 when a later operation in the same command succeeds.
 
+`-n` exits 0 when the range test finished and its result was printed. It
+exits 1 when nothing replied within the wait, when the test ended or never
+started, and when the reply came back corrupted (see [RANGE TEST][]). It also
+exits 1 when three polls in a row cannot read the board, as `error: range test
+result read failed; <what became of the test>` or
+`error: board mode read failed; ...`.
+
 A command line that asks for no operation at all is refused before any device
 is opened, rather than opening the selected board, doing nothing with it and
 exiting 0:
@@ -593,8 +689,9 @@ given (see DESCRIPTION), when `-z` is combined with a mode option, or when an
 `-a` level is not a single digit 0-7
 (`error: PA level must be a single digit 0-7 (got <value>)`). The same holds
 for any other option value that is not a whole decimal number in its range
-(`-c`, `-C`, `-d`, `-l`, `-q`, `-z`), for example
-`error: channel must be 0-78 (got abc)`.
+(`-c`, `-C`, `-d`, `-l`, `-n`, `-q`, `-z`), for example
+`error: channel must be 0-78 (got abc)` or
+`error: timeout must be a whole number of seconds, 0 for none (got abc)`.
 It also exits with 1, without opening a device, when the command line contains
 a word that is not an option, and names it: `error: unexpected argument '<word>'`.
 `ubertooth-util` takes no other arguments. An option the tool does not know is
@@ -624,8 +721,16 @@ the only line, with the counts added, for example
 ## DIAGNOSTICS
 
 Standard output carries only what was asked for: the values the queries read,
-the device listing, and the usage text for `-h`. Everything else goes to
-standard error, so a script reading a value is not fed anything else.
+the device listing, the range test `-n` runs, and the usage text for `-h`.
+Everything else goes to standard error, so a script reading a value is not fed
+anything else.
+
+`-n` is the one operation whose running commentary is what it was asked for
+rather than a note about itself: the test is what the command is, so its
+`waiting for the repeater... (<n> s)` lines go to standard output with the
+result they lead to, and a script reading `-n` reads those lines as well as
+the four result lines `-m` gives. `Starting range test`, which is about the
+command and not about the test, stays on standard error with the lines below.
 
 That includes the progress lines for the operations that do something rather
 than report something: `Resetting ubertooth device <selector>`,

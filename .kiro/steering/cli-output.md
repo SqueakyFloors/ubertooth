@@ -14,6 +14,12 @@ stream a line is on.
 - Capture data when the file argument is `-` (`ubertooth-btle -q -`,
   `ubertooth-specan -d -`). In that case nothing else is written to standard
   output for the whole run, not even the result lines above.
+- The running commentary of an operation that *is* the command, rather than a
+  note about the tool: `ubertooth-util -n` runs a range test and its
+  `waiting for the repeater... (<n> s)` lines lead to the result they belong
+  with, so both go to standard output. This is the one case; "Starting range
+  test", which is the tool talking about itself, stays on standard error with
+  the progress lines below. Do not read it as licence to move other progress.
 - The usage text when the user asked for it with `-h`.
 
 ## Standard error carries everything else

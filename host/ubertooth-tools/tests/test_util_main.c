@@ -36,6 +36,13 @@ static struct {
 	int identify_rc;
 	int rangeresult_rc;
 	rangetest_result range;
+	int rangeresult_calls;
+	/* the scripted range test -n follows; see fake_range_reply_arrived() */
+	uint64_t range_started_ms, range_reply_after_ms, range_leaves_after_ms;
+	int range_reply_at_call;
+	int range_stall_calls, watchdog_stall_calls;
+	int range_stale_reads;        /* reads answered with the test before */
+	rangetest_result range_stale; /* ...and what that one said */
 	watchdog_info watchdog;
 	int watchdog_rc;
 	int watchdog_calls;
@@ -117,6 +124,8 @@ static void reset_fake(void)
 	fake.range.request_num = 2;
 	fake.range.reply_pa = 3;
 	fake.range.reply_num = 4;
+	/* a repeater that answers quickly, so a plain -n finishes */
+	fake.range_reply_after_ms = 300;
 	fake.current_index = -1;
 	fake.unavailable_index = -1;
 	fake.board_fail_index = -1;
@@ -387,10 +396,55 @@ int cmd_get_firmware_compile_info(struct libusb_device_handle *h, char *info,
 	                      fake.compile_info_rc, fake.compile_info_fail_index);
 }
 
+/*
+ * The board as -n sees it, on the fake clock: a test that has been started
+ * clears the previous result, reports one once the reply arrives, and leaves
+ * MODE_RANGE_TEST when the test is over. range_reply_after_ms of 0 is a run
+ * no repeater answers, and range_leaves_after_ms says when something else
+ * (a -S from another command) ended the mode.
+ */
+static int fake_range_reply_arrived(void)
+{
+	if (fake.range_test_calls == 0)
+		return 0;
+	/* range_reply_at_call puts the reply between two reads that the fake
+	 * clock cannot separate, which is where the board leaves the mode with
+	 * a result the host has not read yet. */
+	if (fake.range_reply_at_call != 0 &&
+	    fake.rangeresult_calls >= fake.range_reply_at_call)
+		return 1;
+	return fake.range_reply_after_ms != 0 &&
+	       fake.now_ms >= fake.range_started_ms + fake.range_reply_after_ms;
+}
+
+static int fake_range_mode_running(void)
+{
+	uint64_t leaves = fake.range_leaves_after_ms;
+
+	if (fake.range_test_calls == 0)
+		return 0;
+	if (leaves == 0) {
+		if (fake.range_reply_after_ms == 0)
+			return 1; /* listening forever */
+		leaves = fake.range_reply_after_ms;
+	}
+	return fake.now_ms < fake.range_started_ms + leaves;
+}
+
 int cmd_get_rangeresult(struct libusb_device_handle *h, rangetest_result *rr)
 {
 	fake_use(h);
-	*rr = fake.range;
+	fake.rangeresult_calls++;
+	/* range_stale_reads is the window before the board has entered the mode
+	 * and cleared the previous test: a read that lands there still answers
+	 * with that test's levels. */
+	if (fake.range_test_calls > 0 &&
+	    fake.rangeresult_calls <= fake.range_stale_reads)
+		*rr = fake.range_stale;
+	else if (fake.range_test_calls > 0 && !fake_range_reply_arrived())
+		memset(rr, 0, sizeof(*rr)); /* cleared while the test runs */
+	else
+		*rr = fake.range;
 	return fake.rangeresult_rc;
 }
 
@@ -399,7 +453,33 @@ int cmd_get_watchdog(struct libusb_device_handle *h, watchdog_info *info)
 	fake_use(h);
 	fake.watchdog_calls++;
 	*info = fake.watchdog;
+	if (fake.range_test_calls > 0)
+		info->mode = fake_range_mode_running() ? MODE_RANGE_TEST : MODE_IDLE;
 	return fake.watchdog_rc;
+}
+
+/*
+ * The quiet forms -n polls with. range_stall_calls and watchdog_stall_calls
+ * are the stall a board part-way through a mode answers one poll in twenty
+ * with: the first that many reads fail, and the rest answer.
+ */
+int cmd_get_rangeresult_quiet(struct libusb_device_handle *h,
+                              rangetest_result *rr)
+{
+	int r = cmd_get_rangeresult(h, rr);
+
+	if (r == 0 && fake.rangeresult_calls <= fake.range_stall_calls)
+		return -9;
+	return r;
+}
+
+int cmd_get_watchdog_quiet(struct libusb_device_handle *h, watchdog_info *info)
+{
+	int r = cmd_get_watchdog(h, info);
+
+	if (r == 0 && fake.watchdog_calls <= fake.watchdog_stall_calls)
+		return -9;
+	return r;
 }
 
 int cmd_reset(struct libusb_device_handle *h) { fake_use(h); fake.reset_calls++; return fake.reset_rc; }
@@ -473,7 +553,13 @@ int cmd_set_squelch(struct libusb_device_handle *h, u16 level)
 }
 
 int cmd_set_isp(struct libusb_device_handle *h) { fake_use(h); fake.isp_calls++; return fake.isp_rc; }
-int cmd_range_test(struct libusb_device_handle *h) { fake_use(h); fake.range_test_calls++; return fake.range_test_rc; }
+int cmd_range_test(struct libusb_device_handle *h)
+{
+	fake_use(h);
+	fake.range_test_calls++;
+	fake.range_started_ms = fake.now_ms;
+	return fake.range_test_rc;
+}
 int cmd_repeater(struct libusb_device_handle *h) { fake_use(h); fake.repeater_calls++; return fake.repeater_rc; }
 int cmd_tx_test(struct libusb_device_handle *h) { fake_use(h); fake.tx_test_calls++; return fake.tx_test_rc; }
 int cmd_xmas(struct libusb_device_handle *h) { fake_use(h); fake.xmas_calls++; return fake.xmas_rc; }
@@ -890,6 +976,258 @@ MU_TEST(range_result_is_reported_and_a_failed_read_fails)
 	mu_assert_int_eq(1, r.rc);
 }
 
+/* ---- -n: following the range test it starts --------------------------- */
+
+/* The number of lines in text, where the run printed a stream of them. */
+static int lines_in(const char *text)
+{
+	int lines = 0;
+
+	for (; *text != '\0'; text++)
+		if (*text == '\n')
+			lines++;
+	return lines;
+}
+
+MU_TEST(range_test_reports_progress_and_then_the_result)
+{
+	struct run_result r;
+
+	/* A repeater that takes two and a half seconds to answer: a progress
+	 * line a second while the test runs, then the result block -m prints,
+	 * both on standard output. */
+	reset_fake();
+	fake.range_reply_after_ms = 2500;
+	r = RUN("-n");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out,
+	                 "waiting for the repeater... (1 s)\n"
+	                 "waiting for the repeater... (2 s)\n"
+	                 "request PA level : 1\n"
+	                 "request number   : 2\n"
+	                 "reply PA level   : 3\n"
+	                 "reply number     : 4\n") == 0, r.out);
+	/* the one STOP that leaves a prior mode, and nothing else: the test
+	 * ended by itself */
+	mu_assert_int_eq(1, fake.stop_calls);
+	mu_assert(strcmp(r.err, "Starting range test\n") == 0, r.err);
+
+	/* An exchange that finishes inside the first second has no progress to
+	 * report, only its result. */
+	reset_fake();
+	fake.range_reply_after_ms = 300;
+	r = RUN("-n");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "request PA level : 1\n"
+	                        "request number   : 2\n"
+	                        "reply PA level   : 3\n"
+	                        "reply number     : 4\n") == 0, r.out);
+
+	/* The result of this test, not of the one before it. A poll that lands
+	 * before the board has entered the mode still reads the previous test's
+	 * levels, so -n reports a result only once it has seen them cleared. */
+	reset_fake();
+	fake.range_reply_after_ms = 1000;
+	fake.range_stale_reads = 3;
+	fake.range_stale.valid = 1;
+	fake.range_stale.request_pa = 7;
+	fake.range_stale.request_num = 9;
+	fake.range_stale.reply_pa = 7;
+	fake.range_stale.reply_num = 9;
+	r = RUN("-n");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(fake.rangeresult_calls > 1, "polled while the test ran");
+	mu_assert(strstr(r.out, "request number   : 9\n") == NULL,
+	          "reported the previous test's levels");
+	mu_assert(strstr(r.out, "request number   : 2\n") != NULL, r.out);
+
+	/* A reply whose payload did not match is a diagnostic, as it is for -m:
+	 * standard error, nothing on standard output, exit 1. */
+	reset_fake();
+	fake.range.valid = 2 + 5;
+	r = RUN("-n");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, (long)strlen(r.out));
+	mu_assert(strstr(r.err, "error: invalid range test: mismatch on byte 5\n")
+	          != NULL, r.err);
+}
+
+MU_TEST(range_test_with_no_repeater_times_out_and_stops_the_board)
+{
+	struct run_result r;
+
+	/* Nothing answers. The board would listen forever, so -n gives up at
+	 * its deadline, stops the mode and says what is likely missing. */
+	reset_fake();
+	fake.range_reply_after_ms = 0;
+	r = RUN("-n");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err,
+	                 "Starting range test\n"
+	                 "error: no reply from the repeater within 10 s: start "
+	                 "one in range with ubertooth-util -e, or wait longer "
+	                 "with -n <seconds>; the range test has been stopped\n")
+	          == 0, r.err);
+	/* the STOP before the test, and the one that leaves the board idle */
+	mu_assert_int_eq(2, fake.stop_calls);
+	/* the deadline is a deadline, not a poll count */
+	mu_assert_int_eq(1000 + RANGE_TEST_TIMEOUT_S * 1000, (int)fake.now_ms);
+	/* the wait is reported as it goes, a line a second, and nothing else:
+	 * there is no result to print */
+	mu_assert(strstr(r.out, "waiting for the repeater... (1 s)\n") != NULL,
+	          r.out);
+	mu_assert(strstr(r.out, "waiting for the repeater... (9 s)\n") != NULL,
+	          r.out);
+	mu_assert_int_eq(RANGE_TEST_TIMEOUT_S - 1, lines_in(r.out));
+
+	/* -n <seconds> chooses the deadline, and is named in the message. */
+	reset_fake();
+	fake.range_reply_after_ms = 0;
+	r = RUN("-n", "3");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "within 3 s:") != NULL, r.err);
+	mu_assert_int_eq(1000 + 3000, (int)fake.now_ms);
+
+	/* -n 0 waits forever: no deadline, so a repeater that takes half a
+	 * minute is still reported rather than given up on. */
+	reset_fake();
+	fake.range_reply_after_ms = 30000;
+	r = RUN("-n0");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.out, "request PA level : 1\n") != NULL, r.out);
+	mu_assert(strstr(r.out, "waiting for the repeater... (29 s)\n") != NULL,
+	          "the whole wait is reported");
+
+	/* A read that keeps failing mid-wait ends it, naming the read and
+	 * saying what became of the test. */
+	reset_fake();
+	fake.range_reply_after_ms = 0;
+	fake.rangeresult_rc = -7;
+	r = RUN("-n");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: range test result read failed; the range "
+	                 "test has been stopped\n") != NULL, r.err);
+	reset_fake();
+	fake.range_reply_after_ms = 0;
+	fake.watchdog_rc = -7;
+	r = RUN("-n");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: board mode read failed; the range test "
+	                 "has been stopped\n") != NULL, r.err);
+
+	/* A board that refuses to start the test is not waited for. */
+	reset_fake();
+	fake.range_test_rc = -1;
+	r = RUN("-n");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, fake.rangeresult_calls);
+
+	/* A board part-way through a mode stalls the odd poll. Two in a row are
+	 * polls that learned nothing, and the test still finishes; the third
+	 * ends the wait, naming the read, and leaves the board stopped since
+	 * nobody is watching the test now. */
+	reset_fake();
+	fake.range_reply_after_ms = 1000;
+	fake.range_stall_calls = RANGE_TEST_READ_FAILURES - 1;
+	r = RUN("-n");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.out, "reply number     : 4\n") != NULL, r.out);
+	mu_assert(strcmp(r.err, "Starting range test\n") == 0, r.err);
+
+	reset_fake();
+	fake.range_reply_after_ms = 1000;
+	fake.range_stall_calls = RANGE_TEST_READ_FAILURES;
+	r = RUN("-n");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: range test result read failed; the range "
+	                 "test has been stopped\n") != NULL, r.err);
+	mu_assert_int_eq(2, fake.stop_calls);
+
+	/* and when the stop is refused too, it says so rather than claiming the
+	 * board is idle */
+	reset_fake();
+	fake.range_reply_after_ms = 1000;
+	fake.range_stall_calls = RANGE_TEST_READ_FAILURES;
+	fake.stop_rc = -1;
+	r = RUN("-n");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: range test result read failed; the range "
+	                 "test has not been stopped; -S stops it\n") != NULL,
+	          r.err);
+
+	reset_fake();
+	fake.range_reply_after_ms = 1000;
+	fake.watchdog_stall_calls = RANGE_TEST_READ_FAILURES - 1;
+	r = RUN("-n");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.out, "reply number     : 4\n") != NULL, r.out);
+
+	reset_fake();
+	fake.range_reply_after_ms = 0;
+	fake.watchdog_stall_calls = RANGE_TEST_READ_FAILURES;
+	r = RUN("-n");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: board mode read failed; the range test "
+	                 "has been stopped\n") != NULL, r.err);
+	mu_assert_int_eq(2, fake.stop_calls);
+
+	/* A stop the board refuses leaves the test running, and the message
+	 * says so rather than claiming otherwise. */
+	reset_fake();
+	fake.range_reply_after_ms = 0;
+	fake.stop_rc = -1;
+	r = RUN("-n");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "the range test has not been stopped; -S stops "
+	                 "it\n") != NULL, r.err);
+
+	/* A board that never entered the mode is not the repeater's fault, and
+	 * the deadline says so rather than naming it. */
+	reset_fake();
+	fake.range_reply_after_ms = 0;
+	fake.watchdog.mode = MODE_IDLE;
+	fake.range_leaves_after_ms = 1; /* never seen in range test mode */
+	r = RUN("-n");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: the board did not start the range test "
+	                 "within 10 s; the range test has been stopped\n")
+	          != NULL, r.err);
+}
+
+MU_TEST(a_range_test_stopped_from_elsewhere_ends_the_wait)
+{
+	struct run_result r;
+
+	/* Something takes the board over half a second in -- a mode request
+	 * from another program, not a -S from another ubertooth-util, which
+	 * cannot reach a board this command holds. The board leaves the mode
+	 * with no result, which -n says rather than waiting out its deadline. */
+	reset_fake();
+	fake.range_reply_after_ms = 0;
+	fake.range_leaves_after_ms = 500;
+	r = RUN("-n");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, (long)strlen(r.out));
+	mu_assert(strcmp(r.err, "Starting range test\n"
+	                 "error: the range test was stopped before the repeater "
+	                 "replied\n") == 0, r.err);
+	/* ended well inside the deadline, and the board was already stopped */
+	mu_assert(fake.now_ms < 1000 + RANGE_TEST_TIMEOUT_S * 1000, "ended early");
+	mu_assert_int_eq(1, fake.stop_calls);
+
+	/* The board writes the result just before it leaves the mode, so a
+	 * reply that lands after the result read of a poll but before its mode
+	 * read is still reported, rather than read as a test that was stopped.
+	 * The mode ends on the fifth poll, and the reply with it. */
+	reset_fake();
+	fake.range_reply_after_ms = 0;
+	fake.range_leaves_after_ms = 500;
+	fake.range_reply_at_call = 6;
+	r = RUN("-n");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.out, "reply number     : 4\n") != NULL, r.out);
+}
+
 /* ---- commands that change the device ---------------------------------- */
 
 MU_TEST(setters_pass_their_arguments_and_report_failures)
@@ -1169,6 +1507,23 @@ static const char *const mode_progress[MODE_COUNT] = {
 	         "or any mode option\n",
 };
 
+/* What each mode writes to standard output. Only -n reports anything: it
+ * follows the test it starts and prints its result, so the result block is
+ * what the command was for. The others leave the board running and have
+ * nothing to report. */
+static const char *const mode_stdout[MODE_COUNT] = {
+	/* -i */ "",
+	/* -q */ "",
+	/* -n */ "request PA level : 1\n"
+	         "request number   : 2\n"
+	         "reply PA level   : 3\n"
+	         "reply number     : 4\n",
+	/* -e */ "",
+	/* -t */ "",
+	/* -x */ "",
+	/* -I */ "",
+};
+
 /* The scripted result and call counter for the i-th mode command. */
 static int *mode_result(size_t i)
 {
@@ -1204,7 +1559,7 @@ MU_TEST(mode_commands_exit_zero_on_success_and_one_on_failure)
 		mu_assert_int_eq(1, mode_calls(i));
 		mu_assert_int_eq(stops_first, fake.stop_calls);
 		/* starting a mode reports nothing: its progress line is on stderr */
-		mu_assert(strcmp(r.out, "") == 0, r.out);
+		mu_assert(strcmp(r.out, mode_stdout[i]) == 0, r.out);
 		/* and that line is pinned, so dropping one would be noticed. -x has
 		 * never had one. */
 		mu_assert(strcmp(r.err, mode_progress[i]) == 0, r.err);
@@ -3045,6 +3400,9 @@ int main(void)
 	MU_RUN(each_failing_report_makes_the_command_fail);
 	MU_RUN(all_leds_query_reports_each_led_and_fails_if_any_read_fails);
 	MU_RUN(range_result_is_reported_and_a_failed_read_fails);
+	MU_RUN(range_test_reports_progress_and_then_the_result);
+	MU_RUN(range_test_with_no_repeater_times_out_and_stops_the_board);
+	MU_RUN(a_range_test_stopped_from_elsewhere_ends_the_wait);
 	MU_RUN(the_watchdog_state_is_reported_and_a_failed_read_fails);
 	MU_RUN(setters_pass_their_arguments_and_report_failures);
 	MU_RUN(a_set_and_a_read_of_the_same_value_both_run_set_first);
