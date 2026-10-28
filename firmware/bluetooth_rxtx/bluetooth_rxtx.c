@@ -129,6 +129,15 @@ typedef struct _le_promisc_state_t {
 	// recovering hop interval
 	u32 smallest_hop_interval;
 	int consec_intervals;
+
+	/* When a packet of the connection was last seen on the channel being
+	 * listened to, and whether one has been. The estimator times how long
+	 * the connection takes to come back and keeps the smallest gap, so it
+	 * must have no stamp to measure from when a pass starts: the time
+	 * since the pass before it is not a connection interval, and one
+	 * too-small gap is reported for the rest of the pass. */
+	u32 prev_clk;
+	u8 seen_a_packet;
 } le_promisc_state_t;
 le_promisc_state_t le_promisc;
 #define AA_LIST_SIZE (int)(sizeof(le_promisc.active_aa) / sizeof(le_promisc_active_aa_t))
@@ -139,6 +148,11 @@ int le_jam_count = 0;
 
 /* set LE access address */
 static void le_set_access_address(u32 aa);
+
+/* Tell the host one parameter of the connection promiscuous mode has worked
+ * out. bt_le_sync() reports the access address, which is further up the file
+ * than this is defined. */
+void le_promisc_state(u8 type, void *data, unsigned len);
 
 typedef int (*data_cb_t)(char *);
 data_cb_t data_cb = NULL;
@@ -2539,6 +2553,15 @@ void bt_le_sync(u8 active_mode)
 	dma_init_le(le_rx.packet + 4, LE_RX_PDU_MAX);
 	dio_ssp_start();
 
+	/* The access address promiscuous mode is about to follow. It is
+	 * reported from here, after the queue exists: the caller enqueued it
+	 * before calling, where the queue the record went into was emptied by
+	 * the line above and the USB interrupt was off, so the host never got
+	 * it and the one line that says which connection a capture is of was
+	 * always missing. */
+	if (active_mode == MODE_BT_PROMISC_LE)
+		le_promisc_state(0, &le.access_address, 4);
+
 	cc2400_rx_sync(rbit(le.access_address)); // bit-reversed access address
 
 	while (requested_mode == active_mode) {
@@ -3036,13 +3059,22 @@ void promisc_recover_hop_increment(u8 *packet) {
 }
 
 void promisc_recover_hop_interval(u8 *packet) {
-	static u32 prev_clk = 0;
-
 	u32 cur_clk = CLK100NS;
-	if (cur_clk < prev_clk)
-		cur_clk += CLK100NS_PERIOD; // handle rollover
-	u32 clk_diff = cur_clk - prev_clk;
+	u32 measured, clk_diff;
 	u16 obsv_hop_interval; // observed hop interval
+
+	/* The first packet of a pass is the start of the measurement, not the
+	 * end of one. */
+	if (!le_promisc.seen_a_packet) {
+		le_promisc.seen_a_packet = 1;
+		le_promisc.prev_clk = cur_clk;
+		return;
+	}
+
+	measured = cur_clk;
+	if (measured < le_promisc.prev_clk)
+		measured += CLK100NS_PERIOD; // handle rollover
+	clk_diff = measured - le_promisc.prev_clk;
 
 	// probably consecutive data packets on the same channel
 	if (clk_diff < 2 * LE_BASECLK)
@@ -3068,7 +3100,10 @@ void promisc_recover_hop_interval(u8 *packet) {
 		le_promisc.consec_intervals = 0;
 	}
 
-	prev_clk = cur_clk;
+	/* The clock reading, not the value the rollover was undone on: that
+	 * one is above the clock's range, so the next sighting would measure a
+	 * gap from a time the clock never shows. */
+	le_promisc.prev_clk = cur_clk;
 }
 
 void promisc_follow_cb(u8 *packet) {

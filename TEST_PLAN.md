@@ -383,6 +383,9 @@ nRF52840 DKs) plus one Ubertooth.*
       increment, which it reports as it goes. Data PDUs appear only after
       that, so allow a minute or two before expecting packets.
 - [ ] Confirm: the same complete payloads once it is following
+- [ ] Confirm: the access address is reported, as the first of the four
+      parameters and before the CRC init value, and matches the one the
+      capture's packets carry
 
 ---
 

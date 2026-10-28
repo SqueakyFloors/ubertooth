@@ -53,6 +53,13 @@ struct scan {
 	 * test's model runs on. -1 until it is found: site 0 is a real site, so
 	 * leaving it at zero would read a neighbour's constant and pass. */
 	int interval_site;
+	/* Where the estimator keeps its last sighting. A model cannot tell a
+	 * function static from a member of the mode's state struct, and only
+	 * the second is cleared when a pass starts, so the source says which
+	 * it is. */
+	int static_in_function;  /* a `static` stamp inside the estimator */
+	int stamp_in_state;      /* the stamp, in le_promisc_state_t */
+	int flag_in_state;       /* and the flag that says it is set */
 };
 
 static struct scan s;
@@ -125,7 +132,7 @@ static int scan_sources(struct scan *out)
 {
 	char line[SCAN_LINE_MAX];
 	char target[48], token[64], fn[64] = "", name[64];
-	int in_block = 0, lineno = 0;
+	int in_block = 0, lineno = 0, in_state_struct = 0;
 	FILE *f = fopen(path, "r");
 
 	memset(out, 0, sizeof(*out));
@@ -137,6 +144,23 @@ static int scan_sources(struct scan *out)
 		lineno++;
 		strip_comments(line, &in_block);
 		strip_string_literals(line);
+
+		/* The mode's state struct, and the two members of it the
+		 * estimator's stamp needs to be in. */
+		if (strstr(line, "struct _le_promisc_state_t") != NULL)
+			in_state_struct = 1;
+		else if (in_state_struct && line[0] == '}')
+			in_state_struct = 0;
+		else if (in_state_struct) {
+			if (contains_identifier(line, "prev_clk"))
+				out->stamp_in_state = 1;
+			if (contains_identifier(line, "seen_a_packet"))
+				out->flag_in_state = 1;
+		}
+		if (strcmp(fn, "promisc_recover_hop_interval") == 0 &&
+		    strstr(line, "static") != NULL &&
+		    contains_identifier(line, "prev_clk"))
+			out->static_in_function = 1;
 
 		/* Whose body the lines below are: a definition starts in column 1
 		 * and is not a statement. */
@@ -190,11 +214,13 @@ static int scan_sources(struct scan *out)
 
 struct estimator {
 	uint32_t prev_clk;
+	int seen_a_packet;
 	uint32_t smallest_hop_interval;
 	uint16_t conn_interval;
 	int consec_intervals;
 };
 
+/* reset_le_promisc(), which clears the whole of the mode's state. */
 static void estimator_init(struct estimator *e)
 {
 	memset(e, 0, sizeof(*e));
@@ -203,14 +229,14 @@ static void estimator_init(struct estimator *e)
 
 /*
  * A connection already being followed, whose last sighting on this channel was
- * at `last`. The firmware keeps that stamp in a static, so seeding it is what
- * puts the model where the interesting packet arrives; measuring from a
- * just-initialized estimator would measure from clock zero instead.
+ * at `last`: seeding that stamp is what puts the model where the interesting
+ * packet arrives, rather than at the first packet of a pass.
  */
 static void following_since(struct estimator *e, uint32_t last)
 {
 	estimator_init(e);
 	e->prev_clk = last;
+	e->seen_a_packet = 1;
 }
 
 /*
@@ -220,12 +246,19 @@ static void following_since(struct estimator *e, uint32_t last)
 static uint16_t a_packet_at(struct estimator *e, uint32_t now, uint32_t period)
 {
 	uint32_t cur_clk = now;
-	uint32_t clk_diff, rounded;
+	uint32_t measured, clk_diff, rounded;
 	uint16_t obsv_hop_interval;
 
-	if (cur_clk < e->prev_clk)
-		cur_clk += period;
-	clk_diff = cur_clk - e->prev_clk;
+	if (!e->seen_a_packet) {
+		e->seen_a_packet = 1;
+		e->prev_clk = cur_clk;
+		return e->conn_interval;
+	}
+
+	measured = cur_clk;
+	if (measured < e->prev_clk)
+		measured += period;
+	clk_diff = measured - e->prev_clk;
 
 	/* probably consecutive data packets on the same channel */
 	if (clk_diff < 2u * (uint32_t)s.le_baseclk)
@@ -250,6 +283,8 @@ static uint16_t a_packet_at(struct estimator *e, uint32_t now, uint32_t period)
 	e->prev_clk = cur_clk;
 	return e->conn_interval;
 }
+
+
 
 /* How long a connection of this interval takes to come back to one channel. */
 static uint32_t round_the_channels(int conn_interval)
@@ -450,6 +485,101 @@ MU_TEST(test_packets_from_one_connection_event_are_ignored)
 	          "a gap within one connection event is not a hop interval");
 }
 
+/*
+ * The stamp is part of the mode's state, so reset_le_promisc() clears it when
+ * a pass starts. It used to be a static inside the estimator, which nothing
+ * cleared.
+ */
+MU_TEST(test_the_stamp_belongs_to_the_mode_not_to_the_function)
+{
+	char msg[512];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: promisc_recover_hop_interval() keeps its last sighting in "
+	         "a static, which no pass clears", path);
+	mu_assert(!s.static_in_function, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: le_promisc_state_t has no prev_clk, so the stamp is not "
+	         "part of the state reset_le_promisc() clears", path);
+	mu_assert(s.stamp_in_state, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: le_promisc_state_t has no seen_a_packet, so a cleared "
+	         "stamp cannot be told from a sighting at clock zero", path);
+	mu_assert(s.flag_in_state, msg);
+}
+
+/*
+ * A pass starts with nothing to measure from. Its first packet only records
+ * when it arrived; the gap back to the pass before it is not a trip round the
+ * channels, and the estimator keeps the smallest gap it is given, so a short
+ * one would be reported for the rest of the pass.
+ */
+MU_TEST(test_a_pass_does_not_measure_from_the_pass_before_it)
+{
+	struct estimator e;
+	uint32_t period = firmware_period();
+	uint32_t gap = round_the_channels(40);
+	uint32_t at;
+	int i;
+
+	/* The pass before it saw a packet, and then 40 ms passed: the mode
+	 * stopped and started again, which is the gap the estimator must not
+	 * take. 40 ms is far shorter than the 1.85 s a 40-unit connection
+	 * takes to come back, and well over the two units that mark two
+	 * packets of one connection event. */
+	estimator_init(&e);
+	at = 1000000u;
+	a_packet_at(&e, at, period);
+	mu_assert(e.smallest_hop_interval == 0xffffffff,
+	          "the first packet of a pass is not the end of a gap");
+
+	at += 400000u;
+	mu_assert_int_eq(1, a_packet_at(&e, at, period));
+	mu_assert(e.smallest_hop_interval == 400000u,
+	          "the 40 ms is measured, because this pass saw both packets");
+
+	/* The same 40 ms across a restart: the estimator is cleared, so the
+	 * sightings that follow give the connection's own interval. */
+	estimator_init(&e);
+	at += 400000u;
+	a_packet_at(&e, at, period);
+	for (i = 0; i < 6; i++) {
+		at += gap;
+		mu_assert_int_eq(40, a_packet_at(&e, at, period));
+	}
+	mu_assert_int_eq(5, e.consec_intervals);
+}
+
+/*
+ * The stamp a sighting leaves is a clock reading. Undoing a rollover produces
+ * a number above the clock's range, and storing that would measure the next
+ * gap from a time the clock never shows -- one spuriously large gap per wrap.
+ */
+MU_TEST(test_the_stamp_left_behind_is_a_clock_reading)
+{
+	struct estimator e;
+	uint32_t period = firmware_period();
+	uint32_t gap = round_the_channels(20);
+	uint32_t before = CLK100NS_PERIOD - 100000u;
+	uint32_t after = before + gap - CLK100NS_PERIOD;
+
+	following_since(&e, before);
+	a_packet_at(&e, after, period);
+	mu_assert(e.prev_clk == after,
+	          "the stamp is the reading, not the reading plus a period");
+	mu_assert(e.prev_clk < CLK100NS_PERIOD,
+	          "a stamp above the clock's range is a time the clock never "
+	          "shows");
+
+	/* So the next sighting is the gap that passed, not one inflated by a
+	 * period. */
+	a_packet_at(&e, after + gap, period);
+	mu_assert(e.smallest_hop_interval == gap,
+	          "the gap after the wrap is the gap that passed");
+}
+
 int main(void)
 {
 	if (!scan_sources(&s)) {
@@ -466,5 +596,8 @@ int main(void)
 	MU_RUN(test_a_gap_shorter_than_the_shortfall_wraps_instead);
 	MU_RUN(test_an_ordinary_gap_is_untouched);
 	MU_RUN(test_packets_from_one_connection_event_are_ignored);
+	MU_RUN(test_the_stamp_belongs_to_the_mode_not_to_the_function);
+	MU_RUN(test_a_pass_does_not_measure_from_the_pass_before_it);
+	MU_RUN(test_the_stamp_left_behind_is_a_clock_reading);
 	return mu_report();
 }

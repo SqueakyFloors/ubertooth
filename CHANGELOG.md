@@ -785,6 +785,20 @@
   it for the rest of the run when a packet arrives just after the capture clock
   wraps.
   [#659](https://github.com/SqueakyFloors/ubertooth/issues/659)
+- `ubertooth-btle -p` reports the access address of the connection it is
+  following. It is the first of the four parameters the mode works out and the
+  only one that says which connection a capture is of, and it never reached the
+  host: the board queued it and then emptied the queue on its way into the
+  half of the mode that follows the connection. The CRC init value, hop
+  interval and hop increment were unaffected.
+  [#237](https://github.com/SqueakyFloors/ubertooth/issues/237)
+- `ubertooth-btle -p` no longer measures its first connection interval from the
+  previous run. The board timed how long the connection took to come back to
+  the channel it was listening on, keeping the smallest gap, but kept the last
+  sighting in a place no restart cleared: the first gap of a run was the time
+  since whenever the run before it last saw a packet, and a too-small one was
+  reported for the rest of the run.
+  [#713](https://github.com/SqueakyFloors/ubertooth/issues/713)
 - `ubertooth-follow -l <LAP> -u <UAP>` says what to do when its connection to
   the target fails: those four bytes leave the connection to be made to a
   guessed `00:00:<UAP>:<LAP>`, so the failure now asks for the whole address
