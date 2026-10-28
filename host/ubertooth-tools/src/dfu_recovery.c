@@ -338,7 +338,7 @@ void dfu_verify_describe_failure(const struct dfu_verify_report *report,
 		 * rather than sending the reader somewhere that cannot say. */
 		snprintf(message, message_size,
 		         "the board came back running %s but would not say which "
-		         "firmware image it is, so the flash was not checked; "
+		         "firmware image it is, so the flash was not checked: "
 		         "power-cycle it and flash it again if it misbehaves",
 		         report->actual_revision);
 		break;

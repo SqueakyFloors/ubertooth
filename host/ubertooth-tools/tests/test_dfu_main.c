@@ -97,6 +97,7 @@ static struct {
 	int absent_lists;       /* this many listings find nothing on the bus */
 	int list_rc;            /* < 0: a device listing fails with this */
 	int list_rc_after_detach; /* ...from the reset on */
+	int list_rc_lists;      /* ...for this many listings, or 0 for all */
 	char revision[64];      /* what the returned application reports, if any */
 	int revision_calls;
 	char image[32];         /* ...and which image its info block names */
@@ -169,9 +170,15 @@ ssize_t LIBUSB_CALL libusb_get_device_list(libusb_context *ctx,
 	 * that found nothing. It returns no list, so the caller frees nothing
 	 * and this one is not counted. */
 	if (fake.list_rc < 0 && fake.absent_lists == 0) {
+		int rc = fake.list_rc;
+
+		/* A case that asks for a given number of failures gets them and
+		 * then a bus that reads normally again. */
+		if (fake.list_rc_lists > 0 && --fake.list_rc_lists == 0)
+			fake.list_rc = 0;
 		free(*list);
 		*list = NULL;
-		return fake.list_rc;
+		return rc;
 	}
 	fake.lists++;
 	/* A board that is off the bus while it comes up again: the listings in
@@ -1257,6 +1264,7 @@ MU_TEST(a_confirming_listing_that_cannot_be_read_says_it_could_not_tell)
 
 	board_in_dfu();
 	fake.list_rc_after_detach = LIBUSB_ERROR_NO_MEM;
+	fake.list_rc_lists = 0; /* every listing after the reset */
 	r = RUN("-r");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strstr(r.err, "error: detach failed: could not tell whether "
@@ -1273,6 +1281,44 @@ MU_TEST(a_confirming_listing_that_cannot_be_read_says_it_could_not_tell)
 	mu_assert(strstr(r.err, "the DFU device has gone: looking again in 1 ms, "
 	                 "in case the board came back in the bootloader\n")
 	          != NULL, "the confirming wait is not in the stage trace");
+}
+
+/* One confirming listing that cannot be read is not the answer either: it is
+ * tried again, and the next one settles it. */
+MU_TEST(one_unreadable_confirming_listing_is_tried_again)
+{
+	struct run_result r;
+
+	board_in_dfu();
+	fake.detach_returns_to_dfu = 1;
+	fake.list_rc_after_detach = LIBUSB_ERROR_NO_MEM;
+	fake.list_rc_lists = 1;
+	r = RUN("-r");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: detach failed: the board reset and came "
+	                 "back in the bootloader\n") != NULL,
+	          "the retried confirming listing did not settle the detach");
+	mu_assert(strstr(r.err, "could not tell") == NULL,
+	          "one unreadable listing decided the detach");
+}
+
+/* The detach request failing while the board resets is what a reset that
+ * worked looks like on macOS, so a board that came back in the bootloader
+ * must not have a libusb status put in front of its failure. */
+MU_TEST(a_board_back_in_the_bootloader_names_no_libusb_status)
+{
+	struct run_result r;
+
+	board_in_dfu();
+	fake.detach_returns_to_dfu = 1;
+	fake.detach_rc = LIBUSB_ERROR_PIPE;
+	r = RUN("-r");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: detach failed: the board reset and came "
+	                 "back in the bootloader\n") != NULL,
+	          "the board back in the bootloader was not reported");
+	mu_assert_int_eq(0, fake.libusb_errors);
+	mu_assert_int_eq(1, error_lines(r.err));
 }
 
 /* ---- what the image says about itself ---------------------------------- */
@@ -1349,7 +1395,7 @@ MU_TEST(a_board_that_will_not_name_its_image_fails_the_verification)
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strstr(r.err, "error: the board came back running "
 	                 IMAGE_REVISION " but would not say which firmware image "
-	                 "it is, so the flash was not checked; power-cycle it "
+	                 "it is, so the flash was not checked: power-cycle it "
 	                 "and flash it again if it misbehaves\n") != NULL,
 	          "the unreadable image was not reported as unchecked");
 	mu_assert(strstr(r.err, "not written") == NULL,
@@ -2037,6 +2083,8 @@ int main(void)
 	MU_RUN(a_board_that_comes_back_in_the_bootloader_fails_a_read_back);
 	MU_RUN(a_board_that_comes_back_in_the_bootloader_fails_before_verification);
 	MU_RUN(a_confirming_listing_that_cannot_be_read_says_it_could_not_tell);
+	MU_RUN(one_unreadable_confirming_listing_is_tried_again);
+	MU_RUN(a_board_back_in_the_bootloader_names_no_libusb_status);
 	MU_RUN(an_image_for_another_api_version_is_warned_about_and_written);
 	MU_RUN(a_board_running_the_other_image_fails_the_verification);
 	MU_RUN(a_board_that_will_not_name_its_image_fails_the_verification);

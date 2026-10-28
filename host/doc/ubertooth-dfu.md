@@ -122,10 +122,10 @@ failure:
     note: the bootloader runs instead of the application when something asks the board into DFU again, or when its bootloader entry pin reads grounded as the board resets
     note: if the expansion-header bridge is still fitted, remove it (pins 1 and 3 of P4 on an Ubertooth One), then unplug the board and plug it back in
 
-The first note appears only when `-d` had written the whole image. The other
-two are the bootloader's two entry conditions, and the second of them is the
-one that repeats on every reset: the expansion-header bridge described under
-MANUALLY ENTERING BOOTLOADER.
+The first note appears only when `-d` had written the whole image. The second
+names the bootloader's two entry conditions, which are all there are. The
+third is what to do about the one of them that repeats on every reset: the
+expansion-header bridge described under MANUALLY ENTERING BOOTLOADER.
 
 The confirming wait is spent once per detach and only after the device has
 gone, so a board still in the bootloader is reported as promptly as before.
@@ -408,7 +408,7 @@ mean the same thing, so each has its own line:
     error: the board came back running git-0000000, not git-ed30131d: the firmware was not written, so flash it again
     error: the board came back running the btbr firmware, not the bluetooth_rxtx image that was written: the firmware was not written, so flash it again
     error: the board came back but would not report its firmware revision, so the flash was not checked: read it with ubertooth-util -v
-    error: the board came back running git-ed30131d but would not say which firmware image it is, so the flash was not checked; power-cycle it and flash it again if it misbehaves
+    error: the board came back running git-ed30131d but would not say which firmware image it is, so the flash was not checked: power-cycle it and flash it again if it misbehaves
     error: the device that came back is not on the flashed board's USB path, so the flash was not checked: read the board's revision with ubertooth-util -v
 
 Two of those say the write did not take and ask for another flash: the one

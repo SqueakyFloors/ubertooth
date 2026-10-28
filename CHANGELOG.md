@@ -327,8 +327,8 @@
 - `ubertooth-dfu -d <image> -r` also checks which image came back, not only
   its revision, so a write of `btbr` over `bluetooth_rxtx` that did not take
   no longer verifies clean: both images of one tree carry the same revision.
-  An image built for another firmware API version is written with a warning
-  first, since every other tool refuses the board afterwards.
+  An image whose firmware info block reports a firmware API version other than
+  these tools' own is written with a warning first.
   [#557](https://github.com/SqueakyFloors/ubertooth/issues/557)
 - `ubertooth-btle -q -` and `-c -` no longer fill the terminal with the
   decoder's complaints about packets they do not print. A capture on standard
@@ -723,7 +723,6 @@
   board is reported as detached only once its DFU device has left the bus and
   stayed off it, whatever the request returned.
   [#283](https://github.com/SqueakyFloors/ubertooth/issues/283)
-  [#304](https://github.com/SqueakyFloors/ubertooth/issues/304)
 - `ubertooth-dfu -s` writes `<file>.dfu` only once the whole signed image is
   ready, and checks a `-d` image given in the same command first, so a signing
   run that fails leaves an earlier `<file>.dfu` untouched and creates none. It

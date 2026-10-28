@@ -68,7 +68,7 @@ note: if the expansion\-header bridge is still fitted, remove it (pins 1 and 3 o
 .fi
 .IP "" 0
 .P
-The first note appears only when \fB\-d\fR had written the whole image\. The other two are the bootloader's two entry conditions, and the second of them is the one that repeats on every reset: the expansion\-header bridge described under MANUALLY ENTERING BOOTLOADER\.
+The first note appears only when \fB\-d\fR had written the whole image\. The second names the bootloader's two entry conditions, which are all there are\. The third is what to do about the one of them that repeats on every reset: the expansion\-header bridge described under MANUALLY ENTERING BOOTLOADER\.
 .P
 The confirming wait is spent once per detach and only after the device has gone, so a board still in the bootloader is reported as promptly as before\. The 1\.5 s is measured against one board on one host, where it was back within 630 ms of being asked to reset; a board slower than that, behind a hub or on a loaded host, is back on the bus after the confirming listing has already read it as gone, which is the answer this check gave before it existed\.
 .P
@@ -210,7 +210,7 @@ error: the firmware was written, but the board came back and would not open, so 
 error: the board came back running git\-0000000, not git\-ed30131d: the firmware was not written, so flash it again
 error: the board came back running the btbr firmware, not the bluetooth_rxtx image that was written: the firmware was not written, so flash it again
 error: the board came back but would not report its firmware revision, so the flash was not checked: read it with ubertooth\-util \-v
-error: the board came back running git\-ed30131d but would not say which firmware image it is, so the flash was not checked; power\-cycle it and flash it again if it misbehaves
+error: the board came back running git\-ed30131d but would not say which firmware image it is, so the flash was not checked: power\-cycle it and flash it again if it misbehaves
 error: the device that came back is not on the flashed board's USB path, so the flash was not checked: read the board's revision with ubertooth\-util \-v
 .fi
 .IP "" 0

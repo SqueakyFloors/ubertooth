@@ -858,10 +858,15 @@ static int dfu_device_presence(struct dfu_runtime_context *runtime,
 				                                   identity, NULL);
 				if (result == 0)
 					return DFU_PRESENCE_GONE;
+				/* One listing is enough the other way round: a device that
+				 * never went away cannot turn up in a list it was missing
+				 * from, so finding it here means it really did leave and
+				 * come back. */
 				if (result == 1)
 					return DFU_PRESENCE_RETURNED;
 				last_error = result;
-				transition_sleep_ms(runtime, detach_gone_interval_ms);
+				if (confirm + 1 < DETACH_CONFIRM_POLLS)
+					transition_sleep_ms(runtime, detach_gone_interval_ms);
 			}
 			/* No listing after the gap could tell, so nothing here can. */
 			return last_error;
@@ -913,9 +918,14 @@ int detach(struct dfu_runtime_context* runtime, libusb_device_handle* devh,
 	              "device to see whether the board reset");
 	presence = dfu_device_presence(runtime, identity);
 	if (presence != DFU_PRESENCE_GONE) {
-		/* The board did not leave, so the status of the request is
-		 * diagnostic after all. */
-		if (rv != LIBUSB_SUCCESS)
+		/* A board that never left makes the status of the request
+		 * diagnostic after all, and so does a probe that could not say. A
+		 * board that reset and came back does not: the reset happened, and
+		 * the request failing while it was in flight is what a reset that
+		 * worked looks like on macOS. Naming a status there would put a
+		 * libusb line in front of a failure that has nothing to do with
+		 * it. */
+		if (rv != LIBUSB_SUCCESS && presence != DFU_PRESENCE_RETURNED)
 			show_libusb_error(rv);
 		if (presence < 0)
 			fprintf(stderr, "error: detach failed: could not tell whether "
@@ -934,12 +944,13 @@ int detach(struct dfu_runtime_context* runtime, libusb_device_handle* devh,
 				        "than running it\n");
 			/* Why it is there. The bootloader runs instead of the
 			 * application in exactly two cases
-			 * (firmware/bootloader/bootloader.cpp): the word a tool sets to
-			 * ask for DFU is still set in the memory that survives a reset,
-			 * or the entry pin reads grounded as the board comes up. The
-			 * general form comes first, because a user who never touched the
-			 * header has to be told something that can be true of them; the
-			 * bridge follows, because it is the one that repeats on every
+			 * (firmware/bootloader/bootloader.cpp, main()): the word a tool
+			 * sets to ask for DFU is set in the memory that survives a
+			 * reset, or the entry pin reads grounded as the board comes up.
+			 * The bootloader clears that word on its way out, so for it to
+			 * be the cause here something has to have set it again, which is
+			 * how the note puts it. The next line is the remedy for the
+			 * other condition, which is the one that repeats on every
 			 * reset. */
 			fprintf(stderr, "note: the bootloader runs instead of the "
 			        "application when something asks the board into DFU "
@@ -950,11 +961,12 @@ int detach(struct dfu_runtime_context* runtime, libusb_device_handle* devh,
 			        "One), then unplug the board and plug it back in\n");
 		} else
 			fprintf(stderr, "error: detach failed: the board is still in DFU\n");
-		/* A request that failed carries its own status. One the bootloader
+		/* A request that failed carries its own status, except where that
+		 * status is the reset it asked for racing it. One the bootloader
 		 * accepted and ignored has none, so the failure comes from the probe:
 		 * why it could not answer, when it could not, and otherwise a code
 		 * that at least is not success. */
-		if (rv != LIBUSB_SUCCESS)
+		if (rv != LIBUSB_SUCCESS && presence != DFU_PRESENCE_RETURNED)
 			return rv;
 		return presence < 0 ? presence : LIBUSB_ERROR_OTHER;
 	}
