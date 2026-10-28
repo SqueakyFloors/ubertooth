@@ -293,9 +293,10 @@
   rather than 2482, so the band it sweeps for that channel, and where a signal
   in it lands on the plot, are no longer 2 MHz low.
   [#673](https://github.com/SqueakyFloors/ubertooth/issues/673)
-- `ubertooth-btbr` receives a long Classic payload whole. Everything past the
-  first 256 bytes was decoded from the start of the air buffer instead, so the
-  packet types that carry the most data always failed their checksum.
+- `ubertooth-btbr` receives a long Classic payload whole. Past the first 256
+  bytes of the air buffer it decoded from the start of the buffer instead, so a
+  DH5 payload longer than about 250 bytes, the largest a Classic packet
+  carries, always failed its checksum.
   [#667](https://github.com/SqueakyFloors/ubertooth/issues/667)
 - `ubertooth-btbr` transmits the data it was given for a payload of 77 bytes or
   more. The 2/3 FEC encoder ran half again as many groups as the payload had,

@@ -146,19 +146,23 @@ MU_TEST(test_null_decode_crosses_air_bit_2048)
 		"chunk decoded 256 bytes early");
 }
 
-/* The last chunk of the longest payload, 339 bytes: offset 337. */
+/*
+ * The very last chunk of the longest payload, which is where the offset gets
+ * as big as it ever does. A DH5 carries a 2-byte payload header and 339
+ * payload bytes, so the codec decodes 341 bytes in 35 chunks: the last is
+ * chunk 34, one byte, at air bit 2778 -- byte 347.
+ */
 MU_TEST(test_null_decode_reaches_the_end_of_the_longest_payload)
 {
-	uint8_t air[512], out[CODEC_RX_CHUNK_SIZE], want[CODEC_RX_CHUNK_SIZE];
-	unsigned of = RX_CHUNK_AIR_BIT(33);
+	uint8_t air[512], out[1], want[1];
+	unsigned of = RX_CHUNK_AIR_BIT(34);
 	unsigned byte = of / 8;
-	unsigned i;
 
-	mu_assert_int_eq(337, (int)byte);
+	mu_assert_int_eq(2778, (int)of);
+	mu_assert_int_eq(347, (int)byte);
 	fill_pattern(air, sizeof(air), 0x51c07);
 	memset(out, 0, sizeof(out));
-	for (i = 0; i < sizeof(want); i++)
-		want[i] = (uint8_t)((air[byte + i] >> 2) | (air[byte + i + 1] << 6));
+	want[0] = (uint8_t)((air[byte] >> 2) | (air[byte + 1] << 6));
 
 	null_decode(out, air, of, sizeof(out));
 	mu_assert(memcmp(out, want, sizeof(out)) == 0,
@@ -176,7 +180,8 @@ MU_TEST(test_null_decode_reaches_the_end_of_the_longest_payload)
  */
 MU_TEST(test_null_encode_crosses_air_bit_2048)
 {
-	uint8_t air[512], want[512], in[CODEC_RX_CHUNK_SIZE];
+	/* A transmit chunk, which is what this direction encodes. */
+	uint8_t air[512], want[512], in[CODEC_TX_CHUNK_SIZE];
 	unsigned of = 2618;
 	unsigned byte = of / 8;
 	unsigned i;
@@ -267,8 +272,17 @@ MU_TEST(test_fec23_writes_one_group_per_ten_input_bits)
 		"a transmit chunk is not 64 groups of 15 bits");
 }
 
-/* A chunk that is not a whole number of groups -- the host picks a 3-slot
- * packet type from 18 bytes of payload -- still ends after its last group. */
+/*
+ * A chunk that is not a whole number of groups -- an 18-byte DM1 is 144 bits,
+ * 14 groups and a part one -- still ends after its last group, 15 of them.
+ *
+ * What the part group's top 6 bits should be is a separate question: the
+ * encoder takes them from the input buffer, where the Bluetooth specification
+ * pads with zeros, and the codec then accounts for 9 fewer air bits than the
+ * group occupies. Both are older than the loop bound this case is about and
+ * are tracked separately; this case pins the group count only, so the input
+ * is filled past the chunk rather than left for the encoder to find.
+ */
 MU_TEST(test_fec23_rounds_a_part_group_up)
 {
 	uint8_t in[CODEC_TX_CHUNK_SIZE], out[256], want[256];
