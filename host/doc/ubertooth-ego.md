@@ -164,6 +164,20 @@ does follow, on standard error with the `error: ` line.
 `-h` is what the user asked for, so the usage text goes to standard output and
 nothing goes to standard error.
 
+## GAPS IN A CAPTURE
+
+A capture that is losing packets says so. The board holds captured packets in a
+queue until this tool reads them, and a queue with no room left loses the next
+packet. The first time it happens the capture warns `warning: the board's
+packet queue filled up and it dropped at least one packet; this capture has a
+gap`, and when the capture ends it says how many such gaps there were:
+`warning: the capture has 3 gaps where the board's queue filled up and it
+dropped packets`. The count is of gaps, not of lost packets: one full queue can
+swallow several packets, and the board sends no number. Nothing says which
+packets are missing, so a capture with gaps is complete only between them. The
+board reports a gap on the first packet that gets through after it, so a
+capture that ends in the moment after a gap does not report that last one.
+
 ## EXIT STATUS
 
 0 when the command did what was asked, including `-h`, and after a capture is

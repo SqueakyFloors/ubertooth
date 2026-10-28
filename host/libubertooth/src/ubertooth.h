@@ -186,6 +186,18 @@ typedef struct {
 	 * once. */
 	uint8_t xfer_lost_warned;
 
+	/* How many records arrived carrying FIFO_OVERFLOW, which the board sets
+	 * on the first record it sends after it had no room in its queue for a
+	 * packet. So this counts the gaps in a capture, not the packets lost in
+	 * them: one full queue can swallow several packets, and the board has
+	 * no field to send a number in.
+	 *
+	 * The warned flag keeps the running warning to one line per capture;
+	 * the count is what a tool reports when the capture ends. Read it with
+	 * ubertooth_queue_gaps(). */
+	uint32_t queue_gaps;
+	uint8_t queue_gap_warned;
+
 	/* The board the user named, as they wrote it after -U: an index or a
 	 * serial. NULL when they named none and the library opened whichever
 	 * board it found. A message about this one board can then say which it
@@ -410,6 +422,37 @@ int ubertooth_read_serial_string(struct libusb_device_handle* devh, char* out,
  * non-zero exit status. Read it after the capture's teardown, because
  * cancelling the transfer can be what brings the failure out. */
 int ubertooth_stream_failed(ubertooth_t* ut);
+
+/*
+ * Counts a record that says the board had to throw a packet away because its
+ * queue was full, and warns the first time in a capture.
+ *
+ * Every mode's callback calls this for the records it is handed, including the
+ * ones it goes on to discard: the board's word that packets were lost before
+ * this record does not depend on what the host makes of the record itself.
+ * Records that carry no readings of their own -- a keep-alive, or the
+ * continuation of a packet already counted -- are the exception, and each
+ * callback leaves those out.
+ */
+void ubertooth_count_queue_gap(ubertooth_t* ut, const usb_pkt_rx* rx);
+
+/*
+ * How many gaps a capture on this handle has: times the board had to drop a
+ * packet because its queue was full. The board reports it on the first record
+ * that gets through after a gap, so this counts the gaps, not the packets lost
+ * in them. A tool that captured reports the total when the capture ends; the
+ * first gap is also warned about as it happens, so a long capture says so
+ * while it runs.
+ */
+uint32_t ubertooth_queue_gaps(ubertooth_t* ut);
+
+/*
+ * Says what a capture is missing, once, where the user sees it after the
+ * packets have scrolled past: a tool calls this when its capture ends. A
+ * capture with no gap prints nothing. The count is of gaps, not of the packets
+ * lost in them.
+ */
+void ubertooth_report_queue_gaps(ubertooth_t* ut);
 
 int ubertooth_bulk_init(ubertooth_t* ut);
 void ubertooth_bulk_wait(ubertooth_t* ut);

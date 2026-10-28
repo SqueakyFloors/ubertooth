@@ -197,16 +197,24 @@ static void fill_packet(usb_pkt_rx* rx, uint32_t clk100ns, uint8_t periods,
 	rx->rssi_count = 8;
 }
 
-/* Runs the queued records through one callback, with both streams sent to
- * /dev/null: the callbacks print a line per packet and the follow prints its
- * notes, and neither belongs in a test's output. */
+/* The handle the last run_callback() used, so a case can read what the
+ * callbacks recorded on it, and what they wrote to standard error. */
+static ubertooth_t last_ut;
+static char last_stderr[4096];
+
+/* Runs the queued records through one callback. Standard output goes to
+ * /dev/null -- the callbacks print a line per packet and the follow prints its
+ * notes, and neither belongs in a test's output -- and standard error is kept,
+ * so a case can pin a warning and how often it was printed. */
 static void run_callback(void (*cb)(ubertooth_t*, void*), void* args)
 {
-	ubertooth_t ut;
 	int saved_out, saved_err, devnull;
+	FILE* errors = tmpfile();
+	size_t read_bytes = 0;
 
-	memset(&ut, 0, sizeof(ut));
-	ut.clk100ns_period = CLK100NS_PERIOD;
+	memset(&last_ut, 0, sizeof(last_ut));
+	memset(last_stderr, 0, sizeof(last_stderr));
+	last_ut.clk100ns_period = CLK100NS_PERIOD;
 	next_index = 0;
 
 	fflush(NULL);
@@ -215,18 +223,39 @@ static void run_callback(void (*cb)(ubertooth_t*, void*), void* args)
 	devnull = open("/dev/null", O_WRONLY);
 	if (devnull >= 0) {
 		dup2(devnull, fileno(stdout));
-		dup2(devnull, fileno(stderr));
 		close(devnull);
 	}
+	if (errors != NULL)
+		dup2(fileno(errors), fileno(stderr));
 
 	while (next_index < next_count)
-		cb(&ut, args);
+		cb(&last_ut, args);
 
 	fflush(NULL);
 	dup2(saved_out, fileno(stdout));
 	dup2(saved_err, fileno(stderr));
 	close(saved_out);
 	close(saved_err);
+
+	if (errors != NULL) {
+		rewind(errors);
+		read_bytes = fread(last_stderr, 1, sizeof(last_stderr) - 1, errors);
+		last_stderr[read_bytes] = '\0';
+		fclose(errors);
+	}
+}
+
+/* How many times `needle` appears in what the last run wrote to standard
+ * error: a warning that is meant to be said once has to be counted, not just
+ * found. */
+static int stderr_lines_with(const char* needle)
+{
+	const char* p = last_stderr;
+	int count = 0;
+
+	for (p = strstr(p, needle); p != NULL; p = strstr(p + 1, needle))
+		count++;
+	return count;
 }
 
 /* The state the callbacks keep between packets, back to what a fresh process
@@ -748,6 +777,132 @@ MU_TEST(a_replay_and_a_capture_with_no_piconet_send_no_trim)
 	btbb_piconet_unref(pn);
 }
 
+
+/* ---- the gaps a full queue leaves ------------------------------------- */
+
+/*
+ * The board sets FIFO_OVERFLOW on the first record it sends after it had no
+ * room in its queue for a packet, which is the only trace a lost packet
+ * leaves. Every callback counts it, so a tool can say at the end of a run that
+ * the capture has gaps, and warns the first time, so a capture that runs for
+ * an hour says so while it runs. Before this, a capture losing packets looked
+ * exactly like a quiet band.
+ */
+#define GAP_WARNING "the board's packet queue filled up"
+
+MU_TEST(a_record_that_says_the_board_dropped_a_packet_is_counted_and_warned)
+{
+	reset_state();
+	fill_packet(&next_packets[0], 40000, 0, 10);
+	fill_packet(&next_packets[1], 40000, 0, 11);
+	next_packets[0].status |= FIFO_OVERFLOW;
+	next_packets[1].status |= FIFO_OVERFLOW;
+	next_count = 2;
+
+	run_callback(cb_rx, NULL);
+
+	/* Two gaps, because two records said the queue had filled up: the
+	 * count is of gaps, not of the packets lost in them. */
+	mu_assert_int_eq(2, (int)last_ut.queue_gaps);
+	mu_assert_int_eq(2, (int)ubertooth_queue_gaps(&last_ut));
+
+	/* Warned once, however many gaps follow. */
+	mu_assert_int_eq(1, stderr_lines_with(GAP_WARNING));
+}
+
+MU_TEST(a_capture_with_no_gap_says_nothing)
+{
+	reset_state();
+	fill_packet(&next_packets[0], 40000, 0, 10);
+	next_count = 1;
+
+	run_callback(cb_rx, NULL);
+
+	mu_assert_int_eq(0, (int)last_ut.queue_gaps);
+	mu_assert_int_eq(0, stderr_lines_with(GAP_WARNING));
+}
+
+/* A keep-alive is one byte on the wire, so its other fields hold whatever the
+ * record before left in the buffer. Counting one would report the gap that
+ * record already reported, on a quiet channel over and over. */
+MU_TEST(a_keep_alive_does_not_count_as_a_gap)
+{
+	reset_state();
+	fill_packet(&next_packets[0], 40000, 0, 10);
+	next_packets[0].pkt_type = KEEP_ALIVE;
+	next_packets[0].status |= FIFO_OVERFLOW;
+	next_count = 1;
+
+	run_callback(cb_rx, NULL);
+
+	mu_assert_int_eq(0, (int)last_ut.queue_gaps);
+	mu_assert_int_eq(0, stderr_lines_with(GAP_WARNING));
+}
+
+/* A record the callback goes on to discard still carries the board's word
+ * that packets were lost before it, so it is counted first. This one names a
+ * channel outside the band, which cb_rx() drops. */
+MU_TEST(a_discarded_record_still_counts_its_gap)
+{
+	reset_state();
+	fill_packet(&next_packets[0], 40000, 0, NUM_BREDR_CHANNELS + 5);
+	next_packets[0].status |= FIFO_OVERFLOW;
+	next_count = 1;
+
+	run_callback(cb_rx, NULL);
+
+	mu_assert_int_eq(1, (int)last_ut.queue_gaps);
+}
+
+/* The other modes' callbacks count it too: a survey, AFH detection and the
+ * eGo capture all read records the same board queue hands over. */
+MU_TEST(every_mode_counts_the_gaps_in_its_own_capture)
+{
+	btbb_piconet* pn;
+
+	reset_state();
+	fill_packet(&next_packets[0], 40000, 0, 10);
+	next_packets[0].status |= FIFO_OVERFLOW;
+	next_count = 1;
+	run_callback(cb_scan, NULL);
+	mu_assert_int_eq(1, (int)last_ut.queue_gaps);
+
+	reset_state();
+	pn = fresh_piconet();
+	fill_packet(&next_packets[0], 40000, 0, 10);
+	next_packets[0].status |= FIFO_OVERFLOW;
+	next_count = 1;
+	run_callback(cb_afh_initial, pn);
+	mu_assert_int_eq(1, (int)last_ut.queue_gaps);
+
+	reset_state();
+	fill_packet(&next_packets[0], 40000, 0, 10);
+	next_packets[0].status |= FIFO_OVERFLOW;
+	next_count = 1;
+	run_callback(cb_afh_monitor, pn);
+	mu_assert_int_eq(1, (int)last_ut.queue_gaps);
+
+	reset_state();
+	fill_packet(&next_packets[0], 40000, 0, 10);
+	next_packets[0].status |= FIFO_OVERFLOW;
+	next_count = 1;
+	run_callback(cb_afh_r, pn);
+	mu_assert_int_eq(1, (int)last_ut.queue_gaps);
+
+	reset_state();
+	fill_packet(&next_packets[0], 40000, 0, 10);
+	next_packets[0].status |= FIFO_OVERFLOW;
+	next_count = 1;
+	{
+		uint8_t len = 4;
+
+		run_callback(cb_ego, &len);
+	}
+	mu_assert_int_eq(1, (int)last_ut.queue_gaps);
+
+	btbb_piconet_unref(pn);
+}
+
 int main(void)
 {
 	MU_RUN(the_decoder_is_told_only_the_symbols_the_record_holds);
@@ -764,6 +919,11 @@ int main(void)
 	MU_RUN(a_delay_goes_out_as_itself_and_an_advance_as_one_slot_less);
 	MU_RUN(the_correction_takes_the_shorter_way_round_the_slot);
 	MU_RUN(the_drift_keeps_its_sign_and_stays_inside_what_the_board_can_act_on);
+	MU_RUN(a_record_that_says_the_board_dropped_a_packet_is_counted_and_warned);
+	MU_RUN(a_capture_with_no_gap_says_nothing);
+	MU_RUN(a_keep_alive_does_not_count_as_a_gap);
+	MU_RUN(a_discarded_record_still_counts_its_gap);
+	MU_RUN(every_mode_counts_the_gaps_in_its_own_capture);
 	/* These two run cb_rx() with a piconet, which keeps counters between
 	 * packets: they come last so nothing above is judged by them. */
 	MU_RUN(a_replay_and_a_capture_with_no_piconet_send_no_trim);

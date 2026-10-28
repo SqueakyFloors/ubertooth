@@ -486,6 +486,7 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 	usb_pkt_rx* p = NULL;
 	uint16_t reg_val;
 	uint8_t i;
+	int32_t drift_ppm;
 
 	switch (request) {
 
@@ -851,22 +852,41 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 	case UBERTOOTH_FIX_CLOCK_DRIFT:
 		if (data_in_len < 2)
 			return 0;
-		clk_drift_ppm += (int16_t)(data[0] << 8) | (data[1] << 0);
+		/*
+		 * Each request adds to a running figure, and the figure is kept
+		 * within what the correction can act on: one correction every
+		 * CLKN tick is CLK_DRIFT_PPM_MAX, and nothing beyond it corrects
+		 * any faster.
+		 *
+		 * Added in 32 bits and then stored, because the figure is 16 bits
+		 * wide: a run of requests at the largest useful value used to
+		 * walk past what it holds, and an overflowed figure comes back
+		 * with the other sign -- the board would then speed its clock up
+		 * because the host had asked it to slow down.
+		 */
+		drift_ppm = (int32_t)clk_drift_ppm +
+		            (int16_t)((data[0] << 8) | (data[1] << 0));
+		if (drift_ppm > CLK_DRIFT_PPM_MAX)
+			drift_ppm = CLK_DRIFT_PPM_MAX;
+		else if (drift_ppm < -CLK_DRIFT_PPM_MAX)
+			drift_ppm = -CLK_DRIFT_PPM_MAX;
+		clk_drift_ppm = (int16_t)drift_ppm;
 
-		/* How many CLKN ticks apart the corrections go. A drift above
-		 * 320 PPM would divide to nothing, and a correction interval of
-		 * zero is how the handler below says "do not correct at all", so
-		 * floor it: the fastest this can correct is once every tick. */
+		/* How many CLKN ticks apart the corrections go. The bound above
+		 * is where the division stops being useful, and a correction
+		 * interval of zero is how the handler below says "do not correct
+		 * at all", so the floor stands as well: between them, the fastest
+		 * this can correct is once every tick. */
 		// Too slow
 		if (clk_drift_ppm < 0) {
-			clk_drift_correction = 320 / (uint16_t)(-clk_drift_ppm);
+			clk_drift_correction = CLK_DRIFT_PPM_MAX / (uint16_t)(-clk_drift_ppm);
 			if (clk_drift_correction == 0)
 				clk_drift_correction = 1;
 			clkn_next_drift_fix = clkn_last_drift_fix + clk_drift_correction;
 		}
 		// Too fast
 		else if (clk_drift_ppm > 0) {
-			clk_drift_correction = 320 / clk_drift_ppm;
+			clk_drift_correction = CLK_DRIFT_PPM_MAX / clk_drift_ppm;
 			if (clk_drift_correction == 0)
 				clk_drift_correction = 1;
 			clkn_next_drift_fix = clkn_last_drift_fix + clk_drift_correction;
@@ -3205,6 +3225,37 @@ void bt_slave_le() {
 _Static_assert(RX_GENERIC_SYNCWORD_LEN + RX_GENERIC_DATA_LEN <= DMA_SIZE,
                "the generic receive record must fit in what enqueue() copies");
 
+/*
+ * Drop whatever the radio still holds, so the next packet is read from its own
+ * first byte.
+ *
+ * The capture reads RX_GENERIC_DATA_LEN bytes once the sync word has matched,
+ * and the radio goes on writing received bytes into the FIFO while that read
+ * runs. Those bytes stay there, and they came out in front of the next packet:
+ * a payload of 01 02 03 ... arrived as ff 01 02 ..., shifted by as many bytes
+ * as were left behind. A packet longer than the FIFO is what leaves them --
+ * the radio ends reception when the FIFO fills (CC2400 datasheet, buffered
+ * mode) -- so the longer the packet, the likelier the next record is wrong.
+ *
+ * The radio has no flush command: FIFO_FLUSH is one of the signals a GIO pin
+ * can report, not one the host can assert, and the FIFO_EMPTY signal cannot
+ * tell one byte left from none ("in receive mode, FIFO_EMPTY goes low when
+ * there is more than 1 byte in the FIFO"), which is exactly the case to catch.
+ * So the flush is a read of a whole FIFO's worth, discarded: that empties the
+ * 32-byte FIFO whatever is in it, and leaves the FIFO's one internal data
+ * pointer where it started.
+ *
+ * It costs about half a millisecond of SPI per packet, during which a packet
+ * that arrives is missed. That is the price of the records after it being
+ * right, and no shipped tool asks for this mode.
+ */
+static void rx_generic_flush_fifo(void)
+{
+	u8 waste[CC2400_FIFO_SIZE];
+
+	cc2400_fifo_read(CC2400_FIFO_SIZE, waste);
+}
+
 void rx_generic_sync(void) {
 	/*
 	 * Zeroed because the capture fills only the first
@@ -3215,6 +3266,12 @@ void rx_generic_sync(void) {
 	 */
 	u8 buf[DMA_SIZE] = { 0 };
 	u16 reg_val;
+
+	/* The record holds one FIFO's worth of payload, which is what makes the
+	 * flush below a flush: a read of RX_GENERIC_DATA_LEN leaves the rest of
+	 * a longer packet behind, and only a read of the whole FIFO clears it. */
+	_Static_assert(RX_GENERIC_DATA_LEN == CC2400_FIFO_SIZE,
+	               "the generic receive reads one FIFO's worth per packet");
 
 	/* The size the buffer has to be, which is not the same question as the
 	 * one above: a 36-byte buffer satisfies that assert, and a 36-byte
@@ -3258,6 +3315,11 @@ void rx_generic_sync(void) {
 	 */
 	while (requested_mode == MODE_RX_GENERIC) {
 		cc2400_wait_fsm(STATE_STROBE_FS_ON, service_usb);
+		/* Here, with the radio out of receive and nothing arriving, so
+		 * the flush cannot eat the start of the next packet. It runs
+		 * before the first packet too, which clears anything an earlier
+		 * mode left in the FIFO. */
+		rx_generic_flush_fifo();
 		cc2400_strobe(SRX);
 		USRLED_CLR;
 

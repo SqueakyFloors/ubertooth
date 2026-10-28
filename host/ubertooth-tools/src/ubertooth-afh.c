@@ -216,6 +216,11 @@ int main(int argc, char* argv[])
 	}
 
 	ubertooth_stop(ut);
+
+	/* What the capture is missing, once the packets have scrolled
+	 * past. A gap is a stretch the board had no queue room for, so
+	 * the count is of gaps and not of the packets lost in them. */
+	ubertooth_report_queue_gaps(ut);
 	/* A stream that died is read after the teardown, because the teardown is
 	 * where a transfer the board never gave back comes out: that run holds
 	 * less than was asked for, whatever the phases above made of it.

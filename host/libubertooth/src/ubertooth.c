@@ -1653,6 +1653,8 @@ static void cb_dump_bitstream(ubertooth_t* ut, void* args __attribute__((unused)
 	if (rx->pkt_type == KEEP_ALIVE)
 		return;
 
+	ubertooth_count_queue_gap(ut, rx);
+
 	ubertooth_unpack_symbols((uint8_t*)rx->data, bitstream);
 
 	// convert to ascii
@@ -1681,6 +1683,8 @@ static void cb_dump_full(ubertooth_t* ut, void* args __attribute__((unused)))
 	 * and a reader of the dump cannot tell such a record from data. */
 	if (rx->pkt_type == KEEP_ALIVE)
 		return;
+
+	ubertooth_count_queue_gap(ut, rx);
 
 	fprintf(stderr, "rx block timestamp %u * 100 nanoseconds\n", rx->clk100ns);
 	/* The host time this record arrived. */

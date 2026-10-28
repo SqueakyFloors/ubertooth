@@ -47,6 +47,18 @@ extern volatile uint16_t clk100ns_offset;
 extern volatile int16_t clk_drift_ppm;
 extern volatile uint16_t clk_drift_correction;
 
+/*
+ * The largest drift the correction can act on, in parts per million, either
+ * way.
+ *
+ * The correction adds or removes one 100 ns tick every clk_drift_correction
+ * CLKN ticks, and that interval is CLK_DRIFT_PPM_MAX divided by the drift: at
+ * the bound the interval is one tick, which is as often as the tick handler
+ * runs. A larger figure cannot be corrected any faster, so the handler of
+ * UBERTOOTH_FIX_CLOCK_DRIFT keeps the running figure within it.
+ */
+#define CLK_DRIFT_PPM_MAX 320
+
 extern volatile uint32_t clkn_last_drift_fix;
 extern volatile uint32_t clkn_next_drift_fix;
 

@@ -134,6 +134,13 @@ int ubertooth_check_api(ubertooth_t *ut)
 	return fake.api_rc;
 }
 
+/* The end-of-capture gap report, which the tool calls and no case here reads:
+ * a capture whose records never carried FIFO_OVERFLOW has nothing to say. */
+void ubertooth_report_queue_gaps(ubertooth_t *ut)
+{
+	(void)ut;
+}
+
 void ubertooth_stop(ubertooth_t *ut)
 {
 	ut->devh = NULL; /* as the library's cleanup leaves it */

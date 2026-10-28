@@ -215,6 +215,8 @@ void cb_specan(ubertooth_t* ut, void* args)
 	if (rx.pkt_type == KEEP_ALIVE)
 		return;
 
+	ubertooth_count_queue_gap(ut, &rx);
+
 	/* process each received block */
 	for (j = 0; j < DMA_SIZE-2; j += 3) {
 		frequency = (rx.data[j] << 8) | rx.data[j + 1];
@@ -557,6 +559,11 @@ int main(int argc, char *argv[])
 	ubertooth_bulk_thread_stop();
 
 	ubertooth_stop(ut);
+
+	/* What the capture is missing, once the packets have scrolled
+	 * past. A gap is a stretch the board had no queue room for, so
+	 * the count is of gaps and not of the packets lost in them. */
+	ubertooth_report_queue_gaps(ut);
 
 	/* A sweep whose stream died stopped there, so the samples are
 	 * incomplete. The handle is read after the teardown, because cancelling

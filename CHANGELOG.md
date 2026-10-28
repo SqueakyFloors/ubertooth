@@ -294,12 +294,14 @@
   those tools still cannot drive that image and now fail on the first request
   it does not answer.
   [#556](https://github.com/SqueakyFloors/ubertooth/issues/556)
-- **Reflash required:** the firmware API version is now 1.49, last moved by the
-  channel a mode start keeps and the E-GO access code it resets, and before
-  that by the finer breadcrumb sites inside USB service that `ubertooth-util
-  -w` reads, by the breadcrumb gaining two more places a board can stop, by
-  two requests refusing a value they used to accept, and by a record naming no
-  channel when the board is tuned outside the band. A release build of the host
+- **Reflash required:** the firmware API version is now 1.50, last moved by the
+  bound on the clock drift the board accumulates and the generic receive's FIFO
+  flush, before that by the channel a mode start keeps and the E-GO access code
+  it resets, by the finer breadcrumb sites inside USB service that
+  `ubertooth-util -w` reads, by the breadcrumb gaining two more places a board
+  can stop, by two requests refusing a value they used to accept, and by a
+  record naming no channel when the board is tuned outside the band. A release
+  build of the host
   tools refuses firmware of any other API version, older or newer, while a
   development build warns about it. Host and firmware come from the same tree:
   `ubertooth-dfu` reflashes a board whatever firmware it is running, but only
@@ -483,6 +485,14 @@
 
 ### Reliability fixes
 
+- A capture that is losing packets says so, in every mode that captures:
+  `warning: the board's packet queue filled up and it dropped at least one
+  packet; this capture has a gap` as it happens, and `warning: the capture has
+  3 gaps where the board's queue filled up and it dropped packets` when the
+  capture ends. A capture the board could not keep up with used to look exactly
+  like a quiet band. The count is of gaps, not of lost packets: the board sends
+  no number.
+  [#786](https://github.com/SqueakyFloors/ubertooth/issues/786)
 - Every Classic capture finds the access codes that start at the last position
   of a bank of symbols. The search was given one position fewer than the bank
   holds, so an access code beginning 64 symbols before the bank's end -- with
@@ -1469,6 +1479,16 @@
 
 Fixes with no visible change in normal use.
 
+- The generic receive clears the radio's FIFO between packets. A packet longer
+  than the FIFO left bytes in it, and those bytes came out in front of the next
+  packet: the record after a long one arrived shifted. No shipped tool asks for
+  the mode.
+  [#775](https://github.com/SqueakyFloors/ubertooth/issues/775)
+- The clock drift the board accumulates stays within what it can correct. A run
+  of drift requests used to walk past what the 16-bit figure holds and come
+  back with the other sign, which would run the clock the opposite way to the
+  one that was asked for.
+  [#768](https://github.com/SqueakyFloors/ubertooth/issues/768)
 - The `*` on a version string, which says the checkout had uncommitted
   changes, is about the checkout the tools were built from. It used to be
   about whichever tree you happened to be standing in when you ran `cmake`.

@@ -138,6 +138,8 @@ A refused command line creates and truncates nothing: \fB\-r\fR, \fB\-q\fR and \
 Redirect standard output to a new file or a pipe, not to one being appended to: on Linux the capture is opened again through \fB/proc/self/fd\fR, which truncates, so \fBubertooth\-follow \-q \- >> capture\.pcap\fR loses what the file held\.
 .P
 Binary on a terminal is a mistake rather than a stream anyone reads, so it is refused: \fBerror: stdout is a tty, refusing to write binary capture data to it\fR, exit 1\. Redirect or pipe standard output instead\.
+.SH "GAPS IN A CAPTURE"
+A capture that is losing packets says so\. The board holds captured packets in a queue until this tool reads them, and a queue with no room left loses the next packet\. The first time it happens the capture warns \fBwarning: the board's packet queue filled up and it dropped at least one packet; this capture has a gap\fR, and when the capture ends it says how many such gaps there were: \fBwarning: the capture has 3 gaps where the board's queue filled up and it dropped packets\fR\. The count is of gaps, not of lost packets: one full queue can swallow several packets, and the board sends no number\. Nothing says which packets are missing, so a capture with gaps is complete only between them\. The board reports a gap on the first packet that gets through after it, so a capture that ends in the moment after a gap does not report that last one\.
 .SH "EXIT STATUS"
 A follow that was interrupted (Ctrl\-C) exits 0 with whatever it captured, and so does \fB\-h\fR\. A refused command line exits 1 (see ARGUMENTS), as does a file that cannot be opened and a target the tool could not set up a follow on\.
 .P
