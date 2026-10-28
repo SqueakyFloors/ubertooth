@@ -275,6 +275,74 @@ MU_TEST(a_capture_on_standard_output_prints_no_dump_and_no_complaint)
 	ubertooth_free(ut);
 }
 
+/* ---- the promiscuous mode's status lines -------------------------------- */
+
+/* One of the four records `ubertooth-btle -p` sends as it works a
+ * connection's parameters out: this one carries the access address. */
+static usb_pkt_rx promiscuous_access_address(uint32_t aa)
+{
+	usb_pkt_rx rx;
+
+	memset(&rx, 0, sizeof(rx));
+	rx.pkt_type = LE_PROMISC;
+	rx.data[0] = 0;            /* the state: an access address follows */
+	memcpy(&rx.data[1], &aa, sizeof(aa));
+	return rx;
+}
+
+/*
+ * The lines promiscuous mode reports are not part of the capture and not
+ * noise: they are what the mode is for, and a capture written to a file has
+ * no other way to say which connection it is of. So they go to the stream the
+ * tool reports on, which is standard output in an ordinary run and standard
+ * error once a capture has taken standard output -- where `-p -q -` used to
+ * send them to the /dev/null the tool's own standard output had become, and
+ * the user saw nothing.
+ */
+MU_TEST(the_promiscuous_report_follows_the_tools_report_stream)
+{
+	ubertooth_t* ut = ubertooth_init();
+	usb_pkt_rx rx = promiscuous_access_address(0xdeadbeef);
+	char out[8192] = "";
+	char err[2048] = "";
+
+	mu_assert_fatal(ut != NULL, "a handle");
+
+	/* An ordinary run: the tool reports on standard output. */
+	{
+		btle_options opts = { .allowed_access_address_errors = 32,
+		                      .report_stream = stdout };
+
+		fifo_push(ut->fifo, &rx, 0);
+		capture_output();
+		cb_btle(ut, &opts);
+		fflush(stdout);
+		release_output(out, sizeof(out), NULL, err, sizeof(err));
+
+		mu_assert(strstr(out, "Access Address: deadbeef") != NULL, out);
+		mu_assert_int_eq(0, (int)strlen(err));
+	}
+
+	/* A capture that took standard output: the tool reports on standard
+	 * error, and so does the callback. */
+	{
+		btle_options opts = { .allowed_access_address_errors = 32,
+		                      .capture_took_stdout = 1,
+		                      .report_stream = stderr };
+
+		fifo_push(ut->fifo, &rx, 0);
+		capture_output();
+		cb_btle(ut, &opts);
+		fflush(stderr);
+		release_output(out, sizeof(out), NULL, err, sizeof(err));
+
+		mu_assert(strstr(err, "Access Address: deadbeef") != NULL, err);
+		mu_assert_int_eq(0, (int)strlen(out));
+	}
+
+	ubertooth_free(ut);
+}
+
 int main(void)
 {
 	/* Nothing here should look for a board; make sure of it. */
@@ -282,5 +350,6 @@ int main(void)
 
 	MU_RUN(a_dump_prints_the_packet_and_the_complaint_on_standard_error);
 	MU_RUN(a_capture_on_standard_output_prints_no_dump_and_no_complaint);
+	MU_RUN(the_promiscuous_report_follows_the_tools_report_stream);
 	return mu_report();
 }

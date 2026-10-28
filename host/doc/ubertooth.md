@@ -249,18 +249,21 @@ board usually needs `ubertooth-util [-U <selector>] -S` or `-r` afterwards, and
 one that answers neither usually resets itself about three seconds later and
 comes back idle.
 
-A streaming capture that is losing packets says so. This is the path
-`ubertooth-dump`, `ubertooth-rx`, `ubertooth-afh`, `ubertooth-follow` and
-`ubertooth-specan` read through; `ubertooth-btle` and `ubertooth-ego` poll for
-their packets instead, and those two still drop a short reply without a word.
-A receive transfer that arrived with
-part of a packet cannot be read as a record, so it is dropped, and the capture
-reports it once per run, because such a fault usually repeats: `warning: a
-receive transfer arrived with 32 of a packet's 64 bytes and was dropped; the
-capture is losing packets`. The one short transfer a board sends on purpose is
-the keep-alive a quiet capture gets, a single byte, and that one is not
-reported. The capture runs on and ends as it otherwise would, so the warning
-is the only sign: it says packets were lost, it does not fail the run.
+A capture that is losing packets says so, whichever way it reads them. A
+receive transfer that arrived with part of a packet cannot be read as a
+record, so it is dropped, and the capture reports it once per run, because
+such a fault usually repeats: `warning: a receive transfer arrived with 32 of
+a packet's 64 bytes and was dropped; the capture is losing packets`. That is
+the path `ubertooth-dump`, `ubertooth-rx`, `ubertooth-afh`,
+`ubertooth-follow` and `ubertooth-specan` read through. `ubertooth-btle` and
+`ubertooth-ego` poll for their packets one at a time instead, and report the
+same fault in the same way: `warning: a poll reply arrived with 32 of a
+packet's 64 bytes and was dropped; the capture is losing packets`. The short
+replies a board sends on purpose are not reported: the keep-alive a quiet
+streaming capture gets, a single byte, and the one-byte "nothing queued"
+answer every poll of a quiet capture gets. The capture runs on and ends as it
+otherwise would, so the warning is the only sign: it says packets were lost,
+it does not fail the run.
 
 libubertooth follows the split already: it returns what it reads to the tool
 that called it and reports its own problems on standard error, so a library

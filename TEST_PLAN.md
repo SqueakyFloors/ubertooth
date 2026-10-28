@@ -41,7 +41,7 @@ A second Ubertooth One for the range test (2i).
 
 ### 2a. Firmware version check
 - [ ] Run `ubertooth-util -v`
-- [ ] Confirm: returns `Firmware version: <image> <revision> (API:1.44)` (firmware
+- [ ] Confirm: returns `Firmware version: <image> <revision> (API:1.45)` (firmware
       built from this tree; a release build of the host tools refuses any other
       API version and a development build warns about it, and a board whose
       firmware has no info block shows the revision without an image name)

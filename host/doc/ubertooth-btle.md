@@ -127,7 +127,12 @@ Major modes:
  - `-n` :
    No-follow mode: log advertising packets but don't follow connections
  - `-p` :
-   Promiscuous mode: sniff already-established connections
+   Promiscuous mode: sniff already-established connections. As it works a
+   connection out it reports each parameter it has recovered: the access
+   address, the CRC init value, the hop interval and the hop increment. Those
+   lines go to standard output, or to standard error once `-q -` or `-c -` has
+   taken standard output, so a capture written to a file still says which
+   connection it is of.
  - `-s <BD ADDR>` :
    Inject advertising packets using specified BD ADDR. Like `-a`, it does not
    go with `-f`, `-n` or `-p`.
@@ -170,7 +175,8 @@ Logging:
    reach stderr either. The lines that
    answer an option in the same command go to stderr rather than being
    suppressed with it: the `Access address:` line of `-a`, the `CRC:` line of
-   `-v`, and the target lines of `-t`. The tool
+   `-v`, the target lines of `-t`, and the connection parameters `-p`
+   recovers. The tool
    refuses to write binary capture data directly to an interactive terminal:
    `error: stdout is a tty, refusing to write binary capture data to it`, with
    exit status 1 and before any device is opened.
@@ -293,9 +299,9 @@ check has passed.
 
 Standard output carries only what was asked for: either the decoded packets or
 the capture data of `-q -` or `-c -`, plus the lines that answer `-a`, `-v` and
-`-t`. With the capture on standard output, standard output belongs to the
-capture for the whole run: the answer lines move to standard error, and the
-decoded packets are not printed at all.
+`-t` and the parameters `-p` recovers. With the capture on standard output,
+standard output belongs to the capture for the whole run: those lines move to
+standard error, and the decoded packets are not printed at all.
 
 Errors, warnings and progress go to standard error, each error as one line
 starting `error: `, for example `error: USB poll failed` when the board stops
@@ -303,6 +309,12 @@ answering during a capture, `error: jamming not supported by this firmware`,
 `error: target set failed`, or
 `error: MAC address must be xx:xx:xx:xx:xx:xx (got 11:22:33:44:55)`. A capture
 file that cannot be created is reported as `error: <file>: <reason>`.
+
+A capture that is losing packets says so. This tool reads its packets one at a
+time, and a reply that held part of a record cannot be read as one, so it is
+dropped and reported once per run: `warning: a poll reply arrived with 32 of a
+packet's 64 bytes and was dropped; the capture is losing packets`. The capture
+runs on and ends as it otherwise would, so the warning is the only sign.
 
 Each request that sets a mode up is named on its own, so the line says which
 one the board refused: `error: could not set the advertising channel`,

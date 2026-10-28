@@ -120,6 +120,12 @@ Standard output carries only the captured packets. Errors, warnings and
 progress go to standard error, each error as one line starting `error: `, for
 example `error: E-GO not supported by this firmware`.
 
+A capture that is losing packets says so. This tool reads its packets one at a
+time, and a reply that held part of a record cannot be read as one, so it is
+dropped and reported once per run: `warning: a poll reply arrived with 32 of a
+packet's 64 bytes and was dropped; the capture is losing packets`. The capture
+runs on and ends as it otherwise would, so the warning is the only sign.
+
 A request that sets the capture up and is refused by the board ends the
 command there, named in one line, for example
 `error: could not set the channel`; libubertooth has already said why. A

@@ -617,6 +617,12 @@ int main(int argc, char *argv[])
 			return release_handle(ut, 1);
 		}
 
+		/* The callback reports on the same stream the tool does, so the
+		 * lines promiscuous mode writes stay visible when a capture has
+		 * taken standard output. Taken here, after everything that could
+		 * move the stream, so there is one source for it. */
+		cb_opts.report_stream = report_stream;
+
 		while (!ubertooth_stopping(ut)) {
 			if (cancel_follow) {
 				cmd_cancel_follow(ut->devh);
@@ -636,6 +642,11 @@ int main(int argc, char *argv[])
 				/* The packet cmd_poll() just handed back, so it arrived now. */
 				fifo_push(ut->fifo, &rx, ubertooth_packet_arrival_ns());
 				cb_btle(ut, &cb_opts);
+			} else {
+				/* Not a whole record, so there is no packet to
+				 * read out of it: say so rather than drop it
+				 * in silence. */
+				ubertooth_warn_if_poll_reply_short(ut, r);
 			}
 			usleep(500);
 		}

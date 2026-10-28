@@ -40,6 +40,11 @@ static struct {
 	int poll_rc;         /* returned by cmd_poll() */
 	int interrupt_the_capture; /* cmd_poll() raises SIGINT instead of
 	                            * writing the handle */
+	/* Every reply the loop handed to the library's short-reply report, and
+	 * the last length it passed: a reply that is not a whole record carries
+	 * no packet, and dropping it in silence looked like a quiet board. */
+	int short_reply_reports;
+	int last_short_reply_len;
 	int last_channel;    /* the channel the capture was set to, in MHz */
 	uint8_t last_access_code[8];
 	int last_access_code_len;
@@ -210,6 +215,13 @@ void cb_ego(ubertooth_t *ut, void *args)
 {
 	(void)ut;
 	(void)args;
+}
+
+void ubertooth_warn_if_poll_reply_short(ubertooth_t *ut, int len)
+{
+	(void)ut;
+	fake.short_reply_reports++;
+	fake.last_short_reply_len = len;
 }
 
 /* ---- running the tool --------------------------------------------------- */
@@ -560,6 +572,36 @@ MU_TEST(a_failed_poll_ends_the_capture_with_1)
 	mu_assert_int_eq(1, fake.stops);
 }
 
+/* A reply that is neither a whole record nor the board's "nothing queued"
+ * answer carries part of a packet, which the loop cannot read: it is handed
+ * to the library's report rather than dropped in silence, because a capture
+ * losing packets otherwise looks exactly like a quiet board. */
+MU_TEST(a_short_poll_reply_is_reported)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.poll_rc = 32;
+	r = RUN("-f");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, fake.short_reply_reports);
+	mu_assert_int_eq(32, fake.last_short_reply_len);
+
+	/* A whole record is a packet, so nothing is reported. */
+	reset_fake();
+	fake.poll_rc = (int)sizeof(usb_pkt_rx);
+	r = RUN("-f");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0, fake.short_reply_reports);
+
+	/* A failed poll has its own error and is not reported as a short one. */
+	reset_fake();
+	fake.poll_rc = -9;
+	r = RUN("-f");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, fake.short_reply_reports);
+}
+
 int main(void)
 {
 	MU_RUN(a_capture_the_board_took_sends_the_setup_requests_and_exits_0);
@@ -575,5 +617,6 @@ int main(void)
 	MU_RUN(help_wins_over_a_refused_combination);
 	MU_RUN(an_interrupted_capture_stops_and_exits_zero);
 	MU_RUN(a_failed_poll_ends_the_capture_with_1);
+	MU_RUN(a_short_poll_reply_is_reported);
 	return mu_report();
 }

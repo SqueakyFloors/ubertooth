@@ -182,6 +182,13 @@ typedef struct _le_conn_t {
 	uint32_t win_size;
 	uint32_t win_offset;
 
+	// Set while the connection event the engine is about to open is the
+	// first one under a new set of parameters, which a connection request
+	// starts. That event alone is given the whole transmit window to run
+	// in, because the master's first packet may arrive anywhere inside it;
+	// every later event is anchored and needs only one packet's time.
+	int      first_conn_event;
+
 	le_channel_remapping_t remapping;
 
 	uint32_t last_anchor;
@@ -462,7 +469,11 @@ static void le_dma_interrupt(uint32_t timestamp) {
 			current_rxbuf->pos = pos;
 
 			if (pos == 1) {
-				current_rxbuf->timestamp = timestamp - USEC(8 + 32); // packet starts at preamble
+				// Back-date the stamp to the start of the preamble. This
+				// interrupt reports the first header byte, so by now 8 bits
+				// of preamble, the 32-bit access address and 8 bits of
+				// header have gone past: 48 us at 1 symbol per microsecond.
+				current_rxbuf->timestamp = timestamp - USEC(8 + 32 + 8);
 				current_rxbuf->channel = rf_channel;
 				current_rxbuf->access_address = conn.access_address;
 
@@ -854,6 +865,10 @@ static void timer1_interrupt(void) {
 				conn.conn_interval = conn.conn_update_pending_interval;
 				conn.supervision_timeout = conn.conn_update_pending_supervision_timeout;
 				conn.conn_update_pending = 0;
+				// This branch gives the event below its own window-long
+				// deadline, so the flag that would do it again is spent
+				// here rather than left for a later, anchored event.
+				conn.first_conn_event = 0;
 
 				// timeout after conn window + max packet length
 				timer1_set_match(conn.last_anchor + conn.conn_interval +
@@ -872,31 +887,37 @@ static void timer1_interrupt(void) {
 
 		// new connection event: set timeout and change channel
 		if (!conn_event.opened) {
+			uint32_t window = 0;
+
 			conn_event.opened = 1;
-			// timeout is max packet length + warmup time (slack)
-			timer1_set_match(NOW + USEC(2120) + RX_WARMUP_TIME);
+
+			// The first event of a connection has to span the whole
+			// transmit window the connection request named: the master's
+			// first packet may arrive anywhere inside it, and a timeout
+			// that expires earlier closes the event before the packet
+			// arrives, so the capture loses the first packets of every
+			// connection whose window is longer than the minimum. Later
+			// events are anchored to within a few microseconds of where
+			// their packet is due, so they need no window.
+			//
+			// At the shortest interval the specification allows, 7.5 ms,
+			// the longest legal window plus a packet runs about 8.7 ms, so
+			// this deadline can fall after the next event was due. It only
+			// does so when nothing arrived in the whole window, which is
+			// already the case the FIXME in finish_conn_event() covers.
+			if (conn.first_conn_event) {
+				conn.first_conn_event = 0;
+				window = conn.win_size;
+			}
+
+			// timeout is the window + max packet length + warmup time (slack)
+			timer1_set_match(NOW + window + USEC(2120) + RX_WARMUP_TIME);
 			change_channel();
 		}
 
-		// regular connection event, plus timeout from connection updates
-		// FIXME connection update timeouts and initial connection
-		// timeouts need to be handled differently: they should have a
-		// full window until the packets from the new connection are
-		// captured and a new anchor is set.
+		// timeout: close connection event and set timer for next hop
 		else {
-			// new connection event: set timeout and change channel
-			if (!conn_event.opened) {
-				conn_event.opened = 1;
-
-				// timeout is max packet length + warmup time (slack)
-				timer1_set_match(NOW + USEC(2120) + RX_WARMUP_TIME);
-				change_channel();
-			}
-
-			// timeout: close connection event and set timer for next hop
-			else {
-				finish_conn_event();
-			}
+			finish_conn_event();
 		}
 	}
 
@@ -1038,9 +1059,67 @@ static unsigned extract_field(le_rx_t *buf, size_t offset, unsigned size) {
 	return ret;
 }
 
+// The timing parameters of a connection, in the units they arrive in: the
+// transmit window and the connection interval in steps of 1.25 ms, the
+// supervision timeout in steps of 10 ms. A connection request and a
+// connection update carry the same four, at different offsets.
+typedef struct _le_conn_timing_t {
+	uint32_t win_size;
+	uint32_t win_offset;
+	uint32_t conn_interval;
+	uint32_t supervision_timeout;
+} le_conn_timing_t;
+
+// Check a connection's timing parameters against the ranges the
+// specification allows, and scale them to the units of 100 ns the rest of
+// this file counts in.
+//
+// Returns 1 with *t scaled, or 0 when one of them is out of range -- in which
+// case *t is part-scaled and the caller must not use it. A caller that gets 0
+// drops the connection instead of following it. The values are what every
+// later deadline is built from, so one outside its range leaves the capture
+// chasing a connection that does not exist: a transmit window of 255 steps
+// puts 319 ms into the timeout that waits out the first connection event, and
+// a supervision timeout of hours is then what ends the chase.
+static int le_scale_conn_timing(le_conn_timing_t *t) {
+	uint32_t max_win_size;
+
+	// the connection interval is in range [7.5 ms, 4 s]
+	if (t->conn_interval < 6 || t->conn_interval > 3200)
+		return 0;
+	t->conn_interval *= USEC(1250);
+
+	// window offset is in range [0, conn_interval]
+	t->win_offset *= USEC(1250);
+	if (t->win_offset > t->conn_interval)
+		return 0;
+
+	// win size is in range [1.25 ms, MIN(10 ms, conn_interval - 1.25 ms)]
+	t->win_size *= USEC(1250);
+	max_win_size = t->conn_interval - USEC(1250);
+	if (max_win_size > MSEC(10))
+		max_win_size = MSEC(10);
+	if (t->win_size < USEC(1250) || t->win_size > max_win_size)
+		return 0;
+
+	// The connSupervisionTimeout shall be a multiple of 10 ms in the
+	// range of 100 ms to 32.0 s and it shall be larger than (1 +
+	// connSlaveLatency) * connInterval * 2
+	//
+	// Checked before it is scaled, because 10 ms in units of 100 ns is
+	// 100000 and the field is two bytes wide: the largest values overflow a
+	// 32-bit count, and a wrapped one lands back inside the range.
+	if (t->supervision_timeout < 10 || t->supervision_timeout > 3200)
+		return 0;
+	t->supervision_timeout *= MSEC(10);
+	// TODO handle slave latency
+
+	return 1;
+}
+
 static void le_connect_handler(le_rx_t *buf) {
 	uint32_t aa, crc_init;
-	uint32_t max_win_size;
+	le_conn_timing_t timing;
 
 	if (!le.do_follow)
 		return;
@@ -1061,38 +1140,19 @@ static void le_connect_handler(le_rx_t *buf) {
 	// is checked against a CRC from the wrong starting value, so
 	// `ubertooth-btle -f -v1` drops all of them.
 	conn.crc_init_reversed  = rbit(conn.crc_init) >> 8;
-	conn.win_size           = extract_field(buf, 21, 1);
-	conn.win_offset         = extract_field(buf, 22, 2);
-	conn.conn_interval      = extract_field(buf, 24, 2);
-	conn.supervision_timeout = extract_field(buf, 28, 2);
 	conn.hop_increment      = extract_field(buf, 35, 1) & 0x1f;
 
-	if (conn.conn_interval < 6 || conn.conn_interval > 3200) {
-		goto err_out;
-	} else {
-		conn.conn_interval *= USEC(1250);
-	}
-
-	// window offset is in range [0, conn_interval]
-	conn.win_offset *= USEC(1250);
-	if (conn.win_offset > conn.conn_interval)
+	timing.win_size            = extract_field(buf, 21, 1);
+	timing.win_offset          = extract_field(buf, 22, 2);
+	timing.conn_interval       = extract_field(buf, 24, 2);
+	timing.supervision_timeout = extract_field(buf, 28, 2);
+	if (!le_scale_conn_timing(&timing))
 		goto err_out;
 
-	// win size is in range [1.25 ms, MIN(10 ms, conn_interval - 1.25 ms)]
-	conn.win_size *= USEC(1250);
-	max_win_size = conn.conn_interval - USEC(1250);
-	if (max_win_size > MSEC(10))
-		max_win_size = MSEC(10);
-	if (conn.win_size < USEC(1250) || conn.win_size > max_win_size)
-		goto err_out;
-
-	// The connSupervisionTimeout shall be a multiple of 10 ms in the
-	// range of 100 ms to 32.0 s and it shall be larger than (1 +
-	// connSlaveLatency) * connInterval * 2
-	conn.supervision_timeout *= MSEC(10);
-	if (conn.supervision_timeout < MSEC(100) || conn.supervision_timeout > SEC(32))
-		goto err_out;
-	// TODO handle slave latency
+	conn.win_size            = timing.win_size;
+	conn.win_offset          = timing.win_offset;
+	conn.conn_interval       = timing.conn_interval;
+	conn.supervision_timeout = timing.supervision_timeout;
 
 	le_parse_channel_map(&buf->data[30], &conn.remapping);
 	if (conn.remapping.total_channels == 0)
@@ -1102,6 +1162,7 @@ static void le_connect_handler(le_rx_t *buf) {
 	timer1_cancel_fs_lock();
 
 	reset_conn_event();
+	conn.first_conn_event = 1;
 	timer1_set_match(buf->timestamp + PACKET_DURATION(buf) +
 			conn.win_offset + USEC(1250) - RX_WARMUP_TIME);
 	return;
@@ -1112,19 +1173,35 @@ err_out:
 }
 
 static void connection_update_handler(le_rx_t *buf) {
-	conn.win_size            = extract_field(buf, 3, 1);
-	conn.win_offset          = extract_field(buf, 4, 2);
-	conn.conn_update_pending_interval = extract_field(buf, 6, 2);
-	conn.conn_update_pending_supervision_timeout = extract_field(buf, 10, 2);
-	conn.conn_update_instant = extract_field(buf, 12, 2);
+	le_conn_timing_t timing;
 
-	// TODO check for invalid values. XXX what do we even do in that
-	// case? we will probably drop the connection, but at least it's on
-	// our own terms and not some impossibly long supervision timeout.
-	conn.win_size   *= USEC(1250);
-	conn.win_offset *= USEC(1250);
-	conn.conn_update_pending_interval *= USEC(1250);
-	conn.conn_update_pending_supervision_timeout *= MSEC(10);
+	timing.win_size            = extract_field(buf, 3, 1);
+	timing.win_offset          = extract_field(buf, 4, 2);
+	timing.conn_interval       = extract_field(buf, 6, 2);
+	timing.supervision_timeout = extract_field(buf, 10, 2);
+
+	// An update the specification does not allow is refused, as
+	// le_connect_handler() refuses the same fields in a CONNECT_IND. Taken
+	// on trust, a transmit window of 255 steps would put 319 ms into the
+	// wait for the first event under the new parameters, and the
+	// supervision timeout it came with would be all that ended the chase.
+	//
+	// Nothing conformant sends such a value, so a packet asking for one has
+	// bit errors (CRC verification is off by default), and this handler is
+	// reached by any data packet whose first bytes happen to look like a
+	// connection update. Keep following the connection on the parameters it
+	// already has, which are in range and end it at its real supervision
+	// timeout: ending the follow here would let one bit flip stop a healthy
+	// capture. This is what channel_map_update_handler() does with an empty
+	// channel map, for the same reason.
+	if (!le_scale_conn_timing(&timing))
+		return;
+
+	conn.win_size            = timing.win_size;
+	conn.win_offset          = timing.win_offset;
+	conn.conn_update_pending_interval = timing.conn_interval;
+	conn.conn_update_pending_supervision_timeout = timing.supervision_timeout;
+	conn.conn_update_instant = extract_field(buf, 12, 2);
 
 	conn.conn_update_pending = 1;
 }
