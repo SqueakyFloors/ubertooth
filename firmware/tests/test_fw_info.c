@@ -284,30 +284,34 @@ MU_TEST(no_image_writes_its_api_version_as_a_bare_number)
 
 	for (i = 0; i < sizeof(images) / sizeof(images[0]); i++) {
 		FILE *file = fopen(images[i].path, "r");
-		int found = 0, named = 0;
+		int found = 0, named = 0, in_block = 0;
 
 		snprintf(message, sizeof(message), "%s would not open",
 		         images[i].path);
 		mu_assert_fatal(file != NULL, message);
 		while (fgets(line, sizeof(line), file) != NULL) {
-			int in_block = 0;
+			char code[1024];
 
-			/* The label and the value are on one line, so a line
-			 * that mentions the field in prose alone is not it. */
-			if (strstr(line, "bcdDevice") == NULL)
-				continue;
-			strip_comments(line, &in_block);
-			if (!calls_identifier(line, "LE_WORD"))
+			/* Two readings of the same line. The label is a
+			 * comment, so it is looked for in the line as written;
+			 * the value has to be read with the comments gone, or
+			 * prose about the field would count as the field. The
+			 * block-comment state carries across lines, so a
+			 * comment spanning several of them cannot hide code. */
+			snprintf(code, sizeof(code), "%s", line);
+			strip_comments(code, &in_block);
+			if (strstr(line, "bcdDevice") == NULL ||
+			    !calls_identifier(code, "LE_WORD"))
 				continue;
 			found++;
-			if (contains_identifier(line, images[i].constant))
+			if (contains_identifier(code, images[i].constant))
 				named++;
 		}
 		fclose(file);
 
 		snprintf(message, sizeof(message),
-		         "%s: no bcdDevice field found, so this case read "
-		         "nothing", images[i].path);
+		         "%s: expected one bcdDevice field, found %d",
+		         images[i].path, found);
 		mu_assert(found == 1, message);
 		snprintf(message, sizeof(message),
 		         "%s: bcdDevice is not %s, so this image can report one "

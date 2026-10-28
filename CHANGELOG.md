@@ -160,13 +160,6 @@
   those tools still cannot drive that image and now fail on the first request
   it does not answer.
   [#556](https://github.com/SqueakyFloors/ubertooth/issues/556)
-- `ubertooth-util -w` says which of the four processor faults a board hit,
-  rather than only that it hit one, and says so for both images: a fault on a
-  board running `btbr` used to read back as whatever the firmware was doing
-  before it, "not in a wait" or "servicing USB". A board stopped by the `btbr`
-  firmware itself reads back as that.
-  [#458](https://github.com/SqueakyFloors/ubertooth/issues/458)
-  [#608](https://github.com/SqueakyFloors/ubertooth/issues/608)
 - **Reflash required:** the firmware API version is now 1.38, last moved by the
   `btbr` image reporting it, and the host tools require firmware of exactly
   their own API version, older or newer. Host and firmware come from the same
@@ -408,11 +401,16 @@
   three seconds and comes back idle, instead of staying on USB answering
   nothing until it is unplugged or its hub port is power-cycled. A capture sees
   the board disappear rather than hang. A board that hits one of the LED fault
-  codes now reboots part-way through blinking it for the same reason, and says
-  it was in a fault handler when `ubertooth-util -w` asks, which counting
-  blinks never gave you.
+  codes now reboots part-way through blinking it for the same reason, and
+  `ubertooth-util -w` says which of the four faults it was, which counting
+  blinks never gave you. That holds for a board running `btbr` too, where a
+  fault used to read back as whatever the firmware was doing before it, "not in
+  a wait" or "servicing USB"; a board that image stopped itself reads back as
+  that.
   [#239](https://github.com/SqueakyFloors/ubertooth/issues/239)
+  [#458](https://github.com/SqueakyFloors/ubertooth/issues/458)
   [#509](https://github.com/SqueakyFloors/ubertooth/issues/509)
+  [#608](https://github.com/SqueakyFloors/ubertooth/issues/608)
 - The `libusb -7` note names the fallback -- unplug the board or power-cycle its
   hub port -- as well as the self-reset, which a board whose loop keeps feeding
   the watchdog never gets.
