@@ -294,13 +294,15 @@
   those tools still cannot drive that image and now fail on the first request
   it does not answer.
   [#556](https://github.com/SqueakyFloors/ubertooth/issues/556)
-- **Reflash required:** the firmware API version is now 1.52, last moved by the
+- **Reflash required:** the firmware API version is now 1.53, last moved by
+  promiscuous mode reporting the access address of the connection it follows,
+  before that by the
   board reporting a low-energy packet it had to drop for want of queue room and
   by a channel set reaching the board while it follows a connection, before
   that by the
   E-GO mode request starting the mode it names on a board already running one,
-  before that by the AFH map a mode start keeps, the bound on the clock drift
-  the board accumulates and the generic receive's FIFO flush, before that by
+  by the AFH map a mode start keeps, the bound on the clock drift
+  the board accumulates and the generic receive's FIFO flush, by
   the channel a mode start keeps and the E-GO access code
   it resets, by the finer breadcrumb sites inside USB service that
   `ubertooth-util -w` reads, by the breadcrumb gaining two more places a board

@@ -59,6 +59,14 @@ struct scan {
 	 * it is. */
 	int static_in_function;  /* a `static` stamp inside the estimator */
 	int stamp_in_state;      /* the stamp, in le_promisc_state_t */
+	/* Whether bt_promisc_le() clears the mode's state at each pass. The
+	 * stamp being a member of that state only helps if it does. */
+	int reset_in_promisc_loop;
+	/* Where the access address is announced to the host. The record is
+	 * dropped unless it is queued after bt_le_sync() has emptied the
+	 * queue, and announcing it twice would print the line twice. */
+	int announce_sites;
+	int announce_in_sync;
 	int flag_in_state;       /* and the flag that says it is set */
 };
 
@@ -161,6 +169,19 @@ static int scan_sources(struct scan *out)
 		    strstr(line, "static") != NULL &&
 		    contains_identifier(line, "prev_clk"))
 			out->static_in_function = 1;
+
+		if (strcmp(fn, "bt_promisc_le") == 0 &&
+		    strstr(line, "reset_le_promisc()") != NULL)
+			out->reset_in_promisc_loop = 1;
+
+		/* `le_promisc_state(0, ...)`: the record type that carries the
+		 * access address. The other types carry the parameters the
+		 * mode recovers afterwards. */
+		if (strstr(line, "le_promisc_state(0,") != NULL) {
+			out->announce_sites++;
+			if (strcmp(fn, "bt_le_sync") == 0)
+				out->announce_in_sync = 1;
+		}
 
 		/* Whose body the lines below are: a definition starts in column 1
 		 * and is not a statement. */
@@ -508,6 +529,34 @@ MU_TEST(test_the_stamp_belongs_to_the_mode_not_to_the_function)
 	         "%s: le_promisc_state_t has no seen_a_packet, so a cleared "
 	         "stamp cannot be told from a sighting at clock zero", path);
 	mu_assert(s.flag_in_state, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: bt_promisc_le() does not call reset_le_promisc(), so the "
+	         "state the stamp lives in is not cleared at a pass", path);
+	mu_assert(s.reset_in_promisc_loop, msg);
+}
+
+/*
+ * The access address is announced once, from inside bt_le_sync(). Announcing
+ * it before that call loses the record to the queue reset on the way in, which
+ * is why the line was missing; announcing it in both places would print it
+ * twice for a record that escaped the earlier one before the reset.
+ */
+MU_TEST(test_the_access_address_is_announced_once_and_late_enough)
+{
+	char msg[512];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the access address is announced at %d places, not one: "
+	         "a record queued before bt_le_sync() is dropped by its queue "
+	         "reset, and one that escapes first is then reported twice",
+	         path, s.announce_sites);
+	mu_assert(s.announce_sites == 1, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the access address is not announced from bt_le_sync(), "
+	         "so it is queued before the queue the host reads exists", path);
+	mu_assert(s.announce_in_sync, msg);
 }
 
 /*
@@ -597,6 +646,7 @@ int main(void)
 	MU_RUN(test_an_ordinary_gap_is_untouched);
 	MU_RUN(test_packets_from_one_connection_event_are_ignored);
 	MU_RUN(test_the_stamp_belongs_to_the_mode_not_to_the_function);
+	MU_RUN(test_the_access_address_is_announced_once_and_late_enough);
 	MU_RUN(test_a_pass_does_not_measure_from_the_pass_before_it);
 	MU_RUN(test_the_stamp_left_behind_is_a_clock_reading);
 	return mu_report();

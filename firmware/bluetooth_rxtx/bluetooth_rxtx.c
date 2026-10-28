@@ -2553,12 +2553,14 @@ void bt_le_sync(u8 active_mode)
 	dma_init_le(le_rx.packet + 4, LE_RX_PDU_MAX);
 	dio_ssp_start();
 
-	/* The access address promiscuous mode is about to follow. It is
-	 * reported from here, after the queue exists: the caller enqueued it
-	 * before calling, where the queue the record went into was emptied by
-	 * the line above and the USB interrupt was off, so the host never got
-	 * it and the one line that says which connection a capture is of was
-	 * always missing. */
+	/* The access address promiscuous mode is about to follow, reported
+	 * from here because this is the first point at which the host can be
+	 * told: the two places that used to announce it both ran before the
+	 * line above, which empties the queue their record went into, so the
+	 * one line that says which connection a capture is of was lost. This
+	 * is the only announcement, so a record that did escape one of them
+	 * early cannot be reported a second time. Both ways into the mode come
+	 * through here, the host-given access address included. */
 	if (active_mode == MODE_BT_PROMISC_LE)
 		le_promisc_state(0, &le.access_address, 4);
 
@@ -3231,7 +3233,6 @@ int cb_le_promisc(char *unpacked) {
 			data_cb = cb_follow_le;
 			packet_cb = promisc_follow_cb;
 			le.crc_verify = 0;
-			le_promisc_state(0, &le.access_address, 4);
 			// quit using the old stuff and switch to sync mode
 			return 0;
 		}
@@ -3269,7 +3270,6 @@ void bt_promisc_le() {
 		if ((channel & 1) == 1)
 			channel = 2440;
 
-		le_promisc_state(0, &le.access_address, 4);
 		packet_cb = promisc_follow_cb;
 		le.crc_verify = 0;
 		bt_le_sync(MODE_BT_PROMISC_LE);
