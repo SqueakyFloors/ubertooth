@@ -60,6 +60,21 @@ TOLERATED_OPTIONS = ("extcap-version=", "extcap-capture-filter=")
 # below lets one entry above accept both forms.
 OPTIONAL_VALUE = ("--extcap-version",)
 
+# Every long option this script takes, in getopt's spelling: a trailing "="
+# marks one that carries a value. report_bad_option() reads this list to say
+# what is wrong with a long option, so it is here rather than inline in the
+# getopt call below.
+LONG_OPTIONS = (
+    "help",
+    "extcap-interfaces",
+    "extcap-dlts",
+    "extcap-config",
+    "capture",
+    "extcap-interface=",
+    "fifo=",
+    "channel=",
+) + TOLERATED_OPTIONS
+
 
 def with_optional_values(argv):
     """Give the bare form of an optional-value option an empty value.
@@ -118,29 +133,40 @@ def report_bad_option(refusal):
     takes none, and an abbreviation short enough to mean either of two
     options.
 
-    Which mistake it was comes from getopt's own English message, since that
-    is all it reports besides the option: Python ships no translation of it,
-    so the words are the same everywhere. An unknown option is the fallback,
-    so a message this does not recognize still reads as one of ours.
+    Which mistake it was comes from LONG_OPTIONS rather than from getopt's
+    message, whose wording has changed between Python versions: Python 3.15
+    reports an ambiguous abbreviation differently from 3.12, which read as an
+    unknown option here until this was decided from the list instead.
     """
-    # getopt says "option --name ..." for a word with two dashes and
-    # "option -c ..." for a single letter, and names the option without them.
-    # For a value that is missing or not wanted, the name is the one getopt
-    # matched, so an abbreviation is reported in full and "--fi" reads as
-    # "--fifo": the option the user meant, rather than what they typed, which
-    # is the one place here that does not quote the command line as given.
-    # For an abbreviation that matches two options there is nothing to expand
-    # it to, so that one is quoted as typed.
-    option = ("--" if refusal.msg.startswith("option --") else "-") \
-        + refusal.opt
-    if refusal.msg.endswith("requires argument"):
-        message = "option '%s' requires a value" % option
-    elif refusal.msg.endswith("must not have an argument"):
-        message = "option '%s' takes no value" % option
-    elif refusal.msg.endswith("not a unique prefix"):
-        message = "option '%s' is short for more than one option" % option
+    # getopt reports the option without its dashes: the name it matched for
+    # an option whose value is wrong, and the name as typed for one it could
+    # not match or could match twice. Only its message says which form the
+    # word had, so a single letter is read as the short form unless the
+    # message calls it long: "-c" and "--c" arrive here as the same name.
+    name = refusal.opt
+    if not (refusal.msg.startswith("option --") or len(name) > 1):
+        # The only short option here takes no value, so anything wrong with
+        # one is an option this script does not have.
+        print("error: unrecognized option '-%s'" % name, file=sys.stderr)
+        sys.exit(1)
+
+    # getopt accepts any abbreviation that names one option, so what the word
+    # could have meant decides what was wrong with it. For a value that is
+    # missing or not wanted the name is the whole option, so "--fi" is
+    # reported as "--fifo": the option the user meant, which is the one place
+    # here that does not quote the command line as it was typed. An empty
+    # name is "--=value", which getopt splits at the "=".
+    meanings = [option for option in LONG_OPTIONS
+                if name and option.rstrip("=").startswith(name)]
+    if len(meanings) > 1:
+        message = "option '--%s' is short for more than one option" % name
+    elif not meanings:
+        message = "unrecognized option '--%s'" % name
+    elif meanings[0].endswith("="):
+        # It takes a value and getopt would not have refused it with one.
+        message = "option '--%s' requires a value" % meanings[0].rstrip("=")
     else:
-        message = "unrecognized option '%s'" % option
+        message = "option '--%s' takes no value" % meanings[0]
     print("error: %s" % message, file=sys.stderr)
     sys.exit(1)
 
@@ -170,17 +196,7 @@ def main():
         opts, args = getopt.getopt(
             with_optional_values(sys.argv[1:]),
             "h",
-            [
-                "help",
-                "extcap-interfaces",
-                "extcap-dlts",
-                "extcap-config",
-                "capture",
-                "extcap-interface=",
-                "fifo=",
-                "channel=",
-                *TOLERATED_OPTIONS,
-            ])
+            list(LONG_OPTIONS))
     except getopt.GetoptError as err:
         # A usage error: the message goes to standard error and the exit
         # status is 1. The message says what was wrong, so the usage line

@@ -241,6 +241,11 @@ assert "Usage:" not in unknown.stderr, unknown
 unknown = run(("-Z",))
 assert unknown.returncode == 1, unknown
 assert unknown.stderr == "error: unrecognized option '-Z'\n", unknown
+# a single letter that is also the start of two long options is still the
+# single letter the user typed, not an abbreviation of either
+unknown = run(("-c",))
+assert unknown.returncode == 1, unknown
+assert unknown.stderr == "error: unrecognized option '-c'\n", unknown
 missing = run(("--fifo",))
 assert missing.returncode == 1, missing
 assert missing.stderr == "error: option '--fifo' requires a value\n", missing
