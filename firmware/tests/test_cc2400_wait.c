@@ -1433,6 +1433,9 @@ int main(void)
 	MU_RUN(test_fsm_does_not_match_another_state);
 	MU_RUN(test_a_wait_that_gives_up_is_counted);
 	MU_RUN(test_a_timeout_counts_only_its_own_shape);
+	/* Last of the three, and it has to stay last: nothing resets the counts
+	 * between cases, and this one leaves the unlock count at its limit,
+	 * where the two above could no longer see an increment. */
 	MU_RUN(test_a_count_stops_at_its_limit);
 	MU_RUN(test_service_runs_between_every_poll);
 	MU_RUN(test_service_runs_on_the_unlock_side);

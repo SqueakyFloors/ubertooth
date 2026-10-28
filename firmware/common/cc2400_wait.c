@@ -24,6 +24,12 @@
  */
 static volatile uint16_t timeouts[CC2400_WAIT_SHAPE_COUNT];
 
+/* The host reads two bytes per shape, so a shape added without moving
+ * UBERTOOTH_RADIO_TIMEOUTS_LEN with it would have cc2400_wait_report() write
+ * past the reply the host asked for. This fails the build instead. */
+typedef char radio_timeouts_reply_holds_every_shape[
+	(2 * CC2400_WAIT_SHAPE_COUNT == UBERTOOTH_RADIO_TIMEOUTS_LEN) ? 1 : -1];
+
 static void wait_timed_out(enum cc2400_wait_shape shape)
 {
 	/* One read, one write, and the write is at most one above what the read

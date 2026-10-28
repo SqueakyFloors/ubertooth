@@ -807,8 +807,9 @@ void set_isp(void)
 	u32 result[5];
 	/*
 	 * Interrupts off for the hand-over, and this is the one place that can
-	 * do it for both images: the guard below is file-local, and btbr has its
-	 * own copy under a different header.
+	 * do it for both images: the guard it uses, defined earlier in this
+	 * file, is file-local, and btbr has its own copy under a different
+	 * header.
 	 *
 	 * The programmer lives in ROM and neither uses nor masks interrupts, so
 	 * a handler that fires while it starts up vectors back into the image
