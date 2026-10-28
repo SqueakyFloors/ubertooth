@@ -772,7 +772,9 @@ MU_TEST(a_connection_request_is_accepted_and_scheduled)
 
 	mu_assert_int_eq(0xdeadbeef, conn.access_address);
 	mu_assert_int_eq(0x555555, conn.crc_init);
-	mu_assert_int_eq(rbit(0x555555), conn.crc_init_reversed);
+	/* The 24-bit reversal of 0x555555, which is the constant the advertising
+	 * path spells out as 0xAAAAAA. */
+	mu_assert_int_eq(0xAAAAAA, conn.crc_init_reversed);
 	mu_assert_int_eq(7, conn.hop_increment);
 	/* 1.25 ms in units of 100 ns is 12500. */
 	mu_assert_int_eq(24 * 12500, conn.conn_interval);
@@ -798,6 +800,43 @@ MU_TEST(a_connection_request_is_accepted_and_scheduled)
 	          "would be re-armed on the advertising channel during the "
 	          "connection");
 	mu_assert_int_eq(0, radio_touched);
+}
+
+/*
+ * `ubertooth-btle -f -v1` checks each packet's CRC and drops the ones that
+ * fail. A data-channel packet is checked against the starting value the
+ * CONNECT_IND carried, and that value is a 24-bit field: reversing it over a
+ * whole 32-bit word leaves it a byte too high, which fails every packet of
+ * the connection and empties the capture.
+ */
+MU_TEST(a_connections_crc_init_is_reversed_as_a_24_bit_field)
+{
+	struct connect_req r = valid_connect_req();
+	le_rx_t buf;
+	/* A short data PDU: the two-byte header and a four-byte payload. */
+	uint8_t pdu[6] = { 0x02, 0x04, 0xde, 0xad, 0xbe, 0xef };
+	uint32_t crc, recovered;
+
+	start_fresh();
+	le.do_follow = 1;
+	r.crc_init = 0x123456;
+	build_connect_req(&buf, &r);
+
+	le_connect_handler(&buf);
+
+	mu_assert_int_eq(0x123456, conn.crc_init);
+	mu_assert_int_eq(0x6a2c48, conn.crc_init_reversed);
+
+	/*
+	 * And the value is the one the CRC needs, shown without repeating the
+	 * reversal: the CRC of a packet, computed from it, runs backwards to the
+	 * CRCInit the connection request carried. btle_reverse_crc() is the
+	 * separate implementation the promiscuous path recovers a CRCInit with,
+	 * so a wrong starting value here cannot cancel out.
+	 */
+	crc = btle_crcgen_lut(conn.crc_init_reversed, pdu, sizeof(pdu));
+	recovered = btle_reverse_crc(crc, pdu, sizeof(pdu));
+	mu_assert_int_eq(0x123456, recovered);
 }
 
 /* The host asks for connection following with `ubertooth-btle -f`; without
@@ -1061,6 +1100,68 @@ MU_TEST(a_channel_map_update_is_scheduled_for_its_instant)
 	mu_assert_int_eq(9, conn.pending_remapping.remapping_index[1]);
 	/* ...and the map in use is not changed until the instant. */
 	mu_assert_int_eq(0, conn.remapping.total_channels);
+}
+
+/*
+ * A channel map with no channels in it cannot be followed: the remapping
+ * divides by the number of channels in use, and the processor's
+ * divide-by-zero trap is off, so the division returns 0 instead of faulting
+ * and every connection event from the instant on tunes data channel 0. The
+ * connection request handler already refuses such a map; this one does too.
+ */
+MU_TEST(a_channel_map_update_with_no_channels_is_refused)
+{
+	struct connect_req r = valid_connect_req();
+	le_rx_t buf;
+
+	start_fresh();
+	le.do_follow = 1;
+	build_connect_req(&buf, &r);
+	le_connect_handler(&buf);
+	mu_assert_fatal(conn.remapping.total_channels == 37,
+	                "the connection was not followed, so there is no update "
+	                "to refuse");
+
+	/* A good update first: channels 0 and 9, at event 1234. */
+	fill_packet(&buf, 8, DATA_CHANNEL_MHZ);
+	memset(buf.data, 0, sizeof(buf.data));
+	buf.data[3] = 0x01;
+	buf.data[4] = 0x02;
+	put_le(&buf.data[8], 1234, 2);
+	channel_map_update_handler(&buf);
+	mu_assert_int_eq(2, conn.pending_remapping.total_channels);
+
+	/* Then an empty map, at a later instant. */
+	fill_packet(&buf, 8, DATA_CHANNEL_MHZ);
+	memset(buf.data, 0, sizeof(buf.data));
+	put_le(&buf.data[8], 4321, 2);
+	channel_map_update_handler(&buf);
+
+	/* It is not scheduled, and it has not overwritten the update that was
+	 * already waiting for its instant. */
+	mu_assert_int_eq(1, conn.channel_map_update_pending);
+	mu_assert_int_eq(1234, conn.channel_map_update_instant);
+	mu_assert_int_eq(2, conn.pending_remapping.total_channels);
+
+	/* The map being followed now is untouched either way. */
+	mu_assert_int_eq(37, conn.remapping.total_channels);
+}
+
+/*
+ * The backstop under both handlers: were a count of zero ever to reach the
+ * remapping, each index maps to itself rather than every index to channel 0.
+ */
+MU_TEST(an_empty_map_does_not_divide_by_zero_in_the_remapping)
+{
+	le_channel_remapping_t remapping;
+	uint8_t empty_map[5] = { 0, 0, 0, 0, 0 };
+	unsigned i;
+
+	le_parse_channel_map(empty_map, &remapping);
+	mu_assert_int_eq(0, remapping.total_channels);
+
+	for (i = 0; i < 37; i++)
+		mu_assert_int_eq(i, le_map_channel((uint8_t)i, &remapping));
 }
 
 /* ------------------------------------------------------------------ *
@@ -1555,6 +1656,7 @@ int main(void)
 	MU_RUN(the_average_rssi_is_the_mean_of_the_samples);
 	MU_RUN(a_full_ring_refuses_the_packet);
 	MU_RUN(a_connection_request_is_accepted_and_scheduled);
+	MU_RUN(a_connections_crc_init_is_reversed_as_a_24_bit_field);
 	MU_RUN(a_connection_request_is_ignored_until_the_host_asks_to_follow);
 	MU_RUN(a_connection_request_outside_the_specification_is_refused);
 	MU_RUN(a_connection_request_of_the_wrong_length_is_left_alone);
@@ -1563,6 +1665,8 @@ int main(void)
 	MU_RUN(an_updates_window_size_survives_being_scaled);
 	MU_RUN(the_first_event_after_an_update_waits_out_the_whole_window);
 	MU_RUN(a_channel_map_update_is_scheduled_for_its_instant);
+	MU_RUN(a_channel_map_update_with_no_channels_is_refused);
+	MU_RUN(an_empty_map_does_not_divide_by_zero_in_the_remapping);
 	MU_RUN(only_the_packets_the_engine_knows_are_acted_on);
 	MU_RUN(a_target_filters_advertising_packets_only);
 	MU_RUN(two_packets_in_an_event_anchor_it_where_they_arrived);

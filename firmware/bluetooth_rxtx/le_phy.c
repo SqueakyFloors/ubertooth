@@ -1054,7 +1054,13 @@ static void le_connect_handler(le_rx_t *buf) {
 
 	conn.access_address     = extract_field(buf, 14, 4);
 	conn.crc_init           = extract_field(buf, 18, 3);
-	conn.crc_init_reversed  = rbit(conn.crc_init);
+	// CRCInit is a 24-bit field. rbit() reverses all 32 bits of the word, so
+	// its result sits a byte too high: 0x123456 has to become 0x6a2c48, and
+	// rbit() alone gives 0x6a2c4800, which btle_crcgen_lut() masks down to
+	// 0x2c4800. Without the shift every data packet of a followed connection
+	// is checked against a CRC from the wrong starting value, so
+	// `ubertooth-btle -f -v1` drops all of them.
+	conn.crc_init_reversed  = rbit(conn.crc_init) >> 8;
 	conn.win_size           = extract_field(buf, 21, 1);
 	conn.win_offset         = extract_field(buf, 22, 2);
 	conn.conn_interval      = extract_field(buf, 24, 2);
@@ -1124,9 +1130,28 @@ static void connection_update_handler(le_rx_t *buf) {
 }
 
 static void channel_map_update_handler(le_rx_t *buf) {
+	le_channel_remapping_t remapping;
+
+	le_parse_channel_map(&buf->data[3], &remapping);
+
+	// A map with no channels in it is refused, as le_connect_handler() refuses
+	// the same field in a CONNECT_IND. The remapping divides by the number of
+	// channels in use, and the processor's divide-by-zero trap is off at its
+	// reset value: the division would return 0 rather than fault, so from the
+	// update's instant on every connection event would tune data channel 0 and
+	// the follow would capture nothing until the supervision timeout.
+	//
+	// Nothing conformant sends an empty map, so a packet asking for one has
+	// bit errors (CRC verification is off by default). Keep following the
+	// connection on the map it already has.
+	if (remapping.total_channels == 0)
+		return;
+
+	// Only now, so a corrupted update cannot overwrite a good one that is
+	// still waiting for its instant.
+	conn.pending_remapping = remapping;
 	conn.channel_map_update_pending = 1;
 	conn.channel_map_update_instant = extract_field(buf, 8, 2);
-	le_parse_channel_map(&buf->data[3], &conn.pending_remapping);
 }
 
 static void packet_handler(le_rx_t *buf) {

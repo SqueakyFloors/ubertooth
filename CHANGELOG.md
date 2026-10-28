@@ -205,9 +205,10 @@
   those tools still cannot drive that image and now fail on the first request
   it does not answer.
   [#556](https://github.com/SqueakyFloors/ubertooth/issues/556)
-- **Reflash required:** the firmware API version is now 1.41, last moved by the
-  radio wait counts `-w` reads, and the host tools require firmware of exactly
-  their own API version, older or newer. Host and firmware come from the same
+- **Reflash required:** the firmware API version is now 1.42, last moved by the
+  CRC check a followed connection's data packets get, and the host tools
+  require firmware of exactly their own API version, older or newer. Host and
+  firmware come from the same
   tree: `ubertooth-dfu` reflashes a board whatever firmware it is running, but
   only with an image built from this tree, and `2020-12-R1` firmware is
   refused.
@@ -228,6 +229,7 @@
   [#571](https://github.com/SqueakyFloors/ubertooth/issues/571)
   [#505](https://github.com/SqueakyFloors/ubertooth/issues/505)
   [#658](https://github.com/SqueakyFloors/ubertooth/issues/658)
+  [#657](https://github.com/SqueakyFloors/ubertooth/issues/657)
 - Every firmware image now carries a block naming the image and the revision
   it was built from, read the same way off a board and out of a file.
   `ubertooth-dfu -d` says which image a file holds before it writes it
@@ -392,6 +394,19 @@
   -- and the first connection event under the new parameters could end before a
   packet late in the window arrived.
   [#571](https://github.com/SqueakyFloors/ubertooth/issues/571)
+- `ubertooth-btle -f -v1` keeps the data packets of a followed connection. The
+  board reversed the connection's CRC starting value over a whole 32-bit word
+  where the field is 24 bits wide, so every packet of the connection was
+  checked against the wrong value, failed, and was dropped: the capture was
+  empty for as long as the connection lasted. Advertising packets were
+  unaffected.
+  [#657](https://github.com/SqueakyFloors/ubertooth/issues/657)
+- `ubertooth-btle -f` keeps following when a channel map update asks for no
+  channels at all. Such an update -- which only a corrupted packet can carry --
+  used to park the capture on one data channel, where it saw nothing until the
+  connection's supervision timeout ran out. It is now refused and the
+  connection carries on with the map it has.
+  [#660](https://github.com/SqueakyFloors/ubertooth/issues/660)
 - The average RSSI of a captured Bluetooth low-energy packet is now the mean
   of the samples taken while it arrived. The board computed it in unsigned
   arithmetic, so the value in the per-packet header of a PCAP written by
