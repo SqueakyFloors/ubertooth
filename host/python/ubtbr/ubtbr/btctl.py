@@ -225,10 +225,13 @@ def warn(msg):
 	eprint("warning: %s\n"%msg)
 
 def error(msg):
-	"""Report a failure: one `error: ` line on standard error.
+	"""Report a failure, prefixed `error: `, on standard error.
 
-	Used where there is nobody above to raise to. A command runs on its own
-	thread, so anything let out of there is a traceback nobody can report.
+	One line, unless the message itself carries a `note: ` line giving the
+	usual cause -- open_failure_note() and unread_serials_note() below build
+	those. Used both for a command line the tool will not take and where
+	there is nobody above to raise to: a command runs on its own thread, so
+	anything let out of there is a traceback nobody can report.
 	"""
 	eprint("error: %s\n"%msg)
 
@@ -527,7 +530,10 @@ class BTCtlCmd(Thread):
 			# Raising here would come out of whoever asked for the stop,
 			# which is the keyboard interrupt handler among others. The
 			# command ends on its own below either way.
-			warn("could not ask the device to go idle: %s"%e)
+			#
+			# Named by command, because close() has a line of its own with
+			# the same cause and both can appear in one session.
+			warn("%s: could not ask the device to go idle: %s"%(self, e))
 
 	def _handle_state(self, state, reason):
 		print_state(state, reason)
@@ -580,8 +586,8 @@ class BTCtlCmd(Thread):
 				self._handle_state(*msg)
 			elif t == BTCTL_RX_PKT:
 				if not self._ready:
-					warn("message %d arrived before %s was ready: %s"
-						%(t,self,msg))
+					warn("a packet arrived before %s was ready: %s"
+						%(self,msg))
 				else:
 					self._handle_pkt(msg)
 			else:
@@ -1294,7 +1300,9 @@ class BTCtl:
 		try:
 			self.send_idle_cmd()
 		except (usb1.USBError, BTCtlError) as e:
-			warn("could not ask the device to go idle: %s"%e)
+			# Said to be the close, because a command's stop has a line with
+			# the same cause and both can appear in one session.
+			warn("could not ask the device to go idle while closing it: %s"%e)
 		if self.rx_error() is not None:
 			warn("the receive thread had already stopped: %s"%self.rx_error())
 		self._rx_stopped.set()

@@ -666,8 +666,8 @@ def check_the_spec_lists_every_option():
                                  % (where, rule["a"], rule["b"], side)))
 
     # The man page the spec cites has to be there, and it has to list -h:
-    # ten of them do not, which is finding F-09. It gets a case id of its own
-    # so that finding can claim it like any other.
+    # eleven of them do not, which is finding F-09. It gets a case id of its
+    # own so that finding can claim it like any other.
     page = CONTRACT.get("man")
     if page is not None and page.endswith(".md"):
         path = os.path.join(here, "..", "..", "doc", page)

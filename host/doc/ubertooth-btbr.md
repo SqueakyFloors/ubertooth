@@ -198,7 +198,7 @@ During a session, a board that stops answering is reported and the running
 command ends rather than waiting. A board that left the bus mid-command gives
 
     error: the receive thread stopped: USBErrorPipe: LIBUSB_ERROR_PIPE [-9]
-    warning: could not ask the device to go idle: LIBUSB_ERROR_NO_DEVICE [-4]
+    warning: BTCtlInquiryCmd: could not ask the device to go idle: LIBUSB_ERROR_NO_DEVICE [-4]
     warning: BTCtlInquiryCmd: the device did not go idle, stopping anyway
 
 and a request that failed some other way gives `error: <command> stopped:

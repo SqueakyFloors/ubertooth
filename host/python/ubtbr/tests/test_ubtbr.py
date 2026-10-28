@@ -1037,8 +1037,8 @@ assert "Traceback" not in errors, errors
 # The way out closes the device, and the board will not take the idle request
 # either: that warning is one "warning: " line, not a log line, which is what
 # the whole run is checked for here.
-assert "warning: could not ask the device to go idle: timeout\n" in errors, \
-    errors
+assert ("warning: could not ask the device to go idle while closing it: "
+        "timeout\n") in errors, errors
 assert "| WARNING |" not in errors and "| ERROR |" not in errors, errors
 print("ubtbr: a device that takes no request is reported, not waited on")
 
