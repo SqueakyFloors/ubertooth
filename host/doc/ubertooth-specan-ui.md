@@ -36,7 +36,9 @@ To pick one of several Ubertooths, run:
    show the band around one Wi-Fi channel (for example `--wifi=6`) or a range
    of channels (`--wifi=1-11`); `--wifi` alone shows channel 1. Channel 14 is
    centred on 2484 MHz, above the 2480 MHz the board can tune, so `--wifi=14`
-   shows only the part of that channel below 2480 MHz
+   shows the part of that channel below 2480 MHz -- and with a `--padding`
+   under 4 it is refused, because then the whole band asked for is above the
+   range
  - `--padding <MHz>` :
    extra band shown on each side with `--wifi` (default 10), limited to
    2402-2480 MHz

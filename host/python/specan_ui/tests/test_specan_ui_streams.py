@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """ubertooth-specan-ui refuses a bad range on standard error, with exit 1.
 
+It also pins the frequency each Wi-Fi channel number converts to, since that
+arithmetic lives in the same module as the refusals.
+
 Run as: test_specan_ui_streams.py <path to the specan package's directory>
                                  [<path to ubertooth-specan-ui>]
 
@@ -46,6 +49,11 @@ CASES = (
      "error: frequency of 3000 MHz is above maximum frequency of 2480\n"),
     (("-l", "2470", "-u", "2410"), lambda: limits.check_freq_pair(2470, 2410),
      "error: lower frequency of 2470 MHz is above upper frequency of 2410 MHz\n"),
+    # Channel 14 is centred above the range the board tunes, so a padding
+    # under 4 asks for a band that lies entirely above it.
+    (("--wifi", "14", "--padding", "3"),
+     lambda: limits.check_freq_pair(2481, limits.MAX_FREQ),
+     "error: frequency of 2481 MHz is above maximum frequency of 2480\n"),
 )
 
 
