@@ -29,10 +29,17 @@
 
 extern unsigned int packet_counter_max;
 
-/* An access code is 64 symbols long, so a search for one has to stop 64
- * symbols short of the end of the captured symbols: a correlator allowed to
- * run to the end reads past them. */
+/* An access code is 64 symbols long. The search reads all 64 from every start
+ * position it tries, so a search allowed to start anywhere in the bank reads
+ * past the symbols that were captured. */
 #define AC_SYMBOLS 64
+
+/* How many start positions a search for an access code may try, which is what
+ * libbtbb's btbb_find_ac() takes as its search length: it tries positions 0 to
+ * search_length - 1. The last position whose whole access code lies inside the
+ * bank begins AC_SYMBOLS symbols before the bank's end, so counting from zero
+ * to that position inclusive is one more than the difference between them. */
+#define AC_SEARCH_POSITIONS (BANK_LEN - AC_SYMBOLS + 1)
 
 /* How long a bank of symbols is in the 100 ns ticks the firmware stamps it
  * with. One symbol is one microsecond of air, so the 400-symbol bank a record
@@ -570,7 +577,7 @@ void cb_scan(ubertooth_t* ut, void* args __attribute__((unused)))
 
 	/* Pass packet-pointer-pointer so that
 	 * packet can be created in libbtbb. */
-	offset = btbb_find_ac(syms, BANK_LEN - AC_SYMBOLS, LAP_ANY, max_ac_errors, &pkt);
+	offset = btbb_find_ac(syms, AC_SEARCH_POSITIONS, LAP_ANY, max_ac_errors, &pkt);
 	if (offset < 0)
 		goto out;
 
@@ -618,7 +625,7 @@ void cb_afh_initial(ubertooth_t* ut, void* args)
 	if (rx->channel > (NUM_BREDR_CHANNELS-1))
 		goto out;
 
-	if( btbb_find_ac(syms, BANK_LEN - AC_SYMBOLS, btbb_piconet_get_lap(pn), max_ac_errors, &pkt) < 0 )
+	if( btbb_find_ac(syms, AC_SEARCH_POSITIONS, btbb_piconet_get_lap(pn), max_ac_errors, &pkt) < 0 )
 		goto out;
 
 	/* detect AFH map
@@ -672,7 +679,7 @@ void cb_afh_monitor(ubertooth_t* ut, void* args)
 	if (rx->channel > (NUM_BREDR_CHANNELS-1))
 		goto out;
 
-	if( btbb_find_ac(syms, BANK_LEN - AC_SYMBOLS, btbb_piconet_get_lap(pn), max_ac_errors, &pkt) < 0 )
+	if( btbb_find_ac(syms, AC_SEARCH_POSITIONS, btbb_piconet_get_lap(pn), max_ac_errors, &pkt) < 0 )
 		goto out;
 
 	counter++;
@@ -721,7 +728,7 @@ void cb_afh_r(ubertooth_t* ut, void* args)
 	if (rx->channel > (NUM_BREDR_CHANNELS-1))
 		goto out;
 
-	if( btbb_find_ac(syms, BANK_LEN - AC_SYMBOLS, btbb_piconet_get_lap(pn), max_ac_errors, &pkt) < 0 )
+	if( btbb_find_ac(syms, AC_SEARCH_POSITIONS, btbb_piconet_get_lap(pn), max_ac_errors, &pkt) < 0 )
 		goto out;
 
 
@@ -1111,7 +1118,7 @@ void cb_rx(ubertooth_t* ut, void* args)
 
 	/* Pass packet-pointer-pointer so that
 	 * packet can be created in libbtbb. */
-	offset = btbb_find_ac(syms, BANK_LEN - AC_SYMBOLS, lap, max_ac_errors, &pkt);
+	offset = btbb_find_ac(syms, AC_SEARCH_POSITIONS, lap, max_ac_errors, &pkt);
 	if (offset < 0)
 		goto out;
 

@@ -419,6 +419,13 @@
 
 ### Reliability fixes
 
+- Every Classic capture finds the access codes that start at the last position
+  of a bank of symbols. The search was given one position fewer than the bank
+  holds, so an access code beginning 64 symbols before the bank's end -- with
+  all 64 of its symbols captured -- was never found: one in 337 positions
+  lost, in every bank, in `ubertooth-rx` and its `-z` survey, `ubertooth-scan`
+  and the three AFH detection paths.
+  [#792](https://github.com/SqueakyFloors/ubertooth/issues/792)
 - `ubertooth-util -r` recovers a board that answers nothing, which used to
   need a re-plug or a hub port power cycle. Such a board refuses the reset
   request like every other request, so `-r` resets its USB connection first --
@@ -470,12 +477,13 @@
   with nothing marking it as incomplete. Reading past the symbols also walked
   off the end of the buffer they sit in: `ubertooth-rx -l` aborted with
   `double free or corruption` on about the thirty-sixth packet of a piconet,
-  live or replayed from a capture. Its search for an access code stops
-  64 symbols short of the end of the captured symbols as well, as the other
-  capture paths already did, so a capture run at a high `-e` reports somewhat
-  fewer packets: the positions that are gone could only ever have matched the
-  symbols that were never captured.
+  live or replayed from a capture. Its search for an access code now stops
+  where the other capture paths do, at the last position whose whole access
+  code was captured, so a capture run at a high `-e` reports somewhat fewer
+  packets: the positions that are gone could only ever have matched symbols
+  that never arrived.
   [#666](https://github.com/SqueakyFloors/ubertooth/issues/666)
+  [#792](https://github.com/SqueakyFloors/ubertooth/issues/792)
 - A Classic packet's signal level is its own from the first packet on a
   channel. The table of recent maxima started with one of its 790 entries
   filled, and the level is the strongest entry of the packet's channel, so
