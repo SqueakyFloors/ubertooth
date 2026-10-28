@@ -331,6 +331,19 @@ already in DFU, so the run would end at `DFU entry failed` instead.*
 - [ ] Confirm: no crash
 - [ ] Compare packet count with and without `-v1` — `-v1` should be equal or fewer
 
+### 3b-2. CRC verification on a followed connection
+*Requires: a BLE central and peripheral that connect and keep exchanging data
+(two scripted nRF52840 DKs, or a phone and any peripheral it talks to)*
+- [ ] Run `ubertooth-btle -f -v1 -c follow.pcap` and let the pair connect while
+      it listens
+- [ ] Confirm: the capture shows the CONNECT_REQ and then data-channel packets
+      for as long as the connection lasts
+- [ ] Confirm: the capture does not stop at the CONNECT_REQ. It did until
+      [#657](https://github.com/SqueakyFloors/ubertooth/issues/657): the
+      connection's CRC starting value was reversed over 32 bits instead of 24,
+      so every data packet failed verification and was dropped. Section 3b
+      cannot catch that, because dropping everything is also "fewer"
+
 ### 3c. BLE PCAP capture
 - [ ] Run `ubertooth-btle -f -c capture.pcap` for 10 seconds
 - [ ] Confirm: `capture.pcap` file is created and non-empty

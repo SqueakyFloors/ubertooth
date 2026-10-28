@@ -208,8 +208,8 @@
 - **Reflash required:** the firmware API version is now 1.42, last moved by the
   CRC check a followed connection's data packets get, and the host tools
   require firmware of exactly their own API version, older or newer. Host and
-  firmware come from the same
-  tree: `ubertooth-dfu` reflashes a board whatever firmware it is running, but
+  firmware come from the same tree: `ubertooth-dfu` reflashes a board whatever
+  firmware it is running, but
   only with an image built from this tree, and `2020-12-R1` firmware is
   refused.
   [#4](https://github.com/SqueakyFloors/ubertooth/issues/4)
@@ -230,6 +230,7 @@
   [#505](https://github.com/SqueakyFloors/ubertooth/issues/505)
   [#658](https://github.com/SqueakyFloors/ubertooth/issues/658)
   [#657](https://github.com/SqueakyFloors/ubertooth/issues/657)
+  [#660](https://github.com/SqueakyFloors/ubertooth/issues/660)
 - Every firmware image now carries a block naming the image and the revision
   it was built from, read the same way off a board and out of a file.
   `ubertooth-dfu -d` says which image a file holds before it writes it

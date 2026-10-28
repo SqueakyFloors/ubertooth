@@ -247,8 +247,10 @@ void le_parse_channel_map(uint8_t *channel_map, le_channel_remapping_t *remappin
 /*
  * Map a channel index to a used index given a remapping struct.
  *
- * Both callers refuse a channel map with no channels in it, so the count is at
- * least one by the time it arrives here. The guard below is the backstop, and
+ * Both handlers that fill a remapping -- the one for a connection request and
+ * the one for a channel map update -- refuse a map with no channels in it, so
+ * the count is at least one by the time it arrives here. The guard below is a
+ * backstop, and
  * it runs once per connection event. Without it a count of zero would be
  * silent: the processor's divide-by-zero trap is off at its reset value, so
  * the remainder would come out 0 and park a followed connection on data

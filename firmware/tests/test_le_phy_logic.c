@@ -1167,7 +1167,8 @@ MU_TEST(a_channel_map_update_with_no_channels_is_refused)
 		mu_assert_int_eq(0, parsed.total_channels);
 	}
 
-	/* Channel 36, the last real one, is a map the update is taken from. */
+	/* A map holding only channel 36, the last real one, is not empty, so this
+	 * update is taken. */
 	fill_packet(&buf, 8, DATA_CHANNEL_MHZ);
 	memset(buf.data, 0, sizeof(buf.data));
 	buf.data[7] = 0x10;
