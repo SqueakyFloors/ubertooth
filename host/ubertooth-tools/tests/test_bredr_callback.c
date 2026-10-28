@@ -27,7 +27,7 @@
 
 /* The two symbol values the faked unpacking writes. Neither is zero, so a
  * zero symbol reaching the decoder came from past the symbols the record
- * carried - which is the whole of bug #666. */
+ * carried, which is the bug this file starts with. */
 #define SYM_EVEN 1
 #define SYM_ODD  2
 
@@ -135,7 +135,7 @@ int cmd_hop(struct libusb_device_handle* devh) { (void)devh; return 0; }
 
 /* Stands in for libbtbb's access-code search. It reports the offset the case
  * chose and records the search length it was given: a search allowed to run
- * past the symbols the record carried is what #666 is about on this line. */
+ * past the symbols the record carried is the bug on this line. */
 int btbb_find_ac(char* stream, int search_length, uint32_t lap,
                  int max_errors, btbb_packet** pkt)
 {
@@ -249,7 +249,7 @@ static uint32_t clk100ns_for_clk_offset(uint16_t clk_offset, uint32_t slots)
 	                  CLK100NS_PER_SLOT * (uint64_t)slots);
 }
 
-/* ---- #666: the symbols the decoder is told it has ----------------------- */
+/* ---- the symbols the decoder is told it has ----------------------------- */
 
 MU_TEST(the_decoder_is_told_only_the_symbols_the_record_holds)
 {
@@ -313,7 +313,7 @@ MU_TEST(the_access_code_search_stops_short_of_the_end_of_the_bank)
 	mu_assert_int_eq(BANK_LEN, seen.set_data_length);
 }
 
-/* ---- #664: the CLKN a timestamp comes to -------------------------------- */
+/* ---- the CLKN a timestamp comes to -------------------------------------- */
 
 MU_TEST(a_timestamp_at_the_start_of_the_clock_gives_clkn_zero)
 {
@@ -390,7 +390,7 @@ MU_TEST(the_callbacks_hand_the_decoder_that_clkn)
 	mu_assert_int_eq(1, (int)seen.set_data_clkn);
 }
 
-/* ---- #665: the signal level a channel's first packets report ------------- */
+/* ---- the signal level a channel's first packets report ------------------ */
 
 MU_TEST(the_first_packet_on_a_channel_reports_its_own_signal)
 {
@@ -452,7 +452,7 @@ MU_TEST(the_level_is_the_strongest_of_a_channels_last_ten_packets)
 	mu_assert_int_eq(-82, sig);
 }
 
-/* ---- #663: the clock trim a follow sends -------------------------------- */
+/* ---- the clock trim a follow sends -------------------------------------- */
 
 MU_TEST(a_delay_goes_out_as_itself_and_an_advance_as_one_slot_less)
 {
@@ -507,7 +507,7 @@ MU_TEST(a_delay_goes_out_as_itself_and_an_advance_as_one_slot_less)
 
 MU_TEST(the_drift_keeps_its_sign_and_stays_inside_what_the_board_can_act_on)
 {
-	/* The issue's case: 2100 against a tune time of 2250 is a correction
+	/* The case that found this: 2100 against a tune time of 2250 is a correction
 	 * of -150, and one second is 3200 CLKN ticks, so the board is running
 	 * 15 PPM slow. The division used to be by an unsigned tick count,
 	 * which converted the negative numerator first: -15 came out as
@@ -540,7 +540,7 @@ MU_TEST(a_calibrated_follow_sends_the_trim_the_measured_offset_calls_for)
 	btbb_piconet* pn = btbb_piconet_new();
 	unsigned i;
 
-	/* The sequence from #663, through the real cb_rx(): a first packet
+	/* The sequence that found this, through the real cb_rx(): a first packet
 	 * calibrates the follow, three late ones push its counter past the
 	 * threshold, and the fourth arrives early. Which form the trim took
 	 * was decided by that counter alone, so this packet - a correction of
