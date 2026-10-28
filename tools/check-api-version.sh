@@ -3,9 +3,9 @@
 # when a branch with no firmware change moves it at all.
 #
 # The rule is in .kiro/steering/branch-and-review.md, "Firmware API version".
-# The host accepts firmware of exactly UBERTOOTH_API_VERSION, which the
-# bluetooth_rxtx image reports as its USB bcdDevice, so a branch that changes
-# that image's host-facing interface has to take a version main has not used.
+# The host accepts firmware of exactly UBERTOOTH_API_VERSION, which both
+# run-time images report as their USB bcdDevice, so a branch that changes the
+# host-facing interface of either has to take a version main has not used.
 # Two branches cut from the same main each picked the next value; one merged,
 # and the other was then claiming a version whose firmware was already in the
 # tree. Had it landed, tools built from it would have accepted a board still
@@ -60,14 +60,12 @@
 #     what the host sees are watched one by one (see watched_flags below), and
 #     the rest of that file -- where object files go, the warning flags, the
 #     rules -- is not.
-#   - It calls changes interface changes that are not. Three kinds, in
-#     rough order of how often they turn up: a change to the BTBR and BTCTL
-#     half of ubertooth_interface.h, which belongs to the btbr image and its
-#     own bcdDevice; a change to one of the image's sources that the host
-#     never reads, the LED patterns, the debug UART and tinyprintf among
-#     them; and code moved verbatim between two watched files. Each is a
-#     false red on a gating job, and the way out is the maintainer merging it
-#     red, not a version nobody needs; the message below says so.
+#   - It calls changes interface changes that are not. Two kinds: a change to
+#     one of the images' sources that the host never reads, the LED patterns,
+#     the debug UART and tinyprintf among them; and code moved verbatim
+#     between two watched files. Each is a false red on a gating job, and the
+#     way out is the maintainer merging it red, not a version nobody needs;
+#     the message below says so.
 #   - It cannot see two open branches claiming the same value, since neither
 #     is wrong until the other merges. The second goes red as soon as the
 #     first lands, and the push-to-main leg of the job catches it even if the
@@ -108,11 +106,16 @@ conditional on one -- and every other line of it is ignored.
 EOF
 }
 
-# Run a git command over what goes into the bluetooth_rxtx image: the sources
-# it compiles, the shared code it links (firmware/common, lpcusb included),
-# the linker script it is laid out with, its own Makefile, which is nothing but
-# the list of those sources, and the shared build file that sets the compile
-# flags. One list, so the check and --list-watched cannot drift apart.
+# Run a git command over what goes into the two run-time images: the sources
+# they compile, the shared code they link (firmware/common, lpcusb included),
+# the linker script they are laid out with, their own Makefiles, which are
+# little but the lists of those sources, and the shared build file that sets
+# the compile flags. One list, so the check and --list-watched cannot drift
+# apart.
+#
+# Both images, because both report this version as their bcdDevice and both
+# answer the shared requests. firmware/btbr was left out while it reported a
+# fixed 1.06 of its own, which this version said nothing about.
 #
 # Only files that are compiled or linked, that say which files are, or that
 # say how they are compiled: a README under one of those directories cannot
@@ -120,16 +123,16 @@ EOF
 # own bump by appending a line to one.
 #
 # The two linker scripts are named rather than matched, because firmware/common
-# holds four and this image uses two of them: common.mk's default,
+# holds four and these images use two of them: common.mk's default,
 # LPC17xx_Linker_Script_with_bootloader.ld, and the sections.ld it INCLUDEs.
 # The other two belong to the bootloader and to assembly_test.
 #
-# Left out because it is not in this image: firmware/tests (host-compiled unit
-# tests), firmware/bootloader and firmware/btbr (separate images, each with a
-# bcdDevice of its own that this version says nothing about), the
-# development-only images (blinky, cc2400_test, clock_test, usb_test,
-# assembly_test, tc13badge), firmware/Makefile (which picks which images to
-# build), and documentation.
+# Left out because it is in neither image: firmware/tests (host-compiled unit
+# tests), firmware/bootloader (its bcdDevice is fixed and nothing checks it,
+# because ubertooth-dfu has to work against any board), the development-only
+# images (blinky, cc2400_test, clock_test, usb_test, assembly_test,
+# tc13badge), firmware/Makefile (which picks which images to build), and
+# documentation.
 #
 # firmware/common.mk is watched, but only a few lines of it. It is the shared
 # build file every image includes and it carries the compile flags, so a change
@@ -147,16 +150,16 @@ EOF
 # select nothing for `git ls-tree` -- and a list that silently comes back
 # empty is the answer that asks for no bump.
 #
-# Both source arms reach any depth, so neither stops at a directory
-# separator: firmware/common/ has to reach lpcusb/target/, where the shared
-# USB sources live, and firmware/bluetooth_rxtx/ holds no subdirectory today
-# but the btbr image already keeps its sources in src/ and include/. Were
-# this image to grow one, matching only its direct children would see the
-# Makefile edit that introduced the subdirectory and nothing in it ever
-# after, which is a silent pass rather than a visible red. The README and the
-# flash helper beside the sources are left out by the list of extensions, not
-# by the depth, so reaching further costs nothing.
-watched_pattern='^(firmware/bluetooth_rxtx/(.*\.(c|h|S|s|ld)|Makefile)|firmware/common/.*\.(c|h|S|s)|firmware/common/(LPC17xx_Linker_Script_with_bootloader|sections)\.ld|firmware/common\.mk|host/libubertooth/src/ubertooth_interface\.h)$'
+# Every source arm reaches any depth, so none stops at a directory separator:
+# firmware/common/ has to reach lpcusb/target/, where the shared USB sources
+# live, and firmware/btbr/ keeps its sources in src/ and include/.
+# firmware/bluetooth_rxtx/ holds no subdirectory today; were it to grow one,
+# matching only its direct children would see the Makefile edit that
+# introduced the subdirectory and nothing in it ever after, which is a silent
+# pass rather than a visible red. The READMEs and the flash helper beside the
+# sources are left out by the list of extensions, not by the depth, so
+# reaching further costs nothing.
+watched_pattern='^(firmware/(bluetooth_rxtx|btbr)/(.*\.(c|h|S|s|ld)|Makefile)|firmware/common/.*\.(c|h|S|s)|firmware/common/(LPC17xx_Linker_Script_with_bootloader|sections)\.ld|firmware/common\.mk|host/libubertooth/src/ubertooth_interface\.h)$'
 
 # The one watched file that is read a line at a time rather than whole.
 common_mk=firmware/common.mk
@@ -1021,10 +1024,8 @@ if [ -n "$changed" ]; then
         fi
         echo ""
         echo "       If none of them change what the host sees, this is a false"
-        echo "       red. The usual reasons: the file is the interface header but"
-        echo "       the change is to its BTBR or BTCTL half, which belongs to the"
-        echo "       separate btbr image; the file is compiled into the image but"
-        echo "       the host never reads it, such as the LED patterns or the"
+        echo "       red. The usual reasons: the file is compiled into an image"
+        echo "       but the host never reads it, such as the LED patterns or the"
         echo "       debug UART; the code was moved verbatim between two of"
         echo "       these files; or the line that changed in firmware/common.mk"
         echo "       sets a flag the host cannot observe. Say so on the pull"

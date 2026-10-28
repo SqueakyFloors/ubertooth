@@ -134,7 +134,7 @@ new_repo() {
     git -C "$repo" config user.name "api version selftest"
     git -C "$repo" config user.email "selftest@invalid"
     mkdir -p "$repo/host/libubertooth/src" "$repo/firmware/bluetooth_rxtx" \
-        "$repo/firmware/common/lpcusb/target" "$repo/firmware/btbr" \
+        "$repo/firmware/common/lpcusb/target" "$repo/firmware/btbr/src" \
         "$repo/firmware/tests"
     cp "$real_header" "$repo/$header_path"
     # The real build file, so the compile-flag cases change the lines the tree
@@ -151,7 +151,8 @@ new_repo() {
         firmware/common/sections.ld \
         firmware/common/LPC17xx_Linker_Script_bootloader.ld \
         firmware/Makefile \
-        firmware/btbr/btbr.c firmware/tests/test_firmware.c \
+        firmware/btbr/src/btbr.c firmware/btbr/README \
+        firmware/tests/test_firmware.c \
         host/libubertooth/src/ubertooth.c CHANGELOG.md COMPATIBILITY.md \
         TEST_PLAN.md; do
         printf 'SEEDED = %s\n' "$f" > "$repo/$f"
@@ -353,16 +354,25 @@ want_stderr "Ask the"
 # The advice that would be wrong here: it must not tell the branch to take it.
 want_no_stderr "Set it to 0x0200"
 
-# Firmware the bluetooth_rxtx image does not contain: the host-compiled
-# firmware tests, and the separate btbr image, whose own bcdDevice this
-# version says nothing about. Neither is asked for a bump.
+# Firmware neither image contains: the host-compiled firmware tests. Not asked
+# for a bump.
 new_repo 0x0131
 edit "$repo" firmware/tests/test_firmware.c
-edit "$repo" firmware/btbr/btbr.c
-commit "$repo" "firmware tests and the other image"
-run "firmware tests and the btbr image are not the interface" "$repo" main
+commit "$repo" "firmware tests"
+run "the firmware tests are not the interface" "$repo" main
 want_status 0
 want_stdout "no firmware interface file changed"
+
+# The btbr image is. It reports this same version as its bcdDevice, so a
+# change to its sources is a change to firmware a host is paired with, and it
+# has to take a version of its own.
+new_repo 0x0131
+edit "$repo" firmware/btbr/src/btbr.c
+commit "$repo" "change the btbr image and keep the version"
+run "the btbr image is the interface" "$repo" main
+want_status 1
+want_stderr "has to be above the one main carries"
+want_stderr "firmware/btbr/src/btbr.c"
 
 # The interface header on its own counts as a firmware change: the request
 # numbers and the shared structs live there.
@@ -1018,13 +1028,14 @@ want_status 0
 want_empty_stderr
 want_stdout firmware/bluetooth_rxtx/bluetooth_rxtx.c
 want_stdout firmware/bluetooth_rxtx/Makefile
+want_stdout firmware/btbr/src/btbr.c
 want_stdout firmware/common/usb.c
 want_stdout "$header_path"
 want_stdout firmware/common.mk
 want_no_stdout firmware/bluetooth_rxtx/README
 want_no_stdout firmware/bluetooth_rxtx/flash
+want_no_stdout firmware/btbr/README
 want_no_stdout firmware/Makefile
-want_no_stdout firmware/btbr/btbr.c
 want_no_stdout firmware/tests/test_firmware.c
 
 # Every way of reading no value has to fail. A check that had stopped finding

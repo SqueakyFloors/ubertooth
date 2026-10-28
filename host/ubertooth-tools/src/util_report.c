@@ -109,9 +109,10 @@ int util_report_board_id(const struct util_report_ops *ops, void *context,
  *
  * The API version comes from neither: it is the USB bcdDevice, which is the
  * number the other tools check a board against. The block carries its own
- * copy, and on a board running the btbr image the two differ -- btbr reports a
- * fixed bcdDevice of 1.06 -- so showing the descriptor's is what explains why
- * the other tools refuse such a board.
+ * copy, and the two can differ -- firmware older than this tree reported a
+ * fixed bcdDevice for the btbr image, whatever the block said -- so showing
+ * the descriptor's is what explains why the other tools accept or refuse a
+ * board.
  */
 int util_report_firmware(const struct util_report_ops *ops, void *context,
                          FILE *out)
@@ -238,7 +239,11 @@ static const char *const watchdog_site_text[WATCHDOG_SITE_COUNT] = {
 	[WATCHDOG_SITE_XOSC]      = "waiting for the 16 MHz crystal oscillator",
 	[WATCHDOG_SITE_FSM]       = "waiting on the radio's state machine",
 	[WATCHDOG_SITE_LE_RX]     = "waiting for a BLE packet or the next hop",
-	[WATCHDOG_SITE_FAULT]     = "in a processor fault handler",
+	[WATCHDOG_SITE_FAULT_HARD]  = "in the hard fault handler",
+	[WATCHDOG_SITE_FAULT_MEM]   = "in the memory management fault handler",
+	[WATCHDOG_SITE_FAULT_BUS]   = "in the bus fault handler",
+	[WATCHDOG_SITE_FAULT_USAGE] = "in the usage fault handler",
+	[WATCHDOG_SITE_PANIC]     = "stopped by the firmware itself",
 };
 
 const char *util_watchdog_mode_name(unsigned mode)

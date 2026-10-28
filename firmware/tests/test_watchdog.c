@@ -1126,6 +1126,93 @@ MU_TEST(test_a_claimed_reset_is_claimed_where_it_happens)
 	          "is not reading the sources");
 }
 
+/*
+ * Every path that ends in a loop nothing feeds says where it was first.
+ *
+ * Those paths are the four fault handlers in both images and btbr's die().
+ * None of them returns and none feeds, so the watchdog resets the board a few
+ * seconds later and the breadcrumb is what the host reads once it comes back.
+ * A path that marks nothing leaves the record naming whatever the firmware was
+ * doing before it -- "not in a wait" from the main loop, or "servicing USB"
+ * for a fault inside the USB path -- so the fault reads as something it was
+ * not.
+ *
+ * A site each rather than one shared "a fault" site: counting the handler's
+ * blink code used to say which of the four it was, and the watchdog cuts that
+ * code off part-way.
+ *
+ * No fault handler can run here, so the two sources are read as text.
+ */
+MU_TEST(test_every_path_that_never_returns_marks_where_it_was)
+{
+	static const struct {
+		const char *path;
+		const char *function;
+		const char *site;
+	} paths[] = {
+		{ FW_RXTX_DIR "/fault.c", "HardFault_Handler",
+		  "WATCHDOG_SITE_FAULT_HARD" },
+		{ FW_RXTX_DIR "/fault.c", "MemManagement_Handler",
+		  "WATCHDOG_SITE_FAULT_MEM" },
+		{ FW_RXTX_DIR "/fault.c", "BusFault_Handler",
+		  "WATCHDOG_SITE_FAULT_BUS" },
+		{ FW_RXTX_DIR "/fault.c", "UsageFault_Handler",
+		  "WATCHDOG_SITE_FAULT_USAGE" },
+		{ FW_BTBR_DIR "/src/util/fault.c", "HardFault_Handler",
+		  "WATCHDOG_SITE_FAULT_HARD" },
+		{ FW_BTBR_DIR "/src/util/fault.c", "MemManagement_Handler",
+		  "WATCHDOG_SITE_FAULT_MEM" },
+		{ FW_BTBR_DIR "/src/util/fault.c", "BusFault_Handler",
+		  "WATCHDOG_SITE_FAULT_BUS" },
+		{ FW_BTBR_DIR "/src/util/fault.c", "UsageFault_Handler",
+		  "WATCHDOG_SITE_FAULT_USAGE" },
+		{ FW_BTBR_DIR "/src/util/fault.c", "die",
+		  "WATCHDOG_SITE_PANIC" },
+	};
+	size_t i;
+
+	for (i = 0; i < sizeof(paths) / sizeof(paths[0]); i++) {
+		char line[512], msg[512], mark[128];
+		int in_block = 0, in_function = 0, found = 0, marked = 0;
+		FILE *f = fopen(paths[i].path, "r");
+
+		snprintf(msg, sizeof(msg), "cannot read %s", paths[i].path);
+		mu_assert(f != NULL, msg);
+		snprintf(mark, sizeof(mark), "watchdog_mark(%s);", paths[i].site);
+
+		while (fgets(line, sizeof(line), f) != NULL) {
+			strip_comments(line, &in_block);
+			if (!in_function) {
+				/* A definition starts at column zero and is not
+				 * a declaration, as in the scans above. */
+				if (line[0] == ' ' || line[0] == '\t' ||
+				    line[0] == '#' || strchr(line, ';') != NULL)
+					continue;
+				if (!calls_identifier(line, paths[i].function))
+					continue;
+				in_function = found = 1;
+				continue;
+			}
+			if (strstr(line, mark) != NULL)
+				marked = 1;
+			if (line[0] == '}')
+				in_function = 0;
+		}
+		fclose(f);
+
+		snprintf(msg, sizeof(msg),
+		         "%s: there is no %s(), so this case read nothing",
+		         paths[i].path, paths[i].function);
+		mu_assert(found, msg);
+		snprintf(msg, sizeof(msg),
+		         "%s: %s() never returns and does not mark %s, so "
+		         "ubertooth-util -w names whatever the board was doing "
+		         "before the fault instead",
+		         paths[i].path, paths[i].function, paths[i].site);
+		mu_assert(marked, msg);
+	}
+}
+
 int main(void)
 {
 	printf("firmware watchdog tests\n");
@@ -1157,5 +1244,6 @@ int main(void)
 	MU_RUN(test_no_interrupt_handler_but_the_usb_one_feeds);
 	MU_RUN(test_the_breadcrumb_is_linked_where_a_reset_cannot_clear_it);
 	MU_RUN(test_a_claimed_reset_is_claimed_where_it_happens);
+	MU_RUN(test_every_path_that_never_returns_marks_where_it_was);
 	return mu_report();
 }

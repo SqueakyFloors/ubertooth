@@ -154,12 +154,25 @@
   the command returns at once and the board stays reachable; `-S` or any mode
   option stops it and leaves the LEDs off.
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
-- **Reflash required:** the firmware API version is now 1.37, last moved by the
-  promiscuous mode sending a long packet in several records, and the host tools
-  require firmware of exactly their own API version, older or newer. Host and
-  firmware come from the same tree:
-  `ubertooth-dfu` reflashes a board whatever firmware it is running, but only
-  with an image built from this tree, and `2020-12-R1` firmware is refused.
+- **Script-visible change:** the `btbr` image reports the firmware API version
+  of the tree it was built from, instead of a fixed 1.06 that never moved. A
+  board carrying it is no longer refused over its version by every other tool;
+  those tools still cannot drive that image and now fail on the first request
+  it does not answer.
+  [#556](https://github.com/SqueakyFloors/ubertooth/issues/556)
+- `ubertooth-util -w` says which of the four processor faults a board hit,
+  rather than only that it hit one, and says so for both images: a fault on a
+  board running `btbr` used to read back as whatever the firmware was doing
+  before it, "not in a wait" or "servicing USB". A board stopped by the `btbr`
+  firmware itself reads back as that.
+  [#458](https://github.com/SqueakyFloors/ubertooth/issues/458)
+  [#608](https://github.com/SqueakyFloors/ubertooth/issues/608)
+- **Reflash required:** the firmware API version is now 1.38, last moved by the
+  `btbr` image reporting it, and the host tools require firmware of exactly
+  their own API version, older or newer. Host and firmware come from the same
+  tree: `ubertooth-dfu` reflashes a board whatever firmware it is running, but
+  only with an image built from this tree, and `2020-12-R1` firmware is
+  refused.
   [#4](https://github.com/SqueakyFloors/ubertooth/issues/4)
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)

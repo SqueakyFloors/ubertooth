@@ -255,6 +255,70 @@ MU_TEST(both_handlers_return_the_block_itself)
 }
 
 /*
+ * The other place an image reports its API version: the USB bcdDevice, which
+ * is the number ubertooth_check_api() compares a board against. The block and
+ * the descriptor are read by different code on the host, so an image that
+ * writes one of them as a bare number can report two different versions --
+ * which is what btbr did for twenty-nine minor versions, with its descriptor
+ * fixed at 1.06 while its block followed the tree.
+ *
+ * Each descriptor is read as text, because none of this is reachable from a
+ * host build. The field is found by its `// bcdDevice` label, so comments are
+ * stripped from the line only after it is found: the label is the field's
+ * name, not prose about it. Rename the label and the test says it could not
+ * find the field.
+ */
+MU_TEST(no_image_writes_its_api_version_as_a_bare_number)
+{
+	static const struct { const char *path; const char *constant; } images[] = {
+		{ FW_RXTX_DIR "/ubertooth_usb.c", "UBERTOOTH_API_VERSION" },
+		{ FW_BTBR_DIR "/src/drivers/ubertooth_usb.c", "UBERTOOTH_API_VERSION" },
+		/* The bootloader's is fixed on purpose and nothing checks it,
+		 * but it is still a named constant rather than a literal, so
+		 * that it reads as a decision. */
+		{ FW_BOOTLOADER_DIR "/bootloader.cpp",
+		  "UBERTOOTH_BOOTLOADER_API_VERSION" },
+	};
+	char line[1024], message[1024];
+	size_t i;
+
+	for (i = 0; i < sizeof(images) / sizeof(images[0]); i++) {
+		FILE *file = fopen(images[i].path, "r");
+		int found = 0, named = 0;
+
+		snprintf(message, sizeof(message), "%s would not open",
+		         images[i].path);
+		mu_assert_fatal(file != NULL, message);
+		while (fgets(line, sizeof(line), file) != NULL) {
+			int in_block = 0;
+
+			/* The label and the value are on one line, so a line
+			 * that mentions the field in prose alone is not it. */
+			if (strstr(line, "bcdDevice") == NULL)
+				continue;
+			strip_comments(line, &in_block);
+			if (!calls_identifier(line, "LE_WORD"))
+				continue;
+			found++;
+			if (contains_identifier(line, images[i].constant))
+				named++;
+		}
+		fclose(file);
+
+		snprintf(message, sizeof(message),
+		         "%s: no bcdDevice field found, so this case read "
+		         "nothing", images[i].path);
+		mu_assert(found == 1, message);
+		snprintf(message, sizeof(message),
+		         "%s: bcdDevice is not %s, so this image can report one "
+		         "API version in its USB descriptor and another in its "
+		         "firmware info block", images[i].path,
+		         images[i].constant);
+		mu_assert(named == 1, message);
+	}
+}
+
+/*
  * The block is added to every image by common.mk, not by each image's own
  * Makefile: that is what stops an image leaving it out. Its object also has to
  * be per-image, because it carries the image's name, so it goes through the
@@ -318,6 +382,7 @@ int main(void)
 	MU_RUN(the_linker_script_puts_the_block_where_the_host_looks);
 	MU_RUN(the_offset_clears_the_vector_table_checksum);
 	MU_RUN(both_handlers_return_the_block_itself);
+	MU_RUN(no_image_writes_its_api_version_as_a_bare_number);
 	MU_RUN(every_image_gets_the_block_from_the_shared_makefile);
 	MU_RUN(the_build_reads_the_block_back_out_of_the_image);
 	return mu_report();

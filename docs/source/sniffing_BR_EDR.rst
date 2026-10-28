@@ -87,7 +87,7 @@ either switch:
 	.. code-block:: sh
 
 		$ ubertooth-util -U <serial> -v
-		Firmware version: btbr git-26d4c11 (API:1.06)
+		Firmware version: btbr git-26d4c11 (API:<version>)
 
 
 

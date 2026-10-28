@@ -654,24 +654,36 @@ MU_TEST(a_wedged_board_reports_where_it_was_stuck)
 }
 
 /*
- * A board that hit a processor fault says that, which is what the blink code
- * used to be for. The watchdog cuts a blink burst off part-way, so this is now
- * the readable form of the same information.
+ * A board that hit a processor fault says which one, which is what counting
+ * the blink code used to be for. The watchdog cuts a blink burst off part-way,
+ * so this is now the readable form of the same information, and each of the
+ * four faults has a site of its own rather than sharing one "a fault".
  */
-MU_TEST(a_board_that_faulted_says_so)
+MU_TEST(a_board_that_faulted_says_which_fault)
 {
-	uint8_t info[UBERTOOTH_WATCHDOG_INFO_LEN] = {
-		WATCHDOG_RESET_WATCHDOG, 1, 1, 2,
-		MODE_SPECAN, WATCHDOG_SITE_FAULT,
-		MODE_IDLE, WATCHDOG_SITE_NONE,
+	static const struct { uint8_t site; const char *text; } faults[] = {
+		{ WATCHDOG_SITE_FAULT_HARD,  "in the hard fault handler" },
+		{ WATCHDOG_SITE_FAULT_MEM,   "in the memory management fault handler" },
+		{ WATCHDOG_SITE_FAULT_BUS,   "in the bus fault handler" },
+		{ WATCHDOG_SITE_FAULT_USAGE, "in the usage fault handler" },
+		{ WATCHDOG_SITE_PANIC,       "stopped by the firmware itself" },
 	};
-	int status = -1;
-	char *text = watchdog_text(info, sizeof(info), &status);
+	size_t i;
 
-	mu_assert(text != NULL, "no report");
-	mu_assert_int_eq(0, status);
-	mu_assert(strstr(text, "in a processor fault handler") != NULL, text);
-	free(text);
+	for (i = 0; i < sizeof(faults) / sizeof(faults[0]); i++) {
+		uint8_t info[UBERTOOTH_WATCHDOG_INFO_LEN] = {
+			WATCHDOG_RESET_WATCHDOG, 1, 1, 2,
+			MODE_SPECAN, faults[i].site,
+			MODE_IDLE, WATCHDOG_SITE_NONE,
+		};
+		int status = -1;
+		char *text = watchdog_text(info, sizeof(info), &status);
+
+		mu_assert(text != NULL, "no report");
+		mu_assert_int_eq(0, status);
+		mu_assert(strstr(text, faults[i].text) != NULL, text);
+		free(text);
+	}
 }
 
 /* A board that has never reset itself has no last one to describe. */
@@ -817,7 +829,7 @@ int main(void)
 	MU_RUN(nonzero_successful_values_do_not_become_status);
 	MU_RUN(status_helpers);
 	MU_RUN(a_wedged_board_reports_where_it_was_stuck);
-	MU_RUN(a_board_that_faulted_says_so);
+	MU_RUN(a_board_that_faulted_says_which_fault);
 	MU_RUN(a_healthy_board_reports_no_last_reset);
 	MU_RUN(a_board_that_reports_no_mode_says_so);
 	MU_RUN(an_unarmed_watchdog_is_reported_as_such);

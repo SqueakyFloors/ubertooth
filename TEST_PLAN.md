@@ -41,7 +41,7 @@ A second Ubertooth One for the range test (2i).
 
 ### 2a. Firmware version check
 - [ ] Run `ubertooth-util -v`
-- [ ] Confirm: returns `Firmware version: <image> <revision> (API:1.37)` (firmware
+- [ ] Confirm: returns `Firmware version: <image> <revision> (API:1.38)` (firmware
       built from this tree; the host tools refuse any other API version, and a
       board whose firmware has no info block shows the revision without an
       image name)
@@ -62,16 +62,17 @@ A second Ubertooth One for the range test (2i).
 - [ ] Confirm: the blink stops and all three LEDs end off (`-d` reads 0 0 0)
 - [ ] Run `ubertooth-util -I` then `ubertooth-util -x`
 - [ ] Confirm: identify gives way to the xmas pattern; `-S` ends that too
-- [ ] With firmware of another API version on the board: flash the `btbr`
-      image, which this tree builds and which reports a fixed 1.06
-      ([#497](https://github.com/SqueakyFloors/ubertooth/issues/497)), then run
-      `ubertooth-util -I` and `ubertooth-specan`
-- [ ] Confirm: each prints an API version error and exits 1; nothing blinks
+- [ ] Flash the `btbr` image, which this tree builds, then run
+      `ubertooth-util -v`, `ubertooth-util -I` and `ubertooth-specan`
+- [ ] Confirm: `-v` names `btbr` at this tree's API version, so the version
+      check passes; the other two fail on a request that image does not
+      answer, each on stderr with exit 1, and nothing blinks
 - [ ] Flash `bluetooth_rxtx` again before the rest of the plan
 
-An older release such as `2020-12-R1` would do as well, but `ubertooth-dfu`
-refuses an image with no firmware info block, so putting one on a board needs
-ISP or JTAG.
+The API version error itself has no board to run it against: both images this
+tree builds report its own version, and putting an older release such as
+`2020-12-R1` on a board needs ISP or JTAG, since `ubertooth-dfu` refuses an
+image with no firmware info block.
 
 ### 2d. Hardware info
 - [ ] Run `ubertooth-util -b` (board ID)
@@ -160,10 +161,9 @@ bootloader needs the entry pin or a power cycle.*
 - [ ] Confirm: each flash exits 0, with no `DFU entry failed`; the board comes
       back and `ubertooth-util -v` reports the image and revision just
       written, `btbr` for the first and `bluetooth_rxtx` for the second
-      (`-r` reads both off the board directly, so `btbr`'s fixed `bcdDevice`
-      of 1.06 does not get in the way). The image name is what makes this
-      step a real check: both images carry the same revision, so a write that
-      did not take between them would pass on the revision alone
+      (`-r` reads both off the board directly). The image name is what makes
+      this step a real check: both images carry the same revision, so a write
+      that did not take between them would pass on the revision alone
 - [ ] Flash `btbr.dfu` again, start `ubertooth-btbr`, and flash
       `bluetooth_rxtx.dfu` while it is capturing
 - [ ] Confirm: the same result, and the board does not stop answering

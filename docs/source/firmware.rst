@@ -24,10 +24,11 @@ Switch a board from one to the other by flashing it:
 		ubertooth-dfu -d firmware/bluetooth_rxtx/bluetooth_rxtx.dfu -r  # for everything else
 
 Add ``-U <index|serial>`` to either command to pick one board of several; it
-works from both images. A tool run against the wrong image is refused rather
-than left waiting: the other tools report a firmware API version they do not
-accept, and ``ubertooth-btbr`` says it could not set the Ubertooth up, naming
-``bluetooth_rxtx`` and the image to flash.
+works from both images. A tool run against the wrong image fails rather than
+waiting: ``ubertooth-btbr`` says it could not set the Ubertooth up, naming
+``bluetooth_rxtx`` and the image to flash, and the other tools fail on the
+first request the ``btbr`` image does not answer. Neither is refused over its
+firmware API version, because both images report this tree's.
 
 ``ubertooth-util -v`` names the image a board is carrying, so it is how you
 check which one is on there now, or that a switch worked:
@@ -37,7 +38,7 @@ check which one is on there now, or that a switch worked:
 		$ ubertooth-util -U <serial> -v
 		Firmware version: bluetooth_rxtx git-26d4c11 (API:<version>)
 		$ ubertooth-util -U <serial> -v     # the same board, flashed with btbr
-		Firmware version: btbr git-26d4c11 (API:1.06)
+		Firmware version: btbr git-26d4c11 (API:<version>)
 
 ``ubertooth-dfu`` names what is in a firmware file before it writes anything,
 so the ``Image:`` line says which image is about to be flashed, and a file that
@@ -49,12 +50,11 @@ is not an Ubertooth image is refused before the board is touched:
 		Checking firmware signature
 		Image: btbr git-26d4c11 (API:<version>)
 
-The two API versions above are not the same: the ``Image:`` line takes its
-version from the file, so for ``btbr`` it reads this tree's version, while
-``-v`` reports the USB ``bcdDevice`` the running firmware answers with, which
-``btbr`` fixes at 1.06. The samples write this tree's version as ``<version>``,
-because it moves with the firmware; ``COMPATIBILITY.md`` names the value this
-tree requires. See
+The ``Image:`` line takes its version from the file and ``-v`` reports the USB
+``bcdDevice`` the running firmware answers with; both images carry the same
+value, so the two agree. The samples write it as ``<version>``, because it
+moves with the firmware; ``COMPATIBILITY.md`` names the value this tree
+requires. See
 :ref:`what-version-am-i-running` below, and ubertooth-util(1) and
 ubertooth-dfu(1).
 

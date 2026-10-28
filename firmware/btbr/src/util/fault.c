@@ -26,7 +26,25 @@
 #include <ubtbr/debug.h>
 #include <ubtbr/ubertooth_usb.h>
 #include <ubtbr/system.h>
+#include <watchdog.h>
 #include "tinyprintf.h"
+
+/*
+ * Every path in this file ends in a loop that flashes a pattern and never
+ * returns. Nothing in those loops feeds the watchdog, so the board resets
+ * itself a few seconds later and comes back usable; before the watchdog it sat
+ * there answering nothing on USB until someone unplugged it.
+ *
+ * Each path therefore records where it was in the breadcrumb first, and
+ * ubertooth-util -w reads that back once the board has reconnected. Without it
+ * the record would still name whatever the firmware was doing before the fault
+ * -- "not in a wait" from the main loop, or "servicing USB" for a fault inside
+ * usb_work() -- so a fault read as something it was not.
+ *
+ * The site goes in before the dump, not after: the dump goes out over USB, and
+ * usb_send_sync() marks its own site while it runs and puts this one back when
+ * it returns.
+ */
 
 void __attribute__((noreturn)) die (char *fmt, ...)
 {
@@ -36,6 +54,8 @@ void __attribute__((noreturn)) die (char *fmt, ...)
 	va_list ap;
 	void *ret;
 	irq_save_disable();
+
+	watchdog_mark(WATCHDOG_SITE_PANIC);
 
 	// This looks a bit like early_printf
 	buf[0] = BTUSB_EARLY_PRINT;
@@ -72,6 +92,7 @@ static void dump_debug_registers(void)
 
 void HardFault_Handler(void)
 {
+	watchdog_mark(WATCHDOG_SITE_FAULT_HARD);
 	early_printf("HardFault at 0x%x\n", get_lr());
 	dump_debug_registers();
 	while (1) {
@@ -82,6 +103,7 @@ void HardFault_Handler(void)
 
 void MemManagement_Handler(void)
 {
+	watchdog_mark(WATCHDOG_SITE_FAULT_MEM);
 	early_printf("MMFault at 0x%x\n", get_lr());
 	dump_debug_registers();
 	while (1) {
@@ -92,6 +114,7 @@ void MemManagement_Handler(void)
 
 void BusFault_Handler(void)
 {
+	watchdog_mark(WATCHDOG_SITE_FAULT_BUS);
 	early_printf("BusFault at %x\n", get_lr());
 	dump_debug_registers();
 	while (1) {
@@ -102,6 +125,7 @@ void BusFault_Handler(void)
 
 void UsageFault_Handler(void)
 {
+	watchdog_mark(WATCHDOG_SITE_FAULT_USAGE);
 	early_printf("UsageFault at %x\n", get_lr());
 	dump_debug_registers();
 	while (1) {

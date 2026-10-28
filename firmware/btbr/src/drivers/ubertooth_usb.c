@@ -101,7 +101,10 @@ static uint8_t abDescriptors[] = {
 	MAX_PACKET_SIZE,  		// bMaxPacketSize
 	LE_WORD(ID_VENDOR),		// idVendor
 	LE_WORD(ID_PRODUCT),		// idProduct
-	LE_WORD(0x0106),		// bcdDevice
+	/* The host reads this as the firmware's API version (bcdDevice), so it
+	 * comes straight from the shared constant and cannot drift from it, as
+	 * it did while this was the literal 0x0106. */
+	LE_WORD(UBERTOOTH_API_VERSION),	// bcdDevice
 	0x01,              		// iManufacturer
 	0x02,              		// iProduct
 	0x03,              		// iSerialNumber

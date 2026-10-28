@@ -150,10 +150,11 @@ ubertooth-dfu -d firmware/bluetooth_rxtx/bluetooth_rxtx.dfu -r  # for everything
 ```
 
 Add `-U <index|serial>` to either command to pick one board of several; it
-works from both images. A tool run against the wrong image is refused rather
-than left waiting: the other tools report a firmware API version they do not
-accept, and `ubertooth-btbr` says it could not set the Ubertooth up, naming
-`bluetooth_rxtx` and the image to flash.
+works from both images. A tool run against the wrong image fails rather than
+waiting: `ubertooth-btbr` says it could not set the Ubertooth up, naming
+`bluetooth_rxtx` and the image to flash, and the other tools fail on the first
+request the `btbr` image does not answer. Neither is refused over its firmware
+API version, because both images report this tree's.
 
 To see which image a board is carrying, ask it — `-v` names the image as well
 as the revision, and answers whichever image is running:

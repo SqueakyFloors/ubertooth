@@ -169,15 +169,15 @@ change the host relies on**, in the PR that makes it.
   `TEST_PLAN.md`'s expected `API:` string, `COMPATIBILITY.md`'s firmware row,
   the pinned strings in the tests and the CHANGELOG's reflash note -- the
   places that state the requirement rather than illustrate output. A version a
-  sample is making a point about -- `btbr`'s fixed 1.06, or `2020-12-R1`'s
-  1.07 -- is a fixed number and stays.
+  sample is making a point about -- `2020-12-R1`'s 1.07, say -- is a fixed
+  number and stays.
 - The `api-version` CI job runs `tools/check-api-version.sh`, which compares
   the value on the branch with `main`'s tip and with their merge base and
   applies the two halves of the rule above. Run it before pushing: a value
   that was free when the branch was cut may not be free now.
 - To decide whether a branch changes the firmware interface, that check
   compares the **content** of a list of files, whole-line comments and blank
-  lines not counted: the sources compiled into the `bluetooth_rxtx` image,
+  lines not counted: the sources compiled into the two run-time images,
   that image's own Makefile and linker scripts, and the interface header
   (`tools/check-api-version.sh --list-watched` prints the list). In
   `firmware/common.mk` it compares only the lines that set one of a listed set
