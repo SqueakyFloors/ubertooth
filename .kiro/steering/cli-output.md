@@ -15,10 +15,14 @@ stream a line is on.
   `ubertooth-rx -q -` and `-d -`, `ubertooth-dump -d -`,
   `ubertooth-follow -q -` and `-d -`, `ubertooth-specan -d -`). In that case
   nothing else is written to standard output for the whole run, not even the
-  result lines above, and two capture options cannot both have it. A
-  destination whose writer seeks back over what it has written cannot be a
-  pipe at all, so the PcapNG options refuse `-` and name the PCAP option
-  instead.
+  result lines above: a line the user still needs goes to standard error
+  instead (`ubertooth-rx -z` prints its survey results there). Only one
+  capture can have that stream, so a tool whose two capture options are
+  separate writers refuses the second (`ubertooth-rx -q - -d -`), and one
+  that shares a single handle between them keeps ignoring the extra with a
+  `warning: ` (`ubertooth-btle -q - -c -`). A destination whose writer seeks
+  back over what it has written cannot be a pipe at all, so the PcapNG
+  options and `ubertooth-dfu -u` refuse `-` and say what to use instead.
 - The running commentary of an operation that *is* the command, rather than a
   note about the tool: `ubertooth-util -n` runs a range test and its
   `waiting for the repeater... (<n> s)` lines lead to the result they belong

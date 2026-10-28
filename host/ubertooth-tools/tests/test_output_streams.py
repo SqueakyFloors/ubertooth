@@ -297,7 +297,9 @@ if REFUSED_EXACTLY.get(TOOL):
 # mode beside the capture to have work to do.
 CAPTURE_TO_STDOUT = {
     "ubertooth-btle": ((["-n", "-q", "-"], "capture data"),),
-    "ubertooth-dump": ((["-d", "-"], "dump data"),),
+    # ubertooth-dump streams to standard output with no -d at all, so the
+    # bare command line is refused on a terminal too.
+    "ubertooth-dump": (([], "dump data"), (["-d", "-"], "dump data")),
     "ubertooth-follow": ((["-q", "-"], "capture data"),
                          (["-d", "-"], "dump data")),
     "ubertooth-rx": ((["-q", "-"], "capture data"),

@@ -75,6 +75,16 @@
   `-U all -N` are refused: `-N` counts the boards on the USB bus and asks
   nothing of the board a selector names. Both used to print the count.
   [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
+- `ubertooth-rx` and `ubertooth-follow` name a capture file they cannot create
+  in one `error: ` line: `error: /no/such/dir/capture.pcap: No such file or
+  directory`, where they used to print
+  `ubertooth-rx: create_bredr_capture_file: : File exists`, naming an internal
+  function and no file.
+  [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
+- **Script-visible change:** `ubertooth-dump` refuses a terminal on standard
+  output, with or without `-d -`, instead of filling it with the binary symbol
+  stream: `error: stdout is a tty, refusing to write binary dump data to it`.
+  [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
 - `btle-extcap.py` reports an option it does not know and an option whose
   value is missing in the wording every other tool uses:
   `error: unrecognized option '--bogus'` and

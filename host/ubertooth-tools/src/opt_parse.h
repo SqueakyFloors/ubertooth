@@ -132,6 +132,14 @@ char *opt_capture_path(const char *filename, const char *what, int *saved_fd);
 FILE *opt_open_dump_file(const char *filename, const char *what);
 
 /*
+ * The one line for a capture file a writer would not create: the name the
+ * user gave and the reason, or "could not be created" where the writer set
+ * none. Clear errno before the create, so a reason left by an earlier failed
+ * call is not reported as this one's.
+ */
+void opt_report_create_failure(const char *filename);
+
+/*
  * The one argument rule.
  *
  * No ubertooth-* tool takes operands, so a leftover word is always a mistake:

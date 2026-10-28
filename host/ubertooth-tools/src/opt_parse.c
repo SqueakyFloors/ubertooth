@@ -220,6 +220,17 @@ static int take_stdout(const char *what)
 	return saved_fd;
 }
 
+/* strdup(), with the one line a caller would otherwise exit without: the
+ * callers of opt_capture_path() have nothing else to say about a NULL. */
+static char *copy_name(const char *name)
+{
+	char *copy = strdup(name);
+
+	if (copy == NULL)
+		fputs("error: out of memory\n", stderr);
+	return copy;
+}
+
 char *opt_capture_path(const char *filename, const char *what, int *saved_fd)
 {
 	char path[64];
@@ -230,7 +241,7 @@ char *opt_capture_path(const char *filename, const char *what, int *saved_fd)
 	if (filename == NULL)
 		return NULL;
 	if (strcmp(filename, "-") != 0)
-		return strdup(filename);
+		return copy_name(filename);
 
 	*saved_fd = take_stdout(what);
 	if (*saved_fd < 0)
@@ -239,7 +250,11 @@ char *opt_capture_path(const char *filename, const char *what, int *saved_fd)
 	/* The writers in libbtbb open a file name rather than a descriptor, so
 	 * the saved standard output is named as one: /dev/fd works on macOS and
 	 * Linux, and /proc/self/fd is the fallback where /dev/fd is not
-	 * mounted. */
+	 * mounted. Opening that path is a fresh open on Linux and a second
+	 * descriptor on the same open file on macOS, so a capture appended to a
+	 * file (">> dump.pcap") starts at the beginning there and at the end
+	 * here. A pipe, which is what "-" is for, behaves the same either
+	 * way. */
 	snprintf(path, sizeof(path), "/dev/fd/%d", *saved_fd);
 	if (access(path, W_OK) != 0) {
 		snprintf(path, sizeof(path), "/proc/self/fd/%d", *saved_fd);
@@ -251,7 +266,16 @@ char *opt_capture_path(const char *filename, const char *what, int *saved_fd)
 			return NULL;
 		}
 	}
-	return strdup(path);
+	return copy_name(path);
+}
+
+void opt_report_create_failure(const char *filename)
+{
+	/* A writer that fails without setting errno would otherwise be reported
+	 * as whatever the last failed call left there, or as "Undefined error:
+	 * 0". The caller clears errno before the create for this. */
+	fprintf(stderr, "error: %s: %s\n", filename == NULL ? "" : filename,
+	        errno != 0 ? strerror(errno) : "could not be created");
 }
 
 FILE *opt_open_dump_file(const char *filename, const char *what)

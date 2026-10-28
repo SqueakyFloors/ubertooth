@@ -113,10 +113,20 @@ def report_bad_option(refusal):
     for the same mistake, which ubertooth-btbr also uses. The C tools add
     "the tools take single-letter options" to an unknown long option; here
     the long options are the normal spelling, Wireshark's own, so that part
-    is left off.
+    is left off. Two mistakes only a long option can make have no C
+    counterpart and get a line of their own: a value given to an option that
+    takes none, and an abbreviation short enough to mean either of two
+    options.
+
+    Which mistake it was comes from getopt's own English message, since that
+    is all it reports besides the option: Python ships no translation of it,
+    so the words are the same everywhere. An unknown option is the fallback,
+    so a message this does not recognize still reads as one of ours.
     """
     # getopt says "option --name ..." for a word with two dashes and
     # "option -c ..." for a single letter, and names the option without them.
+    # The name is the one getopt matched, so an abbreviation is reported in
+    # full: "--fi" reads as "--fifo".
     option = ("--" if refusal.msg.startswith("option --") else "-") \
         + refusal.opt
     if refusal.msg.endswith("requires argument"):

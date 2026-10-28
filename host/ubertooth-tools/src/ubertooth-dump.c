@@ -132,6 +132,11 @@ int main(int argc, char *argv[])
 		dumpfile = opt_open_dump_file(dump_name, "dump data");
 		if (dumpfile == NULL)
 			return 1;
+	} else if (opt_check_stdout_not_tty("dump data") < 0) {
+		/* Without -d the stream is standard output, so a terminal there is
+		 * the same mistake as "-d -" on one: it fills the screen with
+		 * control characters and leaves nothing a reader can use. */
+		return 1;
 	}
 
 	ut = ubertooth_start_select(ubertooth_device);
