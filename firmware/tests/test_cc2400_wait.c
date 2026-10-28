@@ -617,6 +617,81 @@ MU_TEST(test_a_servicing_wait_keeps_its_site_between_passes)
 	mu_assert_int_eq(WATCHDOG_SITE_NONE, mark_site);
 }
 
+/* ---- the give-up counts ---- */
+
+/* One count out of UBERTOOTH_GET_RADIO_TIMEOUTS's reply, which is four 16-bit
+ * counts with the low byte of each first. */
+static unsigned reported_count(enum cc2400_wait_shape shape)
+{
+	uint8_t reply[UBERTOOTH_RADIO_TIMEOUTS_LEN];
+
+	cc2400_wait_report(reply);
+	return reply[2 * shape] | (reply[2 * shape + 1] << 8);
+}
+
+/*
+ * A wait that gives up says so, and a wait that is satisfied does not. The
+ * counts are what tells a radio that never reached the state it was asked for
+ * from a quiet channel, since the firmware carries on either way.
+ *
+ * They are not reset between these cases -- nothing resets them on a board
+ * either, short of a restart -- so each case reads the count before and after
+ * the wait it is about.
+ */
+MU_TEST(test_a_wait_that_gives_up_is_counted)
+{
+	unsigned before;
+
+	before = reported_count(CC2400_WAIT_FS_LOCK);
+	fake_radio_reset();
+	fake_radio_lock_at_poll(3);
+	mu_assert_int_eq(1, cc2400_wait_fs(1, NULL));
+	mu_assert_int_eq((int)before, (int)reported_count(CC2400_WAIT_FS_LOCK));
+	fake_radio_reset();
+	mu_assert_int_eq(0, cc2400_wait_fs(1, NULL));
+	mu_assert_int_eq((int)before + 1,
+	                 (int)reported_count(CC2400_WAIT_FS_LOCK));
+
+	/* Each shape has its own count, so the reply says which wait it was. */
+	before = reported_count(CC2400_WAIT_FS_UNLOCK);
+	fake_radio_reset();
+	fake_radio_status_sequence((const u8[]){ FS_LOCK }, 1);
+	mu_assert_int_eq(0, cc2400_wait_fs_unlock());
+	mu_assert_int_eq((int)before + 1,
+	                 (int)reported_count(CC2400_WAIT_FS_UNLOCK));
+
+	before = reported_count(CC2400_WAIT_XOSC);
+	fake_radio_reset();
+	mu_assert_int_eq(0, cc2400_wait_xosc_stable(NULL));
+	mu_assert_int_eq((int)before + 1, (int)reported_count(CC2400_WAIT_XOSC));
+
+	before = reported_count(CC2400_WAIT_FSM);
+	fake_radio_reset();
+	fake_radio_fsm_state_at_poll(STATE_STROBE_FS_ON, 0);
+	mu_assert_int_eq(0, cc2400_wait_fsm(STATE_STROBE_FS_ON, NULL));
+	mu_assert_int_eq((int)before + 1, (int)reported_count(CC2400_WAIT_FSM));
+}
+
+/*
+ * ...and the counts of the waits that did not give up stay where they were,
+ * so one failing wait cannot be read as another.
+ */
+MU_TEST(test_a_timeout_counts_only_its_own_shape)
+{
+	unsigned unlock, xosc, fsm;
+
+	unlock = reported_count(CC2400_WAIT_FS_UNLOCK);
+	xosc = reported_count(CC2400_WAIT_XOSC);
+	fsm = reported_count(CC2400_WAIT_FSM);
+
+	fake_radio_reset();
+	mu_assert_int_eq(0, cc2400_wait_fs(1, NULL));
+
+	mu_assert_int_eq((int)unlock, (int)reported_count(CC2400_WAIT_FS_UNLOCK));
+	mu_assert_int_eq((int)xosc, (int)reported_count(CC2400_WAIT_XOSC));
+	mu_assert_int_eq((int)fsm, (int)reported_count(CC2400_WAIT_FSM));
+}
+
 /* ---- the service callback ---- */
 
 static unsigned service_calls;
@@ -1325,6 +1400,8 @@ int main(void)
 	MU_RUN(test_fsm_gives_up_waiting_for_idle);
 	MU_RUN(test_fsm_gives_up_waiting_for_receive);
 	MU_RUN(test_fsm_does_not_match_another_state);
+	MU_RUN(test_a_wait_that_gives_up_is_counted);
+	MU_RUN(test_a_timeout_counts_only_its_own_shape);
 	MU_RUN(test_service_runs_between_every_poll);
 	MU_RUN(test_service_runs_on_the_unlock_side);
 	MU_RUN(test_service_not_run_when_wait_is_satisfied_at_once);
