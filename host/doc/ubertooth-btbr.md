@@ -172,12 +172,16 @@ If no FHS appears, the peripheral won the race; try again.
 ## DIAGNOSTICS
 
 Standard output carries the prompt and the usage text `-h` prints. Everything
-else goes to standard error. A command line the tool will not take, and a
-board it cannot select, open or set up, are reported as the `error: ` and
-`note: ` lines the other tools use; the packets a command reports, and the module's
-own warnings, are still log lines of the form `HH:MM:SS | INFO | ...`, which
-is a remaining deviation from ubertooth(7), OUTPUT AND DIAGNOSTICS, tracked
-as issue [#410](https://github.com/SqueakyFloors/ubertooth/issues/410).
+else goes to standard error. A command line the tool will not take, a board it
+cannot select, open or set up, and anything that goes wrong during a session,
+are reported as the one-line `error: `, `warning: ` and `note: ` lines the
+other tools use.
+
+The packets a command reports, and the progress it makes, are still log lines
+of the form `HH:MM:SS | INFO | ...` on standard error, which is a remaining
+deviation from ubertooth(7), OUTPUT AND DIAGNOSTICS: decoded packets belong on
+standard output. Tracked as issue
+[#735](https://github.com/SqueakyFloors/ubertooth/issues/735).
 
 An option value outside 0-65535, or one that is not a number, is refused
 before the board is opened: `error: -f must be 0-65535 (got bad)`, exit
@@ -189,6 +193,18 @@ Every other command line the tool will not take is one `error: ` line on
 standard error with no usage text, and exit 1: `error: unrecognized option
 '-Z'`, `error: option '-f' requires a value`, `error: unexpected argument
 '<word>'`, and `error: give -U once` for an option given twice.
+
+During a session, a board that stops answering is reported and the running
+command ends rather than waiting. A board that left the bus mid-command gives
+
+    error: the receive thread stopped: USBErrorPipe: LIBUSB_ERROR_PIPE [-9]
+    warning: BTCtlInquiryCmd: could not ask the device to go idle: LIBUSB_ERROR_NO_DEVICE [-4]
+    warning: BTCtlInquiryCmd: the device did not go idle, stopping anyway
+
+and a request that failed some other way gives `error: <command> stopped:
+<type>: ...`. The prompt stays up in every case, and a command that will not
+stop at all leaves the board claimed, which is reported on the way out (see
+EXIT STATUS).
 
 With no Ubertooth attached the tool says `error: no Ubertooth devices found`
 and exits 1. A selection that names no board, or more than one, is refused

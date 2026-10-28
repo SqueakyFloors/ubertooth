@@ -254,7 +254,13 @@ class LMP:
 		fsm = self._FSM[self._state]
 		reg = fsm.get(op)
 		if reg is None:
-			log.warning("Unhandled opcode 0x%x"%op)
+			# Imported here rather than at the top of the file: btctl
+			# imports this module, so importing it back at module scope
+			# would be a cycle. Going through its warn() anyway keeps one
+			# spelling of a `warning: ` line in the package.
+			from ubtbr.btctl import warn
+			warn("LMP opcode 0x%x is not handled in state %d"
+				%(op, self._state))
 			return False
 		else:
 			handler = reg[0]

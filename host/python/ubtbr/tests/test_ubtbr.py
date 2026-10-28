@@ -226,7 +226,7 @@ sys.path.insert(0, MODULE_DIR)
 sys.path.insert(0, WORK.name)
 import usb1
 assert os.path.dirname(usb1.__file__) == WORK.name, usb1.__file__
-from ubtbr import btctl
+from ubtbr import btctl, lmp
 
 
 def request_packet(code):
@@ -244,21 +244,43 @@ NO_ANSWER = "did not go idle"
 
 
 class Recorder(logging.Handler):
-    """Keeps what ubtbr logged, so a test can tell how a command ended."""
+    """Keeps what ubtbr reported, so a test can tell how a command ended.
 
-    def __init__(self):
+    Two channels reach it. The packets a command reports and the progress it
+    makes are still log lines, so it is a logging handler; a warning or a
+    failure is one `warning: ` or `error: ` line written straight to standard
+    error, so it also stands in for that stream. Both end up in the same
+    list, since what a test asks is what was said and not how.
+
+    Standing in for the stream is what pins these messages to standard error:
+    a line that went to standard output instead would not be here. The real
+    stream is written to as well, so a failing run still shows everything the
+    test saw, and the logging handler ubtbr installs holds the original
+    stream, so log lines are unaffected by this.
+    """
+
+    def __init__(self, stream):
         super().__init__()
         self.messages = []
+        self._stream = stream
 
     def emit(self, record):
         self.messages.append(record.getMessage())
+
+    def write(self, text):
+        self.messages.append(text)
+        return self._stream.write(text)
+
+    def flush(self):
+        self._stream.flush()
 
     def said(self, text):
         return any(text in message for message in self.messages)
 
 
-records = Recorder()
+records = Recorder(sys.stderr)
 btctl.log.addHandler(records)
+sys.stderr = records
 
 
 def recorded_writes():
@@ -397,6 +419,51 @@ assert records.said("BTCtlInquiryCmd stopped: USBErrorTimeout: timeout"), \
     records.messages
 print("ubtbr: a command the device will not start is reported, not raised")
 
+# ---- a diagnostic is one line on standard error ---------------------------
+
+# The module used to report its own warnings and failures as log lines,
+# "HH:MM:SS | WARNING | ...", where every other tool in the tree writes one
+# "warning: " or "error: " line. Both are pinned here: the prefix, the
+# stream, and that nothing goes to standard output.
+device = SilentDevice()
+command = btctl.BTCtlInquiryCmd(device)
+command.start()
+assert wait_until(lambda: device.inquiry_requests == 1), device.inquiry_requests
+warned, said = io.StringIO(), io.StringIO()
+with contextlib.redirect_stderr(warned), contextlib.redirect_stdout(said):
+    command.stop()
+    command.join(DEADLINE)
+assert not command.is_alive(), "the command must still stop"
+assert warned.getvalue() == ("warning: BTCtlInquiryCmd: the device did not go "
+                             "idle, stopping anyway\n"), repr(warned.getvalue())
+assert said.getvalue() == "", said.getvalue()
+
+device = RefusingStartDevice()
+command = btctl.BTCtlInquiryCmd(device)
+failed, said = io.StringIO(), io.StringIO()
+with contextlib.redirect_stderr(failed), contextlib.redirect_stdout(said):
+    command.start()
+    command.join(DEADLINE)
+assert not command.is_alive(), "a command that could not start must end"
+assert failed.getvalue() == ("error: BTCtlInquiryCmd stopped: "
+                             "USBErrorTimeout: timeout\n"), \
+    repr(failed.getvalue())
+assert said.getvalue() == "", said.getvalue()
+
+# and the LMP decoder's one warning, which reaches warn() through an import
+# inside the function: btctl imports lmp, so lmp cannot import it back at
+# module scope, and a test is what catches that import going wrong.
+link_manager = lmp.LMPMaster(None)
+unknown, said = io.StringIO(), io.StringIO()
+with contextlib.redirect_stderr(unknown), contextlib.redirect_stdout(said):
+    # Opcode 0, which no state handles.
+    assert link_manager.receive(0, b"\x00") is False
+assert unknown.getvalue() == \
+    "warning: LMP opcode 0x0 is not handled in state 1\n", \
+    repr(unknown.getvalue())
+assert said.getvalue() == "", said.getvalue()
+print("ubtbr: a warning and a failure are each one line on standard error")
+
 # ---- a command of a super command that will not stop ----------------------
 
 # Driven through the pieces a super command uses on itself: the thread it
@@ -513,17 +580,18 @@ device = SilentDevice()
 orphan = WedgedCmd(device)
 orphan.start()
 assert wait_until(lambda: device.handler is not None), "no command started"
-records.messages.clear()
 thrown = io.StringIO()
 with contextlib.redirect_stderr(thrown):
     refused_super = GivingUpSuperCmd(device)
     refused_super.start()
     refused_super.join(DEADLINE)
 assert not refused_super.is_alive(), "a refused super command must end"
-assert "Exception in thread" not in thrown.getvalue(), thrown.getvalue()
-assert "Traceback" not in thrown.getvalue(), thrown.getvalue()
-assert records.said("the previous command is still running"), records.messages
-print("ubtbr: a refusal on a command's own thread is logged, not a traceback")
+# One error line and nothing else: a traceback from in there is nobody's to
+# report, and the refusal is what the user has to be told.
+assert thrown.getvalue() == ("error: GivingUpSuperCmd stopped: BTCtlBusyError: "
+                             "the previous command is still running\n"), \
+    repr(thrown.getvalue())
+print("ubtbr: a refusal on a command's own thread is reported, not a traceback")
 
 
 
@@ -883,7 +951,6 @@ else:
 assert super_command._cmd is None, super_command._cmd
 assert device.handler is None, "the board is still claimed"
 
-records.messages.clear()
 device = SilentDevice()
 thrown = io.StringIO()
 with contextlib.redirect_stderr(thrown):
@@ -891,11 +958,11 @@ with contextlib.redirect_stderr(thrown):
     super_command.start()
     super_command.join(DEADLINE)
 assert not super_command.is_alive(), "a super command with no child must end"
-assert "Exception in thread" not in thrown.getvalue(), thrown.getvalue()
-assert "Traceback" not in thrown.getvalue(), thrown.getvalue()
-assert records.said("RuntimeError: can't start new thread"), records.messages
+assert thrown.getvalue() == ("error: RefusedChildSuperCmd stopped: "
+                             "RuntimeError: can't start new thread\n"), \
+    repr(thrown.getvalue())
 assert device.handler is None, "the board is still claimed"
-print("ubtbr: a child whose thread is refused is logged, not a traceback")
+print("ubtbr: a child whose thread is refused is reported, not a traceback")
 
 # ---- the tool, driven through its prompt ----------------------------------
 
@@ -967,6 +1034,12 @@ assert output == "", output
 assert "error: could not set up the Ubertooth" in errors, errors
 assert WRONG_FIRMWARE in errors, errors
 assert "Traceback" not in errors, errors
+# The way out closes the device, and the board will not take the idle request
+# either: that warning is one "warning: " line, not a log line, which is what
+# the whole run is checked for here.
+assert ("warning: could not ask the device to go idle while closing it: "
+        "timeout\n") in errors, errors
+assert "| WARNING |" not in errors and "| ERROR |" not in errors, errors
 print("ubtbr: a device that takes no request is reported, not waited on")
 
 # and the same when the requests stop being taken part way through the three

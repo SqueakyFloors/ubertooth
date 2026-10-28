@@ -217,6 +217,11 @@
   command line it will not take as one `error: ` line on standard error
   instead of printing its usage text on standard output.
   [#410](https://github.com/SqueakyFloors/ubertooth/issues/410)
+- **Script-visible change:** `ubertooth-btbr` reports a warning or a failure as
+  one `warning: ` or `error: ` line on standard error, as the other tools do,
+  instead of a `HH:MM:SS | WARNING | ...` log line. The packets a command
+  reports are still log lines.
+  [#410](https://github.com/SqueakyFloors/ubertooth/issues/410)
 
 ### Build and compatibility
 
