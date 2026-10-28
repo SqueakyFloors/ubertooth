@@ -761,9 +761,20 @@ if(libubertooth_SOURCE_DIR)
 		# overflow warnings, and a report written there would die with
 		# the file. Standard output is untouched, so ctest
 		# --output-on-failure prints the report.
+		#
+		# A sanitizer that will not start is a skip, not a failure.
+		# On a kernel that randomizes addresses over more bits than
+		# the sanitizer's own mapping allows (6.6 and later with
+		# vm.mmap_rnd_bits=32) it gives up before main() with
+		# "unexpected memory mapping" -- on four runs in five on one
+		# machine here, which is also why the configure probe above
+		# cannot predict it: the same program starts on some runs and
+		# not others. That says nothing about the ring either way.
 		set_tests_properties(fifo-ring-tsan PROPERTIES
 			TIMEOUT 120
-			ENVIRONMENT "TSAN_OPTIONS=halt_on_error=1:log_path=stdout")
+			ENVIRONMENT "TSAN_OPTIONS=halt_on_error=1:log_path=stdout"
+			SKIP_REGULAR_EXPRESSION
+			"ThreadSanitizer: unexpected memory mapping")
 	endif()
 
 	# What the low-energy callback hands libbtbb's decoder: the captured
