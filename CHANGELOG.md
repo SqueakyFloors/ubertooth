@@ -378,7 +378,6 @@
   empty its transmit buffer had no end, and that wait sits in the loop that
   services USB, so a radio that stopped draining left the board answering
   nothing until it was unplugged and plugged back in.
-  [#395](https://github.com/SqueakyFloors/ubertooth/issues/395)
 - A spectrum analyzer run measures through the radio front end a freshly
   booted board has, whichever mode ran before it. `ubertooth-specan` and
   `ubertooth-util -q` do not set the radio's manual signal overrides

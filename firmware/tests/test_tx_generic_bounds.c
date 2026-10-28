@@ -443,6 +443,7 @@ struct scan {
 	int bare_gio6_line;
 	int wait_body;        /* where fifo_wait_empty() is defined */
 	int wait_bound;       /* ...and where its poll count is used */
+	int waits_checked;    /* calls whose result is acted on, in both loops */
 	int loop_end;         /* the loop that keeps going while bytes are left */
 };
 
@@ -489,6 +490,11 @@ static int scan_source(const char *path, struct scan *s)
 			s->drain_wait = lineno;
 			s->drain_wait_used = strstr(flat, "!fifo_wait_empty()") != NULL;
 		}
+		/* Both transmit loops have to act on what the wait returned, not
+		 * only tx_generic()'s: le_transmit()'s call comes earlier in the
+		 * file, so the check above does not reach it. */
+		if (strstr(flat, "!fifo_wait_empty()") != NULL)
+			s->waits_checked++;
 		if (strstr(flat, "} while (sent < len);") != NULL)
 			s->loop_end = lineno;
 
@@ -651,6 +657,13 @@ MU_TEST(test_the_fifo_write_is_clamped_and_chunked)
 	         "payload has gone out, so a packet longer than the FIFO loses "
 	         "its tail", path, s.fifo_write);
 	mu_assert(s.loop_end > s.fifo_write, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: both transmit loops have to end the packet when the wait "
+	         "gives up, rather than writing the next piece into a FIFO the "
+	         "radio still holds; %d of the two act on what it returned",
+	         path, s.waits_checked);
+	mu_assert(s.waits_checked == 2, msg);
 
 	snprintf(msg, sizeof(msg),
 	         "%s:%d: fifo_wait_empty() does not use FIFO_EMPTY_POLLS, so the "
