@@ -38,23 +38,6 @@
  * include/ubtbr/hop.h).  So those tables are not this firmware's sequence.
  * The selection kernel they share with the other substates is the one the
  * page scan vectors below pin.
- *
- * This file is part of Project Ubertooth.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2, or (at your option)
- * any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; see the file COPYING.  If not, write to
- * the Free Software Foundation, Inc., 51 Franklin Street,
- * Boston, MA 02110-1301, USA.
  */
 #ifndef __SPEC_HOP_VECTORS_H
 #define __SPEC_HOP_VECTORS_H
@@ -63,8 +46,9 @@
 #include <stdint.h>
 
 /*
- * Connection state.  The tables start at CLK 0x010 and step by two, because
- * the hop is taken from the clock of the packet's first slot.
+ * Connection state.  CLK counts half-slots, so stepping by two is one slot per
+ * entry: the hop is taken from the clock of the packet's first slot.  0x010 is
+ * simply where Part G's tables begin.
  */
 #define SPEC_HOP_CONN_FIRST_CLK	0x010
 #define SPEC_HOP_CONN_CLK_STEP	2
@@ -79,7 +63,7 @@
 #define SPEC_HOP_SCAN_CLKN_STEP		0x1000
 #define SPEC_HOP_SCAN_ENTRIES		64
 
-/* address 0x0000000, basic sequence */
+/* address 0x00000000, basic sequence */
 static const uint8_t SPEC_HOP_CONN_0[SPEC_HOP_CONN_ENTRIES] = {
 	 8, 66, 10, 70, 12, 19, 14, 23, 16,  1, 18,  5, 20, 33, 22, 37,
 	24,  3, 26,  7, 28, 35, 30, 39, 32, 72, 34, 76, 36, 25, 38, 29,
@@ -115,7 +99,7 @@ static const uint8_t SPEC_HOP_CONN_0[SPEC_HOP_CONN_ENTRIES] = {
 	29, 65, 33,  2, 45, 18, 49, 34, 19,  4, 21,  8, 23, 20, 25, 24,
 };
 
-/* address 0x0000000, used channels 0x7fffffffffffffffffff */
+/* address 0x00000000, used channels 0x7fffffffffffffffffff */
 static const uint8_t SPEC_HOP_CONN_1[SPEC_HOP_CONN_ENTRIES] = {
 	 8,  8, 10, 10, 12, 12, 14, 14, 16, 16, 18, 18, 20, 20, 22, 22,
 	24, 24, 26, 26, 28, 28, 30, 30, 32, 32, 34, 34, 36, 36, 38, 38,
@@ -151,7 +135,7 @@ static const uint8_t SPEC_HOP_CONN_1[SPEC_HOP_CONN_ENTRIES] = {
 	29, 29, 33, 33, 45, 45, 49, 49, 19, 19, 21, 21, 23, 23, 25, 25,
 };
 
-/* address 0x0000000, used channels 0x7fffffffffffffc00000 */
+/* address 0x00000000, used channels 0x7fffffffffffffc00000 */
 static const uint8_t SPEC_HOP_CONN_2[SPEC_HOP_CONN_ENTRIES] = {
 	30, 30, 32, 32, 34, 34, 36, 36, 38, 38, 40, 40, 42, 42, 22, 22,
 	24, 24, 26, 26, 28, 28, 30, 30, 32, 32, 34, 34, 36, 36, 38, 38,
@@ -187,7 +171,7 @@ static const uint8_t SPEC_HOP_CONN_2[SPEC_HOP_CONN_ENTRIES] = {
 	29, 29, 33, 33, 45, 45, 49, 49, 50, 50, 52, 52, 23, 23, 25, 25,
 };
 
-/* address 0x0000000, used channels 0x55555555555555555555 */
+/* address 0x00000000, used channels 0x55555555555555555555 */
 static const uint8_t SPEC_HOP_CONN_3[SPEC_HOP_CONN_ENTRIES] = {
 	 8,  8, 10, 10, 12, 12, 14, 14, 16, 16, 18, 18, 20, 20, 22, 22,
 	24, 24, 26, 26, 28, 28, 30, 30, 32, 32, 34, 34, 36, 36, 38, 38,
@@ -223,7 +207,7 @@ static const uint8_t SPEC_HOP_CONN_3[SPEC_HOP_CONN_ENTRIES] = {
 	26, 26, 30, 30, 42, 42, 46, 46, 16, 16, 18, 18, 20, 20, 22, 22,
 };
 
-/* address 0x0000000, used channels 0x2aaaaaaaaaaaaaaaaaaa */
+/* address 0x00000000, used channels 0x2aaaaaaaaaaaaaaaaaaa */
 static const uint8_t SPEC_HOP_CONN_4[SPEC_HOP_CONN_ENTRIES] = {
 	 9,  9, 11, 11, 13, 13, 15, 15, 17, 17, 19, 19, 21, 21, 23, 23,
 	25, 25, 27, 27, 29, 29, 31, 31, 33, 33, 35, 35, 37, 37, 39, 39,
@@ -658,7 +642,7 @@ static const struct spec_hop_conn_vector SPEC_HOP_CONN[] = {
 #define SPEC_HOP_CONN_SETS \
 	((int) (sizeof(SPEC_HOP_CONN) / sizeof(SPEC_HOP_CONN[0])))
 
-/* address 0x0000000, page scan and inquiry scan substates */
+/* address 0x00000000, page scan and inquiry scan substates */
 static const uint8_t SPEC_HOP_SCAN_0[SPEC_HOP_SCAN_ENTRIES] = {
 	 0,  2,  4,  6,  8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30,
 	32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62,
@@ -695,20 +679,36 @@ static const struct spec_hop_scan_vector SPEC_HOP_SCAN[] = {
 #define SPEC_HOP_SCAN_SETS \
 	((int) (sizeof(SPEC_HOP_SCAN) / sizeof(SPEC_HOP_SCAN[0])))
 
-/* Turn a printed channel map into the ten octets both images hold. */
-static inline void spec_hop_afh_map(const char *printed, uint8_t *map)
+/*
+ * Turn a printed channel map into the ten octets both images hold.  Returns 0
+ * for anything that is not exactly twenty lower-case hex digits, so a mistyped
+ * map fails the test that asked for it rather than being read past its end or
+ * decoded into something plausible.
+ */
+static inline int spec_hop_afh_map(const char *printed, uint8_t *map)
 {
-	int octet;
+	int nibble[20];
+	int i;
 
-	for (octet = 0; octet < 10; octet++) {
-		int hi = printed[(9 - octet) * 2];
-		int lo = printed[(9 - octet) * 2 + 1];
+	for (i = 0; i < 20; i++) {
+		char c = printed[i];
 
-		/* the printed maps are lower-case hex, so '0'-'9' or 'a'-'f' */
-		hi = hi <= '9' ? hi - '0' : hi - 'a' + 10;
-		lo = lo <= '9' ? lo - '0' : lo - 'a' + 10;
-		map[octet] = (uint8_t) ((hi << 4) | lo);
+		/* a '\0' lands here too, so a short string stops the walk */
+		if (c >= '0' && c <= '9')
+			nibble[i] = c - '0';
+		else if (c >= 'a' && c <= 'f')
+			nibble[i] = c - 'a' + 10;
+		else
+			return 0;
 	}
+	if (printed[20] != '\0')
+		return 0;
+
+	/* the printed number runs the other way: its last pair is octet 0 */
+	for (i = 0; i < 10; i++)
+		map[i] = (uint8_t) ((nibble[(9 - i) * 2] << 4) |
+				nibble[(9 - i) * 2 + 1]);
+	return 1;
 }
 
 #endif /* __SPEC_HOP_VECTORS_H */

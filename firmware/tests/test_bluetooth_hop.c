@@ -71,7 +71,7 @@ static const struct hop_vector HOP_VECTORS[] = {
 };
 #define NUM_VECTORS (sizeof(HOP_VECTORS) / sizeof(HOP_VECTORS[0]))
 
-static void reset_state(void)
+static void reset_state(u32 address)
 {
 	memset(&target, 0, sizeof(target));
 	afh_enabled = 0;
@@ -79,7 +79,7 @@ static void reset_state(void)
 	used_channels = 0;
 	memset(bank, 0, sizeof(bank));
 	memset(afh_bank, 0, sizeof(afh_bank));
-	target.address = TEST_ADDRESS;
+	target.address = address;
 }
 
 static int map_marks_used(const u8 *map, u16 mhz)
@@ -91,8 +91,7 @@ static int map_marks_used(const u8 *map, u16 mhz)
 /* Apply the map in the order a host does: address, then map. */
 static void follow_setup(u32 address, const u8 *map)
 {
-	reset_state();
-	target.address = address;
+	reset_state(address);
 	precalc();
 	if (map != NULL)
 		bluetooth_set_afh_map(map);
@@ -101,7 +100,7 @@ static void follow_setup(u32 address, const u8 *map)
 MU_TEST(test_basic_hops_match_reference)
 {
 	size_t i;
-	reset_state();
+	reset_state(TEST_ADDRESS);
 	precalc();
 	for (i = 0; i < NUM_VECTORS; i++)
 		mu_assert_int_eq(HOP_VECTORS[i].basic, next_hop(HOP_VECTORS[i].clock));
@@ -136,7 +135,7 @@ MU_TEST(test_afh_hops_match_reference)
 MU_TEST(test_map_before_address_gives_same_hops)
 {
 	size_t i;
-	reset_state();
+	reset_state(TEST_ADDRESS);
 	bluetooth_set_afh_map(AFH_MAP);
 	precalc();	/* address set after the map */
 	for (i = 0; i < NUM_VECTORS; i++)
@@ -228,16 +227,20 @@ MU_TEST(test_reserved_map_bit_is_not_counted)
  */
 MU_TEST(test_spec_sample_data_connection_state)
 {
-	int set, entry, bad = 0, reported = 0;
+	int set, entry, bad = 0;
 
 	for (set = 0; set < SPEC_HOP_CONN_SETS; set++) {
 		const struct spec_hop_conn_vector *v = &SPEC_HOP_CONN[set];
+		int reported = 0;	/* a report budget per set, not per test */
 		u8 map[10];
 
 		if (v->printed_afh_map == NULL) {
 			follow_setup(v->ulap, NULL);
 		} else {
-			spec_hop_afh_map(v->printed_afh_map, map);
+			mu_assert_fatal(spec_hop_afh_map(v->printed_afh_map,
+							 map),
+					"printed channel map is not twenty "
+					"hex digits");
 			follow_setup(v->ulap, map);
 		}
 

@@ -433,16 +433,20 @@ MU_TEST(test_connection_modes_hop_through_hop_basic)
  */
 MU_TEST(test_spec_sample_data_connection_state)
 {
-	int set, entry, bad = 0, reported = 0;
+	int set, entry, bad = 0;
 
 	for (set = 0; set < SPEC_HOP_CONN_SETS; set++) {
 		const struct spec_hop_conn_vector *v = &SPEC_HOP_CONN[set];
+		int reported = 0;	/* a report budget per set, not per test */
 		uint8_t map[10];
 
 		if (v->printed_afh_map == NULL) {
 			follow_setup(v->ulap, NULL);
 		} else {
-			spec_hop_afh_map(v->printed_afh_map, map);
+			mu_assert_fatal(spec_hop_afh_map(v->printed_afh_map,
+							 map),
+					"printed channel map is not twenty "
+					"hex digits");
 			follow_setup(v->ulap, map);
 		}
 
@@ -485,10 +489,11 @@ MU_TEST(test_spec_sample_data_connection_state)
  */
 MU_TEST(test_spec_sample_data_page_and_inquiry_scan)
 {
-	int set, entry, bad = 0, reported = 0;
+	int set, entry, bad = 0;
 
 	for (set = 0; set < SPEC_HOP_SCAN_SETS; set++) {
 		const struct spec_hop_scan_vector *v = &SPEC_HOP_SCAN[set];
+		int reported = 0;	/* a report budget per set, not per test */
 
 		follow_setup(v->ulap, NULL);
 
@@ -505,7 +510,7 @@ MU_TEST(test_spec_sample_data_page_and_inquiry_scan)
 				continue;
 			bad++;
 			if (reported++ < 4)
-				printf("  address %07x, CLKN 0x%07x: "
+				printf("  address %08x, CLKN 0x%07x: "
 					"channel %d, the spec says %d\n",
 					v->ulap, clkn, got, want);
 		}
@@ -532,14 +537,25 @@ MU_TEST(test_every_inquiry_mode_routes_to_hop_inquiry)
 
 	follow_setup(v->ulap, NULL);
 	for (mode = 0; mode < sizeof(MODES) / sizeof(MODES[0]); mode++) {
+		int reported = 0;
+
 		btphy.mode = MODES[mode];
 		for (entry = 0; entry < SPEC_HOP_SCAN_ENTRIES; entry++) {
 			uint32_t clkn = SPEC_HOP_SCAN_FIRST_CLKN +
 					entry * SPEC_HOP_SCAN_CLKN_STEP;
+			int got;
 
 			hop_state.x = (clkn >> 12) & 0x1f;
-			if (hop_channel(clkn) != v->channels[entry])
-				bad++;
+			got = hop_channel(clkn);
+
+			if (got == v->channels[entry])
+				continue;
+			bad++;
+			if (reported++ < 2)
+				printf("  mode %d, CLKN 0x%07x: channel %d, "
+					"hop_inquiry() gives %d\n",
+					MODES[mode], clkn, got,
+					v->channels[entry]);
 		}
 	}
 	mu_assert_int_eq(0, bad);
