@@ -1488,6 +1488,7 @@ MU_TEST(the_search_for_the_returned_application_tells_its_outcomes_apart)
 {
 	struct dfu_usb_identity identity;
 	libusb_device_handle *devh = FAKE_HANDLE;
+	int bus_error = -1;
 
 	board_in_dfu();
 	/* The application device on the path the flashed board was on. */
@@ -1496,36 +1497,42 @@ MU_TEST(the_search_for_the_returned_application_tells_its_outcomes_apart)
 	mu_assert_int_eq(0, get_usb_identity(FAKE_DEVICE, &identity));
 
 	mu_assert_int_eq(1, find_ubertooth_application_device(
-		(libusb_context *)&fake, &identity, &devh));
+		(libusb_context *)&fake, &identity, &devh, &bus_error));
 	mu_assert(devh == FAKE_HANDLE, "the opened handle was not returned");
+	mu_assert_int_eq(0, bus_error);
 
 	/* Nothing on the bus: absent, and the caller polls again. */
 	fake.present = 0;
 	mu_assert_int_eq(0, find_ubertooth_application_device(
-		(libusb_context *)&fake, &identity, &devh));
+		(libusb_context *)&fake, &identity, &devh, &bus_error));
 	mu_assert(devh == NULL, "a search that found nothing returned a handle");
+	mu_assert_int_eq(0, bus_error);
 
 	/* The bus itself could not be read, so no device was looked at: its own
-	 * outcome, not a device that refused to open. */
+	 * outcome, not a device that refused to open. The libusb code comes back
+	 * separately, for the stage trace. */
 	fake.present = 1;
 	fake.list_rc = LIBUSB_ERROR_NO_MEM;
 	mu_assert_int_eq(DFU_OPEN_BUS_UNREADABLE,
 	                 find_ubertooth_application_device(
-		(libusb_context *)&fake, &identity, &devh));
+		(libusb_context *)&fake, &identity, &devh, &bus_error));
 	mu_assert(devh == NULL, "an unreadable bus returned a handle");
+	mu_assert_int_eq(LIBUSB_ERROR_NO_MEM, bus_error);
 
 	/* Listed, then gone by the time it was opened: an absent board, which
 	 * is what the caller polls for, and not one that would not open. */
 	fake.list_rc = 0;
 	fake.open_rc = LIBUSB_ERROR_NO_DEVICE;
 	mu_assert_int_eq(0, find_ubertooth_application_device(
-		(libusb_context *)&fake, &identity, &devh));
+		(libusb_context *)&fake, &identity, &devh, &bus_error));
+	mu_assert_int_eq(0, bus_error);
 
 	/* A device that is there and will not open is reported as itself. */
 	fake.open_rc = LIBUSB_ERROR_ACCESS;
 	mu_assert_int_eq(LIBUSB_ERROR_ACCESS,
 	                 find_ubertooth_application_device(
-		(libusb_context *)&fake, &identity, &devh));
+		(libusb_context *)&fake, &identity, &devh, &bus_error));
+	mu_assert_int_eq(0, bus_error);
 	mu_assert_int_eq(0, fake.lists);
 }
 

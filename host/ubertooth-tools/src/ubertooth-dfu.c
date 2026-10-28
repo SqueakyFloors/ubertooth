@@ -378,11 +378,16 @@ done:
 /* Return 1 when the application device on the expected path is opened, 0 when
  * absent, DFU_OPEN_BUS_UNREADABLE when the bus could not be listed at all, or
  * a negative libusb error for a device that is there and would not open. The
- * three are reported differently, so they are kept apart here. */
+ * three are reported differently, so they are kept apart here.
+ *
+ * bus_error, which may not be NULL, is written either way: the libusb error
+ * from a listing that failed, or 0. The outcome alone cannot carry it, and it
+ * belongs in the stage trace with the rest of this command's codes. */
 static int find_ubertooth_application_device(
 	libusb_context *ctx,
 	const struct dfu_usb_identity *expected_identity,
-	libusb_device_handle **devh)
+	libusb_device_handle **devh,
+	int *bus_error)
 {
 	libusb_device **usb_list = NULL;
 	struct libusb_device_descriptor desc;
@@ -391,13 +396,16 @@ static int find_ubertooth_application_device(
 	int i, result;
 
 	*devh = NULL;
+	*bus_error = 0;
 	/* As in find_ubertooth_dfu_device(): the switch hides the bus from this
 	 * search too. */
 	if (ubertooth_devices_hidden())
 		return 0;
 	usb_devs = libusb_get_device_list(ctx, &usb_list);
-	if (usb_devs < 0)
+	if (usb_devs < 0) {
+		*bus_error = (int)usb_devs;
 		return DFU_OPEN_BUS_UNREADABLE;
+	}
 
 	result = 0;
 	for (i = 0; i < usb_devs; ++i) {
@@ -527,6 +535,11 @@ struct dfu_runtime_context {
 	unsigned transfer_attempts;
 	unsigned verify_polls;
 	const struct dfu_usb_identity *verify_identity;
+	/* The libusb error from the last listing the verification could not
+	 * read, or 0. The verification's own report says which outcome it was;
+	 * this is the raw code behind an unreadable bus, which is reported in
+	 * the stage trace like every other code this command sees. */
+	int verify_bus_error;
 };
 
 /* Does the image -d was given fit the flash the attached part has?
@@ -1225,7 +1238,8 @@ static int verify_open_application(void *context,
 	         runtime->verify_polls);
 	log_dfu_stage(stage);
 	result = find_ubertooth_application_device(
-		runtime->usb_context, runtime->verify_identity, &devh);
+		runtime->usb_context, runtime->verify_identity, &devh,
+		&runtime->verify_bus_error);
 	/* Nothing there yet is not an error: the board is still re-enumerating,
 	 * or it will not come back at all. Either way it is not a device that
 	 * refused to open, and nor is a bus that could not be read; each is
@@ -1966,12 +1980,14 @@ int main(int argc, char **argv) {
 			snprintf(stage, sizeof(stage),
 			         "post-reset application verification failed: result=%d "
 			         "polls=%u expected_image=%s expected_revision=%s "
-			         "actual_image=%s actual_revision=%s usb_error=%d",
+			         "actual_image=%s actual_revision=%s usb_error=%d "
+			         "bus_error=%d",
 			         verify_report.result, verify_report.polls,
 			         image_info.image, image_info.revision,
 			         verify_report.actual_image,
 			         verify_report.actual_revision,
-			         verify_report.operation_error);
+			         verify_report.operation_error,
+			         runtime.verify_bus_error);
 			log_dfu_stage(stage);
 			dfu_verify_describe_failure(&verify_report, image_info.revision,
 			                            image_info.image,
