@@ -22,7 +22,7 @@ HOST_DFU := ../../host/ubertooth-tools/src
 HOST_LIB := ../../host/libubertooth/src
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_le_phy_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_grmdm_rx_generic test_tx_generic_bounds test_write_registers_bounds test_btbr_hop test_btbr_rx_deadline test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_watchdog
+TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_le_phy_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_grmdm_rx_generic test_tx_generic_bounds test_write_registers_bounds test_btbr_hop test_btbr_rx_deadline test_btbr_arithmetic test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_watchdog
 BINDIR  := bin
 
 .PHONY: all test clean
@@ -265,6 +265,25 @@ $(BINDIR)/test_btbr_rx_deadline: test_btbr_rx_deadline.c minunit.h \
 		-Wno-unused-but-set-variable -Wno-address-of-packed-member \
 		-o $@ test_btbr_rx_deadline.c \
 		$(FW_BTBR)/src/codec/bitstream_proc.c
+
+# The btbr image's bitstream codec is pure logic, so the real one is linked
+# here and its offsets are exercised at the sizes a long Classic packet
+# reaches. stubs-btbr/ supplies the diagnostics stand-in, and the codec's own
+# headers supply the chunk sizes and the slot clock. The last cases read the
+# two syncword windows out of the scan and receive tasks as text -- both are
+# hardware files -- so FW_BTBR_DIR points at the image.
+$(BINDIR)/test_btbr_arithmetic: test_btbr_arithmetic.c minunit.h \
+		source_scan.h stubs-btbr/ubtbr/debug.h \
+		$(FW_BTBR)/src/codec/bitstream_proc.c \
+		$(FW_BTBR)/src/btphy/scan_task.c $(FW_BTBR)/src/btphy/rx_task.c \
+		$(FW_BTBR)/include/ubtbr/bb.h $(FW_BTBR)/include/ubtbr/codec.h \
+		$(FW_BTBR)/include/ubtbr/btphy.h $(FW_BTBR)/include/ubtbr/rf.h \
+		| $(BINDIR)
+# null_decode() and null_encode() each carry a local the codec never reads,
+# which is not what this tests and is not this change's.
+	$(CC) $(CFLAGS) -Istubs-btbr -I$(FW_BTBR)/include $(CPPFLAGS) \
+		-DFW_BTBR_DIR='"$(FW_BTBR)"' -Wno-unused-variable \
+		-o $@ test_btbr_arithmetic.c $(FW_BTBR)/src/codec/bitstream_proc.c
 
 # The USB hardware layer reaches the controller only through the register
 # macros in lpc17.h, so stubs-usb/ supplies a fake one and this links the real

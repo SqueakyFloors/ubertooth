@@ -293,6 +293,22 @@
   rather than 2482, so the band it sweeps for that channel, and where a signal
   in it lands on the plot, are no longer 2 MHz low.
   [#673](https://github.com/SqueakyFloors/ubertooth/issues/673)
+- `ubertooth-btbr` receives a long Classic payload whole. Everything past the
+  first 256 bytes was decoded from the start of the air buffer instead, so the
+  packet types that carry the most data always failed their checksum.
+  [#667](https://github.com/SqueakyFloors/ubertooth/issues/667)
+- `ubertooth-btbr` transmits the data it was given for a payload of 77 bytes or
+  more. The 2/3 FEC encoder ran half again as many groups as the payload had,
+  so the packet went out with corrupt data and a checksum over bits the
+  receiver never saw.
+  [#668](https://github.com/SqueakyFloors/ubertooth/issues/668)
+- Page scan, inquiry scan and the paging monitor watch for a packet through
+  nearly the whole 312.5-microsecond slot, as their own comment says, rather
+  than the first 25 microseconds of it. The window was set in microseconds
+  where the slot clock counts 100-nanosecond steps, so it closed before the
+  moment a packet is expected and `ubertooth-btbr` missed most page and
+  inquiry scan responses.
+  [#669](https://github.com/SqueakyFloors/ubertooth/issues/669)
 - Replaying a dump puts a low-energy packet that arrived as several records
   where the live capture of the same run put it, rather than up to a second
   later.
