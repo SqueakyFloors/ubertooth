@@ -723,7 +723,7 @@ static struct run_result run_util(const char *const *args)
 /* Exact expected report lines, in the order ubertooth-util prints them. */
 #define BOARD_LINE "Board ID Number: 1 (Ubertooth One)\n"
 #define CHANNEL_LINE "Current frequency: 2441 MHz (Bluetooth channel 39)\n"
-#define FIRMWARE_LINE "Firmware version: bluetooth_rxtx git-test (API:1.44)\n"
+#define FIRMWARE_LINE "Firmware version: bluetooth_rxtx git-test (API:1.45)\n"
 #define COMPILE_LINE "bluetooth_rxtx: compile-test\n"
 #define USRLED_LINE "USR LED status: 0\n"
 #define PALEVEL_LINE "PA Level: 7\n"
@@ -737,7 +737,7 @@ static struct run_result run_util(const char *const *args)
  * label with the board's index in it. i is the index, as a string. -V's build
  * string has no label, so it keeps the bare index prefix. */
 #define LISTED_BOARD(i)    "Board ID Number (" i "): 1 (Ubertooth One)\n"
-#define LISTED_FIRMWARE(i) "Firmware version (" i "): bluetooth_rxtx git-test (API:1.44)\n"
+#define LISTED_FIRMWARE(i) "Firmware version (" i "): bluetooth_rxtx git-test (API:1.45)\n"
 #define LISTED_COMPILE(i)  i ": bluetooth_rxtx: compile-test\n"
 #define LISTED_PART(i)     "Part ID (" i "): 25011723\n"
 #define LISTED_SERIAL(i)   "Serial No (" i "): " FAKE_SERIAL "\n"
@@ -892,7 +892,7 @@ MU_TEST(a_board_without_an_info_block_is_still_identified)
 	fake.fw_info_rc = LIBUSB_ERROR_PIPE;
 	r = RUN("-v", "-V");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(r.out, "Firmware version: git-test (API:1.44)\n"
+	mu_assert(strcmp(r.out, "Firmware version: git-test (API:1.45)\n"
 	                        "compile-test\n") == 0, r.out);
 	mu_assert_int_eq(0, (long)strlen(r.err));
 

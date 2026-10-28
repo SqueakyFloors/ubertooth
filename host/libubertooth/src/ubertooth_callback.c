@@ -692,27 +692,33 @@ void cb_btle(ubertooth_t* ut, void* args)
 	if (rx->pkt_type == LE_PROMISC) {
 		u8 state = rx->data[0];
 		const void *val = &rx->data[1];
+		/* These four lines are what promiscuous mode is for: a capture
+		 * written to a file has no other way to say which connection it
+		 * is of. So they go to the stream the tool reports on, which is
+		 * standard error once a capture has taken standard output. */
+		FILE* out = (opts != NULL && opts->report_stream != NULL)
+		          ? opts->report_stream : stdout;
 
-		printf("--------------------\n");
-		printf("LE Promisc - ");
+		fprintf(out, "--------------------\n");
+		fprintf(out, "LE Promisc - ");
 		switch (state) {
 			case 0:
-				printf("Access Address: %08x\n", *(const uint32_t *)val);
+				fprintf(out, "Access Address: %08x\n", *(const uint32_t *)val);
 				break;
 			case 1:
-				printf("CRC Init: %06x\n", *(const uint32_t *)val);
+				fprintf(out, "CRC Init: %06x\n", *(const uint32_t *)val);
 				break;
 			case 2:
-				printf("Hop interval: %g ms\n", *(const uint16_t *)val * 1.25);
+				fprintf(out, "Hop interval: %g ms\n", *(const uint16_t *)val * 1.25);
 				break;
 			case 3:
-				printf("Hop increment: %u\n", *(const uint8_t *)val);
+				fprintf(out, "Hop increment: %u\n", *(const uint8_t *)val);
 				break;
 			default:
-				printf("Unknown %u\n", state);
+				fprintf(out, "Unknown %u\n", state);
 				break;
 		};
-		printf("\n");
+		fprintf(out, "\n");
 
 		return;
 	}

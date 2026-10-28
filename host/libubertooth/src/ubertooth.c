@@ -901,6 +901,32 @@ static void warn_if_transfer_was_truncated(ubertooth_t* ut,
 	        "packets\n", xfer->actual_length, PKT_LEN);
 }
 
+/* The same report for the other way a capture reads packets. ubertooth-btle
+ * and ubertooth-ego ask for theirs one at a time with UBERTOOTH_POLL control
+ * requests rather than through the bulk endpoint, so they never reach
+ * cb_xfer() above. A reply that is not a whole record cannot be read as one,
+ * so the tool drops it, and without this it dropped it in silence: a capture
+ * losing packets then looked exactly like a quiet board.
+ *
+ * A reply of one byte or none is the board's "nothing queued" answer, which
+ * is what every poll of a quiet capture gets, and says nothing.
+ *
+ * Said once per handle, like the bulk path's: a fault that truncates one
+ * reply usually truncates many, and a line each would bury the capture's own
+ * output. */
+void ubertooth_warn_if_poll_reply_short(ubertooth_t* ut, int len)
+{
+	if (ut->short_xfer_warned)
+		return;
+	if (len <= 1 || len == PKT_LEN)
+		return;
+
+	ut->short_xfer_warned = 1;
+	fprintf(stderr, "warning: a poll reply arrived with %d of a packet's "
+	        "%d bytes and was dropped; the capture is losing packets\n",
+	        len, PKT_LEN);
+}
+
 static void cb_xfer(struct libusb_transfer *xfer)
 {
 	ubertooth_t* ut = (ubertooth_t*)xfer->user_data;

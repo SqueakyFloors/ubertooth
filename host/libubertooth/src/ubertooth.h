@@ -203,6 +203,12 @@ typedef struct {
 	 * for the whole run, so the per-packet dump the callback writes there
 	 * reaches nobody, and the callback skips it. See cb_btle(). */
 	int capture_took_stdout;
+	/* Where the callback writes the lines that report something to the
+	 * user rather than capture data: the connection parameters promiscuous
+	 * mode discovers. The tool owns this stream, so it is standard error
+	 * once a capture has taken standard output and those lines stay
+	 * visible. NULL means standard output, for a caller that sets none. */
+	FILE* report_stream;
 } btle_options;
 
 extern uint32_t systime;
@@ -417,6 +423,14 @@ int ubertooth_bulk_thread_start();
  * so a teardown after a start that failed does not wait on a thread that was
  * never created. */
 void ubertooth_bulk_thread_stop();
+
+/* Reports a UBERTOOTH_POLL reply that held part of a record, which means the
+ * capture is losing packets. For the tools that poll for their packets rather
+ * than read them through the bulk endpoint (ubertooth-btle, ubertooth-ego):
+ * pass every reply length the poll returned that was not a whole record. A
+ * reply of one byte or none is the board's "nothing queued" answer and is
+ * ignored; anything else is reported, on standard error, once per handle. */
+void ubertooth_warn_if_poll_reply_short(ubertooth_t* ut, int len);
 
 /* One record of a saved capture (ubertooth-rx -d, ubertooth-dump -f): the
  * host time the packet was received, big-endian, then one usb_pkt_rx. */

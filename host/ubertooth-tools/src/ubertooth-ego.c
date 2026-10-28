@@ -260,6 +260,10 @@ int main(int argc, char *argv[])
 				/* The packet cmd_poll() just handed back, so it arrived now. */
 				fifo_push(ut->fifo, &rx, ubertooth_packet_arrival_ns());
 				cb_ego(ut, &len);
+			} else {
+				/* Not a whole record, so there is no packet to read
+				 * out of it: say so rather than drop it in silence. */
+				ubertooth_warn_if_poll_reply_short(ut, r);
 			}
 			usleep(500);
 		}

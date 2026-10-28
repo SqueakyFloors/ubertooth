@@ -33,6 +33,11 @@ static struct {
 	int last_crc_set;
 	int poll_rc;         /* returned by cmd_poll(): < 0 fails the capture */
 	int polls;
+	/* Every reply the loop handed to the library's short-reply report, and
+	 * the last length it passed: a reply that is not a whole record carries
+	 * no packet, and dropping it in silence looked like a quiet board. */
+	int short_reply_reports;
+	int last_short_reply_len;
 	int interrupt_the_capture; /* cmd_poll() raises SIGINT instead of
 	                            * writing the handle */
 	int stops;
@@ -348,6 +353,13 @@ void cb_btle(ubertooth_t *ut, void *args)
 	(void)args;
 }
 
+void ubertooth_warn_if_poll_reply_short(ubertooth_t *ut, int len)
+{
+	(void)ut;
+	fake.short_reply_reports++;
+	fake.last_short_reply_len = len;
+}
+
 /* ---- running the tool --------------------------------------------------- */
 
 /* Nothing of this tool's own has to be set up or checked around a run, so the
@@ -643,6 +655,36 @@ MU_TEST(a_failed_poll_is_reported_on_stderr_and_exits_1)
 	mu_assert_int_eq(1, fake.stops);
 	mu_assert(strcmp(r.err, "error: USB poll failed\n") == 0, r.err);
 	mu_assert(r.out[0] == '\0', r.out);
+}
+
+/* A reply that is neither a whole record nor the board's "nothing queued"
+ * answer carries part of a packet, which the loop cannot read: it is handed
+ * to the library's report rather than dropped in silence, because a capture
+ * losing packets otherwise looks exactly like a quiet board. */
+MU_TEST(a_short_poll_reply_is_reported)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.poll_rc = 32;
+	r = RUN("-f");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, fake.short_reply_reports);
+	mu_assert_int_eq(32, fake.last_short_reply_len);
+
+	/* A whole record is a packet, so nothing is reported. */
+	reset_fake();
+	fake.poll_rc = (int)sizeof(usb_pkt_rx);
+	r = RUN("-f");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0, fake.short_reply_reports);
+
+	/* A failed poll has its own error and is not reported as a short one. */
+	reset_fake();
+	fake.poll_rc = -1;
+	r = RUN("-f");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, fake.short_reply_reports);
 }
 
 /* The other two diagnostics this tool used to put on standard output. */
@@ -1086,6 +1128,7 @@ int main(void)
 	MU_RUN(the_reports_move_to_stderr_when_the_capture_takes_stdout);
 	MU_RUN(an_interrupted_capture_stops_and_exits_zero);
 	MU_RUN(a_failed_poll_is_reported_on_stderr_and_exits_1);
+	MU_RUN(a_short_poll_reply_is_reported);
 	MU_RUN(a_failed_target_set_and_jamming_are_reported_on_stderr);
 	MU_RUN(the_interference_options_are_refused_without_f_or_p);
 	MU_RUN(a_sniffing_mode_refuses_the_access_address_and_slave_options);

@@ -263,8 +263,10 @@ int main(int argc, char *argv[])
 	uint8_t mac_address[6] = { 0, };
 	uint8_t mac_mask = 0;
 
-	/* Standard output until a capture takes it; see report_stream. */
+	/* Standard output until a capture takes it; see report_stream. The
+	 * callback reports on the same stream. */
 	report_stream = stdout;
+	cb_opts.report_stream = report_stream;
 	do_follow = do_no_follow = do_promisc = 0;
 	do_get_aa = do_set_aa = 0;
 	do_set_crc = -1;
@@ -501,6 +503,7 @@ int main(int argc, char *argv[])
 			 * option go to standard error instead, and the callback
 			 * leaves out the per-packet dump that would go nowhere. */
 			report_stream = stderr;
+			cb_opts.report_stream = report_stream;
 			cb_opts.capture_took_stdout = 1;
 			close(saved_fd);
 		}
@@ -636,6 +639,11 @@ int main(int argc, char *argv[])
 				/* The packet cmd_poll() just handed back, so it arrived now. */
 				fifo_push(ut->fifo, &rx, ubertooth_packet_arrival_ns());
 				cb_btle(ut, &cb_opts);
+			} else {
+				/* Not a whole record, so there is no packet to
+				 * read out of it: say so rather than drop it
+				 * in silence. */
+				ubertooth_warn_if_poll_reply_short(ut, r);
 			}
 			usleep(500);
 		}

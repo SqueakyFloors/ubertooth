@@ -85,6 +85,8 @@ Each major mode runs until it is interrupted, so only one of them can run: two i
 .SH "DIAGNOSTICS"
 Standard output carries only the captured packets\. Errors, warnings and progress go to standard error, each error as one line starting \fBerror:\fR, for example \fBerror: E\-GO not supported by this firmware\fR\.
 .P
+A capture that is losing packets says so\. This tool reads its packets one at a time, and a reply that held part of a record cannot be read as one, so it is dropped and reported once per run: \fBwarning: a poll reply arrived with 32 of a packet's 64 bytes and was dropped; the capture is losing packets\fR\. The capture runs on and ends as it otherwise would, so the warning is the only sign\.
+.P
 A request that sets the capture up and is refused by the board ends the command there, named in one line, for example \fBerror: could not set the channel\fR; libubertooth has already said why\. A refused request is not proof that the board never got it, so the message does not claim one way or the other\.
 .P
 A command line the tool will not take is refused before any device is opened, with exit status 1 and one \fBerror:\fR line on standard error and nothing after it: an option the tool does not know (\fBerror: unrecognized option '\-Z'\fR), one whose value is missing (\fBerror: option '\-c' requires a value\fR), a bad option value, a stray word, \fB\-c\fR outside continuous receive, and a command line that said something but has nothing to do\. The line describes the problem, so the usage text is left to \fB\-h\fR\. A bare \fBubertooth\-ego\fR, with no arguments at all, is the one refusal the usage text does follow, on standard error with the \fBerror:\fR line\.

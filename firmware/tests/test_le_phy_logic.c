@@ -31,6 +31,11 @@
  *   board does. Those stay covered by test_le_phy_order.c's scan and by
  *   hardware testing.
  *
+ *   The one exception is the arrival of a packet's first byte, which is where
+ *   the packet's timestamp is worked out. That is arithmetic on a number the
+ *   test supplies -- the time the interrupt was taken -- so running it asserts
+ *   the engine's arithmetic and not the test's own bytes.
+ *
  * The one part of the interrupt handlers that does run here is their first
  * line: once the PHY has been torn down they must do nothing but acknowledge.
  * That is checked by asserting the radio is not touched -- the fakes below
@@ -277,6 +282,34 @@ static struct connect_req valid_connect_req(void)
 	return r;
 }
 
+/* The fields of an LL_CONNECTION_UPDATE_IND, as the engine reads them out of
+ * the control PDU. */
+struct conn_update {
+	uint8_t  win_size;            /* units of 1.25 ms */
+	uint16_t win_offset;          /* units of 1.25 ms */
+	uint16_t conn_interval;       /* units of 1.25 ms */
+	uint16_t latency;
+	uint16_t supervision_timeout; /* units of 10 ms */
+	uint16_t instant;
+};
+
+/* An update that satisfies every range the engine checks: a 50 ms connection
+ * interval, a 3.75 ms transmit window offset, a 2.5 ms transmit window and a
+ * 200 ms supervision timeout, taking effect at connection event 7. */
+static struct conn_update valid_conn_update(void)
+{
+	struct conn_update u;
+
+	memset(&u, 0, sizeof(u));
+	u.win_size = 2;
+	u.win_offset = 3;
+	u.conn_interval = 40;
+	u.latency = 0;
+	u.supervision_timeout = 20;
+	u.instant = 7;
+	return u;
+}
+
 static void put_le(uint8_t *at, uint32_t value, unsigned bytes)
 {
 	unsigned i;
@@ -305,6 +338,26 @@ static void build_connect_req(le_rx_t *buf, const struct connect_req *r)
 	put_le(&buf->data[28], r->supervision_timeout, 2);
 	memcpy(&buf->data[30], r->channel_map, 5);
 	buf->data[35] = r->hop_increment;
+}
+
+/*
+ * Lay an LL_CONNECTION_UPDATE_IND out as it arrives on a data channel: the
+ * PDU header, the opcode, then the new parameters. The engine reads each
+ * field at a fixed offset, so this is also what pins those offsets.
+ */
+static void build_conn_update(le_rx_t *buf, const struct conn_update *u)
+{
+	fill_packet(buf, 12, DATA_CHANNEL_MHZ);
+	memset(buf->data, 0, sizeof(buf->data));
+	buf->data[0] = 0x03;                  /* LL control PDU */
+	buf->data[1] = 12;                    /* payload length */
+	buf->data[2] = 0x00;                  /* LL_CONNECTION_UPDATE_IND */
+	buf->data[3] = u->win_size;
+	put_le(&buf->data[4], u->win_offset, 2);
+	put_le(&buf->data[6], u->conn_interval, 2);
+	put_le(&buf->data[8], u->latency, 2);
+	put_le(&buf->data[10], u->supervision_timeout, 2);
+	put_le(&buf->data[12], u->instant, 2);
 }
 
 /* Is the connection state back to what reset_conn() leaves: nothing followed,
@@ -721,6 +774,41 @@ MU_TEST(the_average_rssi_is_the_mean_of_the_samples)
 /* A queue with no room left loses the packet rather than overwriting one the
  * host has not collected, and says so, which is what the engine's caller
  * would act on if it ever did. */
+/*
+ * A packet is stamped with the time its preamble started, which is what the
+ * host writes into a capture file and what a reader measures air time from.
+ * The receive interrupt that reports the first header byte is taken later
+ * than that, so the engine back-dates the reading by what has gone past: 8
+ * bits of preamble, the 32-bit access address and 8 bits of header, 48 us at
+ * one symbol per microsecond.
+ *
+ * The stamp used to be back-dated by 40 us, leaving every LE packet in a
+ * capture 8 us late.
+ */
+MU_TEST(a_packets_timestamp_is_back_dated_to_the_start_of_the_preamble)
+{
+	le_rx_t *buf;
+	/* The time the interrupt was taken, in units of 100 ns. */
+	const uint32_t interrupt_at = 0x00200000;
+
+	start_fresh();
+	le_phy_active = 1;
+	rf_channel = DATA_CHANNEL_MHZ;
+	current_rxbuf = buffer_get();
+	mu_assert_fatal(current_rxbuf != NULL, "the pool gave out no buffer");
+	buf = current_rxbuf;
+
+	/* The DMA controller reports one byte of the packet, which is the
+	 * first: the buffer the pool just handed out holds nothing yet. */
+	fake_dmac_int_stat = 1 << 0;
+	fake_dmac_int_tc_stat = 1 << 0;
+	le_dma_dest[0] = 0x9c;
+	le_dma_interrupt(interrupt_at);
+
+	mu_assert_int_eq(1, buf->pos);
+	mu_assert_int_eq(interrupt_at - USEC(48), buf->timestamp);
+}
+
 MU_TEST(a_full_ring_refuses_the_packet)
 {
 	le_rx_t buf;
@@ -968,19 +1056,16 @@ MU_TEST(a_new_connection_clears_a_pending_cancel)
  * the counter reaches it. */
 MU_TEST(a_connection_update_is_scheduled_for_its_instant)
 {
+	struct conn_update u = valid_conn_update();
 	le_rx_t buf;
 
 	start_fresh();
-	fill_packet(&buf, 12, DATA_CHANNEL_MHZ);
-	memset(buf.data, 0, sizeof(buf.data));
-	buf.data[3] = 2;              /* window size, units of 1.25 ms */
-	put_le(&buf.data[4], 3, 2);   /* window offset */
-	put_le(&buf.data[6], 40, 2);  /* new connection interval */
-	put_le(&buf.data[10], 20, 2); /* new supervision timeout */
-	put_le(&buf.data[12], 500, 2);/* instant */
+	u.instant = 500;
+	build_conn_update(&buf, &u);
 
 	connection_update_handler(&buf);
 
+	mu_assert_int_eq(2 * 12500, conn.win_size);
 	mu_assert_int_eq(3 * 12500, conn.win_offset);
 	mu_assert_int_eq(40 * 12500, conn.conn_update_pending_interval);
 	mu_assert_int_eq(20 * 100000,
@@ -989,6 +1074,87 @@ MU_TEST(a_connection_update_is_scheduled_for_its_instant)
 	mu_assert_int_eq(1, conn.conn_update_pending);
 	/* The live parameters are untouched until the instant arrives. */
 	mu_assert_int_eq(0, conn.conn_interval);
+}
+
+/*
+ * The parameters of an update are checked against the same ranges a
+ * connection request's are, and an update outside them ends the follow rather
+ * than being taken on trust. The engine then has no connection to chase: a
+ * transmit window of 255 steps would otherwise put 319 ms into the timeout
+ * that waits out the first event under the new parameters, and a supervision
+ * timeout of hours would be all that ended the chase.
+ *
+ * One case per field, each one value past the boundary, so a check removed or
+ * a comparison turned round fails here.
+ */
+MU_TEST(a_connection_update_outside_the_specification_is_refused)
+{
+	le_rx_t buf;
+	size_t i;
+	struct bad_case {
+		const char *what;
+		struct conn_update u;
+	} cases[8];
+	struct conn_update u;
+
+	memset(cases, 0, sizeof(cases));
+
+	u = valid_conn_update(); u.conn_interval = 5;
+	cases[0].what = "a connection interval below the 7.5 ms minimum";
+	cases[0].u = u;
+	u = valid_conn_update(); u.conn_interval = 3201;
+	cases[1].what = "a connection interval above the 4 s maximum";
+	cases[1].u = u;
+	u = valid_conn_update(); u.win_offset = 41;
+	cases[2].what = "a transmit window offset past the connection interval";
+	cases[2].u = u;
+	u = valid_conn_update(); u.win_size = 0;
+	cases[3].what = "a transmit window shorter than 1.25 ms";
+	cases[3].u = u;
+	u = valid_conn_update(); u.win_size = 255;
+	cases[4].what = "a transmit window of 319 ms";
+	cases[4].u = u;
+	u = valid_conn_update(); u.supervision_timeout = 9;
+	cases[5].what = "a supervision timeout below 100 ms";
+	cases[5].u = u;
+	u = valid_conn_update(); u.supervision_timeout = 3201;
+	cases[6].what = "a supervision timeout above 32 s";
+	cases[6].u = u;
+	/* 43000 steps of 10 ms is 430 s, which is 4.3e9 units of 100 ns: past
+	 * what a 32-bit count holds, so an unchecked scaling wraps it to half a
+	 * second and it passes a range check made after the multiplication. */
+	u = valid_conn_update(); u.supervision_timeout = 43000;
+	cases[7].what = "a supervision timeout that overflows the scaled count";
+	cases[7].u = u;
+
+	for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+		char msg[256];
+
+		/* A connection being followed, so there is something to drop. */
+		start_fresh();
+		le.do_follow = 1;
+		{
+			struct connect_req r = valid_connect_req();
+
+			build_connect_req(&buf, &r);
+			le_connect_handler(&buf);
+			mu_assert_fatal(conn.access_address == 0xdeadbeef,
+			                "the connection was not followed, so there "
+			                "is no update to refuse");
+		}
+
+		build_conn_update(&buf, &cases[i].u);
+		connection_update_handler(&buf);
+
+		snprintf(msg, sizeof(msg),
+		         "%s was accepted, so the capture would chase a "
+		         "connection whose parameters cannot be right",
+		         cases[i].what);
+		mu_assert(connection_was_reset(), msg);
+		snprintf(msg, sizeof(msg), "%s was still scheduled",
+		         cases[i].what);
+		mu_assert(conn.conn_update_pending == 0, msg);
+	}
 }
 
 /*
@@ -1006,12 +1172,12 @@ MU_TEST(an_updates_window_size_survives_being_scaled)
 
 	/* Every window size the specification allows: 1.25 ms to 10 ms. */
 	for (on_the_wire = 1; on_the_wire <= 8; on_the_wire++) {
+		struct conn_update u = valid_conn_update();
 		char msg[128];
 
 		start_fresh();
-		fill_packet(&buf, 12, DATA_CHANNEL_MHZ);
-		memset(buf.data, 0, sizeof(buf.data));
-		buf.data[3] = (uint8_t) on_the_wire;
+		u.win_size = (uint8_t) on_the_wire;
+		build_conn_update(&buf, &u);
 
 		connection_update_handler(&buf);
 
@@ -1049,14 +1215,12 @@ MU_TEST(the_first_event_after_an_update_waits_out_the_whole_window)
 
 	/* An update to a 50 ms interval, a 3.75 ms window offset and a 2.5 ms
 	 * transmit window, at event 7. */
-	fill_packet(&buf, 12, DATA_CHANNEL_MHZ);
-	memset(buf.data, 0, sizeof(buf.data));
-	buf.data[3] = 2;
-	put_le(&buf.data[4], 3, 2);
-	put_le(&buf.data[6], 40, 2);
-	put_le(&buf.data[10], 20, 2);
-	put_le(&buf.data[12], 7, 2);
-	connection_update_handler(&buf);
+	{
+		struct conn_update u = valid_conn_update();
+
+		build_conn_update(&buf, &u);
+		connection_update_handler(&buf);
+	}
 
 	conn.conn_event_counter = 7;
 	le_phy_active = 1;
@@ -1077,6 +1241,63 @@ MU_TEST(the_first_event_after_an_update_waits_out_the_whole_window)
 	mu_assert_int_eq(expected_match, fake_t1mr0);
 	mu_assert_int_eq(40 * 12500, conn.conn_interval);
 	mu_assert_int_eq(0, conn.conn_update_pending);
+}
+
+/*
+ * ...and so does the first event of a new connection, for the same reason: a
+ * CONNECT_IND names a transmit window, and the master's first packet may
+ * arrive anywhere inside it. A timeout of one maximum-length packet closes
+ * the event before that packet arrives, so the capture misses the first
+ * packets of every connection whose window is longer than the 1.25 ms
+ * minimum.
+ *
+ * Only the first event. Every later one is anchored to within a few
+ * microseconds of where its packet is due, and a window-long timeout there
+ * would hold the event open past the next hop.
+ */
+MU_TEST(the_first_event_of_a_connection_waits_out_the_whole_window)
+{
+	struct connect_req r = valid_connect_req();
+	le_rx_t buf;
+	uint32_t window_opens, expected_match;
+
+	/* A connection with a 5 ms transmit window, four times the minimum,
+	 * 3.75 ms into a 30 ms interval. */
+	start_fresh();
+	le.do_follow = 1;
+	r.win_size = 4;
+	r.win_offset = 3;
+	build_connect_req(&buf, &r);
+
+	le_connect_handler(&buf);
+	mu_assert_int_eq(4 * 12500, conn.win_size);
+
+	/* The radio is armed in time for the window to open. */
+	window_opens = buf.timestamp + PACKET_DURATION(&buf) + 3 * 12500 +
+	               USEC(1250);
+	mu_assert_int_eq(window_opens - RX_WARMUP_TIME, fake_t1mr0);
+
+	/* That match arrives: the event opens, with the whole window and the
+	 * longest packet to run in. */
+	fake_t1tc = window_opens - RX_WARMUP_TIME;
+	fake_t1ir = TIR_MR0_Interrupt;
+	le_phy_active = 1;
+	TIMER1_IRQHandler();
+
+	expected_match = fake_t1tc + 4 * 12500 + USEC(2120) + RX_WARMUP_TIME;
+	mu_assert_int_eq(expected_match, fake_t1mr0);
+	mu_assert_int_eq(1, conn_event.opened);
+
+	/* The next event is anchored, so it gets the packet timeout alone: a
+	 * window-long one would still be open when the hop after it was due. */
+	conn.last_anchor = fake_t1tc;
+	conn.anchor_set = 1;
+	reset_conn_event();
+	fake_t1ir = TIR_MR0_Interrupt;
+	TIMER1_IRQHandler();
+
+	expected_match = fake_t1tc + USEC(2120) + RX_WARMUP_TIME;
+	mu_assert_int_eq(expected_match, fake_t1mr0);
 }
 
 MU_TEST(a_channel_map_update_is_scheduled_for_its_instant)
@@ -1252,25 +1473,26 @@ MU_TEST(only_the_packets_the_engine_knows_are_acted_on)
 	/* A control PDU on a data channel: an update of the right length is
 	 * taken... */
 	start_fresh();
-	fill_packet(&buf, 13, DATA_CHANNEL_MHZ);
-	memset(buf.data, 0, sizeof(buf.data));
-	buf.data[0] = 0x03;    /* LL control PDU */
-	buf.data[1] = 12;      /* length of LL_CONNECTION_UPDATE_IND */
-	buf.data[2] = 0x00;    /* its opcode */
-	put_le(&buf.data[12], 77, 2);
-	packet_handler(&buf);
-	mu_assert_int_eq(1, conn.conn_update_pending);
-	mu_assert_int_eq(77, conn.conn_update_instant);
+	{
+		struct conn_update u = valid_conn_update();
+
+		u.instant = 77;
+		build_conn_update(&buf, &u);
+		packet_handler(&buf);
+		mu_assert_int_eq(1, conn.conn_update_pending);
+		mu_assert_int_eq(77, conn.conn_update_instant);
+	}
 
 	/* ...and one of the wrong length is not. */
 	start_fresh();
-	fill_packet(&buf, 13, DATA_CHANNEL_MHZ);
-	memset(buf.data, 0, sizeof(buf.data));
-	buf.data[0] = 0x03;
-	buf.data[1] = 11;      /* one byte short */
-	buf.data[2] = 0x00;
-	packet_handler(&buf);
-	mu_assert_int_eq(0, conn.conn_update_pending);
+	{
+		struct conn_update u = valid_conn_update();
+
+		build_conn_update(&buf, &u);
+		buf.data[1] = 11;      /* one byte short */
+		packet_handler(&buf);
+		mu_assert_int_eq(0, conn.conn_update_pending);
+	}
 
 	/* A channel map update, the same way. */
 	start_fresh();
@@ -1686,6 +1908,7 @@ int main(void)
 	MU_RUN(a_packet_too_long_for_a_chain_is_refused);
 	MU_RUN(a_chain_that_does_not_fit_is_not_started);
 	MU_RUN(the_average_rssi_is_the_mean_of_the_samples);
+	MU_RUN(a_packets_timestamp_is_back_dated_to_the_start_of_the_preamble);
 	MU_RUN(a_full_ring_refuses_the_packet);
 	MU_RUN(a_connection_request_is_accepted_and_scheduled);
 	MU_RUN(a_connections_crc_init_is_reversed_as_a_24_bit_field);
@@ -1694,8 +1917,10 @@ int main(void)
 	MU_RUN(a_connection_request_of_the_wrong_length_is_left_alone);
 	MU_RUN(a_new_connection_clears_a_pending_cancel);
 	MU_RUN(a_connection_update_is_scheduled_for_its_instant);
+	MU_RUN(a_connection_update_outside_the_specification_is_refused);
 	MU_RUN(an_updates_window_size_survives_being_scaled);
 	MU_RUN(the_first_event_after_an_update_waits_out_the_whole_window);
+	MU_RUN(the_first_event_of_a_connection_waits_out_the_whole_window);
 	MU_RUN(a_channel_map_update_is_scheduled_for_its_instant);
 	MU_RUN(a_channel_map_update_with_no_channels_is_refused);
 	MU_RUN(an_empty_map_does_not_divide_by_zero_in_the_remapping);

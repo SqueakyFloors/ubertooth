@@ -601,6 +601,43 @@ MU_TEST(a_one_byte_transfer_that_is_not_a_keep_alive_is_reported)
 	release_handle(ut);
 }
 
+/* The same report for the other way a capture reads packets. ubertooth-btle
+ * and ubertooth-ego ask for their packets one at a time with control requests
+ * instead of reading the bulk endpoint, so they never reach the transfer
+ * callback above, and a reply holding part of a record used to be dropped
+ * without a word. The board's "nothing queued" answer is a single byte and is
+ * what every poll of a quiet capture gets, so that one stays quiet. */
+MU_TEST(a_short_poll_reply_is_reported_once)
+{
+	ubertooth_t* ut;
+	char err[512] = "";
+	char out[256] = "";
+
+	reset();
+	ut = new_handle();
+	mu_assert_fatal(ut != NULL, "a handle");
+
+	capture_output();
+	/* The quiet cases first: nothing queued, and a reply of no bytes. */
+	ubertooth_warn_if_poll_reply_short(ut, 1);
+	ubertooth_warn_if_poll_reply_short(ut, 0);
+	/* A whole record is a packet, not a short reply. */
+	ubertooth_warn_if_poll_reply_short(ut, PKT_LEN);
+	/* Then three truncated ones, which a repeating fault is. */
+	ubertooth_warn_if_poll_reply_short(ut, 32);
+	ubertooth_warn_if_poll_reply_short(ut, 32);
+	ubertooth_warn_if_poll_reply_short(ut, 2);
+	release_output(out, sizeof(out), err, sizeof(err));
+
+	mu_assert_int_eq(1, count_of(err, "warning: "));
+	mu_assert(strstr(err, "32 of a packet's 64 bytes") != NULL, err);
+	mu_assert(strstr(err, "losing packets") != NULL, err);
+	mu_assert(strchr(err, '\n') == strrchr(err, '\n'), "said once");
+	mu_assert(out[0] == '\0', out);
+
+	release_handle(ut);
+}
+
 /* ---- what a dump writes ------------------------------------------------- */
 
 /* The belt. A keep-alive that reaches the consumer anyway -- which replaying
@@ -782,6 +819,7 @@ int main(void)
 	MU_RUN(a_transfer_shorter_than_a_packet_is_not_published);
 	MU_RUN(a_truncated_transfer_is_reported_once);
 	MU_RUN(a_one_byte_transfer_that_is_not_a_keep_alive_is_reported);
+	MU_RUN(a_short_poll_reply_is_reported_once);
 	MU_RUN(a_dump_leaves_out_a_keep_alive_record);
 	MU_RUN(a_bitstream_dump_leaves_out_a_keep_alive);
 	MU_RUN(a_replayed_keep_alive_is_not_decoded_or_recorded);

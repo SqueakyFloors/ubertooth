@@ -205,13 +205,14 @@
   those tools still cannot drive that image and now fail on the first request
   it does not answer.
   [#556](https://github.com/SqueakyFloors/ubertooth/issues/556)
-- **Reflash required:** the firmware API version is now 1.44, last moved by the
-  range test waiting for the radio to have a packet before it reads one, and a
-  release build of the host tools refuses firmware of any other API version,
-  older or newer, while a development build warns about it. Host and firmware
-  come from the same tree: `ubertooth-dfu` reflashes a board whatever firmware
-  it is running, but only with an image built from this tree, and `2020-12-R1`
-  firmware is refused.
+- **Reflash required:** the firmware API version is now 1.45, last moved by the
+  range test waiting for the radio to have a packet before it reads one, the
+  low-energy packet timestamps and the CRC check a followed connection's data
+  packets get, and a release build of the host tools refuses firmware of any
+  other API version, older or newer, while a development build warns about it.
+  Host and firmware come from the same tree: `ubertooth-dfu` reflashes a board
+  whatever firmware it is running, but only with an image built from this tree,
+  and `2020-12-R1` firmware is refused.
   [#4](https://github.com/SqueakyFloors/ubertooth/issues/4)
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
@@ -410,6 +411,31 @@
   `FSTST3`'s `PD_DELAY` reported `CHP_DISABLE`. Register `0x15` also answers to
   `%MDMTST1` now; it carried `0x14`'s name, so no name of its own reached it.
   [#671](https://github.com/SqueakyFloors/ubertooth/issues/671)
+- `ubertooth-btle -f` captures the first packets of a connection. A connection
+  request names a transmit window, and the master's first packet may arrive
+  anywhere inside it, but the board gave that first connection event the time
+  of one packet instead of the whole window, so every connection whose window
+  was longer than the 1.25 ms minimum lost its opening packets.
+  [#625](https://github.com/SqueakyFloors/ubertooth/issues/625)
+- **Reflash required:** every packet in a `ubertooth-btle` capture is
+  timestamped 8 microseconds earlier, which is where its preamble really
+  started. The board back-dated the reading to the preamble but left out the
+  header byte that had also arrived by then, so air times measured from a
+  capture, and comparisons against a capture taken by other hardware, were off
+  by that much.
+  [#662](https://github.com/SqueakyFloors/ubertooth/issues/662)
+- `ubertooth-btle -p` still reports the connection it found when the capture
+  is written to a file. The access address, CRC init value, hop interval and
+  hop increment went to standard output, which `-q -` or `-c -` has taken for
+  the capture, so a user had no way to learn the access address their capture
+  was of. They follow the tool's other answer lines to standard error.
+  [#614](https://github.com/SqueakyFloors/ubertooth/issues/614)
+- `ubertooth-btle` and `ubertooth-ego` say when a capture is losing packets.
+  Both read their packets one at a time, and a reply holding part of a record
+  was dropped without a word, so a capture losing packets looked exactly like
+  a quiet board. They now report it once per run, as a streaming capture
+  already did.
+  [#637](https://github.com/SqueakyFloors/ubertooth/issues/637)
 - `ubertooth-btle -f` keeps up with a connection parameter update. The board
   kept the new transmit window in a field too narrow for it, so every window
   was cut to a fraction of its length -- 2.5 ms came out as 16.8 microseconds
@@ -1195,6 +1221,12 @@ Fixes with no visible change in normal use.
   packet, so its time no longer drifts later the longer the packet is. Times
   in a `-p` capture move earlier by up to about a third of a millisecond.
   [#546](https://github.com/SqueakyFloors/ubertooth/issues/546)
+- A connection update is checked against the ranges the specification allows,
+  the way a connection request already was, and one outside them ends the
+  follow instead of being taken on trust. A window size of 255 put 319 ms into
+  the wait for the first event under the new parameters, and a supervision
+  timeout of hours was then all that ended the chase.
+  [#624](https://github.com/SqueakyFloors/ubertooth/issues/624)
 - A capture's ring buffer hands records between its two threads properly: a
   record and the time it arrived are both complete before the capture can see
   either, and a slot goes back to the board only once the capture has copied
