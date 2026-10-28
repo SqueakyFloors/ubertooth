@@ -141,8 +141,10 @@ Common options:
    get host tools (libubertooth and libbtbb) version, as
    `Host tools version: libubertooth <version> (<revision>), libbtbb <version>
    (<revision>)`, followed by `libbtbb loaded from: <path>` naming the file
-   this run reads libbtbb from (`unknown` if the loader cannot say); works
-   without a device
+   this run reads libbtbb from, which answers "which libbtbb am I running?" on
+   a machine that has more than one. It is the tool's own path when libbtbb was
+   linked into it, and `unknown` if the loader cannot say; works without a
+   device
  - `-I` :
    identify ubertooth device by flashing the USR, RX, and TX LEDs on the board;
    the command returns at once and the blink runs until `-S` or any mode option

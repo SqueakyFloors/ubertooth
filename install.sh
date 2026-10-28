@@ -477,6 +477,11 @@ else
 		# that rather than report a libbtbb somewhere else.
 		*"libbtbb loaded from: unknown"*)
 			info "The tools cannot say which libbtbb they loaded, so another install would not be noticed here" ;;
+		# The tool names itself, which a libbtbb linked into it and a
+		# build without position-independent code both do. Also not an
+		# answer about a second install.
+		*"libbtbb loaded from: $PREFIX/bin/"*)
+			info "The tools report themselves as the libbtbb in use, so another install would not be noticed here" ;;
 		*) info "WARNING: the tools load a libbtbb from outside $PREFIX; remove the other install if packets decode oddly" ;;
 	esac
 fi

@@ -97,7 +97,7 @@ get the image and revision the firmware was built from; exits non\-zero if the r
 get compile info, named with the image it came from; exits non\-zero if the read fails
 .TP
 \fB\-H\fR, \fB\-\-host\-version\fR
-get host tools (libubertooth and libbtbb) version, as \fBHost tools version: libubertooth <version> (<revision>), libbtbb <version> (<revision>)\fR, followed by \fBlibbtbb loaded from: <path>\fR naming the file this run reads libbtbb from (\fBunknown\fR if the loader cannot say); works without a device
+get host tools (libubertooth and libbtbb) version, as \fBHost tools version: libubertooth <version> (<revision>), libbtbb <version> (<revision>)\fR, followed by \fBlibbtbb loaded from: <path>\fR naming the file this run reads libbtbb from, which answers "which libbtbb am I running?" on a machine that has more than one\. It is the tool's own path when libbtbb was linked into it, and \fBunknown\fR if the loader cannot say; works without a device
 .TP
 \fB\-I\fR
 identify ubertooth device by flashing the USR, RX, and TX LEDs on the board; the command returns at once and the blink runs until \fB\-S\fR or any mode option ends it, leaving the LEDs off (see LEDs doc)
