@@ -24,7 +24,9 @@
  * Both functions are hardware code that cannot run here, so this scans the
  * source as text, the way test_mode_dispatch.c scans main()'s dispatch.
  */
+#include <limits.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "minunit.h"
@@ -63,6 +65,22 @@ struct scan {
 	int repeater_fifo_read;
 	int perbyte_fifo;          /* a byte-at-a-time FIFOREG access */
 	char perbyte_text[256];
+
+	int fifo_wait_fn;        /* rangetest_wait_for_fifo() definition */
+	int fifo_wait_timer;     /* it reads timer 0's 100 ns counter */
+	int fifo_wait_reset;     /* and allows for that counter's reset */
+	int fifo_wait_length;    /* its length is RANGETEST_FIFO_LEAD_100NS */
+	int byte_100ns;          /* RANGETEST_BYTE_100NS as written */
+	int lead_bytes;          /* RANGETEST_FIFO_LEAD_BYTES as written */
+	int lead_from_byte;      /* the lead is that many byte times */
+	char lead_text[256];     /* as written */
+
+	int rangetest_sync_poll; /* the SYNC_RECEIVED poll in the range test */
+	int rangetest_wait;      /* its call to the wait */
+	int rangetest_clkn;      /* and its clkn_start() */
+	int repeater_sync_poll;  /* the same three in the repeater */
+	int repeater_wait;
+	int repeater_clkn;
 };
 
 /* What the scan of firmware/common/ubertooth.c records. */
@@ -133,11 +151,35 @@ static int is_dead_countdown(const char *line)
 	       strstr(trimmed, " - 1)") != NULL;
 }
 
+/*
+ * The number a one-line `#define NAME <number>` gives NAME, or -1 if the line
+ * is not one. Used for the two numbers that decide how long the wait before a
+ * FIFO read is.
+ */
+static int defined_number(const char *line, const char *name)
+{
+	char flat[256], needle[128];
+	const char *value;
+	char *end;
+	long number;
+
+	collapse_spaces(line, flat, sizeof(flat));
+	snprintf(needle, sizeof(needle), "#define %s ", name);
+	if (strncmp(flat, needle, strlen(needle)) != 0)
+		return -1;
+	value = flat + strlen(needle);
+	number = strtol(value, &end, 10);
+	if (end == value || *end != '\0' || number < 0 || number > INT_MAX)
+		return -1;
+	return (int)number;
+}
+
 static int scan_source(const char *path, struct scan *s)
 {
 	char line[512];
 	int lineno = 0, in_block = 0;
 	int in_rangetest = 0, in_repeater = 0, in_turnaround = 0;
+	int in_fifo_wait = 0;
 	FILE *f = fopen(path, "r");
 
 	if (f == NULL)
@@ -156,11 +198,16 @@ static int scan_source(const char *path, struct scan *s)
 		 * checks on the turnaround wait by accident.
 		 */
 		if (is_function_definition(line))
-			in_rangetest = in_repeater = in_turnaround = 0;
+			in_rangetest = in_repeater = in_turnaround = in_fifo_wait = 0;
 
 		if (strstr(line, "repeater_turnaround(void)") != NULL) {
 			s->turnaround_fn = lineno;
 			in_turnaround = 1;
+			continue;
+		}
+		if (strstr(line, "rangetest_wait_for_fifo(void)") != NULL) {
+			s->fifo_wait_fn = lineno;
+			in_fifo_wait = 1;
 			continue;
 		}
 		if (strstr(line, "void cc2400_rangetest(") != NULL) {
@@ -188,6 +235,44 @@ static int scan_source(const char *path, struct scan *s)
 			    strstr(s->ticks_text, "REPEATER_TURNAROUND_MS") != NULL &&
 			    strstr(s->ticks_text, "1000") != NULL)
 				s->ticks_from_clkn = 1;
+		}
+
+		/*
+		 * How long the wait before a FIFO read lasts, as two numbers: a
+		 * byte of air time in the counter's ticks, and how many bytes to
+		 * wait for.
+		 */
+		if (s->byte_100ns == 0) {
+			int n = defined_number(line, "RANGETEST_BYTE_100NS");
+
+			if (n > 0)
+				s->byte_100ns = n;
+		}
+		if (s->lead_bytes == 0) {
+			int n = defined_number(line, "RANGETEST_LEAD_BYTES");
+
+			if (n > 0)
+				s->lead_bytes = n;
+		}
+		/*
+		 * The wait's length has to be a number of byte times, not a tick
+		 * count of its own: a plain number here is how a wait for one byte
+		 * silently becomes a wait for thirty.
+		 */
+		if (strstr(line, "define RANGETEST_LEAD_100NS") != NULL) {
+			collapse_spaces(line, s->lead_text, sizeof(s->lead_text));
+			if (contains_identifier(s->lead_text, "RANGETEST_LEAD_BYTES") &&
+			    contains_identifier(s->lead_text, "RANGETEST_BYTE_100NS"))
+				s->lead_from_byte = 1;
+		}
+
+		if (in_fifo_wait) {
+			if (contains_identifier(line, "T0TC"))
+				s->fifo_wait_timer = 1;
+			if (contains_identifier(line, "CLK100NS_PER_CLKN"))
+				s->fifo_wait_reset = 1;
+			if (contains_identifier(line, "RANGETEST_LEAD_100NS"))
+				s->fifo_wait_length = 1;
 		}
 
 		if (in_turnaround) {
@@ -258,6 +343,28 @@ static int scan_source(const char *path, struct scan *s)
 				s->rangetest_fifo_read = lineno;
 			if (in_repeater && s->repeater_fifo_read == 0)
 				s->repeater_fifo_read = lineno;
+		}
+
+		/* Where each mode notices a sync word, where it waits for the
+		 * radio to have the packet, and where it starts the counter that
+		 * wait reads. */
+		if (contains_identifier(line, "SYNC_RECEIVED")) {
+			if (in_rangetest && s->rangetest_sync_poll == 0)
+				s->rangetest_sync_poll = lineno;
+			if (in_repeater && s->repeater_sync_poll == 0)
+				s->repeater_sync_poll = lineno;
+		}
+		if (calls_identifier(line, "rangetest_wait_for_fifo")) {
+			if (in_rangetest && s->rangetest_wait == 0)
+				s->rangetest_wait = lineno;
+			if (in_repeater && s->repeater_wait == 0)
+				s->repeater_wait = lineno;
+		}
+		if (calls_identifier(line, "clkn_start")) {
+			if (in_rangetest && s->rangetest_clkn == 0)
+				s->rangetest_clkn = lineno;
+			if (in_repeater && s->repeater_clkn == 0)
+				s->repeater_clkn = lineno;
 		}
 
 		/* The SRFOFF that ends the repeater's receive, which has to come
@@ -482,6 +589,107 @@ MU_TEST(test_the_fifo_is_reached_through_the_helpers)
 }
 
 /*
+ * Neither mode may start clocking the packet out of the FIFO the moment the
+ * radio reports a sync word.
+ *
+ * The flag is set when the sync word ends, before the first payload byte
+ * exists, so a read that starts there returns a byte 0 the radio has not
+ * written. That was `mismatch on byte 0` for about one range test in five, and
+ * only ever byte 0: the read is slower than the air, so from the second byte
+ * on the radio stays ahead of it.
+ */
+MU_TEST(test_the_read_waits_for_the_radio_to_have_the_packet)
+{
+	char msg[768];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: no rangetest_wait_for_fifo() to wait in", path);
+	mu_assert_fatal(s.fifo_wait_fn > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: rangetest_wait_for_fifo() does not read T0TC, so its "
+	         "wait is not timed: a counted loop here is deleted by the "
+	         "compiler, as the turnaround delay was", path, s.fifo_wait_fn);
+	mu_assert(s.fifo_wait_timer, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: rangetest_wait_for_fifo() does not mention "
+	         "CLK100NS_PER_CLKN, so it does not allow for T0TC being reset "
+	         "every clkn tick: a wait that straddles one of those resets "
+	         "ends early or never", path, s.fifo_wait_fn);
+	mu_assert(s.fifo_wait_reset, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: rangetest_wait_for_fifo() does not wait "
+	         "RANGETEST_LEAD_100NS", path, s.fifo_wait_fn);
+	mu_assert(s.fifo_wait_length, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: cc2400_rangetest() notices a sync word at line %d and reads "
+	         "the FIFO at line %d without waiting in between, so byte 0 of "
+	         "the reply comes back wrong about one run in five",
+	         path, s.rangetest_sync_poll, s.rangetest_fifo_read);
+	mu_assert(s.rangetest_wait > s.rangetest_sync_poll &&
+	          s.rangetest_wait < s.rangetest_fifo_read, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: cc2400_repeater() notices a sync word at line %d and reads "
+	         "the FIFO at line %d without waiting in between: the serial "
+	         "number it copies from the request into its reply is read a byte "
+	         "early", path, s.repeater_sync_poll, s.repeater_fifo_read);
+	mu_assert(s.repeater_wait > s.repeater_sync_poll &&
+	          s.repeater_wait < s.repeater_fifo_read, msg);
+
+	/* The counter the wait reads only advances once the timer is enabled, so
+	 * a mode that forgot this would wait in it forever. */
+	snprintf(msg, sizeof(msg),
+	         "%s: cc2400_rangetest() does not call clkn_start(), so T0TC does "
+	         "not advance and the wait at line %d never ends",
+	         path, s.rangetest_wait);
+	mu_assert(s.rangetest_clkn > 0 && s.rangetest_clkn < s.rangetest_wait,
+	          msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: cc2400_repeater() does not call clkn_start() before the "
+	         "wait at line %d, so T0TC does not advance and the wait never "
+	         "ends", path, s.repeater_wait);
+	mu_assert(s.repeater_clkn > 0 && s.repeater_clkn < s.repeater_wait, msg);
+}
+
+/*
+ * How long that wait is. One byte of air time is enough, because the wait
+ * starts when the sync word has already been noticed; a few more cover the
+ * jitter of the delay loop and of the radio writing the byte. It must stay
+ * well short of the packet, though: the rest of the sender's burst keeps
+ * arriving into the same 32-byte FIFO while the packet is read out of it.
+ */
+MU_TEST(test_the_wait_is_a_few_bytes_of_air_time)
+{
+	char msg[768];
+	/* A byte at the 1 Mbit/s these packets go out at, in 100 ns ticks. */
+	const int byte_100ns = 8 * 1000 / 100;
+
+	snprintf(msg, sizeof(msg),
+	         "%s: RANGETEST_BYTE_100NS is %d, not the %d ticks of 100 ns a "
+	         "byte takes at 1 Mbit/s", path, s.byte_100ns, byte_100ns);
+	mu_assert(s.byte_100ns == byte_100ns, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: RANGETEST_LEAD_BYTES is %d. It needs at least the one byte "
+	         "the radio has not written yet when it reports the sync word, "
+	         "and fewer than the %d-byte packet, which the FIFO is holding "
+	         "while it is read out", path, s.lead_bytes, 22);
+	mu_assert(s.lead_bytes >= 1 && s.lead_bytes <= 8, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: RANGETEST_LEAD_100NS is `%s`, which is not "
+	         "RANGETEST_LEAD_BYTES byte times: a wait written as a bare tick "
+	         "count is wrong by a factor of tens and nothing else here would "
+	         "notice", path, s.lead_text);
+	mu_assert(s.lead_from_byte, msg);
+}
+
+/*
  * The shared FIFO transfers, which the two modes above now depend on.
  *
  * The write must clock the address and the data and nothing else. It used to
@@ -675,6 +883,8 @@ int main(void)
 	MU_RUN(test_the_repeater_stops_receiving_before_it_waits);
 	MU_RUN(test_the_result_is_cleared_before_the_test_can_return_early);
 	MU_RUN(test_the_fifo_is_reached_through_the_helpers);
+	MU_RUN(test_the_read_waits_for_the_radio_to_have_the_packet);
+	MU_RUN(test_the_wait_is_a_few_bytes_of_air_time);
 	MU_RUN(test_the_shared_fifo_transfers_keep_their_shape);
 	MU_RUN(test_the_range_test_has_one_copy);
 	return mu_report();
