@@ -673,6 +673,24 @@ if(libubertooth_SOURCE_DIR)
 	# directory: a run takes well under a second.
 	set_tests_properties(clk100ns-wrap PROPERTIES TIMEOUT 5)
 
+	# The ring buffer itself, including the two threads that share it. Only
+	# ubertooth_fifo.c is linked, so the ring can be built small: the
+	# shipped 1000000 slots put a full ring out of a test's reach, and
+	# every full-ring path is on the other side of it.
+	add_executable(test-fifo-ring
+		test_fifo_ring.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_fifo.c)
+	target_include_directories(test-fifo-ring PRIVATE
+		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR})
+	target_compile_definitions(test-fifo-ring PRIVATE FIFO_SIZE=8)
+	target_link_libraries(test-fifo-ring Threads::Threads)
+
+	add_test(NAME fifo-ring COMMAND test-fifo-ring)
+	# The threaded case publishes 200000 records through an eight-slot ring
+	# with the consumer kept behind it: a fifth of a second here and in CI.
+	# The limit only catches a run whose threads do not finish.
+	set_tests_properties(fifo-ring PROPERTIES TIMEOUT 30)
+
 	# What the low-energy callback hands libbtbb's decoder: the captured
 	# bytes and how many of them there are, never more.
 	#

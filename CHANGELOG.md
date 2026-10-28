@@ -952,6 +952,12 @@
 
 Fixes with no visible change in normal use.
 
+- A capture's ring buffer hands a record over properly: the record and the
+  time it arrived are now published together, and a slot is not given back to
+  the board until the capture has finished copying out of it. A capture far
+  enough behind to fill the ring could read one record while the next arrival
+  wrote over it.
+  [#576](https://github.com/SqueakyFloors/ubertooth/issues/576)
 - Editing a firmware linker script relinks the image. Nothing told `make` that
   the link depends on the script, so a change to a memory map or a section
   layout used to leave the previous image in place until `make clean`.

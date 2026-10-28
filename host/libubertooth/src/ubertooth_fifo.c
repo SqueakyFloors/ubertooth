@@ -19,6 +19,36 @@
  * Boston, MA 02110-1301, USA.
  */
 
+/*
+ * The capture ring buffer, shared by exactly two threads.
+ *
+ * The producer is the thread that collects records off the board: it fills
+ * the slot fifo_get_write_element() hands out and publishes it with
+ * fifo_inc_write_ptr(), or does both at once with fifo_push(). The consumer
+ * is the capture's own loop, which takes records with fifo_pop(). Each owns
+ * one pointer -- the producer write_ptr, the consumer read_ptr -- and only
+ * ever reads the other's.
+ *
+ * Who owns a slot follows from the two pointers. The slots from read_ptr up
+ * to write_ptr hold published records and are the consumer's; the rest,
+ * write_ptr included, are the producer's. Advancing a pointer is what hands
+ * a slot over, so each advance is a release store and each load of the other
+ * thread's pointer is an acquire load:
+ *
+ *   - publishing (write_ptr) releases the record and its arrival reading, so
+ *     a consumer that sees the new value sees the whole record. Without that
+ *     pairing nothing but the processor's own ordering stops the consumer
+ *     reading a record the producer had not finished writing.
+ *   - releasing a slot (read_ptr) releases the consumer's reads of it, so a
+ *     producer that sees the new value will not write that slot until the
+ *     copy out of it is done. fifo_pop() therefore copies the record and its
+ *     reading before it advances read_ptr, and not after: a transfer handed
+ *     a slot the consumer was still copying gave one corrupted packet.
+ *
+ * The ring always leaves one slot empty, which is what keeps the slot a
+ * transfer is reading into out of the consumer's range: a publish that would
+ * make write_ptr meet read_ptr is refused and the record is discarded.
+ */
 #include "ubertooth_fifo.h"
 #include <string.h>
 #include <stdlib.h>
@@ -33,55 +63,93 @@ fifo_t* fifo_init()
 	if (fifo == NULL)
 		return NULL;
 
-	fifo->read_ptr = 0;
-	fifo->write_ptr = 0;
+	atomic_init(&fifo->read_ptr, 0);
+	atomic_init(&fifo->write_ptr, 0);
 
 	return fifo;
 }
 
 void fifo_inc_write_ptr(fifo_t* fifo, uint64_t arrival_ns)
 {
-	if (fifo->read_ptr != (fifo->write_ptr+1) % FIFO_SIZE) {
-		/* Written with the record, before the advance that publishes
-		 * the slot, in the same order and on the same terms as the
-		 * record itself. */
-		fifo->arrival_ns[fifo->write_ptr] = arrival_ns;
-		fifo->write_ptr = (fifo->write_ptr+1) % FIFO_SIZE;
-	} else {
+	/* Relaxed: this thread is the only one that writes write_ptr. */
+	size_t write = atomic_load_explicit(&fifo->write_ptr,
+	                                    memory_order_relaxed);
+	size_t next = (write + 1) % FIFO_SIZE;
+
+	/* Acquire, so that a slot the consumer has just finished with is taken
+	 * back only once its reads of that slot are complete here. A read_ptr
+	 * read a moment stale only refuses a publish this ring had room for. */
+	if (atomic_load_explicit(&fifo->read_ptr, memory_order_acquire)
+	    == next) {
 		fprintf(stderr, "warning: FIFO overflow, packet discarded\n");
+		return;
 	}
+
+	/* Written with the record, before the store that publishes the slot,
+	 * in the same order and on the same terms as the record itself. */
+	fifo->arrival_ns[write] = arrival_ns;
+
+	/* Release: whoever sees this value sees the record and the reading. */
+	atomic_store_explicit(&fifo->write_ptr, next, memory_order_release);
 }
 
 uint8_t fifo_empty(fifo_t* fifo)
 {
-	return (fifo->read_ptr == fifo->write_ptr);
+	/* Relaxed: the consumer, which is who asks, is the only thread that
+	 * writes read_ptr. */
+	size_t read = atomic_load_explicit(&fifo->read_ptr,
+	                                   memory_order_relaxed);
+	/* Acquire: this is the matching half of the publish, so the pop that a
+	 * waiting record leads to sees the whole record. A write_ptr read a
+	 * moment stale only reports a ring that has just filled as empty. */
+	size_t write = atomic_load_explicit(&fifo->write_ptr,
+	                                    memory_order_acquire);
+
+	return (read == write);
 }
 
 void fifo_push(fifo_t* fifo, const usb_pkt_rx* packet, uint64_t arrival_ns)
 {
-	memcpy(&(fifo->packets[fifo->write_ptr]), packet, sizeof(usb_pkt_rx));
+	size_t write = atomic_load_explicit(&fifo->write_ptr,
+	                                    memory_order_relaxed);
+
+	/* The slot is the producer's until the publish below, so filling it
+	 * first is safe even when the ring turns out to be full: the record is
+	 * then discarded where it lies. */
+	memcpy(&(fifo->packets[write]), packet, sizeof(usb_pkt_rx));
 
 	fifo_inc_write_ptr(fifo, arrival_ns);
 }
 
 usb_pkt_rx fifo_pop(fifo_t* fifo)
 {
-	size_t selected = fifo->read_ptr;
+	/* Relaxed: this thread is the only one that writes read_ptr. */
+	size_t selected = atomic_load_explicit(&fifo->read_ptr,
+	                                       memory_order_relaxed);
+	usb_pkt_rx packet = fifo->packets[selected];
 
-	fifo->read_ptr = (fifo->read_ptr+1) % FIFO_SIZE;
+	/* Kept rather than read back out of the ring later: once the slot is
+	 * handed back below, the producer may write to it. */
+	fifo->popped_arrival_ns = fifo->arrival_ns[selected];
 
-	return fifo->packets[selected];
+	/* Both reads are done, so the slot goes back to the producer. Release:
+	 * a producer that sees this value sees those reads as finished. */
+	atomic_store_explicit(&fifo->read_ptr, (selected + 1) % FIFO_SIZE,
+	                      memory_order_release);
+
+	return packet;
 }
 
 uint64_t fifo_popped_arrival_ns(const fifo_t* fifo)
 {
-	/* The slot the last pop left behind, counting back round the ring. */
-	size_t popped = (fifo->read_ptr + FIFO_SIZE - 1) % FIFO_SIZE;
-
-	return fifo->arrival_ns[popped];
+	return fifo->popped_arrival_ns;
 }
 
 usb_pkt_rx* fifo_get_write_element(fifo_t* fifo)
 {
-	return &(fifo->packets[fifo->write_ptr]);
+	/* Relaxed: this thread is the only one that writes write_ptr. */
+	size_t write = atomic_load_explicit(&fifo->write_ptr,
+	                                    memory_order_relaxed);
+
+	return &(fifo->packets[write]);
 }
