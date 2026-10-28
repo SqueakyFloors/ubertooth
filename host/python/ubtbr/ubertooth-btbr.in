@@ -290,20 +290,25 @@ def usage():
 	sys.stdout.write(USAGE)
 	sys.exit(0)
 
-def dash_word(words):
+def dash_word(words, short_options):
 	"""The option word a stray '-' came from, as the user wrote it.
 
 	getopt reports the letter it rejected and not the word it was in, so the
-	word is the first one that is an option and holds a dash of its own
-	("-h-", "-h-h"). None means no word looks like it, which leaves the
+	word is found by asking getopt again, one word longer each time: the
+	first command line that ends in a rejected '-' ends in the word that
+	holds it. Another refusal on the way (a missing value the next word will
+	supply) is not it. None means no word produced one, which leaves the
 	caller to name the dash alone.
 	"""
-	for word in words:
-		if word.startswith("-") and "-" in word[1:]:
-			return word
+	for length in range(1, len(words) + 1):
+		try:
+			getopt(words[:length], short_options)
+		except GetoptError as refusal:
+			if refusal.opt == '-':
+				return words[length - 1]
 	return None
 
-def report_bad_option(refusal):
+def report_bad_option(refusal, short_options):
 	"""Report a command line getopt would not take, as the other tools do.
 
 	One line naming what is wrong, and no usage text: the user can run -h.
@@ -316,7 +321,8 @@ def report_bad_option(refusal):
 	# A stray dash in an option word ("-h-") is rejected as the letter '-',
 	# which reads as a long option here, so it is taken first: the word the
 	# user wrote is what names it, as in the C tools.
-	dash = dash_word(sys.argv[1:]) if refusal.opt == '-' else None
+	dash = (dash_word(sys.argv[1:], short_options)
+		if refusal.opt == '-' else None)
 	if refusal.msg.endswith("requires argument"):
 		error("option '-%s' requires a value"%refusal.opt)
 	elif refusal.opt == '-':
@@ -346,7 +352,7 @@ def main():
 	try:
 		opt, args = getopt(sys.argv[1:], "f:b:U:h")
 	except GetoptError as e:
-		report_bad_option(e)
+		report_bad_option(e, "f:b:U:h")
 
 	# Read before the device is opened, so a command line that is wrong is
 	# refused without touching a board, and says what is wrong with it rather

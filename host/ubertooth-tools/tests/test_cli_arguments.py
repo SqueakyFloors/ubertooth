@@ -116,9 +116,9 @@ CASES = {
          "error: target address must be xx:xx:xx:xx:xx:xx"
          " (got 11:22:33:44:55)"),
         (("-t", "11:22:33:44:55:66/49"),
-         "error: mac mask must be 0-48 (got 49)"),
+         "error: target mask must be 0-48 (got 49)"),
         (("-t", "11:22:33:44:55:66/abc"),
-         "error: mac mask must be 0-48 (got abc)"),
+         "error: target mask must be 0-48 (got abc)"),
         # optional values as the next word: consumed, so "extra" is the stray
         (("-a", "8e89bed6", "extra"), "error: unexpected argument 'extra'"),
         (("-v", "1", "extra"), "error: unexpected argument 'extra'"),
@@ -240,6 +240,15 @@ CASES = {
     "ubertooth-util": STRAY + (
         (("-c", "2500"), "error: frequency must be 2402-2480 mhz (got 2500)"),
         (("-c", "24x"), "error: unexpected argument '24x'"),
+        # A stray dash is named with the word it was written in, wherever in
+        # the word it is. The matrix generates these for every tool; these two
+        # are the forms the option parser reports a word late.
+        (("-v-",), "error: unrecognized option '-' in '-v-'"),
+        (("-v-", "-h"), "error: unrecognized option '-' in '-v-'"),
+        # Two words holding a stray dash: the parser stops on the second, and
+        # it cannot be told from an attached value ending in a dash, so that
+        # is the word named. Either way it is a word the user wrote.
+        (("-v-", "-r-x"), "error: unrecognized option '-' in '-r-x'"),
     ),
 }
 

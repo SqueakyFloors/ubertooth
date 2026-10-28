@@ -212,10 +212,15 @@ int main(int argc, char *argv[])
 	 * address to advertise from, which are two different things. They
 	 * shared one pair of variables, so whichever option was written last
 	 * set both, and "-s <address> -t none" advertised from
-	 * 00:00:00:00:00:00 without a word. */
+	 * 00:00:00:00:00:00 without a word. What each option accepts is
+	 * unchanged. */
 	uint8_t target_address[OPT_BD_ADDR_BYTES] = { 0, };
 	uint8_t target_mask = 0;
 	uint8_t slave_address[OPT_BD_ADDR_BYTES] = { 0, };
+	/* -s takes the same spellings as -t, so it has a mask of its own to
+	 * parse into. Nothing reads it: a faux slave advertises from one whole
+	 * address. */
+	uint8_t slave_mask = 0;
 
 	/* Standard output until a capture takes it; see report_stream. */
 	report_stream = stdout;
@@ -308,18 +313,16 @@ int main(int argc, char *argv[])
 				return 1;
 			break;
 		case 's':
-			/* The address to advertise from, and nothing else: the
-			 * "/<bits>" mask and "none" of -t narrow which
-			 * connections to follow, which a faux slave has no use
-			 * for. */
-			if (opt_require_bd_addr(optarg, "faux slave address",
-			                        NULL, slave_address) < 0)
-				return 1;
 			do_slave_mode = 1;
+			r = convert_mac_address(optarg, "faux slave",
+			                        slave_address, &slave_mask);
+			if (!r)
+				return 1;
 			break;
 		case 't':
 			do_target = 1;
-			r = btle_parse_target(optarg, target_address, &target_mask);
+			r = convert_mac_address(optarg, "target",
+			                        target_address, &target_mask);
 			if (!r)
 				return 1;
 			break;

@@ -23,7 +23,7 @@ static void test_clear_target(void)
 	uint8_t mask = 17;
 
 	memset(address, 0xaa, sizeof(address));
-	CHECK(btle_parse_target(text, address, &mask) == 1);
+	CHECK(convert_mac_address(text, "target", address, &mask) == 1);
 	CHECK(mask == 0);
 	CHECK(memcmp(address, "\0\0\0\0\0\0", sizeof(address)) == 0);
 }
@@ -37,10 +37,10 @@ static void test_full_and_masked_targets(void)
 	const uint8_t expected_full[] = {0x11, 0x22, 0x33, 0x44, 0x55, 0x66};
 	const uint8_t expected_masked[] = {0x00, 0x1a, 0x7d, 0, 0, 0};
 
-	CHECK(btle_parse_target(full, address, &mask) == 1);
+	CHECK(convert_mac_address(full, "target", address, &mask) == 1);
 	CHECK(mask == 48);
 	CHECK(memcmp(address, expected_full, sizeof(address)) == 0);
-	CHECK(btle_parse_target(masked, address, &mask) == 1);
+	CHECK(convert_mac_address(masked, "target", address, &mask) == 1);
 	CHECK(mask == 24);
 	CHECK(memcmp(address, expected_masked, sizeof(address)) == 0);
 }
@@ -53,10 +53,10 @@ static void test_invalid_targets(void)
 	uint8_t address[OPT_BD_ADDR_BYTES] = {0};
 	uint8_t mask = 0;
 
-	CHECK(btle_parse_target(NULL, address, &mask) == 0);
-	CHECK(btle_parse_target(short_address, address, &mask) == 0);
-	CHECK(btle_parse_target(invalid_char, address, &mask) == 0);
-	CHECK(btle_parse_target(invalid_mask, address, &mask) == 0);
+	CHECK(convert_mac_address(NULL, "target", address, &mask) == 0);
+	CHECK(convert_mac_address(short_address, "target", address, &mask) == 0);
+	CHECK(convert_mac_address(invalid_char, "target", address, &mask) == 0);
+	CHECK(convert_mac_address(invalid_mask, "target", address, &mask) == 0);
 }
 
 int main(void)

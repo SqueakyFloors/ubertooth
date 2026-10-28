@@ -633,6 +633,22 @@ MU_TEST(the_faux_slave_and_target_addresses_are_separate)
 	mu_assert(memcmp(fake.last_slave, slave, sizeof(slave)) == 0,
 	          "the faux slave advertised from the wrong address");
 
+	/* What -s accepts is unchanged: the target's spellings still parse,
+	 * and still mean nothing to a faux slave. "-s none" advertises from
+	 * the all-zero address, as it always has. */
+	reset_fake();
+	r = RUN("-s", "none");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(fake.calls, "S") == 0, fake.calls);
+	mu_assert(memcmp(fake.last_slave, zeros, sizeof(zeros)) == 0,
+	          "the faux slave advertised from the wrong address");
+
+	reset_fake();
+	r = RUN("-s", "22:44:66:88:aa:cc/24");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(memcmp(fake.last_slave, slave, sizeof(slave)) == 0,
+	          "the faux slave advertised from the wrong address");
+
 	/* clearing the target leaves the faux slave's address alone */
 	reset_fake();
 	r = RUN("-s", "22:44:66:88:aa:cc", "-tnone");
@@ -1112,29 +1128,19 @@ MU_TEST(a_bad_command_line_is_reported_on_stderr)
 	                 " xx:xx:xx:xx:xx:xx (got 22:44:66:88:aa:zz)\n") == r.err,
 	          r.err);
 
-	/* The faux slave advertises from one address, so the target's "none"
-	 * and "/<bits>" are not values for it. "-s none" used to advertise
-	 * from 00:00:00:00:00:00. */
-	reset_fake();
-	r = RUN("-s", "none");
-	mu_assert_int_eq(1, r.rc);
-	mu_assert(r.out[0] == '\0', r.out);
-	mu_assert(strstr(r.err, "error: faux slave address must be"
-	                 " xx:xx:xx:xx:xx:xx (got none)\n") == r.err, r.err);
-	mu_assert_int_eq(0, fake.connects);
-
-	reset_fake();
-	r = RUN("-s", "22:44:66:88:aa:cc/24");
-	mu_assert_int_eq(1, r.rc);
-	mu_assert(strstr(r.err, "error: faux slave address must be"
-	                 " xx:xx:xx:xx:xx:xx (got 22:44:66:88:aa:cc/24)\n")
-	          == r.err, r.err);
-
+	/* The mask is named after the option's address too, so one value does
+	 * not read as two different things. */
 	reset_fake();
 	r = RUN("-t", "22:44:66:88:aa:cc/49");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(r.out[0] == '\0', r.out);
-	mu_assert(strstr(r.err, "error: MAC mask must be 0-48 (got 49)\n")
+	mu_assert(strstr(r.err, "error: target mask must be 0-48 (got 49)\n")
+	          == r.err, r.err);
+
+	reset_fake();
+	r = RUN("-s", "22:44:66:88:aa:cc/49");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: faux slave mask must be 0-48 (got 49)\n")
 	          == r.err, r.err);
 
 	/* a masked address is quoted whole, mask included, even though the

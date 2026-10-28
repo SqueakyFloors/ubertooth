@@ -165,11 +165,12 @@ int opt_parse_bd_addr(const char *text, uint8_t *address)
 int opt_require_bd_addr(const char *text, const char *what, const char *given,
                         uint8_t *address)
 {
+	/* The whole word where the caller split one up, otherwise the value. */
+	const char *quoted = given != NULL ? given : text;
+
 	if (opt_parse_bd_addr(text, address) < 0) {
-		if (given == NULL)
-			given = text;
 		fprintf(stderr, "error: %s must be xx:xx:xx:xx:xx:xx (got %s)\n",
-		        what, given == NULL ? "" : given);
+		        what, quoted == NULL ? "" : quoted);
 		return -1;
 	}
 	return 0;
@@ -340,8 +341,12 @@ int opt_no_arguments(int argc)
  * The two are told apart by the word optind is on: an option word that holds
  * a dash of its own is the one being rejected, and anything else -- the
  * option after it, a stray word, the end of the command line -- means the
- * dash was the last letter of the word before. Returns NULL if neither word
- * holds a dash, which leaves the caller its own wording.
+ * dash was the last letter of the word before. A command line with a stray
+ * dash in two words running ("-v- -r-x") cannot be told apart from an
+ * attached option value that ends in one ("-Uabc- --bogus"), because the
+ * option letters are not known here; the word optind is on wins, which names
+ * a word the user wrote either way. Returns NULL if neither word holds a
+ * dash, which leaves the caller its own wording.
  */
 static const char *bad_option_word(int argc, char *argv[])
 {
@@ -351,7 +356,8 @@ static const char *bad_option_word(int argc, char *argv[])
 	if (optind < argc && argv[optind] != NULL && argv[optind][0] == '-' &&
 	    strchr(argv[optind] + 1, '-') != NULL)
 		return argv[optind];
-	/* optind is at least 1, so argv[optind - 1] is never argv[0]. */
+	/* From argv[1] on: the guard below keeps argv[0], the program's own
+	 * path, out of a diagnostic about what the user typed. */
 	if (optind >= 2 && optind - 1 < argc && argv[optind - 1] != NULL) {
 		word = argv[optind - 1];
 		length = strlen(word);

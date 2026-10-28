@@ -149,10 +149,10 @@ with exit status 1 and one `error: ` line on standard error and nothing after
 it: an option the tool does not know (`error: unrecognized option '-Z'`), one
 whose value is missing (`error: option '-c' requires a value`), a bad option
 value, a stray word, `-c` outside continuous receive, `-l` with interference,
-and a command line that said something but has nothing to do. The line describes the problem, so the
-usage text is left to `-h`. A bare `ubertooth-ego`, with no arguments at all,
-is the one refusal the usage text does follow, on standard error with the
-`error: ` line.
+and a command line that said something but has nothing to do. The line
+describes the problem, so the usage text is left to `-h`. A bare
+`ubertooth-ego`, with no arguments at all, is the one refusal the usage text
+does follow, on standard error with the `error: ` line.
 
 `-h` is what the user asked for, so the usage text goes to standard output and
 nothing goes to standard error.

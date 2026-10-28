@@ -400,9 +400,7 @@
   address, so `-s A -t B` advertises from A and follows B, which is what it
   reads like. They shared one address, so whichever option was written last
   set both, and `-s <address> -t none` advertised from `00:00:00:00:00:00`
-  without a word. `-s` takes one whole address and nothing else now, so
-  `-s none` and `-s <address>/24` are refused rather than advertising from the
-  all-zero address or with the mask ignored.
+  without a word. What each of the two accepts is unchanged.
   [#383](https://github.com/SqueakyFloors/ubertooth/issues/383)
 - **Script-visible change:** `ubertooth-ego -l` with interference (`-i`, `-j`)
   is refused, naming the mode as it was spelled: only the modes that read a
@@ -416,11 +414,11 @@
   way.
   [#501](https://github.com/SqueakyFloors/ubertooth/issues/501)
 - A value that is not a Bluetooth address reads the same way from every option
-  that takes one, naming the address it sets: `error: <what> address must be
+  that takes one, naming the address it sets: `error: target address must be
   xx:xx:xx:xx:xx:xx (got <word>)`. Three tools worded it three ways, and
-  `ubertooth-btle` had a second wording for a bad hex digit.
+  `ubertooth-btle` had a second wording for a bad hex digit and called the
+  mask of `-t` and `-s` a `MAC mask` beside it.
   [#541](https://github.com/SqueakyFloors/ubertooth/issues/541)
-
 - `ubertooth-follow -w` compensates the delay it says it does. The option
   counts 625 us timeslots, and the clock the board hops on counts 312.5 us
   ticks; the delay was added tick for tick, so every value compensated half of
