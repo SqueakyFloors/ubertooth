@@ -1182,6 +1182,9 @@ MU_TEST(a_board_that_comes_back_in_the_bootloader_fails_a_bare_reset)
 	                 "fitted, remove it (pins 1 and 3 of P4 on an Ubertooth "
 	                 "One), then unplug the board and plug it back in\n")
 	          != NULL, "the bridge was not suggested");
+	/* Nothing was written, so nothing claims it was. */
+	mu_assert(strstr(r.err, "the firmware was written") == NULL,
+	          "a bare reset claimed to have written firmware");
 	mu_assert(strstr(r.err, "Detached\n") == NULL,
 	          "a board back in the bootloader was reported as detached");
 	mu_assert(strstr(r.err, "still in DFU") == NULL,
@@ -1231,6 +1234,15 @@ MU_TEST(a_board_that_comes_back_in_the_bootloader_fails_before_verification)
 	mu_assert_int_eq(IMAGE_BLOCKS, fake.dnload_calls);
 	mu_assert(strstr(r.err, "came back in the bootloader") != NULL,
 	          "the board back in the bootloader was not reported");
+	/* The image is in the flash, so the line that would otherwise send the
+	 * reader back to write it again says so first. */
+	mu_assert(strstr(r.err, "note: the firmware was written, so the board "
+	                 "holds it; it is in the bootloader rather than running "
+	                 "it\n") != NULL,
+	          "the completed write was not reported");
+	mu_assert(strstr(r.err, "the firmware was written") <
+	          strstr(r.err, "the bootloader runs instead"),
+	          "the causes came before what is known about the flash");
 	mu_assert(strstr(r.out, "Verified firmware revision") == NULL,
 	          "a board in the bootloader was reported as verified");
 	mu_assert_int_eq(0, fake.revision_calls);
@@ -1252,8 +1264,12 @@ MU_TEST(a_confirming_listing_that_cannot_be_read_says_it_could_not_tell)
 	          "the unanswerable confirming listing was not reported");
 	mu_assert(strstr(r.err, "Detached\n") == NULL,
 	          "an unsettled detach was reported as detached");
-	mu_assert(strstr(r.err, "came back in the bootloader") == NULL,
+	mu_assert(strstr(r.err, "error: detach failed: the board reset and came "
+	                 "back") == NULL,
 	          "an unsettled detach was reported as a board in the bootloader");
+	/* The gap was waited, so the trace says why the detach took that long. */
+	mu_assert(strstr(r.err, "the DFU device has gone: looking again in ")
+	          != NULL, "the confirming wait is not in the stage trace");
 }
 
 /* ---- what the image says about itself ---------------------------------- */
@@ -1274,11 +1290,15 @@ MU_TEST(an_image_for_another_api_version_is_warned_about_and_written)
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strstr(r.err, "warning: ") != NULL,
 	          "the API version mismatch was not warned about");
-	mu_assert(strstr(r.err, "this image reports API version 1.07 and these "
-	                 "tools report ") != NULL,
+	mu_assert(strstr(r.err, "this image reports API version 1.07 in its "
+	                 "firmware info block, and these tools report ") != NULL,
 	          "the warning does not name both API versions");
-	mu_assert(strstr(r.err, "must report the same one") != NULL,
+	mu_assert(strstr(r.err, "have to report the same one") != NULL,
 	          "the warning does not say the two have to match");
+	/* What the file says, not what the other tools will make of the board:
+	 * they read the USB bcdDevice, which is a different field. */
+	mu_assert(strstr(r.err, "will refuse") == NULL,
+	          "the warning promises what the other tools will do");
 	/* A warning, not a refusal: the image is written and verified. */
 	mu_assert_int_eq(IMAGE_BLOCKS, fake.dnload_calls);
 	mu_assert(strstr(r.out, "Verified firmware revision: " IMAGE_REVISION)
@@ -1326,11 +1346,14 @@ MU_TEST(a_board_that_will_not_name_its_image_fails_the_verification)
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strstr(r.err, "error: the board came back running "
 	                 IMAGE_REVISION " but would not say which firmware image "
-	                 "it is, so the flash was not checked: read it with "
-	                 "ubertooth-util -v\n") != NULL,
+	                 "it is, so the flash was not checked; power-cycle it "
+	                 "and flash it again if it misbehaves\n") != NULL,
 	          "the unreadable image was not reported as unchecked");
 	mu_assert(strstr(r.err, "not written") == NULL,
 	          "the line claims the write did not take");
+	/* The faked board stalls the request, which is the one failure the
+	 * library keeps quiet about, so this line is the only error. Its other
+	 * failures report themselves first. */
 	mu_assert_int_eq(1, error_lines(r.err));
 }
 

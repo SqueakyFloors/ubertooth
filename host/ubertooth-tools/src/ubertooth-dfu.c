@@ -268,15 +268,20 @@ static int check_download_image(const char* name, FILE* downfile,
 	        info->revision, (info->api_version >> 8) & 0xFF,
 	        info->api_version & 0xFF);
 	/* The tools and the board have to report the same API version, so an
-	 * image that carries another one leaves a board every other tool
-	 * refuses. This command is the way back from that, so it is a warning
-	 * and not a refusal: it has to be able to write any valid image,
-	 * including the one that undoes this. */
+	 * image built for another one is worth saying out loud. It is a warning
+	 * and not a refusal: this command has to be able to write any valid
+	 * image, including the one that undoes such a flash.
+	 *
+	 * What the warning reports is what the file says about itself. It does
+	 * not promise what the other tools will do with the board afterwards,
+	 * because they read the USB bcdDevice rather than this block, and the
+	 * two are not the same number in every image (the btbr image reports a
+	 * fixed 1.06 as its bcdDevice). */
 	if (info->api_version != UBERTOOTH_API_VERSION)
 		fprintf(stderr, "warning: %s: this image reports API version "
-		        "%x.%02x and these tools report %x.%02x; the tools and the "
-		        "board must report the same one, so the other tools will "
-		        "refuse this board once it is flashed\n", name,
+		        "%x.%02x in its firmware info block, and these tools report "
+		        "%x.%02x; the tools and the board have to report the same "
+		        "one\n", name,
 		        (info->api_version >> 8) & 0xFF, info->api_version & 0xFF,
 		        (UBERTOOTH_API_VERSION >> 8) & 0xFF,
 		        UBERTOOTH_API_VERSION & 0xFF);
@@ -495,6 +500,7 @@ struct dfu_runtime_context {
 	/* The reset left the board in the bootloader again, so cleanup has
 	 * nothing to add by resetting it a second time. */
 	int came_back_in_bootloader;
+	int download_completed;  /* the whole image reached the flash */
 	unsigned long download_length; /* ...and the flash writing it covers */
 	int download_checked;    /* the image has been put against the part */
 	int download_refused;    /* ...and does not fit the flash it has */
@@ -839,7 +845,13 @@ static int dfu_device_presence(struct dfu_runtime_context *runtime,
 			 * the gap again: the one wait is what the answer needs, and the
 			 * retries keep a single failed listing from deciding it. */
 			unsigned confirm;
+			char stage[96];
 
+			snprintf(stage, sizeof(stage),
+			         "the DFU device has gone: looking again in %u ms, in "
+			         "case the board came back in the bootloader",
+			         detach_confirm_interval_ms);
+			log_dfu_stage(stage);
 			transition_sleep_ms(runtime, detach_confirm_interval_ms);
 			for (confirm = 0; confirm < DETACH_CONFIRM_POLLS; confirm++) {
 				result = find_ubertooth_dfu_device(runtime->usb_context,
@@ -876,13 +888,12 @@ static int dfu_device_presence(struct dfu_runtime_context *runtime,
  * That holds for the Ubertooth USB identities, where the application and the
  * bootloader are told apart by their IDs. It does not hold for the
  * unprogrammed-EEPROM prototype ID, which both device searches match in
- * either mode: such a board always looks as if it is still in DFU, so it
- * cannot be reported as detached at all. On macOS it could not before this
- * either, because the request fails on every reset that worked and the probe
- * was already what settled those; on a host where the request completes, this
- * is where such a board stops being able to pass -r. The limitation is the
- * probe's, and telling the two identities apart would be the fix, but nothing
- * here can do that from a bus and port path alone.
+ * either mode: such a board matches the search again as soon as it is back on
+ * the bus, whichever mode it came up in, so a reset that worked reads as a
+ * board that came back in the bootloader and -r cannot pass. The limitation
+ * is the probe's, and telling the two identities apart would be the fix, but
+ * nothing here can do that from a bus and port path alone. Such a board is a
+ * prototype this fork does not support.
  *
  * Returns 0 once the DFU device has gone, and a negative error when the board
  * is still in the bootloader or that could not be established. */
@@ -913,6 +924,14 @@ int detach(struct dfu_runtime_context* runtime, libusb_device_handle* devh,
 			runtime->came_back_in_bootloader = 1;
 			fprintf(stderr, "error: detach failed: the board reset and came "
 			        "back in the bootloader\n");
+			/* The flash already holds the image, so say it before the
+			 * causes: the reader's next move after a bare failure is to
+			 * write it again, which is the one thing this board does not
+			 * need. */
+			if (runtime->download_completed)
+				fprintf(stderr, "note: the firmware was written, so the "
+				        "board holds it; it is in the bootloader rather "
+				        "than running it\n");
 			/* Why it is there. The bootloader runs instead of the
 			 * application in exactly two cases
 			 * (firmware/bootloader/bootloader.cpp): the word a tool sets to
@@ -1864,6 +1883,10 @@ int main(int argc, char **argv) {
 			goto cleanup;
 		}
 		log_dfu_stage("firmware programming completed");
+		/* The whole image is in the flash from here, whatever the reset
+		 * does next. A failure after this point has to say so, or the
+		 * reader's next move is to flash a board that does not need it. */
+		runtime.download_completed = 1;
 	}
 
 	if(functions & FUNC_RESET) {

@@ -562,6 +562,10 @@ MU_TEST(test_an_unreadable_image_is_described_as_unchecked)
 	          != NULL, "the line does not say what the board withheld");
 	mu_assert(strstr(message, "the flash was not checked") != NULL,
 	          "the line does not say the flash is unverified");
+	/* No command can read the image back off a board that will not answer,
+	 * so the line must not send the reader to one. */
+	mu_assert(strstr(message, "ubertooth-util") == NULL,
+	          "the line sends the reader to a command that cannot answer");
 	mu_assert(strstr(message, "not written") == NULL,
 	          "the line claims the write did not take");
 	mu_assert(strchr(message, '\n') == NULL, "the line is more than one line");

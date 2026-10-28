@@ -316,10 +316,13 @@
   image and then did not come back on USB is no longer reported as a failed
   flash and flashed again for nothing.
   [#579](https://github.com/SqueakyFloors/ubertooth/issues/579)
-- `ubertooth-dfu -r` no longer reports a board that reset straight back into
-  the bootloader as detached. The reset now has to leave the DFU device gone
-  on two checks in a row, and a board that is back names the two things that
-  put it there, the expansion-header bridge among them.
+- **Script-visible change:** `ubertooth-dfu -r` no longer reports a board that
+  reset straight back into the bootloader as detached. The reset has to leave
+  the DFU device gone on two checks in a row, the second 1.5 s after the
+  first, and a board that is back exits 1 naming the two things that put it
+  there, the expansion-header bridge among them. Flashing with the bridge
+  still fitted, which `ubertooth-dfu(1)` describes, now exits 1 where it could
+  exit 0, and every reset spends about 1.5 s more.
   [#304](https://github.com/SqueakyFloors/ubertooth/issues/304)
 - `ubertooth-dfu -d <image> -r` also checks which image came back, not only
   its revision, so a write of `btbr` over `bluetooth_rxtx` that did not take
@@ -717,9 +720,10 @@
   [#267](https://github.com/SqueakyFloors/ubertooth/issues/267)
 - `ubertooth-dfu -r` no longer exits 0 with the board still in the bootloader
   when the bootloader acknowledges the reset request and then ignores it: the
-  board is reported as detached only once its DFU device has left the bus,
-  whatever the request returned.
+  board is reported as detached only once its DFU device has left the bus and
+  stayed off it, whatever the request returned.
   [#283](https://github.com/SqueakyFloors/ubertooth/issues/283)
+  [#304](https://github.com/SqueakyFloors/ubertooth/issues/304)
 - `ubertooth-dfu -s` writes `<file>.dfu` only once the whole signed image is
   ready, and checks a `-d` image given in the same command first, so a signing
   run that fails leaves an earlier `<file>.dfu` untouched and creates none. It
