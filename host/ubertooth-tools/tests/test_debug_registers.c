@@ -137,7 +137,7 @@ MU_TEST(a_field_is_printed_from_the_bits_its_picture_draws)
 		unsigned short value;
 		const char *line;
 	} cases[] = {
-		{ 0x0e, 0x1000, "...10000 ........ (RW) FSM_STATE_BKPT (state 16)" },
+		{ 0x0e, 0x1000, "...10000 ........ (RW) FSM_STATE_BKPT (16)" },
 		{ 0x0e, 0x0000, "...00000 ........ (RW) FSM_STATE_BKPT (disabled)" },
 		{ 0x0f, 0x4040, ".1000000 ........ (RO) ADC_I (64)" },
 		{ 0x0f, 0x4040, "........ .1000000 (RO) ADC_Q (64)" },
@@ -149,7 +149,7 @@ MU_TEST(a_field_is_printed_from_the_bits_its_picture_draws)
 		{ 0x1b, 0x0004, "........ .....100 (RW) VCO_DAC_VAL (4)" },
 		{ 0x24, 0x0040, "........ .1000000 (RW) - (64)" },
 		{ 0x26, 0x0200, "......10 00000000 (RW) - (512)" },
-		{ 0x27, 0x0010, "........ 00010... (RW) - (2)" },
+		{ 0x27, 0x0080, "........ 10000... (RW) - (16)" },
 		{ 0x28, 0x0040, "........ .1000000 (RW) - (64)" },
 		{ 0x2b, 0x0800, "....1000 00000000 (RO) - (2048)" },
 	};

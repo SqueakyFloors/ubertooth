@@ -126,6 +126,8 @@ cc2400_fsdiv (unsigned short v)
 {
   char description[64];
 
+  /* FREQ is one 12-bit field; the pictures split it because 11:10 is
+     read-only, so this line's value is wider than the bits it draws. */
   sprintf (description, "fc = %d MHz", v & 0xfff);
 
   bits (15, 12, "-", "W0", "");
@@ -260,7 +262,7 @@ cc2400_fsmstate (unsigned short v)
   char description[64];
 
   bits (15, 13, "-", "W0", "");
-  sprintf (description, "state %d", (v >> 8) & 0x1F);
+  sprintf (description, "%d", (v >> 8) & 0x1F);
   bits (12, 8, "FSM_STATE_BKPT", "RW",
 	((v >> 8) & 0x1F) == 0 ? "disabled" : description);
   bits (7, 5, "-", "W0", "");
@@ -412,7 +414,7 @@ cc2400_mdmtst0 (unsigned short v)
   sprintf(description,"%d pairs",1<<((v>>8)&0x3));
   bits(9,8,"AFC_SETTLING","RW",description);
   sprintf(description,"%d",v&0xff);
-  bits(7,0,"AFC_SETTLING","RW",description);
+  bits(7,0,"AFC_DELTA","RW",description);
 }
 static void
 cc2400_mdmtst1 (unsigned short v)
