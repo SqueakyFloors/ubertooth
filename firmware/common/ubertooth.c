@@ -501,12 +501,13 @@ static void spi_delay() {
  * their data over DMA and never touch the FIFO, so they are unaffected.
  *
  * The btbr image has its own bit-banged FIFO write, in
- * firmware/btbr/src/btphy/rf.c, which is not masked. There it only ever runs
- * from the slot scheduler inside the timer interrupt. A handler can be
- * preempted only by one of a higher priority, and in both images every
- * handler keeps the reset priority of 0 except GPDMA, which dma_poweron()
- * puts at the lowest -- so that write runs to its end with nothing able to
- * reach the bus in the middle of it.
+ * firmware/btbr/src/btphy/rf.c, which is not masked. There it runs only from
+ * interrupt handlers -- the slot scheduler in the timer interrupt, and the
+ * refill the GIO6 interrupt calls -- and a handler can be preempted only by
+ * one of a higher priority. In both images every handler keeps the reset
+ * priority of 0 except GPDMA, which dma_poweron() puts at the lowest, so
+ * each of those writes runs to its end with nothing able to reach the bus in
+ * the middle of it.
  */
 
 /* write multiple bytes to SPI */

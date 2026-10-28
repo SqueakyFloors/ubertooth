@@ -441,6 +441,8 @@ struct scan {
 	int drain_wait_used;  /* ...with its result acted on */
 	int bare_gio6_spin;   /* an unbounded wait on GIO6, anywhere in the file */
 	int bare_gio6_line;
+	int wait_body;        /* where fifo_wait_empty() is defined */
+	int wait_bound;       /* ...and where its poll count is used */
 	int loop_end;         /* the loop that keeps going while bytes are left */
 };
 
@@ -489,6 +491,14 @@ static int scan_source(const char *path, struct scan *s)
 		}
 		if (strstr(flat, "} while (sent < len);") != NULL)
 			s->loop_end = lineno;
+
+		/* The wait's own bound. Without the poll count it is another
+		 * unbounded spin, in a function whose name says otherwise. */
+		if (strstr(flat, "static int fifo_wait_empty(") != NULL)
+			s->wait_body = lineno;
+		if (s->wait_body != 0 && s->wait_bound == 0 &&
+		    strstr(flat, "FIFO_EMPTY_POLLS") != NULL)
+			s->wait_bound = lineno;
 
 		/* The wait this file must not spin on. `while (!GIO6);` is how
 		 * both transmit loops waited for the radio to empty its FIFO,
@@ -641,6 +651,12 @@ MU_TEST(test_the_fifo_write_is_clamped_and_chunked)
 	         "payload has gone out, so a packet longer than the FIFO loses "
 	         "its tail", path, s.fifo_write);
 	mu_assert(s.loop_end > s.fifo_write, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: fifo_wait_empty() does not use FIFO_EMPTY_POLLS, so the "
+	         "wait the loop relies on has no bound of its own", path,
+	         s.wait_body);
+	mu_assert(s.wait_body > 0 && s.wait_bound >= s.wait_body, msg);
 
 	snprintf(msg, sizeof(msg),
 	         "%s:%d: a wait on GIO6 with no end (%d in the file); the loop it "

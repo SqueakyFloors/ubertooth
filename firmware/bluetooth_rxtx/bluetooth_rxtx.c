@@ -1392,11 +1392,11 @@ static void cc2400_rx_sync(u32 sync)
 }
 
 #ifdef TX_ENABLE
-/* Polls before the wait for the radio's FIFO to empty gives up. One poll is a
- * GPIO read and a decrement, well under 100 nanoseconds, so this is around ten
- * milliseconds -- far longer than the 256 microseconds a full FIFO takes to go
- * out at 1 megabit per second, and so out of reach of a radio that is
- * transmitting at all. */
+/* Polls before the wait for the radio's FIFO to empty gives up. The loop
+ * compiles to five instructions, about 80 nanoseconds at 100 MHz, so this is
+ * on the order of fifteen milliseconds -- far longer than the 256 microseconds
+ * a full FIFO takes to go out at 1 megabit per second, and so out of reach of
+ * a radio that is transmitting at all. */
 #define FIFO_EMPTY_POLLS 200000
 
 /*
@@ -1419,8 +1419,10 @@ static void cc2400_rx_sync(u32 sync)
  * every alternative costs too, and the board keeps answering the host.
  *
  * These timeouts are not among the counts UBERTOOTH_GET_RADIO_TIMEOUTS
- * reports, because adding a shape to that reply changes what an older host
- * reads each of the counts as.
+ * reports, so a board that keeps truncating packets reads as a quiet one.
+ * Appending a shape to that reply is the way to count them -- cc2400_wait.h
+ * says so -- but it changes the reply's length and the host that reads it,
+ * which is more than this change needs.
  *
  * Returns 1 if the FIFO emptied, 0 if the wait timed out.
  */
@@ -1590,10 +1592,11 @@ void le_transmit(u32 aa, u8 len, u8 *data)
 		// Half a FIFO for every piece after the first, which is what the
 		// advertising path has always written. The wait above is on the
 		// FIFO being empty, so a whole FIFO would fit; the sizes are left
-		// as they were, because the only way an advertising packet gets
-		// long enough to reach a second pass is advertising data longer
-		// than the buffer bt_slave_le() builds the packet in, which that
-		// function has to refuse before it comes to this loop.
+		// as they were. The only way an advertising packet gets long
+		// enough to reach a second pass is advertising data longer than
+		// the buffer bt_slave_le() builds the packet in, which that
+		// function does not refuse and should: such a packet has already
+		// overrun that buffer by the time it arrives here.
 		fifo_space = CC2400_FIFO_SIZE / 2;
 	}
 	cc2400_wait_fsm(STATE_STROBE_FS_ON, NULL);
