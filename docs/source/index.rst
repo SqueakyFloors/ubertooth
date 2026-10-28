@@ -7,6 +7,7 @@ Ubertooth
 
   ubertooth_one
   build_guide
+  How Bluetooth sniffing works <https://github.com/SqueakyFloors/ubertooth/blob/main/docs/concepts.md>
   faq
   getting_started
   getting_help
