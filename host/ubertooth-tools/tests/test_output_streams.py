@@ -7,8 +7,8 @@ The rule:
 
   * -h is what the user asked for: the usage text goes to standard output,
     nothing goes to standard error, and the status is 0;
-  * so is the host tools version, for the tools that print one: the same
-    stream and status, and the one line says what it is;
+  * so is -V, which every tool answers the same way: the same stream and
+    status, and each line says what it is;
   * a bare command line -- no arguments at all -- gets one "error: " line and
     then the usage text, both on standard error, nothing on standard output,
     and the status is 1;
@@ -73,7 +73,7 @@ NOTHING_TO_DO = {
     "ubertooth-afh": "error: -l <LAP> and -u <UAP> are both required: "
                      "the map is detected for one piconet",
     "ubertooth-btle": "error: nothing to do: choose a major mode "
-                      "(-f, -n or -p), or -a, -v, -s or -t",
+                      "(-f, -n or -p), or -a, -k, -s or -t",
     "ubertooth-debug": "error: -r <reg>[,<reg>[,...]] is required: at least "
                        "one register to read",
     "ubertooth-dfu": "error: nothing to do: give -d to write an image, -u to "
@@ -187,46 +187,40 @@ if combination is not None:
     for message in DEVICE_ACCESS:
         assert message not in result.stderr.lower(), (message, result)
 
-# ---- the host tools version ------------------------------------------------
+# ---- the version answer ----------------------------------------------------
 
-# Every way a tool can be asked for the host tools version. Like -h it is what
+# Every tool answers -V, and answers it in the same words. Like -h it is what
 # the user asked for, so it goes to standard output with nothing on standard
-# error, and it needs no device.
-HOST_VERSION_ARGUMENTS = {
-    "ubertooth-util": (["-H"], ["--host-version"]),
-    "ubertooth-afh": (["-V"],),
-    "ubertooth-rx": (["-V"],),
-    "ubertooth-tx": (["-V"],),
-}
-
-# The line names what it is, as every other version line does, so it cannot be
-# read as a board's firmware revision.
+# error. No board is attached here, which the answer says on its own line and
+# still exits 0: the host half of it needs no board.
+#
+# Each line names what it is, so neither can be read as the other.
 HOST_VERSION_PREFIX = "Host tools version: libubertooth "
 # And the libbtbb the run loaded gets a labelled line of its own, because a
 # machine can have a distribution or Homebrew libbtbb beside this fork's and
 # the version alone does not say which one is being used.
 BTBB_PATH_PREFIX = "libbtbb loaded from: "
+NO_BOARD_LINE = "Firmware version: no Ubertooth attached"
 
-for arguments in HOST_VERSION_ARGUMENTS.get(TOOL, ()):
-    result = run(arguments)
-    assert result.returncode == 0, (arguments, result)
-    assert result.stderr == "", (arguments, result)
-    assert result.stdout.startswith(HOST_VERSION_PREFIX), (arguments, result)
-    # Two lines: the versions, then where libbtbb came from. Both are
-    # labelled, so either can be grepped for on its own.
-    lines = result.stdout.splitlines()
-    assert len(lines) == 2, (arguments, result)
-    assert "libbtbb " in lines[0], (arguments, result)
-    assert lines[1].startswith(BTBB_PATH_PREFIX), (arguments, result)
-    # A path, not an empty label: the fallback when the loader cannot say is
-    # the word "unknown".
-    assert lines[1][len(BTBB_PATH_PREFIX):].strip() != "", (arguments, result)
+result = run(["-V"])
+assert result.returncode == 0, result
+assert result.stderr == "", result
+lines = result.stdout.splitlines()
+# Three lines with no board attached: the versions, where libbtbb came from,
+# and what the firmware half has to say. Each is labelled, so any of them can
+# be grepped for on its own.
+assert len(lines) == 3, result
+assert lines[0].startswith(HOST_VERSION_PREFIX), result
+assert "libbtbb " in lines[0], result
+assert lines[1].startswith(BTBB_PATH_PREFIX), result
+# A path, not an empty label: the fallback when the loader cannot say is the
+# word "unknown".
+assert lines[1][len(BTBB_PATH_PREFIX):].strip() != "", result
+assert lines[2] == NO_BOARD_LINE, result
 
 # ---- a command line with nothing to do -------------------------------------
 
-checked = ["-h", "a bad option"]
-if HOST_VERSION_ARGUMENTS.get(TOOL):
-    checked.append("the host tools version")
+checked = ["-h", "-V", "a bad option"]
 
 refusal = NOTHING_TO_DO.get(TOOL)
 if refusal is not None:

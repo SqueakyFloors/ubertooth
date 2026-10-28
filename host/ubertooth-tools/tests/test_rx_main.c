@@ -318,7 +318,15 @@ void cb_rx(ubertooth_t* ut, void* args)
 	(void)args;
 }
 
-void print_version(void) { printf("test\n"); }
+/* The -V answer, which libubertooth gives in every tool: faked here, so this
+ * test stays about the tool's own command-line handling. The answer's own
+ * cases are in test_version_report.c. */
+int ubertooth_print_versions(const char *selector)
+{
+	(void)selector;
+	printf("version (test)\n");
+	return 0;
+}
 
 int stream_rx_file(ubertooth_t* ut, FILE* fp, rx_callback cb, void* cb_args)
 {

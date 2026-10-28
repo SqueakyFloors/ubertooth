@@ -488,9 +488,9 @@ fi
 
 if [ -n "$PY_DEPS_WARNING" ]; then
 	info "Done, but the Python tools (ubertooth-specan-ui, ubtbr) will not run: $PY_DEPS_WARNING"
-	info "Try: ubertooth-util -v"
+	info "Try: ubertooth-util -V"
 else
-	info "Done. Try: ubertooth-util -v   (and: ubertooth-specan-ui)"
+	info "Done. Try: ubertooth-util -V   (and: ubertooth-specan-ui)"
 fi
 case ":$ORIG_PATH:" in
 	*":$PREFIX/bin:"*) ;;

@@ -403,6 +403,16 @@ MU_TEST(an_output_mode_that_is_not_one_of_ours_ends_the_run)
 	          "one error: line, naming the mode");
 }
 
+/* The -V answer, which libubertooth gives in every tool: faked here, so this
+ * test stays about the tool's own command-line handling. The answer's own
+ * cases are in test_version_report.c. */
+int ubertooth_print_versions(const char *selector)
+{
+	(void)selector;
+	printf("version (test)\n");
+	return 0;
+}
+
 /* ---- a scripted device, so the real main() can be run ----------------- */
 
 /* The report about a refused request asks whether the board has left the bus

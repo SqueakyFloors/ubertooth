@@ -1451,6 +1451,7 @@ static void usage(FILE *file)
 	fputs("Miscellaneous:\n", file);
 	fputs("\t-s <filename> add DFU suffix to binary firmware file\n", file);
 	fputs(OPT_USAGE_SELECT_DEVICE, file);
+	fputs("\t-V print version information\n", file);
 }
 
 /* Settle how much flash the read-back asks the bootloader for, and say what
@@ -1538,8 +1539,11 @@ int main(int argc, char **argv) {
 	int exit_status = 0;
 	int opt;
 	opt_once once = {0};
-	/* -h ends the command once the whole command line has parsed (see below). */
+	/* -h ends the command once the whole command line has parsed (see
+	 * below), and so does -V, which reads the board and so can fail where
+	 * -h cannot. */
 	int first_exit_option = 0;
+	int do_version = 0;
 	char* ubertooth_device = NULL;
 	int r;
 
@@ -1547,7 +1551,7 @@ int main(int argc, char **argv) {
 	 * see opt_report_bad_option(). The leading ':' makes a missing option
 	 * value distinguishable from an option getopt does not know. */
 	opterr = 0;
-	while ((opt=getopt(argc,argv,":hd:u:s:rU:")) != EOF) {
+	while ((opt=getopt(argc,argv,":hVd:u:s:rU:")) != EOF) {
 		/* No option may be given a value twice: see opt_check_once(). */
 		if (opt_check_once(&once, opt, optarg) < 0) {
 			exit_status = 1;
@@ -1598,6 +1602,9 @@ int main(int argc, char **argv) {
 		case 'U':
 			ubertooth_device = optarg;
 			break;
+		case 'V':
+			do_version = 1;
+			break;
 		case 'h':
 			if (!first_exit_option)
 				first_exit_option = 'h';
@@ -1616,13 +1623,16 @@ int main(int argc, char **argv) {
 		goto end_without_device;
 	}
 
-	/* -h ends the command, but only once the whole command line has
-	 * parsed: a bad option value or a stray word is reported even
-	 * alongside it. */
-	if (first_exit_option == 'h') {
+	/* -h and -V end the command, but only once the whole command line has
+	 * parsed: a bad option value or a stray word is reported even alongside
+	 * them. A command line with both prints both, and the usage text comes
+	 * last so the version is not scrolled off the screen by it. */
+	if (do_version)
+		exit_status = ubertooth_print_versions(ubertooth_device);
+	if (first_exit_option == 'h')
 		usage(stdout);
+	if (do_version || first_exit_option == 'h')
 		goto end_without_device;
-	}
 
 	/* No function is no work: the tool used to exit 0 having touched
 	 * nothing and said nothing, so a mistyped command looked like a

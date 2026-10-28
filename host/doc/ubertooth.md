@@ -39,6 +39,46 @@ Less useful commands:
  - ubertooth-debug(1) : Peeking and poking registers on the CC2400
  - ubertooth-specan(1) : Raw RSSI values used by graphical specan
 
+## COMMON OPTIONS
+
+Three options mean the same thing in every tool.
+
+`-h` prints that tool's usage text on standard output and exits 0.
+
+`-V` prints the version, on standard output, exits 0, and is the way to ask
+what is installed and what a board is running. Every tool answers it in the
+same words, one labelled line each, so a script can take the line it wants
+whichever tool it ran:
+
+    Host tools version: libubertooth <version> (<revision>), libbtbb <version> (<revision>)
+    Firmware version: <image> <revision> (API:<version>)
+    Firmware build: <build string the board reports>
+
+The two firmware lines describe the board `-U` names, or the only board
+attached. With several boards attached and no `-U`, both lines are printed for
+each of them with its index in the label, as the identity queries of
+ubertooth-util(1) are: `Firmware version (0): ...`, `Firmware build (0): ...`.
+
+With no Ubertooth attached the host line is followed by `Firmware version: no
+Ubertooth attached` and the status is still 0: the host half of the answer
+needs no board, and nothing attached is an answer rather than a failure. A
+board that is attached but cannot be read -- in use by another program, or not
+answering -- has the reason on its own line (`Firmware version: unavailable,
+in use by another program`, or `Firmware version: read failed`) and the status
+is 1.
+
+Asking for the version does not disturb a board: it is not told to stop, so a
+mode running on it keeps running, and any firmware is read whatever API
+version it reports, which is what makes `-V` the way to identify an unknown
+board.
+
+`-v` means verbose, where a tool has verbose output: ubertooth-specan(1) `-v`,
+and ubertooth-debug(1) `-v <0-2>`. Two tools spell something else `-v`, and
+both are older spellings kept so that existing scripts keep working:
+ubertooth-util(1) `-v` prints the `Firmware version:` line on its own
+(deprecated, and unchanged: use `-V`), and ubertooth-btle(1) `-v` is the older
+spelling of `-k`, its CRC verify setting, which warns and will be removed.
+
 ## OPTION VALUES
 
 These pages write an option's value as a separate word: `ubertooth-util -c

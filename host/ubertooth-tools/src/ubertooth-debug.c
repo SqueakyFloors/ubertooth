@@ -61,6 +61,7 @@ static void usage(FILE *file)
 	  file);
     fputs("Usage:\n", file);
     fputs("\t-h this message\n", file);
+    fputs("\t-V print version information\n", file);
     fputs("\t-r <reg>[,<reg>[,...]] read the contents of CC2400 register(s),\n",
 	  file);
     fprintf(file, "\t   each 0x00-0x%02x or a %%name (example: -r 0x02,%%main)\n",
@@ -110,6 +111,9 @@ int main(int argc, char *argv[])
     opt_once once = {0};
     int r = 0;
     int do_help = 0;
+    /* -V ends the command as -h does, and reads the board, so it has a
+     * result of its own. */
+    int do_version = 0, version_status = 0;
     int verbose = 1;
     ubertooth_t* ut = NULL;
     int do_read_register;
@@ -126,7 +130,7 @@ int main(int argc, char *argv[])
      * see opt_report_bad_option(). The leading ':' makes a missing option
      * value distinguishable from an option getopt does not know. */
     opterr = 0;
-    while ((opt = getopt(argc, argv, ":hU:r:v:")) != EOF) {
+    while ((opt = getopt(argc, argv, ":hVU:r:v:")) != EOF) {
 	/* No option may be given a value twice: see opt_check_once(). A second
 	 * -r used to replace the list the first one gave, without a word; one
 	 * -r already takes a whole list ("-r %main,0x02-0x05"). */
@@ -135,6 +139,9 @@ int main(int argc, char *argv[])
 	    return 1;
 	}
 	switch (opt) {
+	case 'V':
+	    do_version = 1;
+	    break;
 	case 'h':
 	    do_help = 1;
 	    break;
@@ -193,12 +200,17 @@ int main(int argc, char *argv[])
 	return 1;
     }
 
-    /* -h ends the command, but only once the whole command line has parsed:
-     * a bad option value or a stray word is reported even alongside it. */
-    if (do_help) {
+    /* -h and -V end the command, but only once the whole command line has
+     * parsed: a bad option value or a stray word is reported even alongside
+     * them. A command line with both prints both, and the usage text comes
+     * last so the version is not scrolled off the screen by it. */
+    if (do_version)
+	version_status = ubertooth_print_versions(ubertooth_device);
+    if (do_help)
 	usage(stdout);
+    if (do_version || do_help) {
 	free(regList);
-	return 0;
+	return version_status;
     }
 
     if (regListN == 0) {

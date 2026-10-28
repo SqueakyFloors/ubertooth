@@ -143,7 +143,8 @@ static const char* loaded_libbtbb_path(void)
 void print_version(void) {
 	const char* btbb_path = loaded_libbtbb_path();
 
-	printf("Host tools version: libubertooth %s (%s), libbtbb %s (%s)\n",
+	printf(UBERTOOTH_VERSION_LABEL_HOST ": libubertooth %s (%s), "
+	       "libbtbb %s (%s)\n",
 	       VERSION, RELEASE, btbb_get_version(), btbb_get_release());
 	/* Which libbtbb, not just which version of it: a distribution or
 	 * Homebrew package beside this fork's build reports a version too, and

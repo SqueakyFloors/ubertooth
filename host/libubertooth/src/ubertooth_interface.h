@@ -33,16 +33,16 @@
  * Both run-time images report it: bluetooth_rxtx and btbr ship from the same
  * commit and answer the same shared requests, so they carry the same number.
  * btbr used to report a literal 1.06 instead, which nothing bumped and which
- * made every tool but ubertooth-util -v refuse a board running that image,
- * whatever revision it was built from.
+ * made every tool refuse a board running that image, whatever revision it was
+ * built from, except for the version reports, which read any firmware.
  *
  * During development it is bumped in every pull request that changes firmware
  * behaviour the host relies on: a new, removed or changed request, or a
  * changed behaviour of an existing one. Host-only changes leave it alone, so
  * a board carrying firmware from an earlier commit is normally, but not
  * always, refused: commits that leave the firmware interface alone share the
- * number before them, which is why it is the revision ubertooth-util -v shows
- * beside the version that identifies a build. A bump also updates
+ * number before them, which is why it is the revision the `Firmware version:`
+ * line shows beside the version that identifies a build. A bump also updates
  * CHANGELOG.md, COMPATIBILITY.md, TEST_PLAN.md and the pinned strings in the
  * tests.
  *

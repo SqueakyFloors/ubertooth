@@ -139,9 +139,9 @@ Miscellaneous Usage
 -------------------
 
 CRC verification is enabled by default. To change this setting, use the
--v flag (you should adjust the squelch if you disable it):
+-k flag (you should adjust the squelch if you disable it):
 
-    ubertooth-btle -v0
+    ubertooth-btle -k0
 
 The access address being used is normally auto-detected, either from the
 connection packet or recovered in promiscuous mode. If you wish to

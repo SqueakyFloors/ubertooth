@@ -43,7 +43,7 @@ the file holds and which revision it was built from:
     Image: bluetooth_rxtx git-ed30131d* (API:<version>)
 
 The API version on that line comes from the block, and the USB `bcdDevice`
-`ubertooth-util -v` reads off a running board carries the same value, for either
+`ubertooth-util -V` reads off a running board carries the same value, for either
 image. This tree's version moves with the firmware, so the samples here write it
 as `<version>`; `COMPATIBILITY.md` names the value this tree requires.
 
@@ -227,6 +227,9 @@ Miscellaneous:
  - `-U <index|serial>` :
    select the application-mode Ubertooth by enumeration index or serial
    number; see ubertooth(7), SELECTING A DEVICE
+ - `-V` :
+   print the version: the host tools, then the firmware version and build of
+   each attached board; see ubertooth(7), COMMON OPTIONS
  - `-h` :
    print the usage text on standard output and exit 0. It takes effect once
    the whole command line has parsed, so a bad option value, a stray word or
@@ -312,7 +315,7 @@ again and return to the bootloader, and `-r` fails with
 `error: detach failed: the board reset and came back in the bootloader`: the
 image is written, and the board is in DFU rather than running it. If removing
 a live bridge is inconvenient, finish the flash, unplug the device, remove the
-bridge, and reconnect it; `ubertooth-util -v` then reports the new firmware.
+bridge, and reconnect it; `ubertooth-util -V` then reports the new firmware.
 
 ## ARGUMENTS
 
@@ -420,20 +423,20 @@ after the first being its detail; see ubertooth(7).
 The `-d ... -r` verification has more than one way not to pass, and they do not
 mean the same thing, so each has its own line:
 
-    error: the firmware was written, but the board did not come back on USB: power-cycle it and read its revision with ubertooth-util -v before flashing it again
-    error: the firmware was written, but the board came back and would not open, so the flash was not checked: read its revision with ubertooth-util -v once nothing else is using it
-    error: the firmware was written, but the host's USB bus could not be read, so the flash was not checked: read the board's revision with ubertooth-util -v
+    error: the firmware was written, but the board did not come back on USB: power-cycle it and read its revision with ubertooth-util -V before flashing it again
+    error: the firmware was written, but the board came back and would not open, so the flash was not checked: read its revision with ubertooth-util -V once nothing else is using it
+    error: the firmware was written, but the host's USB bus could not be read, so the flash was not checked: read the board's revision with ubertooth-util -V
     error: the board came back running git-0000000, not git-ed30131d: the firmware was not written, so flash it again
     error: the board came back running the btbr firmware, not the bluetooth_rxtx image that was written: the firmware was not written, so flash it again
-    error: the board came back but would not report its firmware revision, so the flash was not checked: read it with ubertooth-util -v
+    error: the board came back but would not report its firmware revision, so the flash was not checked: read it with ubertooth-util -V
     error: the board came back running git-ed30131d, the revision that was written, but would not say which firmware image it is, so which of this tree's images it runs is unchecked
-    error: the device that came back is not on the flashed board's USB path, so the flash was not checked: read the board's revision with ubertooth-util -v
+    error: the device that came back is not on the flashed board's USB path, so the flash was not checked: read the board's revision with ubertooth-util -V
 
 Two of those say the write did not take and ask for another flash: the one
 that names another revision, and the one that names the other image. The first
 three lines are boards whose flash already holds the new firmware: the whole
 image went in and the board was reset before it stopped answering, so what
-they need is a `ubertooth-util -v`, not another flash. The second of them is a
+they need is a `ubertooth-util -V`, not another flash. The second of them is a
 board that is on the bus and will not open, usually because something else is
 using it or this user has no permission to it, so a power cycle is not what it
 is waiting for; the third is a board that was never looked at, because the

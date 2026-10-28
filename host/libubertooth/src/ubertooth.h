@@ -247,7 +247,49 @@ extern int max_ac_errors;
  * documents as 5. Anything larger needs a syndrome table of several GB. */
 #define MAX_AC_ERRORS 5
 
+/* The host tools' own version, the first lines of the -V answer below.
+ * Tools call ubertooth_print_versions() rather than this. */
 void print_version(void);
+
+/* The labels the version lines carry, so a tool that prints one of them on
+ * its own cannot label it differently from -V. */
+#define UBERTOOTH_VERSION_LABEL_HOST     "Host tools version"
+#define UBERTOOTH_VERSION_LABEL_FIRMWARE "Firmware version"
+#define UBERTOOTH_VERSION_LABEL_BUILD    "Firmware build"
+
+/* Long enough for any version, revision or build string a board reports:
+ * those are read into a buffer of this size and truncated to fit. */
+#define UBERTOOTH_VERSION_TEXT_LEN 255
+
+/* The whole answer to -V, on standard output, which is the same in every
+ * tool: the host tools' version, then the firmware version and build of the
+ * board the user named with -U, or of the only board attached. With several
+ * boards and no -U, those two lines per board, indexed. With no board
+ * attached, "Firmware version: no Ubertooth attached".
+ *
+ * selector is the -U argument, or NULL where the user named no board. The
+ * board is opened and closed without a STOP, so asking for the version does
+ * not end a mode it is running, and no firmware API version is required: -V
+ * has to answer on whatever firmware the board is carrying.
+ *
+ * Returns the exit status the tool should use: 0 when the answer is complete,
+ * including with no board attached, and 1 when a board is attached but could
+ * not be read -- that board's line says why, and the library has already put
+ * the reason on standard error.
+ */
+int ubertooth_print_versions(const char *selector);
+
+/* The firmware version of an open board as the text the line above carries:
+ * "<image> <revision> (API:<x.yy>)", or the revision alone plus the API
+ * version on firmware older than the info block.
+ *
+ * For a caller that prints that text in a line of its own
+ * (ubertooth-util -v). Returns 0 when all of it was read, or 1 when part of
+ * it could not be, already reported on standard error: text then holds what
+ * was read, and is an empty string when nothing was.
+ */
+int ubertooth_firmware_version_text(ubertooth_t *ut, char *text, size_t size);
+
 /* Installs the library's signal handlers, so Ctrl-C, SIGTERM, SIGHUP, SIGQUIT
  * and SIGALRM stop the capture instead of killing the tool with its mode still
  * running on the board. Pass do_exit = 0: see cleanup_exit() in ubertooth.c.

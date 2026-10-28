@@ -397,6 +397,12 @@ if(libubertooth_SOURCE_DIR)
 else()
 	target_include_directories(test-util-main PRIVATE ${LIBUBERTOOTH_INCLUDE_DIR})
 endif()
+# -v and -V both print what libubertooth's ubertooth_version.c reads off the
+# board, so that source is compiled in either way and the cases pin the lines
+# the tool really prints. It sits beside the tools in this repository, so the
+# path holds for a build against an installed library too.
+target_sources(test-util-main PRIVATE
+	${CMAKE_CURRENT_SOURCE_DIR}/../../libubertooth/src/ubertooth_version.c)
 target_include_directories(test-util-main PRIVATE ../src
 	${LIBBTBB_INCLUDE_DIR})
 if(USE_OWN_GNU_GETOPT)
@@ -409,6 +415,23 @@ add_test(NAME util-main COMMAND test-util-main)
 # interrupted) run inside main() would hang; fail it instead. A normal run
 # takes well under a second (0.02-0.5 s locally and in CI).
 set_tests_properties(util-main PROPERTIES TIMEOUT 5)
+
+# The -V answer every tool gives, which is libubertooth's
+# ubertooth_version.c: the real source, with the test's fakes for the device
+# calls it makes, so the cases pin what a tool prints. Nothing else of the
+# library is linked, so no device is opened. Skipped against an installed
+# libubertooth, where there is no source to compile in.
+if(libubertooth_SOURCE_DIR)
+	add_executable(test-version-report
+		test_version_report.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_version.c)
+	target_include_directories(test-version-report PRIVATE
+		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR}
+		${LIBBTBB_INCLUDE_DIR})
+	add_test(NAME version-report COMMAND test-version-report)
+	# A few lines into a temporary file, ten times over: milliseconds.
+	set_tests_properties(version-report PROPERTIES TIMEOUT 5)
+endif()
 
 # run_main.h, the harness that runs a tool's main() with both its streams
 # captured, for the tests below that drive one. Its own cases drive a fake

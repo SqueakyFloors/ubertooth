@@ -31,6 +31,7 @@ static void usage(FILE *file)
 	fprintf(file, "ubertooth-dump - output a continuous stream of received bits\n");
 	fprintf(file, "Usage:\n");
 	fprintf(file, "\t-h this help\n");
+	fprintf(file, "\t-V print version information\n");
 	fprintf(file, "\t-b only dump received bitstream (GnuRadio style)\n");
 	fprintf(file, "\t-c classic modulation\n");
 	fprintf(file, "\t-l LE modulation\n");
@@ -52,8 +53,11 @@ int main(int argc, char *argv[])
 {
 	int opt;
 	opt_once once = {0};
-	/* -h ends the command once the whole command line has parsed (see below). */
+	/* -h ends the command once the whole command line has parsed (see below),
+	 * and so does -V, whose own result is version_status: it reads the board,
+	 * so it can fail where -h cannot. */
 	int first_exit_option = 0;
+	int do_version = 0, version_status = 0;
 	int bitstream = 0;
 	int modulation = MOD_BT_BASIC_RATE;
 	/* The option that chose the modulation, so a refused pair names both as
@@ -69,7 +73,7 @@ int main(int argc, char *argv[])
 	 * see opt_report_bad_option(). The leading ':' makes a missing option
 	 * value distinguishable from an option getopt does not know. */
 	opterr = 0;
-	while ((opt=getopt(argc,argv,":bhclU:d:")) != EOF) {
+	while ((opt=getopt(argc,argv,":bhVclU:d:")) != EOF) {
 		/* No option may be given a value twice: see opt_check_once(). */
 		if (opt_check_once(&once, opt, optarg) < 0)
 			return 1;
@@ -103,6 +107,9 @@ int main(int argc, char *argv[])
 			 * truncates nothing. */
 			dump_name = optarg;
 			break;
+		case 'V':
+			do_version = 1;
+			break;
 		case 'h':
 			if (!first_exit_option)
 				first_exit_option = 'h';
@@ -118,13 +125,16 @@ int main(int argc, char *argv[])
 	if (opt_check_no_operands(argc, argv) < 0)
 		return 1;
 
-	/* -h ends the command, but only once the whole command line has
-	 * parsed: a bad option value or a stray word is reported even
-	 * alongside it. */
-	if (first_exit_option == 'h') {
+	/* -h and -V end the command, but only once the whole command line has
+	 * parsed: a bad option value or a stray word is reported even alongside
+	 * them. A command line with both prints both, and the usage text comes
+	 * last so the version is not scrolled off the screen by it. */
+	if (do_version)
+		version_status = ubertooth_print_versions(ubertooth_device);
+	if (first_exit_option == 'h')
 		usage(stdout);
-		return 0;
-	}
+	if (do_version || first_exit_option == 'h')
+		return version_status;
 
 	/* Without -d the stream is standard output, so a terminal there is the
 	 * same mistake as "-d -" on one: it fills the screen with control

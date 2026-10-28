@@ -50,6 +50,7 @@ static void usage(FILE *file)
 	fprintf(file, "ubertooth-ego - Yuneec E-GO skateboard sniffing\n");
 	fprintf(file, "Usage:\n");
 	fprintf(file, "\t-h this help\n");
+	fprintf(file, "\t-V print version information\n");
 	fprintf(file, "\n");
 	fprintf(file, "    Major modes:\n");
 	fprintf(file, "\t-f follow connections\n");
@@ -75,8 +76,11 @@ int main(int argc, char *argv[])
 {
 	int opt;
 	opt_once once = {0};
-	/* -h ends the command once the whole command line has parsed (see below). */
+	/* -h ends the command once the whole command line has parsed (see below),
+	 * and so does -V, whose own result is version_status: it reads the board,
+	 * so it can fail where -h cannot. */
 	int first_exit_option = 0;
+	int do_version = 0, version_status = 0;
 	int do_mode = -1;
 	/* The option letter that chose the mode, so a refused combination names
 	 * it as the user spelled it: -i and -j are the same mode. */
@@ -96,7 +100,7 @@ int main(int argc, char *argv[])
 	 * see opt_report_bad_option(). The leading ':' makes a missing option
 	 * value distinguishable from an option getopt does not know. */
 	opterr = 0;
-	while ((opt=getopt(argc,argv,":frijc:U:a:l:h")) != EOF) {
+	while ((opt=getopt(argc,argv,":frijc:U:a:l:hV")) != EOF) {
 		/* No option may be given a value twice: see opt_check_once(). */
 		if (opt_check_once(&once, opt, optarg) < 0)
 			return 1;
@@ -154,6 +158,9 @@ int main(int argc, char *argv[])
 			}
 			have_length = 1;
 			break;
+		case 'V':
+			do_version = 1;
+			break;
 		case 'h':
 			if (!first_exit_option)
 				first_exit_option = 'h';
@@ -169,13 +176,16 @@ int main(int argc, char *argv[])
 	if (opt_check_no_operands(argc, argv) < 0)
 		return 1;
 
-	/* -h ends the command, but only once the whole command line has
-	 * parsed: a bad option value or a stray word is reported even
-	 * alongside it. */
-	if (first_exit_option == 'h') {
+	/* -h and -V end the command, but only once the whole command line has
+	 * parsed: a bad option value or a stray word is reported even alongside
+	 * them. A command line with both prints both, and the usage text comes
+	 * last so the version is not scrolled off the screen by it. */
+	if (do_version)
+		version_status = ubertooth_print_versions(ubertooth_device);
+	if (first_exit_option == 'h')
 		usage(stdout);
-		return 0;
-	}
+	if (do_version || first_exit_option == 'h')
+		return version_status;
 
 	/* A major mode is the work. Without one the tool used to open the
 	 * selected board, check its firmware, do nothing and exit 0. */

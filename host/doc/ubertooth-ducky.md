@@ -29,6 +29,9 @@ If no Bluetooth address is given, a random BD_ADDR is used (read from
  - `-U <index|serial>` :
    select an Ubertooth by enumeration index or serial number; see
    ubertooth(7), SELECTING A DEVICE
+ - `-V` :
+   print the version: the host tools, then the firmware version and build of
+   each attached board; see ubertooth(7), COMMON OPTIONS
  - `-h` :
    show help.
 

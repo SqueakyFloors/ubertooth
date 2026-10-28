@@ -70,7 +70,7 @@ reject(("-a", "11223344", "-a"), BOTH)
 # where it used to open the board, send nothing and exit 0 after printing the
 # usage text on stdout.
 NOTHING = "error: nothing to do: choose a major mode (-f, -n or -p)," \
-    " or -a, -v, -s or -t"
+    " or -a, -k, -s or -t"
 reject((), NOTHING)
 # the options that only shape work asked for by another option
 reject(("-A", "39"), NOTHING)
@@ -89,7 +89,7 @@ for spelling in ("i", "I", "j", "J"):
     reject(("-n", "-" + spelling), NEEDS_MODE)
     # not only with -n: any command line without -f or -p
     reject(("-a", "-" + spelling), NEEDS_MODE)
-    reject(("-v", "-" + spelling), NEEDS_MODE)
+    reject(("-k", "-" + spelling), NEEDS_MODE)
     reject(("-tnone", "-" + spelling), NEEDS_MODE)
 # -f and -p take it
 for arguments in (("-f", "-i"), ("-f", "-I"), ("-p", "-j"), ("-p", "-J")):
@@ -104,11 +104,11 @@ AFTER_A_MODE = "error: -a and -s do not go with -f, -n or -p:" \
 for mode in ("-f", "-n", "-p"):
     for option in ("-a", "-a8e89bed6", "-s22:44:66:88:aa:cc"):
         reject((mode, option), AFTER_A_MODE)
-    # -t is sent before the mode starts and -v once it has started, so both
+    # -t is sent before the mode starts and -k once it has started, so both
     # still go with a sniffing mode
     accepted_command_line((mode, "-t22:44:66:88:aa:cc"))
-    accepted_command_line((mode, "-v"))
-    accepted_command_line((mode, "-v1"))
+    accepted_command_line((mode, "-k"))
+    accepted_command_line((mode, "-k1"))
 print("ubertooth-btle: -a and -s are refused alongside a sniffing mode")
 
 # a bare command line is the one refusal the usage text follows, on standard
@@ -143,7 +143,7 @@ assert result.stderr == NOTHING + "\n", result
 # each of the options that do have work in it gets past this check: it is the
 # device the tool then complains about, not the command line
 for arguments in (("-f",), ("-n",), ("-p",), ("-a",), ("-a8e89bed6",),
-                  ("-v",), ("-v1",), ("-s22:44:66:88:aa:cc",),
+                  ("-k",), ("-k1",), ("-s22:44:66:88:aa:cc",),
                   ("-t22:44:66:88:aa:cc",), ("-tnone",)):
     result = subprocess.run(
         [BINARY, "-U", "ffffffffffffffffffffffffffffffff", *arguments],

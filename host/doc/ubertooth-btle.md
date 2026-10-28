@@ -186,7 +186,7 @@ Logging:
    reach stderr either. The lines that
    answer an option in the same command go to stderr rather than being
    suppressed with it: the `Access address:` line of `-a`, the `CRC:` line of
-   `-v`, the target lines of `-t`, and the connection parameters `-p`
+   `-k`, the target lines of `-t`, and the connection parameters `-p`
    recovers. The tool
    refuses to write binary capture data directly to an interactive terminal:
    `error: stdout is a tty, refusing to write binary capture data to it`, with
@@ -214,11 +214,11 @@ Miscellaneous:
    mode. The address is 1 to 8 hex digits (`-a 8e89bed6`); fewer than 8 means
    leading zeros (`-a 12345` sets `00012345`). Anything else is refused before
    the device is opened. Getting and setting in one command is refused; other
-   options such as `-v` still run after a get. `-a` does not go with a
+   options such as `-k` still run after a get. `-a` does not go with a
    sniffing mode (`-f`, `-n`, `-p`), which runs until it is interrupted; the
    combination is refused before any device is opened.
- - `-v [01]` :
-   Read (`-v`) or set (`-v 0` or `-v 1`) CRC verification
+ - `-k [01]` :
+   Read (`-k`) or set (`-k 0` or `-k 1`) CRC verification
    (default: 0). Any other value is refused. A set and a read in one command
    both happen, the set first, so the read reports the new value, in whichever
    order they are written; two sets are refused, as two values for one setting
@@ -226,6 +226,15 @@ Miscellaneous:
    run once the mode has started, because entering a mode clears the setting,
    and the firmware then turns verification on and off itself as it recovers a
    connection.
+ - `-v [01]` :
+   The older spelling of `-k`, **deprecated**. It still does what `-k` does
+   and prints one line on standard error -- `warning: -v for the CRC verify
+   setting is deprecated and will be removed; use -k` -- so a script that uses
+   it keeps working for this release. After that `-v` means verbose here as it
+   does in every other tool (ubertooth(7), COMMON OPTIONS). A command line
+   that gives both spellings names one setting twice and is refused:
+   `error: -k cannot be combined with -v; they are the same CRC verify setting
+   written two ways`.
  - `-x <0-32>` :
    Allow n access address violations (default: 32). Filtering occurs on
    host.
@@ -235,6 +244,9 @@ Data source:
  - `-U <index|serial>` :
    select an Ubertooth by enumeration index or serial number; see
    ubertooth(7), SELECTING A DEVICE
+ - `-V` :
+   print the version: the host tools, then the firmware version and build of
+   each attached board; see ubertooth(7), COMMON OPTIONS
 
 ## USING WITH CRACKLE
 
@@ -272,7 +284,7 @@ way instead of being read as 0, for example
 
 A bare `-` is still the stdin/stdout value of `-q`, `-c` and `-r`. See
 ubertooth(7), OPTION VALUES, for the forms an option's value can take,
-including the optional values of `-a` and `-v`.
+including the optional values of `-a` and `-k`.
 
 An option combination the tool cannot carry out is refused there too, before
 any device is opened, so the message never depends on which boards are
@@ -284,8 +296,8 @@ access address in one command gives
 `-a` or `-s` alongside a sniffing mode gives
 `error: -a and -s do not go with -f, -n or -p: a sniffing mode runs until it
 is interrupted`, so there is nothing for an access address or faux slave mode
-request to run after. `-t` and `-v` are not in that list: `-t` is sent before
-the mode starts, which is what it is for, and the `-v` options run once it has
+request to run after. `-t` and `-k` are not in that list: `-t` is sent before
+the mode starts, which is what it is for, and the `-k` options run once it has
 started.
 
 `-i` or `-I` without `-f` or `-p` gives
@@ -298,7 +310,7 @@ would, because only two of them can carry interference.
 A command line with no work in it is refused the same way. `-U`, `-A`, `-x`
 and the capture options only shape work another option asks for, so a command
 made up of those alone, or a bare `ubertooth-btle`, gives
-`error: nothing to do: choose a major mode (-f, -n or -p), or -a, -v, -s or -t`,
+`error: nothing to do: choose a major mode (-f, -n or -p), or -a, -k, -s or -t`,
 on standard error with nothing on standard output. A bare `ubertooth-btle` is
 the one refusal the usage text follows, also on standard error; every other
 refused command line is the `error: ` line alone, and `-h` prints the usage
@@ -312,7 +324,7 @@ so a run refused for either reason leaves no empty file behind either.
 ## DIAGNOSTICS
 
 Standard output carries only what was asked for: either the decoded packets or
-the capture data of `-q -` or `-c -`, plus the lines that answer `-a`, `-v` and
+the capture data of `-q -` or `-c -`, plus the lines that answer `-a`, `-k` and
 `-t` and the parameters `-p` recovers. With the capture on standard output,
 standard output belongs to the capture for the whole run: those lines move to
 standard error, and the decoded packets are not printed at all.

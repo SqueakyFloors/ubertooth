@@ -122,6 +122,7 @@ static void usage(FILE *out)
 	fprintf(out, "ubertooth-btle - passive Bluetooth Low Energy monitoring\n");
 	fprintf(out, "Usage:\n");
 	fprintf(out, "\t-h this help\n");
+	fprintf(out, "\t-V print version information\n");
 	fprintf(out, "\n");
 	fprintf(out, "    Major modes:\n");
 	fprintf(out, "\t-f follow connections\n");
@@ -149,8 +150,9 @@ static void usage(FILE *out)
 	fprintf(out, "\t-A <%d-%d> advertising channel index (default %d);"
 	       " not with -p\n",
 	       ADV_INDEX_MIN, ADV_INDEX_MAX, ADV_INDEX_MIN);
-	fprintf(out, "\t-v [01] verify CRC mode, read status (-v) or enable/disable (-v 1, -v 0);\n");
+	fprintf(out, "\t-k [01] verify CRC mode, read status (-k) or enable/disable (-k 1, -k 0);\n");
 	fprintf(out, "\t       both in one command sets first, then reports the new value\n");
+	fprintf(out, "\t-v [01] the older spelling of -k, deprecated; -v will become verbose\n");
 	fprintf(out, "\t-x <0-%d> allow n access address offenses (default %d)\n",
 	       AA_ERRORS_MAX, AA_ERRORS_MAX);
 
@@ -177,15 +179,21 @@ int main(int argc, char *argv[])
 {
 	int opt;
 	opt_once once = {0};
-	/* -h ends the command once the whole command line has parsed (see below). */
+	/* -h ends the command once the whole command line has parsed (see below),
+	 * and so does -V, whose own result is version_status: it reads the board,
+	 * so it can fail where -h cannot. */
 	int first_exit_option = 0;
+	int do_version = 0, version_status = 0;
 	int do_follow, do_no_follow, do_promisc;
 	int do_get_aa, do_set_aa;
 	/* The CRC verify set and read have their own state, so one command can
 	 * do both: -1 means no set was asked for, 0 or 1 the value to set, and
-	 * do_get_crc is a plain flag. They shared one variable, so -v1 -v read
-	 * only and -v -v1 set only, dropping the other half with exit 0. */
+	 * do_get_crc is a plain flag. They shared one variable, so -k1 -k read
+	 * only and -k -k1 set only, dropping the other half with exit 0. */
 	int do_set_crc, do_get_crc;
+	/* -k or -v, whichever named the CRC verify setting: one setting written
+	 * two ways, so a command line may give only one of them. */
+	int crc_option = 0;
 	int do_adv_index;
 	/* Whether -A was written, as against left at its default: the default
 	 * is harmless with any mode, an explicit one is refused with -p. */
@@ -238,14 +246,14 @@ int main(int argc, char *argv[])
 	 * see opt_report_bad_option(). The leading ':' makes a missing option
 	 * value distinguishable from an option getopt does not know. */
 	opterr = 0;
-	while ((opt=getopt(argc,argv,":a::r:hfnpU:v::A:s:t:x:c:q:jJiI")) != EOF) {
+	while ((opt=getopt(argc,argv,":a::r:hVfnpU:k::v::A:s:t:x:c:q:jJiI")) != EOF) {
 		/* getopt only attaches an optional value (-a8e89bed6, -v1); take
 		 * a following word that could be the value as the value too, so
 		 * "-a 8e89bed6" sets and "-a zzzz" is refused rather than
 		 * silently reading. ubertooth-btle takes no other operands.
 		 * Resolved before the check below, which only counts an option
 		 * that came with a value. */
-		if (optarg == NULL && (opt == 'a' || opt == 'v'))
+		if (optarg == NULL && (opt == 'a' || opt == 'k' || opt == 'v'))
 			optarg = opt_separate_value(argc, argv,
 			                            opt == 'a' ? opt_value_not_option
 			                                       : opt_value_decimal);
@@ -300,8 +308,22 @@ int main(int argc, char *argv[])
 			}
 			break;
 		case 'v':
-			/* -v reads the CRC verify setting; -v0 / -v1 sets it, written
-			 * attached or as the next word (taken above). */
+			/* The older spelling of -k, kept working for one release so that
+			 * existing scripts are not broken by the move. The warning about
+			 * it comes below, once the command line is known to use the
+			 * setting at all. */
+			/* fall through */
+		case 'k':
+			/* -k reads the CRC verify setting; -k0 / -k1 sets it, written
+			 * attached or as the next word (taken above). One setting
+			 * written two ways: a command line that gives both is refused
+			 * rather than one of them being dropped. */
+			if (crc_option != 0 && crc_option != opt) {
+				fprintf(stderr, "error: -k cannot be combined with -v; they "
+				        "are the same CRC verify setting written two ways\n");
+				return 1;
+			}
+			crc_option = opt;
 			if (optarg) {
 				if (opt_require_int(optarg, 0, 1, "CRC verify mode", "",
 				                    &do_set_crc) < 0)
@@ -349,6 +371,9 @@ int main(int argc, char *argv[])
 			jam_mode = JAM_CONTINUOUS;
 			jam_option = opt;
 			break;
+		case 'V':
+			do_version = 1;
+			break;
 		case 'h':
 			if (!first_exit_option)
 				first_exit_option = 'h';
@@ -366,13 +391,25 @@ int main(int argc, char *argv[])
 	if (opt_check_no_operands(argc, argv) < 0)
 		return 1;
 
-	/* -h ends the command, but only once the whole command line has
-	 * parsed: a bad option value or a stray word is reported even
-	 * alongside it. */
-	if (first_exit_option == 'h') {
+	/* -h and -V end the command, but only once the whole command line has
+	 * parsed: a bad option value or a stray word is reported even alongside
+	 * them. A command line with both prints both, and the usage text comes
+	 * last so the version is not scrolled off the screen by it. */
+	if (do_version)
+		version_status = ubertooth_print_versions(ubertooth_device);
+	if (first_exit_option == 'h')
 		usage(stdout);
-		return 0;
-	}
+	if (do_version || first_exit_option == 'h')
+		return version_status;
+
+	/* -v named the CRC verify setting, which is -k now: -v means verbose in
+	 * every other tool, and will here too. Said once, however many times -v
+	 * was written, and only for a command line that goes on to use the
+	 * setting -- -h and -V have ended the command above, and neither has
+	 * anything to do with it. */
+	if (crc_option == 'v')
+		fprintf(stderr, "warning: -v for the CRC verify setting is deprecated "
+		        "and will be removed; use -k\n");
 
 	/* -a reads and -a<address> sets; one command cannot do both (the read
 	 * used to win and the set was dropped). */
@@ -422,7 +459,7 @@ int main(int argc, char *argv[])
 	if (!(do_follow || do_no_follow || do_promisc || do_get_aa || do_set_aa ||
 	      do_set_crc >= 0 || do_get_crc || do_slave_mode || do_target)) {
 		fprintf(stderr, "error: nothing to do: choose a major mode"
-		        " (-f, -n or -p), or -a, -v, -s or -t\n");
+		        " (-f, -n or -p), or -a, -k, -s or -t\n");
 		if (opt_no_arguments(argc))
 			usage(stderr);
 		return 1;

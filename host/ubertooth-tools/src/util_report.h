@@ -2,6 +2,10 @@
  * Hardware-independent identity reports and exit-status handling for
  * ubertooth-util.
  *
+ * The firmware version line lives in libubertooth, where -V reads it for
+ * every tool (ubertooth_firmware_version_text()); ubertooth-util -v prints
+ * that same reading.
+ *
  * Device queries are injected by the caller so the printed output and the
  * process status can be tested without an attached Ubertooth. A report returns
  * 0 on success and 1 on failure; the numeric value it reads from the device
@@ -26,20 +30,6 @@
 struct util_report_ops {
 	/* Board ID (0 or greater), or a negative value on a transfer error. */
 	int (*get_board_id)(void *context);
-	/* Returns 0 and fills *info with the firmware info block the board
-	 * carries on success, a negative value on error. Firmware built before
-	 * the block existed does not answer the request at all and fails with
-	 * UTIL_ERROR_NO_FW_INFO, which is not a fault of the board. */
-	int (*get_firmware_info)(void *context, struct ubertooth_fw_info *info);
-	/* Returns 0 and fills revision (terminated) on success, a negative value
-	 * on error. Every firmware answers this one, so it is what names a board
-	 * whose firmware carries no info block. */
-	int (*get_firmware_revision)(void *context, char *revision, size_t size);
-	/* Returns 0 on success, a negative value on error. */
-	int (*get_api_version)(void *context, uint16_t *version);
-	/* Returns 0 and fills info (terminated) on success, a negative value on
-	 * error. */
-	int (*get_compile_info)(void *context, char *info, size_t size);
 	/* Returns 0 and fills *part_id on success, a negative value on error. */
 	int (*get_part_id)(void *context, uint32_t *part_id);
 	/* Returns 0 on success; fills serial[1..16] (serial[0] is a status byte). */
@@ -70,11 +60,6 @@ int util_report_read_failed(FILE *err, const char *what);
  * stays free of libusb headers; ubertooth-util.c checks they match. */
 #define UTIL_ERROR_SHORT_REPLY (-1000)
 
-/* libusb's LIBUSB_ERROR_PIPE, repeated here for the same reason. A board
- * stalls a request its firmware does not implement, which is how firmware
- * built before the firmware info block answers a read of the block. */
-#define UTIL_ERROR_NO_FW_INFO (-9)
-
 /* Like util_report_read_failed() for a read that failed with code, but prints
  * nothing for a short reply (UTIL_ERROR_SHORT_REPLY), whose whole line
  * libubertooth already printed. Returns 1. */
@@ -92,10 +77,6 @@ const char *util_strip_error_prefix(const char *message);
 
 int util_report_board_id(const struct util_report_ops *ops, void *context,
                          FILE *out, FILE *err);
-int util_report_firmware(const struct util_report_ops *ops, void *context,
-                         FILE *out);
-int util_report_compile_info(const struct util_report_ops *ops, void *context,
-                             FILE *out);
 int util_report_part_id(const struct util_report_ops *ops, void *context,
                         FILE *out, FILE *err);
 int util_report_serial(const struct util_report_ops *ops, void *context,

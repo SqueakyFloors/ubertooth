@@ -23,7 +23,7 @@
 
   "_verdicts": {
     "help": "the usage text on stdout, exit 0, stderr empty, no device looked for",
-    "report": "the answer on stdout, exit 0, stderr empty, no device looked for",
+    "report": "the answer on stdout, exit 0, stderr empty",
     "silent_success": "exit 0 and both streams empty: a command that only set something, which the codebase reports by saying nothing, or one whose answer is that it has nothing to say (btle-extcap.py verifying an empty capture filter)",
     "count_only": "a decimal count on stdout, exit 0, no device opened",
     "count_then_device": "the count on stdout first, then the rest of the command reaches device lookup",
@@ -72,7 +72,7 @@
       "role the options it applies to carry."
     ],
     "help": "prints the usage text and ends the command",
-    "report": "answers from the host and ends the command, like -h",
+    "report": "answers and ends the command, like -h",
     "selector": "names the board the command runs on",
     "modifier": "changes how the work is done, rather than being work of its own",
     "work": "work of its own, rather than a setting for other work",
@@ -102,11 +102,11 @@
 
   "_global_pair_rules": [
     {"a": "role:help", "b": "role:report", "verdict": "report_then_help",
-     "why": "-h and -V (or -H) both end the command and both answer on standard output, so a line with both prints both: the other answer first and the usage text last, whichever order they were written in (.kiro/steering/cli-output.md). The first one written used to win and the other was dropped."},
+     "why": "-h and -V both end the command and both answer on standard output, so a line with both prints both: the version first and the usage text last, whichever order they were written in (.kiro/steering/cli-output.md). The first one written used to win and the other was dropped."},
     {"a": "role:help", "b": "any", "verdict": "help",
      "why": "-h ends the command whatever else the line asks for, once the whole line has parsed"},
     {"a": "role:report", "b": "any", "verdict": "report",
-     "why": "-V and -H answer from the host and end the command, like -h"}
+     "why": "-V answers the version and ends the command, like -h"}
   ],
 
   "_device_lookup_messages": [
@@ -155,11 +155,14 @@
 
     "ubertooth-btle": {
       "man": "ubertooth-btle.md",
-      "optstring": ":a::r:hfnpU:v::A:s:t:x:c:q:jJiI",
-      "work_options": ["-f", "-n", "-p", "-a", "-v", "-s", "-t"],
-      "nothing_to_do": "error: nothing to do: choose a major mode (-f, -n or -p), or -a, -v, -s or -t",
+      "report_marker": "libubertooth",
+      "optstring": ":a::r:hVfnpU:k::v::A:s:t:x:c:q:jJiI",
+      "work_options": ["-f", "-n", "-p", "-a", "-k", "-v", "-s", "-t"],
+      "nothing_to_do": "error: nothing to do: choose a major mode (-f, -n or -p), or -a, -k, -s or -t",
       "stdout_on_failure": ["-q -", "-c -"],
       "options": {
+        "-V": {"value": "none", "role": "report",
+               "doc": "the host tools' version, then each attached board's firmware version and build"},
         "-h": {"value": "none", "role": "help"},
         "-f": {"value": "none", "role": "major_mode", "doc": "follow connections"},
         "-n": {"value": "none", "role": "major_mode", "doc": "advertisements only"},
@@ -183,7 +186,10 @@
                            ["11:22:33:44:55:66/49", "error: target mask must be 0-48 (got 49)"],
                            ["11:22:33:44:55:66/abc", "error: target mask must be 0-48 (got abc)"],
                            ["11:22:33:44:55/24", "error: target address must be xx:xx:xx:xx:xx:xx (got 11:22:33:44:55/24)"]]},
+        "-k": {"value": "optional", "role": "verify", "valid": ["0", "1"],
+               "invalid": [["2", "error: CRC verify mode must be 0-1 (got 2)"]]},
         "-v": {"value": "optional", "role": "verify", "valid": ["0", "1"],
+               "doc": "the older spelling of -k, deprecated: it warns and does what -k does",
                "invalid": [["2", "error: CRC verify mode must be 0-1 (got 2)"]]},
         "-A": {"value": "required", "role": "modifier", "valid": ["37", "38", "39"],
                "invalid": [["40", "error: advertising channel index must be 37-39 (got 40)"],
@@ -230,6 +236,9 @@
          "source": "ubertooth-btle.md OPTIONS: -s and -t each name their own address, so clearing the target leaves the address the faux slave advertises from alone. They shared one address, and this line advertised from 00:00:00:00:00:00. Which address each request carries is checked against a fake board by test_btle_main.c"}
       ],
       "pair_rules": [
+        {"a": "-k", "b": "-v", "verdict": "refused",
+         "error": "error: -k cannot be combined with -v; they are the same CRC verify setting written two ways",
+         "source": "ubertooth-btle.md OPTIONS, -k: -v is its older spelling, so a command line that gives both names one setting twice"},
         {"a": "role:major_mode", "b": "role:major_mode", "verdict": "refused",
          "error": "error: choose one of -f, -n or -p",
          "source": "ubertooth-btle.md ARGUMENTS"},
@@ -252,10 +261,13 @@
 
     "ubertooth-debug": {
       "man": "ubertooth-debug.md",
-      "optstring": ":hU:r:v:",
+      "report_marker": "libubertooth",
+      "optstring": ":hVU:r:v:",
       "requires_all": ["-r"],
       "requires_all_error": "error: -r <reg>[,<reg>[,...]] is required: at least one register to read",
       "options": {
+        "-V": {"value": "none", "role": "report",
+               "doc": "the host tools' version, then each attached board's firmware version and build"},
         "-h": {"value": "none", "role": "help"},
         "-r": {"value": "required", "role": "work",
                "valid": ["0x02", "0x02,%main", "0x00-0x05", "%main"],
@@ -275,12 +287,15 @@
 
     "ubertooth-dfu": {
       "man": "ubertooth-dfu.md",
-      "optstring": ":hd:u:s:rU:",
+      "report_marker": "libubertooth",
+      "optstring": ":hVd:u:s:rU:",
       "work_options": ["-d", "-u", "-s", "-r"],
       "nothing_to_do": "error: nothing to do: give -d to write an image, -u to read one back, -s to sign one, or -r to reset",
       "progress_before_refusal": ["Checking firmware signature"],
       "_progress_before_refusal_why": "the whole -d image is read before the tool knows whether it will take it, so the line that says so is printed first and a refusal follows it; both are on standard error, which is where cli-output.md puts progress and errors alike",
       "options": {
+        "-V": {"value": "none", "role": "report",
+               "doc": "the host tools' version, then each attached board's firmware version and build"},
         "-h": {"value": "none", "role": "help"},
         "-d": {"value": "required", "role": "work", "valid": ["IMAGE.dfu"],
                "doc": "write an image; the whole image is checked before a device is opened, so a file that is not a DFU image is refused there, as is a signed file with no firmware info block at the fixed offset"},
@@ -325,10 +340,13 @@
 
     "ubertooth-ducky": {
       "man": "ubertooth-ducky.md",
-      "optstring": ":q::bA:a:hsU:",
+      "report_marker": "libubertooth",
+      "optstring": ":q::bA:a:hVsU:",
       "work_options": ["-q", "-b"],
       "nothing_to_do": "error: nothing to do: give -q to quack, or -b to signal the bootloader",
       "options": {
+        "-V": {"value": "none", "role": "report",
+               "doc": "the host tools' version, then each attached board's firmware version and build"},
         "-h": {"value": "none", "role": "help"},
         "-q": {"value": "optional", "role": "work",
                "valid": ["fd123ff9-9e30-45b2-af0d-b85b7d2dc80c"],
@@ -346,8 +364,11 @@
 
     "ubertooth-dump": {
       "man": "ubertooth-dump.md",
-      "optstring": ":bhclU:d:",
+      "report_marker": "libubertooth",
+      "optstring": ":bhVclU:d:",
       "options": {
+        "-V": {"value": "none", "role": "report",
+               "doc": "the host tools' version, then each attached board's firmware version and build"},
         "-h": {"value": "none", "role": "help"},
         "-b": {"value": "none", "role": "modifier", "doc": "bitstream only"},
         "-c": {"value": "none", "role": "modulation", "doc": "classic modulation"},
@@ -374,10 +395,13 @@
 
     "ubertooth-ego": {
       "man": "ubertooth-ego.md",
-      "optstring": ":frijc:U:a:l:h",
+      "report_marker": "libubertooth",
+      "optstring": ":frijc:U:a:l:hV",
       "work_options": ["-f", "-r", "-i", "-j"],
       "nothing_to_do": "error: nothing to do: choose a major mode (-f, -r or -i)",
       "options": {
+        "-V": {"value": "none", "role": "report",
+               "doc": "the host tools' version, then each attached board's firmware version and build"},
         "-h": {"value": "none", "role": "help"},
         "-f": {"value": "none", "role": "major_mode", "doc": "follow connections"},
         "-r": {"value": "none", "role": "major_mode", "doc": "continuous receive on one channel"},
@@ -485,12 +509,15 @@
 
     "ubertooth-specan": {
       "man": "ubertooth-specan.md",
+      "report_marker": "libubertooth",
       "man_must_not_say": [
         ["with the usage text after the `error: ` line on standard\nerror",
          "a described error prints no usage text, and this tool does not print one"]
       ],
-      "optstring": ":vhgGd:l:u:U:",
+      "optstring": ":vhVgGd:l:u:U:",
       "options": {
+        "-V": {"value": "none", "role": "report",
+               "doc": "the host tools' version, then each attached board's firmware version and build"},
         "-h": {"value": "none", "role": "help"},
         "-v": {"value": "none", "role": "modifier", "doc": "verbose, on stderr"},
         "-g": {"value": "none", "role": "output_mode", "doc": "feedgnuplot text"},
@@ -553,11 +580,11 @@
 
     "ubertooth-util": {
       "man": "ubertooth-util.md",
-      "optstring": ":U:hn::meiIprsStvbwl::a::C::c::d::q::z::VNxH",
+      "optstring": ":U:hn::meiIprsStvbwl::a::C::c::d::q::z::VNx",
       "report_marker": "libubertooth",
       "work_options": ["-n", "-m", "-e", "-i", "-I", "-p", "-r", "-s", "-S", "-t",
-                       "-v", "-b", "-w", "-l", "-a", "-C", "-c", "-d", "-q", "-z", "-V",
-                       "-N", "-x", "-H"],
+                       "-v", "-b", "-w", "-l", "-a", "-C", "-c", "-d", "-q", "-z",
+                       "-N", "-x"],
       "nothing_to_do": "error: nothing to do: give an option that reads or sets something, or -N to count the attached boards",
       "selector_only_error": "error: nothing to do: -U '%s' selects a device but no option asks anything of it",
       "stdout_on_failure": ["-N"],
@@ -568,13 +595,13 @@
       "removed_options": ["-9", "-f"],
       "options": {
         "-h": {"value": "none", "role": "help"},
-        "-H": {"value": "none", "role": "report",
-               "doc": "the host tools version; works without a device"},
         "-N": {"value": "none", "role": "count",
                "doc": "the number of attached boards, on stdout, then the rest of the command"},
         "-U": {"value": "required", "role": "selector", "valid": ["0", "all"]},
-        "-v": {"value": "none", "role": "query"},
-        "-V": {"value": "none", "role": "query"},
+        "-v": {"value": "none", "role": "query",
+               "doc": "the firmware version line alone; the older spelling, deprecated in favour of -V"},
+        "-V": {"value": "none", "role": "report",
+               "doc": "the host tools' version, then each attached board's firmware version and build"},
         "-b": {"value": "none", "role": "query"},
         "-p": {"value": "none", "role": "query"},
         "-s": {"value": "none", "role": "query"},
@@ -610,21 +637,19 @@
       },
       "combinations": [
         {"args": ["-U", "all"], "verdict": "refused",
-         "error": "error: -U all needs one of the read-only queries -b, -v, -V, -p or -s to list",
+         "error": "error: -U all needs one of the read-only queries -b, -v, -p or -s to list",
          "source": "ubertooth-util.md SELECTING A DEVICE"},
         {"args": ["-U", "all", "-c", "2440"], "verdict": "refused",
-         "error": "error: -U all only supports the read-only queries -b, -v, -V, -p and -s; select one device with -U<index|serial> for other options",
+         "error": "error: -U all only supports the read-only queries -b, -v, -p and -s; select one device with -U<index|serial> for other options",
          "source": "ubertooth-util.md SELECTING A DEVICE"},
         {"args": ["-U", "all", "-N"], "verdict": "refused",
-         "error": "error: -U all needs one of the read-only queries -b, -v, -V, -p or -s to list",
+         "error": "error: -U all needs one of the read-only queries -b, -v, -p or -s to list",
          "source": "ubertooth-util.md SELECTING A DEVICE: a count is not a query the listing can show, so -U all with only -N beside it has nothing to list, as -U all on its own does"},
         {"args": ["-N"], "verdict": "count_only",
          "source": "ubertooth-util.md OPTIONS, -N: on its own it prints the count, opens no device and exits 0"},
         {"args": ["-N", "-U", "0"], "verdict": "refused",
          "error": "error: nothing to do: -U '0' selects a device but no option asks anything of it",
          "source": "ubertooth-util.md OPTIONS, -N: -N counts the boards on the bus and asks nothing of the one -U names, so the selector is refused in the words -U alone gets"},
-        {"args": ["--host-version"], "verdict": "report",
-         "source": "ubertooth-util.md OPTIONS, -H"},
         {"args": ["-c", "2440", "-C", "24"], "verdict": "refused",
          "error": "error: -C cannot be combined with -c; they are the same channel setting written two ways",
          "source": "ubertooth-util.md ARGUMENTS: -c is the channel in MHz and -C its BR/EDR channel number, so two values name two channels for one setting; the second one used to be the one sent"},
@@ -641,8 +666,8 @@
         {"a": "-z", "b": "role:mode", "verdict": "refused",
          "error_contains": "-z cannot be combined with", "names_the_other": true,
          "source": "ubertooth-util.md OPTIONS, -z"},
-        {"a": "-H", "b": "any", "verdict": "report",
-         "why": "-H ends the command before every other option, as -h does"},
+        {"a": "-V", "b": "any", "verdict": "report",
+         "why": "-V ends the command before every other option, as -h does"},
         {"a": "-N", "b": "role:selector", "verdict": "refused",
          "error": "error: nothing to do: -U '0' selects a device but no option asks anything of it",
          "source": "ubertooth-util.md OPTIONS, -N: a selector with only -N beside it selects a device nothing acts on"},
@@ -654,13 +679,16 @@
 
     "ubertooth-follow": {
       "man": "ubertooth-follow.md",
-      "optstring": ":hl:u:U:e:d:ab:w:r:q:t:",
+      "report_marker": "libubertooth",
+      "optstring": ":hVl:u:U:e:d:ab:w:r:q:t:",
       "_built_when": "libbluetooth is installed (Linux)",
       "stdout_on_failure": ["-q -", "-q-"],
       "_stdout_on_failure_why": "the capture itself is on standard output, and the PCAP writer puts its file header there as soon as it opens, before the device is looked for",
       "accepted_markers": ["error: Bluetooth device hci0 not found"],
       "_accepted_markers_why": "ubertooth-follow opens the local Bluetooth adapter before it looks for an Ubertooth, so on a machine without one an accepted command line stops there instead of at device lookup",
       "options": {
+        "-V": {"value": "none", "role": "report",
+               "doc": "the host tools' version, then each attached board's firmware version and build"},
         "-h": {"value": "none", "role": "help"},
         "-t": {"value": "required", "role": "target", "valid": ["11:22:33:44:55:66", "AA:bb:CC:dd:EE:ff"],
                "invalid": [["11:22:33:44:55", "error: target address must be xx:xx:xx:xx:xx:xx (got 11:22:33:44:55)"],
@@ -749,11 +777,14 @@
 
     "ubertooth-scan": {
       "man": "ubertooth-scan.md",
-      "optstring": ":hU:t:e:xsb:",
+      "report_marker": "libubertooth",
+      "optstring": ":hVU:t:e:xsb:",
       "_built_when": "libbluetooth is installed (Linux)",
       "accepted_markers": ["error: Bluetooth device hci0 not found"],
       "_accepted_markers_why": "ubertooth-scan opens the local Bluetooth adapter before it looks for an Ubertooth, so on a machine without one an accepted command line stops there instead of at device lookup",
       "options": {
+        "-V": {"value": "none", "role": "report",
+               "doc": "the host tools' version, then each attached board's firmware version and build"},
         "-h": {"value": "none", "role": "help"},
         "-s": {"value": "none", "role": "modifier", "doc": "scan for names and services"},
         "-x": {"value": "none", "role": "modifier", "doc": "extended scan"},

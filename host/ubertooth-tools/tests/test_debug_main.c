@@ -33,6 +33,16 @@ static void count_free(void* p)
 #undef free
 #undef main
 
+/* The -V answer, which libubertooth gives in every tool: faked here, so this
+ * test stays about the tool's own command-line handling. The answer's own
+ * cases are in test_version_report.c. */
+int ubertooth_print_versions(const char *selector)
+{
+	(void)selector;
+	printf("version (test)\n");
+	return 0;
+}
+
 /* ---- scripted device -------------------------------------------------- */
 
 static struct {

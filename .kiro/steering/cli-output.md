@@ -44,8 +44,8 @@ from the host too, but it prints its count and then runs the rest of the
 command line, so `-h` beside it still ends the command and the count is not
 printed.
 
-    $ ubertooth-util -h -H      # the version, then the usage text, status 0
-    $ ubertooth-util -H -h      # the same two, in the same order
+    $ ubertooth-util -h -V      # the version, then the usage text, status 0
+    $ ubertooth-util -V -h      # the same two, in the same order
 
 ## Standard error carries everything else
 

@@ -151,6 +151,7 @@ static void usage()
 	printf("ubertooth-follow - active(bluez) CLK discovery and follow for a target address\n");
 	printf("Usage:\n");
 	printf("\t-h this help\n");
+	printf("\t-V print version information\n");
 	printf("\t-t <BD_ADDR> target address (xx:xx:xx:xx:xx:xx), which gives the\n");
 	printf("\t   LAP and UAP to follow; once, not with -l or -u\n");
 	printf("\t-l <LAP> (3 bytes / 6 hex digits), once, with -u, not with -t\n");
@@ -173,8 +174,11 @@ int main(int argc, char *argv[])
 	int opt, sock, dev_id, lap = 0, uap = 0, delay = 5;
 	opt_once once = {0};
 	int have_lap = 0;
-	/* -h ends the command once the whole command line has parsed (see below). */
+	/* -h ends the command once the whole command line has parsed (see below),
+	 * and so does -V, whose own result is version_status: it reads the board,
+	 * so it can fail where -h cannot. */
 	int first_exit_option = 0;
+	int do_version = 0, version_status = 0;
 	int have_uap = 0;
 	int afh_enabled = 0;
 	uint8_t afh_map[AFH_MAP_BYTES] = { 0 };
@@ -217,7 +221,7 @@ int main(int argc, char *argv[])
 	 * see opt_report_bad_option(). The leading ':' makes a missing option
 	 * value distinguishable from an option getopt does not know. */
 	opterr = 0;
-	while ((opt=getopt(argc,argv,":hl:u:U:e:d:ab:w:r:q:t:")) != EOF) {
+	while ((opt=getopt(argc,argv,":hVl:u:U:e:d:ab:w:r:q:t:")) != EOF) {
 		/* No option may be given a value twice: see opt_check_once(). */
 		if (opt_check_once(&once, opt, optarg) < 0)
 			return 1;
@@ -289,6 +293,9 @@ int main(int argc, char *argv[])
 			                      "timeslots", "0 or more", &delay) < 0)
 				return 1;
 			break;
+		case 'V':
+			do_version = 1;
+			break;
 		case 'h':
 			if (!first_exit_option)
 				first_exit_option = 'h';
@@ -304,13 +311,16 @@ int main(int argc, char *argv[])
 	if (opt_check_no_operands(argc, argv) < 0)
 		return 1;
 
-	/* -h ends the command, but only once the whole command line has
-	 * parsed: a bad option value or a stray word is reported even
-	 * alongside it. */
-	if (first_exit_option == 'h') {
+	/* -h and -V end the command, but only once the whole command line has
+	 * parsed: a bad option value or a stray word is reported even alongside
+	 * them. A command line with both prints both, and the usage text comes
+	 * last so the version is not scrolled off the screen by it. */
+	if (do_version)
+		version_status = ubertooth_print_versions(ubertooth_device);
+	if (first_exit_option == 'h')
 		usage();
-		return 0;
-	}
+	if (do_version || first_exit_option == 'h')
+		return version_status;
 
 	/* -t is the whole address and -l with -u is part of one: two ways to
 	 * write the same setting, which the tool does not reconcile. */

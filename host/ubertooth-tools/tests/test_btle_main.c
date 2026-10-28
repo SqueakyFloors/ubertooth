@@ -274,7 +274,7 @@ int cmd_set_access_address(struct libusb_device_handle *devh, u32 access_address
 }
 
 /* Entering a mode runs reset_le() on the board, which clears crc_verify.
- * That is the whole reason the -v options run after this call, so the fake
+ * That is the whole reason the -k options run after this call, so the fake
  * clears it too and a read before the mode would report the wrong thing. */
 int cmd_btle_sniffing(struct libusb_device_handle *devh, uint8_t do_follow)
 {
@@ -420,6 +420,16 @@ void ubertooth_report_queue_gaps(ubertooth_t *ut)
 	fake.gap_reports++;
 }
 
+/* The -V answer, which libubertooth gives in every tool: faked here, so this
+ * test stays about the tool's own command-line handling. The answer's own
+ * cases are in test_version_report.c. */
+int ubertooth_print_versions(const char *selector)
+{
+	(void)selector;
+	printf("version (test)\n");
+	return 0;
+}
+
 /* ---- running the tool --------------------------------------------------- */
 
 /* Nothing of this tool's own has to be set up or checked around a run, so the
@@ -439,7 +449,7 @@ MU_TEST(a_set_and_a_read_of_crc_verify_both_run_set_first)
 	struct run_result r;
 
 	reset_fake();
-	r = RUN("-v1", "-v");
+	r = RUN("-k1", "-k");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(fake.calls, "sg") == 0, fake.calls);
 	mu_assert_int_eq(1, fake.last_crc_set);
@@ -448,7 +458,7 @@ MU_TEST(a_set_and_a_read_of_crc_verify_both_run_set_first)
 
 	/* the read written first is the same command */
 	reset_fake();
-	r = RUN("-v", "-v1");
+	r = RUN("-k", "-k1");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(fake.calls, "sg") == 0, fake.calls);
 	mu_assert_int_eq(1, fake.last_crc_set);
@@ -456,7 +466,7 @@ MU_TEST(a_set_and_a_read_of_crc_verify_both_run_set_first)
 
 	/* a separate-word value too */
 	reset_fake();
-	r = RUN("-v", "1", "-v");
+	r = RUN("-k", "1", "-k");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(fake.calls, "sg") == 0, fake.calls);
 	mu_assert_int_eq(1, fake.last_crc_set);
@@ -465,7 +475,7 @@ MU_TEST(a_set_and_a_read_of_crc_verify_both_run_set_first)
 	/* switching it off is a set, not a missing value */
 	reset_fake();
 	fake.crc = 1;
-	r = RUN("-v0", "-v");
+	r = RUN("-k0", "-k");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(fake.calls, "sg") == 0, fake.calls);
 	mu_assert_int_eq(0, fake.last_crc_set);
@@ -474,11 +484,57 @@ MU_TEST(a_set_and_a_read_of_crc_verify_both_run_set_first)
 	/* Two values for one setting are refused: the last one used to win and
 	 * the other was dropped without a word. */
 	reset_fake();
-	r = RUN("-v1", "-v0", "-v");
+	r = RUN("-k1", "-k0", "-k");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.out, "") == 0, r.out);
-	mu_assert(strcmp(r.err, "error: option '-v' given more than once\n") == 0,
+	mu_assert(strcmp(r.err, "error: option '-k' given more than once\n") == 0,
 	          r.err);
+}
+
+/*
+ * -v was this setting's spelling until -k took over, so it still works for
+ * one release: it warns, on standard error, and does what -k does. The two
+ * spellings in one command line are one setting named twice, which is
+ * refused.
+ */
+MU_TEST(the_older_spelling_of_crc_verify_warns_and_still_works)
+{
+	struct run_result r;
+	static const char warning[] = "warning: -v for the CRC verify setting is "
+		"deprecated and will be removed; use -k\n";
+
+	reset_fake();
+	fake.crc = 1;
+	r = RUN("-v");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(fake.calls, "g") == 0, fake.calls);
+	mu_assert(strcmp(r.out, "CRC: verify\n") == 0, r.out);
+	mu_assert(strcmp(r.err, warning) == 0, r.err);
+
+	/* Once per command line, however many times -v was written. */
+	reset_fake();
+	r = RUN("-v1", "-v");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(fake.calls, "sg") == 0, fake.calls);
+	mu_assert_int_eq(1, fake.last_crc_set);
+	mu_assert(strcmp(r.err, warning) == 0, r.err);
+
+	/* Nothing is warned about for a command line that never reaches the
+	 * setting: -h and -V end it first. */
+	reset_fake();
+	r = RUN("-v", "-h");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0, (long)strlen(r.err));
+
+	reset_fake();
+	r = RUN("-k", "-v");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, "") == 0, r.out);
+	mu_assert(strcmp(r.err, "error: -k cannot be combined with -v; they are "
+	                 "the same CRC verify setting written two ways\n") == 0,
+	          r.err);
+	mu_assert_int_eq(0, fake.crc_sets);
+	mu_assert_int_eq(0, fake.crc_gets);
 }
 
 /* A set on its own, and a read on its own, are unchanged. */
@@ -487,7 +543,7 @@ MU_TEST(a_set_alone_and_a_read_alone_are_unchanged)
 	struct run_result r;
 
 	reset_fake();
-	r = RUN("-v1");
+	r = RUN("-k1");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(fake.calls, "s") == 0, fake.calls);
 	mu_assert_int_eq(0, fake.crc_gets);
@@ -495,14 +551,14 @@ MU_TEST(a_set_alone_and_a_read_alone_are_unchanged)
 
 	reset_fake();
 	fake.crc = 1;
-	r = RUN("-v");
+	r = RUN("-k");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(fake.calls, "g") == 0, fake.calls);
 	mu_assert_int_eq(0, fake.crc_sets);
 	mu_assert(strcmp(r.out, "CRC: verify\n") == 0, r.out);
 
 	reset_fake();
-	r = RUN("-v");
+	r = RUN("-k");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(r.out, "CRC: DO NOT verify\n") == 0, r.out);
 }
@@ -515,7 +571,7 @@ MU_TEST(a_failed_set_is_reported_and_the_read_does_not_run)
 
 	reset_fake();
 	fake.set_crc_rc = -1;
-	r = RUN("-v1", "-v");
+	r = RUN("-k1", "-k");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(fake.calls, "s") == 0, fake.calls);
 	mu_assert_int_eq(0, fake.crc_gets);
@@ -525,7 +581,7 @@ MU_TEST(a_failed_set_is_reported_and_the_read_does_not_run)
 	/* the same for a set on its own, which used to ignore the result */
 	reset_fake();
 	fake.set_crc_rc = -1;
-	r = RUN("-v0");
+	r = RUN("-k0");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.err, "error: CRC verify set failed\n") == 0, r.err);
 	mu_assert(r.out[0] == '\0', r.out);
@@ -539,7 +595,7 @@ MU_TEST(a_failed_read_is_reported_once)
 
 	reset_fake();
 	fake.get_crc_rc = -1;
-	r = RUN("-v1", "-v");
+	r = RUN("-k1", "-k");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(fake.calls, "sg") == 0, fake.calls);
 	mu_assert(strcmp(r.err, "error: CRC verify read failed\n") == 0, r.err);
@@ -547,7 +603,7 @@ MU_TEST(a_failed_read_is_reported_once)
 
 	reset_fake();
 	fake.get_crc_rc = UBERTOOTH_ERROR_SHORT_REPLY;
-	r = RUN("-v");
+	r = RUN("-k");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(r.err[0] == '\0', r.err);
 	mu_assert(r.out[0] == '\0', r.out);
@@ -560,7 +616,7 @@ MU_TEST(a_sniffing_mode_sets_and_reads_after_the_mode_starts)
 	struct run_result r;
 
 	reset_fake();
-	r = RUN("-n", "-v1", "-v");
+	r = RUN("-n", "-k1", "-k");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(fake.calls, "msgp") == 0, fake.calls);
 	mu_assert_int_eq(1, fake.sniffing_calls);
@@ -573,21 +629,21 @@ MU_TEST(a_sniffing_mode_sets_and_reads_after_the_mode_starts)
 	 * board starts at 1 here and the read says it is off. */
 	reset_fake();
 	fake.crc = 1;
-	r = RUN("-f", "-v");
+	r = RUN("-f", "-k");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(fake.calls, "mgp") == 0, fake.calls);
 	mu_assert_int_eq(1, fake.follow_requested);
 	mu_assert(strcmp(r.out, "CRC: DO NOT verify\n") == 0, r.out);
 
 	reset_fake();
-	r = RUN("-p", "-v1");
+	r = RUN("-p", "-k1");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(fake.calls, "msp") == 0, fake.calls);
 	mu_assert_int_eq(1, fake.promisc_calls);
 	mu_assert(strcmp(r.out, "CRC: verify\n") == 0, r.out);
 }
 
-/* The mode is running by the time the -v options go out, so a failure there
+/* The mode is running by the time the -k options go out, so a failure there
  * has to stop it before giving up: a board abandoned in a low-energy mode is
  * the state it stops answering control requests in. */
 MU_TEST(a_failure_in_a_sniffing_mode_still_stops_the_board)
@@ -596,7 +652,7 @@ MU_TEST(a_failure_in_a_sniffing_mode_still_stops_the_board)
 
 	reset_fake();
 	fake.set_crc_rc = -1;
-	r = RUN("-f", "-v1");
+	r = RUN("-f", "-k1");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(fake.calls, "ms") == 0, fake.calls);
 	mu_assert_int_eq(0, fake.polls); /* no capture was started */
@@ -605,20 +661,20 @@ MU_TEST(a_failure_in_a_sniffing_mode_still_stops_the_board)
 
 	reset_fake();
 	fake.get_crc_rc = -1;
-	r = RUN("-p", "-v");
+	r = RUN("-p", "-k");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(fake.calls, "mg") == 0, fake.calls);
 	mu_assert_int_eq(1, fake.stops);
 	mu_assert(strcmp(r.err, "error: CRC verify read failed\n") == 0, r.err);
 }
 
-/* -v alongside an access address read, which the tool carries on after. */
+/* -k alongside an access address read, which the tool carries on after. */
 MU_TEST(an_access_address_read_and_the_crc_options_all_run)
 {
 	struct run_result r;
 
 	reset_fake();
-	r = RUN("-a", "-v1", "-v");
+	r = RUN("-a", "-k1", "-k");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(fake.calls, "rsg") == 0, fake.calls);
 	mu_assert(strcmp(r.out, "Access address: 8e89bed6\nCRC: verify\n") == 0,
@@ -726,7 +782,7 @@ MU_TEST(the_reports_move_to_stderr_when_the_capture_takes_stdout)
 	struct run_result r;
 
 	reset_fake();
-	r = RUN("-q", "-", "-a", "-v1", "-v");
+	r = RUN("-q", "-", "-a", "-k1", "-k");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(fake.calls, "rsg") == 0, fake.calls);
 	/* the capture was created on the saved stdout, not on a file */
@@ -975,10 +1031,10 @@ MU_TEST(a_sniffing_mode_refuses_the_access_address_and_slave_options)
 		}
 	}
 
-	/* -t and -v are not in that list: -t is sent before the mode starts,
-	 * and the -v options run once it has started */
+	/* -t and -k are not in that list: -t is sent before the mode starts,
+	 * and the -k options run once it has started */
 	reset_fake();
-	r = RUN("-f", "-t22:44:66:88:aa:cc", "-v");
+	r = RUN("-f", "-t22:44:66:88:aa:cc", "-k");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(fake.calls, "tmgp") == 0, fake.calls);
 
@@ -1197,7 +1253,7 @@ MU_TEST(the_usage_text_documents_the_set_and_the_read)
 	reset_fake();
 	r = RUN("-h");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strstr(r.out, "-v [01]") != NULL, r.out);
+	mu_assert(strstr(r.out, "-k [01]") != NULL, r.out);
 	mu_assert(strstr(r.out, "reports the new value") != NULL, r.out);
 	mu_assert_int_eq(0, fake.crc_sets);
 	mu_assert_int_eq(0, fake.crc_gets);
@@ -1363,7 +1419,7 @@ MU_TEST(every_exit_path_gives_the_handle_back)
 	struct run_result r;
 
 	reset_fake();
-	r = RUN("-v");
+	r = RUN("-k");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert_int_eq(1, fake.frees);
 
@@ -1417,6 +1473,7 @@ int main(void)
 	MU_RUN(a_set_and_a_read_of_crc_verify_both_run_set_first);
 	MU_RUN(every_exit_path_gives_the_handle_back);
 	MU_RUN(a_set_alone_and_a_read_alone_are_unchanged);
+	MU_RUN(the_older_spelling_of_crc_verify_warns_and_still_works);
 	MU_RUN(a_failed_set_is_reported_and_the_read_does_not_run);
 	MU_RUN(a_failed_read_is_reported_once);
 	MU_RUN(a_sniffing_mode_sets_and_reads_after_the_mode_starts);

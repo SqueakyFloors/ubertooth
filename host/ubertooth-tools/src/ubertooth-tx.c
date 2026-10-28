@@ -53,8 +53,10 @@ int main(int argc, char* argv[])
 	int status;
 	int timeout = 0;
 	/* -h and -V both end the command once the whole command line has
-	 * parsed, and a command line with both prints both (see below). */
-	int do_help = 0, do_version = 0;
+	 * parsed, and a command line with both prints both (see below).
+	 * version_status is -V's own result: it reads the board, so it can fail
+	 * where -h cannot. */
+	int do_help = 0, do_version = 0, version_status = 0;
 	opt_once once = {0};
 	char* ubertooth_device = NULL;
 	uint32_t lap = 0;
@@ -112,11 +114,11 @@ int main(int argc, char* argv[])
 	 * text comes last so the version is not scrolled off the screen by
 	 * it; the order they were written in does not matter. */
 	if (do_version)
-		print_version();
+		version_status = ubertooth_print_versions(ubertooth_device);
 	if (do_help)
 		usage(stdout);
 	if (do_version || do_help)
-		return 0;
+		return version_status;
 
 	/* ubertooth-tx transmits the access code of one piconet, so it needs
 	 * both halves of the address. That is an argument error, so it is

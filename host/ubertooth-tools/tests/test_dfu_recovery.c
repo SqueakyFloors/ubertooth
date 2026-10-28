@@ -415,7 +415,7 @@ MU_TEST(test_a_board_that_never_came_back_is_told_apart_from_a_failed_write)
 	          "the line does not say the image reached the board");
 	mu_assert(strstr(message, "did not come back on USB") != NULL,
 	          "the line does not say the board stayed off the bus");
-	mu_assert(strstr(message, "ubertooth-util -v") != NULL,
+	mu_assert(strstr(message, "ubertooth-util -V") != NULL,
 	          "the line does not say how to read the board's revision");
 	mu_assert(strstr(message, "not written") == NULL,
 	          "the line claims the write did not take");
@@ -456,7 +456,7 @@ MU_TEST(test_a_board_that_will_not_open_is_not_a_board_that_stayed_away)
 	          "the line calls a board that is there missing");
 	mu_assert(strstr(message, "power-cycle") == NULL,
 	          "the line prescribes a power cycle for a board that is there");
-	mu_assert(strstr(message, "ubertooth-util -v") != NULL,
+	mu_assert(strstr(message, "ubertooth-util -V") != NULL,
 	          "the line does not say how to read the board's revision");
 	mu_assert(strchr(message, '\n') == NULL, "the line is more than one line");
 }
@@ -494,7 +494,7 @@ MU_TEST(test_a_bus_that_could_not_be_read_is_not_a_board_that_would_not_open)
 	          "the line blames a board that was never looked at");
 	mu_assert(strstr(message, "did not come back on USB") == NULL,
 	          "the line calls a board that was never looked for missing");
-	mu_assert(strstr(message, "ubertooth-util -v") != NULL,
+	mu_assert(strstr(message, "ubertooth-util -V") != NULL,
 	          "the line does not say how to read the board's revision");
 	mu_assert(strchr(message, '\n') == NULL, "the line is more than one line");
 }

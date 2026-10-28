@@ -66,6 +66,7 @@ static void usage()
 	       max_ac_errors, MAX_AC_ERRORS);
 	printf("\t-b Bluetooth device (hci0)\n");
 	fputs(OPT_USAGE_SELECT_DEVICE, stdout);
+	printf("\t-V print version information\n");
 }
 
 
@@ -211,8 +212,11 @@ int main(int argc, char *argv[])
 	/* 1 once the Ubertooth scan's USB stream died part-way, so the exit
 	 * status says the results below are incomplete. */
 	int exit_status = 0;
-	/* -h ends the command once the whole command line has parsed (see below). */
+	/* -h ends the command once the whole command line has parsed (see below),
+	 * and so does -V, whose own result is version_status: it reads the board,
+	 * so it can fail where -h cannot. */
 	int first_exit_option = 0;
+	int do_version = 0, version_status = 0;
 	opt_once once = {0};
 	char* ubertooth_device = NULL;
 	char *bt_dev = "hci0";
@@ -225,7 +229,7 @@ int main(int argc, char *argv[])
 	 * see opt_report_bad_option(). The leading ':' makes a missing option
 	 * value distinguishable from an option getopt does not know. */
 	opterr = 0;
-	while ((opt=getopt(argc,argv,":hU:t:e:xsb:")) != EOF) {
+	while ((opt=getopt(argc,argv,":hVU:t:e:xsb:")) != EOF) {
 		/* No option may be given a value twice: see opt_check_once(). */
 		if (opt_check_once(&once, opt, optarg) < 0)
 			return 1;
@@ -257,6 +261,9 @@ int main(int argc, char *argv[])
 		case 's':
 			scan = 1;
 			break;
+		case 'V':
+			do_version = 1;
+			break;
 		case 'h':
 			if (!first_exit_option)
 				first_exit_option = 'h';
@@ -272,13 +279,16 @@ int main(int argc, char *argv[])
 	if (opt_check_no_operands(argc, argv) < 0)
 		return 1;
 
-	/* -h ends the command, but only once the whole command line has
-	 * parsed: a bad option value or a stray word is reported even
-	 * alongside it. */
-	if (first_exit_option == 'h') {
+	/* -h and -V end the command, but only once the whole command line has
+	 * parsed: a bad option value or a stray word is reported even alongside
+	 * them. A command line with both prints both, and the usage text comes
+	 * last so the version is not scrolled off the screen by it. */
+	if (do_version)
+		version_status = ubertooth_print_versions(ubertooth_device);
+	if (first_exit_option == 'h')
 		usage();
-		return 0;
-	}
+	if (do_version || first_exit_option == 'h')
+		return version_status;
 
 	/* Both adapter failures are reported the way ubertooth-follow, the other
 	 * BlueZ tool, reports them: one "error: " line on standard error, saying
