@@ -10,9 +10,10 @@ against. The settling packet's own record used to go out with no reference
 UAP at all -- the one record a reader most needs it on, because it is the
 evidence the UAP was derived from.
 
-The fixture is a replay of three records built from scratch here, so no board
-and no saved capture is needed: an ID packet with no header, then a DH1 whose
-payload CRC settles the UAP, then another ID packet. Everything a real board
+The fixture is a replay of four records built from scratch here, so no board
+and no saved capture is needed: an ID packet with no header, a DH1 whose CRC
+leaves every clock candidate alive, the DH1 whose CRC settles the UAP, then
+another ID packet. Everything a real board
 would send is computed from the Bluetooth Core specification: the access code
 (Vol 2, Part B 6.3.3), the header's HEC and the payload CRC (7.1 and 7.2),
 the header's 1/3 rate repetition code (7.4) and the payload whitening (7.3).
@@ -60,10 +61,13 @@ DH1 = 4                         # the packet type of the settling packet
 LT_ADDR = 3                     # which member of the piconet sent it
 PAYLOAD_BODY = b"\x01\x02\x03\x04"
 
-# The clock the settling record is captured at, chosen so that the packet's
-# own CLK1-6 is 0: the clock it is whitened at, so the fixture is the capture
-# a real board would have made. ubertooth-rx derives CLKN from the reading and
-# the access code's position, which is why the number is not a round one.
+# The clocks the two DH1 records are captured at, chosen so that each
+# packet's own CLK1-6 is 0: the clock they are whitened at, so the fixture is
+# the capture a real board would have made. ubertooth-rx derives CLKN from the
+# reading and the access code's position, which is why the numbers are not
+# round ones. Both land on the same CLK1-6, which is what lets the decoder
+# carry its clock candidates from the first packet to the second.
+UNSETTLED_CLK100NS = 3800 + 1152 * 3125
 SETTLING_CLK100NS = 3800 + 1280 * 3125
 ID_CLK100NS = (1_000_000, 9_000_000)
 
@@ -147,8 +151,14 @@ def payload_crc(bits, uap):
     return register
 
 
-def dh1_symbols(lap, uap, body):
-    """A DH1 whose payload CRC is correct for this UAP at CLK6-1 = 0."""
+def dh1_symbols(lap, uap, body, settles=True):
+    """A DH1 at CLK6-1 = 0, with a payload CRC correct for this UAP.
+
+    settles=False spoils the CRC instead. The decoder cannot tell that from a
+    packet it has the wrong clock for, or an encrypted one, so it keeps every
+    clock candidate and the UAP stays unsettled: a header-bearing packet that
+    leaves the piconet mid-acquisition.
+    """
     header = air_order(LT_ADDR, 3) + air_order(DH1, 4) + [1, 1, 0]
     header += air_order(hec(sum(bit << i for i, bit in enumerate(header)),
                             uap), 8)
@@ -162,7 +172,8 @@ def dh1_symbols(lap, uap, body):
     payload = air_order((len(body) << 3) | 0b010, 8)
     for byte in body:
         payload += air_order(byte, 8)
-    payload += air_order(payload_crc(payload, uap), 16)
+    check = payload_crc(payload, uap)
+    payload += air_order(check if settles else check ^ 1, 16)
 
     return access_code_symbols(lap) + coded + whitened(payload, HEADER_BITS)
 
@@ -219,10 +230,11 @@ def pcapng_records(path):
         if length < 12 or offset + length > len(data):
             break
         if block == 6:
-            # interface, two words of time, captured and original length,
-            # then that many bytes of the record itself. The block is padded
-            # to a multiple of four, so the length is what bounds it.
-            captured = struct.unpack_from(order + "I", data, offset + 24)[0]
+            # The block holds the interface, two words of time, the captured
+            # length, the length the packet had on air, and then that many
+            # captured bytes. The block is padded to a multiple of four, so
+            # the captured length is what bounds the record.
+            captured = struct.unpack_from(order + "I", data, offset + 20)[0]
             body = data[offset + 28:offset + 28 + captured]
             reference = struct.unpack_from(order + "I", body, REF_LAP_UAP_AT)[0]
             flags = struct.unpack_from(order + "H", body, FLAGS_AT)[0]
@@ -237,8 +249,9 @@ def crc_recomputes(payload, uap):
 
     The payload a record carries is dewhitened, so the CRC over all but its
     last two bytes has to come back as those two bytes. This is the check a
-    reader makes with the reference UAP the record gives it, which is the
-    whole point of recording one.
+    reader runs with the reference UAP the record gives it, and it only comes
+    out right for one UAP, which is what makes the recorded value worth
+    anything.
     """
     bits = []
     for byte in payload:
@@ -251,9 +264,11 @@ def crc_recomputes(payload, uap):
 BASE_TIME = int(time.time()) - AGE_S
 FIXTURE = b"".join([
     record(BASE_TIME, ID_CLK100NS[0], 3, id_symbols(LAP)),
-    record(BASE_TIME + 1, SETTLING_CLK100NS, 17,
+    record(BASE_TIME + 1, UNSETTLED_CLK100NS, 11,
+           dh1_symbols(LAP, UAP, PAYLOAD_BODY, settles=False)),
+    record(BASE_TIME + 2, SETTLING_CLK100NS, 17,
            dh1_symbols(LAP, UAP, PAYLOAD_BODY)),
-    record(BASE_TIME + 2, ID_CLK100NS[1], 40, id_symbols(LAP)),
+    record(BASE_TIME + 3, ID_CLK100NS[1], 40, id_symbols(LAP)),
 ])
 
 with tempfile.TemporaryDirectory() as workdir:
@@ -277,7 +292,7 @@ with tempfile.TemporaryDirectory() as workdir:
     # are checked: libbtbb assembles the flags separately for each.
     for name, records in (("pcap", capture_records(work / "capture.pcap")),
                           ("pcapng", pcapng_records(work / "capture.pcapng"))):
-        assert len(records) == 3, (name, records)
+        assert len(records) == 4, (name, records)
         # What each record says, so that running this by hand shows the
         # capture the assertions below are about.
         for index, (lap, uap, flags, payload) in enumerate(records):
@@ -285,20 +300,26 @@ with tempfile.TemporaryDirectory() as workdir:
                   "payload=%s" % (name, index, lap, uap, flags,
                                   payload.hex() or "none"))
 
-        # Before the UAP is known there is nothing to record, so the first
-        # record carries no reference UAP and does not claim to.
-        assert records[0][:2] == (LAP, UAP_ANY), (name, records)
-        assert not records[0][2] & BREDR_REFUAP_VALID, (name, records)
+        # The first two records are written before the UAP is known: one with
+        # no header to learn it from, one whose header the decoder has but
+        # whose CRC left every clock candidate alive. Neither carries a
+        # reference UAP, and neither claims to.
+        for index in (0, 1):
+            assert records[index][:2] == (LAP, UAP_ANY), (name, records)
+            assert not records[index][2] & BREDR_REFUAP_VALID, (name, records)
+        assert not crc_recomputes(records[1][3], UAP), (name, records)
 
         # The packet that settles the UAP carries it, flag and all: this
-        # record is the evidence the UAP came from, and it used to go out
-        # saying nothing. Its payload passes its own CRC under the UAP the
-        # record gives, which is the check the reference UAP is recorded for
-        # and the one this record could not be put through before.
-        assert records[1][:2] == (LAP, UAP), (name, records)
-        assert records[1][2] & BREDR_REFUAP_VALID, (name, records)
-        assert crc_recomputes(records[1][3], records[1][1]), (name, records)
-
-        # So does every record after it, which is all that ever worked.
+        # record is the first evidence the UAP came from, and it used to go
+        # out saying nothing. Its payload passes its own CRC under the UAP the
+        # record gives and under no other, which is the check the reference
+        # UAP is recorded for and the one this record could not be put
+        # through before.
         assert records[2][:2] == (LAP, UAP), (name, records)
         assert records[2][2] & BREDR_REFUAP_VALID, (name, records)
+        assert crc_recomputes(records[2][3], records[2][1]), (name, records)
+        assert not crc_recomputes(records[2][3], UAP ^ 1), (name, records)
+
+        # So does every record after it, which is all that ever worked.
+        assert records[3][:2] == (LAP, UAP), (name, records)
+        assert records[3][2] & BREDR_REFUAP_VALID, (name, records)
