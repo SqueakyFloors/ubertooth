@@ -6,7 +6,7 @@
  * The ring is built small here (the build sets UBERTOOTH_FIFO_SLOTS_FOR_TESTS),
  * because the shipped 1000000 slots put the full-ring paths out of reach of a
  * test: a case would have to produce a million records faster than it drains
- * them. Seven usable slots reach them on every lap.
+ * them. Six usable slots reach them on every lap.
  *
  * One thing is deliberately not tested: that fifo_popped_arrival_ns() is kept
  * rather than read back out of the slot the record came from. No case can
@@ -359,9 +359,10 @@ MU_TEST(the_ring_behaves_as_a_queue_across_many_laps)
  * ring full.
  *
  * The consumer pauses now and then, and the producer races ahead while it
- * does, so the ring fills in bursts: a few per cent of the records published
- * are discarded for want of room, and the rest of the time the ring is nearly
- * empty. Those bursts are the window this case exists for.
+ * does, so the ring fills in bursts: between a few per cent and a third of
+ * the records published are discarded for want of room, depending on the
+ * machine and on whether the run is sanitized, and the rest of the time the
+ * ring is nearly empty. Those bursts are the window this case exists for.
  *
  * This is a race detector, so it catches a regression often rather than
  * always. Putting the pop's copy back after the slot is handed over -- the
@@ -370,9 +371,10 @@ MU_TEST(the_ring_behaves_as_a_queue_across_many_laps)
  * proof.
  *
  * A plain run says little about the release and acquire ordering: weakened
- * one at a time, three of the four still pass every run here, and on x86-64
- * the generated code for a release store and a relaxed one does not differ at
- * all. What does pin them is the same case built with a thread sanitizer,
+ * one at a time, two or three of the four still pass every run, depending on
+ * the optimisation level, and on x86-64 the generated code for a release
+ * store and a relaxed one does not differ at all. What does pin them is the
+ * same case built with a thread sanitizer,
  * which the build registers as a second test where the compiler has one
  * (fifo-ring-tsan): weakening any of the four is reported there, and the ring
  * as it stands is clean.

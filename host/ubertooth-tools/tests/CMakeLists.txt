@@ -687,7 +687,10 @@ if(libubertooth_SOURCE_DIR)
 	# The ring buffer itself, including the two threads that share it. Only
 	# ubertooth_fifo.c is linked, so the ring can be built small: the
 	# shipped 1000000 slots put a full ring out of a test's reach, and
-	# every full-ring path is on the other side of it.
+	# every full-ring path is on the other side of it. Seven slots, not
+	# eight: a size that is not a power of two, so replacing the ring's
+	# wrap with a bitmask -- which would work at every size the test used
+	# and at none that ships -- fails here.
 	#
 	# libbtbb's include directory is listed although nothing here uses
 	# libbtbb, because that is what supplies the directory
@@ -702,30 +705,31 @@ if(libubertooth_SOURCE_DIR)
 	target_include_directories(test-fifo-ring PRIVATE
 		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
 	target_compile_definitions(test-fifo-ring PRIVATE
-		UBERTOOTH_FIFO_SLOTS_FOR_TESTS=8)
+		UBERTOOTH_FIFO_SLOTS_FOR_TESTS=7)
 	target_link_libraries(test-fifo-ring Threads::Threads)
 
 	add_test(NAME fifo-ring COMMAND test-fifo-ring)
-	# The threaded case publishes a million records through an eight-slot
+	# The threaded case publishes a million records through a seven-slot
 	# ring, the queue case sixty thousand more: half a second here and in
 	# CI. The limit only catches a run whose threads do not finish.
 	set_tests_properties(fifo-ring PROPERTIES TIMEOUT 30)
 
 	# The same source again under a thread sanitizer, which is what pins
-	# the ring's release and acquire ordering: a plain run passes with
-	# three of the four weakened, because the processor or the compiler
-	# was doing it anyway, while the sanitizer reports any of the four.
+	# the ring's release and acquire ordering: a plain run catches one or
+	# two of the four weakened, depending on the optimisation level,
+	# because the processor or the compiler was doing it anyway, while the
+	# sanitizer reports any of the four.
 	#
-	# Only where the compiler has one. GCC needs libtsan installed to
-	# link, so the check compiles and links a program rather than only
-	# testing the flag, and the test is simply absent where it fails.
-	include(CheckCSourceCompiles)
+	# Only where the compiler has a sanitizer that works. The probe is
+	# built and run, not only compiled: GCC needs libtsan installed to
+	# link at all, and a runtime that links can still refuse to start, as
+	# one does on a recent kernel with 32-bit address-space randomisation.
+	# The test is simply absent where the probe fails.
+	include(CheckCSourceRuns)
 	set(CMAKE_REQUIRED_FLAGS -fsanitize=thread)
-	set(CMAKE_REQUIRED_LINK_OPTIONS -fsanitize=thread)
-	check_c_source_compiles("int main(void) { return 0; }"
+	check_c_source_runs("int main(void) { return 0; }"
 		HAVE_THREAD_SANITIZER)
 	unset(CMAKE_REQUIRED_FLAGS)
-	unset(CMAKE_REQUIRED_LINK_OPTIONS)
 
 	if(HAVE_THREAD_SANITIZER)
 		add_executable(test-fifo-ring-tsan
@@ -735,7 +739,7 @@ if(libubertooth_SOURCE_DIR)
 			${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR}
 			${LIBBTBB_INCLUDE_DIR})
 		target_compile_definitions(test-fifo-ring-tsan PRIVATE
-			UBERTOOTH_FIFO_SLOTS_FOR_TESTS=8)
+			UBERTOOTH_FIFO_SLOTS_FOR_TESTS=7)
 		target_compile_options(test-fifo-ring-tsan PRIVATE
 			-fsanitize=thread -g)
 		target_link_options(test-fifo-ring-tsan PRIVATE
@@ -744,10 +748,17 @@ if(libubertooth_SOURCE_DIR)
 
 		add_test(NAME fifo-ring-tsan COMMAND test-fifo-ring-tsan)
 		# A sanitized run of the same records takes a few seconds
-		# rather than half of one. A reported race exits non-zero.
+		# rather than half of one. halt_on_error stops at the first
+		# race, which aborts the process, so a race is a failure.
+		#
+		# log_path=stdout matters: the threaded case holds standard
+		# error on a temporary file of its own, to count the ring's
+		# overflow warnings, and a report written there would die with
+		# the file. Standard output is untouched, so ctest
+		# --output-on-failure prints the report.
 		set_tests_properties(fifo-ring-tsan PROPERTIES
 			TIMEOUT 120
-			ENVIRONMENT "TSAN_OPTIONS=halt_on_error=1:exitcode=66")
+			ENVIRONMENT "TSAN_OPTIONS=halt_on_error=1:log_path=stdout")
 	endif()
 
 	# What the low-energy callback hands libbtbb's decoder: the captured
