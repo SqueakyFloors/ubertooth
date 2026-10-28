@@ -390,15 +390,19 @@
   captured. `ubertooth-rx` told the decoder it had 4000 symbols where 400 had
   arrived, so a DH5's payload and its CRC verdict were decoded out of about
   2700 bytes of zeros, on screen and in the payload written to a capture file,
-  with nothing marking it as incomplete.
+  with nothing marking it as incomplete. Its search for an access code stops
+  64 symbols short of the end of the captured symbols as well, as the other
+  capture paths already did, so a capture run at a high `-e` reports somewhat
+  fewer packets: the positions that are gone could only ever have matched the
+  symbols that were never captured.
   [#666](https://github.com/SqueakyFloors/ubertooth/issues/666)
 - A Classic packet's signal level is its own from the first packet on a
   channel. The table of recent maxima started with one of its 790 entries
   filled, and the level is the strongest entry of the packet's channel, so
   every channel reported at least about -55 dBm for its first ten packets: a
-  packet that should have read -91 dBm read -55 dBm, in the record written to
-  a capture file as well as on screen, and the signal-to-noise ratio that
-  decides whether a packet is dropped was out by the same 36 dB.
+  packet that should have read -91 dBm read -55 dBm, in the signal field of
+  the record written to a capture file as well as on screen, and the
+  signal-to-noise ratio printed beside it was out by the same 36 dB.
   [#665](https://github.com/SqueakyFloors/ubertooth/issues/665)
 - The clock a Classic packet is placed at is the clock its access code
   arrived on. `ubertooth-rx` put a packet captured in the first 400 µs of a
@@ -412,9 +416,10 @@
   was sent as a large positive delay, which stretched one tick to 6.85 ms and
   left the clock 5.91 ms behind where 15 µs forward was wanted, and the drift
   it reported alongside was computed unsigned: a real 15 PPM came out as
-  1342162, was printed as that, and left the board being driven about 320 PPM
-  fast for the rest of the run. So `ubertooth-rx -l`/`-u` and
-  `ubertooth-follow` kept the hop sequence they had found.
+  1342162, was printed as that, and left the board being slowed by a further
+  320 PPM, the same direction as the error, for the rest of the run. So
+  `ubertooth-rx -l`/`-u` and `ubertooth-follow` keep the hop sequence they
+  have found.
   [#663](https://github.com/SqueakyFloors/ubertooth/issues/663)
 - A spectrum analyzer run measures through the radio front end a freshly
   booted board has, whichever mode ran before it. `ubertooth-specan` and

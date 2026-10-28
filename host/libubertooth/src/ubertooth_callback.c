@@ -76,9 +76,6 @@ static int8_t cc2400_rssi_to_dbm( const int8_t rssi )
 
 #define RSSI_HISTORY_LEN 10
 
-/* Ignore packets with a SNR lower than this in order to reduce
- * processor load.  TODO: this should be a command line parameter. */
-
 /* The ten most recent RSSI maxima of each Basic Rate channel, newest last, and
  * whether the table has been filled with the value that stands for a slot no
  * packet has written yet.
@@ -89,9 +86,9 @@ static int8_t cc2400_rssi_to_dbm( const int8_t rssi )
  * array to zero, and `= {{INT8_MIN}}` sets the first entry of the first
  * channel and leaves the other 789 at zero. Raw 0 is about -55 dBm, so every
  * channel used to report at least that for its first ten packets - a packet
- * whose own maximum was -91 dBm read -55 dBm, in the record written to a
- * capture file as well as on screen, and the signal-to-noise ratio that
- * decides whether a packet is dropped was out by the same amount. */
+ * whose own maximum was -91 dBm read -55 dBm, in the signal field of the
+ * record written to a capture file as well as on screen, and the
+ * signal-to-noise ratio printed beside it was out by the same amount. */
 static int8_t rssi_history[NUM_BREDR_CHANNELS][RSSI_HISTORY_LEN];
 static int rssi_history_filled = 0;
 
@@ -951,18 +948,20 @@ void cb_ego(ubertooth_t* ut, void* args)
 
 /* What the firmware's clock trim can ask for, in 100 ns ticks. The request
  * carries one unsigned 16-bit field holding a correction modulo one slot: the
- * firmware reads 0 to 3124 as a delay of that many ticks, and 3125 and up as
+ * firmware reads 0 to 3124 as a delay of that many ticks, and 3125 to 6249 as
  * an advance of one slot less the value. So the largest delay is one tick
- * short of a CLKN tick and the largest advance is a whole one. */
+ * short of a CLKN tick and the largest advance is a whole one. A field of 6250
+ * or more is a delay again, which is the arithmetic the old "advance" branch
+ * leant on; nothing sends one now. */
 #define CLOCK_TRIM_MAX_DELAY   (CLK100NS_PER_CLKN - 1)
 #define CLOCK_TRIM_MAX_ADVANCE CLK100NS_PER_CLKN
 
 /* The largest drift the firmware's correction can express, in parts per
  * million. It adds or removes one 100 ns tick every 320/PPM CLKN ticks, so
  * 320 PPM is one tick every tick; beyond that its division gives nothing,
- * which it reads as correcting on every tick and drives the board 320 PPM the
- * wrong way. This bounds each request, not the total: the firmware adds each
- * one to a running figure of its own. */
+ * which it reads as correcting on every tick, saturated at 320 PPM. This
+ * bounds each request, not the total: the firmware adds each one to a running
+ * figure of its own, which nothing bounds. */
 #define DRIFT_PPM_MAX PPM_PER_100NS_PER_CLKN
 
 /* How far the board's clock has to move for the next packet's access code to
@@ -974,7 +973,9 @@ void cb_ego(ubertooth_t* ut, void* args)
  * place. The shorter way round is the one to take: it perturbs the clock less,
  * and it is the only one of the two that the firmware's field can carry, which
  * is why nothing here needs clamping. The result is always between one whole
- * CLKN tick of advance and one tick less a 100 ns tick of delay. */
+ * CLKN tick of advance and one tick less a 100 ns tick of delay, as long as
+ * CLK_TUNE_TIME is no more than a CLKN tick; the test walks every offset a
+ * packet can be measured at and checks that. */
 static int32_t clock_correction_100ns( uint16_t clk_offset )
 {
 	int32_t error = (int32_t) clk_offset - CLK_TUNE_TIME;
@@ -1006,10 +1007,12 @@ static uint16_t clock_trim_field( int32_t correction_100ns )
  *
  * Signed throughout. The division used to be by an unsigned tick count, which
  * converted a negative correction first: a real -15 PPM came out as 1342162,
- * was printed as that, and was narrowed to 31442 for the request, which left
- * the firmware driving the board about 320 PPM fast forever. The result is
- * clamped to what the firmware can act on, and a trim in the same CLKN tick as
- * the last one reports nothing rather than dividing by zero. */
+ * was printed as that, and was narrowed to 31442 for the request. A positive
+ * figure makes the firmware lengthen every tick, so a board already running
+ * 15 PPM slow was slowed by a further 320 PPM - the same direction as the
+ * error - for the rest of the run. The result is clamped to what the firmware
+ * can act on, and a trim in the same CLKN tick as the last one reports nothing
+ * rather than dividing by zero. */
 static int drift_ppm( int32_t correction_100ns, uint32_t clkn_ticks )
 {
 	int32_t ppm;

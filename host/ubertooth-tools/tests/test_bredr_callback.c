@@ -528,13 +528,14 @@ MU_TEST(the_correction_takes_the_shorter_way_round_the_slot)
 
 MU_TEST(the_drift_keeps_its_sign_and_stays_inside_what_the_board_can_act_on)
 {
-	/* The case that found this: 2100 against a tune time of 2250 is a correction
-	 * of -150, and one second is 3200 CLKN ticks, so the board is running
-	 * 15 PPM slow. The division used to be by an unsigned tick count,
-	 * which converted the negative numerator first: -15 came out as
+	/* The case that found this: 2100 against a tune time of 2250 is a
+	 * correction of -150, and one second is 3200 CLKN ticks, so the board
+	 * is running 15 PPM slow. The division used to be by an unsigned tick
+	 * count, which converted the negative numerator first: -15 came out as
 	 * 1342162, was printed as that, and was narrowed to 31442 for the
-	 * request, which left the firmware adding 100 ns on every tick -
-	 * driving the board about 320 PPM fast, forever. */
+	 * request. A positive figure makes the firmware lengthen every tick,
+	 * so the board was slowed by a further 320 PPM - the same direction as
+	 * the error it was asked to correct - for the rest of the run. */
 	mu_assert_int_eq(-15, drift_ppm(-150, CLKN_PER_SECOND));
 	mu_assert_int_eq(15, drift_ppm(150, CLKN_PER_SECOND));
 	mu_assert_int_eq(0, drift_ppm(0, CLKN_PER_SECOND));
@@ -549,8 +550,9 @@ MU_TEST(the_drift_keeps_its_sign_and_stays_inside_what_the_board_can_act_on)
 
 	/* Faster than the firmware's correction can express: it adds or
 	 * removes one 100 ns tick every 320/PPM ticks, so beyond 320 PPM its
-	 * division gives nothing and it corrects on every tick instead. Two
-	 * trims a tenth of a second apart can measure that. */
+	 * division gives nothing and it corrects on every tick, which is that
+	 * 320 PPM and no more. Two trims a tenth of a second apart measure a
+	 * figure past it. */
 	mu_assert_int_eq(DRIFT_PPM_MAX, drift_ppm(3999, CLKN_PER_SECOND / 10));
 	mu_assert_int_eq(-DRIFT_PPM_MAX, drift_ppm(-3999, CLKN_PER_SECOND / 10));
 	mu_assert_int_eq(DRIFT_PPM_MAX, drift_ppm(DRIFT_PPM_MAX, 1));
@@ -561,7 +563,7 @@ MU_TEST(a_calibrated_follow_sends_the_trim_the_measured_offset_calls_for)
 	btbb_piconet* pn = btbb_piconet_new();
 	unsigned i;
 
-	/* The sequence that found this, through the real cb_rx(): a first packet
+	/* The sequence that found this, through the real cb_rx(): a packet
 	 * calibrates the follow, three late ones push its counter past the
 	 * threshold, and the fourth arrives early. Which form the trim took
 	 * was decided by that counter alone, so this packet - a correction of
