@@ -371,8 +371,8 @@
   line: `libbtbb loaded from: /usr/local/lib/libbtbb.so.1`. A machine
   with a distribution or Homebrew libbtbb beside this fork's reports two
   versions that may be the same number, and the path is what tells them apart.
-  `install.sh` ends by printing the same two lines, and warns if the tools it
-  installed load a libbtbb from somewhere else.
+  `install.sh` ends by printing the host lines the tools it installed report,
+  and warns if they load a libbtbb from somewhere else.
   [#337](https://github.com/SqueakyFloors/ubertooth/issues/337)
 - **Script-visible change:** `ubertooth-btbr` prints the packets a command
   decodes, and the inquiry responses with their EIR, on standard output, one

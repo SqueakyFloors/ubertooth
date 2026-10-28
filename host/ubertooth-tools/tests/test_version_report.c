@@ -420,7 +420,8 @@ MU_TEST(an_empty_selector_reports_every_board)
 }
 
 /* A board that answers an empty build string has nothing to show, so the line
- * says the read failed and the status agrees with it. */
+ * says it was not reported rather than that the read failed, and the status is
+ * 1 either way. */
 MU_TEST(an_empty_build_string_is_not_reported)
 {
 	struct run_result r;
@@ -431,6 +432,17 @@ MU_TEST(an_empty_build_string_is_not_reported)
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.out, HOST_LINE
 	                 "Firmware version: bluetooth_rxtx git-test (API:1.07)\n"
+	                 "Firmware build: not reported\n") == 0, r.out);
+
+	/* And the two reads are judged separately: an API version that could not
+	 * be read must not make the empty build string look like a failed read. */
+	make_fake(1);
+	fake.board[0].api_rc = -1;
+	fake.board[0].compile_info = "";
+	r = RUN_PLAIN();
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, HOST_LINE
+	                 "Firmware version: bluetooth_rxtx git-test\n"
 	                 "Firmware build: not reported\n") == 0, r.out);
 }
 

@@ -116,6 +116,7 @@ static int print_board_versions(FILE *out, ubertooth_t *ut, int index)
 {
 	char text[UBERTOOTH_VERSION_TEXT_LEN];
 	int status;
+	int build_rc;
 
 	status = ubertooth_firmware_version_text(ut, text, sizeof(text));
 	print_label(out, UBERTOOTH_VERSION_LABEL_FIRMWARE, index);
@@ -129,7 +130,11 @@ static int print_board_versions(FILE *out, ubertooth_t *ut, int index)
 	fprintf(out, "%s\n", text);
 
 	text[0] = '\0';
-	if (cmd_get_firmware_compile_info(ut->devh, text, sizeof(text)) < 0)
+	/* This read's own result, not the version read's: the line below says
+	 * which of the two things happened to this read, so a status that also
+	 * carries the API version's failure would make it say the wrong one. */
+	build_rc = cmd_get_firmware_compile_info(ut->devh, text, sizeof(text));
+	if (build_rc < 0)
 		status = 1;
 	print_label(out, UBERTOOTH_VERSION_LABEL_BUILD, index);
 	if (text[0] == '\0') {
@@ -138,7 +143,7 @@ static int print_board_versions(FILE *out, ubertooth_t *ut, int index)
 		 * the board had no build string to give. Either way the status is 1,
 		 * so the line and the status agree and a script reading one of them
 		 * is not misled by the other. */
-		fprintf(out, status != 0 ? "read failed\n" : "not reported\n");
+		fprintf(out, build_rc < 0 ? "read failed\n" : "not reported\n");
 		return 1;
 	}
 	fprintf(out, "%s\n", text);

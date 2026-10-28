@@ -216,11 +216,10 @@ static struct run_result run_tool_main(run_main_fn tool_main,
 {
 	struct run_result result;
 	char *argv[RUN_MAIN_MAX_ARGS + 1];
-	/* The same copies again, to give back afterwards. A tool may replace a
-	 * pointer in the argv it is handed -- rewriting a long option to the
-	 * short one getopt knows is how -- so by the time it returns, argv no
-	 * longer holds only what was allocated here, and freeing from it would
-	 * free a string literal. */
+	/* The same copies again, to give back afterwards. A tool is allowed to
+	 * replace a pointer in the argv it is handed, so by the time it returns,
+	 * argv no longer holds only what was allocated here, and freeing from it
+	 * could free a string literal. */
 	char *copies[RUN_MAIN_MAX_ARGS];
 	int argc = 0;
 	struct run_capture capture;

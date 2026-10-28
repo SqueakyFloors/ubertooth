@@ -469,7 +469,13 @@ else
 	# here and its exit status is not looked at. Its standard error is left
 	# alone rather than discarded: a tool that will not run has said why
 	# there, and that is the thing to show.
+	#
+	# Only the host lines are kept. The rest of the answer describes the
+	# boards attached, which this section is not about, and a board the
+	# freshly installed udev rule does not cover yet would report a denial
+	# here that reads like a failed install.
 	BTBB_IN_USE="$("$PREFIX/bin/ubertooth-util" -V || true)"
+	BTBB_IN_USE="$(printf '%s\n' "$BTBB_IN_USE" | sed -n '/^Firmware /q;p')"
 	case "$BTBB_IN_USE" in
 		*"libbtbb loaded from: "*) UTIL_ANSWERED=1 ;;
 		*) UTIL_ANSWERED=0 ;;

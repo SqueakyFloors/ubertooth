@@ -119,6 +119,9 @@ Send advertising packets using BD ADDR `22:44:66:88:AA:CC`:
 
  - `-h` :
    Displays help message
+ - `-V` :
+   print the version: the host tools, then the firmware version and build of
+   each attached board; see ubertooth(7), COMMON OPTIONS
 
 Major modes:
 
@@ -244,9 +247,6 @@ Data source:
  - `-U <index|serial>` :
    select an Ubertooth by enumeration index or serial number; see
    ubertooth(7), SELECTING A DEVICE
- - `-V` :
-   print the version: the host tools, then the firmware version and build of
-   each attached board; see ubertooth(7), COMMON OPTIONS
 
 ## USING WITH CRACKLE
 

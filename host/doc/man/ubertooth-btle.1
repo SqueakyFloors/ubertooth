@@ -91,6 +91,9 @@ ubertooth\-btle \-s 22:44:66:88:AA:CC
 .TP
 \fB\-h\fR
 Displays help message
+.TP
+\fB\-V\fR
+print the version: the host tools, then the firmware version and build of each attached board; see ubertooth(7), COMMON OPTIONS
 .P
 Major modes:
 .TP
@@ -166,9 +169,6 @@ Data source:
 .TP
 \fB\-U <index|serial>\fR
 select an Ubertooth by enumeration index or serial number; see ubertooth(7), SELECTING A DEVICE
-.TP
-\fB\-V\fR
-print the version: the host tools, then the firmware version and build of each attached board; see ubertooth(7), COMMON OPTIONS
 .SH "USING WITH CRACKLE"
 \fBcrackle\fR is a tool for cracking the BLE key exchange and decrypting encrypted data\. To capture data for use with \fBcrackle\fR, sniff connections in follow mode using \fB\-f\fR and log data to PCAP/PPI using \fB\-c\fR\. Example:
 .IP "" 4
@@ -226,9 +226,8 @@ A command line the tool will not take is reported as that one \fBerror:\fR line 
 1 as well when the board refuses the request that ends a capture: it is left in the capture mode, and no other tool can open it until it is reset or re\-plugged\. What was captured stays written out, and libubertooth names the refused request on standard error\.
 .P
 A \fB\-q\fR, \fB\-c\fR or \fB\-r\fR file is created once the board has been opened and its firmware accepted, not before, so a run refused for either reason leaves no empty capture behind\. A file the tool then cannot create is reported with the name the user gave, and the board is given back\.
-
+.P
 \fB\-V\fR reads the attached board, so it exits 1 when a board is attached and cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7), COMMON OPTIONS\.
-
 .SH "SEE ALSO"
 ubertooth\-util(1): sets the receive squelch (\fB\-z\fR); SQUELCH describes how long it lasts
 .P

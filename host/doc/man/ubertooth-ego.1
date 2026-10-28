@@ -112,9 +112,8 @@ A capture that is losing packets says so\. The board holds captured packets in a
 0 when the command did what was asked, including \fB\-h\fR, and after a capture is interrupted (Ctrl\-C)\. 1 for a command line the tool will not take or with nothing to do, when the selected Ubertooth is not found or cannot be opened, when the board refuses one of the requests that set the capture up, when the firmware does not support the requested mode, and when the capture stops short because a poll failed\.
 .P
 1 as well when the board refuses the request that ends the capture: it is left in the E\-GO mode, and no other tool can open it until it is reset or re\-plugged\. libubertooth names the refused request on standard error\.
-
+.P
 \fB\-V\fR reads the attached board, so it exits 1 when a board is attached and cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7), COMMON OPTIONS\.
-
 .SH "SEE ALSO"
 ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how option values are written
 .SH "AUTHOR"

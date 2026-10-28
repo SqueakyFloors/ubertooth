@@ -108,9 +108,8 @@ It exits 1 without opening a device for a bad command line (a missing UAP or LAP
 A run whose USB stream fails part\-way, with or without \fB\-r\fR, exits 1: the board stopped answering or dropped off the bus, so what it reported is whatever arrived before that\. A detection phase that lost its stream is never reported as a quiet piconet, so it exits 1 rather than 2\.
 .P
 A teardown the board refused exits 1 too, and this is one of the paths that reach it: the request that takes the board out of its capture mode was stalled, so the board is left in that mode and no other tool can open it until it is reset or re\-plugged\. The map the run detected is still printed, and libubertooth names the refused request on standard error\. A quiet piconet is not reported as 2 in that case either\.
-
+.P
 \fB\-V\fR reads the attached board, so it exits 1 when a board is attached and cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7), COMMON OPTIONS\.
-
 .SH "SEE ALSO"
 ubertooth\-util(1): sets the receive squelch (\fB\-z\fR); SQUELCH describes how long it lasts, and CARRY\-OVER BETWEEN RUNS what else a board keeps from one command to the next
 .P

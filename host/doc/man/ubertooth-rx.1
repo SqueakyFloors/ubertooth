@@ -206,9 +206,8 @@ A refused channel request is answered with the capture already running (see HOW 
 A capture the board would not stop exits 1 as well, however cleanly the capture itself ran: the request that takes the board out of its capture mode was stalled, so the board is left in that mode and no other tool can open it until it is reset or re\-plugged\. What was captured stays written out, a \fB\-z\fR survey still prints its results, and libubertooth names the refused request on standard error\. This is what a \fB\-t\fR run that reported success and then left a board nothing could open used to look like\.
 .P
 The \fB\-q\fR, \fB\-r\fR and \fB\-d\fR files are created once the board has been opened and its firmware accepted, not before, so a run refused for either reason leaves no empty capture behind\. A replay (\fB\-i\fR) creates them once its input file has been opened, since it needs no board\. A terminal on standard output is still refused while the command line is read\.
-
+.P
 \fB\-V\fR reads the attached board, so it exits 1 when a board is attached and cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7), COMMON OPTIONS\.
-
 .SH "SEE ALSO"
 ubertooth\-util(1): sets the receive squelch (\fB\-z\fR); SQUELCH describes how long it lasts
 .P
