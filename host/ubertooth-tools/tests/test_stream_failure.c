@@ -24,6 +24,12 @@
  * cancellation is how a stream ends, and a Ctrl-C is a user stopping a
  * capture that was working.
  */
+/* RTLD_NEXT, used below to reach the real pthread_create, is a GNU extension:
+ * glibc's <dlfcn.h> declares it only when _GNU_SOURCE is defined, and the
+ * tests build as -std=c17, which does not define it. This has to come before
+ * any include, because the first one pulls in <features.h>. */
+#define _GNU_SOURCE
+
 #include <dlfcn.h>
 #include <errno.h>
 #include <pthread.h>
