@@ -1552,6 +1552,16 @@ Fixes with no visible change in normal use.
 - AFH hopping no longer divides by zero in either baseband hop implementation.
   Credit: [@Kielukel](https://github.com/Kielukel) and Piotr Wasylów.
   https://github.com/Kielukel/ubertooth
+- A record the board sends no longer ends in bytes of whatever was on its
+  stack: the generic radio receive built its record in a buffer shorter than
+  the fixed 50 bytes that are sent, and the spectrum analyzer left its last
+  two bytes unwritten.
+  [#661](https://github.com/SqueakyFloors/ubertooth/issues/661)
+- A board running `btbr` that hits a processor fault blinks a code that can be
+  read: the pause between blinks did not pause, two of the four faults shared
+  a count, and no code finished before the board reset itself. See the LEDs
+  doc for what each one means.
+  [#670](https://github.com/SqueakyFloors/ubertooth/issues/670)
 - Corrected firmware signal-strength channel bounds. Credit: Gabriele
   Gristina ([@matrix](https://github.com/matrix)).
   [upstream #481](https://github.com/greatscottgadgets/ubertooth/pull/481)

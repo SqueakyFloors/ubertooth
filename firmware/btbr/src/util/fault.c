@@ -30,10 +30,10 @@
 #include "tinyprintf.h"
 
 /*
- * Every path in this file ends in a loop that flashes a pattern and never
- * returns. Nothing in those loops feeds the watchdog, so the board resets
- * itself a few seconds later and comes back usable; before the watchdog it sat
- * there answering nothing on USB until someone unplugged it.
+ * Every path in this file ends in blink_fault_code() below, which flashes its
+ * code and never returns. Nothing in that loop feeds the watchdog, so the
+ * board resets itself a few seconds later and comes back usable; before the
+ * watchdog it sat there answering nothing on USB until someone unplugged it.
  *
  * Each path therefore records where it was in the breadcrumb first, and
  * ubertooth-util -w reads that back once the board has reconnected. Without it
@@ -46,13 +46,60 @@
  * it returns.
  */
 
+/*
+ * The LED code a stopped board blinks, counted in blinks: a panic the firmware
+ * raised itself, then one code per processor fault. The four faults use the
+ * same numbers as the other image, so a code means the same thing whichever
+ * image a board is running.
+ *
+ * The codes used to be a run of long blinks and then a run of short ones --
+ * 2 and 25, 4 and 12, 8 and 6, 8 and 6 -- which is one code for a bus fault
+ * and a usage fault both. None of them was readable anyway: they were blinked
+ * through a sleep that did not sleep, and even with a working one they took
+ * longer than the watchdog allows. The second run carried nothing the first
+ * did not; the register dump above is where the detail is.
+ */
+#define FAULT_CODE_PANIC  1
+#define FAULT_CODE_HARD   2
+#define FAULT_CODE_MEM    3
+#define FAULT_CODE_BUS    4
+#define FAULT_CODE_USAGE  5
+
+/*
+ * How long one blink is, and the gap that separates one repeat of a code from
+ * the next.
+ *
+ * The whole code has to be blinked inside the watchdog's timeout. Nothing
+ * below feeds the watchdog, on purpose -- the board resets itself a few
+ * seconds after the fault and comes back usable -- so a code that took longer
+ * than that would be cut off part-way, and a cut-off count is a different
+ * count. The longest code and its gap come to 2.1 of the 3 seconds the
+ * watchdog allows; the dump above eats into that, so a later repeat may still
+ * be cut, but the first one is not.
+ */
+#define FAULT_BLINK_MS 150
+#define FAULT_GAP_MS   600
+
+/* The longest code, which is the only one that can fail this. A code added
+ * below goes here too; test_btbr_fault_blink.c checks every one of them. */
+_Static_assert(FAULT_CODE_USAGE * 2 * FAULT_BLINK_MS + FAULT_GAP_MS <
+               UBERTOOTH_WATCHDOG_TIMEOUT_MS,
+               "a fault code must be blinked before the watchdog resets the board");
+
+/* Blink one code forever, until the watchdog resets the board. */
+static void __attribute__((noreturn)) blink_fault_code(int code)
+{
+	while (1) {
+		flash_leds(code, FAULT_BLINK_MS);
+		active_msleep(FAULT_GAP_MS);
+	}
+}
+
 void __attribute__((noreturn)) die (char *fmt, ...)
 {
-	int i;
 	char buf[64] = {0};
 	int len;
 	va_list ap;
-	void *ret;
 	irq_save_disable();
 
 	watchdog_mark(WATCHDOG_SITE_PANIC);
@@ -64,10 +111,7 @@ void __attribute__((noreturn)) die (char *fmt, ...)
 	va_end(ap);
 	usb_send_sync((void*)buf, 1+len);
 
-	while (1)
-	{
-		flash_leds(5, 100);
-	}
+	blink_fault_code(FAULT_CODE_PANIC);
 }
 
 static void dump_debug_registers(void)
@@ -95,10 +139,7 @@ void HardFault_Handler(void)
 	watchdog_mark(WATCHDOG_SITE_FAULT_HARD);
 	early_printf("HardFault at 0x%x\n", get_lr());
 	dump_debug_registers();
-	while (1) {
-		flash_leds(2,500);
-		flash_leds(25,100);
-	}
+	blink_fault_code(FAULT_CODE_HARD);
 }
 
 void MemManagement_Handler(void)
@@ -106,10 +147,7 @@ void MemManagement_Handler(void)
 	watchdog_mark(WATCHDOG_SITE_FAULT_MEM);
 	early_printf("MMFault at 0x%x\n", get_lr());
 	dump_debug_registers();
-	while (1) {
-		flash_leds(4,500);
-		flash_leds(12,100);
-	}
+	blink_fault_code(FAULT_CODE_MEM);
 }
 
 void BusFault_Handler(void)
@@ -117,10 +155,7 @@ void BusFault_Handler(void)
 	watchdog_mark(WATCHDOG_SITE_FAULT_BUS);
 	early_printf("BusFault at %x\n", get_lr());
 	dump_debug_registers();
-	while (1) {
-		flash_leds(8,500);
-		flash_leds(6,100);
-	}
+	blink_fault_code(FAULT_CODE_BUS);
 }
 
 void UsageFault_Handler(void)
@@ -128,8 +163,5 @@ void UsageFault_Handler(void)
 	watchdog_mark(WATCHDOG_SITE_FAULT_USAGE);
 	early_printf("UsageFault at %x\n", get_lr());
 	dump_debug_registers();
-	while (1) {
-		flash_leds(8,500);
-		flash_leds(6,100);
-	}
+	blink_fault_code(FAULT_CODE_USAGE);
 }

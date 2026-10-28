@@ -6,6 +6,9 @@
 
 #define cputc console_putc
 
+/* Takes over the system timer and does not give it back; only safe where
+ * nothing afterwards needs it, which today means the fault paths. */
+void active_msleep(unsigned msec);
 void flash_leds(int count, int delay);
 void cprintf(char *fmt, ...);
 void early_printf(char *fmt, ...);

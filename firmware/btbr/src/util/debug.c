@@ -66,10 +66,47 @@ void print_hex(uint8_t *pkt, unsigned size)
 		cprintf("%02x ", pkt[i]);
 }
 
+/* The system timer's reload value is 24 bits wide. */
+_Static_assert(CCLK_HZ / 1000 - 1 <= 0xFFFFFFu,
+               "a millisecond of core clocks must fit the system timer reload");
+
+/*
+ * Sleep for msec milliseconds by counting core clocks on the system timer.
+ *
+ * This used to be an empty loop over an ordinary counter,
+ * `for (i = msec/2; i; i--);`. A 500 ms request became 250 decrements of a
+ * register -- well under a microsecond -- and a compiler is free to delete a
+ * loop like that outright. Everything that calls this blinks an LED code to
+ * say which fault stopped the board, and the codes are told apart by their
+ * timing, so none of them was readable.
+ *
+ * The system timer is used rather than a loop with a calibration constant
+ * because it counts the clock itself: one reload is one millisecond however
+ * the compiler arranges the code. It is read by polling, not by its
+ * interrupt, because every caller runs on a fault path, where an interrupt
+ * may never be taken. Setting it up here is safe for the same reason: no
+ * caller returns, so nothing else needs the timer afterwards.
+ *
+ * The one case this gets wrong is a fault before clock_start() has run, when
+ * the CPU is still on the 4 MHz internal oscillator and every wait is 25
+ * times too long. Nothing can be done about that from here, and the watchdog
+ * is not armed that early either.
+ */
 void active_msleep(unsigned msec)
 {
-	int i;
-	for (i=msec/2;i;i--);
+	/* One reload of the counter is one millisecond of core clocks. */
+	STRELOAD = CCLK_HZ / 1000 - 1;
+	STCTRL = STCTRL_CLKSOURCE | STCTRL_ENABLE;
+
+	while (msec--) {
+		/* Writing the current value restarts the count and clears the
+		 * flag the loop below waits for. */
+		STCURR = 0;
+		while (!(STCTRL & STCTRL_COUNTFLAG))
+			;
+	}
+
+	STCTRL = 0;
 }
 
 // flash LEDs a certain number of times

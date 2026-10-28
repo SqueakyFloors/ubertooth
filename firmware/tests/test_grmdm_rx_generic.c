@@ -16,13 +16,21 @@
  * half scans the source for the shape, the way test_mode_dispatch.c and
  * test_frend.c do: the choice goes through the helper, and no truth test
  * against a bit mask is left in the file.
+ *
+ * The last part scans the packet-mode receive, rx_generic_sync(), for the size
+ * of the buffer it builds each record in. enqueue() takes no length and copies
+ * DMA_SIZE bytes out of whatever it is handed, and that buffer was 36 bytes:
+ * every record carried 14 bytes read past the end of a stack buffer out to the
+ * host.
  */
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "cc2400.h"
 #include "minunit.h"
 #include "source_scan.h"
+#include "ubertooth_interface.h"
 
 /* The values the firmware writes to GRMDM, from the cc2400_set(GRMDM, ...)
  * calls in firmware/bluetooth_rxtx. Whether each is packet mode is read from
@@ -73,7 +81,40 @@ struct scan {
 	int helper_call;       /* grmdm_packet_mode() inside it */
 	int truth_test;        /* a `&&` against a hex mask, anywhere in the file */
 	int truth_test_line;
+	int rx_generic_sync;   /* where rx_generic_sync() is defined */
+	int record_buffer;     /* its record buffer's declaration */
+	char record_buffer_decl[SCAN_LINE_MAX];
+	long syncword_len;     /* RX_GENERIC_SYNCWORD_LEN, -1 when not found */
+	long data_len;         /* RX_GENERIC_DATA_LEN, -1 when not found */
 };
+
+/* The value of a plain decimal #define in the scanned file. -1 when the file
+ * has no such line. */
+static long read_define(const char *name)
+{
+	char line[SCAN_LINE_MAX];
+	FILE *f = fopen(path, "r");
+	long value = -1;
+
+	if (f == NULL)
+		return -1;
+	while (fgets(line, sizeof(line), f) != NULL) {
+		const char *p;
+
+		if (strstr(line, "#define") == NULL)
+			continue;
+		p = strstr(line, name);
+		if (p == NULL)
+			continue;
+		if ((p != line && is_ident_char(p[-1])) ||
+		    is_ident_char(p[strlen(name)]))
+			continue;
+		value = strtol(p + strlen(name), NULL, 10);
+		break;
+	}
+	fclose(f);
+	return value;
+}
 
 /* Does this line test something with `&&` against a hexadecimal literal?
  * That is the bug: `x && 0x0400` compiles, warns about nothing useful, and
@@ -109,10 +150,12 @@ static void scan_source(struct scan *s)
 {
 	char line[512];
 	char name[64];
-	int lineno = 0, in_block = 0, in_rx_generic = 0;
+	int lineno = 0, in_block = 0, in_rx_generic = 0, in_rx_generic_sync = 0;
 	FILE *f = fopen(path, "r");
 
 	memset(s, 0, sizeof(*s));
+	s->syncword_len = read_define("RX_GENERIC_SYNCWORD_LEN");
+	s->data_len = read_define("RX_GENERIC_DATA_LEN");
 	if (f == NULL)
 		return;
 	s->opened = 1;
@@ -127,6 +170,21 @@ static void scan_source(struct scan *s)
 				s->truth_test_line = lineno;
 		}
 
+		if (in_rx_generic_sync) {
+			/* The buffer the record is built in: the first local
+			 * array declared in the function. */
+			if (s->record_buffer == 0 &&
+			    contains_identifier(line, "u8") &&
+			    strchr(line, '[') != NULL) {
+				s->record_buffer = lineno;
+				collapse_spaces(line, s->record_buffer_decl,
+				                sizeof(s->record_buffer_decl));
+			}
+			if (line[0] == '}')
+				in_rx_generic_sync = 0;
+			continue;
+		}
+
 		if (in_rx_generic) {
 			if (contains_identifier(line, "grmdm_packet_mode") &&
 			    s->helper_call == 0)
@@ -138,10 +196,14 @@ static void scan_source(struct scan *s)
 		/* A definition starts in column 1 and is not a statement. */
 		if (line[0] != '\0' && line[0] != '#' && line[0] != '}' &&
 		    strchr(line, ';') == NULL &&
-		    call_name(line, name, sizeof(name)) &&
-		    strcmp(name, "rx_generic") == 0) {
-			in_rx_generic = 1;
-			s->rx_generic = lineno;
+		    call_name(line, name, sizeof(name))) {
+			if (strcmp(name, "rx_generic") == 0) {
+				in_rx_generic = 1;
+				s->rx_generic = lineno;
+			} else if (strcmp(name, "rx_generic_sync") == 0) {
+				in_rx_generic_sync = 1;
+				s->rx_generic_sync = lineno;
+			}
 		}
 	}
 	fclose(f);
@@ -183,14 +245,80 @@ MU_TEST(test_no_mask_is_tested_with_a_logical_and)
 	mu_assert(s.truth_test == 0, msg);
 }
 
+/* ---- the record rx_generic_sync() sends --------------------------------- */
+
+/* What the record holds has to fit in what enqueue() copies, or the copy reads
+ * past the data the capture wrote. The two lengths are the firmware's own
+ * #defines; the firmware asserts the same sum at compile time, and this says
+ * what the numbers are so a change to either is deliberate. */
+MU_TEST(test_the_generic_record_fits_what_enqueue_copies)
+{
+	char msg[512];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: RX_GENERIC_SYNCWORD_LEN and RX_GENERIC_DATA_LEN not "
+	         "found (read %ld and %ld)", path, s.syncword_len, s.data_len);
+	mu_assert(s.syncword_len > 0 && s.data_len > 0, msg);
+
+	mu_assert_int_eq(4, (int)s.syncword_len);
+	mu_assert_int_eq(32, (int)s.data_len);
+	mu_assert_int_eq(36, (int)(s.syncword_len + s.data_len));
+
+	snprintf(msg, sizeof(msg),
+	         "the record is %ld bytes but enqueue() copies %d",
+	         s.syncword_len + s.data_len, DMA_SIZE);
+	mu_assert(s.syncword_len + s.data_len <= DMA_SIZE, msg);
+}
+
+/*
+ * The buffer itself. enqueue() is handed a pointer and copies DMA_SIZE bytes,
+ * so the buffer has to be that size however little of it the record fills.
+ * This was `u8 buf[len+4]`, 36 bytes, and the 14 bytes past its end went to
+ * the host in every record.
+ *
+ * The declaration is read as text, with the size named rather than spelled as
+ * a number, because the point is that the buffer tracks what enqueue() copies.
+ * It must also be initialised: the bytes the capture does not write are sent,
+ * so an uninitialised tail is the same leak by another route.
+ */
+MU_TEST(test_the_record_buffer_is_the_size_enqueue_copies)
+{
+	char msg[768];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the scan did not find rx_generic_sync()'s definition, so "
+	         "the checks below would pass without reading anything", path);
+	mu_assert(s.opened && s.rx_generic_sync > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: rx_generic_sync() declares no buffer", path,
+	         s.rx_generic_sync);
+	mu_assert(s.record_buffer > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the record buffer is declared `%s`; it must be sized "
+	         "DMA_SIZE, because enqueue() copies that many bytes out of it",
+	         path, s.record_buffer, s.record_buffer_decl);
+	mu_assert(strstr(s.record_buffer_decl, "[DMA_SIZE]") != NULL, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the record buffer is declared `%s`; it must be "
+	         "initialised, because the bytes the capture does not write are "
+	         "sent to the host too", path, s.record_buffer,
+	         s.record_buffer_decl);
+	mu_assert(strchr(s.record_buffer_decl, '=') != NULL, msg);
+}
+
 int main(void)
 {
 	printf("GRMDM generic receive tests\n");
-	/* Scanned once, so the two tests that read it can run in any order. */
+	/* Scanned once, so the tests that read it can run in any order. */
 	scan_source(&s);
 	MU_RUN(test_the_packet_mode_bit_is_bit_ten);
 	MU_RUN(test_packet_mode_follows_the_bit_and_not_the_register);
 	MU_RUN(test_rx_generic_chooses_through_the_bit_test);
 	MU_RUN(test_no_mask_is_tested_with_a_logical_and);
+	MU_RUN(test_the_generic_record_fits_what_enqueue_copies);
+	MU_RUN(test_the_record_buffer_is_the_size_enqueue_copies);
 	return mu_report();
 }

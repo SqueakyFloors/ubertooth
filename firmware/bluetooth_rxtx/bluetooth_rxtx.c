@@ -2739,9 +2739,11 @@ void bt_follow_le() {
 
 // issue state change message
 void le_promisc_state(u8 type, void *data, unsigned len) {
-	u8 buf[50] = { 0, };
-	if (len > 49)
-		len = 49;
+	/* DMA_SIZE because that is what enqueue() copies, and one byte of it is
+	 * the type. */
+	u8 buf[DMA_SIZE] = { 0 };
+	if (len > DMA_SIZE - 1)
+		len = DMA_SIZE - 1;
 
 	buf[0] = type;
 	memcpy(&buf[1], data, len);
@@ -3051,10 +3053,38 @@ void bt_slave_le() {
 }
 #endif
 
+/*
+ * The record generic receive sends: the sync word it matched on, then the
+ * bytes read out of the radio's FIFO.
+ */
+#define RX_GENERIC_SYNCWORD_LEN 4
+#define RX_GENERIC_DATA_LEN     32
+
+/*
+ * enqueue() is handed a pointer and no length, and copies DMA_SIZE bytes out
+ * of it, so a buffer shorter than that has the bytes past its end copied into
+ * the record. The buffer below is therefore DMA_SIZE whatever the record uses
+ * of it.
+ */
+_Static_assert(RX_GENERIC_SYNCWORD_LEN + RX_GENERIC_DATA_LEN <= DMA_SIZE,
+               "the generic receive record must fit in what enqueue() copies");
+
 void rx_generic_sync(void) {
-	u8 len = 32;
-	u8 buf[len+4];
+	/*
+	 * Zeroed because the capture fills only the first
+	 * RX_GENERIC_SYNCWORD_LEN + RX_GENERIC_DATA_LEN bytes and the whole
+	 * buffer is sent: the tail used to be 14 bytes of whatever was on the
+	 * stack below it, read past the end of a 36-byte buffer and shipped to
+	 * the host in every record.
+	 */
+	u8 buf[DMA_SIZE] = { 0 };
 	u16 reg_val;
+
+	/* The size the buffer has to be, which is not the same question as the
+	 * one above: a 36-byte buffer satisfies that assert, and a 36-byte
+	 * buffer is what sent the stack bytes. */
+	_Static_assert(sizeof(buf) >= DMA_SIZE,
+	               "enqueue() copies DMA_SIZE bytes out of this buffer");
 
 	/* Put syncword at start of buffer
 	 * DGS: fix this later, we don't know number of syncword bytes, etc
@@ -3107,7 +3137,8 @@ void rx_generic_sync(void) {
 		}
 		USRLED_SET;
 
-		cc2400_fifo_read(len, buf+4);
+		cc2400_fifo_read(RX_GENERIC_DATA_LEN,
+		                 buf + RX_GENERIC_SYNCWORD_LEN);
 		enqueue(BR_PACKET, buf);
 		service_usb();
 	}
@@ -3244,7 +3275,11 @@ void specan()
 {
 	u16 f;
 	u8 i = 0;
-	u8 buf[DMA_SIZE];
+	/* Sixteen samples go in a record, three bytes each, and the record is
+	 * the DMA_SIZE enqueue() copies: the last two bytes are never written,
+	 * and they are sent to the host all the same. Zeroed so what goes out is
+	 * not whatever was on the stack. */
+	u8 buf[DMA_SIZE] = { 0 };
 
 	RXLED_SET;
 
