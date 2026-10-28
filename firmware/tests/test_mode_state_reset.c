@@ -3,8 +3,10 @@
  *
  * Every mode start resets the board's mode state, its hop mode and its AFH
  * channel map. The channel is the exception: one set on its own, with no mode
- * running, is kept, and the next mode starts on it. Two places have to hold
- * that rule, because there are two ways a mode starts:
+ * running, is kept, and the next mode starts on it. So are the per-channel RSSI
+ * averages, but only on the absorbed path, where the radio never stopped
+ * receiving. Two places have to hold that rule, because there are two ways a
+ * mode starts:
  *
  *   - the mode dispatch in main(), which leaves the running mode first and so
  *     runs the idle reset; and
@@ -47,6 +49,9 @@ static u8 hop_mode;
 static u16 channel;
 /* Whether bt_stream_rx()'s loop is running, which is what absorbs a request. */
 static int streaming;
+/* Each channel's running average of what the radio heard there, the figure a
+ * Classic record carries as its noise. */
+static u8 channel_averages[NUM_BREDR_CHANNELS];
 
 /* ------------------------------------------------------------------------
  * The firmware, modelled
@@ -74,7 +79,30 @@ static void cc2400_idle(void)
 	clear_afh_map();
 }
 
-/* reset_absorbed_mode_state() */
+/* rssi_iir_reset(), which the dispatch runs on its way out of a mode. Each
+ * channel's running average is modelled by whether it holds anything. */
+static void rssi_iir_reset(void)
+{
+	memset(channel_averages, 0, sizeof(channel_averages));
+}
+
+/* A capture that has been running long enough to fill the filter. */
+static void the_filter_has_built_up(void)
+{
+	memset(channel_averages, 1, sizeof(channel_averages));
+}
+
+static int the_filter_holds_something(void)
+{
+	size_t i;
+
+	for (i = 0; i < sizeof(channel_averages); i++)
+		if (channel_averages[i] != 0)
+			return 1;
+	return 0;
+}
+
+/* reset_absorbed_mode_state(): note it does not touch the channel averages. */
 static void reset_absorbed_mode_state(u8 requested)
 {
 	if (requested == requested_mode || !streams_symbols(mode) ||
@@ -93,8 +121,10 @@ static void dispatch(void)
 
 	if (next_mode == prev_mode)
 		return;
-	if (prev_mode != MODE_IDLE)
+	if (prev_mode != MODE_IDLE) {
 		cc2400_idle();
+		rssi_iir_reset();
+	}
 	mode = next_mode;
 
 	switch (next_mode) {
@@ -255,6 +285,7 @@ static void board_reset(void)
 	requested_mode = MODE_IDLE;
 	streaming = 0;
 	cc2400_idle();
+	rssi_iir_reset();
 
 	target.address = TEST_ADDRESS;
 	precalc();
@@ -442,6 +473,44 @@ MU_TEST(a_mode_started_from_idle_keeps_what_was_set_for_it)
 }
 
 /*
+ * The channel averages go the same way as the channel: the dispatch drops them
+ * on the way out of a mode, because a capture that has ended stops describing
+ * the band, and the next one builds them up again.
+ */
+MU_TEST(a_dispatched_mode_start_forgets_the_channel_averages)
+{
+	board_reset();
+	request_afh();
+	the_filter_has_built_up();
+
+	/* A mode the stream does not absorb, so this goes through the dispatch. */
+	request_specan();
+
+	mu_assert(!the_filter_holds_something(),
+	          "a mode start through the dispatch forgets the averages");
+}
+
+/*
+ * An absorbed request keeps them, for the reason it keeps the channel: the
+ * radio never stopped receiving, and all three of these modes hear the same
+ * modulation over the same channels, so the measurement still holds. Dropping
+ * it would cost the new capture the few hundred packets the filter takes to
+ * build up, which it would spend reporting a noise figure of nearly -54 dBm.
+ */
+MU_TEST(an_absorbed_request_keeps_the_channel_averages)
+{
+	board_reset();
+	request_afh();
+	the_filter_has_built_up();
+
+	request_rx_symbols();
+
+	mu_assert_int_eq(MODE_RX_SYMBOLS, requested_mode);
+	mu_assert(the_filter_holds_something(),
+	          "an absorbed mode start keeps what the radio has been hearing");
+}
+
+/*
  * ...and the reset an absorbed request runs leaves the channel alone: the
  * radio is tuned and receiving, and the channel is the one the host set for
  * this capture, a moment before the mode request.
@@ -491,6 +560,8 @@ int main(void)
 	MU_RUN(a_channel_set_on_its_own_is_kept_for_the_next_mode);
 	MU_RUN(a_mode_started_from_idle_keeps_what_was_set_for_it);
 	MU_RUN(an_absorbed_request_leaves_the_channel_alone);
+	MU_RUN(a_dispatched_mode_start_forgets_the_channel_averages);
+	MU_RUN(an_absorbed_request_keeps_the_channel_averages);
 	MU_RUN(a_dispatched_follow_still_hops);
 	return mu_report();
 }

@@ -306,6 +306,14 @@ static int streams_symbols(uint8_t m)
  * left alone. The channel is also the one the host set for the capture it is
  * starting, a request or two before this one.
  *
+ * The per-channel averages are left alone for the same reason, and unlike the
+ * dispatch, which drops them. They are not something the mode configures: they
+ * are what the radio has been hearing on each channel, and the three modes here
+ * all receive the same modulation over the same 79 channels. The receive never
+ * stopped, so the measurement still holds -- and dropping it would cost the new
+ * capture the few hundred packets the filter needs to build up again, which it
+ * would spend reporting a noise figure of nearly -54 dBm.
+ *
  * Call this before the request's own setup, which is what the absorbed mode
  * starts from. Re-sending the mode that is already streaming resets nothing:
  * it is not a mode start, and the dispatch does not reset for one either. That
