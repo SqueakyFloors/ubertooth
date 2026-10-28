@@ -111,7 +111,6 @@
 
   "_device_lookup_messages": [
     "note: UBERTOOTH_TEST_NO_DEVICES is set, so no board is selected",
-    "could not open Ubertooth device",
     "error: no Ubertooth devices found",
     "no Ubertooth found",
     "multiple Ubertooth devices found"

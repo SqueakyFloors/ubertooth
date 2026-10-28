@@ -1308,10 +1308,9 @@ MU_TEST(a_board_that_leaves_the_bus_is_still_closed)
 	/* the lost transfer, and the stop the gone board could not answer. The
 	 * code is built rather than spelled out, so the text libusb supplies
 	 * for it is left to libusb. */
-	snprintf(refused, sizeof(refused), "(%d)", LIBUSB_ERROR_NO_DEVICE);
+	snprintf(refused, sizeof(refused), "(libusb %d)", LIBUSB_ERROR_NO_DEVICE);
 	mu_assert(strstr(err, "error: receive transfer failed: Device "
 	          "disconnected.") != NULL, err);
-	mu_assert(strstr(err, "libUSB Error:") != NULL, err);
 	mu_assert(strstr(err, refused) != NULL, err);
 	mu_assert(ubertooth_stream_failed(ut), "the run is marked failed");
 

@@ -93,6 +93,9 @@ GONE = ("--list-interfaces", "--list-dlts", "--config")
 # that the script suppresses exactly this line, and REAL_UTIL pins that this
 # is what ubertooth-util prints, so the two cannot drift apart silently.
 NO_DEVICES = "error: no Ubertooth devices found"
+# What libubertooth says for a board it could not open, which is what a
+# partial listing reports beside the boards it could name.
+OPEN_REFUSED = "error: Access denied (insufficient permissions) (libusb -3)\n"
 SERIALS = ("1ff0ff1967102caf8334fa5ac52000f5",
            "0b700017490c2cafa039ee5ac52000f5")
 
@@ -384,12 +387,12 @@ assert interfaces(result) == [
 result = run(("--extcap-interfaces",),
              listing="Serial No (0): unavailable, access to the board was "
                      "denied\nSerial No (1): %s\n" % SERIALS[1],
-             errors="could not open Ubertooth device\n", status=1)
+             errors=OPEN_REFUSED, status=1)
 assert result.returncode == 1, result
 assert interfaces(result) == [
     "interface {value=ubertooth%s}{display=Ubertooth One %s}" % ((SERIALS[1],) * 2),
 ], result
-assert result.stderr == "could not open Ubertooth device\n", result
+assert result.stderr == OPEN_REFUSED, result
 
 # the same listing with ubertooth-util exiting 0: nothing failed, so neither
 # does the script, the board without a serial is still left out, and no
@@ -473,11 +476,11 @@ for said in ("", "note: something odd\n", "warning: something odd\n", "\n"):
         said + "error: ubertooth-util failed (exit status 3)\n", (said, result)
 
 # a diagnosis with no "error: " prefix is still a reason, since libubertooth
-# writes some of its failures without one: nothing is added to it
-result = run(("--extcap-interfaces",),
-             errors="could not open Ubertooth device\n", status=1)
+# writes some of its detail lines without one: nothing is added to it
+UNOPENED = "1 attached Ubertooth device could not be opened\n"
+result = run(("--extcap-interfaces",), errors=UNOPENED, status=1)
 assert result.returncode == 1, result
-assert result.stderr == "could not open Ubertooth device\n", result
+assert result.stderr == UNOPENED, result
 # a tool killed by a signal is reported with the signal's number. SIGTERM is
 # the signal to send here: an aborted or faulted process gets a crash report
 # from macOS, and a dialog on the screen of whoever runs the tests

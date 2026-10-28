@@ -409,7 +409,7 @@ int main(int argc, char *argv[])
 	// tell ubertooth to send packets
 	/* The quiet form, so this failure reads as the one "error: " line
 	 * report_refused_request() prints, like the sweep request below. The
-	 * reporting form would print libubertooth's "libUSB Error" line instead,
+	 * reporting form would hand it to libubertooth's shared sink instead,
 	 * which does not name the request that failed. */
 	r = cmd_rx_syms_quiet(ut->devh);
 	if (r < 0) {

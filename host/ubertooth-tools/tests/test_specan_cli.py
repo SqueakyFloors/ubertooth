@@ -112,16 +112,16 @@ else:
     assert result.returncode == 1, result
     assert "stdout is a tty, refusing to write binary samples" in result.stderr, \
         result
-    # refused before the device was opened, which is where this message
+    # refused before the device was looked for, which is where this message
     # would come from
-    assert "could not open" not in result.stderr.lower(), result
+    assert "no ubertooth" not in result.stderr.lower(), result
 
     # -g means text output, which a terminal is welcome to, so this run gets
     # as far as device selection instead
     result = run_with_tty_stdout(("-d", "-", "-g"))
     assert result.returncode == 1, result
     assert "tty" not in result.stderr.lower(), result
-    assert "could not open" in result.stderr.lower(), result
+    assert "no ubertooth devices found" in result.stderr.lower(), result
     print("ubertooth-specan: -d - refuses a tty, -d - -g writes text to one")
 
 print("ubertooth-specan: ranges refused, -d takes '-' as stdout and the rest as files")

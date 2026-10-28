@@ -411,9 +411,10 @@ firmware to have a version. Lines beginning `warning: ` are the ones
 about a part this host cannot identify and about an image built for another
 API version; lines beginning `note: ` follow a failure the tool can say
 something more about, which today is a board that came back in the bootloader.
-Lines from elsewhere do not follow that yet: the
-libusb status reports (`libUSB Error: ...`) and the libubertooth messages that
-have not been converted, such as `could not open Ubertooth device`.
+libubertooth's own lines read the same way, including the ones it ends up
+printing for a libusb failure nothing could name (`error: Input/Output Error
+(libusb -1)`) and for a selection that found nothing (`error: no Ubertooth
+devices found`).
 
 The `-d ... -r` verification has more than one way not to pass, and they do not
 mean the same thing, so each has its own line:

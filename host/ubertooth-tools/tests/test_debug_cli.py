@@ -24,7 +24,7 @@ import sys
 
 BINARY = sys.argv[1]
 ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1")
-NO_DEVICE = "could not open ubertooth device"
+NO_DEVICE = "error: no ubertooth devices found"
 
 SYNTAX = ("error: register list must be names or addresses, single or as a "
           "range: ")

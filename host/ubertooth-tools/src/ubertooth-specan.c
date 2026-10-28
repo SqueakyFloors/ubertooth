@@ -21,6 +21,7 @@
 
 #include <errno.h>
 #include <getopt.h>
+#include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 #include "ubertooth.h"
@@ -148,6 +149,48 @@ static int specan_output_flushed(FILE *stream)
 	return -1;
 }
 
+/* Writes one text sample, and ends the sweep if the stream would not take it.
+ * Returns 0 while the writes are getting through, -1 once one has not.
+ *
+ * end_of_sweep adds the blank line the two gnuplot formats end a pass over
+ * the range with, so the whole record is written and checked here.
+ *
+ * -d chooses where the samples go and -g/-G only how they are written, so a
+ * text format lands in a file as readily as on the screen, and a file fills
+ * up. An unchecked fprintf() left that to the flush after the sweep: the
+ * whole run went by and the report was the vaguer "could not flush the
+ * samples". The raw format has always checked each write, and this is the
+ * same check for the three text ones.
+ */
+static int specan_write_sample(ubertooth_t* ut, int end_of_sweep,
+                               const char* format, ...)
+{
+	char detail[128];
+	va_list arguments;
+	int written;
+
+	/* fprintf() is not required to set errno, so a stale one left by an
+	 * unrelated call cannot be mistaken for this write's reason. */
+	errno = 0;
+	va_start(arguments, format);
+	written = vfprintf(dumpfile, format, arguments);
+	va_end(arguments);
+	if (written >= 0 && end_of_sweep && fputc('\n', dumpfile) == EOF)
+		written = -1;
+	if (written >= 0)
+		return 0;
+
+	/* Said once, then the run ends: a full disk or a stream that has gone
+	 * away does not come back, so carrying on would repeat this for every
+	 * block of a live sweep and still exit 0. */
+	snprintf(detail, sizeof(detail), "could not write the sample (%s)",
+	         errno != 0 ? strerror(errno) : "write error");
+	report_write_failed(detail);
+	output_failed = 1;
+	ut->stop_ubertooth = 1;
+	return -1;
+}
+
 void cb_specan(ubertooth_t* ut, void* args)
 {
 	uint16_t high_freq = (((uint8_t*)args)[0]) |
@@ -207,21 +250,22 @@ void cb_specan(ubertooth_t* ut, void* args)
 			 * does, so -d decides where the samples land and -g/-G
 			 * only decide how they are written. */
 			case SPECAN_STDOUT:
-				fprintf(dumpfile, "%f, %d, %d\n",
-				        ((double)rx.clk100ns)/10000000,
-				        frequency, rssi);
+				if (specan_write_sample(ut, 0, "%f, %d, %d\n",
+				                        ((double)rx.clk100ns)/10000000,
+				                        frequency, rssi) < 0)
+					return;
 				break;
 			case SPECAN_GNUPLOT_NORMAL:
-				fprintf(dumpfile, "%d %d\n", frequency, rssi);
-				if(frequency == high_freq)
-					fputc('\n', dumpfile);
+				if (specan_write_sample(ut, frequency == high_freq,
+				                        "%d %d\n", frequency, rssi) < 0)
+					return;
 				break;
 			case SPECAN_GNUPLOT_3D:
-				fprintf(dumpfile, "%f %d %d\n",
-				        ((double)rx.clk100ns)/10000000,
-				        frequency, rssi);
-				if(frequency == high_freq)
-					fputc('\n', dumpfile);
+				if (specan_write_sample(ut, frequency == high_freq,
+				                        "%f %d %d\n",
+				                        ((double)rx.clk100ns)/10000000,
+				                        frequency, rssi) < 0)
+					return;
 				break;
 			default:
 				fprintf(stderr, "error: unrecognized output mode (%d)\n",

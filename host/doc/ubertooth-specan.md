@@ -134,15 +134,17 @@ for `-h`.
 Errors, warnings and progress, including `Ubertooth stopped`, go to standard
 error. The errors this tool prints itself are one line starting `error: `, for
 example `error: /no/such/dir/samples.bin: No such file or directory` for a
-`-d` file that cannot be opened. One kind of line does not follow that yet:
-libubertooth's own messages, such as `could not open Ubertooth device`.
+`-d` file that cannot be opened. libubertooth's own messages read the same
+way, for example `error: no Ubertooth devices found`.
 
 If the samples cannot be written, `ubertooth-specan` says so once and exits 1,
 rather than reporting every failed write and then exiting 0. A write that
 fails while the sweep is running ends it there, since a full disk does not
-come back:
+come back. Every write is checked, the raw records and the text formats alike,
+because `-d` sends either of them to a file:
 
     error: writing samples failed: wrote 0 of 3 bytes (<reason>)
+    error: writing samples failed: could not write the sample (<reason>)
 
 A write accepted into a buffer can still fail when that buffer is flushed, so
 the output is flushed and checked after the sweep as well, whether it went to

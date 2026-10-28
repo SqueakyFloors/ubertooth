@@ -740,9 +740,8 @@ MU_TEST(a_capture_that_cannot_start_exits_one)
 	mu_assert_int_eq(1, device.thread_stops);
 	mu_assert_int_eq(1, device.stops);
 
-	/* A code with no advice: still the one "error: " line, never
-	 * libubertooth's own "libUSB Error" wording, which does not name the
-	 * request that failed. */
+	/* A code with no advice: still the one "error: " line that names the
+	 * request, never libubertooth's shared sink, which names none. */
 	reset_device();
 	device.rx_syms_rc = LIBUSB_ERROR_PIPE;
 	r = RUN_RX("-t", "10");

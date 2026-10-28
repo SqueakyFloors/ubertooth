@@ -124,7 +124,7 @@ error details or the documented manual bootloader recovery path.
 
 Troubleshooting:
 
-If you run into an error such as "libUSB Error: Command Error: (-1)" or the Ubertooth's 4 LEDs next to each other perform a distinctive chasing pattern, after extracting the archive of the latest Ubertooth release, change into the ``firmware`` directory. Then, run:
+If you run into an error such as "error: Input/Output Error (libusb -1)" or the Ubertooth's 4 LEDs next to each other perform a distinctive chasing pattern, after extracting the archive of the latest Ubertooth release, change into the ``firmware`` directory. Then, run:
 
 	.. code-block:: sh
 
