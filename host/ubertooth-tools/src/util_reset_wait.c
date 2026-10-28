@@ -81,12 +81,11 @@ void util_reset_follow_init(struct util_reset_follow *follow,
                             void *context, const char *u_arg, int attached)
 {
 	follow->serial[0] = '\0';
-	follow->answered = ops->get_serial(context, follow->serial,
-	                                   sizeof(follow->serial)) == 0;
 	/* A string of digits would be taken for an index, so only a serial that
 	 * selects as one is followed. Nothing is lost: the fallback below is what
 	 * the command did before. */
-	if (follow->answered && selects_by_serial(follow->serial)) {
+	if (ops->get_serial(context, follow->serial, sizeof(follow->serial)) == 0 &&
+	    selects_by_serial(follow->serial)) {
 		/* A serial matches one board wherever it enumerates, so the wait does
 		 * not need the device count to open the right one. */
 		follow->selector = follow->serial;

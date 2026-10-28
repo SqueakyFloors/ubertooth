@@ -338,9 +338,28 @@ static const struct util_reset_follow_ops follow_ops = {
 	follow_warn_no_serial,
 };
 
+/*
+ * Whether the board answers a control request at all, which is what decides
+ * how -r resets it.
+ *
+ * The quiet serial read, the one -r makes anyway. Tried twice: one transfer
+ * that times out on a board which is merely slow must not read as a board
+ * that answers nothing, and the second read costs a millisecond on a board
+ * that is there.
+ */
+static int board_answers(ubertooth_t *ut)
+{
+	char serial[UTIL_RESET_SERIAL_STR_LEN];
+
+	if (follow_get_serial(ut, serial, sizeof(serial)) == 0)
+		return 1;
+	return follow_get_serial(ut, serial, sizeof(serial)) == 0;
+}
+
 /* How long -r gives a board to answer again after its USB connection was
  * reset, and how often it asks. The bench answer came back on the first ask;
- * a second is there for a board whose firmware is still starting up. */
+ * the rest of the window, about three seconds counting each read's own
+ * timeout, is for a board whose firmware is still starting up. */
 #define UTIL_USB_RESET_POLLS 10u
 #define UTIL_USB_RESET_POLL_MS 100u
 
@@ -355,27 +374,27 @@ static const struct util_reset_follow_ops follow_ops = {
  * capture was killed answered its first control request straight after one.
  *
  * This runs before the reset request rather than instead of it, so -r still
- * means a full reset: the board that answers again is then reset like any
- * other and comes back idle.
+ * means a full reset whichever way it went.
  *
  * libusb keeps this handle usable across a reset it could carry out, which is
- * what `answers_again` says. A board that came back as a different USB device
- * gives LIBUSB_ERROR_NOT_FOUND instead; nothing is wrong with it, but this
- * handle is dead, so there is nothing to send the reset request on and the
- * caller goes straight to waiting for the board to come back.
+ * what `handle_alive` says. A reset that re-enumerated the board reports that
+ * the device has gone; nothing is wrong with it, but this handle is dead, so
+ * the caller waits for the board to come back before resetting it.
  */
 static int reset_usb_connection(ubertooth_t *ut, const char *u_arg,
-                                int *answers_again)
+                                int *handle_alive)
 {
-	char serial[UTIL_RESET_SERIAL_STR_LEN];
 	unsigned i;
 	int r;
 
-	*answers_again = 0;
+	*handle_alive = 0;
 	fprintf(stderr, "Ubertooth device %s is not answering; resetting its USB "
 	        "connection\n", u_arg ? u_arg : "0");
 	r = libusb_reset_device(ut->devh);
-	if (r == LIBUSB_ERROR_NOT_FOUND)
+	/* The device went and came back as another one: NOT_FOUND is what libusb
+	 * documents for that, and the macOS backend can report the same thing as
+	 * a device that is no longer there. */
+	if (r == LIBUSB_ERROR_NOT_FOUND || r == LIBUSB_ERROR_NO_DEVICE)
 		return 0;
 	if (r < 0) {
 		fprintf(stderr, "error: resetting the USB connection of Ubertooth "
@@ -383,23 +402,70 @@ static int reset_usb_connection(ubertooth_t *ut, const char *u_arg,
 		return -1;
 	}
 
-	/* The board answers once its firmware has its USB stack back, which on
-	 * the bench was before the reset returned. The polls are for one that
-	 * takes a moment longer. */
 	for (i = 0; i < UTIL_USB_RESET_POLLS; ++i) {
-		if (follow_get_serial(ut, serial, sizeof(serial)) == 0) {
-			*answers_again = 1;
+		if (board_answers(ut)) {
+			*handle_alive = 1;
 			return 0;
 		}
 		util_clock_sleep_ms(UTIL_USB_RESET_POLL_MS);
 	}
-	/* The reset went through and the board still answers nothing, so this is
-	 * as far as the host can take it: what is left is the board's own power,
-	 * which on a hub means its port and otherwise means unplugging it. */
+	/* The reset went through, this handle is still the board's, and it
+	 * answers nothing: that is as far as the host can take it, and what is
+	 * left is the board's own power -- its port on a hub, and unplugging it
+	 * otherwise. */
 	fprintf(stderr, "error: Ubertooth device %s is still not answering after "
 	        "its USB connection was reset; power-cycle the board\n",
 	        u_arg ? u_arg : "0");
 	return -1;
+}
+
+/*
+ * Resets the board and waits for it to come back, which is what -r is: the
+ * request is answered by a board that reboots, so this handle goes dead and
+ * the board is opened again.
+ *
+ * `send_request` is 0 for the one caller that has no board on its handle to
+ * ask -- a USB reset that re-enumerated it -- and only waits.
+ *
+ * Returns the reopened handle, which is the caller's to use from then on, or
+ * NULL once it has reported that the board never came back. The old handle is
+ * released either way.
+ */
+static ubertooth_t *reset_and_reopen(ubertooth_t *ut, const char *u_arg,
+                                     const char *selector,
+                                     struct util_reset_wait_params *wait,
+                                     int send_request, int *status)
+{
+	int libusb_held;
+
+	if (send_request) {
+		fprintf(stderr, "Resetting ubertooth device %s\n", u_arg ? u_arg : "0");
+		*status = util_status_after(*status, cmd_reset(ut->devh));
+	}
+	/* The device re-enumerates after a reset, so this handle is about to go
+	 * dead: release it without sending STOP (if the reset failed the device
+	 * is still there, but a STOP is not wanted either), then wait for the
+	 * same selection to open again. The polls are quiet and never send STOP.
+	 *
+	 * One libusb reference is held for the whole wait, so the polls never
+	 * tear down the libusb context while the device re-enumerates (on macOS
+	 * the final libusb_exit() after a device reset can hang). */
+	libusb_held = libusb_init(NULL) >= 0;
+	ubertooth_close(ut);
+	ubertooth_free(ut);
+	/* cast away const: the context is only read, as a selector string */
+	ut = util_reset_wait(&reset_wait_ops, (void *)selector, wait);
+	if (ut == NULL) {
+		/* The held reference is left to process exit, for the same reason. */
+		fprintf(stderr, "error: Ubertooth device %s did not come back within "
+		        "%u s after the reset\n", u_arg ? u_arg : "0",
+		        UTIL_RESET_WAIT_DEADLINE_MS / 1000u);
+		return NULL;
+	}
+	/* Not the last reference: the reopened device holds its own. */
+	if (libusb_held)
+		libusb_exit(NULL);
+	return ut;
 }
 
 /*
@@ -1050,66 +1116,51 @@ int main(int argc, char *argv[])
 			UTIL_RESET_WAIT_LEAVE_MS, UTIL_RESET_WAIT_DEADLINE_MS, 0, 0
 		};
 		struct util_reset_follow follow;
-		int libusb_held;
-		/* Whether there is still a board on this handle to send the reset
-		 * request to. Only a USB reset that took the handle with it says no. */
-		int send_request = 1;
+		/* Whether the board is still on this handle after a USB reset. Only
+		 * a reset that re-enumerated it says no. */
+		int handle_alive = 1;
 
 		/* Counted before the reset, so the wait can see the device leave and,
 		 * where the selection is by index, not open another board while it is
 		 * gone. The leave wait is kept even if the reset command reports an
 		 * error, since the device may have reset anyway. */
 		wait.count_before = ubertooth_count();
+		/* A board that answers nothing refuses the reset request like every
+		 * other request, so sending it would leave the board as it was. Its
+		 * USB connection is reset first, and the request follows on the
+		 * board that answers again: -r is a full reset either way. */
+		if (!board_answers(ut) &&
+		    reset_usb_connection(ut, ubertooth_device, &handle_alive) < 0) {
+			/* Closed without a STOP: a board that answers nothing refuses
+			 * that request too. */
+			ubertooth_close(ut);
+			ubertooth_free(ut);
+			return 1;
+		}
 		/* Read while the device is still open: the wait then looks for this
 		 * board's serial, so later options in the same command cannot land on
-		 * another board whose index changed across the reset. */
+		 * another board whose index changed across the reset. A handle the
+		 * USB reset took with it reads nothing, which falls back to the -U
+		 * argument as an unreadable serial always has. */
 		util_reset_follow_init(&follow, &follow_ops, ut, ubertooth_device,
 		                       wait.count_before);
 		wait.select_needs_count = follow.select_needs_count;
-		/* A board that answered the serial read answers the reset request
-		 * too. One that answered nothing has its USB connection reset
-		 * first, which is what recovers it; the request then resets it like
-		 * any other board, unless that reset has already taken this handle
-		 * with it. */
-		if (!follow.answered) {
-			if (reset_usb_connection(ut, ubertooth_device, &send_request) < 0) {
-				/* Closed without a STOP: a board that answers nothing
-				 * refuses that request too. */
-				ubertooth_close(ut);
-				ubertooth_free(ut);
+		if (!handle_alive) {
+			/* The board is re-enumerating, so there is nothing to send the
+			 * request on yet: it is waited for first, and reset below once
+			 * it is open again. */
+			ut = reset_and_reopen(ut, ubertooth_device, follow.selector,
+			                      &wait, 0, &status);
+			if (ut == NULL)
 				return 1;
-			}
+			/* It is back, so the count the next wait compares against is
+			 * the whole bus again. */
+			wait.count_before = ubertooth_count();
 		}
-		if (send_request) {
-			fprintf(stderr, "Resetting ubertooth device %s\n", ubertooth_device ? ubertooth_device : "0");
-			status = util_status_after(status, cmd_reset(ut->devh));
-		}
-		/* The device re-enumerates after a reset, so this handle is about
-		 * to go dead: release it without sending STOP (if the reset failed
-		 * the device is still there, but a STOP is not wanted either), then
-		 * wait for the same selection to open again. The polls are quiet
-		 * and never send STOP.
-		 *
-		 * One libusb reference is held for the whole wait, so the polls never
-		 * tear down the libusb context while the device re-enumerates (on
-		 * macOS the final libusb_exit() after a device reset can hang). */
-		libusb_held = libusb_init(NULL) >= 0;
-		ubertooth_close(ut);
-		ubertooth_free(ut);
-		/* cast away const: the context is only read, as a selector string */
-		ut = util_reset_wait(&reset_wait_ops, (void *)follow.selector, &wait);
-		if (ut == NULL) {
-			/* The held reference is left to process exit, for the same
-			 * reason. */
-			fprintf(stderr, "error: Ubertooth device %s did not come back within "
-			        "%u s after the reset\n",
-			        ubertooth_device ? ubertooth_device : "0",
-			        UTIL_RESET_WAIT_DEADLINE_MS / 1000u);
+		ut = reset_and_reopen(ut, ubertooth_device, follow.selector, &wait, 1,
+		                      &status);
+		if (ut == NULL)
 			return 1;
-		}
-		/* Not the last reference: the reopened device holds its own. */
-		if (libusb_held)
-			libusb_exit(NULL);
 	}
 	if(do_stop == 0) {
 		fprintf(stderr, "Stopping ubertooth device %s\n", ubertooth_device ? ubertooth_device : "0");

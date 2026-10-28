@@ -68,6 +68,8 @@ static struct {
 	/* the board goes on answering nothing after the reset, instead of
 	 * answering again as it does on the bench */
 	int usb_reset_leaves_it_silent;
+	/* ...or answers only once this many polls have passed */
+	int usb_reset_answers_after_polls;
 	int last_channel_set, last_squelch_set, last_led_specan_arg;
 	int last_palevel_set, last_usrled_set;
 	/* LED writes: -I must not blink from the host */
@@ -192,7 +194,8 @@ int libusb_reset_device(struct libusb_device_handle *h)
 	fake_use(h);
 	fake.usb_resets++;
 	fake.usb_reset_handle = h;
-	if (fake.usb_reset_rc == 0 && !fake.usb_reset_leaves_it_silent)
+	if (fake.usb_reset_rc == 0 && !fake.usb_reset_leaves_it_silent &&
+	    fake.usb_reset_answers_after_polls == 0)
 		fake.follow_serial_rc = 0;
 	return fake.usb_reset_rc;
 }
@@ -359,6 +362,10 @@ int ubertooth_read_serial_string(struct libusb_device_handle *h, char *out,
 	if (fake.follow_serial_reads++ == 0)
 		fake.resets_at_first_serial_read = fake.reset_calls;
 	fake.follow_serial_timeout_ms = (int)timeout_ms;
+	/* A board that takes a few polls after the USB reset to answer. */
+	if (fake.usb_reset_answers_after_polls > 0 && fake.usb_resets > 0 &&
+	    fake.sleeps >= fake.usb_reset_answers_after_polls)
+		fake.follow_serial_rc = 0;
 	if (fake.follow_serial_rc != 0)
 		return fake.follow_serial_rc;
 	for (i = 1; i < UBERTOOTH_SERIAL_LEN; i++)
@@ -3490,8 +3497,10 @@ MU_TEST(reset_by_index_follows_the_board_by_serial)
 	mu_assert(strcmp(fake.quiet_selector, FAKE_SERIAL) == 0,
 	          "follows the board's serial, not the index");
 	/* read before the reset was sent, while the device was still there,
-	 * through the library's quiet read and not cmd_get_serial() */
-	mu_assert_int_eq(1, fake.follow_serial_reads);
+	 * through the library's quiet read and not cmd_get_serial(). Twice: the
+	 * first read is how -r tells a board that answers from one that needs
+	 * its USB connection reset, the second is the follow's. */
+	mu_assert_int_eq(2, fake.follow_serial_reads);
 	mu_assert_int_eq(0, fake.resets_at_first_serial_read);
 	mu_assert_int_eq(0, fake.serial_reads);
 	mu_assert_int_eq((int)UBERTOOTH_SERIAL_READ_QUIET_MS,
@@ -3510,22 +3519,23 @@ MU_TEST(a_serial_that_cannot_be_read_keeps_the_selector_with_a_warning)
 	struct run_result r;
 
 	/* Falls back to today's behaviour: the index is waited for, and the user
-	 * is told later options may not reach the same board. */
+	 * is told later options may not reach the same board. The serial is
+	 * unreadable here because the USB reset took the handle with it, which
+	 * is the one way -r reaches the wait with nothing to read. */
 	reset_fake();
 	fake.device_count = 2;
 	fake.follow_serial_rc = -1;
+	fake.usb_reset_rc = LIBUSB_ERROR_NOT_FOUND;
 	fake.returns_at_ms = 1000 + 3000;
 	r = RUN("-U", "1", "-r", "-b");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(fake.quiet_selector, "1") == 0, "the index is kept");
-	mu_assert(strcmp(r.err, "warning: serial read failed on Ubertooth device 1 "
+	mu_assert(strcmp(r.err, "Ubertooth device 1 is not answering; resetting "
+	                 "its USB connection\n"
+	                 "warning: serial read failed on Ubertooth device 1 "
 	                 "before the reset; later options may reach a different "
 	                 "board if the enumeration order changes\n"
-	                 "Ubertooth device 1 is not answering; resetting its USB "
-	                 "connection\n"
-	                 "Resetting ubertooth device 1\n") == 0,
-	          "one warning line, the USB reset, then the reset progress");
-	mu_assert_int_eq(0, fake.quiet_while_absent); /* index: waits for the count */
+	                 "Resetting ubertooth device 1\n") == 0, r.err);
 	mu_assert(strstr(r.out, BOARD_LINE) != NULL, "board read after the reset");
 
 	/* A serial selector already follows the board, so nothing is lost and
@@ -3533,6 +3543,7 @@ MU_TEST(a_serial_that_cannot_be_read_keeps_the_selector_with_a_warning)
 	reset_fake();
 	fake.device_count = 2;
 	fake.follow_serial_rc = -1;
+	fake.usb_reset_rc = LIBUSB_ERROR_NOT_FOUND;
 	r = RUN("-U", "a9aaabacadaeafb0", "-r");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(fake.quiet_selector, "a9aaabacadaeafb0") == 0,
@@ -3561,11 +3572,35 @@ MU_TEST(a_board_that_answers_nothing_has_its_usb_connection_reset)
 	mu_assert(fake.usb_reset_handle == FIRST_DEVH,
 	          "the open board's handle is the one reset");
 	mu_assert_int_eq(1, fake.reset_calls); /* the full reset still happens */
+	/* Nothing is sent to the board before the USB reset, and the board that
+	 * answers again is followed by its serial, as any other is. */
+	mu_assert_int_eq(0, fake.resets_at_first_serial_read);
+	mu_assert(strcmp(fake.quiet_selector, FAKE_SERIAL) == 0,
+	          "the recovered board is followed by its serial");
 	mu_assert(strcmp(r.err, "Ubertooth device 1 is not answering; resetting "
 	                 "its USB connection\n"
 	                 "Resetting ubertooth device 1\n") == 0, r.err);
 	mu_assert(strstr(r.out, BOARD_LINE) != NULL, "board read after the reset");
 	mu_assert_int_eq(0, fake.stop_calls);
+}
+
+/* A board that takes a few polls to answer after the reset is still
+ * recovered, and nothing is sent to it before it answers. */
+MU_TEST(a_board_that_answers_a_few_polls_after_the_usb_reset_is_recovered)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.follow_serial_rc = -1;
+	fake.usb_reset_answers_after_polls = 3;
+	r = RUN("-U", "1", "-r", "-b");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, fake.usb_resets);
+	mu_assert_int_eq(1, fake.reset_calls);
+	mu_assert(strcmp(r.err, "Ubertooth device 1 is not answering; resetting "
+	                 "its USB connection\n"
+	                 "Resetting ubertooth device 1\n") == 0, r.err);
+	mu_assert(strstr(r.out, BOARD_LINE) != NULL, "board read after the reset");
 }
 
 /* A board that answers is reset by the request alone, as it always was. */
@@ -3577,23 +3612,34 @@ MU_TEST(a_board_that_answers_is_not_usb_reset)
 	mu_assert_int_eq(1, fake.reset_calls);
 }
 
-/* Nothing is sent to a board the USB reset took with it: the handle is dead,
- * and the board is waited for as after any reset. */
-MU_TEST(a_usb_reset_that_re_enumerated_the_board_sends_no_request)
+/*
+ * A USB reset that re-enumerated the board leaves no handle to ask, so the
+ * board is waited for first and the reset request goes to the board that
+ * comes back: -r is a full reset on this path too. The same holds for a
+ * device-gone code from the same call.
+ */
+MU_TEST(a_usb_reset_that_re_enumerated_the_board_waits_then_resets_it)
 {
 	struct run_result r;
+	const int gone[] = { LIBUSB_ERROR_NOT_FOUND, LIBUSB_ERROR_NO_DEVICE };
+	size_t i;
 
-	reset_fake();
-	fake.follow_serial_rc = -1;
-	fake.usb_reset_rc = LIBUSB_ERROR_NOT_FOUND;
-	r = RUN("-U", "1", "-r", "-b");
-	mu_assert_int_eq(0, r.rc);
-	mu_assert_int_eq(1, fake.usb_resets);
-	mu_assert_int_eq(0, fake.reset_calls);
-	mu_assert(strcmp(r.err, "Ubertooth device 1 is not answering; resetting "
-	                 "its USB connection\n") == 0, r.err);
-	mu_assert(fake.quiet_starts > 0, "the board is waited for");
-	mu_assert(strstr(r.out, BOARD_LINE) != NULL, "board read after the reset");
+	for (i = 0; i < sizeof(gone) / sizeof(gone[0]); ++i) {
+		reset_fake();
+		fake.follow_serial_rc = -1;
+		fake.usb_reset_rc = gone[i];
+		r = RUN("-U", "1", "-r", "-b");
+		mu_assert_int_eq(0, r.rc);
+		mu_assert_int_eq(1, fake.usb_resets);
+		/* the request is sent, on the handle the wait reopened */
+		mu_assert_int_eq(1, fake.reset_calls);
+		mu_assert_int_eq(0, fake.first_used_after_release);
+		mu_assert(fake.quiet_starts >= 2, "waited for, reset, waited again");
+		mu_assert(strcmp(r.err, "Ubertooth device 1 is not answering; "
+		                 "resetting its USB connection\n"
+		                 "Resetting ubertooth device 1\n") == 0, r.err);
+		mu_assert(strstr(r.out, BOARD_LINE) != NULL, "board read at the end");
+	}
 }
 
 /* A reset the host could not make is one line and a failure: the board is
@@ -3638,9 +3684,11 @@ MU_TEST(a_board_still_silent_after_the_usb_reset_is_reported)
 	mu_assert(r.out[0] == '\0', "no report is printed");
 	mu_assert_int_eq(0, fake.reset_calls);
 	mu_assert_int_eq(0, fake.quiet_starts);
-	/* it is given the whole window to answer, and no longer */
+	/* it is given the whole window to answer, and no longer: the two reads
+	 * that chose this path, then two on each poll */
 	mu_assert_int_eq((int)UTIL_USB_RESET_POLLS, fake.sleeps);
-	mu_assert_int_eq(1 + (int)UTIL_USB_RESET_POLLS, fake.follow_serial_reads);
+	mu_assert_int_eq(2 + 2 * (int)UTIL_USB_RESET_POLLS,
+	                 fake.follow_serial_reads);
 }
 
 MU_TEST(a_failed_reset_still_reselects_once_the_leave_window_passes)
@@ -3766,8 +3814,9 @@ int main(void)
 	MU_RUN(reset_by_index_follows_the_board_by_serial);
 	MU_RUN(a_serial_that_cannot_be_read_keeps_the_selector_with_a_warning);
 	MU_RUN(a_board_that_answers_nothing_has_its_usb_connection_reset);
+	MU_RUN(a_board_that_answers_a_few_polls_after_the_usb_reset_is_recovered);
 	MU_RUN(a_board_that_answers_is_not_usb_reset);
-	MU_RUN(a_usb_reset_that_re_enumerated_the_board_sends_no_request);
+	MU_RUN(a_usb_reset_that_re_enumerated_the_board_waits_then_resets_it);
 	MU_RUN(a_failed_usb_connection_reset_is_reported);
 	MU_RUN(a_board_still_silent_after_the_usb_reset_is_reported);
 	MU_RUN(a_failed_reset_still_reselects_once_the_leave_window_passes);
