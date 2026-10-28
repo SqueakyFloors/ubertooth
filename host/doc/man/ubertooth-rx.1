@@ -85,13 +85,13 @@ Timeout in seconds\. If not specified will run indefinitely\. Suggested values f
 Output options:
 .TP
 \fB\-r <file\.pcapng>\fR
-Capture packets to PcapNG
+Capture packets to PcapNG\. A PcapNG writer seeks back over what it has written, which standard output cannot do, so \fB\-r \-\fR is refused: \fBerror: PCAPNG capture to stdout is not supported; use \-q \-\fR
 .TP
 \fB\-q <file\.pcap>\fR
-Capture packets to PCAP
+Capture packets to PCAP\. \fB\-q \-\fR writes the capture to standard output; see CAPTURING TO STANDARD OUTPUT
 .TP
 \fB\-d <file\.bin>\fR
-Capture packets to binary file suitable for use with \fB\-i\fR\.
+Capture packets to binary file suitable for use with \fB\-i\fR\. \fB\-d \-\fR writes the records to standard output; see CAPTURING TO STANDARD OUTPUT
 .P
 Miscellaneous:
 .TP
@@ -100,6 +100,9 @@ print the host tools version, as \fBHost tools version: libubertooth <version> (
 .TP
 \fB\-U <index|serial>\fR
 select an Ubertooth by enumeration index or serial number; see ubertooth(7), SELECTING A DEVICE
+.TP
+\fB\-h\fR
+print the usage text on standard output and exit 0\. It takes effect once the whole command line has parsed, so a bad option value, a stray word or an option given twice is still reported\.
 .SH "HOW THE CHANNEL IS SET"
 The capture is asked for first and the channel, or the band sweep that is the default, is stated to the board after it\. A mode start resets the board's hop mode, so a sweep stated before the capture request was thrown away and the capture sat on one channel without saying so\. See ubertooth\-util(1), CARRY\-OVER BETWEEN RUNS\.
 .P
@@ -163,6 +166,12 @@ An option value must be a whole value in its range, or it is refused the same wa
 An option combination the tool cannot carry out is refused there too, before any device is opened, so the message never depends on which boards are attached: \fB\-u\fR without \fB\-l\fR gives \fBerror: \-u <UAP> requires \-l <LAP>\fR, and an address beside survey mode gives \fBerror: survey mode (\-z) discovers addresses, so it cannot be given \-l or \-u\fR\.
 .P
 A refused command line creates and truncates nothing: \fB\-r\fR, \fB\-q\fR and \fB\-d\fR name their file while the command line is read, and it is opened only once every check has passed\.
+.P
+\fB\-\fR means standard output only as the whole value of \fB\-q\fR or \fB\-d\fR (ubertooth(7), OPTION VALUES)\. Any other value is a file name, including one that starts with \fB\-\fR: \fB\-q \-x\fR writes the file \fB\-x\fR\. Standard output carries one stream, so \fB\-q \-\fR and \fB\-d \-\fR in one command are refused: \fBerror: \-q and \-d cannot both write to standard output\fR\.
+.SH "CAPTURING TO STANDARD OUTPUT"
+\fB\-q \-\fR writes the PCAP capture to standard output and \fB\-d \-\fR the raw records, for a pipe into another program\. Either way the capture owns standard output for the whole run, so the per\-packet report the tool normally prints there is not printed at all: the capture is the only thing on that stream\. Notes, warnings and failures are on standard error and still arrive\.
+.P
+Binary on a terminal is a mistake rather than a stream anyone reads, so it is refused: \fBerror: stdout is a tty, refusing to write binary capture data to it\fR, exit 1\. Redirect or pipe standard output instead\.
 .SH "EXIT STATUS"
 A capture that ran to its \fB\-t\fR timeout, or that was interrupted (Ctrl\-C), exits 0 with whatever it captured, and so does \fB\-h\fR\. A refused command line exits 1 (see ARGUMENTS), as does a file that cannot be opened and a replay that could not be read whole (see REPLAYING A SAVED CAPTURE)\.
 .P

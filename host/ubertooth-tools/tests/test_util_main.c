@@ -2748,23 +2748,39 @@ MU_TEST(a_command_line_with_nothing_to_do_is_refused)
 	          == r.err, r.err);
 	mu_assert_int_eq(0, fake.start_calls);
 
-	/* -N is an operation in its own right, so a selector beside it is not a
-	 * command line with nothing to do: the count is printed and still no
-	 * board is opened, which is the case that brought this check about */
+	/* -N counts the boards on the bus and asks nothing of any one of them,
+	 * so a selector with only -N beside it selects a device that nothing
+	 * acts on: refused in the same words -U alone gets, and no count is
+	 * printed. */
 	reset_fake();
 	fake.device_count = 2;
 	r = RUN("-U", "0", "-N");
-	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(r.out, "2\n") == 0, r.out);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, "error: nothing to do: -U '0' selects a device "
+	                 "but no option asks anything of it\n") == 0, r.err);
+	mu_assert_int_eq(0, (long)strlen(r.out));
+	mu_assert_int_eq(0, fake.count_calls);
 	mu_assert_int_eq(0, fake.start_calls);
 	mu_assert_int_eq(0, fake.indexed_starts);
 
+	/* The order the two were written in makes no difference. */
 	reset_fake();
 	fake.device_count = 2;
 	r = RUN("-N", "-U", "0");
-	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(r.out, "2\n") == 0, r.out);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, "error: nothing to do: -U '0' selects a device "
+	                 "but no option asks anything of it\n") == 0, r.err);
+	mu_assert_int_eq(0, (long)strlen(r.out));
 	mu_assert_int_eq(0, fake.start_calls);
+
+	/* A selector that asks something of the board it names still runs, with
+	 * the count first. */
+	reset_fake();
+	fake.device_count = 2;
+	r = RUN("-U", "0", "-N", "-p");
+	mu_assert(strncmp(r.out, "2\n", 2) == 0, r.out);
+	mu_assert_int_eq(1, fake.start_calls);
+	mu_assert(strcmp(fake.selector, "0") == 0, fake.selector);
 
 	/* so are -h, -H and --host-version, alongside a selector or not */
 	reset_fake();
@@ -3229,28 +3245,22 @@ MU_TEST(u_all_is_rejected_before_opening_a_device_for_any_other_option)
 	}
 }
 
-MU_TEST(u_all_with_only_the_count_beside_it_prints_the_count)
+MU_TEST(u_all_with_only_the_count_beside_it_has_nothing_to_list)
 {
 	struct run_result r;
 
-	/* Nothing is asked of any device, so there is nothing for -U all to list
-	 * and nothing to refuse: the count comes from the bus, as it does for
-	 * -U <index> -N. */
+	/* A count is not one of the queries the listing can show, so -U all
+	 * with nothing but -N beside it has nothing to list and is refused in
+	 * the same words as -U all on its own. */
 	reset_fake();
 	fake.device_count = 2;
 	r = RUN("-U", "all", "-N");
-	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(r.out, "2\n") == 0, r.out);
-	mu_assert_int_eq(0, (long)strlen(r.err));
-	mu_assert_int_eq(0, fake.start_calls);
-	mu_assert_int_eq(0, fake.indexed_starts);
-
-	/* A failed count still fails the command, and prints no number. */
-	reset_fake();
-	fake.device_count = -1;
-	r = RUN("-U", "all", "-N");
 	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, "error: -U all needs one of the read-only "
+	                 "queries -b, -v, -V, -p or -s to list\n") == 0, r.err);
 	mu_assert_int_eq(0, (long)strlen(r.out));
+	mu_assert_int_eq(0, fake.count_calls);
+	mu_assert_int_eq(0, fake.start_calls);
 	mu_assert_int_eq(0, fake.indexed_starts);
 
 	/* An option -U all does not support is still refused, count and all. */
@@ -3853,7 +3863,7 @@ int main(void)
 	MU_RUN(u_all_lists_every_device_even_when_only_one_is_attached);
 	MU_RUN(u_all_fails_cleanly_with_no_devices_or_a_count_error);
 	MU_RUN(u_all_is_rejected_before_opening_a_device_for_any_other_option);
-	MU_RUN(u_all_with_only_the_count_beside_it_prints_the_count);
+	MU_RUN(u_all_with_only_the_count_beside_it_has_nothing_to_list);
 	MU_RUN(only_the_exact_word_all_selects_every_device);
 	MU_RUN(a_failed_read_prints_no_value_line_and_names_the_query_on_stderr);
 	MU_RUN(a_failed_identity_read_names_the_query_on_stderr);

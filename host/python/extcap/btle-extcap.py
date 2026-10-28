@@ -103,6 +103,34 @@ def run_tool(command, **options):
         sys.exit(1)
 
 
+def report_bad_option(refusal):
+    """Report a command line getopt would not take, as the other tools do.
+
+    One line on standard error naming what is wrong, and no usage text: the
+    user can run -h. getopt's own wording ("option --bogus not recognized")
+    names the option but not what the tools call the problem, so it is
+    rewritten here to the line opt_report_bad_option() in opt_parse.c gives
+    for the same mistake, which ubertooth-btbr also uses. The C tools add
+    "the tools take single-letter options" to an unknown long option; here
+    the long options are the normal spelling, Wireshark's own, so that part
+    is left off.
+    """
+    # getopt says "option --name ..." for a word with two dashes and
+    # "option -c ..." for a single letter, and names the option without them.
+    option = ("--" if refusal.msg.startswith("option --") else "-") \
+        + refusal.opt
+    if refusal.msg.endswith("requires argument"):
+        message = "option '%s' requires a value" % option
+    elif refusal.msg.endswith("must not have an argument"):
+        message = "option '%s' takes no value" % option
+    elif refusal.msg.endswith("not a unique prefix"):
+        message = "option '%s' is short for more than one option" % option
+    else:
+        message = "unrecognized option '%s'" % option
+    print("error: %s" % message, file=sys.stderr)
+    sys.exit(1)
+
+
 def sig_handler(sig, frame):
     global stop_signal
     stop_signal = sig
@@ -143,8 +171,7 @@ def main():
         # A usage error: the message goes to standard error and the exit
         # status is 1. The message says what was wrong, so the usage line
         # does not follow it (.kiro/steering/cli-output.md).
-        print("error: %s" % err, file=sys.stderr)
-        sys.exit(1)
+        report_bad_option(err)
 
     # No call here takes an operand, so a leftover word is a mistake, refused
     # before anything runs and before -h ends the command, the way the other

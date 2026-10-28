@@ -86,57 +86,6 @@ static void print_mac(FILE *out, uint8_t *mac_address, int mask) {
 		fprintf(out, "/%u", mask);
 }
 
-/* Accept "-" as an alias for binary PCAP on stdout. Save the original
- * stdout descriptor for libbtbb to open via /dev/fd (portable to macOS and
- * Linux), then redirect regular printf output to /dev/null so it cannot corrupt
- * the capture stream. /proc/self/fd is a Linux fallback. */
-static char *handle_special_filename(const char *filename, int *saved_fd)
-{
-	char path[64];
-	int null_fd;
-
-	*saved_fd = -1;
-	if (strcmp(filename, "-") != 0)
-		return strdup(filename);
-
-	if (opt_check_stdout_not_tty("capture data") < 0)
-		return NULL;
-
-	fflush(stdout);
-	*saved_fd = dup(STDOUT_FILENO);
-	if (*saved_fd < 0) {
-		fprintf(stderr, "error: cannot save stdout for the capture: %s\n",
-		        strerror(errno));
-		return NULL;
-	}
-
-	null_fd = open("/dev/null", O_WRONLY);
-	if (null_fd < 0 || dup2(null_fd, STDOUT_FILENO) < 0) {
-		fprintf(stderr, "error: cannot redirect stdout to /dev/null: %s\n",
-		        strerror(errno));
-		if (null_fd >= 0)
-			close(null_fd);
-		close(*saved_fd);
-		*saved_fd = -1;
-		return NULL;
-	}
-	if (null_fd != STDOUT_FILENO)
-		close(null_fd);
-
-	snprintf(path, sizeof(path), "/dev/fd/%d", *saved_fd);
-	if (access(path, W_OK) != 0) {
-		snprintf(path, sizeof(path), "/proc/self/fd/%d", *saved_fd);
-		if (access(path, W_OK) != 0) {
-			fprintf(stderr, "error: no writable descriptor filesystem for stdout capture\n");
-			close(*saved_fd);
-			*saved_fd = -1;
-			return NULL;
-		}
-	}
-
-	return strdup(path);
-}
-
 /* Carry out the -v options: the set first, then the read, so one command can
  * do both and the read reports the value it just set. The caller stops a
  * started mode before it gives up on a failure here. The set keeps its own
@@ -419,7 +368,7 @@ int main(int argc, char *argv[])
 	/* One major mode per command. Another argument error, so it is refused
 	 * here rather than after a device has been opened. */
 	if (do_follow + do_no_follow + do_promisc > 1) {
-		fprintf(stderr, "error: choose one of -f, -n or -p, pick one pal\n");
+		fprintf(stderr, "error: choose one of -f, -n or -p\n");
 		return 1;
 	}
 
@@ -484,7 +433,7 @@ int main(int argc, char *argv[])
 	}
 	if (pcap_name != NULL) {
 		int saved_fd;
-		char *file = handle_special_filename(pcap_name, &saved_fd);
+		char *file = opt_capture_path(pcap_name, "capture data", &saved_fd);
 		int create_result;
 
 		if (!file) {

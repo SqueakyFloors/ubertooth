@@ -27,6 +27,10 @@ as a placeholder/experimental entry point. Do not rely on it.
  - `-V` :
    print the host tools version, as `Host tools version: libubertooth
    <version> (<revision>), libbtbb <version> (<revision>)`.
+ - `-h` :
+   print the usage text on standard output and exit 0. It takes effect once
+   the whole command line has parsed, so a bad option value, a stray word or
+   an option given twice is still reported.
 
 ## TRANSMIT POWER
 

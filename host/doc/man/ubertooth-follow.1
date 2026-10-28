@@ -40,13 +40,13 @@ target UAP (1 byte / 2 hex digits), given once, and with \fB\-l\fR\. Not with \f
 select an Ubertooth by enumeration index or serial number; see ubertooth(7), SELECTING A DEVICE
 .TP
 \fB\-r <filename>\fR
-capture packets to a PCAPNG file\.
+capture packets to a PCAPNG file\. A PcapNG writer seeks back over what it has written, which standard output cannot do, so \fB\-r \-\fR is refused: \fBerror: PCAPNG capture to stdout is not supported; use \-q \-\fR
 .TP
 \fB\-q <filename>\fR
-capture packets to a PCAP file\.
+capture packets to a PCAP file\. \fB\-q \-\fR writes the capture to standard output; see CAPTURING TO STANDARD OUTPUT
 .TP
 \fB\-d <filename>\fR
-dump received symbols to the named file\.
+dump received symbols to the named file\. \fB\-d \-\fR writes them to standard output; see CAPTURING TO STANDARD OUTPUT
 .TP
 \fB\-e <0\-5>\fR
 maximum access\-code errors to tolerate (default: 2)\.
@@ -127,9 +127,15 @@ any option given a value twice, \fBerror: option '\-t' given more than once\fR: 
 one of \fB\-l\fR and \fB\-u\fR without the other, \fBerror: \-l <LAP> requires \-u <UAP>\fR or \fBerror: \-u <UAP> requires \-l <LAP>\fR: the two name a piconet only together\. \fB\-a\fR beside half a pair still reports \fB\-a\fR needing \fB\-t\fR, since completing the pair would not let \fB\-a\fR run\.
 .IP "" 0
 .P
-What the tool is following \(em the target address, or the LAP and UAP it read from the local device \(em is reported on standard error, with the rest of the tool's progress\. Standard output carries the decoded packets, and, with \fB\-a\fR, the accepted channel map, which libbtbb prints itself\.
+\fB\-\fR means standard output only as the whole value of \fB\-q\fR or \fB\-d\fR (ubertooth(7), OPTION VALUES)\. Any other value is a file name, including one that starts with \fB\-\fR: \fB\-q \-x\fR writes the file \fB\-x\fR\. Standard output carries one stream, so \fB\-q \-\fR and \fB\-d \-\fR in one command are refused: \fBerror: \-q and \-d cannot both write to standard output\fR\.
 .P
-A refused command line creates and truncates nothing: \fB\-r\fR, \fB\-q\fR and \fB\-d\fR name their file while the command line is read, and it is opened only once every check has passed\.
+What the tool is following \(em the target address, or the LAP and UAP it read from the local device \(em is reported on standard error, with the rest of the tool's progress\. Standard output carries the decoded packets, and, with \fB\-a\fR, the accepted channel map, which libbtbb prints itself \(em unless a capture has taken that stream; see CAPTURING TO STANDARD OUTPUT\.
+.P
+A refused command line creates and truncates nothing: \fB\-r\fR, \fB\-q\fR and \fB\-d\fR name their file while the command line is read, and it is opened only once every check has passed\. A file that cannot be created is one \fBerror:\fR line naming it, for example \fBerror: /no/such/dir/capture\.pcap: No such file or directory\fR, and exit 1\.
+.SH "CAPTURING TO STANDARD OUTPUT"
+\fB\-q \-\fR writes the PCAP capture to standard output and \fB\-d \-\fR the raw symbols, for a pipe into another program\. Either way the capture owns standard output for the whole run, so the decoded packets that normally go there are not printed at all: the capture is the only thing on that stream\. What the tool is following, the notes and the failures are on standard error and still arrive\.
+.P
+Binary on a terminal is a mistake rather than a stream anyone reads, so it is refused: \fBerror: stdout is a tty, refusing to write binary capture data to it\fR, exit 1\. Redirect or pipe standard output instead\.
 .SH "EXIT STATUS"
 A follow that was interrupted (Ctrl\-C) exits 0 with whatever it captured, and so does \fB\-h\fR\. A refused command line exits 1 (see ARGUMENTS), as does a file that cannot be opened and a target the tool could not set up a follow on\.
 .P

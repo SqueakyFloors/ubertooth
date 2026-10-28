@@ -24,6 +24,7 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <getopt.h>
 #include <limits.h>
 #include <stdio.h>
@@ -183,6 +184,100 @@ int opt_check_stdout_not_tty(const char *what)
 		return -1;
 	}
 	return 0;
+}
+
+/* Hand the real standard output to a capture and send this process's own
+ * standard output to /dev/null for the rest of the run, so that nothing the
+ * tool prints can land in the middle of the capture stream. Returns the
+ * descriptor the capture is to be written to, or -1 once the reason has been
+ * printed. <what> names the data, for the tty refusal above. */
+static int take_stdout(const char *what)
+{
+	int saved_fd, null_fd;
+
+	if (opt_check_stdout_not_tty(what) < 0)
+		return -1;
+
+	fflush(stdout);
+	saved_fd = dup(STDOUT_FILENO);
+	if (saved_fd < 0) {
+		fprintf(stderr, "error: cannot save stdout for the capture: %s\n",
+		        strerror(errno));
+		return -1;
+	}
+
+	null_fd = open("/dev/null", O_WRONLY);
+	if (null_fd < 0 || dup2(null_fd, STDOUT_FILENO) < 0) {
+		fprintf(stderr, "error: cannot redirect stdout to /dev/null: %s\n",
+		        strerror(errno));
+		if (null_fd >= 0)
+			close(null_fd);
+		close(saved_fd);
+		return -1;
+	}
+	if (null_fd != STDOUT_FILENO)
+		close(null_fd);
+	return saved_fd;
+}
+
+char *opt_capture_path(const char *filename, const char *what, int *saved_fd)
+{
+	char path[64];
+
+	if (saved_fd == NULL)
+		return NULL;
+	*saved_fd = -1;
+	if (filename == NULL)
+		return NULL;
+	if (strcmp(filename, "-") != 0)
+		return strdup(filename);
+
+	*saved_fd = take_stdout(what);
+	if (*saved_fd < 0)
+		return NULL;
+
+	/* The writers in libbtbb open a file name rather than a descriptor, so
+	 * the saved standard output is named as one: /dev/fd works on macOS and
+	 * Linux, and /proc/self/fd is the fallback where /dev/fd is not
+	 * mounted. */
+	snprintf(path, sizeof(path), "/dev/fd/%d", *saved_fd);
+	if (access(path, W_OK) != 0) {
+		snprintf(path, sizeof(path), "/proc/self/fd/%d", *saved_fd);
+		if (access(path, W_OK) != 0) {
+			fputs("error: no writable descriptor filesystem for stdout "
+			      "capture\n", stderr);
+			close(*saved_fd);
+			*saved_fd = -1;
+			return NULL;
+		}
+	}
+	return strdup(path);
+}
+
+FILE *opt_open_dump_file(const char *filename, const char *what)
+{
+	FILE *stream;
+	int saved_fd;
+
+	if (filename == NULL)
+		return NULL;
+	if (strcmp(filename, "-") != 0) {
+		stream = fopen(filename, "w");
+		if (stream == NULL)
+			fprintf(stderr, "error: %s: %s\n", filename, strerror(errno));
+		return stream;
+	}
+
+	saved_fd = take_stdout(what);
+	if (saved_fd < 0)
+		return NULL;
+	stream = fdopen(saved_fd, "w");
+	if (stream == NULL) {
+		fprintf(stderr, "error: cannot write %s to stdout: %s\n",
+		        what == NULL ? "output" : what, strerror(errno));
+		close(saved_fd);
+	}
+	return stream;
 }
 
 int opt_check_no_operands(int argc, char *argv[])

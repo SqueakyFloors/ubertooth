@@ -264,7 +264,7 @@ including the optional values of `-a` and `-v`.
 An option combination the tool cannot carry out is refused there too, before
 any device is opened, so the message never depends on which boards are
 attached: more than one of `-f`, `-n` and `-p` gives
-`error: choose one of -f, -n or -p, pick one pal`, and a read and a set of the
+`error: choose one of -f, -n or -p`, and a read and a set of the
 access address in one command gives
 `error: -a cannot both read and set the access address`.
 

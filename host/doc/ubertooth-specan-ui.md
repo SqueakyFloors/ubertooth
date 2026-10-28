@@ -42,6 +42,8 @@ To pick one of several Ubertooths, run:
  - `--padding <MHz>` :
    extra band shown on each side with `--wifi` (default 10), limited to
    2402-2480 MHz
+ - `-h`, `--help` :
+   print the usage text on standard output and exit 0.
 
 ## DISPLAY
 

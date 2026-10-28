@@ -23,10 +23,13 @@ Classic Bluetooth modulation (default)
 Bluetooth Low Energy (BLE) modulation
 .TP
 \fB\-d <filename\.bin>\fR
-Dump to file instead of stdout
+Dump to file instead of stdout\. A lone \fB\-\fR is standard output, where the stream goes anyway without \fB\-d\fR; a terminal there is refused (\fBerror: stdout is a tty, refusing to write binary dump data to it\fR)
 .TP
 \fB\-U <index|serial>\fR
 select an Ubertooth by enumeration index or serial number; see ubertooth(7), SELECTING A DEVICE
+.TP
+\fB\-h\fR
+print the usage text on standard output and exit 0\. It takes effect once the whole command line has parsed, so a bad option value, a stray word or an option given twice is still reported\.
 .SH "ARGUMENTS"
 \fBubertooth\-dump\fR takes options only\. A word that is not an option, including a bare \fB\-\fR, is refused before any device is opened and named: \fBerror: unexpected argument '<word>'\fR, with exit status 1\.
 .P

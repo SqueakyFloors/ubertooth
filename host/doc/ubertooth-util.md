@@ -177,9 +177,9 @@ Common options:
    serial number string. See SELECTING A DEVICE.
  - `-U all` :
    report the read-only queries `-b`, `-v`, `-V`, `-p` and `-s` for every
-   attached Ubertooth; refused with any other option, `-N` excepted, and,
-   unless `-N` is the only option beside it, refused with no query to list.
-   See SELECTING A DEVICE.
+   attached Ubertooth; refused with any other option, `-N` excepted, and
+   refused with no query to list, `-N` included: a count is not something the
+   listing can show. See SELECTING A DEVICE.
  - `-N` :
    print the number of attached Ubertooths, as a single decimal number on
    standard output, then run the rest of the command. The number comes from
@@ -188,10 +188,13 @@ Common options:
    other options report. `-N` is neither a selector nor a per-device query, so
    it combines with everything else, in either order — reads, setters, modes,
    `-r`, `-S`, `-U <index|serial>` and the `-U all` listing — and a count that
-   succeeds leaves the exit status to the rest of the command. On its own, or
-   with nothing but a `-U` selector beside it (`-U all` included), it prints
-   the count, opens no device and exits 0, unless the count itself fails: a
-   selector alone asks nothing of the board it names. A command line refused
+   succeeds leaves the exit status to the rest of the command. On its own it
+   prints the count, opens no device and exits 0, unless the count itself
+   fails. A `-U` selector and nothing else beside it is refused, because `-N`
+   asks nothing of the board the selector names:
+   `error: nothing to do: -U '0' selects a device but no option asks anything
+   of it`, and `-U all` with only `-N` beside it has nothing to list. A
+   command line refused
    before anything runs (two modes, `-z` with a mode, `-U all` with an option
    it does not support, a bad option value, an unknown option or a stray word)
    prints no count, and `-h`, `-H` and `--host-version` end the command before
@@ -267,6 +270,10 @@ Miscellaneous:
    get the watchdog state, why the board last reset itself, and how many of
    the firmware's waits on the radio gave up. See [WATCHDOG][]; exits
    non-zero if either read fails
+ - `-h` :
+   print the usage text on standard output and exit 0. It takes effect once
+   the whole command line has parsed, so a bad option value, a stray word or
+   an option given twice is still reported.
 
 ## WATCHDOG
 
@@ -493,12 +500,18 @@ the same enumeration:
     Serial No (0): 1cc001038088cb956c43ad61c52000f5
     Serial No (1): 05f00014e380df95f4436562c32000f5
 
-`-U all -N` with no query asks only for the count, which comes from the bus and
-not from any device. There is nothing to list, so nothing is refused either: it
-prints the count and exits 0, as `-U 0 -N` does.
+`-U all -N` with no query has nothing to list, so it is refused like `-U all`
+on its own: the count is not a per-device query, and a listing is what `-U all`
+asks for.
 
     $ ubertooth-util -U all -N
-    2
+    error: -U all needs one of the read-only queries -b, -v, -V, -p or -s to list
+
+A selector that names one board is refused for the same reason, in the words
+`-U` on its own gets: `-N` asks nothing of the board it selects.
+
+    $ ubertooth-util -U 0 -N
+    error: nothing to do: -U '0' selects a device but no option asks anything of it
 
 Only the exact word `all` has this meaning. The other tools do not support
 `-U all`; they treat it as a serial number and report that no device matches.

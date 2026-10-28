@@ -126,13 +126,12 @@ int main(int argc, char *argv[])
 		return 0;
 	}
 
-	/* Every check has passed, so the dump file can be opened. */
+	/* Every check has passed, so the dump file can be opened. A lone "-" is
+	 * standard output, where the stream goes anyway without -d. */
 	if (dump_name != NULL) {
-		dumpfile = fopen(dump_name, "w");
-		if (dumpfile == NULL) {
-			fprintf(stderr, "error: %s: %s\n", dump_name, strerror(errno));
+		dumpfile = opt_open_dump_file(dump_name, "dump data");
+		if (dumpfile == NULL)
 			return 1;
-		}
 	}
 
 	ut = ubertooth_start_select(ubertooth_device);

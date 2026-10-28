@@ -26,7 +26,6 @@
 
 #include <unistd.h>
 #include <stdlib.h>
-#include <err.h>
 #include <errno.h>
 #include <string.h>
 
@@ -88,20 +87,6 @@ static void afh_hci_wait(void* ctx __attribute__((unused)))
 	 * pause is for rather than looking like a hang. */
 	fputs("AFH map not usable yet, reading it again\n", stderr);
 	usleep(FOLLOW_AFH_RETRY_DELAY_US);
-}
-
-/* err(3) ends the process, so the handle it leaves behind costs nothing -- but
- * a capture file already created on that handle is not written out. Close and
- * free it first, keeping the errno err() is about to report, which free() is
- * allowed to change. libbtbb leaves the handle it could not create NULL, so
- * only files that were created are closed. */
-static void release_before_err(ubertooth_t* ut)
-{
-	int failure = errno;
-
-	ubertooth_close(ut);
-	ubertooth_free(ut);
-	errno = failure;
 }
 
 /* Gives the local adapter back. First it drops the link this command made to
@@ -264,6 +249,15 @@ int main(int argc, char *argv[])
 		 * whole command line has been accepted, so a refused command
 		 * leaves the filesystem alone. */
 		case 'r':
+			/* A PcapNG writer seeks back to finish the blocks it has
+			 * written, which standard output cannot do, so a lone "-"
+			 * is refused here rather than taken as the file name "-".
+			 * The PCAP writer does not seek: -q takes it. */
+			if (strcmp(optarg, "-") == 0) {
+				fputs("error: PCAPNG capture to stdout is not supported;"
+				      " use -q -\n", stderr);
+				return 1;
+			}
 			pcapng_name = optarg;
 			break;
 		case 'q':
@@ -327,6 +321,15 @@ int main(int argc, char *argv[])
 	have_lap_uap = (have_lap > 0) && (have_uap > 0);
 	remote_target = have_target || have_lap_uap;
 
+	/* Standard output carries one stream, so only one capture can have it:
+	 * a PCAP file and a packet dump interleaved there would be neither. */
+	if (pcap_name != NULL && dump_name != NULL &&
+	    strcmp(pcap_name, "-") == 0 && strcmp(dump_name, "-") == 0) {
+		fputs("error: -q and -d cannot both write to standard output\n",
+		      stderr);
+		return 1;
+	}
+
 	/* -a reads the map from the target over an ACL link, so it needs an
 	 * address a connection can be made to, which is all six bytes of it:
 	 * -l and -u are four. Refused here, with the rest of the command line,
@@ -372,18 +375,44 @@ int main(int argc, char *argv[])
 	 * truncates nothing. */
 	if (pcapng_name != NULL &&
 	    btbb_pcapng_create_file(pcapng_name, "Ubertooth", &ut->h_pcapng_bredr)) {
-		release_before_err(ut);
-		err(1, "create_bredr_capture_file: ");
+		fprintf(stderr, "error: %s: %s\n", pcapng_name, strerror(errno));
+		ubertooth_close(ut);
+		ubertooth_free(ut);
+		return 1;
 	}
-	if (pcap_name != NULL &&
-	    btbb_pcap_create_file(pcap_name, &ut->h_pcap_bredr)) {
-		release_before_err(ut);
-		err(1, "btbb_pcap_create_file: ");
+	if (pcap_name != NULL) {
+		/* A lone "-" is standard output, which the capture then owns:
+		 * see opt_capture_path(). The per-packet report this tool
+		 * prints there goes nowhere for such a run, which is what the
+		 * man page says of it; the notes and failures are on standard
+		 * error and still arrive. */
+		int saved_fd;
+		char *file = opt_capture_path(pcap_name, "capture data", &saved_fd);
+		int failed;
+
+		if (file == NULL) {
+			if (saved_fd >= 0)
+				close(saved_fd);
+			ubertooth_close(ut);
+			ubertooth_free(ut);
+			return 1;
+		}
+		failed = btbb_pcap_create_file(file, &ut->h_pcap_bredr);
+		if (saved_fd >= 0)
+			close(saved_fd);
+		free(file);
+		if (failed) {
+			/* The name the user gave, not the /dev/fd path a lone
+			 * "-" is opened through. */
+			fprintf(stderr, "error: %s: %s\n", pcap_name, strerror(errno));
+			ubertooth_close(ut);
+			ubertooth_free(ut);
+			return 1;
+		}
 	}
 	if (dump_name != NULL) {
-		dumpfile = fopen(dump_name, "w");
+		dumpfile = opt_open_dump_file(dump_name, "dump data");
 		if (dumpfile == NULL) {
-			perror(dump_name);
 			/* The capture files are on the handle, so the close is
 			 * what gets them written out and shut; no board has
 			 * been opened yet, and the close does nothing to a

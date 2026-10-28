@@ -30,6 +30,11 @@ import os
 import subprocess
 import sys
 
+try:
+    import pty
+except ImportError:  # no pty module on this platform
+    pty = None
+
 
 BINARY = sys.argv[1]
 TOOL = os.path.basename(BINARY)
@@ -281,5 +286,53 @@ for arguments, expected in REFUSED_EXACTLY.get(TOOL, ()):
         assert message not in result.stderr.lower(), (arguments, message, result)
 if REFUSED_EXACTLY.get(TOOL):
     checked.append("%d named refusals" % len(REFUSED_EXACTLY[TOOL]))
+
+# ---- a capture on standard output refuses a terminal -----------------------
+
+# The command line that sends this tool's capture to standard output, and the
+# data named in the refusal when standard output is a terminal. Binary there
+# fills the screen with control characters and is a mistake rather than a
+# stream anyone reads, so it is refused before any device is opened
+# (opt_capture_path(), opt_open_dump_file()). ubertooth-btle needs a major
+# mode beside the capture to have work to do.
+CAPTURE_TO_STDOUT = {
+    "ubertooth-btle": ((["-n", "-q", "-"], "capture data"),),
+    "ubertooth-dump": ((["-d", "-"], "dump data"),),
+    "ubertooth-follow": ((["-q", "-"], "capture data"),
+                         (["-d", "-"], "dump data")),
+    "ubertooth-rx": ((["-q", "-"], "capture data"),
+                     (["-d", "-"], "dump data")),
+    "ubertooth-specan": ((["-d", "-"], "samples"),),
+}
+
+for arguments, what in CAPTURE_TO_STDOUT.get(TOOL, ()):
+    if pty is None:
+        print("%s: skipping the tty case, no pty module" % TOOL)
+        break
+    try:
+        master_fd, slave_fd = pty.openpty()
+    except OSError:  # a sandbox with no pty to allocate
+        print("%s: skipping the tty case, no pty available" % TOOL)
+        break
+    try:
+        result = subprocess.run([BINARY] + arguments, env=ENVIRONMENT,
+                                stdin=subprocess.DEVNULL, stdout=slave_fd,
+                                stderr=subprocess.PIPE,
+                                universal_newlines=True, timeout=20)
+    finally:
+        os.close(slave_fd)
+        os.close(master_fd)
+    assert result.returncode == 1, (arguments, result)
+    assert result.stderr == (
+        "error: stdout is a tty, refusing to write binary %s to it\n" % what), \
+        (arguments, result)
+    # refused before the device was looked for, which is where the capture
+    # would otherwise have been opened
+    for message in DEVICE_ACCESS:
+        assert message not in result.stderr.lower(), (arguments, message,
+                                                      result)
+else:
+    if CAPTURE_TO_STDOUT.get(TOOL):
+        checked.append("a capture on standard output refusing a tty")
 
 print("%s: the rule holds for %s" % (TOOL, " and ".join(checked)))

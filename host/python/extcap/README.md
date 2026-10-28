@@ -110,7 +110,8 @@ writes its own decode of every packet there; Wireshark discards it.
 
 A command line the script will not take is refused before `ubertooth-btle`
 runs, so nothing is written to the fifo:
-`error: option --list-dlts not recognized`,
+`error: unrecognized option '--list-dlts'`, in the wording every other tool
+here uses for the same mistake,
 `error: unexpected argument 'extra'` for a word that is not an option or the
 value of one, since no call here takes an operand,
 `error: --extcap-interface must be ubertooth<serial>, as --extcap-interfaces

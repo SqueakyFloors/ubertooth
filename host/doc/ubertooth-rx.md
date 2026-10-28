@@ -103,11 +103,15 @@ Options:
 Output options:
 
  - `-r <file.pcapng>` :
-   Capture packets to PcapNG
+   Capture packets to PcapNG. A PcapNG writer seeks back over what it has
+   written, which standard output cannot do, so `-r -` is refused:
+   `error: PCAPNG capture to stdout is not supported; use -q -`
  - `-q <file.pcap>` :
-   Capture packets to PCAP
+   Capture packets to PCAP. `-q -` writes the capture to standard output; see
+   CAPTURING TO STANDARD OUTPUT
  - `-d <file.bin>` :
-   Capture packets to binary file suitable for use with `-i`.
+   Capture packets to binary file suitable for use with `-i`. `-d -` writes
+   the records to standard output; see CAPTURING TO STANDARD OUTPUT
 
 Miscellaneous:
 
@@ -118,6 +122,10 @@ Miscellaneous:
  - `-U <index|serial>` :
    select an Ubertooth by enumeration index or serial number; see
    ubertooth(7), SELECTING A DEVICE
+ - `-h` :
+   print the usage text on standard output and exit 0. It takes effect once
+   the whole command line has parsed, so a bad option value, a stray word or
+   an option given twice is still reported.
 
 ## HOW THE CHANNEL IS SET
 
@@ -267,6 +275,24 @@ so it cannot be given -l or -u`.
 A refused command line creates and truncates nothing: `-r`, `-q` and `-d`
 name their file while the command line is read, and it is opened only once
 every check has passed.
+
+`-` means standard output only as the whole value of `-q` or `-d`
+(ubertooth(7), OPTION VALUES). Any other value is a file name, including one
+that starts with `-`: `-q -x` writes the file `-x`. Standard output carries
+one stream, so `-q -` and `-d -` in one command are refused:
+`error: -q and -d cannot both write to standard output`.
+
+## CAPTURING TO STANDARD OUTPUT
+
+`-q -` writes the PCAP capture to standard output and `-d -` the raw records,
+for a pipe into another program. Either way the capture owns standard output
+for the whole run, so the per-packet report the tool normally prints there is
+not printed at all: the capture is the only thing on that stream. Notes,
+warnings and failures are on standard error and still arrive.
+
+Binary on a terminal is a mistake rather than a stream anyone reads, so it is
+refused: `error: stdout is a tty, refusing to write binary capture data to
+it`, exit 1. Redirect or pipe standard output instead.
 
 ## EXIT STATUS
 

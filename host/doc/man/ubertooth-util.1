@@ -120,10 +120,10 @@ A board that answers nothing has its USB connection reset first, because it woul
 select which Ubertooth to use, either by USB enumeration index or by its serial number string\. See SELECTING A DEVICE\.
 .TP
 \fB\-U all\fR
-report the read\-only queries \fB\-b\fR, \fB\-v\fR, \fB\-V\fR, \fB\-p\fR and \fB\-s\fR for every attached Ubertooth; refused with any other option, \fB\-N\fR excepted, and, unless \fB\-N\fR is the only option beside it, refused with no query to list\. See SELECTING A DEVICE\.
+report the read\-only queries \fB\-b\fR, \fB\-v\fR, \fB\-V\fR, \fB\-p\fR and \fB\-s\fR for every attached Ubertooth; refused with any other option, \fB\-N\fR excepted, and refused with no query to list, \fB\-N\fR included: a count is not something the listing can show\. See SELECTING A DEVICE\.
 .TP
 \fB\-N\fR
-print the number of attached Ubertooths, as a single decimal number on standard output, then run the rest of the command\. The number comes from the USB device list, so it needs no board and opens none, and it is taken before any device is opened: it is printed first, ahead of anything the other options report\. \fB\-N\fR is neither a selector nor a per\-device query, so it combines with everything else, in either order \(em reads, setters, modes, \fB\-r\fR, \fB\-S\fR, \fB\-U <index|serial>\fR and the \fB\-U all\fR listing \(em and a count that succeeds leaves the exit status to the rest of the command\. On its own, or with nothing but a \fB\-U\fR selector beside it (\fB\-U all\fR included), it prints the count, opens no device and exits 0, unless the count itself fails: a selector alone asks nothing of the board it names\. A command line refused before anything runs (two modes, \fB\-z\fR with a mode, \fB\-U all\fR with an option it does not support, a bad option value, an unknown option or a stray word) prints no count, and \fB\-h\fR, \fB\-H\fR and \fB\-\-host\-version\fR end the command before it, as they do before every other option\.
+print the number of attached Ubertooths, as a single decimal number on standard output, then run the rest of the command\. The number comes from the USB device list, so it needs no board and opens none, and it is taken before any device is opened: it is printed first, ahead of anything the other options report\. \fB\-N\fR is neither a selector nor a per\-device query, so it combines with everything else, in either order \(em reads, setters, modes, \fB\-r\fR, \fB\-S\fR, \fB\-U <index|serial>\fR and the \fB\-U all\fR listing \(em and a count that succeeds leaves the exit status to the rest of the command\. On its own it prints the count, opens no device and exits 0, unless the count itself fails\. A \fB\-U\fR selector and nothing else beside it is refused, because \fB\-N\fR asks nothing of the board the selector names: \fBerror: nothing to do: \-U '0' selects a device but no option asks anything of it\fR, and \fB\-U all\fR with only \fB\-N\fR beside it has nothing to list\. A command line refused before anything runs (two modes, \fB\-z\fR with a mode, \fB\-U all\fR with an option it does not support, a bad option value, an unknown option or a stray word) prints no count, and \fB\-h\fR, \fB\-H\fR and \fB\-\-host\-version\fR end the command before it, as they do before every other option\.
 .P
 Radio options:
 .TP
@@ -172,6 +172,9 @@ get microcontroller serial number
 .TP
 \fB\-w\fR
 get the watchdog state, why the board last reset itself, and how many of the firmware's waits on the radio gave up\. See \fIWATCHDOG\fR; exits non\-zero if either read fails
+.TP
+\fB\-h\fR
+print the usage text on standard output and exit 0\. It takes effect once the whole command line has parsed, so a bad option value, a stray word or an option given twice is still reported\.
 .SH "WATCHDOG"
 The firmware resets the board if it goes three seconds without servicing USB, or without its mode getting back round its own loop\. A board that stops answering the host is useless to it and cannot be recovered from it \(em the reset request travels over USB too \(em so the board recovers itself, re\-enumerates, and comes back idle\. What a capture used to see as a hang is now the board disappearing and coming back; the tools treat a board that has gone as lost and exit\.
 .P
@@ -320,11 +323,19 @@ Serial No (1): 05f00014e380df95f4436562c32000f5
 .fi
 .IP "" 0
 .P
-\fB\-U all \-N\fR with no query asks only for the count, which comes from the bus and not from any device\. There is nothing to list, so nothing is refused either: it prints the count and exits 0, as \fB\-U 0 \-N\fR does\.
+\fB\-U all \-N\fR with no query has nothing to list, so it is refused like \fB\-U all\fR on its own: the count is not a per\-device query, and a listing is what \fB\-U all\fR asks for\.
 .IP "" 4
 .nf
 $ ubertooth\-util \-U all \-N
-2
+error: \-U all needs one of the read\-only queries \-b, \-v, \-V, \-p or \-s to list
+.fi
+.IP "" 0
+.P
+A selector that names one board is refused for the same reason, in the words \fB\-U\fR on its own gets: \fB\-N\fR asks nothing of the board it selects\.
+.IP "" 4
+.nf
+$ ubertooth\-util \-U 0 \-N
+error: nothing to do: \-U '0' selects a device but no option asks anything of it
 .fi
 .IP "" 0
 .P
