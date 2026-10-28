@@ -150,6 +150,14 @@ struct scan {
 	/* Every vendor request case that asks for a mode. */
 	struct request_case requests[MAX_REQUEST_CASES];
 	int request_count;
+
+	/* Inside set_channel_request(), which the channel set request calls:
+	 * where it writes the channel the board tunes to, where it asks whether
+	 * LE follow mode is running, and where it sets the carrier-sense
+	 * threshold. */
+	int channel_assign;
+	int channel_follow_guard;
+	int channel_cs_set;
 };
 
 /* Keep a finished vendor request case, if it is one of the ones these tests
@@ -367,6 +375,22 @@ static int scan_source(const char *path, struct scan *s)
 
 			if (strcmp(fn, "bt_stream_rx") == 0)
 				capture_while_condition(line, lineno, s);
+
+			/* set_channel_request()'s body: what a channel set
+			 * writes, and what it leaves out while LE follow mode
+			 * is running. The channel set asks for no mode, so it is
+			 * not one of the request cases kept below. */
+			if (strcmp(fn, "set_channel_request") == 0) {
+				if (is_assignment_to(line, "channel") &&
+				    s->channel_assign == 0)
+					s->channel_assign = lineno;
+				if (strstr(line, "mode != MODE_BT_FOLLOW_LE")
+				    != NULL && s->channel_follow_guard == 0)
+					s->channel_follow_guard = lineno;
+				if (strstr(line, "cs_threshold_calc_and_set(")
+				    != NULL && s->channel_cs_set == 0)
+					s->channel_cs_set = lineno;
+			}
 
 			/* The modes a request can be absorbed into, as
 			 * streams_symbols() lists them. */
@@ -1376,6 +1400,49 @@ MU_TEST(test_the_afh_map_request_keeps_a_copy_for_the_mode_starting)
 	         "after a mode request is lost when the mode start's reset "
 	         "clears it", path, s.afhmap_case);
 	mu_assert(s.afhmap_keep > s.afhmap_case, msg);
+ * A channel set reaches the channel the board tunes to, whatever mode is
+ * running.
+ *
+ * The write used to sit inside `if (mode != MODE_BT_FOLLOW_LE)`, because the
+ * loop that ran LE follow mode in those days picked the channel up from
+ * `requested_channel` instead. le_phy.c took that mode over and the loop went
+ * with it, so in LE follow mode the write happened nowhere: the request still
+ * returned success and the board kept its old channel, and the next mode to
+ * bring the radio up tuned to that one.
+ *
+ * The carrier-sense threshold is the one thing still left out in that mode:
+ * writing it reaches the radio over the serial bus the low-energy engine is
+ * using, and that engine does not use carrier sense. So the guard must hold
+ * nothing but that write.
+ */
+MU_TEST(test_a_channel_set_is_not_skipped_in_le_follow_mode)
+{
+	char msg[512];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the channel set does not write `channel`", path);
+	mu_assert_fatal(s.channel_assign > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the channel set no longer asks whether LE follow mode is "
+	         "running, so this test cannot say what the answer changes",
+	         path);
+	mu_assert_fatal(s.channel_follow_guard > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: `channel` is written at line %d, after the LE follow "
+	         "check at line %d, so a board in that mode keeps its old "
+	         "channel and the host is told otherwise",
+	         path, s.channel_assign, s.channel_assign,
+	         s.channel_follow_guard);
+	mu_assert(s.channel_assign < s.channel_follow_guard, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the carrier-sense threshold is set at line %d, which is "
+	         "not after the LE follow check at line %d: it is the one write "
+	         "that must be left out in that mode",
+	         path, s.channel_cs_set, s.channel_follow_guard);
+	mu_assert(s.channel_cs_set > s.channel_follow_guard, msg);
 }
 
 int main(void)
@@ -1408,5 +1475,6 @@ int main(void)
 	MU_RUN(test_the_ego_request_restarts_the_running_mode);
 	MU_RUN(test_cc2400_idle_does_not_choose_the_ego_mode);
 	MU_RUN(test_the_ego_loop_reads_the_mode_inside_its_loop);
+	MU_RUN(test_a_channel_set_is_not_skipped_in_le_follow_mode);
 	return mu_report();
 }

@@ -1023,14 +1023,26 @@ static uint8_t dewhiten_length(unsigned channel, uint8_t data) {
 	return out;
 }
 
+/* Set once a packet has been dropped because the ring had no room for it, and
+ * cleared again by the next packet that does get through, which carries
+ * FIFO_OVERFLOW to the host. So the flag reaches the host on the packet after
+ * the gap, which is the same way the Classic path reports one (enqueue() in
+ * bluetooth_rxtx.c). Without it a dropped packet left no trace at all, and a
+ * capture with a gap in it looked like a quiet channel.
+ *
+ * One flag rather than a count: the record has no field to put a number in,
+ * and what the host needs to know is that packets are missing here. */
+static volatile uint8_t le_packet_dropped;
+
 // enqueue a packet for USB
 static int usb_enqueue_le(le_rx_t *packet)
 {
 	/* The channel, timestamp and signal readings of this packet, for however
 	 * many records it takes. */
 	le_pkt_meta meta;
+	int queued;
 
-	meta.status = 0;
+	meta.status = le_packet_dropped ? FIFO_OVERFLOW : 0;
 	meta.channel = ubertooth_channel_byte(packet->channel);
 	meta.clkn_high = 0;
 	meta.clk100ns = packet->timestamp;
@@ -1044,9 +1056,15 @@ static int usb_enqueue_le(le_rx_t *packet)
 
 	/* The access address is what the board synchronized on, so it is held
 	 * apart from the bytes that were received. */
-	return usb_enqueue_le_packet(&meta,
-	                             (const uint8_t *) &packet->access_address,
-	                             packet->data, packet->size);
+	queued = usb_enqueue_le_packet(&meta,
+	                               (const uint8_t *) &packet->access_address,
+	                               packet->data, packet->size);
+	/* A packet longer than 50 bytes takes several of the ring's records and
+	 * is refused all or nothing, so a nearly full ring drops long packets
+	 * while short ones still get through. That is exactly the case the host
+	 * has to hear about. */
+	le_packet_dropped = queued ? 0 : 1;
+	return queued;
 }
 
 static uint32_t extract_field(le_rx_t *buf, size_t offset, unsigned size) {
@@ -1340,6 +1358,9 @@ void le_phy_main(void) {
 
 	buffers_init();
 	queue_init(&packet_queue);
+	// A drop left over from an earlier run must not mark this run's first
+	// packet as following a gap.
+	le_packet_dropped = 0;
 
 	// The counter runs from here because NOW, and the FS_LOCK match
 	// le_cc2400_init_rf() arms through it, are measured against it. Its

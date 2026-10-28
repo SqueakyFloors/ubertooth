@@ -561,8 +561,13 @@ void ubertooth_count_queue_gap(ubertooth_t* ut, const usb_pkt_rx* rx)
 	/* A keep-alive is one byte on the wire -- the record's type and nothing
 	 * else -- so its other fields hold whatever the record before it left in
 	 * the buffer, this flag among them. Counting one would repeat a gap that
-	 * was already counted. */
-	if (rx->pkt_type == KEEP_ALIVE)
+	 * was already counted.
+	 *
+	 * The continuation records of a long low-energy packet are the other
+	 * case: they repeat the readings of the record that started the packet,
+	 * this flag among them, so one gap would be counted once for every
+	 * record the packet took. */
+	if (rx->pkt_type == KEEP_ALIVE || rx->pkt_type == LE_PACKET_CONT)
 		return;
 
 	if (!(rx->status & FIFO_OVERFLOW))
@@ -854,6 +859,11 @@ void cb_btle(ubertooth_t* ut, void* args)
 	 * of an older capture file can still hold one. */
 	if (rx->pkt_type == KEEP_ALIVE)
 		return;
+
+	/* Before anything that can return: a record dropped below for a bad
+	 * channel, a filtered address or a broken chain still carries the
+	 * board's word that packets were lost before it. */
+	ubertooth_count_queue_gap(ut, rx);
 
 	// display LE promiscuous mode state changes
 	if (rx->pkt_type == LE_PROMISC) {

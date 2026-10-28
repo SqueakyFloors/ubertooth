@@ -1261,19 +1261,37 @@ int cmd_set_crc_verify(struct libusb_device_handle* devh, int verify)
 
 int cmd_poll(struct libusb_device_handle* devh, usb_pkt_rx *p)
 {
-	int r;
+	int r = LIBUSB_ERROR_OTHER;
 	unsigned i;
 
-	// retry up to three times due to stalls
+	/*
+	 * A capture polls this once per packet for as long as it runs, and its
+	 * caller ends the capture on the first failure. So the two failures a
+	 * board answers the next poll after are retried here rather than ending
+	 * a capture that has been running for a quarter of an hour: a stalled
+	 * transfer (LIBUSB_ERROR_PIPE), and one that timed out
+	 * (LIBUSB_ERROR_TIMEOUT) because the board was busy elsewhere when the
+	 * request arrived.
+	 *
+	 * Three attempts, so the cost is bounded at about three seconds of the
+	 * one-second timeout below. A board that has gone -- the watchdog resets
+	 * one that stops answering -- fails with LIBUSB_ERROR_NO_DEVICE instead,
+	 * which is not retried and ends the capture at once.
+	 */
 	for (i = 0; i < 3; ++i) {
 		r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_POLL, 0, 0,
 				(u8 *)p, sizeof(usb_pkt_rx), 1000);
-		if (r == LIBUSB_ERROR_PIPE) // retry
+		if (r == LIBUSB_ERROR_PIPE || r == LIBUSB_ERROR_TIMEOUT)
 			continue;
 		if (r < 0)
 			show_libusb_error(r);
 		return r;
 	}
+	/* Every attempt failed the same way, so this is not a board that was
+	 * busy for a moment. Reported here, because the retry loop swallowed the
+	 * attempts and the caller's "USB poll failed" does not say what went
+	 * wrong. */
+	show_libusb_error(r);
 	return r;
 }
 

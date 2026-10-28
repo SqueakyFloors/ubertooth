@@ -33,6 +33,9 @@ static struct {
 	int last_crc_set;
 	int poll_rc;         /* returned by cmd_poll(): < 0 fails the capture */
 	int polls;
+	/* How many times the tool asked the library to report the capture's
+	 * gaps, which it does once, when the capture ends. */
+	int gap_reports;
 	/* Every reply the loop handed to the library's short-reply report, and
 	 * the last length it passed: a reply that is not a whole record carries
 	 * no packet, and dropping it in silence looked like a quiet board. */
@@ -407,6 +410,14 @@ void ubertooth_warn_if_poll_reply_short(ubertooth_t *ut, int len)
 	(void)ut;
 	fake.short_reply_reports++;
 	fake.last_short_reply_len = len;
+}
+
+/* The end-of-capture gap report. The library owns the message and the count;
+ * what matters here is that a capture asks for it, once, after it ends. */
+void ubertooth_report_queue_gaps(ubertooth_t *ut)
+{
+	(void)ut;
+	fake.gap_reports++;
 }
 
 /* ---- running the tool --------------------------------------------------- */
@@ -1373,6 +1384,34 @@ MU_TEST(every_exit_path_gives_the_handle_back)
 	mu_assert_int_eq(0, fake.frees);
 }
 
+/*
+ * A capture asks the library to report its gaps when it ends, so a capture the
+ * board could not keep up with says so rather than looking like a quiet
+ * channel. The library holds the count and the message, which every capturing
+ * tool shares; what belongs here is that ubertooth-btle asks for it, once, and
+ * that a command which captured nothing does not.
+ */
+MU_TEST(the_gaps_in_a_capture_are_reported_when_it_ends)
+{
+	struct run_result r;
+
+	reset_fake();
+	r = RUN("-f");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, fake.gap_reports);
+
+	reset_fake();
+	r = RUN("-n");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, fake.gap_reports);
+
+	/* A command that captures nothing has no capture to report on. */
+	reset_fake();
+	r = RUN("-a");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0, fake.gap_reports);
+}
+
 int main(void)
 {
 	MU_RUN(a_set_and_a_read_of_crc_verify_both_run_set_first);
@@ -1402,5 +1441,6 @@ int main(void)
 	MU_RUN(a_run_refused_for_its_firmware_creates_no_file);
 	MU_RUN(a_capture_file_that_cannot_be_created_is_named);
 	MU_RUN(the_jam_aliases_select_the_same_mode_as_interfere);
+	MU_RUN(the_gaps_in_a_capture_are_reported_when_it_ends);
 	return mu_report();
 }

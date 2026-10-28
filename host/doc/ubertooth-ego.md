@@ -150,6 +150,11 @@ dropped and reported once per run: `warning: a poll reply arrived with 32 of a
 packet's 64 bytes and was dropped; the capture is losing packets`. The capture
 runs on and ends as it otherwise would, so the warning is the only sign.
 
+A poll the board does not answer is tried again, up to three attempts, before
+the capture gives up: a board busy elsewhere for a moment no longer ends a
+capture that has been running for hours. A board that has left the bus ends it
+at once.
+
 A request that sets the capture up and is refused by the board ends the
 command there, named in one line, for example
 `error: could not set the channel`; libubertooth has already said why. A

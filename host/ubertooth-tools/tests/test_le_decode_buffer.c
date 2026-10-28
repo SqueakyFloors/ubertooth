@@ -120,15 +120,23 @@ static void dirty_the_stack(void)
 	sink = scratch[0];
 }
 
+/* What the run left on the handle and on standard error: how many gaps the
+ * callback counted, and the warnings it printed. */
+static uint32_t gaps;
+static char errors[1024];
+
 /* Runs the queued records through the real callback, one call each. The
  * callback prints the packet, so its output goes to /dev/null to keep it out
  * of the test's own, and the bytes the decoder was given are left in
- * handed[]. */
+ * handed[]. Standard error is collected instead of discarded: the gap warning
+ * goes there. */
 static void run_capture(void)
 {
 	ubertooth_t ut;
-	int saved;
+	int saved, saved_err;
 	int devnull;
+	FILE* err;
+	long len = 0;
 
 	memset(&ut, 0, sizeof(ut));
 	ut.fifo = fifo_init();
@@ -138,24 +146,62 @@ static void run_capture(void)
 	handed_len = 0;
 	decodes = 0;
 	next_index = 0;
+	errors[0] = '\0';
 
 	fflush(stdout);
+	fflush(stderr);
 	saved = dup(fileno(stdout));
+	saved_err = dup(fileno(stderr));
 	devnull = open("/dev/null", O_WRONLY);
 	if (devnull >= 0) {
 		dup2(devnull, fileno(stdout));
 		close(devnull);
 	}
+	err = tmpfile();
+	if (err != NULL)
+		dup2(fileno(err), fileno(stderr));
 
 	dirty_the_stack();
 	while (next_index < next_count)
 		cb_btle(&ut, NULL);
 
 	fflush(stdout);
+	fflush(stderr);
 	dup2(saved, fileno(stdout));
+	dup2(saved_err, fileno(stderr));
 	close(saved);
+	close(saved_err);
 
+	if (err != NULL) {
+		len = ftell(err);
+		if (len > 0) {
+			if (len > (long)sizeof(errors) - 1)
+				len = (long)sizeof(errors) - 1;
+			rewind(err);
+			len = (long)fread(errors, 1, (size_t)len, err);
+		}
+		if (len < 0)
+			len = 0;
+		errors[len] = '\0';
+		fclose(err);
+	}
+
+	/* What ubertooth_queue_gaps() hands a tool at the end of a capture. */
+	gaps = ut.queue_gaps;
 	free(ut.fifo);
+}
+
+/* How many times `needle` appears in the warnings the run printed. */
+static int times_said(const char* needle)
+{
+	const char* p = errors;
+	int n = 0;
+
+	while ((p = strstr(p, needle)) != NULL) {
+		n++;
+		p += strlen(needle);
+	}
+	return n;
 }
 
 /* ---- cases -------------------------------------------------------------- */
@@ -243,10 +289,98 @@ MU_TEST(a_chain_with_a_record_missing_decodes_nothing)
 	mu_assert_int_eq(0, decodes);
 }
 
+/* ---- gaps the board reports -------------------------------------------- */
+
+/* The warning the first gap of a capture prints, by a phrase of its own. */
+#define GAP_WARNING "dropped at least one packet"
+
+MU_TEST(a_capture_with_nothing_dropped_reports_no_gap)
+{
+	fill_packet(&next_packets[0]);
+	next_count = 1;
+	run_capture();
+
+	mu_assert_int_eq(0, (int)gaps);
+	mu_assert_int_eq(0, times_said(GAP_WARNING));
+}
+
+/*
+ * The board sets FIFO_OVERFLOW on the first packet it sends after dropping
+ * one. Every one of those is a gap in the capture, and the warning is printed
+ * once however many there are: a capture that lost packets all afternoon
+ * would otherwise print a line per gap among the packets themselves.
+ */
+MU_TEST(each_dropped_packet_is_counted_and_the_warning_said_once)
+{
+	fill_packet(&next_packets[0]);
+	fill_packet(&next_packets[1]);
+	fill_packet(&next_packets[2]);
+	next_packets[0].status = FIFO_OVERFLOW;
+	next_packets[2].status = FIFO_OVERFLOW;
+	next_count = 3;
+	run_capture();
+
+	mu_assert_int_eq(2, (int)gaps);
+	mu_assert_int_eq(1, times_said(GAP_WARNING));
+}
+
+/*
+ * A long packet arrives as a chain of records that all carry the first one's
+ * readings, this flag among them. One gap, counted once.
+ */
+MU_TEST(a_long_packet_after_a_gap_counts_one_gap)
+{
+	const uint16_t total = 120;
+	unsigned i;
+
+	for (i = 0; i * DMA_SIZE < total; i++) {
+		usb_pkt_rx* f = &next_packets[i];
+		uint16_t offset = (uint16_t)(i * DMA_SIZE);
+
+		memset(f, 0, sizeof(*f));
+		f->pkt_type = offset ? LE_PACKET_CONT : LE_PACKET_START;
+		f->status = FIFO_OVERFLOW;
+		f->channel = 4;
+		f->clk100ns = htole32(1234);
+		f->reserved[0] = total & 0xff;
+		f->reserved[1] = (uint8_t)(((total >> 8) & LE_FRAG_TOTAL_HIGH_MASK) |
+		                           (i << LE_FRAG_INDEX_SHIFT));
+	}
+	next_count = i;
+	mu_assert(next_count > 1, "the test packet took one record");
+	run_capture();
+
+	mu_assert_int_eq(1, (int)gaps);
+	mu_assert_int_eq(1, times_said(GAP_WARNING));
+}
+
+/*
+ * A gap is counted even when the record carrying the news is thrown away: it
+ * is the board's word that packets were lost before it, and dropping it with
+ * the record would hide the gap. A channel outside the band is the earliest
+ * of those exits.
+ */
+MU_TEST(a_discarded_record_still_reports_its_gap)
+{
+	fill_packet(&next_packets[0]);
+	next_packets[0].status = FIFO_OVERFLOW;
+	next_packets[0].channel = NUM_BREDR_CHANNELS;
+	next_count = 1;
+	run_capture();
+
+	mu_assert_int_eq(0, decodes);
+	mu_assert_int_eq(1, (int)gaps);
+	mu_assert_int_eq(1, times_said(GAP_WARNING));
+}
+
 int main(void)
 {
 	MU_RUN(a_single_record_decodes_only_the_bytes_it_holds);
 	MU_RUN(a_long_packet_decodes_once_with_every_byte);
 	MU_RUN(a_chain_with_a_record_missing_decodes_nothing);
+	MU_RUN(a_capture_with_nothing_dropped_reports_no_gap);
+	MU_RUN(each_dropped_packet_is_counted_and_the_warning_said_once);
+	MU_RUN(a_long_packet_after_a_gap_counts_one_gap);
+	MU_RUN(a_discarded_record_still_reports_its_gap);
 	return mu_report();
 }
