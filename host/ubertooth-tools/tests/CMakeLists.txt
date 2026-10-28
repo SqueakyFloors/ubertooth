@@ -823,6 +823,27 @@ if(libubertooth_SOURCE_DIR)
 			"ThreadSanitizer: unexpected memory mapping")
 	endif()
 
+	# The arithmetic in the Basic Rate receive callbacks: the symbol count
+	# the decoder is told it has, the CLKN a timestamp comes to, the signal
+	# level a channel's first packets report, and the clock trim a piconet
+	# follow sends.
+	#
+	# The test includes ubertooth_callback.c itself, so the real cb_rx() and
+	# cb_scan() run and their static helpers can be called directly. Nothing
+	# else of the library is linked: the test defines the fifo calls, the
+	# symbol unpacking, the control requests and three libbtbb entry points,
+	# which is what lets it see what each of them was given. libbtbb is
+	# linked for the packet and piconet the callbacks really allocate.
+	add_executable(test-bredr-callback test_bredr_callback.c)
+	target_include_directories(test-bredr-callback PRIVATE
+		${libubertooth_SOURCE_DIR}/src ${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+	target_link_libraries(test-bredr-callback ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES}
+		Threads::Threads)
+	add_test(NAME bredr-callback COMMAND test-bredr-callback)
+	# Arithmetic and a handful of callback calls against a faked ring
+	# buffer: milliseconds.
+	set_tests_properties(bredr-callback PROPERTIES TIMEOUT 5)
+
 	# What the low-energy callback hands libbtbb's decoder: the captured
 	# bytes and how many of them there are, never more.
 	#

@@ -387,6 +387,45 @@
   back wrong -- and only byte 0, because the read trails the air from there on.
   Each now waits for the radio to have the start of the packet.
   [#686](https://github.com/SqueakyFloors/ubertooth/issues/686)
+- A Classic packet longer than one 400 µs bank is reported as what was
+  captured, and a piconet follow runs to the end instead of dying partway.
+  `ubertooth-rx` told the decoder it had 4000 symbols where 400 had
+  arrived, so a DH5's payload and its CRC verdict were decoded out of about
+  2700 bytes of zeros, on screen and in the payload written to a capture file,
+  with nothing marking it as incomplete. Reading past the symbols also walked
+  off the end of the buffer they sit in: `ubertooth-rx -l` aborted with
+  `double free or corruption` on about the thirty-sixth packet of a piconet,
+  live or replayed from a capture. Its search for an access code stops
+  64 symbols short of the end of the captured symbols as well, as the other
+  capture paths already did, so a capture run at a high `-e` reports somewhat
+  fewer packets: the positions that are gone could only ever have matched the
+  symbols that were never captured.
+  [#666](https://github.com/SqueakyFloors/ubertooth/issues/666)
+- A Classic packet's signal level is its own from the first packet on a
+  channel. The table of recent maxima started with one of its 790 entries
+  filled, and the level is the strongest entry of the packet's channel, so
+  every channel reported at least about -55 dBm for its first ten packets: a
+  packet that should have read -91 dBm read -55 dBm, in the signal field of
+  the record written to a capture file as well as on screen, and the
+  signal-to-noise ratio printed beside it was out by the same 36 dB.
+  [#665](https://github.com/SqueakyFloors/ubertooth/issues/665)
+- The clock a Classic packet is placed at is the clock its access code
+  arrived on. `ubertooth-rx` put a packet captured in the first 400 µs of a
+  mode, or in the 400 µs after the clock starts over every 327.68 s, about
+  seven minutes ahead of the clock, and `ubertooth-scan` placed every packet a
+  whole 625 µs slot late, which is what its survey mode builds its clock
+  candidates out of.
+  [#664](https://github.com/SqueakyFloors/ubertooth/issues/664)
+- A piconet follow's clock trim moves the board's clock towards the piconet
+  rather than away from it. A correction that should have advanced the clock
+  was sent as a large positive delay, which stretched one tick to 6.85 ms and
+  left the clock 5.91 ms behind where 15 µs forward was wanted, and the drift
+  it reported alongside was computed unsigned: a real 15 PPM came out as
+  1342162, was printed as that, and left the board being slowed by a further
+  320 PPM, the same direction as the error, for the rest of the run. So
+  `ubertooth-rx -l`/`-u` and `ubertooth-follow` keep the hop sequence they
+  have found.
+  [#663](https://github.com/SqueakyFloors/ubertooth/issues/663)
 - A spectrum analyzer run measures through the radio front end a freshly
   booted board has, whichever mode ran before it. `ubertooth-specan` and
   `ubertooth-util -q` do not set the radio's manual signal overrides
