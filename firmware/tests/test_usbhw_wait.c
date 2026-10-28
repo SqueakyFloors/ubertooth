@@ -803,6 +803,131 @@ MU_TEST(test_a_control_transfer_works_after_a_failed_setup_read)
 	mu_assert_int_eq(0x22, handler_last_request);
 }
 
+/* ---- how a reply's data stage ends ---- */
+
+/*
+ * What the endpoint 0 IN interrupt must and must not send.
+ *
+ * It used to send a packet every time, so every reply was followed by a
+ * zero-length packet that was validated and left on the endpoint. The host of
+ * that transfer never asks for it -- a reply shorter than the endpoint's
+ * maximum has already ended its own data stage -- so it waited there until
+ * some later request's IN token collected it, and that request came back with
+ * no data, no stall and no error. #462 measured that at two reads in 2,350
+ * during a mode.
+ *
+ * A zero-length packet is still needed where it means something: a reply
+ * shorter than the host asked for whose bytes filled whole packets has
+ * nothing in it to say the data ended, and a request with no data stage is
+ * answered with one.
+ */
+
+#define VALIDATE_BUFFER_CMD (0x00000500u | ((uint32_t)CMD_EP_VALIDATE_BUFFER << 16))
+
+static int last_command_validated_a_buffer(void)
+{
+	return fake_cmdcode == VALIDATE_BUFFER_CMD;
+}
+
+/* Did the firmware offer the host a packet of this many bytes? USBTxPLen
+ * carries the length of the packet the controller was given. */
+static int validated_a_packet_of(unsigned bytes)
+{
+	return last_command_validated_a_buffer() && fake_txplen == bytes;
+}
+
+/* A two-byte reply to a two-byte request: the shape of
+ * UBERTOOTH_GET_CHANNEL, the request #462 was measured with. */
+MU_TEST(test_a_complete_reply_leaves_nothing_on_the_endpoint)
+{
+	control_test_setup();
+	handler_reply_len = 2;
+	queue_setup_packet_len(0x40, 2);
+	tx_wr_en_words = 16;
+
+	USBHandleControlTransfer(0x00, EP_STATUS_SETUP);
+	mu_assert(validated_a_packet_of(2), "the two-byte reply must go to the host");
+
+	/* the host collects it, which is the endpoint 0 IN event */
+	tx_words = 0;
+	fake_cmdcode = 0;
+	USBHandleControlTransfer(0x80, 0);
+
+	mu_assert_int_eq(0, (int)tx_words);
+	mu_assert(!last_command_validated_a_buffer(),
+	          "a reply the host already has must not leave a packet on the "
+	          "endpoint for a later request's IN token to collect");
+}
+
+/* A reply as long as the host asked for ends when the host has counted its
+ * bytes, so it needs no terminating packet either. This is the shape of
+ * UBERTOOTH_POLL, which `ubertooth-btle` sends for every captured packet. */
+MU_TEST(test_a_reply_as_long_as_asked_for_leaves_nothing_on_the_endpoint)
+{
+	control_test_setup();
+	handler_reply_len = 64;
+	queue_setup_packet_len(0x41, 64);
+	tx_wr_en_words = 16;
+
+	USBHandleControlTransfer(0x00, EP_STATUS_SETUP);
+	mu_assert(validated_a_packet_of(64), "the reply must go to the host");
+
+	tx_words = 0;
+	fake_cmdcode = 0;
+	USBHandleControlTransfer(0x80, 0);
+
+	mu_assert_int_eq(0, (int)tx_words);
+	mu_assert(!last_command_validated_a_buffer(),
+	          "a reply as long as the host asked for needs no terminating "
+	          "packet");
+}
+
+/* But a reply shorter than the host asked for, whose bytes filled whole
+ * packets, does need one: nothing in it says the data has ended. */
+MU_TEST(test_a_reply_that_fills_whole_packets_is_ended_with_a_zero_length_one)
+{
+	control_test_setup();
+	handler_reply_len = 64;
+	queue_setup_packet_len(0x42, 128);
+	tx_wr_en_words = 16;
+
+	USBHandleControlTransfer(0x00, EP_STATUS_SETUP);
+	mu_assert(validated_a_packet_of(64), "the reply must go to the host");
+
+	tx_words = 0;
+	fake_cmdcode = 0;
+	USBHandleControlTransfer(0x80, 0);
+	mu_assert(validated_a_packet_of(0),
+	          "a reply that filled whole packets must be ended with a "
+	          "zero-length one, or the host waits for more");
+
+	/* once, though */
+	fake_cmdcode = 0;
+	USBHandleControlTransfer(0x80, 0);
+	mu_assert(!last_command_validated_a_buffer(),
+	          "the terminating packet must be sent once");
+}
+
+/* A request with no data stage is answered with one zero-length packet: that
+ * packet is its status stage, and the host does collect it. */
+MU_TEST(test_a_request_with_no_data_stage_is_answered_once)
+{
+	control_test_setup();
+	handler_reply_len = 0;
+	queue_setup_packet_len(0x43, 0);
+	tx_wr_en_words = 16;
+
+	USBHandleControlTransfer(0x00, EP_STATUS_SETUP);
+	mu_assert(validated_a_packet_of(0),
+	          "a request with no data stage is answered with a zero-length "
+	          "packet");
+
+	fake_cmdcode = 0;
+	USBHandleControlTransfer(0x80, 0);
+	mu_assert(!last_command_validated_a_buffer(),
+	          "and with only one");
+}
+
 /* ---- a control reply the controller would not take ---- */
 
 /*
@@ -821,13 +946,6 @@ MU_TEST(test_a_control_transfer_works_after_a_failed_setup_read)
  * packet; the protocol engine command register holding a buffer validation is
  * what says the host can have it.
  */
-
-#define VALIDATE_BUFFER_CMD (0x00000500u | ((uint32_t)CMD_EP_VALIDATE_BUFFER << 16))
-
-static int last_command_validated_a_buffer(void)
-{
-	return fake_cmdcode == VALIDATE_BUFFER_CMD;
-}
 
 /* Ask for a 64-byte reply with the controller refusing after four words. */
 static void refused_control_in(U8 request)
@@ -1626,6 +1744,10 @@ int main(void)
 	MU_RUN(test_a_short_setup_packet_runs_nothing);
 	MU_RUN(test_a_failed_setup_leaves_no_transfer_to_resume);
 	MU_RUN(test_a_control_transfer_works_after_a_failed_setup_read);
+	MU_RUN(test_a_complete_reply_leaves_nothing_on_the_endpoint);
+	MU_RUN(test_a_reply_as_long_as_asked_for_leaves_nothing_on_the_endpoint);
+	MU_RUN(test_a_reply_that_fills_whole_packets_is_ended_with_a_zero_length_one);
+	MU_RUN(test_a_request_with_no_data_stage_is_answered_once);
 	MU_RUN(test_a_control_reply_the_controller_takes_is_sent_once);
 	MU_RUN(test_a_refused_control_reply_is_offered_again);
 	MU_RUN(test_a_reply_the_engine_would_not_offer_is_offered_again);
