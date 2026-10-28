@@ -107,6 +107,7 @@ static int read_register(void *context, uint8_t reg)
 int main(int argc, char *argv[])
 {
     int opt;
+    opt_once once = {0};
     int r = 0;
     int do_help = 0;
     int verbose = 1;
@@ -126,6 +127,13 @@ int main(int argc, char *argv[])
      * value distinguishable from an option getopt does not know. */
     opterr = 0;
     while ((opt = getopt(argc, argv, ":hU:r:v:")) != EOF) {
+	/* No option may be given a value twice: see opt_check_once(). A second
+	 * -r used to replace the list the first one gave, without a word; one
+	 * -r already takes a whole list ("-r %main,0x02-0x05"). */
+	if (opt_check_once(&once, opt, optarg) < 0) {
+	    free(regList);
+	    return 1;
+	}
 	switch (opt) {
 	case 'h':
 	    do_help = 1;
@@ -142,7 +150,8 @@ int main(int argc, char *argv[])
 	case 'r': {
 	    struct int_list_error failure;
 
-	    /* A repeated -r replaces the earlier list. */
+	    /* opt_check_once() has refused a second -r, so there is no earlier
+	     * list; the free() keeps this safe if that ever changes. */
 	    free(regList);
 	    regList = listOfInts(optarg, &regListN, token_to_int, 0,
 				 CC2400_REG_ADDRESS_MAX, &failure);

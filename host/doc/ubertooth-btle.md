@@ -202,7 +202,8 @@ Miscellaneous:
    Read (`-v`) or set (`-v 0` or `-v 1`) CRC verification
    (default: 0). Any other value is refused. A set and a read in one command
    both happen, the set first, so the read reports the new value, in whichever
-   order they are written; two sets keep the last one. In a sniffing mode both
+   order they are written; two sets are refused, as two values for one setting
+   are everywhere (ubertooth(7), OPTION VALUES). In a sniffing mode both
    run once the mode has started, because entering a mode clears the setting,
    and the firmware then turns verification on and off itself as it recovers a
    connection.
@@ -272,10 +273,12 @@ started.
 `error: -i needs -f or -p: there is no connection to interfere with
 otherwise`, naming the spelling that was used (`-j` and `-J` included).
 
-A command line with no work in it is refused the same way. `-U`, `-A`, `-x`,
-`-i`/`-I` (and their older spellings `-j`/`-J`) and the capture options only
-shape work another option asks for, so a command made up of those alone, or a
-bare `ubertooth-btle`, gives
+That includes `-i` on its own: it says more than listing every major mode
+would, because only two of them can carry interference.
+
+A command line with no work in it is refused the same way. `-U`, `-A`, `-x`
+and the capture options only shape work another option asks for, so a command
+made up of those alone, or a bare `ubertooth-btle`, gives
 `error: nothing to do: choose a major mode (-f, -n or -p), or -a, -v, -s or -t`,
 on standard error with nothing on standard output. A bare `ubertooth-btle` is
 the one refusal the usage text follows, also on standard error; every other

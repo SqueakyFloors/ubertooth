@@ -56,6 +56,25 @@ today; this is for consistency with `getopt_long`). A lone `-` as the value of
 a file option means standard input or standard output, so `ubertooth-btle -q -`
 writes the capture to stdout.
 
+An option may be given a value only once. `-l 446688 -l aabbcc` names two
+LAPs for one capture, so it is refused with `error: option '-l' given more
+than once` before any board is opened, rather than one of them being kept and
+the other dropped without a word. Only a value counts: repeating an option
+that takes none says the same thing twice, and an option whose value is
+optional has two jobs, so `ubertooth-util -c 2426 -c` sets the channel and
+then reads it back. A tool may still refuse a repeat of its own where the
+second one is more likely a typo than a request, and says so on its page:
+`ubertooth-specan -v` is the one that does.
+
+The rule covers every `ubertooth-*` tool. `btle-extcap.py` and
+`ubertooth-specan-ui` take their command lines from Wireshark's extcap
+protocol and from `argparse`, and still keep the last value.
+
+For the same reason, two options that cannot both run are refused with one
+`error: ` line: two major modes, two modulations for one capture, two output
+formats for one sweep, or the same setting written two ways
+(`ubertooth-util -c 2440 -C 24`). Each page lists its own.
+
 ## SELECTING A DEVICE
 
 With a single Ubertooth attached, the tools find it automatically. With more

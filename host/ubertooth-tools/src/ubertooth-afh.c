@@ -62,8 +62,10 @@ int main(int argc, char* argv[])
 {
 	int opt, have_lap = 0, have_uap = 0, timeout = 0;
 	int threshold;
-	/* -h / -V: the first one given ends the command (see below). */
-	int first_exit_option = 0;
+	opt_once once = {0};
+	/* -h and -V both end the command once the whole command line has
+	 * parsed, and a command line with both prints both (see below). */
+	int do_help = 0, do_version = 0;
 	char* ubertooth_device = NULL;
 	btbb_piconet* pn = NULL;
 	uint32_t lap = 0;
@@ -82,6 +84,9 @@ int main(int argc, char* argv[])
 	 * value distinguishable from an option getopt does not know. */
 	opterr = 0;
 	while ((opt=getopt(argc,argv,":rhVl:u:U:e:t:m:")) != EOF) {
+		/* No option may be given a value twice: see opt_check_once(). */
+		if (opt_check_once(&once, opt, optarg) < 0)
+			return 1;
 		switch(opt) {
 		case 'l':
 			if (opt_require_lap(optarg, &lap) < 0)
@@ -115,15 +120,13 @@ int main(int argc, char* argv[])
 			packet_counter_max = (unsigned int)threshold;
 			break;
 		case 'V':
-			if (!first_exit_option)
-				first_exit_option = 'V';
+			do_version = 1;
 			break;
 		case 'r':
 			use_r_format = 1;
 			break;
 		case 'h':
-			if (!first_exit_option)
-				first_exit_option = 'h';
+			do_help = 1;
 			break;
 		default:
 			opt_report_bad_option(opt, argc, argv);
@@ -138,15 +141,15 @@ int main(int argc, char* argv[])
 
 	/* -h and -V end the command, but only once the whole command line
 	 * has parsed: a bad option value or a stray word is reported even
-	 * alongside them. The first of the two given wins, as before. */
-	if (first_exit_option == 'V') {
+	 * alongside them. A command line with both prints both, and the usage
+	 * text comes last so the version is not scrolled off the screen by
+	 * it; the order they were written in does not matter. */
+	if (do_version)
 		print_version();
-		return 0;
-	}
-	if (first_exit_option == 'h') {
+	if (do_help)
 		usage(stdout);
+	if (do_version || do_help)
 		return 0;
-	}
 
 	if (have_lap && have_uap) {
 		pn = btbb_piconet_new();

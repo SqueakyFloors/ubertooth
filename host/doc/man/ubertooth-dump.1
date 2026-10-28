@@ -32,6 +32,8 @@ select an Ubertooth by enumeration index or serial number; see ubertooth(7), SEL
 .P
 \fB\-h\fR ends the command only once the whole command line has parsed, so a stray word or a bad option value is reported even alongside it\.
 .P
+The board demodulates one modulation at a time, so \fB\-c\fR and \fB\-l\fR in one command are refused before any device is opened: \fBerror: \-l cannot be combined with \-c; a capture uses one modulation\fR\. The second one used to be the one used, and the other was dropped without a word\.
+.P
 A refused command line creates and truncates nothing: \fB\-d\fR names its file while the command line is read, and it is opened only once every check has passed\.
 .SH "DIAGNOSTICS"
 Without \fB\-d\fR, standard output carries the binary symbol stream and nothing else\. Errors, warnings and the per\-block timestamp go to standard error, each error as one line starting \fBerror:\fR, for example \fBerror: /no/such/dir/capture\.bin: No such file or directory\fR\.

@@ -255,9 +255,11 @@ REFUSED_EXACTLY = {
          "error: target address must be xx:xx:xx:xx:xx:xx "
          "(got 11:22:33:44:55:GG)"),
         (("-t", "11:22:33:44:55:66", "-t", "11:22:33:44:55:66"),
-         "error: give -t once"),
-        (("-l", "445566", "-l", "445566"), "error: give -l once"),
-        (("-u", "33", "-u", "33"), "error: give -u once"),
+         "error: option '-t' given more than once"),
+        (("-l", "445566", "-l", "445566"),
+         "error: option '-l' given more than once"),
+        (("-u", "33", "-u", "33"),
+         "error: option '-u' given more than once"),
         (("-t", "11:22:33:44:55:66", "-l", "445566"),
          "error: -t gives the whole target address, so it cannot be combined "
          "with -l or -u"),

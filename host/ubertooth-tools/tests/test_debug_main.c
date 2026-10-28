@@ -248,9 +248,9 @@ MU_TEST(the_refusals_never_open_a_device)
 	mu_assert_int_eq(0, fake.frees);
 }
 
-/* Every exit reached after a -r was accepted gives the parsed list back, and
- * a repeated -r gives the one it replaced back as well. The tool used to free
- * it on none of them. */
+/* Every exit reached after a -r was accepted gives the parsed list back, the
+ * refusal of a second -r included. The tool used to free it on none of
+ * them. */
 MU_TEST(the_parsed_register_list_is_given_back)
 {
 	char* read[] = { "ubertooth-debug", "-r", "0x02", NULL };
@@ -287,10 +287,15 @@ MU_TEST(the_parsed_register_list_is_given_back)
 	run_main(&r, 3, no_board);
 	mu_assert_int_eq(1, lists_freed);
 
-	/* the replaced list, then the one that was used */
+	/* A second -r is refused, and the list the first one parsed is still
+	 * given back on the way out. */
 	reset();
 	run_main(&r, 5, repeated);
-	mu_assert_int_eq(2, lists_freed);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, "error: option '-r' given more than once\n") == 0,
+	          r.err);
+	mu_assert_int_eq(1, lists_freed);
+	mu_assert_int_eq(0, fake.starts);
 }
 
 int main(void)

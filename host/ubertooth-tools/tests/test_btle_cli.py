@@ -72,22 +72,20 @@ reject(("-a", "11223344", "-a"), BOTH)
 NOTHING = "error: nothing to do: choose a major mode (-f, -n or -p)," \
     " or -a, -v, -s or -t"
 reject((), NOTHING)
-# the options that only shape work asked for by another option, including
-# -j/-J, the older spellings of -i/-I
+# the options that only shape work asked for by another option
 reject(("-A", "39"), NOTHING)
 reject(("-x", "0"), NOTHING)
-reject(("-i",), NOTHING)
-reject(("-I",), NOTHING)
-reject(("-j",), NOTHING)
-reject(("-J",), NOTHING)
 
 # Interference acts on a connection, so it needs the mode that has one: the
 # usage text and the man page have always scoped -i/-I to -f and -p. With -n,
 # which only logs advertising packets, the jam mode was set on the board all
-# the same.
+# the same. -j/-J are the older spellings of -i/-I.
 for spelling in ("i", "I", "j", "J"):
     NEEDS_MODE = "error: -%s needs -f or -p: there is no connection to" \
         " interfere with otherwise" % spelling
+    # on its own too: the man page promises this message for "-i or -I
+    # without -f or -p", and it says more than listing every major mode
+    reject(("-" + spelling,), NEEDS_MODE)
     reject(("-n", "-" + spelling), NEEDS_MODE)
     # not only with -n: any command line without -f or -p
     reject(("-a", "-" + spelling), NEEDS_MODE)

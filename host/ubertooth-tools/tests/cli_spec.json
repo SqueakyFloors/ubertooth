@@ -30,6 +30,7 @@
     "usage": "the one 'error: ' line then the usage text, both on stderr, exit 1, stdout empty, no device looked for",
     "refused": "exactly one 'error: ' line on stderr, exit 1, stdout empty, no usage text, no device looked for",
     "device": "the command line was accepted, so the run reaches device lookup: exit 1 with the device-lookup message on stderr",
+    "report_then_help": "both answers on stdout, the report first and the usage text last, exit 0, stderr empty, no device looked for",
     "undecided": "only the universal checks: a valid exit status, and either a clean refusal or device lookup"
   },
 
@@ -100,9 +101,8 @@
   },
 
   "_global_pair_rules": [
-    {"a": "role:help", "b": "role:report", "verdict": "undecided",
-     "question": "Q-1",
-     "why": "-h and -V (or -H) both end the command and both print to standard output, and the first one written wins. Each page says -h ends the command once the whole line has parsed, which reads as -h winning either way, but none of them decides it."},
+    {"a": "role:help", "b": "role:report", "verdict": "report_then_help",
+     "why": "-h and -V (or -H) both end the command and both answer on standard output, so a line with both prints both: the other answer first and the usage text last, whichever order they were written in (.kiro/steering/cli-output.md). The first one written used to win and the other was dropped."},
     {"a": "role:help", "b": "any", "verdict": "help",
      "why": "-h ends the command whatever else the line asks for, once the whole line has parsed"},
     {"a": "role:report", "b": "any", "verdict": "report",
@@ -121,6 +121,7 @@
     "ubertooth-afh": {
       "man": "ubertooth-afh.md",
       "optstring": ":rhVl:u:U:e:t:m:",
+      "report_marker": "libubertooth",
       "requires_all": ["-l", "-u"],
       "requires_all_error": "error: -l <LAP> and -u <UAP> are both required: the map is detected for one piconet",
       "other_exit_codes": {"2": "the -t detection phase received no packet from the piconet"},
@@ -201,10 +202,18 @@
         {"args": ["-a", "-a", "8e89bed6"], "verdict": "refused",
          "error": "error: -a cannot both read and set the access address",
          "source": "ubertooth-btle.md ARGUMENTS"},
-        {"args": ["-i"], "verdict": "undecided", "question": "Q-10"},
-        {"args": ["-I"], "verdict": "undecided", "question": "Q-10"},
-        {"args": ["-j"], "verdict": "undecided", "question": "Q-10"},
-        {"args": ["-J"], "verdict": "undecided", "question": "Q-10"},
+        {"args": ["-i"], "verdict": "refused",
+         "error": "error: -i needs -f or -p: there is no connection to interfere with otherwise",
+         "source": "ubertooth-btle.md OPTIONS, -i: the page promises this message for \"-i or -I without -f or -p\", and the bare case is one of those. Naming the two modes that can carry interference says more than listing every major mode."},
+        {"args": ["-I"], "verdict": "refused",
+         "error": "error: -I needs -f or -p: there is no connection to interfere with otherwise",
+         "source": "ubertooth-btle.md OPTIONS, -I"},
+        {"args": ["-j"], "verdict": "refused",
+         "error": "error: -j needs -f or -p: there is no connection to interfere with otherwise",
+         "source": "ubertooth-btle.md OPTIONS, -j, the older spelling of -i"},
+        {"args": ["-J"], "verdict": "refused",
+         "error": "error: -J needs -f or -p: there is no connection to interfere with otherwise",
+         "source": "ubertooth-btle.md OPTIONS, -J, the older spelling of -I"},
         {"args": ["-f", "-q", "-"], "verdict": "device",
          "source": "ubertooth-btle.md OPTIONS, -q: the capture itself goes to stdout"},
         {"args": ["-f", "-c", "-"], "verdict": "device",
@@ -226,17 +235,9 @@
          "source": "ubertooth-btle.md ARGUMENTS"},
         {"a": "role:interfere", "b": "-f", "verdict": "device"},
         {"a": "role:interfere", "b": "-p", "verdict": "device"},
-        {"a": "role:interfere", "b": "role:major_mode", "verdict": "refused",
+        {"a": "role:interfere", "b": "any", "verdict": "refused",
          "error_contains": "needs -f or -p: there is no connection to interfere with otherwise",
-         "source": "ubertooth-btle.md ARGUMENTS; -n is the mode that cannot carry it"},
-        {"a": "role:interfere", "b": "role:address", "verdict": "refused",
-         "error_contains": "needs -f or -p: there is no connection to interfere with otherwise"},
-        {"a": "role:interfere", "b": "role:faux_slave", "verdict": "refused",
-         "error_contains": "needs -f or -p: there is no connection to interfere with otherwise"},
-        {"a": "role:interfere", "b": "role:filter", "verdict": "refused",
-         "error_contains": "needs -f or -p: there is no connection to interfere with otherwise"},
-        {"a": "role:interfere", "b": "role:verify", "verdict": "refused",
-         "error_contains": "needs -f or -p: there is no connection to interfere with otherwise"}
+         "source": "ubertooth-btle.md OPTIONS: interference needs the mode that has a connection, so anything but -f or -p beside it gets this line -- including nothing else at all, and -n, the mode that only logs advertising packets"}
       ]
     },
 
@@ -255,7 +256,12 @@
                "invalid": [["3", "error: verbosity must be 0-2 (got 3)"],
                            ["abc", "error: verbosity must be 0-2 (got abc)"]]},
         "-U": {"value": "required", "role": "selector", "valid": ["0"]}
-      }
+      },
+      "combinations": [
+        {"args": ["-r", "0x02", "-r", "0x02,%main"], "verdict": "refused",
+         "error": "error: option '-r' given more than once",
+         "source": "ubertooth-debug.md OPTIONS, -r: one -r takes the whole list, and a second one used to replace the first one's registers without a word (ubertooth(7), OPTION VALUES)"}
+      ]
     },
 
     "ubertooth-dfu": {
@@ -296,9 +302,11 @@
       "pair_rules": [
         {"a": "-d", "b": "any", "verdict": "refused", "error_contains": "DFU suffix",
          "source": "ubertooth-dfu.md: the whole image is checked before the board is asked to leave its application, so a file that is not a DFU image ends the command there, whatever else the line asks for"},
-        {"a": "-s", "b": "any", "verdict": "undecided",
-         "question": "Q-8",
-         "why": "signing is local work; the man page does not say in which order -s runs beside a board operation, nor what the status is when one half succeeds"}
+        {"a": "-s", "b": "role:selector", "verdict": "silent_success",
+         "creates": ["PLAIN.dfu"],
+         "source": "ubertooth-dfu.md: signing is local work, so a command line whose only work is -s opens no board at all and -U has nothing to select for"},
+        {"a": "-s", "b": "any", "verdict": "device",
+         "source": "ubertooth-dfu.md: both files are checked first, so a bad one ends the command before anything is written; then -s signs, writing <file>.dfu through a temporary file; then the board operation runs. Signing is local work that cannot fail halfway, so a board that is missing or will not take the image exits 1 with the signed file still there."}
       ]
     },
 
@@ -338,12 +346,16 @@
       },
       "combinations": [
         {"args": ["-d", "-"], "verdict": "device",
-         "source": "ubertooth(7) OPTION VALUES: a lone - is standard output"}
+         "source": "ubertooth(7) OPTION VALUES: a lone - is standard output"},
+        {"args": ["-c", "-c"], "verdict": "device",
+         "source": "ubertooth(7), OPTION VALUES: the same modulation written twice says the same thing twice, so only -c with -l clashes"},
+        {"args": ["-l", "-l"], "verdict": "device",
+         "source": "ubertooth(7), OPTION VALUES"}
       ],
       "pair_rules": [
-        {"a": "role:modulation", "b": "role:modulation", "verdict": "undecided",
-         "question": "Q-3",
-         "why": "the man page does not say what -c and -l in one command do"}
+        {"a": "role:modulation", "b": "role:modulation", "verdict": "refused",
+         "error_contains": "a capture uses one modulation",
+         "source": "ubertooth-dump.md ARGUMENTS: the board demodulates one modulation at a time, so -c and -l in one command used to mean whichever came last"}
       ]
     },
 
@@ -371,20 +383,27 @@
                            ["630f9ffe9", "error: access code must be 2, 4, 6 or 8 hex digits"]]},
         "-U": {"value": "required", "role": "selector", "valid": ["0"]}
       },
+      "combinations": [
+        {"args": ["-f", "-f"], "verdict": "device",
+         "source": "ubertooth(7), OPTION VALUES: the same mode written twice says the same thing twice; -i with -j still clashes, because they are two different options for one mode"},
+        {"args": ["-i", "-i"], "verdict": "device",
+         "source": "ubertooth(7), OPTION VALUES"}
+      ],
       "pair_rules": [
         {"a": "-c", "b": "-r", "verdict": "device"},
         {"a": "-c", "b": "role:major_mode", "verdict": "refused",
          "error_contains": "cannot be combined with", "names_the_other": true,
          "source": "ubertooth-ego.md ARGUMENTS"},
-        {"a": "role:major_mode", "b": "role:major_mode", "verdict": "undecided",
-         "question": "Q-2",
-         "why": "the man page calls each of -f, -r and -i a major mode but never says what two of them in one command do; ubertooth-btle and ubertooth-util both refuse two modes"}
+        {"a": "role:major_mode", "b": "role:major_mode", "verdict": "refused",
+         "error_contains": "choose one of -f, -r or -i",
+         "source": "ubertooth-ego.md ARGUMENTS: each major mode runs until it is interrupted, so only one can run; two of them used to mean whichever came last. -i and -j are two spellings of the jamming mode, so they clash too. ubertooth-btle and ubertooth-util refuse two modes the same way."}
       ]
     },
 
     "ubertooth-rx": {
       "man": "ubertooth-rx.md",
       "optstring": ":hVi:l:u:U:d:e:r:sq:t:zc:",
+      "report_marker": "libubertooth",
       "options": {
         "-h": {"value": "none", "role": "help"},
         "-V": {"value": "none", "role": "report"},
@@ -472,21 +491,25 @@
         {"args": ["-d", "-"], "verdict": "device",
          "source": "ubertooth-specan.md ARGUMENTS: a lone - is standard output"},
         {"args": ["-d", "-x"], "verdict": "device",
-         "source": "ubertooth-specan.md ARGUMENTS: any other value is a file name, including one starting with -"}
+         "source": "ubertooth-specan.md ARGUMENTS: any other value is a file name, including one starting with -"},
+        {"args": ["-g", "-g"], "verdict": "device",
+         "source": "ubertooth(7), OPTION VALUES: the same format written twice says the same thing twice, so only -g with -G clashes"},
+        {"args": ["-G", "-G"], "verdict": "device",
+         "source": "ubertooth(7), OPTION VALUES"}
       ],
       "pair_rules": [
-        {"a": "role:output_mode", "b": "role:output_mode", "verdict": "undecided",
-         "question": "Q-4",
-         "why": "the man page does not say what -g and -G in one command do"},
-        {"a": "-d", "b": "role:output_mode", "verdict": "undecided",
-         "question": "Q-9",
-         "why": "the man page does not say which output mode wins, nor whether the -d file is still created when a later -g takes the samples to standard output instead"}
+        {"a": "role:output_mode", "b": "role:output_mode", "verdict": "refused",
+         "error_contains": "a sweep is written in one format",
+         "source": "ubertooth-specan.md ARGUMENTS: one sweep is written one way, so -g and -G in one command used to mean whichever came last"},
+        {"a": "-d", "b": "role:output_mode", "verdict": "device",
+         "source": "ubertooth-specan.md OPTIONS: -d chooses where the samples go and -g/-G how they are written, in either order, so the two do separate jobs and go together. -d used to create the file and leave it empty while a later -g took the samples to standard output."}
       ]
     },
 
     "ubertooth-tx": {
       "man": "ubertooth-tx.md",
       "optstring": ":hVl:u:U:t:",
+      "report_marker": "libubertooth",
       "requires_all": ["-l", "-u"],
       "requires_all_error": "error: -l <LAP> and -u <UAP> are both required",
       "options": {
@@ -508,6 +531,7 @@
     "ubertooth-util": {
       "man": "ubertooth-util.md",
       "optstring": ":U:hn::meiIprsStvbwl::a::C::c::d::q::z::VNxH",
+      "report_marker": "libubertooth",
       "work_options": ["-n", "-m", "-e", "-i", "-I", "-p", "-r", "-s", "-S", "-t",
                        "-v", "-b", "-w", "-l", "-a", "-C", "-c", "-d", "-q", "-z", "-V",
                        "-N", "-x", "-H"],
@@ -575,7 +599,15 @@
         {"args": ["-N", "-U", "0"], "verdict": "count_only",
          "source": "ubertooth-util.md OPTIONS, -N: a selector alone asks nothing of the board it names"},
         {"args": ["--host-version"], "verdict": "report",
-         "source": "ubertooth-util.md OPTIONS, -H"}
+         "source": "ubertooth-util.md OPTIONS, -H"},
+        {"args": ["-c", "2440", "-C", "24"], "verdict": "refused",
+         "error": "error: -C cannot be combined with -c; they are the same channel setting written two ways",
+         "source": "ubertooth-util.md ARGUMENTS: -c is the channel in MHz and -C its BR/EDR channel number, so two values name two channels for one setting; the second one used to be the one sent"},
+        {"args": ["-C", "24", "-c", "2440"], "verdict": "refused",
+         "error": "error: -c cannot be combined with -C; they are the same channel setting written two ways",
+         "source": "ubertooth-util.md ARGUMENTS: the other order says the same thing, naming the options as the user wrote them"},
+        {"args": ["-C", "24", "-c"], "verdict": "device",
+         "source": "ubertooth-util.md ARGUMENTS: a set written one way and a read written the other is one setting and one read, so the command line does both"}
       ],
       "pair_rules": [
         {"a": "role:mode", "b": "role:mode", "verdict": "refused",
@@ -590,9 +622,8 @@
          "question": "Q-11",
          "source": "ubertooth-util.md does not say; -N needs no board, and -U asks nothing of one"},
         {"a": "-N", "b": "any", "verdict": "count_then_device"},
-        {"a": "-c", "b": "-C", "verdict": "undecided",
-         "question": "Q-5",
-         "why": "-c and -C are the same setting written two ways; the man page does not say which wins, or whether both are sent"}
+        {"a": "-c", "b": "-C", "verdict": "device",
+         "source": "ubertooth-util.md ARGUMENTS: -c and -C with no value are both the same read, so one of them is simply redundant. Two values are the clash, and the combinations above pin that."}
       ]
     },
 
@@ -640,7 +671,7 @@
          "error_contains": "-a reads the AFH map over a Bluetooth connection",
          "source": "ubertooth-follow.md ARGUMENTS"},
         {"args": ["-a", "-l", "446688", "-l", "446688", "-u", "22"], "verdict": "refused",
-         "error_contains": "give -l once",
+         "error": "error: option '-l' given more than once",
          "source": "ubertooth-follow.md ARGUMENTS"},
         {"args": ["-a", "-l", "446688", "-u", "22"], "verdict": "refused",
          "error_contains": "give -t xx:xx:xx:xx:xx:xx",
@@ -653,16 +684,16 @@
          "source": "ubertooth-follow.md ARGUMENTS: -a needs -t whatever -l and -u say, so that is the refusal whichever was written first"},
         {"args": ["-a", "-t", "11:22:33:44:55:66"], "verdict": "device"},
         {"args": ["-t", "11:22:33:44:55:66", "-t", "11:22:33:44:55:66"], "verdict": "refused",
-         "error_contains": "give -t once",
+         "error": "error: option '-t' given more than once",
          "source": "ubertooth-follow.md ARGUMENTS"},
         {"args": ["-t", "11:22:33:44:55:66", "-t", "AA:bb:CC:dd:EE:ff"], "verdict": "refused",
-         "error_contains": "give -t once",
+         "error": "error: option '-t' given more than once",
          "source": "ubertooth-follow.md ARGUMENTS: two different addresses are refused as well, and the second is the mixed-case form"},
         {"args": ["-l", "446688", "-l", "446688"], "verdict": "refused",
-         "error_contains": "give -l once",
+         "error": "error: option '-l' given more than once",
          "source": "ubertooth-follow.md ARGUMENTS"},
         {"args": ["-u", "22", "-u", "22"], "verdict": "refused",
-         "error_contains": "give -u once",
+         "error": "error: option '-u' given more than once",
          "source": "ubertooth-follow.md ARGUMENTS"},
         {"args": ["-t", "11:22:33:44:55:66", "-l", "446688"], "verdict": "refused",
          "error_contains": "-t gives the whole target address, so it cannot be combined with -l or -u",
@@ -891,16 +922,6 @@
       "that the tool either refuses cleanly or goes on to look for a device;",
       "which of the two it should be is the maintainer's call."
     ],
-    "Q-1": "-h beside -V (or -H): both end the command and both answer on standard output, and the first one written wins. Should -h always win?",
-    "Q-2": "ubertooth-ego accepts two major modes (-f -r, -i -r, -i -j) and runs one of them. ubertooth-btle and ubertooth-util both refuse two modes. Should ubertooth-ego?",
-    "Q-3": "ubertooth-dump accepts -c and -l together, two modulations for one capture.",
-    "Q-4": "ubertooth-specan accepts -g and -G together, two output formats for one sweep.",
-    "Q-5": "ubertooth-util accepts -c and -C together, the same channel setting written two ways, and sends both.",
-    "Q-6": "ubertooth-afh accepts a doubled -l and keeps the last; ubertooth-follow refuses one (\"give -l once\"). Which is the rule? ubertooth-follow's man page now decides it for that tool, for -t, -l and -u alike; the question stays open for the others.",
-    "Q-7": "Does a lone \"--\" count as a bare command line, which gets the usage text, or as a line that said something, which gets the error line alone? The tools treat it as the second; the spec follows them.",
-    "Q-8": "ubertooth-dfu -s beside a board operation (-d, -u, -r): in which order do they run, and what is the status when one half succeeds?",
-    "Q-9": "ubertooth-specan -d <file> -g: the file is created and left empty while the samples go to standard output as text. Which one should win, and should the file be created at all?",
-    "Q-10": "ubertooth-btle -i on its own answers \"nothing to do\", not the \"-i needs -f or -p\" its page promises for \"-i or -I without -f or -p\". Beside any other option it does say \"-i needs -f or -p\". Which message belongs to the bare case?",
     "Q-11": "ubertooth-util -U 0 -N prints the count and exits 0: -N needs no board, so the selector asks nothing of one. On its own, -U is refused for exactly that reason (\"selects a device but no option asks anything of it\"). Should -U beside -N be refused the same way, or is the count enough to make the line worth running?",
     "Q-12": "An unknown long option reads \"error: unrecognized option '--bogus': the tools take single-letter options\" from the nine C tools that use opt_parse.c, and \"error: option --bogus not recognized\" from btle-extcap.py, which takes the wording from Python's getopt. Both obey the rules, so the spec pins each as it is. Should the Python tools be made to match the C ones?",
     "Q-13": "ubertooth-btle refuses two modes with \"error: choose one of -f, -n or -p, pick one pal\". It obeys the rules, so the spec pins it, but it is the only error message in any tool that addresses the reader. Keep it?"

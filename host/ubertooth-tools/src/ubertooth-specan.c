@@ -74,24 +74,33 @@ static void report_progress_if_due(void)
 	report_progress("After", now_ms);
 }
 
-/* Where the samples are going, in the words of the option that chose it. A
- * -d file that a later -g took the samples away from is not the target: this
- * says where they land, not which options were given. */
+/* Where the samples are going and how they are written: the two choices -d
+ * and -g/-G make, named separately, because that is what the user set. */
 static void report_output_target(int output_mode, const char *dump_name)
 {
+	/* NULL, or a bare "-", is standard output; anything else is the file
+	 * -d named. */
+	const char *where = (dump_name == NULL || strcmp(dump_name, "-") == 0)
+	                    ? NULL : dump_name;
+
 	switch (output_mode) {
 	case SPECAN_FILE:
-		/* -d set this mode, so it named a file or a bare "-". */
-		if (strcmp(dump_name, "-") == 0)
+		if (where == NULL)
 			fputs("Writing raw samples to standard output\n", stderr);
 		else
-			fprintf(stderr, "Writing raw samples to %s\n", dump_name);
+			fprintf(stderr, "Writing raw samples to %s\n", where);
 		break;
 	case SPECAN_GNUPLOT_NORMAL:
-		fputs("Writing feedgnuplot text to standard output\n", stderr);
+		if (where == NULL)
+			fputs("Writing feedgnuplot text to standard output\n", stderr);
+		else
+			fprintf(stderr, "Writing feedgnuplot text to %s\n", where);
 		break;
 	case SPECAN_GNUPLOT_3D:
-		fputs("Writing 3D feedgnuplot text to standard output\n", stderr);
+		if (where == NULL)
+			fputs("Writing 3D feedgnuplot text to standard output\n", stderr);
+		else
+			fprintf(stderr, "Writing 3D feedgnuplot text to %s\n", where);
 		break;
 	case SPECAN_STDOUT:
 	default:
@@ -179,7 +188,7 @@ void cb_specan(ubertooth_t* ut, void* args)
 				/* fwrite() is not required to set errno, so a stale one
 				 * from an unrelated call cannot be mistaken for this. */
 				errno = 0;
-				r = fwrite(&rx.data[j], 1, 3, dumpfile);
+				r = (int)fwrite(&rx.data[j], 1, 3, dumpfile);
 				if(r != 3) {
 					/* Said once, then the run ends: a full disk or a
 					 * stream that has gone away does not come back, so
@@ -194,20 +203,25 @@ void cb_specan(ubertooth_t* ut, void* args)
 					return;
 				}
 				break;
+			/* The text formats go to the same stream the binary one
+			 * does, so -d decides where the samples land and -g/-G
+			 * only decide how they are written. */
 			case SPECAN_STDOUT:
-				printf("%f, %d, %d\n", ((double)rx.clk100ns)/10000000,
-				       frequency, rssi);
+				fprintf(dumpfile, "%f, %d, %d\n",
+				        ((double)rx.clk100ns)/10000000,
+				        frequency, rssi);
 				break;
 			case SPECAN_GNUPLOT_NORMAL:
-				printf("%d %d\n", frequency, rssi);
+				fprintf(dumpfile, "%d %d\n", frequency, rssi);
 				if(frequency == high_freq)
-					printf("\n");
+					fputc('\n', dumpfile);
 				break;
 			case SPECAN_GNUPLOT_3D:
-				printf("%f %d %d\n", ((double)rx.clk100ns)/10000000,
-				       frequency, rssi);
+				fprintf(dumpfile, "%f %d %d\n",
+				        ((double)rx.clk100ns)/10000000,
+				        frequency, rssi);
 				if(frequency == high_freq)
-					printf("\n");
+					fputc('\n', dumpfile);
 				break;
 			default:
 				fprintf(stderr, "error: unrecognized output mode (%d)\n",
@@ -232,9 +246,11 @@ static void usage(FILE *file)
 	fprintf(file, "\t-h this help\n");
 	fprintf(file, "\t-v report the board, the sweep and a summary of it "
 	        "once a second, to stderr\n");
-	fprintf(file, "\t-g output suitable for feedgnuplot\n");
-	fprintf(file, "\t-G output suitable for 3D feedgnuplot\n");
-	fprintf(file, "\t-d <filename> output to file; -d - writes to stdout (not a tty)\n");
+	fprintf(file, "\t-g write the samples as text for feedgnuplot\n");
+	fprintf(file, "\t-G write them as text for 3D feedgnuplot\n");
+	fprintf(file, "\t-d <filename> write them to a file instead of the screen;\n");
+	fprintf(file, "\t   -d - writes to stdout. Without -g or -G they are raw\n");
+	fprintf(file, "\t   3-byte records, so stdout must not be a tty\n");
 	fprintf(file, "\t-l <%d-%d> lower frequency in MHz (default %d)\n",
 	        SPECAN_FREQ_MIN, SPECAN_FREQ_MAX, SPECAN_FREQ_MIN);
 	fprintf(file, "\t-u <%d-%d> upper frequency in MHz (default %d)\n",
@@ -249,6 +265,9 @@ int main(int argc, char *argv[])
 	 * the samples are incomplete. */
 	int stream_failed = 0;
 	int do_help = 0;
+	opt_once once = {0};
+	/* -g or -G, whichever asked for a text format; 0 for the default one. */
+	int format_option = 0;
 	int lower= SPECAN_FREQ_MIN, upper= SPECAN_FREQ_MAX;
 	char* ubertooth_device = NULL;
 	const char* dump_name = NULL; /* -d value, opened after every check */
@@ -260,6 +279,10 @@ int main(int argc, char *argv[])
 	 * value distinguishable from an option getopt does not know. */
 	opterr = 0;
 	while ((opt=getopt(argc,argv,":vhgGd:l:u:U:")) != EOF) {
+		/* No option may be given a value twice: see opt_check_once().
+		 * -v takes none, so its own check below refuses a second one. */
+		if (opt_check_once(&once, opt, optarg) < 0)
+			return 1;
 		switch(opt) {
 		case 'v':
 			/* There is one level of it, so a second -v says nothing
@@ -271,16 +294,29 @@ int main(int argc, char *argv[])
 			verbose = 1;
 			break;
 		case 'g':
-			output_mode = SPECAN_GNUPLOT_NORMAL;
-			break;
 		case 'G':
-			output_mode = SPECAN_GNUPLOT_3D;
+			/* One sweep is written one way: -g and -G in one command
+			 * used to mean whichever came last, with the other
+			 * silently dropped. */
+			/* The same letter twice says the same thing twice, so
+			 * only a different format clashes. */
+			if (format_option != 0 && format_option != opt) {
+				fprintf(stderr, "error: -%c cannot be combined with -%c;"
+				        " a sweep is written in one format\n",
+				        opt, format_option);
+				return 1;
+			}
+			format_option = opt;
+			output_mode = (opt == 'g') ? SPECAN_GNUPLOT_NORMAL
+			                           : SPECAN_GNUPLOT_3D;
 			break;
 		case 'd':
 			/* Named here and opened once the whole command line has
 			 * been accepted, so a refused command creates and
-			 * truncates nothing. */
-			output_mode = SPECAN_FILE;
+			 * truncates nothing. -d chooses where the samples go,
+			 * not how they are written, so it does not touch the
+			 * output mode: without -g or -G they are the raw
+			 * records, which is what a file gets by default. */
 			dump_name = optarg;
 			break;
 		case 'l':
@@ -327,29 +363,33 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	/* Every check has passed, so -d can be opened. Only a bare "-" means
+	/* Where the samples go, and how they are written, are two separate
+	 * choices: -d names the destination and -g/-G the format. A file with
+	 * no format asked for gets the raw 3-byte records, which is what a
+	 * capture of a sweep has always been; the screen with no format asked
+	 * for gets one text line per sample.
+	 *
+	 * Every check has passed, so -d can be opened. Only a bare "-" means
 	 * stdout (the one argument rule, as ubertooth-btle -r already checks).
 	 * Any other value is a file name, including one starting with "-", so
 	 * "-d -x" writes the file "-x" rather than silently streaming samples
 	 * to stdout and dropping a mistyped option. */
-	if (dump_name != NULL) {
-		if (strcmp(dump_name, "-") == 0) {
-			/* The samples are raw 3-byte records, so a terminal is
-			 * refused the way ubertooth-btle refuses its capture.
-			 * Only when they are what the run writes: a later -g or
-			 * -G takes the output mode back to text, which a
-			 * terminal is welcome to. */
-			if (output_mode == SPECAN_FILE &&
-			    opt_check_stdout_not_tty("samples") < 0)
-				return 1;
-			dumpfile = stdout;
-		} else {
-			dumpfile = fopen(dump_name, "w");
-			if (dumpfile == NULL) {
-				fprintf(stderr, "error: %s: %s\n", dump_name,
-				        strerror(errno));
-				return 1;
-			}
+	if (dump_name != NULL && format_option == 0)
+		output_mode = SPECAN_FILE;
+	if (dump_name == NULL || strcmp(dump_name, "-") == 0) {
+		/* The raw records are binary, so a terminal is refused the way
+		 * ubertooth-btle refuses its capture. A text format is welcome
+		 * on one. */
+		if (output_mode == SPECAN_FILE &&
+		    opt_check_stdout_not_tty("samples") < 0)
+			return 1;
+		dumpfile = stdout;
+	} else {
+		dumpfile = fopen(dump_name, "w");
+		if (dumpfile == NULL) {
+			fprintf(stderr, "error: %s: %s\n", dump_name,
+			        strerror(errno));
+			return 1;
 		}
 	}
 
@@ -480,11 +520,9 @@ int main(int argc, char *argv[])
 	fprintf(stderr, "Ubertooth stopped\n");
 	/* The samples a write accepted may still be sitting in a stdio buffer, so
 	 * the last of them can fail after the sweep has ended: the run is not
-	 * done until the output is flushed. The text modes write with printf()
-	 * and are only checked here. */
+	 * done until the output is flushed. Every format writes to the one
+	 * stream -d chose, so one flush covers them all. */
 	if (specan_output_flushed(dumpfile) < 0)
-		output_failed = 1;
-	if (output_mode != SPECAN_FILE && specan_output_flushed(stdout) < 0)
 		output_failed = 1;
 	/* A sweep that could not be written out, or that lost its stream part-way,
 	 * did not do what was asked, even though the command that started it

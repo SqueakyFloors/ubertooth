@@ -23,6 +23,7 @@
 #ifndef UBERTOOTH_OPT_PARSE_H
 #define UBERTOOTH_OPT_PARSE_H
 
+#include <limits.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -145,6 +146,40 @@ int opt_no_arguments(int argc);
  * anything else for an option it does not know.
  */
 void opt_report_bad_option(int opt, int argc, char *argv[]);
+
+/*
+ * The option letters a tool has seen, for opt_check_once(). Declare one
+ * beside the getopt loop and zero it:
+ *
+ *     opt_once once = {0};
+ */
+typedef struct {
+	/* One flag per option letter, indexed by the letter itself. */
+	unsigned char seen[UCHAR_MAX + 1];
+} opt_once;
+
+/*
+ * The one-value-each rule: no option may be given a value twice.
+ *
+ * "-l 446688 -l aabbcc" names two LAPs for one capture. Keeping the last
+ * throws the first away without a word, so the command line said two things
+ * and meant one; refuse it instead of guessing, the way a combination that
+ * cannot work is refused.
+ *
+ * Only a value counts. Repeating an option that takes none says the same
+ * thing twice and changes nothing, and an option whose value is optional has
+ * two jobs: "-c 2426 -c" sets the channel and then reads it back, which is
+ * one value and one read, not two values. A tool that wants to refuse a
+ * repeat of a valueless option of its own does it itself, where it can say
+ * why (ubertooth-specan -v).
+ *
+ * Call this from the getopt loop for every option getopt returns, before the
+ * switch, passing the value getopt found (optarg, which is NULL when there
+ * is none). It prints "error: option '-l' given more than once" and returns
+ * -1 the second time a letter arrives with a value; otherwise it returns 0.
+ * An option getopt would not take is left to opt_report_bad_option().
+ */
+int opt_check_once(opt_once *state, int opt, const char *value);
 
 /* True if <text> could be the value of the option being parsed. */
 typedef int (*opt_value_check)(const char *text);

@@ -230,6 +230,26 @@ void opt_report_bad_option(int opt, int argc, char *argv[])
 		fputs("error: unrecognized option\n", stderr);
 }
 
+int opt_check_once(opt_once *state, int opt, const char *value)
+{
+	unsigned char letter;
+
+	/* getopt returns ':' for an option whose value is missing and '?' for
+	 * one it does not know. Neither names an option the user chose, and
+	 * opt_report_bad_option() answers both. */
+	if (state == NULL || value == NULL || opt == ':' || opt == '?')
+		return 0;
+	if (opt < 0 || opt > UCHAR_MAX || !isprint((unsigned char)opt))
+		return 0;
+	letter = (unsigned char)opt;
+	if (state->seen[letter]) {
+		fprintf(stderr, "error: option '-%c' given more than once\n", letter);
+		return -1;
+	}
+	state->seen[letter] = 1;
+	return 0;
+}
+
 char *opt_separate_value(int argc, char *argv[], opt_value_check valid)
 {
 	if (optind >= argc || valid == NULL || !valid(argv[optind]))

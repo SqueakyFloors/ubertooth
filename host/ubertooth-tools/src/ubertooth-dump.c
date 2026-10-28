@@ -51,10 +51,14 @@ static void usage(FILE *file)
 int main(int argc, char *argv[])
 {
 	int opt;
+	opt_once once = {0};
 	/* -h ends the command once the whole command line has parsed (see below). */
 	int first_exit_option = 0;
 	int bitstream = 0;
 	int modulation = MOD_BT_BASIC_RATE;
+	/* The option that chose the modulation, so a refused pair names both as
+	 * the user wrote them. */
+	int modulation_option = 0;
 	char* ubertooth_device = NULL;
 	const char* dump_name = NULL; /* -d value, opened after every check */
 
@@ -66,15 +70,29 @@ int main(int argc, char *argv[])
 	 * value distinguishable from an option getopt does not know. */
 	opterr = 0;
 	while ((opt=getopt(argc,argv,":bhclU:d:")) != EOF) {
+		/* No option may be given a value twice: see opt_check_once(). */
+		if (opt_check_once(&once, opt, optarg) < 0)
+			return 1;
 		switch(opt) {
 		case 'b':
 			bitstream = 1;
 			break;
 		case 'c':
-			modulation = MOD_BT_BASIC_RATE;
-			break;
 		case 'l':
-			modulation = MOD_BT_LOW_ENERGY;
+			/* One capture, one modulation: the board demodulates one at
+			 * a time, so -c and -l in one command used to mean whichever
+			 * came last and silently dropped the other. */
+			/* The same letter twice says the same thing twice, so
+			 * only a different modulation clashes. */
+			if (modulation_option != 0 && modulation_option != opt) {
+				fprintf(stderr, "error: -%c cannot be combined with -%c;"
+				        " a capture uses one modulation\n",
+				        opt, modulation_option);
+				return 1;
+			}
+			modulation_option = opt;
+			modulation = (opt == 'c') ? MOD_BT_BASIC_RATE
+			                          : MOD_BT_LOW_ENERGY;
 			break;
 		case 'U':
 			ubertooth_device = optarg;

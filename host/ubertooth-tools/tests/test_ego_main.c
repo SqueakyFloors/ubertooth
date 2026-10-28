@@ -451,17 +451,39 @@ MU_TEST(a_channel_the_mode_cannot_use_is_refused)
 	mu_assert(strcmp(r.err, "error: channel must be 2402-2480 MHz (got 2481)\n")
 	          == 0, r.err);
 
-	/* The last mode on the command line is the one that runs, so it decides
-	 * whether the channel is used. */
+	/* Two modes in one command are refused before the channel is
+	 * considered at all, so the mode the channel belongs to is never in
+	 * doubt. The last mode written used to be the one that ran. */
 	reset_fake();
 	r = RUN("-f", "-c", "2408", "-r");
-	mu_assert_int_eq(0, r.rc);
-	mu_assert_int_eq(2408, fake.last_channel);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, "error: -r cannot be combined with -f; choose "
+	                        "one of -f, -r or -i\n") == 0, r.err);
+	mu_assert_int_eq(0, fake.inits);
 
 	reset_fake();
 	r = RUN("-r", "-c", "2408", "-f");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(r.err, cases[0].message) == 0, r.err);
+	mu_assert(strcmp(r.err, "error: -f cannot be combined with -r; choose "
+	                        "one of -f, -r or -i\n") == 0, r.err);
+	mu_assert_int_eq(0, fake.inits);
+
+	/* The same mode written twice says the same thing twice, so it runs:
+	 * only a different mode clashes. The check used to name the option as
+	 * clashing with itself. */
+	reset_fake();
+	r = RUN("-f", "-f");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.err, "cannot be combined") == NULL, r.err);
+	mu_assert_int_eq(0, fake.last_ego_mode);
+
+	/* -i and -j are two spellings of one mode, so they still clash: the
+	 * command line wrote two different options. */
+	reset_fake();
+	r = RUN("-i", "-j");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, "error: -j cannot be combined with -i; choose "
+	                        "one of -f, -r or -i\n") == 0, r.err);
 
 	/* With no mode at all there is nothing to refuse the channel for, and
 	 * the refusal has no option to name: the earlier "nothing to do" check

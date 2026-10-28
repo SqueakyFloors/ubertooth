@@ -206,7 +206,8 @@ Radio options:
    above, so set it again for the one after. See CARRY-OVER BETWEEN RUNS.
  - `-C [0-78]` :
    get/set channel, by Bluetooth channel number rather than frequency. It is the
-   same setting as `-c` and keeps its value the same way.
+   same setting as `-c` and keeps its value the same way, so a command line
+   that gives a value to both is refused. See ARGUMENTS
  - `-q [20-120]` :
    start LED spectrum analyzer. The threshold is -N dBm, so a larger N lights
    the LEDs for weaker signals; 20-120 is the radio's RSSI range, and bare `-q`
@@ -723,6 +724,18 @@ exiting 0:
 an operation of its own; `-N`, `-h`, `-H` and `--host-version` are, and each
 works on its own. The usage text follows the `error: ` line on standard error,
 and the exit status is 1.
+
+`-h` and `-H` both end the command and both answer on standard output, so a
+command line with both prints both, the version first and the usage text
+last; the order they were written in makes no difference. The first one used
+to win and the other was dropped.
+
+`-c` and `-C` are the same channel setting written two ways, so a command line
+that gives a value to both names two channels for one setting and is refused
+before any device is opened: `error: -C cannot be combined with -c; they are
+the same channel setting written two ways`. The second one used to be the one
+sent. A value written one way and a read written the other is still one
+setting and one read, so `-C 24 -c` sets the channel and then reports it.
 
 It exits with 1, without opening a device, when two or more mode options are
 given (see DESCRIPTION), when `-z` is combined with a mode option, or when an

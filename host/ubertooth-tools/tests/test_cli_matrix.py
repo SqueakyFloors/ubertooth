@@ -67,10 +67,10 @@ TESTABLE = CONTRACT.get("testable", True)
 SPEC_CASE = TOOL + " (the option table)"
 MAN_PAGE_CASE = TOOL + " (the man page)"
 SPEC_IDS_CASE = "cli_spec.json (the ids)"
-# The questions whose cases the generator makes rather than the spec listing
-# them: a lone "--" and a doubled option are the same two command lines for
-# every tool, so they are not written out per tool.
-GENERATED_QUESTIONS = {"Q-6", "Q-7"}
+# A question whose cases the generator makes rather than the spec listing them
+# per tool, so the id check below does not call it unused. There is none left:
+# the two that were here, a lone "--" and a doubled option, are both answered.
+GENERATED_QUESTIONS = set()
 
 # The role an option without one gets, and the roles this test acts on by
 # name: a help or report option ends the command, a selector selects a board,
@@ -386,11 +386,10 @@ def check(case, result, created):
         complain("standard output is not empty on a failure: %r" % stdout[:120])
         said_standard_output = True
     # The usage text belongs on standard output only when the user asked for
-    # it. That is the "help" verdict, and also a line that carries -h without
-    # the verdict being decided -- -h beside -V, where which one wins is an
-    # open question.
-    asked_for_it = case.verdict == "help" or any(name in case.arguments
-                                                 for name in HELP_OPTIONS)
+    # it: the "help" verdict, and "report_then_help", where -h stands beside
+    # an option that answers from the host and both get printed.
+    asked_for_it = case.verdict in ("help", "report_then_help") \
+        or any(name in case.arguments for name in HELP_OPTIONS)
     if usage_text(stdout) and not asked_for_it:
         complain("the usage text is on standard output for a command line "
                  "that did not ask for it")
@@ -490,6 +489,28 @@ def check(case, result, created):
             if expected_file not in created:
                 complain("did not write %s; the run directory holds %s"
                          % (expected_file, created))
+
+    elif case.verdict == "report_then_help":
+        # -h beside -V or -H: both end the command and both answer on
+        # standard output, so both are printed, and the usage text comes last
+        # so the shorter answer is not scrolled off the screen by it.
+        if status != 0:
+            complain("exited %d, not 0" % status)
+        if stderr:
+            complain("wrote to standard error: %r" % stderr[:160])
+        if not usage_text(stdout):
+            complain("did not print the usage text on standard output")
+        lines = stdout.splitlines()
+        marker = CONTRACT.get("report_marker")
+        if marker is not None and (not lines or marker not in lines[0]):
+            complain("the report is not the first line of standard output: %r"
+                     % stdout[:120])
+        where = [index for index, line in enumerate(lines)
+                 if USAGE_MARKER in line]
+        if where and where[0] == 0:
+            complain("the usage text came first, with nothing before it")
+        if reached_device_lookup(stdout + stderr):
+            complain("looked for a device")
 
     elif case.verdict == "device":
         if status != 1:
@@ -973,14 +994,18 @@ def generated_cases():
                       error="error: unexpected argument '%s'" % STRAY))
     cases.append(Case(["-"], "refused", error="error: unexpected argument '-'"))
     # "--" ends the options and leaves nothing behind it. A tool with work to
-    # do runs; for one that needs arguments, whether "--" counts as a bare
-    # command line (and gets the usage text) or as a line that said something
-    # (and gets the error line alone) is Q-7, so it is left undecided rather
-    # than pinned to what the tools happen to do.
-    if verdict_for_line([]).verdict == "device":
+    # do runs; a tool that needs arguments refuses it with its one "error: "
+    # line and no usage text, because a lone "--" is not a bare command line:
+    # the user wrote something, so the error line is all there is to say
+    # (.kiro/steering/cli-output.md).
+    bare = verdict_for_line([])
+    if bare.verdict == "device":
         cases.append(Case(["--"], "device"))
     else:
-        cases.append(Case(["--"], "undecided", source="Q-7"))
+        cases.append(Case(["--"], "refused", error=bare.error,
+                          contains=bare.contains,
+                          source="a lone '--' said something, so the error "
+                          "line stands alone (cli-output.md)"))
 
     # An option the tool does not know, written short and long, and every
     # option it used to have. The rule is the same for every tool; the tools
@@ -1085,7 +1110,7 @@ def generated_cases():
     # Every pair of options, in both orders, with a valid value where one is
     # needed. This is where mode against mode lands, and where an option that
     # needs a companion meets it. Both orders, because the order can decide
-    # the outcome: with -h beside -V the first one written wins.
+    # the outcome: ubertooth-ego -i -j names the option written second.
     for first, second in itertools.permutations(sorted(OPTIONS), 2):
         arguments = with_value(first) + with_value(second)
         case = explicit(arguments)
@@ -1121,18 +1146,34 @@ def generated_cases():
             expected = expected % NO_SUCH_SERIAL
         cases.append(Case([name, NO_SUCH_SERIAL], "refused", error=expected))
 
-    # An option given twice. Two tools refuse it, as their man pages say:
-    # ubertooth-follow for the three options that name the target ("give -t
-    # once"), and ubertooth-specan's -v, which may be given only once. The
-    # other man pages do not decide what the second one does, and those tools
-    # keep the last and say nothing.
+    # An option given a value twice: two answers to one question, which the
+    # tool refuses rather than keeping one of them (ubertooth(7), OPTION
+    # VALUES). Every tool is the same here, so the message is the shared one.
+    # An option that collects its values instead of setting one takes both,
+    # and the spec says so outright for it.
     for name, option in sorted(OPTIONS.items()):
         if option["value"] == "none" or ROLES.get(name) in ("help", "report"):
             continue
         values = option.get("valid") or []
-        if len(values) < 2 or any(value in PLACEHOLDERS for value in values):
+        if not values:
             continue
-        doubled = [name, values[0], name, values[1]]
+        if any(value in PLACEHOLDERS for value in values):
+            # A file option, whose spec values are placeholders the run
+            # directory fills in. Two scratch names of its own instead, with
+            # the extension the placeholder carries, because a tool may check
+            # it while reading the command line (ubertooth-dfu -s wants a
+            # ".bin"). The case is about the refusal, which comes first, so
+            # neither name is ever opened -- and the "refused" verdict checks
+            # that neither was created either.
+            _, _, extension = values[0].partition(".")
+            pair = ["one." + extension, "two." + extension]
+        else:
+            # Two different values where the spec lists two, so the case
+            # shows which one would have been kept; the same value twice
+            # otherwise, which the rule refuses just the same. Skipping those
+            # left every single-value option unpinned, -U among them.
+            pair = [values[0], values[1] if len(values) > 1 else values[0]]
+        doubled = [name, pair[0], name, pair[1]]
         if REQUIRES_ALL is not None:
             for other in REQUIRES_ALL:
                 if other != name:
@@ -1140,7 +1181,10 @@ def generated_cases():
         elif WORK_OPTIONS is not None and name not in WORK_OPTIONS:
             doubled = with_value(WORK_OPTIONS[0]) + doubled
         if explicit(doubled) is None:
-            cases.append(Case(doubled, "undecided", source="Q-6"))
+            cases.append(Case(
+                doubled, "refused",
+                error="error: option '%s' given more than once" % name,
+                source="ubertooth(7), OPTION VALUES"))
 
     return cases
 

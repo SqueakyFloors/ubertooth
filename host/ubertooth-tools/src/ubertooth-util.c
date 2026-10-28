@@ -623,7 +623,13 @@ int main(int argc, char *argv[])
 	int do_get_leds, do_get_all_leds, do_get_channel, do_get_palevel;
 	int do_set_squelch, do_get_squelch, squelch_level;
 	int do_compile_info;
-	int first_exit_option, long_host_version; /* -h / -H / --host-version */
+	/* -h, and -H / --host-version: both end the command, and a command
+	 * line with both prints both (see below). */
+	int do_help, do_host_version;
+	/* -c or -C, whichever named the channel: they are the same setting
+	 * written two ways, so a command line may give only one of them. */
+	int channel_option = 0;
+	opt_once once = {0};
 	int do_number, do_xmas, do_watchdog;
 	int range_test_timeout = RANGE_TEST_TIMEOUT_S; /* -n's value, in seconds */
 	char* ubertooth_device = NULL;
@@ -646,7 +652,7 @@ int main(int argc, char *argv[])
 	do_set_squelch= -1, do_get_squelch= -1; squelch_level= 0;
 	do_compile_info= -1;
 	do_number= 0; do_xmas= 0; do_watchdog= -1;
-	first_exit_option= 0; long_host_version= 0;
+	do_help= 0; do_host_version= 0;
 
 	/* Host-tools version: printed before touching the device, so it works
 	 * with no Ubertooth attached. -H or --host-version. Distinct from -v
@@ -654,10 +660,8 @@ int main(int argc, char *argv[])
 	 * getopt only knows the short form, so treat the long one as -H (but
 	 * not after "--", where it is an operand and is reported as typed). */
 	for (int ai = 1; ai < argc && strcmp(argv[ai], "--") != 0; ai++) {
-		if (strcmp(argv[ai], "--host-version") == 0) {
+		if (strcmp(argv[ai], "--host-version") == 0)
 			argv[ai] = (char *)"-H";
-			long_host_version = 1;
-		}
 	}
 
 	/* The tool reports a bad option itself, in the usual one-line form:
@@ -666,11 +670,16 @@ int main(int argc, char *argv[])
 	opterr = 0;
 	while ((opt=getopt(argc,argv,":U:hn::meiIprsStvbwl::a::C::c::d::q::z::VNxH")) != EOF) {
 		/* An optional value may also be the next word: -c 2440, -z -90. Only
-		 * -z takes a negative value (a signed RSSI threshold). */
+		 * -z takes a negative value (a signed RSSI threshold). Resolved
+		 * before the check below, which only counts an option that came
+		 * with a value. */
 		if (optarg == NULL && strchr("lacCdqzn", opt) != NULL)
 			optarg = opt_separate_value(argc, argv,
 			                            opt == 'z' ? opt_value_signed_decimal
 			                                       : opt_value_decimal);
+		/* No option may be given a value twice: see opt_check_once(). */
+		if (opt_check_once(&once, opt, optarg) < 0)
+			return 1;
 		/* Anything but an identity query, -U or -N needs a single selected
 		 * device. -N opens none: it counts boards on the USB bus. */
 		if (strchr("svVpbUN", opt) == NULL)
@@ -734,18 +743,31 @@ int main(int argc, char *argv[])
 			}
 			break;
 		case 'C':
-			if (optarg) {
-				int ch;
-				if (opt_require_int(optarg, 0, NUM_BREDR_CHANNELS - 1, "channel", "", &ch) < 0)
-					return 1;
-				do_channel= ch + BT_FREQ_MIN;
-			} else
-				do_get_channel= 1;
-			break;
 		case 'c':
 			if (optarg) {
-				if (opt_require_int(optarg, BT_FREQ_MIN, BT_FREQ_MAX, "frequency", " MHz", &do_channel) < 0)
+				/* -c is the channel in MHz and -C its BR/EDR
+				 * channel number: one setting, two spellings.
+				 * Both used to be accepted and the second one
+				 * sent, so a command line that named two
+				 * different channels set whichever came last
+				 * without a word. A set written one way and a
+				 * read written the other is still one setting:
+				 * only two values clash. */
+				if (channel_option != 0) {
+					fprintf(stderr, "error: -%c cannot be combined with"
+					        " -%c; they are the same channel setting"
+					        " written two ways\n", opt, channel_option);
 					return 1;
+				}
+				channel_option = opt;
+				if (opt == 'C') {
+					int ch;
+					if (opt_require_int(optarg, 0, NUM_BREDR_CHANNELS - 1, "channel", "", &ch) < 0)
+						return 1;
+					do_channel= ch + BT_FREQ_MIN;
+				} else if (opt_require_int(optarg, BT_FREQ_MIN, BT_FREQ_MAX, "frequency", " MHz", &do_channel) < 0) {
+					return 1;
+				}
 			} else
 				do_get_channel= 1;
 			break;
@@ -794,8 +816,7 @@ int main(int argc, char *argv[])
 			do_compile_info = 0;
 			break;
 		case 'H':
-			if (!first_exit_option)
-				first_exit_option = 'H';
+			do_host_version = 1;
 			break;
 		case 'N':
 			do_number = 1;
@@ -807,8 +828,7 @@ int main(int argc, char *argv[])
 			do_xmas = 1;
 			break;
 		case 'h':
-			if (!first_exit_option)
-				first_exit_option = 'h';
+			do_help = 1;
 			break;
 		default:
 			opt_report_bad_option(opt, argc, argv);
@@ -822,18 +842,18 @@ int main(int argc, char *argv[])
 	if (opt_check_no_operands(argc, argv) < 0)
 		return 1;
 
-	/* -h and -H end the command before anything else, but only once the
-	 * whole command line has parsed: an invalid option value or a stray
-	 * word is reported even alongside them. As before, --host-version
-	 * wins, and otherwise the first of -h and -H does. */
-	if (long_host_version || first_exit_option == 'H') {
+	/* -h and -H (or --host-version) end the command before anything else,
+	 * but only once the whole command line has parsed: an invalid option
+	 * value or a stray word is reported even alongside them. A command
+	 * line with both prints both, and the usage text comes last so the
+	 * version is not scrolled off the screen by it; the order they were
+	 * written in does not matter. */
+	if (do_host_version)
 		print_version();
-		return 0;
-	}
-	if (first_exit_option == 'h') {
+	if (do_help)
 		usage(stdout);
+	if (do_host_version || do_help)
 		return 0;
-	}
 
 	/* Only one mode can run: each one ends the command. Refuse a combination
 	 * before any device is opened, instead of running whichever mode comes

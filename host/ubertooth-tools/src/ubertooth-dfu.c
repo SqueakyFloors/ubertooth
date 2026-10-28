@@ -1537,6 +1537,7 @@ int main(int argc, char **argv) {
 	int interface_claimed = 0;
 	int exit_status = 0;
 	int opt;
+	opt_once once = {0};
 	/* -h ends the command once the whole command line has parsed (see below). */
 	int first_exit_option = 0;
 	char* ubertooth_device = NULL;
@@ -1547,6 +1548,11 @@ int main(int argc, char **argv) {
 	 * value distinguishable from an option getopt does not know. */
 	opterr = 0;
 	while ((opt=getopt(argc,argv,":hd:u:s:rU:")) != EOF) {
+		/* No option may be given a value twice: see opt_check_once(). */
+		if (opt_check_once(&once, opt, optarg) < 0) {
+			exit_status = 1;
+			goto end_without_device;
+		}
 		switch(opt) {
 		/* -d, -u and -s are named here and acted on once the whole
 		 * command line has been accepted: the signed file used to be
