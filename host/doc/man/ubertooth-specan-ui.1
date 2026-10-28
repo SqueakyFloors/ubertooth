@@ -36,7 +36,7 @@ lower frequency in MHz (default 2402)
 upper frequency in MHz (default 2480); must not be lower than \fB\-l\fR\. The plot is drawn 2 MHz wider than the scanned range on each side, within 2400\-2483 MHz, so the edge channels can be marked
 .TP
 \fB\-\-wifi[=<channel(s)>]\fR
-show the band around one Wi\-Fi channel (for example \fB\-\-wifi=6\fR) or a range of channels (\fB\-\-wifi=1\-11\fR); \fB\-\-wifi\fR alone shows channel 1
+show the band around one Wi\-Fi channel (for example \fB\-\-wifi=6\fR) or a range of channels (\fB\-\-wifi=1\-11\fR); \fB\-\-wifi\fR alone shows channel 1\. Channel 14 is centred on 2484 MHz, above the 2480 MHz the board can tune, so \fB\-\-wifi=14\fR shows the part of that channel below 2480 MHz \-\- and with a \fB\-\-padding\fR under 4 it is refused, because then the whole band asked for is above the range
 .TP
 \fB\-\-padding <MHz>\fR
 extra band shown on each side with \fB\-\-wifi\fR (default 10), limited to 2402\-2480 MHz

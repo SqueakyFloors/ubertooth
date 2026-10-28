@@ -34,7 +34,8 @@ install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/specan
 	PATTERN "__pycache__" EXCLUDE)
 install(PROGRAMS ${SPECAN_WRAPPER} DESTINATION ${INSTALL_DEFAULT_BINDIR})
 
-# Which stream a refused range lands on, and the exit status. The checks are in
+# Which stream a refused range lands on, the exit status, and the frequency
+# each Wi-Fi channel converts to. All three are in
 # specan/limits.py, which imports nothing but sys, so they run everywhere; the
 # same cases are then run through the script itself, which needs its Qt binding
 # and numpy and is skipped where those are missing. No window opens and no
