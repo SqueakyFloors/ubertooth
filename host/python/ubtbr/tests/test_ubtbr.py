@@ -111,7 +111,9 @@ UBTBR_FAKE_READS names a file of packets the device sends, one per line in
 hex: each is handed to the next read, and the reads after them time out as
 usual. UBTBR_FAKE_READS_AFTER holds them back until that many writes have
 gone out, which is how a test has a packet arrive while a command is
-running rather than before the prompt is up.
+running rather than before the prompt is up, and UBTBR_FAKE_READ_DELAY holds
+each of them, which spreads them over a session instead of handing them all
+over at once.
 """
 
 import os
@@ -176,6 +178,7 @@ class _Handle:
             if self.reads < len(packets):
                 data = bytes.fromhex(packets[self.reads])
                 self.reads += 1
+                time.sleep(float(os.environ.get("UBTBR_FAKE_READ_DELAY", "0")))
                 return data
         time.sleep(timeout / 1000.0)
         raise USBErrorTimeout("timeout")
@@ -1298,8 +1301,11 @@ def timed_lines(output, text):
             for line in output.splitlines() if text in line]
 
 
-def unprefixed(errors):
-    """The lines of standard error that start with a time of day."""
+def time_prefixed(errors):
+    """The lines of standard error that start with a time of day.
+
+    None should: the time belongs to the packets on standard output.
+    """
     return [line for line in errors.splitlines()
             if re.match(r"\d\d:\d\d:\d\d ", line)]
 
@@ -1328,26 +1334,71 @@ assert "RX FHS" not in errors and "COMPLETE_LOCAL_NAME" not in errors, errors
 assert "Inquiry state Ready\n" in errors, errors
 assert "Starting BTCtlInquiryCmd\n" in errors, errors
 assert "| INFO |" not in errors and "| DEBUG |" not in errors, errors
-assert unprefixed(errors) == [], errors
+assert time_prefixed(errors) == [], errors
 print("ubtbr: a decoded packet goes to standard output, progress to standard error")
 
 # a session holding a connection reports the LMP packets it decodes the same
-# way. The link manager traces the same exchange by name on standard error,
-# which is a diagnostic and was for a while the only place those packets
-# appeared at all.
+# way, named and in hex, so a capture of a connection reads on its own. The
+# link manager traces the same exchange on standard error, which is a
+# diagnostic and was for a while the only place those packets appeared at
+# all. Both commands that hold a connection are checked, because each has
+# its own handler.
 CONNECTED_LT_ADDR_1 = (btctl.BTCTL_STATE_CONNECTED,
                        (1 << 5) | btctl.BTCTL_REASON_SUCCESS)
-output, errors = canned_session("page_scan", [
-    state_message(*CONNECTED_LT_ADDR_1),
-    lmp_message(btctl.LMP_NAME_REQ),
-], until="RX LMP")
-assert re.fullmatch(r"\d\d:\d\d:\d\d RX LMP: ACL\(llid=LMP, flow=1, len=17\):"
-                    r" 02( 00){16}", timed_lines(output, "RX LMP")[0]), output
-assert "RX LMP" not in errors, errors
-assert "Connection ready, lt_addr=1\n" in errors, errors
-assert "lmp_rx" in errors, errors
-assert unprefixed(errors) == [], errors
+NAME_REQ = (r"\d\d:\d\d:\d\d RX LMP: BBHdr\(lt_addr=1, type=DM1, flags=\)"
+            r" \| \(tid 0\) LMP_NAME_REQ +\| 02(00){16}")
+for typed in ("page_scan", "page 11:22:33:44:55:66"):
+    output, errors = canned_session(typed, [
+        state_message(*CONNECTED_LT_ADDR_1),
+        lmp_message(btctl.LMP_NAME_REQ),
+    ], until="RX LMP")
+    assert re.fullmatch(NAME_REQ, timed_lines(output, "RX LMP")[0]), output
+    # and in plain text: a capture carries no terminal color
+    assert "\x1b" not in output, output
+    assert "RX LMP" not in errors, errors
+    assert "Connection ready, lt_addr=1\n" in errors, errors
+    assert "lmp_rx" in errors, errors
+    assert time_prefixed(errors) == [], errors
 print("ubtbr: a connection's LMP packets go to standard output as well")
+
+# standard output going away part way through a capture: reported once, the
+# prompt still ends the session, and the status says the capture is not all
+# there. The flush the interpreter does on the way out used to fail as well,
+# which ended the tool in status 120 and a message of its own.
+with open(READS_FILE, "w") as canned:
+    canned.write(state_message(btctl.BTCTL_STATE_INQUIRY) + "\n")
+    for _ in range(100):
+        canned.write(fhs_message(FAKE_BDADDR) + "\n")
+running = tool(dict(ENVIRONMENT, UBTBR_FAKE_READS=READS_FILE,
+                    UBTBR_FAKE_READS_AFTER="4", UBTBR_FAKE_READ_DELAY="0.05"))
+running.stdin.write("inquiry\n")
+running.stdin.flush()
+read = bytearray()
+
+
+def capture_started():
+    """True once packets are being printed, so there is one to lose."""
+    try:
+        read.extend(os.read(running.stdout.fileno(), 4096))
+    except BlockingIOError:
+        pass
+    return read.count(b"RX FHS") >= 2
+
+
+os.set_blocking(running.stdout.fileno(), False)
+assert wait_until(capture_started), (bytes(read), running.poll())
+# What `ubertooth-btbr | head -2` does: the reader stops reading and goes.
+running.stdout.close()
+running.stdin.write("q\n")
+running.stdin.flush()
+running.stdin.close()
+errors = running.stderr.read()
+assert running.wait(timeout=DEADLINE) == 1, (running.returncode, errors)
+assert errors.count("error: standard output has gone away,"
+                    " the capture is lost\n") == 1, errors
+assert "Exception ignored" not in errors, errors
+assert "Traceback" not in errors, errors
+print("ubtbr: a capture whose reader went away is reported, and exits 1")
 
 # no Ubertooth at all: one error line, nothing on standard output, exit 1,
 # where the tool used to end in a traceback

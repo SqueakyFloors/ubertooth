@@ -1,4 +1,5 @@
 import usb1
+import os
 import sys
 from binascii import hexlify, unhexlify
 from threading import Thread, Event, Lock
@@ -217,6 +218,14 @@ def eprint(msg):
 	sys.stderr.write(msg)
 	sys.stderr.flush()
 
+# Set once standard output has gone away, so the session can end with a
+# status that says the capture it was asked for is not all there.
+_output_gone = False
+
+def output_gone():
+	"""True if standard output went away while the session was running."""
+	return _output_gone
+
 def result(msg):
 	"""Report what a command decoded: a packet, or an inquiry response.
 
@@ -227,13 +236,27 @@ def result(msg):
 	therefore still one timed line per line. Blank lines are dropped, so what
 	a reader gets is packets and nothing else.
 	"""
+	global _output_gone
 	now = strftime("%H:%M:%S")
-	# Written in one go, because the prompt is on this stream too and runs on
-	# another thread: a message of several lines would otherwise be broken
-	# apart by a prompt landing between them.
-	sys.stdout.write("".join("%s %s\n"%(now, line)
-		for line in msg.splitlines() if line))
-	sys.stdout.flush()
+	try:
+		# Written in one go, because the prompt is on this stream too and
+		# runs on another thread: a message of several lines would otherwise
+		# be broken apart by a prompt landing between them.
+		sys.stdout.write("".join("%s %s\n"%(now, line)
+			for line in msg.splitlines() if line))
+		sys.stdout.flush()
+	except BrokenPipeError:
+		# Whatever was reading the capture has stopped, which is what
+		# `ubertooth-btbr | head -5` does. Point the file descriptor at the
+		# bin, so that neither the prompt nor the flush the interpreter does
+		# on the way out fails as well: an unflushable standard output at
+		# exit ends the tool in status 120 and a message nobody asked for.
+		# Reported once, and the session ends non-zero, because the capture
+		# it was asked for stopped being written.
+		if not _output_gone:
+			_output_gone = True
+			os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+			error("standard output has gone away, the capture is lost")
 
 def warn(msg):
 	"""Report something the user should know about: one `warning: ` line.
@@ -805,12 +828,15 @@ class BTCtlPageScanCmd(BTCtlCmd):
 			self._done = True
 
 	def _handle_lmp(self, pkt):
-		# Reported like any other packet this session decoded, before the
-		# link manager is given it: the state machine traces the same PDU by
-		# name on standard error, and that trace is a debug line rather than
-		# the packet the user asked for.
-		super()._handle_lmp(pkt)
-		self._lmp.receive(pkt.clkn, pkt.bt_data.data)
+		# The packet reaches standard output like every other command's, in
+		# the shape monitor uses: the baseband header, then the PDU named
+		# and in hex, so a piped capture of a connection reads on its own.
+		# The link manager traces the same PDU again on standard error, with
+		# the state it was in and the seconds since the connection came up;
+		# that trace is a diagnostic, not the capture.
+		pdu = pkt.bt_data.data
+		result("RX LMP: %s | %s"%(pkt.bb_hdr, pdu2str(pdu)))
+		self._lmp.receive(pkt.clkn, pdu)
 
 	def _handle_l2cap(self, pkt):
 		acl = pkt.bt_data
@@ -858,10 +884,11 @@ class BTCtlPagingCmd(BTCtlCmd):
 		log.info("LMP setup complete")
 
 	def _handle_lmp(self, pkt):
-		# As in BTCtlPageScanCmd above: the packet first, then the link
-		# manager.
-		super()._handle_lmp(pkt)
-		self._lmp.receive(pkt.clkn, pkt.bt_data.data)
+		# As in BTCtlPageScanCmd above: the packet on standard output, then
+		# the link manager.
+		pdu = pkt.bt_data.data
+		result("RX LMP: %s | %s"%(pkt.bb_hdr, pdu2str(pdu)))
+		self._lmp.receive(pkt.clkn, pdu)
 
 class BTCtlDiscoverableCmd(BTCtlSuperCmd):
 	# How long each of the two scans runs before the other takes its turn.

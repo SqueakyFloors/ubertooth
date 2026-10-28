@@ -326,7 +326,11 @@
   can be piped or saved. They used to be `HH:MM:SS | INFO | ...` log lines on
   standard error, where nothing reading the tool's output could see them. The
   progress a command makes stays on standard error, now as plain lines with
-  neither the time nor the level.
+  neither the time nor the level. A session holding a connection (`page`,
+  `l2ping`, `page_scan`, `discoverable`) reports its LMP packets there too,
+  which it printed nowhere a reader could see before, and those lines carry no
+  terminal color any more. A capture whose reader goes away, as
+  `ubertooth-btbr | head -5` does, says so once and exits 1.
   [#735](https://github.com/SqueakyFloors/ubertooth/issues/735)
 
 ### Build and compatibility

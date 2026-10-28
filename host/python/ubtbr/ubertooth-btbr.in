@@ -449,6 +449,11 @@ def main():
 		leave(bt, 1)
 	prompt = BTCtlPrompt(bt)
 	prompt.cmdloop()
+	if output_gone():
+		# Whatever was reading the capture stopped part way through it, so
+		# the session did not deliver all it was asked for. Reported where it
+		# happened; this is only the status.
+		sys.exit(1)
 	if prompt.abandoned():
 		# The session ended with the device still claimed by a command that
 		# would not stop, so it did not do all it was asked. Out without the

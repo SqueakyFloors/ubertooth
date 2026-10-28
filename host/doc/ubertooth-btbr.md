@@ -174,30 +174,30 @@ If no FHS appears, the peripheral won the race; try again.
 The packets a command decodes go to standard output, one to a line, each
 carrying the time it was printed:
 
-    13:54:02 RX LMP (master:  3f2a1c): BBHdr(lt_addr=1, type=DM1, flags=A) | lmp_features_req
+    19:18:58 RX FHS: FHS: bdaddr=112233445566 parity=6c38a7bd cls=5a020c ltaddr=0 clk=365c
 
 That time is the only timing a session has. An inquiry response is the
 response itself and the EIR fields under it, each as a timed line of its own:
 
-    13:54:02 ACL(llid=L2CAP_START, flow=1, len=11): 0a 09 ...
-    13:54:02 COMPLETE_LOCAL_NAME: '...'
+    19:19:03 ACL(llid=L2CAP_START, flow=1, len=11): 0a 09 55 62 65 72 74 6f 6f 74 68
+    19:19:03 COMPLETE_LOCAL_NAME: 'Ubertooth'
 
-The prompt is on standard output as well, and carries no newline of its own,
-so the first packet printed while the prompt is up lands on the end of it. A
-session redirected to a file therefore holds the packets it decoded, with the
-prompts and whatever `?` printed, and nothing else: the progress a command
-makes is on standard error, as plain lines carrying neither the time nor a
-level.
+A session holding a connection -- `page`, `l2ping`, `page_scan`,
+`discoverable` -- reports each LMP packet the same way, with the baseband
+header and the PDU named and in hex. It also traces the same exchange on
+standard error, where the link manager adds the state it was in and the
+seconds since the connection came up; that trace is a diagnostic, and the
+capture is what standard output holds.
+
+The prompt, the `Type ? to list commands` line and whatever `?` prints are on
+standard output as well, and the prompt carries no newline of its own, so the
+first packet printed while the prompt is up lands on the end of it. The
+progress a command makes is on standard error, as plain lines carrying
+neither the time nor a level:
 
     Starting BTCtlInquiryCmd
     Inquiry state Ready
     Inquiry done
-
-A session that holds a connection -- `page`, `l2ping`, `page_scan`,
-`discoverable` -- reports each LMP packet it decodes on standard output like
-any other, and traces the same exchange on standard error, where the link
-manager names the packet and counts the seconds since the connection came
-up. That trace is a diagnostic: the capture is what standard output holds.
 
 ## DIAGNOSTICS
 
@@ -231,10 +231,10 @@ and a request that failed some other way gives `error: <command> stopped:
 stop at all leaves the board claimed, which is reported on the way out (see
 EXIT STATUS).
 
-A standard output that has gone away is reported the same way: a capture
-piped into something that stops reading, as `ubertooth-btbr | head -5` does,
-ends with `error: <command> stopped: BrokenPipeError: ...` and leaves the
-prompt up.
+A capture piped into something that stops reading, as `ubertooth-btbr |
+head -5` does, says `error: standard output has gone away, the capture is
+lost` once. The session runs on, printing nothing further, and ends with
+exit 1 whenever the prompt is left (see EXIT STATUS).
 
 With no Ubertooth attached the tool says `error: no Ubertooth devices found`
 and exits 1. A selection that names no board, or more than one, is refused
@@ -255,7 +255,9 @@ same way. See FIRMWARE.
 ## EXIT STATUS
 
 0 for `-h`, and when the session ended cleanly, which is `exit`, `q`, `x` or
-Ctrl-D with nothing left running. 1 for a command line the tool will not take,
+Ctrl-D with nothing left running and the capture written in full. 1 for a
+command line the tool will not take, when standard output went away part way
+through a capture,
 when no Ubertooth is found, when `-U` names no board or more than one, when
 the one it names cannot be opened or is in use by another program, when the
 board refuses the requests
