@@ -30,8 +30,8 @@ worth running by hand when a board does not appear in Wireshark.
    one `interface` line per attached board, named `ubertooth<serial>`. A
    board whose serial cannot be read is left out, since it has no name to
    offer, and the boards that could be named are still listed. No board
-   attached is an empty listing and exit 0; nothing to list because
-   `ubertooth-util` failed exits 1 and reports what it said
+   attached is an empty listing and exit 0; a listing `ubertooth-util` failed
+   on exits 1 and reports what it said, whether or not it named a board
  - `--extcap-interface=ubertooth<serial>` :
    the board every other call applies to. The serial is passed to
    `ubertooth-btle -U`, so a board keeps its interface across a reboot or a

@@ -23,9 +23,9 @@ Two things are checked:
     listing and exit 0, which to Wireshark is exactly "no Ubertooth
     attached". A listing that named one board but could not open another is a
     failure too, and exits 1: Wireshark throws away everything a failed call
-    printed, so its capture list is then empty, which is the price of saying
-    what happened. The one case that is not a failure is no board attached,
-    since the empty listing answers that.
+    printed, so its capture list is then without the boards that were fine,
+    which is the price of saying what happened. The one case that is not a
+    failure is no board attached, since the empty listing answers that.
 
     The line that tells no board apart from a failure is checked against the
     built ubertooth-util when CMake passes its path, so rewording it on the C
@@ -369,7 +369,8 @@ assert interfaces(result) == [
 assert result.stderr == "could not open Ubertooth device\n", result
 
 # the same listing with ubertooth-util exiting 0: nothing failed, so neither
-# does the script, and the board without a serial is still left out
+# does the script, the board without a serial is still left out, and no
+# diagnosis is added for it
 result = run(("--extcap-interfaces",),
              listing="Serial No (0): unavailable, access to the board was "
                      "denied\nSerial No (1): %s\n" % SERIALS[1])
@@ -377,6 +378,16 @@ assert result.returncode == 0, result
 assert interfaces(result) == [
     "interface {value=ubertooth%s}{display=Ubertooth One %s}" % ((SERIALS[1],) * 2),
 ], result
+assert result.stderr == "", result
+
+# a partial listing whose tool was killed by a signal is a failure too, and
+# names the signal
+result = run(("--extcap-interfaces",), listing=LISTING_ONE % SERIALS[0],
+             kill_with=signal.SIGTERM)
+assert result.returncode == 1, result
+assert len(interfaces(result)) == 1, result
+assert result.stderr == "error: ubertooth-util failed (killed by signal %d)\n" \
+    % int(signal.SIGTERM), result
 
 # nothing that is not a listing line is taken for a serial
 result = run(("--extcap-interfaces",),

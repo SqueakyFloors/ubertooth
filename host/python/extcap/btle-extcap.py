@@ -258,8 +258,10 @@ def list_interfaces():
 
     Returns the exit status: 1 when ubertooth-util failed, 0 when it did not
     or when its only complaint was that no board is attached, which an empty
-    listing answers. A failure used to come out as a listing and exit 0,
-    which to Wireshark looks exactly like "no Ubertooth attached".
+    listing answers. A failure with nothing to list used to come out as an
+    empty listing and exit 0, which to Wireshark looks exactly like "no
+    Ubertooth attached"; a failure that still named a board used to exit 0 as
+    well, so Wireshark took the listing and the failure went unnoticed.
     """
     # -U all asks for the indexed listing explicitly, so one output form
     # covers one board and several. Each interface is named by the board's
@@ -293,8 +295,8 @@ def list_interfaces():
 
     # The boards that could be named are listed even when another one could
     # not be, which is what ubertooth-util itself does with a partial
-    # listing. Someone running this call by hand sees them; Wireshark will
-    # not, because the status below says the call failed.
+    # listing. Where that listing goes with a non-zero status below, whoever
+    # runs this call by hand still sees it, and Wireshark does not.
     for serial in serials:
         print("interface {value=ubertooth%s}{display=Ubertooth One %s}"
               % (serial, serial))
