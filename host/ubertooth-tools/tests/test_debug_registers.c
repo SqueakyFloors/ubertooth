@@ -191,6 +191,26 @@ MU_TEST(a_field_draws_the_bits_it_reports)
 	mu_assert(has_line(out, "....1... ........ (RW) CHP_DISABLE"), out);
 }
 
+/*
+ * Which of the radio's fields are signed, at the two values that tell them
+ * apart. The ADC readings are unsigned, so the top of their range is 127 and
+ * not -1. MOD_OFFSET is signed, so its lowest value is -32 steps of
+ * 15.625 kHz and not +32.
+ */
+MU_TEST(a_signed_field_is_printed_signed_and_an_unsigned_one_is_not)
+{
+	char out[4096];
+
+	decode(0x0f, 0x7f7f, out, sizeof(out));
+	mu_assert(has_line(out, ".1111111 ........ (RO) ADC_I (127)"), out);
+	mu_assert(has_line(out, "........ .1111111 (RO) ADC_Q (127)"), out);
+
+	decode(0x03, 0x1000, out, sizeof(out));
+	mu_assert(has_line(out, "...10000 0....... (RW) MOD_OFFSET (-500.000 kHz)"), out);
+	decode(0x03, 0x0F80, out, sizeof(out));
+	mu_assert(has_line(out, "...01111 1....... (RW) MOD_OFFSET (484.375 kHz)"), out);
+}
+
 /* Register 0x15 is MDMTST1; it used to carry 0x14's name, so no name of its
  * own reached it and -r MDMTST1 could not name it. */
 MU_TEST(every_register_name_in_the_table_is_its_own)
@@ -208,6 +228,7 @@ int main(void)
 	MU_RUN(a_field_is_printed_from_the_bits_its_picture_draws);
 	MU_RUN(a_breakpoint_state_with_its_top_bit_set_is_not_disabled);
 	MU_RUN(a_field_draws_the_bits_it_reports);
+	MU_RUN(a_signed_field_is_printed_signed_and_an_unsigned_one_is_not);
 	MU_RUN(every_register_name_in_the_table_is_its_own);
 	return mu_report();
 }

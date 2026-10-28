@@ -141,7 +141,11 @@ cc2400_mdmctrl (unsigned short v)
   char description[64];
 
   bits (15, 13, "-", "W0", "");
-  sprintf (description, "%0.3f kHz", 15.625 * ((v >> 7) & 0x3F));
+  /* MOD_OFFSET is a signed number of 15.625 kHz steps, 6 bits wide, so the
+   * lowest value it can hold is 0x20 and that means -32 steps. Shifting by 5
+   * puts the field's top bit on the sign bit of a signed char, which the
+   * arithmetic shift then spreads. */
+  sprintf (description, "%0.3f kHz", 15.625 * (((signed char) (v >> 5)) >> 2));
   bits (12, 7, "MOD_OFFSET", "RW", description);
   sprintf (description, "%0.4f kHz", 3.9062 * (v & 0x7F));
   bits (6, 0, "MOD_DEV", "RW", description);
@@ -269,6 +273,12 @@ cc2400_fsmstate (unsigned short v)
   bits (4, 0, "FSM_CUR_STATE", "RO", "");
 }
 
+/* ADC_I and ADC_Q are unsigned numbers, 7 bits wide, so they are printed as
+ * they are read. The datasheet names the format of every field that holds a
+ * signed number, and names neither of these two. An idle board reads 64 for
+ * each, which is the middle of the 0 to 127 range: what an ADC with nothing
+ * at its input reads, and nothing like the most negative value of a signed
+ * field. */
 static void
 cc2400_adctst (unsigned short v)
 {
