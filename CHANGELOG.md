@@ -57,6 +57,44 @@
   create the file and leave it empty while a later `-g` took the samples to
   the screen.
   [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
+- **Script-visible change:** a lone `-` is standard output for every capture
+  option that can stream, so `ubertooth-rx -q -` and `-d -`,
+  `ubertooth-dump -d -` and `ubertooth-follow -q -` and `-d -` pipe the
+  capture to another program, as `ubertooth-btle -q -` already did. Each used
+  to create a file called `-` in the working directory instead. The capture
+  owns standard output for the whole run, so the per-packet report is not
+  printed, and `-q -` with `-d -` is refused. A PcapNG capture cannot be
+  piped, because its writer seeks back over what it has written, so
+  `ubertooth-rx -r -` and `ubertooth-follow -r -` are refused with
+  `error: PCAPNG capture to stdout is not supported; use -q -` instead of
+  writing a file called `-` and capturing into it. `ubertooth-dfu -u -` is
+  refused for the same reason, since the read-back is written through a
+  temporary file and rewound if the read has to be retried.
+  [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
+- **Script-visible change:** `ubertooth-util -U <index|serial> -N` and
+  `-U all -N` are refused: `-N` counts the boards on the USB bus and asks
+  nothing of the board a selector names. Both used to print the count.
+  [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
+- `ubertooth-rx` and `ubertooth-follow` name a capture file they cannot create
+  in one `error: ` line: `error: /no/such/dir/capture.pcapng: No such file or
+  directory`, where they used to print
+  `ubertooth-rx: create_bredr_capture_file: : File exists`, naming an internal
+  function and no file. A `-q` file's line carries no reason, because the PCAP
+  writer prints its own and leaves none that can be trusted.
+  [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
+- **Script-visible change:** `ubertooth-dump` refuses a terminal on standard
+  output, with or without `-d -`, instead of filling it with the binary symbol
+  stream: `error: stdout is a tty, refusing to write binary dump data to it`.
+  [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
+- `btle-extcap.py` reports an option it does not know and an option whose
+  value is missing in the wording every other tool uses:
+  `error: unrecognized option '--bogus'` and
+  `error: option '--fifo' requires a value`, instead of passing on Python's
+  `option --bogus not recognized`.
+  [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
+- `ubertooth-btle` refuses two major modes with `error: choose one of -f, -n
+  or -p`; the line no longer addresses the reader.
+  [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
 - `-h` beside `-V`, `-H` or `--host-version` prints both answers, the usage
   text last, instead of only whichever was written first.
   [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
@@ -161,8 +199,9 @@
   combined) report every device and exit non-zero if a device cannot be opened
   or a query fails; `-U all` requests that listing explicitly, even for one
   device, and is refused for every other option but `-N`, saying which queries
-  it needs when none was given. `-U all -N` alone just prints the count, as
-  `-U 0 -N` does.
+  it needs when none was given. A `-U` selector with nothing but `-N` beside
+  it is refused, because `-N` counts the boards on the bus and asks nothing of
+  the one it names.
   [#6](https://github.com/SqueakyFloors/ubertooth/issues/6)
   [#27](https://github.com/SqueakyFloors/ubertooth/issues/27)
   [#28](https://github.com/SqueakyFloors/ubertooth/issues/28)
@@ -1206,6 +1245,10 @@
 
 ### Documentation
 
+- Every man page lists `-h` in its OPTIONS section, where a reader looks for
+  it: eleven of them only mentioned it elsewhere. ubertooth-specan(1) no
+  longer promises the usage text after a bad option, which no tool prints.
+  [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
 - `ubertooth-follow`'s man page describes what a board that refuses one of the
   follow's requests prints, including the note that says what to try, as
   ubertooth-rx(1) and ubertooth-scan(1) already did.

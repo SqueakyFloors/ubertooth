@@ -183,7 +183,7 @@ An option value must be a whole value in its range, or it is refused the same wa
 .P
 A bare \fB\-\fR is still the stdin/stdout value of \fB\-q\fR, \fB\-c\fR and \fB\-r\fR\. See ubertooth(7), OPTION VALUES, for the forms an option's value can take, including the optional values of \fB\-a\fR and \fB\-v\fR\.
 .P
-An option combination the tool cannot carry out is refused there too, before any device is opened, so the message never depends on which boards are attached: more than one of \fB\-f\fR, \fB\-n\fR and \fB\-p\fR gives \fBerror: choose one of \-f, \-n or \-p, pick one pal\fR, and a read and a set of the access address in one command gives \fBerror: \-a cannot both read and set the access address\fR\.
+An option combination the tool cannot carry out is refused there too, before any device is opened, so the message never depends on which boards are attached: more than one of \fB\-f\fR, \fB\-n\fR and \fB\-p\fR gives \fBerror: choose one of \-f, \-n or \-p\fR, and a read and a set of the access address in one command gives \fBerror: \-a cannot both read and set the access address\fR\.
 .P
 \fB\-a\fR or \fB\-s\fR alongside a sniffing mode gives \fBerror: \-a and \-s do not go with \-f, \-n or \-p: a sniffing mode runs until it is interrupted\fR, so there is nothing for an access address or faux slave mode request to run after\. \fB\-t\fR and \fB\-v\fR are not in that list: \fB\-t\fR is sent before the mode starts, which is what it is for, and the \fB\-v\fR options run once it has started\.
 .P

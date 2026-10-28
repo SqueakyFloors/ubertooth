@@ -105,7 +105,7 @@ Major modes:
 Download \- write DFU file to device
 .TP
 \fB\-u <output\.bin>\fR
-Upload \- read the application flash region, as much of it as the part has, into a raw file (see \fIREADING FLASH BACK\fR)
+Upload \- read the application flash region, as much of it as the part has, into a raw file (see \fIREADING FLASH BACK\fR)\. A lone \fB\-\fR is refused (\fBerror: \-u cannot write the read\-back to stdout; give a file name\fR): the dump is written through a temporary file and rewound if the read has to be retried, and a pipe allows neither
 .TP
 \fB\-r\fR
 Reset device after performing operation
@@ -117,6 +117,9 @@ Add DFU suffix to binary firmware file
 .TP
 \fB\-U <index|serial>\fR
 select the application\-mode Ubertooth by enumeration index or serial number; see ubertooth(7), SELECTING A DEVICE
+.TP
+\fB\-h\fR
+print the usage text on standard output and exit 0\. It takes effect once the whole command line has parsed, so a bad option value, a stray word or an option given twice is still reported\.
 .SH "READING FLASH BACK"
 \fB\-u <output\.bin>\fR is not the inverse of \fB\-d\fR: it writes a raw dump of the application flash region, from 0x4000 to the end of the part's flash, with no DFU suffix, so \fB\-d\fR refuses the result\. The dump holds the image that was written (its own suffix included, padded with 0xff to the next 256\-byte block), followed by whatever the rest of the region contains, normally 0xff\.
 .P

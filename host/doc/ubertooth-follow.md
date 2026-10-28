@@ -58,11 +58,15 @@ Requires BlueZ (Linux only).
    select an Ubertooth by enumeration index or serial number; see
    ubertooth(7), SELECTING A DEVICE
  - `-r <filename>` :
-   capture packets to a PCAPNG file.
+   capture packets to a PCAPNG file. A PcapNG writer seeks back over what it
+   has written, which standard output cannot do, so `-r -` is refused:
+   `error: PCAPNG capture to stdout is not supported; use -q -`
  - `-q <filename>` :
-   capture packets to a PCAP file.
+   capture packets to a PCAP file. `-q -` writes the capture to standard
+   output; see CAPTURING TO STANDARD OUTPUT
  - `-d <filename>` :
-   dump received symbols to the named file.
+   dump received symbols to the named file. `-d -` writes them to standard
+   output; see CAPTURING TO STANDARD OUTPUT
  - `-e <0-5>` :
    maximum access-code errors to tolerate (default: 2).
  - `-a` :
@@ -171,14 +175,45 @@ with its one line:
    `-a` beside half a pair still reports `-a` needing `-t`, since completing
    the pair would not let `-a` run.
 
+`-` means standard output only as the whole value of `-q` or `-d`
+(ubertooth(7), OPTION VALUES). Any other value is a file name, including one
+that starts with `-`: `-q -x` writes the file `-x`. Standard output carries
+one stream, so `-q -` and `-d -` in one command are refused:
+`error: -q and -d cannot both write to standard output`.
+
 What the tool is following — the target address, or the LAP and UAP it read
 from the local device — is reported on standard error, with the rest of the
 tool's progress. Standard output carries the decoded packets, and, with `-a`,
-the accepted channel map, which libbtbb prints itself.
+the accepted channel map, which libbtbb prints itself — unless a capture has
+taken that stream, and then the map is on standard error with the progress;
+see CAPTURING TO STANDARD OUTPUT.
 
 A refused command line creates and truncates nothing: `-r`, `-q` and `-d` name
 their file while the command line is read, and it is opened only once every
-check has passed.
+check has passed. A file that cannot be created is one `error: ` line naming
+it, for example
+`error: /no/such/dir/dump.bin: No such file or directory`, and exit 1. For a
+`-q` file the line carries no reason, `error: CAPTURE.pcap: could not be
+created`: the PCAP writer in libbtbb prints the reason itself, above that
+line, and leaves nothing this tool can trust.
+
+## CAPTURING TO STANDARD OUTPUT
+
+`-q -` writes the PCAP capture to standard output and `-d -` the raw symbols,
+for a pipe into another program. Either way the capture owns standard output
+for the whole run, so nothing else is printed there: not the decoded packets,
+and not the lines libbtbb prints about a clock it recovered. What the tool is
+following, the notes and the failures are on standard error and still arrive,
+and so is the `AFH map:` line of `-a`, which is the answer to that option.
+
+Redirect standard output to a new file or a pipe, not to one being appended
+to: on Linux the capture is opened again through `/proc/self/fd`, which
+truncates, so `ubertooth-follow -q - >> capture.pcap` loses what the file
+held.
+
+Binary on a terminal is a mistake rather than a stream anyone reads, so it is
+refused: `error: stdout is a tty, refusing to write binary capture data to
+it`, exit 1. Redirect or pipe standard output instead.
 
 ## EXIT STATUS
 

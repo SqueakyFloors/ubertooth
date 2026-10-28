@@ -26,6 +26,7 @@
 #include <limits.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 
 /* The -U line every tool's usage text prints, so the tools cannot drift
  * apart. The man pages repeat it in words and point at ubertooth(7). */
@@ -105,6 +106,43 @@ int opt_bd_addr_lap_uap(const uint8_t *address, uint32_t *lap, uint8_t *uap);
  * for example "samples"; NULL reads "output".
  */
 int opt_check_stdout_not_tty(const char *what);
+
+/*
+ * Where a capture option's value says to write, with a lone "-" meaning
+ * standard output (ubertooth(7), OPTION VALUES).
+ *
+ * opt_capture_path() is for a writer that opens a file name, as libbtbb's
+ * PCAP writers do: it returns the name to open, which the caller frees. Any
+ * value but "-" comes back as itself, including one that starts with "-", so
+ * "-q -x" writes the file "-x". A lone "-" gives back a path on this
+ * process's original standard output and sets *saved_fd to the descriptor
+ * behind it, which the caller closes once the writer has opened the path.
+ *
+ * opt_open_dump_file() is for a tool that writes the stream itself: it
+ * returns the open file, or standard output for a lone "-".
+ *
+ * Either way, taking standard output sends the tool's own standard output to
+ * /dev/null for the rest of the run, so nothing it prints can land in the
+ * middle of the capture; a tool whose lines the user still needs there has to
+ * print them to standard error instead. Both return NULL once the reason has
+ * been printed, which for "-" includes standard output being a terminal.
+ * <what> names the data in that refusal, for example "capture data".
+ */
+char *opt_capture_path(const char *filename, const char *what, int *saved_fd);
+FILE *opt_open_dump_file(const char *filename, const char *what);
+
+/*
+ * The one line for a capture file a writer would not create: the name the
+ * user gave, and the reason when there is a trustworthy one.
+ *
+ * Pass errno where the writer sets it, having cleared errno before the
+ * create so that a reason left by an earlier failed call is not reported as
+ * this one's. Pass 0 where it does not, and the line reads "<file>: could not
+ * be created": libbtbb's PCAP writer prints the real reason itself and leaves
+ * errno holding whatever its last internal call set, which on Linux is
+ * EINVAL for a path that does not exist.
+ */
+void opt_report_create_failure(const char *filename, int reason);
 
 /*
  * The one argument rule.

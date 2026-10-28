@@ -40,6 +40,9 @@ print the host tools version, as \fBHost tools version: libubertooth <version> (
 .TP
 \fB\-U <index|serial>\fR
 select an Ubertooth by enumeration index or serial number; see ubertooth(7), SELECTING A DEVICE
+.TP
+\fB\-h\fR
+print the usage text on standard output and exit 0\. It takes effect once the whole command line has parsed, so a bad option value, a stray word or an option given twice is still reported\.
 .SH "DETECTION AND MONITORING"
 \fBubertooth\-afh\fR does not stop on its own\. It keeps monitoring the piconet and reporting changes to the map until it is interrupted (Ctrl\-C), both with and without \fB\-t\fR\.
 .P

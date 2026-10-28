@@ -221,20 +221,43 @@ for option in sorted(named):
     value = ACCEPTED[option]
     argument = option if value is None else "%s=%s" % (option, value)
     result = run((argument,), listing=LISTING_ONE % SERIALS[0])
-    assert "not recognized" not in (result.stdout + result.stderr), \
+    assert "unrecognized option" not in (result.stdout + result.stderr), \
         (argument, result)
     assert result.returncode != 2, (argument, result)
 print("btle-extcap: the usage line names %d options, all accepted" % len(named))
 
 # an option that really is unknown still says so: one "error: " line on
 # standard error, with no usage line after it, nothing on standard output,
-# exit status 1
+# exit status 1. The wording is the one every other tool here gives for an
+# option it does not know, not getopt's.
 unknown = run(("--list-dlts",))
 assert unknown.returncode == 1, unknown
 assert unknown.stdout == "", unknown
-assert unknown.stderr.startswith("error: ") and \
-    "not recognized" in unknown.stderr, unknown
+assert unknown.stderr == "error: unrecognized option '--list-dlts'\n", unknown
 assert "Usage:" not in unknown.stderr, unknown
+
+# and a single letter it does not know, and a long option whose value is
+# missing, read the same way they do in the C tools
+unknown = run(("-Z",))
+assert unknown.returncode == 1, unknown
+assert unknown.stderr == "error: unrecognized option '-Z'\n", unknown
+# a single letter that is also the start of two long options is still the
+# single letter the user typed, not an abbreviation of either
+unknown = run(("-c",))
+assert unknown.returncode == 1, unknown
+assert unknown.stderr == "error: unrecognized option '-c'\n", unknown
+missing = run(("--fifo",))
+assert missing.returncode == 1, missing
+assert missing.stderr == "error: option '--fifo' requires a value\n", missing
+# an option that takes no value, given one
+extra = run(("--capture=yes",))
+assert extra.returncode == 1, extra
+assert extra.stderr == "error: option '--capture' takes no value\n", extra
+# an abbreviation that could be either of two options
+short = run(("--extcap-c",))
+assert short.returncode == 1, short
+assert short.stderr == \
+    "error: option '--extcap-c' is short for more than one option\n", short
 
 # an interface and no operation to carry out with it: the one "error: " line,
 # and the call fails rather than exiting 0 having done nothing
@@ -265,7 +288,7 @@ for version in (("--extcap-version=5.0",),
     result = run((*version, "--extcap-interfaces"),
                  listing=LISTING_ONE % SERIALS[0])
     assert result.returncode == 0, (version, result)
-    assert "not recognized" not in result.stderr, (version, result)
+    assert "unrecognized option" not in result.stderr, (version, result)
     assert interfaces(result) == [
         "interface {value=ubertooth%s}{display=Ubertooth One %s}"
         % ((SERIALS[0],) * 2),
@@ -327,8 +350,8 @@ for option in ("--extcap-reload-option=channel",
                   "--extcap-interface=ubertooth" + SERIALS[0], option))
     assert result.returncode == 1, (option, result)
     assert result.stdout == "", (option, result)
-    assert result.stderr.startswith("error: ") and \
-        "not recognized" in result.stderr, (option, result)
+    assert result.stderr.startswith("error: unrecognized option '--"), \
+        (option, result)
     assert "Usage:" not in result.stderr, (option, result)
 
 print("btle-extcap: Wireshark's start-up options are accepted")

@@ -735,6 +735,34 @@ MU_TEST(a_whole_address_and_its_lap_and_uap_follow_the_same_piconet)
 	          "-t and -l with -u reached the board as different addresses");
 }
 
+/* The map -a read is printed either way: libbtbb prints it on standard
+ * output, and a capture that has taken that stream would otherwise swallow
+ * it, so the tool prints it on standard error for such a run. The map is the
+ * answer to -a, so losing it is losing what the command was asked for. */
+MU_TEST(the_afh_map_is_printed_beside_a_capture_on_standard_output)
+{
+	struct run_result r;
+	const char* line = "AFH map: 0xffffffffffffffffffff\n";
+
+	reset_fake();
+	r = RUN(WHOLE_TARGET, "-a");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.out, line) != NULL, r.out);
+	/* The reading of it is reported on standard error ("AFH map read: ..."),
+	 * so only the map line itself is in question here. */
+	mu_assert(strstr(r.err, line) == NULL, r.err);
+
+	/* With the capture on standard output, the map line moves to standard
+	 * error, and nothing of it is left on standard output. (What the
+	 * capture itself wrote is not: libbtbb flushes it when the process
+	 * exits, which a main() called in a test never does.) */
+	reset_fake();
+	r = RUN(WHOLE_TARGET, "-a", "-q", "-");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.err, line) != NULL, r.err);
+	mu_assert(strstr(r.out, "AFH map") == NULL, r.out);
+}
+
 #ifndef TEST_REAL_API_REPORTS
 /* Built against an installed libubertooth, so there is no library source to
  * compile in: the report for a request the board's firmware has not got is a
@@ -1034,6 +1062,7 @@ int main(void)
 	MU_RUN(a_stream_that_cannot_start_gives_the_board_back);
 	MU_RUN(an_adapter_that_cannot_be_used_exits_1_on_standard_error);
 	MU_RUN(a_whole_address_and_its_lap_and_uap_follow_the_same_piconet);
+	MU_RUN(the_afh_map_is_printed_beside_a_capture_on_standard_output);
 	MU_RUN(half_a_lap_uap_pair_is_refused);
 	MU_RUN(a_failed_page_to_the_guessed_address_asks_for_t);
 	MU_RUN(a_refused_address_set_exits_1);

@@ -34,6 +34,9 @@ report the sweep on standard error; see VERBOSE OUTPUT\. Give it at most once: a
 .TP
 \fB\-U <index|serial>\fR
 select an Ubertooth by enumeration index or serial number; see ubertooth(7), SELECTING A DEVICE
+.TP
+\fB\-h\fR
+print the usage text on standard output and exit 0\. It takes effect once the whole command line has parsed, so a bad option value, a stray word or an option given twice is still reported\.
 .SH "EXAMPLES"
 To monitor the 2\.4GHz band and produce a file suitable for feedgnuplot:
 .P
@@ -49,7 +52,7 @@ ubertooth\-specan \-l 2440
 .P
 An option value must be a whole value in its range, or it is refused the same way instead of being read as 0, for example \fBerror: lower frequency must be 2402\-2480 MHz (got bad)\fR\.
 .P
-An option the tool does not know, and an option whose value is missing, are refused the same way, with the usage text after the \fBerror:\fR line on standard error: \fBerror: unrecognized option '\-Z'\fR and \fBerror: option '\-d' requires a value\fR\.
+An option the tool does not know, and an option whose value is missing, are refused the same way, as one \fBerror:\fR line on standard error with no usage text after it: \fBerror: unrecognized option '\-Z'\fR and \fBerror: option '\-d' requires a value\fR\.
 .P
 \fB\-\fR means standard output only as the whole value of \fB\-d\fR\. Any other value is a file name, including one that starts with \fB\-\fR: \fB\-d \-x\fR writes the file \fB\-x\fR, and a forgotten file name such as \fB\-d \-v\fR writes a file called \fB\-v\fR rather than streaming samples to the terminal and dropping the \fB\-v\fR\.
 .P

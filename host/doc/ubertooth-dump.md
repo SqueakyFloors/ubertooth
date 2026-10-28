@@ -26,10 +26,15 @@ carries over from an earlier capture. See ubertooth-util(1), SQUELCH.
  - `-l` :
    Bluetooth Low Energy (BLE) modulation
  - `-d <filename.bin>` :
-   Dump to file instead of stdout
+   Dump to file instead of stdout. A lone `-` is standard output, where the
+   stream goes anyway without `-d`
  - `-U <index|serial>` :
    select an Ubertooth by enumeration index or serial number; see
    ubertooth(7), SELECTING A DEVICE
+ - `-h` :
+   print the usage text on standard output and exit 0. It takes effect once
+   the whole command line has parsed, so a bad option value, a stray word or
+   an option given twice is still reported.
 
 ## ARGUMENTS
 
@@ -52,9 +57,14 @@ the command line is read, and it is opened only once every check has passed.
 ## DIAGNOSTICS
 
 Without `-d`, standard output carries the binary symbol stream and nothing
-else. Errors, warnings and the per-block timestamp go to standard error, each
-error as one line starting `error: `, for example
+else, and so does `-d -`. Errors, warnings and the per-block timestamp go to
+standard error, each error as one line starting `error: `, for example
 `error: /no/such/dir/capture.bin: No such file or directory`.
+
+A terminal is refused either way, before any device is opened:
+`error: stdout is a tty, refusing to write binary dump data to it`, exit 1.
+The stream is binary, so a terminal fills with control characters and the
+dump is lost. Redirect or pipe standard output instead.
 
 A command line the tool will not take is reported as that one `error: ` line
 on standard error, with no usage text after it: the line describes the

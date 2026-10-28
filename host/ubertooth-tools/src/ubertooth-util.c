@@ -771,7 +771,6 @@ int main(int argc, char *argv[])
 	char* ubertooth_device = NULL;
 	int requested[QUERY_COUNT]; /* identity queries, for the per-device listing */
 	int any_query, list_all;
-	int count_only;             /* -N, with at most a selector beside it */
 	int device_count = -1;      /* a successful ubertooth_count(), to reuse */
 	int modes[UTIL_MODE_COUNT]; /* exclusive mode options that were given */
 
@@ -1029,14 +1028,13 @@ int main(int argc, char *argv[])
 	/* -U all lists the read-only identity queries for every attached device,
 	 * so it is refused for anything that acts on one device: setters, modes
 	 * and other reads. -N asks about the bus rather than a device, so it is
-	 * allowed alongside the listing, and -N with nothing but -U all beside it
-	 * asks only for the count: nothing is listed and nothing is refused, just
-	 * as -U<index|serial> with -N alone counts and opens no board. Any other
-	 * refusal comes before -N prints, so a refused command line writes
-	 * nothing to standard output. */
-	count_only = do_number && !operations_besides_count;
+	 * allowed alongside the listing, but it is not a query the listing can
+	 * show: -U all with nothing but -N beside it is refused for having
+	 * nothing to list, exactly as -U all on its own is. Every refusal here
+	 * comes before -N prints, so a refused command line writes nothing to
+	 * standard output. */
 	list_all = (ubertooth_device != NULL && strcmp(ubertooth_device, "all") == 0);
-	if (list_all && !count_only && (other_operations || !any_query)) {
+	if (list_all && (other_operations || !any_query)) {
 		if (other_operations)
 			fprintf(stderr, "error: -U all only supports the read-only queries "
 			        "-b, -v, -V, -p and -s; select one device with "
@@ -1052,8 +1050,13 @@ int main(int argc, char *argv[])
 	/* A command line that asks for nothing is a mistake, not a no-op:
 	 * without this it would open the selected device, do nothing with it and
 	 * exit 0. -N is an operation in its own right, and -h, -H and
-	 * --host-version have already ended the command above. */
-	if (!do_number && !operations_besides_count) {
+	 * --host-version have already ended the command above.
+	 *
+	 * -N counts the boards on the USB bus and asks nothing of any one of
+	 * them, so a -U selector beside it still selects a device that nothing
+	 * acts on: that is refused in the same words as -U on its own, rather
+	 * than printing a count the selector had no part in. */
+	if (!operations_besides_count && (ubertooth_device != NULL || !do_number)) {
 		/* The selector is quoted, as every other message quoting the user's
 		 * input is: an empty -U value would otherwise read as no value. */
 		if (ubertooth_device != NULL)
@@ -1078,8 +1081,8 @@ int main(int argc, char *argv[])
 		else
 			printf("%d\n", device_count);
 		fflush(stdout);
-		/* -N, with at most a selector beside it, asks for nothing that needs
-		 * a device. */
+		/* -N on its own asks for nothing that needs a device. A selector
+		 * beside it was refused above. */
 		if (!operations_besides_count)
 			return status;
 	}

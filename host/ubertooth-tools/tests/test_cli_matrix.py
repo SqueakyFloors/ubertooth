@@ -686,9 +686,9 @@ def check_the_spec_lists_every_option():
                                  "no option it applies to has"
                                  % (where, rule["a"], rule["b"], side)))
 
-    # The man page the spec cites has to be there, and it has to list -h:
-    # eleven of them do not, which is finding F-09. It gets a case id of its
-    # own so that finding can claim it like any other.
+    # The man page the spec cites has to be there, and it has to list -h,
+    # where a reader looks for it. It gets a case id of its own, so a finding
+    # about a page can claim it like one about a command line.
     page = CONTRACT.get("man")
     if page is not None and page.endswith(".md"):
         path = os.path.join(here, "..", "..", "doc", page)
@@ -1278,7 +1278,7 @@ def main():
     # man page it cites. Neither is a command line, so each gets a case id of
     # its own and then goes through the same expected-failure machinery as a
     # run: a mismatch in the table means the matrix is not covering what it
-    # claims, and a page with no -h is finding F-09.
+    # claims.
     spec_problems = {}
     for identifier, problem in check_the_spec_lists_every_option():
         spec_problems.setdefault(identifier, []).append(problem)

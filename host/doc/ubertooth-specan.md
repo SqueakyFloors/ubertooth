@@ -38,6 +38,10 @@ Options:
  - `-U <index|serial>` :
    select an Ubertooth by enumeration index or serial number; see
    ubertooth(7), SELECTING A DEVICE
+ - `-h` :
+   print the usage text on standard output and exit 0. It takes effect once
+   the whole command line has parsed, so a bad option value, a stray word or
+   an option given twice is still reported.
 
 ## EXAMPLES
 
@@ -64,8 +68,8 @@ way instead of being read as 0, for example
 `error: lower frequency must be 2402-2480 MHz (got bad)`.
 
 An option the tool does not know, and an option whose value is missing, are
-refused the same way, with the usage text after the `error: ` line on standard
-error: `error: unrecognized option '-Z'` and
+refused the same way, as one `error: ` line on standard error with no usage
+text after it: `error: unrecognized option '-Z'` and
 `error: option '-d' requires a value`.
 
 `-` means standard output only as the whole value of `-d`. Any other value is a

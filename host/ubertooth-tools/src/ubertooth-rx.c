@@ -23,12 +23,12 @@
 #include "ubertooth_callback.h"
 #include "opt_parse.h"
 #include "request_report.h"
-#include <err.h>
 #include <errno.h>
 #include <getopt.h>
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 static void usage(FILE *file)
 {
@@ -63,20 +63,6 @@ static void usage(FILE *file)
 	fprintf(file, "Miscellaneous:\n");
 	fprintf(file, "\t-V print version information\n");
 	fputs(OPT_USAGE_SELECT_DEVICE, file);
-}
-
-/* err(3) ends the process, so the handle it leaves behind costs nothing -- but
- * a capture file already created on that handle is not written out. Close and
- * free it first, keeping the errno err() is about to report, which free() is
- * allowed to change. libbtbb leaves the handle it could not create NULL, so
- * only files that were created are closed. */
-static void release_before_err(ubertooth_t* ut)
-{
-	int failure = errno;
-
-	ubertooth_close(ut);
-	ubertooth_free(ut);
-	errno = failure;
 }
 
 /* Names the request the board refused, says why and what to try, and gives the
@@ -146,6 +132,12 @@ int main(int argc, char* argv[])
 	 * 72 MB fifo. */
 	ubertooth_t* ut = NULL;
 
+	/* Where the survey results go: standard output, unless a capture on "-"
+	 * has taken it, in which case they would go to /dev/null with the rest
+	 * of this process's standard output. The survey is what -z was asked
+	 * for, so it is printed on standard error rather than lost. */
+	FILE* report_stream = stdout;
+
 	/* The tool reports a bad option itself, in the usual one-line form:
 	 * see opt_report_bad_option(). The leading ':' makes a missing option
 	 * value distinguishable from an option getopt does not know. */
@@ -175,6 +167,15 @@ int main(int argc, char* argv[])
 		 * whole command line has been accepted, so a refused command
 		 * leaves the filesystem alone. */
 		case 'r':
+			/* A PcapNG writer seeks back to finish the blocks it has
+			 * written, which standard output cannot do, so a lone "-"
+			 * is refused here rather than taken as the file name "-".
+			 * The PCAP writer does not seek: -q takes it. */
+			if (strcmp(optarg, "-") == 0) {
+				fputs("error: PCAPNG capture to stdout is not supported;"
+				      " use -q -\n", stderr);
+				return 1;
+			}
 			pcapng_name = optarg;
 			break;
 		case 'q':
@@ -250,6 +251,15 @@ int main(int argc, char* argv[])
 		return 1;
 	}
 
+	/* Standard output carries one stream, so only one capture can have it:
+	 * a PCAP file and a packet dump interleaved there would be neither. */
+	if (pcap_name != NULL && dump_name != NULL &&
+	    strcmp(pcap_name, "-") == 0 && strcmp(dump_name, "-") == 0) {
+		fputs("error: -q and -d cannot both write to standard output\n",
+		      stderr);
+		return 1;
+	}
+
 	/* A UAP is only usable with the LAP it belongs to. This is an argument
 	 * error like the survey check above, so it is refused here rather than
 	 * after a device has been opened, where it used to depend on whether a
@@ -280,21 +290,56 @@ int main(int argc, char* argv[])
 			return 1;
 		}
 	}
+	errno = 0;
 	if (pcapng_name != NULL &&
 	    btbb_pcapng_create_file(pcapng_name, "Ubertooth", &ut->h_pcapng_bredr)) {
-		release_before_err(ut);
-		err(1, "create_bredr_capture_file: ");
+		opt_report_create_failure(pcapng_name, errno);
+		ubertooth_close(ut);
+		ubertooth_free(ut);
+		return 1;
 	}
-	if (pcap_name != NULL &&
-	    btbb_pcap_create_file(pcap_name, &ut->h_pcap_bredr)) {
-		release_before_err(ut);
-		err(1, "btbb_pcap_create_file: ");
+	if (pcap_name != NULL) {
+		/* A lone "-" is standard output, which the capture then owns:
+		 * see opt_capture_path(). The per-packet report this tool
+		 * prints there goes nowhere for such a run, which is what the
+		 * man page says of it; the notes and failures are on standard
+		 * error and still arrive. */
+		int saved_fd;
+		char *file = opt_capture_path(pcap_name, "capture data", &saved_fd);
+		int failed;
+
+		if (file == NULL) {
+			if (saved_fd >= 0)
+				close(saved_fd);
+			ubertooth_close(ut);
+			ubertooth_free(ut);
+			return 1;
+		}
+		errno = 0;
+		failed = btbb_pcap_create_file(file, &ut->h_pcap_bredr);
+		if (saved_fd >= 0) {
+			/* The capture has standard output, which is /dev/null for
+			 * this process from here on. */
+			report_stream = stderr;
+			close(saved_fd);
+		}
+		free(file);
+		if (failed) {
+			/* The name the user gave, not the /dev/fd path a lone
+			 * "-" is opened through, and no reason: the PCAP writer
+			 * prints the real one itself and leaves errno holding
+			 * whatever it last set. */
+			opt_report_create_failure(pcap_name, 0);
+			ubertooth_close(ut);
+			ubertooth_free(ut);
+			return 1;
+		}
 	}
 	if (dump_name != NULL) {
-		dumpfile = fopen(dump_name, "w");
+		dumpfile = opt_open_dump_file(dump_name, "dump data");
+		if (dumpfile != NULL && strcmp(dump_name, "-") == 0)
+			report_stream = stderr;
 		if (dumpfile == NULL) {
-			fprintf(stderr, "error: %s: %s\n",
-			        dump_name, strerror(errno));
 			/* The capture files are on the handle, so the close is
 			 * what gets them written out and shut; it opened no
 			 * board yet, and does nothing on a handle that has
@@ -473,17 +518,17 @@ int main(int argc, char* argv[])
 	}
 
 	if(survey_mode) {
-		printf("Survey Results\n");
+		fprintf(report_stream, "Survey Results\n");
 		while((pn=btbb_next_survey_result()) != NULL) {
 			lap = btbb_piconet_get_lap(pn);
 			if (btbb_piconet_get_flag(pn, BTBB_UAP_VALID)) {
 				uap = btbb_piconet_get_uap(pn);
 				/* Printable version showing that the NAP is unknown */
-				printf("??:??:%02X:%02X:%02X:%02X\n", uap,
+				fprintf(report_stream, "??:??:%02X:%02X:%02X:%02X\n", uap,
 						(lap >> 16) & 0xFF, (lap >> 8) & 0xFF, lap & 0xFF);
 			} else
-				printf("??:??:??:%02X:%02X:%02X\n", (lap >> 16) & 0xFF,
-					   (lap >> 8) & 0xFF, lap & 0xFF);
+				fprintf(report_stream, "??:??:??:%02X:%02X:%02X\n",
+					   (lap >> 16) & 0xFF, (lap >> 8) & 0xFF, lap & 0xFF);
 			//btbb_print_afh_map(pn);
 		}
 	}

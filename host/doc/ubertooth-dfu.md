@@ -213,7 +213,10 @@ Major modes:
    Download - write DFU file to device
  - `-u <output.bin>` :
    Upload - read the application flash region, as much of it as the part has,
-   into a raw file (see [READING FLASH BACK][])
+   into a raw file (see [READING FLASH BACK][]). A lone `-` is refused
+   (`error: -u cannot write the read-back to stdout; give a file name`): the
+   dump is written through a temporary file and rewound if the read has to be
+   retried, and a pipe allows neither
  - `-r` :
    Reset device after performing operation
 
@@ -224,6 +227,10 @@ Miscellaneous:
  - `-U <index|serial>` :
    select the application-mode Ubertooth by enumeration index or serial
    number; see ubertooth(7), SELECTING A DEVICE
+ - `-h` :
+   print the usage text on standard output and exit 0. It takes effect once
+   the whole command line has parsed, so a bad option value, a stray word or
+   an option given twice is still reported.
 
 ## READING FLASH BACK
 

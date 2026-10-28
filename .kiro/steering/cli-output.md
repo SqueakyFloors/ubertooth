@@ -12,8 +12,17 @@ stream a line is on.
 - The result of the command: requested reports (`ubertooth-util -v`,
   `-s`, `-b`), decoded packets and dumps, survey results, spectrum samples.
 - Capture data when the file argument is `-` (`ubertooth-btle -q -`,
-  `ubertooth-specan -d -`). In that case nothing else is written to standard
-  output for the whole run, not even the result lines above.
+  `ubertooth-rx -q -` and `-d -`, `ubertooth-dump -d -`,
+  `ubertooth-follow -q -` and `-d -`, `ubertooth-specan -d -`). In that case
+  nothing else is written to standard output for the whole run, not even the
+  result lines above: a line the user still needs goes to standard error
+  instead (`ubertooth-rx -z` prints its survey results there). Only one
+  capture can have that stream, so a tool whose two capture options are
+  separate writers refuses the second (`ubertooth-rx -q - -d -`), and one
+  that shares a single handle between them keeps ignoring the extra with a
+  `warning: ` (`ubertooth-btle -q - -c -`). A destination whose writer seeks
+  back over what it has written cannot be a pipe at all, so the PcapNG
+  options and `ubertooth-dfu -u` refuse `-` and say what to use instead.
 - The running commentary of an operation that *is* the command, rather than a
   note about the tool: `ubertooth-util -n` runs a range test and its
   `waiting for the repeater... (<n> s)` lines lead to the result they belong
@@ -55,6 +64,14 @@ printed.
   value is missing, a combination that cannot work, a value out of range, a
   stray word, and nothing to do on a command line that did say something. No
   tool is an exception.
+- One wording for a command line the option parser will not take, whatever
+  the language: `error: unrecognized option '-Z'`,
+  `error: unrecognized option '--bogus'` and
+  `error: option '-d' requires a value`. The C tools get it from
+  `opt_report_bad_option()`; `ubertooth-btbr` and `btle-extcap.py` rewrite
+  Python's `getopt` wording to the same lines. A tool that takes no long
+  option adds `: the tools take single-letter options` to the second, which
+  is why `btle-extcap.py`, whose long options are Wireshark's, does not.
 - libubertooth and libbtbb never write to standard output. Their diagnostics
   go to standard error (or are returned to the caller).
 - Firmware of another API version is an `error: ` in a release build, which

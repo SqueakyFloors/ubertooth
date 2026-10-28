@@ -53,8 +53,16 @@ swallows the option after it: `-c -b` reads the channel and then the board ID,
 while `-z -90` sets the squelch to -90 dBm. A long option takes `--name value` or
 `--name=value`, never attached without the `=` (no long option takes a value
 today; this is for consistency with `getopt_long`). A lone `-` as the value of
-a file option means standard input or standard output, so `ubertooth-btle -q -`
-writes the capture to stdout.
+a file option means standard output, so `ubertooth-btle -q -` writes the
+capture to stdout. No option reads its input from a lone `-`: for those it is
+a file name like any other, and there is no such file. Any other value is a
+file name too, including one that starts with `-`, so a forgotten file name
+writes a file rather than guessing. A destination whose writer seeks back over
+what it has written cannot be `-` at all, which a pipe does not allow: the
+PcapNG captures (`-r`) and `ubertooth-dfu -u` refuse it and say what to use
+instead. Standard output carries one stream, so two capture options cannot
+both have it, and the tool whose capture has it prints none of its own packet
+report there.
 
 An option may be given a value only once. `-l 446688 -l aabbcc` names two
 LAPs for one capture, so it is refused with `error: option '-l' given more
