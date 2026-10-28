@@ -160,13 +160,12 @@
   those tools still cannot drive that image and now fail on the first request
   it does not answer.
   [#556](https://github.com/SqueakyFloors/ubertooth/issues/556)
-- **Reflash required:** the firmware API version is now 1.39, last moved by the
-  low-energy engine's waits being bounded and named, and the host tools require
-  firmware of exactly their own API version, older or newer. Host and firmware
-  come from the same
-  tree: `ubertooth-dfu` reflashes a board whatever firmware it is running, but
-  only with an image built from this tree, and `2020-12-R1` firmware is
-  refused.
+- **Reflash required:** the firmware API version is now 1.40, last moved by the
+  noise figure in a Classic record becoming a real measurement, and the host
+  tools require firmware of exactly their own API version, older or newer. Host
+  and firmware come from the same tree: `ubertooth-dfu` reflashes a board
+  whatever firmware it is running, but only with an image built from this tree,
+  and `2020-12-R1` firmware is refused.
   [#4](https://github.com/SqueakyFloors/ubertooth/issues/4)
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
@@ -181,6 +180,7 @@
   [#570](https://github.com/SqueakyFloors/ubertooth/issues/570)
   [#571](https://github.com/SqueakyFloors/ubertooth/issues/571)
   [#505](https://github.com/SqueakyFloors/ubertooth/issues/505)
+  [#658](https://github.com/SqueakyFloors/ubertooth/issues/658)
 - Every firmware image now carries a block naming the image and the revision
   it was built from, read the same way off a board and out of a file.
   `ubertooth-dfu -d` says which image a file holds before it writes it
@@ -312,6 +312,18 @@
   reset caught in one of those handlers used to be reported as the mode's loop
   servicing USB, which is also what a reset caught in the loop itself reports.
   [#505](https://github.com/SqueakyFloors/ubertooth/issues/505)
+- A Classic capture's noise figure and signal-to-noise ratio are what the radio
+  heard, instead of a fixed -55 dBm in every record. The per-channel average
+  behind them was cleared once per packet, so it never built up. A positive
+  `ubertooth-util -z` finally means what it says, N dB above the measured noise
+  floor: it was computed from an average pinned near the top of the radio's
+  range, which made it a near-total squelch, and it now passes most of what the
+  board hears.
+  [#658](https://github.com/SqueakyFloors/ubertooth/issues/658)
+- `ubertooth-btle -p` no longer latches a wrong connection interval and reports
+  it for the rest of the run when a packet arrives just after the capture clock
+  wraps.
+  [#659](https://github.com/SqueakyFloors/ubertooth/issues/659)
 - `ubertooth-follow -l <LAP> -u <UAP>` says what to do when its connection to
   the target fails: those four bytes leave the connection to be made to a
   guessed `00:00:<UAP>:<LAP>`, so the failure now asks for the whole address

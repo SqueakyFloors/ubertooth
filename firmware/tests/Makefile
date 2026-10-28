@@ -22,7 +22,7 @@ HOST_DFU := ../../host/ubertooth-tools/src
 HOST_LIB := ../../host/libubertooth/src
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_le_phy_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_grmdm_rx_generic test_tx_generic_bounds test_write_registers_bounds test_btbr_hop test_btbr_rx_deadline test_btbr_arithmetic test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_watchdog
+TESTS   := test_minunit test_rssi test_bluetooth_hop test_access_code test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_promisc_hop_interval test_le_phy_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_grmdm_rx_generic test_tx_generic_bounds test_write_registers_bounds test_btbr_hop test_btbr_rx_deadline test_btbr_arithmetic test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_watchdog
 BINDIR  := bin
 
 .PHONY: all test clean
@@ -116,6 +116,15 @@ $(BINDIR)/test_mode_dispatch: test_mode_dispatch.c minunit.h source_scan.h \
 		$(FW_RXTX)/bluetooth_rxtx.c | $(BINDIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
 		-o $@ test_mode_dispatch.c
+
+# The connection-interval estimator reads the clock registers, so this models
+# it and takes the rollover period and LE_BASECLK out of the source, the same
+# way. FW_RXTX_DIR points it at both files; it links nothing from the firmware.
+$(BINDIR)/test_promisc_hop_interval: test_promisc_hop_interval.c minunit.h \
+		source_scan.h $(FW_RXTX)/bluetooth_rxtx.c \
+		$(FW_RXTX)/ubertooth_clock.h | $(BINDIR)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
+		-o $@ test_promisc_hop_interval.c
 
 # le_phy_main() brings the PHY up and tears it down around le_phy_active, and
 # the order of those writes is what keeps a stray interrupt harmless. It is

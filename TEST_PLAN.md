@@ -41,7 +41,7 @@ A second Ubertooth One for the range test (2i).
 
 ### 2a. Firmware version check
 - [ ] Run `ubertooth-util -v`
-- [ ] Confirm: returns `Firmware version: <image> <revision> (API:1.39)` (firmware
+- [ ] Confirm: returns `Firmware version: <image> <revision> (API:1.40)` (firmware
       built from this tree; the host tools refuse any other API version, and a
       board whose firmware has no info block shows the revision without an
       image name)
@@ -386,6 +386,12 @@ nRF52840 DKs) plus one Ubertooth.*
 ### 5a. Basic BR/EDR capture
 - [ ] Run `ubertooth-rx` for 10 seconds
 - [ ] Confirm: no crash, some output
+- [ ] Look at the `n=` noise figure: over a capture long enough to visit many
+      channels it should move, not sit at one value in every record. The
+      per-channel average behind it takes a few hundred packets to build up, so
+      a short capture, or one spent on a few channels, can legitimately show the
+      same figure throughout. A single value across hundreds of records on many
+      channels is the fault to report
 
 ### 5b. Paging (PR #540 fix)
 *Requires: the board carrying the `btbr` image*

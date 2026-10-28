@@ -306,6 +306,14 @@ static int streams_symbols(uint8_t m)
  * left alone. The channel is also the one the host set for the capture it is
  * starting, a request or two before this one.
  *
+ * The per-channel averages are left alone for the same reason, and unlike the
+ * dispatch, which drops them. They are not something the mode configures: they
+ * are what the radio has been hearing on each channel, and the three modes here
+ * all receive the same modulation over the same 79 channels. The receive never
+ * stopped, so the measurement still holds -- and dropping it would cost the new
+ * capture the few hundred packets the filter needs to build up again, which it
+ * would spend reporting the -55 dBm an empty filter gives.
+ *
  * Call this before the request's own setup, which is what the absorbed mode
  * starts from. Re-sending the mode that is already streaming resets nothing:
  * it is not a mode start, and the dispatch does not reset for one either. That
@@ -2694,7 +2702,7 @@ void promisc_recover_hop_interval(u8 *packet) {
 
 	u32 cur_clk = CLK100NS;
 	if (cur_clk < prev_clk)
-		cur_clk += 3267800000; // handle rollover
+		cur_clk += CLK100NS_PERIOD; // handle rollover
 	u32 clk_diff = cur_clk - prev_clk;
 	u16 obsv_hop_interval; // observed hop interval
 
@@ -3318,6 +3326,20 @@ int main()
 			cc2400_idle();
 			usb_irq = usb_irq_hold();
 			usb_queue_init();
+			/*
+			 * The per-channel averages go with the queued packets, and for
+			 * the same reason: they describe the band during a capture that
+			 * has ended. This is the one place that is true, which is why
+			 * the clear is here and not in cc2400_idle() -- that runs at
+			 * boot and in the middle of the two low-energy modes, and a
+			 * clear there would keep restarting the filter under a running
+			 * capture.
+			 *
+			 * Inside the same hold, because the averages are read from the
+			 * USB interrupt too: a squelch set relative to them recomputes
+			 * the threshold from the handler.
+			 */
+			rssi_iir_reset();
 			usb_irq_release(usb_irq);
 		}
 
