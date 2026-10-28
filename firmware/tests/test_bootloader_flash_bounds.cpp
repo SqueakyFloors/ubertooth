@@ -91,6 +91,11 @@ static unsigned blank_checks;
 static unsigned reads;        /* reads out of flash */
 static unsigned programs;     /* copy_ram_to_flash calls */
 static unsigned erases;
+/* The CPU clock the last erase and the last program were given. The ROM needs
+ * it to time both, so a board whose clock is not this figure is timed off
+ * someone else's. */
+static uint32_t erase_cclk_khz;
+static uint32_t program_cclk_khz;
 static int faulted;           /* a read ran past the end of flash */
 static int touched_absent;    /* a write was aimed past the end of flash */
 
@@ -159,7 +164,7 @@ IAP::ReturnCode IAP::erase_sectors(const uint32_t start_sector_number,
 {
 	uint32_t sector;
 
-	(void)cpu_clock_frequency_khz;
+	erase_cclk_khz = cpu_clock_frequency_khz;
 	erases++;
 	if (!sectors_present(start_sector_number, end_sector_number)) {
 		touched_absent = 1;
@@ -187,7 +192,7 @@ IAP::ReturnCode IAP::copy_ram_to_flash(const uint32_t destination_flash_address,
 	const uint32_t end = destination_flash_address + number_of_bytes_to_write;
 
 	(void)source_ram_address;
-	(void)cpu_clock_frequency_khz;
+	program_cclk_khz = cpu_clock_frequency_khz;
 	programs++;
 	if (end > present_flash)
 		touched_absent = 1;
@@ -225,6 +230,8 @@ static void attach_part(uint32_t part_id, uint32_t flash_size)
 	reads = 0;
 	programs = 0;
 	erases = 0;
+	erase_cclk_khz = 0;
+	program_cclk_khz = 0;
 	faulted = 0;
 	touched_absent = 0;
 	memset(fake_flash, PROGRAMMED_BYTE, flash_size);
@@ -486,6 +493,32 @@ MU_TEST(test_a_block_inside_the_part_is_written)
 	mu_assert_int_eq(PROGRAMMED_BYTE, fake_flash[BOOTLOADER_LIMIT - 1]);
 	mu_assert(!touched_absent, "a block inside the part's flash was aimed past it");
 	mu_assert(guard_intact(), "a block inside the part's flash reached the guard");
+}
+
+/*
+ * The erase and the program are timed off the board's own CPU clock.
+ *
+ * In-Application Programming is given the clock in kHz so the ROM can time a
+ * flash erase and a program, and the bootloader held one fixed figure for
+ * every board it has branches for. This is the figure for the boards built
+ * with a 100 MHz clock (firmware/common/ubertooth.h); the ToorCon 13 badge
+ * runs at 30 MHz and gets its own, which cannot be exercised here because the
+ * test compiles one board at a time.
+ */
+MU_TEST(test_the_flash_commands_are_timed_off_the_boards_clock)
+{
+	uint8_t in[TRANSFER_SIZE];
+	Flash flash;
+
+	attach_part(PART_LPC1754, 128 * 1024);
+	fill_block(in, 0x5a);
+	mu_assert_int_eq(DFU_STATUS_OK, dnload(flash, BOOTLOADER_LIMIT,
+	                                       TRANSFER_SIZE, in));
+	mu_assert_int_eq(1, (int)programs);
+	mu_assert(erases > 0, "the block was programmed without an erase, so "
+	                      "the erase's clock is not being checked");
+	mu_assert_int_eq(100000, (int)erase_cclk_khz);
+	mu_assert_int_eq(100000, (int)program_cclk_khz);
 }
 
 /* The last block of a 128 KiB part is written; the first block past it is not. */
@@ -1321,6 +1354,7 @@ int main(void)
 	MU_RUN(test_a_512k_part_reads_back_all_of_it);
 
 	MU_RUN(test_a_block_inside_the_part_is_written);
+	MU_RUN(test_the_flash_commands_are_timed_off_the_boards_clock);
 	MU_RUN(test_the_first_block_past_a_128k_part_is_not_written);
 	MU_RUN(test_every_block_past_a_128k_part_is_not_written);
 	MU_RUN(test_a_block_that_ends_past_the_part_is_not_written);

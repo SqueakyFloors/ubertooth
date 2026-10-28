@@ -130,7 +130,7 @@ static void page_scan_rx_id_cb(int sw_detected, void *arg)
 
 static void page_scan_schedule(unsigned delay)
 {
-	if (MASTER_CLKN >= page_scan_state.clkn_start + PAGE_SCAN_MAX_TICKS)
+	if (clkn_elapsed(MASTER_CLKN, page_scan_state.clkn_start, PAGE_SCAN_MAX_TICKS))
 	{
 		cprintf("page scan timeout\n");
 		btctl_set_state(BTCTL_STATE_STANDBY, BTCTL_REASON_TIMEOUT);

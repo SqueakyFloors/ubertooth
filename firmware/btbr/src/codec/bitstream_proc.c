@@ -495,8 +495,11 @@ int unfec23(uint8_t *out, uint8_t *in, unsigned in_of, unsigned nbits)
 	int out_bit_pos=0;
 	int rc = 0;
 
-	/* align output to 10 bits */
-	nbits = (10*nbits+9)/10;
+	/* Round the output up to a whole 10-bit group, because the loops below
+	 * write a group at a time and the last one can run past nbits. The
+	 * division alone was an identity and left the clear below a byte short
+	 * of what they write. */
+	nbits = ((nbits+9)/10)*10;
 
 	/* clear output buffer */
 	memset(out, 0, BYTE_ALIGN(nbits));

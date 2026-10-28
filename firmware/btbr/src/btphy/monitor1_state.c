@@ -134,7 +134,7 @@ static void monitor1_rx_id_cb(int sw_detected, void *arg)
 
 static void monitor1_schedule(unsigned delay)
 {
-	if (MASTER_CLKN >= monitor1_state.clkn_start + PAGE_SCAN_MAX_TICKS)
+	if (clkn_elapsed(MASTER_CLKN, monitor1_state.clkn_start, PAGE_SCAN_MAX_TICKS))
 	{
 		cprintf("monitor1 timeout\n");
 		btctl_set_state(BTCTL_STATE_STANDBY, BTCTL_REASON_TIMEOUT);

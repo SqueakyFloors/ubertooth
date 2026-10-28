@@ -64,8 +64,11 @@ int main()
 		 * See watchdog_usb_ready() in firmware/common/watchdog.h. */
 		watchdog_usb_ready();
 
-		/* Flush console once per second */
-		if ((clk = MASTER_CLKN) >= clk_prev+3200)
+		/* Flush console once per second. Elapsed ticks, not an absolute
+		 * deadline: clk_prev is always a reading already taken, and the
+		 * difference carries across the free-running counter's wrap,
+		 * where an addition would stop the flush for a whole period. */
+		if ((clk = MASTER_CLKN) - clk_prev >= CLKN_RATE)
 		{
 			console_flush();
 			clk_prev = clk;

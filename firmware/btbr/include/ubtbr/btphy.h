@@ -51,6 +51,19 @@ extern btphy_t btphy;
 #define CUR_MASTER_SLOT_IDX()	(btphy.master_clkn&3)
 #define CUR_SLAVE_SLOT_IDX()	(btphy.slave_clkn&3)
 
+/* Have `ticks` of the clock gone by since `start`?
+ *
+ * The clock is a free-running 32-bit counter, so an absolute deadline reached
+ * by adding to `start` lands below the start whenever the sum wraps, and the
+ * comparison then reports a timeout on its first pass. A start can also sit a
+ * few ticks in the future, which is why the difference is read as signed:
+ * that reads as "not yet", where an unsigned difference would be a very large
+ * elapsed count. Good for anything up to 2^31 ticks, a week of clock. */
+static inline int clkn_elapsed(uint32_t now, uint32_t start, uint32_t ticks)
+{
+	return (int32_t)(now - start) >= (int32_t)ticks;
+}
+
 static inline uint32_t btphy_cur_clkn(void)
 {
 	switch(btphy.mode)

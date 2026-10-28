@@ -365,8 +365,15 @@ static int rx_decode(uint8_t p1, uint8_t p2, uint16_t p3)
 	int rc, last;
 	btctl_rx_pkt_t *pkt = rx_task.rx_pkt;
 
-	/* Check if we're in the last slot according to BT spec table 6.2 */
-	last = --rx_task.slot_num == 0;
+	/* Check if we're in the last slot according to BT spec table 6.2. That
+	 * is what decides whether to wait for the rest of the packet's bytes
+	 * before decoding; the decode itself ends when the codec says it is
+	 * done. The count has a floor, because decrementing a zero would wrap
+	 * to 255 and the slots after a decode that never finished would then
+	 * each be taken for an early one. */
+	if (rx_task.slot_num > 0)
+		rx_task.slot_num--;
+	last = rx_task.slot_num == 0;
 
 	/* Reverse the dma buf */
 	size=rx_buf_update();

@@ -757,6 +757,10 @@ int main(int argc, char *argv[])
 		follow_cleanup(ut, sock, handle, cc);
 		return 1;
 	}
+	/* The controller answers in little-endian order, which has to be
+	 * brought into host order before any arithmetic on it. ubertooth-scan
+	 * does the same with the clock offset it prints. */
+	clock = btohl(clock);
 	if (cc) {
 		if (hci_read_clock_offset(sock, handle, &offset,
 		                         HCI_TIMEOUT_MS) < 0) {
@@ -765,7 +769,7 @@ int main(int argc, char *argv[])
 			follow_cleanup(ut, sock, handle, cc);
 			return 1;
 		}
-		clock += (offset<<2);   // Correct offset
+		clock += (btohs(offset) << 2);   // Correct offset
 	}
 	/* The delay is counted in the clock's own ticks here, so a large -w
 	 * cannot overflow a signed multiplication on the way: the clock is a

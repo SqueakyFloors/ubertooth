@@ -614,6 +614,9 @@ void cb_afh_initial(ubertooth_t* ut, void* args)
 	char syms[BANK_LEN];
 	ubertooth_unpack_symbols((uint8_t*)rx->data, syms);
 
+	/* Sanity check: the channel names a bit of the AFH map below */
+	if (rx->channel > (NUM_BREDR_CHANNELS-1))
+		goto out;
 
 	if( btbb_find_ac(syms, BANK_LEN - AC_SYMBOLS, btbb_piconet_get_lap(pn), max_ac_errors, &pkt) < 0 )
 		goto out;
@@ -662,9 +665,12 @@ void cb_afh_monitor(ubertooth_t* ut, void* args)
 	char syms[BANK_LEN];
 	ubertooth_unpack_symbols((uint8_t*)rx->data, syms);
 
-	static unsigned long last_seen[79] = {0};
+	static unsigned long last_seen[NUM_BREDR_CHANNELS] = {0};
 	static unsigned long counter = 0;
 
+	/* Sanity check: the channel indexes last_seen below */
+	if (rx->channel > (NUM_BREDR_CHANNELS-1))
+		goto out;
 
 	if( btbb_find_ac(syms, BANK_LEN - AC_SYMBOLS, btbb_piconet_get_lap(pn), max_ac_errors, &pkt) < 0 )
 		goto out;
@@ -680,7 +686,7 @@ void cb_afh_monitor(ubertooth_t* ut, void* args)
 	// 	printf("channel %d is already used\n", channel);
 	}
 
-	for(i=0; i<79; i++) {
+	for(i=0; i<NUM_BREDR_CHANNELS; i++) {
 		if((counter - last_seen[i] >= packet_counter_max)) {
 			if(btbb_piconet_clear_channel_seen(pn, i)) {
 				fprintf(stderr, "note: - channel %2d is not used any more\n",
@@ -708,8 +714,12 @@ void cb_afh_r(ubertooth_t* ut, void* args)
 	char syms[BANK_LEN];
 	ubertooth_unpack_symbols((uint8_t*)rx->data, syms);
 
-	static unsigned long last_seen[79] = {0};
+	static unsigned long last_seen[NUM_BREDR_CHANNELS] = {0};
 	static unsigned long counter = 0;
+
+	/* Sanity check: the channel indexes last_seen below */
+	if (rx->channel > (NUM_BREDR_CHANNELS-1))
+		goto out;
 
 	if( btbb_find_ac(syms, BANK_LEN - AC_SYMBOLS, btbb_piconet_get_lap(pn), max_ac_errors, &pkt) < 0 )
 		goto out;
@@ -721,7 +731,7 @@ void cb_afh_r(ubertooth_t* ut, void* args)
 
 	btbb_piconet_set_channel_seen(pn, channel);
 
-	for(i=0; i<79; i++) {
+	for(i=0; i<NUM_BREDR_CHANNELS; i++) {
 		if((counter - last_seen[i] >= packet_counter_max)) {
 			btbb_piconet_clear_channel_seen(pn, i);
 		}
@@ -938,17 +948,22 @@ void cb_ego(ubertooth_t* ut, void* args)
 {
 	int i;
 	uint8_t len = *(uint8_t *)args;
-	static u32 prev_ts = 0;
+	static uint64_t prev_ts = 0;
 	usb_pkt_rx usb = fifo_pop(ut->fifo);
 	usb_pkt_rx* rx = &usb;
 
-	u32 rx_time = rx->clk100ns;
+	/* Wide enough to hold a stamp plus a whole clock period, as the
+	 * low-energy callback above is: in 32 bits that sum wraps for any stamp
+	 * above 1018167295, and the delta is only right afterwards because the
+	 * subtraction wraps back. The stamp itself comes off the wire
+	 * little-endian. */
+	uint64_t rx_time = le32toh(rx->clk100ns);
 	if (rx_time < prev_ts)
 		rx_time += CLK100NS_PERIOD; // rollover
-	u32 ts_diff = rx_time - prev_ts;
-	prev_ts = rx->clk100ns;
+	uint64_t ts_diff = rx_time - prev_ts;
+	prev_ts = le32toh(rx->clk100ns);
 	printf("time=%u delta_t=%.06f ms freq=%d \n",
-	       rx->clk100ns, ts_diff / 10000.0,
+	       le32toh(rx->clk100ns), ts_diff / 10000.0,
 	       rx->channel + 2402);
 
 	for (i = 0; i < len; ++i)

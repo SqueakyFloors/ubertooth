@@ -397,6 +397,167 @@ MU_TEST(test_fec23_reads_nothing_past_its_input)
 	munmap(region, (size_t)page * 2);
 }
 
+/*
+ * unfec23() clears the whole region its groups then write into.
+ *
+ * It writes ten output bits at a time, so the last group of a length that is
+ * not a whole ten runs past that length -- a chunk of nine bytes is 72 bits
+ * and the eight groups reach bit 79, which is in the tenth byte. The clear at
+ * the top of the function has to cover that byte. The caller decodes a chunk
+ * at a time (CODEC_RX_CHUNK_SIZE), so every length from one byte to ten is
+ * reached.
+ *
+ * This case passes on a clear a byte short as well, and it is here to keep the
+ * region honest rather than to catch that: ENCODE10_* assigns the last byte of
+ * each group and only ORs the first, and the first is always inside the
+ * shorter clear, so a byte the clear missed was never left with anything in
+ * it. The round trip below is what says the rounding changed no output.
+ */
+MU_TEST(test_unfec23_clears_every_byte_its_groups_write)
+{
+	unsigned byte_num;
+
+	for (byte_num = 1; byte_num <= CODEC_RX_CHUNK_SIZE; byte_num++) {
+		const unsigned nbits = 8 * byte_num;
+		/* The groups stop at the first whole ten at or past nbits. */
+		const unsigned written = ((nbits + 9) / 10) * 10;
+		uint8_t in[32], dirty[32], clean[32];
+		char message[96];
+		unsigned i;
+
+		fill_pattern(in, sizeof(in), 0x2c91f);
+		/* The same decode into a dirty buffer and into a clean one.
+		 * The groups OR their bits in, so a byte the clear missed
+		 * keeps whatever the buffer held and the two disagree. */
+		memset(dirty, 0xff, sizeof(dirty));
+		memset(clean, 0x00, sizeof(clean));
+
+		unfec23(dirty, in, FEC23_OUT_OF, nbits);
+		unfec23(clean, in, FEC23_OUT_OF, nbits);
+
+		snprintf(message, sizeof(message),
+		         "a chunk of %u bytes kept a byte the clear missed",
+		         byte_num);
+		mu_assert(memcmp(dirty, clean, BYTE_ALIGN(written)) == 0,
+		          message);
+
+		/* And nothing above what the groups write was touched. */
+		for (i = BYTE_ALIGN(written); i < sizeof(dirty); i++)
+			mu_assert_int_eq(0xff, dirty[i]);
+	}
+}
+
+/*
+ * And the bytes a chunk decodes to are the chunk that was encoded, at every
+ * size the receive side asks for. Rounding the output length up to a whole
+ * group moves which of the two loops in unfec23() runs for some of these
+ * sizes, so this is what says the bytes that come out are the same either
+ * way.
+ */
+MU_TEST(test_every_chunk_size_survives_fec_and_back)
+{
+	unsigned byte_num;
+
+	for (byte_num = 1; byte_num <= CODEC_RX_CHUNK_SIZE; byte_num++) {
+		uint8_t in[CODEC_RX_CHUNK_SIZE], coded[64], back[32];
+		char message[96];
+
+		fill_pattern(in, sizeof(in), 0x3b1d7 + byte_num);
+		memset(coded, 0, sizeof(coded));
+		memset(back, 0, sizeof(back));
+
+		fec23(coded, in, FEC23_OUT_OF, 8 * byte_num);
+		unfec23(back, coded, FEC23_OUT_OF, 8 * byte_num);
+
+		snprintf(message, sizeof(message),
+		         "a chunk of %u bytes did not survive 2/3 FEC and back",
+		         byte_num);
+		mu_assert(memcmp(in, back, byte_num) == 0, message);
+	}
+}
+
+/*
+ * A timeout is how many ticks have gone by, not an absolute instant.
+ *
+ * The slot clock is a free-running 32-bit counter. Reaching a deadline by
+ * adding the timeout to the start wraps whenever the start is near the top of
+ * the counter, and the comparison then finds the deadline already behind it
+ * and reports a timeout on the first pass -- a page or inquiry scan that gave
+ * up without scanning once. The start can also be a few ticks in the future,
+ * because the scan states set it from the slot the scan will begin in.
+ */
+MU_TEST(test_a_timeout_is_elapsed_ticks_not_an_instant)
+{
+	const uint32_t window = CLKN_RATE * 60;  /* the scans' 60 seconds */
+	uint32_t start;
+
+	/* Nothing has gone by yet, and the start may be ahead of the clock. */
+	mu_assert_int_eq(0, clkn_elapsed(1000, 1000, window));
+	mu_assert_int_eq(0, clkn_elapsed(1000, 1007, window));
+
+	/* The boundary: one tick short is not elapsed, the tick itself is. */
+	mu_assert_int_eq(0, clkn_elapsed(1000 + window - 1, 1000, window));
+	mu_assert_int_eq(1, clkn_elapsed(1000 + window, 1000, window));
+
+	/* A start near the top of the counter. The clock wraps part-way
+	 * through the window, which is where adding the window to the start
+	 * reported a timeout before the scan had run. */
+	start = 0xffffffffu - window / 2;
+	mu_assert_int_eq(0, clkn_elapsed(start, start, window));
+	mu_assert_int_eq(0, clkn_elapsed(start + 1, start, window));
+	mu_assert_int_eq(0, clkn_elapsed(start + window - 1, start, window));
+	mu_assert_int_eq(1, clkn_elapsed(start + window, start, window));
+
+	/* And with the start at the very top. */
+	mu_assert_int_eq(0, clkn_elapsed(0xffffffffu, 0xffffffffu, window));
+	mu_assert_int_eq(0, clkn_elapsed(window - 2, 0xffffffffu, window));
+	mu_assert_int_eq(1, clkn_elapsed(window - 1, 0xffffffffu, window));
+}
+
+/* Does a source call this function anywhere? Comments are stripped first, so
+ * prose naming the function does not count as a call. */
+static int source_calls(const char *path, const char *name)
+{
+	char line[SCAN_LINE_MAX];
+	FILE *f = fopen(path, "r");
+	int in_block = 0, found = 0;
+
+	if (f == NULL)
+		return 0;
+	while (fgets(line, sizeof(line), f) != NULL) {
+		strip_comments(line, &in_block);
+		if (calls_identifier(line, name)) {
+			found = 1;
+			break;
+		}
+	}
+	fclose(f);
+	return found;
+}
+
+/* Every state that gives up after a timeout reaches it through the helper, so
+ * none of them can go back to an absolute deadline unnoticed. */
+MU_TEST(test_every_state_timeout_is_written_as_elapsed_ticks)
+{
+	static const char *const files[] = {
+		FW_BTBR_DIR "/src/btphy/paging_state.c",
+		FW_BTBR_DIR "/src/btphy/inquiry_state.c",
+		FW_BTBR_DIR "/src/btphy/inquiry_scan_state.c",
+		FW_BTBR_DIR "/src/btphy/page_scan_state.c",
+		FW_BTBR_DIR "/src/btphy/monitor1_state.c",
+	};
+	unsigned i;
+
+	for (i = 0; i < sizeof(files) / sizeof(files[0]); i++) {
+		char message[160];
+
+		snprintf(message, sizeof(message),
+		         "%s does not reach its timeout through clkn_elapsed()",
+		         files[i]);
+		mu_assert(source_calls(files[i], "clkn_elapsed"), message);
+	}
+}
+
 /* ---- the scan task's syncword window ---- */
 
 /*
@@ -563,6 +724,10 @@ int main(void)
 	MU_RUN(test_fec23_leaves_the_next_chunks_bits_alone);
 	MU_RUN(test_fec23_round_trips_through_unfec23);
 	MU_RUN(test_fec23_reads_nothing_past_its_input);
+	MU_RUN(test_unfec23_clears_every_byte_its_groups_write);
+	MU_RUN(test_every_chunk_size_survives_fec_and_back);
+	MU_RUN(test_a_timeout_is_elapsed_ticks_not_an_instant);
+	MU_RUN(test_every_state_timeout_is_written_as_elapsed_ticks);
 	MU_RUN(test_slot_clock_counts_hundred_nanosecond_steps);
 	MU_RUN(test_scan_syncword_window_is_250_microseconds);
 	MU_RUN(test_receive_syncword_window_follows_the_same_units);

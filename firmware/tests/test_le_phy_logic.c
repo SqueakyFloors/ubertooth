@@ -509,6 +509,20 @@ MU_TEST(a_field_is_read_least_significant_byte_first)
 	mu_assert_int_eq(0x5678, extract_field(&buf, 4, 2));
 	mu_assert_int_eq(0x345678, extract_field(&buf, 4, 3));
 	mu_assert_int_eq(0x12345678, extract_field(&buf, 4, 4));
+
+	/* An access address with its top bit set. The highest byte is shifted
+	 * left by 24, which runs past the largest int there is unless the byte
+	 * is widened first, so this is the value a four-byte field has to
+	 * survive. 0x8e89bed6 is the advertising access address. */
+	buf.data[4] = 0xd6;
+	buf.data[5] = 0xbe;
+	buf.data[6] = 0x89;
+	buf.data[7] = 0x8e;
+
+	mu_assert_int_eq(0x8e89bed6, extract_field(&buf, 4, 4));
+
+	buf.data[7] = 0xff;
+	mu_assert_int_eq(0xff89bed6, extract_field(&buf, 4, 4));
 }
 
 /* ------------------------------------------------------------------ *
