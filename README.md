@@ -102,6 +102,11 @@ a replacement for distro packaging (apt/dnf/brew).
 Ubertooth ships a set of host command-line tools. Each links to its manual page.
 "Needs" indicates what a test/use requires beyond the Ubertooth itself.
 
+New to Bluetooth internals? [How Bluetooth sniffing works](docs/concepts.md)
+explains the ideas these tools are built on — hopping, address parts,
+whitening, clock recovery, the Low Energy connection request — and which tool
+does which step.
+
 ### BLE
 | Tool | What it does | Needs |
 |---|---|---|
