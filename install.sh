@@ -41,6 +41,9 @@
 #                     (dry-run for the privileged steps)
 #   -h, --help        show this help
 #
+# CFLAGS from the environment is passed to the host build, every run, so a
+# re-run with it changed or cleared is built with what this run was given.
+#
 # On macOS the install goes into the Homebrew prefix by default, which is owned
 # by your user, so no sudo is needed. Homebrew asks for your password only when
 # it installs the gcc-arm-embedded toolchain package (--with-firmware).
@@ -414,15 +417,24 @@ if [ "$PLATFORM" = debian ]; then
 	info "Building Ubertooth host tools (REQUIRE_ALL=ON)"
 	CMAKE_ARGS+=(-DREQUIRE_ALL=ON)
 else
-	# No BlueZ on macOS, so REQUIRE_ALL is not used; Homebrew's libusb headers
-	# are not on the compiler's default search path.
+	# No BlueZ on macOS, so REQUIRE_ALL is not used. Nothing to add for
+	# Homebrew's libusb headers either: the build takes their directory from
+	# libusb itself.
 	info "Building Ubertooth host tools"
-	CMAKE_ARGS+=("-DCMAKE_C_FLAGS=${CFLAGS:+$CFLAGS }-I$BREW_PREFIX/include")
 fi
+# Always passed, empty when the caller set no CFLAGS: CMake seeds its own C
+# flags from CFLAGS only when a build directory is configured for the first
+# time, and this script reuses one, so a run that left this out would build
+# with whatever an earlier run's CFLAGS put in the cache.
+CMAKE_ARGS+=("-DCMAKE_C_FLAGS=${CFLAGS:-}")
 # Build the Python tools for the interpreter that got the runtime deps.
 CMAKE_ARGS+=("-DPython3_EXECUTABLE=$(command -v "$PYTHON")")
-# Forget a libbtbb found by an earlier configure so this run's install is used.
-cmake -S "$REPO_ROOT/host" -B "$REPO_ROOT/host/build" -U 'LIBBTBB_*' "${CMAKE_ARGS[@]}"
+# Forget a libbtbb or a libusb found by an earlier configure so this run's
+# install is used. libusb for the same reason the build no longer passes an
+# include flag for it: its directories come from the configure step now, and a
+# cached one from before a brew upgrade names a version that is gone.
+cmake -S "$REPO_ROOT/host" -B "$REPO_ROOT/host/build" \
+	-U 'LIBBTBB_*' -U 'LIBUSB_*' "${CMAKE_ARGS[@]}"
 cmake --build "$REPO_ROOT/host/build" -j"$JOBS"
 as_installer cmake --install "$REPO_ROOT/host/build"
 if [ "$PLATFORM" = debian ]; then

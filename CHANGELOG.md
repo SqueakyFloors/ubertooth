@@ -314,6 +314,16 @@
   Ubertooth to flash, before those slow steps run; on macOS its first line
   used to be a couple of seconds late, which looked like a hang.
   [#640](https://github.com/SqueakyFloors/ubertooth/issues/640)
+- On macOS, `cmake -S host -B build && cmake --build build` builds the whole
+  tree. It used to stop on one test unless the configure was given
+  `-DCMAKE_C_FLAGS="-I$(brew --prefix)/include"`, because Homebrew keeps
+  libusb's header off the compiler's search path; the build now takes that
+  directory from libusb, so no include flag of your own is needed and
+  `install.sh` passes none. `install.sh` now also hands your `CFLAGS` to every
+  configure, on Linux as well as macOS, so a second run with different
+  `CFLAGS` builds with them rather than with the first run's.
+  [#715](https://github.com/SqueakyFloors/ubertooth/issues/715)
+  [#728](https://github.com/SqueakyFloors/ubertooth/issues/728)
 - Removed the unmaintained Dockerfile.
   [#324](https://github.com/SqueakyFloors/ubertooth/issues/324)
 - Removed `Jenkinsfile` and `ci-scripts/`, which described a Jenkins build
@@ -1297,6 +1307,10 @@
 
 Fixes with no visible change in normal use.
 
+- The `*` on a version string, which says the checkout had uncommitted
+  changes, is about the checkout the tools were built from. It used to be
+  about whichever tree you happened to be standing in when you ran `cmake`.
+  [#743](https://github.com/SqueakyFloors/ubertooth/issues/743)
 - `ubertooth-debug` prints the radio's modulation offset as the signed number
   of steps it is, so a negative offset no longer reads as a large positive
   frequency. The firmware leaves that field at zero, so a board running this

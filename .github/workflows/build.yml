@@ -165,10 +165,14 @@ jobs:
     - name: Configure CMake
       shell: bash
       working-directory: ${{github.workspace}}/host/build
-      # On macOS, Homebrew puts libusb headers under $(brew --prefix)/include
-      # (/opt/homebrew on Apple Silicon, /usr/local on Intel), which is not on
-      # the compiler's default search path, so `#include <libusb-1.0/libusb.h>`
-      # fails even though cmake finds the library via pkg-config.
+      # No include flags of our own, on any runner. This is the plain configure
+      # the build guide gives, and on macOS it is also what notices a target
+      # left without libusb's include directory: Homebrew keeps libusb's header
+      # off the compiler's default search path, so such a target fails to
+      # compile on the macOS runners and nowhere else. (The C-standards sweep
+      # below passes no include flags either, so it notices too.) An
+      # -I$(brew --prefix)/include for the whole build used to hide that, which
+      # is how a test target that could not compile reached main.
       #
       # UBERTOOTH_RELEASE=ON in every CI configure that builds the tools for
       # use or test: a checkout here is not on a tag, so the tree would
@@ -177,13 +181,7 @@ jobs:
       # nothing passes here on firmware the host was not built for. The
       # compile-only configures (the C-standards sweep below, and the man-page
       # workflow) are left alone: nothing they build is run against a board.
-      run: |
-        EXTRA_C_FLAGS=""
-        if [ "${{ runner.os }}" = "macOS" ]; then
-          EXTRA_C_FLAGS="-I$(brew --prefix)/include"
-        fi
-        cmake $GITHUB_WORKSPACE/host/ -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
-          -DUBERTOOTH_RELEASE=ON -DCMAKE_C_FLAGS="$EXTRA_C_FLAGS"
+      run: cmake $GITHUB_WORKSPACE/host/ -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DUBERTOOTH_RELEASE=ON
 
     - name: Build
       working-directory: ${{github.workspace}}/host/build
@@ -257,16 +255,12 @@ jobs:
       # run: the suite above already ran them once, and running it twice more
       # would cost minutes to tell us what the first run told us.
       run: |
-        EXTRA_C_FLAGS=""
-        if [ "${{ runner.os }}" = "macOS" ]; then
-          EXTRA_C_FLAGS="-I$(brew --prefix)/include"
-        fi
         for std in c17 c2x; do
           dir="$GITHUB_WORKSPACE/host/build-$std"
           cmake -E make_directory "$dir"
           cmake -S "$GITHUB_WORKSPACE/host" -B "$dir" \
             -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
-            -DCMAKE_C_FLAGS="-std=$std -Werror=implicit-function-declaration $EXTRA_C_FLAGS"
+            -DCMAKE_C_FLAGS="-std=$std -Werror=implicit-function-declaration"
           cmake --build "$dir" --config $BUILD_TYPE --parallel
         done
 

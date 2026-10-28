@@ -18,9 +18,9 @@
 #
 # Based slightly upon the hackrf cmake setup.
 
-include(${PROJECT_SOURCE_DIR}/../cmake/set_release.cmake)
+# RELEASE_STRING comes from set_release.cmake, which the top-level
+# CMakeLists.txt includes. Only this library reports it.
 add_definitions( -DRELEASE="${RELEASE_STRING}" )
-message(STATUS "Setting version string ${RELEASE_STRING}")
 
 # Targets
 set(c_sources ${CMAKE_CURRENT_SOURCE_DIR}/ubertooth.c
@@ -48,7 +48,7 @@ find_package(USB1 REQUIRED)
 # fails without it.
 find_package(Threads REQUIRED)
 
-include_directories(${LIBUSB_INCLUDE_DIR} ${LIBBTBB_INCLUDE_DIR})
+include_directories(${LIBUSB_INCLUDE_DIRS} ${LIBBTBB_INCLUDE_DIR})
 LIST(APPEND LIBUBERTOOTH_LIBS ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES}
      Threads::Threads)
 
