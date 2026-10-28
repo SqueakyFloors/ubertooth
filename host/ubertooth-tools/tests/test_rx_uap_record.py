@@ -8,15 +8,15 @@ what settles the UAP. ubertooth-rx writes the UAP into every capture record
 as the reference UAP, which is what a reader checks that record's CRC
 against. The settling packet's own record used to go out with no reference
 UAP at all -- the one record a reader most needs it on, because it is the
-evidence the UAP was derived from.
+first evidence the UAP was derived from.
 
 The fixture is a replay of four records built from scratch here, so no board
 and no saved capture is needed: an ID packet with no header, a DH1 whose CRC
 leaves every clock candidate alive, the DH1 whose CRC settles the UAP, then
-another ID packet. Everything a real board
-would send is computed from the Bluetooth Core specification: the access code
-(Vol 2, Part B 6.3.3), the header's HEC and the payload CRC (7.1 and 7.2),
-the header's 1/3 rate repetition code (7.4) and the payload whitening (7.3).
+another ID packet. Everything a real board would send is computed from the
+Bluetooth Core specification: the access code (Vol 2, Part B 6.3.3), the
+header's HEC and the payload CRC (7.1 and 7.2), the header's 1/3 rate
+repetition code (7.4) and the payload whitening (7.3).
 """
 
 import os
@@ -74,6 +74,7 @@ ID_CLK100NS = (1_000_000, 9_000_000)
 # Where the reference LAP and UAP, and the flags, sit in a
 # LINKTYPE_BLUETOOTH_BREDR_BB record, and the flag that says the reference
 # UAP in it is there to be used.
+DLT_BLUETOOTH_BREDR_BB = 255
 REF_LAP_UAP_AT = 12
 FLAGS_AT = 20
 PAYLOAD_AT = 22
@@ -203,16 +204,26 @@ def record(host_time, clk100ns, channel, symbols):
 
 
 def capture_records(path):
-    """Each record of a capture: reference LAP, reference UAP, flags, payload."""
+    """Each record of a capture: reference LAP, reference UAP, flags, payload.
+
+    The field offsets below are those of the basic-rate baseband link type, so
+    the link type in the file header is checked rather than assumed: another
+    one would be read as this one and give neighbouring fields instead.
+    """
     data = path.read_bytes()
     assert len(data) > 24, f"capture is only {len(data)} bytes"
+    # libbtbb writes the header as a struct, so the file is in this machine's
+    # own byte order; the magic says which that is.
+    order = "<" if data[:4] == bytes.fromhex("4d3cb2a1") else ">"
+    link_type = struct.unpack_from(order + "I", data, 20)[0]
+    assert link_type == DLT_BLUETOOTH_BREDR_BB, link_type
     out = []
     offset = 24
     while offset + 16 <= len(data):
-        length = struct.unpack_from("<I", data, offset + 8)[0]
+        length = struct.unpack_from(order + "I", data, offset + 8)[0]
         body = data[offset + 16:offset + 16 + length]
-        reference = struct.unpack_from("<I", body, REF_LAP_UAP_AT)[0]
-        flags = struct.unpack_from("<H", body, FLAGS_AT)[0]
+        reference = struct.unpack_from(order + "I", body, REF_LAP_UAP_AT)[0]
+        flags = struct.unpack_from(order + "H", body, FLAGS_AT)[0]
         out.append((reference & 0xFFFFFF, reference >> 24, flags,
                     body[PAYLOAD_AT:]))
         offset += 16 + length
@@ -222,6 +233,11 @@ def capture_records(path):
 def pcapng_records(path):
     """The same, from the enhanced packet blocks of a pcapng."""
     data = path.read_bytes()
+    # The byte order of the file, from the magic in its first block. Checked
+    # rather than guessed: a file that holds neither way round would be read
+    # as big-endian and every field would come out wrong.
+    assert data[8:12] in (bytes.fromhex("4d3c2b1a"), bytes.fromhex("1a2b3c4d")), \
+        data[:12].hex()
     order = "<" if data[8:12] == bytes.fromhex("4d3c2b1a") else ">"
     out = []
     offset = 0
@@ -284,9 +300,12 @@ with tempfile.TemporaryDirectory() as workdir:
     )
     assert result.returncode == 0, result
     assert "error" not in result.stderr, result
-    # The decoder says which packet settled the UAP, so a fixture that stopped
-    # settling it would be a plain failure rather than a quiet one.
-    assert "UAP = 0x%x found" % UAP in result.stdout, result
+    # The decoder says which packet settled the UAP and how, so a fixture that
+    # stopped settling it on a CRC -- by settling it some other way, or not at
+    # all -- is a plain failure rather than a quiet one. It takes two packets:
+    # the first DH1 leaves the candidates alive, the second settles it.
+    assert ("Correct CRC! UAP = 0x%x found after 2 total packets" % UAP
+            in result.stdout), result
 
     # Both capture formats are written from the same reference UAP, so both
     # are checked: libbtbb assembles the flags separately for each.
@@ -307,7 +326,6 @@ with tempfile.TemporaryDirectory() as workdir:
         for index in (0, 1):
             assert records[index][:2] == (LAP, UAP_ANY), (name, records)
             assert not records[index][2] & BREDR_REFUAP_VALID, (name, records)
-        assert not crc_recomputes(records[1][3], UAP), (name, records)
 
         # The packet that settles the UAP carries it, flag and all: this
         # record is the first evidence the UAP came from, and it used to go

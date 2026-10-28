@@ -259,9 +259,10 @@ add_test(
 set_tests_properties(rx-replay PROPERTIES TIMEOUT 30)
 
 # The reference UAP in the capture records of a replay, on a fixture the test
-# builds itself: an ID packet, then a DH1 whose payload CRC settles the UAP,
-# then another ID packet. The settling packet's own record is the one that
-# used to go out with no reference UAP. One run, well under a second.
+# builds itself: an ID packet, a DH1 whose CRC leaves every clock candidate
+# alive, the DH1 whose CRC settles the UAP, then another ID packet. The
+# settling packet's own record is the one that used to go out with no
+# reference UAP. One run, well under a second.
 add_test(
 	NAME rx-uap-record
 	COMMAND ${Python3_EXECUTABLE}
