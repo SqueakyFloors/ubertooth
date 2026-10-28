@@ -695,7 +695,7 @@ if(libubertooth_SOURCE_DIR)
 	# directory holding libusb.h itself, one level too deep. Every other
 	# target that compiles a source reaching ubertooth_control.h passes
 	# it, which is why this was the only one that did not build without
-	# -I$(brew --prefix)/include on macOS. See #728.
+	# -I$(brew --prefix)/include on macOS.
 	add_executable(test-fifo-ring
 		test_fifo_ring.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_fifo.c)
@@ -706,9 +706,10 @@ if(libubertooth_SOURCE_DIR)
 	target_link_libraries(test-fifo-ring Threads::Threads)
 
 	add_test(NAME fifo-ring COMMAND test-fifo-ring)
-	# The threaded case publishes 200000 records through an eight-slot ring
-	# with the consumer kept behind it: a fifth of a second here and in CI.
-	# The limit only catches a run whose threads do not finish.
+	# The threaded case publishes a million records through an eight-slot
+	# ring with the consumer kept behind it, and the queue case sixty
+	# thousand more: half a second here and in CI. The limit only catches a
+	# run whose threads do not finish.
 	set_tests_properties(fifo-ring PROPERTIES TIMEOUT 30)
 
 	# What the low-energy callback hands libbtbb's decoder: the captured

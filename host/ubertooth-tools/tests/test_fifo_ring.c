@@ -41,11 +41,20 @@
  * does not belong where it sits.
  */
 
+/* Set in the top byte of every sequence number before the pattern is taken
+ * from it, so that the byte belonging at the last position of a record is
+ * never zero. The ring is allocated zeroed, so a zero in the pattern matches
+ * a byte the ring never wrote, and a copy that fell short of the end of a
+ * record would read back as whole. The sequence numbers these cases use are
+ * all well under 2^24, so this byte is free. */
+#define PATTERN_TOP_BYTE 0xa5000000u
+
 /* The byte that belongs at `position` bytes into a record of this sequence
  * number. */
 static uint8_t sequence_byte(uint32_t sequence, int position)
 {
-	return (uint8_t)(sequence >> ((position % 4) * 8));
+	return (uint8_t)((sequence | PATTERN_TOP_BYTE)
+	                 >> ((position % 4) * 8));
 }
 
 static void fill_record(usb_pkt_rx* record, uint32_t sequence)
@@ -214,10 +223,19 @@ MU_TEST(a_full_ring_discards_the_newest_record)
 	free(fifo);
 }
 
+/* Sequence numbers for the pushed records. Each of the four bytes of these
+ * is non-zero, so every position of the record discriminates, not only the
+ * last: a byte matching one the ring never wrote proves nothing. */
+#define PUSHED_FIRST_SEQUENCE 0x00412001u
+
 /* The other way in: fifo_push() copies a record the caller already holds,
  * rather than the caller filling the slot in place. That is the path a
- * replayed dump takes, so a record it carried short or published before it
- * finished copying would lose the tail of every replayed packet. */
+ * replayed dump takes, so a record it carried short would lose the tail of
+ * every replayed packet.
+ *
+ * Whether the copy finishes before the slot is published is not a question
+ * one thread can ask -- the copy is complete by the time anything here pops.
+ * The threaded case below is what catches a publish that came first. */
 MU_TEST(a_pushed_record_comes_back_whole)
 {
 	fifo_t* fifo = fifo_init();
@@ -228,18 +246,15 @@ MU_TEST(a_pushed_record_comes_back_whole)
 	for (i = 0; i < RING_RECORDS; i++) {
 		usb_pkt_rx record;
 
-		fill_record(&record, 5000 + i);
+		fill_record(&record, PUSHED_FIRST_SEQUENCE + i);
 		fifo_push(fifo, &record, 90000 + i);
-		/* Published, and the copy is complete: a publish that came
-		 * first would leave the record half written in the ring, which
-		 * the pops below read. */
 		mu_assert_int_eq(0, fifo_empty(fifo));
 	}
 
 	for (i = 0; i < RING_RECORDS; i++) {
 		usb_pkt_rx popped = fifo_pop(fifo);
 
-		mu_assert_int_eq(5000 + i, popped.clk100ns);
+		mu_assert_int_eq(PUSHED_FIRST_SEQUENCE + i, popped.clk100ns);
 		mu_assert(record_is_whole(&popped),
 		          "the pushed record came back short or torn");
 		mu_assert_int_eq(90000 + i, fifo_popped_arrival_ns(fifo));
@@ -323,14 +338,14 @@ MU_TEST(the_ring_behaves_as_a_queue_across_many_laps)
  * records. Take a failure seriously on one run; do not read a single pass as
  * proof.
  *
- * Two things it cannot show at all. One is the release and acquire ordering:
- * on the strongly ordered processors this fork builds for, three of the four
- * can each be weakened on their own and every run still passes, because the
- * processor was already doing it, and on x86-64 the generated code does not
- * even differ. That the ordering is there for the machines where it is not is
- * argued in ubertooth_fifo.c rather than shown here. The other is whether the
- * ring discards only when it is really full: that needs a reader that knows
- * how full the ring was, which a racing consumer is not, so it is
+ * Two things it cannot show at all. One is the release and acquire ordering.
+ * Weakened one at a time, three of the four still pass every run of this case
+ * on an unoptimised build here, and two of the four do at -O2; on x86-64 the
+ * generated code for a release store and a relaxed one does not differ at
+ * all. So a green run says nothing about whether the ordering is needed --
+ * that is argued in ubertooth_fifo.c rather than shown here. The other is
+ * whether the ring discards only when it is really full: that needs a reader
+ * that knows how full the ring was, which a racing consumer is not, so it is
  * the_ring_behaves_as_a_queue_across_many_laps that asks.
  */
 
