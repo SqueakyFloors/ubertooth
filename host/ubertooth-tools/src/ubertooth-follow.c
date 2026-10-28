@@ -189,6 +189,10 @@ int main(int argc, char *argv[])
 	const char* pcapng_name = NULL;
 	const char* pcap_name = NULL;
 	const char* dump_name = NULL;
+	/* 1 once a capture on "-" owns standard output, which is /dev/null for
+	 * the rest of the run: a line the user still needs goes to standard
+	 * error instead. */
+	int capture_took_stdout = 0;
 	uint32_t clock = 0;
 	uint16_t accuracy = 0, handle = 0, offset = 0;
 	bdaddr_t bdaddr = { { 0 } };
@@ -400,8 +404,10 @@ int main(int argc, char *argv[])
 		}
 		errno = 0;
 		failed = btbb_pcap_create_file(file, &ut->h_pcap_bredr);
-		if (saved_fd >= 0)
+		if (saved_fd >= 0) {
+			capture_took_stdout = 1;
 			close(saved_fd);
+		}
 		free(file);
 		if (failed) {
 			/* The name the user gave, not the /dev/fd path a lone
@@ -416,6 +422,8 @@ int main(int argc, char *argv[])
 	}
 	if (dump_name != NULL) {
 		dumpfile = opt_open_dump_file(dump_name, "dump data");
+		if (dumpfile != NULL && strcmp(dump_name, "-") == 0)
+			capture_took_stdout = 1;
 		if (dumpfile == NULL) {
 			/* The capture files are on the handle, so the close is
 			 * what gets them written out and shut; no board has
@@ -617,8 +625,19 @@ int main(int argc, char *argv[])
 			memcpy(afh_map, read_out.map, sizeof(afh_map));
 			fprintf(stderr, "%s\n", line);
 			btbb_piconet_set_afh_map(pn, afh_map);
-			/* libbtbb prints the map itself, on standard output. */
-			btbb_print_afh_map(pn);
+			/* libbtbb prints the map itself, on standard output. A
+			 * capture owns that stream when it is "-", and takes
+			 * the map with it: the line is written here instead,
+			 * in the wording btbb_print_afh_map() uses, so -a
+			 * still answers. */
+			if (capture_took_stdout)
+				fprintf(stderr,
+				        "AFH map: 0x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x\n",
+				        afh_map[0], afh_map[1], afh_map[2], afh_map[3],
+				        afh_map[4], afh_map[5], afh_map[6], afh_map[7],
+				        afh_map[8], afh_map[9]);
+			else
+				btbb_print_afh_map(pn);
 			break;
 		case FOLLOW_AFH_ACTION_DISABLE:
 			fprintf(stderr, "%s\n", line);

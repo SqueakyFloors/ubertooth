@@ -185,7 +185,8 @@ What the tool is following — the target address, or the LAP and UAP it read
 from the local device — is reported on standard error, with the rest of the
 tool's progress. Standard output carries the decoded packets, and, with `-a`,
 the accepted channel map, which libbtbb prints itself — unless a capture has
-taken that stream; see CAPTURING TO STANDARD OUTPUT.
+taken that stream, and then the map is on standard error with the progress;
+see CAPTURING TO STANDARD OUTPUT.
 
 A refused command line creates and truncates nothing: `-r`, `-q` and `-d` name
 their file while the command line is read, and it is opened only once every
@@ -202,7 +203,8 @@ line, and leaves nothing this tool can trust.
 for a pipe into another program. Either way the capture owns standard output
 for the whole run, so the decoded packets that normally go there are not
 printed at all: the capture is the only thing on that stream. What the tool is
-following, the notes and the failures are on standard error and still arrive.
+following, the notes and the failures are on standard error and still arrive,
+and so is the `AFH map:` line of `-a`, which is the answer to that option.
 
 Binary on a terminal is a mistake rather than a stream anyone reads, so it is
 refused: `error: stdout is a tty, refusing to write binary capture data to
