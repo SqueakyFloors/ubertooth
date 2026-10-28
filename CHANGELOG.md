@@ -288,6 +288,11 @@
   link pthread, so linking the library no longer leaves `pthread_create`
   undefined.
   [#315](https://github.com/SqueakyFloors/ubertooth/issues/315)
+- The host builds on Ubuntu 20.04 and 22.04 again. One test asks the dynamic
+  linker for the real `pthread_create`, which needs a GNU extension the older
+  glibc headers hand out only when asked; the tests build by default, so the
+  whole host build stopped there.
+  [#725](https://github.com/SqueakyFloors/ubertooth/issues/725)
 - Each firmware image now compiles the shared sources under `firmware/common`
   into its own directory. Building two images in one tree used to give the
   second one the first's objects, built with the wrong flags, so a release or
