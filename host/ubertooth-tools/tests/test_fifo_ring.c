@@ -3,10 +3,18 @@
  * a full ring does, and that a producer thread and a consumer thread cannot
  * see each other's half-written work.
  *
- * The ring is built small here (FIFO_SIZE comes from the build), because the
- * shipped 1000000 slots put the full-ring paths out of reach of a test: a
- * case would have to produce a million records faster than it drains them.
- * Seven usable slots reach them on every lap.
+ * The ring is built small here (the build sets UBERTOOTH_FIFO_SLOTS_FOR_TESTS),
+ * because the shipped 1000000 slots put the full-ring paths out of reach of a
+ * test: a case would have to produce a million records faster than it drains
+ * them. Seven usable slots reach them on every lap.
+ *
+ * One thing is deliberately not tested: that fifo_popped_arrival_ns() is kept
+ * rather than read back out of the slot the record came from. No case can
+ * tell the two apart. Publishing into that slot again needs the read pointer
+ * to have moved a whole lap past it, and every pop on the way replaces the
+ * answer, so a read-back gives the same reading as a kept copy. The reading
+ * is kept because it makes the handover one rule rather than two, not because
+ * reading it back was wrong.
  */
 #include <fcntl.h>
 #include <pthread.h>
@@ -24,52 +32,60 @@
 #define RING_RECORDS (FIFO_SIZE - 1)
 
 /* ---- records -------------------------------------------------------------
- * A record is filled with one repeated byte, every named field of it, so a
- * copy that picked up part of another record shows as a byte that does not
- * match the rest. clk100ns carries the whole sequence number, so a record can
- * also be matched against the arrival reading published with it.
+ * Every byte of a record carries one byte of its sequence number, the four
+ * bytes of it repeating from the start of the record to the end. No two
+ * sequence numbers fill a record alike, so a copy that took part of one
+ * record and part of another shows a byte that does not belong where it sits.
+ * clk100ns holds the whole number, which is also what a record is matched
+ * against the arrival reading published with it by.
  */
+
+/* The byte that belongs at `position` bytes into a record of this sequence
+ * number. */
+static uint8_t sequence_byte(uint32_t sequence, int position)
+{
+	return (uint8_t)(sequence >> ((position % 4) * 8));
+}
 
 static void fill_record(usb_pkt_rx* record, uint32_t sequence)
 {
-	uint8_t byte = (uint8_t)sequence;
 	int i;
 
-	record->pkt_type = byte;
-	record->status = byte;
-	/* The rest of the sequence number, so two records 256 apart do not
-	 * fill alike: a copy that took part of each would otherwise match. */
-	record->channel = (uint8_t)(sequence >> 8);
-	record->clkn_high = (uint8_t)(sequence >> 16);
+	record->pkt_type = sequence_byte(sequence, 0);
+	record->status = sequence_byte(sequence, 1);
+	record->channel = sequence_byte(sequence, 2);
+	record->clkn_high = sequence_byte(sequence, 3);
 	record->clk100ns = sequence;
-	record->rssi_max = (int8_t)byte;
-	record->rssi_min = (int8_t)byte;
-	record->rssi_avg = (int8_t)byte;
-	record->rssi_count = byte;
-	record->reserved[0] = byte;
-	record->reserved[1] = byte;
+	record->rssi_max = (int8_t)sequence_byte(sequence, 8);
+	record->rssi_min = (int8_t)sequence_byte(sequence, 9);
+	record->rssi_avg = (int8_t)sequence_byte(sequence, 10);
+	record->rssi_count = sequence_byte(sequence, 11);
+	record->reserved[0] = sequence_byte(sequence, 12);
+	record->reserved[1] = sequence_byte(sequence, 13);
 	for (i = 0; i < DMA_SIZE; i++)
-		record->data[i] = byte;
+		record->data[i] = sequence_byte(sequence, 14 + i);
 }
 
-/* Whether every byte of the record still carries the one value fill_record()
- * wrote, that of its own sequence number. */
+/* Whether every byte of the record is still the one that belongs there for
+ * the sequence number the record itself carries. */
 static int record_is_whole(const usb_pkt_rx* record)
 {
-	uint8_t byte = (uint8_t)record->clk100ns;
+	uint32_t sequence = record->clk100ns;
 	int i;
 
-	if (record->pkt_type != byte || record->status != byte
-	    || record->channel != (uint8_t)(record->clk100ns >> 8)
-	    || record->clkn_high != (uint8_t)(record->clk100ns >> 16)
-	    || record->rssi_max != (int8_t)byte
-	    || record->rssi_min != (int8_t)byte
-	    || record->rssi_avg != (int8_t)byte
-	    || record->rssi_count != byte
-	    || record->reserved[0] != byte || record->reserved[1] != byte)
+	if (record->pkt_type != sequence_byte(sequence, 0)
+	    || record->status != sequence_byte(sequence, 1)
+	    || record->channel != sequence_byte(sequence, 2)
+	    || record->clkn_high != sequence_byte(sequence, 3)
+	    || record->rssi_max != (int8_t)sequence_byte(sequence, 8)
+	    || record->rssi_min != (int8_t)sequence_byte(sequence, 9)
+	    || record->rssi_avg != (int8_t)sequence_byte(sequence, 10)
+	    || record->rssi_count != sequence_byte(sequence, 11)
+	    || record->reserved[0] != sequence_byte(sequence, 12)
+	    || record->reserved[1] != sequence_byte(sequence, 13))
 		return 0;
 	for (i = 0; i < DMA_SIZE; i++)
-		if (record->data[i] != byte)
+		if (record->data[i] != sequence_byte(sequence, 14 + i))
 			return 0;
 	return 1;
 }
@@ -261,8 +277,12 @@ struct run {
 	uint32_t torn;             /* records that came back part another's */
 	uint32_t out_of_order;     /* sequence numbers that did not go up */
 	uint32_t reading_mismatch; /* readings that belonged to another record */
-	uint32_t discarded;        /* gaps, so records the full ring refused */
+	uint32_t discarded;        /* gaps in what the consumer was given */
 	uint32_t last_sequence;    /* the last record the consumer was given */
+	/* What the producer was refused, counted on its own side so that the
+	 * gaps above can be held against it: a record lost with room in the
+	 * ring would leave a gap nobody refused. */
+	uint32_t refused;
 };
 
 static void* producer_main(void* argument)
@@ -270,8 +290,17 @@ static void* producer_main(void* argument)
 	struct run* run = (struct run*)argument;
 	uint32_t sequence;
 
-	for (sequence = 1; sequence <= THREADED_RECORDS; sequence++)
-		publish_in_place(run->fifo, sequence, sequence);
+	for (sequence = 1; sequence <= THREADED_RECORDS; sequence++) {
+		usb_pkt_rx* slot = fifo_get_write_element(run->fifo);
+
+		fill_record(slot, sequence);
+		fifo_inc_write_ptr(run->fifo, sequence);
+		/* A publish that went through moves the write pointer on, so
+		 * the next slot is a different one. The same slot again means
+		 * the ring had no room and this record was discarded. */
+		if (fifo_get_write_element(run->fifo) == slot)
+			run->refused++;
+	}
 
 	atomic_store(&run->producer_done, 1);
 	return NULL;
@@ -356,17 +385,23 @@ MU_TEST(two_threads_never_see_a_half_written_record)
 	close(devnull);
 
 	/* The gaps the consumer counted stop at the last record it was given,
-	 * so records refused after that one are added here. */
+	 * so anything missing after that one is added here. */
 	run.discarded += THREADED_RECORDS - run.last_sequence;
 
 	printf("  %u records through, %u refused by a full ring\n",
-	       run.popped, run.discarded);
+	       run.popped, run.refused);
 	mu_assert_int_eq(0, run.torn);
 	mu_assert_int_eq(0, run.out_of_order);
 	mu_assert_int_eq(0, run.reading_mismatch);
-	/* Nothing went missing: the consumer drained the ring, so every record
-	 * either reached it or was refused by a full ring. */
+	/* The run has to have carried records, or the three counters above are
+	 * all about nothing. */
+	mu_assert(run.popped > 0, "the consumer got nothing at all");
+	/* Nothing went missing. Every record the producer published either
+	 * reached the consumer or was refused for want of room, and the gaps
+	 * the consumer saw are exactly the records the producer was refused:
+	 * a record lost with room in the ring would fail both of these. */
 	mu_assert_int_eq(THREADED_RECORDS, run.popped + run.discarded);
+	mu_assert_int_eq(run.refused, run.discarded);
 	/* Without refusals the run never had a full ring, so it did not cover
 	 * the handover this case is here for. */
 	mu_assert(run.discarded > 0, "the ring never filled up");

@@ -33,14 +33,17 @@
 
 /* Slots in the ring, 1000000 of them or 72 MB.
  *
- * This project's own tests build the ring small instead
- * (-DFIFO_SLOTS_FOR_TESTS=8), which is the only way a unit test reaches the
- * full-ring paths, and they link ubertooth_fifo.c themselves so every source
- * in the binary agrees. Nothing else may set it: this is the size of fifo_t,
- * so a value that disagrees with the library a program is linked against
- * disagrees about the size of every ring it is handed. */
-#ifdef FIFO_SLOTS_FOR_TESTS
-#define FIFO_SIZE FIFO_SLOTS_FOR_TESTS
+ * UBERTOOTH_FIFO_SLOTS_FOR_TESTS builds the ring small instead, which is the
+ * only way a unit test reaches the full-ring paths. It is for this project's
+ * own tests, which compile ubertooth_fifo.c themselves so that every source
+ * in the binary agrees on the size of a fifo_t. A program built against the
+ * installed library must not set it: the library it links against is built
+ * for 1000000 slots, so the two would disagree about the size of every ring
+ * the program is handed. No header can enforce that, which is why it is said
+ * here, and why the macro is named for this library rather than taking a
+ * plain name a build might set for its own reasons. */
+#ifdef UBERTOOTH_FIFO_SLOTS_FOR_TESTS
+#define FIFO_SIZE UBERTOOTH_FIFO_SLOTS_FOR_TESTS
 #else
 #define FIFO_SIZE 1000000
 #endif
