@@ -154,6 +154,16 @@ rangetest_result rr;
 #define RANGETEST_LEAD_100NS (RANGETEST_LEAD_BYTES * RANGETEST_BYTE_100NS)
 
 /*
+ * How many times the wait below may read the counter before giving up.
+ *
+ * The wait needs a few hundred reads. This cap is only a backstop: a timer 0
+ * that is not running would otherwise leave the wait spinning, answering no
+ * control request, until the watchdog reset the board. Reaching it reads the
+ * packet as early as the firmware used to, which is a wrong byte 0 at worst.
+ */
+#define RANGETEST_LEAD_POLLS 100000
+
+/*
  * Let the radio get the start of the packet into its FIFO, then return.
  *
  * Timer 0 counts 100 ns ticks and resets every CLK100NS_PER_CLKN of them --
@@ -165,8 +175,9 @@ rangetest_result rr;
  * period is not the usual one, which it briefly is not after the low-energy
  * modes' clock drift correction moves the timer's match value for one tick.
  *
- * Both callers start the timer with clkn_start() before they receive, which is
- * what keeps a stopped counter from leaving this waiting forever.
+ * Both callers start the timer with clkn_start() before they receive. A
+ * counter that is not advancing is caught by the poll cap above rather than
+ * leaving this waiting forever.
  *
  * Tens of microseconds is far too short to service USB in, and far too short
  * for the host to notice.
@@ -175,8 +186,9 @@ static void rangetest_wait_for_fifo(void)
 {
 	u32 last = T0TC;
 	u32 waited = 0;
+	u32 polls = RANGETEST_LEAD_POLLS;
 
-	while (waited < RANGETEST_LEAD_100NS) {
+	while (waited < RANGETEST_LEAD_100NS && polls-- > 0) {
 		u32 now = T0TC;
 
 		waited += (now + CLK100NS_PER_CLKN - last) % CLK100NS_PER_CLKN;
@@ -235,11 +247,6 @@ void cc2400_rangetest(volatile u16 *chan_ptr)
 	u8 txbuf[len];
 	u8 rxbuf[len];
 	int got_reply = 0;
-
-	/* A time base for the wait before the FIFO is read, as the repeater
-	 * starts one for its turnaround delay. The dispatch's cc2400_idle()
-	 * stops it again on the way out of this mode. */
-	clkn_start();
 
 	/*
 	 * rr is static and this run has not measured anything yet. Clearing it
@@ -329,6 +336,12 @@ void cc2400_rangetest(volatile u16 *chan_ptr)
 	cc2400_strobe(SFSON);
 	cc2400_wait_fs(1, service_usb);
 	RXLED_SET;
+	/* A time base for the wait before each FIFO read, as the repeater starts
+	 * one for its turnaround delay. Started here rather than on the way into
+	 * the mode, so the timer's interrupt does not run through the transmit
+	 * burst above, which writes the radio's FIFO unmasked. The dispatch's
+	 * cc2400_idle() stops it again on the way out of this mode. */
+	clkn_start();
 	/*
 	 * Wait for the repeater's reply. There is no deadline: the other board
 	 * may be out of range, or not running, so this can wait indefinitely and

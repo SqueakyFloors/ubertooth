@@ -282,10 +282,6 @@ the same revision. The exchange completes within a couple of seconds.*
       other — and confirm the first two results again, so each board is seen
       transmitting
 
-*The range test itself is flaky run to run on some boards: about one run in
-five reports `mismatch on byte 0`, or does not finish. That is issue #686, not
-a fault in the tools. Repeat a run that ends that way.*
-
 ### 2j. Flashing with the bootloader entry pin still bridged (issue #304)
 
 *Needs a board at the bench: the entry pin has to be bridged by hand, and the

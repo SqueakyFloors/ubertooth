@@ -71,6 +71,7 @@ struct scan {
 	int fifo_wait_step;      /* the step it adds up, as written */
 	char fifo_wait_text[256];
 	int fifo_wait_length;    /* its length is RANGETEST_LEAD_100NS */
+	int fifo_wait_cap;       /* and it gives up after RANGETEST_LEAD_POLLS */
 	int byte_100ns;          /* RANGETEST_BYTE_100NS as written */
 	int lead_bytes;          /* RANGETEST_LEAD_BYTES as written */
 	int lead_from_byte;      /* the lead is that many byte times */
@@ -272,6 +273,8 @@ static int scan_source(const char *path, struct scan *s)
 				s->fifo_wait_timer = 1;
 			if (contains_identifier(line, "RANGETEST_LEAD_100NS"))
 				s->fifo_wait_length = 1;
+			if (contains_identifier(line, "RANGETEST_LEAD_POLLS"))
+				s->fifo_wait_cap = 1;
 			/*
 			 * The one piece of arithmetic in the change, pinned as
 			 * written: nothing here could run it, and its operands the
@@ -639,6 +642,13 @@ MU_TEST(test_the_read_waits_for_the_radio_to_have_the_packet)
 	         "%s:%d: rangetest_wait_for_fifo() does not wait "
 	         "RANGETEST_LEAD_100NS", path, s.fifo_wait_fn);
 	mu_assert(s.fifo_wait_length, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: rangetest_wait_for_fifo() has no RANGETEST_LEAD_POLLS "
+	         "cap, so a timer 0 that is not running leaves it spinning and "
+	         "the board answering nothing until the watchdog resets it",
+	         path, s.fifo_wait_fn);
+	mu_assert(s.fifo_wait_cap, msg);
 
 	snprintf(msg, sizeof(msg),
 	         "%s: cc2400_rangetest() notices a sync word at line %d and reads "
