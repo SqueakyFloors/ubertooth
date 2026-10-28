@@ -148,11 +148,12 @@ static void banks(uint16_t channel, int8_t raw, int count)
  * The filter has to survive the per-packet reset, or it never gets anywhere.
  *
  * It blends 3/256 of each bank into the channel's value, so one bank from
- * silence moves it 3/256 of the way -- and 3/256 of any reading from -42 to 42
- * raw (-96 to -12 dBm, the whole useful range) rounds back to 0 dBm. Clearing
- * the filter with the per-packet figures left every bank looking like the
- * first, so every Classic record reported the same noise figure, which the
- * host turns into -54 dBm. Hundreds of banks is what it takes to arrive.
+ * silence moves it 3/256 of the way -- and 3/256 of any raw reading from -42
+ * to 42, which covers the whole range the radio reports in the band, rounds
+ * back to zero. Clearing the filter with the per-packet figures left every
+ * bank looking like the first, so every Classic record reported the same noise
+ * figure, which the host reads as -55 dBm. Hundreds of banks is what it takes
+ * to arrive.
  */
 MU_TEST(test_the_channel_average_accumulates_across_banks)
 {
@@ -171,7 +172,7 @@ MU_TEST(test_the_channel_average_accumulates_across_banks)
 	mu_assert(rssi_get_avg(2402) > -30, "100 banks is not yet the whole way");
 
 	/* Given the few hundred banks the filter needs, it reads what the radio
-	 * heard: -30 raw, which the host reports as -84 dBm. */
+	 * heard: -30 raw, which the host reports as -82 dBm. */
 	banks(2402, -30, 500);
 	mu_assert_int_eq(-30, rssi_get_avg(2402));
 

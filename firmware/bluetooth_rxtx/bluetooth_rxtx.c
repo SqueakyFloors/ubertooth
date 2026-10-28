@@ -312,7 +312,7 @@ static int streams_symbols(uint8_t m)
  * all receive the same modulation over the same 79 channels. The receive never
  * stopped, so the measurement still holds -- and dropping it would cost the new
  * capture the few hundred packets the filter needs to build up again, which it
- * would spend reporting a noise figure of nearly -54 dBm.
+ * would spend reporting the -55 dBm an empty filter gives.
  *
  * Call this before the request's own setup, which is what the absorbed mode
  * starts from. Re-sending the mode that is already streaming resets nothing:
@@ -3324,6 +3324,8 @@ int main()
 			u32 usb_irq;
 
 			cc2400_idle();
+			usb_irq = usb_irq_hold();
+			usb_queue_init();
 			/*
 			 * The per-channel averages go with the queued packets, and for
 			 * the same reason: they describe the band during a capture that
@@ -3332,10 +3334,12 @@ int main()
 			 * boot and in the middle of the two low-energy modes, and a
 			 * clear there would keep restarting the filter under a running
 			 * capture.
+			 *
+			 * Inside the same hold, because the averages are read from the
+			 * USB interrupt too: a squelch set relative to them recomputes
+			 * the threshold from the handler.
 			 */
 			rssi_iir_reset();
-			usb_irq = usb_irq_hold();
-			usb_queue_init();
 			usb_irq_release(usb_irq);
 		}
 

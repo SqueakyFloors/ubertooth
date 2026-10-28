@@ -52,10 +52,11 @@ int16_t rssi_iir[NUM_BREDR_CHANNELS] = {0};
  * The per-channel average does not: it is an infinite impulse response filter
  * that blends 3/256 of each bank's average into the channel's running value,
  * so it needs hundreds of banks to reach what the radio is hearing. Clearing
- * it here left it one bank old forever, and 3/256 of one bank rounds to zero
- * dBm for every reading from -96 to -12 dBm -- the whole useful range. Every
- * Classic record therefore carried the same noise figure, -54 dBm, whatever
- * the radio heard. rssi_iir_reset() clears it where a capture ends instead.
+ * it here left it one bank old forever, and 3/256 of one bank rounds back to
+ * zero for every raw reading from -42 to 42, which covers the whole range the
+ * radio reports in the band. Every Classic record therefore carried the same
+ * noise figure -- the host reads a zero average as -55 dBm -- whatever the
+ * radio heard. rssi_iir_reset() clears it where a capture ends instead.
  */
 void rssi_reset(void)
 {

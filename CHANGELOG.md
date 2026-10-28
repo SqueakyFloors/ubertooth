@@ -313,8 +313,11 @@
   servicing USB, which is also what a reset caught in the loop itself reports.
   [#505](https://github.com/SqueakyFloors/ubertooth/issues/505)
 - A Classic capture's noise figure and signal-to-noise ratio are what the radio
-  heard, instead of a fixed -54 dBm in every record. The per-channel average
-  behind them was cleared once per packet, so it never built up.
+  heard, instead of a fixed -55 dBm in every record. The per-channel average
+  behind them was cleared once per packet, so it never built up. A squelch set
+  relative to that average, with a positive `ubertooth-util -z`, now squelches
+  from the real noise floor rather than from -55 dBm, so the same value is far
+  more selective than it was.
   [#658](https://github.com/SqueakyFloors/ubertooth/issues/658)
 - `ubertooth-btle -p` no longer latches a wrong connection interval and reports
   it for the rest of the run when a packet arrives just after the capture clock

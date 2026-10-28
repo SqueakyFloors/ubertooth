@@ -50,7 +50,8 @@ struct scan {
 	int site_count;
 	int le_baseclk;          /* LE_BASECLK, from ubertooth_clock.h */
 	/* The site inside promisc_recover_hop_interval(), which is the one this
-	 * test's model runs on. */
+	 * test's model runs on. -1 until it is found: site 0 is a real site, so
+	 * leaving it at zero would read a neighbour's constant and pass. */
 	int interval_site;
 };
 
@@ -128,6 +129,7 @@ static int scan_sources(struct scan *out)
 	FILE *f = fopen(path, "r");
 
 	memset(out, 0, sizeof(*out));
+	out->interval_site = -1;
 	if (f == NULL)
 		return 0;
 
@@ -256,9 +258,15 @@ static uint32_t round_the_channels(int conn_interval)
 	       (uint32_t)s.le_baseclk;
 }
 
-/* The period the firmware adds in the estimator, as the source has it. */
+/*
+ * The period the firmware adds in the estimator, as the source has it. Zero if
+ * the scan never found the site, which the first test reports; returning a
+ * working period there would let the rest of the tests pass on nothing.
+ */
 static uint32_t firmware_period(void)
 {
+	if (s.interval_site < 0)
+		return 0;
 	return token_value(s.sites[s.interval_site].token);
 }
 
@@ -281,8 +289,9 @@ MU_TEST(test_the_sources_were_scanned)
 
 	snprintf(msg, sizeof(msg),
 	         "%s: no rollover addition inside "
-	         "promisc_recover_hop_interval()", path);
-	mu_assert(s.sites[s.interval_site].line > 0, msg);
+	         "promisc_recover_hop_interval(), so the model below would run "
+	         "on a neighbouring site's constant", path);
+	mu_assert(s.interval_site >= 0, msg);
 
 	snprintf(msg, sizeof(msg), "%s: LE_BASECLK not found", clock_path);
 	mu_assert(s.le_baseclk > 0, msg);

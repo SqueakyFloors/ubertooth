@@ -99,6 +99,10 @@ struct scan {
 	int iir_call;         /* rssi_iir_reset() in the dispatch */
 	int iir_calls;        /* how many */
 	int idle_fn_iir;      /* rssi_iir_reset() inside cc2400_idle() */
+	/* reset_absorbed_mode_state(): where it is defined, and whether it
+	 * clears the channel averages. */
+	int absorbed_reset_fn;
+	int absorbed_reset_fn_iir;
 
 	/* The modes the dispatch runs by calling bt_stream_rx(), and the
 	 * condition of the loop that is meant to run them. Room for more modes
@@ -216,6 +220,7 @@ static int scan_source(const char *path, struct scan *s)
 {
 	char line[512];
 	int lineno = 0, in_block = 0, in_main = 0, in_loop = 0, in_idle_fn = 0;
+	int in_absorbed_fn = 0;
 	char fn[64] = "", name[64];
 	struct request_case current;
 	const char *p;
@@ -233,7 +238,24 @@ static int scan_source(const char *path, struct scan *s)
 		lineno++;
 		strip_comments(line, &in_block);
 
+		/* reset_absorbed_mode_state()'s body, scanned for the same reason
+		 * cc2400_idle()'s is: what it resets, and what it leaves alone. */
+		if (in_absorbed_fn) {
+			if (strstr(line, "rssi_iir_reset(") != NULL &&
+			    s->absorbed_reset_fn_iir == 0)
+				s->absorbed_reset_fn_iir = lineno;
+			if (line[0] == '}')
+				in_absorbed_fn = 0;
+			continue;
+		}
+
 		if (!in_main && !in_idle_fn) {
+			if (strstr(line, "reset_absorbed_mode_state(") != NULL &&
+			    strchr(line, ';') == NULL) {
+				in_absorbed_fn = 1;
+				s->absorbed_reset_fn = lineno;
+				continue;
+			}
 			if (strstr(line, "cc2400_idle(") != NULL &&
 			    strstr(line, ";") == NULL) {
 				in_idle_fn = 1;
@@ -542,8 +564,9 @@ MU_TEST(test_cc2400_idle_does_not_drop_queued_packets)
  * the per-packet reset must not touch; this is where they are dropped, beside
  * the queued packets and for the same reason. Clearing them per packet instead
  * left the filter one packet old forever, which rounds to zero for every
- * reading in the useful range: every Classic record reported the same noise
- * figure, -54 dBm, whatever the radio heard.
+ * reading the radio reports in the band: every Classic record carried the same
+ * noise figure, the -55 dBm the host reads an empty filter as, whatever the
+ * radio heard.
  */
 MU_TEST(test_leaving_a_mode_forgets_the_channel_averages)
 {
@@ -569,6 +592,32 @@ MU_TEST(test_leaving_a_mode_forgets_the_channel_averages)
 	         "so the filter would keep restarting under a running capture",
 	         path, s.idle_fn_iir);
 	mu_assert(s.idle_fn_iir == 0, msg);
+}
+
+/*
+ * The other half of the rule: a mode request the running stream absorbs keeps
+ * the averages. That reset is for what a mode start configures, and the
+ * averages are not that -- they are what the radio has been hearing, and the
+ * three absorbable modes all receive the same modulation over the same 79
+ * channels without the radio ever stopping. Clearing them there would cost
+ * each absorbed capture the few hundred packets the filter takes to build up.
+ * test_mode_state_reset.c works the rule through on a model of both paths.
+ */
+MU_TEST(test_an_absorbed_mode_start_keeps_the_channel_averages)
+{
+	char msg[512];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: reset_absorbed_mode_state() was not found, so the check "
+	         "below cannot mean anything", path);
+	mu_assert(s.absorbed_reset_fn > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: reset_absorbed_mode_state() clears the channel "
+	         "averages; the radio never stopped receiving, so they still "
+	         "describe the band the absorbed capture is listening to",
+	         path, s.absorbed_reset_fn_iir);
+	mu_assert(s.absorbed_reset_fn_iir == 0, msg);
 }
 
 /*
@@ -816,6 +865,7 @@ int main(void)
 	MU_RUN(test_leaving_a_mode_idles_once_first);
 	MU_RUN(test_leaving_a_mode_drops_what_it_queued);
 	MU_RUN(test_leaving_a_mode_forgets_the_channel_averages);
+	MU_RUN(test_an_absorbed_mode_start_keeps_the_channel_averages);
 	MU_RUN(test_the_queue_clear_holds_the_usb_interrupt_off);
 	MU_RUN(test_cc2400_idle_does_not_choose_the_mode);
 	MU_RUN(test_cc2400_idle_does_not_drop_queued_packets);

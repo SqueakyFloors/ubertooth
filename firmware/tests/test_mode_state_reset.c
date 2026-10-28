@@ -495,7 +495,7 @@ MU_TEST(a_dispatched_mode_start_forgets_the_channel_averages)
  * radio never stopped receiving, and all three of these modes hear the same
  * modulation over the same channels, so the measurement still holds. Dropping
  * it would cost the new capture the few hundred packets the filter takes to
- * build up, which it would spend reporting a noise figure of nearly -54 dBm.
+ * build up, which it would spend reporting the -55 dBm an empty filter gives.
  */
 MU_TEST(an_absorbed_request_keeps_the_channel_averages)
 {
