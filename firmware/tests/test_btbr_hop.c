@@ -24,6 +24,14 @@
  * over every input, so the expected values do not come from firmware code.
  * The one thing the test shares with the firmware is the order the butterfly
  * stages run in, which only the specification's figure shows; see PERM5 below.
+ *
+ * On top of those, the whole of the specification's own published hop sample
+ * data is run through this image: 7680 connection-state vectors through
+ * hop_basic() and 192 page scan and inquiry scan vectors through
+ * hop_inquiry(), from Vol 2, Part G, Section 2, in spec_hop_vectors.h.  The
+ * hand-picked vectors above stay because they name the rule each one is there
+ * for, and because they cover addresses, clock values and channel maps Part G
+ * does not print.
  */
 #include <stdarg.h>
 #include <stdio.h>
@@ -31,6 +39,7 @@
 #include <string.h>
 
 #include "minunit.h"
+#include "spec_hop_vectors.h"
 #include <ubtbr/hop.h>
 #include <ubtbr/btphy.h>
 
@@ -416,9 +425,118 @@ MU_TEST(test_connection_modes_hop_through_hop_basic)
 	}
 }
 
+/*
+ * The specification's published connection-state sample data: three
+ * addresses, the basic sequence and four channel maps, 512 clock values each.
+ * A mismatch here is a real on-air bug -- the board would hop somewhere the
+ * piconet is not.
+ */
+MU_TEST(test_spec_sample_data_connection_state)
+{
+	int set, entry, bad = 0, reported = 0;
+
+	for (set = 0; set < SPEC_HOP_CONN_SETS; set++) {
+		const struct spec_hop_conn_vector *v = &SPEC_HOP_CONN[set];
+		uint8_t map[10];
+
+		if (v->used_channels == NULL) {
+			follow_setup(v->ulap, NULL);
+		} else {
+			spec_hop_afh_map(v->used_channels, map);
+			follow_setup(v->ulap, map);
+		}
+
+		for (entry = 0; entry < SPEC_HOP_CONN_ENTRIES; entry++) {
+			uint32_t clk = SPEC_HOP_CONN_FIRST_CLK +
+					entry * SPEC_HOP_CONN_CLK_STEP;
+			int want = v->channels[entry];
+			int got = hop_basic(clk);
+
+			if (got == want)
+				continue;
+			bad++;
+			/* Enough to name the failing vector, not a flood. */
+			if (reported++ < 4)
+				printf("  address %07x, %s, CLK 0x%03x: "
+					"channel %d, the spec says %d\n",
+					v->ulap,
+					v->used_channels ? v->used_channels
+							 : "basic sequence",
+					clk, got, want);
+		}
+	}
+	mu_assert_int_eq(0, bad);
+}
+
+/*
+ * The published page scan and inquiry scan sample data.  In those substates
+ * Table 2.2 makes the kernel's X input CLKN16-12 and its F input 0, so the
+ * table is reproduced by setting the phase hop_inquiry() reads and calling it.
+ * How the phase is chosen is the scan task's business, not hop.c's: this
+ * image sweeps it to search for a device whose clock it does not know.
+ */
+MU_TEST(test_spec_sample_data_page_and_inquiry_scan)
+{
+	int set, entry, bad = 0, reported = 0;
+
+	for (set = 0; set < SPEC_HOP_SCAN_SETS; set++) {
+		const struct spec_hop_scan_vector *v = &SPEC_HOP_SCAN[set];
+
+		follow_setup(v->ulap, NULL);
+
+		for (entry = 0; entry < SPEC_HOP_SCAN_ENTRIES; entry++) {
+			uint32_t clkn = SPEC_HOP_SCAN_FIRST_CLKN +
+					entry * SPEC_HOP_SCAN_CLKN_STEP;
+			int want = v->channels[entry];
+			int got;
+
+			hop_state.x = (clkn >> 12) & 0x1f;
+			got = hop_inquiry(clkn);
+
+			if (got == want)
+				continue;
+			bad++;
+			if (reported++ < 4)
+				printf("  address %07x, CLKN 0x%07x: "
+					"channel %d, the spec says %d\n",
+					v->ulap, clkn, got, want);
+		}
+	}
+	mu_assert_int_eq(0, bad);
+}
+
+/* The four substates that hop this way all reach it through hop_channel(). */
+MU_TEST(test_spec_scan_data_through_every_inquiry_mode)
+{
+	static const uint8_t MODES[] = {
+		BT_MODE_INQUIRY, BT_MODE_INQUIRY_SCAN,
+		BT_MODE_PAGE_SCAN, BT_MODE_PAGING_RESPONSE,
+	};
+	const struct spec_hop_scan_vector *v = &SPEC_HOP_SCAN[1];
+	unsigned mode;
+	int entry, bad = 0;
+
+	follow_setup(v->ulap, NULL);
+	for (mode = 0; mode < sizeof(MODES); mode++) {
+		btphy.mode = MODES[mode];
+		for (entry = 0; entry < SPEC_HOP_SCAN_ENTRIES; entry++) {
+			uint32_t clkn = SPEC_HOP_SCAN_FIRST_CLKN +
+					entry * SPEC_HOP_SCAN_CLKN_STEP;
+
+			hop_state.x = (clkn >> 12) & 0x1f;
+			if (hop_channel(clkn) != v->channels[entry])
+				bad++;
+		}
+	}
+	mu_assert_int_eq(0, bad);
+}
+
 int main(void)
 {
 	printf("btbr hop selection tests\n");
+	MU_RUN(test_spec_sample_data_connection_state);
+	MU_RUN(test_spec_sample_data_page_and_inquiry_scan);
+	MU_RUN(test_spec_scan_data_through_every_inquiry_mode);
 	MU_RUN(test_perm5_lookup_table_matches_spec);
 	MU_RUN(test_basic_bank_is_even_then_odd_channels);
 	MU_RUN(test_basic_hops_match_reference);

@@ -10,6 +10,12 @@
  * hop implementation.  They are fixed here so the tests do not use the
  * firmware algorithm as its own oracle.
  *
+ * On top of those, the whole of the specification's own published hop sample
+ * data is run through next_hop(): 7680 vectors from Vol 2, Part G, Section 2,
+ * in spec_hop_vectors.h.  The hand-picked vectors above stay because they name
+ * the rule each one is there for, and because they cover clock values and
+ * channel maps Part G does not print.
+ *
  * AFH rules being checked:
  *  - a basic-sequence channel that the map marks used is kept unchanged;
  *  - an unused one is replaced from the used channels only, ordered even
@@ -19,6 +25,7 @@
 #include <string.h>
 
 #include "minunit.h"
+#include "spec_hop_vectors.h"
 #include "bluetooth.h"
 
 /* Non-static state in bluetooth.c, reset between tests. */
@@ -212,9 +219,53 @@ MU_TEST(test_reserved_map_bit_is_not_counted)
 	mu_assert_int_eq(34, used_channels);
 }
 
+/*
+ * The specification's published sample data: three addresses, the basic
+ * sequence and four channel maps, 512 clock values each.  A mismatch here is a
+ * real on-air bug -- the board would hop somewhere the piconet is not.
+ */
+MU_TEST(test_spec_sample_data_connection_state)
+{
+	int set, entry, bad = 0, reported = 0;
+
+	for (set = 0; set < SPEC_HOP_CONN_SETS; set++) {
+		const struct spec_hop_conn_vector *v = &SPEC_HOP_CONN[set];
+		u8 map[10];
+
+		reset_state();
+		target.address = v->ulap;
+		precalc();
+		if (v->used_channels != NULL) {
+			spec_hop_afh_map(v->used_channels, map);
+			bluetooth_set_afh_map(map);
+		}
+
+		for (entry = 0; entry < SPEC_HOP_CONN_ENTRIES; entry++) {
+			u32 clk = SPEC_HOP_CONN_FIRST_CLK +
+					entry * SPEC_HOP_CONN_CLK_STEP;
+			int want = v->channels[entry];
+			int got = next_hop(clk) - BT_FREQ_MIN;
+
+			if (got == want)
+				continue;
+			bad++;
+			/* Enough to name the failing vector, not a flood. */
+			if (reported++ < 4)
+				printf("  address %07x, %s, CLK 0x%03x: "
+					"channel %d, the spec says %d\n",
+					v->ulap,
+					v->used_channels ? v->used_channels
+							 : "basic sequence",
+					clk, got, want);
+		}
+	}
+	mu_assert_int_eq(0, bad);
+}
+
 int main(void)
 {
 	printf("Bluetooth hop selection tests\n");
+	MU_RUN(test_spec_sample_data_connection_state);
 	MU_RUN(test_basic_hops_match_reference);
 	MU_RUN(test_afh_mapping_table_is_used_channels_even_then_odd);
 	MU_RUN(test_afh_hops_match_reference);
