@@ -314,10 +314,11 @@
   [#505](https://github.com/SqueakyFloors/ubertooth/issues/505)
 - A Classic capture's noise figure and signal-to-noise ratio are what the radio
   heard, instead of a fixed -55 dBm in every record. The per-channel average
-  behind them was cleared once per packet, so it never built up. A squelch set
-  relative to that average, with a positive `ubertooth-util -z`, now squelches
-  from the real noise floor rather than from -55 dBm, so the same value is far
-  more selective than it was.
+  behind them was cleared once per packet, so it never built up. A positive
+  `ubertooth-util -z` finally means what it says, N dB above the measured noise
+  floor: it was computed from an average pinned near the top of the radio's
+  range, which made it a near-total squelch, and it now passes most of what the
+  board hears.
   [#658](https://github.com/SqueakyFloors/ubertooth/issues/658)
 - `ubertooth-btle -p` no longer latches a wrong connection interval and reports
   it for the rest of the run when a packet arrives just after the capture clock
