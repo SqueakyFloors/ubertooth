@@ -157,7 +157,7 @@ run a range test and report it: a progress line about once a second while it run
 Miscellaneous:
 .TP
 \fB\-i\fR
-activate In\-System Programming (ISP) mode
+activate In\-System Programming (ISP) mode\. The board hands itself to the on\-chip programmer once the host has collected its answer \(em about a second later on \fBbluetooth_rxtx\fR, 10 ms on \fBbtbr\fR \(em and stays there, answering no other request, until its power is cut: unplug it, or power\-cycle its hub port\. The command says so in a \fBnote:\fR line of its own
 .TP
 \fB\-b\fR
 get hardware board id number
@@ -169,7 +169,7 @@ get microcontroller Part ID (32\-bit, hexadecimal); exits non\-zero if the devic
 get microcontroller serial number
 .TP
 \fB\-w\fR
-get the watchdog state, and why the board last reset itself\. See \fIWATCHDOG\fR; exits non\-zero if the read fails
+get the watchdog state, why the board last reset itself, and how many of the firmware's waits on the radio gave up\. See \fIWATCHDOG\fR; exits non\-zero if either read fails
 .SH "WATCHDOG"
 The firmware resets the board if it goes three seconds without servicing USB, or without its mode getting back round its own loop\. A board that stops answering the host is useless to it and cannot be recovered from it \(em the reset request travels over USB too \(em so the board recovers itself, re\-enumerates, and comes back idle\. What a capture used to see as a hang is now the board disappearing and coming back; the tools treat a board that has gone as lost and exit\.
 .P
@@ -186,6 +186,7 @@ Watchdog: armed; 3000 ms without USB being serviced or the mode looping resets t
 Unrequested watchdog resets since power\-on: 2 (in 3 boots)
   the last was in BLE follow mode, waiting for the 16 MHz crystal oscillator
 Now in idle mode, not in a wait
+Radio waits that gave up since boot: synthesizer lock 0, unlock 0, oscillator 0, state machine 0
 .fi
 .IP "" 0
 .P
@@ -194,6 +195,8 @@ Now in idle mode, not in a wait
 A board running the \fBbtbr\fR image reads \fBNow in a mode the board does not report\fR: that image runs its own state machine rather than one of the modes above, so it records no mode instead of claiming to be idle\.
 .P
 Both counters are since power\-on and stop at 255\. Unplugging the board, or cutting power to its hub port, starts them again; \fB\-r\fR does not\.
+.P
+The last line counts something else: the firmware's waits on the radio\. Each of them gives up after a bound and carries on, which is what keeps a radio that never reports the state it was asked for from holding the board \(em but carrying on is silent, so a half\-working radio reads as a quiet channel\. The four counts are the times each shape of wait ran out: the synthesizer never locking, never going back off, the 16 MHz crystal never reporting stable, and the radio's state machine never reaching a state\. All zero is what a working board shows; a count that climbs during a capture says the samples or packets that came out of it are not to be trusted, whatever they look like\. They are since the board started (a \fB\-r\fR reset included) and stop at 65535\.
 .P
 \fB\-i\fR (In\-System Programming) is the one hand\-over the watchdog cannot be switched off for: it keeps the chip running, so the timeout is stretched to about 71 minutes first\.
 .SH "SELECTING A DEVICE"
@@ -477,7 +480,7 @@ It exits with 1, without opening a device, when two or more mode options are giv
 .P
 A \fB\-N\fR count that succeeds does not affect the exit status: the number is printed and the rest of the command decides it\. A count that cannot be read is a failed operation like any other: it prints no number and makes the command exit 1, and the rest of it still runs\.
 .P
-A failed \fB\-w\fR read prints \fBerror: watchdog state read failed\fR on standard error, nothing on standard output, and makes the command exit 1\.
+\fB\-w\fR makes two reads, and a failure in either prints \fBerror: watchdog state read failed\fR or \fBerror: radio wait timeouts read failed\fR on standard error, after any message from libubertooth, and makes the command exit 1\. The other read is still reported, so a board that cannot answer one still says what it can\.
 .P
 When a \fB\-b\fR, \fB\-c\fR, \fB\-a\fR, \fB\-z\fR, \fB\-l\fR, \fB\-d\fR, \fB\-p\fR, \fB\-s\fR or \fB\-m\fR read fails, no value line is printed on standard output, so an error code is never shown as a value; the other requested queries are still reported\. A failed \fB\-b\fR, \fB\-c\fR, \fB\-a\fR, \fB\-z\fR, \fB\-l\fR, \fB\-d\fR, \fB\-p\fR, \fB\-s\fR or \fB\-m\fR read also prints \fBerror: <query> read failed\fR (for example \fBerror: channel read failed\fR or \fBerror: board ID read failed\fR) on standard error, after any message from libubertooth\. When the board returns fewer bytes than the read needs, that is the only line, with the counts added, for example \fBerror: channel read failed: board returned 0 of 2 bytes\fR\.
 .SH "DIAGNOSTICS"
@@ -486,6 +489,8 @@ Standard output carries only what was asked for: the values the queries read, th
 \fB\-n\fR is the one operation whose running commentary is what it was asked for rather than a note about itself: the test is what the command is, so its \fBwaiting for the repeater\|\.\|\.\|\. (<n> s)\fR lines go to standard output with the result they lead to, and a script reading \fB\-n\fR reads those lines as well as the four result lines \fB\-m\fR gives\. \fBStarting range test\fR, which is about the command and not about the test, stays on standard error with the lines below\.
 .P
 That includes the progress lines for the operations that do something rather than report something: \fBResetting ubertooth device <selector>\fR, \fBStopping ubertooth device <selector>\fR, \fBEntering flash programming (ISP) mode\fR, \fBEntering LED specan mode (threshold \-<n> dBm)\fR, \fBStarting range test\fR, \fBStarting repeater\fR and \fBStarting TX test\fR\. They were written to standard output before\.
+.P
+\fB\-i\fR adds a second line, because the first does not say what the board will do: \fBnote: the board hands itself to its on\-chip programmer and answers nothing else until it is power\-cycled\fR\.
 .P
 Each operation says what it did once\. \fB\-I\fR reports the blink only through \fBnote: the board is blinking; stop it with ubertooth\-util [\-U <selector>] \-S or any mode option\fR, naming the selector so the command can be pasted; there is no separate line announcing the LEDs\. Setting the squelch with \fB\-z <n>\fR prints nothing, as \fB\-a\fR, \fB\-c\fR, \fB\-C\fR, \fB\-d\fR and \fB\-l\fR do not: the value \fB\-z\fR reads back afterwards (\fBSquelch set to <n>\fR) is the result and goes to standard output\. A set that fails is still reported, on standard error, and the command exits 1\. \fB\-x\fR has never had a line of its own\.
 .P

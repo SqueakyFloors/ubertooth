@@ -252,8 +252,21 @@ void cc2400_init()
 	/* activate 3V3 supply for CC2400 IO */
 	CC3V3_SET;
 
-	/* initialise various cc2400 settings - see datasheet pg63 */
-	cc2400_set(MANAND,  0x7fff);
+	/*
+	 * No radio register is written here, because nothing written here
+	 * survives. Every caller goes on to cc2400_reset() -- some of the bench
+	 * images call it directly, the rest reach it through clock_start(), as
+	 * ubertooth_init() does -- and that takes MAIN to 0 and back: a few
+	 * microseconds after this returns, every register is at its reset value
+	 * again.
+	 *
+	 * A `cc2400_set(MANAND, 0x7fff)` used to sit here, meant to hold the
+	 * receive gain amplifier out of reset for the whole run. It was undone
+	 * that way, so a board that had just booted read MANAND as 0xffff and
+	 * no mode ever saw it. Each mode writes the registers it needs when it
+	 * starts, MANAND included, and cc2400_idle() puts MANAND back when a
+	 * mode ends.
+	 */
 }
 
 /*
@@ -792,8 +805,35 @@ void set_isp(void)
 {
 	u32 command[5];
 	u32 result[5];
+	/*
+	 * Interrupts off for the hand-over, and this is the one place that can
+	 * do it for both images: the guard it uses, defined earlier in this
+	 * file, is file-local, and btbr has its own copy under a different
+	 * header.
+	 *
+	 * The programmer lives in ROM and neither uses nor masks interrupts, so
+	 * a handler that fires while it starts up vectors back into the image
+	 * that was running. In the btbr image that happens every 312.5
+	 * microseconds, its slot timer, and the hand-over then did not take at
+	 * all on a board: this call came back and the firmware carried on
+	 * answering the host as if nothing had been asked. The call used to be
+	 * made from inside the USB interrupt handler, which masked the other
+	 * handlers for free; now that each image answers the host first and
+	 * hands over from its own loop, the mask has to be here.
+	 *
+	 * The bluetooth_rxtx image happens to be quiet by the time it hands over
+	 * -- its dispatch stops the clock and the mode that was running -- but
+	 * that is a property of fifteen mode functions, not of this path, so it
+	 * is masked here too rather than relied on.
+	 */
+	u32 flags = irq_save_disable();
+
 	command[0] = 57;
 	iap_entry(command, result);
+
+	/* Not reached, unless the programmer refuses: then the board must not be
+	 * left running with every interrupt masked. */
+	irq_restore(flags);
 }
 
 //FIXME ssp

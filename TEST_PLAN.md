@@ -41,7 +41,7 @@ A second Ubertooth One for the range test (2i).
 
 ### 2a. Firmware version check
 - [ ] Run `ubertooth-util -v`
-- [ ] Confirm: returns `Firmware version: <image> <revision> (API:1.40)` (firmware
+- [ ] Confirm: returns `Firmware version: <image> <revision> (API:1.41)` (firmware
       built from this tree; the host tools refuse any other API version, and a
       board whose firmware has no info block shows the revision without an
       image name)
@@ -102,6 +102,38 @@ image with no firmware info block.
 - [ ] Confirm: the last line names a wait of the running mode, not "servicing
       USB" — a reply is always written from the USB path, so that line would
       say nothing
+- [ ] Confirm: `Radio waits that gave up since boot:` reads 0 for all four
+      counts on a board whose radio is working, before and after a capture
+
+### 2e-1. A mode starts from the same radio state every time
+
+- [ ] Run `ubertooth-debug -U <serial> -r %manand` on a freshly reset board
+- [ ] Confirm: `%MANAND = 0xFFFF`, the chip's reset value
+- [ ] Run `ubertooth-util -U <serial> -e`, then read `%manand` again
+- [ ] Confirm: `0x7FFF` — the running mode's own override
+- [ ] Run `ubertooth-util -U <serial> -S`, then read `%manand` again
+- [ ] Confirm: `0xFFFF` again, so the next mode inherits nothing
+- [ ] Run `ubertooth-specan -U <serial> -t 5` on a freshly reset board, and
+      again after a `ubertooth-btle -f` capture has been started and stopped
+- [ ] Confirm: both sweeps cover the same range of levels — the sweep no
+      longer depends on which mode ran before it
+
+### 2e-2. The on-chip programmer answers the host first
+
+*This leaves the board unusable until its power is cut, so run it last on a
+board you can unplug or whose hub port you can power-cycle. Run it once on
+`bluetooth_rxtx` and once on `btbr`: each image defers the hand-over in its
+own way.*
+
+- [ ] Run `ubertooth-util -U <serial> -i`
+- [ ] Confirm: `Entering flash programming (ISP) mode`, then
+      `note: the board hands itself to its on-chip programmer and answers
+      nothing else until it is power-cycled`, no `libusb -7`, and exit 0
+- [ ] Wait a few seconds — the board answers until it hands over, about a
+      second on `bluetooth_rxtx` — then run `ubertooth-util -U <serial> -v`
+- [ ] Confirm: the board no longer answers — it is in the programmer
+- [ ] Power-cycle the board, then `-v` again
+- [ ] Confirm: it answers with the firmware it was running
 
 ### 2f. Bootloader refuses a read-back past the end of flash
 

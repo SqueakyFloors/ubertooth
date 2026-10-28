@@ -592,9 +592,11 @@ static void usage(FILE *output)
 	fprintf(output, "\n");
 	fprintf(output, "Miscellaneous:\n");
 	fprintf(output, "\t-i activate In-System Programming (ISP) mode\n");
+	fprintf(output, "\t   the board answers nothing else until it is power-cycled\n");
 	fprintf(output, "\t-b get hardware board id number\n");
 	fprintf(output, "\t-p get microcontroller Part ID\n");
-	fprintf(output, "\t-w get the watchdog state, and why the board last reset itself\n");
+	fprintf(output, "\t-w get the watchdog state, why the board last reset itself,\n");
+	fprintf(output, "\t   and how many radio waits gave up\n");
 	fprintf(output, "\t-s get microcontroller serial number\n");
 	fprintf(output, "\t-x xmas lights\n");
 }
@@ -1107,6 +1109,22 @@ int main(int argc, char *argv[])
 			status = util_status_merge(status,
 			        util_report_watchdog(stdout, raw, sizeof(raw)));
 		}
+
+		/* The radio wait counts go with it: both say why a board stopped
+		 * doing what was asked, one for a wedge and one for a radio that
+		 * answered the bus and not the request. Read separately, so a
+		 * board that cannot answer one still reports the other. */
+		{
+			radio_timeouts timeouts;
+			int t = cmd_get_radio_timeouts(ut->devh, &timeouts);
+
+			if (t < 0)
+				status = util_status_merge(status,
+				        report_read_failed("radio wait timeouts", t));
+			else
+				status = util_status_merge(status,
+				        util_report_radio_timeouts(stdout, &timeouts));
+		}
 	}
 
 	/* final actions */
@@ -1135,8 +1153,21 @@ int main(int argc, char *argv[])
 		goto out;
 	}
 	if(do_isp == 0) {
+		int r;
+
 		fprintf(stderr, "Entering flash programming (ISP) mode\n");
-		status = util_status_after(status, cmd_set_isp(ut->devh));
+		r = cmd_set_isp(ut->devh);
+		status = util_status_after(status, r);
+		/* What the line above does not say: the board hands itself to the
+		 * programmer shortly after answering this request -- about a
+		 * second on bluetooth_rxtx -- and stays there, answering nothing
+		 * else, until its power is cut. This option is one keystroke from
+		 * several that only read something, and the board it is given to
+		 * by mistake looks broken. */
+		if (r >= 0)
+			fprintf(stderr, "note: the board hands itself to its on-chip "
+			        "programmer and answers nothing else until it is "
+			        "power-cycled\n");
 		goto out;
 	}
 	if(do_led_specan >= 0) {

@@ -149,6 +149,12 @@
   reset, how many it has done since power-on, and which mode and which wait it
   was in when it stopped answering.
   [#509](https://github.com/SqueakyFloors/ubertooth/issues/509)
+- `ubertooth-util -w` also reports how many of the firmware's waits on the
+  radio gave up, one count per wait. Those waits are bounded so that a radio
+  that never reports the state it was asked for cannot hold the board, and
+  carrying on is silent: a count above zero is what tells a half-working radio
+  from a quiet channel.
+  [#488](https://github.com/SqueakyFloors/ubertooth/issues/488)
 - `ubertooth-util -I` blinks the LEDs faster for easier
   identification, and now runs the blink on the board like every other mode, so
   the command returns at once and the board stays reachable; `-S` or any mode
@@ -160,12 +166,12 @@
   those tools still cannot drive that image and now fail on the first request
   it does not answer.
   [#556](https://github.com/SqueakyFloors/ubertooth/issues/556)
-- **Reflash required:** the firmware API version is now 1.40, last moved by the
-  noise figure in a Classic record becoming a real measurement, and the host
-  tools require firmware of exactly their own API version, older or newer. Host
-  and firmware come from the same tree: `ubertooth-dfu` reflashes a board
-  whatever firmware it is running, but only with an image built from this tree,
-  and `2020-12-R1` firmware is refused.
+- **Reflash required:** the firmware API version is now 1.41, last moved by the
+  radio wait counts `-w` reads, and the host tools require firmware of exactly
+  their own API version, older or newer. Host and firmware come from the same
+  tree: `ubertooth-dfu` reflashes a board whatever firmware it is running, but
+  only with an image built from this tree, and `2020-12-R1` firmware is
+  refused.
   [#4](https://github.com/SqueakyFloors/ubertooth/issues/4)
   [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
@@ -177,6 +183,8 @@
   [#464](https://github.com/SqueakyFloors/ubertooth/issues/464)
   [#473](https://github.com/SqueakyFloors/ubertooth/issues/473)
   [#475](https://github.com/SqueakyFloors/ubertooth/issues/475)
+  [#488](https://github.com/SqueakyFloors/ubertooth/issues/488)
+  [#508](https://github.com/SqueakyFloors/ubertooth/issues/508)
   [#570](https://github.com/SqueakyFloors/ubertooth/issues/570)
   [#571](https://github.com/SqueakyFloors/ubertooth/issues/571)
   [#505](https://github.com/SqueakyFloors/ubertooth/issues/505)
@@ -288,6 +296,23 @@
 
 ### Reliability fixes
 
+- A spectrum analyzer run measures through the radio front end a freshly
+  booted board has, whichever mode ran before it. `ubertooth-specan` and
+  `ubertooth-util -q` do not set the radio's manual signal overrides
+  themselves, and nothing put them back when a mode ended, so a sweep after a
+  low-energy capture was taken through that capture's front end and a sweep
+  after a reset was not. The write that was meant to set them at boot is gone
+  as well: the radio reset a few microseconds later undid it, so it never
+  reached a mode.
+  [#471](https://github.com/SqueakyFloors/ubertooth/issues/471)
+- `ubertooth-util -i` is reported as the success it is. The board used to go
+  off the bus from inside the request handler, throwing away the answer the
+  host was waiting for, so a board that had done exactly what was asked was
+  reported as one that had timed out (`libusb -7`) and the command exited 1.
+  Both images now answer the host first. The command also says, in a note of
+  its own, that the board stays in its programmer and answers nothing else
+  until its power is cut.
+  [#508](https://github.com/SqueakyFloors/ubertooth/issues/508)
 - `ubertooth-debug` prints each CC2400 field's whole value. Fourteen fields
   were read with a mask narrower than the field the dump draws beside them, so
   a field holding 64 read as 0, and two more took their value from a

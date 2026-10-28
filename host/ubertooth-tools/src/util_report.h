@@ -105,6 +105,9 @@ int util_report_serial(const struct util_report_ops *ops, void *context,
  * as the bytes it arrived in. Returns 0, or 1 for a reply this cannot read.
  * The helpers below are what it prints each field as, exposed for the tests. */
 int util_report_watchdog(FILE *out, const uint8_t *info, size_t len);
+/* The radio wait give-up counts, printed under the watchdog report: one line,
+ * from UBERTOOTH_GET_RADIO_TIMEOUTS. Returns 0, or 1 for a NULL reply. */
+int util_report_radio_timeouts(FILE *out, const radio_timeouts *timeouts);
 /* The mode's name, or NULL when the board reports no mode (btbr does not): the
  * report then writes a clause of its own, since no name fits there. */
 const char *util_watchdog_mode_name(unsigned mode);

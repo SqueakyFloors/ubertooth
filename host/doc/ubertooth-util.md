@@ -237,7 +237,11 @@ Range test:
 Miscellaneous:
 
  - `-i` :
-   activate In-System Programming (ISP) mode
+   activate In-System Programming (ISP) mode. The board hands itself to the
+   on-chip programmer once the host has collected its answer — about a second
+   later on `bluetooth_rxtx`, 10 ms on `btbr` — and stays there, answering no
+   other request, until its power is cut: unplug it, or power-cycle its hub
+   port. The command says so in a `note:` line of its own
  - `-b` :
    get hardware board id number
  - `-p` :
@@ -246,8 +250,9 @@ Miscellaneous:
  - `-s` :
    get microcontroller serial number
  - `-w` :
-   get the watchdog state, and why the board last reset itself. See
-   [WATCHDOG][]; exits non-zero if the read fails
+   get the watchdog state, why the board last reset itself, and how many of
+   the firmware's waits on the radio gave up. See [WATCHDOG][]; exits
+   non-zero if either read fails
 
 ## WATCHDOG
 
@@ -282,6 +287,7 @@ was stuck:
     Unrequested watchdog resets since power-on: 2 (in 3 boots)
       the last was in BLE follow mode, waiting for the 16 MHz crystal oscillator
     Now in idle mode, not in a wait
+    Radio waits that gave up since boot: synthesizer lock 0, unlock 0, oscillator 0, state machine 0
 
 `Last boot cause` is why the board started this time: `power-on`, `watchdog`,
 `reset pin`, `brown-out`, or several of those joined with `+`. A reset the
@@ -297,6 +303,17 @@ above, so it records no mode instead of claiming to be idle.
 
 Both counters are since power-on and stop at 255. Unplugging the board, or
 cutting power to its hub port, starts them again; `-r` does not.
+
+The last line counts something else: the firmware's waits on the radio. Each
+of them gives up after a bound and carries on, which is what keeps a radio
+that never reports the state it was asked for from holding the board — but
+carrying on is silent, so a half-working radio reads as a quiet channel. The
+four counts are the times each shape of wait ran out: the synthesizer never
+locking, never going back off, the 16 MHz crystal never reporting stable, and
+the radio's state machine never reaching a state. All zero is what a working
+board shows; a count that climbs during a capture says the samples or packets
+that came out of it are not to be trusted, whatever they look like. They are
+since the board started (a `-r` reset included) and stop at 65535.
 
 `-i` (In-System Programming) is the one hand-over the watchdog cannot be
 switched off for: it keeps the chip running, so the timeout is stretched to
@@ -725,8 +742,11 @@ printed and the rest of the command decides it. A count that cannot be read is
 a failed operation like any other: it prints no number and makes the command
 exit 1, and the rest of it still runs.
 
-A failed `-w` read prints `error: watchdog state read failed` on standard
-error, nothing on standard output, and makes the command exit 1.
+`-w` makes two reads, and a failure in either prints
+`error: watchdog state read failed` or
+`error: radio wait timeouts read failed` on standard error, after any message
+from libubertooth, and makes the command exit 1. The other read is still
+reported, so a board that cannot answer one still says what it can.
 
 When a `-b`, `-c`, `-a`, `-z`, `-l`, `-d`, `-p`, `-s` or `-m` read fails,
 no value line is printed on standard output, so an error code is never shown as
@@ -759,6 +779,10 @@ than report something: `Resetting ubertooth device <selector>`,
 `Entering LED specan mode (threshold -<n> dBm)`, `Starting range test`,
 `Starting repeater` and `Starting TX test`. They were written to standard
 output before.
+
+`-i` adds a second line, because the first does not say what the board will
+do: `note: the board hands itself to its on-chip programmer and
+answers nothing else until it is power-cycled`.
 
 Each operation says what it did once. `-I` reports the blink only through
 `note: the board is blinking; stop it with ubertooth-util [-U <selector>] -S

@@ -60,11 +60,11 @@ rangetest_result rr;
  * valid RSSI readings, and not one sync word. With this write the exchange
  * completes in under a second.
  *
- * The one write at boot does not survive. ubertooth_init() writes MANAND and
- * then calls clock_start(), which resets the CC2400 and takes the register
- * back to the chip's 0xffff; a register dump on a board that has just been
- * reset reads 0xffff, never 0x7fff. Every receive path in this firmware
- * therefore writes it itself, and these two now do the same.
+ * There is no write at boot to inherit. One used to sit in cc2400_init(), and
+ * clock_start() reset the CC2400 a few microseconds later and took the
+ * register back to the chip's 0xffff, so a board that had just booted read
+ * 0xffff and never 0x7fff. Every receive path in this firmware writes it
+ * itself, and these two now do the same.
  */
 #define RANGETEST_MANAND 0x7fff
 

@@ -23,6 +23,7 @@
 #include "version.h"
 #include <ubertooth.h>
 #include <ubertooth_interface.h>
+#include <cc2400_wait.h>
 #include <watchdog.h>
 #include <ubtbr/cfg.h>
 #include <ubtbr/ubertooth_usb.h>
@@ -43,6 +44,11 @@ const char compile_info[] =
 static void request_reset(void)
 {
 	btctl_rx_enqueue(btctl_msg_alloc(BTCTL_RESET_REQ));
+}
+
+static void request_isp(void)
+{
+	btctl_rx_enqueue(btctl_msg_alloc(BTCTL_ISP_REQ));
 }
 
 int vendor_request_handler(uint8_t request, uint16_t* request_params,
@@ -165,17 +171,12 @@ int vendor_request_handler(uint8_t request, uint16_t* request_params,
 #endif
 
 	case UBERTOOTH_SET_ISP:
-		/* See the same case in bluetooth_rxtx.c: the on-chip programmer has
-		 * no feed of its own and there is no reset to switch the watchdog
-		 * off, so the timeout is stretched instead. */
-		watchdog_intent(WATCHDOG_INTENT_ISP);
-		watchdog_stretch();
-		set_isp();
-		/* As in bluetooth_rxtx.c: if the programmer ever returns, put the
-		 * timeout and the intent back rather than leave the board
-		 * unguarded. */
-		watchdog_unstretch();
-		*data_len = 0; /* should never return */
+		/* Queued, for the reason UBERTOOTH_RESET is queued: the programmer
+		 * takes the board off the bus, and this transfer's status stage is
+		 * still waiting in the endpoint 0 buffer for the host's next IN
+		 * token when this handler returns. The control loop answers the
+		 * host and then hands over. */
+		request_isp();
 		break;
 
 	case UBERTOOTH_FLASH:
@@ -186,6 +187,11 @@ int vendor_request_handler(uint8_t request, uint16_t* request_params,
 	case UBERTOOTH_GET_WATCHDOG:
 		watchdog_report(data);
 		*data_len = UBERTOOTH_WATCHDOG_INFO_LEN;
+		break;
+
+	case UBERTOOTH_GET_RADIO_TIMEOUTS:
+		cc2400_wait_report(data);
+		*data_len = UBERTOOTH_RADIO_TIMEOUTS_LEN;
 		break;
 
 	case UBERTOOTH_GET_REV_NUM:

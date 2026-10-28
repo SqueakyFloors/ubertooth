@@ -270,13 +270,16 @@ static int define_text(const char *path, const char *name, char *out,
 /*
  * Scan `path` for the region that starts at the line containing `start` and
  * record where it calls `delays` -- a call name, matched on its first
- * characters -- and where it resets. The region ends at the first `break;`
- * when `ends_at_break` is set -- a case of a switch -- and otherwise at the
- * first closing brace in column 1, which is the end of a function.
+ * characters -- and where it calls `goes_away`, the function that takes the
+ * board off the bus: reset(), or set_isp(), which hands the chip to its
+ * on-chip programmer and is the same thing to the host. The region ends at the
+ * first `break;` when `ends_at_break` is set -- a case of a switch -- and
+ * otherwise at the first closing brace in column 1, which is the end of a
+ * function.
  */
 static int scan_reset_region(const char *path, const char *start,
-                             const char *delays, int ends_at_break,
-                             struct reset_scan *s)
+                             const char *delays, const char *goes_away,
+                             int ends_at_break, struct reset_scan *s)
 {
 	char line[512], name[64];
 	int lineno = 0, in_block = 0, in_region = 0;
@@ -310,7 +313,7 @@ static int scan_reset_region(const char *path, const char *start,
 			if (strncmp(name, delays, strlen(delays)) == 0 &&
 			    s->delay == 0)
 				s->delay = lineno;
-			if (strcmp(name, "reset") == 0 && s->reset == 0)
+			if (strcmp(name, goes_away) == 0 && s->reset == 0)
 				s->reset = lineno;
 		}
 		if (ends_at_break) {
@@ -326,11 +329,17 @@ static int scan_reset_region(const char *path, const char *start,
 }
 
 /*
- * Both images let that time pass before they reset, each in the way its own
+ * Both images let that time pass before they go away, each in the way its own
  * loop allows: bluetooth_rxtx's mode dispatch busy-waits (wait(), wait_ms()
  * and wait_us() are the same thing here), and btbr's queued handler spends the
  * time in a loop calling usb_work(), which is both the delay and the thing
  * that keeps its queue to the host moving while it passes.
+ *
+ * Four regions, because there are two ways off the bus: a reset, and the
+ * hand-over to the on-chip programmer that `ubertooth-util -i` asks for. The
+ * programmer is the one a user reaches by mistyping an option, and it used to
+ * run from the request handler, so the host was told its request had timed out
+ * for a board that had done what was asked.
  */
 MU_TEST(test_both_images_wait_before_they_reset)
 {
@@ -338,16 +347,24 @@ MU_TEST(test_both_images_wait_before_they_reset)
 		const char *path;
 		const char *start;
 		const char *delays;
+		const char *goes_away; /* the call that takes the board off USB */
 		const char *bound;  /* what the loop around it counts, if any */
 		int ends_at_break;
 		const char *what;
 	} regions[] = {
 		{ FW_RXTX_DIR "/bluetooth_rxtx.c", "case MODE_RESET:",
-		  "wait", NULL, 1, "the mode dispatch's reset case" },
+		  "wait", "reset", NULL, 1, "the mode dispatch's reset case" },
+		{ FW_RXTX_DIR "/bluetooth_rxtx.c", "case MODE_ISP:",
+		  "wait", "set_isp", NULL, 1,
+		  "the mode dispatch's programmer case" },
 		{ FW_BTBR_DIR "/src/btctl/btctl.c",
 		  "btctl_handle_reset_req(msg_t *msg)",
-		  "usb_work", "RESET_DELAY_CLKN", 0,
+		  "usb_work", "reset", "RESET_DELAY_CLKN", 0,
 		  "the queued reset handler" },
+		{ FW_BTBR_DIR "/src/btctl/btctl.c",
+		  "btctl_handle_isp_req(msg_t *msg)",
+		  "usb_work", "set_isp", "RESET_DELAY_CLKN", 0,
+		  "the queued programmer handler" },
 	};
 	char message[1024];
 	size_t i;
@@ -360,6 +377,7 @@ MU_TEST(test_both_images_wait_before_they_reset)
 		mu_assert_fatal(scan_reset_region(regions[i].path,
 		                                  regions[i].start,
 		                                  regions[i].delays,
+		                                  regions[i].goes_away,
 		                                  regions[i].ends_at_break, &s),
 		                message);
 
@@ -370,19 +388,19 @@ MU_TEST(test_both_images_wait_before_they_reset)
 		mu_assert_fatal(s.found > 0, message);
 
 		snprintf(message, sizeof(message),
-		         "%s:%d: %s does not reset at all, so the scan is not "
-		         "reading the code it names", regions[i].path, s.found,
-		         regions[i].what);
+		         "%s:%d: %s does not call %s() at all, so the scan is "
+		         "not reading the code it names", regions[i].path,
+		         s.found, regions[i].what, regions[i].goes_away);
 		mu_assert(s.reset > 0, message);
 
 		snprintf(message, sizeof(message),
-		         "%s:%d: %s resets without giving the host time first "
-		         "(no %s() call before it), so the board goes off the "
-		         "bus before the host has collected the answer to the "
-		         "control transfer that asked for it, and the host sees "
-		         "a stall rather than an accepted request",
+		         "%s:%d: %s calls %s() without giving the host time "
+		         "first (no %s() call before it), so the board goes off "
+		         "the bus before the host has collected the answer to "
+		         "the control transfer that asked for it, and the host "
+		         "sees a stall rather than an accepted request",
 		         regions[i].path, s.reset, regions[i].what,
-		         regions[i].delays);
+		         regions[i].goes_away, regions[i].delays);
 		mu_assert(s.delay > 0 && s.delay < s.reset, message);
 
 		if (regions[i].bound == NULL)
@@ -452,10 +470,10 @@ MU_TEST(test_btbrs_delay_outlasts_a_usb_frame)
 }
 
 /*
- * ...and neither request handler resets where it stands. The wait is in the
- * loop, so a handler that called reset() itself would skip it -- and would
- * also run it from the USB interrupt, in the middle of the transfer it is
- * answering.
+ * ...and neither request handler goes off the bus where it stands, by either
+ * route. The wait is in the loop, so a handler that called reset() or
+ * set_isp() itself would skip it -- and would also run it from the USB
+ * interrupt, in the middle of the transfer it is answering.
  */
 MU_TEST(test_neither_request_handler_resets_in_place)
 {
@@ -463,8 +481,9 @@ MU_TEST(test_neither_request_handler_resets_in_place)
 		FW_RXTX_DIR "/bluetooth_rxtx.c",
 		FW_BTBR_DIR "/src/btctl/vendor_request_handler.c",
 	};
+	static const char *const leaves_the_bus[] = { "reset", "set_isp" };
 	char line[512], name[64], message[1024];
-	size_t i;
+	size_t i, j;
 
 	for (i = 0; i < sizeof(handlers) / sizeof(handlers[0]); i++) {
 		FILE *file = fopen(handlers[i], "r");
@@ -489,9 +508,13 @@ MU_TEST(test_neither_request_handler_resets_in_place)
 			/* The switch ends at its default case. */
 			if (strstr(line, "default:") != NULL)
 				break;
-			if (call_name(line, name, sizeof(name)) &&
-			    strcmp(name, "reset") == 0 && direct_reset == 0)
-				direct_reset = lineno;
+			if (!call_name(line, name, sizeof(name)))
+				continue;
+			for (j = 0; j < sizeof(leaves_the_bus) /
+			                sizeof(leaves_the_bus[0]); j++)
+				if (strcmp(name, leaves_the_bus[j]) == 0 &&
+				    direct_reset == 0)
+					direct_reset = lineno;
 		}
 		fclose(file);
 
@@ -502,12 +525,75 @@ MU_TEST(test_neither_request_handler_resets_in_place)
 		mu_assert(cases > 5, message);
 
 		snprintf(message, sizeof(message),
-		         "%s:%d: a request handler case calls reset() itself, "
-		         "so the board goes off the bus from inside the USB "
-		         "interrupt, in the middle of the transfer that asked "
-		         "for it", handlers[i], direct_reset);
+		         "%s:%d: a request handler case calls reset() or "
+		         "set_isp() itself, so the board goes off the bus from "
+		         "inside the USB interrupt, in the middle of the "
+		         "transfer that asked for it", handlers[i], direct_reset);
 		mu_assert(direct_reset == 0, message);
 	}
+}
+
+/*
+ * The hand-over to the on-chip programmer runs with interrupts masked, and
+ * puts them back if it ever returns.
+ *
+ * Without the mask the hand-over did not happen at all on the btbr image: the
+ * programmer runs from ROM, and that image's slot timer -- every 312.5
+ * microseconds -- vectored back into the firmware while the ROM was starting
+ * up, so set_isp() came back and the board carried on answering the host as if
+ * nothing had been asked. That was found on a board, and nothing in the code
+ * says the guard is load-bearing, which is what this case is for. It is
+ * checked in set_isp() because that is the one place both images share.
+ */
+MU_TEST(test_the_hand_over_masks_interrupts)
+{
+	const char *path = FW_COMMON_DIR "/ubertooth.c";
+	char line[512], name[64], message[1024];
+	int lineno = 0, in_block = 0, in_region = 0;
+	int mask = 0, iap = 0, restore = 0;
+	FILE *file = fopen(path, "r");
+
+	snprintf(message, sizeof(message), "cannot open %s to scan", path);
+	mu_assert_fatal(file != NULL, message);
+
+	while (fgets(line, sizeof(line), file) != NULL) {
+		lineno++;
+		strip_comments(line, &in_block);
+		if (!in_region) {
+			if (strstr(line, "void set_isp(void)") != NULL)
+				in_region = 1;
+			continue;
+		}
+		if (call_name(line, name, sizeof(name))) {
+			if (strcmp(name, "irq_save_disable") == 0 && mask == 0)
+				mask = lineno;
+			if (strcmp(name, "iap_entry") == 0 && iap == 0)
+				iap = lineno;
+			if (strcmp(name, "irq_restore") == 0 && restore == 0)
+				restore = lineno;
+		}
+		if (line[0] == '}')
+			break;
+	}
+	fclose(file);
+
+	snprintf(message, sizeof(message),
+	         "%s: the scan did not find the programmer call in set_isp(), "
+	         "so the checks below would pass without reading anything", path);
+	mu_assert_fatal(iap > 0, message);
+
+	snprintf(message, sizeof(message),
+	         "%s:%d: the hand-over to the on-chip programmer runs with "
+	         "interrupts live (no irq_save_disable() before it), so a timer "
+	         "interrupt preempts the ROM code and the board carries on "
+	         "running the firmware instead of handing over", path, iap);
+	mu_assert(mask > 0 && mask < iap, message);
+
+	snprintf(message, sizeof(message),
+	         "%s:%d: nothing puts the interrupts back after the hand-over, "
+	         "so a programmer that refused would leave the board running "
+	         "with every interrupt masked", path, iap);
+	mu_assert(restore > iap, message);
 }
 
 int main(void)
@@ -519,5 +605,6 @@ int main(void)
 	MU_RUN(test_both_images_wait_before_they_reset);
 	MU_RUN(test_btbrs_delay_outlasts_a_usb_frame);
 	MU_RUN(test_neither_request_handler_resets_in_place);
+	MU_RUN(test_the_hand_over_masks_interrupts);
 	return mu_report();
 }

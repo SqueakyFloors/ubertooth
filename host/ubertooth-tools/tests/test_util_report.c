@@ -786,13 +786,13 @@ MU_TEST(every_mode_and_site_has_a_name)
 {
 	unsigned i;
 
-	for (i = 0; i <= MODE_IDENTIFY; i++) {
+	for (i = 0; i <= MODE_ISP; i++) {
 		const char *name = util_watchdog_mode_name(i);
 
 		mu_assert(name != NULL, "a defined mode has no name");
 		mu_assert(strcmp(name, "unknown") != 0, name);
 	}
-	mu_assert(strcmp(util_watchdog_mode_name(MODE_IDENTIFY + 1),
+	mu_assert(strcmp(util_watchdog_mode_name(MODE_ISP + 1),
 	                 "unknown") == 0, "an unnamed mode is not unknown");
 	mu_assert(util_watchdog_mode_name(MODE_UNKNOWN) == NULL,
 	          "a board that reports no mode was given a name");
