@@ -143,8 +143,43 @@ data_cb_t data_cb = NULL;
 typedef void (*packet_cb_t)(u8 *);
 packet_cb_t packet_cb = NULL;
 
-/* Unpacked symbol buffers (two rxbufs) */
-char unpacked[DMA_SIZE*8*2];
+/*
+ * The receive buffer of a low-energy mode. The two halves of such a mode need
+ * very different buffers, and share one because they never run at the same
+ * time: the board has only a few hundred bytes of RAM to spare, which is not
+ * enough for both.
+ *
+ * bt_generic_le() fills `symbols` and hands it to its data callback, which
+ * searches it for an access address. It has returned before bt_le_sync() is
+ * entered, and bt_le_sync() has no data callback: it receives whole packets
+ * into `packet` instead. bt_promisc_le() runs the two in that order, so a
+ * packet never lands on symbols still being read, or the other way round.
+ */
+static union {
+	/* One byte per received symbol, two DMA buffers' worth: the previous
+	 * buffer followed by the one just received, so an access address that
+	 * straddles the two is still found. */
+	char symbols[DMA_SIZE*8*2];
+	/* One whole captured packet: the four bytes of the access address the
+	 * radio synchronized on, then the PDU header, the payload and the CRC.
+	 * Long enough for any payload the header's 8-bit length field can
+	 * claim, so a Data Length Extension packet arrives whole. */
+	uint8_t packet[LE_MAX_USB_PACKET_SIZE];
+} le_rx;
+
+/* How many bytes the radio can put after the access address: everything in
+ * le_rx.packet except the four the access address takes. */
+#define LE_RX_PDU_MAX (LE_MAX_USB_PACKET_SIZE - 4)
+
+/* dma_init_le() splits what it is given into a first item of LE_DMA_HEAD
+ * bytes and a second of the rest, and the controller's transfer size is a
+ * 12-bit field. Both bounds are checked here because the length is a constant
+ * at the only call site; a transfer size that overflowed would run into the
+ * burst-size bits and mis-program the controller rather than fail. */
+_Static_assert(LE_RX_PDU_MAX > LE_DMA_HEAD,
+               "the low-energy receive buffer is shorter than the first DMA item");
+_Static_assert(LE_RX_PDU_MAX - LE_DMA_HEAD <= 0xfff,
+               "the low-energy receive buffer does not fit one DMA transfer");
 
 static int enqueue(uint8_t type, uint8_t* buf)
 {
@@ -1966,6 +2001,12 @@ void bt_generic_le(u8 active_mode)
 
 	reset_le();
 
+	/* The loop below searches the whole symbol buffer from the first pass
+	 * on, including the half it has not filled yet. That half holds
+	 * whatever the other half of the mode left in the shared buffer, so it
+	 * is cleared rather than searched as if it were received symbols. */
+	memset(le_rx.symbols, 0, sizeof(le_rx.symbols));
+
 	// enable USB interrupts
 	ISER0 = ISER0_ISE_USB;
 
@@ -2069,18 +2110,18 @@ void bt_generic_le(u8 active_mode)
 		hold--;
 
 		// copy the previously unpacked symbols to the front of the buffer
-		memcpy(unpacked, unpacked + DMA_SIZE*8, DMA_SIZE*8);
+		memcpy(le_rx.symbols, le_rx.symbols + DMA_SIZE*8, DMA_SIZE*8);
 
 		// unpack the new packet to the end of the buffer
 		for (i = 0; i < DMA_SIZE; ++i) {
 			/* output one byte for each received symbol (0x00 or 0x01) */
 			for (j = 0; j < 8; ++j) {
-				unpacked[DMA_SIZE*8 + i * 8 + j] = (idle_rxbuf[i] & 0x80) >> 7;
+				le_rx.symbols[DMA_SIZE*8 + i * 8 + j] = (idle_rxbuf[i] & 0x80) >> 7;
 				idle_rxbuf[i] <<= 1;
 			}
 		}
 
-		int ret = data_cb(unpacked);
+		int ret = data_cb(le_rx.symbols);
 		if (!ret) break;
 
 	rx_continue:
@@ -2101,6 +2142,41 @@ void bt_generic_le(u8 active_mode)
 }
 
 
+/*
+ * Keeps reads of the low-energy receive buffer after the wait that ended
+ * because the DMA had filled it. The controller writes the buffer without the
+ * compiler knowing, and the waits watch registers rather than the buffer, so
+ * without this a load could legally be hoisted above one of them.
+ */
+static inline void le_rx_barrier(void)
+{
+	/* A data barrier, not only a compiler one: the waits are built from
+	 * reads of the controller's registers, which are device memory, and
+	 * ARMv7-M allows a read of ordinary memory to be reordered against
+	 * those. */
+	__asm__ volatile ("dmb" ::: "memory");
+}
+
+/*
+ * Dewhitens four bytes of a PDU in place: reverses the bit order of each byte
+ * and applies the channel's whitening sequence, a word at a time out of the
+ * pre-computed table. `offset` is how far into the PDU the four bytes sit,
+ * which is also what picks the word of the sequence that covers them.
+ */
+static void dewhiten_word(u8 *pdu, unsigned offset, const uint32_t *whit)
+{
+	uint32_t v = pdu[offset+0] << 24
+	           | pdu[offset+1] << 16
+	           | pdu[offset+2] << 8
+	           | pdu[offset+3] << 0;
+	uint32_t out = rbit(v) ^ whit[offset / 4];
+
+	pdu[offset+0] = (u8)(out >>  0);
+	pdu[offset+1] = (u8)(out >>  8);
+	pdu[offset+2] = (u8)(out >> 16);
+	pdu[offset+3] = (u8)(out >> 24);
+}
+
 void bt_le_sync(u8 active_mode)
 {
 	int i;
@@ -2120,7 +2196,7 @@ void bt_le_sync(u8 active_mode)
 
 	usb_queue_init();
 	dio_ssp_init();
-	dma_init_le();
+	dma_init_le(le_rx.packet + 4, LE_RX_PDU_MAX);
 	dio_ssp_start();
 
 	cc2400_rx_sync(rbit(le.access_address)); // bit-reversed access address
@@ -2180,46 +2256,76 @@ void bt_le_sync(u8 active_mode)
 		/////////////////////
 		// process the packet
 
-		uint32_t packet[48/4+1] = { 0, };
-		u8 *p = (u8 *)packet;
-		packet[0] = le.access_address;
+		/* The packet as the host will see it: the access address the radio
+		 * synchronized on, then the bytes the DMA put after it. */
+		u8 *p = le_rx.packet;
+		/* The DMA writes into that buffer without the compiler knowing, so
+		 * a read of it must not be moved above the wait that has just ended
+		 * because the bytes are there. The buffer itself is not volatile:
+		 * it is read a word at a time in the dewhitening below, and the
+		 * symbol half of it is read a byte at a time in a search loop. */
+		le_rx_barrier();
+		memcpy(p, &le.access_address, 4);
 
 		const uint32_t *whit = whitening_word[btle_channel_index(channel)];
-		for (i = 0; i < 4; i+= 4) {
-			uint32_t v = rxbuf1[i+0] << 24
-					   | rxbuf1[i+1] << 16
-					   | rxbuf1[i+2] << 8
-					   | rxbuf1[i+3] << 0;
-			packet[i/4+1] = rbit(v) ^ whit[i/4];
-		}
+		dewhiten_word(p + 4, 0, whit);
 
-		unsigned len = (p[5] & 0x3f) + 2;
-		if (len > 39)
+		/* The PDU's length field is eight bits wide, and the buffer holds
+		 * whatever it can claim, so nothing has to be refused to keep the
+		 * capture inside it. Two lengths are still refused, because waiting
+		 * for bytes is not free: the radio synchronizes on a 32-bit access
+		 * address, so noise does occasionally look like a packet, and the
+		 * longest packet takes about 2 ms to arrive -- blind time in which
+		 * the next connection event is missed.
+		 *
+		 * Which lengths those are is le_length_is_possible()'s to say. */
+		if (!le_length_is_possible(p[5], le.crc_verify))
 			goto rx_flush;
 
-		// transfer the minimum number of bytes from the CC2400
-		// this allows us enough time to resume RX for subsequent packets on the same channel
-		unsigned total_transfers = ((len + 3) + 4 - 1) / 4;
-		if (total_transfers < 11) {
-			while (DMACC0DestAddr < (uint32_t)rxbuf1 + 4 * total_transfers && rx_err == 0)
-				;
-		} else { // max transfers? just wait till DMA's done
-			while (DMACC0Config & DMACCxConfig_E && rx_err == 0)
-				;
-		}
+		unsigned len = p[5] + 2;
+		unsigned pdu_bytes = len + 3;   /* header, payload and CRC */
+
+		/* Take only the bytes this packet needs, so there is time to resume
+		 * receive before the next packet on this channel.
+		 *
+		 * The wait ends when the controller has the bytes, when it runs out
+		 * of packet to deliver them into, or on a mode change: a length
+		 * field corrupted by noise can ask for the longest packet there is,
+		 * and a host that stops the mode meanwhile must not be left waiting
+		 * for bytes the radio has stopped sending. */
+		unsigned want = 4 * ((pdu_bytes + 3) / 4);
+		while (DMACC0DestAddr < (uint32_t)(p + 4) + want
+		       && (DMACC0Config & DMACCxConfig_E) && rx_err == 0
+		       && requested_mode == active_mode)
+			;
+		/* Whether the whole packet arrived, which is why the wait ended.
+		 * The receive buffer is reused, so the bytes a packet cut short by
+		 * a transfer error is missing are the previous packet's: a record
+		 * built from those would be a packet that was never on the air. */
+		int whole = rx_err == 0 &&
+		            DMACC0DestAddr >= (uint32_t)(p + 4) + want;
+		if (requested_mode != active_mode)
+			goto cleanup;
+		if (rx_err)
+			status |= DMA_ERROR;
 		DIO_SSP_DMACR &= ~SSPDMACR_RXDMAE;
+		if (!whole)
+			goto rx_flush;
+		le_rx_barrier();
 
 		// strobe SFSON to allow the resync to occur while we process the packet
 		cc2400_strobe(SFSON);
 
-		// unwhiten the rest of the packet
-		for (i = 4; i < 44; i += 4) {
-			uint32_t v = rxbuf1[i+0] << 24
-					   | rxbuf1[i+1] << 16
-					   | rxbuf1[i+2] << 8
-					   | rxbuf1[i+3] << 0;
-			packet[i/4+1] = rbit(v) ^ whit[i/4];
-		}
+		/* Unwhiten the rest of the packet. The table holds whole words of
+		 * the whitening sequence for the first LE_WHITENING_WORD_BYTES of a
+		 * PDU, which is as far as a packet without a Data Length Extension
+		 * payload reaches. */
+		for (i = 4; i < LE_WHITENING_WORD_BYTES; i += 4)
+			dewhiten_word(p + 4, i, whit);
+		if (pdu_bytes > LE_WHITENING_WORD_BYTES)
+			le_dewhiten_from(p + 4 + LE_WHITENING_WORD_BYTES,
+			                 pdu_bytes - LE_WHITENING_WORD_BYTES,
+			                 channel, LE_WHITENING_WORD_BYTES);
 
 		if (le.crc_verify) {
 			u32 calc_crc = btle_crcgen_lut(le.crc_init_reversed, p + 4, len);
@@ -2232,13 +2338,28 @@ void bt_le_sync(u8 active_mode)
 
 
 		RXLED_SET;
-		packet_cb((uint8_t *)packet);
+		packet_cb(p);
+
+		le_pkt_meta meta;
+		meta.status = status;
+		meta.channel = (uint8_t)((idle_buf_channel - 2402) & 0xff);
+		meta.clkn_high = idle_buf_clkn_high;
+		meta.clk100ns = idle_buf_clk100ns;
+		meta.rssi_min = rssi_min;
+		meta.rssi_max = rssi_max;
+		meta.rssi_avg = rssi_get_avg(idle_buf_channel);
+		meta.rssi_count = rssi_count;
 
 		// hold the USB interrupt off while we touch USB data structures:
 		// UBERTOOTH_POLL dequeues from the vendor request handler, which
 		// runs from that interrupt in this mode
 		u32 usb_irq = usb_irq_hold();
-		enqueue(LE_PACKET, (uint8_t *)packet);
+		/* A packet of more than 50 bytes goes out as several records, which
+		 * the host puts back together. */
+		if (usb_enqueue_le_packet(&meta, p, p + 4, pdu_bytes))
+			status = 0;
+		else
+			status |= FIFO_OVERFLOW;
 		usb_irq_release(usb_irq);
 
 		le.last_packet = CLK100NS;
@@ -2296,6 +2417,10 @@ void bt_le_sync(u8 active_mode)
 		if (do_hop)
 			hop(NULL);
 
+		/* The terminal count is cleared by dma_init_le() below, before it
+		 * arms the channel, so nothing clears it here: a count raised after
+		 * arming is this iteration's and has to be kept. */
+
 		// ♪ you can jam but you keep turning off the light ♪
 		if (le_jam_count > 0) {
 #ifdef TX_ENABLE
@@ -2304,7 +2429,7 @@ void bt_le_sync(u8 active_mode)
 			--le_jam_count;
 		} else {
 			/* RX mode */
-			dma_init_le();
+			dma_init_le(le_rx.packet + 4, LE_RX_PDU_MAX);
 			dio_ssp_start();
 
 			if (restart_jamming) {
@@ -2316,9 +2441,6 @@ void bt_le_sync(u8 active_mode)
 				cc2400_strobe(SRX);
 			}
 		}
-
-		rx_tc = 0;
-		rx_err = 0;
 	}
 
 cleanup:
@@ -2344,19 +2466,19 @@ int cb_follow_le() {
 	u32 access_address = 0;
 	for (i = 0; i < 31; ++i) {
 		access_address >>= 1;
-		access_address |= (unpacked[i] << 31);
+		access_address |= (le_rx.symbols[i] << 31);
 	}
 
 	for (i = 31; i < DMA_SIZE * 8 + 32; i++) {
 		access_address >>= 1;
-		access_address |= (unpacked[i] << 31);
+		access_address |= (le_rx.symbols[i] << 31);
 		if (access_address == le.access_address) {
 			for (j = 0; j < 46; ++j) {
 				u8 byte = 0;
 				for (k = 0; k < 8; k++) {
 					int offset = k + (j * 8) + i - 31;
 					if (offset >= DMA_SIZE*8*2) break;
-					int bit = unpacked[offset];
+					int bit = le_rx.symbols[offset];
 					if (j >= 4) { // unwhiten data bytes
 						bit ^= whitening[idx];
 						idx = (idx + 1) % sizeof(whitening);

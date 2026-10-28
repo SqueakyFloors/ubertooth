@@ -861,97 +861,30 @@ static uint8_t dewhiten_length(unsigned channel, uint8_t data) {
 	return out;
 }
 
-static void usb_fill_le_metadata(usb_pkt_rx *f, const le_rx_t *packet,
-                                 uint8_t pkt_type)
-{
-	f->pkt_type = pkt_type;
-	f->status = 0;
-	f->channel = (uint8_t)((packet->channel - 2402) & 0xff);
-	f->clkn_high = 0;
-	f->clk100ns = packet->timestamp;
-	/* The radio reports RSSI as a negative number, so the sum is negative and
-	 * the division has to be a signed one. Without the cast the unsigned size
-	 * would convert the sum to a huge positive value first. */
-	f->rssi_avg = packet->rssi_sum / (int) packet->size;
-	f->rssi_min = packet->rssi_min;
-	f->rssi_max = packet->rssi_max;
-	f->rssi_count = 0;
-}
-
-/* Copies into one record's 50 data bytes the part of the captured packet that
- * starts at byte `offset`. The captured packet is the 4-byte access address
- * followed by packet->data, so only the first record straddles the two; the
- * rest of the record is zeroed, because records are reused. */
-static void usb_fill_le_chunk(usb_pkt_rx *f, const le_rx_t *packet,
-                              unsigned offset, unsigned chunk)
-{
-	unsigned from_address = 0;
-
-	if (offset < 4) {
-		from_address = 4 - offset;
-		if (from_address > chunk)
-			from_address = chunk;
-		memcpy(f->data, (const uint8_t *) &packet->access_address + offset,
-		       from_address);
-	}
-	if (chunk > from_address)
-		memcpy(f->data + from_address, packet->data + offset + from_address - 4,
-		       chunk - from_address);
-	if (chunk < DMA_SIZE)
-		memset(f->data + chunk, 0, DMA_SIZE - chunk);
-}
-
 // enqueue a packet for USB
 static int usb_enqueue_le(le_rx_t *packet)
 {
-	/* The whole captured packet: access address, then the PDU header, the
-	 * payload and the CRC that packet->size counts. */
-	unsigned total = 4 + packet->size;
-	unsigned fragments, offset;
-	usb_pkt_rx *f;
+	/* The channel, timestamp and signal readings of this packet, for however
+	 * many records it takes. */
+	le_pkt_meta meta;
 
-	if (total > LE_MAX_USB_PACKET_SIZE)
-		return 0;
+	meta.status = 0;
+	meta.channel = (uint8_t)((packet->channel - 2402) & 0xff);
+	meta.clkn_high = 0;
+	meta.clk100ns = packet->timestamp;
+	/* The radio reports RSSI as a negative number, so the sum is negative and
+	 * the division has to be a signed one. Without the cast the unsigned size
+	 * would convert the sum to a huge positive value first. */
+	meta.rssi_avg = packet->rssi_sum / (int) packet->size;
+	meta.rssi_min = packet->rssi_min;
+	meta.rssi_max = packet->rssi_max;
+	meta.rssi_count = 0;
 
-	/* One record holds a packet of 50 bytes or less, which is nearly all of
-	 * them, and is sent as it always was. */
-	if (total <= DMA_SIZE) {
-		f = usb_enqueue();
-		if (f == NULL)
-			return 0;
-		usb_fill_le_metadata(f, packet, LE_PACKET);
-		f->reserved[0] = 0;
-		f->reserved[1] = 0;
-		usb_fill_le_chunk(f, packet, 0, total);
-		return 1;
-	}
-
-	/* Each fragment is one record carrying 50 bytes of the packet. The first
-	 * and continuation record types mark the chain; reserved[0] and bit 0 of
-	 * reserved[1] carry the total length, and bits 7..1 of reserved[1] a
-	 * fragment index that counts up from zero. */
-	fragments = (total + DMA_SIZE - 1) / DMA_SIZE;
-	if (usb_queue_space() < fragments)
-		return 0; /* all or nothing: half a packet is worse than none */
-
-	for (offset = 0; offset < total; offset += DMA_SIZE) {
-		unsigned chunk = total - offset;
-		if (chunk > DMA_SIZE)
-			chunk = DMA_SIZE;
-		/* The space check above means this cannot fail, so there is no
-		 * half-enqueued packet to undo. */
-		f = usb_enqueue();
-		if (f == NULL)
-			return 0;
-		usb_fill_le_metadata(f, packet,
-			(offset == 0) ? LE_PACKET_START : LE_PACKET_CONT);
-		f->reserved[0] = total & 0xff;
-		f->reserved[1] = ((total >> 8) & LE_FRAG_TOTAL_HIGH_MASK) |
-			((offset / DMA_SIZE) << LE_FRAG_INDEX_SHIFT);
-		usb_fill_le_chunk(f, packet, offset, chunk);
-	}
-
-	return 1;
+	/* The access address is what the board synchronized on, so it is held
+	 * apart from the bytes that were received. */
+	return usb_enqueue_le_packet(&meta,
+	                             (const uint8_t *) &packet->access_address,
+	                             packet->data, packet->size);
 }
 
 static unsigned extract_field(le_rx_t *buf, size_t offset, unsigned size) {

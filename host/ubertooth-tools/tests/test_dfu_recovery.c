@@ -1255,7 +1255,7 @@ static FILE *image_with_block(const char *image, const char *revision)
 {
 	return file_with_block(UBERTOOTH_FW_INFO_OFFSET,
 	                       UBERTOOTH_FW_INFO_MAGIC,
-	                       UBERTOOTH_FW_INFO_FORMAT, 0x0133, image,
+	                       UBERTOOTH_FW_INFO_FORMAT, 0x0134, image,
 	                       revision);
 }
 
@@ -1275,7 +1275,7 @@ MU_TEST(test_image_info_is_read_from_the_fixed_offset)
 	mu_assert(strcmp(info.revision, "git-deadbee*") == 0,
 	          "wrong revision read from the block");
 	mu_assert_int_eq(UBERTOOTH_FW_INFO_FORMAT, info.format_version);
-	mu_assert_int_eq(0x0133, info.api_version);
+	mu_assert_int_eq(0x0134, info.api_version);
 	mu_assert_int_eq(7, (int)ftell(image));
 	fclose(image);
 }
@@ -1339,7 +1339,7 @@ MU_TEST(test_image_info_refuses_a_block_at_another_offset)
 {
 	struct ubertooth_fw_info info;
 	FILE *image = file_with_block(0x80, UBERTOOTH_FW_INFO_MAGIC,
-	                              UBERTOOTH_FW_INFO_FORMAT, 0x0133,
+	                              UBERTOOTH_FW_INFO_FORMAT, 0x0134,
 	                              "bluetooth_rxtx", "git-deadbee*");
 
 	mu_assert_fatal(image != NULL, "could not build the image");
@@ -1354,7 +1354,7 @@ MU_TEST(test_image_info_refuses_an_unknown_block_format)
 {
 	struct ubertooth_fw_info info;
 	FILE *image = file_with_block(UBERTOOTH_FW_INFO_OFFSET,
-	                              UBERTOOTH_FW_INFO_MAGIC, 99, 0x0133,
+	                              UBERTOOTH_FW_INFO_MAGIC, 99, 0x0134,
 	                              "bluetooth_rxtx", "git-deadbee*");
 
 	mu_assert_fatal(image != NULL, "could not build the image");

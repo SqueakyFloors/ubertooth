@@ -102,8 +102,48 @@ u32 btle_calc_crc(u32 crc_init, u8 *data, int len);
 u32 btle_reverse_crc(u32 crc, u8 *data, int len);
 u32 btle_crcgen_lut(u32 crc_init, u8 *data, int len);
 void le_dewhiten(uint8_t *data, unsigned size, unsigned channel);
+void le_dewhiten_from(uint8_t *data, unsigned size, unsigned channel,
+                      unsigned offset);
 void le_parse_channel_map(uint8_t *channel_map, le_channel_remapping_t *remapping);
 uint8_t le_map_channel(uint8_t channel_idx, le_channel_remapping_t *remapping);
+
+/* How far into a PDU the table below reaches: 12 words of four bytes. A
+ * packet longer than this is dewhitened the rest of the way by
+ * le_dewhiten_from(), which needs no table. */
+#define LE_WHITENING_WORD_BYTES 48
+
+/* The longest payload a PDU's length field may claim, which is what the
+ * capture loops use to tell a length from noise.
+ *
+ * LE_MAX_PAYLOAD is Bluetooth 4.2 Data Length Extension's 251 bytes, the most
+ * any PDU can carry.
+ *
+ * LE_MAX_PAYLOAD_LEGACY is the most any PDU carried before that: 37, from an
+ * advertising PDU's 6-bit length field. A data channel PDU's own legacy
+ * maximum is lower, 31 (27 payload bytes and a 4-byte message integrity check
+ * when the connection is encrypted), but the looser number is the one to
+ * compare against, because a mode following a host-supplied target starts on
+ * the advertising access address and sees advertising PDUs. Being 6 bytes
+ * loose costs about 48 microseconds of waiting; being tight would drop
+ * packets that are really there. */
+#define LE_MAX_PAYLOAD 251
+#define LE_MAX_PAYLOAD_LEGACY 37
+
+/*
+ * Whether a PDU header's length field could belong to a packet at all, rather
+ * than being noise the radio synchronized on. A capture loop asks before
+ * waiting for the bytes, because waiting is time the next connection event is
+ * missed in.
+ *
+ * `crc_verify` says whether the connection's CRCInit is known. Until it is,
+ * there is no CRC to check a packet against, and the empty data PDUs a loop
+ * is looking for to get there are short, so a claimed Data Length Extension
+ * payload in that window is noise as far as it can tell.
+ */
+static inline int le_length_is_possible(uint8_t length, int crc_verify)
+{
+	return length <= (crc_verify ? LE_MAX_PAYLOAD : LE_MAX_PAYLOAD_LEGACY);
+}
 
 static const u32 whitening_word[40][12] = {
 	{ 0xc3bcb240, 0x5f4a371f, 0x9a9cf685, 0x44c5d6c1, 0xe1de5920, 0xafa51b8f,

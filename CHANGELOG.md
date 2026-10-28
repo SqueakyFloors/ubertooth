@@ -146,8 +146,8 @@
   the command returns at once and the board stays reachable; `-S` or any mode
   option stops it and leaves the LEDs off.
   [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
-- **Reflash required:** the firmware API version is now 1.36, last moved by the
-  two low-energy capture fixes under Reliability fixes, and the host tools
+- **Reflash required:** the firmware API version is now 1.37, last moved by the
+  promiscuous mode sending a long packet in several records, and the host tools
   require firmware of exactly their own API version, older or newer. Host and
   firmware come from the same tree:
   `ubertooth-dfu` reflashes a board whatever firmware it is running, but only
@@ -329,8 +329,11 @@
   in several records and is put back together before it is decoded, and the
   paired libbtbb reads the payload length from all eight bits of the field, so
   a payload up to its 251-byte maximum arrives as it was sent. The promiscuous
-  mode, `-p`, uses a different capture path and still cuts at 50 bytes.
+  mode, `-p`, captures a long packet whole as well; its own capture path used
+  to cut one at 50 bytes and report the payload as shorter than it was, or
+  drop the packet for its length.
   [#4](https://github.com/SqueakyFloors/ubertooth/issues/4)
+  [#546](https://github.com/SqueakyFloors/ubertooth/issues/546)
 - `ubertooth-follow` stops when the board refuses the target's address or the
   clock reset, and says which of the two it was. It used to print a generic
   line that named neither, and follow anyway: without the address the board
@@ -966,6 +969,11 @@
 
 Fixes with no visible change in normal use.
 
+- A packet captured by `ubertooth-btle -p` is timestamped a fixed moment after
+  the board synchronized on it, rather than somewhere in the middle of the
+  packet, so its time no longer drifts later the longer the packet is. Times
+  in a `-p` capture move earlier by up to about a third of a millisecond.
+  [#546](https://github.com/SqueakyFloors/ubertooth/issues/546)
 - A capture's ring buffer hands a record over properly: the record and the
   time it arrived are now published together, and a slot is not given back to
   the board until the capture has finished copying out of it. A capture far

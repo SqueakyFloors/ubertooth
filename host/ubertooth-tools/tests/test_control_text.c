@@ -325,13 +325,13 @@ MU_TEST(firmware_info_block_is_returned)
 	struct ubertooth_fw_info info;
 
 	set_fw_info_reply(UBERTOOTH_FW_INFO_MAGIC, UBERTOOTH_FW_INFO_FORMAT,
-	                  0x0133, "btbr", "git-deadbee*");
+	                  0x0134, "btbr", "git-deadbee*");
 	mu_assert_int_eq(0, cmd_get_firmware_info(NULL, &info));
 	mu_assert_int_eq(UBERTOOTH_GET_FW_INFO, fake.last_request);
 	mu_assert_int_eq(UBERTOOTH_FW_INFO_LENGTH, fake.last_length);
 	mu_assert(strcmp(info.image, "btbr") == 0, "wrong image name");
 	mu_assert(strcmp(info.revision, "git-deadbee*") == 0, "wrong revision");
-	mu_assert_int_eq(0x0133, info.api_version);
+	mu_assert_int_eq(0x0134, info.api_version);
 }
 
 MU_TEST(firmware_info_transfer_errors_are_returned_with_a_zeroed_block)
@@ -354,21 +354,21 @@ MU_TEST(a_short_or_unreadable_firmware_info_reply_is_an_error)
 	struct ubertooth_fw_info info;
 
 	set_fw_info_reply(UBERTOOTH_FW_INFO_MAGIC, UBERTOOTH_FW_INFO_FORMAT,
-	                  0x0133, "btbr", "git-deadbee*");
+	                  0x0134, "btbr", "git-deadbee*");
 	fake.rc = UBERTOOTH_FW_INFO_LENGTH - 1;
 	mu_assert_int_eq(UBERTOOTH_ERROR_SHORT_REPLY,
 	                 cmd_get_firmware_info(NULL, &info));
 
-	set_fw_info_reply("NOTABLCK", UBERTOOTH_FW_INFO_FORMAT, 0x0133, "btbr",
+	set_fw_info_reply("NOTABLCK", UBERTOOTH_FW_INFO_FORMAT, 0x0134, "btbr",
 	                  "git-deadbee*");
 	mu_assert_int_eq(LIBUSB_ERROR_IO, cmd_get_firmware_info(NULL, &info));
 
-	set_fw_info_reply(UBERTOOTH_FW_INFO_MAGIC, 99, 0x0133, "btbr",
+	set_fw_info_reply(UBERTOOTH_FW_INFO_MAGIC, 99, 0x0134, "btbr",
 	                  "git-deadbee*");
 	mu_assert_int_eq(LIBUSB_ERROR_IO, cmd_get_firmware_info(NULL, &info));
 
 	set_fw_info_reply(UBERTOOTH_FW_INFO_MAGIC, UBERTOOTH_FW_INFO_FORMAT,
-	                  0x0133, "", "git-deadbee*");
+	                  0x0134, "", "git-deadbee*");
 	mu_assert_int_eq(LIBUSB_ERROR_IO, cmd_get_firmware_info(NULL, &info));
 }
 

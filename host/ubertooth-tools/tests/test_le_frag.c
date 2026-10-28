@@ -253,6 +253,52 @@ MU_TEST(two_boards_do_not_mix_their_packets)
 	mu_assert_int_eq(0x22, data[0]);
 }
 
+/* The promiscuous mode's stream is not only packets: as it works out a
+ * connection's parameters it sends state records in between, which it reports
+ * on the screen rather than decoding. Those arrive between packets, never
+ * inside one, and must leave a chain alone -- including the one being
+ * collected when a state record turns up out of order. */
+MU_TEST(a_promiscuous_state_record_does_not_break_a_packet)
+{
+	uint8_t packet[LE_MAX_USB_PACKET_SIZE];
+	le_usb_reassembly state;
+	usb_pkt_rx frame;
+	usb_pkt_rx promisc;
+	const uint8_t *data = NULL;
+	const usb_pkt_rx *metadata = NULL;
+	uint16_t length = 0;
+
+	memset(&state, 0, sizeof(state));
+	fill_packet(packet, 120);
+
+	/* An access-address announcement, as the firmware sends it. */
+	memset(&promisc, 0, sizeof(promisc));
+	promisc.pkt_type = LE_PROMISC;
+
+	/* Between packets it is simply not a packet. */
+	mu_assert_int_eq(LE_REASSEMBLY_ERROR,
+	                 reassemble(&state, &promisc, &data, &length,
+	                            &metadata));
+
+	make_fragment(&frame, 120, packet, 0);
+	mu_assert_int_eq(LE_REASSEMBLY_WAIT,
+	                 reassemble(&state, &frame, &data, &length, &metadata));
+	mu_assert_int_eq(LE_REASSEMBLY_ERROR,
+	                 reassemble(&state, &promisc, &data, &length,
+	                            &metadata));
+
+	/* And the packet still completes. */
+	make_fragment(&frame, 120, packet, 50);
+	mu_assert_int_eq(LE_REASSEMBLY_WAIT,
+	                 reassemble(&state, &frame, &data, &length, &metadata));
+	make_fragment(&frame, 120, packet, 100);
+	mu_assert_int_eq(LE_REASSEMBLY_COMPLETE,
+	                 reassemble(&state, &frame, &data, &length, &metadata));
+	mu_assert_int_eq(120, length);
+	mu_assert(memcmp(data, packet, 120) == 0,
+	          "a state record in the middle changed the packet");
+}
+
 /* A capture that ends part-way through a long packet must not leave the
  * handle able to finish it with the next capture's records. */
 MU_TEST(a_reset_forgets_a_chain_in_progress)
@@ -340,6 +386,7 @@ int main(void)
 	MU_RUN(a_chain_with_a_record_missing_gives_back_nothing);
 	MU_RUN(a_record_that_cannot_belong_to_a_packet_is_refused);
 	MU_RUN(two_boards_do_not_mix_their_packets);
+	MU_RUN(a_promiscuous_state_record_does_not_break_a_packet);
 	MU_RUN(a_reset_forgets_a_chain_in_progress);
 	MU_RUN(a_chain_reports_the_arrival_of_the_record_it_started_with);
 	MU_RUN(a_single_record_reports_its_own_arrival);

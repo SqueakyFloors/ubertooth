@@ -41,7 +41,7 @@ A second Ubertooth One for the range test (2i).
 
 ### 2a. Firmware version check
 - [ ] Run `ubertooth-util -v`
-- [ ] Confirm: returns `Firmware version: <image> <revision> (API:1.36)` (firmware
+- [ ] Confirm: returns `Firmware version: <image> <revision> (API:1.37)` (firmware
       built from this tree; the host tools refuse any other API version, and a
       board whose firmware has no info block shows the revision without an
       image name)
@@ -264,6 +264,14 @@ nRF52840 DKs) plus one Ubertooth.*
 - [ ] Confirm: PCAPNG contains complete packets over 50 bytes, including the
       expected payload pattern and CRC (no truncation)
 - [ ] Confirm: short/legacy advertising packets remain unchanged
+- [ ] Repeat with `ubertooth-btle -p -r long-packets-promisc.pcapng`, the
+      other capture path in the firmware and the one whose long-packet
+      handling is covered only by unit tests. `-p` cannot be pointed at a
+      connection: leave it running on the established connection and wait
+      while it finds the access address, CRCInit, hop interval and hop
+      increment, which it reports as it goes. Data PDUs appear only after
+      that, so allow a minute or two before expecting packets.
+- [ ] Confirm: the same complete payloads once it is following
 
 ---
 

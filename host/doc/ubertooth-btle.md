@@ -75,11 +75,11 @@ variety of pseudoheaders. The recommended logging format is PcapNG
 (`-r`) or PCAP with LE Pseudoheader (`-q`). For compatibility with
 crackle (see [USING WITH CRACKLE][]), use PCAP with PPI (`-c`).
 
-In `-f` and `-n`, a packet carrying a Bluetooth 4.2 Data Length Extension
-payload, up to its 251-byte maximum, is captured whole: on the screen, in PCAP
-and in PCAPNG. The board sends such a packet in several fixed-size records,
-which are put back together before anything is decoded or written. Older
-firmware cut every packet to 50 bytes, and `-p` still does.
+In every sniffing mode, a packet carrying a Bluetooth 4.2 Data Length
+Extension payload, up to its 251-byte maximum, is captured whole: on the
+screen, in PCAP and in PCAPNG. The board sends such a packet in several
+fixed-size records, which are put back together before anything is decoded or
+written. Older firmware cut every packet to 50 bytes.
 
 Interfering with connections is a feature for causing intentional
 interference with newly established or long-lived connections. When this

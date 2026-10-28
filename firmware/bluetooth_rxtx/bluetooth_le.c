@@ -182,13 +182,22 @@ u32 btle_crcgen_lut(u32 crc_init, u8 *data, int len) {
 }
 
 /*
- * Dewhiten and reverse the bit order of a buffer in place.
- * Channel is a physical channel in the range [2402, 2480]
+ * Dewhiten and reverse the bit order of part of a PDU in place, starting
+ * `offset` bytes into it. A caller that has already dewhitened the front of a
+ * packet some other way carries on from where it stopped.
+ *
+ * Channel is a physical channel in the range [2402, 2480].
  * TODO convert this to use whitening word
  */
-void le_dewhiten(uint8_t *data, unsigned size, unsigned channel) {
+void le_dewhiten_from(uint8_t *data, unsigned size, unsigned channel,
+                      unsigned offset) {
 	unsigned i, j, bit;
 	unsigned idx = whitening_index[btle_channel_index(channel)];
+
+	/* The whitening is one long bit sequence laid over the whole PDU, so a
+	 * part of a packet can only be dewhitened once the sequence has been
+	 * wound forward to where that part starts: 8 bits per byte skipped. */
+	idx = (idx + 8 * offset) % sizeof(whitening);
 
 	for (i = 0; i < size; ++i) {
 		uint8_t out = 0;
@@ -200,6 +209,10 @@ void le_dewhiten(uint8_t *data, unsigned size, unsigned channel) {
 		}
 		data[i] = out;
 	}
+}
+
+void le_dewhiten(uint8_t *data, unsigned size, unsigned channel) {
+	le_dewhiten_from(data, size, channel, 0);
 }
 
 /*

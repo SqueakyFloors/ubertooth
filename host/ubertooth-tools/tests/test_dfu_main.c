@@ -555,7 +555,7 @@ static void remove_dump(void)
 #define IMAGE_BLOCKS 4
 
 #define IMAGE_NAME "bluetooth_rxtx"
-#define IMAGE_API 0x0133
+#define IMAGE_API 0x0134
 
 /* A signed DFU file for this device, laid out like a real image: the build
  * string at the start, and the firmware info block at
@@ -866,7 +866,7 @@ static void assert_flash_passed(struct run_result *r)
 	/* Read out of the image's firmware info block, not searched for, and a
 	 * note about the run, so on standard error. */
 	mu_assert(strstr(r->err,
-	                 "Image: " IMAGE_NAME " " IMAGE_REVISION " (API:1.33)\n")
+	                 "Image: " IMAGE_NAME " " IMAGE_REVISION " (API:1.34)\n")
 	          != NULL, "the image and revision the file carries were not named");
 	mu_assert(strstr(r->out, "Image: ") == NULL,
 	          "the image line took standard output");
