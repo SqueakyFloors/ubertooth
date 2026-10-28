@@ -180,6 +180,10 @@ firmware, then watch for pages to a peripheral whose address you know:
 		ubertooth-btbr
 		> monitor 11:22:33:44:55:66
 
+With more than one board attached, name the one carrying ``btbr`` with
+``-U <index|serial>``, as the other tools take it; without it the tool lists
+the attached boards and opens none.
+
 Then connect to that peripheral from another device. If Ubertooth receives the
 FHS before the real peripheral does, it synchronizes to the new piconet and
 prints the FHS and the unencrypted Link Manager Protocol (LMP) traffic that
@@ -192,7 +196,8 @@ Limitations:
 - Packets sent after encryption is enabled are shown as raw data and cannot be decrypted.
 - ``ubertooth-btbr`` needs the ``btbr`` image. On a board carrying
   ``bluetooth_rxtx`` it stops before its prompt with
-  ``error: could not set up the Ubertooth``, naming the image to flash: that
+  ``error: could not set up``, naming the board it got and the image to
+  flash: that
   firmware never reads the endpoint the tool writes to, which is what the
   reports of the tool hanging shortly after start (upstream issue
   `#520 <https://github.com/greatscottgadgets/ubertooth/issues/520>`__) turned
@@ -200,4 +205,4 @@ Limitations:
 
 `ubertooth-btbr.md <https://github.com/SqueakyFloors/ubertooth/blob/main/host/doc/ubertooth-btbr.md>`__ documents the other prompt commands
 (``inquiry``, ``page``, ``inquiry_scan``, ``page_scan``, ``l2ping``,
-``bdaddr``, ``idle``), the two options, and the limitations.
+``bdaddr``, ``idle``), the options, and the limitations.

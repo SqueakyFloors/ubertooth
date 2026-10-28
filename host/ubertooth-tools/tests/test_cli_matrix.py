@@ -103,6 +103,9 @@ class USBErrorTimeout(USBError):
 
 
 class USBContext:
+    def getDeviceIterator(self, skip_on_error=False):
+        return iter(())
+
     def openByVendorIDAndProductID(self, vendor, product,
                                    skip_on_error=False):
         return None

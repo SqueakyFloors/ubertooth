@@ -19,6 +19,19 @@ log.addHandler(log_handler)
 UBERTOOTH_VENDOR_ID = 0x1d50
 UBERTOOTH_PRODUCT_ID = 0x6002
 
+# Every board the C tools recognize, from U0_/U1_/TC13_VENDORID and
+# _PRODUCTID in host/libubertooth/src/ubertooth_control.h: Ubertooth One,
+# Ubertooth Zero and the TC13 badge. The btbr firmware builds for the Zero
+# too, and a board left out of this list is one the selection below cannot
+# see: it would not be listed, so a bare command would call the remaining
+# board the only one and open it, which is the fault this list exists to
+# avoid.
+UBERTOOTH_USB_IDS = (
+	(UBERTOOTH_VENDOR_ID, UBERTOOTH_PRODUCT_ID),	# Ubertooth One
+	(0x1d50, 0x6000),				# Ubertooth Zero
+	(0xffff, 0x0004),				# TC13 badge
+)
+
 ### BTCTL interface
 BBPKT_F_HAS_PKT		= 0
 BBPKT_F_HAS_HDR		= 1
@@ -882,6 +895,168 @@ class BTCtlMonitorCmd(BTCtlCmd):
 		role = "slave" if (pkt.clkn & 2) else "master"
 		log.info("RX L2CAP (%6s:%7x): %s"%(role,pkt.clkn,pkt))
 
+def board_label(serial=None, index=None):
+	"""How a message names a board: by serial, by index, or not at all.
+
+	The index form is for a board chosen by index, whose serial was never
+	read -- see board_serial(). Without either, "the Ubertooth" is as much as
+	the message can say, which is the case of a single attached board. Each
+	form carries its own article, as libubertooth's board_label() does, so a
+	message puts it straight after its verb: "could not open the Ubertooth",
+	"could not open Ubertooth 1cc0...".
+	"""
+	if serial:
+		return "Ubertooth %s"%serial
+	if index is not None:
+		return "Ubertooth at index %d"%index
+	return "the Ubertooth"
+
+
+def attached_ubertooths(context):
+	"""Every board the C tools recognize, in enumeration order.
+
+	The devices only: a serial is read by board_serial() where one is needed.
+	"""
+	return [device for device in context.getDeviceIterator(skip_on_error=True)
+		if (device.getVendorID(), device.getProductID()) in UBERTOOTH_USB_IDS]
+
+
+def board_serial(device):
+	"""The board's serial number, or None when it could not be read.
+
+	Reading it opens the board and asks for a string descriptor, so this is
+	called only where a serial is needed: matching a -U serial, and listing
+	the boards a refusal names. Selecting by index reads none, as the other
+	tools' index path does, so naming a board by index does not disturb the
+	others -- ubertooth(7), SELECTING A DEVICE, promises that.
+
+	What makes this fail is therefore an open that fails -- on Linux, usually
+	the udev rule not being installed -- or a board that has left the bus. A
+	board whose interface another program has claimed still opens and still
+	answers this, and fails later at claimInterface().
+
+	The firmware fills this descriptor in from the chip's serial only when
+	the chip answered; a board where it did not advertises a serial of zeros
+	ending in 1, which comes back here as if it were real.
+	"""
+	try:
+		return device.getSerialNumber()
+	except usb1.USBError:
+		return None
+
+
+def several_attached(attached):
+	"""The refusal for more than one board and no -U, with the boards listed."""
+	listed = ""
+	for index, device in enumerate(attached):
+		serial = board_serial(device)
+		listed += "\n  Device %d: %s"%(index,
+			serial if serial else "serial unreadable")
+	return ("multiple Ubertooth devices found; select one with "
+		"-U <index|serial>"+listed)
+
+
+def unread_serials_note(serials):
+	"""What to add to a serial refusal when some boards did not answer.
+
+	A scan that read every board means something different from one that did
+	not: the string the user gave may well be the serial of a board that
+	stayed quiet. The remedy is given by index, because a board whose serial
+	could not be read cannot be selected by serial. The causes are the ones
+	board_serial() names.
+	"""
+	unread = serials.count(None)
+	if not unread:
+		return ""
+	return ("\n%d attached Ubertooth device%s did not answer the serial read\n"
+		"note: a board nobody may open, or one that has left the bus, reads "
+		"as having no serial; select it by index with -U<index>"
+		%(unread, "" if unread == 1 else "s"))
+
+
+def open_failure_note(error):
+	"""The usual cause of an open that was refused.
+
+	libubertooth reports an open failure with libusb's own description
+	(show_libusb_error()), so the message keeps that and the cause goes in a
+	note. There is one: libusb_open() refuses for want of permission, and on
+	Linux that is nearly always the udev rules not being installed. It does
+	not report a board another program is using -- that shows up later, when
+	the interface is claimed -- so nothing here says it does.
+	"""
+	if isinstance(error, usb1.USBErrorAccess):
+		return ("\nnote: a board that cannot be opened is usually a "
+			"permissions problem; on Linux install the udev rules shipped "
+			"with this package")
+	return ""
+
+
+def select_ubertooth(selector, attached):
+	"""The one board a -U argument names, and how a message should name it.
+
+	`attached` is what attached_ubertooths() returned, and must not be empty.
+	Anything that does not name exactly one board raises BTCtlNoDeviceError,
+	in libubertooth's wording for the same refusal so that one wording covers
+	every tool. Two lines depart from it deliberately: the one for several
+	boards and no -U follows .kiro/steering/cli-output.md rather than the
+	older C line, and the note for a board that did not answer the serial
+	read gives the cause of a failed string-descriptor read rather than of
+	the vendor request the C tools use.
+	"""
+	if not selector:
+		if len(attached) > 1:
+			raise BTCtlNoDeviceError(several_attached(attached))
+		return attached[0], board_label()
+
+	# An all-digits argument is an index. Only these ten characters count:
+	# str.isdigit() also accepts digits of other scripts, some of which int()
+	# then refuses, and no serial contains any of them.
+	if all(character in "0123456789" for character in selector):
+		try:
+			index = int(selector)
+		except ValueError:
+			# Python refuses to convert a string of thousands of digits.
+			# Such a number is no board's index, so it is refused as one
+			# rather than let out as a traceback.
+			index = None
+		if index is None or index >= len(attached):
+			raise BTCtlNoDeviceError(
+				"no Ubertooth at index %s (%d attached)\n"
+				"indexes change when boards are added or removed; select a "
+				"board by serial with -U<serial>"%(selector, len(attached)))
+		return attached[index], board_label(index=index)
+
+	# Serials differ in their leading characters and share their trailing
+	# ones, so only the start is matched. Case-insensitively, because a
+	# serial copied from elsewhere may be upper case.
+	serials = [board_serial(device) for device in attached]
+	matched = [(device, serial) for device, serial in zip(attached, serials)
+		if serial is not None
+		and serial.lower().startswith(selector.lower())]
+	if len(matched) == 1:
+		device, serial = matched[0]
+		# The whole serial of the board that matched, so a later failure
+		# names the board rather than the few characters the user typed.
+		return device, board_label(serial)
+	if not matched:
+		raise BTCtlNoDeviceError(
+			"no Ubertooth found with serial matching '%s'"%selector
+			+ unread_serials_note(serials))
+	listed = ("'%s' matches %d Ubertooth devices: %s\n"
+		%(selector, len(matched),
+		  ", ".join(serial for device, serial in matched)))
+	if len(set(serial for device, serial in matched)) == 1:
+		# A longer string only helps while the matching serials differ:
+		# boards reporting one serial cannot be told apart this way.
+		raise BTCtlNoDeviceError(listed
+			+ "these Ubertooth devices report the same serial number; "
+			"select one by index with -U<index>"
+			+ unread_serials_note(serials))
+	raise BTCtlNoDeviceError(listed
+		+ "select one of them by a longer prefix of its serial number"
+		+ unread_serials_note(serials))
+
+
 class BTCtl:
 	DATA_IN = 0x82
 	DATA_OUT = 0x05
@@ -894,8 +1069,11 @@ class BTCtl:
 	# inside a libusb call no keyboard interrupt can reach. Long enough that
 	# nothing working trips it.
 	WRITE_TIMEOUT = 2000
-	def __init__(self, usb):
+	def __init__(self, usb, board=None):
 		self._usb = usb
+		# How a message names this board, from board_label(). Plain
+		# "Ubertooth" when the caller built this from a handle of its own.
+		self._board = board or board_label()
 		self._rx_thread = None
 		self._con = False
 		self._con_lock = Lock()
@@ -911,15 +1089,44 @@ class BTCtl:
 		self._msg_handler = None
 
 	@staticmethod
-	def find():
+	def find(selector=None):
+		"""Open the Ubertooth a -U argument names.
+
+		Selection follows ubertooth(7), SELECTING A DEVICE, as the other
+		tools do: no argument takes the only attached board, an all-digits
+		argument is a position in the list of attached boards, and anything
+		else matches a whole serial number or its first characters, in
+		either case. Anything that does not name exactly one board is
+		refused, and so is a board that could not be opened. The only error
+		this raises is BTCtlNoDeviceError, so a caller has one thing to
+		report for everything that can go wrong before a board is open.
+
+		Only the serial path reads serials; see board_serial().
+
+		Refusing matters more here than the message does. This used to open
+		whichever board libusb handed over first, so on a host with several
+		boards the tool reached an arbitrary one: a user who had flashed
+		btbr onto one board got a write timeout from another board still
+		carrying bluetooth_rxtx, and a note blaming the firmware of the
+		board they had just flashed.
+		"""
 		context = usb1.USBContext()
-		handle = context.openByVendorIDAndProductID(
-			UBERTOOTH_VENDOR_ID, UBERTOOTH_PRODUCT_ID,
-			skip_on_error = True)
-		if handle is None:
+		try:
+			attached = attached_ubertooths(context)
+		except usb1.USBError as e:
+			# A bus that could not be listed is not the same as no board
+			# being attached, so it is not reported as one.
+			raise BTCtlNoDeviceError("could not list USB devices: %s"%e)
+		if not attached:
 			# The wording the other tools use for the same thing.
 			raise BTCtlNoDeviceError("no Ubertooth devices found")
-		return BTCtl(handle)
+		device, label = select_ubertooth(selector, attached)
+		try:
+			handle = device.open()
+		except usb1.USBError as e:
+			raise BTCtlNoDeviceError("could not open %s: %s"%(label, e)
+				+ open_failure_note(e))
+		return BTCtl(handle, label)
 
 	def register_msg_handler(self, h):
 		# There is one handler, so a command that outlived its stop still
@@ -1034,6 +1241,14 @@ class BTCtl:
 
 	def connected(self):
 		return self._con
+
+	def board(self):
+		"""How a message names this board.
+
+		A failure early in a session is often the wrong board rather than a
+		bad one, so naming it is what tells the two apart.
+		"""
+		return self._board
 
 	def rx_error(self):
 		"""What ended the receive thread, when something other than a stop did."""
