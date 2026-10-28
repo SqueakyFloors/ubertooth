@@ -757,6 +757,37 @@ MU_TEST(test_a_bus_reset_voids_a_refused_control_reply)
 	mu_assert_int_eq(0, (int)tx_words);
 }
 
+/*
+ * The setup-path clear, on the one request shape where nothing else would do
+ * it: a host-to-device request with a data stage. Its setup packet does not
+ * call DataIn() at all -- the stack waits for the data first -- so without the
+ * clear the owed packet from the transfer before would still be offered, and
+ * the host would collect it as the reply to a request that asked for nothing.
+ */
+MU_TEST(test_a_setup_packet_with_an_out_data_stage_voids_a_refused_reply)
+{
+	static U8 setup[64];
+
+	refused_control_in(0x3b);
+
+	/* OUT, vendor, device, wLength 8: data from the host follows */
+	memset(setup, 0, sizeof(setup));
+	setup[0] = 0x40;
+	setup[1] = 0x3c;
+	setup[6] = 8;
+	fake_setup_bytes = setup;
+	packet_ready = 1;
+	packet_valid = 1;
+	packet_len = 8;
+	rx_words = 0;
+	USBHandleControlTransfer(0x00, EP_STATUS_SETUP);
+
+	tx_words = 0;
+	tx_wr_en_words = 16;
+	USBHwISR();
+	mu_assert_int_eq(0, (int)tx_words);
+}
+
 /* And so does an endpoint event the firmware had to skip. Only endpoint 0's
  * interrupts are enabled, so the event lost is one of its own -- a setup
  * packet, most likely -- and the host would collect the owed reply as the data
@@ -1172,6 +1203,7 @@ int main(void)
 	MU_RUN(test_a_refused_control_reply_resumes_at_the_same_offset);
 	MU_RUN(test_a_new_setup_packet_voids_a_refused_control_reply);
 	MU_RUN(test_a_bus_reset_voids_a_refused_control_reply);
+	MU_RUN(test_a_setup_packet_with_an_out_data_stage_voids_a_refused_reply);
 	MU_RUN(test_a_skipped_endpoint_event_voids_a_refused_control_reply);
 	MU_RUN(test_a_stall_voids_a_refused_control_reply);
 	MU_RUN(test_an_endpoint_event_reaches_its_handler);

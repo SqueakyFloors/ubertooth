@@ -181,8 +181,11 @@ static void DataIn(void)
 	nothing validated for the host to collect, the host's IN tokens are
 	NAKed, no interrupt follows, and the request is never answered. The host
 	gives up after its own timeout, which for the Ubertooth tools is one
-	second; `ubertooth-btle` reads each packet with a control request, so one
-	refused write ended a capture that had been running for minutes.
+	second, and `ubertooth-btle` reads each packet with a control request --
+	so one refused write is one capture packet the host never gets an answer
+	for, and the capture ends there. It is not what ends the captures #505
+	records: those stop the board servicing USB altogether. This is a hole on
+	the same path, closed because it was open.
 
 	Calling this from the loop that services USB turns that into a retry a
 	few microseconds later: a mode loop services USB thousands of times a
@@ -198,7 +201,8 @@ void USBControlInRetry(void)
 
 /**
 	Forget a control IN packet that is still owed, for a caller that knows
-	the host is no longer waiting for it: a bus reset.
+	the host is no longer waiting for it: a bus reset, or an endpoint 0 event
+	the firmware had to skip, which is most likely a setup packet.
  */
 void USBControlInRetryCancel(void)
 {
