@@ -29,6 +29,31 @@
 
 extern unsigned int packet_counter_max;
 
+/* An access code is 64 symbols long, so a search for one has to stop 64
+ * symbols short of the end of the captured symbols: a correlator allowed to
+ * run to the end reads past them. */
+#define AC_SYMBOLS 64
+
+/* How long a bank of symbols is in the 100 ns ticks the firmware stamps it
+ * with. One symbol is one microsecond of air, so the 400-symbol bank a record
+ * carries is 400 µs, and the firmware takes its stamp at the END of the bank:
+ * the bank began this many ticks earlier. */
+#define BANK_100NS (BANK_LEN * 10)
+
+/* 100 ns ticks in a 625 µs Bluetooth slot, which is two CLKN ticks. A packet's
+ * offset from the clock's rising edge is measured within one slot, and the
+ * firmware's clock trim carries a correction within one slot. */
+#define CLK100NS_PER_SLOT (2 * CLK100NS_PER_CLKN)
+
+/* CLKN is CLK27-0: a counter of 2^28 312.5 µs ticks, which runs for 23 hours
+ * and starts over. */
+#define CLKN_MASK 0x0fffffffu
+
+/* CLKN ticks in a second, and the parts per million one 100 ns tick of error
+ * per CLKN tick comes to (1000000 / 3125). */
+#define CLKN_PER_SECOND 3200
+#define PPM_PER_100NS_PER_CLKN 320
+
 static int8_t cc2400_rssi_to_dbm( const int8_t rssi )
 {
 	/* models the cc2400 datasheet fig 22 for 1M as piece-wise linear */
@@ -54,13 +79,33 @@ static int8_t cc2400_rssi_to_dbm( const int8_t rssi )
 /* Ignore packets with a SNR lower than this in order to reduce
  * processor load.  TODO: this should be a command line parameter. */
 
-static int8_t rssi_history[NUM_BREDR_CHANNELS][RSSI_HISTORY_LEN] = {{INT8_MIN}};
+/* The ten most recent RSSI maxima of each Basic Rate channel, newest last, and
+ * whether the table has been filled with the value that stands for a slot no
+ * packet has written yet.
+ *
+ * That value is INT8_MIN, because determine_signal_and_noise() reports the
+ * largest of a channel's ten entries and a slot nothing has written must not
+ * be able to win. The fill happens on first use: C can only initialise a whole
+ * array to zero, and `= {{INT8_MIN}}` sets the first entry of the first
+ * channel and leaves the other 789 at zero. Raw 0 is about -55 dBm, so every
+ * channel used to report at least that for its first ten packets - a packet
+ * whose own maximum was -91 dBm read -55 dBm, in the record written to a
+ * capture file as well as on screen, and the signal-to-noise ratio that
+ * decides whether a packet is dropped was out by the same amount. */
+static int8_t rssi_history[NUM_BREDR_CHANNELS][RSSI_HISTORY_LEN];
+static int rssi_history_filled = 0;
 
 static void determine_signal_and_noise( usb_pkt_rx *rx, int8_t * sig, int8_t * noise )
 {
 	int8_t * channel_rssi_history = rssi_history[rx->channel];
 	int8_t rssi;
 	int i;
+
+	if (!rssi_history_filled) {
+		/* One byte per entry, so a byte fill reaches all of them. */
+		memset(rssi_history, INT8_MIN, sizeof(rssi_history));
+		rssi_history_filled = 1;
+	}
 
 	/* Shift rssi max history and append current max */
 	memmove(channel_rssi_history,
@@ -468,6 +513,39 @@ static uint64_t now_ns_from_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx,
 	return packet_ns;
 }
 
+/* The CLKN of the first bit of a packet's access code, from the stamp the
+ * record carries, the period count in the same record, and where in the bank
+ * the access code was found.
+ *
+ * The stamp is taken at the end of the bank, so the bank's first symbol is
+ * BANK_100NS earlier and the access code is `offset` symbols after that. CLKN
+ * is a counter that starts over, and the three parts are put together the way
+ * the counter itself works: clkn_high is CLKN's top eight bits and clk100ns
+ * counts 100 ns ticks through the bottom twenty, so moving back by the bank
+ * borrows from the period count when the stamp is less than 400 µs into a
+ * period, and a borrow from period zero wraps round to the top of CLKN's
+ * range.
+ *
+ * Both callers used to subtract in plain unsigned arithmetic, which read that
+ * borrow as about 2^32 ticks and put the packet 1374388 ticks - seven minutes
+ * - ahead of the clock. It is reachable in the first 400 µs after a mode
+ * starts and in a 400 µs window at every 327.68 s wrap of clk100ns. */
+static uint32_t clkn_at_access_code( uint8_t periods, uint32_t clk100ns,
+                                     int offset )
+{
+	/* Signed: this is the one subtraction that can go below zero, and it
+	 * can only do so by less than one bank. */
+	int64_t at = (int64_t) clk100ns + 10 * (int64_t) offset - BANK_100NS;
+	uint32_t borrowed = 0;
+
+	if (at < 0) {
+		at += CLK100NS_PERIOD;
+		borrowed = 1;
+	}
+	return ((((uint32_t) periods - borrowed) << 20) +
+	        (uint32_t) (at / CLK100NS_PER_CLKN)) & CLKN_MASK;
+}
+
 /* Sniff for LAPs. If a piconet is provided, use the given LAP to
  * search for UAP.
  */
@@ -495,14 +573,14 @@ void cb_scan(ubertooth_t* ut, void* args __attribute__((unused)))
 
 	/* Pass packet-pointer-pointer so that
 	 * packet can be created in libbtbb. */
-	offset = btbb_find_ac(syms, BANK_LEN - 64, LAP_ANY, max_ac_errors, &pkt);
+	offset = btbb_find_ac(syms, BANK_LEN - AC_SYMBOLS, LAP_ANY, max_ac_errors, &pkt);
 	if (offset < 0)
 		goto out;
 
 	/* Once offset is known for a valid packet, copy in symbols
 	 * and other rx data. CLKN here is the 312.5us CLK27-0. The
 	 * btbb library can shift it be CLK1 if needed. */
-	clkn = (rx->clkn_high << 20) + (le32toh(rx->clk100ns) + offset*10) / CLK100NS_PER_CLKN;
+	clkn = clkn_at_access_code(rx->clkn_high, le32toh(rx->clk100ns), offset);
 	btbb_packet_set_data(pkt, syms + offset, BANK_LEN - offset,
 	                     rx->channel, clkn);
 
@@ -540,7 +618,7 @@ void cb_afh_initial(ubertooth_t* ut, void* args)
 	ubertooth_unpack_symbols((uint8_t*)rx->data, syms);
 
 
-	if( btbb_find_ac(syms, BANK_LEN - 64, btbb_piconet_get_lap(pn), max_ac_errors, &pkt) < 0 )
+	if( btbb_find_ac(syms, BANK_LEN - AC_SYMBOLS, btbb_piconet_get_lap(pn), max_ac_errors, &pkt) < 0 )
 		goto out;
 
 	/* detect AFH map
@@ -591,7 +669,7 @@ void cb_afh_monitor(ubertooth_t* ut, void* args)
 	static unsigned long counter = 0;
 
 
-	if( btbb_find_ac(syms, BANK_LEN - 64, btbb_piconet_get_lap(pn), max_ac_errors, &pkt) < 0 )
+	if( btbb_find_ac(syms, BANK_LEN - AC_SYMBOLS, btbb_piconet_get_lap(pn), max_ac_errors, &pkt) < 0 )
 		goto out;
 
 	counter++;
@@ -636,7 +714,7 @@ void cb_afh_r(ubertooth_t* ut, void* args)
 	static unsigned long last_seen[79] = {0};
 	static unsigned long counter = 0;
 
-	if( btbb_find_ac(syms, BANK_LEN - 64, btbb_piconet_get_lap(pn), max_ac_errors, &pkt) < 0 )
+	if( btbb_find_ac(syms, BANK_LEN - AC_SYMBOLS, btbb_piconet_get_lap(pn), max_ac_errors, &pkt) < 0 )
 		goto out;
 
 
@@ -871,11 +949,76 @@ void cb_ego(ubertooth_t* ut, void* args)
 
 #define CLOCK_TRIM_THRESHOLD 2
 
+/* What the firmware's clock trim can ask for, in 100 ns ticks. The request
+ * carries one unsigned 16-bit field holding a correction modulo one slot: the
+ * firmware reads 0 to 3124 as a delay of that many ticks, and 3125 and up as
+ * an advance of one slot less the value. So the largest delay is one tick
+ * short of a CLKN tick and the largest advance is a whole one. */
+#define CLOCK_TRIM_MAX_DELAY   (CLK100NS_PER_CLKN - 1)
+#define CLOCK_TRIM_MAX_ADVANCE CLK100NS_PER_CLKN
+
+/* The largest drift the firmware's correction can express, in parts per
+ * million. It adds or removes one 100 ns tick every 320/PPM CLKN ticks, so
+ * 320 PPM is one tick every tick; beyond that its division gives nothing,
+ * which it reads as correcting on every tick and drives the board 320 PPM the
+ * wrong way forever. */
+#define DRIFT_PPM_MAX PPM_PER_100NS_PER_CLKN
+
+/* The field to send for a clock correction in 100 ns ticks: positive delays
+ * the board's clock, negative advances it. An advance goes out as one slot
+ * less the amount, which is how the firmware reads the field, and a correction
+ * larger than the field can carry is clamped - the next packet trims again
+ * from wherever that leaves the clock.
+ *
+ * A negative correction used to be passed straight to the request's unsigned
+ * parameter: -150 went out as 65386, which the firmware added to its tick
+ * reload, so the next CLKN tick lasted 6.85 ms and the board's clock jumped
+ * about 6.5 ms where it should have moved 15 µs. The other branch sent a value
+ * above one slot in the same way. */
+static uint16_t clock_trim_field( int32_t correction_100ns )
+{
+	if (correction_100ns > CLOCK_TRIM_MAX_DELAY)
+		correction_100ns = CLOCK_TRIM_MAX_DELAY;
+	if (correction_100ns < -CLOCK_TRIM_MAX_ADVANCE)
+		correction_100ns = -CLOCK_TRIM_MAX_ADVANCE;
+	if (correction_100ns < 0)
+		return (uint16_t) (CLK100NS_PER_SLOT + correction_100ns);
+	return (uint16_t) correction_100ns;
+}
+
+/* How fast the board's clock is running against the piconet's, in parts per
+ * million, from the correction this trim needed and the CLKN ticks since the
+ * last one. Negative means the board is slow, which is the sign the firmware
+ * reads as "speed up".
+ *
+ * Signed throughout. The division used to be by an unsigned tick count, which
+ * converted a negative correction first: a real -15 PPM came out as 1342162,
+ * was printed as that, and was narrowed to 31442 for the request, which left
+ * the firmware driving the board about 320 PPM fast forever. The result is
+ * clamped to what the firmware can act on, and a trim in the same CLKN tick as
+ * the last one reports nothing rather than dividing by zero. */
+static int drift_ppm( int32_t correction_100ns, uint32_t clkn_ticks )
+{
+	int32_t ppm;
+
+	if (clkn_ticks == 0)
+		return 0;
+	ppm = correction_100ns * PPM_PER_100NS_PER_CLKN / (int32_t) clkn_ticks;
+	if (ppm > DRIFT_PPM_MAX)
+		ppm = DRIFT_PPM_MAX;
+	if (ppm < -DRIFT_PPM_MAX)
+		ppm = -DRIFT_PPM_MAX;
+	return (int) ppm;
+}
+
 void cb_rx(ubertooth_t* ut, void* args)
 {
 	btbb_packet* pkt = NULL;
 	btbb_piconet* pn = (btbb_piconet *)args;
-	char syms[BANK_LEN*10] = {0};
+	/* As many symbols as a record carries, and no more: the unpacking
+	 * below fills exactly BANK_LEN of them. A buffer ten times that size
+	 * left the decoder reading the zeros the rest of it started as. */
+	char syms[BANK_LEN];
 	int offset;
 	uint16_t clk_offset;
 	uint32_t clkn;
@@ -924,12 +1067,13 @@ void cb_rx(ubertooth_t* ut, void* args)
 
 	/* Pass packet-pointer-pointer so that
 	 * packet can be created in libbtbb. */
-	offset = btbb_find_ac(syms, BANK_LEN, lap, max_ac_errors, &pkt);
+	offset = btbb_find_ac(syms, BANK_LEN - AC_SYMBOLS, lap, max_ac_errors, &pkt);
 	if (offset < 0)
 		goto out;
 
 	/* calculate the offset between the first bit of the AC and the rising edge of CLKN */
-	clk_offset = (le32toh(rx->clk100ns) + offset*10 + 6250 - 4000) % 6250;
+	clk_offset = (le32toh(rx->clk100ns) + offset*10 +
+	              CLK100NS_PER_SLOT - BANK_100NS) % CLK100NS_PER_SLOT;
 
 	btbb_packet_set_modulation(pkt, BTBB_MOD_GFSK);
 	btbb_packet_set_transport(pkt, BTBB_TRANSPORT_ANY);
@@ -937,8 +1081,8 @@ void cb_rx(ubertooth_t* ut, void* args)
 	/* Once offset is known for a valid packet, copy in symbols
 	 * and other rx data. CLKN here is the 312.5us CLK27-0. The
 	 * btbb library can shift it be CLK1 if needed. */
-	clkn = (le32toh(rx->clkn_high) << 20) + (le32toh(rx->clk100ns) + offset*10 - 4000) / CLK100NS_PER_CLKN;
-	btbb_packet_set_data(pkt, syms + offset, BANK_LEN*10 - offset,
+	clkn = clkn_at_access_code(rx->clkn_high, le32toh(rx->clk100ns), offset);
+	btbb_packet_set_data(pkt, syms + offset, BANK_LEN - offset,
 	                     rx->channel, clkn);
 
 	printf("systime=%u ch=%2d LAP=%06x err=%u clkn=%u clk_offset=%u s=%d n=%d snr=%d\n",
@@ -956,38 +1100,35 @@ void cb_rx(ubertooth_t* ut, void* args)
 	/* calibrate Ubertooth clock such that the first bit of the AC
 	 * arrives CLK_TUNE_TIME after the rising edge of CLKN */
 	if (pn != NULL && infile == NULL) {
+		/* How far the board's clock has to move for the next packet's
+		 * access code to arrive CLK_TUNE_TIME after a CLKN edge:
+		 * positive to delay the clock, negative to advance it. Its
+		 * sign, and nothing else, decides which form the trim takes.
+		 * The two were chosen by trim_counter instead, so a calibrated
+		 * follow reached the "delay" form with a correction that was
+		 * really an advance, and vice versa. */
+		int32_t correction = (int32_t) clk_offset - CLK_TUNE_TIME;
+		/* Forward CLKN ticks since the last trim, masked because CLKN
+		 * starts over. */
+		uint32_t since_trim = (clkn - clkn_trim) & CLKN_MASK;
+
 		if (trim_counter < -CLOCK_TRIM_THRESHOLD
-		    || ((clk_offset < CLK_TUNE_TIME) && !calibrated)) {
-			fprintf(stderr, "note: offset < CLK_TUNE_TIME\n");
-			fprintf(stderr, "note: CLK100ns trim: %d\n",
-			        6250 + clk_offset - CLK_TUNE_TIME);
-			cmd_trim_clock(ut->devh, 6250 + clk_offset - CLK_TUNE_TIME);
+		    || trim_counter > CLOCK_TRIM_THRESHOLD
+		    || (correction != 0 && !calibrated)) {
+			fprintf(stderr, "note: offset %s CLK_TUNE_TIME\n",
+			        correction < 0 ? "<" : ">");
+			fprintf(stderr, "note: CLK100ns trim: %d\n", correction);
+			cmd_trim_clock(ut->devh, clock_trim_field(correction));
 			trim_counter = 0;
 			if (calibrated) {
+				int ppm = drift_ppm(correction, since_trim);
+
 				fprintf(stderr, "note: clock drifted %d in %f s, "
-				        "%d PPM too slow\n",
-				       (clk_offset-CLK_TUNE_TIME),
-				       (double)(clkn-clkn_trim)/3200,
-				       (clk_offset-CLK_TUNE_TIME) * 320 / (int32_t)(clkn-clkn_trim));
-				cmd_fix_clock_drift(ut->devh, (clk_offset-CLK_TUNE_TIME) * 320 / (int32_t)(clkn-clkn_trim));
-			}
-			clkn_trim = clkn;
-			calibrated = 1;
-			goto out;
-		} else if (trim_counter > CLOCK_TRIM_THRESHOLD
-		           || ((clk_offset > CLK_TUNE_TIME) && !calibrated)) {
-			fprintf(stderr, "note: offset > CLK_TUNE_TIME\n");
-			fprintf(stderr, "note: CLK100ns trim: %d\n",
-			        clk_offset - CLK_TUNE_TIME);
-			cmd_trim_clock(ut->devh, clk_offset - CLK_TUNE_TIME);
-			trim_counter = 0;
-			if (calibrated) {
-				fprintf(stderr, "note: clock drifted %d in %f s, "
-				        "%d PPM too fast\n",
-				       (clk_offset-CLK_TUNE_TIME),
-				       (double)(clkn-clkn_trim)/3200,
-				       (clk_offset-CLK_TUNE_TIME) * 320 / (clkn-clkn_trim));
-				cmd_fix_clock_drift(ut->devh, (clk_offset-CLK_TUNE_TIME) * 320 / (clkn-clkn_trim));
+				        "%d PPM too %s\n",
+				       correction,
+				       (double)since_trim/CLKN_PER_SECOND,
+				       ppm, ppm < 0 ? "slow" : "fast");
+				cmd_fix_clock_drift(ut->devh, (int16_t) ppm);
 			}
 			clkn_trim = clkn;
 			calibrated = 1;

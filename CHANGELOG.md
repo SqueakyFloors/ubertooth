@@ -386,6 +386,36 @@
   back wrong -- and only byte 0, because the read trails the air from there on.
   Each now waits for the radio to have the start of the packet.
   [#686](https://github.com/SqueakyFloors/ubertooth/issues/686)
+- A Classic packet longer than one 400 µs bank is reported as what was
+  captured. `ubertooth-rx` told the decoder it had 4000 symbols where 400 had
+  arrived, so a DH5's payload and its CRC verdict were decoded out of about
+  2700 bytes of zeros, on screen and in the payload written to a capture file,
+  with nothing marking it as incomplete.
+  [#666](https://github.com/SqueakyFloors/ubertooth/issues/666)
+- A Classic packet's signal level is its own from the first packet on a
+  channel. The table of recent maxima started with one of its 790 entries
+  filled, and the level is the strongest entry of the packet's channel, so
+  every channel reported at least about -55 dBm for its first ten packets: a
+  packet that should have read -91 dBm read -55 dBm, in the record written to
+  a capture file as well as on screen, and the signal-to-noise ratio that
+  decides whether a packet is dropped was out by the same 36 dB.
+  [#665](https://github.com/SqueakyFloors/ubertooth/issues/665)
+- The clock a Classic packet is placed at is the clock its access code
+  arrived on. `ubertooth-rx` put a packet captured in the first 400 µs of a
+  mode, or in the 400 µs after the clock starts over every 327.68 s, about
+  seven minutes ahead of the clock, and `ubertooth-scan` placed every packet a
+  whole 625 µs slot late, which is what its survey mode builds its clock
+  candidates out of.
+  [#664](https://github.com/SqueakyFloors/ubertooth/issues/664)
+- A piconet follow's clock trim moves the board's clock towards the piconet
+  rather than away from it. A correction that should have advanced the clock
+  was sent as a large positive delay, which stretched one tick to 6.85 ms and
+  threw the clock about 6.5 ms where 15 µs was wanted, and the drift it
+  reported alongside was computed unsigned: a real 15 PPM came out as
+  1342162, was printed as that, and left the board being driven about 320 PPM
+  fast for the rest of the run. So `ubertooth-rx -l`/`-u` and
+  `ubertooth-follow` kept the hop sequence they had found.
+  [#663](https://github.com/SqueakyFloors/ubertooth/issues/663)
 - A spectrum analyzer run measures through the radio front end a freshly
   booted board has, whichever mode ran before it. `ubertooth-specan` and
   `ubertooth-util -q` do not set the radio's manual signal overrides
