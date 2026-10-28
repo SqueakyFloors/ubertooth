@@ -54,8 +54,10 @@ fail() {
     failures=$((failures + 1))
 }
 
-# A repository with enough plain source files to clear the check's floor, and
-# nothing in any of them that looks like a reference.
+# A repository with enough plain source files to clear the check's floor on how
+# few files may be in scope (250, in check-issue-references.sh), and nothing in
+# any of them that looks like a reference. Raising that floor past 260 fails
+# every case here at once, which is the right way round to find out.
 new_repo() {
     repos=$((repos + 1))
     repo="$work/repo$repos"
@@ -164,10 +166,12 @@ grep -q "files in scope, which cannot be right" "$err" ||
 
 # ---- outside a checkout -------------------------------------------------
 
-# The wording here is git's, not the check's: `git rev-parse` fails and the
-# check exits on that, so what reaches the user is "not a git repository".
-# The check's own "not inside a git checkout" line is for the other way out,
-# a rev-parse that answers with nothing.
+# The wording here is git's, not the check's: `git rev-parse --show-toplevel`
+# fails outside a repository and in a bare one, and the check exits on that
+# status, so what reaches the user is git's "not a git repository". So the case
+# asserts the status and the streams rather than words this check chose. (Its
+# own "not inside a git checkout" line, for a rev-parse that answers with
+# nothing, is belt and braces: no git version reached here does that.)
 case_name="outside a git checkout it says so"
 repo="$work/not-a-repo"
 mkdir -p "$repo"

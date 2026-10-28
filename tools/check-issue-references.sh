@@ -104,9 +104,11 @@ reference='#[0-9]+|github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(issues|pull)/[0-
 # so a scan that found nothing would read as a scan that went wrong. The
 # wrapper below turns grep's two ordinary answers -- 0 matched, 1 did not --
 # into success, and lets anything above that through as the failure it is.
-# A batch with no files at all is success too: without that, GNU xargs runs
-# the command once on empty input and a grep with no file arguments would
-# read the pipe it was fed from.
+# A batch with no files is success too, so that a grep with no file arguments
+# never runs: it would read empty standard input and answer about nothing,
+# which is not the same as a clean scan. GNU xargs runs the command once on
+# empty input, so the guard belongs here even though the floor on how few
+# files may be in scope, above, means it cannot fire today.
 # shellcheck disable=SC2016 # $0 and $@ below belong to that shell, not this one
 printf '%s\n' "$files" | tr '\n' '\0' |
     xargs -0 sh -c '
