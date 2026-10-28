@@ -83,6 +83,10 @@ static TFnFrameHandler  *_pfnFrameHandler = NULL;
 /** Whether this device status event has already been given a second chance;
     cleared once the event is done with, either way. See USBHwISR(). */
 static BOOL dev_stat_retried = FALSE;
+/** Endpoints, by their bit in USBEpIntSt, whose event has already been given
+    a second chance; a bit is cleared once that event is done with, either
+    way. See USBHwISR(). */
+static U32 ep_stat_retried = 0;
 
 /** convert from endpoint address to endpoint index */
 #define EP2IDX(bEP) ((((bEP)&0xF)<<1)|(((bEP)&0x80)>>7))
@@ -597,10 +601,18 @@ int USBHwEPRead(U8 bEP, U8 *pbBuf, U32 iMaxLen)
     // make sure RD_EN is clear
     USBCtrl = 0;
 
-    // select endpoint and clear buffer
-    USBHwCmd(CMD_EP_SELECT | idx);
-    USBHwCmd(CMD_EP_CLEAR_BUFFER);
-    
+    /* Select the endpoint and release its buffer -- the step that tells the
+     * controller it may receive into that buffer again. Both are protocol
+     * engine commands, and either can give up on a controller that has
+     * stopped answering. That used to be reported as a complete read, which
+     * lets the caller consume a packet the hardware still holds and may
+     * present again: for a control transfer that is the stale-request hazard
+     * USBHandleControlTransfer() exists to avoid, and on a bulk OUT endpoint
+     * it is a message the firmware acts on twice. Report no packet instead.
+     * Every caller already drops a negative result, so the host retries. */
+    if (!USBHwCmd(CMD_EP_SELECT | idx) || !USBHwCmd(CMD_EP_CLEAR_BUFFER))
+        return -1;
+
     return dwLen;
 }
 
@@ -661,9 +673,11 @@ int USBHwISOCEPRead(const U8 bEP, U8 *pbBuf, const U32 iMaxLen)
     // make sure RD_EN is clear
     USBCtrl = 0;
 
-    // select endpoint and clear buffer
-    USBHwCmd(CMD_EP_SELECT | idx);
-    USBHwCmd(CMD_EP_CLEAR_BUFFER);
+    /* As in USBHwEPRead(): a buffer the controller would not release is a
+     * packet it may present again, so report no packet rather than let the
+     * caller consume it twice. */
+    if (!USBHwCmd(CMD_EP_SELECT | idx) || !USBHwCmd(CMD_EP_CLEAR_BUFFER))
+        return -1;
 
     return dwLen;
 }
@@ -792,45 +806,68 @@ DEBUG_LED_OFF(8);
         for (i = 0; i < 32; i++) {
             dwIntBit = (1 << i);
             if (USBEpIntSt & dwIntBit) {
-                /* Clear CDFULL first, the way USBHwCmd() does before a
-                 * command: this is the one place an answer is asked for
-                 * without going through it, so a flag left over from
-                 * anywhere else would make the read below return the wrong
-                 * endpoint's status. */
-                site = watchdog_mark_inner(WATCHDOG_SITE_USB_EP);
-                USBDevIntClr = CDFULL;
-                // clear int (and retrieve status)
-                USBEpIntClr = dwIntBit;
-                /* A handshake that gave up leaves USBCmdData holding some
-                 * earlier command's answer. Acting on that could call the
-                 * endpoint handler with, say, the setup bit of a transfer
-                 * that is long over, so skip the endpoint instead.
+                /*
+                 * Read the endpoint's status before clearing its interrupt.
                  *
-                 * The event is lost with it, and on endpoint 0 that is a
-                 * setup packet the host gets no answer to. Asking the
-                 * controller for the status again on a later pass would not
-                 * bring the event back: writing USBEpIntClr above is what
-                 * ran Select Endpoint and Clear Interrupt in the hardware,
-                 * so only the firmware's reading of the answer was late, and
-                 * a second read returns the endpoint's state as it is then.
-                 * On endpoint 0 that state no longer says a setup packet
-                 * arrived, and handling it as an ordinary data stage would
-                 * feed those eight bytes to whatever transfer was in
-                 * progress -- the stale-request hazard
-                 * USBHandleControlTransfer() exists to avoid. One
-                 * unanswered request the host times out on is the better of
-                 * the two.
+                 * The usual way round -- write USBEpIntClr, which makes the
+                 * hardware run Select Endpoint/Clear Interrupt and leave the
+                 * status in USBCmdData -- clears the interrupt first and reads
+                 * second. A read that gave up then left nothing to act on and
+                 * no event either: the interrupt was gone, and on endpoint 0
+                 * the event is a setup packet, so a control request went
+                 * unanswered until the host's own timeout. For
+                 * `ubertooth-btle`, which reads every captured packet with a
+                 * control request, that is a second and the end of the
+                 * capture.
+                 *
+                 * Plain Select Endpoint (CMD_EP_SELECT) returns the same
+                 * status byte and leaves the interrupt alone, so a read that
+                 * gives up here has consumed nothing: the endpoint's bit is
+                 * still set in USBEpIntSt and the event can be read on a
+                 * later pass. EP_SLOW is put back by hand rather than trusted
+                 * to re-appear from that bit, so the next service pass comes
+                 * back here either way.
+                 *
+                 * Marked for the breadcrumb from here to the interrupt
+                 * clear: every step between the two is a handshake with the
+                 * USB controller, so a board held up in one of them records
+                 * that rather than the service pass around it. The endpoint
+                 * handler below runs unmarked, as it did before.
                  */
-                fRead = Wait4DevInt(CDFULL);
-                watchdog_unmark(site);
-                if (!fRead) {
-                    /* An event on endpoint 0 that is lost here is most likely
-                     * a setup packet, so the control state no longer matches
-                     * what the host is doing: a reply still owed from the
-                     * transfer before it must not be offered, because the host
-                     * would collect those bytes as the data stage of the
-                     * request whose setup packet this pass dropped. Same
-                     * reasoning as the bus reset in usbinit.c.
+                site = watchdog_mark_inner(WATCHDOG_SITE_USB_EP);
+                if (!USBHwCmdReadChecked(CMD_EP_SELECT | i, &bEPStat)) {
+                    /*
+                     * Once per event, for the same reason the device status
+                     * read above retries only once: against an engine that
+                     * has stopped answering forever, re-arming EP_SLOW in the
+                     * six modes that service USB from the USB interrupt would
+                     * re-enter this handler endlessly. The first failure is
+                     * deferred, the second gives the event up.
+                     */
+                    if (!(ep_stat_retried & dwIntBit)) {
+                        ep_stat_retried |= dwIntBit;
+                        USBDevIntSet = EP_SLOW;
+                        watchdog_unmark(site);
+                        continue;
+                    }
+                    ep_stat_retried &= ~dwIntBit;
+
+                    /* Giving up means consuming the event, so this endpoint
+                     * cannot hold the loop. The write clears the interrupt in
+                     * hardware whether or not its answer arrives, and that
+                     * answer is of no use to us. */
+                    USBDevIntClr = CDFULL;
+                    USBEpIntClr = dwIntBit;
+                    (void)Wait4DevInt(CDFULL);
+                    watchdog_unmark(site);
+
+                    /* An event on endpoint 0 that is given up here is most
+                     * likely a setup packet, so the control state no longer
+                     * matches what the host is doing: a reply still owed from
+                     * the transfer before it must not be offered, because the
+                     * host would collect those bytes as the data stage of the
+                     * request whose setup packet was dropped. Same reasoning
+                     * as the bus reset in usbinit.c.
                      *
                      * Endpoint 0 only. The other images enable interrupts on
                      * endpoints of their own -- btbr on its bulk OUT, the
@@ -841,7 +878,19 @@ DEBUG_LED_OFF(8);
                         USBControlInRetryCancel();
                     continue;
                 }
-                bEPStat = USBCmdData;
+                ep_stat_retried &= ~dwIntBit;
+
+                /* The status is in hand, so the event can be consumed. This
+                 * write is what runs Select Endpoint and Clear Interrupt in
+                 * the hardware; the status it leaves in USBCmdData is a
+                 * second reading of what was just read and is discarded.
+                 * CDFULL is cleared first, the way USBHwCmd() does before a
+                 * command, and drained afterwards so the next command does
+                 * not see this one's flag. */
+                USBDevIntClr = CDFULL;
+                USBEpIntClr = dwIntBit;
+                (void)Wait4DevInt(CDFULL);
+                watchdog_unmark(site);
                 // convert EP pipe stat into something HW independent
                 bStat = ((bEPStat & EPSTAT_FE) ? EP_STATUS_DATA : 0) |
                         ((bEPStat & EPSTAT_ST) ? EP_STATUS_STALLED : 0) |

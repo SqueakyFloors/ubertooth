@@ -95,11 +95,23 @@ typedef struct _ego_fsm_state_t {
 typedef void (*ego_st_handler)(ego_fsm_state_t *);
 
 uint8_t packet_len = 18;
+/* The longest capture the host may ask for, in bytes. ubertooth-ego refuses
+ * anything outside 1 to this (EGO_PACKET_LENGTH_MIN/MAX in the host's
+ * ego_options.h); rfcat_subcommand() below refuses it too, because any
+ * program can talk to the board over USB. */
 #define EGO_MAX_PACKET_LEN 48
+/* The receive buffer is a record's data field, not a capture's worth of
+ * bytes: every e-go packet is handed to enqueue_with_ts(), which copies
+ * DMA_SIZE (50) bytes out of it. A buffer of EGO_MAX_PACKET_LEN would be two
+ * bytes short of that, so the copy read past its end -- and what followed was
+ * the low half of rxtime, which then went out in the data field of the
+ * record carrying it. */
 typedef struct _ego_packet_t {
-	u8 rxbuf[EGO_MAX_PACKET_LEN];
+	u8 rxbuf[DMA_SIZE];
 	u32 rxtime;
 } ego_packet_t;
+_Static_assert(EGO_MAX_PACKET_LEN <= DMA_SIZE,
+               "the longest e-go capture must fit in a record's data field");
 
 static void ssp_start(void) {
 	// make sure the (active low) slave select signal is not active
@@ -202,7 +214,16 @@ static void rf_on(void) {
 
 static void do_rx(ego_packet_t *packet) {
 	int i;
-	for (i = 0; i < packet_len; i++) {
+	/* packet is a local of the state handler, so a capture length larger
+	 * than the buffer would write down the stack, over rxtime and then over
+	 * the handler's return address. rfcat_subcommand() refuses such a
+	 * length, and this clamp keeps the loop inside the buffer whatever set
+	 * packet_len -- the same belt and braces the generic transmit path uses
+	 * between its request handler and tx_generic(). */
+	int len = packet_len > EGO_MAX_PACKET_LEN ? EGO_MAX_PACKET_LEN
+	                                          : (int)packet_len;
+
+	for (i = 0; i < len; i++) {
 		// make sure there are bytes ready
 		while (!(SSP1SR & SSPSR_RNE)) ;
 		packet->rxbuf[i] = (u8)DIO_SSP_DR;
@@ -593,11 +614,14 @@ int rfcat_subcommand(uint16_t cmd, uint8_t *body, int body_len) {
 			break;
 
 			/*
-			 * Set the capture length. do_rx() reads this many bytes
-			 * into a buffer of EGO_MAX_PACKET_LEN, so a longer length
-			 * has to be refused rather than written past the end. A
-			 * length of zero would capture nothing, which is not a
-			 * request worth honouring either.
+			 * Set the capture length. do_rx() reads this many
+			 * bytes into a buffer that is a local of the state
+			 * handler, so a length past EGO_MAX_PACKET_LEN has to
+			 * be refused rather than written down the stack, over
+			 * the timestamp beside the buffer and then over the
+			 * handler's return address. A length of zero would
+			 * capture nothing, which is not a request worth
+			 * honoring either.
 			 */
 		case RFCAT_CAP_LEN:
 			if (body_len != 1)
