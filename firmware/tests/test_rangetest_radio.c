@@ -607,7 +607,7 @@ MU_TEST(test_the_fifo_is_reached_through_the_helpers)
  *
  * The flag is set when the sync word ends, before the first payload byte
  * exists, so a read that starts there returns a byte 0 the radio has not
- * written. That was `mismatch on byte 0` for about one range test in five, and
+ * written. That was `mismatch on byte 0` every five to ten range tests, and
  * only ever byte 0: the read is slower than the air, so from the second byte
  * on the radio stays ahead of it.
  */
@@ -643,7 +643,7 @@ MU_TEST(test_the_read_waits_for_the_radio_to_have_the_packet)
 	snprintf(msg, sizeof(msg),
 	         "%s: cc2400_rangetest() notices a sync word at line %d and reads "
 	         "the FIFO at line %d without waiting in between, so byte 0 of "
-	         "the reply comes back wrong about one run in five",
+	         "the reply comes back wrong every five to ten runs",
 	         path, s.rangetest_sync_poll, s.rangetest_fifo_read);
 	mu_assert(s.rangetest_wait > s.rangetest_sync_poll &&
 	          s.rangetest_wait < s.rangetest_fifo_read, msg);

@@ -137,8 +137,8 @@ rangetest_result rr;
  * SYNC_RECEIVED. The radio sets that flag when the sync word ends, which is
  * before the first payload byte exists, so a read that starts there asks the
  * FIFO for a byte the radio has not put in it yet and gets a wrong one back.
- * That is the `mismatch on byte 0` the sender reported for about one run in
- * five: byte 0 and never any other byte, because the read is slower than the
+ * That is the `mismatch on byte 0` the sender reported every five to ten
+ * runs: byte 0 and never any other byte, because the read is slower than the
  * air. cc2400_fifo_read() waits out two delay loops per bit, about 14 us a
  * byte against 8 us on the air, so from the second byte on the radio is
  * further ahead with every byte read.
