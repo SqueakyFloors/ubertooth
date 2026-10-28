@@ -162,6 +162,19 @@ int opt_parse_bd_addr(const char *text, uint8_t *address)
 	return 0;
 }
 
+int opt_require_bd_addr(const char *text, const char *what, const char *given,
+                        uint8_t *address)
+{
+	if (opt_parse_bd_addr(text, address) < 0) {
+		if (given == NULL)
+			given = text;
+		fprintf(stderr, "error: %s must be xx:xx:xx:xx:xx:xx (got %s)\n",
+		        what, given == NULL ? "" : given);
+		return -1;
+	}
+	return 0;
+}
+
 int opt_bd_addr_lap_uap(const uint8_t *address, uint32_t *lap, uint8_t *uap)
 {
 	if (address == NULL)
@@ -315,8 +328,43 @@ int opt_no_arguments(int argc)
 	return argc <= 1;
 }
 
+/* The word a rejected '-' came from, so the message can quote what the user
+ * wrote rather than a bare dash.
+ *
+ * getopt reads one letter at a time and stops at the dash, so where it got to
+ * says which word that is. A dash with more of its word left to read, as in
+ * "--bogus" or "-r-x", leaves optind on that word. A dash that ends the word,
+ * as in "-v-", is the word's last letter, and getopt moves optind past the
+ * word as it starts on that letter, so the word is the one before.
+ *
+ * The two are told apart by the word optind is on: an option word that holds
+ * a dash of its own is the one being rejected, and anything else -- the
+ * option after it, a stray word, the end of the command line -- means the
+ * dash was the last letter of the word before. Returns NULL if neither word
+ * holds a dash, which leaves the caller its own wording.
+ */
+static const char *bad_option_word(int argc, char *argv[])
+{
+	const char *word;
+	size_t length;
+
+	if (optind < argc && argv[optind] != NULL && argv[optind][0] == '-' &&
+	    strchr(argv[optind] + 1, '-') != NULL)
+		return argv[optind];
+	/* optind is at least 1, so argv[optind - 1] is never argv[0]. */
+	if (optind >= 2 && optind - 1 < argc && argv[optind - 1] != NULL) {
+		word = argv[optind - 1];
+		length = strlen(word);
+		if (length > 1 && word[0] == '-' && word[length - 1] == '-')
+			return word;
+	}
+	return NULL;
+}
+
 void opt_report_bad_option(int opt, int argc, char *argv[])
 {
+	const char *word;
+
 	if (opt == ':' && optopt != 0 && isprint((unsigned char)optopt)) {
 		fprintf(stderr, "error: option '-%c' requires a value\n", optopt);
 		return;
@@ -325,19 +373,15 @@ void opt_report_bad_option(int opt, int argc, char *argv[])
 		fputs("error: an option is missing its value\n", stderr);
 		return;
 	}
-	/* getopt reads one letter at a time, so for "--bogus" it rejects the
-	 * second '-' and leaves the rest of the word unread, which is how the
-	 * whole word can be quoted back. No tool takes long options. */
-	if (optopt == '-' && optind < argc && argv[optind] != NULL &&
-	    argv[optind][0] == '-') {
-		if (strncmp(argv[optind], "--", 2) == 0 && argv[optind][2] != '\0')
+	/* A rejected '-' is a letter inside a word the user wrote, so the whole
+	 * word is quoted back: a bare "-" would name an option nobody typed,
+	 * and so would the word after it. No tool takes long options. */
+	if (optopt == '-' && (word = bad_option_word(argc, argv)) != NULL) {
+		if (strncmp(word, "--", 2) == 0 && word[2] != '\0')
 			fprintf(stderr, "error: unrecognized option '%s': the tools take "
-			        "single-letter options\n", argv[optind]);
+			        "single-letter options\n", word);
 		else
-			/* A '-' inside a cluster, as in "-r-x": quoting "--" would name
-			 * an option the user never typed. */
-			fprintf(stderr, "error: unrecognized option '-' in '%s'\n",
-			        argv[optind]);
+			fprintf(stderr, "error: unrecognized option '-' in '%s'\n", word);
 		return;
 	}
 	if (optopt != 0 && isprint((unsigned char)optopt))

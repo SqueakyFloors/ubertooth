@@ -5,9 +5,9 @@
 #include <string.h>
 
 /* The widest MAC mask: 6 bytes of 8 bits. */
-#define MAC_MASK_MAX 48
+#define MAC_MASK_MAX (OPT_BD_ADDR_BYTES * 8)
 
-int convert_mac_address(char *text, uint8_t *address, uint8_t *mask_out)
+int btle_parse_target(char *text, uint8_t *address, uint8_t *mask_out)
 {
 	/* The word as the user wrote it, for the diagnostics: splitting the
 	 * mask off below writes into text, which would otherwise make an
@@ -20,7 +20,7 @@ int convert_mac_address(char *text, uint8_t *address, uint8_t *mask_out)
 		return 0;
 	snprintf(given, sizeof(given), "%s", text);
 	if (strcmp(text, "none") == 0) {
-		memset(address, 0, 6);
+		memset(address, 0, OPT_BD_ADDR_BYTES);
 		*mask_out = 0;
 		return 1;
 	}
@@ -36,16 +36,8 @@ int convert_mac_address(char *text, uint8_t *address, uint8_t *mask_out)
 		}
 	}
 
-	if (strlen(text) != 6 * 2 + 5) {
-		fprintf(stderr, "error: MAC address must be"
-		        " xx:xx:xx:xx:xx:xx (got %s)\n", given);
+	if (opt_require_bd_addr(text, "target address", given, address) < 0)
 		return 0;
-	}
-	if (opt_parse_bd_addr(text, address) < 0) {
-		fprintf(stderr, "error: MAC address must be hex digits and"
-		        " colons (got %s)\n", given);
-		return 0;
-	}
 
 	*mask_out = (uint8_t)mask;
 	return 1;

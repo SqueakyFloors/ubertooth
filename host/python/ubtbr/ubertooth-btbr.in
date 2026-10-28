@@ -290,6 +290,19 @@ def usage():
 	sys.stdout.write(USAGE)
 	sys.exit(0)
 
+def dash_word(words):
+	"""The option word a stray '-' came from, as the user wrote it.
+
+	getopt reports the letter it rejected and not the word it was in, so the
+	word is the first one that is an option and holds a dash of its own
+	("-h-", "-h-h"). None means no word looks like it, which leaves the
+	caller to name the dash alone.
+	"""
+	for word in words:
+		if word.startswith("-") and "-" in word[1:]:
+			return word
+	return None
+
 def report_bad_option(refusal):
 	"""Report a command line getopt would not take, as the other tools do.
 
@@ -300,8 +313,15 @@ def report_bad_option(refusal):
 	# getopt says "option --name ..." for a word starting with two dashes
 	# and "option -c ..." for a single letter. No tool takes long options.
 	long_option = refusal.msg.startswith("option --")
+	# A stray dash in an option word ("-h-") is rejected as the letter '-',
+	# which reads as a long option here, so it is taken first: the word the
+	# user wrote is what names it, as in the C tools.
+	dash = dash_word(sys.argv[1:]) if refusal.opt == '-' else None
 	if refusal.msg.endswith("requires argument"):
 		error("option '-%s' requires a value"%refusal.opt)
+	elif refusal.opt == '-':
+		error("unrecognized option '-' in '%s'"%dash if dash
+			else "unrecognized option '-'")
 	elif long_option:
 		error("unrecognized option '--%s': the tools take "
 			"single-letter options"%refusal.opt)

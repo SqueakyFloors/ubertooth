@@ -135,7 +135,11 @@ Major modes:
    connection it is of.
  - `-s <BD ADDR>` :
    Inject advertising packets using specified BD ADDR. Like `-a`, it does not
-   go with `-f`, `-n` or `-p`.
+   go with `-f`, `-n` or `-p`. The value is one whole address and nothing
+   else: the `/<bits>` mask and `none` of `-t` narrow which connections to
+   follow, which a faux slave has no use for, so `-s none` and
+   `-s <BD ADDR>/24` are refused rather than advertising from
+   `00:00:00:00:00:00` or from an address with the mask ignored.
 
 Interference (only with `-f` or `-p`):
 
@@ -152,7 +156,11 @@ Filtering:
 
  - `-t <BD ADDR>` :
    Limit connection following and interference in follow mode to the
-   specified BD ADDR
+   specified BD ADDR. `-s` and `-t` are two different addresses and a command
+   can give both: `-s A -t B` advertises from A and follows B, and `-t none`
+   clears the target without touching the address `-s` was given. They shared
+   one address, so whichever of the two was written last used to set both, and
+   `-s <BD ADDR> -t none` advertised from `00:00:00:00:00:00` without a word.
 
 Logging:
 
@@ -307,7 +315,10 @@ Errors, warnings and progress go to standard error, each error as one line
 starting `error: `, for example `error: USB poll failed` when the board stops
 answering during a capture, `error: jamming not supported by this firmware`,
 `error: target set failed`, or
-`error: MAC address must be xx:xx:xx:xx:xx:xx (got 11:22:33:44:55)`. A capture
+`error: target address must be xx:xx:xx:xx:xx:xx (got 11:22:33:44:55)`. A value
+that is not an address reads the same way whatever is wrong with it, and names
+the address the option sets, so `-s` gives
+`error: faux slave address must be xx:xx:xx:xx:xx:xx (got <word>)`. A capture
 file that cannot be created is reported as `error: <file>: <reason>`.
 
 A capture that is losing packets says so. This tool reads its packets one at a

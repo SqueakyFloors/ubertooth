@@ -78,9 +78,9 @@ static u16 adv_channel(int index)
 
 static void print_mac(FILE *out, uint8_t *mac_address, int mask) {
 	unsigned i;
-	for (i = 0; i < 5; ++i)
+	for (i = 0; i + 1 < OPT_BD_ADDR_BYTES; ++i)
 		fprintf(out, "%02x:", mac_address[i]);
-	fprintf(out, "%02x", mac_address[5]);
+	fprintf(out, "%02x", mac_address[OPT_BD_ADDR_BYTES - 1]);
 	if (mask >= 0)
 		fprintf(out, "/%u", mask);
 }
@@ -208,8 +208,14 @@ int main(int argc, char *argv[])
 
 	int r;
 	u32 access_address = 0;
-	uint8_t mac_address[6] = { 0, };
-	uint8_t mac_mask = 0;
+	/* One address each: -t names the connection to follow and -s the
+	 * address to advertise from, which are two different things. They
+	 * shared one pair of variables, so whichever option was written last
+	 * set both, and "-s <address> -t none" advertised from
+	 * 00:00:00:00:00:00 without a word. */
+	uint8_t target_address[OPT_BD_ADDR_BYTES] = { 0, };
+	uint8_t target_mask = 0;
+	uint8_t slave_address[OPT_BD_ADDR_BYTES] = { 0, };
 
 	/* Standard output until a capture takes it; see report_stream. */
 	report_stream = stdout;
@@ -302,14 +308,18 @@ int main(int argc, char *argv[])
 				return 1;
 			break;
 		case 's':
-			do_slave_mode = 1;
-			r = convert_mac_address(optarg, mac_address, &mac_mask);
-			if (!r)
+			/* The address to advertise from, and nothing else: the
+			 * "/<bits>" mask and "none" of -t narrow which
+			 * connections to follow, which a faux slave has no use
+			 * for. */
+			if (opt_require_bd_addr(optarg, "faux slave address",
+			                        NULL, slave_address) < 0)
 				return 1;
+			do_slave_mode = 1;
 			break;
 		case 't':
 			do_target = 1;
-			r = convert_mac_address(optarg, mac_address, &mac_mask);
+			r = btle_parse_target(optarg, target_address, &target_mask);
 			if (!r)
 				return 1;
 			break;
@@ -485,13 +495,13 @@ int main(int argc, char *argv[])
 
 	// allow user to set target before following
 	if (do_target) {
-		r = cmd_btle_set_target(ut->devh, mac_address, mac_mask);
+		r = cmd_btle_set_target(ut->devh, target_address, target_mask);
 		if (r == 0) {
-			if (mac_mask == 0) {
+			if (target_mask == 0) {
 				fprintf(report_stream, "target cleared\n");
 			} else {
 				fprintf(report_stream, "target set to: ");
-				print_mac(report_stream, mac_address, mac_mask);
+				print_mac(report_stream, target_address, target_mask);
 				fprintf(report_stream, "\n");
 			}
 		} else {
@@ -655,7 +665,7 @@ int main(int argc, char *argv[])
 		 * back, and a board left part-way into a low-energy mode is
 		 * the state it stops answering control requests in. The
 		 * success path deliberately leaves it advertising. */
-		if (cmd_btle_slave(ut->devh, mac_address) < 0) {
+		if (cmd_btle_slave(ut->devh, slave_address) < 0) {
 			report_request_failure("start advertising");
 			ubertooth_stop(ut);
 			return release_handle(ut, 1);

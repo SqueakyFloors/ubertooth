@@ -86,6 +86,18 @@ int opt_parse_access_address(const char *text, uint32_t *address);
  * digit. Writes OPT_BD_ADDR_BYTES bytes. */
 int opt_parse_bd_addr(const char *text, uint8_t *address);
 
+/* The same, for an option's value: on failure it prints
+ * "error: <what> must be xx:xx:xx:xx:xx:xx (got <text>)" so the caller only
+ * has to exit. One wording for every option that takes an address; <what>
+ * names which address it is, for example "target address".
+ *
+ * <given> is the option's value as the user wrote it, for a caller that took
+ * the address out of a longer word and wants the whole word quoted back
+ * (ubertooth-btle -t takes "<address>/<bits>"). NULL quotes <text> itself,
+ * which is what an option whose whole value is an address passes. */
+int opt_require_bd_addr(const char *text, const char *what, const char *given,
+                        uint8_t *address);
+
 /* The two parts of a BD_ADDR that identify a Bluetooth piconet: the lower
  * address part (LAP), its three least significant bytes, and the upper
  * address part (UAP), the byte above them. The two most significant bytes are

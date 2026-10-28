@@ -1007,6 +1007,23 @@ def generated_cases():
                           source="a lone '--' said something, so the error "
                           "line stands alone (cli-output.md)"))
 
+    # A stray dash in an option word, written three ways: inside the word, at
+    # the end of it, and at the end with another option after it. All three
+    # are the same mistake, so all three name the word the user wrote. The
+    # option parser reads a word a letter at a time and has already moved on
+    # from a word whose last letter it rejects, which is how the trailing
+    # forms used to be blamed on "--" or on the option after them.
+    if HELP_OPTIONS:
+        help_option = HELP_OPTIONS[0]
+        for word in (help_option + "-" + help_option[1:], help_option + "-"):
+            cases.append(Case([word], "refused",
+                              error="error: unrecognized option '-' in '%s'"
+                              % word))
+        trailing = help_option + "-"
+        cases.append(Case([trailing, help_option], "refused",
+                          error="error: unrecognized option '-' in '%s'"
+                          % trailing))
+
     # An option the tool does not know, written short and long, and every
     # option it used to have. The rule is the same for every tool; the tools
     # that have not been converted to report it the shared way are findings,

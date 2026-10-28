@@ -107,10 +107,13 @@ CASES = {
         (("-azzzz",), "error: access address must be 1-8 hex digits (got zzzz)"),
         (("-a", "zzzz"), "error: access address must be 1-8 hex digits (got zzzz)"),
         (("-s", "11:22:33:44:55:GG"),
-         "error: mac address must be hex digits and colons"
+         "error: faux slave address must be xx:xx:xx:xx:xx:xx"
          " (got 11:22:33:44:55:gg)"),
         (("-s", "11:22:33:44:55"),
-         "error: mac address must be xx:xx:xx:xx:xx:xx"
+         "error: faux slave address must be xx:xx:xx:xx:xx:xx"
+         " (got 11:22:33:44:55)"),
+        (("-t", "11:22:33:44:55"),
+         "error: target address must be xx:xx:xx:xx:xx:xx"
          " (got 11:22:33:44:55)"),
         (("-t", "11:22:33:44:55:66/49"),
          "error: mac mask must be 0-48 (got 49)"),
@@ -159,6 +162,13 @@ CASES = {
         (("-a", "630f9ff"), "error: access code must be 2, 4, 6 or 8 hex digits"),
         (("-a", "630f9ffe9"), "error: access code must be 2, 4, 6 or 8 hex digits"),
         (("-l", "49"), "error: capture length must be 1-48 (got 49)"),
+        # only the modes that read a packet read a capture length
+        (("-i", "-l", "18"),
+         "error: -l cannot be combined with -i; only the receiving modes"
+         " (-f, -r) read a capture length"),
+        (("-l", "18", "-j"),
+         "error: -l cannot be combined with -j; only the receiving modes"
+         " (-f, -r) read a capture length"),
     ),
     "ubertooth-follow": STRAY + LAP_UAP + AC_ERRORS + (
         (("-w", "abc"), "error: usb delay must be a whole number of timeslots, 0 or more (got abc)"),

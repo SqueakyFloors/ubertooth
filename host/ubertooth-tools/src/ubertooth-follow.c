@@ -223,11 +223,9 @@ int main(int argc, char *argv[])
 			return 1;
 		switch(opt) {
 		case 't':
-			if (opt_parse_bd_addr(optarg, target) < 0) {
-				fprintf(stderr, "error: target address must be "
-				        "xx:xx:xx:xx:xx:xx (got %s)\n", optarg);
+			if (opt_require_bd_addr(optarg, "target address", NULL,
+			                        target) < 0)
 				return 1;
-			}
 			++have_target;
 			break;
 		case 'l': {
