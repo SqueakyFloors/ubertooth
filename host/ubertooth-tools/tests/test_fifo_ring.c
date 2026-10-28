@@ -32,12 +32,13 @@
 #define RING_RECORDS (FIFO_SIZE - 1)
 
 /* ---- records -------------------------------------------------------------
- * Every byte of a record carries one byte of its sequence number, the four
- * bytes of it repeating from the start of the record to the end. No two
- * sequence numbers fill a record alike, so a copy that took part of one
- * record and part of another shows a byte that does not belong where it sits.
- * clk100ns holds the whole number, which is also what a record is matched
- * against the arrival reading published with it by.
+ * clk100ns holds the whole sequence number, and that is what a record is
+ * known by: record_is_whole() reads it back and what it is matched against
+ * the arrival reading published with it. Every other byte of the record
+ * carries one byte of that number, the four of them repeating from the start
+ * of the record to the end. No two sequence numbers fill a record alike, so a
+ * copy that took part of one record and part of another shows a byte that
+ * does not belong where it sits.
  */
 
 /* The byte that belongs at `position` bytes into a record of this sequence
@@ -126,6 +127,21 @@ static void restore_stderr(void)
 	          "standard error could not be put back");
 	close(saved_stderr);
 	saved_stderr = -1;
+}
+
+/* How many records the ring said it discarded, counted from the warnings it
+ * wrote while a case had standard error. Call it once standard error is back,
+ * so nothing is still writing to the file. */
+static uint32_t count_overflow_warnings(FILE* warnings)
+{
+	char line[256];
+	uint32_t count = 0;
+
+	rewind(warnings);
+	while (fgets(line, sizeof(line), warnings) != NULL)
+		if (strstr(line, "FIFO overflow") != NULL)
+			count++;
+	return count;
 }
 
 /* ---- cases --------------------------------------------------------------- */
@@ -279,10 +295,11 @@ struct run {
 	uint32_t reading_mismatch; /* readings that belonged to another record */
 	uint32_t discarded;        /* gaps in what the consumer was given */
 	uint32_t last_sequence;    /* the last record the consumer was given */
-	/* What the producer was refused, counted on its own side so that the
-	 * gaps above can be held against it: a record lost with room in the
-	 * ring would leave a gap nobody refused. */
-	uint32_t refused;
+	/* How many records the ring itself said it was throwing away, read
+	 * back from its warnings once the threads have finished. The gaps
+	 * above are held against this: a record that went missing without the
+	 * ring discarding it leaves a gap nothing accounts for. */
+	uint32_t announced_discards;
 };
 
 static void* producer_main(void* argument)
@@ -290,17 +307,8 @@ static void* producer_main(void* argument)
 	struct run* run = (struct run*)argument;
 	uint32_t sequence;
 
-	for (sequence = 1; sequence <= THREADED_RECORDS; sequence++) {
-		usb_pkt_rx* slot = fifo_get_write_element(run->fifo);
-
-		fill_record(slot, sequence);
-		fifo_inc_write_ptr(run->fifo, sequence);
-		/* A publish that went through moves the write pointer on, so
-		 * the next slot is a different one. The same slot again means
-		 * the ring had no room and this record was discarded. */
-		if (fifo_get_write_element(run->fifo) == slot)
-			run->refused++;
-	}
+	for (sequence = 1; sequence <= THREADED_RECORDS; sequence++)
+		publish_in_place(run->fifo, sequence, sequence);
 
 	atomic_store(&run->producer_done, 1);
 	return NULL;
@@ -351,21 +359,23 @@ static void* consumer_main(void* argument)
 MU_TEST(two_threads_never_see_a_half_written_record)
 {
 	struct run run;
-	int devnull = open("/dev/null", O_WRONLY);
+	/* The refusals go here rather than to /dev/null: counting them is how
+	 * the gaps the consumer saw are checked against what the ring says it
+	 * threw away. A ring this small refuses a record on nearly every lap,
+	 * so there are thousands of them. */
+	FILE* warnings = tmpfile();
 	pthread_t producer, consumer;
 
 	memset(&run, 0, sizeof(run));
 	atomic_init(&run.producer_done, 0);
 	run.fifo = fifo_init();
 	mu_assert_fatal(run.fifo != NULL, "cannot allocate the ring buffer");
-	mu_assert_fatal(devnull >= 0, "/dev/null could not be opened");
-	/* The producer refuses a record on nearly every lap of a ring this
-	 * small, and each refusal prints a line. */
-	redirect_stderr_to(devnull);
+	mu_assert_fatal(warnings != NULL, "tmpfile failed");
+	redirect_stderr_to(fileno(warnings));
 
 	if (pthread_create(&producer, NULL, producer_main, &run) != 0) {
 		restore_stderr();
-		close(devnull);
+		fclose(warnings);
 		free(run.fifo);
 		mu_assert_fatal(0, "the producer thread could not be started");
 	}
@@ -374,7 +384,7 @@ MU_TEST(two_threads_never_see_a_half_written_record)
 		 * it writes the ring this thread is about to free. */
 		pthread_join(producer, NULL);
 		restore_stderr();
-		close(devnull);
+		fclose(warnings);
 		free(run.fifo);
 		mu_assert_fatal(0, "the consumer thread could not be started");
 	}
@@ -382,27 +392,26 @@ MU_TEST(two_threads_never_see_a_half_written_record)
 	pthread_join(producer, NULL);
 	pthread_join(consumer, NULL);
 	restore_stderr();
-	close(devnull);
 
 	/* The gaps the consumer counted stop at the last record it was given,
 	 * so anything missing after that one is added here. */
 	run.discarded += THREADED_RECORDS - run.last_sequence;
+	run.announced_discards = count_overflow_warnings(warnings);
+	fclose(warnings);
 
-	printf("  %u records through, %u refused by a full ring\n",
-	       run.popped, run.refused);
+	printf("  %u records through, %u discarded by a full ring\n",
+	       run.popped, run.discarded);
 	mu_assert_int_eq(0, run.torn);
 	mu_assert_int_eq(0, run.out_of_order);
 	mu_assert_int_eq(0, run.reading_mismatch);
 	/* The run has to have carried records, or the three counters above are
 	 * all about nothing. */
 	mu_assert(run.popped > 0, "the consumer got nothing at all");
-	/* Nothing went missing. Every record the producer published either
-	 * reached the consumer or was refused for want of room, and the gaps
-	 * the consumer saw are exactly the records the producer was refused:
-	 * a record lost with room in the ring would fail both of these. */
-	mu_assert_int_eq(THREADED_RECORDS, run.popped + run.discarded);
-	mu_assert_int_eq(run.refused, run.discarded);
-	/* Without refusals the run never had a full ring, so it did not cover
+	/* Nothing went missing quietly. Every record the consumer did not get
+	 * is one the ring said it was discarding, so a record dropped while
+	 * the ring had room for it fails here. */
+	mu_assert_int_eq(run.announced_discards, run.discarded);
+	/* Without discards the run never had a full ring, so it did not cover
 	 * the handover this case is here for. */
 	mu_assert(run.discarded > 0, "the ring never filled up");
 

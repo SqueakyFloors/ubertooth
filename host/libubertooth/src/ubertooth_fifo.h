@@ -98,9 +98,10 @@ void fifo_push(fifo_t* fifo, const usb_pkt_rx* packet, uint64_t arrival_ns);
  *
  * Ask fifo_empty() first. That question is what makes a record the producer
  * has just published visible to this thread, and a pop of an empty ring is
- * not merely a stale record: it moves the read pointer past the write
- * pointer, which leaves the ring reading as full forever and the consumer
- * pointing into the producer's own slots. */
+ * worse than a stale record: it takes the slot a transfer is reading into and
+ * moves the read pointer past the write pointer, so the two are out of step.
+ * The consumer then gets a ring's worth of records nothing published before
+ * the pointers meet again. */
 usb_pkt_rx fifo_pop(fifo_t* fifo);
 
 /* When the record fifo_pop() returned last arrived. The answer is taken
