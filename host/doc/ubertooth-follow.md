@@ -305,10 +305,10 @@ An adapter `-b` names that does not exist, or that cannot be opened, exits 1
 with one `error: ` line naming it, the same wording ubertooth-scan(1) uses:
 `error: Bluetooth device hci7 not found: No such device`.
 
-
 `-V` reads the attached board, so it exits 1 when a board is attached and
 cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7),
 COMMON OPTIONS.
+
 ## SEE ALSO
 
 ubertooth-util(1): sets the receive squelch (`-z`); SQUELCH describes how

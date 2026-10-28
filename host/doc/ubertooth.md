@@ -83,6 +83,13 @@ is 1. So does a USB bus that cannot be listed at all, which is nothing known
 rather than nothing attached: `Firmware version: unavailable, the USB bus
 could not be listed`.
 
+Part of an answer can go missing on its own, and the status is 1 then too:
+a board that answered its version but not its build string prints
+`Firmware build: read failed` under a good version line, and one whose API
+version could not be read prints the version with no ` (API:...)` after it.
+So a script that cares about the whole answer should test the status, not
+only look for a reason in place of a version.
+
 Asking for the version does not disturb a board: it is not told to stop, so a
 mode running on it keeps running, and any firmware is read whatever API
 version it reports, which is what makes `-V` the way to identify an unknown

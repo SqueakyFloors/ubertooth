@@ -70,10 +70,10 @@ timeout. A short reply prints the single line `error: register 0x<reg> read
 failed: board returned <n> of 2 bytes`. The remaining registers are still read
 and decoded.
 
-
 `-V` reads the attached board, so it exits 1 when a board is attached and
 cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7),
 COMMON OPTIONS.
+
 ## ARGUMENTS
 
 `ubertooth-debug` takes options only. A word that is not an option, including a

@@ -373,10 +373,10 @@ the write had completed by then, but the command cannot say the board runs
 what was written, so it is not reported as a success. The line it prints says
 which of those happened.
 
-
 `-V` reads the attached board, so it exits 1 when a board is attached and
 cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7),
 COMMON OPTIONS.
+
 ## DIAGNOSTICS
 
 Standard output carries the usage text for `-h`, and otherwise one line, from

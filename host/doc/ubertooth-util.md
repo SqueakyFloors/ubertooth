@@ -75,8 +75,8 @@ other options are not gated on the API version, and ubertooth-dfu(1) reflashes
 a board whatever firmware it is running, so a board is always recoverable with
 an image from this tree.
 
-`-V` is the version command, the same in every tool (ubertooth(7), COMMON
-OPTIONS). Its firmware lines, and `-v`, read the firmware info block described
+`-V` is the version command, and gives the same answer in every tool built
+from C here (ubertooth(7), COMMON OPTIONS, says which those are). Its firmware lines, and `-v`, read the firmware info block described
 below, so they name the image the board is running:
 
     $ ubertooth-util -V
@@ -138,7 +138,7 @@ Common options:
  - `-V` :
    print the version and end the command: the host tools, then the firmware
    version and build of the board `-U` names, or of each attached board. The
-   same answer every tool gives, including with no board attached; see
+   same answer the other C tools give, including with no board attached; see
    ubertooth(7), COMMON OPTIONS
  - `-v` :
    get the image and revision the firmware was built from, as the
@@ -829,10 +829,10 @@ libubertooth. When the board returns fewer bytes than the read needs, that is
 the only line, with the counts added, for example
 `error: channel read failed: board returned 0 of 2 bytes`.
 
-
 `-V` reads the attached board, so it exits 1 when a board is attached and
 cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7),
 COMMON OPTIONS.
+
 ## DIAGNOSTICS
 
 Standard output carries only what was asked for: the values the queries read,

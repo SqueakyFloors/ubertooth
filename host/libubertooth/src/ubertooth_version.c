@@ -132,7 +132,14 @@ static int print_board_versions(FILE *out, ubertooth_t *ut, int index)
 	if (cmd_get_firmware_compile_info(ut->devh, text, sizeof(text)) < 0)
 		status = 1;
 	print_label(out, UBERTOOTH_VERSION_LABEL_BUILD, index);
-	fprintf(out, "%s\n", text[0] != '\0' ? text : "read failed");
+	if (text[0] == '\0') {
+		/* Nothing to show, whether the read failed or the board answered an
+		 * empty string: the line and the status have to agree, or a script
+		 * reading one of them is misled by the other. */
+		fprintf(out, "read failed\n");
+		return 1;
+	}
+	fprintf(out, "%s\n", text);
 	return status;
 }
 

@@ -709,7 +709,7 @@ static struct run_result run_util(const char *const *args)
 #define CHANNEL_LINE "Current frequency: 2441 MHz (Bluetooth channel 39)\n"
 #define FIRMWARE_LINE "Firmware version: bluetooth_rxtx git-test (API:1.53)\n"
 #define BUILD_LINE "Firmware build: compile-test\n"
-/* print_version() is faked above, so the host line is this. */
+/* The host line is faked above, so it is this. */
 #define HOST_LINE "libubertooth fake\n"
 /* The whole -V answer for the scripted board, which is libubertooth's and the
  * same in every tool (test_version_report.c has its own cases). */
