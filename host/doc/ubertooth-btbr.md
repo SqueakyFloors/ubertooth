@@ -235,9 +235,9 @@ Standard output going away is one line, `error: standard output has gone
 away`, said once however many writes find it gone. A capture piped into
 something that stops reading, as `ubertooth-btbr | head -5` does, therefore
 leaves the prompt up with nothing more printed, and the session ends with
-exit 1; so does `-h` whose usage text could not be delivered. With standard
-error going the same way, as `2>&1 | head -5` leaves it, the exit status is
-all that is left to say it with.
+exit 1; so does a `-h` whose usage text could not be delivered. If standard
+error has gone the same way, the exit status is all that is left to say it
+with.
 
 With no Ubertooth attached the tool says `error: no Ubertooth devices found`
 and exits 1. A selection that names no board, or more than one, is refused

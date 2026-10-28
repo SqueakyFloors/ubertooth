@@ -323,16 +323,21 @@
 - **Script-visible change:** `ubertooth-btbr` prints the packets a command
   decodes, and the inquiry responses with their EIR, on standard output, one
   line each with the time in front of it (`13:54:02 RX LMP ...`), so a session
-  can be piped or saved. They used to be `HH:MM:SS | INFO | ...` log lines on
+  can be piped or saved; they used to be `HH:MM:SS | INFO | ...` log lines on
   standard error, where nothing reading the tool's output could see them. The
   progress a command makes stays on standard error, now as plain lines with
-  neither the time nor the level. A session holding a connection (`page`,
-  `l2ping`, `page_scan`, `discoverable`) reports its LMP packets there too,
-  which it printed nowhere a reader could see before, and those lines carry no
-  terminal color any more, and `monitor` prints the payload of a packet that
-  failed its CRC as plain hex instead of a Python `b'...'` repr. A capture
-  whose reader goes away, as `ubertooth-btbr | head -5` does, says
-  `error: standard output has gone away` once and exits 1.
+  neither the time nor the level.
+  [#735](https://github.com/SqueakyFloors/ubertooth/issues/735)
+- `ubertooth-btbr` reports the LMP packets a connection decodes (`page`,
+  `l2ping`, `page_scan`, `discoverable`), which it printed nowhere a reader
+  could see before. Packet lines carry no terminal color any more, and
+  `monitor` prints the payload of a packet that failed its CRC as plain hex
+  rather than a Python `b'...'` repr.
+  [#735](https://github.com/SqueakyFloors/ubertooth/issues/735)
+- **Script-visible change:** `ubertooth-btbr` says `error: standard output has
+  gone away` and exits 1 when whatever was reading it stops, as
+  `ubertooth-btbr | head -5` does. It used to end in status 120 and a message
+  from the interpreter.
   [#735](https://github.com/SqueakyFloors/ubertooth/issues/735)
 
 ### Build and compatibility

@@ -1428,6 +1428,7 @@ errors = running.stderr.read()
 assert running.wait(timeout=DEADLINE) == 1, (running.returncode, errors)
 assert errors.count(OUTPUT_GONE) == 1, errors
 assert "Exception ignored" not in errors, errors
+assert "Traceback" not in errors, errors
 print("ubtbr: -h whose usage text could not be printed exits 1")
 
 # and with both streams the same pipe, which is `2>&1 | head -1`, the status
@@ -1438,6 +1439,7 @@ running = subprocess.Popen([sys.executable, WRAPPER, "-h"],
                            stderr=subprocess.STDOUT, text=True,
                            env=ENVIRONMENT)
 running.stdout.close()
+running.stdin.close()
 assert running.wait(timeout=DEADLINE) == 1, running.returncode
 print("ubtbr: both streams gone leaves the exit status to say it")
 

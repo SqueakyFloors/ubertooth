@@ -266,10 +266,10 @@ def output_lost():
 	point_at_the_bin(sys.stdout)
 	try:
 		error("standard output has gone away")
-	except OSError:
-		# Standard error is the same stream and has gone with it, as
-		# `ubertooth-btbr 2>&1 | head -1` leaves it. The exit status is then
-		# all there is to say it with.
+	except (BrokenPipeError, AttributeError, ValueError):
+		# Standard error went the same way, which is what `2>&1` into a
+		# reader that left leaves, or a descriptor closed before the tool
+		# started. The exit status is then all there is to say it with.
 		point_at_the_bin(sys.stderr)
 
 def result(msg):
