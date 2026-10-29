@@ -61,7 +61,8 @@ Instructions for flashing the firmware can be found [on the corresponding readth
 The host tools require firmware built from the same source tree (the same
 firmware API version), so flash the firmware whenever you update the tools:
 `./install.sh --flash-device <index|serial|all>`. The API version is bumped
-whenever a firmware change affects the host. Tools built from a release refuse
+when a firmware change breaks older host tools, so the same version does not
+mean the same commit. Tools built from a release refuse
 a board left on older firmware; tools built from a clone, which is what
 `./install.sh` gives you, warn about it and run the command anyway, so reflash
 from the commit you built the tools from before trusting what they report.

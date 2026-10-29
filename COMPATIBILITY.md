@@ -116,7 +116,7 @@ until this change — should keep working. It is simply no longer what gets
 tested. Older upstream releases, `2020-12-R1` included, have not been
 exercised here.
 
-### Firmware API version: exact match, bumped per firmware change
+### Firmware API version: exact match, bumped for a breaking change
 The host tools require firmware whose API version (`UBERTOOTH_API_VERSION`,
 reported as the USB `bcdDevice`) is exactly their own. A release build refuses
 any other — only `ubertooth-util` reading the version and `ubertooth-dfu`
@@ -125,12 +125,15 @@ since it refuses a file without a firmware info block. A build made from a git
 checkout that is not on a tag is a development build: it warns and runs the
 command, because host tools and firmware from different commits are the normal
 state of lab work. `UBERTOOTH_ALLOW_API_MISMATCH` sets either answer whatever
-the build (`1` runs on, `0` refuses). During
-development the minor version is bumped in every pull request that changes
-firmware behaviour the host relies on, so a board carrying firmware from an
-earlier commit is reported rather than used silently: refused by a release
-build, warned about by a development build. The first fork release takes 2.00,
-to mark that its host tools and firmware only work with each other.
+the build (`1` runs on, `0` refuses). During development the minor version
+stays where it is through an ordinary firmware change, because host tools and
+firmware are built and flashed together and a development build only warns
+when the two disagree; it is bumped for a change that breaks older host
+tools -- a request removed or renumbered, a reply layout an older host would
+misread -- so that such a board is reported rather than used silently: refused
+by a release build, warned about by a development build. The first fork
+release takes 2.00, to mark that its host tools and firmware only work with
+each other.
 
 The bootloader is not covered by that number. It reports a fixed `bcdDevice`
 of 1.00, no host tool checks it, and `./install.sh --flash` writes the
@@ -140,7 +143,7 @@ therefore marks the change in the tree rather than anything a host can read
 off a board sitting in DFU.
 
 The number still does not pin down a commit, since every commit that does not
-touch the firmware interface shares the number before it: hence "normally"
+bump it shares the number before it: hence "normally"
 above, and hence the firmware revision shown by `ubertooth-util -v` beside the
 API version is what identifies a build. Host tools and firmware built from the
 same commit always match, so after pulling, rebuild and reflash both from the

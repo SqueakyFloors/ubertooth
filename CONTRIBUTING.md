@@ -15,9 +15,11 @@ Before you start:
   bug it fixes.
 - After editing a man page source in `host/doc/`, regenerate the committed
   roff page as README's Documentation section describes.
-- Host tools and firmware are released together: the host refuses firmware of
-  another API version, so a change to firmware behaviour the host relies on
-  bumps `UBERTOOTH_API_VERSION`.
+- Host tools and firmware are released, installed and flashed together, and
+  the host refuses firmware of another API version. So an ordinary firmware
+  change leaves `UBERTOOTH_API_VERSION` alone, and only a change that breaks
+  older host tools -- a request removed or renumbered, a reply layout an older
+  host would misread -- bumps it. A host-only change never touches it.
 
 ## The checks a pull request has to pass
 
