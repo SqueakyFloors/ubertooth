@@ -423,10 +423,10 @@ that called it and reports its own problems on standard error, so a library
 message does not land in the middle of a capture. The clock trim and AFH
 channel notes raised while following a piconet are `note: ` lines on standard
 error. What the library still writes to standard output is the calling tool's
-result — the decoded packet reports, the AFH map of `ubertooth-afh`, the
-version line — which is the right stream for them, whichever layer prints
-them. The channel map the two BlueZ tools report is written by the tool
-itself, not by libbtbb. Its device-selection
+result — the decoded packet reports, the AFH map `ubertooth-afh` and the
+follow callbacks report, the version line — which is the right stream for
+them, whichever layer prints them. The channel map the two BlueZ tools report
+is the exception: those tools print it themselves, so no library writes it. Its device-selection
 messages are `error: ` lines on standard error, each with whatever detail it
 needs under it: the boards listed after a refusal for several attached, and
 the counts and reason after a serial that matched nothing.
