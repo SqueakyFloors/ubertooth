@@ -1614,29 +1614,43 @@ void cb_rx(ubertooth_t* ut, void* args)
 		calibrated = 0;
 
 		if (infile != NULL) {
+			/* A replay has no board to take off anything. */
 			following = 0;
-		} else if (cmd_rx_syms(ut->devh) >= 0 &&
-		           cmd_set_channel_quiet(ut->devh,
-		                                 ut->capture_channel) >= 0) {
-			/* A plain symbol capture takes the board off the
-			 * offset and leaves the receive running, which is what
-			 * discovery needs. It is a mode start, though, so the
-			 * board forgets its hop state with it and would sit on
-			 * the channel the last piconet hop chose: the channel
-			 * or sweep this capture asked for has to be stated
-			 * again, exactly as the tool states it after its own
-			 * mode start, or discovery looks for a piconet on one
-			 * channel in 79. */
-			following = 0;
-		} else {
-			/* A board that refused either request is still on the
-			 * clock that is gone -- the request itself has already
-			 * said why -- so `following` stays set and the next
-			 * report tries again rather than being read as a
-			 * repeat of one already dealt with. */
+		} else if (cmd_rx_syms(ut->devh) < 0) {
+			/* The board refused, so it is still hopping on the
+			 * offset that is gone -- the request itself has said
+			 * why. `following` stays set, so the next report tries
+			 * again rather than being read as a repeat of one
+			 * already dealt with. */
 			fprintf(stderr, "warning: the board is still following "
 			        "that clock; this capture may decode nothing "
 			        "from here on\n");
+		} else {
+			/* The plain symbol capture has taken the board off the
+			 * offset and left the receive running, which is what
+			 * discovery needs. There is nothing left to undo.
+			 *
+			 * It is a mode start, though, so the board has
+			 * forgotten its hop state with it and is sitting on
+			 * the channel the last piconet hop chose. The channel
+			 * or sweep this capture asked for has to be stated
+			 * again, exactly as the tool states it after its own
+			 * mode start, or discovery looks for a piconet on one
+			 * channel in 79. The reporting form, so a board that
+			 * refuses it says why.
+			 *
+			 * Only when this capture set one. A caller that set no
+			 * channel -- ubertooth-follow, which shares this
+			 * callback -- leaves the field zero, and zero is not a
+			 * channel: it would be clamped to the bottom of the
+			 * band and pin the capture there. */
+			following = 0;
+			if (ut->capture_channel != 0 &&
+			    cmd_set_channel(ut->devh, ut->capture_channel) < 0)
+				fprintf(stderr, "warning: the board is left "
+				        "receiving on one channel, so this "
+				        "capture may not find the piconet "
+				        "again\n");
 		}
 	}
 

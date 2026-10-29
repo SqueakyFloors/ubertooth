@@ -969,6 +969,14 @@
   piconet's; searching for it again`, takes the board off that clock and
   recovers one again, keeping the lower address part it has already found.
   [#771](https://github.com/SqueakyFloors/ubertooth/issues/771)
+- A Classic capture that cannot be written says so, once per capture, instead
+  of running to the end looking like one that was being written: `warning:
+  cannot write to the PCAP capture file`. `ubertooth-rx` and
+  `ubertooth-follow` also report a target address they could not record in a
+  PcapNG capture, and `ubertooth-follow -r` records that address at all now --
+  it was written to the capture file before the file was created, so no
+  capture ever carried it.
+  [#771](https://github.com/SqueakyFloors/ubertooth/issues/771)
 - A long BLE capture says when it can no longer record connection parameters.
   A PcapNG file has room for a few hundred connections' worth, and past that
   Wireshark cannot follow the connections a capture still holds packets for.

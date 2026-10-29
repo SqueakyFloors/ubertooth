@@ -85,7 +85,7 @@ int cmd_start_hopping(struct libusb_device_handle* devh, int clkn_offset,
                       int clk100ns_offset)
 { (void)devh; (void)clkn_offset; (void)clk100ns_offset; return 0; }
 int cmd_rx_syms(struct libusb_device_handle* devh) { (void)devh; return 0; }
-int cmd_set_channel_quiet(struct libusb_device_handle* devh, u16 channel)
+int cmd_set_channel(struct libusb_device_handle* devh, u16 channel)
 { (void)devh; (void)channel; return 0; }
 
 /*

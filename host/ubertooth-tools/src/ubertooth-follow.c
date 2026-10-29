@@ -544,19 +544,6 @@ int main(int argc, char *argv[])
 		cc = 1;
 	}
 
-	if (ut->h_pcapng_bredr) {
-		/* The target's address, recorded once so a reader of the
-		 * capture knows whose packets these are. Reported when it
-		 * cannot be written: the capture goes on either way, but
-		 * without this the packets in it have nothing to say which
-		 * piconet they belong to. */
-		if (btbb_pcapng_record_bdaddr(ut->h_pcapng_bredr,
-		                              (((uint32_t)uap)<<24)|lap,
-		                              0xff, 0) < 0)
-			fprintf(stderr, "warning: cannot record the target "
-			        "address in the capture file\n");
-	}
-
 	//Experimental AFH map reading from remote device
 	if(afh_enabled) {
 		struct afh_hci hci;
@@ -677,6 +664,23 @@ int main(int argc, char *argv[])
 		opt_report_create_failure(pcapng_name, errno);
 		follow_release_board(ut, sock, handle, cc);
 		return 1;
+	}
+	if (ut->h_pcapng_bredr) {
+		/* The target's address, recorded once so a reader of the
+		 * capture knows whose packets these are. It goes in here
+		 * rather than where the address is worked out, because the
+		 * file does not exist until this point: written there, it
+		 * reached a handle that was still NULL and no capture ever
+		 * carried the address.
+		 *
+		 * Reported when it cannot be written. The capture goes on
+		 * either way, but without this the packets in it have nothing
+		 * to say which piconet they belong to. */
+		if (btbb_pcapng_record_bdaddr(ut->h_pcapng_bredr,
+		                              (((uint32_t)uap)<<24)|lap,
+		                              0xff, 0) < 0)
+			fprintf(stderr, "warning: cannot record the target "
+			        "address in the capture file\n");
 	}
 	if (pcap_name != NULL) {
 		/* A lone "-" is standard output, which the capture then owns:

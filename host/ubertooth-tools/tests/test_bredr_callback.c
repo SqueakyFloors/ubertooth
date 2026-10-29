@@ -62,6 +62,8 @@ static struct {
 	int hopping_restarts;
 	int symbol_captures;
 	int channels_set;
+	int pcap_writes;
+	int pcapng_writes;
 	uint16_t channel_set;
 	int afh_maps_sent;
 	int header_decodes;
@@ -79,6 +81,13 @@ static int set_channel_result;
 /* The channel this capture asked for, which run_callback() puts on the handle
  * the way a tool does beside its own channel request. */
 static uint16_t capture_channel;
+
+/* What the faked capture writers report: negative is a failed write. */
+static int pcap_write_result;
+static int pcapng_write_result;
+
+/* Whether run_callback() gives the handle capture files at all. */
+static int capture_files;
 
 /* What the faked decoder makes of the packet. A negative result is how the
  * real one says it could not place the packet in the piconet. */
@@ -151,10 +160,35 @@ int cmd_rx_syms(struct libusb_device_handle* devh)
 	return rx_syms_result;
 }
 
+/* The two BR/EDR capture writers, which report a failed write. Each returns
+ * what the case under way wants it to, and counts its calls, so a warning
+ * said once per capture can be told from one said once per packet. */
+int btbb_pcap_append_packet(btbb_pcap_handle* h, const uint64_t ns,
+                            const int8_t sigdbm, const int8_t noisedbm,
+                            const uint32_t reflap, const uint8_t refuap,
+                            const btbb_packet* pkt)
+{
+	(void)h; (void)ns; (void)sigdbm; (void)noisedbm; (void)reflap;
+	(void)refuap; (void)pkt;
+	seen.pcap_writes++;
+	return pcap_write_result;
+}
+
+int btbb_pcapng_append_packet(btbb_pcapng_handle* h, const uint64_t ns,
+                              const int8_t sigdbm, const int8_t noisedbm,
+                              const uint32_t reflap, const uint8_t refuap,
+                              const btbb_packet* pkt)
+{
+	(void)h; (void)ns; (void)sigdbm; (void)noisedbm; (void)reflap;
+	(void)refuap; (void)pkt;
+	seen.pcapng_writes++;
+	return pcapng_write_result;
+}
+
 /* A mode start makes the board forget its hop state, so whatever restarts a
  * mode has to state the channel or sweep again. This records what it was
  * given, which is what the lost-clock case checks. */
-int cmd_set_channel_quiet(struct libusb_device_handle* devh, u16 channel)
+int cmd_set_channel(struct libusb_device_handle* devh, u16 channel)
 {
 	(void)devh;
 	seen.channels_set++;
@@ -310,6 +344,13 @@ static void run_callback(void (*cb)(ubertooth_t*, void*), void* args)
 	memset(&last_ut, 0, sizeof(last_ut));
 	last_ut.clk100ns_period = CLK100NS_PERIOD;
 	last_ut.capture_channel = capture_channel;
+	/* Never dereferenced: the writers above are fakes. They only have to
+	 * be something other than NULL, which is what makes the callback
+	 * write. */
+	if (capture_files) {
+		last_ut.h_pcap_bredr = (btbb_pcap_handle*)&last_ut;
+		last_ut.h_pcapng_bredr = (btbb_pcapng_handle*)&last_ut;
+	}
 	next_index = 0;
 
 	capture_streams();
@@ -357,6 +398,9 @@ static void reset_state(void)
 	rx_syms_result = 0;
 	set_channel_result = 0;
 	capture_channel = 0;
+	pcap_write_result = 0;
+	pcapng_write_result = 0;
+	capture_files = 0;
 	header_present_result = 0;
 	infile = NULL;
 	dumpfile = NULL;
@@ -1249,6 +1293,43 @@ MU_TEST(a_header_is_read_at_the_piconets_clock_until_the_whole_clock_is_known)
 
 /* ---- the clock the library hands over, and takes back ------------------- */
 
+MU_TEST(a_capture_that_cannot_be_written_says_so_once)
+{
+	unsigned i;
+
+	/* Three packets, every write failing. A capture nobody could write to
+	 * used to look exactly like one that was being written; now each
+	 * writer says so once, because the condition holds for every packet
+	 * after the first and a line per packet would bury the capture. */
+	reset_state();
+	capture_files = 1;
+	pcap_write_result = -1;
+	pcapng_write_result = -1;
+	for (i = 0; i < 3; i++)
+		fill_packet(&next_packets[i], 40000 + 1000 * i, 0, 10);
+	next_count = 3;
+	run_callback(cb_rx, NULL);
+
+	mu_assert_int_eq(3, seen.pcap_writes);
+	mu_assert_int_eq(3, seen.pcapng_writes);
+	mu_assert_int_eq(1, stderr_lines_with("cannot write to the PCAP capture"));
+	mu_assert_int_eq(1, stderr_lines_with("cannot write to the PCAPNG capture"));
+
+	/* A capture that can be written says nothing at all. Both flags are
+	 * already set by the run above, which is what makes this a check that
+	 * the writers are being called rather than a repeat of it. */
+	reset_state();
+	capture_files = 1;
+	for (i = 0; i < 3; i++)
+		fill_packet(&next_packets[i], 40000 + 1000 * i, 0, 10);
+	next_count = 3;
+	run_callback(cb_rx, NULL);
+
+	mu_assert_int_eq(3, seen.pcap_writes);
+	mu_assert_int_eq(3, seen.pcapng_writes);
+	mu_assert_int_eq(0, stderr_lines_with("warning: "));
+}
+
 MU_TEST(a_recovered_clock_puts_the_board_on_its_offset)
 {
 	btbb_piconet* pn = btbb_piconet_new();
@@ -1301,7 +1382,7 @@ MU_TEST(a_lost_clock_warns_once_and_takes_the_board_off_the_offset)
 	mu_assert_int_eq(0, seen.hopping_restarts);
 	mu_assert_int_eq(1, stderr_lines_with("warning: "));
 
-	/* And the sweep this capture asked for is stated again, because that
+	/* And the channel this capture asked for is stated again, because that
 	 * mode start made the board forget it: without this the board sits on
 	 * the channel the last piconet hop chose and discovery looks for a
 	 * piconet on one channel in 79. */
@@ -1350,13 +1431,20 @@ MU_TEST(a_board_that_refused_the_request_is_still_hopping_on_the_lost_offset)
 	next_count = 1;
 	run_callback(cb_rx, pn);
 	mu_assert_int_eq(1, seen.symbol_captures);
-	/* It says so, as well as whatever the request itself reported. */
+	/* It says so, as well as whatever the request itself reported, and it
+	 * does not go on to state a channel on a board that is still on the
+	 * clock. */
 	mu_assert_int_eq(1, stderr_lines_with("still following"));
+	mu_assert_int_eq(0, seen.channels_set);
 
-	/* So the next one asks again. A board that takes the symbol capture
-	 * and refuses the channel is in the same position. */
+	/* So the next one asks again. This board takes the symbol capture and
+	 * refuses the channel, which is a different position: the capture is
+	 * off the clock, because that request is what takes it off, and left
+	 * receiving on one channel. Saying it was still following the clock
+	 * would send the reader after the wrong thing. */
 	reset_state();
 	process_packet_result = BTBB_PROCESS_LOCK_LOST;
+	capture_channel = 2450;
 	set_channel_result = -7;
 	fill_packet(&next_packets[0], clk100ns_for_clk_offset(CLK_TUNE_TIME, 2),
 	            0, 10);
@@ -1364,18 +1452,19 @@ MU_TEST(a_board_that_refused_the_request_is_still_hopping_on_the_lost_offset)
 	run_callback(cb_rx, pn);
 	mu_assert_int_eq(1, seen.symbol_captures);
 	mu_assert_int_eq(1, seen.channels_set);
-	mu_assert_int_eq(1, stderr_lines_with("still following"));
+	mu_assert_int_eq(0, stderr_lines_with("still following"));
+	mu_assert_int_eq(1, stderr_lines_with("receiving on one channel"));
 
-	/* And again, with a board that takes both. */
+	/* And that clock is undone, whatever the channel did, so the next
+	 * report is a repeat and says nothing. */
 	reset_state();
 	process_packet_result = BTBB_PROCESS_LOCK_LOST;
 	fill_packet(&next_packets[0], clk100ns_for_clk_offset(CLK_TUNE_TIME, 2),
 	            0, 10);
 	next_count = 1;
 	run_callback(cb_rx, pn);
-	mu_assert_int_eq(1, seen.symbol_captures);
-	mu_assert_int_eq(1, seen.channels_set);
-	mu_assert_int_eq(0, stderr_lines_with("still following"));
+	mu_assert_int_eq(0, seen.symbol_captures);
+	mu_assert_int_eq(0, stderr_lines_with("warning: "));
 
 	/* And that one was taken, so there is nothing left to undo. */
 	reset_state();
@@ -1461,6 +1550,7 @@ int main(void)
 	MU_RUN(a_header_is_read_at_the_piconets_clock_until_the_whole_clock_is_known);
 	/* After the case above, because these reach the decoder through the
 	 * same trim counters it leaves behind. */
+	MU_RUN(a_capture_that_cannot_be_written_says_so_once);
 	MU_RUN(a_recovered_clock_puts_the_board_on_its_offset);
 	MU_RUN(a_lost_clock_warns_once_and_takes_the_board_off_the_offset);
 	MU_RUN(a_board_that_refused_the_request_is_still_hopping_on_the_lost_offset);
