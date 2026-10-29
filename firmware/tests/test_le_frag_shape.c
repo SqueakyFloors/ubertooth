@@ -317,7 +317,7 @@ MU_TEST(the_wait_for_a_packets_bytes_has_a_deadline)
 	mu_assert(strstr(rxtx, "uint32_t last_tick = T0TC;") != NULL,
 	          "the wait does not read the timer directly");
 	mu_assert(strstr(rxtx,
-	                 "waited += le_clk100ns_step(last_tick, now_tick);")
+	                 "waited += clk100ns_step(last_tick, now_tick);")
 	          != NULL,
 	          "the wait does not add up the time it has waited");
 	mu_assert(strstr(rxtx, "le_clk100ns_elapsed") == NULL,
