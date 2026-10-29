@@ -12,8 +12,25 @@ set -o pipefail
 
 if test $# -lt 1 ; then
 	version=$(git rev-parse --abbrev-ref HEAD)
+	if test "${version}" = "HEAD" ; then
+		# Detached, which is where checking out the tag leaves you, so
+		# take the tag rather than name the release "HEAD".
+		version=$(git describe --tags --exact-match HEAD 2>/dev/null) || version=""
+	fi
+	if test -z "${version}" ; then
+		echo "error: no tag on HEAD; pass the release version as an argument" >&2
+		exit 1
+	fi
 else
 	version=${1}
+fi
+
+# Every image's build ends by packaging the .dfu with `ubertooth-dfu -s`
+# (firmware/common.mk's `%.dfu: %.bin`), so the host tool has to be installed
+# before the firmware is built.
+if ! command -v ubertooth-dfu > /dev/null ; then
+	echo "error: ubertooth-dfu is not on PATH; each firmware image is packaged with it" >&2
+	exit 1
 fi
 
 # FIXME you'll need to update these:
@@ -30,6 +47,10 @@ top="$(pwd)/../release"
 # on the command line makes the shipped header govern whatever ${top} is.
 version_by="ubertooth"
 version_host="release"
+# One UTC time for every image of a release, rather than the local time of
+# each build step: the images are stamped the same, and the stamp says nothing
+# about where the release was built.
+build_date="$(date -u)"
 stamp=(HAVE_GIT=false VERSION_BY="${version_by}" VERSION_HOST="${version_host}")
 
 case "${version}" in
@@ -58,7 +79,10 @@ write_version_headers() {
 	# info block.
 	for imgdir in bluetooth_rxtx btbr assembly_test; do
 		d="${targetdir}/firmware/${imgdir}"
-		test -d "${d}" || continue
+		if ! test -d "${d}" ; then
+			echo "error: no ${d} to write version.h into" >&2
+			exit 1
+		fi
 		cat > "${d}/version.h" <<EOF
 /* Generated for release ${version} by tools/ubertooth-release.sh. */
 #ifndef UBERTOOTH_VERSION_H
@@ -67,7 +91,7 @@ write_version_headers() {
 #define FW_IMAGE_NAME "${imgdir}"
 #define COMPILE_BY "${version_by}"
 #define COMPILE_HOST "${version_host}"
-#define TIMESTAMP "$(date)"
+#define TIMESTAMP "${build_date}"
 #endif
 EOF
 	done

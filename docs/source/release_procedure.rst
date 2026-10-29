@@ -39,10 +39,12 @@ An Ubertooth release is not as simple as a standard GitHub release, there are a 
     	* ``ubertooth/host/cmake/set_release.cmake`` (``LATEST_RELEASE``).
     	  ``tools/ubertooth-release.sh`` also sets it in the archive it builds.
 
-    	* libbtbb/lib/src/CMakeLists.txt
+    	* ``libbtbb/cmake/set_release.cmake`` (``LATEST_RELEASE``), which
+    	  ``lib/src/CMakeLists.txt`` includes
 
-    * Update the two version pointers in README.md: "The latest release is …"
-      and "The current pre-release is …" in the Releases section.
+    * Update the version pointer in README.md's Releases section, "The current
+      pre-release is …", to name the new tag. Leave the upstream pointer above
+      it alone: it names Great Scott Gadgets' most recent release, not ours.
 
     * Bump the firmware API version to the release's own number.
       ``UBERTOOTH_API_VERSION`` in
@@ -60,24 +62,32 @@ An Ubertooth release is not as simple as a standard GitHub release, there are a 
 
     * Configure the host tools with ``-DUBERTOOTH_RELEASE=ON``. Without it the
       build works the build type out from the tree: an archive with no ``.git``
-      is read as a release, which is what ``git archive`` gives, but a build
-      made in a checkout is read as a development build and only warns about
-      firmware of another API version instead of refusing it. Worse, CMake
+      is read as a release, which is what ``git archive`` gives, as is a
+      checkout of the tag itself -- but a clone with no tags fetched is read as
+      a development build, and only warns about firmware of another API
+      version instead of refusing it. Worse, CMake
       decides this when it configures, so an existing build directory keeps
       whatever it decided before the tag was checked out. Passing the flag
       settles it.
 
-    * Build binary firmware images for all board revs and all common firmware images.
+    * Build binary firmware images for all board revs and all common firmware
+      images. Install the host tools first: each image's build packages its
+      ``.dfu`` with ``ubertooth-dfu -s``, so the firmware build needs
+      ``ubertooth-dfu`` on ``PATH``.
 
     * For Ubertooth One these are bluetooth_rxtx (full and receive-only),
       btbr, the bootloader and assembly_test, which is what
       ``tools/ubertooth-release.sh`` builds and copies into
       ``ubertooth-one-firmware-bin``.
 
-    * The script pins the firmware build stamp to
-      ``VERSION_BY=ubertooth VERSION_HOST=release``, so a published image does
-      not carry the name of the user or machine that built it. A release built
-      by hand should pass the same.
+    * The script pins the firmware build stamp, and a release built by hand
+      should pass the same on every make line:
+      ``HAVE_GIT=false VERSION_BY=ubertooth VERSION_HOST=release``. The last
+      two keep the name of the user and the machine out of a published image.
+      ``HAVE_GIT=false`` stops the build regenerating the shipped
+      ``version.h``, which it would do if the release directory happened to
+      sit inside a git work tree, stamping the images with that tree's
+      revision instead of the release.
 
     * Build the bootloader with ``make -C firmware bootloader``, which is what
       ``tools/ubertooth-release.sh`` and CI do. It is not part of ``make -C
@@ -91,8 +101,8 @@ An Ubertooth release is not as simple as a standard GitHub release, there are a 
       uses that shipped header as-is when ``.git`` is not present. If you build
       a release by hand rather than via the script, drop an equivalent
       ``version.h`` into ``firmware/bluetooth_rxtx``, ``firmware/btbr`` and
-      ``firmware/assembly_test`` before building -- the images that include it;
-      the bootloader does not. It has
+      ``firmware/assembly_test`` before building -- the three images a release
+      ships; the bootloader includes no ``version.h`` at all. It has
       to define ``GIT_REVISION`` (the release number), ``FW_IMAGE_NAME`` (the
       image directory's name, which ``firmware/common/fw_info.c`` asserts the
       length of), ``COMPILE_BY``, ``COMPILE_HOST`` and ``TIMESTAMP``; a header

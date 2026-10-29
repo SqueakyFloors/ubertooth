@@ -481,8 +481,8 @@
   searches again if either has moved.
   [#905](https://github.com/SqueakyFloors/ubertooth/issues/905)
 - A release now carries the btbr image (`btbr.dfu`, `.bin` and `.hex`)
-  alongside bluetooth_rxtx, so the Classic Bluetooth tools have firmware to
-  flash without building it. Published images report `ubertooth@release`
+  alongside bluetooth_rxtx, so `ubertooth-btbr` has firmware to flash without
+  building it. Published images report `ubertooth@release`
   instead of the name of whoever built them, and the release version rather
   than `git-unknown`.
 - `cmake -S host/ubertooth-tools -B build` configures: the tools can be built
