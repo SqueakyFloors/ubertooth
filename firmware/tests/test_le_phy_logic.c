@@ -1962,8 +1962,8 @@ MU_TEST(an_unmeasured_event_puts_its_one_packet_at_the_earliest_anchor)
 }
 
 /*
- * #774: an empty connection event has to leave the next one armed ahead of
- * the counter.
+ * An empty connection event has to leave the next one armed ahead of the
+ * counter.
  *
  * The estimate used to come from conn_event.anchor, which no packet had
  * written when the event was empty: on the first event of a connection it
