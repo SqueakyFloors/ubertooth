@@ -103,11 +103,11 @@ MU_TEST(a_real_image_is_startable)
 	          "an image this tree builds was refused");
 }
 
-/* The same two words read back off a board's flash with ubertooth-dfu -u
- * after a flash, so what the check accepts is not only what an image file
- * says but what the board holds. The reset vector differs from the one above
- * because it came from a different build; the word at 0x1c read zero there
- * too. */
+/* Two words read back off a board's flash with ubertooth-dfu -u after a
+ * flash, so what the check accepts is not only what an image file says but
+ * what a board holds. The reset vector is not the one above and is not meant
+ * to be: its address moves with the build, and both have to be accepted. The
+ * word at 0x1c read zero on the board too. */
 MU_TEST(an_image_read_back_off_a_board_is_startable)
 {
 	mu_assert(app_image_startable(0x10003fe0u, 0x00009f11u, FLASH_TOP),
