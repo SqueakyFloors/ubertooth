@@ -2253,9 +2253,11 @@ int ubertooth_get_api(ubertooth_t *ut, uint16_t *version) {
 	return 0;
 }
 
-/* The image the C tools need on the board. The other image this tree builds,
- * btbr, answers the shared requests and nothing else; it is driven by
- * ubertooth-btbr, which is a Python tool and does not come through here. */
+/* The image a tool that makes this check needs on the board. The other image
+ * this tree builds, btbr, answers the shared requests and nothing else; it is
+ * driven by ubertooth-btbr, which is a Python tool and does not come through
+ * here. ubertooth-util and ubertooth-dfu make no such check, because they
+ * have to work on whatever firmware a board is carrying. */
 #define UBERTOOTH_TOOLS_IMAGE "bluetooth_rxtx"
 
 /* Refuses a board running another of this tree's firmware images; the

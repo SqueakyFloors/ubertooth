@@ -92,6 +92,9 @@ int cmd_read_register(struct libusb_device_handle* devh, uint8_t reg)
 {
 	(void)devh;
 	(void)reg;
+	/* The image is settled before anything is asked of the radio, so a read
+	 * that arrives first is the order going wrong, not a second answer. */
+	mu_assert(fake.image_checks == 1, "the image is checked before a read");
 	fake.reads++;
 	return fake.read_rc;
 }
