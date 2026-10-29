@@ -101,7 +101,7 @@ MU_TEST(a_real_image_is_startable)
  * too. */
 MU_TEST(an_image_read_back_off_a_board_is_startable)
 {
-	mu_assert(app_image_startable(0x10003fe0u, 0x00009eedu, FLASH_TOP),
+	mu_assert(app_image_startable(0x10003fe0u, 0x00009f11u, FLASH_TOP),
 	          "an image read back off a board was refused");
 }
 
