@@ -84,6 +84,18 @@ value is missing reads `error: option '-d' requires a value`.
 `-h` is what the user asked for, so the usage text goes to standard output and
 nothing goes to standard error.
 
+## GAPS IN A CAPTURE
+
+A dump that is losing records says so. The board holds captured records in a
+queue until this tool reads them, and a queue with no room left loses the next
+one. The first time it happens the dump warns `warning: the board's packet
+queue filled up and it dropped at least one packet; this capture has a gap`,
+and when the dump ends it says how many such gaps there were: `warning: the
+capture has 3 gaps where the board's queue filled up and it dropped packets`.
+The count is of gaps, not of lost records: one full queue can swallow several,
+and the board sends no number. Nothing in the dump marks where a gap is, so a
+dump with gaps is continuous only between them.
+
 ## EXIT STATUS
 
 0 when the command did what was asked, including `-h`, and after the dump is

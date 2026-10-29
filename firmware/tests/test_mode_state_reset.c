@@ -531,6 +531,15 @@ static void request_set_afh_map(const u8 *map)
 	board_poll();
 }
 
+/* UBERTOOTH_CLEAR_AFHMAP: the map, and a map stated for a mode still to
+ * start, since a host that clears the map wants the whole band. */
+static void request_clear_afh_map(void)
+{
+	clear_afh_map();
+	stated_what &= ~STATED_AFH_MAP;
+	board_poll();
+}
+
 /* UBERTOOTH_STOP */
 static void request_stop(void)
 {
@@ -1983,6 +1992,24 @@ MU_TEST(it_keeps_what_the_host_set_for_this_capture)
 	}
 }
 
+/* An explicit clear after a stated map leaves nothing to apply: the capture
+ * hops the whole band, which is what clearing the map asks for. */
+MU_TEST(a_cleared_afh_map_is_not_applied_at_the_mode_start)
+{
+	board_reset();
+	request_specan();
+
+	dispatch_held = 1;
+	request_start_hopping();
+	request_set_afh_map(AFH_MAP_20);
+	request_clear_afh_map();
+	the_old_mode_loop_returns();
+
+	mu_assert_int_eq(MODE_BT_FOLLOW, mode);
+	mu_assert_int_eq(0, afh_enabled);
+	mu_assert_int_eq(0, used_channels);
+}
+
 int main(void)
 {
 	printf("mode state carry-over tests\n");
@@ -2027,5 +2054,6 @@ int main(void)
 	MU_RUN(a_low_energy_mode_start_clears_the_state_it_owns);
 	MU_RUN(it_clears_each_of_them_once);
 	MU_RUN(it_keeps_what_the_host_set_for_this_capture);
+	MU_RUN(a_cleared_afh_map_is_not_applied_at_the_mode_start);
 	return mu_report();
 }

@@ -113,10 +113,15 @@ struct scan {
 
 	int ego_reset_call;   /* ego_access_code_reset() in the dispatch */
 	int ego_reset_calls;  /* how many */
-	/* UBERTOOTH_SET_AFHMAP: its case, and the copy it keeps for the mode
-	 * request it followed. */
+	/* UBERTOOTH_SET_AFHMAP: its case, the copy it keeps for the mode
+	 * request it followed, and the guard that keeps one only while a mode
+	 * start is still to come. UBERTOOTH_CLEAR_AFHMAP: its case and the
+	 * copy it drops. */
 	int afhmap_case;
 	int afhmap_keep;
+	int afhmap_guard;
+	int afhmap_clear_case;
+	int afhmap_clear_drop;
 	int stated_call;      /* apply_stated_settings() in the dispatch */
 	int stated_calls;     /* how many */
 	/* apply_stated_settings(): where it is defined, where it clears the
@@ -283,6 +288,16 @@ static int scan_source(const char *path, struct scan *s)
 		if (s->afhmap_case > 0 && s->afhmap_keep == 0 &&
 		    strstr(line, "stated_for_starting_mode(STATED_AFH_MAP)") != NULL)
 			s->afhmap_keep = lineno;
+		if (s->afhmap_case > 0 && s->afhmap_keep == 0 &&
+		    s->afhmap_guard == 0 &&
+		    strstr(line, "if (requested_mode != mode)") != NULL)
+			s->afhmap_guard = lineno;
+		if (s->afhmap_clear_case == 0 &&
+		    strstr(line, "case UBERTOOTH_CLEAR_AFHMAP:") != NULL)
+			s->afhmap_clear_case = lineno;
+		if (s->afhmap_clear_case > 0 && s->afhmap_clear_drop == 0 &&
+		    strstr(line, "stated_what &= ~STATED_AFH_MAP") != NULL)
+			s->afhmap_clear_drop = lineno;
 
 		/* reset_absorbed_mode_state()'s body, scanned for the same reason
 		 * cc2400_idle()'s is: what it resets, and what it leaves alone. */
@@ -1400,6 +1415,37 @@ MU_TEST(test_the_afh_map_request_keeps_a_copy_for_the_mode_starting)
 	         "after a mode request is lost when the mode start's reset "
 	         "clears it", path, s.afhmap_case);
 	mu_assert(s.afhmap_keep > s.afhmap_case, msg);
+
+	/* And only while a mode start is still to come, as the channel request
+	 * has it: a map sent by a capture that is already running would
+	 * otherwise be handed to the next capture asking for the same mode. */
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the AFH map request keeps a copy without testing "
+	         "`requested_mode != mode`, so a map sent during a running "
+	         "capture is kept for the next one", path, s.afhmap_case);
+	mu_assert(s.afhmap_guard > s.afhmap_case &&
+	          s.afhmap_guard < s.afhmap_keep, msg);
+}
+
+/*
+ * And an explicit clear drops it. A host that clears the map means the capture
+ * to hop the whole band, so a map stated earlier for the mode that is still to
+ * start must not be applied at its mode start.
+ */
+MU_TEST(test_clearing_the_afh_map_drops_a_stated_one)
+{
+	char msg[768];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the scan did not find the UBERTOOTH_CLEAR_AFHMAP case, so "
+	         "the check below would pass without reading anything", path);
+	mu_assert(s.afhmap_clear_case > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the clear does not drop a stated map "
+	         "(stated_what &= ~STATED_AFH_MAP), so the map cleared here is "
+	         "applied again at the mode start", path, s.afhmap_clear_case);
+	mu_assert(s.afhmap_clear_drop > s.afhmap_clear_case, msg);
 }
 
 /*
@@ -1472,6 +1518,7 @@ int main(void)
 	MU_RUN(test_the_stream_loop_keeps_the_indirect_mode_apart);
 	MU_RUN(test_leaving_a_mode_forgets_the_afh_map);
 	MU_RUN(test_the_afh_map_request_keeps_a_copy_for_the_mode_starting);
+	MU_RUN(test_clearing_the_afh_map_drops_a_stated_one);
 	MU_RUN(test_the_absorbed_modes_are_the_streamed_modes);
 	MU_RUN(test_an_absorbable_request_resets_before_its_own_setup);
 	MU_RUN(test_setting_a_channel_resets_nothing);

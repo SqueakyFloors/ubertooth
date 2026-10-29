@@ -306,8 +306,8 @@
   by a channel set reaching the board while it follows a connection, before
   that by the
   E-GO mode request starting the mode it names on a board already running one,
-  by the AFH map a mode start keeps, the bound on the clock drift
-  the board accumulates and the generic receive's FIFO flush, by
+  by the AFH map a mode start keeps and the bound on the clock drift
+  the board accumulates, by
   the channel a mode start keeps and the E-GO access code
   it resets, by the finer breadcrumb sites inside USB service that
   `ubertooth-util -w` reads, by the breadcrumb gaining two more places a board
@@ -580,7 +580,8 @@
   request, as it already kept a channel: on a board left in a mode that
   captures no packets -- a killed `ubertooth-specan`, `-btle` or `-ego` -- the
   map that arrived next used to be thrown away by the mode start's reset, and
-  the follow hopped all 79 channels instead.
+  the follow hopped all 79 channels instead. Clearing the map drops one kept
+  that way as well, so a tool that asks for the whole band gets it.
   [#788](https://github.com/SqueakyFloors/ubertooth/issues/788)
 - A capture that is losing packets says so, in every mode that captures:
   `warning: the board's packet queue filled up and it dropped at least one
@@ -588,7 +589,8 @@
   3 gaps where the board's queue filled up and it dropped packets` when the
   capture ends. A capture the board could not keep up with used to look exactly
   like a quiet band. The count is of gaps, not of lost packets: the board sends
-  no number.
+  no number. A capture read back from a file with `ubertooth-rx -i` gives the
+  same total, since the gaps are recorded in the packets.
   [#786](https://github.com/SqueakyFloors/ubertooth/issues/786)
 - **Script-visible change:** every tool that ends a capture mode exits 1 when
   the board refused the request that ends it. Such a board is left running
@@ -1762,11 +1764,6 @@ Fixes with no visible change in normal use.
   same wait during a capture's teardown now finishes as well, instead of
   leaving the transfer behind for the next capture on that handle to refuse.
   [#584](https://github.com/SqueakyFloors/ubertooth/issues/584)
-- The generic receive clears the radio's FIFO between packets. A packet longer
-  than the FIFO left bytes in it, and those bytes came out in front of the next
-  packet: the record after a long one arrived shifted. No shipped tool asks for
-  the mode.
-  [#775](https://github.com/SqueakyFloors/ubertooth/issues/775)
 - The clock drift the board accumulates stays within what it can correct. A run
   of drift requests used to walk past what the 16-bit figure holds and come
   back with the other sign, which would run the clock the opposite way to the

@@ -898,15 +898,34 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		 * captures nothing the teardown's clear_afh_map() runs a moment
 		 * after that request was answered. Without the copy the map
 		 * arriving next is thrown away, and the follow hops all 79
-		 * channels instead of the piconet's. */
-		for (i = 0; i < sizeof(afh_map); i++)
-			stated_afh_map[i] = data[i];
-		stated_for_starting_mode(STATED_AFH_MAP);
+		 * channels instead of the piconet's.
+		 *
+		 * Only when the mode the host asked for is not the one running,
+		 * which is the test the channel request makes. A map sent by a
+		 * capture already in that mode -- AFH detection sends one
+		 * whenever it finds another channel -- needs no copy, and
+		 * keeping one would hand that run's map to the next capture
+		 * asking for the same mode.
+		 *
+		 * `mode` is the mode the dispatch last entered, so a request
+		 * absorbed into a streaming run still takes the copy. Nothing
+		 * reads it there: the next dispatched mode start drops a copy
+		 * that is not its own. */
+		if (requested_mode != mode) {
+			for (i = 0; i < sizeof(afh_map); i++)
+				stated_afh_map[i] = data[i];
+			stated_for_starting_mode(STATED_AFH_MAP);
+		}
 		*data_len = 10;
 		break;
 
 	case UBERTOOTH_CLEAR_AFHMAP:
 		clear_afh_map();
+		/* Including a map stated for a mode whose start is still to come:
+		 * a host that clears the map means the capture to hop the whole
+		 * band, and applying the earlier map at the mode start would be
+		 * the opposite of what it asked for. */
+		stated_what &= ~STATED_AFH_MAP;
 		*data_len = 10;
 		break;
 
@@ -3389,37 +3408,6 @@ void bt_slave_le() {
 _Static_assert(RX_GENERIC_SYNCWORD_LEN + RX_GENERIC_DATA_LEN <= DMA_SIZE,
                "the generic receive record must fit in what enqueue() copies");
 
-/*
- * Drop whatever the radio still holds, so the next packet is read from its own
- * first byte.
- *
- * The capture reads RX_GENERIC_DATA_LEN bytes once the sync word has matched,
- * and the radio goes on writing received bytes into the FIFO while that read
- * runs. Those bytes stay there, and they came out in front of the next packet:
- * a payload of 01 02 03 ... arrived as ff 01 02 ..., shifted by as many bytes
- * as were left behind. A packet longer than the FIFO is what leaves them --
- * the radio ends reception when the FIFO fills (CC2400 datasheet, buffered
- * mode) -- so the longer the packet, the likelier the next record is wrong.
- *
- * The radio has no flush command: FIFO_FLUSH is one of the signals a GIO pin
- * can report, not one the host can assert, and the FIFO_EMPTY signal cannot
- * tell one byte left from none ("in receive mode, FIFO_EMPTY goes low when
- * there is more than 1 byte in the FIFO"), which is exactly the case to catch.
- * So the flush is a read of a whole FIFO's worth, discarded: that empties the
- * 32-byte FIFO whatever is in it, and leaves the FIFO's one internal data
- * pointer where it started.
- *
- * It costs about half a millisecond of SPI per packet, during which a packet
- * that arrives is missed. That is the price of the records after it being
- * right, and no shipped tool asks for this mode.
- */
-static void rx_generic_flush_fifo(void)
-{
-	u8 waste[CC2400_FIFO_SIZE];
-
-	cc2400_fifo_read(CC2400_FIFO_SIZE, waste);
-}
-
 void rx_generic_sync(void) {
 	/*
 	 * Zeroed because the capture fills only the first
@@ -3430,12 +3418,6 @@ void rx_generic_sync(void) {
 	 */
 	u8 buf[DMA_SIZE] = { 0 };
 	u16 reg_val;
-
-	/* The record holds one FIFO's worth of payload, which is what makes the
-	 * flush below a flush: a read of RX_GENERIC_DATA_LEN leaves the rest of
-	 * a longer packet behind, and only a read of the whole FIFO clears it. */
-	_Static_assert(RX_GENERIC_DATA_LEN == CC2400_FIFO_SIZE,
-	               "the generic receive reads one FIFO's worth per packet");
 
 	/* The size the buffer has to be, which is not the same question as the
 	 * one above: a 36-byte buffer satisfies that assert, and a 36-byte
@@ -3479,11 +3461,6 @@ void rx_generic_sync(void) {
 	 */
 	while (requested_mode == MODE_RX_GENERIC) {
 		cc2400_wait_fsm(STATE_STROBE_FS_ON, service_usb);
-		/* Here, with the radio out of receive and nothing arriving, so
-		 * the flush cannot eat the start of the next packet. It runs
-		 * before the first packet too, which clears anything an earlier
-		 * mode left in the FIFO. */
-		rx_generic_flush_fifo();
 		cc2400_strobe(SRX);
 		USRLED_CLR;
 
