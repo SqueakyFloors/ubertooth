@@ -87,6 +87,7 @@ struct reg_use {
 	char name[32];
 	int saved;             /* line of the cc2400_get() that saved it */
 	int writes;            /* how many cc2400_set() calls wrote it */
+	int first_write;       /* the line of the first one */
 	int last_write;        /* the line of the last one */
 	int last_write_restores; /* that line names no new value */
 	char last_write_text[SCAN_LINE_MAX];
@@ -301,6 +302,8 @@ static void scan_source(struct scan *s)
 				r = reg_entry(s, name);
 				if (r != NULL) {
 					r->writes++;
+					if (r->first_write == 0)
+						r->first_write = lineno;
 					r->last_write = lineno;
 					r->last_write_restores =
 						value_is_a_restore(value);
@@ -745,8 +748,15 @@ MU_TEST(test_tx_generic_puts_every_register_it_touches_back)
 		snprintf(msg, sizeof(msg),
 		         "%s:%d: tx_generic() writes %s without saving it with "
 		         "cc2400_get() first, so it cannot put it back", path,
-		         r->last_write, r->name);
+		         r->first_write, r->name);
 		mu_assert(r->saved > 0, msg);
+
+		snprintf(msg, sizeof(msg),
+		         "%s:%d: tx_generic() saves %s at line %d, after it has "
+		         "already written it: what it puts back is then the "
+		         "value the transmit itself chose", path,
+		         r->first_write, r->name, r->saved);
+		mu_assert(r->saved < r->first_write, msg);
 
 		snprintf(msg, sizeof(msg),
 		         "%s:%d: tx_generic()'s last write of %s is `%s`, which "

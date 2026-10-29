@@ -1788,12 +1788,12 @@
 
 Fixes with no visible change in normal use.
 
-- A control request that declares more data than the buffer its handler
-  registered is refused instead of writing the rest of it over whatever follows
-  that buffer. The length a request may declare is sixteen bits and the largest
-  of those buffers holds 258 bytes, so the reach was about 65 KiB. It covers
-  every request the firmware answers, vendor, standard, class and the
-  bootloader's; no shipped tool sends such a request.
+- A request that carries more data to the board than the buffer its handler
+  registered is refused, instead of having the rest of it written over whatever
+  follows that buffer. The length a request may declare is sixteen bits and the
+  largest of those buffers holds 258 bytes, so the reach was about 65 KiB. It
+  covers every kind of request the firmware answers, vendor, standard, class
+  and the bootloader's; no shipped tool sends such a request.
   [#391](https://github.com/SqueakyFloors/ubertooth/issues/391)
 - A generic transmit puts the radio registers it used back, so a receive
   entered afterwards runs the mode the host asked for rather than the one the

@@ -1417,11 +1417,6 @@ MU_TEST(test_a_stalled_over_long_request_stores_nothing)
 }
 
 /*
- * How far the collection used to reach, as arithmetic: it wrote wLength bytes
- * from the start of the store, so the overrun is the difference. Named here
- * because nothing can run the old loop -- the bound is in the only copy of it.
- */
-/*
  * How far the collection used to reach is not something a test can run: the
  * bound is in the only copy of the loop. For the record, the vendor store
  * holds 258 bytes (VENDOR_REQ_DATA_LEN) and a request may declare 65,535, so

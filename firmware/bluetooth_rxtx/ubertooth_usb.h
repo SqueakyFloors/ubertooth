@@ -58,10 +58,11 @@
  * data stage, and so the most a handler may read out of it. A case whose body
  * is a count of items works out from this how many of them it may read.
  *
- * It is not a bound on what a request can deliver. The stack reads as many
- * bytes as the host declared in wLength and does not clamp them to this
- * length, so a handler must treat the buffer as something it may read this
- * much of, not as something a request could not have exceeded.
+ * It is also what the USB stack will accept: the registration passes this
+ * length to USBRegisterRequestHandler(), and a host-to-device request
+ * declaring more than it is stalled rather than collected past the end of the
+ * buffer. A handler still has to read no more than data_in_len says arrived,
+ * which is a separate matter -- see the next comment.
  */
 #define VENDOR_REQ_DATA_LEN 258
 
