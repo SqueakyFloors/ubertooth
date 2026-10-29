@@ -86,6 +86,7 @@ static const char *path = FW_RXTX_DIR "/bluetooth_rxtx.c";
 struct reg_use {
 	char name[32];
 	int saved;             /* line of the cc2400_get() that saved it */
+	char saved_in[64];     /* the variable that line saved it into */
 	int writes;            /* how many cc2400_set() calls wrote it */
 	int first_write;       /* the line of the first one */
 	int last_write;        /* the line of the last one */
@@ -214,6 +215,31 @@ static const char *register_touched(const char *line, const char *call,
 	return name;
 }
 
+/*
+ * The variable a line assigns to: `grmdm = cc2400_get(GRMDM);` saves GRMDM
+ * into `grmdm`, and the restore has to name that variable and not another
+ * register's. Empty when the line assigns to nothing.
+ */
+static void assignment_target(const char *line, char *out, size_t size)
+{
+	const char *eq = strchr(line, '=');
+	const char *end, *start;
+	size_t n;
+
+	out[0] = '\0';
+	if (eq == NULL || eq[1] == '=' || (eq != line && eq[-1] == '='))
+		return;
+	for (end = eq; end > line && !is_ident_char(end[-1]); end--)
+		;
+	for (start = end; start > line && is_ident_char(start[-1]); start--)
+		;
+	n = (size_t)(end - start);
+	if (n == 0 || n >= size)
+		return;
+	memcpy(out, start, n);
+	out[n] = '\0';
+}
+
 /* The register's entry in the scan, created on first sight. */
 static struct reg_use *reg_entry(struct scan *s, const char *name)
 {
@@ -294,8 +320,11 @@ static void scan_source(struct scan *s)
 			if (register_touched(line, "cc2400_get(", name,
 			                     sizeof(name), NULL) != NULL) {
 				r = reg_entry(s, name);
-				if (r != NULL && r->saved == 0)
+				if (r != NULL && r->saved == 0) {
 					r->saved = lineno;
+					assignment_target(line, r->saved_in,
+					                  sizeof(r->saved_in));
+				}
 			}
 			if (register_touched(line, "cc2400_set(", name,
 			                     sizeof(name), &value) != NULL) {
@@ -765,6 +794,16 @@ MU_TEST(test_tx_generic_puts_every_register_it_touches_back)
 		         "this leaves behind", path, r->last_write, r->name,
 		         r->last_write_text);
 		mu_assert(r->last_write_restores, msg);
+
+		snprintf(msg, sizeof(msg),
+		         "%s:%d: tx_generic()'s last write of %s is `%s`, which "
+		         "does not name `%s`, the variable line %d saved %s "
+		         "into. A register put back from another one's saved "
+		         "value is not put back", path, r->last_write, r->name,
+		         r->last_write_text, r->saved_in, r->saved, r->name);
+		mu_assert(r->saved_in[0] != '\0' &&
+		          contains_identifier(r->last_write_text, r->saved_in),
+		          msg);
 
 		snprintf(msg, sizeof(msg),
 		         "%s:%d: tx_generic() writes %s once only, so it is "
