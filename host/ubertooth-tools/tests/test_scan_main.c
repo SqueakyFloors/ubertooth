@@ -818,7 +818,7 @@ MU_TEST(a_connection_that_cannot_be_made_is_named)
 	fake.connect_errno = EHOSTDOWN;
 	r = RUN("-s", "-x", "-t", "5");
 	snprintf(expected, sizeof(expected),
-	         "error: can't create connection: %s\n", strerror(EHOSTDOWN));
+	         "error: cannot create connection: %s\n", strerror(EHOSTDOWN));
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strstr(r.err, expected) != NULL, r.err);
 	/* The address the inquiry found is still reported; nothing of the
