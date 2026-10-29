@@ -92,7 +92,11 @@ static int ssp_starts;
 
 u16 cc2400_get(u8 reg) { (void)reg; radio_touched++; return 0; }
 void cc2400_set(u8 reg, u16 val) { (void)reg; (void)val; radio_touched++; }
-u8 cc2400_status(void) { radio_touched++; return 0; }
+/* What the radio reports when the code under test reads its status. Zero --
+ * no FS_LOCK -- unless a test says otherwise, which is what lets a test follow
+ * a wait for the synthesizer through to the moment receive is armed again. */
+static u8 radio_status;
+u8 cc2400_status(void) { radio_touched++; return radio_status; }
 u8 cc2400_strobe(u8 reg) { (void)reg; radio_touched++; return 0; }
 int cc2400_wait_xosc_stable(void (*service)(void))
 {
@@ -216,6 +220,8 @@ volatile int cancel_follow;
 static void start_fresh(void)
 {
 	radio_touched = 0;
+	radio_status = 0;
+	transfer_errors_counted = 0;
 	dma_clear_calls = 0;
 	ssp_starts = 0;
 	fake_t1mcr = 0;
@@ -2229,6 +2235,23 @@ static void rx_transfer_error(uint32_t at)
 	le_dma_interrupt(at);
 }
 
+/* The byte that reads as a PDU of no bytes on `channel`: five in all, with the
+ * header and the CRC. The length is whitened on the air, so which byte that is
+ * depends on the channel. */
+static uint8_t length_byte_for_no_pdu(unsigned channel)
+{
+	unsigned v;
+
+	for (v = 0; v < 256; v++)
+		if (dewhiten_length(channel, (uint8_t)v) == 0)
+			break;
+
+	/* The whitening only exclusive-ors and reorders the bits, so exactly one
+	 * byte reads as zero on any channel. */
+	mu_assert(v < 256, "no byte reads as a length of zero");
+	return (uint8_t)v;
+}
+
 /*
  * A capture transfer that fails part way through a packet on a data channel
  * closes the connection event, instead of leaving the capture with nothing
@@ -2311,6 +2334,20 @@ MU_TEST(a_failed_transfer_on_a_data_channel_closes_the_connection_event)
 	mu_assert(fake_t1mcr & TMCR_MR2I,
 	          "the next event is not waiting for the synthesizer, so receive "
 	          "is never armed again");
+
+	/* And when the synthesizer reports locked, the DMA interrupt the recovery
+	 * disabled is enabled again, so the bytes of the next packet are reported.
+	 * Without this the capture would be just as silent, one step further on. */
+	fake_iser0 = 0;
+	ssp_starts = 0;
+	radio_status = FS_LOCK;
+	fake_t1ir = TIR_MR2_Interrupt;
+	TIMER1_IRQHandler();
+
+	mu_assert(fake_iser0 & ISER0_ISE_DMA,
+	          "the DMA interrupt was left disabled, so no byte is reported");
+	mu_assert(ssp_starts > 0, "the SSP was not started before receive");
+	mu_assert(!(fake_t1mcr & TMCR_MR2I), "the wait for the lock is still armed");
 }
 
 /*
@@ -2338,18 +2375,29 @@ MU_TEST(a_failed_transfer_leaves_a_match_already_armed_alone)
 	 * has arrived yet to clear it. */
 	timer1_set_match(deadline);
 
+	/* One strobe stops the receiver, and the recovery reaches the radio for
+	 * nothing else: the event's own match is what carries on from here. */
+	radio_touched = 0;
 	rx_transfer_error(fake_t1tc);
 
 	mu_assert(fake_t1mcr & TMCR_MR0I, "the event's deadline was disarmed");
 	mu_assert_int_eq(deadline, fake_t1mr0);
+	mu_assert_int_eq(1, radio_touched);
+	mu_assert(fake_icer0 & ICER0_ICE_DMA,
+	          "the DMA interrupt was left enabled over a torn-down channel");
 }
 
 /*
- * A connection that has just ended at its supervision timeout is not given a
- * match either. Both paths that stop following disarm it deliberately --
- * connection events are the only thing it is armed for -- and an event opened
- * with no connection to open it for retunes the radio under whatever the mode
- * is doing instead.
+ * With no connection left to follow, the recovery waits for the synthesizer
+ * rather than arming a connection event.
+ *
+ * This is how the state machine is found when the connection ends at its
+ * supervision timeout while the recovery runs: the timer interrupt preempts
+ * the receive interrupt, and both paths that stop following disarm the match
+ * deliberately, because connection events are the only thing it is armed for.
+ * An event opened with no connection to open it for retunes the radio under
+ * whatever the mode is doing instead -- and arming nothing would leave the same
+ * silence the recovery is here to prevent.
  */
 MU_TEST(a_failed_transfer_arms_no_event_with_no_connection)
 {
@@ -2366,6 +2414,8 @@ MU_TEST(a_failed_transfer_arms_no_event_with_no_connection)
 
 	mu_assert(!(fake_t1mcr & TMCR_MR0I),
 	          "a connection event was armed with no connection to follow");
+	mu_assert(fake_t1mcr & TMCR_MR2I,
+	          "nothing was armed at all, which is the silence this recovers");
 }
 
 /*
@@ -2403,8 +2453,14 @@ MU_TEST(a_failed_transfer_on_an_advertising_channel_arms_receive_again)
 	 * event is armed while this receive runs. */
 	timer1_set_match(first_event);
 
+	/* One strobe stops the receiver; the wait for the lock reaches the radio
+	 * for nothing else until it fires. */
+	radio_touched = 0;
 	rx_transfer_error(fake_t1tc + USEC(16));
 
+	mu_assert_int_eq(1, radio_touched);
+	mu_assert(fake_icer0 & ICER0_ICE_DMA,
+	          "the DMA interrupt was left enabled over a torn-down channel");
 	mu_assert_int_eq(1, transfer_errors_counted);
 	mu_assert_int_eq(1 << 0, fake_dmac_int_err_clr);
 	mu_assert_int_eq(0, buf->pos);
@@ -2441,15 +2497,8 @@ MU_TEST(a_packet_that_completed_survives_an_error_in_the_same_interrupt)
 	fake_dmac_int_err_clr = 0;
 	fake_t1tc = 0x00200000;
 
-	/* The length byte is whitened on the air, so take the byte that reads
-	 * as a PDU of no bytes: five in all, with the header and the CRC. */
-	for (length_byte = 0; length_byte < 256; length_byte++)
-		if (dewhiten_length(ADV_CHANNEL_MHZ, (uint8_t)length_byte) == 0)
-			break;
-	mu_assert_fatal(length_byte < 256, "no byte reads as a length of zero");
-
 	rx_byte(0x42, fake_t1tc, 0);
-	rx_byte((uint8_t)length_byte, fake_t1tc + USEC(8), 0);
+	rx_byte(length_byte_for_no_pdu(ADV_CHANNEL_MHZ), fake_t1tc + USEC(8), 0);
 	mu_assert_int_eq(2 + 3, buf->size);
 
 	/* The rest of the packet, with the controller reporting an error
@@ -2469,6 +2518,45 @@ MU_TEST(a_packet_that_completed_survives_an_error_in_the_same_interrupt)
 	mu_assert(current_rxbuf != NULL && current_rxbuf != buf,
 	          "no buffer was taken for the next packet");
 	mu_assert(fake_t1mcr & TMCR_MR2I, "receive was not armed for the next packet");
+}
+
+/*
+ * A packet that completed with an error in the same interrupt does not get a
+ * second wait armed on top of the one its own path armed.
+ *
+ * With the pool exhausted the end-of-packet path waits for a buffer, which is
+ * the only thing that can carry on: receive must not be armed without one. The
+ * recovery would start a wait for the synthesizer as well, and that wait ends
+ * by finding no buffer and waiting for one all over again.
+ */
+MU_TEST(a_completed_packet_does_not_get_a_second_wait_armed)
+{
+	unsigned taken;
+
+	start_fresh();
+	le_phy_active = 1;
+	rf_channel = ADV_CHANNEL_MHZ;
+	current_rxbuf = buffer_get();
+	mu_assert_fatal(current_rxbuf != NULL, "the pool gave out no buffer");
+	/* Every other buffer is in use, so the packet below leaves none. */
+	for (taken = 1; taken < LE_BUFFER_POOL_SIZE; taken++)
+		mu_assert_fatal(buffer_get() != NULL, "the pool ran out early");
+	fake_t1tc = 0x00200000;
+
+	rx_byte(0x42, fake_t1tc, 0);
+	rx_byte(length_byte_for_no_pdu(ADV_CHANNEL_MHZ), fake_t1tc + USEC(8), 0);
+	mu_assert_int_eq(2 + 3, current_rxbuf->size);
+	rx_byte(0x00, fake_t1tc + USEC(16), 0);
+	rx_byte(0x00, fake_t1tc + USEC(24), 0);
+	/* The last byte of the packet, and the error with it. */
+	rx_byte(0x00, fake_t1tc + USEC(32), 1);
+
+	mu_assert_int_eq(1, transfer_errors_counted);
+	mu_assert(current_rxbuf == NULL, "a buffer came from an exhausted pool");
+	mu_assert(fake_t1mcr & TMCR_MR3I, "nothing is waiting for a buffer");
+	mu_assert(!(fake_t1mcr & TMCR_MR2I),
+	          "a wait for the synthesizer was armed as well, which can only "
+	          "end by waiting for a buffer again");
 }
 
 /*
@@ -2795,6 +2883,7 @@ int main(void)
 	MU_RUN(a_failed_transfer_arms_no_event_with_no_connection);
 	MU_RUN(a_failed_transfer_on_an_advertising_channel_arms_receive_again);
 	MU_RUN(a_packet_that_completed_survives_an_error_in_the_same_interrupt);
+	MU_RUN(a_completed_packet_does_not_get_a_second_wait_armed);
 	MU_RUN(a_torn_down_phy_ignores_a_dma_interrupt);
 	MU_RUN(a_torn_down_phy_ignores_a_timer_match);
 	MU_RUN(emptying_the_symbol_buffer_gives_up_rather_than_spinning);

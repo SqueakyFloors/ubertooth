@@ -624,8 +624,14 @@ static void le_transfer_error_recover(void) {
 	// Stop receiving and take the DMA channel and the SSP down, as the
 	// end-of-packet path does: the receiver keeps clocking bytes into the FIFO
 	// until SFSON takes effect, and they would otherwise be read as the head
-	// of the next packet. SFSON rather than SRFOFF leaves the synthesizer
-	// running, which is what the waits below expect.
+	// of the next packet. SFSON rather than SRFOFF stops receiving without
+	// stopping the synthesizer, which is what a wait for its lock needs; the
+	// path through a connection event instead reaches change_channel(), which
+	// strobes SRFOFF itself.
+	//
+	// The terminal count is cleared once here, not twice as at the end of a
+	// packet: there the next byte goes into a channel left running, and here
+	// the channel is torn down and built again before any byte is kept.
 	cc2400_strobe(SFSON);
 	DMACC0Config = 0;
 	DMACIntTCClear = (1 << 0);
@@ -639,39 +645,41 @@ static void le_transfer_error_recover(void) {
 	if (current_rxbuf != NULL)
 		buffer_clear(current_rxbuf);
 
-	if (btle_channel_index(rf_channel) < 37) {
-		// Close the connection event, but only if nothing is armed to close
-		// it already. A match a margin ahead of the counter is the shortest
-		// wait that cannot be passed before it is armed; finish_conn_event()
-		// then counts the event, checks the supervision timeout and arms the
-		// next one, whose change_channel() puts the DMA channel and the SSP
-		// back.
-		//
-		// An already-armed match is left alone for two reasons. The error can
-		// arrive before the packet's first byte, which is what clears the
-		// event's deadline, and that deadline is when the event is meant to
-		// close. And the timer interrupt preempts this one, so a match can be
-		// taken while this function runs: finish_conn_event() has then armed
-		// the next event, and overwriting it would open that event an
-		// interval early and lose its packets.
-		//
-		// The interval is zero only when no connection is being followed,
-		// which happens on that same path: a connection ending at its
-		// supervision timeout disarms the match deliberately, and re-arming
-		// it would open an event with no connection to open it for.
-		if (!(T1MCR & TMCR_MR0I) && conn.conn_interval != 0)
+	// Inside a connection event, close the event: a match a margin ahead of
+	// the counter is the shortest wait that cannot be passed before it is
+	// armed. The timer interrupt takes it and carries the state machine on --
+	// finish_conn_event() counts the event, checks the supervision timeout and
+	// arms the next one, or, if an update's instant has arrived by then, the
+	// handler applies the update -- and either way the event that follows
+	// reaches change_channel(), which puts the DMA channel and the SSP back.
+	//
+	// A match already armed is left alone, for two reasons. The error can
+	// arrive before the packet's first byte, which is what clears the event's
+	// deadline, and that deadline is when the event is meant to close. And the
+	// timer interrupt preempts this one, so a match can be taken while this
+	// function runs: finish_conn_event() has armed the next event by then, and
+	// arming over it would open that event an interval early and lose its
+	// packets.
+	if (btle_channel_index(rf_channel) < 37 && conn.conn_interval != 0) {
+		if (!(T1MCR & TMCR_MR0I))
 			timer1_set_match(NOW + CONN_EVENT_ARM_MARGIN);
-	} else {
-		// An advertising channel has no event to close, and the engine stays
-		// on it until the host or a connection request moves it. Waiting for
-		// the synthesizer arms both the DMA channel and receive again when it
-		// locks.
-		//
-		// A connection-event match can be armed here, for the first event of
-		// a connection whose request the mode's loop has just read, so this
-		// path leaves MR0 alone.
-		timer1_wait_fs_lock();
+		return;
 	}
+
+	// Everything else waits for the synthesizer, which arms the DMA channel,
+	// the DMA interrupt and receive again when it locks. That is an
+	// advertising channel, where there is no event to close and the engine
+	// stays until the host or a connection request moves it; and a data
+	// channel with no connection left to follow, which is how the state
+	// machine is found if the connection ended at its supervision timeout
+	// while this function ran. Arming a connection event for that one would
+	// open an event with no connection to open it for, and arming nothing at
+	// all would leave exactly the silence this function is here to prevent.
+	//
+	// A connection-event match can be armed on an advertising channel, for the
+	// first event of a connection whose request the mode's loop has just read,
+	// so this path leaves MR0 alone.
+	timer1_wait_fs_lock();
 }
 
 static void le_dma_interrupt(uint32_t timestamp) {
@@ -822,12 +830,13 @@ static void le_dma_interrupt(uint32_t timestamp) {
 					timer1_wait_fs_lock();
 				}
 
-				// The controller can report an error in the same interrupt
-				// as the byte that completed a packet. That packet is on its
-				// way to the host and receive has just been armed for the
-				// next one, so the error has nothing left to recover: it has
-				// been acknowledged and counted, and the recovery below
-				// would undo the arming.
+				// The controller can report an error in the same interrupt as
+				// the byte that completed a packet. That packet is whole and
+				// on its way to the host, and receive is armed for the next
+				// one, so there is nothing for the recovery below to do: the
+				// error has been acknowledged and counted already. Returning
+				// says which of the two happened rather than leaving it to
+				// the recovery to work out that it has nothing to put back.
 				return;
 			}
 		}
