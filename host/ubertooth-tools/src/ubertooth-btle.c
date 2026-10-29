@@ -138,8 +138,8 @@ static void usage(FILE *out)
 	fprintf(out, "\t       -t is for -f and -n; any -t, \"none\" included, is refused with -p\n");
 	fprintf(out, "\n");
 	fprintf(out, "    Interference (only with -f or -p):\n");
-	fprintf(out, "\t-i, -j  interfere with (jam) one connection and return to idle\n");
-	fprintf(out, "\t-I, -J  interfere continuously\n");
+	fprintf(out, "\t-i, -j  interfere with (jam) one connection and return to idle (inert; see man page)\n");
+	fprintf(out, "\t-I, -J  interfere continuously (inert; see man page)\n");
 	fprintf(out, "\n");
 	fprintf(out, "    Data source:\n");
 	fputs(OPT_USAGE_SELECT_DEVICE, out);

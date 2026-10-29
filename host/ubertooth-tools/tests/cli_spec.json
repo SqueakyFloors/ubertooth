@@ -94,7 +94,7 @@
     "survey": "collects a survey of what is on the air rather than printing packets",
     "afh_read": "reads the target's hop pattern rather than following it",
     "faux_slave": "answers as a slave rather than listening",
-    "interfere": "transmits at the target rather than capturing it",
+    "interfere": "meant to transmit at the target rather than capture it; inert at the moment, so it captures as usual",
     "modulation": "picks the modulation a capture is read as",
     "output_mode": "picks the form the samples are printed in",
     "undocumented": "an option the tool's man page does not list"
