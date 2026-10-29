@@ -21,6 +21,10 @@ $ make
 $ sudo make install
 ```
 
+libbtbb installs its library to the directory the system keeps libraries in
+(`lib`, or `lib64` and `lib/<triplet>` on the systems that use those), and the
+build below asks pkg-config and CMake where it is rather than assuming `lib`.
+
 This software also requires libusb 1.0 or higher, which can be found at
 http://www.libusb.org or installed from your OS's package repository.
 

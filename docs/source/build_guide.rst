@@ -34,7 +34,8 @@ Fedora 33
 	.. code-block:: sh
 
 		sudo dnf install libusb1-devel make gcc gcc-c++ cmake wget tar bluez-libs-devel
-		echo /usr/local/lib | sudo tee /etc/ld.so.conf.d/libc.conf
+		# libbtbb installs to /usr/local/lib64 on this system, the Ubertooth library to /usr/local/lib:
+		printf '/usr/local/lib\n/usr/local/lib64\n' | sudo tee /etc/ld.so.conf.d/libc.conf
 
 
 
@@ -45,7 +46,8 @@ RHEL 8
 
 		sudo subscription-manager repos --enable=codeready-builder-for-rhel-8-x86_64-rpms
 		sudo dnf install libusb1-devel make gcc gcc-c++ wget tar bluez-libs-devel python36 python36-devel
-		echo /usr/local/lib | sudo tee /etc/ld.so.conf.d/libc.conf
+		# libbtbb installs to /usr/local/lib64 on this system, the Ubertooth library to /usr/local/lib:
+		printf '/usr/local/lib\n/usr/local/lib64\n' | sudo tee /etc/ld.so.conf.d/libc.conf
 		# Note: you will also need to install CMake 3.12.0 or greater. See https://cmake.org/install/
 
 
@@ -57,7 +59,8 @@ CentOS 8
 
 		sudo dnf config-manager --enable powertools
 		sudo dnf install libusb1-devel make gcc gcc-c++ wget tar bluez-libs-devel python36 python36-devel
-		echo /usr/local/lib | sudo tee /etc/ld.so.conf.d/libc.conf
+		# libbtbb installs to /usr/local/lib64 on this system, the Ubertooth library to /usr/local/lib:
+		printf '/usr/local/lib\n/usr/local/lib64\n' | sudo tee /etc/ld.so.conf.d/libc.conf
 		# Note: you will also need to install CMake 3.12.0 or greater. See https://cmake.org/install/
 
 
@@ -117,6 +120,8 @@ Next the Bluetooth baseband library (libbtbb) needs to be built for the Ubertoot
 		make
 		sudo make install
 		sudo ldconfig     # Linux only
+
+libbtbb installs its library to the directory the system keeps libraries in: ``lib`` under most prefixes, ``lib64`` on a 64-bit Fedora, RHEL or SUSE, and ``lib/<triplet>`` where the prefix is ``/usr`` on Debian or Ubuntu. The Ubertooth build asks pkg-config and CMake where it is rather than assuming ``lib``, so nothing here changes with it; `libbtbb's README <https://github.com/SqueakyFloors/libbtbb#where-it-installs>`__ says how to choose the directory, and ``-DCMAKE_INSTALL_LIBDIR=`` is the way.
 
 That is the commit CI tests against and `install.sh <https://github.com/SqueakyFloors/ubertooth/blob/main/install.sh>`__ builds, and a CI step fails if this page falls behind it. ``./install.sh`` does all of the above for you, and ``./install.sh --libbtbb-url``/``--libbtbb-ref`` build a different libbtbb; an older libbtbb, upstream's included, may need CMake options this guide does not pass.
 

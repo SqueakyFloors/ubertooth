@@ -444,6 +444,13 @@
   byte-order helpers: the build asks glibc for the interfaces it uses, instead
   of leaving it to the compiler's default GNU standard.
   [#648](https://github.com/SqueakyFloors/ubertooth/issues/648)
+- `install.sh` finds the libbtbb it just built wherever libbtbb installed it,
+  so the tools run on a system whose libraries live in `lib64` or a multiarch
+  `lib/<triplet>`. It built them for a libbtbb in `lib` under the prefix, and
+  on such a system the installed `ubertooth-util` would not start at all:
+  `Library not loaded: @rpath/libbtbb.1.dylib`, or the equivalent on Linux.
+  The build guide and READMEs say where libbtbb installs.
+  [#88](https://github.com/SqueakyFloors/libbtbb/issues/88)
 - `install.sh --uninstall` takes the install back off again: the files the
   install recorded, the udev rule with them, and nothing else. The libbtbb it
   installed is kept unless you ask for it, because other builds link against it.

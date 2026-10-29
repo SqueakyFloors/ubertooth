@@ -667,14 +667,37 @@ as_installer cmake --install "$WORK/libbtbb/build" >/dev/null
 record_installed libbtbb "$WORK/libbtbb/build" "libbtbb $LIBBTBB_REF from $LIBBTBB_URL"
 [ "$PLATFORM" = debian ] && as_root ldconfig
 
+# Which directory under PREFIX libbtbb put its library in. That is the one the
+# system keeps libraries in: lib64 on a 64-bit Fedora, RHEL or SUSE, a
+# multiarch lib/<triplet> where the prefix is /usr on Debian or Ubuntu, and lib
+# on macOS and for other prefixes. So it is read from the install rather than
+# assumed, and whatever libbtbb --libbtbb-ref built is answered for.
+# libbtbb.pc goes in a pkgconfig directory inside it, and the install manifest
+# names every file the install wrote.
+BTBB_LIBDIR="$(sed -n 's#/pkgconfig/libbtbb\.pc$##p' \
+	"$WORK/libbtbb/build/install_manifest.txt" 2>/dev/null | head -n 1)"
+if [ -z "$BTBB_LIBDIR" ]; then
+	BTBB_LIBDIR="$PREFIX/lib"
+	warn "the libbtbb install did not record a libbtbb.pc, so the tools are built for a libbtbb in $BTBB_LIBDIR"
+fi
+
 # --- 6. host tools --------------------------------------------------------
 # The installed tools find libubertooth and libbtbb under PREFIX through their
 # run path, so a non-default prefix works without ldconfig or DYLD settings.
+# Two directories where libbtbb's is not libubertooth's.
+RPATH="$PREFIX/lib"
+[ "$BTBB_LIBDIR" = "$PREFIX/lib" ] || RPATH="$RPATH;$BTBB_LIBDIR"
 CMAKE_ARGS=(
 	"-DCMAKE_INSTALL_PREFIX=$PREFIX"
 	"-DCMAKE_PREFIX_PATH=$PREFIX"
-	"-DCMAKE_INSTALL_RPATH=$PREFIX/lib"
+	"-DCMAKE_INSTALL_RPATH=$RPATH"
 )
+# The configure step asks pkg-config for libbtbb, which answers for the
+# install just made - its directories, not a guess at them - so a libbtbb in
+# lib64 or a multiarch directory is found there like any other. An existing
+# setting is kept after it, so a libbtbb the user pointed at stays reachable
+# while this one is looked at first.
+export PKG_CONFIG_PATH="$BTBB_LIBDIR/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 if [ "$PLATFORM" = debian ]; then
 	info "Building Ubertooth host tools (REQUIRE_ALL=ON)"
 	CMAKE_ARGS+=(-DREQUIRE_ALL=ON)
