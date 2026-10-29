@@ -251,6 +251,11 @@ packet times are behind the host clock by more than half the capture clock's
 forwards`. Both causes look the same from here, which is why the message names
 each.
 
+A capture record carries the signal power of its packet and no noise power:
+nothing measures the background between packets, so the record's noise field
+is marked absent and a reader shows it as absent rather than computing a
+signal-to-noise ratio from it.
+
 Miscellaneous:
 
  - `-A <37|38|39>` :

@@ -1007,6 +1007,27 @@ if(libubertooth_SOURCE_DIR)
 	# capture that no longer stops would hang here; fail it instead.
 	set_tests_properties(keep-alive PROPERTIES TIMEOUT 10)
 
+	# What a capture record says about the noise power of its packet, read
+	# back out of written pcap and pcapng files for both the low-energy and
+	# the Basic Rate path. The real callbacks run and libbtbb really
+	# decodes and writes, because libbtbb is where the flags are assembled;
+	# the fifo calls are the test's own, so no board or 72 MB ring buffer is
+	# involved.
+	add_executable(test-capture-noise-flag
+		test_capture_noise_flag.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_callback.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
+	target_include_directories(test-capture-noise-flag PRIVATE
+		${libubertooth_SOURCE_DIR}/src ${LIBBTBB_INCLUDE_DIR})
+	target_link_libraries(test-capture-noise-flag ${LIBUSB_LIBRARIES}
+		${LIBBTBB_LIBRARIES} Threads::Threads)
+	add_test(NAME capture-noise-flag COMMAND test-capture-noise-flag)
+	# Two callback calls and four small files: milliseconds.
+	set_tests_properties(capture-noise-flag PROPERTIES TIMEOUT 10)
+
 	# What the low-energy callback prints, on which stream, and with what
 	# signal level beside each packet. The real cb_btle() and the real
 	# decoder run over one crafted packet, so the complaint the cases look

@@ -113,6 +113,13 @@ Output options:
    Capture packets to binary file suitable for use with `-i`. `-d -` writes
    the records to standard output; see CAPTURING TO STANDARD OUTPUT
 
+A record of a `-q` or `-r` capture carries the signal power of its packet and
+no noise power: nothing measures the background between packets, so the
+record's noise field is marked absent and a reader shows it as absent rather
+than computing a signal-to-noise ratio from it. The `n=` and `snr=` columns on
+the screen come from the RSSI average the board took over the packet itself,
+which is mostly the packet's own power.
+
 Miscellaneous:
 
  - `-V` :
