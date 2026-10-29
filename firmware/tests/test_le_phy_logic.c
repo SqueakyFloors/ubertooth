@@ -2015,7 +2015,7 @@ MU_TEST(an_empty_first_event_arms_the_next_one_ahead_of_the_counter)
 }
 
 /*
- * An event's deadline never runs past the next event's own due time, however
+ * An event's deadline never runs into the next event's own arming, however
  * long a window the connection named.
  *
  * At the shortest interval the specification allows, 7.5 ms, the longest legal
@@ -2025,7 +2025,7 @@ MU_TEST(an_empty_first_event_arms_the_next_one_ahead_of_the_counter)
  * instant is matched against that count: each would be matched an event early
  * from then on.
  */
-MU_TEST(an_events_deadline_stops_at_one_connection_interval)
+MU_TEST(an_events_deadline_stops_short_of_the_next_event)
 {
 	struct connect_req r = valid_connect_req();
 	le_rx_t buf;
@@ -2049,9 +2049,10 @@ MU_TEST(an_events_deadline_stops_at_one_connection_interval)
 	le_phy_active = 1;
 	TIMER1_IRQHandler();
 
-	/* One interval, not the 6.25 ms window plus 2.12 ms packet plus warmup
-	 * that would have run past the next event. */
-	mu_assert_int_eq(fake_t1tc + 6 * 12500, fake_t1mr0);
+	/* One interval less the warmup, not the 6.25 ms window plus a 2.12 ms
+	 * packet plus the warmup, which would have run past the moment the next
+	 * event has to be armed. */
+	mu_assert_int_eq(fake_t1tc + 6 * 12500 - RX_WARMUP_TIME, fake_t1mr0);
 }
 
 /*
@@ -2314,7 +2315,7 @@ int main(void)
 	MU_RUN(a_silent_event_moves_the_anchor_on_by_one_interval);
 	MU_RUN(an_unmeasured_event_puts_its_one_packet_at_the_earliest_anchor);
 	MU_RUN(an_empty_first_event_arms_the_next_one_ahead_of_the_counter);
-	MU_RUN(an_events_deadline_stops_at_one_connection_interval);
+	MU_RUN(an_events_deadline_stops_short_of_the_next_event);
 	MU_RUN(an_overdue_estimate_skips_whole_intervals_and_counts_them);
 	MU_RUN(a_connection_that_times_out_leaves_no_match_armed);
 	MU_RUN(a_failed_capture_transfer_is_counted);

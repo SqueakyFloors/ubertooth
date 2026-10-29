@@ -337,13 +337,13 @@ static void reset_conn_event(void) {
 // window, and PERIPHERAL_REPLY_LATEST once the estimate is being tracked from
 // single packets.
 //
-// Never longer than one connection interval. At the shortest interval the
-// specification allows, 7.5 ms, the longest legal window plus a packet runs
-// about 8.7 ms, so an unclamped deadline would fall after the next event was
-// due -- and finish_conn_event() would then count two elapsed intervals as one
-// connection event. Every connection update and channel map instant is matched
-// against that count, so from there on each instant would be matched an event
-// early.
+// Never long enough to run into the next event's own arming, which is one
+// warmup before that event is due. At the shortest interval the specification
+// allows, 7.5 ms, the longest legal window plus a packet runs about 8.7 ms, so
+// an unclamped deadline would fall after the next event was due -- and
+// finish_conn_event() would then count two elapsed intervals as one connection
+// event. Every connection update and channel map instant is matched against
+// that count, so from there on each instant would be matched an event early.
 static uint32_t conn_event_deadline(void) {
 	uint32_t deadline = LONGEST_PACKET + RX_WARMUP_TIME;
 
@@ -358,9 +358,13 @@ static uint32_t conn_event_deadline(void) {
 	// Nothing to clamp against when no connection is being followed. That
 	// takes a match armed for something which is not a connection event,
 	// which the disarming in finish_conn_event() is there to prevent;
-	// clamping to zero would arm the next one at the moment it is read.
-	if (conn.conn_interval > 0 && deadline > conn.conn_interval)
-		deadline = conn.conn_interval;
+	// clamping to nothing would arm the next event at the moment it is read.
+	if (conn.conn_interval > RX_WARMUP_TIME) {
+		uint32_t limit = conn.conn_interval - RX_WARMUP_TIME;
+
+		if (deadline > limit)
+			deadline = limit;
+	}
 
 	return deadline;
 }
