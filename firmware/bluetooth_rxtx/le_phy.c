@@ -166,6 +166,7 @@ typedef struct _le_rx_t {
 	int available;              // 1 if available, 0 in use
 	int8_t rssi_min, rssi_max;  // min and max RSSI observed values
 	int rssi_sum;               // running sum of all RSSI values
+	int transfer_error;         // 1 if a capture transfer faulted during it
 } le_rx_t;
 
 // pool of all buffers
@@ -302,6 +303,7 @@ static void buffer_clear(le_rx_t *buf) {
 	buf->rssi_min = INT8_MAX;
 	buf->rssi_max = INT8_MIN;
 	buf->rssi_sum = 0;
+	buf->transfer_error = 0;
 }
 
 // get a packet buffer
@@ -793,6 +795,16 @@ static void le_dma_interrupt(uint32_t timestamp) {
 
 				// XXX disable DMA interrupt as a workaround
 				ICER0 = ICER0_ICE_DMA;
+
+				// A packet completed by the same interrupt that reported a
+				// transfer error is kept -- it is whole, and the host asked
+				// for it -- but it went through a controller that reported a
+				// fault, so some of its bytes may be wrong while its length
+				// is right. Mark it, so the host can tell it apart from a
+				// clean one: CRC checking is off by default, and nothing
+				// else would flag it. The capture loops in bluetooth_rxtx.c
+				// mark their own records on the same condition.
+				current_rxbuf->transfer_error = transfer_error;
 
 				// TODO error transition on queue_insert
 				queue_insert(&packet_queue, current_rxbuf);
@@ -1354,6 +1366,11 @@ static int usb_enqueue_le(le_rx_t *packet)
 	int queued;
 
 	meta.status = le_packet_dropped ? FIFO_OVERFLOW : 0;
+	/* A capture transfer that faulted as this packet completed. The packet is
+	 * whole and is sent, but the host is told rather than left to read it as
+	 * a clean one. */
+	if (packet->transfer_error)
+		meta.status |= DMA_ERROR;
 	meta.channel = ubertooth_channel_byte(packet->channel);
 	meta.clkn_high = 0;
 	meta.clk100ns = packet->timestamp;
