@@ -640,16 +640,27 @@ static void le_transfer_error_recover(void) {
 		buffer_clear(current_rxbuf);
 
 	if (btle_channel_index(rf_channel) < 37) {
-		// Close the connection event. finish_conn_event() counts the event,
-		// checks the supervision timeout and arms the next one, whose
-		// change_channel() puts the DMA channel and the SSP back. The match
-		// is a margin ahead of the counter, which is the shortest wait that
-		// cannot be passed before it is armed.
+		// Close the connection event, but only if nothing is armed to close
+		// it already. A match a margin ahead of the counter is the shortest
+		// wait that cannot be passed before it is armed; finish_conn_event()
+		// then counts the event, checks the supervision timeout and arms the
+		// next one, whose change_channel() puts the DMA channel and the SSP
+		// back.
 		//
-		// The event is open whenever receive is armed inside one, so the
-		// match is taken as a timeout; were it somehow not, the handler opens
-		// an event instead, which also re-arms receive.
-		timer1_set_match(NOW + CONN_EVENT_ARM_MARGIN);
+		// An already-armed match is left alone for two reasons. The error can
+		// arrive before the packet's first byte, which is what clears the
+		// event's deadline, and that deadline is when the event is meant to
+		// close. And the timer interrupt preempts this one, so a match can be
+		// taken while this function runs: finish_conn_event() has then armed
+		// the next event, and overwriting it would open that event an
+		// interval early and lose its packets.
+		//
+		// The interval is zero only when no connection is being followed,
+		// which happens on that same path: a connection ending at its
+		// supervision timeout disarms the match deliberately, and re-arming
+		// it would open an event with no connection to open it for.
+		if (!(T1MCR & TMCR_MR0I) && conn.conn_interval != 0)
+			timer1_set_match(NOW + CONN_EVENT_ARM_MARGIN);
 	} else {
 		// An advertising channel has no event to close, and the engine stays
 		// on it until the host or a connection request moves it. Waiting for
@@ -718,6 +729,9 @@ static void le_dma_interrupt(uint32_t timestamp) {
 				le_ssp_drain();
 				ICER0 = ICER0_ICE_DMA;
 
+				// A transfer error reported in this same interrupt needs no
+				// recovery either: the buffer wait just armed is what carries
+				// on from here, and there was no packet to drop.
 				timer1_wait_buffer();
 				return;
 			}

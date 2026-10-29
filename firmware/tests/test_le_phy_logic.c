@@ -23,18 +23,20 @@
  * What is NOT run here, and why:
  *
  *   le_phy_main(), le_cc2400_init_rf(), change_channel(),
- *   le_cc2400_strobe_rx(), le_dma_init(), le_sys_init() and the live paths of
- *   le_DMA_IRQHandler() and TIMER1_IRQHandler() all drive the radio, the DMA
- *   controller and the SSP. A fake register file lets them compile, not work:
- *   bytes only arrive because a radio put them there, and a test that fed
- *   itself those bytes would be asserting what the test wrote, not what the
- *   board does. Those stay covered by test_le_phy_order.c's scan and by
- *   hardware testing.
+ *   le_cc2400_strobe_rx(), le_dma_init() and le_sys_init() all drive the
+ *   radio, the DMA controller and the SSP. A fake register file lets them
+ *   compile, not work: what a packet holds depends on what a radio put there,
+ *   and a test that fed itself those bytes would be asserting what the test
+ *   wrote, not what the board does. What they decode stays covered by
+ *   test_le_phy_order.c's scan and by hardware testing.
  *
- *   The one exception is the arrival of a packet's first byte, which is where
- *   the packet's timestamp is worked out. That is arithmetic on a number the
- *   test supplies -- the time the interrupt was taken -- so running it asserts
- *   the engine's arithmetic and not the test's own bytes.
+ *   What the receive and timer interrupts do run here is the engine's own
+ *   bookkeeping: the timestamp a packet's first byte is dated by, which match
+ *   each path arms, and what becomes of a packet when a transfer fails. Those
+ *   are decisions made from numbers the test supplies, so running them asserts
+ *   the engine's arithmetic and its state machine rather than the test's own
+ *   bytes. Where that reaches the radio, the fakes count the accesses and the
+ *   test says which value it holds the code responsible for.
  *
  * The one part of the interrupt handlers that does run here is their first
  * line: once the PHY has been torn down they must do nothing but acknowledge.
@@ -231,6 +233,10 @@ static void start_fresh(void)
 	queue_init(&packet_queue);
 	current_rxbuf = NULL;
 	le_phy_active = 0;
+	/* The engine starts on an advertising channel. Reset here as well as in
+	 * the tests that care, so no test depends on what the one before it
+	 * tuned. */
+	rf_channel = ADV_CHANNEL_MHZ;
 	le_sync_aa = ADV_AA;
 	cancel_follow = 0;
 	reset_conn();
@@ -2282,8 +2288,7 @@ MU_TEST(a_failed_transfer_on_a_data_channel_closes_the_connection_event)
 	          "has stopped");
 	mu_assert_int_eq(fake_t1tc + CONN_EVENT_ARM_MARGIN, fake_t1mr0);
 
-	/* Taking it closes the event and arms the next one, whose own
-	 * change_channel() puts the DMA channel and the SSP back. */
+	/* Taking it closes the event and arms the next one. */
 	fake_t1tc = fake_t1mr0;
 	fake_t1ir = TIR_MR0_Interrupt;
 	TIMER1_IRQHandler();
@@ -2292,6 +2297,75 @@ MU_TEST(a_failed_transfer_on_a_data_channel_closes_the_connection_event)
 	mu_assert(fake_t1mcr & TMCR_MR0I, "the next connection event was not armed");
 	mu_assert((int32_t)(fake_t1mr0 - fake_t1tc) > 0,
 	          "the next event was armed behind the counter");
+
+	/* ...and opening that event puts the DMA channel and the SSP back and
+	 * waits for the synthesizer, which is where receive is armed again. This
+	 * runs change_channel(), which touches the radio, so the fakes count
+	 * those accesses; what is asserted is the SSP and the match. */
+	ssp_starts = 0;
+	fake_t1tc = fake_t1mr0;
+	fake_t1ir = TIR_MR0_Interrupt;
+	TIMER1_IRQHandler();
+
+	mu_assert(ssp_starts > 0, "the SSP was not started for the next event");
+	mu_assert(fake_t1mcr & TMCR_MR2I,
+	          "the next event is not waiting for the synthesizer, so receive "
+	          "is never armed again");
+}
+
+/*
+ * A failed transfer leaves a match that is already armed alone.
+ *
+ * The error can arrive before the packet's first byte, which is what clears
+ * the connection event's deadline, and that deadline is when the event is
+ * meant to close. The timer interrupt also preempts the receive interrupt, so
+ * a match can be taken while the recovery runs and finish_conn_event() will
+ * have armed the next event by then; arming over either would open an event an
+ * interval early and lose its packets.
+ */
+MU_TEST(a_failed_transfer_leaves_a_match_already_armed_alone)
+{
+	const uint32_t deadline = 1000000 + MSEC(5);
+
+	anchored_connection(1000000);
+	le_phy_active = 1;
+	rf_channel = DATA_CHANNEL_MHZ;
+	conn_event.opened = 1;
+	current_rxbuf = buffer_get();
+	mu_assert_fatal(current_rxbuf != NULL, "the pool gave out no buffer");
+	fake_t1tc = 1000000;
+	/* The event is open and running to its own deadline: no byte of a packet
+	 * has arrived yet to clear it. */
+	timer1_set_match(deadline);
+
+	rx_transfer_error(fake_t1tc);
+
+	mu_assert(fake_t1mcr & TMCR_MR0I, "the event's deadline was disarmed");
+	mu_assert_int_eq(deadline, fake_t1mr0);
+}
+
+/*
+ * A connection that has just ended at its supervision timeout is not given a
+ * match either. Both paths that stop following disarm it deliberately --
+ * connection events are the only thing it is armed for -- and an event opened
+ * with no connection to open it for retunes the radio under whatever the mode
+ * is doing instead.
+ */
+MU_TEST(a_failed_transfer_arms_no_event_with_no_connection)
+{
+	start_fresh();
+	le_phy_active = 1;
+	/* The radio is still on a data channel: the follow has just ended, and
+	 * change_channel() has not run yet. */
+	rf_channel = DATA_CHANNEL_MHZ;
+	current_rxbuf = buffer_get();
+	mu_assert_fatal(current_rxbuf != NULL, "the pool gave out no buffer");
+	mu_assert_fatal(conn.conn_interval == 0, "a connection is still being followed");
+
+	rx_transfer_error(1000);
+
+	mu_assert(!(fake_t1mcr & TMCR_MR0I),
+	          "a connection event was armed with no connection to follow");
 }
 
 /*
@@ -2717,6 +2791,8 @@ int main(void)
 	MU_RUN(a_new_connection_starts_from_nothing);
 	MU_RUN(a_failed_capture_transfer_is_counted);
 	MU_RUN(a_failed_transfer_on_a_data_channel_closes_the_connection_event);
+	MU_RUN(a_failed_transfer_leaves_a_match_already_armed_alone);
+	MU_RUN(a_failed_transfer_arms_no_event_with_no_connection);
 	MU_RUN(a_failed_transfer_on_an_advertising_channel_arms_receive_again);
 	MU_RUN(a_packet_that_completed_survives_an_error_in_the_same_interrupt);
 	MU_RUN(a_torn_down_phy_ignores_a_dma_interrupt);
