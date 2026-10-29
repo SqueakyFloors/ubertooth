@@ -38,7 +38,7 @@ touches code:
 | `install.sh` / `install-sh` | Runs the installer end to end (on a pull request, only when `install.sh` or its own workflow file changes) |
 | `libbtbb pin` / `libbtbb-pin` | The pinned libbtbb commit is the same in every file that repeats it |
 | `Man pages` / `refresh` | The committed roff man pages match their Markdown sources (only when `host/doc/` changes) |
-| `Merged text` / `merged-text` | The branch does not delete a paragraph `main` gained while the branch was being written -- what a rebase resolution that keeps the wrong side does, and nothing else here reads prose. Runs its own self-test first (only when a `.md`, `.rst` or `.txt` file, or the check itself, changes) |
+| `Merged text` / `merged-text` | The branch does not delete a paragraph `main` gained while the branch was being written -- what a rebase resolution that keeps the wrong side does, and nothing else here reads prose. Runs its own self-test first (only when a documentation page, or the check itself, changes) |
 
 On a pull request, `host`, `firmware`, `scripts` and `install-sh` run on one
 Ubuntu and one macOS runner and report once per runner: `host (ubuntu-24.04)`,
@@ -53,9 +53,10 @@ A change to documentation only runs three of them. `Build` ignores `**.md`,
 not reached either. `libbtbb pin` has no path filter at all, because the
 commit it checks is written down in `COMPATIBILITY.md` and the build guides as
 well as in the build files; `Man pages` runs whenever `host/doc/` changes,
-which is where the man page sources live; and `Merged text` runs on a
-documentation change of any kind, which is the one where text can go missing
-without anything noticing.
+which is where the man page sources live; and `Merged text` runs whenever a
+documentation page changes (`.md`, `.rst`, `.txt` or a plain `README`, less the
+build files that end in `.txt`), because a documentation change is the one
+where text can go missing without anything noticing.
 
 ### Nothing enforces them
 

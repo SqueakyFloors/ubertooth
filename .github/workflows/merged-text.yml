@@ -17,11 +17,19 @@ name: Merged text
 # so and exits 0, which would be a green that proves nothing. A manual run is
 # for the self-test, which does not care which commit it runs from.
 on:
+  # The same paths the check reads, so the job runs when there is something
+  # for it to read and not otherwise. The two exclusions are build files that
+  # end in .txt and are not prose; they come after the pattern that would
+  # otherwise take them, because a later negative pattern wins.
   pull_request:
     paths:
       - '**.md'
       - '**.rst'
       - '**.txt'
+      - '!**/CMakeLists.txt'
+      - '!**/requirements.txt'
+      - 'README'
+      - '**/README'
       - 'tools/check-merged-text.sh'
       - 'tools/check-merged-text-selftest.sh'
       - '.github/workflows/merged-text.yml'
