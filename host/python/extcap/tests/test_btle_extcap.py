@@ -649,6 +649,25 @@ assert result.stderr == \
 
 print("btle-extcap: -V passes ubertooth-util's answer through")
 
+# -V with standard output closed before the script started, which is `-V >&-`:
+# the interpreter is left without that stream, and the flush that orders this
+# script's lines before the child's used to end the call in an AttributeError
+# traceback. ubertooth-util is kept off the PATH, so the only line is the
+# script's own.
+closed = subprocess.Popen(
+    [sys.executable, SCRIPT, "-V"], stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE, text=True,
+    env=dict(ENVIRONMENT, PATH=EMPTY, FAKE_UTIL_STATUS="0",
+             FAKE_UTIL_SIGNAL="", FAKE_UTIL_ERRORS=""),
+    preexec_fn=lambda: os.close(1))
+_, closed_errors = closed.communicate(timeout=RUN_TIMEOUT_S)
+assert closed.returncode == 1, (closed.returncode, closed_errors)
+assert "Traceback" not in closed_errors, closed_errors
+assert closed_errors == \
+    "error: could not run ubertooth-util: No such file or directory\n", \
+    closed_errors
+print("btle-extcap: -V with no standard output at all is not a traceback")
+
 # -h ends the call ahead of every operation, whichever order they were
 # written in: the listing used to be answered first when it came first, so -h
 # printed nothing and Wireshark's interface list was the answer instead.

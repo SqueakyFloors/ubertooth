@@ -248,6 +248,25 @@ assert result.stderr == \
 
 print("ubertooth-specan-ui: -V passes ubertooth-util's answer through")
 
+# -V with standard output closed before the tool started, which is `-V >&-`:
+# the interpreter is left without that stream, and the flush that orders this
+# tool's lines before the child's used to end the command in an AttributeError
+# traceback. ubertooth-util is kept off the PATH, so the only line is the
+# tool's own.
+closed = subprocess.Popen(
+    [sys.executable, SCRIPT, "-V"], stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE, text=True,
+    env=dict(ENVIRONMENT, PATH=EMPTY_DIRECTORY),
+    preexec_fn=lambda: os.close(1))
+_, closed_errors = closed.communicate(timeout=60)
+assert closed.returncode == 1, (closed.returncode, closed_errors)
+assert "Traceback" not in closed_errors, closed_errors
+assert closed_errors == \
+    "error: could not run ubertooth-util: No such file or directory\n", \
+    closed_errors
+print("ubertooth-specan-ui: -V with no standard output at all is not a"
+      " traceback")
+
 
 # ---- and none of that needs numpy or a Qt binding -------------------------
 #

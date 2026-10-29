@@ -1416,6 +1416,26 @@ assert "***" not in errors and "***" not in output, (output, errors)
 assert time_prefixed(errors) == [], errors
 print("ubtbr: what `?` prints is on standard error, so a capture stays readable")
 
+# a word the prompt does not know is refused there too, in the same wording.
+# It used to be taken silently: the handler that reads "x" and "q" as ways of
+# leaving returned nothing for everything else, so the user was handed the
+# next prompt as though the command had run. A command name is not a command
+# line, so the session carries on and its exit status is unchanged, and the
+# refusal is a diagnostic rather than capture data, so standard output stays
+# empty.
+status, output, errors = ran(typed="bogus\nbogus 11:22:33:44:55:66\nq\n")
+assert status == 0, (status, output, errors)
+assert output == "", output
+# the name is what does not exist, so that is what the line quotes, whatever
+# was typed after it: both lines above name the same command
+assert errors.count("error: no such command 'bogus'\n") == 2, errors
+assert "***" not in errors, errors
+assert "Traceback" not in errors, errors
+# and the prompt was read again after each refusal: one per line typed, and
+# none after the one that ended the session
+assert errors.count(PROMPT) == 3, errors
+print("ubtbr: an unknown command at the prompt is one error line, not silence")
+
 
 # A session at a terminal leaves the prompt to Cmd, which hands it to the
 # terminal's line editor: the editor draws it and counts its width while it
@@ -1561,6 +1581,22 @@ assert errors.count(OUTPUT_GONE) == 1, errors
 assert "Exception ignored" not in errors, errors
 assert "Traceback" not in errors, errors
 print("ubtbr: -h whose usage text could not be printed exits 1")
+
+# and with that stream closed before the tool started, which is `-h >&-`:
+# there is no such stream at all rather than a reader who left, and the write
+# used to end the tool in an AttributeError traceback. The text was asked for
+# and has nowhere to go, so it is reported as the same loss, with the same
+# status.
+running = subprocess.Popen([sys.executable, WRAPPER, "-h"],
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                           text=True, env=ENVIRONMENT,
+                           preexec_fn=lambda: os.close(1))
+output, errors = running.communicate(timeout=DEADLINE)
+assert running.returncode == 1, (running.returncode, output, errors)
+assert output == "", output
+assert errors.count(OUTPUT_GONE) == 1, errors
+assert "Traceback" not in errors, errors
+print("ubtbr: -h with no standard output at all is reported, not a traceback")
 
 # and with both streams the same pipe, which is `2>&1 | head -1`, the status
 # is all that is left: the error line has nowhere to go either, and saying so
@@ -2077,6 +2113,23 @@ assert errors == \
     "error: could not run ubertooth-util: No such file or directory\n", errors
 
 print("ubtbr: -V passes ubertooth-util's answer through")
+
+# -V with standard output closed before the tool started, which is `-V >&-`:
+# the flush that orders this tool's lines before the child's has no stream to
+# flush, where it used to end the tool in an AttributeError traceback. The
+# answer cannot be printed, so it is reported as the same loss as a reader
+# who left, and the command exits 1. ubertooth-util is kept off the PATH
+# here, so the only lines are this tool's own.
+running = subprocess.Popen([sys.executable, WRAPPER, "-V"],
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                           text=True, env=dict(ENVIRONMENT, PATH=NO_UTIL_DIR),
+                           preexec_fn=lambda: os.close(1))
+output, errors = running.communicate(timeout=DEADLINE)
+assert running.returncode == 1, (running.returncode, output, errors)
+assert output == "", output
+assert errors.count(OUTPUT_GONE) == 1, errors
+assert "Traceback" not in errors, errors
+print("ubtbr: -V with no standard output at all is reported, not a traceback")
 
 
 # ---- and -V and -h need no Python libusb1 package -------------------------

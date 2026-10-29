@@ -148,8 +148,14 @@ def report_versions():
     # Nothing of this script's is waiting in the buffers here, and this keeps
     # it that way: a line written before the child starts must not land after
     # the child's.
-    sys.stdout.flush()
-    sys.stderr.flush()
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.flush()
+        except (AttributeError, ValueError):
+            # There is no such stream: a descriptor closed before the script
+            # started leaves the interpreter without one, and nothing is
+            # buffered for it either way.
+            pass
     child = run_tool(['ubertooth-util', '-V'])
     if child is None:
         return 1

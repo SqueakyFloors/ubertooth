@@ -435,6 +435,15 @@
   command is now the `error: no help on '<word>'` line the prompt's other
   refusals read like, in place of `*** No help on <word>`.
   [#874](https://github.com/SqueakyFloors/ubertooth/issues/874)
+- **Script-visible change:** `ubertooth-btbr` refuses a word its prompt does
+  not know, `error: no such command '<word>'` on standard error with the
+  prompt still up, where such a word used to be taken silently. `-h` and `-V`
+  with standard output closed before the tool started, as `ubertooth-btbr -h
+  >&-` leaves it, report the answer as lost and exit 1 rather than ending in a
+  traceback; `btle-extcap.py -V` and `ubertooth-specan-ui -V` no longer end in
+  one there either.
+  [#908](https://github.com/SqueakyFloors/ubertooth/issues/908)
+  [#911](https://github.com/SqueakyFloors/ubertooth/issues/911)
 - `-V` is the version command in every tool, and prints the same labelled
   lines whichever tool you ask: the two host lines above, then
   `Firmware version: ...` and `Firmware build: ...` for the board `-U` names,
