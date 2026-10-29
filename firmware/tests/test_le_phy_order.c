@@ -106,6 +106,7 @@ static int scan_le_phy(const char *path, struct le_phy_scan *s)
 		 * This runs before the gates below, so it covers the whole file
 		 * rather than one function. */
 		if (strstr(line, "timer1_arm_match(") != NULL ||
+		    strstr(line, "timer1_arm_match_in(") != NULL ||
 		    strstr(line, "timer1_disarm_match_interrupt(") != NULL ||
 		    strstr(line, "timer1_set_match_if_unarmed(") != NULL) {
 			if (strchr(line, ';') == NULL && strchr(line, '{') != NULL)
@@ -422,6 +423,7 @@ MU_TEST(test_every_match_bit_is_changed_with_interrupts_held_off)
 	snprintf(msg, sizeof(msg),
 	         "%s:%d: T1MCR is read or part-written here without holding "
 	         "interrupts off; go through timer1_arm_match(), "
+	         "timer1_arm_match_in(), "
 	         "timer1_disarm_match_interrupt() or "
 	         "timer1_set_match_if_unarmed(), or an interrupt landing in the "
 	         "middle loses the bit it armed", path, s.bare_match_use);
@@ -429,13 +431,14 @@ MU_TEST(test_every_match_bit_is_changed_with_interrupts_held_off)
 
 	snprintf(msg, sizeof(msg),
 	         "%s: the scan found %d guarded uses of T1MCR, expected one in "
-	         "each of the three helpers -- the scan has stopped reading "
+	         "each of the four helpers -- the scan has stopped reading "
 	         "them", path, s.guarded_match_uses);
-	mu_assert(s.guarded_match_uses == 3, msg);
+	mu_assert(s.guarded_match_uses == 4, msg);
 
 	snprintf(msg, sizeof(msg),
 	         "%s:%d: the moment a match fires at is written here, apart from "
-	         "the bit that arms it; pass it to timer1_arm_match() instead, "
+	         "the bit that arms it; pass it to timer1_arm_match() or "
+	         "timer1_arm_match_in() instead, "
 	         "or an interrupt between the two leaves the match armed against "
 	         "a time the counter has gone past", path, s.bare_moment_write);
 	mu_assert(s.bare_moment_write == 0, msg);

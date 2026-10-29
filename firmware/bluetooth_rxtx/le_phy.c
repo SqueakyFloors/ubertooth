@@ -272,6 +272,7 @@ static void timer1_start(void);
 static void timer1_enable_interrupt(void);
 static void timer1_stop(void);
 static void timer1_arm_match(volatile uint32_t *match, uint32_t when, uint32_t bit);
+static void timer1_arm_match_in(volatile uint32_t *match, uint32_t delta, uint32_t bit);
 static void timer1_disarm_match_interrupt(uint32_t bit);
 static void timer1_set_match(uint32_t match);
 static void timer1_set_match_if_unarmed(uint32_t match);
@@ -1180,6 +1181,27 @@ static void timer1_arm_match(volatile uint32_t *match, uint32_t when, uint32_t b
 	irq_restore(primask);
 }
 
+// Arm a match a fixed interval from now, with the counter read inside the
+// guard.
+//
+// For a wait, "when" is only ever "this long from now", and the shortest of
+// them is 3 microseconds -- less than an interrupt entry. Reading the counter
+// before the guard and writing it inside would let an interrupt taken in
+// between spend longer than the interval, and the match would go in behind the
+// counter. So the reading and both writes happen together.
+//
+// A caller whose moment is fixed rather than relative -- the connection grid,
+// where the next event's time comes from the last anchor -- uses
+// timer1_arm_match() above and must: re-deriving such a moment from the
+// counter would move the event.
+static void timer1_arm_match_in(volatile uint32_t *match, uint32_t delta, uint32_t bit) {
+	uint32_t primask = irq_save_disable();
+
+	*match = NOW + delta;
+	T1MCR |= bit;
+	irq_restore(primask);
+}
+
 static void timer1_disarm_match_interrupt(uint32_t bit) {
 	uint32_t primask = irq_save_disable();
 
@@ -1245,17 +1267,17 @@ static void timer1_wait_fs_lock(void) {
 
 // Arm the next re-check of a wait already running. See FS_LOCK_RECHECK.
 static void timer1_recheck_fs_lock(void) {
-	uint32_t when;
+	uint32_t delta;
 
 	if (fs_lock_rechecks < FS_LOCK_FAST_RECHECKS) {
 		++fs_lock_rechecks;
-		when = NOW + FS_LOCK_RECHECK;
+		delta = FS_LOCK_RECHECK;
 	} else {
 		if (++fs_lock_slow_rechecks % FS_LOCK_SLOW_RESTROBE == 0)
 			cc2400_strobe(SFSON);
-		when = NOW + FS_LOCK_RECHECK_SLOW;
+		delta = FS_LOCK_RECHECK_SLOW;
 	}
-	timer1_arm_match(&T1MR2, when, TMCR_MR2I);
+	timer1_arm_match_in(&T1MR2, delta, TMCR_MR2I);
 }
 
 static void timer1_cancel_fs_lock(void) {
@@ -1263,7 +1285,7 @@ static void timer1_cancel_fs_lock(void) {
 }
 
 static void timer1_wait_buffer(void) {
-	timer1_arm_match(&T1MR3, NOW + USEC(100), TMCR_MR3I);
+	timer1_arm_match_in(&T1MR3, USEC(100), TMCR_MR3I);
 }
 
 static void timer1_cancel_wait_buffer(void) {
@@ -1475,7 +1497,7 @@ static void blink(int tx, int rx, int usr) {
 		USRLED_SET;
 
 	// blink for 10 ms
-	timer1_arm_match(&T1MR1, NOW + MSEC(10), TMCR_MR1I);
+	timer1_arm_match_in(&T1MR1, MSEC(10), TMCR_MR1I);
 }
 
 // helper function to dewhiten length from whitened data (only used
