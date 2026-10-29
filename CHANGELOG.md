@@ -581,6 +581,14 @@
 
 ### Reliability fixes
 
+- `ubertooth-btbr -V` and `-h` answer on a host where the Python `libusb1`
+  package is not installed, instead of ending in a `ModuleNotFoundError`
+  traceback: the command line is now read before the `usb1` module is
+  imported. `-V` is how a user says which tools they have, so it is the call
+  that has to work when something is missing. A call that opens a board still
+  needs the package and says so in one line.
+  [#898](https://github.com/SqueakyFloors/ubertooth/issues/898)
+
 - `ubertooth-btle` prints one `warning:` line when interference (`-i`, `-I`,
   `-j`, `-J`) is given: the option is accepted but no capture mode acts on it
   yet, so the board transmits nothing. It used to follow or listen as usual and

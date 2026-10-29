@@ -2,6 +2,10 @@ from time import time
 import logging
 from binascii import unhexlify, hexlify
 from struct import pack, unpack
+# One spelling of a `warning: ` line in the package. btctl imports this
+# module, so its own warn() could only be reached from inside a function;
+# streams.py imports nothing of the package, so there is no cycle here.
+from ubtbr.streams import warn
 log = logging.getLogger("btctl")
 LLID_LMP = 3
 
@@ -256,11 +260,6 @@ class LMP:
 		fsm = self._FSM[self._state]
 		reg = fsm.get(op)
 		if reg is None:
-			# Imported here rather than at the top of the file: btctl
-			# imports this module, so importing it back at module scope
-			# would be a cycle. Going through its warn() anyway keeps one
-			# spelling of a `warning: ` line in the package.
-			from ubtbr.btctl import warn
 			warn("LMP opcode 0x%x is not handled in state %d"
 				%(op, self._state))
 			return False

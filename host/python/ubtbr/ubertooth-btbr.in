@@ -13,10 +13,269 @@ _module_dir = os.path.normpath(os.path.join(
 if os.path.isdir(_module_dir) and _module_dir not in sys.path:
 	sys.path.insert(0, _module_dir)
 
-import usb1
-from cmd import Cmd
-from ubtbr.btctl import *
 from getopt import getopt, GetoptError
+# ubtbr.streams imports nothing outside the standard library, so the whole
+# command line can be read -- and -V and -h answered -- up here, ahead of the
+# imports further down, which need the Python libusb1 package. -V is the call
+# that has to work without it: it is how a user says which tools they have.
+from ubtbr.streams import error, eprint, output_gone, output_lost
+
+# The options the tool takes, in getopt's form: a ':' marks one that takes a
+# value. report_bad_option() reads the same string to find the word a stray
+# dash came from, so there is one copy for the two of them.
+SHORT_OPTIONS = "f:b:U:hV"
+
+USAGE = ("Usage: ubertooth-btbr [-U <index|serial>] [-f <freq_offset>] "
+	"[-b <max_ac_errors>]\n"
+	"Options:\n"
+	"  -U <index|serial>: select Ubertooth by index or serial; "
+	"see ubertooth(7)\n"
+	"  -f freq_offset: Set MOD_OFFSET register\n"
+	"  -b max_ac_errors: Max bit errors in Syncword detection\n"
+	"  -V: print version information: the host tools, and the\n"
+	"      firmware version and build of each attached board\n"
+	"  -h: print this help\n")
+
+# The tool that prints the -V answer. One function in libubertooth builds that
+# answer and ubertooth-util prints it, so running it here passes the same
+# lines on rather than writing a second version of them in Python, which
+# would then have to be kept in step by hand. The host tools and this tool are
+# installed together, so it is the answer the user would get from
+# ubertooth-util themselves. ubertooth(7), COMMON OPTIONS, has the lines.
+VERSION_TOOL = "ubertooth-util"
+
+def usage():
+	"""The usage text for -h, on standard output."""
+	sys.stdout.write(USAGE)
+
+def report_versions(selector=None):
+	"""Print the -V answer, and return the exit status it leaves behind.
+
+	The child writes to this tool's own streams, so each line lands on the
+	stream it belongs on and in the order the child wrote them, and a board
+	it could not read is reported there exactly as the C tools report it.
+	"""
+	command = [VERSION_TOOL, "-V"]
+	if selector is not None:
+		# The board -U named, as ubertooth-util's own -U names it, whatever
+		# it was given: what an empty value means is that tool's to say, as
+		# it is for the session this tool opens without -V.
+		command += ["-U", selector]
+	# Nothing of this tool's is waiting in the buffers here, and this keeps
+	# it that way: a line written before the child starts must not land
+	# after the child's.
+	sys.stdout.flush()
+	sys.stderr.flush()
+	try:
+		status = subprocess.call(command)
+	except OSError as e:
+		# Not on the PATH, or there and not executable. Reported in one line
+		# like every other failure here, rather than ending the tool in a
+		# traceback.
+		error("could not run %s: %s"%(VERSION_TOOL, e.strerror or e))
+		return 1
+	# ubertooth-util exits 0 with the whole answer and 1 when part of it could
+	# not be read; a child killed by a signal (a negative status here)
+	# answered nothing at all.
+	return 0 if status == 0 else 1
+
+def dash_word(words, short_options):
+	"""The option word a stray '-' came from, as the user wrote it.
+
+	getopt reports the letter it rejected and not the word it was in, so the
+	word is found by asking getopt again, one word longer each time: the
+	first command line that ends in a rejected '-' ends in the word that
+	holds it. Another refusal on the way (a missing value the next word will
+	supply) is not it. None means no word produced one, which leaves the
+	caller to name the dash alone.
+	"""
+	for length in range(1, len(words) + 1):
+		try:
+			getopt(words[:length], short_options)
+		except GetoptError as refusal:
+			if refusal.opt == '-':
+				return words[length - 1]
+	return None
+
+def report_bad_option(refusal, short_options):
+	"""Report a command line getopt would not take, as the other tools do.
+
+	One line naming what is wrong, and no usage text: the user can run -h.
+	getopt's own messages name the option but not what the tools call the
+	problem, so they are rewritten here.
+	"""
+	# getopt says "option --name ..." for a word starting with two dashes
+	# and "option -c ..." for a single letter. No tool takes long options.
+	long_option = refusal.msg.startswith("option --")
+	# A stray dash in an option word ("-h-") is rejected as the letter '-',
+	# which reads as a long option here, so it is taken first: the word the
+	# user wrote is what names it, as in the C tools.
+	dash = (dash_word(sys.argv[1:], short_options)
+		if refusal.opt == '-' else None)
+	if refusal.msg.endswith("requires argument"):
+		error("option '-%s' requires a value"%refusal.opt)
+	elif refusal.opt == '-':
+		error("unrecognized option '-' in '%s'"%dash if dash
+			else "unrecognized option '-'")
+	elif long_option:
+		error("unrecognized option '--%s': the tools take "
+			"single-letter options"%refusal.opt)
+	else:
+		error("unrecognized option '-%s'"%refusal.opt)
+	sys.exit(1)
+
+def read_command_line():
+	"""Read the command line, and return the board and settings for a session.
+
+	Ends the command where that is the whole answer: -V, -h, and a command
+	line the tool will not take. Returns (board, settings) otherwise, where
+	settings are the (option, value) pairs to send once the board is open.
+	"""
+	try:
+		opt, args = getopt(sys.argv[1:], SHORT_OPTIONS)
+	except GetoptError as e:
+		report_bad_option(e, SHORT_OPTIONS)
+
+	# Read before the device is opened, so a command line that is wrong is
+	# refused without touching a board, and says what is wrong with it rather
+	# than reporting whatever the board did first.
+	# Both go into a request as 16 bits, so a value outside that is refused
+	# here rather than reaching the packing and raising from there.
+	settings = []
+	selectors = []
+	help_wanted = False
+	version_wanted = False
+	for o, v in opt:
+		if o == '-h':
+			# Takes effect once the whole command line has parsed, as in the
+			# other tools, so a bad value or a stray word is still reported.
+			help_wanted = True
+			continue
+		if o == '-V':
+			# Deferred for the same reason as -h.
+			version_wanted = True
+			continue
+		if o == '-U':
+			# Checked for repeats below, where the other tools check theirs.
+			selectors.append(v)
+			continue
+		try:
+			value = int(v)
+		except ValueError:
+			value = None
+		if value is None or value < 0 or value > 0xffff:
+			error("%s must be 0-65535 (got %s)"%(o, v))
+			sys.exit(1)
+		settings.append((o, value))
+	if args:
+		error("unexpected argument '%s'"%args[0])
+		sys.exit(1)
+
+	# An option given a value twice is two answers to one question, and the
+	# tool does not pick between them. The wording is the one every tool
+	# uses, from opt_check_once() in the C tools. Checked before -h ends the
+	# command, like the other faults above: the C tools refuse the repeat as
+	# they read the command line, so -h does not excuse it there either.
+	given = ['-U'] * len(selectors) + [o for o, value in settings]
+	for o in ('-U', '-f', '-b'):
+		if given.count(o) > 1:
+			error("option '%s' given more than once"%o)
+			sys.exit(1)
+	selector = selectors[0] if selectors else None
+
+	# -V and -h both end the command, and both answer on standard output, so
+	# a command line with both prints both: the version first and the usage
+	# text last, so the shorter answer is not scrolled off the screen by it,
+	# whichever order they were written in. The status is the version's: -h
+	# has none of its own.
+	if version_wanted or help_wanted:
+		status = report_versions(selector) if version_wanted else 0
+		if help_wanted:
+			usage()
+		sys.exit(status)
+
+	return selector, settings
+
+def through(stage):
+	"""Run one stage of the tool, and report a standard output that went away.
+
+	Both stages come through here: the command line, which answers -V and -h
+	ahead of the imports below, and the session. Either can find the stream
+	gone -- `ubertooth-btbr -h | head -0` is the first -- and the interpreter
+	flushes it as it exits, outside any handler, where a failed flush ends
+	the tool in status 120 and a message of its own.
+
+	Returns what the stage returned. A stage that ended the command, through
+	sys.exit() or a stream that went away, does not return.
+	"""
+	status = 0
+	try:
+		return stage()
+	except SystemExit as leaving:
+		status = leaving.code or 0
+	except BrokenPipeError:
+		# A write that was not a packet: the usage text and what `?` prints
+		# go to standard output too, and result() is the only one that
+		# notices the stream going away by itself. A command line the tool
+		# refuses is the reachable case, since it writes before anything
+		# else does. A failed write to standard error from either stage
+		# arrives here as well and is reported as this; the prompt and the
+		# intro, which every session writes, go through BTCtlPrompt.say() so
+		# that a standard error nobody reads does not cost the capture.
+		output_lost()
+		# Out without the interpreter's own teardown, for the reason the
+		# command that would not stop takes that way out: once a session is
+		# running, the receive thread may be inside libusb, and taking the
+		# library down under it is what turns an exit into an abort. The
+		# command-line stage has no such thread, and leaves the same way so
+		# that both stages report a lost stream alike. Whatever is still
+		# buffered for the stream that failed goes with it, which is where
+		# it was headed.
+		sys.stderr.flush()
+		os._exit(1)
+	finally:
+		# The last word on that stream, while a handler can still reach the
+		# failure: the interpreter flushes it as it exits, outside any
+		# handler, and a flush that fails there ends the tool in status 120
+		# and a message of its own. Under `finally`, so that an exception on
+		# the way out of the stage does not leave that flush to the
+		# interpreter.
+		try:
+			sys.stdout.flush()
+		except BrokenPipeError:
+			output_lost()
+		except (AttributeError, ValueError):
+			# There is no standard output to flush: a descriptor closed
+			# before the tool started leaves the interpreter without one.
+			pass
+	# A standard output that went away means what was asked for was not all
+	# printed, whatever the stage made of the rest.
+	sys.exit(1 if output_gone() else status)
+
+if __name__ == '__main__':
+	# Read here, ahead of the imports below, so that -V, -h and a refused
+	# command line are answered on a host without the Python libusb1 package.
+	COMMAND_LINE = through(read_command_line)
+
+# What a session needs, and -V and -h above do not: usb1 comes from the
+# Python libusb1 package, and ubtbr.btctl imports it as well.
+try:
+	import usb1
+	from cmd import Cmd
+	from ubtbr.btctl import *
+except ImportError as missing:
+	# Reported in one line, like every other failure here, rather than
+	# ending the tool in a traceback. Nothing below is defined, since the
+	# exit leaves this module part way through.
+	error("could not start the session: %s"%missing)
+	# Where to get it, for the module that comes from a package the user
+	# installs. Any other name missing here is a broken install, and
+	# telling that user to install libusb1 would send them the wrong way.
+	if missing.name == "usb1":
+		eprint("note: a session needs the Python libusb1 package, which "
+			"ships the usb1 module; install it with "
+			"\"pip install libusb1\"\n")
+	sys.exit(1)
 
 class BTCtlL2Ping(BTCtlPagingCmd):
 	def __init__(self, bt, bdaddr):
@@ -340,110 +599,6 @@ class BTCtlPrompt(Cmd):
 	do_EOF = do_exit
 	help_EOF = help_exit
 
-# The options the tool takes, in getopt's form: a ':' marks one that takes a
-# value. report_bad_option() reads the same string to find the word a stray
-# dash came from, so there is one copy for the two of them.
-SHORT_OPTIONS = "f:b:U:hV"
-
-USAGE = ("Usage: ubertooth-btbr [-U <index|serial>] [-f <freq_offset>] "
-	"[-b <max_ac_errors>]\n"
-	"Options:\n"
-	"  -U <index|serial>: select Ubertooth by index or serial; "
-	"see ubertooth(7)\n"
-	"  -f freq_offset: Set MOD_OFFSET register\n"
-	"  -b max_ac_errors: Max bit errors in Syncword detection\n"
-	"  -V: print version information: the host tools, and the\n"
-	"      firmware version and build of each attached board\n"
-	"  -h: print this help\n")
-
-# The tool that prints the -V answer. One function in libubertooth builds that
-# answer and ubertooth-util prints it, so running it here passes the same
-# lines on rather than writing a second version of them in Python, which
-# would then have to be kept in step by hand. The host tools and this tool are
-# installed together, so it is the answer the user would get from
-# ubertooth-util themselves. ubertooth(7), COMMON OPTIONS, has the lines.
-VERSION_TOOL = "ubertooth-util"
-
-def usage():
-	"""The usage text for -h, on standard output."""
-	sys.stdout.write(USAGE)
-
-def report_versions(selector=None):
-	"""Print the -V answer, and return the exit status it leaves behind.
-
-	The child writes to this tool's own streams, so each line lands on the
-	stream it belongs on and in the order the child wrote them, and a board
-	it could not read is reported there exactly as the C tools report it.
-	"""
-	command = [VERSION_TOOL, "-V"]
-	if selector is not None:
-		# The board -U named, as ubertooth-util's own -U names it, whatever
-		# it was given: what an empty value means is that tool's to say, as
-		# it is for the session this tool opens without -V.
-		command += ["-U", selector]
-	# Nothing of this tool's is waiting in the buffers here, and this keeps
-	# it that way: a line written before the child starts must not land
-	# after the child's.
-	sys.stdout.flush()
-	sys.stderr.flush()
-	try:
-		status = subprocess.call(command)
-	except OSError as e:
-		# Not on the PATH, or there and not executable. Reported in one line
-		# like every other failure here, rather than ending the tool in a
-		# traceback.
-		error("could not run %s: %s"%(VERSION_TOOL, e.strerror or e))
-		return 1
-	# ubertooth-util exits 0 with the whole answer and 1 when part of it could
-	# not be read; a child killed by a signal (a negative status here)
-	# answered nothing at all.
-	return 0 if status == 0 else 1
-
-def dash_word(words, short_options):
-	"""The option word a stray '-' came from, as the user wrote it.
-
-	getopt reports the letter it rejected and not the word it was in, so the
-	word is found by asking getopt again, one word longer each time: the
-	first command line that ends in a rejected '-' ends in the word that
-	holds it. Another refusal on the way (a missing value the next word will
-	supply) is not it. None means no word produced one, which leaves the
-	caller to name the dash alone.
-	"""
-	for length in range(1, len(words) + 1):
-		try:
-			getopt(words[:length], short_options)
-		except GetoptError as refusal:
-			if refusal.opt == '-':
-				return words[length - 1]
-	return None
-
-def report_bad_option(refusal, short_options):
-	"""Report a command line getopt would not take, as the other tools do.
-
-	One line naming what is wrong, and no usage text: the user can run -h.
-	getopt's own messages name the option but not what the tools call the
-	problem, so they are rewritten here.
-	"""
-	# getopt says "option --name ..." for a word starting with two dashes
-	# and "option -c ..." for a single letter. No tool takes long options.
-	long_option = refusal.msg.startswith("option --")
-	# A stray dash in an option word ("-h-") is rejected as the letter '-',
-	# which reads as a long option here, so it is taken first: the word the
-	# user wrote is what names it, as in the C tools.
-	dash = (dash_word(sys.argv[1:], short_options)
-		if refusal.opt == '-' else None)
-	if refusal.msg.endswith("requires argument"):
-		error("option '-%s' requires a value"%refusal.opt)
-	elif refusal.opt == '-':
-		error("unrecognized option '-' in '%s'"%dash if dash
-			else "unrecognized option '-'")
-	elif long_option:
-		error("unrecognized option '--%s': the tools take "
-			"single-letter options"%refusal.opt)
-	else:
-		error("unrecognized option '-%s'"%refusal.opt)
-	sys.exit(1)
-
 def leave(bt, status):
 	"""Exit with no thread left inside libusb.
 
@@ -457,70 +612,12 @@ def leave(bt, status):
 		bt.close()
 	sys.exit(status)
 
-def main():
-	try:
-		opt, args = getopt(sys.argv[1:], SHORT_OPTIONS)
-	except GetoptError as e:
-		report_bad_option(e, SHORT_OPTIONS)
+def main(selector, settings):
+	"""Run a session on the board the command line named.
 
-	# Read before the device is opened, so a command line that is wrong is
-	# refused without touching a board, and says what is wrong with it rather
-	# than reporting whatever the board did first.
-	# Both go into a request as 16 bits, so a value outside that is refused
-	# here rather than reaching the packing and raising from there.
-	settings = []
-	selectors = []
-	help_wanted = False
-	version_wanted = False
-	for o, v in opt:
-		if o == '-h':
-			# Takes effect once the whole command line has parsed, as in the
-			# other tools, so a bad value or a stray word is still reported.
-			help_wanted = True
-			continue
-		if o == '-V':
-			# Deferred for the same reason as -h.
-			version_wanted = True
-			continue
-		if o == '-U':
-			# Checked for repeats below, where the other tools check theirs.
-			selectors.append(v)
-			continue
-		try:
-			value = int(v)
-		except ValueError:
-			value = None
-		if value is None or value < 0 or value > 0xffff:
-			error("%s must be 0-65535 (got %s)"%(o, v))
-			sys.exit(1)
-		settings.append((o, value))
-	if args:
-		error("unexpected argument '%s'"%args[0])
-		sys.exit(1)
-
-	# An option given a value twice is two answers to one question, and the
-	# tool does not pick between them. The wording is the one every tool
-	# uses, from opt_check_once() in the C tools. Checked before -h ends the
-	# command, like the other faults above: the C tools refuse the repeat as
-	# they read the command line, so -h does not excuse it there either.
-	given = ['-U'] * len(selectors) + [o for o, value in settings]
-	for o in ('-U', '-f', '-b'):
-		if given.count(o) > 1:
-			error("option '%s' given more than once"%o)
-			sys.exit(1)
-	selector = selectors[0] if selectors else None
-
-	# -V and -h both end the command, and both answer on standard output, so
-	# a command line with both prints both: the version first and the usage
-	# text last, so the shorter answer is not scrolled off the screen by it,
-	# whichever order they were written in. The status is the version's: -h
-	# has none of its own.
-	if version_wanted or help_wanted:
-		status = report_versions(selector) if version_wanted else 0
-		if help_wanted:
-			usage()
-		sys.exit(status)
-
+	`settings` are the (option, value) pairs read from the command line that
+	are sent to the board once it is open.
+	"""
 	bt = None
 	try:
 		bt = BTCtl.find(selector)
@@ -591,45 +688,7 @@ def main():
 		sys.exit(1)
 
 if __name__ == '__main__':
-	# What main() decided, kept so that a standard output found gone below
-	# can still raise it: -h and the refusals all leave through sys.exit().
-	status = 0
-	try:
-		main()
-	except SystemExit as leaving:
-		status = leaving.code or 0
-	except BrokenPipeError:
-		# A write that was not a packet: the usage text and what `?` prints
-		# go to standard output too, and result() is the only one that
-		# notices the stream going away by itself. A command line the tool
-		# refuses is the reachable case, since it writes before anything
-		# else does. A failed write to standard error arrives here as well
-		# and is reported as this; the prompt and the intro, which every
-		# session writes, go through BTCtlPrompt.say() so that a standard
-		# error nobody reads does not cost the capture.
-		output_lost()
-		# Out without the interpreter's own teardown, for the reason the
-		# command that would not stop takes that way out: the receive thread
-		# may be inside libusb, and taking the library down under it is what
-		# turns an exit into an abort. Whatever is still buffered for the
-		# stream that failed goes with it, which is where it was headed.
-		sys.stderr.flush()
-		os._exit(1)
-	finally:
-		# The last word on that stream, while a handler can still reach the
-		# failure: the interpreter flushes it as it exits, outside any
-		# handler, and a flush that fails there ends the tool in status 120
-		# and a message of its own. Under `finally`, so that an exception on
-		# the way out of main() does not leave that flush to the
-		# interpreter.
-		try:
-			sys.stdout.flush()
-		except BrokenPipeError:
-			output_lost()
-		except (AttributeError, ValueError):
-			# There is no standard output to flush: a descriptor closed
-			# before the tool started leaves the interpreter without one.
-			pass
-	# A standard output that went away means what was asked for was not all
-	# printed, whatever main() made of the rest.
-	sys.exit(1 if output_gone() else status)
+	through(lambda: main(*COMMAND_LINE))
+	# The session ended without asking for a status of its own, so all that
+	# is left to say is whether standard output was there to the end.
+	sys.exit(1 if output_gone() else 0)
