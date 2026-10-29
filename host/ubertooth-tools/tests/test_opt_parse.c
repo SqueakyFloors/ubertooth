@@ -463,10 +463,13 @@ static void refusal_for(const char *options, const char *reported_with,
  */
 static void test_bad_option_word(void)
 {
-	/* ubertooth-util's letters: -U and -r are the ones the cases below
-	 * turn on, -U taking a value and -r not. */
+	/* A copy of ubertooth-util's letters, so the cases below read against
+	 * a real tool's command lines: -U and -r are the ones they turn on, -U
+	 * taking a value and -r not. It is only a copy -- what checks each
+	 * tool's own letters, and that its getopt loop and its reporter are
+	 * given the same ones, is test_cli_matrix.py. */
 	static const char util[] =
-		":U:hn::meiIprsStvbwl::a::C::c::d::q::z::VNxH";
+		":U:hn::meiIprsStvbwl::a::C::c::d::q::z::VNx";
 	static const struct {
 		const char *line;
 		const char *expected;

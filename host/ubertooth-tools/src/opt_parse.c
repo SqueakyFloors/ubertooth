@@ -346,17 +346,14 @@ int opt_no_arguments(int argc)
  *
  * Setting optind to 0 is what the GNU getopt takes as "start over": it
  * forgets how far into a word it had read, which setting optind to 1 does
- * not. That is the rule for every platform the tools are built for today:
- * Linux and the BSDs link the system getopt, which on Linux is the GNU one,
- * and macOS and MSVC link the copy in host/ubertooth-tools/getopt
- * (USE_OWN_GNU_GETOPT), which is the GNU one too. The BSD getopt reads
- * optreset instead; assigning to that variable on macOS does nothing at all,
- * because the bundled getopt is what the tools there call. A platform with a
- * BSD getopt and no bundled copy would need optreset as well, and the
- * COMPATIBILITY.md matrix has none. It would not lose the diagnostic quietly
- * either: every dash case in test_opt_parse.c fails where this reset does not
- * work, so such a platform fails its own test run rather than shipping a
- * reporter that names nothing.
+ * not. It is a GNU getopt the tools call on every platform they are built
+ * for: Linux links the system one, which is GNU, and macOS and MSVC link the
+ * copy in host/ubertooth-tools/getopt (USE_OWN_GNU_GETOPT). The BSD getopt
+ * reads optreset instead and would need it; assigning to that variable on
+ * macOS does nothing at all, the bundled getopt being what the tools there
+ * call. So a BSD without the bundled copy would lose this -- the
+ * COMPATIBILITY.md matrix has none, and it could not be lost quietly, since
+ * every dash case in test_opt_parse.c fails where this reset does not work.
  */
 static void getopt_restart(void)
 {
