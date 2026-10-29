@@ -278,11 +278,10 @@ static int joined_line_in_function(const char *path, int start)
 
 static int scan_source(const char *path, struct scan *s)
 {
-	char line[512];
+	char line[SCAN_LINE_MAX];
 	int lineno = 0, in_block = 0, cond_depth = 0;
 	int in_rangetest = 0, in_repeater = 0, in_turnaround = 0;
-	int in_fifo_wait = 0, in_filter = 0;
-	int fifo_wait_comment = 0, fifo_wait_ended = 0;
+	int in_fifo_wait = 0, in_filter = 0, fifo_wait_ended = 0;
 	FILE *f = fopen(path, "r");
 
 	if (f == NULL)
@@ -1349,14 +1348,20 @@ MU_TEST(test_the_read_waits_for_the_radio_to_have_the_packet)
 	 * lines the checks above name. Each of them can be satisfied while the
 	 * wait is taken apart around it.
 	 */
-	snprintf(msg, sizeof(msg),
-	         "%s:%d: rangetest_wait_for_fifo() reads\n  %s\nand it has to "
-	         "read\n  %s\nComments are not compared, so only the code has "
-	         "changed. Anything added between these lines -- another write to "
-	         "`waited` or to `step`, a second guard -- waits for a length no "
-	         "test here knows, and the wait exists to be exactly this long",
-	         path, s.fifo_wait_fn, s.fifo_wait_body, FIFO_WAIT_BODY);
-	mu_assert(strcmp(s.fifo_wait_body, FIFO_WAIT_BODY) == 0, msg);
+	/* Its own buffer: this message carries the function twice over. */
+	{
+		static char body_msg[4096];
+
+		snprintf(body_msg, sizeof(body_msg),
+		         "%s:%d: rangetest_wait_for_fifo() reads\n  %s\nand it has "
+		         "to read\n  %s\nComments are not compared, so only the "
+		         "code has changed. Anything added between these lines -- "
+		         "another write to `waited` or to `step`, a second guard "
+		         "-- waits for a length no test here knows, and the wait "
+		         "exists to be exactly this long",
+		         path, s.fifo_wait_fn, s.fifo_wait_body, FIFO_WAIT_BODY);
+		mu_assert(strcmp(s.fifo_wait_body, FIFO_WAIT_BODY) == 0, body_msg);
+	}
 
 	snprintf(msg, sizeof(msg),
 	         "%s:%d: rangetest_wait_for_fifo() does not wait "
@@ -2023,10 +2028,12 @@ MU_TEST(test_the_wait_adds_up_steps_across_the_counters_reset)
 /*
  * What the guard counts, and what it drops, over a whole period.
  *
- * Every pair of readings taken across the reset of a period `length` ticks
- * long is tried. `real` is the time that actually passed between the two
- * readings, which the firmware cannot know; `step` is what the fixed modulus
- * makes of them.
+ * Every pair of readings inside a period `length` ticks long is tried, both
+ * ways round: the second reading lower than the first, which is a reading
+ * taken across the period's reset, and the second higher, which is one taken
+ * without a reset in between. `real` is the time that actually passed between
+ * the two readings, which the firmware cannot know; `step` is what the fixed
+ * modulus makes of them.
  *
  * Two numbers come out. The first is how many single steps end the wait on
  * their own with less than the lead behind them, which is what the fault looks
@@ -2046,10 +2053,11 @@ static struct period_sweep sweep_period(uint32_t length)
 	struct period_sweep r = { 0, 0, 0 };
 	uint32_t last, now;
 
-	for (last = 1; last < length; last++) {
-		for (now = 0; now < last; now++) {
+	for (last = 0; last < length; last++) {
+		for (now = 0; now < length; now++) {
 			uint32_t step = (now + CLKN_PERIOD - last) % CLKN_PERIOD;
-			uint32_t real = now + length - last;
+			uint32_t real = now < last ? now + length - last
+			                           : now - last;
 
 			if (step >= MODEL_LEAD && real < MODEL_LEAD)
 				r.would_without_guard++;

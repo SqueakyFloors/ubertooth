@@ -1964,10 +1964,11 @@ Fixes with no visible change in normal use.
   arrived. The same wait fixed the range test's wrong byte 0.
   [#352](https://github.com/SqueakyFloors/ubertooth/issues/352)
 - The range test's wait for that first byte is no longer cut short by a clock
-  period the drift correction has lengthened. The wait is timed by a counter
-  that resets every 312.5 us, and a reading taken just after such a period
-  reset was read as up to 167 us of waiting that had not happened, which left
-  byte 0 of that reply read before the radio had written it.
+  period the drift correction has lengthened. The wait measured itself against
+  a period of 312.5 us, the usual one, so a reading taken just after a
+  lengthened period reset was read as up to 167 us of waiting that had not
+  happened, which left byte 0 of that reply read before the radio had written
+  it.
   [#870](https://github.com/SqueakyFloors/ubertooth/issues/870)
 - A capture keeps a packet whose transfer brought all 64 bytes and came back
   with the timed-out status rather than the completed one. It used to be

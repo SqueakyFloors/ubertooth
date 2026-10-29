@@ -158,8 +158,14 @@ rangetest_result rr;
  *
  * The wait needs a few hundred reads. This cap is only a backstop: a timer 0
  * that is not running would otherwise leave the wait spinning, answering no
- * control request, until the watchdog reset the board. Reaching it reads the
- * packet as early as the firmware used to, which is a wrong byte 0 at worst.
+ * control request, until the watchdog reset the board.
+ *
+ * Reaching it means the wait did not measure the lead, either way round. A
+ * counter that is not advancing reads the packet as early as the firmware used
+ * to, which is a wrong byte 0 at worst; a wait whose steps were all dropped
+ * reads it late instead, by the 25 milliseconds this many turns take, and the
+ * FIFO note above says what a long wait costs. Both beat a loop that never
+ * ends: the board goes on answering between packets.
  */
 #define RANGETEST_LEAD_POLLS 100000
 
@@ -195,10 +201,13 @@ static void rangetest_wait_for_fifo(void)
 
 		last = now;
 		/*
-		 * A step longer than the whole lead is not a step this loop
-		 * took: one turn of it is a register read and a division, a
-		 * handful of ticks. So a larger figure means the modulo above
-		 * was taken against the wrong period.
+		 * A step longer than the whole lead is almost never a step this
+		 * loop took: one turn of it is a register read and a division,
+		 * a handful of ticks, so a larger figure usually means the
+		 * modulo above was taken against the wrong period. An
+		 * interrupt between the two counter reads can stretch a real
+		 * step past the lead as well, and dropping that one costs
+		 * nothing: it makes the wait longer, never shorter.
 		 *
 		 * The timer's match value is not fixed. The clock interrupt
 		 * corrects for clock drift by moving it for one period, and a
