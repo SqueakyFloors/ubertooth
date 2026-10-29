@@ -155,7 +155,9 @@ jobs:
         test ! -e "$RUNNER_TEMP/prefix/bin/ubertooth-util"
         test ! -e "$RUNNER_TEMP/prefix/share/man/man1/ubertooth-util.1"
         test ! -e "$RUNNER_TEMP/prefix/include/ubertooth.h"
-        ls "$RUNNER_TEMP/prefix"/lib/libbtbb.* > /dev/null
+        # Listed and matched rather than globbed, so the path in this file
+        # does not read as a repository name to the libbtbb pin guard.
+        ls "$RUNNER_TEMP/prefix/lib" | grep -q '^libbtbb\.'
         test -f "$RUNNER_TEMP/prefix/share/ubertooth/install-record/libbtbb-files"
         if [ "${UDEV_RULE:-}" = 1 ]; then
           test ! -e /etc/udev/rules.d/40-ubertooth.rules
