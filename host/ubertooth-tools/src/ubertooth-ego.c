@@ -320,10 +320,8 @@ int main(int argc, char *argv[])
 		ubertooth_stop(ut);
 
 		/* What the capture is missing, once the packets have scrolled
-		 * past. A gap is a stretch the board had no queue room
-		 * for and a transfer error is one the chip's transfer controller
-		 * faulted at, so the counts are of those places and not of the
-		 * packets lost at them. */
+		 * past. The counts are of the places a loss was marked, not of
+		 * the packets lost at them. */
 		ubertooth_report_capture_losses(ut);
 
 		/* A teardown the board refused left it running the E-GO mode
