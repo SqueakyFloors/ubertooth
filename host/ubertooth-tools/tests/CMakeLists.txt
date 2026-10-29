@@ -1062,9 +1062,9 @@ add_test(
 # than passed, so a green run cannot hide an absent check.
 set_tests_properties(manpages PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 77)
 
-# The example output lines in host/doc/*.md against the lines the tests here
-# pin a tool to print, so a page left behind by a reworded message fails.
-# Reads both as source; nothing is built or run.
+# Matches the example output lines in host/doc/*.md against the lines the
+# tests here and under host/python pin a tool to print, so a page left behind
+# by a reworded message fails. Reads both as source; nothing is built or run.
 add_test(
 	NAME doc-example-lines
 	COMMAND ${Python3_EXECUTABLE}

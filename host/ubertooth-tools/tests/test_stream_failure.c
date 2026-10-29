@@ -316,6 +316,13 @@ int LIBUSB_CALL libusb_submit_transfer(struct libusb_transfer* xfer)
 {
 	int refused;
 
+	/* As libusb does: the count of bytes received starts at zero, so a
+	 * transfer put back in flight cannot carry the last packet's count
+	 * forward. The callback reads that count to decide whether a packet
+	 * arrived, so a backend that left it alone would publish the slot
+	 * again. */
+	if (xfer != NULL)
+		xfer->actual_length = 0;
 	pthread_mutex_lock(&fake_lock);
 	fake.submits++;
 	refused = fake.refuse_submit

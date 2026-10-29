@@ -1226,17 +1226,12 @@ static void cb_xfer(struct libusb_transfer *xfer)
 		if (wanted_back)
 			break;
 		/* A whole 64-byte packet is a packet, whichever of the two
-		 * statuses came with it. libusb reports a transfer that received
-		 * every byte asked for as completed; it can also report the
-		 * timeout expiring on the same transfer, and the packet in the
-		 * buffer is a packet either way. The earlier test also required
-		 * the completed status, so a whole packet that arrived with the
-		 * other one was dropped and nothing was said about it: a packet
-		 * the host already held was lost. The teardown's case does not
-		 * reach here: a cancelled transfer that comes back as a bulk
-		 * timeout is caught by wanted_back above, which is also what
-		 * keeps a capture that is stopping from reading into another
-		 * slot of a ring buffer nobody is draining.
+		 * statuses came with it: libusb reports a transfer that received
+		 * every byte asked for as completed, and it can also report the
+		 * timeout expiring on that same transfer, and the packet in the
+		 * buffer is a packet either way. How many bytes arrived is this
+		 * transfer's own count, because libusb_submit_transfer() starts
+		 * it at zero, so a slot nothing filled in cannot read as full.
 		 *
 		 * Short of 64 bytes is not a packet. When a capture goes quiet
 		 * the firmware answers the bulk endpoint with a one-byte

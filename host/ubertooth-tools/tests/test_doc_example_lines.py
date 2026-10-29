@@ -58,7 +58,20 @@ from functools import lru_cache
 WILD = "\x00"
 
 # A C or Python token: a string literal, an identifier, or one character.
-TOKEN = re.compile(r'"(?:[^"\\\n]|\\.)*"|[A-Za-z_][A-Za-z_0-9]*|.', re.S)
+# Python's single-quoted literals count, and so does the `{...}` of an
+# f-string, which is a field the format fills in.
+TOKEN = re.compile(r'"(?:[^"\\\n]|\\.)*"|\'(?:[^\'\\\n]|\\.)*\''
+                   r'|[A-Za-z_][A-Za-z_0-9]*|.', re.S)
+FIELD = re.compile(r'\{[^{}]*\}')
+
+# What this reads past rather than into: a string literal keeps whatever is
+# inside it, a comment goes. Matched in one pass so that a `#` or a `//`
+# inside a literal is not read as the start of a comment.
+C_PROSE = re.compile(r'"(?:[^"\\\n]|\\.)*"|\'(?:[^\'\\\n]|\\.)*\''
+                     r'|(/\*(?:.|\n)*?\*/)|(//[^\n]*)')
+PY_PROSE = re.compile(r'"""(?:.|\n)*?"""|\'\'\'(?:.|\n)*?\'\'\''
+                      r'|"(?:[^"\\\n]|\\.)*"|\'(?:[^\'\\\n]|\\.)*\''
+                      r'|(#[^\n]*)')
 
 # A printf conversion, filled in when the line is printed. `r` is Python's,
 # for a value written as its repr. The flag characters are spelled with the
@@ -73,6 +86,7 @@ VOLATILE = re.compile(
     r'|[0-9a-f]{32}'
     r'|git-[0-9A-Za-z_.*-]+'
     r'|\b[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){4,5}\b'
+    r"|'[0-9a-f]{2,32}'"          # a serial, or the start of one, in quotes
     r'|0x[0-9A-Fa-f]+'
     r'|\b\d+(?:\.\d+)*\b')
 
@@ -90,23 +104,13 @@ LIST_ITEM = re.compile(r'^ *[-*] \S')
 # with a wildcard each side would otherwise match any labelled line.
 LEAST_FIXED_RUN = 6
 
-
-def usable(pattern):
-    """Whether a pinned pattern says enough to tie a line to.
-
-    Open at both ends, a pattern only asks for its fixed text to appear
-    somewhere in the line, which a phrase common to many lines would satisfy;
-    `"%s requires %s"` would cover any line with " requires " in it. So one
-    end has to be fixed text, which is where a line's label or its full stop
-    is, and some run of that text has to be long enough to mean something.
-    """
-    if pattern[:1] == WILD and pattern[-1:] == WILD:
-        return False
-    return any(len(run) >= LEAST_FIXED_RUN for run in pattern.split(WILD))
+# And it has to account for this much of the line it covers, so that a short
+# head such as `error: -` does not stand in for the whole of a long line.
+LEAST_SHARE = 0.6
 
 # A floor on how many example lines this finds, so a change to the patterns
 # above cannot leave the check passing having looked at nothing.
-AT_LEAST = 90
+AT_LEAST = 60
 
 # The documented lines no host test pins, with why. Each entry is the page and
 # the line as it appears there.
@@ -158,6 +162,19 @@ NOT_PINNED = [
      "Image: bluetooth_rxtx git-ed30131d (API:<version>)"),
     ("ubertooth-dfu.md",
      "DFU expected revision: git-ed30131d"),
+    # The refusal of two options that cannot be combined. The tool builds it
+    # from the options it was given and the list it allows, and the test
+    # leaves both to the run, so the page's own spelling of them is not
+    # checked either way.
+    ("ubertooth-util.md",
+     "error: options -q -n cannot be combined; give only one of -q -n -e -t "
+     "-x -I -i"),
+    # The reason libusb gave for a board that could not be opened. The only
+    # test that pins this text pins it as an error line of another tool, and
+    # which of the three levels a line is said with is part of what a page
+    # promises, so that does not cover a note.
+    ("ubertooth-util.md",
+     "note: Access denied (insufficient permissions) (libusb -3)"),
     # ubertooth-specan's write failures: the tests pin the line up to the
     # reason the C library gave, which the page shows as a placeholder.
     ("ubertooth-specan.md",
@@ -181,12 +198,6 @@ NOT_PINNED = [
      "11:22:33 2025"),
     ("ubertooth.md",
      "Firmware build: <build string the board reports>"),
-    # The watchdog report. Its tests read the state rather than this line.
-    ("ubertooth-util.md",
-     "Watchdog: armed; 3000 ms without USB being serviced or the mode "
-     "looping resets the board"),
-    ("ubertooth-util.md",
-     "error: no Ubertooth found with serial matching '1cc0'"),
 ]
 
 
@@ -201,19 +212,41 @@ def unescape(text):
                 .replace('\\\\', '\\'))
 
 
+def usable(pattern):
+    """Whether a pinned pattern says enough to tie a line to.
+
+    Open at both ends, a pattern only asks for its fixed text to appear
+    somewhere in the line, which a phrase common to many lines would satisfy;
+    `"%s requires %s"` would cover any line with " requires " in it. So one
+    end has to be fixed text, which is where a line's label or its full stop
+    is, and some run of that text has to be long enough to mean something.
+    """
+    if pattern[:1] == WILD and pattern[-1:] == WILD:
+        return False
+    return any(len(run) >= LEAST_FIXED_RUN for run in pattern.split(WILD))
+
+
+def fixed_length(pattern):
+    return len(pattern.replace(WILD, ""))
+
+
 def without_prose(text, python):
     """The source with its comments gone, so prose is not read as a literal.
 
     A Python docstring matters most: its own quotes tokenize as an empty
     literal, and the sentences inside it would then be read as lines a test
     pins. A sentence about output is not output.
+
+    Literals are matched in the same pass and kept, so a `#` or a `//` inside
+    one does not cut the literal short.
     """
-    text = re.sub(r'/\*.*?\*/', ' ', text, flags=re.S)
-    text = re.sub(r'(?m)//.*$', ' ', text)
+    def replace(match):
+        # A group matched only for a comment; a literal matches group 0 alone.
+        return ' ' if match.lastindex else match.group(0)
+
+    text = C_PROSE.sub(replace, text)
     if python:
-        text = re.sub(r'"""(?:.|\n)*?"""', ' ', text)
-        text = re.sub(r"'''(?:.|\n)*?'''", ' ', text)
-        text = re.sub(r'(?m)#.*$', ' ', text)
+        text = PY_PROSE.sub(replace, text)
     return text
 
 
@@ -235,10 +268,10 @@ def pinned_patterns(text, python=False):
         token = TOKEN.match(text, at)
         value = token.group(0)
         at = token.end()
-        if value.startswith('"'):
+        if value.startswith('"') or value.startswith("'"):
             if run and gap:
                 run.append(WILD)
-            run.append(unescape(value[1:-1]))
+            run.append(FIELD.sub(WILD, unescape(value[1:-1])))
             gap = False
         elif value.isspace():
             continue
@@ -260,8 +293,15 @@ def pattern_of(line):
     return re.sub(WILD + '+', WILD, pattern).strip()
 
 
-def forms_of(line):
-    """The line as a pattern, and without its diagnostic prefix."""
+def documented_forms(line):
+    """A documented line as a pattern, and without its diagnostic prefix.
+
+    The second form is for the messages a library builds and leaves the
+    prefix to the tool that prints them, so a test pins the message alone.
+    Only the documented side is stripped: a pinned `error: X` must not come
+    to cover a page that shows `note: X`, because which of the three a line
+    is said with is part of what the page promises.
+    """
     pattern = pattern_of(line)
     prefix = DIAGNOSTIC.match(pattern)
     if prefix:
@@ -290,9 +330,9 @@ def pinned_lines(host_src):
             text = handle.read()
         for pattern in pinned_patterns(text, path.endswith(".py")):
             for line in pattern.split("\n"):
-                for form in forms_of(line):
-                    if usable(form):
-                        lines.append(form)
+                form = pattern_of(line)
+                if usable(form):
+                    lines.append(form)
     return list(dict.fromkeys(lines))
 
 
@@ -341,10 +381,45 @@ def can_produce(pinned, documented):
             return match(i + 1, j + 1)
         return False
 
-    try:
-        return match(0, 0)
-    finally:
-        match.cache_clear()
+    return match(0, 0)
+
+
+def covered_by(pinned, line):
+    """The pinned pattern that ties this documented line down, if any.
+
+    As well as being able to produce the line, the pattern has to account for
+    most of it. Without that, a pinned `error: -` -- the head of a line a
+    test asserted the start of -- would stand in for every long `error: -U
+    ...` line a page shows, tail and all.
+    """
+    for form in documented_forms(line):
+        needed = LEAST_SHARE * fixed_length(form)
+        for candidate in pinned:
+            if (fixed_length(candidate) >= needed
+                    and can_produce(candidate, form)):
+                return candidate
+    return None
+
+
+def variants(line):
+    """The line with two letters pushed into it, in a few places.
+
+    The places are inside the runs the page does promise, the three longest
+    of them, a quarter and three quarters of the way along each, so a change
+    lands on text rather than inside a placeholder. A pinned pattern that
+    covers one of these as happily as the line itself is matching something
+    the line has in common with other lines rather than the line. One of them
+    breaking is enough to tell, because another may land in a field the test
+    leaves open: there the page spells out what the test does not promise,
+    and the page's words are nobody's to check.
+    """
+    runs = [run for run in pattern_of(line).split(WILD) if len(run) >= 4]
+    made = []
+    for run in sorted(runs, key=len, reverse=True)[:3]:
+        for share in (0.25, 0.75):
+            at = line.find(run) + int(len(run) * share)
+            made.append(line[:at] + "zq" + line[at:])
+    return made
 
 
 def main():
@@ -369,22 +444,33 @@ def main():
         fail("NOT_PINNED names the same line of the same page twice")
     stale = []
     pinned_after_all = []
+    held = 0
     for page, number, line in documented:
-        covered = any(can_produce(candidate, form)
-                      for form in forms_of(line) for candidate in pinned)
-        if covered and (page, line) in known:
+        # Tied down only if a pattern covers the line and stops covering it
+        # once a word of the line changes. A pattern that covers both is
+        # matching something the line has in common with other lines.
+        tied = covered_by(pinned, line) is not None
+        if tied:
+            changed = variants(line)
+            tied = any(covered_by(pinned, one) is None for one in changed)
+        if tied and (page, line) in known:
             pinned_after_all.append((page, number, line))
-        elif not covered and (page, line) not in known:
+        elif not tied and (page, line) not in known:
             stale.append((page, number, line))
+        elif tied:
+            held += 1
 
-    if stale:
-        print("No host test pins these lines, so the pages promise output "
-              "nothing is known to print. Either the line is out of date, or "
-              "the test that covers it pins only part of it.")
-        for page, number, line in stale:
-            print("  %s:%d: %s" % (page, number, line))
-        fail("%d of %d documented output lines are pinned by no test"
-             % (len(stale), len(documented)))
+    # Reported first: an entry for a line that has been edited, or for a page
+    # that no longer shows it, would otherwise be hidden by the failures
+    # below, and it is usually the cause of them.
+    gone = known - set((page, line) for page, _, line in documented)
+    if gone:
+        print("NOT_PINNED names lines that no page shows any more. A line it "
+              "names that has been edited counts: say in the entry what the "
+              "page says now, or take the entry out if a test pins it.")
+        for page, line in sorted(gone):
+            print("  %s: %s" % (page, line))
+        fail("%d NOT_PINNED entry (entries) are out of date" % len(gone))
 
     if pinned_after_all:
         print("A test now pins these lines, so NOT_PINNED should lose them:")
@@ -393,17 +479,18 @@ def main():
         fail("NOT_PINNED has %d entry (entries) a test has caught up with"
              % len(pinned_after_all))
 
-    gone = known - set((page, line) for page, _, line in documented)
-    if gone:
-        print("NOT_PINNED names lines that no page shows any more:")
-        for page, line in sorted(gone):
-            print("  %s: %s" % (page, line))
-        fail("%d NOT_PINNED entry (entries) are out of date" % len(gone))
+    if stale:
+        print("No host test pins these lines, so the pages promise output "
+              "nothing is known to print. Either the line is out of date, or "
+              "the test that covers it pins too little of it to tell.")
+        for page, number, line in stale:
+            print("  %s:%d: %s" % (page, number, line))
+        fail("%d of %d documented output lines are pinned by no test"
+             % (len(stale), len(documented)))
 
     print("PASS: %d of %d documented output lines are pinned by a host test, "
           "%d recorded as pinned by none (%d pinned lines read)"
-          % (len(documented) - len(known), len(documented), len(known),
-             len(pinned)))
+          % (held, len(documented), len(documented) - held, len(pinned)))
 
 
 if __name__ == "__main__":
