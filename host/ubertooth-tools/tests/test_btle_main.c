@@ -1034,12 +1034,12 @@ MU_TEST(a_failed_target_set_and_jamming_are_reported_on_stderr)
 	mu_assert_int_eq(1, r.rc);
 	mu_assert_int_eq(JAM_ONCE, fake.last_jam_mode);
 	mu_assert_int_eq(0, fake.polls); /* no capture was started */
-	/* The run-time warning that interference does nothing yet comes first,
-	 * then the request the board refused. */
+	/* The warning that interference does nothing yet comes first, then the
+	 * request the board refused. */
 	mu_assert(strcmp(r.err,
 	                 "warning: interference (-i, -I, -j, -J) is accepted but"
-	                 " no mode acts on it yet; see"
-	                 " https://github.com/SqueakyFloors/ubertooth/issues/871\n"
+	                 " no capture mode acts on it yet; see KNOWN BROKEN"
+	                 " FEATURES in ubertooth-btle(1)\n"
 	                 "error: jamming not supported by this firmware\n") == 0,
 	          r.err);
 	mu_assert(r.out[0] == '\0', r.out);
@@ -1235,9 +1235,7 @@ MU_TEST(a_mode_the_board_refuses_stops_the_run)
 	fake.modulation_rc = -1;
 	r = RUN("-f");
 	mu_assert_int_eq(1, r.rc);
-	/* The modulation is stated after the mode request now, so the mode has
-	 * started by the time it fails and is stopped on the way out. */
-	mu_assert_int_eq(1, fake.sniffing_calls);
+	mu_assert_int_eq(0, fake.sniffing_calls); /* the mode was not started */
 	mu_assert_int_eq(1, fake.stops);
 	mu_assert(strcmp(r.err, "error: modulation set failed\n") == 0, r.err);
 
@@ -1552,6 +1550,34 @@ MU_TEST(the_jam_aliases_select_the_same_mode_as_interfere)
 	mu_assert_int_eq(JAM_CONTINUOUS, fake.last_jam_mode);
 }
 
+/* Interference does nothing yet, so a run that will act on it warns once, a
+ * run without it says nothing, and a run refused before it would act gets its
+ * error line alone. */
+MU_TEST(interference_warns_once_when_the_run_proceeds)
+{
+	struct run_result r;
+	static const char warning[] =
+		"warning: interference (-i, -I, -j, -J) is accepted but no capture"
+		" mode acts on it yet; see KNOWN BROKEN FEATURES in"
+		" ubertooth-btle(1)\n";
+
+	reset_fake();
+	r = RUN("-f", "-i");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.err, warning) == 0, r.err);
+
+	reset_fake();
+	r = RUN("-f");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.err, "interference") == NULL, r.err);
+
+	reset_fake();
+	r = RUN("-n", "-i");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "interference (") == NULL, r.err);
+	mu_assert(strstr(r.err, "error: -i needs -f or -p") == r.err, r.err);
+}
+
 /* The handle and its 72 MB fifo go back on every exit once it exists. They
  * were left to process exit, and were allocated before the command line had
  * been read, so even a refused command took 72 MB. */
@@ -1642,6 +1668,7 @@ int main(void)
 	MU_RUN(a_run_refused_for_its_firmware_creates_no_file);
 	MU_RUN(a_capture_file_that_cannot_be_created_is_named);
 	MU_RUN(the_jam_aliases_select_the_same_mode_as_interfere);
+	MU_RUN(interference_warns_once_when_the_run_proceeds);
 	MU_RUN(the_gaps_in_a_capture_are_reported_when_it_ends);
 	return mu_report();
 }

@@ -482,8 +482,6 @@ static void set_channel_request(uint16_t requested)
 #define STATED_CHANNEL     (1 << 0)
 #define STATED_ACCESS_CODE (1 << 1)
 #define STATED_AFH_MAP     (1 << 2)
-#define STATED_MODULATION  (1 << 3)
-#define STATED_JAM_MODE    (1 << 4)
 
 static volatile uint8_t  stated_what;       /* STATED_* bits, 0 for nothing */
 static volatile uint8_t  stated_for_mode;   /* the mode request it followed */
@@ -494,13 +492,6 @@ static volatile int      stated_access_code_len;
  * kept rather than the hop sequence built from it, so applying it runs the
  * same code the request ran. */
 static volatile uint8_t  stated_afh_map[sizeof(afh_map)];
-/* The modulation ubertooth-dump asks for with -l, and the jam mode
- * ubertooth-btle asks for with -j. Unlike the settings above, which the radio
- * leaves alone, a mode start resets these two to their defaults (Basic Rate
- * and no jamming); keeping the stated value is what carries them past that
- * reset to the mode the host asked them for -- and no further. */
-static volatile uint8_t  stated_modulation;
-static volatile uint8_t  stated_jam_mode;
 
 /*
  * Note which mode request this setting followed. A copy kept for an earlier
@@ -570,14 +561,6 @@ static void apply_stated_settings(uint8_t starting_mode)
 			map[i] = stated_afh_map[i];
 		bluetooth_set_afh_map(map);
 	}
-	/* After the reset put these two back to their defaults, so the mode the
-	 * host asked for starts with the value it asked for. The two low-energy
-	 * modes set their own modulation in their setup below, which still
-	 * wins. */
-	if (what & STATED_MODULATION)
-		modulation = stated_modulation;
-	if (what & STATED_JAM_MODE)
-		jam_mode = stated_jam_mode;
 }
 
 /*
@@ -770,15 +753,6 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		    request_params[0] != MOD_BT_LOW_ENERGY)
 			return 0;
 		modulation = request_params[0];
-		/* ubertooth-dump states this after its mode request, so that a
-		 * run killed before the request leaves no modulation behind and
-		 * a later capture does not inherit it. A mode start resets the
-		 * modulation, so the stated value is kept for the mode the
-		 * request is starting; see apply_stated_settings(). */
-		if (requested_mode != mode) {
-			stated_modulation = request_params[0];
-			stated_for_starting_mode(STATED_MODULATION);
-		}
 		break;
 
 	case UBERTOOTH_GET_CHANNEL:
@@ -1269,13 +1243,6 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 #ifdef TX_ENABLE
 	case UBERTOOTH_JAM_MODE:
 		jam_mode = request_params[0];
-		/* Kept for the starting mode like the modulation above, and for
-		 * the same reason: ubertooth-btle states it after its mode
-		 * request, and a mode start would otherwise reset it. */
-		if (requested_mode != mode) {
-			stated_jam_mode = request_params[0];
-			stated_for_starting_mode(STATED_JAM_MODE);
-		}
 		break;
 #endif
 

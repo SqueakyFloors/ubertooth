@@ -56,7 +56,7 @@ In all sniffing modes, Ubertooth can log data to PCAP or PcapNG with a variety o
 .P
 In every sniffing mode, a packet carrying a Bluetooth 4\.2 Data Length Extension payload, up to its 251\-byte maximum, is captured whole: on the screen, in PCAP and in PCAPNG\. The board sends such a packet in several fixed\-size records, which are put back together before anything is decoded or written\. Older firmware cut every packet to 50 bytes\.
 .P
-Interfering with connections is a feature for causing intentional interference with newly established or long\-lived connections\. When this attack succeeds, the BLE connection between the central and peripheral will be terminated\. Pair the \fB\-i\fR or \fB\-I\fR flag with \fB\-f\fR to interfere with new connections or \fB\-p\fR to interfere with long\-lived connections\. \fB\-i\fR or \fB\-I\fR (or their older spellings \fB\-j\fR and \fB\-J\fR) with neither \fB\-f\fR nor \fB\-p\fR is refused before any device is opened: there is no connection to interfere with\. Note that causing intentional interference may be illegal in your jurisdiction\. Check your local laws before using this feature\.
+Interfering with connections is a feature for causing intentional interference with newly established or long\-lived connections\. When this attack succeeds, the BLE connection between the central and peripheral will be terminated\. Pair the \fB\-i\fR or \fB\-I\fR flag with \fB\-f\fR to interfere with new connections or \fB\-p\fR to interfere with long\-lived connections\. \fB\-i\fR or \fB\-I\fR (or their older spellings \fB\-j\fR and \fB\-J\fR) with neither \fB\-f\fR nor \fB\-p\fR is refused before any device is opened: there is no connection to interfere with\. This describes the feature as it is meant to work; no capture mode acts on it at the moment (see KNOWN BROKEN FEATURES)\. Note that causing intentional interference may be illegal in your jurisdiction\. Check your local laws before using this feature\.
 .P
 Finally, \fBubertooth\-btle\fR supports transmitting advertising packets with a specified BD ADDR\. This feature, referred to as faux slave mode, is experimental and may not function as intended\. Use at your own risk\.
 .SH "EXAMPLES"
@@ -120,10 +120,10 @@ Inject advertising packets using specified BD ADDR\. Like \fB\-a\fR, it does not
 Interference (only with \fB\-f\fR or \fB\-p\fR):
 .TP
 \fB\-i\fR
-Interfere with one connection and return to idle
+Interfere with one connection and return to idle\. Accepted but inert at the moment; see KNOWN BROKEN FEATURES
 .TP
 \fB\-I\fR
-Interfere continuously with many connections
+Interfere continuously with many connections\. Accepted but inert at the moment; see KNOWN BROKEN FEATURES
 .TP
 \fB\-j\fR
 Original "jam" spelling of \fB\-i\fR; does exactly what \fB\-i\fR does
@@ -180,7 +180,7 @@ Data source:
 \fB\-U <index|serial>\fR
 select an Ubertooth by enumeration index or serial number; see ubertooth(7), SELECTING A DEVICE
 .SH "KNOWN BROKEN FEATURES"
-Interference (\fB\-i\fR, \fB\-I\fR, and their original jam spellings \fB\-j\fR and \fB\-J\fR) is accepted, but no capture mode acts on it yet: the board follows or listens to the connection as usual and transmits nothing, so a run with one of these options is no different from a run without it\. The tool prints one \fBwarning:\fR line saying so when any of them is given\. Making interference work again is tracked in issue #871 \fIhttps://github\.com/SqueakyFloors/ubertooth/issues/871\fR\.
+Interference (\fB\-i\fR, \fB\-I\fR, and their original jam spellings \fB\-j\fR and \fB\-J\fR) is accepted, but no capture mode acts on it yet: the board follows or listens to the connection as usual and transmits nothing, so a run with one of these options is no different from a run without it\. The tool prints one \fBwarning:\fR line saying so when any of them is given\. The DESCRIPTION and OPTIONS below describe the feature as it is meant to work; making it work again is tracked in issue #871 \fIhttps://github\.com/SqueakyFloors/ubertooth/issues/871\fR\.
 .SH "USING WITH CRACKLE"
 \fBcrackle\fR is a tool for cracking the BLE key exchange and decrypting encrypted data\. To capture data for use with \fBcrackle\fR, sniff connections in follow mode using \fB\-f\fR and log data to PCAP/PPI using \fB\-c\fR\. Example:
 .IP "" 4
@@ -191,7 +191,7 @@ ubertooth\-btle \-f \-c crack\.pcap
 .P
 Refer to \fBcrackle\fR documentation for further details\.
 .SH "TRANSMIT POWER"
-Injecting advertising packets (\fB\-s\fR) and interference (\fB\-i\fR, \fB\-I\fR, \fB\-j\fR, \fB\-J\fR) transmit at the CC2400 power level set with \fBubertooth\-util \-a\fR and leave it unchanged\. A board that has not been given a level transmits at 7 (0 dBm), the CC2400's reset value\. Sniffing does not transmit and does not change the level\. These levels are at the CC2400 radio; the Ubertooth One's RF amplifier changes the actual output after that\.
+Injecting advertising packets (\fB\-s\fR) transmits at the CC2400 power level set with \fBubertooth\-util \-a\fR and leaves it unchanged\. A board that has not been given a level transmits at 7 (0 dBm), the CC2400's reset value\. Sniffing does not transmit and does not change the level\. Interference (\fB\-i\fR, \fB\-I\fR, \fB\-j\fR, \fB\-J\fR) would transmit at the same level, but no capture mode acts on it at the moment (see KNOWN BROKEN FEATURES), so it transmits nothing\. These levels are at the CC2400 radio; the Ubertooth One's RF amplifier changes the actual output after that\.
 .SH "ARGUMENTS"
 \fBubertooth\-btle\fR takes options only\. A word that is not an option, including a bare \fB\-\fR, is refused before any device is opened and named: \fBerror: unexpected argument '<word>'\fR, with exit status 1\.
 .P

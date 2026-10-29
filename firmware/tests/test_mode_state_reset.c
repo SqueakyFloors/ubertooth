@@ -98,22 +98,12 @@ static u32 access_code;
 #define STATED_CHANNEL     (1 << 0)
 #define STATED_ACCESS_CODE (1 << 1)
 #define STATED_AFH_MAP     (1 << 2)
-#define STATED_MODULATION  (1 << 3)
-#define STATED_JAM_MODE    (1 << 4)
 
 static u8 stated_what;
 static u8 stated_for_mode;
 static u16 stated_channel;
 static u32 stated_access_code;
 static u8 stated_afh_map[10];
-static u8 stated_modulation;
-static u8 stated_jam_mode;
-
-/* The modulation the receive paths demodulate, and the jam mode. Unlike the
- * settings above, a mode start puts these two back to their defaults, so the
- * value stated for a mode has to be carried past that reset to reach it. */
-static u8 modulation;
-static u8 jam_mode;
 
 /* The E-GO mode asked for, and the request handler's word to ego_main()'s loop
  * that a request has asked for one while it was running. */
@@ -158,8 +148,6 @@ static void cc2400_idle(void)
 	channel = IDLE_CHANNEL;
 	le_adv_channel = IDLE_ADV_CHANNEL;
 	clear_afh_map();
-	jam_mode = JAM_NONE;
-	modulation = MOD_BT_BASIC_RATE;
 }
 
 /* ego_access_code_reset() */
@@ -224,10 +212,6 @@ static void apply_stated_settings(u8 starting_mode)
 		access_code = stated_access_code;
 	if (what & STATED_AFH_MAP)
 		bluetooth_set_afh_map(stated_afh_map);
-	if (what & STATED_MODULATION)
-		modulation = stated_modulation;
-	if (what & STATED_JAM_MODE)
-		jam_mode = stated_jam_mode;
 }
 
 /* rssi_iir_reset(), which the dispatch runs on its way out of a mode. Each
@@ -487,29 +471,6 @@ static void request_set_access_code(u32 code)
 	if (requested_mode != mode) {
 		stated_access_code = code;
 		stated_for_starting_mode(STATED_ACCESS_CODE);
-	}
-	board_poll();
-}
-
-/* UBERTOOTH_SET_MOD, which ubertooth-dump states after its mode request so a
- * run killed before the request leaves no modulation behind. */
-static void request_set_modulation(u8 mod)
-{
-	modulation = mod;
-	if (requested_mode != mode) {
-		stated_modulation = mod;
-		stated_for_starting_mode(STATED_MODULATION);
-	}
-	board_poll();
-}
-
-/* UBERTOOTH_JAM_MODE, stated after the mode request like the modulation. */
-static void request_set_jam_mode(u8 jam)
-{
-	jam_mode = jam;
-	if (requested_mode != mode) {
-		stated_jam_mode = jam;
-		stated_for_starting_mode(STATED_JAM_MODE);
 	}
 	board_poll();
 }
@@ -1034,120 +995,6 @@ MU_TEST(a_channel_stated_after_a_stop_is_kept)
 
 	mu_assert_int_eq(MODE_IDLE, mode);
 	mu_assert_int_eq(2440, channel);
-}
-
-/*
- * The modulation ubertooth-dump states with -l survives the slow exit of a
- * mode the board was left in. It is stated after the capture request now, not
- * before it, so a board coming out of a killed ubertooth-specan keeps the low
- * energy the dump asked for instead of resetting to Basic Rate and writing
- * Classic records in silence.
- */
-MU_TEST(a_modulation_stated_after_the_capture_request_survives_a_slow_mode_exit)
-{
-	board_reset();
-	request_specan();
-
-	dispatch_held = 1;
-	request_rx_symbols();
-	request_set_modulation(MOD_BT_LOW_ENERGY);
-	the_old_mode_loop_returns();
-
-	mu_assert_int_eq(MODE_RX_SYMBOLS, mode);
-	mu_assert_int_eq(MOD_BT_LOW_ENERGY, modulation);
-}
-
-/*
- * And it is kept for that mode and no other. A dump killed between its mode
- * request and its capture leaves a modulation behind; the capture another tool
- * then asks for starts from the reset, on Basic Rate, not on the dump's low
- * energy. This is the silent wrong capture the fix is about.
- */
-MU_TEST(a_modulation_stated_for_a_mode_that_never_started_is_dropped)
-{
-	board_reset();
-	request_specan();
-
-	dispatch_held = 1;
-	request_rx_symbols();
-	request_set_modulation(MOD_BT_LOW_ENERGY);
-	/* That dump died before its capture started; another tool asks for its
-	 * own. */
-	request_btle_promisc();
-	the_old_mode_loop_returns();
-
-	mu_assert_int_eq(MODE_BT_PROMISC_LE, mode);
-	mu_assert_int_eq(MOD_BT_BASIC_RATE, modulation);
-}
-
-/* The jam mode ubertooth-btle states with -j goes the same way: stated after
- * the mode request, kept for the mode that request starts. */
-MU_TEST(a_jam_mode_stated_after_the_follow_request_survives_a_slow_mode_exit)
-{
-	board_reset();
-	request_specan();
-
-	dispatch_held = 1;
-	request_btle_follow();
-	request_set_jam_mode(JAM_CONTINUOUS);
-	the_old_mode_loop_returns();
-
-	mu_assert_int_eq(MODE_BT_FOLLOW_LE, mode);
-	mu_assert_int_eq(JAM_CONTINUOUS, jam_mode);
-}
-
-/* And a jam mode stated for a mode that never started is dropped, so one run
- * cannot leave a board transmitting for the next. */
-MU_TEST(a_jam_mode_stated_for_a_mode_that_never_started_is_dropped)
-{
-	board_reset();
-	request_specan();
-
-	dispatch_held = 1;
-	request_btle_follow();
-	request_set_jam_mode(JAM_CONTINUOUS);
-	request_rx_symbols();
-	the_old_mode_loop_returns();
-
-	mu_assert_int_eq(MODE_RX_SYMBOLS, mode);
-	mu_assert_int_eq(JAM_NONE, jam_mode);
-}
-
-/*
- * A mode start puts both back to their defaults, which is what a run that
- * stated neither gets. A board left in a mode by a killed ubertooth-btle -j,
- * low energy and jamming, starts a fresh Classic capture on Basic Rate and no
- * jamming.
- */
-MU_TEST(a_mode_start_resets_a_stale_modulation_and_jam_mode)
-{
-	board_reset();
-	request_btle_follow();
-	modulation = MOD_BT_LOW_ENERGY;
-	jam_mode = JAM_CONTINUOUS;
-
-	request_rx_symbols();
-
-	mu_assert_int_eq(MODE_RX_SYMBOLS, mode);
-	mu_assert_int_eq(MOD_BT_BASIC_RATE, modulation);
-	mu_assert_int_eq(JAM_NONE, jam_mode);
-}
-
-/*
- * A modulation set with no mode running is kept for the capture that follows,
- * the same idle exception the channel and access code have: a mode started
- * from an idle board resets nothing, because no earlier mode's value can be
- * there. Only a program driving the board by hand reaches this; ubertooth-dump
- * states its modulation after the mode request.
- */
-MU_TEST(a_modulation_set_with_no_mode_running_is_kept)
-{
-	board_reset();
-	request_set_modulation(MOD_BT_LOW_ENERGY);
-	request_rx_symbols();
-
-	mu_assert_int_eq(MODE_RX_SYMBOLS, mode);
-	mu_assert_int_eq(MOD_BT_LOW_ENERGY, modulation);
 }
 
 /*
@@ -2185,12 +2032,6 @@ int main(void)
 	MU_RUN(a_setting_stated_for_a_mode_still_to_start_survives);
 	MU_RUN(an_access_code_set_with_no_mode_running_is_kept);
 	MU_RUN(a_channel_stated_after_a_stop_is_kept);
-	MU_RUN(a_modulation_stated_after_the_capture_request_survives_a_slow_mode_exit);
-	MU_RUN(a_modulation_stated_for_a_mode_that_never_started_is_dropped);
-	MU_RUN(a_jam_mode_stated_after_the_follow_request_survives_a_slow_mode_exit);
-	MU_RUN(a_jam_mode_stated_for_a_mode_that_never_started_is_dropped);
-	MU_RUN(a_mode_start_resets_a_stale_modulation_and_jam_mode);
-	MU_RUN(a_modulation_set_with_no_mode_running_is_kept);
 	MU_RUN(a_mode_start_puts_the_access_code_back);
 	MU_RUN(an_access_code_stated_after_the_mode_request_survives);
 	MU_RUN(an_absorbed_ego_request_resets_the_access_code);

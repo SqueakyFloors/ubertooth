@@ -566,19 +566,11 @@
 
 ### Reliability fixes
 
-- A capture no longer starts with a modulation or jam mode a killed tool left
-  behind. `ubertooth-dump` and `ubertooth-btle` now state these after their
-  mode request, the way the channel is stated, so a run that was interrupted
-  before its request leaves nothing for the next capture to pick up, and the
-  board keeps the value a running capture asked for. Before this, a
-  `ubertooth-dump -l` interrupted at the wrong moment could leave the board set
-  to low energy, and the next Classic capture would demodulate it wrongly and
-  say nothing.
-  [#872](https://github.com/SqueakyFloors/ubertooth/issues/872)
 - `ubertooth-btle` prints one `warning:` line when interference (`-i`, `-I`,
   `-j`, `-J`) is given: the option is accepted but no capture mode acts on it
-  yet, so the board transmits nothing. The man page records this under KNOWN
-  BROKEN FEATURES.
+  yet, so the board transmits nothing. It used to follow or listen as usual and
+  say nothing, so a run looked like it had interfered when it had not. The man
+  page records this under KNOWN BROKEN FEATURES.
   [#871](https://github.com/SqueakyFloors/ubertooth/issues/871)
 
 - A firmware download that stops part way through -- a cable pulled, a board
