@@ -96,7 +96,6 @@ def result(msg):
 		# `ubertooth-btbr | head -5` does.
 		output_lost()
 
-
 def warn(msg):
 	"""Report something the user should know about: one `warning: ` line.
 
