@@ -567,6 +567,19 @@
   quietest captured packet was -78, and a dump and a capture of one run
   disagreed by as much as 90 dB on an individual packet.
   [#859](https://github.com/SqueakyFloors/ubertooth/issues/859)
+- `ubertooth-btle -p` reports a connection interval that can be believed, or
+  none at all. It used to time how long the connection took to come back to
+  the channel it listens on, keep the smallest gap it had ever seen and divide
+  that by 37, which only holds for a connection that uses all 37 data channels
+  and so comes back once a trip round them. Against a 30 ms link the figure
+  came out anywhere from 0 to 11.25 ms, and a 0 took the hop increment to 0
+  with it, which stops the board hopping. The spacings between returns are now
+  taken as the repeating pattern they are, and one repeat of that pattern is 37
+  connection events whatever the channel map holds. A run whose spacings do not
+  repeat, or which give a figure outside the range a connection interval may
+  take, reports the access address and the CRC init value and no interval or
+  hop increment rather than a number that is wrong.
+  [#824](https://github.com/SqueakyFloors/ubertooth/issues/824)
 - `ubertooth-btle -p` discovers the access address of the connection it finds,
   instead of inheriting one from an earlier command. A `-t` target set for
   follow mode used to count on the board as "the host gave us an access

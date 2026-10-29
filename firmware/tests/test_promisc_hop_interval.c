@@ -49,6 +49,12 @@ struct scan {
 	struct site sites[MAX_SITES];
 	int site_count;
 	int le_baseclk;          /* LE_BASECLK, from ubertooth_clock.h */
+	/* The estimator's own two numbers, so the model below cannot drift
+	 * from the firmware without this test saying so: how many gaps it
+	 * keeps, and how many places le_gap_tolerance() shifts a span down
+	 * by. */
+	int gaps_kept;
+	int tolerance_shift;
 	/* The site inside promisc_recover_hop_interval(), which is the one this
 	 * test's model runs on. -1 until it is found: site 0 is a real site, so
 	 * leaving it at zero would read a neighbour's constant and pass. */
@@ -75,6 +81,15 @@ struct scan {
 	/* The hop-increment stamp, which had the same fault as prev_clk. */
 	int increment_static_in_function;
 	int increment_stamp_in_state;
+	/* Whether the hop increment checks the interval it is about to divide
+	 * by. Nothing else protects that division: with DIV_0_TRP clear, UDIV
+	 * answers 0 rather than faulting, and hop_interval_lut[0] is 0 -- a
+	 * hop increment that stops the board hopping. */
+	int increment_guards_the_interval;
+	int increment_guards_no_hops;
+	/* The estimator's gap ring, which has to be part of the mode's state
+	 * so that a pass starts with nothing in it. */
+	int gap_table_in_state;
 	/* Where the access address is announced to the host. The record is
 	 * dropped unless it is queued after bt_le_sync() has emptied the
 	 * queue, and announcing it twice would print the line twice. Being
@@ -187,6 +202,8 @@ static int scan_sources(struct scan *out)
 				out->flag_in_state = 1;
 			if (contains_identifier(line, "first_ts"))
 				out->increment_stamp_in_state = 1;
+			if (contains_identifier(line, "gap_count"))
+				out->gap_table_in_state = 1;
 		}
 		if (strcmp(fn, "promisc_recover_hop_interval") == 0 &&
 		    strstr(line, "static") != NULL &&
@@ -219,6 +236,26 @@ static int scan_sources(struct scan *out)
 		    strstr(line, "static") != NULL &&
 		    contains_identifier(line, "first_ts"))
 			out->increment_static_in_function = 1;
+
+		if (strcmp(fn, "promisc_recover_hop_increment") == 0 &&
+		    strstr(line, "le.conn_interval <") != NULL &&
+		    strstr(line, "LE_MIN_CONN_INTERVAL") != NULL)
+			out->increment_guards_the_interval = 1;
+
+		if (strcmp(fn, "promisc_recover_hop_increment") == 0 &&
+		    strstr(line, "channels_hopped >= 1") != NULL)
+			out->increment_guards_no_hops = 1;
+
+		{
+			int value;
+
+			if (sscanf(line, " #define LE_PROMISC_GAPS %d",
+			           &value) == 1)
+				out->gaps_kept = value;
+			if (strcmp(fn, "le_gap_tolerance") == 0 &&
+			    sscanf(line, " return (span >> %d)", &value) == 1)
+				out->tolerance_shift = value;
+		}
 
 		if (strcmp(fn, "bt_le_sync") == 0 &&
 		    strstr(line, "usb_queue_init()") != NULL)
@@ -287,12 +324,24 @@ static int scan_sources(struct scan *out)
  * ------------------------------------------------------------------------ */
 
 /* DIVIDE_ROUND(), from bluetooth_rxtx.c. */
-#define DIVIDE_ROUND(N, D) ((N) + (D)/2) / (D)
+#define DIVIDE_ROUND(N, D) (((N) + (D)/2) / (D))
+
+/* As many gaps as the estimator could ever keep. The number it does keep is
+ * read out of the firmware source, so a change there is a test failure rather
+ * than a model that has quietly drifted. */
+#define LE_PROMISC_GAPS 16
+
+/* The range a connection interval may take, in units of 1.25 ms, from
+ * bluetooth_le.h. */
+#define LE_MIN_CONN_INTERVAL 6
+#define LE_MAX_CONN_INTERVAL 3200
 
 struct estimator {
 	uint32_t prev_clk;
 	int seen_a_packet;
-	uint32_t smallest_hop_interval;
+	/* The gap lengths seen and how often each has been seen. */
+	uint32_t gap[LE_PROMISC_GAPS];
+	int gap_count;
 	uint16_t conn_interval;
 	int consec_intervals;
 };
@@ -301,8 +350,8 @@ struct estimator {
 static void estimator_init(struct estimator *e)
 {
 	memset(e, 0, sizeof(*e));
-	e->smallest_hop_interval = 0xffffffff;
 }
+
 
 /*
  * A connection already being followed, whose last sighting on this channel was
@@ -316,14 +365,106 @@ static void following_since(struct estimator *e, uint32_t last)
 	e->seen_a_packet = 1;
 }
 
+/* LE_PROMISC_MAX_GAP: the longest trip round the channels. */
+#define LONGEST_GAP ((uint32_t)LE_CHANNELS * LE_MAX_CONN_INTERVAL * 12500u)
+
+/* le_gap_tolerance(): how far two readings of one span may be apart. */
+static uint32_t gap_tolerance(uint32_t span)
+{
+	return (span >> s.tolerance_shift) + (uint32_t)s.le_baseclk / 2;
+}
+
+static int same_span(uint32_t a, uint32_t b)
+{
+	uint32_t shorter = a < b ? a : b;
+	uint32_t apart = a < b ? b - a : a - b;
+
+	return apart <= gap_tolerance(shorter);
+}
+
+/* promisc_note_gap(). */
+static void note_gap(struct estimator *e, uint32_t gap)
+{
+	int i;
+
+	if (e->gap_count < s.gaps_kept) {
+		e->gap[e->gap_count++] = gap;
+		return;
+	}
+	for (i = 0; i + 1 < s.gaps_kept; ++i)
+		e->gap[i] = e->gap[i + 1];
+	e->gap[s.gaps_kept - 1] = gap;
+}
+
+/* How many of the gaps in the ring are this span. */
+static int seen_count(const struct estimator *e, uint32_t span)
+{
+	int i, count = 0;
+
+	for (i = 0; i < e->gap_count; ++i)
+		if (same_span(e->gap[i], span))
+			count++;
+	return count;
+}
+
+static uint32_t gap_back(const struct estimator *e, unsigned back)
+{
+	return e->gap[e->gap_count - 1 - back];
+}
+
+/* promisc_interval(). */
+static uint16_t interval_from_gaps(const struct estimator *e)
+{
+	unsigned period, i;
+
+	for (period = 1; period <= (unsigned)s.gaps_kept / 2; ++period) {
+		uint32_t total = 0, interval, unit;
+
+		if ((unsigned)e->gap_count < 2 * period)
+			break;
+
+		for (i = 0; i < period; ++i)
+			if (!same_span(gap_back(e, i), gap_back(e, i + period)))
+				break;
+		if (i < period)
+			continue;
+
+		for (i = 0; i < period; ++i)
+			total += gap_back(e, i);
+
+		if (total > LONGEST_GAP || total < gap_back(e, 0))
+			continue;
+
+		interval = DIVIDE_ROUND(total,
+		                        LE_CHANNELS * (uint32_t)s.le_baseclk);
+		if (interval < LE_MIN_CONN_INTERVAL ||
+		    interval > LE_MAX_CONN_INTERVAL)
+			return 0;
+
+		unit = interval * (uint32_t)s.le_baseclk;
+		for (i = 0; i < period; ++i) {
+			uint32_t gap = gap_back(e, i);
+			uint32_t events = DIVIDE_ROUND(gap, unit);
+
+			if (events < 1 || events > LE_CHANNELS)
+				return 0;
+			if (!same_span(gap, events * unit))
+				return 0;
+		}
+
+		return (uint16_t)interval;
+	}
+	return 0;
+}
+
 /*
  * promisc_recover_hop_interval(), with the clock reading and the period passed
- * in. Returns the connection interval it would report.
+ * in. Returns the connection interval it would report, 0 for none.
  */
 static uint16_t a_packet_at(struct estimator *e, uint32_t now, uint32_t period)
 {
 	uint32_t cur_clk = now;
-	uint32_t measured, clk_diff, rounded;
+	uint32_t measured, clk_diff;
 	uint16_t obsv_hop_interval;
 
 	if (!e->seen_a_packet) {
@@ -337,19 +478,25 @@ static uint16_t a_packet_at(struct estimator *e, uint32_t now, uint32_t period)
 		measured += period;
 	clk_diff = measured - e->prev_clk;
 
-	/* probably consecutive data packets on the same channel */
-	if (clk_diff < 2u * (uint32_t)s.le_baseclk)
+	/* shorter than one connection interval: two packets of one event */
+	if (clk_diff < LE_MIN_CONN_INTERVAL * (uint32_t)s.le_baseclk)
 		return e->conn_interval;
 
-	if (clk_diff < e->smallest_hop_interval)
-		e->smallest_hop_interval = clk_diff;
+	e->prev_clk = cur_clk;
 
-	/* DIVIDE_ROUND() has no outer parentheses, so its result is taken in a
-	 * variable first: a cast written in front of it would bind to the
-	 * numerator and not to the quotient. */
-	rounded = DIVIDE_ROUND(e->smallest_hop_interval,
-	                       LE_CHANNELS * (uint32_t)s.le_baseclk);
-	obsv_hop_interval = (uint16_t)rounded;
+	if (clk_diff > (uint32_t)LE_CHANNELS * LE_MAX_CONN_INTERVAL *
+	               (uint32_t)s.le_baseclk)
+		return e->conn_interval;
+
+	note_gap(e, clk_diff);
+	obsv_hop_interval = interval_from_gaps(e);
+
+	if (obsv_hop_interval == 0) {
+		e->conn_interval = 0;
+		e->consec_intervals = 0;
+		return 0;
+	}
+
 	if (e->conn_interval == obsv_hop_interval) {
 		++e->consec_intervals;
 	} else {
@@ -357,9 +504,10 @@ static uint16_t a_packet_at(struct estimator *e, uint32_t now, uint32_t period)
 		e->consec_intervals = 0;
 	}
 
-	e->prev_clk = cur_clk;
 	return e->conn_interval;
 }
+
+
 
 /* How long a connection of this interval takes to come back to one channel. */
 static uint32_t round_the_channels(int conn_interval)
@@ -378,6 +526,23 @@ static uint32_t firmware_period(void)
 	if (s.interval_site < 0)
 		return 0;
 	return token_value(s.sites[s.interval_site].token);
+}
+
+/* A connection of this interval seen coming back `times` times in a row,
+ * starting from `*at`, which is advanced to the last sighting. Returns what
+ * the estimator reports at the end. */
+static uint16_t trips(struct estimator *e, uint32_t *at, int conn_interval,
+                      int times)
+{
+	uint32_t gap = round_the_channels(conn_interval);
+	uint16_t reported = 0;
+	int i;
+
+	for (i = 0; i < times; i++) {
+		*at += gap;
+		reported = a_packet_at(e, *at, firmware_period());
+	}
+	return reported;
 }
 
 /* The transposed literal the estimator used to add. */
@@ -406,6 +571,20 @@ MU_TEST(test_the_sources_were_scanned)
 	snprintf(msg, sizeof(msg), "%s: LE_BASECLK not found", clock_path);
 	mu_assert(s.le_baseclk > 0, msg);
 	mu_assert_int_eq(12500, s.le_baseclk);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: LE_PROMISC_GAPS not found, so the model below would keep "
+	         "a different number of gaps from the firmware", path);
+	mu_assert(s.gaps_kept >= 2, msg);
+	snprintf(msg, sizeof(msg),
+	         "%s: LE_PROMISC_GAPS is %d, more than this test allows for",
+	         path, s.gaps_kept);
+	mu_assert(s.gaps_kept <= LE_PROMISC_GAPS, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: le_gap_tolerance() does not shift the span, so the model "
+	         "below would allow a different spread", path);
+	mu_assert(s.tolerance_shift > 0, msg);
 }
 
 /* Every rollover site adds the named period. A literal is how a transposed
@@ -449,78 +628,82 @@ MU_TEST(test_a_gap_across_the_rollover_is_the_gap_that_passed)
 	uint32_t gap = round_the_channels(20);
 	uint32_t before = CLK100NS_PERIOD - 100000u;
 	uint32_t after = before + gap - CLK100NS_PERIOD;
+	uint32_t at = after;
 
 	following_since(&e, before);
-	mu_assert_int_eq(20, a_packet_at(&e, after, period));
-	mu_assert(e.smallest_hop_interval == gap,
-	          "the smallest gap seen is the 9,250,000 ticks that passed");
+	a_packet_at(&e, after, period);
+	mu_assert_int_eq(1, seen_count(&e, gap));
+	mu_assert(e.gap[0] == gap,
+	          "the gap recorded is the 9,250,000 ticks that passed");
 
-	/* Ordinary sightings after it agree, so the reported interval holds and
-	 * the mode moves on to recovering the hop increment. */
-	{
-		uint32_t at = after;
-		int i;
+	/* A second return repeats the pattern, and the interval comes out as
+	 * the connection's own. */
+	mu_assert_int_eq(20, trips(&e, &at, 20, 1));
 
-		for (i = 0; i < 5; i++) {
-			at += gap;
-			mu_assert_int_eq(20, a_packet_at(&e, at, period));
-		}
-		mu_assert_int_eq(5, e.consec_intervals);
-	}
+	/* Sightings after that agree, so the mode moves on to recovering the
+	 * hop increment. */
+	mu_assert_int_eq(20, trips(&e, &at, 20, 5));
+	mu_assert_int_eq(5, e.consec_intervals);
 }
 
 /*
  * What the transposed literal did with the same two sightings: the gap comes
- * out 9,000,000 ticks short, which for any interval of 20 units or more is a
- * small positive number. The estimator keeps the smallest gap it has seen, so
- * nothing later can replace it: the wrong interval is reported for the rest of
- * the run.
+ * out 9,000,000 ticks short, which for a 20-unit interval is 250,000 ticks --
+ * 25 ms, exactly a thirty-seventh of the real one. The estimator used to keep
+ * the smallest gap it had seen, so that one was reported as a 1-unit interval
+ * for the rest of the run however many correct sightings followed.
+ *
+ * With the period the firmware now adds this cannot arise, and the plausible
+ * range is what would stop it: 25 ms is far short of the 277.5 ms a trip round
+ * 37 channels takes at the shortest interval, so no interval is reported from
+ * it at all.
  */
-MU_TEST(test_the_short_period_latched_a_wrong_interval_forever)
+MU_TEST(test_a_gap_too_short_for_a_trip_round_the_channels_reports_nothing)
 {
 	struct estimator e;
 	uint32_t gap = round_the_channels(20);
 	uint32_t before = CLK100NS_PERIOD - 100000u;
 	uint32_t after = before + gap - CLK100NS_PERIOD;
+	uint32_t short_gap = gap - 9000000u; /* 250,000 ticks: 25 ms */
 	uint32_t at = after;
 	int i;
 
 	following_since(&e, before);
-	mu_assert_int_eq(1, a_packet_at(&e, after, TRANSPOSED_LITERAL));
-	mu_assert(e.smallest_hop_interval == gap - 9000000u,
+	mu_assert_int_eq(0, a_packet_at(&e, after, TRANSPOSED_LITERAL));
+	mu_assert(e.gap[0] == short_gap,
 	          "the gap came out 0.9 s short: 250,000 ticks instead of "
 	          "9,250,000");
 
-	/* Hundreds of correct sightings afterwards cannot shift it. */
-	for (i = 0; i < 500; i++) {
-		at += gap;
-		mu_assert_int_eq(1, a_packet_at(&e, at, TRANSPOSED_LITERAL));
+	/* However often a 25 ms gap recurs it is not a trip round the
+	 * channels, so there is no interval to take from it. */
+	for (i = 0; i < 20; i++) {
+		at += short_gap;
+		mu_assert_int_eq(0, a_packet_at(&e, at, firmware_period()));
 	}
+	mu_assert_int_eq(s.gaps_kept, seen_count(&e, short_gap));
 }
 
 /*
  * The issue's own worked example, for the record: a previous stamp of
  * 3,276,700,000 and a new one of 100,000, a true gap of 200,000 ticks. The
  * short period turns that into 4,286,167,296 by wrapping an unsigned
- * subtraction, which beats the starting 0xffffffff and is reported as 9,267.
- * That one does recover -- the next ordinary sighting is smaller, so it
- * replaces the minimum -- which is why the case above, where the short gap
- * stays the smallest, is the one that matters.
+ * subtraction, which used to beat the starting 0xffffffff and be reported as
+ * 9,267 units. A gap that long is now above anything a trip round the channels
+ * can take -- 148 s -- so it is dropped.
  */
 MU_TEST(test_a_gap_shorter_than_the_shortfall_wraps_instead)
 {
 	struct estimator e;
 
 	following_since(&e, 3276700000u);
-	mu_assert_int_eq(9267, a_packet_at(&e, 100000u, TRANSPOSED_LITERAL));
-	mu_assert(e.smallest_hop_interval == 4286167296u,
-	          "the unsigned subtraction wrapped");
+	mu_assert_int_eq(0, a_packet_at(&e, 100000u, TRANSPOSED_LITERAL));
+	mu_assert_int_eq(0, seen_count(&e, 4286167296u));
 
 	/* With the period the firmware now uses, the same two stamps are the
 	 * 200,000 ticks that passed. */
 	following_since(&e, 3276700000u);
 	a_packet_at(&e, 100000u, firmware_period());
-	mu_assert(e.smallest_hop_interval == 200000u,
+	mu_assert(e.gap[0] == 200000u,
 	          "the gap across the wrap is the gap that passed");
 }
 
@@ -533,15 +716,18 @@ MU_TEST(test_an_ordinary_gap_is_untouched)
 	uint32_t at = 1000000u;
 
 	following_since(&e, at);
-	at += gap;
-	mu_assert_int_eq(16, a_packet_at(&e, at, firmware_period()));
-	mu_assert(e.smallest_hop_interval == gap, "the gap is the gap");
+	mu_assert_int_eq(16, trips(&e, &at, 16, 2));
+	mu_assert(e.gap[0] == gap, "the gap is the gap");
+	mu_assert_int_eq(2, seen_count(&e, gap));
 }
 
 /*
- * Two packets of one connection event arrive together on the channel being
- * listened to, so a gap under two connection-interval units is not a trip
- * round the channels and is ignored. It must not become the minimum.
+ * The central's packet and the peripheral's answer arrive together on the
+ * channel being listened to, and a long exchange can put a second pair in the
+ * same connection event. A gap shorter than the shortest connection interval
+ * cannot span two events, so it is not a visit to this channel: it is not
+ * recorded, and it does not become the sighting the next gap is measured
+ * from either.
  */
 MU_TEST(test_packets_from_one_connection_event_are_ignored)
 {
@@ -550,14 +736,138 @@ MU_TEST(test_packets_from_one_connection_event_are_ignored)
 	uint32_t at = 1000000u;
 
 	following_since(&e, at);
-	at += gap;
-	a_packet_at(&e, at, firmware_period());
+	trips(&e, &at, 16, 2);
+	mu_assert_int_eq(2, seen_count(&e, gap));
 
-	/* A second packet 1 ms later: same connection event. */
+	/* A second packet 1 ms later, and a second exchange 5 ms after that:
+	 * the same connection event both times. */
 	at += 10000u;
 	mu_assert_int_eq(16, a_packet_at(&e, at, firmware_period()));
-	mu_assert(e.smallest_hop_interval == gap,
-	          "a gap within one connection event is not a hop interval");
+	at += 50000u;
+	mu_assert_int_eq(16, a_packet_at(&e, at, firmware_period()));
+	mu_assert_int_eq(0, seen_count(&e, 10000u));
+	mu_assert_int_eq(0, seen_count(&e, 50000u));
+
+	/* The next event's packet is a trip measured from the first packet of
+	 * the event before it, not from the extras inside it. */
+	at -= 60000u;
+	mu_assert_int_eq(16, trips(&e, &at, 16, 1));
+	mu_assert_int_eq(3, seen_count(&e, gap));
+}
+
+/*
+ * A connection whose channel map is not the full 37 comes back to this channel
+ * several times a trip, at uneven spacings, so dividing by 37 flat would put
+ * the interval out by whatever that spacing was. The gaps are still whole
+ * numbers of connection intervals, and with the map reduced they are different
+ * whole numbers, so the longest span that measures all of them is the interval
+ * itself.
+ */
+MU_TEST(test_a_reduced_channel_map_still_gives_the_interval)
+{
+	struct estimator e;
+	uint32_t period = firmware_period();
+	uint32_t interval = 24u * (uint32_t)s.le_baseclk; /* 30 ms */
+	uint32_t at = 1000000u;
+	/* Three of the spacings such a map produces, 11, 7 and 19 events,
+	 * which add up to one trip round the 37 positions. */
+	int spacing[] = { 11, 7, 19, 11, 7, 19 };
+	unsigned i;
+
+	following_since(&e, at);
+	for (i = 0; i < sizeof(spacing) / sizeof(spacing[0]); i++) {
+		at += (uint32_t)spacing[i] * interval;
+		a_packet_at(&e, at, period);
+	}
+
+	mu_assert_int_eq(24, e.conn_interval);
+
+	/* Dividing the shortest of those gaps by 37 flat, as the arithmetic
+	 * used to, gives 7 * 30 ms / 37 -- below the shortest interval a
+	 * connection may use, so it says nothing at all about this link. */
+	mu_assert(DIVIDE_ROUND(7u * interval,
+	                       LE_CHANNELS * (uint32_t)s.le_baseclk)
+	          < LE_MIN_CONN_INTERVAL,
+	          "dividing a part-trip gap by 37 lands below the shortest "
+	          "interval a connection may use");
+}
+
+/*
+ * Two of a reduced map's spacings in a row can be the same, and a run of a
+ * longer pattern repeats on its own: the last two of 11, 11, 15 are 15, 11
+ * twice over from the trip before. Only the whole pattern totals 37
+ * connection events, which is what tells the part from the whole.
+ */
+MU_TEST(test_part_of_a_pattern_is_not_the_pattern)
+{
+	struct estimator e;
+	uint32_t period_ticks = firmware_period();
+	uint32_t interval = 24u * (uint32_t)s.le_baseclk; /* 30 ms */
+	uint32_t at = 1000000u;
+	int spacing[] = { 11, 11, 15, 11, 11, 15, 11, 11, 15 };
+	unsigned i;
+
+	following_since(&e, at);
+	for (i = 0; i < sizeof(spacing) / sizeof(spacing[0]); i++) {
+		at += (uint32_t)spacing[i] * interval;
+		a_packet_at(&e, at, period_ticks);
+	}
+	mu_assert_int_eq(24, e.conn_interval);
+}
+
+/*
+ * A length seen once is not evidence: the radio allows two bit errors in the
+ * sync word, so noise matches the access address a few times a minute on a
+ * receiver that is always open. One such sighting used to become the smallest
+ * gap and be reported for the rest of the pass.
+ */
+MU_TEST(test_a_single_odd_gap_is_not_the_answer)
+{
+	struct estimator e;
+	uint32_t period = firmware_period();
+	uint32_t gap = round_the_channels(24); /* 30 ms: 1.11 s a trip */
+	uint32_t at = 1000000u;
+
+	following_since(&e, at);
+	mu_assert_int_eq(24, trips(&e, &at, 24, 3));
+
+	/* A sighting 400 ms after the last one: not this connection, and well
+	 * inside the plausible range for a gap. */
+	at += 4000000u;
+	mu_assert_int_eq(0, a_packet_at(&e, at, period));
+	mu_assert_int_eq(1, seen_count(&e, 4000000u));
+
+	/* The next real return is measured from that sighting, so that gap is
+	 * short too: two gaps in a row are not this connection's and nothing
+	 * is reported from them. */
+	mu_assert_int_eq(0, trips(&e, &at, 24, 1));
+
+	/* Once the pattern is back the interval is too. */
+	mu_assert_int_eq(24, trips(&e, &at, 24, 2));
+	mu_assert(seen_count(&e, gap) >= 2,
+	          "the trip length is what keeps being seen");
+}
+
+/*
+ * A figure the gaps no longer support is given up rather than kept. The old
+ * estimator could not do this: its minimum never rose, so a value latched
+ * once was reported until the pass ended.
+ */
+MU_TEST(test_a_reported_interval_is_given_up_when_the_gaps_change)
+{
+	struct estimator e;
+	uint32_t at = 1000000u;
+	int i;
+
+	following_since(&e, at);
+	mu_assert_int_eq(24, trips(&e, &at, 24, 4));
+
+	/* The connection's interval is updated to 60 ms, so it comes back
+	 * every 2.22 s instead of every 1.11 s. The old gaps fall off the end
+	 * of the ring as the new ones arrive. */
+	for (i = 0; i < 2 * LE_PROMISC_GAPS; i++)
+		trips(&e, &at, 48, 1);
+	mu_assert_int_eq(48, e.conn_interval);
 }
 
 /*
@@ -605,6 +915,12 @@ MU_TEST(test_the_stamp_belongs_to_the_mode_not_to_the_function)
 	         "%s: le_promisc_state_t has no first_ts, so the hop "
 	         "increment's stamp is not cleared at a pass either", path);
 	mu_assert(s.increment_stamp_in_state, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: le_promisc_state_t has no gap_count, so the gaps one pass "
+	         "collected are still there for the next one to report from",
+	         path);
+	mu_assert(s.gap_table_in_state, msg);
 }
 
 /*
@@ -689,29 +1005,34 @@ MU_TEST(test_a_pass_does_not_measure_from_the_pass_before_it)
 	/* The pass before it saw a packet, and then 40 ms passed: the mode
 	 * stopped and started again, which is the gap the estimator must not
 	 * take. 40 ms is far shorter than the 1.85 s a 40-unit connection
-	 * takes to come back, and well over the two units that mark two
-	 * packets of one connection event. */
+	 * takes to come back, and well over the shortest connection interval
+	 * that marks two packets of one connection event. */
 	estimator_init(&e);
 	at = 1000000u;
 	a_packet_at(&e, at, period);
-	mu_assert(e.smallest_hop_interval == 0xffffffff,
+	mu_assert_int_eq(0, e.gap_count);
+	mu_assert(e.gap[0] == 0,
 	          "the first packet of a pass is not the end of a gap");
 
 	at += 400000u;
-	mu_assert_int_eq(1, a_packet_at(&e, at, period));
-	mu_assert(e.smallest_hop_interval == 400000u,
-	          "the 40 ms is measured, because this pass saw both packets");
+	mu_assert_int_eq(0, a_packet_at(&e, at, period));
+	mu_assert_int_eq(1, seen_count(&e, 400000u));
 
 	/* The same 40 ms across a restart: the estimator is cleared, so the
-	 * sightings that follow give the connection's own interval. */
+	 * sightings that follow give the connection's own interval and nothing
+	 * else. */
 	estimator_init(&e);
 	at += 400000u;
 	a_packet_at(&e, at, period);
-	for (i = 0; i < 6; i++) {
+	for (i = 0; i < 9; i++) {
 		at += gap;
-		mu_assert_int_eq(40, a_packet_at(&e, at, period));
+		a_packet_at(&e, at, period);
 	}
-	mu_assert_int_eq(5, e.consec_intervals);
+	mu_assert_int_eq(40, e.conn_interval);
+	mu_assert_int_eq(0, seen_count(&e, 400000u));
+	mu_assert(e.consec_intervals >= 5,
+	          "five sightings running agreed, so the mode moves on to the "
+	          "hop increment");
 }
 
 /*
@@ -738,8 +1059,74 @@ MU_TEST(test_the_stamp_left_behind_is_a_clock_reading)
 	/* So the next sighting is the gap that passed, not one inflated by a
 	 * period. */
 	a_packet_at(&e, after + gap, period);
-	mu_assert(e.smallest_hop_interval == gap,
-	          "the gap after the wrap is the gap that passed");
+	mu_assert_int_eq(2, seen_count(&e, gap));
+}
+
+/*
+ * The hop increment is counted by dividing a measured span by the connection
+ * interval, so a zero interval there divides by zero. The LPC17xx leaves
+ * DIV_0_TRP clear, so UDIV answers 0 instead of faulting: the board would take
+ * hop_interval_lut[0], hop increment 0, and stop hopping. The estimator cannot
+ * hand one over now, and the division refuses one anyway.
+ */
+MU_TEST(test_the_hop_increment_never_divides_by_a_zero_interval)
+{
+	char msg[512];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: promisc_recover_hop_increment() divides by "
+	         "le.conn_interval without checking it against "
+	         "LE_MIN_CONN_INTERVAL first", path);
+	mu_assert(s.increment_guards_the_interval, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: promisc_recover_hop_increment() does not require at "
+	         "least one connection event between the two sightings, so a "
+	         "span shorter than half an interval rounds to none and takes "
+	         "hop_interval_lut[0], which is 0", path);
+	mu_assert(s.increment_guards_no_hops, msg);
+}
+
+/*
+ * A return the board did not hear makes one gap the sum of two, and the
+ * estimator must not take that sum for a trip round the channels. Nothing is
+ * reported until the gaps repeat, and a run with a missed return in it does
+ * not repeat.
+ */
+MU_TEST(test_a_missed_return_is_not_an_interval)
+{
+	struct estimator e;
+	uint32_t period = firmware_period();
+	uint32_t gap = round_the_channels(24);
+	uint32_t at = 1000000u;
+	int i;
+
+	/* Returns heard unevenly, which is what an intermittent capture gives:
+	 * the trips between them run 1, 3, 2, 5, 1, 4, 2, 7. No pattern
+	 * repeats, so there is nothing to report. */
+	int missed[] = { 1, 3, 2, 5, 1, 4, 2, 7 };
+
+	estimator_init(&e);
+	a_packet_at(&e, at, period);
+	for (i = 0; i < (int)(sizeof(missed) / sizeof(missed[0])); i++) {
+		at += (uint32_t)missed[i] * gap;
+		mu_assert_int_eq(0, a_packet_at(&e, at, period));
+	}
+
+	/* What it cannot tell apart, for the record. A board that hears every
+	 * return reports the connection's own interval; one that hears exactly
+	 * every second return, every time, sees one spacing of two trips and
+	 * reports twice the interval, because two trips of a 30 ms connection
+	 * and one trip of a 60 ms one are the same span. Nothing in the gaps
+	 * separates them, which is why the man page says so. A real capture
+	 * loses returns unevenly, as above, and then reports nothing. */
+	estimator_init(&e);
+	a_packet_at(&e, at, period);
+	for (i = 0; i < 6; i++) {
+		at += 2 * gap;
+		a_packet_at(&e, at, period);
+	}
+	mu_assert_int_eq(48, e.conn_interval);
 }
 
 int main(void)
@@ -754,10 +1141,16 @@ int main(void)
 	MU_RUN(test_every_rollover_site_adds_the_named_period);
 	MU_RUN(test_the_period_is_the_clocks_own);
 	MU_RUN(test_a_gap_across_the_rollover_is_the_gap_that_passed);
-	MU_RUN(test_the_short_period_latched_a_wrong_interval_forever);
+	MU_RUN(test_a_gap_too_short_for_a_trip_round_the_channels_reports_nothing);
 	MU_RUN(test_a_gap_shorter_than_the_shortfall_wraps_instead);
 	MU_RUN(test_an_ordinary_gap_is_untouched);
 	MU_RUN(test_packets_from_one_connection_event_are_ignored);
+	MU_RUN(test_a_reduced_channel_map_still_gives_the_interval);
+	MU_RUN(test_part_of_a_pattern_is_not_the_pattern);
+	MU_RUN(test_a_single_odd_gap_is_not_the_answer);
+	MU_RUN(test_a_reported_interval_is_given_up_when_the_gaps_change);
+	MU_RUN(test_the_hop_increment_never_divides_by_a_zero_interval);
+	MU_RUN(test_a_missed_return_is_not_an_interval);
 	MU_RUN(test_the_stamp_belongs_to_the_mode_not_to_the_function);
 	MU_RUN(test_the_estimator_itself_guards_and_stores_a_reading);
 	MU_RUN(test_the_access_address_is_announced_once_and_late_enough);

@@ -146,6 +146,30 @@ Major modes:
    lines go to standard output, or to standard error once `-q -` or `-c -` has
    taken standard output, so a capture written to a file still says which
    connection it is of.
+
+   The hop interval is not read off the air; it is worked out by timing how
+   long the connection takes to come back to the channel being listened on.
+   That needs several of those returns in a row, so it arrives well after the
+   CRC init value: about ten seconds on a 30 ms connection whose returns are
+   all heard, and proportionally longer on a slower one. It is reported only
+   once the spacings repeat and give a figure inside the range a connection
+   interval may take, so a connection the board hears only part of gives the
+   access address and the CRC init value and no interval or increment.
+
+   Three things it does not report an interval for. A connection using fewer
+   than about five data channels comes back too often for its pattern to fit
+   in what the board keeps. A connection event that runs on for more than one
+   interval, which a long exchange does, puts sightings inside it that are
+   not returns. And a board that hears the returns unevenly, as a capture
+   losing packets does, never sees a pattern repeat.
+
+   One case it cannot see through: a board that hears exactly every second
+   return, every time, reports twice the real interval, because two returns
+   of one connection and one return of a connection twice as slow are the
+   same span.
+
+   Nothing hops until the interval is known, so a capture up to that point
+   holds the one channel.
  - `-s <BD ADDR>` :
    Inject advertising packets using specified BD ADDR. Like `-a`, it does not
    go with `-f`, `-n` or `-p`. The value is one whole address and nothing
@@ -364,20 +388,6 @@ the capture data of `-q -` or `-c -`, plus the lines that answer `-a`, `-k` and
 standard output belongs to the capture for the whole run: those lines move to
 standard error, and the decoded packets are not printed at all.
 
-The `rssi=` figure on each packet's `systime=` line is that packet's own level
-in dBm: the strongest RSSI reading the board reports for the packet, through a
-piecewise-linear model of the CC2400 datasheet's RSSI curve. It is the same
-number the signal field of a `-q` or `-r` capture carries for that packet, so a
-dump and a capture of one run agree. A `-c` PPI capture carries the board's raw
-counts instead, which are not dBm. The model has ends, so `rssi=0` means "at
-least this loud" and `rssi=-120` means "no louder than this".
-
-Earlier releases printed the weakest reading the board reports for the packet
-instead, through a rougher approximation. That figure ran far below the
-packet's own level: on the bench it reached -96 dBm where the quietest packet
-the capture recorded was -78, and a dump and a capture of the same run
-disagreed by as much as 90 dB on an individual packet.
-
 Errors, warnings and progress go to standard error, each error as one line
 starting `error: `, for example `error: USB poll failed` when the board stops
 answering during a capture, `error: jamming not supported by this firmware`,
@@ -410,18 +420,6 @@ Nothing says which packets are missing, so a capture with gaps is complete
 only between them. The board reports a gap on the first packet that gets
 through after it, so a capture that ends in the moment after a gap does not
 report that last one.
-
-A capture transfer error is reported the same way. The chip's transfer
-controller can report an error on the channel a capture receives into: what
-the board was receiving at the time had arrived, so it is kept and marked,
-while some of its bytes may be wrong and whatever the fault cut short before
-it is lost. The first mark warns `warning: the board had a transfer error
-while capturing; what it was receiving was kept, but some of those bytes may
-be wrong and the capture may be missing packets around it`, and when the
-capture ends it says how many there were: `warning: the capture has 3 transfer
-errors where a packet may be wrong or missing`. ubertooth-util(1) `-w` reports
-the board's own count of them since power-on, over every capture the board has
-run.
 
 A poll the board does not answer is tried again, up to three attempts, before
 the capture gives up: a board busy elsewhere for a moment no longer ends a

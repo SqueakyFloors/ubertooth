@@ -1447,7 +1447,8 @@ static int le_scale_conn_timing(le_conn_timing_t *t) {
 	uint32_t max_win_size;
 
 	// the connection interval is in range [7.5 ms, 4 s]
-	if (t->conn_interval < 6 || t->conn_interval > 3200)
+	if (t->conn_interval < LE_MIN_CONN_INTERVAL ||
+			t->conn_interval > LE_MAX_CONN_INTERVAL)
 		return 0;
 	t->conn_interval *= USEC(1250);
 
