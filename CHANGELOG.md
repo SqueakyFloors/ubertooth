@@ -556,6 +556,15 @@
   filter on with an empty target, which passes the six advertising packet
   types it knows and drops every other, extended advertising included.
   [#825](https://github.com/SqueakyFloors/ubertooth/issues/825)
+- `ubertooth-btle -p`, the promiscuous mode, stops waiting when a packet's
+  bytes stop arriving partway through, instead of waiting until the host
+  changes mode -- which a tool that is waiting for capture data never does. The
+  capture used to record nothing from that moment on while the board went on
+  answering, so it looked alive and was not. The wait now ends after the air
+  time of the bytes it is owed, the part-packet is dropped, and giving up is
+  counted with the other radio waits `ubertooth-util -w` reads back ("packet
+  bytes" on the "Radio waits that gave up since boot" line).
+  [#819](https://github.com/SqueakyFloors/ubertooth/issues/819)
 - `ubertooth-ego` captures in the mode its command line asks for, on a board
   left in another E-GO mode by a run that was interrupted without stopping it:
   `ubertooth-ego -r -c 2418` after a killed `-f` used to go on hopping across
@@ -1764,6 +1773,13 @@ Fixes with no visible change in normal use.
   same wait during a capture's teardown now finishes as well, instead of
   leaving the transfer behind for the next capture on that handle to refuse.
   [#584](https://github.com/SqueakyFloors/ubertooth/issues/584)
+- The board refuses a raw request to set a modulation no capture mode
+  configures, and a raw request for a frequency the radio cannot tune. The
+  frequency used to be pulled up to the lowest the radio can reach and reported
+  as a success, so the capture came back from somewhere nobody had asked for.
+  The band sweep and the out-of-band frequencies the radio can reach still
+  work, and no host tool ever sent either refused value.
+  [#818](https://github.com/SqueakyFloors/ubertooth/issues/818)
 - The clock drift the board accumulates stays within what it can correct. A run
   of drift requests used to walk past what the 16-bit figure holds and come
   back with the other sign, which would run the clock the opposite way to the

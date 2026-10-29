@@ -385,6 +385,10 @@ static void reset_absorbed_mode_state(uint8_t requested)
  * channel, and one inside it for a fixed channel, which the hop modes read as
  * they run. The mode dispatch calls this too, to re-apply a channel the host
  * stated after its mode request; see below.
+ *
+ * Every frequency that reaches here is one the radio can tune: the request
+ * handler refuses the rest, and the channel the dispatch re-applies is one it
+ * already accepted.
  */
 static void set_channel_request(uint16_t requested)
 {
@@ -394,11 +398,13 @@ static void set_channel_request(uint16_t requested)
 		hop_mode = HOP_SWEEP;
 		requested_channel = BT_FREQ_MIN;
 	}
-	/* fixed channel mode, can be outside bluetooth band */
+	/* Fixed channel mode, which can be outside the Bluetooth band: the
+	 * radio tunes from MIN_FREQ to MAX_FREQ and a frequency in that range
+	 * is taken as it was asked for. There is nothing to clamp -- the
+	 * request handler refuses anything below MIN_FREQ, and this branch is
+	 * the one at or below MAX_FREQ. */
 	else {
 		hop_mode = HOP_NONE;
-		requested_channel = MAX(requested_channel, MIN_FREQ);
-		requested_channel = MIN(requested_channel, MAX_FREQ);
 	}
 
 	le_adv_channel = requested_channel;
@@ -707,6 +713,20 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		break;
 
 	case UBERTOOTH_SET_MOD:
+		/* Only the two modulations the radio setup configures. Storing
+		 * any other value was silent: cc2400_rx() and cc2400_rx_sync()
+		 * write no modem registers for a value they do not recognize, so
+		 * the next capture ran with whatever the previous mode had left
+		 * in the radio.
+		 *
+		 * That rules out the two remaining values of enum modulations as
+		 * well. No mode implements MOD_80211_FHSS. MOD_NONE means "no
+		 * modulation", and the one mode that wants it -- spectrum
+		 * analysis -- sets it itself, so there is nothing for a request
+		 * to ask for. */
+		if (request_params[0] != MOD_BT_BASIC_RATE &&
+		    request_params[0] != MOD_BT_LOW_ENERGY)
+			return 0;
 		modulation = request_params[0];
 		break;
 
@@ -717,6 +737,24 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		break;
 
 	case UBERTOOTH_SET_CHANNEL:
+		/* A frequency the synthesizer cannot reach is refused rather
+		 * than pulled up to MIN_FREQ, which is what used to happen: a
+		 * request for 2000 MHz tuned 2268 MHz instead and reported
+		 * success, so a capture came back on a frequency nobody asked
+		 * for. Anything from MIN_FREQ up is kept, including the
+		 * deliberately out-of-band frequencies the radio can reach.
+		 *
+		 * Above MAX_FREQ still means the band sweep, which is how the
+		 * host asks for it (it sends 9999). Nothing is refused there.
+		 *
+		 * Before set_channel_request(), so a refused request leaves the
+		 * channel and the hop mode as it found them, and before the
+		 * channel is kept for a starting mode, so a mode does not begin
+		 * on a frequency the board said it could not have.
+		 */
+		if (request_params[0] < MIN_FREQ)
+			return 0;
+
 		set_channel_request(request_params[0]);
 		if (requested_mode != mode) {
 			stated_channel = request_params[0];
@@ -2352,6 +2390,10 @@ static void le_set_access_address(u32 aa) {
  * promiscuous capture recovers CRCInit and turns it on by itself, so it starts
  * off again here and ubertooth-btle(1) sends it after the mode request rather
  * than before.
+ *
+ * test_le_state_reset.c reads le_state_t and this function and fails if a
+ * field is added to the struct without being cleared here or named there as
+ * one to keep.
  */
 void reset_le() {
 	le_set_access_address(0x8e89bed6);     // advertising channel access address
@@ -2719,25 +2761,53 @@ void bt_le_sync(u8 active_mode)
 		 * receive before the next packet on this channel.
 		 *
 		 * The wait ends when the controller has the bytes, when it runs out
-		 * of packet to deliver them into, or on a mode change: a length
-		 * field corrupted by noise can ask for the longest packet there is,
-		 * and a host that stops the mode meanwhile must not be left waiting
-		 * for bytes the radio has stopped sending. */
+		 * of packet to deliver them into, on a mode change, or when the
+		 * bytes are overdue: a length field corrupted by noise can ask for
+		 * the longest packet there is, and a host that stops the mode
+		 * meanwhile must not be left waiting for bytes the radio has
+		 * stopped sending.
+		 *
+		 * The deadline is what covers the radio stopping mid-packet while
+		 * the transfer stays armed. Nothing else ends the wait then, so
+		 * the loop spun here until the host changed mode -- and a host
+		 * that is waiting for capture data never does. The board went on
+		 * answering requests the whole time, because this mode services
+		 * USB from its interrupt, so the capture looked alive and
+		 * recorded nothing from that moment on.
+		 *
+		 * The time is added up step by step rather than compared against
+		 * a deadline, because the capture clock briefly runs backwards:
+		 * le_clk100ns_step() says why. */
 		unsigned want = 4 * ((pdu_bytes + 3) / 4);
+		uint32_t wait_budget = le_rx_byte_wait_clk100ns(want);
+		uint32_t waited = 0;
+		uint32_t last_tick = T0TC;
+		int overdue = 0;
 		while (DMACC0DestAddr < (uint32_t)(p + 4) + want
 		       && (DMACC0Config & DMACCxConfig_E) && rx_err == 0
-		       && requested_mode == active_mode)
-			;
+		       && requested_mode == active_mode) {
+			uint32_t now_tick = T0TC;
+
+			waited += le_clk100ns_step(last_tick, now_tick);
+			last_tick = now_tick;
+			if (waited > wait_budget) {
+				overdue = 1;
+				break;
+			}
+		}
 		/* Whether the whole packet arrived, which is why the wait ended.
 		 * The receive buffer is reused, so the bytes a packet cut short by
-		 * a transfer error is missing are the previous packet's: a record
-		 * built from those would be a packet that was never on the air. */
-		int whole = rx_err == 0 &&
+		 * a transfer error or by the deadline is missing are the previous
+		 * packet's: a record built from those would be a packet that was
+		 * never on the air. */
+		int whole = rx_err == 0 && !overdue &&
 		            DMACC0DestAddr >= (uint32_t)(p + 4) + want;
 		if (requested_mode != active_mode)
 			goto cleanup;
 		if (rx_err)
 			status |= DMA_ERROR;
+		if (overdue)
+			cc2400_wait_count_timeout(CC2400_WAIT_RX_BYTES);
 		DIO_SSP_DMACR &= ~SSPDMACR_RXDMAE;
 		if (!whole)
 			goto rx_flush;

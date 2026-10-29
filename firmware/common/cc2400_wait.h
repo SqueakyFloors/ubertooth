@@ -153,12 +153,12 @@ int cc2400_wait_fs_unlock(void);
 #define FSM_POLLS 2000
 
 /*
- * The four shapes of wait, and the order their give-up counts are reported in.
+ * The shapes of wait, and the order their give-up counts are reported in.
  *
  * Giving up keeps the board answering, which is the point, but it is silent:
  * a radio that is half working reads as a quiet channel. So each shape counts
  * the times it ran to its bound, and UBERTOOTH_GET_RADIO_TIMEOUTS hands the
- * four counts to the host in this order (see UBERTOOTH_RADIO_TIMEOUTS_LEN in
+ * counts to the host in this order (see UBERTOOTH_RADIO_TIMEOUTS_LEN in
  * ubertooth_interface.h, which is the byte layout). Add a shape at the end:
  * inserting one would change what an older host reads each count as.
  */
@@ -167,6 +167,10 @@ enum cc2400_wait_shape {
 	CC2400_WAIT_FS_UNLOCK = 1, /* it never went back off */
 	CC2400_WAIT_XOSC      = 2, /* the 16 MHz crystal never reported stable */
 	CC2400_WAIT_FSM       = 3, /* the state machine never reached a state */
+	/* It stopped delivering a packet's bytes partway through one. Counted
+	 * from the capture loop that waits for them, which has a bound of its
+	 * own, so it calls cc2400_wait_count_timeout() itself. */
+	CC2400_WAIT_RX_BYTES  = 4,
 	CC2400_WAIT_SHAPE_COUNT
 };
 

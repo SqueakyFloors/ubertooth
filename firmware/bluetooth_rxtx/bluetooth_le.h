@@ -151,6 +151,65 @@ static inline int le_length_is_possible(uint8_t length, int crc_verify)
 	return length <= (crc_verify ? LE_MAX_PAYLOAD : LE_MAX_PAYLOAD_LEGACY);
 }
 
+/*
+ * How long a capture loop waits for the rest of a packet it has the header of.
+ *
+ * The 1M PHY carries one bit per microsecond, so a byte takes 8 microseconds,
+ * which is 80 ticks of the 100 ns clock. The bytes a loop is waiting for are
+ * therefore due within their own air time, and a wait that outlasts that by
+ * the slack below is waiting for bytes the radio has stopped sending.
+ *
+ * The slack covers the radio and the DMA controller between the last bit on
+ * the air and the last byte in memory. It is generous on purpose: giving up
+ * too early would drop a packet that was really there, while giving up too
+ * late only costs that much more blind time in the rare case where the radio
+ * synchronized on noise.
+ */
+#define LE_1M_BYTE_CLK100NS 80
+#define LE_RX_BYTE_WAIT_SLACK_CLK100NS 2000   /* 200 microseconds */
+
+/* The air time of `bytes` on the 1M PHY, plus that slack, in 100 ns ticks. */
+static inline uint32_t le_rx_byte_wait_clk100ns(unsigned bytes)
+{
+	return bytes * LE_1M_BYTE_CLK100NS + LE_RX_BYTE_WAIT_SLACK_CLK100NS;
+}
+
+/*
+ * One step of a wait timed by timer 0: the 100 ns ticks between two readings
+ * of T0TC, which a wait adds up as it polls.
+ *
+ * It is done this way, rather than by comparing CLK100NS against a deadline,
+ * because CLK100NS does not only count up. It is
+ * CLK100NS_PER_CLKN * (clkn & 0xfffff) + T0TC, timer 0 resets every
+ * CLK100NS_PER_CLKN ticks, and clkn is advanced by the timer's own interrupt
+ * handler: between the reset and the handler running, every reading is about
+ * one whole clkn tick lower than the one before it. A deadline compared
+ * against that would be met in that window, every 312.5 us, and the wait would
+ * drop a packet that was arriving normally. rangetest_wait_for_fifo() in
+ * cc2400_rangetest.c adds up steps for the same reason.
+ *
+ * A reading lower than the one before it means the timer reset in between, and
+ * how much of that period was left is only known if the period was the usual
+ * one. The low-energy modes' clock drift correction makes one period longer
+ * (T0MR0 goes to 9373), and a match value set by the last drift fix of one
+ * mode can still be in the timer when the next mode starts, so that case is
+ * reachable. The reading then says only how far into the new period the wait
+ * is, and that is all this counts.
+ *
+ * Undercounting is the safe direction for a deadline: the wait runs a little
+ * longer than its budget rather than ending early on a packet that was still
+ * arriving. A gap longer than one period is undercounted for the same reason,
+ * because nothing here can tell how many resets it spanned.
+ */
+static inline uint32_t le_clk100ns_step(uint32_t last, uint32_t now)
+{
+	if (now >= last)
+		return now - last;
+	if (last <= CLK100NS_PER_CLKN)
+		return CLK100NS_PER_CLKN - last + now;
+	return now;
+}
+
 static const u32 whitening_word[40][12] = {
 	{ 0xc3bcb240, 0x5f4a371f, 0x9a9cf685, 0x44c5d6c1, 0xe1de5920, 0xafa51b8f,
 	  0xcd4e7b42, 0x2262eb60, 0xf0ef2c90, 0x57d28dc7, 0x66a73da1, 0x113175b0, },

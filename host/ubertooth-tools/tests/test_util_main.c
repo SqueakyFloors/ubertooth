@@ -1031,7 +1031,8 @@ MU_TEST(the_watchdog_state_is_reported_and_a_failed_read_fails)
 	mu_assert_int_eq(1, fake.timeouts_calls);
 	mu_assert(strstr(r.out, "Radio waits that gave up since boot: "
 	                 "synthesizer lock 3, unlock 0, oscillator 0, "
-	                 "state machine 65535\n") != NULL, r.out);
+	                 "state machine 65535, packet bytes 0\n") != NULL,
+	          r.out);
 	mu_assert(strcmp(r.err, "") == 0, r.err);
 
 	/* btbr records no mode, and the line says so in words. */

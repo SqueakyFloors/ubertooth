@@ -194,7 +194,7 @@ Unrequested watchdog resets since power\-on: 2 (in 3 boots)
   the last was in BLE follow mode, waiting for the 16 MHz crystal oscillator
 Now in idle mode, not in a wait
 Capture transfer errors since power\-on: 0
-Radio waits that gave up since boot: synthesizer lock 0, unlock 0, oscillator 0, state machine 0
+Radio waits that gave up since boot: synthesizer lock 0, unlock 0, oscillator 0, state machine 0, packet bytes 0
 .fi
 .IP "" 0
 .P
@@ -215,7 +215,7 @@ Last processor fault: status 0x00000082, the access was at 0x4000c008
 .P
 The four processor faults each blink a code and never return, so the watchdog resets the board three seconds later; the reset line above names which of the four it was, and this line says where it went wrong\. \fBstatus\fR is the part's fault status register for that fault\. The address is the access the processor refused, and is printed only when the status says the board recorded one for this fault \(em zero is a real address, so the line says so rather than leaving it out\. There is none for a hard fault or a usage fault, nor for an instruction fetch refused because the region cannot be executed \(em which is a branch through a corrupted pointer or return address, and the one way a memory management fault happens on a part with no memory protection unit\. The line is absent until a fault happens, and a power\-cycle clears it\.
 .P
-The last line counts something else: the firmware's waits on the radio\. Each of them gives up after a bound and carries on, which is what keeps a radio that never reports the state it was asked for from holding the board \(em but carrying on is silent, so a half\-working radio reads as a quiet channel\. The four counts are the times each shape of wait ran out: the synthesizer never locking, never going back off, the 16 MHz crystal never reporting stable, and the radio's state machine never reaching a state\. All zero is what a working board shows; a count that climbs during a capture says the samples or packets that came out of it are not to be trusted, whatever they look like\. They are since the board started (a \fB\-r\fR reset included) and stop at 65535\.
+The last line counts something else: the firmware's waits on the radio\. Each of them gives up after a bound and carries on, which is what keeps a radio that never reports the state it was asked for from holding the board \(em but carrying on is silent, so a half\-working radio reads as a quiet channel\. The counts are the times each shape of wait ran out: the synthesizer never locking, never going back off, the 16 MHz crystal never reporting stable, the radio's state machine never reaching a state, and the radio stopping partway through delivering a packet's bytes\. The last of those is only ever above zero after a \fBubertooth\-btle \-p\fR capture, the one mode that waits for them\. All zero is what a working board shows; a count that climbs during a capture says the samples or packets that came out of it are not to be trusted, whatever they look like\. They are since the board started (a \fB\-r\fR reset included) and stop at 65535\.
 .P
 \fB\-i\fR (In\-System Programming) is the one hand\-over the watchdog cannot be switched off for: it keeps the chip running, so the timeout is stretched to about 71 minutes first\.
 .SH "SELECTING A DEVICE"

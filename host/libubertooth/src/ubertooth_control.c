@@ -847,6 +847,7 @@ int cmd_get_radio_timeouts(struct libusb_device_handle* devh,
 	timeouts->fs_unlock = (uint16_t)(result[2] | (result[3] << 8));
 	timeouts->xosc      = (uint16_t)(result[4] | (result[5] << 8));
 	timeouts->fsm       = (uint16_t)(result[6] | (result[7] << 8));
+	timeouts->rx_bytes  = (uint16_t)(result[8] | (result[9] << 8));
 
 	return 0;
 }
