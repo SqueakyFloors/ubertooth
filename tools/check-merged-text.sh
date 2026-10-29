@@ -32,10 +32,14 @@
 #      prose through re-wrapping and small edits, and the "anywhere the branch
 #      adds" half is what lets a paragraph move to another page, into a renamed
 #      file, or into a comment, without being reported.
-#   4. main gained it within WINDOW merges of the merge base -- text that
-#      landed while the branch was in flight, which is the only text a rebase
-#      resolution can drop. Older text in the same shape is the ordinary
-#      rewriting of a page: the author had it in front of them and chose.
+#   4. main gained it within WINDOW merges of the merge base. That is as close
+#      as this can get to "text that landed while the branch was being
+#      written": a rebase rewrites the dates of the commits it replays, and a
+#      squash merge rewrites them again, so when a branch began is not in the
+#      history any more. What is left is how new the text was when the branch
+#      was rebased onto it, and text that new is what a resolution can have
+#      landed over. Older text in the same shape is the ordinary rewriting of
+#      a page: the author had it in front of them and chose.
 #
 # The fourth test is what makes the first three usable. Measured over the heads
 # of the 167 pull requests merged in three days, the first three alone report
@@ -63,19 +67,32 @@
 #     instance. Test 1 reads that as a replacement. Dropping test 1 would
 #     report every paragraph anyone rewrites in place, which is most of the
 #     ordinary work on a page.
-#   - Text dropped by a `git merge` of main into the branch rather than a
-#     rebase, if the merge commit is the one that resolved it. (The rule in
-#     .kiro/steering is to rebase.)
+#   - A paragraph main edited a line of inside the window, but wrote longer
+#     ago than that. Attribution takes the oldest commit any of the lines
+#     searched can be dated from, so that an edit since does not make an old
+#     paragraph look new, and the price is that a paragraph main touched and
+#     the branch then dropped reads as old.
 #   - A paragraph main gained longer ago than the window, and a single removed
 #     sentence under the word floor.
 #   - A paragraph whose wording no commit on main can be found for: if the
 #     search comes back empty there is no telling whether it is recent, so it
-#     is counted in the note on standard output rather than reported.
+#     is counted in the note on standard error rather than reported.
+#   - Most of a paragraph. A resolution that kept a phrase of it and dropped
+#     the rest leaves COVERAGE_MAX of its runs behind, and this reads that as
+#     kept. It is whole paragraphs that go missing in a resolution.
+#
+# A `git merge` of main into the branch rather than a rebase is covered: the
+# merge base becomes the main commit that was merged, so a resolution that
+# dropped main's text shows in the branch's diff as a plain deletion like any
+# other.
 #
 # And what it reports that is not a loss: a paragraph main gained inside the
-# window that this branch deliberately rewrites somewhere else in the file, or
-# reverts. There is no telling that from a resolution that dropped it, so the
-# answer is the Drops-merged-text trailer the failure message names.
+# window that this branch deliberately rewrites somewhere else in the file,
+# reverts, takes out along with the page or section it was part of -- a
+# clean-up of something main had only just added -- or stops repeating,
+# leaving it on the one page of several that had it. There is no telling any of
+# those from a resolution that dropped it, so the answer is the
+# Drops-merged-text trailer the failure message names.
 #
 # It reads commits, not the working tree, as CI does: an edit that is not
 # committed yet is not compared.
@@ -90,10 +107,12 @@ self=$(basename "$0")
 
 # How far back a paragraph may have arrived on main, in first-parent commits
 # from the commit that added it to the merge base. main is a line of squash
-# merges, so this counts merges. Five is about a couple of hours at this
-# repository's pace, and the nearest ordinary rewrite in the three days
-# measured above was seventeen merges.
-WINDOW=5
+# merges, so this counts merges. Ten is three or four hours at this
+# repository's pace; the nearest ordinary rewrite, over every pull-request head
+# this repository has, is seventeen merges away, and widening it to sixteen
+# adds no report at all. Ten leaves that margin and still covers a branch whose
+# last rebase lagged main by an afternoon.
+WINDOW=10
 
 # How much of a removed paragraph's wording has to be left for it to count as
 # kept rather than lost, and the length of the word runs compared. Four-word
@@ -134,7 +153,8 @@ while [ "$#" -gt 0 ]; do
         [ "$#" -ge 2 ] || { echo "error: --window needs a number" >&2; exit 1; }
         case "$2" in
         ''|*[!0-9]*)
-            echo "error: --window takes a count of merges, not '$2'" >&2
+            printf "error: --window takes a count of merges, not '%s'\n" \
+                "$2" >&2
             exit 1
             ;;
         esac
@@ -146,7 +166,7 @@ while [ "$#" -gt 0 ]; do
         exit 0
         ;;
     *)
-        echo "error: unknown option '$1'" >&2
+        printf "error: unknown option '%s'\n" "$1" >&2
         exit 1
         ;;
     esac
@@ -175,7 +195,8 @@ if [ -z "$main_ref" ]; then
 fi
 if [ -n "$main_ref" ]; then
     if ! git rev-parse --verify --quiet "$main_ref^{commit}" > /dev/null; then
-        echo "error: '$main_ref' is not a commit in this checkout" >&2
+        printf "error: '%s' is not a commit in this checkout\n" \
+            "$main_ref" >&2
         exit 1
     fi
 else
@@ -196,7 +217,7 @@ fi
 head=$(git rev-parse --verify HEAD) || exit 1
 base=$(git merge-base HEAD "$main_ref") || exit 1
 if [ -z "$base" ]; then
-    echo "error: HEAD and $main_ref have no common ancestor" >&2
+    printf 'error: HEAD and %s have no common ancestor\n' "$main_ref" >&2
     exit 1
 fi
 short_base=$(git rev-parse --short "$base")
@@ -210,13 +231,21 @@ if [ "$base" = "$head" ]; then
     exit 0
 fi
 
-# Every git diff below: no external diff program, the prefixes this script
-# parses rather than whatever diff.noprefix or diff.srcPrefix say, and paths
-# unquoted. A reader's configuration must not be able to turn this into a
-# comparison of nothing.
+# Every git diff below: no external diff program, no textconv filter, text
+# whatever the attributes say, the prefixes this script parses rather than
+# whatever diff.noprefix or diff.srcPrefix say, and paths unquoted. A
+# configuration file or a .gitattributes must not be able to turn this into a
+# comparison of nothing: `*.md -diff` alone would otherwise leave every page
+# reading "Binary files differ", with no hunk to read and nothing to report.
+# Rename detection, the algorithm and the hunk heuristic are named too, not
+# because the defaults are wrong but because they are the defaults: a setting
+# in anyone's configuration that moved a hunk boundary or turned a rename into
+# a delete and an add would change what this reports, and a check whose answer
+# depends on the reader's git config is not a check.
 git_diff() {
-    git -c core.quotePath=false diff --no-ext-diff --no-color \
-        --src-prefix=a/ --dst-prefix=b/ "$@"
+    git -c core.quotePath=false diff --no-ext-diff --no-textconv --text \
+        --no-color --src-prefix=a/ --dst-prefix=b/ --find-renames \
+        --diff-algorithm=myers --indent-heuristic "$@"
 }
 
 # The prose pathspecs, in one place, and the same list is the workflow's path
@@ -293,9 +322,14 @@ trap 'rm -rf "$work"' EXIT HUP INT TERM
         awk '/^\+\+\+ (b\/|\/)/ { next } /^\+/ { print substr($0, 2) }'
 } > "$work/kept"
 
+# Files the branch leaves with something in them. An empty one gives the
+# comparison no text to match against and must not count towards the floor
+# below, or a branch that adds an empty page would fail with a message blaming
+# this script.
 present=$(printf '%s\n' "$changed" | while IFS= read -r file; do
     [ -n "$file" ] || continue
-    git cat-file -e "$head:$file" 2> /dev/null && echo x
+    size=$(git cat-file -s "$head:$file" 2> /dev/null) || continue
+    [ "$size" -gt 0 ] && echo x
 done | grep -c .)
 
 diff_prose -U0 > "$work/diff" ||
@@ -408,6 +442,10 @@ function flush(pure,   i, j, text, n, arr, run, total, hit, cov, line, keys) {
     for (i in used)
         delete used[i]
     if (keys == 0) {
+        # Every line of it has a tab in it, so there is nothing to search main
+        # with. Counted rather than dropped quietly: the note on standard
+        # error says how many removals went unanswered.
+        unsearchable++
         bn = 0
         return
     }
@@ -531,14 +569,15 @@ substr($0, 1, 2) == "@@" {
 
 END {
     endhunk()
-    printf "%d %d %d\n", keptlines + 0, blocks + 0, reported + 0 > (OUT "/summary")
+    printf "%d %d %d %d\n", keptlines + 0, blocks + 0, reported + 0, \
+        unsearchable + 0 > (OUT "/summary")
 }
 ' "$work/kept" "$work/diff" || {
     echo "error: the comparison itself failed" >&2
     exit 1
 }
 
-read -r keptlines examined candidates < "$work/summary" || {
+read -r keptlines examined candidates unsearchable < "$work/summary" || {
     echo "error: the comparison wrote no summary" >&2
     exit 1
 }
@@ -548,14 +587,16 @@ read -r keptlines examined candidates < "$work/summary" || {
 # files that exist at HEAD must have given the comparison text to match
 # against, and a diff that removes prose must have given it blocks to read.
 if [ "$present" -gt 0 ] && [ "$keptlines" -eq 0 ]; then
-    echo "error: $present changed file(s) are in the tree but the comparison" >&2
+    printf 'error: %s changed file(s) are in the tree but the comparison\n' \
+        "$present" >&2
     echo "       read no text out of them, which cannot be right: this script" >&2
     echo "       has stopped reaching the files." >&2
     exit 1
 fi
 removed_lines=$(grep -c '^-[^-]*[A-Za-z0-9]' "$work/diff")
 if [ "$removed_lines" -gt 0 ] && [ "$examined" -eq 0 ]; then
-    echo "error: the diff removes $removed_lines line(s) of prose but the" >&2
+    printf 'error: the diff removes %s line(s) of prose but the\n' \
+        "$removed_lines" >&2
     echo "       comparison read no removed block out of it, which cannot be" >&2
     echo "       right: this script has stopped reading the diff." >&2
     exit 1
@@ -579,7 +620,8 @@ if [ "$candidates" -gt 0 ]; then
         case "$line" in
         ''|*[!0-9]*)
             echo "error: the comparison wrote an index line this script" >&2
-            echo "       cannot read, so it has a bug: '$n $file $line'" >&2
+            printf "       cannot read, so it has a bug: '%s %s %s'\n" \
+                "$n" "$file" "$line" >&2
             exit 1
             ;;
         esac
@@ -642,9 +684,12 @@ if [ "$candidates" -gt 0 ]; then
             # The escape is dropped so that a page carrying terminal control
             # sequences cannot write them into this report.
             LC_ALL=C tr -d '\033' < "$work/cand-$n.txt" | sed 's/^/      /'
-            printf '\n    The file as main has it:\n\n'
-            printf '        git show %s -- %s\n' \
-                "$(git rev-parse --short "$adder")" "$oldfile"
+            # The path is quoted, because it is printed as a command for the
+            # reader to paste and a path is not this script's to vouch for.
+            printf '\n    What that commit added to the file:\n\n'
+            printf "        git show %s -- '%s'\n" \
+                "$(git rev-parse --short "$adder")" \
+                "$(printf '%s' "$oldfile" | sed "s/'/'\\\\''/g")"
         } >> "$report"
     done < "$work/index"
 fi
@@ -659,10 +704,11 @@ if [ "$reported" -eq 0 ]; then
     # Said out loud rather than kept in the script: these are the removals the
     # window and the attribution let through, and a reader wondering why a
     # loss was not reported should see that there were candidates at all.
-    if [ "$aged" -gt 0 ] || [ "$unattributed" -gt 0 ]; then
+    if [ "$aged" -gt 0 ] || [ "$unattributed" -gt 0 ] ||
+            [ "$unsearchable" -gt 0 ]; then
         {
             printf 'note: %s removed paragraph(s) are gone from their page\n' \
-                "$((aged + unattributed))"
+                "$((aged + unattributed + unsearchable))"
             printf '      too, but main gained them more than %s merge(s)\n' \
                 "$WINDOW"
             printf '      before the merge base, or not in a commit this\n'

@@ -183,11 +183,19 @@ branch_off() {
     git_in checkout -q -b branch main || exit 1
 }
 
-# Run the check inside the repository and report its status and streams.
+# Run the check inside the repository and report its status and streams. The
+# git configuration it sees is this file's, empty unless a case fills it, so
+# that no case depends on the configuration of whoever runs the suite and one
+# case can hand the check a hostile one on purpose.
+: > "$work/gitconfig"
 run_check() {
     out="$work/out"
     err="$work/err"
-    ( cd "$repo" && "$check" "$@" ) > "$out" 2> "$err"
+    (
+        cd "$repo" || exit 1
+        GIT_CONFIG_GLOBAL="$work/gitconfig" GIT_CONFIG_SYSTEM=/dev/null \
+            "$check" "$@"
+    ) > "$out" 2> "$err"
     status=$?
     printf '\ncase: %s\n' "$case_name"
     printf '  exit status %s\n' "$status"
@@ -197,7 +205,7 @@ run_check() {
 
 # Assert that a passing run really read the files.
 assert_read() {
-    grep -q "$1 file(s) compared" "$out" ||
+    grep -q ": $1 file(s) compared" "$out" ||
         fail "the success line does not say $1 file(s) were compared"
     case $(sed -n 's/.*, \([0-9]*\) removed block(s) read.*/\1/p' "$out") in
     0|'')
@@ -233,6 +241,50 @@ grep -q "the level beside a packet" "$err" ||
 grep -q "Drops-merged-text" "$err" ||
     fail "the way out for a deliberate removal is not named"
 [ -s "$out" ] && fail "wrote to standard output on a failure"
+
+# Inside the window but not at its near edge, so that narrowing the window
+# fails this case as widening it fails the ones that must pass.
+case_name="a paragraph eight merges old is still inside the window"
+new_repo
+add_level_paragraph
+pad_main 8
+branch_off
+write_page "$repo/host/doc/page.md" \
+    HOPPING "$para_hopping" \
+    TIMEOUT "$para_timeout" \
+    OPTIONS "$para_options" \
+    EXAMPLES "$para_examples"
+commit "say what a board that stops answering does"
+run_check
+[ "$status" -eq 1 ] || fail "expected exit 1, got $status"
+grep -q "8 merges before" "$err" ||
+    fail "the distance back to the commit that added it is not reported"
+
+# Attribution takes the oldest commit the paragraph's lines can be dated
+# from, so that main editing one line of an old paragraph does not make the
+# whole paragraph look new. The price is in the comment at the top of the
+# check: a paragraph main touched and the branch then dropped reads as old.
+case_name="one line edited on main does not re-date the paragraph"
+new_repo
+add_level_paragraph
+pad_main 12
+write_page "$repo/host/doc/page.md" \
+    HOPPING "$para_hopping" \
+    OPTIONS "$para_options" \
+    EXAMPLES "$para_examples" \
+    LEVEL "$para_level_lightly_edited"
+commit "a word in the level paragraph"
+branch_off
+write_page "$repo/host/doc/page.md" \
+    HOPPING "$para_hopping" \
+    TIMEOUT "$para_timeout" \
+    OPTIONS "$para_options" \
+    EXAMPLES "$para_examples"
+commit "say what a board that stops answering does"
+run_check
+[ "$status" -eq 0 ] || fail "expected exit 0, got $status"
+grep -q "^note:" "$err" ||
+    fail "the removal was not counted as one from outside the window"
 
 case_name="the same removal passes with a Drops-merged-text trailer"
 new_repo
@@ -304,7 +356,7 @@ git_in mv host/doc/page.md host/doc/renamed.md || exit 1
 commit "rename the page"
 run_check
 [ "$status" -eq 0 ] || fail "expected exit 0, got $status"
-grep -q "1 file(s) compared" "$out" ||
+grep -q ": 1 file(s) compared" "$out" ||
     fail "the success line does not say the renamed page was compared"
 
 # A rename is where attribution is easiest to get wrong: main has to be
@@ -326,6 +378,15 @@ grep -q "host/doc/renamed.md:" "$err" || fail "the renamed page is not named"
 grep -q "the level beside a packet" "$err" ||
     fail "the commit that gave main the paragraph is not named"
 
+# The same, with rename detection turned off in the configuration: the check
+# asks for it on its own command line, so the answer must not change.
+case_name="a renamed page that drops the text is reported, renames off"
+printf '[diff]\n    renames = false\n' > "$work/gitconfig"
+run_check
+: > "$work/gitconfig"
+[ "$status" -eq 1 ] || fail "expected exit 1, got $status"
+grep -q "host/doc/renamed.md:" "$err" || fail "the renamed page is not named"
+
 # A deleted page is where the diff reads differently: its text is removed
 # against /dev/null, and the path it belongs to is the one it had. A branch
 # that deletes a page main had just added text to has lost that text, and the
@@ -335,6 +396,7 @@ new_repo
 write_page "$repo/host/doc/zzz.md" \
     TIMEOUT "$para_timeout"
 commit "a page of its own"
+pad_main 12
 {
     printf '\n## LEVEL\n\n%s\n' "$para_level"
 } >> "$repo/host/doc/zzz.md"
@@ -345,6 +407,14 @@ commit "drop that page"
 run_check
 [ "$status" -eq 1 ] || fail "expected exit 1, got $status"
 grep -q "host/doc/zzz.md:" "$err" || fail "the deleted page is not named"
+grep -q "strongest sample the radio reports" "$err" ||
+    fail "the paragraph main had just gained is not the one reported"
+grep -q "the level beside a packet" "$err" ||
+    fail "the commit that gave main the paragraph is not named"
+# The page's older paragraph went with it, and went out of the window seven
+# merges ago: it is the note's business, not the report's.
+grep -q "waited on forever" "$err" &&
+    fail "the page's older paragraph was reported too"
 
 case_name="a page deleted beside an edited one is named correctly"
 new_repo
@@ -451,7 +521,7 @@ run_check
 case_name="a rename on main does not date the page from the rename"
 new_repo
 add_level_paragraph
-pad_main 7
+pad_main 12
 git_in mv host/doc/page.md host/doc/moved.md || exit 1
 commit "move the page"
 branch_off
@@ -492,7 +562,57 @@ run_check
 [ "$status" -eq 0 ] || fail "expected exit 0, got $status"
 assert_read 1
 
+# Half a dozen settings would each change what a diff looks like: an external
+# diff program, a textconv filter, no prefixes or mnemonic ones, more context,
+# another algorithm, no rename detection. The check names every one of them on
+# its own command line, and this is what says it still does.
+case_name="a hostile git configuration cannot blind the check"
+new_repo
+add_level_paragraph
+branch_off
+write_page "$repo/host/doc/page.md" \
+    HOPPING "$para_hopping" \
+    TIMEOUT "$para_timeout" \
+    OPTIONS "$para_options" \
+    EXAMPLES "$para_examples"
+commit "say what a board that stops answering does"
+cat > "$work/gitconfig" <<'EOF'
+[diff]
+    renames = false
+    noprefix = true
+    mnemonicPrefix = true
+    context = 7
+    algorithm = histogram
+    indentHeuristic = false
+    external = /usr/bin/false
+[core]
+    quotePath = true
+EOF
+run_check
+: > "$work/gitconfig"
+[ "$status" -eq 1 ] || fail "expected exit 1, got $status"
+grep -q "strongest sample the radio reports" "$err" ||
+    fail "the lost paragraph is not quoted"
+
 # ---- paths ---------------------------------------------------------------
+
+# An attribute can tell git that a page is binary, and a binary diff has no
+# hunks in it: there would be nothing to read and nothing to report.
+case_name="a page called binary by an attribute is still read"
+new_repo
+add_level_paragraph
+branch_off
+printf '*.md -diff\n' > "$repo/.gitattributes"
+write_page "$repo/host/doc/page.md" \
+    HOPPING "$para_hopping" \
+    TIMEOUT "$para_timeout" \
+    OPTIONS "$para_options" \
+    EXAMPLES "$para_examples"
+commit "call the pages binary, and say what a board that stops answering does"
+run_check
+[ "$status" -eq 1 ] || fail "expected exit 1, got $status"
+grep -q "strongest sample the radio reports" "$err" ||
+    fail "the lost paragraph is not quoted"
 
 case_name="a page whose name has a space in it is read"
 new_repo
@@ -551,7 +671,7 @@ assert_read 2
 case_name="a revert of text main gained long ago is not reported"
 new_repo
 add_level_paragraph
-pad_main 7
+pad_main 12
 branch_off
 write_page "$repo/host/doc/page.md" \
     HOPPING "$para_hopping" \
@@ -566,7 +686,7 @@ grep -q "^note:" "$err" ||
 case_name="a window that reaches further back reports the same removal"
 run_check --window 20
 [ "$status" -eq 1 ] || fail "expected exit 1, got $status"
-grep -q "7 merges before" "$err" ||
+grep -q "12 merges before" "$err" ||
     fail "the distance back to the commit that added it is not reported"
 
 # ---- the generated roff page -------------------------------------------
