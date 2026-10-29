@@ -195,23 +195,32 @@ static void rangetest_wait_for_fifo(void)
 		last = now;
 		/*
 		 * A step longer than the whole lead is not a step this loop
-		 * took. One turn of it is a register read and a division, a
-		 * handful of ticks, and the longest a turn can really be is an
-		 * interrupt in the middle of it -- still well under the lead.
-		 * So a larger figure means the modulo above was taken against
-		 * the wrong period. Every clock drift fix lengthens the period
-		 * it runs in, and a fix for a clock running slow sets a match
-		 * value about three times the usual one. Only the low-energy
-		 * modes fix drift, but the match value the last fix of such a
-		 * mode left behind can still be in the timer when this one
-		 * starts, which is how it reaches the range test.
+		 * took: one turn of it is a register read and a division, a
+		 * handful of ticks. So a larger figure means the modulo above
+		 * was taken against the wrong period.
 		 *
-		 * Counting such a step would end the wait early -- a step
-		 * taken one tick after the end of a lengthened period comes
-		 * out of the fixed modulus as 1,673 ticks against a lead of
-		 * 320 -- which is the wrong byte 0 all this is for. Dropping
-		 * it waits a little longer, and the poll cap still ends the
-		 * loop.
+		 * The timer's match value is not fixed. A clock drift fix
+		 * moves it for one period, and a fix for a clock running slow
+		 * makes that period about three times as long; a step taken
+		 * one tick after the end of such a period comes out of the
+		 * fixed modulus as 1,673 ticks against a lead of 320, which
+		 * would end the wait before the radio had written byte 0.
+		 * Only the low-energy modes fix drift, but the value the last
+		 * fix of such a mode left behind can still be in the timer
+		 * when this mode starts, which is how it reaches the range
+		 * test.
+		 *
+		 * Dropping the step is the safe direction: the wait runs
+		 * another turn, and the poll cap still ends the loop.
+		 *
+		 * This covers the two period lengths a drift fix produces. The
+		 * host can set the match value to a length of its own, through
+		 * UBERTOOTH_TRIM_CLOCK and UBERTOOTH_START_HOPPING, and for
+		 * some of those a step out of the wrong period is small enough
+		 * to pass this guard. Taking the step from the sign of the
+		 * difference rather than a fixed modulus, as le_clk100ns_step()
+		 * does, is what would cover every length, and the generic
+		 * receive's copy of this wait would move with it.
 		 */
 		if (step <= RANGETEST_LEAD_100NS)
 			waited += step;

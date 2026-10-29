@@ -74,6 +74,9 @@ struct scan {
 	int fifo_wait_step;      /* the step it computes, as written */
 	char fifo_wait_text[256];
 	int fifo_wait_guard;     /* it drops a step longer than the lead */
+	int fifo_wait_adds;      /* how many statements add to the total */
+	int fifo_wait_add_ok;    /* and whether the one of them is the step */
+	char fifo_wait_add[256]; /* as written */
 	int fifo_wait_length;    /* its length is RANGETEST_LEAD_100NS */
 	int fifo_wait_cap;       /* and it gives up after RANGETEST_LEAD_POLLS */
 	int byte_100ns;          /* RANGETEST_BYTE_100NS as written */
@@ -341,6 +344,18 @@ static int scan_source(const char *path, struct scan *s)
 				if (strcmp(flat,
 				           "if (step <= RANGETEST_LEAD_100NS)") == 0)
 					s->fifo_wait_guard = 1;
+			}
+			/*
+			 * And the one statement the guard stands in front of, so
+			 * that an addition of something other than the step, or
+			 * an addition outside the guard, is not silently allowed.
+			 */
+			if (strstr(line, "waited +=") != NULL) {
+				collapse_spaces(line, s->fifo_wait_add,
+				                sizeof(s->fifo_wait_add));
+				s->fifo_wait_adds++;
+				if (strcmp(s->fifo_wait_add, "waited += step;") == 0)
+					s->fifo_wait_add_ok = 1;
 			}
 		}
 
@@ -1147,6 +1162,14 @@ MU_TEST(test_the_read_waits_for_the_radio_to_have_the_packet)
 	mu_assert(s.fifo_wait_guard, msg);
 
 	snprintf(msg, sizeof(msg),
+	         "%s:%d: rangetest_wait_for_fifo() adds to its total %d times, "
+	         "the last as `%s`. One `waited += step;` behind the guard is the "
+	         "whole of it: anything else, or a second one outside the guard, "
+	         "waits for a length no test here knows",
+	         path, s.fifo_wait_fn, s.fifo_wait_adds, s.fifo_wait_add);
+	mu_assert(s.fifo_wait_adds == 1 && s.fifo_wait_add_ok, msg);
+
+	snprintf(msg, sizeof(msg),
 	         "%s:%d: rangetest_wait_for_fifo() does not wait "
 	         "RANGETEST_LEAD_100NS", path, s.fifo_wait_fn);
 	mu_assert(s.fifo_wait_length, msg);
@@ -1644,11 +1667,13 @@ MU_TEST(test_the_range_test_has_one_copy)
 #define CLKN_PERIOD ((uint32_t)CLK100NS_PER_CLKN)  /* 312.5 us in 100 ns ticks */
 
 /*
- * How long the one period a clock drift fix lengthens is, in the same ticks.
- * A fix for a clock running slow writes 3124 + 6249 to the timer's match
- * register, and the period is one tick longer than the match value.
+ * The two period lengths a clock drift fix produces, in the same ticks. The
+ * fix writes 3124 plus its offset to the timer's match register, 1 for a clock
+ * running fast and 6249 for one running slow, and a period is one tick longer
+ * than the match value.
  */
-#define LONG_PERIOD 9374u
+#define FAST_FIX_PERIOD 3126u
+#define SLOW_FIX_PERIOD 9374u
 
 /* The lead the firmware waits, four 1 Mbit/s byte times. */
 #define MODEL_LEAD 320u
@@ -1737,53 +1762,87 @@ MU_TEST(test_the_wait_adds_up_steps_across_the_counters_reset)
 }
 
 /*
- * The guard leaves no reading of a lengthened period that ends the wait before
- * the lead has really passed.
+ * What the guard counts, and what it drops, over a whole period.
  *
- * Every pair of readings across the reset of such a period is tried here.
- * `real` is the time that actually passed between the two, which the firmware
- * cannot know; `step` is what the fixed modulus makes of them. Without the
- * guard a single step of 320 ticks or more ends the wait on its own, and 51,040
- * of these pairs do that with less than the lead behind them -- as little as
- * one tick. The guard drops every one of those, and the steps it still counts
- * stand for 145 us of real time at the least, more than four times the lead,
- * so none of them can end the wait early either.
+ * Every pair of readings taken across the reset of a period `length` ticks
+ * long is tried. `real` is the time that actually passed between the two
+ * readings, which the firmware cannot know; `step` is what the fixed modulus
+ * makes of them. Two numbers come out: how many pairs end the wait before the
+ * lead has really passed, and the most any counted step over-states the time
+ * it stands for, which is how an accumulation of them could end the wait early
+ * without any single step reaching the lead.
  */
-MU_TEST(test_no_reading_of_a_lengthened_period_ends_the_wait_early)
-{
-	long early_without_the_guard = 0, early_with_it = 0;
-	uint32_t least_real_counted = 0xffffffffu;
-	uint32_t last, now;
-	char msg[256];
+struct period_sweep {
+	long ends_the_wait_early;  /* with the guard in place */
+	long would_without_guard;  /* if every step were counted */
+	uint32_t worst_over_count; /* counted step minus the time it stood for */
+};
 
-	for (last = CLKN_PERIOD + 1; last < LONG_PERIOD; last++) {
-		for (now = 0; now < last && now < CLKN_PERIOD; now++) {
+static struct period_sweep sweep_period(uint32_t length)
+{
+	struct period_sweep r = { 0, 0, 0 };
+	uint32_t last, now;
+
+	for (last = 1; last < length; last++) {
+		for (now = 0; now < last; now++) {
 			uint32_t step = (now + CLKN_PERIOD - last) % CLKN_PERIOD;
-			uint32_t real = now + LONG_PERIOD - last;
+			uint32_t real = now + length - last;
 
 			if (step >= MODEL_LEAD && real < MODEL_LEAD)
-				early_without_the_guard++;
+				r.would_without_guard++;
 			if (step > MODEL_LEAD)
 				continue;    /* the guard drops it */
-			if (real < least_real_counted)
-				least_real_counted = real;
 			if (step >= MODEL_LEAD && real < MODEL_LEAD)
-				early_with_it++;
+				r.ends_the_wait_early++;
+			if (step > real && step - real > r.worst_over_count)
+				r.worst_over_count = step - real;
 		}
 	}
+	return r;
+}
 
-	mu_assert_int_eq(51040, (int)early_without_the_guard);
+/*
+ * No reading of a period a drift fix lengthened can end the wait before the
+ * lead has really passed.
+ *
+ * A fix for a clock running slow is the one that matters: 51,040 pairs of
+ * readings across the reset of that period used to end the wait with less than
+ * the lead behind them, as little as one tick of it. None do now, and no step
+ * the guard still counts over-states the time it stands for, so an
+ * accumulation of them cannot end the wait early either.
+ *
+ * These are the two lengths a drift fix produces. The host can set the timer's
+ * match value to a length of its own, and for some of those a step out of the
+ * wrong period is small enough to pass the guard; that is a wider fix than
+ * this wait, since it would move the generic receive's copy too, and it is
+ * tracked on its own.
+ */
+MU_TEST(test_no_reading_of_a_drift_fixed_period_ends_the_wait_early)
+{
+	struct period_sweep slow = sweep_period(SLOW_FIX_PERIOD);
+	struct period_sweep fast = sweep_period(FAST_FIX_PERIOD);
+	char msg[256];
+
+	mu_assert_int_eq(51040, (int)slow.would_without_guard);
 
 	snprintf(msg, sizeof(msg),
-	         "%ld readings of a lengthened period still end the wait before "
-	         "the lead has passed", early_with_it);
-	mu_assert(early_with_it == 0, msg);
+	         "%ld readings of the long period still end the wait before the "
+	         "lead has passed", slow.ends_the_wait_early);
+	mu_assert(slow.ends_the_wait_early == 0, msg);
 
 	snprintf(msg, sizeof(msg),
-	         "a step the guard counts stood for only %u ticks, under the %u "
-	         "the lead is: counting it ends the wait early",
-	         least_real_counted, MODEL_LEAD);
-	mu_assert(least_real_counted >= MODEL_LEAD, msg);
+	         "a counted step over-states the time it stands for by %u ticks, "
+	         "so enough of them end the wait before the lead has passed",
+	         slow.worst_over_count);
+	mu_assert(slow.worst_over_count == 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "the period a fix for a fast clock leaves is one tick longer "
+	         "than the usual one, and %ld readings of it end the wait early "
+	         "(over-count %u)", fast.ends_the_wait_early,
+	         fast.worst_over_count);
+	mu_assert(fast.ends_the_wait_early == 0 && fast.worst_over_count == 0,
+	          msg);
 }
 
 int main(void)
@@ -1825,6 +1884,6 @@ int main(void)
 	MU_RUN(test_the_badge_waits_for_the_radio_to_have_the_packet);
 	MU_RUN(test_the_range_test_has_one_copy);
 	MU_RUN(test_the_wait_adds_up_steps_across_the_counters_reset);
-	MU_RUN(test_no_reading_of_a_lengthened_period_ends_the_wait_early);
+	MU_RUN(test_no_reading_of_a_drift_fixed_period_ends_the_wait_early);
 	return mu_report();
 }

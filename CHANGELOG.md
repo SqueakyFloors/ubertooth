@@ -1966,7 +1966,7 @@ Fixes with no visible change in normal use.
 - The range test's wait for that first byte is no longer cut short by the one
   clock period a drift fix lengthens, so byte 0 of a reply is still the byte
   that arrived. The wait is timed by a counter that resets every 312.5 us, and
-  a reading taken just after a lengthened period reset used to be read as
+  a reading taken just after such a period reset used to be read as up to
   167 us of waiting that had not happened.
   [#870](https://github.com/SqueakyFloors/ubertooth/issues/870)
 - A capture keeps a packet whose transfer brought all 64 bytes and came back
