@@ -173,7 +173,7 @@ def report_versions(selector=None):
     # the child's.
     try:
         sys.stdout.flush()
-    except (AttributeError, ValueError, OSError):
+    except (AttributeError, ValueError):
         # There is no standard output at all: a descriptor closed before the
         # tool started leaves the interpreter without one, so the answer
         # cannot be printed. Reported there, in the one line that says it

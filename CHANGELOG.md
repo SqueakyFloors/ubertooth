@@ -27,16 +27,6 @@
   closed, their `error: ` lines are lost rather than moved to standard output,
   which Wireshark reads as the answer.
   [#920](https://github.com/SqueakyFloors/ubertooth/issues/920)
-- Every answer `btle-extcap.py` gives reports a standard output that is not
-  there, not only `-h`: the interface listing, the DLT, the configuration, and
-  a capture filter's verdict are `error: standard output has gone away` and
-  exit 1 where that stream is closed or cannot be written, instead of exiting
-  0 as though they had printed. A `-V` over a descriptor open for reading only
-  is reported in either tool before `ubertooth-util` is started, since the
-  answer is the child's to print and only its own exit status would have said
-  it was refused. And a standard error open for reading only costs neither
-  tool its exit status: that used to be 120, from the interpreter.
-  [#926](https://github.com/SqueakyFloors/ubertooth/issues/926)
 - **Script-visible change:** `ubertooth-btle -s` and `-t` each have their own
   address, so `-s A -t B` advertises from A and follows B, which is what it
   reads like. They shared one address, so whichever option was written last
@@ -644,6 +634,14 @@
   [#544](https://github.com/SqueakyFloors/ubertooth/issues/544)
 
 ### Reliability fixes
+
+- Every answer `btle-extcap.py` gives reports a standard output that is not
+  there, not only `-h`: the interface listing, the DLT, the configuration and
+  a filter verdict that could not be printed are one `error: ` line and exit
+  1, where they used to exit 0 or, over a descriptor open for reading only,
+  120. A standard error in that state costs neither Python tool its own exit
+  status either.
+  [#926](https://github.com/SqueakyFloors/ubertooth/issues/926)
 
 - `ubertooth-btbr -V` and `-h` answer on a host where the Python `libusb1`
   package is not installed, instead of ending in a `ModuleNotFoundError`

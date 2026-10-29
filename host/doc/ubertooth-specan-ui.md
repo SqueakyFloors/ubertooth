@@ -138,10 +138,10 @@ halves of its answer says the line once.
 
 With standard error gone, the `error: ` lines above are lost rather than
 moved: none of them falls back to standard output, where a reader or a script
-is entitled to find only what it asked for. That covers both descriptors a
-shell can leave there, one closed (`ubertooth-specan-ui -l 2000 2>&-`) and one
-open for reading only (`ubertooth-specan-ui -l 2000 2<&0`). The exit status is
-then all that is left to say what happened, and it is the tool's own.
+is entitled to find only what it asked for. A standard error open for reading
+only (`ubertooth-specan-ui -l 2000 2<&0`) goes the same way as a closed one
+(`ubertooth-specan-ui -l 2000 2>&-`). The exit status is then all that is left
+to say what happened, and it is the tool's own.
 
 ## SEE ALSO
 

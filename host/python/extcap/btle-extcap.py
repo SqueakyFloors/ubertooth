@@ -131,12 +131,12 @@ def point_at_the_bin(stream):
 
 
 def can_be_written(stream):
-    """Say whether a stream's descriptor would take a write.
+    """Say whether a stream's descriptor would take what is written to it.
 
-    An empty write asks the descriptor the question without putting anything
-    on it: one opened for reading only refuses it, as does a pipe whose
-    reader has left. A flush cannot ask, because an empty buffer flushes
-    whichever state the descriptor is in.
+    A write of nothing asks the descriptor that question and puts no text on
+    it: one opened for reading only refuses it, whatever the length. A flush
+    cannot ask, because an empty buffer flushes whichever state the
+    descriptor is in.
     """
     try:
         os.write(stream.fileno(), b"")
@@ -248,7 +248,7 @@ def report_versions():
     # the child's.
     try:
         sys.stdout.flush()
-    except (AttributeError, ValueError, OSError):
+    except (AttributeError, ValueError):
         # There is no standard output at all: a descriptor closed before the
         # script started leaves the interpreter without one, so the answer
         # cannot be printed. Reported there, in the one line that says it
@@ -335,9 +335,11 @@ def verify_capture_filter(capture_filter):
     filter is good (extcap.c, cb_verify_filter). The exit status is not part
     of the answer: a non-zero one makes Wireshark discard the output and say
     "Unable to check capture filter" instead, so this exits 0 whichever way
-    it answers. No filter can be applied here, so any filter the user typed
-    is reported, and the empty filter Wireshark verifies when the box is
-    empty is good.
+    it answers. The exception is a verdict that could not be printed at all,
+    which answer() reports and ends the call with: there is nothing left for
+    Wireshark to discard. No filter can be applied here, so any filter the
+    user typed is reported, and the empty filter Wireshark verifies when the
+    box is empty is good.
     """
     if capture_filter:
         answer(NO_CAPTURE_FILTER + "\n")

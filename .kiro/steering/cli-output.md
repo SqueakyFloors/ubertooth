@@ -170,7 +170,9 @@ not the flash worked.
   the filter is good or not. What is wrong with the filter goes on standard
   output and nothing at all means it is good, because Wireshark reads that
   output as the answer and throws away the output of a call that exited
-  non-zero.
+  non-zero. The one exception is an answer that could not be printed at all:
+  there is then nothing for Wireshark to read, so the loss is reported and the
+  call exits `1`, as every other lost answer does.
 - Check command-line problems before opening a device or creating an output
   file, so a refused command touches nothing.
 

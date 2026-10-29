@@ -116,7 +116,10 @@ standard output, and Wireshark shows that sentence in the filter box in red.
 An empty filter, which is what Wireshark verifies when the box is empty, is
 good: the answer is an empty standard output. Either way the call exits 0,
 because a non-zero exit would make Wireshark discard the answer and report
-"Unable to check capture filter" instead of showing it.
+"Unable to check capture filter" instead of showing it. The one exception is a
+verdict that could not be printed at all, which is `error: standard output has
+gone away` and exit 1: there is nothing left for Wireshark to discard. See
+DIAGNOSTICS.
 
 A filter given alongside `--capture` does not stop the capture: it starts
 anyway, with a `warning: ` line repeating the same sentence.
@@ -210,10 +213,10 @@ filter is good, still exit 0 with that stream gone.
 
 With standard error gone, the `error: ` lines above are lost rather than
 moved: none of them falls back to standard output, which Wireshark reads as
-the answer to the call. That covers both descriptors a shell can leave there
-as well, one closed (`btle-extcap.py --bogus 2>&-`) and one open for reading
-only (`btle-extcap.py --bogus 2<&0`). The exit status is then all that is
-left to say what happened, and it is the script's own.
+the answer to the call. A standard error open for reading only
+(`btle-extcap.py --bogus 2<&0`) goes the same way as a closed one
+(`btle-extcap.py --bogus 2>&-`). The exit status is then all that is left to
+say what happened, and it is the script's own.
 
 ## EXIT STATUS
 
@@ -228,7 +231,8 @@ report the signal that killed it.
    script asks ubertooth-btle(1) to stop with a SIGTERM, or ubertooth-btle(1)
    dies of SIGPIPE because nothing is reading the fifo any more. It also
    includes the capture-filter verification call, whose answer is its standard
-   output and not its status; see CAPTURE FILTERS
+   output and not its status, unless that answer could not be printed; see
+   CAPTURE FILTERS
  - `1` :
    a usage error, a board that could not be opened, a tool that could not be
    run, a ubertooth-btle(1) that failed or was killed, or any other failure.

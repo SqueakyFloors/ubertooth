@@ -413,25 +413,25 @@ assert output == "", output
 assert errors == OUTPUT_GONE, errors
 assert not os.path.exists(VERSION_ARGS_FILE), "ubertooth-util must not run"
 
-# a refused range with a standard error that cannot be written, which is
+# A refused range with a standard error that cannot be written, which is
 # `-l 2000 2<&0`: the line is lost as a closed stream's is, and the status is
-# the tool's own
+# the tool's own. That stream is no longer this test's pipe here, so the
+# status is what the case pins; what matters beside it is that standard
+# output is left alone.
 status, output, errors = ran_with(("-l", "2000"), read_only(2))
 assert status == 1, (status, output, errors)
-assert output == "" and errors == "", (output, errors)
+assert output == "", output
 
 # and that stream going does not cost the answer: -h still prints the usage
 # text, on standard output, and exits 0
 status, output, errors = ran_with(("-h",), read_only(2))
 assert status == 0, (status, output, errors)
 assert output.startswith("usage:"), output
-assert errors == "", errors
 
 # with neither stream writable at once, which is `-h 1<&0 2<&0`, the status
 # is all that is left
 status, output, errors = ran_with(("-h",), read_only(1, 2))
 assert status == 1, (status, output, errors)
-assert output == "" and errors == "", (output, errors)
 
 print("ubertooth-specan-ui: a descriptor open for reading only costs the"
       " command neither its status nor its answer")
