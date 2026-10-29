@@ -1062,6 +1062,16 @@ add_test(
 # than passed, so a green run cannot hide an absent check.
 set_tests_properties(manpages PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 77)
 
+# The example output lines in host/doc/*.md against the lines the tests here
+# pin a tool to print, so a page left behind by a reworded message fails.
+# Reads both as source; nothing is built or run.
+add_test(
+	NAME doc-example-lines
+	COMMAND ${Python3_EXECUTABLE}
+		${CMAKE_CURRENT_SOURCE_DIR}/test_doc_example_lines.py
+		${CMAKE_CURRENT_SOURCE_DIR}/../..)
+set_tests_properties(doc-example-lines PROPERTIES TIMEOUT 60)
+
 # The same approach for ubertooth-scan. Its main() needs the BlueZ headers, so
 # like the tool itself this is built only where libbluetooth is installed; the
 # find_package here is what makes that visible in this directory. FindBLUETOOTH

@@ -1225,8 +1225,19 @@ static void cb_xfer(struct libusb_transfer *xfer)
 		 * slot of a ring buffer nobody is draining. */
 		if (wanted_back)
 			break;
-		/* Only a whole 64-byte packet is a packet. When a capture goes
-		 * quiet the firmware answers the bulk endpoint with a one-byte
+		/* A whole 64-byte packet is a packet, whichever of the two
+		 * statuses came with it. libusb reports a transfer that received
+		 * every byte asked for as completed; it can also report the
+		 * timeout expiring on the same transfer, and the packet in the
+		 * buffer is a packet either way. The earlier test took the
+		 * completed status as well, so such a transfer was dropped and
+		 * nothing was said about it, and a packet the host already had
+		 * was lost. The teardown's case does not reach here: a cancelled
+		 * transfer that comes back as a bulk timeout is caught by
+		 * wanted_back above.
+		 *
+		 * Short of 64 bytes is not a packet. When a capture goes quiet
+		 * the firmware answers the bulk endpoint with a one-byte
 		 * keep-alive, which sets pkt_type in the receive slot and leaves
 		 * the other 63 bytes as they were. Handing that slot on publishes
 		 * a packet nothing filled in, and a consumer that writes records
@@ -1236,8 +1247,7 @@ static void cb_xfer(struct libusb_transfer *xfer)
 		 * Anything short other than that keep-alive is a fault, and
 		 * dropping it in silence left a capture losing packets looking
 		 * like a quiet board, so it is reported. */
-		if (xfer->status == LIBUSB_TRANSFER_COMPLETED
-		    && xfer->actual_length == PKT_LEN) {
+		if (xfer->actual_length == PKT_LEN) {
 			/* When this packet arrived, stamped here because this is
 			 * the moment it did. The loop that drains the ring
 			 * buffer can be a long way behind: reading the clock

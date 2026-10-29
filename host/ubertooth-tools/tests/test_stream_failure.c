@@ -85,6 +85,7 @@ static struct {
 	int control_requests;     /* control requests the library sent */
 	enum scripted_event event;
 	int events_delivered;
+	int published;            /* packets handed to the ring buffer */
 } fake;
 
 /* The handle the stream under test is using, and how many empty polls to
@@ -130,8 +131,16 @@ uint8_t fifo_empty(fifo_t* fifo)
 }
 
 usb_pkt_rx* fifo_get_write_element(fifo_t* fifo) { (void)fifo; return &one_slot; }
+/* Counted, because whether a packet was published is the whole of what the
+ * cases below about a full-length transfer are asking. */
 void fifo_inc_write_ptr(fifo_t* fifo, uint64_t arrival_ns)
-{ (void)fifo; (void)arrival_ns; }
+{
+	(void)fifo;
+	(void)arrival_ns;
+	pthread_mutex_lock(&fake_lock);
+	fake.published++;
+	pthread_mutex_unlock(&fake_lock);
+}
 void fifo_push(fifo_t* fifo, const usb_pkt_rx* packet, uint64_t arrival_ns)
 { (void)fifo; (void)packet; (void)arrival_ns; }
 uint64_t fifo_popped_arrival_ns(const fifo_t* fifo) { (void)fifo; return 0; }
@@ -491,6 +500,18 @@ static void deliver(enum libusb_transfer_status status)
 	xfer->callback(xfer);
 }
 
+/* The same, for a transfer that brought bytes: libusb fills in how many it
+ * received, which is what decides whether this is a packet. */
+static void deliver_bytes(enum libusb_transfer_status status, int length,
+                          uint8_t first_byte)
+{
+	mu_assert_fatal(fake.in_flight != NULL, "a transfer was in flight");
+	if (length > 0 && fake.in_flight->buffer != NULL)
+		fake.in_flight->buffer[0] = first_byte;
+	fake.in_flight->actual_length = length;
+	deliver(status);
+}
+
 static btbb_piconet* new_piconet(void)
 {
 	btbb_piconet* pn = btbb_piconet_new();
@@ -578,6 +599,83 @@ MU_TEST(a_bulk_timeout_is_not_a_failure)
 	mu_assert_int_eq(6, fake.submits);
 
 	release_handle(ut);
+}
+
+/* A transfer that brought a whole 64-byte packet is published whichever of
+ * the two statuses libusb gave it. A board cannot produce the timed-out one
+ * on a full transfer to order -- libusb reports a transfer that received
+ * every byte as completed -- so it is scripted here. It used to be dropped,
+ * and the truncation warning passes over a full-length transfer, so a packet
+ * the host already held was lost in silence. */
+MU_TEST(a_whole_packet_is_published_whatever_status_came_with_it)
+{
+	static const enum libusb_transfer_status statuses[] = {
+		LIBUSB_TRANSFER_COMPLETED, LIBUSB_TRANSFER_TIMED_OUT
+	};
+	size_t i;
+
+	for (i = 0; i < sizeof(statuses) / sizeof(statuses[0]); i++) {
+		ubertooth_t* ut;
+		char err[256] = "";
+		char out[256] = "";
+
+		reset();
+		ut = new_handle();
+		mu_assert_fatal(ut != NULL, "a handle");
+
+		capture_output();
+		mu_assert_int_eq(0, ubertooth_bulk_init(ut));
+		deliver_bytes(statuses[i], PKT_LEN, 0);
+		release_output(out, sizeof(out), err, sizeof(err));
+
+		mu_assert_int_eq(1, fake.published);
+		/* A packet is what a running capture looks like, so nothing is
+		 * said about it, and the capture carries on reading. */
+		mu_assert(err[0] == '\0', err);
+		mu_assert(out[0] == '\0', out);
+		mu_assert(!ubertooth_stream_failed(ut), "the stream is running");
+		mu_assert_int_eq(0, ut->stop_ubertooth);
+		mu_assert_int_eq(2, fake.submits);
+
+		release_handle(ut);
+	}
+}
+
+/* Short of a packet is still not a packet, and the keep-alive is still the
+ * one short transfer that says nothing: the status it arrives with does not
+ * change either. */
+MU_TEST(a_short_transfer_is_not_published_whatever_status_came_with_it)
+{
+	static const enum libusb_transfer_status statuses[] = {
+		LIBUSB_TRANSFER_COMPLETED, LIBUSB_TRANSFER_TIMED_OUT
+	};
+	size_t i;
+
+	for (i = 0; i < sizeof(statuses) / sizeof(statuses[0]); i++) {
+		ubertooth_t* ut;
+		char err[256] = "";
+		char out[256] = "";
+
+		reset();
+		ut = new_handle();
+		mu_assert_fatal(ut != NULL, "a handle");
+
+		capture_output();
+		mu_assert_int_eq(0, ubertooth_bulk_init(ut));
+		/* The keep-alive a quiet capture gets. */
+		deliver_bytes(statuses[i], 1, KEEP_ALIVE);
+		/* A packet cut short, which is a fault and is reported. */
+		deliver_bytes(statuses[i], PKT_LEN - 1, 0);
+		release_output(out, sizeof(out), err, sizeof(err));
+
+		mu_assert_int_eq(0, fake.published);
+		mu_assert(strstr(err, "warning: a receive transfer arrived with 63 "
+		          "of a packet's 64 bytes and was dropped") != NULL, err);
+		mu_assert(out[0] == '\0', out);
+		mu_assert(!ubertooth_stream_failed(ut), "the stream is running");
+
+		release_handle(ut);
+	}
 }
 
 /* The teardown's own cancellation is how a stream ends. Reading it as a
@@ -1008,6 +1106,8 @@ int main(void)
 
 	MU_RUN(a_failed_transfer_is_reported_and_recorded);
 	MU_RUN(a_bulk_timeout_is_not_a_failure);
+	MU_RUN(a_whole_packet_is_published_whatever_status_came_with_it);
+	MU_RUN(a_short_transfer_is_not_published_whatever_status_came_with_it);
 	MU_RUN(a_cancellation_is_not_a_failure);
 	MU_RUN(a_refused_re_arm_ends_the_capture);
 	MU_RUN(the_first_failure_is_the_one_kept);

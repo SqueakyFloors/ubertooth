@@ -158,8 +158,13 @@ MU_TEST(the_build_decides_when_the_environment_says_nothing)
 		mu_assert(strstr(err, mismatch_line("warning", OLDER)) != NULL, err);
 		mu_assert(strstr(err, "error:") == NULL,
 		          "a development build refuses nothing");
+		/* The whole note, so a reworded one fails here and in the check
+		 * that the man page shows the same text
+		 * (test_doc_example_lines.py). */
 		mu_assert(strstr(err, "note: this is a development build, so the "
-		                 "command runs on") != NULL, err);
+		                 "command runs on; what it reports may be wrong, "
+		                 "and a request this firmware has not got will "
+		                 "fail\n") != NULL, err);
 	}
 	/* Whatever the build, the report is a diagnostic. */
 	mu_assert(out[0] == '\0', out);
@@ -231,8 +236,9 @@ MU_TEST(the_note_names_the_side_to_replace_and_the_board)
 		                 "--flash\n") != NULL, err);
 
 		run_mismatch(OLDER, "1cc0");
-		mu_assert(strstr(err, "./install.sh --flash-device 1cc0\n") != NULL,
-		          err);
+		mu_assert(strstr(err, "note: flash the firmware built from the "
+		                 "same source tree, for example: ./install.sh "
+		                 "--flash-device 1cc0\n") != NULL, err);
 		mu_assert(strstr(err, "--flash-device all") == NULL,
 		          "and reflashes no other board");
 
