@@ -27,11 +27,15 @@
  *
  * On top of those, the specification's own published hop sample data is run
  * through this image: 7680 connection-state vectors through hop_basic(), and
- * 192 page scan and inquiry scan vectors through hop_inquiry() with the phase
- * the spec gives for those substates.  Both come from Vol 2, Part G, Section
- * 2, in spec_hop_vectors.h.  The hand-picked vectors above stay because they
- * name the rule each one is there for, and because they cover addresses, clock
- * values and channel maps Part G does not print.
+ * 192 page scan and inquiry scan vectors through hop_scan().  Both come from
+ * Vol 2, Part G, Section 2, in spec_hop_vectors.h.  The hand-picked vectors
+ * above stay because they name the rule each one is there for, and because
+ * they cover addresses, clock values and channel maps Part G does not print.
+ *
+ * Part G prints the scan tables only where CLK1 is 0, so vectors derived from
+ * them cover the rest: the published channel has to hold in every slot of its
+ * 1.28-second interval, because the scan substates take neither CLK1 nor
+ * the clock of the leg being tuned into the control word.
  */
 #include <stdarg.h>
 #include <stdio.h>
@@ -475,17 +479,9 @@ MU_TEST(test_spec_sample_data_connection_state)
 
 /*
  * The published page scan and inquiry scan sample data, run through
- * hop_inquiry().  In those substates Table 2.2 makes the kernel's X input
- * CLKN16-12 and its F input 0, so the table is reproduced by putting that X in
- * the phase hop_inquiry() reads and calling it.
- *
- * What this pins is hop_inquiry() for a given phase: the kernel inputs, F = 0
- * and the basic table lookup.  It does not pin where the phase comes from.
- * That is the scan task's business, and this image does not derive it from
- * CLKN at all -- it sweeps the phase to search for a device whose clock it
- * does not know (see calc_iterate_slave_page_scan_phase() in
- * include/ubtbr/hop.h), so the published table is not the sequence the board
- * transmits on.
+ * hop_scan().  In those substates Table 2.2 makes the kernel's X input
+ * CLKN16-12, its Y1 and Y2 inputs 0 and its F input 0, which is the whole
+ * control word, so this pins the sequence a scanning board really listens on.
  */
 MU_TEST(test_spec_sample_data_page_and_inquiry_scan)
 {
@@ -501,10 +497,7 @@ MU_TEST(test_spec_sample_data_page_and_inquiry_scan)
 			uint32_t clkn = SPEC_HOP_SCAN_FIRST_CLKN +
 					entry * SPEC_HOP_SCAN_CLKN_STEP;
 			int want = v->channels[entry];
-			int got;
-
-			hop_state.x = (clkn >> 12) & 0x1f;
-			got = hop_inquiry(clkn);
+			int got = hop_scan(clkn);
 
 			if (got == want)
 				continue;
@@ -519,21 +512,71 @@ MU_TEST(test_spec_sample_data_page_and_inquiry_scan)
 }
 
 /*
- * Four of btphy's modes hop through hop_inquiry(), and hop_channel() is what
- * routes them there.  This checks the routing, by giving each mode the same
- * phase and clock and expecting the same channel hop_inquiry() gave above.
- * The four substates do not share a phase in real operation, so this says
- * nothing about which channel each one ends up on.
+ * Part G prints the scan tables only at clock values that are multiples of
+ * 0x1000, where CLK1 is 0, so on their own they cannot tell a Y1 = 0 rule from
+ * a Y1 = CLK1 one.  This derives vectors that can: with Y1 = Y2 = 0 the
+ * published channel for a clock must also hold at every other clock of the
+ * same 1.28 seconds, because none of those bits reaches the control word.  A
+ * rule that read CLK1 would move half of them.
  */
-MU_TEST(test_every_inquiry_mode_routes_to_hop_inquiry)
+MU_TEST(test_a_scan_holds_its_channel_across_the_slots)
+{
+	/* Clock offsets within one CLKN16-12 value: the second half of the
+	 * same slot, the next slot and its second half, the next slot pair,
+	 * and the far end of the 1.28 seconds. */
+	static const uint32_t OFFSETS[] = { 1, 2, 3, 4, 0x7ff, 0xfff };
+	int set, entry, bad = 0;
+	size_t off;
+
+	for (set = 0; set < SPEC_HOP_SCAN_SETS; set++) {
+		const struct spec_hop_scan_vector *v = &SPEC_HOP_SCAN[set];
+		int reported = 0;
+
+		follow_setup(v->ulap, NULL);
+
+		for (entry = 0; entry < SPEC_HOP_SCAN_ENTRIES; entry++) {
+			uint32_t clkn = SPEC_HOP_SCAN_FIRST_CLKN +
+					entry * SPEC_HOP_SCAN_CLKN_STEP;
+			int want = v->channels[entry];
+
+			for (off = 0; off < sizeof(OFFSETS) / sizeof(OFFSETS[0]);
+			     off++) {
+				int got = hop_scan(clkn + OFFSETS[off]);
+
+				if (got == want)
+					continue;
+				bad++;
+				if (reported++ < 4)
+					printf("  address %08x, CLKN 0x%07x + "
+						"0x%x: channel %d, the spec "
+						"says %d for the whole "
+						"interval\n",
+						v->ulap, clkn, OFFSETS[off],
+						got, want);
+			}
+		}
+	}
+	mu_assert_int_eq(0, bad);
+}
+
+/*
+ * hop_channel() routes each mode to the substate's rule.  The two scan modes
+ * must reach hop_scan() with the board's own native clock, whatever clock the
+ * leg being tuned hands in: that is what keeps a scan on one frequency when a
+ * caller passes a slot clock.
+ */
+MU_TEST(test_scan_modes_hop_on_the_native_clock)
 {
 	static const uint8_t MODES[] = {
-		BT_MODE_INQUIRY, BT_MODE_INQUIRY_SCAN,
-		BT_MODE_PAGE_SCAN, BT_MODE_PAGING_RESPONSE,
+		BT_MODE_PAGE_SCAN, BT_MODE_INQUIRY_SCAN,
 	};
+	/* Clocks a caller might hand in: every slot of a pair, and two whose
+	 * own CLKN16-12 differs from the native clock's. */
+	static const uint32_t CALLER_CLOCKS[] = { 0, 1, 2, 3, 0x3000, 0x12345 };
 	const struct spec_hop_scan_vector *v = &SPEC_HOP_SCAN[1];
 	unsigned mode;
 	int entry, bad = 0;
+	size_t c;
 
 	follow_setup(v->ulap, NULL);
 	for (mode = 0; mode < sizeof(MODES) / sizeof(MODES[0]); mode++) {
@@ -543,22 +586,127 @@ MU_TEST(test_every_inquiry_mode_routes_to_hop_inquiry)
 		for (entry = 0; entry < SPEC_HOP_SCAN_ENTRIES; entry++) {
 			uint32_t clkn = SPEC_HOP_SCAN_FIRST_CLKN +
 					entry * SPEC_HOP_SCAN_CLKN_STEP;
-			int got;
 
-			hop_state.x = (clkn >> 12) & 0x1f;
-			got = hop_channel(clkn);
+			btphy.master_clkn = clkn;
+			for (c = 0; c < sizeof(CALLER_CLOCKS) /
+					sizeof(CALLER_CLOCKS[0]); c++) {
+				int got = hop_channel(CALLER_CLOCKS[c]);
 
-			if (got == v->channels[entry])
-				continue;
-			bad++;
-			if (reported++ < 2)
-				printf("  mode %d, CLKN 0x%07x: channel %d, "
-					"hop_inquiry() gives %d\n",
-					MODES[mode], clkn, got,
-					v->channels[entry]);
+				if (got == v->channels[entry])
+					continue;
+				bad++;
+				if (reported++ < 4)
+					printf("  mode %d, CLKN 0x%07x, caller "
+						"clock 0x%x: channel %d, the "
+						"spec says %d\n",
+						MODES[mode], clkn,
+						CALLER_CLOCKS[c], got,
+						v->channels[entry]);
+			}
 		}
 	}
 	mu_assert_int_eq(0, bad);
+}
+
+/*
+ * The substates that answer a page, and the page and inquiry substates
+ * themselves, take their slot into the control word: Table 2.2 gives them
+ * Y1 = CLK1 and Y2 = 32 x CLK1.  So the channel in a central transmit slot
+ * differs from the one in the peripheral transmit slot beside it, on the same
+ * phase -- the pair of frequencies an exchange transmits and listens on.
+ */
+MU_TEST(test_page_and_response_modes_use_the_slot)
+{
+	static const uint8_t MODES[] = {
+		BT_MODE_INQUIRY, BT_MODE_PAGING_RESPONSE,
+		BT_MODE_PERIPH_PAGE_RESPONSE,
+	};
+	const struct spec_hop_scan_vector *v = &SPEC_HOP_SCAN[1];
+	unsigned mode;
+	int phase, differ = 0;
+
+	follow_setup(v->ulap, NULL);
+	/* A clock whose CLKN16-12 is nothing like the phase, so a mode that
+	 * ignored the phase and read the clock would be caught. */
+	btphy.master_clkn = 0x12000;
+	for (mode = 0; mode < sizeof(MODES) / sizeof(MODES[0]); mode++) {
+		btphy.mode = MODES[mode];
+		differ = 0;
+		for (phase = 0; phase < 32; phase++) {
+			int even, odd;
+
+			hop_state.x = phase;
+			/* 0x40 and 0x42 are the two slots of one pair,
+			 * CLK1 = 0 and CLK1 = 1. */
+			even = hop_channel(0x40);
+			odd = hop_channel(0x42);
+			mu_assert_int_eq(hop_inquiry(0x40), even);
+			mu_assert_int_eq(hop_inquiry(0x42), odd);
+			if (even != odd)
+				differ++;
+		}
+		/* Not every phase has to move, but the rule cannot be a
+		 * constant, and it has to hold for each mode on its own. */
+		mu_assert(differ > 0, "the slot changes no channel in this "
+				"mode, so Y1 = CLK1 is not reaching the "
+				"kernel");
+	}
+}
+
+/*
+ * A response starts from the phase the scan window that heard the packet was
+ * listening on, not from the clock as it reads once the packet is decoded. A
+ * window holds its channel for several slots, so a window that straddles a
+ * 1.28-second boundary would otherwise answer on the next phase.
+ */
+MU_TEST(test_a_response_starts_from_the_phase_the_scan_heard)
+{
+	const struct spec_hop_scan_vector *v = &SPEC_HOP_SCAN[1];
+	/* The last slots of one 1.28-second interval: the scan tuned here. */
+	const uint32_t tuned_at = 0x7ffd;
+
+	follow_setup(v->ulap, NULL);
+	btphy.mode = BT_MODE_PAGE_SCAN;
+	btphy.master_clkn = tuned_at;
+	mu_assert_int_eq(hop_scan(tuned_at), hop_channel(0));
+
+	/* The packet is decoded a few slots later, over the boundary. */
+	btphy.master_clkn = tuned_at + 4;
+	mu_assert(hop_scan_phase(btphy.master_clkn) !=
+			hop_scan_phase(tuned_at),
+		"the test clocks no longer straddle a phase boundary");
+
+	btphy.mode = BT_MODE_PERIPH_PAGE_RESPONSE;
+	hop_start_response();
+	mu_assert_int_eq(hop_scan_phase(tuned_at), hop_state.x);
+}
+
+/*
+ * The inquiry response is the one substate Table 2.2 fixes at Y1 = 1 and
+ * Y2 = 32 rather than reading the slot: the answer to an inquiry goes out on
+ * the frequency that pairs with the one the inquiry arrived on, whichever slot
+ * the board gets to transmit in.
+ */
+MU_TEST(test_inquiry_response_ignores_the_slot)
+{
+	const struct spec_hop_scan_vector *v = &SPEC_HOP_SCAN[1];
+	int phase;
+
+	follow_setup(v->ulap, NULL);
+	btphy.master_clkn = 0x12000;
+	btphy.mode = BT_MODE_INQUIRY_RESPONSE;
+	for (phase = 0; phase < 32; phase++) {
+		/* The peripheral transmit slot of the page and inquiry rule is
+		 * the same control word, so it is the channel to expect. */
+		int want;
+
+		hop_state.x = phase;
+		want = hop_inquiry(0x42);
+		mu_assert_int_eq(want, hop_channel(0x40));
+		mu_assert_int_eq(want, hop_channel(0x41));
+		mu_assert_int_eq(want, hop_channel(0x42));
+		mu_assert_int_eq(want, hop_channel(0x43));
+	}
 }
 
 int main(void)
@@ -566,7 +714,11 @@ int main(void)
 	printf("btbr hop selection tests\n");
 	MU_RUN(test_spec_sample_data_connection_state);
 	MU_RUN(test_spec_sample_data_page_and_inquiry_scan);
-	MU_RUN(test_every_inquiry_mode_routes_to_hop_inquiry);
+	MU_RUN(test_a_scan_holds_its_channel_across_the_slots);
+	MU_RUN(test_scan_modes_hop_on_the_native_clock);
+	MU_RUN(test_page_and_response_modes_use_the_slot);
+	MU_RUN(test_inquiry_response_ignores_the_slot);
+	MU_RUN(test_a_response_starts_from_the_phase_the_scan_heard);
 	MU_RUN(test_perm5_lookup_table_matches_spec);
 	MU_RUN(test_basic_bank_is_even_then_odd_channels);
 	MU_RUN(test_basic_hops_match_reference);

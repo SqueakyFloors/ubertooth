@@ -27,6 +27,7 @@
 #include <ubtbr/tdma_sched.h>
 #include <ubtbr/scan_task.h>
 #include <ubtbr/tx_task.h>
+#include <ubtbr/hop.h>
 
 #define INQ_SCAN_MAX_TICKS (CLKN_RATE*60)
 #define TX_PREPARE_IDX	1  // We will transmit at clkn1_0 = 2
@@ -77,6 +78,13 @@ static void inquiry_scan_rx_cb(int sw_detected, void *arg)
 	if (sw_detected)
 	{
 		console_putc('!');
+
+		/* Answering the inquiry is a substate of its own: the FHS, and
+		 * the extended inquiry response after it, go out on the
+		 * frequency that pairs with the one the inquiry arrived on. */
+		btphy_set_mode_no_ap(BT_MODE_INQUIRY_RESPONSE);
+		hop_start_response();
+
 		/* Schedule TX FHS
 		 * We're in the scan_wait, in same tick as rx.
 		 * we must prepare in next tick to start tx at rx+2 */
@@ -104,6 +112,9 @@ static void inquiry_scan_schedule(unsigned delay)
 		btctl_set_state(BTCTL_STATE_STANDBY, BTCTL_REASON_TIMEOUT);
 		return;
 	}
+	/* Back to the scan substate, which every path here comes from: a
+	 * finished response leaves the response substate behind. */
+	btphy_set_mode_no_ap(BT_MODE_INQUIRY_SCAN);
 	scan_task_schedule(delay, inquiry_scan_rx_cb, NULL);
 }
 

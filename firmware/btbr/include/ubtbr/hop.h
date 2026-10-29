@@ -7,6 +7,9 @@ typedef struct hop_state_s {
 	uint8_t a27_23, a22_19, C, E;
 	uint16_t a18_10;
 	uint8_t x;
+	/* The phase the scan substate is listening on, kept so a response that
+	 * follows a scan starts from the phase that heard the packet. */
+	uint8_t scan_x;
 	/*
 	 * Basic mapping table (Core spec Vol 2 Part B 2.6.2): even channels in
 	 * ascending order followed by odd channels.  AFH consults it first, so
@@ -28,6 +31,7 @@ typedef struct hop_state_s {
 void hop_init(uint32_t address);
 uint8_t hop_basic(uint32_t clk);
 uint8_t hop_inquiry(uint32_t clk);
+uint8_t hop_scan(uint32_t clkn);
 uint8_t hop_channel(uint32_t clk);
 void hop_cfg_afh(uint8_t* buf);
 
@@ -87,6 +91,35 @@ we freeze this value and use a frozen value of this +N (see Master Page Response
 static inline void hop_freeze_clock(uint32_t clk)
 {
 	hop_state.x = calc_iterate_slave_page_scan_phase(clk);
+}
+
+/* The X input of the page scan and inquiry scan substates: CLKN16-12 of the
+ * scanning device's own clock (Vol 2, Part B, Table 2.2).  Those five bits
+ * change once every 1.28 seconds, so a scanning device holds one frequency for
+ * that long, and a pager or inquirer sweeping all 32 phases comes round to it
+ * every sweep. */
+static inline uint8_t hop_scan_phase(uint32_t clkn)
+{
+	return (clkn >> 12) & 0x1f;
+}
+
+/* Start the response substate that follows a scan: the peripheral page
+ * response (2.6.4.3) or the inquiry response (2.6.4.6).  Both take the phase
+ * the scan was listening on, with a counter N that starts at zero, so the
+ * first answer goes out on the frequency that pairs with the one the page or
+ * inquiry arrived on.  hop_increment() carries N from there.
+ *
+ * The phase comes from hop_scan(), not from the clock as it reads now: a scan
+ * window here holds one channel for several slots rather than retuning in each
+ * one, so reading the clock again at the end of a window that crossed a
+ * 1.28-second boundary would give the next phase, not the one that heard the
+ * packet.  2.6.4.3 freezes these bits for the page response in any case;
+ * 2.6.4.6 leaves them live for the inquiry response, and taking the window's
+ * phase departs from that, because the other end answers on the phase it
+ * transmitted on and that is the one the window heard. */
+static inline void hop_start_response(void)
+{
+	hop_state.x = hop_state.scan_x;
 }
 
 /* This function increment the x variable of for paging/inquiry hopping.

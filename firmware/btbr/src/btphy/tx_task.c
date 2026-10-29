@@ -75,8 +75,11 @@ static int tx_prepare(uint8_t p1, uint8_t p2, uint16_t p3)
 	uint8_t chan, nslots = 1;
 	uint32_t tx_clkn = btphy_cur_clkn()+1;
 
-	/* In inquiry/paging, hop.x must be incremented before each tx
-	 * of the master / RX of the slave */
+	/* An inquirer sweeps its phase once per transmit, and a pager advances
+	 * its response phase before each FHS it sends. The substates that
+	 * answer a scan do not advance here: their answers go out in the slot
+	 * that pairs with the one they listened in, on the phase they
+	 * heard. */
 	if (btphy.mode == BT_MODE_INQUIRY || btphy.mode == BT_MODE_PAGING_RESPONSE)
 		hop_increment();
 

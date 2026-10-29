@@ -111,7 +111,17 @@ static int scan_start(uint8_t p1, uint8_t p2, uint16_t p3)
 {
 	uint8_t chan;
 
-	chan = hop_channel(0);	// Assume clk1 = 0 = master tx
+	/* A scan listens on the one frequency its own CLKN16-12 selects,
+	 * whichever slot it is in (Vol 2, Part B, Table 2.2). hop_channel()
+	 * reads that clock itself, so the argument here is not the input:
+	 * there is no slot clock to give it.
+	 *
+	 * The window below holds this one channel for its whole run rather
+	 * than retuning in each slot, so a window that crosses a 1.28-second
+	 * boundary stays on the phase it started with. Nothing is lost by
+	 * that: a pager or inquirer tries all 32 phases every sweep, so it
+	 * reaches whichever one the board is on. */
+	chan = hop_channel(0);
 
 	/* Tune to chan & start RX */
 	btphy_rf_tune_chan(BT_FREQ_MIN+chan, 0);
@@ -155,10 +165,6 @@ void scan_task_schedule(unsigned delay, scan_task_cb_t cb, void*cbarg)
 
 	/* FIXME: We RX only ~250usec in a 312.5usec timeslot.
 	 * Therefore we might get unlucky and never receive the master ID. */
-
-	/* In inquiry/paging scan , hop.x must be incremented before
-	 * master TX */
-	hop_increment();
 
 	tdma_schedule(1, scan_start, 0, 0, 0, -3);
 }

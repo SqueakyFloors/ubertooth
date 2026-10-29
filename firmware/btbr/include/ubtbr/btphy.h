@@ -16,12 +16,27 @@
 #define MASTER_CLKN	T1TC
 #define CLKN_OFFSET	T0TC
 
+/*
+ * One value per hop substate of BT Core v5.4 | Vol 2, Part B, Table 2.2.  The
+ * table gives each substate its own X, Y1 and Y2 inputs, so a substate that
+ * shares a mode with another hops on the wrong inputs; hop_channel() routes on
+ * these values.
+ *
+ * The substate a device is in changes within an exchange.  A device scanning
+ * for a page is in BT_MODE_PAGE_SCAN while it listens, and in
+ * BT_MODE_PERIPH_PAGE_RESPONSE for the two legs that answer the page it heard.
+ * The same split applies to an inquiry scan and its response.
+ */
 typedef enum btphy_mode_e {
 	BT_MODE_INQUIRY,
 	BT_MODE_PAGING,
+	/* The pager's side of the page response, Table 2.2's central page
+	 * response; the paged device's side is PERIPH_PAGE_RESPONSE below. */
 	BT_MODE_PAGING_RESPONSE,
 	BT_MODE_INQUIRY_SCAN,
 	BT_MODE_PAGE_SCAN,
+	BT_MODE_PERIPH_PAGE_RESPONSE,
+	BT_MODE_INQUIRY_RESPONSE,
 	BT_MODE_MASTER,
 	BT_MODE_SLAVE,
 } btphy_mode_t ; 
@@ -70,6 +85,8 @@ static inline uint32_t btphy_cur_clkn(void)
 	{
 	case BT_MODE_INQUIRY_SCAN:
 	case BT_MODE_PAGE_SCAN:
+	case BT_MODE_PERIPH_PAGE_RESPONSE:
+	case BT_MODE_INQUIRY_RESPONSE:
 	case BT_MODE_SLAVE:
 		return btphy.slave_clkn;
 	default:

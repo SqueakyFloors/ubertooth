@@ -28,6 +28,7 @@
 #include <ubtbr/scan_task.h>
 #include <ubtbr/rx_task.h>
 #include <ubtbr/tx_task.h>
+#include <ubtbr/hop.h>
 #include <ubtbr/slave_state.h>
 
 #define PAGE_SCAN_MAX_TICKS (CLKN_RATE*60)
@@ -72,7 +73,12 @@ static int page_scan_rx_fhs_cb(msg_t *msg, void *arg, int time_offset)
 	{
 		if (pkt->bb_hdr.type != BB_TYPE_FHS)
 		{
+			/* Not the packet this leg waits for, so there is no
+			 * page to answer. Go back to scanning rather than
+			 * leave the board in page scan with nothing left to
+			 * run, which would wait forever. */
 			cprintf("(bad type %d)", pkt->bb_hdr.type);
+			page_scan_schedule(0);
 			goto end;
 		}
 		// Parse fhs to get bdaddr/clkn/ltaddr
@@ -110,6 +116,20 @@ static void page_scan_rx_id_cb(int sw_detected, void *arg)
 	{
 		/* we should be at slave_clk = 0, prepare in one slot*/
 		console_putc('!');
+
+		/* The two legs below answer the page, which is a substate of
+		 * its own: it starts from the phase the scan window heard the
+		 * page on, advances it once per central transmit slot, and
+		 * takes its transmit or receive frequency from the slot.
+		 *
+		 * The slot comes from the clock the scan just set to the page
+		 * it heard, so the two ends agree on it: this board answers in
+		 * the slot that pairs with the one the page arrived in, and
+		 * waits for the FHS in the next one. The board's own untouched
+		 * clock shares no slot boundary with the pager. */
+		btphy_set_mode_no_ap(BT_MODE_PERIPH_PAGE_RESPONSE);
+		hop_start_response();
+
 		/* Schedule TX ID(2) */
 		delay = 3&(TX_PREPARE_IDX-CUR_SLAVE_SLOT_IDX());
 		tx_task_schedule(delay,
@@ -136,6 +156,9 @@ static void page_scan_schedule(unsigned delay)
 		btctl_set_state(BTCTL_STATE_STANDBY, BTCTL_REASON_TIMEOUT);
 		return;
 	}
+	/* Back to the scan substate, which every path here comes from: an
+	 * answer that led nowhere leaves the response substate behind. */
+	btphy_set_mode_no_ap(BT_MODE_PAGE_SCAN);
 	scan_task_schedule(delay, page_scan_rx_id_cb, NULL);
 }
 

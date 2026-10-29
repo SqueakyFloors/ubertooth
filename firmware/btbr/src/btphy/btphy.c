@@ -223,6 +223,13 @@ uint8_t btphy_whiten_seed(uint32_t clk)
 	case BT_MODE_INQUIRY:
 	case BT_MODE_PAGING:
 	case BT_MODE_PAGING_RESPONSE:
+	case BT_MODE_PERIPH_PAGE_RESPONSE:
+	case BT_MODE_INQUIRY_RESPONSE:
+	/* The two scan substates below send and receive nothing that is
+	 * whitened with a seed: a scan listens for an access code, which
+	 * carries no payload. They stay in this list so an unexpected call
+	 * returns -- with whatever the last response left behind, which is not
+	 * a meaningful seed -- rather than stopping the board. */
 	case BT_MODE_INQUIRY_SCAN:
 	case BT_MODE_PAGE_SCAN:
 	/* BT 5.1|Vol 2, Part B, 7.2 :
