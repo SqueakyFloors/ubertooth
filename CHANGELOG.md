@@ -294,13 +294,15 @@
   those tools still cannot drive that image and now fail on the first request
   it does not answer.
   [#556](https://github.com/SqueakyFloors/ubertooth/issues/556)
-- **Reflash required:** the firmware API version is now 1.52, last moved by the
+- **Reflash required:** the firmware API version is now 1.53, last moved by
+  promiscuous mode reporting the access address of the connection it follows,
+  before that by the
   board reporting a low-energy packet it had to drop for want of queue room and
   by a channel set reaching the board while it follows a connection, before
   that by the
   E-GO mode request starting the mode it names on a board already running one,
-  before that by the AFH map a mode start keeps, the bound on the clock drift
-  the board accumulates and the generic receive's FIFO flush, before that by
+  by the AFH map a mode start keeps, the bound on the clock drift
+  the board accumulates and the generic receive's FIFO flush, by
   the channel a mode start keeps and the E-GO access code
   it resets, by the finer breadcrumb sites inside USB service that
   `ubertooth-util -w` reads, by the breadcrumb gaining two more places a board
@@ -785,6 +787,23 @@
   it for the rest of the run when a packet arrives just after the capture clock
   wraps.
   [#659](https://github.com/SqueakyFloors/ubertooth/issues/659)
+- `ubertooth-btle -p` reports the access address of the connection it is
+  following. It is the first of the four parameters the mode works out and the
+  only one that says which connection a capture is of, and it never reached the
+  host: the board queued it and then emptied the queue on its way into the
+  half of the mode that follows the connection. The CRC init value, hop
+  interval and hop increment were unaffected.
+  [#237](https://github.com/SqueakyFloors/ubertooth/issues/237)
+- `ubertooth-btle -p` no longer measures its first connection interval against
+  a clock reading left by an earlier attempt. The board times how long the
+  connection takes to come back to the channel it is listening on and keeps the
+  smallest gap, but it kept the last sighting where nothing cleared it, and the
+  capture clock is stopped and zeroed between attempts: the first gap was
+  measured from a reading of a clock that had since restarted, so it was an
+  arbitrary number, and whenever it came out small it was the interval reported
+  for the rest of the attempt. The stamp the hop increment is counted from had
+  the same fault.
+  [#713](https://github.com/SqueakyFloors/ubertooth/issues/713)
 - `ubertooth-follow -l <LAP> -u <UAP>` says what to do when its connection to
   the target fails: those four bytes leave the connection to be made to a
   guessed `00:00:<UAP>:<LAP>`, so the failure now asks for the whole address

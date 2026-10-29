@@ -129,6 +129,21 @@ typedef struct _le_promisc_state_t {
 	// recovering hop interval
 	u32 smallest_hop_interval;
 	int consec_intervals;
+
+	/* When a packet of the connection was last seen on the channel being
+	 * listened to, and whether one has been. The estimator times how long
+	 * the connection takes to come back and keeps the smallest gap, so it
+	 * must have no stamp to measure from when a pass starts: the mode's
+	 * teardown stops the capture clock and zeroes it, so a stamp left by
+	 * an earlier pass is a reading of a clock that has since restarted,
+	 * and the gap computed from it is an arbitrary one that gets reported
+	 * for the rest of the pass whenever it comes out small. */
+	u32 prev_clk;
+	u8 seen_a_packet;
+
+	/* The sighting on 2404 MHz that the hop increment is counted from,
+	 * which is the same kind of stamp and wants the same clearing. */
+	u32 first_ts;
 } le_promisc_state_t;
 le_promisc_state_t le_promisc;
 #define AA_LIST_SIZE (int)(sizeof(le_promisc.active_aa) / sizeof(le_promisc_active_aa_t))
@@ -139,6 +154,11 @@ int le_jam_count = 0;
 
 /* set LE access address */
 static void le_set_access_address(u32 aa);
+
+/* Tell the host one parameter of the connection promiscuous mode has worked
+ * out. The access address is reported by bt_le_sync(), which is further up the
+ * file than this definition. */
+void le_promisc_state(u8 type, void *data, unsigned len);
 
 typedef int (*data_cb_t)(char *);
 data_cb_t data_cb = NULL;
@@ -2539,6 +2559,18 @@ void bt_le_sync(u8 active_mode)
 	dma_init_le(le_rx.packet + 4, LE_RX_PDU_MAX);
 	dio_ssp_start();
 
+	/* The access address promiscuous mode is about to follow, announced
+	 * here because the queue reset above empties anything queued earlier:
+	 * this is the first point at which the host can be told, and the only
+	 * place it is told, so the line cannot arrive twice. Both ways into
+	 * the mode come through here, the host-given access address included.
+	 *
+	 * The clock is stopped and the channel registers are clear at this
+	 * point, so the record is stamped channel 0 at clock 0; the host
+	 * prints the state line and returns before it reads either. */
+	if (active_mode == MODE_BT_PROMISC_LE)
+		le_promisc_state(0, &le.access_address, 4);
+
 	cc2400_rx_sync(rbit(le.access_address)); // bit-reversed access address
 
 	while (requested_mode == active_mode) {
@@ -2994,17 +3026,16 @@ void le_promisc_state(u8 type, void *data, unsigned len) {
 #define DIVIDE_ROUND(N, D) ((N) + (D)/2) / (D)
 
 void promisc_recover_hop_increment(u8 *packet) {
-	static u32 first_ts = 0;
 	if (channel == 2404) {
-		first_ts = CLK100NS;
+		le_promisc.first_ts = CLK100NS;
 		hop_direct_channel = 2406;
 		do_hop = 1;
 	} else if (channel == 2406) {
 		u32 second_ts = CLK100NS;
-		if (second_ts < first_ts)
+		if (second_ts < le_promisc.first_ts)
 			second_ts += CLK100NS_PERIOD; // handle rollover
 		// Number of channels hopped between previous and current timestamp.
-		u32 channels_hopped = DIVIDE_ROUND(second_ts - first_ts,
+		u32 channels_hopped = DIVIDE_ROUND(second_ts - le_promisc.first_ts,
 										   le.conn_interval * LE_BASECLK);
 		if (channels_hopped < 37) {
 			// Get the hop increment based on the number of channels hopped.
@@ -3036,13 +3067,22 @@ void promisc_recover_hop_increment(u8 *packet) {
 }
 
 void promisc_recover_hop_interval(u8 *packet) {
-	static u32 prev_clk = 0;
-
 	u32 cur_clk = CLK100NS;
-	if (cur_clk < prev_clk)
-		cur_clk += CLK100NS_PERIOD; // handle rollover
-	u32 clk_diff = cur_clk - prev_clk;
+	u32 measured, clk_diff;
 	u16 obsv_hop_interval; // observed hop interval
+
+	/* The first packet of a pass is the start of the measurement, not the
+	 * end of one. */
+	if (!le_promisc.seen_a_packet) {
+		le_promisc.seen_a_packet = 1;
+		le_promisc.prev_clk = cur_clk;
+		return;
+	}
+
+	measured = cur_clk;
+	if (measured < le_promisc.prev_clk)
+		measured += CLK100NS_PERIOD; // handle rollover
+	clk_diff = measured - le_promisc.prev_clk;
 
 	// probably consecutive data packets on the same channel
 	if (clk_diff < 2 * LE_BASECLK)
@@ -3068,7 +3108,10 @@ void promisc_recover_hop_interval(u8 *packet) {
 		le_promisc.consec_intervals = 0;
 	}
 
-	prev_clk = cur_clk;
+	/* The clock reading, not the value the rollover was undone on: that
+	 * one is above the clock's range, so the next sighting would measure a
+	 * gap from a time the clock never shows. */
+	le_promisc.prev_clk = cur_clk;
 }
 
 void promisc_follow_cb(u8 *packet) {
@@ -3196,7 +3239,6 @@ int cb_le_promisc(char *unpacked) {
 			data_cb = cb_follow_le;
 			packet_cb = promisc_follow_cb;
 			le.crc_verify = 0;
-			le_promisc_state(0, &le.access_address, 4);
 			// quit using the old stuff and switch to sync mode
 			return 0;
 		}
@@ -3234,7 +3276,6 @@ void bt_promisc_le() {
 		if ((channel & 1) == 1)
 			channel = 2440;
 
-		le_promisc_state(0, &le.access_address, 4);
 		packet_cb = promisc_follow_cb;
 		le.crc_verify = 0;
 		bt_le_sync(MODE_BT_PROMISC_LE);

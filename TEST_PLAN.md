@@ -42,7 +42,7 @@ A second Ubertooth One for the range test (2i).
 
 ### 2a. Firmware version check
 - [ ] Run `ubertooth-util -v`
-- [ ] Confirm: returns `Firmware version: <image> <revision> (API:1.52)` (firmware
+- [ ] Confirm: returns `Firmware version: <image> <revision> (API:1.53)` (firmware
       built from this tree; a release build of the host tools refuses any other
       API version and a development build warns about it, and a board whose
       firmware has no info block shows the revision without an image name)
@@ -383,6 +383,9 @@ nRF52840 DKs) plus one Ubertooth.*
       increment, which it reports as it goes. Data PDUs appear only after
       that, so allow a minute or two before expecting packets.
 - [ ] Confirm: the same complete payloads once it is following
+- [ ] Confirm: the access address is reported, as the first of the four
+      parameters and before the CRC init value, and matches the one the
+      capture's packets carry
 
 ---
 
